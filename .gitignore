@@ -1,0 +1,25 @@
+node_modules/
+dist/
+.DS_Store
+data/*.runtime.json
+coverage/
+logs/
+artifacts/
+
+# Local-first runtime data. Keep these on disk, but do not publish them as repo source.
+data/**
+!data/
+!data/README.md
+data/media/
+data/backups/
+data/subscribers/
+data/overwind/
+data/merge-reports/
+data/avatar-agent-runs/
+data/*.local.json
+data/*-store.json
+data/avatar-store.json
+data/scene-store.json
+data/media-library.json
+data/tarot-store.json
+data/kanban.json

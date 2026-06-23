@@ -1,0 +1,51 @@
+{
+  "schemaVersion": "hapa.node.v1",
+  "id": "hapa-avatar-builder",
+  "name": "Hapa Avatar Builder",
+  "status": "local-first-canonical",
+  "role": "Avatar Card builder, media healing workbench, and 3D Tarot Draw operator app",
+  "localRoot": "/Users/calderwong/Documents/Codex/2026-06-10/files-mentioned-by-the-user-screenshot/outputs/hapa-avatar-builder",
+  "desktopAlias": "/Users/calderwong/Desktop/hapa-avatar-builder",
+  "defaultPorts": {
+    "api": 8787,
+    "vite": 5178
+  },
+  "launch": {
+    "cwd": "/Users/calderwong/Documents/Codex/2026-06-10/files-mentioned-by-the-user-screenshot/outputs/hapa-avatar-builder",
+    "dev": "npm run dev",
+    "api": "npm run api",
+    "desktop": "npm run desktop"
+  },
+  "capabilities": [
+    "Agents / Phamiliars",
+    "Cards / Standards / Forging",
+    "Media / Embodiment",
+    "Memory / Lore / Provenance",
+    "Name / Identity",
+    "Songs / Tarot / Scene Attach Packs"
+  ],
+  "interfaces": {
+    "apiHealth": "http://127.0.0.1:8787/api/health",
+    "apiCapabilities": "README.md",
+    "cli": "npm run cli -- --help",
+    "ui": "http://127.0.0.1:5178"
+  },
+  "runtimeData": {
+    "avatarStore": "data/avatar-store.json",
+    "sceneStore": "data/scene-store.json",
+    "tarotStore": "data/tarot-store.json",
+    "mediaLibrary": "data/media-library.json",
+    "mediaDir": "data/media"
+  },
+  "subscribers": [
+    "hapa-atlas",
+    "hapa-second-brain",
+    "hapa-worldbuilding-wiki",
+    "hapa-song-registry",
+    "hapa-music-viz"
+  ],
+  "notes": [
+    "This node became canonical after merging the Pinokio app data back into the 3D Tarot Draw build.",
+    "Large runtime JSON/media are local state and are ignored by Git by protocol."
+  ]
+}
