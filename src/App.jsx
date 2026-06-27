@@ -1,4 +1,4 @@
-import { Fragment, lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Archive,
   BadgeCheck,
@@ -77,7 +77,6 @@ import {
   connectVideoEndFrame,
   assignAssetToSlot,
   createAttachPack,
-  createAvatarMindAttachPack,
   createAvatarMindSummary,
   createAvatarScaffold,
   createHealingQueue,
@@ -166,9 +165,43 @@ import {
   normalizeHapaSongStore,
   upsertSongInStore
 } from "./domain/song.js";
+import {
+  addTarotCard,
+  addTarotDeck,
+  addTarotSet,
+  attachTarotCardMedia,
+  createTarotAttachPack,
+  createTarotDeck,
+  createTarotLibraryDashboard,
+  createTarotSet,
+  createTarotStore,
+  linkTarotCardAvatar,
+  normalizeTarotStore,
+  setTarotCardDeckMembership,
+  setTarotCardSetMembership,
+  summarizeTarotStore,
+  unlinkTarotCardAvatar,
+  updateTarotCard,
+  updateTarotDeck,
+  updateTarotSet
+} from "./domain/tarot.js";
+import TarotLibraryView, {
+  tarotCollectionEntityId,
+  tarotCollectionKind,
+  tarotDeckCollectionId,
+  tarotSetCollectionId,
+  tarotTitleFromAsset
+} from "./components/TarotLibraryView.jsx";
 
 const ThreeAvatarViewer = lazy(() => import("./components/ThreeAvatarViewer.jsx"));
 const TarotDraw3DView = lazy(() => import("./components/TarotDraw3DView.jsx"));
+const HapaEchosView = lazy(() => import("./components/HapaEchosView.jsx"));
+
+const EMPTY_TAROT_DRAW_PROJECTION = {
+  cards: [],
+  audit: { ready: 0, blocked: 0, missingMedia: 0 },
+  state: "queued"
+};
 
 const electronApiBase = globalThis.window?.hapaAvatarBuilder?.apiBase;
 const API_BASE = electronApiBase || (globalThis.location?.port === "5178" ? "http://127.0.0.1:8787" : "");
@@ -179,14 +212,20 @@ const SONG_REGISTRY_DETAIL_PREFETCH_LIMIT = Math.max(0, Number(import.meta.env?.
 function resolveMediaUri(uri) {
   if (typeof uri !== "string" || !uri) return uri;
   if (/^(data:|blob:|https?:|file:)/.test(uri)) return uri;
-  if (uri.startsWith("/media/") && API_BASE) return `${API_BASE}${uri}`;
+  if (uri.startsWith("/media/")) {
+    const base = API_BASE || "http://127.0.0.1:8787";
+    return `${base}${uri}`;
+  }
   return uri;
 }
 
 function resolveSongRegistryUri(uri) {
   if (typeof uri !== "string" || !uri) return uri;
   if (/^(data:|blob:|https?:|file:)/.test(uri)) return uri;
-  if (uri.startsWith("/api/song-registry/")) return API_BASE ? `${API_BASE}${uri}` : uri;
+  if (uri.startsWith("/api/song-registry/")) {
+    const base = API_BASE || "http://127.0.0.1:8787";
+    return `${base}${uri}`;
+  }
   if (uri.startsWith("/api/") && SONG_REGISTRY_API_BASE) return `${SONG_REGISTRY_API_BASE}${uri}`;
   return uri;
 }
@@ -204,6 +243,7 @@ const FALLBACK_AVATARS = [
 
 const INTAKE_SEED = [];
 const FALLBACK_SCENE_GRAPH = createSceneGraphScaffold();
+const FALLBACK_TAROT_STORE = createTarotStore();
 const FALLBACK_ITEM_MANAGER = createItemManagerScaffold();
 const FALLBACK_INVENTORY_STORE = createInventoryStoreScaffold();
 const ITEM_GROUP_MODES = [
@@ -247,7 +287,7 @@ const WORLD_SYNC_LABELS = {
 };
 const DEAR_PAPA_SONG_CARDS = Array.isArray(dearPapaSongbook.songCards) ? dearPapaSongbook.songCards : [];
 const FALLBACK_SONG_LIBRARY = {
-  status: "loading",
+  status: "cold",
   songs: [],
   total: 0,
   error: null
@@ -273,16 +313,194 @@ const LORE_SORT_MODES = [
 function mergeOverwindAvatars(compactAvatars = [], selectedAvatar = null) {
   const byId = new Map();
   for (const avatar of compactAvatars || []) {
-    if (avatar?.id) byId.set(avatar.id, normalizeAvatarCard(avatar));
+    if (avatar?.id) byId.set(avatar.id, normalizeOverwindAvatar(avatar));
   }
   if (selectedAvatar?.id) {
-    byId.set(selectedAvatar.id, normalizeAvatarCard(selectedAvatar));
+    byId.set(selectedAvatar.id, normalizeOverwindAvatar(selectedAvatar));
   }
   return Array.from(byId.values());
 }
 
+function normalizeOverwindAvatar(avatar = {}) {
+  const normalized = normalizeAvatarCard(avatar);
+  if (avatar?.overwindProjection !== "compact" || !avatar.mind || typeof avatar.mind !== "object") {
+    return normalized;
+  }
+  normalized.mind = {
+    ...normalized.mind,
+    endpoint: avatar.mind.endpoint || normalized.mind.endpoint,
+    counts: avatar.mind.counts || normalized.mind.counts,
+    knownOthers: avatar.mind.knownOthers || normalized.mind.knownOthers,
+    loadout: avatar.mind.loadout || normalized.mind.loadout,
+    phraseCards: avatar.mind.phraseCards || normalized.mind.phraseCards,
+    context: avatar.mind.context || normalized.mind.context,
+    journalCount: avatar.mind.journalCount ?? normalized.mind.journalCount
+  };
+  return normalized;
+}
+
 function isCompactOverwindAvatar(avatar) {
   return avatar?.overwindProjection === "compact";
+}
+
+function createInitialQueueJobs() {
+  return [
+    createQueueJob("overwind-bootstrap", "Overwind shell bootstrap", {
+      status: "queued",
+      kind: "bootstrap",
+      detail: "Loading compact app shell before full stores.",
+      available: "Fallback shell remains usable.",
+      queuedNext: "Avatar detail, world, items, board, tarot, and media queues hydrate on intent."
+    })
+  ];
+}
+
+function createQueueJob(id, label, patch = {}) {
+  const now = new Date().toISOString();
+  return {
+    id,
+    label,
+    kind: patch.kind || "background",
+    status: patch.status || "queued",
+    detail: patch.detail || "",
+    available: patch.available || "",
+    queuedNext: patch.queuedNext || "",
+    blocking: Boolean(patch.blocking),
+    updatedAt: patch.updatedAt || now,
+    startedAt: patch.startedAt || (patch.status === "loading" ? now : null),
+    finishedAt: patch.finishedAt || (["ready", "failed", "stale"].includes(patch.status) ? now : null),
+    error: patch.error || ""
+  };
+}
+
+function upsertQueueJobState(jobs, id, label, patch = {}) {
+  const now = new Date().toISOString();
+  const existing = jobs.find((job) => job.id === id);
+  const nextPatch = {
+    ...patch,
+    updatedAt: now
+  };
+  if (patch.status === "loading" && !existing?.startedAt) nextPatch.startedAt = now;
+  if (["ready", "failed", "stale"].includes(patch.status)) nextPatch.finishedAt = now;
+  const nextJob = existing
+    ? { ...existing, label: label || existing.label, ...nextPatch }
+    : createQueueJob(id, label || id, nextPatch);
+  const without = jobs.filter((job) => job.id !== id);
+  return [nextJob, ...without]
+    .sort((a, b) => Number(Boolean(b.blocking)) - Number(Boolean(a.blocking)) || String(b.updatedAt).localeCompare(String(a.updatedAt)))
+    .slice(0, 24);
+}
+
+function buildQueueSummary(jobs = []) {
+  const counts = jobs.reduce((memo, job) => {
+    memo[job.status] = (memo[job.status] || 0) + 1;
+    return memo;
+  }, {});
+  const active = jobs.filter((job) => ["queued", "loading", "partial", "stale"].includes(job.status));
+  const blockers = active.filter((job) => job.blocking);
+  return {
+    schemaVersion: "hapa.queue-buffer-summary.v1",
+    state: blockers.length ? "blocking" : active.length ? "background" : "ready",
+    total: jobs.length,
+    active: active.length,
+    blockers: blockers.length,
+    counts,
+    activeLabels: active.slice(0, 4).map((job) => job.label),
+    lastError: jobs.find((job) => job.status === "failed")?.error || ""
+  };
+}
+
+function displayAuditForAvatar(avatar) {
+  if (isCompactOverwindAvatar(avatar) && avatar?.audit) {
+    const percent = Number(avatar.audit.percent ?? 0);
+    const required = Number(avatar.audit.required ?? 0);
+    const filled = Number(avatar.audit.filled ?? 0);
+    const missing = Number(avatar.audit.missing ?? Math.max(0, required - filled));
+    return {
+      avatarId: avatar.id,
+      primaryName: avatar.primaryName || avatar.id,
+      required,
+      filled,
+      missing,
+      percent,
+      xp: Math.round(percent * 12.5 + filled * 7),
+      level: Math.max(1, Math.floor((percent * 12.5 + filled * 7) / 180) + 1),
+      grade: avatar.audit.grade || (percent >= 100 ? "complete" : percent >= 72 ? "fieldable" : percent >= 36 ? "seeded" : "scaffold"),
+      complete: percent >= 100 || missing === 0,
+      byRequirement: []
+    };
+  }
+  return auditAvatar(avatar);
+}
+
+function displayPortraitForAvatar(avatar) {
+  if (isCompactOverwindAvatar(avatar)) return null;
+  return defaultCloseupEmotionAsset(avatar);
+}
+
+function createDisplayMindPack(avatar) {
+  if (isCompactOverwindAvatar(avatar) && avatar?.mind) {
+    const mind = {
+      personaAnchor: avatar.mind.personaAnchor || {},
+      selfKnowledge: [],
+      memoryLedger: [],
+      relationships: [],
+      contextMap: [],
+      phraseCards: avatar.mind.phraseCards || []
+    };
+    const counts = {
+      selfKnowledge: 0,
+      relationships: 0,
+      context: 0,
+      memories: 0,
+      journalEntries: 0,
+      phraseCards: 0,
+      songCards: 0,
+      consciousnessCopies: 0,
+      protocolCards: 0,
+      skillCards: 0,
+      tombstones: 0,
+      ...(avatar.mind.counts || {})
+    };
+    return {
+      schemaVersion: "hapa.avatar-mind-display-pack.v1",
+      avatarId: avatar.id,
+      primaryName: avatar.primaryName || avatar.id,
+      generatedAt: new Date().toISOString(),
+      mind,
+      summary: {
+        schemaVersion: "hapa.avatar-mind-summary.v1",
+        avatarId: avatar.id,
+        primaryName: avatar.primaryName || avatar.id,
+        counts,
+        personaAnchor: avatar.mind.personaAnchor || {},
+        gardenNodeAssignment: avatar.mind.gardenNodeAssignment || {},
+        shipCrewAssignment: avatar.mind.shipCrewAssignment || {},
+        knownOthers: avatar.mind.knownOthers || [],
+        consciousnessCopies: [],
+        phraseCards: avatar.mind.phraseCards || [],
+        context: avatar.mind.context || [],
+        loadout: {
+          protocolCards: avatar.mind.loadout?.protocolCards || [],
+          skillCards: avatar.mind.loadout?.skillCards || [],
+          tarotCards: avatar.mind.loadout?.tarotCards || [],
+          songCards: avatar.mind.loadout?.songCards || []
+        }
+      },
+      telemetry: {
+        state: "compact",
+        detail: "Showing shell mind summary; full avatar mind hydrates on idle or edit intent."
+      }
+    };
+  }
+  return {
+    schemaVersion: "hapa.avatar-mind-display-pack.v1",
+    avatarId: avatar.id,
+    primaryName: avatar.primaryName || avatar.id,
+    generatedAt: new Date().toISOString(),
+    mind: normalizeAvatarMind(avatar.mind, avatar),
+    summary: createAvatarMindSummary(avatar)
+  };
 }
 
 export default function App() {
@@ -291,20 +509,25 @@ export default function App() {
   const [expandedTeamIds, setExpandedTeamIds] = useState(["core-protocol-team"]);
   const [board, setBoard] = useState(kanbanSeed);
   const [sceneGraph, setSceneGraph] = useState(FALLBACK_SCENE_GRAPH);
+  const [tarotStore, setTarotStore] = useState(FALLBACK_TAROT_STORE);
   const [itemManager, setItemManager] = useState(FALLBACK_ITEM_MANAGER);
   const [avatarDataMode, setAvatarDataMode] = useState("fallback");
   const [worldDataMode, setWorldDataMode] = useState("fallback");
   const [itemDataMode, setItemDataMode] = useState("fallback");
+  const [boardDataMode, setBoardDataMode] = useState("fallback");
   const [inventoryStore, setInventoryStore] = useState(FALLBACK_INVENTORY_STORE);
   const [songLibrary, setSongLibrary] = useState(FALLBACK_SONG_LIBRARY);
   const [hapaSongStore, setHapaSongStore] = useState(FALLBACK_HAPA_SONG_STORE);
   const [songDataMode, setSongDataMode] = useState("fallback");
+  const [tarotDataMode, setTarotDataMode] = useState("fallback");
   const [selectedHapaSongId, setSelectedHapaSongId] = useState(FALLBACK_HAPA_SONG_STORE.songs[0]?.id || null);
   const [selectedAvatarId, setSelectedAvatarId] = useState(FALLBACK_AVATARS[0]?.id || null);
   const [profileTrailIds, setProfileTrailIds] = useState([]);
   const [profileReturnRoute, setProfileReturnRoute] = useState(null);
   const [selectedPlaceId, setSelectedPlaceId] = useState(FALLBACK_SCENE_GRAPH.places[0]?.id || null);
   const [selectedSceneId, setSelectedSceneId] = useState(FALLBACK_SCENE_GRAPH.scenes[0]?.id || null);
+  const [selectedTarotDeckId, setSelectedTarotDeckId] = useState(tarotDeckCollectionId(FALLBACK_TAROT_STORE.decks[0]?.id));
+  const [selectedTarotCardId, setSelectedTarotCardId] = useState(null);
   const [selectedItemId, setSelectedItemId] = useState(FALLBACK_ITEM_MANAGER.cards[0]?.id || null);
   const [selectedInventoryAvatarId, setSelectedInventoryAvatarId] = useState(FALLBACK_AVATARS[0]?.id || null);
   const [selectedAssetId, setSelectedAssetId] = useState(null);
@@ -317,6 +540,7 @@ export default function App() {
   const [copied, setCopied] = useState(false);
   const [apiState, setApiState] = useState("local");
   const [worldSyncState, setWorldSyncState] = useState("loading");
+  const [tarotSyncState, setTarotSyncState] = useState("loading");
   const [expandedAsset, setExpandedAsset] = useState(null);
   const [hoverPreview, setHoverPreview] = useState(null);
   const [identityDraft, setIdentityDraft] = useState({ primaryName: "", aliases: "" });
@@ -329,11 +553,39 @@ export default function App() {
   const [routePending, setRoutePending] = useState(false);
   const [attachPack, setAttachPack] = useState(null);
   const [sceneAttachPack, setSceneAttachPack] = useState(null);
+  const [healingQueue, setHealingQueue] = useState(null);
+  const [tarotDrawProjection, setTarotDrawProjection] = useState(EMPTY_TAROT_DRAW_PROJECTION);
+  const [tarotDrawSceneArmed, setTarotDrawSceneArmed] = useState(false);
+  const [queueJobs, setQueueJobs] = useState(createInitialQueueJobs);
   const persistTimers = useRef(new Map());
   const scenePersistTimer = useRef(0);
+  const tarotPersistTimer = useRef(0);
   const teamsPersistTimer = useRef(0);
   const routeTimer = useRef(0);
   const inspectorRef = useRef(null);
+  const avatarDetailRequestRef = useRef(0);
+
+  const resolveEchoDirectorProject = useCallback(async (songId) => {
+    if (!songId) return null;
+    const path = `/api/echos/director-project?songId=${encodeURIComponent(songId)}`;
+    const bases = [...new Set([
+      API_BASE,
+      "",
+      globalThis.location?.origin || "",
+      "http://127.0.0.1:8787"
+    ].filter((base) => typeof base === "string"))];
+    for (const base of bases) {
+      try {
+        const response = await fetch(`${base}${path}`);
+        if (!response.ok) continue;
+        const payload = await response.json();
+        return payload?.music_video_project || payload?.project?.music_video_project || payload || null;
+      } catch {
+        // Try the next local origin; Electron shells may load UI and API from different loopback ports.
+      }
+    }
+    return null;
+  }, []);
 
   const selectedAvatarRaw = avatars.find((avatar) => avatar.id === selectedAvatarId) || avatars[0];
   const selectedAvatar = useMemo(
@@ -349,18 +601,19 @@ export default function App() {
   const isItemsView = activeView === "items";
   const isSongsView = activeView === "songs";
   const isProtocolView = activeView === "protocol";
+  const isTarotLibraryView = activeView === "tarot-library";
   const isTarotDrawView = activeView === "tarot";
   const audit = useMemo(() => selectedAvatar ? auditAvatar(selectedAvatar) : null, [selectedAvatar]);
   const selectedAvatarPortrait = useMemo(
-    () => selectedAvatar ? defaultCloseupEmotionAsset(selectedAvatar) : null,
+    () => selectedAvatar ? displayPortraitForAvatar(selectedAvatar) : null,
     [selectedAvatar]
   );
   const avatarPortraits = useMemo(
-    () => new Map(avatars.map((avatar) => [avatar.id, defaultCloseupEmotionAsset(avatar)])),
+    () => new Map(avatars.map((avatar) => [avatar.id, displayPortraitForAvatar(avatar)])),
     [avatars]
   );
   const avatarAudits = useMemo(
-    () => new Map(avatars.map((avatar) => [avatar.id, auditAvatar(avatar)])),
+    () => new Map(avatars.map((avatar) => [avatar.id, displayAuditForAvatar(avatar)])),
     [avatars]
   );
   const profileTrail = useMemo(
@@ -442,14 +695,20 @@ export default function App() {
     [isBuilderView, modelAssets]
   );
   const avatarBoard = useMemo(() => isKanbanView && selectedAvatar ? createKanbanFromAudit(selectedAvatar) : [], [isKanbanView, selectedAvatar]);
-  const healingQueue = useMemo(() => selectedAvatar ? createHealingQueue(selectedAvatar) : null, [selectedAvatar]);
+  const healingQueueTotal = healingQueue?.total ?? audit?.missing ?? 0;
   const mindPack = useMemo(
-    () => (isMindView || isProtocolView) && selectedAvatar ? createAvatarMindAttachPack(selectedAvatar, avatars) : null,
-    [isMindView, isProtocolView, selectedAvatar, avatars]
+    () => (isMindView || isProtocolView) && selectedAvatar ? createDisplayMindPack(selectedAvatar) : null,
+    [isMindView, isProtocolView, selectedAvatar]
   );
   const normalizedSceneGraph = useMemo(() => normalizeSceneGraph(sceneGraph), [sceneGraph]);
   const sceneAudit = useMemo(() => auditSceneGraph(normalizedSceneGraph), [normalizedSceneGraph]);
   const normalizedItemManager = useMemo(() => normalizeItemManagerStore(itemManager), [itemManager]);
+  const showcaseItemManager = useMemo(
+    () => isProtocolView
+      ? { ...normalizedItemManager, cards: [], audit: { ...normalizedItemManager.audit, total: 0 } }
+      : normalizedItemManager,
+    [isProtocolView, normalizedItemManager]
+  );
   const normalizedInventoryStore = useMemo(
     () => normalizeInventoryStore(inventoryStore, avatars, normalizedItemManager.cards),
     [inventoryStore, avatars, normalizedItemManager.cards]
@@ -466,12 +725,12 @@ export default function App() {
     () => normalizeHapaSongStore(hapaSongStore, dearPapaSongbook, songLibrary),
     [hapaSongStore, songLibrary]
   );
-  const tarotDrawProjection = useMemo(
-    () => buildTarotDrawProjection(normalizedItemManager.cards, selectedAvatarInventory, avatars, normalizedInventoryStore, songLibrary, normalizedHapaSongStore),
-    [normalizedItemManager.cards, selectedAvatarInventory, avatars, normalizedInventoryStore, songLibrary, normalizedHapaSongStore]
-  );
   const tarotDrawCards = tarotDrawProjection.cards;
   const tarotDrawProductionAudit = tarotDrawProjection.audit;
+  const tarotDrawProjectionReady = tarotDrawProjection.cards.length > 0 && (
+    tarotDrawProjection.state === "ready" ||
+    tarotDrawProjection.state === "refreshing"
+  );
   const selectedHapaSong = useMemo(
     () => normalizedHapaSongStore.songs.find((song) => song.id === selectedHapaSongId || song.songId === selectedHapaSongId)
       || normalizedHapaSongStore.songs[0]
@@ -499,6 +758,57 @@ export default function App() {
     () => selectedScene?.assets.find((asset) => asset.id === selectedSceneAssetId) || null,
     [selectedScene, selectedSceneAssetId]
   );
+  const normalizedTarotStore = useMemo(() => normalizeTarotStore(tarotStore), [tarotStore]);
+  const tarotSummary = useMemo(() => summarizeTarotStore(normalizedTarotStore), [normalizedTarotStore]);
+  const tarotDashboard = useMemo(() => createTarotLibraryDashboard(normalizedTarotStore), [normalizedTarotStore]);
+  const selectedTarotCollectionKind = tarotCollectionKind(selectedTarotDeckId);
+  const selectedTarotCollectionEntityId = tarotCollectionEntityId(selectedTarotDeckId);
+  const selectedTarotDeck = useMemo(
+    () => selectedTarotCollectionKind === "deck"
+      ? normalizedTarotStore.decks.find((deck) => deck.id === selectedTarotCollectionEntityId) || null
+      : null,
+    [normalizedTarotStore, selectedTarotCollectionEntityId, selectedTarotCollectionKind]
+  );
+  const selectedTarotSet = useMemo(
+    () => selectedTarotCollectionKind === "set"
+      ? normalizedTarotStore.sets.find((set) => set.id === selectedTarotCollectionEntityId) || null
+      : null,
+    [normalizedTarotStore, selectedTarotCollectionEntityId, selectedTarotCollectionKind]
+  );
+  const tarotCardsForDeck = useMemo(() => {
+    if (selectedTarotCollectionKind === "standalone") {
+      return normalizedTarotStore.cards.filter((card) => !card.deckIds.length && !card.setIds.length);
+    }
+    if (selectedTarotCollectionKind === "set") {
+      if (!selectedTarotSet) return normalizedTarotStore.cards;
+      const setOrder = new Map(selectedTarotSet.cardIds.map((cardId, index) => [cardId, index]));
+      return normalizedTarotStore.cards
+        .filter((card) => card.setIds.includes(selectedTarotSet.id))
+        .sort((a, b) => (setOrder.get(a.id) ?? 9999) - (setOrder.get(b.id) ?? 9999));
+    }
+    if (!selectedTarotDeck) return normalizedTarotStore.cards;
+    const deckOrder = new Map(selectedTarotDeck.cardIds.map((cardId, index) => [cardId, index]));
+    return normalizedTarotStore.cards
+      .filter((card) => card.deckIds.includes(selectedTarotDeck.id))
+      .sort((a, b) => (deckOrder.get(a.id) ?? 9999) - (deckOrder.get(b.id) ?? 9999));
+  }, [normalizedTarotStore, selectedTarotCollectionKind, selectedTarotDeck, selectedTarotSet]);
+  const selectedTarotCard = useMemo(
+    () => normalizedTarotStore.cards.find((card) => card.id === selectedTarotCardId)
+      || tarotCardsForDeck[0]
+      || normalizedTarotStore.cards[0]
+      || null,
+    [normalizedTarotStore, selectedTarotCardId, tarotCardsForDeck]
+  );
+  const tarotAttachPack = useMemo(
+    () => isTarotLibraryView ? createTarotAttachPack(normalizedTarotStore, {
+      deckId: selectedTarotDeck?.id || null,
+      setId: selectedTarotSet?.id || null,
+      cardId: selectedTarotCard?.id || null,
+      target: "avatar-builder"
+    }) : null,
+    [isTarotLibraryView, normalizedTarotStore, selectedTarotCard, selectedTarotDeck, selectedTarotSet]
+  );
+  const queueSummary = useMemo(() => buildQueueSummary(queueJobs), [queueJobs]);
   const expandedAssetRecord = assetFromExpansionState(expandedAsset);
   const filteredIntake = useMemo(() => intake.filter((asset) =>
     [asset.name, asset.requirementId, ...(asset.tags || [])].join(" ").toLowerCase().includes(search.toLowerCase())
@@ -508,6 +818,13 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem("hapa-avatar-sound", sound ? "on" : "off");
   }, [sound]);
+
+  useEffect(() => {
+    window.__HAPA_QUEUE_INSPECTOR__ = {
+      summary: queueSummary,
+      jobs: queueJobs
+    };
+  }, [queueJobs, queueSummary]);
 
   useEffect(() => {
     if (!selectedAvatar) return;
@@ -543,10 +860,97 @@ export default function App() {
       return undefined;
     }
     setAttachPack(null);
+    updateQueueJob("derived-attach-pack", "Builder attach pack", {
+      status: "queued",
+      kind: "derived-data",
+      detail: "Builder is usable; agent attach pack is queued for idle rebuild.",
+      available: "Avatar media slots and intake controls are visible.",
+      queuedNext: "Rebuild compact agent packet from selected avatar."
+    });
     return scheduleIdleTask(() => {
       setAttachPack(createAttachPack(selectedAvatar, "agent-process"));
+      markQueueReady("derived-attach-pack", "Builder attach pack", "Attach pack rebuilt from selected avatar.");
     }, 520);
   }, [isBuilderView, selectedAvatar]);
+
+  useEffect(() => {
+    if (!isKanbanView || !selectedAvatar) {
+      setHealingQueue(null);
+      return undefined;
+    }
+    setHealingQueue(null);
+    updateQueueJob("derived-healing-queue", "Healing prompt queue", {
+      status: "queued",
+      kind: "derived-data",
+      detail: "Kanban can render; healing prompts are queued to avoid blocking board paint.",
+      available: "Build board and audit counts are visible.",
+      queuedNext: "Create GPT Image 2 prompt packets for missing Avatar Card slots."
+    });
+    return scheduleIdleTask(() => {
+      setHealingQueue(createHealingQueue(selectedAvatar));
+      markQueueReady("derived-healing-queue", "Healing prompt queue", "Healing prompt queue rebuilt.");
+    }, 900);
+  }, [isKanbanView, selectedAvatar]);
+
+  useEffect(() => {
+    if (!isTarotDrawView || !tarotDrawSceneArmed) {
+      setTarotDrawProjection(EMPTY_TAROT_DRAW_PROJECTION);
+      return undefined;
+    }
+    if (avatarDataMode !== "full" && avatarDataMode !== "fallback") {
+      ensureFullAvatarStoreLoaded();
+      setTarotDrawProjection((current) => current.cards.length
+        ? { ...current, state: "refreshing" }
+        : {
+            ...EMPTY_TAROT_DRAW_PROJECTION,
+            state: "loading"
+          });
+      updateQueueJob("full-avatar-store", "Full avatar store", {
+        status: avatarDataMode === "loading-full" ? "loading" : "queued",
+        kind: "store",
+        detail: "Tarot Draw needs full avatar loop assets before building song/video panels.",
+        available: "Tarot Draw route shell remains visible.",
+        queuedNext: "Build the playable draw projection after full avatar media hydrates.",
+        blocking: false
+      });
+      return undefined;
+    }
+    setTarotDrawProjection((current) => current.cards.length
+      ? { ...current, state: "refreshing" }
+      : {
+          ...EMPTY_TAROT_DRAW_PROJECTION,
+          state: "loading"
+        });
+    updateQueueJob("derived-tarot-draw-projection", "Tarot Draw projection", {
+      status: "queued",
+      kind: "derived-data",
+      detail: "3D table shell is visible; drawable card projection is queued.",
+      available: "Tarot Draw route shell and controls are usable.",
+      queuedNext: "Build playable card/song/avatar draw projection."
+    });
+    return scheduleDeferredLoad(() => {
+      setTarotDrawProjection(buildTarotDrawProjection(
+        normalizedItemManager.cards,
+        selectedAvatarInventory,
+        avatars,
+        normalizedInventoryStore,
+        songLibrary,
+        normalizedHapaSongStore
+      ));
+      markQueueReady("derived-tarot-draw-projection", "Tarot Draw projection", "Drawable Tarot projection ready.");
+    }, 900);
+  }, [isTarotDrawView, tarotDrawSceneArmed, avatarDataMode, normalizedItemManager.cards, selectedAvatarInventory, avatars, normalizedInventoryStore, songLibrary, normalizedHapaSongStore]);
+
+  useEffect(() => {
+    if (!isTarotDrawView) {
+      setTarotDrawSceneArmed(false);
+      return undefined;
+    }
+    setTarotDrawSceneArmed(false);
+    return scheduleDeferredLoad(() => {
+      setTarotDrawSceneArmed(true);
+    }, 650);
+  }, [isTarotDrawView]);
 
   useEffect(() => {
     if (activeView !== "scenes" || !selectedScene) {
@@ -555,8 +959,16 @@ export default function App() {
     }
     const sceneId = selectedScene.id;
     setSceneAttachPack(null);
+    updateQueueJob("derived-scene-attach-pack", "Scene attach pack", {
+      status: "queued",
+      kind: "derived-data",
+      detail: "Scene panel is usable; agent scene packet is queued.",
+      available: "Place and scene summaries are visible.",
+      queuedNext: "Build scene attach pack for selected scene."
+    });
     return scheduleIdleTask(() => {
       setSceneAttachPack(createSceneAttachPack(normalizedSceneGraph, sceneId));
+      markQueueReady("derived-scene-attach-pack", "Scene attach pack", "Scene attach pack rebuilt.");
     }, 520);
   }, [activeView, normalizedSceneGraph, selectedScene?.id]);
 
@@ -566,12 +978,21 @@ export default function App() {
     }
     persistTimers.current.clear();
     window.clearTimeout(scenePersistTimer.current);
+    window.clearTimeout(tarotPersistTimer.current);
     window.clearTimeout(teamsPersistTimer.current);
     window.clearTimeout(routeTimer.current);
   }, []);
 
   useEffect(() => {
     let alive = true;
+    updateQueueJob("overwind-bootstrap", "Overwind shell bootstrap", {
+      status: "loading",
+      kind: "bootstrap",
+      detail: "Loading compact Overwind shell projection.",
+      available: "Fallback shell remains usable.",
+      queuedNext: "Full stores hydrate only after route intent or idle budget.",
+      blocking: true
+    });
 
     const loadLegacyStores = () => Promise.all([
       fetch(`${API_BASE}/api/avatars`).then((res) => res.json()),
@@ -595,6 +1016,7 @@ export default function App() {
         setAvatarDataMode("full");
         setAvatarTeams(normalizeAvatarTeams(store.teams || [], nextAvatars));
         setBoard(kanban || kanbanSeed);
+        setBoardDataMode("full");
         setSceneGraph(activeGraph);
         setWorldDataMode("full");
         setItemManager(nextItemStore);
@@ -607,6 +1029,7 @@ export default function App() {
         setSelectedItemId(nextItemStore.cards[0]?.id || null);
         setApiState(shouldUseDraft ? "local" : "api");
         setWorldSyncState(shouldUseDraft ? "draft" : "saved");
+        markQueueReady("overwind-bootstrap", "Overwind shell bootstrap", "Legacy full-store fallback completed after shell miss.");
         if (shouldUseDraft) notify("Recovered unsynced world draft; retry sync when ready");
         if (avatarDraftMerge.recoveredCount) {
           notify(`Recovered ${avatarDraftMerge.recoveredCount} local avatar draft${avatarDraftMerge.recoveredCount === 1 ? "" : "s"}`);
@@ -615,10 +1038,13 @@ export default function App() {
         window.setTimeout(refreshSubscriberStatus, 0);
       });
 
-    fetch(`${API_BASE}/api/overwind/bootstrap`)
+    fetch(`${API_BASE}/api/overwind/bootstrap?mode=shell`)
       .then((res) => (res.ok ? res.json() : Promise.reject(new Error(`Overwind bootstrap ${res.status}`))))
       .then((bootstrap) => {
         if (!alive) return;
+        const bootstrapMode = bootstrap.overwind?.projection === "shell" || bootstrap.schemaVersion === "hapa.overwind.avatar-builder-shell.v1"
+          ? "shell"
+          : "compact";
         const graph = normalizeSceneGraph(bootstrap.world || FALLBACK_SCENE_GRAPH);
         const localDraft = readWorldDraft();
         const draftGraph = localDraft?.graph ? normalizeSceneGraph(localDraft.graph) : null;
@@ -629,13 +1055,14 @@ export default function App() {
         const nextAvatars = avatarDraftMerge.avatars;
         const nextItemStore = normalizeItemManagerStore(bootstrap.items || FALLBACK_ITEM_MANAGER);
         setAvatars(nextAvatars.length ? nextAvatars : FALLBACK_AVATARS);
-        setAvatarDataMode("compact");
+        setAvatarDataMode(bootstrapMode);
         setAvatarTeams(normalizeAvatarTeams(bootstrap.teams || [], nextAvatars.length ? nextAvatars : FALLBACK_AVATARS));
         setBoard(bootstrap.kanban || kanbanSeed);
+        setBoardDataMode(bootstrap.kanban?.overwindProjection === "shell" ? "shell" : "full");
         setSceneGraph(activeGraph);
-        setWorldDataMode(shouldUseDraft ? "draft" : "compact");
+        setWorldDataMode(shouldUseDraft ? "draft" : bootstrapMode);
         setItemManager(nextItemStore);
-        setItemDataMode("compact");
+        setItemDataMode(bootstrapMode);
         setInventoryStore(normalizeInventoryStore(
           bootstrap.inventory || FALLBACK_INVENTORY_STORE,
           nextAvatars.length ? nextAvatars : FALLBACK_AVATARS,
@@ -648,6 +1075,11 @@ export default function App() {
         setSelectedItemId(nextItemStore.cards[0]?.id || null);
         setApiState(shouldUseDraft ? "local" : "api");
         setWorldSyncState(shouldUseDraft ? "draft" : "saved");
+        markQueueReady(
+          "overwind-bootstrap",
+          "Overwind shell bootstrap",
+          bootstrap.telemetry?.waitingState || "Compact shell ready; full detail stores are queued."
+        );
         if (shouldUseDraft) notify("Recovered unsynced world draft; retry sync when ready");
         if (avatarDraftMerge.recoveredCount) {
           notify(`Recovered ${avatarDraftMerge.recoveredCount} local avatar draft${avatarDraftMerge.recoveredCount === 1 ? "" : "s"}`);
@@ -673,9 +1105,19 @@ export default function App() {
         setAvatarDataMode("fallback");
         setItemManager(FALLBACK_ITEM_MANAGER);
         setItemDataMode("fallback");
+        setBoardDataMode("fallback");
         setInventoryStore(normalizeInventoryStore(FALLBACK_INVENTORY_STORE, nextAvatars, FALLBACK_ITEM_MANAGER.cards));
         setWorldSyncState("draft");
         setWorldDataMode("fallback");
+        updateQueueJob("overwind-bootstrap", "Overwind shell bootstrap", {
+          status: "failed",
+          kind: "bootstrap",
+          detail: "API shell unavailable; local fallback data is active.",
+          available: "Fallback avatars, world, items, and board are visible.",
+          queuedNext: "Retry API when the local server is reachable.",
+          blocking: false,
+          error: "Overwind bootstrap failed"
+        });
         if (avatarDraftMerge.recoveredCount) {
           setSelectedAvatarId(nextAvatars[0]?.id || null);
           setSelectedInventoryAvatarId(nextAvatars[0]?.id || null);
@@ -688,84 +1130,75 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (selectedAvatarId) ensureAvatarLoaded(selectedAvatarId);
-  }, [selectedAvatarId]);
+    setTarotSyncState("queued");
+    updateQueueJob("tarot-store", "Tarot library store", {
+      status: "queued",
+      kind: "store",
+      detail: "Tarot Library data is cold until the Tarot workspace opens.",
+      available: "Fallback Tarot shell and deck controls remain visible.",
+      queuedNext: "Load full Tarot deck/card store on Tarot Library intent."
+    });
+  }, []);
 
   useEffect(() => {
-    if (activeView === "scenes") ensureWorldStoreLoaded();
-    if (activeView === "items") ensureItemStoreLoaded();
+    if (!selectedAvatarId) return undefined;
+    const currentAvatar = avatars.find((avatar) => avatar.id === selectedAvatarId);
+    if (!currentAvatar || isCompactOverwindAvatar(currentAvatar)) {
+      let cancelIdle = null;
+      const delayMs = activeView === "protocol" ? 2400 : 1600;
+      const timer = window.setTimeout(() => {
+        cancelIdle = scheduleIdleTask(() => {
+          ensureAvatarLoaded(selectedAvatarId, { force: true });
+        }, 900);
+      }, delayMs);
+      return () => {
+        window.clearTimeout(timer);
+        cancelIdle?.();
+      };
+    }
+    return undefined;
+  }, [selectedAvatarId, avatars, activeView]);
+
+  useEffect(() => {
+    const cleanups = [];
+    const defer = (loader, delayMs) => {
+      const cleanup = scheduleDeferredLoad(loader, delayMs);
+      cleanups.push(cleanup);
+    };
+    if (activeView === "scenes") defer(ensureWorldStoreLoaded, 800);
+    if (activeView === "items") defer(ensureItemStoreLoaded, 800);
+    if (activeView === "kanban") defer(ensureKanbanStoreLoaded, 800);
+    if (activeView === "tarot-library") {
+      defer(ensureTarotStoreLoaded, 520);
+      defer(ensureFullAvatarStoreLoaded, 1400);
+    }
     if (activeView === "tarot") {
-      ensureHapaSongStoreLoaded();
+      defer(ensureSongRegistryLoaded, 620);
+      defer(ensureHapaSongStoreLoaded, 900);
+      defer(ensureItemStoreLoaded, 1200);
     }
     if (activeView === "songs") {
-      ensureHapaSongStoreLoaded();
-      ensureFullAvatarStoreLoaded();
-      ensureWorldStoreLoaded();
+      defer(ensureSongRegistryLoaded, 360);
+      defer(ensureHapaSongStoreLoaded, 520);
+      defer(ensureFullAvatarStoreLoaded, 1200);
+      defer(ensureWorldStoreLoaded, 1600);
     }
     if (activeView === "lore") {
-      ensureFullAvatarStoreLoaded();
-      ensureWorldStoreLoaded();
-      ensureItemStoreLoaded();
+      defer(ensureFullAvatarStoreLoaded, 900);
+      defer(ensureWorldStoreLoaded, 1300);
+      defer(ensureItemStoreLoaded, 1700);
     }
+    return () => cleanups.forEach((cleanup) => cleanup?.());
   }, [activeView]);
 
   useEffect(() => {
-    let alive = true;
-    const registryListUrl = API_BASE
-      ? `${API_BASE}/api/song-registry/dear-papa?limit=500`
-      : "/api/song-registry/dear-papa?limit=500";
-    const registryDetailUrl = (songId) => API_BASE
-      ? `${API_BASE}/api/song-registry/songs/${encodeURIComponent(songId)}`
-      : `/api/song-registry/songs/${encodeURIComponent(songId)}`;
-    setSongLibrary((current) => ({ ...current, status: "loading", error: null }));
-    fetch(registryListUrl)
-      .then((res) => (res.ok ? res.json() : Promise.reject(new Error(`Song Registry ${res.status}`))))
-      .then(async (payload) => {
-        if (!alive) return;
-        const songs = Array.isArray(payload.songs) ? payload.songs : [];
-        if (!SONG_REGISTRY_DETAIL_PREFETCH_LIMIT) {
-          setSongLibrary({
-            status: "ready",
-            songs,
-            total: Number(payload.total) || songs.length,
-            error: null
-          });
-          return;
-        }
-        const detailResults = await Promise.allSettled(
-          songs
-            .slice(0, SONG_REGISTRY_DETAIL_PREFETCH_LIMIT)
-            .filter((song) => song?.id)
-            .map((song) =>
-              fetch(registryDetailUrl(song.id))
-                .then((res) => (res.ok ? res.json() : null))
-                .catch(() => null)
-            )
-        );
-        if (!alive) return;
-        const detailsById = new Map(detailResults
-          .map((result) => (result.status === "fulfilled" ? result.value : null))
-          .filter((detail) => detail?.id)
-          .map((detail) => [detail.id, detail]));
-        setSongLibrary({
-          status: "ready",
-          songs: songs.map((song) => ({ ...song, ...(detailsById.get(song.id) || {}) })),
-          total: Number(payload.total) || songs.length,
-          error: null
-        });
-      })
-      .catch((error) => {
-        if (!alive) return;
-        setSongLibrary({
-          status: "error",
-          songs: [],
-          total: 0,
-          error: error?.message || "Song Registry unavailable"
-        });
-      });
-    return () => {
-      alive = false;
-    };
+    updateQueueJob("song-registry", "Dear Papa song registry", {
+      status: "queued",
+      kind: "store",
+      detail: "Song registry is cold until Songs or Tarot needs it.",
+      available: "Bundled Dear Papa fallback stays available.",
+      queuedNext: "Load bounded registry page on route intent."
+    });
   }, []);
 
   function cue(kind = "select") {
@@ -799,6 +1232,86 @@ export default function App() {
         if (status) setSubscriberStatus(status);
       })
       .catch(() => {});
+  }
+
+  function updateQueueJob(id, label, patch = {}) {
+    setQueueJobs((current) => upsertQueueJobState(current, id, label, patch));
+  }
+
+  function markQueueReady(id, label, detail = "Ready") {
+    updateQueueJob(id, label, {
+      status: "ready",
+      detail,
+      blocking: false
+    });
+  }
+
+  function ensureSongRegistryLoaded() {
+    if (songLibrary.status === "ready" || songLibrary.status === "loading") return;
+    const registryListUrl = resolveSongRegistryUri("/api/song-registry/dear-papa?limit=500");
+    const registryDetailUrl = (songId) => resolveSongRegistryUri(`/api/song-registry/songs/${encodeURIComponent(songId)}`);
+    setSongLibrary((current) => ({ ...current, status: "loading", error: null }));
+    updateQueueJob("song-registry", "Dear Papa song registry", {
+      status: "loading",
+      kind: "store",
+      detail: "Loading bounded Dear Papa registry page.",
+      available: "Bundled Dear Papa fallback remains usable.",
+      queuedNext: "Optionally prefetch top song details within the configured cap.",
+      blocking: false
+    });
+    fetch(registryListUrl)
+      .then((res) => (res.ok ? res.json() : Promise.reject(new Error(`Song Registry ${res.status}`))))
+      .then(async (payload) => {
+        const songs = Array.isArray(payload.songs) ? payload.songs : [];
+        if (!SONG_REGISTRY_DETAIL_PREFETCH_LIMIT) {
+          setSongLibrary({
+            status: "ready",
+            songs,
+            total: Number(payload.total) || songs.length,
+            error: null
+          });
+          markQueueReady("song-registry", "Dear Papa song registry", `${songs.length} registry songs loaded.`);
+          return;
+        }
+        const detailResults = await Promise.allSettled(
+          songs
+            .slice(0, SONG_REGISTRY_DETAIL_PREFETCH_LIMIT)
+            .filter((song) => song?.id)
+            .map((song) =>
+              fetch(registryDetailUrl(song.id))
+                .then((res) => (res.ok ? res.json() : null))
+                .catch(() => null)
+            )
+        );
+        const detailsById = new Map(detailResults
+          .map((result) => (result.status === "fulfilled" ? result.value : null))
+          .filter((detail) => detail?.id)
+          .map((detail) => [detail.id, detail]));
+        setSongLibrary({
+          status: "ready",
+          songs: songs.map((song) => ({ ...song, ...(detailsById.get(song.id) || {}) })),
+          total: Number(payload.total) || songs.length,
+          error: null
+        });
+        markQueueReady("song-registry", "Dear Papa song registry", `${songs.length} registry songs loaded.`);
+      })
+      .catch((error) => {
+        setSongLibrary({
+          status: "error",
+          songs: [],
+          total: 0,
+          error: error?.message || "Song Registry unavailable"
+        });
+        updateQueueJob("song-registry", "Dear Papa song registry", {
+          status: "failed",
+          kind: "store",
+          detail: "Song registry unavailable; bundled fallback remains active.",
+          available: "Fallback Dear Papa songbook is usable.",
+          queuedNext: "Retry when Songs or Tarot needs live registry data.",
+          blocking: false,
+          error: error?.message || "Song Registry unavailable"
+        });
+      });
   }
 
   function syncAvatarDraftRecords(records = [], source = "avatar drafts") {
@@ -867,10 +1380,26 @@ export default function App() {
     if (message) notify(message);
     if (apiState === "api") {
       window.clearTimeout(persistTimers.current.get(nextAvatar.id));
+      updateQueueJob("avatar-save", "Avatar save queue", {
+        status: "queued",
+        kind: "write",
+        detail: `${nextAvatar.primaryName || nextAvatar.id} saved locally; API write queued.`,
+        available: "Optimistic avatar changes are already visible.",
+        queuedNext: "Persist Avatar Card JSON to local API.",
+        blocking: false
+      });
       persistTimers.current.set(
         nextAvatar.id,
         window.setTimeout(() => {
           persistTimers.current.delete(nextAvatar.id);
+          updateQueueJob("avatar-save", "Avatar save queue", {
+            status: "loading",
+            kind: "write",
+            detail: `Persisting ${nextAvatar.primaryName || nextAvatar.id} to API.`,
+            available: "Optimistic avatar changes remain visible.",
+            queuedNext: "Clear local draft after API save.",
+            blocking: false
+          });
           fetch(`${API_BASE}/api/avatars/${nextAvatar.id}`, {
             method: "PUT",
             headers: { "Content-Type": "application/json" },
@@ -880,37 +1409,91 @@ export default function App() {
               if (!res.ok) throw new Error(`Avatar save failed: ${res.status}`);
               clearAvatarDraft(nextAvatar.id);
               refreshSubscriberStatus();
+              markQueueReady("avatar-save", "Avatar save queue", `${nextAvatar.primaryName || nextAvatar.id} saved to API.`);
             })
-            .catch(() => setApiState("local"));
+            .catch((error) => {
+              setApiState("local");
+              updateQueueJob("avatar-save", "Avatar save queue", {
+                status: "failed",
+                kind: "write",
+                detail: "Avatar save stayed local; API retry remains available.",
+                available: "Local draft preserves the edit.",
+                queuedNext: "Retry when API is ready.",
+                blocking: false,
+                error: error?.message || "Avatar save failed"
+              });
+            });
         }, 120)
       );
     }
   }
 
-  function ensureAvatarLoaded(avatarId) {
+  function ensureAvatarLoaded(avatarId, options = {}) {
     if (!avatarId) return Promise.resolve(null);
     const currentAvatar = avatars.find((avatar) => avatar.id === avatarId);
-    if (currentAvatar && !isCompactOverwindAvatar(currentAvatar)) {
+    if (!options.force && currentAvatar && !isCompactOverwindAvatar(currentAvatar)) {
+      markQueueReady("selected-avatar-detail", "Selected avatar detail", `${currentAvatar.primaryName || avatarId} already loaded.`);
       return Promise.resolve(currentAvatar);
     }
+    const requestId = avatarDetailRequestRef.current + 1;
+    avatarDetailRequestRef.current = requestId;
+    updateQueueJob("selected-avatar-detail", "Selected avatar detail", {
+      status: "loading",
+      kind: "avatar-detail",
+      detail: `Loading detail for ${currentAvatar?.primaryName || avatarId}.`,
+      available: currentAvatar ? "Compact shell avatar remains visible while detail loads." : "Avatar rail remains usable.",
+      queuedNext: "Apply full Avatar Card only if this is still the latest selection.",
+      blocking: false
+    });
     return fetch(`${API_BASE}/api/avatars/${encodeURIComponent(avatarId)}`)
       .then((res) => (res.ok ? res.json() : Promise.reject(new Error(`Avatar load failed: ${res.status}`))))
       .then((avatar) => {
         const normalizedAvatar = normalizeAvatarCard(avatar);
+        if (requestId !== avatarDetailRequestRef.current) {
+          updateQueueJob("selected-avatar-detail", "Selected avatar detail", {
+            status: "stale",
+            kind: "avatar-detail",
+            detail: `${normalizedAvatar.primaryName || avatarId} detail arrived after a newer selection.`,
+            available: "Newest selected avatar stays visible.",
+            queuedNext: "Ignore stale response.",
+            blocking: false
+          });
+          return normalizedAvatar;
+        }
         setAvatars((current) => {
           if (current.some((item) => item.id === normalizedAvatar.id)) {
             return current.map((item) => (item.id === normalizedAvatar.id ? normalizedAvatar : item));
           }
           return [normalizedAvatar, ...current];
         });
+        markQueueReady("selected-avatar-detail", "Selected avatar detail", `${normalizedAvatar.primaryName || avatarId} detail ready.`);
         return normalizedAvatar;
       })
-      .catch(() => null);
+      .catch((error) => {
+        updateQueueJob("selected-avatar-detail", "Selected avatar detail", {
+          status: "failed",
+          kind: "avatar-detail",
+          detail: `Could not load ${currentAvatar?.primaryName || avatarId}; compact shell remains visible.`,
+          available: "Compact avatar data is still usable.",
+          queuedNext: "Retry on next selection or explicit avatar intent.",
+          blocking: false,
+          error: error?.message || "Avatar detail load failed"
+        });
+        return null;
+      });
   }
 
   function ensureFullAvatarStoreLoaded() {
     if (avatarDataMode === "full" || avatarDataMode === "loading-full") return;
     setAvatarDataMode("loading-full");
+    updateQueueJob("full-avatar-store", "Full avatar store", {
+      status: "loading",
+      kind: "store",
+      detail: "Hydrating full avatar store after route intent.",
+      available: "Compact avatar shell and selected detail remain usable.",
+      queuedNext: "Merge server avatars with local drafts.",
+      blocking: false
+    });
     fetch(`${API_BASE}/api/avatars`)
       .then((res) => (res.ok ? res.json() : Promise.reject(new Error(`Avatar store load failed: ${res.status}`))))
       .then((store) => {
@@ -931,17 +1514,37 @@ export default function App() {
         setAvatarTeams(normalizeAvatarTeams(store.teams || [], nextAvatars));
         setInventoryStore((current) => normalizeInventoryStore(current, nextAvatars, itemManager.cards));
         setAvatarDataMode("full");
+        markQueueReady("full-avatar-store", "Full avatar store", `${nextAvatars.length} avatars loaded.`);
         if (avatarDraftMerge.recoveredCount) {
           notify(`Recovered ${avatarDraftMerge.recoveredCount} local avatar draft${avatarDraftMerge.recoveredCount === 1 ? "" : "s"}`);
           syncAvatarDraftRecords(avatarDraftMerge.pendingRecords, "full avatar load");
         }
       })
-      .catch(() => setAvatarDataMode((current) => (current === "loading-full" ? "compact" : current)));
+      .catch((error) => {
+        setAvatarDataMode((current) => (current === "loading-full" ? "compact" : current));
+        updateQueueJob("full-avatar-store", "Full avatar store", {
+          status: "failed",
+          kind: "store",
+          detail: "Full avatar store stayed cold; compact shell remains active.",
+          available: "Avatar rail and selected shell avatar are usable.",
+          queuedNext: "Retry on next full-avatar route intent.",
+          blocking: false,
+          error: error?.message || "Avatar store load failed"
+        });
+      });
   }
 
   function ensureWorldStoreLoaded() {
     if (worldDataMode === "full" || worldDataMode === "loading" || worldDataMode === "draft") return;
     setWorldDataMode("loading");
+    updateQueueJob("world-store", "World store", {
+      status: "loading",
+      kind: "store",
+      detail: "Hydrating places and scenes after Scenes intent.",
+      available: "World shell counts and placeholders remain visible.",
+      queuedNext: "Replace shell scene graph with full world store.",
+      blocking: false
+    });
     fetch(`${API_BASE}/api/world`)
       .then((res) => (res.ok ? res.json() : Promise.reject(new Error(`World load failed: ${res.status}`))))
       .then((world) => {
@@ -950,13 +1553,33 @@ export default function App() {
         setSelectedPlaceId((current) => current && graph.places.some((place) => place.id === current) ? current : graph.places[0]?.id || null);
         setSelectedSceneId((current) => current && graph.scenes.some((scene) => scene.id === current) ? current : graph.scenes[0]?.id || null);
         setWorldDataMode("full");
+        markQueueReady("world-store", "World store", `${graph.places.length} places and ${graph.scenes.length} scenes loaded.`);
       })
-      .catch(() => setWorldDataMode((current) => (current === "loading" ? "compact" : current)));
+      .catch((error) => {
+        setWorldDataMode((current) => (current === "loading" ? "compact" : current));
+        updateQueueJob("world-store", "World store", {
+          status: "failed",
+          kind: "store",
+          detail: "World store failed; shell scene graph remains visible.",
+          available: "Scene shell is usable.",
+          queuedNext: "Retry when Scenes opens again.",
+          blocking: false,
+          error: error?.message || "World load failed"
+        });
+      });
   }
 
   function ensureItemStoreLoaded() {
     if (itemDataMode === "full" || itemDataMode === "loading") return;
     setItemDataMode("loading");
+    updateQueueJob("item-store", "Item store", {
+      status: "loading",
+      kind: "store",
+      detail: "Hydrating item cards after Items intent.",
+      available: "Item shell counts remain visible.",
+      queuedNext: "Normalize item and inventory references.",
+      blocking: false
+    });
     fetch(`${API_BASE}/api/items`)
       .then((res) => (res.ok ? res.json() : Promise.reject(new Error(`Item load failed: ${res.status}`))))
       .then((store) => {
@@ -965,13 +1588,33 @@ export default function App() {
         setInventoryStore((current) => normalizeInventoryStore(current, avatars, nextItemStore.cards));
         setSelectedItemId((current) => current && nextItemStore.cards.some((card) => card.id === current) ? current : nextItemStore.cards[0]?.id || null);
         setItemDataMode("full");
+        markQueueReady("item-store", "Item store", `${nextItemStore.cards.length} item cards loaded.`);
       })
-      .catch(() => setItemDataMode((current) => (current === "loading" ? "compact" : current)));
+      .catch((error) => {
+        setItemDataMode((current) => (current === "loading" ? "compact" : current));
+        updateQueueJob("item-store", "Item store", {
+          status: "failed",
+          kind: "store",
+          detail: "Item store failed; shell item catalog remains visible.",
+          available: "Item shell is usable.",
+          queuedNext: "Retry when Items opens again.",
+          blocking: false,
+          error: error?.message || "Item load failed"
+        });
+      });
   }
 
   function ensureHapaSongStoreLoaded() {
     if (songDataMode === "full" || songDataMode === "loading") return;
     setSongDataMode("loading");
+    updateQueueJob("hapa-song-store", "Hapa song store", {
+      status: "loading",
+      kind: "store",
+      detail: "Loading Hapa song links after song/Tarot intent.",
+      available: "Dear Papa registry summary remains visible.",
+      queuedNext: "Normalize song-to-avatar and song-to-scene links.",
+      blocking: false
+    });
     fetch(`${API_BASE}/api/hapa-songs`)
       .then((res) => (res.ok ? res.json() : Promise.reject(new Error(`Hapa Songs load failed: ${res.status}`))))
       .then((store) => {
@@ -980,12 +1623,91 @@ export default function App() {
         setSelectedHapaSongId((current) => current && nextStore.songs.some((song) => song.id === current) ? current : nextStore.songs[0]?.id || null);
         setSongDataMode("full");
         setApiState("api");
+        markQueueReady("hapa-song-store", "Hapa song store", `${nextStore.songs.length} Hapa song cards loaded.`);
       })
       .catch(() => {
         const nextStore = createHapaSongStoreFromDearPapaSongbook(dearPapaSongbook, songLibrary);
         setHapaSongStore(nextStore);
         setSelectedHapaSongId((current) => current && nextStore.songs.some((song) => song.id === current) ? current : nextStore.songs[0]?.id || null);
         setSongDataMode("fallback");
+        updateQueueJob("hapa-song-store", "Hapa song store", {
+          status: "stale",
+          kind: "store",
+          detail: "Song API unavailable; Dear Papa fallback generated.",
+          available: "Fallback song cards are usable.",
+          queuedNext: "Retry when song/Tarot route opens again.",
+          blocking: false
+        });
+      });
+  }
+
+  function ensureTarotStoreLoaded() {
+    if (tarotDataMode === "full" || tarotDataMode === "loading") return;
+    setTarotDataMode("loading");
+    setTarotSyncState("loading");
+    updateQueueJob("tarot-store", "Tarot library store", {
+      status: "loading",
+      kind: "store",
+      detail: "Loading Tarot decks and card records after Tarot Library intent.",
+      available: "Fallback Tarot shell remains visible.",
+      queuedNext: "Normalize decks, sets, cards, backs, and links.",
+      blocking: false
+    });
+    fetch(`${API_BASE}/api/tarot`)
+      .then((res) => (res.ok ? res.json() : Promise.reject(new Error(`Tarot load failed: ${res.status}`))))
+      .then((store) => {
+        const tarotLibrary = normalizeTarotStore(store || FALLBACK_TAROT_STORE);
+        setTarotStore(tarotLibrary);
+        setSelectedTarotDeckId((current) => current || tarotDeckCollectionId(tarotLibrary.decks[0]?.id));
+        setSelectedTarotCardId((current) => current && tarotLibrary.cards.some((card) => card.id === current) ? current : tarotLibrary.cards[0]?.id || null);
+        setTarotSyncState("saved");
+        setTarotDataMode("full");
+        markQueueReady("tarot-store", "Tarot library store", `${tarotLibrary.cards.length} Tarot cards loaded.`);
+      })
+      .catch((error) => {
+        setTarotSyncState("draft");
+        setTarotDataMode("fallback");
+        updateQueueJob("tarot-store", "Tarot library store", {
+          status: "failed",
+          kind: "store",
+          detail: "Tarot store failed; fallback deck remains visible.",
+          available: "Fallback Tarot controls are usable.",
+          queuedNext: "Retry when Tarot Library opens again.",
+          blocking: false,
+          error: error?.message || "Tarot load failed"
+        });
+      });
+  }
+
+  function ensureKanbanStoreLoaded() {
+    if (boardDataMode === "full" || boardDataMode === "loading") return;
+    setBoardDataMode("loading");
+    updateQueueJob("kanban-store", "Kanban board store", {
+      status: "loading",
+      kind: "store",
+      detail: "Loading full Kanban board after Kanban route intent.",
+      available: "Shell board lanes and total counts are visible.",
+      queuedNext: "Replace capped shell cards with the full board store.",
+      blocking: false
+    });
+    fetch(`${API_BASE}/api/kanban`)
+      .then((res) => (res.ok ? res.json() : Promise.reject(new Error(`Kanban load failed: ${res.status}`))))
+      .then((nextBoard) => {
+        setBoard(nextBoard || kanbanSeed);
+        setBoardDataMode("full");
+        markQueueReady("kanban-store", "Kanban board store", `${nextBoard?.lanes?.length || 0} lanes loaded.`);
+      })
+      .catch((error) => {
+        setBoardDataMode((current) => (current === "loading" ? "shell" : current));
+        updateQueueJob("kanban-store", "Kanban board store", {
+          status: "failed",
+          kind: "store",
+          detail: "Full Kanban store failed; shell board remains visible.",
+          available: "Capped board lanes and counts are usable.",
+          queuedNext: "Retry when Kanban opens again.",
+          blocking: false,
+          error: error?.message || "Kanban load failed"
+        });
       });
   }
 
@@ -993,8 +1715,24 @@ export default function App() {
     const normalizedGraph = normalizeSceneGraph(graph);
     saveWorldDraft(normalizedGraph);
     setWorldSyncState("syncing");
+    updateQueueJob("world-save", "World save queue", {
+      status: "queued",
+      kind: "write",
+      detail: "World graph saved locally; API write queued.",
+      available: "Updated places and scenes are visible immediately.",
+      queuedNext: "Persist world store to local API.",
+      blocking: false
+    });
     window.clearTimeout(scenePersistTimer.current);
     scenePersistTimer.current = window.setTimeout(() => {
+      updateQueueJob("world-save", "World save queue", {
+        status: "loading",
+        kind: "write",
+        detail: "Persisting world graph to API.",
+        available: "Local world draft remains active.",
+        queuedNext: "Clear local world draft after API save.",
+        blocking: false
+      });
       fetch(`${API_BASE}/api/world`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
@@ -1008,11 +1746,21 @@ export default function App() {
           setWorldSyncState("saved");
           if (options.successMessage) notify(options.successMessage);
           refreshSubscriberStatus();
+          markQueueReady("world-save", "World save queue", "World graph saved to API.");
         })
-        .catch(() => {
+        .catch((error) => {
           setApiState("local");
           setWorldSyncState("draft");
           if (options.failMessage) notify(options.failMessage);
+          updateQueueJob("world-save", "World save queue", {
+            status: "failed",
+            kind: "write",
+            detail: "World graph stayed in local draft mode.",
+            available: "Local world draft remains visible.",
+            queuedNext: "Retry world sync from the top bar.",
+            blocking: false,
+            error: error?.message || "World save failed"
+          });
         });
     }, options.immediate ? 0 : 140);
   }
@@ -1033,6 +1781,78 @@ export default function App() {
     });
   }
 
+  function queueTarotPersist(store, options = {}) {
+    const normalized = normalizeTarotStore(store);
+    setTarotSyncState("syncing");
+    updateQueueJob("tarot-save", "Tarot save queue", {
+      status: "queued",
+      kind: "write",
+      detail: "Tarot edits are local; API write queued.",
+      available: "Updated deck/card state is visible immediately.",
+      queuedNext: "Persist Tarot store to local API.",
+      blocking: false
+    });
+    window.clearTimeout(tarotPersistTimer.current);
+    tarotPersistTimer.current = window.setTimeout(() => {
+      updateQueueJob("tarot-save", "Tarot save queue", {
+        status: "loading",
+        kind: "write",
+        detail: "Persisting Tarot store to API.",
+        available: "Local Tarot edits remain active.",
+        queuedNext: "Refresh subscriber status after save.",
+        blocking: false
+      });
+      fetch(`${API_BASE}/api/tarot`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(normalized)
+      })
+        .then(async (res) => {
+          if (!res.ok) throw new Error(`Tarot save failed: ${res.status}`);
+          await res.json().catch(() => null);
+          setApiState("api");
+          setTarotSyncState("saved");
+          if (options.successMessage) notify(options.successMessage);
+          refreshSubscriberStatus();
+          markQueueReady("tarot-save", "Tarot save queue", "Tarot store saved to API.");
+        })
+        .catch((error) => {
+          setApiState("local");
+          setTarotSyncState("draft");
+          if (options.failMessage) notify(options.failMessage);
+          updateQueueJob("tarot-save", "Tarot save queue", {
+            status: "failed",
+            kind: "write",
+            detail: "Tarot save stayed local; retry remains available.",
+            available: "Local Tarot edits remain visible.",
+            queuedNext: "Retry on next Tarot save.",
+            blocking: false,
+            error: error?.message || "Tarot save failed"
+          });
+        });
+    }, options.immediate ? 0 : 160);
+  }
+
+  function replaceTarotStore(nextStore, message) {
+    const store = normalizeTarotStore(nextStore);
+    setTarotStore(store);
+    const collectionKind = tarotCollectionKind(selectedTarotDeckId);
+    const collectionEntityId = tarotCollectionEntityId(selectedTarotDeckId);
+    const hasCollection = collectionKind === "standalone"
+      || (collectionKind === "deck" && store.decks.some((deck) => deck.id === collectionEntityId))
+      || (collectionKind === "set" && store.sets.some((set) => set.id === collectionEntityId));
+    if (!hasCollection) {
+      setSelectedTarotDeckId(tarotDeckCollectionId(store.decks[0]?.id));
+    }
+    if (!store.cards.some((card) => card.id === selectedTarotCardId)) {
+      setSelectedTarotCardId(store.cards[0]?.id || null);
+    }
+    if (message) notify(message);
+    queueTarotPersist(store, {
+      failMessage: apiState === "api" ? "Tarot saved locally; API retry available" : ""
+    });
+  }
+
   function replaceItemManager(nextStore, message) {
     const store = normalizeItemManagerStore(nextStore);
     setItemManager(store);
@@ -1040,6 +1860,14 @@ export default function App() {
       setSelectedItemId(store.cards[0]?.id || null);
     }
     if (message) notify(message);
+    updateQueueJob("item-save", "Item save queue", {
+      status: "loading",
+      kind: "write",
+      detail: "Persisting item manager store to API.",
+      available: "Optimistic item changes are already visible.",
+      queuedNext: "Refresh item subscribers after save.",
+      blocking: false
+    });
     fetch(`${API_BASE}/api/items`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
@@ -1049,8 +1877,20 @@ export default function App() {
         if (!res.ok) throw new Error(`Item save failed: ${res.status}`);
         setApiState("api");
         refreshSubscriberStatus();
+        markQueueReady("item-save", "Item save queue", "Item manager store saved to API.");
       })
-      .catch(() => setApiState("local"));
+      .catch((error) => {
+        setApiState("local");
+        updateQueueJob("item-save", "Item save queue", {
+          status: "failed",
+          kind: "write",
+          detail: "Item save stayed local; retry remains available.",
+          available: "Optimistic item state remains visible.",
+          queuedNext: "Retry on next item edit.",
+          blocking: false,
+          error: error?.message || "Item save failed"
+        });
+      });
   }
 
   function handleCreateItemCard(input) {
@@ -1393,7 +2233,13 @@ export default function App() {
   function handleRenameAvatar(event) {
     event.preventDefault();
     if (!selectedAvatar) return;
-    const nextAvatar = renameAvatarIdentity(selectedAvatar, identityDraft);
+    const formData = new FormData(event.currentTarget);
+    const draft = {
+      primaryName: String(formData.get("primaryName") || identityDraft.primaryName || ""),
+      aliases: String(formData.get("aliases") || identityDraft.aliases || "")
+    };
+    setIdentityDraft(draft);
+    const nextAvatar = renameAvatarIdentity(selectedAvatar, draft);
     replaceAvatar(nextAvatar, `Renamed avatar to ${nextAvatar.names.map((item) => item.name).join(" / ")}`);
     cue("copy");
   }
@@ -1407,8 +2253,24 @@ export default function App() {
 
   function queueAvatarTeamsPersist(nextTeams, options = {}) {
     const teams = normalizeAvatarTeams(nextTeams, avatars);
+    updateQueueJob("team-save", "Team save queue", {
+      status: "queued",
+      kind: "write",
+      detail: "Team assignment saved locally; API write queued.",
+      available: "Updated team rail is visible immediately.",
+      queuedNext: "Persist avatar team grouping to local API.",
+      blocking: false
+    });
     window.clearTimeout(teamsPersistTimer.current);
     teamsPersistTimer.current = window.setTimeout(() => {
+      updateQueueJob("team-save", "Team save queue", {
+        status: "loading",
+        kind: "write",
+        detail: "Persisting avatar team grouping to API.",
+        available: "Optimistic team rail remains visible.",
+        queuedNext: "Refresh team subscribers after save.",
+        blocking: false
+      });
       fetch(`${API_BASE}/api/avatar-teams`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
@@ -1421,10 +2283,20 @@ export default function App() {
           setApiState("api");
           if (options.successMessage) notify(options.successMessage);
           refreshSubscriberStatus();
+          markQueueReady("team-save", "Team save queue", "Avatar team grouping saved to API.");
         })
-        .catch(() => {
+        .catch((error) => {
           setApiState("local");
           if (options.failMessage) notify(options.failMessage);
+          updateQueueJob("team-save", "Team save queue", {
+            status: "failed",
+            kind: "write",
+            detail: "Team save stayed local; retry remains available.",
+            available: "Optimistic team rail remains visible.",
+            queuedNext: "Retry on next team edit.",
+            blocking: false,
+            error: error?.message || "Team save failed"
+          });
         });
     }, options.immediate ? 0 : 140);
   }
@@ -1929,6 +2801,137 @@ export default function App() {
     cue("copy");
   }
 
+  function handleCreateTarotDeck() {
+    const deck = createTarotDeck({
+      title: `Hapa Deck ${normalizedTarotStore.decks.length + 1}`,
+      subtitle: "Custom Hapa Tarot branch",
+      description: "New deck branch awaiting Tarot card uploads and symbolic notes."
+    });
+    const nextStore = addTarotDeck(normalizedTarotStore, deck);
+    setSelectedTarotDeckId(tarotDeckCollectionId(deck.id));
+    setSelectedTarotCardId(null);
+    replaceTarotStore(nextStore, `${deck.title} created`);
+    cue("copy");
+  }
+
+  function handleCreateTarotSet() {
+    const set = createTarotSet({
+      title: `Hapa Set ${normalizedTarotStore.sets.length + 1}`,
+      description: "Working set for card fronts, backs, alternates, and loop media."
+    });
+    const nextStore = addTarotSet(normalizedTarotStore, set);
+    setSelectedTarotDeckId(tarotSetCollectionId(set.id));
+    setSelectedTarotCardId(null);
+    replaceTarotStore(nextStore, `${set.title} created`);
+    cue("copy");
+  }
+
+  function handleUpdateTarotDeck(deckId, patch) {
+    replaceTarotStore(updateTarotDeck(normalizedTarotStore, deckId, patch));
+  }
+
+  function handleUpdateTarotSet(setId, patch) {
+    replaceTarotStore(updateTarotSet(normalizedTarotStore, setId, patch));
+  }
+
+  function handleUpdateTarotCard(cardId, patch) {
+    replaceTarotStore(updateTarotCard(normalizedTarotStore, cardId, patch));
+  }
+
+  function handleSetTarotDeckMembership(cardId, deckId, enabled) {
+    const card = normalizedTarotStore.cards.find((item) => item.id === cardId);
+    if (!card) return;
+    const deckIds = enabled
+      ? [...card.deckIds, deckId]
+      : card.deckIds.filter((id) => id !== deckId);
+    replaceTarotStore(setTarotCardDeckMembership(normalizedTarotStore, cardId, deckIds), enabled ? "Card added to deck" : "Card removed from deck");
+    cue("select");
+  }
+
+  function handleSetTarotSetMembership(cardId, setId, enabled) {
+    const card = normalizedTarotStore.cards.find((item) => item.id === cardId);
+    if (!card) return;
+    const setIds = enabled
+      ? [...card.setIds, setId]
+      : card.setIds.filter((id) => id !== setId);
+    replaceTarotStore(setTarotCardSetMembership(normalizedTarotStore, cardId, setIds), enabled ? "Card added to set" : "Card removed from set");
+    cue("select");
+  }
+
+  function handleTarotAvatarToggle(cardId, avatarId) {
+    const card = normalizedTarotStore.cards.find((item) => item.id === cardId);
+    if (!card || !avatarId) return;
+    const isLinked = card.avatarLinks.some((link) => link.avatarId === avatarId);
+    const nextStore = isLinked
+      ? unlinkTarotCardAvatar(normalizedTarotStore, cardId, avatarId)
+      : linkTarotCardAvatar(normalizedTarotStore, cardId, avatarId, {
+          role: "avatar-symbol",
+          tags: ["tarot-link", "avatar-anchor"]
+        });
+    replaceTarotStore(nextStore, isLinked ? "Avatar link removed" : "Avatar linked to Tarot card");
+    cue("select");
+  }
+
+  async function handleTarotUpload(files, options = {}) {
+    const assets = await processLocalFiles(files, "tarot-card-upload", "tarot_card", "Tarot card upload");
+    const imageAssets = assets.filter((asset) => asset.type === "image");
+    const videoAssets = assets.filter((asset) => asset.type === "video");
+    if (!imageAssets.length && !videoAssets.length) {
+      notify("Choose image or video files for Tarot uploads");
+      return;
+    }
+    let nextStore = normalizedTarotStore;
+    const deckIds = selectedTarotCollectionKind === "deck" && selectedTarotDeck ? [selectedTarotDeck.id] : [];
+    const setIds = selectedTarotCollectionKind === "set" && selectedTarotSet ? [selectedTarotSet.id] : [];
+    for (const asset of imageAssets) {
+      nextStore = addTarotCard(nextStore, {
+        title: tarotTitleFromAsset(asset),
+        cardType: options.cardType || "card_front",
+        deckIds,
+        setIds,
+        status: "intake",
+        suit: "custom",
+        arcana: "custom",
+        keywords: ["intake", "hapa"],
+        asset
+      });
+    }
+    const uploadedCard = imageAssets.length ? nextStore.cards[0] || null : null;
+    const videoTargetId = options.cardId || uploadedCard?.id || selectedTarotCard?.id || null;
+    if (videoAssets.length && !videoTargetId) {
+      notify("Select a Tarot card before uploading loop videos");
+      return;
+    }
+    for (const asset of videoAssets) {
+      nextStore = attachTarotCardMedia(nextStore, videoTargetId, {
+        ...asset,
+        tags: [...(asset.tags || []), "tarot-loop"],
+        notes: "Looping Tarot card video attached to this card record."
+      }, "loop_video");
+    }
+    if (uploadedCard) setSelectedTarotCardId(uploadedCard.id);
+    else if (videoTargetId) setSelectedTarotCardId(videoTargetId);
+    const cardCopy = imageAssets.length ? `${imageAssets.length} card${imageAssets.length === 1 ? "" : "s"}` : "";
+    const loopCopy = videoAssets.length ? `${videoAssets.length} loop video${videoAssets.length === 1 ? "" : "s"}` : "";
+    replaceTarotStore(nextStore, `Uploaded ${[cardCopy, loopCopy].filter(Boolean).join(" and ")}`);
+    cue("drop");
+  }
+
+  async function handleTarotPicker(event) {
+    await handleTarotUpload([...event.target.files]);
+    event.target.value = "";
+  }
+
+  async function handleTarotLoopPicker(event) {
+    await handleTarotUpload([...event.target.files], { cardId: selectedTarotCard?.id || null });
+    event.target.value = "";
+  }
+
+  async function handleTarotDrop(event) {
+    event.preventDefault();
+    await handleTarotUpload([...(event.dataTransfer.files || [])]);
+  }
+
   function showHoverPreview(asset, event, meta = {}) {
     setHoverPreview({
       asset,
@@ -1957,8 +2960,37 @@ export default function App() {
     cue("copy");
   }
 
-  const totalCards = board.lanes?.reduce((sum, lane) => sum + lane.cards.length, 0) || BUILD_BOARD.flatMap((lane) => lane.cards).length;
-  const completeCards = board.lanes?.reduce((sum, lane) => sum + lane.cards.filter((card) => card.status === "done").length, 0) || 0;
+  const totalCards = board.totalCards ?? board.lanes?.reduce((sum, lane) => sum + (lane.totalCards ?? lane.cards.length), 0) ?? BUILD_BOARD.flatMap((lane) => lane.cards).length;
+  const completeCards = board.doneCards ?? board.lanes?.reduce((sum, lane) => sum + (lane.doneCards ?? lane.cards.filter((card) => card.status === "done").length), 0) ?? 0;
+  const avatarTelemetryValue = avatarDataMode === "loading-full"
+    ? "HYDRATING"
+    : avatarDataMode === "full"
+      ? avatars.length
+      : `${avatars.length} ${avatarDataMode.toUpperCase()}`;
+  const avatarTelemetryTone = avatarDataMode === "full" ? "cyan" : avatarDataMode === "loading-full" ? "gold" : "gold";
+  const boardTelemetryValue = boardDataMode === "loading"
+    ? "HYDRATING"
+    : boardDataMode === "full"
+      ? `${completeCards}/${totalCards}`
+      : `${completeCards}/${totalCards} ${boardDataMode.toUpperCase()}`;
+  const itemTelemetryValue = itemDataMode === "loading"
+    ? "HYDRATING"
+    : itemDataMode === "full"
+      ? normalizedItemManager.audit.total
+      : `${normalizedItemManager.audit.total} ${itemDataMode.toUpperCase()}`;
+  const itemTelemetryTone = itemDataMode === "full" ? "cyan" : itemDataMode === "loading" ? "gold" : "gold";
+  const queueTelemetryValue = queueSummary.active ? `${queueSummary.active} ACTIVE` : "READY";
+
+  function scheduleDeferredLoad(loader, delayMs = 650) {
+    let cancelIdle = null;
+    const timer = window.setTimeout(() => {
+      cancelIdle = scheduleIdleTask(loader, 900);
+    }, delayMs);
+    return () => {
+      window.clearTimeout(timer);
+      cancelIdle?.();
+    };
+  }
 
   function flashRoutePending() {
     setRoutePending(true);
@@ -1971,21 +3003,6 @@ export default function App() {
     flashRoutePending();
     setActiveView(nextView);
     if (nextView !== "protocol") setProfileReturnRoute(null);
-    if (nextView === "scenes") ensureWorldStoreLoaded();
-    if (nextView === "items") ensureItemStoreLoaded();
-    if (nextView === "tarot") {
-      ensureHapaSongStoreLoaded();
-    }
-    if (nextView === "songs") {
-      ensureHapaSongStoreLoaded();
-      ensureFullAvatarStoreLoaded();
-      ensureWorldStoreLoaded();
-    }
-    if (nextView === "lore") {
-      ensureFullAvatarStoreLoaded();
-      ensureWorldStoreLoaded();
-      ensureItemStoreLoaded();
-    }
   }
 
   function revealShowcaseTop() {
@@ -2092,17 +3109,19 @@ export default function App() {
             value={WORLD_SYNC_LABELS[worldSyncState] || worldSyncState.toUpperCase()}
             tone={worldSyncState === "saved" ? "green" : worldSyncState === "syncing" ? "cyan" : "gold"}
           />
-          <StatusChip label="AVATARS" value={avatars.length} tone="cyan" />
+          <StatusChip label="AVATARS" value={avatarTelemetryValue} tone={avatarTelemetryTone} />
           <StatusChip label="PLACES" value={sceneAudit.places} tone="green" />
           <StatusChip label="SCENES" value={sceneAudit.scenes} tone="gold" />
-          <StatusChip label="ITEMS" value={normalizedItemManager.audit.total} tone="cyan" />
+          <StatusChip label="TAROT" value={`${tarotSummary.cards}/${tarotSummary.decks}`} tone="rose" />
+          <StatusChip label="ITEMS" value={itemTelemetryValue} tone={itemTelemetryTone} />
           <StatusChip label="EQUIP" value={normalizedInventoryStore.audit.totalEquipments} tone="green" />
-          <StatusChip label="BOARD" value={`${completeCards}/${totalCards}`} tone="fuchsia" />
+          <StatusChip label="BOARD" value={boardTelemetryValue} tone={boardDataMode === "full" ? "fuchsia" : "gold"} />
+          <StatusChip label="QUEUE" value={queueTelemetryValue} tone={queueSummary.blockers ? "orange" : queueSummary.active ? "gold" : "green"} />
           <StatusChip label="SONGS" value={normalizedHapaSongStore.audit.songs} tone="rose" />
           <StatusChip label="VIDEOS" value={videoBranchCount} tone="orange" />
           <StatusChip label="LINKS" value={videoLinkCount} tone="fuchsia" />
           <StatusChip label="3D" value={modelAssets.length} tone="cyan" />
-          {healingQueue && <StatusChip label="HEAL" value={healingQueue.total} tone={healingQueue.total ? "orange" : "green"} />}
+          {audit && <StatusChip label="HEAL" value={healingQueueTotal} tone={healingQueueTotal ? "orange" : "green"} />}
           <StatusChip label="SYNC" value={subscriberStatus ? subscriberStatus.eventCount : 0} tone={apiState === "api" ? "green" : "gold"} />
           {audit && <StatusChip label="GRADE" value={audit.grade.toUpperCase()} tone={audit.complete ? "green" : "orange"} />}
         </div>
@@ -2169,17 +3188,19 @@ export default function App() {
               </div>
               <label>
                 <span>Primary name</span>
-                <input
+                <BufferedTextInput
+                  name="primaryName"
                   value={identityDraft.primaryName}
-                  onChange={(event) => setIdentityDraft((draft) => ({ ...draft, primaryName: event.target.value }))}
+                  onCommit={(value) => setIdentityDraft((draft) => ({ ...draft, primaryName: value }))}
                   placeholder="Avatar name"
                 />
               </label>
               <label>
                 <span>Second name / alias</span>
-                <input
+                <BufferedTextInput
+                  name="aliases"
                   value={identityDraft.aliases}
-                  onChange={(event) => setIdentityDraft((draft) => ({ ...draft, aliases: event.target.value }))}
+                  onCommit={(value) => setIdentityDraft((draft) => ({ ...draft, aliases: value }))}
                   placeholder="Optional callsign"
                 />
               </label>
@@ -2211,10 +3232,14 @@ export default function App() {
             <button role="tab" aria-selected={activeView === "lookbook"} className={activeView === "lookbook" ? "active" : ""} onClick={() => switchView("lookbook")}><BookOpen size={16} /> Look Book</button>
             <button role="tab" aria-selected={activeView === "lore"} className={activeView === "lore" ? "active" : ""} onClick={() => switchView("lore")}><Archive size={16} /> Lore Reader</button>
             <button role="tab" aria-selected={activeView === "songs"} className={activeView === "songs" ? "active" : ""} onClick={() => switchView("songs")}><Music size={16} /> Hapa Songs</button>
+            <button role="tab" aria-selected={activeView === "echos"} className={activeView === "echos" ? "active" : ""} onClick={() => switchView("echos")}><Sparkles size={16} /> Echos Album</button>
             <button role="tab" aria-selected={activeView === "kanban"} className={activeView === "kanban" ? "active" : ""} onClick={() => switchView("kanban")}><KanbanSquare size={16} /> Kanban</button>
             <button role="tab" aria-selected={activeView === "protocol"} className={activeView === "protocol" ? "active" : ""} onClick={() => switchView("protocol")}><BadgeCheck size={16} /> Avatar Card</button>
+            <button role="tab" aria-selected={activeView === "tarot-library"} className={activeView === "tarot-library" ? "active" : ""} onClick={() => switchView("tarot-library")}><Tags size={16} /> Tarot Library</button>
             <button role="tab" aria-selected={activeView === "tarot"} className={activeView === "tarot" ? "active" : ""} onClick={() => switchView("tarot")}><Sparkles size={16} /> Tarot Draw</button>
           </nav>
+
+          <QueueBufferInspector jobs={queueJobs} summary={queueSummary} />
         </aside>
 
         {routePending && (
@@ -2233,7 +3258,7 @@ export default function App() {
               </div>
               <label className="search-box hapa-field">
                 <Search size={15} />
-                <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="filter media" />
+                <BufferedTextInput value={search} onCommit={setSearch} placeholder="filter media" debounceMs={140} />
               </label>
               <input
                 id="local-image-picker"
@@ -2551,6 +3576,14 @@ export default function App() {
             onExpandAsset={openExpandedAsset}
           />
         )}
+        {activeView === "echos" && (
+          <Suspense fallback={<div className="empty-state"><Loader2 size={22} /><span>Loading Echos Album</span></div>}>
+            <HapaEchosView
+              selectedSongId={selectedHapaSongId}
+              onSelectSong={setSelectedHapaSongId}
+            />
+          </Suspense>
+        )}
 
         {activeView === "kanban" && selectedAvatar && (
           <section className="kanban-view">
@@ -2560,16 +3593,65 @@ export default function App() {
           </section>
         )}
 
+        {isTarotLibraryView && (
+          <TarotLibraryView
+            store={normalizedTarotStore}
+            summary={tarotSummary}
+            dashboard={tarotDashboard}
+            avatars={avatars}
+            selectedDeckId={selectedTarotDeckId}
+            selectedDeck={selectedTarotDeck}
+            selectedSet={selectedTarotSet}
+            selectedCard={selectedTarotCard}
+            selectedCardId={selectedTarotCard?.id || selectedTarotCardId}
+            cardsForDeck={tarotCardsForDeck}
+            attachPack={tarotAttachPack}
+            syncState={tarotSyncState}
+            onCreateDeck={handleCreateTarotDeck}
+            onCreateSet={handleCreateTarotSet}
+            onSelectDeck={(deckId) => {
+              setSelectedTarotDeckId(deckId);
+              setSelectedTarotCardId(null);
+              cue("select");
+            }}
+            onSelectCard={(cardId) => {
+              setSelectedTarotCardId(cardId);
+              cue("select");
+            }}
+            onUpdateDeck={handleUpdateTarotDeck}
+            onUpdateSet={handleUpdateTarotSet}
+            onUpdateCard={handleUpdateTarotCard}
+            onSetDeckMembership={handleSetTarotDeckMembership}
+            onSetSetMembership={handleSetTarotSetMembership}
+            onToggleAvatar={handleTarotAvatarToggle}
+            onUpload={handleTarotPicker}
+            onUploadLoop={handleTarotLoopPicker}
+            onDrop={handleTarotDrop}
+            onExpand={openExpandedAsset}
+            onPreview={showHoverPreview}
+            onPreviewHide={hideHoverPreview}
+          />
+        )}
+
         {isTarotDrawView && selectedAvatar && (
-          <Suspense fallback={<div className="tarot-draw-view tarot-draw-loading"><Loader2 size={26} /> <span>Preparing tarot table</span></div>}>
-            <TarotDraw3DView
-              avatarName={selectedAvatar.primaryName}
-              cards={tarotDrawCards}
-              productionAudit={tarotDrawProductionAudit}
-              soundEnabled={sound}
-              onSelectAvatarProfile={(avatarId, options = {}) => openAvatarProfile(avatarId, { returnView: "tarot", returnLabel: "Tarot Draw", ...options })}
-            />
-          </Suspense>
+          tarotDrawSceneArmed && tarotDrawProjectionReady ? (
+            <Suspense fallback={<div className="tarot-draw-view tarot-draw-loading"><Loader2 size={26} /> <span>Preparing tarot table</span></div>}>
+              <TarotDraw3DView
+                avatarName={selectedAvatar.primaryName}
+                cards={tarotDrawCards}
+                productionAudit={tarotDrawProductionAudit}
+                apiBase={API_BASE}
+                soundEnabled={sound}
+                onResolveEchoProject={resolveEchoDirectorProject}
+                onSelectAvatarProfile={(avatarId, options = {}) => openAvatarProfile(avatarId, { returnView: "tarot", returnLabel: "Tarot Draw", ...options })}
+              />
+            </Suspense>
+          ) : (
+            <div className="tarot-draw-view tarot-draw-loading">
+              <Loader2 size={26} />
+              <span>{tarotDrawSceneArmed ? "Preparing playable tarot deck" : "Queueing 3D tarot table"}</span>
+            </div>
+          )
         )}
 
         {activeView === "protocol" && selectedAvatar && mindPack && (
@@ -2579,7 +3661,7 @@ export default function App() {
             audit={audit}
             mindPack={mindPack}
             inventoryStore={normalizedInventoryStore}
-            itemStore={normalizedItemManager}
+            itemStore={showcaseItemManager}
             songLibrary={songLibrary}
             onExpandAsset={openExpandedAsset}
             onSelectAvatarProfile={openAvatarProfile}
@@ -2641,7 +3723,7 @@ function AvatarTeamRail({ groups, expandedTeamIds, selectedAvatarId, avatarAudit
               {expanded && (
                 <div className="avatar-team-members">
                   {group.members.length ? group.members.map(({ avatar, role }) => {
-                    const cardAudit = avatarAudits.get(avatar.id) || auditAvatar(avatar);
+                    const cardAudit = avatarAudits.get(avatar.id) || displayAuditForAvatar(avatar);
                     const portraitAsset = avatarPortraits.get(avatar.id);
                     return (
                       <button
@@ -4137,6 +5219,7 @@ function ShowcaseSongPlayer({ songs, activeSong, isPlaying, showLyrics, songLibr
         ref={audioRef}
         src={audioSrc}
         preload="metadata"
+        crossOrigin="anonymous"
         onCanPlay={() => setAudioState((current) => (current === "loading" ? "ready" : current))}
         onEnded={() => {
           setAudioState("ended");
@@ -4224,6 +5307,9 @@ function HapaSongsView({
   });
   const songs = store.songs || [];
   const visualizerCatalog = store.visualizerCatalog?.length ? store.visualizerCatalog : HAPA_SONG_VISUALIZER_CATALOG;
+  const registryLoadedCount = Array.isArray(songLibrary?.songs) ? songLibrary.songs.length : 0;
+  const registryTotal = Number(songLibrary?.total) || registryLoadedCount;
+  const sourceLabel = dataMode === "full" ? "API" : dataMode === "loading" ? "LOADING" : "FALLBACK";
   const placesById = useMemo(() => new Map((sceneGraph.places || []).map((place) => [place.id, place])), [sceneGraph.places]);
   const songRows = useMemo(() => {
     const needle = query.trim().toLowerCase();
@@ -4299,12 +5385,22 @@ function HapaSongsView({
       <aside className="songs-library-panel hapa-panel" data-variant="notch">
         <div className="section-head hapa-panel-head">
           <span><Music size={15} /> Dear Papa</span>
-          <em>{dataMode}</em>
+          <em>{sourceLabel} · {songRows.length}/{songs.length}</em>
         </div>
         <label className="search-box hapa-field">
           <Search size={15} />
           <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search title, lore, status, tags" />
         </label>
+        <div className="song-library-telemetry" aria-label="Dear Papa song load telemetry">
+          <span><strong>{songRows.length}</strong><em>visible</em></span>
+          <span><strong>{songs.length}</strong><em>loaded</em></span>
+          <span><strong>{registryTotal || "cold"}</strong><em>registry</em></span>
+          {query.trim() && (
+            <button type="button" onClick={() => setQuery("")}>
+              <X size={12} /> clear
+            </button>
+          )}
+        </div>
         <div className="song-row-list" role="list" aria-label="Dear Papa songs">
           {songRows.map((song) => {
             const active = selectedSongId === song.id || selectedSong?.id === song.id;
@@ -4333,6 +5429,12 @@ function HapaSongsView({
               </button>
             );
           })}
+          {!songRows.length && (
+            <div className="empty-state inline">
+              <Search size={18} />
+              <span>No songs match this filter. {songs.length} Dear Papa songs are loaded.</span>
+            </div>
+          )}
         </div>
       </aside>
 
@@ -4367,7 +5469,7 @@ function HapaSongsView({
                   <strong><Play size={14} /> Registry Audio</strong>
                   <span>{selectedSong.audio?.sourceNode || "hapa-song-registry"} · {formatDuration(selectedSong.audio?.duration || registryTrack?.duration)}</span>
                 </div>
-                <audio controls preload="metadata" src={audioSrc} />
+                <audio controls preload="metadata" src={audioSrc} crossOrigin="anonymous" />
               </div>
             )}
 
@@ -4562,6 +5664,7 @@ function HapaSongsView({
     </section>
   );
 }
+
 
 function ShowcaseStatMeter({ label, value }) {
   const safeValue = Math.max(0, Math.min(100, Number(value) || 0));
@@ -4783,7 +5886,7 @@ function ShowcaseCardDetailModal({ card, onClose }) {
         <div className="showcase-card-detail-layout">
           <div className="showcase-card-presentation-art" data-media={previewUri || videoUri ? "available" : "fallback"}>
             {videoUri ? (
-              <video src={videoUri} poster={resolveMediaUri(posterUri)} autoPlay muted loop playsInline preload="metadata" />
+              <video src={videoUri} poster={resolveMediaUri(posterUri)} controls muted={false} loop playsInline preload="metadata" />
             ) : previewUri ? (
               <img src={resolveMediaUri(previewUri)} alt="" loading="eager" />
             ) : (
@@ -5109,16 +6212,23 @@ const AVATAR_TAROT_MAJOR_ARCANA = [
   { number: "XXI", title: "The World", keywords: ["completion", "integration", "wholeness"], element: "earth" }
 ];
 
+// Keep item cards from cloning huge avatar libraries, while avatar Tarot cards
+// still expose the full rolling pool to the runtime queue.
+const TAROT_ITEM_AVATAR_LOOP_SOURCE_WINDOW = Math.max(3, Number(import.meta.env?.VITE_TAROT_ITEM_AVATAR_LOOP_SOURCE_WINDOW || 12));
+const TAROT_PROFILE_AVATAR_LOOP_TILE_LIMIT = Math.max(1, Number(import.meta.env?.VITE_TAROT_PROFILE_AVATAR_LOOP_TILE_LIMIT || 4));
+
 function buildTarotDrawProjection(cards = [], avatarInventory = null, avatars = [], inventoryStore = {}, songLibrary = FALLBACK_SONG_LIBRARY, hapaSongStore = null) {
   const candidates = buildTarotDrawCards(cards, avatarInventory, avatars, inventoryStore, songLibrary, hapaSongStore);
   const audit = auditTarotDrawProductionCandidates(candidates, songLibrary);
   return {
     cards: audit.productionCards,
-    audit
+    audit,
+    state: "ready"
   };
 }
 
 function buildTarotDrawCards(cards = [], avatarInventory = null, avatars = [], inventoryStore = {}, songLibrary = FALLBACK_SONG_LIBRARY, hapaSongStore = null) {
+  const resolveAvatarContact = createTarotAvatarContactResolver(songLibrary, avatars, hapaSongStore);
   const priorityIds = new Set([
     ...(avatarInventory?.hardpoints || []).flatMap((hardpoint) => hardpoint.cardIds || []),
     ...(avatarInventory?.deck || []),
@@ -5156,13 +6266,14 @@ function buildTarotDrawCards(cards = [], avatarInventory = null, avatars = [], i
       const avatarContacts = avatarIds
         .map((avatarId) => avatarById.get(avatarId))
         .filter(Boolean)
-        .map((avatar) => tarotAvatarContact(avatar, songLibrary, avatars));
+        .map(resolveAvatarContact)
+        .filter(Boolean);
       const videoSources = buildItemTarotVideoSources(card, videoAsset, avatarIds, avatarById);
       const songLinks = buildTarotDrawSongLinks([
         ...(tarotDetails.songLinks || []),
         ...(card.episodeCard?.songLinks || []),
         ...(card.songLinks || [])
-      ], songLibrary);
+      ], songLibrary, hapaSongStore);
       return {
         id: card.id,
         title: tarotDetails.title || shipDetails.title || card.title,
@@ -5225,8 +6336,8 @@ function buildTarotDrawCards(cards = [], avatarInventory = null, avatars = [], i
       b.videoScore - a.videoScore ||
       compareText(a.title, b.title)
     );
-  const avatarDrawCards = buildAvatarThemeTarotCards(avatars, selectedAvatar, songLibrary);
-  const songDrawCards = buildHapaSongTarotCards(hapaSongStore, avatars, songLibrary);
+  const avatarDrawCards = buildAvatarThemeTarotCards(avatars, selectedAvatar, songLibrary, hapaSongStore, resolveAvatarContact);
+  const songDrawCards = buildHapaSongTarotCards(hapaSongStore, avatars, songLibrary, resolveAvatarContact);
   return uniqueDrawCards([...itemDrawCards, ...avatarDrawCards, ...songDrawCards]).sort((a, b) =>
     b.priority - a.priority ||
     b.videoScore - a.videoScore ||
@@ -5239,11 +6350,14 @@ function auditTarotDrawProductionCandidates(cards = [], songLibrary = FALLBACK_S
   const records = candidates.map((card) => {
     const hasLoopingVideo = cardHasProductionLoop(card);
     const hasDisplayImage = Boolean(card.highResImageUri || card.imageUri || card.posterUri);
+    const isSongDrawCard = cardIsSongDrawCard(card);
     const hasDropZoneSong = cardHasDropZoneSong(card);
     const hasResolvedAudio = cardHasResolvedDropZoneAudio(card);
-    const imageOnly = hasDisplayImage && !hasLoopingVideo;
+    const songDrawReady = isSongDrawCard && hasDropZoneSong;
+    const productionReady = hasLoopingVideo || songDrawReady;
+    const imageOnly = hasDisplayImage && !hasLoopingVideo && !songDrawReady;
     const reasons = [
-      !hasLoopingVideo ? "missing-looping-video" : "",
+      !productionReady ? "missing-looping-video" : "",
       imageOnly ? "image-only-production-hidden" : ""
     ].filter(Boolean);
     const warnings = [
@@ -5260,7 +6374,7 @@ function auditTarotDrawProductionCandidates(cards = [], songLibrary = FALLBACK_S
       hasDropZoneSong,
       hasResolvedAudio,
       imageOnly,
-      productionReady: hasLoopingVideo,
+      productionReady,
       reasons,
       warnings
     };
@@ -5271,7 +6385,7 @@ function auditTarotDrawProductionCandidates(cards = [], songLibrary = FALLBACK_S
   return {
     schemaVersion: "hapa.tarot-draw-production-audit.v2",
     generatedAt: new Date().toISOString(),
-    policy: "Production draw cards require at least one looping video. Dear Papa song links are optional music-slot enrichment and do not hide otherwise playable video cards. Image-only cards are hidden from production draw and queued for media enrichment.",
+    policy: "Production draw cards require at least one looping video, except Hapa Song cards, which are drawable music-slot control cards when they carry a song payload. Dear Papa song links are optional enrichment for visual cards and do not hide otherwise playable video cards. Image-only non-song cards are hidden from production draw and queued for media enrichment.",
     requireResolvedAudio: false,
     candidates: candidates.length,
     productionReady: productionRecords.length,
@@ -5291,13 +6405,19 @@ function cardHasProductionLoop(card = {}) {
   return Boolean(card.videoUri || (card.videoSources || []).some((source) => source?.uri));
 }
 
+function cardIsSongDrawCard(card = {}) {
+  return Boolean(card.sourceSongId || card.sourceKind === "song" || card.kind === "song" || card.cardType === "song_card" || card.songCardVersion);
+}
+
 function cardHasDropZoneSong(card = {}) {
   if (dropZoneSongCandidatesForCard(card).some((song) => song?.title || song?.songTitle || song?.songId || song?.cardId || song?.audioUri)) return true;
-  return Boolean(card.sourceSongId || card.sourceKind === "song" || card.kind === "song" || card.cardType === "song_card");
+  return cardIsSongDrawCard(card);
 }
 
 function cardHasResolvedDropZoneAudio(card = {}) {
-  return dropZoneSongCandidatesForCard(card).some((song) => Boolean(song?.audioUri));
+  return dropZoneSongCandidatesForCard(card).some((song) =>
+    Boolean(song?.audioUri || song?.audioUrl || song?.mp3Uri || song?.wavUri || song?.audio?.mp3Uri || song?.audio?.wavUri)
+  );
 }
 
 function dropZoneSongCandidatesForCard(card = {}) {
@@ -5307,15 +6427,25 @@ function dropZoneSongCandidatesForCard(card = {}) {
   ];
 }
 
-function buildAvatarThemeTarotCards(avatars = [], selectedAvatar = null, songLibrary = FALLBACK_SONG_LIBRARY) {
+function createTarotAvatarContactResolver(songLibrary = FALLBACK_SONG_LIBRARY, allAvatars = [], hapaSongStore = null) {
+  const contacts = new Map();
+  return (avatar = null) => {
+    if (!avatar) return null;
+    const key = avatar.id || avatar.primaryName || avatar.name;
+    if (!key) return tarotAvatarContact(avatar, songLibrary, allAvatars, hapaSongStore);
+    if (!contacts.has(key)) {
+      contacts.set(key, tarotAvatarContact(avatar, songLibrary, allAvatars, hapaSongStore));
+    }
+    return contacts.get(key);
+  };
+}
+
+function buildAvatarThemeTarotCards(avatars = [], selectedAvatar = null, songLibrary = FALLBACK_SONG_LIBRARY, hapaSongStore = null, resolveAvatarContact = createTarotAvatarContactResolver(songLibrary, avatars, hapaSongStore)) {
   return (avatars || [])
     .map((avatar, index) => {
       const videoAsset = pickAvatarTarotVideo(avatar);
       if (!videoAsset?.uri) return null;
-      const videoSources = uniqueTarotVideoSources([
-        tarotVideoSourceFromAsset(videoAsset, `${avatar.primaryName || avatar.name || avatar.id || "Avatar"} featured loop`),
-        ...tarotVideoSourcesForAvatar(avatar)
-      ]);
+      const videoSources = tarotVideoSourcesForAvatar(avatar);
       const primaryVideoSource = videoSources[0] || tarotVideoSourceFromAsset(videoAsset, `${avatar.primaryName || avatar.name || avatar.id || "Avatar"} featured loop`);
       const arcana = AVATAR_TAROT_MAJOR_ARCANA[index % AVATAR_TAROT_MAJOR_ARCANA.length];
       const role = avatar.mind?.gardenNodeAssignment?.role || avatar.mind?.shipCrewAssignment?.role || avatar.teamRole || "Avatar";
@@ -5336,7 +6466,8 @@ function buildAvatarThemeTarotCards(avatars = [], selectedAvatar = null, songLib
         stats: {
           resonance: Math.min(9, 5 + (avatar.mind?.phraseCards?.length || 0)),
           continuity: Math.min(9, 4 + (avatar.mind?.memoryLedger?.length || 0)),
-          signal: Math.min(9, 5 + (avatar.assets?.length || 0) % 5)
+          signal: Math.min(9, 5 + (avatar.assets?.length || 0) % 5),
+          loopPool: videoSources.length
         },
         tags: uniqueLocal(["tarot-card", "avatar-tarot", "major-arcana", arcana.element, ...(avatar.tags || [])]),
         sourceKind: "avatar",
@@ -5351,22 +6482,23 @@ function buildAvatarThemeTarotCards(avatars = [], selectedAvatar = null, songLib
         hasAlpha: Boolean(primaryVideoSource?.hasAlpha),
         posterUri: posterUri ? resolveMediaUri(posterUri) : "",
         videoSources,
+        videoPool: buildAvatarLoopPoolDescriptor(avatar, videoSources),
         priority: selectedAvatar?.id === avatar.id ? 2 : 0,
         videoScore: avatarAssetResolutionScore(videoAsset),
-        avatarContacts: [tarotAvatarContact(avatar, songLibrary, avatars)]
+        avatarContacts: [resolveAvatarContact(avatar)].filter(Boolean)
       };
     })
     .filter(Boolean);
 }
 
-function buildHapaSongTarotCards(songStore = {}, avatars = [], songLibrary = FALLBACK_SONG_LIBRARY) {
+function buildHapaSongTarotCards(songStore = {}, avatars = [], songLibrary = FALLBACK_SONG_LIBRARY, resolveAvatarContact = createTarotAvatarContactResolver(songLibrary, avatars, songStore)) {
   const songs = Array.isArray(songStore?.songs) ? songStore.songs : Array.isArray(songStore) ? songStore : [];
   if (!songs.length) return [];
   const avatarLookup = createSongAvatarLookup(avatars);
   return songs
     .map((song, index) => {
       const songLink = tarotHapaSongLink(song, songLibrary);
-      const avatarContacts = linkedSongAvatarContacts(song, avatarLookup, songLibrary, avatars);
+      const avatarContacts = linkedSongAvatarContacts(song, avatarLookup, songLibrary, avatars, songStore, resolveAvatarContact);
       const linkedAvatarCards = avatarContacts
         .slice(0, 8)
         .map((contact, avatarIndex) => buildSongLinkedAvatarTarotCard(song, contact, avatarIndex, songLink))
@@ -5457,7 +6589,7 @@ function createSongAvatarLookup(avatars = []) {
   return { byId, byName };
 }
 
-function linkedSongAvatarContacts(song = {}, avatarLookup = createSongAvatarLookup([]), songLibrary = FALLBACK_SONG_LIBRARY, allAvatars = []) {
+function linkedSongAvatarContacts(song = {}, avatarLookup = createSongAvatarLookup([]), songLibrary = FALLBACK_SONG_LIBRARY, allAvatars = [], hapaSongStore = null, resolveAvatarContact = createTarotAvatarContactResolver(songLibrary, allAvatars, hapaSongStore)) {
   const links = [
     ...(song.attachments?.avatarLinks || []),
     ...(song.avatarLinks || [])
@@ -5476,7 +6608,7 @@ function linkedSongAvatarContacts(song = {}, avatarLookup = createSongAvatarLook
       const avatar = avatarLookup.byId.get(link.avatarId) ||
         avatarLookup.byName.get(normalizeAvatarLookupName(link.avatarName)) ||
         avatarLookup.byName.get(normalizeAvatarLookupName(link.name));
-      const contact = avatar ? tarotAvatarContact(avatar, songLibrary, allAvatars) : {
+      const contact = avatar ? resolveAvatarContact(avatar) : {
         id: link.avatarId || normalizeAvatarLookupName(link.avatarName || link.name),
         name: link.avatarName || link.name || "Tagged Avatar",
         role: link.role || "song-linked-avatar",
@@ -5739,7 +6871,7 @@ function extractAssociatedAvatarIds(record = {}) {
   ].map((value) => String(value || "").trim()).filter(Boolean));
 }
 
-function tarotAvatarContact(avatar = {}, songLibrary = FALLBACK_SONG_LIBRARY, allAvatars = []) {
+function tarotAvatarContact(avatar = {}, songLibrary = FALLBACK_SONG_LIBRARY, allAvatars = [], hapaSongStore = null) {
   const portrait = defaultCloseupEmotionAsset(avatar);
   const portraitUri = portrait ? resolveMediaUri(thumbnailUriForAsset(portrait) || portrait.uri) : "";
   const heroVideo = pickAvatarHeroVideo(avatar);
@@ -5752,13 +6884,17 @@ function tarotAvatarContact(avatar = {}, songLibrary = FALLBACK_SONG_LIBRARY, al
     mediaWall.find((tile) => tile.videoUri) ||
     null;
   const backgroundMediaTile = mediaWall.find((tile) => tile.videoUri) || null;
-  const mindSummary = createAvatarMindSummary(avatar, allAvatars);
+  const mindSummary = avatarMindSummaryForTarot(avatar, allAvatars);
   const normalizedMind = normalizeAvatarMind(avatar.mind, avatar);
-  const songCards = (avatar.mind?.dearPapaSongContext?.selectedSongCards || [])
+  const selectedSongCards = (avatar.mind?.dearPapaSongContext?.selectedSongCards || [])
     .filter((song) => song?.status !== "tombstone")
-    .slice(0, 3)
-    .map((song) => tarotContactSong(song, songLibrary))
-    .filter(Boolean);
+    .slice(0, 3);
+  const linkedStoreSongs = avatarLinkedHapaSongs(avatar, hapaSongStore).slice(0, 3);
+  const songCards = uniqueTarotContactSongs(
+    [...selectedSongCards, ...linkedStoreSongs]
+      .map((song) => tarotContactSong(song, songLibrary, hapaSongStore))
+      .filter(Boolean)
+  ).slice(0, 3);
   const mind = avatar.mind || {};
   const persona = mind.personaAnchor || {};
   const teamLabel = mind.gardenNodeAssignment?.teamName || mind.gardenNodeAssignment?.teamId || "Unassigned team";
@@ -5803,15 +6939,15 @@ function tarotAvatarContact(avatar = {}, songLibrary = FALLBACK_SONG_LIBRARY, al
       backgroundHasAlpha: Boolean(backgroundMediaTile?.hasAlpha || heroSource?.hasAlpha),
       mediaWall,
       relationshipTarotCards: buildRelationshipTarotCardsForAvatar(avatar, mindSummary),
-      skillCards: buildSkillCardsForAvatar(avatar, normalizedMind),
+      skillCards: buildSkillCardsForAvatar(avatar, normalizedMind, mindSummary),
       narrative,
       loreFacts,
       tags: (avatar.tags || []).slice(0, 8),
       stats: [
         { label: "Media", value: avatar.assets?.length || 0 },
-        { label: "Lore", value: (mind.selfKnowledge || []).filter((item) => item.status !== "tombstone").length },
-        { label: "Memory", value: (mind.memoryLedger || []).filter((item) => item.status !== "tombstone").length },
-        { label: "Songs", value: songCards.length }
+        { label: "Lore", value: Number(mindSummary.counts?.selfKnowledge || (mind.selfKnowledge || []).filter((item) => item.status !== "tombstone").length || 0) },
+        { label: "Memory", value: Number(mindSummary.counts?.memories || (mind.memoryLedger || []).filter((item) => item.status !== "tombstone").length || 0) },
+        { label: "Songs", value: Number(mindSummary.counts?.songCards || songCards.length || 0) }
       ]
     }
   };
@@ -5880,9 +7016,45 @@ function arcanaByTitle(title) {
   return AVATAR_TAROT_MAJOR_ARCANA.find((item) => item.title === title) || AVATAR_TAROT_MAJOR_ARCANA[0];
 }
 
-function buildSkillCardsForAvatar(avatar = {}, mind = {}) {
+function avatarMindSummaryForTarot(avatar = {}, allAvatars = []) {
+  const base = createAvatarMindSummary(avatar, allAvatars);
+  const compactMind = avatar?.mind && typeof avatar.mind === "object" ? avatar.mind : {};
+  const compactCounts = compactMind.counts && typeof compactMind.counts === "object" ? compactMind.counts : {};
+  const compactLoadout = compactMind.loadout && typeof compactMind.loadout === "object" ? compactMind.loadout : {};
+  return {
+    ...base,
+    personaAnchor: {
+      ...base.personaAnchor,
+      ...(compactMind.personaAnchor || {})
+    },
+    gardenNodeAssignment: compactMind.gardenNodeAssignment || base.gardenNodeAssignment,
+    shipCrewAssignment: compactMind.shipCrewAssignment || base.shipCrewAssignment,
+    counts: {
+      ...base.counts,
+      ...Object.fromEntries(Object.entries(compactCounts).filter(([, value]) => Number(value) > 0))
+    },
+    knownOthers: preferSummaryList(base.knownOthers, compactMind.knownOthers),
+    context: preferSummaryList(base.context, compactMind.context),
+    phraseCards: preferSummaryList(base.phraseCards, compactMind.phraseCards),
+    loadout: {
+      protocolCards: preferSummaryList(base.loadout?.protocolCards, compactLoadout.protocolCards),
+      skillCards: preferSummaryList(base.loadout?.skillCards, compactLoadout.skillCards),
+      tarotCards: preferSummaryList(base.loadout?.tarotCards, compactLoadout.tarotCards),
+      songCards: preferSummaryList(base.loadout?.songCards, compactLoadout.songCards)
+    },
+    updatedAt: compactMind.updatedAt || base.updatedAt
+  };
+}
+
+function preferSummaryList(primary = [], fallback = []) {
+  return Array.isArray(primary) && primary.length ? primary : Array.isArray(fallback) ? fallback : [];
+}
+
+function buildSkillCardsForAvatar(avatar = {}, mind = {}, mindSummary = null) {
   const avatarName = avatar.primaryName || avatar.name || avatar.id || "Avatar";
-  return (mind.skillCardLoadout || [])
+  const compactSkillCards = mindSummary?.loadout?.skillCards || [];
+  const sourceCards = (mind.skillCardLoadout || []).length ? mind.skillCardLoadout : compactSkillCards;
+  return (sourceCards || [])
     .filter((card) => card.status !== "tombstone")
     .slice(0, 10)
     .map((card, index) => ({
@@ -5924,6 +7096,52 @@ function stableCardSlug(value = "") {
     .replace(/^-+|-+$/g, "") || "card";
 }
 
+function avatarLinkedHapaSongs(avatar = {}, hapaSongStore = null) {
+  const songs = hapaSongStoreSongs(hapaSongStore);
+  if (!songs.length || !avatar) return [];
+  const avatarIds = new Set([
+    avatar.id,
+    avatar.avatarId,
+    avatar.sourceAvatarId
+  ].map((value) => String(value || "").trim()).filter(Boolean));
+  const avatarNames = new Set([
+    avatar.primaryName,
+    avatar.name,
+    ...(avatar.names || []).map((name) => name?.name || name),
+    ...(avatar.aliases || [])
+  ].map((value) => normalizeAvatarLookupName(value)).filter(Boolean));
+  return songs
+    .filter((song) => {
+      const perspective = song.performancePerspective ? [{
+        avatarId: song.performancePerspective.avatarId || song.performancePerspective.avatar_id,
+        avatarName: song.performancePerspective.avatarName || song.performancePerspective.avatar_name
+      }] : [];
+      const links = [
+        ...(song.attachments?.avatarLinks || []),
+        ...(song.avatarLinks || []),
+        ...perspective
+      ];
+      return links.some((link) =>
+        avatarIds.has(String(link.avatarId || link.avatar_id || "").trim()) ||
+        avatarNames.has(normalizeAvatarLookupName(link.avatarName || link.avatar_name || link.name))
+      );
+    })
+    .sort((a, b) =>
+      Number(a.trackNumber || 0) - Number(b.trackNumber || 0) ||
+      compareText(a.title, b.title)
+    );
+}
+
+function uniqueTarotContactSongs(songs = []) {
+  const byKey = new Map();
+  for (const song of songs || []) {
+    const key = song.cardId || song.songCardId || song.songId || song.id || normalizeSongTitle(song.title);
+    if (!key || byKey.has(key)) continue;
+    byKey.set(key, song);
+  }
+  return [...byKey.values()];
+}
+
 function buildAvatarContactMediaWall(avatar = {}) {
   const assets = Array.isArray(avatar.assets) ? avatar.assets : [];
   const branchMap = createVideoBranchMap(avatar);
@@ -5937,9 +7155,12 @@ function buildAvatarContactMediaWall(avatar = {}) {
       return avatarContactMediaTile(asset, loop, thumbnailUriForAsset(asset) || asset.uri, avatarMediaKindLabel(asset));
     });
   const loopUris = new Set(imageTiles.flatMap((tile) => [tile.videoUri, tile.originalVideoUri]).filter(Boolean));
-  const videoTiles = pickAvatarBackdropVideos(avatar)
+  const videoTiles = rotatingAvatarLoopWindow(
+    pickAvatarBackdropVideos(avatar),
+    TAROT_PROFILE_AVATAR_LOOP_TILE_LIMIT,
+    `${avatar.id || avatar.primaryName || avatar.name || "avatar"}:profile-media-wall`
+  )
     .filter((asset) => asset?.uri && !loopUris.has(resolveMediaUri(asset.uri)) && !loopUris.has(resolveMediaUri(playbackUriForVideoAsset(asset))))
-    .slice(0, 4)
     .map((asset, index) => avatarContactMediaTile(asset, asset, thumbnailUriForAsset(asset) || fallbackImageUri, index === 0 ? "Featured loop" : "Loop"));
   const seen = new Set();
   return [...imageTiles, ...videoTiles]
@@ -5992,48 +7213,63 @@ function avatarMediaKindLabel(asset = {}) {
   return showcaseText(asset.requirementId || asset.cardType || asset.type || "Media", "Media").replaceAll("_", " ");
 }
 
-function tarotContactSong(song = {}, songLibrary = FALLBACK_SONG_LIBRARY) {
+function tarotContactSong(song = {}, songLibrary = FALLBACK_SONG_LIBRARY, hapaSongStore = null) {
   if (!song) return null;
   const card = findDearPapaSongCard(song);
-  const track = findSongRegistryTrack(song, songLibrary, card);
-  const audioUri = resolveSongRegistryUri(song.audioUri || song.audio_uri || track?.audioUri || track?.audioUrl || "");
-  const coverUri = track?.coverUri
-    ? resolveSongRegistryUri(track.coverUri)
+  const storeSong = findHapaSongInStore(song, hapaSongStore, card);
+  const track = findSongRegistryTrack(song, songLibrary, card, storeSong);
+  const audioUri = resolveSongRegistryUri(
+    song.audioUri ||
+      song.audio_uri ||
+      song.audio?.mp3Uri ||
+      song.audio?.wavUri ||
+      storeSong?.audio?.mp3Uri ||
+      storeSong?.audio?.wavUri ||
+      track?.audioUri ||
+      track?.audioUrl ||
+      ""
+  );
+  const coverUri = song.coverUri || song.cover_uri || song.audio?.coverUri || storeSong?.audio?.coverUri || track?.coverUri
+    ? resolveSongRegistryUri(song.coverUri || song.cover_uri || song.audio?.coverUri || storeSong?.audio?.coverUri || track?.coverUri)
     : "";
   return {
-    id: songChoiceKey(song),
-    songId: song.songId || song.song_id || card?.songId || card?.song_id || "",
-    cardId: song.cardId || song.card_id || card?.id || "",
-    registryId: track?.id || "",
-    title: song.title || card?.title || track?.title || "Avatar song",
-    perspective: song.perspective || card?.performancePerspective || {},
+    id: songChoiceKey(song) || storeSong?.id || card?.id || track?.id || "",
+    songId: song.songId || song.song_id || storeSong?.songId || card?.songId || card?.song_id || "",
+    cardId: song.cardId || song.card_id || storeSong?.cardId || storeSong?.id || card?.id || "",
+    songCardId: song.songCardId || song.song_card_id || storeSong?.cardId || storeSong?.id || card?.id || "",
+    registryId: track?.id || storeSong?.audio?.registryTrackId || "",
+    title: song.title || song.songTitle || storeSong?.title || card?.title || track?.title || "Avatar song",
+    perspective: song.perspective || storeSong?.performancePerspective || card?.performancePerspective || {},
     audioUri,
     coverUri,
-    duration: Number(track?.duration || track?.lyricTiming?.duration || card?.duration || song.duration || 0),
-    lyricsText: songLyricsText(song, track),
-    lyricTiming: songLyricTiming(song, track, card),
-    lyricsStatus: card?.lyrics?.status || "",
-    lyricsSha256: song.lyricsSha256 || song.lyrics_sha256 || card?.lyrics?.sha256 || "",
+    duration: Number(song.duration || song.audio?.duration || storeSong?.audio?.duration || track?.duration || track?.lyricTiming?.duration || card?.duration || 0),
+    lyricsText: songLyricsText(song, track, storeSong),
+    lyricTiming: songLyricTiming(song, track, card, storeSong),
+    lyricsStatus: song.lyrics?.status || storeSong?.lyrics?.status || card?.lyrics?.status || "",
+    lyricsSha256: song.lyricsSha256 || song.lyrics_sha256 || song.lyrics?.sha256 || storeSong?.lyrics?.sha256 || card?.lyrics?.sha256 || "",
     localAvailable: Boolean(audioUri || track?.localAvailable),
     sourceLabel: songRegistryTrackLabel(songLibrary, track),
-    vibe: songVibeText(song, card)
+    vibe: songVibeText(song, storeSong || card)
   };
 }
 
-function buildTarotDrawSongLinks(songLinks = [], songLibrary = FALLBACK_SONG_LIBRARY) {
-  const seen = new Set();
-  return (songLinks || [])
-    .map((link) => tarotDrawSongLink(link, songLibrary))
+function buildTarotDrawSongLinks(songLinks = [], songLibrary = FALLBACK_SONG_LIBRARY, hapaSongStore = null) {
+  const byKey = new Map();
+  (songLinks || [])
+    .map((link) => tarotDrawSongLink(link, songLibrary, hapaSongStore))
     .filter(Boolean)
-    .filter((song) => {
+    .forEach((song) => {
       const key = song.cardId || song.songCardId || song.songId || song.id || song.title;
-      if (!key || seen.has(key)) return false;
-      seen.add(key);
-      return true;
+      if (!key) return;
+      const current = byKey.get(key);
+      if (!current || tarotSongPayloadScore(song) > tarotSongPayloadScore(current)) {
+        byKey.set(key, song);
+      }
     });
+  return [...byKey.values()];
 }
 
-function tarotDrawSongLink(link = {}, songLibrary = FALLBACK_SONG_LIBRARY) {
+function tarotDrawSongLink(link = {}, songLibrary = FALLBACK_SONG_LIBRARY, hapaSongStore = null) {
   const normalized = {
     ...link,
     id: link.id || link.choiceId || link.sourceChoiceId || link.songCardId || link.cardId || link.songId,
@@ -6043,7 +7279,7 @@ function tarotDrawSongLink(link = {}, songLibrary = FALLBACK_SONG_LIBRARY) {
     title: link.songTitle || link.title || link.name,
     songTitle: link.songTitle || link.title || link.name
   };
-  const song = tarotContactSong(normalized, songLibrary);
+  const song = tarotContactSong(normalized, songLibrary, hapaSongStore);
   if (!song) return null;
   return {
     ...song,
@@ -6057,6 +7293,13 @@ function tarotDrawSongLink(link = {}, songLibrary = FALLBACK_SONG_LIBRARY) {
     sourceLabel: song.sourceLabel || link.vibe || "Card song",
     vibe: link.vibe || song.vibe
   };
+}
+
+function tarotSongPayloadScore(song = {}) {
+  return Number(Boolean(song.audioUri || song.audioUrl || song.mp3Uri || song.wavUri || song.audio?.mp3Uri || song.audio?.wavUri)) * 100 +
+    Number(Boolean(song.lyricsText || song.lyrics?.text || song.lyricTiming || song.lyricsTiming || song.timedLyrics)) * 30 +
+    Number(Boolean(song.coverUri || song.imageUri || song.posterUri)) * 5 +
+    Math.min(4, Number(song.sourceRank || 0));
 }
 
 function mediaResolutionScore(asset = {}) {
@@ -6099,29 +7342,52 @@ function findDearPapaSongCard(song = {}) {
   return DEAR_PAPA_SONG_CARDS.find((card) => normalizeSongTitle(card.title || card.name) === title) || null;
 }
 
-function findSongRegistryTrack(song = {}, songLibrary = FALLBACK_SONG_LIBRARY, card = null) {
-  const tracks = Array.isArray(songLibrary?.songs) ? songLibrary.songs : [];
-  if (!tracks.length) return null;
+function hapaSongStoreSongs(hapaSongStore = null) {
+  if (Array.isArray(hapaSongStore)) return hapaSongStore;
+  if (Array.isArray(hapaSongStore?.songs)) return hapaSongStore.songs;
+  return [];
+}
+
+function findHapaSongInStore(song = {}, hapaSongStore = null, card = null) {
+  const songs = hapaSongStoreSongs(hapaSongStore);
+  if (!songs.length) return null;
   const directKeys = new Set([
-    song.registrySongId,
-    song.songRegistryId,
-    song.sunoSongId,
-    song.sunoId,
+    song.id,
+    song.hapaSongId,
+    song.hapaSongCardId,
     song.songCardId,
     song.song_card_id,
     song.cardId,
     song.card_id,
     song.songId,
     song.song_id,
+    song.registryId,
+    song.registrySongId,
+    song.registryTrackId,
+    song.songRegistryId,
+    song.sunoSongId,
+    song.sunoId,
+    card?.id,
+    card?.cardId,
+    card?.songId,
+    card?.song_id,
     card?.registrySongId,
     card?.songRegistryId,
     card?.sunoSongId,
-    card?.sunoId,
-    card?.songId,
-    card?.song_id
+    card?.sunoId
   ].map((key) => String(key || "").trim()).filter(Boolean));
   if (directKeys.size) {
-    const byDirectKey = tracks.find((track) => directKeys.has(String(track.id || "").trim()));
+    const byDirectKey = songs.find((candidate) => [
+      candidate.id,
+      candidate.cardId,
+      candidate.songId,
+      candidate.audio?.registryTrackId,
+      candidate.registryTrackId,
+      candidate.registrySongId,
+      candidate.songRegistryId,
+      candidate.sunoSongId,
+      candidate.sunoId
+    ].some((key) => directKeys.has(String(key || "").trim())));
     if (byDirectKey) return byDirectKey;
   }
 
@@ -6134,16 +7400,79 @@ function findSongRegistryTrack(song = {}, songLibrary = FALLBACK_SONG_LIBRARY, c
     card?.songTitle
   ].map(normalizeSongTitle).filter(Boolean));
   if (!titles.size) return null;
+  return songs.find((candidate) => titles.has(normalizeSongTitle(candidate.title || candidate.name || candidate.songTitle))) || null;
+}
+
+function findSongRegistryTrack(song = {}, songLibrary = FALLBACK_SONG_LIBRARY, card = null, hapaSong = null) {
+  const tracks = Array.isArray(songLibrary?.songs) ? songLibrary.songs : [];
+  if (!tracks.length) return null;
+  const directKeys = new Set([
+    song.registrySongId,
+    song.songRegistryId,
+    song.sunoSongId,
+    song.sunoId,
+    song.registryId,
+    song.registryTrackId,
+    song.audio?.registryTrackId,
+    song.songCardId,
+    song.song_card_id,
+    song.cardId,
+    song.card_id,
+    song.songId,
+    song.song_id,
+    hapaSong?.audio?.registryTrackId,
+    hapaSong?.registryTrackId,
+    hapaSong?.registrySongId,
+    hapaSong?.songRegistryId,
+    hapaSong?.sunoSongId,
+    hapaSong?.sunoId,
+    hapaSong?.id,
+    hapaSong?.cardId,
+    hapaSong?.songId,
+    card?.registrySongId,
+    card?.songRegistryId,
+    card?.sunoSongId,
+    card?.sunoId,
+    card?.id,
+    card?.cardId,
+    card?.songId,
+    card?.song_id
+  ].map((key) => String(key || "").trim()).filter(Boolean));
+  if (directKeys.size) {
+    const byDirectKey = tracks.find((track) => directKeys.has(String(track.id || "").trim()));
+    if (byDirectKey) return byDirectKey;
+  }
+
+  const titles = new Set([
+    song.title,
+    song.name,
+    song.songTitle,
+    hapaSong?.title,
+    hapaSong?.name,
+    hapaSong?.songTitle,
+    card?.title,
+    card?.name,
+    card?.songTitle
+  ].map(normalizeSongTitle).filter(Boolean));
+  if (!titles.size) return null;
   return tracks.find((track) => titles.has(normalizeSongTitle(track.title || track.name))) || null;
 }
 
-function songLyricTiming(song = {}, registryTrack = null, card = null) {
+function songLyricTiming(song = {}, registryTrack = null, card = null, hapaSong = null) {
   const timing = song.lyricTiming ||
+    song.lyricTimings ||
     song.lyric_timing ||
+    song.lyric_timings ||
     song.lyricsTiming ||
     song.timedLyrics ||
+    songLyricTimingPayload(hapaSong || {}) ||
+    hapaSong?.lyricTiming ||
+    hapaSong?.lyricsTiming ||
+    hapaSong?.timedLyrics ||
     registryTrack?.lyricTiming ||
+    registryTrack?.lyricTimings ||
     registryTrack?.lyric_timing ||
+    registryTrack?.lyric_timings ||
     registryTrack?.lyricsTiming ||
     registryTrack?.timedLyrics ||
     card?.lyricTiming ||
@@ -6155,7 +7484,7 @@ function songLyricTiming(song = {}, registryTrack = null, card = null) {
   if (!lines.length) return timing;
   return {
     ...timing,
-    duration: Number(timing.duration || registryTrack?.duration || song.duration || card?.duration || 0),
+    duration: Number(timing.duration || registryTrack?.duration || song.duration || hapaSong?.audio?.duration || card?.duration || 0),
     lines: lines.map((line, index) => ({
       index: Number.isFinite(Number(line.index)) ? Number(line.index) : index,
       section: line.section || line.label || "",
@@ -6195,20 +7524,26 @@ function formatSongDuration(duration) {
   return `${minutes}:${seconds}`;
 }
 
-function songLyricsText(song = {}, registryTrack = null) {
+function songLyricsText(song = {}, registryTrack = null, hapaSong = null) {
+  const directLyrics = song.lyrics?.text || song.lyricsText || "";
+  if (typeof directLyrics === "string" && directLyrics.trim()) return directLyrics.trim();
+
+  const storeLyrics = hapaSong?.lyrics?.text || hapaSong?.lyricsText || "";
+  if (typeof storeLyrics === "string" && storeLyrics.trim()) return storeLyrics.trim();
+
   const registryLyrics = registryTrack?.lyrics;
   if (typeof registryLyrics === "string" && registryLyrics.trim()) return registryLyrics.trim();
 
   const card = findDearPapaSongCard(song);
-  const directLyrics = card?.lyrics?.text || song.lyrics?.text || song.lyricsText || "";
-  if (typeof directLyrics === "string" && directLyrics.trim()) return directLyrics.trim();
+  const cardLyrics = card?.lyrics?.text || "";
+  if (typeof cardLyrics === "string" && cardLyrics.trim()) return cardLyrics.trim();
 
-  const candidatePreview = card?.lyrics?.candidateMatches?.[0]?.preview;
+  const candidatePreview = card?.lyrics?.candidateMatches?.[0]?.preview || hapaSong?.lyrics?.candidateMatches?.[0]?.preview;
   if (candidatePreview) {
     return `${candidatePreview}\n\nLyric source match is pending review in the Dear Papa songbook.`;
   }
 
-  return showcaseText(card?.lore?.summary || song.genesisInstruction || song.communicationUse, "Lyrics are not attached to this song card yet.");
+  return showcaseText(hapaSong?.lore?.summary || card?.lore?.summary || song.genesisInstruction || song.communicationUse, "Lyrics are not attached to this song card yet.");
 }
 
 function songVibeText(song = {}, card = null) {
@@ -7522,10 +8857,84 @@ function AvatarMindView({ avatar, avatars, mindPack, onPatch }) {
   );
 }
 
+function BufferedTextInput(props) {
+  return <BufferedTextControl as="input" {...props} />;
+}
+
+function BufferedTextArea(props) {
+  return <BufferedTextControl as="textarea" {...props} />;
+}
+
+function BufferedTextControl({ as: Component, value, onCommit, debounceMs = 520, onBlur, ...props }) {
+  const textValue = value == null ? "" : String(value);
+  const [draft, setDraft] = useState(textValue);
+  const draftRef = useRef(textValue);
+  const committedRef = useRef(textValue);
+  const commitRef = useRef(onCommit);
+  const timerRef = useRef(0);
+  const idleCancelRef = useRef(null);
+
+  useEffect(() => {
+    commitRef.current = onCommit;
+  }, [onCommit]);
+
+  useEffect(() => {
+    if (textValue === committedRef.current) return;
+    committedRef.current = textValue;
+    draftRef.current = textValue;
+    setDraft(textValue);
+  }, [textValue]);
+
+  useEffect(() => () => {
+    window.clearTimeout(timerRef.current);
+    idleCancelRef.current?.();
+  }, []);
+
+  function cancelPendingCommit() {
+    window.clearTimeout(timerRef.current);
+    idleCancelRef.current?.();
+    idleCancelRef.current = null;
+  }
+
+  function flush(nextValue = draftRef.current) {
+    cancelPendingCommit();
+    if (nextValue === committedRef.current) return;
+    committedRef.current = nextValue;
+    commitRef.current?.(nextValue);
+  }
+
+  function scheduleCommit(nextValue) {
+    cancelPendingCommit();
+    timerRef.current = window.setTimeout(() => {
+      idleCancelRef.current = scheduleIdleTask(() => {
+        idleCancelRef.current = null;
+        flush(nextValue);
+      }, 520);
+    }, debounceMs);
+  }
+
+  return (
+    <Component
+      {...props}
+      value={draft}
+      onChange={(event) => {
+        const nextValue = event.target.value;
+        draftRef.current = nextValue;
+        setDraft(nextValue);
+        scheduleCommit(nextValue);
+      }}
+      onBlur={(event) => {
+        flush(event.target.value);
+        onBlur?.(event);
+      }}
+    />
+  );
+}
+
 function MindTextField({ label, value, onChange, rows = 1 }) {
   const field = rows > 1
-    ? <textarea rows={rows} value={value || ""} onChange={(event) => onChange(event.target.value)} />
-    : <input value={value || ""} onChange={(event) => onChange(event.target.value)} />;
+    ? <BufferedTextArea rows={rows} value={value || ""} onCommit={onChange} />
+    : <BufferedTextInput value={value || ""} onCommit={onChange} />;
   return (
     <label className="mind-field">
       <span>{label}</span>
@@ -7655,7 +9064,7 @@ function ScenesWorkflowView({
           <form className="place-editor hapa-panel" data-variant="resting" onSubmit={(event) => event.preventDefault()}>
             <label>
               <span>Place name</span>
-              <input value={selectedPlace.name} onChange={(event) => onUpdatePlace({ name: event.target.value })} />
+              <BufferedTextInput value={selectedPlace.name} onCommit={(value) => onUpdatePlace({ name: value })} />
             </label>
             <label>
               <span>Place type</span>
@@ -7665,23 +9074,23 @@ function ScenesWorkflowView({
             </label>
             <label>
               <span>Place tags</span>
-              <input value={(selectedPlace.tags || []).join(", ")} onChange={(event) => onUpdatePlace({ tags: splitTagInput(event.target.value) })} />
+              <BufferedTextInput value={(selectedPlace.tags || []).join(", ")} onCommit={(value) => onUpdatePlace({ tags: splitTagInput(value) })} />
             </label>
             <label>
               <span>Place summary</span>
-              <textarea value={selectedPlace.summary || ""} onChange={(event) => onUpdatePlace({ summary: event.target.value })} />
+              <BufferedTextArea value={selectedPlace.summary || ""} onCommit={(value) => onUpdatePlace({ summary: value })} />
             </label>
             <label>
               <span>Place lore</span>
-              <textarea value={selectedPlace.lore || ""} onChange={(event) => onUpdatePlace({ lore: event.target.value, placeCard: { ...(selectedPlace.placeCard || {}), lore: event.target.value } })} />
+              <BufferedTextArea value={selectedPlace.lore || ""} onCommit={(value) => onUpdatePlace({ lore: value, placeCard: { ...(selectedPlace.placeCard || {}), lore: value } })} />
             </label>
             <label>
               <span>Visual description</span>
-              <textarea value={selectedPlace.visualDescription || ""} onChange={(event) => onUpdatePlace({ visualDescription: event.target.value, placeCard: { ...(selectedPlace.placeCard || {}), visualDescription: event.target.value } })} />
+              <BufferedTextArea value={selectedPlace.visualDescription || ""} onCommit={(value) => onUpdatePlace({ visualDescription: value, placeCard: { ...(selectedPlace.placeCard || {}), visualDescription: value } })} />
             </label>
             <label>
               <span>Image prompt</span>
-              <textarea value={selectedPlace.imagePrompt || selectedPlace.placeCard?.imagePrompt || ""} onChange={(event) => onUpdatePlace({ imagePrompt: event.target.value, placeCard: { ...(selectedPlace.placeCard || {}), imagePrompt: event.target.value } })} />
+              <BufferedTextArea value={selectedPlace.imagePrompt || selectedPlace.placeCard?.imagePrompt || ""} onCommit={(value) => onUpdatePlace({ imagePrompt: value, placeCard: { ...(selectedPlace.placeCard || {}), imagePrompt: value } })} />
             </label>
           </form>
         )}
@@ -7720,59 +9129,59 @@ function ScenesWorkflowView({
               <div className="scene-editor-grid">
                 <label>
                   <span>Scene title</span>
-                  <input value={selectedScene.title} onChange={(event) => onUpdateScene({ title: event.target.value })} />
+                  <BufferedTextInput value={selectedScene.title} onCommit={(value) => onUpdateScene({ title: value })} />
                 </label>
                 <label>
                   <span>Scene tags</span>
-                  <input value={(selectedScene.tags || []).join(", ")} onChange={(event) => onUpdateScene({ tags: splitTagInput(event.target.value) })} />
+                  <BufferedTextInput value={(selectedScene.tags || []).join(", ")} onCommit={(value) => onUpdateScene({ tags: splitTagInput(value) })} />
                 </label>
                 <label className="wide">
                   <span>Scene summary</span>
-                  <textarea value={selectedScene.summary || ""} onChange={(event) => onUpdateScene({ summary: event.target.value })} />
+                  <BufferedTextArea value={selectedScene.summary || ""} onCommit={(value) => onUpdateScene({ summary: value })} />
                 </label>
                 <label>
                   <span>Quick pitch</span>
-                  <textarea value={selectedScene.quickPitch || ""} onChange={(event) => onUpdateScene({ quickPitch: event.target.value, promptPack: { ...(selectedScene.promptPack || {}), quickPitch: event.target.value } })} />
+                  <BufferedTextArea value={selectedScene.quickPitch || ""} onCommit={(value) => onUpdateScene({ quickPitch: value, promptPack: { ...(selectedScene.promptPack || {}), quickPitch: value } })} />
                 </label>
                 <label className="wide">
                   <span>Overall narrative</span>
-                  <textarea value={selectedScene.overallNarrative || ""} onChange={(event) => onUpdateScene({ overallNarrative: event.target.value })} />
+                  <BufferedTextArea value={selectedScene.overallNarrative || ""} onCommit={(value) => onUpdateScene({ overallNarrative: value })} />
                 </label>
                 <label className="wide">
                   <span>Narrative text</span>
-                  <textarea value={selectedScene.narrativeText || ""} onChange={(event) => onUpdateScene({ narrativeText: event.target.value })} />
+                  <BufferedTextArea value={selectedScene.narrativeText || ""} onCommit={(value) => onUpdateScene({ narrativeText: value })} />
                 </label>
                 <label className="wide">
                   <span>Production prompt</span>
-                  <textarea value={selectedScene.productionPrompt || ""} onChange={(event) => onUpdateScene({ productionPrompt: event.target.value, promptPack: { ...(selectedScene.promptPack || {}), comicPanelPrompt: event.target.value } })} />
+                  <BufferedTextArea value={selectedScene.productionPrompt || ""} onCommit={(value) => onUpdateScene({ productionPrompt: value, promptPack: { ...(selectedScene.promptPack || {}), comicPanelPrompt: value } })} />
                 </label>
                 <label>
                   <span>Learning objectives</span>
-                  <input value={(selectedScene.learningObjectives || []).join(", ")} onChange={(event) => onUpdateScene({ learningObjectives: splitTagInput(event.target.value) })} />
+                  <BufferedTextInput value={(selectedScene.learningObjectives || []).join(", ")} onCommit={(value) => onUpdateScene({ learningObjectives: splitTagInput(value) })} />
                 </label>
                 <label>
                   <span>Hapa mechanics</span>
-                  <input value={(selectedScene.hapaMechanics || []).join(", ")} onChange={(event) => onUpdateScene({ hapaMechanics: splitTagInput(event.target.value) })} />
+                  <BufferedTextInput value={(selectedScene.hapaMechanics || []).join(", ")} onCommit={(value) => onUpdateScene({ hapaMechanics: splitTagInput(value) })} />
                 </label>
                 <label>
                   <span>Management skills</span>
-                  <input value={(selectedScene.managementSkills || []).join(", ")} onChange={(event) => onUpdateScene({ managementSkills: splitTagInput(event.target.value) })} />
+                  <BufferedTextInput value={(selectedScene.managementSkills || []).join(", ")} onCommit={(value) => onUpdateScene({ managementSkills: splitTagInput(value) })} />
                 </label>
                 <label>
                   <span>Aesthetic mood</span>
-                  <input value={selectedScene.aesthetic?.mood || ""} onChange={(event) => onUpdateScene({ aesthetic: { ...(selectedScene.aesthetic || {}), mood: event.target.value } })} />
+                  <BufferedTextInput value={selectedScene.aesthetic?.mood || ""} onCommit={(value) => onUpdateScene({ aesthetic: { ...(selectedScene.aesthetic || {}), mood: value } })} />
                 </label>
                 <label>
                   <span>Palette</span>
-                  <input value={selectedScene.aesthetic?.palette || ""} onChange={(event) => onUpdateScene({ aesthetic: { ...(selectedScene.aesthetic || {}), palette: event.target.value } })} />
+                  <BufferedTextInput value={selectedScene.aesthetic?.palette || ""} onCommit={(value) => onUpdateScene({ aesthetic: { ...(selectedScene.aesthetic || {}), palette: value } })} />
                 </label>
                 <label>
                   <span>Lighting</span>
-                  <input value={selectedScene.aesthetic?.lighting || ""} onChange={(event) => onUpdateScene({ aesthetic: { ...(selectedScene.aesthetic || {}), lighting: event.target.value } })} />
+                  <BufferedTextInput value={selectedScene.aesthetic?.lighting || ""} onCommit={(value) => onUpdateScene({ aesthetic: { ...(selectedScene.aesthetic || {}), lighting: value } })} />
                 </label>
                 <label>
                   <span>Camera</span>
-                  <input value={selectedScene.aesthetic?.camera || ""} onChange={(event) => onUpdateScene({ aesthetic: { ...(selectedScene.aesthetic || {}), camera: event.target.value } })} />
+                  <BufferedTextInput value={selectedScene.aesthetic?.camera || ""} onCommit={(value) => onUpdateScene({ aesthetic: { ...(selectedScene.aesthetic || {}), camera: value } })} />
                 </label>
               </div>
               <SceneTimelineBand
@@ -7874,19 +9283,19 @@ function SceneTimelineBand({ scene, timelines, sceneAudit, onUpdateTimeline }) {
         </label>
         <label>
           <span>Order</span>
-          <input type="number" value={scene.canonicalTime?.order || 1} onChange={(event) => onUpdateTimeline({ order: event.target.value })} />
+          <BufferedTextInput type="number" value={scene.canonicalTime?.order || 1} onCommit={(value) => onUpdateTimeline({ order: value })} />
         </label>
         <label>
           <span>Beat label</span>
-          <input value={scene.canonicalTime?.label || ""} onChange={(event) => onUpdateTimeline({ label: event.target.value })} />
+          <BufferedTextInput value={scene.canonicalTime?.label || ""} onCommit={(value) => onUpdateTimeline({ label: value })} />
         </label>
         <label>
           <span>Starts at</span>
-          <input value={scene.canonicalTime?.startsAt || ""} onChange={(event) => onUpdateTimeline({ startsAt: event.target.value })} placeholder="date, beat, or story time" />
+          <BufferedTextInput value={scene.canonicalTime?.startsAt || ""} onCommit={(value) => onUpdateTimeline({ startsAt: value })} placeholder="date, beat, or story time" />
         </label>
         <label>
           <span>Duration</span>
-          <input value={scene.canonicalTime?.duration || ""} onChange={(event) => onUpdateTimeline({ duration: event.target.value })} placeholder="00:03:00" />
+          <BufferedTextInput value={scene.canonicalTime?.duration || ""} onCommit={(value) => onUpdateTimeline({ duration: value })} placeholder="00:03:00" />
         </label>
       </div>
     </section>
@@ -8648,7 +10057,7 @@ function ReverseLoopPreview({ video, mode }) {
 
   return (
     <div className="reverse-loop-preview">
-      <video ref={videoRef} src={resolveMediaUri(video.uri)} muted playsInline preload="metadata" />
+      <video ref={videoRef} src={resolveMediaUri(video.uri)} muted={false} playsInline preload="metadata" />
       <div className="reverse-loop-hud">
         <span>{phase}</span>
         <strong>{modeLabel(mode)}</strong>
@@ -9717,7 +11126,7 @@ function AssetVisual({ asset, controls = false, mode = "preview", eager = false 
           src={source.fullUri}
           poster={source.posterUri || undefined}
           controls={controls}
-          muted
+          muted={!controls}
           playsInline
           preload="metadata"
           onLoadedData={() => setLoaded(true)}
@@ -10386,6 +11795,25 @@ function VideoFrameStrip({ frames = [], compact = false }) {
 function HealingQueuePanel({ queue, onCopyPrompt }) {
   const jobs = queue?.jobs || [];
   const firstJob = jobs[0] || null;
+  if (!queue) {
+    return (
+      <div className="panel hapa-panel heal-queue-panel" data-variant="resting">
+        <div className="section-head hapa-panel-head">
+          <span><WandSparkles size={15} /> Codex Heal Queue</span>
+          <em>queued</em>
+        </div>
+        <div className="heal-queue-summary">
+          <StatusChip label="QUEUE" value="IDLE" tone="gold" />
+          <StatusChip label="WORK" value="PROMPTS" tone="cyan" />
+        </div>
+        <div className="heal-complete-state">
+          <Loader2 size={20} />
+          <strong>Preparing prompt packets</strong>
+          <span>Kanban is usable while the full healing queue builds in idle time.</span>
+        </div>
+      </div>
+    );
+  }
   return (
     <div className="panel hapa-panel heal-queue-panel" data-variant={jobs.length ? "hot" : "notch"}>
       <div className="section-head hapa-panel-head">
@@ -10434,38 +11862,92 @@ function HealingQueuePanel({ queue, onCopyPrompt }) {
   );
 }
 
+function QueueBufferInspector({ jobs, summary }) {
+  const activeJobs = jobs.filter((job) => ["queued", "loading", "partial", "stale", "failed"].includes(job.status)).slice(0, 5);
+  const visibleJobs = activeJobs.length ? activeJobs : jobs.slice(0, 3);
+  return (
+    <section
+      className="queue-buffer-inspector hapa-panel"
+      data-variant="resting"
+      data-queue-state={summary.state}
+      aria-label="Queue and buffer inspector"
+    >
+      <div className="section-head hapa-panel-head compact">
+        <span><Radar size={14} /> Queue / Buffer</span>
+        <em>{summary.active ? `${summary.active} active` : "ready"}</em>
+      </div>
+      <div className="queue-buffer-metrics">
+        <span><strong>{summary.counts.loading || 0}</strong><small>loading</small></span>
+        <span><strong>{summary.counts.queued || 0}</strong><small>queued</small></span>
+        <span><strong>{summary.counts.failed || 0}</strong><small>failed</small></span>
+      </div>
+      <div className="queue-buffer-list">
+        {visibleJobs.map((job) => (
+          <article className={`queue-buffer-job status-${job.status}`} key={job.id} data-state={job.status}>
+            <div>
+              {job.status === "loading" ? <Loader2 size={13} /> : <ListChecks size={13} />}
+              <strong>{job.label}</strong>
+              <em>{job.status}</em>
+            </div>
+            <p>{job.detail || job.available || "Ready."}</p>
+            {(job.available || job.queuedNext) && (
+              <small>{[job.available, job.queuedNext].filter(Boolean).join(" Next: ")}</small>
+            )}
+          </article>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 function Board({ title, lanes }) {
+  const visibleCardLimit = 12;
   return (
     <div className="panel hapa-panel board-wrap" data-variant="notch">
       <div className="section-head hapa-panel-head">
         <span><KanbanSquare size={15} /> {title}</span>
-        <em>{lanes.reduce((sum, lane) => sum + lane.cards.length, 0)}</em>
+        <em>{lanes.reduce((sum, lane) => sum + (lane.totalCards ?? lane.cards.length), 0)}</em>
       </div>
       <div className="kanban-board">
-        {lanes.map((lane) => (
-          <section className={`kanban-lane accent-${lane.accent || "cyan"}`} key={lane.id}>
-            <header>
-              <strong>{lane.title}</strong>
-              <span>{lane.cards.length}</span>
-            </header>
-            {lane.cards.map((card) => (
-              <article
-                className={`kanban-card hapa-card status-${card.status}`}
-                data-card-type="quest"
-                data-granularity="mini"
-                data-state={kanbanCardState(card.status)}
-                key={card.id}
-              >
-                <div>
-                  <BadgeCheck size={14} />
-                  <span>{card.status}</span>
+        {lanes.map((lane) => {
+          const visibleCards = lane.cards.slice(0, visibleCardLimit);
+          const laneTotal = lane.totalCards ?? lane.cards.length;
+          const hiddenCount = Math.max(0, laneTotal - visibleCards.length);
+          return (
+            <section className={`kanban-lane accent-${lane.accent || "cyan"}`} key={lane.id}>
+              <header>
+                <strong>{lane.title}</strong>
+                <span>{laneTotal}</span>
+              </header>
+              {visibleCards.map((card) => (
+                <article
+                  className={`kanban-card hapa-card status-${card.status}`}
+                  data-card-type="quest"
+                  data-granularity="mini"
+                  data-state={kanbanCardState(card.status)}
+                  key={card.id}
+                >
+                  <div>
+                    <BadgeCheck size={14} />
+                    <span>{card.status}</span>
+                  </div>
+                  <h3>{card.title}</h3>
+                  <p>{card.body}</p>
+                </article>
+              ))}
+              {hiddenCount > 0 && (
+                <div className="kanban-card hapa-card board-overflow-card" data-card-type="quest" data-granularity="mini" data-state="idle">
+                  <div>
+                    <ListChecks size={14} />
+                    <span>buffered</span>
+                  </div>
+                  <h3>{hiddenCount} more cards</h3>
+                  <p>Visible lane render is capped for route latency; full board data remains loaded in the local store.</p>
                 </div>
-                <h3>{card.title}</h3>
-                <p>{card.body}</p>
-              </article>
-            ))}
-          </section>
-        ))}
+              )}
+            </section>
+          );
+        })}
       </div>
     </div>
   );
@@ -10781,11 +12263,65 @@ function uniqueTarotVideoSources(sources = []) {
     });
 }
 
-function tarotVideoSourcesForAvatar(avatar = {}) {
+function tarotVideoSourcesForAvatar(avatar = {}, options = {}) {
   const name = avatar.primaryName || avatar.name || avatar.id || "Avatar";
-  return pickAvatarBackdropVideos(avatar)
-    .map((asset, index) => tarotVideoSourceFromAsset(asset, `${name} loop ${index + 1}`))
+  const poolAssets = pickAvatarBackdropVideos(avatar);
+  const windowSize = Number(options.windowSize || 0);
+  const projectedAssets = windowSize > 0 && poolAssets.length > windowSize
+    ? rotatingAvatarLoopWindow(poolAssets, windowSize, options.seed || avatar.id || name)
+    : poolAssets;
+  return projectedAssets
+    .map((asset, index) => {
+      const source = tarotVideoSourceFromAsset(asset, `${name} loop ${index + 1}`);
+      if (!source) return null;
+      return {
+        ...source,
+        avatarId: avatar.id || "",
+        avatarName: name,
+        poolKind: "avatar-loop-pool",
+        poolIndex: Math.max(0, poolAssets.findIndex((candidate) => candidate === asset || candidate.id === asset.id)),
+        poolEligibleCount: poolAssets.length,
+        poolProjectionWindow: windowSize > 0 ? Math.min(windowSize, poolAssets.length) : poolAssets.length
+      };
+    })
     .filter(Boolean);
+}
+
+function buildAvatarLoopPoolDescriptor(avatar = {}, videoSources = []) {
+  return {
+    schemaVersion: "hapa.tarot-draw.avatar-loop-pool.v1",
+    kind: "avatar-loop-pool",
+    avatarId: avatar.id || "",
+    avatarName: avatar.primaryName || avatar.name || avatar.id || "Avatar",
+    eligibleCount: videoSources.length,
+    projectedCount: videoSources.length,
+    staticCap: false,
+    policy: "runtime-cursor-queue",
+    activeScreenLimit: 3,
+    preloadQueueMin: 6,
+    note: "Every eligible avatar loop remains in the pool; only active screens and preload queue are bounded."
+  };
+}
+
+function rotatingAvatarLoopWindow(assets = [], windowSize = 12, seed = "") {
+  if (!assets.length) return [];
+  const limit = Math.max(1, Math.min(windowSize, assets.length));
+  const offset = stableLoopOffset(seed, assets.length);
+  const windowed = [];
+  for (let index = 0; index < assets.length && windowed.length < limit; index += 1) {
+    windowed.push(assets[(offset + index) % assets.length]);
+  }
+  return windowed;
+}
+
+function stableLoopOffset(seed = "", modulo = 1) {
+  const length = Math.max(1, modulo);
+  let hash = 2166136261;
+  for (const char of String(seed || "")) {
+    hash ^= char.charCodeAt(0);
+    hash = Math.imul(hash, 16777619);
+  }
+  return Math.abs(hash) % length;
 }
 
 function buildItemTarotVideoSources(card = {}, primaryVideoAsset = null, avatarIds = [], avatarById = new Map()) {
@@ -10812,7 +12348,10 @@ function buildItemTarotVideoSources(card = {}, primaryVideoAsset = null, avatarI
   const avatarSources = avatarIds
     .map((avatarId) => avatarById.get(avatarId))
     .filter(Boolean)
-    .flatMap((avatar) => tarotVideoSourcesForAvatar(avatar));
+    .flatMap((avatar) => tarotVideoSourcesForAvatar(avatar, {
+      windowSize: TAROT_ITEM_AVATAR_LOOP_SOURCE_WINDOW,
+      seed: `${card.id || title}:${avatar.id || avatar.primaryName || avatar.name || "avatar"}`
+    }));
   return uniqueTarotVideoSources([...itemSources, ...linkedSources, ...avatarSources]);
 }
 

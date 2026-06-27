@@ -1,9 +1,12 @@
 #!/usr/bin/env node
 import { createServer } from "node:http";
-import { appendFile, mkdir, readFile, writeFile, stat } from "node:fs/promises";
+import { execFile, spawn } from "node:child_process";
+import { appendFile, mkdir, readFile, writeFile, stat, readdir, access, rm } from "node:fs/promises";
 import { createReadStream } from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { promisify } from "node:util";
 import {
   auditAvatar,
   backgroundlessPlaybackForAsset,
@@ -51,6 +54,10 @@ import {
   normalizeSystemMediaLibrary
 } from "../src/domain/systemMedia.js";
 import {
+  upsertMediaAttachmentRecord,
+  withMediaAttachmentRelationship
+} from "../src/domain/mediaRelationshipSync.js";
+import {
   createInventoryAttachPack,
   createInventoryStoreScaffold,
   createItemCard,
@@ -69,6 +76,8 @@ import {
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, "..");
+const execFileAsync = promisify(execFile);
+const DATA_DIR = path.join(ROOT, "data");
 const STORE_PATH = process.env.HAPA_AVATAR_STORE || path.join(ROOT, "data/avatar-store.json");
 const KANBAN_PATH = process.env.HAPA_KANBAN_STORE || path.join(ROOT, "data/kanban.json");
 const SCENE_STORE_PATH = process.env.HAPA_SCENE_STORE || path.join(ROOT, "data/scene-store.json");
@@ -81,11 +90,30 @@ const HAPA_SONG_STORE_PATH = process.env.HAPA_SONG_STORE || path.join(ROOT, "dat
 const SONG_REGISTRY_ROOT = process.env.HAPA_SONG_REGISTRY_ROOT || "/Users/calderwong/Desktop/hapa-song-registry";
 const SONG_REGISTRY_DATA_PATH = process.env.HAPA_SONG_REGISTRY_DATA || path.join(SONG_REGISTRY_ROOT, "data/registry.json");
 const DEAR_PAPA_PLAYLIST_ID = process.env.HAPA_DEAR_PAPA_PLAYLIST_ID || "369daf97-0e07-4c49-a7a2-2a6f0b18353b";
+const VOICEBOX_BASE_URL = (process.env.HAPA_VOICEBOX_URL || "http://127.0.0.1:17493").replace(/\/+$/, "");
+const VOICEBOX_CLIENT_ID = process.env.HAPA_VOICEBOX_CLIENT_ID || "hapa-avatar-builder";
+const VOICEBOX_MAX_TRANSCRIBE_BYTES = Math.max(256_000, Number(process.env.HAPA_VOICEBOX_MAX_TRANSCRIBE_BYTES || 18_000_000) || 18_000_000);
+const VOICEBOX_FFMPEG_PATH = process.env.HAPA_FFMPEG_PATH || "/opt/homebrew/bin/ffmpeg";
+const VOICEBOX_TRANSCRIBE_SAMPLE_RATE = Math.max(16_000, Number(process.env.HAPA_VOICEBOX_TRANSCRIBE_SAMPLE_RATE || 48_000) || 48_000);
+const VOICEBOX_TRANSCRIBE_FILTER = process.env.HAPA_VOICEBOX_TRANSCRIBE_FILTER || "off";
+const VOICEBOX_TRANSCRIBE_RETRY_FILTER = process.env.HAPA_VOICEBOX_TRANSCRIBE_RETRY_FILTER || "highpass=f=80,lowpass=f=7600,dynaudnorm=f=150:g=5:p=0.85,volume=1.2";
+const HAPA_TRANSCRIBE_ROOT = process.env.HAPA_TRANSCRIBE_ROOT || "/Users/calderwong/Documents/Codex/2026-05-25/you-are-an-expert-hapa-protocol/hapa-transcribe/desktop";
+const HAPA_TRANSCRIBE_BASE_URL = (process.env.HAPA_TRANSCRIBE_URL || "http://127.0.0.1:8762").replace(/\/+$/, "");
+const HAPA_TRANSCRIBE_MODEL = process.env.HAPA_TRANSCRIBE_MODEL || "lightning:large-v3";
+const HAPA_TRANSCRIBE_MAX_BYTES = Math.max(256_000, Number(process.env.HAPA_TRANSCRIBE_MAX_BYTES || 18_000_000) || 18_000_000);
+const HAPA_TRANSCRIBE_EMPTY_CLIP_DIR = process.env.HAPA_TRANSCRIBE_EMPTY_CLIP_DIR || path.join(ROOT, "artifacts/transcribe-empty-clips");
+const HAPA_TRANSCRIBE_SAVE_EMPTY_CLIPS = process.env.HAPA_TRANSCRIBE_SAVE_EMPTY_CLIPS !== "0";
 const MEDIA_DIR = process.env.HAPA_MEDIA_DIR || path.join(ROOT, "data/media");
 const SUBSCRIBER_DIR = process.env.HAPA_SUBSCRIBER_DIR || path.join(ROOT, "data/subscribers");
 const SUBSCRIBERS = ["hapa-atlas", "hapa-second-brain", "hapa-worldbuilding-wiki"];
 const OVERWIND_DIR = process.env.HAPA_OVERWIND_DIR || path.join(ROOT, "data/overwind");
 const OVERWIND_BOOTSTRAP_PATH = path.join(OVERWIND_DIR, "avatar-builder-bootstrap.json");
+const OVERWIND_SHELL_BOOTSTRAP_PATH = path.join(OVERWIND_DIR, "avatar-builder-shell-bootstrap.json");
+const OVERWIND_BOOTSTRAP_PROJECTION_VERSION = "hapa.overwind.avatar-builder-bootstrap.v3.avatar-lore";
+const OVERWIND_SHELL_BOOTSTRAP_PROJECTION_VERSION = "hapa.overwind.avatar-builder-shell.v4.windowed-lean";
+const OVERWIND_SHELL_AVATAR_LIMIT = Number(process.env.HAPA_OVERWIND_SHELL_AVATAR_LIMIT || 72);
+const OVERWIND_SHELL_TEAM_MEMBER_LIMIT = Number(process.env.HAPA_OVERWIND_SHELL_TEAM_MEMBER_LIMIT || 48);
+const OVERWIND_SHELL_BOARD_CARD_LIMIT = Number(process.env.HAPA_OVERWIND_SHELL_BOARD_CARD_LIMIT || 12);
 const OVERWIND_ENTITY_NAMES = [
   "agent_archetype",
   "prompt_contract",
@@ -101,6 +129,9 @@ const OVERWIND_ENTITY_NAMES = [
 const rawJsonCache = new Map();
 const normalizedJsonCache = new Map();
 let overwindBootstrapCache = null;
+let overwindShellBootstrapCache = null;
+let hapaTranscribeProcess = null;
+let hapaTranscribeStartingAt = 0;
 
 const args = new Map();
 for (let index = 2; index < process.argv.length; index += 1) {
@@ -130,13 +161,25 @@ server.listen(port, "127.0.0.1", () => {
 });
 
 function warmOverwindBootstrap() {
-  readOverwindBootstrap(null, false)
+  readOverwindShellBootstrap(null)
     .then((projection) => {
-      console.log(`Overwind bootstrap ready at ${OVERWIND_BOOTSTRAP_PATH} (${projection.counts?.avatars || 0} avatars, ${projection.counts?.cards || 0} cards)`);
+      console.log(`Overwind shell bootstrap ready at ${OVERWIND_SHELL_BOOTSTRAP_PATH} (${projection.counts?.avatars || 0} avatars, ${projection.counts?.cards || 0} cards)`);
     })
     .catch((error) => {
-      console.warn(`Overwind bootstrap warmup skipped: ${error instanceof Error ? error.message : String(error)}`);
+      console.warn(`Overwind shell bootstrap warmup skipped: ${error instanceof Error ? error.message : String(error)}`);
     });
+
+  if (process.env.HAPA_OVERWIND_WARM_FULL === "1") {
+    setTimeout(() => {
+      readOverwindBootstrap(null, false)
+        .then((projection) => {
+          console.log(`Overwind full bootstrap ready at ${OVERWIND_BOOTSTRAP_PATH} (${projection.counts?.avatars || 0} avatars, ${projection.counts?.cards || 0} cards)`);
+        })
+        .catch((error) => {
+          console.warn(`Overwind full bootstrap warmup skipped: ${error instanceof Error ? error.message : String(error)}`);
+        });
+    }, 8000);
+  }
 }
 
 async function route(req, res) {
@@ -166,7 +209,42 @@ async function route(req, res) {
     return;
   }
 
+  if (pathname === "/api/voicebox/health" && req.method === "GET") {
+    sendJson(res, 200, await proxyVoiceboxJson("/health"));
+    return;
+  }
+
+  if (pathname === "/api/voicebox/profiles" && req.method === "GET") {
+    sendJson(res, 200, await proxyVoiceboxJson("/profiles"));
+    return;
+  }
+
+  if (pathname === "/api/voicebox/captures" && req.method === "GET") {
+    sendJson(res, 200, await proxyVoiceboxJson("/captures"));
+    return;
+  }
+
+  if (pathname === "/api/voicebox/transcribe" && req.method === "POST") {
+    sendJson(res, 200, await transcribeVoiceboxAudio(await readBody(req)));
+    return;
+  }
+
+  if (pathname === "/api/hapa-transcribe/health" && req.method === "GET") {
+    sendJson(res, 200, await proxyHapaTranscribeHealth(url.searchParams.get("start") === "1"));
+    return;
+  }
+
+  if (pathname === "/api/hapa-transcribe/transcribe" && req.method === "POST") {
+    sendJson(res, 200, await transcribeHapaAudio(await readBody(req)));
+    return;
+  }
+
   if (pathname === "/api/overwind/bootstrap" && req.method === "GET") {
+    const mode = url.searchParams.get("mode") || "shell";
+    if (mode !== "legacy") {
+      sendJson(res, 200, await readOverwindShellBootstrap(url.searchParams.get("avatarId") || null));
+      return;
+    }
     sendJson(res, 200, await readOverwindBootstrap(
       url.searchParams.get("avatarId") || null,
       url.searchParams.get("fullAvatar") === "1"
@@ -176,7 +254,246 @@ async function route(req, res) {
 
   if (pathname === "/api/kanban") {
     const board = await readJson(KANBAN_PATH);
+    sendJson(res, 200, url.searchParams.get("mode") === "shell" ? compactKanbanForOverwindShell(board) : board);
+    return;
+  }
+
+  if (pathname === "/api/echos/kanban" && req.method === "GET") {
+    const boardPath = "/Users/calderwong/Desktop/Echos-of-Other-Eras-Album-App/kanban.json";
+    const board = await readJson(boardPath);
     sendJson(res, 200, board);
+    return;
+  }
+
+  if (pathname === "/api/echos/kanban" && req.method === "POST") {
+    const boardPath = "/Users/calderwong/Desktop/Echos-of-Other-Eras-Album-App/kanban.json";
+    const body = await readBody(req);
+    await writeFile(boardPath, JSON.stringify(JSON.parse(body), null, 2) + "\n");
+    sendJson(res, 200, { success: true });
+    return;
+  }
+
+  if (pathname === "/api/echos/gaps" && req.method === "GET") {
+    const reportPath = path.join(DATA_DIR, "echos-gaps-report.json");
+    try {
+      const report = await readJson(reportPath);
+      if (url.searchParams.get("summary") === "1") {
+        sendJson(res, 200, {
+          ...report,
+          songs: (report.songs || []).map((song) => ({
+            id: song.id,
+            songId: song.songId,
+            title: song.title,
+            score: song.score,
+            rawPresenceScore: song.rawPresenceScore,
+            checklist: song.checklist,
+            truthStatus: song.truthStatus,
+            placeholderSignals: song.placeholderSignals || []
+          })),
+          videos: (report.videos || []).map((video) => ({
+            id: video.id,
+            title: video.title,
+            source: video.source,
+            sourceId: video.sourceId,
+            uri: video.uri,
+            thumbnailUri: video.thumbnailUri || "",
+            score: video.score,
+            truthStatus: video.truthStatus,
+            flowType: video.flowType || "",
+            duration: video.duration,
+            characterCount: video.characterCount,
+            tags: (video.tags || []).filter((tag) => (
+              !String(tag).startsWith("obj-") &&
+              !String(tag).startsWith("act-")
+            )).slice(0, 16)
+          }))
+        });
+        return;
+      }
+      sendJson(res, 200, report);
+    } catch {
+      sendJson(res, 404, { error: "report_not_found" });
+    }
+    return;
+  }
+
+  if (pathname === "/api/echos/video-detail" && req.method === "GET") {
+    const reportPath = path.join(DATA_DIR, "echos-gaps-report.json");
+    const videoId = url.searchParams.get("id");
+    const sourceId = url.searchParams.get("sourceId");
+    if (!videoId) {
+      sendJson(res, 400, { error: "missing_video_id" });
+      return;
+    }
+    try {
+      const report = await readJson(reportPath);
+      const video = (report.videos || []).find((item) => (
+        item.id === videoId && (!sourceId || item.sourceId === sourceId)
+      ));
+      if (!video) {
+        sendJson(res, 404, { error: "video_not_found", id: videoId, sourceId });
+        return;
+      }
+      sendJson(res, 200, video);
+    } catch {
+      sendJson(res, 404, { error: "report_not_found" });
+    }
+    return;
+  }
+
+  if (pathname === "/api/echos/enrich" && req.method === "POST") {
+    const apply = url.searchParams.get("apply") === "1" || url.searchParams.get("mode") === "apply";
+    const mode = apply ? "apply" : "dry-run";
+    const command = `node scripts/enrich-echos-metadata.mjs ${apply ? "--apply" : "--dry-run"}`;
+    import("node:child_process").then(({ exec }) => {
+      exec(command, { cwd: ROOT }, (err, stdout, stderr) => {
+        if (err) {
+          console.error(`Enrichment ${mode} run failed:`, err);
+          if (stderr) console.error(stderr);
+        } else {
+          console.log(`Enrichment ${mode} run success:`, stdout);
+        }
+      });
+    });
+    sendJson(res, 202, {
+      status: "queued",
+      mode,
+      apply,
+      guardrail: apply ? "writes enabled by explicit apply mode" : "dry-run default; no stores will be written"
+    });
+    return;
+  }
+
+  if (pathname === "/api/echos/director-projects" && req.method === "GET") {
+    const projectsDir = path.join(DATA_DIR, "music-video-projects");
+    try {
+      const exists = await access(projectsDir).then(() => true).catch(() => false);
+      if (!exists) {
+        sendJson(res, 200, []);
+        return;
+      }
+      const summaryOnly = url.searchParams.get("summary") === "1";
+      const files = await readdir(projectsDir);
+      const jsonFiles = files.filter(f => f.endsWith(".json"));
+      const projects = [];
+      for (const file of jsonFiles) {
+        try {
+          const content = await readFile(path.join(projectsDir, file), "utf-8");
+          const payload = JSON.parse(content);
+          if (summaryOnly) {
+            const project = payload.music_video_project || {};
+            projects.push({
+              music_video_project: {
+                song_id: project.song_id,
+                song_title: project.song_title,
+                audio_id: project.audio_id || project.registry_track_id || project.song_id,
+                registry_track_id: project.registry_track_id || null,
+                perspective: project.perspective,
+                avatar_name: project.avatar_name,
+                duration: project.duration,
+                lyric_variant: project.lyric_variant,
+                lyric_position: project.lyric_position,
+                lyric_style: project.lyric_style,
+                lyric_timing_heal: project.lyric_timing_heal || null,
+                media_density_telemetry: project.media_density_telemetry || null,
+                timeline_count: Array.isArray(project.timeline) ? project.timeline.length : 0,
+                visualizer_timeline_count: Array.isArray(project.visualizer_timeline) ? project.visualizer_timeline.length : 0,
+                timed_lyrics_count: Array.isArray(project.timed_lyrics) ? project.timed_lyrics.length : 0,
+                updated_at: project.updated_at || null,
+                provenance: project.provenance || null
+              }
+            });
+          } else {
+            projects.push(payload);
+          }
+        } catch (e) {
+          console.error("Failed to parse project file:", file, e);
+        }
+      }
+      sendJson(res, 200, projects);
+    } catch (e) {
+      console.error("Failed to load director projects:", e);
+      sendJson(res, 500, { error: "failed_to_load_projects" });
+    }
+    return;
+  }
+
+  if (pathname === "/api/echos/director-project" && req.method === "GET") {
+    const songId = url.searchParams.get("songId");
+    if (!songId) {
+      sendJson(res, 400, { error: "missing_song_id" });
+      return;
+    }
+    const projectsDir = path.join(DATA_DIR, "music-video-projects");
+    const safeName = path.basename(songId);
+    const filePath = path.join(projectsDir, `${safeName}-video-project.json`);
+    try {
+      const content = await readFile(filePath, "utf-8");
+      sendJson(res, 200, JSON.parse(content));
+    } catch {
+      sendJson(res, 404, { error: "project_not_found", songId });
+    }
+    return;
+  }
+
+  if (pathname === "/api/echos/shaders" && req.method === "GET") {
+    const manifestPath = "/Users/calderwong/Desktop/hapa-music-viz/web/isf/manifest.json";
+    try {
+      const exists = await access(manifestPath).then(() => true).catch(() => false);
+      if (!exists) {
+        sendJson(res, 200, []);
+        return;
+      }
+      const content = await readFile(manifestPath, "utf-8");
+      const manifest = JSON.parse(content);
+      sendJson(res, 200, manifest.shaders || []);
+    } catch (e) {
+      console.error("Failed to load shaders:", e);
+      sendJson(res, 500, { error: "failed_to_load_shaders" });
+    }
+    return;
+  }
+
+  if (pathname === "/api/echos/director-project" && req.method === "POST") {
+    try {
+      const body = await readBody(req);
+      const proj = body.music_video_project;
+      if (!proj || !proj.song_id) {
+        sendJson(res, 400, { error: "invalid_project_payload" });
+        return;
+      }
+      const projectsDir = path.join(DATA_DIR, "music-video-projects");
+      const filePath = path.join(projectsDir, `${proj.song_id}-video-project.json`);
+      await writeFile(filePath, JSON.stringify(body, null, 2), "utf-8");
+      console.log(`[api] Updated music video project plan: ${proj.song_id}`);
+      sendJson(res, 200, { success: true });
+    } catch (e) {
+      console.error("Failed to save director project:", e);
+      sendJson(res, 500, { error: "failed_to_save_project" });
+    }
+    return;
+  }
+
+  if (pathname === "/api/echos/director-plan" && req.method === "POST") {
+    const apply = url.searchParams.get("apply") === "1" || url.searchParams.get("mode") === "apply";
+    const mode = apply ? "apply" : "dry-run";
+    const command = `node scripts/generate-music-video-plans.mjs ${apply ? "--apply" : "--dry-run"}`;
+    import("node:child_process").then(({ exec }) => {
+      exec(command, { cwd: ROOT }, (err, stdout, stderr) => {
+        if (err) {
+          console.error(`Director planning ${mode} run failed:`, err);
+          if (stderr) console.error(stderr);
+        } else {
+          console.log(`Director planning ${mode} run success:`, stdout);
+        }
+      });
+    });
+    sendJson(res, 202, {
+      status: "queued",
+      mode,
+      apply,
+      guardrail: apply ? "writes enabled by explicit apply mode" : "dry-run default; no project files will be written"
+    });
     return;
   }
 
@@ -244,11 +561,27 @@ async function route(req, res) {
       sendJson(res, 404, { error: "song_not_found", id: songId });
       return;
     }
-    const persisted = body.dataUrl ? await persistMedia(body) : body.asset || body;
+    const persistedInput = body.dataUrl ? await persistMedia(body) : body.asset || body;
+    const relationship = {
+      ownerType: "song",
+      ownerId: song.id,
+      ownerName: song.title || song.songId || song.id,
+      role: body.role || body.options?.role || "song-media"
+    };
+    const persisted = withMediaAttachmentRelationship(persistedInput, relationship, {
+      source: "songs.media-attached",
+      tags: ["song-media", "dear-papa"]
+    });
     const nextSong = attachSongMedia(song, persisted, body.options || body);
     const songbook = await readDearPapaSongbook();
     const nextStore = upsertSongInStore(store, nextSong, songbook);
     await writeHapaSongStore(nextStore);
+    const attachedMedia = (nextSong.media || []).find((media) => media.id === persisted.id) || persisted;
+    await syncMediaAttachmentRecord(attachedMedia, relationship, {
+      source: "songs.media-attached",
+      sourceKind: "song-media",
+      tags: ["song-media", "dear-papa"]
+    });
     await appendSubscriberRegistration("songs.media-attached", { songStore: nextStore, media: persisted });
     sendJson(res, 201, { song: nextSong, media: persisted, store: nextStore });
     return;
@@ -398,7 +731,22 @@ async function route(req, res) {
 
   if (pathname === "/api/media" && req.method === "POST") {
     const body = await readBody(req);
-    const saved = await persistMedia(body);
+    const savedInput = await persistMedia(body);
+    const relationship = {
+      ownerType: "library",
+      ownerId: "system-media",
+      ownerName: "System Media Library",
+      role: "persisted-media"
+    };
+    const saved = withMediaAttachmentRelationship(savedInput, relationship, {
+      source: "media.persisted",
+      tags: ["persisted-media", "unassigned"]
+    });
+    await syncMediaAttachmentRecord(saved, relationship, {
+      source: "media.persisted",
+      sourceKind: "persisted-media",
+      tags: ["persisted-media", "unassigned"]
+    });
     await appendSubscriberRegistration("media.persisted", { media: saved });
     sendJson(res, 201, saved);
     return;
@@ -484,10 +832,28 @@ async function route(req, res) {
 
     if (action === "media" && req.method === "POST") {
       const body = await readBody(req);
-      const asset = body.asset || body;
+      const currentStore = await readTarotStore();
+      const card = (currentStore.cards || []).find((item) => item.id === cardId);
       const role = body.role || body.tarotMediaRole || null;
-      const store = attachTarotCardMedia(await readTarotStore(), cardId, asset, role);
+      const relationship = {
+        ownerType: "tarot",
+        ownerId: cardId,
+        ownerName: card?.title || card?.name || cardId,
+        role: role || ((body.asset || body).type === "video" ? "loop_video" : "primary_image")
+      };
+      const asset = withMediaAttachmentRelationship(body.asset || body, relationship, {
+        source: "tarot.card-media-attached",
+        tags: ["tarot-media", relationship.role]
+      });
+      const store = attachTarotCardMedia(currentStore, cardId, asset, role);
       await writeTarotStore(store);
+      const updatedCard = (store.cards || []).find((item) => item.id === cardId);
+      const attachedAsset = (updatedCard?.assets || []).find((item) => item.id === asset.id) || asset;
+      await syncMediaAttachmentRecord(attachedAsset, relationship, {
+        source: "tarot.card-media-attached",
+        sourceKind: "tarot-media",
+        tags: ["tarot-media", relationship.role]
+      });
       await appendSubscriberRegistration("tarot.card-media-attached", { tarot: store, media: asset });
       sendJson(res, 200, store);
       return;
@@ -557,6 +923,23 @@ async function route(req, res) {
 
   if (pathname === "/api/avatars" && req.method === "GET") {
     const store = await readStore();
+    if (url.searchParams.get("mode") === "index") {
+      const offset = Math.max(0, Number(url.searchParams.get("offset") || 0));
+      const limit = Math.max(1, Math.min(250, Number(url.searchParams.get("limit") || OVERWIND_SHELL_AVATAR_LIMIT)));
+      const avatars = store.avatars || [];
+      sendJson(res, 200, {
+        schemaVersion: "hapa.avatar-index.v1",
+        generatedAt: new Date().toISOString(),
+        source: STORE_PATH,
+        total: avatars.length,
+        offset,
+        limit,
+        hasMore: offset + limit < avatars.length,
+        avatars: avatars.slice(offset, offset + limit).map(compactAvatarForOverwindShell).filter(Boolean),
+        teams: compactAvatarTeamsForOverwindShell(store.teams || [])
+      });
+      return;
+    }
     sendJson(res, 200, store);
     return;
   }
@@ -741,10 +1124,30 @@ async function route(req, res) {
 
     if (action === "assets" && req.method === "POST") {
       const body = await readBody(req);
-      const nextAvatar = assignAssetToSlot(avatar, body.asset || body, body.slotId || null);
+      const assetInput = body.asset || body;
+      const relationship = {
+        ownerType: "avatar",
+        ownerId: avatar.id,
+        ownerName: avatar.primaryName || avatar.name || avatar.id,
+        role: body.slotId || assetInput.requirementId || "avatar-media"
+      };
+      const syncedAsset = withMediaAttachmentRelationship(assetInput, relationship, {
+        source: "avatar.asset-attached",
+        tags: ["avatar-media", assetInput.type === "video" ? "avatar-video" : ""]
+      });
+      const nextAvatar = assignAssetToSlot(avatar, syncedAsset, body.slotId || null);
       store.avatars[avatarIndex] = nextAvatar;
       await writeStore(store);
-      await appendSubscriberRegistration("avatar.asset-attached", { avatar: nextAvatar, media: body.asset || body });
+      const attachedAsset = findAttachedAsset(nextAvatar.assets, syncedAsset);
+      await syncMediaAttachmentRecord(attachedAsset || syncedAsset, {
+        ...relationship,
+        role: attachedAsset?.requirementId || relationship.role
+      }, {
+        source: "avatar.asset-attached",
+        sourceKind: "avatar-media",
+        tags: ["avatar-media", attachedAsset?.type === "video" ? "avatar-video" : ""]
+      });
+      await appendSubscriberRegistration("avatar.asset-attached", { avatar: nextAvatar, media: attachedAsset || syncedAsset });
       sendJson(res, 200, nextAvatar);
       return;
     }
@@ -754,9 +1157,32 @@ async function route(req, res) {
   if (sceneMediaMatch && req.method === "POST") {
     const sceneId = sceneMediaMatch[1];
     const body = await readBody(req);
-    const graph = attachSceneMedia(await readSceneStore(), sceneId, body.asset || body, body.slotId || null);
+    const currentGraph = await readSceneStore();
+    const currentScene = (currentGraph.scenes || []).find((scene) => scene.id === sceneId);
+    const assetInput = body.asset || body;
+    const relationship = {
+      ownerType: "scene",
+      ownerId: sceneId,
+      ownerName: currentScene?.title || currentScene?.name || sceneId,
+      role: body.slotId || assetInput.requirementId || "scene-media"
+    };
+    const syncedAsset = withMediaAttachmentRelationship(assetInput, relationship, {
+      source: "world.scene-media-attached",
+      tags: ["scene-media"]
+    });
+    const graph = attachSceneMedia(currentGraph, sceneId, syncedAsset, body.slotId || null);
     await writeSceneStore(graph);
-    await appendSubscriberRegistration("world.scene-media-attached", { sceneGraph: graph, media: body.asset || body });
+    const scene = (graph.scenes || []).find((item) => item.id === sceneId);
+    const attachedAsset = findAttachedAsset(scene?.assets || [], syncedAsset);
+    await syncMediaAttachmentRecord(attachedAsset || syncedAsset, {
+      ...relationship,
+      role: attachedAsset?.requirementId || relationship.role
+    }, {
+      source: "world.scene-media-attached",
+      sourceKind: "scene-media",
+      tags: ["scene-media"]
+    });
+    await appendSubscriberRegistration("world.scene-media-attached", { sceneGraph: graph, media: attachedAsset || syncedAsset });
     sendJson(res, 200, graph);
     return;
   }
@@ -841,6 +1267,31 @@ async function writeSystemMediaLibrary(library) {
   await mkdir(path.dirname(SYSTEM_MEDIA_PATH), { recursive: true });
   await writeFile(SYSTEM_MEDIA_PATH, `${JSON.stringify(normalizeSystemMediaLibrary(library), null, 2)}\n`, "utf8");
   invalidateJsonCache(SYSTEM_MEDIA_PATH);
+}
+
+async function syncMediaAttachmentRecord(asset, relationship, options = {}) {
+  const library = await readSystemMediaLibrary();
+  const nextLibrary = upsertMediaAttachmentRecord(library, asset, relationship, options);
+  await writeSystemMediaLibrary(nextLibrary);
+  return nextLibrary;
+}
+
+function findAttachedAsset(assets = [], sourceAsset = {}) {
+  if (!sourceAsset) return null;
+  const keys = new Set([
+    sourceAsset.id,
+    sourceAsset.assetId,
+    sourceAsset.uri,
+    sourceAsset.metadata?.storage?.path,
+    sourceAsset.storage?.path
+  ].filter(Boolean));
+  return (assets || []).find((asset) =>
+    keys.has(asset.id) ||
+    keys.has(asset.assetId) ||
+    keys.has(asset.uri) ||
+    keys.has(asset.metadata?.storage?.path) ||
+    keys.has(asset.storage?.path)
+  ) || null;
 }
 
 async function patchSystemMediaRecord(recordId, patch = {}) {
@@ -1126,10 +1577,12 @@ async function readSongRegistry() {
 
 async function readDearPapaRegistrySongs(limit = 500) {
   const registry = await readSongRegistry();
+  const songbook = await readDearPapaSongbook().catch(() => ({ songCards: [] }));
+  const orderByRegistryId = dearPapaSongbookOrder(songbook);
   const allSongs = (registry.songs || []).filter(isDearPapaRegistrySong)
     .slice()
     .sort((a, b) =>
-      Number(a.raw?._hapaPlaylistExport?.trackNumber || 0) - Number(b.raw?._hapaPlaylistExport?.trackNumber || 0)
+      registryPlaylistTrackNumber(a, orderByRegistryId) - registryPlaylistTrackNumber(b, orderByRegistryId)
       || String(a.title || "").localeCompare(String(b.title || ""))
     );
   const songs = allSongs.slice(0, limit);
@@ -1143,13 +1596,26 @@ async function readDearPapaRegistrySongs(limit = 500) {
       proxy: "hapa-avatar-builder"
     },
     total: allSongs.length,
-    songs: songs.map(compactRegistrySong)
+    songs: songs.map((song) => compactRegistrySong(song, { orderByRegistryId }))
   };
 }
 
 async function findRegistrySong(id) {
   const registry = await readSongRegistry();
-  const decoded = decodeURIComponent(id);
+  let decoded = decodeURIComponent(id);
+
+  if (decoded.startsWith("dear-papa-song-")) {
+    try {
+      const songbook = await readDearPapaSongbook().catch(() => ({ songCards: [] }));
+      const card = (songbook.songCards || []).find((c) => c.id === decoded || c.songId === decoded);
+      if (card?.registryTrackId) {
+        decoded = card.registryTrackId;
+      }
+    } catch (e) {
+      console.warn("Failed to map song ID from songbook:", e);
+    }
+  }
+
   return (registry.songs || []).find((song) => song.id === decoded || song.title === decoded) || null;
 }
 
@@ -1165,6 +1631,7 @@ function compactRegistrySong(song, options = {}) {
     createdAt: song.createdAt || null,
     model: song.model || null,
     majorModelVersion: song.majorModelVersion || null,
+    trackNumber: registryPlaylistTrackNumber(song, options.orderByRegistryId) || null,
     contentType: song.contentType || "song",
     stemCount: song.stemCount || 0,
     stemTypes: song.stemTypes || [],
@@ -1199,6 +1666,28 @@ function playlistIdForRegistrySong(song) {
   const songDir = song.raw?._hapaPlaylistExport?.songDir || "";
   const match = String(songDir).match(/\/playlists\/([^/]+)\/songs\//);
   return match ? match[1] : null;
+}
+
+function registryPlaylistTrackNumber(song, orderByRegistryId = new Map()) {
+  if (orderByRegistryId?.has(song.id)) return orderByRegistryId.get(song.id);
+  const exportInfo = song.raw?._hapaPlaylistExport || {};
+  const explicit = Number(exportInfo.trackNumber || exportInfo.index || 0);
+  if (explicit) return explicit;
+  const sourcePath = String(exportInfo.songDir || song.localPath || "");
+  const match = sourcePath.match(/\/songs\/(\d+)\s+-\s+/);
+  return match ? Number(match[1]) : 0;
+}
+
+function dearPapaSongbookOrder(songbook = {}) {
+  const order = new Map();
+  for (const card of songbook.songCards || []) {
+    const trackNumber = Number(card.trackNumber || 0);
+    if (!trackNumber) continue;
+    for (const key of [card.registryTrackId, card.lineage?.registryTrackId].filter(Boolean)) {
+      if (!order.has(key)) order.set(key, trackNumber);
+    }
+  }
+  return order;
 }
 
 async function appendSubscriberRegistration(action, { avatar = null, media = null, sceneGraph = null, itemStore = null, inventoryStore = null, songStore = null, tarot = null } = {}) {
@@ -1564,6 +2053,54 @@ async function readOverwindBootstrap(selectedAvatarId = null, includeSelectedAva
   return projection;
 }
 
+async function readOverwindShellBootstrap(selectedAvatarId = null) {
+  const signature = await createOverwindShellBootstrapSignature(selectedAvatarId);
+  if (overwindShellBootstrapCache?.signature === signature) {
+    return overwindShellBootstrapCache.payload;
+  }
+
+  const persistedShell = await readPersistedOverwindShellProjection();
+  if (persistedShell?.sourceSignature === signature) {
+    overwindShellBootstrapCache = {
+      signature,
+      payload: persistedShell
+    };
+    return persistedShell;
+  }
+
+  const board = await readJson(KANBAN_PATH).catch(() => ({ schemaVersion: "hapa.kanban.v1", lanes: [] }));
+  const persistedFullProjection = await readAnyPersistedOverwindProjection();
+  const projection = persistedFullProjection?.avatars?.length
+    ? createOverwindShellBootstrapFromProjection(persistedFullProjection, {
+        signature,
+        selectedAvatarId,
+        board,
+        freshness: persistedFullProjection.sourceSignature ? "shell-from-last-full-projection" : "shell-from-last-known-state"
+      })
+    : persistedShell?.avatars?.length
+      ? createOverwindShellBootstrapFromProjection(persistedShell, {
+          signature,
+          selectedAvatarId,
+          board,
+          freshness: "shell-from-last-shell-cache"
+        })
+      : createFallbackOverwindShellBootstrap({
+          signature,
+          selectedAvatarId,
+          board
+        });
+
+  await persistOverwindShellProjection(projection).catch((error) => {
+    console.warn(`Overwind shell persist skipped: ${error instanceof Error ? error.message : String(error)}`);
+  });
+
+  overwindShellBootstrapCache = {
+    signature,
+    payload: projection
+  };
+  return projection;
+}
+
 async function readPersistedOverwindProjection(signature) {
   try {
     const payload = JSON.parse(await readFile(OVERWIND_BOOTSTRAP_PATH, "utf8"));
@@ -1573,9 +2110,43 @@ async function readPersistedOverwindProjection(signature) {
   }
 }
 
+async function readAnyPersistedOverwindProjection() {
+  try {
+    return JSON.parse(await readFile(OVERWIND_BOOTSTRAP_PATH, "utf8"));
+  } catch {
+    return null;
+  }
+}
+
+async function readPersistedOverwindShellProjection() {
+  try {
+    return JSON.parse(await readFile(OVERWIND_SHELL_BOOTSTRAP_PATH, "utf8"));
+  } catch {
+    return null;
+  }
+}
+
 async function createOverwindBootstrapSignature(selectedAvatarId, includeSelectedAvatar) {
+  return JSON.stringify({
+    projectionVersion: OVERWIND_BOOTSTRAP_PROJECTION_VERSION,
+    selectedAvatarId: selectedAvatarId || "",
+    includeSelectedAvatar: Boolean(includeSelectedAvatar),
+    files: await createOverwindSourceFileParts()
+  });
+}
+
+async function createOverwindShellBootstrapSignature(selectedAvatarId) {
+  return JSON.stringify({
+    projectionVersion: OVERWIND_SHELL_BOOTSTRAP_PROJECTION_VERSION,
+    selectedAvatarId: selectedAvatarId || "",
+    mode: "shell",
+    files: await createOverwindSourceFileParts()
+  });
+}
+
+async function createOverwindSourceFileParts() {
   const sourceFiles = [STORE_PATH, KANBAN_PATH, SCENE_STORE_PATH, ITEM_STORE_PATH, INVENTORY_STORE_PATH];
-  const fileParts = await Promise.all(sourceFiles.map(async (filePath) => {
+  return Promise.all(sourceFiles.map(async (filePath) => {
     try {
       const fileStat = await stat(filePath);
       return [path.resolve(filePath), fileStat.mtimeMs, fileStat.size];
@@ -1583,16 +2154,366 @@ async function createOverwindBootstrapSignature(selectedAvatarId, includeSelecte
       return [path.resolve(filePath), 0, 0];
     }
   }));
-  return JSON.stringify({
-    selectedAvatarId: selectedAvatarId || "",
-    includeSelectedAvatar: Boolean(includeSelectedAvatar),
-    files: fileParts
-  });
 }
 
 async function persistOverwindProjection(projection) {
   await mkdir(OVERWIND_DIR, { recursive: true });
   await writeFile(OVERWIND_BOOTSTRAP_PATH, `${JSON.stringify(projection)}\n`, "utf8");
+}
+
+async function persistOverwindShellProjection(projection) {
+  await mkdir(OVERWIND_DIR, { recursive: true });
+  await writeFile(OVERWIND_SHELL_BOOTSTRAP_PATH, `${JSON.stringify(projection)}\n`, "utf8");
+}
+
+function createOverwindShellBootstrapFromProjection(sourceProjection = {}, options = {}) {
+  const allAvatars = (sourceProjection.avatars || [])
+    .map(compactAvatarForOverwindShell)
+    .filter(Boolean);
+  const avatarWindow = createAvatarShellWindow(allAvatars, options.selectedAvatarId, OVERWIND_SHELL_AVATAR_LIMIT);
+  const avatars = avatarWindow.avatars;
+  const selectedAvatar = avatars.find((avatar) => avatar.id === options.selectedAvatarId) || avatars[0] || null;
+  const counts = {
+    avatars: sourceProjection.counts?.avatars || allAvatars.length,
+    teams: sourceProjection.counts?.teams || sourceProjection.teams?.length || 0,
+    places: sourceProjection.counts?.places || sourceProjection.world?.places?.length || 0,
+    scenes: sourceProjection.counts?.scenes || sourceProjection.world?.scenes?.length || 0,
+    cards: sourceProjection.counts?.cards || sourceProjection.items?.cards?.length || 0,
+    inventories: sourceProjection.counts?.inventories || sourceProjection.inventory?.avatarInventories?.length || 0
+  };
+
+  return {
+    schemaVersion: OVERWIND_SHELL_BOOTSTRAP_PROJECTION_VERSION,
+    generatedAt: new Date().toISOString(),
+    sourceSignature: options.signature,
+    sourceProjectionSignature: sourceProjection.sourceSignature || null,
+    source: {
+      ...(sourceProjection.source || {}),
+      app: "hapa-avatar-builder",
+      shellStore: OVERWIND_SHELL_BOOTSTRAP_PATH
+    },
+    persistence_target: {
+      id: "hapa_overwind_shell",
+      path: OVERWIND_SHELL_BOOTSTRAP_PATH,
+      entityNames: OVERWIND_ENTITY_NAMES,
+      servingMode: "latency-shell-plus-queued-hydration"
+    },
+    counts,
+    avatars,
+    avatarIndex: {
+      schemaVersion: "hapa.avatar-index-window.v1",
+      total: avatarWindow.total,
+      loaded: avatars.length,
+      limit: avatarWindow.limit,
+      hasMore: avatarWindow.hasMore,
+      windowed: avatarWindow.windowed,
+      selectedAvatarIncluded: Boolean(selectedAvatar),
+      indexEndpoint: `/api/avatars?mode=index&limit=${avatarWindow.limit}`,
+      detailEndpointTemplate: "/api/avatars/:avatarId"
+    },
+    selectedAvatar: null,
+    selectedAvatarId: selectedAvatar?.id || null,
+    teams: compactAvatarTeamsForOverwindShell(sourceProjection.teams || []),
+    world: createOverwindShellSceneGraph(counts),
+    items: createOverwindShellItemStore(counts),
+    inventory: createInventoryStoreScaffold(),
+    kanban: compactKanbanForOverwindShell(options.board || sourceProjection.kanban || { schemaVersion: "hapa.kanban.v1", lanes: [] }),
+    telemetry: createOverwindShellTelemetry(options.freshness || "shell", counts),
+    overwind: {
+      projection: "shell",
+      targetMs: 500,
+      hydrationPolicy: "queue detail stores only after route intent or idle budget"
+    }
+  };
+}
+
+function createFallbackOverwindShellBootstrap(options = {}) {
+  const counts = {
+    avatars: 0,
+    teams: 0,
+    places: 0,
+    scenes: 0,
+    cards: 0,
+    inventories: 0
+  };
+  return {
+    schemaVersion: OVERWIND_SHELL_BOOTSTRAP_PROJECTION_VERSION,
+    generatedAt: new Date().toISOString(),
+    sourceSignature: options.signature,
+    sourceProjectionSignature: null,
+    source: {
+      app: "hapa-avatar-builder",
+      shellStore: OVERWIND_SHELL_BOOTSTRAP_PATH
+    },
+    persistence_target: {
+      id: "hapa_overwind_shell",
+      path: OVERWIND_SHELL_BOOTSTRAP_PATH,
+      entityNames: OVERWIND_ENTITY_NAMES,
+      servingMode: "fallback-shell-plus-queued-hydration"
+    },
+    counts,
+    avatars: [],
+    avatarIndex: {
+      schemaVersion: "hapa.avatar-index-window.v1",
+      total: 0,
+      loaded: 0,
+      limit: OVERWIND_SHELL_AVATAR_LIMIT,
+      hasMore: false,
+      windowed: false,
+      selectedAvatarIncluded: false,
+      indexEndpoint: `/api/avatars?mode=index&limit=${OVERWIND_SHELL_AVATAR_LIMIT}`,
+      detailEndpointTemplate: "/api/avatars/:avatarId"
+    },
+    selectedAvatar: null,
+    selectedAvatarId: options.selectedAvatarId || null,
+    teams: [],
+    world: createOverwindShellSceneGraph(counts),
+    items: createOverwindShellItemStore(counts),
+    inventory: createInventoryStoreScaffold(),
+    kanban: compactKanbanForOverwindShell(options.board || { schemaVersion: "hapa.kanban.v1", lanes: [] }),
+    telemetry: createOverwindShellTelemetry("fallback-shell", counts),
+    overwind: {
+      projection: "shell",
+      targetMs: 500,
+      hydrationPolicy: "serve shell immediately and hydrate authoritative stores on route intent"
+    }
+  };
+}
+
+function createOverwindShellTelemetry(freshness, counts) {
+  return {
+    schemaVersion: "hapa.overwind.shell-telemetry.v1",
+    freshness,
+    targetMs: 500,
+    generatedAt: new Date().toISOString(),
+    waitingState: "Compact shell active; full avatars, world, items, inventory, and media hydrate through queues.",
+    queuedHydration: [
+      "selected avatar detail",
+      "world store on Scenes",
+      "item store on Items",
+      "full avatar store on Tarot/Songs"
+    ],
+    counts
+  };
+}
+
+function createOverwindShellSceneGraph(counts = {}) {
+  const scaffold = createSceneGraphScaffold({
+    placeName: "World Hydration Queue",
+    placeSummary: "Compact shell placeholder. Full places and scenes load when Scenes opens.",
+    sceneTitle: "Queued Scene Hydration",
+    sceneSummary: "Full scene graph is kept off startup payload for the 500 ms latency target."
+  });
+  return {
+    ...compactSceneGraphForOverwind(scaffold),
+    overwindProjection: "shell",
+    counts: {
+      places: counts.places || 0,
+      scenes: counts.scenes || 0
+    }
+  };
+}
+
+function createOverwindShellItemStore(counts = {}) {
+  const scaffold = createItemManagerScaffold({ title: "Hapa Item Manager Shell" });
+  return {
+    ...compactItemStoreForOverwind(scaffold),
+    overwindProjection: "shell",
+    counts: {
+      cards: counts.cards || 0
+    }
+  };
+}
+
+function compactAvatarForOverwindShell(avatar = {}) {
+  const id = avatar.id;
+  if (!id) return null;
+  const primaryName = avatar.primaryName || avatar.name || avatar.names?.[0]?.name || id;
+  const mind = avatar.mind && typeof avatar.mind === "object" ? avatar.mind : {};
+  return {
+    schemaVersion: avatar.schemaVersion || "hapa.avatar-card.v1",
+    id,
+    primaryName,
+    names: normalizeShellNames(avatar.names, primaryName),
+    aliases: compactStringList(avatar.aliases || [], 4, 80),
+    status: avatar.status || "active",
+    role: avatar.role || mind.shipCrewAssignment?.role || "",
+    summary: truncateText(avatar.summary || avatar.operatorNotes || "", 260),
+    three_paragraph_background_narrative: "",
+    operatorNotes: truncateText(avatar.operatorNotes || "", 160),
+    updatedAt: avatar.updatedAt || null,
+    slots: [],
+    assets: [],
+    mind: {
+      schemaVersion: mind.schemaVersion || "hapa.avatar-mind.v1",
+      endpoint: mind.endpoint || `/api/avatars/${encodeURIComponent(id)}/mind`,
+      updatedAt: mind.updatedAt || null,
+      counts: mind.counts || {},
+      personaAnchor: compactPersonaAnchorForOverwind(mind.personaAnchor || {}),
+      shipCrewAssignment: compactPlainObject(mind.shipCrewAssignment || null, 8, 120),
+      gardenNodeAssignment: compactPlainObject(mind.gardenNodeAssignment || null, 8, 120),
+      journalCount: mind.journalCount || 0,
+      knownOthers: compactMindRelationshipList(mind.knownOthers || [], 4),
+      loadout: {
+        protocolCards: compactMindReferenceList(mind.loadout?.protocolCards || [], 2),
+        skillCards: compactMindReferenceList(mind.loadout?.skillCards || [], 2),
+        tarotCards: compactMindReferenceList(mind.loadout?.tarotCards || [], 3),
+        songCards: compactMindReferenceList(mind.loadout?.songCards || [], 3)
+      },
+      phraseCards: compactMindReferenceList(mind.phraseCards || [], 2),
+      context: compactMindReferenceList(mind.context || [], 2)
+    },
+    audit: compactAuditForOverwindShell(avatar.audit || null),
+    overwindProjection: "compact",
+    overwind: {
+      persistenceTarget: "hapa_overwind_shell",
+      detailEndpoint: `/api/avatars/${encodeURIComponent(id)}`,
+      hydration: "queued-on-intent"
+    }
+  };
+}
+
+function compactAuditForOverwindShell(audit = null) {
+  if (!audit || typeof audit !== "object") return null;
+  return {
+    required: Number(audit.required) || 0,
+    filled: Number(audit.filled) || 0,
+    missing: Number(audit.missing) || 0,
+    percent: Math.round(Number(audit.percent) || 0),
+    grade: audit.grade || "",
+    complete: Boolean(audit.complete)
+  };
+}
+
+function compactMindRelationshipList(values = [], limit = 4) {
+  return (Array.isArray(values) ? values : []).slice(0, limit).map((item) => ({
+    id: item.id || item.avatarId || null,
+    name: truncateText(item.name || item.targetName || item.primaryName || "", 80),
+    relationLabel: truncateText(item.relationLabel || item.relationship || "", 80),
+    trust: Number(item.trust) || 0,
+    tension: Number(item.tension) || 0,
+    loyalty: Number(item.loyalty) || 0,
+    classification: item.classification || item.confidence || ""
+  }));
+}
+
+function compactMindReferenceList(values = [], limit = 3) {
+  return (Array.isArray(values) ? values : []).slice(0, limit).map((item, index) => {
+    if (typeof item === "string") return truncateText(item, 100);
+    return {
+      id: item.id || item.cardId || item.songId || item.title || `ref-${index}`,
+      title: truncateText(item.title || item.name || item.label || item.summary || "", 100),
+      kind: item.kind || item.cardType || item.type || "",
+      status: item.status || "",
+      summary: truncateText(item.summary || item.description || item.text || "", 140)
+    };
+  });
+}
+
+function normalizeShellNames(names, primaryName) {
+  const sourceNames = Array.isArray(names) && names.length ? names : [{ name: primaryName }];
+  return sourceNames.slice(0, 4).map((item) => (
+    typeof item === "string" ? { name: item } : { ...item, name: item.name || primaryName }
+  ));
+}
+
+function pickAvatarShellPreviewAsset(avatar = {}) {
+  const assets = Array.isArray(avatar.assets) ? avatar.assets : [];
+  const asset = assets.find((item) => item.metadata?.thumbnailUri || item.metadata?.thumbnail?.uri || item.metadata?.posterUri)
+    || assets.find((item) => item.type === "image")
+    || assets[0];
+  return asset ? compactMediaForOverwind(asset) : null;
+}
+
+function createAvatarShellWindow(avatars = [], selectedAvatarId = null, limit = OVERWIND_SHELL_AVATAR_LIMIT) {
+  const deduped = [];
+  const seen = new Set();
+  for (const avatar of avatars) {
+    if (!avatar?.id || seen.has(avatar.id)) continue;
+    seen.add(avatar.id);
+    deduped.push(avatar);
+  }
+  const selected = selectedAvatarId ? deduped.find((avatar) => avatar.id === selectedAvatarId) : null;
+  const ordered = selected
+    ? [selected, ...deduped.filter((avatar) => avatar.id !== selected.id)]
+    : deduped;
+  const safeLimit = Math.max(1, limit);
+  const windowedAvatars = ordered.slice(0, safeLimit);
+  return {
+    avatars: windowedAvatars,
+    total: deduped.length,
+    limit: safeLimit,
+    hasMore: deduped.length > windowedAvatars.length,
+    windowed: deduped.length > windowedAvatars.length
+  };
+}
+
+function compactAvatarTeamsForOverwindShell(teams = []) {
+  return (Array.isArray(teams) ? teams : []).map((team) => ({
+    schemaVersion: team.schemaVersion || "hapa.avatar-teams.v1",
+    id: team.id,
+    title: team.title || team.name || "Untitled Team",
+    description: truncateText(team.description || "", 160),
+    accent: team.accent || "cyan",
+    status: team.status || "active",
+    totalMembers: (team.members || []).length,
+    members: (team.members || []).slice(0, OVERWIND_SHELL_TEAM_MEMBER_LIMIT).map((member) => ({
+      avatarId: typeof member === "string" ? member : member.avatarId,
+      role: typeof member === "string" ? "Member" : member.role || "Member",
+      notes: typeof member === "string" ? "" : truncateText(member.notes || "", 120),
+      joinedAt: typeof member === "string" ? null : member.joinedAt || null
+    })),
+    createdAt: team.createdAt || null,
+    updatedAt: team.updatedAt || null
+  })).filter((team) => team.id);
+}
+
+function compactKanbanForOverwindShell(board = {}) {
+  const lanes = Array.isArray(board.lanes) ? board.lanes : [];
+  const compactLanes = lanes.map((lane) => {
+    const cards = Array.isArray(lane.cards) ? lane.cards : [];
+    return {
+      id: lane.id,
+      title: lane.title || "Lane",
+      accent: lane.accent || "cyan",
+      totalCards: cards.length,
+      doneCards: cards.filter((card) => card.status === "done").length,
+      cards: cards.slice(0, OVERWIND_SHELL_BOARD_CARD_LIMIT).map(compactKanbanCardForOverwindShell)
+    };
+  });
+  const totalCards = lanes.reduce((sum, lane) => sum + (lane.cards?.length || 0), 0);
+  const doneCards = lanes.reduce((sum, lane) => sum + (lane.cards || []).filter((card) => card.status === "done").length, 0);
+  return {
+    schemaVersion: board.schemaVersion || "hapa.kanban-board.v1",
+    boardId: board.boardId || "hapa-avatar-builder",
+    title: board.title || "Hapa Avatar Builder Delivery Board",
+    updatedAt: board.updatedAt || null,
+    overwindProjection: "shell",
+    totalCards,
+    doneCards,
+    laneCount: compactLanes.length,
+    cardWindowLimit: OVERWIND_SHELL_BOARD_CARD_LIMIT,
+    hasMore: compactLanes.some((lane) => lane.totalCards > lane.cards.length),
+    lanes: compactLanes
+  };
+}
+
+function compactKanbanCardForOverwindShell(card = {}) {
+  return {
+    id: card.id,
+    title: card.title || "Untitled card",
+    status: card.status || "queued",
+    owner: card.owner || "",
+    priority: card.priority || "",
+    body: truncateText(card.body || card.description || "", 130),
+    tags: compactStringList(card.tags || [], 8, 40),
+    updatedAt: card.updatedAt || null,
+    completedAt: card.completedAt || null,
+    notes: (card.notes || []).slice(-1).map((note) => ({
+      at: note.at || null,
+      text: truncateText(note.text || "", 120)
+    }))
+  };
 }
 
 function compactAvatarForOverwind(avatar) {
@@ -1608,6 +2529,7 @@ function compactAvatarForOverwind(avatar) {
     status: normalized.status || "active",
     role: normalized.role || normalized.mind?.shipCrewAssignment?.role || "",
     summary: truncateText(normalized.summary || normalized.operatorNotes || normalized.three_paragraph_background_narrative?.paragraphs?.[0] || "", 420),
+    three_paragraph_background_narrative: truncateText(normalized.three_paragraph_background_narrative || "", 1800),
     operatorNotes: truncateText(normalized.operatorNotes || "", 420),
     updatedAt: normalized.updatedAt || null,
     slots: (normalized.slots || []).map(compactAvatarSlotForOverwind),
@@ -1617,11 +2539,19 @@ function compactAvatarForOverwind(avatar) {
       endpoint: `/api/avatars/${encodeURIComponent(normalized.id)}/mind`,
       updatedAt: mindSummary.updatedAt,
       counts: mindSummary.counts,
-      personaAnchor: truncateText(normalized.mind?.personaAnchor || "", 420),
+      personaAnchor: compactPersonaAnchorForOverwind(mindSummary.personaAnchor),
       shipCrewAssignment: normalized.mind?.shipCrewAssignment || null,
       gardenNodeAssignment: normalized.mind?.gardenNodeAssignment || null,
       journalCount: Array.isArray(normalized.mind?.journalEntries) ? normalized.mind.journalEntries.length : 0,
-      knownOthers: mindSummary.knownOthers.slice(0, 12)
+      knownOthers: mindSummary.knownOthers.slice(0, 12),
+      loadout: {
+        protocolCards: mindSummary.loadout.protocolCards.slice(0, 8),
+        skillCards: mindSummary.loadout.skillCards.slice(0, 8),
+        tarotCards: mindSummary.loadout.tarotCards.slice(0, 12),
+        songCards: mindSummary.loadout.songCards.slice(0, 12)
+      },
+      phraseCards: mindSummary.phraseCards.slice(0, 8),
+      context: mindSummary.context.slice(0, 12)
     },
     audit: {
       grade: audit.grade,
@@ -1635,6 +2565,19 @@ function compactAvatarForOverwind(avatar) {
       persistenceTarget: "hapa_overwind",
       detailEndpoint: `/api/avatars/${encodeURIComponent(normalized.id)}`
     }
+  };
+}
+
+function compactPersonaAnchorForOverwind(anchor = {}) {
+  const source = anchor && typeof anchor === "object" ? anchor : {};
+  return {
+    identityStatement: truncateText(source.identityStatement || "", 420),
+    wants: truncateText(source.wants || "", 420),
+    fears: truncateText(source.fears || "", 420),
+    misunderstandings: truncateText(source.misunderstandings || "", 420),
+    willNotSayDirectly: truncateText(source.willNotSayDirectly || "", 420),
+    carriedForward: truncateText(source.carriedForward || "", 420),
+    updatedAt: source.updatedAt || null
   };
 }
 
@@ -1746,6 +2689,7 @@ function compactItemCardForOverwind(card) {
     quality: card.quality || {},
     locationState: card.locationState || {},
     connections: compactConnectionsForOverwind(card.connections || {}),
+    songLinks: compactSongLinksForOverwind(card.songLinks || card.tarotCard?.songLinks || card.episodeCard?.songLinks || [], 4),
     mediaAssets: compactMediaList(card.mediaAssets || [], 2),
     tarotCard: compactTarotDetailsForOverwind(card.tarotCard),
     shipCard: compactShipDetailsForOverwind(card.shipCard),
@@ -1780,12 +2724,37 @@ function compactTarotDetailsForOverwind(tarot = null) {
     catalog: compactPlainObject(tarot.catalog || tarot.cataloging, 12, 160),
     attribution: compactPlainObject(tarot.attribution, 12, 160),
     mechanics: compactPlainObject(tarot.mechanics, 16, 160),
+    songLinks: compactSongLinksForOverwind(tarot.songLinks || [], 4),
     lore: truncateText(tarot.lore || tarot.meaning || tarot.description || "", 420),
     ocr: {
       confidence: tarot.ocr?.confidence || tarot.ocrConfidence || tarot.ocr_confidence || null,
       preview: truncateText(tarot.ocr?.text || tarot.ocr?.rawText || tarot.ocrText || tarot.ocr_text || "", 420)
     }
   };
+}
+
+function compactSongLinksForOverwind(songLinks = [], limit = 4) {
+  return (Array.isArray(songLinks) ? songLinks : [])
+    .slice(0, limit)
+    .map((link) => ({
+      id: link.id || "",
+      choiceId: link.choiceId || "",
+      sourceChoiceId: link.sourceChoiceId || "",
+      songId: link.songId || link.song_id || "",
+      songCardId: link.songCardId || link.song_card_id || "",
+      songTitle: link.songTitle || link.title || link.name || "",
+      cardId: link.cardId || link.card_id || "",
+      avatarId: link.avatarId || link.avatar_id || "",
+      avatarName: link.avatarName || link.avatar_name || "",
+      avatarRole: link.avatarRole || link.avatar_role || link.role || "",
+      why: truncateText(link.why || link.songWhy || link.whySelected || link.whyChosen || "", 420),
+      canonReason: truncateText(link.canonReason || "", 360),
+      objectiveFit: truncateText(link.objectiveFit || "", 260),
+      deckInfluence: truncateText(link.deckInfluence || "", 260),
+      vibe: truncateText(link.vibe || "", 160),
+      notes: truncateText(link.notes || "", 240)
+    }))
+    .filter((link) => link.songCardId || link.songId || link.songTitle || link.id);
 }
 
 function compactShipDetailsForOverwind(shipCard = null) {
@@ -2043,7 +3012,355 @@ function setCors(req, res) {
   res.setHeader("Access-Control-Allow-Origin", origin);
   res.setHeader("Vary", "Origin");
   res.setHeader("Access-Control-Allow-Methods", "GET,POST,PUT,OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Range");
+}
+
+async function proxyHapaTranscribeHealth(start = false) {
+  const current = await fetchHapaTranscribeHealth().catch((error) => ({ ok: false, error: error.message || String(error) }));
+  if (current?.ok || !start) return current;
+  await ensureHapaTranscribeBackend();
+  return fetchHapaTranscribeHealth();
+}
+
+async function transcribeHapaAudio(body = {}) {
+  const input = decodeAudioDataUrl(body.dataUrl || body.audioDataUrl || body.audio || "");
+  if (!input.buffer.length) throw new Error("Hapa Transcribe requires an audio dataUrl");
+  if (input.buffer.length > HAPA_TRANSCRIBE_MAX_BYTES) {
+    throw new Error(`Hapa Transcribe clip is too large (${input.buffer.length} bytes)`);
+  }
+
+  await ensureHapaTranscribeBackend();
+
+  const mimeType = body.mimeType || input.mimeType || "audio/webm";
+  const name = body.name || `tarot-camera-card-${Date.now()}.${extensionForVoiceboxInput(mimeType, "") || "webm"}`;
+  const model = body.model || HAPA_TRANSCRIBE_MODEL;
+  const sessionId = body.sessionId || body.session_id || "tarot-camera-card";
+  const chunkIndex = Number.isFinite(Number(body.chunkIndex ?? body.chunk_index))
+    ? Number(body.chunkIndex ?? body.chunk_index)
+    : Date.now();
+  const form = new FormData();
+  form.append("session_id", String(sessionId));
+  form.append("chunk_index", String(Math.max(0, Math.floor(chunkIndex))));
+  form.append("model", String(model));
+  form.append("language", String(body.language || "en"));
+  form.append("audio", new Blob([input.buffer], { type: mimeType }), name);
+
+  const startedAt = Date.now();
+  const response = await fetch(`${HAPA_TRANSCRIBE_BASE_URL}/v1/transcribe-chunk`, {
+    method: "POST",
+    body: form
+  });
+  const text = await response.text();
+  let payload = null;
+  try {
+    payload = text ? JSON.parse(text) : {};
+  } catch {
+    payload = { raw: text };
+  }
+  if (!response.ok || payload?.ok === false) {
+    const message = payload?.detail || payload?.message || payload?.error || response.statusText || "Hapa Transcribe failed";
+    throw new Error(typeof message === "string" ? message : JSON.stringify(message));
+  }
+  const transcriptText = String(payload.text || "").trim();
+  const debugClipPath = !transcriptText && HAPA_TRANSCRIBE_SAVE_EMPTY_CLIPS
+    ? await saveEmptyHapaTranscribeClip(input.buffer, { mimeType, name, model, sessionId, chunkIndex }).catch(() => "")
+    : "";
+  console.log(`[hapa-transcribe] session=${sessionId} chunk=${Math.max(0, Math.floor(chunkIndex))} model=${model} bytes=${input.buffer.length} textChars=${transcriptText.length} elapsedMs=${Date.now() - startedAt}${debugClipPath ? ` emptyClip=${debugClipPath}` : ""}`);
+  return {
+    ok: true,
+    text: transcriptText,
+    duration: Number(body.durationSeconds || body.duration || 0),
+    elapsedMs: Date.now() - startedAt,
+    source: "hapa-transcribe",
+    engine: payload.engine || "",
+    model: payload.model || model,
+    language: payload.language || body.language || "en",
+    inputBytes: input.buffer.length,
+    inputMimeType: mimeType,
+    segments: Array.isArray(payload.segments) ? payload.segments : [],
+    serviceElapsedSeconds: Number(payload.elapsed_seconds || 0),
+    receivedAt: payload.received_at || null,
+    service: {
+      url: HAPA_TRANSCRIBE_BASE_URL,
+      defaultModel: HAPA_TRANSCRIBE_MODEL
+    },
+    debugClipPath
+  };
+}
+
+async function saveEmptyHapaTranscribeClip(buffer, { mimeType = "audio/webm", name = "", model = "", sessionId = "", chunkIndex = 0 } = {}) {
+  await mkdir(HAPA_TRANSCRIBE_EMPTY_CLIP_DIR, { recursive: true });
+  const extension = extensionForVoiceboxInput(mimeType, name) || "webm";
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+  const safeSession = slugify(sessionId || "camera-card") || "camera-card";
+  const safeModel = slugify(model || HAPA_TRANSCRIBE_MODEL) || "large-v3";
+  const filePath = path.join(
+    HAPA_TRANSCRIBE_EMPTY_CLIP_DIR,
+    `${stamp}-${safeSession}-${safeModel}-chunk-${Math.max(0, Math.floor(Number(chunkIndex) || 0))}.${extension}`
+  );
+  await writeFile(filePath, buffer);
+  return filePath;
+}
+
+async function fetchHapaTranscribeHealth() {
+  const response = await fetch(`${HAPA_TRANSCRIBE_BASE_URL}/health`, { signal: AbortSignal.timeout(1_200) });
+  const text = await response.text();
+  let payload = null;
+  try {
+    payload = text ? JSON.parse(text) : {};
+  } catch {
+    payload = { raw: text };
+  }
+  if (!response.ok || payload?.ok === false) {
+    const message = payload?.detail || payload?.message || response.statusText || "Hapa Transcribe health check failed";
+    throw new Error(typeof message === "string" ? message : JSON.stringify(message));
+  }
+  return {
+    ...payload,
+    ok: true,
+    url: HAPA_TRANSCRIBE_BASE_URL,
+    model: HAPA_TRANSCRIBE_MODEL,
+    process: hapaTranscribeProcess?.pid || null
+  };
+}
+
+async function ensureHapaTranscribeBackend() {
+  const health = await fetchHapaTranscribeHealth().catch(() => null);
+  if (health?.ok) return health;
+  const now = Date.now();
+  if (!hapaTranscribeProcess && now - hapaTranscribeStartingAt > 2_500) {
+    hapaTranscribeStartingAt = now;
+    const scriptPath = path.join(HAPA_TRANSCRIBE_ROOT, "scripts/launch_hapa_transcribe_desktop.sh");
+    hapaTranscribeProcess = spawn(scriptPath, ["--run-backend"], {
+      cwd: HAPA_TRANSCRIBE_ROOT,
+      detached: true,
+      stdio: "ignore",
+      env: {
+        ...process.env,
+        HAPA_TRANSCRIBE_HOST: "127.0.0.1",
+        HAPA_TRANSCRIBE_PORT: new URL(HAPA_TRANSCRIBE_BASE_URL).port || "8762",
+        HAPA_TRANSCRIBE_LIVE_MODEL: HAPA_TRANSCRIBE_MODEL
+      }
+    });
+    hapaTranscribeProcess.on("exit", () => {
+      hapaTranscribeProcess = null;
+    });
+    hapaTranscribeProcess.on("error", () => {
+      hapaTranscribeProcess = null;
+    });
+    hapaTranscribeProcess.unref();
+  }
+  const started = Date.now();
+  let lastError = null;
+  while (Date.now() - started < 18_000) {
+    const ready = await fetchHapaTranscribeHealth().catch((error) => {
+      lastError = error;
+      return null;
+    });
+    if (ready?.ok) return ready;
+    await sleep(350);
+  }
+  throw new Error(`Hapa Transcribe did not become ready at ${HAPA_TRANSCRIBE_BASE_URL}${lastError ? `: ${lastError.message}` : ""}`);
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function voiceboxHeaders(extra = {}) {
+  return {
+    "X-Voicebox-Client-Id": VOICEBOX_CLIENT_ID,
+    ...extra
+  };
+}
+
+async function proxyVoiceboxJson(pathname, init = {}) {
+  const response = await fetch(`${VOICEBOX_BASE_URL}${pathname}`, {
+    ...init,
+    headers: voiceboxHeaders(init.headers || {})
+  });
+  const text = await response.text();
+  let payload = null;
+  try {
+    payload = text ? JSON.parse(text) : {};
+  } catch {
+    payload = { raw: text };
+  }
+  if (!response.ok) {
+    const message = payload?.detail || payload?.message || response.statusText || "Voicebox request failed";
+    throw new Error(typeof message === "string" ? message : JSON.stringify(message));
+  }
+  return payload;
+}
+
+async function transcribeVoiceboxAudio(body = {}) {
+  const input = decodeAudioDataUrl(body.dataUrl || body.audioDataUrl || body.audio || "");
+  if (!input.buffer.length) throw new Error("Voicebox transcription requires an audio dataUrl");
+  if (input.buffer.length > VOICEBOX_MAX_TRANSCRIBE_BYTES) {
+    throw new Error(`Voicebox transcription clip is too large (${input.buffer.length} bytes)`);
+  }
+  const mimeType = body.mimeType || input.mimeType || "audio/webm";
+  const startedAt = Date.now();
+  const primaryPrepared = await prepareVoiceboxTranscriptionAudio(input.buffer, {
+    mimeType,
+    name: body.name || "tarot-mic.webm",
+    filter: VOICEBOX_TRANSCRIBE_FILTER
+  });
+  const attempts = [];
+  let prepared = primaryPrepared;
+  let payload = await submitVoiceboxTranscription(primaryPrepared, body);
+  attempts.push({
+    text: String(payload.text || "").trim(),
+    duration: Number(payload.duration || 0),
+    submittedBytes: primaryPrepared.buffer.length,
+    submittedMimeType: primaryPrepared.mimeType,
+    sampleRate: primaryPrepared.sampleRate,
+    filter: primaryPrepared.filter || "off"
+  });
+
+  const shouldRetry = !String(payload.text || "").trim()
+    && VOICEBOX_TRANSCRIBE_RETRY_FILTER
+    && VOICEBOX_TRANSCRIBE_RETRY_FILTER !== "off"
+    && VOICEBOX_TRANSCRIBE_RETRY_FILTER !== (primaryPrepared.filter || "off");
+  if (shouldRetry) {
+    const retryPrepared = await prepareVoiceboxTranscriptionAudio(input.buffer, {
+      mimeType,
+      name: body.name || "tarot-mic.webm",
+      filter: VOICEBOX_TRANSCRIBE_RETRY_FILTER
+    });
+    const retryPayload = await submitVoiceboxTranscription(retryPrepared, body);
+    attempts.push({
+      text: String(retryPayload.text || "").trim(),
+      duration: Number(retryPayload.duration || 0),
+      submittedBytes: retryPrepared.buffer.length,
+      submittedMimeType: retryPrepared.mimeType,
+      sampleRate: retryPrepared.sampleRate,
+      filter: retryPrepared.filter || "off"
+    });
+    prepared = retryPrepared;
+    payload = retryPayload;
+  }
+
+  return {
+    ok: true,
+    text: String(payload.text || "").trim(),
+    duration: Number(payload.duration || 0),
+    elapsedMs: Date.now() - startedAt,
+    source: "voicebox",
+    inputBytes: input.buffer.length,
+    submittedBytes: prepared.buffer.length,
+    inputMimeType: mimeType,
+    submittedMimeType: prepared.mimeType,
+    submittedSampleRate: prepared.sampleRate,
+    transcriptionFilter: prepared.filter || "off",
+    attempts
+  };
+}
+
+async function submitVoiceboxTranscription(prepared, body = {}) {
+  const form = new FormData();
+  form.append("file", new Blob([prepared.buffer], { type: prepared.mimeType }), prepared.fileName);
+  if (body.language) form.append("language", String(body.language));
+  if (body.model) form.append("model", String(body.model));
+  const response = await fetch(`${VOICEBOX_BASE_URL}/transcribe`, {
+    method: "POST",
+    headers: voiceboxHeaders(),
+    body: form
+  });
+  const text = await response.text();
+  let payload = null;
+  try {
+    payload = text ? JSON.parse(text) : {};
+  } catch {
+    payload = { raw: text };
+  }
+  if (!response.ok) {
+    const message = payload?.detail || payload?.message || response.statusText || "Voicebox transcription failed";
+    throw new Error(typeof message === "string" ? message : JSON.stringify(message));
+  }
+  return payload;
+}
+
+async function prepareVoiceboxTranscriptionAudio(buffer, { mimeType = "audio/webm", name = "tarot-mic.webm", filter = "off" } = {}) {
+  const safeName = slugify(path.basename(name, path.extname(name))) || `tarot-mic-${Date.now()}`;
+  const normalizedFilter = filter && filter !== "off" ? String(filter) : "off";
+  if (isVoiceboxWavMime(mimeType, name) && normalizedFilter === "off") {
+    return {
+      buffer,
+      mimeType: "audio/wav",
+      fileName: `${safeName}.wav`,
+      sampleRate: null,
+      filter: normalizedFilter
+    };
+  }
+  const inputExtension = extensionForVoiceboxInput(mimeType, name) || "webm";
+  const workDir = path.join(tmpdir(), `hapa-voicebox-${Date.now()}-${Math.round(Math.random() * 1e9)}`);
+  const inputPath = path.join(workDir, `input.${inputExtension}`);
+  const outputPath = path.join(workDir, "voicebox.wav");
+  await mkdir(workDir, { recursive: true });
+  try {
+    await writeFile(inputPath, buffer);
+    const ffmpegArgs = [
+      "-hide_banner",
+      "-loglevel", "error",
+      "-y",
+      "-i", inputPath,
+      "-ac", "1",
+      "-ar", String(VOICEBOX_TRANSCRIBE_SAMPLE_RATE),
+      "-sample_fmt", "s16"
+    ];
+    if (normalizedFilter !== "off") {
+      ffmpegArgs.push("-af", normalizedFilter);
+    }
+    ffmpegArgs.push(outputPath);
+    await execFileAsync(VOICEBOX_FFMPEG_PATH, ffmpegArgs, { timeout: 20_000 });
+    const wav = await readFile(outputPath);
+    return {
+      buffer: wav,
+      mimeType: "audio/wav",
+      fileName: `${safeName}.wav`,
+      sampleRate: VOICEBOX_TRANSCRIBE_SAMPLE_RATE,
+      filter: normalizedFilter
+    };
+  } finally {
+    rm(workDir, { recursive: true, force: true }).catch(() => {});
+  }
+}
+
+function isVoiceboxWavMime(mimeType = "", name = "") {
+  const normalized = String(mimeType || "").toLowerCase();
+  const ext = path.extname(String(name || "")).toLowerCase();
+  return normalized === "audio/wav" || normalized === "audio/wave" || normalized === "audio/x-wav" || ext === ".wav";
+}
+
+function extensionForVoiceboxInput(mimeType = "", name = "") {
+  const normalized = String(mimeType || "").split(";")[0].trim().toLowerCase();
+  const fromMime = {
+    "audio/webm": "webm",
+    "video/webm": "webm",
+    "audio/mp4": "m4a",
+    "audio/x-m4a": "m4a",
+    "audio/mpeg": "mp3",
+    "audio/aac": "aac",
+    "audio/ogg": "ogg",
+    "audio/wav": "wav",
+    "audio/wave": "wav",
+    "audio/x-wav": "wav",
+    "audio/aiff": "aiff",
+    "audio/x-aiff": "aiff"
+  }[normalized];
+  if (fromMime) return fromMime;
+  return extensionForMime(mimeType, name);
+}
+
+function decodeAudioDataUrl(value = "") {
+  const text = String(value || "");
+  const match = /^data:([^;,]+)?(?:;[^,]*)?;base64,(.+)$/i.exec(text);
+  if (!match) return { buffer: Buffer.alloc(0), mimeType: "" };
+  return {
+    buffer: Buffer.from(match[2], "base64"),
+    mimeType: match[1] || ""
+  };
 }
 
 async function persistMedia(body) {
@@ -2119,9 +3436,12 @@ async function serveLocalFile(filePath, req, res) {
       sendJson(res, 404, { error: "file_not_found" });
       return false;
     }
+    const origin = req.headers.origin || "*";
     const range = parseRange(req.headers.range, info.size);
     if (range) {
       res.writeHead(206, {
+        "Access-Control-Allow-Origin": origin,
+        "Vary": "Origin",
         "Content-Type": contentType(safePath),
         "Content-Length": range.end - range.start + 1,
         "Content-Range": `bytes ${range.start}-${range.end}/${info.size}`,
@@ -2132,6 +3452,8 @@ async function serveLocalFile(filePath, req, res) {
       return true;
     }
     res.writeHead(200, {
+      "Access-Control-Allow-Origin": origin,
+      "Vary": "Origin",
       "Content-Type": contentType(safePath),
       "Content-Length": info.size,
       "Accept-Ranges": "bytes",

@@ -21,12 +21,15 @@ async function waitFor(win, expression, timeout = 10000) {
 }
 
 async function clickTarotDraw(win) {
-  await waitFor(win, "Boolean(document.querySelector('.view-tabs button'))", 10000);
+  await waitFor(win, "Boolean(document.querySelector('.view-tabs button'))", 30000);
   return win.webContents.executeJavaScript(`
     (() => {
-      const button = [...document.querySelectorAll(".view-tabs button")]
-        .find((item) => /tarot draw/i.test(item.textContent || ""));
-      if (!button) return false;
+      const buttons = [...document.querySelectorAll(".view-tabs button")];
+      const button = buttons.find((item) => /tarot draw/i.test(item.textContent || ""));
+      if (!button) {
+        console.error("Available buttons: " + buttons.map(b => b.textContent?.trim()).join(", "));
+        return false;
+      }
       button.click();
       return true;
     })()
@@ -93,6 +96,14 @@ app.whenReady().then(async () => {
     }
   });
 
+  win.webContents.on("did-fail-load", (event, errorCode, errorDescription, validatedURL) => {
+    errors.push(`[Load Failure] ${errorCode}: ${errorDescription} (${validatedURL})`);
+  });
+
+  win.webContents.on("render-process-gone", (event, details) => {
+    errors.push(`[Process Gone] ${details.reason} (${details.exitCode})`);
+  });
+
   try {
     await win.loadURL(targetUrl);
     const clicked = await clickTarotDraw(win);
@@ -100,22 +111,82 @@ app.whenReady().then(async () => {
 
     const mounted = await waitFor(win, `
       Boolean(document.querySelector(".tarot-draw-view canvas") && window.__THREE_GAME_DIAGNOSTICS__?.kind === "hapa-tarot-draw")
-    `, 12000);
+    `, 30000);
     if (!mounted) throw new Error("Tarot Draw canvas/diagnostics did not mount");
 
-    await waitFor(win, "Number(window.__THREE_GAME_DIAGNOSTICS__?.state?.deckCount || 0) > 0", 12000);
+    await waitFor(win, "Number(window.__THREE_GAME_DIAGNOSTICS__?.state?.deckCount || 0) > 0", 30000);
+    await win.webContents.executeJavaScript(`
+      window.__THREE_GAME_DIAGNOSTICS__?.actions?.enableEchoPreviewOverlays?.()
+    `);
+    const songCardLocked = await win.webContents.executeJavaScript(`
+      (() => {
+        const action = window.__THREE_GAME_DIAGNOSTICS__?.actions?.lockFirstSongCardInDropZone;
+        return typeof action === "function" ? Boolean(action()) : false;
+      })()
+    `);
+    if (!songCardLocked) throw new Error("Could not lock a Song Card into the Music Zone");
+    const echoReady = await waitFor(win, `
+      (() => {
+        const dropZone = window.__THREE_GAME_DIAGNOSTICS__?.state?.dropZone;
+        return Boolean(
+          dropZone?.active &&
+          dropZone?.echoDirectorProject?.timelineCount > 0 &&
+          dropZone?.echoDirectorProject?.visualizerCount > 0 &&
+          dropZone?.centerPrioritySources?.length > 0 &&
+          dropZone?.centerPreviewFrame?.aspect > 1.72 &&
+          dropZone?.centerPreviewFrame?.aspect < 1.83 &&
+          dropZone?.centerPreviewFrame?.echoOverlayVisible &&
+          dropZone?.centerPreviewFrame?.echoOverlayOpacity > 0.05
+        );
+      })()
+    `, 30000);
+    if (!echoReady) throw new Error("Echo Album preview did not attach to the Music Zone song card");
+    await win.webContents.executeJavaScript(`
+      window.__THREE_GAME_DIAGNOSTICS__?.actions?.recoverPreviewGallery?.()
+    `);
+    const galleryReady = await waitFor(win, `
+      (() => {
+        const state = window.__THREE_GAME_DIAGNOSTICS__?.state;
+        const previewFrames = state?.dropZone?.previewFrames;
+        return Boolean(
+          state?.camera?.galleryBlend > 0.86 &&
+          state?.camera?.distance > 9.2 &&
+          previewFrames?.allInView &&
+          Array.isArray(previewFrames?.overlaps) &&
+          previewFrames.overlaps.length === 0
+        );
+      })()
+    `, 12000);
+    if (!galleryReady) {
+      const galleryState = await win.webContents.executeJavaScript(`
+        JSON.stringify(window.__THREE_GAME_DIAGNOSTICS__?.state?.dropZone?.previewFrames || null)
+      `);
+      const cameraState = await win.webContents.executeJavaScript(`
+        JSON.stringify(window.__THREE_GAME_DIAGNOSTICS__?.state?.camera || null)
+      `);
+      throw new Error(`Preview gallery recovery did not reach a clean three-frame layout: camera=${cameraState} frames=${galleryState}`);
+    }
     await sleep(1000);
     const metrics = await win.webContents.executeJavaScript(`
       (() => {
         const diagnostics = window.__THREE_GAME_DIAGNOSTICS__;
+        const state = diagnostics?.state || {};
         const canvas = document.querySelector(".tarot-draw-view canvas");
         const rect = canvas?.getBoundingClientRect();
         return {
           title: document.querySelector(".tarot-draw-title h2")?.textContent || "",
           diagnosticsKind: diagnostics?.kind || null,
-          placedCount: diagnostics?.state?.placedCount || 0,
-          held: Boolean(diagnostics?.state?.held),
-          deckCount: diagnostics?.state?.deckCount || 0,
+          placedCount: state.placedCount || 0,
+          held: Boolean(state.held),
+          deckCount: state.deckCount || 0,
+          echoDropZone: state.dropZone?.echoDirectorProject || null,
+          centerPreviewSource: state.dropZone?.centerPreviewSource || null,
+          centerPreviewFrame: state.dropZone?.centerPreviewFrame || null,
+          previewFrames: state.dropZone?.previewFrames || null,
+          camera: state.camera || null,
+          centerPrioritySources: state.dropZone?.centerPrioritySources || [],
+          productionAudit: state.productionAudit || null,
+          avatarProfileCoverage: state.avatarProfileCoverage || null,
           canvas: canvas ? { width: canvas.width, height: canvas.height, cssWidth: rect.width, cssHeight: rect.height } : null,
           hud: Boolean(document.querySelector(".tarot-draw-hud")),
           controls: Boolean(document.querySelector(".tarot-draw-controls")),
@@ -136,6 +207,7 @@ app.whenReady().then(async () => {
     console.log(JSON.stringify({ ok: true, targetUrl, metrics, pixels, screenshotPath }, null, 2));
     await app.quit();
   } catch (error) {
+    console.error("Renderer errors collected:", errors);
     console.error(error instanceof Error ? error.stack || error.message : String(error));
     await app.quit();
     process.exit(1);

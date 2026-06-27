@@ -1137,3 +1137,34 @@ async function appendSubscriberEvents(report) {
     await fs.appendFile(path.join(SUBSCRIBER_DIR, `${subscriber}.ndjson`), `${JSON.stringify({ ...event, subscriber })}\n`);
   }
 }
+
+
+
+(async () => {
+  const store = JSON.parse(await fs.readFile(ITEM_STORE_PATH, "utf8"));
+  const card = store.cards.find(c => c.id === "mimi-tarot-shuttle-g7-a-93556ab1");
+  const targets = collectCardTargets(card).map(target => {
+    const cachePath = path.join(STABLE_CACHE_DIR, `${hash(target.path)}.json`);
+    return { ...target, ocr: JSON.parse(fs.readFileSync(cachePath, "utf8")) };
+  });
+  console.log("Targets processed:", targets.length);
+  const sourceRecords = targets.map((target) => {
+    const lines = normalizeOcrLines(target.ocr?.lines || []);
+    return {
+      id: target.id,
+      kind: target.kind,
+      path: target.path,
+      mediaUri: target.mediaUri,
+      confidence: Number(target.ocr?.confidence || average(lines.map((line) => line.confidence)) || 0),
+      lineCount: lines.length,
+      text: lines.map((line) => line.text).join("\n"),
+      lines
+    };
+  });
+  const parsedSources = sourceRecords.map((source) => parseTarotSource(source, card));
+  console.log("Parsed Sources titles:", parsedSources.map(p => p.identity.tarotCardName));
+  const best = chooseBestParse(parsedSources, card);
+  console.log("Best title:", best.identity.tarotCardName);
+  const merged = mergeParses(parsedSources, best, card);
+  console.log("Merged title:", merged.identity.tarotCardName);
+})();

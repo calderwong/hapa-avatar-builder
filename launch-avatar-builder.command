@@ -8,8 +8,5 @@ if [ ! -d node_modules ]; then
   npm install
 fi
 
-if [ ! -d dist ]; then
-  npm run build
-fi
-
-npm run desktop
+export HAPA_AVATAR_DEDICATED_PORT="${HAPA_AVATAR_DEDICATED_PORT:-8797}"
+exec "$SCRIPT_DIR/scripts/launch-desktop-dedicated.zsh"

@@ -2,6 +2,23 @@
 
 Hapa Avatar Builder is a neonblade+ operator app for assembling avatar media into a reusable Avatar Card. It standardizes the Red/Reaper scaffold into required media slots, tracks completeness as XP/level progress, exposes a local API and CLI for agents, and includes a kanban board for build and healing work.
 
+## Source Of Truth
+
+Use this checkout as the source of truth:
+
+```text
+/Users/calderwong/Desktop/hapa-avatar-builder
+```
+
+The duplicate Pinokio copy at `/Users/calderwong/pinokio/api/hapa-avatar-builder-desktop/app` is deprecated and should only be used as historical provenance or backup data. That branch had the Tarot Library management surface but lacked the Three.js `Tarot Draw` table.
+
+The canonical app now contains both Tarot surfaces:
+
+- `Tarot Library` manages decks, sets, cards, backs, loop videos, and avatar links.
+- `Tarot Draw` is the 3D Three.js reading table.
+
+See `docs/CANONICAL_SOURCE_OF_TRUTH.md` and `data/merge-reports/2026-06-23-pinokio-canonical-audit.md` for the merge history and data audit.
+
 ## What It Builds
 
 An avatar is complete only when it satisfies the shared media contract:
@@ -45,6 +62,17 @@ Open the desktop shell:
 npm run desktop
 ```
 
+Desktop launch note: `8787` may already be occupied by an API-only helper process. The Electron shell now checks for a Hapa Avatar Builder HTML UI before loading a port, reuses an existing UI server such as `8789` when present, or starts its own static API server on a free fallback port. If the desktop app opens blank or shows API JSON, check `logs/desktop-launcher.log` and verify `/` returns the Hapa Avatar Builder HTML, not only `/api/health`.
+
+Dedicated desktop launchers:
+
+```text
+/Users/calderwong/Desktop/Launch Hapa Avatar Builder.app
+/Users/calderwong/Desktop/Launch Hapa Avatar Builder.command
+```
+
+These launchers call `scripts/launch-desktop-dedicated.zsh`, build the production UI, start or reuse a dedicated static UI/API port beginning at `8794`, then launch Electron with `HAPA_AVATAR_DESKTOP_URL` pinned to that endpoint. Use them when the normal `8787`/`8789` environment is confusing or stale.
+
 ## Local Media Preview, Sorting, And Video Branches
 
 In the Builder view, use **Preview Local Media** or drop image/video files onto **Drop media to preview**. Media appears in the Media Intake tray with real previews. Drag image previews onto the exact required slot they belong in.
@@ -81,11 +109,16 @@ This checkout is registered as `hapa-avatar-builder`, the canonical local Avatar
 
 The app was recovered as the canonical source after a duplicate Pinokio build diverged from the Three.js Tarot Draw build. The merge preserved the 3D Tarot Draw UI and imported the Pinokio runtime data without overwriting conflicting Avatar IDs. Runtime stores and media remain local-first data under `data/` and are ignored by Git by protocol.
 
+On 2026-06-23, the Desktop Finder wrapper `/Users/calderwong/Desktop/Hapa Avatar Builder.app` was repointed from the deprecated Pinokio wrapper to this canonical checkout.
+On 2026-06-23, the wrapper was also made self-contained so it builds this checkout and runs `npm run desktop` directly instead of trying to trampoline through `launch-avatar-builder.command`.
+On 2026-06-24, `/Users/calderwong/Desktop/Launch Hapa Avatar Builder.app` and `/Users/calderwong/Desktop/Launch Hapa Avatar Builder.command` were added as dedicated launcher entry points that pin Electron to a UI-serving static API port.
+
 Primary protocol files:
 
 - `AGENTS.md`
 - `hapa-node.json`
 - `data/README.md`
+- `docs/CANONICAL_SOURCE_OF_TRUTH.md`
 - `scripts/merge-pinokio-avatar-builder-data.mjs`
 
 Merge reports are written under `data/merge-reports/`; pre-merge store backups are written under `data/backups/`.

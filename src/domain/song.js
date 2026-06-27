@@ -145,6 +145,7 @@ export function normalizeHapaSong(existing = {}, sourceCard = {}, registryTrack 
     sourcePerspective
   );
   const sceneLinks = normalizeSceneLinks(existing.attachments?.sceneLinks || existing.sceneLinks || []);
+  const cardLinks = normalizeCardLinks(existing.attachments?.cardLinks || existing.cardLinks || []);
   const media = normalizeSongMediaLinks(existing.media || existing.attachments?.media || []);
   const visualizers = normalizeVisualizerLinks(existing.visualizers || existing.attachedVisualizers || []);
   const storyBeats = normalizeStoryBeats(existing.storyBeats || []);
@@ -184,7 +185,8 @@ export function normalizeHapaSong(existing = {}, sourceCard = {}, registryTrack 
     enrichment: normalizeSongEnrichment(existing.enrichment || {}, sourceCard, registryTrack),
     attachments: {
       avatarLinks,
-      sceneLinks
+      sceneLinks,
+      cardLinks
     },
     media,
     visualizers,
@@ -254,6 +256,41 @@ export function attachSceneToSong(song, scene, patch = {}) {
     attachments: {
       ...(song.attachments || {}),
       sceneLinks: [link, ...(song.attachments?.sceneLinks || []).filter((item) => item.sceneId !== link.sceneId)]
+    },
+    updatedAt: new Date().toISOString()
+  });
+}
+
+export function attachCardToSong(song, card, patch = {}) {
+  const link = normalizeCardLink({
+    cardId: card?.id || patch.cardId,
+    cardTitle: card?.title || card?.name || patch.cardTitle,
+    avatarId: patch.avatarId || "",
+    avatarName: patch.avatarName || "",
+    role: patch.role || "song-card-combination",
+    reason: patch.reason || "Attached in Hapa Songs builder.",
+    canonReason: patch.canonReason || "",
+    contextReason: patch.contextReason || "",
+    personaReason: patch.personaReason || "",
+    tags: patch.tags || ["dear-papa", "card-link"],
+    linkedAt: patch.linkedAt || new Date().toISOString()
+  });
+  return normalizeHapaSong({
+    ...song,
+    attachments: {
+      ...(song.attachments || {}),
+      cardLinks: [link, ...(song.attachments?.cardLinks || []).filter((item) => item.cardId !== link.cardId)]
+    },
+    updatedAt: new Date().toISOString()
+  });
+}
+
+export function detachCardFromSong(song, cardId) {
+  return normalizeHapaSong({
+    ...song,
+    attachments: {
+      ...(song.attachments || {}),
+      cardLinks: (song.attachments?.cardLinks || []).filter((item) => item.cardId !== cardId)
     },
     updatedAt: new Date().toISOString()
   });
@@ -376,6 +413,7 @@ function createRegistryTrackIndex(songLibrary = {}) {
     const keys = uniqueTextList([
       track.id,
       track.songId,
+      track.registryTrackId,
       track.title,
       slugify(track.title || ""),
       slugify(String(track.title || "").replace(/[_-]+/g, " "))
@@ -387,6 +425,10 @@ function createRegistryTrackIndex(songLibrary = {}) {
 
 function findRegistryTrackForCard(card = {}, tracksBySongId = new Map()) {
   const keys = uniqueTextList([
+    card.registryTrackId,
+    card.audio?.registryTrackId,
+    card.lineage?.registryTrackId,
+    card.source?.registryTrackId,
     card.songId,
     card.title,
     slugify(card.title || ""),
@@ -474,13 +516,30 @@ function normalizeSongLyrics(existing = {}, sourceLyrics = {}, registryTrack = n
 
 function normalizeLyricTimings(timings = []) {
   if (!Array.isArray(timings)) return [];
-  return timings.map((timing, index) => ({
-    id: timing.id || `lyric-line-${index + 1}`,
-    start: Number(timing.start ?? timing.startTime ?? timing.t0 ?? 0),
-    end: Number(timing.end ?? timing.endTime ?? timing.t1 ?? 0),
-    text: timing.text || timing.line || timing.lyric || "",
-    section: timing.section || timing.kind || ""
-  }));
+  return timings.map((timing, index) => {
+    const start = Number(timing.start ?? timing.startTime ?? timing.t0 ?? 0);
+    const end = Number(timing.end ?? timing.endTime ?? timing.t1 ?? 0);
+    const words = Array.isArray(timing.words)
+      ? timing.words.map((word, wordIndex) => ({
+          word: String(word.word || word.text || word.token || ""),
+          start: Number(word.start ?? word.startTime ?? start),
+          end: Number(word.end ?? word.endTime ?? end),
+          matched: word.matched ?? undefined,
+          index: Number(word.index ?? wordIndex)
+        })).filter((word) => word.word)
+      : [];
+    return {
+      id: timing.id || `lyric-line-${index + 1}`,
+      start,
+      end,
+      text: timing.text || timing.line || timing.lyric || "",
+      section: timing.section || timing.kind || "",
+      section_id: timing.section_id || timing.sectionId || "",
+      section_label: timing.section_label || timing.sectionLabel || timing.section || timing.kind || "",
+      confidence: Number(timing.confidence ?? 0),
+      words
+    };
+  });
 }
 
 function normalizeSongLore(existing = {}, sourceCard = {}) {
@@ -577,6 +636,26 @@ function normalizeSceneLink(link = {}) {
     placeId: link.placeId || link.place_id || "",
     role: link.role || "song-scene-beat",
     reason: link.reason || "",
+    tags: uniqueTextList(link.tags || []),
+    linkedAt: link.linkedAt || link.createdAt || ""
+  };
+}
+
+function normalizeCardLinks(links = []) {
+  return uniqueById(links.map(normalizeCardLink).filter((link) => link.cardId || link.cardTitle), "cardId");
+}
+
+function normalizeCardLink(link = {}) {
+  return {
+    cardId: link.cardId || link.card_id || "",
+    cardTitle: link.cardTitle || link.card_title || link.title || "",
+    avatarId: link.avatarId || link.avatar_id || "",
+    avatarName: link.avatarName || link.avatar_name || link.name || "",
+    role: link.role || "song-card-combination",
+    reason: link.reason || link.why || "",
+    canonReason: link.canonReason || link.canon_reason || "",
+    contextReason: link.contextReason || link.context_reason || "",
+    personaReason: link.personaReason || link.persona_reason || "",
     tags: uniqueTextList(link.tags || []),
     linkedAt: link.linkedAt || link.createdAt || ""
   };

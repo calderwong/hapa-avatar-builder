@@ -27,6 +27,12 @@ test("item manager cards track kind, canon status, prompts, and connections", ()
           avatarIds: ["red-reaper"],
           nodeIds: ["hapa-anvil-node"]
         },
+        songLinks: [{
+          id: "song-link-red-forge",
+          songId: "dear-papa-red-forge",
+          songTitle: "Red Forge",
+          why: "The card uses the song as its kit rhythm."
+        }],
         mediaPrompts: {
           twoD: "Wide card art of the Red Forge Garden.",
           threeD: "3D orbital habitat model with red forge decks."
@@ -52,6 +58,7 @@ test("item manager cards track kind, canon status, prompts, and connections", ()
   assert.equal(normalized.cards[0].schemaVersion, "hapa.item-card.v1");
   assert.equal(normalized.cards[0].kind, "garden");
   assert.equal(normalized.cards[0].connections.avatarIds[0], "red-reaper");
+  assert.equal(normalized.cards[0].songLinks[0].songId, "dear-papa-red-forge");
   assert.equal(normalized.cards[0].mediaAssets[0].uri, "/media/red-forge-reference.png");
   assert.equal(normalized.cards[0].mediaAssets[0].thumbnailUri, "/media/red-forge-reference-thumb.jpg");
   assert.equal(auditItemManagerStore(normalized).byKind.garden, 1);

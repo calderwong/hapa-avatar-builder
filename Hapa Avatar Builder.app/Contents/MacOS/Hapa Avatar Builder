@@ -1,0 +1,2 @@
+#!/bin/zsh
+exec /Users/calderwong/Desktop/hapa-avatar-builder/scripts/launch-desktop-dedicated.zsh

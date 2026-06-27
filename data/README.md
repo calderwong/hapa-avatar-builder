@@ -17,3 +17,14 @@ Important local files:
 
 Before making direct store edits, back up the touched JSON files under `data/backups/`.
 
+## Pinokio Duplicate Audit
+
+The deprecated duplicate app is:
+
+```text
+/Users/calderwong/pinokio/api/hapa-avatar-builder-desktop/app
+```
+
+The canonical app is richer or equal for every audited runtime store as of 2026-06-23. `tarot-store.json` and `media-library.json` matched exactly; Pinokio-only avatar IDs `maris`, `naya`, and `zhi-zi` are already represented in canonical as `avatar-36`, `avatar-33`, and `avatar-35` with `pinokio-merged` provenance.
+
+See `merge-reports/2026-06-23-pinokio-canonical-audit.md`.

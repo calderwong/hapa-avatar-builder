@@ -137,6 +137,7 @@ export function normalizeItemCard(card = {}) {
     mediaPrompts: normalizeItemMediaPrompts(card.mediaPrompts || card.media_prompts || {}),
     sourceRefs: normalizeSourceRefs(card.sourceRefs || card.source_refs || card.sources),
     mediaAssets: normalizeItemMediaAssets(card.mediaAssets || card.media_assets || card.images || card.sourceRefs || card.source_refs || card.sources),
+    songLinks: normalizeTarotLinks(card.songLinks || card.song_links),
     tarotCard: normalizeTarotCardDetails(card.tarotCard || card.tarot_card || {}, card),
     shipCard: normalizeShipCardDetails(card.shipCard || card.ship_card || card.details || {}, kind),
     episodeCard: normalizeEpisodeCardDetails(card.episodeCard || card.episode_card || card.comicCard || card.comic_card || {}, card),

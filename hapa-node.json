@@ -3,7 +3,7 @@
   "id": "hapa-avatar-builder",
   "name": "Hapa Avatar Builder",
   "status": "local-first-canonical",
-  "role": "Avatar Card builder, media healing workbench, and 3D Tarot Draw operator app",
+  "role": "Avatar Card builder, media healing workbench, Tarot Library manager, and 3D Tarot Draw operator app",
   "localRoot": "/Users/calderwong/Documents/Codex/2026-06-10/files-mentioned-by-the-user-screenshot/outputs/hapa-avatar-builder",
   "desktopAlias": "/Users/calderwong/Desktop/hapa-avatar-builder",
   "defaultPorts": {
@@ -16,6 +16,12 @@
     "api": "npm run api",
     "desktop": "npm run desktop"
   },
+  "deprecatedDuplicates": [
+    {
+      "path": "/Users/calderwong/pinokio/api/hapa-avatar-builder-desktop/app",
+      "reason": "Accidental Pinokio branch with Tarot Library data/UI but no Three.js Tarot Draw source."
+    }
+  ],
   "capabilities": [
     "Agents / Phamiliars",
     "Cards / Standards / Forging",
@@ -46,6 +52,8 @@
   ],
   "notes": [
     "This node became canonical after merging the Pinokio app data back into the 3D Tarot Draw build.",
+    "As of 2026-06-23 the canonical app also includes the Tarot Library management surface from the Pinokio branch.",
+    "The Desktop Finder wrapper should resolve to /Users/calderwong/Desktop/hapa-avatar-builder/Hapa Avatar Builder.app.",
     "Large runtime JSON/media are local state and are ignored by Git by protocol."
   ]
 }
