@@ -34,6 +34,32 @@ is_listening() {
   lsof -nP -iTCP:"${port}" -sTCP:LISTEN >/dev/null 2>&1
 }
 
+pids_for_port() {
+  local port="$1"
+  lsof -nP -tiTCP:"${port}" -sTCP:LISTEN 2>/dev/null | sort -u
+}
+
+stop_listeners_on_port() {
+  local port="$1"
+  local pids
+  pids="$(pids_for_port "$port" || true)"
+  if [ -z "$pids" ]; then
+    return
+  fi
+  echo "$pids" | while read -r pid; do
+    if [ -n "$pid" ]; then
+      echo "[$(timestamp)] Stopping stale Hapa desktop server process $pid on port $port"
+      kill "$pid" >/dev/null 2>&1 || true
+    fi
+  done
+  for _ in {1..24}; do
+    if ! is_listening "$port"; then
+      return
+    fi
+    sleep 0.25
+  done
+}
+
 close_existing_desktops() {
   if [ "${HAPA_AVATAR_KEEP_EXISTING:-0}" = "1" ]; then
     echo "[$(timestamp)] Keeping existing Hapa Avatar Builder desktop windows by request"
@@ -81,11 +107,18 @@ fi
 
 selected_port=""
 reuse_existing="0"
+reuse_desktop_server="${HAPA_AVATAR_REUSE_DESKTOP_SERVER:-0}"
 
 for port in "${port_candidates[@]}"; do
   if is_hapa_endpoint "$port"; then
     selected_port="$port"
-    reuse_existing="1"
+    if [ "$reuse_desktop_server" = "1" ]; then
+      reuse_existing="1"
+    else
+      echo "[$(timestamp)] Rebuilding against existing Hapa UI port $port; restarting server so API routes match the new build"
+      stop_listeners_on_port "$port"
+      reuse_existing="0"
+    fi
     break
   fi
 done
@@ -105,14 +138,16 @@ if [ -z "$selected_port" ]; then
 fi
 
 desktop_url="http://127.0.0.1:${selected_port}"
+bind_host="${HAPA_AVATAR_BIND_HOST:-0.0.0.0}"
+https_port="${HAPA_AVATAR_HTTPS_PORT:-$((selected_port + 1))}"
 
 if [ "$reuse_existing" = "1" ]; then
   echo "[$(timestamp)] Reusing existing Hapa UI on $desktop_url"
 else
   server_log="$LOG_DIR/desktop-static-${selected_port}.log"
   pid_file="$LOG_DIR/desktop-static-${selected_port}.pid"
-  echo "[$(timestamp)] Starting dedicated static API/UI server on $desktop_url"
-  node "$APP_ROOT/server/api.mjs" --port "$selected_port" --static "$APP_ROOT/dist" >> "$server_log" 2>&1 &
+  echo "[$(timestamp)] Starting dedicated static API/UI server on $desktop_url (bind $bind_host, phone https $https_port)"
+  HAPA_AVATAR_PUBLIC_PORT="$selected_port" HAPA_AVATAR_PUBLIC_HTTPS_PORT="$https_port" node "$APP_ROOT/server/api.mjs" --host "$bind_host" --port "$selected_port" --https-port "$https_port" --static "$APP_ROOT/dist" >> "$server_log" 2>&1 &
   server_pid="$!"
   echo "$server_pid" > "$pid_file"
 
@@ -136,6 +171,8 @@ fi
 export HAPA_AVATAR_EXTERNAL_API=1
 export HAPA_AVATAR_DESKTOP_URL="$desktop_url"
 export HAPA_AVATAR_API_BASE="$desktop_url"
+export HAPA_AVATAR_PUBLIC_PORT="$selected_port"
+export HAPA_AVATAR_PUBLIC_HTTPS_PORT="$https_port"
 
 echo "[$(timestamp)] Launching Electron desktop shell at $desktop_url"
 exec npm run desktop

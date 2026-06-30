@@ -196,6 +196,7 @@ import TarotLibraryView, {
 const ThreeAvatarViewer = lazy(() => import("./components/ThreeAvatarViewer.jsx"));
 const TarotDraw3DView = lazy(() => import("./components/TarotDraw3DView.jsx"));
 const HapaEchosView = lazy(() => import("./components/HapaEchosView.jsx"));
+const PhoneCardMobileView = lazy(() => import("./components/PhoneCardMobileView.jsx"));
 
 const EMPTY_TAROT_DRAW_PROJECTION = {
   cards: [],
@@ -203,8 +204,35 @@ const EMPTY_TAROT_DRAW_PROJECTION = {
   state: "queued"
 };
 
+const INITIAL_VIEW_ALIASES = new Map([
+  ["builder", "builder"],
+  ["mind", "mind"],
+  ["scenes", "scenes"],
+  ["items", "items"],
+  ["loops", "loops"],
+  ["lookbook", "lookbook"],
+  ["lore", "lore"],
+  ["songs", "songs"],
+  ["echos", "echos"],
+  ["kanban", "kanban"],
+  ["protocol", "protocol"],
+  ["avatar-card", "protocol"],
+  ["tarot-library", "tarot-library"],
+  ["tarot", "tarot"],
+  ["tarot-draw", "tarot"]
+]);
+
+function initialAvatarBuilderView() {
+  try {
+    const view = new URLSearchParams(globalThis.location?.search || "").get("view") || "";
+    return INITIAL_VIEW_ALIASES.get(view.trim().toLowerCase()) || "builder";
+  } catch {
+    return "builder";
+  }
+}
+
 const electronApiBase = globalThis.window?.hapaAvatarBuilder?.apiBase;
-const API_BASE = electronApiBase || (globalThis.location?.port === "5178" ? "http://127.0.0.1:8787" : "");
+const API_BASE = electronApiBase || (["5177", "5178"].includes(globalThis.location?.port) ? "http://127.0.0.1:8787" : "");
 const songRegistryApiBase = globalThis.window?.hapaAvatarBuilder?.songRegistryApiBase;
 const SONG_REGISTRY_API_BASE = songRegistryApiBase || "http://127.0.0.1:8798";
 const SONG_REGISTRY_DETAIL_PREFETCH_LIMIT = Math.max(0, Number(import.meta.env?.VITE_SONG_REGISTRY_DETAIL_PREFETCH_LIMIT ?? 0) || 0);
@@ -440,13 +468,26 @@ function displayPortraitForAvatar(avatar) {
 
 function createDisplayMindPack(avatar) {
   if (isCompactOverwindAvatar(avatar) && avatar?.mind) {
+    const compactLoadout = avatar.mind.loadout || {};
+    const protocolCards = preferSummaryList(compactLoadout.protocolCards, avatar.mind.protocolCardLoadout);
+    const skillCards = preferSummaryList(compactLoadout.skillCards, avatar.mind.skillCardLoadout);
+    const tarotCards = preferSummaryList(compactLoadout.tarotCards, avatar.mind.tarotCardDeck);
+    const songCards = preferSummaryList(compactLoadout.songCards, avatar.mind.dearPapaSongContext?.selectedSongCards);
     const mind = {
       personaAnchor: avatar.mind.personaAnchor || {},
       selfKnowledge: [],
       memoryLedger: [],
       relationships: [],
       contextMap: [],
-      phraseCards: avatar.mind.phraseCards || []
+      phraseCards: avatar.mind.phraseCards || [],
+      protocolCardLoadout: protocolCards,
+      skillCardLoadout: skillCards,
+      tarotCardDeck: tarotCards,
+      canonicalChoices: avatar.mind.canonicalChoices || [],
+      storySpine: avatar.mind.storySpine || null,
+      voiceGuide: avatar.mind.voiceGuide || null,
+      weeklyJournalVoiceGuide: avatar.mind.weeklyJournalVoiceGuide || null,
+      annualSceneBeats: avatar.mind.annualSceneBeats || []
     };
     const counts = {
       selfKnowledge: 0,
@@ -459,6 +500,7 @@ function createDisplayMindPack(avatar) {
       consciousnessCopies: 0,
       protocolCards: 0,
       skillCards: 0,
+      tarotCards: 0,
       tombstones: 0,
       ...(avatar.mind.counts || {})
     };
@@ -481,10 +523,10 @@ function createDisplayMindPack(avatar) {
         phraseCards: avatar.mind.phraseCards || [],
         context: avatar.mind.context || [],
         loadout: {
-          protocolCards: avatar.mind.loadout?.protocolCards || [],
-          skillCards: avatar.mind.loadout?.skillCards || [],
-          tarotCards: avatar.mind.loadout?.tarotCards || [],
-          songCards: avatar.mind.loadout?.songCards || []
+          protocolCards,
+          skillCards,
+          tarotCards,
+          songCards
         }
       },
       telemetry: {
@@ -504,6 +546,14 @@ function createDisplayMindPack(avatar) {
 }
 
 export default function App() {
+  if (globalThis.location?.pathname === "/phone-card") {
+    return (
+      <Suspense fallback={<div className="empty-state"><Loader2 size={22} /><span>Loading Phone Card</span></div>}>
+        <PhoneCardMobileView apiBase={API_BASE} />
+      </Suspense>
+    );
+  }
+
   const [avatars, setAvatars] = useState(FALLBACK_AVATARS);
   const [avatarTeams, setAvatarTeams] = useState([]);
   const [expandedTeamIds, setExpandedTeamIds] = useState(["core-protocol-team"]);
@@ -533,7 +583,7 @@ export default function App() {
   const [selectedAssetId, setSelectedAssetId] = useState(null);
   const [selectedSceneAssetId, setSelectedSceneAssetId] = useState(null);
   const [intake, setIntake] = useState(INTAKE_SEED);
-  const [activeView, setActiveView] = useState("builder");
+  const [activeView, setActiveView] = useState(initialAvatarBuilderView);
   const [search, setSearch] = useState("");
   const [sound, setSound] = useState(() => localStorage.getItem("hapa-avatar-sound") === "on");
   const [toast, setToast] = useState("");
@@ -551,11 +601,13 @@ export default function App() {
   const [lookBookPage, setLookBookPage] = useState(0);
   const [lookBookReader, setLookBookReader] = useState(false);
   const [routePending, setRoutePending] = useState(false);
+  const [avatarCardMenuOpen, setAvatarCardMenuOpen] = useState(false);
   const [attachPack, setAttachPack] = useState(null);
   const [sceneAttachPack, setSceneAttachPack] = useState(null);
   const [healingQueue, setHealingQueue] = useState(null);
   const [tarotDrawProjection, setTarotDrawProjection] = useState(EMPTY_TAROT_DRAW_PROJECTION);
   const [tarotDrawSceneArmed, setTarotDrawSceneArmed] = useState(false);
+  const [tarotDrawHostAvatarId, setTarotDrawHostAvatarId] = useState(FALLBACK_AVATARS[0]?.id || null);
   const [queueJobs, setQueueJobs] = useState(createInitialQueueJobs);
   const persistTimers = useRef(new Map());
   const scenePersistTimer = useRef(0);
@@ -589,7 +641,7 @@ export default function App() {
 
   const selectedAvatarRaw = avatars.find((avatar) => avatar.id === selectedAvatarId) || avatars[0];
   const selectedAvatar = useMemo(
-    () => selectedAvatarRaw ? normalizeAvatarCard(selectedAvatarRaw) : null,
+    () => selectedAvatarRaw ? normalizeOverwindAvatar(selectedAvatarRaw) : null,
     [selectedAvatarRaw]
   );
   const isBuilderView = activeView === "builder";
@@ -703,12 +755,6 @@ export default function App() {
   const normalizedSceneGraph = useMemo(() => normalizeSceneGraph(sceneGraph), [sceneGraph]);
   const sceneAudit = useMemo(() => auditSceneGraph(normalizedSceneGraph), [normalizedSceneGraph]);
   const normalizedItemManager = useMemo(() => normalizeItemManagerStore(itemManager), [itemManager]);
-  const showcaseItemManager = useMemo(
-    () => isProtocolView
-      ? { ...normalizedItemManager, cards: [], audit: { ...normalizedItemManager.audit, total: 0 } }
-      : normalizedItemManager,
-    [isProtocolView, normalizedItemManager]
-  );
   const normalizedInventoryStore = useMemo(
     () => normalizeInventoryStore(inventoryStore, avatars, normalizedItemManager.cards),
     [inventoryStore, avatars, normalizedItemManager.cards]
@@ -721,6 +767,18 @@ export default function App() {
     () => normalizedInventoryStore.avatarInventories.find((inventory) => inventory.avatarId === selectedAvatar?.id) || null,
     [normalizedInventoryStore.avatarInventories, selectedAvatar?.id]
   );
+  const tarotDrawHostAvatarRaw = useMemo(
+    () => avatars.find((avatar) => avatar.id === tarotDrawHostAvatarId) || selectedAvatarRaw || avatars[0] || null,
+    [avatars, tarotDrawHostAvatarId, selectedAvatarRaw]
+  );
+  const tarotDrawHostAvatar = useMemo(
+    () => tarotDrawHostAvatarRaw ? normalizeOverwindAvatar(tarotDrawHostAvatarRaw) : null,
+    [tarotDrawHostAvatarRaw]
+  );
+  const tarotDrawHostInventory = useMemo(
+    () => normalizedInventoryStore.avatarInventories.find((inventory) => inventory.avatarId === tarotDrawHostAvatar?.id) || null,
+    [normalizedInventoryStore.avatarInventories, tarotDrawHostAvatar?.id]
+  );
   const normalizedHapaSongStore = useMemo(
     () => normalizeHapaSongStore(hapaSongStore, dearPapaSongbook, songLibrary),
     [hapaSongStore, songLibrary]
@@ -731,6 +789,17 @@ export default function App() {
     tarotDrawProjection.state === "ready" ||
     tarotDrawProjection.state === "refreshing"
   );
+  const tarotDrawSceneLive = tarotDrawSceneArmed && tarotDrawProjectionReady;
+  const tarotDrawStageVisible = Boolean((isTarotDrawView && (tarotDrawHostAvatar || selectedAvatar)) || tarotDrawSceneLive);
+  const tarotDrawStageDocked = tarotDrawStageVisible && !isTarotDrawView;
+  const avatarCardFocusActive = isProtocolView && !avatarCardMenuOpen;
+  const appShellClasses = [
+    "app-shell",
+    activeView === "lookbook" && lookBookReader ? "reader-mode-active" : "",
+    isProtocolView ? "avatar-card-route" : "",
+    avatarCardFocusActive ? "avatar-card-focus" : "",
+    tarotDrawStageDocked ? "tarot-scene-docked-active" : ""
+  ].filter(Boolean).join(" ");
   const selectedHapaSong = useMemo(
     () => normalizedHapaSongStore.songs.find((song) => song.id === selectedHapaSongId || song.songId === selectedHapaSongId)
       || normalizedHapaSongStore.songs[0]
@@ -893,8 +962,10 @@ export default function App() {
   }, [isKanbanView, selectedAvatar]);
 
   useEffect(() => {
-    if (!isTarotDrawView || !tarotDrawSceneArmed) {
-      setTarotDrawProjection(EMPTY_TAROT_DRAW_PROJECTION);
+    if (!tarotDrawSceneArmed) {
+      return undefined;
+    }
+    if (tarotDrawProjection.cards.length) {
       return undefined;
     }
     if (avatarDataMode !== "full" && avatarDataMode !== "fallback") {
@@ -931,7 +1002,7 @@ export default function App() {
     return scheduleDeferredLoad(() => {
       setTarotDrawProjection(buildTarotDrawProjection(
         normalizedItemManager.cards,
-        selectedAvatarInventory,
+        tarotDrawHostInventory,
         avatars,
         normalizedInventoryStore,
         songLibrary,
@@ -939,18 +1010,17 @@ export default function App() {
       ));
       markQueueReady("derived-tarot-draw-projection", "Tarot Draw projection", "Drawable Tarot projection ready.");
     }, 900);
-  }, [isTarotDrawView, tarotDrawSceneArmed, avatarDataMode, normalizedItemManager.cards, selectedAvatarInventory, avatars, normalizedInventoryStore, songLibrary, normalizedHapaSongStore]);
+  }, [tarotDrawSceneArmed, avatarDataMode, normalizedItemManager.cards, tarotDrawHostInventory, tarotDrawHostAvatar?.id, avatars, normalizedInventoryStore, songLibrary, normalizedHapaSongStore]);
 
   useEffect(() => {
-    if (!isTarotDrawView) {
-      setTarotDrawSceneArmed(false);
+    if (!isTarotDrawView || tarotDrawSceneArmed) {
       return undefined;
     }
-    setTarotDrawSceneArmed(false);
+    setTarotDrawHostAvatarId(selectedAvatar?.id || tarotDrawHostAvatarId || FALLBACK_AVATARS[0]?.id || null);
     return scheduleDeferredLoad(() => {
       setTarotDrawSceneArmed(true);
     }, 650);
-  }, [isTarotDrawView]);
+  }, [isTarotDrawView, tarotDrawSceneArmed, selectedAvatar?.id, tarotDrawHostAvatarId]);
 
   useEffect(() => {
     if (activeView !== "scenes" || !selectedScene) {
@@ -1167,6 +1237,7 @@ export default function App() {
     };
     if (activeView === "scenes") defer(ensureWorldStoreLoaded, 800);
     if (activeView === "items") defer(ensureItemStoreLoaded, 800);
+    if (activeView === "protocol") defer(ensureItemStoreLoaded, 700);
     if (activeView === "kanban") defer(ensureKanbanStoreLoaded, 800);
     if (activeView === "tarot-library") {
       defer(ensureTarotStoreLoaded, 520);
@@ -1580,15 +1651,18 @@ export default function App() {
       queuedNext: "Normalize item and inventory references.",
       blocking: false
     });
-    fetch(`${API_BASE}/api/items`)
-      .then((res) => (res.ok ? res.json() : Promise.reject(new Error(`Item load failed: ${res.status}`))))
-      .then((store) => {
+    Promise.all([
+      fetch(`${API_BASE}/api/items`).then((res) => (res.ok ? res.json() : Promise.reject(new Error(`Item load failed: ${res.status}`)))),
+      fetch(`${API_BASE}/api/inventory`).then((res) => (res.ok ? res.json() : FALLBACK_INVENTORY_STORE)).catch(() => FALLBACK_INVENTORY_STORE)
+    ])
+      .then(([store, inventory]) => {
         const nextItemStore = normalizeItemManagerStore(store || FALLBACK_ITEM_MANAGER);
+        const nextInventoryStore = normalizeInventoryStore(inventory || FALLBACK_INVENTORY_STORE, avatars, nextItemStore.cards);
         setItemManager(nextItemStore);
-        setInventoryStore((current) => normalizeInventoryStore(current, avatars, nextItemStore.cards));
+        setInventoryStore(nextInventoryStore);
         setSelectedItemId((current) => current && nextItemStore.cards.some((card) => card.id === current) ? current : nextItemStore.cards[0]?.id || null);
         setItemDataMode("full");
-        markQueueReady("item-store", "Item store", `${nextItemStore.cards.length} item cards loaded.`);
+        markQueueReady("item-store", "Item store", `${nextItemStore.cards.length} item cards and ${nextInventoryStore.avatarInventories.length} inventories loaded.`);
       })
       .catch((error) => {
         setItemDataMode((current) => (current === "loading" ? "compact" : current));
@@ -3002,7 +3076,13 @@ export default function App() {
     if (nextView === activeView) return;
     flashRoutePending();
     setActiveView(nextView);
+    if (nextView === "protocol") setAvatarCardMenuOpen(false);
     if (nextView !== "protocol") setProfileReturnRoute(null);
+  }
+
+  function toggleAvatarCardMenu() {
+    setAvatarCardMenuOpen((value) => !value);
+    cue("select");
   }
 
   function revealShowcaseTop() {
@@ -3046,6 +3126,7 @@ export default function App() {
       if (activeView !== "protocol") {
         flashRoutePending();
         setActiveView("protocol");
+        setAvatarCardMenuOpen(false);
       }
       revealShowcaseTop();
       return;
@@ -3062,6 +3143,7 @@ export default function App() {
     setSelectedAvatarId(avatarId);
     setSelectedAssetId(null);
     setActiveView("protocol");
+    if (activeView !== "protocol") setAvatarCardMenuOpen(false);
     cue("select");
     revealShowcaseTop();
   }
@@ -3070,6 +3152,7 @@ export default function App() {
     if (!profileReturnRoute?.view) return;
     const targetView = profileReturnRoute.view;
     setProfileReturnRoute(null);
+    setAvatarCardMenuOpen(false);
     flashRoutePending();
     setActiveView(targetView);
     cue("select");
@@ -3091,7 +3174,7 @@ export default function App() {
   }
 
   return (
-    <div className={`app-shell ${activeView === "lookbook" && lookBookReader ? "reader-mode-active" : ""}`}>
+    <div className={appShellClasses}>
       <div className="scanline" />
       <header className="topbar hapa-panel" data-variant="notch">
         <div className="brand-block">
@@ -3633,25 +3716,56 @@ export default function App() {
           />
         )}
 
-        {isTarotDrawView && selectedAvatar && (
-          tarotDrawSceneArmed && tarotDrawProjectionReady ? (
-            <Suspense fallback={<div className="tarot-draw-view tarot-draw-loading"><Loader2 size={26} /> <span>Preparing tarot table</span></div>}>
-              <TarotDraw3DView
-                avatarName={selectedAvatar.primaryName}
-                cards={tarotDrawCards}
-                productionAudit={tarotDrawProductionAudit}
-                apiBase={API_BASE}
-                soundEnabled={sound}
-                onResolveEchoProject={resolveEchoDirectorProject}
-                onSelectAvatarProfile={(avatarId, options = {}) => openAvatarProfile(avatarId, { returnView: "tarot", returnLabel: "Tarot Draw", ...options })}
-              />
-            </Suspense>
-          ) : (
-            <div className="tarot-draw-view tarot-draw-loading">
-              <Loader2 size={26} />
-              <span>{tarotDrawSceneArmed ? "Preparing playable tarot deck" : "Queueing 3D tarot table"}</span>
-            </div>
-          )
+        {tarotDrawStageVisible && (tarotDrawHostAvatar || selectedAvatar) && (
+          <div
+            className={`tarot-persistent-stage ${isTarotDrawView ? "is-active" : "is-docked"}`}
+            data-scene-live={tarotDrawSceneLive ? "true" : "false"}
+            aria-label={tarotDrawStageDocked ? "Live docked Tarot Draw scene" : "Active Tarot Draw scene"}
+          >
+            {tarotDrawStageDocked && (
+              <div className="tarot-live-dock-bar hapa-panel" data-variant="hot">
+                <span><Sparkles size={14} /> Live Tarot Scene</span>
+                <button className="hapa-btn" data-intent="primary" type="button" onClick={() => switchView("tarot")}>
+                  <Maximize2 size={14} />
+                  Return
+                </button>
+              </div>
+            )}
+            {tarotDrawSceneArmed && tarotDrawProjectionReady ? (
+              <Suspense fallback={<div className="tarot-draw-view tarot-draw-loading"><Loader2 size={26} /> <span>Preparing tarot table</span></div>}>
+                <TarotDraw3DView
+                  avatarName={(tarotDrawHostAvatar || selectedAvatar).primaryName}
+                  cards={tarotDrawCards}
+                  productionAudit={tarotDrawProductionAudit}
+                  apiBase={API_BASE}
+                  soundEnabled={sound}
+                  onResolveEchoProject={resolveEchoDirectorProject}
+                  onTarotForgeCreated={(packet) => {
+                    if (!packet?.store) return;
+                    const store = normalizeTarotStore(packet.store);
+                    setTarotStore(store);
+                    setTarotDataMode("full");
+                    setTarotSyncState("saved");
+                    if (packet.card?.id) setSelectedTarotCardId(packet.card.id);
+                  }}
+                  onTarotSceneSaved={(packet) => {
+                    if (!packet?.store) return;
+                    const store = normalizeTarotStore(packet.store);
+                    setTarotStore(store);
+                    setTarotDataMode("full");
+                    setTarotSyncState("saved");
+                    if (packet.card?.id) setSelectedTarotCardId(packet.card.id);
+                  }}
+                  onSelectAvatarProfile={(avatarId, options = {}) => openAvatarProfile(avatarId, { returnView: "tarot", returnLabel: "Tarot Draw", ...options })}
+                />
+              </Suspense>
+            ) : isTarotDrawView ? (
+              <div className="tarot-draw-view tarot-draw-loading">
+                <Loader2 size={26} />
+                <span>{tarotDrawSceneArmed ? "Preparing playable tarot deck" : "Queueing 3D tarot table"}</span>
+              </div>
+            ) : null}
+          </div>
         )}
 
         {activeView === "protocol" && selectedAvatar && mindPack && (
@@ -3661,13 +3775,15 @@ export default function App() {
             audit={audit}
             mindPack={mindPack}
             inventoryStore={normalizedInventoryStore}
-            itemStore={showcaseItemManager}
+            itemStore={normalizedItemManager}
             songLibrary={songLibrary}
             onExpandAsset={openExpandedAsset}
             onSelectAvatarProfile={openAvatarProfile}
             onBackProfile={backToPreviousProfile}
             profileTrail={profileTrail}
             profileReturnRoute={profileReturnRoute}
+            menuOpen={avatarCardMenuOpen}
+            onToggleFullMenu={toggleAvatarCardMenu}
             onReturnToProfileOrigin={returnToProfileOrigin}
           />
         )}
@@ -4444,9 +4560,11 @@ function AvatarShowcaseView({
   songLibrary,
   profileTrail = [],
   profileReturnRoute = null,
+  menuOpen = false,
   onExpandAsset,
   onSelectAvatarProfile,
   onBackProfile,
+  onToggleFullMenu,
   onReturnToProfileOrigin
 }) {
   const [activeGalleryId, setActiveGalleryId] = useState("identity");
@@ -4461,6 +4579,7 @@ function AvatarShowcaseView({
   const heroAsset = useMemo(() => pickAvatarHeroImage(avatar), [avatar]);
   const backdropAssets = useMemo(() => pickAvatarBackdropVideos(avatar), [avatar]);
   const galleryGroups = useMemo(() => buildAvatarShowcaseGalleryGroups(avatar), [avatar]);
+  const kitAssets = useMemo(() => (avatar.assets || []).filter(isAvatarKitAsset), [avatar.assets]);
   const showcaseAssets = useMemo(
     () => uniqueAssetCollection([heroAsset, ...galleryGroups.flatMap((group) => group.assets)]),
     [heroAsset, galleryGroups]
@@ -4472,23 +4591,36 @@ function AvatarShowcaseView({
   const equippedCards = inventory
     ? inventory.hardpoints.flatMap((hardpoint) => hardpoint.cardIds.map((cardId) => ({ hardpoint, card: itemById.get(cardId) })).filter((entry) => entry.card))
     : [];
-  const showcaseDeckZones = inventory ? [
-    { id: "deck", label: "Avatar Deck", cardIds: inventory.deck || [] },
-    { id: "hand", label: "Hand", cardIds: inventory.hand || [] },
-    { id: "training", label: "Training Deck", cardIds: inventory.trainingDeck || [] }
-  ] : [];
-  const tarotCards = useMemo(
+  const inventoryTarotCards = useMemo(
     () => buildAvatarTarotCards(inventory, itemById),
     [inventory, itemById]
   );
-  const loadoutSections = useMemo(
-    () => buildShowcaseLoadoutSections(inventory, itemById),
-    [inventory, itemById]
+  const mindTarotChoiceCards = useMemo(
+    () => buildMindTarotChoiceShowcaseCards(summary.loadout.tarotCards, avatar, itemById),
+    [summary.loadout.tarotCards, avatar, itemById]
   );
-  const expandedCard = expandedCardId ? itemById.get(expandedCardId) : null;
+  const tarotCards = useMemo(
+    () => uniqueShowcaseCards([...inventoryTarotCards, ...mindTarotChoiceCards]).slice(0, 18),
+    [inventoryTarotCards, mindTarotChoiceCards]
+  );
+  const loadoutSections = useMemo(
+    () => buildShowcaseLoadoutSections(inventory, itemById, summary, avatar),
+    [inventory, itemById, summary, avatar]
+  );
+  const loadoutCardById = useMemo(
+    () => new Map(loadoutSections.flatMap((section) => section.cards.map((card) => [card.id, card]))),
+    [loadoutSections]
+  );
+  const expandedCard = expandedCardId ? itemById.get(expandedCardId) || loadoutCardById.get(expandedCardId) : null;
   const facts = mind.selfKnowledge.filter((item) => item.status !== "tombstone").slice(0, 7);
   const memories = mind.memoryLedger.filter((item) => item.status !== "tombstone").slice(0, 4);
   const phraseCards = summary.phraseCards.slice(0, 9);
+  const storySpine = mind.storySpine || null;
+  const canonicalChoices = useMemo(
+    () => (mind.canonicalChoices || []).filter(isActiveMindRecord).slice(0, 6),
+    [mind.canonicalChoices]
+  );
+  const annualSceneBeats = (mind.annualSceneBeats || []).filter(isActiveMindRecord).slice(0, 4);
   const relationshipCards = summary.knownOthers.slice(0, 8);
   const relationshipProfileCards = useMemo(
     () => relationshipCards.map((relationship) => {
@@ -4501,7 +4633,6 @@ function AvatarShowcaseView({
     }),
     [relationshipCards, avatars]
   );
-  const loadoutCards = [...summary.loadout.protocolCards, ...summary.loadout.skillCards].slice(0, 10);
   const songCards = useMemo(() => summary.loadout.songCards.slice(0, 3), [summary.loadout.songCards]);
   const consciousnessCopies = summary.consciousnessCopies.slice(0, 3);
   const speechPortraits = useMemo(() => closeupSpeechPortraits(avatar), [avatar]);
@@ -4518,10 +4649,14 @@ function AvatarShowcaseView({
     () => (backdropAssets.length ? backdropAssets : [heroVideo || heroAsset].filter(Boolean)),
     [backdropAssets, heroAsset, heroVideo]
   );
+  const activeMindTarotChoiceCount = (summary.loadout.tarotCards || []).filter(isActiveMindRecord).length;
+  const tarotChoiceTotal = Math.max(tarotCards.length, inventoryTarotCards.length + activeMindTarotChoiceCount);
+  const tarotChoiceOverflowCount = Math.max(0, tarotChoiceTotal - tarotCards.length);
+  const loadoutSectionCardCount = loadoutSections.reduce((count, section) => count + section.cards.length, 0);
 
   useEffect(() => {
-    if (expandedCardId && !itemById.has(expandedCardId)) setExpandedCardId(null);
-  }, [expandedCardId, itemById]);
+    if (expandedCardId && !itemById.has(expandedCardId) && !loadoutCardById.has(expandedCardId)) setExpandedCardId(null);
+  }, [expandedCardId, itemById, loadoutCardById]);
 
   useEffect(() => {
     const fallbackId = songChoiceKey(songCards[0] || {});
@@ -4596,7 +4731,7 @@ function AvatarShowcaseView({
           <StatusChip label="LEVEL" value={audit?.level || 1} tone="gold" />
           <StatusChip label="MEDIA" value={avatar.assets.length} tone="fuchsia" />
           <StatusChip label="FACTS" value={summary.counts.selfKnowledge} tone="cyan" />
-          <StatusChip label="GEAR" value={equippedCards.length} tone="green" />
+          <StatusChip label="KIT" value={kitAssets.length} tone="green" />
         </div>
       </header>
 
@@ -4607,6 +4742,8 @@ function AvatarShowcaseView({
         onBackProfile={onBackProfile}
         onSelectAvatarProfile={onSelectAvatarProfile}
         onReturnToProfileOrigin={onReturnToProfileOrigin}
+        menuOpen={menuOpen}
+        onToggleFullMenu={onToggleFullMenu}
       />
 
       {introductionParagraphs.length > 0 && (
@@ -4632,7 +4769,7 @@ function AvatarShowcaseView({
         <ShowcaseStatMeter label="Lore Density" value={Math.min(100, summary.counts.selfKnowledge * 3)} />
         <ShowcaseStatMeter label="Relationship Web" value={Math.min(100, summary.counts.relationships * 8)} />
         <ShowcaseStatMeter label="Media Coverage" value={Math.min(100, avatar.assets.length)} />
-        <ShowcaseStatMeter label="Loadout Depth" value={Math.min(100, (loadoutCards.length + equippedCards.length) * 6)} />
+        <ShowcaseStatMeter label="Loadout Depth" value={Math.min(100, (loadoutSectionCardCount + kitAssets.length) * 6)} />
       </section>
 
       <section className="showcase-gallery panel hapa-panel" data-variant="hot">
@@ -4700,19 +4837,61 @@ function AvatarShowcaseView({
         </div>
       </section>
 
+      {(storySpine || canonicalChoices.length > 0) && (
+        <section className="showcase-canon panel hapa-panel" data-variant="notch">
+          <div className="section-head hapa-panel-head">
+            <span><GitBranch size={15} /> Story Spine</span>
+            <em>{canonicalChoices.length} choices</em>
+          </div>
+          {storySpine && (
+            <article className="showcase-story-spine">
+              <div>
+                <p className="eyebrow"><Sparkles size={13} /> {storySpine.canonStatus || "soft_canon"} · {storySpine.reviewState || "pending_review"}</p>
+                <strong>{showcaseText(storySpine.title, "Story spine pending")}</strong>
+                <span>{showcaseText(storySpine.arc || storySpine.coreQuestion, "Arc pending")}</span>
+              </div>
+              <div className="showcase-spine-readouts">
+                <StatusChip label="SCENES" value={(storySpine.sceneIds || []).length} tone="cyan" />
+                <StatusChip label="RELS" value={(storySpine.relationshipIds || []).length} tone="fuchsia" />
+                <StatusChip label="BEATS" value={(storySpine.annualSceneBeatIds || annualSceneBeats || []).length} tone="gold" />
+              </div>
+            </article>
+          )}
+          <div className="showcase-canon-choice-grid">
+            {canonicalChoices.map((choice) => (
+              <article className="showcase-canon-choice hapa-card" data-card-type="lore" data-granularity="mini" data-state="active" key={choice.id}>
+                <p className="eyebrow"><CheckCircle2 size={13} /> {choice.canonStatus || "soft_canon"} · {choice.reviewState || "review"}</p>
+                <strong>{showcaseText(choice.choiceText, "Choice pending")}</strong>
+                <span>{showcaseText(choice.decisionPressure || choice.futurePayoff, "Choice pressure pending")}</span>
+                <em>
+                  {(choice.linkTargets?.sceneIds || []).length} scenes · {(choice.linkTargets?.cardIds || []).length} cards · {(choice.linkTargets?.journalEntryIds || []).length} journals
+                </em>
+              </article>
+            ))}
+          </div>
+          {annualSceneBeats.length > 0 && (
+            <div className="showcase-annual-beats">
+              {annualSceneBeats.map((beat) => (
+                <span key={beat.id}><Route size={12} /> {showcaseText(beat.title, "Annual beat")}</span>
+              ))}
+            </div>
+          )}
+        </section>
+      )}
+
       <section className="showcase-loadout panel hapa-panel" data-variant="resting">
         <div className="section-head hapa-panel-head">
           <span><Archive size={15} /> Inventory & Loadout</span>
-          <em>{equippedCards.length + showcaseDeckZones.reduce((count, zone) => count + zone.cardIds.length, 0)}</em>
+          <em>{loadoutSectionCardCount}</em>
         </div>
         <div className="showcase-loadout-sections">
-          {inventory ? loadoutSections.map((section) => (
+          {loadoutSections.length ? loadoutSections.map((section) => (
             <ShowcaseLoadoutSection
               key={section.id}
               section={section}
               onExpandCard={(card) => setExpandedCardId(card.id)}
             />
-          )) : <span className="showcase-muted">Inventory pending</span>}
+          )) : <span className="showcase-muted">Inventory and mind loadout pending</span>}
         </div>
       </section>
 
@@ -4761,8 +4940,8 @@ function AvatarShowcaseView({
       {tarotCards.length > 0 && (
         <section className="showcase-tarot panel hapa-panel" data-variant="hot">
           <div className="section-head hapa-panel-head">
-            <span><Sparkles size={15} /> Tarot Cards</span>
-            <em>{tarotCards.length}</em>
+            <span><Sparkles size={15} /> Card Choices</span>
+            <em>{tarotCards.length}{tarotChoiceOverflowCount > 0 ? `/${tarotChoiceTotal}` : ""}</em>
           </div>
           <div className="showcase-tarot-grid">
             {tarotCards.map((card) => (
@@ -5125,9 +5304,28 @@ function ShowcaseTarotCard({ card }) {
   );
 }
 
-function ShowcaseProfileNav({ avatar, profileTrail = [], profileReturnRoute = null, onBackProfile, onSelectAvatarProfile, onReturnToProfileOrigin }) {
+function ShowcaseProfileNav({
+  avatar,
+  profileTrail = [],
+  profileReturnRoute = null,
+  menuOpen = false,
+  onBackProfile,
+  onSelectAvatarProfile,
+  onReturnToProfileOrigin,
+  onToggleFullMenu
+}) {
   return (
     <nav className="showcase-profile-nav hapa-panel" data-variant="notch" data-testid="profile-nav" aria-label="Avatar profile navigation">
+      <button
+        className="profile-menu-toggle hapa-btn"
+        data-intent={menuOpen ? "warning" : "primary"}
+        type="button"
+        aria-pressed={menuOpen}
+        onClick={onToggleFullMenu}
+      >
+        {menuOpen ? <ChevronLeft size={15} /> : <Grid3X3 size={15} />}
+        {menuOpen ? "Focus Card" : "Full Menu"}
+      </button>
       {profileReturnRoute && (
         <button className="profile-origin-back-button hapa-btn" data-intent="warning" type="button" onClick={onReturnToProfileOrigin}>
           <ChevronLeft size={15} />
@@ -5217,7 +5415,7 @@ function ShowcaseSongPlayer({ songs, activeSong, isPlaying, showLyrics, songLibr
       <audio
         className="song-audio-node"
         ref={audioRef}
-        src={audioSrc}
+        src={audioSrc || undefined}
         preload="metadata"
         crossOrigin="anonymous"
         onCanPlay={() => setAudioState((current) => (current === "loading" ? "ready" : current))}
@@ -6011,9 +6209,8 @@ function itemQualityMetrics(card = {}) {
   };
 }
 
-function buildShowcaseLoadoutSections(inventory = null, itemById = new Map()) {
-  if (!inventory) return [];
-  const hardpointSections = (inventory.hardpoints || []).map((hardpoint) => ({
+function buildShowcaseLoadoutSections(inventory = null, itemById = new Map(), summary = {}, avatar = {}) {
+  const hardpointSections = inventory ? (inventory.hardpoints || []).map((hardpoint) => ({
     id: hardpoint.id,
     label: hardpoint.label,
     description: hardpoint.description || "",
@@ -6021,18 +6218,219 @@ function buildShowcaseLoadoutSections(inventory = null, itemById = new Map()) {
     max: hardpoint.maxCards,
     cards: (hardpoint.cardIds || []).map((cardId) => itemById.get(cardId)).filter(Boolean),
     limit: hardpoint.id === "items" ? 9 : 6
-  }));
-  const deckSections = [
+  })) : [];
+  const deckSections = inventory ? [
     { id: "deck", label: "Avatar Deck", type: "deck", cardIds: inventory.deck || [], limit: 9 },
     { id: "hand", label: "Hand", type: "hand", cardIds: inventory.hand || [], limit: 9 },
     { id: "training", label: "Training Deck", type: "training", cardIds: inventory.trainingDeck || [], limit: 9 }
   ].map((zone) => ({
     ...zone,
     cards: zone.cardIds.map((cardId) => itemById.get(cardId)).filter(Boolean)
-  }));
-  return [...hardpointSections, ...deckSections].filter((section) =>
+  })) : [];
+  const mindLoadoutSections = [
+    buildMindLoadoutSection("mind-protocol-loadout", "Mind Protocols", "protocol", summary.loadout?.protocolCards, avatar),
+    buildMindLoadoutSection("mind-skill-loadout", "Mind Skills", "skill", summary.loadout?.skillCards, avatar)
+  ].filter(Boolean);
+  return [...hardpointSections, ...deckSections, ...mindLoadoutSections].filter((section) =>
     section.cards.length || ["node_ship", "protocols", "skills", "items", "location", "equipment", "deck"].includes(section.id)
   );
+}
+
+function buildMindLoadoutSection(id, label, type, cards = [], avatar = {}) {
+  const activeCards = (cards || [])
+    .filter(isActiveMindRecord)
+    .map((card, index) => mindLoadoutCardToShowcaseCard(card, type, avatar, index));
+  if (!activeCards.length) return null;
+  const avatarName = avatar.primaryName || avatar.name || avatar.id || "Avatar";
+  return {
+    id,
+    label,
+    description: `${avatarName} recovered ${type} loadout`,
+    type: `mind-${type}`,
+    cards: uniqueShowcaseCards(activeCards),
+    limit: 6
+  };
+}
+
+function mindLoadoutCardToShowcaseCard(card = {}, type = "protocol", avatar = {}, index = 0) {
+  const kind = type === "skill" ? "skill" : "protocol";
+  const avatarId = avatar.id || avatar.primaryName || "avatar";
+  const title = card.title || titleizeItemLabel(card.id || `${kind} card`);
+  const allowedUses = card.allowedUses || [];
+  const limits = card.limits || [];
+  const summary = showcaseText(
+    card.mechanic || card.whyChosen || card.learningThing || card.role,
+    `${avatar.primaryName || avatar.name || "Avatar"} ${kind} loadout card.`
+  );
+  return {
+    id: `mind-${kind}-${stableCardSlug(card.id || `${avatarId}-${title}-${index}`)}`,
+    title,
+    kind,
+    cardType: card.cardType || `${kind}_card`,
+    summary,
+    description: card.whyChosen || card.learningThing || summary,
+    lore: card.source ? `Recovered from ${card.source}.` : "",
+    canonStatus: card.status || "active",
+    tags: uniqueLocal([kind, "mind-loadout", card.family, card.role, card.cardType, ...allowedUses]).slice(0, 10),
+    broadGameMechanics: [card.mechanic].filter(Boolean),
+    utility: uniqueLocal([card.learningThing, card.whyChosen]).slice(0, 4),
+    equipment: {
+      hardpointHints: [kind],
+      effects: allowedUses,
+      limits
+    },
+    connections: {
+      avatarIds: [avatar.id].filter(Boolean)
+    },
+    quality: {
+      rank: "Mind",
+      level: Math.max(1, Math.min(9, allowedUses.length + 1)),
+      durability: Math.max(1, Math.min(9, limits.length + 1))
+    },
+    sourceMindCard: card
+  };
+}
+
+function buildMindTarotChoiceShowcaseCards(choices = [], avatar = {}, itemById = new Map()) {
+  return uniqueShowcaseCards((choices || [])
+    .filter(isActiveMindRecord)
+    .map((choice, index) => mindTarotChoiceToShowcaseCard(choice, avatar, itemById, index)))
+    .sort((a, b) =>
+      Number(Boolean(itemPreviewUri(b))) - Number(Boolean(itemPreviewUri(a))) ||
+      itemCardResolutionScore(b) - itemCardResolutionScore(a) ||
+      compareText(a.title, b.title)
+    )
+    .slice(0, 18);
+}
+
+function mindTarotChoiceToShowcaseCard(choice = {}, avatar = {}, itemById = new Map(), index = 0) {
+  const sourceCard = itemById.get(choice.cardId) || {};
+  const sourceTarot = sourceCard.tarotCard || {};
+  const sourceShip = sourceCard.shipCard || {};
+  const sourceIdentity = sourceTarot.identity || {};
+  const sourceFace = sourceTarot.cardFace || {};
+  const sourceTypeDetails = sourceTarot.typeDetails || {};
+  const sourceLore = sourceTarot.lore || {};
+  const avatarName = avatar.primaryName || avatar.name || avatar.id || "Avatar";
+  const arcana = AVATAR_TAROT_MAJOR_ARCANA[index % AVATAR_TAROT_MAJOR_ARCANA.length];
+  const role = choice.role || choice.tarotMainType || sourceIdentity.functionalType || "deck-choice";
+  const title = choice.cardTitle || choice.title || sourceCard.title || titleizeItemLabel(choice.cardId || "Card Choice");
+  const subtitle = choice.songTitle ? `${avatarName} / ${choice.songTitle}` : `${avatarName} Tarot Draw choice`;
+  const summary = showcaseText(
+    choice.whyChosen || choice.objectiveFit || sourceCard.summary || sourceCard.description,
+    `${avatarName} selected ${title} for the Tarot Draw deck.`
+  );
+  const effectText = showcaseText(
+    choice.deckInfluence || choice.futureInfluence || choice.canonReason || sourceTarot.effectText || sourceShip.effectText,
+    ""
+  );
+  const keywords = uniqueLocal([
+    ...(sourceShip.keywords || []),
+    ...(sourceTarot.keywords || []),
+    ...arcana.keywords,
+    role,
+    choice.songTitle,
+    choice.vibe
+  ]).slice(0, 6);
+  return {
+    ...sourceCard,
+    id: `mind-choice-${stableCardSlug(choice.id || choice.cardId || `${avatar.id || avatarName}-${title}-${index}`)}`,
+    sourceItemId: sourceCard.id || choice.cardId || "",
+    title,
+    kind: sourceCard.kind || "item",
+    cardType: sourceCard.cardType || choice.cardType || "hapa_tarot_card",
+    summary,
+    description: sourceCard.description || summary,
+    lore: choice.loreContext || sourceCard.lore || choice.canonReason || "",
+    canonStatus: choice.status || sourceCard.canonStatus || "active",
+    tags: uniqueLocal([
+      ...(sourceCard.tags || []),
+      "mind-card-choice",
+      "tarot-draw",
+      role,
+      choice.cardType,
+      choice.tarotMainType,
+      choice.songTitle,
+      choice.confidence
+    ]).slice(0, 12),
+    quality: sourceCard.quality || mindTarotChoiceQuality(choice),
+    connections: {
+      ...(sourceCard.connections || {}),
+      avatarIds: uniqueLocal([...(sourceCard.connections?.avatarIds || []), avatar.id])
+    },
+    shipCard: {
+      ...sourceShip,
+      title,
+      subtitle: sourceShip.subtitle || subtitle,
+      archetype: sourceShip.archetype || titleizeItemLabel(role || arcana.title),
+      tarotNumber: sourceShip.tarotNumber || sourceIdentity.romanNumeral || arcana.number,
+      keywords,
+      flavorText: sourceShip.flavorText || summary,
+      effectText: sourceShip.effectText || effectText,
+      stats: sourceShip.stats || mindTarotChoiceStats(choice, index)
+    },
+    tarotCard: {
+      ...sourceTarot,
+      schemaVersion: sourceTarot.schemaVersion || "hapa.avatar-tarot-choice-showcase.v1",
+      title: sourceTarot.title || title,
+      subtitle: sourceTarot.subtitle || subtitle,
+      flavorText: sourceTarot.flavorText || summary,
+      effectText: sourceTarot.effectText || effectText,
+      identity: {
+        ...sourceIdentity,
+        tarotType: sourceIdentity.tarotType || sourceIdentity.tarotCardName || arcana.title,
+        functionalType: sourceIdentity.functionalType || titleizeItemLabel(role),
+        arcana: sourceIdentity.arcana || "Major Arcana",
+        romanNumeral: sourceIdentity.romanNumeral || arcana.number
+      },
+      typeDetails: {
+        ...sourceTypeDetails,
+        role: sourceTypeDetails.role || role,
+        procedureFlow: sourceTypeDetails.procedureFlow || choice.whyChosen || ""
+      },
+      cardFace: {
+        ...sourceFace,
+        coreMeaning: sourceFace.coreMeaning || choice.objectiveFit || summary,
+        mechanicsText: sourceFace.mechanicsText || choice.deckInfluence || choice.futureInfluence || ""
+      },
+      lore: {
+        ...sourceLore,
+        visualLanguage: sourceLore.visualLanguage || choice.loreContext || ""
+      }
+    },
+    sourceMindChoice: choice
+  };
+}
+
+function mindTarotChoiceQuality(choice = {}) {
+  return {
+    rank: "Choice",
+    level: Math.max(1, Math.min(9, 2 + Number(Boolean(choice.songTitle)) + Number(Boolean(choice.objectiveFit)) + Number(Boolean(choice.deckInfluence)))),
+    durability: Math.max(1, Math.min(9, 2 + Number(Boolean(choice.canonReason)) + Number(Boolean(choice.futureInfluence)) + Number(choice.confidence === "generated")))
+  };
+}
+
+function mindTarotChoiceStats(choice = {}, index = 0) {
+  return {
+    speed: Math.min(9, 3 + (index % 3) + Number(Boolean(choice.songTitle))),
+    morale: Math.min(9, 4 + Number(Boolean(choice.whyChosen)) + Number(Boolean(choice.canonReason))),
+    supply: Math.min(9, 4 + Number(Boolean(choice.objectiveFit)) + Number(Boolean(choice.deckInfluence))),
+    influence: Math.min(9, 4 + Number(Boolean(choice.futureInfluence)) + Number(Boolean(choice.vibe)))
+  };
+}
+
+function isActiveMindRecord(record = {}) {
+  return Boolean(record) && record.status !== "tombstone" && record.classification !== "tombstone";
+}
+
+function uniqueShowcaseCards(cards = []) {
+  const seen = new Set();
+  return (cards || []).filter((card) => {
+    const key = String(card?.id || card?.sourceItemId || card?.cardId || card?.title || "").trim();
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 function itemSemanticType(card = {}) {
@@ -12391,6 +12789,12 @@ function pickAvatarHeroImage(avatar = {}) {
     null;
 }
 
+const AVATAR_KIT_REQUIREMENT_IDS = new Set(["kit_sheet", "kit_poses", "kit_items"]);
+
+function isAvatarKitAsset(asset = {}) {
+  return AVATAR_KIT_REQUIREMENT_IDS.has(asset.requirementId);
+}
+
 function buildAvatarShowcaseGalleryGroups(avatar = {}) {
   const assets = (avatar.assets || []).filter((asset) => asset.uri || thumbnailUriForAsset(asset));
   const branchMap = createVideoBranchMap(avatar);
@@ -12408,7 +12812,7 @@ function buildAvatarShowcaseGalleryGroups(avatar = {}) {
     {
       id: "kit",
       label: "Kit",
-      assets: assets.filter((asset) => ["kit_sheet", "kit_poses", "kit_items"].includes(asset.requirementId))
+      assets: assets.filter(isAvatarKitAsset)
     },
     {
       id: "motion",

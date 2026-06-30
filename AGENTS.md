@@ -6,6 +6,10 @@
 
 ## Source Of Truth
 
+- Canonical local checkout: `/Users/calderwong/Desktop/hapa-avatar-builder`.
+- Resolved checkout: `/Users/calderwong/Documents/Codex/2026-06-10/files-mentioned-by-the-user-screenshot/outputs/hapa-avatar-builder`.
+- Current Avatar Card store: `data/avatar-store.json`, verified on 2026-06-29 with 74 unique Avatar Builder cards.
+- Do not use `/Users/calderwong/Documents/Codex/2026-06-12/can-you-create-a-desktop-version/outputs/hapa-avatar-builder-desktop` as source of truth. It is an older non-Pinokio desktop export with only 32 cards.
 - `README.md` defines the run commands, CLI/API surface, and current operator workflow.
 - `src/App.jsx` owns the operator UI, including the `Tarot Library` and `Tarot Draw` tabs.
 - `src/components/TarotLibraryView.jsx` owns deck/set/card/back/loop/avatar-link management.

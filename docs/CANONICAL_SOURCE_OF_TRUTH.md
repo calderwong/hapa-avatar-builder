@@ -1,6 +1,6 @@
 # Hapa Avatar Builder Source Of Truth
 
-Last audited: 2026-06-24.
+Last audited: 2026-06-29.
 
 ## Canonical App
 
@@ -16,6 +16,14 @@ That Desktop alias resolves to:
 /Users/calderwong/Documents/Codex/2026-06-10/files-mentioned-by-the-user-screenshot/outputs/hapa-avatar-builder
 ```
 
+Current active Avatar Card store:
+
+```text
+/Users/calderwong/Desktop/hapa-avatar-builder/data/avatar-store.json
+```
+
+As of 2026-06-29, the active store contains 74 unique Avatar Builder cards. If a candidate Avatar Builder folder has fewer than 70 cards, it is not the current merged source of truth.
+
 The Finder app wrapper should also point here:
 
 ```text
@@ -30,7 +38,13 @@ As of 2026-06-23, the Finder wrapper is a symlink to:
 
 ## Deprecated Duplicate
 
-Do not use this folder as the source of truth:
+Do not use these folders as the source of truth:
+
+```text
+/Users/calderwong/Documents/Codex/2026-06-12/can-you-create-a-desktop-version/outputs/hapa-avatar-builder-desktop
+```
+
+That non-Pinokio desktop export has only 32 cards and predates the merged 74-card library.
 
 ```text
 /Users/calderwong/pinokio/api/hapa-avatar-builder-desktop/app
@@ -45,6 +59,7 @@ That Pinokio app copy is the accidental duplicate branch. It carried the Tarot L
   - `Tarot Draw` for the Three.js reading table.
 - Canonical `data/tarot-store.json` matches the Pinokio duplicate exactly on deck/set/card IDs and counts.
 - Canonical runtime data is broader than the duplicate for avatars, world/scenes, kanban, inventory, songs, and generated lore.
+- Canonical Avatar Builder has 74 unique cards in `data/avatar-store.json`; the older June 12 desktop export has only 32 and is superseded.
 - Canonical song data lives in `data/hapa-songs-store.json`, `data/dear-papa-songbook.json`, and `/Users/calderwong/Desktop/hapa-song-registry/data/registry.json`; all three currently expose 79 Dear Papa songs/tracks. The deprecated Pinokio duplicate has no `hapa-songs-store.json` or `dear-papa-songbook.json`, so it is not a source for song recovery.
 - Pinokio-only avatar IDs `maris`, `naya`, and `zhi-zi` are already represented in canonical as identity-merged records:
   - `avatar-36` / Maris

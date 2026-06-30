@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { BadgeCheck, BookOpenCheck, Camera, CircleDot, Grid3X3, Link2, ListChecks, Maximize2, Mic, Minimize2, Pause, Play, RefreshCw, Route, Shuffle, Sparkles, UserRound, Volume2, Waves, X } from "lucide-react";
+import QRCode from "qrcode";
+import { BadgeCheck, BookOpenCheck, Camera, CircleDot, Film, Grid3X3, Images, Link2, ListChecks, Maximize2, Mic, Minimize2, Pause, Play, Plus, QrCode, RefreshCw, Route, Search, Shuffle, Sparkles, Smartphone, Upload, UserRound, Volume2, Waves, X } from "lucide-react";
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { queryValenTarotReading } from "../domain/valenTarotBridge.js";
@@ -20,6 +21,56 @@ const CARD_FOCUS_CAMERA_DISTANCE = 1.72;
 const TAROT_DETAIL_ZOOM_MIN = 1;
 const TAROT_DETAIL_ZOOM_MAX = 3.5;
 const TAROT_DETAIL_ZOOM_STEP = 0.25;
+const TAROT_CARD_BROWSER_BATCH_SIZE = 64;
+const TAROT_CARD_BROWSER_MAX_INITIAL = 96;
+const TAROT_CARD_BROWSER_TYPE_FILTERS = [
+  { id: "all", label: "All", pileIds: [], accent: "#00f3ff" },
+  { id: "tarot", label: "Tarot Cards", pileIds: ["hapa_tarot_card", "relationship_tarot_card", "major_arcana", "spell", "void_shadow"], textHints: ["tarot", "arcana", "oracle"], accent: "#f9d76e" },
+  { id: "avatar", label: "Avatars", pileIds: ["avatar"], textHints: ["avatar"], accent: "#00f3ff" },
+  { id: "scene", label: "Scenes", pileIds: ["scene"], textHints: ["tarot-draw-scene", "saved-scene", "scene-snapshot", "scene_snapshot"], accent: "#45f2c8" },
+  { id: "skill", label: "Skills", pileIds: ["skill"], textHints: ["skill"], accent: "#ff7448" },
+  { id: "garden", label: "Gardens", pileIds: ["garden"], textHints: ["garden"], accent: "#79f58f" },
+  { id: "item", label: "Items", pileIds: ["item"], textHints: ["item"], accent: "#58c8ff" },
+  { id: "lore", label: "Lore", pileIds: ["lore"], textHints: ["lore"], accent: "#f6c96d" },
+  { id: "protocol", label: "Protocols", pileIds: ["protocol"], textHints: ["protocol"], accent: "#43b7ff" },
+  { id: "capability", label: "Capabilities", pileIds: ["capability"], textHints: ["capability", "ability"], accent: "#45f2c8" },
+  { id: "location", label: "Locations", pileIds: ["location"], textHints: ["location", "place"], accent: "#4facfe" },
+  { id: "song", label: "Songs", pileIds: ["song"], textHints: ["song", "music"], accent: "#5ed7ff" },
+  { id: "ship", label: "Ships", pileIds: ["ship"], textHints: ["ship"], accent: "#78e8ff" },
+  { id: "void_shadow", label: "Void", pileIds: ["void_shadow"], textHints: ["void", "shadow"], accent: "#a472ff" }
+];
+const TAROT_DRAW_FORGE_POLL_MS = 2600;
+const TAROT_DRAW_FORGE_STYLE_TAG = "early-2000s brushed-pixel CRPG art fused with comic-book mythic futurism, teal-gold arcane technology, and Hapaverse celestial relic design.";
+const TAROT_DRAW_FORGE_CLOCK_MS = 1000;
+const TAROT_FIELD_CAPTURE_FPS = 24;
+const TAROT_FIELD_CAPTURE_WIDTH = 768;
+const TAROT_FIELD_CAPTURE_HEIGHT = 432;
+const TAROT_FIELD_CAPTURE_DURATIONS = [8, 16];
+const TAROT_DRAW_FORGE_STAGE_LABELS = {
+  requested: "Requested",
+  "image-generating": "Image",
+  "image-ready": "Image Ready",
+  "video-queued": "Loop Queued",
+  "video-generating": "Loop",
+  complete: "Complete",
+  failed: "Needs Repair"
+};
+const TAROT_DRAW_FORGE_STAGE_ORDER = {
+  requested: 0,
+  "image-generating": 1,
+  "image-ready": 2,
+  "video-queued": 2.5,
+  "video-generating": 3,
+  complete: 4,
+  failed: -1
+};
+const TAROT_DRAW_FORGE_PHASES = [
+  { id: "requested", job: "request", label: "Request", detail: "intent packet", estimateSeconds: 3 },
+  { id: "image-generating", job: "image", label: "Image", detail: "hero fabrication", estimateSeconds: 24 },
+  { id: "video-generating", job: "loop", label: "Loop", detail: "motion forge", estimateSeconds: 230 },
+  { id: "complete", job: "seal", label: "Card", detail: "sealed artifact", estimateSeconds: 5 }
+];
+const TAROT_DRAW_FORGE_BENCHMARK_NOTE = "ETA uses local benchmarks: Flux2 Klein 9B 768, 8 steps ~24s; LTX 2.3 bf16 512x512 4s, 20+5 ~3:50.";
 const DROP_ZONE_CARD_BASE_Y = 0.15;
 const TABLE_Y = 0;
 const BOARD_LIMIT_X = 3.28;
@@ -89,6 +140,8 @@ const DROP_PREVIEW_CARD_DEPTH = 0.13;
 const DROP_PREVIEW_CARD_MARGIN = 0.2;
 const DROP_PREVIEW_CARD_RAIL = 0.072;
 const CENTER_PREVIEW_SCREEN_NAME = "dropPreviewBack";
+const MIDDLE_PREVIEW_ALLOW_BACKGROUNDLESS = false;
+const MIDDLE_PREVIEW_VIDEO_KEYING = false;
 const CAMERA_GALLERY_RECOVERY_DURATION = 0.82;
 const CAMERA_GALLERY_RECOVERY_CLOSE_DISTANCE = 5.55;
 const CAMERA_GALLERY_RECOVERY_MAX_DISTANCE = 10.9;
@@ -99,7 +152,13 @@ const CAMERA_RAIL_HORIZON_START = Math.PI * 0.36;
 const CAMERA_RAIL_HORIZON_END = Math.PI * 0.455;
 const TAROT_RENDERER_DPR_CAP = Math.max(0.5, Number(import.meta.env?.VITE_TAROT_RENDERER_DPR_CAP ?? 1) || 1);
 const TAROT_ACTIVE_FPS = THREE.MathUtils.clamp(Number(import.meta.env?.VITE_TAROT_ACTIVE_FPS ?? 24) || 24, 12, 60);
-const TAROT_IDLE_SECONDS = Math.max(0.1, Number(import.meta.env?.VITE_TAROT_IDLE_SECONDS ?? 0.5) || 0.5);
+const TAROT_IDLE_FPS = THREE.MathUtils.clamp(Number(import.meta.env?.VITE_TAROT_IDLE_FPS ?? 12) || 12, 6, TAROT_ACTIVE_FPS);
+const TAROT_IDLE_SECONDS = (() => {
+  const explicitSeconds = Number(import.meta.env?.VITE_TAROT_IDLE_SECONDS);
+  return Number.isFinite(explicitSeconds) && explicitSeconds > 0
+    ? Math.max(1 / TAROT_ACTIVE_FPS, explicitSeconds)
+    : 1 / TAROT_IDLE_FPS;
+})();
 const TAROT_ACTIVE_FRAME_INTERVAL_SECONDS = 1 / TAROT_ACTIVE_FPS;
 const TAROT_IDLE_FRAME_INTERVAL_SECONDS = TAROT_IDLE_SECONDS;
 const TAROT_MAX_DELTA_SECONDS = 0.08;
@@ -129,6 +188,36 @@ const CAMERA_CARD_HOLD_Y = 0.92;
 const CAMERA_CARD_PITCH = 1.04;
 const CAMERA_CARD_ROLL = -0.025;
 const CAMERA_CARD_WHEEL_STEP = 0.0042;
+const BLUE_AVATAR_CARD_POSITION = new THREE.Vector3(-1.38, 0.72, 0.08);
+const BLUE_AVATAR_CARD_BASE_Y = 0.72;
+const BLUE_AVATAR_CARD_HOLD_Y = 0.92;
+const BLUE_AVATAR_CARD_PITCH = 1.04;
+const BLUE_AVATAR_CARD_ROLL = 0.025;
+const BLUE_AVATAR_JOURNAL_LIMIT = 16;
+const BLUE_AVATAR_AUDIO_POLL_MS = 1600;
+const BLUE_AVATAR_AUDIO_POLL_LIMIT = 24;
+const BLUE_AVATAR_ECHO_SUPPRESS_MS = 2600;
+const BLUE_AVATAR_ECHO_SIMILARITY = 0.68;
+const BLUE_AVATAR_EMPTY_REPLY_MESSAGE = "Blue did not return a spoken reply. Try the last line again.";
+const BLUE_AVATAR_OWNER_HEARTBEAT_MS = 3500;
+const PHONE_CARD_POSITION = new THREE.Vector3(0.22, 1.34, 1.12);
+const PHONE_CARD_MIN_Y = 0.55;
+const PHONE_CARD_MAX_Y = 3.2;
+const PHONE_PITCH_MIN = -Math.PI / 2 + 0.01;
+const PHONE_PITCH_MAX = Math.PI / 2 - 0.01;
+const PHONE_SCENE_SYNC_INTERVAL_MS = 240;
+const PHONE_SCENE_CARD_LIMIT = 28;
+const PHONE_SCENE_SCREEN_LIMIT = 8;
+const PHONE_FPV_STREAM_WIDTH = 960;
+const PHONE_FPV_STREAM_HEIGHT = 540;
+const PHONE_FPV_STREAM_FPS = 24;
+const PHONE_LASER_MAX_DISTANCE = 9.5;
+const PHONE_LASER_BEAM_SECONDS = 1.65;
+const PHONE_TRACTOR_MIN_DISTANCE = 0.86;
+const PHONE_TRACTOR_MAX_DISTANCE = 4.2;
+const PHONE_TRACTOR_DEFAULT_DISTANCE = 1.75;
+const PHONE_TRACTOR_HOLD_Y = 0.82;
+const PHONE_ACTION_MEMORY_LIMIT = 96;
 const CAMERA_CARD_MIC_WAVE_POINTS = 96;
 const CAMERA_CARD_MIC_WAVE_WIDTH = CARD_WIDTH * 0.84;
 const CAMERA_CARD_MIC_WAVE_HEIGHT = CARD_HEIGHT * 0.14;
@@ -148,6 +237,18 @@ const CAMERA_CARD_TRANSCRIBE_FORCE_AFTER_QUIET_POLLS = 56;
 const CAMERA_CARD_TRANSCRIBE_MODEL = "lightning:large-v3";
 const CAMERA_CARD_TRANSCRIBE_SOURCE = "hapa-transcribe";
 const CAMERA_CARD_TRANSCRIPT_JOURNAL_LIMIT = 24;
+const CAMERA_CARD_ISOLATED_FILLER_CONTEXT_MS = 12_000;
+const CAMERA_CARD_ISOLATED_FILLER_MAX_WORDS = 5;
+const CAMERA_CARD_ISOLATED_FILLER_PHRASES = new Set([
+  "thank you",
+  "thanks",
+  "thank you all",
+  "thanks all",
+  "thank you very much",
+  "thanks very much",
+  "thank you for watching",
+  "thanks for watching"
+]);
 const CAMERA_CARD_SPEECH_BUBBLE_WIDTH = CARD_WIDTH * 1.22;
 const CAMERA_CARD_SPEECH_BUBBLE_HEIGHT = CARD_HEIGHT * 0.48;
 const CAMERA_CARD_SPEECH_BUBBLE_X = CARD_WIDTH * 1.08;
@@ -428,6 +529,867 @@ function formatSelectedCardValue(value) {
   return String(value ?? "").replace(/\s+/g, " ").trim();
 }
 
+function tarotDrawForgeMeta(card = {}) {
+  return card?.drawForge || card?.enrichment?.media?.drawForge || {};
+}
+
+function isTarotDrawForgeCard(card = {}) {
+  return Boolean(card?.sourceKind === "tarot-draw-forge" || card?.cardType === "tarot_draw_forge_card" || tarotDrawForgeMeta(card).runId);
+}
+
+const TAROT_DRAW_SCENE_SNAPSHOT_VERSION = "hapa.tarot-draw.scene-snapshot.v1";
+const TAROT_DRAW_SCENE_CARD_VERSION = "hapa.tarot-draw.scene-card.v1";
+
+function tarotDrawSceneSnapshot(card = {}) {
+  return card?.sceneSnapshot ||
+    card?.drawScene?.snapshot ||
+    card?.enrichment?.media?.sceneSnapshot ||
+    card?.enrichment?.media?.drawScene?.snapshot ||
+    null;
+}
+
+function isTarotDrawSceneCard(card = {}) {
+  return Boolean(
+    card?.sourceKind === "tarot-draw-scene" ||
+    card?.kind === "tarot-draw-scene" ||
+    card?.tarotMainType === "tarot_draw_scene" ||
+    card?.drawScene ||
+    tarotDrawSceneSnapshot(card)
+  );
+}
+
+function tarotDrawForgeStageLabel(stage = "") {
+  return TAROT_DRAW_FORGE_STAGE_LABELS[stage] || titleizeTarotLabel(stage || "requested");
+}
+
+function tarotDrawForgeStageRank(stage = "") {
+  return TAROT_DRAW_FORGE_STAGE_ORDER[stage] ?? 0;
+}
+
+function isTarotDrawForgeLoopQueued(loop = {}) {
+  const status = String(loop?.status || "").toLowerCase();
+  const queueState = String(loop?.queueState || "").toLowerCase();
+  return status === "waiting-for-ltx-slot" ||
+    status === "queued" ||
+    status === "blocked" ||
+    queueState === "waiting-for-ltx-slot" ||
+    queueState === "queued-behind-active-loop";
+}
+
+function tarotDrawForgePhaseState(stage = "", phaseId = "") {
+  if (stage === "failed") return phaseId === "complete" ? "failed" : "complete";
+  const rank = tarotDrawForgeStageRank(stage);
+  const phaseRank = tarotDrawForgeStageRank(phaseId);
+  if (phaseId === "video-generating" && (stage === "image-ready" || stage === "video-queued")) return "queued";
+  if (rank > phaseRank || stage === "complete") return "complete";
+  if (rank === phaseRank) return "active";
+  return "waiting";
+}
+
+function tarotDrawForgePhaseList(card = {}, run = {}, nowMs = Date.now()) {
+  const meta = tarotDrawForgeMeta(card);
+  const stage = meta.stage || "requested";
+  const item = tarotDrawForgeRunItem(run || {});
+  const imageJob = item.mediaJobs?.image || {};
+  const loopJob = item.mediaJobs?.loop || {};
+  const imageFallback = {
+    status: meta.imageStatus,
+    startedAt: meta.imageStartedAt,
+    generatedAt: meta.imageGeneratedAt,
+    finishedAt: meta.imageGeneratedAt,
+    durationSeconds: meta.imageDurationSeconds
+  };
+  const loopFallback = {
+    status: meta.loopStatus,
+    startedAt: meta.loopStartedAt,
+    generatedAt: meta.loopGeneratedAt,
+    finishedAt: meta.loopGeneratedAt,
+    durationSeconds: meta.loopDurationSeconds
+  };
+  const requestStartMs = parseForgeTimeMs(meta.requestedAt || run?.createdAt || card?.createdAt || run?.external?.stagedAt);
+  const externalStartMs = parseForgeTimeMs(run?.external?.startedAt || run?.startedAt);
+  const imageStartMs = parseForgeTimeMs(imageJob.startedAt || imageFallback.startedAt) || externalStartMs;
+  const imageFinishMs = parseForgeTimeMs(imageJob.generatedAt || imageJob.finishedAt || imageFallback.generatedAt || imageFallback.finishedAt);
+  const loopStartMs = parseForgeTimeMs(loopJob.startedAt || loopFallback.startedAt);
+  const loopQueueStartMs = parseForgeTimeMs(loopJob.queueEnteredAt || loopJob.queueHeartbeatAt);
+  const loopFinishMs = parseForgeTimeMs(loopJob.generatedAt || loopJob.finishedAt || loopFallback.generatedAt || loopFallback.finishedAt);
+  return TAROT_DRAW_FORGE_PHASES.map((phase) => ({
+    ...phase,
+    ...tarotDrawForgePhaseTiming({
+      phase,
+      state: tarotDrawForgePhaseState(stage, phase.id),
+      stage,
+      run,
+      imageJob: { ...imageFallback, ...imageJob },
+      loopJob: { ...loopFallback, ...loopJob },
+      requestStartMs,
+      externalStartMs,
+      imageStartMs,
+      imageFinishMs,
+      loopQueueStartMs,
+      loopStartMs,
+      loopFinishMs,
+      nowMs
+    })
+  }));
+}
+
+function tarotDrawForgeRunItem(run = {}) {
+  return Array.isArray(run?.items) && run.items.length ? run.items[0] : {};
+}
+
+function tarotDrawForgeFirstOutput(job = {}) {
+  return Array.isArray(job?.outputPaths) && job.outputPaths.length ? job.outputPaths[0] : job?.outputPath || "";
+}
+
+function parseForgeTimeMs(value) {
+  if (!value) return 0;
+  if (typeof value === "number" && Number.isFinite(value)) return value > 10_000_000_000 ? value : value * 1000;
+  const parsed = Date.parse(String(value));
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function positiveForgeSeconds(value) {
+  const number = Number(value);
+  return Number.isFinite(number) && number > 0 ? number : 0;
+}
+
+function forgeSecondsBetween(startMs = 0, finishMs = 0) {
+  if (!startMs || !finishMs || finishMs < startMs) return 0;
+  return (finishMs - startMs) / 1000;
+}
+
+function formatForgeDuration(seconds = 0) {
+  const safe = Math.max(0, Math.round(Number(seconds) || 0));
+  const minutes = Math.floor(safe / 60);
+  const remaining = safe % 60;
+  return `${minutes}:${String(remaining).padStart(2, "0")}`;
+}
+
+function tarotDrawForgePhaseTiming({
+  phase,
+  state,
+  stage,
+  run,
+  imageJob,
+  loopJob,
+  requestStartMs,
+  externalStartMs,
+  imageStartMs,
+  imageFinishMs,
+  loopQueueStartMs,
+  loopStartMs,
+  loopFinishMs,
+  nowMs
+}) {
+  let status = "";
+  let startedAtMs = 0;
+  let finishedAtMs = 0;
+  let durationSeconds = 0;
+  if (phase.job === "request") {
+    status = run?.external?.startResponse?.alreadyRunning ? "already running" : run?.external?.startRequested === false ? "staged" : run?.state || stage;
+    startedAtMs = requestStartMs;
+    finishedAtMs = imageStartMs || externalStartMs || (state === "complete" && requestStartMs ? requestStartMs + phase.estimateSeconds * 1000 : 0);
+    durationSeconds = forgeSecondsBetween(startedAtMs, finishedAtMs);
+  } else if (phase.job === "image") {
+    status = imageJob.status || (stage === "image-ready" || stage === "video-generating" || stage === "complete" ? "generated" : "queued");
+    startedAtMs = imageStartMs;
+    finishedAtMs = imageFinishMs;
+    durationSeconds = positiveForgeSeconds(imageJob.durationSeconds) || forgeSecondsBetween(startedAtMs, finishedAtMs);
+  } else if (phase.job === "loop") {
+    status = loopJob.status || (stage === "complete" ? "generated" : stage === "image-ready" ? "queued" : "blocked");
+    startedAtMs = status === "waiting-for-ltx-slot" || loopJob.queueState === "waiting-for-ltx-slot" ? (loopQueueStartMs || loopStartMs) : loopStartMs;
+    finishedAtMs = loopFinishMs;
+    durationSeconds = positiveForgeSeconds(loopJob.durationSeconds) || forgeSecondsBetween(startedAtMs, finishedAtMs);
+  } else {
+    status = stage === "complete" ? "sealed" : stage === "failed" ? "blocked" : "waiting";
+    startedAtMs = loopFinishMs;
+    finishedAtMs = stage === "complete" ? parseForgeTimeMs(run?.updatedAt) || loopFinishMs || nowMs : 0;
+    durationSeconds = forgeSecondsBetween(startedAtMs, finishedAtMs);
+  }
+
+  const activeElapsedSeconds = state === "active" && startedAtMs ? forgeSecondsBetween(startedAtMs, nowMs) : 0;
+  const queuedElapsedSeconds = state === "queued" && startedAtMs ? forgeSecondsBetween(startedAtMs, nowMs) : positiveForgeSeconds(loopJob.ltxQueueWaitSeconds);
+  const elapsedSeconds = state === "complete"
+    ? (durationSeconds || (phase.job === "seal" ? phase.estimateSeconds : 0))
+    : state === "active"
+      ? activeElapsedSeconds
+      : state === "queued"
+        ? queuedElapsedSeconds
+      : durationSeconds;
+  const estimateSeconds = positiveForgeSeconds(durationSeconds) && state === "complete"
+    ? durationSeconds
+    : phase.estimateSeconds;
+  const remainingSeconds = state === "active"
+    ? Math.max(0, estimateSeconds - elapsedSeconds)
+    : state === "waiting"
+      ? estimateSeconds
+      : 0;
+  const progress = estimateSeconds > 0
+    ? state === "complete" ? 1 : state === "active" ? Math.max(0.03, Math.min(0.98, elapsedSeconds / estimateSeconds)) : state === "queued" ? 0.12 : 0
+    : state === "complete" ? 1 : 0;
+  return {
+    state,
+    status,
+    startedAtMs,
+    finishedAtMs,
+    elapsedSeconds,
+    estimateSeconds,
+    remainingSeconds,
+    progress,
+    queueState: loopJob.queueState || "",
+    blockedReason: loopJob.blockedReason || "",
+    activeLoop: loopJob.activeLoop || null,
+    clockLabel: formatForgeStepClock({ state, elapsedSeconds, estimateSeconds, remainingSeconds, status })
+  };
+}
+
+function formatForgeStepClock(phase = {}) {
+  if (phase.state === "complete") return `done ${formatForgeDuration(phase.elapsedSeconds || phase.estimateSeconds)}`;
+  if (phase.state === "failed") return `stopped ${formatForgeDuration(phase.elapsedSeconds)}`;
+  if (phase.state === "queued") return `queued ${formatForgeDuration(phase.elapsedSeconds)}`;
+  if (phase.state === "active") return `${formatForgeDuration(phase.elapsedSeconds)} / ${formatForgeDuration(phase.estimateSeconds)}`;
+  return `ETA ${formatForgeDuration(phase.estimateSeconds)}`;
+}
+
+function tarotDrawForgeActivePhase(phases = []) {
+  return phases.find((phase) => phase.state === "active") ||
+    phases.find((phase) => phase.state === "queued") ||
+    [...phases].reverse().find((phase) => phase.state === "complete") ||
+    phases.find((phase) => phase.state === "waiting") ||
+    null;
+}
+
+function tarotDrawApiBase(apiBase = "") {
+  const explicitBase = String(apiBase || "").replace(/\/+$/, "");
+  if (explicitBase) return explicitBase;
+  if (typeof window !== "undefined" && ["5177", "5178"].includes(window.location?.port || "")) return "http://127.0.0.1:8787";
+  return "";
+}
+
+function tarotDrawForgeStageFromRun(run = {}, card = {}) {
+  const item = tarotDrawForgeRunItem(run);
+  const image = item.mediaJobs?.image || {};
+  const loop = item.mediaJobs?.loop || {};
+  if (loop.status === "generated" || tarotDrawForgeFirstOutput(loop) || item.videoPaths?.[0]) return "complete";
+  if (loop.status === "generating") return "video-generating";
+  if (image.status === "generated" && isTarotDrawForgeLoopQueued(loop)) return "video-queued";
+  if (image.status === "generated" || tarotDrawForgeFirstOutput(image) || item.imagePaths?.[0]) return "image-ready";
+  if (image.status === "generating" || run.state === "running" || run.state === "starting") return "image-generating";
+  if (image.status === "failed" || loop.status === "failed" || run.state === "failed") return "failed";
+  return tarotDrawForgeMeta(card).stage || "requested";
+}
+
+function tarotDrawForgeOutputUri(value = "", apiBase = "") {
+  const text = String(value || "");
+  if (!text) return "";
+  if (/^(https?:|data:|blob:)/i.test(text)) return text;
+  const base = tarotDrawApiBase(apiBase);
+  if (text.startsWith("file://")) return `${base}/api/local-file?path=${encodeURIComponent(text.replace(/^file:\/\//, ""))}`;
+  if (/^\/(Users|Volumes|var|tmp)\//.test(text)) return `${base}/api/local-file?path=${encodeURIComponent(text)}`;
+  if (text.startsWith("/api/local-file")) return base ? `${base}${text}` : text;
+  if (text.startsWith("/")) return base && text.startsWith("/media/") ? `${base}${text}` : text;
+  return text;
+}
+
+function tarotDrawForgeAssetUri(asset = {}, apiBase = "") {
+  const source = asset && typeof asset === "object" ? asset : {};
+  return tarotDrawForgeOutputUri(source.uri || source.storage?.path || source.metadata?.sourcePath || "", apiBase);
+}
+
+function tarotFieldMediaSlug(value = "media") {
+  return String(value || "media")
+    .replace(/\.[^.]+$/, "")
+    .replace(/[^a-z0-9]+/gi, "-")
+    .replace(/^-+|-+$/g, "")
+    .toLowerCase()
+    .slice(0, 72) || "media";
+}
+
+function tarotFieldMediaId(prefix = "field-media") {
+  return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function tarotFieldMediaKind(mimeType = "", name = "") {
+  const type = String(mimeType || "").toLowerCase();
+  const fileName = String(name || "").toLowerCase();
+  if (type.startsWith("video/") || /\.(mp4|m4v|mov|webm|avi|mkv)$/i.test(fileName)) return "video";
+  if (type.startsWith("image/") || /\.(png|jpe?g|gif|webp|avif)$/i.test(fileName)) return "image";
+  return "";
+}
+
+function dataUrlFromBlob(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.onerror = () => reject(reader.error || new Error("Could not read media blob"));
+    reader.readAsDataURL(blob);
+  });
+}
+
+function localFileToDataUrl(file) {
+  return dataUrlFromBlob(file);
+}
+
+function waitForTarotMediaPaint() {
+  return new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+}
+
+async function persistTarotDrawMedia({ apiBase = "", id, name, mimeType, dataUrl } = {}) {
+  if (!dataUrl) return null;
+  const cleanMimeType = sanitizeTarotMediaMime(mimeType) || sanitizeTarotMediaMime(dataUrl.match(/^data:([^;,]+)(?:;[^,]*)?;base64,/i)?.[1]) || "application/octet-stream";
+  const cleanDataUrl = String(dataUrl).replace(/^data:[^,]*;base64,/i, `data:${cleanMimeType};base64,`);
+  try {
+    const response = await fetch(`${tarotDrawApiBase(apiBase)}/api/media`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        id,
+        name,
+        mimeType: cleanMimeType,
+        dataUrl: cleanDataUrl
+      })
+    });
+    if (!response.ok) return null;
+    return response.json();
+  } catch {
+    return null;
+  }
+}
+
+function sanitizeTarotMediaMime(value = "") {
+  return String(value || "").split(";")[0].trim().toLowerCase();
+}
+
+function resolvedTarotMediaUri(media = {}, apiBase = "", fallback = "") {
+  return tarotDrawForgeOutputUri(media?.uri || media?.storage?.path || "", apiBase) || fallback || "";
+}
+
+function formatFieldMediaBytes(bytes) {
+  const value = Number(bytes || 0);
+  if (!Number.isFinite(value) || value <= 0) return "";
+  const units = ["B", "KB", "MB", "GB"];
+  let next = value;
+  let unitIndex = 0;
+  while (next >= 1024 && unitIndex < units.length - 1) {
+    next /= 1024;
+    unitIndex += 1;
+  }
+  return `${next >= 10 || unitIndex === 0 ? Math.round(next) : next.toFixed(1)} ${units[unitIndex]}`;
+}
+
+function formatFieldMediaDuration(seconds) {
+  const value = Number(seconds || 0);
+  if (!Number.isFinite(value) || value <= 0) return "";
+  if (value < 60) return `${value.toFixed(value < 10 ? 1 : 0)}s`;
+  const minutes = Math.floor(value / 60);
+  const remaining = Math.round(value % 60);
+  return `${minutes}:${String(remaining).padStart(2, "0")}`;
+}
+
+function formatFieldMediaResolution(width, height) {
+  const w = Math.round(Number(width || 0));
+  const h = Math.round(Number(height || 0));
+  return w > 0 && h > 0 ? `${w}x${h}` : "";
+}
+
+function formatFieldMediaTelemetry(telemetry = {}) {
+  const rows = [
+    telemetry.sourceLabel || telemetry.sourceKind || telemetry.kind,
+    formatFieldMediaDuration(telemetry.actualDurationSeconds || telemetry.durationSeconds),
+    formatFieldMediaResolution(telemetry.width, telemetry.height),
+    telemetry.fps ? `${Math.round(Number(telemetry.fps))}fps` : "",
+    telemetry.estimatedFrames ? `${telemetry.estimatedFrames} frames` : "",
+    formatFieldMediaBytes(telemetry.sizeBytes),
+    telemetry.gradeApplied ? "Grade baked in" : ""
+  ].filter(Boolean);
+  return rows.join(" / ");
+}
+
+function preferredFieldCaptureMimeType() {
+  if (typeof MediaRecorder === "undefined") return "";
+  return [
+    "video/webm;codecs=vp9",
+    "video/webm;codecs=vp8",
+    "video/webm"
+  ].find((candidate) => MediaRecorder.isTypeSupported?.(candidate)) || "";
+}
+
+function videoMetadata(uri) {
+  return new Promise((resolve) => {
+    const video = document.createElement("video");
+    let settled = false;
+    const finish = (metadata = {}) => {
+      if (settled) return;
+      settled = true;
+      video.removeAttribute("src");
+      video.load?.();
+      resolve(metadata);
+    };
+    video.preload = "metadata";
+    video.muted = true;
+    video.playsInline = true;
+    video.crossOrigin = "anonymous";
+    video.onloadedmetadata = () => finish({
+      width: video.videoWidth || null,
+      height: video.videoHeight || null,
+      duration: Number.isFinite(video.duration) ? video.duration : null
+    });
+    video.onerror = () => finish({ width: null, height: null, duration: null });
+    window.setTimeout(() => finish({ width: null, height: null, duration: null }), 3200);
+    video.src = uri;
+  });
+}
+
+function imageMetadata(uri) {
+  return new Promise((resolve) => {
+    const image = new Image();
+    let settled = false;
+    const finish = (metadata = {}) => {
+      if (settled) return;
+      settled = true;
+      resolve(metadata);
+    };
+    image.crossOrigin = "anonymous";
+    image.onload = () => finish({
+      width: image.naturalWidth || image.width || null,
+      height: image.naturalHeight || image.height || null
+    });
+    image.onerror = () => finish({ width: null, height: null });
+    window.setTimeout(() => finish({ width: null, height: null }), 2400);
+    image.src = uri;
+  });
+}
+
+function seekTarotVideo(video, time) {
+  return new Promise((resolve) => {
+    let done = false;
+    const finish = () => {
+      if (done) return;
+      done = true;
+      video.removeEventListener("seeked", finish);
+      resolve();
+    };
+    video.addEventListener("seeked", finish);
+    window.setTimeout(finish, 1800);
+    try {
+      video.currentTime = Math.max(0, Math.min(time, Number.isFinite(video.duration) ? video.duration : time));
+    } catch {
+      finish();
+    }
+  });
+}
+
+async function captureTarotVideoFrames({ uri, fileName = "video", mediaId = "field-video", apiBase = "", metadata = {}, onStage = null } = {}) {
+  if (!uri) return [];
+  return new Promise((resolve) => {
+    const video = document.createElement("video");
+    let settled = false;
+    const done = (frames = []) => {
+      if (settled) return;
+      settled = true;
+      video.removeAttribute("src");
+      video.load?.();
+      resolve(frames);
+    };
+    const finish = async () => {
+      try {
+        const duration = Number.isFinite(video.duration) ? video.duration : Number(metadata.duration || 0);
+        const lastTime = duration > 0.12 ? duration - 0.08 : Math.max(0, duration || 0);
+        const markers = [
+          { id: "first", label: "First Frame", time: duration > 0.05 ? 0.02 : 0 },
+          { id: "last", label: "Last Frame", time: lastTime }
+        ];
+        const frames = [];
+        for (let index = 0; index < markers.length; index += 1) {
+          const marker = markers[index];
+          onStage?.({ stage: `snapshot-${marker.id}`, message: `${marker.label}: ${fileName}`, progress: 0.58 + index * 0.14 });
+          await seekTarotVideo(video, marker.time);
+          await waitForTarotMediaPaint();
+          const sourceWidth = video.videoWidth || metadata.width || 640;
+          const sourceHeight = video.videoHeight || metadata.height || 360;
+          const scale = Math.min(1, 720 / sourceWidth);
+          const width = Math.max(1, Math.round(sourceWidth * scale));
+          const height = Math.max(1, Math.round(sourceHeight * scale));
+          const canvas = document.createElement("canvas");
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext("2d");
+          ctx.drawImage(video, 0, 0, width, height);
+          const dataUrl = canvas.toDataURL("image/jpeg", 0.84);
+          const base = tarotFieldMediaSlug(fileName);
+          const persisted = await persistTarotDrawMedia({
+            apiBase,
+            id: `${mediaId}-frame-${marker.id}`,
+            name: `${base}-${marker.id}-frame.jpg`,
+            mimeType: "image/jpeg",
+            dataUrl
+          });
+          frames.push({
+            id: `${mediaId}-frame-${marker.id}`,
+            marker: marker.id,
+            label: marker.label,
+            time: marker.time,
+            uri: resolvedTarotMediaUri(persisted, apiBase, dataUrl),
+            width,
+            height,
+            mimeType: "image/jpeg",
+            sizeBytes: persisted?.sizeBytes || Math.round(dataUrl.length * 0.75),
+            storage: persisted?.storage || null,
+            createdAt: new Date().toISOString()
+          });
+        }
+        done(frames);
+      } catch {
+        done([]);
+      }
+    };
+    video.preload = "auto";
+    video.muted = true;
+    video.playsInline = true;
+    video.crossOrigin = "anonymous";
+    video.onloadedmetadata = finish;
+    video.onerror = () => done([]);
+    window.setTimeout(() => {
+      if (!video.videoWidth && !video.videoHeight) done([]);
+    }, 4200);
+    video.src = uri;
+  });
+}
+
+function buildFieldMediaCard({
+  id,
+  title,
+  kind,
+  mediaUri,
+  posterUri = "",
+  sourceName = "",
+  telemetry = {},
+  frames = [],
+  avatarName = "Hapa",
+  captureKind = "dropped-media",
+  originalMedia = null
+} = {}) {
+  const isVideo = kind === "video";
+  const createdAt = telemetry.capturedAt || telemetry.droppedAt || new Date().toISOString();
+  const primaryFrame = frames.find((frame) => frame.marker === "first") || frames[0] || null;
+  const stillUri = posterUri || primaryFrame?.uri || (!isVideo ? mediaUri : "");
+  const typeLabel = captureKind === "webcam-capture" ? "Webcam Capture" : isVideo ? "Dropped Video" : "Dropped Image";
+  const durationLabel = formatFieldMediaDuration(telemetry.actualDurationSeconds || telemetry.durationSeconds);
+  const resolutionLabel = formatFieldMediaResolution(telemetry.width, telemetry.height);
+  const titleText = title || (captureKind === "webcam-capture"
+    ? `${avatarName} Field Clip ${durationLabel || ""}`.trim()
+    : `${typeLabel}: ${sourceName || "Local Media"}`);
+  const summary = captureKind === "webcam-capture"
+    ? `A minted field card recorded from the live Webcam Card${telemetry.gradeApplied ? " with the Hapa Grade filter baked into the clip" : ""}.`
+    : `A local ${kind || "media"} file dropped into the 3D Tarot field and minted as a reusable Hapa media card.`;
+  const frameAssets = frames.map((frame) => ({
+    id: frame.id,
+    type: "image",
+    role: frame.marker === "last" ? "last-frame" : "first-frame",
+    label: frame.label,
+    uri: frame.uri,
+    metadata: {
+      time: frame.time,
+      width: frame.width,
+      height: frame.height,
+      mimeType: frame.mimeType,
+      sizeBytes: frame.sizeBytes,
+      storage: frame.storage
+    }
+  }));
+  const originalAsset = mediaUri ? [{
+    id: `${id}-media`,
+    type: isVideo ? "video" : "image",
+    role: captureKind === "webcam-capture" ? "webcam-capture" : "dropped-source",
+    label: sourceName || titleText,
+    uri: mediaUri,
+    metadata: {
+      mimeType: telemetry.mimeType,
+      sizeBytes: telemetry.sizeBytes,
+      width: telemetry.width,
+      height: telemetry.height,
+      durationSeconds: telemetry.actualDurationSeconds || telemetry.durationSeconds,
+      storage: originalMedia?.storage || null
+    }
+  }] : [];
+  const videoSources = isVideo && mediaUri ? [{
+    id: `${id}-video-source`,
+    uri: mediaUri,
+    originalUri: mediaUri,
+    sourceUri: mediaUri,
+    solidUri: mediaUri,
+    posterUri: stillUri,
+    label: captureKind === "webcam-capture" ? "Captured Webcam Card clip" : "Dropped field video",
+    score: captureKind === "webcam-capture" ? 940 : 820,
+    telemetry
+  }] : [];
+  return {
+    id,
+    title: titleText,
+    subtitle: `${typeLabel}${durationLabel ? ` / ${durationLabel}` : ""}${resolutionLabel ? ` / ${resolutionLabel}` : ""}`,
+    archetype: captureKind === "webcam-capture" ? "Field Capture" : "Field Media",
+    tarotNumber: captureKind === "webcam-capture" ? "REC" : "DROP",
+    summary,
+    meaning: "This card preserves the media, its first and last visual anchors, and the telemetry needed for future Hapa agents to understand how it entered the field.",
+    keywords: Array.from(new Set([
+      "field-media",
+      captureKind,
+      kind,
+      telemetry.gradeApplied ? "hapa-grade" : "",
+      durationLabel ? "timed-clip" : "",
+      sourceName ? tarotFieldMediaSlug(sourceName) : ""
+    ].filter(Boolean))).slice(0, 8),
+    stats: {
+      media: kind,
+      duration: durationLabel,
+      resolution: resolutionLabel,
+      size: formatFieldMediaBytes(telemetry.sizeBytes),
+      frames: telemetry.estimatedFrames ? `${telemetry.estimatedFrames}` : ""
+    },
+    tags: ["field-media", captureKind, kind, telemetry.gradeApplied ? "grade-filter" : ""].filter(Boolean),
+    sourceKind: captureKind,
+    kind: captureKind,
+    cardType: captureKind === "webcam-capture" ? "webcam_capture_card" : "field_media_card",
+    tarotMainType: "field_media",
+    highResImageUri: !isVideo ? mediaUri : stillUri,
+    imageUri: !isVideo ? mediaUri : stillUri,
+    posterUri: stillUri,
+    videoUri: isVideo ? mediaUri : "",
+    videoSources,
+    mediaFrames: frames,
+    mediaTelemetry: telemetry,
+    captureTelemetry: captureKind === "webcam-capture" ? telemetry : null,
+    tarotMediaLinks: frames.map((frame) => ({
+      id: frame.id,
+      imageUri: frame.uri,
+      posterUri: frame.uri,
+      label: frame.label,
+      marker: frame.marker,
+      time: frame.time
+    })),
+    assets: [...originalAsset, ...frameAssets],
+    lineage: {
+      createdAt,
+      source: captureKind,
+      sourceName,
+      parentCardId: telemetry.parentCardId || "",
+      mintedIn: "Hapa Avatar Builder / 3D Tarot Draw"
+    },
+    avatarContacts: avatarName ? [{ id: "field-media-operator", name: avatarName, role: "Media Minter" }] : []
+  };
+}
+
+function compactTarotDrawSceneCard(card = {}) {
+  const compact = {
+    id: card.id || card.sourceId || "",
+    sourceId: card.sourceId || "",
+    title: card.title || "Untitled Card",
+    subtitle: card.subtitle || "",
+    archetype: card.archetype || "",
+    tarotNumber: card.tarotNumber || card.number || "",
+    number: card.number || card.tarotNumber || "",
+    summary: card.summary || "",
+    meaning: card.meaning || "",
+    promptNotes: card.promptNotes || "",
+    keywords: Array.isArray(card.keywords) ? card.keywords.slice(0, 12) : [],
+    tags: Array.isArray(card.tags) ? card.tags.slice(0, 16) : [],
+    sourceKind: card.sourceKind || "",
+    kind: card.kind || "",
+    cardType: card.cardType || "reference_card",
+    tarotMainType: card.tarotMainType || "",
+    imageUri: card.imageUri || "",
+    highResImageUri: card.highResImageUri || "",
+    posterUri: card.posterUri || "",
+    videoUri: card.videoUri || "",
+    videoSources: Array.isArray(card.videoSources) ? card.videoSources.slice(0, 6) : [],
+    assets: Array.isArray(card.assets) ? card.assets.slice(0, 8) : [],
+    mediaTelemetry: card.mediaTelemetry || null,
+    captureTelemetry: card.captureTelemetry || null,
+    drawForge: card.drawForge || null,
+    drawScene: isTarotDrawSceneCard(card) ? (card.drawScene || card.enrichment?.media?.drawScene || null) : null,
+    enrichment: isTarotDrawSceneCard(card) ? null : card.enrichment || null,
+    lineage: card.lineage || null,
+    avatarContacts: Array.isArray(card.avatarContacts) ? card.avatarContacts.slice(0, 8) : []
+  };
+  Object.keys(compact).forEach((key) => {
+    if (compact[key] === "" || compact[key] === null || compact[key] === undefined || (Array.isArray(compact[key]) && !compact[key].length)) {
+      delete compact[key];
+    }
+  });
+  return compact;
+}
+
+function buildTarotDrawSceneCard(snapshot = {}, avatarName = "Hapa") {
+  const createdAt = snapshot.createdAt || new Date().toISOString();
+  const sceneId = snapshot.id || tarotFieldMediaId("tarot-draw-scene");
+  const cardCount = Number(snapshot.counts?.cards || snapshot.cards?.length || 0);
+  const lockedCount = Number(snapshot.counts?.locked || 0);
+  const title = snapshot.title || `${avatarName || "Hapa"} Saved Tarot Scene`;
+  const summary = `A persisted 3D Tarot Draw scene containing ${cardCount} restorable card${cardCount === 1 ? "" : "s"}${lockedCount ? ` and ${lockedCount} locked zone placement${lockedCount === 1 ? "" : "s"}` : ""}.`;
+  const drawScene = {
+    schemaVersion: TAROT_DRAW_SCENE_CARD_VERSION,
+    snapshotVersion: snapshot.schemaVersion || TAROT_DRAW_SCENE_SNAPSHOT_VERSION,
+    snapshotId: sceneId,
+    savedAt: createdAt,
+    avatarName,
+    cardCount,
+    lockedCount
+  };
+  return {
+    id: sceneId,
+    title,
+    subtitle: `${cardCount} cards / Scene Snapshot`,
+    archetype: "Saved Tarot Table Scene",
+    tarotNumber: "SCENE",
+    number: "SCENE",
+    summary,
+    meaning: "This card is a restorable control object: it stores where the current cards live, which zones they occupy, and the table settings needed to reload the experience later.",
+    promptNotes: "Scene snapshot card. Use Load Scene from the 3D Tarot Draw details view to rebuild the saved spread.",
+    keywords: ["tarot-draw-scene", "saved-scene", "scene-snapshot", "field-state", "control-card"],
+    tags: ["tarot-draw-scene", "saved-scene", "hapa-card", "control-interface"],
+    sourceKind: "tarot-draw-scene",
+    kind: "tarot-draw-scene",
+    cardType: "reference_card",
+    tarotMainType: "tarot_draw_scene",
+    suit: "custom",
+    arcana: "custom",
+    status: "draft",
+    stats: {
+      cards: String(cardCount),
+      locked: String(lockedCount),
+      dock: String(snapshot.counts?.dock || 0),
+      media: String(snapshot.counts?.mediaPool || 0),
+      center: String(snapshot.counts?.center || 0)
+    },
+    drawScene,
+    sceneSnapshot: snapshot,
+    enrichment: {
+      status: "enriched",
+      method: "tarot-draw-save-scene",
+      confidence: "high",
+      symbolicSummary: summary,
+      textSynopsis: "A Hapa card that stores the 3D Tarot table as a reloadable scene, preserving card positions, zone memberships, and local table settings for future human and agent sessions.",
+      media: {
+        drawScene,
+        sceneSnapshot: snapshot
+      },
+      tags: ["tarot-draw-scene", "saved-scene", "control-card"]
+    },
+    lineage: {
+      createdAt,
+      source: "Hapa Avatar Builder / 3D Tarot Draw",
+      mintedIn: "Save Scene mechanic",
+      parentCardIds: (snapshot.cards || []).map((item) => item.cardId).filter(Boolean).slice(0, 128)
+    },
+    avatarContacts: avatarName ? [{ id: "tarot-scene-operator", name: avatarName, role: "Scene Keeper" }] : []
+  };
+}
+
+function formatTarotDrawSceneSnapshotSummary(snapshot = {}) {
+  const counts = snapshot.counts || {};
+  const parts = [
+    `${counts.cards || snapshot.cards?.length || 0} cards`,
+    counts.dropZone ? `${counts.dropZone} music zone` : "",
+    counts.mediaPool ? `${counts.mediaPool} media pool` : "",
+    counts.center ? `${counts.center} center` : "",
+    counts.dock ? `${counts.dock} dock` : "",
+    counts.skippedTransient ? `${counts.skippedTransient} live device skipped` : ""
+  ].filter(Boolean);
+  return parts.join(" / ");
+}
+
+function tarotDrawForgeSceneCard(card = {}, run = {}, avatarName = "Hapa", apiBase = "") {
+  const item = tarotDrawForgeRunItem(run);
+  const meta = tarotDrawForgeMeta(card);
+  const imageJob = item.mediaJobs?.image || {};
+  const loopJob = item.mediaJobs?.loop || {};
+  const primaryImageAsset = (card.assets || []).find((asset) => asset.type === "image" && asset.metadata?.tarotMediaRole === "primary_image") ||
+    (card.assets || []).find((asset) => asset.type === "image") ||
+    card.asset;
+  const loopAsset = (card.assets || []).find((asset) => asset.type === "video" && asset.metadata?.tarotMediaRole === "loop_video") ||
+    (card.assets || []).find((asset) => asset.type === "video");
+  const imageUri = tarotDrawForgeOutputUri(tarotDrawForgeFirstOutput(imageJob) || item.imagePaths?.[0] || meta.imagePath || meta.imageUri, apiBase) ||
+    tarotDrawForgeAssetUri(primaryImageAsset, apiBase);
+  const videoUri = tarotDrawForgeOutputUri(tarotDrawForgeFirstOutput(loopJob) || item.videoPaths?.[0] || meta.videoPath || meta.videoUri, apiBase) ||
+    tarotDrawForgeAssetUri(loopAsset, apiBase);
+  const stage = tarotDrawForgeStageFromRun(run, card);
+  const runId = run.id || meta.runId || "";
+  return {
+    id: card.id || item.sourceId || `tarot-draw-forge-${runId || Date.now()}`,
+    title: card.title || item.title || "New Hapa Tarot Card",
+    subtitle: `${tarotDrawForgeStageLabel(stage)} / Tarot Draw Forge`,
+    archetype: "Living Card Forge",
+    tarotNumber: "FORGE",
+    summary: card.meaning || card.enrichment?.symbolicSummary || "A card requested from inside the Tarot Draw table, moving through image and loop production.",
+    meaning: card.meaning || "",
+    promptNotes: item.prompt || card.promptNotes || "",
+    keywords: Array.from(new Set(["tarot-draw-forge", "hapa-card", stage, ...(card.keywords || [])])).filter(Boolean).slice(0, 8),
+    stats: {
+      stage: tarotDrawForgeStageLabel(stage),
+      image: imageJob.status || (imageUri ? "generated" : "queued"),
+      loop: loopJob.status || (videoUri ? "generated" : "blocked")
+    },
+    tags: card.keywords || [],
+    sourceKind: "tarot-draw-forge",
+    kind: "tarot-draw-forge",
+    cardType: "tarot_draw_forge_card",
+    tarotMainType: "tarot_draw_forge",
+    highResImageUri: imageUri,
+    imageUri,
+    posterUri: imageUri,
+    videoUri,
+    videoSources: videoUri ? [{
+      uri: videoUri,
+      posterUri: imageUri,
+      label: "LTX first-last-frame loop",
+      originalUri: videoUri
+    }] : [],
+    assets: (card.assets || []).map((asset) => ({
+      ...asset,
+      uri: tarotDrawForgeAssetUri(asset, apiBase),
+      metadata: {
+        ...(asset.metadata || {}),
+        thumbnailUri: tarotDrawForgeOutputUri(asset.metadata?.thumbnailUri || asset.metadata?.thumbnail?.uri || "", apiBase)
+      }
+    })),
+    enrichment: card.enrichment || null,
+    drawForge: {
+      ...meta,
+      runId,
+      stage,
+      externalState: run.state || meta.externalState || "",
+      imageStatus: imageJob.status || meta.imageStatus || "",
+      loopStatus: loopJob.status || meta.loopStatus || "",
+      imageStartedAt: imageJob.startedAt || meta.imageStartedAt || "",
+      imageGeneratedAt: imageJob.generatedAt || imageJob.finishedAt || meta.imageGeneratedAt || "",
+      imageDurationSeconds: positiveForgeSeconds(imageJob.durationSeconds || meta.imageDurationSeconds) || undefined,
+      loopStartedAt: loopJob.startedAt || meta.loopStartedAt || "",
+      loopGeneratedAt: loopJob.generatedAt || loopJob.finishedAt || meta.loopGeneratedAt || "",
+      loopDurationSeconds: positiveForgeSeconds(loopJob.durationSeconds || meta.loopDurationSeconds) || undefined,
+      loopQueueState: loopJob.queueState || meta.loopQueueState || "",
+      loopQueueEnteredAt: loopJob.queueEnteredAt || meta.loopQueueEnteredAt || "",
+      loopQueueHeartbeatAt: loopJob.queueHeartbeatAt || meta.loopQueueHeartbeatAt || "",
+      loopQueueWaitSeconds: positiveForgeSeconds(loopJob.ltxQueueWaitSeconds || meta.loopQueueWaitSeconds) || undefined,
+      loopBlockedReason: loopJob.blockedReason || meta.loopBlockedReason || "",
+      loopActiveRunId: loopJob.activeLoop?.runId || meta.loopActiveRunId || "",
+      styleTag: meta.styleTag || TAROT_DRAW_FORGE_STYLE_TAG,
+      imagePath: tarotDrawForgeFirstOutput(imageJob) || item.imagePaths?.[0] || meta.imagePath || "",
+      videoPath: tarotDrawForgeFirstOutput(loopJob) || item.videoPaths?.[0] || meta.videoPath || "",
+      prompt: item.prompt || card.promptNotes || "",
+      imagePrompt: imageJob.prompt || item.prompt || meta.imagePrompt || card.promptNotes || "",
+      loopPrompt: loopJob.prompt || run.pairedMediaDefaults?.loopPrompt || meta.loopPrompt || "",
+      loopPromptVersion: loopJob.promptVersion || run.pairedMediaDefaults?.loopPromptVersion || meta.loopPromptVersion || "",
+      loopPromptGuide: loopJob.promptGuide || run.pairedMediaDefaults?.loopPromptGuide || meta.loopPromptGuide || "",
+      lineage: run.lineage || meta.lineage || null,
+      edition: run.edition || meta.edition || null,
+      parentCardId: run.lineage?.parentCardId || meta.parentCardId || "",
+      parentRunId: run.lineage?.parentRunId || meta.parentRunId || ""
+    },
+    avatarContacts: avatarName ? [{ id: "tarot-forge-avatar", name: avatarName, role: "Forge Requester" }] : []
+  };
+}
+
 function pushSelectedCardRow(rows, label, value) {
   const formatted = formatSelectedCardValue(value);
   if (!formatted) return;
@@ -443,10 +1405,22 @@ function buildSelectedCardDetailRows(card = {}) {
   const typeDetails = card.typeDetails || {};
   const attribution = card.tarotAttribution || {};
   const ocr = card.tarotOcr || {};
+  const sceneSnapshot = tarotDrawSceneSnapshot(card);
   pushSelectedCardRow(rows, "System", identity.systemName || "Hapa Tarot System");
   pushSelectedCardRow(rows, "Deck", identity.deckName || catalog.collectionTitle);
   pushSelectedCardRow(rows, "Tarot", identity.tarotType || identity.tarotCardName || card.tarotType || card.title);
   pushSelectedCardRow(rows, "Type", identity.cardTypeName || typeDetails.label || selectedCardFunctionalType(card));
+  pushSelectedCardRow(rows, "Scene", sceneSnapshot ? "Restorable Tarot Draw scene" : "");
+  pushSelectedCardRow(rows, "Scene Cards", sceneSnapshot ? sceneSnapshot.counts?.cards || sceneSnapshot.cards?.length : "");
+  pushSelectedCardRow(rows, "Scene Zones", sceneSnapshot ? formatTarotDrawSceneSnapshotSummary(sceneSnapshot) : "");
+  pushSelectedCardRow(rows, "Saved", sceneSnapshot?.createdAt);
+  const mediaTelemetry = card.mediaTelemetry || card.captureTelemetry || {};
+  pushSelectedCardRow(rows, "Media", mediaTelemetry.sourceLabel || mediaTelemetry.sourceKind || mediaTelemetry.kind);
+  pushSelectedCardRow(rows, "Duration", formatFieldMediaDuration(mediaTelemetry.actualDurationSeconds || mediaTelemetry.durationSeconds));
+  pushSelectedCardRow(rows, "Resolution", formatFieldMediaResolution(mediaTelemetry.width, mediaTelemetry.height));
+  pushSelectedCardRow(rows, "Weight", formatFieldMediaBytes(mediaTelemetry.sizeBytes));
+  pushSelectedCardRow(rows, "Frames", mediaTelemetry.estimatedFrames ? `${mediaTelemetry.estimatedFrames} @ ${Math.round(Number(mediaTelemetry.fps || 0)) || "?"}fps` : "");
+  pushSelectedCardRow(rows, "Filter", mediaTelemetry.gradeApplied ? "Hapa Grade baked into media" : "");
   pushSelectedCardRow(rows, "Arcana", identity.arcana || card.archetype || catalog.family);
   pushSelectedCardRow(rows, "Suit", identity.suit);
   pushSelectedCardRow(rows, "Rank", identity.rank);
@@ -455,6 +1429,14 @@ function buildSelectedCardDetailRows(card = {}) {
   pushSelectedCardRow(rows, "Artist", attribution.author || attribution.shop);
   pushSelectedCardRow(rows, "Canon", card.tarotLore?.canonStatus || attribution.rightsStatus);
   pushSelectedCardRow(rows, "OCR", ocr.confidence ? `${Math.round(Number(ocr.confidence) * 100)}% confidence` : "");
+  const drawForge = tarotDrawForgeMeta(card);
+  pushSelectedCardRow(rows, "Forge Stage", drawForge.stage ? tarotDrawForgeStageLabel(drawForge.stage) : "");
+  pushSelectedCardRow(rows, "Forge Run", drawForge.runId);
+  pushSelectedCardRow(rows, "Image Job", drawForge.imageStatus);
+  pushSelectedCardRow(rows, "Loop Job", drawForge.loopStatus);
+  pushSelectedCardRow(rows, "Edition", drawForge.edition?.label || (drawForge.edition?.number ? `Edition ${drawForge.edition.number}` : ""));
+  pushSelectedCardRow(rows, "Parent Card", drawForge.parentCardId || drawForge.lineage?.parentCardId);
+  pushSelectedCardRow(rows, "Loop Prompt", drawForge.loopPromptVersion);
   return rows;
 }
 
@@ -472,8 +1454,23 @@ function buildSelectedCardTextSections(card = {}) {
   const lore = card.tarotLore || {};
   const typeDetails = card.typeDetails || {};
   const attribution = card.tarotAttribution || {};
+  const drawForge = tarotDrawForgeMeta(card);
+  const sceneSnapshot = tarotDrawSceneSnapshot(card);
+  const mediaTelemetry = card.mediaTelemetry || card.captureTelemetry || {};
   const sections = [];
   pushSelectedCardSection(sections, "Summary", card.summary || lore.summary);
+  pushSelectedCardSection(sections, "Meaning", card.meaning);
+  pushSelectedCardSection(sections, "Scene Snapshot", sceneSnapshot ? [
+    formatTarotDrawSceneSnapshotSummary(sceneSnapshot),
+    sceneSnapshot.title,
+    sceneSnapshot.createdAt
+  ].filter(Boolean).join(" / ") : "");
+  pushSelectedCardSection(sections, "Media Telemetry", formatFieldMediaTelemetry(mediaTelemetry));
+  pushSelectedCardSection(sections, "Capture Lineage", card.lineage);
+  pushSelectedCardSection(sections, "Image Prompt", drawForge.imagePrompt || drawForge.prompt || card.promptNotes);
+  pushSelectedCardSection(sections, "LTX Motion Prompt", drawForge.loopPrompt);
+  pushSelectedCardSection(sections, "Forge Rationale", drawForge.rationale);
+  pushSelectedCardSection(sections, "Style Standard", drawForge.styleTag);
   pushSelectedCardSection(sections, "Core Meaning", face.coreMeaning);
   pushSelectedCardSection(sections, "Upright", face.uprightText);
   pushSelectedCardSection(sections, "Inverted", face.invertedText);
@@ -508,6 +1505,12 @@ function buildSelectedCardImageSources(card = {}) {
   };
   add(card.highResImageUri, "High-res image");
   add(card.imageUri, "Static image");
+  (card.mediaFrames || []).forEach((frame, index) => {
+    add(frame.uri, frame.label || (index === 0 ? "First frame" : "Last frame"));
+  });
+  (card.assets || []).forEach((asset, index) => {
+    if (asset.type === "image") add(tarotDrawForgeAssetUri(asset), index === 0 ? "Attached image" : `Attached image ${index + 1}`);
+  });
   (card.tarotMediaLinks || []).forEach((link, index) => {
     add(link.imageUri, index === 0 ? "Linked still" : `Linked still ${index + 1}`);
     add(link.posterUri, index === 0 ? "Video frame" : `Video frame ${index + 1}`);
@@ -515,6 +1518,198 @@ function buildSelectedCardImageSources(card = {}) {
   add(card.posterUri, "Poster frame");
   (card.videoSources || []).forEach((source, index) => add(source.posterUri, index === 0 ? "Loop frame" : `Loop frame ${index + 1}`));
   return sources;
+}
+
+function addTarotCardBrowserItem(items, seen, item) {
+  if (!item?.uri) return;
+  const key = `${item.kind || "media"}:${item.uri}`;
+  if (seen.has(key)) return;
+  seen.add(key);
+  const mediaWidth = Number(item.card?.mediaTelemetry?.width || 0);
+  const mediaHeight = Number(item.card?.mediaTelemetry?.height || 0);
+  const typeIds = uniqueStrings([
+    ...(Array.isArray(item.typeIds) ? item.typeIds : []),
+    ...tarotPileIds(item.card || {}),
+    item.card?.sourceKind,
+    item.card?.kind,
+    item.card?.cardType,
+    item.card?.tarotMainType
+  ].map(normalizeCardPileId).filter(Boolean));
+  items.push({
+    ...item,
+    id: item.id || key,
+    title: item.title || item.card?.title || "Untitled Card",
+    subtitle: item.subtitle || item.card?.subtitle || item.card?.archetype || "",
+    keywords: Array.isArray(item.card?.keywords) ? item.card.keywords : [],
+    tags: Array.isArray(item.card?.tags) ? item.card.tags : [],
+    cardId: item.card?.id || item.cardId || "",
+    typeIds,
+    aspectHint: Number(item.aspectHint || 0) || (mediaWidth && mediaHeight ? mediaWidth / Math.max(1, mediaHeight) : 0)
+  });
+}
+
+function buildTarotCardBrowserItems(cards = [], apiBase = "") {
+  const items = [];
+  const seen = new Set();
+  cards.forEach((card, cardIndex) => {
+    const videoSources = dropZoneVideoSources(card, { allowBackgroundless: false });
+    videoSources.forEach((source, index) => {
+      addTarotCardBrowserItem(items, seen, {
+        id: `${card.id || cardIndex}-video-${index}`,
+        kind: "video",
+        uri: tarotDrawForgeOutputUri(source.uri || source.solidUri || source.sourceUri || "", apiBase),
+        posterUri: tarotDrawForgeOutputUri(source.posterUri || card.posterUri || card.imageUri || "", apiBase),
+        label: source.label || "Loop",
+        title: card.title,
+        subtitle: source.label || card.subtitle || "Video loop",
+        card
+      });
+    });
+
+    buildSelectedCardImageSources(card).forEach((source, index) => {
+      addTarotCardBrowserItem(items, seen, {
+        id: `${card.id || cardIndex}-image-${index}`,
+        kind: "image",
+        uri: tarotDrawForgeOutputUri(source.uri, apiBase),
+        posterUri: "",
+        label: source.label,
+        title: card.title,
+        subtitle: source.label || card.subtitle || "Still image",
+        card
+      });
+    });
+
+    (card.assets || []).forEach((asset, index) => {
+      const uri = tarotDrawForgeAssetUri(asset, apiBase);
+      if (!uri) return;
+      addTarotCardBrowserItem(items, seen, {
+        id: `${card.id || cardIndex}-asset-${asset.id || index}`,
+        kind: asset.type === "video" ? "video" : "image",
+        uri,
+        posterUri: tarotDrawForgeOutputUri(asset.metadata?.thumbnailUri || asset.metadata?.thumbnail?.uri || card.posterUri || card.imageUri || "", apiBase),
+        label: asset.name || asset.role || asset.metadata?.tarotMediaRole || "Asset",
+        title: card.title,
+        subtitle: asset.name || card.subtitle || asset.type || "Asset",
+        card
+      });
+    });
+  });
+  return items
+    .filter((item) => item.uri && item.uri !== item.posterUri)
+    .sort((first, second) => {
+      const firstVideo = first.kind === "video" ? 1 : 0;
+      const secondVideo = second.kind === "video" ? 1 : 0;
+      if (firstVideo !== secondVideo) return secondVideo - firstVideo;
+      const firstTime = Date.parse(first.card?.updatedAt || first.card?.createdAt || "") || 0;
+      const secondTime = Date.parse(second.card?.updatedAt || second.card?.createdAt || "") || 0;
+      return secondTime - firstTime;
+    });
+}
+
+function filterTarotCardBrowserItems(items = [], query = "") {
+  const term = String(query || "").trim().toLowerCase();
+  if (!term) return items;
+  return items.filter((item) => [
+    item.title,
+    item.subtitle,
+    item.label,
+    item.kind,
+    item.card?.summary,
+    item.card?.meaning,
+    ...(item.keywords || []),
+    ...(item.tags || [])
+  ].join(" ").toLowerCase().includes(term));
+}
+
+function buildTarotCardBrowserTypeFilters(items = []) {
+  return TAROT_CARD_BROWSER_TYPE_FILTERS.map((filter) => ({
+    ...filter,
+    count: filter.id === "all"
+      ? items.length
+      : items.filter((item) => tarotCardBrowserItemMatchesType(item, filter)).length
+  }));
+}
+
+function filterTarotCardBrowserItemsByType(items = [], filterId = "all") {
+  const filter = TAROT_CARD_BROWSER_TYPE_FILTERS.find((item) => item.id === filterId) || TAROT_CARD_BROWSER_TYPE_FILTERS[0];
+  if (!filter || filter.id === "all") return items;
+  return items.filter((item) => tarotCardBrowserItemMatchesType(item, filter));
+}
+
+function tarotCardBrowserItemMatchesType(item = {}, filter = {}) {
+  if (!filter || filter.id === "all") return true;
+  const filterIds = new Set((filter.pileIds || []).map(normalizeCardPileId).filter(Boolean));
+  const itemTypeIds = new Set([
+    ...(item.typeIds || []),
+    ...tarotPileIds(item.card || {}),
+    item.card?.sourceKind,
+    item.card?.kind,
+    item.card?.cardType,
+    item.card?.tarotMainType
+  ].map(normalizeCardPileId).filter(Boolean));
+  if ([...filterIds].some((id) => itemTypeIds.has(id))) return true;
+  const metadataHaystack = [
+    item.cardId,
+    item.card?.id,
+    item.card?.sourceKind,
+    item.card?.kind,
+    item.card?.cardType,
+    item.card?.tarotMainType,
+    item.card?.functionalType,
+    item.card?.tarotIdentity?.functionalType,
+    item.card?.tarotIdentity?.hapaCardType,
+    item.card?.typeDetails?.functionalType,
+    item.card?.typeDetails?.hapaCardType,
+    item.card?.tarotCatalog?.typeLabel,
+    ...(Array.isArray(item.card?.tarotIdentity?.typeStack) ? item.card.tarotIdentity.typeStack : []),
+    ...(item.keywords || []),
+    ...(item.tags || [])
+  ].map(normalizePileLookupId).join(" ");
+  return (filter.textHints || []).some((hint) => metadataHaystack.includes(normalizePileLookupId(hint)));
+}
+
+function cardFromTarotBrowserItem(item = {}) {
+  const card = item.card || {};
+  const isVideo = item.kind === "video";
+  const mediaTag = isVideo ? "browser-video" : "browser-image";
+  return {
+    ...card,
+    id: `${card.id || "browser-card"}-${mediaTag}-${Math.abs(hashString(item.uri || item.id || item.title || "")).toString(36)}`,
+    title: card.title || item.title || "Browser Media Card",
+    subtitle: item.subtitle || card.subtitle || (isVideo ? "Video media" : "Image media"),
+    sourceKind: card.sourceKind || "tarot-card-browser",
+    kind: card.kind || "tarot-card-browser",
+    cardType: card.cardType || (isVideo ? "field_media_card" : "reference_card"),
+    tarotMainType: card.tarotMainType || "card_browser_media",
+    highResImageUri: isVideo ? item.posterUri || card.highResImageUri || card.imageUri || "" : item.uri,
+    imageUri: isVideo ? item.posterUri || card.imageUri || "" : item.uri,
+    posterUri: item.posterUri || card.posterUri || (!isVideo ? item.uri : ""),
+    videoUri: isVideo ? item.uri : card.videoUri || "",
+    videoSources: isVideo ? [{
+      id: `${item.id || "browser-video"}-source`,
+      uri: item.uri,
+      originalUri: item.uri,
+      sourceUri: item.uri,
+      solidUri: item.uri,
+      posterUri: item.posterUri || card.posterUri || card.imageUri || "",
+      label: item.label || card.title || "Browser video"
+    }] : card.videoSources || [],
+    keywords: uniqueStrings([...(card.keywords || []), "card-browser", mediaTag]).slice(0, 12),
+    tags: uniqueStrings([...(card.tags || []), "card-browser", mediaTag]).slice(0, 16),
+    browserSource: {
+      itemId: item.id,
+      sourceCardId: card.id || "",
+      mediaKind: item.kind,
+      uri: item.uri,
+      addedAt: new Date().toISOString()
+    },
+    lineage: {
+      ...(card.lineage && typeof card.lineage === "object" ? card.lineage : {}),
+      source: "Tarot Draw Card Browser",
+      parentCardId: card.id || "",
+      mediaUri: item.uri
+    }
+  };
 }
 
 function clampSelectedCardZoom(value) {
@@ -525,6 +1720,11 @@ function clampLyricCrawlAngleDegrees(value) {
   const numeric = Number(value);
   const safeValue = Number.isFinite(numeric) ? numeric : LYRIC_CRAWL_DEFAULT_ANGLE_DEGREES;
   return Math.round(THREE.MathUtils.clamp(safeValue, LYRIC_CRAWL_ANGLE_MIN_DEGREES, LYRIC_CRAWL_ANGLE_MAX_DEGREES));
+}
+
+function normalizePhoneAngle(value = 0) {
+  const angle = Number(value) || 0;
+  return THREE.MathUtils.euclideanModulo(angle + Math.PI, Math.PI * 2) - Math.PI;
 }
 
 function echoDirectorSongIdForCard(card = {}) {
@@ -575,9 +1775,41 @@ function echoDirectorProjectForCard(card = {}) {
   return candidates.map(normalizeEchoDirectorProjectPayload).find(Boolean) || null;
 }
 
-export default function TarotDraw3DView({ cards = [], avatarName = "Hapa", apiBase = "", soundEnabled = false, productionAudit = null, onResolveEchoProject, onSelectAvatarProfile }) {
+function tarotCardSpeechContext(card = {}) {
+  if (!card || typeof card !== "object") return null;
+  return {
+    id: card.id || "",
+    title: card.title || card.name || "",
+    deckId: card.deckId || "",
+    setId: card.setId || "",
+    type: card.type || card.kind || "",
+    summary: card.summary || card.description || card.prompt || "",
+    keywords: (card.keywords || card.tags || []).slice(0, 8),
+    avatarContacts: (card.avatarContacts || []).slice(0, 4).map((contact) => ({
+      id: contact.id || contact.avatarId || "",
+      name: contact.name || contact.primaryName || ""
+    }))
+  };
+}
+
+function createBlueAvatarClientId() {
+  const randomId = window.crypto?.randomUUID?.() || `blue-client-${Date.now().toString(36)}-${Math.round(Math.random() * 1e9).toString(36)}`;
+  return `tarot-blue-${randomId}`;
+}
+
+function blueAvatarSurfaceLabel() {
+  const runtime = String(window?.hapaAvatarBuilder?.runtime || "").trim();
+  const port = String(window?.location?.port || "").trim();
+  const shell = runtime === "electron" ? "Electron" : "Web";
+  return `${shell} Tarot Draw${port ? `:${port}` : ""}`;
+}
+
+export default function TarotDraw3DView({ cards = [], avatarName = "Hapa", apiBase = "", soundEnabled = false, productionAudit = null, onResolveEchoProject, onSelectAvatarProfile, onTarotForgeCreated, onTarotSceneSaved }) {
   const canvasRef = useRef(null);
   const gameRef = useRef(null);
+  const dragCaptureDepthRef = useRef(0);
+  const captureResetTimerRef = useRef(0);
+  const cardBrowserScrollRef = useRef(null);
   const readingRequestRef = useRef(0);
   const readingEnabledRef = useRef(false);
   const baseTarotPiles = useMemo(() => buildTarotPileSummaries(cards), [cards]);
@@ -589,7 +1821,48 @@ export default function TarotDraw3DView({ cards = [], avatarName = "Hapa", apiBa
   const [initError, setInitError] = useState(null);
   const [selectedCardImageZoom, setSelectedCardImageZoom] = useState(1);
   const [selectedCardImageIndex, setSelectedCardImageIndex] = useState(0);
+  const [selectedCardMediaMode, setSelectedCardMediaMode] = useState("still");
   const [cameraJournalVisible, setCameraJournalVisible] = useState(false);
+  const [cardBrowserOpen, setCardBrowserOpen] = useState(false);
+  const [cardBrowserQuery, setCardBrowserQuery] = useState("");
+  const [cardBrowserTypeFilter, setCardBrowserTypeFilter] = useState("all");
+  const [cardBrowserVisibleCount, setCardBrowserVisibleCount] = useState(TAROT_CARD_BROWSER_MAX_INITIAL);
+  const [selectedBrowserItem, setSelectedBrowserItem] = useState(null);
+  const [browserAddState, setBrowserAddState] = useState({ status: "idle", message: "", itemId: "" });
+  const [forgePanelOpen, setForgePanelOpen] = useState(false);
+  const [forgeTitle, setForgeTitle] = useState("");
+  const [forgeIntention, setForgeIntention] = useState("");
+  const [forgeRequest, setForgeRequest] = useState({ status: "idle", run: null, card: null, error: "" });
+  const [forgeWatchIds, setForgeWatchIds] = useState({});
+  const [variationRequest, setVariationRequest] = useState({ status: "idle", cardId: "", error: "" });
+  const [forgeClockNow, setForgeClockNow] = useState(() => Date.now());
+  const [fieldCapture, setFieldCapture] = useState({
+    status: "idle",
+    stage: "",
+    message: "",
+    progress: 0,
+    elapsedSeconds: 0,
+    durationSeconds: 0,
+    files: 0,
+    error: "",
+    dragActive: false
+  });
+  const [sceneSave, setSceneSave] = useState({
+    status: "idle",
+    message: "",
+    error: "",
+    card: null
+  });
+  const [sceneInvite, setSceneInvite] = useState({
+    status: "idle",
+    message: "",
+    error: "",
+    invite: null,
+    htmlUrl: ""
+  });
+  const [sceneInvitePreviewOpen, setSceneInvitePreviewOpen] = useState(false);
+  const [phoneQrDataUrl, setPhoneQrDataUrl] = useState("");
+  const [phoneCertQrDataUrl, setPhoneCertQrDataUrl] = useState("");
   const [hud, setHud] = useState({
     status: "Preparing table",
     deckCount: cards.length,
@@ -610,7 +1883,7 @@ export default function TarotDraw3DView({ cards = [], avatarName = "Hapa", apiBa
     echoShadersEnabled: true,
     lyricsEnabled: true,
     cameraCardEnabled: false,
-    cameraCardShaderEnabled: false,
+    cameraCardShaderEnabled: true,
     cameraCardMicEnabled: false,
     cameraCardMicPending: false,
     cameraCardMicError: "",
@@ -628,6 +1901,29 @@ export default function TarotDraw3DView({ cards = [], avatarName = "Hapa", apiBa
     cameraCardTranscriptionJournal: [],
     cameraCardPending: false,
     cameraCardError: "",
+    blueAvatarCardEnabled: false,
+    blueAvatarPending: false,
+    blueAvatarAutoReplyEnabled: true,
+    blueAvatarInFlight: false,
+    blueAvatarError: "",
+    blueAvatarStatus: "",
+    blueAvatarVoiceStatus: "",
+    blueAvatarTranscript: "",
+    blueAvatarJournal: [],
+    blueAvatarQueueDepth: 0,
+    phoneBridgeEnabled: false,
+    phoneBridgeQrVisible: false,
+    phoneBridgePending: false,
+    phoneBridgeConnected: false,
+    phoneBridgeSession: "",
+    phoneBridgeMobileUrl: "",
+    phoneBridgeCertificateUrl: "",
+    phoneBridgeSecure: false,
+    phoneBridgeError: "",
+    phoneBridgeStatus: "",
+    phoneBridgeRoomletParticipants: [],
+    phoneBridgeRoomletControls: [],
+    phoneCardTitle: "",
     lyricCrawlAngleDegrees: LYRIC_CRAWL_DEFAULT_ANGLE_DEGREES,
     playing: true,
     audioReady: false,
@@ -640,6 +1936,20 @@ export default function TarotDraw3DView({ cards = [], avatarName = "Hapa", apiBa
   const selectedCardKey = selectedCard?.id || selectedCard?.title || "";
   const selectedDetailsOpen = Boolean(hud.selectedDetailsOpen);
   const cardDetailTarget = hud.cardDetailTarget || null;
+  const forgeRun = forgeRequest.run || null;
+  const forgeCard = forgeRequest.card || null;
+  const forgeStage = tarotDrawForgeStageFromRun(forgeRun || {}, forgeCard || {});
+  const forgeItem = tarotDrawForgeRunItem(forgeRun || {});
+  const forgeImageJob = forgeItem.mediaJobs?.image || {};
+  const forgeLoopJob = forgeItem.mediaJobs?.loop || {};
+  const forgeLoopQueueNote = forgeLoopJob.queueState === "waiting-for-ltx-slot" || forgeLoopJob.status === "waiting-for-ltx-slot"
+    ? forgeLoopJob.blockedReason || `Queued behind ${forgeLoopJob.activeLoop?.title || forgeLoopJob.activeLoop?.runId || "the active LTX loop"}.`
+    : "";
+  const forgeImageUri = tarotDrawForgeOutputUri(tarotDrawForgeFirstOutput(forgeImageJob) || forgeItem.imagePaths?.[0] || forgeCard?.drawForge?.imagePath || forgeCard?.imageUri || "", apiBase);
+  const forgeVideoUri = tarotDrawForgeOutputUri(tarotDrawForgeFirstOutput(forgeLoopJob) || forgeItem.videoPaths?.[0] || forgeCard?.drawForge?.videoPath || forgeCard?.videoUri || "", apiBase);
+  const forgeTimeline = useMemo(() => forgeCard ? tarotDrawForgePhaseList(forgeCard, forgeRun || {}, forgeClockNow) : tarotDrawForgePhaseList({}, forgeRun || {}, forgeClockNow), [forgeCard, forgeRun, forgeClockNow]);
+  const forgeActivePhase = tarotDrawForgeActivePhase(forgeTimeline);
+  const forgeBusy = forgeRequest.status === "requesting";
   const selectedContacts = selectedCard?.avatarContacts || [];
   const dropZoneCard = hud.dropZoneCard || null;
   const dropZoneEchoSongId = useMemo(() => echoDirectorSongIdForCard(dropZoneCard), [dropZoneCard]);
@@ -657,6 +1967,13 @@ export default function TarotDraw3DView({ cards = [], avatarName = "Hapa", apiBa
       : hud.cameraCardTranscriptionInFlight
         ? `transcribing${cameraTranscriptionQueueDepth ? `, ${cameraTranscriptionQueueDepth} queued` : ""}`
         : hud.cameraCardTranscriptionNotice || "ready");
+  const latestCameraTranscript = String(cameraJournalEntries[0]?.text || hud.cameraCardTranscript || "").trim();
+  const blueBusy = Boolean(
+    hud.blueAvatarPending ||
+      hud.blueAvatarInFlight ||
+      hud.blueAvatarQueueDepth ||
+      ["generating", "speaking", "polling"].includes(String(hud.blueAvatarVoiceStatus || ""))
+  );
   const tarotPiles = hud.piles?.length ? hud.piles : baseTarotPiles;
   const cardBackPiles = useMemo(() => buildCardBackPileControls(tarotPiles), [tarotPiles]);
   const selectedStats = selectedCard ? Object.entries(selectedCard.stats || {}).filter(([, value]) => value !== undefined && value !== null && value !== "") : [];
@@ -665,8 +1982,55 @@ export default function TarotDraw3DView({ cards = [], avatarName = "Hapa", apiBa
   const selectedCardDetailRows = useMemo(() => selectedCard ? buildSelectedCardDetailRows(selectedCard) : [], [selectedCard]);
   const selectedCardTextSections = useMemo(() => selectedCard ? buildSelectedCardTextSections(selectedCard) : [], [selectedCard]);
   const selectedCardImageSources = useMemo(() => selectedCard ? buildSelectedCardImageSources(selectedCard) : [], [selectedCard]);
+  const cardBrowserItems = useMemo(() => buildTarotCardBrowserItems(cards, apiBase), [cards, apiBase]);
+  const cardBrowserTypeFilters = useMemo(() => buildTarotCardBrowserTypeFilters(cardBrowserItems), [cardBrowserItems]);
+  const typeFilteredCardBrowserItems = useMemo(() => filterTarotCardBrowserItemsByType(cardBrowserItems, cardBrowserTypeFilter), [cardBrowserItems, cardBrowserTypeFilter]);
+  const filteredCardBrowserItems = useMemo(() => filterTarotCardBrowserItems(typeFilteredCardBrowserItems, cardBrowserQuery), [typeFilteredCardBrowserItems, cardBrowserQuery]);
+  const visibleCardBrowserItems = filteredCardBrowserItems.slice(0, cardBrowserVisibleCount);
+  const cardBrowserHasMore = cardBrowserVisibleCount < filteredCardBrowserItems.length;
+  const activeCardBrowserFilter = cardBrowserTypeFilters.find((filter) => filter.id === cardBrowserTypeFilter) || cardBrowserTypeFilters[0];
   const selectedCardImage = selectedCardImageSources[Math.min(selectedCardImageIndex, Math.max(selectedCardImageSources.length - 1, 0))] || null;
+  const selectedCardVideoSource = useMemo(() => {
+    if (!selectedCard) return null;
+    return selectedCard.videoSources?.find((source) => source.uri) || (selectedCard.videoUri ? {
+      uri: selectedCard.videoUri,
+      posterUri: selectedCard.posterUri || selectedCard.imageUri || "",
+      label: selectedCard.title || "Looping video"
+    } : null);
+  }, [selectedCard]);
+  const selectedCardHasLoop = Boolean(selectedCardVideoSource?.uri);
+  const selectedCardShowingLoop = selectedCardHasLoop && (selectedCardMediaMode === "loop" || !selectedCardImage);
   const selectedCardZoomPercent = Math.round(selectedCardImageZoom * 100);
+  const fieldCaptureBusy = ["recording", "processing", "persisting", "minting"].includes(fieldCapture.status);
+  const fieldCaptureVisible = fieldCapture.dragActive || fieldCaptureBusy || ["complete", "failed"].includes(fieldCapture.status);
+  const fieldCaptureProgress = Math.round(THREE.MathUtils.clamp(Number(fieldCapture.progress || 0), 0, 1) * 100);
+  const fieldCaptureClock = fieldCapture.durationSeconds
+    ? `${formatFieldMediaDuration(fieldCapture.elapsedSeconds)} / ${formatFieldMediaDuration(fieldCapture.durationSeconds)}`
+    : formatFieldMediaDuration(fieldCapture.elapsedSeconds);
+  const sceneSaveBusy = sceneSave.status === "saving";
+  const sceneSaveNote = sceneSave.error || sceneSave.message || "Save current card positions";
+  const sceneInviteBusy = sceneInvite.status === "creating";
+  const sceneInviteNote = sceneInvite.error || sceneInvite.message || "Create a Hypercore/WebRTC camera invitation for this scene";
+  const activeSceneInvite = sceneInvite.invite || hud.phoneBridgeInvite || null;
+  const activeSceneInvitePreviewUrl = activeSceneInvite?.links?.desktopHtmlUrl || sceneInvite.htmlUrl || activeSceneInvite?.links?.htmlUrl || "";
+  const roomletParticipantCards = useMemo(() => {
+    const hudParticipants = Array.isArray(hud.phoneBridgeRoomletParticipants) ? hud.phoneBridgeRoomletParticipants : [];
+    const inviteParticipants = Array.isArray(activeSceneInvite?.roomlet?.participantCards) ? activeSceneInvite.roomlet.participantCards : [];
+    return hudParticipants.length ? hudParticipants : inviteParticipants;
+  }, [hud.phoneBridgeRoomletParticipants, activeSceneInvite]);
+  const roomletHostControlActions = useMemo(() => {
+    const actions = activeSceneInvite?.roomlet?.hostControls?.actions;
+    return Array.isArray(actions) && actions.length ? actions : ["mute", "remove", "promote", "archive"];
+  }, [activeSceneInvite]);
+  const selectedCardForgeMeta = selectedCard ? tarotDrawForgeMeta(selectedCard) : {};
+  const selectedCardIsForge = Boolean(selectedCard && isTarotDrawForgeCard(selectedCard));
+  const selectedCardIsScene = Boolean(selectedCard && isTarotDrawSceneCard(selectedCard));
+  const selectedCardSceneSnapshot = selectedCardIsScene ? tarotDrawSceneSnapshot(selectedCard) : null;
+  const selectedCardForgeStage = selectedCardForgeMeta.stage || "requested";
+  const selectedCardForgeQueueNote = selectedCardForgeMeta.loopQueueState === "waiting-for-ltx-slot" || selectedCardForgeMeta.loopStatus === "waiting-for-ltx-slot"
+    ? selectedCardForgeMeta.loopBlockedReason || `Queued behind ${selectedCardForgeMeta.loopActiveRunId || "the active LTX loop"}.`
+    : "";
+  const selectedCardForgePhases = useMemo(() => selectedCardIsForge ? tarotDrawForgePhaseList(selectedCard, {}, forgeClockNow) : [], [selectedCard, selectedCardIsForge, forgeClockNow]);
   const hasReading = reading.status !== "idle";
   const [profileContact, setProfileContact] = useState(null);
   const activeProfileContact = profileContact && profileContacts.some((contact) => contact.id === profileContact.id)
@@ -776,6 +2140,123 @@ export default function TarotDraw3DView({ cards = [], avatarName = "Hapa", apiBa
   }, [soundEnabled]);
 
   useEffect(() => {
+    const currentRunId = forgeRequest.run?.id || forgeRequest.card?.drawForge?.runId || "";
+    const runIds = Array.from(new Set([
+      ...Object.keys(forgeWatchIds || {}),
+      currentRunId
+    ].filter((runId) => runId && !runId.startsWith("local-forge-"))));
+    if (!runIds.length || forgeRequest.status === "idle") return undefined;
+    let cancelled = false;
+    async function pollForgeRun(runId) {
+      try {
+        const response = await fetch(`${tarotDrawApiBase(apiBase)}/api/tarot/draw-forge/${encodeURIComponent(runId)}`);
+        if (!response.ok) throw new Error(`Forge poll failed: ${response.status}`);
+        const packet = await response.json();
+        if (cancelled || !packet?.ok) return;
+        const sceneCard = tarotDrawForgeSceneCard(packet.card || forgeRequest.card || {}, packet.run || forgeRequest.run || {}, avatarName, apiBase);
+        if (runId === currentRunId) {
+          setForgeRequest((current) => ({
+            ...current,
+            status: packet.run?.state === "complete" ? "complete" : current.status === "requesting" ? "staged" : current.status,
+            run: packet.run || current.run,
+            card: sceneCard,
+            error: ""
+          }));
+        }
+        callGame("updateForgeCard", { card: sceneCard, run: packet.run });
+        if (packet.run?.state === "complete" || packet.run?.state === "failed") {
+          setForgeWatchIds((current) => {
+            if (!current[runId]) return current;
+            const next = { ...current };
+            delete next[runId];
+            return next;
+          });
+        }
+        onTarotForgeCreated?.(packet);
+      } catch (error) {
+        if (cancelled) return;
+        if (runId === currentRunId) {
+          setForgeRequest((current) => ({
+            ...current,
+            error: error?.message || "Forge poll failed"
+          }));
+        }
+      }
+    }
+    runIds.forEach((runId) => pollForgeRun(runId));
+    const timer = window.setInterval(() => runIds.forEach((runId) => pollForgeRun(runId)), TAROT_DRAW_FORGE_POLL_MS);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [forgeRequest.run?.id, forgeRequest.card?.drawForge?.runId, forgeRequest.status, forgeWatchIds, apiBase, avatarName, onTarotForgeCreated]);
+
+  useEffect(() => {
+    if (!forgeCard && !selectedCardIsForge) return undefined;
+    setForgeClockNow(Date.now());
+    const timer = window.setInterval(() => setForgeClockNow(Date.now()), TAROT_DRAW_FORGE_CLOCK_MS);
+    return () => window.clearInterval(timer);
+  }, [forgeCard, selectedCardIsForge]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const url = hud.phoneBridgeMobileUrl || "";
+    if (!hud.phoneBridgeQrVisible || !url) {
+      setPhoneQrDataUrl("");
+      return () => {
+        cancelled = true;
+      };
+    }
+    QRCode.toDataURL(url, {
+      errorCorrectionLevel: "M",
+      margin: 1,
+      width: 232,
+      color: {
+        dark: "#07111f",
+        light: "#f4fbff"
+      }
+    })
+      .then((dataUrl) => {
+        if (!cancelled) setPhoneQrDataUrl(dataUrl);
+      })
+      .catch(() => {
+        if (!cancelled) setPhoneQrDataUrl("");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [hud.phoneBridgeMobileUrl, hud.phoneBridgeQrVisible]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const url = hud.phoneBridgeCertificateUrl || "";
+    if (!url) {
+      setPhoneCertQrDataUrl("");
+      return () => {
+        cancelled = true;
+      };
+    }
+    QRCode.toDataURL(url, {
+      errorCorrectionLevel: "M",
+      margin: 1,
+      width: 112,
+      color: {
+        dark: "#07111f",
+        light: "#f4fbff"
+      }
+    })
+      .then((dataUrl) => {
+        if (!cancelled) setPhoneCertQrDataUrl(dataUrl);
+      })
+      .catch(() => {
+        if (!cancelled) setPhoneCertQrDataUrl("");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [hud.phoneBridgeCertificateUrl]);
+
+  useEffect(() => {
     let cancelled = false;
     if (dropZoneEmbeddedEchoProject) {
       gameRef.current?.setEchoDirectorProject?.(dropZoneEmbeddedEchoProject);
@@ -810,11 +2291,42 @@ export default function TarotDraw3DView({ cards = [], avatarName = "Hapa", apiBa
   useEffect(() => {
     setSelectedCardImageZoom(1);
     setSelectedCardImageIndex(0);
+    setSelectedCardMediaMode("still");
   }, [selectedCardKey, selectedDetailsOpen]);
 
   useEffect(() => {
     if (selectedCardImageSources.length && selectedCardImageIndex >= selectedCardImageSources.length) setSelectedCardImageIndex(0);
   }, [selectedCardImageIndex, selectedCardImageSources.length]);
+
+  useEffect(() => {
+    if (!selectedCardHasLoop && selectedCardMediaMode === "loop") setSelectedCardMediaMode("still");
+  }, [selectedCardHasLoop, selectedCardMediaMode]);
+
+  useEffect(() => {
+    if (!cardBrowserOpen) return undefined;
+    function handleKeyDown(event) {
+      if (event.key === "Escape") closeCardBrowser();
+    }
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [cardBrowserOpen]);
+
+  useEffect(() => {
+    setCardBrowserVisibleCount(TAROT_CARD_BROWSER_MAX_INITIAL);
+    cardBrowserScrollRef.current?.scrollTo?.({ top: 0 });
+  }, [cardBrowserQuery, cardBrowserTypeFilter]);
+
+  useEffect(() => {
+    if (cardBrowserTypeFilter === "all") return;
+    const activeFilter = cardBrowserTypeFilters.find((filter) => filter.id === cardBrowserTypeFilter);
+    if (activeFilter && activeFilter.count <= 0) setCardBrowserTypeFilter("all");
+  }, [cardBrowserTypeFilter, cardBrowserTypeFilters]);
+
+  useEffect(() => {
+    if (!selectedBrowserItem) return;
+    const stillExists = filteredCardBrowserItems.some((item) => item.id === selectedBrowserItem.id);
+    if (!stillExists) setSelectedBrowserItem(null);
+  }, [filteredCardBrowserItems, selectedBrowserItem]);
 
   useEffect(() => {
     if (!cinematicMode) return undefined;
@@ -824,6 +2336,57 @@ export default function TarotDraw3DView({ cards = [], avatarName = "Hapa", apiBa
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [cinematicMode]);
+
+  useEffect(() => {
+    if (!import.meta.env.DEV) return undefined;
+    function handleDiagnosticKeyDown(event) {
+      if (!event.ctrlKey || !event.altKey) return;
+      const key = String(event.key || "").toLowerCase();
+      if (key !== "i" && key !== "m") return;
+      event.preventDefault();
+      event.stopPropagation();
+      const action = key === "i" ? "diagnosticMintDroppedImage" : "diagnosticMintDroppedVideoCenter";
+      updateFieldCapture({
+        status: "processing",
+        stage: key === "i" ? "diagnostic-image" : "diagnostic-video",
+        message: key === "i" ? "Testing image drop mint" : "Testing center video drop mint",
+        progress: 0.08,
+        files: 1,
+        error: "",
+        dragActive: false
+      });
+      Promise.resolve(gameRef.current?.[action]?.())
+        .then((cards) => {
+          const count = Array.isArray(cards) ? cards.length : cards ? 1 : 0;
+          settleFieldCapture({
+            status: "complete",
+            stage: "diagnostic-minted",
+            message: count ? `Diagnostic minted ${count} card${count === 1 ? "" : "s"}` : "Diagnostic mint completed",
+            progress: 1,
+            files: count || 1,
+            error: "",
+            dragActive: false
+          });
+        })
+        .catch((error) => {
+          settleFieldCapture({
+            status: "failed",
+            stage: "diagnostic-blocked",
+            message: "Diagnostic drop failed",
+            progress: 0,
+            files: 1,
+            error: error?.message || "Diagnostic drop failed",
+            dragActive: false
+          });
+        });
+    }
+    window.addEventListener("keydown", handleDiagnosticKeyDown);
+    return () => window.removeEventListener("keydown", handleDiagnosticKeyDown);
+  }, []);
+
+  useEffect(() => () => {
+    if (captureResetTimerRef.current) window.clearTimeout(captureResetTimerRef.current);
+  }, []);
 
   useEffect(() => {
     if (!profileContact) return undefined;
@@ -846,6 +2409,157 @@ export default function TarotDraw3DView({ cards = [], avatarName = "Hapa", apiBa
 
   function run(action) {
     return () => callGame(action);
+  }
+
+  function updateFieldCapture(next = {}) {
+    setFieldCapture((current) => ({
+      ...current,
+      ...next,
+      progress: Number.isFinite(Number(next.progress)) ? Number(next.progress) : current.progress,
+      elapsedSeconds: Number.isFinite(Number(next.elapsedSeconds)) ? Number(next.elapsedSeconds) : current.elapsedSeconds,
+      durationSeconds: Number.isFinite(Number(next.durationSeconds)) ? Number(next.durationSeconds) : current.durationSeconds
+    }));
+  }
+
+  function settleFieldCapture(next = {}) {
+    if (captureResetTimerRef.current) window.clearTimeout(captureResetTimerRef.current);
+    updateFieldCapture(next);
+    captureResetTimerRef.current = window.setTimeout(() => {
+      setFieldCapture((current) => current.status === next.status ? {
+        status: "idle",
+        stage: "",
+        message: "",
+        progress: 0,
+        elapsedSeconds: 0,
+        durationSeconds: 0,
+        files: 0,
+        error: "",
+        dragActive: false
+      } : current);
+    }, next.status === "failed" ? 5200 : 3200);
+  }
+
+  async function recordCameraClip(durationSeconds) {
+    if (fieldCaptureBusy) return;
+    const duration = TAROT_FIELD_CAPTURE_DURATIONS.includes(durationSeconds) ? durationSeconds : TAROT_FIELD_CAPTURE_DURATIONS[0];
+    if (captureResetTimerRef.current) window.clearTimeout(captureResetTimerRef.current);
+    updateFieldCapture({
+      status: "recording",
+      stage: "recording",
+      message: `Recording Webcam Card ${duration}s clip`,
+      progress: 0.02,
+      elapsedSeconds: 0,
+      durationSeconds: duration,
+      files: 1,
+      error: "",
+      dragActive: false
+    });
+    try {
+      const card = await gameRef.current?.recordCameraClip?.(duration, { onProgress: updateFieldCapture });
+      settleFieldCapture({
+        status: "complete",
+        stage: "minted",
+        message: card?.title ? `Minted ${card.title}` : "Minted Webcam Card clip",
+        progress: 1,
+        elapsedSeconds: duration,
+        durationSeconds: duration,
+        files: 1,
+        error: "",
+        dragActive: false
+      });
+    } catch (error) {
+      settleFieldCapture({
+        status: "failed",
+        stage: "blocked",
+        message: "Capture failed",
+        progress: 0,
+        error: error?.message || "Could not record Webcam Card clip",
+        dragActive: false
+      });
+    }
+  }
+
+  function mediaDragHasFiles(event) {
+    const items = Array.from(event?.dataTransfer?.items || []);
+    if (items.some((item) => item.kind === "file" && tarotFieldMediaKind(item.type))) return true;
+    return Array.from(event?.dataTransfer?.files || []).some((file) => tarotFieldMediaKind(file.type, file.name));
+  }
+
+  function handleMediaDragEnter(event) {
+    if (!mediaDragHasFiles(event)) return;
+    event.preventDefault();
+    dragCaptureDepthRef.current += 1;
+    updateFieldCapture({
+      dragActive: true,
+      status: fieldCaptureBusy ? fieldCapture.status : "idle",
+      stage: "drop-ready",
+      message: "Drop image/video to mint a 3D media card",
+      error: ""
+    });
+  }
+
+  function handleMediaDragOver(event) {
+    if (!mediaDragHasFiles(event)) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "copy";
+    if (!fieldCapture.dragActive) updateFieldCapture({ dragActive: true, message: "Drop image/video to mint a 3D media card" });
+  }
+
+  function handleMediaDragLeave(event) {
+    if (!mediaDragHasFiles(event)) return;
+    dragCaptureDepthRef.current = Math.max(0, dragCaptureDepthRef.current - 1);
+    if (dragCaptureDepthRef.current > 0) return;
+    updateFieldCapture({ dragActive: false, stage: "", message: fieldCaptureBusy ? fieldCapture.message : "" });
+  }
+
+  async function handleMediaDrop(event) {
+    if (!mediaDragHasFiles(event)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    dragCaptureDepthRef.current = 0;
+    const files = Array.from(event.dataTransfer?.files || []).filter((file) => tarotFieldMediaKind(file.type, file.name));
+    if (!files.length) {
+      updateFieldCapture({ dragActive: false });
+      return;
+    }
+    if (captureResetTimerRef.current) window.clearTimeout(captureResetTimerRef.current);
+    updateFieldCapture({
+      status: "processing",
+      stage: "ingesting",
+      message: `Processing ${files.length} dropped media file${files.length === 1 ? "" : "s"}`,
+      progress: 0.04,
+      elapsedSeconds: 0,
+      durationSeconds: 0,
+      files: files.length,
+      error: "",
+      dragActive: false
+    });
+    try {
+      const minted = await gameRef.current?.ingestDroppedMediaFiles?.(files, {
+        clientX: event.clientX,
+        clientY: event.clientY,
+        onProgress: updateFieldCapture
+      });
+      settleFieldCapture({
+        status: "complete",
+        stage: "minted",
+        message: `Minted ${minted?.length || files.length} media card${(minted?.length || files.length) === 1 ? "" : "s"}`,
+        progress: 1,
+        files: minted?.length || files.length,
+        error: "",
+        dragActive: false
+      });
+    } catch (error) {
+      settleFieldCapture({
+        status: "failed",
+        stage: "blocked",
+        message: "Drop processing failed",
+        progress: 0,
+        files: files.length,
+        error: error?.message || "Could not process dropped media",
+        dragActive: false
+      });
+    }
   }
 
   function drawFromPile(pileId) {
@@ -896,12 +2610,173 @@ export default function TarotDraw3DView({ cards = [], avatarName = "Hapa", apiBa
     callGame("setCameraCardTranscriptionEnabled", !hud.cameraCardTranscriptionEnabled);
   }
 
+  function togglePhoneBridge() {
+    if (hud.phoneBridgeEnabled) {
+      callGame("setPhoneBridgeQrVisible", !hud.phoneBridgeQrVisible);
+      return;
+    }
+    callGame("setPhoneBridgeEnabled", true);
+  }
+
+  async function createSceneCameraInvite(event) {
+    event?.preventDefault?.();
+    event?.stopPropagation?.();
+    if (sceneInvite.status === "creating") return;
+    setSceneInvite({
+      status: "creating",
+      message: "Linking scene to Hypercore invite",
+      error: "",
+      invite: null,
+      htmlUrl: ""
+    });
+    try {
+      const sceneSnapshot = callGame("captureSceneSnapshot") || null;
+      const session = `tarot-scene-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+      const cardId = `webcam-invite-${session}`;
+      const response = await fetch(`${tarotDrawApiBase(apiBase)}/api/phone-bridge/invites`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          session,
+          cardId,
+          title: `${avatarName || "Hapa"} Scene Camera`,
+          avatarName,
+          sceneSnapshot
+        })
+      });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok || !payload?.invite) {
+        throw new Error(payload?.message || payload?.error || `Invite creation failed (${response.status})`);
+      }
+      const invite = payload.invite;
+      const htmlUrl = invite.links?.htmlUrl || payload.htmlUrl || "";
+      const desktopHtmlUrl = invite.links?.desktopHtmlUrl || htmlUrl;
+      callGame("activatePhoneBridgeInvite", invite);
+      setSceneInvite({
+        status: "ready",
+        message: desktopHtmlUrl ? "Invitation Created; open link from bridge panel" : "Invitation Created; waiting for camera",
+        error: "",
+        invite,
+        htmlUrl: desktopHtmlUrl
+      });
+      if (desktopHtmlUrl) setSceneInvitePreviewOpen(true);
+    } catch (error) {
+      setSceneInvite({
+        status: "failed",
+        message: "Invite failed",
+        error: error?.message || "Invite creation failed",
+        invite: null,
+        htmlUrl: ""
+      });
+    }
+  }
+
+  function openSceneInvitePreview(event) {
+    event?.preventDefault?.();
+    event?.stopPropagation?.();
+    if (activeSceneInvitePreviewUrl) setSceneInvitePreviewOpen(true);
+  }
+
+  function closeSceneInvitePreview(event) {
+    event?.preventDefault?.();
+    event?.stopPropagation?.();
+    setSceneInvitePreviewOpen(false);
+  }
+
+  function downloadSceneInviteArtifact(kind = "hapa-room", event) {
+    event?.preventDefault?.();
+    event?.stopPropagation?.();
+    if (!activeSceneInvite) return;
+    const artifact = kind === "json" ? activeSceneInvite : activeSceneInvite.roomlet?.invite;
+    if (!artifact) {
+      setSceneInvite((current) => ({
+        ...current,
+        error: kind === "json" ? "Invite JSON is not ready yet" : "Roomlet invite is not ready yet"
+      }));
+      return;
+    }
+    const extension = kind === "json" ? "json" : "hapa-room";
+    const mimeType = kind === "json" ? "application/json" : "application/vnd.hapa.room+json";
+    const fileName = `${activeSceneInvite.id || "hapa-room"}.${extension}`;
+    const blob = new Blob([`${JSON.stringify(artifact, null, 2)}\n`], { type: `${mimeType};charset=utf-8` });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = fileName;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1200);
+    setSceneInvite((current) => ({
+      ...current,
+      message: `${fileName} ready`,
+      error: ""
+    }));
+  }
+
+  async function applyRoomletParticipantControl(participant = {}, action = "", event) {
+    event?.preventDefault?.();
+    event?.stopPropagation?.();
+    const participantCoreKey = participant.participantCoreKey || "";
+    if (!activeSceneInvite?.id || !participantCoreKey || !action) return;
+    const controlUrl = activeSceneInvite.links?.desktopRoomletControlUrl || activeSceneInvite.links?.roomletControlUrl || "";
+    try {
+      let control = null;
+      if (controlUrl) {
+        const response = await fetch(controlUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            participantCoreKey,
+            action,
+            reason: "tarot-bridge-panel"
+          })
+        });
+        const payload = await response.json().catch(() => null);
+        if (!response.ok || payload?.ok === false) {
+          throw new Error(payload?.message || payload?.error || `Roomlet control failed (${response.status})`);
+        }
+        control = payload?.control || null;
+      }
+      callGame("applyRoomletHostControl", {
+        inviteId: activeSceneInvite.id,
+        participantCoreKey,
+        action,
+        control,
+        reason: "tarot-bridge-panel"
+      });
+      setSceneInvite((current) => ({
+        ...current,
+        message: `Roomlet ${action}: ${participant.title || participantCoreKey.slice(0, 8)}`,
+        error: ""
+      }));
+    } catch (error) {
+      setSceneInvite((current) => ({
+        ...current,
+        error: error?.message || "Roomlet host control failed"
+      }));
+    }
+  }
+
   function toggleCameraJournal() {
     setCameraJournalVisible((value) => !value);
   }
 
   function clearCameraCardJournal() {
     callGame("clearCameraCardJournal");
+  }
+
+  function toggleBlueAvatarCard() {
+    callGame("setBlueAvatarCardEnabled", !hud.blueAvatarCardEnabled);
+  }
+
+  function toggleBlueAvatarAutoReply() {
+    callGame("setBlueAvatarAutoReplyEnabled", !hud.blueAvatarAutoReplyEnabled);
+  }
+
+  function askBlueFromLatestTranscript() {
+    if (!latestCameraTranscript || blueBusy) return;
+    callGame("requestBlueAvatarTurnFromLatest");
   }
 
   function toggleLyrics() {
@@ -984,14 +2859,245 @@ export default function TarotDraw3DView({ cards = [], avatarName = "Hapa", apiBa
 
   function selectSelectedCardImage(index) {
     setSelectedCardImageIndex(index);
+    setSelectedCardMediaMode("still");
     setSelectedCardImageZoom(1);
   }
 
   function handleSelectedCardImageWheel(event) {
+    if (selectedCardShowingLoop) return;
     if (!selectedCardImage) return;
     event.preventDefault();
     event.stopPropagation();
     adjustSelectedCardImageZoom(event.deltaY < 0 ? 0.14 : -0.14);
+  }
+
+  function selectSelectedCardMediaMode(mode = "still") {
+    setSelectedCardMediaMode(mode === "loop" && selectedCardHasLoop ? "loop" : "still");
+    setSelectedCardImageZoom(1);
+  }
+
+  function openCardBrowser() {
+    setCardBrowserOpen(true);
+    setCardBrowserVisibleCount(TAROT_CARD_BROWSER_MAX_INITIAL);
+    setBrowserAddState({ status: "idle", message: "", itemId: "" });
+  }
+
+  function closeCardBrowser() {
+    setCardBrowserOpen(false);
+    setSelectedBrowserItem(null);
+  }
+
+  function selectCardBrowserTypeFilter(filterId = "all") {
+    setCardBrowserTypeFilter(filterId);
+    setSelectedBrowserItem(null);
+    setCardBrowserVisibleCount(TAROT_CARD_BROWSER_MAX_INITIAL);
+    cardBrowserScrollRef.current?.scrollTo?.({ top: 0 });
+  }
+
+  function handleCardBrowserScroll(event) {
+    const target = event.currentTarget;
+    if (!target || !cardBrowserHasMore) return;
+    const remaining = target.scrollHeight - target.scrollTop - target.clientHeight;
+    if (remaining < Math.max(520, target.clientHeight * 0.75)) {
+      setCardBrowserVisibleCount((current) => Math.min(filteredCardBrowserItems.length, current + TAROT_CARD_BROWSER_BATCH_SIZE));
+    }
+  }
+
+  function setCardBrowserQueryFromInput(event) {
+    setCardBrowserQuery(event.target.value);
+    setCardBrowserVisibleCount(TAROT_CARD_BROWSER_MAX_INITIAL);
+  }
+
+  function playBrowserPreview(event) {
+    const video = event.currentTarget.querySelector("video");
+    if (!video) return;
+    video.play().catch(() => {});
+  }
+
+  function pauseBrowserPreview(event) {
+    const video = event.currentTarget.querySelector("video");
+    if (!video) return;
+    video.pause();
+    try {
+      video.currentTime = 0;
+    } catch {
+      // Media elements can reject seeks before metadata is ready.
+    }
+  }
+
+  function selectBrowserItem(item) {
+    setSelectedBrowserItem(item);
+  }
+
+  function addBrowserItemToScene(item, { quick = false } = {}) {
+    if (!item) return;
+    const card = cardFromTarotBrowserItem(item);
+    const entry = callGame("spawnBrowserCard", card, {
+      zone: "field",
+      statusText: `${quick ? "Quick added" : "Added"}: ${item.title || card.title}`
+    });
+    if (!entry) {
+      setBrowserAddState({ status: "failed", message: "Could not add media to scene", itemId: item.id });
+      return;
+    }
+    setBrowserAddState({ status: "complete", message: `${item.title || card.title} added`, itemId: item.id });
+  }
+
+  function quickAddBrowserItem(event, item) {
+    event.preventDefault();
+    event.stopPropagation();
+    addBrowserItemToScene(item, { quick: true });
+  }
+
+  async function saveCurrentScene(event) {
+    event?.preventDefault?.();
+    event?.stopPropagation?.();
+    if (sceneSave.status === "saving") return;
+    setSceneSave({ status: "saving", message: "Capturing table scene", error: "", card: null });
+    try {
+      const card = callGame("createSceneSnapshotCard");
+      if (!card) throw new Error("No restorable cards are currently on the Tarot table.");
+      setSceneSave({ status: "saving", message: "Persisting scene card", error: "", card });
+      const response = await fetch(`${tarotDrawApiBase(apiBase)}/api/tarot/cards`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(card)
+      });
+      const store = await response.json().catch(() => null);
+      if (!response.ok || !store?.cards) throw new Error(store?.error || store?.message || `Scene save failed: ${response.status}`);
+      const savedCard = store.cards.find((item) => item.id === card.id) || card;
+      const sceneCard = {
+        ...card,
+        ...savedCard,
+        drawScene: card.drawScene,
+        sceneSnapshot: tarotDrawSceneSnapshot(savedCard) || card.sceneSnapshot
+      };
+      onTarotSceneSaved?.({ card: sceneCard, store, sceneSnapshot: sceneCard.sceneSnapshot });
+      callGame("spawnSceneCard", { card: sceneCard, statusText: `Scene saved: ${sceneCard.title}` });
+      setSceneSave({ status: "complete", message: `${sceneCard.title} saved`, error: "", card: sceneCard });
+    } catch (error) {
+      setSceneSave({
+        status: "failed",
+        message: "Scene save failed",
+        error: error?.message || "Scene save failed",
+        card: null
+      });
+    }
+  }
+
+  function loadSelectedSceneCard(event) {
+    event?.preventDefault?.();
+    event?.stopPropagation?.();
+    if (!selectedCardIsScene || !selectedCardSceneSnapshot) return;
+    const loaded = callGame("loadSceneFromCard", selectedCard);
+    if (loaded) {
+      setSceneSave({
+        status: "loaded",
+        message: `Loaded ${selectedCard.title}`,
+        error: "",
+        card: selectedCard
+      });
+    }
+  }
+
+  async function requestForgeCard(event) {
+    event?.preventDefault?.();
+    const title = forgeTitle.trim() || `${avatarName} Draw Card`;
+    const intention = forgeIntention.trim() || `A new Hapa Tarot card requested by ${avatarName} from inside the 3D Tarot Draw table.`;
+    setForgeRequest({ status: "requesting", run: null, card: null, error: "" });
+    try {
+      const response = await fetch(`${tarotDrawApiBase(apiBase)}/api/tarot/draw-forge`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title,
+          intention,
+          avatarName,
+          autoStart: true
+        })
+      });
+      const packet = await response.json().catch(() => null);
+      if (!response.ok || !packet?.ok) throw new Error(packet?.error || packet?.message || `Forge request failed: ${response.status}`);
+      const sceneCard = tarotDrawForgeSceneCard(packet.card, packet.run, avatarName, apiBase);
+      setForgeRequest({ status: "staged", run: packet.run, card: sceneCard, error: packet.external?.ok === false ? packet.external.error || "" : "" });
+      if (packet.run?.id) setForgeWatchIds((current) => ({ ...current, [packet.run.id]: true }));
+      callGame("spawnForgeCard", { card: sceneCard, run: packet.run });
+      onTarotForgeCreated?.(packet);
+    } catch (error) {
+      const fallbackRun = {
+        id: `local-forge-${Date.now().toString(36)}`,
+        localOnly: true,
+        state: "local-staged",
+        items: [{
+          title,
+          prompt: `${intention} ${TAROT_DRAW_FORGE_STYLE_TAG}`,
+          mediaJobs: {
+            image: { status: "queued", outputPaths: [] },
+            loop: { status: "blocked", outputPaths: [] }
+          }
+        }]
+      };
+      const fallbackCard = tarotDrawForgeSceneCard({
+        id: `local-${fallbackRun.id}`,
+        title,
+        meaning: intention,
+        promptNotes: fallbackRun.items[0].prompt,
+        enrichment: {
+          media: {
+            drawForge: {
+              runId: fallbackRun.id,
+              stage: "requested",
+              styleTag: TAROT_DRAW_FORGE_STYLE_TAG,
+              rationale: "Local fallback card created because the Avatar Builder API did not accept the forge request."
+            }
+          }
+        }
+      }, fallbackRun, avatarName, apiBase);
+      setForgeRequest({ status: "failed-local", run: fallbackRun, card: fallbackCard, error: error?.message || "Forge request failed" });
+      callGame("spawnForgeCard", { card: fallbackCard, run: fallbackRun });
+    }
+  }
+
+  function openForgeCardDetails() {
+    if (!forgeCard) return;
+    callGame("updateForgeCard", { card: forgeCard, run: forgeRun, openDetails: true });
+  }
+
+  async function createSelectedCardVariation(event) {
+    event?.preventDefault?.();
+    event?.stopPropagation?.();
+    if (!selectedCard || variationRequest.status === "requesting") return;
+    const drawForge = tarotDrawForgeMeta(selectedCard);
+    const cardId = selectedCard.id || "";
+    const variationNote = [
+      "Create a new edition of this same card, preserving the core lore/mechanic and parent identity.",
+      "Change the visual treatment, symbolic emphasis, environmental staging, lighting rhythm, and collectible feel enough that the edition reads as a distinct child variant."
+    ].join(" ");
+    setVariationRequest({ status: "requesting", cardId, error: "" });
+    try {
+      const response = await fetch(`${tarotDrawApiBase(apiBase)}/api/tarot/draw-forge/variation`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          parentCardId: cardId,
+          parentRunId: drawForge.runId || "",
+          avatarName,
+          autoStart: true,
+          variationNote
+        })
+      });
+      const packet = await response.json().catch(() => null);
+      if (!response.ok || !packet?.ok) throw new Error(packet?.error || packet?.message || `Variation request failed: ${response.status}`);
+      const sceneCard = tarotDrawForgeSceneCard(packet.card, packet.run, avatarName, apiBase);
+      setVariationRequest({ status: "staged", cardId: sceneCard.id, error: "" });
+      setForgeRequest({ status: "staged", run: packet.run, card: sceneCard, error: packet.external?.ok === false ? packet.external.error || "" : "" });
+      if (packet.run?.id) setForgeWatchIds((current) => ({ ...current, [packet.run.id]: true }));
+      setForgePanelOpen(true);
+      callGame("spawnForgeCard", { card: sceneCard, run: packet.run });
+      onTarotForgeCreated?.(packet);
+    } catch (error) {
+      setVariationRequest({ status: "failed", cardId, error: error?.message || "Variation request failed" });
+    }
   }
 
   function playProfileMediaLoop(event) {
@@ -1012,13 +3118,60 @@ export default function TarotDraw3DView({ cards = [], avatarName = "Hapa", apiBa
 
   return (
     <section
-      className={`tarot-draw-view${miniMode ? " is-mini" : ""}${cinematicMode ? " is-cinematic" : ""}`}
+      className={`tarot-draw-view${miniMode ? " is-mini" : ""}${cinematicMode ? " is-cinematic" : ""}${fieldCapture.dragActive ? " is-media-dragging" : ""}${cardBrowserOpen ? " is-card-browser-open" : ""}`}
       data-reading-visible={hasReading && readingPanelVisible ? "true" : "false"}
       data-selected={selectedCard ? "true" : "false"}
       data-cinematic={cinematicMode ? "true" : "false"}
+      data-field-capture={fieldCapture.status}
+      data-card-browser={cardBrowserOpen ? "open" : "closed"}
       aria-label="3D Tarot Draw"
+      onDragEnter={handleMediaDragEnter}
+      onDragOver={handleMediaDragOver}
+      onDragLeave={handleMediaDragLeave}
+      onDrop={handleMediaDrop}
     >
       <canvas ref={canvasRef} aria-label="Interactive 3D tarot draw table" />
+      {fieldCaptureVisible && (
+        <div className="tarot-field-capture-rail hapa-panel" data-variant="notch" data-status={fieldCapture.status} aria-live="polite">
+          <span className="tarot-field-capture-icon" aria-hidden="true">
+            {fieldCapture.dragActive ? <Upload size={15} /> : fieldCapture.status === "recording" ? <CircleDot size={15} /> : <Film size={15} />}
+          </span>
+          <span className="tarot-field-capture-copy">
+            <strong>{fieldCapture.error || fieldCapture.message || "Field media capture"}</strong>
+            <em>{fieldCapture.stage || "ready"}{fieldCaptureClock ? ` / ${fieldCaptureClock}` : ""}{fieldCapture.files ? ` / ${fieldCapture.files} file${fieldCapture.files === 1 ? "" : "s"}` : ""}</em>
+          </span>
+          <span className="tarot-field-capture-meter" style={{ "--capture-progress": `${fieldCaptureProgress}%` }} aria-hidden="true">
+            <i />
+          </span>
+        </div>
+      )}
+      {sceneSave.status !== "idle" && (
+        <div className="tarot-scene-save-rail hapa-panel" data-variant="notch" data-status={sceneSave.status} aria-live="polite">
+          <span><BookOpenCheck size={14} /> Scene</span>
+          <strong>{sceneSave.error || sceneSave.message || "Scene state ready"}</strong>
+          <em>{sceneSave.card?.id || "tarot-draw-scene"}</em>
+        </div>
+      )}
+      {sceneInvite.status !== "idle" && (
+        <div className="tarot-scene-invite-rail hapa-panel" data-variant="notch" data-status={sceneInvite.status} aria-live="polite">
+          <span><Link2 size={14} /> Invite</span>
+          <strong>{sceneInvite.error || sceneInvite.message || "Invitation Created"}</strong>
+          <em>{activeSceneInvite?.hypercore?.topic || activeSceneInvite?.cardId || "hypercore-scene-link"}</em>
+        </div>
+      )}
+      {cinematicMode && (
+        <button
+          className="hapa-btn tarot-cinematic-exit-toggle"
+          type="button"
+          aria-pressed="true"
+          onClick={() => setCinematicMode(false)}
+          title="Turn cinematic mode off and restore menus"
+        >
+          <Minimize2 size={14} />
+          <span>Cinematic On</span>
+          <em>Menus</em>
+        </button>
+      )}
       {dropZoneProfilePreloadSources.length > 0 && (
         <div className="tarot-avatar-profile-preload" aria-hidden="true">
           {dropZoneProfilePreloadSources.map((source) => source.kind === "video" ? (
@@ -1048,6 +3201,95 @@ export default function TarotDraw3DView({ cards = [], avatarName = "Hapa", apiBa
           <span><strong>{productionAudit?.imageOnlyCount || 0}</strong><em>Image-only hidden</em></span>
         </div>
       </div>
+
+      {hud.phoneBridgeEnabled && hud.phoneBridgeQrVisible && (
+        <aside className="tarot-phone-bridge-panel hapa-panel" data-variant="notch" aria-live="polite">
+          <header>
+            <span><QrCode size={14} /> Phone Card Bridge</span>
+            <button className="hapa-btn" type="button" onClick={togglePhoneBridge}>Hide QR</button>
+          </header>
+          <div className="tarot-phone-bridge-qr">
+            {phoneQrDataUrl ? (
+              <img src={phoneQrDataUrl} alt="QR code for Phone Card mobile link" />
+            ) : (
+              <div className="tarot-phone-bridge-qr-empty">QR</div>
+            )}
+          </div>
+          <strong>
+            {hud.phoneBridgeConnected ? "Phone Card live" : hud.phoneBridgeStatus || "Waiting for phone scan"}
+            <em>{hud.phoneBridgeSecure ? "HTTPS" : "HTTP fallback"}</em>
+          </strong>
+          {hud.phoneBridgeError && <p className="tarot-phone-bridge-error">{hud.phoneBridgeError}</p>}
+          {activeSceneInvite?.links?.desktopHtmlUrl && (
+            <div className="tarot-phone-bridge-actions">
+              <button className="tarot-phone-bridge-open" type="button" onClick={openSceneInvitePreview}>
+                Preview invitation
+              </button>
+              <a className="tarot-phone-bridge-open" href={activeSceneInvite.links.desktopHtmlUrl} target="_blank" rel="noreferrer">
+                Open file
+              </a>
+              <button className="tarot-phone-bridge-open" type="button" onClick={(event) => downloadSceneInviteArtifact("hapa-room", event)}>
+                Roomlet
+              </button>
+              <button className="tarot-phone-bridge-open" type="button" onClick={(event) => downloadSceneInviteArtifact("json", event)}>
+                JSON
+              </button>
+            </div>
+          )}
+          <a href={hud.phoneBridgeMobileUrl} target="_blank" rel="noreferrer">{hud.phoneBridgeMobileUrl}</a>
+          {activeSceneInvite && (
+            <div className="tarot-phone-bridge-meta">
+              <span><strong>Card</strong>{activeSceneInvite.cardId}</span>
+              <span><strong>Hypercore</strong>{activeSceneInvite.hypercore?.topic || activeSceneInvite.hypercore?.discoveryKey}</span>
+            </div>
+          )}
+          {roomletParticipantCards.length > 0 && (
+            <div className="tarot-roomlet-participants" aria-label="Roomlet participants">
+              {roomletParticipantCards.map((participant) => (
+                <article key={participant.participantCoreKey} className="tarot-roomlet-participant">
+                  <strong>
+                    {participant.title || participant.participantCoreKey.slice(0, 8)}
+                    <em>{participant.presence || participant.status || participant.role || "roomlet"}</em>
+                  </strong>
+                  <p>{participant.lastChat || participant.meaning || participant.participantCoreKey}</p>
+                  <div className="tarot-roomlet-controls">
+                    {roomletHostControlActions.map((action) => (
+                      <button key={action} type="button" onClick={(event) => applyRoomletParticipantControl(participant, action, event)}>
+                        {action}
+                      </button>
+                    ))}
+                  </div>
+                </article>
+              ))}
+            </div>
+          )}
+          {hud.phoneBridgeCertificateUrl && (
+            <a className="tarot-phone-bridge-cert" href={hud.phoneBridgeCertificateUrl} target="_blank" rel="noreferrer">
+              Local CA certificate
+            </a>
+          )}
+          {phoneCertQrDataUrl && (
+            <div className="tarot-phone-bridge-trust">
+              <img src={phoneCertQrDataUrl} alt="QR code for local CA certificate" />
+              <span>Trust CA first if your phone blocks HTTPS.</span>
+            </div>
+          )}
+        </aside>
+      )}
+
+      {sceneInvitePreviewOpen && activeSceneInvitePreviewUrl && (
+        <aside className="tarot-scene-invite-preview hapa-panel" data-variant="notch" aria-label="Scene camera invitation preview">
+          <header>
+            <span><Link2 size={14} /> Invitation File</span>
+            <button className="hapa-btn" type="button" onClick={closeSceneInvitePreview}>Close</button>
+          </header>
+          <iframe
+            src={activeSceneInvitePreviewUrl}
+            title={activeSceneInvite?.title || "Hapa scene camera invitation"}
+            allow="camera; microphone; autoplay; fullscreen; display-capture"
+          />
+        </aside>
+      )}
 
       {cameraJournalVisible && (
         <aside className="tarot-camera-journal hapa-panel" data-variant="notch" aria-live="polite">
@@ -1084,6 +3326,235 @@ export default function TarotDraw3DView({ cards = [], avatarName = "Hapa", apiBa
         </aside>
       )}
 
+      {forgePanelOpen && (
+        <aside className="tarot-forge-panel hapa-panel" data-variant="notch" aria-live="polite" onPointerDown={(event) => event.stopPropagation()}>
+          <header>
+            <span><Sparkles size={14} /> Card Forge</span>
+            <button className="hapa-btn" type="button" onClick={() => setForgePanelOpen(false)} aria-label="Close Card Forge">
+              <X size={14} />
+            </button>
+          </header>
+          <form className="tarot-forge-form" onSubmit={requestForgeCard}>
+            <input
+              value={forgeTitle}
+              onChange={(event) => setForgeTitle(event.target.value)}
+              placeholder={`${avatarName} card name`}
+              aria-label="New card name"
+              maxLength={96}
+            />
+            <textarea
+              value={forgeIntention}
+              onChange={(event) => setForgeIntention(event.target.value)}
+              placeholder="What should this card mean, do, or teach?"
+              aria-label="New card intention"
+              rows={4}
+            />
+            <button className="hapa-btn" data-intent="primary" type="submit" disabled={forgeBusy}>
+              <Sparkles size={14} />
+              {forgeBusy ? "Requesting" : "Request Card"}
+            </button>
+          </form>
+          <div className="tarot-forge-state">
+            <span>
+              <strong>{tarotDrawForgeStageLabel(forgeStage)}</strong>
+              <em>{forgeActivePhase ? `${forgeActivePhase.label} ${forgeActivePhase.clockLabel}` : forgeRun?.id || "No active run"}</em>
+            </span>
+            <span>
+              <strong>{forgeImageJob.status || (forgeImageUri ? "generated" : "queued")}</strong>
+              <em>Image</em>
+            </span>
+            <span>
+              <strong>{forgeLoopJob.status || (forgeVideoUri ? "generated" : "blocked")}</strong>
+              <em>Loop</em>
+            </span>
+          </div>
+          <div className="tarot-forge-timing" aria-label="Forge benchmark timing" title={TAROT_DRAW_FORGE_BENCHMARK_NOTE}>
+            {forgeTimeline.map((phase) => (
+              <span key={phase.id} data-state={phase.state} style={{ "--forge-progress": String(phase.progress || 0) }}>
+                <strong>{phase.label}</strong>
+                <em>{phase.clockLabel}</em>
+                <i />
+              </span>
+            ))}
+          </div>
+          {forgeLoopQueueNote && <p className="tarot-forge-queue-note">{forgeLoopQueueNote}</p>}
+          {(forgeImageUri || forgeVideoUri) && (
+            <div className="tarot-forge-output">
+              {forgeImageUri && <img src={forgeImageUri} alt="" loading="lazy" />}
+              {forgeVideoUri && <video src={forgeVideoUri} poster={forgeImageUri || undefined} muted loop playsInline autoPlay preload="metadata" />}
+            </div>
+          )}
+          {forgeRequest.error && <p className="tarot-forge-error">{forgeRequest.error}</p>}
+          {forgeCard && (
+            <button className="hapa-btn tarot-forge-open-details" type="button" onClick={openForgeCardDetails}>
+              <BookOpenCheck size={14} />
+              Open Details
+            </button>
+          )}
+        </aside>
+      )}
+
+      {cardBrowserOpen && (
+        <aside
+          className="tarot-card-browser-overlay"
+          role="dialog"
+          aria-label="Card Browser and Selector"
+          aria-modal="false"
+          onPointerDown={(event) => event.stopPropagation()}
+          onWheel={(event) => event.stopPropagation()}
+        >
+          <header className="tarot-card-browser-header">
+            <span>
+              <Images size={15} />
+              Card Browser
+            </span>
+            <label className="tarot-card-browser-search">
+              <Search size={14} />
+              <input
+                value={cardBrowserQuery}
+                onChange={setCardBrowserQueryFromInput}
+                placeholder="Search media, cards, tags"
+                aria-label="Search card media"
+              />
+            </label>
+            <em>{filteredCardBrowserItems.length} media</em>
+            {browserAddState.status !== "idle" && (
+              <strong data-status={browserAddState.status}>{browserAddState.message}</strong>
+            )}
+            <button className="hapa-btn" type="button" onClick={closeCardBrowser} aria-label="Close Card Browser">
+              <X size={14} />
+            </button>
+          </header>
+          <nav className="tarot-card-browser-filters" aria-label="Card type filters">
+            {cardBrowserTypeFilters.map((filter) => {
+              const disabled = filter.id !== "all" && filter.count <= 0;
+              return (
+                <button
+                  className="tarot-card-browser-filter"
+                  type="button"
+                  key={filter.id}
+                  aria-pressed={cardBrowserTypeFilter === filter.id}
+                  disabled={disabled}
+                  onClick={() => selectCardBrowserTypeFilter(filter.id)}
+                  style={{ "--filter-accent": filter.accent }}
+                >
+                  <span>{filter.label}</span>
+                  <em>{filter.count}</em>
+                </button>
+              );
+            })}
+          </nav>
+          <div className="tarot-card-browser-body">
+            <div
+              className="tarot-card-browser-scroll"
+              ref={cardBrowserScrollRef}
+              onScroll={handleCardBrowserScroll}
+              aria-label="Available card images and videos"
+            >
+              {visibleCardBrowserItems.length ? (
+                <div className="tarot-card-browser-grid">
+                  {visibleCardBrowserItems.map((item, index) => (
+                    <button
+                      className="tarot-card-browser-tile"
+                      type="button"
+                      key={item.id}
+                      data-kind={item.kind}
+                      data-selected={selectedBrowserItem?.id === item.id ? "true" : "false"}
+                      style={{ "--tile-delay": `${Math.min(index % 16, 15) * 18}ms` }}
+                      onClick={() => selectBrowserItem(item)}
+                      onMouseEnter={playBrowserPreview}
+                      onMouseLeave={pauseBrowserPreview}
+                      title={item.title}
+                    >
+                      {item.kind === "video" ? (
+                        <video src={item.uri} poster={item.posterUri || undefined} muted loop playsInline preload="metadata" />
+                      ) : (
+                        <img src={item.uri} alt="" loading="lazy" decoding="async" />
+                      )}
+                      <span className="tarot-card-browser-kind">{item.kind === "video" ? <Film size={13} /> : <Images size={13} />}</span>
+                      <span className="tarot-card-browser-caption">
+                        <strong>{item.title}</strong>
+                        <em>{item.label || item.subtitle || item.kind}</em>
+                      </span>
+                      <span
+                        className="tarot-card-browser-quick-add"
+                        role="button"
+                        tabIndex={-1}
+                        aria-label={`Quick add ${item.title}`}
+                        onClick={(event) => quickAddBrowserItem(event, item)}
+                      >
+                        <Plus size={15} />
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <div className="tarot-card-browser-empty">
+                  <Images size={28} />
+                  <strong>No media found</strong>
+                  <em>{cardBrowserQuery || activeCardBrowserFilter?.label || "Empty library"}</em>
+                </div>
+              )}
+              {cardBrowserHasMore && (
+                <button
+                  className="tarot-card-browser-load-more"
+                  type="button"
+                  onClick={() => setCardBrowserVisibleCount((current) => Math.min(filteredCardBrowserItems.length, current + TAROT_CARD_BROWSER_BATCH_SIZE))}
+                >
+                  Load more media
+                </button>
+              )}
+            </div>
+            <section className="tarot-card-browser-detail" data-empty={selectedBrowserItem ? "false" : "true"} aria-label="Selected media details">
+              {selectedBrowserItem ? (
+                <>
+                  <div className="tarot-card-browser-detail-media">
+                    {selectedBrowserItem.kind === "video" ? (
+                      <video src={selectedBrowserItem.uri} poster={selectedBrowserItem.posterUri || undefined} controls muted loop playsInline preload="metadata" />
+                    ) : (
+                      <img src={selectedBrowserItem.uri} alt="" loading="lazy" decoding="async" />
+                    )}
+                  </div>
+                  <div className="tarot-card-browser-detail-copy">
+                    <p className="eyebrow">{selectedBrowserItem.kind === "video" ? "Video Media" : "Image Media"}</p>
+                    <h3>{selectedBrowserItem.title}</h3>
+                    <span>{selectedBrowserItem.subtitle || selectedBrowserItem.label || "Hapa media card"}</span>
+                    <dl>
+                      <div>
+                        <dt>Card</dt>
+                        <dd>{selectedBrowserItem.card?.id || "local media"}</dd>
+                      </div>
+                      <div>
+                        <dt>Kind</dt>
+                        <dd>{selectedBrowserItem.kind}</dd>
+                      </div>
+                      <div>
+                        <dt>Source</dt>
+                        <dd>{selectedBrowserItem.label || selectedBrowserItem.card?.sourceKind || "media"}</dd>
+                      </div>
+                    </dl>
+                    <p>{selectedBrowserItem.card?.summary || selectedBrowserItem.card?.meaning || "Add this media as a live card object in the Tarot Draw scene."}</p>
+                    <div className="tarot-card-browser-tags">
+                      {(selectedBrowserItem.keywords || selectedBrowserItem.tags || []).slice(0, 8).map((tag) => <span key={tag}>{tag}</span>)}
+                    </div>
+                    <button className="hapa-btn" data-intent="primary" type="button" onClick={() => addBrowserItemToScene(selectedBrowserItem)}>
+                      <Plus size={14} />
+                      Add To Scene
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <div className="tarot-card-browser-detail-empty">
+                  <Images size={30} />
+                  <strong>No selection</strong>
+                  <em>{visibleCardBrowserItems.length} visible</em>
+                </div>
+              )}
+            </section>
+          </div>
+        </aside>
+      )}
+
       <div className="tarot-draw-controls hapa-panel" data-variant="notch">
         <div className="tarot-control-actions" aria-label="Deck actions">
           <button className="hapa-btn" data-intent="primary" type="button" onClick={run("shuffle")}>
@@ -1093,6 +3564,20 @@ export default function TarotDraw3DView({ cards = [], avatarName = "Hapa", apiBa
           <button className="hapa-btn" data-intent="warning" type="button" onClick={run("draw")}>
             <Sparkles size={14} />
             Draw
+          </button>
+          <button className="hapa-btn tarot-forge-card-toggle" data-intent="primary" type="button" aria-pressed={forgePanelOpen} onClick={() => setForgePanelOpen((value) => !value)}>
+            <Sparkles size={14} />
+            Forge
+          </button>
+          <button
+            className="hapa-btn tarot-card-browser-toggle"
+            type="button"
+            aria-pressed={cardBrowserOpen}
+            onClick={openCardBrowser}
+            title="Browse available Hapa card images and videos"
+          >
+            <Images size={14} />
+            Browser
           </button>
 	          {TAROT_AUTO_DEAL_ENABLED && (
 	            <button className="hapa-btn tarot-auto-deal" data-intent="primary" type="button" onClick={autoDealInstantStart}>
@@ -1107,6 +3592,28 @@ export default function TarotDraw3DView({ cards = [], avatarName = "Hapa", apiBa
           <button className="hapa-btn" type="button" onClick={run("clear")}>
             <RefreshCw size={14} />
             Clear
+          </button>
+          <button
+            className="hapa-btn tarot-save-scene-toggle"
+            type="button"
+            data-status={sceneSave.status}
+            disabled={sceneSaveBusy}
+            onClick={saveCurrentScene}
+            title={sceneSaveNote}
+          >
+            <BookOpenCheck size={14} />
+            {sceneSaveBusy ? "Saving Scene" : "Save Scene"}
+          </button>
+          <button
+            className="hapa-btn tarot-scene-invite-toggle"
+            type="button"
+            data-status={sceneInvite.status}
+            disabled={sceneInviteBusy}
+            onClick={createSceneCameraInvite}
+            title={sceneInviteNote}
+          >
+            <Link2 size={14} />
+            {sceneInviteBusy ? "Inviting..." : sceneInvite.status === "ready" ? "Invite Live" : "Invite Cam"}
           </button>
           <button className="hapa-btn tarot-mini-toggle" type="button" aria-pressed={miniMode} onClick={() => setMiniMode((value) => !value)}>
             {miniMode ? <Maximize2 size={14} /> : <Minimize2 size={14} />}
@@ -1133,7 +3640,7 @@ export default function TarotDraw3DView({ cards = [], avatarName = "Hapa", apiBa
             title={cinematicMode ? "Exit cinematic mode" : "Hide tarot UI for cinematic viewing"}
           >
             <Maximize2 size={14} />
-            Cinematic
+            {cinematicMode ? "Cinematic On" : "Cinematic Off"}
           </button>
           <button
             className="hapa-btn tarot-music-viz-toggle tarot-center-viz-toggle"
@@ -1180,12 +3687,13 @@ export default function TarotDraw3DView({ cards = [], avatarName = "Hapa", apiBa
           <button
             className="hapa-btn tarot-video-key-toggle"
             type="button"
-            aria-pressed={hud.videoBackgroundKeying}
+            aria-pressed={false}
+            disabled
             onClick={toggleVideoBackgroundKeying}
-            title={hud.videoBackgroundKeying ? "Keep video backgrounds opaque" : "Trace edge matte for pale video backgrounds"}
+            title="Middle video cutout is disabled; previews render solid"
           >
             <Sparkles size={14} />
-            Cutout
+            Solid
           </button>
           <button
             className="hapa-btn tarot-camera-card-toggle"
@@ -1199,14 +3707,47 @@ export default function TarotDraw3DView({ cards = [], avatarName = "Hapa", apiBa
             {hud.cameraCardPending ? "Camera..." : hud.cameraCardError ? "Camera Blocked" : `Camera ${hud.cameraCardEnabled ? "On" : "Card"}`}
           </button>
           <button
+            className="hapa-btn tarot-phone-card-toggle"
+            type="button"
+            aria-pressed={Boolean(hud.phoneBridgeQrVisible)}
+            data-pending={hud.phoneBridgePending ? "true" : "false"}
+            onClick={togglePhoneBridge}
+            title={hud.phoneBridgeError ? `Phone bridge blocked: ${hud.phoneBridgeError}` : hud.phoneBridgeEnabled ? (hud.phoneBridgeQrVisible ? "Hide the Phone Card QR without disconnecting the phone" : "Show the Phone Card QR again") : "Create a QR bridge for a mobile Phone Card"}
+          >
+            {hud.phoneBridgeQrVisible ? <QrCode size={14} /> : <Smartphone size={14} />}
+            {hud.phoneBridgePending ? "Phone..." : hud.phoneBridgeConnected ? "Phone Live" : hud.phoneBridgeEnabled ? (hud.phoneBridgeQrVisible ? "Phone QR" : "Show QR") : "Phone Card"}
+          </button>
+          <button
             className="hapa-btn tarot-camera-shader-toggle"
             type="button"
             aria-pressed={Boolean(hud.cameraCardShaderEnabled)}
             onClick={toggleCameraCardShader}
-            title={hud.cameraCardShaderEnabled ? "Turn Hapa Grade off on the Camera Card" : "Apply Hapa Grade to the Camera Card"}
+            title={hud.cameraCardShaderEnabled ? "Turn Hapa Grade off on live Webcam and Phone Cards" : "Apply Hapa Grade to live Webcam and Phone Cards"}
           >
             <Sparkles size={14} />
             Grade {hud.cameraCardShaderEnabled ? "On" : "Off"}
+          </button>
+          <button
+            className="hapa-btn tarot-camera-clip-toggle"
+            type="button"
+            data-pending={fieldCapture.status === "recording" ? "true" : "false"}
+            disabled={fieldCaptureBusy}
+            onClick={() => recordCameraClip(8)}
+            title="Record an 8 second minted clip from the Webcam Card with the current Grade filter baked in"
+          >
+            <CircleDot size={14} />
+            Clip 8s
+          </button>
+          <button
+            className="hapa-btn tarot-camera-clip-toggle"
+            type="button"
+            data-pending={fieldCapture.status === "recording" ? "true" : "false"}
+            disabled={fieldCaptureBusy}
+            onClick={() => recordCameraClip(16)}
+            title="Record a 16 second minted clip from the Webcam Card with the current Grade filter baked in"
+          >
+            <Film size={14} />
+            Clip 16s
           </button>
           <button
             className="hapa-btn tarot-camera-mic-toggle"
@@ -1239,6 +3780,40 @@ export default function TarotDraw3DView({ cards = [], avatarName = "Hapa", apiBa
           >
             <BookOpenCheck size={14} />
             Journal {cameraJournalVisible ? "On" : "Off"}
+          </button>
+          <button
+            className="hapa-btn tarot-blue-avatar-toggle"
+            type="button"
+            aria-pressed={Boolean(hud.blueAvatarCardEnabled)}
+            data-pending={hud.blueAvatarPending ? "true" : "false"}
+            onClick={toggleBlueAvatarCard}
+            title={hud.blueAvatarError ? `Blue blocked: ${hud.blueAvatarError}` : hud.blueAvatarCardEnabled ? "Remove the Blue Avatar card from the 3D space" : "Create the Blue Avatar card inside the 3D space"}
+          >
+            <UserRound size={14} />
+            {hud.blueAvatarPending ? "Blue..." : hud.blueAvatarError ? "Blue Err" : `Blue ${hud.blueAvatarCardEnabled ? "On" : "Card"}`}
+          </button>
+          <button
+            className="hapa-btn tarot-blue-speak-toggle"
+            type="button"
+            aria-pressed={Boolean(hud.blueAvatarAutoReplyEnabled)}
+            data-pending={blueBusy ? "true" : "false"}
+            disabled={!hud.blueAvatarCardEnabled}
+            onClick={toggleBlueAvatarAutoReply}
+            title={hud.blueAvatarAutoReplyEnabled ? "Blue automatically answers new Camera Card dictation" : "Blue card stays present but waits silently"}
+          >
+            <Volume2 size={14} />
+            {blueBusy ? "Blue..." : `Auto ${hud.blueAvatarAutoReplyEnabled ? "On" : "Off"}`}
+          </button>
+          <button
+            className="hapa-btn tarot-blue-speak-toggle"
+            type="button"
+            data-pending={blueBusy ? "true" : "false"}
+            disabled={!hud.blueAvatarCardEnabled || !latestCameraTranscript || blueBusy}
+            onClick={askBlueFromLatestTranscript}
+            title={latestCameraTranscript ? "Have the Blue card answer the latest Camera Card dictation now" : "Dictate something on the Camera Card first"}
+          >
+            <Mic size={14} />
+            Ask Latest
           </button>
         </div>
         <div className="tarot-control-grid">
@@ -1340,10 +3915,23 @@ export default function TarotDraw3DView({ cards = [], avatarName = "Hapa", apiBa
             <section className="tarot-card-detail-visual" aria-label={`${selectedCard.title} high resolution image viewer`}>
               <div
                 className="tarot-card-detail-stage"
+                data-mode={selectedCardShowingLoop ? "loop" : "still"}
                 data-zoomed={selectedCardImageZoom > 1.05 ? "true" : "false"}
                 onWheel={handleSelectedCardImageWheel}
               >
-                {selectedCardImage ? (
+                {selectedCardShowingLoop ? (
+                  <video
+                    key={`${selectedCard.id}-detail-loop-stage-${selectedCardVideoSource.uri}`}
+                    src={selectedCardVideoSource.uri}
+                    poster={selectedCardVideoSource.posterUri || selectedCard.posterUri || selectedCardImage?.uri || undefined}
+                    autoPlay
+                    muted
+                    loop
+                    playsInline
+                    controls
+                    preload="metadata"
+                  />
+                ) : selectedCardImage ? (
                   <img
                     src={selectedCardImage.uri}
                     alt={`${selectedCard.title} high resolution tarot card`}
@@ -1356,29 +3944,51 @@ export default function TarotDraw3DView({ cards = [], avatarName = "Hapa", apiBa
                 ) : (
                   <UserRound size={52} />
                 )}
-                <span className="tarot-card-detail-stage-badge">{selectedCardImage?.label || selectedCard.tarotNumber || selectedCard.archetype || "HAPA"}</span>
+                {selectedCardIsForge && (
+                  <div className="tarot-card-detail-forge-overlay" data-stage={selectedCardForgeStage} aria-hidden="true">
+                    <span />
+                    <span />
+                    <span />
+                  </div>
+                )}
+                <span className="tarot-card-detail-stage-badge">{selectedCardShowingLoop ? selectedCardVideoSource.label || "Loop Preview" : selectedCardImage?.label || selectedCard.tarotNumber || selectedCard.archetype || "HAPA"}</span>
               </div>
-              <div className="tarot-card-detail-zoom-controls" aria-label="Card image zoom controls">
-                <button type="button" onClick={() => adjustSelectedCardImageZoom(-TAROT_DETAIL_ZOOM_STEP)} aria-label="Zoom card image out">
-                  <Minimize2 size={14} />
-                </button>
-                <input
-                  type="range"
-                  min={TAROT_DETAIL_ZOOM_MIN}
-                  max={TAROT_DETAIL_ZOOM_MAX}
-                  step="0.05"
-                  value={selectedCardImageZoom}
-                  onChange={setSelectedCardImageZoomFromInput}
-                  aria-label="Card image zoom"
-                />
-                <button type="button" onClick={() => adjustSelectedCardImageZoom(TAROT_DETAIL_ZOOM_STEP)} aria-label="Zoom card image in">
-                  <Maximize2 size={14} />
-                </button>
-                <button type="button" onClick={resetSelectedCardImageZoom} aria-label="Reset card image zoom">
-                  <RefreshCw size={13} />
-                </button>
-                <output>{selectedCardZoomPercent}%</output>
-              </div>
+              {selectedCardHasLoop && (
+                <div className="tarot-card-detail-media-switch" aria-label={`${selectedCard.title} media preview mode`}>
+                  <button type="button" aria-pressed={!selectedCardShowingLoop} onClick={() => selectSelectedCardMediaMode("still")}>
+                    <CircleDot size={13} />
+                    <span>Still</span>
+                  </button>
+                  <button type="button" aria-pressed={selectedCardShowingLoop} onClick={() => selectSelectedCardMediaMode("loop")}>
+                    <Play size={13} />
+                    <span>Loop</span>
+                  </button>
+                  <em>{selectedCardForgeMeta.loopStatus || "video ready"}</em>
+                </div>
+              )}
+              {selectedCardImage && !selectedCardShowingLoop && (
+                <div className="tarot-card-detail-zoom-controls" aria-label="Card image zoom controls">
+                  <button type="button" onClick={() => adjustSelectedCardImageZoom(-TAROT_DETAIL_ZOOM_STEP)} aria-label="Zoom card image out">
+                    <Minimize2 size={14} />
+                  </button>
+                  <input
+                    type="range"
+                    min={TAROT_DETAIL_ZOOM_MIN}
+                    max={TAROT_DETAIL_ZOOM_MAX}
+                    step="0.05"
+                    value={selectedCardImageZoom}
+                    onChange={setSelectedCardImageZoomFromInput}
+                    aria-label="Card image zoom"
+                  />
+                  <button type="button" onClick={() => adjustSelectedCardImageZoom(TAROT_DETAIL_ZOOM_STEP)} aria-label="Zoom card image in">
+                    <Maximize2 size={14} />
+                  </button>
+                  <button type="button" onClick={resetSelectedCardImageZoom} aria-label="Reset card image zoom">
+                    <RefreshCw size={13} />
+                  </button>
+                  <output>{selectedCardZoomPercent}%</output>
+                </div>
+              )}
               {selectedCardImageSources.length > 1 && (
                 <div className="tarot-card-detail-image-strip" aria-label={`${selectedCard.title} available still images`}>
                   {selectedCardImageSources.slice(0, 8).map((source, index) => (
@@ -1395,14 +4005,14 @@ export default function TarotDraw3DView({ cards = [], avatarName = "Hapa", apiBa
                   ))}
                 </div>
               )}
-              {selectedCard.videoUri && selectedCardImage && (
-                <div className="tarot-card-detail-loop-preview">
-                  <video key={`${selectedCard.id}-detail-mini-loop`} src={selectedCard.videoUri} poster={selectedCard.posterUri || undefined} autoPlay muted loop playsInline preload="metadata" />
+              {selectedCardHasLoop && selectedCardImage && (
+                <button className="tarot-card-detail-loop-preview" type="button" onClick={() => selectSelectedCardMediaMode("loop")}>
+                  <video key={`${selectedCard.id}-detail-mini-loop`} src={selectedCardVideoSource.uri} poster={selectedCardVideoSource.posterUri || selectedCard.posterUri || undefined} autoPlay muted loop playsInline preload="metadata" />
                   <span>
                     <strong>Looping Video</strong>
                     <em>{selectedCard.videoSources?.length || 1} media source{(selectedCard.videoSources?.length || 1) === 1 ? "" : "s"}</em>
                   </span>
-                </div>
+                </button>
               )}
             </section>
             <section className="tarot-card-detail-copy">
@@ -1411,6 +4021,58 @@ export default function TarotDraw3DView({ cards = [], avatarName = "Hapa", apiBa
                 <h3>{selectedCard.title}</h3>
                 <em>{selectedCard.subtitle || selectedCard.archetype || "Living tarot object"}</em>
               </div>
+              <div className="tarot-card-detail-actions" aria-label={`${selectedCard.title} production actions`}>
+                {selectedCardIsScene ? (
+                  <>
+                    <button
+                      className="hapa-btn"
+                      data-intent="primary"
+                      type="button"
+                      disabled={!selectedCardSceneSnapshot}
+                      onClick={loadSelectedSceneCard}
+                    >
+                      <RefreshCw size={13} />
+                      Load Scene
+                    </button>
+                    <span>{selectedCardSceneSnapshot ? formatTarotDrawSceneSnapshotSummary(selectedCardSceneSnapshot) : "No scene snapshot payload"}</span>
+                    {sceneSave.error && <em>{sceneSave.error}</em>}
+                  </>
+                ) : (
+                  <>
+                    <button
+                      className="hapa-btn"
+                      data-intent="primary"
+                      type="button"
+                      disabled={variationRequest.status === "requesting"}
+                      onClick={createSelectedCardVariation}
+                    >
+                      <Route size={13} />
+                      {variationRequest.status === "requesting" ? "Forging Variation" : "Forge Variation"}
+                    </button>
+                    <span>{selectedCardForgeMeta.edition?.label || selectedCardForgeMeta.parentCardId ? selectedCardForgeMeta.edition?.label || "Child edition" : "Parented edition run"}</span>
+                    {variationRequest.error && <em>{variationRequest.error}</em>}
+                  </>
+                )}
+              </div>
+              {selectedCardIsForge && (
+                <div className="tarot-card-detail-forge-rail" data-stage={selectedCardForgeStage} aria-label={`${selectedCard.title} forge production state`}>
+                  <div className="tarot-card-detail-forge-rail-header">
+                    <span><Sparkles size={13} /> Ecosystem Forge</span>
+                    <strong>{tarotDrawForgeStageLabel(selectedCardForgeStage)}</strong>
+                  </div>
+                  {selectedCardForgeQueueNote && <p className="tarot-card-detail-forge-queue-note">{selectedCardForgeQueueNote}</p>}
+                  <div className="tarot-card-detail-forge-steps">
+                    {selectedCardForgePhases.map((phase) => (
+                      <span key={phase.id} data-state={phase.state} style={{ "--forge-progress": String(phase.progress || 0) }}>
+                        <i />
+                        <strong>{phase.label}</strong>
+                        <em>{phase.detail}</em>
+                        <small>{phase.clockLabel}</small>
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
               {selectedCardDetailRows.length > 0 && (
                 <dl className="tarot-card-detail-grid" aria-label={`${selectedCard.title} card identity`}>
                   {selectedCardDetailRows.slice(0, 12).map((row) => (
@@ -1878,6 +4540,13 @@ function normalizeCardPileId(value = "") {
     protocol_card: "protocol",
     protocol_tarot_card: "protocol",
     protocols: "protocol",
+    saved_scene: "scene",
+    saved_scene_card: "scene",
+    scene_card: "scene",
+    scene_cards: "scene",
+    scene_snapshot: "scene",
+    scene_tarot_card: "scene",
+    scenes: "scene",
     shadows: "void_shadow",
     ship_card: "ship",
     ship_tarot_card: "ship",
@@ -1885,6 +4554,8 @@ function normalizeCardPileId(value = "") {
     song_card: "song",
     song_cards: "song",
     songs: "song",
+    tarot_draw_scene: "scene",
+    tarot_draw_scene_card: "scene",
     skill_card: "skill",
     skill_tarot_card: "skill",
     skills: "skill",
@@ -1921,6 +4592,7 @@ function tarotPileLabel(id = "") {
     spell: "Spell Cards",
     major_arcana: "Major Arcana",
     void_shadow: "Void / Shadow",
+    scene: "Scene Cards",
     song_card: "Song Cards",
     song: "Songs",
     node_card: "Node Cards",
@@ -1960,6 +4632,7 @@ function tarotPileShortLabel(id = "", label = tarotPileLabel(id)) {
     spell: "Spell",
     major_arcana: "Major",
     void_shadow: "Void",
+    scene: "Scene",
     node_card: "Node",
     ship_card: "Ship",
     ship: "Ship"
@@ -1991,6 +4664,7 @@ function tarotPileSortRank(id = "") {
     "spell",
     "major_arcana",
     "void_shadow",
+    "scene",
     "node_card",
     "ship_card",
     "ship"
@@ -2116,6 +4790,11 @@ function createTarotDrawGame({ canvas, cards, avatarName, apiBase = "", producti
   const resources = createResourceLibrary();
   const audio = createTarotAudio(soundEnabled);
   const dropSong = createDropZoneSongPlayer(soundEnabled);
+  const centerVideoSound = createDropZoneSongPlayer(soundEnabled, {
+    elementKind: "video",
+    datasetName: "hapaTarotCenterVideoSound",
+    volume: 0.92
+  });
   const board = createBoard(resources);
   const deck = createDeckStack(resources);
   const dropZone = createDropZone(resources);
@@ -2180,13 +4859,14 @@ function createTarotDrawGame({ canvas, cards, avatarName, apiBase = "", producti
     : MUSIC_VISUALIZER_MODES[0].id;
   let centerVisualizerEnabled = persistedSettings?.centerVisualizerEnabled === true;
   let backgroundVisualizerEnabled = persistedSettings?.backgroundVisualizerEnabled === true;
-  let videoBackgroundKeying = Boolean(persistedSettings?.videoBackgroundKeying);
+  let videoBackgroundKeying = false;
   let echoShadersEnabled = persistedSettings?.echoShadersEnabled !== false;
   let lyricsEnabled = persistedSettings?.lyricsEnabled !== false;
-  let cameraCardShaderEnabled = persistedSettings?.cameraCardShaderEnabled === true;
+  let cameraCardShaderEnabled = true;
   let lyricCrawlAngleDegrees = clampLyricCrawlAngleDegrees(persistedSettings?.lyricCrawlAngleDegrees);
   let deckCards = shuffleList(cards);
   let placedEntries = [];
+  let forgeEntries = new Map();
   let heldEntry = null;
   let hoveredEntry = null;
   let selectedEntry = null;
@@ -2228,6 +4908,82 @@ function createTarotDrawGame({ canvas, cards, avatarName, apiBase = "", producti
   let cameraCardTranscriptionRecorder = null;
   let cameraCardTranscriptionChunks = [];
   let cameraCardTranscriptionRunId = 0;
+  let blueAvatarCardEntry = null;
+  let blueAvatarPending = false;
+  let blueAvatarAutoReplyEnabled = true;
+  let blueAvatarInFlight = false;
+  let blueAvatarQueue = [];
+  let blueAvatarError = "";
+  let blueAvatarStatus = "Waiting for Camera Card dictation";
+  let blueAvatarVoiceStatus = "";
+  let blueAvatarTranscript = "";
+  let blueAvatarJournal = [];
+  let blueAvatarLastInputId = "";
+  let blueAvatarSessionId = `tarot-blue-card-${Date.now().toString(36)}-${Math.round(Math.random() * 1e6)}`;
+  let blueAvatarTurnCounter = 0;
+  let blueAvatarAudio = null;
+  let blueAvatarPendingAudioObjectUrl = "";
+  let blueAvatarLastVoice = null;
+  let blueAvatarLastOutputText = "";
+  let blueAvatarCurrentVoiceChunkText = "";
+  let blueAvatarVoiceChunkIndex = 0;
+  let blueAvatarVoiceChunkTotal = 0;
+  let blueAvatarSuppressCameraUntilMs = 0;
+  const blueAvatarClientId = createBlueAvatarClientId();
+  const blueAvatarSurface = blueAvatarSurfaceLabel();
+  let blueAvatarConversationOwned = false;
+  let blueAvatarConversationOwner = null;
+  let blueAvatarConversationOwnerError = "";
+  let blueAvatarOwnerHeartbeatTimer = 0;
+  let phoneBridgeEnabled = false;
+  let phoneBridgeQrVisible = false;
+  let phoneBridgePending = false;
+  let phoneBridgeConnected = false;
+  let phoneBridgeSession = "";
+  let phoneBridgeMobileUrl = "";
+  let phoneBridgeCertificateUrl = "";
+  let phoneBridgeSecure = false;
+  let phoneBridgeError = "";
+  let phoneBridgeStatus = "";
+  let phoneBridgePollTimer = 0;
+  let phoneBridgeSince = 0;
+  let phoneBridgeIceServers = [];
+  let phoneBridgeInvite = null;
+  let phonePeerConnection = null;
+  let phoneDataChannel = null;
+  let phoneMediaStream = null;
+  let phoneCardEntry = null;
+  let roomletParticipantEntries = new Map();
+  let roomletHostControls = [];
+  let phoneSceneSyncLastAt = 0;
+  let phoneSceneLastBands = { low: 0, mid: 0, high: 0, energy: 0 };
+  let phoneSceneSyncStats = { sent: 0, bytes: 0, cards: 0, screens: 0, effects: 0, lastAt: 0, lastError: "" };
+  let phoneFpvCanvas = null;
+  let phoneFpvRenderer = null;
+  let phoneFpvCamera = null;
+  let phoneFpvStream = null;
+  let phoneFpvVideoSender = null;
+  let phoneFpvAudioSender = null;
+  let phoneFpvAudioTrack = null;
+  let phoneFpvSilentAudioContext = null;
+  let phoneFpvSilentNodes = null;
+  let phoneFpvSilentAudioTrack = null;
+  let phoneFpvLastRenderAt = 0;
+  let phoneFpvLastAudioSyncAt = 0;
+  let phoneFpvStats = { active: false, frames: 0, width: 0, height: 0, fps: PHONE_FPV_STREAM_FPS, hasVideoTrack: false, hasAudioTrack: false, audioSource: "", lastFrameAt: 0, lastError: "" };
+  let phonePose = { x: PHONE_CARD_POSITION.x, y: PHONE_CARD_POSITION.y, z: PHONE_CARD_POSITION.z, yaw: 0, pitch: -0.08, roll: 0 };
+  let phoneCameraFacing = "user";
+  let phoneLaserVisual = null;
+  let phoneLaserTaggedEntry = null;
+  let phoneLaserTaggedPoint = null;
+  let phoneLaserBeamUntil = 0;
+  let phoneLaserStatus = "";
+  let phoneTractorEntry = null;
+  let phoneTractorPoint = new THREE.Vector3(PHONE_CARD_POSITION.x, PHONE_CARD_POSITION.y, PHONE_CARD_POSITION.z - PHONE_TRACTOR_DEFAULT_DISTANCE);
+  let phoneTractorDistance = PHONE_TRACTOR_DEFAULT_DISTANCE;
+  let phoneTractorStatus = "";
+  let phoneActionIds = [];
+  let phoneActionIdSet = new Set();
   let spawnNetwork = null;
   let dropPreview = null;
   let dropPreviewRefreshFrame = 0;
@@ -2267,6 +5023,21 @@ function createTarotDrawGame({ canvas, cards, avatarName, apiBase = "", producti
   const deckHitsScratch = [];
   const cameraCardWheelDirectionScratch = new THREE.Vector3();
   const cameraCardPoseScratch = new THREE.Vector3();
+  const phonePoseQuaternionScratch = new THREE.Quaternion();
+  const phoneCardBasisMatrixScratch = new THREE.Matrix4();
+  const phoneCardRightScratch = new THREE.Vector3();
+  const phoneCardUpScratch = new THREE.Vector3();
+  const phoneCardForwardScratch = new THREE.Vector3();
+  const phoneAimOriginScratch = new THREE.Vector3();
+  const phoneAimForwardScratch = new THREE.Vector3();
+  const phoneAimRightScratch = new THREE.Vector3();
+  const phoneAimUpScratch = new THREE.Vector3();
+  const phoneAimBeamOriginScratch = new THREE.Vector3();
+  const phoneAimTargetScratch = new THREE.Vector3();
+  const phoneAimTableScratch = new THREE.Vector3();
+  const phoneAimHitsScratch = [];
+  const phoneAimPickTargetsScratch = [];
+  const phoneLaserPositionArrayScratch = new Float32Array(6);
 
   applyCardBackStyle(resources, backStyle);
 
@@ -2302,7 +5073,25 @@ function createTarotDrawGame({ canvas, cards, avatarName, apiBase = "", producti
     setCameraCardShaderEnabled,
     setCameraCardMicEnabled,
     setCameraCardTranscriptionEnabled,
+    recordCameraClip,
+    ingestDroppedMediaFiles,
+    diagnosticMintDroppedImage,
+    diagnosticMintDroppedVideoCenter,
+    setBlueAvatarCardEnabled,
+    setBlueAvatarAutoReplyEnabled,
+    requestBlueAvatarTurnFromLatest,
+    setPhoneBridgeEnabled,
+    setPhoneBridgeQrVisible,
+    activatePhoneBridgeInvite,
+    applyRoomletHostControl,
     setEchoDirectorProject,
+    spawnForgeCard,
+    updateForgeCard,
+    captureSceneSnapshot,
+    createSceneSnapshotCard,
+    spawnSceneCard,
+    loadSceneFromCard,
+    spawnBrowserCard,
     spawnMusicSlotCards,
     wipeSpawnedCards,
     useSpawnedCardsOnSurface,
@@ -2319,6 +5108,9 @@ function createTarotDrawGame({ canvas, cards, avatarName, apiBase = "", producti
     audio.unlock?.();
     dropSong.unlock?.();
     dropSong.play?.();
+    centerVideoSound.unlock?.();
+    centerVideoSound.play?.();
+    playPendingBlueAvatarAudio();
   }
 
   function start() {
@@ -2336,11 +5128,44 @@ function createTarotDrawGame({ canvas, cards, avatarName, apiBase = "", producti
         lockFirstMusicSlotAvatar: diagnosticLockFirstMusicSlotAvatar,
         lockFirstSongCardInDropZone: diagnosticLockFirstSongCardInDropZone,
         recoverPreviewGallery: () => requestPreviewGalleryRecovery(),
+        enableCameraCard: () => setCameraCardEnabled(true),
+        disableCameraCard: () => setCameraCardEnabled(false),
         toggleCameraCard: () => setCameraCardEnabled(!cameraCardEntry),
         toggleCameraCardShader: () => setCameraCardShaderEnabled(!cameraCardShaderEnabled),
+        enableCameraCardMic: () => setCameraCardMicEnabled(true),
+        disableCameraCardMic: () => setCameraCardMicEnabled(false),
         toggleCameraCardMic: () => setCameraCardMicEnabled(!cameraCardMicEnabled),
+        enableCameraCardTranscription: () => setCameraCardTranscriptionEnabled(true),
+        disableCameraCardTranscription: () => setCameraCardTranscriptionEnabled(false),
         toggleCameraCardTranscription: () => setCameraCardTranscriptionEnabled(!cameraCardTranscriptionEnabled),
+        enableBlueAvatarCard: () => setBlueAvatarCardEnabled(true),
+        disableBlueAvatarCard: () => setBlueAvatarCardEnabled(false),
+        toggleBlueAvatarCard: () => setBlueAvatarCardEnabled(!blueAvatarCardEntry),
+        setBlueAvatarAutoReply: (nextEnabled = true) => setBlueAvatarAutoReplyEnabled(nextEnabled),
+        requestBlueAvatarTurn: (text = "Blue, give me a quick live card check.") => requestBlueAvatarTurn(text, { source: "diagnostic" }),
+        injectCameraCardUtterance: (text = "Blue, can you hear me from the Camera Card?") => appendCameraCardJournalEntry(text, {
+          source: "diagnostic",
+          engine: "manual",
+          model: CAMERA_CARD_TRANSCRIBE_MODEL
+        }),
+        enablePhoneBridge: () => setPhoneBridgeEnabled(true),
+        disablePhoneBridge: () => setPhoneBridgeEnabled(false),
+        showPhoneBridgeQr: () => setPhoneBridgeQrVisible(true),
+        hidePhoneBridgeQr: () => setPhoneBridgeQrVisible(false),
+        togglePhoneBridge: () => phoneBridgeEnabled ? setPhoneBridgeQrVisible(!phoneBridgeQrVisible) : setPhoneBridgeEnabled(true),
+        activatePhoneBridgeInvite: (invite = {}) => activatePhoneBridgeInvite(invite),
+        applyRoomletHostControl: (control = {}) => applyRoomletHostControl(control),
         clearCameraCardJournal,
+        mintDiagnosticDroppedImage: diagnosticMintDroppedImage,
+        mintDiagnosticDroppedVideoCenter: diagnosticMintDroppedVideoCenter,
+        captureSceneSnapshot,
+        createSceneSnapshotCard,
+        loadLatestSceneCard: () => {
+          const sceneCard = placedEntries.find((entry) => isTarotDrawSceneCard(entry.card))?.card ||
+            cards.find((card) => isTarotDrawSceneCard(card));
+          return sceneCard ? loadSceneFromCard(sceneCard) : false;
+        },
+        loadSceneCard: (card) => loadSceneFromCard(card),
         enableEchoPreviewOverlays: () => {
           setEchoShadersEnabled(true);
           setLyricsEnabled(true);
@@ -2364,6 +5189,7 @@ function createTarotDrawGame({ canvas, cards, avatarName, apiBase = "", producti
       }
     };
     window.__THREE_GAME_DIAGNOSTICS__ = diagnosticsHandle;
+    canvas.__hapaTarotDrawDiagnostics = diagnosticsHandle;
     animate();
   }
 
@@ -2453,6 +5279,987 @@ function createTarotDrawGame({ canvas, cards, avatarName, apiBase = "", producti
     return true;
   }
 
+  function spawnForgeCard(payload = {}) {
+    const card = tarotDrawForgeSceneCard(payload.card || {}, payload.run || {}, avatarName, apiBase);
+    const existing = findForgeEntry(card);
+    if (existing) return updateForgeCard({ ...payload, card, openDetails: Boolean(payload.openDetails) });
+    audio.play("draw");
+    const entry = createCardEntry(card);
+    entry.state = "placed";
+    entry.forgeState = {
+      runId: card.drawForge?.runId || payload.run?.id || "",
+      stage: card.drawForge?.stage || "requested",
+      bornAt: elapsedTime
+    };
+    entry.placedAt = placedEntries.length;
+    entry.floatMotion = TAROT_CARD_FLOAT_MOTION_ENABLED ? {
+      x: 0.022,
+      y: 0.018,
+      z: 0.02,
+      speed: 0.72,
+      phase: Math.random() * Math.PI * 2
+    } : null;
+    entry.group.position.copy(DECK_POSITION).add(new THREE.Vector3(0.22, 0.36, -0.44));
+    entry.targetPosition.set(0.08, CARD_TABLE_BASE_Y, -0.34);
+    entry.baseRotationY = 0;
+    setCardTargetRotation(entry, 0, 0, 0);
+    entry.drawAnim = {
+      life: 0,
+      duration: 1.08,
+      from: entry.group.position.clone(),
+      spin: Math.PI * 2.35,
+      peak: 1.22
+    };
+    entry.detailsOpen = false;
+    entry.manualDetailsOpen = false;
+    entry.autoDetailsOpen = false;
+    entry.focusTargetProgress = Math.max(entry.focusTargetProgress || 0, 0.08);
+    placedEntries.push(entry);
+    world.add(entry.group);
+    registerForgeEntry(entry);
+    selectEntry(entry);
+    createBurst(entry.targetPosition.x, entry.targetPosition.z, 0x00f3ff, 1.08);
+    createBurst(entry.targetPosition.x, entry.targetPosition.z, 0xf6c96d, 0.7);
+    updateVideoPlayback(entry);
+    status = `Forging: ${card.title}`;
+    publishHud(true);
+    return true;
+  }
+
+  function updateForgeCard(payload = {}) {
+    const card = tarotDrawForgeSceneCard(payload.card || {}, payload.run || {}, avatarName, apiBase);
+    const entry = findForgeEntry(card);
+    if (!entry) return spawnForgeCard({ ...payload, card });
+    const previousStage = entry.forgeState?.stage || "";
+    const previousImage = entry.card?.imageUri || entry.card?.posterUri || "";
+    const previousVideo = entry.card?.videoUri || "";
+    entry.card = {
+      ...entry.card,
+      ...card,
+      drawForge: {
+        ...(entry.card?.drawForge || {}),
+        ...(card.drawForge || {})
+      }
+    };
+    entry.videoSourceUri = solidVideoUriForSource(entry.card);
+    entry.videoPosterUri = entry.card.posterUri || "";
+    entry.forgeState = {
+      ...(entry.forgeState || {}),
+      runId: entry.card.drawForge?.runId || payload.run?.id || "",
+      stage: entry.card.drawForge?.stage || "requested",
+      lastUpdatedAt: elapsedTime
+    };
+    registerForgeEntry(entry);
+    const nextImage = entry.card.imageUri || entry.card.posterUri || "";
+    const nextVideo = entry.card.videoUri || "";
+    if (previousStage !== entry.forgeState.stage || previousImage !== nextImage || previousVideo !== nextVideo) {
+      refreshCardEntryVisual(entry);
+      createBurst(entry.targetPosition.x, entry.targetPosition.z, entry.forgeState.stage === "complete" ? 0xf6c96d : 0x00f3ff, 0.86);
+    }
+    if (payload.openDetails) {
+      selectEntry(entry);
+      entry.detailsOpen = true;
+      entry.manualDetailsOpen = true;
+      entry.focusTargetProgress = Math.max(entry.focusTargetProgress || 0, 0.2);
+    }
+    status = `${tarotDrawForgeStageLabel(entry.forgeState.stage)}: ${entry.card.title}`;
+    updateVideoPlayback(entry);
+    publishHud(true);
+    return true;
+  }
+
+  async function recordCameraClip(durationSeconds = TAROT_FIELD_CAPTURE_DURATIONS[0], { onProgress = null } = {}) {
+    const requestedDuration = TAROT_FIELD_CAPTURE_DURATIONS.includes(durationSeconds) ? durationSeconds : TAROT_FIELD_CAPTURE_DURATIONS[0];
+    if (!cameraCardEntry) await setCameraCardEnabled(true);
+    const entry = cameraCardEntry;
+    const video = entry?.video;
+    if (!entry || !video) throw new Error("Turn on the Webcam Card before recording a clip.");
+    if (typeof MediaRecorder === "undefined") throw new Error("This browser cannot record local media with MediaRecorder.");
+    if (typeof document.createElement("canvas").captureStream !== "function") throw new Error("This browser cannot record a canvas capture stream.");
+    await ensureTarotVideoReady(video);
+    await video.play?.().catch(() => {});
+
+    const captureId = tarotFieldMediaId("webcam-capture");
+    const canvas = document.createElement("canvas");
+    canvas.width = TAROT_FIELD_CAPTURE_WIDTH;
+    canvas.height = TAROT_FIELD_CAPTURE_HEIGHT;
+    const ctx = canvas.getContext("2d", { alpha: false });
+    const stream = canvas.captureStream(TAROT_FIELD_CAPTURE_FPS);
+    const mimeType = preferredFieldCaptureMimeType();
+    const recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
+    const chunks = [];
+    let firstFrameDataUrl = "";
+    let lastFrameDataUrl = "";
+    let drawHandle = 0;
+    let recorderStopped = false;
+    const startedAt = performance.now();
+    const startedIso = new Date().toISOString();
+    const durationMs = requestedDuration * 1000;
+    onProgress?.({
+      status: "recording",
+      stage: "recording",
+      message: `Recording ${requestedDuration}s Webcam Card clip`,
+      progress: 0.02,
+      elapsedSeconds: 0,
+      durationSeconds: requestedDuration
+    });
+
+    const stopRecorder = () => {
+      if (recorderStopped) return;
+      recorderStopped = true;
+      try {
+        recorder.stop();
+      } catch {
+        // Recorder may have already stopped after a browser-level interruption.
+      }
+    };
+
+    const stopped = new Promise((resolve, reject) => {
+      recorder.ondataavailable = (event) => {
+        if (event.data?.size) chunks.push(event.data);
+      };
+      recorder.onerror = () => reject(recorder.error || new Error("Webcam Card recording failed."));
+      recorder.onstop = () => resolve();
+    });
+
+    const drawFrame = () => {
+      const elapsedMs = performance.now() - startedAt;
+      drawCameraCaptureFrame(ctx, video, canvas.width, canvas.height, elapsedMs / 1000);
+      if (!firstFrameDataUrl && elapsedMs > 80) firstFrameDataUrl = canvas.toDataURL("image/jpeg", 0.84);
+      if (elapsedMs >= durationMs) {
+        lastFrameDataUrl = canvas.toDataURL("image/jpeg", 0.84);
+        onProgress?.({
+          status: "persisting",
+          stage: "persisting",
+          message: "Saving Webcam Card clip",
+          progress: 0.86,
+          elapsedSeconds: requestedDuration,
+          durationSeconds: requestedDuration
+        });
+        stopRecorder();
+        return;
+      }
+      onProgress?.({
+        status: "recording",
+        stage: "recording",
+        message: `Recording ${requestedDuration}s Webcam Card clip`,
+        progress: Math.min(0.82, Math.max(0.04, elapsedMs / durationMs * 0.82)),
+        elapsedSeconds: elapsedMs / 1000,
+        durationSeconds: requestedDuration
+      });
+      drawHandle = requestAnimationFrame(drawFrame);
+    };
+
+    recorder.start(1000);
+    drawHandle = requestAnimationFrame(drawFrame);
+    await stopped.finally(() => {
+      if (drawHandle) cancelAnimationFrame(drawHandle);
+      stream.getTracks().forEach((track) => track.stop());
+    });
+
+    const actualDurationSeconds = (performance.now() - startedAt) / 1000;
+    const blob = new Blob(chunks, { type: recorder.mimeType || mimeType || "video/webm" });
+    if (!blob.size) throw new Error("Webcam Card clip recorded no media data.");
+    const dataUrl = await dataUrlFromBlob(blob);
+    const baseName = `${avatarName || "hapa"}-webcam-card-${requestedDuration}s-${new Date().toISOString().replace(/[:.]/g, "-")}`;
+    const persistedVideo = await persistTarotDrawMedia({
+      apiBase,
+      id: captureId,
+      name: `${tarotFieldMediaSlug(baseName)}.webm`,
+      mimeType: blob.type || "video/webm",
+      dataUrl
+    });
+    const frames = [];
+    const framePairs = [
+      { marker: "first", label: "First Frame", dataUrl: firstFrameDataUrl || lastFrameDataUrl },
+      { marker: "last", label: "Last Frame", dataUrl: lastFrameDataUrl || firstFrameDataUrl }
+    ];
+    for (const frame of framePairs) {
+      if (!frame.dataUrl) continue;
+      const persistedFrame = await persistTarotDrawMedia({
+        apiBase,
+        id: `${captureId}-frame-${frame.marker}`,
+        name: `${tarotFieldMediaSlug(baseName)}-${frame.marker}-frame.jpg`,
+        mimeType: "image/jpeg",
+        dataUrl: frame.dataUrl
+      });
+      frames.push({
+        id: `${captureId}-frame-${frame.marker}`,
+        marker: frame.marker,
+        label: frame.label,
+        time: frame.marker === "last" ? actualDurationSeconds : 0,
+        uri: resolvedTarotMediaUri(persistedFrame, apiBase, frame.dataUrl),
+        width: canvas.width,
+        height: canvas.height,
+        mimeType: "image/jpeg",
+        sizeBytes: persistedFrame?.sizeBytes || Math.round(frame.dataUrl.length * 0.75),
+        storage: persistedFrame?.storage || null,
+        createdAt: new Date().toISOString()
+      });
+    }
+    const telemetry = {
+      kind: "video",
+      sourceKind: "webcam-capture",
+      sourceLabel: "Webcam Card capture",
+      sourceName: "Live Webcam Card",
+      requestedDurationSeconds: requestedDuration,
+      durationSeconds: actualDurationSeconds,
+      actualDurationSeconds,
+      fps: TAROT_FIELD_CAPTURE_FPS,
+      estimatedFrames: Math.round(actualDurationSeconds * TAROT_FIELD_CAPTURE_FPS),
+      width: canvas.width,
+      height: canvas.height,
+      mimeType: blob.type || "video/webm",
+      sizeBytes: persistedVideo?.sizeBytes || blob.size,
+      gradeApplied: Boolean(cameraCardShaderEnabled),
+      capturedAt: startedIso,
+      parentCardId: cameraCardEntry?.card?.id || ""
+    };
+    const mediaUri = resolvedTarotMediaUri(persistedVideo, apiBase, dataUrl);
+    const card = buildFieldMediaCard({
+      id: captureId,
+      title: `${avatarName || "Hapa"} Webcam Card Clip ${requestedDuration}s`,
+      kind: "video",
+      mediaUri,
+      posterUri: frames.find((frame) => frame.marker === "first")?.uri || "",
+      sourceName: "Live Webcam Card",
+      telemetry,
+      frames,
+      avatarName,
+      captureKind: "webcam-capture",
+      originalMedia: persistedVideo
+    });
+    onProgress?.({
+      status: "minting",
+      stage: "minting",
+      message: `Minting ${card.title}`,
+      progress: 0.94,
+      elapsedSeconds: actualDurationSeconds,
+      durationSeconds: requestedDuration
+    });
+    spawnFieldMediaCard(card, {
+      zone: "field",
+      originPosition: CAMERA_CARD_POSITION.clone().add(new THREE.Vector3(0, 0.18, 0)),
+      statusText: `Minted Webcam clip: ${card.title}`
+    });
+    return card;
+  }
+
+  async function ingestDroppedMediaFiles(files = [], { clientX = null, clientY = null, onProgress = null } = {}) {
+    const accepted = Array.from(files || []).filter((file) => tarotFieldMediaKind(file.type, file.name));
+    if (!accepted.length) throw new Error("Drop an image or video file to mint a field media card.");
+    const zoneHint = dropZoneForClientPoint(clientX, clientY);
+    const minted = [];
+    for (let index = 0; index < accepted.length; index += 1) {
+      const file = accepted[index];
+      const kind = tarotFieldMediaKind(file.type, file.name);
+      const card = await createDroppedMediaCard(file, {
+        index,
+        total: accepted.length,
+        onProgress
+      });
+      const finalZone = kind === "video" && (zoneHint === "center" || zoneHint === "drop") ? "center" : zoneHint === "media" ? "media" : "field";
+      spawnFieldMediaCard(card, {
+        zone: finalZone,
+        index,
+        clientX,
+        clientY,
+        statusText: finalZone === "center"
+          ? `Dropped video playing center: ${card.title}`
+          : `Dropped media minted: ${card.title}`
+      });
+      minted.push(card);
+    }
+    return minted;
+  }
+
+  async function createDroppedMediaCard(file, { index = 0, total = 1, onProgress = null } = {}) {
+    const kind = tarotFieldMediaKind(file.type, file.name);
+    const mediaId = tarotFieldMediaId(`drop-${kind || "media"}`);
+    const progressBase = total > 1 ? index / total : 0;
+    const progressSpan = total > 1 ? 1 / total : 1;
+    const stageProgress = (value) => Math.min(0.96, progressBase + value * progressSpan);
+    onProgress?.({
+      status: "processing",
+      stage: "reading",
+      message: `Reading ${file.name}`,
+      progress: stageProgress(0.1),
+      files: total
+    });
+    const dataUrl = await localFileToDataUrl(file);
+    onProgress?.({
+      status: "persisting",
+      stage: "saving-original",
+      message: `Saving ${file.name}`,
+      progress: stageProgress(0.28),
+      files: total
+    });
+    const persisted = await persistTarotDrawMedia({
+      apiBase,
+      id: mediaId,
+      name: file.name,
+      mimeType: file.type || (kind === "video" ? "video/webm" : "image/jpeg"),
+      dataUrl
+    });
+    const mediaUri = resolvedTarotMediaUri(persisted, apiBase, dataUrl);
+    const objectUrl = URL.createObjectURL(file);
+    let metadata = {};
+    let frames = [];
+    try {
+      if (kind === "video") {
+        onProgress?.({
+          status: "processing",
+          stage: "metadata",
+          message: `Reading video telemetry: ${file.name}`,
+          progress: stageProgress(0.42),
+          files: total
+        });
+        metadata = await videoMetadata(objectUrl);
+        frames = await captureTarotVideoFrames({
+          uri: objectUrl,
+          fileName: file.name,
+          mediaId,
+          apiBase,
+          metadata,
+          onStage: (next) => onProgress?.({
+            status: "processing",
+            stage: next.stage,
+            message: next.message,
+            progress: stageProgress(next.progress || 0.58),
+            files: total
+          })
+        });
+      } else {
+        metadata = await imageMetadata(dataUrl);
+      }
+    } finally {
+      URL.revokeObjectURL(objectUrl);
+    }
+    const durationSeconds = Number(metadata.duration || 0);
+    const telemetry = {
+      kind,
+      sourceKind: "dropped-media",
+      sourceLabel: kind === "video" ? "Dropped video" : "Dropped image",
+      sourceName: file.name,
+      durationSeconds: durationSeconds || undefined,
+      actualDurationSeconds: durationSeconds || undefined,
+      fps: kind === "video" ? TAROT_FIELD_CAPTURE_FPS : undefined,
+      estimatedFrames: kind === "video" && durationSeconds ? Math.round(durationSeconds * TAROT_FIELD_CAPTURE_FPS) : undefined,
+      width: metadata.width || null,
+      height: metadata.height || null,
+      mimeType: file.type || persisted?.mimeType || "",
+      sizeBytes: persisted?.sizeBytes || file.size,
+      gradeApplied: false,
+      droppedAt: new Date().toISOString()
+    };
+    onProgress?.({
+      status: "minting",
+      stage: "minting",
+      message: `Minting ${file.name}`,
+      progress: stageProgress(0.9),
+      files: total
+    });
+    return buildFieldMediaCard({
+      id: mediaId,
+      title: `${kind === "video" ? "Video" : "Image"} Drop: ${file.name.replace(/\.[^.]+$/, "")}`,
+      kind,
+      mediaUri,
+      posterUri: kind === "video" ? frames.find((frame) => frame.marker === "first")?.uri || "" : mediaUri,
+      sourceName: file.name,
+      telemetry,
+      frames,
+      avatarName,
+      captureKind: "dropped-media",
+      originalMedia: persisted
+    });
+  }
+
+  function ensureTarotVideoReady(video, timeoutMs = 4200) {
+    if (video.readyState >= 2 && video.videoWidth && video.videoHeight) return Promise.resolve(true);
+    return new Promise((resolve, reject) => {
+      let done = false;
+      const finish = (ok) => {
+        if (done) return;
+        done = true;
+        video.removeEventListener("loadeddata", handleReady);
+        video.removeEventListener("canplay", handleReady);
+        video.removeEventListener("error", handleError);
+        window.clearTimeout(timer);
+        ok ? resolve(true) : reject(new Error("Webcam Card video is not ready yet."));
+      };
+      const handleReady = () => finish(true);
+      const handleError = () => finish(false);
+      const timer = window.setTimeout(() => finish(false), timeoutMs);
+      video.addEventListener("loadeddata", handleReady);
+      video.addEventListener("canplay", handleReady);
+      video.addEventListener("error", handleError);
+    });
+  }
+
+  function drawCameraCaptureFrame(ctx, video, width, height, seconds = 0) {
+    ctx.save();
+    ctx.fillStyle = "#020617";
+    ctx.fillRect(0, 0, width, height);
+    if (cameraCardShaderEnabled) ctx.filter = "contrast(1.12) saturate(1.26) brightness(1.04)";
+    ctx.translate(width, 0);
+    ctx.scale(-1, 1);
+    ctx.drawImage(video, 0, 0, width, height);
+    ctx.restore();
+    if (cameraCardShaderEnabled) applyCameraCaptureGrade(ctx, width, height, seconds);
+  }
+
+  function applyCameraCaptureGrade(ctx, width, height, seconds = 0) {
+    ctx.save();
+    const gradient = ctx.createLinearGradient(0, 0, width, height);
+    gradient.addColorStop(0, "rgba(0, 243, 255, 0.18)");
+    gradient.addColorStop(0.48, "rgba(255, 109, 242, 0.08)");
+    gradient.addColorStop(1, "rgba(246, 201, 109, 0.2)");
+    ctx.globalCompositeOperation = "screen";
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, 0, width, height);
+    ctx.globalCompositeOperation = "overlay";
+    ctx.strokeStyle = "rgba(0, 243, 255, 0.11)";
+    ctx.lineWidth = 1;
+    const offset = Math.floor((seconds * 28) % 8);
+    for (let y = -offset; y < height; y += 8) {
+      ctx.beginPath();
+      ctx.moveTo(0, y + 0.5);
+      ctx.lineTo(width, y + 0.5);
+      ctx.stroke();
+    }
+    ctx.globalCompositeOperation = "source-over";
+    const vignette = ctx.createRadialGradient(width * 0.5, height * 0.5, width * 0.18, width * 0.5, height * 0.5, width * 0.72);
+    vignette.addColorStop(0, "rgba(0, 0, 0, 0)");
+    vignette.addColorStop(1, "rgba(2, 6, 23, 0.46)");
+    ctx.fillStyle = vignette;
+    ctx.fillRect(0, 0, width, height);
+    ctx.strokeStyle = "rgba(246, 201, 109, 0.22)";
+    ctx.lineWidth = 4;
+    ctx.strokeRect(8, 8, width - 16, height - 16);
+    ctx.restore();
+  }
+
+  function dropZoneForClientPoint(clientX, clientY) {
+    if (!Number.isFinite(Number(clientX)) || !Number.isFinite(Number(clientY))) return "field";
+    updatePointer({ clientX, clientY });
+    const hit = raycastTable()?.clone();
+    if (!hit) return "field";
+    if (isCenterVisualizerHit(hit)) return "center";
+    if (isDropZoneHit(hit)) return "drop";
+    if (isMediaPoolHit(hit)) return "media";
+    return "field";
+  }
+
+  function spawnFieldMediaCard(card, options = {}) {
+    const zone = options.zone || "field";
+    const originBase = options.originPosition?.isVector3
+      ? options.originPosition
+      : zone === "center"
+        ? CENTER_VISUALIZER_POSITION.clone().add(new THREE.Vector3(-0.72, 0.42, 0.38))
+        : DECK_POSITION.clone().add(new THREE.Vector3(0.22, 0.24, -0.38));
+    const { entry, origin } = createInstantDealEntry(card, placedEntries.length + Number(options.index || 0), { originPosition: originBase });
+    audio.play("draw", { quiet: true });
+    selectEntry(entry);
+    if (zone === "center" && card.videoUri) {
+      centerVisualizerEnabled = true;
+      saveTarotDrawSettings();
+      lockEntryInCenterVisualizer(entry);
+      animateInstantDealEntry(entry, origin, Number(options.index || 0), 1.08);
+      refreshCenterPreviewFrame({ createIfMissing: true, force: true });
+      status = options.statusText || `Center media card: ${card.title}`;
+      publishHud(true);
+      requestReading("dropped-center-media");
+      return entry;
+    }
+    if (zone === "media") {
+      lockEntryInMediaPoolZone(entry);
+      animateInstantDealEntry(entry, origin, Number(options.index || 0), 0.9);
+      status = options.statusText || `Media pool card: ${card.title}`;
+      publishHud(true);
+      requestReading("dropped-media-pool");
+      return entry;
+    }
+    const target = new THREE.Vector3();
+    if (Number.isFinite(Number(options.clientX)) && Number.isFinite(Number(options.clientY))) {
+      updatePointer({ clientX: options.clientX, clientY: options.clientY });
+      const hit = raycastTable();
+      if (hit) target.copy(hit);
+    }
+    if (!target.lengthSq()) {
+      target.set(
+        -0.36 + (placedEntries.length % 4) * 0.34,
+        TABLE_Y,
+        -0.18 + (placedEntries.length % 3) * 0.28
+      );
+    }
+    entry.state = "placed";
+    entry.hover = false;
+    entry.slotIndex = -1;
+    entry.floatMotion = TAROT_CARD_FLOAT_MOTION_ENABLED ? {
+      x: 0.018,
+      y: 0.012,
+      z: 0.016,
+      speed: 0.58,
+      phase: Math.random() * Math.PI * 2
+    } : null;
+    entry.lockedDropZone = false;
+    entry.lockedMediaPool = false;
+    entry.lockedCenterVisualizer = false;
+    entry.lockedDock = false;
+    entry.drawAnim = null;
+    entry.delay = 0;
+    entry.targetPosition.set(
+      THREE.MathUtils.clamp(target.x, -BOARD_LIMIT_X, SPREAD_LANE_MAX_X),
+      CARD_TABLE_BASE_Y,
+      THREE.MathUtils.clamp(target.z, -BOARD_LIMIT_Z, BOARD_LIMIT_Z)
+    );
+    entry.baseRotationY = Math.atan2(entry.targetPosition.x, 5.5) * 0.38;
+    setCardTargetRotation(entry, 0, entry.baseRotationY, 0);
+    entry.placedAt = placedEntries.length;
+    entry.playing = playing;
+    if (!placedEntries.includes(entry)) placedEntries.push(entry);
+    animateInstantDealEntry(entry, origin, Number(options.index || 0), 0.98);
+    resolvePlacedCardStacks();
+    updateVideoPlayback(entry);
+    createBurst(entry.targetPosition.x, entry.targetPosition.z, 0x00f3ff, 1.02);
+    createBurst(entry.targetPosition.x, entry.targetPosition.z, 0xf6c96d, 0.68);
+    status = options.statusText || `Field media card: ${card.title}`;
+    publishHud(true);
+    requestReading("field-media-card");
+    return entry;
+  }
+
+  function spawnBrowserCard(card, options = {}) {
+    if (!card) return null;
+    const zone = options.zone || "field";
+    const entry = spawnFieldMediaCard(card, {
+      ...options,
+      zone,
+      statusText: options.statusText || `Browser media added: ${card.title || "Card"}`
+    });
+    if (entry) {
+      entry.browserAdded = true;
+      selectEntry(entry);
+      status = options.statusText || `Browser media added: ${card.title || "Card"}`;
+      publishHud(true);
+    }
+    return entry;
+  }
+
+  function sceneRestorableEntries() {
+    const entries = [...placedEntries];
+    if (heldEntry && !entries.includes(heldEntry)) entries.push(heldEntry);
+    return entries.filter((entry) =>
+      entry?.card &&
+      !entry.isCameraCard &&
+      !entry.isPhoneCard &&
+      !entry.isBlueAvatarCard &&
+      !entry.isRoomletParticipant &&
+      !entry.lockedCameraCard &&
+      !entry.lockedPhoneCard &&
+      !entry.lockedBlueAvatarCard
+    );
+  }
+
+  function settleHeldEntryForSceneSave() {
+    if (!heldEntry || heldEntry.isCameraCard || heldEntry.isPhoneCard || heldEntry.isBlueAvatarCard) return false;
+    const entry = heldEntry;
+    heldEntry = null;
+    entry.state = "placed";
+    entry.hover = false;
+    entry.slotIndex = -1;
+    entry.lockedDropZone = false;
+    entry.lockedMediaPool = false;
+    entry.lockedCenterVisualizer = false;
+    entry.lockedDock = false;
+    entry.targetPosition.set(
+      THREE.MathUtils.clamp(entry.targetPosition.x || 0, -BOARD_LIMIT_X, SPREAD_LANE_MAX_X),
+      CARD_TABLE_BASE_Y,
+      THREE.MathUtils.clamp(entry.targetPosition.z || 0, -BOARD_LIMIT_Z, BOARD_LIMIT_Z)
+    );
+    setCardTargetRotation(entry, 0, entry.baseRotationY || 0, entry.baseRoll || 0);
+    entry.placedAt = placedEntries.length;
+    entry.playing = playing;
+    if (!placedEntries.includes(entry)) placedEntries.push(entry);
+    snapEntryToTarget(entry);
+    resolvePlacedCardStacks();
+    updateVideoPlayback(entry);
+    canvas.style.cursor = "default";
+    controls.enabled = true;
+    return true;
+  }
+
+  function sceneEntryZone(entry) {
+    if (entry?.lockedDropZone) return "drop";
+    if (entry?.lockedMediaPool) return "media";
+    if (entry?.lockedCenterVisualizer) return "center";
+    if (entry?.lockedDock) return "dock";
+    return "field";
+  }
+
+  function sceneEntrySnapshot(entry, index = 0) {
+    const zone = sceneEntryZone(entry);
+    return {
+      index,
+      zone,
+      cardId: cardIdentity(entry.card),
+      title: entry.card?.title || "Untitled Card",
+      card: compactTarotDrawSceneCard(entry.card),
+      position: {
+        x: Number((entry.targetPosition?.x ?? entry.group?.position?.x ?? 0).toFixed(4)),
+        y: Number((entry.targetPosition?.y ?? entry.group?.position?.y ?? CARD_TABLE_BASE_Y).toFixed(4)),
+        z: Number((entry.targetPosition?.z ?? entry.group?.position?.z ?? 0).toFixed(4))
+      },
+      rotation: {
+        pitch: Number((entry.basePitch || 0).toFixed(4)),
+        yaw: Number((entry.baseRotationY || 0).toFixed(4)),
+        roll: Number((entry.baseRoll || 0).toFixed(4)),
+        pitchOffset: Number((entry.pitchOffset || 0).toFixed(4)),
+        angleOffset: Number((entry.angleOffset || 0).toFixed(4))
+      },
+      stackLayer: Number(entry.stackLayer || entry.dynamicStackLayer || 0),
+      placedAt: Number(entry.placedAt ?? index),
+      focusProgress: Number(Math.max(entry.focusProgress || 0, entry.focusTargetProgress || 0).toFixed(3)),
+      locked: zone !== "field"
+    };
+  }
+
+  function captureSceneSnapshot() {
+    const entries = sceneRestorableEntries();
+    const skippedTransient = placedEntries.length - entries.length;
+    const snapshotEntries = entries.map(sceneEntrySnapshot);
+    const counts = {
+      cards: snapshotEntries.length,
+      locked: snapshotEntries.filter((item) => item.locked).length,
+      dropZone: snapshotEntries.filter((item) => item.zone === "drop").length,
+      mediaPool: snapshotEntries.filter((item) => item.zone === "media").length,
+      center: snapshotEntries.filter((item) => item.zone === "center").length,
+      dock: snapshotEntries.filter((item) => item.zone === "dock").length,
+      field: snapshotEntries.filter((item) => item.zone === "field").length,
+      skippedTransient
+    };
+    const createdAt = new Date().toISOString();
+    return {
+      schemaVersion: TAROT_DRAW_SCENE_SNAPSHOT_VERSION,
+      id: tarotFieldMediaId("tarot-draw-scene"),
+      title: `${avatarName || "Hapa"} Tarot Scene ${new Date(createdAt).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })}`,
+      createdAt,
+      avatarName,
+      settings: {
+        layoutId,
+        backStyle,
+        musicVisualizerMode,
+        centerVisualizerEnabled,
+        backgroundVisualizerEnabled,
+        videoBackgroundKeying,
+        echoShadersEnabled,
+        lyricsEnabled,
+        cameraCardShaderEnabled,
+        lyricCrawlAngleDegrees,
+        playing
+      },
+      camera: {
+        position: {
+          x: Number(camera.position.x.toFixed(4)),
+          y: Number(camera.position.y.toFixed(4)),
+          z: Number(camera.position.z.toFixed(4))
+        },
+        target: {
+          x: Number(controls.target.x.toFixed(4)),
+          y: Number(controls.target.y.toFixed(4)),
+          z: Number(controls.target.z.toFixed(4))
+        },
+        fov: Number(camera.fov.toFixed(2))
+      },
+      counts,
+      cards: snapshotEntries
+    };
+  }
+
+  function createSceneSnapshotCard() {
+    settleHeldEntryForSceneSave();
+    const snapshot = captureSceneSnapshot();
+    if (!snapshot.cards.length) {
+      status = "Save Scene needs at least one restorable card";
+      publishHud(true);
+      return null;
+    }
+    return buildTarotDrawSceneCard(snapshot, avatarName);
+  }
+
+  function spawnSceneCard({ card, statusText = "" } = {}) {
+    if (!card) return null;
+    const { entry, origin } = createInstantDealEntry(card, placedEntries.length, {
+      originPosition: DECK_POSITION.clone().add(new THREE.Vector3(-0.22, 0.26, -0.18))
+    });
+    entry.state = "placed";
+    entry.slotIndex = -1;
+    entry.floatMotion = TAROT_CARD_FLOAT_MOTION_ENABLED ? {
+      x: 0.014,
+      y: 0.014,
+      z: 0.012,
+      speed: 0.42,
+      phase: Math.random() * Math.PI * 2
+    } : null;
+    entry.targetPosition.set(
+      THREE.MathUtils.clamp(-0.72 + (placedEntries.length % 4) * 0.28, -BOARD_LIMIT_X, SPREAD_LANE_MAX_X),
+      CARD_TABLE_BASE_Y,
+      THREE.MathUtils.clamp(0.42 + (placedEntries.length % 3) * 0.22, -BOARD_LIMIT_Z, BOARD_LIMIT_Z)
+    );
+    entry.baseRotationY = Math.atan2(entry.targetPosition.x, 5.5) * 0.34;
+    setCardTargetRotation(entry, 0, entry.baseRotationY, 0);
+    entry.placedAt = placedEntries.length;
+    entry.playing = playing;
+    if (!placedEntries.includes(entry)) placedEntries.push(entry);
+    selectEntry(entry);
+    animateInstantDealEntry(entry, origin, 0, 0.98);
+    refreshForgeEntryRegistry();
+    resolvePlacedCardStacks();
+    createBurst(entry.targetPosition.x, entry.targetPosition.z, 0xf6c96d, 0.96);
+    createBurst(entry.targetPosition.x, entry.targetPosition.z, 0x00f3ff, 0.72);
+    status = statusText || `Scene saved: ${card.title}`;
+    audio.play("draw", { quiet: true });
+    publishHud(true);
+    return entry;
+  }
+
+  function findSceneRestorableCard(snapshotItem = {}) {
+    const snapshotCard = snapshotItem.card || {};
+    const key = snapshotItem.cardId || cardIdentity(snapshotCard);
+    if (key) {
+      const libraryCard = cards.find((card) => cardIdentity(card) === key);
+      if (libraryCard) {
+        return {
+          ...snapshotCard,
+          ...libraryCard,
+          drawScene: snapshotCard.drawScene || libraryCard.drawScene,
+          sceneSnapshot: tarotDrawSceneSnapshot(snapshotCard) || tarotDrawSceneSnapshot(libraryCard) || undefined
+        };
+      }
+    }
+    return snapshotCard?.title ? snapshotCard : null;
+  }
+
+  function placeSceneEntryInField(entry, snapshotItem = {}, index = 0) {
+    const position = snapshotItem.position || {};
+    const rotation = snapshotItem.rotation || {};
+    entry.state = "placed";
+    entry.slotIndex = -1;
+    entry.floatMotion = TAROT_CARD_FLOAT_MOTION_ENABLED ? {
+      x: 0.012,
+      y: 0.01,
+      z: 0.012,
+      speed: 0.48,
+      phase: Math.random() * Math.PI * 2
+    } : null;
+    entry.lockedDropZone = false;
+    entry.lockedMediaPool = false;
+    entry.lockedCenterVisualizer = false;
+    entry.lockedDock = false;
+    entry.pitchOffset = Number(rotation.pitchOffset || 0);
+    entry.angleOffset = Number(rotation.angleOffset || 0);
+    entry.targetPosition.set(
+      THREE.MathUtils.clamp(Number(position.x || 0), -BOARD_LIMIT_X, SPREAD_LANE_MAX_X),
+      Number(position.y || CARD_TABLE_BASE_Y),
+      THREE.MathUtils.clamp(Number(position.z || 0), -BOARD_LIMIT_Z, BOARD_LIMIT_Z)
+    );
+    entry.baseRotationY = Number(rotation.yaw || 0);
+    setCardTargetRotation(entry, Number(rotation.pitch || 0), entry.baseRotationY, Number(rotation.roll || 0));
+    entry.placedAt = Number(snapshotItem.placedAt ?? placedEntries.length + index);
+    entry.playing = playing;
+    if (!placedEntries.includes(entry)) placedEntries.push(entry);
+    world.add(entry.group);
+    snapEntryToTarget(entry);
+    updateVideoPlayback(entry);
+  }
+
+  function restoreSceneSettings(settings = {}) {
+    if (!settings || typeof settings !== "object") return;
+    if (CARD_BACK_STYLES.some((style) => style.id === settings.backStyle)) {
+      backStyle = settings.backStyle;
+      applyCardBackStyle(resources, backStyle);
+    }
+    if (MUSIC_VISUALIZER_MODES.some((mode) => mode.id === settings.musicVisualizerMode)) {
+      musicVisualizerMode = settings.musicVisualizerMode;
+    }
+    if (LAYOUTS.some((layout) => layout.id === settings.layoutId)) {
+      layoutId = settings.layoutId;
+      buildSlots(layoutId);
+    }
+    centerVisualizerEnabled = settings.centerVisualizerEnabled === true;
+    backgroundVisualizerEnabled = settings.backgroundVisualizerEnabled === true;
+    videoBackgroundKeying = false;
+    echoShadersEnabled = settings.echoShadersEnabled !== false;
+    lyricsEnabled = settings.lyricsEnabled !== false;
+    cameraCardShaderEnabled = settings.cameraCardShaderEnabled !== false;
+    lyricCrawlAngleDegrees = clampLyricCrawlAngleDegrees(settings.lyricCrawlAngleDegrees);
+    playing = settings.playing !== false;
+    if (lyricCrawl) {
+      applyLyricCrawlAngle(lyricCrawl, lyricCrawlAngleDegrees);
+      if (!lyricsEnabled) {
+        lyricCrawl.userData.activeBlend = 0;
+        lyricCrawl.visible = false;
+      }
+    }
+    if (!echoShadersEnabled) clearEchoDirectorPreviewOverlays(dropPreview);
+    applyVideoBackgroundKeying(world, false);
+    refreshDockBackgroundPlayer({ force: true });
+    refreshDropZonePreviewPool({ resetScreens: true });
+    refreshCenterPreviewFrame({ createIfMissing: false, force: true });
+    saveTarotDrawSettings();
+  }
+
+  function clearSceneForLoad() {
+    disposeSpawnNetwork();
+    stopDropZonePreview();
+    const preservedLive = new Set([cameraCardEntry, phoneCardEntry, blueAvatarCardEntry].filter(Boolean));
+    for (const entry of [...placedEntries, heldEntry].filter(Boolean)) {
+      if (preservedLive.has(entry)) continue;
+      disposeEntry(entry);
+    }
+    for (const burst of placementBursts) disposeObject(burst.group);
+    placedEntries = placedEntries.filter((entry) => preservedLive.has(entry));
+    refreshForgeEntryRegistry();
+    heldEntry = null;
+    hoveredEntry = preservedLive.has(hoveredEntry) ? hoveredEntry : null;
+    if (!preservedLive.has(selectedEntry)) clearSelectedEntry();
+    dropZoneEntry = null;
+    mediaPoolEntries = [];
+    centerVisualizerEntries = [];
+    dockEntries = [];
+    placementBursts = [];
+    sparkGroup.clear();
+    placedEntries.forEach((entry, index) => {
+      entry.state = "placed";
+      entry.hover = entry === hoveredEntry;
+      entry.magnetized = false;
+      entry.magnetZone = "";
+      entry.placedAt = index;
+      entry.playing = playing;
+      updateVideoPlayback(entry);
+    });
+    refreshDockBackgroundPlayer({ force: true });
+    onReadingClear?.();
+  }
+
+  function loadSceneFromCard(card = {}) {
+    const snapshot = tarotDrawSceneSnapshot(card);
+    if (!snapshot?.cards?.length) {
+      status = "Scene card has no restorable snapshot";
+      publishHud(true);
+      return false;
+    }
+    audio.play("spread", { quiet: true });
+    suspendDropZonePreviewRefresh();
+    try {
+      clearSceneForLoad();
+      restoreSceneSettings(snapshot.settings || {});
+      const cardsByZone = [...snapshot.cards].sort((first, second) => Number(first.placedAt ?? first.index ?? 0) - Number(second.placedAt ?? second.index ?? 0));
+      cardsByZone.forEach((snapshotItem, index) => {
+        const restoreCard = findSceneRestorableCard(snapshotItem);
+        if (!restoreCard) return;
+        const entry = createCardEntry(restoreCard);
+        entry.group.position.copy(DECK_POSITION.clone().add(new THREE.Vector3(index * 0.018, index * 0.01, -index * 0.012)));
+        const zone = snapshotItem.zone || "field";
+        if (zone === "drop") {
+          world.add(entry.group);
+          lockEntryInDropZone(entry);
+          animateInstantDealEntry(entry, entry.group.position.clone(), index, 0.76);
+          return;
+        }
+        if (zone === "media") {
+          world.add(entry.group);
+          lockEntryInMediaPoolZone(entry);
+          animateInstantDealEntry(entry, entry.group.position.clone(), index, 0.72);
+          return;
+        }
+        if (zone === "center") {
+          world.add(entry.group);
+          lockEntryInCenterVisualizer(entry);
+          animateInstantDealEntry(entry, entry.group.position.clone(), index, 0.84);
+          return;
+        }
+        if (zone === "dock") {
+          world.add(entry.group);
+          lockEntryInDock(entry);
+          animateInstantDealEntry(entry, entry.group.position.clone(), index, 0.68);
+          return;
+        }
+        placeSceneEntryInField(entry, snapshotItem, index);
+      });
+      const sceneCamera = snapshot.camera || {};
+      if (sceneCamera.position && sceneCamera.target) {
+        camera.position.set(Number(sceneCamera.position.x || 0), Number(sceneCamera.position.y || 4.65), Number(sceneCamera.position.z || 5.95));
+        controls.target.set(Number(sceneCamera.target.x || 0), Number(sceneCamera.target.y || 0.05), Number(sceneCamera.target.z || 0));
+        if (Number.isFinite(Number(sceneCamera.fov))) {
+          camera.fov = Number(sceneCamera.fov);
+          camera.updateProjectionMatrix();
+        }
+        controls.update();
+      }
+      refreshForgeEntryRegistry();
+      refreshMediaPoolStackTargets();
+      refreshCenterVisualizerTargets();
+      resolvePlacedCardStacks();
+      refreshDockTargets({ snap: false });
+      refreshDockBackgroundPlayer({ force: true });
+      rebuildDropZonePreviewFromBoard();
+      status = `Scene loaded: ${snapshot.title || card.title}`;
+      publishHud(true);
+      requestReading("scene-loaded");
+      return true;
+    } finally {
+      resumeDropZonePreviewRefresh({ delayMs: 650 });
+    }
+  }
+
+  function findForgeEntry(card = {}) {
+    const runId = card.drawForge?.runId || tarotDrawForgeMeta(card).runId || "";
+    if (runId && forgeEntries.has(runId)) return forgeEntries.get(runId);
+    const cardId = cardIdentity(card);
+    return placedEntries.find((entry) =>
+      isTarotDrawForgeCard(entry.card) &&
+      (entry.card.drawForge?.runId === runId || cardIdentity(entry.card) === cardId)
+    ) || null;
+  }
+
+  function registerForgeEntry(entry) {
+    const runId = entry?.card?.drawForge?.runId || entry?.forgeState?.runId || "";
+    if (runId) forgeEntries.set(runId, entry);
+  }
+
+  function refreshForgeEntryRegistry() {
+    forgeEntries = new Map();
+    placedEntries.forEach((entry) => {
+      if (isTarotDrawForgeCard(entry.card)) registerForgeEntry(entry);
+    });
+  }
+
+  function refreshCardEntryVisual(entry) {
+    if (!entry?.group) return;
+    detachEntryCardFaceVideo(entry);
+    const existingVisual = entry.group.getObjectByName("tarotCardVisual");
+    if (existingVisual) {
+      entry.group.remove(existingVisual);
+      disposeObject(existingVisual);
+    }
+    const nextVisual = createCardMesh(entry.card, entry, resources);
+    entry.group.add(nextVisual);
+    const hitTarget = nextVisual.getObjectByName("cardHitTarget");
+    entry.refs = {
+      signal: nextVisual.getObjectByName("signalLight"),
+      neon: nextVisual.getObjectByName("cardNeonLight"),
+      halo: nextVisual.getObjectByName("cardHalo"),
+      targetLock: nextVisual.getObjectByName("targetLock"),
+      forgeRig: nextVisual.getObjectByName("forgeConstructionRig"),
+      plaque: nextVisual.getObjectByName("cardPlaque"),
+      face: nextVisual.getObjectByName("videoFace"),
+      hitTarget
+    };
+    entry.pickTargets = hitTarget ? [hitTarget] : [nextVisual];
+    for (const target of entry.pickTargets) target.userData.entry = entry;
+  }
+
   function autoDealInstantStart() {
     if (!TAROT_AUTO_DEAL_ENABLED) {
       status = "Auto Deal disabled for stability";
@@ -2539,6 +6346,112 @@ function createTarotDrawGame({ canvas, cards, avatarName, apiBase = "", producti
     lockEntryInDropZone(entry);
     selectEntry(entry);
     return true;
+  }
+
+  async function diagnosticMintDroppedImage() {
+    const testFile = await createDiagnosticImageFile();
+    const rect = canvas.getBoundingClientRect();
+    return ingestDroppedMediaFiles([testFile], {
+      clientX: rect.left + rect.width * 0.48,
+      clientY: rect.top + rect.height * 0.55
+    });
+  }
+
+  async function diagnosticMintDroppedVideoCenter() {
+    const testFile = await createDiagnosticVideoFile();
+    const rect = canvas.getBoundingClientRect();
+    return ingestDroppedMediaFiles([testFile], {
+      clientX: rect.left + rect.width * 0.52,
+      clientY: rect.top + rect.height * 0.46
+    });
+  }
+
+  function createDiagnosticImageFile() {
+    return new Promise((resolve, reject) => {
+      const testCanvas = document.createElement("canvas");
+      testCanvas.width = 320;
+      testCanvas.height = 180;
+      const ctx = testCanvas.getContext("2d");
+      const gradient = ctx.createLinearGradient(0, 0, testCanvas.width, testCanvas.height);
+      gradient.addColorStop(0, "#00f3ff");
+      gradient.addColorStop(0.52, "#071827");
+      gradient.addColorStop(1, "#f6c96d");
+      ctx.fillStyle = gradient;
+      ctx.fillRect(0, 0, testCanvas.width, testCanvas.height);
+      ctx.fillStyle = "rgba(2, 6, 23, 0.64)";
+      ctx.fillRect(18, 18, testCanvas.width - 36, testCanvas.height - 36);
+      ctx.strokeStyle = "#ff6df2";
+      ctx.lineWidth = 4;
+      ctx.strokeRect(28, 28, testCanvas.width - 56, testCanvas.height - 56);
+      ctx.fillStyle = "#f8f3e7";
+      ctx.font = "900 24px Inter, system-ui, sans-serif";
+      ctx.fillText("DROP IMAGE", 50, 86);
+      ctx.fillStyle = "#9bd8e7";
+      ctx.font = "700 14px ui-monospace, monospace";
+      ctx.fillText("diagnostic field card", 50, 112);
+      testCanvas.toBlob((blob) => {
+        if (!blob) {
+          reject(new Error("Could not create diagnostic image"));
+          return;
+        }
+        resolve(new File([blob], `diagnostic-field-drop-${Date.now()}.png`, { type: "image/png" }));
+      }, "image/png", 0.92);
+    });
+  }
+
+  function createDiagnosticVideoFile() {
+    if (typeof MediaRecorder === "undefined") return Promise.reject(new Error("MediaRecorder unavailable for diagnostic video"));
+    const testCanvas = document.createElement("canvas");
+    testCanvas.width = 320;
+    testCanvas.height = 180;
+    const ctx = testCanvas.getContext("2d");
+    const stream = testCanvas.captureStream?.(TAROT_FIELD_CAPTURE_FPS);
+    if (!stream) return Promise.reject(new Error("Canvas capture stream unavailable for diagnostic video"));
+    const mimeType = preferredFieldCaptureMimeType();
+    const recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
+    const chunks = [];
+    const startedAt = performance.now();
+    const durationMs = 900;
+    return new Promise((resolve, reject) => {
+      const draw = () => {
+        const elapsed = performance.now() - startedAt;
+        const t = Math.min(1, elapsed / durationMs);
+        ctx.fillStyle = "#04111c";
+        ctx.fillRect(0, 0, testCanvas.width, testCanvas.height);
+        const gradient = ctx.createRadialGradient(160, 90, 18 + t * 30, 160, 90, 160);
+        gradient.addColorStop(0, `rgba(0, 243, 255, ${0.82 - t * 0.12})`);
+        gradient.addColorStop(0.55, "rgba(255, 109, 242, 0.24)");
+        gradient.addColorStop(1, "rgba(246, 201, 109, 0.16)");
+        ctx.fillStyle = gradient;
+        ctx.fillRect(0, 0, testCanvas.width, testCanvas.height);
+        ctx.strokeStyle = "#f6c96d";
+        ctx.lineWidth = 3;
+        ctx.strokeRect(22 + Math.sin(t * Math.PI * 2) * 6, 22, testCanvas.width - 44, testCanvas.height - 44);
+        ctx.fillStyle = "#f8f3e7";
+        ctx.font = "900 22px Inter, system-ui, sans-serif";
+        ctx.fillText("DROP VIDEO", 54, 88);
+        ctx.fillStyle = "#9bd8e7";
+        ctx.font = "700 13px ui-monospace, monospace";
+        ctx.fillText(`${Math.round(t * 100)}% center diagnostic`, 54, 114);
+        if (elapsed < durationMs) requestAnimationFrame(draw);
+        else recorder.stop();
+      };
+      recorder.ondataavailable = (event) => {
+        if (event.data?.size) chunks.push(event.data);
+      };
+      recorder.onerror = () => reject(recorder.error || new Error("Diagnostic video failed"));
+      recorder.onstop = () => {
+        stream.getTracks().forEach((track) => track.stop());
+        const blob = new Blob(chunks, { type: recorder.mimeType || mimeType || "video/webm" });
+        if (!blob.size) {
+          reject(new Error("Diagnostic video recorded no data"));
+          return;
+        }
+        resolve(new File([blob], `diagnostic-center-drop-${Date.now()}.webm`, { type: blob.type || "video/webm" }));
+      };
+      recorder.start();
+      requestAnimationFrame(draw);
+    });
   }
 
   function diagnosticLockFirstSongCardInDropZone() {
@@ -2761,13 +6674,14 @@ function createTarotDrawGame({ canvas, cards, avatarName, apiBase = "", producti
     audio.play("clear");
     disposeSpawnNetwork();
     stopDropZonePreview();
-    const preservedDock = new Set([...dockEntries.filter(Boolean), cameraCardEntry].filter(Boolean));
+    const preservedDock = new Set([...dockEntries.filter(Boolean), cameraCardEntry, phoneCardEntry, blueAvatarCardEntry].filter(Boolean));
     for (const entry of [...placedEntries, heldEntry].filter(Boolean)) {
       if (preservedDock.has(entry)) continue;
       disposeEntry(entry);
     }
     for (const burst of placementBursts) disposeObject(burst.group);
     placedEntries = placedEntries.filter((entry) => preservedDock.has(entry));
+    refreshForgeEntryRegistry();
     heldEntry = null;
     hoveredEntry = preservedDock.has(hoveredEntry) ? hoveredEntry : null;
     if (!preservedDock.has(selectedEntry)) clearSelectedEntry();
@@ -2799,7 +6713,7 @@ function createTarotDrawGame({ canvas, cards, avatarName, apiBase = "", producti
     disposeSpawnNetwork();
     const preservedEntries = preserveLocked
       ? new Set(lockedZoneEntries())
-      : new Set(cameraCardEntry ? [cameraCardEntry] : []);
+      : new Set([cameraCardEntry, phoneCardEntry, blueAvatarCardEntry].filter(Boolean));
     const entriesToRemove = [...placedEntries, heldEntry]
       .filter(Boolean)
       .filter((entry) => !preservedEntries.has(entry));
@@ -2809,6 +6723,7 @@ function createTarotDrawGame({ canvas, cards, avatarName, apiBase = "", producti
     placedEntries = preserveLocked
       ? placedEntries.filter((entry) => preservedEntries.has(entry))
       : [];
+    refreshForgeEntryRegistry();
     heldEntry = null;
     hoveredEntry = preservedEntries.has(hoveredEntry) ? hoveredEntry : null;
     if (!preservedEntries.has(selectedEntry)) clearSelectedEntry();
@@ -2832,6 +6747,8 @@ function createTarotDrawGame({ canvas, cards, avatarName, apiBase = "", producti
     centerVisualizerEntries = placedEntries.filter((entry) => entry.lockedCenterVisualizer);
     dockEntries = placedEntries.filter((entry) => entry.lockedDock);
     cameraCardEntry = placedEntries.find((entry) => entry.lockedCameraCard) || cameraCardEntry;
+    phoneCardEntry = placedEntries.find((entry) => entry.lockedPhoneCard) || phoneCardEntry;
+    blueAvatarCardEntry = placedEntries.find((entry) => entry.lockedBlueAvatarCard) || blueAvatarCardEntry;
     placedEntries.forEach((entry, index) => {
       entry.state = "placed";
       entry.hover = entry === hoveredEntry;
@@ -2858,7 +6775,7 @@ function createTarotDrawGame({ canvas, cards, avatarName, apiBase = "", producti
   function lockedZoneEntries() {
     const entries = [];
     for (const entry of placedEntries) {
-      if (entry && (entry.lockedDropZone || entry.lockedMediaPool || entry.lockedCenterVisualizer || entry.lockedDock || entry.lockedCameraCard) && !entries.includes(entry)) {
+      if (entry && (entry.lockedDropZone || entry.lockedMediaPool || entry.lockedCenterVisualizer || entry.lockedDock || entry.lockedCameraCard || entry.lockedPhoneCard || entry.lockedBlueAvatarCard) && !entries.includes(entry)) {
         entries.push(entry);
       }
     }
@@ -2873,6 +6790,8 @@ function createTarotDrawGame({ canvas, cards, avatarName, apiBase = "", producti
       if (entry && !entries.includes(entry)) entries.push(entry);
     }
     if (cameraCardEntry && !entries.includes(cameraCardEntry)) entries.push(cameraCardEntry);
+    if (phoneCardEntry && !entries.includes(phoneCardEntry)) entries.push(phoneCardEntry);
+    if (blueAvatarCardEntry && !entries.includes(blueAvatarCardEntry)) entries.push(blueAvatarCardEntry);
     return entries;
   }
 
@@ -2961,11 +6880,15 @@ function createTarotDrawGame({ canvas, cards, avatarName, apiBase = "", producti
   function setSoundEnabled(nextEnabled) {
     audio.setEnabled(nextEnabled);
     dropSong.setEnabled(nextEnabled);
+    centerVideoSound.setEnabled(nextEnabled);
     if (nextEnabled) {
       audio.unlock?.();
       dropSong.unlock?.();
       dropSong.play?.();
+      centerVideoSound.unlock?.();
+      centerVideoSound.play?.();
     }
+    syncCenterVideoSoundPlayback();
     updateDropZonePreviewPlayback();
     updateDockBackgroundPlayback();
     publishHud(true);
@@ -3027,16 +6950,17 @@ function createTarotDrawGame({ canvas, cards, avatarName, apiBase = "", producti
     publishHud(true);
   }
 
-  function setVideoBackgroundKeying(nextEnabled) {
-    videoBackgroundKeying = Boolean(nextEnabled);
-    applyVideoBackgroundKeying(world, videoBackgroundKeying);
+  function setVideoBackgroundKeying() {
+    videoBackgroundKeying = false;
+    applyVideoBackgroundKeying(world, false);
     refreshDockBackgroundPlayer({ force: true });
     refreshDropZonePreviewPool({ resetScreens: true });
     refreshCenterPreviewFrame({ createIfMissing: false, force: true });
     audio.play("back");
-    status = videoBackgroundKeying ? "Video cutout on" : "Video cutout off";
+    status = "Middle videos locked solid";
     saveTarotDrawSettings();
     publishHud(true);
+    return videoBackgroundKeying;
   }
 
   function setEchoShadersEnabled(nextEnabled) {
@@ -3051,11 +6975,12 @@ function createTarotDrawGame({ canvas, cards, avatarName, apiBase = "", producti
   function setCameraCardShaderEnabled(nextEnabled) {
     cameraCardShaderEnabled = Boolean(nextEnabled);
     if (cameraCardEntry) applyCameraCardShaderMode(cameraCardEntry);
+    if (phoneCardEntry) applyCameraCardShaderMode(phoneCardEntry);
     updateDockBackgroundProjectionEffects(elapsedTime + rngSeed);
     audio.play("back", { quiet: true });
-    status = cameraCardEntry
-      ? `Camera Hapa Grade ${cameraCardShaderEnabled ? "on" : "off"}`
-      : `Camera Hapa Grade ${cameraCardShaderEnabled ? "armed" : "off"}`;
+    status = (cameraCardEntry || phoneCardEntry)
+      ? `Live card Hapa Grade ${cameraCardShaderEnabled ? "on" : "off"}`
+      : `Live card Hapa Grade ${cameraCardShaderEnabled ? "armed" : "off"}`;
     saveTarotDrawSettings();
     publishHud(true);
     return cameraCardShaderEnabled;
@@ -3067,6 +6992,15 @@ function createTarotDrawGame({ canvas, cards, avatarName, apiBase = "", producti
       cameraCardMicError = "";
       audio.play("back", { quiet: true });
       status = "Camera Card mic off";
+      publishHud(true);
+      maybeReleaseBlueAvatarConversation("camera-card-mic-off");
+      return false;
+    }
+    if (!(await claimBlueAvatarConversation("camera-card-mic", { force: true }))) {
+      cameraCardMicError = blueAvatarConversationOwner?.surface
+        ? `Blue is active in ${blueAvatarConversationOwner.surface}`
+        : blueAvatarConversationOwnerError || "Blue is active elsewhere";
+      status = `Mic paused: ${cameraCardMicError}`;
       publishHud(true);
       return false;
     }
@@ -3198,6 +7132,16 @@ function createTarotDrawGame({ canvas, cards, avatarName, apiBase = "", producti
       cameraCardTranscriptionNotice = "";
       audio.play("back", { quiet: true });
       status = "Camera Card dictation off";
+      publishHud(true);
+      maybeReleaseBlueAvatarConversation("camera-card-dictation-off");
+      return false;
+    }
+    if (!(await claimBlueAvatarConversation("camera-card-dictation", { force: true }))) {
+      cameraCardTranscriptionError = blueAvatarConversationOwner?.surface
+        ? `Blue is active in ${blueAvatarConversationOwner.surface}`
+        : blueAvatarConversationOwnerError || "Blue is active elsewhere";
+      cameraCardTranscriptionNotice = "";
+      status = `Dictation paused: ${cameraCardTranscriptionError}`;
       publishHud(true);
       return false;
     }
@@ -3487,9 +7431,12 @@ function createTarotDrawGame({ canvas, cards, avatarName, apiBase = "", producti
     }
     if (runId !== cameraCardTranscriptionRunId) return payload;
     const text = String(payload?.text || "").trim();
+    const filterReason = cameraCardTranscriptionFilterReason(text, payload);
     cameraCardTranscriptionLastResult = {
-      ok: true,
+      ok: !filterReason,
       text,
+      ignored: Boolean(filterReason),
+      filterReason,
       bytes: blob.size,
       inputBytes: Number(payload?.inputBytes || 0),
       submittedBytes: Number(payload?.submittedBytes || 0),
@@ -3507,6 +7454,14 @@ function createTarotDrawGame({ canvas, cards, avatarName, apiBase = "", producti
       attempts: Array.isArray(payload?.attempts) ? payload.attempts : [],
       at: Date.now()
     };
+    if (filterReason) {
+      cameraCardTranscriptionError = "";
+      cameraCardTranscriptionNotice = `Ignored isolated Whisper filler: "${text}"`;
+      status = "Camera Card ignored isolated transcription filler";
+      updateCameraCardTranscriptionPending();
+      publishHud(true);
+      return { ...payload, ignored: true, filterReason };
+    }
     if (text) {
       cameraCardTranscript = mergeCameraCardTranscript(cameraCardTranscript, text);
       appendCameraCardJournalEntry(text, payload);
@@ -3556,9 +7511,40 @@ function createTarotDrawGame({ canvas, cards, avatarName, apiBase = "", producti
     return joined.length > 320 ? joined.slice(-320).replace(/^\S+\s+/, "") : joined;
   }
 
+  function cameraCardTranscriptionFilterReason(text = "", payload = {}) {
+    const value = String(text || "").trim();
+    if (!value || payload?.source === "diagnostic") return "";
+    const normalized = normalizeCameraCardTranscriptionFiller(value);
+    const words = normalized.split(/\s+/).filter(Boolean);
+    if (!words.length || words.length > CAMERA_CARD_ISOLATED_FILLER_MAX_WORDS) return "";
+    const isKnownFiller = CAMERA_CARD_ISOLATED_FILLER_PHRASES.has(normalized) ||
+      /^(thank you|thanks)( all| very much)?( for watching)?$/.test(normalized);
+    if (!isKnownFiller || hasRecentCameraCardSpeechContext()) return "";
+    return "isolated-whisper-filler";
+  }
+
+  function normalizeCameraCardTranscriptionFiller(text = "") {
+    return String(text || "")
+      .toLowerCase()
+      .replace(/[^a-z0-9\s]+/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+
+  function hasRecentCameraCardSpeechContext() {
+    const previous = cameraCardTranscriptionJournal[0];
+    if (!previous?.createdAtMs) return false;
+    return Date.now() - Number(previous.createdAtMs || 0) < CAMERA_CARD_ISOLATED_FILLER_CONTEXT_MS;
+  }
+
   function appendCameraCardJournalEntry(text = "", payload = {}) {
     const value = String(text || "").trim();
     if (!value) return null;
+    const filterReason = cameraCardTranscriptionFilterReason(value, payload);
+    if (filterReason) {
+      cameraCardTranscriptionNotice = `Ignored isolated Whisper filler: "${value}"`;
+      return null;
+    }
     const now = new Date();
     const previous = cameraCardTranscriptionJournal[0];
     if (previous && previous.text === value && Date.now() - Number(previous.createdAtMs || 0) < 1_800) {
@@ -3579,6 +7565,7 @@ function createTarotDrawGame({ canvas, cards, avatarName, apiBase = "", producti
     cameraCardTranscriptionJournal = [entry, ...cameraCardTranscriptionJournal]
       .slice(0, CAMERA_CARD_TRANSCRIPT_JOURNAL_LIMIT);
     writeTarotCameraJournal(cameraJournalKey, cameraCardTranscriptionJournal);
+    enqueueBlueAvatarTurnFromCamera(entry);
     return entry;
   }
 
@@ -3591,6 +7578,123 @@ function createTarotDrawGame({ canvas, cards, avatarName, apiBase = "", producti
   function tarotApiUrl(pathname = "") {
     const base = String(apiBase || "").replace(/\/+$/, "");
     return base ? `${base}${pathname}` : pathname;
+  }
+
+  function blueAvatarOwnerPayload(reason = "") {
+    return {
+      clientId: blueAvatarClientId,
+      sessionId: blueAvatarSessionId,
+      surface: blueAvatarSurface,
+      origin: window.location?.origin || "",
+      href: window.location?.href || "",
+      reason
+    };
+  }
+
+  async function claimBlueAvatarConversation(reason = "blue-avatar", { force = false, quiet = false } = {}) {
+    try {
+      const response = await fetch(tarotApiUrl("/api/blue-avatar/owner"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...blueAvatarOwnerPayload(reason),
+          action: "claim",
+          force
+        })
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || payload.ok === false) {
+        blueAvatarConversationOwned = false;
+        blueAvatarConversationOwner = payload.owner || null;
+        blueAvatarConversationOwnerError = payload.message || payload.error || "Blue is owned by another surface";
+        if (!quiet) {
+          status = blueAvatarConversationOwner?.surface
+            ? `Blue conversation is active in ${blueAvatarConversationOwner.surface}`
+            : blueAvatarConversationOwnerError;
+          publishHud(true);
+        }
+        return false;
+      }
+      blueAvatarConversationOwned = true;
+      blueAvatarConversationOwner = payload.owner || null;
+      blueAvatarConversationOwnerError = "";
+      startBlueAvatarOwnerHeartbeat();
+      if (!quiet) publishHud(true);
+      return true;
+    } catch (error) {
+      blueAvatarConversationOwnerError = error?.message || "Blue owner check failed";
+      if (!quiet) {
+        status = `Blue owner check failed: ${blueAvatarConversationOwnerError}`;
+        publishHud(true);
+      }
+      return false;
+    }
+  }
+
+  async function releaseBlueAvatarConversation(reason = "release") {
+    if (!blueAvatarConversationOwned) return false;
+    try {
+      await fetch(tarotApiUrl("/api/blue-avatar/owner"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...blueAvatarOwnerPayload(reason),
+          action: "release"
+        })
+      });
+    } catch {}
+    blueAvatarConversationOwned = false;
+    blueAvatarConversationOwner = null;
+    blueAvatarConversationOwnerError = "";
+    clearBlueAvatarOwnerHeartbeat();
+    publishHud(true);
+    return true;
+  }
+
+  function startBlueAvatarOwnerHeartbeat() {
+    if (blueAvatarOwnerHeartbeatTimer) return;
+    blueAvatarOwnerHeartbeatTimer = window.setInterval(() => {
+      claimBlueAvatarConversation("heartbeat", { quiet: true })
+        .then((owned) => {
+          if (!owned) handleBlueAvatarConversationLost();
+        });
+    }, BLUE_AVATAR_OWNER_HEARTBEAT_MS);
+  }
+
+  function clearBlueAvatarOwnerHeartbeat() {
+    if (!blueAvatarOwnerHeartbeatTimer) return;
+    window.clearInterval(blueAvatarOwnerHeartbeatTimer);
+    blueAvatarOwnerHeartbeatTimer = 0;
+  }
+
+  function maybeReleaseBlueAvatarConversation(reason = "idle") {
+    if (cameraCardMicEnabled || cameraCardTranscriptionEnabled || blueAvatarCardEntry || blueAvatarInFlight || blueAvatarVoiceBusy()) return false;
+    releaseBlueAvatarConversation(reason);
+    return true;
+  }
+
+  function handleBlueAvatarConversationLost() {
+    const ownerSurface = blueAvatarConversationOwner?.surface || "another surface";
+    blueAvatarConversationOwned = false;
+    clearBlueAvatarOwnerHeartbeat();
+    stopCameraCardTranscription();
+    stopCameraCardMic();
+    stopBlueAvatarAudio({ keepPendingUrl: false });
+    blueAvatarQueue = [];
+    blueAvatarPending = false;
+    blueAvatarInFlight = false;
+    blueAvatarVoiceStatus = "";
+    blueAvatarStatus = `Paused here; Blue is active in ${ownerSurface}`;
+    status = `Blue conversation moved to ${ownerSurface}`;
+    publishHud(true);
+  }
+
+  function blueAvatarScopedApiUrl(pathname = "") {
+    const url = new URL(tarotApiUrl(pathname), window.location.origin);
+    url.searchParams.set("clientId", blueAvatarClientId);
+    url.searchParams.set("sessionId", blueAvatarSessionId);
+    url.searchParams.set("surface", blueAvatarSurface);
+    return url.toString();
   }
 
   function cameraCardMicErrorMessage(error) {
@@ -3705,6 +7809,642 @@ function createTarotDrawGame({ canvas, cards, avatarName, apiBase = "", producti
     };
   }
 
+  async function setBlueAvatarCardEnabled(nextEnabled) {
+    if (!nextEnabled) {
+      removeBlueAvatarCard();
+      blueAvatarPending = false;
+      blueAvatarError = "";
+      blueAvatarStatus = "Blue Avatar card off";
+      audio.play("back", { quiet: true });
+      publishHud(true);
+      maybeReleaseBlueAvatarConversation("blue-avatar-card-off");
+      return false;
+    }
+    if (!(await claimBlueAvatarConversation("blue-avatar-card", { force: true }))) {
+      blueAvatarError = blueAvatarConversationOwner?.surface
+        ? `Blue is active in ${blueAvatarConversationOwner.surface}`
+        : blueAvatarConversationOwnerError || "Blue is active elsewhere";
+      blueAvatarStatus = blueAvatarError;
+      status = `Blue paused: ${blueAvatarError}`;
+      publishHud(true);
+      return false;
+    }
+    if (blueAvatarCardEntry) {
+      selectEntry(blueAvatarCardEntry);
+      blueAvatarStatus = blueAvatarAutoReplyEnabled ? "Listening to Camera Card dictation" : "Blue card present, auto-answer paused";
+      status = "Blue Avatar card live";
+      publishHud(true);
+      return true;
+    }
+    blueAvatarPending = true;
+    blueAvatarError = "";
+    blueAvatarStatus = "Loading Blue Avatar card";
+    status = "Blue Avatar card entering 3D space";
+    publishHud(true);
+    try {
+      const entry = createCardEntry(createBlueAvatarCardData());
+      entry.isBlueAvatarCard = true;
+      entry.lockedBlueAvatarCard = true;
+      entry.liveCamera = false;
+      placeBlueAvatarCardEntry(entry);
+      blueAvatarCardEntry = entry;
+      selectEntry(entry);
+      audio.play("draw", { quiet: true });
+      createBurst(BLUE_AVATAR_CARD_POSITION.x, BLUE_AVATAR_CARD_POSITION.z, 0x4facfe, 1.05);
+      createBurst(BLUE_AVATAR_CARD_POSITION.x, BLUE_AVATAR_CARD_POSITION.z, 0xf6c96d, 0.62);
+      blueAvatarStatus = blueAvatarAutoReplyEnabled ? "Listening to Camera Card dictation" : "Blue card present, auto-answer paused";
+      status = "Blue Avatar card live";
+      publishHud(true);
+      return true;
+    } catch (error) {
+      blueAvatarError = error?.message || "Blue Avatar card failed to load";
+      blueAvatarStatus = blueAvatarError;
+      status = `Blue blocked: ${blueAvatarError}`;
+      publishHud(true);
+      return false;
+    } finally {
+      blueAvatarPending = false;
+      if (!disposed) publishHud(true);
+    }
+  }
+
+  async function setBlueAvatarAutoReplyEnabled(nextEnabled) {
+    if (nextEnabled && !(await claimBlueAvatarConversation("blue-avatar-auto-reply", { force: true }))) {
+      blueAvatarStatus = blueAvatarConversationOwner?.surface
+        ? `Blue is active in ${blueAvatarConversationOwner.surface}`
+        : blueAvatarConversationOwnerError || "Blue is active elsewhere";
+      status = `Blue auto-answer paused: ${blueAvatarStatus}`;
+      publishHud(true);
+      return false;
+    }
+    blueAvatarAutoReplyEnabled = Boolean(nextEnabled);
+    blueAvatarStatus = blueAvatarAutoReplyEnabled
+      ? "Listening to Camera Card dictation"
+      : "Blue card present, auto-answer paused";
+    status = blueAvatarAutoReplyEnabled ? "Blue auto-answer on" : "Blue auto-answer paused";
+    if (blueAvatarAutoReplyEnabled && blueAvatarQueue.length) drainBlueAvatarQueue();
+    publishHud(true);
+    return blueAvatarAutoReplyEnabled;
+  }
+
+  function createBlueAvatarCardData() {
+    return {
+      id: "__hapa_blue_avatar_card__",
+      title: "Blue Avatar",
+      subtitle: "Blue-03 DS4 voice agent",
+      archetype: "Blue Architect",
+      tarotNumber: "BLU",
+      summary: "A DS4-backed avatar card that listens to Camera Card dictation, answers through Blue-03 Voicebox, and journals its side of the exchange.",
+      keywords: ["blue", "avatar", "voice", "second brain"],
+      tags: ["blue-avatar", "voicebox", "ds4", "second-brain"],
+      sourceKind: "avatar",
+      kind: "avatar",
+      cardType: "blue_avatar_card",
+      accent: "#4facfe",
+      accentB: "#f6c96d"
+    };
+  }
+
+  function placeBlueAvatarCardEntry(entry) {
+    if (!entry) return;
+    entry.state = "placed";
+    entry.hover = false;
+    entry.slotIndex = -1;
+    entry.floatMotion = {
+      type: "wave",
+      index: 1,
+      phase: 0.72,
+      amplitudeX: 0.032,
+      amplitudeZ: 0.024,
+      amplitudeY: 0.03,
+      speed: 0.38
+    };
+    entry.lockedDropZone = false;
+    entry.lockedMediaPool = false;
+    entry.lockedCenterVisualizer = false;
+    entry.lockedDock = false;
+    entry.lockedCameraCard = false;
+    entry.lockedPhoneCard = false;
+    entry.lockedBlueAvatarCard = true;
+    entry.magnetized = false;
+    entry.magnetZone = "";
+    entry.group.position.copy(DECK_POSITION).add(new THREE.Vector3(-0.22, 0.2, -0.18));
+    applyBlueAvatarCardPose(entry, BLUE_AVATAR_CARD_POSITION);
+    entry.drawAnim = {
+      life: 0,
+      duration: 0.84,
+      from: entry.group.position.clone(),
+      spin: -Math.PI * 1.05,
+      peak: 0.82
+    };
+    entry.placedAt = placedEntries.length;
+    entry.playing = true;
+    if (!placedEntries.includes(entry)) placedEntries.push(entry);
+    world.add(entry.group);
+    resolvePlacedCardStacks();
+  }
+
+  function applyBlueAvatarCardPose(entry, position = entry?.targetPosition || BLUE_AVATAR_CARD_POSITION) {
+    if (!entry) return;
+    entry.blueAvatarCardBaseY = Number.isFinite(Number(position.y)) ? Number(position.y) : BLUE_AVATAR_CARD_BASE_Y;
+    entry.targetPosition.copy(position);
+    entry.baseRotationY = cameraCardYawForPosition(entry.targetPosition);
+    setCardTargetRotation(entry, BLUE_AVATAR_CARD_PITCH, entry.baseRotationY, BLUE_AVATAR_CARD_ROLL);
+  }
+
+  function removeBlueAvatarCard() {
+    const entry = blueAvatarCardEntry;
+    blueAvatarCardEntry = null;
+    blueAvatarQueue = [];
+    blueAvatarInFlight = false;
+    blueAvatarVoiceStatus = "";
+    stopBlueAvatarAudio();
+    if (!entry) return;
+    placedEntries = placedEntries.filter((item) => item !== entry);
+    mediaPoolEntries = mediaPoolEntries.filter((item) => item !== entry);
+    centerVisualizerEntries = centerVisualizerEntries.filter((item) => item !== entry);
+    dockEntries = dockEntries.filter((item) => item !== entry);
+    if (dropZoneEntry === entry) dropZoneEntry = null;
+    if (heldEntry === entry) heldEntry = null;
+    if (hoveredEntry === entry) hoveredEntry = null;
+    if (selectedEntry === entry) selectedEntry = null;
+    disposeEntry(entry);
+    resolvePlacedCardStacks();
+    refreshDropZonePreviewPool({ resetScreens: false });
+    refreshDockBackgroundPlayer({ force: true });
+    canvas.style.cursor = "default";
+  }
+
+  function enqueueBlueAvatarTurnFromCamera(entry) {
+    if (!entry?.text || !blueAvatarCardEntry || !blueAvatarAutoReplyEnabled) return false;
+    if (shouldSuppressBlueAvatarCameraEntry(entry)) return false;
+    if (entry.id && entry.id === blueAvatarLastInputId) return false;
+    blueAvatarLastInputId = entry.id || `camera-${Date.now()}`;
+    blueAvatarQueue = [{
+      id: blueAvatarLastInputId,
+      text: entry.text,
+      sourceEntry: entry
+    }];
+    blueAvatarStatus = blueAvatarInFlight
+      ? "Heard you; replacing queued Blue reply with the newest Camera Card line"
+      : "Heard Camera Card dictation";
+    status = "Blue Avatar heard Camera Card";
+    drainBlueAvatarQueue();
+    publishHud(true);
+    return true;
+  }
+
+  function requestBlueAvatarTurnFromLatest() {
+    const entry = cameraCardTranscriptionJournal[0];
+    const text = String(entry?.text || cameraCardTranscript || "").trim();
+    if (!text) return false;
+    if (!blueAvatarCardEntry) setBlueAvatarCardEnabled(true);
+    return requestBlueAvatarTurn(text, { source: "latest-camera-card", sourceEntry: entry || null });
+  }
+
+  function blueAvatarVoiceBusy() {
+    return ["generating", "polling", "speaking"].includes(String(blueAvatarVoiceStatus || ""));
+  }
+
+  function shouldSuppressBlueAvatarCameraEntry(entry) {
+    const text = String(entry?.text || "").trim();
+    if (!text) return false;
+    const now = Date.now();
+    const fromLiveTranscription = !entry?.source || entry.source === CAMERA_CARD_TRANSCRIBE_SOURCE;
+    const playbackWindow = fromLiveTranscription && (blueAvatarVoiceBusy() || now < blueAvatarSuppressCameraUntilMs);
+    const likelyEcho = fromLiveTranscription && isLikelyBlueAvatarEcho(text);
+    if (!playbackWindow && !likelyEcho) return false;
+    blueAvatarStatus = playbackWindow
+      ? "Blue-03 is speaking; ignoring speaker echo"
+      : "Ignored Blue speaker echo";
+    status = "Blue Avatar ignored speaker echo";
+    publishHud(true);
+    return true;
+  }
+
+  function isLikelyBlueAvatarEcho(text = "") {
+    const normalized = normalizeBlueAvatarEchoText(text);
+    if (!normalized) return false;
+    if (/i heard you.*still forming|still forming.*pass|blue did not return/.test(normalized)) return true;
+    const lastOutput = normalizeBlueAvatarEchoText(blueAvatarLastOutputText || blueAvatarTranscript || blueAvatarJournal[0]?.text || "");
+    if (!lastOutput) return false;
+    if (normalized.includes(lastOutput) || lastOutput.includes(normalized)) return true;
+    return blueAvatarTextSimilarity(normalized, lastOutput) >= BLUE_AVATAR_ECHO_SIMILARITY;
+  }
+
+  function normalizeBlueAvatarEchoText(text = "") {
+    return String(text || "")
+      .toLowerCase()
+      .replace(/[^a-z0-9\s]+/g, " ")
+      .replace(/\b(blue|calder|avatar|card|camera|webcam|the|a|an|and|i|you|am|are|is|to|from|through)\b/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+
+  function blueAvatarTextSimilarity(left = "", right = "") {
+    const leftTokens = new Set(String(left || "").split(/\s+/).filter(Boolean));
+    const rightTokens = new Set(String(right || "").split(/\s+/).filter(Boolean));
+    if (!leftTokens.size || !rightTokens.size) return 0;
+    let intersection = 0;
+    leftTokens.forEach((token) => {
+      if (rightTokens.has(token)) intersection += 1;
+    });
+    return intersection / Math.max(1, Math.min(leftTokens.size, rightTokens.size));
+  }
+
+  function drainBlueAvatarQueue() {
+    if (!blueAvatarCardEntry || !blueAvatarAutoReplyEnabled || !blueAvatarConversationOwned || blueAvatarInFlight || blueAvatarVoiceBusy()) return false;
+    const job = blueAvatarQueue.shift();
+    if (!job?.text) return false;
+    requestBlueAvatarTurn(job.text, { source: "camera-card-auto", sourceEntry: job.sourceEntry || null })
+      .finally(() => {
+        if (!disposed && blueAvatarQueue.length) drainBlueAvatarQueue();
+      });
+    return true;
+  }
+
+  async function requestBlueAvatarTurn(text = "", options = {}) {
+    const value = String(text || "").trim();
+    if (!value || blueAvatarInFlight) return false;
+    const forceOwner = options.source !== "camera-card-auto";
+    if (!(await claimBlueAvatarConversation("blue-avatar-turn", { force: forceOwner }))) {
+      blueAvatarStatus = blueAvatarConversationOwner?.surface
+        ? `Blue is active in ${blueAvatarConversationOwner.surface}`
+        : blueAvatarConversationOwnerError || "Blue is active elsewhere";
+      status = `Blue request stayed local to ${blueAvatarConversationOwner?.surface || "the active surface"}`;
+      publishHud(true);
+      return false;
+    }
+    blueAvatarInFlight = true;
+    blueAvatarError = "";
+    blueAvatarStatus = "Thinking through the Camera Card line";
+    blueAvatarVoiceStatus = "";
+    status = "Blue Avatar thinking";
+    publishHud(true);
+    try {
+      const response = await fetch(tarotApiUrl("/api/blue-avatar/turn"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          text: value,
+          fast: true,
+          speak: true,
+          voiceChunks: true,
+          writeback: true,
+          voiceProfile: "Blue-03",
+          clientId: blueAvatarClientId,
+          surface: blueAvatarSurface,
+          sessionId: blueAvatarSessionId,
+          source: options.source || "tarot-draw-3d-blue-card",
+          transcriptJournal: cameraCardTranscriptionJournal.slice(0, 8),
+          cardContext: {
+            avatarName,
+            focusTitle: hoveredEntry?.card?.title || "",
+            heldTitle: heldEntry?.card?.title || "",
+            selectedCard: selectedEntry?.card ? tarotCardSpeechContext(selectedEntry.card) : null,
+            dropZoneCard: dropZoneEntry?.card ? tarotCardSpeechContext(dropZoneEntry.card) : null,
+            blueCard: true,
+            latestCameraEntryId: options.sourceEntry?.id || "",
+            latestCameraCreatedAt: options.sourceEntry?.createdAt || ""
+          }
+        })
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || payload.ok === false) {
+        throw new Error(payload.message || payload.error || response.statusText || "Blue request failed");
+      }
+      const reply = String(payload.text || "").trim();
+      if (!reply) {
+        throw new Error(payload.message || BLUE_AVATAR_EMPTY_REPLY_MESSAGE);
+      }
+      blueAvatarLastOutputText = reply;
+      appendBlueAvatarJournalEntry(reply, {
+        input: value,
+        payload,
+        source: options.source || "tarot-draw-3d-blue-card",
+        sourceEntry: options.sourceEntry || null
+      });
+      blueAvatarTranscript = reply;
+      blueAvatarCurrentVoiceChunkText = "";
+      blueAvatarVoiceChunkIndex = 0;
+      blueAvatarVoiceChunkTotal = 0;
+      blueAvatarStatus = "Blue replied";
+      status = "Blue Avatar replied";
+      const voiceChunks = normalizeBlueAvatarVoiceChunks(payload.voice);
+      if (voiceChunks.length) {
+        blueAvatarLastVoice = payload.voice;
+        playBlueAvatarVoiceChunksWhenReady(voiceChunks, reply);
+      } else if (payload.voice?.audioUrl) {
+        blueAvatarLastVoice = payload.voice;
+        playBlueAvatarVoiceWhenReady(payload.voice);
+      } else {
+        blueAvatarVoiceStatus = payload.voice?.error ? "voice-error" : "";
+        if (payload.voice?.error) blueAvatarStatus = `Blue text ready; Voicebox said ${payload.voice.error}`;
+      }
+      publishHud(true);
+      return true;
+    } catch (error) {
+      blueAvatarError = error?.message || "Blue request failed";
+      blueAvatarStatus = blueAvatarError;
+      blueAvatarVoiceStatus = "";
+      status = `Blue blocked: ${blueAvatarError}`;
+      publishHud(true);
+      return false;
+    } finally {
+      blueAvatarInFlight = false;
+      if (!disposed) {
+        publishHud(true);
+        if (blueAvatarQueue.length) drainBlueAvatarQueue();
+      }
+    }
+  }
+
+  function appendBlueAvatarJournalEntry(text = "", details = {}) {
+    const value = String(text || "").trim();
+    if (!value) return null;
+    const now = new Date();
+    blueAvatarTurnCounter += 1;
+    const entry = {
+      id: `blue-avatar-journal-${now.getTime()}-${blueAvatarTurnCounter}`,
+      text: value,
+      input: String(details.input || "").trim(),
+      time: now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }),
+      createdAt: now.toISOString(),
+      createdAtMs: now.getTime(),
+      source: details.source || "tarot-draw-3d-blue-card",
+      sourceEntryId: details.sourceEntry?.id || "",
+      model: details.payload?.model || "ds4",
+      voiceStatus: details.payload?.voice?.status || "",
+      memory: details.payload?.memory || null,
+      elapsedMs: Number(details.payload?.timings?.elapsedMs || 0)
+    };
+    blueAvatarJournal = [entry, ...blueAvatarJournal].slice(0, BLUE_AVATAR_JOURNAL_LIMIT);
+    return entry;
+  }
+
+  function normalizeBlueAvatarVoiceChunks(voice = {}) {
+    const chunks = Array.isArray(voice?.chunks) ? voice.chunks : [];
+    return chunks
+      .map((chunk, index) => ({
+        ...chunk,
+        index: Number.isFinite(Number(chunk?.index)) ? Number(chunk.index) : index,
+        ordinal: Number.isFinite(Number(chunk?.ordinal)) ? Number(chunk.ordinal) : index + 1,
+        total: Number(chunk?.total || chunks.length || 0),
+        text: String(chunk?.text || "").trim(),
+        audioUrl: String(chunk?.audioUrl || "").trim()
+      }))
+      .filter((chunk) => chunk.audioUrl)
+      .sort((left, right) => left.index - right.index);
+  }
+
+  async function playBlueAvatarVoiceChunksWhenReady(chunks = [], fullText = "") {
+    const playableChunks = normalizeBlueAvatarVoiceChunks({ chunks });
+    if (!playableChunks.length || !blueAvatarConversationOwned) return false;
+    blueAvatarVoiceStatus = "generating";
+    blueAvatarVoiceChunkIndex = 0;
+    blueAvatarVoiceChunkTotal = playableChunks.length;
+    blueAvatarCurrentVoiceChunkText = "";
+    blueAvatarStatus = `Voicebox Blue-03 is rendering ${playableChunks.length} voice chunks`;
+    publishHud(true);
+    const blobPromises = playableChunks.map((chunk, index) => fetchBlueAvatarAudioBlob(chunk.audioUrl, {
+      silent: index > 0
+    })
+      .then((blob) => ({ chunk, blob, error: null }))
+      .catch((error) => ({ chunk, blob: null, error })));
+    try {
+      for (let index = 0; index < playableChunks.length; index += 1) {
+        const { chunk, blob, error } = await blobPromises[index];
+        if (error) throw error;
+        if (disposed) return false;
+        blueAvatarVoiceChunkIndex = index + 1;
+        blueAvatarVoiceChunkTotal = playableChunks.length;
+        blueAvatarCurrentVoiceChunkText = chunk.text || fullText;
+        publishHud(true);
+        const didPlay = await playBlueAvatarAudioBlobAndWait(blob, {
+          text: blueAvatarCurrentVoiceChunkText,
+          chunkIndex: index + 1,
+          chunkTotal: playableChunks.length,
+          drainAfter: index === playableChunks.length - 1
+        });
+        if (!didPlay) return false;
+      }
+      blueAvatarCurrentVoiceChunkText = "";
+      blueAvatarVoiceChunkIndex = 0;
+      blueAvatarVoiceChunkTotal = 0;
+      blueAvatarVoiceStatus = "spoken";
+      blueAvatarStatus = "Listening to Camera Card dictation";
+      publishHud(true);
+      if (blueAvatarQueue.length) drainBlueAvatarQueue();
+      return true;
+    } catch (error) {
+      if (disposed) return false;
+      blueAvatarCurrentVoiceChunkText = "";
+      blueAvatarVoiceChunkIndex = 0;
+      blueAvatarVoiceChunkTotal = 0;
+      blueAvatarVoiceStatus = "voice-error";
+      blueAvatarStatus = error?.message || "Voicebox chunked audio was not ready";
+      publishHud(true);
+      if (blueAvatarQueue.length) drainBlueAvatarQueue();
+      return false;
+    }
+  }
+
+  async function playBlueAvatarVoiceWhenReady(voice = {}) {
+    const audioUrl = String(voice.audioUrl || "").trim();
+    if (!audioUrl || !blueAvatarConversationOwned) return false;
+    blueAvatarVoiceStatus = "generating";
+    blueAvatarCurrentVoiceChunkText = "";
+    blueAvatarVoiceChunkIndex = 0;
+    blueAvatarVoiceChunkTotal = 0;
+    blueAvatarStatus = "Voicebox Blue-03 is generating audio";
+    publishHud(true);
+    try {
+      const blob = await fetchBlueAvatarAudioBlob(audioUrl);
+      if (disposed) return false;
+      return playBlueAvatarAudioBlob(blob);
+    } catch (error) {
+      if (disposed) return false;
+      blueAvatarVoiceStatus = "voice-error";
+      blueAvatarStatus = error?.message || "Voicebox audio was not ready";
+      publishHud(true);
+      if (blueAvatarQueue.length) drainBlueAvatarQueue();
+      return false;
+    }
+  }
+
+  function playBlueAvatarAudioBlobAndWait(blob, options = {}) {
+    if (!blob || disposed) return Promise.resolve(false);
+    const chunkIndex = Number(options.chunkIndex || 0);
+    const chunkTotal = Number(options.chunkTotal || 0);
+    const drainAfter = options.drainAfter !== false;
+    const chunkText = String(options.text || "").trim();
+    stopBlueAvatarAudio({ keepPendingUrl: false });
+    const objectUrl = URL.createObjectURL(blob);
+    const voiceAudio = new Audio(objectUrl);
+    blueAvatarAudio = voiceAudio;
+    return new Promise((resolve) => {
+      let settled = false;
+      const settle = (value) => {
+        if (settled) return;
+        settled = true;
+        resolve(value);
+      };
+      voiceAudio.addEventListener("play", () => {
+        blueAvatarVoiceStatus = "speaking";
+        blueAvatarStatus = chunkTotal > 1
+          ? `Blue-03 speaking chunk ${chunkIndex}/${chunkTotal}`
+          : "Blue-03 speaking";
+        if (chunkText) blueAvatarCurrentVoiceChunkText = chunkText;
+        blueAvatarSuppressCameraUntilMs = Date.now() + BLUE_AVATAR_ECHO_SUPPRESS_MS;
+        publishHud(true);
+      });
+      voiceAudio.addEventListener("ended", () => {
+        blueAvatarVoiceStatus = drainAfter ? "spoken" : "polling";
+        blueAvatarStatus = drainAfter ? "Listening to Camera Card dictation" : "Blue-03 lining up the next phrase";
+        blueAvatarSuppressCameraUntilMs = Date.now() + BLUE_AVATAR_ECHO_SUPPRESS_MS;
+        if (drainAfter) {
+          blueAvatarCurrentVoiceChunkText = "";
+          blueAvatarVoiceChunkIndex = 0;
+          blueAvatarVoiceChunkTotal = 0;
+        }
+        if (blueAvatarAudio === voiceAudio) blueAvatarAudio = null;
+        URL.revokeObjectURL(objectUrl);
+        publishHud(true);
+        if (drainAfter && blueAvatarQueue.length) drainBlueAvatarQueue();
+        settle(true);
+      });
+      voiceAudio.addEventListener("error", () => {
+        blueAvatarVoiceStatus = "voice-error";
+        blueAvatarStatus = "Browser audio playback failed";
+        if (blueAvatarAudio === voiceAudio) blueAvatarAudio = null;
+        URL.revokeObjectURL(objectUrl);
+        publishHud(true);
+        if (drainAfter && blueAvatarQueue.length) drainBlueAvatarQueue();
+        settle(false);
+      });
+      const playPromise = voiceAudio.play();
+      playPromise?.catch?.(() => {
+        blueAvatarPendingAudioObjectUrl = objectUrl;
+        blueAvatarAudio = null;
+        blueAvatarVoiceStatus = "tap-to-play";
+        blueAvatarStatus = "Tap in the 3D scene to play Blue-03 voice";
+        publishHud(true);
+        settle(false);
+      });
+    });
+  }
+
+  async function fetchBlueAvatarAudioBlob(audioUrl = "", options = {}) {
+    for (let attempt = 0; attempt < BLUE_AVATAR_AUDIO_POLL_LIMIT; attempt += 1) {
+      if (disposed) throw new Error("Blue Avatar disposed before Voicebox finished");
+      if (!blueAvatarConversationOwned) throw new Error("Blue voice moved to another surface");
+      if (attempt > 0) await waitMs(BLUE_AVATAR_AUDIO_POLL_MS);
+      if (!options.silent) {
+        blueAvatarVoiceStatus = attempt === 0 ? "generating" : "polling";
+        publishHud(true);
+      }
+      const response = await fetch(blueAvatarScopedApiUrl(audioUrl), { cache: "no-store" });
+      const contentType = String(response.headers.get("content-type") || "").toLowerCase();
+      if (response.ok && contentType.startsWith("audio/")) {
+        return response.blob();
+      }
+      if (response.ok && contentType.includes("application/json")) {
+        const payload = await response.json().catch(() => ({}));
+        const pendingStatus = payload?.pending === true || ["pending", "running", "queued", "generating", "audio_not_ready", "audio_export_pending"].includes(String(payload?.status || "").toLowerCase());
+        if (payload?.error && !pendingStatus) {
+          throw new Error(payload.message || payload.error || "Voicebox audio failed");
+        }
+      }
+    }
+    throw new Error("Voicebox Blue-03 audio is still generating");
+  }
+
+  function playBlueAvatarAudioBlob(blob) {
+    if (!blob || disposed) return false;
+    stopBlueAvatarAudio({ keepPendingUrl: false });
+    const objectUrl = URL.createObjectURL(blob);
+    const voiceAudio = new Audio(objectUrl);
+    blueAvatarAudio = voiceAudio;
+    voiceAudio.addEventListener("play", () => {
+      blueAvatarVoiceStatus = "speaking";
+      blueAvatarStatus = "Blue-03 speaking";
+      blueAvatarSuppressCameraUntilMs = Date.now() + BLUE_AVATAR_ECHO_SUPPRESS_MS;
+      publishHud(true);
+    });
+    voiceAudio.addEventListener("ended", () => {
+      blueAvatarVoiceStatus = "spoken";
+      blueAvatarStatus = "Listening to Camera Card dictation";
+      blueAvatarSuppressCameraUntilMs = Date.now() + BLUE_AVATAR_ECHO_SUPPRESS_MS;
+      if (blueAvatarAudio === voiceAudio) blueAvatarAudio = null;
+      URL.revokeObjectURL(objectUrl);
+      publishHud(true);
+      if (blueAvatarQueue.length) drainBlueAvatarQueue();
+    });
+    voiceAudio.addEventListener("error", () => {
+      blueAvatarVoiceStatus = "voice-error";
+      blueAvatarStatus = "Browser audio playback failed";
+      if (blueAvatarAudio === voiceAudio) blueAvatarAudio = null;
+      URL.revokeObjectURL(objectUrl);
+      publishHud(true);
+      if (blueAvatarQueue.length) drainBlueAvatarQueue();
+    });
+    const playPromise = voiceAudio.play();
+    playPromise?.catch?.(() => {
+      blueAvatarPendingAudioObjectUrl = objectUrl;
+      blueAvatarAudio = null;
+      blueAvatarVoiceStatus = "tap-to-play";
+      blueAvatarStatus = "Tap in the 3D scene to play Blue-03 voice";
+      publishHud(true);
+    });
+    return true;
+  }
+
+  function playPendingBlueAvatarAudio() {
+    if (!blueAvatarPendingAudioObjectUrl || blueAvatarAudio) return false;
+    const objectUrl = blueAvatarPendingAudioObjectUrl;
+    blueAvatarPendingAudioObjectUrl = "";
+    const voiceAudio = new Audio(objectUrl);
+    blueAvatarAudio = voiceAudio;
+    voiceAudio.addEventListener("play", () => {
+      blueAvatarVoiceStatus = "speaking";
+      blueAvatarStatus = "Blue-03 speaking";
+      blueAvatarSuppressCameraUntilMs = Date.now() + BLUE_AVATAR_ECHO_SUPPRESS_MS;
+      publishHud(true);
+    });
+    voiceAudio.addEventListener("ended", () => {
+      blueAvatarVoiceStatus = "spoken";
+      blueAvatarStatus = "Listening to Camera Card dictation";
+      blueAvatarSuppressCameraUntilMs = Date.now() + BLUE_AVATAR_ECHO_SUPPRESS_MS;
+      if (blueAvatarAudio === voiceAudio) blueAvatarAudio = null;
+      URL.revokeObjectURL(objectUrl);
+      publishHud(true);
+      if (blueAvatarQueue.length) drainBlueAvatarQueue();
+    });
+    voiceAudio.play().catch(() => {
+      blueAvatarAudio = null;
+      blueAvatarPendingAudioObjectUrl = objectUrl;
+      blueAvatarVoiceStatus = "tap-to-play";
+      publishHud(true);
+    });
+    return true;
+  }
+
+  function stopBlueAvatarAudio({ keepPendingUrl = false } = {}) {
+    if (blueAvatarAudio) {
+      blueAvatarAudio.pause();
+      blueAvatarAudio.src = "";
+      blueAvatarAudio = null;
+    }
+    if (!keepPendingUrl && blueAvatarPendingAudioObjectUrl) {
+      URL.revokeObjectURL(blueAvatarPendingAudioObjectUrl);
+      blueAvatarPendingAudioObjectUrl = "";
+    }
+  }
+
+  function waitMs(ms = 0) {
+    return new Promise((resolve) => window.setTimeout(resolve, Math.max(0, ms)));
+  }
+
   function attachCameraStreamToEntry(entry, stream) {
     const baseMaterial = entry?.baseFaceMaterial || entry?.faceMaterial;
     if (!baseMaterial || !stream) return false;
@@ -3728,20 +8468,1763 @@ function createTarotDrawGame({ canvas, cards, avatarName, apiBase = "", producti
     baseMaterial.emissiveMap = texture;
     baseMaterial.emissive?.setHex?.(0xffffff);
     baseMaterial.emissiveIntensity = 0.18;
+    baseMaterial.side = THREE.DoubleSide;
     setVideoMaterialSourceAlpha(baseMaterial, false);
     baseMaterial.needsUpdate = true;
     entry.faceMaterial = baseMaterial;
     if (entry.faceMesh) entry.faceMesh.material = baseMaterial;
+    if (entry.backMesh && entry.baseBackMaterial) {
+      entry.baseBackMaterial.map = texture;
+      entry.baseBackMaterial.emissiveMap = texture;
+      entry.baseBackMaterial.emissive?.setHex?.(0xffffff);
+      entry.baseBackMaterial.emissiveIntensity = 0.18;
+      entry.baseBackMaterial.side = THREE.DoubleSide;
+      setVideoMaterialSourceAlpha(entry.baseBackMaterial, false);
+      entry.baseBackMaterial.needsUpdate = true;
+      entry.backMaterial = entry.baseBackMaterial;
+      entry.backMesh.material = entry.baseBackMaterial;
+    }
     entry.videoMatte = createVideoEdgeMatte(video, baseMaterial);
     applyCameraCardShaderMode(entry);
     return true;
   }
 
+  async function setPhoneBridgeEnabled(nextEnabled) {
+    if (!nextEnabled) {
+      stopPhoneBridge({ removeCard: true });
+      audio.play("back", { quiet: true });
+      status = "Phone Card bridge off";
+      publishHud(true);
+      return false;
+    }
+    if (phoneBridgeEnabled && phoneBridgeMobileUrl) {
+      phoneBridgeQrVisible = true;
+      phoneBridgeStatus = phoneBridgeConnected ? "Phone Card live" : "Waiting for phone scan";
+      status = phoneBridgeConnected ? "Phone Card live" : "Phone Card QR visible";
+      publishHud(true);
+      return true;
+    }
+    if (phoneBridgePending) return false;
+    if (typeof RTCPeerConnection === "undefined") {
+      phoneBridgeQrVisible = false;
+      phoneBridgeError = "WebRTC is not available in this browser shell";
+      status = `Phone bridge blocked: ${phoneBridgeError}`;
+      publishHud(true);
+      return false;
+    }
+    phoneBridgePending = true;
+    phoneBridgeError = "";
+    phoneBridgeStatus = "Creating QR session";
+    status = "Phone Card QR starting";
+    publishHud(true);
+    try {
+      const session = phoneBridgeSession || `tarot-phone-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+      const response = await fetch(tarotApiUrl(`/api/phone-bridge/info?session=${encodeURIComponent(session)}`));
+      if (!response.ok) throw new Error(`phone bridge info failed (${response.status})`);
+      const payload = await response.json();
+      phoneBridgeSession = payload.session || session;
+      phoneBridgeMobileUrl = payload.mobileUrl || "";
+      phoneBridgeCertificateUrl = payload.certificateUrl || "";
+      phoneBridgeSecure = Boolean(payload.secureContextLikely);
+      phoneBridgeIceServers = Array.isArray(payload.iceServers) ? payload.iceServers : [];
+      phoneBridgeInvite = null;
+      phoneBridgeEnabled = true;
+      phoneBridgeQrVisible = true;
+      phoneBridgeConnected = false;
+      phoneBridgeSince = 0;
+      phoneBridgeStatus = payload.secureContextLikely === false
+        ? "QR ready; secure bridge unavailable"
+        : "Secure QR ready; waiting for phone scan";
+      startPhoneBridgePolling();
+      audio.play("draw", { quiet: true });
+      status = "Phone Card QR ready";
+      publishHud(true);
+      return true;
+    } catch (error) {
+      phoneBridgeEnabled = false;
+      phoneBridgeQrVisible = false;
+      phoneBridgeError = error?.message || "could not create phone bridge";
+      phoneBridgeStatus = "";
+      status = `Phone bridge blocked: ${phoneBridgeError}`;
+      publishHud(true);
+      return false;
+    } finally {
+      phoneBridgePending = false;
+      if (!disposed) publishHud(true);
+    }
+  }
+
+  function setPhoneBridgeQrVisible(nextVisible = true) {
+    const visible = Boolean(nextVisible);
+    if (!phoneBridgeEnabled) {
+      if (visible) return setPhoneBridgeEnabled(true);
+      return false;
+    }
+    phoneBridgeQrVisible = visible;
+    if (visible) {
+      phoneBridgeStatus = phoneBridgeConnected ? "Phone Card live" : (phoneBridgeInvite ? "Invitation Created; waiting for camera" : "Waiting for phone scan");
+      status = phoneBridgeConnected ? "Phone Card live" : "Phone Card QR visible";
+    } else {
+      phoneBridgeStatus = phoneBridgeConnected ? "Phone Card live; QR hidden" : "Phone Card QR hidden";
+      status = phoneBridgeConnected ? "Phone Card still live; QR hidden" : "Phone Card QR hidden";
+    }
+    publishHud(true);
+    return phoneBridgeQrVisible;
+  }
+
+  function activatePhoneBridgeInvite(invite = {}) {
+    if (typeof RTCPeerConnection === "undefined") {
+      phoneBridgeError = "WebRTC is not available in this browser shell";
+      status = `Phone bridge blocked: ${phoneBridgeError}`;
+      publishHud(true);
+      return false;
+    }
+    const session = String(invite.session || invite.webrtc?.session || "").trim();
+    const mobileUrl = invite.links?.htmlUrl || invite.links?.phoneCardUrl || "";
+    phoneBridgeInvite = invite;
+    phoneBridgeSession = session || phoneBridgeSession || `tarot-scene-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+    phoneBridgeMobileUrl = mobileUrl;
+    phoneBridgeCertificateUrl = invite.links?.certificateUrl || "";
+    phoneBridgeSecure = Boolean(invite.webrtc?.secureContextLikely || /^https:/.test(phoneBridgeMobileUrl) || /^http:\/\/(localhost|127\.0\.0\.1|\[::1\])/.test(phoneBridgeMobileUrl));
+    phoneBridgeIceServers = Array.isArray(invite.webrtc?.iceServers) ? invite.webrtc.iceServers : [];
+    phoneBridgeEnabled = true;
+    phoneBridgeQrVisible = true;
+    phoneBridgePending = false;
+    phoneBridgeConnected = false;
+    phoneBridgeError = "";
+    phoneBridgeSince = 0;
+    phoneBridgeStatus = "Invitation Created; waiting for camera";
+    spawnPhoneInviteCard(invite);
+    syncRoomletParticipantCards(invite);
+    startPhoneBridgePolling();
+    audio.play("draw", { quiet: true });
+    status = "Scene camera invitation created";
+    publishHud(true);
+    return true;
+  }
+
+  function startPhoneBridgePolling() {
+    if (phoneBridgePollTimer) window.clearTimeout(phoneBridgePollTimer);
+    phoneBridgePollTimer = window.setTimeout(pollPhoneBridgeEvents, 120);
+  }
+
+  async function pollPhoneBridgeEvents() {
+    phoneBridgePollTimer = 0;
+    if (!phoneBridgeEnabled || !phoneBridgeSession || disposed) return;
+    try {
+      const response = await fetch(tarotApiUrl(`/api/phone-bridge/events?session=${encodeURIComponent(phoneBridgeSession)}&target=desktop&since=${phoneBridgeSince}`));
+      const payload = await response.json();
+      if (payload?.nextSeq) phoneBridgeSince = Math.max(phoneBridgeSince, Number(payload.nextSeq) || 0);
+      for (const event of payload?.events || []) {
+        await handlePhoneBridgeEvent(event);
+      }
+      if (!phoneBridgeConnected && !phoneBridgeError) {
+        const roomletCount = roomletParticipantCardsFromInvite(phoneBridgeInvite).length;
+        phoneBridgeStatus = roomletCount
+          ? `${roomletCount} Roomlet participant card${roomletCount === 1 ? "" : "s"} in scene`
+          : phoneBridgeInvite ? "Invitation Created; waiting for camera" : (phoneBridgeMobileUrl ? "Waiting for phone scan" : phoneBridgeStatus);
+        if (!phoneBridgeQrVisible) phoneBridgeStatus = "Phone Card QR hidden";
+      }
+    } catch (error) {
+      phoneBridgeStatus = phoneBridgeQrVisible ? "Phone bridge polling" : "Phone Card QR hidden";
+    } finally {
+      if (phoneBridgeEnabled && !disposed) phoneBridgePollTimer = window.setTimeout(pollPhoneBridgeEvents, 430);
+    }
+  }
+
+  async function handlePhoneBridgeEvent(event = {}) {
+    if (!event?.type) return;
+    if (event.type === "viewer-ready" || event.type === "hello") {
+      if (event.payload?.inviteId || event.payload?.cardId) {
+        phoneBridgeInvite = {
+          ...(phoneBridgeInvite || {}),
+          id: event.payload.inviteId || phoneBridgeInvite?.id,
+          cardId: event.payload.cardId || phoneBridgeInvite?.cardId,
+          hypercore: event.payload.hypercore || phoneBridgeInvite?.hypercore
+        };
+      }
+      phoneBridgeStatus = phoneBridgeInvite ? "Invite opened; waiting for camera" : "Phone opened; waiting for camera";
+      if (phoneCardEntry?.card && !phoneBridgeConnected) {
+        phoneCardEntry.card = {
+          ...phoneCardEntry.card,
+          subtitle: "Invite opened; waiting for camera permission",
+          invitationStatus: "opened"
+        };
+      }
+      publishHud(true);
+      return;
+    }
+    if (event.type === "roomlet-webcam-card-live" || event.type === "roomlet-participant-event" || event.type === "roomlet-room-view") {
+      const participantCards = roomletParticipantCardsFromBridgePayload(event.payload || {}, phoneBridgeInvite?.id || event.payload?.inviteId || "");
+      if (participantCards.length) {
+        phoneBridgeInvite = {
+          ...(phoneBridgeInvite || {}),
+          id: phoneBridgeInvite?.id || event.payload?.inviteId || "",
+          cardId: phoneBridgeInvite?.cardId || event.payload?.cardId || "",
+          roomlet: {
+            ...(phoneBridgeInvite?.roomlet || {}),
+            participantCards: mergeRoomletParticipantCards(phoneBridgeInvite?.roomlet?.participantCards || [], participantCards)
+          }
+        };
+        syncRoomletParticipantCards(phoneBridgeInvite);
+        const count = roomletParticipantCardsFromInvite(phoneBridgeInvite).length;
+        phoneBridgeStatus = `${count} Roomlet participant card${count === 1 ? "" : "s"} in scene`;
+        status = "Roomlet Webcam Card joined";
+        publishHud(true);
+      }
+      return;
+    }
+    if (event.type === "offer" && event.payload?.sdp) {
+      await answerPhoneBridgeOffer(event.payload);
+      return;
+    }
+    if (event.type === "candidate" && event.payload?.candidate && phonePeerConnection) {
+      await phonePeerConnection.addIceCandidate(new RTCIceCandidate(event.payload)).catch(() => {});
+    }
+  }
+
+  async function postPhoneBridgeEvent(target, type, payload = {}) {
+    if (!phoneBridgeSession) return null;
+    const response = await fetch(tarotApiUrl("/api/phone-bridge/events"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        session: phoneBridgeSession,
+        from: "desktop",
+        target,
+        type,
+        payload
+      })
+    });
+    return response.json().catch(() => null);
+  }
+
+  async function answerPhoneBridgeOffer(offer) {
+    closePhonePeerConnection({ keepCard: true });
+    phoneBridgeStatus = "Answering phone camera";
+    publishHud(true);
+    const pc = new RTCPeerConnection({ iceServers: phoneBridgeIceServers || [] });
+    phonePeerConnection = pc;
+    phoneMediaStream = new MediaStream();
+    pc.onicecandidate = (event) => {
+      if (event.candidate) postPhoneBridgeEvent("mobile", "candidate", event.candidate.toJSON?.() || event.candidate);
+    };
+    pc.ontrack = (event) => {
+      const streams = event.streams || [];
+      const remoteStream = streams[0] || phoneMediaStream || new MediaStream();
+      if (!streams[0] && event.track) remoteStream.addTrack(event.track);
+      phoneMediaStream = remoteStream;
+      ensurePhoneCardEntry(remoteStream);
+    };
+    pc.ondatachannel = (event) => setupPhoneDataChannel(event.channel);
+    pc.onconnectionstatechange = () => {
+      const state = pc.connectionState;
+      phoneBridgeConnected = ["connected", "completed"].includes(state);
+      if (phoneBridgeConnected) {
+        phoneBridgeStatus = "Phone Card live";
+        status = "Phone Card joined";
+        publishHud(true);
+      } else if (["failed", "disconnected", "closed"].includes(state)) {
+        phoneBridgeStatus = `Phone peer ${state}`;
+        publishHud(true);
+      }
+    };
+    await pc.setRemoteDescription(new RTCSessionDescription(offer));
+    const fpvStream = ensurePhoneFpvStream();
+    if (fpvStream) {
+      fpvStream.getTracks().forEach((track) => {
+        const sender = pc.addTrack(track, fpvStream);
+        if (track.kind === "video") phoneFpvVideoSender = sender;
+        if (track.kind === "audio") phoneFpvAudioSender = sender;
+      });
+      syncPhoneFpvAudioTrack(true);
+      renderPhoneFpvFrame(performance.now() / 1000);
+    }
+    const answer = await pc.createAnswer();
+    await pc.setLocalDescription(answer);
+    await postPhoneBridgeEvent("mobile", "answer", pc.localDescription?.toJSON?.() || pc.localDescription);
+    phoneBridgeStatus = "Answer sent; pairing";
+    publishHud(true);
+  }
+
+  function setupPhoneDataChannel(channel) {
+    phoneDataChannel = channel;
+    channel.onopen = () => {
+      phoneBridgeConnected = true;
+      phoneBridgeStatus = "Phone flight controls online";
+      status = "Phone Card flight controls online";
+      sendPhoneSceneState(true);
+      sendPhoneToolState(true);
+      publishHud(true);
+    };
+    channel.onclose = () => {
+      phoneBridgeConnected = false;
+      phoneBridgeStatus = "Phone flight controls closed";
+      phoneSceneSyncLastAt = 0;
+      publishHud(true);
+    };
+    channel.onmessage = (event) => {
+      try {
+        const message = JSON.parse(event.data || "{}");
+        handlePhoneDataChannelMessage(message);
+      } catch {
+        // Ignore malformed telemetry packets.
+      }
+    };
+    if (channel.readyState === "open") {
+      phoneBridgeConnected = true;
+      phoneBridgeStatus = "Phone flight controls online";
+      sendPhoneSceneState(true);
+      sendPhoneToolState(true);
+      publishHud(true);
+    }
+  }
+
+  function handlePhoneDataChannelMessage(message = {}) {
+    if (message.type === "pose") {
+      applyPhoneBridgePose(message.pose || {}, message);
+      return;
+    }
+    if (message.type === "phone-action") {
+      handlePhoneBridgeAction(message);
+    }
+  }
+
+  function rememberPhoneActionId(actionId = "") {
+    const id = String(actionId || "").trim();
+    if (!id) return true;
+    if (phoneActionIdSet.has(id)) return false;
+    phoneActionIdSet.add(id);
+    phoneActionIds.push(id);
+    while (phoneActionIds.length > PHONE_ACTION_MEMORY_LIMIT) {
+      const removed = phoneActionIds.shift();
+      if (removed) phoneActionIdSet.delete(removed);
+    }
+    return true;
+  }
+
+  function handlePhoneBridgeAction(message = {}) {
+    if (!rememberPhoneActionId(message.actionId)) return;
+    if (message.pose) applyPhoneBridgePose(message.pose, message);
+    if (message.cameraFacing) phoneCameraFacing = String(message.cameraFacing || "user");
+    if (message.action === "laser-tag") {
+      tagPhoneAimTarget();
+      return;
+    }
+    if (message.action === "tractor-toggle") {
+      if (phoneTractorEntry) dropPhoneTractorEntry();
+      else grabPhoneTractorEntry();
+    }
+  }
+
+  function sendPhoneToolState(force = false) {
+    if (!phoneDataChannel || phoneDataChannel.readyState !== "open") return false;
+    if (!force && !phoneLaserStatus && !phoneTractorStatus) return false;
+    try {
+      phoneDataChannel.send(JSON.stringify({
+        type: "phone-tool-state",
+        tools: {
+          laserTagged: Boolean(phoneLaserTaggedEntry || phoneLaserTaggedPoint),
+          tractorActive: Boolean(phoneTractorEntry),
+          status: phoneTractorEntry
+            ? `Tractor: ${phoneTractorEntry.card?.title || "card"}`
+            : phoneTractorStatus || phoneLaserStatus || ""
+        },
+        sentAt: Date.now()
+      }));
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  function phonePoseQuaternion(target = phonePoseQuaternionScratch) {
+    return target.setFromEuler(new THREE.Euler(
+      Number(phonePose.pitch || 0),
+      Number(phonePose.yaw || 0),
+      Number(phonePose.roll || 0),
+      "YXZ"
+    ));
+  }
+
+  function applyPhoneCardFacingPose(entry) {
+    if (!entry) return;
+    const poseQuaternion = phonePoseQuaternion();
+    phoneCardRightScratch.set(1, 0, 0).applyQuaternion(poseQuaternion).normalize();
+    phoneCardForwardScratch.set(0, 0, -1).applyQuaternion(poseQuaternion).normalize();
+    // Live camera cards join upright; map their video-up axis to phone-up so video bottoms stay grounded.
+    phoneCardUpScratch.set(0, 1, 0).applyQuaternion(poseQuaternion).normalize();
+    phoneCardBasisMatrixScratch.makeBasis(phoneCardRightScratch, phoneCardForwardScratch, phoneCardUpScratch);
+    entry.targetRotation.setFromRotationMatrix(phoneCardBasisMatrixScratch, "YXZ");
+    entry.basePitch = entry.targetRotation.x;
+    entry.baseRotationY = entry.targetRotation.y;
+    entry.baseRoll = entry.targetRotation.z;
+  }
+
+  function updatePhoneAimBasis() {
+    const poseQuaternion = phonePoseQuaternion();
+    phoneAimOriginScratch.set(phonePose.x, phonePose.y + 0.05, phonePose.z);
+    phoneAimForwardScratch.set(0, 0, -1).applyQuaternion(poseQuaternion).normalize();
+    phoneAimRightScratch.set(1, 0, 0).applyQuaternion(poseQuaternion).normalize();
+    phoneAimUpScratch.set(0, 1, 0).applyQuaternion(poseQuaternion).normalize();
+    phoneAimBeamOriginScratch
+      .copy(phoneAimOriginScratch)
+      .addScaledVector(phoneAimRightScratch, 0.07)
+      .addScaledVector(phoneAimUpScratch, -0.045);
+  }
+
+  function collectPhoneAimPickTargets({ excludeEntry = null, includeEntries = true, includeScreens = true } = {}) {
+    phoneAimPickTargetsScratch.length = 0;
+    if (includeEntries) {
+      for (const entry of placedEntries) {
+        if (!entry || entry === phoneCardEntry || entry === excludeEntry) continue;
+        if (entry.drawAnim || (entry.delay || 0) > 0) continue;
+        phoneAimPickTargetsScratch.push(...(entry.pickTargets || []));
+      }
+      if (heldEntry && heldEntry !== excludeEntry && heldEntry !== phoneCardEntry) {
+        phoneAimPickTargetsScratch.push(...(heldEntry.pickTargets || []));
+      }
+    }
+    if (includeScreens) {
+      for (const screen of dropPreview?.screens || []) {
+        if (screen?.mesh) phoneAimPickTargetsScratch.push(screen.mesh);
+      }
+      if (dockBackgroundPlayer?.screen?.mesh) phoneAimPickTargetsScratch.push(dockBackgroundPlayer.screen.mesh);
+    }
+    return phoneAimPickTargetsScratch;
+  }
+
+  function phoneAimRaycast({ excludeEntry = null, includeEntries = true, includeScreens = true } = {}) {
+    updatePhoneAimBasis();
+    raycaster.set(phoneAimOriginScratch, phoneAimForwardScratch);
+    raycaster.near = 0;
+    raycaster.far = PHONE_LASER_MAX_DISTANCE;
+    phoneAimHitsScratch.length = 0;
+    const targets = includeEntries || includeScreens
+      ? collectPhoneAimPickTargets({ excludeEntry, includeEntries, includeScreens })
+      : phoneAimPickTargetsScratch;
+    if ((includeEntries || includeScreens) && targets.length) {
+      raycaster.intersectObjects(targets, true, phoneAimHitsScratch);
+    }
+    const objectHit = phoneAimHitsScratch.find((hit) => {
+      const entry = hit.object?.userData?.entry || null;
+      if (entry && (!includeEntries || entry === excludeEntry || entry === phoneCardEntry)) return false;
+      return true;
+    });
+    if (objectHit) {
+      raycaster.far = Infinity;
+      return {
+        point: phoneAimTargetScratch.copy(objectHit.point),
+        entry: objectHit.object?.userData?.entry || null,
+        distance: objectHit.distance,
+        object: objectHit.object,
+        objectHit: true
+      };
+    }
+    if (raycaster.ray.intersectPlane(tablePlane, phoneAimTableScratch)) {
+      const distance = phoneAimOriginScratch.distanceTo(phoneAimTableScratch);
+      if (distance <= PHONE_LASER_MAX_DISTANCE) {
+        raycaster.far = Infinity;
+        return {
+          point: phoneAimTargetScratch.copy(phoneAimTableScratch),
+          entry: null,
+          distance,
+          object: null,
+          objectHit: false
+        };
+      }
+    }
+    raycaster.far = Infinity;
+    return {
+      point: phoneAimTargetScratch.copy(phoneAimOriginScratch).addScaledVector(phoneAimForwardScratch, PHONE_TRACTOR_DEFAULT_DISTANCE),
+      entry: null,
+      distance: PHONE_TRACTOR_DEFAULT_DISTANCE,
+      object: null,
+      objectHit: false
+    };
+  }
+
+  function setPhoneLaserTaggedEntry(entry) {
+    if (phoneLaserTaggedEntry && phoneLaserTaggedEntry !== entry) phoneLaserTaggedEntry.phoneLaserTagged = false;
+    phoneLaserTaggedEntry = entry || null;
+    if (phoneLaserTaggedEntry) phoneLaserTaggedEntry.phoneLaserTagged = true;
+  }
+
+  function tagPhoneAimTarget() {
+    const hit = phoneAimRaycast({ includeEntries: true, includeScreens: true });
+    setPhoneLaserTaggedEntry(hit.entry || null);
+    phoneLaserTaggedPoint = hit.point.clone();
+    phoneLaserBeamUntil = performance.now() / 1000 + PHONE_LASER_BEAM_SECONDS;
+    phoneLaserStatus = hit.entry ? `Tagged: ${hit.entry.card?.title || "card"}` : "Tagged location";
+    phoneTractorStatus = "";
+    ensurePhoneLaserVisual();
+    createBurst(hit.point.x, hit.point.z, hit.entry ? 0xf6c96d : 0x00f3ff, hit.entry ? 0.84 : 0.58);
+    status = phoneLaserStatus;
+    sendPhoneToolState(true);
+    publishHud(true);
+  }
+
+  function phoneTractorCanGrab(entry) {
+    return Boolean(entry && !entry.isPhoneCard);
+  }
+
+  function releaseEntryForPhoneTractor(entry) {
+    if (!entry) return;
+    if (entry === dropZoneEntry) releaseDropZoneEntry({ moveAside: false, keepVideo: false });
+    if (entry.lockedMediaPool) releaseMediaPoolEntry(entry, { keepPreview: false });
+    if (entry.lockedCenterVisualizer) releaseCenterVisualizerEntry(entry);
+    if (entry.lockedDock) releaseDockEntry(entry);
+    entry.state = "phone-tractor";
+    entry.hover = false;
+    entry.lockedDropZone = false;
+    entry.lockedMediaPool = false;
+    entry.lockedCenterVisualizer = false;
+    entry.lockedDock = false;
+    entry.lockedCameraCard = false;
+    entry.lockedPhoneCard = false;
+    entry.lockedBlueAvatarCard = false;
+    entry.magnetized = false;
+    entry.magnetZone = "";
+    entry.floatMotion = null;
+    entry.drawAnim = null;
+    entry.delay = 0;
+    entry.pitchOffset = 0;
+    entry.angleOffset = 0;
+    entry.phoneTractorHeld = true;
+    resetCardFocus(entry, { closeDetails: true });
+    if (!placedEntries.includes(entry)) placedEntries.push(entry);
+    entry.playing = playing;
+  }
+
+  function grabPhoneTractorEntry() {
+    const hit = phoneAimRaycast({ includeEntries: true, includeScreens: false });
+    const entry = hit.entry || null;
+    if (!phoneTractorCanGrab(entry)) {
+      phoneTractorStatus = "No movable card at reticle";
+      phoneLaserBeamUntil = performance.now() / 1000 + 0.75;
+      phoneLaserTaggedPoint = hit.point.clone();
+      status = phoneTractorStatus;
+      sendPhoneToolState(true);
+      publishHud(true);
+      return false;
+    }
+    releaseEntryForPhoneTractor(entry);
+    phoneTractorEntry = entry;
+    phoneTractorDistance = THREE.MathUtils.clamp(hit.distance || PHONE_TRACTOR_DEFAULT_DISTANCE, PHONE_TRACTOR_MIN_DISTANCE, PHONE_TRACTOR_MAX_DISTANCE);
+    phoneTractorPoint.copy(hit.point);
+    selectEntry(entry);
+    updateVideoPlayback(entry);
+    ensurePhoneLaserVisual();
+    createBurst(entry.group.position.x, entry.group.position.z, 0xff6df2, 0.76);
+    phoneTractorStatus = `Tractor locked: ${entry.card.title}`;
+    phoneLaserStatus = "";
+    status = phoneTractorStatus;
+    sendPhoneToolState(true);
+    publishHud(true);
+    return true;
+  }
+
+  function updatePhoneTractorTarget(elapsed = 0) {
+    const entry = phoneTractorEntry;
+    if (!entry) return;
+    const hit = phoneAimRaycast({ excludeEntry: entry, includeEntries: false, includeScreens: false });
+    const point = phoneTractorPoint.copy(hit.point);
+    if (!hit.objectHit && hit.distance <= PHONE_TRACTOR_DEFAULT_DISTANCE + 0.001) {
+      point.copy(phoneAimOriginScratch).addScaledVector(phoneAimForwardScratch, phoneTractorDistance);
+    }
+    point.x = THREE.MathUtils.clamp(point.x, -BOARD_LIMIT_X, BOARD_LIMIT_X);
+    point.y = THREE.MathUtils.clamp(point.y, PHONE_TRACTOR_HOLD_Y, PHONE_CARD_MAX_Y);
+    point.z = THREE.MathUtils.clamp(point.z, -BOARD_LIMIT_Z, BOARD_LIMIT_Z + 0.72);
+    const activeMagnet = strongestMagnetZone(point);
+    const cameraCardDockStrength = entry.isCameraCard ? dockMagnetStrength(point) : 0;
+    const magnetZone = entry.isCameraCard
+      ? cameraCardDockStrength > 0 ? "dock" : ""
+      : activeMagnet.strength > 0 ? activeMagnet.id : "";
+    const wasMagnetized = entry.magnetized;
+    const previousZone = entry.magnetZone || "";
+    entry.magnetized = entry.isCameraCard ? cameraCardDockStrength > 0 : activeMagnet.strength > 0;
+    entry.magnetZone = entry.magnetized ? magnetZone : "";
+    const activeTarget = entry.isCameraCard ? DOCK_POSITION : activeMagnet.position || point;
+    const activeStrength = entry.isCameraCard ? cameraCardDockStrength : activeMagnet.strength || 0;
+    const targetX = THREE.MathUtils.lerp(point.x, activeTarget.x, activeStrength);
+    const targetZ = THREE.MathUtils.lerp(point.z, activeTarget.z, activeStrength);
+    const magnetY = magnetZone === "center" ? CENTER_VISUALIZER_CARD_BASE_Y + 0.42 : magnetZone === "dock" ? DOCK_CARD_BASE_Y + 0.58 : PHONE_TRACTOR_HOLD_Y;
+    const targetY = THREE.MathUtils.lerp(point.y, magnetY, activeStrength);
+    if (entry.isCameraCard) {
+      applyCameraCardPose(entry, cameraCardPoseScratch.set(targetX, targetY, targetZ));
+      if (entry.magnetized) setCardTargetRotation(entry, DOCK_CARD_PITCH, 0, 0);
+    } else {
+      entry.targetPosition.set(targetX, targetY, targetZ);
+      entry.baseRotationY = THREE.MathUtils.lerp(phonePose.yaw, magnetZone === "center" ? 0.36 : magnetZone === "dock" ? 0 : 0, activeStrength);
+      setCardTargetRotation(
+        entry,
+        THREE.MathUtils.lerp(-0.12 + phonePose.pitch * 0.18, magnetZone === "dock" ? DOCK_CARD_PITCH : magnetZone === "center" ? -0.03 : -0.12, activeStrength),
+        entry.baseRotationY,
+        THREE.MathUtils.lerp(phonePose.roll * 0.14, magnetZone === "dock" ? 0 : 0.04, activeStrength)
+      );
+    }
+    entry.playing = playing;
+    if (entry.magnetized !== wasMagnetized || entry.magnetZone !== previousZone) {
+      phoneTractorStatus = entry.magnetized
+        ? `${magnetZoneLabel(entry.magnetZone)} pulling: ${entry.card.title}`
+        : `Tractor holding: ${entry.card.title}`;
+      status = phoneTractorStatus;
+      sendPhoneToolState(true);
+      publishHud(true);
+    }
+    const pulse = entry.refs?.targetLock;
+    if (pulse) pulse.userData.phoneTractorPulse = elapsed;
+  }
+
+  function dropPhoneTractorEntry() {
+    const entry = phoneTractorEntry;
+    if (!entry) return false;
+    updatePhoneTractorTarget(elapsedTime + rngSeed);
+    const point = phoneTractorPoint.clone();
+    phoneTractorEntry = null;
+    entry.phoneTractorHeld = false;
+    entry.hover = false;
+    if (entry.isCameraCard) {
+      if (isDockHit(point) || entry.magnetZone === "dock") lockEntryInDock(entry);
+      else placeCameraCardAt(entry, point);
+      phoneTractorStatus = `Dropped: ${entry.card.title}`;
+      sendPhoneToolState(true);
+      return true;
+    }
+    if (entry.isBlueAvatarCard) {
+      if (isDockHit(point) || entry.magnetZone === "dock") lockEntryInDock(entry);
+      else placeBlueAvatarCardAt(entry, point);
+      phoneTractorStatus = `Dropped: ${entry.card.title}`;
+      sendPhoneToolState(true);
+      return true;
+    }
+    if (isDropZoneHit(point) || entry.magnetZone === "drop") {
+      lockEntryInDropZone(entry);
+    } else if (isMediaPoolHit(point) || entry.magnetZone === "media") {
+      lockEntryInMediaPoolZone(entry);
+    } else if (isCenterVisualizerHit(point) || entry.magnetZone === "center") {
+      lockEntryInCenterVisualizer(entry);
+    } else if (isDockHit(point) || entry.magnetZone === "dock") {
+      lockEntryInDock(entry);
+    } else {
+      entry.state = "placed";
+      entry.slotIndex = -1;
+      entry.floatMotion = null;
+      entry.lockedDropZone = false;
+      entry.lockedMediaPool = false;
+      entry.lockedCenterVisualizer = false;
+      entry.lockedDock = false;
+      entry.lockedCameraCard = false;
+      entry.lockedPhoneCard = false;
+      entry.lockedBlueAvatarCard = false;
+      entry.magnetized = false;
+      entry.magnetZone = "";
+      resetCardSurfacePose(entry);
+      entry.targetPosition.set(
+        THREE.MathUtils.clamp(point.x, -BOARD_LIMIT_X, SPREAD_LANE_MAX_X),
+        CARD_TABLE_BASE_Y,
+        THREE.MathUtils.clamp(point.z, -BOARD_LIMIT_Z, BOARD_LIMIT_Z)
+      );
+      entry.baseRotationY = Math.atan2(entry.targetPosition.x, 5.5) * 0.38;
+      setCardTargetRotation(entry, 0, entry.baseRotationY, 0);
+      entry.placedAt = placedEntries.length;
+      entry.playing = playing;
+      if (!placedEntries.includes(entry)) placedEntries.push(entry);
+      resolvePlacedCardStacks();
+      updateVideoPlayback(entry);
+      audio.play("place");
+      createBurst(entry.targetPosition.x, entry.targetPosition.z, 0xf6c96d, 0.84);
+      status = `Tractor dropped: ${entry.card.title}`;
+      publishHud(true);
+      requestReading("phone-tractor");
+    }
+    phoneTractorStatus = `Dropped: ${entry.card.title}`;
+    sendPhoneToolState(true);
+    return true;
+  }
+
+  function clearPhoneBridgeTools({ clearTag = true } = {}) {
+    if (phoneTractorEntry) {
+      const entry = phoneTractorEntry;
+      phoneTractorEntry = null;
+      entry.phoneTractorHeld = false;
+      entry.state = "placed";
+      if (!placedEntries.includes(entry)) placedEntries.push(entry);
+      resolvePlacedCardStacks();
+    }
+    if (clearTag) {
+      setPhoneLaserTaggedEntry(null);
+      phoneLaserTaggedPoint = null;
+      phoneLaserStatus = "";
+    }
+    phoneTractorStatus = "";
+    phoneLaserBeamUntil = 0;
+    if (phoneLaserVisual) phoneLaserVisual.group.visible = false;
+    sendPhoneToolState(true);
+  }
+
+  function ensurePhoneLaserVisual() {
+    if (phoneLaserVisual) return phoneLaserVisual;
+    const group = new THREE.Group();
+    group.name = "PhoneCardLaserTools";
+    group.renderOrder = 1600;
+    const positions = new Float32Array(6);
+    const beamGeometry = new THREE.BufferGeometry();
+    beamGeometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+    const beamMaterial = new THREE.LineBasicMaterial({
+      color: 0x00f3ff,
+      transparent: true,
+      opacity: 0.82,
+      depthWrite: false,
+      depthTest: false,
+      blending: THREE.AdditiveBlending
+    });
+    const beam = new THREE.Line(beamGeometry, beamMaterial);
+    beam.name = "PhoneCardLaserBeam";
+    beam.renderOrder = 1601;
+    const tag = new THREE.Group();
+    tag.name = "PhoneCardLaserTag";
+    tag.renderOrder = 1602;
+    const ringMaterial = new THREE.MeshBasicMaterial({
+      color: 0xf6c96d,
+      transparent: true,
+      opacity: 0.84,
+      depthWrite: false,
+      depthTest: false,
+      side: THREE.DoubleSide,
+      blending: THREE.AdditiveBlending
+    });
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(0.16, 0.008, 8, 72), ringMaterial);
+    ring.name = "PhoneCardLaserTagRing";
+    const core = new THREE.Mesh(
+      new THREE.SphereGeometry(0.026, 12, 8),
+      new THREE.MeshBasicMaterial({
+        color: 0x00f3ff,
+        transparent: true,
+        opacity: 0.92,
+        depthWrite: false,
+        depthTest: false,
+        blending: THREE.AdditiveBlending
+      })
+    );
+    core.name = "PhoneCardLaserTagCore";
+    tag.add(ring, core);
+    group.add(beam, tag);
+    world.add(group);
+    phoneLaserVisual = { group, beam, beamGeometry, beamMaterial, positions, tag, ring, core };
+    return phoneLaserVisual;
+  }
+
+  function updatePhoneLaserVisual(elapsed = 0) {
+    const hasTag = Boolean(phoneLaserTaggedEntry || phoneLaserTaggedPoint);
+    const hasTractor = Boolean(phoneTractorEntry);
+    const beamActive = hasTractor || performance.now() / 1000 < phoneLaserBeamUntil;
+    if (!hasTag && !beamActive) {
+      if (phoneLaserVisual) phoneLaserVisual.group.visible = false;
+      return;
+    }
+    const visual = ensurePhoneLaserVisual();
+    visual.group.visible = true;
+    updatePhoneAimBasis();
+    if (phoneLaserTaggedEntry?.group?.position) {
+      phoneLaserTaggedPoint = phoneLaserTaggedPoint || new THREE.Vector3();
+      phoneLaserTaggedPoint.copy(phoneLaserTaggedEntry.group.position);
+      phoneLaserTaggedPoint.y += 0.26;
+    }
+    const targetPoint = phoneTractorEntry
+      ? phoneTractorPoint
+      : phoneLaserTaggedPoint || phoneAimTargetScratch;
+    const drawTarget = phoneTractorEntry ? phoneTractorEntry.group.position : targetPoint;
+    phoneLaserPositionArrayScratch[0] = phoneAimBeamOriginScratch.x;
+    phoneLaserPositionArrayScratch[1] = phoneAimBeamOriginScratch.y;
+    phoneLaserPositionArrayScratch[2] = phoneAimBeamOriginScratch.z;
+    phoneLaserPositionArrayScratch[3] = drawTarget.x;
+    phoneLaserPositionArrayScratch[4] = drawTarget.y;
+    phoneLaserPositionArrayScratch[5] = drawTarget.z;
+    visual.positions.set(phoneLaserPositionArrayScratch);
+    visual.beamGeometry.attributes.position.needsUpdate = true;
+    visual.beam.visible = beamActive;
+    visual.beamMaterial.color.setHex(hasTractor ? 0xff6df2 : 0x00f3ff);
+    visual.beamMaterial.opacity = hasTractor ? 0.92 : 0.68;
+    visual.tag.visible = hasTag || hasTractor;
+    visual.tag.position.copy(drawTarget);
+    visual.tag.lookAt(phoneAimOriginScratch);
+    const pulse = (Math.sin(elapsed * 7.2) + 1) * 0.5;
+    visual.tag.scale.setScalar(hasTractor ? 1.14 + pulse * 0.16 : 0.96 + pulse * 0.12);
+    if (visual.ring?.material) {
+      visual.ring.material.color.setHex(hasTractor ? 0xff6df2 : phoneLaserTaggedEntry ? 0xf6c96d : 0x00f3ff);
+      visual.ring.material.opacity = hasTractor ? 0.92 : 0.64 + pulse * 0.22;
+    }
+    if (visual.core?.material) visual.core.material.opacity = 0.62 + pulse * 0.3;
+  }
+
+  function ensurePhoneFpvStream() {
+    if (phoneFpvStream && phoneFpvRenderer && phoneFpvCamera) return phoneFpvStream;
+    try {
+      phoneFpvCanvas = phoneFpvCanvas || document.createElement("canvas");
+      phoneFpvCanvas.width = PHONE_FPV_STREAM_WIDTH;
+      phoneFpvCanvas.height = PHONE_FPV_STREAM_HEIGHT;
+      if (!phoneFpvRenderer) {
+        phoneFpvRenderer = new THREE.WebGLRenderer({
+          canvas: phoneFpvCanvas,
+          antialias: false,
+          alpha: false,
+          powerPreference: "high-performance",
+          preserveDrawingBuffer: false
+        });
+        phoneFpvRenderer.setPixelRatio(1);
+        phoneFpvRenderer.outputColorSpace = THREE.SRGBColorSpace;
+        phoneFpvRenderer.toneMapping = renderer.toneMapping;
+        phoneFpvRenderer.toneMappingExposure = renderer.toneMappingExposure;
+        phoneFpvRenderer.shadowMap.enabled = false;
+        phoneFpvRenderer.setSize(PHONE_FPV_STREAM_WIDTH, PHONE_FPV_STREAM_HEIGHT, false);
+      }
+      if (!phoneFpvCamera) {
+        phoneFpvCamera = new THREE.PerspectiveCamera(62, PHONE_FPV_STREAM_WIDTH / PHONE_FPV_STREAM_HEIGHT, 0.05, 80);
+      }
+      if (!phoneFpvCanvas.captureStream) {
+        throw new Error("canvas captureStream is unavailable");
+      }
+      phoneFpvStream = phoneFpvCanvas.captureStream(PHONE_FPV_STREAM_FPS);
+      const videoTrack = phoneFpvStream.getVideoTracks?.()[0] || null;
+      if (videoTrack) videoTrack.contentHint = "motion";
+      const audioTrack = preferredPhoneFpvAudioTrack().track || ensurePhoneFpvSilentAudioTrack();
+      if (audioTrack && !phoneFpvStream.getAudioTracks().includes(audioTrack)) {
+        phoneFpvStream.addTrack(audioTrack);
+        phoneFpvAudioTrack = audioTrack;
+      }
+      phoneFpvStats = {
+        ...phoneFpvStats,
+        active: true,
+        width: PHONE_FPV_STREAM_WIDTH,
+        height: PHONE_FPV_STREAM_HEIGHT,
+        hasVideoTrack: Boolean(videoTrack),
+        hasAudioTrack: Boolean(audioTrack),
+        audioSource: audioTrack === phoneFpvSilentAudioTrack ? "silent" : preferredPhoneFpvAudioTrack().source || "environment",
+        lastError: ""
+      };
+      return phoneFpvStream;
+    } catch (error) {
+      phoneFpvStats = { ...phoneFpvStats, active: false, lastError: error?.message || "desktop FPV stream unavailable" };
+      return null;
+    }
+  }
+
+  function preferredPhoneFpvAudioTrack() {
+    try {
+      const capture = dropSong.captureStream?.();
+      const track = capture?.stream?.getAudioTracks?.()[0] || null;
+      if (track) return { track, source: capture.source || "drop-song" };
+    } catch {
+      // Fall back to a silent negotiation-safe track.
+    }
+    return { track: null, source: "" };
+  }
+
+  function ensurePhoneFpvSilentAudioTrack() {
+    if (phoneFpvSilentAudioTrack) return phoneFpvSilentAudioTrack;
+    const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContextClass) return null;
+    try {
+      phoneFpvSilentAudioContext = new AudioContextClass();
+      const destination = phoneFpvSilentAudioContext.createMediaStreamDestination();
+      const gain = phoneFpvSilentAudioContext.createGain();
+      const oscillator = phoneFpvSilentAudioContext.createOscillator();
+      gain.gain.value = 0.00001;
+      oscillator.frequency.value = 32;
+      oscillator.connect(gain).connect(destination);
+      oscillator.start();
+      phoneFpvSilentNodes = { destination, gain, oscillator };
+      phoneFpvSilentAudioTrack = destination.stream.getAudioTracks()[0] || null;
+      if (phoneFpvSilentAudioTrack) phoneFpvSilentAudioTrack.enabled = true;
+      return phoneFpvSilentAudioTrack;
+    } catch {
+      return null;
+    }
+  }
+
+  function syncPhoneFpvAudioTrack(force = false) {
+    if (!phoneFpvStream) return;
+    const now = performance.now();
+    if (!force && now - phoneFpvLastAudioSyncAt < 1500) return;
+    phoneFpvLastAudioSyncAt = now;
+    const preferred = preferredPhoneFpvAudioTrack();
+    const nextTrack = preferred.track || phoneFpvSilentAudioTrack || ensurePhoneFpvSilentAudioTrack();
+    if (!nextTrack || nextTrack === phoneFpvAudioTrack) return;
+    for (const track of phoneFpvStream.getAudioTracks()) {
+      if (track !== nextTrack) phoneFpvStream.removeTrack(track);
+    }
+    if (!phoneFpvStream.getAudioTracks().includes(nextTrack)) phoneFpvStream.addTrack(nextTrack);
+    phoneFpvAudioTrack = nextTrack;
+    phoneFpvAudioSender?.replaceTrack?.(nextTrack).catch(() => {});
+    phoneFpvStats = {
+      ...phoneFpvStats,
+      hasAudioTrack: true,
+      audioSource: preferred.track ? preferred.source || "environment" : "silent"
+    };
+  }
+
+  function updatePhoneFpvCamera() {
+    if (!phoneFpvCamera) return;
+    phoneFpvCamera.position.set(phonePose.x, phonePose.y + 0.05, phonePose.z);
+    phoneFpvCamera.rotation.set(phonePose.pitch, phonePose.yaw, phonePose.roll, "YXZ");
+    phoneFpvCamera.updateMatrixWorld();
+  }
+
+  function renderPhoneFpvFrame(nowSeconds = performance.now() / 1000) {
+    if (!phoneFpvRenderer || !phoneFpvCamera || !phoneFpvStream) return;
+    const frameInterval = 1 / PHONE_FPV_STREAM_FPS;
+    if (nowSeconds - phoneFpvLastRenderAt < frameInterval) return;
+    phoneFpvLastRenderAt = nowSeconds;
+    syncPhoneFpvAudioTrack(false);
+    updatePhoneFpvCamera();
+    const hidden = [];
+    if (phoneCardEntry?.group?.visible) {
+      hidden.push(phoneCardEntry.group);
+      phoneCardEntry.group.visible = false;
+    }
+    try {
+      phoneFpvRenderer.toneMappingExposure = renderer.toneMappingExposure;
+      phoneFpvRenderer.render(scene, phoneFpvCamera);
+      phoneFpvStats = {
+        ...phoneFpvStats,
+        active: true,
+        frames: phoneFpvStats.frames + 1,
+        hasVideoTrack: Boolean(phoneFpvStream.getVideoTracks?.().length),
+        hasAudioTrack: Boolean(phoneFpvStream.getAudioTracks?.().length),
+        lastFrameAt: Date.now(),
+        lastError: ""
+      };
+    } catch (error) {
+      phoneFpvStats = { ...phoneFpvStats, lastError: error?.message || "desktop FPV render failed" };
+    } finally {
+      hidden.forEach((object) => {
+        object.visible = true;
+      });
+    }
+  }
+
+  function disposePhoneFpvStream() {
+    phoneFpvVideoSender = null;
+    phoneFpvAudioSender = null;
+    if (phoneFpvStream) {
+      phoneFpvStream.getTracks().forEach((track) => {
+        if (track !== phoneFpvAudioTrack || track === phoneFpvSilentAudioTrack) track.stop?.();
+      });
+    }
+    phoneFpvStream = null;
+    phoneFpvAudioTrack = null;
+    phoneFpvRenderer?.dispose?.();
+    phoneFpvRenderer = null;
+    phoneFpvCamera = null;
+    phoneFpvCanvas = null;
+    if (phoneFpvSilentNodes?.oscillator) phoneFpvSilentNodes.oscillator.stop?.();
+    phoneFpvSilentNodes = null;
+    phoneFpvSilentAudioTrack?.stop?.();
+    phoneFpvSilentAudioTrack = null;
+    if (phoneFpvSilentAudioContext && phoneFpvSilentAudioContext.state !== "closed") phoneFpvSilentAudioContext.close().catch(() => {});
+    phoneFpvSilentAudioContext = null;
+    phoneFpvStats = { active: false, frames: 0, width: 0, height: 0, fps: PHONE_FPV_STREAM_FPS, hasVideoTrack: false, hasAudioTrack: false, audioSource: "", lastFrameAt: 0, lastError: "" };
+  }
+
+  function phoneBridgeNumber(value, places = 3) {
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric)) return 0;
+    const scale = 10 ** places;
+    return Math.round(numeric * scale) / scale;
+  }
+
+  function phoneBridgeVectorArray(vector) {
+    return [
+      phoneBridgeNumber(vector?.x),
+      phoneBridgeNumber(vector?.y),
+      phoneBridgeNumber(vector?.z)
+    ];
+  }
+
+  function phoneBridgeEulerArray(euler) {
+    return [
+      phoneBridgeNumber(euler?.x, 4),
+      phoneBridgeNumber(euler?.y, 4),
+      phoneBridgeNumber(euler?.z, 4)
+    ];
+  }
+
+  function phoneBridgeQuaternionArray(quaternion) {
+    return [
+      phoneBridgeNumber(quaternion?.x, 5),
+      phoneBridgeNumber(quaternion?.y, 5),
+      phoneBridgeNumber(quaternion?.z, 5),
+      phoneBridgeNumber(quaternion?.w ?? 1, 5)
+    ];
+  }
+
+  function phoneBridgeWorldTransform(object) {
+    if (!object) return null;
+    object.updateWorldMatrix?.(true, false);
+    const position = new THREE.Vector3();
+    const quaternion = new THREE.Quaternion();
+    const scale = new THREE.Vector3();
+    object.matrixWorld.decompose(position, quaternion, scale);
+    return {
+      position: phoneBridgeVectorArray(position),
+      quaternion: phoneBridgeQuaternionArray(quaternion),
+      scale: phoneBridgeVectorArray(scale)
+    };
+  }
+
+  function phoneBridgeSafeMediaUri(value = "") {
+    const raw = String(value || "").trim();
+    if (!raw || /^(blob:|data:|file:|mediastream:|hapa-live-camera-card:)/i.test(raw)) return "";
+    try {
+      const base = globalThis.location?.href || "http://127.0.0.1/";
+      const parsed = new URL(raw, base);
+      if (/^(blob:|data:|file:|mediastream:|hapa-live-camera-card:)/i.test(parsed.protocol)) return "";
+      const currentHost = globalThis.location?.hostname || "";
+      const localHosts = new Set(["127.0.0.1", "localhost", currentHost].filter(Boolean));
+      if (localHosts.has(parsed.hostname)) return `${parsed.pathname}${parsed.search}${parsed.hash}`;
+      if (parsed.origin === globalThis.location?.origin) return `${parsed.pathname}${parsed.search}${parsed.hash}`;
+      return parsed.href;
+    } catch {
+      return raw.startsWith("/") ? raw : "";
+    }
+  }
+
+  function phoneBridgeSourceMediaUri(source = {}, video = null) {
+    const candidates = [
+      video?.currentSrc,
+      video?.src,
+      source.uri,
+      source.solidUri,
+      source.originalUri,
+      source.sourceUri,
+      source.videoUri
+    ];
+    for (const candidate of candidates) {
+      const uri = phoneBridgeSafeMediaUri(candidate);
+      if (uri) return uri;
+    }
+    return "";
+  }
+
+  function phoneBridgeCardMediaUri(entry) {
+    const card = entry?.card || {};
+    const candidates = [
+      entry?.videoSourceUri,
+      solidVideoUriForSource(card),
+      card.solidUri,
+      card.videoUri,
+      card.uri,
+      entry?.video?.currentSrc,
+      entry?.video?.src
+    ];
+    for (const candidate of candidates) {
+      const uri = phoneBridgeSafeMediaUri(candidate);
+      if (uri) return uri;
+    }
+    return "";
+  }
+
+  function phoneBridgePosterUri(entryOrSource = {}) {
+    const source = entryOrSource?.card || entryOrSource;
+    return phoneBridgeSafeMediaUri(
+      entryOrSource?.videoPosterUri ||
+      source.posterUri ||
+      source.imageUri ||
+      source.coverUri ||
+      source.thumbnailUri ||
+      ""
+    );
+  }
+
+  function phoneBridgeEntryZone(entry) {
+    if (entry?.lockedDropZone) return "drop";
+    if (entry?.lockedMediaPool) return "media-pool";
+    if (entry?.lockedCenterVisualizer) return "center";
+    if (entry?.lockedDock) return "dock";
+    if (entry?.lockedCameraCard) return "camera-card";
+    if (entry?.lockedPhoneCard) return "phone-card";
+    if (entry?.state === "held") return "held";
+    return entry?.state || "table";
+  }
+
+  function phoneBridgeEntrySnapshot(entry, index = 0) {
+    if (!entry?.group || entry.isPhoneCard) return null;
+    const transform = phoneBridgeWorldTransform(entry.group);
+    if (!transform) return null;
+    const card = entry.card || {};
+    return {
+      id: String(card.id || card.slug || card.title || `card-${index}`),
+      title: String(card.title || card.name || "Card").slice(0, 80),
+      subtitle: String(card.subtitle || card.archetype || card.kind || "").slice(0, 80),
+      kind: String(card.cardType || card.sourceKind || card.kind || "card"),
+      zone: phoneBridgeEntryZone(entry),
+      selected: entry === selectedEntry,
+      hover: Boolean(entry.hover),
+      hasVideo: Boolean(entry.videoSourceUri || card.videoUri || entry.video?.currentSrc || entry.video?.src),
+      videoUri: phoneBridgeCardMediaUri(entry),
+      posterUri: phoneBridgePosterUri(entry),
+      currentTime: phoneBridgeNumber(entry.video?.currentTime || 0, 2),
+      playing: Boolean(entry.video && !entry.video.paused),
+      position: transform.position,
+      quaternion: transform.quaternion,
+      scale: transform.scale
+    };
+  }
+
+  function phoneBridgeScreenSnapshot(screen, family = "screen", index = 0) {
+    const mesh = screen?.mesh || screen?.object || null;
+    if (!mesh) return null;
+    const transform = phoneBridgeWorldTransform(mesh);
+    if (!transform) return null;
+    const source = screen.source || {};
+    const height = Number(mesh.userData?.previewScreenHeight || DROP_PREVIEW_BACK_HEIGHT);
+    const aspect = Number(mesh.userData?.previewAspect || DROP_PREVIEW_SCREEN_ASPECT);
+    const width = Number(mesh.userData?.previewScreenWidth || height * aspect);
+    const sourceKey = dropZoneVideoSourceKey(source) || mesh.name || `${family}-${index}`;
+    return {
+      id: String(`${family}-${index}-${sourceKey}`).slice(0, 180),
+      family,
+      title: String(source.label || source.title || mesh.name || family).slice(0, 90),
+      videoUri: phoneBridgeSourceMediaUri(source, screen.video),
+      posterUri: phoneBridgeSafeMediaUri(source.posterUri || source.imageUri || ""),
+      currentTime: phoneBridgeNumber(screen.video?.currentTime || 0, 2),
+      playing: Boolean(screen.video && !screen.video.paused),
+      width: phoneBridgeNumber(width),
+      height: phoneBridgeNumber(height),
+      opacity: phoneBridgeNumber(mesh.material?.opacity ?? screen.material?.opacity ?? 0.86, 3),
+      position: transform.position,
+      quaternion: transform.quaternion,
+      scale: transform.scale
+    };
+  }
+
+  function phoneBridgeBandsSnapshot(bands = {}) {
+    return {
+      low: phoneBridgeNumber(bands.low || 0, 3),
+      mid: phoneBridgeNumber(bands.mid || 0, 3),
+      high: phoneBridgeNumber(bands.high || 0, 3),
+      energy: phoneBridgeNumber(bands.energy || 0, 3)
+    };
+  }
+
+  function phoneBridgeEffectSnapshot({ id, label, type = "ring", position, radius = 0.6, width = 1, depth = 1, color = "#00f3ff", energy = 0, active = false, band = "energy" }) {
+    return {
+      id,
+      label,
+      type,
+      position: phoneBridgeVectorArray(position),
+      radius: phoneBridgeNumber(radius),
+      width: phoneBridgeNumber(width),
+      depth: phoneBridgeNumber(depth),
+      color,
+      energy: phoneBridgeNumber(energy, 3),
+      active: Boolean(active),
+      band
+    };
+  }
+
+  function phoneBridgeSceneEffectsSnapshot(bands = phoneSceneLastBands) {
+    const energy = Number(bands.energy || 0);
+    return [
+      phoneBridgeEffectSnapshot({
+        id: "drop-zone",
+        label: "Music Zone",
+        position: DROP_ZONE_POSITION,
+        radius: DROP_ZONE_RADIUS,
+        color: "#ff6df2",
+        energy: Math.max(dropZone.userData.energy || 0, dropZoneEntry ? 0.62 : 0, energy * 1.2),
+        active: Boolean(dropZoneEntry),
+        band: "energy"
+      }),
+      phoneBridgeEffectSnapshot({
+        id: "media-pool",
+        label: "Media Pool",
+        position: MEDIA_POOL_POSITION,
+        radius: MEDIA_POOL_RADIUS,
+        color: "#00f3ff",
+        energy: Math.max(mediaPoolZone.userData.energy || 0, mediaPoolEntries.length ? 0.36 : 0),
+        active: mediaPoolEntries.length > 0,
+        band: "mid"
+      }),
+      phoneBridgeEffectSnapshot({
+        id: "center-visualizer",
+        label: "Middle Visualizer",
+        position: CENTER_VISUALIZER_POSITION,
+        radius: CENTER_VISUALIZER_RADIUS,
+        color: "#f6c96d",
+        energy: Math.max(centerVisualizer?.userData?.activeBlend || 0, centerVisualizerEntries.length ? 0.42 : 0, energy),
+        active: centerVisualizerNeedsActiveLoop(),
+        band: "low"
+      }),
+      phoneBridgeEffectSnapshot({
+        id: "dock",
+        label: "Three-slot Dock",
+        type: "dock",
+        position: DOCK_POSITION,
+        width: DOCK_HALF_WIDTH * 2,
+        depth: DOCK_HALF_DEPTH * 2,
+        color: "#65f58a",
+        energy: Math.max(dockTray.userData.energy || 0, dockEntries.length ? 0.34 : 0),
+        active: dockEntries.length > 0,
+        band: "high"
+      })
+    ];
+  }
+
+  function createPhoneSceneStateSnapshot() {
+    const entrySet = new Set();
+    const bands = phoneBridgeBandsSnapshot(phoneSceneLastBands);
+    const entries = [...placedEntries, heldEntry]
+      .filter((entry) => {
+        if (!entry || entrySet.has(entry)) return false;
+        entrySet.add(entry);
+        return true;
+      })
+      .sort((first, second) =>
+        (first.placedAt ?? 0) - (second.placedAt ?? 0) ||
+        placedEntries.indexOf(first) - placedEntries.indexOf(second)
+      )
+      .slice(-PHONE_SCENE_CARD_LIMIT);
+    const cardsSnapshot = entries
+      .map((entry, index) => phoneBridgeEntrySnapshot(entry, index))
+      .filter(Boolean);
+    const screensSnapshot = [
+      ...(dropPreview?.screens || []).map((screen, index) => phoneBridgeScreenSnapshot(screen, "drop-preview", index)),
+      phoneBridgeScreenSnapshot(dockBackgroundPlayer?.screen, "dock-projection", 0)
+    ].filter((screen) => screen && (screen.videoUri || screen.family === "dock-projection" || screen.family === "drop-preview"))
+      .slice(0, PHONE_SCENE_SCREEN_LIMIT);
+    const effectsSnapshot = phoneBridgeSceneEffectsSnapshot(bands);
+    return {
+      version: 1,
+      generatedAt: Date.now(),
+      playing,
+      activeSong: dropZoneEntry?.card?.title || "",
+      audioBands: bands,
+      pose: {
+        x: phoneBridgeNumber(phonePose.x),
+        y: phoneBridgeNumber(phonePose.y),
+        z: phoneBridgeNumber(phonePose.z),
+        yaw: phoneBridgeNumber(phonePose.yaw, 4),
+        pitch: phoneBridgeNumber(phonePose.pitch, 4),
+        roll: phoneBridgeNumber(phonePose.roll, 4)
+      },
+      tools: {
+        cameraFacing: phoneCameraFacing,
+        laserTagged: Boolean(phoneLaserTaggedEntry || phoneLaserTaggedPoint),
+        laserTarget: phoneLaserTaggedEntry?.card?.title || (phoneLaserTaggedPoint ? "location" : ""),
+        tractorActive: Boolean(phoneTractorEntry),
+        tractorTarget: phoneTractorEntry?.card?.title || "",
+        status: phoneTractorEntry ? `Tractor: ${phoneTractorEntry.card?.title || "card"}` : phoneTractorStatus || phoneLaserStatus || ""
+      },
+      cards: cardsSnapshot,
+      screens: screensSnapshot,
+      effects: effectsSnapshot,
+      counts: {
+        placed: placedEntries.length,
+        cards: cardsSnapshot.length,
+        screens: screensSnapshot.length,
+        effects: effectsSnapshot.length
+      }
+    };
+  }
+
+  function sendPhoneSceneState(force = false) {
+    if (!phoneDataChannel || phoneDataChannel.readyState !== "open") return false;
+    const now = performance.now();
+    if (!force && now - phoneSceneSyncLastAt < PHONE_SCENE_SYNC_INTERVAL_MS) return false;
+    phoneSceneSyncLastAt = now;
+    try {
+      const state = createPhoneSceneStateSnapshot();
+      const payload = JSON.stringify({
+        type: "scene-state",
+        state
+      });
+      phoneDataChannel.send(payload);
+      phoneSceneSyncStats = {
+        sent: phoneSceneSyncStats.sent + 1,
+        bytes: payload.length,
+        cards: state.cards.length,
+        screens: state.screens.length,
+        effects: state.effects.length,
+        lastAt: Date.now(),
+        lastError: ""
+      };
+      return true;
+    } catch (error) {
+      phoneSceneSyncStats = {
+        ...phoneSceneSyncStats,
+        lastAt: Date.now(),
+        lastError: error?.message || "scene sync send failed"
+      };
+      return false;
+    }
+  }
+
+  function ensurePhoneCardEntry(stream) {
+    if (!stream) return null;
+    if (!phoneCardEntry) {
+      const entry = createCardEntry(createPhoneCardData(phoneBridgeInvite || {}));
+      entry.isPhoneCard = true;
+      entry.liveCamera = true;
+      entry.lockedPhoneCard = true;
+      attachCameraStreamToEntry(entry, stream);
+      phoneCardEntry = entry;
+      placePhoneCardEntry(entry);
+      createBurst(PHONE_CARD_POSITION.x, PHONE_CARD_POSITION.z, 0x00f3ff, 0.76);
+      createBurst(PHONE_CARD_POSITION.x, PHONE_CARD_POSITION.z, 0xff6df2, 0.5);
+      status = "Phone Card joined";
+    } else if (phoneCardEntry.cameraStream !== stream) {
+      attachCameraStreamToEntry(phoneCardEntry, stream);
+    }
+    if (phoneCardEntry?.card) {
+      phoneCardEntry.card = {
+        ...phoneCardEntry.card,
+        title: phoneBridgeInvite ? "Scene Camera Live" : "Phone Card",
+        subtitle: phoneBridgeInvite ? "Invite camera joined the Tarot scene" : "Mobile camera and flight telemetry",
+        invitationStatus: "camera-live"
+      };
+    }
+    phoneCardEntry.video?.play?.().catch(() => {});
+    updateVideoPlayback(phoneCardEntry);
+    sendPhoneSceneState(true);
+    publishHud(true);
+    return phoneCardEntry;
+  }
+
+  function spawnPhoneInviteCard(invite = {}) {
+    phoneBridgeInvite = invite || phoneBridgeInvite;
+    const cardData = createPhoneCardData(phoneBridgeInvite || {});
+    if (!phoneCardEntry) {
+      const entry = createCardEntry(cardData);
+      entry.isPhoneCard = true;
+      entry.liveCamera = true;
+      entry.lockedPhoneCard = true;
+      phoneCardEntry = entry;
+      placePhoneCardEntry(entry);
+      createBurst(PHONE_CARD_POSITION.x, PHONE_CARD_POSITION.z, 0x00f3ff, 0.5);
+      createBurst(PHONE_CARD_POSITION.x, PHONE_CARD_POSITION.z, 0xf6c96d, 0.36);
+    } else {
+      phoneCardEntry.card = {
+        ...phoneCardEntry.card,
+        ...cardData
+      };
+    }
+    phoneBridgeStatus = "Invitation Created; waiting for camera";
+    publishHud(true);
+    return phoneCardEntry;
+  }
+
+  function roomletParticipantCardsFromInvite(invite = phoneBridgeInvite) {
+    return (Array.isArray(invite?.roomlet?.participantCards) ? invite.roomlet.participantCards : [])
+      .filter((card) => card?.participantCoreKey)
+      .slice(0, 12);
+  }
+
+  function roomletBridgeText(value = "", fallback = "", max = 140) {
+    return String(value || fallback || "").replace(/\s+/g, " ").trim().slice(0, max);
+  }
+
+  function roomletBridgeSourceEvents(payload = {}) {
+    const events = [];
+    const roomView = payload.roomView && typeof payload.roomView === "object" ? payload.roomView : {};
+    if (Array.isArray(roomView.events)) events.push(...roomView.events);
+    if (Array.isArray(roomView.presence)) events.push(...roomView.presence);
+    if (Array.isArray(roomView.chat)) events.push(...roomView.chat);
+    if (Array.isArray(payload.participantEvents)) events.push(...payload.participantEvents);
+    if (payload.participantEvent && typeof payload.participantEvent === "object") events.push(payload.participantEvent);
+    return events;
+  }
+
+  function roomletBridgeParticipantPosition(index = 0, total = 1) {
+    const safeTotal = Math.max(1, total);
+    const angle = -Math.PI * 0.18 + (Math.PI * 0.36 * (index + 0.5)) / safeTotal;
+    const radius = 1.56;
+    return [
+      Number((Math.cos(angle) * radius).toFixed(3)),
+      0,
+      Number((1.02 + Math.sin(angle) * radius * 0.58).toFixed(3))
+    ];
+  }
+
+  function roomletParticipantCardsFromBridgePayload(payload = {}, inviteId = "") {
+    const participants = new Map();
+    for (const rawEvent of roomletBridgeSourceEvents(payload)) {
+      const event = rawEvent?.event && typeof rawEvent.event === "object" ? { ...rawEvent.event } : { ...(rawEvent || {}) };
+      const participantCoreKey = roomletBridgeText(
+        rawEvent?.participantCoreKey ||
+          event.participantCoreKey ||
+          payload.participantCoreKey ||
+          rawEvent?.coreKey ||
+          event.coreKey ||
+          rawEvent?.sourceParticipantCoreKey ||
+          event.sourceParticipantCoreKey,
+        "",
+        96
+      );
+      if (!participantCoreKey) continue;
+      const current = participants.get(participantCoreKey) || {
+        participantCoreKey,
+        displayName: "",
+        role: "",
+        status: "",
+        presence: "",
+        media: null,
+        lastChat: "",
+        eventCount: 0,
+        lastEventAt: ""
+      };
+      current.eventCount += 1;
+      current.lastEventAt = event.createdAt || rawEvent?.createdAt || current.lastEventAt || new Date().toISOString();
+      if (event.type === "hapa.roomlet.chat.message") {
+        current.displayName = roomletBridgeText(event.displayName, current.displayName || "Roomlet participant", 80);
+        current.role = roomletBridgeText(event.role, current.role, 40);
+        current.lastChat = roomletBridgeText(event.text, current.lastChat, 180);
+      } else {
+        current.displayName = roomletBridgeText(event.displayName, current.displayName || "Roomlet participant", 80);
+        current.role = roomletBridgeText(event.role, current.role || "webcam_card", 40);
+        current.status = roomletBridgeText(event.status, current.status || "heartbeat", 40);
+        current.presence = roomletBridgeText(event.presence, current.presence || "active", 60);
+        current.media = event.media && typeof event.media === "object" ? event.media : current.media;
+      }
+      participants.set(participantCoreKey, current);
+    }
+
+    return [...participants.values()]
+      .sort((first, second) => (Date.parse(first.lastEventAt || "") || 0) - (Date.parse(second.lastEventAt || "") || 0))
+      .slice(0, 12)
+      .map((participant, index, allParticipants) => {
+        const isWebcam = participant.media?.kind === "webcam_card" || participant.presence === "webcam_card_live" || participant.role === "webcam_card";
+        const displayName = participant.displayName || `${participant.role || "Roomlet"} ${participant.participantCoreKey.slice(0, 8)}`;
+        const statusText = [participant.presence, participant.status, participant.lastChat ? `chat: ${participant.lastChat}` : ""].filter(Boolean).join("; ");
+        return {
+          id: `roomlet-participant-${participant.participantCoreKey.slice(0, 16)}`,
+          type: isWebcam ? "webcam_card" : "presence_card",
+          title: displayName,
+          position: roomletBridgeParticipantPosition(index, allParticipants.length),
+          meaning: roomletBridgeText(statusText, "Roomlet participant presence", 500),
+          zone: "roomlet-participants",
+          inviteId,
+          participantCoreKey: participant.participantCoreKey,
+          role: participant.role || "participant",
+          status: participant.status || "",
+          presence: participant.presence || "",
+          media: participant.media || null,
+          lastChat: participant.lastChat || "",
+          eventCount: participant.eventCount,
+          lastEventAt: participant.lastEventAt,
+          hostControls: ["mute", "remove", "promote", "archive"].map((action) => ({ action }))
+        };
+      });
+  }
+
+  function mergeRoomletParticipantCards(currentCards = [], nextCards = []) {
+    const merged = new Map();
+    for (const card of [...currentCards, ...nextCards]) {
+      const key = String(card?.participantCoreKey || "").trim();
+      if (!key) continue;
+      merged.set(key, {
+        ...(merged.get(key) || {}),
+        ...card
+      });
+    }
+    return [...merged.values()].slice(0, 12);
+  }
+
+  function roomletParticipantCardData(card = {}) {
+    const participantKey = String(card.participantCoreKey || "").trim();
+    const statusText = [card.presence, card.status].filter(Boolean).join(" / ");
+    return {
+      ...card,
+      id: card.id || `roomlet-participant-${participantKey.slice(0, 12)}`,
+      title: card.title || `Roomlet ${participantKey.slice(0, 8)}`,
+      subtitle: card.subtitle || statusText || "Roomlet participant",
+      summary: card.meaning || card.summary || "A Roomlet participant joined this Tarot scene through the Hypercore room.",
+      archetype: card.role || "Roomlet Participant",
+      tarotNumber: card.type === "webcam_card" ? "CAM" : "P2P",
+      keywords: ["roomlet", "hypercore", "participant", card.presence || "", card.status || ""].filter(Boolean),
+      tags: ["roomlet-participant", "hypercore", card.type || "presence_card", card.presence || ""].filter(Boolean),
+      sourceKind: "roomlet-participant",
+      kind: "roomlet-participant",
+      cardType: card.type || "presence_card",
+      roomletParticipant: true,
+      participantCoreKey: participantKey
+    };
+  }
+
+  function placeRoomletParticipantEntry(entry, card = {}, index = 0, total = 1) {
+    const position = Array.isArray(card.position) ? card.position : [0, 0, 1.1 + index * 0.18];
+    const centered = index - (Math.max(1, total) - 1) / 2;
+    entry.isRoomletParticipant = true;
+    entry.roomletParticipantKey = card.participantCoreKey || entry.card?.participantCoreKey || "";
+    entry.state = "placed";
+    entry.hover = false;
+    entry.slotIndex = -1;
+    entry.floatMotion = null;
+    entry.lockedDropZone = false;
+    entry.lockedMediaPool = false;
+    entry.lockedCenterVisualizer = false;
+    entry.lockedDock = false;
+    entry.lockedCameraCard = false;
+    entry.lockedPhoneCard = false;
+    entry.lockedBlueAvatarCard = false;
+    entry.magnetized = false;
+    entry.magnetZone = "";
+    entry.targetPosition.set(
+      THREE.MathUtils.clamp(Number(position[0] || 0), -BOARD_LIMIT_X, BOARD_LIMIT_X),
+      CARD_TABLE_BASE_Y + 0.08,
+      THREE.MathUtils.clamp(Number(position[2] || 1.1), -BOARD_LIMIT_Z, BOARD_LIMIT_Z)
+    );
+    setCardTargetRotation(entry, -0.04, entry.baseRotationY || 0, centered * 0.018);
+    entry.group.position.copy(DECK_POSITION).add(new THREE.Vector3(0.34 + index * 0.03, 0.28, -0.24));
+    entry.drawAnim = {
+      life: 0,
+      duration: 0.68,
+      from: entry.group.position.clone(),
+      spin: Math.PI * 0.5,
+      peak: 0.52
+    };
+    entry.placedAt = placedEntries.length + index;
+    entry.playing = playing;
+    if (!placedEntries.includes(entry)) placedEntries.push(entry);
+    if (!entry.group.parent) world.add(entry.group);
+    resolvePlacedCardStacks();
+  }
+
+  function syncRoomletParticipantCards(invite = phoneBridgeInvite) {
+    const participantCards = roomletParticipantCardsFromInvite(invite);
+    const activeKeys = new Set(participantCards.map((card) => card.participantCoreKey));
+    for (const [participantKey, entry] of [...roomletParticipantEntries.entries()]) {
+      if (!activeKeys.has(participantKey)) {
+        placedEntries = placedEntries.filter((item) => item !== entry);
+        disposeEntry(entry);
+      }
+    }
+    participantCards.forEach((card, index) => {
+      const participantKey = String(card.participantCoreKey || "").trim();
+      const cardData = roomletParticipantCardData(card);
+      let entry = roomletParticipantEntries.get(participantKey);
+      if (!entry) {
+        entry = createCardEntry(cardData);
+        roomletParticipantEntries.set(participantKey, entry);
+        placeRoomletParticipantEntry(entry, cardData, index, participantCards.length);
+        createBurst(entry.targetPosition.x, entry.targetPosition.z, cardData.cardType === "webcam_card" ? 0xf6c96d : 0x00f3ff, 0.56);
+      } else {
+        entry.card = { ...entry.card, ...cardData };
+        refreshCardEntryVisual(entry);
+      }
+    });
+    if (participantCards.length) status = `${participantCards.length} Roomlet participant card${participantCards.length === 1 ? "" : "s"} in scene`;
+    publishHud(true);
+    return participantCards;
+  }
+
+  function applyRoomletHostControl({ participantCoreKey = "", action = "", control = null, inviteId = "", reason = "tarot-host-control" } = {}) {
+    const normalizedAction = String(action || control?.action || "").trim().toLowerCase();
+    const key = String(participantCoreKey || control?.participantCoreKey || "").trim();
+    if (!key || !normalizedAction) return null;
+    const event = control || {
+      type: "hapa.roomlet.host.control",
+      version: 1,
+      inviteId: inviteId || phoneBridgeInvite?.id || "",
+      participantCoreKey: key,
+      action: normalizedAction,
+      reason,
+      status: `${normalizedAction}_requested`,
+      createdAt: new Date().toISOString()
+    };
+    roomletHostControls.push(event);
+    roomletHostControls = roomletHostControls.slice(-40);
+    const entry = roomletParticipantEntries.get(key);
+    if (phoneBridgeInvite?.roomlet?.participantCards) {
+      const nextCards = phoneBridgeInvite.roomlet.participantCards
+        .map((card) => card.participantCoreKey === key ? { ...card, hostControlAction: normalizedAction, hostControlStatus: event.status } : card)
+        .filter((card) => !(card.participantCoreKey === key && ["remove", "archive"].includes(normalizedAction)));
+      phoneBridgeInvite = {
+        ...phoneBridgeInvite,
+        roomlet: {
+          ...phoneBridgeInvite.roomlet,
+          participantCards: nextCards
+        }
+      };
+    }
+    if (entry && ["remove", "archive"].includes(normalizedAction)) {
+      placedEntries = placedEntries.filter((item) => item !== entry);
+      disposeEntry(entry);
+      createBurst(entry.targetPosition.x, entry.targetPosition.z, normalizedAction === "archive" ? 0xf6c96d : 0xff7448, 0.62);
+    } else if (entry?.card) {
+      entry.card = {
+        ...entry.card,
+        subtitle: normalizedAction === "mute" ? "Host muted participant" : normalizedAction === "promote" ? "Host promoted participant" : entry.card.subtitle,
+        hostControlAction: normalizedAction,
+        hostControlStatus: event.status
+      };
+      refreshCardEntryVisual(entry);
+      createBurst(entry.targetPosition.x, entry.targetPosition.z, normalizedAction === "promote" ? 0x65f58a : 0xf6c96d, 0.48);
+    }
+    status = `Roomlet ${normalizedAction}: ${entry?.card?.title || key.slice(0, 8)}`;
+    resolvePlacedCardStacks();
+    publishHud(true);
+    return event;
+  }
+
+  function createPhoneCardData(invite = {}) {
+    const isInvite = Boolean(invite?.id || invite?.cardId || invite?.hypercore);
+    const inviteCard = invite.card && typeof invite.card === "object" ? invite.card : {};
+    return {
+      id: invite.cardId || inviteCard.id || "__hapa_phone_card__",
+      title: isInvite ? (inviteCard.title || "Invitation Created") : "Phone Card",
+      subtitle: isInvite ? (inviteCard.subtitle || "Waiting for camera to join") : "Mobile camera and flight telemetry",
+      archetype: "Remote Lens",
+      tarotNumber: isInvite ? "CAM" : "TEL",
+      summary: isInvite
+        ? "A Hypercore-linked camera invitation is attached to the current Tarot Draw scene and is waiting for a live peer."
+        : "A live mobile camera feed and first-person controller joined into the 3D tarot space.",
+      keywords: isInvite ? ["camera", "invite", "hypercore", "webrtc", "scene"] : ["phone", "mobile", "remote", "camera", "flight"],
+      tags: isInvite
+        ? ["webcam-card", "phone-card", "scene-invite", "hypercore", "webrtc", "invitation-created"]
+        : ["phone-card", "live-feed", "remote-peer"],
+      sourceKind: isInvite ? "webcam-invite" : "phone",
+      kind: isInvite ? "webcam-invite" : "phone",
+      cardType: isInvite ? "webcam_card" : "phone_card",
+      liveCamera: true,
+      invitationStatus: isInvite ? "invitation-created" : "",
+      inviteId: invite.id || "",
+      hypercore: invite.hypercore || null,
+      webrtc: invite.webrtc || null,
+      links: invite.links || null,
+      lineage: inviteCard.lineage || {
+        source: isInvite ? "tarot-draw-scene-invite" : "phone-card-bridge",
+        inviteId: invite.id || "",
+        session: invite.session || phoneBridgeSession || "",
+        sceneSnapshotId: invite.sceneSnapshot?.id || ""
+      }
+    };
+  }
+
+  function placePhoneCardEntry(entry) {
+    if (!entry) return;
+    entry.state = "placed";
+    entry.hover = false;
+    entry.slotIndex = -1;
+    entry.floatMotion = null;
+    entry.lockedDropZone = false;
+    entry.lockedMediaPool = false;
+    entry.lockedCenterVisualizer = false;
+    entry.lockedDock = false;
+    entry.lockedCameraCard = false;
+    entry.lockedPhoneCard = true;
+    entry.lockedBlueAvatarCard = false;
+    entry.magnetized = false;
+    entry.magnetZone = "";
+    entry.group.position.copy(DECK_POSITION).add(new THREE.Vector3(0.48, 0.36, -0.28));
+    applyPhoneBridgePose(phonePose);
+    entry.drawAnim = {
+      life: 0,
+      duration: 0.76,
+      from: entry.group.position.clone(),
+      spin: Math.PI * 0.72,
+      peak: 0.72
+    };
+    entry.placedAt = placedEntries.length;
+    entry.playing = true;
+    if (!placedEntries.includes(entry)) placedEntries.push(entry);
+    world.add(entry.group);
+    resolvePlacedCardStacks();
+  }
+
+  function applyPhoneBridgePose(nextPose = {}, packet = {}) {
+    if (packet?.cameraFacing) phoneCameraFacing = String(packet.cameraFacing || "user");
+    const nextYaw = Number(nextPose.yaw);
+    const nextPitch = Number(nextPose.pitch);
+    const nextRoll = Number(nextPose.roll);
+    phonePose = {
+      x: THREE.MathUtils.clamp(Number(nextPose.x ?? phonePose.x ?? PHONE_CARD_POSITION.x), -BOARD_LIMIT_X, BOARD_LIMIT_X),
+      y: THREE.MathUtils.clamp(Number(nextPose.y ?? phonePose.y ?? PHONE_CARD_POSITION.y), PHONE_CARD_MIN_Y, PHONE_CARD_MAX_Y),
+      z: THREE.MathUtils.clamp(Number(nextPose.z ?? phonePose.z ?? PHONE_CARD_POSITION.z), -BOARD_LIMIT_Z, BOARD_LIMIT_Z + 0.72),
+      yaw: Number.isFinite(nextYaw) ? normalizePhoneAngle(nextYaw) : normalizePhoneAngle(phonePose.yaw || 0),
+      pitch: THREE.MathUtils.clamp(Number.isFinite(nextPitch) ? nextPitch : Number(phonePose.pitch || -0.08), PHONE_PITCH_MIN, PHONE_PITCH_MAX),
+      roll: Number.isFinite(nextRoll) ? normalizePhoneAngle(nextRoll) : normalizePhoneAngle(phonePose.roll || 0)
+    };
+    if (phoneCardEntry) {
+      phoneCardEntry.cameraCardBaseY = phonePose.y;
+      phoneCardEntry.targetPosition.set(phonePose.x, phonePose.y, phonePose.z);
+      applyPhoneCardFacingPose(phoneCardEntry);
+      phoneCardEntry.floatMotion = null;
+      phoneCardEntry.playing = playing;
+      updateVideoPlayback(phoneCardEntry);
+    }
+    const now = performance.now();
+    if (packet?.fpv !== undefined || now - (phoneCardEntry?.userData?.lastHudAt || 0) > 650) {
+      if (phoneCardEntry) phoneCardEntry.userData = { ...(phoneCardEntry.userData || {}), lastHudAt: now };
+      publishHud();
+    }
+    sendPhoneSceneState(false);
+  }
+
+  function closePhonePeerConnection({ keepCard = false } = {}) {
+    phoneDataChannel?.close?.();
+    phoneDataChannel = null;
+    phoneSceneSyncLastAt = 0;
+    phonePeerConnection?.close?.();
+    phonePeerConnection = null;
+    disposePhoneFpvStream();
+    phoneMediaStream = null;
+    phoneBridgeConnected = false;
+    clearPhoneBridgeTools({ clearTag: !keepCard });
+    if (!keepCard) removePhoneCardEntry();
+  }
+
+  function removePhoneCardEntry() {
+    if (!phoneCardEntry) return;
+    placedEntries = placedEntries.filter((entry) => entry !== phoneCardEntry);
+    if (hoveredEntry === phoneCardEntry) hoveredEntry = null;
+    if (selectedEntry === phoneCardEntry) clearSelectedEntry();
+    disposeEntry(phoneCardEntry);
+    phoneCardEntry = null;
+    resolvePlacedCardStacks();
+  }
+
+  function stopPhoneBridge({ removeCard = true } = {}) {
+    if (phoneBridgePollTimer) {
+      window.clearTimeout(phoneBridgePollTimer);
+      phoneBridgePollTimer = 0;
+    }
+    closePhonePeerConnection({ keepCard: !removeCard });
+    for (const entry of roomletParticipantEntries.values()) {
+      placedEntries = placedEntries.filter((item) => item !== entry);
+      disposeEntry(entry);
+    }
+    roomletParticipantEntries = new Map();
+    roomletHostControls = [];
+    phoneBridgeEnabled = false;
+    phoneBridgeQrVisible = false;
+    phoneBridgePending = false;
+    phoneBridgeConnected = false;
+    phoneBridgeSince = 0;
+    phoneBridgeSession = "";
+    phoneBridgeMobileUrl = "";
+    phoneBridgeCertificateUrl = "";
+    phoneBridgeSecure = false;
+    phoneBridgeError = "";
+    phoneBridgeStatus = "";
+    phoneBridgeIceServers = [];
+    phoneBridgeInvite = null;
+    clearPhoneBridgeTools({ clearTag: true });
+  }
+
   function restoreCameraCardBaseMaterial(entry) {
     const baseMaterial = entry?.baseFaceMaterial || (entry?.faceMaterial !== entry?.cameraShaderMaterial ? entry?.faceMaterial : null);
-    if (!entry || !baseMaterial) return false;
-    if (entry.faceMesh) entry.faceMesh.material = baseMaterial;
-    entry.faceMaterial = baseMaterial;
+    const baseBackMaterial = entry?.baseBackMaterial || (entry?.backMaterial !== entry?.cameraBackShaderMaterial ? entry?.backMaterial : null);
+    if (!entry || (!baseMaterial && !baseBackMaterial)) return false;
+    if (baseMaterial) {
+      if (entry.faceMesh) entry.faceMesh.material = baseMaterial;
+      entry.faceMaterial = baseMaterial;
+    }
+    if (baseBackMaterial) {
+      if (entry.backMesh) entry.backMesh.material = baseBackMaterial;
+      entry.backMaterial = baseBackMaterial;
+    }
     entry.cameraShaderEnabled = false;
     return true;
   }
@@ -3749,17 +10232,21 @@ function createTarotDrawGame({ canvas, cards, avatarName, apiBase = "", producti
   function disposeCameraCardShaderMaterial(entry) {
     if (!entry) return false;
     const shaderMaterial = entry.cameraShaderMaterial;
+    const backShaderMaterial = entry.cameraBackShaderMaterial;
     restoreCameraCardBaseMaterial(entry);
     if (shaderMaterial) {
       shaderMaterial.dispose();
       entry.cameraShaderMaterial = null;
-      return true;
     }
-    return false;
+    if (backShaderMaterial) {
+      backShaderMaterial.dispose();
+      entry.cameraBackShaderMaterial = null;
+    }
+    return Boolean(shaderMaterial || backShaderMaterial);
   }
 
   function applyCameraCardShaderMode(entry) {
-    if (!entry?.isCameraCard || !entry.faceMesh) return false;
+    if (!entry?.liveCamera || !entry.faceMesh) return false;
     if (!cameraCardShaderEnabled || !entry.videoTexture) {
       disposeCameraCardShaderMaterial(entry);
       return false;
@@ -3770,6 +10257,14 @@ function createTarotDrawGame({ canvas, cards, avatarName, apiBase = "", producti
     entry.cameraShaderMaterial.uniforms.inputImage.value = entry.videoTexture;
     entry.faceMesh.material = entry.cameraShaderMaterial;
     entry.faceMaterial = entry.cameraShaderMaterial;
+    if (entry.backMesh) {
+      if (!entry.cameraBackShaderMaterial) {
+        entry.cameraBackShaderMaterial = createCameraCardHapaGradeMaterial(entry.videoTexture);
+      }
+      entry.cameraBackShaderMaterial.uniforms.inputImage.value = entry.videoTexture;
+      entry.backMesh.material = entry.cameraBackShaderMaterial;
+      entry.backMaterial = entry.cameraBackShaderMaterial;
+    }
     entry.cameraShaderEnabled = true;
     updateCameraCardShaderUniforms(entry, elapsedTime + rngSeed);
     return true;
@@ -3802,6 +10297,21 @@ function createTarotDrawGame({ canvas, cards, avatarName, apiBase = "", producti
     return entry.transcriptBubbleGroup;
   }
 
+  function ensureBlueAvatarTranscriptBubble(entry) {
+    if (!entry?.isBlueAvatarCard) return null;
+    if (!entry.transcriptBubbleGroup) {
+      entry.transcriptBubbleGroup = createCameraCardTranscriptBubble({
+        name: "blueAvatarSpeechBubble",
+        accentColor: 0x4facfe,
+        initialState: "idle",
+        initialTitle: "BLUE CARD LOG",
+        initialFooter: "Listening to Camera Card"
+      });
+      entry.group.add(entry.transcriptBubbleGroup);
+    }
+    return entry.transcriptBubbleGroup;
+  }
+
   function removeCameraCardTranscriptBubble(entry) {
     if (!entry?.transcriptBubbleGroup) return false;
     entry.transcriptBubbleGroup.parent?.remove(entry.transcriptBubbleGroup);
@@ -3820,6 +10330,43 @@ function createTarotDrawGame({ canvas, cards, avatarName, apiBase = "", producti
     if (latestEntries.length) return latestEntries.join("\n");
     if (cameraCardTranscriptionNotice) return cameraCardTranscriptionNotice;
     return cameraCardTranscriptionEnabled ? "Listening..." : "";
+  }
+
+  function blueAvatarTranscriptBubbleText() {
+    if (blueAvatarError) return blueAvatarError;
+    if (blueAvatarCurrentVoiceChunkText) return blueAvatarCurrentVoiceChunkText;
+    if (blueAvatarTranscript) return blueAvatarTranscript;
+    const latestEntry = String(blueAvatarJournal[0]?.text || "").trim();
+    if (latestEntry) return latestEntry;
+    return blueAvatarStatus || (blueAvatarAutoReplyEnabled ? "Listening to Camera Card..." : "Auto-answer paused");
+  }
+
+  function blueAvatarBubbleState() {
+    if (blueAvatarError) return "error";
+    if (blueAvatarInFlight) return "thinking";
+    if (blueAvatarVoiceStatus === "speaking") return "speaking";
+    if (blueAvatarVoiceStatus === "generating" || blueAvatarVoiceStatus === "polling") return "transcribing";
+    if (blueAvatarVoiceStatus === "tap-to-play") return "notice";
+    if (blueAvatarQueue.length) return "thinking";
+    return blueAvatarAutoReplyEnabled ? "live" : "idle";
+  }
+
+  function blueAvatarBubbleFooter() {
+    if (blueAvatarError) return "DS4 / Voicebox blocked";
+    if (blueAvatarInFlight) return "DS4 + Second Brain pass";
+    if (blueAvatarVoiceStatus === "speaking") {
+      return blueAvatarVoiceChunkTotal > 1
+        ? `Voicebox Blue-03 speaking ${blueAvatarVoiceChunkIndex}/${blueAvatarVoiceChunkTotal}`
+        : "Voicebox Blue-03 speaking";
+    }
+    if (blueAvatarVoiceStatus === "generating" || blueAvatarVoiceStatus === "polling") {
+      return blueAvatarVoiceChunkTotal > 1
+        ? `Voicebox Blue-03 rendering ${blueAvatarVoiceChunkTotal} chunks`
+        : "Voicebox Blue-03 rendering";
+    }
+    if (blueAvatarVoiceStatus === "tap-to-play") return "Tap the scene for voice";
+    if (blueAvatarJournal[0]?.memory?.writeback?.ok) return "Journal saved to Second Brain";
+    return blueAvatarAutoReplyEnabled ? "Listening to Camera Card" : "Auto-answer paused";
   }
 
   function updateCameraCardTranscriptBubble(entry, elapsed = 0) {
@@ -3860,6 +10407,50 @@ function createTarotDrawGame({ canvas, cards, avatarName, apiBase = "", producti
     }
     bubble.visible = true;
     const pulse = (cameraCardTranscriptionCapturing || cameraCardTranscriptionInFlight) ? (Math.sin(elapsed * 5.4) + 1) * 0.5 : 0;
+    bubble.position.y = CARD_DEPTH / 2 + 0.078 + pulse * 0.008;
+    bubble.position.x = bubbleX;
+    bubble.position.z = CAMERA_CARD_SPEECH_BUBBLE_Z;
+  }
+
+  function updateBlueAvatarTranscriptBubble(entry, elapsed = 0) {
+    if (!entry?.isBlueAvatarCard) return;
+    const displayText = blueAvatarTranscriptBubbleText();
+    const visible = Boolean(displayText || blueAvatarCardEntry || blueAvatarInFlight || blueAvatarVoiceStatus);
+    if (!visible) {
+      if (entry.transcriptBubbleGroup) entry.transcriptBubbleGroup.visible = false;
+      return;
+    }
+    const bubble = ensureBlueAvatarTranscriptBubble(entry);
+    if (!bubble) return;
+    const bubbleX = cameraCardBubbleSideX(entry);
+    const pointer = bubbleX < 0 ? "right" : "left";
+    const state = blueAvatarBubbleState();
+    const footer = blueAvatarBubbleFooter();
+    const textKey = `blue:${state}:${pointer}:${blueAvatarVoiceStatus}:${blueAvatarQueue.length}:${footer}:${displayText}`;
+    if (entry.transcriptBubbleTextKey !== textKey) {
+      const texture = createCameraCardTranscriptTexture(displayText, {
+        state,
+        pointer,
+        title: state === "error" ? "BLUE BLOCKED" : state === "thinking" ? "BLUE THINKING" : state === "speaking" ? "BLUE SPEAKING" : "BLUE CARD LOG",
+        footer,
+        accent: state === "error" ? "#ff4d6d" : "#4facfe",
+        secondary: "#f6c96d",
+        fallback: blueAvatarAutoReplyEnabled ? "Listening to Camera Card..." : "Auto-answer paused"
+      });
+      const material = bubble.userData?.bubbleMaterial;
+      if (material) {
+        material.map?.dispose?.();
+        material.map = texture;
+        material.opacity = blueAvatarError ? 0.96 : 0.9;
+        material.needsUpdate = true;
+      }
+      bubble.userData.texture = texture;
+      entry.transcriptBubbleTextKey = textKey;
+    }
+    bubble.visible = true;
+    const pulse = (blueAvatarInFlight || blueAvatarVoiceStatus === "generating" || blueAvatarVoiceStatus === "polling" || blueAvatarVoiceStatus === "speaking")
+      ? (Math.sin(elapsed * 5.1) + 1) * 0.5
+      : 0;
     bubble.position.y = CARD_DEPTH / 2 + 0.078 + pulse * 0.008;
     bubble.position.x = bubbleX;
     bubble.position.z = CAMERA_CARD_SPEECH_BUBBLE_Z;
@@ -4019,6 +10610,48 @@ function createTarotDrawGame({ canvas, cards, avatarName, apiBase = "", producti
     resolvePlacedCardStacks();
     createBurst(x, z, 0x00f3ff, 0.76);
     status = "Camera Card placed";
+    publishHud(true);
+  }
+
+  function placeBlueAvatarCardAt(entry, hit) {
+    if (!entry) return;
+    const x = THREE.MathUtils.clamp(hit?.x ?? entry.targetPosition.x, -BOARD_LIMIT_X, BOARD_LIMIT_X);
+    const z = THREE.MathUtils.clamp(hit?.z ?? entry.targetPosition.z, -BOARD_LIMIT_Z, BOARD_LIMIT_Z);
+    entry.state = "placed";
+    entry.hover = false;
+    entry.slotIndex = -1;
+    entry.floatMotion = {
+      type: "wave",
+      index: 1,
+      phase: 0.72,
+      amplitudeX: 0.032,
+      amplitudeZ: 0.024,
+      amplitudeY: 0.03,
+      speed: 0.38
+    };
+    entry.lockedDropZone = false;
+    entry.lockedMediaPool = false;
+    entry.lockedCenterVisualizer = false;
+    entry.lockedDock = false;
+    entry.lockedCameraCard = false;
+    entry.lockedPhoneCard = false;
+    entry.lockedBlueAvatarCard = true;
+    entry.magnetized = false;
+    entry.magnetZone = "";
+    entry.drawAnim = null;
+    entry.delay = 0;
+    entry.pitchOffset = 0;
+    entry.angleOffset = 0;
+    resetCardFocus(entry, { closeDetails: true });
+    applyBlueAvatarCardPose(entry, new THREE.Vector3(x, BLUE_AVATAR_CARD_BASE_Y, z));
+    entry.placedAt = placedEntries.includes(entry) ? entry.placedAt : placedEntries.length;
+    entry.playing = true;
+    if (!placedEntries.includes(entry)) placedEntries.push(entry);
+    blueAvatarCardEntry = entry;
+    selectEntry(entry);
+    resolvePlacedCardStacks();
+    createBurst(x, z, 0x4facfe, 0.76);
+    status = "Blue Avatar card placed";
     publishHud(true);
   }
 
@@ -4213,18 +10846,20 @@ function createTarotDrawGame({ canvas, cards, avatarName, apiBase = "", producti
     if (heldEntry) {
       const x = THREE.MathUtils.clamp(pointerWorld.x, -BOARD_LIMIT_X, BOARD_LIMIT_X);
       const z = THREE.MathUtils.clamp(pointerWorld.z, -BOARD_LIMIT_Z, BOARD_LIMIT_Z);
-      if (heldEntry.isCameraCard) {
+      if (heldEntry.isCameraCard || heldEntry.isBlueAvatarCard) {
         const dockStrength = dockMagnetStrength(pointerWorld);
         const wasMagnetized = heldEntry.magnetized;
         const targetX = THREE.MathUtils.lerp(x, DOCK_POSITION.x, dockStrength);
         const targetZ = THREE.MathUtils.lerp(z, DOCK_POSITION.z, dockStrength);
-        const targetY = THREE.MathUtils.lerp(CAMERA_CARD_HOLD_Y, DOCK_CARD_BASE_Y + 0.58, dockStrength);
+        const holdY = heldEntry.isBlueAvatarCard ? BLUE_AVATAR_CARD_HOLD_Y : CAMERA_CARD_HOLD_Y;
+        const targetY = THREE.MathUtils.lerp(holdY, DOCK_CARD_BASE_Y + 0.58, dockStrength);
         heldEntry.magnetized = dockStrength > 0;
         heldEntry.magnetZone = heldEntry.magnetized ? "dock" : "";
-        applyCameraCardPose(heldEntry, cameraCardPoseScratch.set(targetX, targetY, targetZ));
+        if (heldEntry.isBlueAvatarCard) applyBlueAvatarCardPose(heldEntry, cameraCardPoseScratch.set(targetX, targetY, targetZ));
+        else applyCameraCardPose(heldEntry, cameraCardPoseScratch.set(targetX, targetY, targetZ));
         if (heldEntry.magnetized) setCardTargetRotation(heldEntry, DOCK_CARD_PITCH, 0, 0);
         if (heldEntry.magnetized !== wasMagnetized) publishHud(true);
-        status = heldEntry.magnetized ? `Dock pulling: ${heldEntry.card.title}` : "Moving Camera Card";
+        status = heldEntry.magnetized ? `Dock pulling: ${heldEntry.card.title}` : `Moving ${heldEntry.isBlueAvatarCard ? "Blue Avatar" : "Camera"} Card`;
         controls.enabled = false;
         return;
       }
@@ -4282,6 +10917,15 @@ function createTarotDrawGame({ canvas, cards, avatarName, apiBase = "", producti
       event.preventDefault();
       return;
     }
+    if (hoveredEntry?.isPhoneCard) {
+      selectEntry(hoveredEntry);
+      hoveredEntry.hover = false;
+      phoneCardEntry = hoveredEntry;
+      status = "Phone Card follows phone telemetry";
+      publishHud(true);
+      event.preventDefault();
+      return;
+    }
     if (hoveredEntry) pickUp(hoveredEntry);
   }
 
@@ -4307,6 +10951,10 @@ function createTarotDrawGame({ canvas, cards, avatarName, apiBase = "", producti
     }
     if (selectedEntry?.isCameraCard) {
       moveSelectedCameraCardByWheel(event);
+      return;
+    }
+    if (selectedEntry?.isBlueAvatarCard) {
+      moveSelectedBlueAvatarCardByWheel(event);
       return;
     }
     if (recoverPreviewGalleryFromWheel(event)) return;
@@ -4340,6 +10988,30 @@ function createTarotDrawGame({ canvas, cards, avatarName, apiBase = "", producti
     resolvePlacedCardStacks();
     deck.userData.pulse = Math.max(deck.userData.pulse || 0, 0.2);
     status = delta > 0 ? "Camera Card pushed back" : "Camera Card pulled forward";
+    audio.play("angle", { quiet: true });
+    publishHud(true);
+    return true;
+  }
+
+  function moveSelectedBlueAvatarCardByWheel(event) {
+    const entry = selectedEntry;
+    if (!entry?.isBlueAvatarCard) return false;
+    event.preventDefault();
+    event.stopPropagation();
+    if (typeof event.stopImmediatePropagation === "function") event.stopImmediatePropagation();
+    const delta = THREE.MathUtils.clamp(event.deltaY || 0, -220, 220);
+    camera.getWorldDirection(cameraCardWheelDirectionScratch);
+    cameraCardWheelDirectionScratch.y = 0;
+    if (cameraCardWheelDirectionScratch.lengthSq() < 0.0001) cameraCardWheelDirectionScratch.set(0, 0, -1);
+    cameraCardWheelDirectionScratch.normalize();
+    const next = cameraCardPoseScratch.copy(entry.targetPosition).addScaledVector(cameraCardWheelDirectionScratch, delta * CAMERA_CARD_WHEEL_STEP);
+    next.x = THREE.MathUtils.clamp(next.x, -BOARD_LIMIT_X, BOARD_LIMIT_X);
+    next.z = THREE.MathUtils.clamp(next.z, -BOARD_LIMIT_Z, BOARD_LIMIT_Z);
+    next.y = BLUE_AVATAR_CARD_BASE_Y;
+    applyBlueAvatarCardPose(entry, next);
+    resolvePlacedCardStacks();
+    deck.userData.pulse = Math.max(deck.userData.pulse || 0, 0.2);
+    status = delta > 0 ? "Blue Avatar card pushed back" : "Blue Avatar card pulled forward";
     audio.play("angle", { quiet: true });
     publishHud(true);
     return true;
@@ -4635,6 +11307,7 @@ function createTarotDrawGame({ canvas, cards, avatarName, apiBase = "", producti
   }
 
   function cardDetailTargetEntry() {
+    if (selectedEntry && !selectedEntry.detailsOpen && isTarotDrawForgeCard(selectedEntry.card) && isCardDetailTargetSettled(selectedEntry)) return selectedEntry;
     if (!hoveredEntry || selectedEntry?.detailsOpen || heldEntry) return null;
     if (!isCardDetailTargetSettled(hoveredEntry)) return null;
     return hoveredEntry;
@@ -4674,6 +11347,21 @@ function createTarotDrawGame({ canvas, cards, avatarName, apiBase = "", producti
     const entry = heldEntry;
     heldEntry = null;
     clearSelectedEntry();
+    if (entry?.isPhoneCard) {
+      phoneCardEntry = entry;
+      entry.state = "placed";
+    entry.lockedPhoneCard = true;
+    entry.lockedCameraCard = false;
+    entry.lockedBlueAvatarCard = false;
+      entry.hover = false;
+      if (!placedEntries.includes(entry)) placedEntries.push(entry);
+      applyPhoneBridgePose(phonePose);
+      controls.enabled = true;
+      canvas.style.cursor = "default";
+      status = "Phone Card flight telemetry restored";
+      publishHud(true);
+      return;
+    }
     if (entry.isCameraCard) {
       if (isDockHit(hit) || entry.magnetZone === "dock") {
         lockEntryInDock(entry);
@@ -4682,6 +11370,18 @@ function createTarotDrawGame({ canvas, cards, avatarName, apiBase = "", producti
         return;
       }
       placeCameraCardAt(entry, hit);
+      controls.enabled = true;
+      canvas.style.cursor = "default";
+      return;
+    }
+    if (entry.isBlueAvatarCard) {
+      if (isDockHit(hit) || entry.magnetZone === "dock") {
+        lockEntryInDock(entry);
+        controls.enabled = true;
+        canvas.style.cursor = "default";
+        return;
+      }
+      placeBlueAvatarCardAt(entry, hit);
       controls.enabled = true;
       canvas.style.cursor = "default";
       return;
@@ -4723,6 +11423,7 @@ function createTarotDrawGame({ canvas, cards, avatarName, apiBase = "", producti
     entry.lockedCenterVisualizer = false;
     entry.lockedDock = false;
     entry.lockedCameraCard = false;
+    entry.lockedBlueAvatarCard = false;
     entry.magnetized = false;
     entry.magnetZone = "";
     resetCardSurfacePose(entry);
@@ -4757,6 +11458,7 @@ function createTarotDrawGame({ canvas, cards, avatarName, apiBase = "", producti
     entry.lockedCenterVisualizer = false;
     entry.lockedDock = false;
     entry.lockedCameraCard = false;
+    entry.lockedBlueAvatarCard = false;
     dockEntries = dockEntries.filter((item) => item !== entry);
     entry.magnetized = false;
     entry.magnetZone = "";
@@ -4795,6 +11497,7 @@ function createTarotDrawGame({ canvas, cards, avatarName, apiBase = "", producti
     entry.lockedCenterVisualizer = false;
     entry.lockedDock = false;
     entry.lockedCameraCard = false;
+    entry.lockedBlueAvatarCard = false;
     dockEntries = dockEntries.filter((item) => item !== entry);
     entry.magnetized = false;
     entry.magnetZone = "";
@@ -4827,6 +11530,7 @@ function createTarotDrawGame({ canvas, cards, avatarName, apiBase = "", producti
     entry.lockedCenterVisualizer = true;
     entry.lockedDock = false;
     entry.lockedCameraCard = false;
+    entry.lockedBlueAvatarCard = false;
     dockEntries = dockEntries.filter((item) => item !== entry);
     entry.magnetized = false;
     entry.magnetZone = "";
@@ -4843,6 +11547,7 @@ function createTarotDrawGame({ canvas, cards, avatarName, apiBase = "", producti
 	    entry.hover = false;
     updateVideoPlayback(entry);
     refreshCenterPreviewFrame({ createIfMissing: true, force: true });
+    syncCenterVideoSoundPlayback({ force: true });
     audio.play("lock", { quiet: true });
     createBurst(CENTER_VISUALIZER_POSITION.x, CENTER_VISUALIZER_POSITION.z, 0x8ef7ff, 1.08);
     createBurst(CENTER_VISUALIZER_POSITION.x, CENTER_VISUALIZER_POSITION.z, 0xff6df2, 0.68);
@@ -4862,6 +11567,7 @@ function createTarotDrawGame({ canvas, cards, avatarName, apiBase = "", producti
     entry.lockedCenterVisualizer = false;
     entry.lockedDock = true;
     entry.lockedCameraCard = false;
+    entry.lockedBlueAvatarCard = false;
     if (entry.isCameraCard) cameraCardEntry = entry;
     entry.slotIndex = -1;
     if (!dockEntries.includes(entry)) dockEntries.push(entry);
@@ -4895,6 +11601,7 @@ function createTarotDrawGame({ canvas, cards, avatarName, apiBase = "", producti
     entry.lockedCenterVisualizer = false;
     entry.lockedDock = false;
     entry.lockedCameraCard = false;
+    entry.lockedBlueAvatarCard = false;
     entry.magnetized = false;
     entry.magnetZone = "";
     if (moveAside) {
@@ -4922,6 +11629,7 @@ function createTarotDrawGame({ canvas, cards, avatarName, apiBase = "", producti
     entry.lockedCenterVisualizer = false;
     entry.lockedDock = false;
     entry.lockedCameraCard = false;
+    entry.lockedBlueAvatarCard = false;
     entry.magnetized = false;
     entry.magnetZone = "";
     refreshMediaPoolStackTargets();
@@ -4936,11 +11644,13 @@ function createTarotDrawGame({ canvas, cards, avatarName, apiBase = "", producti
     entry.lockedCenterVisualizer = false;
     entry.lockedDock = false;
     entry.lockedCameraCard = false;
+    entry.lockedBlueAvatarCard = false;
     entry.magnetized = false;
     entry.magnetZone = "";
     refreshCenterVisualizerTargets();
     resolvePlacedCardStacks();
     refreshCenterPreviewFrame({ createIfMissing: false, force: true });
+    syncCenterVideoSoundPlayback({ force: true });
     return entry;
   }
 
@@ -4949,6 +11659,7 @@ function createTarotDrawGame({ canvas, cards, avatarName, apiBase = "", producti
     dockEntries = dockEntries.filter((item) => item !== entry);
     entry.lockedDock = false;
     entry.lockedCameraCard = false;
+    entry.lockedBlueAvatarCard = false;
     entry.magnetized = false;
     entry.magnetZone = "";
     refreshDockTargets({ snap: true });
@@ -5226,15 +11937,15 @@ function createTarotDrawGame({ canvas, cards, avatarName, apiBase = "", producti
   }
 
   function currentDropZonePreviewSources() {
-    const primarySources = dropZoneEntry ? dropZoneVideoSources(dropZoneEntry.card, { allowBackgroundless: videoBackgroundKeying }) : [];
+    const primarySources = dropZoneEntry ? dropZoneVideoSources(dropZoneEntry.card, { allowBackgroundless: MIDDLE_PREVIEW_ALLOW_BACKGROUNDLESS }) : [];
     const mediaSources = mediaPoolEntries.flatMap((entry, stackIndex) =>
-      dropZoneVideoSources(entry.card, { allowBackgroundless: videoBackgroundKeying }).map((source) => ({
+      dropZoneVideoSources(entry.card, { allowBackgroundless: MIDDLE_PREVIEW_ALLOW_BACKGROUNDLESS }).map((source) => ({
         ...source,
         id: `media-pool-${entry.card.id || stackIndex}-${source.id || source.uri}`,
         label: `${entry.card.title || "Media card"} / ${source.label || "loop"}`
       }))
     );
-    return uniqueDropZoneVideoSources([...primarySources, ...mediaSources], "", { allowBackgroundless: videoBackgroundKeying });
+    return uniqueDropZoneVideoSources([...primarySources, ...mediaSources], "", { allowBackgroundless: MIDDLE_PREVIEW_ALLOW_BACKGROUNDLESS });
   }
 
   function currentCenterPreviewSources() {
@@ -5249,8 +11960,8 @@ function createTarotDrawGame({ canvas, cards, avatarName, apiBase = "", producti
       );
     const centerCardSources = orderedCenterEntries.flatMap((entry, stackIndex) =>
       dropZoneVideoSources(entry.card, {
-        allowBackgroundless: videoBackgroundKeying,
-        preferBackgroundless: videoBackgroundKeying
+        allowBackgroundless: MIDDLE_PREVIEW_ALLOW_BACKGROUNDLESS,
+        preferBackgroundless: MIDDLE_PREVIEW_ALLOW_BACKGROUNDLESS
       }).map((source) => ({
         ...source,
         id: `center-visualizer-${entry.card.id || stackIndex}-${source.id || source.uri}`,
@@ -5260,7 +11971,79 @@ function createTarotDrawGame({ canvas, cards, avatarName, apiBase = "", producti
     return uniqueDropZoneVideoSources([
       echoSource,
       ...centerCardSources
-    ], "", { allowBackgroundless: videoBackgroundKeying });
+    ], "", { allowBackgroundless: MIDDLE_PREVIEW_ALLOW_BACKGROUNDLESS });
+  }
+
+  function currentCenterVideoSoundSource() {
+    if (!centerVisualizerEntries.length || echoDirectorProjectIsActive()) return null;
+    const centerSources = currentCenterPreviewSources();
+    if (!centerSources.length) return null;
+    const centerScreen = dropPreview?.screens?.find(isCenterPreviewScreen);
+    const screenSourceKey = dropZoneVideoSourceKey(centerScreen?.source);
+    if (screenSourceKey) {
+      const screenSource = centerSources.find((source) => dropZoneVideoSourceKey(source) === screenSourceKey);
+      if (screenSource) return screenSource;
+    }
+    return centerSources[0] || null;
+  }
+
+  function syncCenterVideoSoundToCenterScreen(source = {}) {
+    const centerScreen = dropPreview?.screens?.find(isCenterPreviewScreen);
+    if (!centerScreen?.video || !source?.uri) return;
+    if (dropZoneVideoSourceKey(centerScreen.source) !== dropZoneVideoSourceKey(source)) return;
+    const soundSnapshot = centerVideoSound.snapshot?.() || {};
+    const soundTime = Number(soundSnapshot.currentTime || 0);
+    const screenTime = Number(centerScreen.video.currentTime || 0);
+    if (soundSnapshot.playing && soundTime > 0.75 && Math.abs(soundTime - screenTime) > 0.48) {
+      try {
+        centerScreen.video.currentTime = soundTime;
+      } catch {
+        // The visible preview can reject seeks while the frame decoder is warming up.
+      }
+      return;
+    }
+    if (!soundSnapshot.playing && screenTime > 0) centerVideoSound.syncTime?.(screenTime, 0.35);
+  }
+
+  function centerVideoSoundSongForSource(source = {}) {
+    if (!source?.uri) return null;
+    const duration = Number(source.telemetry?.actualDurationSeconds || source.telemetry?.durationSeconds || source.duration || 0);
+    return {
+      audioUri: source.uri,
+      title: source.label || source.title || "Center video",
+      avatarName: "Center Video",
+      duration: Number.isFinite(duration) ? duration : 0,
+      lyricsText: ""
+    };
+  }
+
+  function syncCenterVideoSoundPlayback({ force = false } = {}) {
+    const source = currentCenterVideoSoundSource();
+    const song = centerVideoSoundSongForSource(source);
+    const shouldPlay = Boolean(song?.audioUri) && playing && centerVisualizerEntries.length > 0;
+    if (!shouldPlay) {
+      if (!song?.audioUri || !centerVisualizerEntries.length || echoDirectorProjectIsActive()) centerVideoSound.stop();
+      else centerVideoSound.pause();
+      return;
+    }
+    if (force || centerVideoSound.state.audioUri !== song.audioUri) centerVideoSound.start(song);
+    else if (!centerVideoSound.state.playing && !centerVideoSound.state.pendingPlay) centerVideoSound.play();
+    syncCenterVideoSoundToCenterScreen(source);
+  }
+
+  function mergeVisualizerBands(primary = {}, secondary = {}) {
+    if (!secondary?.energy && !secondary?.low && !secondary?.mid && !secondary?.high) return primary;
+    const spectrum = primary.spectrum && secondary.spectrum
+      ? primary.spectrum.map((value, index) => Math.max(value || 0, secondary.spectrum[index] || 0))
+      : secondary.spectrum || primary.spectrum;
+    return {
+      ...primary,
+      low: Math.max(primary.low || 0, secondary.low || 0),
+      mid: Math.max(primary.mid || 0, secondary.mid || 0),
+      high: Math.max(primary.high || 0, secondary.high || 0),
+      energy: Math.max(primary.energy || 0, secondary.energy || 0),
+      spectrum
+    };
   }
 
   function rebuildDropZonePreviewFromBoard() {
@@ -5286,7 +12069,7 @@ function createTarotDrawGame({ canvas, cards, avatarName, apiBase = "", producti
       else dropSong.stop();
       return;
     }
-    dropPreview = createDropZonePreviewFromSources(sources.length ? sources : centerSources, song, { videoKeying: videoBackgroundKeying });
+    dropPreview = createDropZonePreviewFromSources(sources.length ? sources : centerSources, song, { videoKeying: MIDDLE_PREVIEW_VIDEO_KEYING });
     previewGroup.add(dropPreview.group);
     refreshCenterPreviewFrame({ createIfMissing: false, force: true });
     if (song) dropSong.start(song);
@@ -5326,13 +12109,13 @@ function createTarotDrawGame({ canvas, cards, avatarName, apiBase = "", producti
       return;
     }
     if (!dropPreview) {
-      dropPreview = createDropZonePreviewFromSources(sources.length ? sources : centerSources, song, { videoKeying: videoBackgroundKeying });
+      dropPreview = createDropZonePreviewFromSources(sources.length ? sources : centerSources, song, { videoKeying: MIDDLE_PREVIEW_VIDEO_KEYING });
       previewGroup.add(dropPreview.group);
       if (song) dropSong.start(song);
     } else {
       setDropZonePreviewSources(dropPreview, sources, {
         resetScreens: resetScreens && sources.length > 0,
-        allowBackgroundless: videoBackgroundKeying
+        allowBackgroundless: MIDDLE_PREVIEW_ALLOW_BACKGROUNDLESS
       });
     }
     refreshCenterPreviewFrame({ createIfMissing: false, force: resetScreens });
@@ -5343,17 +12126,17 @@ function createTarotDrawGame({ canvas, cards, avatarName, apiBase = "", producti
     const centerSources = currentCenterPreviewSources();
     if (!centerSources.length) {
       if (dropPreview) {
-        setDropZoneCenterPrioritySources(dropPreview, [], { force, playing, allowBackgroundless: videoBackgroundKeying });
+        setDropZoneCenterPrioritySources(dropPreview, [], { force, playing, allowBackgroundless: MIDDLE_PREVIEW_ALLOW_BACKGROUNDLESS });
         if (!currentDropZonePreviewSources().length) stopDropZonePreview({ stopSong: !dropZoneEntry });
       }
       return;
     }
     if (!dropPreview && createIfMissing) {
-      dropPreview = createDropZonePreviewFromSources(centerSources, null, { videoKeying: videoBackgroundKeying });
+      dropPreview = createDropZonePreviewFromSources(centerSources, null, { videoKeying: MIDDLE_PREVIEW_VIDEO_KEYING });
       previewGroup.add(dropPreview.group);
     }
     if (!dropPreview) return;
-    setDropZoneCenterPrioritySources(dropPreview, centerSources, { force, playing, allowBackgroundless: videoBackgroundKeying });
+    setDropZoneCenterPrioritySources(dropPreview, centerSources, { force, playing, allowBackgroundless: MIDDLE_PREVIEW_ALLOW_BACKGROUNDLESS });
     updateDropZonePreviewPlayback();
   }
 
@@ -5394,6 +12177,7 @@ function createTarotDrawGame({ canvas, cards, avatarName, apiBase = "", producti
       dropPreviewRebuildFrame = 0;
     }
     if (stopSong) dropSong.stop();
+    centerVideoSound.stop();
     if (!dropPreview) return;
     disposeDropZonePreview(dropPreview);
     disposeObject(dropPreview.group);
@@ -5406,6 +12190,7 @@ function createTarotDrawGame({ canvas, cards, avatarName, apiBase = "", producti
     const previewActive = Boolean(dropZoneEntry) || mediaPoolEntries.length > 0 || centerVisualizerEntries.length > 0;
     if (!screens.length) {
       dropSong.pause();
+      syncCenterVideoSoundPlayback();
       return;
     }
     if (playing && previewActive) {
@@ -5421,13 +12206,31 @@ function createTarotDrawGame({ canvas, cards, avatarName, apiBase = "", producti
       });
       if (dropZoneEntry) dropSong.play();
       else dropSong.pause();
+      syncCenterVideoSoundPlayback();
     } else {
       screens.forEach((screen) => screen.video?.pause());
       dropSong.pause();
+      syncCenterVideoSoundPlayback();
     }
   }
 
   function pickUp(entry) {
+    if (entry?.isPhoneCard) {
+      phoneCardEntry = entry;
+      entry.state = "placed";
+      entry.lockedPhoneCard = true;
+      entry.lockedCameraCard = false;
+      entry.lockedBlueAvatarCard = false;
+      entry.hover = false;
+      heldEntry = null;
+      if (!placedEntries.includes(entry)) placedEntries.push(entry);
+      applyPhoneBridgePose(phonePose);
+      selectEntry(entry);
+      status = "Phone Card follows phone telemetry";
+      canvas.style.cursor = "default";
+      publishHud(true);
+      return;
+    }
     if (entry === dropZoneEntry) {
       releaseDropZoneEntry({ moveAside: false, keepVideo: false });
     }
@@ -5450,11 +12253,15 @@ function createTarotDrawGame({ canvas, cards, avatarName, apiBase = "", producti
     entry.lockedDropZone = false;
     entry.lockedDock = false;
     entry.lockedCameraCard = Boolean(entry.isCameraCard);
+    entry.lockedBlueAvatarCard = Boolean(entry.isBlueAvatarCard);
     entry.magnetized = false;
     entry.playing = playing;
     if (entry.isCameraCard) {
       applyCameraCardPose(entry, cameraCardPoseScratch.copy(entry.group.position).setY(CAMERA_CARD_HOLD_Y));
       cameraCardEntry = entry;
+    } else if (entry.isBlueAvatarCard) {
+      applyBlueAvatarCardPose(entry, cameraCardPoseScratch.copy(entry.group.position).setY(BLUE_AVATAR_CARD_HOLD_Y));
+      blueAvatarCardEntry = entry;
     } else {
       entry.targetPosition.copy(entry.group.position).setY(0.7);
       entry.baseRotationY = 0.18;
@@ -5462,11 +12269,11 @@ function createTarotDrawGame({ canvas, cards, avatarName, apiBase = "", producti
     }
     audio.play("pickup");
     createBurst(entry.group.position.x, entry.group.position.z, 0x9d74ff, 0.62);
-    status = entry.isCameraCard ? "Camera Card lifted" : `Lifted: ${entry.card.title}`;
+    status = entry.isCameraCard ? "Camera Card lifted" : entry.isBlueAvatarCard ? "Blue Avatar card lifted" : `Lifted: ${entry.card.title}`;
     canvas.style.cursor = "grabbing";
     updateVideoPlayback(entry);
     publishHud(true);
-    if (!entry.isCameraCard) requestReading("pickup");
+    if (!entry.isCameraCard && !entry.isBlueAvatarCard) requestReading("pickup");
   }
 
   function buildSlots(nextLayoutId) {
@@ -5534,6 +12341,8 @@ function createTarotDrawGame({ canvas, cards, avatarName, apiBase = "", producti
     if (entry?.lockedCenterVisualizer) return CENTER_VISUALIZER_CARD_BASE_Y;
     if (entry?.lockedDock) return DOCK_CARD_BASE_Y;
     if (entry?.lockedCameraCard) return Number.isFinite(Number(entry.cameraCardBaseY)) ? Number(entry.cameraCardBaseY) : CAMERA_CARD_BASE_Y;
+    if (entry?.lockedPhoneCard) return Number.isFinite(Number(entry.cameraCardBaseY)) ? Number(entry.cameraCardBaseY) : PHONE_CARD_POSITION.y;
+    if (entry?.lockedBlueAvatarCard) return Number.isFinite(Number(entry.blueAvatarCardBaseY)) ? Number(entry.blueAvatarCardBaseY) : BLUE_AVATAR_CARD_BASE_Y;
     return CARD_TABLE_BASE_Y;
   }
 
@@ -5638,9 +12447,13 @@ function createTarotDrawGame({ canvas, cards, avatarName, apiBase = "", producti
       videoBackgroundless: card.backgroundless || card.videoBackgroundless || null,
       videoMatte: null,
       faceMesh: null,
+      backMesh: null,
       baseFaceMaterial: null,
+      baseBackMaterial: null,
       faceMaterial: null,
+      backMaterial: null,
       cameraShaderMaterial: null,
+      cameraBackShaderMaterial: null,
       cameraShaderEnabled: false,
       micWaveformGroup: null,
       transcriptBubbleGroup: null,
@@ -5668,7 +12481,11 @@ function createTarotDrawGame({ canvas, cards, avatarName, apiBase = "", producti
       lockedCenterVisualizer: false,
       lockedDock: false,
       lockedCameraCard: false,
-      isCameraCard: Boolean(card.liveCamera),
+      lockedPhoneCard: false,
+      lockedBlueAvatarCard: false,
+      isCameraCard: Boolean(card.liveCamera && card.cardType !== "phone_card"),
+      isPhoneCard: Boolean(card.cardType === "phone_card"),
+      isBlueAvatarCard: Boolean(card.cardType === "blue_avatar_card"),
       liveCamera: Boolean(card.liveCamera),
       fromDeckClick: false,
       magnetized: false,
@@ -5684,6 +12501,8 @@ function createTarotDrawGame({ canvas, cards, avatarName, apiBase = "", producti
       neon: cardMesh.getObjectByName("cardNeonLight"),
       halo: cardMesh.getObjectByName("cardHalo"),
       targetLock: cardMesh.getObjectByName("targetLock"),
+      forgeRig: cardMesh.getObjectByName("forgeConstructionRig"),
+      plaque: cardMesh.getObjectByName("cardPlaque"),
       face: cardMesh.getObjectByName("videoFace"),
       hitTarget
     };
@@ -5698,7 +12517,11 @@ function createTarotDrawGame({ canvas, cards, avatarName, apiBase = "", producti
 
   function tarotHasActiveMotion() {
     if (heldEntry || hoveredEntry || spawnNetwork || placementBursts.length) return true;
+    if (placedEntries.some(isForgeEntryActive)) return true;
     if (cameraCardPending || (cameraCardEntry?.video && !cameraCardEntry.video.paused)) return true;
+    if (blueAvatarPending || blueAvatarInFlight || blueAvatarQueue.length || ["generating", "polling", "speaking", "tap-to-play"].includes(blueAvatarVoiceStatus)) return true;
+    if (phoneBridgeEnabled || (phoneCardEntry?.video && !phoneCardEntry.video.paused)) return true;
+    if (phoneTractorEntry || phoneLaserTaggedEntry || phoneLaserTaggedPoint || performance.now() / 1000 < phoneLaserBeamUntil) return true;
     if (cameraCardMicEnabled && cameraCardEntry && cameraCardMicAnalyser) return true;
     if (cameraGalleryRecovery || cameraGalleryRecoveryBlend > 0.01) return true;
     if ((deck.userData.pulse || 0) > 0.01) return true;
@@ -5712,8 +12535,16 @@ function createTarotDrawGame({ canvas, cards, avatarName, apiBase = "", producti
       (entry?.focusProgress || 0) > 0.001 ||
       (entry?.focusTargetProgress || 0) > 0.001 ||
       entry?.floatMotion ||
+      entry?.phoneLaserTagged ||
+      entry?.phoneTractorHeld ||
       (entry?.video && !entry.video.paused)
     );
+  }
+
+  function isForgeEntryActive(entry) {
+    if (!entry || !isTarotDrawForgeCard(entry.card)) return false;
+    const stage = entry.forgeState?.stage || entry.card?.drawForge?.stage || "requested";
+    return !["complete", "failed"].includes(stage);
   }
 
   function dropSongIsActivelyPlaying() {
@@ -5809,8 +12640,11 @@ function createTarotDrawGame({ canvas, cards, avatarName, apiBase = "", producti
     deck.rotation.y = Math.sin(elapsed * 0.55) * 0.02;
     deck.position.y = 0.02 + Math.sin(elapsed * 1.2) * 0.01 + (deck.userData.pulse || 0) * 0.025;
     deck.userData.pulse = Math.max(0, (deck.userData.pulse || 0) - delta * 1.8);
-    const songBands = dropSong.bands();
+    syncCenterVideoSoundPlayback();
+    const songBands = mergeVisualizerBands(dropSong.bands(), centerVideoSound.bands());
+    phoneSceneLastBands = songBands;
     const songPlaying = dropSongIsActivelyPlaying();
+    updatePhoneTractorTarget(elapsed);
 
     refreshCenterVisualizerTargets(elapsed);
     if (placedEntries.length <= 1) {
@@ -5851,8 +12685,10 @@ function createTarotDrawGame({ canvas, cards, avatarName, apiBase = "", producti
       });
     }
     updateSpawnNetwork(spawnNetwork, camera, elapsed);
+    updatePhoneLaserVisual(elapsed);
     updateBursts(delta);
     renderer.render(scene, camera);
+    renderPhoneFpvFrame(now);
 
     if (cardDetailTargetEntry() && now - lastHudTime > TAROT_HUD_DETAIL_SECONDS) publishHud(true);
     else if (now - lastHudTime > TAROT_HUD_NORMAL_SECONDS) publishHud();
@@ -5860,9 +12696,10 @@ function createTarotDrawGame({ canvas, cards, avatarName, apiBase = "", producti
   }
 
   function updateEntry(entry, delta, elapsed) {
-    if (entry.isCameraCard) updateCameraCardShaderUniforms(entry, elapsed);
+    if (entry.liveCamera) updateCameraCardShaderUniforms(entry, elapsed);
     if (entry.isCameraCard) updateCameraCardMicWaveform(entry, elapsed);
     if (entry.isCameraCard) updateCameraCardTranscriptBubble(entry, elapsed);
+    if (entry.isBlueAvatarCard) updateBlueAvatarTranscriptBubble(entry, elapsed);
     if (entry.delay > 0) {
       entry.delay -= delta;
       entry.group.rotation.y += delta * 2.5;
@@ -5888,8 +12725,10 @@ function createTarotDrawGame({ canvas, cards, avatarName, apiBase = "", producti
       entry.drawAnim = null;
     }
     const dockLocked = entry.lockedDock;
-    const cameraLocked = entry.lockedCameraCard;
+    const cameraLocked = entry.lockedCameraCard || entry.lockedPhoneCard;
     const lockedZone = entry.lockedDropZone || entry.lockedMediaPool || entry.lockedCenterVisualizer || dockLocked || cameraLocked;
+    const forgeActive = isForgeEntryActive(entry);
+    const forgeComplete = isTarotDrawForgeCard(entry.card) && (entry.forgeState?.stage || entry.card?.drawForge?.stage) === "complete";
     const lift = entry.lockedCenterVisualizer
       ? (entry.hover ? 0.11 : 0.035)
       : dockLocked
@@ -5902,7 +12741,7 @@ function createTarotDrawGame({ canvas, cards, avatarName, apiBase = "", producti
     if (entry.state === "placed" && entry.floatMotion) {
       applyMotionOffset(target, entry.floatMotion, elapsed);
     }
-    if (entry.state === "placed") target.y += (entry.dynamicStackLift || 0) + lift + pulse;
+    if (entry.state === "placed") target.y += (entry.dynamicStackLift || 0) + lift + pulse + (forgeActive ? 0.035 + Math.sin(elapsed * 4.1 + entry.placedAt) * 0.022 : 0);
     const desiredFocus = entry === selectedEntry ? (entry.focusTargetProgress || 0) : 0;
     entry.focusProgress = THREE.MathUtils.lerp(entry.focusProgress || 0, desiredFocus, 1 - Math.pow(0.0004, delta));
     if (desiredFocus <= 0 && entry.focusProgress < 0.001) entry.focusProgress = 0;
@@ -5917,33 +12756,44 @@ function createTarotDrawGame({ canvas, cards, avatarName, apiBase = "", producti
     const signal = entry.refs?.signal;
     const neon = entry.refs?.neon;
     const hoverPulse = (Math.sin(elapsed * 11.5 + entry.placedAt) + 1) * 0.5;
-    const neonAccent = entry.hover ? 0x00f3ff : lockedZone ? 0xff6df2 : entry.state === "held" ? 0xf6c96d : 0x8ef7ff;
+    const phoneToolActive = Boolean(entry.phoneLaserTagged || entry.phoneTractorHeld);
+    const neonAccent = forgeActive ? 0x00f3ff : forgeComplete ? 0xf6c96d : phoneToolActive ? 0xf6c96d : entry.hover ? 0x00f3ff : lockedZone ? 0xff6df2 : entry.state === "held" ? 0xf6c96d : 0x8ef7ff;
     if (signal) {
       signal.color.setHex(neonAccent);
       signal.intensity = dockLocked
         ? 1.55 + Math.sin(elapsed * 2.5 + entry.placedAt) * 0.18
+        : forgeActive
+          ? 7.6 + hoverPulse * 2.2
+        : forgeComplete
+          ? 3.8 + hoverPulse * 0.8
         : lockedZone
         ? 5.4 + Math.sin(elapsed * 3.2) * 0.9
+        : phoneToolActive
+          ? 6.6 + hoverPulse * 1.6
         : entry.hover
           ? 7.2 + hoverPulse * 2.1
           : entry.state === "held"
             ? 4.8
             : 1.35 + Math.sin(elapsed * 2 + entry.placedAt) * 0.28;
-      signal.distance = entry.hover ? 4.4 : dockLocked ? 1.95 : lockedZone ? 3.8 : entry.state === "held" ? 3.6 : 2.6;
-      signal.decay = entry.hover || lockedZone ? 1.12 : 1.45;
+      signal.distance = forgeActive ? 4.8 : entry.hover ? 4.4 : dockLocked ? 1.95 : lockedZone ? 3.8 : entry.state === "held" ? 3.6 : 2.6;
+      signal.decay = entry.hover || lockedZone || forgeActive ? 1.12 : 1.45;
     }
     if (neon) {
-      neon.color.setHex(entry.hover ? 0xff3df2 : lockedZone ? 0x6ffcff : 0xf6c96d);
-      neon.intensity = entry.hover ? 5.8 + hoverPulse * 2.4 : dockLocked ? 0.9 + hoverPulse * 0.18 : lockedZone ? 3.9 + hoverPulse : entry.state === "held" ? 2.8 : 0.55;
-      neon.distance = entry.hover ? 3.6 : dockLocked ? 1.85 : lockedZone ? 3.1 : 2.4;
+      neon.color.setHex(forgeActive ? 0xff6df2 : phoneToolActive ? 0xf6c96d : entry.hover ? 0xff3df2 : lockedZone ? 0x6ffcff : 0xf6c96d);
+      neon.intensity = forgeActive ? 6.2 + hoverPulse * 2.2 : forgeComplete ? 3.2 + hoverPulse * 0.9 : phoneToolActive ? 4.8 + hoverPulse * 1.4 : entry.hover ? 5.8 + hoverPulse * 2.4 : dockLocked ? 0.9 + hoverPulse * 0.18 : lockedZone ? 3.9 + hoverPulse : entry.state === "held" ? 2.8 : 0.55;
+      neon.distance = forgeActive ? 4.1 : entry.hover ? 3.6 : dockLocked ? 1.85 : lockedZone ? 3.1 : 2.4;
     }
     const halo = entry.refs?.halo;
     if (halo) {
-      halo.material.color.setHex(entry.hover ? 0x00f3ff : lockedZone ? 0xff6df2 : 0xf6c96d);
-      halo.material.opacity = dockLocked ? 0.1 + hoverPulse * 0.02 : lockedZone ? 0.68 : entry.hover ? 0.72 + hoverPulse * 0.16 : entry.state === "held" ? 0.52 : 0.2;
-      halo.scale.setScalar(dockLocked ? 0.99 + Math.sin(elapsed * 2.1 + entry.placedAt) * 0.008 : lockedZone ? 1.16 + Math.sin(elapsed * 2.8) * 0.045 : entry.hover ? 1.18 + hoverPulse * 0.04 : 1);
+      halo.material.color.setHex(forgeActive ? 0x00f3ff : forgeComplete ? 0xf6c96d : phoneToolActive ? 0xf6c96d : entry.hover ? 0x00f3ff : lockedZone ? 0xff6df2 : 0xf6c96d);
+      halo.material.opacity = forgeActive ? 0.74 + hoverPulse * 0.16 : forgeComplete ? 0.5 + hoverPulse * 0.08 : phoneToolActive ? 0.78 + hoverPulse * 0.16 : dockLocked ? 0.1 + hoverPulse * 0.02 : lockedZone ? 0.68 : entry.hover ? 0.72 + hoverPulse * 0.16 : entry.state === "held" ? 0.52 : 0.2;
+      halo.scale.setScalar(forgeActive ? 1.22 + Math.sin(elapsed * 3.6) * 0.075 : forgeComplete ? 1.1 + hoverPulse * 0.025 : phoneToolActive ? 1.22 + hoverPulse * 0.06 : dockLocked ? 0.99 + Math.sin(elapsed * 2.1 + entry.placedAt) * 0.008 : lockedZone ? 1.16 + Math.sin(elapsed * 2.8) * 0.045 : entry.hover ? 1.18 + hoverPulse * 0.04 : 1);
     }
-    updateCardTargetLock(entry.refs?.targetLock, entry.state === "placed" && entry.hover, elapsed, lockedZone);
+    if (isTarotDrawForgeCard(entry.card)) {
+      updateForgeConstructionRig(entry, delta, elapsed, entry.forgeState?.stage || entry.card?.drawForge?.stage || "requested");
+      updateForgePlaque(entry);
+    }
+    updateCardTargetLock(entry.refs?.targetLock, (entry.state === "placed" || entry.state === "phone-tractor") && (entry.hover || phoneToolActive || forgeActive), elapsed, lockedZone || phoneToolActive || forgeActive);
   }
 
   function applyCardFocusPose(entry, target, quaternion) {
@@ -5984,7 +12834,7 @@ function createTarotDrawGame({ canvas, cards, avatarName, apiBase = "", producti
         !videoSourceHasAlpha(dockBackgroundPlayer.screen?.source)
     );
     const screens = dropPreview?.screens || [];
-    for (const screen of screens) updateVideoEdgeMatte(screen.matte, elapsed, videoBackgroundKeying && Boolean(screen.source) && !videoSourceHasAlpha(screen.source));
+    for (const screen of screens) updateVideoEdgeMatte(screen.matte, elapsed, false);
   }
 
   function updateDropZone(elapsed, songBands = { energy: 0 }) {
@@ -6042,7 +12892,7 @@ function createTarotDrawGame({ canvas, cards, avatarName, apiBase = "", producti
       setDropZoneCenterPrioritySources(preview, [source], {
         force: true,
         playing: shouldPlay,
-        allowBackgroundless: videoBackgroundKeying
+        allowBackgroundless: MIDDLE_PREVIEW_ALLOW_BACKGROUNDLESS
       });
     }
     const centerScreen = (preview.screens || []).find(isCenterPreviewScreen);
@@ -6255,6 +13105,17 @@ function createTarotDrawGame({ canvas, cards, avatarName, apiBase = "", producti
       entry.faceMaterial = faceMaterial;
       if (entry.faceMesh) entry.faceMesh.material = faceMaterial;
     }
+    const backMaterial = entry.baseBackMaterial || entry.backMaterial;
+    if (backMaterial && backMaterial.userData?.hapaLiveBackFaceVideo) {
+      if (entry.posterTexture) {
+        backMaterial.map = entry.posterTexture;
+        backMaterial.emissiveMap = entry.videoSourceUri ? entry.posterTexture : null;
+      }
+      backMaterial.emissiveIntensity = entry.videoSourceUri ? 0.1 : 0.16;
+      backMaterial.needsUpdate = true;
+      entry.backMaterial = backMaterial;
+      if (entry.backMesh) entry.backMesh.material = backMaterial;
+    }
     if (video) {
       video.pause();
       if (video.srcObject) video.srcObject = null;
@@ -6330,9 +13191,42 @@ function createTarotDrawGame({ canvas, cards, avatarName, apiBase = "", producti
       cameraCardTranscriptionNotice,
       cameraCardTranscriptionLastResult,
       cameraCardTranscriptionJournal,
+      blueAvatarCardEnabled: Boolean(blueAvatarCardEntry),
+      blueAvatarPending,
+      blueAvatarAutoReplyEnabled,
+      blueAvatarInFlight,
+      blueAvatarError,
+      blueAvatarStatus,
+      blueAvatarVoiceStatus,
+      blueAvatarTranscript,
+      blueAvatarCurrentVoiceChunkText,
+      blueAvatarVoiceChunkIndex,
+      blueAvatarVoiceChunkTotal,
+      blueAvatarClientId,
+      blueAvatarSurface,
+      blueAvatarConversationOwned,
+      blueAvatarConversationOwner,
+      blueAvatarConversationOwnerError,
+      blueAvatarJournal,
+      blueAvatarQueueDepth: blueAvatarQueue.length,
+      phoneBridgeEnabled,
+      phoneBridgeQrVisible,
+      phoneBridgePending,
+      phoneBridgeConnected,
+      phoneBridgeSession,
+      phoneBridgeMobileUrl,
+      phoneBridgeCertificateUrl,
+      phoneBridgeSecure,
+      phoneBridgeError,
+      phoneBridgeStatus,
+      phoneBridgeInvite,
+      phoneBridgeRoomletParticipants: roomletParticipantCardsFromInvite(phoneBridgeInvite),
+      phoneBridgeRoomletControls: roomletHostControls.slice(-20),
+      phoneCardTitle: phoneCardEntry?.card?.title || "",
       lyricCrawlAngleDegrees,
       playing,
       audioReady: audio.ready,
+      centerVideoSound: centerVideoSound.state,
       renderer: {
         calls: renderer.info.render.calls,
         triangles: renderer.info.render.triangles,
@@ -6352,7 +13246,7 @@ function createTarotDrawGame({ canvas, cards, avatarName, apiBase = "", producti
   }
 
   function requestReading(reason) {
-    const readingEntries = placedEntries.filter((entry) => !entry.lockedDock && !entry.isCameraCard);
+    const readingEntries = placedEntries.filter((entry) => !entry.lockedDock && !entry.liveCamera);
     if (!readingEntries.length) {
       if (String(reason).startsWith("user")) {
         status = "Place cards before asking for a reading";
@@ -6511,11 +13405,30 @@ function createTarotDrawGame({ canvas, cards, avatarName, apiBase = "", producti
       cameraCardTranscriptionNotice,
       cameraCardTranscriptionLastResult,
       cameraCardTranscriptionJournal,
+      blueAvatarCardEnabled: Boolean(blueAvatarCardEntry),
+      blueAvatarPending,
+      blueAvatarAutoReplyEnabled,
+      blueAvatarInFlight,
+      blueAvatarError,
+      blueAvatarStatus,
+      blueAvatarVoiceStatus,
+      blueAvatarTranscript,
+      blueAvatarCurrentVoiceChunkText,
+      blueAvatarVoiceChunkIndex,
+      blueAvatarVoiceChunkTotal,
+      blueAvatarClientId,
+      blueAvatarSurface,
+      blueAvatarConversationOwned,
+      blueAvatarConversationOwner,
+      blueAvatarConversationOwnerError,
+      blueAvatarJournal,
+      blueAvatarQueueDepth: blueAvatarQueue.length,
       lyricCrawlAngleDegrees,
       audioReady: audio.ready,
       audioEnabled: audio.enabled,
       audioEvents: audio.events,
       dropSong: dropSong.state,
+      centerVideoSound: centerVideoSound.state,
       centerVisualizer: {
         mode: musicVisualizerMode,
         enabled: centerVisualizerEnabled,
@@ -6560,6 +13473,66 @@ function createTarotDrawGame({ canvas, cards, avatarName, apiBase = "", producti
         playing: Boolean(cameraCardEntry?.video && !cameraCardEntry.video.paused),
         title: cameraCardEntry?.card?.title || null,
         position: cameraCardEntry ? vector3Summary(cameraCardEntry.targetPosition) : null
+      },
+      blueAvatar: {
+        enabled: Boolean(blueAvatarCardEntry),
+        pending: blueAvatarPending,
+        autoReplyEnabled: blueAvatarAutoReplyEnabled,
+        inFlight: blueAvatarInFlight,
+        queueDepth: blueAvatarQueue.length,
+        error: blueAvatarError,
+        status: blueAvatarStatus,
+        voiceStatus: blueAvatarVoiceStatus,
+        transcript: blueAvatarTranscript,
+        currentVoiceChunkText: blueAvatarCurrentVoiceChunkText,
+        voiceChunkIndex: blueAvatarVoiceChunkIndex,
+        voiceChunkTotal: blueAvatarVoiceChunkTotal,
+        clientId: blueAvatarClientId,
+        surface: blueAvatarSurface,
+        conversationOwned: blueAvatarConversationOwned,
+        conversationOwner: blueAvatarConversationOwner,
+        conversationOwnerError: blueAvatarConversationOwnerError,
+        journal: blueAvatarJournal,
+        hasBubble: Boolean(blueAvatarCardEntry?.transcriptBubbleGroup),
+        hasAudio: Boolean(blueAvatarAudio),
+        pendingAudio: Boolean(blueAvatarPendingAudioObjectUrl),
+        lastVoice: blueAvatarLastVoice,
+        title: blueAvatarCardEntry?.card?.title || null,
+        position: blueAvatarCardEntry ? vector3Summary(blueAvatarCardEntry.targetPosition) : null
+      },
+      phoneBridge: {
+        enabled: phoneBridgeEnabled,
+        qrVisible: phoneBridgeQrVisible,
+        pending: phoneBridgePending,
+        connected: phoneBridgeConnected,
+        session: phoneBridgeSession,
+        mobileUrl: phoneBridgeMobileUrl,
+        certificateUrl: phoneBridgeCertificateUrl,
+        secure: phoneBridgeSecure,
+        status: phoneBridgeStatus,
+        error: phoneBridgeError,
+        invite: phoneBridgeInvite,
+        hasPeer: Boolean(phonePeerConnection),
+        hasDataChannel: Boolean(phoneDataChannel),
+        cardLive: Boolean(phoneCardEntry),
+        hasStream: Boolean(phoneMediaStream),
+        sceneSync: {
+          ...phoneSceneSyncStats,
+          channelState: phoneDataChannel?.readyState || "",
+          intervalMs: PHONE_SCENE_SYNC_INTERVAL_MS
+        },
+        desktopFpv: phoneFpvStats,
+        tools: {
+          cameraFacing: phoneCameraFacing,
+          laserTagged: Boolean(phoneLaserTaggedEntry || phoneLaserTaggedPoint),
+          laserTarget: phoneLaserTaggedEntry?.card?.title || (phoneLaserTaggedPoint ? "location" : ""),
+          tractorActive: Boolean(phoneTractorEntry),
+          tractorTarget: phoneTractorEntry?.card?.title || "",
+          tractorPoint: vector3Summary(phoneTractorPoint),
+          actionMemory: phoneActionIds.length,
+          status: phoneTractorEntry ? `Tractor: ${phoneTractorEntry.card?.title || "card"}` : phoneTractorStatus || phoneLaserStatus || ""
+        },
+        position: phoneCardEntry ? vector3Summary(phoneCardEntry.targetPosition) : vector3Summary(new THREE.Vector3(phonePose.x, phonePose.y, phonePose.z))
       },
       piles: buildTarotPileSummaries(deckCards, cards),
       eligibleCards: cards.length,
@@ -6642,6 +13615,8 @@ function createTarotDrawGame({ canvas, cards, avatarName, apiBase = "", producti
       centerVisualizerDrop: {
         cardCount: centerVisualizerEntries.length,
         cardTitles: centerVisualizerEntries.map((entry) => entry.card.title),
+        videoSoundTitle: centerVideoSound.state?.title || "",
+        videoSoundPlaying: Boolean(centerVideoSound.state?.playing),
         magnetized: heldEntry?.magnetZone === "center"
       },
       dock: {
@@ -6668,6 +13643,9 @@ function createTarotDrawGame({ canvas, cards, avatarName, apiBase = "", producti
         y: Number(entry.targetPosition.y.toFixed(3))
       })),
       activeFps: TAROT_ACTIVE_FPS,
+      idleFps: TAROT_IDLE_FPS,
+      targetFps: Number((1 / tarotFrameInterval()).toFixed(2)),
+      activeMotion: tarotHasActiveMotion(),
       dpr: renderer.getPixelRatio(),
 	      cardFloatMotionEnabled: TAROT_CARD_FLOAT_MOTION_ENABLED,
 	      cardFaceVideoLimit: CARD_FACE_VIDEO_MAX_ACTIVE,
@@ -6814,23 +13792,43 @@ function createTarotDrawGame({ canvas, cards, avatarName, apiBase = "", producti
     window.removeEventListener("resize", resize);
     controls.dispose();
     disposeSpawnNetwork();
+    stopPhoneBridge({ removeCard: false });
     stopCameraCardMic();
+    stopBlueAvatarAudio();
+    releaseBlueAvatarConversation("dispose");
+    clearBlueAvatarOwnerHeartbeat();
     stopDropZonePreview();
     disposeDockBackgroundPlayer(dockBackgroundPlayer);
     for (const entry of [...placedEntries, heldEntry].filter(Boolean)) disposeEntry(entry);
     disposeObject(world);
     disposeResourceLibrary(resources);
     dropSong.dispose();
+    centerVideoSound.dispose();
     audio.dispose();
     renderer.dispose();
     if (window.__THREE_GAME_DIAGNOSTICS__ === diagnosticsHandle) delete window.__THREE_GAME_DIAGNOSTICS__;
+    if (canvas.__hapaTarotDrawDiagnostics === diagnosticsHandle) delete canvas.__hapaTarotDrawDiagnostics;
     diagnosticsHandle = null;
   }
 
   function disposeEntry(entry) {
     if (entry === cameraCardEntry) cameraCardEntry = null;
+    if (entry === phoneCardEntry) phoneCardEntry = null;
+    if (entry === blueAvatarCardEntry) {
+      blueAvatarCardEntry = null;
+      blueAvatarPending = false;
+      blueAvatarQueue = [];
+    }
+    if (entry === phoneLaserTaggedEntry) setPhoneLaserTaggedEntry(null);
+    if (entry === phoneTractorEntry) {
+      phoneTractorEntry = null;
+      phoneTractorStatus = "";
+    }
     if (entry?.isCameraCard) {
       cameraCardPending = false;
+    }
+    if (entry?.isRoomletParticipant && entry.roomletParticipantKey) {
+      roomletParticipantEntries.delete(entry.roomletParticipantKey);
     }
     detachEntryCardFaceVideo(entry);
     disposeObject(entry.group);
@@ -7176,6 +14174,8 @@ function createSpawnNetworkCardTexture(card = {}, theme = spawnNetworkTheme(), {
 function createCardMesh(card, entry, resources) {
   const group = new THREE.Group();
   group.name = "tarotCardVisual";
+  const isLiveCameraCard = Boolean(card.liveCamera || entry.liveCamera);
+  const isPhoneLiveCard = Boolean(isLiveCameraCard && (entry.isPhoneCard || card.cardType === "phone_card"));
 
   const sideMaterial = resources.cardEdgeMaterial.clone();
   const body = new THREE.Mesh(resources.cardBodyGeometry, sideMaterial);
@@ -7184,18 +14184,31 @@ function createCardMesh(card, entry, resources) {
   group.add(body);
 
   const faceMaterial = createCardFaceMaterial(card, entry);
+  if (isLiveCameraCard) {
+    faceMaterial.side = THREE.DoubleSide;
+    faceMaterial.needsUpdate = true;
+  }
   const face = new THREE.Mesh(resources.cardFaceGeometry, faceMaterial);
   face.name = "videoFace";
-  face.rotation.x = -Math.PI / 2;
+  face.rotation.x = isPhoneLiveCard ? Math.PI / 2 : -Math.PI / 2;
   face.position.y = CARD_DEPTH / 2 + 0.004;
   face.castShadow = false;
   group.add(face);
   entry.faceMesh = face;
 
-  const back = new THREE.Mesh(resources.cardFaceGeometry, resources.cardBackMaterial);
+  const backMaterial = isPhoneLiveCard ? faceMaterial.clone() : resources.cardBackMaterial;
+  if (isPhoneLiveCard) {
+    backMaterial.side = THREE.DoubleSide;
+    backMaterial.userData.hapaLiveBackFaceVideo = true;
+    entry.baseBackMaterial = backMaterial;
+    entry.backMaterial = backMaterial;
+  }
+  const back = new THREE.Mesh(resources.cardFaceGeometry, backMaterial);
+  back.name = "videoBack";
   back.rotation.x = Math.PI / 2;
   back.position.y = -CARD_DEPTH / 2 - 0.004;
   group.add(back);
+  entry.backMesh = back;
 
   const edge = new THREE.LineSegments(resources.cardEdgeLinesGeometry, resources.cardLineMaterial.clone());
   edge.name = "cardEdgeLines";
@@ -7220,12 +14233,18 @@ function createCardMesh(card, entry, resources) {
   }
 
   const plaque = createCardPlaque(card, resources);
+  plaque.name = "cardPlaque";
   plaque.position.set(0, CARD_DEPTH / 2 + 0.012, CARD_HEIGHT * 0.36);
   plaque.rotation.x = -Math.PI / 2;
   group.add(plaque);
 
   const targetLock = createCardTargetLock();
   group.add(targetLock);
+
+  if (isTarotDrawForgeCard(card) || isTarotDrawSceneCard(card)) {
+    const forgeRig = createForgeConstructionRig();
+    group.add(forgeRig);
+  }
 
   const hitTarget = new THREE.Mesh(
     new THREE.PlaneGeometry(CARD_WIDTH * 0.66, CARD_HEIGHT * 0.7),
@@ -7243,6 +14262,268 @@ function createCardMesh(card, entry, resources) {
   group.add(hitTarget);
 
   return group;
+}
+
+function createForgeGlowMaterial(color = 0x00f3ff, opacity = 0.38) {
+  const material = new THREE.MeshBasicMaterial({
+    color,
+    transparent: true,
+    opacity,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+    blending: THREE.AdditiveBlending
+  });
+  material.userData.baseOpacity = opacity;
+  return material;
+}
+
+function createForgeConstructionRig() {
+  const root = new THREE.Group();
+  root.name = "forgeConstructionRig";
+  root.position.y = CARD_DEPTH / 2 + 0.052;
+  root.userData.power = 0;
+
+  const flat = new THREE.Group();
+  flat.name = "forgeRigFlat";
+  flat.rotation.x = -Math.PI / 2;
+  root.add(flat);
+
+  const cyan = createForgeGlowMaterial(0x00f3ff, 0.44);
+  const gold = createForgeGlowMaterial(0xf6c96d, 0.48);
+  const magenta = createForgeGlowMaterial(0xff6df2, 0.34);
+
+  const outer = new THREE.Mesh(new THREE.RingGeometry(CARD_WIDTH * 0.66, CARD_WIDTH * 0.72, 128), cyan.clone());
+  outer.name = "forgeRigOuterRing";
+  outer.scale.y = CARD_HEIGHT / CARD_WIDTH;
+  flat.add(outer);
+
+  const middle = new THREE.Mesh(new THREE.RingGeometry(CARD_WIDTH * 0.46, CARD_WIDTH * 0.485, 96), gold.clone());
+  middle.name = "forgeRigMiddleRing";
+  middle.scale.y = CARD_HEIGHT / CARD_WIDTH;
+  flat.add(middle);
+
+  const inner = new THREE.Mesh(new THREE.RingGeometry(CARD_WIDTH * 0.24, CARD_WIDTH * 0.258, 80), magenta.clone());
+  inner.name = "forgeRigInnerRing";
+  inner.scale.y = CARD_HEIGHT / CARD_WIDTH;
+  flat.add(inner);
+
+  const progressTrack = new THREE.Mesh(new THREE.PlaneGeometry(CARD_WIDTH * 0.94, 0.022), createForgeGlowMaterial(0x8ef7ff, 0.14));
+  progressTrack.name = "forgeRigProgressTrack";
+  progressTrack.position.set(0, -CARD_HEIGHT * 0.49, 0.006);
+  flat.add(progressTrack);
+
+  const progressFill = new THREE.Mesh(new THREE.PlaneGeometry(CARD_WIDTH * 0.94, 0.034), gold.clone());
+  progressFill.name = "forgeRigProgressFill";
+  progressFill.position.set(-CARD_WIDTH * 0.42, -CARD_HEIGHT * 0.49, 0.01);
+  progressFill.scale.x = 0.04;
+  flat.add(progressFill);
+
+  const brackets = [];
+  const bracketSpecs = [
+    [-1, -1, Math.PI],
+    [1, -1, -Math.PI / 2],
+    [-1, 1, Math.PI / 2],
+    [1, 1, 0]
+  ];
+  for (const [sideX, sideY, rotation] of bracketSpecs) {
+    const bracket = new THREE.Group();
+    bracket.name = "forgeRigCornerBracket";
+    bracket.position.set(sideX * CARD_WIDTH * 0.48, sideY * CARD_HEIGHT * 0.43, 0.018);
+    bracket.rotation.z = rotation;
+
+    const horizontal = new THREE.Mesh(new THREE.PlaneGeometry(CARD_WIDTH * 0.22, 0.018), cyan.clone());
+    horizontal.name = "forgeRigCornerBracketBar";
+    horizontal.position.x = CARD_WIDTH * 0.11;
+    const vertical = new THREE.Mesh(new THREE.PlaneGeometry(0.018, CARD_HEIGHT * 0.16), gold.clone());
+    vertical.name = "forgeRigCornerBracketBar";
+    vertical.position.y = CARD_HEIGHT * 0.08;
+    bracket.add(horizontal, vertical);
+    flat.add(bracket);
+    brackets.push(bracket);
+  }
+
+  const scanBars = [];
+  for (let index = 0; index < 3; index += 1) {
+    const scan = new THREE.Mesh(new THREE.PlaneGeometry(CARD_WIDTH * (0.68 + index * 0.12), 0.024), createForgeGlowMaterial(index === 1 ? 0xf6c96d : 0x00f3ff, 0.22));
+    scan.name = "forgeRigScanBar";
+    scan.position.z = 0.012 + index * 0.002;
+    scan.userData.phase = index * 1.85;
+    flat.add(scan);
+    scanBars.push(scan);
+  }
+
+  const spokes = [];
+  for (let index = 0; index < 10; index += 1) {
+    const angle = (Math.PI * 2 * index) / 10;
+    const spoke = new THREE.Mesh(new THREE.PlaneGeometry(0.26, 0.012), createForgeGlowMaterial(index % 2 ? 0xff6df2 : 0x00f3ff, 0.16));
+    spoke.name = "forgeRigSpoke";
+    spoke.position.set(Math.cos(angle) * CARD_WIDTH * 0.38, Math.sin(angle) * CARD_HEIGHT * 0.36, 0.004);
+    spoke.rotation.z = angle;
+    spoke.userData.phase = index * 0.42;
+    flat.add(spoke);
+    spokes.push(spoke);
+  }
+
+  const nodes = [];
+  for (let index = 0; index < 6; index += 1) {
+    const node = new THREE.Mesh(new THREE.CircleGeometry(0.028 + (index % 2) * 0.01, 28), createForgeGlowMaterial(index % 3 === 0 ? 0xf6c96d : 0x00f3ff, 0.42));
+    node.name = "forgeRigRelayNode";
+    node.userData.phase = (Math.PI * 2 * index) / 6;
+    node.userData.radiusX = CARD_WIDTH * (0.34 + (index % 2) * 0.12);
+    node.userData.radiusY = CARD_HEIGHT * (0.24 + (index % 3) * 0.045);
+    node.position.z = 0.018;
+    flat.add(node);
+    nodes.push(node);
+  }
+
+  const drones = [];
+  for (let index = 0; index < 3; index += 1) {
+    const drone = new THREE.Group();
+    drone.name = "forgeRigWorkEmitter";
+    drone.userData.phase = (Math.PI * 2 * index) / 3;
+    drone.userData.radius = 0.72 + index * 0.05;
+    const core = new THREE.Mesh(new THREE.OctahedronGeometry(0.042, 0), createForgeGlowMaterial(index === 1 ? 0xf6c96d : 0x00f3ff, 0.72));
+    core.name = "forgeRigWorkEmitterCore";
+    const beam = new THREE.Mesh(new THREE.CylinderGeometry(0.004, 0.012, 0.32, 10, 1, true), createForgeGlowMaterial(index === 2 ? 0xff6df2 : 0x00f3ff, 0.16));
+    beam.name = "forgeRigWorkEmitterBeam";
+    beam.position.y = -0.16;
+    drone.add(core, beam);
+    root.add(drone);
+    drones.push(drone);
+  }
+
+  const columns = [];
+  for (let index = 0; index < 4; index += 1) {
+    const sideX = index % 2 === 0 ? -1 : 1;
+    const sideZ = index < 2 ? -1 : 1;
+    const column = new THREE.Mesh(new THREE.CylinderGeometry(0.01, 0.024, 0.46, 12, 1, true), createForgeGlowMaterial(index % 2 ? 0xf6c96d : 0x00f3ff, 0.24));
+    column.name = "forgeRigWorkColumn";
+    column.position.set(sideX * CARD_WIDTH * 0.52, 0.16, sideZ * CARD_HEIGHT * 0.42);
+    column.userData.phase = index * 0.9;
+    root.add(column);
+    columns.push(column);
+  }
+
+  root.userData.refs = { flat, outer, middle, inner, progressTrack, progressFill, brackets, scanBars, spokes, nodes, drones, columns };
+  return root;
+}
+
+function forgeStageVisual(stage = "requested") {
+  if (stage === "complete") return { color: 0xf6c96d, accent: 0x00f3ff, progress: 1, speed: 0.56, power: 0.58 };
+  if (stage === "video-generating") return { color: 0xff6df2, accent: 0xf6c96d, progress: 0.82, speed: 1.18, power: 1 };
+  if (stage === "image-ready") return { color: 0xf6c96d, accent: 0x00f3ff, progress: 0.66, speed: 0.92, power: 0.88 };
+  if (stage === "image-generating") return { color: 0x00f3ff, accent: 0xff6df2, progress: 0.42, speed: 1.35, power: 1 };
+  if (stage === "failed") return { color: 0xfb7185, accent: 0xf6c96d, progress: 0.28, speed: 0.38, power: 0.46 };
+  return { color: 0x8ef7ff, accent: 0xf6c96d, progress: 0.18, speed: 0.78, power: 0.72 };
+}
+
+function setForgePieceMaterial(piece, color, opacity, power = 1) {
+  const material = piece?.material;
+  if (!material) return;
+  material.color?.setHex?.(color);
+  material.opacity = Math.max(0, Math.min(1, opacity * power));
+}
+
+function updateForgeConstructionRig(entry, delta, elapsed, stage = "requested") {
+  const rig = entry.refs?.forgeRig;
+  if (!rig) return;
+  const visual = forgeStageVisual(stage);
+  const targetPower = visual.power;
+  const power = THREE.MathUtils.lerp(rig.userData.power || 0, targetPower, 1 - Math.pow(0.0008, delta));
+  rig.userData.power = power;
+  rig.visible = power > 0.025;
+  if (!rig.visible) return;
+
+  const refs = rig.userData.refs || {};
+  const beat = (Math.sin(elapsed * (3.8 + visual.speed) + entry.placedAt) + 1) * 0.5;
+  const warm = visual.color;
+  const cool = visual.accent;
+  rig.position.y = CARD_DEPTH / 2 + 0.056 + Math.sin(elapsed * 2.1 + entry.placedAt) * 0.014 * power;
+
+  if (refs.flat) refs.flat.rotation.z = Math.sin(elapsed * 0.5) * 0.018;
+  if (refs.outer) {
+    refs.outer.rotation.z = elapsed * visual.speed * 0.28;
+    setForgePieceMaterial(refs.outer, cool, 0.24 + beat * 0.2, power);
+  }
+  if (refs.middle) {
+    refs.middle.rotation.z = -elapsed * visual.speed * 0.42;
+    setForgePieceMaterial(refs.middle, warm, 0.28 + beat * 0.24, power);
+  }
+  if (refs.inner) {
+    refs.inner.rotation.z = elapsed * visual.speed * 0.74;
+    setForgePieceMaterial(refs.inner, stage === "failed" ? 0xfb7185 : 0xff6df2, 0.18 + beat * 0.2, power);
+  }
+
+  if (refs.progressTrack) setForgePieceMaterial(refs.progressTrack, 0x8ef7ff, 0.12, power);
+  if (refs.progressFill) {
+    const progress = THREE.MathUtils.clamp(visual.progress + Math.sin(elapsed * 2.2) * 0.015 * (stage === "complete" ? 0 : 1), 0.04, 1);
+    refs.progressFill.scale.x = THREE.MathUtils.lerp(refs.progressFill.scale.x, progress, 1 - Math.pow(0.001, delta));
+    refs.progressFill.position.x = -CARD_WIDTH * 0.47 * (1 - refs.progressFill.scale.x);
+    setForgePieceMaterial(refs.progressFill, warm, 0.36 + beat * 0.2, power);
+  }
+
+  for (const bracket of refs.brackets || []) {
+    const phase = elapsed * visual.speed * 2.6 + bracket.position.x * 1.7 + bracket.position.y;
+    const pulse = (Math.sin(phase) + 1) * 0.5;
+    bracket.scale.setScalar(0.96 + pulse * 0.08);
+    for (const piece of bracket.children || []) {
+      setForgePieceMaterial(piece, piece.position.x ? cool : warm, 0.18 + pulse * 0.26, power);
+    }
+  }
+
+  for (const scan of refs.scanBars || []) {
+    const phase = scan.userData.phase || 0;
+    scan.position.y = Math.sin(elapsed * visual.speed * 1.8 + phase) * CARD_HEIGHT * 0.38;
+    scan.scale.x = 0.86 + Math.sin(elapsed * 2.3 + phase) * 0.08;
+    setForgePieceMaterial(scan, phase > 2 ? warm : cool, stage === "complete" ? 0.06 + beat * 0.05 : 0.16 + beat * 0.24, power);
+  }
+
+  for (const spoke of refs.spokes || []) {
+    const pulse = Math.max(0, Math.sin(elapsed * visual.speed * 4.8 + (spoke.userData.phase || 0)));
+    spoke.scale.x = 0.65 + pulse * 0.58;
+    setForgePieceMaterial(spoke, pulse > 0.62 ? warm : cool, 0.1 + pulse * 0.28, power);
+  }
+
+  for (const node of refs.nodes || []) {
+    const phase = (node.userData.phase || 0) + elapsed * visual.speed * 0.68;
+    node.position.x = Math.cos(phase) * (node.userData.radiusX || CARD_WIDTH * 0.42);
+    node.position.y = Math.sin(phase * 1.13) * (node.userData.radiusY || CARD_HEIGHT * 0.3);
+    node.scale.setScalar(0.82 + Math.max(0, Math.sin(elapsed * 6 + phase)) * 0.72);
+    setForgePieceMaterial(node, Math.sin(phase) > 0 ? warm : cool, 0.22 + beat * 0.34, power);
+  }
+
+  for (const drone of refs.drones || []) {
+    const phase = (drone.userData.phase || 0) + elapsed * visual.speed * 0.58;
+    const radius = drone.userData.radius || 0.72;
+    drone.position.set(Math.cos(phase) * radius, 0.28 + Math.sin(elapsed * 2.4 + phase) * 0.04, Math.sin(phase) * radius * 0.62);
+    drone.rotation.y = -phase + Math.PI * 0.5;
+    drone.rotation.z = Math.sin(elapsed * 3 + phase) * 0.18;
+    const core = drone.getObjectByName("forgeRigWorkEmitterCore");
+    const beam = drone.getObjectByName("forgeRigWorkEmitterBeam");
+    setForgePieceMaterial(core, Math.sin(phase) > 0 ? cool : warm, 0.42 + beat * 0.36, power);
+    setForgePieceMaterial(beam, stage === "failed" ? 0xfb7185 : cool, stage === "complete" ? 0.06 + beat * 0.05 : 0.12 + beat * 0.2, power);
+  }
+
+  for (const column of refs.columns || []) {
+    const phase = elapsed * visual.speed * 3.2 + (column.userData.phase || 0);
+    const pulse = (Math.sin(phase) + 1) * 0.5;
+    column.scale.y = 0.72 + pulse * 0.46;
+    column.position.y = 0.12 + pulse * 0.08;
+    setForgePieceMaterial(column, pulse > 0.58 ? warm : cool, stage === "complete" ? 0.08 + pulse * 0.08 : 0.16 + pulse * 0.28, power);
+  }
+}
+
+function updateForgePlaque(entry) {
+  const plaque = entry.refs?.plaque;
+  const userData = plaque?.userData || {};
+  if (!userData.ctx || !userData.texture || !entry?.card) return;
+  const stage = entry.forgeState?.stage || entry.card?.drawForge?.stage || "requested";
+  const tick = Math.floor(Date.now() / 1000);
+  if (userData.forgePlaqueTick === tick && userData.forgePlaqueStage === stage) return;
+  userData.forgePlaqueTick = tick;
+  userData.forgePlaqueStage = stage;
+  drawCardPlaqueCanvas(userData.ctx, entry.card, tarotDrawForgePhaseList(entry.card, {}, tick * 1000));
+  userData.texture.needsUpdate = true;
 }
 
 function createCardTargetLock() {
@@ -7410,7 +14691,7 @@ function updateCardTargetLock(targetLock, active, elapsed, lockedZone = false) {
 
 function createCardFaceMaterial(card, entry) {
   const posterTexture = createPosterTexture(card);
-  const hasMotion = Boolean(card.videoUri || card.liveCamera || entry.liveCamera);
+  const hasMotion = Boolean(card.videoUri || card.liveCamera || entry.liveCamera || isTarotDrawForgeCard(card));
   const baseMaterial = new THREE.MeshStandardMaterial({
     map: posterTexture,
     transparent: Boolean(entry.videoKeying || entry.videoSourceHasAlpha),
@@ -7634,7 +14915,7 @@ function createCameraCardHapaGradeMaterial(videoTexture) {
     transparent: false,
     depthWrite: true,
     depthTest: true,
-    side: THREE.FrontSide,
+    side: THREE.DoubleSide,
     toneMapped: false
   });
   material.userData.hapaSolidCardFaceVideo = true;
@@ -7644,8 +14925,11 @@ function createCameraCardHapaGradeMaterial(videoTexture) {
 
 function updateCameraCardShaderUniforms(entry, elapsed = 0) {
   const material = entry?.cameraShaderMaterial;
-  if (!entry?.cameraShaderEnabled || !material?.uniforms) return;
-  updateCameraCardShaderMaterialUniforms(material, entry.videoTexture, entry.video, elapsed);
+  if (!entry?.cameraShaderEnabled) return;
+  if (material?.uniforms) updateCameraCardShaderMaterialUniforms(material, entry.videoTexture, entry.video, elapsed);
+  if (entry.cameraBackShaderMaterial?.uniforms) {
+    updateCameraCardShaderMaterialUniforms(entry.cameraBackShaderMaterial, entry.videoTexture, entry.video, elapsed);
+  }
 }
 
 function updateCameraCardShaderMaterialUniforms(material, videoTexture, video, elapsed = 0) {
@@ -7767,14 +15051,25 @@ function createMicWaveformLabelTexture() {
   return texture;
 }
 
-function createCameraCardTranscriptBubble() {
+function createCameraCardTranscriptBubble({
+  name = "cameraCardSpeechBubble",
+  accentColor = 0x00f3ff,
+  initialState = "idle",
+  initialTitle = "",
+  initialFooter = ""
+} = {}) {
   const group = new THREE.Group();
-  group.name = "cameraCardSpeechBubble";
+  group.name = name;
   group.rotation.x = -Math.PI / 2;
   group.position.set(CAMERA_CARD_SPEECH_BUBBLE_X, CARD_DEPTH / 2 + 0.078, CAMERA_CARD_SPEECH_BUBBLE_Z);
   group.renderOrder = 32;
 
-  const texture = createCameraCardTranscriptTexture("", { state: "idle", pointer: "left" });
+  const texture = createCameraCardTranscriptTexture("", {
+    state: initialState,
+    pointer: "left",
+    title: initialTitle,
+    footer: initialFooter
+  });
   const material = new THREE.MeshBasicMaterial({
     map: texture,
     transparent: true,
@@ -7794,7 +15089,7 @@ function createCameraCardTranscriptBubble() {
   const frame = new THREE.LineSegments(
     new THREE.EdgesGeometry(new THREE.PlaneGeometry(CAMERA_CARD_SPEECH_BUBBLE_WIDTH * 0.94, CAMERA_CARD_SPEECH_BUBBLE_HEIGHT * 0.72)),
     new THREE.LineBasicMaterial({
-      color: 0x00f3ff,
+      color: accentColor,
       transparent: true,
       opacity: 0.38,
       depthWrite: false,
@@ -7815,7 +15110,15 @@ function createCameraCardTranscriptBubble() {
   return group;
 }
 
-function createCameraCardTranscriptTexture(text = "", { state = "idle", pointer = "left" } = {}) {
+function createCameraCardTranscriptTexture(text = "", {
+  state = "idle",
+  pointer = "left",
+  title = "",
+  footer = "",
+  accent = "",
+  secondary = "",
+  fallback = ""
+} = {}) {
   const canvas = document.createElement("canvas");
   canvas.width = 768;
   canvas.height = 360;
@@ -7827,9 +15130,9 @@ function createCameraCardTranscriptTexture(text = "", { state = "idle", pointer 
   const bodyY = 24;
   const bodyW = canvas.width - 72;
   const bodyH = canvas.height - 48;
-  const accent = state === "error" ? "#ff4d6d" : state === "listening" || state === "transcribing" || state === "notice" ? "#f6c96d" : "#00f3ff";
-  const secondary = state === "error" ? "#f6c96d" : "#ff6df2";
-  const entries = speechBubbleTextEntries(text || (state === "idle" ? "Waiting for speech..." : "Listening..."));
+  const accentColor = accent || (state === "error" ? "#ff4d6d" : state === "listening" || state === "transcribing" || state === "notice" ? "#f6c96d" : "#00f3ff");
+  const secondaryColor = secondary || (state === "error" ? "#f6c96d" : "#ff6df2");
+  const entries = speechBubbleTextEntries(text || fallback || (state === "idle" ? "Waiting for speech..." : "Listening..."));
 
   ctx.save();
   const gradient = ctx.createLinearGradient(bodyX, bodyY, bodyX + bodyW, bodyY + bodyH);
@@ -7854,22 +15157,28 @@ function createCameraCardTranscriptTexture(text = "", { state = "idle", pointer 
   ctx.fill();
 
   ctx.lineWidth = 4;
-  ctx.strokeStyle = hexToRgba(accent, 0.82);
+  ctx.strokeStyle = hexToRgba(accentColor, 0.82);
   drawRoundedRectPath(ctx, bodyX + 3, bodyY + 3, bodyW - 6, bodyH - 6, 19);
   ctx.stroke();
-  ctx.strokeStyle = hexToRgba(secondary, 0.34);
+  ctx.strokeStyle = hexToRgba(secondaryColor, 0.34);
   ctx.lineWidth = 2;
   ctx.strokeRect(bodyX + 18, bodyY + 18, bodyW - 36, bodyH - 36);
 
-  ctx.fillStyle = hexToRgba(accent, state === "listening" ? 0.22 : 0.14);
+  ctx.fillStyle = hexToRgba(accentColor, state === "listening" || state === "speaking" ? 0.22 : 0.14);
   ctx.fillRect(bodyX + 24, bodyY + bodyH - 45, bodyW - 48, 8);
-  ctx.fillStyle = hexToRgba(accent, 0.74);
-  const activeWidth = state === "listening" ? bodyW * 0.42 : state === "transcribing" ? bodyW * 0.52 : state === "live" ? bodyW * 0.64 : bodyW * 0.22;
+  ctx.fillStyle = hexToRgba(accentColor, 0.74);
+  const activeWidth = state === "listening"
+    ? bodyW * 0.42
+    : state === "thinking" || state === "transcribing"
+      ? bodyW * 0.52
+      : state === "speaking" || state === "live"
+        ? bodyW * 0.64
+        : bodyW * 0.22;
   ctx.fillRect(bodyX + 24, bodyY + bodyH - 45, activeWidth, 8);
 
-  ctx.fillStyle = accent;
+  ctx.fillStyle = accentColor;
   ctx.font = "900 23px ui-monospace, SFMono-Regular, Menlo, monospace";
-  ctx.fillText(state === "error" ? "STT BLOCKED" : state === "listening" ? "RECORDING SPEECH" : state === "transcribing" ? "TRANSCRIBING QUEUE" : state === "notice" ? "DICTATION STATUS" : "CAMERA CARD LOG", bodyX + 34, bodyY + 48);
+  ctx.fillText(title || (state === "error" ? "STT BLOCKED" : state === "listening" ? "RECORDING SPEECH" : state === "transcribing" ? "TRANSCRIBING QUEUE" : state === "notice" ? "DICTATION STATUS" : "CAMERA CARD LOG"), bodyX + 34, bodyY + 48);
 
   ctx.font = "800 25px Inter, system-ui, sans-serif";
   entries.forEach((entry, index) => {
@@ -7888,7 +15197,7 @@ function createCameraCardTranscriptTexture(text = "", { state = "idle", pointer 
 
   ctx.fillStyle = "rgba(125, 211, 252, 0.72)";
   ctx.font = "800 18px ui-monospace, SFMono-Regular, Menlo, monospace";
-  ctx.fillText(state === "listening" ? "Capturing without blocking STT" : state === "transcribing" ? "Large-v3 draining queued audio" : state === "notice" ? "Waiting for clearer speech" : "Attached to webcam profile", bodyX + 34, bodyY + bodyH - 21);
+  ctx.fillText(footer || (state === "listening" ? "Capturing without blocking STT" : state === "transcribing" ? "Large-v3 draining queued audio" : state === "notice" ? "Waiting for clearer speech" : "Attached to webcam profile"), bodyX + 34, bodyY + bodyH - 21);
   ctx.restore();
 
   const texture = new THREE.CanvasTexture(canvas);
@@ -7928,28 +15237,103 @@ function drawRoundedRectPath(ctx, x, y, width, height, radius) {
   ctx.closePath();
 }
 
-function createCardPlaque(card, resources) {
-  const canvas = document.createElement("canvas");
-  canvas.width = 512;
-  canvas.height = 104;
-  const ctx = canvas.getContext("2d");
+function drawCardPlaqueCanvas(ctx, card = {}, phases = []) {
+  const canvas = ctx.canvas;
+  const isForge = isTarotDrawForgeCard(card);
+  const isScene = isTarotDrawSceneCard(card);
+  const activePhase = isForge ? tarotDrawForgeActivePhase(phases) : null;
+  const stage = tarotDrawForgeMeta(card).stage || "";
   ctx.clearRect(0, 0, canvas.width, canvas.height);
-  ctx.fillStyle = "rgba(2, 6, 23, 0.72)";
+  ctx.fillStyle = isForge || isScene ? "rgba(2, 10, 22, 0.82)" : "rgba(2, 6, 23, 0.72)";
   ctx.fillRect(0, 0, canvas.width, canvas.height);
-  ctx.strokeStyle = "rgba(246, 201, 109, 0.82)";
+  ctx.strokeStyle = isForge && stage === "complete" ? "rgba(246, 201, 109, 0.9)" : isForge || isScene ? "rgba(0, 243, 255, 0.82)" : "rgba(246, 201, 109, 0.82)";
   ctx.lineWidth = 3;
   ctx.strokeRect(5, 5, canvas.width - 10, canvas.height - 10);
+  if (isForge) {
+    const progress = Math.max(0, Math.min(1, Number(activePhase?.progress || 0)));
+    ctx.fillStyle = "rgba(0, 243, 255, 0.12)";
+    ctx.fillRect(12, canvas.height - 11, canvas.width - 24, 4);
+    ctx.fillStyle = activePhase?.state === "complete" ? "#f6c96d" : "#00f3ff";
+    ctx.fillRect(12, canvas.height - 11, (canvas.width - 24) * progress, 4);
+    ctx.fillStyle = "#00f3ff";
+    ctx.font = "800 20px ui-monospace, SFMono-Regular, Menlo, monospace";
+    fitText(ctx, (activePhase?.label || tarotDrawForgeStageLabel(stage)).toUpperCase(), 22, 30, 190);
+    ctx.fillStyle = "#f6c96d";
+    ctx.font = "800 18px ui-monospace, SFMono-Regular, Menlo, monospace";
+    fitText(ctx, activePhase?.clockLabel || "ETA 0:00", 292, 30, 198);
+    ctx.fillStyle = "#f8f3e7";
+    ctx.font = "900 27px Inter, system-ui, sans-serif";
+    fitText(ctx, card.title || "Forge Card", 22, 66, 466);
+    ctx.fillStyle = "#9bd8e7";
+    ctx.font = "700 15px ui-monospace, SFMono-Regular, Menlo, monospace";
+    fitText(ctx, `${tarotDrawForgeStageLabel(stage || "requested")} / ${activePhase?.status || "queued"}`.toUpperCase(), 22, 91, 466);
+    return;
+  }
+  if (isScene) {
+    const snapshot = tarotDrawSceneSnapshot(card) || {};
+    const counts = snapshot.counts || {};
+    ctx.fillStyle = "#00f3ff";
+    ctx.font = "800 20px ui-monospace, SFMono-Regular, Menlo, monospace";
+    fitText(ctx, "SAVED SCENE", 22, 30, 190);
+    ctx.fillStyle = "#f6c96d";
+    ctx.font = "800 18px ui-monospace, SFMono-Regular, Menlo, monospace";
+    fitText(ctx, `${counts.cards || snapshot.cards?.length || 0} CARDS`, 292, 30, 198);
+    ctx.fillStyle = "#f8f3e7";
+    ctx.font = "900 27px Inter, system-ui, sans-serif";
+    fitText(ctx, card.title || "Saved Scene", 22, 66, 466);
+    ctx.fillStyle = "#9bd8e7";
+    ctx.font = "700 14px ui-monospace, SFMono-Regular, Menlo, monospace";
+    fitText(ctx, formatTarotDrawSceneSnapshotSummary(snapshot).toUpperCase() || "RESTORABLE TABLE STATE", 22, 91, 466);
+    return;
+  }
+  const mediaTelemetry = card.mediaTelemetry || card.captureTelemetry || null;
+  if (mediaTelemetry?.sourceKind || mediaTelemetry?.kind) {
+    const accent = mediaTelemetry.sourceKind === "webcam-capture" ? "#00f3ff" : mediaTelemetry.kind === "video" ? "#ff6df2" : "#f6c96d";
+    const duration = formatFieldMediaDuration(mediaTelemetry.actualDurationSeconds || mediaTelemetry.durationSeconds);
+    const resolution = formatFieldMediaResolution(mediaTelemetry.width, mediaTelemetry.height);
+    const size = formatFieldMediaBytes(mediaTelemetry.sizeBytes);
+    ctx.fillStyle = accent;
+    ctx.font = "800 19px ui-monospace, SFMono-Regular, Menlo, monospace";
+    fitText(ctx, (mediaTelemetry.sourceLabel || mediaTelemetry.sourceKind || "FIELD MEDIA").toUpperCase(), 22, 28, 260);
+    ctx.fillStyle = "#f6c96d";
+    ctx.font = "800 17px ui-monospace, SFMono-Regular, Menlo, monospace";
+    fitText(ctx, [duration, resolution].filter(Boolean).join(" / ") || "media card", 292, 28, 198);
+    ctx.fillStyle = "#f8f3e7";
+    ctx.font = "900 26px Inter, system-ui, sans-serif";
+    fitText(ctx, card.title || "Field Media Card", 22, 61, 466);
+    ctx.fillStyle = "#9bd8e7";
+    ctx.font = "700 14px ui-monospace, SFMono-Regular, Menlo, monospace";
+    fitText(ctx, [
+      mediaTelemetry.estimatedFrames ? `${mediaTelemetry.estimatedFrames} frames` : "",
+      size,
+      mediaTelemetry.gradeApplied ? "GRADE BAKED" : ""
+    ].filter(Boolean).join(" / ").toUpperCase(), 22, 88, 466);
+    return;
+  }
   ctx.fillStyle = "#f6c96d";
   ctx.font = "700 24px ui-monospace, SFMono-Regular, Menlo, monospace";
   ctx.fillText(card.tarotNumber || card.archetype || "HAPA", 22, 34);
   ctx.fillStyle = "#f8f3e7";
   ctx.font = "800 33px Inter, system-ui, sans-serif";
   fitText(ctx, card.title, 22, 76, 466);
+}
+
+function createCardPlaque(card, resources) {
+  const canvas = document.createElement("canvas");
+  canvas.width = 512;
+  canvas.height = 104;
+  const ctx = canvas.getContext("2d");
+  drawCardPlaqueCanvas(ctx, card, isTarotDrawForgeCard(card) ? tarotDrawForgePhaseList(card) : []);
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
   const material = new THREE.MeshBasicMaterial({ map: texture, transparent: true, opacity: 0.92, depthWrite: false });
   const mesh = new THREE.Mesh(resources.cardPlaqueGeometry, material);
   mesh.userData.disposableTexture = texture;
+  mesh.userData.canvas = canvas;
+  mesh.userData.ctx = ctx;
+  mesh.userData.texture = texture;
+  mesh.userData.forgePlaqueTick = 0;
+  mesh.userData.forgePlaqueStage = "";
   return mesh;
 }
 
@@ -7994,6 +15378,90 @@ function drawPosterCanvas(ctx, card, image = null) {
     for (let i = 0; i < 18; i += 1) {
       ctx.fillRect(48 + Math.random() * 380, 64 + Math.random() * 620, 2, 80 + Math.random() * 160);
     }
+  }
+  if (!image && isTarotDrawForgeCard(card)) {
+    const forge = tarotDrawForgeMeta(card);
+    const stage = forge.stage || "requested";
+    const center = { x: 256, y: 318 };
+    const pulse = stage === "complete" ? "#f6c96d" : "#00f3ff";
+    ctx.fillStyle = "rgba(0, 243, 255, 0.08)";
+    ctx.fillRect(48, 148, 416, 354);
+    ctx.strokeStyle = "rgba(0, 243, 255, 0.48)";
+    ctx.lineWidth = 3;
+    for (let ring = 0; ring < 4; ring += 1) {
+      ctx.beginPath();
+      ctx.ellipse(center.x, center.y, 58 + ring * 38, 88 + ring * 42, ring * 0.2, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+    ctx.strokeStyle = "rgba(246, 201, 109, 0.72)";
+    ctx.lineWidth = 5;
+    ctx.beginPath();
+    ctx.moveTo(126, 432);
+    ctx.bezierCurveTo(180, 380, 210, 402, 256, 330);
+    ctx.bezierCurveTo(302, 402, 334, 380, 386, 432);
+    ctx.stroke();
+    ctx.fillStyle = pulse;
+    ctx.shadowColor = pulse;
+    ctx.shadowBlur = 22;
+    ctx.beginPath();
+    ctx.arc(center.x, center.y, 30, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = "#f8f3e7";
+    ctx.font = "900 34px Inter, system-ui, sans-serif";
+    fitText(ctx, tarotDrawForgeStageLabel(stage).toUpperCase(), 64, 548, 384);
+    ctx.fillStyle = "#9bd8e7";
+    ctx.font = "600 22px Inter, system-ui, sans-serif";
+    wrapText(ctx, forge.imageStatus || forge.loopStatus || "paired media run staged", 64, 588, 384, 28, 3);
+  }
+  if (!image && isTarotDrawSceneCard(card)) {
+    const snapshot = tarotDrawSceneSnapshot(card) || {};
+    const counts = snapshot.counts || {};
+    ctx.fillStyle = "rgba(0, 243, 255, 0.08)";
+    ctx.fillRect(46, 126, 420, 408);
+    ctx.strokeStyle = "rgba(0, 243, 255, 0.48)";
+    ctx.lineWidth = 3;
+    for (let row = 0; row < 5; row += 1) {
+      ctx.beginPath();
+      ctx.moveTo(76, 170 + row * 70);
+      ctx.lineTo(436, 170 + row * 70);
+      ctx.stroke();
+    }
+    for (let col = 0; col < 5; col += 1) {
+      ctx.beginPath();
+      ctx.moveTo(86 + col * 82, 148);
+      ctx.lineTo(86 + col * 82, 478);
+      ctx.stroke();
+    }
+    [
+      [128, 224, "#f6c96d"],
+      [256, 190, "#00f3ff"],
+      [364, 256, "#ff6df2"],
+      [206, 386, "#7ddf85"],
+      [328, 404, "#f6c96d"]
+    ].forEach(([x, y, color], index) => {
+      ctx.fillStyle = color;
+      ctx.shadowColor = color;
+      ctx.shadowBlur = 18;
+      drawRoundedRectPath(ctx, x - 32, y - 44, 64, 88, 8);
+      ctx.fill();
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = "rgba(2, 6, 23, 0.82)";
+      drawRoundedRectPath(ctx, x - 25, y - 34, 50, 68, 6);
+      ctx.fill();
+      ctx.fillStyle = "#f8f3e7";
+      ctx.font = "900 18px ui-monospace, SFMono-Regular, Menlo, monospace";
+      fitText(ctx, `${index + 1}`, x - 9, y + 6, 20);
+    });
+    ctx.fillStyle = "#00f3ff";
+    ctx.font = "900 30px ui-monospace, SFMono-Regular, Menlo, monospace";
+    fitText(ctx, "SAVED SCENE", 64, 82, 384);
+    ctx.fillStyle = "#f6c96d";
+    ctx.font = "800 21px ui-monospace, SFMono-Regular, Menlo, monospace";
+    fitText(ctx, `${counts.cards || snapshot.cards?.length || 0} CARDS / LOADABLE FIELD STATE`, 64, 634, 384);
+    ctx.fillStyle = "#9bd8e7";
+    ctx.font = "700 18px ui-monospace, SFMono-Regular, Menlo, monospace";
+    wrapText(ctx, formatTarotDrawSceneSnapshotSummary(snapshot), 64, 674, 384, 24, 2);
   }
   ctx.strokeStyle = "#f6c96d";
   ctx.lineWidth = 8;
@@ -9068,7 +16536,7 @@ function applyEchoDirectorCameraMotionToScreen(screen = null, source = null) {
   screen.texture.repeat.set(cover.repeatX, cover.repeatY);
   screen.texture.offset.set(cover.offsetX, cover.offsetY);
   screen.texture.needsUpdate = true;
-  if (screen.mesh?.userData) screen.mesh.userData.echoPreviewOpacity = echoDirectorTransitionOpacityForSource(source);
+  if (screen.mesh?.userData) screen.mesh.userData.echoPreviewOpacity = 1;
 }
 
 function echoDirectorCoverTextureWindow(videoAspect = ECHO_DIRECTOR_EXPORT_ASPECT, frameAspect = ECHO_DIRECTOR_EXPORT_ASPECT, state = {}) {
@@ -10159,7 +17627,7 @@ function setDropZoneScreenSource(screen, source, { sourceIndex = screen.sourceIn
   else video.removeAttribute("poster");
   screen.source = source;
   screen.sourceIndex = sourceIndex;
-  setVideoMaterialSourceAlpha(screen.material, source);
+  setVideoMaterialSourceAlpha(screen.material, false);
   const targetAspect = dropZonePreviewAspectForSource(source, screen.mesh?.userData?.previewAspect || DROP_PREVIEW_SCREEN_ASPECT);
   if (screen.mesh && Math.abs((screen.mesh.userData.previewAspect || 0) - targetAspect) > 0.01) {
     resizeDropZonePreviewScreen(screen.mesh, targetAspect);
@@ -10194,7 +17662,7 @@ function setDropZoneScreenSource(screen, source, { sourceIndex = screen.sourceIn
   if (playing) video.play().catch(() => {});
 }
 
-function createDropZonePreviewScreen(spec, index, sources, { videoKeying = false } = {}) {
+function createDropZonePreviewScreen(spec, index, sources) {
   const sourceIndex = sources.length ? index % sources.length : 0;
   const source = sources[sourceIndex];
   const video = createDropZoneVideoElement();
@@ -10204,13 +17672,14 @@ function createDropZonePreviewScreen(spec, index, sources, { videoKeying = false
   texture.magFilter = THREE.LinearFilter;
   texture.generateMipmaps = false;
 
-  const material = makeVideoBackgroundKeyable(new THREE.MeshBasicMaterial({
+  const material = new THREE.MeshBasicMaterial({
     map: texture,
     transparent: true,
     opacity: 0,
     side: THREE.DoubleSide,
     toneMapped: false
-  }), { enabled: videoKeying });
+  });
+  material.userData.hapaSolidMiddlePreviewVideo = true;
 
   const dimensions = dropPreviewDimensions(DROP_PREVIEW_SCREEN_ASPECT, spec.height);
   const mesh = new THREE.Mesh(createAspectPlaneGeometry(dimensions.aspect, spec.height), material);
@@ -10234,7 +17703,7 @@ function createDropZonePreviewScreen(spec, index, sources, { videoKeying = false
     video,
     texture,
     material,
-    matte: createVideoEdgeMatte(video, material),
+    matte: null,
     source: null,
     sourceIndex,
     nextSwapAt: null,
@@ -10403,6 +17872,7 @@ function updateDropZonePreviewScreens(preview, elapsed, shouldPlay) {
   if (preview.centerPool) ensureDropZoneMediaQueue(preview.centerPool);
   screens.forEach((screen) => {
     const centerPriority = isCenterPreviewScreen(screen) && preview.centerPool?.sources?.length;
+    if (centerPriority) return;
     const activePool = centerPriority ? preview.centerPool : preview.pool;
     const activeSources = centerPriority ? centerSources : sources;
     if (!activeSources.length || activeSources.length <= 1) return;
@@ -10495,13 +17965,13 @@ function disposeDropZonePreview(preview) {
 
 function createDropZonePreview(card = {}, song = null, options = {}) {
   return createDropZonePreviewFromSources(dropZoneVideoSources(card, {
-    allowBackgroundless: Boolean(options.videoKeying),
-    preferBackgroundless: Boolean(options.videoKeying)
-  }), song, options);
+    allowBackgroundless: MIDDLE_PREVIEW_ALLOW_BACKGROUNDLESS,
+    preferBackgroundless: MIDDLE_PREVIEW_ALLOW_BACKGROUNDLESS
+  }), song, { ...options, videoKeying: MIDDLE_PREVIEW_VIDEO_KEYING });
 }
 
 function createDropZonePreviewFromSources(rawSources = [], song = null, options = {}) {
-  const allowBackgroundless = Boolean(options.videoKeying);
+  const allowBackgroundless = MIDDLE_PREVIEW_ALLOW_BACKGROUNDLESS;
   const sources = uniqueDropZoneVideoSources(rawSources, "", { allowBackgroundless });
   const root = new THREE.Group();
   root.name = "dropZoneSurroundVideoPreview";
@@ -10515,10 +17985,10 @@ function createDropZonePreviewFromSources(rawSources = [], song = null, options 
       position: [0.12, 2.2, -3.58],
       horizonPosition: [0.02, 2.76, -4.18],
       horizonScale: 0.78,
-      horizonOpacity: 0.94,
+      horizonOpacity: 1,
       rotation: [0, 0.03, 0],
       horizonRotation: [0, 0, 0],
-      opacity: 0.82
+      opacity: 1
     },
     {
       name: "dropPreviewLeft",
@@ -10556,7 +18026,7 @@ function createDropZonePreviewFromSources(rawSources = [], song = null, options 
 
   const screens = panelSpecs
     .slice(0, DROP_PREVIEW_PANEL_LIMIT)
-    .map((spec, index) => createDropZonePreviewScreen(spec, index, sources, options));
+    .map((spec, index) => createDropZonePreviewScreen(spec, index, sources));
   screens.forEach((screen) => root.add(screen.rig || screen.mesh));
 
   if (song) root.add(createDropZoneSongVisualizer(song));
@@ -10583,11 +18053,12 @@ function createDropZonePreviewFromSources(rawSources = [], song = null, options 
 
 function setDropZonePreviewSources(preview, sources = [], { resetScreens = false, allowBackgroundless = false } = {}) {
   if (!preview) return;
-  const nextSources = uniqueDropZoneVideoSources(sources, "", { allowBackgroundless });
-  preview.allowBackgroundless = allowBackgroundless;
+  const solidOnly = MIDDLE_PREVIEW_ALLOW_BACKGROUNDLESS;
+  const nextSources = uniqueDropZoneVideoSources(sources, "", { allowBackgroundless: solidOnly });
+  preview.allowBackgroundless = solidOnly;
   preview.sources = nextSources;
-  if (!preview.pool) preview.pool = createDropZoneMediaPool(nextSources, { allowBackgroundless });
-  else setDropZoneMediaPoolSources(preview.pool, nextSources, { allowBackgroundless });
+  if (!preview.pool) preview.pool = createDropZoneMediaPool(nextSources, { allowBackgroundless: solidOnly });
+  else setDropZoneMediaPoolSources(preview.pool, nextSources, { allowBackgroundless: solidOnly });
   if (resetScreens) {
     preview.screens.forEach((screen, index) => {
       const source = nextSources[index % Math.max(1, nextSources.length)] || nextDropZoneMediaSource(preview.pool, index);
@@ -10606,7 +18077,8 @@ function setDropZonePreviewSources(preview, sources = [], { resetScreens = false
 
 function setDropZoneCenterPrioritySources(preview, sources = [], { force = false, playing = false, allowBackgroundless = false } = {}) {
   if (!preview) return;
-  const centerSources = uniqueDropZoneVideoSources(sources, "", { allowBackgroundless });
+  const solidOnly = MIDDLE_PREVIEW_ALLOW_BACKGROUNDLESS;
+  const centerSources = uniqueDropZoneVideoSources(sources, "", { allowBackgroundless: solidOnly });
   const centerScreen = (preview.screens || []).find(isCenterPreviewScreen);
   preview.centerSources = centerSources;
   if (!centerSources.length) {
@@ -10624,19 +18096,22 @@ function setDropZoneCenterPrioritySources(preview, sources = [], { force = false
     }
     return;
   }
-  if (!preview.centerPool) preview.centerPool = createDropZoneMediaPool(centerSources, { allowBackgroundless });
-  else setDropZoneMediaPoolSources(preview.centerPool, centerSources, { allowBackgroundless });
+  if (!preview.centerPool) preview.centerPool = createDropZoneMediaPool(centerSources, { allowBackgroundless: solidOnly });
+  else setDropZoneMediaPoolSources(preview.centerPool, centerSources, { allowBackgroundless: solidOnly });
   if (!centerScreen) return;
   const source = centerSources[0];
   const sourceKey = dropZoneVideoSourceKey(source);
   const currentKey = dropZoneVideoSourceKey(centerScreen.source);
-  if (force || sourceKey !== currentKey) {
+  const currentSrc = centerScreen.video?.currentSrc || centerScreen.video?.src || "";
+  if (sourceKey !== currentKey || !currentSrc) {
     centerScreen.nextSwapAt = null;
     setDropZoneScreenSource(centerScreen, source, {
       sourceIndex: 0,
       playing,
-      seekOffset: Number.isFinite(Number(source.seekOffset)) ? Number(source.seekOffset) : Math.random() * 1.8
+      seekOffset: Number.isFinite(Number(source.seekOffset)) ? Number(source.seekOffset) : 0
     });
+  } else if (force && playing) {
+    centerScreen.video?.play?.().catch(() => {});
   }
 }
 
@@ -12846,13 +20321,17 @@ function disposeObject(object) {
   });
 }
 
-function createDropZoneSongPlayer(initialEnabled = false) {
+function createDropZoneSongPlayer(initialEnabled = false, options = {}) {
   let enabled = Boolean(initialEnabled);
+  const elementKind = options.elementKind === "video" ? "video" : "audio";
+  const datasetName = options.datasetName || "hapaTarotDropSong";
+  const volume = Number.isFinite(Number(options.volume)) ? THREE.MathUtils.clamp(Number(options.volume), 0, 1) : 0.78;
   let audioElement = null;
   let context = null;
   let source = null;
   let analyser = null;
   let gain = null;
+  let streamDestination = null;
   let frequencyData = null;
   let currentSong = null;
   let playing = false;
@@ -12864,12 +20343,13 @@ function createDropZoneSongPlayer(initialEnabled = false) {
 
   function ensureAudioElement() {
     if (audioElement) return audioElement;
-    audioElement = document.createElement("audio");
+    audioElement = document.createElement(elementKind);
     audioElement.crossOrigin = "anonymous";
     audioElement.loop = true;
     audioElement.preload = "auto";
-    audioElement.volume = 0.78;
-    audioElement.dataset.hapaTarotDropSong = "true";
+    audioElement.volume = volume;
+    if (elementKind === "video") audioElement.playsInline = true;
+    audioElement.dataset[datasetName] = "true";
     audioElement.setAttribute("aria-hidden", "true");
     audioElement.style.display = "none";
     document.body?.appendChild(audioElement);
@@ -12904,12 +20384,16 @@ function createDropZoneSongPlayer(initialEnabled = false) {
       analyser.smoothingTimeConstant = 0.76;
       gain = context.createGain();
       gain.gain.value = 0.86;
+      streamDestination = context.createMediaStreamDestination?.() || null;
       frequencyData = new Uint8Array(analyser.frequencyBinCount);
     }
     if (!source) {
       try {
         source = context.createMediaElementSource(element);
-        source.connect(analyser).connect(gain).connect(context.destination);
+        source.connect(analyser);
+        analyser.connect(gain);
+        gain.connect(context.destination);
+        if (streamDestination) gain.connect(streamDestination);
       } catch {
         blocked = true;
       }
@@ -12990,6 +20474,23 @@ function createDropZoneSongPlayer(initialEnabled = false) {
     lastEnergy = 0;
     lastBands = { low: 0, mid: 0, high: 0, energy: 0 };
     fadeSpectrum(0);
+  }
+
+  function syncTime(timeSeconds = 0, toleranceSeconds = 0.35) {
+    if (!audioElement || !currentSong?.audioUri) return;
+    const target = Number(timeSeconds);
+    if (!Number.isFinite(target) || target < 0) return;
+    const duration = Number(audioElement.duration || 0);
+    const clampedTarget = Number.isFinite(duration) && duration > 0
+      ? Math.min(target, Math.max(0, duration - 0.12))
+      : target;
+    const tolerance = Math.max(0.05, Number(toleranceSeconds) || 0.35);
+    if (Math.abs(Number(audioElement.currentTime || 0) - clampedTarget) <= tolerance) return;
+    try {
+      audioElement.currentTime = clampedTarget;
+    } catch {
+      // Media backends can reject early seeks before metadata is ready.
+    }
   }
 
   function smoothBands(nextBands) {
@@ -13106,6 +20607,15 @@ function createDropZoneSongPlayer(initialEnabled = false) {
     };
   }
 
+  function captureStream() {
+    const element = ensureAudioElement();
+    const elementStream = element.captureStream?.() || element.mozCaptureStream?.() || null;
+    if (elementStream?.getAudioTracks?.().length) return { stream: elementStream, source: "audio-element" };
+    ensureGraph();
+    if (streamDestination?.stream?.getAudioTracks?.().length) return { stream: streamDestination.stream, source: "web-audio" };
+    return { stream: null, source: "" };
+  }
+
   return {
     get state() {
       return {
@@ -13143,18 +20653,22 @@ function createDropZoneSongPlayer(initialEnabled = false) {
     play,
     pause,
     stop,
+    syncTime,
     bands,
     energy,
     snapshot,
+    captureStream,
     dispose() {
       stop();
       if (source) source.disconnect();
       if (analyser) analyser.disconnect();
       if (gain) gain.disconnect();
+      if (streamDestination) streamDestination.disconnect?.();
       if (context && context.state !== "closed") context.close().catch(() => {});
       source = null;
       analyser = null;
       gain = null;
+      streamDestination = null;
       context = null;
       frequencyData = null;
       audioElement?.remove();

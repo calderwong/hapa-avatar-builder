@@ -17,6 +17,10 @@ Important local files:
 
 Before making direct store edits, back up the touched JSON files under `data/backups/`.
 
+## Current Avatar Store
+
+As of 2026-06-29, this canonical checkout's `avatar-store.json` contains 74 unique Avatar Builder cards. The older non-Pinokio desktop export at `/Users/calderwong/Documents/Codex/2026-06-12/can-you-create-a-desktop-version/outputs/hapa-avatar-builder-desktop` has only 32 cards and must not be used as the active source of truth.
+
 ## Pinokio Duplicate Audit
 
 The deprecated duplicate app is:

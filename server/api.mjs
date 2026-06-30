@@ -1,9 +1,11 @@
 #!/usr/bin/env node
-import { createServer } from "node:http";
+import { createServer as createHttpServer } from "node:http";
+import { createServer as createHttpsServer } from "node:https";
 import { execFile, spawn } from "node:child_process";
+import { createHash, randomBytes } from "node:crypto";
 import { appendFile, mkdir, readFile, writeFile, stat, readdir, access, rm } from "node:fs/promises";
 import { createReadStream } from "node:fs";
-import { tmpdir } from "node:os";
+import { networkInterfaces, tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
@@ -73,6 +75,17 @@ import {
   normalizeHapaSongStore,
   upsertSongInStore
 } from "../src/domain/song.js";
+import {
+  blueAvatarHealth,
+  blueAvatarTurn,
+  proxyBlueAvatarAudio
+} from "./blueAvatar.mjs";
+import {
+  ROOMLET_HOST_CONTROL_ACTIONS,
+  buildRoomletHostControlEvent,
+  buildRoomletParticipantCards,
+  createRoomletTarotInvite
+} from "./roomletInvite.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, "..");
@@ -82,11 +95,17 @@ const STORE_PATH = process.env.HAPA_AVATAR_STORE || path.join(ROOT, "data/avatar
 const KANBAN_PATH = process.env.HAPA_KANBAN_STORE || path.join(ROOT, "data/kanban.json");
 const SCENE_STORE_PATH = process.env.HAPA_SCENE_STORE || path.join(ROOT, "data/scene-store.json");
 const TAROT_STORE_PATH = process.env.HAPA_TAROT_STORE || path.join(ROOT, "data/tarot-store.json");
+const TAROT_DRAW_FORGE_RUN_DIR = process.env.HAPA_TAROT_DRAW_FORGE_RUN_DIR || path.join(ROOT, "data/tarot-draw-forge-runs");
 const SYSTEM_MEDIA_PATH = process.env.HAPA_MEDIA_LIBRARY || path.join(ROOT, "data/media-library.json");
 const ITEM_STORE_PATH = process.env.HAPA_ITEM_STORE || path.join(ROOT, "data/item-manager-store.json");
 const INVENTORY_STORE_PATH = process.env.HAPA_INVENTORY_STORE || path.join(ROOT, "data/inventory-store.json");
 const DEAR_PAPA_SONGBOOK_PATH = process.env.HAPA_DEAR_PAPA_SONGBOOK || path.join(ROOT, "data/dear-papa-songbook.json");
 const HAPA_SONG_STORE_PATH = process.env.HAPA_SONG_STORE || path.join(ROOT, "data/hapa-songs-store.json");
+const CARD_INPUT_STANDARD_BASE_URL = (process.env.HAPA_CARD_INPUT_STANDARD_URL || "http://127.0.0.1:8896").replace(/\/+$/, "");
+const CARD_INPUT_STANDARD_ENABLED = process.env.HAPA_CARD_INPUT_STANDARD_ENABLED !== "0";
+const TAROT_DRAW_FORGE_LTX_BF16_MODEL = "dgrauet/ltx-2.3-mlx";
+const TAROT_DRAW_FORGE_LTX_PROMPT_VERSION = "hapa-ltx-2.3-card-loop-v1-no-camera";
+const TAROT_DRAW_FORGE_LTX_PROMPT_GUIDE = "https://ltx.io/blog/ltx-2-3-prompt-guide";
 const SONG_REGISTRY_ROOT = process.env.HAPA_SONG_REGISTRY_ROOT || "/Users/calderwong/Desktop/hapa-song-registry";
 const SONG_REGISTRY_DATA_PATH = process.env.HAPA_SONG_REGISTRY_DATA || path.join(SONG_REGISTRY_ROOT, "data/registry.json");
 const DEAR_PAPA_PLAYLIST_ID = process.env.HAPA_DEAR_PAPA_PLAYLIST_ID || "369daf97-0e07-4c49-a7a2-2a6f0b18353b";
@@ -109,8 +128,8 @@ const SUBSCRIBERS = ["hapa-atlas", "hapa-second-brain", "hapa-worldbuilding-wiki
 const OVERWIND_DIR = process.env.HAPA_OVERWIND_DIR || path.join(ROOT, "data/overwind");
 const OVERWIND_BOOTSTRAP_PATH = path.join(OVERWIND_DIR, "avatar-builder-bootstrap.json");
 const OVERWIND_SHELL_BOOTSTRAP_PATH = path.join(OVERWIND_DIR, "avatar-builder-shell-bootstrap.json");
-const OVERWIND_BOOTSTRAP_PROJECTION_VERSION = "hapa.overwind.avatar-builder-bootstrap.v3.avatar-lore";
-const OVERWIND_SHELL_BOOTSTRAP_PROJECTION_VERSION = "hapa.overwind.avatar-builder-shell.v4.windowed-lean";
+const OVERWIND_BOOTSTRAP_PROJECTION_VERSION = "hapa.overwind.avatar-builder-bootstrap.v5.avatar-loadout-mind-spines";
+const OVERWIND_SHELL_BOOTSTRAP_PROJECTION_VERSION = "hapa.overwind.avatar-builder-shell.v7.loadout-mind-spines";
 const OVERWIND_SHELL_AVATAR_LIMIT = Number(process.env.HAPA_OVERWIND_SHELL_AVATAR_LIMIT || 72);
 const OVERWIND_SHELL_TEAM_MEMBER_LIMIT = Number(process.env.HAPA_OVERWIND_SHELL_TEAM_MEMBER_LIMIT || 48);
 const OVERWIND_SHELL_BOARD_CARD_LIMIT = Number(process.env.HAPA_OVERWIND_SHELL_BOARD_CARD_LIMIT || 12);
@@ -132,6 +151,15 @@ let overwindBootstrapCache = null;
 let overwindShellBootstrapCache = null;
 let hapaTranscribeProcess = null;
 let hapaTranscribeStartingAt = 0;
+const PHONE_BRIDGE_SESSION_TTL_MS = 1000 * 60 * 45;
+const PHONE_BRIDGE_MESSAGE_TTL_MS = 1000 * 60 * 5;
+const PHONE_BRIDGE_INVITE_DIR = process.env.HAPA_PHONE_BRIDGE_INVITE_DIR || path.join(DATA_DIR, "phone-bridge-invites");
+const phoneBridgeSessions = new Map();
+const DEFAULT_WEBRTC_ICE_SERVERS = [
+  { urls: ["stun:stun.l.google.com:19302", "stun:stun1.l.google.com:19302"] }
+];
+const BLUE_AVATAR_OWNER_PATH = process.env.HAPA_BLUE_AVATAR_OWNER_PATH || path.join(DATA_DIR, "blue-avatar-owner.json");
+const BLUE_AVATAR_OWNER_TTL_MS = Math.max(5000, Number(process.env.HAPA_BLUE_AVATAR_OWNER_TTL_MS || 16000) || 16000);
 
 const args = new Map();
 for (let index = 2; index < process.argv.length; index += 1) {
@@ -142,9 +170,22 @@ for (let index = 2; index < process.argv.length; index += 1) {
 }
 
 const port = Number(args.get("port") || process.env.PORT || 8787);
+const host = String(args.get("host") || process.env.HAPA_AVATAR_HOST || process.env.HOST || "127.0.0.1");
+const httpsPortArg = args.get("https-port") ?? process.env.HAPA_AVATAR_HTTPS_PORT ?? "";
+const httpsPort = httpsPortArg === true ? port + 1 : Math.max(0, Number(httpsPortArg || 0) || 0);
+const httpsHost = String(args.get("https-host") || process.env.HAPA_AVATAR_HTTPS_HOST || host);
 const staticDir = args.get("static") ? path.resolve(ROOT, String(args.get("static"))) : null;
+const HTTPS_CERT_DIR = process.env.HAPA_AVATAR_HTTPS_CERT_DIR || path.join(ROOT, "artifacts/certs/phone-bridge");
+const HTTPS_CA_KEY_PATH = process.env.HAPA_AVATAR_HTTPS_CA_KEY || path.join(HTTPS_CERT_DIR, "hapa-phone-bridge-ca.key");
+const HTTPS_CA_CERT_PATH = process.env.HAPA_AVATAR_HTTPS_CA_CERT || path.join(HTTPS_CERT_DIR, "hapa-phone-bridge-ca.crt");
+const HTTPS_KEY_PATH = process.env.HAPA_AVATAR_HTTPS_KEY || path.join(HTTPS_CERT_DIR, "hapa-phone-bridge.key");
+const HTTPS_CERT_PATH = process.env.HAPA_AVATAR_HTTPS_CERT || path.join(HTTPS_CERT_DIR, "hapa-phone-bridge.crt");
+const HTTPS_META_PATH = process.env.HAPA_AVATAR_HTTPS_META || path.join(HTTPS_CERT_DIR, "hapa-phone-bridge.json");
+const HTTPS_OPENSSL_BIN = process.env.HAPA_OPENSSL_PATH || process.env.OPENSSL_BIN || "openssl";
+let httpsBridgeActive = false;
+let httpsBridgeStartupError = "";
 
-const server = createServer(async (req, res) => {
+async function handleServerRequest(req, res) {
   try {
     await route(req, res);
   } catch (error) {
@@ -153,12 +194,29 @@ const server = createServer(async (req, res) => {
       message: error instanceof Error ? error.message : String(error)
     });
   }
-});
+}
 
-server.listen(port, "127.0.0.1", () => {
-  console.log(`Hapa Avatar Builder API listening on http://127.0.0.1:${port}`);
+const server = createHttpServer(handleServerRequest);
+
+server.listen(port, host, () => {
+  console.log(`Hapa Avatar Builder API listening on http://${host}:${port}`);
   warmOverwindBootstrap();
 });
+
+if (httpsPort) {
+  ensureLocalHttpsCredentials()
+    .then((credentials) => {
+      const httpsServer = createHttpsServer(credentials, handleServerRequest);
+      httpsServer.listen(httpsPort, httpsHost, () => {
+        httpsBridgeActive = true;
+        console.log(`Hapa Avatar Builder secure phone bridge listening on https://${httpsHost}:${httpsPort}`);
+      });
+    })
+    .catch((error) => {
+      httpsBridgeStartupError = error instanceof Error ? error.message : String(error);
+      console.warn(`Hapa Avatar Builder secure phone bridge unavailable: ${httpsBridgeStartupError}`);
+    });
+}
 
 function warmOverwindBootstrap() {
   readOverwindShellBootstrap(null)
@@ -190,7 +248,8 @@ async function route(req, res) {
     return;
   }
 
-  const url = new URL(req.url || "/", `http://${req.headers.host || `127.0.0.1:${port}`}`);
+  const requestProtocol = req.socket?.encrypted ? "https" : "http";
+  const url = new URL(req.url || "/", `${requestProtocol}://${req.headers.host || `127.0.0.1:${port}`}`);
   const pathname = decodeURIComponent(url.pathname);
 
   if (pathname === "/api/health") {
@@ -200,6 +259,56 @@ async function route(req, res) {
       store: STORE_PATH,
       time: new Date().toISOString()
     });
+    return;
+  }
+
+  if (pathname === "/api/phone-bridge/info" && req.method === "GET") {
+    sendJson(res, 200, phoneBridgeInfo(req, url));
+    return;
+  }
+
+  if (pathname === "/api/phone-bridge/invites" && req.method === "POST") {
+    sendJson(res, 201, await createPhoneBridgeInvite(req, url, await readBody(req)));
+    return;
+  }
+
+  const roomletControlMatch = pathname.match(/^\/api\/phone-bridge\/invites\/([a-zA-Z0-9_-]+)\/roomlet-controls$/);
+  if (roomletControlMatch && req.method === "GET") {
+    sendJson(res, 200, await readRoomletHostControls(roomletControlMatch[1]));
+    return;
+  }
+
+  if (roomletControlMatch && req.method === "POST") {
+    try {
+      sendJson(res, 201, await appendRoomletHostControl(roomletControlMatch[1], await readBody(req)));
+    } catch (error) {
+      sendJson(res, error?.code === "ENOENT" ? 404 : 400, {
+        ok: false,
+        error: "roomlet_host_control_failed",
+        message: error?.message || "Roomlet host control failed."
+      });
+    }
+    return;
+  }
+
+  const phoneBridgeInviteMatch = pathname.match(/^\/api\/phone-bridge\/invites\/([a-zA-Z0-9_-]+)\.(html|json|hapa-room)$/);
+  if (phoneBridgeInviteMatch && (req.method === "GET" || req.method === "HEAD")) {
+    await servePhoneBridgeInviteFile(req, res, phoneBridgeInviteMatch[1], phoneBridgeInviteMatch[2]);
+    return;
+  }
+
+  if (pathname === "/api/phone-bridge/ca.crt" && req.method === "GET") {
+    await servePhoneBridgeCaCertificate(res);
+    return;
+  }
+
+  if (pathname === "/api/phone-bridge/events" && req.method === "GET") {
+    sendJson(res, 200, phoneBridgeReadEvents(url));
+    return;
+  }
+
+  if (pathname === "/api/phone-bridge/events" && req.method === "POST") {
+    sendJson(res, 200, phoneBridgePostEvent(await readBody(req)));
     return;
   }
 
@@ -226,6 +335,48 @@ async function route(req, res) {
 
   if (pathname === "/api/voicebox/transcribe" && req.method === "POST") {
     sendJson(res, 200, await transcribeVoiceboxAudio(await readBody(req)));
+    return;
+  }
+
+  if (pathname === "/api/blue-avatar/health" && req.method === "GET") {
+    sendJson(res, 200, await blueAvatarHealth());
+    return;
+  }
+
+  if (pathname === "/api/blue-avatar/owner" && req.method === "GET") {
+    sendJson(res, 200, await blueAvatarOwnerStatus());
+    return;
+  }
+
+  if (pathname === "/api/blue-avatar/owner" && req.method === "POST") {
+    sendJson(res, 200, await handleBlueAvatarOwner(await readBody(req), req));
+    return;
+  }
+
+  if (pathname === "/api/blue-avatar/turn" && req.method === "POST") {
+    const body = await readBody(req);
+    const ownerCheck = await validateBlueAvatarRequestOwner(body);
+    if (!ownerCheck.ok) {
+      sendJson(res, 409, ownerCheck);
+      return;
+    }
+    sendJson(res, 200, await blueAvatarTurn(body));
+    return;
+  }
+
+  const blueAudioMatch = pathname.match(/^\/api\/blue-avatar\/audio\/([^/]+)$/);
+  if (blueAudioMatch && req.method === "GET") {
+    const ownerCheck = await validateBlueAvatarRequestOwner({
+      clientId: url.searchParams.get("clientId") || "",
+      sessionId: url.searchParams.get("sessionId") || "",
+      surface: url.searchParams.get("surface") || "",
+      reason: "blue-avatar-audio"
+    }, { allowMissingClient: true, refresh: false });
+    if (!ownerCheck.ok) {
+      sendJson(res, 409, ownerCheck);
+      return;
+    }
+    await proxyBlueAvatarAudio(res, blueAudioMatch[1]);
     return;
   }
 
@@ -770,6 +921,32 @@ async function route(req, res) {
     return;
   }
 
+  if (pathname === "/api/tarot/draw-forge" && req.method === "POST") {
+    const body = await readBody(req);
+    const packet = await createTarotDrawForge(body, req);
+    sendJson(res, 201, packet);
+    return;
+  }
+
+  if (pathname === "/api/tarot/draw-forge/variation" && req.method === "POST") {
+    const body = await readBody(req);
+    const packet = await createTarotDrawForgeVariation(body, req);
+    const statusCode = packet?.ok === false ? (packet.statusCode || 400) : 201;
+    sendJson(res, statusCode, packet);
+    return;
+  }
+
+  const tarotDrawForgeMatch = pathname.match(/^\/api\/tarot\/draw-forge\/([^/]+)$/);
+  if (tarotDrawForgeMatch && req.method === "GET") {
+    const packet = await readTarotDrawForge(tarotDrawForgeMatch[1]);
+    if (!packet) {
+      sendJson(res, 404, { ok: false, error: "draw_forge_run_not_found", id: tarotDrawForgeMatch[1] });
+      return;
+    }
+    sendJson(res, 200, packet);
+    return;
+  }
+
   if (pathname === "/api/tarot/decks" && req.method === "POST") {
     const body = await readBody(req);
     const store = addTarotDeck(await readTarotStore(), body);
@@ -1187,6 +1364,12 @@ async function route(req, res) {
     return;
   }
 
+  if (pathname === "/api/local-file" && req.method === "GET") {
+    const filePath = url.searchParams.get("path") || "";
+    await serveLocalFile(filePath, req, res);
+    return;
+  }
+
   if (pathname.startsWith("/media/")) {
     const served = await serveMedia(pathname, req, res);
     if (served) return;
@@ -1253,6 +1436,673 @@ async function writeTarotStore(store) {
   await mkdir(path.dirname(TAROT_STORE_PATH), { recursive: true });
   await writeFile(TAROT_STORE_PATH, `${JSON.stringify(normalizeTarotStore(store), null, 2)}\n`, "utf8");
   invalidateJsonCache(TAROT_STORE_PATH);
+}
+
+async function createTarotDrawForge(body = {}, req = null) {
+  const now = new Date().toISOString();
+  const cleanTitle = cleanTitleText(body.title || body.cardTitle || body.intention || "New Hapa Tarot Card");
+  const title = cleanTitle || `Hapa Tarot Card ${Date.now()}`;
+  const runId = `hapa-tarot-draw-forge-${Date.now().toString(36)}-${Math.random().toString(16).slice(2, 8)}`;
+  const cardId = body.cardId || `tarot-draw-forge-${slugify(title) || Date.now()}-${Math.random().toString(16).slice(2, 6)}`;
+  const avatarLabel = cleanTitleText(body.avatarName || "Hapa");
+  const intention = cleanLongText(body.intention || body.seedText || body.prompt || "");
+  const lineage = normalizeTarotDrawForgeLineage(body.lineage || body.parent || null);
+  const edition = normalizeTarotDrawForgeEdition(body.edition || body.variation || null);
+  const card = tarotDrawForgeCard({
+    id: cardId,
+    runId,
+    title,
+    avatarName: avatarLabel,
+    intention,
+    createdAt: now,
+    lineage,
+    edition
+  });
+  let store = addTarotCard(await readTarotStore(), card);
+  await writeTarotStore(store);
+
+  const savedCard = (store.cards || []).find((item) => item.id === cardId) || card;
+  let run = tarotDrawForgeRun({
+    id: runId,
+    card: savedCard,
+    title,
+    avatarName: avatarLabel,
+    intention,
+    prompt: body.prompt || "",
+    createdAt: now,
+    requestOrigin: requestOrigin(req),
+    lineage,
+    edition
+  });
+
+  const external = await stageExternalTarotDrawForgeRun(run, body);
+  if (external?.run) run = mergeTarotDrawForgeRun(run, external.run);
+  run.external = external || {
+    ok: false,
+    baseUrl: CARD_INPUT_STANDARD_BASE_URL,
+    error: CARD_INPUT_STANDARD_ENABLED ? "Card Input Standard Run Forge unavailable." : "Card Input Standard forwarding disabled."
+  };
+  run.updatedAt = new Date().toISOString();
+  await writeTarotDrawForgeRun(run);
+  store = await updateTarotDrawForgeCardMedia(run, { forceStage: true });
+  await appendSubscriberRegistration("tarot.draw-forge-staged", { tarot: store });
+  return {
+    ok: true,
+    card: (store.cards || []).find((item) => item.id === cardId) || savedCard,
+    store,
+    run,
+    external: run.external
+  };
+}
+
+async function createTarotDrawForgeVariation(body = {}, req = null) {
+  const parentId = String(body.parentCardId || body.cardId || body.parentId || "").trim();
+  const parentRunId = String(body.parentRunId || "").trim();
+  let store = await readTarotStore();
+  const parentCard = (store.cards || []).find((item) =>
+    item.id === parentId ||
+    item.enrichment?.media?.drawForge?.runId === parentRunId
+  );
+  if (!parentCard) {
+    return {
+      ok: false,
+      statusCode: 404,
+      error: "parent_tarot_draw_forge_card_not_found",
+      parentCardId: parentId,
+      parentRunId
+    };
+  }
+  const parentForge = parentCard.enrichment?.media?.drawForge || {};
+  const now = new Date().toISOString();
+  const editionNumber = nextTarotDrawForgeEditionNumber(store, parentCard);
+  const parentTitle = cleanTitleText(parentCard.title || "Hapa Tarot Card");
+  const title = cleanTitleText(body.title || `${parentTitle} / Edition ${editionNumber}`);
+  const variationNote = cleanLongText(body.variationNote || body.note || "Create a new edition that preserves the card's core mechanic and lore, but changes the staging, lighting, environmental emphasis, and symbolic accents so the variation reads as a distinct collectible treatment.");
+  const baseMeaning = cleanLongText(parentCard.meaning || parentCard.enrichment?.symbolicSummary || "");
+  const intention = cleanLongText(body.intention || [
+    baseMeaning,
+    `Variation direction: ${variationNote}`,
+    "Keep the same card identity and function while creating a visibly distinct edition for the same lineage."
+  ].filter(Boolean).join(" "));
+  const rootCardId = parentForge.lineage?.rootCardId || parentForge.parentCardId || parentCard.id;
+  const rootRunId = parentForge.lineage?.rootRunId || parentForge.parentRunId || parentForge.runId || "";
+  const lineage = {
+    relation: "variation",
+    parentCardId: parentCard.id,
+    parentRunId: parentForge.runId || parentRunId || "",
+    rootCardId,
+    rootRunId,
+    createdFrom: "hapa-avatar-builder:tarot-draw-forge-variation",
+    createdAt: now
+  };
+  const edition = {
+    number: editionNumber,
+    label: `Edition ${editionNumber}`,
+    variantOf: parentCard.id,
+    note: variationNote
+  };
+  return createTarotDrawForge({
+    ...body,
+    cardId: body.cardId && body.cardId !== parentCard.id ? body.cardId : `tarot-draw-forge-${slugify(parentTitle) || "card"}-edition-${editionNumber}-${Math.random().toString(16).slice(2, 6)}`,
+    title,
+    intention,
+    avatarName: body.avatarName || parentForge.avatarName || "Hapa",
+    prompt: body.prompt || "",
+    autoStart: body.autoStart !== false,
+    lineage,
+    edition
+  }, req);
+}
+
+async function readTarotDrawForge(runId = "") {
+  let run = await readTarotDrawForgeRun(runId);
+  if (!run) return null;
+  const external = await refreshExternalTarotDrawForgeRun(run);
+  if (external?.run) {
+    run = mergeTarotDrawForgeRun(run, external.run);
+    run.external = {
+      ...(run.external || {}),
+      ...external,
+      run: undefined,
+      lastPolledAt: new Date().toISOString()
+    };
+  }
+  run.updatedAt = new Date().toISOString();
+  await writeTarotDrawForgeRun(run);
+  const store = await updateTarotDrawForgeCardMedia(run);
+  const card = (store.cards || []).find((item) => item.id === run.cardId || item.id === run.items?.[0]?.sourceId) || null;
+  return {
+    ok: true,
+    card,
+    store,
+    run,
+    external: run.external || null
+  };
+}
+
+function tarotDrawForgeCard({ id, runId, title, avatarName, intention, createdAt, lineage = null, edition = null }) {
+  const prompt = tarotDrawForgePrompt({ title, avatarName, intention });
+  const lineagedKeywords = lineage?.parentCardId ? ["variation", "edition", `parent:${lineage.parentCardId}`] : [];
+  return {
+    id,
+    title,
+    cardType: "oracle_card",
+    suit: "custom",
+    arcana: "custom",
+    orientation: "upright",
+    status: "draft",
+    keywords: unique([
+      "tarot-draw-forge",
+      "hapa-card",
+      "image-loop-pipeline",
+      ...lineagedKeywords,
+      avatarName ? `avatar:${slugify(avatarName)}` : null
+    ]),
+    meaning: intention || "A freshly requested Hapa Tarot card entering the image and looping-video production path.",
+    promptNotes: prompt,
+    setIds: ["hapa-core-set"],
+    enrichment: {
+      schemaVersion: "hapa.tarot-enrichment.v1",
+      status: "draft",
+      method: "tarot-draw-forge",
+      confidence: "medium",
+      visualDescription: "A card object requested from inside the Tarot Draw 3D environment, staged for Flux2 hero image generation and LTX first/last-frame loop animation.",
+      symbolicSummary: intention || "A Tarot Draw card being forged from user intent, avatar context, and Hapa card production defaults.",
+      loreNotes: "The Tarot table is both interface and workshop: a requested card appears first as an under-construction object, then gains image and loop evidence as generation finishes.",
+      tags: ["tarot-draw-forge", "flux2", "ltx-loop", "under-construction"],
+      media: {
+        drawForge: {
+          schemaVersion: "hapa.tarot-draw-forge.v1",
+          runId,
+          stage: "requested",
+          avatarName,
+          requestedAt: createdAt,
+          imageModel: "Flux2 Klein 9B local",
+          loopModel: "LTX 2.3 MLX bf16",
+          imageSettings: "768x768, 8 steps, q4, guidance 1.0",
+          loopSettings: "512x512, 4.0s, 97 frames, 20+5, CFG 3.0, STG 1.0, low RAM off",
+          loopPromptVersion: TAROT_DRAW_FORGE_LTX_PROMPT_VERSION,
+          loopPromptGuide: TAROT_DRAW_FORGE_LTX_PROMPT_GUIDE,
+          styleTag: "early-2000s brushed-pixel CRPG art fused with comic-book mythic futurism, teal-gold arcane technology, and Hapaverse celestial relic design.",
+          rationale: "The avatar/environment request becomes a durable Tarot card first, then the paired media queue adds production evidence as image and video assets arrive.",
+          lineage,
+          edition,
+          parentCardId: lineage?.parentCardId || "",
+          parentRunId: lineage?.parentRunId || ""
+        }
+      },
+      enrichedAt: createdAt
+    },
+    createdAt,
+    updatedAt: createdAt
+  };
+}
+
+function tarotDrawForgeRun({ id, card, title, avatarName, intention, prompt, createdAt, requestOrigin, lineage = null, edition = null }) {
+  const imagePrompt = cleanLongText(prompt) || tarotDrawForgePrompt({ title, avatarName, intention });
+  const loopPrompt = tarotDrawForgeLoopPrompt({ title, avatarName, intention, lineage, edition });
+  return {
+    schemaVersion: "hapa.card-media-pipeline-run.v1",
+    id,
+    source: "hapa-avatar-builder:tarot-draw-forge",
+    state: "staged",
+    cardId: card.id,
+    lineage,
+    edition,
+    createdAt,
+    updatedAt: createdAt,
+    requestOrigin,
+    defaults: {
+      model: "flux2-klein-9b",
+      quantize: 4,
+      guidance: 1,
+      size: "768x768",
+      width: 768,
+      height: 768,
+      keeperSteps: 8,
+      steps: 8,
+      promptVersion: "hapa-card-flux2-v0.6-reverted-zimage-brief",
+      promptAuthoringMode: "human-or-agent-authored-semantic-brief",
+      promptAuthoringWarning: "Do not ship large deterministic heuristic prompt batches as if they were Leo/Thor or Codex-authored semantic prompts."
+    },
+    pairedMediaDefaults: {
+      image: {
+        model: "flux2-klein-9b",
+        quantize: 4,
+        guidance: 1,
+        width: 768,
+        height: 768,
+        steps: 8
+      },
+      video: {
+        model: TAROT_DRAW_FORGE_LTX_BF16_MODEL,
+        width: 512,
+        height: 512,
+        seconds: 4,
+        frames: 97,
+        fps: 24,
+        stage1_steps: 20,
+        stage2_steps: 5,
+        cfg: 3,
+        stg: 1,
+        low_ram: false
+      },
+      loopPrompt,
+      loopPromptVersion: TAROT_DRAW_FORGE_LTX_PROMPT_VERSION,
+      loopPromptGuide: TAROT_DRAW_FORGE_LTX_PROMPT_GUIDE
+    },
+    pipeline: {
+      mode: "image-then-loop-paired",
+      label: "Tarot Draw Card Forge",
+      executionRule: "Create the card first, generate the Flux2 hero image, then use the same image as first and last frame for the LTX loop.",
+      writebackTargets: ["tarot.assets.primary_image", "tarot.assets.loop_video", "tarot.enrichment.media.drawForge"]
+    },
+    items: [
+      {
+        order: 1,
+        sourceId: card.id,
+        cardId: card.id,
+        parentCardId: lineage?.parentCardId || "",
+        parentRunId: lineage?.parentRunId || "",
+        edition,
+        title,
+        type: "Tarot Draw Forge Card",
+        prompt: imagePrompt,
+        status: "queued",
+        reviewState: "queued",
+        model: "flux2-klein-9b",
+        quantize: 4,
+        guidance: 1,
+        width: 768,
+        height: 768,
+        steps: 8,
+        mediaJobs: {
+          image: {
+            jobId: `img-0001-${card.id}`,
+            mediaType: "image",
+            status: "queued",
+            reviewState: "queued",
+            prompt: imagePrompt,
+            outputPaths: [],
+            settings: {
+              model: "flux2-klein-9b",
+              quantize: 4,
+              guidance: 1,
+              width: 768,
+              height: 768,
+              steps: 8
+            }
+          },
+          loop: {
+            jobId: `loop-0001-${card.id}`,
+            mediaType: "video-loop",
+            status: "blocked",
+            reviewState: "waiting-for-image",
+            prompt: loopPrompt,
+            promptVersion: TAROT_DRAW_FORGE_LTX_PROMPT_VERSION,
+            promptGuide: TAROT_DRAW_FORGE_LTX_PROMPT_GUIDE,
+            outputPaths: [],
+            settings: {
+              model: TAROT_DRAW_FORGE_LTX_BF16_MODEL,
+              width: 512,
+              height: 512,
+              seconds: 4,
+              frames: 97,
+              fps: 24,
+              stage1_steps: 20,
+              stage2_steps: 5,
+              cfg: 3,
+              stg: 1,
+              low_ram: false
+            }
+          }
+        },
+        pipelineState: "image-queued"
+      }
+    ]
+  };
+}
+
+function tarotDrawForgeLoopPrompt({ title, avatarName, intention, lineage = null, edition = null }) {
+  const subject = cleanLongText(intention) || `the living Hapa card "${title}"`;
+  const editionLine = edition?.number
+    ? `This is ${edition.label || `Edition ${edition.number}`} in a parented card lineage; keep the same identity and function while letting the motion treatment feel like a distinct collectible variation.`
+    : "";
+  const avatarLine = avatarName
+    ? `Let the requesting avatar influence mood through subtle color temperature, glow cadence, and artifact behavior, but do not write the avatar name or deck labels on screen.`
+    : "";
+  const parentLine = lineage?.parentCardId
+    ? "Preserve continuity with the parent card through recognizable subject silhouette, color family, and symbolic anchors while avoiding copy-pasted motion."
+    : "";
+  return [
+    "No Camera Movement.",
+    "Use the provided image as both the first frame and last frame; preserve the composition, framing, silhouettes, card art style, and major shapes from the reference image.",
+    `Create a subtle four-second seamless loop for "${title}" that expresses the card's living meaning: ${subject}`,
+    editionLine,
+    parentLine,
+    avatarLine,
+    "Animate only gentle internal life: tiny breathing or posture-settling motion in the main character or focal object, cloth or hair barely shifting, cyan crystal pulses, brass relic glints, lantern shimmer, drifting dust, slow mist, background particles, faint glyph-current flow, and low-energy machinery glow.",
+    "Keep the scene readable and almost still; motion should feel alive, sacred, and ambient rather than action-heavy.",
+    "Loop continuity: all animated elements must return cleanly to their starting positions by the final frame; no jump cut, no scene change, no new shot, no camera pan, no camera tilt, no dolly, no zoom, no rotation.",
+    "Avoid text, captions, logos, watermarks, UI labels, new characters, new faces, extra limbs, distorted hands, melting geometry, major object transformation, teleporting elements, sudden flashes, rapid motion, and camera movement."
+  ].filter(Boolean).join(" ");
+}
+
+function normalizeTarotDrawForgeLineage(lineage = null) {
+  if (!lineage || typeof lineage !== "object") return null;
+  const normalized = {
+    relation: cleanTitleText(lineage.relation || "variation"),
+    parentCardId: String(lineage.parentCardId || lineage.cardId || "").trim(),
+    parentRunId: String(lineage.parentRunId || lineage.runId || "").trim(),
+    rootCardId: String(lineage.rootCardId || lineage.parentCardId || "").trim(),
+    rootRunId: String(lineage.rootRunId || lineage.parentRunId || "").trim(),
+    createdFrom: cleanTitleText(lineage.createdFrom || "hapa-avatar-builder:tarot-draw-forge"),
+    createdAt: lineage.createdAt || new Date().toISOString()
+  };
+  return Object.values(normalized).some(Boolean) ? normalized : null;
+}
+
+function normalizeTarotDrawForgeEdition(edition = null) {
+  if (!edition || typeof edition !== "object") return null;
+  const number = Math.max(1, Math.round(Number(edition.number || edition.edition || 0) || 0));
+  return {
+    number,
+    label: cleanTitleText(edition.label || (number ? `Edition ${number}` : "Edition")),
+    variantOf: String(edition.variantOf || edition.parentCardId || "").trim(),
+    note: cleanLongText(edition.note || edition.variationNote || "")
+  };
+}
+
+function nextTarotDrawForgeEditionNumber(store = {}, parentCard = {}) {
+  const parentId = parentCard.id || "";
+  const parentForge = parentCard.enrichment?.media?.drawForge || {};
+  const rootCardId = parentForge.lineage?.rootCardId || parentForge.parentCardId || parentId;
+  let highest = 1;
+  for (const card of store.cards || []) {
+    const forge = card.enrichment?.media?.drawForge || {};
+    const editionNumber = Number(forge.edition?.number || 0);
+    const sameParent = forge.parentCardId === parentId || forge.lineage?.parentCardId === parentId;
+    const sameRoot = rootCardId && (forge.lineage?.rootCardId === rootCardId || forge.parentCardId === rootCardId || card.id === rootCardId);
+    if ((sameParent || sameRoot) && editionNumber > highest) highest = editionNumber;
+  }
+  return highest + 1;
+}
+
+function tarotDrawForgePrompt({ title, avatarName, intention }) {
+  const subject = cleanLongText(intention) || `a Hapa Tarot card called ${title}`;
+  return [
+    `Square Hapa Tarot card hero image for "${title}".`,
+    `Visualize the card as an actual mythic scene, not a logo or new standalone symbol: ${subject}.`,
+    avatarName ? `Let ${avatarName} influence the mood through visible choices in color, posture, artifacts, and environmental storytelling without writing the avatar name into the image.` : "",
+    "Show one readable central action with clear foreground, middle ground, and background; symbols should support the story as a shared visual language, not replace the scene.",
+    "No lettering, no captions, no UI text, no watermarks, no fake tarot label text.",
+    "early-2000s brushed-pixel CRPG art fused with comic-book mythic futurism, teal-gold arcane technology, and Hapaverse celestial relic design."
+  ].filter(Boolean).join(" ");
+}
+
+async function stageExternalTarotDrawForgeRun(run, body = {}) {
+  if (!CARD_INPUT_STANDARD_ENABLED || !CARD_INPUT_STANDARD_BASE_URL) return null;
+  const autoStart = body.autoStart !== false;
+  try {
+    const staged = await fetchJsonWithTimeout(`${CARD_INPUT_STANDARD_BASE_URL}/api/runs`, {
+      method: "POST",
+      body: { run }
+    }, 16_000);
+    let started = null;
+    if (staged?.ok && autoStart) {
+      started = await fetchJsonWithTimeout(`${CARD_INPUT_STANDARD_BASE_URL}/api/runs/start`, {
+        method: "POST",
+        body: { id: run.id, promptAuthorshipAcknowledged: true }
+      }, 16_000);
+    }
+    return {
+      ok: Boolean(staged?.ok),
+      baseUrl: CARD_INPUT_STANDARD_BASE_URL,
+      stagedAt: new Date().toISOString(),
+      startedAt: started?.ok ? new Date().toISOString() : null,
+      startRequested: autoStart,
+      stageResponse: staged ? { ok: staged.ok, manifestPath: staged.manifestPath, outputDir: staged.outputDir, videoOutputDir: staged.videoOutputDir } : null,
+      startResponse: started ? { ok: started.ok, pid: started.pid, logPath: started.logPath, alreadyRunning: started.alreadyRunning } : null,
+      run: started?.run || staged?.run || null
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      baseUrl: CARD_INPUT_STANDARD_BASE_URL,
+      startRequested: autoStart,
+      error: error instanceof Error ? error.message : String(error),
+      failedAt: new Date().toISOString()
+    };
+  }
+}
+
+async function refreshExternalTarotDrawForgeRun(run = {}) {
+  const baseUrl = String(run.external?.baseUrl || CARD_INPUT_STANDARD_BASE_URL || "").replace(/\/+$/, "");
+  if (!CARD_INPUT_STANDARD_ENABLED || !baseUrl || !run.id) return null;
+  try {
+    const response = await fetchJsonWithTimeout(`${baseUrl}/api/runs/${encodeURIComponent(run.id)}`, { method: "GET" }, 10_000);
+    return {
+      ok: Boolean(response?.ok),
+      baseUrl,
+      run: response?.run || null,
+      manifestPath: response?.manifestPath || null
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      baseUrl,
+      error: error instanceof Error ? error.message : String(error)
+    };
+  }
+}
+
+async function fetchJsonWithTimeout(url, { method = "GET", body = null } = {}, timeoutMs = 10_000) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(url, {
+      method,
+      signal: controller.signal,
+      headers: body ? { "Content-Type": "application/json" } : undefined,
+      body: body ? JSON.stringify(body) : undefined
+    });
+    const payload = await response.json().catch(() => null);
+    if (!response.ok) throw new Error(payload?.error || payload?.message || `HTTP ${response.status}`);
+    return payload;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function mergeTarotDrawForgeRun(localRun = {}, externalRun = {}) {
+  const merged = {
+    ...localRun,
+    ...externalRun,
+    external: localRun.external || externalRun.external || null,
+    cardId: localRun.cardId || externalRun.cardId || externalRun.items?.[0]?.cardId || externalRun.items?.[0]?.sourceId
+  };
+  if (localRun.pipeline && !merged.pipeline) merged.pipeline = localRun.pipeline;
+  if (localRun.pairedMediaDefaults && !merged.pairedMediaDefaults) merged.pairedMediaDefaults = localRun.pairedMediaDefaults;
+  return merged;
+}
+
+async function updateTarotDrawForgeCardMedia(run = {}, { forceStage = false } = {}) {
+  const cardId = run.cardId || run.items?.[0]?.cardId || run.items?.[0]?.sourceId;
+  let store = await readTarotStore();
+  let card = (store.cards || []).find((item) => item.id === cardId);
+  if (!card) return store;
+  const item = run.items?.[0] || {};
+  const imagePath = firstMediaOutputPath(item.mediaJobs?.image) || firstArrayValue(item.imagePaths);
+  const videoPath = firstMediaOutputPath(item.mediaJobs?.loop) || firstArrayValue(item.videoPaths);
+  const loopJob = item.mediaJobs?.loop || {};
+  const stage = tarotDrawForgeStageFromRun(run);
+  const existingForge = card.enrichment?.media?.drawForge || {};
+  const drawForge = {
+    ...existingForge,
+    runId: run.id,
+    stage,
+    externalState: run.state || "",
+    imageStatus: item.mediaJobs?.image?.status || "",
+    loopStatus: item.mediaJobs?.loop?.status || "",
+    loopQueueState: loopJob.queueState || existingForge.loopQueueState || "",
+    loopQueueEnteredAt: loopJob.queueEnteredAt || existingForge.loopQueueEnteredAt || "",
+    loopQueueHeartbeatAt: loopJob.queueHeartbeatAt || existingForge.loopQueueHeartbeatAt || "",
+    loopQueueWaitSeconds: loopJob.ltxQueueWaitSeconds || existingForge.loopQueueWaitSeconds || null,
+    loopBlockedReason: loopJob.blockedReason || existingForge.loopBlockedReason || "",
+    loopActiveRunId: loopJob.activeLoop?.runId || existingForge.loopActiveRunId || "",
+    imagePath: imagePath || existingForge.imagePath || "",
+    videoPath: videoPath || existingForge.videoPath || "",
+    imageUri: imagePath ? localFileUriForPath(imagePath) : existingForge.imageUri || "",
+    videoUri: videoPath ? localFileUriForPath(videoPath) : existingForge.videoUri || "",
+    imagePrompt: item.mediaJobs?.image?.prompt || item.prompt || existingForge.imagePrompt || "",
+    loopPrompt: loopJob.prompt || run.pairedMediaDefaults?.loopPrompt || existingForge.loopPrompt || "",
+    loopPromptVersion: loopJob.promptVersion || run.pairedMediaDefaults?.loopPromptVersion || existingForge.loopPromptVersion || TAROT_DRAW_FORGE_LTX_PROMPT_VERSION,
+    loopPromptGuide: loopJob.promptGuide || existingForge.loopPromptGuide || TAROT_DRAW_FORGE_LTX_PROMPT_GUIDE,
+    lineage: run.lineage || existingForge.lineage || null,
+    edition: run.edition || existingForge.edition || null,
+    parentCardId: run.lineage?.parentCardId || existingForge.parentCardId || "",
+    parentRunId: run.lineage?.parentRunId || existingForge.parentRunId || "",
+    updatedAt: new Date().toISOString()
+  };
+  store = updateTarotCard(store, card.id, {
+    status: stage === "complete" ? "review" : card.status,
+    enrichment: {
+      ...(card.enrichment || {}),
+      status: stage === "complete" ? "enriched" : card.enrichment?.status || "draft",
+      media: {
+        ...(card.enrichment?.media || {}),
+        drawForge
+      },
+      tags: unique([...(card.enrichment?.tags || []), "tarot-draw-forge", stage])
+    }
+  });
+  card = (store.cards || []).find((item) => item.id === cardId);
+  if (imagePath && !tarotCardHasAssetPath(card, imagePath, "primary_image")) {
+    store = attachTarotCardMedia(store, cardId, {
+      id: `${cardId}-draw-forge-image`,
+      name: `${card.title} hero image`,
+      type: "image",
+      mimeType: "image/png",
+      uri: localFileUriForPath(imagePath),
+      source: "tarot-draw-forge",
+      tags: ["tarot-card", "tarot-draw-forge", "flux2", "hero-image"],
+      storage: { kind: "local-file", path: imagePath },
+      metadata: {
+        tarotMediaRole: "primary_image",
+        drawForgeRunId: run.id,
+        sourcePath: imagePath,
+        model: item.mediaJobs?.image?.settings?.model || item.model || "flux2-klein-9b",
+        promptPath: item.mediaJobs?.image?.promptPath || ""
+      }
+    }, "primary_image");
+    card = (store.cards || []).find((item) => item.id === cardId);
+  }
+  if (videoPath && !tarotCardHasAssetPath(card, videoPath, "loop_video")) {
+    store = attachTarotCardMedia(store, cardId, {
+      id: `${cardId}-draw-forge-loop`,
+      name: `${card.title} first-last-frame loop`,
+      type: "video",
+      mimeType: "video/mp4",
+      uri: localFileUriForPath(videoPath),
+      source: "tarot-draw-forge",
+      tags: ["tarot-card", "tarot-draw-forge", "ltx", "loop-video"],
+      storage: { kind: "local-file", path: videoPath },
+      metadata: {
+        tarotMediaRole: "loop_video",
+        drawForgeRunId: run.id,
+        sourcePath: videoPath,
+        thumbnailUri: imagePath ? localFileUriForPath(imagePath) : "",
+        firstFramePath: item.mediaJobs?.loop?.firstFramePath || imagePath || "",
+        lastFramePath: item.mediaJobs?.loop?.lastFramePath || imagePath || "",
+        frames: item.mediaJobs?.loop?.frames || 97,
+        model: item.mediaJobs?.loop?.settings?.model || TAROT_DRAW_FORGE_LTX_BF16_MODEL,
+        promptPath: item.mediaJobs?.loop?.promptPath || "",
+        promptVersion: item.mediaJobs?.loop?.promptVersion || TAROT_DRAW_FORGE_LTX_PROMPT_VERSION,
+        promptGuide: item.mediaJobs?.loop?.promptGuide || TAROT_DRAW_FORGE_LTX_PROMPT_GUIDE,
+        motionPrompt: item.mediaJobs?.loop?.prompt || run.pairedMediaDefaults?.loopPrompt || "",
+        parentCardId: run.lineage?.parentCardId || "",
+        parentRunId: run.lineage?.parentRunId || "",
+        editionNumber: run.edition?.number || null
+      }
+    }, "loop_video");
+  }
+  if (forceStage || imagePath || videoPath || stage !== existingForge.stage) await writeTarotStore(store);
+  return store;
+}
+
+function tarotDrawForgeStageFromRun(run = {}) {
+  const item = run.items?.[0] || {};
+  const image = item.mediaJobs?.image || {};
+  const loop = item.mediaJobs?.loop || {};
+  if (loop.status === "generated" || firstMediaOutputPath(loop) || firstArrayValue(item.videoPaths)) return "complete";
+  if (loop.status === "generating") return "video-generating";
+  if (image.status === "failed" || loop.status === "failed" || run.state === "failed") return "failed";
+  if (image.status === "generated" && ["queued", "blocked", "waiting-for-ltx-slot"].includes(String(loop.status || "").toLowerCase())) return "video-queued";
+  if (image.status === "generated" || firstMediaOutputPath(image) || firstArrayValue(item.imagePaths)) return "image-ready";
+  if (image.status === "generating" || run.state === "running" || run.state === "starting") return "image-generating";
+  return "requested";
+}
+
+function firstMediaOutputPath(job = {}) {
+  return firstArrayValue(job.outputPaths) || job.outputPath || "";
+}
+
+function firstArrayValue(value = []) {
+  return Array.isArray(value) && value.length ? String(value[0] || "") : "";
+}
+
+function tarotCardHasAssetPath(card = {}, filePath = "", role = "") {
+  if (!filePath) return false;
+  return (card.assets || []).some((asset) =>
+    (role ? asset.metadata?.tarotMediaRole === role : true) &&
+    (asset.storage?.path === filePath || asset.metadata?.sourcePath === filePath || asset.uri === localFileUriForPath(filePath))
+  );
+}
+
+function localFileUriForPath(filePath = "") {
+  const text = String(filePath || "");
+  if (!text) return "";
+  if (/^(https?:|data:|blob:)/i.test(text) || text.startsWith("/media/")) return text;
+  if (text.startsWith("/api/local-file")) return text;
+  return `/api/local-file?path=${encodeURIComponent(text.replace(/^file:\/\//, ""))}`;
+}
+
+async function readTarotDrawForgeRun(runId = "") {
+  const safeId = safeArtifactId(runId);
+  if (!safeId) return null;
+  try {
+    return await readJson(path.join(TAROT_DRAW_FORGE_RUN_DIR, `${safeId}.json`));
+  } catch {
+    return null;
+  }
+}
+
+async function writeTarotDrawForgeRun(run = {}) {
+  const safeId = safeArtifactId(run.id);
+  if (!safeId) throw new Error("Missing Tarot Draw Forge run id.");
+  await mkdir(TAROT_DRAW_FORGE_RUN_DIR, { recursive: true });
+  await writeFile(path.join(TAROT_DRAW_FORGE_RUN_DIR, `${safeId}.json`), `${JSON.stringify(run, null, 2)}\n`, "utf8");
+  invalidateJsonCache(path.join(TAROT_DRAW_FORGE_RUN_DIR, `${safeId}.json`));
+}
+
+function safeArtifactId(value = "") {
+  return String(value || "").replace(/[^a-zA-Z0-9._-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 180);
+}
+
+function cleanTitleText(value = "") {
+  return String(value || "").replace(/\s+/g, " ").trim().slice(0, 96);
+}
+
+function cleanLongText(value = "") {
+  return String(value || "").replace(/\s+/g, " ").trim().slice(0, 1800);
+}
+
+function requestOrigin(req = null) {
+  return {
+    userAgent: req?.headers?.["user-agent"] || "",
+    origin: req?.headers?.origin || "",
+    referer: req?.headers?.referer || ""
+  };
 }
 
 async function readSystemMediaLibrary() {
@@ -2069,13 +2919,17 @@ async function readOverwindShellBootstrap(selectedAvatarId = null) {
   }
 
   const board = await readJson(KANBAN_PATH).catch(() => ({ schemaVersion: "hapa.kanban.v1", lanes: [] }));
-  const persistedFullProjection = await readAnyPersistedOverwindProjection();
+  const fullSignature = await createOverwindBootstrapSignature(selectedAvatarId, false);
+  const persistedFullCandidate = await readAnyPersistedOverwindProjection();
+  const persistedFullProjection = persistedFullCandidate?.sourceSignature === fullSignature
+    ? persistedFullCandidate
+    : await readOverwindBootstrap(selectedAvatarId, false).catch(() => null);
   const projection = persistedFullProjection?.avatars?.length
     ? createOverwindShellBootstrapFromProjection(persistedFullProjection, {
         signature,
         selectedAvatarId,
         board,
-        freshness: persistedFullProjection.sourceSignature ? "shell-from-last-full-projection" : "shell-from-last-known-state"
+        freshness: persistedFullProjection.sourceSignature === fullSignature ? "shell-from-current-full-projection" : "shell-from-regenerated-full-projection"
       })
     : persistedShell?.avatars?.length
       ? createOverwindShellBootstrapFromProjection(persistedShell, {
@@ -2330,6 +3184,15 @@ function compactAvatarForOverwindShell(avatar = {}) {
   if (!id) return null;
   const primaryName = avatar.primaryName || avatar.name || avatar.names?.[0]?.name || id;
   const mind = avatar.mind && typeof avatar.mind === "object" ? avatar.mind : {};
+  const mindSummary = createAvatarMindSummary(avatar);
+  const summaryLoadout = mindSummary.loadout || {};
+  const shellCounts = mergePositiveCountObjects(mindSummary.counts || {}, mind.counts || {});
+  const shellLoadout = {
+    protocolCards: firstNonEmptyArray(summaryLoadout.protocolCards, mind.loadout?.protocolCards, mind.protocolCardLoadout),
+    skillCards: firstNonEmptyArray(summaryLoadout.skillCards, mind.loadout?.skillCards, mind.skillCardLoadout),
+    tarotCards: firstNonEmptyArray(summaryLoadout.tarotCards, mind.loadout?.tarotCards, mind.tarotCardDeck),
+    songCards: firstNonEmptyArray(summaryLoadout.songCards, mind.loadout?.songCards, mind.dearPapaSongContext?.selectedSongCards)
+  };
   return {
     schemaVersion: avatar.schemaVersion || "hapa.avatar-card.v1",
     id,
@@ -2348,20 +3211,25 @@ function compactAvatarForOverwindShell(avatar = {}) {
       schemaVersion: mind.schemaVersion || "hapa.avatar-mind.v1",
       endpoint: mind.endpoint || `/api/avatars/${encodeURIComponent(id)}/mind`,
       updatedAt: mind.updatedAt || null,
-      counts: mind.counts || {},
+      counts: shellCounts,
       personaAnchor: compactPersonaAnchorForOverwind(mind.personaAnchor || {}),
       shipCrewAssignment: compactPlainObject(mind.shipCrewAssignment || null, 8, 120),
       gardenNodeAssignment: compactPlainObject(mind.gardenNodeAssignment || null, 8, 120),
-      journalCount: mind.journalCount || 0,
-      knownOthers: compactMindRelationshipList(mind.knownOthers || [], 4),
+      journalCount: shellCounts.journalEntries || mind.journalCount || 0,
+      knownOthers: compactMindRelationshipList(mindSummary.knownOthers || mind.knownOthers || [], 4),
       loadout: {
-        protocolCards: compactMindReferenceList(mind.loadout?.protocolCards || [], 2),
-        skillCards: compactMindReferenceList(mind.loadout?.skillCards || [], 2),
-        tarotCards: compactMindReferenceList(mind.loadout?.tarotCards || [], 3),
-        songCards: compactMindReferenceList(mind.loadout?.songCards || [], 3)
+        protocolCards: compactMindReferenceList(shellLoadout.protocolCards, 2),
+        skillCards: compactMindReferenceList(shellLoadout.skillCards, 2),
+        tarotCards: compactMindReferenceList(shellLoadout.tarotCards, 3),
+        songCards: compactMindReferenceList(shellLoadout.songCards, 3)
       },
-      phraseCards: compactMindReferenceList(mind.phraseCards || [], 2),
-      context: compactMindReferenceList(mind.context || [], 2)
+      phraseCards: compactMindReferenceList(mindSummary.phraseCards || mind.phraseCards || [], 2),
+      context: compactMindReferenceList(mindSummary.context || mind.context || [], 2),
+      canonicalChoices: compactCanonicalChoiceList(mind.canonicalChoices || [], 6),
+      storySpine: compactStorySpine(mind.storySpine || null),
+      voiceGuide: compactVoiceGuide(mind.voiceGuide || null),
+      weeklyJournalVoiceGuide: compactPlainObject(mind.weeklyJournalVoiceGuide || null, 6, 180),
+      annualSceneBeats: compactAnnualSceneBeatList(mind.annualSceneBeats || [], 4)
     },
     audit: compactAuditForOverwindShell(avatar.audit || null),
     overwindProjection: "compact",
@@ -2370,6 +3238,111 @@ function compactAvatarForOverwindShell(avatar = {}) {
       detailEndpoint: `/api/avatars/${encodeURIComponent(id)}`,
       hydration: "queued-on-intent"
     }
+  };
+}
+
+function compactStorySpine(spine = null) {
+  if (!spine || typeof spine !== "object") return null;
+  return {
+    schemaVersion: spine.schemaVersion || "hapa.avatar-story-spine.v1",
+    id: spine.id || "",
+    title: truncateText(spine.title || "", 140),
+    arc: truncateText(spine.arc || "", 360),
+    roleInMainStory: truncateText(spine.roleInMainStory || "", 160),
+    coreQuestion: truncateText(spine.coreQuestion || "", 220),
+    refusal: truncateText(spine.refusal || "", 220),
+    choicePressure: truncateText(spine.choicePressure || "", 240),
+    stakes: truncateText(spine.stakes || "", 240),
+    canonStatus: spine.canonStatus || "soft_canon",
+    reviewState: spine.reviewState || "pending_review",
+    choiceIds: compactStringList(spine.choiceIds || [], 12, 140),
+    sceneIds: compactStringList(spine.sceneIds || [], 12, 140),
+    relationshipIds: compactStringList(spine.relationshipIds || [], 12, 140),
+    annualSceneBeatIds: compactStringList(spine.annualSceneBeatIds || [], 12, 140),
+    updatedAt: spine.updatedAt || null
+  };
+}
+
+function compactCanonicalChoiceList(choices = [], limit = 6) {
+  return (Array.isArray(choices) ? choices : [])
+    .filter((choice) => choice && choice.status !== "tombstone" && choice.status !== "tombstoned" && choice.classification !== "tombstone")
+    .slice(0, limit)
+    .map((choice) => ({
+      schemaVersion: choice.schemaVersion || "hapa.avatar-canonical-choice.v1",
+      id: choice.id || "",
+      actorAvatarId: choice.actorAvatarId || "",
+      actorName: choice.actorName || "",
+      choiceType: choice.choiceType || "",
+      choiceText: truncateText(choice.choiceText || "", 280),
+      decisionPressure: truncateText(choice.decisionPressure || "", 260),
+      alternativesRefused: compactStringList(choice.alternativesRefused || [], 3, 180),
+      canonStatus: choice.canonStatus || "soft_canon",
+      classification: choice.classification || "generated",
+      confidence: choice.confidence || "generated",
+      reviewState: choice.reviewState || "pending_review",
+      linkTargets: compactChoiceLinkTargets(choice.linkTargets || {}),
+      emotionalCost: truncateText(choice.emotionalCost || "", 220),
+      futurePayoff: truncateText(choice.futurePayoff || "", 220),
+      status: choice.status || "active",
+      updatedAt: choice.updatedAt || null
+    }));
+}
+
+function compactChoiceLinkTargets(linkTargets = {}) {
+  return {
+    avatarIds: compactStringList(linkTargets.avatarIds || [], 12, 140),
+    cardIds: compactStringList(linkTargets.cardIds || [], 12, 140),
+    songIds: compactStringList(linkTargets.songIds || [], 12, 140),
+    sceneIds: compactStringList(linkTargets.sceneIds || [], 12, 140),
+    teamIds: compactStringList(linkTargets.teamIds || [], 8, 140),
+    placeIds: compactStringList(linkTargets.placeIds || [], 8, 140),
+    relationshipIds: compactStringList(linkTargets.relationshipIds || [], 12, 160),
+    memoryIds: compactStringList(linkTargets.memoryIds || [], 8, 160),
+    journalEntryIds: compactStringList(linkTargets.journalEntryIds || [], 8, 160)
+  };
+}
+
+function compactVoiceGuide(guide = null) {
+  if (!guide || typeof guide !== "object") return null;
+  return {
+    schemaVersion: guide.schemaVersion || "hapa.avatar-voice-guide.v1",
+    id: guide.id || "",
+    title: truncateText(guide.title || "", 140),
+    voicePremise: truncateText(guide.voicePremise || "", 280),
+    coreQuestion: truncateText(guide.coreQuestion || "", 220),
+    refusalLine: truncateText(guide.refusalLine || "", 220),
+    pressureLine: truncateText(guide.pressureLine || "", 220),
+    stakesLine: truncateText(guide.stakesLine || "", 220),
+    phraseCardIds: compactStringList(guide.phraseCardIds || [], 12, 140),
+    updatedAt: guide.updatedAt || null
+  };
+}
+
+function compactAnnualSceneBeatList(beats = [], limit = 4) {
+  return (Array.isArray(beats) ? beats : [])
+    .slice(0, limit)
+    .map((beat) => ({
+      id: beat.id || "",
+      sourceJournalEntryId: beat.sourceJournalEntryId || "",
+      title: truncateText(beat.title || "", 220),
+      beat: truncateText(beat.beat || "", 260),
+      sceneIds: compactStringList(beat.sceneIds || [], 6, 140),
+      canonStatus: beat.canonStatus || "soft_canon",
+      reviewState: beat.reviewState || "pending_review",
+      updatedAt: beat.updatedAt || null
+    }));
+}
+
+function firstNonEmptyArray(...lists) {
+  return lists.find((list) => Array.isArray(list) && list.length) ||
+    lists.find((list) => Array.isArray(list)) ||
+    [];
+}
+
+function mergePositiveCountObjects(primary = {}, fallback = {}) {
+  return {
+    ...(primary || {}),
+    ...Object.fromEntries(Object.entries(fallback || {}).filter(([, value]) => Number(value) > 0))
   };
 }
 
@@ -2551,7 +3524,12 @@ function compactAvatarForOverwind(avatar) {
         songCards: mindSummary.loadout.songCards.slice(0, 12)
       },
       phraseCards: mindSummary.phraseCards.slice(0, 8),
-      context: mindSummary.context.slice(0, 12)
+      context: mindSummary.context.slice(0, 12),
+      canonicalChoices: compactCanonicalChoiceList(normalized.mind?.canonicalChoices || [], 8),
+      storySpine: compactStorySpine(normalized.mind?.storySpine || null),
+      voiceGuide: compactVoiceGuide(normalized.mind?.voiceGuide || null),
+      weeklyJournalVoiceGuide: compactPlainObject(normalized.mind?.weeklyJournalVoiceGuide || null, 6, 180),
+      annualSceneBeats: compactAnnualSceneBeatList(normalized.mind?.annualSceneBeats || [], 4)
     },
     audit: {
       grade: audit.grade,
@@ -2994,6 +3972,153 @@ function invalidateJsonCache(filePath) {
   overwindBootstrapCache = null;
 }
 
+async function blueAvatarOwnerStatus() {
+  const owner = await readBlueAvatarOwner();
+  return {
+    ok: true,
+    owned: Boolean(owner),
+    owner: publicBlueAvatarOwner(owner)
+  };
+}
+
+async function handleBlueAvatarOwner(body = {}, req = null) {
+  const action = String(body.action || "claim").toLowerCase();
+  const clientId = cleanBlueAvatarOwnerText(body.clientId || body.client_id || "");
+  if (!clientId) {
+    return {
+      ok: false,
+      owned: false,
+      error: "missing_client_id",
+      message: "Blue Avatar owner claims require a clientId."
+    };
+  }
+
+  const now = Date.now();
+  const current = await readBlueAvatarOwner(now);
+  if (action === "release") {
+    if (current?.clientId === clientId) await writeBlueAvatarOwner(null);
+    return {
+      ok: true,
+      owned: false,
+      released: current?.clientId === clientId,
+      owner: current?.clientId === clientId ? null : publicBlueAvatarOwner(current)
+    };
+  }
+
+  if (current && current.clientId !== clientId && body.force !== true) {
+    return {
+      ok: false,
+      owned: false,
+      error: "owned_elsewhere",
+      message: `Blue Avatar is already owned by ${current.surface || "another surface"}.`,
+      owner: publicBlueAvatarOwner(current),
+      ttlMs: Math.max(0, Number(current.expiresAt || 0) - now)
+    };
+  }
+
+  const owner = createBlueAvatarOwnerRecord(body, req, current?.clientId === clientId ? current : null, now);
+  await writeBlueAvatarOwner(owner);
+  return {
+    ok: true,
+    owned: true,
+    owner: publicBlueAvatarOwner(owner),
+    ttlMs: BLUE_AVATAR_OWNER_TTL_MS
+  };
+}
+
+async function validateBlueAvatarRequestOwner(body = {}, options = {}) {
+  const clientId = cleanBlueAvatarOwnerText(body.clientId || body.client_id || "");
+  const now = Date.now();
+  const current = await readBlueAvatarOwner(now);
+  if (!clientId) {
+    if (current && !options.allowMissingClient) {
+      return {
+        ok: false,
+        owned: false,
+        error: "owned_elsewhere",
+        message: `Blue Avatar is owned by ${current.surface || "another surface"}; unscoped requests are paused.`,
+        owner: publicBlueAvatarOwner(current),
+        ttlMs: Math.max(0, Number(current.expiresAt || 0) - now)
+      };
+    }
+    return { ok: true, owned: Boolean(current), owner: publicBlueAvatarOwner(current) };
+  }
+  if (current && current.clientId !== clientId) {
+    return {
+      ok: false,
+      owned: false,
+      error: "owned_elsewhere",
+      message: `Blue Avatar is owned by ${current.surface || "another surface"}; this request was not played here.`,
+      owner: publicBlueAvatarOwner(current),
+      ttlMs: Math.max(0, Number(current.expiresAt || 0) - now)
+    };
+  }
+  if (options.refresh !== false) {
+    const owner = createBlueAvatarOwnerRecord(body, null, current, now);
+    await writeBlueAvatarOwner(owner);
+    return { ok: true, owned: true, owner: publicBlueAvatarOwner(owner), ttlMs: BLUE_AVATAR_OWNER_TTL_MS };
+  }
+  return { ok: true, owned: Boolean(current), owner: publicBlueAvatarOwner(current) };
+}
+
+async function readBlueAvatarOwner(now = Date.now()) {
+  try {
+    const raw = await readFile(BLUE_AVATAR_OWNER_PATH, "utf8");
+    const parsed = JSON.parse(raw);
+    if (!parsed?.clientId || Number(parsed.expiresAt || 0) <= now) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+async function writeBlueAvatarOwner(owner = null) {
+  await mkdir(path.dirname(BLUE_AVATAR_OWNER_PATH), { recursive: true });
+  await writeFile(BLUE_AVATAR_OWNER_PATH, `${JSON.stringify(owner || {
+    clientId: "",
+    releasedAt: new Date().toISOString(),
+    expiresAt: 0
+  }, null, 2)}\n`);
+}
+
+function createBlueAvatarOwnerRecord(body = {}, req = null, previous = null, now = Date.now()) {
+  const forwardedFor = String(req?.headers?.["x-forwarded-for"] || "").split(",")[0].trim();
+  const remoteAddress = forwardedFor || req?.socket?.remoteAddress || "";
+  return {
+    clientId: cleanBlueAvatarOwnerText(body.clientId || body.client_id || ""),
+    sessionId: cleanBlueAvatarOwnerText(body.sessionId || body.session_id || ""),
+    surface: cleanBlueAvatarOwnerText(body.surface || body.surfaceName || "Tarot Draw"),
+    origin: cleanBlueAvatarOwnerText(body.origin || req?.headers?.origin || ""),
+    href: cleanBlueAvatarOwnerText(body.href || ""),
+    reason: cleanBlueAvatarOwnerText(body.reason || body.source || ""),
+    remoteAddress,
+    claimedAt: previous?.claimedAt || now,
+    updatedAt: now,
+    claimedAtIso: previous?.claimedAtIso || new Date(now).toISOString(),
+    updatedAtIso: new Date(now).toISOString(),
+    expiresAt: now + BLUE_AVATAR_OWNER_TTL_MS
+  };
+}
+
+function publicBlueAvatarOwner(owner = null) {
+  if (!owner?.clientId) return null;
+  return {
+    clientId: owner.clientId,
+    sessionId: owner.sessionId || "",
+    surface: owner.surface || "",
+    origin: owner.origin || "",
+    href: owner.href || "",
+    reason: owner.reason || "",
+    claimedAt: owner.claimedAtIso || "",
+    updatedAt: owner.updatedAtIso || "",
+    expiresAt: owner.expiresAt || 0
+  };
+}
+
+function cleanBlueAvatarOwnerText(value = "") {
+  return String(value || "").replace(/\s+/g, " ").trim().slice(0, 500);
+}
+
 async function readBody(req) {
   const chunks = [];
   for await (const chunk of req) chunks.push(chunk);
@@ -3013,6 +4138,815 @@ function setCors(req, res) {
   res.setHeader("Vary", "Origin");
   res.setHeader("Access-Control-Allow-Methods", "GET,POST,PUT,OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type, Range");
+}
+
+async function ensureLocalHttpsCredentials() {
+  await mkdir(HTTPS_CERT_DIR, { recursive: true });
+  const lanAddresses = localLanIPv4Addresses();
+  const desiredSans = [...new Set(["DNS:localhost", "IP:127.0.0.1", "IP:::1", ...lanAddresses.map((address) => `IP:${address}`)])];
+  const existingMeta = await readOptionalJson(HTTPS_META_PATH);
+  const hasFreshCerts = existingMeta?.kind === "hapa-phone-bridge-local-ca" &&
+    Array.isArray(existingMeta.sans) &&
+    desiredSans.every((name) => existingMeta.sans.includes(name)) &&
+    await fileExists(HTTPS_CA_CERT_PATH) &&
+    await fileExists(HTTPS_CA_KEY_PATH) &&
+    await fileExists(HTTPS_CERT_PATH) &&
+    await fileExists(HTTPS_KEY_PATH);
+
+  if (!hasFreshCerts) {
+    await generateLocalHttpsCertificates(desiredSans);
+  }
+
+  return {
+    key: await readFile(HTTPS_KEY_PATH),
+    cert: await readFile(HTTPS_CERT_PATH),
+    ca: await readFile(HTTPS_CA_CERT_PATH)
+  };
+}
+
+async function generateLocalHttpsCertificates(sans) {
+  await rm(HTTPS_CA_KEY_PATH, { force: true });
+  await rm(HTTPS_CA_CERT_PATH, { force: true });
+  await rm(HTTPS_KEY_PATH, { force: true });
+  await rm(HTTPS_CERT_PATH, { force: true });
+  await rm(path.join(HTTPS_CERT_DIR, "hapa-phone-bridge.csr"), { force: true });
+  await rm(path.join(HTTPS_CERT_DIR, "hapa-phone-bridge-ca.srl"), { force: true });
+
+  const csrPath = path.join(HTTPS_CERT_DIR, "hapa-phone-bridge.csr");
+  const opensslConfigPath = path.join(HTTPS_CERT_DIR, "hapa-phone-bridge-openssl.cnf");
+  await writeFile(opensslConfigPath, localHttpsOpenSslConfig(sans), "utf8");
+
+  await execFileAsync(HTTPS_OPENSSL_BIN, [
+    "req",
+    "-x509",
+    "-newkey",
+    "rsa:2048",
+    "-nodes",
+    "-sha256",
+    "-days",
+    "825",
+    "-subj",
+    "/CN=Hapa Avatar Builder Local CA",
+    "-keyout",
+    HTTPS_CA_KEY_PATH,
+    "-out",
+    HTTPS_CA_CERT_PATH
+  ]);
+
+  await execFileAsync(HTTPS_OPENSSL_BIN, [
+    "req",
+    "-new",
+    "-newkey",
+    "rsa:2048",
+    "-nodes",
+    "-keyout",
+    HTTPS_KEY_PATH,
+    "-out",
+    csrPath,
+    "-config",
+    opensslConfigPath
+  ]);
+
+  await execFileAsync(HTTPS_OPENSSL_BIN, [
+    "x509",
+    "-req",
+    "-in",
+    csrPath,
+    "-CA",
+    HTTPS_CA_CERT_PATH,
+    "-CAkey",
+    HTTPS_CA_KEY_PATH,
+    "-CAcreateserial",
+    "-out",
+    HTTPS_CERT_PATH,
+    "-days",
+    "825",
+    "-sha256",
+    "-extfile",
+    opensslConfigPath,
+    "-extensions",
+    "v3_req"
+  ]);
+
+  await writeFile(HTTPS_META_PATH, `${JSON.stringify({
+    kind: "hapa-phone-bridge-local-ca",
+    generatedAt: new Date().toISOString(),
+    sans,
+    caCertificatePath: HTTPS_CA_CERT_PATH,
+    serverCertificatePath: HTTPS_CERT_PATH
+  }, null, 2)}\n`, "utf8");
+}
+
+function localHttpsOpenSslConfig(sans) {
+  const altNames = sans.map((name, index) => {
+    const [kind, value] = name.split(/:(.*)/s);
+    return `${kind}.${index + 1} = ${value}`;
+  }).join("\n");
+  return `[req]
+prompt = no
+distinguished_name = dn
+req_extensions = v3_req
+
+[dn]
+CN = Hapa Avatar Builder Phone Bridge
+
+[v3_req]
+basicConstraints = CA:FALSE
+keyUsage = digitalSignature, keyEncipherment
+extendedKeyUsage = serverAuth
+subjectAltName = @alt_names
+
+[alt_names]
+${altNames}
+`;
+}
+
+async function servePhoneBridgeCaCertificate(res) {
+  try {
+    const certificate = await readFile(HTTPS_CA_CERT_PATH);
+    res.writeHead(200, {
+      "Content-Type": "application/x-x509-ca-cert",
+      "Content-Disposition": "attachment; filename=\"hapa-phone-bridge-ca.crt\"",
+      "Cache-Control": "no-store"
+    });
+    res.end(certificate);
+  } catch {
+    sendJson(res, 404, {
+      error: "phone_bridge_ca_not_ready",
+      message: httpsBridgeStartupError || "The local HTTPS certificate has not been generated yet."
+    });
+  }
+}
+
+function phoneBridgeInfo(req, url) {
+  cleanupPhoneBridgeSessions();
+  const session = safePhoneBridgeSessionId(url.searchParams.get("session") || "");
+  const record = ensurePhoneBridgeSession(session);
+  const origin = publicPhoneBridgeOrigin(req);
+  const mobileUrl = `${origin}/phone-card?session=${encodeURIComponent(record.id)}`;
+  const certificateUrl = publicPhoneBridgeCertificateUrl(req);
+  const eventsUrl = `${origin}/api/phone-bridge/events`;
+  const infoUrl = `${origin}/api/phone-bridge/info?session=${encodeURIComponent(record.id)}`;
+  return {
+    ok: true,
+    session: record.id,
+    mobileUrl,
+    origin,
+    certificateUrl,
+    iceServers: phoneBridgeIceServers(),
+    signal: {
+      eventsUrl,
+      infoUrl
+    },
+    httpsEnabled: httpsBridgeActive,
+    httpsPort: httpsBridgeActive ? httpsPort : null,
+    secureContextLikely: mobileUrl.startsWith("https://") || /^(http:\/\/(localhost|127\.0\.0\.1|\[::1\]))/.test(mobileUrl),
+    notes: [
+      httpsBridgeActive
+        ? "Phone camera and mic use the secure HTTPS phone bridge."
+        : "Phone camera and mic usually require HTTPS on mobile browsers.",
+      "If the phone warns that the certificate is not trusted, install and trust the Hapa local CA certificate from certificateUrl."
+    ],
+    expiresAt: new Date(record.createdAt + PHONE_BRIDGE_SESSION_TTL_MS).toISOString()
+  };
+}
+
+async function createPhoneBridgeInvite(req, url, body = {}) {
+  cleanupPhoneBridgeSessions();
+  const session = safePhoneBridgeSessionId(body.session || "") || randomPhoneBridgeSessionId("scene");
+  const record = ensurePhoneBridgeSession(session);
+  const origin = publicPhoneBridgeOrigin(req);
+  const desktopOrigin = requestPhoneBridgeOrigin(req);
+  const now = Date.now();
+  const createdAt = new Date(now).toISOString();
+  const expiresAt = new Date(record.createdAt + PHONE_BRIDGE_SESSION_TTL_MS).toISOString();
+  const inviteId = safePhoneBridgeInviteId(body.inviteId || "") || randomPhoneBridgeInviteId();
+  const cardId = safePhoneBridgeInviteId(body.cardId || "") || `webcam-card-${inviteId}`;
+  const inviteBaseUrl = `${origin}/api/phone-bridge/invites/${encodeURIComponent(inviteId)}`;
+  const htmlUrl = `${inviteBaseUrl}.html`;
+  const jsonUrl = `${inviteBaseUrl}.json`;
+  const roomletInviteUrl = `${inviteBaseUrl}.hapa-room`;
+  const roomletControlUrl = `${inviteBaseUrl}/roomlet-controls`;
+  const desktopInviteBaseUrl = `${desktopOrigin}/api/phone-bridge/invites/${encodeURIComponent(inviteId)}`;
+  const desktopHtmlUrl = `${desktopInviteBaseUrl}.html`;
+  const desktopJsonUrl = `${desktopInviteBaseUrl}.json`;
+  const desktopRoomletInviteUrl = `${desktopInviteBaseUrl}.hapa-room`;
+  const desktopRoomletControlUrl = `${desktopInviteBaseUrl}/roomlet-controls`;
+  const certificateUrl = publicPhoneBridgeCertificateUrl(req);
+  const sceneSnapshot = body.sceneSnapshot && typeof body.sceneSnapshot === "object" ? body.sceneSnapshot : null;
+  const title = cleanPhoneBridgeInviteTitle(body.title || "Scene Webcam Invitation");
+  const avatarName = cleanPhoneBridgeInviteTitle(body.avatarName || sceneSnapshot?.avatarName || "Hapa");
+  const iceServers = phoneBridgeIceServers();
+  const roomletRoomView = sceneSnapshot?.roomletRoomView || sceneSnapshot?.roomletParticipants || null;
+  const roomletParticipantCards = buildRoomletParticipantCards(roomletRoomView || [], { inviteId });
+  const roomlet = await createRoomletTarotInvite({
+    dataDir: DATA_DIR,
+    inviteDir: PHONE_BRIDGE_INVITE_DIR,
+    sceneDir: path.join(DATA_DIR, "roomlet-scenes"),
+    inviteId,
+    cardId,
+    title,
+    avatarName,
+    sceneSnapshot,
+    roomletRoomView,
+    iceServers,
+    expiresAt,
+    hostBridge: {
+      type: "hapa.avatar-builder.roomlet-phone-bridge.v1",
+      session: record.id,
+      inviteId,
+      cardId,
+      target: "desktop",
+      eventsUrl: `${origin}/api/phone-bridge/events`,
+      desktopEventsUrl: `${desktopOrigin}/api/phone-bridge/events`
+    }
+  });
+  const card = {
+    id: cardId,
+    title: "Invitation Created",
+    subtitle: `${title}; waiting for camera`,
+    summary: "A live camera invitation card has been linked to the current Tarot Draw scene and is waiting for a phone or webcam to join.",
+    archetype: "Remote Lens",
+    tarotNumber: "CAM",
+    cardType: "webcam_card",
+    sourceKind: "webcam-invite",
+    kind: "webcam-invite",
+    liveCamera: true,
+    invitationStatus: "invitation-created",
+    tags: ["webcam-card", "phone-card", "scene-invite", "hypercore", "webrtc", "invitation-created"],
+    keywords: ["camera", "scene", "invite", "hypercore", "webrtc"],
+    lineage: {
+      source: "tarot-draw-scene-invite",
+      inviteId,
+      session,
+      sceneSnapshotId: sceneSnapshot?.id || "",
+      createdAt
+    }
+  };
+  const invite = {
+    schemaVersion: "hapa.phone-bridge.scene-invite.v1",
+    id: inviteId,
+    status: "invitation-created",
+    title,
+    avatarName,
+    session: record.id,
+    cardId,
+    createdAt,
+    expiresAt,
+    hypercore: {
+      protocol: "hypercore",
+      namespace: "hapa.roomlet.tarot.scene.v1",
+      appendOnly: true,
+      key: roomlet.sceneCoreKey,
+      discoveryKey: roomlet.discoveryKey,
+      topic: roomlet.roomTopic,
+      roomId: roomlet.invite.roomId,
+      inviteType: "hapa.room.invite",
+      inviteUrl: roomletInviteUrl,
+      desktopInviteUrl: desktopRoomletInviteUrl,
+      localInvitePath: roomlet.invitePath
+    },
+    webrtc: {
+      session: record.id,
+      eventsUrl: `${origin}/api/phone-bridge/events`,
+      infoUrl: `${origin}/api/phone-bridge/info?session=${encodeURIComponent(record.id)}`,
+      iceServers,
+      secureContextLikely: origin.startsWith("https://") || /^(http:\/\/(localhost|127\.0\.0\.1|\[::1\]))/.test(origin),
+      signaling: "hapa-phone-bridge-events"
+    },
+    links: {
+      htmlUrl,
+      jsonUrl,
+      roomletInviteUrl,
+      roomletControlUrl,
+      desktopHtmlUrl,
+      desktopJsonUrl,
+      desktopRoomletInviteUrl,
+      desktopRoomletControlUrl,
+      phoneCardUrl: `${origin}/phone-card?session=${encodeURIComponent(record.id)}&invite=${encodeURIComponent(inviteId)}&card=${encodeURIComponent(cardId)}`,
+      desktopPhoneCardUrl: `${desktopOrigin}/phone-card?session=${encodeURIComponent(record.id)}&invite=${encodeURIComponent(inviteId)}&card=${encodeURIComponent(cardId)}`,
+      certificateUrl
+    },
+    roomlet: {
+      invite: roomlet.invite,
+      localInvitePath: roomlet.invitePath,
+      hostStorageDir: roomlet.hostStorageDir,
+      sceneCoreKey: roomlet.sceneCoreKey,
+      discoveryKey: roomlet.discoveryKey,
+      roomTopic: roomlet.roomTopic,
+      participantCards: roomletParticipantCards,
+      hostControls: {
+        actions: ROOMLET_HOST_CONTROL_ACTIONS,
+        permissions: ["room.host.control"],
+        controlUrl: roomletControlUrl,
+        desktopControlUrl: desktopRoomletControlUrl
+      }
+    },
+    sceneSnapshot,
+    card
+  };
+  invite.integrity = {
+    algorithm: "sha256",
+    digest: createHash("sha256").update(JSON.stringify(invite)).digest("hex")
+  };
+  await mkdir(PHONE_BRIDGE_INVITE_DIR, { recursive: true });
+  const jsonPath = path.join(PHONE_BRIDGE_INVITE_DIR, `${inviteId}.json`);
+  const htmlPath = path.join(PHONE_BRIDGE_INVITE_DIR, `${inviteId}.html`);
+  await writeFile(jsonPath, `${JSON.stringify(invite, null, 2)}\n`, "utf8");
+  await writeFile(htmlPath, renderPhoneBridgeInviteHtml(invite), "utf8");
+  return {
+    ok: true,
+    invite,
+    htmlUrl,
+    jsonUrl,
+    roomletInviteUrl,
+    localHtmlPath: htmlPath,
+    localJsonPath: jsonPath,
+    localRoomletInvitePath: roomlet.invitePath
+  };
+}
+
+async function servePhoneBridgeInviteFile(req, res, inviteId = "", ext = "") {
+  const safeId = safePhoneBridgeInviteId(inviteId);
+  if (!safeId || !["html", "json", "hapa-room"].includes(ext)) {
+    sendJson(res, 404, { error: "phone_bridge_invite_not_found" });
+    return false;
+  }
+  const filePath = path.join(PHONE_BRIDGE_INVITE_DIR, `${safeId}.${ext}`);
+  return serveLocalFile(filePath, req, res);
+}
+
+function roomletHostControlPath(inviteId = "") {
+  return path.join(PHONE_BRIDGE_INVITE_DIR, `${safePhoneBridgeInviteId(inviteId)}.roomlet-controls.ndjson`);
+}
+
+async function readRoomletHostControls(inviteId = "") {
+  const safeId = safePhoneBridgeInviteId(inviteId);
+  if (!safeId) return { ok: false, error: "phone_bridge_invite_not_found", controls: [] };
+  const controlPath = roomletHostControlPath(safeId);
+  try {
+    const lines = (await readFile(controlPath, "utf8")).split(/\r?\n/).filter(Boolean);
+    return {
+      ok: true,
+      inviteId: safeId,
+      controls: lines.map((line) => JSON.parse(line))
+    };
+  } catch {
+    return { ok: true, inviteId: safeId, controls: [] };
+  }
+}
+
+async function appendRoomletHostControl(inviteId = "", body = {}) {
+  const safeId = safePhoneBridgeInviteId(inviteId);
+  if (!safeId) {
+    const error = new Error("Phone bridge invite id is required.");
+    error.code = "ENOENT";
+    throw error;
+  }
+  const invite = await readOptionalJson(path.join(PHONE_BRIDGE_INVITE_DIR, `${safeId}.json`));
+  if (!invite) {
+    const error = new Error("Phone bridge invite not found.");
+    error.code = "ENOENT";
+    throw error;
+  }
+  const control = buildRoomletHostControlEvent({
+    inviteId: safeId,
+    roomId: invite.roomlet?.invite?.roomId || invite.hypercore?.roomId || "",
+    participantCoreKey: body.participantCoreKey || body.participant_core_key || "",
+    action: body.action,
+    reason: body.reason || "tarot-host-control",
+    actorRole: "host",
+    actorPermissions: ["room.host.control"]
+  });
+  await mkdir(PHONE_BRIDGE_INVITE_DIR, { recursive: true });
+  await appendFile(roomletHostControlPath(safeId), `${JSON.stringify(control)}\n`, "utf8");
+  return {
+    ok: true,
+    inviteId: safeId,
+    control,
+    controlsUrl: `${safeId}/roomlet-controls`
+  };
+}
+
+function phoneBridgeIceServers() {
+  const fromJson = parsePhoneBridgeIceServers(process.env.HAPA_WEBRTC_ICE_SERVERS || "");
+  if (fromJson.length) return fromJson;
+  const turnUrl = String(process.env.HAPA_WEBRTC_TURN_URL || "").trim();
+  if (turnUrl) {
+    const server = { urls: splitPhoneBridgeIceUrls(turnUrl) };
+    const username = String(process.env.HAPA_WEBRTC_TURN_USERNAME || "").trim();
+    const credential = String(process.env.HAPA_WEBRTC_TURN_CREDENTIAL || "").trim();
+    if (username) server.username = username;
+    if (credential) server.credential = credential;
+    return [server, ...DEFAULT_WEBRTC_ICE_SERVERS];
+  }
+  return DEFAULT_WEBRTC_ICE_SERVERS;
+}
+
+function parsePhoneBridgeIceServers(raw = "") {
+  const text = String(raw || "").trim();
+  if (!text) return [];
+  try {
+    const parsed = JSON.parse(text);
+    if (Array.isArray(parsed)) return normalizePhoneBridgeIceServers(parsed);
+    if (parsed && typeof parsed === "object") return normalizePhoneBridgeIceServers([parsed]);
+  } catch {
+    // Fall through to comma/semicolon parsing.
+  }
+  return normalizePhoneBridgeIceServers(splitPhoneBridgeIceUrls(text).map((urls) => ({ urls })));
+}
+
+function normalizePhoneBridgeIceServers(items = []) {
+  return items
+    .map((item) => {
+      if (typeof item === "string") item = { urls: splitPhoneBridgeIceUrls(item) };
+      if (!item || typeof item !== "object") return null;
+      const urls = Array.isArray(item.urls) ? item.urls : splitPhoneBridgeIceUrls(item.urls || "");
+      const cleanUrls = urls
+        .map((value) => String(value || "").trim())
+        .filter((value) => /^(stun|turn|turns):/i.test(value))
+        .slice(0, 8);
+      if (!cleanUrls.length) return null;
+      const server = { urls: cleanUrls };
+      if (item.username) server.username = String(item.username).slice(0, 200);
+      if (item.credential) server.credential = String(item.credential).slice(0, 500);
+      return server;
+    })
+    .filter(Boolean)
+    .slice(0, 8);
+}
+
+function splitPhoneBridgeIceUrls(raw = "") {
+  if (Array.isArray(raw)) return raw;
+  return String(raw || "")
+    .split(/[;,]\s*/)
+    .map((value) => value.trim())
+    .filter(Boolean);
+}
+
+function randomPhoneBridgeInviteId() {
+  return `scene-invite-${Date.now().toString(36)}-${randomBytes(4).toString("hex")}`;
+}
+
+function safePhoneBridgeInviteId(value = "") {
+  return String(value || "")
+    .trim()
+    .replace(/[^a-zA-Z0-9_-]/g, "")
+    .slice(0, 96);
+}
+
+function cleanPhoneBridgeInviteTitle(value = "") {
+  return String(value || "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 120);
+}
+
+function escapePhoneBridgeHtml(value = "") {
+  return String(value || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function renderPhoneBridgeInviteHtml(invite = {}) {
+  const inviteJson = JSON.stringify(invite).replace(/</g, "\\u003c");
+  const title = escapePhoneBridgeHtml(invite.title || "Hapa Camera Invitation");
+  const cardId = escapePhoneBridgeHtml(invite.cardId || "");
+  const topic = escapePhoneBridgeHtml(invite.hypercore?.topic || "");
+  const phoneCardUrl = escapePhoneBridgeHtml(invite.links?.phoneCardUrl || "");
+  const inviteFileBase = `./${encodeURIComponent(invite.id || "hapa-room")}`;
+  const jsonUrl = `${inviteFileBase}.json`;
+  const roomletInviteUrl = `${inviteFileBase}.hapa-room`;
+  return `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>${title}</title>
+  <style>
+    :root { color-scheme: dark; --cyan: #00f3ff; --gold: #f6c96d; --ink: #ecfbff; --muted: #9fb5c9; --line: rgba(0, 243, 255, 0.28); }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100svh; display: grid; place-items: center; padding: 22px; color: var(--ink); background: radial-gradient(circle at 24% 14%, rgba(0, 243, 255, 0.16), transparent 28%), radial-gradient(circle at 82% 22%, rgba(246, 201, 109, 0.12), transparent 30%), #020814; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    main { width: min(920px, 100%); display: grid; gap: 16px; }
+    section { border: 1px solid var(--line); background: linear-gradient(180deg, rgba(7, 21, 35, 0.92), rgba(3, 9, 20, 0.88)); box-shadow: 0 0 34px rgba(0, 243, 255, 0.12); padding: 18px; clip-path: polygon(14px 0, 100% 0, 100% calc(100% - 14px), calc(100% - 14px) 100%, 0 100%, 0 14px); }
+    h1 { margin: 0; font-size: clamp(28px, 8vw, 64px); line-height: 0.92; letter-spacing: 0; }
+    p { margin: 0; color: var(--muted); line-height: 1.5; }
+    video { width: 100%; max-height: 58svh; border: 1px solid rgba(246, 201, 109, 0.32); background: #000; object-fit: contain; }
+    button, a.button { appearance: none; border: 1px solid var(--line); background: rgba(0, 243, 255, 0.12); color: var(--ink); display: inline-flex; min-height: 44px; align-items: center; justify-content: center; gap: 8px; padding: 10px 14px; text-decoration: none; font: 800 12px ui-monospace, SFMono-Regular, Menlo, monospace; text-transform: uppercase; letter-spacing: 0.08em; cursor: pointer; }
+    button:hover, a.button:hover { border-color: var(--cyan); color: var(--cyan); }
+    button[disabled] { opacity: 0.55; cursor: wait; }
+    .meta { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px; }
+    .meta span { display: grid; gap: 4px; border: 1px solid rgba(255,255,255,0.09); padding: 10px; background: rgba(2, 8, 18, 0.68); overflow-wrap: anywhere; }
+    .meta strong { color: var(--gold); font: 800 10px ui-monospace, SFMono-Regular, Menlo, monospace; text-transform: uppercase; letter-spacing: 0.08em; }
+    .actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+    #status { color: var(--cyan); font: 800 12px ui-monospace, SFMono-Regular, Menlo, monospace; text-transform: uppercase; letter-spacing: 0.08em; }
+    #error { color: #ff7f9b; font-size: 13px; min-height: 1.2em; }
+  </style>
+</head>
+<body>
+  <main>
+    <section>
+      <p id="status">Invitation Created</p>
+      <h1>${title}</h1>
+      <p>This camera invite is linked to the current Hapa Tarot Draw scene. Start the camera here, or open the full Phone Card controller for flight controls.</p>
+    </section>
+    <section>
+      <video id="preview" playsinline autoplay muted></video>
+      <div class="actions">
+        <button id="join" type="button">Join With Camera</button>
+        <button id="stop" type="button" disabled>Stop Camera</button>
+        <a id="phone-card-link" class="button" href="${phoneCardUrl}">Open Phone Card</a>
+        <a class="button" href="${jsonUrl}" download="${escapePhoneBridgeHtml(invite.id || "scene-invite")}.json">Invite JSON</a>
+        <a class="button" href="${roomletInviteUrl}" download="${escapePhoneBridgeHtml(invite.id || "hapa-room")}.hapa-room">Roomlet Invite</a>
+      </div>
+      <p id="error"></p>
+    </section>
+    <section class="meta">
+      <span><strong>Card</strong>${cardId}</span>
+      <span><strong>Session</strong>${escapePhoneBridgeHtml(invite.session || "")}</span>
+      <span><strong>Hypercore Topic</strong>${topic}</span>
+      <span><strong>Status</strong>Waiting for camera until a peer joins</span>
+    </section>
+  </main>
+  <script>
+    const invite = ${inviteJson};
+    const els = {
+      status: document.getElementById("status"),
+      error: document.getElementById("error"),
+      preview: document.getElementById("preview"),
+      join: document.getElementById("join"),
+      stop: document.getElementById("stop"),
+      phoneCardLink: document.getElementById("phone-card-link")
+    };
+    let pc = null;
+    let stream = null;
+    let since = 0;
+    let pollTimer = 0;
+    function setStatus(text) { els.status.textContent = text || "Invitation Created"; }
+    function setError(text) { els.error.textContent = text || ""; }
+    if (els.phoneCardLink && invite.links.desktopPhoneCardUrl && /^(localhost|127\\.0\\.0\\.1|\\[::1\\])$/.test(location.hostname)) {
+      els.phoneCardLink.href = invite.links.desktopPhoneCardUrl;
+    }
+    function postEvent(target, type, payload = {}) {
+      return fetch(invite.webrtc.eventsUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ session: invite.session, from: "mobile", target, type, payload })
+      }).then((response) => response.json().catch(() => null));
+    }
+    async function pollDesktop() {
+      try {
+        const url = new URL(invite.webrtc.eventsUrl);
+        url.searchParams.set("session", invite.session);
+        url.searchParams.set("target", "mobile");
+        url.searchParams.set("since", String(since));
+        const response = await fetch(url.href);
+        const payload = await response.json();
+        if (payload && payload.nextSeq) since = Math.max(since, Number(payload.nextSeq) || 0);
+        for (const event of (payload && payload.events) || []) {
+          if (event.type === "answer" && event.payload && event.payload.sdp && pc) {
+            await pc.setRemoteDescription(new RTCSessionDescription(event.payload));
+            setStatus("Camera Linked");
+          } else if (event.type === "candidate" && event.payload && event.payload.candidate && pc) {
+            await pc.addIceCandidate(new RTCIceCandidate(event.payload)).catch(() => {});
+          }
+        }
+      } catch {
+        setStatus(pc ? "Pairing" : "Invitation Created");
+      } finally {
+        pollTimer = window.setTimeout(pollDesktop, 460);
+      }
+    }
+    async function join() {
+      setError("");
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        setError("Camera access is unavailable here. Use HTTPS for phones and remote browsers.");
+        return;
+      }
+      els.join.disabled = true;
+      setStatus("Requesting Camera");
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: { ideal: "user" } },
+          audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
+        });
+        els.preview.srcObject = stream;
+        await els.preview.play().catch(() => {});
+        pc = new RTCPeerConnection({ iceServers: invite.webrtc.iceServers || [] });
+        stream.getTracks().forEach((track) => pc.addTrack(track, stream));
+        pc.onicecandidate = (event) => {
+          if (event.candidate) postEvent("desktop", "candidate", event.candidate.toJSON ? event.candidate.toJSON() : event.candidate);
+        };
+        pc.onconnectionstatechange = () => {
+          const state = pc.connectionState || "";
+          if (state === "connected") setStatus("Camera Live In Scene");
+          else if (["failed", "disconnected", "closed"].includes(state)) setStatus("Peer " + state);
+        };
+        const offer = await pc.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: true });
+        await pc.setLocalDescription(offer);
+        await postEvent("desktop", "hello", {
+          label: "Scene Invite Camera",
+          inviteId: invite.id,
+          cardId: invite.cardId,
+          hypercore: invite.hypercore
+        });
+        await postEvent("desktop", "offer", pc.localDescription && pc.localDescription.toJSON ? pc.localDescription.toJSON() : pc.localDescription);
+        els.stop.disabled = false;
+        setStatus("Waiting For Desktop Answer");
+      } catch (error) {
+        setError((error && error.message) || "Camera join failed.");
+        setStatus("Camera Blocked");
+        stream && stream.getTracks && stream.getTracks().forEach((track) => track.stop());
+        stream = null;
+        els.join.disabled = false;
+      }
+    }
+    function stop() {
+      window.clearTimeout(pollTimer);
+      pc && pc.close();
+      pc = null;
+      stream && stream.getTracks && stream.getTracks().forEach((track) => track.stop());
+      stream = null;
+      els.preview.srcObject = null;
+      els.join.disabled = false;
+      els.stop.disabled = true;
+      setStatus("Invitation Created");
+    }
+    els.join.addEventListener("click", join);
+    els.stop.addEventListener("click", stop);
+    postEvent("desktop", "viewer-ready", {
+      userAgent: navigator.userAgent,
+      inviteId: invite.id,
+      cardId: invite.cardId,
+      hypercore: invite.hypercore
+    }).catch(() => {});
+    pollDesktop();
+  </script>
+</body>
+</html>
+`;
+}
+
+function phoneBridgeReadEvents(url) {
+  cleanupPhoneBridgeSessions();
+  const session = safePhoneBridgeSessionId(url.searchParams.get("session") || "");
+  const target = safePhoneBridgeTarget(url.searchParams.get("target") || "");
+  const since = Math.max(0, Number(url.searchParams.get("since") || 0) || 0);
+  if (!session || !target) return { ok: false, error: "missing_session_or_target", events: [], nextSeq: since };
+  const record = ensurePhoneBridgeSession(session);
+  const events = record.events
+    .filter((event) => event.target === target && event.seq > since)
+    .slice(0, 80);
+  const nextSeq = events.reduce((max, event) => Math.max(max, event.seq), since);
+  return { ok: true, session: record.id, target, events, nextSeq };
+}
+
+function phoneBridgePostEvent(body = {}) {
+  cleanupPhoneBridgeSessions();
+  const session = safePhoneBridgeSessionId(body.session || "");
+  const target = safePhoneBridgeTarget(body.target || "");
+  const type = safePhoneBridgeEventType(body.type || "");
+  if (!session || !target || !type) return { ok: false, error: "missing_session_target_or_type" };
+  const record = ensurePhoneBridgeSession(session);
+  const event = {
+    seq: ++record.seq,
+    id: `phone-bridge-${record.seq}`,
+    session: record.id,
+    target,
+    from: safePhoneBridgeTarget(body.from || "") || "unknown",
+    type,
+    payload: body.payload && typeof body.payload === "object" ? body.payload : {},
+    createdAt: Date.now()
+  };
+  record.events.push(event);
+  record.lastSeenAt = event.createdAt;
+  prunePhoneBridgeEvents(record);
+  return { ok: true, session: record.id, seq: event.seq };
+}
+
+function ensurePhoneBridgeSession(id = "") {
+  const sessionId = safePhoneBridgeSessionId(id) || randomPhoneBridgeSessionId();
+  let record = phoneBridgeSessions.get(sessionId);
+  if (!record) {
+    record = {
+      id: sessionId,
+      seq: 0,
+      events: [],
+      createdAt: Date.now(),
+      lastSeenAt: Date.now()
+    };
+    phoneBridgeSessions.set(sessionId, record);
+  }
+  record.lastSeenAt = Date.now();
+  return record;
+}
+
+function cleanupPhoneBridgeSessions() {
+  const now = Date.now();
+  for (const [id, record] of phoneBridgeSessions.entries()) {
+    prunePhoneBridgeEvents(record, now);
+    if (now - record.lastSeenAt > PHONE_BRIDGE_SESSION_TTL_MS || now - record.createdAt > PHONE_BRIDGE_SESSION_TTL_MS * 2) {
+      phoneBridgeSessions.delete(id);
+    }
+  }
+}
+
+function prunePhoneBridgeEvents(record, now = Date.now()) {
+  if (!record?.events) return;
+  record.events = record.events
+    .filter((event) => now - Number(event.createdAt || 0) < PHONE_BRIDGE_MESSAGE_TTL_MS)
+    .slice(-240);
+}
+
+function safePhoneBridgeSessionId(value = "") {
+  return String(value || "")
+    .trim()
+    .replace(/[^a-zA-Z0-9_-]/g, "")
+    .slice(0, 80);
+}
+
+function safePhoneBridgeTarget(value = "") {
+  const target = String(value || "").trim().toLowerCase();
+  return ["desktop", "mobile"].includes(target) ? target : "";
+}
+
+function safePhoneBridgeEventType(value = "") {
+  return String(value || "")
+    .trim()
+    .replace(/[^a-zA-Z0-9_.:-]/g, "")
+    .slice(0, 80);
+}
+
+function randomPhoneBridgeSessionId() {
+  return `phone-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function publicPhoneBridgeOrigin(req) {
+  const explicitHttps = process.env.HAPA_AVATAR_PUBLIC_HTTPS_ORIGIN || "";
+  if (/^https:\/\//.test(explicitHttps)) return explicitHttps.replace(/\/+$/, "");
+  if (httpsBridgeActive && httpsPort) {
+    const publicHost = process.env.HAPA_AVATAR_PUBLIC_HOST || firstLanIPv4Address() || "127.0.0.1";
+    const publicPort = process.env.HAPA_AVATAR_PUBLIC_HTTPS_PORT || httpsPort;
+    return `https://${publicHost}:${publicPort}`;
+  }
+  const explicit = process.env.HAPA_AVATAR_PUBLIC_ORIGIN || "";
+  if (/^https?:\/\//.test(explicit)) return explicit.replace(/\/+$/, "");
+  const forwardedProto = String(req.headers["x-forwarded-proto"] || "").split(",")[0].trim();
+  const proto = forwardedProto || (req.socket?.encrypted ? "https" : "http");
+  const publicHost = process.env.HAPA_AVATAR_PUBLIC_HOST || firstLanIPv4Address() || "127.0.0.1";
+  const publicPort = process.env.HAPA_AVATAR_PUBLIC_PORT || port;
+  return `${proto}://${publicHost}:${publicPort}`;
+}
+
+function requestPhoneBridgeOrigin(req) {
+  const forwardedProto = String(req.headers["x-forwarded-proto"] || "").split(",")[0].trim();
+  const proto = forwardedProto || (req.socket?.encrypted ? "https" : "http");
+  const hostHeader = String(req.headers.host || `127.0.0.1:${port}`).trim();
+  return `${proto}://${hostHeader}`.replace(/\/+$/, "");
+}
+
+function publicPhoneBridgeCertificateUrl(req) {
+  const explicit = process.env.HAPA_AVATAR_PUBLIC_CERTIFICATE_URL || "";
+  if (/^https?:\/\//.test(explicit)) return explicit;
+  const publicHost = process.env.HAPA_AVATAR_PUBLIC_HOST || firstLanIPv4Address() || "127.0.0.1";
+  const publicPort = process.env.HAPA_AVATAR_PUBLIC_PORT || port;
+  const proto = req.socket?.encrypted && httpsBridgeActive ? "https" : "http";
+  const certificatePort = proto === "https" ? (process.env.HAPA_AVATAR_PUBLIC_HTTPS_PORT || httpsPort || publicPort) : publicPort;
+  return `${proto}://${publicHost}:${certificatePort}/api/phone-bridge/ca.crt`;
+}
+
+function firstLanIPv4Address() {
+  return localLanIPv4Addresses()[0] || "";
+}
+
+function localLanIPv4Addresses() {
+  const nets = networkInterfaces();
+  const addresses = [];
+  for (const items of Object.values(nets)) {
+    for (const item of items || []) {
+      if (item && item.family === "IPv4" && !item.internal) addresses.push(item.address);
+    }
+  }
+  return addresses;
+}
+
+async function fileExists(filePath) {
+  try {
+    await access(filePath);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function readOptionalJson(filePath) {
+  try {
+    return JSON.parse(await readFile(filePath, "utf8"));
+  } catch {
+    return null;
+  }
 }
 
 async function proxyHapaTranscribeHealth(start = false) {
@@ -3509,6 +5443,7 @@ function contentType(filePath) {
     ".js": "text/javascript; charset=utf-8",
     ".css": "text/css; charset=utf-8",
     ".json": "application/json; charset=utf-8",
+    ".hapa-room": "application/vnd.hapa.room+json; charset=utf-8",
     ".png": "image/png",
     ".jpg": "image/jpeg",
     ".jpeg": "image/jpeg",
@@ -3554,4 +5489,8 @@ function slugify(value) {
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "");
+}
+
+function unique(values = []) {
+  return [...new Set((values || []).filter(Boolean).map((value) => String(value).trim()).filter(Boolean))];
 }

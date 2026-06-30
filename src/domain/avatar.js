@@ -746,6 +746,11 @@ export function normalizeAvatarMind(mind = {}, avatar = {}) {
     phraseCards: normalizeMindCollection(source.phraseCards, normalizePhraseCard, "phrase-card"),
     journal: normalizeMindCollection(source.journal, normalizeJournalEntry, "journal"),
     genesisRuns: normalizeMindCollection(source.genesisRuns || source.genesis_runs, normalizeGenesisRun, "genesis-run"),
+    canonicalChoices: normalizeMindCollection(source.canonicalChoices || source.canonical_choices, normalizeMindPassthroughRecord, "canonical-choice"),
+    storySpine: normalizeMindObject(source.storySpine || source.story_spine),
+    voiceGuide: normalizeMindObject(source.voiceGuide || source.voice_guide),
+    weeklyJournalVoiceGuide: normalizeMindObject(source.weeklyJournalVoiceGuide || source.weekly_journal_voice_guide),
+    annualSceneBeats: normalizeMindCollection(source.annualSceneBeats || source.annual_scene_beats, normalizeMindPassthroughRecord, "annual-scene-beat"),
     createdAt,
     updatedAt
   };
@@ -781,6 +786,11 @@ export function upsertAvatarMind(avatar, patch = {}) {
     phraseCards: incoming.phraseCards ?? currentMind.phraseCards,
     journal: incoming.journal ?? currentMind.journal,
     genesisRuns: incoming.genesisRuns ?? currentMind.genesisRuns,
+    canonicalChoices: incoming.canonicalChoices ?? currentMind.canonicalChoices,
+    storySpine: incoming.storySpine ?? currentMind.storySpine,
+    voiceGuide: incoming.voiceGuide ?? currentMind.voiceGuide,
+    weeklyJournalVoiceGuide: incoming.weeklyJournalVoiceGuide ?? currentMind.weeklyJournalVoiceGuide,
+    annualSceneBeats: incoming.annualSceneBeats ?? currentMind.annualSceneBeats,
     updatedAt
   };
 
@@ -3424,6 +3434,18 @@ function normalizePersonaAnchor(anchor = {}, avatar = {}) {
 function normalizeMindCollection(items, normalizer, prefix) {
   const source = Array.isArray(items) ? items : [];
   return source.map((item, index) => normalizer(item, `${prefix}-${index + 1}`));
+}
+
+function normalizeMindObject(record = null) {
+  return record && typeof record === "object" ? clone(record) : null;
+}
+
+function normalizeMindPassthroughRecord(record = {}, fallbackId = "record") {
+  const source = record && typeof record === "object" ? clone(record) : {};
+  return {
+    ...source,
+    id: stringValue(source.id, createMindId(fallbackId))
+  };
 }
 
 function normalizeMindFact(fact = {}, fallbackId = "fact") {

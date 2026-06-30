@@ -5,6 +5,7 @@ const { spawn } = require("node:child_process");
 
 const ROOT = path.resolve(__dirname, "..");
 const HOST = "127.0.0.1";
+const BIND_HOST = process.env.HAPA_AVATAR_BIND_HOST || HOST;
 const DEFAULT_PORT = readPort(process.env.HAPA_AVATAR_PORT, 8787);
 const PORTS = uniquePorts([
   ...(process.env.HAPA_AVATAR_DESKTOP_PORTS || "").split(","),
@@ -122,18 +123,24 @@ async function probePort(port) {
 }
 
 function startStaticApi(port) {
-  const args = [path.join(ROOT, "server/api.mjs"), "--port", String(port), "--static", "dist"];
+  const httpsPort = process.env.HAPA_AVATAR_HTTPS_PORT === "0" ? 0 : readPort(process.env.HAPA_AVATAR_HTTPS_PORT, port + 1);
+  const args = [path.join(ROOT, "server/api.mjs"), "--host", BIND_HOST, "--port", String(port), "--static", "dist"];
+  if (httpsPort) args.push("--https-port", String(httpsPort));
   apiProcess = spawn(process.execPath, args, {
     cwd: ROOT,
     stdio: "inherit",
-    env: process.env
+    env: {
+      ...process.env,
+      HAPA_AVATAR_PUBLIC_PORT: process.env.HAPA_AVATAR_PUBLIC_PORT || String(port),
+      HAPA_AVATAR_PUBLIC_HTTPS_PORT: process.env.HAPA_AVATAR_PUBLIC_HTTPS_PORT || (httpsPort ? String(httpsPort) : "")
+    }
   });
   apiProcess.on("exit", (code, signal) => {
     if (!isQuitting && code !== 0) {
       console.error(`[desktop] Hapa Avatar Builder server exited early (code=${code}, signal=${signal || "none"})`);
     }
   });
-  console.log(`[desktop] Starting Hapa Avatar Builder UI server on http://${HOST}:${port}`);
+  console.log(`[desktop] Starting Hapa Avatar Builder UI server on http://${HOST}:${port} (bind ${BIND_HOST}, phone https ${httpsPort || "off"})`);
 }
 
 async function waitForUi(port) {

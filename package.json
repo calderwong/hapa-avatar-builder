@@ -47,6 +47,9 @@
     "lorekeeper:consolidate-life": "node scripts/run-lorekeeper-life-saga-consolidation.mjs",
     "familia:weekly-journals": "node scripts/run-calder-familia-weekly-journal-program.mjs",
     "familia:ballad-bella": "node scripts/run-ballad-of-bella-lore-pass.mjs",
+    "audit:mind-quality": "node scripts/audit-avatar-mind-quality.mjs",
+    "mind:quality-pass": "node scripts/run-avatar-mind-quality-pass.mjs",
+    "mind:story-spine-pass": "node scripts/run-avatar-story-spine-pass.mjs",
     "ships:assign-avatars": "node scripts/assign-avatar-ship-cards.mjs",
     "genesis:batch": "node scripts/run-avatar-genesis-batch.mjs",
     "hero-shots:seed": "node scripts/hapaverse-hero-shot-queue.mjs seed",
@@ -58,13 +61,16 @@
     "test": "node --test tests/*.test.mjs",
     "perf:latency": "electron scripts/latency-smoke.cjs",
     "smoke:electron": "electron scripts/electron-smoke.cjs",
-    "smoke:tarot": "electron scripts/tarot-smoke.cjs"
+    "smoke:tarot": "electron scripts/tarot-smoke.cjs",
+    "smoke:mind-ui": "electron scripts/avatar-mind-ui-smoke.cjs",
+    "smoke:phone-card": "electron scripts/phone-card-smoke.cjs"
   },
   "dependencies": {
     "@vitejs/plugin-react": "^6.0.1",
     "concurrently": "^8.2.2",
     "electron": "^39.2.6",
     "lucide-react": "^1.17.0",
+    "qrcode": "^1.5.4",
     "react": "^19.2.6",
     "react-dom": "^19.2.6",
     "three": "^0.184.0",

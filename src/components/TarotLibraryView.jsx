@@ -8,7 +8,9 @@ import {
   Layers3,
   Link2,
   Maximize2,
+  Palette,
   Radar,
+  Search,
   Sparkles,
   Tags
 } from "lucide-react";
@@ -17,6 +19,11 @@ import {
   TAROT_CARD_TYPES,
   TAROT_SUITS
 } from "../domain/tarot.js";
+import {
+  MAJOR_ARCANA_COLOR_REFERENCE,
+  MAJOR_ARCANA_REFERENCES,
+  cardReferencePatch
+} from "../domain/majorArcanaReference.js";
 
 export const STANDALONE_TAROT_DECK_ID = "__standalone_tarot_cards";
 export const TAROT_DECK_COLLECTION_PREFIX = "deck:";
@@ -188,6 +195,8 @@ export default function TarotLibraryView({
   const linkedAvatars = new Set((selectedCard?.avatarLinks || []).map((link) => link.avatarId));
   const cardBackOptions = cards.filter((card) => card.cardType === "card_back");
   const loopVideos = (selectedCard?.assets || []).filter((asset) => asset.type === "video");
+  const [cardReferenceOpen, setCardReferenceOpen] = useState(false);
+  const [cardReferenceQuery, setCardReferenceQuery] = useState("");
   const activeTitle = isStandalone
     ? "Standalone Cards"
     : selectedSet?.title || selectedDeck?.title || "Hapa Tarot Library";
@@ -344,6 +353,17 @@ export default function TarotLibraryView({
 
       <section className="tarot-card-stage">
         <TarotLibraryDashboard dashboard={dashboard} />
+        <CardReferencePanel
+          open={cardReferenceOpen}
+          query={cardReferenceQuery}
+          selectedCard={selectedCard}
+          onToggle={() => setCardReferenceOpen((open) => !open)}
+          onQuery={setCardReferenceQuery}
+          onApply={(entry) => {
+            const patch = cardReferencePatch(entry);
+            if (selectedCard && patch) onUpdateCard(selectedCard.id, patch);
+          }}
+        />
 
         <div
           className="tarot-upload-panel panel hapa-panel"
@@ -612,6 +632,138 @@ export default function TarotLibraryView({
       </aside>
     </section>
   );
+}
+
+function CardReferencePanel({ open, query, selectedCard, onToggle, onQuery, onApply }) {
+  const normalizedQuery = query.trim().toLowerCase();
+  const colorRows = normalizedQuery
+    ? MAJOR_ARCANA_COLOR_REFERENCE.filter((entry) => cardReferenceSearchText(entry).includes(normalizedQuery))
+    : MAJOR_ARCANA_COLOR_REFERENCE;
+  const arcanaRows = normalizedQuery
+    ? MAJOR_ARCANA_REFERENCES.filter((entry) => cardReferenceSearchText(entry).includes(normalizedQuery))
+    : MAJOR_ARCANA_REFERENCES;
+
+  return (
+    <section className="tarot-card-reference hapa-panel" data-variant="resting" data-open={open ? "true" : "false"}>
+      <div className="section-head hapa-panel-head compact">
+        <span><BookOpen size={14} /> Card Reference</span>
+        <button type="button" onClick={onToggle}>{open ? "Close" : "Open"}</button>
+      </div>
+
+      {open && (
+        <div className="tarot-card-reference-body">
+          <div className="tarot-card-reference-toolbar">
+            <label className="tarot-card-reference-search">
+              <Search size={14} />
+              <input
+                type="search"
+                value={query}
+                onChange={(event) => onQuery(event.target.value)}
+                placeholder="Search card, color, keyword"
+              />
+            </label>
+            <div className="tarot-card-reference-counts">
+              <span>{colorRows.length} colors</span>
+              <span>{arcanaRows.length} arcana</span>
+              <span>{selectedCard ? `Target: ${selectedCard.title}` : "No target selected"}</span>
+            </div>
+          </div>
+
+          <div className="tarot-card-reference-table-wrap">
+            <table className="tarot-card-reference-table">
+              <thead>
+                <tr>
+                  <th>No.</th>
+                  <th>Swatch</th>
+                  <th>Hex</th>
+                  <th>RGB</th>
+                  <th>Color</th>
+                  <th>Rider-Waite</th>
+                  <th>Decimal</th>
+                </tr>
+              </thead>
+              <tbody>
+                {colorRows.map((entry) => (
+                  <tr key={entry.no}>
+                    <td>{entry.no}</td>
+                    <td>
+                      <span className="tarot-card-reference-swatch" style={{ "--reference-color": entry.hex }} />
+                    </td>
+                    <td>{entry.hex}</td>
+                    <td>({entry.rgb.join(", ")})</td>
+                    <td>{entry.color}</td>
+                    <td>{entry.riderWaite || "-"}</td>
+                    <td>{entry.decimal}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="tarot-card-reference-summary-grid">
+            {arcanaRows.map((entry) => (
+              <article className="tarot-card-reference-summary" key={entry.no} style={{ "--reference-color": entry.hex }}>
+                <header>
+                  <span className="tarot-card-reference-number">{entry.no}</span>
+                  <div>
+                    <p className="eyebrow">{entry.color} / {entry.hex}</p>
+                    <h3>{entry.arcana.title}</h3>
+                  </div>
+                  <button
+                    type="button"
+                    className="hapa-btn tarot-card-reference-apply"
+                    data-intent="primary"
+                    disabled={!selectedCard}
+                    onClick={() => onApply(entry)}
+                    title={selectedCard ? `Apply ${entry.arcana.title} to ${selectedCard.title}` : "Select a card before applying a reference"}
+                  >
+                    <Palette size={14} />
+                    Apply
+                  </button>
+                </header>
+                <div className="tarot-card-reference-keywords">
+                  {entry.arcana.keywords.map((keyword) => <span key={keyword}>{keyword}</span>)}
+                </div>
+                <dl>
+                  <div>
+                    <dt>Upright</dt>
+                    <dd>{entry.arcana.upright}</dd>
+                  </div>
+                  <div>
+                    <dt>Reversed</dt>
+                    <dd>{entry.arcana.reversed}</dd>
+                  </div>
+                  <div>
+                    <dt>Creation Notes</dt>
+                    <dd>{entry.arcana.creationNotes}</dd>
+                  </div>
+                </dl>
+              </article>
+            ))}
+          </div>
+        </div>
+      )}
+    </section>
+  );
+}
+
+function cardReferenceSearchText(entry = {}) {
+  return [
+    entry.no,
+    entry.hex,
+    entry.rgb?.join(" "),
+    entry.color,
+    entry.riderWaite,
+    entry.decimal,
+    entry.arcana?.title,
+    ...(entry.arcana?.keywords || []),
+    entry.arcana?.upright,
+    entry.arcana?.reversed,
+    entry.arcana?.creationNotes
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
 }
 
 function TarotLibraryDashboard({ dashboard }) {

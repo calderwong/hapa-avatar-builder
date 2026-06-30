@@ -10,6 +10,22 @@ Use this checkout as the source of truth:
 /Users/calderwong/Desktop/hapa-avatar-builder
 ```
 
+That desktop path resolves to:
+
+```text
+/Users/calderwong/Documents/Codex/2026-06-10/files-mentioned-by-the-user-screenshot/outputs/hapa-avatar-builder
+```
+
+As of 2026-06-29, this merged checkout has 74 unique Avatar Builder cards in `data/avatar-store.json`. Agents should verify 70+ cards before treating any Avatar Builder folder as current.
+
+Do not use this older non-Pinokio desktop export as source of truth:
+
+```text
+/Users/calderwong/Documents/Codex/2026-06-12/can-you-create-a-desktop-version/outputs/hapa-avatar-builder-desktop
+```
+
+That export has only 32 cards and predates the merged Avatar Builder library.
+
 The duplicate Pinokio copy at `/Users/calderwong/pinokio/api/hapa-avatar-builder-desktop/app` is deprecated and should only be used as historical provenance or backup data. That branch had the Tarot Library management surface but lacked the Three.js `Tarot Draw` table.
 
 The canonical app now contains both Tarot surfaces:
