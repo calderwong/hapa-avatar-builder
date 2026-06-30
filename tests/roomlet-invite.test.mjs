@@ -10,6 +10,10 @@ import {
   buildRoomletParticipantCards,
   buildRoomletSceneRecord,
   createRoomletTarotInvite,
+  normalizeRoomletIceToken,
+  normalizeRoomletInviteNetwork,
+  roomletIceTokenFromEnv,
+  roomletInviteNetworkFromEnv,
   roomletParticipantsFromRoomView
 } from "../server/roomletInvite.mjs";
 
@@ -125,7 +129,48 @@ test("Roomlet host control events require host capability", () => {
   }), /requires host role/);
 });
 
-test("createRoomletTarotInvite writes a signed .hapa-room backed by a Scene Core", { skip: !roomletAvailable }, async () => {
+test("Roomlet invite network defaults to public DHT and parses explicit peers", () => {
+  assert.deepEqual(roomletInviteNetworkFromEnv({}), {
+    mode: "dht",
+    bootstrap: [],
+    knownPeers: [],
+    bootstrapPolicy: "public-default",
+    fixtureHostStorageDir: ""
+  });
+
+  assert.deepEqual(normalizeRoomletInviteNetwork({
+    mode: "known-peer",
+    knownPeers: "hapa.example:49737,127.0.0.1:49738"
+  }), {
+    mode: "known-peer",
+    bootstrap: [],
+    knownPeers: ["hapa.example:49737", "127.0.0.1:49738"],
+    bootstrapPolicy: "explicit",
+    fixtureHostStorageDir: ""
+  });
+});
+
+test("Roomlet ICE token config normalizes from env without exposing relay shared secret", () => {
+  assert.deepEqual(roomletIceTokenFromEnv({}), null);
+  assert.deepEqual(roomletIceTokenFromEnv({
+    HAPA_ROOMLET_TURN_TOKEN_URL: "https://turn.example.test/ice-servers?ignored=kept-for-request",
+    HAPA_ROOMLET_TURN_TOKEN_BEARER: "scoped-bearer",
+    HAPA_ROOMLET_TURN_TOKEN_USER: "scene guest",
+    HAPA_ROOMLET_TURN_TOKEN_TTL_SEC: "900",
+    HAPA_ROOMLET_TURN_TOKEN_TIMEOUT_MS: "7500",
+    HAPA_ROOMLET_TURN_TOKEN_REQUIRED: "1"
+  }), {
+    url: "https://turn.example.test/ice-servers?ignored=kept-for-request",
+    user: "scene guest",
+    timeoutMs: 7500,
+    required: true,
+    bearer: "scoped-bearer",
+    ttlSec: 900
+  });
+  assert.throws(() => normalizeRoomletIceToken({ url: "ftp://turn.example.test/ice-servers" }), /HTTP/);
+});
+
+test("createRoomletTarotInvite writes a public-capable signed .hapa-room backed by a Scene Core", { skip: !roomletAvailable }, async () => {
   const dataDir = await mkdtemp(path.join(os.tmpdir(), "hapa-avatar-roomlet-invite-"));
   try {
     const result = await createRoomletTarotInvite({
@@ -140,6 +185,13 @@ test("createRoomletTarotInvite writes a signed .hapa-room backed by a Scene Core
         cards: []
       },
       iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+      iceToken: {
+        url: "https://turn.example.test/ice-servers",
+        bearer: "scoped-invite-bearer",
+        user: "scene-invite-test",
+        ttlSec: 900,
+        timeoutMs: 5000
+      },
       hostBridge: {
         type: "hapa.avatar-builder.roomlet-phone-bridge.v1",
         session: "scene-session-test",
@@ -158,13 +210,50 @@ test("createRoomletTarotInvite writes a signed .hapa-room backed by a Scene Core
     assert.match(invite.scene.sceneCoreKey, /^[0-9a-f]{64}$/);
     assert.match(invite.scene.roomTopic, /^[0-9a-f]{64}$/);
     assert.match(invite.scene.ownerPublicKey, /^[0-9a-f]{64}$/);
+    assert.match(invite.scene.roomIndexCoreKey, /^[0-9a-f]{64}$/);
+    assert.match(invite.scene.roomIndexDiscoveryKey, /^[0-9a-f]{64}$/);
     assert.equal(invite.capability.role, "webcam_card");
     assert.equal(invite.webrtc.enabled, true);
-    assert.equal(invite.network.mode, "fixture");
-    assert.equal(invite.network.fixtureHostStorageDir, result.hostStorageDir);
+    assert.deepEqual(invite.webrtc.iceToken, {
+      url: "https://turn.example.test/ice-servers",
+      bearer: "scoped-invite-bearer",
+      user: "scene-invite-test",
+      ttlSec: 900,
+      timeoutMs: 5000,
+      required: false
+    });
+    assert.equal(invite.network.mode, "dht");
+    assert.equal(invite.network.bootstrapPolicy, "public-default");
+    assert.equal(invite.network.fixtureHostStorageDir, "");
     assert.equal(invite.extensions.avatarBuilderPhoneBridge.session, "scene-session-test");
     assert.equal(invite.extensions.avatarBuilderPhoneBridge.target, "desktop");
     assert.equal(result.sceneCoreKey, invite.scene.sceneCoreKey);
+  } finally {
+    await rm(dataDir, { recursive: true, force: true });
+  }
+});
+
+test("createRoomletTarotInvite can still write an explicit fixture invite for local demos", { skip: !roomletAvailable }, async () => {
+  const dataDir = await mkdtemp(path.join(os.tmpdir(), "hapa-avatar-roomlet-fixture-invite-"));
+  try {
+    const result = await createRoomletTarotInvite({
+      dataDir,
+      inviteId: "scene-fixture-test",
+      cardId: "webcam-card-fixture",
+      title: "Fixture Tarot Scene",
+      avatarName: "Hapa",
+      sceneSnapshot: {
+        id: "scene-fixture",
+        title: "Fixture Scene",
+        cards: []
+      },
+      network: { mode: "fixture" }
+    });
+
+    const invite = JSON.parse(await readFile(result.invitePath, "utf8"));
+    assert.equal(invite.network.mode, "fixture");
+    assert.equal(invite.network.bootstrapPolicy, "fixture");
+    assert.equal(invite.network.fixtureHostStorageDir, result.hostStorageDir);
   } finally {
     await rm(dataDir, { recursive: true, force: true });
   }

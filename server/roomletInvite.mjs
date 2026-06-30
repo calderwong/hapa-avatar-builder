@@ -6,6 +6,8 @@ export const DEFAULT_ROOMLET_ROOT = "/Users/calderwong/Documents/Codex/2026-06-2
 export const ROOMLET_HOST_CONTROL_ACTIONS = ["mute", "remove", "promote", "archive"];
 
 const ROOMLET_PARTICIPANT_KEY_PATTERN = /^[0-9a-f]{64}$/i;
+const ROOMLET_NETWORK_MODES = new Set(["lan", "dht", "known-peer", "fixture"]);
+const ROOMLET_BOOTSTRAP_POLICIES = new Set(["public-default", "explicit", "none", "fixture"]);
 
 function compactId(value = "", fallback = "card") {
   return String(value || fallback)
@@ -23,6 +25,93 @@ function numeric(value, fallback = 0) {
 function cleanText(value = "", fallback = "", max = 140) {
   const text = String(value || fallback || "").replace(/\s+/g, " ").trim();
   return text.slice(0, max);
+}
+
+function listFromValue(value = "") {
+  if (Array.isArray(value)) return value.map((item) => String(item || "").trim()).filter(Boolean);
+  const text = String(value || "").trim();
+  if (!text) return [];
+  if (text.startsWith("[")) {
+    try {
+      const parsed = JSON.parse(text);
+      if (Array.isArray(parsed)) return parsed.map((item) => String(item || "").trim()).filter(Boolean);
+    } catch {
+      return [];
+    }
+  }
+  return text.split(/[,\s]+/).map((item) => item.trim()).filter(Boolean);
+}
+
+function bootstrapPolicyForNetwork({ mode = "dht", bootstrap = [], knownPeers = [], bootstrapPolicy = "" } = {}) {
+  const requested = String(bootstrapPolicy || "").trim();
+  if (requested) {
+    if (!ROOMLET_BOOTSTRAP_POLICIES.has(requested)) throw new Error(`Unsupported Roomlet bootstrap policy: ${requested}`);
+    return requested;
+  }
+  if (mode === "fixture") return "fixture";
+  if (mode === "lan") return bootstrap.length || knownPeers.length ? "explicit" : "none";
+  if (mode === "known-peer") return "explicit";
+  return bootstrap.length ? "explicit" : "public-default";
+}
+
+export function normalizeRoomletInviteNetwork(input = {}, { defaultMode = "dht" } = {}) {
+  const source = input && typeof input === "object" ? input : {};
+  const mode = ROOMLET_NETWORK_MODES.has(String(source.mode || "").trim())
+    ? String(source.mode).trim()
+    : defaultMode;
+  if (!ROOMLET_NETWORK_MODES.has(mode)) throw new Error(`Unsupported Roomlet network mode: ${mode}`);
+  const bootstrap = listFromValue(source.bootstrap);
+  const knownPeers = listFromValue(source.knownPeers);
+  const network = {
+    mode,
+    bootstrap,
+    knownPeers,
+    bootstrapPolicy: bootstrapPolicyForNetwork({ mode, bootstrap, knownPeers, bootstrapPolicy: source.bootstrapPolicy }),
+    fixtureHostStorageDir: mode === "fixture" && typeof source.fixtureHostStorageDir === "string" ? source.fixtureHostStorageDir : ""
+  };
+  if (mode !== "fixture") network.fixtureHostStorageDir = "";
+  return network;
+}
+
+export function roomletInviteNetworkFromEnv(env = process.env) {
+  return normalizeRoomletInviteNetwork({
+    mode: env.HAPA_ROOMLET_INVITE_NETWORK_MODE || env.HAPA_ROOMLET_NETWORK_MODE || "dht",
+    bootstrap: env.HAPA_ROOMLET_BOOTSTRAP || env.HAPA_ROOMLET_BOOTSTRAP_PEERS || "",
+    knownPeers: env.HAPA_ROOMLET_KNOWN_PEERS || "",
+    bootstrapPolicy: env.HAPA_ROOMLET_BOOTSTRAP_POLICY || "",
+    fixtureHostStorageDir: env.HAPA_ROOMLET_FIXTURE_HOST_STORAGE_DIR || ""
+  });
+}
+
+export function normalizeRoomletIceToken(input = null) {
+  if (!input || typeof input !== "object") return null;
+  const url = String(input.url || input.endpoint || input.iceServersUrl || "").trim();
+  if (!url) return null;
+  if (!/^https?:\/\//i.test(url)) throw new Error("Roomlet ICE token URL must be HTTP(S).");
+  const token = {
+    url,
+    user: cleanText(input.user || input.userLabel || "roomlet", "roomlet", 80),
+    timeoutMs: Math.max(1000, Math.min(numeric(input.timeoutMs, 5000), 30000)),
+    required: input.required === true
+  };
+  const bearer = String(input.bearer || input.token || input.authorizationBearer || "").trim();
+  const ttlSec = numeric(input.ttlSec || input.ttl || input.defaultTtlSec, 0);
+  if (bearer) token.bearer = bearer.slice(0, 1000);
+  if (ttlSec > 0) token.ttlSec = Math.floor(ttlSec);
+  return token;
+}
+
+export function roomletIceTokenFromEnv(env = process.env) {
+  const url = String(env.HAPA_ROOMLET_TURN_TOKEN_URL || env.HAPA_WEBRTC_TURN_TOKEN_URL || "").trim();
+  if (!url) return null;
+  return normalizeRoomletIceToken({
+    url,
+    bearer: env.HAPA_ROOMLET_TURN_TOKEN_BEARER || env.HAPA_WEBRTC_TURN_TOKEN_BEARER || "",
+    user: env.HAPA_ROOMLET_TURN_TOKEN_USER || env.HAPA_WEBRTC_TURN_TOKEN_USER || "roomlet",
+    ttlSec: env.HAPA_ROOMLET_TURN_TOKEN_TTL_SEC || env.HAPA_WEBRTC_TURN_TOKEN_TTL_SEC || 0,
+    timeoutMs: env.HAPA_ROOMLET_TURN_TOKEN_TIMEOUT_MS || env.HAPA_WEBRTC_TURN_TOKEN_TIMEOUT_MS || 5000,
+    required: env.HAPA_ROOMLET_TURN_TOKEN_REQUIRED === "1" || env.HAPA_WEBRTC_TURN_TOKEN_REQUIRED === "1"
+  });
 }
 
 function cardType(entry = {}) {
@@ -280,6 +369,8 @@ export async function createRoomletTarotInvite({
   sceneSnapshot,
   roomletRoomView = null,
   iceServers = [],
+  iceToken = null,
+  network = null,
   expiresAt = "",
   hostBridge = null,
   roomletRoot = ""
@@ -290,6 +381,8 @@ export async function createRoomletTarotInvite({
   const roomletDir = path.join(sceneDir || path.join(dataDir, "roomlet-scenes"), compactId(inviteId, "invite"));
   const invitePath = path.join(inviteDir || path.join(dataDir, "phone-bridge-invites"), `${compactId(inviteId, "invite")}.hapa-room`);
   const sceneRecord = buildRoomletSceneRecord({ inviteId, cardId, title, avatarName, sceneSnapshot, roomletRoomView });
+  const roomletNetwork = network && typeof network === "object" ? normalizeRoomletInviteNetwork(network) : roomletInviteNetworkFromEnv();
+  const roomletIceToken = iceToken && typeof iceToken === "object" ? normalizeRoomletIceToken(iceToken) : roomletIceTokenFromEnv();
   return createDemoRoom({
     demoRoot: roomletDir,
     hostStorageDir: path.join(roomletDir, "host-store"),
@@ -300,9 +393,11 @@ export async function createRoomletTarotInvite({
     sceneRecord,
     clean: true,
     capability: expiresAt ? { expiresAt } : {},
+    network: roomletNetwork,
     webrtc: {
       enabled: true,
-      iceServers
+      iceServers,
+      ...(roomletIceToken ? { iceToken: roomletIceToken } : {})
     },
     extensions: hostBridge && typeof hostBridge === "object" ? {
       avatarBuilderPhoneBridge: hostBridge

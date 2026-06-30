@@ -4338,6 +4338,16 @@ async function createPhoneBridgeInvite(req, url, body = {}) {
   const avatarName = cleanPhoneBridgeInviteTitle(body.avatarName || sceneSnapshot?.avatarName || "Hapa");
   const iceServers = phoneBridgeIceServers();
   const roomletRoomView = sceneSnapshot?.roomletRoomView || sceneSnapshot?.roomletParticipants || null;
+  const roomletNetwork = body.roomletNetwork && typeof body.roomletNetwork === "object"
+    ? body.roomletNetwork
+    : body.network && typeof body.network === "object"
+      ? body.network
+      : null;
+  const roomletIceToken = body.roomletIceToken && typeof body.roomletIceToken === "object"
+    ? body.roomletIceToken
+    : body.iceToken && typeof body.iceToken === "object"
+      ? body.iceToken
+      : null;
   const roomletParticipantCards = buildRoomletParticipantCards(roomletRoomView || [], { inviteId });
   const roomlet = await createRoomletTarotInvite({
     dataDir: DATA_DIR,
@@ -4350,6 +4360,8 @@ async function createPhoneBridgeInvite(req, url, body = {}) {
     sceneSnapshot,
     roomletRoomView,
     iceServers,
+    iceToken: roomletIceToken,
+    network: roomletNetwork,
     expiresAt,
     hostBridge: {
       type: "hapa.avatar-builder.roomlet-phone-bridge.v1",
