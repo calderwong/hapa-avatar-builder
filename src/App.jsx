@@ -6897,7 +6897,12 @@ function buildTarotDrawCards(cards = [], avatarInventory = null, avatars = [], i
         videoScore: mediaResolutionScore(videoAsset || {}) || mediaResolutionScore(itemPreviewAsset(card) || {}),
         avatarContacts,
         creatorContacts,
-        sponsorContacts
+        sponsorContacts,
+        creatorProfile: card.creatorProfile || null,
+        sponsorProfile: card.sponsorProfile || null,
+        description: card.description || "",
+        connections: card.connections || null,
+        sourceRefs: card.sourceRefs || null
       };
     })
     .filter(Boolean)

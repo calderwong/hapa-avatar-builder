@@ -38,7 +38,9 @@ const TAROT_CARD_BROWSER_TYPE_FILTERS = [
   { id: "song", label: "Songs", pileIds: ["song"], textHints: ["song", "music"], accent: "#5ed7ff" },
   { id: "ship", label: "Ships", pileIds: ["ship"], textHints: ["ship"], accent: "#78e8ff" },
   { id: "void_shadow", label: "Void", pileIds: ["void_shadow"], textHints: ["void", "shadow"], accent: "#a472ff" },
-  { id: "creator", label: "Creators", pileIds: ["creator"], textHints: ["creator", "video", "sponsor", "klaize"], accent: "#ec4899" }
+  { id: "creator", label: "Creators", pileIds: ["creator", "creator_card"], textHints: ["creator", "profile", "klaize"], accent: "#ec4899" },
+  { id: "creator_video", label: "Creator Videos", pileIds: ["creator_video", "creator_content_card"], textHints: ["video", "essay", "content", "documentary"], accent: "#c084fc" },
+  { id: "sponsor", label: "Sponsors", pileIds: ["sponsor", "creator_sponsor_card"], textHints: ["sponsor", "deal", "brand", "lingopie", "aura"], accent: "#10b981" }
 ];
 const TAROT_DRAW_FORGE_POLL_MS = 2600;
 const TAROT_DRAW_FORGE_STYLE_TAG = "early-2000s brushed-pixel CRPG art fused with comic-book mythic futurism, teal-gold arcane technology, and Hapaverse celestial relic design.";
@@ -307,7 +309,9 @@ const CARD_TYPE_BACKS = [
   { id: "avatar", label: "Avatars", pileIds: ["avatar_tarot_card", "avatar_card", "avatar", "avatars"], imageUri: "/media/mimi-card-shop-backs/avatars.png", accent: "#00f3ff" },
   { id: "song", label: "Songs", pileIds: ["song_card", "song_cards", "hapa_song", "hapa_song_card", "music", "song", "songs"], imageUri: "/media/mimi-card-shop-backs/lore.png", accent: "#5ed7ff" },
   { id: "ship", label: "Ships", pileIds: ["ship_card", "ship_tarot_card", "ship", "ships"], imageUri: "/media/mimi-card-shop-backs/ships.png", accent: "#78e8ff" },
-  { id: "creator", label: "Creators", pileIds: ["creator"], imageUri: "/media/mimi-card-shop-backs/skills.png", accent: "#ec4899" }
+  { id: "creator", label: "Creators", pileIds: ["creator", "creator_card"], imageUri: "/media/mimi-card-shop-backs/avatars.png", accent: "#ec4899" },
+  { id: "creator_video", label: "Creator Videos", pileIds: ["creator_video", "creator_content_card"], imageUri: "/media/mimi-card-shop-backs/lore.png", accent: "#c084fc" },
+  { id: "sponsor", label: "Sponsors", pileIds: ["sponsor", "creator_sponsor_card"], imageUri: "/media/mimi-card-shop-backs/capabilities.png", accent: "#10b981" }
 ];
 
 const MUSIC_VISUALIZER_MODES = [
@@ -477,6 +481,11 @@ function titleizeTarotLabel(value = "") {
 }
 
 function selectedCardFunctionalType(card = {}) {
+  const type = card.cardType || card.tarotMainType || "";
+  if (type === "creator_card") return "Creator";
+  if (type === "creator_content_card") return "Creator Video";
+  if (type === "creator_sponsor_card") return "Sponsor";
+  if (type === "set") return "Creator Set";
   return titleizeTarotLabel(
     card.functionalType ||
       card.tarotIdentity?.functionalType ||
@@ -489,6 +498,38 @@ function selectedCardFunctionalType(card = {}) {
 }
 
 function buildSelectedCardTypeDetails(card = {}) {
+  const type = card.cardType || card.tarotMainType || "";
+  if (["creator_card", "creator_content_card", "creator_sponsor_card", "set"].includes(type)) {
+    const rows = [];
+    const notes = [];
+    const functionalType = selectedCardFunctionalType(card);
+    rows.push(["Tarot", functionalType]);
+    rows.push(["Type", functionalType]);
+
+    if (type === "creator_card" && card.creatorProfile) {
+      const p = card.creatorProfile;
+      if (p.focusArea) rows.push(["Focus Area", p.focusArea]);
+      if (p.subscribers) rows.push(["Subscribers", p.subscribers]);
+      if (p.views) rows.push(["Total Views", p.views]);
+      if (p.alias) rows.push(["Alias", `@${p.alias}`]);
+      if (p.about) notes.push(p.about);
+    } else if (type === "creator_content_card") {
+      if (card.description) notes.push(card.description);
+      if (card.summary) notes.push(card.summary);
+    } else if (type === "creator_sponsor_card" && card.sponsorProfile) {
+      const p = card.sponsorProfile;
+      if (p.tier) rows.push(["Tier", p.tier]);
+      if (p.category) rows.push(["Category", p.category]);
+      if (p.description) notes.push(p.description);
+    }
+
+    return {
+      label: `${functionalType} Card Details`,
+      rows,
+      notes
+    };
+  }
+
   if (!card?.tarotIdentity && !card?.typeDetails && !card?.cardFace) return null;
   const identity = card.tarotIdentity || {};
   const typeDetails = card.typeDetails || {};
@@ -1431,6 +1472,22 @@ function buildSelectedCardDetailRows(card = {}) {
   pushSelectedCardRow(rows, "Artist", attribution.author || attribution.shop);
   pushSelectedCardRow(rows, "Canon", card.tarotLore?.canonStatus || attribution.rightsStatus);
   pushSelectedCardRow(rows, "OCR", ocr.confidence ? `${Math.round(Number(ocr.confidence) * 100)}% confidence` : "");
+
+  const type = card.cardType || card.tarotMainType || "";
+  if (type === "creator_card" && card.creatorProfile) {
+    const p = card.creatorProfile;
+    pushSelectedCardRow(rows, "Alias", p.alias ? `@${p.alias}` : "");
+    pushSelectedCardRow(rows, "Focus Area", p.focusArea);
+    pushSelectedCardRow(rows, "Subscribers", p.subscribers);
+    pushSelectedCardRow(rows, "Total Views", p.views);
+  } else if (type === "creator_content_card") {
+    pushSelectedCardRow(rows, "Publisher", card.creatorProfile?.name || card.creatorProfile?.alias);
+  } else if (type === "creator_sponsor_card" && card.sponsorProfile) {
+    const p = card.sponsorProfile;
+    pushSelectedCardRow(rows, "Tier", p.tier);
+    pushSelectedCardRow(rows, "Category", p.category);
+  }
+
   const drawForge = tarotDrawForgeMeta(card);
   pushSelectedCardRow(rows, "Forge Stage", drawForge.stage ? tarotDrawForgeStageLabel(drawForge.stage) : "");
   pushSelectedCardRow(rows, "Forge Run", drawForge.runId);
@@ -4752,8 +4809,8 @@ function normalizeCardPileId(value = "") {
     void: "void_shadow",
     void_shadow_card: "void_shadow",
     creator_card: "creator",
-    creator_content_card: "creator",
-    creator_sponsor_card: "creator",
+    creator_content_card: "creator_video",
+    creator_sponsor_card: "sponsor",
     set: "creator"
   };
   return aliases[id] || id;
@@ -4790,7 +4847,9 @@ function tarotPileLabel(id = "") {
     ship_card: "Ship Cards",
     ship: "Ships",
     tarot: "Tarot Cards",
-    creator: "Creators"
+    creator: "Creators",
+    creator_video: "Creator Videos",
+    sponsor: "Sponsors"
   };
   if (known[id]) return known[id];
   return String(id || "tarot")
@@ -4828,7 +4887,9 @@ function tarotPileShortLabel(id = "", label = tarotPileLabel(id)) {
     node_card: "Node",
     ship_card: "Ship",
     ship: "Ship",
-    creator: "Creator"
+    creator: "Creator",
+    creator_video: "Video",
+    sponsor: "Sponsor"
   };
   return known[id] || label.replace(/\bCards?\b/gi, "").trim().slice(0, 12) || "Tarot";
 }
@@ -4861,7 +4922,9 @@ function tarotPileSortRank(id = "") {
     "node_card",
     "ship_card",
     "ship",
-    "creator"
+    "creator",
+    "creator_video",
+    "sponsor"
   ];
   const index = order.indexOf(id);
   return index === -1 ? 100 : index;
