@@ -1967,6 +1967,8 @@ export default function TarotDraw3DView({ cards = [], avatarName = "Hapa", apiBa
   const forgeActivePhase = tarotDrawForgeActivePhase(forgeTimeline);
   const forgeBusy = forgeRequest.status === "requesting";
   const selectedContacts = selectedCard?.avatarContacts || [];
+  const selectedCreatorContacts = selectedCard?.creatorContacts || [];
+  const selectedSponsorContacts = selectedCard?.sponsorContacts || [];
   const dropZoneCard = hud.dropZoneCard || null;
   const dropZoneEchoSongId = useMemo(() => echoDirectorSongIdForCard(dropZoneCard), [dropZoneCard]);
   const dropZoneContacts = dropZoneCard?.avatarContacts || [];
@@ -4169,9 +4171,9 @@ export default function TarotDraw3DView({ cards = [], avatarName = "Hapa", apiBa
                   ))}
                 </div>
               )}
-              {selectedCard.creatorContacts?.length > 0 && (
+              {selectedCard && selectedCreatorContacts.length > 0 && (
                 <div className="tarot-card-detail-contacts" aria-label={`Creators linked to ${selectedCard.title}`}>
-                  {selectedCard.creatorContacts.map((contact) => (
+                  {selectedCreatorContacts.map((contact) => (
                     <button
                       className="tarot-inspector-contact creator-contact-btn"
                       key={contact.id}
@@ -4189,9 +4191,9 @@ export default function TarotDraw3DView({ cards = [], avatarName = "Hapa", apiBa
                   ))}
                 </div>
               )}
-              {selectedCard.sponsorContacts?.length > 0 && (
+              {selectedCard && selectedSponsorContacts.length > 0 && (
                 <div className="tarot-card-detail-contacts" aria-label={`Sponsors linked to ${selectedCard.title}`}>
-                  {selectedCard.sponsorContacts.map((contact) => (
+                  {selectedSponsorContacts.map((contact) => (
                     <button
                       className="tarot-inspector-contact sponsor-contact-btn"
                       key={contact.id}
