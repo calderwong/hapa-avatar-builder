@@ -14577,12 +14577,19 @@ function createCardMesh(card, entry, resources) {
   group.add(face);
   entry.faceMesh = face;
 
-  const backMaterial = isPhoneLiveCard ? faceMaterial.clone() : resources.cardBackMaterial;
+  let backMaterial = resources.cardBackMaterial;
   if (isPhoneLiveCard) {
+    backMaterial = faceMaterial.clone();
     backMaterial.side = THREE.DoubleSide;
     backMaterial.userData.hapaLiveBackFaceVideo = true;
     entry.baseBackMaterial = backMaterial;
     entry.backMaterial = backMaterial;
+  } else {
+    const pileId = tarotPileId(card);
+    const customMaterial = resources.typeBackMaterials?.[pileId];
+    if (customMaterial) {
+      backMaterial = customMaterial;
+    }
   }
   const back = new THREE.Mesh(resources.cardFaceGeometry, backMaterial);
   back.name = "videoBack";
@@ -15872,6 +15879,18 @@ function createResourceLibrary() {
   const boardTexture = createBoardTexture();
   const backTextures = Object.fromEntries(CARD_BACK_STYLES.map((style) => [style.id, createCardBackTexture(style)]));
   const activeBackTexture = backTextures[CARD_BACK_STYLES[0].id];
+  const typeBackTextures = Object.fromEntries(CARD_TYPE_BACKS.map((back) => [back.id, createCustomCardBackTexture(back)]));
+  const typeBackMaterials = Object.fromEntries(CARD_TYPE_BACKS.map((back) => {
+    const mat = new THREE.MeshStandardMaterial({
+      map: typeBackTextures[back.id],
+      roughness: 0.5,
+      metalness: 0.18,
+      emissive: 0x09062a,
+      emissiveIntensity: 0.18
+    });
+    mat.userData.sharedResource = true;
+    return [back.id, mat];
+  }));
   const cardBodyGeometry = new THREE.BoxGeometry(CARD_WIDTH, CARD_DEPTH, CARD_HEIGHT, 1, 1, 1);
   const cardFaceGeometry = new THREE.PlaneGeometry(CARD_WIDTH * 0.94, CARD_HEIGHT * 0.94, 1, 1);
   const cardPlaqueGeometry = new THREE.PlaneGeometry(CARD_WIDTH * 0.82, CARD_HEIGHT * 0.16);
@@ -15892,6 +15911,8 @@ function createResourceLibrary() {
     tableTexture,
     boardTexture,
     backTextures,
+    typeBackTextures,
+    typeBackMaterials,
     cardBodyGeometry,
     cardFaceGeometry,
     cardPlaqueGeometry,
@@ -19981,6 +20002,65 @@ function createCardBackTexture(style = CARD_BACK_STYLES[0]) {
   ctx.fillText("LOOP BACK", 256, 666);
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
+  return texture;
+}
+
+function createCustomCardBackTexture(backItem) {
+  const canvas = document.createElement("canvas");
+  canvas.width = 512;
+  canvas.height = 768;
+  const ctx = canvas.getContext("2d");
+
+  // Draw gradient background
+  const gradient = ctx.createLinearGradient(0, 0, 512, 768);
+  gradient.addColorStop(0, "#0e0618");
+  gradient.addColorStop(0.5, "#041424");
+  gradient.addColorStop(1, "#02050b");
+  ctx.fillStyle = gradient;
+  ctx.fillRect(0, 0, 512, 768);
+
+  // Draw custom border matching accent color
+  ctx.strokeStyle = backItem.accent || "#00f3ff";
+  ctx.lineWidth = 12;
+  ctx.strokeRect(30, 30, 452, 708);
+
+  // Draw subtle grid/lines pattern
+  ctx.strokeStyle = "rgba(255, 255, 255, 0.05)";
+  ctx.lineWidth = 2;
+  for (let i = 0; i < 768; i += 32) {
+    ctx.beginPath();
+    ctx.moveTo(30, i);
+    ctx.lineTo(482, i);
+    ctx.stroke();
+  }
+
+  // Draw label
+  ctx.fillStyle = "rgba(255, 255, 255, 0.4)";
+  ctx.font = "bold 24px monospace";
+  ctx.textAlign = "center";
+  ctx.fillText(backItem.label ? backItem.label.toUpperCase() : "HAPA", 256, 384);
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+
+  if (backItem.imageUri && typeof Image !== "undefined") {
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => {
+      // Clear and draw the loaded image
+      ctx.clearRect(0, 0, 512, 768);
+      ctx.drawImage(img, 0, 0, 512, 768);
+      
+      // Re-overlay a border with the accent color
+      ctx.strokeStyle = backItem.accent || "#00f3ff";
+      ctx.lineWidth = 8;
+      ctx.strokeRect(16, 16, 480, 736);
+      
+      texture.needsUpdate = true;
+    };
+    img.src = backItem.imageUri;
+  }
+
   return texture;
 }
 
