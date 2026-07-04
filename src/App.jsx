@@ -6720,6 +6720,13 @@ function buildTarotDrawProjection(cards = [], avatarInventory = null, avatars = 
   };
 }
 
+function getYoutubeThumbnailUrl(url) {
+  if (!url) return null;
+  const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=)([^#\&\?]*).*/;
+  const match = url.match(regExp);
+  return (match && match[2].length === 11) ? `https://img.youtube.com/vi/${match[2]}/mqdefault.jpg` : null;
+}
+
 function buildTarotDrawCards(cards = [], avatarInventory = null, avatars = [], inventoryStore = {}, songLibrary = FALLBACK_SONG_LIBRARY, hapaSongStore = null) {
   const resolveAvatarContact = createTarotAvatarContactResolver(songLibrary, avatars, hapaSongStore);
   const priorityIds = new Set([
@@ -6731,6 +6738,18 @@ function buildTarotDrawCards(cards = [], avatarInventory = null, avatars = [], i
   const avatarById = new Map((avatars || []).map((avatar) => [avatar.id, avatar]).filter(([id]) => id));
   const selectedAvatar = avatarById.get(avatarInventory?.avatarId);
   const avatarIdsByCard = buildCardAvatarAssociationMap(inventoryStore);
+  
+  const creatorCardById = new Map(
+    cards
+      .filter((c) => c.cardType === "creator_card")
+      .map((c) => [c.id, c])
+  );
+  const sponsorCardById = new Map(
+    cards
+      .filter((c) => c.cardType === "creator_sponsor_card")
+      .map((c) => [c.id, c])
+  );
+
   const itemDrawCards = cards
     .filter((card) => {
       const tags = card.tags || [];
@@ -6739,7 +6758,8 @@ function buildTarotDrawCards(cards = [], avatarInventory = null, avatars = [], i
         Boolean(card.shipCard) ||
         Boolean(card.tarotCard) ||
         tags.includes("tarot-card") ||
-        /_tarot_card$/.test(card.cardType || "");
+        /_tarot_card$/.test(card.cardType || "") ||
+        ["creator_card", "creator_content_card", "creator_sponsor_card", "set"].includes(card.cardType);
     })
     .map((card) => {
       const tarotDetails = card.tarotCard || {};
@@ -6747,7 +6767,21 @@ function buildTarotDrawCards(cards = [], avatarInventory = null, avatars = [], i
       const mediaChoice = chooseProductionCardMedia(card);
       const videoAsset = mediaChoice.videoAsset || itemVideoAsset(card);
       const videoUri = mediaChoice.videoUri || "";
-      const previewUri = mediaChoice.previewUri || "";
+      let previewUri = mediaChoice.previewUri || "";
+
+      // Fallback preview URIs for Creator Cards
+      if (card.cardType === "creator_content_card" && !previewUri) {
+        const url = card.sourceRefs?.[0];
+        const ytThumb = getYoutubeThumbnailUrl(url);
+        if (ytThumb) {
+          previewUri = ytThumb;
+        }
+      } else if (card.cardType === "creator_card" && !previewUri) {
+        previewUri = card.creatorProfile?.profilePhotos?.youtube || card.mediaAssets?.[0]?.uri || "";
+      } else if (card.cardType === "creator_sponsor_card" && !previewUri) {
+        previewUri = card.sponsorProfile?.logo || card.mediaAssets?.[0]?.uri || "";
+      }
+
       if (!videoUri && !previewUri) return null;
       const highResImageUri = mediaChoice.highResImageUri || previewUri;
       const avatarIds = uniqueLocal([
@@ -6767,6 +6801,47 @@ function buildTarotDrawCards(cards = [], avatarInventory = null, avatars = [], i
         ...(card.episodeCard?.songLinks || []),
         ...(card.songLinks || [])
       ], songLibrary, hapaSongStore);
+
+      // Resolve creator contacts
+      const creatorIds = [];
+      if (card.cardType === "creator_card") {
+        creatorIds.push(card.id);
+      } else if (card.connections?.creatorCardId) {
+        creatorIds.push(card.connections.creatorCardId);
+      }
+      const creatorContacts = creatorIds
+        .map((id) => creatorCardById.get(id))
+        .filter(Boolean)
+        .map((creatorCard) => ({
+          id: creatorCard.id,
+          name: creatorCard.creatorProfile?.name || creatorCard.title,
+          role: "Creator",
+          portraitUri: creatorCard.creatorProfile?.profilePhotos?.youtube || creatorCard.imageUri || "",
+          profile: creatorCard.creatorProfile || null,
+          card: creatorCard
+        }))
+        .filter(Boolean);
+
+      // Resolve sponsor contacts
+      const sponsorIds = [];
+      if (card.cardType === "creator_sponsor_card") {
+        sponsorIds.push(card.id);
+      } else if (card.connections?.sponsorCardIds) {
+        sponsorIds.push(...card.connections.sponsorCardIds);
+      }
+      const sponsorContacts = sponsorIds
+        .map((id) => sponsorCardById.get(id))
+        .filter(Boolean)
+        .map((sponsorCard) => ({
+          id: sponsorCard.id,
+          name: sponsorCard.title,
+          role: "Sponsor",
+          portraitUri: sponsorCard.sponsorProfile?.logo || sponsorCard.imageUri || "",
+          profile: sponsorCard.sponsorProfile || null,
+          card: sponsorCard
+        }))
+        .filter(Boolean);
+
       return {
         id: card.id,
         title: tarotDetails.title || shipDetails.title || card.title,
@@ -6820,7 +6895,9 @@ function buildTarotDrawCards(cards = [], avatarInventory = null, avatars = [], i
         productionMediaReason: mediaChoice.reason,
         priority: priorityIds.has(card.id) ? 1 : 0,
         videoScore: mediaResolutionScore(videoAsset || {}) || mediaResolutionScore(itemPreviewAsset(card) || {}),
-        avatarContacts
+        avatarContacts,
+        creatorContacts,
+        sponsorContacts
       };
     })
     .filter(Boolean)
@@ -6847,8 +6924,9 @@ function auditTarotDrawProductionCandidates(cards = [], songLibrary = FALLBACK_S
     const hasDropZoneSong = cardHasDropZoneSong(card);
     const hasResolvedAudio = cardHasResolvedDropZoneAudio(card);
     const songDrawReady = isSongDrawCard && hasDropZoneSong;
-    const productionReady = hasLoopingVideo || songDrawReady;
-    const imageOnly = hasDisplayImage && !hasLoopingVideo && !songDrawReady;
+    const isCreatorSetCard = ["creator_card", "creator_content_card", "creator_sponsor_card", "set"].includes(card.cardType);
+    const productionReady = hasLoopingVideo || songDrawReady || isCreatorSetCard;
+    const imageOnly = hasDisplayImage && !hasLoopingVideo && !songDrawReady && !isCreatorSetCard;
     const reasons = [
       !productionReady ? "missing-looping-video" : "",
       imageOnly ? "image-only-production-hidden" : ""

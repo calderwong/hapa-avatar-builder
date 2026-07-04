@@ -37,7 +37,8 @@ const TAROT_CARD_BROWSER_TYPE_FILTERS = [
   { id: "location", label: "Locations", pileIds: ["location"], textHints: ["location", "place"], accent: "#4facfe" },
   { id: "song", label: "Songs", pileIds: ["song"], textHints: ["song", "music"], accent: "#5ed7ff" },
   { id: "ship", label: "Ships", pileIds: ["ship"], textHints: ["ship"], accent: "#78e8ff" },
-  { id: "void_shadow", label: "Void", pileIds: ["void_shadow"], textHints: ["void", "shadow"], accent: "#a472ff" }
+  { id: "void_shadow", label: "Void", pileIds: ["void_shadow"], textHints: ["void", "shadow"], accent: "#a472ff" },
+  { id: "creator", label: "Creators", pileIds: ["creator"], textHints: ["creator", "video", "sponsor", "klaize"], accent: "#ec4899" }
 ];
 const TAROT_DRAW_FORGE_POLL_MS = 2600;
 const TAROT_DRAW_FORGE_STYLE_TAG = "early-2000s brushed-pixel CRPG art fused with comic-book mythic futurism, teal-gold arcane technology, and Hapaverse celestial relic design.";
@@ -305,7 +306,8 @@ const CARD_TYPE_BACKS = [
   { id: "void_shadow", label: "Void / Shadow", pileIds: ["void_shadow", "void_shadow_card", "void", "shadow"], imageUri: "/media/mimi-card-shop-backs/void-shadow.png", accent: "#a472ff" },
   { id: "avatar", label: "Avatars", pileIds: ["avatar_tarot_card", "avatar_card", "avatar", "avatars"], imageUri: "/media/mimi-card-shop-backs/avatars.png", accent: "#00f3ff" },
   { id: "song", label: "Songs", pileIds: ["song_card", "song_cards", "hapa_song", "hapa_song_card", "music", "song", "songs"], imageUri: "/media/mimi-card-shop-backs/lore.png", accent: "#5ed7ff" },
-  { id: "ship", label: "Ships", pileIds: ["ship_card", "ship_tarot_card", "ship", "ships"], imageUri: "/media/mimi-card-shop-backs/ships.png", accent: "#78e8ff" }
+  { id: "ship", label: "Ships", pileIds: ["ship_card", "ship_tarot_card", "ship", "ships"], imageUri: "/media/mimi-card-shop-backs/ships.png", accent: "#78e8ff" },
+  { id: "creator", label: "Creators", pileIds: ["creator"], imageUri: "/media/mimi-card-shop-backs/skills.png", accent: "#ec4899" }
 ];
 
 const MUSIC_VISUALIZER_MODES = [
@@ -2050,6 +2052,11 @@ export default function TarotDraw3DView({ cards = [], avatarName = "Hapa", apiBa
   const activeProfileContact = profileContact && profileContacts.some((contact) => contact.id === profileContact.id)
     ? profileContacts.find((contact) => contact.id === profileContact.id) || profileContact
     : null;
+  const [activeCreatorContact, setActiveCreatorContact] = useState(null);
+  const creatorVideos = useMemo(() => {
+    if (!activeCreatorContact) return [];
+    return cards.filter((c) => c.cardType === "creator_content_card" && c.connections?.creatorCardId === activeCreatorContact.id);
+  }, [activeCreatorContact, cards]);
   const activeProfileMediaWall = useMemo(
     () => prioritizeTarotProfileMedia(activeProfileContact?.profile?.mediaWall || []),
     [activeProfileContact]
@@ -4162,6 +4169,49 @@ export default function TarotDraw3DView({ cards = [], avatarName = "Hapa", apiBa
                   ))}
                 </div>
               )}
+              {selectedCard.creatorContacts?.length > 0 && (
+                <div className="tarot-card-detail-contacts" aria-label={`Creators linked to ${selectedCard.title}`}>
+                  {selectedCard.creatorContacts.map((contact) => (
+                    <button
+                      className="tarot-inspector-contact creator-contact-btn"
+                      key={contact.id}
+                      type="button"
+                      aria-pressed={activeCreatorContact?.id === contact.id}
+                      onClick={() => setActiveCreatorContact(contact)}
+                      style={{ "--back-accent": "#ec4899" }}
+                    >
+                      {contact.portraitUri ? <img src={contact.portraitUri} alt="" loading="lazy" /> : <UserRound size={16} />}
+                      <span>
+                        <strong>{contact.name}</strong>
+                        <em><BadgeCheck size={10} /> {contact.role || "Creator"}</em>
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              )}
+              {selectedCard.sponsorContacts?.length > 0 && (
+                <div className="tarot-card-detail-contacts" aria-label={`Sponsors linked to ${selectedCard.title}`}>
+                  {selectedCard.sponsorContacts.map((contact) => (
+                    <button
+                      className="tarot-inspector-contact sponsor-contact-btn"
+                      key={contact.id}
+                      type="button"
+                      onClick={() => {
+                        if (contact.profile?.websiteUrl) {
+                          window.open(contact.profile.websiteUrl, "_blank");
+                        }
+                      }}
+                      style={{ "--back-accent": "#10b981" }}
+                    >
+                      {contact.portraitUri ? <img src={contact.portraitUri} alt="" loading="lazy" /> : <UserRound size={16} />}
+                      <span>
+                        <strong>{contact.name}</strong>
+                        <em><BadgeCheck size={10} /> {contact.role || "Sponsor"}</em>
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              )}
             </section>
           </div>
         </aside>
@@ -4343,6 +4393,108 @@ export default function TarotDraw3DView({ cards = [], avatarName = "Hapa", apiBa
                   {activeProfileContact.profile.tags.map((tag) => <span key={tag}>{tag}</span>)}
                 </div>
               )}
+            </div>
+          </div>
+        </aside>
+      )}
+
+      {activeCreatorContact && (
+        <aside
+          className="tarot-avatar-profile-panel hapa-panel creator-profile-panel"
+          data-variant="notch"
+          role="dialog"
+          aria-label={`${activeCreatorContact.name} Creator Card preview`}
+          onPointerDown={(event) => event.stopPropagation()}
+          onWheel={(event) => event.stopPropagation()}
+        >
+          <header>
+            <span><UserRound size={14} /> Creator Card</span>
+            <button className="hapa-btn" type="button" aria-label="Close creator profile preview" onClick={() => setActiveCreatorContact(null)}>
+              <X size={14} />
+            </button>
+          </header>
+          <div className="tarot-avatar-profile-body">
+            <div className="tarot-avatar-profile-visual-column">
+              <div className="tarot-avatar-profile-media" tabIndex={0}>
+                {activeCreatorContact.portraitUri ? (
+                  <img
+                    className="tarot-avatar-profile-hero-image"
+                    src={activeCreatorContact.portraitUri}
+                    alt=""
+                    loading="eager"
+                    decoding="async"
+                    draggable="false"
+                  />
+                ) : (
+                  <UserRound size={44} />
+                )}
+              </div>
+              {activeCreatorContact.profile?.onlineFootprint && (
+                <div className="creator-footprint-links" style={{ display: "flex", flexDirection: "column", gap: "8px", marginTop: "16px" }}>
+                  <p className="eyebrow" style={{ margin: "0 0 4px 0" }}>Online Footprint</p>
+                  {activeCreatorContact.profile.onlineFootprint.youtube && (
+                    <a href={activeCreatorContact.profile.onlineFootprint.youtube} target="_blank" rel="noopener noreferrer" className="hapa-btn" style={{ display: "flex", alignItems: "center", gap: "8px", textDecoration: "none", fontSize: "12px", padding: "8px" }}>
+                      <Play size={12} /> YouTube Channel
+                    </a>
+                  )}
+                  {activeCreatorContact.profile.onlineFootprint.patreon && (
+                    <a href={activeCreatorContact.profile.onlineFootprint.patreon} target="_blank" rel="noopener noreferrer" className="hapa-btn" style={{ display: "flex", alignItems: "center", gap: "8px", textDecoration: "none", fontSize: "12px", padding: "8px" }}>
+                      <Link2 size={12} /> Patreon
+                    </a>
+                  )}
+                  {activeCreatorContact.profile.onlineFootprint.spotify && (
+                    <a href={activeCreatorContact.profile.onlineFootprint.spotify} target="_blank" rel="noopener noreferrer" className="hapa-btn" style={{ display: "flex", alignItems: "center", gap: "8px", textDecoration: "none", fontSize: "12px", padding: "8px" }}>
+                      <Volume2 size={12} /> Spotify Artist
+                    </a>
+                  )}
+                </div>
+              )}
+            </div>
+            <div className="tarot-avatar-profile-info-column">
+              <div className="tarot-avatar-profile-copy">
+                <p className="eyebrow">Creator Card Profile</p>
+                <h3>{activeCreatorContact.name}</h3>
+                <em>{activeCreatorContact.profile?.alias ? `@${activeCreatorContact.profile.alias}` : "Creator"}</em>
+                {activeCreatorContact.profile?.about && <p style={{ marginTop: "12px", lineHeight: "1.5" }}>{activeCreatorContact.profile.about}</p>}
+              </div>
+              <div className="tarot-avatar-profile-grid" aria-label={`${activeCreatorContact.name} creator metrics`}>
+                <span><strong>{activeCreatorContact.profile?.subscribers || "0"}</strong><em>Subscribers</em></span>
+                <span><strong>{activeCreatorContact.profile?.views || "0"}</strong><em>Views</em></span>
+                <span><strong>{creatorVideos.length}</strong><em>Videos</em></span>
+              </div>
+              <div className="creator-video-ingress-section" style={{ marginTop: "16px", width: "100%" }}>
+                <p className="eyebrow" style={{ margin: "0 0 12px 0" }}>Video Catalog ({creatorVideos.length})</p>
+                <div className="creator-video-ingress-list" style={{ display: "flex", flexDirection: "column", gap: "12px", maxHeight: "360px", overflowY: "auto", paddingRight: "8px" }}>
+                  {creatorVideos.map((video) => {
+                    const videoThumb = getYoutubeThumbnailUrl(video.sourceRefs?.[0]);
+                    return (
+                      <div key={video.id} className="creator-video-ingress-card" style={{ display: "flex", gap: "12px", background: "rgba(255, 255, 255, 0.03)", border: "1px solid rgba(255, 255, 255, 0.08)", padding: "10px", borderRadius: "8px", alignItems: "center" }}>
+                        {videoThumb && (
+                          <img src={videoThumb} alt="" style={{ width: "90px", height: "50px", objectFit: "cover", borderRadius: "4px" }} />
+                        )}
+                        <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: "4px" }}>
+                          <span style={{ fontSize: "13px", fontWeight: "600", color: "#e2e8f0" }}>{video.title}</span>
+                          <span style={{ fontSize: "11px", color: "#94a3b8" }}>{video.description || video.summary}</span>
+                        </div>
+                        <button
+                          type="button"
+                          className="hapa-btn"
+                          style={{ fontSize: "11px", padding: "4px 8px" }}
+                          onClick={() => {
+                            callGame("spawnBrowserCard", video, {
+                              zone: "field",
+                              statusText: `Dealt video card: ${video.title}`
+                            });
+                            setActiveCreatorContact(null);
+                          }}
+                        >
+                          Deal
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
             </div>
           </div>
         </aside>
@@ -4589,7 +4741,11 @@ function normalizeCardPileId(value = "") {
     spell_tarot_card: "spell",
     spells: "spell",
     void: "void_shadow",
-    void_shadow_card: "void_shadow"
+    void_shadow_card: "void_shadow",
+    creator_card: "creator",
+    creator_content_card: "creator",
+    creator_sponsor_card: "creator",
+    set: "creator"
   };
   return aliases[id] || id;
 }
@@ -4624,7 +4780,8 @@ function tarotPileLabel(id = "") {
     node_card: "Node Cards",
     ship_card: "Ship Cards",
     ship: "Ships",
-    tarot: "Tarot Cards"
+    tarot: "Tarot Cards",
+    creator: "Creators"
   };
   if (known[id]) return known[id];
   return String(id || "tarot")
@@ -4661,7 +4818,8 @@ function tarotPileShortLabel(id = "", label = tarotPileLabel(id)) {
     scene: "Scene",
     node_card: "Node",
     ship_card: "Ship",
-    ship: "Ship"
+    ship: "Ship",
+    creator: "Creator"
   };
   return known[id] || label.replace(/\bCards?\b/gi, "").trim().slice(0, 12) || "Tarot";
 }
@@ -4693,7 +4851,8 @@ function tarotPileSortRank(id = "") {
     "scene",
     "node_card",
     "ship_card",
-    "ship"
+    "ship",
+    "creator"
   ];
   const index = order.indexOf(id);
   return index === -1 ? 100 : index;
