@@ -2057,7 +2057,7 @@ export default function TarotDraw3DView({ cards = [], avatarName = "Hapa", apiBa
   const [activeCreatorContact, setActiveCreatorContact] = useState(null);
   const creatorVideos = useMemo(() => {
     if (!activeCreatorContact) return [];
-    return cards.filter((c) => c.cardType === "creator_content_card" && c.connections?.creatorCardId === activeCreatorContact.id);
+    return (cards || []).filter((c) => c.cardType === "creator_content_card" && c.connections?.creatorCardId === activeCreatorContact.id);
   }, [activeCreatorContact, cards]);
   const activeProfileMediaWall = useMemo(
     () => prioritizeTarotProfileMedia(activeProfileContact?.profile?.mediaWall || []),
@@ -4633,6 +4633,13 @@ function summarizeAvatarProfileCoverage(cards = []) {
         skills: (contact.profile?.skillCards || []).length
       }))
   };
+}
+
+function getYoutubeThumbnailUrl(url) {
+  if (!url || typeof url !== "string") return null;
+  const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=)([^#\&\?]*).*/;
+  const match = url.match(regExp);
+  return (match && match[2].length === 11) ? `https://img.youtube.com/vi/${match[2]}/mqdefault.jpg` : null;
 }
 
 function cardBackPileAliases(pileId = "") {

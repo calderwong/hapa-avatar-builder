@@ -6721,7 +6721,7 @@ function buildTarotDrawProjection(cards = [], avatarInventory = null, avatars = 
 }
 
 function getYoutubeThumbnailUrl(url) {
-  if (!url) return null;
+  if (!url || typeof url !== "string") return null;
   const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=)([^#\&\?]*).*/;
   const match = url.match(regExp);
   return (match && match[2].length === 11) ? `https://img.youtube.com/vi/${match[2]}/mqdefault.jpg` : null;
@@ -6826,7 +6826,7 @@ function buildTarotDrawCards(cards = [], avatarInventory = null, avatars = [], i
       const sponsorIds = [];
       if (card.cardType === "creator_sponsor_card") {
         sponsorIds.push(card.id);
-      } else if (card.connections?.sponsorCardIds) {
+      } else if (Array.isArray(card.connections?.sponsorCardIds)) {
         sponsorIds.push(...card.connections.sponsorCardIds);
       }
       const sponsorContacts = sponsorIds
