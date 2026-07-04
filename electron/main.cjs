@@ -20,6 +20,7 @@ let apiProcess = null;
 let desktopUrl = null;
 let isQuitting = false;
 let mainWindow = null;
+const consoleLogs = [];
 
 function isTrustedLocalUrl(value = "") {
   try {
@@ -218,19 +219,94 @@ async function createWindow() {
     webPreferences: {
       preload: path.join(__dirname, "preload.cjs"),
       contextIsolation: true,
-      nodeIntegration: false
+      nodeIntegration: false,
+      webSecurity: false
     }
+  });
+  window.webContents.openDevTools();
+  window.webContents.on("console-message", (event, level, message, line, sourceId) => {
+    consoleLogs.push({ level, message, line, sourceId, timestamp: new Date().toISOString() });
+    console.log(`[Renderer Console] Level ${level}: ${message} (${sourceId}:${line})`);
   });
   mainWindow = window;
   window.on("closed", () => {
     if (mainWindow === window) mainWindow = null;
   });
 
-  await window.loadURL(url);
+  await session.defaultSession.clearCache();
+  await window.loadURL(url, { extraHeaders: "pragma: no-cache\ncache-control: no-cache\n" });
+}
+
+const fsPromises = require("node:fs/promises");
+
+function startOperatorConsoleServer() {
+  const server = http.createServer(async (req, res) => {
+    const url = new URL(req.url, `http://${req.headers.host || "127.0.0.1"}`);
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+    res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+    if (req.method === "OPTIONS") {
+      res.writeHead(200);
+      res.end();
+      return;
+    }
+    try {
+      if (url.pathname === "/v1/screenshot") {
+        if (!mainWindow || mainWindow.isDestroyed()) {
+          res.writeHead(400, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ ok: false, error: "window_not_available" }));
+          return;
+        }
+        mainWindow.setSize(1440, 960, false);
+        await new Promise(resolve => setTimeout(resolve, 600));
+        const image = await mainWindow.webContents.capturePage();
+        const screenshotPath = "/Users/calderwong/.gemini/antigravity/brain/5fcd6ec8-e62d-4af1-bc7e-117e4268df10/electron_actual_render.png";
+        await fsPromises.writeFile(screenshotPath, image.toPNG());
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ ok: true, screenshotPath }));
+        return;
+      }
+      if (url.pathname === "/v1/logs") {
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ ok: true, logs: consoleLogs }));
+        return;
+      }
+      if (url.pathname === "/v1/eval" && req.method === "POST") {
+        if (!mainWindow || mainWindow.isDestroyed()) {
+          res.writeHead(400, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ ok: false, error: "window_not_available" }));
+          return;
+        }
+        let body = "";
+        req.on("data", chunk => { body += chunk; });
+        req.on("end", async () => {
+          try {
+            const data = JSON.parse(body);
+            const result = await mainWindow.webContents.executeJavaScript(data.code);
+            res.writeHead(200, { "Content-Type": "application/json" });
+            res.end(JSON.stringify({ ok: true, result }));
+          } catch (err) {
+            res.writeHead(500, { "Content-Type": "application/json" });
+            res.end(JSON.stringify({ ok: false, error: err.message }));
+          }
+        });
+        return;
+      }
+      res.writeHead(404, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ ok: false, error: "not_found" }));
+    } catch (err) {
+      res.writeHead(500, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ ok: false, error: err.message }));
+    }
+  });
+  server.listen(8799, "127.0.0.1", () => {
+    console.log("[Operator Console] Listening on http://127.0.0.1:8799");
+  });
 }
 
 app.whenReady().then(() => {
   installMediaPermissionHandlers();
+  startOperatorConsoleServer();
   return createWindow();
 });
 

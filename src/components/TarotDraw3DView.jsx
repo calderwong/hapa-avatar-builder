@@ -1805,6 +1805,20 @@ function blueAvatarSurfaceLabel() {
 }
 
 export default function TarotDraw3DView({ cards = [], avatarName = "Hapa", apiBase = "", soundEnabled = false, productionAudit = null, onResolveEchoProject, onSelectAvatarProfile, onTarotForgeCreated, onTarotSceneSaved }) {
+  const urlParams = useMemo(() => new URLSearchParams(window?.location?.search || ""), []);
+  const isSubscriber = useMemo(() => {
+    let sub = urlParams.get("role") === "subscriber";
+    if (sub) {
+      try { sessionStorage.setItem("hapa-tarot-role-subscriber", "true"); } catch(e) {}
+    } else if (urlParams.get("role") === "editor" || urlParams.get("role") === "publisher") {
+      try { sessionStorage.removeItem("hapa-tarot-role-subscriber"); } catch(e) {}
+    }
+    try {
+      sub = sub || sessionStorage.getItem("hapa-tarot-role-subscriber") === "true";
+    } catch(e) {}
+    return sub;
+  }, [urlParams]);
+
   const canvasRef = useRef(null);
   const gameRef = useRef(null);
   const dragCaptureDepthRef = useRef(0);
@@ -3114,6 +3128,18 @@ export default function TarotDraw3DView({ cards = [], avatarName = "Hapa", apiBa
     } catch {
       // Some media elements cannot seek until metadata is available.
     }
+  }
+
+  if (isSubscriber) {
+    return (
+      <div className="tarot-draw-view" style={{ width: "100vw", height: "100vh", position: "absolute", top: 0, left: 0, zIndex: 9999, background: "#000", display: "flex", justifyContent: "center", alignItems: "center", overflow: "hidden" }}>
+        <img 
+          src={`${apiBase || window.location.origin}/api/tarot/stream`} 
+          style={{ width: "100vw", height: "100vh", objectFit: "cover" }} 
+          alt="Live Video Feed"
+        />
+      </div>
+    );
   }
 
   return (
@@ -4782,6 +4808,89 @@ function createTarotDrawGame({ canvas, cards, avatarName, apiBase = "", producti
   controls.maxDistance = CAMERA_GALLERY_RECOVERY_MAX_DISTANCE;
   controls.maxPolarAngle = Math.PI * 0.48;
   controls.target.set(0, 0.05, 0);
+
+  // ---------- Hapa.ai Staging-Subscriber Camera Sync ----------
+  const urlParams = new URLSearchParams(window.location.search);
+  let isSubscriber = urlParams.get("role") === "subscriber";
+  if (isSubscriber) {
+    try { sessionStorage.setItem("hapa-tarot-role-subscriber", "true"); } catch(e) {}
+  } else if (urlParams.get("role") === "editor" || urlParams.get("role") === "publisher") {
+    try { sessionStorage.removeItem("hapa-tarot-role-subscriber"); } catch(e) {}
+  }
+  try {
+    isSubscriber = isSubscriber || sessionStorage.getItem("hapa-tarot-role-subscriber") === "true";
+  } catch(e) {}
+  
+  const syncChannel = new BroadcastChannel("hapa-tarot-3d-sync");
+  let lastBroadcastTime = 0;
+
+  if (isSubscriber) {
+    controls.enabled = false;
+    
+    // Disable any interaction in subscriber mode
+    if (typeof window !== "undefined") {
+      const preventInteraction = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+      };
+      window.addEventListener("pointerdown", preventInteraction, true);
+      window.addEventListener("mousedown", preventInteraction, true);
+      window.addEventListener("touchstart", preventInteraction, true);
+    }
+
+    syncChannel.onmessage = (event) => {
+      const { type, data } = event.data;
+      if (type === "sync" && data) {
+        console.log("Tarot Draw Sync [Subscriber]: Received sync state containing cards count =", data.cards?.length);
+        // 1. Sync Camera
+        if (data.camera) {
+          camera.position.set(data.camera.pos.x, data.camera.pos.y, data.camera.pos.z);
+          controls.target.set(data.camera.target.x, data.camera.target.y, data.camera.target.z);
+        }
+        
+        // 2. Sync Cards
+        if (data.cards) {
+          const targetIds = new Set(data.cards.map(tc => tc.id));
+          
+          // Remove local cards not present in broadcast
+          for (let i = placedEntries.length - 1; i >= 0; i--) {
+            const entry = placedEntries[i];
+            if (!targetIds.has(entry.card.id)) {
+              world.remove(entry.group);
+              placedEntries.splice(i, 1);
+            }
+          }
+          
+          // Create or update local cards
+          data.cards.forEach((tc) => {
+            let entry = placedEntries.find(e => e.card.id === tc.id);
+            if (!entry) {
+              const cardTemplate = cards.find(c => c.id === tc.id);
+              if (cardTemplate) {
+                entry = createCardEntry(cardTemplate);
+                world.add(entry.group);
+                placedEntries.push(entry);
+              }
+            }
+            if (entry) {
+              entry.group.position.set(tc.pos.x, tc.pos.y, tc.pos.z);
+              entry.group.rotation.set(tc.rot.x, tc.rot.y, tc.rot.z);
+              
+              if (entry.flipped !== tc.flipped) {
+                entry.flipped = tc.flipped;
+                entry.targetRotation.x = tc.flipped ? Math.PI : 0;
+              }
+              
+              entry.lockedDropZone = tc.lockedDropZone;
+              entry.lockedMediaPool = tc.lockedMediaPool;
+              entry.lockedCenterVisualizer = tc.lockedCenterVisualizer;
+              entry.lockedDock = tc.lockedDock;
+            }
+          });
+        }
+      }
+    };
+  }
 
   const world = new THREE.Group();
   world.name = "HapaTarotDrawWorld";
@@ -12637,6 +12746,30 @@ function createTarotDrawGame({ canvas, cards, avatarName, apiBase = "", producti
     }
     updateCameraRail(delta);
     controls.update();
+
+    if (!isSubscriber && elapsedTime - lastBroadcastTime > 0.03) {
+      lastBroadcastTime = elapsedTime;
+      console.log("Tarot Draw Sync [Broadcaster]: Posting sync state with cards count =", placedEntries.length);
+      syncChannel.postMessage({
+        type: "sync",
+        data: {
+          camera: {
+            pos: { x: camera.position.x, y: camera.position.y, z: camera.position.z },
+            target: { x: controls.target.x, y: controls.target.y, z: controls.target.z }
+          },
+          cards: placedEntries.map(entry => ({
+            id: entry.card.id,
+            pos: { x: entry.group.position.x, y: entry.group.position.y, z: entry.group.position.z },
+            rot: { x: entry.group.rotation.x, y: entry.group.rotation.y, z: entry.group.rotation.z },
+            flipped: entry.flipped || false,
+            lockedDropZone: entry.lockedDropZone || false,
+            lockedMediaPool: entry.lockedMediaPool || false,
+            lockedCenterVisualizer: entry.lockedCenterVisualizer || false,
+            lockedDock: entry.lockedDock || false
+          }))
+        }
+      });
+    }
     deck.rotation.y = Math.sin(elapsed * 0.55) * 0.02;
     deck.position.y = 0.02 + Math.sin(elapsed * 1.2) * 0.01 + (deck.userData.pulse || 0) * 0.025;
     deck.userData.pulse = Math.max(0, (deck.userData.pulse || 0) - delta * 1.8);
@@ -12689,6 +12822,23 @@ function createTarotDrawGame({ canvas, cards, avatarName, apiBase = "", producti
     updateBursts(delta);
     renderer.render(scene, camera);
     renderPhoneFpvFrame(now);
+
+    if (typeof window !== "undefined") {
+      const nowMs = Date.now();
+      if (!window.__lastFramePostTime || nowMs - window.__lastFramePostTime > 50) {
+        window.__lastFramePostTime = nowMs;
+        canvas.toBlob((blob) => {
+          if (!blob) return;
+          fetch(`${apiBase || window.location.origin}/api/tarot/stream-frame`, {
+            method: "POST",
+            body: blob,
+            headers: {
+              "Content-Type": "image/jpeg"
+            }
+          }).catch(() => {});
+        }, "image/jpeg", 0.6);
+      }
+    }
 
     if (cardDetailTargetEntry() && now - lastHudTime > TAROT_HUD_DETAIL_SECONDS) publishHud(true);
     else if (now - lastHudTime > TAROT_HUD_NORMAL_SECONDS) publishHud();

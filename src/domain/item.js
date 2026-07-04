@@ -143,6 +143,16 @@ export function normalizeItemCard(card = {}) {
     episodeCard: normalizeEpisodeCardDetails(card.episodeCard || card.episode_card || card.comicCard || card.comic_card || {}, card),
     history: normalizeHistory(card.history || []),
     equipment: normalizeEquipmentProfile(card.equipment || {}, kind),
+    containedCards: card.containedCards || [],
+    memberOfSets: card.memberOfSets || [],
+    skills: card.skills || [],
+    telemetry: card.telemetry || {},
+    cardRecord: card.cardRecord || {},
+    level: card.level || 1,
+    experience: card.experience || 0,
+    creatorProfile: card.creatorProfile || {},
+    sponsorProfile: card.sponsorProfile || {},
+    references: card.references || [],
     createdAt: card.createdAt || card.created_at || now,
     updatedAt: card.updatedAt || card.updated_at || now
   };
@@ -786,6 +796,8 @@ function normalizeItemQuality(quality = {}, canonStatus = "scaffold") {
     qualityTier: cleanString(quality.qualityTier || quality.quality_tier || qualityRank).toLowerCase().replace(/\s+/g, "-"),
     previousRank: quality.previousRank || quality.previous_rank || "",
     distributionPercentile: Number(quality.distributionPercentile || quality.distribution_percentile || 0),
+    affixes: quality.affixes || [],
+    tier: quality.tier || qualityRank || "",
     updatedAt: quality.updatedAt || quality.updated_at || ""
   };
 }

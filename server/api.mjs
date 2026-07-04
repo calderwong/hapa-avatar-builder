@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 import { createServer as createHttpServer } from "node:http";
 import { createServer as createHttpsServer } from "node:https";
-import { execFile, spawn } from "node:child_process";
+import { execFile, spawn, execSync, exec } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
 import { appendFile, mkdir, readFile, writeFile, stat, readdir, access, rm } from "node:fs/promises";
-import { createReadStream } from "node:fs";
+import fs, { createReadStream } from "node:fs";
 import { networkInterfaces, tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -99,6 +99,9 @@ const TAROT_DRAW_FORGE_RUN_DIR = process.env.HAPA_TAROT_DRAW_FORGE_RUN_DIR || pa
 const SYSTEM_MEDIA_PATH = process.env.HAPA_MEDIA_LIBRARY || path.join(ROOT, "data/media-library.json");
 const ITEM_STORE_PATH = process.env.HAPA_ITEM_STORE || path.join(ROOT, "data/item-manager-store.json");
 const INVENTORY_STORE_PATH = process.env.HAPA_INVENTORY_STORE || path.join(ROOT, "data/inventory-store.json");
+
+let latestTarotFrame = null;
+let frameCounter = 0;
 const DEAR_PAPA_SONGBOOK_PATH = process.env.HAPA_DEAR_PAPA_SONGBOOK || path.join(ROOT, "data/dear-papa-songbook.json");
 const HAPA_SONG_STORE_PATH = process.env.HAPA_SONG_STORE || path.join(ROOT, "data/hapa-songs-store.json");
 const CARD_INPUT_STANDARD_BASE_URL = (process.env.HAPA_CARD_INPUT_STANDARD_URL || "http://127.0.0.1:8896").replace(/\/+$/, "");
@@ -240,6 +243,607 @@ function warmOverwindBootstrap() {
   }
 }
 
+let cachedLedgerData = null;
+let isScanning = false;
+
+function execQuery(cmd) {
+  return new Promise((resolve) => {
+    exec(cmd, (err, stdout) => {
+      if (err) resolve("0");
+      else resolve(stdout.trim());
+    });
+  });
+}
+
+async function getLiveLedgerData() {
+  if (cachedLedgerData) {
+    return cachedLedgerData;
+  }
+  return await computeLiveLedgerData();
+}
+
+async function walkDirectoryFiles(dir) {
+  let count = 0;
+  let size = 0;
+  try {
+    const entries = await readdir(dir, { withFileTypes: true });
+    await Promise.all(entries.map(async (entry) => {
+      const fullPath = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        if (entry.name === '.git' || entry.name === 'node_modules' || entry.name === 'dist') return;
+        const sub = await walkDirectoryFiles(fullPath);
+        count += sub.count;
+        size += sub.size;
+      } else if (entry.isFile() && entry.name.endsWith('.md')) {
+        count += 1;
+        size += 10157;
+      }
+    }));
+  } catch {}
+  return { count, size };
+}
+
+async function computeLiveLedgerData() {
+  const store = await readStore();
+  const avatars = (store.avatars || []).map(a => {
+    const firstImgAsset = (a.assets || []).find(as => as.type === 'image');
+    const profileImage = firstImgAsset 
+      ? (firstImgAsset.metadata?.thumbnailUri || firstImgAsset.uri || '') 
+      : '';
+      
+    return {
+      id: a.id,
+      name: a.primaryName || a.name || a.names?.[0]?.name || a.id,
+      balance: a.balance || 0,
+      profileImage: profileImage.replace(/^\/media\//, '')
+    };
+  });
+
+  // 1. Walk Worldbuilding Wiki files
+  let wikiCount = 59134;
+  let wikiSize = 600669887;
+  try {
+    const walk = await walkDirectoryFiles('/Users/calderwong/Desktop/Hapa_Worldbuilding_Wiki');
+    wikiCount = walk.count;
+    wikiSize = walk.size;
+  } catch (err) {
+    console.error('Error walking wiki:', err);
+  }
+
+  // 2. Query Postgres Overwind database for Second Brain and Mind counts
+  let sbCount = 78981;
+  let mindCount = 267489;
+  let dbSize = 12 * 1024 * 1024 * 1024; // 12 GB
+  
+  const dbPath = '/Users/calderwong/Documents/Codex/2026-05-25/can-you-grab-my-1-amazon/hapa_second_brain/hapa_second_brain.db';
+  try {
+    const dbStat = await stat(dbPath);
+    dbSize = dbStat.size;
+  } catch {}
+
+  try {
+    const sbQuery = await execQuery('/opt/homebrew/opt/postgresql@16/bin/psql -h 127.0.0.1 -d hapa_overwind -t -A -c "SELECT COUNT(*) FROM hapa_second_brain_content_items;"');
+    sbCount = parseInt(sbQuery, 10) || sbCount;
+    
+    const mindQuery = await execQuery('/opt/homebrew/opt/postgresql@16/bin/psql -h 127.0.0.1 -d hapa_overwind -t -A -c "SELECT COUNT(*) FROM hapa_second_brain_content_chunks;"');
+    mindCount = parseInt(mindQuery, 10) || mindCount;
+  } catch (err) {
+    console.error('Error querying Postgres:', err);
+  }
+
+  // Proportional partitioning of DB size
+  const totalDbRecords = sbCount + mindCount;
+  const sbSize = Math.round(dbSize * (sbCount / totalDbRecords));
+  const mindSize = Math.round(dbSize * (mindCount / totalDbRecords));
+
+  // 3. Count images and videos from store
+  const imageCounts = {};
+  const videoCounts = {};
+  const imageSizes = {};
+  const videoSizes = {};
+  
+  avatars.forEach(av => {
+    imageCounts[av.id] = 0;
+    videoCounts[av.id] = 0;
+    imageSizes[av.id] = 0;
+    videoSizes[av.id] = 0;
+  });
+
+  (store.avatars || []).forEach(av => {
+    (av.assets || []).forEach(as => {
+      const size = as.metadata?.sizeBytes || as.storage?.sizeBytes || (as.type === 'video' ? 15000000 : 1500000);
+      if (as.type === 'image') {
+        imageCounts[av.id] = (imageCounts[av.id] || 0) + 1;
+        imageSizes[av.id] = (imageSizes[av.id] || 0) + size;
+      } else if (as.type === 'video') {
+        videoCounts[av.id] = (videoCounts[av.id] || 0) + 1;
+        videoSizes[av.id] = (videoSizes[av.id] || 0) + size;
+      }
+    });
+  });
+
+  // 4. Tarot Cards count
+  let tarotCount = 195;
+  const tarotStorePath = '/Users/calderwong/Desktop/hapa-avatar-builder/data/tarot-store.json';
+  try {
+    const tarotContent = JSON.parse(await readFile(tarotStorePath, 'utf8'));
+    tarotCount = (tarotContent.cards || []).length;
+  } catch {}
+
+  // 5. Item Cards count
+  let itemCount = 1411;
+  const itemStorePath = '/Users/calderwong/Desktop/hapa-avatar-builder/data/item-manager-store.json';
+  try {
+    const itemContent = JSON.parse(await readFile(itemStorePath, 'utf8'));
+    itemCount = (itemContent.items || itemContent.cards || []).length;
+  } catch {}
+
+  // 6. Guild Cards count
+  let guildCardCount = 1941;
+  const devProtoCardsDir = '/Users/calderwong/Desktop/Hapa_Worldbuilding_Wiki/Cards/Hapa Dev Proto Cards/Cards';
+  try {
+    const entries = await readdir(devProtoCardsDir);
+    guildCardCount = entries.filter(e => e.endsWith('.md')).length;
+  } catch {}
+
+  // Distribute the global totals among the avatars
+  const n = avatars.length;
+  const baseWikiCount = Math.floor(wikiCount / n);
+  const baseSbCount = Math.floor(sbCount / n);
+  const baseMindCount = Math.floor(mindCount / n);
+  const baseTarotCount = Math.floor(tarotCount / n);
+  const baseItemCount = Math.floor(itemCount / n);
+  const baseGuildCount = Math.floor(guildCardCount / n);
+
+  const wikiSizePart = Math.floor(wikiSize / n);
+  const sbSizePart = Math.floor(sbSize / n);
+  const mindSizePart = Math.floor(mindSize / n);
+
+  avatars.forEach((av, idx) => {
+    const isFirst = idx === 0;
+    const finalWiki = baseWikiCount + (isFirst ? (wikiCount % n) : 0);
+    const finalSb = baseSbCount + (isFirst ? (sbCount % n) : 0);
+    const finalMind = baseMindCount + (isFirst ? (mindCount % n) : 0);
+    const finalTarot = baseTarotCount + (isFirst ? (tarotCount % n) : 0);
+    const finalItem = baseItemCount + (isFirst ? (itemCount % n) : 0);
+    const finalGuild = baseGuildCount + (isFirst ? (guildCardCount % n) : 0);
+
+    const finalWikiSize = wikiSizePart + (isFirst ? (wikiSize % n) : 0);
+    const finalSbSize = sbSizePart + (isFirst ? (sbSize % n) : 0);
+    const finalMindSize = mindSizePart + (isFirst ? (mindSize % n) : 0);
+
+    const imgCount = imageCounts[av.id] || 0;
+    const vidCount = videoCounts[av.id] || 0;
+    const imgSize = imageSizes[av.id] || 0;
+    const vidSize = videoSizes[av.id] || 0;
+
+    av.counts = {
+      images: imgCount,
+      videos: vidCount,
+      mindRecords: finalMind,
+      secondBrainRecords: finalSb,
+      wikiRecords: finalWiki,
+      guildLibraryCards: finalGuild,
+      tarotCards: finalTarot,
+      itemCards: finalItem,
+      total: imgCount + vidCount + finalMind + finalSb + finalWiki + finalGuild + finalTarot + finalItem,
+      sizeBytes: imgSize + vidSize + finalMindSize + finalSbSize + finalWikiSize,
+      imageSize: imgSize,
+      videoSize: vidSize,
+      mindSize: finalMindSize,
+      secondBrainSize: finalSbSize,
+      wikiSize: finalWikiSize,
+      guildLibraryCardsSize: finalGuild * 1000,
+      tarotCardsSize: finalTarot * 50000,
+      itemCardsSize: finalItem * 25000
+    };
+
+    const calculatedBalance = 
+      imgCount * 1.00 +
+      vidCount * 10.00 +
+      finalWiki * 0.10 +
+      finalSb * 0.10 +
+      finalMind * 0.01 +
+      finalGuild * 100.00 +
+      finalTarot * 50.00 +
+      finalItem * 25.00;
+      
+    av.balance = parseFloat(calculatedBalance.toFixed(2));
+  });
+
+  const cards = [];
+  avatars.forEach(av => {
+    const name = av.name || av.id || "Unknown";
+    const seedVal = (name.charCodeAt(0) || 1) + (name.charCodeAt(name.length - 1) || 1);
+    const creditLimit = 7643;
+    const creditBalance = parseFloat((Math.round((av.balance * 0.08 + (seedVal * 12)) % (creditLimit * 0.28))).toFixed(2));
+
+    cards.push({
+      id: `debit-${av.id}`,
+      avatarId: av.id,
+      cardType: "debit",
+      balance: av.balance,
+      limit: 0,
+      number: "400012345678" + av.id.slice(-4).replace(/[^0-9]/g, '9').padEnd(4, '0'),
+      holder: name,
+      expiry: "12/30",
+      status: "Active",
+      rewardsRate: 0.01,
+      rewardsBalance: parseFloat((av.balance * 0.01).toFixed(2)),
+      profileImage: av.profileImage
+    });
+    cards.push({
+      id: `credit-${av.id}`,
+      avatarId: av.id,
+      cardType: "credit",
+      balance: creditBalance,
+      limit: creditLimit,
+      number: "510012345678" + av.id.slice(-4).replace(/[^0-9]/g, '9').padEnd(4, '0'),
+      holder: name,
+      expiry: "12/30",
+      status: "Active",
+      rewardsRate: 0.02,
+      rewardsBalance: 0.0,
+      minPayment: parseFloat((creditBalance * 0.05).toFixed(2)),
+      statementBalance: creditBalance,
+      dueDate: "2026-08-01",
+      interestRate: 0.18,
+      profileImage: av.profileImage
+    });
+  });
+
+  const transactions = [];
+  let txId = 1;
+  const today = new Date();
+
+  avatars.forEach((av) => {
+    const debitCardId = `debit-${av.id}`;
+    const creditCardId = `credit-${av.id}`;
+    
+    const dates = [
+      new Date(today.getFullYear(), today.getMonth(), today.getDate() - 2), // 2 days ago
+      new Date(today.getFullYear(), today.getMonth(), today.getDate() - 10), // 10 days ago
+      new Date(today.getFullYear(), today.getMonth() - 1, 15), // Last month, middle
+      new Date(today.getFullYear(), today.getMonth() - 2, 5), // 2 months ago
+      new Date(today.getFullYear(), today.getMonth() - 4, 20), // 4 months ago
+      new Date(today.getFullYear(), today.getMonth() - 6, 12), // 6 months ago
+      new Date(today.getFullYear(), today.getMonth() - 9, 28), // 9 months ago
+      new Date(today.getFullYear(), today.getMonth() - 11, 1) // 11 months ago
+    ];
+
+    const formatDateStr = (d) => d.toISOString().split('T')[0];
+    const c = av.counts || {};
+    
+    // 1. Images
+    if (c.images > 0) {
+      const numTx = Math.min(c.images, 5);
+      for (let i = 0; i < numTx; i++) {
+        const date = dates[i % dates.length];
+        transactions.push({
+          id: txId++,
+          cardId: debitCardId,
+          merchantName: `GUILD MEDIA: IMAGE INGESTION ${i + 1}`,
+          amount: 1.00,
+          date: formatDateStr(date),
+          status: "Completed",
+          category: "Inflow",
+          hypercore: {
+            seq: txId,
+            fileName: `image-relic-${i}.png`,
+            uri: `did:hapa:media:${av.id}:image-${i}`,
+            sizeBytes: 1500000
+          }
+        });
+      }
+      if (c.images > numTx) {
+        const restAmount = (c.images - numTx) * 1.00;
+        const date = dates[dates.length - 1];
+        transactions.push({
+          id: txId++,
+          cardId: debitCardId,
+          merchantName: `GUILD MEDIA: BUNDLED IMAGE SYNC`,
+          amount: parseFloat(restAmount.toFixed(2)),
+          date: formatDateStr(date),
+          status: "Completed",
+          category: "Inflow",
+          hypercore: {
+            seq: txId,
+            fileName: `bundled-images.tar`,
+            uri: `did:hapa:media:${av.id}:images-archive`,
+            sizeBytes: (c.images - numTx) * 1500000
+          }
+        });
+      }
+    }
+
+    // 2. Videos
+    if (c.videos > 0) {
+      const numTx = Math.min(c.videos, 3);
+      for (let i = 0; i < numTx; i++) {
+        const date = dates[(i + 1) % dates.length];
+        transactions.push({
+          id: txId++,
+          cardId: debitCardId,
+          merchantName: `GUILD MEDIA: VIDEO LOOP INGESTION ${i + 1}`,
+          amount: 10.00,
+          date: formatDateStr(date),
+          status: "Completed",
+          category: "Inflow",
+          hypercore: {
+            seq: txId,
+            fileName: `video-loop-${i}.mp4`,
+            uri: `did:hapa:media:${av.id}:video-${i}`,
+            sizeBytes: 15000000
+          }
+        });
+      }
+      if (c.videos > numTx) {
+        const restAmount = (c.videos - numTx) * 10.00;
+        const date = dates[dates.length - 2];
+        transactions.push({
+          id: txId++,
+          cardId: debitCardId,
+          merchantName: `GUILD MEDIA: BUNDLED VIDEO SYNC`,
+          amount: parseFloat(restAmount.toFixed(2)),
+          date: formatDateStr(date),
+          status: "Completed",
+          category: "Inflow",
+          hypercore: {
+            seq: txId,
+            fileName: `bundled-videos.tar`,
+            uri: `did:hapa:media:${av.id}:videos-archive`,
+            sizeBytes: (c.videos - numTx) * 15000000
+          }
+        });
+      }
+    }
+
+    // 3. Wiki Records, Second Brain, Mind, etc. (bundled per timeframe)
+    if (c.wikiRecords > 0) {
+      const wikiVal = parseFloat((c.wikiRecords * 0.10).toFixed(2));
+      for (let i = 0; i < 4; i++) {
+        const qAmt = parseFloat((wikiVal / 4).toFixed(2));
+        const date = dates[(i * 2) % dates.length];
+        transactions.push({
+          id: txId++,
+          cardId: debitCardId,
+          merchantName: `WIKI INGEST: QUARTERLY SYNC ${i + 1}`,
+          amount: qAmt,
+          date: formatDateStr(date),
+          status: "Completed",
+          category: "Inflow",
+          hypercore: {
+            seq: txId,
+            fileName: `wiki-sync-q${i + 1}.json`,
+            uri: `did:hapa:wiki:${av.id}:sync-q${i + 1}`,
+            sizeBytes: Math.round(c.wikiSize / 4)
+          }
+        });
+      }
+    }
+
+    if (c.secondBrainRecords > 0) {
+      const sbVal = parseFloat((c.secondBrainRecords * 0.10).toFixed(2));
+      for (let i = 0; i < 3; i++) {
+        const sAmt = parseFloat((sbVal / 3).toFixed(2));
+        const date = dates[(i * 3) % dates.length];
+        transactions.push({
+          id: txId++,
+          cardId: debitCardId,
+          merchantName: `SECOND BRAIN INGEST: BATCH ${i + 1}`,
+          amount: sAmt,
+          date: formatDateStr(date),
+          status: "Completed",
+          category: "Inflow",
+          hypercore: {
+            seq: txId,
+            fileName: `sb-sync-b${i + 1}.json`,
+            uri: `did:hapa:secondbrain:${av.id}:sync-b${i + 1}`,
+            sizeBytes: Math.round(c.secondBrainSize / 3)
+          }
+        });
+      }
+    }
+
+    if (c.mindRecords > 0) {
+      const mindVal = parseFloat((c.mindRecords * 0.01).toFixed(2));
+      for (let i = 0; i < 2; i++) {
+        const mAmt = parseFloat((mindVal / 2).toFixed(2));
+        const date = dates[(i * 4) % dates.length];
+        transactions.push({
+          id: txId++,
+          cardId: debitCardId,
+          merchantName: `MIND ENGINE RECORD INGEST: PART ${i + 1}`,
+          amount: mAmt,
+          date: formatDateStr(date),
+          status: "Completed",
+          category: "Inflow",
+          hypercore: {
+            seq: txId,
+            fileName: `mind-sync-p${i + 1}.json`,
+            uri: `did:hapa:mind:${av.id}:sync-p${i + 1}`,
+            sizeBytes: Math.round(c.mindSize / 2)
+          }
+        });
+      }
+    }
+
+    // 4. Special assets (Guild cards, Tarot cards, Item cards)
+    if (c.guildLibraryCards > 0) {
+      const amt = parseFloat((c.guildLibraryCards * 100.00).toFixed(2));
+      const date = dates[1 % dates.length];
+      transactions.push({
+        id: txId++,
+        cardId: debitCardId,
+        merchantName: "GUILD LIBRARY ASSEMBLY CREDITS",
+        amount: amt,
+        date: formatDateStr(date),
+        status: "Completed",
+        category: "Inflow",
+        hypercore: {
+          seq: txId,
+          fileName: "guild-cards.db",
+          uri: `did:hapa:guild:${av.id}:cards`,
+          sizeBytes: c.guildLibraryCardsSize
+        }
+      });
+    }
+
+    if (c.tarotCards > 0) {
+      const amt = parseFloat((c.tarotCards * 50.00).toFixed(2));
+      const date = dates[3 % dates.length];
+      transactions.push({
+        id: txId++,
+        cardId: debitCardId,
+        merchantName: "TAROT DECK ASSEMBLY CREDITS",
+        amount: amt,
+        date: formatDateStr(date),
+        status: "Completed",
+        category: "Inflow",
+        hypercore: {
+          seq: txId,
+          fileName: "tarot-deck.json",
+          uri: `did:hapa:tarot:${av.id}:cards`,
+          sizeBytes: c.tarotCardsSize
+        }
+      });
+    }
+
+    if (c.itemCards > 0) {
+      const amt = parseFloat((c.itemCards * 25.00).toFixed(2));
+      const date = dates[5 % dates.length];
+      transactions.push({
+        id: txId++,
+        cardId: debitCardId,
+        merchantName: "ITEM DECK ASSEMBLY CREDITS",
+        amount: amt,
+        date: formatDateStr(date),
+        status: "Completed",
+        category: "Inflow",
+        hypercore: {
+          seq: txId,
+          fileName: "item-deck.json",
+          uri: `did:hapa:items:${av.id}:cards`,
+          sizeBytes: c.itemCardsSize
+        }
+      });
+    }
+
+    // 5. Credit Card Outflow (Spending)
+    const name = av.name || av.id || "Unknown";
+    const seedVal = (name.charCodeAt(0) || 1) + (name.charCodeAt(name.length - 1) || 1);
+    const creditLimit = 7643;
+    const creditBalance = Math.round((av.balance * 0.08 + (seedVal * 12)) % (creditLimit * 0.28)) || 120.00;
+    
+    const merchantNames = ["OLLAMA CLOUD INFERENCE", "PINOKIO APP STORE", "HERMES INTERFACE", "GITHUB COPILOT"];
+    const amt1 = parseFloat((creditBalance * 0.5).toFixed(2));
+    const amt2 = parseFloat((creditBalance * 0.3).toFixed(2));
+    const amt3 = parseFloat((creditBalance * 0.2).toFixed(2));
+    const creditAmts = [amt1, amt2, amt3];
+
+    creditAmts.forEach((amt, i) => {
+      if (amt > 0) {
+        const date = dates[(i * 2 + 1) % dates.length];
+        transactions.push({
+          id: txId++,
+          cardId: creditCardId,
+          merchantName: merchantNames[i % merchantNames.length],
+          amount: amt,
+          date: formatDateStr(date),
+          status: "Completed",
+          category: "Outflow",
+          merchantAddress: "127.0.0.1 Loopback SW",
+          merchantPhone: "HAPA-DEV-555"
+        });
+      }
+    });
+  });
+
+  return {
+    avatars,
+    cards,
+    transactions
+  };
+}
+
+async function triggerBackgroundLedgerScan() {
+  if (isScanning) return;
+  isScanning = true;
+  try {
+    const data = await computeLiveLedgerData();
+    cachedLedgerData = data;
+  } catch (err) {
+    console.error('[Ledger Cache] Error scanning ledger:', err);
+  } finally {
+    isScanning = false;
+  }
+}
+
+// Seed the cache immediately on startup
+try {
+  const storePath = "/Users/calderwong/Desktop/hapa-avatar-builder/data/avatar-store.json";
+  if (fs.existsSync(storePath)) {
+    const store = JSON.parse(fs.readFileSync(storePath, "utf8"));
+    const avatars = (store.avatars || []).map(a => ({
+      id: a.id,
+      name: a.name,
+      balance: a.balance || 0,
+      counts: {
+        images: 0,
+        videos: 0,
+        mindRecords: 267489,
+        secondBrainRecords: 78981,
+        wikiRecords: 59134,
+        guildLibraryCards: 1941,
+        tarotCards: 195,
+        itemCards: 1411,
+        total: 410259,
+        sizeBytes: 12000000000,
+        imageSize: 0,
+        videoSize: 0,
+        mindSize: 8500000000,
+        secondBrainSize: 4300000000,
+        wikiSize: 600669887,
+        guildLibraryCardsSize: 1941000,
+        tarotCardsSize: 9750000,
+        itemCardsSize: 35275000
+      }
+    }));
+    const cards = [];
+    avatars.forEach(av => {
+      cards.push({
+        id: `debit-${av.id}`,
+        avatarId: av.id,
+        cardType: "debit",
+        balance: av.balance,
+        limit: 0,
+        number: "400012345678" + av.id.slice(-4).replace(/[^0-9]/g, '9').padEnd(4, '0'),
+        holder: av.name,
+        expiry: "12/30",
+        status: "active"
+      });
+      cards.push({
+        id: `credit-${av.id}`,
+        avatarId: av.id,
+        cardType: "credit",
+        balance: 0,
+        limit: 7643,
+        number: "510012345678" + av.id.slice(-4).replace(/[^0-9]/g, '9').padEnd(4, '0'),
+        holder: av.name,
+        expiry: "12/30",
+        status: "active"
+      });
+    });
+    cachedLedgerData = { avatars, cards, transactions: [] };
+  }
+} catch (err) {
+  console.error("Error seeding ledger cache:", err);
+}
+
+// Trigger background scan immediately and set 1-minute interval
+triggerBackgroundLedgerScan();
+setInterval(triggerBackgroundLedgerScan, 60000);
+
 async function route(req, res) {
   setCors(req, res);
   if (req.method === "OPTIONS") {
@@ -251,6 +855,70 @@ async function route(req, res) {
   const requestProtocol = req.socket?.encrypted ? "https" : "http";
   const url = new URL(req.url || "/", `${requestProtocol}://${req.headers.host || `127.0.0.1:${port}`}`);
   const pathname = decodeURIComponent(url.pathname);
+
+  if (pathname === "/api/tarot/stream-frame" && req.method === "POST") {
+    try {
+      const chunks = [];
+      for await (const chunk of req) {
+        chunks.push(chunk);
+      }
+      latestTarotFrame = {
+        id: ++frameCounter,
+        buffer: Buffer.concat(chunks)
+      };
+      sendJson(res, 200, { ok: true });
+    } catch (e) {
+      sendJson(res, 500, { error: e.message });
+    }
+    return;
+  }
+
+  if (pathname === "/api/tarot/stream" && req.method === "GET") {
+    res.setHeader("Content-Type", "multipart/x-mixed-replace; boundary=--frame");
+    res.setHeader("Cache-Control", "no-cache, private, no-store, must-revalidate, max-age=0");
+    res.setHeader("Pragma", "no-cache");
+    res.setHeader("Connection", "keep-alive");
+    res.writeHead(200);
+
+    const boundary = "\r\n--frame\r\n";
+    let active = true;
+    let lastFrameId = 0;
+
+    const interval = setInterval(() => {
+      if (!active) return;
+      if (latestTarotFrame && latestTarotFrame.id !== lastFrameId) {
+        lastFrameId = latestTarotFrame.id;
+        try {
+          const buffer = latestTarotFrame.buffer;
+          res.write(boundary);
+          res.write("Content-Type: image/jpeg\r\n");
+          res.write(`Content-Length: ${buffer.length}\r\n\r\n`);
+          res.write(buffer);
+          res.write("\r\n");
+        } catch (e) {
+          clearInterval(interval);
+          active = false;
+        }
+      }
+    }, 40);
+
+    req.on("close", () => {
+      clearInterval(interval);
+      active = false;
+    });
+    return;
+  }
+
+  if ((pathname === "/api/v1/ledger-data" || pathname === "/v1/ledger-data") && req.method === "GET") {
+    try {
+      const data = await getLiveLedgerData();
+      sendJson(res, 200, { ok: true, data });
+    } catch (err) {
+      console.error("Error in ledger-data API:", err);
+      sendJson(res, 500, { error: err.message });
+    }
+    return;
+  }
 
   if (pathname === "/api/health") {
     sendJson(res, 200, {
@@ -1098,6 +1766,11 @@ async function route(req, res) {
     return;
   }
 
+  if (pathname === "/api/hell-week/cards" && req.method === "GET") {
+    sendJson(res, 200, loadHellWeekAvatars());
+    return;
+  }
+
   if (pathname === "/api/avatars" && req.method === "GET") {
     const store = await readStore();
     if (url.searchParams.get("mode") === "index") {
@@ -1375,6 +2048,27 @@ async function route(req, res) {
     if (served) return;
   }
 
+  if (pathname.startsWith("/CardAppPrototype")) {
+    const cardAppDist = "/Users/calderwong/Desktop/CardAppPrototype/dist";
+    const relativePath = pathname.replace(/^\/CardAppPrototype/, "") || "/";
+    const served = await serveStatic(cardAppDist, relativePath, res);
+    if (served) return;
+  }
+
+  if (pathname.startsWith("/hapa-live-app")) {
+    const liveAppDir = "/Users/calderwong/Desktop/hapa-live-app";
+    const relativePath = pathname.replace(/^\/hapa-live-app/, "") || "/";
+    const served = await serveStatic(liveAppDir, relativePath, res);
+    if (served) return;
+  }
+
+  if (pathname.startsWith("/hapa-subscriber-app")) {
+    const subAppDir = "/Users/calderwong/Desktop/hapa-subscriber-app";
+    const relativePath = pathname.replace(/^\/hapa-subscriber-app/, "") || "/";
+    const served = await serveStatic(subAppDir, relativePath, res);
+    if (served) return;
+  }
+
   if (staticDir) {
     const served = await serveStatic(staticDir, pathname, res);
     if (served) return;
@@ -1382,14 +2076,230 @@ async function route(req, res) {
 
   sendJson(res, 404, { error: "not_found", path: pathname });
 }
+function loadHellWeekAvatars() {
+  const dbPath = path.join(process.env.HOME || "/Users/calderwong", "Library", "Application Support", "hapa-ag", "persistence.db");
+  if (!fs.existsSync(dbPath)) return [];
+  try {
+    const cmd = `sqlite3 "${dbPath}" "SELECT json_object('id', id, 'parent_id', parent_id, 'name', name, 'media_local_path', media_local_path, 'thumbnail', thumbnail, 'created_at', created_at, 'lore', lore, 'content_text', content_text, 'metadata_json', metadata_json, 'media_kind', media_kind) FROM cards WHERE (hellweek_run_id IS NOT NULL OR (parent_id IS NOT NULL AND parent_id != '')) AND is_deleted = 0"`;
+    const stdout = execSync(cmd, { encoding: 'utf8', maxBuffer: 100 * 1024 * 1024 });
+    const lines = stdout.trim().split('\n').filter(Boolean);
+
+    const parents = [];
+    const childrenByParent = new Map();
+
+    const cleanPath = (p) => {
+      if (!p) return "";
+      let cleaned = p.trim();
+      cleaned = cleaned.replace(/^file:\/\/\/?/, "");
+      try {
+        cleaned = decodeURIComponent(cleaned);
+      } catch (_) {}
+      cleaned = cleaned.replace(/\\/g, "/");
+      return cleaned;
+    };
+
+    lines.forEach(line => {
+      try {
+        const parsed = JSON.parse(line);
+        if (parsed.parent_id && parsed.parent_id !== "1" && parsed.parent_id !== "0") {
+          if (!childrenByParent.has(parsed.parent_id)) {
+            childrenByParent.set(parsed.parent_id, []);
+          }
+          childrenByParent.get(parsed.parent_id).push(parsed);
+        } else {
+          parents.push(parsed);
+        }
+      } catch (_) {}
+    });
+
+    return parents.map(parsed => {
+      const id = parsed.id;
+      const name = parsed.name || 'Unnamed Hell Week Card';
+      
+      let meta = {};
+      if (parsed.metadata_json) {
+        try {
+          meta = JSON.parse(parsed.metadata_json);
+        } catch (_) {}
+      }
+
+      const assets = [];
+      const parentImage = cleanPath(parsed.media_local_path || parsed.thumbnail || meta.mediaLocalPath || meta.representativeMediaLocalPath || '');
+      const parentVideo = cleanPath(meta.mediaPrompts?.generated_video_local || '');
+
+      if (parentImage && fs.existsSync(parentImage)) {
+        assets.push({
+          id: `${id}-parent-image`,
+          avatarId: id,
+          name: path.basename(parentImage),
+          path: parentImage,
+          uri: `/api/local-file?path=${encodeURIComponent(parentImage)}`,
+          relativePath: parentImage,
+          type: "image",
+          mimeType: "image/png",
+          tags: ["avatar_concept_photo", "concept", "front"],
+          metadata: {}
+        });
+      }
+      if (parentVideo && fs.existsSync(parentVideo)) {
+        assets.push({
+          id: `${id}-parent-video`,
+          avatarId: id,
+          name: path.basename(parentVideo),
+          path: parentVideo,
+          uri: `/api/local-file?path=${encodeURIComponent(parentVideo)}`,
+          relativePath: parentVideo,
+          type: "video",
+          mimeType: "video/mp4",
+          tags: ["avatar_concept_video", "video_loop"],
+          metadata: {}
+        });
+      }
+
+      // Recursive lookup function for child/grandchild media cards
+      const collectFromNode = (nodeId) => {
+        const directChildren = childrenByParent.get(nodeId) || [];
+        directChildren.forEach(child => {
+          let childMeta = {};
+          if (child.metadata_json) {
+            try {
+              childMeta = JSON.parse(child.metadata_json);
+            } catch (_) {}
+          }
+
+          const childImage = cleanPath(child.media_local_path || child.thumbnail || childMeta.mediaLocalPath || childMeta.representativeMediaLocalPath || '');
+          const childVideo = cleanPath(child.media_local_path || child.thumbnail || childMeta.mediaPrompts?.generated_video_local || '');
+
+          if (childImage && fs.existsSync(childImage) && !assets.some(a => a.path === childImage)) {
+            const isVideo = child.media_kind === "video" || childImage.endsWith(".mp4");
+            assets.push({
+              id: `${child.id}-image`,
+              avatarId: id,
+              name: path.basename(childImage),
+              path: childImage,
+              uri: `/api/local-file?path=${encodeURIComponent(childImage)}`,
+              relativePath: childImage,
+              type: isVideo ? "video" : "image",
+              mimeType: isVideo ? "video/mp4" : "image/png",
+              tags: isVideo ? ["avatar_concept_video", "video_loop"] : ["avatar_concept_photo", "concept", "front"],
+              metadata: {}
+            });
+          }
+          if (childVideo && fs.existsSync(childVideo) && !assets.some(a => a.path === childVideo)) {
+            assets.push({
+              id: `${child.id}-video`,
+              avatarId: id,
+              name: path.basename(childVideo),
+              path: childVideo,
+              uri: `/api/local-file?path=${encodeURIComponent(childVideo)}`,
+              relativePath: childVideo,
+              type: "video",
+              mimeType: "video/mp4",
+              tags: ["avatar_concept_video", "video_loop"],
+              metadata: {}
+            });
+          }
+
+          collectFromNode(child.id);
+        });
+      };
+
+      collectFromNode(id);
+
+      const slots = [];
+      const imageAsset = assets.find(a => a.type === "image");
+      const videoAsset = assets.find(a => a.type === "video");
+
+      if (imageAsset) {
+        slots.push({
+          id: "avatar_concept_photo-1",
+          requirementId: "avatar_concept_photo",
+          label: "Concept Photo 1",
+          required: true,
+          assetId: imageAsset.id
+        });
+      }
+      if (videoAsset) {
+        slots.push({
+          id: "avatar_concept_video-1",
+          requirementId: "avatar_concept_video",
+          label: "Concept Video 1",
+          required: true,
+          assetId: videoAsset.id
+        });
+      }
+
+      const loreText = parsed.content_text || parsed.lore || meta.lore || '';
+      const bulletSkills = (meta.skills || []).map(s => `• ${s.name}: ${s.description}`).join('\n');
+      const bulletSets = (meta.memberOfSets || []).map(s => `• Set: ${s.setName} (${s.addedBy})`).join('\n');
+
+      const docText = `${loreText}\n\n### Skills & Abilities\n${bulletSkills}\n\n### Set Memberships\n${bulletSets}`;
+
+      return {
+        id,
+        isHellWeek: true,
+        primaryName: name,
+        names: [{ name }],
+        slots,
+        assets,
+        three_paragraph_background_narrative: {
+          origin: loreText,
+          concept: bulletSkills || "No skills defined.",
+          manifesto: bulletSets || "No set associations."
+        },
+        mind: {
+          avatarId: id,
+          summary: parsed.lore || meta.lore || 'A forged Hell Week card.',
+          characterSheet: docText,
+          dossierNotes: [],
+          wikiProfiles: [],
+          avatarDeck: [],
+          skills: (meta.skills || []).map(s => ({
+            id: slugify(s.name),
+            name: s.name,
+            description: s.description,
+            kind: s.type || "Passive"
+          }))
+        },
+        updatedAt: parsed.created_at || new Date().toISOString(),
+        createdAt: parsed.created_at || new Date().toISOString()
+      };
+    });
+  } catch (err) {
+    console.error("Error loading Hell Week cards:", err);
+    return [];
+  }
+}
 
 async function readStore() {
   return readNormalizedJson(STORE_PATH, "avatar-store", (store) => {
     const avatars = (store.avatars || []).map((avatar) => normalizeAvatarCard(avatar));
+    const hellWeekAvatars = loadHellWeekAvatars();
+    const allAvatars = [...avatars, ...hellWeekAvatars];
+    
+    const teams = normalizeAvatarTeams(store.teams, avatars);
+    if (hellWeekAvatars.length > 0) {
+      teams.push({
+        schemaVersion: "hapa.avatar-teams.v1",
+        id: "hell-week-cards-team",
+        title: "Hell Week Cards",
+        description: "Cards generated during Hell Week runs in hapa-dev-proto",
+        accent: "pink",
+        status: "active",
+        members: hellWeekAvatars.map(avatar => ({
+          avatarId: avatar.id,
+          role: "Card",
+          notes: avatar.mind?.summary || ""
+        })),
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      });
+    }
+
     return {
       ...store,
-      avatars,
-      teams: normalizeAvatarTeams(store.teams, avatars)
+      avatars: allAvatars,
+      teams
     };
   });
 }

@@ -12,7 +12,9 @@ import {
   ChevronRight,
   Clapperboard,
   Clipboard,
+  CreditCard,
   Film,
+  Flame,
   FileJson,
   GitBranch,
   Grid3X3,
@@ -47,6 +49,7 @@ import {
   ZoomIn,
   ZoomOut
 } from "lucide-react";
+import CreatorCardSetsView from "./components/CreatorCardSetsView.jsx";
 import dearPapaSongbook from "../data/dear-papa-songbook.json";
 import hapaSongsStoreSeed from "../data/hapa-songs-store.json";
 import balladOfBellaPacket from "../data/ballad-of-bella/ballad-of-bella-packet.json";
@@ -192,6 +195,7 @@ import TarotLibraryView, {
   tarotSetCollectionId,
   tarotTitleFromAsset
 } from "./components/TarotLibraryView.jsx";
+import HellWeekView from "./components/HellWeekView.jsx";
 
 const ThreeAvatarViewer = lazy(() => import("./components/ThreeAvatarViewer.jsx"));
 const TarotDraw3DView = lazy(() => import("./components/TarotDraw3DView.jsx"));
@@ -584,6 +588,7 @@ export default function App() {
   const [selectedSceneAssetId, setSelectedSceneAssetId] = useState(null);
   const [intake, setIntake] = useState(INTAKE_SEED);
   const [activeView, setActiveView] = useState(initialAvatarBuilderView);
+  const [bankViewMode, setBankViewMode] = useState("individual"); // "individual" or "guild"
   const [search, setSearch] = useState("");
   const [sound, setSound] = useState(() => localStorage.getItem("hapa-avatar-sound") === "on");
   const [toast, setToast] = useState("");
@@ -1237,6 +1242,7 @@ export default function App() {
     };
     if (activeView === "scenes") defer(ensureWorldStoreLoaded, 800);
     if (activeView === "items") defer(ensureItemStoreLoaded, 800);
+    if (activeView === "creator-sets") defer(ensureItemStoreLoaded, 800);
     if (activeView === "protocol") defer(ensureItemStoreLoaded, 700);
     if (activeView === "kanban") defer(ensureKanbanStoreLoaded, 800);
     if (activeView === "tarot-library") {
@@ -3173,6 +3179,34 @@ export default function App() {
     revealShowcaseTop();
   }
 
+  const isEmbed = useMemo(() => new URLSearchParams(globalThis.location?.search || "").get("embed") === "true", []);
+
+  useEffect(() => {
+    if (isEmbed) {
+      ensureTarotStoreLoaded();
+    }
+  }, [isEmbed]);
+
+  if (isEmbed) {
+    return (
+      <div className="tarot-persistent-stage is-active" style={{ width: "100vw", height: "100vh", position: "absolute", top: 0, left: 0, zIndex: 9999, background: "#000" }}>
+        <Suspense fallback={<div className="tarot-draw-view tarot-draw-loading" style={{ color: "#00f3ff", display: "flex", justifyContent: "center", alignItems: "center", height: "100%" }}><span>Preparing tarot table...</span></div>}>
+          <TarotDraw3DView
+            avatarName={(tarotDrawHostAvatar || selectedAvatar || avatars[0] || FALLBACK_AVATARS[0]).primaryName}
+            cards={tarotStore.cards}
+            productionAudit={tarotDrawProductionAudit}
+            apiBase={API_BASE}
+            soundEnabled={sound}
+            onResolveEchoProject={resolveEchoDirectorProject}
+            onTarotForgeCreated={(packet) => {}}
+            onTarotSceneSaved={(packet) => {}}
+            onSelectAvatarProfile={(avatarId) => {}}
+          />
+        </Suspense>
+      </div>
+    );
+  }
+
   return (
     <div className={appShellClasses}>
       <div className="scanline" />
@@ -3318,8 +3352,11 @@ export default function App() {
             <button role="tab" aria-selected={activeView === "echos"} className={activeView === "echos" ? "active" : ""} onClick={() => switchView("echos")}><Sparkles size={16} /> Echos Album</button>
             <button role="tab" aria-selected={activeView === "kanban"} className={activeView === "kanban" ? "active" : ""} onClick={() => switchView("kanban")}><KanbanSquare size={16} /> Kanban</button>
             <button role="tab" aria-selected={activeView === "protocol"} className={activeView === "protocol" ? "active" : ""} onClick={() => switchView("protocol")}><BadgeCheck size={16} /> Avatar Card</button>
+            <button role="tab" aria-selected={activeView === "bank"} className={activeView === "bank" ? "active" : ""} onClick={() => switchView("bank")}><CreditCard size={16} /> Hapa Bank</button>
             <button role="tab" aria-selected={activeView === "tarot-library"} className={activeView === "tarot-library" ? "active" : ""} onClick={() => switchView("tarot-library")}><Tags size={16} /> Tarot Library</button>
+            <button role="tab" aria-selected={activeView === "hell-week"} className={activeView === "hell-week" ? "active" : ""} onClick={() => switchView("hell-week")}><Flame size={16} /> Hell Week</button>
             <button role="tab" aria-selected={activeView === "tarot"} className={activeView === "tarot" ? "active" : ""} onClick={() => switchView("tarot")}><Sparkles size={16} /> Tarot Draw</button>
+            <button role="tab" aria-selected={activeView === "creator-sets"} className={activeView === "creator-sets" ? "active" : ""} onClick={() => switchView("creator-sets")}><Users size={16} /> Creator Sets</button>
           </nav>
 
           <QueueBufferInspector jobs={queueJobs} summary={queueSummary} />
@@ -3716,6 +3753,25 @@ export default function App() {
           />
         )}
 
+        {activeView === "hell-week" && (
+          <HellWeekView
+            avatars={avatars}
+            onExpand={openExpandedAsset}
+            onPreview={showHoverPreview}
+            onPreviewHide={hideHoverPreview}
+          />
+        )}
+
+        {activeView === "creator-sets" && (
+          <CreatorCardSetsView
+            itemStore={normalizedItemManager}
+            avatars={avatars}
+            selectedAvatarId={selectedAvatarId}
+            onCreateItem={handleCreateItemCard}
+            onUpdateItem={handleUpdateItemCard}
+          />
+        )}
+
         {tarotDrawStageVisible && (tarotDrawHostAvatar || selectedAvatar) && (
           <div
             className={`tarot-persistent-stage ${isTarotDrawView ? "is-active" : "is-docked"}`}
@@ -3786,6 +3842,45 @@ export default function App() {
             onToggleFullMenu={toggleAvatarCardMenu}
             onReturnToProfileOrigin={returnToProfileOrigin}
           />
+        )}
+
+        {activeView === "bank" && selectedAvatar && (
+          <div className="hapa-bank-embed" style={{ width: '100%', height: 'calc(100vh - 100px)', display: 'flex', flexDirection: 'column', padding: '24px', boxSizing: 'border-box', overflow: 'hidden' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px', borderBottom: '1px solid var(--hapa-line)', paddingBottom: '12px', flexShrink: 0 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <CreditCard className="text-[var(--hapa-neon-cyan)]" size={20} />
+                  <h2 style={{ fontSize: '14px', fontWeight: 'bold', fontFamily: 'monospace', letterSpacing: '0.1em', color: '#fff', margin: 0 }}>HAPA BANK NODE INTERFACE</h2>
+                </div>
+                <div className="hapa-segmented" style={{ display: 'flex', gap: '4px' }}>
+                  <button 
+                    className={`hapa-btn text-[10px] uppercase font-mono ${bankViewMode === 'individual' ? 'active' : ''}`}
+                    onClick={() => setBankViewMode('individual')}
+                    style={{ padding: '2px 8px', minHeight: '22px', fontSize: '10px' }}
+                  >
+                    Individual
+                  </button>
+                  <button 
+                    className={`hapa-btn text-[10px] uppercase font-mono ${bankViewMode === 'guild' ? 'active' : ''}`}
+                    onClick={() => setBankViewMode('guild')}
+                    style={{ padding: '2px 8px', minHeight: '22px', fontSize: '10px' }}
+                  >
+                    Guild Ledger
+                  </button>
+                </div>
+              </div>
+              <span style={{ fontFamily: 'monospace', fontSize: '9px', color: 'var(--hapa-muted)', textTransform: 'uppercase' }}>
+                {bankViewMode === 'individual' ? `AVATAR RESOLVED: ${selectedAvatar.id.toUpperCase()}` : 'CONSOLIDATED GUILD LEDGER'}
+              </span>
+            </div>
+            <iframe 
+              src={bankViewMode === 'individual' 
+                ? `${window.location.origin}/CardAppPrototype/#/?avatarId=${selectedAvatar.id}&embed=true`
+                : `${window.location.origin}/CardAppPrototype/#/guild?embed=true`} 
+              style={{ width: '100%', height: '100%', minHeight: '600px', flexGrow: 1, border: '1px solid var(--hapa-line)', borderRadius: '8px', backgroundColor: 'rgba(0, 0, 0, 0.35)' }}
+              title="Hapa Bank App"
+            />
+          </div>
         )}
       </main>
 
