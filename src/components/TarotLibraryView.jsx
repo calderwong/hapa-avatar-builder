@@ -24,6 +24,7 @@ import {
   MAJOR_ARCANA_REFERENCES,
   cardReferencePatch
 } from "../domain/majorArcanaReference.js";
+import { builderPickupDataset } from "../overcard/pickup.js";
 
 export const STANDALONE_TAROT_DECK_ID = "__standalone_tarot_cards";
 export const TAROT_DECK_COLLECTION_PREFIX = "deck:";
@@ -254,6 +255,7 @@ export default function TarotLibraryView({
               const deckBack = deck.backCardId ? cards.find((card) => card.id === deck.backCardId) : null;
               return (
                 <button
+                  {...builderPickupDataset({ id: deck.id, entityType: "deck", title: deck.title, subtitle: "Tarot Deck", updatedAt: deck.updatedAt, uri: `/api/tarot/decks/${encodeURIComponent(deck.id)}` })}
                   className={`tarot-deck-row hapa-card ${selected ? "selected" : ""}`}
                   data-card-type="protocol"
                   data-granularity="mini"
@@ -285,6 +287,7 @@ export default function TarotLibraryView({
               const selected = setCollectionId === selectedDeckId;
               return (
                 <button
+                  {...builderPickupDataset({ id: set.id, entityType: "set", title: set.title, subtitle: "Tarot Set", updatedAt: set.updatedAt, uri: `/api/tarot/sets/${encodeURIComponent(set.id)}` })}
                   className={`tarot-deck-row hapa-card ${selected ? "selected" : ""}`}
                   data-card-type="protocol"
                   data-granularity="mini"
@@ -813,6 +816,7 @@ function TarotCardTile({ card, selected, onSelect, onExpand, onPreview, onPrevie
   const loopPreviewAsset = loopVideos[0] || null;
   return (
     <article
+      {...builderPickupDataset({ id: card.id, entityType: "card", title: card.title, subtitle: `Tarot ${card.cardType}`, updatedAt: card.updatedAt, uri: `/api/tarot/card/${encodeURIComponent(card.id)}` })}
       className={`tarot-card-tile hapa-card ${selected ? "selected" : ""}`}
       data-card-type="lore"
       data-granularity="standard"

@@ -1,9 +1,17 @@
-const { app, BrowserWindow, session } = require("electron");
+const { app, BrowserWindow, ipcMain, session } = require("electron");
 const http = require("node:http");
 const path = require("node:path");
 const { spawn } = require("node:child_process");
+const fs = require("node:fs");
+const crypto = require("node:crypto");
+const { ensureLocalOvercardHost, probeOvercardHost } = require("@hapa/overcard/host");
 
 const ROOT = path.resolve(__dirname, "..");
+const EXPECTED_BUILD_SIGNATURE = crypto.createHash("sha256")
+  .update(fs.readFileSync(path.join(ROOT, "server/api.mjs")))
+  .update(fs.readFileSync(path.join(ROOT, "server/file-serving.mjs")))
+  .digest("hex")
+  .slice(0, 16);
 const HOST = "127.0.0.1";
 const BIND_HOST = process.env.HAPA_AVATAR_BIND_HOST || HOST;
 const DEFAULT_PORT = readPort(process.env.HAPA_AVATAR_PORT, 8787);
@@ -20,7 +28,91 @@ let apiProcess = null;
 let desktopUrl = null;
 let isQuitting = false;
 let mainWindow = null;
+let overcardHost = null;
+let overcardHostPromise = null;
+let overcardShutdownStarted = false;
 const consoleLogs = [];
+const MAX_CONSOLE_LOGS = 500;
+const DESKTOP_DEBUG = process.env.HAPA_AVATAR_DESKTOP_DEBUG === "1";
+
+function overcardOrigins(rendererUrl = "") {
+  const values = [
+    "http://127.0.0.1:5178", "http://localhost:5178",
+    "http://127.0.0.1:8787", "http://localhost:8787",
+    ...PORTS.flatMap((port) => [`http://127.0.0.1:${port}`, `http://localhost:${port}`]),
+  ];
+  try { values.push(new URL(rendererUrl).origin); } catch { /* No renderer URL yet. */ }
+  return [...new Set(values)];
+}
+
+async function ensureOvercardHost(rendererUrl = desktopUrl || "") {
+  if (overcardHostPromise) return overcardHostPromise;
+  const origins = overcardOrigins(rendererUrl);
+  overcardHostPromise = ensureLocalOvercardHost({
+    nodeId: "hapa-avatar-builder-overcard-host",
+    allowedOrigins: origins,
+  }).then((handle) => {
+    overcardHost = handle;
+    process.env.HAPA_OVERCARD_HOST_URL = handle.baseUrl;
+    return handle;
+  }).finally(() => { overcardHostPromise = null; });
+  return overcardHostPromise;
+}
+
+function publicOvercardStatus(handle, probe) {
+  const status = probe?.status || (handle ? "compatible" : "unavailable");
+  return {
+    ok: status === "compatible",
+    baseUrl: probe?.baseUrl || handle?.baseUrl || process.env.HAPA_OVERCARD_HOST_URL || "http://127.0.0.1:8794",
+    mode: handle?.mode || "unknown",
+    status,
+    reason: probe?.reason || "",
+    missingOrigins: Array.isArray(probe?.missingOrigins) ? probe.missingOrigins : [],
+    protocol: probe?.capabilities?.protocol || handle?.capabilities?.protocol || "",
+    packageVersion: probe?.capabilities?.packageVersion || handle?.capabilities?.packageVersion || "",
+  };
+}
+
+function activeOvercardRendererUrl() {
+  return mainWindow?.webContents?.getURL?.() || desktopUrl || "";
+}
+
+async function readOvercardStatus(handle = overcardHost, rendererUrl = activeOvercardRendererUrl()) {
+  const baseUrl = handle?.baseUrl || process.env.HAPA_OVERCARD_HOST_URL || "http://127.0.0.1:8794";
+  const probe = await probeOvercardHost(baseUrl, { requiredOrigins: overcardOrigins(rendererUrl) });
+  return publicOvercardStatus(handle, probe);
+}
+
+function overcardLifecycleMessage(status, error) {
+  const original = error instanceof Error ? error.message : error ? String(error) : "";
+  const reason = status.reason || original || "The canonical host did not become compatible.";
+  const missing = status.missingOrigins?.length ? ` Missing renderer origins: ${status.missingOrigins.join(", ")}.` : "";
+  return `Shared Overcard host ${status.baseUrl} is ${status.status}: ${reason}${missing}`;
+}
+
+async function runOvercardLifecycle(operation, rendererUrl = activeOvercardRendererUrl()) {
+  try {
+    const handle = await operation(rendererUrl);
+    const status = await readOvercardStatus(handle, rendererUrl);
+    return status.ok ? status : { ...status, message: overcardLifecycleMessage(status) };
+  } catch (error) {
+    let status;
+    try {
+      status = await readOvercardStatus(overcardHost, rendererUrl);
+    } catch (probeError) {
+      status = publicOvercardStatus(overcardHost, {
+        status: "unavailable",
+        reason: probeError instanceof Error ? probeError.message : String(probeError),
+      });
+    }
+    return {
+      ...status,
+      ok: false,
+      reason: status.reason || (error instanceof Error ? error.message : String(error)),
+      message: overcardLifecycleMessage(status, error),
+    };
+  }
+}
 
 function isTrustedLocalUrl(value = "") {
   try {
@@ -113,10 +205,22 @@ async function probePort(port) {
     httpGet(port, "/"),
     httpGet(port, "/api/health")
   ]);
+  let healthPayload = null;
+  try {
+    healthPayload = JSON.parse(health.body || "{}");
+  } catch {
+    healthPayload = null;
+  }
+  const apiOk = health.ok && health.statusCode >= 200 && health.statusCode < 300 && healthPayload?.service === "hapa-avatar-builder";
+  const buildSignature = healthPayload?.runtime?.buildSignature || "";
   return {
     port,
     hasUi: isAvatarBuilderHtml(root),
-    apiOk: health.ok && health.statusCode >= 200 && health.statusCode < 300,
+    apiOk,
+    buildMatches: apiOk && buildSignature === EXPECTED_BUILD_SIGNATURE,
+    buildSignature,
+    expectedBuildSignature: EXPECTED_BUILD_SIGNATURE,
+    processOwner: healthPayload?.runtime?.processOwner || "unknown",
     listening: root.ok || health.ok,
     rootStatus: root.statusCode,
     healthStatus: health.statusCode
@@ -185,7 +289,7 @@ async function resolveDesktopUrl() {
   for (const port of PORTS) {
     const probe = await probePort(port);
     probes.push(probe);
-    if (probe.hasUi) {
+    if (probe.hasUi && probe.apiOk && probe.buildMatches) {
       desktopUrl = `http://${HOST}:${port}`;
       process.env.HAPA_AVATAR_API_BASE = desktopUrl;
       console.log(`[desktop] Reusing Hapa Avatar Builder UI server on ${desktopUrl}`);
@@ -202,13 +306,18 @@ async function resolveDesktopUrl() {
   }
 
   const occupied = probes
-    .map((probe) => `${probe.port}:root=${probe.rootStatus || "closed"},health=${probe.healthStatus || "closed"}`)
+    .map((probe) => `${probe.port}:root=${probe.rootStatus || "closed"},health=${probe.healthStatus || "closed"},owner=${probe.processOwner},build=${probe.buildSignature || "missing"},expected=${probe.expectedBuildSignature}`)
     .join("; ");
   throw new Error(`No desktop UI port was available. Checked ${occupied}`);
 }
 
 async function createWindow() {
   const url = await resolveDesktopUrl();
+  try {
+    await ensureOvercardHost(url);
+  } catch (error) {
+    console.warn(`[desktop] Shared Overcard host deferred; Builder will open with recovery controls: ${error instanceof Error ? error.message : String(error)}`);
+  }
   const window = new BrowserWindow({
     width: 1440,
     height: 960,
@@ -220,21 +329,23 @@ async function createWindow() {
       preload: path.join(__dirname, "preload.cjs"),
       contextIsolation: true,
       nodeIntegration: false,
-      webSecurity: false
+      webSecurity: true
     }
   });
-  window.webContents.openDevTools();
+  if (DESKTOP_DEBUG) window.webContents.openDevTools({ mode: "detach" });
   window.webContents.on("console-message", (event, level, message, line, sourceId) => {
+    if (level < 2) return;
     consoleLogs.push({ level, message, line, sourceId, timestamp: new Date().toISOString() });
-    console.log(`[Renderer Console] Level ${level}: ${message} (${sourceId}:${line})`);
+    if (consoleLogs.length > MAX_CONSOLE_LOGS) consoleLogs.splice(0, consoleLogs.length - MAX_CONSOLE_LOGS);
+    if (DESKTOP_DEBUG) console.warn(`[Renderer Console] Level ${level}: ${message} (${sourceId}:${line})`);
   });
   mainWindow = window;
   window.on("closed", () => {
     if (mainWindow === window) mainWindow = null;
   });
 
-  await session.defaultSession.clearCache();
-  await window.loadURL(url, { extraHeaders: "pragma: no-cache\ncache-control: no-cache\n" });
+  if (process.env.HAPA_AVATAR_DESKTOP_CLEAR_CACHE === "1") await session.defaultSession.clearCache();
+  await window.loadURL(url, DESKTOP_DEBUG ? { extraHeaders: "pragma: no-cache\ncache-control: no-cache\n" } : undefined);
 }
 
 const fsPromises = require("node:fs/promises");
@@ -242,7 +353,14 @@ const fsPromises = require("node:fs/promises");
 function startOperatorConsoleServer() {
   const server = http.createServer(async (req, res) => {
     const url = new URL(req.url, `http://${req.headers.host || "127.0.0.1"}`);
-    res.setHeader("Access-Control-Allow-Origin", "*");
+    const requestOrigin = String(req.headers.origin || "");
+    const allowedOrigin = /^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?$/.test(requestOrigin) ? requestOrigin : "";
+    if (requestOrigin && !allowedOrigin) {
+      res.writeHead(403, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ ok: false, error: "cors_origin_denied" }));
+      return;
+    }
+    if (allowedOrigin) res.setHeader("Access-Control-Allow-Origin", allowedOrigin);
     res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
     res.setHeader("Access-Control-Allow-Headers", "Content-Type");
     if (req.method === "OPTIONS") {
@@ -306,6 +424,9 @@ function startOperatorConsoleServer() {
 
 app.whenReady().then(() => {
   installMediaPermissionHandlers();
+  ipcMain.handle("hapa-overcard:status", async () => readOvercardStatus());
+  ipcMain.handle("hapa-overcard:ensure", async () => runOvercardLifecycle((rendererUrl) => ensureOvercardHost(rendererUrl)));
+  ipcMain.handle("hapa-overcard:reconnect", async () => runOvercardLifecycle((rendererUrl) => ensureOvercardHost(rendererUrl)));
   startOperatorConsoleServer();
   return createWindow();
 });
@@ -318,8 +439,17 @@ app.on("window-all-closed", () => {
   if (process.platform !== "darwin") app.quit();
 });
 
-app.on("before-quit", () => {
+app.on("before-quit", (event) => {
   isQuitting = true;
+  if (overcardHost && !overcardShutdownStarted) {
+    event.preventDefault();
+    overcardShutdownStarted = true;
+    void overcardHost.close().finally(() => {
+      overcardHost = null;
+      app.quit();
+    });
+    return;
+  }
   if (apiProcess) {
     apiProcess.kill();
     apiProcess = null;

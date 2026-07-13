@@ -1,0 +1,270 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import fs from "node:fs";
+import {
+  evaluateHyperFramesVisualizers,
+  HapaHyperFramesVisualizerRuntime,
+  HYPERFRAMES_VISUALIZER_RUNTIME_SCHEMA,
+} from "../src/domain/hyperframes-visualizer-runtime.js";
+
+const sourceHash = `sha256:${"a".repeat(64)}`;
+const assetHash = `sha256:${"b".repeat(64)}`;
+
+function exactLayer(overrides = {}) {
+  const visualizerId = overrides.visualizerId || "isf:fixture-exact";
+  const proxy = {
+    assetPath: `/static/isf/proxies/${visualizerId.replace(/^isf:/, "")}.png`,
+    repositoryPath: `web/isf/proxies/${visualizerId.replace(/^isf:/, "")}.png`,
+    assetSha256: assetHash,
+    sourceHash,
+    width: 16,
+    height: 9,
+    frameWidth: 16,
+    frameHeight: 9,
+    atlasWidth: 128,
+    atlasHeight: 9,
+    frameCount: 8,
+    fps: 4,
+    frameTimes: [0, 0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75],
+  };
+  return {
+    id: overrides.id || "cue:exact",
+    cueId: overrides.id || "cue:exact",
+    cueIndex: overrides.cueIndex ?? 0,
+    layerOrder: overrides.layerOrder ?? 2,
+    trackId: overrides.trackId || "track:visualizers",
+    start: overrides.start ?? 0,
+    end: overrides.end ?? 2,
+    duration: (overrides.end ?? 2) - (overrides.start ?? 0),
+    visualizerId,
+    sourceHash,
+    pixelIdentitySeed: overrides.pixelIdentitySeed || "c".repeat(64),
+    execution: { mode: "offline-proxy-atlas", route: "hash-bound-exact-proxy", status: "exact", drawable: true, silentDefault: false },
+    rendererTruth: {
+      schemaVersion: "hapa.visualizer-renderer-truth.v1",
+      rendererId: "hyperframes",
+      requested: { id: visualizerId, title: visualizerId, sourceHash, cueBoundary: { startSeconds: overrides.start ?? 0, endSeconds: overrides.end ?? 2 } },
+      status: "exact",
+      readiness: "ready",
+      route: "hash-bound-exact-proxy",
+      reason: "fixture",
+      fidelityLoss: [],
+      visible: true,
+      silentDefault: false,
+    },
+    proxy,
+    inputs: [
+      { NAME: "gain", TYPE: "float", DEFAULT: 0.1, MIN: 0, MAX: 1 },
+      { NAME: "enabled", TYPE: "bool", DEFAULT: false },
+      { NAME: "inputImage", TYPE: "image" },
+    ],
+    controls: {},
+    audioMap: {
+      gain: { signal: "rms", depth: 0.5 },
+      enabled: { signal: "onset", depth: 1, threshold: 0.5 },
+      inputImage: { signal: "canvas", depth: 0 },
+    },
+    audioSignal: ["rms", "onset"],
+    stemFocus: "drums",
+    opacity: overrides.opacity ?? 0.8,
+    visualizerMix: overrides.visualizerMix ?? 0.5,
+    effectiveOpacity: (overrides.opacity ?? 0.8) * (overrides.visualizerMix ?? 0.5),
+    blendMode: overrides.blendMode || "screen",
+    target: overrides.target || "program",
+    transition: overrides.transition || { kind: "crossfade", durationSeconds: 0.5 },
+    ...overrides,
+    proxy: { ...proxy, ...(overrides.proxy || {}) },
+  };
+}
+
+function unsupportedLayer() {
+  return {
+    id: "cue:unsupported",
+    cueId: "cue:unsupported",
+    layerOrder: 1,
+    trackId: "track:visualizers",
+    start: 0,
+    end: 2,
+    duration: 2,
+    visualizerId: "isf:fixture-unsupported",
+    sourceHash,
+    execution: { mode: "visible-diagnostic", route: "unsupported", status: "unsupported", drawable: false, reason: "proxy-generation-failed", silentDefault: false },
+    rendererTruth: {
+      schemaVersion: "hapa.visualizer-renderer-truth.v1",
+      rendererId: "hyperframes",
+      requested: { id: "isf:fixture-unsupported", title: "Unsupported", sourceHash, cueBoundary: { startSeconds: 0, endSeconds: 2 } },
+      status: "unsupported",
+      readiness: "unavailable",
+      route: "unsupported",
+      reason: "proxy-generation-failed",
+      fidelityLoss: ["requested-shader-not-presented"],
+      visible: true,
+      silentDefault: false,
+    },
+    proxy: null,
+  };
+}
+
+function fixtureShow() {
+  return {
+    schemaVersion: "hapa.hyperframes.executable-show.v2",
+    showHash: "fixture-show",
+    duration: 3,
+    instances: {
+      visualizers: [
+        exactLayer({ id: "cue:back", layerOrder: 2 }),
+        unsupportedLayer(),
+        exactLayer({ id: "cue:front", visualizerId: "isf:fixture-front", layerOrder: 0, transition: "cut", pixelIdentitySeed: "d".repeat(64) }),
+        exactLayer({ id: "cue:next", visualizerId: "isf:fixture-next", layerOrder: 0, start: 2, end: 3, transition: "cut", pixelIdentitySeed: "e".repeat(64) }),
+      ],
+    },
+    automation: {
+      visualTimeTrack: {
+        events: [
+          { id: "rate", kind: "playback-rate", startSeconds: 0, endSeconds: 0.5, target: { clock: "visual-only", layer: "visualizer-layer" }, keyframes: [{ offset: 0, visualRate: 2 }, { offset: 1, visualRate: 2 }] },
+          { id: "hold", kind: "hold", startSeconds: 0.5, endSeconds: 1, target: { clock: "visual-only", layer: "visualizer-layer" }, keyframes: [{ offset: 0, visualRate: 0 }, { offset: 1, visualRate: 0 }] },
+          { id: "repeat", kind: "repeat", startSeconds: 1, endSeconds: 1.5, target: { clock: "visual-only", layer: "visualizer-layer" }, keyframes: [{ offset: 0, sampleOffsetSeconds: -0.25 }, { offset: 1, sampleOffsetSeconds: -0.25 }] },
+        ],
+      },
+      accentTrack: {
+        events: [{
+          id: "accent:fixture",
+          cueId: "cue:beat",
+          kind: "bloom",
+          atSeconds: 0.2,
+          endSeconds: 0.4,
+          intensity: 0.6,
+          target: { scope: "single-layer", layer: "visualizer-layer" },
+          source: { stemRole: "drums", signal: "onset" },
+          keyframes: [{ offset: 0, value: 0 }, { offset: 0.5, value: 0.6 }, { offset: 1, value: 0 }],
+        }],
+      },
+    },
+    stemFrames: {
+      fps: 4,
+      stems: [{
+        id: "stem:drums",
+        role: "drums",
+        frames: [
+          { t: 0, rms: 0.1, peak: 0.2, onset: 0.1, low: 0.2, mid: 0.3, high: 0.4 },
+          { t: 0.25, rms: 0.4, peak: 0.5, onset: 0.7, low: 0.3, mid: 0.4, high: 0.5 },
+          { t: 0.75, rms: 0.8, peak: 0.9, onset: 0.2, low: 0.7, mid: 0.6, high: 0.5 },
+          { t: 1.25, rms: 0.6, peak: 0.7, onset: 0.4, low: 0.5, mid: 0.4, high: 0.3 },
+          { t: 2, rms: 0.2, peak: 0.3, onset: 0.1, low: 0.2, mid: 0.2, high: 0.2 },
+        ],
+      }],
+      master: {
+        id: "master",
+        frames: [
+          { t: 0, rms: 0.2, peak: 0.3, onset: 0.1, low: 0.2, mid: 0.2, high: 0.2 },
+          { t: 0.25, rms: 0.3, peak: 0.4, onset: 0.2, low: 0.3, mid: 0.3, high: 0.3 },
+          { t: 0.75, rms: 0.4, peak: 0.5, onset: 0.3, low: 0.4, mid: 0.4, high: 0.4 },
+          { t: 1.25, rms: 0.5, peak: 0.6, onset: 0.4, low: 0.5, mid: 0.5, high: 0.5 },
+          { t: 2, rms: 0.6, peak: 0.7, onset: 0.5, low: 0.6, mid: 0.6, high: 0.6 },
+        ],
+      },
+    },
+  };
+}
+
+test("scheduler returns every drawable active cue in stable order and keeps unsupported active cues visible", () => {
+  const show = fixtureShow();
+  const before = structuredClone(show);
+  const state = evaluateHyperFramesVisualizers(show, 0.25);
+  assert.equal(state.schemaVersion, HYPERFRAMES_VISUALIZER_RUNTIME_SCHEMA);
+  assert.deepEqual(state.layers.map((layer) => layer.cueId), ["cue:front", "cue:back"]);
+  assert.deepEqual(state.instances, state.layers);
+  assert.deepEqual(state.receipt.activeCandidateIds, ["cue:front", "cue:unsupported", "cue:back"]);
+  assert.deepEqual(state.receipt.unsupportedInstanceIds, ["cue:unsupported"]);
+  assert.equal(state.diagnostics.length, 1);
+  assert.equal(state.diagnostics[0].reason, "native-route-not-exact");
+  assert.equal(state.diagnostics[0].drawableFrame, null);
+  assert.equal(state.diagnostics[0].visible, true);
+  assert.equal(state.diagnostics[0].silentDefault, false);
+  assert.deepEqual(show, before, "evaluation may not mutate the executable show");
+});
+
+test("visual rate, hold, and repeat events select deterministic horizontal proxy frames", () => {
+  const show = fixtureShow();
+  const rate = evaluateHyperFramesVisualizers(show, 0.25).layers[0];
+  const hold = evaluateHyperFramesVisualizers(show, 0.75).layers[0];
+  const repeat = evaluateHyperFramesVisualizers(show, 1.25).layers[0];
+  const settled = evaluateHyperFramesVisualizers(show, 1.5).layers[0];
+  assert.equal(rate.visualTime.visualTimeSeconds, 0.5);
+  assert.equal(rate.proxyFrame.frameIndex, 2);
+  assert.deepEqual(rate.proxyFrame.sourceRect, [32, 0, 16, 9]);
+  assert.equal(hold.visualTime.visualTimeSeconds, 0.5);
+  assert.equal(hold.proxyFrame.frameIndex, 2);
+  assert.equal(repeat.visualTime.visualTimeSeconds, 1);
+  assert.equal(repeat.proxyFrame.frameIndex, 4);
+  assert.equal(settled.visualTime.visualTimeSeconds, 1.5);
+  assert.equal(settled.proxyFrame.frameIndex, 6);
+  assert.deepEqual(hold.visualTime.effects.map((effect) => effect.id), ["hold"]);
+  assert.deepEqual(repeat.visualTime.effects.map((effect) => effect.id), ["repeat"]);
+});
+
+test("runtime skips registry-declared blank proxy samples without substituting another shader", () => {
+  const show = fixtureShow();
+  for (const layer of show.instances.visualizers.filter((row) => row.proxy)) {
+    layer.proxy.playableFrameIndices = [1, 2, 3, 4, 5, 6, 7];
+    layer.proxy.omittedFrameIndices = [0];
+    layer.proxy.frameSelectionPolicy = "verified-nonblank-samples";
+  }
+  const layer = evaluateHyperFramesVisualizers(show, 0).layers[0];
+  assert.equal(layer.proxyFrame.frameIndex, 1);
+  assert.equal(layer.proxyFrame.frameSelectionPolicy, "verified-nonblank-samples");
+  assert.equal(layer.visualizerId, "isf:fixture-front");
+});
+
+test("stem and master frames stay on canonical audio time while controls map from the requested stem", () => {
+  const state = evaluateHyperFramesVisualizers(fixtureShow(), 0.25);
+  const layer = state.layers.find((candidate) => candidate.id === "cue:back");
+  assert.equal(layer.stemFrame.index, 1);
+  assert.equal(layer.stemFrame.frame.t, 0.25);
+  assert.equal(layer.masterFrame.index, 1);
+  assert.equal(layer.masterFrame.frame.t, 0.25);
+  assert.equal(layer.stemFocus, "drums");
+  assert.equal(layer.mappedControls.values.gain, 0.3);
+  assert.equal(layer.mappedControls.values.enabled, true);
+  assert.equal(layer.controlBindings.find((binding) => binding.uniform === "gain").status, "mapped");
+  assert.equal(layer.controlBindings.find((binding) => binding.uniform === "inputImage").status, "image-input-handled-separately");
+  assert.equal(layer.visualTime.visualTimeSeconds, 0.5, "visual time modulation must not retime offline stem frames");
+});
+
+test("transition opacity and visualizer accents are evaluated without hidden decisions", () => {
+  const state = evaluateHyperFramesVisualizers(fixtureShow(), 0.25);
+  const back = state.layers.find((layer) => layer.id === "cue:back");
+  assert.equal(back.baseEffectiveOpacity, 0.4);
+  assert.equal(back.transitionEnvelope.alpha, 0.5);
+  assert.equal(back.effectiveOpacity, 0.2);
+  assert.equal(state.accents.length, 1);
+  assert.equal(state.accents[0].assignedInstanceId, "cue:front");
+  assert.equal(state.layers[0].accents[0].id, "accent:fixture");
+  assert.equal(state.layers[1].accents.length, 0);
+});
+
+test("cue seams are half-open and unsupported cues never leave drawable placeholders", () => {
+  const before = evaluateHyperFramesVisualizers(fixtureShow(), 2 - 0.0001);
+  const seam = evaluateHyperFramesVisualizers(fixtureShow(), 2);
+  assert.deepEqual(before.layers.map((layer) => layer.cueId), ["cue:front", "cue:back"]);
+  assert.deepEqual(seam.layers.map((layer) => layer.cueId), ["cue:next"]);
+  assert.equal(seam.layers.some((layer) => layer.cueId === "cue:back"), false);
+  assert.equal(seam.diagnostics.some((row) => row.instanceId === "cue:unsupported"), false);
+  assert.equal(seam.receipt.halfOpenCueIntervals, true);
+});
+
+test("runtime is self-contained browser ESM/global code with no nondeterministic or online APIs", () => {
+  const source = fs.readFileSync("src/domain/hyperframes-visualizer-runtime.js", "utf8");
+  assert.doesNotMatch(source, /^import\s/m);
+  assert.doesNotMatch(source, /Math\.random|Date\.now|new Date|AudioContext|getUserMedia|fetch\(|XMLHttpRequest|https?:\/\//);
+  assert.equal(globalThis.HapaHyperFramesVisualizerRuntime, HapaHyperFramesVisualizerRuntime);
+  assert.equal(globalThis.HapaHyperFramesVisualizerRuntime.evaluateHyperFramesVisualizers, evaluateHyperFramesVisualizers);
+  const a = evaluateHyperFramesVisualizers(fixtureShow(), 0.75);
+  const b = evaluateHyperFramesVisualizers(fixtureShow(), 0.75);
+  assert.deepEqual(a, b);
+  assert.equal(a.receipt.runtimeDecisionCalls, false);
+  assert.equal(a.receipt.runtimeAudioAnalysis, false);
+  assert.equal(a.receipt.randomCalls, false);
+  assert.equal(a.receipt.wallClockCalls, false);
+  assert.equal(a.receipt.networkCalls, false);
+});

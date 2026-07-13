@@ -4,6 +4,28 @@ import { BadgeCheck, BookOpenCheck, Camera, CircleDot, Film, Grid3X3, Images, Li
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { queryValenTarotReading } from "../domain/valenTarotBridge.js";
+import {
+  ECHO_PLAYER_POOL_LIMIT,
+  canonicalEchoAssetKey,
+  planEchoPlayerLeases,
+  reconcileEchoPlayerSlots,
+} from "../domain/echo-player-pool.js";
+import { normalizePlaybackPowerMode, playbackPowerPolicy } from "../domain/playback-power-mode.js";
+import { createEchoPlaybackEngine } from "../domain/echo-playback-engine.js";
+import {
+  createEchoIsfPlaybackPool,
+  visualizerCardAtTime,
+  visualizerCardsAtTime,
+  visualizerLookaheadCards,
+} from "../domain/echo-isf-browser-runtime.js";
+import { echoLegacyCanvasApproximation } from "../domain/echo-shader-picker.js";
+import { buildTruthfulUnmintedVisualizerCard, resolveAuthoritativeTarotSongCardPrint } from "../domain/song-card-tarot-print.js";
+import {
+  buildVisualizerRendererTruthReceipt,
+  resolveVisualizerRendererTruth,
+} from "../domain/visualizer-renderer-capability.js";
+import BuilderOvercardPickupActions from "../overcard/BuilderOvercardPickupActions.jsx";
+import { migrateTarotSceneSnapshot, tarotFormationToSceneSnapshot, tarotSceneSnapshotToFormation } from "../overcard/tarotFormationAdapter.js";
 
 const CARD_WIDTH = 0.92;
 const CARD_HEIGHT = 1.48;
@@ -110,6 +132,8 @@ const DROP_PREVIEW_SCREEN_ASPECT = CARD_VIDEO_FALLBACK_ASPECT;
 const ECHO_DIRECTOR_EXPORT_ASPECT = 16 / 9;
 const ECHO_DIRECTOR_OVERLAY_WIDTH = 1024;
 const ECHO_DIRECTOR_OVERLAY_HEIGHT = 576;
+const ECHO_ISF_DIAGNOSTIC_RECEIPT_LIMIT = 180;
+const ECHO_ISF_STEM_FREQUENCY_BINS = 64;
 const DROP_PREVIEW_BACK_HEIGHT = 4.85;
 const DROP_PREVIEW_SIDE_HEIGHT = 4.12;
 const DROP_PREVIEW_TABLE_HEIGHT = 2.82;
@@ -121,7 +145,7 @@ const DROP_PREVIEW_BUFFER_SIZE = Math.max(
   0,
   Number.isFinite(Number(import.meta.env?.VITE_TAROT_DROP_PREVIEW_BUFFER))
     ? Number(import.meta.env?.VITE_TAROT_DROP_PREVIEW_BUFFER)
-    : 1
+    : 4
 );
 const DROP_PREVIEW_ACTIVE_SCREEN_LIMIT = THREE.MathUtils.clamp(
   Number.isFinite(Number(import.meta.env?.VITE_TAROT_DROP_PREVIEW_ACTIVE_SCREENS))
@@ -584,11 +608,15 @@ const TAROT_DRAW_SCENE_SNAPSHOT_VERSION = "hapa.tarot-draw.scene-snapshot.v1";
 const TAROT_DRAW_SCENE_CARD_VERSION = "hapa.tarot-draw.scene-card.v1";
 
 function tarotDrawSceneSnapshot(card = {}) {
-  return card?.sceneSnapshot ||
+  const snapshot = card?.sceneSnapshot ||
     card?.drawScene?.snapshot ||
     card?.enrichment?.media?.sceneSnapshot ||
     card?.enrichment?.media?.drawScene?.snapshot ||
     null;
+  if (snapshot) return snapshot;
+  const formation = card?.formation || card?.drawScene?.formation || card?.enrichment?.media?.formation;
+  if (!formation) return null;
+  try { return tarotFormationToSceneSnapshot(formation, { snapshotId: card.id }); } catch { return null; }
 }
 
 function isTarotDrawSceneCard(card = {}) {
@@ -1306,6 +1334,7 @@ function buildTarotDrawSceneCard(snapshot = {}, avatarName = "Hapa") {
       center: String(snapshot.counts?.center || 0)
     },
     drawScene,
+    formation: snapshot.formation || null,
     sceneSnapshot: snapshot,
     enrichment: {
       status: "enriched",
@@ -1315,6 +1344,7 @@ function buildTarotDrawSceneCard(snapshot = {}, avatarName = "Hapa") {
       textSynopsis: "A Hapa card that stores the 3D Tarot table as a reloadable scene, preserving card positions, zone memberships, and local table settings for future human and agent sessions.",
       media: {
         drawScene,
+        formation: snapshot.formation || null,
         sceneSnapshot: snapshot
       },
       tags: ["tarot-draw-scene", "saved-scene", "control-card"]
@@ -1815,6 +1845,39 @@ function normalizeEchoDirectorProjectPayload(payload = null) {
   return project;
 }
 
+function echoDirectorShowGraph(project = null) {
+  return project?.director_show_graph || project?.directorShowGraph || null;
+}
+
+function echoDirectorGraphVariantId(project = null) {
+  const graph = echoDirectorShowGraph(project);
+  return String(graph?.directorV2?.variantId || graph?.runId || graph?.id || "");
+}
+
+function echoDirectorGraphPlaybackCacheKey(project = null) {
+  const graph = echoDirectorShowGraph(project);
+  if (!graph) return "";
+  return [
+    echoDirectorGraphVariantId(project),
+    graph?.directorV2?.variantHash || graph?.variantHash || "",
+    graph?.directorV2?.source?.sourceProjectHash || graph?.directorV2?.provenance?.sourceProjectHash || "",
+    JSON.stringify(graph?.directorV2?.patchLineage?.dirtyRanges || graph?.dirtyRanges || []),
+  ].join(":");
+}
+
+function echoDirectorGraphVisualizerState(project = null, clock = 0) {
+  const graph = echoDirectorShowGraph(project);
+  if (!graph?.tracks) return { hasGraph: false, graph: null, variantId: "", card: null, sourceId: "" };
+  const card = visualizerCardAtTime(graph, clock);
+  return {
+    hasGraph: true,
+    graph,
+    variantId: echoDirectorGraphVariantId(project),
+    card,
+    sourceId: String(card?.visualization?.sourceId || card?.sourceId || card?.visualization?.card?.id || ""),
+  };
+}
+
 function echoDirectorProjectForCard(card = {}) {
   if (!card || typeof card !== "object") return null;
   const candidates = [
@@ -1863,7 +1926,7 @@ function blueAvatarSurfaceLabel() {
   return `${shell} Tarot Draw${port ? `:${port}` : ""}`;
 }
 
-export default function TarotDraw3DView({ cards = [], avatarName = "Hapa", apiBase = "", soundEnabled = false, productionAudit = null, onResolveEchoProject, onSelectAvatarProfile, onTarotForgeCreated, onTarotSceneSaved }) {
+export default function TarotDraw3DView({ cards = [], avatarId = "local-operator", avatarName = "Hapa", apiBase = "", soundEnabled = false, playbackMode = "active", productionAudit = null, onResolveEchoProject, prewarmedEchoVideos = null, onSelectAvatarProfile, onTarotForgeCreated, onTarotSceneSaved }) {
   const urlParams = useMemo(() => new URLSearchParams(window?.location?.search || ""), []);
   const isSubscriber = useMemo(() => {
     let sub = urlParams.get("role") === "subscriber";
@@ -2196,6 +2259,8 @@ export default function TarotDraw3DView({ cards = [], avatarName = "Hapa", apiBa
         apiBase,
         productionAudit,
         soundEnabled,
+        playbackMode,
+        prewarmedEchoVideos,
         onHud: setHud,
         onReadingRequest: handleReadingRequest,
         onReadingClear: handleReadingClear
@@ -2213,11 +2278,23 @@ export default function TarotDraw3DView({ cards = [], avatarName = "Hapa", apiBa
       game.dispose();
       if (gameRef.current === game) gameRef.current = null;
     };
-  }, [cards, avatarName, apiBase, productionAudit, handleReadingClear, handleReadingRequest]);
+  }, [avatarName, apiBase, handleReadingClear, handleReadingRequest]);
+
+  useEffect(() => {
+    gameRef.current?.reconcileCards?.(cards);
+  }, [cards]);
+
+  useEffect(() => {
+    gameRef.current?.setProductionAudit?.(productionAudit);
+  }, [productionAudit]);
 
   useEffect(() => {
     gameRef.current?.setSoundEnabled?.(soundEnabled);
   }, [soundEnabled]);
+
+  useEffect(() => {
+    gameRef.current?.setPlaybackMode?.(playbackMode);
+  }, [playbackMode]);
 
   useEffect(() => {
     const currentRunId = forgeRequest.run?.id || forgeRequest.card?.drawForge?.runId || "";
@@ -2371,8 +2448,9 @@ export default function TarotDraw3DView({ cards = [], avatarName = "Hapa", apiBa
   useEffect(() => {
     setSelectedCardImageZoom(1);
     setSelectedCardImageIndex(0);
-    setSelectedCardMediaMode("still");
-  }, [selectedCardKey, selectedDetailsOpen]);
+    const hasLoop = Boolean(selectedCard?.videoSources?.some((s) => s.uri) || selectedCard?.videoUri);
+    setSelectedCardMediaMode(hasLoop ? "loop" : "still");
+  }, [selectedCardKey, selectedDetailsOpen, selectedCard]);
 
   useEffect(() => {
     if (selectedCardImageSources.length && selectedCardImageIndex >= selectedCardImageSources.length) setSelectedCardImageIndex(0);
@@ -3199,9 +3277,9 @@ export default function TarotDraw3DView({ cards = [], avatarName = "Hapa", apiBa
   if (isSubscriber) {
     return (
       <div className="tarot-draw-view" style={{ width: "100vw", height: "100vh", position: "absolute", top: 0, left: 0, zIndex: 9999, background: "#000", display: "flex", justifyContent: "center", alignItems: "center", overflow: "hidden" }}>
-        <img 
-          src={`${apiBase || window.location.origin}/api/tarot/stream`} 
-          style={{ width: "100vw", height: "100vh", objectFit: "cover" }} 
+        <img
+          src={`${apiBase || window.location.origin}/api/tarot/stream`}
+          style={{ width: "100vw", height: "100vh", objectFit: "cover" }}
           alt="Live Video Feed"
         />
       </div>
@@ -3223,6 +3301,22 @@ export default function TarotDraw3DView({ cards = [], avatarName = "Hapa", apiBa
       onDrop={handleMediaDrop}
     >
       <canvas ref={canvasRef} aria-label="Interactive 3D tarot draw table" />
+      {selectedCard && <BuilderOvercardPickupActions className="tarot-overcard-pickup" entity={{ id: selectedCard.id, entityType: "card", title: selectedCard.title || selectedCard.name || selectedCard.id, subtitle: "3D Tarot Draw card", thumbnail: selectedCard.imageUri || selectedCard.uri, updatedAt: selectedCard.updatedAt, uri: `/api/tarot/card/${encodeURIComponent(selectedCard.id)}` }} />}
+      <iframe
+        id="tarot-youtube-overlay"
+        style={{
+          position: "absolute",
+          border: "none",
+          zIndex: 1,
+          pointerEvents: "none",
+          display: "none",
+          transformOrigin: "center center",
+          boxShadow: "0 0 20px rgba(0, 0, 0, 0.8)",
+          borderRadius: "4px"
+        }}
+        title="YouTube video player"
+        allow="autoplay; encrypted-media"
+      />
       {fieldCaptureVisible && (
         <div className="tarot-field-capture-rail hapa-panel" data-variant="notch" data-status={fieldCapture.status} aria-live="polite">
           <span className="tarot-field-capture-icon" aria-hidden="true">
@@ -4012,24 +4106,41 @@ export default function TarotDraw3DView({ cards = [], avatarName = "Hapa", apiBa
                 onWheel={handleSelectedCardImageWheel}
               >
                 {selectedCardShowingLoop ? (
-                  <video
-                    key={`${selectedCard.id}-detail-loop-stage-${selectedCardVideoSource.uri}`}
-                    src={selectedCardVideoSource.uri}
-                    poster={selectedCardVideoSource.posterUri || selectedCard.posterUri || selectedCardImage?.uri || undefined}
-                    autoPlay
-                    muted
-                    loop
-                    playsInline
-                    controls
-                    preload="metadata"
-                  />
-                ) : selectedCardImage ? (
+                  selectedCard.cardType === "creator_content_card" && getYoutubeEmbedUrl(selectedCard.sourceRefs?.[0]) ? (
+                    <iframe
+                      key={`${selectedCard.id}-detail-youtube`}
+                      src={getYoutubeEmbedUrl(selectedCard.sourceRefs?.[0], { controls: true })}
+                      title="YouTube video player"
+                      frameBorder="0"
+                      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                      allowFullScreen
+                      style={{ width: "100%", height: "100%", border: "none" }}
+                    />
+                  ) : (
+                    <video
+                      key={`${selectedCard.id}-detail-loop-stage-${selectedCardVideoSource.uri}`}
+                      src={selectedCardVideoSource.uri}
+                      poster={selectedCardVideoSource.posterUri || selectedCard.posterUri || selectedCardImage?.uri || undefined}
+                      autoPlay
+                      muted
+                      loop
+                      playsInline
+                      controls
+                      preload="metadata"
+                    />
+                  )
+                ) : (selectedCardImage || selectedCard.posterUri || selectedCard.imageUri) ? (
                   <img
-                    src={selectedCardImage.uri}
+                    src={selectedCardImage?.uri || selectedCard.posterUri || selectedCard.imageUri}
                     alt={`${selectedCard.title} high resolution tarot card`}
                     loading="eager"
                     draggable="false"
                     style={{ width: `${selectedCardImageZoom * 100}%` }}
+                    onError={() => {
+                      if (selectedCardHasLoop) {
+                        setSelectedCardMediaMode("loop");
+                      }
+                    }}
                   />
                 ) : selectedCard.videoUri ? (
                   <video key={`${selectedCard.id}-detail-loop`} src={selectedCard.videoUri} poster={selectedCard.posterUri || undefined} autoPlay muted loop playsInline preload="metadata" />
@@ -4699,6 +4810,18 @@ function getYoutubeThumbnailUrl(url) {
   return (match && match[2].length === 11) ? `https://img.youtube.com/vi/${match[2]}/mqdefault.jpg` : null;
 }
 
+function getYoutubeEmbedUrl(url, options = {}) {
+  if (!url || typeof url !== "string") return null;
+  const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=)([^#\&\?]*).*/;
+  const match = url.match(regExp);
+  if (!match || match[2].length !== 11) return null;
+  const videoId = match[2];
+  const params = ["autoplay=1", "loop=1", `playlist=${videoId}`];
+  if (options.mute) params.push("mute=1");
+  if (options.controls === false) params.push("controls=0");
+  return `https://www.youtube.com/embed/${videoId}?${params.join("&")}`;
+}
+
 function cardBackPileAliases(pileId = "") {
   const normalizedId = normalizePileLookupId(pileId);
   const back = CARD_TYPE_BACKS.find((item) =>
@@ -5009,7 +5132,7 @@ function writeTarotDrawSettings(storageKey, settings) {
   }
 }
 
-function createTarotDrawGame({ canvas, cards, avatarName, apiBase = "", productionAudit = null, soundEnabled = false, onHud, onReadingRequest, onReadingClear }) {
+function createTarotDrawGame({ canvas, cards, avatarName, apiBase = "", productionAudit = null, soundEnabled = false, playbackMode = "active", prewarmedEchoVideos = null, onHud, onReadingRequest, onReadingClear }) {
   const renderer = new THREE.WebGLRenderer({
     canvas,
     antialias: false,
@@ -5051,38 +5174,66 @@ function createTarotDrawGame({ canvas, cards, avatarName, apiBase = "", producti
   try {
     isSubscriber = isSubscriber || sessionStorage.getItem("hapa-tarot-role-subscriber") === "true";
   } catch(e) {}
-  
+
   const syncChannel = new BroadcastChannel("hapa-tarot-3d-sync");
+  const lifecycleLedger = window.__HAPA_TAROT_LIFECYCLE__ ||= {
+    createdGames: 0,
+    disposedGames: 0,
+    liveGames: 0,
+    liveRenderers: 0,
+    liveChannels: 0,
+    cardReconciliations: 0
+  };
+  lifecycleLedger.createdGames += 1;
+  lifecycleLedger.liveGames += 1;
+  lifecycleLedger.liveRenderers += 1;
+  lifecycleLedger.liveChannels += 1;
   let lastBroadcastTime = 0;
+  let lastBroadcastSignature = "";
+  let syncSubscriberLeaseUntil = 0;
+  let syncLeaseInterval = 0;
+  let subscriberPreventInteraction = null;
+  let tarotStreamDemand = false;
+  let tarotStreamDemandCheckInFlight = false;
+  let lastTarotStreamDemandCheckMs = 0;
+  let tarotFrameUploadInFlight = false;
+  let lastTarotFramePostMs = 0;
 
   if (isSubscriber) {
     controls.enabled = false;
-    
+
     // Disable any interaction in subscriber mode
     if (typeof window !== "undefined") {
-      const preventInteraction = (e) => {
+      subscriberPreventInteraction = (e) => {
         e.preventDefault();
         e.stopPropagation();
       };
-      window.addEventListener("pointerdown", preventInteraction, true);
-      window.addEventListener("mousedown", preventInteraction, true);
-      window.addEventListener("touchstart", preventInteraction, true);
+      window.addEventListener("pointerdown", subscriberPreventInteraction, true);
+      window.addEventListener("mousedown", subscriberPreventInteraction, true);
+      window.addEventListener("touchstart", subscriberPreventInteraction, true);
+      const publishLease = () => syncChannel.postMessage({ type: "subscriber-lease", active: true, ttlMs: 5000 });
+      publishLease();
+      syncLeaseInterval = window.setInterval(publishLease, 2000);
     }
+  }
 
-    syncChannel.onmessage = (event) => {
-      const { type, data } = event.data;
-      if (type === "sync" && data) {
-        console.log("Tarot Draw Sync [Subscriber]: Received sync state containing cards count =", data.cards?.length);
+  syncChannel.onmessage = (event) => {
+    const { type, data, active, ttlMs } = event.data || {};
+    if (!isSubscriber && type === "subscriber-lease") {
+      syncSubscriberLeaseUntil = active === false ? 0 : performance.now() + Math.max(1000, Number(ttlMs) || 5000);
+      return;
+    }
+    if (isSubscriber && type === "sync" && data) {
         // 1. Sync Camera
         if (data.camera) {
           camera.position.set(data.camera.pos.x, data.camera.pos.y, data.camera.pos.z);
           controls.target.set(data.camera.target.x, data.camera.target.y, data.camera.target.z);
         }
-        
+
         // 2. Sync Cards
         if (data.cards) {
           const targetIds = new Set(data.cards.map(tc => tc.id));
-          
+
           // Remove local cards not present in broadcast
           for (let i = placedEntries.length - 1; i >= 0; i--) {
             const entry = placedEntries[i];
@@ -5091,7 +5242,7 @@ function createTarotDrawGame({ canvas, cards, avatarName, apiBase = "", producti
               placedEntries.splice(i, 1);
             }
           }
-          
+
           // Create or update local cards
           data.cards.forEach((tc) => {
             let entry = placedEntries.find(e => e.card.id === tc.id);
@@ -5106,12 +5257,12 @@ function createTarotDrawGame({ canvas, cards, avatarName, apiBase = "", producti
             if (entry) {
               entry.group.position.set(tc.pos.x, tc.pos.y, tc.pos.z);
               entry.group.rotation.set(tc.rot.x, tc.rot.y, tc.rot.z);
-              
+
               if (entry.flipped !== tc.flipped) {
                 entry.flipped = tc.flipped;
                 entry.targetRotation.x = tc.flipped ? Math.PI : 0;
               }
-              
+
               entry.lockedDropZone = tc.lockedDropZone;
               entry.lockedMediaPool = tc.lockedMediaPool;
               entry.lockedCenterVisualizer = tc.lockedCenterVisualizer;
@@ -5119,15 +5270,17 @@ function createTarotDrawGame({ canvas, cards, avatarName, apiBase = "", producti
             }
           });
         }
-      }
-    };
-  }
+    }
+  };
 
   const world = new THREE.Group();
   world.name = "HapaTarotDrawWorld";
   scene.add(world);
 
   const resources = createResourceLibrary();
+  let playbackPowerMode = normalizePlaybackPowerMode(playbackMode);
+  let requestedSoundEnabled = Boolean(soundEnabled);
+  let playbackRenderedFrames = 0;
   const audio = createTarotAudio(soundEnabled);
   const dropSong = createDropZoneSongPlayer(soundEnabled);
   const centerVideoSound = createDropZoneSongPlayer(soundEnabled, {
@@ -5186,6 +5339,12 @@ function createTarotDrawGame({ canvas, cards, avatarName, apiBase = "", producti
   let animationFrame = 0;
   let animationTimer = 0;
   let diagnosticsHandle = null;
+  let presentationLastAt = 0;
+  let presentationIntervals = [];
+  let longTaskDurations = [];
+  let longTaskObserver = null;
+  let performanceGateResetAt = performance.now();
+  let tarotFrameUploadCount = 0;
   let disposed = false;
   let lastFrameTime = performance.now() / 1000;
   let elapsedTime = 0;
@@ -5336,6 +5495,16 @@ function createTarotDrawGame({ canvas, cards, avatarName, apiBase = "", producti
   let echoDirectorProject = null;
   let echoDirectorProjectKey = "";
   let echoDirectorTimelineSourceKey = "";
+  let echoDirectorCurrentSource = null;
+  const echoIsfStemSignalDecoder = createTarotEchoStemSignalDecoder({ apiBase });
+  let echoProjectPreloadVideos = [];
+  const echoPlaybackEngine = createEchoPlaybackEngine({
+    adapter: {
+      renderer: "tarot-three-preview",
+      commitShot: () => { echoDirectorTimelineSourceKey = ""; }
+    },
+    powerMode: playbackPowerMode
+  });
   let status = cards.length ? "Deck online" : "No tarot cards";
   let lastHudTime = 0;
   let lastResizeCheck = -Infinity;
@@ -5400,7 +5569,10 @@ function createTarotDrawGame({ canvas, cards, avatarName, apiBase = "", producti
     clear,
     autoPlace,
     togglePlaying,
+    reconcileCards,
+    setProductionAudit,
     setSoundEnabled,
+    setPlaybackMode,
     setBackStyle,
     setMusicVisualizerMode,
     setCenterVisualizerEnabled,
@@ -5453,6 +5625,61 @@ function createTarotDrawGame({ canvas, cards, avatarName, apiBase = "", producti
     playPendingBlueAvatarAudio();
   }
 
+  function reconcileCards(nextCards = []) {
+    const incoming = Array.isArray(nextCards) ? nextCards.filter(Boolean) : [];
+    const previousCards = cards;
+    const previousById = new Map(previousCards.map((card) => [cardIdentity(card), card]).filter(([id]) => id));
+    const incomingById = new Map(incoming.map((card) => [cardIdentity(card), card]).filter(([id]) => id));
+    const activeEntries = [...placedEntries, heldEntry, ...forgeEntries.values()].filter(Boolean);
+    const activeIds = new Set(activeEntries.map((entry) => cardIdentity(entry.card)).filter(Boolean));
+    let updatedActive = 0;
+    activeEntries.forEach((entry) => {
+      const id = cardIdentity(entry.card);
+      const replacement = incomingById.get(id);
+      if (replacement && replacement !== entry.card) {
+        entry.card = replacement;
+        updatedActive += 1;
+      }
+    });
+
+    const retainedDeckIds = new Set();
+    const retainedDeck = deckCards.flatMap((card) => {
+      const id = cardIdentity(card);
+      const replacement = incomingById.get(id);
+      if (!id || !replacement || activeIds.has(id) || retainedDeckIds.has(id)) return [];
+      retainedDeckIds.add(id);
+      return [replacement];
+    });
+    const addedDeck = shuffleList(incoming.filter((card) => {
+      const id = cardIdentity(card);
+      return id && !activeIds.has(id) && !retainedDeckIds.has(id) && !previousById.has(id);
+    }));
+    addedDeck.forEach((card) => retainedDeckIds.add(cardIdentity(card)));
+    const restoredDeck = incoming.filter((card) => {
+      const id = cardIdentity(card);
+      return id && !activeIds.has(id) && !retainedDeckIds.has(id);
+    });
+    cards = incoming;
+    deckCards = [...retainedDeck, ...addedDeck, ...restoredDeck];
+    lifecycleLedger.cardReconciliations += 1;
+    status = cards.length ? "Deck synchronized" : "No tarot cards";
+    publishHud(true);
+    return {
+      previous: previousCards.length,
+      incoming: cards.length,
+      added: [...incomingById.keys()].filter((id) => !previousById.has(id)).length,
+      removed: [...previousById.keys()].filter((id) => !incomingById.has(id)).length,
+      updatedActive,
+      retainedPlaced: placedEntries.length,
+      deckCount: deckCards.length
+    };
+  }
+
+  function setProductionAudit(nextAudit = null) {
+    productionAudit = nextAudit;
+    publishHud(true);
+  }
+
   function start() {
     canvas.addEventListener("pointermove", handlePointerMove);
     canvas.addEventListener("pointerdown", unlockAudioFromGesture, { capture: true });
@@ -5461,12 +5688,40 @@ function createTarotDrawGame({ canvas, cards, avatarName, apiBase = "", producti
     canvas.addEventListener("wheel", handleWheel, { passive: false, capture: true });
     window.addEventListener("resize", resize);
     resize();
+    if (typeof PerformanceObserver !== "undefined") {
+      try {
+        longTaskObserver = new PerformanceObserver((list) => {
+          list.getEntries().forEach((entry) => {
+            if (entry.duration > 0 && entry.startTime >= performanceGateResetAt) {
+              longTaskDurations.push({ duration: Number(entry.duration), startTime: Number(entry.startTime) });
+            }
+          });
+        });
+        longTaskObserver.observe({ entryTypes: ["longtask"] });
+      } catch {
+        longTaskObserver = null;
+      }
+    }
     diagnosticsHandle = {
       kind: "hapa-tarot-draw",
       renderer: renderer.info,
       actions: {
+        reconcileCurrentCards: () => reconcileCards(cards.map((card) => ({ ...card }))),
         lockFirstMusicSlotAvatar: diagnosticLockFirstMusicSlotAvatar,
         lockFirstSongCardInDropZone: diagnosticLockFirstSongCardInDropZone,
+        lockSongCardInDropZone: (songId = "") => diagnosticLockFirstSongCardInDropZone(songId),
+        seekEchoPreview: (seconds = 0) => {
+          dropSong.syncTime?.(Math.max(0, Number(seconds) || 0), 0);
+          return dropSong.snapshot();
+        },
+        resetPerformanceGate: () => {
+          presentationLastAt = 0;
+          presentationIntervals = [];
+          longTaskDurations = [];
+          performanceGateResetAt = performance.now();
+          tarotFrameUploadCount = 0;
+          return true;
+        },
         recoverPreviewGallery: () => requestPreviewGalleryRecovery(),
         enableCameraCard: () => setCameraCardEnabled(true),
         disableCameraCard: () => setCameraCardEnabled(false),
@@ -5522,7 +5777,8 @@ function createTarotDrawGame({ canvas, cards, avatarName, apiBase = "", producti
         },
         drawSongPile: () => drawFromPile("song"),
         wipeSpawnedCards,
-        useSpawnedCardsOnSurface
+        useSpawnedCardsOnSurface,
+        setPlaybackMode: (mode = "active") => setPlaybackMode(mode)
       },
       get state() {
         return getDebugState();
@@ -5530,7 +5786,7 @@ function createTarotDrawGame({ canvas, cards, avatarName, apiBase = "", producti
     };
     window.__THREE_GAME_DIAGNOSTICS__ = diagnosticsHandle;
     canvas.__hapaTarotDrawDiagnostics = diagnosticsHandle;
-    animate();
+    if (playbackPowerPolicy(playbackPowerMode, { activeFps: TAROT_ACTIVE_FPS }).animationEnabled) animate();
   }
 
   function shuffle() {
@@ -6260,6 +6516,7 @@ function createTarotDrawGame({ canvas, cards, avatarName, apiBase = "", producti
       stackLayer: Number(entry.stackLayer || entry.dynamicStackLayer || 0),
       placedAt: Number(entry.placedAt ?? index),
       focusProgress: Number(Math.max(entry.focusProgress || 0, entry.focusTargetProgress || 0).toFixed(3)),
+      scale: Number((entry.group?.scale?.x || 1).toFixed(4)),
       locked: zone !== "field"
     };
   }
@@ -6279,7 +6536,7 @@ function createTarotDrawGame({ canvas, cards, avatarName, apiBase = "", producti
       skippedTransient
     };
     const createdAt = new Date().toISOString();
-    return {
+    const snapshot = {
       schemaVersion: TAROT_DRAW_SCENE_SNAPSHOT_VERSION,
       id: tarotFieldMediaId("tarot-draw-scene"),
       title: `${avatarName || "Hapa"} Tarot Scene ${new Date(createdAt).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })}`,
@@ -6314,6 +6571,10 @@ function createTarotDrawGame({ canvas, cards, avatarName, apiBase = "", producti
       counts,
       cards: snapshotEntries
     };
+    snapshot.formation = tarotSceneSnapshotToFormation(snapshot, { avatarId, avatarName });
+    snapshot.formationId = snapshot.formation.id;
+    snapshot.formationRevision = snapshot.formation.revision;
+    return snapshot;
   }
 
   function createSceneSnapshotCard() {
@@ -6405,6 +6666,7 @@ function createTarotDrawGame({ canvas, cards, avatarName, apiBase = "", producti
     );
     entry.baseRotationY = Number(rotation.yaw || 0);
     setCardTargetRotation(entry, Number(rotation.pitch || 0), entry.baseRotationY, Number(rotation.roll || 0));
+    entry.group.scale.setScalar(THREE.MathUtils.clamp(Number(snapshotItem.scale || 1), 0.1, 8));
     entry.placedAt = Number(snapshotItem.placedAt ?? placedEntries.length + index);
     entry.playing = playing;
     if (!placedEntries.includes(entry)) placedEntries.push(entry);
@@ -6483,7 +6745,8 @@ function createTarotDrawGame({ canvas, cards, avatarName, apiBase = "", producti
   }
 
   function loadSceneFromCard(card = {}) {
-    const snapshot = tarotDrawSceneSnapshot(card);
+    const rawSnapshot = tarotDrawSceneSnapshot(card);
+    const snapshot = rawSnapshot ? migrateTarotSceneSnapshot(rawSnapshot, { avatarId, avatarName, snapshotId: card.id }) : null;
     if (!snapshot?.cards?.length) {
       status = "Scene card has no restorable snapshot";
       publishHud(true);
@@ -6794,9 +7057,16 @@ function createTarotDrawGame({ canvas, cards, avatarName, apiBase = "", producti
     });
   }
 
-  function diagnosticLockFirstSongCardInDropZone() {
+  function diagnosticLockFirstSongCardInDropZone(requestedSongId = "") {
     const hasEchoSongId = (card = {}) => isSongCard(card) && echoDirectorSongIdForCard(card);
-    const card = pullDeckCard(hasEchoSongId) || pullDeckCard(isSongCard) || cards.find(hasEchoSongId) || cards.find(isSongCard);
+    const normalizedSongId = String(requestedSongId || "").trim().toLowerCase();
+    const matchesRequestedSong = (card = {}) => hasEchoSongId(card)
+      && String(echoDirectorSongIdForCard(card) || "").trim().toLowerCase() === normalizedSongId;
+    const card = (normalizedSongId ? pullDeckCard(matchesRequestedSong) || cards.find(matchesRequestedSong) : null)
+      || pullDeckCard(hasEchoSongId)
+      || pullDeckCard(isSongCard)
+      || cards.find(hasEchoSongId)
+      || cards.find(isSongCard);
     if (!card) {
       status = "No song card available for Music Zone";
       publishHud(true);
@@ -7218,10 +7488,12 @@ function createTarotDrawGame({ canvas, cards, avatarName, apiBase = "", producti
   }
 
   function setSoundEnabled(nextEnabled) {
-    audio.setEnabled(nextEnabled);
-    dropSong.setEnabled(nextEnabled);
-    centerVideoSound.setEnabled(nextEnabled);
-    if (nextEnabled) {
+    requestedSoundEnabled = Boolean(nextEnabled);
+    const effectiveEnabled = requestedSoundEnabled && playbackPowerMode === "active";
+    audio.setEnabled(effectiveEnabled);
+    dropSong.setEnabled(effectiveEnabled);
+    centerVideoSound.setEnabled(effectiveEnabled);
+    if (effectiveEnabled) {
       audio.unlock?.();
       dropSong.unlock?.();
       dropSong.play?.();
@@ -7231,6 +7503,56 @@ function createTarotDrawGame({ canvas, cards, avatarName, apiBase = "", producti
     syncCenterVideoSoundPlayback();
     updateDropZonePreviewPlayback();
     updateDockBackgroundPlayback();
+    publishHud(true);
+  }
+
+  function powerManagedVideos() {
+    const videos = new Set();
+    const add = (video) => { if (video?.play && video?.pause) videos.add(video); };
+    [...placedEntries, heldEntry, hoveredEntry, cameraCardEntry, phoneCardEntry, blueAvatarCardEntry]
+      .filter(Boolean)
+      .forEach((entry) => add(entry.video));
+    (dropPreview?.screens || []).forEach((screen) => add(screen?.video));
+    add(dockBackgroundPlayer.screen?.video);
+    (echoProjectPreloadVideos || []).forEach(add);
+    return [...videos];
+  }
+
+  function enforcePlaybackPowerBudget({ resume = false } = {}) {
+    const policy = playbackPowerPolicy(playbackPowerMode, { activeFps: TAROT_ACTIVE_FPS });
+    const videos = powerManagedVideos();
+    if (policy.maxPlayingVideos === 0) {
+      videos.forEach((video) => { if (!video.paused) video.pause(); });
+    } else if (Number.isFinite(policy.maxPlayingVideos)) {
+      const preferred = dockBackgroundPlayer.screen?.video || videos.find((video) => video.src) || null;
+      videos.forEach((video) => {
+        if (video !== preferred && !video.paused) video.pause();
+      });
+      if (resume && playing && preferred?.paused) preferred.play().catch(() => {});
+    }
+    const audioEnabled = policy.audioEnabled && requestedSoundEnabled;
+    audio.setEnabled(audioEnabled);
+    dropSong.setEnabled(audioEnabled);
+    centerVideoSound.setEnabled(audioEnabled);
+  }
+
+  function setPlaybackMode(nextMode) {
+    const next = normalizePlaybackPowerMode(nextMode);
+    if (next === playbackPowerMode) {
+      enforcePlaybackPowerBudget();
+      return;
+    }
+    playbackPowerMode = next;
+    echoPlaybackEngine.setPowerMode(next);
+    if (animationFrame) window.cancelAnimationFrame(animationFrame);
+    animationFrame = 0;
+    if (animationTimer) window.clearTimeout(animationTimer);
+    animationTimer = 0;
+    enforcePlaybackPowerBudget({ resume: next !== "hidden" });
+    if (next !== "hidden") {
+      lastFrameTime = performance.now() / 1000;
+      scheduleAnimation(0);
+    }
     publishHud(true);
   }
 
@@ -7266,16 +7588,55 @@ function createTarotDrawGame({ canvas, cards, avatarName, apiBase = "", producti
     const nextProject = normalizeEchoDirectorProject(project);
     const nextKey = echoDirectorProjectKeyFor(nextProject);
     if (nextKey === echoDirectorProjectKey) return;
+
     echoDirectorProject = nextProject;
     echoDirectorProjectKey = nextKey;
     echoDirectorTimelineSourceKey = "";
+    echoDirectorCurrentSource = null;
+    echoPlaybackEngine.setProject(nextProject);
+    reconcileCardFaceVideoQueue();
+
+    if (nextProject) {
+      if (echoProjectPreloadVideos.length !== ECHO_PLAYER_POOL_LIMIT) {
+        echoProjectPreloadVideos.forEach(releaseEchoDirectorPlayerSlot);
+        const firstSource = echoDirectorTimelineSourceAtTime(nextProject, 0);
+        const prewarmedVideo = claimEchoDirectorPrewarmVideo(prewarmedEchoVideos, firstSource);
+        echoProjectPreloadVideos = [
+          ...(prewarmedVideo ? [prewarmedVideo] : []),
+          ...Array.from(
+            { length: ECHO_PLAYER_POOL_LIMIT - (prewarmedVideo ? 1 : 0) },
+            () => createDropZoneVideoElement()
+          )
+        ];
+      }
+      const firstSource = echoDirectorTimelineSourceAtTime(nextProject, 0);
+      primeEchoDirectorPlayerPool(echoProjectPreloadVideos, nextProject, firstSource);
+    } else {
+      echoProjectPreloadVideos.forEach(releaseEchoDirectorPlayerSlot);
+      echoProjectPreloadVideos = [];
+    }
+
     if (!dropZoneEntry) {
       publishHud(true);
       return;
     }
     const song = activeDropZoneSong();
     if (song) dropSong.start(song);
-    rebuildDropZonePreviewFromBoard();
+    if (dropPreview && echoDirectorProjectIsActive()) {
+      const firstSource = echoDirectorTimelineSourceAtTime(echoDirectorProject, dropSong.snapshot().currentTime);
+      if (firstSource) {
+        primeEchoDirectorPlayerPool(echoProjectPreloadVideos, echoDirectorProject, firstSource, dropPreview.screens?.find(isCenterPreviewScreen)?.video || null);
+        setDropZoneCenterPrioritySources(dropPreview, [firstSource], {
+          force: true,
+          playing,
+          allowBackgroundless: MIDDLE_PREVIEW_ALLOW_BACKGROUNDLESS,
+          echoProjectPreloadVideos
+        });
+      }
+      refreshCenterPreviewFrame({ createIfMissing: false, force: true });
+    } else {
+      rebuildDropZonePreviewFromBoard();
+    }
     if (echoDirectorProjectIsActive()) {
       status = `Echo Album preview: ${echoDirectorProject.song_title || dropZoneEntry.card.title}`;
     }
@@ -11236,8 +11597,96 @@ function createTarotDrawGame({ canvas, cards, avatarName, apiBase = "", producti
     updateHover();
   }
 
+  async function handleCenterScreenClick() {
+    const centerScreen = dropPreview?.screens?.find(isCenterPreviewScreen);
+    const source = centerScreen?.source || {};
+    const mediaId = centerScreen?.source?.echoMediaId;
+    const songId = String(echoDirectorProject?.song_id || source.echoSongId || "").trim();
+    const timestampSeconds = Math.max(0, Number(source.echoProjectClock || 0));
+    status = songId ? `Printing Song Card at ${timestampSeconds.toFixed(3)}s...` : `Fetching card: ${mediaId || "visualizer"}...`;
+    publishHud(true);
+
+    try {
+      const base = tarotDrawApiBase(apiBase);
+      if (songId) {
+        const headResponse = await fetch(`${base}/api/song-cards/${encodeURIComponent(songId)}`);
+        if (!headResponse.ok) throw new Error(`Song Card lookup failed: ${headResponse.status}`);
+        const headPayload = await headResponse.json();
+        const edition = Number(headPayload.latestEdition || headPayload.head?.latestEdition || headPayload.card?.latestEdition || 0);
+        if (edition > 0) {
+            const atTimeResponse = await fetch(`${base}/api/song-cards/${encodeURIComponent(songId)}/editions/${edition}/cards-at-time?timeMs=${Math.round(timestampSeconds * 1000)}`);
+            if (!atTimeResponse.ok) throw new Error(`Song Card timestamp lookup failed: ${atTimeResponse.status}`);
+            const atTime = await atTimeResponse.json();
+            const primary = atTime.primary || atTime.active?.[atTime.active.length - 1] || null;
+            if (!primary?.snapshot && !primary?.card) {
+              status = atTime.truthStatus === "no-card" ? "No printable card at this Song Card timestamp" : "Song Card timestamp has no printable snapshot";
+              publishHud(true);
+              return;
+            }
+            const printResponse = await fetch(`${base}/api/song-cards/${encodeURIComponent(songId)}/editions/${edition}/print`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                timeMs: Math.round(timestampSeconds * 1000),
+                appearanceId: primary.appearanceId || primary.id || "",
+                surface: "tarot-draw-center-screen",
+              }),
+            });
+            if (!printResponse.ok) throw new Error(`Authoritative Song Card print failed: ${printResponse.status}`);
+            const printed = await printResponse.json();
+            const resolvedPrint = resolveAuthoritativeTarotSongCardPrint({ headPayload, cardsAtTime: atTime, printResult: printed, songId, timestampMs: Math.round(timestampSeconds * 1000) });
+            const card = resolvedPrint.card;
+            spawnBrowserCard(card, {
+              zone: "field",
+              statusText: `Printed Edition ${edition}: ${card.title || card.name || primary.title || "Card"}`,
+            });
+            audio.play("draw");
+            return;
+        }
+      }
+
+      if ((!mediaId || mediaId === "none") && source.echoVisualizerCard) {
+        const graph = echoDirectorShowGraph(echoDirectorProject);
+        const visualizerCards = graph ? visualizerCardsAtTime(graph, timestampSeconds) : [];
+        const visualizer = visualizerCards[visualizerCards.length - 1]?.visualization?.card || source.echoVisualizerCard;
+        spawnBrowserCard(buildTruthfulUnmintedVisualizerCard({ visualizer, songId, timestampMs: Math.round(timestampSeconds * 1000) }), { zone: "field", statusText: `Spawned live visualizer card: ${visualizer.title || visualizer.id}` });
+        audio.play("draw");
+        return;
+      }
+      if (!mediaId || mediaId === "none") throw new Error("No director media or visualizer card is active");
+      const response = await fetch(`${base}/api/tarot/card/${encodeURIComponent(mediaId)}`);
+      if (!response.ok) {
+        throw new Error(`Failed to load card: ${response.status}`);
+      }
+      const card = await response.json();
+
+      spawnBrowserCard(card, {
+        zone: "field",
+        statusText: `Spawned card: ${card.title || card.name}`
+      });
+      audio.play("draw");
+    } catch (e) {
+      console.error("Error spawning card from preview panel click:", e);
+      status = `Error spawning card: ${e.message}`;
+      publishHud(true);
+    }
+  }
+
   function handlePointerDown(event) {
     updatePointer(event);
+    if (echoDirectorProjectIsActive() && dropPreview?.screens) {
+      const centerScreen = dropPreview.screens.find(isCenterPreviewScreen);
+      if (centerScreen?.mesh) {
+        raycaster.setFromCamera(pointer, camera);
+        const screenHits = [];
+        raycaster.intersectObject(centerScreen.mesh, true, screenHits);
+        if (screenHits.length > 0) {
+          handleCenterScreenClick();
+          event.preventDefault();
+          return;
+        }
+      }
+    }
     if (!heldEntry && isDeckHit()) {
       const hit = raycastTable();
       if (hit) pointerWorld.copy(hit).setY(TABLE_Y);
@@ -12308,14 +12757,26 @@ function createTarotDrawGame({ canvas, cards, avatarName, apiBase = "", producti
         label: `${entry.card.title || "Center card"} / ${source.label || "loop"}`
       }))
     );
+    const dropZoneVideoCardSources = (dropZoneEntry && ["creator_content_card"].includes(dropZoneEntry.card?.cardType))
+      ? dropZoneVideoSources(dropZoneEntry.card, {
+          allowBackgroundless: MIDDLE_PREVIEW_ALLOW_BACKGROUNDLESS,
+          preferBackgroundless: MIDDLE_PREVIEW_ALLOW_BACKGROUNDLESS
+        }).map((source) => ({
+          ...source,
+          id: `center-dropzone-video-${dropZoneEntry.card.id}-${source.id || source.uri}`,
+          label: `${dropZoneEntry.card.title || "DropZone video card"} / ${source.label || "loop"}`
+        }))
+      : [];
     return uniqueDropZoneVideoSources([
       echoSource,
+      ...dropZoneVideoCardSources,
       ...centerCardSources
     ], "", { allowBackgroundless: MIDDLE_PREVIEW_ALLOW_BACKGROUNDLESS });
   }
 
   function currentCenterVideoSoundSource() {
-    if (!centerVisualizerEntries.length || echoDirectorProjectIsActive()) return null;
+    const hasVideoCardInDropZone = dropZoneEntry && ["creator_content_card"].includes(dropZoneEntry.card?.cardType);
+    if ((!centerVisualizerEntries.length && !hasVideoCardInDropZone) || echoDirectorProjectIsActive()) return null;
     const centerSources = currentCenterPreviewSources();
     if (!centerSources.length) return null;
     const centerScreen = dropPreview?.screens?.find(isCenterPreviewScreen);
@@ -12360,9 +12821,10 @@ function createTarotDrawGame({ canvas, cards, avatarName, apiBase = "", producti
   function syncCenterVideoSoundPlayback({ force = false } = {}) {
     const source = currentCenterVideoSoundSource();
     const song = centerVideoSoundSongForSource(source);
-    const shouldPlay = Boolean(song?.audioUri) && playing && centerVisualizerEntries.length > 0;
+    const hasVideoCardInDropZone = dropZoneEntry && ["creator_content_card"].includes(dropZoneEntry.card?.cardType);
+    const shouldPlay = Boolean(song?.audioUri) && playing && (centerVisualizerEntries.length > 0 || hasVideoCardInDropZone);
     if (!shouldPlay) {
-      if (!song?.audioUri || !centerVisualizerEntries.length || echoDirectorProjectIsActive()) centerVideoSound.stop();
+      if (!song?.audioUri || (!centerVisualizerEntries.length && !hasVideoCardInDropZone) || echoDirectorProjectIsActive()) centerVideoSound.stop();
       else centerVideoSound.pause();
       return;
     }
@@ -12409,7 +12871,10 @@ function createTarotDrawGame({ canvas, cards, avatarName, apiBase = "", producti
       else dropSong.stop();
       return;
     }
-    dropPreview = createDropZonePreviewFromSources(sources.length ? sources : centerSources, song, { videoKeying: MIDDLE_PREVIEW_VIDEO_KEYING });
+    dropPreview = createDropZonePreviewFromSources(sources.length ? sources : centerSources, song, {
+      videoKeying: MIDDLE_PREVIEW_VIDEO_KEYING,
+      echoProjectPreloadVideos
+    });
     previewGroup.add(dropPreview.group);
     refreshCenterPreviewFrame({ createIfMissing: false, force: true });
     if (song) dropSong.start(song);
@@ -12449,13 +12914,17 @@ function createTarotDrawGame({ canvas, cards, avatarName, apiBase = "", producti
       return;
     }
     if (!dropPreview) {
-      dropPreview = createDropZonePreviewFromSources(sources.length ? sources : centerSources, song, { videoKeying: MIDDLE_PREVIEW_VIDEO_KEYING });
+      dropPreview = createDropZonePreviewFromSources(sources.length ? sources : centerSources, song, {
+        videoKeying: MIDDLE_PREVIEW_VIDEO_KEYING,
+        echoProjectPreloadVideos
+      });
       previewGroup.add(dropPreview.group);
       if (song) dropSong.start(song);
     } else {
       setDropZonePreviewSources(dropPreview, sources, {
         resetScreens: resetScreens && sources.length > 0,
-        allowBackgroundless: MIDDLE_PREVIEW_ALLOW_BACKGROUNDLESS
+        allowBackgroundless: MIDDLE_PREVIEW_ALLOW_BACKGROUNDLESS,
+        echoProjectPreloadVideos
       });
     }
     refreshCenterPreviewFrame({ createIfMissing: false, force: resetScreens });
@@ -12466,17 +12935,30 @@ function createTarotDrawGame({ canvas, cards, avatarName, apiBase = "", producti
     const centerSources = currentCenterPreviewSources();
     if (!centerSources.length) {
       if (dropPreview) {
-        setDropZoneCenterPrioritySources(dropPreview, [], { force, playing, allowBackgroundless: MIDDLE_PREVIEW_ALLOW_BACKGROUNDLESS });
+        setDropZoneCenterPrioritySources(dropPreview, [], {
+          force,
+          playing,
+          allowBackgroundless: MIDDLE_PREVIEW_ALLOW_BACKGROUNDLESS,
+          echoProjectPreloadVideos
+        });
         if (!currentDropZonePreviewSources().length) stopDropZonePreview({ stopSong: !dropZoneEntry });
       }
       return;
     }
     if (!dropPreview && createIfMissing) {
-      dropPreview = createDropZonePreviewFromSources(centerSources, null, { videoKeying: MIDDLE_PREVIEW_VIDEO_KEYING });
+      dropPreview = createDropZonePreviewFromSources(centerSources, null, {
+        videoKeying: MIDDLE_PREVIEW_VIDEO_KEYING,
+        echoProjectPreloadVideos
+      });
       previewGroup.add(dropPreview.group);
     }
     if (!dropPreview) return;
-    setDropZoneCenterPrioritySources(dropPreview, centerSources, { force, playing, allowBackgroundless: MIDDLE_PREVIEW_ALLOW_BACKGROUNDLESS });
+    setDropZoneCenterPrioritySources(dropPreview, centerSources, {
+      force,
+      playing,
+      allowBackgroundless: MIDDLE_PREVIEW_ALLOW_BACKGROUNDLESS,
+      echoProjectPreloadVideos
+    });
     updateDropZonePreviewPlayback();
   }
 
@@ -12533,10 +13015,12 @@ function createTarotDrawGame({ canvas, cards, avatarName, apiBase = "", producti
       syncCenterVideoSoundPlayback();
       return;
     }
+    const isCreatorVideo = dropZoneEntry && dropZoneEntry.card?.cardType === "creator_content_card";
     if (playing && previewActive) {
       let activeScreens = 0;
       screens.forEach((screen) => {
-        const shouldPlayScreen = activeScreens < DROP_PREVIEW_ACTIVE_SCREEN_LIMIT;
+        const isCenter = isCenterPreviewScreen(screen);
+        const shouldPlayScreen = activeScreens < DROP_PREVIEW_ACTIVE_SCREEN_LIMIT && (!isCreatorVideo || isCenter);
         if (shouldPlayScreen) {
           activeScreens += 1;
           screen.video?.play().catch(() => {});
@@ -12852,6 +13336,8 @@ function createTarotDrawGame({ canvas, cards, avatarName, apiBase = "", producti
   }
 
   function tarotFrameInterval() {
+    if (playbackPowerMode === "hidden") return Infinity;
+    if (playbackPowerMode === "docked") return Math.max(1 / 12, TAROT_IDLE_FRAME_INTERVAL_SECONDS);
     return tarotHasActiveMotion() ? TAROT_ACTIVE_FRAME_INTERVAL_SECONDS : TAROT_IDLE_FRAME_INTERVAL_SECONDS;
   }
 
@@ -12905,10 +13391,12 @@ function createTarotDrawGame({ canvas, cards, avatarName, apiBase = "", producti
 
   function centerVisualizerNeedsActiveLoop() {
     const echoActive = echoDirectorProjectIsActive();
+    const hasVideoCardInDropZone = dropZoneEntry && ["creator_content_card"].includes(dropZoneEntry.card?.cardType);
     return (centerVisualizerEnabled || echoActive) && (
       echoActive ||
       (playing && Boolean(dropZoneEntry) && Boolean(dropSong.state?.hasSong)) ||
       centerVisualizerEntries.length > 0 ||
+      hasVideoCardInDropZone ||
       heldEntry?.magnetZone === "center"
     );
   }
@@ -12943,7 +13431,7 @@ function createTarotDrawGame({ canvas, cards, avatarName, apiBase = "", producti
   }
 
   function scheduleAnimation(delaySeconds = 0) {
-    if (disposed) return;
+    if (disposed || playbackPowerMode === "hidden") return;
     if (animationTimer) {
       window.clearTimeout(animationTimer);
       animationTimer = 0;
@@ -12951,7 +13439,7 @@ function createTarotDrawGame({ canvas, cards, avatarName, apiBase = "", producti
     if (delaySeconds > 0.004) {
       animationTimer = window.setTimeout(() => {
         animationTimer = 0;
-        animationFrame = window.requestAnimationFrame(animate);
+        animate();
       }, Math.max(0, delaySeconds * 1000));
       return;
     }
@@ -12959,7 +13447,7 @@ function createTarotDrawGame({ canvas, cards, avatarName, apiBase = "", producti
   }
 
   function animate() {
-    if (disposed) return;
+    if (disposed || playbackPowerMode === "hidden") return;
     const now = performance.now() / 1000;
     const frameInterval = tarotFrameInterval();
     const frameAge = now - lastFrameTime;
@@ -12978,28 +13466,30 @@ function createTarotDrawGame({ canvas, cards, avatarName, apiBase = "", producti
     updateCameraRail(delta);
     controls.update();
 
-    if (!isSubscriber && elapsedTime - lastBroadcastTime > 0.03) {
+    if (!isSubscriber && performance.now() < syncSubscriberLeaseUntil && elapsedTime - lastBroadcastTime > 0.1) {
       lastBroadcastTime = elapsedTime;
-      console.log("Tarot Draw Sync [Broadcaster]: Posting sync state with cards count =", placedEntries.length);
-      syncChannel.postMessage({
-        type: "sync",
-        data: {
-          camera: {
-            pos: { x: camera.position.x, y: camera.position.y, z: camera.position.z },
-            target: { x: controls.target.x, y: controls.target.y, z: controls.target.z }
-          },
-          cards: placedEntries.map(entry => ({
-            id: entry.card.id,
-            pos: { x: entry.group.position.x, y: entry.group.position.y, z: entry.group.position.z },
-            rot: { x: entry.group.rotation.x, y: entry.group.rotation.y, z: entry.group.rotation.z },
-            flipped: entry.flipped || false,
-            lockedDropZone: entry.lockedDropZone || false,
-            lockedMediaPool: entry.lockedMediaPool || false,
-            lockedCenterVisualizer: entry.lockedCenterVisualizer || false,
-            lockedDock: entry.lockedDock || false
-          }))
-        }
-      });
+      const quantizeSync = (value) => Math.round(Number(value || 0) * 1000) / 1000;
+      const syncData = {
+        camera: {
+          pos: { x: quantizeSync(camera.position.x), y: quantizeSync(camera.position.y), z: quantizeSync(camera.position.z) },
+          target: { x: quantizeSync(controls.target.x), y: quantizeSync(controls.target.y), z: quantizeSync(controls.target.z) }
+        },
+        cards: placedEntries.map(entry => ({
+          id: entry.card.id,
+          pos: { x: quantizeSync(entry.group.position.x), y: quantizeSync(entry.group.position.y), z: quantizeSync(entry.group.position.z) },
+          rot: { x: quantizeSync(entry.group.rotation.x), y: quantizeSync(entry.group.rotation.y), z: quantizeSync(entry.group.rotation.z) },
+          flipped: entry.flipped || false,
+          lockedDropZone: entry.lockedDropZone || false,
+          lockedMediaPool: entry.lockedMediaPool || false,
+          lockedCenterVisualizer: entry.lockedCenterVisualizer || false,
+          lockedDock: entry.lockedDock || false
+        }))
+      };
+      const signature = JSON.stringify(syncData);
+      if (signature !== lastBroadcastSignature) {
+        lastBroadcastSignature = signature;
+        syncChannel.postMessage({ type: "sync", data: syncData });
+      }
     }
     deck.rotation.y = Math.sin(elapsed * 0.55) * 0.02;
     deck.position.y = 0.02 + Math.sin(elapsed * 1.2) * 0.01 + (deck.userData.pulse || 0) * 0.025;
@@ -13051,28 +13541,58 @@ function createTarotDrawGame({ canvas, cards, avatarName, apiBase = "", producti
     updateSpawnNetwork(spawnNetwork, camera, elapsed);
     updatePhoneLaserVisual(elapsed);
     updateBursts(delta);
+    updateYoutubeOverlayPosition();
+    if (playbackPowerMode === "docked") enforcePlaybackPowerBudget();
     renderer.render(scene, camera);
+    playbackRenderedFrames += 1;
+    const presentedAt = performance.now();
+    if (presentationLastAt > 0) {
+      presentationIntervals.push(presentedAt - presentationLastAt);
+      if (presentationIntervals.length > 1200) presentationIntervals.splice(0, presentationIntervals.length - 1200);
+    }
+    presentationLastAt = presentedAt;
     renderPhoneFpvFrame(now);
 
     if (typeof window !== "undefined") {
       const nowMs = Date.now();
-      if (!window.__lastFramePostTime || nowMs - window.__lastFramePostTime > 50) {
-        window.__lastFramePostTime = nowMs;
+      const streamBase = apiBase || window.location.origin;
+      if (!tarotStreamDemandCheckInFlight && nowMs - lastTarotStreamDemandCheckMs >= 2000) {
+        lastTarotStreamDemandCheckMs = nowMs;
+        tarotStreamDemandCheckInFlight = true;
+        fetch(`${streamBase}/api/tarot/stream-demand`, { cache: "no-store" })
+          .then((response) => response.ok ? response.json() : null)
+          .then((payload) => { tarotStreamDemand = payload?.captureRequested === true; })
+          .catch(() => { tarotStreamDemand = false; })
+          .finally(() => { tarotStreamDemandCheckInFlight = false; });
+      }
+      if (tarotStreamDemand && !tarotFrameUploadInFlight && nowMs - lastTarotFramePostMs >= 200) {
+        lastTarotFramePostMs = nowMs;
+        tarotFrameUploadInFlight = true;
         canvas.toBlob((blob) => {
-          if (!blob) return;
-          fetch(`${apiBase || window.location.origin}/api/tarot/stream-frame`, {
+          if (!blob) {
+            tarotFrameUploadInFlight = false;
+            return;
+          }
+          fetch(`${streamBase}/api/tarot/stream-frame`, {
             method: "POST",
             body: blob,
             headers: {
               "Content-Type": "image/jpeg"
             }
-          }).catch(() => {});
-        }, "image/jpeg", 0.6);
+          }).then((response) => {
+            tarotFrameUploadCount += 1;
+            if (response.status === 409) tarotStreamDemand = false;
+          }).catch(() => {
+            tarotStreamDemand = false;
+          }).finally(() => {
+            tarotFrameUploadInFlight = false;
+          });
+        }, "image/jpeg", 0.55);
       }
     }
 
     if (cardDetailTargetEntry() && now - lastHudTime > TAROT_HUD_DETAIL_SECONDS) publishHud(true);
-    else if (now - lastHudTime > TAROT_HUD_NORMAL_SECONDS) publishHud();
+    else if (!echoDirectorProjectIsActive() && now - lastHudTime > TAROT_HUD_NORMAL_SECONDS) publishHud();
     scheduleAnimation(tarotFrameInterval());
   }
 
@@ -13252,7 +13772,7 @@ function createTarotDrawGame({ canvas, cards, avatarName, apiBase = "", producti
       const appear = easeOutCubic(dropPreview.group.userData.life);
       updateDropZonePreviewCameraRail(dropPreview, cameraRailBlend);
       syncEchoDirectorPreviewToClock(dropPreview, dropSong.snapshot(), playing && Boolean(dropZoneEntry), elapsed, songBands);
-      updateDropZonePreviewScreens(dropPreview, elapsed, playing && Boolean(dropZoneEntry));
+      updateDropZonePreviewScreens(dropPreview, elapsed, playing && Boolean(dropZoneEntry), echoProjectPreloadVideos);
       updateDropZonePreviewOpacity(dropPreview, appear, pulse);
       dropPreview.group.rotation.y = Math.sin(elapsed * 0.22) * 0.025;
       dropPreview.group.position.y = Math.sin(elapsed * 0.8) * 0.018;
@@ -13265,18 +13785,86 @@ function createTarotDrawGame({ canvas, cards, avatarName, apiBase = "", producti
       clearEchoDirectorPreviewOverlays(preview);
       return;
     }
-    const source = echoDirectorTimelineSourceAtTime(echoDirectorProject, songSnapshot.currentTime);
-    if (!source?.uri) return;
+    const engineSnapshot = echoPlaybackEngine.tick(songSnapshot.currentTime, { playing: shouldPlay });
+    const targetShotIndex = engineSnapshot.targetShotIndex;
+    const graphVisualizer = echoDirectorGraphVisualizerState(echoDirectorProject, engineSnapshot.clockTime);
+    if (engineSnapshot.pureIvf) {
+      const shot = engineSnapshot.targetShot || {};
+      if (!echoDirectorCurrentSource || !echoDirectorCurrentSource.pureIvf || echoDirectorCurrentSource.echoShotIndex !== targetShotIndex) {
+        echoDirectorCurrentSource = {
+          id: `echo-director-ivf-${echoDirectorProject.song_id}-${targetShotIndex}`,
+          echoDirector: true,
+          pureIvf: true,
+          echoMediaType: "none",
+          echoMediaSourceHash: "",
+          echoProjectClock: engineSnapshot.clockTime,
+          echoShotIndex: targetShotIndex,
+          echoShotStart: Number(shot.start_sec || 0),
+          echoShotEnd: Number(shot.end_sec || shot.start_sec || 0) + (Number(shot.end_sec || 0) ? 0 : 1),
+          echoShotDuration: Math.max(0.1, Number(shot.end_sec || 0) - Number(shot.start_sec || 0)),
+          echoShotTitle: shot.media_title || "IVF visualization",
+          echoSectionLabel: shot.section_label || "IVF",
+          echoVisualizerTitle: engineSnapshot.visualizer?.visualizer_title || shot.visualizer_title || "",
+          echoVisualizerSourceId: graphVisualizer.sourceId,
+          echoVisualizerCard: graphVisualizer.card,
+          echoHasDirectorGraph: graphVisualizer.hasGraph,
+          echoDirectorGraphVariantId: graphVisualizer.variantId,
+          echoTransition: shot.transition || "",
+          echoLyricVariant: echoDirectorProject.lyric_variant || "phrase-window",
+          echoLyricPosition: echoDirectorProject.lyric_position || "bottom-center",
+          echoLyricStyle: echoDirectorProject.lyric_style || "neon-cyan",
+          seekOffset: Math.max(0, engineSnapshot.clockTime - Number(shot.start_sec || 0))
+        };
+      }
+    } else if (!echoDirectorCurrentSource || echoDirectorCurrentSource.pureIvf || echoDirectorCurrentSource.echoShotIndex !== targetShotIndex) {
+      echoDirectorCurrentSource = echoDirectorTimelineSourceAtTime(echoDirectorProject, engineSnapshot.clockTime);
+    } else {
+      echoDirectorCurrentSource.echoProjectClock = engineSnapshot.clockTime;
+      echoDirectorCurrentSource.seekOffset = Math.max(0, engineSnapshot.clockTime - echoDirectorCurrentSource.echoShotStart);
+      echoDirectorCurrentSource.echoVisualizerTitle = engineSnapshot.visualizer?.visualizer_title || "";
+    }
+    const source = echoDirectorCurrentSource;
+    if (!source) return;
+    source.echoProjectClock = engineSnapshot.clockTime;
+    source.seekOffset = Math.max(0, engineSnapshot.clockTime - Number(source.echoShotStart || 0));
+    source.echoVisualizerTitle = engineSnapshot.visualizer?.visualizer_title || source.echoVisualizerTitle || "";
+    source.echoVisualizerSourceId = graphVisualizer.sourceId;
+    source.echoVisualizerCard = graphVisualizer.card;
+    source.echoHasDirectorGraph = graphVisualizer.hasGraph;
+    source.echoDirectorGraphVariantId = graphVisualizer.variantId;
+    source.echoLyricLineIndex = engineSnapshot.lyricLineIndex;
+    source.echoLyricWordIndex = engineSnapshot.lyricWordIndex;
+    const centerScreen = (preview.screens || []).find(isCenterPreviewScreen);
+    if (source.pureIvf) {
+      if (centerScreen?.mesh) centerScreen.mesh.visible = true;
+      if (centerScreen?.video && !centerScreen.video.paused) centerScreen.video.pause();
+      echoDirectorTimelineSourceKey = `ivf:${targetShotIndex}`;
+      updateEchoDirectorPreviewOverlay(centerScreen, source, {
+        project: echoDirectorProject,
+        songSnapshot,
+        elapsed,
+        bands,
+        shadersEnabled: echoShadersEnabled,
+        lyricsEnabled,
+        maxFps: playbackPowerMode === "docked" ? 4 : 12,
+        apiBase,
+        stemSignalDecoder: echoIsfStemSignalDecoder
+      });
+      return;
+    }
+    if (!source.uri) return;
+    if (centerScreen?.mesh) centerScreen.mesh.visible = true;
     const sourceKey = `${dropZoneVideoSourceKey(source)}:${source.echoShotIndex ?? ""}`;
     if (sourceKey !== echoDirectorTimelineSourceKey) {
       echoDirectorTimelineSourceKey = sourceKey;
+      primeEchoDirectorPlayerPool(echoProjectPreloadVideos, echoDirectorProject, source, centerScreen?.video || null);
       setDropZoneCenterPrioritySources(preview, [source], {
         force: true,
         playing: shouldPlay,
-        allowBackgroundless: MIDDLE_PREVIEW_ALLOW_BACKGROUNDLESS
+        allowBackgroundless: MIDDLE_PREVIEW_ALLOW_BACKGROUNDLESS,
+        echoProjectPreloadVideos
       });
     }
-    const centerScreen = (preview.screens || []).find(isCenterPreviewScreen);
     syncDropZoneScreenVideoToEchoSource(centerScreen, source, shouldPlay);
     updateEchoDirectorPreviewOverlay(centerScreen, source, {
       project: echoDirectorProject,
@@ -13284,7 +13872,10 @@ function createTarotDrawGame({ canvas, cards, avatarName, apiBase = "", producti
       elapsed,
       bands,
       shadersEnabled: echoShadersEnabled,
-      lyricsEnabled
+      lyricsEnabled,
+      maxFps: playbackPowerMode === "docked" ? 4 : 12,
+      apiBase,
+      stemSignalDecoder: echoIsfStemSignalDecoder
     });
   }
 
@@ -13406,7 +13997,8 @@ function createTarotDrawGame({ canvas, cards, avatarName, apiBase = "", producti
   function reconcileCardFaceVideoQueue() {
     const entries = [...placedEntries];
     if (heldEntry && !entries.includes(heldEntry)) entries.push(heldEntry);
-    const active = CARD_FACE_VIDEO_MAX_ACTIVE > 0
+    const cardFaceBudget = echoDirectorProjectIsActive() ? Math.min(1, CARD_FACE_VIDEO_MAX_ACTIVE) : CARD_FACE_VIDEO_MAX_ACTIVE;
+    const active = cardFaceBudget > 0
       ? entries
         .map((entry, index) => ({ entry, index, priority: cardFaceVideoPriority(entry) }))
         .filter((item) => item.priority > -Infinity)
@@ -13415,7 +14007,7 @@ function createTarotDrawGame({ canvas, cards, avatarName, apiBase = "", producti
           (second.entry.placedAt ?? -1) - (first.entry.placedAt ?? -1) ||
           first.index - second.index
         )
-        .slice(0, CARD_FACE_VIDEO_MAX_ACTIVE)
+        .slice(0, cardFaceBudget)
         .map((item) => item.entry)
       : [];
     const activeSet = new Set(active);
@@ -13516,6 +14108,68 @@ function createTarotDrawGame({ canvas, cards, avatarName, apiBase = "", producti
     reconcileCardFaceVideoQueue();
   }
 
+  function updateYoutubeOverlayPosition() {
+    const iframe = document.getElementById("tarot-youtube-overlay");
+    if (!iframe) return;
+
+    const hasVideoCardInDropZone = dropZoneEntry && ["creator_content_card"].includes(dropZoneEntry.card?.cardType);
+    const hasLocalFullVideo = hasVideoCardInDropZone && dropZoneEntry.card.videoSources?.some(s => s.uri && !s.uri.includes("youtube") && s.uri.endsWith(".mp4"));
+    const ytEmbedUrl = (hasVideoCardInDropZone && !hasLocalFullVideo) ? getYoutubeEmbedUrl(dropZoneEntry.card.sourceRefs?.[0], { controls: false }) : null;
+
+    if (!hasVideoCardInDropZone || hasLocalFullVideo || !ytEmbedUrl || !dropPreview || !canvasRef.current) {
+      iframe.style.display = "none";
+      if (iframe.src !== "" && iframe.src !== "about:blank") {
+        iframe.src = "about:blank";
+      }
+      return;
+    }
+
+    const backScreen = dropPreview.screens?.find(isCenterPreviewScreen);
+    if (!backScreen?.mesh) {
+      iframe.style.display = "none";
+      return;
+    }
+
+    const mesh = backScreen.mesh;
+    const canvas = canvasRef.current;
+    const canvasRect = canvas.getBoundingClientRect();
+
+    const center = new THREE.Vector3(0, 0, 0);
+    center.applyMatrix4(mesh.matrixWorld);
+    center.project(camera);
+
+    const width = Number(mesh.userData?.previewScreenWidth || (DROP_PREVIEW_BACK_HEIGHT * DROP_PREVIEW_SCREEN_ASPECT));
+    const height = Number(mesh.userData?.previewScreenHeight || DROP_PREVIEW_BACK_HEIGHT);
+
+    const topLeft = new THREE.Vector3(-width / 2, height / 2, 0);
+    topLeft.applyMatrix4(mesh.matrixWorld);
+    topLeft.project(camera);
+
+    const screenCenterX = (center.x * 0.5 + 0.5) * canvasRect.width;
+    const screenCenterY = (-(center.y * 0.5) + 0.5) * canvasRect.height;
+
+    const screenTopLeftX = (topLeft.x * 0.5 + 0.5) * canvasRect.width;
+    const screenTopLeftY = (-(topLeft.y * 0.5) + 0.5) * canvasRect.height;
+
+    const halfW = Math.abs(screenCenterX - screenTopLeftX);
+    const halfH = Math.abs(screenCenterY - screenTopLeftY);
+
+    const overlayWidth = halfW * 2;
+    const overlayHeight = halfH * 2;
+    const left = screenCenterX - halfW;
+    const top = screenCenterY - halfH;
+
+    if (iframe.src !== ytEmbedUrl) {
+      iframe.src = ytEmbedUrl;
+    }
+
+    iframe.style.display = "block";
+    iframe.style.left = `${left}px`;
+    iframe.style.top = `${top}px`;
+    iframe.style.width = `${overlayWidth}px`;
+    iframe.style.height = `${overlayHeight}px`;
+  }
+
   function publishHud(force = false) {
     const now = performance.now() / 1000;
     if (!force && now - lastHudTime < 0.6) return;
@@ -13609,6 +14263,7 @@ function createTarotDrawGame({ canvas, cards, avatarName, apiBase = "", producti
       audioReady: audio.ready,
       centerVideoSound: centerVideoSound.state,
       renderer: {
+        frameSerial: playbackRenderedFrames,
         calls: renderer.info.render.calls,
         triangles: renderer.info.render.triangles,
         geometries: renderer.info.memory.geometries,
@@ -13950,6 +14605,40 @@ function createTarotDrawGame({ canvas, cards, avatarName, apiBase = "", producti
           visualizerCount: Array.isArray(echoDirectorProject.visualizer_timeline) ? echoDirectorProject.visualizer_timeline.length : 0,
           currentTimelineSource: echoDirectorTimelineSourceKey
         } : null,
+        echoPlayerPool: (() => {
+          const centerVideo = dropPreview?.screens?.find(isCenterPreviewScreen)?.video || null;
+          const live = echoProjectPreloadVideos.filter((video) => Boolean(video?.src));
+          const current = live.find((video) => video.dataset.echoLookahead === "0") || null;
+          return {
+            limit: ECHO_PLAYER_POOL_LIMIT,
+            elements: echoProjectPreloadVideos.length,
+            activeRequests: live.filter((video) => video.dataset.requestState === "active").length,
+            readyPlayers: live.filter((video) => video.readyState >= 2).length,
+            maxLookahead: live.reduce((max, video) => Math.max(max, Number(video.dataset.echoLookahead || 0)), 0),
+            assetKeys: live.map((video) => video.dataset.sourceKey || ""),
+            firstFrameLatenciesMs: live.map((video) => Number(video.dataset.firstFrameLatencyMs || 0)),
+            currentFirstFrameLatencyMs: Number(current?.dataset.firstFrameLatencyMs || 0),
+            currentWasPrewarmed: current?.dataset.echoPrewarmReady === "true",
+            currentPrewarmLatencyMs: Number(current?.dataset.echoPrewarmLatencyMs || 0),
+            centerPaired: Boolean(centerVideo && echoProjectPreloadVideos.includes(centerVideo)),
+            centerFirstFrameReady: Boolean(centerVideo?.readyState >= 2)
+          };
+        })(),
+        playbackEngine: (() => {
+          const snapshot = echoPlaybackEngine.getSnapshot();
+          return {
+            generation: snapshot.generation,
+            projectKey: snapshot.projectKey,
+            playing: snapshot.playing,
+            powerMode: snapshot.powerMode,
+            shotIndex: snapshot.shotIndex,
+            targetShotIndex: snapshot.targetShotIndex,
+            visualizerIndex: snapshot.visualizerIndex,
+            lyricLineIndex: snapshot.lyricLineIndex,
+            pendingShotIndex: snapshot.pendingShotIndex,
+            reason: snapshot.reason
+          };
+        })(),
         previewActive: Boolean(dropPreview),
 	        previewPlaying: previewPlayingCount > 0,
 	        previewPlayingCount,
@@ -13966,6 +14655,14 @@ function createTarotDrawGame({ canvas, cards, avatarName, apiBase = "", producti
         centerPreviewSource: dropPreview?.screens?.find(isCenterPreviewScreen)?.source?.label || null,
         centerPreviewFrame: (() => {
           const screen = dropPreview?.screens?.find(isCenterPreviewScreen);
+          const cpuSamples = [...(screen?.echoOverlay?.cpuSamples || [])].sort((first, second) => first - second);
+          const cpuP95 = cpuSamples.length ? cpuSamples[Math.min(cpuSamples.length - 1, Math.floor((cpuSamples.length - 1) * 0.95))] : 0;
+          const frameReceipts = screen?.echoOverlay?.exactIsfFrameReceipts || [];
+          const latestReceipt = frameReceipts.at(-1) || null;
+          const frameTimings = screen?.echoOverlay?.exactIsfFrameTimings || [];
+          const sortedFrameTimings = frameTimings.map((entry) => Number(entry.durationMs || 0)).sort((first, second) => first - second);
+          const frameTimingP95 = sortedFrameTimings.length ? sortedFrameTimings[Math.min(sortedFrameTimings.length - 1, Math.floor((sortedFrameTimings.length - 1) * .95))] : 0;
+          const playbackPool = screen?.echoOverlay?.exactIsfPlaybackPool?.getDiagnostics?.() || screen?.echoOverlay?.exactIsfPoolState || {};
           return {
             aspect: Number((screen?.mesh?.userData?.previewAspect || 0).toFixed(3)),
             exportAspect: Number(ECHO_DIRECTOR_EXPORT_ASPECT.toFixed(3)),
@@ -13976,7 +14673,41 @@ function createTarotDrawGame({ canvas, cards, avatarName, apiBase = "", producti
               y: Number(screen.texture.repeat.y.toFixed(3))
             } : null,
             shadersEnabled: echoShadersEnabled,
-            lyricsEnabled
+            lyricsEnabled,
+            pureIvf: Boolean(echoDirectorCurrentSource?.pureIvf),
+            exactIsfStatus: screen?.echoOverlay?.exactIsfStatus?.status || "idle",
+            exactIsfSourceId: echoDirectorCurrentSource?.echoVisualizerSourceId || "",
+            exactIsfError: screen?.echoOverlay?.exactIsfStatus?.error || "",
+            directorGraphVariantId: echoDirectorCurrentSource?.echoDirectorGraphVariantId || "",
+            frameReceiptCount: frameReceipts.length,
+            frameReceiptLimit: ECHO_ISF_DIAGNOSTIC_RECEIPT_LIMIT,
+            latestFrameReceipt: latestReceipt?.frameReceipt || null,
+            latestFrameStatus: latestReceipt?.status || "",
+            latestMediaTruth: latestReceipt?.media || null,
+            latestStemTruth: latestReceipt?.stem || null,
+            latestComposition: latestReceipt?.composition || null,
+            rendererTruth: screen?.echoOverlay?.rendererTruth || latestReceipt?.rendererTruth || null,
+            rendererTruthReceipt: screen?.echoOverlay?.rendererTruthReceipt || latestReceipt?.rendererTruthReceipt || null,
+            rendererSilentDefault: Boolean((screen?.echoOverlay?.rendererTruth || latestReceipt?.rendererTruth)?.silentDefault),
+            stemDecoder: echoIsfStemSignalDecoder.getState(),
+            handoffState: screen?.echoOverlay?.exactIsfHandoffState || "idle",
+            prewarmSourceIds: screen?.echoOverlay?.exactIsfPoolState?.prewarmSourceIds || [],
+            requestedShaderId: playbackPool.requestedShaderId || playbackPool.requestedSourceId || "",
+            currentShaderId: playbackPool.presentedShaderId || playbackPool.currentShaderId || playbackPool.currentSourceId || "",
+            playbackPool,
+            contextCount: Number(playbackPool.contextCount || playbackPool.poolSize || playbackPool.size || 0),
+            sourceCache: playbackPool.sourceCache || playbackPool.sourceCacheState || null,
+            blackIntervals: screen?.echoOverlay?.exactIsfBlackIntervals || [],
+            blackIntervalCount: (screen?.echoOverlay?.exactIsfBlackIntervals || []).length,
+            frameTimingCount: frameTimings.length,
+            latestFrameTiming: frameTimings.at(-1) || null,
+            frameTimingP95Ms: Number(frameTimingP95.toFixed(3)),
+            videoLayerVisible: Boolean(screen?.mesh?.visible),
+            overlayUploads: Number(screen?.echoOverlay?.uploads || 0),
+            overlaySkippedUploads: Number(screen?.echoOverlay?.skippedUploads || 0),
+            overlayCpuP95Ms: Number(cpuP95.toFixed(3)),
+            overlayCpuMaxMs: Number(Math.max(0, ...cpuSamples).toFixed(3)),
+            overlaySampleCount: cpuSamples.length
           };
         })(),
         centerPrioritySources: dropPreview?.centerSources?.map((source) => source.label || source.uri || "") || [],
@@ -14026,6 +14757,7 @@ function createTarotDrawGame({ canvas, cards, avatarName, apiBase = "", producti
       activeFps: TAROT_ACTIVE_FPS,
       idleFps: TAROT_IDLE_FPS,
       targetFps: Number((1 / tarotFrameInterval()).toFixed(2)),
+      playbackPowerMode,
       activeMotion: tarotHasActiveMotion(),
       dpr: renderer.getPixelRatio(),
 	      cardFloatMotionEnabled: TAROT_CARD_FLOAT_MOTION_ENABLED,
@@ -14043,11 +14775,38 @@ function createTarotDrawGame({ canvas, cards, avatarName, apiBase = "", producti
 	      },
       sceneStats: collectSceneStats(scene),
       renderer: {
+        frameSerial: playbackRenderedFrames,
         calls: renderer.info.render.calls,
         triangles: renderer.info.render.triangles,
         geometries: renderer.info.memory.geometries,
         textures: renderer.info.memory.textures
-      }
+      },
+      performanceGate: playbackPerformanceSnapshot()
+    };
+  }
+
+  function playbackPerformanceSnapshot() {
+    const sorted = [...presentationIntervals].sort((first, second) => first - second);
+    const percentile = (ratio) => sorted.length ? sorted[Math.min(sorted.length - 1, Math.floor((sorted.length - 1) * ratio))] : 0;
+    const targetInterval = 1000 / TAROT_ACTIVE_FPS;
+    const droppedFrames = presentationIntervals.reduce((total, interval) => total + Math.max(0, Math.round(interval / targetInterval) - 1), 0);
+    const presentedFrames = presentationIntervals.length;
+    return {
+      sampleCount: presentedFrames,
+      p50Ms: Number(percentile(0.5).toFixed(2)),
+      p95Ms: Number(percentile(0.95).toFixed(2)),
+      p99Ms: Number(percentile(0.99).toFixed(2)),
+      maxMs: Number((sorted.at(-1) || 0).toFixed(2)),
+      stallsOver250Ms: presentationIntervals.filter((interval) => interval > 250).length,
+      droppedFrames,
+      droppedFrameRatio: Number((droppedFrames / Math.max(1, presentedFrames + droppedFrames)).toFixed(5)),
+      longTasksOver100Ms: longTaskDurations.filter((entry) => entry.duration > 100).length,
+      maxLongTaskMs: Number(Math.max(0, ...longTaskDurations.map((entry) => entry.duration)).toFixed(2)),
+      longTasks: longTaskDurations.map((entry) => ({
+        durationMs: Number(entry.duration.toFixed(2)),
+        sinceResetMs: Number((entry.startTime - performanceGateResetAt).toFixed(2))
+      })),
+      frameUploads: tarotFrameUploadCount
     };
   }
 
@@ -14162,15 +14921,34 @@ function createTarotDrawGame({ canvas, cards, avatarName, apiBase = "", producti
   }
 
   function dispose() {
+    if (disposed) return;
     disposed = true;
+    if (Array.isArray(echoProjectPreloadVideos)) {
+      echoProjectPreloadVideos.forEach(releaseEchoDirectorPlayerSlot);
+      echoProjectPreloadVideos = [];
+    }
     window.cancelAnimationFrame(animationFrame);
     if (animationTimer) window.clearTimeout(animationTimer);
+    longTaskObserver?.disconnect?.();
+    longTaskObserver = null;
     canvas.removeEventListener("pointermove", handlePointerMove);
     canvas.removeEventListener("pointerdown", unlockAudioFromGesture, { capture: true });
     canvas.removeEventListener("pointerdown", handlePointerDown);
     canvas.removeEventListener("pointerleave", clearHover);
     canvas.removeEventListener("wheel", handleWheel, { capture: true });
     window.removeEventListener("resize", resize);
+    if (syncLeaseInterval) window.clearInterval(syncLeaseInterval);
+    if (isSubscriber) {
+      try { syncChannel.postMessage({ type: "subscriber-lease", active: false, ttlMs: 0 }); } catch { /* Channel may already be closing. */ }
+    }
+    if (subscriberPreventInteraction) {
+      window.removeEventListener("pointerdown", subscriberPreventInteraction, true);
+      window.removeEventListener("mousedown", subscriberPreventInteraction, true);
+      window.removeEventListener("touchstart", subscriberPreventInteraction, true);
+    }
+    syncChannel.close();
+    echoPlaybackEngine.destroy();
+    echoIsfStemSignalDecoder.dispose();
     controls.dispose();
     disposeSpawnNetwork();
     stopPhoneBridge({ removeCard: false });
@@ -14187,6 +14965,10 @@ function createTarotDrawGame({ canvas, cards, avatarName, apiBase = "", producti
     centerVideoSound.dispose();
     audio.dispose();
     renderer.dispose();
+    lifecycleLedger.disposedGames += 1;
+    lifecycleLedger.liveGames = Math.max(0, lifecycleLedger.liveGames - 1);
+    lifecycleLedger.liveRenderers = Math.max(0, lifecycleLedger.liveRenderers - 1);
+    lifecycleLedger.liveChannels = Math.max(0, lifecycleLedger.liveChannels - 1);
     if (window.__THREE_GAME_DIAGNOSTICS__ === diagnosticsHandle) delete window.__THREE_GAME_DIAGNOSTICS__;
     if (canvas.__hapaTarotDrawDiagnostics === diagnosticsHandle) delete canvas.__hapaTarotDrawDiagnostics;
     diagnosticsHandle = null;
@@ -16203,6 +16985,7 @@ function echoDirectorProjectKeyFor(project = null) {
     project.song_id,
     project.registry_track_id || project.audio_id || "",
     project.updated_at || project.provenance?.generatedAt || "",
+    echoDirectorGraphVariantId(project),
     Array.isArray(project.timeline) ? project.timeline.length : 0,
     Array.isArray(project.visualizer_timeline) ? project.visualizer_timeline.length : 0,
     Array.isArray(project.timed_lyrics) ? project.timed_lyrics.length : 0
@@ -16235,10 +17018,19 @@ function mergeDropZoneSongWithEchoDirectorProject(song = null, project = null, c
   const audioId = project.audio_id || project.registry_track_id || "";
   const audioUri = resolveTarotPreviewUri(project.audio_uri || (audioId ? `/api/song-registry/audio/${encodeURIComponent(audioId)}` : ""));
   const timedLyrics = Array.isArray(project.timed_lyrics) ? project.timed_lyrics : [];
+  const timingTruth = project.lyric_timing_truth || {};
+  const timingTrusted = Boolean(
+    timingTruth.sourceMatchesActive
+    && timingTruth.timingSourceSha256
+    && timingTruth.timingSourceSha256 === timingTruth.activeTimingSha256
+    && timingTruth.qualityStatus === "source-aligned"
+    && Number(timingTruth.confidence || 0) >= .6
+  );
   const lyricTiming = timedLyrics.length
     ? {
         source: "echos-director-project",
-        trusted: true,
+        trusted: timingTrusted,
+        truth: timingTruth,
         duration: Number(project.duration || base.duration || 0),
         lines: timedLyrics
       }
@@ -16266,16 +17058,20 @@ function mergeDropZoneSongWithEchoDirectorProject(song = null, project = null, c
 
 function echoDirectorTimelineSourceAtTime(project = null, clock = 0) {
   const timeline = Array.isArray(project?.timeline) ? project.timeline : [];
-  const videoShots = timeline.filter((shot) => shot?.media_uri && shot.media_id !== "none");
+  const runtimeUriForShot = (shot = {}) => shot?.media_contract?.runtimeUri || shot?.runtime_media_uri || shot?.media_uri || "";
+  const videoShots = timeline.filter((shot) => runtimeUriForShot(shot) && shot.media_id !== "none");
   if (!videoShots.length) return null;
   const duration = Number(project.duration || 0);
   const safeClock = Number.isFinite(Number(clock)) ? Number(clock) : 0;
   const wrappedClock = duration > 0 ? safeClock % duration : safeClock;
-  const shotIndex = timeline.findIndex((shot) => shot?.media_uri && wrappedClock >= Number(shot.start_sec || 0) && wrappedClock < Number(shot.end_sec || Infinity));
+  const shotIndex = timeline.findIndex((shot) => runtimeUriForShot(shot) && wrappedClock >= Number(shot.start_sec || 0) && wrappedClock < Number(shot.end_sec || Infinity));
   const shot = shotIndex >= 0 ? timeline[shotIndex] : videoShots.find((item) => Number(item.start_sec || 0) >= wrappedClock) || videoShots[0];
   const resolvedShotIndex = Math.max(0, timeline.indexOf(shot));
   const visualizer = echoDirectorVisualizerAtTime(project, wrappedClock);
-  const uri = resolveTarotPreviewUri(shot.media_uri);
+  const graphVisualizer = echoDirectorGraphVisualizerState(project, wrappedClock);
+  const uri = resolveTarotPreviewUri(runtimeUriForShot(shot));
+  const echoMediaType = String(shot.media_contract?.type || (/\.(png|jpe?g|webp|gif|avif)(?:$|[?#])/i.test(uri) ? "image" : "video"));
+  const echoMediaSourceHash = String(shot.media_contract?.contentHash || shot.media_contract?.sourceHash || shot.media_sha256 || shot.source_sha256 || "");
   const seekOffset = Math.max(0, wrappedClock - Number(shot.start_sec || 0));
   const shotStart = Number(shot.start_sec || 0);
   const shotEnd = Number(shot.end_sec || shotStart + 1);
@@ -16289,6 +17085,9 @@ function echoDirectorTimelineSourceAtTime(project = null, clock = 0) {
     label: `${project.song_title || "Echo Album"} / ${shot.section_label || shot.media_title || "timeline shot"}`,
     score: 100000 + resolvedShotIndex,
     echoDirector: true,
+    echoMediaId: shot.media_id || "",
+    echoMediaType,
+    echoMediaSourceHash,
     forcePreviewAspect: ECHO_DIRECTOR_EXPORT_ASPECT,
     echoProjectClock: wrappedClock,
     echoShotIndex: resolvedShotIndex,
@@ -16298,6 +17097,11 @@ function echoDirectorTimelineSourceAtTime(project = null, clock = 0) {
     echoShotEnd: shotEnd,
     echoShotDuration: Math.max(0.1, shotEnd - shotStart),
     echoVisualizerTitle: visualizer?.visualizer_title || "",
+    echoVisualizerLegacyId: visualizer?.visualizer_id || "",
+    echoVisualizerSourceId: graphVisualizer.sourceId,
+    echoVisualizerCard: graphVisualizer.card,
+    echoHasDirectorGraph: graphVisualizer.hasGraph,
+    echoDirectorGraphVariantId: graphVisualizer.variantId,
     echoTransition: shot.transition || "",
     echoCameraMotion: shot.camera_motion || "",
     echoCameraSpeed: Number(shot.camera_speed ?? shot.camera?.speed ?? 0) || undefined,
@@ -16316,6 +17120,273 @@ function echoDirectorVisualizerAtTime(project = null, clock = 0) {
   const timeline = Array.isArray(project?.visualizer_timeline) ? project.visualizer_timeline : [];
   if (!timeline.length) return null;
   return timeline.find((item) => clock >= Number(item.start_sec || 0) && clock < Number(item.end_sec || Infinity)) || timeline[0] || null;
+}
+
+function boundedSignal(value, fallback = 0) {
+  const number = Number(value);
+  return THREE.MathUtils.clamp(Number.isFinite(number) ? number : fallback, 0, 1);
+}
+
+function boundedSpectrum(values = []) {
+  return Array.from(values || []).slice(0, ECHO_ISF_STEM_FREQUENCY_BINS).map((value) => boundedSignal(value));
+}
+
+function masterSignalFrameFromDropZone(bands = {}, songSnapshot = {}) {
+  const liveAnalyser = Boolean(
+    songSnapshot.contextState
+    && songSnapshot.mediaReadyState >= 2
+    && songSnapshot.mediaPaused === false
+  );
+  return {
+    rms: boundedSignal(bands.rms ?? bands.energy),
+    energy: boundedSignal(bands.energy ?? bands.rms),
+    low: boundedSignal(bands.low),
+    mid: boundedSignal(bands.mid),
+    high: boundedSignal(bands.high),
+    bass: boundedSignal(bands.bass ?? bands.low),
+    treble: boundedSignal(bands.treble ?? bands.high),
+    beat: boundedSignal(bands.beat ?? bands.low),
+    orbit: boundedSignal(bands.orbit ?? bands.energy),
+    palette: boundedSignal(bands.palette ?? bands.mid),
+    spectrum: boundedSpectrum(bands.spectrum || bands.fft || []),
+    truthStatus: liveAnalyser ? "verified-live-master-analyser" : "explicit-master-band-fallback",
+    source: "tarot-drop-zone-master",
+    timestampSeconds: Number(songSnapshot.currentTime || 0),
+  };
+}
+
+function normalizedEchoStemKey(value = "") {
+  return String(value || "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "");
+}
+
+function requestedEchoStemForCard(card = null) {
+  return String(card?.visualization?.card?.stemFocus || card?.provenance?.stemFocus || "master").trim() || "master";
+}
+
+function resolveVerifiedEchoStemBus(project = null, card = null) {
+  const graph = echoDirectorShowGraph(project);
+  const requestedStem = requestedEchoStemForCard(card);
+  const requestedKey = normalizedEchoStemKey(requestedStem);
+  if (!requestedKey || ["master", "mix"].includes(requestedKey)) {
+    return { requestedStem, requestedKey, bus: null, status: "master", reason: "visualizer-requested-master" };
+  }
+  if (graph?.stems?.nativeStatus !== "verified-local-registry-paths") {
+    return { requestedStem, requestedKey, bus: null, status: "master-fallback", reason: "graph-stem-paths-not-verified" };
+  }
+  const aliases = { leadvocals: "vocals" };
+  const matchKey = aliases[requestedKey] || requestedKey;
+  const buses = Array.isArray(graph?.directorV2?.stemBuses) ? graph.directorV2.stemBuses : [];
+  const bus = buses.find((candidate) => {
+    const keys = [
+      String(candidate?.id || "").replace(/^bus:/i, ""),
+      candidate?.stemType,
+      candidate?.stemId,
+    ].map(normalizedEchoStemKey).filter(Boolean);
+    return keys.includes(matchKey);
+  }) || null;
+  if (!bus) return { requestedStem, requestedKey, bus: null, status: "master-fallback", reason: "requested-stem-bus-not-found" };
+  if (bus.truthStatus !== "verified_registry_path" || !String(bus.audioPath || "").trim()) {
+    return { requestedStem, requestedKey, bus: null, status: "master-fallback", reason: "requested-stem-path-not-verified" };
+  }
+  return { requestedStem, requestedKey, bus, status: "verified-stem", reason: "exact-verified-stem-bus" };
+}
+
+function tarotEchoStemAudioUri(audioPath = "", apiBase = "") {
+  const value = String(audioPath || "").trim();
+  if (!value) return "";
+  const base = String(apiBase || (typeof window !== "undefined" ? window.location.origin : "")).replace(/\/+$/, "");
+  if (/^\/Users\//.test(value)) return `${base}/api/local-file?path=${encodeURIComponent(value)}`;
+  if (/^file:\/+/.test(value)) {
+    let decoded = value.replace(/^file:\/+/, "/");
+    try { decoded = decodeURIComponent(decoded); } catch { /* retain encoded path */ }
+    return `${base}/api/local-file?path=${encodeURIComponent(decoded)}`;
+  }
+  if (/^\/api\//.test(value)) return `${base}${value}`;
+  return resolveTarotPreviewUri(value);
+}
+
+function createTarotEchoStemSignalDecoder({ apiBase = "" } = {}) {
+  let element = null;
+  let context = null;
+  let sourceNode = null;
+  let analyser = null;
+  let silentGain = null;
+  let frequencyData = null;
+  let waveformData = null;
+  let currentBusKey = "";
+  let currentUri = "";
+  let playbackBlocked = false;
+  let disposed = false;
+
+  const releaseMedia = () => {
+    currentBusKey = "";
+    currentUri = "";
+    if (!element) return;
+    element.pause();
+    element.removeAttribute("src");
+    element.load();
+  };
+
+  const ensureGraph = () => {
+    if (disposed) return false;
+    if (!element) {
+      element = document.createElement("audio");
+      element.crossOrigin = "anonymous";
+      element.preload = "auto";
+      element.loop = false;
+      element.volume = 1;
+      element.setAttribute("aria-hidden", "true");
+      element.dataset.hapaEchoIsfStemDecoder = "true";
+      element.style.display = "none";
+      document.body?.appendChild(element);
+    }
+    const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContextClass) return false;
+    if (!context || context.state === "closed") context = new AudioContextClass();
+    if (!analyser) {
+      analyser = context.createAnalyser();
+      analyser.fftSize = 128;
+      analyser.smoothingTimeConstant = 0.7;
+      silentGain = context.createGain();
+      silentGain.gain.value = 0;
+      frequencyData = new Uint8Array(analyser.frequencyBinCount);
+      waveformData = new Uint8Array(analyser.fftSize);
+    }
+    if (!sourceNode) {
+      try {
+        sourceNode = context.createMediaElementSource(element);
+        sourceNode.connect(analyser);
+        analyser.connect(silentGain);
+        silentGain.connect(context.destination);
+      } catch {
+        return false;
+      }
+    }
+    return true;
+  };
+
+  const sample = ({ selection, clock = 0, playing = false } = {}) => {
+    const fallback = (reason) => ({
+      frame: null,
+      receipt: {
+        requestedStem: selection?.requestedStem || "master",
+        requestedKey: selection?.requestedKey || "master",
+        resolvedStem: "master",
+        truthStatus: "explicit-master-fallback",
+        reason,
+        decoderCount: element ? 1 : 0,
+      },
+    });
+    if (!selection || selection.status !== "verified-stem" || !selection.bus) {
+      releaseMedia();
+      return fallback(selection?.reason || "no-verified-stem-request");
+    }
+    if (!ensureGraph()) return fallback("stem-decoder-unavailable");
+    const busKey = String(selection.bus.id || selection.bus.stemId || selection.requestedKey);
+    const uri = tarotEchoStemAudioUri(selection.bus.audioPath, apiBase);
+    if (!uri) return fallback("verified-stem-path-unresolvable");
+    if (currentBusKey !== busKey || currentUri !== uri) {
+      element.pause();
+      element.src = uri;
+      element.load();
+      currentBusKey = busKey;
+      currentUri = uri;
+      playbackBlocked = false;
+    }
+    const target = Math.max(0, Number(clock) || 0);
+    const duration = Number(element.duration || 0);
+    const clamped = duration > 0 ? Math.min(target, Math.max(0, duration - 0.08)) : target;
+    if (Math.abs(Number(element.currentTime || 0) - clamped) > 0.28) {
+      try { element.currentTime = clamped; } catch { /* metadata may still be loading */ }
+    }
+    if (playing) {
+      context?.resume?.().catch(() => {});
+      if (element.paused) element.play().then(() => { playbackBlocked = false; }).catch(() => { playbackBlocked = true; });
+    } else if (!element.paused) {
+      element.pause();
+    }
+    if (playing && (playbackBlocked || context?.state !== "running")) return fallback("stem-decoder-playback-blocked");
+    if (!analyser || element.readyState < 2) return fallback("verified-stem-decoder-not-ready");
+    analyser.getByteFrequencyData(frequencyData);
+    analyser.getByteTimeDomainData(waveformData);
+    const average = (start, end) => {
+      let sum = 0;
+      for (let index = start; index < end; index += 1) sum += frequencyData[index] || 0;
+      return boundedSignal(sum / Math.max(1, (end - start) * 255));
+    };
+    let squares = 0;
+    for (const value of waveformData) {
+      const normalized = (value - 128) / 128;
+      squares += normalized * normalized;
+    }
+    const rms = boundedSignal(Math.sqrt(squares / Math.max(1, waveformData.length)));
+    const low = average(0, 8);
+    const mid = average(8, 24);
+    const high = average(24, frequencyData.length);
+    const spectrum = Array.from(frequencyData).slice(0, ECHO_ISF_STEM_FREQUENCY_BINS).map((value) => boundedSignal(value / 255));
+    return {
+      frame: {
+        rms,
+        energy: boundedSignal((low + mid + high) / 3),
+        low,
+        mid,
+        high,
+        bass: low,
+        treble: high,
+        beat: low,
+        orbit: boundedSignal((low + high) / 2),
+        palette: mid,
+        spectrum,
+        truthStatus: "verified-stem-analyser",
+        source: busKey,
+        timestampSeconds: target,
+      },
+      receipt: {
+        requestedStem: selection.requestedStem,
+        requestedKey: selection.requestedKey,
+        resolvedStem: busKey,
+        stemId: selection.bus.stemId || "",
+        truthStatus: "verified-stem-analyser",
+        reason: selection.reason,
+        decoderCount: 1,
+        synchronizedSeconds: target,
+      },
+    };
+  };
+
+  const dispose = () => {
+    if (disposed) return;
+    disposed = true;
+    releaseMedia();
+    try { sourceNode?.disconnect?.(); } catch { /* best effort */ }
+    try { analyser?.disconnect?.(); } catch { /* best effort */ }
+    try { silentGain?.disconnect?.(); } catch { /* best effort */ }
+    if (context && context.state !== "closed") context.close().catch(() => {});
+    element?.remove?.();
+    element = null;
+    sourceNode = null;
+    analyser = null;
+    silentGain = null;
+    context = null;
+    frequencyData = null;
+    waveformData = null;
+  };
+
+  return {
+    sample,
+    dispose,
+    get decoderCount() { return element ? 1 : 0; },
+    getState() {
+      return {
+        decoderCount: element ? 1 : 0,
+        readyState: Number(element?.readyState || 0),
+        currentBusKey,
+        currentUri,
+        contextState: context?.state || "",
+        playbackBlocked,
+      };
+    },
+  };
 }
 
 function echoDirectorShotLooksVertical(shot = {}) {
@@ -16386,8 +17457,438 @@ function ensureEchoDirectorPreviewOverlay(screen = null) {
   mesh.renderOrder = (screen.mesh.renderOrder || 0) + 5;
   mesh.frustumCulled = false;
   screen.rig.add(mesh);
-  screen.echoOverlay = { canvas, ctx, texture, material, mesh };
+  screen.echoOverlay = {
+    canvas,
+    ctx,
+    texture,
+    material,
+    mesh,
+    exactIsfPlaybackPool: null,
+    exactIsfPoolState: { status: "idle", poolSize: 0, currentSourceId: "", requestedSourceId: "", prewarmSourceIds: [] },
+    exactIsfGraphCacheKey: "",
+    exactIsfHandoffState: "idle",
+    exactIsfStatus: { status: "idle", sourceId: "", error: "" },
+    rendererTruth: null,
+    rendererTruthReceipt: null,
+    exactIsfMediaCanvas: null,
+    exactIsfMediaImage: null,
+    exactIsfMediaState: { key: "", status: "idle", truthStatus: "no-media", error: "" },
+    exactIsfFrameReceipts: [],
+    exactIsfFrameTimings: [],
+    exactIsfBlackIntervals: [],
+    exactIsfLastComposition: null,
+  };
   return screen.echoOverlay;
+}
+
+function setTarotExactIsfStatus(overlay, next = {}) {
+  if (!overlay) return;
+  const normalized = typeof next === "string" ? { status: next } : next || {};
+  overlay.exactIsfStatus = {
+    status: String(normalized.status || "idle"),
+    sourceId: String(normalized.sourceId || overlay.exactIsfPoolState?.requestedSourceId || overlay.exactIsfPoolState?.currentSourceId || ""),
+    error: String(normalized.error?.message || normalized.error || normalized.message || ""),
+  };
+}
+
+function tarotExactIsfStatusIsFailure(status = "") {
+  return !["idle", "loading", "ready"].includes(String(status || "idle"));
+}
+
+function tarotRendererRuntimeStatus(status = "") {
+  const value = String(status || "").toLowerCase();
+  if (value === "error" || value === "failed") return "draw-error";
+  if (value.includes("compile")) return "compile-error";
+  if (value.includes("input")) return "input-error";
+  if (value.includes("hash")) return "hash-error";
+  if (value.includes("missing")) return "missing-id";
+  if (value.includes("draw")) return "draw-error";
+  return value;
+}
+
+function tarotExactRendererTruth(card = null, result = {}) {
+  if (!card) return null;
+  const requestedId = String(result.requestedShaderId || result.shaderId || card?.visualization?.sourceId || card?.sourceId || "");
+  const presentedId = String(result.presentedShaderId || "");
+  const heldPreviousFrame = result.heldPreviousFrame === true || result.heldPrevious === true;
+  const fallback = heldPreviousFrame && presentedId
+    ? { id: `${presentedId}@last-good-frame`, title: `${presentedId} last good frame`, route: "last-good-frame-hold" }
+    : null;
+  const options = {
+    runtimeStatus: tarotRendererRuntimeStatus(result.status || result.handoff || "loading"),
+    fallback,
+    reason: fallback ? "candidate-not-ready-last-good-frame-held" : "",
+  };
+  return {
+    truth: resolveVisualizerRendererTruth(card, "echo-tarot", options),
+    receipt: buildVisualizerRendererTruthReceipt(card, { "echo-tarot": options }),
+  };
+}
+
+function tarotLegacyRendererTruth(source = {}) {
+  const value = {
+    sourceId: String(source.echoVisualizerLegacyId || ""),
+    title: String(source.echoVisualizerTitle || source.echoVisualizerLegacyId || "Unknown legacy visualizer"),
+    startSeconds: Number(source.echoProjectClock || 0),
+    endSeconds: Number(source.echoProjectClock || 0),
+  };
+  const approximation = echoLegacyCanvasApproximation({ id: value.sourceId, title: value.title });
+  const options = approximation.supported
+    ? {
+      declaration: {
+        route: "supported-subset",
+        substitute: { id: approximation.mode, title: approximation.mode, route: "legacy-canvas-approximation" },
+        reason: approximation.reason,
+        fidelityLoss: ["pixel-equivalence-not-verified", "manifest-source-not-executed"],
+      },
+      route: "supported-subset",
+    }
+    : {
+      declaration: {
+        route: "unsupported",
+        reason: approximation.reason,
+        fidelityLoss: ["requested-shader-not-presented", "legacy-title-and-id-not-recognized"],
+      },
+      route: "unsupported",
+    };
+  return {
+    approximation,
+    truth: resolveVisualizerRendererTruth(value, "echo-tarot", options),
+    receipt: buildVisualizerRendererTruthReceipt(value, { "echo-tarot": options }),
+  };
+}
+
+function drawTarotRendererTruthBadge(ctx, truth = null, width = ECHO_DIRECTOR_OVERLAY_WIDTH) {
+  if (!ctx || !truth) return;
+  const exact = truth.status === "exact";
+  const approximation = truth.status === "approximation";
+  const fallback = truth.status === "fallback";
+  const color = exact ? "#bbf7d0" : approximation ? "#fde68a" : fallback ? "#fed7aa" : "#fecaca";
+  const stroke = exact ? "rgba(74,222,128,.56)" : approximation ? "rgba(251,191,36,.58)" : fallback ? "rgba(251,146,60,.62)" : "rgba(248,113,113,.68)";
+  const label = `${String(truth.status || "unsupported").toUpperCase()} · ${truth.requested?.id || "MISSING ID"}${truth.substitute?.id ? ` → ${truth.substitute.id}` : ""}`;
+  ctx.save();
+  ctx.font = "800 13px monospace";
+  const badgeWidth = Math.min(width - 32, Math.max(250, ctx.measureText(label).width + 24));
+  ctx.fillStyle = "rgba(2,6,23,.82)";
+  ctx.fillRect(16, 16, badgeWidth, 34);
+  ctx.strokeStyle = stroke;
+  ctx.lineWidth = 1.5;
+  ctx.strokeRect(16, 16, badgeWidth, 34);
+  ctx.fillStyle = color;
+  ctx.fillText(label.slice(0, 88), 28, 38);
+  ctx.restore();
+}
+
+function echoIsfMediaIsImage(source = {}) {
+  return source.echoMediaType === "image" || /\.(png|jpe?g|webp|gif|avif)(?:$|[?#])/i.test(String(source.uri || source.sourceUri || ""));
+}
+
+function currentTarotExactIsfMedia(overlay, screen = null, source = {}) {
+  const expectedKey = dropZoneVideoSourceKey(source);
+  const actualKey = dropZoneVideoSourceKey(screen?.source || {});
+  const identityMatch = Boolean(expectedKey && actualKey && expectedKey === actualKey);
+  const baseReceipt = {
+    expectedAssetKey: expectedKey,
+    actualAssetKey: actualKey,
+    mediaId: source.echoMediaId || screen?.source?.id || "",
+    sourceHash: source.echoMediaSourceHash || screen?.source?.sourceHash || "",
+    uri: screen?.source?.uri || source.uri || "",
+    identityMatch,
+  };
+  if (source.pureIvf || source.echoMediaType === "none") {
+    return { element: null, identity: null, receipt: { ...baseReceipt, kind: "none", truthStatus: "intentional-pure-ivf" } };
+  }
+  if (!identityMatch) {
+    return { element: null, identity: null, receipt: { ...baseReceipt, kind: "none", truthStatus: "current-center-media-mismatch" } };
+  }
+  if (echoIsfMediaIsImage(source)) {
+    const imageUri = String(screen?.source?.uri || source.uri || "");
+    if (overlay.exactIsfMediaState?.key !== expectedKey) {
+      const canvas = overlay.exactIsfMediaCanvas || document.createElement("canvas");
+      canvas.width = ECHO_DIRECTOR_OVERLAY_WIDTH;
+      canvas.height = ECHO_DIRECTOR_OVERLAY_HEIGHT;
+      const image = new Image();
+      image.crossOrigin = "anonymous";
+      overlay.exactIsfMediaCanvas = canvas;
+      overlay.exactIsfMediaImage = image;
+      overlay.exactIsfMediaState = { key: expectedKey, status: "loading", truthStatus: "current-image-loading", error: "" };
+      image.onload = () => {
+        if (overlay.exactIsfMediaState?.key !== expectedKey) return;
+        const ctx = canvas.getContext("2d");
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        drawCoverImage(ctx, image, 0, 0, canvas.width, canvas.height);
+        overlay.exactIsfMediaState = { key: expectedKey, status: "ready", truthStatus: "verified-current-center-image", error: "" };
+      };
+      image.onerror = () => {
+        if (overlay.exactIsfMediaState?.key !== expectedKey) return;
+        overlay.exactIsfMediaState = { key: expectedKey, status: "error", truthStatus: "current-image-load-error", error: `Image input failed: ${imageUri}` };
+      };
+      image.src = imageUri;
+    }
+    const ready = overlay.exactIsfMediaState?.status === "ready";
+    return {
+      element: ready ? overlay.exactIsfMediaCanvas : null,
+      identity: ready ? { id: baseReceipt.mediaId || expectedKey, sourceHash: baseReceipt.sourceHash, uri: imageUri } : null,
+      receipt: { ...baseReceipt, kind: "image", truthStatus: overlay.exactIsfMediaState?.truthStatus || "current-image-loading", ready },
+    };
+  }
+  const video = screen?.video || null;
+  const ready = Boolean(video && video.readyState >= 2 && (video.videoWidth || 0) > 0 && (video.videoHeight || 0) > 0);
+  return {
+    element: ready ? video : null,
+    identity: ready ? { id: baseReceipt.mediaId || expectedKey, sourceHash: baseReceipt.sourceHash, uri: screen?.source?.uri || source.uri || "" } : null,
+    receipt: { ...baseReceipt, kind: "video", truthStatus: ready ? "verified-current-center-video" : "current-center-video-not-ready", ready },
+  };
+}
+
+function ensureTarotExactIsfPlaybackPool(overlay, apiBase = "") {
+  if (!overlay) return null;
+  if (overlay.exactIsfPlaybackPool) return overlay.exactIsfPlaybackPool;
+  try {
+    overlay.exactIsfPlaybackPool = createEchoIsfPlaybackPool({
+      width: overlay.canvas.width,
+      height: overlay.canvas.height,
+      apiBase,
+      maxSurfaces: 3,
+      onStatus: (status = {}) => {
+        overlay.exactIsfPoolState = { ...overlay.exactIsfPoolState, ...status };
+        setTarotExactIsfStatus(overlay, status);
+      },
+    });
+  } catch (error) {
+    setTarotExactIsfStatus(overlay, { status: "compile-error", error });
+  }
+  return overlay.exactIsfPlaybackPool;
+}
+
+function invalidateTarotExactIsfPoolForGraph(overlay, pool, project = null) {
+  const cacheKey = echoDirectorGraphPlaybackCacheKey(project);
+  if (!pool || overlay.exactIsfGraphCacheKey === cacheKey) return cacheKey;
+  const dirtyRanges = echoDirectorShowGraph(project)?.directorV2?.patchLineage?.dirtyRanges || [];
+  if (overlay.exactIsfGraphCacheKey) pool.invalidate({ cacheKey: overlay.exactIsfGraphCacheKey, dirtyRanges });
+  overlay.exactIsfGraphCacheKey = cacheKey;
+  overlay.exactIsfPrewarmKey = "";
+  overlay.exactIsfHandoffState = "graph-invalidated";
+  return cacheKey;
+}
+
+function prewarmTarotExactIsfCards(overlay, pool, cards = [], cacheKey = "") {
+  if (!pool) return;
+  const exactCards = cards.filter((card) => card?.visualization?.sourceId).slice(0, 3);
+  const sourceIds = exactCards.map((card) => String(card.visualization.sourceId));
+  const prewarmKey = `${cacheKey}:${sourceIds.join(",")}`;
+  overlay.exactIsfPoolState = { ...overlay.exactIsfPoolState, prewarmSourceIds: sourceIds };
+  if (!sourceIds.length || overlay.exactIsfPrewarmKey === prewarmKey) return;
+  overlay.exactIsfPrewarmKey = prewarmKey;
+  overlay.exactIsfHandoffState = "prewarming-lookahead";
+  Promise.resolve(pool.prewarm({ cards: exactCards, cacheKey }))
+    .then(() => {
+      if (overlay.exactIsfPrewarmKey !== prewarmKey) return;
+      overlay.exactIsfPoolState = { ...overlay.exactIsfPoolState, ...pool.getDiagnostics(), prewarmSourceIds: sourceIds };
+      overlay.exactIsfHandoffState = "lookahead-ready";
+    })
+    .catch((error) => {
+      if (overlay.exactIsfPrewarmKey !== prewarmKey) return;
+      overlay.exactIsfHandoffState = "lookahead-error-holding-current";
+      setTarotExactIsfStatus(overlay, { status: "compile-error", error });
+    });
+}
+
+function drawTarotExactIsfDiagnostic(ctx, width, height, status = {}) {
+  const failed = tarotExactIsfStatusIsFailure(status.status);
+  ctx.save();
+  ctx.fillStyle = "rgba(2, 6, 23, 0.88)";
+  ctx.fillRect(0, 0, width, height);
+  ctx.strokeStyle = failed ? "rgba(248,113,113,0.82)" : "rgba(34,211,238,0.72)";
+  ctx.lineWidth = 3;
+  ctx.strokeRect(24, 24, Math.max(1, width - 48), Math.max(1, height - 48));
+  ctx.fillStyle = failed ? "#fecaca" : "#cffafe";
+  ctx.font = "700 20px monospace";
+  ctx.fillText(failed ? "EXACT ISF ERROR" : "EXACT ISF LOADING", 48, 70);
+  ctx.fillStyle = "rgba(226,232,240,0.84)";
+  ctx.font = "15px monospace";
+  ctx.fillText(String(status.sourceId || "No graph-backed Track B cue").slice(0, 72), 48, 98);
+  if (status.error) ctx.fillText(String(status.error).slice(0, 88), 48, 124);
+  ctx.restore();
+}
+
+function drawTarotExactIsfOverlay(overlay, source = {}, card = null, bands = {}, elapsed = 0, mediaElement = null, apiBase = "", integration = {}) {
+  const { canvas, ctx } = overlay;
+  if (!card) {
+    const missing = { status: "missing-id", sourceId: source.echoVisualizerSourceId || "", error: "No executable Track B card at this graph time" };
+    setTarotExactIsfStatus(overlay, missing);
+    const missingValue = { sourceId: missing.sourceId, title: source.echoVisualizerTitle || "Missing Track B card" };
+    const missingOptions = { runtimeStatus: "missing-id" };
+    overlay.rendererTruth = resolveVisualizerRendererTruth(missingValue, "echo-tarot", missingOptions);
+    overlay.rendererTruthReceipt = buildVisualizerRendererTruthReceipt(missingValue, { "echo-tarot": missingOptions });
+    if (overlay.exactIsfLastPresentedCanvas) {
+      ctx.drawImage(overlay.exactIsfLastPresentedCanvas, 0, 0, canvas.width, canvas.height);
+      overlay.exactIsfHandoffState = "holding-last-frame-no-current-card";
+    } else {
+      drawTarotExactIsfDiagnostic(ctx, canvas.width, canvas.height, missing);
+    }
+    drawTarotRendererTruthBadge(ctx, overlay.rendererTruth, canvas.width);
+    return;
+  }
+  const pool = integration.pool || ensureTarotExactIsfPlaybackPool(overlay, apiBase);
+  if (!pool) {
+    drawTarotExactIsfDiagnostic(ctx, canvas.width, canvas.height, overlay.exactIsfStatus);
+    return;
+  }
+  const frameStartedAt = performance.now();
+  try {
+    const requestedShaderIdBeforePresent = String(card?.visualization?.sourceId || "");
+    const diagnosticsBeforePresent = pool.getDiagnostics();
+    const requestedSlot = (diagnosticsBeforePresent.slots || []).find((slot) => slot.shaderId === requestedShaderIdBeforePresent);
+    const mediaReceiptBeforePresent = integration.mediaReceipt || null;
+    const mediaWaiting = Boolean(mediaReceiptBeforePresent && mediaReceiptBeforePresent.kind !== "none" && mediaReceiptBeforePresent.ready !== true);
+    if (!requestedSlot?.ready || mediaWaiting) {
+      const waitingStatus = mediaWaiting
+        ? "media-wait-holding-last-frame"
+        : requestedSlot?.status === "compile-error"
+          ? "compile-error-holding-last-frame"
+          : "prewarm-holding-last-frame";
+      overlay.exactIsfHandoffState = waitingStatus;
+      setTarotExactIsfStatus(overlay, {
+        status: mediaWaiting ? "input-loading" : requestedSlot?.status || "loading",
+        sourceId: requestedShaderIdBeforePresent,
+        error: mediaWaiting ? "Current center media is not ready for exact filter input" : requestedSlot?.error || "",
+      });
+      const waitingTruth = tarotExactRendererTruth(card, {
+        status: mediaWaiting ? "input-error" : requestedSlot?.status || "loading",
+        requestedShaderId: requestedShaderIdBeforePresent,
+        presentedShaderId: diagnosticsBeforePresent.presentedShaderId || "",
+        heldPreviousFrame: Boolean(overlay.exactIsfLastPresentedCanvas),
+      });
+      overlay.rendererTruth = waitingTruth?.truth || null;
+      overlay.rendererTruthReceipt = waitingTruth?.receipt || null;
+      const waitingReceipt = {
+        frameReceipt: null,
+        media: mediaReceiptBeforePresent,
+        stem: integration.stemReceipt || null,
+        composition: overlay.exactIsfLastComposition,
+        status: waitingStatus,
+        timestampSeconds: Number(source.echoProjectClock ?? elapsed ?? 0),
+        handoff: {
+          requestedShaderId: requestedShaderIdBeforePresent,
+          presentedShaderId: diagnosticsBeforePresent.presentedShaderId || "",
+          heldPreviousFrame: Boolean(overlay.exactIsfLastPresentedCanvas),
+        },
+        rendererTruth: waitingTruth?.truth || null,
+        rendererTruthReceipt: waitingTruth?.receipt || null,
+      };
+      overlay.exactIsfFrameReceipts.push(waitingReceipt);
+      if (overlay.exactIsfFrameReceipts.length > ECHO_ISF_DIAGNOSTIC_RECEIPT_LIMIT) {
+        overlay.exactIsfFrameReceipts.splice(0, overlay.exactIsfFrameReceipts.length - ECHO_ISF_DIAGNOSTIC_RECEIPT_LIMIT);
+      }
+      if (overlay.exactIsfLastPresentedCanvas) ctx.drawImage(overlay.exactIsfLastPresentedCanvas, 0, 0, canvas.width, canvas.height);
+      else drawTarotExactIsfDiagnostic(ctx, canvas.width, canvas.height, overlay.exactIsfStatus);
+      drawTarotRendererTruthBadge(ctx, waitingTruth?.truth || null, canvas.width);
+      return;
+    }
+    const result = pool.present(card, {
+      time: Number(source.echoProjectClock ?? elapsed ?? 0),
+      signalFrames: integration.signalFrames || { master: masterSignalFrameFromDropZone(bands) },
+      fft: bands.spectrum || bands.fft || [],
+      wave: bands.wave || [],
+      audio: integration.signalFrames?.master || masterSignalFrameFromDropZone(bands),
+      mediaElement,
+      mediaIdentity: integration.mediaIdentity || undefined,
+      composition: {
+        opacity: Number(card?.parameters?.opacity ?? card?.visualization?.card?.layer?.opacity ?? 1),
+        mix: Number(card?.visualization?.card?.layer?.mix ?? 1),
+        blend: String(card?.parameters?.blendMode || card?.visualization?.card?.layer?.blend || "normal"),
+        target: String(card?.parameters?.target || card?.visualization?.card?.layer?.target || "program"),
+        transitionAlpha: echoDirectorTransitionOpacityForSource(source),
+      },
+      cacheKey: integration.graphCacheKey || "",
+      width: canvas.width,
+      height: canvas.height,
+    });
+    const poolDiagnostics = pool.getDiagnostics();
+    overlay.exactIsfPoolState = { ...overlay.exactIsfPoolState, ...poolDiagnostics };
+    overlay.exactIsfBlackIntervals = Array.isArray(poolDiagnostics.blackIntervals)
+      ? poolDiagnostics.blackIntervals.slice(-ECHO_ISF_DIAGNOSTIC_RECEIPT_LIMIT)
+      : Number(poolDiagnostics.blackIntervals || 0) > 0
+        ? [{ count: Number(poolDiagnostics.blackIntervals), source: "playback-pool-diagnostic" }]
+        : [];
+    const composition = result?.composition || {};
+    const rendererTruth = tarotExactRendererTruth(card, result || {});
+    overlay.rendererTruth = rendererTruth?.truth || null;
+    overlay.rendererTruthReceipt = rendererTruth?.receipt || null;
+    overlay.exactIsfLastComposition = composition;
+    const diagnosticReceipt = {
+      frameReceipt: result?.frameReceipt || null,
+      media: integration.mediaReceipt || null,
+      stem: integration.stemReceipt || null,
+      composition,
+      status: result?.status || "draw-error",
+      timestampSeconds: Number(source.echoProjectClock ?? elapsed ?? 0),
+      handoff: {
+        requestedShaderId: result?.requestedShaderId || result?.shaderId || card?.visualization?.sourceId || "",
+        presentedShaderId: result?.presentedShaderId || "",
+        heldPreviousFrame: Boolean(result?.heldPreviousFrame ?? result?.heldPrevious),
+      },
+      rendererTruth: rendererTruth?.truth || null,
+      rendererTruthReceipt: rendererTruth?.receipt || null,
+    };
+    overlay.exactIsfFrameReceipts.push(diagnosticReceipt);
+    if (overlay.exactIsfFrameReceipts.length > ECHO_ISF_DIAGNOSTIC_RECEIPT_LIMIT) {
+      overlay.exactIsfFrameReceipts.splice(0, overlay.exactIsfFrameReceipts.length - ECHO_ISF_DIAGNOSTIC_RECEIPT_LIMIT);
+    }
+    const heldPreviousFrame = Boolean(result?.heldPreviousFrame ?? result?.heldPrevious);
+    const requestedShaderId = result?.requestedShaderId || result?.shaderId || card?.visualization?.sourceId || "";
+    const presentedCanvas = result?.canvas || (heldPreviousFrame ? overlay.exactIsfLastPresentedCanvas : null);
+    if (result?.status === "ready" && result?.canvas) overlay.exactIsfLastPresentedCanvas = result.canvas;
+    overlay.exactIsfHandoffState = String(result?.handoff || (heldPreviousFrame
+      ? `holding-last-frame:${requestedShaderId || "requested"}->${result.presentedShaderId || "presented"}`
+      : result?.status === "ready"
+        ? `presented:${result.presentedShaderId || requestedShaderId || "exact"}`
+        : `${result?.status || "loading"}-without-presented-frame`));
+    setTarotExactIsfStatus(overlay, {
+      status: result?.status || "loading",
+      sourceId: requestedShaderId,
+      error: result?.error || "",
+    });
+    if (presentedCanvas) {
+      ctx.save();
+      ctx.globalAlpha = THREE.MathUtils.clamp(Number(composition.effectiveAlpha ?? 1), 0, 1);
+      try { ctx.globalCompositeOperation = composition.canvasComposite || "source-over"; } catch { ctx.globalCompositeOperation = "source-over"; }
+      ctx.drawImage(presentedCanvas, 0, 0, canvas.width, canvas.height);
+      ctx.restore();
+    } else {
+      drawTarotExactIsfDiagnostic(ctx, canvas.width, canvas.height, result || { status: "loading" });
+    }
+    drawTarotRendererTruthBadge(ctx, rendererTruth?.truth || null, canvas.width);
+  } catch (error) {
+    const failed = { status: "draw-error", sourceId: source.echoVisualizerSourceId || "", error: String(error?.message || error) };
+    setTarotExactIsfStatus(overlay, failed);
+    const rendererTruth = tarotExactRendererTruth(card, {
+      ...failed,
+      requestedShaderId: failed.sourceId,
+      presentedShaderId: overlay.exactIsfPlaybackPool?.getDiagnostics?.().presentedShaderId || "",
+      heldPreviousFrame: Boolean(overlay.exactIsfLastPresentedCanvas),
+    });
+    overlay.rendererTruth = rendererTruth?.truth || null;
+    overlay.rendererTruthReceipt = rendererTruth?.receipt || null;
+    if (overlay.exactIsfLastPresentedCanvas) {
+      ctx.drawImage(overlay.exactIsfLastPresentedCanvas, 0, 0, canvas.width, canvas.height);
+      overlay.exactIsfHandoffState = "holding-last-frame-draw-error";
+    } else {
+      drawTarotExactIsfDiagnostic(ctx, canvas.width, canvas.height, failed);
+    }
+    drawTarotRendererTruthBadge(ctx, rendererTruth?.truth || null, canvas.width);
+  } finally {
+    const frameTiming = {
+      timestampSeconds: Number(source.echoProjectClock ?? elapsed ?? 0),
+      durationMs: Math.max(0, performance.now() - frameStartedAt),
+      handoffState: overlay.exactIsfHandoffState,
+    };
+    overlay.exactIsfFrameTimings.push(frameTiming);
+    if (overlay.exactIsfFrameTimings.length > ECHO_ISF_DIAGNOSTIC_RECEIPT_LIMIT) {
+      overlay.exactIsfFrameTimings.splice(0, overlay.exactIsfFrameTimings.length - ECHO_ISF_DIAGNOSTIC_RECEIPT_LIMIT);
+    }
+  }
 }
 
 function resizeEchoDirectorOverlayForScreen(screen = null, dimensions = null) {
@@ -16416,6 +17917,21 @@ function clearEchoDirectorPreviewOverlays(preview = null) {
 function disposeEchoDirectorPreviewOverlay(screen = null) {
   const overlay = screen?.echoOverlay;
   if (!overlay) return;
+  overlay.exactIsfPlaybackPool?.dispose?.();
+  overlay.exactIsfPlaybackPool = null;
+  if (overlay.exactIsfMediaImage) {
+    overlay.exactIsfMediaImage.onload = null;
+    overlay.exactIsfMediaImage.onerror = null;
+    overlay.exactIsfMediaImage.src = "";
+  }
+  overlay.exactIsfMediaImage = null;
+  overlay.exactIsfMediaCanvas = null;
+  overlay.exactIsfFrameReceipts = [];
+  overlay.exactIsfFrameTimings = [];
+  overlay.exactIsfBlackIntervals = [];
+  overlay.exactIsfLastPresentedCanvas = null;
+  overlay.rendererTruth = null;
+  overlay.rendererTruthReceipt = null;
   if (overlay.mesh?.parent) overlay.mesh.parent.remove(overlay.mesh);
   overlay.texture?.dispose?.();
   overlay.material?.dispose?.();
@@ -16429,7 +17945,10 @@ function updateEchoDirectorPreviewOverlay(screen = null, source = null, {
   elapsed = 0,
   bands = {},
   shadersEnabled = true,
-  lyricsEnabled = true
+  lyricsEnabled = true,
+  maxFps = 12,
+  apiBase = "",
+  stemSignalDecoder = null
 } = {}) {
   if (!screen || !source?.echoDirector || (!shadersEnabled && !lyricsEnabled)) {
     clearEchoDirectorPreviewOverlay(screen);
@@ -16437,21 +17956,132 @@ function updateEchoDirectorPreviewOverlay(screen = null, source = null, {
   }
   const overlay = ensureEchoDirectorPreviewOverlay(screen);
   if (!overlay?.ctx) return;
+  const drawAt = performance.now();
+  const boundedFps = Math.max(1, Math.min(12, Number(maxFps) || 12));
+  const quantizedTime = Math.floor(Number(source.echoProjectClock || 0) * boundedFps);
+  const graphBacked = Boolean(source.echoHasDirectorGraph || echoDirectorShowGraph(project)?.tracks);
+  const signature = [
+    source.echoShotIndex,
+    graphBacked ? source.echoDirectorGraphVariantId : "legacy",
+    graphBacked ? source.echoVisualizerSourceId : source.echoVisualizerTitle,
+    graphBacked ? source.echoVisualizerCard?.id : "",
+    graphBacked ? overlay.exactIsfHandoffState : "legacy",
+    graphBacked ? overlay.exactIsfGraphCacheKey : "legacy",
+    graphBacked ? overlay.exactIsfMediaState?.status : "legacy",
+    graphBacked ? Number(screen.video?.readyState || 0) : 0,
+    graphBacked ? Number(stemSignalDecoder?.getState?.().readyState || 0) : 0,
+    graphBacked ? stemSignalDecoder?.getState?.().contextState || "" : "",
+    graphBacked ? Number(Boolean(stemSignalDecoder?.getState?.().playbackBlocked)) : 0,
+    source.echoLyricLineIndex,
+    source.echoLyricWordIndex,
+    quantizedTime,
+    Math.round(Number(bands.energy || 0) * 12),
+    shadersEnabled ? 1 : 0,
+    lyricsEnabled ? 1 : 0,
+    source.pureIvf ? 1 : 0
+  ].join(":");
+  overlay.skippedUploads ||= 0;
+  overlay.uploads ||= 0;
+  overlay.cpuSamples ||= [];
+  if (signature === overlay.lastSignature || (overlay.lastDrawAt && drawAt - overlay.lastDrawAt < 1000 / boundedFps)) {
+    overlay.skippedUploads += 1;
+    return;
+  }
+  overlay.lastSignature = signature;
+  overlay.lastDrawAt = drawAt;
   const { canvas, ctx } = overlay;
   const width = canvas.width;
   const height = canvas.height;
   ctx.clearRect(0, 0, width, height);
-  if (shadersEnabled) drawEchoDirectorShaderOverlay(ctx, source, project, bands, elapsed, width, height);
+  if (shadersEnabled) {
+    if (graphBacked) {
+      const graph = echoDirectorShowGraph(project);
+      const clock = Number(source.echoProjectClock || 0);
+      const pool = ensureTarotExactIsfPlaybackPool(overlay, apiBase);
+      const graphCacheKey = invalidateTarotExactIsfPoolForGraph(overlay, pool, project);
+      const lookaheadCards = visualizerLookaheadCards(graph, clock, 3);
+      prewarmTarotExactIsfCards(overlay, pool, lookaheadCards, graphCacheKey);
+      const graphCard = source.echoVisualizerCard || visualizerCardAtTime(graph, clock) || lookaheadCards[0] || null;
+      const mediaInput = currentTarotExactIsfMedia(overlay, screen, source);
+      const masterFrame = masterSignalFrameFromDropZone(bands, songSnapshot);
+      const stemSelection = resolveVerifiedEchoStemBus(project, graphCard);
+      const stemSample = stemSignalDecoder?.sample?.({
+        selection: stemSelection,
+        clock: Number(source.echoProjectClock || songSnapshot.currentTime || 0),
+        playing: Boolean(songSnapshot.playing),
+      }) || {
+        frame: null,
+        receipt: {
+          requestedStem: stemSelection.requestedStem,
+          resolvedStem: "master",
+          truthStatus: "explicit-master-fallback",
+          reason: "stem-decoder-not-owned",
+          decoderCount: 0,
+        },
+      };
+      const signalFrames = { master: masterFrame };
+      if (stemSample.frame && stemSelection.requestedStem) signalFrames[stemSelection.requestedStem] = stemSample.frame;
+      drawTarotExactIsfOverlay(overlay, source, graphCard, bands, elapsed, mediaInput.element, apiBase, {
+        pool,
+        lookaheadCards,
+        graphCacheKey,
+        mediaIdentity: mediaInput.identity,
+        mediaReceipt: mediaInput.receipt,
+        signalFrames,
+        stemReceipt: stemSample.receipt,
+      });
+    } else {
+      // Legacy approximation is intentionally limited to old projects with no Director graph.
+      const rendererTruth = drawEchoDirectorShaderOverlay(ctx, source, project, bands, elapsed, width, height);
+      overlay.rendererTruth = rendererTruth?.truth || null;
+      overlay.rendererTruthReceipt = rendererTruth?.receipt || null;
+      if (rendererTruth) {
+        overlay.exactIsfFrameReceipts.push({
+          schemaVersion: "hapa.echo-tarot.legacy-renderer-frame-receipt.v1",
+          status: rendererTruth.truth.status,
+          timestampSeconds: Number(source.echoProjectClock ?? elapsed ?? 0),
+          rendererTruth: rendererTruth.truth,
+          rendererTruthReceipt: rendererTruth.receipt,
+        });
+        if (overlay.exactIsfFrameReceipts.length > ECHO_ISF_DIAGNOSTIC_RECEIPT_LIMIT) {
+          overlay.exactIsfFrameReceipts.splice(0, overlay.exactIsfFrameReceipts.length - ECHO_ISF_DIAGNOSTIC_RECEIPT_LIMIT);
+        }
+      }
+    }
+  }
   if (lyricsEnabled) drawEchoDirectorLyricOverlay(ctx, source, project, songSnapshot, width, height);
   overlay.texture.needsUpdate = true;
+  overlay.uploads += 1;
+  overlay.cpuSamples.push(performance.now() - drawAt);
+  if (overlay.cpuSamples.length > 600) overlay.cpuSamples.splice(0, overlay.cpuSamples.length - 600);
   overlay.mesh.visible = true;
-  overlay.material.opacity = 0.98 * echoDirectorTransitionOpacityForSource(source);
+  overlay.material.opacity = graphBacked ? 0.98 : 0.98 * echoDirectorTransitionOpacityForSource(source);
 }
 
 function drawEchoDirectorShaderOverlay(ctx, source = {}, project = null, bands = {}, elapsed = 0, width = ECHO_DIRECTOR_OVERLAY_WIDTH, height = ECHO_DIRECTOR_OVERLAY_HEIGHT) {
   const title = source.echoVisualizerTitle || "";
-  if (!title || /^none$/i.test(title)) return;
-  const mode = echoDirectorShaderMode(title);
+  if (!title || /^none$/i.test(title)) return null;
+  const rendererTruth = tarotLegacyRendererTruth(source);
+  const mode = rendererTruth.approximation.mode;
+  if (!mode) {
+    ctx.save();
+    ctx.fillStyle = "rgba(2,6,23,.9)";
+    ctx.fillRect(0, 0, width, height);
+    ctx.strokeStyle = "rgba(248,113,113,.76)";
+    ctx.lineWidth = 3;
+    ctx.strokeRect(24, 24, width - 48, height - 48);
+    ctx.fillStyle = "#fecaca";
+    ctx.font = "800 21px monospace";
+    ctx.fillText("UNSUPPORTED LEGACY VISUALIZER", 48, 82);
+    ctx.fillStyle = "#cbd5e1";
+    ctx.font = "15px monospace";
+    ctx.fillText(String(rendererTruth.truth.requested.id || "missing-id").slice(0, 72), 48, 112);
+    ctx.fillText(String(rendererTruth.truth.reason || "legacy-title-and-id-not-recognized").slice(0, 72), 48, 140);
+    ctx.fillText("No generic shader substitute was rendered.", 48, 168);
+    ctx.restore();
+    drawTarotRendererTruthBadge(ctx, rendererTruth.truth, width);
+    return rendererTruth;
+  }
   const energy = THREE.MathUtils.clamp(Number(bands.energy ?? bands.rms ?? 0.18), 0.08, 1);
   const low = THREE.MathUtils.clamp(Number(bands.low ?? energy * 0.85), 0, 1);
   const mid = THREE.MathUtils.clamp(Number(bands.mid ?? energy * 0.72), 0, 1);
@@ -16545,19 +18175,8 @@ function drawEchoDirectorShaderOverlay(ctx, source = {}, project = null, bands =
     }
   }
   ctx.restore();
-}
-
-function echoDirectorShaderMode(title = "") {
-  const text = String(title || "").toLowerCase();
-  if (text.includes("matrix") || text.includes("rain") || text.includes("code")) return "matrix-rain";
-  if (text.includes("ascii") || text.includes("terminal") || text.includes("scanline") || text.includes("glitch")) return "ascii-art";
-  if (text.includes("horizon") || text.includes("waveform") || text.includes("linescape") || text.includes("wave")) return "waveform-horizon";
-  if (text.includes("grid") || text.includes("pulse") || text.includes("beat") || text.includes("cell") || text.includes("circuit")) return "beat-grid-pulse";
-  if (text.includes("particle") || text.includes("storm") || text.includes("star") || text.includes("dust") || text.includes("flots")) return "particle-storm";
-  if (text.includes("warp") || text.includes("hyperspace") || text.includes("tunnel") || text.includes("streak")) return "starfield-warp";
-  if (text.includes("cymatic") || text.includes("ring") || text.includes("circle") || text.includes("orb") || text.includes("vortex")) return "cymatic-rings";
-  if (text.includes("kaleido") || text.includes("bloom") || text.includes("flower") || text.includes("mandala") || text.includes("fractal")) return "kaleido-bloom";
-  return "spectrum-nebula";
+  drawTarotRendererTruthBadge(ctx, rendererTruth.truth, width);
+  return rendererTruth;
 }
 
 function drawEchoDirectorLyricOverlay(ctx, source = {}, project = null, songSnapshot = {}, width = ECHO_DIRECTOR_OVERLAY_WIDTH, height = ECHO_DIRECTOR_OVERLAY_HEIGHT) {
@@ -16635,9 +18254,7 @@ function echoDirectorLyricLineForClock(project = null, songSnapshot = {}, clock 
   if (!sourceLines.length) return null;
   const duration = Number(project?.duration || songSnapshot.duration || sourceLines.at(-1)?.end || 0);
   const wrappedClock = duration > 0 ? clock % duration : clock;
-  return sourceLines.find((line) => wrappedClock >= Number(line.start || 0) && wrappedClock < Number(line.end || Infinity)) ||
-    sourceLines.findLast?.((line) => wrappedClock >= Number(line.start || 0)) ||
-    sourceLines[0];
+  return sourceLines.find((line) => wrappedClock >= Number(line.start || 0) && wrappedClock < Number(line.end || 0) + .15) || null;
 }
 
 function echoDirectorLyricTheme(style = "neon-cyan") {
@@ -16901,7 +18518,8 @@ function resizeDropZonePreviewScreen(mesh, aspect) {
 }
 
 function dropZoneVideoSourceKey(source = {}) {
-  return source?.sourceUri || source?.originalUri || source?.uri || source?.videoUri || source?.id || "";
+  const value = source?.sourceUri || source?.originalUri || source?.uri || source?.videoUri || source?.id || "";
+  return canonicalEchoAssetKey(value);
 }
 
 function dropZonePreviewAspectForSource(source = {}, fallbackAspect = DROP_PREVIEW_SCREEN_ASPECT) {
@@ -17179,12 +18797,14 @@ function dropZoneVideoSources(card = {}, { preferBackgroundless = false, allowBa
       label: card.title || "Card loop",
       backgroundless: card.backgroundless || card.videoBackgroundless || null,
       hasAlpha: Boolean(card.hasAlpha),
-      cutoutMode: card.hasAlpha ? "backgroundless" : "solid"
+      cutoutMode: card.hasAlpha ? "backgroundless" : "solid",
+      cardType: card.cardType
     } : null
   ], card.posterUri || "", { allowBackgroundless });
-  return preferBackgroundless && allowBackgroundless
+  const mapped = preferBackgroundless && allowBackgroundless
     ? prioritizeMiddlePreviewSources(sources).map(preferBackgroundlessPreviewSource)
     : sources;
+  return mapped.map((s) => ({ ...s, cardType: card.cardType || s.cardType }));
 }
 
 function createDropZoneMediaPool(sources = [], options = {}) {
@@ -17259,7 +18879,7 @@ function primeDropZonePreviewBuffer(preview) {
     if (source.posterUri) video.poster = source.posterUri;
     else video.removeAttribute("poster");
     video.src = source.uri;
-    video.preload = "metadata";
+    video.preload = "auto";
     video.load();
   });
 }
@@ -17270,8 +18890,97 @@ function createDropZoneVideoElement() {
   video.muted = true;
   video.loop = true;
   video.playsInline = true;
-  video.preload = "metadata";
+  video.preload = "auto";
   return video;
+}
+
+function claimEchoDirectorPrewarmVideo(prewarmedVideos, source = null) {
+  if (!(prewarmedVideos instanceof Map) || !source?.uri) return null;
+  const key = resolveTarotPreviewUri(source.uri);
+  const video = prewarmedVideos.get(key);
+  if (!video || video.readyState < 2) return null;
+  prewarmedVideos.delete(key);
+  video.dataset.sourceKey = dropZoneVideoSourceKey(source);
+  video.dataset.echoShotIndex = String(source.echoShotIndex || 0);
+  video.dataset.echoLookahead = "0";
+  video.dataset.firstFrameReady = "true";
+  video.dataset.requestState = "ready";
+  video.dataset.requestStartedAt = String(performance.now());
+  video.dataset.firstFrameLatencyMs = "0";
+  return video;
+}
+
+function releaseEchoDirectorPlayerSlot(video) {
+  if (!video) return;
+  if (video._echoFirstFrameHandler) {
+    video.removeEventListener("loadeddata", video._echoFirstFrameHandler);
+    video._echoFirstFrameHandler = null;
+  }
+  video.pause();
+  video.removeAttribute("src");
+  video.removeAttribute("poster");
+  video.load();
+  delete video.dataset.sourceKey;
+  delete video.dataset.echoShotIndex;
+  delete video.dataset.echoLookahead;
+  delete video.dataset.firstFrameReady;
+  delete video.dataset.requestState;
+  delete video.dataset.requestStartedAt;
+  delete video.dataset.firstFrameLatencyMs;
+  delete video.dataset.echoPrewarmReady;
+  delete video.dataset.echoPrewarmStartedAt;
+  delete video.dataset.echoPrewarmLatencyMs;
+}
+
+function configureEchoDirectorPlayerSlot(video, lease, source) {
+  if (!video || !lease || !source?.uri) return;
+  const sourceKey = dropZoneVideoSourceKey(source);
+  if (video.dataset.sourceKey === sourceKey) {
+    video.dataset.echoShotIndex = String(lease.shotIndex);
+    video.dataset.echoLookahead = String(lease.lookahead);
+    return;
+  }
+  releaseEchoDirectorPlayerSlot(video);
+  video.dataset.sourceKey = sourceKey;
+  video.dataset.echoShotIndex = String(lease.shotIndex);
+  video.dataset.echoLookahead = String(lease.lookahead);
+  video.dataset.firstFrameReady = "false";
+  video.dataset.requestState = "active";
+  video.dataset.requestStartedAt = String(performance.now());
+  delete video.dataset.firstFrameLatencyMs;
+  if (source.posterUri) video.poster = source.posterUri;
+  video.preload = "auto";
+  video.src = source.uri;
+  const handleFirstFrame = () => {
+    video._echoFirstFrameHandler = null;
+    video.dataset.firstFrameReady = "true";
+    video.dataset.requestState = "ready";
+    video.dataset.firstFrameLatencyMs = String(Math.max(0, performance.now() - Number(video.dataset.requestStartedAt || performance.now())));
+  };
+  video._echoFirstFrameHandler = handleFirstFrame;
+  video.addEventListener("loadeddata", handleFirstFrame, { once: true });
+  video.load();
+}
+
+function primeEchoDirectorPlayerPool(videos = [], project = null, currentSource = null, activeVideo = null) {
+  if (!Array.isArray(videos) || !project || !currentSource?.echoDirector) return [];
+  const planned = planEchoPlayerLeases(project, currentSource.echoShotIndex, ECHO_PLAYER_POOL_LIMIT)
+    .map((lease) => {
+      const source = echoDirectorTimelineSourceAtTime(project, lease.startSeconds + 0.001);
+      return source?.uri ? { ...lease, assetKey: dropZoneVideoSourceKey(source), source } : null;
+    })
+    .filter(Boolean);
+  const protectedSlotIndex = videos.indexOf(activeVideo);
+  const reconciliation = reconcileEchoPlayerSlots(
+    videos.map((video) => ({ key: video.dataset.sourceKey || "" })),
+    planned,
+    protectedSlotIndex
+  );
+  reconciliation.assignments.forEach(({ slotIndex, lease }) => {
+    configureEchoDirectorPlayerSlot(videos[slotIndex], lease, lease.source);
+  });
+  reconciliation.unassignedSlotIndices.forEach((slotIndex) => releaseEchoDirectorPlayerSlot(videos[slotIndex]));
+  return reconciliation.assignments;
 }
 
 let videoMaskFallbackTextureInstance = null;
@@ -18021,14 +19730,112 @@ function disposeDockBackgroundPlayer(player) {
   texture?.dispose?.();
 }
 
-function setDropZoneScreenSource(screen, source, { sourceIndex = screen.sourceIndex || 0, playing = false, seekOffset = 0 } = {}) {
-  if (!screen?.video || !source?.uri) return;
-  const video = screen.video;
-  video.pause();
+function pairDropZoneScreenVideoTexture(screen, nextVideo) {
+  if (!screen?.material || !nextVideo || screen.video === nextVideo) return;
+  const previousTexture = screen.texture;
+  const texture = new THREE.VideoTexture(nextVideo);
+  texture.colorSpace = previousTexture?.colorSpace || THREE.SRGBColorSpace;
+  texture.minFilter = previousTexture?.minFilter || THREE.LinearFilter;
+  texture.magFilter = previousTexture?.magFilter || THREE.LinearFilter;
+  texture.generateMipmaps = false;
+  screen.video = nextVideo;
+  screen.texture = texture;
+  screen.material.map = texture;
+  screen.material.needsUpdate = true;
+  previousTexture?.dispose?.();
+}
+
+function setDropZoneScreenSource(screen, source, { sourceIndex = screen.sourceIndex || 0, playing = false, seekOffset = 0, preview = null, echoProjectPreloadVideos = null } = {}) {
+  if (!screen?.video) return;
+  let video = screen.video;
+  const isCreatorVideo = source?.cardType === "creator_content_card";
+  const isCenter = isCenterPreviewScreen(screen);
+
+  if (isCreatorVideo && !isCenter) {
+    video.pause();
+    if (source.posterUri) video.poster = source.posterUri;
+    else video.removeAttribute("poster");
+    video.src = "";
+    video.load();
+    screen.source = { ...source, uri: "" };
+    screen.sourceIndex = sourceIndex;
+    return;
+  }
+
+  if (!source?.uri) return;
+
+  let isSwapped = false;
+  const targetKey = dropZoneVideoSourceKey(source);
+
+  if (Array.isArray(echoProjectPreloadVideos)) {
+    const bufferIndex = echoProjectPreloadVideos.findIndex((v) => {
+      const k = v.dataset.sourceKey;
+      return k === targetKey || dropZoneVideoSourceKey({ uri: k }) === targetKey;
+    });
+    if (bufferIndex >= 0) {
+      const preloadedVideo = echoProjectPreloadVideos[bufferIndex];
+      if (preloadedVideo.readyState < 2) {
+        const pending = screen._pendingEchoReady;
+        if (pending?.key !== targetKey || pending.video !== preloadedVideo) {
+          if (pending) pending.video.removeEventListener("loadeddata", pending.handler);
+          const handler = () => {
+            if (screen._pendingEchoReady?.handler !== handler || preloadedVideo.dataset.sourceKey !== targetKey) return;
+            screen._pendingEchoReady = null;
+            setDropZoneScreenSource(screen, source, { sourceIndex, playing, seekOffset, preview, echoProjectPreloadVideos });
+          };
+          screen._pendingEchoReady = { key: targetKey, video: preloadedVideo, handler };
+          preloadedVideo.addEventListener("loadeddata", handler, { once: true });
+        }
+        return false;
+      }
+      if (screen._pendingEchoReady) {
+        screen._pendingEchoReady.video.removeEventListener("loadeddata", screen._pendingEchoReady.handler);
+        screen._pendingEchoReady = null;
+      }
+      preloadedVideo.pause();
+      if (video !== preloadedVideo) video.pause();
+
+      pairDropZoneScreenVideoTexture(screen, preloadedVideo);
+
+      if (video !== preloadedVideo && !echoProjectPreloadVideos.includes(video)) {
+        const inBuffer = preview && Array.isArray(preview.bufferVideos) && preview.bufferVideos.includes(video);
+        if (!inBuffer) {
+          video.pause();
+          video.removeAttribute("src");
+          video.load();
+        }
+      }
+
+      video = preloadedVideo;
+      isSwapped = true;
+    }
+  }
+
+  if (!isSwapped && preview && Array.isArray(preview.bufferVideos)) {
+    const bufferIndex = preview.bufferVideos.findIndex((v) => v.dataset.sourceKey === targetKey);
+    if (bufferIndex >= 0) {
+      const preloadedVideo = preview.bufferVideos[bufferIndex];
+      preloadedVideo.pause();
+
+      pairDropZoneScreenVideoTexture(screen, preloadedVideo);
+
+      preview.bufferVideos[bufferIndex] = video;
+      delete video.dataset.sourceKey;
+
+      video = preloadedVideo;
+      isSwapped = true;
+    }
+  }
+
   if (source.posterUri) video.poster = source.posterUri;
   else video.removeAttribute("poster");
   screen.source = source;
   screen.sourceIndex = sourceIndex;
+
+  if (source.echoDirector && screen.mesh?.userData) {
+    screen.mesh.userData.echoPreviewOpacity = 0;
+  }
+
   setVideoMaterialSourceAlpha(screen.material, false);
   const targetAspect = dropZonePreviewAspectForSource(source, screen.mesh?.userData?.previewAspect || DROP_PREVIEW_SCREEN_ASPECT);
   if (screen.mesh && Math.abs((screen.mesh.userData.previewAspect || 0) - targetAspect) > 0.01) {
@@ -18042,9 +19849,28 @@ function setDropZoneScreenSource(screen, source, { sourceIndex = screen.sourceIn
   }
   screen.loadToken = (screen.loadToken || 0) + 1;
   const token = screen.loadToken;
-  video.src = source.uri;
-  video.load();
-  video.addEventListener("loadedmetadata", () => {
+
+  if (screen._onSeeked) {
+    video.removeEventListener("seeked", screen._onSeeked);
+    screen._onSeeked = null;
+  }
+  if (video._onSeeked) {
+    video.removeEventListener("seeked", video._onSeeked);
+    video._onSeeked = null;
+  }
+  if (video._onMetadata) {
+    video.removeEventListener("loadedmetadata", video._onMetadata);
+    video._onMetadata = null;
+  }
+
+  if (!isSwapped) {
+    video.pause();
+    video.src = source.uri;
+    video.load();
+  }
+
+  const onMetadataLoaded = () => {
+    video._onMetadata = null;
     if (screen.loadToken !== token) return;
     if (video.videoWidth && video.videoHeight) {
       const aspect = dropZonePreviewAspectForSource(source, video.videoWidth / video.videoHeight);
@@ -18052,19 +19878,46 @@ function setDropZoneScreenSource(screen, source, { sourceIndex = screen.sourceIn
       if (source.echoDirector) applyEchoDirectorCameraMotionToScreen(screen, source);
     }
     const duration = Number(video.duration);
-    if (duration > 0.8) {
+    const hasSeek = duration > 0.8 && seekOffset > 0;
+
+    if (hasSeek) {
+      const handleSeeked = () => {
+        if (screen.loadToken !== token) return;
+        if (screen.mesh?.userData) screen.mesh.userData.echoPreviewOpacity = 1;
+        video.removeEventListener("seeked", handleSeeked);
+        if (video._onSeeked === handleSeeked) video._onSeeked = null;
+        if (screen._onSeeked === handleSeeked) screen._onSeeked = null;
+      };
+      screen._onSeeked = handleSeeked;
+      video._onSeeked = handleSeeked;
+      video.addEventListener("seeked", handleSeeked);
+
       try {
         video.currentTime = Math.min(Math.max(0, seekOffset), Math.max(0, duration - 0.25));
       } catch {
-        // Some browser media backends reject early seeks until the first playable frame.
+        if (screen.mesh?.userData) screen.mesh.userData.echoPreviewOpacity = 1;
+        video.removeEventListener("seeked", handleSeeked);
+        if (video._onSeeked === handleSeeked) video._onSeeked = null;
+        if (screen._onSeeked === handleSeeked) screen._onSeeked = null;
       }
+    } else {
+      if (screen.mesh?.userData) screen.mesh.userData.echoPreviewOpacity = 1;
     }
+
     if (playing) video.play().catch(() => {});
-  }, { once: true });
+  };
+
+  video._onMetadata = onMetadataLoaded;
+  if (video.readyState >= 1) {
+    onMetadataLoaded();
+  } else {
+    video.addEventListener("loadedmetadata", onMetadataLoaded, { once: true });
+  }
   if (playing) video.play().catch(() => {});
+  return true;
 }
 
-function createDropZonePreviewScreen(spec, index, sources) {
+function createDropZonePreviewScreen(spec, index, sources, options = {}) {
   const sourceIndex = sources.length ? index % sources.length : 0;
   const source = sources[sourceIndex];
   const video = createDropZoneVideoElement();
@@ -18112,7 +19965,13 @@ function createDropZonePreviewScreen(spec, index, sources) {
     loadToken: 0
   };
   mesh.userData.previewScreenRef = screen;
-  if (source) setDropZoneScreenSource(screen, source, { sourceIndex, seekOffset: index * 0.72 });
+  if (source) {
+    setDropZoneScreenSource(screen, source, {
+      sourceIndex,
+      seekOffset: index * 0.72,
+      echoProjectPreloadVideos: options.echoProjectPreloadVideos
+    });
+  }
   return screen;
 }
 
@@ -18265,7 +20124,7 @@ function updateDropZonePreviewCardGeometry(rig, dimensions) {
   }
 }
 
-function updateDropZonePreviewScreens(preview, elapsed, shouldPlay) {
+function updateDropZonePreviewScreens(preview, elapsed, shouldPlay, echoProjectPreloadVideos = null) {
   const screens = preview?.screens || [];
   const sources = preview?.sources || [];
   const centerSources = preview?.centerSources || [];
@@ -18289,7 +20148,9 @@ function updateDropZonePreviewScreens(preview, elapsed, shouldPlay) {
     setDropZoneScreenSource(screen, nextSource || activeSources[nextIndex], {
       sourceIndex: nextIndex,
       playing: shouldPlay && screen.index < DROP_PREVIEW_ACTIVE_SCREEN_LIMIT,
-      seekOffset: (elapsed * 0.37 + screen.index * 0.91) % 5
+      seekOffset: (elapsed * 0.37 + screen.index * 0.91) % 5,
+      preview,
+      echoProjectPreloadVideos
     });
   });
   primeDropZonePreviewBuffer(preview);
@@ -18351,6 +20212,10 @@ function updateDropZonePreviewOpacity(preview, appear = 1, pulse = 0) {
 
 function disposeDropZonePreview(preview) {
   (preview?.screens || []).forEach((screen) => {
+    if (screen?._pendingEchoReady) {
+      screen._pendingEchoReady.video.removeEventListener("loadeddata", screen._pendingEchoReady.handler);
+      screen._pendingEchoReady = null;
+    }
     disposeEchoDirectorPreviewOverlay(screen);
     disposeVideoEdgeMatte(screen?.matte);
     if (!screen?.video) return;
@@ -18428,7 +20293,7 @@ function createDropZonePreviewFromSources(rawSources = [], song = null, options 
 
   const screens = panelSpecs
     .slice(0, DROP_PREVIEW_PANEL_LIMIT)
-    .map((spec, index) => createDropZonePreviewScreen(spec, index, sources));
+    .map((spec, index) => createDropZonePreviewScreen(spec, index, sources, options));
   screens.forEach((screen) => root.add(screen.rig || screen.mesh));
 
   if (song) root.add(createDropZoneSongVisualizer(song));
@@ -18453,7 +20318,7 @@ function createDropZonePreviewFromSources(rawSources = [], song = null, options 
   return preview;
 }
 
-function setDropZonePreviewSources(preview, sources = [], { resetScreens = false, allowBackgroundless = false } = {}) {
+function setDropZonePreviewSources(preview, sources = [], { resetScreens = false, allowBackgroundless = false, echoProjectPreloadVideos = null } = {}) {
   if (!preview) return;
   const solidOnly = MIDDLE_PREVIEW_ALLOW_BACKGROUNDLESS;
   const nextSources = uniqueDropZoneVideoSources(sources, "", { allowBackgroundless: solidOnly });
@@ -18469,7 +20334,9 @@ function setDropZonePreviewSources(preview, sources = [], { resetScreens = false
         setDropZoneScreenSource(screen, source, {
           sourceIndex: Math.max(0, nextSources.findIndex((candidate) => dropZoneVideoSourceKey(candidate) === dropZoneVideoSourceKey(source))),
           playing: false,
-          seekOffset: index * 0.72
+          seekOffset: index * 0.72,
+          preview,
+          echoProjectPreloadVideos
         });
       }
     });
@@ -18477,7 +20344,7 @@ function setDropZonePreviewSources(preview, sources = [], { resetScreens = false
   primeDropZonePreviewBuffer(preview);
 }
 
-function setDropZoneCenterPrioritySources(preview, sources = [], { force = false, playing = false, allowBackgroundless = false } = {}) {
+function setDropZoneCenterPrioritySources(preview, sources = [], { force = false, playing = false, allowBackgroundless = false, echoProjectPreloadVideos = null } = {}) {
   if (!preview) return;
   const solidOnly = MIDDLE_PREVIEW_ALLOW_BACKGROUNDLESS;
   const centerSources = uniqueDropZoneVideoSources(sources, "", { allowBackgroundless: solidOnly });
@@ -18492,7 +20359,9 @@ function setDropZoneCenterPrioritySources(preview, sources = [], { force = false
         setDropZoneScreenSource(centerScreen, fallback, {
           sourceIndex: Math.max(0, preview.sources.findIndex((source) => dropZoneVideoSourceKey(source) === dropZoneVideoSourceKey(fallback))),
           playing,
-          seekOffset: centerScreen.index * 0.72
+          seekOffset: centerScreen.index * 0.72,
+          preview,
+          echoProjectPreloadVideos
         });
       }
     }
@@ -18510,10 +20379,23 @@ function setDropZoneCenterPrioritySources(preview, sources = [], { force = false
     setDropZoneScreenSource(centerScreen, source, {
       sourceIndex: 0,
       playing,
-      seekOffset: Number.isFinite(Number(source.seekOffset)) ? Number(source.seekOffset) : 0
+      seekOffset: Number.isFinite(Number(source.seekOffset)) ? Number(source.seekOffset) : 0,
+      preview,
+      echoProjectPreloadVideos
     });
-  } else if (force && playing) {
-    centerScreen.video?.play?.().catch(() => {});
+  } else {
+    if (source.echoDirector && centerScreen.video) {
+      const video = centerScreen.video;
+      const targetSeek = Number.isFinite(Number(source.seekOffset)) ? Number(source.seekOffset) : 0;
+      if (Math.abs(video.currentTime - targetSeek) > 0.5) {
+        try {
+          video.currentTime = targetSeek;
+        } catch {}
+      }
+    }
+    if (force && playing) {
+      centerScreen.video?.play?.().catch(() => {});
+    }
   }
 }
 
@@ -20050,12 +21932,12 @@ function createCustomCardBackTexture(backItem) {
       // Clear and draw the loaded image
       ctx.clearRect(0, 0, 512, 768);
       ctx.drawImage(img, 0, 0, 512, 768);
-      
+
       // Re-overlay a border with the accent color
       ctx.strokeStyle = backItem.accent || "#00f3ff";
       ctx.lineWidth = 8;
       ctx.strokeRect(16, 16, 480, 736);
-      
+
       texture.needsUpdate = true;
     };
     img.src = backItem.imageUri;
@@ -20582,6 +22464,12 @@ function splitLyricCrawlTextChunks(text = "") {
 
 function repairLyricCrawlTimeline(lines = [], duration = 0, { preserveTiming = false } = {}) {
   if (!lines.length) return [];
+  if (preserveTiming) {
+    return lines
+      .map((line, index) => ({ ...line, index, start: Number(Math.max(0, Number(line.start || 0)).toFixed(3)), end: Number(Math.max(Number(line.start || 0), Number(line.end || line.start || 0)).toFixed(3)) }))
+      .filter((line) => line.end > line.start)
+      .sort((a, b) => a.start - b.start || a.index - b.index);
+  }
   const repaired = lines
     .map((line, index) => ({
       ...line,

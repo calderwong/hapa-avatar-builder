@@ -5,6 +5,8 @@ data/*.runtime.json
 coverage/
 logs/
 artifacts/
+outputs/
+work/
 
 # Local-first runtime data. Keep these on disk, but do not publish them as repo source.
 data/**

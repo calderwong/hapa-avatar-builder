@@ -50,6 +50,13 @@ import {
   ZoomOut
 } from "lucide-react";
 import CreatorCardSetsView from "./components/CreatorCardSetsView.jsx";
+import { builderPickupDataset } from "./overcard/pickup.js";
+import { BUILDER_HOST_TARGETS, getBuilderHostTarget, getBuilderOvercardManagementTarget, resolveBuilderHostAlias } from "./overcard/hostTargets.js";
+import BuilderMenuHostTab from "./overcard/BuilderMenuHostTab.jsx";
+import { useOvercardAttachments } from "@hapa/overcard/react";
+import { resolveBuilderViewContext } from "./overcard/viewContext.js";
+import { resolveTarotAttachmentContext } from "./overcard/tarotFormationAdapter.js";
+import BuilderHeaderHand from "./overcard/BuilderHeaderHand.jsx";
 import dearPapaSongbook from "../data/dear-papa-songbook.json";
 import hapaSongsStoreSeed from "../data/hapa-songs-store.json";
 import balladOfBellaPacket from "../data/ballad-of-bella/ballad-of-bella-packet.json";
@@ -196,6 +203,7 @@ import TarotLibraryView, {
   tarotTitleFromAsset
 } from "./components/TarotLibraryView.jsx";
 import HellWeekView from "./components/HellWeekView.jsx";
+import SongCardMintPanel from "./components/SongCardMintPanel.jsx";
 
 const ThreeAvatarViewer = lazy(() => import("./components/ThreeAvatarViewer.jsx"));
 const TarotDraw3DView = lazy(() => import("./components/TarotDraw3DView.jsx"));
@@ -208,34 +216,21 @@ const EMPTY_TAROT_DRAW_PROJECTION = {
   state: "queued"
 };
 
-const INITIAL_VIEW_ALIASES = new Map([
-  ["builder", "builder"],
-  ["mind", "mind"],
-  ["scenes", "scenes"],
-  ["items", "items"],
-  ["loops", "loops"],
-  ["lookbook", "lookbook"],
-  ["lore", "lore"],
-  ["songs", "songs"],
-  ["echos", "echos"],
-  ["kanban", "kanban"],
-  ["protocol", "protocol"],
-  ["avatar-card", "protocol"],
-  ["tarot-library", "tarot-library"],
-  ["tarot", "tarot"],
-  ["tarot-draw", "tarot"]
-]);
-
 function initialAvatarBuilderView() {
   try {
     const view = new URLSearchParams(globalThis.location?.search || "").get("view") || "";
-    return INITIAL_VIEW_ALIASES.get(view.trim().toLowerCase()) || "builder";
+    return resolveBuilderHostAlias(view, "builder");
   } catch {
     return "builder";
   }
 }
 
 const electronApiBase = globalThis.window?.hapaAvatarBuilder?.apiBase;
+const BUILDER_HOST_ICONS = {
+  grid: Grid3X3, brain: Brain, scenes: Clapperboard, items: Box, loops: Route, lookbook: BookOpen,
+  lore: Archive, songs: Music, echos: Sparkles, kanban: KanbanSquare, "avatar-card": BadgeCheck,
+  bank: CreditCard, "tarot-library": Tags, "hell-week": Flame, "tarot-draw": Sparkles, "creator-sets": Users,
+};
 const API_BASE = electronApiBase || (["5177", "5178"].includes(globalThis.location?.port) ? "http://127.0.0.1:8787" : "");
 const songRegistryApiBase = globalThis.window?.hapaAvatarBuilder?.songRegistryApiBase;
 const SONG_REGISTRY_API_BASE = songRegistryApiBase || "http://127.0.0.1:8798";
@@ -549,7 +544,7 @@ function createDisplayMindPack(avatar) {
   };
 }
 
-export default function App() {
+export default function App({ overcardAdapter }) {
   if (globalThis.location?.pathname === "/phone-card") {
     return (
       <Suspense fallback={<div className="empty-state"><Loader2 size={22} /><span>Loading Phone Card</span></div>}>
@@ -606,6 +601,8 @@ export default function App() {
   const [lookBookPage, setLookBookPage] = useState(0);
   const [lookBookReader, setLookBookReader] = useState(false);
   const [routePending, setRoutePending] = useState(false);
+  const [creatorContextSetId, setCreatorContextSetId] = useState(null);
+  const [viewContextStatus, setViewContextStatus] = useState(null);
   const [avatarCardMenuOpen, setAvatarCardMenuOpen] = useState(false);
   const [attachPack, setAttachPack] = useState(null);
   const [sceneAttachPack, setSceneAttachPack] = useState(null);
@@ -619,11 +616,26 @@ export default function App() {
   const tarotPersistTimer = useRef(0);
   const teamsPersistTimer = useRef(0);
   const routeTimer = useRef(0);
+  const viewContextPreviousRef = useRef(new Map());
   const inspectorRef = useRef(null);
   const avatarDetailRequestRef = useRef(0);
+  const echoDirectorPrewarmVideosRef = useRef(new Map());
+
+  useEffect(() => {
+    const restoreRoute = () => {
+      const route = new URLSearchParams(globalThis.location?.search || "").get("view") || "builder";
+      setActiveView(resolveBuilderHostAlias(route, "builder"));
+    };
+    globalThis.addEventListener?.("popstate", restoreRoute);
+    return () => globalThis.removeEventListener?.("popstate", restoreRoute);
+  }, []);
+  const echoDirectorProjectCacheRef = useRef(new Map());
+  const overcardAttachments = useOvercardAttachments();
 
   const resolveEchoDirectorProject = useCallback(async (songId) => {
     if (!songId) return null;
+    const cached = echoDirectorProjectCacheRef.current.get(songId);
+    if (cached) return Promise.resolve(cached);
     const path = `/api/echos/director-project?songId=${encodeURIComponent(songId)}`;
     const bases = [...new Set([
       API_BASE,
@@ -636,13 +648,60 @@ export default function App() {
         const response = await fetch(`${base}${path}`);
         if (!response.ok) continue;
         const payload = await response.json();
-        return payload?.music_video_project || payload?.project?.music_video_project || payload || null;
+        const project = payload?.music_video_project || payload?.project?.music_video_project || payload || null;
+        if (project) echoDirectorProjectCacheRef.current.set(songId, project);
+        return project;
       } catch {
         // Try the next local origin; Electron shells may load UI and API from different loopback ports.
       }
     }
     return null;
   }, []);
+
+  useEffect(() => {
+    const prewarmVideos = echoDirectorPrewarmVideosRef.current;
+    let disposed = false;
+    ["dear-papa-song-dear-papa", "dear-papa-song-catch-the-rabbit"].forEach((songId) => {
+      resolveEchoDirectorProject(songId).then((project) => {
+        const firstShot = project?.timeline?.find((shot) => shot?.media_id !== "none" && (shot?.media_contract?.runtimeUri || shot?.runtime_media_uri || shot?.media_uri));
+        const uri = firstShot?.media_contract?.runtimeUri || firstShot?.runtime_media_uri || firstShot?.media_uri || "";
+        if (!uri || typeof document === "undefined") return;
+        const key = new URL(uri, globalThis.location?.origin || "http://127.0.0.1").href;
+        if (prewarmVideos.has(key)) return;
+        const video = document.createElement("video");
+        video.muted = true;
+        video.playsInline = true;
+        video.preload = "auto";
+        video.dataset.echoPrewarmStartedAt = String(performance.now());
+        const release = () => {
+          video.pause();
+          video.removeAttribute("src");
+          video.load();
+        };
+        video.addEventListener("loadeddata", () => {
+          if (disposed) {
+            release();
+            return;
+          }
+          video.dataset.echoPrewarmReady = "true";
+          video.dataset.echoPrewarmLatencyMs = String(Math.max(0, performance.now() - Number(video.dataset.echoPrewarmStartedAt || performance.now())));
+          prewarmVideos.set(key, video);
+        }, { once: true });
+        video.addEventListener("error", release, { once: true });
+        video.src = uri;
+        video.load();
+      }).catch(() => {});
+    });
+    return () => {
+      disposed = true;
+      prewarmVideos.forEach((video) => {
+        video.pause();
+        video.removeAttribute("src");
+        video.load();
+      });
+      prewarmVideos.clear();
+    };
+  }, [resolveEchoDirectorProject]);
 
   const selectedAvatarRaw = avatars.find((avatar) => avatar.id === selectedAvatarId) || avatars[0];
   const selectedAvatar = useMemo(
@@ -772,9 +831,14 @@ export default function App() {
     () => normalizedInventoryStore.avatarInventories.find((inventory) => inventory.avatarId === selectedAvatar?.id) || null,
     [normalizedInventoryStore.avatarInventories, selectedAvatar?.id]
   );
+  const normalizedTarotStore = useMemo(() => normalizeTarotStore(tarotStore), [tarotStore]);
+  const tarotAttachmentContext = useMemo(
+    () => resolveTarotAttachmentContext(overcardAttachments, normalizedTarotStore),
+    [overcardAttachments, normalizedTarotStore]
+  );
   const tarotDrawHostAvatarRaw = useMemo(
-    () => avatars.find((avatar) => avatar.id === tarotDrawHostAvatarId) || selectedAvatarRaw || avatars[0] || null,
-    [avatars, tarotDrawHostAvatarId, selectedAvatarRaw]
+    () => avatars.find((avatar) => avatar.id === tarotAttachmentContext.hostAvatarId) || avatars.find((avatar) => avatar.id === tarotDrawHostAvatarId) || selectedAvatarRaw || avatars[0] || null,
+    [avatars, tarotAttachmentContext.hostAvatarId, tarotDrawHostAvatarId, selectedAvatarRaw]
   );
   const tarotDrawHostAvatar = useMemo(
     () => tarotDrawHostAvatarRaw ? normalizeOverwindAvatar(tarotDrawHostAvatarRaw) : null,
@@ -795,8 +859,9 @@ export default function App() {
     tarotDrawProjection.state === "refreshing"
   );
   const tarotDrawSceneLive = tarotDrawSceneArmed && tarotDrawProjectionReady;
-  const tarotDrawStageVisible = Boolean((isTarotDrawView && (tarotDrawHostAvatar || selectedAvatar)) || tarotDrawSceneLive);
+  const tarotDrawStageVisible = Boolean((isTarotDrawView && (tarotDrawHostAvatar || selectedAvatar)) || (tarotDrawSceneArmed && (tarotDrawHostAvatar || selectedAvatar)));
   const tarotDrawStageDocked = tarotDrawStageVisible && !isTarotDrawView;
+  const tarotDrawPlaybackMode = isTarotDrawView ? "active" : (tarotDrawSceneLive ? "docked" : "hidden");
   const avatarCardFocusActive = isProtocolView && !avatarCardMenuOpen;
   const appShellClasses = [
     "app-shell",
@@ -832,7 +897,6 @@ export default function App() {
     () => selectedScene?.assets.find((asset) => asset.id === selectedSceneAssetId) || null,
     [selectedScene, selectedSceneAssetId]
   );
-  const normalizedTarotStore = useMemo(() => normalizeTarotStore(tarotStore), [tarotStore]);
   const tarotSummary = useMemo(() => summarizeTarotStore(normalizedTarotStore), [normalizedTarotStore]);
   const tarotDashboard = useMemo(() => createTarotLibraryDashboard(normalizedTarotStore), [normalizedTarotStore]);
   const selectedTarotCollectionKind = tarotCollectionKind(selectedTarotDeckId);
@@ -888,6 +952,39 @@ export default function App() {
     [asset.name, asset.requirementId, ...(asset.tags || [])].join(" ").toLowerCase().includes(search.toLowerCase())
   ), [intake, search]
   );
+  const activeViewContext = useMemo(
+    () => resolveBuilderViewContext(activeView, Object.values(overcardAttachments)),
+    [activeView, overcardAttachments]
+  );
+
+  useEffect(() => {
+    const previous = viewContextPreviousRef.current.get(activeView);
+    if (!activeViewContext.attachments.length) {
+      if (previous) {
+        setSelectedAvatarId(previous.avatarId); setSelectedItemId(previous.itemId); setSelectedSceneId(previous.sceneId);
+        setSelectedLoopVideoId(previous.loopId); setSelectedHapaSongId(previous.songId); setSelectedTarotDeckId(previous.tarotDeckId);
+        setSelectedTarotCardId(previous.tarotCardId); setCreatorContextSetId(previous.creatorSetId);
+        viewContextPreviousRef.current.delete(activeView);
+      }
+      setViewContextStatus(null);
+      return;
+    }
+    if (!previous) viewContextPreviousRef.current.set(activeView, { avatarId: selectedAvatarId, itemId: selectedItemId, sceneId: selectedSceneId, loopId: selectedLoopVideoId, songId: selectedHapaSongId, tarotDeckId: selectedTarotDeckId, tarotCardId: selectedTarotCardId, creatorSetId: creatorContextSetId });
+    const unsupported = [...activeViewContext.unsupported]; const applied = [];
+    for (const action of activeViewContext.actions) {
+      if (action.action === "select-avatar" && avatars.some((item) => item.id === action.entityId)) { setSelectedAvatarId(action.entityId); applied.push(action.label); }
+      else if (action.action === "select-item" && normalizedItemManager.cards.some((item) => item.id === action.entityId)) { setSelectedItemId(action.entityId); applied.push(action.label); }
+      else if (action.action === "select-scene" && normalizedSceneGraph.scenes.some((item) => item.id === action.entityId)) { const scene = normalizedSceneGraph.scenes.find((item) => item.id === action.entityId); if (scene?.placeId) setSelectedPlaceId(scene.placeId); setSelectedSceneId(action.entityId); applied.push(action.label); }
+      else if (action.action === "select-loop" && loopVideos.some((item) => item.id === action.entityId)) { setSelectedLoopVideoId(action.entityId); applied.push(action.label); }
+      else if (action.action === "select-song" && normalizedHapaSongStore.songs.some((item) => item.id === action.entityId || item.songId === action.entityId)) { setSelectedHapaSongId(action.entityId); applied.push(action.label); }
+      else if (action.action === "select-tarot-card" && normalizedTarotStore.cards.some((item) => item.id === action.entityId)) { setSelectedTarotCardId(action.entityId); applied.push(action.label); }
+      else if (action.action === "select-tarot-deck" && normalizedTarotStore.decks.some((item) => item.id === action.entityId)) { setSelectedTarotDeckId(tarotDeckCollectionId(action.entityId)); applied.push(action.label); }
+      else if (action.action === "select-tarot-set" && normalizedTarotStore.sets.some((item) => item.id === action.entityId)) { setSelectedTarotDeckId(tarotSetCollectionId(action.entityId)); applied.push(action.label); }
+      else if (action.action === "select-creator-set" && normalizedItemManager.cards.some((item) => item.id === action.entityId && item.cardType === "set")) { setCreatorContextSetId(action.entityId); applied.push(action.label); }
+      else unsupported.push({ ...action, reason: `${action.label} is unavailable in the current source projection; attachment is retained but inert.` });
+    }
+    setViewContextStatus({ route: activeView, contextMode: activeViewContext.contextMode, applied, unsupported, labels: activeViewContext.labels });
+  }, [activeView, activeViewContext, avatars, creatorContextSetId, loopVideos, normalizedHapaSongStore.songs, normalizedItemManager.cards, normalizedSceneGraph.scenes, normalizedTarotStore, selectedAvatarId, selectedHapaSongId, selectedItemId, selectedLoopVideoId, selectedSceneId, selectedTarotCardId, selectedTarotDeckId]);
 
   useEffect(() => {
     localStorage.setItem("hapa-avatar-sound", sound ? "on" : "off");
@@ -1011,21 +1108,22 @@ export default function App() {
         avatars,
         normalizedInventoryStore,
         songLibrary,
-        normalizedHapaSongStore
+        normalizedHapaSongStore,
+        tarotAttachmentContext
       ));
       markQueueReady("derived-tarot-draw-projection", "Tarot Draw projection", "Drawable Tarot projection ready.");
     }, 900);
-  }, [tarotDrawSceneArmed, avatarDataMode, normalizedItemManager.cards, tarotDrawHostInventory, tarotDrawHostAvatar?.id, avatars, normalizedInventoryStore, songLibrary, normalizedHapaSongStore]);
+  }, [tarotDrawSceneArmed, avatarDataMode, normalizedItemManager.cards, tarotDrawHostInventory, tarotDrawHostAvatar?.id, avatars, normalizedInventoryStore, songLibrary, normalizedHapaSongStore, tarotAttachmentContext]);
 
   useEffect(() => {
     if (!isTarotDrawView || tarotDrawSceneArmed) {
       return undefined;
     }
-    setTarotDrawHostAvatarId(selectedAvatar?.id || tarotDrawHostAvatarId || FALLBACK_AVATARS[0]?.id || null);
+    setTarotDrawHostAvatarId(tarotAttachmentContext.hostAvatarId || selectedAvatar?.id || tarotDrawHostAvatarId || FALLBACK_AVATARS[0]?.id || null);
     return scheduleDeferredLoad(() => {
       setTarotDrawSceneArmed(true);
     }, 650);
-  }, [isTarotDrawView, tarotDrawSceneArmed, selectedAvatar?.id, tarotDrawHostAvatarId]);
+  }, [isTarotDrawView, tarotDrawSceneArmed, selectedAvatar?.id, tarotDrawHostAvatarId, tarotAttachmentContext.hostAvatarId]);
 
   useEffect(() => {
     if (activeView !== "scenes" || !selectedScene) {
@@ -1069,33 +1167,56 @@ export default function App() {
       blocking: true
     });
 
+    const hydrateOverwindLibrary = () => fetch(`${API_BASE}/api/overwind/library`)
+      .then((res) => (res.ok ? res.json() : Promise.reject(new Error(`Overwind library ${res.status}`))))
+      .then((library) => {
+        if (!alive) return library;
+        const avatarDraftMerge = mergeAvatarDrafts(library.avatars || [], readAvatarDraftStore());
+        const nextAvatars = avatarDraftMerge.avatars;
+        const nextItemStore = normalizeItemManagerStore(library.itemStore || { ...FALLBACK_ITEM_MANAGER, cards: library.items || [] });
+        setAvatars(nextAvatars);
+        setAvatarTeams(normalizeAvatarTeams(library.teams || [], nextAvatars));
+        setItemManager(nextItemStore);
+        setInventoryStore((current) => normalizeInventoryStore(current, nextAvatars, nextItemStore.cards));
+        setAvatarDataMode(library.truth_state === "overwind-acknowledged" ? "overwind" : "local-stale");
+        setItemDataMode(library.truth_state === "overwind-acknowledged" ? "overwind" : "local-stale");
+        updateQueueJob("overwind-card-plane", "Overwind Card plane", {
+          status: library.truth_state === "overwind-acknowledged" ? "ready" : "degraded",
+          kind: "sync",
+          detail: `${library.populations?.avatars || 0} avatar Cards + ${library.populations?.items || 0} item Cards; ${library.truth_state}; watermark ${library.watermarks?.avatars || library.watermarks?.items || "cached"}.`,
+          available: library.truth_state === "overwind-acknowledged" ? "Search, history, comments, and lineage are served by Overwind." : "Bounded local-stale projection remains available.",
+          queuedNext: library.truth_state === "overwind-acknowledged" ? "Delta sync continues in the background." : "Automatic Overwind retry is available.",
+          blocking: false
+        });
+        return library;
+      });
+
     const loadLegacyStores = () => Promise.all([
-      fetch(`${API_BASE}/api/avatars`).then((res) => res.json()),
+      hydrateOverwindLibrary(),
       fetch(`${API_BASE}/api/kanban`).then((res) => res.json()),
       fetch(`${API_BASE}/api/world`).then((res) => (res.ok ? res.json() : FALLBACK_SCENE_GRAPH)).catch(() => FALLBACK_SCENE_GRAPH),
-      fetch(`${API_BASE}/api/items`).then((res) => (res.ok ? res.json() : FALLBACK_ITEM_MANAGER)).catch(() => FALLBACK_ITEM_MANAGER),
       fetch(`${API_BASE}/api/inventory`).then((res) => (res.ok ? res.json() : FALLBACK_INVENTORY_STORE)).catch(() => FALLBACK_INVENTORY_STORE)
     ])
-      .then(([store, kanban, world, itemStore, inventory]) => {
+      .then(([library, kanban, world, inventory]) => {
         if (!alive) return;
         const graph = normalizeSceneGraph(world || FALLBACK_SCENE_GRAPH);
         const localDraft = readWorldDraft();
         const draftGraph = localDraft?.graph ? normalizeSceneGraph(localDraft.graph) : null;
         const shouldUseDraft = draftGraph && isSceneGraphDraftNewer(draftGraph, graph);
         const activeGraph = shouldUseDraft ? draftGraph : graph;
-        const serverAvatars = store.avatars || FALLBACK_AVATARS;
+        const serverAvatars = library.avatars || FALLBACK_AVATARS;
         const avatarDraftMerge = mergeAvatarDrafts(serverAvatars, readAvatarDraftStore());
         const nextAvatars = avatarDraftMerge.avatars;
-        const nextItemStore = normalizeItemManagerStore(itemStore || FALLBACK_ITEM_MANAGER);
+        const nextItemStore = normalizeItemManagerStore(library.itemStore || FALLBACK_ITEM_MANAGER);
         setAvatars(nextAvatars);
-        setAvatarDataMode("full");
-        setAvatarTeams(normalizeAvatarTeams(store.teams || [], nextAvatars));
+        setAvatarDataMode(library.truth_state === "overwind-acknowledged" ? "overwind" : "local-stale");
+        setAvatarTeams(normalizeAvatarTeams(library.teams || [], nextAvatars));
         setBoard(kanban || kanbanSeed);
         setBoardDataMode("full");
         setSceneGraph(activeGraph);
         setWorldDataMode("full");
         setItemManager(nextItemStore);
-        setItemDataMode("full");
+        setItemDataMode(library.truth_state === "overwind-acknowledged" ? "overwind" : "local-stale");
         setInventoryStore(normalizeInventoryStore(inventory || FALLBACK_INVENTORY_STORE, nextAvatars, nextItemStore.cards));
         setSelectedPlaceId(activeGraph.places[0]?.id || null);
         setSelectedSceneId(activeGraph.scenes[0]?.id || null);
@@ -1161,6 +1282,14 @@ export default function App() {
           syncAvatarDraftRecords(avatarDraftMerge.pendingRecords, "startup");
         }
         window.setTimeout(refreshSubscriberStatus, 0);
+        window.setTimeout(() => hydrateOverwindLibrary().catch((error) => updateQueueJob("overwind-card-plane", "Overwind Card plane", {
+          status: "degraded",
+          kind: "sync",
+          detail: `Overwind hydration deferred: ${error.message}`,
+          available: "Compact shell remains available.",
+          queuedNext: "Retry Overwind Card hydration.",
+          blocking: false
+        })), 0);
       })
       .catch(() => loadLegacyStores())
       .catch(() => {
@@ -1240,31 +1369,8 @@ export default function App() {
       const cleanup = scheduleDeferredLoad(loader, delayMs);
       cleanups.push(cleanup);
     };
-    if (activeView === "scenes") defer(ensureWorldStoreLoaded, 800);
-    if (activeView === "items") defer(ensureItemStoreLoaded, 800);
-    if (activeView === "creator-sets") defer(ensureItemStoreLoaded, 800);
-    if (activeView === "protocol") defer(ensureItemStoreLoaded, 700);
-    if (activeView === "kanban") defer(ensureKanbanStoreLoaded, 800);
-    if (activeView === "tarot-library") {
-      defer(ensureTarotStoreLoaded, 520);
-      defer(ensureFullAvatarStoreLoaded, 1400);
-    }
-    if (activeView === "tarot") {
-      defer(ensureSongRegistryLoaded, 620);
-      defer(ensureHapaSongStoreLoaded, 900);
-      defer(ensureItemStoreLoaded, 1200);
-    }
-    if (activeView === "songs") {
-      defer(ensureSongRegistryLoaded, 360);
-      defer(ensureHapaSongStoreLoaded, 520);
-      defer(ensureFullAvatarStoreLoaded, 1200);
-      defer(ensureWorldStoreLoaded, 1600);
-    }
-    if (activeView === "lore") {
-      defer(ensureFullAvatarStoreLoaded, 900);
-      defer(ensureWorldStoreLoaded, 1300);
-      defer(ensureItemStoreLoaded, 1700);
-    }
+    const loaders = { world: ensureWorldStoreLoaded, items: ensureItemStoreLoaded, kanban: ensureKanbanStoreLoaded, tarot: ensureTarotStoreLoaded, avatars: ensureFullAvatarStoreLoaded, "song-registry": ensureSongRegistryLoaded, songs: ensureHapaSongStoreLoaded };
+    for (const entry of getBuilderHostTarget(activeView).lazyLoad) if (loaders[entry.store]) defer(loaders[entry.store], entry.delay);
     return () => cleanups.forEach((cleanup) => cleanup?.());
   }, [activeView]);
 
@@ -3079,11 +3185,24 @@ export default function App() {
   }
 
   function switchView(nextView) {
-    if (nextView === activeView) return;
+    const resolvedView = resolveBuilderHostAlias(nextView, "builder");
+    if (resolvedView === activeView) return;
+    flashRoutePending();
+    setActiveView(resolvedView);
+    const url = new URL(globalThis.location.href); url.searchParams.set("view", resolvedView); globalThis.history?.replaceState?.(null, "", url);
+    if (resolvedView === "protocol") setAvatarCardMenuOpen(false);
+    if (resolvedView !== "protocol") setProfileReturnRoute(null);
+  }
+
+  function openOvercardManagement(kind) {
+    const target = getBuilderOvercardManagementTarget(kind);
+    const nextView = target?.launchAction?.view;
+    if (!nextView || nextView === activeView) return;
     flashRoutePending();
     setActiveView(nextView);
-    if (nextView === "protocol") setAvatarCardMenuOpen(false);
-    if (nextView !== "protocol") setProfileReturnRoute(null);
+    const url = new URL(globalThis.location.href);
+    url.searchParams.set("view", nextView);
+    globalThis.history?.pushState?.({ source: "overcard-management", returnView: activeView }, "", url);
   }
 
   function toggleAvatarCardMenu() {
@@ -3192,12 +3311,15 @@ export default function App() {
       <div className="tarot-persistent-stage is-active" style={{ width: "100vw", height: "100vh", position: "absolute", top: 0, left: 0, zIndex: 9999, background: "#000" }}>
         <Suspense fallback={<div className="tarot-draw-view tarot-draw-loading" style={{ color: "#00f3ff", display: "flex", justifyContent: "center", alignItems: "center", height: "100%" }}><span>Preparing tarot table...</span></div>}>
           <TarotDraw3DView
+            playbackMode="active"
             avatarName={(tarotDrawHostAvatar || selectedAvatar || avatars[0] || FALLBACK_AVATARS[0]).primaryName}
+            avatarId={(tarotDrawHostAvatar || selectedAvatar || avatars[0] || FALLBACK_AVATARS[0]).id}
             cards={tarotStore.cards}
             productionAudit={tarotDrawProductionAudit}
             apiBase={API_BASE}
             soundEnabled={sound}
             onResolveEchoProject={resolveEchoDirectorProject}
+            prewarmedEchoVideos={echoDirectorPrewarmVideosRef.current}
             onTarotForgeCreated={(packet) => {}}
             onTarotSceneSaved={(packet) => {}}
             onSelectAvatarProfile={(avatarId) => {}}
@@ -3218,6 +3340,12 @@ export default function App() {
             <p>neonblade+ media card assembly</p>
           </div>
         </div>
+
+        <BuilderHeaderHand
+          adapter={overcardAdapter}
+          onOpenManager={(intent) => openOvercardManagement(intent.kind)}
+          onOpenLibrary={() => openOvercardManagement("library")}
+        />
 
         <div className="telemetry">
           <StatusChip label="API" value={apiState.toUpperCase()} tone={apiState === "api" ? "green" : "gold"} />
@@ -3341,26 +3469,22 @@ export default function App() {
           )}
 
           <nav className="view-tabs hapa-tabs" role="tablist" aria-label="Avatar Builder views">
-            <button role="tab" aria-selected={activeView === "builder"} className={activeView === "builder" ? "active" : ""} onClick={() => switchView("builder")}><Grid3X3 size={16} /> Builder</button>
-            <button role="tab" aria-selected={activeView === "mind"} className={activeView === "mind" ? "active" : ""} onClick={() => switchView("mind")}><Brain size={16} /> Mind</button>
-            <button role="tab" aria-selected={activeView === "scenes"} className={activeView === "scenes" ? "active" : ""} onClick={() => switchView("scenes")}><Clapperboard size={16} /> Scenes</button>
-            <button role="tab" aria-selected={activeView === "items"} className={activeView === "items" ? "active" : ""} onClick={() => switchView("items")}><Box size={16} /> Items</button>
-            <button role="tab" aria-selected={activeView === "loops"} className={activeView === "loops" ? "active" : ""} onClick={() => switchView("loops")}><Route size={16} /> Loops</button>
-            <button role="tab" aria-selected={activeView === "lookbook"} className={activeView === "lookbook" ? "active" : ""} onClick={() => switchView("lookbook")}><BookOpen size={16} /> Look Book</button>
-            <button role="tab" aria-selected={activeView === "lore"} className={activeView === "lore" ? "active" : ""} onClick={() => switchView("lore")}><Archive size={16} /> Lore Reader</button>
-            <button role="tab" aria-selected={activeView === "songs"} className={activeView === "songs" ? "active" : ""} onClick={() => switchView("songs")}><Music size={16} /> Hapa Songs</button>
-            <button role="tab" aria-selected={activeView === "echos"} className={activeView === "echos" ? "active" : ""} onClick={() => switchView("echos")}><Sparkles size={16} /> Echos Album</button>
-            <button role="tab" aria-selected={activeView === "kanban"} className={activeView === "kanban" ? "active" : ""} onClick={() => switchView("kanban")}><KanbanSquare size={16} /> Kanban</button>
-            <button role="tab" aria-selected={activeView === "protocol"} className={activeView === "protocol" ? "active" : ""} onClick={() => switchView("protocol")}><BadgeCheck size={16} /> Avatar Card</button>
-            <button role="tab" aria-selected={activeView === "bank"} className={activeView === "bank" ? "active" : ""} onClick={() => switchView("bank")}><CreditCard size={16} /> Hapa Bank</button>
-            <button role="tab" aria-selected={activeView === "tarot-library"} className={activeView === "tarot-library" ? "active" : ""} onClick={() => switchView("tarot-library")}><Tags size={16} /> Tarot Library</button>
-            <button role="tab" aria-selected={activeView === "hell-week"} className={activeView === "hell-week" ? "active" : ""} onClick={() => switchView("hell-week")}><Flame size={16} /> Hell Week</button>
-            <button role="tab" aria-selected={activeView === "tarot"} className={activeView === "tarot" ? "active" : ""} onClick={() => switchView("tarot")}><Sparkles size={16} /> Tarot Draw</button>
-            <button role="tab" aria-selected={activeView === "creator-sets"} className={activeView === "creator-sets" ? "active" : ""} onClick={() => switchView("creator-sets")}><Users size={16} /> Creator Sets</button>
+            {BUILDER_HOST_TARGETS.map((target) => {
+              const Icon = BUILDER_HOST_ICONS[target.iconId] || Grid3X3;
+              return <BuilderMenuHostTab key={target.id} target={target} active={activeView === target.route} onActivate={() => switchView(target.route)} icon={<Icon size={16} />} />;
+            })}
           </nav>
 
           <QueueBufferInspector jobs={queueJobs} summary={queueSummary} />
         </aside>
+
+        {viewContextStatus && (
+          <div className="builder-view-context-status hapa-panel" data-variant={viewContextStatus.unsupported.length ? "warning" : "notch"} role="status">
+            <strong>{viewContextStatus.contextMode} shaping {getBuilderHostTarget(viewContextStatus.route).label}</strong>
+            <span>{viewContextStatus.applied.length ? `Applied: ${viewContextStatus.applied.join(", ")}` : "No supported selector action; attachments remain context-only."}</span>
+            {viewContextStatus.unsupported.map((item) => <small key={item.attachmentId}>{item.reason}</small>)}
+          </div>
+        )}
 
         {routePending && (
           <div className="route-pending hapa-panel" data-variant="hot" aria-live="polite">
@@ -3699,6 +3823,7 @@ export default function App() {
         {activeView === "echos" && (
           <Suspense fallback={<div className="empty-state"><Loader2 size={22} /><span>Loading Echos Album</span></div>}>
             <HapaEchosView
+              playbackMode="active"
               selectedSongId={selectedHapaSongId}
               onSelectSong={setSelectedHapaSongId}
             />
@@ -3767,6 +3892,7 @@ export default function App() {
             itemStore={normalizedItemManager}
             avatars={avatars}
             selectedAvatarId={selectedAvatarId}
+            contextSetId={creatorContextSetId}
             onCreateItem={handleCreateItemCard}
             onUpdateItem={handleUpdateItemCard}
           />
@@ -3790,12 +3916,15 @@ export default function App() {
             {tarotDrawSceneArmed && tarotDrawProjectionReady ? (
               <Suspense fallback={<div className="tarot-draw-view tarot-draw-loading"><Loader2 size={26} /> <span>Preparing tarot table</span></div>}>
                 <TarotDraw3DView
+                  playbackMode={tarotDrawPlaybackMode}
                   avatarName={(tarotDrawHostAvatar || selectedAvatar).primaryName}
+                  avatarId={(tarotDrawHostAvatar || selectedAvatar).id}
                   cards={tarotDrawCards}
                   productionAudit={tarotDrawProductionAudit}
                   apiBase={API_BASE}
                   soundEnabled={sound}
                   onResolveEchoProject={resolveEchoDirectorProject}
+                  prewarmedEchoVideos={echoDirectorPrewarmVideosRef.current}
                   onTarotForgeCreated={(packet) => {
                     if (!packet?.store) return;
                     const store = normalizeTarotStore(packet.store);
@@ -3938,6 +4067,7 @@ function AvatarTeamRail({ groups, expandedTeamIds, selectedAvatarId, avatarAudit
                     const portraitAsset = avatarPortraits.get(avatar.id);
                     return (
                       <button
+                        {...builderPickupDataset({ id: avatar.id, entityType: "avatar", title: avatar.primaryName, subtitle: role || avatar.role, uri: `/api/avatars/${encodeURIComponent(avatar.id)}` })}
                         className={`avatar-row hapa-card ${avatar.id === selectedAvatarId ? "active" : ""}`}
                         data-card-type="avatar"
                         data-granularity="mini"
@@ -4384,6 +4514,7 @@ function ItemManagerView({
             const quality = itemQualityMetrics(card);
             return (
               <button
+                {...builderPickupDataset({ id: card.id, entityType: card.cardType === "set" ? "set" : "card", title: card.title, subtitle: card.kind, thumbnail: previewUri, updatedAt: card.updatedAt, uri: `/api/items/cards/${encodeURIComponent(card.id)}` })}
                 className={`item-card-row hapa-card ${previewUri ? "has-media" : ""} ${selectedItemId === card.id ? "selected" : ""}`}
                 data-card-type={itemCardType(card)}
                 data-quality-rank={quality.tier}
@@ -5766,6 +5897,12 @@ function HapaSongsView({
               </div>
             )}
 
+            <SongCardMintPanel
+              viewerOnly
+              compact
+              songId={selectedSong.audio?.registryTrackId || selectedSong.songId || selectedSong.id}
+            />
+
             <div className="song-lore-stack">
               <article className="song-lore-card hapa-card" data-card-type="lore">
                 <span>Summary</span>
@@ -6710,12 +6847,16 @@ const AVATAR_TAROT_MAJOR_ARCANA = [
 const TAROT_ITEM_AVATAR_LOOP_SOURCE_WINDOW = Math.max(3, Number(import.meta.env?.VITE_TAROT_ITEM_AVATAR_LOOP_SOURCE_WINDOW || 12));
 const TAROT_PROFILE_AVATAR_LOOP_TILE_LIMIT = Math.max(1, Number(import.meta.env?.VITE_TAROT_PROFILE_AVATAR_LOOP_TILE_LIMIT || 4));
 
-function buildTarotDrawProjection(cards = [], avatarInventory = null, avatars = [], inventoryStore = {}, songLibrary = FALLBACK_SONG_LIBRARY, hapaSongStore = null) {
+function buildTarotDrawProjection(cards = [], avatarInventory = null, avatars = [], inventoryStore = {}, songLibrary = FALLBACK_SONG_LIBRARY, hapaSongStore = null, attachmentContext = null) {
   const candidates = buildTarotDrawCards(cards, avatarInventory, avatars, inventoryStore, songLibrary, hapaSongStore);
-  const audit = auditTarotDrawProductionCandidates(candidates, songLibrary);
+  const requested = new Set(attachmentContext?.cardIds || []);
+  const matching = requested.size ? candidates.filter((card) => requested.has(card.id)) : [];
+  const scopedCandidates = requested.size && matching.length ? matching : candidates;
+  const audit = auditTarotDrawProductionCandidates(scopedCandidates, songLibrary);
   return {
     cards: audit.productionCards,
     audit,
+    attachmentContext: attachmentContext ? { ...attachmentContext, matchedCardIds: matching.map((card) => card.id), fallbackUsed: requested.size > 0 && matching.length === 0 } : null,
     state: "ready"
   };
 }
@@ -6766,15 +6907,18 @@ function buildTarotDrawCards(cards = [], avatarInventory = null, avatars = [], i
       const shipDetails = card.shipCard || {};
       const mediaChoice = chooseProductionCardMedia(card);
       const videoAsset = mediaChoice.videoAsset || itemVideoAsset(card);
-      const videoUri = mediaChoice.videoUri || "";
+      let videoUri = mediaChoice.videoUri || "";
       let previewUri = mediaChoice.previewUri || "";
 
-      // Fallback preview URIs for Creator Cards
-      if (card.cardType === "creator_content_card" && !previewUri) {
-        const url = card.sourceRefs?.[0];
-        const ytThumb = getYoutubeThumbnailUrl(url);
-        if (ytThumb) {
-          previewUri = ytThumb;
+      // Fallback preview URIs and video loops for Creator Cards
+      if (card.cardType === "creator_content_card") {
+        const ref = card.sourceRefs?.[0];
+        const url = typeof ref === "string" ? ref : ref?.uri || ref?.label || "";
+        if (!previewUri) {
+          const ytThumb = getYoutubeThumbnailUrl(url);
+          if (ytThumb) {
+            previewUri = ytThumb;
+          }
         }
       } else if (card.cardType === "creator_card" && !previewUri) {
         previewUri = card.creatorProfile?.profilePhotos?.youtube || card.mediaAssets?.[0]?.uri || "";
@@ -6789,7 +6933,10 @@ function buildTarotDrawCards(cards = [], avatarInventory = null, avatars = [], i
         ...extractAssociatedAvatarIds(card),
         ...extractAssociatedAvatarIds(videoAsset || {})
       ]).filter((avatarId) => avatarById.has(avatarId));
-      if (!avatarIds.length && selectedAvatar?.id) avatarIds.push(selectedAvatar.id);
+      const isCreatorRelated = ["creator_card", "creator_content_card", "creator_sponsor_card"].includes(card.cardType);
+      if (!avatarIds.length && selectedAvatar?.id && !isCreatorRelated) {
+        avatarIds.push(selectedAvatar.id);
+      }
       const avatarContacts = avatarIds
         .map((avatarId) => avatarById.get(avatarId))
         .filter(Boolean)
@@ -12902,10 +13049,23 @@ function stableLoopOffset(seed = "", modulo = 1) {
 
 function buildItemTarotVideoSources(card = {}, primaryVideoAsset = null, avatarIds = [], avatarById = new Map()) {
   const title = card.tarotCard?.title || card.shipCard?.title || card.title || "Tarot card";
+  const dbSources = (Array.isArray(card.videoSources) ? card.videoSources : []).map((source) => ({
+    ...source,
+    uri: resolveMediaUri(source.uri),
+    originalUri: resolveMediaUri(source.originalUri || source.sourceUri || source.uri),
+    sourceUri: resolveMediaUri(source.sourceUri || source.originalUri || source.uri),
+    solidUri: resolveMediaUri(source.solidUri || source.uri),
+    posterUri: source.posterUri ? resolveMediaUri(source.posterUri) : ""
+  }));
   const itemSources = [
+    ...dbSources,
     primaryVideoAsset,
     ...itemVideoAssets(card)
-  ].filter(Boolean).map((asset, index) => tarotVideoSourceFromAsset(asset, index === 0 ? `${title} card loop` : `${title} alternate loop`));
+  ].filter(Boolean).map((asset, index) => {
+    // If it's already a formatted source object, just return it
+    if (asset.uri && asset.id && asset.label) return asset;
+    return tarotVideoSourceFromAsset(asset, index === 0 ? `${title} card loop` : `${title} alternate loop`);
+  });
   const linkedSources = (card.tarotCard?.mediaLinks || [])
     .filter((link) => link?.videoUri)
     .map((link, index) => ({

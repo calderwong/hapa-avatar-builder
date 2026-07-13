@@ -1,5 +1,7 @@
 # Hapa Avatar Builder
 
+Universal Hapa Card Plane v1 is released. Avatar Builder retains authoring custody of its Avatar and Item stores, publishes immutable events through its durable Overwind outbox, and consumes Overwind Postgres as acknowledged Card subscriber truth; Redis/Postgres serves hot hydration and Elasticsearch serves search/sort/facets. See `docs/OVERWIND_CARD_ORIGIN.md` and `docs/OVERWIND_CARD_SUBSCRIBER.md`.
+
 Hapa Avatar Builder is a neonblade+ operator app for assembling avatar media into a reusable Avatar Card. It standardizes the Red/Reaper scaffold into required media slots, tracks completeness as XP/level progress, exposes a local API and CLI for agents, and includes a kanban board for build and healing work.
 
 ## Source Of Truth
@@ -34,6 +36,8 @@ The canonical app now contains both Tarot surfaces:
 - `Tarot Draw` is the 3D Three.js reading table.
 
 See `docs/CANONICAL_SOURCE_OF_TRUTH.md` and `data/merge-reports/2026-06-23-pinokio-canonical-audit.md` for the merge history and data audit.
+
+Universal Hand, menu attachment, responsibility, cross-app sync, and Tarot Formation behavior is documented in `docs/OVERCARD.md`. This app consumes `/Users/calderwong/Desktop/hapa-overcard`; it does not own or copy the shared feature.
 
 ## What It Builds
 
@@ -87,7 +91,7 @@ Dedicated desktop launchers:
 /Users/calderwong/Desktop/Launch Hapa Avatar Builder.command
 ```
 
-These launchers call `scripts/launch-desktop-dedicated.zsh`, build the production UI, start or reuse a dedicated static UI/API port beginning at `8794`, then launch Electron with `HAPA_AVATAR_DESKTOP_URL` pinned to that endpoint. Use them when the normal `8787`/`8789` environment is confusing or stale.
+These launchers call `scripts/launch-desktop-dedicated.zsh`, build the production UI, start or reuse a dedicated static UI/API port beginning at `8797`, then launch Electron with `HAPA_AVATAR_DESKTOP_URL` pinned to that endpoint. Port `8794` is reserved exclusively for the canonical Overcard host. Use the dedicated launchers when the normal `8787` environment is confusing or stale.
 
 ## Local Media Preview, Sorting, And Video Branches
 
@@ -149,6 +153,7 @@ npm run cli -- attach red-reaper --target comic --json
 npm run cli -- heal-plan red-reaper --json
 npm run cli -- export-card red-reaper --out ./Red.avatar-card.json
 npm run cli -- scaffold Red Reaper --id red-reaper-v2 --primary Red
+npm run cli -- capabilities --json
 ```
 
 ## API
@@ -168,7 +173,11 @@ curl http://127.0.0.1:8787/api/avatars/red-reaper/audit
 curl "http://127.0.0.1:8787/api/avatars/red-reaper/attach?target=comic"
 curl http://127.0.0.1:8787/api/avatars/red-reaper/heal-plan
 curl http://127.0.0.1:8787/api/avatars/red-reaper/kanban
+curl http://127.0.0.1:8787/api/overwind/card-origin/status
+curl -X POST http://127.0.0.1:8787/api/overwind/card-origin/sync
 ```
+
+Avatar and item-store writes now stage canonical create, revise, and tombstone events in a SQLite/WAL origin outbox before the source file is replaced. Comments and relationships append through `/api/overwind/card-origin/operation`. Queued events are not called replicated until Overwind returns a durable acknowledgement. See `docs/OVERWIND_CARD_ORIGIN.md`.
 
 JavaScript:
 
@@ -191,6 +200,53 @@ print(pack["baseReferences"])
 npm test
 npm run build
 ```
+
+## Shared Hand
+
+The Shared Hand is docked inside the persistent Header. Use **Manage** for Hand/Deck/Set and Library management, **Detach** for the cross-view floating widget, and **Dock** to return it. Connection state is intentionally compact; open the adjacent status control for reconnect and pending/conflict recovery. Shared mutations are disabled while offline and are never presented as committed. See `docs/OVERCARD.md` and `docs/API_CLI_UI_PARITY.md`.
+
+## Echo Album timing and smooth preview
+
+The Echo workbench keeps lyric-source truth separate from derived director timing. Restore playlist-aligned timings in place without rebuilding media direction:
+
+```bash
+node scripts/sync-dear-papa-lyric-timings.mjs --apply
+```
+
+Prepare cut-friendly, duration-safe H.264 proxies for one selected song without rerunning editorial decisions:
+
+```bash
+node scripts/build-echo-playback-media-v2.mjs --apply --song=<song-id>
+```
+
+The Preview tab exposes the same operation as **Compile Smooth Preview**. Playback uses three persistent decoder slots, preloads the next two video shots, waits for a decoded first frame before handoff, loops short sources before their undecodable end boundary, and keeps poster/IVF fallback visible beneath every video. Run the production acceptance smoke against isolated API/UI ports with:
+
+```bash
+electron scripts/echos-album-playback-acceptance-smoke.cjs
+```
+
+The album also carries three append-only **Wide Coverage Director Passes** for every song: Airy (about 45% video time), Rhythmic (about 70%), and Dense (about 92%). They reuse the inherited music decisions and nested shot windows, then refill video from an album-wide least-used queue across Scroll/FAL, Builder Scene, and Builder Avatar Cards. Preview them from the **Direction script version** selector. **Continue from this cut** opens an editable working copy; **Save as new cut** creates a lineage-bound child without changing Legacy or the source cut.
+
+Dry-run or append the repeatable album pass with:
+
+```bash
+npm run echo:variants:wide-cuts
+npm run echo:variants:wide-cuts:apply
+```
+
+Do not use `scripts/sync-healed-compositions-to-songbook.mjs` to promote director-projected timings unless `--promote-project-timings` is explicitly intended; the default preserves the upstream timing source.
+
+## Song Card Minting
+
+The Echo Tracks workbench can freeze a rendered music video as an immutable numbered Song Card edition while keeping the director project editable. It shows Current Mint versus Next Mint, exact dirty families/ranges, public blockers, and edition history; minted playback can print the edition-pinned Card visible at an exact timestamp in both the Song Card viewer and Tarot Draw.
+
+The trusted local Builder UI establishes its own process-scoped session, so minting and managed exports never ask the operator for a bearer token or destination path. Direct API and CLI mutations remain bearer-token protected. The separate CLI is:
+
+```bash
+npm run song-card -- --help
+```
+
+See `docs/SONG_CARD_MINTING.md` for custody, recovery, migration, timestamp printing, and the Dear Papa Edition 1 → Edition 2 acceptance flow.
 
 ## Files
 

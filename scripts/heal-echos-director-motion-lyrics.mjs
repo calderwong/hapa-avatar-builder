@@ -228,6 +228,13 @@ function timedLyricsLastEnd(timedLyrics = []) {
 }
 
 function exactTimingRejectReason(timedLyrics = [], duration = 0, songMetadata = null, project = null) {
+  const timingPath = String(songMetadata?.lyricTimingPath || songMetadata?.lyricTimingSource?.path || "").trim();
+  if (!timingPath) {
+    return {
+      reason: "missing-timing-source-path",
+      timingPath: ""
+    };
+  }
   const expectedRegistryTrackId = String(project?.registry_track_id || project?.audio_id || songMetadata?.registryTrackId || "").trim();
   const timingRegistryTrackId = String(songMetadata?.lyricTimingRegistryTrackId || songMetadata?.lyricTimingSource?.registryTrackId || "").trim();
   if (expectedRegistryTrackId && timingRegistryTrackId && expectedRegistryTrackId !== timingRegistryTrackId) {

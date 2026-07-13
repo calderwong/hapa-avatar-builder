@@ -612,7 +612,9 @@ function ensureHistory(card, video, reason) {
       notes: reason
     });
   }
-  card.history = history.slice(0, 24);
+  // Immutable Card history must never be truncated. Presentation layers may
+  // page this array, but maintenance preserves every attributable event.
+  card.history = history;
 }
 
 function ensureInventoryChoice(inventoryStore, avatar, card, reason) {
@@ -891,9 +893,7 @@ function appendSubscriberEvents(report) {
     summary: report.summary,
     reportPath: "data/video-linking-pass/video-media-link-report.json"
   };
-  for (const name of ["events", "hapa-atlas", "hapa-second-brain", "hapa-worldbuilding-wiki", "hapa-avatar-builder"]) {
-    fs.appendFileSync(path.join(subscriberDir, `${name}.ndjson`), `${JSON.stringify({ ...event, subscriber: name })}\n`);
-  }
+  fs.appendFileSync(path.join(subscriberDir, "events.ndjson"), `${JSON.stringify(event)}\n`);
 }
 
 const avatarStore = readJson(paths.avatarStore, { avatars: [] });

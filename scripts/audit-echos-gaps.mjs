@@ -9,6 +9,7 @@ const DATA_DIR = path.join(ROOT, "data");
 const SONGBOOK_PATH = path.join(DATA_DIR, "dear-papa-songbook.json");
 const ITEM_STORE_PATH = path.join(DATA_DIR, "item-manager-store.json");
 const SCENE_STORE_PATH = path.join(DATA_DIR, "scene-store.json");
+const MEDIA_LIBRARY_PATH = path.join(DATA_DIR, "media-library.json");
 const REPORT_PATH = path.join(DATA_DIR, "echos-gaps-report.json");
 
 function getArgValue(name) {
@@ -28,13 +29,14 @@ async function main() {
   const reportPath = outputArg ? path.resolve(ROOT, outputArg) : REPORT_PATH;
 
   try {
-    const [book, itemStore, sceneStore] = await Promise.all([
+    const [book, itemStore, sceneStore, mediaLibrary] = await Promise.all([
       readJson(SONGBOOK_PATH),
       readJson(ITEM_STORE_PATH),
       readJson(SCENE_STORE_PATH),
+      readJson(MEDIA_LIBRARY_PATH),
     ]);
 
-    const report = buildEchoGapsReport({ songbook: book, itemStore, sceneStore });
+    const report = buildEchoGapsReport({ songbook: book, itemStore, sceneStore, mediaLibrary });
 
     if (dryRun) {
       console.log(JSON.stringify({

@@ -1,0 +1,92 @@
+{
+  "portableCard": {
+    "schemaVersion": "hapa.visualizer-card.v2",
+    "id": "isf:fixture-exact-source",
+    "title": "Fixture Exact Source",
+    "source": {
+      "uri": "/api/echo/isf/isf%3Afixture-exact-source/source",
+      "hash": "sha256:fixture-source-hash",
+      "truthStatus": "manifest-source-reference"
+    },
+    "rendererSupport": {
+      "echoAvatarBuilder": {
+        "route": "browser-proxy",
+        "fidelity": "exact-isf-source",
+        "unsupported": []
+      },
+      "echoTarot": {
+        "route": "browser-proxy",
+        "fidelity": "exact-isf-source",
+        "unsupported": []
+      },
+      "musicVizBrowser": {
+        "route": "browser-proxy",
+        "fidelity": "exact-isf-source",
+        "unsupported": []
+      },
+      "musicVizNative": {
+        "route": "approximate-native",
+        "fidelity": "declared-intent-port",
+        "nativeKey": "audio-bars",
+        "unsupported": [
+          "exact-isf-source"
+        ]
+      },
+      "dearPapaNative": {
+        "route": "pending",
+        "fidelity": "support-matrix-required",
+        "unsupported": [
+          "undeclared-port"
+        ]
+      },
+      "hyperframes": {
+        "route": "precompiled-exact",
+        "fidelity": "hash-bound-offline-source",
+        "unsupported": []
+      }
+    },
+    "inputs": [],
+    "controls": {},
+    "audioMap": {},
+    "stemFocus": "master",
+    "audioSignal": [
+      "rms"
+    ],
+    "layer": {
+      "role": "atmosphere",
+      "opacity": 0.6,
+      "blend": "screen",
+      "target": "program",
+      "mix": 0.8,
+      "transition": "crossfade"
+    },
+    "automation": [],
+    "provenance": {
+      "source": "cross-renderer-fixture",
+      "manifestId": "isf:fixture-exact-source",
+      "generatedPlaceholder": false
+    }
+  },
+  "cueCard": {
+    "id": "card:b:fixture",
+    "trackId": "track-b",
+    "startSeconds": 5,
+    "endSeconds": 9,
+    "visualization": {
+      "sourceId": "isf:fixture-exact-source",
+      "nativeKey": "audio-bars"
+    },
+    "parameters": {
+      "opacity": 0.6,
+      "blendMode": "screen"
+    }
+  },
+  "expectedStatus": {
+    "echo-avatar-builder": "exact",
+    "echo-tarot": "exact",
+    "music-viz-browser": "exact",
+    "music-viz-native": "approximation",
+    "dear-papa-native": "unsupported",
+    "hyperframes": "exact"
+  }
+}

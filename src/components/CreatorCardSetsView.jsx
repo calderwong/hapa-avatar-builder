@@ -1,4 +1,5 @@
 import React, { useState, useMemo } from 'react';
+import BuilderOvercardPickupActions from '../overcard/BuilderOvercardPickupActions.jsx';
 import { 
   Users, 
   Film, 
@@ -32,6 +33,7 @@ export default function CreatorCardSetsView({
   itemStore,
   avatars,
   selectedAvatarId,
+  contextSetId = null,
   onCreateItem,
   onUpdateItem
 }) {
@@ -42,6 +44,10 @@ export default function CreatorCardSetsView({
   const [xpAnimation, setXpAnimation] = useState(false);
   const [selectedContentCardId, setSelectedContentCardId] = useState(null);
   const [selectedSponsorCardId, setSelectedSponsorCardId] = useState(null);
+
+  React.useEffect(() => {
+    if (contextSetId) setSelectedSetId(contextSetId);
+  }, [contextSetId]);
 
   // Form states
   const [newCreatorName, setNewCreatorName] = useState("");
@@ -450,6 +456,7 @@ export default function CreatorCardSetsView({
                     <span className="type-badge">SET CARD</span>
                   </div>
                   <h1>{selectedSet.title}</h1>
+                  <BuilderOvercardPickupActions entity={{ id: selectedSet.id, entityType: 'set', title: selectedSet.title, subtitle: 'Creator Set', updatedAt: selectedSet.updatedAt, uri: `/api/items/cards/${encodeURIComponent(selectedSet.id)}` }} />
                   <p className="summary-text">{selectedSet.summary || selectedSet.description}</p>
                 </div>
                 

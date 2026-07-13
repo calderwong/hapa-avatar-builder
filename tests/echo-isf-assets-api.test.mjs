@@ -1,0 +1,141 @@
+import assert from "node:assert/strict";
+import { spawn } from "node:child_process";
+import { createHash } from "node:crypto";
+import { once } from "node:events";
+import fs from "node:fs";
+import path from "node:path";
+import test from "node:test";
+import { fileURLToPath } from "node:url";
+
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const MUSIC_VIZ_ROOT = process.env.HAPA_MUSIC_VIZ_ROOT || "/Users/calderwong/Desktop/hapa-music-viz";
+const PORT = 19182;
+const BASE = `http://127.0.0.1:${PORT}`;
+
+async function waitForHealth(child, output) {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < 10_000 && child.exitCode === null) {
+    try {
+      const response = await fetch(`${BASE}/api/health`);
+      if (response.ok) return;
+    } catch {
+      // The server has not bound its port yet.
+    }
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  throw new Error(`Builder API did not become healthy.\n${output.join("").slice(-4_000)}`);
+}
+
+async function fetchShaderBatch(shaders, batchSize = 24) {
+  const rows = [];
+  for (let index = 0; index < shaders.length; index += batchSize) {
+    const batch = shaders.slice(index, index + batchSize);
+    rows.push(...await Promise.all(batch.map(async (shader) => {
+      const response = await fetch(`${BASE}${shader.source}`);
+      const bytes = Buffer.from(await response.arrayBuffer());
+      return { shader, response, bytes };
+    })));
+  }
+  return rows;
+}
+
+test("Builder serves a hash-verified ISF catalog/runtime and hydrates the compiled Director graph", async (t) => {
+  assert.equal(fs.existsSync(path.join(MUSIC_VIZ_ROOT, "web/isf/manifest.json")), true, "canonical Music Viz manifest is required");
+  const output = [];
+  const child = spawn(process.execPath, ["server/api.mjs", "--host", "127.0.0.1", "--port", String(PORT), "--static", "dist"], {
+    cwd: ROOT,
+    env: { ...process.env, HAPA_MUSIC_VIZ_ROOT: MUSIC_VIZ_ROOT },
+    stdio: ["ignore", "pipe", "pipe"]
+  });
+  child.stdout.on("data", (chunk) => output.push(String(chunk)));
+  child.stderr.on("data", (chunk) => output.push(String(chunk)));
+
+  t.after(async () => {
+    if (child.exitCode === null) child.kill("SIGTERM");
+    await once(child, "exit").catch(() => {});
+  });
+  await waitForHealth(child, output);
+
+  const catalogResponse = await fetch(`${BASE}/api/echos/shaders`);
+  assert.equal(catalogResponse.status, 200);
+  assert.match(catalogResponse.headers.get("content-type") || "", /^application\/json/);
+  const shaders = await catalogResponse.json();
+  assert.equal(shaders.length, 182);
+  assert.equal(new Set(shaders.map((shader) => shader.id)).size, 182);
+  assert.equal(new Set(shaders.map((shader) => shader.source)).size, 182);
+  for (const shader of shaders) {
+    assert.match(shader.id, /^(isf:|builtin:)/);
+    assert.match(shader.source, /^\/api\/echos\/shader-source\?id=/);
+    assert.match(shader.sourceHash, /^sha256:[a-f0-9]{64}$/);
+    assert.ok(shader.sourceBytes > 0);
+    assert.match(shader.runtime, /^\/api\/echos\/isf-runtime\.js\?sha256=[a-f0-9]{64}$/);
+    assert.match(shader.runtimeHash, /^sha256:[a-f0-9]{64}$/);
+    assert.ok(shader.runtimeBytes > 0);
+  }
+
+  const sourceRows = await fetchShaderBatch(shaders);
+  for (const { shader, response, bytes } of sourceRows) {
+    assert.equal(response.status, 200, shader.id);
+    assert.match(response.headers.get("content-type") || "", /^text\/plain/);
+    assert.equal(response.headers.get("x-content-type-options"), "nosniff");
+    assert.equal(response.headers.get("x-hapa-shader-id"), shader.id);
+    assert.equal(response.headers.get("x-hapa-source-sha256"), shader.sourceHash.slice("sha256:".length));
+    assert.equal(Number(response.headers.get("content-length")), shader.sourceBytes);
+    assert.equal(response.headers.get("cache-control"), "public, max-age=31536000, immutable");
+    assert.equal(createHash("sha256").update(bytes).digest("hex"), shader.sourceHash.slice("sha256:".length));
+    assert.doesNotMatch(bytes.toString("utf8", 0, 160), /<!doctype html|<html/i);
+  }
+
+  const first = shaders[0];
+  const firstResponse = sourceRows[0].response;
+  const headResponse = await fetch(`${BASE}${first.source}`, { method: "HEAD" });
+  assert.equal(headResponse.status, 200);
+  assert.equal(Number(headResponse.headers.get("content-length")), first.sourceBytes);
+  assert.equal((await headResponse.arrayBuffer()).byteLength, 0);
+  const notModified = await fetch(`${BASE}${first.source}`, {
+    headers: { "If-None-Match": firstResponse.headers.get("etag") }
+  });
+  assert.equal(notModified.status, 304);
+  assert.equal((await notModified.arrayBuffer()).byteLength, 0);
+
+  const wrongHash = await fetch(`${BASE}/api/echos/shader-source?id=${encodeURIComponent(first.id)}&sha256=${"0".repeat(64)}`);
+  assert.equal(wrongHash.status, 409);
+  assert.equal((await wrongHash.json()).error, "shader_source_hash_mismatch");
+  const unknown = await fetch(`${BASE}/api/echos/shader-source?id=${encodeURIComponent("../../etc/passwd")}`);
+  assert.equal(unknown.status, 404);
+  assert.match(unknown.headers.get("content-type") || "", /^application\/json/);
+  assert.doesNotMatch(await unknown.text(), /<!doctype html|<html/i);
+  const wrongMethod = await fetch(`${BASE}/api/echos/shader-source?id=${encodeURIComponent(first.id)}`, { method: "POST" });
+  assert.equal(wrongMethod.status, 405);
+  assert.match(wrongMethod.headers.get("content-type") || "", /^application\/json/);
+  assert.doesNotMatch(await wrongMethod.text(), /<!doctype html|<html/i);
+  const malformedAssetRoute = await fetch(`${BASE}/api/echos/shader-source/not-a-real-asset`);
+  assert.equal(malformedAssetRoute.status, 404);
+  assert.match(malformedAssetRoute.headers.get("content-type") || "", /^application\/json/);
+  assert.doesNotMatch(await malformedAssetRoute.text(), /<!doctype html|<html/i);
+
+  const runtimeResponse = await fetch(`${BASE}${first.runtime}`);
+  const runtimeBytes = Buffer.from(await runtimeResponse.arrayBuffer());
+  assert.equal(runtimeResponse.status, 200);
+  assert.match(runtimeResponse.headers.get("content-type") || "", /^text\/javascript/);
+  assert.equal(runtimeResponse.headers.get("x-content-type-options"), "nosniff");
+  assert.equal(runtimeResponse.headers.get("cache-control"), "public, max-age=31536000, immutable");
+  assert.equal(runtimeBytes.byteLength, first.runtimeBytes);
+  assert.equal(createHash("sha256").update(runtimeBytes).digest("hex"), first.runtimeHash.slice("sha256:".length));
+  assert.match(runtimeBytes.toString("utf8", 0, 500), /interactiveShaderFormat/);
+  const badRuntime = await fetch(`${BASE}/api/echos/isf-runtime.js?sha256=${"f".repeat(64)}`);
+  assert.equal(badRuntime.status, 409);
+  assert.equal((await badRuntime.json()).error, "isf_runtime_hash_mismatch");
+
+  const detailResponse = await fetch(`${BASE}/api/echos/director-project?songId=dear-papa-song-dear-papa`);
+  assert.equal(detailResponse.status, 200);
+  const project = (await detailResponse.json()).music_video_project;
+  assert.equal(project.director_show_graph_receipt.status, "ready");
+  assert.match(project.director_show_graph_receipt.sourceHash, /^sha256:[a-f0-9]{64}$/);
+  assert.equal(project.director_show_graph.schemaVersion, "hapa.music-viz.native-show-graph.v2");
+  assert.ok([project.song_id, project.audio_id, project.registry_track_id].includes(project.director_show_graph.song.id));
+  const visualizerTrack = project.director_show_graph.tracks.find((track) => track.role === "visualizer" || track.id === "track-b");
+  assert.ok(visualizerTrack.cards.length > 0);
+  assert.equal(project.director_show_graph_receipt.visualizerCards, visualizerTrack.cards.length);
+  assert.ok(visualizerTrack.cards.every((card) => card.visualization?.sourceId));
+});

@@ -12,11 +12,16 @@ import {
   Pause,
   BookOpen
 } from "lucide-react";
+import { builderPickupDataset } from "../overcard/pickup.js";
+import { useOvercardPlacement, useOvercardResponsibility, useOvercardStore } from "@hapa/overcard/react";
+import { commitPlacementCommand, createAttachCommand } from "@hapa/overcard/core";
+import { transitionHellWeekBinding } from "../overcard/hellWeekResponsibility.js";
 
 export default function HellWeekView({ onExpand, onPreview, onPreviewHide }) {
   const [cards, setCards] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [sourceState, setSourceState] = useState({ status: "loading", lastKnownCards: 0 });
   const [search, setSearch] = useState("");
   const [selectedCardId, setSelectedCardId] = useState(null);
   const [hoveredCardId, setHoveredCardId] = useState(null);
@@ -25,6 +30,11 @@ export default function HellWeekView({ onExpand, onPreview, onPreviewHide }) {
   const [filterType, setFilterType] = useState("all");
   const [sortType, setSortType] = useState("richness");
   const videoRef = useRef(null);
+  const responsibilityBindings = useOvercardResponsibility();
+  const placement = useOvercardPlacement();
+  const overcardStore = useOvercardStore();
+  const [responsibilityRun, setResponsibilityRun] = useState({ status: "idle", message: "", receipt: null });
+  const hellWeekBinding = Object.values(responsibilityBindings).filter((binding) => binding.target?.nodeId === "hapa-dev-proto" && binding.target?.processId === "hell-week").sort((a, b) => String(b.activatedAt || b.createdAt).localeCompare(String(a.activatedAt || a.createdAt)))[0] || null;
 
   // Telemetry states
   const [stats, setStats] = useState({
@@ -39,14 +49,24 @@ export default function HellWeekView({ onExpand, onPreview, onPreviewHide }) {
   const API_BASE = electronApiBase || (globalThis.location?.port === "5178" ? "http://127.0.0.1:8787" : "");
 
   // Always fetch the full list of Hell Week cards from the server
-  const loadCards = async () => {
+  const loadCards = async ({ refresh = false } = {}) => {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`${API_BASE}/api/hell-week/cards`);
-      if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
-      const data = await res.json();
-      const loadedCards = data || [];
+      const res = await fetch(`${API_BASE}/api/hell-week/cards?envelope=1${refresh ? "&refresh=1" : ""}`);
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || data?.ok === false) {
+        const message = data?.error?.message || `Hell Week source returned HTTP ${res.status}`;
+        const dependency = data?.error?.dependency || "hapa-dev-proto-sqlite";
+        setSourceState({
+          status: "degraded",
+          dependency,
+          lastKnownCards: data?.counts?.lastKnownCards || sourceState.lastKnownCards || cards.length,
+          lastSuccess: data?.lastSuccess || sourceState.lastSuccess || null
+        });
+        throw new Error(`${dependency}: ${message}`);
+      }
+      const loadedCards = Array.isArray(data?.cards) ? data.cards : [];
 
       // Calculate stats on raw data
       const total = loadedCards.length;
@@ -65,6 +85,15 @@ export default function HellWeekView({ onExpand, onPreview, onPreviewHide }) {
 
       setStats({ total, videos, imagesOnly, noArt });
       setCards(loadedCards);
+      setSourceState({
+        status: "healthy",
+        adapter: data?.source?.adapter || "sqlite-readonly",
+        owner: data?.source?.owner || "hapa-dev-proto",
+        generatedAt: data?.generatedAt || null,
+        cursor: data?.cursor?.token || null,
+        lastKnownCards: total,
+        lastSuccess: data?.generatedAt || null
+      });
 
       if (loadedCards.length > 0) {
         // Find the first complete/media-rich card to default select
@@ -87,7 +116,7 @@ export default function HellWeekView({ onExpand, onPreview, onPreviewHide }) {
       }
     } catch (err) {
       console.error("Failed to load Hell Week cards:", err);
-      setError("Failed to load cards. Make sure hapa-dev-proto DB is accessible.");
+      setError(err?.message || "Failed to load cards. Make sure hapa-dev-proto DB is accessible.");
     } finally {
       setLoading(false);
     }
@@ -96,6 +125,26 @@ export default function HellWeekView({ onExpand, onPreview, onPreviewHide }) {
   useEffect(() => {
     loadCards();
   }, []);
+
+  useEffect(() => {
+    if (!selectedCardId) return undefined;
+    const controller = new AbortController();
+    fetch(`${API_BASE}/api/hell-week/cards/${encodeURIComponent(selectedCardId)}`, { signal: controller.signal })
+      .then(async (response) => {
+        if (!response.ok) throw new Error(`Hell Week detail returned HTTP ${response.status}`);
+        return response.json();
+      })
+      .then((fullCard) => {
+        if (!fullCard?.id) return;
+        setCards((current) => current.map((card) => card?.id === fullCard.id ? fullCard : card));
+      })
+      .catch((detailError) => {
+        if (detailError?.name !== "AbortError") {
+          console.warn("Failed to hydrate full Hell Week card narrative:", detailError);
+        }
+      });
+    return () => controller.abort();
+  }, [API_BASE, selectedCardId]);
 
   // Compute filtered and sorted cards dynamically on render
   const filteredAndSortedCards = cards
@@ -197,6 +246,34 @@ export default function HellWeekView({ onExpand, onPreview, onPreviewHide }) {
     setIsPlaying(!isPlaying);
   };
 
+  async function prepareNextRun() {
+    if (!hellWeekBinding || hellWeekBinding.status !== "active") return;
+    setResponsibilityRun({ status: "preparing", message: "Freezing Red's next-run context…", receipt: null });
+    try {
+      const response = await fetch(`${API_BASE}/api/overcard/hell-week/prepare-next-run`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ binding: hellWeekBinding, confirmed: true, confirmationId: crypto.randomUUID(), actor: "calder", traceId: hellWeekBinding.provenance?.traceId }) });
+      const result = await response.json().catch(() => ({})); if (!response.ok || result.ok === false) throw new Error(result.message || result.error || `Prepare failed: ${response.status}`);
+      setResponsibilityRun({ status: "ready", message: `${result.prepared?.principal?.label || result.prepared?.principal?.entityId} will manage the next Hell Week run.`, receipt: result });
+    } catch (error) { setResponsibilityRun({ status: "degraded", message: `${error.message}. Hell Week will keep process defaults.`, receipt: null }); }
+  }
+
+  async function controlResponsibility(status) {
+    if (!hellWeekBinding) return;
+    const at = new Date().toISOString(); setResponsibilityRun({ status: "updating", message: `${status} responsibility…`, receipt: null });
+    try {
+      const response = await fetch(`${API_BASE}/api/overcard/hell-week/binding-control`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ bindingId: hellWeekBinding.id, status, actor: "calder" }) });
+      const result = await response.json().catch(() => ({})); if (!response.ok || result.ok === false) throw new Error(result.message || result.error || `Control failed: ${response.status}`);
+      const transition = transitionHellWeekBinding(hellWeekBinding, status, "calder", at);
+      await overcardStore.dispatch("state.upsert", { record: { kind: "responsibility-binding", id: transition.binding.id, value: transition.binding, summary: `Hell Week responsibility ${status}` } });
+      const attachment = Object.values(placement.attachments).find((item) => item.bindingId === hellWeekBinding.id);
+      if (attachment) {
+        const ctx = { id: `hell-week-${status}:${at}`, actor: "calder", at, provenance: { source: "hapa-avatar-builder:hell-week-control", actor: "calder", createdAt: at, traceId: `${hellWeekBinding.provenance.traceId}:${status}` } };
+        const receipt = commitPlacementCommand(placement, createAttachCommand({ state: placement, ...ctx, attachment: { ...structuredClone(attachment), status: transition.attachmentStatus, updatedAt: at } }));
+        await overcardStore.dispatch("state.upsert", { record: { kind: "placement-ledger", id: "canonical", value: receipt.state, summary: `Hell Week attachment ${status}` } });
+      }
+      setResponsibilityRun({ status, message: `${status}: current run ${transition.currentRun}; next run uses process defaults.`, receipt: result });
+    } catch (error) { setResponsibilityRun({ status: "degraded", message: `${error.message}. Next run remains on process defaults.`, receipt: null }); }
+  }
+
   const getAssetUrl = (asset) => {
     if (!asset || !asset.uri) return "";
     return asset.uri.startsWith("http") ? asset.uri : `${API_BASE}${asset.uri}`;
@@ -207,6 +284,15 @@ export default function HellWeekView({ onExpand, onPreview, onPreviewHide }) {
 
   return (
     <div className="tarot-workspace" style={{ display: "grid", gridTemplateColumns: "1fr 400px", gap: "20px", height: "100%", minHeight: "680px", maxHeight: "calc(100vh - 120px)", overflow: "hidden" }}>
+      <section className="hapa-panel" data-variant="notch" data-hell-week-responsibility={hellWeekBinding?.status || "defaults"} style={{ gridColumn: "1 / -1", display: "flex", alignItems: "center", justifyContent: "space-between", gap: "16px", padding: "10px 14px" }}>
+        <div><strong>{hellWeekBinding ? `${hellWeekBinding.principal.label || hellWeekBinding.principal.entityId} / ${hellWeekBinding.role}` : "Hell Week process defaults"}</strong><p style={{ margin: "3px 0 0", color: "var(--muted)", fontSize: "11px" }}>{hellWeekBinding ? `Avatar context available · executable runtime ${responsibilityRun.status === "ready" ? "queued" : "not yet queued"} · ${hellWeekBinding.status}` : "No active ResponsibilityBinding; no avatar is impersonated."}</p><p role="status" aria-live="polite" style={{ margin: "3px 0 0", fontSize: "11px" }}>{responsibilityRun.message}</p></div>
+        <div style={{ display: "flex", gap: "8px" }}>
+          <button className="hapa-btn" type="button" disabled={!hellWeekBinding || hellWeekBinding.status !== "active" || responsibilityRun.status === "preparing"} onClick={prepareNextRun}>Prepare next run</button>
+          <button className="hapa-btn" type="button" disabled={!hellWeekBinding || hellWeekBinding.status !== "active"} onClick={() => controlResponsibility("paused")}>Pause</button>
+          <button className="hapa-btn" type="button" disabled={!hellWeekBinding || ["revoked", "removed"].includes(hellWeekBinding.status)} onClick={() => controlResponsibility("revoked")}>Revoke</button>
+          <button className="hapa-btn" type="button" disabled={!hellWeekBinding} onClick={() => controlResponsibility("removed")}>Remove</button>
+        </div>
+      </section>
       
       {/* Grid view showing cards as tiles */}
       <section className="panel hapa-panel" data-variant="notch" style={{ display: "flex", flexDirection: "column", gap: "12px", overflow: "hidden", height: "100%" }}>
@@ -216,6 +302,9 @@ export default function HellWeekView({ onExpand, onPreview, onPreviewHide }) {
             Hell Week Tarot Cards (Database Source)
           </span>
           <div style={{ display: "flex", gap: "8px", fontSize: "11px" }}>
+            <span style={{ background: sourceState.status === "healthy" ? "rgba(113,247,191,0.12)" : "rgba(248,113,113,0.12)", color: sourceState.status === "healthy" ? "#71f7bf" : "#f87171", padding: "2px 6px", borderRadius: "4px", border: `1px solid ${sourceState.status === "healthy" ? "rgba(113,247,191,0.25)" : "rgba(248,113,113,0.3)"}` }}>
+              {sourceState.status === "healthy" ? "SOURCE LIVE" : "SOURCE DEGRADED"}
+            </span>
             <span style={{ background: "rgba(236,72,153,0.15)", color: "#ec4899", padding: "2px 6px", borderRadius: "4px", border: "1px solid rgba(236,72,153,0.3)" }}>
               {stats.total} Total
             </span>
@@ -248,7 +337,7 @@ export default function HellWeekView({ onExpand, onPreview, onPreviewHide }) {
           </label>
           <button
             className="hapa-btn"
-            onClick={loadCards}
+            onClick={() => loadCards({ refresh: true })}
             disabled={loading}
             title="Reload from local database"
             style={{ padding: "6px 10px", display: "grid", placeItems: "center" }}
@@ -300,7 +389,8 @@ export default function HellWeekView({ onExpand, onPreview, onPreviewHide }) {
 
         {error && (
           <div style={{ fontSize: "11px", color: "#f87171", background: "rgba(248,113,113,0.1)", border: "1px dashed rgba(248,113,113,0.3)", padding: "8px", borderRadius: "6px", flexShrink: 0 }}>
-            {error}
+            <strong>Hell Week source degraded.</strong> {error}
+            {sourceState.lastKnownCards > 0 ? ` Last successful projection contained ${sourceState.lastKnownCards} cards.` : ""}
           </div>
         )}
 
@@ -321,6 +411,7 @@ export default function HellWeekView({ onExpand, onPreview, onPreviewHide }) {
 
                 return (
                   <button
+                    {...builderPickupDataset({ id: card.id, entityType: "card", sourceSystem: "hapa-dev-proto", title: card.primaryName || card.title || card.id, subtitle: "Hell Week read-only projection", readOnly: true, uri: `/api/hell-week/cards/${encodeURIComponent(card.id)}` })}
                     key={card.id}
                     className={`hapa-card-tile ${isActive ? "active" : ""}`}
                     onClick={() => {
@@ -425,6 +516,9 @@ export default function HellWeekView({ onExpand, onPreview, onPreviewHide }) {
                       lineHeight: "1.3"
                     }}>
                       {card.mind?.summary || "No description available."}
+                    </span>
+                    <span style={{ marginTop: "6px", fontSize: "8px", color: "#7ad5ff", fontWeight: "800", letterSpacing: "0.7px" }}>
+                      DEV PROTO · READ ONLY
                     </span>
                   </button>
                 );
@@ -556,6 +650,22 @@ export default function HellWeekView({ onExpand, onPreview, onPreviewHide }) {
 
               {/* Path provenance */}
               <div style={{ borderTop: "1px solid var(--line)", paddingTop: "12px", fontSize: "10px", display: "flex", flexDirection: "column", gap: "6px" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", gap: "6px" }}>
+                  <span style={{ color: "var(--muted)", flexShrink: 0 }}>Source:</span>
+                  <span style={{ color: "#7ad5ff", textAlign: "right" }}>{selectedCard.handoff?.source?.system || "hapa-dev-proto"} · {selectedCard.handoff?.source?.store || "sqlite"}</span>
+                </div>
+                <div style={{ display: "flex", justifyContent: "space-between", gap: "6px" }}>
+                  <span style={{ color: "var(--muted)", flexShrink: 0 }}>Source ID:</span>
+                  <span style={{ color: "#c4b5fd", wordBreak: "break-all", textAlign: "right" }}>{selectedCard.handoff?.cardId || selectedCard.id}</span>
+                </div>
+                <div style={{ display: "flex", justifyContent: "space-between", gap: "6px" }}>
+                  <span style={{ color: "var(--muted)", flexShrink: 0 }}>Run:</span>
+                  <span style={{ color: "#f59e0b", wordBreak: "break-all", textAlign: "right" }}>{selectedCard.handoff?.source?.runIds?.join(", ") || "not recorded"}</span>
+                </div>
+                <div style={{ display: "flex", justifyContent: "space-between", gap: "6px" }}>
+                  <span style={{ color: "var(--muted)", flexShrink: 0 }}>Truth:</span>
+                  <span style={{ color: "#71f7bf", textAlign: "right" }}>{selectedCard.handoff?.truthStatus || "verified_source_projection"}</span>
+                </div>
                 {imageAsset && (
                   <div style={{ display: "flex", justifyContent: "space-between", gap: "6px" }}>
                     <span style={{ color: "var(--muted)", flexShrink: 0 }}>Art Path:</span>

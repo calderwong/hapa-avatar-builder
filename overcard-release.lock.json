@@ -1,0 +1,13 @@
+{
+  "schema": "hapa.overcard-consumer-lock.v1",
+  "package": "@hapa/overcard",
+  "version": "0.1.1",
+  "sha256": "bc28eb070043f096d1b1f1af722cbf13cc751a2584a88b8af86046b29f8755cb",
+  "integrity": "sha256-vCjrBwBD8JbRsfGvciy/E8x1GiWEqIuK+GBGsp+HVcs=",
+  "developmentSourceLink": "file:../../../../../../Desktop/hapa-overcard",
+  "packaging": {
+    "specifier": "0.1.1",
+    "sourceLinksAllowed": false
+  },
+  "generatedAt": "2026-07-12T04:12:40.491Z"
+}

@@ -1,14 +1,15 @@
 #!/usr/bin/env node
 import { createServer as createHttpServer } from "node:http";
 import { createServer as createHttpsServer } from "node:https";
-import { execFile, spawn, execSync, exec } from "node:child_process";
-import { createHash, randomBytes } from "node:crypto";
+import { execFile, execFileSync, spawn, execSync, exec } from "node:child_process";
+import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { appendFile, mkdir, readFile, writeFile, stat, readdir, access, rm } from "node:fs/promises";
-import fs, { createReadStream } from "node:fs";
+import fs from "node:fs";
 import { networkInterfaces, tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
+import Hypercore from "hypercore";
 import {
   auditAvatar,
   backgroundlessPlaybackForAsset,
@@ -86,9 +87,42 @@ import {
   buildRoomletParticipantCards,
   createRoomletTarotInvite
 } from "./roomletInvite.mjs";
+import { fileStreamTelemetry, streamFileToResponse } from "./file-serving.mjs";
+import { EchoIsfAssetCatalog, writeEchoIsfAsset } from "./echo-isf-assets.mjs";
+import { buildBuilderEntityCatalog } from "../src/overcard/entityCatalog.js";
+import { resolveBuilderRuntimeContext } from "../src/overcard/runtimeContext.js";
+import { builderProcessAdapterRegistrations, freezeBuilderRunContext, getBuilderProcessAdapter } from "../src/overcard/processAdapters.js";
+import { prepareHellWeekNextRun } from "../src/overcard/hellWeekResponsibility.js";
+import { applyInventoryCollections, projectInventoryCollections } from "../src/overcard/inventoryBridge.js";
+import { builderHostTargetRegistrations } from "../src/overcard/hostTargets.js";
+import { negotiateCapabilities, validateNodeAdapterManifest } from "@hapa/overcard/core";
+import { ensureLocalOvercardHost } from "@hapa/overcard/host";
+import { AvatarOverwindOrigin } from "./avatar-overwind-origin.mjs";
+import { AvatarOverwindSubscriber, resolveOverwindToken } from "./avatar-overwind-subscriber.mjs";
+import { MintLedgerError, createSongCardMintController } from "./song-card-mint-controller.mjs";
+import { createSongCardRemintStore } from "./song-card-remint-store.mjs";
+import { createSongCardLocalRenderBridge } from "./song-card-local-renderer.mjs";
+import { createEchoDirectionVariantSummaryIndex } from "./echo-direction-variant-summary-index.mjs";
+import { collectSongCardConstituentReferences, hydrateSongCardConstituentSnapshots } from "../src/domain/song-card-constituents.js";
+import {
+  ECHO_DIRECTION_FORK_PAYLOAD_SCHEMA,
+  echoDirectionVariantFingerprint,
+  echoDirectionVariantId as domainEchoDirectionVariantId,
+  echoDirectionVariantMetadata,
+  echoDirectionVariantTitle as domainEchoDirectionVariantTitle,
+  pickEchoDirectionVariantProjectPatch,
+  summarizeEchoDirectionVariantMetadata,
+} from "../src/domain/echo-direction-variants.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, "..");
+const SERVER_STARTED_AT = new Date().toISOString();
+const SERVER_PROCESS_OWNER = process.env.HAPA_AVATAR_PROCESS_OWNER || "standalone-api";
+const SERVER_BUILD_SIGNATURE = process.env.HAPA_AVATAR_BUILD_SIGNATURE || createHash("sha256")
+  .update(fs.readFileSync(fileURLToPath(import.meta.url)))
+  .update(fs.readFileSync(path.join(__dirname, "file-serving.mjs")))
+  .digest("hex")
+  .slice(0, 16);
 const execFileAsync = promisify(execFile);
 const DATA_DIR = path.join(ROOT, "data");
 const STORE_PATH = process.env.HAPA_AVATAR_STORE || path.join(ROOT, "data/avatar-store.json");
@@ -99,13 +133,137 @@ const TAROT_DRAW_FORGE_RUN_DIR = process.env.HAPA_TAROT_DRAW_FORGE_RUN_DIR || pa
 const SYSTEM_MEDIA_PATH = process.env.HAPA_MEDIA_LIBRARY || path.join(ROOT, "data/media-library.json");
 const ITEM_STORE_PATH = process.env.HAPA_ITEM_STORE || path.join(ROOT, "data/item-manager-store.json");
 const INVENTORY_STORE_PATH = process.env.HAPA_INVENTORY_STORE || path.join(ROOT, "data/inventory-store.json");
+const HAPA_DEV_PROTO_DB_PATH = process.env.HAPA_DEV_PROTO_DB || path.join(process.env.HOME || "/Users/calderwong", "Library", "Application Support", "hapa-ag", "persistence.db");
+const HAPA_DEV_PROTO_HYPERCORE_DIR = process.env.HAPA_DEV_PROTO_HYPERCORE_DIR || path.join(process.env.HOME || "/Users/calderwong", "Library", "Application Support", "hapa-ag", "storage");
+const SQLITE_BIN = process.env.HAPA_SQLITE_BIN || "/usr/bin/sqlite3";
 
 let latestTarotFrame = null;
 let frameCounter = 0;
+let activeTarotStreamConsumers = 0;
+let tarotStreamBytesAccepted = 0;
+let tarotStreamFramesRejectedWithoutConsumer = 0;
+const songCardPlaybackSessions = new Map();
+const SONG_CARD_PLAYBACK_HEARTBEAT_TTL_MS = 15_000;
+const SONG_CARD_RENDER_EXECUTOR_HEARTBEAT_TTL_MS = Math.max(5_000, Number(process.env.HAPA_SONG_CARD_RENDER_EXECUTOR_HEARTBEAT_TTL_MS || 20_000) || 20_000);
+const SONG_CARD_RENDER_EXECUTOR_CONFIG = String(process.env.HAPA_SONG_CARD_RENDER_EXECUTOR || "").trim();
+let songCardRenderExecutorHeartbeat = null;
+let songCardLocalRenderBridge = null;
+function activeSongCardPlaybackSessions(now = Date.now()) {
+  for (const [sessionId, expiresAt] of songCardPlaybackSessions) if (Number(expiresAt) <= now) songCardPlaybackSessions.delete(sessionId);
+  return songCardPlaybackSessions.size;
+}
+function noteSongCardRenderExecutor(body = {}, now = Date.now()) {
+  const executorId = String(body.executorId || body.workerId || "").trim();
+  if (!executorId || executorId.length > 240) return false;
+  songCardRenderExecutorHeartbeat = {
+    executorId,
+    adapter: String(body.adapter || SONG_CARD_RENDER_EXECUTOR_CONFIG || "external-worker").trim().slice(0, 240),
+    capabilities: Array.isArray(body.capabilities) ? body.capabilities.map((value) => String(value).slice(0, 120)).slice(0, 32) : [],
+    lastSeenAt: new Date(now).toISOString(),
+    expiresAt: now + SONG_CARD_RENDER_EXECUTOR_HEARTBEAT_TTL_MS,
+  };
+  return true;
+}
+function songCardRenderExecutorStatus(now = Date.now()) {
+  const connected = Boolean(songCardRenderExecutorHeartbeat && songCardRenderExecutorHeartbeat.expiresAt > now);
+  const configured = Boolean(SONG_CARD_RENDER_EXECUTOR_CONFIG);
+  const releaseCapable = connected && songCardRenderExecutorHeartbeat.capabilities.includes("release-export");
+  const status = connected ? releaseCapable ? "connected" : "incompatible" : configured ? "offline" : "not-installed";
+  const external = {
+    schemaVersion: "hapa.song-card.render-executor-status.v1",
+    available: releaseCapable,
+    connected,
+    releaseCapable,
+    configured,
+    status,
+    executionModel: connected ? "external-worker" : "planner-only",
+    executorId: connected ? songCardRenderExecutorHeartbeat.executorId : null,
+    adapter: connected ? songCardRenderExecutorHeartbeat.adapter : SONG_CARD_RENDER_EXECUTOR_CONFIG || null,
+    capabilities: connected ? songCardRenderExecutorHeartbeat.capabilities : [],
+    lastSeenAt: songCardRenderExecutorHeartbeat?.lastSeenAt || null,
+    heartbeatTtlMs: SONG_CARD_RENDER_EXECUTOR_HEARTBEAT_TTL_MS,
+    reason: connected
+      ? releaseCapable
+        ? "A render executor is connected and can finish a release export."
+        : "The connected render executor cannot produce a release export."
+      : configured
+        ? "The configured render executor is not connected."
+        : "No Song Card render executor is installed; this service can plan, bind worker artifacts, mint, and export, but cannot render a new cut by itself.",
+  };
+  let builtIn = null;
+  try {
+    builtIn = songCardLocalRenderBridge?.status?.() || null;
+  } catch (error) {
+    builtIn = {
+      schemaVersion: "hapa.song-card.render-executor-status.v1",
+      available: false,
+      releaseCapable: false,
+      status: "error",
+      executionModel: "built-in-local",
+      builtIn: true,
+      jobs: [],
+      reason: error instanceof Error ? error.message : String(error),
+    };
+  }
+  if (releaseCapable) return {
+    ...external,
+    jobs: Array.isArray(builtIn?.jobs) ? builtIn.jobs : [],
+    builtInRenderer: builtIn,
+  };
+  if (builtIn?.available === true && builtIn?.releaseCapable !== false) return {
+    ...builtIn,
+    schemaVersion: builtIn.schemaVersion || "hapa.song-card.render-executor-status.v1",
+    available: true,
+    releaseCapable: true,
+    builtIn: true,
+    executionModel: builtIn.executionModel || "built-in-local",
+    externalExecutor: external,
+  };
+  if (connected) return {
+    ...external,
+    jobs: Array.isArray(builtIn?.jobs) ? builtIn.jobs : [],
+    builtInRenderer: builtIn,
+  };
+  return {
+    ...external,
+    jobs: Array.isArray(builtIn?.jobs) ? builtIn.jobs : [],
+    builtInRenderer: builtIn,
+  };
+}
+function withSongCardRenderExecutor(payload = {}) {
+  const renderExecutor = songCardRenderExecutorStatus();
+  return {
+    ...payload,
+    renderExecutor,
+    localRenderJobs: Array.isArray(renderExecutor.jobs) ? renderExecutor.jobs : [],
+  };
+}
 const DEAR_PAPA_SONGBOOK_PATH = process.env.HAPA_DEAR_PAPA_SONGBOOK || path.join(ROOT, "data/dear-papa-songbook.json");
 const HAPA_SONG_STORE_PATH = process.env.HAPA_SONG_STORE || path.join(ROOT, "data/hapa-songs-store.json");
+const SONG_CARD_MINT_ROOT = process.env.HAPA_SONG_CARD_MINT_ROOT || path.join(ROOT, "data/song-card-mints");
+const songCardMintController = createSongCardMintController({
+  root: SONG_CARD_MINT_ROOT,
+  exportRoot: process.env.HAPA_SONG_CARD_EXPORT_ROOT || undefined,
+  allowedSourceRoots: [
+    ROOT,
+    process.env.HAPA_MUSIC_VIZ_ROOT || "/Users/calderwong/Desktop/hapa-music-viz",
+    ...String(process.env.HAPA_SONG_CARD_SOURCE_ROOTS || "").split(path.delimiter).map((entry) => entry.trim()).filter(Boolean),
+  ],
+});
+const songCardRemintStore = createSongCardRemintStore({
+  root: SONG_CARD_MINT_ROOT,
+  controller: songCardMintController,
+});
+songCardLocalRenderBridge = createSongCardLocalRenderBridge({
+  root: SONG_CARD_MINT_ROOT,
+  controller: songCardMintController,
+  remintStore: songCardRemintStore,
+  resolveRegistryMaster: async (songId) => String((await findRegistrySong(songId))?.localPath || "").trim(),
+});
 const CARD_INPUT_STANDARD_BASE_URL = (process.env.HAPA_CARD_INPUT_STANDARD_URL || "http://127.0.0.1:8896").replace(/\/+$/, "");
 const CARD_INPUT_STANDARD_ENABLED = process.env.HAPA_CARD_INPUT_STANDARD_ENABLED !== "0";
+const HAPA_DEV_PROTO_DEBUG_URL = String(process.env.HAPA_DEV_PROTO_DEBUG_URL || "").replace(/\/+$/, "");
+const HAPA_DEV_PROTO_DEBUG_TOKEN = String(process.env.HAPA_DEV_PROTO_DEBUG_TOKEN || "").trim();
 const TAROT_DRAW_FORGE_LTX_BF16_MODEL = "dgrauet/ltx-2.3-mlx";
 const TAROT_DRAW_FORGE_LTX_PROMPT_VERSION = "hapa-ltx-2.3-card-loop-v1-no-camera";
 const TAROT_DRAW_FORGE_LTX_PROMPT_GUIDE = "https://ltx.io/blog/ltx-2-3-prompt-guide";
@@ -126,9 +284,59 @@ const HAPA_TRANSCRIBE_MAX_BYTES = Math.max(256_000, Number(process.env.HAPA_TRAN
 const HAPA_TRANSCRIBE_EMPTY_CLIP_DIR = process.env.HAPA_TRANSCRIBE_EMPTY_CLIP_DIR || path.join(ROOT, "artifacts/transcribe-empty-clips");
 const HAPA_TRANSCRIBE_SAVE_EMPTY_CLIPS = process.env.HAPA_TRANSCRIBE_SAVE_EMPTY_CLIPS !== "0";
 const MEDIA_DIR = process.env.HAPA_MEDIA_DIR || path.join(ROOT, "data/media");
+const HAPA_MUSIC_VIZ_ROOT = process.env.HAPA_MUSIC_VIZ_ROOT || "/Users/calderwong/Desktop/hapa-music-viz";
+const ECHO_DIRECTOR_V2_ALBUM_DIR = process.env.HAPA_ECHO_DIRECTOR_V2_ALBUM_DIR || path.join(ROOT, "artifacts/echo-director-v2/album");
+const ECHO_DIRECTION_VARIANTS_DIR = process.env.HAPA_ECHO_DIRECTION_VARIANTS_DIR || path.join(DATA_DIR, "music-video-project-variants");
+const echoDirectionVariantSummaryIndex = createEchoDirectionVariantSummaryIndex({
+  variantsRoot: ECHO_DIRECTION_VARIANTS_DIR,
+});
+const echoIsfAssets = new EchoIsfAssetCatalog({ musicVizRoot: HAPA_MUSIC_VIZ_ROOT });
+const echoDirectorShowGraphCache = new Map();
+const echoPreviewPreparationJobs = new Map();
+const echoPreviewPreparationQueue = [];
+let activeEchoPreviewPreparationSongId = "";
+
+function pumpEchoPreviewPreparationQueue() {
+  if (activeEchoPreviewPreparationSongId || !echoPreviewPreparationQueue.length) return;
+  const job = echoPreviewPreparationQueue.shift();
+  activeEchoPreviewPreparationSongId = job.songId;
+  job.status = "running";
+  job.startedAt = new Date().toISOString();
+  const child = spawn(process.execPath, [path.join(ROOT, "scripts/build-echo-playback-media-v2.mjs"), "--apply", `--song=${job.songId}`], { cwd: ROOT, stdio: ["ignore", "pipe", "pipe"] });
+  const appendOutput = (chunk) => { job.outputTail = `${job.outputTail}${chunk}`.slice(-12_000); };
+  child.stdout.on("data", appendOutput);
+  child.stderr.on("data", appendOutput);
+  let settled = false;
+  const finish = (code, error = null) => {
+    if (settled) return;
+    settled = true;
+    job.exitCode = Number.isInteger(code) ? code : 1;
+    job.status = job.exitCode === 0 && !error ? "ready" : "failed";
+    job.completedAt = new Date().toISOString();
+    if (error) job.error = String(error.message || error);
+    activeEchoPreviewPreparationSongId = "";
+    pumpEchoPreviewPreparationQueue();
+  };
+  child.once("error", (error) => finish(1, error));
+  child.once("close", (code) => finish(code));
+}
 const SUBSCRIBER_DIR = process.env.HAPA_SUBSCRIBER_DIR || path.join(ROOT, "data/subscribers");
 const SUBSCRIBERS = ["hapa-atlas", "hapa-second-brain", "hapa-worldbuilding-wiki"];
 const OVERWIND_DIR = process.env.HAPA_OVERWIND_DIR || path.join(ROOT, "data/overwind");
+const AVATAR_OVERWIND_OUTBOX_PATH = process.env.HAPA_AVATAR_OVERWIND_OUTBOX || path.join(OVERWIND_DIR, "origin-outbox.sqlite3");
+const AVATAR_OVERWIND_SUBSCRIBER_PATH = process.env.HAPA_AVATAR_OVERWIND_SUBSCRIBER_DB || path.join(OVERWIND_DIR, "subscriber.sqlite3");
+const AVATAR_OVERWIND_URL = process.env.HAPA_OVERWIND_URL || "http://127.0.0.1:8788";
+const overwindToken = resolveOverwindToken();
+const avatarOverwindOrigin = new AvatarOverwindOrigin({
+  dbPath: AVATAR_OVERWIND_OUTBOX_PATH,
+  overwindUrl: AVATAR_OVERWIND_URL,
+  token: overwindToken
+});
+const avatarOverwindSubscriber = new AvatarOverwindSubscriber({
+  dbPath: AVATAR_OVERWIND_SUBSCRIBER_PATH,
+  baseUrl: AVATAR_OVERWIND_URL,
+  token: overwindToken
+});
 const OVERWIND_BOOTSTRAP_PATH = path.join(OVERWIND_DIR, "avatar-builder-bootstrap.json");
 const OVERWIND_SHELL_BOOTSTRAP_PATH = path.join(OVERWIND_DIR, "avatar-builder-shell-bootstrap.json");
 const OVERWIND_BOOTSTRAP_PROJECTION_VERSION = "hapa.overwind.avatar-builder-bootstrap.v5.avatar-loadout-mind-spines";
@@ -163,6 +371,13 @@ const DEFAULT_WEBRTC_ICE_SERVERS = [
 ];
 const BLUE_AVATAR_OWNER_PATH = process.env.HAPA_BLUE_AVATAR_OWNER_PATH || path.join(DATA_DIR, "blue-avatar-owner.json");
 const BLUE_AVATAR_OWNER_TTL_MS = Math.max(5000, Number(process.env.HAPA_BLUE_AVATAR_OWNER_TTL_MS || 16000) || 16000);
+const MAX_REQUEST_BYTES = Math.max(64 * 1024, Math.min(32 * 1024 * 1024, Number(process.env.HAPA_AVATAR_MAX_REQUEST_BYTES || 8 * 1024 * 1024)));
+const AVATAR_ADMIN_TOKEN = process.env.HAPA_AVATAR_ADMIN_TOKEN || process.env.HAPA_OVERWIND_TOKEN || "";
+const ALLOWED_ORIGINS = new Set([
+  "http://127.0.0.1:5178", "http://localhost:5178", "http://127.0.0.1:8787", "http://localhost:8787",
+  "http://127.0.0.1:8797", "http://localhost:8797",
+  ...String(process.env.HAPA_AVATAR_ALLOWED_ORIGINS || "").split(",").map((value) => value.trim()).filter(Boolean)
+]);
 
 const args = new Map();
 for (let index = 2; index < process.argv.length; index += 1) {
@@ -174,10 +389,17 @@ for (let index = 2; index < process.argv.length; index += 1) {
 
 const port = Number(args.get("port") || process.env.PORT || 8787);
 const host = String(args.get("host") || process.env.HAPA_AVATAR_HOST || process.env.HOST || "127.0.0.1");
+ALLOWED_ORIGINS.add(`http://127.0.0.1:${port}`);
+ALLOWED_ORIGINS.add(`http://localhost:${port}`);
 const httpsPortArg = args.get("https-port") ?? process.env.HAPA_AVATAR_HTTPS_PORT ?? "";
 const httpsPort = httpsPortArg === true ? port + 1 : Math.max(0, Number(httpsPortArg || 0) || 0);
 const httpsHost = String(args.get("https-host") || process.env.HAPA_AVATAR_HTTPS_HOST || host);
 const staticDir = args.get("static") ? path.resolve(ROOT, String(args.get("static"))) : null;
+const LOCAL_UI_SESSION_COOKIE = `hapa_avatar_local_session_${port}`;
+const LOCAL_UI_SESSION_ENABLED = ["127.0.0.1", "localhost", "::1", "0.0.0.0", "::"].includes(host.toLowerCase())
+  && (Boolean(staticDir) || process.env.HAPA_AVATAR_TRUST_LOCAL_UI === "1" || args.get("trust-local-ui") === true);
+const LOCAL_UI_SESSION_TOKEN = LOCAL_UI_SESSION_ENABLED ? randomBytes(32).toString("base64url") : "";
+const SONG_CARD_ARTIFACT_SIGNING_KEY = AVATAR_ADMIN_TOKEN || LOCAL_UI_SESSION_TOKEN;
 const HTTPS_CERT_DIR = process.env.HAPA_AVATAR_HTTPS_CERT_DIR || path.join(ROOT, "artifacts/certs/phone-bridge");
 const HTTPS_CA_KEY_PATH = process.env.HAPA_AVATAR_HTTPS_CA_KEY || path.join(HTTPS_CERT_DIR, "hapa-phone-bridge-ca.key");
 const HTTPS_CA_CERT_PATH = process.env.HAPA_AVATAR_HTTPS_CA_CERT || path.join(HTTPS_CERT_DIR, "hapa-phone-bridge-ca.crt");
@@ -192,7 +414,7 @@ async function handleServerRequest(req, res) {
   try {
     await route(req, res);
   } catch (error) {
-    sendJson(res, 500, {
+    sendJson(res, Number(error?.statusCode || 500), {
       error: "internal_error",
       message: error instanceof Error ? error.message : String(error)
     });
@@ -201,10 +423,52 @@ async function handleServerRequest(req, res) {
 
 const server = createHttpServer(handleServerRequest);
 
+let overcardHostHandle = null;
+try {
+  overcardHostHandle = await ensureLocalOvercardHost({
+    nodeId: "hapa-avatar-builder-overcard-host",
+    allowedOrigins: [...new Set([
+      ...ALLOWED_ORIGINS,
+      `http://127.0.0.1:${port}`,
+      `http://localhost:${port}`,
+    ])].filter((origin) => /^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?$/.test(origin)),
+  });
+  process.env.HAPA_OVERCARD_HOST_URL = overcardHostHandle.baseUrl;
+  console.log(`Shared Overcard host ${overcardHostHandle.mode}: ${overcardHostHandle.baseUrl}`);
+} catch (error) {
+  console.warn(`Shared Overcard host unavailable; Builder remains read-only: ${error instanceof Error ? error.message : String(error)}`);
+}
+
+const songCardStartupRecovery = await songCardMintController.recover();
+await songCardRemintStore.initialize();
+
 server.listen(port, host, () => {
   console.log(`Hapa Avatar Builder API listening on http://${host}:${port}`);
+  const recovered = (songCardStartupRecovery.outcomes || []).filter((row) => row.recovered).length;
+  if (recovered) console.log(`Song Card mint recovery committed ${recovered} durable edition transaction(s).`);
   warmOverwindBootstrap();
+  if (process.env.HAPA_AVATAR_OVERWIND_SUBSCRIBER_SYNC !== "0") {
+    setTimeout(() => avatarOverwindSubscriber.sync().then((result) => {
+      console.log(`Overwind Card subscriber ${result.mode}: ${result.applied ?? result.total ?? 0} rows at cursor ${result.cursor ?? result.watermark ?? 0}`);
+    }).catch((error) => console.warn(`Overwind Card subscriber sync deferred: ${error instanceof Error ? error.message : String(error)}`)), 1500);
+  }
 });
+
+async function stopOwnedOvercardHost() {
+  await overcardHostHandle?.close();
+  overcardHostHandle = null;
+}
+let shutdownPromise = null;
+function shutdownBuilder(signal) {
+  if (shutdownPromise) return shutdownPromise;
+  shutdownPromise = Promise.allSettled([
+    songCardLocalRenderBridge?.shutdown?.({ reason: signal }) || Promise.resolve(),
+    stopOwnedOvercardHost(),
+  ]).finally(() => process.exit(0));
+  return shutdownPromise;
+}
+process.once("SIGINT", () => { void shutdownBuilder("SIGINT"); });
+process.once("SIGTERM", () => { void shutdownBuilder("SIGTERM"); });
 
 if (httpsPort) {
   ensureLocalHttpsCredentials()
@@ -222,12 +486,16 @@ if (httpsPort) {
 }
 
 function warmOverwindBootstrap() {
-  readOverwindShellBootstrap(null)
+  readPersistedOverwindShellProjection()
     .then((projection) => {
-      console.log(`Overwind shell bootstrap ready at ${OVERWIND_SHELL_BOOTSTRAP_PATH} (${projection.counts?.avatars || 0} avatars, ${projection.counts?.cards || 0} cards)`);
+      if (projection) {
+        console.log(`Overwind shell cache available at ${OVERWIND_SHELL_BOOTSTRAP_PATH} (${projection.counts?.avatars || 0} avatars, ${projection.counts?.cards || 0} cards)`);
+      } else {
+        console.log("Overwind shell warmup deferred until the bootstrap endpoint is requested");
+      }
     })
     .catch((error) => {
-      console.warn(`Overwind shell bootstrap warmup skipped: ${error instanceof Error ? error.message : String(error)}`);
+      console.warn(`Overwind shell cache probe skipped: ${error instanceof Error ? error.message : String(error)}`);
     });
 
   if (process.env.HAPA_OVERWIND_WARM_FULL === "1") {
@@ -845,7 +1113,10 @@ triggerBackgroundLedgerScan();
 setInterval(triggerBackgroundLedgerScan, 60000);
 
 async function route(req, res) {
-  setCors(req, res);
+  if (!setCors(req, res)) {
+    sendJson(res, 403, { error: "cors_origin_denied" });
+    return;
+  }
   if (req.method === "OPTIONS") {
     res.writeHead(204);
     res.end();
@@ -856,16 +1127,81 @@ async function route(req, res) {
   const url = new URL(req.url || "/", `${requestProtocol}://${req.headers.host || `127.0.0.1:${port}`}`);
   const pathname = decodeURIComponent(url.pathname);
 
+  if (pathname === "/api/local-ui-session" && req.method === "POST") {
+    if (!LOCAL_UI_SESSION_ENABLED) {
+      sendJson(res, 403, { error: "trusted_local_ui_disabled", failClosed: true });
+      return;
+    }
+    if (!trustedLocalUiRequestContext(req, { bootstrap: true })) {
+      sendJson(res, 403, { error: "trusted_local_ui_denied", failClosed: true });
+      return;
+    }
+    res.setHeader("Set-Cookie", localUiSessionCookie(req));
+    res.setHeader("Cache-Control", "no-store");
+    sendJson(res, 201, {
+      schemaVersion: "hapa.avatar-builder.local-ui-session.v1",
+      ok: true,
+      authMode: "trusted-local-ui",
+      processScoped: true,
+    });
+    return;
+  }
+
+  if (pathname === "/api/service-identity" && req.method === "GET") {
+    const [store, itemStore] = await Promise.all([readStore(), readItemStore()]);
+    const projection = loadHellWeekProjection();
+    sendJson(res, 200, {
+      schemaVersion: "hapa.avatar-builder.service-identity.v1",
+      serviceId: "hapa-avatar-builder",
+      canonical: true,
+      processOwner: SERVER_PROCESS_OWNER,
+      buildSignature: SERVER_BUILD_SIGNATURE,
+      bind: { host, port, loopback: ["127.0.0.1", "localhost", "::1"].includes(host) },
+      populations: {
+        canonicalAvatarCards: { count: (store.avatars || []).length, owner: "hapa-avatar-builder", source: STORE_PATH },
+        canonicalItemCards: { count: (itemStore.cards || []).length, owner: "hapa-avatar-builder", source: ITEM_STORE_PATH },
+        devProtoReadOnlyProjection: { count: projection.ok ? projection.cards.length : 0, owner: "hapa-dev-proto", source: HAPA_DEV_PROTO_DB_PATH },
+        combinedViewIsCanonical: false
+      },
+      overwind: avatarOverwindOrigin.health(),
+      legacyPorts: { 8787: "canonical API", 8797: "canonical desktop/static instance of the same service identity" }
+    });
+    return;
+  }
+
+  if (pathname === "/api/tarot/stream-demand" && req.method === "GET") {
+    sendJson(res, 200, {
+      ok: true,
+      activeConsumers: activeTarotStreamConsumers,
+      captureRequested: activeTarotStreamConsumers > 0,
+      maxFps: 5,
+      framesAccepted: frameCounter,
+      framesRejectedWithoutConsumer: tarotStreamFramesRejectedWithoutConsumer,
+      bytesAccepted: tarotStreamBytesAccepted
+    });
+    return;
+  }
+
   if (pathname === "/api/tarot/stream-frame" && req.method === "POST") {
+    if (activeTarotStreamConsumers <= 0) {
+      tarotStreamFramesRejectedWithoutConsumer += 1;
+      req.resume();
+      sendJson(res, 409, { ok: false, captureRequested: false, reason: "no-active-stream-consumer" });
+      return;
+    }
     try {
       const chunks = [];
+      let totalBytes = 0;
       for await (const chunk of req) {
+        totalBytes += chunk.length;
+        if (totalBytes > 2 * 1024 * 1024) throw new Error("tarot stream frame exceeds 2 MiB limit");
         chunks.push(chunk);
       }
       latestTarotFrame = {
         id: ++frameCounter,
         buffer: Buffer.concat(chunks)
       };
+      tarotStreamBytesAccepted += totalBytes;
       sendJson(res, 200, { ok: true });
     } catch (e) {
       sendJson(res, 500, { error: e.message });
@@ -883,6 +1219,14 @@ async function route(req, res) {
     const boundary = "\r\n--frame\r\n";
     let active = true;
     let lastFrameId = 0;
+    activeTarotStreamConsumers += 1;
+
+    const releaseConsumer = () => {
+      if (!active) return;
+      active = false;
+      activeTarotStreamConsumers = Math.max(0, activeTarotStreamConsumers - 1);
+      clearInterval(interval);
+    };
 
     const interval = setInterval(() => {
       if (!active) return;
@@ -896,16 +1240,14 @@ async function route(req, res) {
           res.write(buffer);
           res.write("\r\n");
         } catch (e) {
-          clearInterval(interval);
-          active = false;
+          releaseConsumer();
         }
       }
     }, 40);
 
-    req.on("close", () => {
-      clearInterval(interval);
-      active = false;
-    });
+    req.on("close", releaseConsumer);
+    res.on("close", releaseConsumer);
+    res.on("error", releaseConsumer);
     return;
   }
 
@@ -920,11 +1262,163 @@ async function route(req, res) {
     return;
   }
 
+  if (pathname === "/api/overcard/catalog" && req.method === "GET") {
+    const [avatars, items, tarot, world, songs, songCards] = await Promise.all([
+      readStore({ includeProjections: true, forceProjection: url.searchParams.get("refresh") === "1" }),
+      readItemStore(),
+      readTarotStore(),
+      readSceneStore(),
+      readHapaSongStore(),
+      songCardMintController.catalogProjection()
+    ]);
+    sendJson(res, 200, buildBuilderEntityCatalog(
+      { avatars, items, tarot, world, songs, songCards },
+      {
+        kinds: String(url.searchParams.get("kinds") || "").split(",").map((value) => value.trim()).filter(Boolean),
+        offset: url.searchParams.get("offset"),
+        limit: url.searchParams.get("limit"),
+        generatedAt: new Date().toISOString()
+      }
+    ));
+    return;
+  }
+
+  if (pathname === "/api/overcard/capabilities" && req.method === "GET") {
+    const manifest = await readJson(path.join(ROOT, "overcard-adapter.json"));
+    const validation = validateNodeAdapterManifest(manifest);
+    if (!validation.ok) {
+      sendJson(res, 500, { error: "invalid_overcard_adapter", issues: validation.issues });
+      return;
+    }
+    const envelope = negotiateCapabilities(manifest, {
+      installed: true,
+      running: true,
+      compatible: true,
+      discoveredVia: ["http"]
+    });
+    sendJson(res, 200, { ...envelope, hostTargets: builderHostTargetRegistrations().map(({ nodeId, hostId, processId, slots }) => ({ nodeId, hostId, ...(processId ? { processId } : {}), socketId: slots[0]?.id })) });
+    return;
+  }
+
+  if (pathname === "/api/overcard/host-targets" && req.method === "GET") {
+    const targets = builderHostTargetRegistrations();
+    sendJson(res, 200, { schema: "hapa.avatar-builder-host-target-registry.v1", nodeId: "hapa-avatar-builder", count: targets.length, targets });
+    return;
+  }
+
+  if (pathname === "/api/overcard/process-adapters" && req.method === "GET") {
+    const adapters = builderProcessAdapterRegistrations();
+    sendJson(res, 200, { schema: "hapa.avatar-builder-process-adapter-registry.v1", nodeId: "hapa-avatar-builder", count: adapters.length, adapters });
+    return;
+  }
+
+  if (pathname.startsWith("/api/overcard/process-adapters/") && pathname.endsWith("/run-context") && req.method === "POST") {
+    try {
+      const adapterId = decodeURIComponent(pathname.slice("/api/overcard/process-adapters/".length, -"/run-context".length));
+      if (!getBuilderProcessAdapter(adapterId)) { sendJson(res, 404, { error: "process_adapter_not_found" }); return; }
+      const body = await readBody(req);
+      const [avatars, inventory, items, tarot, world, songs] = await Promise.all([readStore(), readInventoryStore(), readItemStore(), readTarotStore(), readSceneStore(), readHapaSongStore()]);
+      sendJson(res, 200, freezeBuilderRunContext(adapterId, body, { avatars, teams: { teams: avatars.teams || [], updatedAt: avatars.updatedAt }, inventory, items, tarot, world, songs }));
+    } catch (error) {
+      sendJson(res, 400, { error: "run_context_invalid", message: error instanceof Error ? error.message : String(error) });
+    }
+    return;
+  }
+
+  if (pathname === "/api/overcard/hell-week/prepare-next-run" && req.method === "POST") {
+    if (!HAPA_DEV_PROTO_DEBUG_URL || !HAPA_DEV_PROTO_DEBUG_TOKEN) { sendJson(res, 503, { error: "hell_week_runtime_not_configured", fallback: "process-defaults" }); return; }
+    try {
+      const body = await readBody(req);
+      if (body?.confirmed !== true || !body?.confirmationId) { sendJson(res, 409, { error: "explicit_confirmation_required" }); return; }
+      const capabilityResponse = await fetch(`${HAPA_DEV_PROTO_DEBUG_URL}/v1/formations/capabilities`, { headers: { Authorization: `Bearer ${HAPA_DEV_PROTO_DEBUG_TOKEN}` } });
+      if (!capabilityResponse.ok) throw new Error(`Hell Week capability discovery failed with HTTP ${capabilityResponse.status}.`);
+      const remoteCapabilities = await capabilityResponse.json();
+      const [avatars, inventory, items, tarot, world, songs] = await Promise.all([readStore(), readInventoryStore(), readItemStore(), readTarotStore(), readSceneStore(), readHapaSongStore()]);
+      const prepared = prepareHellWeekNextRun({ binding: body.binding, remoteCapabilities, trustGrant: { granted: true, nodeId: "hapa-dev-proto", grantId: `trust:${body.confirmationId}` }, authorizationGrant: { granted: true, nodeId: "hapa-dev-proto", grantId: `authorization:${body.confirmationId}` }, now: new Date().toISOString(), traceId: body.traceId, settings: body.settings || {}, estimatedToolCalls: body.estimatedToolCalls || 0 }, { avatars, teams: { teams: avatars.teams || [], updatedAt: avatars.updatedAt }, inventory, items, tarot, world, songs });
+      const delivery = await fetch(`${HAPA_DEV_PROTO_DEBUG_URL}/v1/hell-week/run-context`, { method: "POST", headers: { Authorization: `Bearer ${HAPA_DEV_PROTO_DEBUG_TOKEN}`, "Content-Type": "application/json" }, body: JSON.stringify({ actor: body.actor || "hapa-avatar-builder", runtimeContext: prepared.runtimeContext }) });
+      const receipt = await delivery.json().catch(() => null);
+      if (!delivery.ok || receipt?.ok === false) throw new Error(receipt?.message || `Hell Week delivery failed with HTTP ${delivery.status}.`);
+      sendJson(res, 200, { ok: true, prepared: { adapterId: prepared.adapterId, ownerNodeId: prepared.ownerNodeId, snapshotId: prepared.runtimeContext.snapshotId, bindingId: prepared.runtimeContext.binding?.id, principal: prepared.runtimeContext.principal, formation: prepared.runtimeContext.formation, collectionRefs: prepared.runtimeContext.collectionRefs, sourceRevisions: prepared.runtimeContext.sourceRevisions, fallback: prepared.runtimeContext.fallback, traceId: prepared.runtimeContext.traceId }, receipt: receipt.inbox });
+    } catch (error) { sendJson(res, 502, { error: "hell_week_prepare_failed", message: error instanceof Error ? error.message : String(error), fallback: "process-defaults" }); }
+    return;
+  }
+
+  if (pathname === "/api/overcard/hell-week/binding-control" && req.method === "POST") {
+    if (!HAPA_DEV_PROTO_DEBUG_URL || !HAPA_DEV_PROTO_DEBUG_TOKEN) { sendJson(res, 503, { error: "hell_week_runtime_not_configured", nextRun: "process-defaults" }); return; }
+    try {
+      const body = await readBody(req);
+      const response = await fetch(`${HAPA_DEV_PROTO_DEBUG_URL}/v1/hell-week/binding-control`, { method: "POST", headers: { Authorization: `Bearer ${HAPA_DEV_PROTO_DEBUG_TOKEN}`, "Content-Type": "application/json" }, body: JSON.stringify({ bindingId: body.bindingId, status: body.status, actor: body.actor || "hapa-avatar-builder" }) });
+      const result = await response.json().catch(() => null); if (!response.ok || result?.ok === false) throw new Error(result?.message || `Binding control failed with HTTP ${response.status}.`);
+      sendJson(res, 200, result);
+    } catch (error) { sendJson(res, 502, { error: "hell_week_binding_control_failed", message: error instanceof Error ? error.message : String(error), nextRun: "process-defaults" }); }
+    return;
+  }
+
+  if (pathname === "/api/overcard/inventory-collections" && req.method === "GET") {
+    const [inventory, items] = await Promise.all([readInventoryStore(), readItemStore()]);
+    sendJson(res, 200, projectInventoryCollections(inventory, items));
+    return;
+  }
+
+  if (pathname === "/api/overcard/inventory-collections" && req.method === "PUT") {
+    const body = await readBody(req);
+    const inventory = await readInventoryStore();
+    const result = applyInventoryCollections(inventory, Array.isArray(body.collections) ? body.collections : [], { expectedUpdatedAt: body.expectedUpdatedAt });
+    if (!result.ok) { sendJson(res, result.code === "revision_conflict" ? 409 : 422, result); return; }
+    await writeInventoryStore(result.store);
+    await appendSubscriberRegistration("inventory.overcard-collections-updated", { inventoryStore: result.store });
+    sendJson(res, 200, { ok: true, storeUpdatedAt: result.store.updatedAt, audit: result.store.audit });
+    return;
+  }
+
+  if (pathname === "/api/overcard/runtime-context/preview" && req.method === "POST") {
+    try {
+      const body = await readBody(req);
+      const [avatars, inventory, items, tarot, world, songs] = await Promise.all([
+        readStore(),
+        readInventoryStore(),
+        readItemStore(),
+        readTarotStore(),
+        readSceneStore(),
+        readHapaSongStore()
+      ]);
+      sendJson(res, 200, resolveBuilderRuntimeContext(body, {
+        avatars,
+        teams: { teams: avatars.teams || [], updatedAt: avatars.updatedAt },
+        inventory,
+        items,
+        tarot,
+        world,
+        songs
+      }));
+    } catch (error) {
+      sendJson(res, 400, { error: "runtime_context_preview_invalid", message: error instanceof Error ? error.message : String(error) });
+    }
+    return;
+  }
+
   if (pathname === "/api/health") {
+    const memory = process.memoryUsage();
     sendJson(res, 200, {
       ok: true,
       service: "hapa-avatar-builder",
       store: STORE_PATH,
+      runtime: {
+        pid: process.pid,
+        processOwner: SERVER_PROCESS_OWNER,
+        buildSignature: SERVER_BUILD_SIGNATURE,
+        startedAt: SERVER_STARTED_AT,
+        uptimeSeconds: Math.round(process.uptime()),
+        port,
+        host,
+        rssBytes: memory.rss,
+        heapUsedBytes: memory.heapUsed,
+        openFileCount: processOpenFileCount(),
+        fileStreams: fileStreamTelemetry()
+      },
+      handoffs: {
+        hellWeek: hellWeekHandoffTelemetry()
+      },
       time: new Date().toISOString()
     });
     return;
@@ -1071,6 +1565,137 @@ async function route(req, res) {
     return;
   }
 
+  if (pathname === "/api/overwind/cards" && req.method === "GET") {
+    const population = url.searchParams.get("population") || "";
+    const result = population
+      ? await avatarOverwindSubscriber.population(population, {
+          q: url.searchParams.get("q") || "",
+          sort: url.searchParams.get("sort") || "-updated_at,card_id"
+        })
+      : await avatarOverwindSubscriber.search({
+          q: url.searchParams.get("q") || "",
+          cursor: url.searchParams.get("cursor") || "",
+          limit: url.searchParams.get("limit") || 100,
+          sort: url.searchParams.get("sort") || "-updated_at,card_id"
+        });
+    sendJson(res, 200, result);
+    return;
+  }
+
+  if (pathname === "/api/overwind/library" && req.method === "GET") {
+    const [avatarCards, itemCards, avatarStore, itemStore] = await Promise.all([
+      avatarOverwindSubscriber.population("avatars"),
+      avatarOverwindSubscriber.population("items"),
+      readStore(),
+      readItemStore()
+    ]);
+    const localIdFor = (cardId) => {
+      try {
+        const decoded = Buffer.from(String(cardId).split(":").at(-1), "base64url").toString("utf8");
+        return decoded.replace(/^(avatar|item)\//, "");
+      } catch { return ""; }
+    };
+    const project = (cards, records) => {
+      const byId = new Map((records || []).map((record) => [String(record.id || record.cardId || record.avatarId || ""), record]));
+      return (cards.items || []).map((card) => {
+        const localId = localIdFor(card.card_id);
+        return {
+          ...(byId.get(localId) || {}),
+          id: localId || card.card_id,
+          _overwind: {
+            cardId: card.card_id,
+            revision: card.revision,
+            eventId: card.event_id,
+            eventDigest: card.event_digest,
+            ledgerPosition: card.ledger_position,
+            truthState: cards.truth_state,
+            servingBackend: cards.serving_backend,
+            asOfWatermark: cards.as_of_watermark || null,
+            localProjection: true
+          }
+        };
+      });
+    };
+    sendJson(res, 200, {
+      schema: "hapa.avatar-builder.overwind-library.v1",
+      truth_state: avatarCards.offline || itemCards.offline ? "local-stale" : "overwind-acknowledged",
+      consistency_state: avatarCards.offline || itemCards.offline ? "bounded_stale_local_fallback" : "authoritative",
+      watermarks: { avatars: avatarCards.as_of_watermark || null, items: itemCards.as_of_watermark || null },
+      populations: { avatars: avatarCards.total, items: itemCards.total },
+      avatars: project(avatarCards, avatarStore.avatars),
+      items: project(itemCards, itemStore.cards),
+      teams: avatarStore.teams || [],
+      itemStore: { ...itemStore, cards: project(itemCards, itemStore.cards) },
+      fallback_policy: avatarCards.fallback_policy || itemCards.fallback_policy || null
+    });
+    return;
+  }
+
+  if (pathname === "/api/overwind/subscriber/status" && req.method === "GET") {
+    sendJson(res, 200, { ...avatarOverwindSubscriber.status(), dbPath: AVATAR_OVERWIND_SUBSCRIBER_PATH, overwindUrl: AVATAR_OVERWIND_URL });
+    return;
+  }
+
+  if (pathname === "/api/overwind/subscriber/rebuild" && req.method === "POST") {
+    if (!requireAdmin(req, res)) return;
+    sendJson(res, 200, await avatarOverwindSubscriber.rebuild());
+    return;
+  }
+
+  if (pathname === "/api/overwind/subscriber/sync" && req.method === "POST") {
+    if (!requireAdmin(req, res)) return;
+    sendJson(res, 200, await avatarOverwindSubscriber.sync());
+    return;
+  }
+
+  const overwindCardSurfaceMatch = pathname.match(/^\/api\/overwind\/cards\/([^/]+)(?:\/(history|comments|lineage))?$/);
+  if (overwindCardSurfaceMatch) {
+    const cardId = decodeURIComponent(overwindCardSurfaceMatch[1]);
+    const surface = overwindCardSurfaceMatch[2] || "card";
+    if (req.method === "GET") {
+      const result = surface === "history" ? await avatarOverwindSubscriber.history(cardId)
+        : surface === "comments" ? await avatarOverwindSubscriber.comments(cardId)
+          : surface === "lineage" ? await avatarOverwindSubscriber.lineage(cardId)
+            : await avatarOverwindSubscriber.get(cardId);
+      sendJson(res, 200, result);
+      return;
+    }
+    if (surface === "comments" && req.method === "POST") {
+      sendJson(res, 201, await avatarOverwindSubscriber.comment(cardId, await readBody(req)));
+      return;
+    }
+  }
+
+  if (pathname === "/api/overwind/card-origin/status" && req.method === "GET") {
+    sendJson(res, 200, { ...avatarOverwindOrigin.health(), outboxPath: AVATAR_OVERWIND_OUTBOX_PATH, overwindUrl: AVATAR_OVERWIND_URL });
+    return;
+  }
+
+  if (pathname === "/api/overwind/card-origin/sync" && req.method === "POST") {
+    if (!requireAdmin(req, res)) return;
+    const result = await avatarOverwindOrigin.upload();
+    sendJson(res, result.ok ? 200 : 503, result);
+    return;
+  }
+
+  if (pathname === "/api/overwind/card-origin/migrate-legacy" && req.method === "POST") {
+    if (!requireAdmin(req, res)) return;
+    sendJson(res, 200, await avatarOverwindOrigin.migrateLegacy(SUBSCRIBER_DIR, SUBSCRIBERS));
+    return;
+  }
+
+  if (pathname === "/api/overwind/card-origin/operation" && req.method === "POST") {
+    if (!requireAdmin(req, res)) return;
+    try {
+      const body = await readBody(req);
+      const event = avatarOverwindOrigin.appendOperation(body.kind || "item", body.record || {}, body.eventType, body.payload || {}, body.occurredAt);
+      sendJson(res, 201, { ok: true, outcome: "committed_pending_ack", event });
+    } catch (error) {
+      sendJson(res, Number(error?.statusCode || 400), { ok: false, error: error instanceof Error ? error.message : String(error) });
+    }
+    return;
+  }
+
   if (pathname === "/api/kanban") {
     const board = await readJson(KANBAN_PATH);
     sendJson(res, 200, url.searchParams.get("mode") === "shell" ? compactKanbanForOverwindShell(board) : board);
@@ -1119,12 +1744,12 @@ async function route(req, res) {
             score: video.score,
             truthStatus: video.truthStatus,
             flowType: video.flowType || "",
-            duration: video.duration,
-            characterCount: video.characterCount,
+            ...(video.duration !== null && video.duration !== undefined ? { duration: video.duration } : {}),
+            ...(video.characterCount !== null && video.characterCount !== undefined ? { characterCount: video.characterCount } : {}),
             tags: (video.tags || []).filter((tag) => (
               !String(tag).startsWith("obj-") &&
               !String(tag).startsWith("act-")
-            )).slice(0, 16)
+            )).slice(0, 8)
           }))
         });
         return;
@@ -1194,13 +1819,33 @@ async function route(req, res) {
       const summaryOnly = url.searchParams.get("summary") === "1";
       const files = await readdir(projectsDir);
       const jsonFiles = files.filter(f => f.endsWith(".json"));
-      const projects = [];
+      const projectFiles = [];
       for (const file of jsonFiles) {
         try {
           const content = await readFile(path.join(projectsDir, file), "utf-8");
-          const payload = JSON.parse(content);
+          projectFiles.push({ file, payload: JSON.parse(content) });
+        } catch (e) {
+          console.error("Failed to parse project file:", file, e);
+        }
+      }
+      const indexedVariants = summaryOnly
+        ? await echoDirectionVariantSummaryIndex.variantsForSongs(
+          projectFiles.map(({ file, payload }) => payload.music_video_project?.song_id || file.replace(/-video-project\.json$/u, "")),
+          readEchoDirectionScriptVariants,
+        )
+        : null;
+      if (indexedVariants) {
+        const sources = new Set(indexedVariants.sourceBySong.values());
+        res.setHeader("X-Hapa-Echo-Direction-Variant-Summary", sources.size === 1 ? [...sources][0] : "index+authoritative-fallback");
+      }
+      const projects = [];
+      for (const { file, payload } of projectFiles) {
+        try {
           if (summaryOnly) {
             const project = payload.music_video_project || {};
+            const songId = project.song_id || file.replace(/-video-project\.json$/u, "");
+            const fileVariants = indexedVariants.bySong.get(songId) || [];
+            const variants = mergeEchoDirectionScriptVariants(fileVariants, project.direction_script_variants);
             projects.push({
               music_video_project: {
                 song_id: project.song_id,
@@ -1218,6 +1863,11 @@ async function route(req, res) {
                 timeline_count: Array.isArray(project.timeline) ? project.timeline.length : 0,
                 visualizer_timeline_count: Array.isArray(project.visualizer_timeline) ? project.visualizer_timeline.length : 0,
                 timed_lyrics_count: Array.isArray(project.timed_lyrics) ? project.timed_lyrics.length : 0,
+                direction_script_variant_count: variants.length,
+                direction_script_variant_summaries: variants.map((variant) => summarizeEchoDirectionScriptVariant(
+                  variant,
+                  Array.isArray(project.timeline) ? project.timeline.length : 0,
+                )),
                 updated_at: project.updated_at || null,
                 provenance: project.provenance || null
               }
@@ -1226,7 +1876,7 @@ async function route(req, res) {
             projects.push(payload);
           }
         } catch (e) {
-          console.error("Failed to parse project file:", file, e);
+          console.error("Failed to summarize project file:", file, e);
         }
       }
       sendJson(res, 200, projects);
@@ -1246,29 +1896,152 @@ async function route(req, res) {
     const projectsDir = path.join(DATA_DIR, "music-video-projects");
     const safeName = path.basename(songId);
     const filePath = path.join(projectsDir, `${safeName}-video-project.json`);
+    const profile = url.searchParams.get("profile") === "source" ? "source" : "editor";
+    let selectedVariantId = "";
     try {
-      const content = await readFile(filePath, "utf-8");
-      sendJson(res, 200, JSON.parse(content));
-    } catch {
+      const requestedVariantId = url.searchParams.get("variantId");
+      selectedVariantId = requestedVariantId ? safeEchoDirectionPathSegment(requestedVariantId, "variant") : "";
+    } catch (error) {
+      sendJson(res, Number(error?.statusCode || 400), {
+        error: error?.code || "invalid_variant_id",
+        message: error instanceof Error ? error.message : String(error),
+      });
+      return;
+    }
+    try {
+      const payload = await readJson(filePath);
+      const hydrated = await hydrateEchoDirectorProjectPayload(payload, safeName, {
+        profile,
+        selectedVariantId,
+      });
+      res.setHeader("X-Hapa-Echo-Detail-Profile", profile === "source" ? "source-v1" : "editor-bounded-v1");
+      if (selectedVariantId) res.setHeader("X-Hapa-Echo-Selected-Variant", selectedVariantId);
+      sendJson(res, 200, hydrated);
+    } catch (error) {
+      if (error?.code === "direction_variant_not_found") {
+        sendJson(res, 404, {
+          error: error.code,
+          message: error.message,
+          songId: safeName,
+          variantId: selectedVariantId,
+        });
+        return;
+      }
       sendJson(res, 404, { error: "project_not_found", songId });
     }
     return;
   }
 
-  if (pathname === "/api/echos/shaders" && req.method === "GET") {
-    const manifestPath = "/Users/calderwong/Desktop/hapa-music-viz/web/isf/manifest.json";
+  if (pathname === "/api/echos/director-preview/prepare" && req.method === "GET") {
+    const songId = path.basename(url.searchParams.get("songId") || "");
+    sendJson(res, 200, echoPreviewPreparationJobs.get(songId) || { songId, status: "idle", progress: null });
+    return;
+  }
+
+  if (pathname === "/api/echos/director-preview/prepare" && req.method === "POST") {
+    const songId = path.basename(url.searchParams.get("songId") || "");
+    if (!songId || !fs.existsSync(path.join(DATA_DIR, "music-video-projects", `${songId}-video-project.json`))) {
+      sendJson(res, 404, { error: "project_not_found", songId }); return;
+    }
+    const current = echoPreviewPreparationJobs.get(songId);
+    if (["queued", "running"].includes(current?.status)) { sendJson(res, 202, current); return; }
+    const job = { schemaVersion: "hapa.echo.preview-preparation.v1", songId, status: "queued", queuedAt: new Date().toISOString(), startedAt: null, completedAt: null, exitCode: null, outputTail: "" };
+    echoPreviewPreparationJobs.set(songId, job);
+    echoPreviewPreparationQueue.push(job);
+    pumpEchoPreviewPreparationQueue();
+    sendJson(res, 202, job);
+    return;
+  }
+
+  if (pathname === "/api/echos/shaders") {
+    if (req.method !== "GET") {
+      res.setHeader("Allow", "GET");
+      sendJson(res, 405, { error: "method_not_allowed", method: req.method, allow: ["GET"] });
+      return;
+    }
     try {
-      const exists = await access(manifestPath).then(() => true).catch(() => false);
-      if (!exists) {
-        sendJson(res, 200, []);
+      const catalog = await echoIsfAssets.load();
+      res.setHeader("Cache-Control", "no-cache");
+      res.setHeader("ETag", `"sha256-${catalog.manifest.hash}"`);
+      sendJson(res, 200, catalog.shaders);
+    } catch (error) {
+      console.error("Failed to load shaders:", error);
+      sendJson(res, 503, {
+        error: "echo_shader_catalog_unavailable",
+        message: error instanceof Error ? error.message : String(error)
+      });
+    }
+    return;
+  }
+
+  if (pathname === "/api/echos/shader-source") {
+    if (!isGetOrHead(req)) {
+      res.setHeader("Allow", "GET, HEAD");
+      sendJson(res, 405, { error: "method_not_allowed", method: req.method, allow: ["GET", "HEAD"] });
+      return;
+    }
+    const shaderId = url.searchParams.get("id") || "";
+    if (!shaderId) {
+      sendJson(res, 400, { error: "missing_shader_id" });
+      return;
+    }
+    try {
+      const requestedHash = url.searchParams.get("sha256") || "";
+      const result = await echoIsfAssets.shader(shaderId, requestedHash);
+      if (result.status === "missing") {
+        sendJson(res, 404, { error: "shader_not_found", shaderId });
         return;
       }
-      const content = await readFile(manifestPath, "utf-8");
-      const manifest = JSON.parse(content);
-      sendJson(res, 200, manifest.shaders || []);
-    } catch (e) {
-      console.error("Failed to load shaders:", e);
-      sendJson(res, 500, { error: "failed_to_load_shaders" });
+      if (result.status === "hash-mismatch") {
+        sendJson(res, 409, {
+          error: "shader_source_hash_mismatch",
+          shaderId,
+          expectedSha256: result.expectedHash,
+          requestedSha256: result.requestedHash
+        });
+        return;
+      }
+      writeEchoIsfAsset(req, res, result.record, {
+        contentType: "text/plain; charset=utf-8",
+        shaderId,
+        immutable: Boolean(requestedHash)
+      });
+    } catch (error) {
+      sendJson(res, 503, {
+        error: "echo_shader_source_unavailable",
+        shaderId,
+        message: error instanceof Error ? error.message : String(error)
+      });
+    }
+    return;
+  }
+
+  if (pathname === "/api/echos/isf-runtime.js") {
+    if (!isGetOrHead(req)) {
+      res.setHeader("Allow", "GET, HEAD");
+      sendJson(res, 405, { error: "method_not_allowed", method: req.method, allow: ["GET", "HEAD"] });
+      return;
+    }
+    try {
+      const requestedHash = url.searchParams.get("sha256") || "";
+      const result = await echoIsfAssets.runtime(requestedHash);
+      if (result.status === "hash-mismatch") {
+        sendJson(res, 409, {
+          error: "isf_runtime_hash_mismatch",
+          expectedSha256: result.expectedHash,
+          requestedSha256: result.requestedHash
+        });
+        return;
+      }
+      writeEchoIsfAsset(req, res, result.record, {
+        contentType: "text/javascript; charset=utf-8",
+        immutable: Boolean(requestedHash)
+      });
+    } catch (error) {
+      sendJson(res, 503, {
+        error: "echo_isf_runtime_unavailable",
+        message: error instanceof Error ? error.message : String(error)
+      });
     }
     return;
   }
@@ -1283,12 +2056,32 @@ async function route(req, res) {
       }
       const projectsDir = path.join(DATA_DIR, "music-video-projects");
       const filePath = path.join(projectsDir, `${proj.song_id}-video-project.json`);
-      await writeFile(filePath, JSON.stringify(body, null, 2), "utf-8");
+      const persistedProject = { ...proj };
+      if (Array.isArray(persistedProject.direction_script_variants)) {
+        const embeddedVariants = persistedProject.direction_script_variants.filter((variant) => variant?.variant_source?.kind !== "append-only-project-variant");
+        if (embeddedVariants.length) persistedProject.direction_script_variants = embeddedVariants;
+        else delete persistedProject.direction_script_variants;
+      }
+      await writeFile(filePath, JSON.stringify({ ...body, music_video_project: persistedProject }, null, 2), "utf-8");
       console.log(`[api] Updated music video project plan: ${proj.song_id}`);
       sendJson(res, 200, { success: true });
     } catch (e) {
       console.error("Failed to save director project:", e);
       sendJson(res, 500, { error: "failed_to_save_project" });
+    }
+    return;
+  }
+
+  if (pathname === "/api/echos/direction-variant/fork" && req.method === "POST") {
+    try {
+      const body = await readBody(req);
+      const result = await createEchoDirectionVariantFork(body);
+      sendJson(res, 201, result);
+    } catch (error) {
+      sendJson(res, Number(error?.statusCode || 400), {
+        error: error?.code || "direction_variant_fork_failed",
+        message: error instanceof Error ? error.message : String(error),
+      });
     }
     return;
   }
@@ -1313,6 +2106,379 @@ async function route(req, res) {
       apply,
       guardrail: apply ? "writes enabled by explicit apply mode" : "dry-run default; no project files will be written"
     });
+    return;
+  }
+
+  if (pathname === "/api/song-cards" && req.method === "GET") {
+    try {
+      sendJson(res, 200, await songCardMintController.catalogProjection());
+    } catch (error) {
+      sendSongCardMintError(res, error);
+    }
+    return;
+  }
+
+  const songCardRootMatch = pathname.match(/^\/api\/song-cards\/([^/]+)$/);
+  if (songCardRootMatch && req.method === "GET") {
+    try {
+      sendJson(res, 200, await songCardMintController.getSongCard(songCardRootMatch[1]));
+    } catch (error) {
+      sendSongCardMintError(res, error);
+    }
+    return;
+  }
+
+  const songCardPlanMatch = pathname.match(/^\/api\/song-cards\/([^/]+)\/plan$/);
+  if (songCardPlanMatch && req.method === "POST") {
+    if (!requireAdmin(req, res)) return;
+    try {
+      const songId = decodeURIComponent(songCardPlanMatch[1]);
+      const plan = await songCardMintController.plan(songId, await hydrateSongCardMintInput(await readBody(req)));
+      const storedPlan = await songCardMintController.getPlan(plan.planId);
+      const proposed = await songCardRemintStore.proposeFromPlan(songId, storedPlan);
+      const remintQueue = await songCardRemintStore.view();
+      const remintCandidate = proposed
+        ? remintQueue.candidates.find((candidate) => candidate.id === proposed.id) || null
+        : null;
+      sendJson(res, 200, withSongCardRenderExecutor({ plan, remintCandidate }));
+    } catch (error) {
+      sendSongCardMintError(res, error);
+    }
+    return;
+  }
+
+  const songCardMintMatch = pathname.match(/^\/api\/song-cards\/([^/]+)\/mint$/);
+  if (songCardMintMatch && req.method === "POST") {
+    if (!requireAdmin(req, res)) return;
+    try {
+      const body = await readBody(req);
+      const songId = decodeURIComponent(songCardMintMatch[1]);
+      const result = await songCardRemintStore.mintExplicit({
+        songId,
+        planId: body.planId,
+        edition: body.expectedEdition,
+      }, () => songCardMintController.mint(songId, {
+          ...body,
+          idempotencyKey: req.headers["idempotency-key"] || body.idempotencyKey,
+          expectedHeadGeneration: req.headers["if-match"] ?? body.expectedHeadGeneration,
+        }));
+      const readModel = result.songCard || await songCardMintController.getSongCard(songId);
+      const songStoreProjection = await projectSongCardMintHeadToMutableSong(songId, readModel).catch((error) => ({ status: "pending", error: error instanceof Error ? error.message : String(error) }));
+      sendJson(res, result.created ? 201 : 200, {
+        ...readModel,
+        jobId: result.jobId,
+        created: result.created,
+        reason: result.reason,
+        editionNumber: result.edition,
+        edition: result.editionRecord || readModel.editions?.find((row) => row.edition === Number(result.edition)) || null,
+        downstreamProjection: songStoreProjection,
+      });
+    } catch (error) {
+      sendSongCardMintError(res, error);
+    }
+    return;
+  }
+
+  const songCardEditionsMatch = pathname.match(/^\/api\/song-cards\/([^/]+)\/editions$/);
+  if (songCardEditionsMatch && req.method === "GET") {
+    try {
+      sendJson(res, 200, { songId: songCardEditionsMatch[1], editions: await songCardMintController.listEditions(songCardEditionsMatch[1]) });
+    } catch (error) {
+      sendSongCardMintError(res, error);
+    }
+    return;
+  }
+
+  const songCardEditionMatch = pathname.match(/^\/api\/song-cards\/([^/]+)\/editions\/(\d+)$/);
+  if (songCardEditionMatch && req.method === "GET") {
+    try {
+      sendJson(res, 200, await songCardMintController.detail(songCardEditionMatch[1], Number(songCardEditionMatch[2])));
+    } catch (error) {
+      sendSongCardMintError(res, error);
+    }
+    return;
+  }
+
+  const songCardEditionExportMatch = pathname.match(/^\/api\/song-cards\/([^/]+)\/editions\/(\d+)\/export$/);
+  if (songCardEditionExportMatch && req.method === "POST") {
+    if (!requireAdmin(req, res)) return;
+    try {
+      const body = await readBody(req);
+      const result = await songCardMintController.exportEdition(
+        decodeURIComponent(songCardEditionExportMatch[1]),
+        Number(songCardEditionExportMatch[2]),
+        { format: body.format || "bundle" },
+      );
+      sendJson(res, 201, result);
+    } catch (error) {
+      sendSongCardMintError(res, error);
+    }
+    return;
+  }
+
+  const songCardCardsAtTimeMatch = pathname.match(/^\/api\/song-cards\/([^/]+)\/editions\/(\d+)\/cards-at-time$/);
+  if (songCardCardsAtTimeMatch && req.method === "GET") {
+    try {
+      const timeMs = Number(url.searchParams.get("timeMs") ?? url.searchParams.get("ms") ?? 0);
+      sendJson(res, 200, await songCardMintController.cardsAtTime(songCardCardsAtTimeMatch[1], Number(songCardCardsAtTimeMatch[2]), timeMs));
+    } catch (error) {
+      sendSongCardMintError(res, error);
+    }
+    return;
+  }
+
+  const songCardPrintMatch = pathname.match(/^\/api\/song-cards\/([^/]+)\/editions\/(\d+)\/print$/);
+  if (songCardPrintMatch && req.method === "POST") {
+    try {
+      const body = await readBody(req);
+      sendJson(res, 201, await songCardMintController.print(songCardPrintMatch[1], Number(songCardPrintMatch[2]), Number(body.timeMs || 0), body));
+    } catch (error) {
+      sendSongCardMintError(res, error);
+    }
+    return;
+  }
+
+  const songCardEventsMatch = pathname.match(/^\/api\/song-cards\/([^/]+)\/editions\/(\d+)\/events$/);
+  if (songCardEventsMatch && req.method === "POST") {
+    try {
+      const body = await readBody(req);
+      const event = body.type === "play-summary"
+        ? await songCardMintController.recordPlaySummary(songCardEventsMatch[1], Number(songCardEventsMatch[2]), body)
+        : await songCardMintController.recordOpen(songCardEventsMatch[1], Number(songCardEventsMatch[2]), body);
+      sendJson(res, 202, event);
+    } catch (error) {
+      sendSongCardMintError(res, error);
+    }
+    return;
+  }
+
+  const songCardArtifactTicketMatch = pathname.match(/^\/api\/song-cards\/([^/]+)\/editions\/(\d+)\/artifact-ticket$/);
+  if (songCardArtifactTicketMatch && req.method === "POST") {
+    if (!requireAdmin(req, res)) return;
+    try {
+      const body = await readBody(req);
+      const role = String(body.role || "master");
+      await songCardMintController.artifactInfo(songCardArtifactTicketMatch[1], Number(songCardArtifactTicketMatch[2]), role);
+      const ticket = issueSongCardArtifactTicket(songCardArtifactTicketMatch[1], Number(songCardArtifactTicketMatch[2]), role);
+      sendJson(res, 201, { schemaVersion: "hapa.song-card.artifact-ticket.v1", role, ticket, expiresInMs: 15 * 60 * 1000 });
+    } catch (error) {
+      sendSongCardMintError(res, error);
+    }
+    return;
+  }
+
+  const songCardArtifactMatch = pathname.match(/^\/api\/song-cards\/([^/]+)\/editions\/(\d+)\/artifact\/([^/]+)$/);
+  if (songCardArtifactMatch && ["GET", "HEAD"].includes(req.method)) {
+    if (!authorizeSongCardArtifact(req, res, url, songCardArtifactMatch[1], Number(songCardArtifactMatch[2]), songCardArtifactMatch[3])) return;
+    try {
+      await serveSongCardEditionArtifact(req, res, await songCardMintController.artifactInfo(songCardArtifactMatch[1], Number(songCardArtifactMatch[2]), songCardArtifactMatch[3]));
+    } catch (error) {
+      sendSongCardMintError(res, error);
+    }
+    return;
+  }
+
+  const songCardPrivateMatch = pathname.match(/^\/api\/song-cards\/([^/]+)\/editions\/(\d+)\/private-manifest$/);
+  if (songCardPrivateMatch && req.method === "GET") {
+    if (!requireAdmin(req, res)) return;
+    try {
+      sendJson(res, 200, await songCardMintController.privateManifest(songCardPrivateMatch[1], Number(songCardPrivateMatch[2])));
+    } catch (error) {
+      sendSongCardMintError(res, error);
+    }
+    return;
+  }
+
+  const songCardVerifyMatch = pathname.match(/^\/api\/song-cards\/([^/]+)\/editions\/(\d+)\/verify$/);
+  if (songCardVerifyMatch && req.method === "GET") {
+    try {
+      sendJson(res, 200, await songCardMintController.verify(songCardVerifyMatch[1], Number(songCardVerifyMatch[2])));
+    } catch (error) {
+      sendSongCardMintError(res, error);
+    }
+    return;
+  }
+
+  const songCardGovernanceMatch = pathname.match(/^\/api\/song-cards\/([^/]+)\/editions\/(\d+)\/(archive|revoke)$/);
+  if (songCardGovernanceMatch && req.method === "POST") {
+    if (!requireAdmin(req, res)) return;
+    try {
+      const body = await readBody(req);
+      const result = songCardGovernanceMatch[3] === "archive"
+        ? await songCardMintController.archive(songCardGovernanceMatch[1], Number(songCardGovernanceMatch[2]), body)
+        : await songCardMintController.revoke(songCardGovernanceMatch[1], Number(songCardGovernanceMatch[2]), body);
+      sendJson(res, 200, result);
+    } catch (error) {
+      sendSongCardMintError(res, error);
+    }
+    return;
+  }
+
+  const songCardPlanJobMatch = pathname.match(/^\/api\/song-card-mint-jobs\/([^/]+)$/);
+  if (songCardPlanJobMatch && req.method === "GET") {
+    if (!requireAdmin(req, res)) return;
+    try {
+      const { renderMasterPath: _renderMasterPath, posterPath: _posterPath, ...job } = songCardMintController.publicPlan(await songCardMintController.getPlan(songCardPlanJobMatch[1]));
+      sendJson(res, 200, job);
+    } catch (error) {
+      sendSongCardMintError(res, error);
+    }
+    return;
+  }
+  if (songCardPlanJobMatch && req.method === "DELETE") {
+    if (!requireAdmin(req, res)) return;
+    try {
+      sendJson(res, 200, await songCardMintController.cancel(songCardPlanJobMatch[1], { reason: url.searchParams.get("reason") || "operator-canceled" }));
+    } catch (error) {
+      sendSongCardMintError(res, error);
+    }
+    return;
+  }
+
+  const songCardRetryJobMatch = pathname.match(/^\/api\/song-card-mint-jobs\/([^/]+)\/retry$/);
+  if (songCardRetryJobMatch && req.method === "POST") {
+    if (!requireAdmin(req, res)) return;
+    try {
+      sendJson(res, 200, { plan: await songCardMintController.retry(songCardRetryJobMatch[1]) });
+    } catch (error) {
+      sendSongCardMintError(res, error);
+    }
+    return;
+  }
+
+  if (pathname === "/api/song-card-mint/recover" && req.method === "POST") {
+    if (!requireAdmin(req, res)) return;
+    try { sendJson(res, 200, await songCardMintController.recover()); } catch (error) { sendSongCardMintError(res, error); }
+    return;
+  }
+  if (pathname === "/api/song-card-mint/cleanup-staging" && req.method === "POST") {
+    if (!requireAdmin(req, res)) return;
+    try { sendJson(res, 200, await songCardMintController.cleanup(await readBody(req))); } catch (error) { sendSongCardMintError(res, error); }
+    return;
+  }
+
+  if (pathname === "/api/song-card-remints" && req.method === "GET") {
+    if (!requireAdmin(req, res)) return;
+    try { sendJson(res, 200, withSongCardRenderExecutor(await songCardRemintStore.view())); } catch (error) { sendSongCardMintError(res, error); }
+    return;
+  }
+  if (pathname === "/api/song-card-remints/executor-status" && req.method === "GET") {
+    if (!requireAdmin(req, res)) return;
+    sendJson(res, 200, songCardRenderExecutorStatus());
+    return;
+  }
+  if (pathname === "/api/song-card-remints/executor-heartbeat" && req.method === "POST") {
+    if (!requireAdmin(req, res)) return;
+    try {
+      const body = await readBody(req);
+      if (!noteSongCardRenderExecutor(body)) {
+        sendJson(res, 400, { error: "invalid_render_executor_id", failClosed: true });
+        return;
+      }
+      sendJson(res, 200, songCardRenderExecutorStatus());
+    } catch (error) { sendSongCardMintError(res, error); }
+    return;
+  }
+  if (pathname === "/api/song-card-remints/enqueue" && req.method === "POST") {
+    if (!requireAdmin(req, res)) return;
+    try { sendJson(res, 200, withSongCardRenderExecutor(await songCardRemintStore.enqueue())); } catch (error) { sendSongCardMintError(res, error); }
+    return;
+  }
+  const songCardLocalRenderMatch = pathname.match(/^\/api\/song-card-remints\/([^/]+)\/render-local$/);
+  if (songCardLocalRenderMatch && req.method === "POST") {
+    if (!requireAdmin(req, res)) return;
+    try {
+      const candidateId = decodeURIComponent(songCardLocalRenderMatch[1]);
+      const started = await songCardLocalRenderBridge.start(candidateId);
+      sendJson(res, started?.started === false ? 200 : 202, withSongCardRenderExecutor({
+        ...started,
+        candidateId,
+      }));
+    } catch (error) {
+      sendSongCardMintError(res, error);
+    }
+    return;
+  }
+  if (pathname === "/api/song-card-playback/activity" && req.method === "POST") {
+    if (!requireAdmin(req, res)) return;
+    try {
+      const body = await readBody(req);
+      const sessionId = String(body.sessionId || "").trim();
+      if (!sessionId || sessionId.length > 240) {
+        sendJson(res, 400, { error: "invalid_playback_session", failClosed: true });
+        return;
+      }
+      if (body.active === true) songCardPlaybackSessions.set(sessionId, Date.now() + SONG_CARD_PLAYBACK_HEARTBEAT_TTL_MS);
+      else songCardPlaybackSessions.delete(sessionId);
+      sendJson(res, 200, { schemaVersion: "hapa.song-card.playback-activity.v1", sessionId, active: body.active === true, activeSessionCount: activeSongCardPlaybackSessions(), heartbeatTtlMs: SONG_CARD_PLAYBACK_HEARTBEAT_TTL_MS });
+    } catch (error) { sendSongCardMintError(res, error); }
+    return;
+  }
+  if (pathname === "/api/song-card-remints/claim" && req.method === "POST") {
+    if (!requireAdmin(req, res)) return;
+    try {
+      const body = await readBody(req);
+      noteSongCardRenderExecutor(body);
+      const songCardSessions = activeSongCardPlaybackSessions();
+      const serverObservedActive = activeTarotStreamConsumers > 0 || songCardSessions > 0;
+      const activePlayback = serverObservedActive || body.activePlayback !== false;
+      sendJson(res, 200, {
+        ...(await songCardRemintStore.claim({ ...body, activePlayback })),
+        renderExecutor: songCardRenderExecutorStatus(),
+        playbackPolicy: {
+          activePlayback,
+          serverObservedActive,
+          activeTarotStreamConsumers,
+          activeSongCardSessions: songCardSessions,
+          defaultProtectedUnlessExplicitlyIdle: true,
+        },
+      });
+    } catch (error) { sendSongCardMintError(res, error); }
+    return;
+  }
+  const songCardRemintActionMatch = pathname.match(/^\/api\/song-card-remints\/([^/]+)\/(approve|cancel)$/);
+  if (songCardRemintActionMatch && req.method === "POST") {
+    if (!requireAdmin(req, res)) return;
+    try {
+      const candidateId = decodeURIComponent(songCardRemintActionMatch[1]);
+      const body = await readBody(req);
+      const action = songCardRemintActionMatch[2];
+      const queue = action === "approve"
+        ? await songCardRemintStore.approve(candidateId, body)
+        : await songCardRemintStore.cancel(candidateId, body);
+      const localRenderCancellation = action === "cancel"
+        ? await songCardLocalRenderBridge.cancel(candidateId, { reason: body.reason || "operator-canceled-next-mint-render" })
+        : null;
+      sendJson(res, 200, withSongCardRenderExecutor({
+        ...queue,
+        ...(localRenderCancellation ? { localRenderCancellation } : {}),
+      }));
+    } catch (error) { sendSongCardMintError(res, error); }
+    return;
+  }
+  const songCardRemintBindMatch = pathname.match(/^\/api\/song-card-remints\/([^/]+)\/bind-render-plan$/);
+  if (songCardRemintBindMatch && req.method === "POST") {
+    if (!requireAdmin(req, res)) return;
+    try {
+      sendJson(res, 200, await songCardRemintStore.bindRenderPlan(
+        decodeURIComponent(songCardRemintBindMatch[1]),
+        await hydrateSongCardMintInput(await readBody(req)),
+      ));
+    } catch (error) { sendSongCardMintError(res, error); }
+    return;
+  }
+  const songCardRemintResultMatch = pathname.match(/^\/api\/song-card-remints\/([^/]+)\/jobs\/([^/]+)\/result$/);
+  if (songCardRemintResultMatch && req.method === "POST") {
+    if (!requireAdmin(req, res)) return;
+    try {
+      const body = await readBody(req);
+      noteSongCardRenderExecutor(body);
+      sendJson(res, 200, withSongCardRenderExecutor(await songCardRemintStore.recordResult(
+        decodeURIComponent(songCardRemintResultMatch[1]),
+        decodeURIComponent(songCardRemintResultMatch[2]),
+        body,
+      )));
+    } catch (error) { sendSongCardMintError(res, error); }
     return;
   }
 
@@ -1407,6 +2573,13 @@ async function route(req, res) {
   }
 
   const songMatch = pathname.match(/^\/api\/hapa-songs\/([^/]+)$/);
+  if (songMatch && req.method === "GET") {
+    const songId = decodeURIComponent(songMatch[1]);
+    const song = findSongInStore(await readHapaSongStore(), songId);
+    if (!song) sendJson(res, 404, { error: "hapa_song_not_found", songId });
+    else sendJson(res, 200, song);
+    return;
+  }
   if (songMatch && req.method === "PUT") {
     const songId = decodeURIComponent(songMatch[1]);
     const songbook = await readDearPapaSongbook();
@@ -1473,6 +2646,16 @@ async function route(req, res) {
 
   if (pathname === "/api/items" && req.method === "GET") {
     sendJson(res, 200, await readItemStore());
+    return;
+  }
+
+  const itemCardDetailMatch = pathname.match(/^\/api\/items\/cards\/([^/]+)$/);
+  if (itemCardDetailMatch && req.method === "GET") {
+    const cardId = decodeURIComponent(itemCardDetailMatch[1]);
+    const itemStore = await readItemStore();
+    const card = (itemStore.cards || []).find((entry) => entry.id === cardId);
+    if (!card) sendJson(res, 404, { error: "item_card_not_found", cardId });
+    else sendJson(res, 200, card);
     return;
   }
 
@@ -1571,6 +2754,139 @@ async function route(req, res) {
     return;
   }
 
+  if (pathname.startsWith("/api/tarot/card/") && req.method === "GET") {
+    let cardId = pathname.replace(/^\/api\/tarot\/card\//, "");
+    if (!cardId) {
+      sendJson(res, 400, { error: "missing_card_id" });
+      return;
+    }
+    const tarotStore = await readTarotStore();
+    let card = tarotStore.cards.find(c => c.id === cardId);
+    if (card) {
+      sendJson(res, 200, card);
+      return;
+    }
+
+    const reportPath = path.join(DATA_DIR, "echos-gaps-report.json");
+    let gapsVideo = null;
+    try {
+      if (fs.existsSync(reportPath)) {
+        const report = JSON.parse(await fs.promises.readFile(reportPath, "utf8"));
+        const video = (report.videos || []).find(v => v.id === cardId);
+        if (video) {
+          gapsVideo = video;
+          if (video.sourceId && video.sourceId !== "none") {
+            cardId = video.sourceId;
+          }
+        }
+      }
+    } catch (e) {
+      console.warn("Failed to check echos-gaps-report.json:", e);
+    }
+
+    card = tarotStore.cards.find(c => c.id === cardId);
+    if (card) {
+      sendJson(res, 200, card);
+      return;
+    }
+
+    const dbPath = path.join(process.env.HOME || "/Users/calderwong", "Library", "Application Support", "hapa-ag", "persistence.db");
+    if (fs.existsSync(dbPath)) {
+      try {
+        let currentId = cardId;
+        let leafVideoUri = null;
+        let leafPosterUri = null;
+        let visited = new Set();
+
+        const cmd = `sqlite3 "${dbPath}" "SELECT json_object('id', id, 'parent_id', parent_id, 'name', name, 'media_local_path', media_local_path, 'thumbnail', thumbnail, 'created_at', created_at, 'lore', lore, 'content_text', content_text, 'metadata_json', metadata_json, 'media_kind', media_kind) FROM cards WHERE id = '${currentId}' AND is_deleted = 0 LIMIT 1"`;
+        const stdout = execSync(cmd, { encoding: 'utf8' });
+
+        if (stdout.trim()) {
+          let row = JSON.parse(stdout.trim());
+          const leafMeta = row.metadata_json ? JSON.parse(row.metadata_json) : {};
+          leafVideoUri = leafMeta.representativeMediaLocalPath ? `/api/local-file?path=${encodeURIComponent(leafMeta.representativeMediaLocalPath)}` : (row.media_local_path || "");
+          leafPosterUri = leafMeta.thumbnail || row.thumbnail || "";
+
+          visited.add(row.id);
+          let current = row;
+
+          while (current.parent_id && current.parent_id !== "1" && current.parent_id !== "0" && !visited.has(current.parent_id)) {
+            try {
+              const parentId = current.parent_id;
+              const parentCmd = `sqlite3 "${dbPath}" "SELECT json_object('id', id, 'parent_id', parent_id, 'name', name, 'media_local_path', media_local_path, 'thumbnail', thumbnail, 'created_at', created_at, 'lore', lore, 'content_text', content_text, 'metadata_json', metadata_json, 'media_kind', media_kind) FROM cards WHERE id = '${parentId}' AND is_deleted = 0 LIMIT 1"`;
+              const parentStdout = execSync(parentCmd, { encoding: 'utf8' });
+              if (parentStdout.trim()) {
+                const parentRow = JSON.parse(parentStdout.trim());
+                visited.add(parentRow.id);
+                current = parentRow;
+              } else {
+                break;
+              }
+            } catch (err) {
+              console.error("Error tracing parent card:", err);
+              break;
+            }
+          }
+
+          const topMeta = current.metadata_json ? JSON.parse(current.metadata_json) : {};
+
+          const cardFace = { sections: [] };
+          if (Array.isArray(topMeta.skills) && topMeta.skills.length > 0) {
+            const skillsText = topMeta.skills.map(s => `**${s.name}** (${s.type || "Passive"}): ${s.description}`).join("\n\n");
+            cardFace.sections.push({
+              label: "Skills",
+              value: skillsText
+            });
+          }
+          if (topMeta.wants) {
+            cardFace.sections.push({
+              label: "Wants",
+              value: topMeta.wants
+            });
+          }
+
+          const cardObj = {
+            id: current.id,
+            title: current.name || topMeta.name || current.id,
+            summary: current.lore || topMeta.lore || current.content_text || topMeta.content_text || "",
+            meaning: current.lore || topMeta.lore || current.content_text || topMeta.content_text || "",
+            description: current.lore || topMeta.lore || current.content_text || topMeta.content_text || "",
+            videoUri: leafVideoUri || (topMeta.representativeMediaLocalPath ? `/api/local-file?path=${encodeURIComponent(topMeta.representativeMediaLocalPath)}` : (current.media_local_path || "")),
+            posterUri: leafPosterUri || topMeta.thumbnail || current.thumbnail || "",
+            media_kind: "video",
+            truthStatus: "verified",
+            hapaDevProtoCard: true,
+            parentCardId: current.id,
+            originalCardId: row.id,
+            cardFace
+          };
+          sendJson(res, 200, cardObj);
+          return;
+        }
+      } catch (e) {
+        console.error("Error querying card from persistence.db:", e);
+      }
+    }
+
+    if (gapsVideo) {
+      const cardObj = {
+        id: gapsVideo.id,
+        title: gapsVideo.title || "Video Card",
+        description: gapsVideo.narrativeSummary || gapsVideo.objectiveSummary || "Local video asset.",
+        videoUri: gapsVideo.uri,
+        posterUri: gapsVideo.thumbnailUri || "",
+        media_kind: "video",
+        truthStatus: gapsVideo.truthStatus || "verified",
+        fallbackVideoCard: true
+      };
+      sendJson(res, 200, cardObj);
+      return;
+    }
+
+    sendJson(res, 404, { error: "card_not_found", cardId });
+    return;
+  }
+
   if (pathname === "/api/tarot" && req.method === "GET") {
     sendJson(res, 200, await readTarotStore());
     return;
@@ -1625,6 +2941,14 @@ async function route(req, res) {
   }
 
   const tarotDeckMatch = pathname.match(/^\/api\/tarot\/decks\/([^/]+)$/);
+  if (tarotDeckMatch && req.method === "GET") {
+    const deckId = decodeURIComponent(tarotDeckMatch[1]);
+    const store = await readTarotStore();
+    const deck = (store.decks || []).find((entry) => entry.id === deckId);
+    if (!deck) sendJson(res, 404, { error: "tarot_deck_not_found", deckId });
+    else sendJson(res, 200, deck);
+    return;
+  }
   if (tarotDeckMatch && req.method === "PUT") {
     const deckId = tarotDeckMatch[1];
     const store = updateTarotDeck(await readTarotStore(), deckId, await readBody(req));
@@ -1644,6 +2968,14 @@ async function route(req, res) {
   }
 
   const tarotSetMatch = pathname.match(/^\/api\/tarot\/sets\/([^/]+)$/);
+  if (tarotSetMatch && req.method === "GET") {
+    const setId = decodeURIComponent(tarotSetMatch[1]);
+    const store = await readTarotStore();
+    const set = (store.sets || []).find((entry) => entry.id === setId);
+    if (!set) sendJson(res, 404, { error: "tarot_set_not_found", setId });
+    else sendJson(res, 200, set);
+    return;
+  }
   if (tarotSetMatch && req.method === "PUT") {
     const setId = tarotSetMatch[1];
     const store = updateTarotSet(await readTarotStore(), setId, await readBody(req));
@@ -1738,7 +3070,7 @@ async function route(req, res) {
   }
 
   if (pathname === "/api/avatar-teams" && req.method === "GET") {
-    const store = await readStore();
+    const store = await readStore({ includeProjections: url.searchParams.get("includeProjections") === "hell-week" });
     sendJson(res, 200, {
       schemaVersion: "hapa.avatar-teams.v1",
       teams: store.teams || [],
@@ -1767,12 +3099,79 @@ async function route(req, res) {
   }
 
   if (pathname === "/api/hell-week/cards" && req.method === "GET") {
-    sendJson(res, 200, loadHellWeekAvatars());
+    const projection = loadHellWeekProjection({ force: url.searchParams.get("refresh") === "1" });
+    if (!projection.ok) {
+      sendJson(res, 503, projection);
+      return;
+    }
+    const selected = filterHellWeekSync(projection, {
+      cursor: url.searchParams.get("cursor") || "",
+      runId: url.searchParams.get("runId") || ""
+    });
+    sendJson(res, 200, url.searchParams.get("envelope") === "1" ? selected : selected.cards);
+    return;
+  }
+
+  if (pathname === "/api/hell-week/sync" && req.method === "GET") {
+    const projection = loadHellWeekProjection({ force: url.searchParams.get("refresh") === "1" });
+    if (!projection.ok) {
+      sendJson(res, 503, projection);
+      return;
+    }
+    sendJson(res, 200, filterHellWeekSync(projection, {
+      cursor: url.searchParams.get("cursor") || "",
+      runId: url.searchParams.get("runId") || ""
+    }));
+    return;
+  }
+
+  const hellWeekCardDetailMatch = pathname.match(/^\/api\/hell-week\/cards\/([^/]+)$/);
+  if (hellWeekCardDetailMatch && req.method === "GET") {
+    const projection = loadHellWeekProjection({ force: url.searchParams.get("refresh") === "1" });
+    if (!projection.ok) {
+      sendJson(res, 503, projection);
+      return;
+    }
+    const cardId = decodeURIComponent(hellWeekCardDetailMatch[1]);
+    const card = projection.cards.find((entry) => entry.id === cardId);
+    if (!card) {
+      sendJson(res, 404, { error: "hell_week_card_not_found", cardId });
+      return;
+    }
+    sendJson(res, 200, await hydrateHellWeekCardDetail(card));
+    return;
+  }
+
+  const hellWeekFeedbackMatch = pathname.match(/^\/api\/hell-week\/cards\/([^/]+)\/feedback$/);
+  if (hellWeekFeedbackMatch && req.method === "POST") {
+    const projection = loadHellWeekProjection();
+    if (!projection.ok) {
+      sendJson(res, 503, projection);
+      return;
+    }
+    const card = projection.cards.find((candidate) => candidate.id === decodeURIComponent(hellWeekFeedbackMatch[1]));
+    if (!card) {
+      sendJson(res, 404, { ok: false, error: "hell_week_card_not_found" });
+      return;
+    }
+    try {
+      sendJson(res, 201, await appendHellWeekFeedback(card, await readBody(req)));
+    } catch (error) {
+      sendJson(res, error?.statusCode || 400, {
+        ok: false,
+        error: "hell_week_feedback_invalid",
+        message: error?.message || "Hell Week feedback was not accepted."
+      });
+    }
     return;
   }
 
   if (pathname === "/api/avatars" && req.method === "GET") {
-    const store = await readStore();
+    const includeProjections = url.searchParams.get("mode") === "projected" || url.searchParams.get("includeProjections") === "hell-week";
+    const store = await readStore({
+      includeProjections,
+      forceProjection: url.searchParams.get("refresh") === "1"
+    });
     if (url.searchParams.get("mode") === "index") {
       const offset = Math.max(0, Number(url.searchParams.get("offset") || 0));
       const limit = Math.max(1, Math.min(250, Number(url.searchParams.get("limit") || OVERWIND_SHELL_AVATAR_LIMIT)));
@@ -1814,7 +3213,7 @@ async function route(req, res) {
   }
 
   if (pathname === "/api/mind" && req.method === "GET") {
-    const store = await readStore();
+    const store = await readStore({ includeProjections: url.searchParams.get("includeProjections") === "hell-week" });
     sendJson(res, 200, {
       schemaVersion: "hapa.avatar-mind-library.v1",
       avatarCount: store.avatars.length,
@@ -1844,11 +3243,45 @@ async function route(req, res) {
     const avatarId = avatarMatch[1];
     const action = avatarMatch[2];
     const store = await readStore();
-    const avatarIndex = store.avatars.findIndex((item) => item.id === avatarId);
-    const avatar = store.avatars[avatarIndex];
+    let avatarIndex = store.avatars.findIndex((item) => item.id === avatarId);
+    let avatar = store.avatars[avatarIndex];
+
+    if (!avatar && req.method === "GET") {
+      const projection = loadHellWeekProjection();
+      const projectedAvatar = projection.ok ? projection.cards.find((candidate) => candidate.id === avatarId) : null;
+      if (projectedAvatar) {
+        store.avatars.push(projectedAvatar);
+        avatarIndex = store.avatars.length - 1;
+        avatar = projectedAvatar;
+      }
+    }
 
     if (!avatar) {
+      if (req.method !== "GET") {
+        const projection = loadHellWeekProjection();
+        if (projection.ok && projection.cards.some((candidate) => candidate.id === avatarId)) {
+          sendJson(res, 409, {
+            ok: false,
+            error: "external_projection_read_only",
+            id: avatarId,
+            sourceSystem: "hapa-dev-proto",
+            feedbackEndpoint: `/api/hell-week/cards/${encodeURIComponent(avatarId)}/feedback`
+          });
+          return;
+        }
+      }
       sendJson(res, 404, { error: "avatar_not_found", id: avatarId });
+      return;
+    }
+
+    if (avatar.isExternalProjection && req.method !== "GET") {
+      sendJson(res, 409, {
+        ok: false,
+        error: "external_projection_read_only",
+        id: avatar.id,
+        sourceSystem: avatar.projection?.sourceSystem || "hapa-dev-proto",
+        feedbackEndpoint: `/api/hell-week/cards/${encodeURIComponent(avatar.id)}/feedback`
+      });
       return;
     }
 
@@ -2051,262 +3484,565 @@ async function route(req, res) {
   if (pathname.startsWith("/CardAppPrototype")) {
     const cardAppDist = "/Users/calderwong/Desktop/CardAppPrototype/dist";
     const relativePath = pathname.replace(/^\/CardAppPrototype/, "") || "/";
-    const served = await serveStatic(cardAppDist, relativePath, res);
+    const served = await serveStatic(cardAppDist, relativePath, req, res);
     if (served) return;
   }
 
   if (pathname.startsWith("/hapa-live-app")) {
     const liveAppDir = "/Users/calderwong/Desktop/hapa-live-app";
     const relativePath = pathname.replace(/^\/hapa-live-app/, "") || "/";
-    const served = await serveStatic(liveAppDir, relativePath, res);
+    const served = await serveStatic(liveAppDir, relativePath, req, res);
     if (served) return;
   }
 
   if (pathname.startsWith("/hapa-subscriber-app")) {
     const subAppDir = "/Users/calderwong/Desktop/hapa-subscriber-app";
     const relativePath = pathname.replace(/^\/hapa-subscriber-app/, "") || "/";
-    const served = await serveStatic(subAppDir, relativePath, res);
+    const served = await serveStatic(subAppDir, relativePath, req, res);
     if (served) return;
   }
 
+  // API misses must stay API-shaped. Falling through to the SPA would turn a
+  // missing shader/runtime asset into a 200 HTML document that looks fetchable
+  // until the renderer tries to compile it.
+  if (pathname === "/api" || pathname.startsWith("/api/")) {
+    sendJson(res, 404, { error: "not_found", path: pathname });
+    return;
+  }
+
   if (staticDir) {
-    const served = await serveStatic(staticDir, pathname, res);
+    const served = await serveStatic(staticDir, pathname, req, res);
     if (served) return;
   }
 
   sendJson(res, 404, { error: "not_found", path: pathname });
 }
-function loadHellWeekAvatars() {
-  const dbPath = path.join(process.env.HOME || "/Users/calderwong", "Library", "Application Support", "hapa-ag", "persistence.db");
-  if (!fs.existsSync(dbPath)) return [];
-  try {
-    const cmd = `sqlite3 "${dbPath}" "SELECT json_object('id', id, 'parent_id', parent_id, 'name', name, 'media_local_path', media_local_path, 'thumbnail', thumbnail, 'created_at', created_at, 'lore', lore, 'content_text', content_text, 'metadata_json', metadata_json, 'media_kind', media_kind) FROM cards WHERE (hellweek_run_id IS NOT NULL OR (parent_id IS NOT NULL AND parent_id != '')) AND is_deleted = 0"`;
-    const stdout = execSync(cmd, { encoding: 'utf8', maxBuffer: 100 * 1024 * 1024 });
-    const lines = stdout.trim().split('\n').filter(Boolean);
+const HELL_WEEK_SCHEMA_VERSION = "hapa.hell-week-handoff.v1";
+const HAPA_CARD_ENVELOPE_VERSION = "hapa.card-envelope.v1";
+const hellWeekProjectionCache = {
+  signature: null,
+  result: null,
+  lastSuccess: null,
+  lastError: null,
+  queryCount: 0,
+  cacheHits: 0
+};
 
+function loadHellWeekProjection({ force = false } = {}) {
+  const generatedAt = new Date().toISOString();
+  try {
+    const signature = hellWeekDbSignature();
+    if (!force && hellWeekProjectionCache.signature === signature && hellWeekProjectionCache.result?.ok) {
+      hellWeekProjectionCache.cacheHits += 1;
+      return hellWeekProjectionCache.result;
+    }
+
+    const query = `SELECT json_object(
+      'id', id,
+      'core_name', core_name,
+      'parent_id', parent_id,
+      'name', name,
+      'media_local_path', media_local_path,
+      'thumbnail', thumbnail,
+      'created_at', created_at,
+      'updated_at', updated_at,
+      'lore', lore,
+      'content_text', content_text,
+      'metadata_json', metadata_json,
+      'media_kind', media_kind,
+      'hellweek_run_id', hellweek_run_id,
+      'is_deleted', is_deleted
+    ) FROM cards
+    WHERE hellweek_run_id IS NOT NULL OR (parent_id IS NOT NULL AND parent_id != '')`;
+    const stdout = execFileSync(SQLITE_BIN, [HAPA_DEV_PROTO_DB_PATH, query], {
+      encoding: "utf8",
+      maxBuffer: 100 * 1024 * 1024
+    });
+    hellWeekProjectionCache.queryCount += 1;
+
+    const rows = stdout.trim().split("\n").filter(Boolean).map((line) => JSON.parse(line));
+    const liveRows = rows.filter((row) => !Number(row.is_deleted || 0));
+    const deletedRows = rows.filter((row) => Number(row.is_deleted || 0));
     const parents = [];
     const childrenByParent = new Map();
 
-    const cleanPath = (p) => {
-      if (!p) return "";
-      let cleaned = p.trim();
-      cleaned = cleaned.replace(/^file:\/\/\/?/, "");
-      try {
-        cleaned = decodeURIComponent(cleaned);
-      } catch (_) {}
-      cleaned = cleaned.replace(/\\/g, "/");
-      return cleaned;
+    for (const row of liveRows) {
+      if (row.parent_id && row.parent_id !== "1" && row.parent_id !== "0") {
+        const children = childrenByParent.get(row.parent_id) || [];
+        children.push(row);
+        childrenByParent.set(row.parent_id, children);
+      } else {
+        parents.push(row);
+      }
+    }
+
+    const cards = parents.map((row) => hellWeekAvatarFromRow(row, childrenByParent, generatedAt));
+    const tombstones = deletedRows.map((row) => ({
+      schemaVersion: "hapa.card-tombstone.v1",
+      cardId: row.id,
+      sourceSystem: "hapa-dev-proto",
+      sourceRunId: row.hellweek_run_id || null,
+      deletedAt: row.updated_at || row.created_at || generatedAt
+    }));
+    const updatedValues = [
+      ...cards.map((card) => card.updatedAt),
+      ...tombstones.map((tombstone) => tombstone.deletedAt)
+    ].filter(Boolean).sort();
+    const result = {
+      ok: true,
+      schemaVersion: HELL_WEEK_SCHEMA_VERSION,
+      generatedAt,
+      cards,
+      tombstones,
+      counts: {
+        rows: rows.length,
+        liveRows: liveRows.length,
+        cards: cards.length,
+        tombstones: tombstones.length
+      },
+      cursor: {
+        updatedAt: updatedValues.at(-1) || null,
+        token: updatedValues.at(-1) || ""
+      },
+      source: {
+        system: "hapa-dev-proto",
+        owner: "hapa-dev-proto",
+        adapter: "sqlite-readonly",
+        path: HAPA_DEV_PROTO_DB_PATH,
+        signature
+      }
     };
-
-    lines.forEach(line => {
-      try {
-        const parsed = JSON.parse(line);
-        if (parsed.parent_id && parsed.parent_id !== "1" && parsed.parent_id !== "0") {
-          if (!childrenByParent.has(parsed.parent_id)) {
-            childrenByParent.set(parsed.parent_id, []);
-          }
-          childrenByParent.get(parsed.parent_id).push(parsed);
-        } else {
-          parents.push(parsed);
-        }
-      } catch (_) {}
-    });
-
-    return parents.map(parsed => {
-      const id = parsed.id;
-      const name = parsed.name || 'Unnamed Hell Week Card';
-      
-      let meta = {};
-      if (parsed.metadata_json) {
-        try {
-          meta = JSON.parse(parsed.metadata_json);
-        } catch (_) {}
-      }
-
-      const assets = [];
-      const parentImage = cleanPath(parsed.media_local_path || parsed.thumbnail || meta.mediaLocalPath || meta.representativeMediaLocalPath || '');
-      const parentVideo = cleanPath(meta.mediaPrompts?.generated_video_local || '');
-
-      if (parentImage && fs.existsSync(parentImage)) {
-        assets.push({
-          id: `${id}-parent-image`,
-          avatarId: id,
-          name: path.basename(parentImage),
-          path: parentImage,
-          uri: `/api/local-file?path=${encodeURIComponent(parentImage)}`,
-          relativePath: parentImage,
-          type: "image",
-          mimeType: "image/png",
-          tags: ["avatar_concept_photo", "concept", "front"],
-          metadata: {}
-        });
-      }
-      if (parentVideo && fs.existsSync(parentVideo)) {
-        assets.push({
-          id: `${id}-parent-video`,
-          avatarId: id,
-          name: path.basename(parentVideo),
-          path: parentVideo,
-          uri: `/api/local-file?path=${encodeURIComponent(parentVideo)}`,
-          relativePath: parentVideo,
-          type: "video",
-          mimeType: "video/mp4",
-          tags: ["avatar_concept_video", "video_loop"],
-          metadata: {}
-        });
-      }
-
-      // Recursive lookup function for child/grandchild media cards
-      const collectFromNode = (nodeId) => {
-        const directChildren = childrenByParent.get(nodeId) || [];
-        directChildren.forEach(child => {
-          let childMeta = {};
-          if (child.metadata_json) {
-            try {
-              childMeta = JSON.parse(child.metadata_json);
-            } catch (_) {}
-          }
-
-          const childImage = cleanPath(child.media_local_path || child.thumbnail || childMeta.mediaLocalPath || childMeta.representativeMediaLocalPath || '');
-          const childVideo = cleanPath(child.media_local_path || child.thumbnail || childMeta.mediaPrompts?.generated_video_local || '');
-
-          if (childImage && fs.existsSync(childImage) && !assets.some(a => a.path === childImage)) {
-            const isVideo = child.media_kind === "video" || childImage.endsWith(".mp4");
-            assets.push({
-              id: `${child.id}-image`,
-              avatarId: id,
-              name: path.basename(childImage),
-              path: childImage,
-              uri: `/api/local-file?path=${encodeURIComponent(childImage)}`,
-              relativePath: childImage,
-              type: isVideo ? "video" : "image",
-              mimeType: isVideo ? "video/mp4" : "image/png",
-              tags: isVideo ? ["avatar_concept_video", "video_loop"] : ["avatar_concept_photo", "concept", "front"],
-              metadata: {}
-            });
-          }
-          if (childVideo && fs.existsSync(childVideo) && !assets.some(a => a.path === childVideo)) {
-            assets.push({
-              id: `${child.id}-video`,
-              avatarId: id,
-              name: path.basename(childVideo),
-              path: childVideo,
-              uri: `/api/local-file?path=${encodeURIComponent(childVideo)}`,
-              relativePath: childVideo,
-              type: "video",
-              mimeType: "video/mp4",
-              tags: ["avatar_concept_video", "video_loop"],
-              metadata: {}
-            });
-          }
-
-          collectFromNode(child.id);
-        });
-      };
-
-      collectFromNode(id);
-
-      const slots = [];
-      const imageAsset = assets.find(a => a.type === "image");
-      const videoAsset = assets.find(a => a.type === "video");
-
-      if (imageAsset) {
-        slots.push({
-          id: "avatar_concept_photo-1",
-          requirementId: "avatar_concept_photo",
-          label: "Concept Photo 1",
-          required: true,
-          assetId: imageAsset.id
-        });
-      }
-      if (videoAsset) {
-        slots.push({
-          id: "avatar_concept_video-1",
-          requirementId: "avatar_concept_video",
-          label: "Concept Video 1",
-          required: true,
-          assetId: videoAsset.id
-        });
-      }
-
-      const loreText = parsed.content_text || parsed.lore || meta.lore || '';
-      const bulletSkills = (meta.skills || []).map(s => `• ${s.name}: ${s.description}`).join('\n');
-      const bulletSets = (meta.memberOfSets || []).map(s => `• Set: ${s.setName} (${s.addedBy})`).join('\n');
-
-      const docText = `${loreText}\n\n### Skills & Abilities\n${bulletSkills}\n\n### Set Memberships\n${bulletSets}`;
-
-      return {
-        id,
-        isHellWeek: true,
-        primaryName: name,
-        names: [{ name }],
-        slots,
-        assets,
-        three_paragraph_background_narrative: {
-          origin: loreText,
-          concept: bulletSkills || "No skills defined.",
-          manifesto: bulletSets || "No set associations."
-        },
-        mind: {
-          avatarId: id,
-          summary: parsed.lore || meta.lore || 'A forged Hell Week card.',
-          characterSheet: docText,
-          dossierNotes: [],
-          wikiProfiles: [],
-          avatarDeck: [],
-          skills: (meta.skills || []).map(s => ({
-            id: slugify(s.name),
-            name: s.name,
-            description: s.description,
-            kind: s.type || "Passive"
-          }))
-        },
-        updatedAt: parsed.created_at || new Date().toISOString(),
-        createdAt: parsed.created_at || new Date().toISOString()
-      };
-    });
-  } catch (err) {
-    console.error("Error loading Hell Week cards:", err);
-    return [];
+    hellWeekProjectionCache.signature = signature;
+    hellWeekProjectionCache.result = result;
+    hellWeekProjectionCache.lastSuccess = {
+      at: generatedAt,
+      count: cards.length,
+      cursor: result.cursor.token
+    };
+    hellWeekProjectionCache.lastError = null;
+    return result;
+  } catch (error) {
+    const failure = {
+      ok: false,
+      schemaVersion: HELL_WEEK_SCHEMA_VERSION,
+      generatedAt,
+      cards: [],
+      tombstones: [],
+      counts: {
+        cards: 0,
+        lastKnownCards: hellWeekProjectionCache.lastSuccess?.count || 0
+      },
+      source: {
+        system: "hapa-dev-proto",
+        owner: "hapa-dev-proto",
+        adapter: "sqlite-readonly",
+        path: HAPA_DEV_PROTO_DB_PATH
+      },
+      error: {
+        code: error?.code || "HELL_WEEK_SOURCE_UNAVAILABLE",
+        dependency: "hapa-dev-proto-sqlite",
+        message: error?.message || String(error),
+        retryable: true
+      },
+      lastSuccess: hellWeekProjectionCache.lastSuccess
+    };
+    hellWeekProjectionCache.lastError = failure.error;
+    console.error("Error loading Hell Week cards:", error);
+    return failure;
   }
 }
 
-async function readStore() {
-  return readNormalizedJson(STORE_PATH, "avatar-store", (store) => {
-    const avatars = (store.avatars || []).map((avatar) => normalizeAvatarCard(avatar));
-    const hellWeekAvatars = loadHellWeekAvatars();
-    const allAvatars = [...avatars, ...hellWeekAvatars];
-    
-    const teams = normalizeAvatarTeams(store.teams, avatars);
-    if (hellWeekAvatars.length > 0) {
-      teams.push({
-        schemaVersion: "hapa.avatar-teams.v1",
-        id: "hell-week-cards-team",
-        title: "Hell Week Cards",
-        description: "Cards generated during Hell Week runs in hapa-dev-proto",
-        accent: "pink",
-        status: "active",
-        members: hellWeekAvatars.map(avatar => ({
-          avatarId: avatar.id,
-          role: "Card",
-          notes: avatar.mind?.summary || ""
-        })),
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString()
-      });
-    }
+function hellWeekDbSignature() {
+  const dbInfo = fs.statSync(HAPA_DEV_PROTO_DB_PATH);
+  let walPart = "wal:missing";
+  try {
+    const walInfo = fs.statSync(`${HAPA_DEV_PROTO_DB_PATH}-wal`);
+    walPart = `wal:${walInfo.size}:${walInfo.mtimeMs}`;
+  } catch {
+    // A missing WAL is a valid steady state.
+  }
+  return `db:${dbInfo.size}:${dbInfo.mtimeMs}|${walPart}`;
+}
 
-    return {
-      ...store,
-      avatars: allAvatars,
-      teams
-    };
+function hellWeekAvatarFromRow(row, childrenByParent, generatedAt) {
+  const id = row.id;
+  const name = row.name || "Unnamed Hell Week Card";
+  const meta = parseJsonObject(row.metadata_json);
+  const assets = [];
+  const lineageRows = [row];
+  const visited = new Set([id]);
+
+  addHellWeekAsset(assets, row, meta, id, "parent");
+
+  const collectFromNode = (nodeId) => {
+    for (const child of childrenByParent.get(nodeId) || []) {
+      if (!child?.id || visited.has(child.id)) continue;
+      visited.add(child.id);
+      lineageRows.push(child);
+      addHellWeekAsset(assets, child, parseJsonObject(child.metadata_json), id, "child");
+      collectFromNode(child.id);
+    }
+  };
+  collectFromNode(id);
+
+  const slots = [];
+  const imageAsset = assets.find((asset) => asset.type === "image");
+  const videoAsset = assets.find((asset) => asset.type === "video");
+  if (imageAsset) {
+    slots.push({
+      id: "avatar_concept_photo-1",
+      requirementId: "avatar_concept_photo",
+      label: "Concept Photo 1",
+      required: true,
+      assetId: imageAsset.id
+    });
+  }
+  if (videoAsset) {
+    slots.push({
+      id: "avatar_concept_video-1",
+      requirementId: "avatar_concept_video",
+      label: "Concept Video 1",
+      required: true,
+      assetId: videoAsset.id
+    });
+  }
+
+  const loreText = row.content_text || row.lore || meta.lore || "";
+  const skills = Array.isArray(meta.skills) ? meta.skills : [];
+  const memberOfSets = Array.isArray(meta.memberOfSets) ? meta.memberOfSets : [];
+  const bulletSkills = skills.map((skill) => `• ${skill.name}: ${skill.description}`).join("\n");
+  const bulletSets = memberOfSets.map((set) => `• Set: ${set.setName} (${set.addedBy})`).join("\n");
+  const sourceRunIds = [...new Set(lineageRows.map((item) => item.hellweek_run_id).filter(Boolean))];
+  const updatedAt = lineageRows
+    .map((item) => item.updated_at || item.created_at)
+    .filter(Boolean)
+    .sort()
+    .at(-1) || generatedAt;
+  const createdAt = row.created_at || updatedAt;
+  const sourceCardIds = lineageRows.map((item) => item.id).filter(Boolean);
+
+  return {
+    id,
+    isHellWeek: true,
+    isExternalProjection: true,
+    projection: {
+      readOnly: true,
+      sourceSystem: "hapa-dev-proto",
+      projectedBy: "hapa-avatar-builder",
+      projectedAt: generatedAt
+    },
+    handoff: {
+      schemaVersion: HAPA_CARD_ENVELOPE_VERSION,
+      cardId: id,
+      source: {
+        system: "hapa-dev-proto",
+        store: "sqlite",
+        path: HAPA_DEV_PROTO_DB_PATH,
+        coreName: row.core_name || null,
+        runIds: sourceRunIds
+      },
+      lineage: {
+        parentCardId: row.parent_id || null,
+        sourceCardIds
+      },
+      truthStatus: "verified_source_projection",
+      projection: {
+        consumer: "hapa-avatar-builder",
+        readOnly: true,
+        projectedAt: generatedAt
+      }
+    },
+    primaryName: name,
+    names: [{ name }],
+    slots,
+    assets,
+    three_paragraph_background_narrative: {
+      origin: loreText,
+      concept: bulletSkills || "No skills defined.",
+      manifesto: bulletSets || "No set associations."
+    },
+    mind: {
+      avatarId: id,
+      summary: row.lore || meta.lore || "A forged Hell Week card.",
+      characterSheet: `${loreText}\n\n### Skills & Abilities\n${bulletSkills}\n\n### Set Memberships\n${bulletSets}`,
+      dossierNotes: [],
+      wikiProfiles: [],
+      avatarDeck: [],
+      skills: skills.map((skill) => ({
+        id: slugify(skill.name),
+        name: skill.name,
+        description: skill.description,
+        kind: skill.type || "Passive"
+      }))
+    },
+    updatedAt,
+    createdAt
+  };
+}
+
+async function hydrateHellWeekCardDetail(card) {
+  const coreName = card?.handoff?.source?.coreName;
+  if (!coreName) return card;
+
+  const sourceRoot = path.resolve(HAPA_DEV_PROTO_HYPERCORE_DIR);
+  const corePath = path.resolve(sourceRoot, coreName);
+  if (!corePath.startsWith(`${sourceRoot}${path.sep}`) || !fs.existsSync(corePath)) return card;
+
+  const core = new Hypercore(corePath);
+  try {
+    await core.ready();
+    for (let index = core.length - 1; index >= 0; index -= 1) {
+      const block = await core.get(index);
+      if (!block) continue;
+      let record;
+      try {
+        record = JSON.parse(block.toString());
+      } catch {
+        continue;
+      }
+      const sourceCard = record?.card && typeof record.card === "object" ? record.card : record;
+      const fullNarrative = [
+        sourceCard?.cardData?.lore,
+        sourceCard?.card_data?.lore,
+        sourceCard?.three_paragraph_background_narrative?.origin,
+        sourceCard?.lore
+      ].find((value) => typeof value === "string" && value.trim());
+      if (!fullNarrative) continue;
+      return {
+        ...card,
+        three_paragraph_background_narrative: {
+          ...card.three_paragraph_background_narrative,
+          origin: fullNarrative
+        },
+        mind: {
+          ...card.mind,
+          summary: fullNarrative
+        },
+        handoff: {
+          ...card.handoff,
+          source: {
+            ...card.handoff?.source,
+            narrativeHydratedFrom: "hypercore"
+          }
+        }
+      };
+    }
+    return card;
+  } catch (error) {
+    console.warn(`Hell Week detail hydration failed for ${card.id}: ${error instanceof Error ? error.message : String(error)}`);
+    return card;
+  } finally {
+    await core.close().catch(() => {});
+  }
+}
+
+function addHellWeekAsset(assets, row, meta, avatarId, role) {
+  const primaryPath = cleanHellWeekPath(row.media_local_path || row.thumbnail || meta.mediaLocalPath || meta.representativeMediaLocalPath || "");
+  const generatedVideoPath = cleanHellWeekPath(meta.mediaPrompts?.generated_video_local || "");
+  for (const [candidatePath, forcedType] of [[primaryPath, null], [generatedVideoPath, "video"]]) {
+    if (!candidatePath || !fs.existsSync(candidatePath) || assets.some((asset) => asset.path === candidatePath)) continue;
+    const isVideo = forcedType === "video" || row.media_kind === "video" || /\.(mp4|m4v|mov|webm)$/i.test(candidatePath);
+    assets.push({
+      id: `${row.id}-${role}-${isVideo ? "video" : "image"}`,
+      avatarId,
+      sourceCardId: row.id,
+      name: path.basename(candidatePath),
+      path: candidatePath,
+      uri: `/api/local-file?path=${encodeURIComponent(candidatePath)}`,
+      relativePath: candidatePath,
+      type: isVideo ? "video" : "image",
+      mimeType: isVideo ? "video/mp4" : "image/png",
+      tags: isVideo ? ["avatar_concept_video", "video_loop"] : ["avatar_concept_photo", "concept", "front"],
+      metadata: {
+        sourceSystem: "hapa-dev-proto",
+        sourceRunId: row.hellweek_run_id || null
+      }
+    });
+  }
+}
+
+function cleanHellWeekPath(value) {
+  if (!value) return "";
+  let cleaned = String(value).trim().replace(/^file:\/\/\/?/, "");
+  try {
+    cleaned = decodeURIComponent(cleaned);
+  } catch {
+    // Keep the source path when it is not URI-encoded.
+  }
+  return cleaned.replace(/\\/g, "/");
+}
+
+function parseJsonObject(value) {
+  if (!value) return {};
+  try {
+    const parsed = typeof value === "string" ? JSON.parse(value) : value;
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function hellWeekHandoffTelemetry() {
+  return {
+    status: hellWeekProjectionCache.lastError ? "degraded" : hellWeekProjectionCache.lastSuccess ? "healthy" : "unknown",
+    sourceOwner: "hapa-dev-proto",
+    adapter: "sqlite-readonly",
+    sourcePath: HAPA_DEV_PROTO_DB_PATH,
+    lastSuccess: hellWeekProjectionCache.lastSuccess,
+    lastError: hellWeekProjectionCache.lastError,
+    queryCount: hellWeekProjectionCache.queryCount,
+    cacheHits: hellWeekProjectionCache.cacheHits
+  };
+}
+
+function filterHellWeekSync(result, { cursor = "", runId = "" } = {}) {
+  const cursorTime = Date.parse(cursor || "");
+  const hasCursor = Number.isFinite(cursorTime);
+  const cards = result.cards.filter((card) => {
+    if (runId && !(card.handoff?.source?.runIds || []).includes(runId)) return false;
+    return !hasCursor || Date.parse(card.updatedAt || "") > cursorTime;
   });
+  const tombstones = result.tombstones.filter((tombstone) => {
+    if (runId && tombstone.sourceRunId !== runId) return false;
+    return !hasCursor || Date.parse(tombstone.deletedAt || "") > cursorTime;
+  });
+  return {
+    ...result,
+    cards,
+    tombstones,
+    counts: {
+      ...result.counts,
+      selectedCards: cards.length,
+      selectedTombstones: tombstones.length
+    },
+    incremental: {
+      cursor: cursor || null,
+      runId: runId || null,
+      fullRebuild: !cursor && !runId
+    }
+  };
+}
+
+async function appendHellWeekFeedback(card, body = {}) {
+  const note = String(body.note || body.message || "").replace(/\s+/g, " ").trim().slice(0, 4000);
+  if (!note) {
+    const error = new Error("Hell Week feedback requires a non-empty note.");
+    error.statusCode = 400;
+    throw error;
+  }
+  const createdAt = new Date().toISOString();
+  const event = {
+    schemaVersion: "hapa.card-feedback.v1",
+    id: `hell-week-feedback-${Date.now()}-${randomBytes(3).toString("hex")}`,
+    action: "card.feedback-proposed",
+    sourceOwner: "hapa-dev-proto",
+    sourceCardId: card.id,
+    sourceRunIds: card.handoff?.source?.runIds || [],
+    consumer: "hapa-avatar-builder",
+    note,
+    tags: [...new Set((Array.isArray(body.tags) ? body.tags : []).map((tag) => String(tag).trim()).filter(Boolean))].slice(0, 24),
+    mediaRefs: (Array.isArray(body.mediaRefs) ? body.mediaRefs : [])
+      .map((ref) => ({
+        id: String(ref?.id || "").slice(0, 240),
+        uri: String(ref?.uri || "").slice(0, 2000),
+        role: String(ref?.role || "feedback-media").slice(0, 120)
+      }))
+      .filter((ref) => ref.id || ref.uri)
+      .slice(0, 24),
+    truthStatus: "proposed_feedback_requires_source_owner_review",
+    createdAt
+  };
+  await mkdir(SUBSCRIBER_DIR, { recursive: true });
+  const outboxPath = path.join(SUBSCRIBER_DIR, "hapa-dev-proto.ndjson");
+  await appendFile(outboxPath, `${JSON.stringify(event)}\n`, "utf8");
+  return {
+    ok: true,
+    event,
+    outbox: {
+      subscriber: "hapa-dev-proto",
+      path: outboxPath,
+      appendOnly: true
+    }
+  };
+}
+
+async function readStore({ includeProjections = false, forceProjection = false } = {}) {
+  const canonicalStore = await readNormalizedJson(STORE_PATH, "avatar-store", (store) => ({
+    ...store,
+    avatars: (store.avatars || []).map((avatar) => normalizeAvatarCard(avatar)),
+    teams: normalizeAvatarTeams(store.teams, store.avatars || [])
+  }));
+  if (!includeProjections) return canonicalStore;
+
+  const projection = loadHellWeekProjection({ force: forceProjection });
+  const canonicalIds = new Set((canonicalStore.avatars || []).map((avatar) => avatar.id));
+  const projectedAvatars = projection.ok
+    ? projection.cards.filter((avatar) => !canonicalIds.has(avatar.id))
+    : [];
+  const teams = [...(canonicalStore.teams || [])];
+  if (projectedAvatars.length) {
+    teams.push({
+      schemaVersion: "hapa.avatar-teams.v1",
+      id: "hell-week-cards-team",
+      title: "Hell Week Cards",
+      description: "Read-only cards projected from hapa-dev-proto",
+      accent: "pink",
+      status: "active",
+      virtual: true,
+      members: projectedAvatars.map((avatar) => ({
+        avatarId: avatar.id,
+        role: "Projected Card",
+        notes: avatar.mind?.summary || ""
+      })),
+      createdAt: projection.generatedAt,
+      updatedAt: projection.generatedAt
+    });
+  }
+  return {
+    ...canonicalStore,
+    avatars: [...(canonicalStore.avatars || []), ...projectedAvatars],
+    teams,
+    externalProjections: {
+      hellWeek: {
+        ok: projection.ok,
+        schemaVersion: projection.schemaVersion,
+        count: projectedAvatars.length,
+        generatedAt: projection.generatedAt,
+        source: projection.source,
+        cursor: projection.cursor || null,
+        error: projection.error || null
+      }
+    }
+  };
 }
 
 async function writeStore(store) {
-  await writeFile(STORE_PATH, `${JSON.stringify(store, null, 2)}\n`, "utf8");
+  const canonicalAvatars = (store.avatars || [])
+    .filter((avatar) => !avatar?.isExternalProjection && !avatar?.isHellWeek && !avatar?.projection?.readOnly)
+    .map((avatar) => normalizeAvatarCard(avatar));
+  const canonicalIds = new Set(canonicalAvatars.map((avatar) => avatar.id));
+  const canonicalTeams = normalizeAvatarTeams(
+    (store.teams || [])
+      .filter((team) => team?.id !== "hell-week-cards-team" && !team?.virtual)
+      .map((team) => ({
+        ...team,
+        members: (team.members || []).filter((member) => canonicalIds.has(member.avatarId))
+      })),
+    canonicalAvatars
+  );
+  const canonicalStore = {
+    ...store,
+    avatars: canonicalAvatars,
+    teams: canonicalTeams,
+    updatedAt: new Date().toISOString()
+  };
+  delete canonicalStore.externalProjections;
+  const previousStore = await readJson(STORE_PATH).catch(() => ({ avatars: [] }));
+  await avatarOverwindOrigin.commitStoreMutation("avatar", previousStore, canonicalStore, () =>
+    writeFile(STORE_PATH, `${JSON.stringify(canonicalStore, null, 2)}\n`, "utf8")
+  );
   invalidateJsonCache(STORE_PATH);
+  return canonicalStore;
 }
 
 function isStaleAvatarUpdate(currentAvatar, incomingAvatar) {
@@ -3261,6 +4997,36 @@ function uniqueStrings(items = []) {
   return [...new Set((Array.isArray(items) ? items : []).filter(Boolean).map((item) => String(item).trim()).filter(Boolean))];
 }
 
+async function hydrateSongCardMintInput(body = {}) {
+  const input = body && typeof body === "object" && !Array.isArray(body) ? body : {};
+  const project = input.project || {};
+  const showGraph = input.showGraph || {};
+  const references = collectSongCardConstituentReferences({ project, showGraph });
+  if (!references.length) return input;
+
+  const [itemStore, sceneStore, avatarStore] = await Promise.all([
+    readItemStore().catch(() => ({ cards: [] })),
+    readSceneStore().catch(() => ({ scenes: [] })),
+    readStore().catch(() => ({ avatars: [] })),
+  ]);
+  const hydration = hydrateSongCardConstituentSnapshots({
+    project,
+    showGraph,
+    cardSnapshots: input.cardSnapshots || {},
+    itemStore,
+    sceneStore,
+    avatarStore,
+  });
+  return {
+    ...input,
+    cardSnapshots: hydration.cardSnapshots,
+    context: {
+      ...(input.context || {}),
+      constituentHydration: hydration.receipt,
+    },
+  };
+}
+
 async function readItemStore() {
   try {
     return await readNormalizedJson(ITEM_STORE_PATH, "item-store", normalizeItemManagerStore);
@@ -3273,7 +5039,11 @@ async function readItemStore() {
 
 async function writeItemStore(store) {
   await mkdir(path.dirname(ITEM_STORE_PATH), { recursive: true });
-  await writeFile(ITEM_STORE_PATH, `${JSON.stringify(normalizeItemManagerStore(store), null, 2)}\n`, "utf8");
+  const normalizedStore = normalizeItemManagerStore(store);
+  const previousStore = await readJson(ITEM_STORE_PATH).catch(() => ({ cards: [] }));
+  await avatarOverwindOrigin.commitStoreMutation("item", previousStore, normalizedStore, () =>
+    writeFile(ITEM_STORE_PATH, `${JSON.stringify(normalizedStore, null, 2)}\n`, "utf8")
+  );
   invalidateJsonCache(ITEM_STORE_PATH);
 }
 
@@ -3325,6 +5095,33 @@ async function writeHapaSongStore(store) {
   await mkdir(path.dirname(HAPA_SONG_STORE_PATH), { recursive: true });
   await writeFile(HAPA_SONG_STORE_PATH, `${JSON.stringify(normalizedStore, null, 2)}\n`, "utf8");
   invalidateJsonCache(HAPA_SONG_STORE_PATH);
+}
+
+async function projectSongCardMintHeadToMutableSong(songId, readModel) {
+  const store = await readHapaSongStore();
+  const current = findSongInStore(store, songId);
+  if (!current) return { status: "pending", reason: "mutable-song-not-found" };
+  const head = readModel?.head || readModel?.card || {};
+  const nextSong = normalizeHapaSong({
+    ...current,
+    songCardMint: {
+      schemaVersion: "hapa.song-card.mint-projection.v1",
+      headId: head.id || head.headId || `song-card:${current.songId || songId}`,
+      latestEdition: Number(readModel?.latestEdition || head.latestEdition || 0),
+      editionCount: Array.isArray(readModel?.editions) ? readModel.editions.length : Number(head.editionCount || 0),
+      generation: Number(head.generation || head.version || 0),
+      latestEditionId: Number(readModel?.latestEdition || head.latestEdition || 0) > 0 ? `${head.id || head.headId}:edition:${readModel?.latestEdition || head.latestEdition}` : "",
+      semanticFingerprint: head.semanticFingerprint || head.latestSemanticFingerprint || "",
+      publishStatus: readModel?.editions?.[0]?.publishStatus || "unminted",
+      editionsHref: `/api/song-cards/${encodeURIComponent(current.songId || songId)}/editions`,
+      projectedAt: new Date().toISOString(),
+    },
+  });
+  const songbook = await readDearPapaSongbook();
+  const nextStore = upsertSongInStore(store, nextSong, songbook);
+  await writeHapaSongStore(nextStore);
+  appendSubscriberRegistration("songs.song-card-mint-head-projected", { songStore: nextStore, songCardHead: head }).catch(() => {});
+  return { status: "acknowledged", songId: nextSong.songId, headId: nextSong.songCardMint.headId, latestEdition: nextSong.songCardMint.latestEdition };
 }
 
 function findSongInStore(store, songId) {
@@ -3470,11 +5267,9 @@ async function appendSubscriberRegistration(action, { avatar = null, media = nul
   };
 
   await appendFile(path.join(SUBSCRIBER_DIR, "events.ndjson"), `${JSON.stringify(baseEvent)}\n`, "utf8");
-  await Promise.all(SUBSCRIBERS.map((subscriber) => appendFile(
-    path.join(SUBSCRIBER_DIR, `${subscriber}.ndjson`),
-    `${JSON.stringify({ ...baseEvent, subscriber, status: "queued" })}\n`,
-    "utf8"
-  )));
+  // Legacy per-subscriber NDJSON fan-out is retired. Canonical Card events use
+  // the acknowledged Overwind origin outbox; this central file remains only as
+  // migration/audit input for older aggregate registration events.
   await writeFile(path.join(SUBSCRIBER_DIR, "latest.json"), `${JSON.stringify(baseEvent, null, 2)}\n`, "utf8");
   await writeFile(path.join(SUBSCRIBER_DIR, "latest-summary.json"), `${JSON.stringify(summarizeSubscriberEvent(baseEvent), null, 2)}\n`, "utf8");
 }
@@ -3841,18 +5636,11 @@ async function readOverwindShellBootstrap(selectedAvatarId = null) {
         board,
         freshness: persistedFullProjection.sourceSignature === fullSignature ? "shell-from-current-full-projection" : "shell-from-regenerated-full-projection"
       })
-    : persistedShell?.avatars?.length
-      ? createOverwindShellBootstrapFromProjection(persistedShell, {
-          signature,
-          selectedAvatarId,
-          board,
-          freshness: "shell-from-last-shell-cache"
-        })
-      : createFallbackOverwindShellBootstrap({
-          signature,
-          selectedAvatarId,
-          board
-        });
+    : (() => {
+        const error = new Error("stale_overwind_shell_rejected: no current full projection matches the source signature");
+        error.statusCode = 409;
+        throw error;
+      })();
 
   await persistOverwindShellProjection(projection).catch((error) => {
     console.warn(`Overwind shell persist skipped: ${error instanceof Error ? error.message : String(error)}`);
@@ -5030,8 +6818,17 @@ function cleanBlueAvatarOwnerText(value = "") {
 }
 
 async function readBody(req) {
+  const declared = Number(req.headers["content-length"] || 0);
+  if (declared > MAX_REQUEST_BYTES) {
+    const error = new Error(`request_body_too_large: limit=${MAX_REQUEST_BYTES}`); error.statusCode = 413; throw error;
+  }
   const chunks = [];
-  for await (const chunk of req) chunks.push(chunk);
+  let total = 0;
+  for await (const chunk of req) {
+    total += chunk.length;
+    if (total > MAX_REQUEST_BYTES) { const error = new Error(`request_body_too_large: limit=${MAX_REQUEST_BYTES}`); error.statusCode = 413; throw error; }
+    chunks.push(chunk);
+  }
   if (!chunks.length) return {};
   const text = Buffer.concat(chunks).toString("utf8");
   return text ? JSON.parse(text) : {};
@@ -5042,12 +6839,649 @@ function sendJson(res, statusCode, payload) {
   res.end(`${JSON.stringify(payload)}\n`);
 }
 
+function isGetOrHead(req) {
+  return req.method === "GET" || req.method === "HEAD";
+}
+
+const ECHO_EDITOR_GRAPH_OMITTED_DIRECTOR_FIELDS = Object.freeze([
+  "audioFallbackProfile",
+  "mediaDiversityReport",
+  "mediaRoleCamera",
+  "rankedMediaCandidates",
+  "visualizerLayers",
+]);
+
+function compactEchoDirectorShowGraph(graph) {
+  if (!graph?.directorV2 || typeof graph.directorV2 !== "object") return graph;
+  const compactDirector = { ...graph.directorV2 };
+  for (const field of ECHO_EDITOR_GRAPH_OMITTED_DIRECTOR_FIELDS) delete compactDirector[field];
+  return {
+    ...graph,
+    directorV2: compactDirector,
+  };
+}
+
+function compactEchoDirectionScriptVariant(variant = {}, fallbackTimelineCount = 0) {
+  const summary = summarizeEchoDirectionScriptVariant(variant, fallbackTimelineCount);
+  return {
+    ...summary,
+    status: variant.status || null,
+    selectionMode: variant.selectionMode || variant.selection_mode || null,
+    seed: variant.seed || null,
+    sourcePolicy: variant.sourcePolicy || variant.source_policy || null,
+    parent: variant.parent || null,
+    lineage: variant.lineage || null,
+    variant_source: {
+      ...(variant.variant_source || {}),
+      kind: "append-only-project-variant-summary",
+      nonDestructive: true,
+      detailProfile: "metadata-only",
+    },
+  };
+}
+
+function echoDirectionVariantNotFound(safeSongId, variantId) {
+  const error = new Error(`Direction cut ${variantId} was not found for ${safeSongId}.`);
+  error.code = "direction_variant_not_found";
+  error.statusCode = 404;
+  return error;
+}
+
+async function hydrateEchoDirectorProjectPayload(payload, safeSongId, options = {}) {
+  const project = payload?.music_video_project || payload;
+  if (!project || typeof project !== "object") return payload;
+  const sourceProfile = options.profile === "source";
+  const selectedVariantId = String(options.selectedVariantId || "").trim();
+  const [graphResult, indexedVariants] = await Promise.all([
+    readEchoDirectorShowGraph(project, safeSongId),
+    sourceProfile
+      ? readEchoDirectionScriptVariants(safeSongId)
+      : echoDirectionVariantSummaryIndex
+        .variantsForSongs([safeSongId], readEchoDirectionScriptVariants)
+        .then((result) => result.bySong.get(safeSongId) || []),
+  ]);
+  const embeddedVariants = Array.isArray(project.direction_script_variants)
+    ? project.direction_script_variants
+    : [];
+  const variantCatalog = mergeEchoDirectionScriptVariants(indexedVariants, embeddedVariants);
+  let directionVariants = variantCatalog;
+  let deliveredVariantId = null;
+
+  if (!sourceProfile) {
+    const fallbackTimelineCount = Array.isArray(project.timeline) ? project.timeline.length : 0;
+    directionVariants = variantCatalog.map((variant) => compactEchoDirectionScriptVariant(variant, fallbackTimelineCount));
+    if (selectedVariantId) {
+      const catalogVariant = variantCatalog.find((variant) => echoDirectionVariantId(variant) === selectedVariantId);
+      const selectedVariant = Array.isArray(catalogVariant?.timeline)
+        ? catalogVariant
+        : await readEchoDirectionScriptVariant(safeSongId, selectedVariantId);
+      const embeddedVariant = embeddedVariants.find((variant) => echoDirectionVariantId(variant) === selectedVariantId);
+      const fullVariant = selectedVariant || embeddedVariant;
+      if (!fullVariant) throw echoDirectionVariantNotFound(safeSongId, selectedVariantId);
+      deliveredVariantId = selectedVariantId;
+      directionVariants = directionVariants.map((variant) => (
+        echoDirectionVariantId(variant) === selectedVariantId ? fullVariant : variant
+      ));
+      if (!directionVariants.some((variant) => echoDirectionVariantId(variant) === selectedVariantId)) {
+        directionVariants.push(fullVariant);
+      }
+    }
+  }
+
+  const graph = sourceProfile ? graphResult.graph : compactEchoDirectorShowGraph(graphResult.graph);
+  const detailProfile = sourceProfile ? "source-v1" : "editor-bounded-v1";
+  const graphReceipt = {
+    ...graphResult.receipt,
+    delivery: {
+      profile: detailProfile,
+      selectedVariantId: deliveredVariantId,
+      variantCatalogMode: sourceProfile ? "complete" : "metadata-plus-selected-cut",
+      omittedDirectorV2Fields: sourceProfile ? [] : [...ECHO_EDITOR_GRAPH_OMITTED_DIRECTOR_FIELDS],
+      fullSourceQuery: `/api/echos/director-project?songId=${encodeURIComponent(safeSongId)}&profile=source`,
+    },
+  };
+  const hydratedProject = {
+    ...project,
+    direction_script_variants: directionVariants,
+    director_detail_profile: detailProfile,
+    selected_direction_script_variant_id: deliveredVariantId,
+    director_show_graph: graph,
+    director_show_graph_receipt: graphReceipt,
+  };
+  return payload?.music_video_project
+    ? { ...payload, music_video_project: hydratedProject }
+    : hydratedProject;
+}
+
+function echoDirectionVariantRows(payload) {
+  if (Array.isArray(payload)) return payload;
+  if (!payload || typeof payload !== "object") return [];
+  if (Array.isArray(payload.direction_script_variants)) return payload.direction_script_variants;
+  const candidate = payload.direction_script_variant
+    || payload.music_video_project_variant
+    || payload.variant
+    || payload;
+  return candidate && typeof candidate === "object" ? [candidate] : [];
+}
+
+function echoDirectionVariantId(variant = {}, fallback = "") {
+  return domainEchoDirectionVariantId(variant) || String(fallback || "").trim();
+}
+
+function mergeEchoDirectionScriptVariants(...groups) {
+  const variants = new Map();
+  for (const group of groups) {
+    for (const variant of Array.isArray(group) ? group : []) {
+      if (!variant || typeof variant !== "object") continue;
+      const id = echoDirectionVariantId(variant);
+      if (!id || variants.has(id)) continue;
+      variants.set(id, variant);
+    }
+  }
+  return [...variants.values()];
+}
+
+function summarizeEchoDirectionScriptVariant(variant = {}, fallbackTimelineCount = 0) {
+  const metadata = summarizeEchoDirectionVariantMetadata(variant);
+  if (variant.variant_source?.indexed && !variant.fingerprint) metadata.fingerprint = null;
+  const hasCutMetadata = Boolean(metadata.variationSet || metadata.cut || metadata.densityProfile || metadata.coveragePass !== null);
+  const declaredTimelineCount = variant.timelineCount ?? variant.timeline_count;
+  const indexedTimelineCount = declaredTimelineCount === null || declaredTimelineCount === undefined || declaredTimelineCount === ""
+    ? Number.NaN
+    : Number(declaredTimelineCount);
+  const hasIndexedHyperframeFlag = typeof (variant.hasHyperframeScript ?? variant.has_hyperframe_script) === "boolean";
+  return {
+    id: echoDirectionVariantId(variant),
+    title: domainEchoDirectionVariantTitle(variant),
+    schemaVersion: variant.schemaVersion || variant.schema_version || null,
+    createdAt: variant.createdAt || variant.created_at || null,
+    timelineCount: Number.isFinite(indexedTimelineCount)
+      ? Math.max(0, Math.round(indexedTimelineCount))
+      : Array.isArray(variant.timeline) ? variant.timeline.length : Math.max(0, Math.round(Number(fallbackTimelineCount) || 0)),
+    hasHyperframeScript: hasIndexedHyperframeFlag
+      ? Boolean(variant.hasHyperframeScript ?? variant.has_hyperframe_script)
+      : Boolean(variant.hyperframe_script || variant.hyperframeScript),
+    nonDestructive: true,
+    ...(hasCutMetadata ? metadata : {}),
+  };
+}
+
+function echoDirectionForkError(code, message, statusCode = 400) {
+  const error = new Error(message);
+  error.code = code;
+  error.statusCode = statusCode;
+  return error;
+}
+
+function safeEchoDirectionPathSegment(value, kind) {
+  const input = String(value || "").trim();
+  const pattern = kind === "variant"
+    ? /^[A-Za-z0-9][A-Za-z0-9._:-]{0,199}$/u
+    : /^[A-Za-z0-9][A-Za-z0-9._-]{0,199}$/u;
+  if (!pattern.test(input) || path.basename(input) !== input || input === "." || input === "..") {
+    throw echoDirectionForkError(`invalid_${kind}_id`, `Invalid ${kind} identifier.`, 400);
+  }
+  return input;
+}
+
+function echoDirectionForkTelemetry(timeline = [], parentTelemetry = {}) {
+  const mediaRows = timeline.filter((shot) => shot?.media_id && shot.media_id !== "none" && (shot.media_uri || shot.runtime_media_uri));
+  const uniqueMedia = new Set(mediaRows.map((shot) => shot.media_technical_identity || shot.media_contract?.contentHash || shot.media_id)).size;
+  return {
+    ...parentTelemetry,
+    replacementShots: mediaRows.length,
+    uniqueMedia,
+    humanEdited: true,
+  };
+}
+
+async function createEchoDirectionVariantFork(body = {}) {
+  if (body.schemaVersion && body.schemaVersion !== ECHO_DIRECTION_FORK_PAYLOAD_SCHEMA) {
+    throw echoDirectionForkError("invalid_fork_schema", "Unsupported direction cut fork request schema.", 400);
+  }
+  const songId = safeEchoDirectionPathSegment(body.songId, "song");
+  const parentVariantId = safeEchoDirectionPathSegment(body.parentVariantId, "variant");
+  const timeline = Array.isArray(body.timeline) ? body.timeline : null;
+  if (!timeline?.length) throw echoDirectionForkError("invalid_fork_timeline", "A non-empty direction timeline is required.", 400);
+  const projectPath = path.resolve(DATA_DIR, "music-video-projects", `${songId}-video-project.json`);
+  const projectsRoot = path.resolve(DATA_DIR, "music-video-projects");
+  if (!withinDirectory(projectsRoot, projectPath) || !await access(projectPath).then(() => true).catch(() => false)) {
+    throw echoDirectionForkError("project_not_found", "The source song project was not found.", 404);
+  }
+  const parentVariants = await readEchoDirectionScriptVariants(songId);
+  const parentVariant = parentVariants.find((variant) => (
+    echoDirectionVariantId(variant) === parentVariantId
+      && variant.variant_source?.kind === "append-only-project-variant"
+  ));
+  if (!parentVariant) throw echoDirectionForkError("parent_variant_not_found", "The append-only source cut was not found.", 404);
+  const parentFingerprint = echoDirectionVariantFingerprint(parentVariant);
+  if (body.expectedParentFingerprint && String(body.expectedParentFingerprint) !== parentFingerprint) {
+    throw echoDirectionForkError("parent_variant_changed", "The source cut changed after this working fork began.", 409);
+  }
+
+  const now = new Date().toISOString();
+  const requestedId = body.requestedId ? safeEchoDirectionPathSegment(body.requestedId, "variant") : "";
+  const parentSlug = parentVariantId.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 72) || "direction-cut";
+  const entropy = randomBytes(8).toString("hex");
+  const childId = requestedId || `${parentSlug}-edit-${Date.now().toString(36)}-${entropy.slice(0, 8)}`;
+  const parentMetadata = echoDirectionVariantMetadata(parentVariant);
+  const editOrdinal = parentVariants.filter((variant) => variant.lineage?.parentVariantId === parentVariantId).length + 1;
+  const editLabel = `Edit ${editOrdinal}`;
+  const projectPatch = pickEchoDirectionVariantProjectPatch(body.projectPatch || {});
+  const visualizerTimeline = Array.isArray(body.visualizerTimeline)
+    ? body.visualizerTimeline
+    : Array.isArray(parentVariant.visualizer_timeline)
+      ? parentVariant.visualizer_timeline
+      : undefined;
+  const densityTelemetry = body.mediaDensityTelemetry || parentVariant.media_density_telemetry || null;
+  const child = {
+    schemaVersion: "hapa.echo.direction-script-variant.v1",
+    id: childId,
+    title: `${String(body.title || domainEchoDirectionVariantTitle(parentVariant)).replace(/\s+/g, " ").trim()} · ${editLabel}`.slice(0, 180),
+    status: "ready",
+    createdAt: now,
+    updatedAt: now,
+    selectionMode: "human-working-fork",
+    variationSet: {
+      id: `${parentMetadata.variationSet?.id || "direction"}-edited-cuts`,
+      label: `${parentMetadata.variationSet?.label || "Direction"} · Edited cuts`,
+      parentSetId: parentMetadata.variationSet?.id || null,
+    },
+    cut: { ordinal: editOrdinal, label: editLabel, kind: "human-fork" },
+    densityProfile: parentMetadata.densityProfile,
+    coveragePass: parentMetadata.coveragePass,
+    parent: {
+      songId,
+      projectSha256: parentVariant.parent?.projectSha256 || null,
+      variantId: parentVariantId,
+      variantFingerprint: parentFingerprint,
+      immutableParent: true,
+    },
+    lineage: {
+      kind: "append-only-human-fork",
+      parentVariantId,
+      parentVariantFingerprint: parentFingerprint,
+      sourcePath: parentVariant.variant_source.path,
+      createdAt: now,
+      nonDestructive: true,
+    },
+    seed: parentVariant.seed || null,
+    sourcePolicy: parentVariant.sourcePolicy || null,
+    timeline,
+    ...(visualizerTimeline ? { visualizer_timeline: visualizerTimeline } : {}),
+    ...(densityTelemetry ? { media_density_telemetry: densityTelemetry } : {}),
+    ...(Object.keys(projectPatch).length ? { project_patch: projectPatch } : {}),
+    hyperframe_script: String(body.hyperframeScript || ""),
+    telemetry: echoDirectionForkTelemetry(timeline, parentVariant.telemetry || {}),
+    preservation: {
+      sourceVariantUnchanged: true,
+      legacyProjectUnchanged: true,
+      parentVariantId,
+    },
+  };
+  child.fingerprint = `sha256:${createHash("sha256").update(JSON.stringify(child)).digest("hex")}`;
+
+  const variantsRoot = path.resolve(ECHO_DIRECTION_VARIANTS_DIR);
+  const songDirectory = path.resolve(variantsRoot, songId);
+  const childPath = path.resolve(songDirectory, `${childId}.json`);
+  if (!withinDirectory(variantsRoot, songDirectory) || !withinDirectory(songDirectory, childPath)) {
+    throw echoDirectionForkError("direction_variant_path_rejected", "Direction cut path escaped the variant store.", 400);
+  }
+  await mkdir(songDirectory, { recursive: true });
+  try {
+    await writeFile(childPath, `${JSON.stringify(child, null, 2)}\n`, { encoding: "utf8", flag: "wx" });
+  } catch (error) {
+    if (error?.code === "EEXIST") throw echoDirectionForkError("direction_variant_conflict", "A direction cut with that identifier already exists.", 409);
+    throw error;
+  }
+  echoDirectionVariantSummaryIndex.invalidate(songId);
+  return {
+    success: true,
+    variant: summarizeEchoDirectionScriptVariant(child),
+    lineage: child.lineage,
+  };
+}
+
+async function readEchoDirectionScriptVariants(safeSongId) {
+  const variantsRoot = path.resolve(ECHO_DIRECTION_VARIANTS_DIR);
+  const songDir = path.resolve(variantsRoot, path.basename(String(safeSongId || "")));
+  if (!withinDirectory(variantsRoot, songDir)) return [];
+  let entries;
+  try {
+    entries = await readdir(songDir, { withFileTypes: true });
+  } catch (error) {
+    if (error?.code === "ENOENT") return [];
+    console.warn(`Failed to read Echo direction variants for ${safeSongId}:`, error);
+    return [];
+  }
+
+  const variants = [];
+  for (const entry of entries.filter((row) => row.isFile() && row.name.endsWith(".json")).sort((a, b) => a.name.localeCompare(b.name))) {
+    const filePath = path.resolve(songDir, entry.name);
+    if (!withinDirectory(songDir, filePath)) continue;
+    try {
+      const payload = await readJson(filePath);
+      const fallbackId = entry.name.replace(/\.json$/u, "");
+      for (const [index, row] of echoDirectionVariantRows(payload).entries()) {
+        const id = echoDirectionVariantId(row, `${fallbackId}${index ? `-${index + 1}` : ""}`);
+        variants.push({
+          ...row,
+          id,
+          variant_source: {
+            kind: "append-only-project-variant",
+            path: path.relative(ROOT, filePath),
+            nonDestructive: true
+          }
+        });
+      }
+    } catch (error) {
+      console.warn(`Skipping invalid Echo direction variant ${entry.name}:`, error);
+    }
+  }
+  return mergeEchoDirectionScriptVariants(variants);
+}
+
+async function readEchoDirectionScriptVariant(safeSongId, requestedVariantId) {
+  const variantsRoot = path.resolve(ECHO_DIRECTION_VARIANTS_DIR);
+  const songDir = path.resolve(variantsRoot, path.basename(String(safeSongId || "")));
+  if (!withinDirectory(variantsRoot, songDir)) return null;
+  let entries;
+  try {
+    entries = await readdir(songDir, { withFileTypes: true });
+  } catch (error) {
+    if (error?.code !== "ENOENT") console.warn(`Failed to read Echo direction variant ${requestedVariantId} for ${safeSongId}:`, error);
+    return null;
+  }
+
+  const variantId = String(requestedVariantId || "").trim();
+  const candidates = entries
+    .filter((row) => row.isFile() && row.name.endsWith(".json"))
+    .sort((left, right) => {
+      const leftExact = left.name.replace(/\.json$/u, "") === variantId ? 0 : 1;
+      const rightExact = right.name.replace(/\.json$/u, "") === variantId ? 0 : 1;
+      return leftExact - rightExact || left.name.localeCompare(right.name);
+    });
+  for (const entry of candidates) {
+    const filePath = path.resolve(songDir, entry.name);
+    if (!withinDirectory(songDir, filePath)) continue;
+    try {
+      const payload = await readJson(filePath);
+      const fallbackId = entry.name.replace(/\.json$/u, "");
+      for (const [index, row] of echoDirectionVariantRows(payload).entries()) {
+        const id = echoDirectionVariantId(row, `${fallbackId}${index ? `-${index + 1}` : ""}`);
+        if (id !== variantId) continue;
+        return {
+          ...row,
+          id,
+          variant_source: {
+            kind: "append-only-project-variant",
+            path: path.relative(ROOT, filePath),
+            nonDestructive: true,
+          },
+        };
+      }
+    } catch (error) {
+      console.warn(`Skipping invalid Echo direction variant ${entry.name}:`, error);
+    }
+  }
+  return null;
+}
+
+async function readEchoDirectorShowGraph(project, safeSongId) {
+  const albumRoot = path.resolve(ECHO_DIRECTOR_V2_ALBUM_DIR);
+  const graphPath = path.resolve(albumRoot, path.basename(safeSongId), "native-show-graph.json");
+  const sourcePath = path.relative(ROOT, graphPath);
+  const receiptBase = {
+    schemaVersion: "hapa.echo.director-show-graph-receipt.v1",
+    source: "compiled-director-v2-album",
+    sourcePath,
+    projectSongId: project.song_id || safeSongId
+  };
+  if (!withinDirectory(albumRoot, graphPath)) {
+    return {
+      graph: null,
+      receipt: { ...receiptBase, status: "invalid", reason: "compiled_graph_path_outside_album_root" }
+    };
+  }
+
+  let cached;
+  try {
+    const fileStat = await stat(graphPath);
+    const signature = `${fileStat.size}:${fileStat.mtimeMs}`;
+    cached = echoDirectorShowGraphCache.get(graphPath);
+    if (!cached || cached.signature !== signature) {
+      const bytes = await readFile(graphPath);
+      cached = {
+        signature,
+        sourceBytes: bytes.byteLength,
+        sourceHash: `sha256:${createHash("sha256").update(bytes).digest("hex")}`,
+        graph: JSON.parse(bytes.toString("utf8"))
+      };
+      echoDirectorShowGraphCache.set(graphPath, cached);
+    }
+  } catch (error) {
+    if (error?.code === "ENOENT") {
+      return {
+        graph: null,
+        receipt: { ...receiptBase, status: "missing", reason: "compiled_graph_not_found" }
+      };
+    }
+    return {
+      graph: null,
+      receipt: {
+        ...receiptBase,
+        status: "invalid",
+        reason: "compiled_graph_read_failed",
+        message: error instanceof Error ? error.message : String(error)
+      }
+    };
+  }
+
+  const graph = cached.graph;
+  const graphSongId = String(graph?.song?.id || "").trim();
+  const expectedSongIds = new Set([
+    project.song_id,
+    project.audio_id,
+    project.registry_track_id
+  ].map((value) => String(value || "").trim()).filter(Boolean));
+  const visualizerTrack = (graph?.tracks || []).find((track) => track?.role === "visualizer" || track?.id === "track-b");
+  const reasons = [];
+  if (graph?.schemaVersion !== "hapa.music-viz.native-show-graph.v2") reasons.push("unexpected_graph_schema");
+  if (!graphSongId || !expectedSongIds.has(graphSongId)) reasons.push("graph_song_identity_mismatch");
+  if (!visualizerTrack || !Array.isArray(visualizerTrack.cards)) reasons.push("visualizer_track_missing");
+  if (!graph?.directorV2?.variantId || !graph?.directorV2?.variantHash) reasons.push("director_variant_identity_missing");
+  const receipt = {
+    ...receiptBase,
+    status: reasons.length ? "invalid" : "ready",
+    graphSchemaVersion: graph?.schemaVersion || null,
+    graphSongId: graphSongId || null,
+    variantId: graph?.directorV2?.variantId || null,
+    variantHash: graph?.directorV2?.variantHash || null,
+    sourceHash: cached.sourceHash,
+    sourceBytes: cached.sourceBytes,
+    visualizerCards: Array.isArray(visualizerTrack?.cards) ? visualizerTrack.cards.length : 0,
+    ...(reasons.length ? { reason: "compiled_graph_validation_failed", reasons } : {})
+  };
+  return { graph: reasons.length ? null : graph, receipt };
+}
+
+function withinDirectory(root, candidate) {
+  return candidate === root || candidate.startsWith(`${root}${path.sep}`);
+}
+
+function processOpenFileCount() {
+  for (const candidate of ["/dev/fd", "/proc/self/fd"]) {
+    try {
+      return fs.readdirSync(candidate).length;
+    } catch {
+      // Try the next platform-specific file descriptor directory.
+    }
+  }
+  return null;
+}
+
 function setCors(req, res) {
-  const origin = req.headers.origin || "*";
-  res.setHeader("Access-Control-Allow-Origin", origin);
+  const origin = req.headers.origin;
+  if (origin && !ALLOWED_ORIGINS.has(origin)) return false;
+  if (origin) res.setHeader("Access-Control-Allow-Origin", origin);
   res.setHeader("Vary", "Origin");
-  res.setHeader("Access-Control-Allow-Methods", "GET,POST,PUT,OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Range");
+  res.setHeader("Access-Control-Allow-Methods", "GET,HEAD,POST,PUT,DELETE,OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Range, Authorization, Idempotency-Key, If-Match, If-Range");
+  return true;
+}
+
+function loopbackAddress(value = "") {
+  const address = String(value || "").toLowerCase();
+  return address === "::1" || address === "localhost" || /^127(?:\.\d{1,3}){3}$/.test(address) || /^::ffff:127(?:\.\d{1,3}){3}$/.test(address);
+}
+
+function localUiRequestOrigin(req) {
+  const source = String(req.headers.origin || req.headers.referer || "").trim();
+  if (!source) return "";
+  try { return new URL(source).origin; } catch { return ""; }
+}
+
+function trustedLocalUiRequestContext(req, { bootstrap = false } = {}) {
+  if (!LOCAL_UI_SESSION_ENABLED || !loopbackAddress(req.socket?.remoteAddress)) return false;
+  const origin = localUiRequestOrigin(req);
+  if (bootstrap && !origin) return false;
+  if (origin) {
+    let hostname = "";
+    try { hostname = new URL(origin).hostname; } catch { return false; }
+    if (!loopbackAddress(hostname) || !ALLOWED_ORIGINS.has(origin)) return false;
+  }
+  const fetchSite = String(req.headers["sec-fetch-site"] || "").toLowerCase();
+  if (fetchSite && fetchSite !== "same-origin") return false;
+  return true;
+}
+
+function requestCookie(req, name) {
+  for (const pair of String(req.headers.cookie || "").split(";")) {
+    const separator = pair.indexOf("=");
+    if (separator < 0 || pair.slice(0, separator).trim() !== name) continue;
+    return pair.slice(separator + 1).trim();
+  }
+  return "";
+}
+
+function timingSafeTextEqual(left, right) {
+  const leftBytes = Buffer.from(String(left || ""));
+  const rightBytes = Buffer.from(String(right || ""));
+  return leftBytes.length > 0 && leftBytes.length === rightBytes.length && timingSafeEqual(leftBytes, rightBytes);
+}
+
+function hasTrustedLocalUiSession(req) {
+  return trustedLocalUiRequestContext(req) && timingSafeTextEqual(requestCookie(req, LOCAL_UI_SESSION_COOKIE), LOCAL_UI_SESSION_TOKEN);
+}
+
+function localUiSessionCookie(req) {
+  return `${LOCAL_UI_SESSION_COOKIE}=${LOCAL_UI_SESSION_TOKEN}; Path=/; HttpOnly; SameSite=Strict${req.socket?.encrypted ? "; Secure" : ""}`;
+}
+
+function requireAdmin(req, res) {
+  const authorization = String(req.headers.authorization || "");
+  if (AVATAR_ADMIN_TOKEN && timingSafeTextEqual(authorization, `Bearer ${AVATAR_ADMIN_TOKEN}`)) return true;
+  if (hasTrustedLocalUiSession(req)) return true;
+  if (!AVATAR_ADMIN_TOKEN) { sendJson(res, 503, { error: "admin_auth_not_configured", failClosed: true }); return false; }
+  sendJson(res, 401, { error: "unauthorized" });
+  return false;
+}
+
+function issueSongCardArtifactTicket(songId, edition, role, now = Date.now()) {
+  if (!SONG_CARD_ARTIFACT_SIGNING_KEY) throw Object.assign(new Error("Artifact ticket auth is not configured."), { code: "admin_auth_not_configured", statusCode: 503 });
+  const payload = Buffer.from(JSON.stringify({ songId: String(songId), edition: Number(edition), role: String(role), expiresAt: now + 15 * 60 * 1000 })).toString("base64url");
+  const signature = createHmac("sha256", SONG_CARD_ARTIFACT_SIGNING_KEY).update(payload).digest("base64url");
+  return `${payload}.${signature}`;
+}
+
+function validSongCardArtifactTicket(ticket, songId, edition, role, now = Date.now()) {
+  if (!SONG_CARD_ARTIFACT_SIGNING_KEY || typeof ticket !== "string") return false;
+  const [payload, suppliedSignature, extra] = ticket.split(".");
+  if (!payload || !suppliedSignature || extra !== undefined) return false;
+  const expectedSignature = createHmac("sha256", SONG_CARD_ARTIFACT_SIGNING_KEY).update(payload).digest();
+  let supplied;
+  try { supplied = Buffer.from(suppliedSignature, "base64url"); } catch { return false; }
+  if (supplied.length !== expectedSignature.length || !timingSafeEqual(supplied, expectedSignature)) return false;
+  let value;
+  try { value = JSON.parse(Buffer.from(payload, "base64url").toString("utf8")); } catch { return false; }
+  return value.songId === String(songId) && Number(value.edition) === Number(edition) && value.role === String(role) && Number(value.expiresAt) > now;
+}
+
+function authorizeSongCardArtifact(req, res, url, songId, edition, role) {
+  if (AVATAR_ADMIN_TOKEN && timingSafeTextEqual(req.headers.authorization, `Bearer ${AVATAR_ADMIN_TOKEN}`)) return true;
+  if (hasTrustedLocalUiSession(req)) return true;
+  if (validSongCardArtifactTicket(url.searchParams.get("ticket"), songId, edition, role)) return true;
+  const authConfigured = Boolean(AVATAR_ADMIN_TOKEN || LOCAL_UI_SESSION_ENABLED);
+  sendJson(res, authConfigured ? 401 : 503, { error: authConfigured ? "unauthorized" : "admin_auth_not_configured", failClosed: true });
+  return false;
+}
+
+function sendSongCardMintError(res, error) {
+  const code = String(error?.code || "song_card_mint_failed");
+  const notFound = /NOT_FOUND|not_found/i.test(code);
+  const conflict = /CONFLICT|MISMATCH|STALE|BLOCKED|EXISTS|CHANGED|HASH/i.test(code);
+  const status = Number(error?.statusCode || (notFound ? 404 : conflict ? 409 : error instanceof MintLedgerError ? 400 : 500));
+  sendJson(res, status, {
+    error: code.toLowerCase(),
+    message: error instanceof Error ? error.message : String(error),
+    ...(error?.details && typeof error.details === "object" ? { details: error.details } : {}),
+    failClosed: true,
+  });
+}
+
+function parseSongCardRange(header, size) {
+  if (!header) return null;
+  const match = /^bytes=([^,]+)$/i.exec(String(header).trim());
+  if (!match) return { invalid: true };
+  const [startText, endText] = match[1].split("-");
+  if (!startText) {
+    const suffix = Number(endText);
+    if (!Number.isInteger(suffix) || suffix <= 0) return { invalid: true };
+    return { start: Math.max(0, size - suffix), end: size - 1 };
+  }
+  const start = Number(startText);
+  const end = endText ? Number(endText) : size - 1;
+  if (!Number.isInteger(start) || !Number.isInteger(end) || start < 0 || end < start || start >= size) return { invalid: true };
+  return { start, end: Math.min(end, size - 1) };
+}
+
+async function serveSongCardEditionArtifact(req, res, artifact) {
+  const etag = `"sha256-${artifact.sha256}"`;
+  if (String(req.headers["if-none-match"] || "") === etag) {
+    res.writeHead(304, { ETag: etag, "Cache-Control": "private, max-age=31536000, immutable" });
+    res.end();
+    return;
+  }
+  const ifRange = String(req.headers["if-range"] || "");
+  const range = ifRange && ifRange !== etag ? null : parseSongCardRange(req.headers.range, artifact.size);
+  if (range?.invalid) {
+    res.writeHead(416, { "Content-Range": `bytes */${artifact.size}`, "Accept-Ranges": "bytes", ETag: etag });
+    res.end();
+    return;
+  }
+  const headers = {
+    "Content-Type": artifact.contentType,
+    "Accept-Ranges": "bytes",
+    "Cache-Control": "private, max-age=31536000, immutable",
+    "Content-Disposition": `inline; filename="${artifact.role === "master" ? "master.mp4" : artifact.role}"`,
+    ETag: etag,
+    "X-Hapa-Artifact-SHA256": artifact.sha256,
+  };
+  if (range) {
+    headers["Content-Length"] = range.end - range.start + 1;
+    headers["Content-Range"] = `bytes ${range.start}-${range.end}/${artifact.size}`;
+    res.writeHead(206, headers);
+  } else {
+    headers["Content-Length"] = artifact.size;
+    res.writeHead(200, headers);
+  }
+  if (req.method === "HEAD") {
+    res.end();
+    return;
+  }
+  const stream = artifact.openReadStream(range ? { start: range.start, end: range.end } : {});
+  stream.on("error", () => res.destroy());
+  stream.pipe(res);
 }
 
 async function ensureLocalHttpsCredentials() {
@@ -6268,7 +8702,7 @@ async function serveMedia(pathname, req, res) {
         "Accept-Ranges": "bytes",
         "Cache-Control": "public, max-age=31536000, immutable"
       });
-      createReadStream(filePath, { start: range.start, end: range.end }).pipe(res);
+      streamFileToResponse(req, res, filePath, { start: range.start, end: range.end });
       return true;
     }
     res.writeHead(200, {
@@ -6277,7 +8711,7 @@ async function serveMedia(pathname, req, res) {
       "Accept-Ranges": "bytes",
       "Cache-Control": "public, max-age=31536000, immutable"
     });
-    createReadStream(filePath).pipe(res);
+    streamFileToResponse(req, res, filePath);
     return true;
   } catch {
     return false;
@@ -6304,7 +8738,7 @@ async function serveLocalFile(filePath, req, res) {
         "Accept-Ranges": "bytes",
         "Cache-Control": "private, max-age=3600"
       });
-      createReadStream(safePath, { start: range.start, end: range.end }).pipe(res);
+      streamFileToResponse(req, res, safePath, { start: range.start, end: range.end });
       return true;
     }
     res.writeHead(200, {
@@ -6315,7 +8749,7 @@ async function serveLocalFile(filePath, req, res) {
       "Accept-Ranges": "bytes",
       "Cache-Control": "private, max-age=3600"
     });
-    createReadStream(safePath).pipe(res);
+    streamFileToResponse(req, res, safePath);
     return true;
   } catch {
     sendJson(res, 404, { error: "file_not_found" });
@@ -6335,7 +8769,7 @@ function parseRange(rangeHeader, size) {
   };
 }
 
-async function serveStatic(root, pathname, res) {
+async function serveStatic(root, pathname, req, res) {
   const safePath = pathname === "/" ? "/index.html" : pathname;
   let filePath = path.resolve(root, `.${safePath}`);
   if (!filePath.startsWith(root)) return false;
@@ -6351,7 +8785,7 @@ async function serveStatic(root, pathname, res) {
     const info = await stat(filePath);
     if (!info.isFile()) return false;
     res.writeHead(200, { "Content-Type": contentType(filePath) });
-    createReadStream(filePath).pipe(res);
+    streamFileToResponse(req, res, filePath);
     return true;
   } catch {
     return false;

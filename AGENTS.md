@@ -1,5 +1,7 @@
 # Hapa Avatar Builder Agent Guide
 
+Universal Hapa Card Plane v1 is released. Avatar/Item JSON stores remain authoring-owned here; origin events publish through the durable outbox, and acknowledged subscriber reads use Overwind Postgres with Redis/Elasticsearch serving projections.
+
 ## Node Role
 
 `hapa-avatar-builder` is the local-first React/Electron Avatar Card workbench. It owns Avatar Builder media cards, 3D Tarot Draw, scene/world attachments, Dear Papa song links, tarot/card attach packs, healing queues, the Hapa Music Video Director Agent (timeline matching/scaffolding plans), and subscriber packets for Hapa Atlas, Second Brain, wiki, song, and visualization nodes.
@@ -19,6 +21,7 @@
 - `cli/avatar-builder.mjs` owns scriptable avatar audits, attach packs, healing plans, and exports.
 - `data/` stores local runtime state. Large mutable stores and media are intentionally ignored by Git; see `data/README.md`.
 - `docs/CANONICAL_SOURCE_OF_TRUTH.md` records the Pinokio duplicate branch, canonical launcher, and historical session anchors.
+- `docs/OVERCARD.md` is the agent/operator map for the package-owned Hand, sixteen HostTargets, runtime boundaries, interfaces, and verification. Do not confuse this node with `hapa-avatar-dashboard` or move shared behavior out of `/Users/calderwong/Desktop/hapa-overcard`.
 
 ## Safe Edit Boundaries
 
@@ -32,12 +35,22 @@
 - Prefer repeatable scripts for data merges and audits. Record merge reports under `data/merge-reports/`.
 - Maintain UI/API/CLI parity when adding new cards, tarot, media, song, or world-store behavior.
 
+## Completion Commit Protocol
+
+- A source or documentation task is not complete until its scoped changes have passed the required verification and are recorded in a focused commit.
+- Before committing, inspect `git status` and the staged diff. Stage only intended source, documentation, tests, and approved fixtures; never sweep unrelated or pre-existing work into the commit.
+- Never commit credentials, runtime state, local databases or logs, generated media or build outputs, private source payloads, or workstation-specific paths.
+- Use a commit message that names the completed capability and verification. Preserve the repository's configured identity and never rewrite global Git identity.
+- A commit does not authorize a push, merge, deployment, or other external side effect. Those actions still require operator authorization.
+- If verification fails or a safe focused commit cannot be created, the task is not done: leave the affected work uncommitted and report the blocker explicitly.
+
 ## Verification
 
 ```bash
 npm test
 npm run build
 npm run smoke:tarot
+node --test tests/overcard-*.test.mjs
 ```
 
 For the 3D Tarot surface, also run the app and verify the `Tarot Draw` tab renders a nonblank canvas.

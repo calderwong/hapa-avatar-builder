@@ -1,0 +1,79 @@
+{
+  "schema": "hapa.overcard-node-adapter.v1",
+  "nodeId": "hapa-avatar-builder",
+  "packageVersion": "0.1.0",
+  "protocolVersions": ["hapa.overcard.v1"],
+  "schemaVersions": [
+    "hapa.entity-ref.v2",
+    "hapa.entity-collection.v2",
+    "hapa.placement.v2",
+    "hapa.attachment.v1",
+    "hapa.process-definition.v1",
+    "hapa.responsibility-binding.v2",
+    "hapa.formation.v2",
+    "hapa.runtime-context.v1",
+    "hapa.execution-event.v1",
+    "hapa.overcard-capabilities.v1",
+    "hapa.overcard-node-adapter.v1",
+    "hapa.overcard-event.v1"
+  ],
+  "hostMode": "loopback-client",
+  "requiredNodes": ["hapa-overcard"],
+  "optionalNodes": ["hapa-dev-proto"],
+  "entityResolvers": [
+    {
+      "id": "builder-compact-catalog",
+      "sourceSystem": "hapa-avatar-builder",
+      "entityTypes": ["avatar", "card", "deck", "set", "node", "tool", "scene", "song"],
+      "transport": "http",
+      "uri": "/api/overcard/catalog"
+    }
+  ],
+  "renderers": [
+    { "id": "avatar-builder-native-entity", "entityTypes": ["avatar", "card", "deck", "set", "node", "tool", "scene", "song"] },
+    { "id": "avatar-builder-avatar", "entityTypes": ["avatar"] },
+    { "id": "builder-item-card", "entityTypes": ["card", "node", "tool"] },
+    { "id": "builder-tarot-card", "entityTypes": ["card"] },
+    { "id": "builder-tarot-deck", "entityTypes": ["deck"] },
+    { "id": "builder-tarot-set", "entityTypes": ["set"] },
+    { "id": "builder-scene-card", "entityTypes": ["scene"] },
+    { "id": "builder-song-card", "entityTypes": ["song"] }
+  ],
+  "hostTargets": [],
+  "processAdapters": [
+    { "processId": "scenes", "adapterId": "builder-scenes-author", "uri": "/api/overcard/process-adapters/builder-scenes-author/run-context" },
+    { "processId": "items", "adapterId": "builder-item-manager", "uri": "/api/overcard/process-adapters/builder-item-manager/run-context" },
+    { "processId": "loops", "adapterId": "builder-loop-router", "uri": "/api/overcard/process-adapters/builder-loop-router/run-context" },
+    { "processId": "songs-director", "adapterId": "builder-songs-director", "uri": "/api/overcard/process-adapters/builder-songs-director/run-context" },
+    { "processId": "echos-director", "adapterId": "builder-echos-director", "uri": "/api/overcard/process-adapters/builder-echos-director/run-context" },
+    { "processId": "tarot-draw", "adapterId": "builder-tarot-draw", "uri": "/api/overcard/process-adapters/builder-tarot-draw/run-context" },
+    { "processId": "tarot-forge", "adapterId": "builder-tarot-forge", "uri": "/api/overcard/process-adapters/builder-tarot-forge/run-context" },
+    { "processId": "creator-set-assembly", "adapterId": "builder-creator-set-assembly", "uri": "/api/overcard/process-adapters/builder-creator-set-assembly/run-context" },
+    { "processId": "hell-week", "adapterId": "builder-hell-week-remote", "uri": "/api/overcard/process-adapters/builder-hell-week-remote/run-context" },
+    { "processId": "kanban-actions", "adapterId": "builder-kanban-actions-remote", "uri": "/api/overcard/process-adapters/builder-kanban-actions-remote/run-context" },
+    { "processId": "bank-context", "adapterId": "builder-bank-embed", "uri": "/api/overcard/process-adapters/builder-bank-embed/run-context" }
+  ],
+  "conformanceCommands": ["npm run build", "npm test", "node --test tests/overcard-*.test.mjs"],
+  "discovery": {
+    "http": { "capabilitiesUri": "/api/overcard/capabilities", "healthUri": "/api/health" },
+    "electron": { "capabilitiesChannel": "hapa-overcard:capabilities", "healthChannel": "hapa-overcard:health" },
+    "p2p": { "topic": "hapa-overcard:hapa-avatar-builder", "envelopeKey": "capabilities" },
+    "ui": { "readinessId": "hapa-avatar-builder-overcard-root" }
+  },
+  "capabilities": {
+    "schema": "hapa.overcard-capabilities.v1",
+    "protocol": "hapa.overcard.v1",
+    "packageVersion": "0.1.0",
+    "nodeId": "hapa-avatar-builder",
+    "installed": true,
+    "running": false,
+    "trusted": false,
+    "compatible": true,
+    "authorized": false,
+    "schemas": ["hapa.overcard-capabilities.v1", "hapa.overcard-node-adapter.v1"],
+    "renderers": ["avatar-builder-native-entity", "avatar-builder-avatar", "builder-item-card", "builder-tarot-card", "builder-tarot-deck", "builder-tarot-set", "builder-scene-card", "builder-song-card"],
+    "hostTargets": [],
+    "processes": ["scenes", "items", "loops", "songs-director", "echos-director", "tarot-draw", "tarot-forge", "creator-set-assembly", "hell-week", "kanban-actions", "bank-context"],
+    "reasons": ["Static adapter discovery grants neither trust nor authorization."]
+  }
+}

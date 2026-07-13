@@ -3,6 +3,9 @@ set -euo pipefail
 
 APP_ROOT="${HAPA_AVATAR_BUILDER_ROOT:-/Users/calderwong/Desktop/hapa-avatar-builder}"
 APP_ROOT="$(cd "$APP_ROOT" && pwd -P)"
+EXPECTED_BUILD_SIGNATURE="$(/usr/bin/python3 -c 'import hashlib, pathlib, sys; h=hashlib.sha256(); [h.update(pathlib.Path(p).read_bytes()) for p in sys.argv[1:]]; print(h.hexdigest()[:16])' "$APP_ROOT/server/api.mjs" "$APP_ROOT/server/file-serving.mjs")"
+CANONICAL_LAUNCHD_LABEL="com.hapa.avatarbuilder.8797.codex"
+CANONICAL_PORT="8797"
 LOG_DIR="$APP_ROOT/logs"
 LOG_FILE="$LOG_DIR/desktop-dedicated-launcher.log"
 mkdir -p "$LOG_DIR"
@@ -21,12 +24,37 @@ is_hapa_html() {
 
 is_hapa_api() {
   local port="$1"
-  curl -fsS --max-time 1 "http://127.0.0.1:${port}/api/health" 2>/dev/null | grep -q '"service":"hapa-avatar-builder"'
+  local expected_owner="${2:-}"
+  curl -fsS --max-time 1 "http://127.0.0.1:${port}/api/health" 2>/dev/null | /usr/bin/python3 -c '
+import json, sys
+payload = json.load(sys.stdin)
+expected_signature = sys.argv[1]
+expected_owner = sys.argv[2]
+runtime = payload.get("runtime") or {}
+ok = payload.get("service") == "hapa-avatar-builder" and runtime.get("buildSignature") == expected_signature
+if expected_owner:
+    ok = ok and runtime.get("processOwner") == expected_owner
+raise SystemExit(0 if ok else 1)
+' "$EXPECTED_BUILD_SIGNATURE" "$expected_owner"
 }
 
 is_hapa_endpoint() {
   local port="$1"
-  is_hapa_html "$port" && is_hapa_api "$port"
+  local expected_owner="${2:-}"
+  is_hapa_html "$port" && is_hapa_api "$port" "$expected_owner"
+}
+
+launchd_target() {
+  echo "gui/$(id -u)/${CANONICAL_LAUNCHD_LABEL}"
+}
+
+canonical_launchd_registered() {
+  launchctl print "$(launchd_target)" >/dev/null 2>&1
+}
+
+restart_canonical_launchd() {
+  echo "[$(timestamp)] Restarting canonical launchd-owned Avatar Builder API"
+  launchctl kickstart -k "$(launchd_target)"
 }
 
 is_listening() {
@@ -100,7 +128,7 @@ close_existing_desktops
 echo "[$(timestamp)] Building production UI"
 npm run build
 
-port_candidates=(8797 8794 8795 8796 8798 8799)
+port_candidates=(8797 8795 8796 8798 8799)
 if [ -n "${HAPA_AVATAR_DEDICATED_PORT:-}" ]; then
   port_candidates=("$HAPA_AVATAR_DEDICATED_PORT" "${port_candidates[@]}")
 fi
@@ -109,19 +137,41 @@ selected_port=""
 reuse_existing="0"
 reuse_desktop_server="${HAPA_AVATAR_REUSE_DESKTOP_SERVER:-0}"
 
-for port in "${port_candidates[@]}"; do
-  if is_hapa_endpoint "$port"; then
-    selected_port="$port"
-    if [ "$reuse_desktop_server" = "1" ]; then
-      reuse_existing="1"
-    else
-      echo "[$(timestamp)] Rebuilding against existing Hapa UI port $port; restarting server so API routes match the new build"
-      stop_listeners_on_port "$port"
-      reuse_existing="0"
-    fi
-    break
+if canonical_launchd_registered; then
+  if ! is_hapa_endpoint "$CANONICAL_PORT" "launchd-canonical"; then
+    restart_canonical_launchd
+    for _ in {1..80}; do
+      if is_hapa_endpoint "$CANONICAL_PORT" "launchd-canonical"; then
+        break
+      fi
+      sleep 0.25
+    done
   fi
-done
+  if is_hapa_endpoint "$CANONICAL_PORT" "launchd-canonical"; then
+    selected_port="$CANONICAL_PORT"
+    reuse_existing="1"
+    echo "[$(timestamp)] Canonical launchd API matches build $EXPECTED_BUILD_SIGNATURE"
+  else
+    echo "[$(timestamp)] ERROR: canonical launchd API did not become ready with build $EXPECTED_BUILD_SIGNATURE"
+    exit 1
+  fi
+fi
+
+if [ -z "$selected_port" ]; then
+  for port in "${port_candidates[@]}"; do
+    if is_hapa_endpoint "$port"; then
+      selected_port="$port"
+      if [ "$reuse_desktop_server" = "1" ]; then
+        reuse_existing="1"
+      else
+        echo "[$(timestamp)] Rebuilding against existing Hapa UI port $port; restarting server so API routes match the new build"
+        stop_listeners_on_port "$port"
+        reuse_existing="0"
+      fi
+      break
+    fi
+  done
+fi
 
 if [ -z "$selected_port" ]; then
   for port in "${port_candidates[@]}"; do
@@ -138,7 +188,7 @@ if [ -z "$selected_port" ]; then
 fi
 
 desktop_url="http://127.0.0.1:${selected_port}"
-bind_host="${HAPA_AVATAR_BIND_HOST:-0.0.0.0}"
+bind_host="${HAPA_AVATAR_BIND_HOST:-127.0.0.1}"
 https_port="${HAPA_AVATAR_HTTPS_PORT:-$((selected_port + 1))}"
 
 if [ "$reuse_existing" = "1" ]; then
@@ -147,7 +197,7 @@ else
   server_log="$LOG_DIR/desktop-static-${selected_port}.log"
   pid_file="$LOG_DIR/desktop-static-${selected_port}.pid"
   echo "[$(timestamp)] Starting dedicated static API/UI server on $desktop_url (bind $bind_host, phone https $https_port)"
-  HAPA_AVATAR_PUBLIC_PORT="$selected_port" HAPA_AVATAR_PUBLIC_HTTPS_PORT="$https_port" node "$APP_ROOT/server/api.mjs" --host "$bind_host" --port "$selected_port" --https-port "$https_port" --static "$APP_ROOT/dist" >> "$server_log" 2>&1 &
+  HAPA_AVATAR_PROCESS_OWNER="dedicated-launcher-fallback" HAPA_AVATAR_PUBLIC_PORT="$selected_port" HAPA_AVATAR_PUBLIC_HTTPS_PORT="$https_port" node "$APP_ROOT/server/api.mjs" --host "$bind_host" --port "$selected_port" --https-port "$https_port" --static "$APP_ROOT/dist" >> "$server_log" 2>&1 &
   server_pid="$!"
   echo "$server_pid" > "$pid_file"
 

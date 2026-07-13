@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "hapa.echo.director-plan.v2",
+  "title": "Echo Director Plan v2 over Native Show Graph v2",
+  "type": "object",
+  "required": ["schemaVersion", "tracks", "directorV2", "truth"],
+  "properties": {
+    "schemaVersion": { "const": "hapa.music-viz.native-show-graph.v2" },
+    "tracks": { "type": "array", "minItems": 3 },
+    "truth": { "type": "object" },
+    "directorV2": {
+      "type": "object",
+      "required": ["schemaVersion", "source", "cueGraph", "rankedMediaCandidates", "visualizerLayers", "stemBuses", "cameraKeyframes", "timeModulation", "effects", "provenance", "rendererSupport", "patchLineage", "modulationBindings", "locks"],
+      "properties": {
+        "schemaVersion": { "const": "hapa.echo.director-plan.v2" },
+        "source": { "type": "object", "required": ["compilerVersion", "sourceProjectHash", "inputHashes"] },
+        "cueGraph": { "type": "object", "required": ["id", "sections", "editCues", "timingTruth"] },
+        "rankedMediaCandidates": { "type": "array" },
+        "visualizerLayers": { "type": "array" },
+        "stemBuses": { "type": "array" },
+        "cameraKeyframes": { "type": "array" },
+        "timeModulation": { "type": "array" },
+        "effects": { "type": "array" },
+        "provenance": { "type": "object" },
+        "rendererSupport": { "type": "object" },
+        "patchLineage": { "type": "object" },
+        "modulationBindings": { "type": "array" },
+        "locks": { "type": "array" }
+      },
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": true
+}

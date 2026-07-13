@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "hapa.visualizer-card.v2",
+  "type": "object",
+  "required": ["schemaVersion", "id", "title", "source", "rendererSupport", "inputs", "controls", "audioMap", "stemFocus", "audioSignal", "layer", "automation", "provenance"],
+  "properties": {
+    "schemaVersion": { "const": "hapa.visualizer-card.v2" },
+    "id": { "type": "string", "minLength": 1 },
+    "source": { "type": "object", "required": ["uri", "hash", "truthStatus"] },
+    "rendererSupport": { "type": "object" },
+    "inputs": { "type": "array" },
+    "controls": { "type": "object" },
+    "audioMap": { "type": "object" },
+    "stemFocus": { "type": "string" },
+    "audioSignal": { "type": "array" },
+    "layer": {
+      "type": "object",
+      "required": ["role", "opacity", "blend", "target", "mix"]
+    },
+    "automation": { "type": "array" },
+    "provenance": { "type": "object" }
+  },
+  "additionalProperties": true
+}

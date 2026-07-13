@@ -5,6 +5,7 @@ export const HAPA_SONG_CARD_VERSION = "hapa.song-card.v1";
 export const HAPA_SONG_COMMENT_VERSION = "hapa.song-comment.v1";
 export const HAPA_SONG_MEDIA_VERSION = "hapa.song-media-link.v1";
 export const HAPA_SONG_VISUALIZER_LINK_VERSION = "hapa.song-visualizer-link.v1";
+export const HAPA_SONG_MINT_PROJECTION_VERSION = "hapa.song-card.mint-projection.v1";
 
 export const DEAR_PAPA_ALBUM_ID = "dear-papa-album";
 export const DEAR_PAPA_ALBUM_TITLE = "Dear Papa";
@@ -195,8 +196,26 @@ export function normalizeHapaSong(existing = {}, sourceCard = {}, registryTrack 
     tags,
     attribution: normalizeSongAttribution(existing.attribution || {}, sourceCard, registryTrack),
     lineage: normalizeSongLineage(existing.lineage || {}, sourceCard, registryTrack),
+    songCardMint: normalizeSongCardMintProjection(existing.songCardMint || existing.mintHead || existing.mint || null, songId),
     createdAt: existing.createdAt || sourceCard.createdAt || now,
     updatedAt: existing.updatedAt || sourceCard.updatedAt || now
+  };
+}
+
+function normalizeSongCardMintProjection(input = null, songId = "") {
+  if (!input || typeof input !== "object" || Array.isArray(input)) return null;
+  const projection = structuredClone(input);
+  return {
+    ...projection,
+    schemaVersion: projection.schemaVersion || HAPA_SONG_MINT_PROJECTION_VERSION,
+    headId: projection.headId || projection.id || (songId ? `song-card:${songId}` : ""),
+    latestEdition: Math.max(0, Number(projection.latestEdition || projection.edition || 0)),
+    editionCount: Math.max(0, Number(projection.editionCount ?? projection.latestEdition ?? projection.edition ?? 0)),
+    generation: Math.max(0, Number(projection.generation ?? projection.latestEdition ?? projection.edition ?? 0)),
+    latestEditionId: projection.latestEditionId || projection.editionId || "",
+    semanticFingerprint: projection.semanticFingerprint || projection.fingerprint || "",
+    publishStatus: projection.publishStatus || projection.status || "unminted",
+    editionsHref: projection.editionsHref || (songId ? `/api/song-cards/${encodeURIComponent(songId)}/editions` : "")
   };
 }
 

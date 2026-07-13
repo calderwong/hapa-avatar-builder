@@ -105,10 +105,111 @@ test("Echo gaps report builder does not mutate source stores", () => {
     songbook: { songCards: [{ id: "song-1", title: "Untouched" }] },
     itemStore: { cards: [{ id: "avatar-1", mediaAssets: [placeholderVideoAsset()] }] },
     sceneStore: { scenes: [{ id: "scene-1", assets: [] }] },
+    mediaLibrary: { records: [{ id: "system-1", mediaType: "video", tags: ["scroll-site"] }] },
   };
   const before = JSON.parse(JSON.stringify(fixture));
   buildEchoGapsReport(fixture);
   assert.deepEqual(fixture, before);
+});
+
+test("Echo gaps report discovers eligible Scroll Site and FAL system media", () => {
+  const mediaLibrary = {
+    records: [
+      {
+        id: "scroll-main",
+        name: "Scroll main.mp4",
+        mediaType: "video",
+        uri: "/media/scroll-main.mp4",
+        thumbnailUri: "/media/scroll-main.jpg",
+        contentFingerprint: "a".repeat(64),
+        duration: 8.5,
+        tags: ["scroll-site", "progression"],
+      },
+      {
+        id: "scroll-fal",
+        name: "FAL cinematic.mp4",
+        mediaType: "video",
+        uri: "/media/scroll-fal.mp4",
+        contentHash: { algorithm: "sha256", value: "b".repeat(64) },
+        tags: ["scroll-fal", "loop"],
+        asset: { metadata: { flowType: "loop" } },
+      },
+      { id: "other-video", mediaType: "video", tags: ["folder-ingest"] },
+      { id: "scroll-image", mediaType: "image", tags: ["scroll-site"] },
+    ],
+  };
+
+  const report = buildEchoGapsReport({ mediaLibrary });
+
+  assert.equal(report.summary.systemMediaVideos, 2);
+  assert.deepEqual(report.videos.map((video) => video.id), ["scroll-main", "scroll-fal"]);
+  assert.ok(report.videos.every((video) => video.source === "system_media"));
+  assert.equal(report.videos[0].duration, 8.5);
+  assert.equal(report.videos[1].flowType, "loop");
+});
+
+test("Echo gaps report deduplicates system media against Cards, Scenes, and prior system hashes", () => {
+  const duplicateHash = "c".repeat(64);
+  const systemOnlyHash = "d".repeat(64);
+  const report = buildEchoGapsReport({
+    itemStore: {
+      cards: [{
+        id: "avatar-1",
+        mediaAssets: [{ id: "attached", type: "video", contentHash: `sha256:${duplicateHash}`, uri: "/media/attached.mp4" }],
+      }],
+    },
+    sceneStore: { scenes: [] },
+    mediaLibrary: {
+      records: [
+        { id: "duplicate-attached", mediaType: "video", contentFingerprint: duplicateHash, tags: ["scroll-site"] },
+        { id: "system-first", mediaType: "video", contentFingerprint: systemOnlyHash, tags: ["scroll-fal"] },
+        { id: "system-second", mediaType: "video", sha256: systemOnlyHash, tags: ["scroll-site"] },
+      ],
+    },
+  });
+
+  assert.equal(report.summary.avatarCardVideos, 1);
+  assert.equal(report.summary.systemMediaVideos, 1);
+  assert.deepEqual(report.videos.map((video) => video.id), ["attached", "system-first"]);
+});
+
+test("Echo truth gate quarantines the newer unproven 120 BPM half-second grid", () => {
+  const songbook = {
+    songCards: [{
+      id: "song-half-second-grid",
+      title: "Generated 120 BPM",
+      sections: [{ section_id: "intro", start_sec: 0, end_sec: 12 }],
+      beats: Array.from({ length: 240 }, (_, index) => ({
+        t: index * 0.5,
+        bar: Math.floor(index / 4) + 1,
+        beat: (index % 4) + 1,
+      })),
+      sync: { stemCount: 12 },
+      sourceAnchors: [{ kind: "suno-playlist-track", confidence: "hard" }],
+    }],
+  };
+  const report = buildEchoGapsReport({ songbook, itemStore: { cards: [] }, sceneStore: { scenes: [] } });
+  assert.equal(report.songs[0].truth.beats, ECHO_TRUTH_STATUS.GENERATED_PLACEHOLDER);
+  assert.ok(report.songs[0].placeholderSignals.includes("unproven-uniform-0.5s-beat-grid"));
+});
+
+test("Echo truth gate accepts a uniform beat grid when measured telemetry provenance exists", () => {
+  const songbook = {
+    songCards: [{
+      id: "song-measured-grid",
+      title: "Measured 120 BPM",
+      sections: [{ section_id: "intro", start_sec: 0, end_sec: 12 }],
+      beats: Array.from({ length: 32 }, (_, index) => ({
+        t: index * 0.5,
+        bar: Math.floor(index / 4) + 1,
+        beat: (index % 4) + 1,
+      })),
+      sync: { stemCount: 12, audioTelemetryPath: "/verified/telemetry.json" },
+    }],
+  };
+  const report = buildEchoGapsReport({ songbook, itemStore: { cards: [] }, sceneStore: { scenes: [] } });
+  assert.equal(report.songs[0].truth.beats, ECHO_TRUTH_STATUS.VERIFIED);
+  assert.ok(!report.songs[0].placeholderSignals.includes("unproven-uniform-0.5s-beat-grid"));
 });
 
 test("technical media affordance truth overrides placeholder field scoring", () => {

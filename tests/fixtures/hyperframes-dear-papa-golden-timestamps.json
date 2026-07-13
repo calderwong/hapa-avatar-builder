@@ -1,0 +1,25 @@
+{
+  "schemaVersion": "hapa.hyperframes.pixel-golden-timestamps.v1",
+  "show": "Dear Papa",
+  "sourceGraph": "work/dear-papa-stem-telemetry/native-show-graph.json",
+  "samples": [
+    {
+      "timestamp": 11.5,
+      "cueId": "card:b:0",
+      "visualizerId": "isf:60bb8af1df59c70014cdc6cd",
+      "stemFocus": "synth"
+    },
+    {
+      "timestamp": 35,
+      "cueId": "card:b:1",
+      "visualizerId": "isf:5e7a803b7c113618206ded55",
+      "stemFocus": "leadVocals"
+    },
+    {
+      "timestamp": 53.5,
+      "cueId": "card:b:2",
+      "visualizerId": "isf:5ec156239a2c7b001769385f",
+      "stemFocus": "leadVocals"
+    }
+  ]
+}

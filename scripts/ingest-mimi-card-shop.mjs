@@ -709,11 +709,6 @@ async function appendSubscriberEvent(action, payload = {}) {
     }
   };
   await appendFile(path.join(SUBSCRIBER_DIR, "events.ndjson"), `${JSON.stringify(event)}\n`, "utf8");
-  await Promise.all(SUBSCRIBERS.map((subscriber) => appendFile(
-    path.join(SUBSCRIBER_DIR, `${subscriber}.ndjson`),
-    `${JSON.stringify({ ...event, subscriber, status: "queued" })}\n`,
-    "utf8"
-  )));
   await writeFile(path.join(SUBSCRIBER_DIR, "latest.json"), `${JSON.stringify(event, null, 2)}\n`, "utf8");
   await writeFile(path.join(SUBSCRIBER_DIR, "latest-summary.json"), `${JSON.stringify({
     schemaVersion: "hapa.subscriber-summary.v1",

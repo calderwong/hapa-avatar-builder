@@ -153,6 +153,8 @@ export function normalizeItemCard(card = {}) {
     creatorProfile: card.creatorProfile || {},
     sponsorProfile: card.sponsorProfile || {},
     references: card.references || [],
+    videoUri: card.videoUri || "",
+    videoSources: card.videoSources || [],
     createdAt: card.createdAt || card.created_at || now,
     updatedAt: card.updatedAt || card.updated_at || now
   };
@@ -403,7 +405,9 @@ function normalizeConnections(connections = {}) {
     volumeIds: normalizeStringList(connections.volumeIds || connections.volume_ids),
     itemIds: normalizeStringList(connections.itemIds || connections.item_ids),
     nodeIds: normalizeStringList(connections.nodeIds || connections.node_ids),
-    shipIds: normalizeStringList(connections.shipIds || connections.ship_ids)
+    shipIds: normalizeStringList(connections.shipIds || connections.ship_ids),
+    creatorCardId: connections.creatorCardId || connections.creator_card_id || "",
+    sponsorCardIds: normalizeStringList(connections.sponsorCardIds || connections.sponsor_card_ids)
   };
 }
 

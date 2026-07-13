@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import dearPapaSongbook from "../data/dear-papa-songbook.json" with { type: "json" };
 import {
   HAPA_SONG_STORE_VERSION,
+  HAPA_SONG_MINT_PROJECTION_VERSION,
   addSongStoryBeat,
   attachAvatarToSong,
   attachCardToSong,
@@ -86,4 +87,28 @@ test("song normalization preserves exact lyric timing sidecar word data", () => 
   assert.equal(song.lyricTimings[0].confidence, 0.91);
   assert.deepEqual(song.lyricTimings[0].words.map((word) => word.word), ["hold", "the", "line"]);
   assert.equal(song.lyricTimings[0].words[0].start, 1.234);
+});
+
+test("song normalization preserves the separate immutable mint-head projection without absorbing edition custody", () => {
+  const song = normalizeHapaSong({
+    id: "minted-song",
+    songId: "minted-song",
+    title: "Minted Song",
+    songCardMint: {
+      headId: "song-card:minted-song",
+      latestEdition: 2,
+      latestEditionId: "song-card:minted-song:edition:2",
+      semanticFingerprint: "sha256:edition-two",
+      publishStatus: "private-demo",
+      migrationReceipts: [{ from: "hapa.song-card.v1", status: "compatible" }],
+      futureCompatibleField: { retained: true }
+    }
+  });
+
+  assert.equal(song.songCardMint.schemaVersion, HAPA_SONG_MINT_PROJECTION_VERSION);
+  assert.equal(song.songCardMint.latestEdition, 2);
+  assert.equal(song.songCardMint.editionCount, 2);
+  assert.equal(song.songCardMint.futureCompatibleField.retained, true);
+  assert.deepEqual(song.songCardMint.migrationReceipts, [{ from: "hapa.song-card.v1", status: "compatible" }]);
+  assert.equal(Object.hasOwn(song.songCardMint, "editions"), false, "immutable edition bodies stay in the mint ledger");
 });

@@ -8,7 +8,6 @@ const RUN_ID = new Date().toISOString().replace(/[:.]/g, "-");
 const GENERATED_AT = new Date().toISOString();
 const args = new Set(process.argv.slice(2));
 const APPLY_MUTATIONS = args.has("--apply") || process.env.HAPA_ECHOS_APPLY === "1";
-const MIN_EXACT_TIMING_COVERAGE = 0.9;
 
 if (APPLY_MUTATIONS && fs.existsSync(PROJECTS_DIR)) {
   const backupDir = path.join(DATA_DIR, "backups", `music-video-projects-${RUN_ID}`);
@@ -87,7 +86,9 @@ let shaders = [];
 if (fs.existsSync(manifestPath)) {
   try {
     const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf-8"));
-    shaders = manifest.shaders || [];
+    shaders = (manifest.shaders || []).filter((shader) => (
+      shader?.enabled !== false && shader?.directorEligible !== false && shader?.id && shader?.source
+    ));
   } catch (e) {
     console.warn("Failed to load visualizer manifest:", e);
   }
@@ -353,6 +354,17 @@ function timedLyricsLastEnd(timedLyrics = []) {
 }
 
 function exactTimingRejectReason(timedLyrics = [], duration = 0, songMetadata = null, song = null) {
+  const timingPath = String(
+    songMetadata?.lyricTimingPath
+    || songMetadata?.lyricTimingSource?.path
+    || ""
+  ).trim();
+  if (!timingPath) {
+    return {
+      reason: "missing-timing-source-path",
+      timingPath: ""
+    };
+  }
   const expectedRegistryTrackId = String(
     songMetadata?.registryTrackId
     || song?.registryTrackId
@@ -380,14 +392,11 @@ function exactTimingRejectReason(timedLyrics = [], duration = 0, songMetadata = 
     };
   }
   const lastEnd = timedLyricsLastEnd(timedLyrics);
-  const coverage = duration > 0 ? lastEnd / duration : 1;
-  if (duration > 0 && coverage < MIN_EXACT_TIMING_COVERAGE) {
+  if (duration > 0 && lastEnd > duration + .25) {
     return {
-      reason: "partial-exact-timing-coverage",
-      coverage: Number(coverage.toFixed(3)),
+      reason: "timing-outside-song-duration",
       lastLyricEnd: Number(lastEnd.toFixed(3)),
       duration: Number(duration.toFixed(3)),
-      minimumCoverage: MIN_EXACT_TIMING_COVERAGE,
       expectedRegistryTrackId,
       timingRegistryTrackId,
       timingPath: songMetadata?.lyricTimingPath || songMetadata?.lyricTimingSource?.path || ""
@@ -758,17 +767,17 @@ function generateHyperframesScript(songId, songTitle, duration, timeline, visual
   html += `     data-height="1080"\n`;
   html += `     data-duration="${duration}"\n`;
   html += `     style="width: 1920px; height: 1080px; position: relative; background: #020617; overflow: hidden;">\n\n`;
-  
+
   html += `  <!-- Canonical Audio Track -->\n`;
   html += `  <audio src="/api/song-registry/audio/${encodeURIComponent(audioId)}"\n`;
   html += `         data-start="0"\n`;
   html += `         data-volume="1.0"></audio>\n\n`;
-  
+
   html += `  <!-- Embed Lyric Timings -->\n`;
   html += `  <script>\n`;
   html += `    window.HAPA_LYRIC_TIMING = ${JSON.stringify({ lines: timedLyrics }, null, 2).split("\n").join("\n    ")};\n`;
   html += `  </script>\n\n`;
-  
+
   html += `  <!-- Directed Shot Timeline -->\n`;
   timeline.forEach((shot, idx) => {
     const isVideo = shot.media_id !== "none";
@@ -805,7 +814,7 @@ function generateHyperframesScript(songId, songTitle, duration, timeline, visual
     html += `       data-shader-id="${vis.visualizer_id}"\n`;
     html += `       style="width: 100%; height: 100%; position: absolute; top: 0; left: 0; pointer-events: none; z-index: 2;"></div>\n`;
   });
-  
+
   html += `\n  <!-- Lyric Typography Layer -->\n`;
   html += `  <div class="hapa-lyric-layer"\n`;
   html += `       data-composition-id="hapa-lyric-layer"\n`;
@@ -815,13 +824,104 @@ function generateHyperframesScript(songId, songTitle, duration, timeline, visual
   html += `       data-position="${lyricPosition}"\n`;
   html += `       data-style="${lyricStyle}"\n`;
   html += `       style="position: absolute; bottom: 80px; width: 100%; text-align: center; z-index: 10;"></div>\n`;
-  
+
   html += `</div>\n`;
   return html;
 }
 
 const songCards = songbook.songCards || [];
-const videos = gapsReport.videos || [];
+let dbVideos = [];
+try {
+  const { DatabaseSync } = await import("node:sqlite");
+  const dbPath = "/Users/calderwong/Library/Application Support/hapa-ag/persistence.db";
+  if (fs.existsSync(dbPath)) {
+    const db = new DatabaseSync(dbPath);
+    const rows = db.prepare("SELECT id, name, parent_id, metadata_json FROM cards WHERE metadata_json LIKE '%representativeMediaLocalPath%'").all();
+    for (const row of rows) {
+      try {
+        let current = row;
+        let visited = new Set([current.id]);
+        let hasValidParent = true;
+        while (current.parent_id && current.parent_id !== "0" && current.parent_id !== "1" && !visited.has(current.parent_id)) {
+          const parentRow = db.prepare("SELECT id, name, parent_id, metadata_json FROM cards WHERE id = ? AND is_deleted = 0").get(current.parent_id);
+          if (parentRow) {
+            visited.add(parentRow.id);
+            current = parentRow;
+          } else {
+            hasValidParent = false;
+            break;
+          }
+        }
+        if (!hasValidParent) {
+          continue;
+        }
+
+        const meta = JSON.parse(row.metadata_json);
+        const videoPath = meta.representativeMediaLocalPath;
+        if (videoPath && fs.existsSync(videoPath)) {
+          let hashSum = 0;
+          for (let i = 0; i < row.id.length; i++) {
+            hashSum += row.id.charCodeAt(i);
+          }
+          const teamPool = hashSum % 3;
+          let tags = ["hapa-dev-proto-card", "video"];
+          let colorPalette = [];
+
+          if (teamPool === 0) {
+            tags.push("cyber-operator", "simulation-framework");
+            colorPalette.push("#ff0055", "#990000");
+          } else if (teamPool === 1) {
+            tags.push("digital-isolation", "glitch-lines");
+            colorPalette.push("#0055ff", "#002266");
+          } else {
+            tags.push("camera-push-in", "browser-playback");
+            colorPalette.push("#10b981", "#06b6d4");
+          }
+
+          dbVideos.push({
+            id: row.id,
+            title: row.name || meta.name || row.id,
+            source: "hapa_dev_proto_card",
+            sourceId: row.id,
+            uri: `/api/local-file?path=${encodeURIComponent(videoPath)}`,
+            thumbnailUri: meta.thumbnail || "",
+            duration: meta.duration || 6.0,
+            tags: tags,
+            colorPalette: colorPalette,
+            truthStatus: "generated_placeholder",
+            truth: {
+              mediaPath: "verified_local_file",
+              duration: meta.duration ? "source_declared" : "generated_default",
+              tags: "generated_placeholder",
+              colorPalette: "generated_placeholder",
+              flowType: "generated_placeholder"
+            },
+            classificationSource: "deterministic-card-id-placeholder",
+            flowType: "loop"
+          });
+        }
+      } catch (e) {
+        // ignore individual issues
+      }
+    }
+    console.log(`Successfully loaded ${dbVideos.length} custom video cards from persistence.db`);
+  }
+} catch (e) {
+  console.warn("Failed to load node:sqlite or query persistence.db:", e);
+}
+
+function isPlayableDirectorCandidate(video) {
+  const tags = new Set((video?.tags || []).map((tag) => String(tag).toLowerCase()));
+  if (!String(video?.uri || "").trim()) return false;
+  if (tags.has("media-file-invalid") || tags.has("technical-ffprobe-failed") || tags.has("missing-source-file")) return false;
+  return Number(video?.duration || 0) > 0;
+}
+
+const rejectedUnplayableVideos = [...(gapsReport.videos || []), ...dbVideos].filter((video) => !isPlayableDirectorCandidate(video));
+const videos = [...(gapsReport.videos || []), ...dbVideos].filter(isPlayableDirectorCandidate);
+if (rejectedUnplayableVideos.length) {
+  console.warn(`Excluded ${rejectedUnplayableVideos.length} unplayable media candidates before director selection.`);
+}
 const plannedOutputs = [];
 
 console.log(`Compiling music video plans for ${songCards.length} songs in ${APPLY_MUTATIONS ? "apply" : "dry-run"} mode...`);
@@ -843,20 +943,9 @@ songCards.forEach((song, idx) => {
   const sections = songEditMap.sections;
   const timedLyrics = songEditMap.timedLyrics;
 
-  // Filter video assets matching perspective
-  let candidateVideos = videos.filter(v => {
-    if (perspective === "red") {
-      return v.tags && (v.tags.includes("cyber-operator") || v.tags.includes("simulation-framework") || v.colorPalette?.some(c => c.startsWith("#f") || c.startsWith("#9")));
-    } else if (perspective === "blue") {
-      return v.tags && (v.tags.includes("digital-isolation") || v.tags.includes("glitch-lines") || v.colorPalette?.some(c => c.startsWith("#0") || c.startsWith("#3") || c.startsWith("#6")));
-    } else { // green
-      return v.tags && (v.tags.includes("camera-push-in") || v.tags.includes("browser-playback") || v.colorPalette?.some(c => c.startsWith("#1") || c.startsWith("#e")));
-    }
-  });
-
-  if (candidateVideos.length === 0) {
-    candidateVideos = videos;
-  }
+  // Current tags/colors are generated placeholders, so they are not semantic evidence.
+  // Keep the full playable pool and mark the semantic dimension unmeasured.
+  const candidateVideos = videos;
 
   const canonAffordanceGraph = buildCanonAffordanceGraph(song, songMetadata, songEditMap, candidateVideos);
   const localSpine = song.narrativeSpine
@@ -875,14 +964,20 @@ songCards.forEach((song, idx) => {
     let shotIdx = 0;
 
     while (secTime < secEnd) {
-      const secHash = hash + secIdx + shotIdx;
+      const secHash = getSimpleHash(`${songId}_${secIdx}_${shotIdx}`);
       let remainingTime = Number((secEnd - secTime).toFixed(1));
       if (remainingTime < 0.1) break;
 
       // 75% video, 25% pure visualizer
       const isPureVisualizer = (secHash % 4 === 0) && sec.type !== "intro" && sec.type !== "outro";
 
-      let durationSelected = 4.0 + (secHash % 5); // 4s to 8s
+      // Modulate shot duration based on section energy to pick more videos and vary pacing
+      const energyFactor = sec.energy || 0.5;
+      const baseMin = 2.0 + (1.0 - energyFactor) * 3.5; // 2.0s (high energy) to 5.5s (low energy)
+      const baseMax = 3.5 + (1.0 - energyFactor) * 5.0; // 3.5s (high energy) to 8.5s (low energy)
+      const range = baseMax - baseMin;
+      let durationSelected = baseMin + ((secHash % 100) / 100) * range;
+
       let mediaId = "none";
       let mediaTitle = "Visualizer Only";
       let mediaUri = "";
@@ -897,16 +992,24 @@ songCards.forEach((song, idx) => {
           mediaTitle = selectedVideo.title;
           mediaUri = selectedVideo.uri || "";
           mediaThumbnail = selectedVideo.thumbnailUri || "";
-          durationSelected = selectedVideo.duration || durationSelected;
+
+          // CRITICAL: Ensure timeline shot duration never exceeds the video's actual length.
+          const videoDuration = Number(selectedVideo.duration || 0);
+          if (videoDuration > 0) {
+            durationSelected = Math.min(durationSelected, videoDuration);
+          }
         }
       }
 
       let shotDuration = Math.min(durationSelected, remainingTime);
       shotDuration = Number(shotDuration.toFixed(1));
 
-      // Absorb small remainders
+      // Absorb small remainders if it doesn't violate video duration cap
       if (remainingTime - shotDuration < 1.0) {
-        shotDuration = remainingTime;
+        const videoDuration = selectedVideo ? Number(selectedVideo.duration || 0) : 0;
+        if (!selectedVideo || videoDuration <= 0 || remainingTime <= videoDuration) {
+          shotDuration = remainingTime;
+        }
       }
 
       const shotEnd = Number((secTime + shotDuration).toFixed(1));
@@ -958,9 +1061,13 @@ songCards.forEach((song, idx) => {
       }
 
       const editReason = isPureVisualizer
-        ? `Deploy pure visualizer shot to create a rhythmic breakdown using active stems.`
-        : `Switch to ${mediaTitle} matching ${perspective} mood. Apply transition: ${transition}.`;
+        ? `Pure visualizer interval selected by deterministic cadence in ${sec.label}; musical-fit judgment is unmeasured. Active stems: ${activeStems.join(", ")}.`
+        : `Use ${mediaTitle} in ${sec.label}; selection is deterministic from the available media pool, not a verified ${perspective} mood match. Apply transition: ${transition}.`;
       const cameraMove = chooseCameraMotion(sec, shotIdx, selectedVideo, isPureVisualizer);
+      const rejectedAlternatives = candidateVideos
+        .filter((video) => video.id !== mediaId)
+        .slice(0, 4)
+        .map((video) => ({ mediaId: video.id, title: video.title, reason: "not-selected-by-deterministic-variant-order; semantic preference unmeasured" }));
 
       timeline.push({
         section_id: sec.id,
@@ -981,7 +1088,22 @@ songCards.forEach((song, idx) => {
         active_stems: activeStems,
         audio_bindings: audioBindings,
         edit_reason: editReason,
-        confidence: Number(clamp(0.68 + sec.energy * 0.2 + (secHash % 8) / 100, 0.68, 0.94).toFixed(2))
+        confidence: null,
+        confidence_basis: "unmeasured-no-human-or-semantic-evaluation",
+        decision_evidence: {
+          schemaVersion: "hapa.echo.shot-decision-evidence.v2",
+          truthStatus: selectedVideo?.truthStatus || (isPureVisualizer ? "deterministic-visualizer-cadence" : "unmeasured"),
+          scoreComponents: {
+            sectionBoundary: { value: true, basis: `song_edit_map.sections:${sec.id}` },
+            durationFit: { value: selectedVideo?.duration ? shotDuration <= Number(selectedVideo.duration) : null, basis: selectedVideo?.duration ? "source-declared-duration" : "unmeasured" },
+            semanticMusicMatch: { value: null, basis: "unmeasured" },
+            emotionalArc: { value: null, basis: "unmeasured" },
+            continuity: { value: null, basis: "unmeasured" }
+          },
+          evidence: [`section:${sec.id}`, `transition:${transition}`, `active-stems:${activeStems.join("|") || "none"}`],
+          rejectedAlternatives,
+          confidence: { value: null, basis: "unmeasured-no-human-or-semantic-evaluation" }
+        }
       });
 
       secTime = shotEnd;
@@ -999,25 +1121,25 @@ songCards.forEach((song, idx) => {
     let visDuration = 15.0 + (visHash % 15); // 15s to 30s blocks for visualizer continuity
     let remaining = duration - visTime;
     if (remaining < 0.1) break;
-    
+
     let blockDuration = Math.min(visDuration, remaining);
     if (remaining - blockDuration < 5.0) {
       blockDuration = remaining; // Absorb short endings
     }
     blockDuration = Number(blockDuration.toFixed(1));
     const visEnd = Number((visTime + blockDuration).toFixed(1));
-    
+
     // Choose visualizer id and title from shaders catalog
     let chosenShader = { id: "none", title: "None" };
     if (shaders.length > 0) {
       chosenShader = shaders[visHash % shaders.length];
     }
-    
+
     let visTransition = "cut";
     if (visTime > 0) {
       visTransition = visHash % 2 === 0 ? "crossfade" : "scanline-dissolve";
     }
-    
+
     visualizerTimeline.push({
       start_sec: Number(visTime.toFixed(1)),
       end_sec: Number(visEnd.toFixed(1)),
@@ -1026,28 +1148,28 @@ songCards.forEach((song, idx) => {
       transition: visTransition,
       edit_reason: `Maintain shader continuity with ${chosenShader.title || "preset"} visualizer layer across media boundaries.`
     });
-    
+
     visTime = visEnd;
     visIdx++;
   }
 
   // Calculate scores
   const criticScores = {
-    song_structure_alignment: 85 + (hash % 15),
-    emotional_arc: 80 + (hash % 20),
-    visual_variety: 75 + (hash % 25),
-    continuity: 90 + (hash % 10),
-    overcutting_risk: hash % 20
+    song_structure_alignment: null,
+    emotional_arc: null,
+    visual_variety: null,
+    continuity: null,
+    overcutting_risk: null
   };
 
   // Compile justification log paragraphs
   const localAvatar = song.performancePerspective?.avatar_name || "The Operator";
   const mainVideo = timeline.find(t => t.media_id !== "none")?.media_title || "Primary Clip";
   const mainShader = visualizerTimeline.find(t => t.visualizer_id !== "none")?.visualizer_title || "Visualizer Presets";
-  
+
   const journalLog = [
     `Project Treatment: "${songTitle}" is cued from the ${perspective.toUpperCase()} perspective, sung by ${localAvatar} to explore the themes of ${song.lore?.summary || "recovered soft canon"}. The narrative is structured as ${sections.length} lyric/audio-derived sections across ${duration} seconds, using ${songEditMap.audioTelemetry.lyricLineCount} lyric lines and ${songEditMap.audioTelemetry.stemCount} registry stems.`,
-    `Media Casting & Aesthetics: We selected "${mainVideo}" as the visual anchor because its source tags align with the ${perspective} color lane and the song motifs (${canonAffordanceGraph.motifs.slice(0, 5).map((item) => item.token).join(", ") || "soft canon"}). The flow type classifications are budgeted against the section energy map to avoid visual fatigue.`,
+    `Media Casting & Aesthetics: "${mainVideo}" is the current deterministic visual anchor. Existing source tags and color lanes are generated placeholders, so semantic music/motif fit remains unmeasured until media affordances or human judgment provide evidence.`,
     `Visualizer & Audio Reactivity: The visualizer "${mainShader}" was chosen to support the section energy curve. Active stem bindings are pulled from available registry stems (${stemsAvailable.slice(0, 8).join(", ") || "none listed"}), while lyric timing comes from ${songEditMap.provenance.lyricTimingSource === "dear-papa-playlist-lyric-timing" ? "the exact Dear Papa playlist timing sidecar for this registry track" : "the block/line fallback map rather than a fixed percentage template"}.`
   ];
 
@@ -1102,6 +1224,12 @@ songCards.forEach((song, idx) => {
       visualizer_timeline: visualizerTimeline,
       timed_lyrics: timedLyrics,
       critic_scores: criticScores,
+      critic_assessment: {
+        schemaVersion: "hapa.echo.critic-assessment.v2",
+        status: "unmeasured",
+        basis: "No measured critic fixture or recorded human judgment is attached; hashes are identity/cache tools only.",
+        dimensions: Object.fromEntries(Object.keys(criticScores).map((dimension) => [dimension, { value: null, status: "unmeasured", basis: "no-measured-evidence" }]))
+      },
       justification_log: journalLog,
       hyperframe_script: generateHyperframesScript(songId, songTitle, duration, timeline, visualizerTimeline, timedLyrics, "phrase-window", audioId, "bottom-center", "neon-cyan"),
       provenance: {

@@ -5,6 +5,13 @@ const path = require("node:path");
 const ROOT = path.resolve(__dirname, "..");
 const targetUrl = process.env.SMOKE_URL || "http://127.0.0.1:8787/";
 const errors = [];
+app.setName("hapa-avatar-builder-tarot-smoke");
+app.setPath("userData", path.join("/tmp", `hapa-avatar-builder-tarot-smoke-${process.pid}`));
+console.log(`[tarot-smoke] boot pid=${process.pid} target=${targetUrl}`);
+process.on("exit", (code) => console.log(`[tarot-smoke] process exit code=${code}`));
+app.on("before-quit", () => console.log("[tarot-smoke] before-quit"));
+app.on("will-quit", () => console.log("[tarot-smoke] will-quit"));
+app.on("window-all-closed", () => console.log("[tarot-smoke] window-all-closed"));
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -79,6 +86,8 @@ async function sampleCanvas(win) {
 }
 
 app.whenReady().then(async () => {
+  console.log("[tarot-smoke] electron ready");
+  try {
   const win = new BrowserWindow({
     width: 1440,
     height: 1000,
@@ -89,6 +98,8 @@ app.whenReady().then(async () => {
       nodeIntegration: false
     }
   });
+  console.log("[tarot-smoke] browser window created");
+  win.on("closed", () => console.log("[tarot-smoke] window closed"));
 
   win.webContents.on("console-message", (_event, level, message) => {
     if (level >= 3 && !/ResizeObserver loop|THREE.WebGLRenderer/.test(message)) {
@@ -104,8 +115,8 @@ app.whenReady().then(async () => {
     errors.push(`[Process Gone] ${details.reason} (${details.exitCode})`);
   });
 
-  try {
     await win.loadURL(targetUrl);
+    console.log("[tarot-smoke] target loaded");
     const clicked = await clickTarotDraw(win);
     if (!clicked) throw new Error("Tarot Draw tab was not found");
 
@@ -136,7 +147,12 @@ app.whenReady().then(async () => {
           dropZone?.centerPreviewFrame?.aspect > 1.72 &&
           dropZone?.centerPreviewFrame?.aspect < 1.83 &&
           dropZone?.centerPreviewFrame?.echoOverlayVisible &&
-          dropZone?.centerPreviewFrame?.echoOverlayOpacity > 0.05
+          dropZone?.centerPreviewFrame?.echoOverlayOpacity > 0.05 &&
+          dropZone?.echoPlayerPool?.elements <= 3 &&
+          dropZone?.echoPlayerPool?.activeRequests <= 3 &&
+          dropZone?.echoPlayerPool?.maxLookahead <= 2 &&
+          dropZone?.echoPlayerPool?.centerPaired &&
+          dropZone?.echoPlayerPool?.centerFirstFrameReady
         );
       })()
     `, 30000);
@@ -180,6 +196,7 @@ app.whenReady().then(async () => {
           held: Boolean(state.held),
           deckCount: state.deckCount || 0,
           echoDropZone: state.dropZone?.echoDirectorProject || null,
+          echoPlayerPool: state.dropZone?.echoPlayerPool || null,
           centerPreviewSource: state.dropZone?.centerPreviewSource || null,
           centerPreviewFrame: state.dropZone?.centerPreviewFrame || null,
           previewFrames: state.dropZone?.previewFrames || null,
@@ -212,4 +229,7 @@ app.whenReady().then(async () => {
     await app.quit();
     process.exit(1);
   }
+}).catch((error) => {
+  console.error("[tarot-smoke] ready failure", error instanceof Error ? error.stack || error.message : String(error));
+  process.exit(1);
 });

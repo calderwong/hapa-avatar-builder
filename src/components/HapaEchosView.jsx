@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Clapperboard,
   Film,
@@ -9,6 +9,45 @@ import {
   VolumeX,
   WandSparkles
 } from "lucide-react";
+import { normalizePlaybackPowerMode } from "../domain/playback-power-mode.js";
+import { mapEchoSourceTime, planEchoPlaybackCorrection } from "../domain/echo-playback-sync.js";
+import { createEchoPlaybackEngine } from "../domain/echo-playback-engine.js";
+import {
+  createEchoIsfSurface,
+  createEchoIsfPlaybackPool,
+  visualizerLookaheadCards,
+} from "../domain/echo-isf-browser-runtime.js";
+import {
+  buildEchoShaderPickerPreviewCard,
+  echoLegacyCanvasApproximation,
+  echoShaderPickerCategories,
+  echoShaderPickerEntry,
+  filterEchoShaderPickerShaders,
+} from "../domain/echo-shader-picker.js";
+import {
+  buildVisualizerRendererTruthReceipt,
+  resolveVisualizerRendererTruth,
+} from "../domain/visualizer-renderer-capability.js";
+import VariationLabPanel from "./VariationLabPanel.jsx";
+import MultitrackDirectorEditor from "./MultitrackDirectorEditor.jsx";
+import SongCardMintPanel from "./SongCardMintPanel.jsx";
+import PalmierRoundTripPanel from "./PalmierRoundTripPanel.jsx";
+import ShotDecisionInspectorPanel from "./ShotDecisionInspectorPanel.jsx";
+import { appendShotPreferenceEvent } from "../domain/shot-decision-inspector.js";
+import TasteMemoryPanel from "./TasteMemoryPanel.jsx";
+import { appendTasteEvidence, createTasteMemory } from "../domain/human-taste-memory.js";
+import AlbumLiveSetPanel from "./AlbumLiveSetPanel.jsx";
+import { generateEchoHyperframeScript } from "../domain/echo-hyperframe-script.js";
+import {
+  buildEchoDirectionForkRequest,
+  createEchoDirectionWorkingFork,
+  deriveEchoDirectionVariantProject,
+  deriveEchoDirectionWorkingProject,
+  echoDirectionVariantId,
+  echoDirectionVariantOptionLabel,
+  echoDirectionVariantTitle,
+  groupEchoDirectionVariants,
+} from "../domain/echo-direction-variants.js";
 
 const electronApiBase = globalThis.window?.hapaAvatarBuilder?.apiBase;
 const API_BASE = electronApiBase || (globalThis.location?.port === "5178" ? "http://127.0.0.1:8787" : "");
@@ -17,9 +56,12 @@ const SONG_REGISTRY_API_BASE = songRegistryApiBase || "http://127.0.0.1:8798";
 
 function resolveMediaUri(uri) {
   if (typeof uri !== "string" || !uri) return uri;
-  if (/^(data:|blob:|https?:|file:)/.test(uri)) return uri;
-  if (uri.startsWith("/media/")) {
-    const base = API_BASE || "http://127.0.0.1:8787";
+  if (/^(data:|blob:|https?:)/.test(uri)) return uri;
+  const base = API_BASE || "http://127.0.0.1:8787";
+  const decodeLocalPath = (value) => { try { return decodeURIComponent(value); } catch { return value; } };
+  if (/^file:\/+/.test(uri)) return `${base}/api/local-file?path=${encodeURIComponent(decodeLocalPath(uri.replace(/^file:\/+/, "/")))}`;
+  if (/^\/Users\//.test(uri)) return `${base}/api/local-file?path=${encodeURIComponent(decodeLocalPath(uri))}`;
+  if (uri.startsWith("/media/") || uri.startsWith("/api/local-file")) {
     return `${base}${uri}`;
   }
   return uri;
@@ -36,6 +78,41 @@ function resolveSongRegistryUri(uri) {
   return uri;
 }
 
+function echoMediaCohort(video = {}) {
+  const tags = new Set((video.tags || []).map((tag) => String(tag).toLowerCase()));
+  if (tags.has("scroll-fal")) return "fal";
+  if (tags.has("scroll-site")) return "scroll-site";
+  return "";
+}
+
+function echoMediaSourceLabel(video = {}) {
+  if (video.source === "scene") return "Scene";
+  if (video.source === "avatar_card") return "Avatar Card";
+  if (video.source === "system_media") {
+    const cohort = echoMediaCohort(video);
+    if (cohort === "fal") return "System Media · FAL";
+    if (cohort === "scroll-site") return "System Media · Scroll Site";
+    return "System Media";
+  }
+  return video.source || "Media";
+}
+
+function echoMediaTagLabel(tag) {
+  if (tag === "scroll-site") return "Scroll Site";
+  if (tag === "scroll-fal") return "FAL";
+  return tag;
+}
+
+function shotMediaType(shot) {
+  if (shot?.media_contract?.type) return shot.media_contract.type;
+  if (!shot?.media_uri || shot.media_id === "none") return "generated-visualizer";
+  return /\.(png|jpe?g|webp|gif|avif)(?:$|\?)/i.test(shot.media_uri) ? "image" : "video";
+}
+
+function shotRuntimeUri(shot) {
+  return shot?.media_contract?.runtimeUri || shot?.runtime_media_uri || shot?.media_uri || "";
+}
+
 function toneToIntent(tone) {
   if (tone === "green") return "success";
   if (tone === "orange" || tone === "gold") return "warning";
@@ -48,6 +125,170 @@ function StatusChip({ label, value, tone }) {
     <div className={`status-chip hapa-readout tone-${tone}`} data-intent={toneToIntent(tone)}>
       <span>{label}</span>
       <strong>{value}</strong>
+    </div>
+  );
+}
+
+function createEchoShaderPickerMediaInput() {
+  const canvas = document.createElement("canvas");
+  canvas.width = 320;
+  canvas.height = 180;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return canvas;
+  const gradient = ctx.createLinearGradient(0, 0, canvas.width, canvas.height);
+  gradient.addColorStop(0, "#06132a");
+  gradient.addColorStop(0.45, "#06b6d4");
+  gradient.addColorStop(1, "#c026d3");
+  ctx.fillStyle = gradient;
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.globalAlpha = 0.32;
+  ctx.strokeStyle = "#ffffff";
+  for (let x = 0; x <= canvas.width; x += 24) {
+    ctx.beginPath();
+    ctx.moveTo(x, 0);
+    ctx.lineTo(x, canvas.height);
+    ctx.stroke();
+  }
+  for (let y = 0; y <= canvas.height; y += 24) {
+    ctx.beginPath();
+    ctx.moveTo(0, y);
+    ctx.lineTo(canvas.width, y);
+    ctx.stroke();
+  }
+  ctx.globalAlpha = 0.9;
+  ctx.fillStyle = "#f8fafc";
+  ctx.font = "800 20px monospace";
+  ctx.fillText("HAPA MEDIA INPUT", 20, 100);
+  return canvas;
+}
+
+function EchoShaderSourcePreview({ shader = null }) {
+  const canvasRef = useRef(null);
+  const [state, setState] = useState({ status: "idle", sourceId: "", sourceHash: "", error: "" });
+  const entry = useMemo(() => echoShaderPickerEntry(shader || {}), [shader]);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return undefined;
+    let disposed = false;
+    let animationFrame = 0;
+    let lastDrawAt = 0;
+    let lastSignature = "";
+    const publish = (next = {}) => {
+      if (disposed) return;
+      const normalized = {
+        status: String(next.status || "idle"),
+        sourceId: String(next.sourceId || entry.id || ""),
+        sourceHash: String(next.sourceHash || entry.sourceHash || ""),
+        error: String(next.error || ""),
+      };
+      const signature = JSON.stringify(normalized);
+      if (signature === lastSignature) return;
+      lastSignature = signature;
+      setState(normalized);
+    };
+    if (!entry.id) {
+      const ctx = canvas.getContext("2d");
+      ctx?.clearRect?.(0, 0, canvas.width, canvas.height);
+      if (ctx) {
+        ctx.fillStyle = "#020617";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.strokeStyle = "rgba(148,163,184,.5)";
+        ctx.strokeRect(12, 12, canvas.width - 24, canvas.height - 24);
+        ctx.fillStyle = "#cbd5e1";
+        ctx.font = "800 13px monospace";
+        ctx.fillText("NO SHADER / PASS-THROUGH", 24, 54);
+      }
+      publish({ status: "idle", sourceId: "" });
+      return undefined;
+    }
+    if (!entry.manifestEligible) {
+      const ctx = canvas.getContext("2d");
+      ctx?.clearRect?.(0, 0, canvas.width, canvas.height);
+      if (ctx) {
+        ctx.fillStyle = "#020617";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.strokeStyle = entry.legacyApproximation ? "#f6c96d" : "#f87171";
+        ctx.strokeRect(12, 12, canvas.width - 24, canvas.height - 24);
+        ctx.fillStyle = entry.legacyApproximation ? "#fde68a" : "#fecaca";
+        ctx.font = "800 13px monospace";
+        ctx.fillText(entry.legacyApproximation ? "LEGACY APPROXIMATION" : "UNSUPPORTED", 24, 48);
+        ctx.fillStyle = "#cbd5e1";
+        ctx.font = "11px monospace";
+        ctx.fillText((entry.id || "No shader selected").slice(0, 40), 24, 72);
+        ctx.fillText("No hash-verified ISF source is attached.", 24, 94);
+      }
+      publish({ status: entry.legacyApproximation ? "approximation" : "unsupported" });
+      return undefined;
+    }
+    const card = buildEchoShaderPickerPreviewCard(entry);
+    const mediaInput = createEchoShaderPickerMediaInput();
+    const surface = createEchoIsfSurface({
+      canvas,
+      width: 320,
+      height: 180,
+      apiBase: API_BASE,
+      onStatus: publish,
+    });
+    const startedAt = performance.now();
+    const draw = (now) => {
+      if (disposed) return;
+      if (now - lastDrawAt >= 1000 / 24) {
+        lastDrawAt = now;
+        const time = (now - startedAt) / 1000;
+        const pulse = 0.5 + Math.sin(time * 2.1) * 0.5;
+        const result = surface.draw({
+          card,
+          time,
+          mediaElement: mediaInput,
+          mediaIdentity: { id: "echo-picker-media-input", sourceHash: "generated:picker-grid" },
+          signalFrames: {
+            master: {
+              rms: 0.28 + pulse * 0.42,
+              energy: 0.32 + pulse * 0.5,
+              beat: pulse,
+              low: 0.4 + pulse * 0.4,
+              bass: 0.4 + pulse * 0.4,
+              mid: 0.35 + (1 - pulse) * 0.35,
+              high: 0.3 + pulse * 0.25,
+              treble: 0.3 + pulse * 0.25,
+              orbit: (time * 0.2) % 1,
+              palette: 0.55,
+            },
+          },
+          width: 320,
+          height: 180,
+        });
+        publish(result);
+        if (result?.status !== "ready") return;
+      }
+      animationFrame = requestAnimationFrame(draw);
+    };
+    surface.prepare(card).then((prepared) => {
+      publish(prepared);
+      if (!disposed && prepared?.status === "ready") animationFrame = requestAnimationFrame(draw);
+    }).catch((error) => publish({ status: "compile-error", error: String(error?.message || error) }));
+    return () => {
+      disposed = true;
+      cancelAnimationFrame(animationFrame);
+      surface.dispose();
+    };
+  }, [entry.id, entry.legacyApproximation, entry.manifestEligible, entry.sourceHash]);
+
+  const failure = exactIsfStatusIsFailure(state.status) || state.status === "unsupported";
+  const label = state.status === "ready" ? "EXACT SOURCE READY" : state.status === "approximation" ? "LEGACY APPROXIMATION" : state.status.toUpperCase();
+  return (
+    <div
+      data-echo-shader-source-preview={entry.id || "none"}
+      data-echo-shader-preview-status={state.status}
+      data-echo-shader-preview-hash={state.sourceHash}
+      style={{ position: "relative", border: `1px solid ${failure ? "rgba(248,113,113,.55)" : "rgba(34,211,238,.4)"}`, borderRadius: "5px", overflow: "hidden", background: "#020617", minHeight: "180px" }}
+    >
+      <canvas ref={canvasRef} width={320} height={180} style={{ display: "block", width: "100%", aspectRatio: "16 / 9" }} />
+      <span style={{ position: "absolute", top: "8px", left: "8px", padding: "3px 6px", borderRadius: "3px", background: "rgba(2,6,23,.82)", border: "1px solid rgba(255,255,255,.2)", color: failure ? "#fecaca" : state.status === "ready" ? "#bbf7d0" : "#cffafe", font: "800 9px monospace" }}>
+        {label}
+      </span>
+      {state.error && <span style={{ position: "absolute", left: "8px", right: "8px", bottom: "8px", padding: "4px 6px", background: "rgba(2,6,23,.86)", color: "#fecaca", font: "9px monospace" }}>{state.error.slice(0, 120)}</span>}
     </div>
   );
 }
@@ -93,6 +334,210 @@ function DeferredRationaleTextarea({ value = "", onCommit }) {
       style={{ background: '#090d16', border: '1px solid rgba(255,255,255,0.1)', color: '#fff', padding: '5px', borderRadius: '3px', fontSize: '9.5px', resize: 'vertical', width: '100%', outline: 'none', fontFamily: 'sans-serif' }}
     />
   );
+}
+
+function PersistentEchoABPlayers({ shot, lookaheadShots = [], playing, songTime, style, onBufferState, onPresentedMediaChange, clockRef, vertical = false, shotIndex = 0 }) {
+  const playerRefs = [useRef(null), useRef(null), useRef(null)];
+  const activeIndexRef = useRef(0);
+  const [activeIndex, setActiveIndex] = useState(0);
+  const [stageStatus, setStageStatus] = useState("buffering");
+  const generationRef = useRef(0);
+  const fallbackRef = useRef(null);
+  const slotStateRef = useRef(Array.from({ length: 3 }, () => ({ key: "", status: "idle", frameReady: false, generation: 0, error: "" })));
+
+  const shotKey = (targetShot) => `${targetShot?.media_id || "none"}:${resolveMediaUri(shotRuntimeUri(targetShot))}`;
+
+  const waitFor = (video, eventName, timeoutMs, generation) => new Promise((resolve, reject) => {
+    if (generation !== generationRef.current && eventName !== "lookahead") { reject(new Error("stale-prepare")); return; }
+    let settled = false;
+    const finish = (error) => {
+      if (settled) return; settled = true; window.clearTimeout(timer);
+      video.removeEventListener(eventName, ready); video.removeEventListener("error", failed); video.removeEventListener("abort", failed);
+      if (error) reject(error); else resolve();
+    };
+    const ready = () => finish(); const failed = () => finish(new Error(video.error?.message || `Echo player ${eventName} failed`));
+    const timer = window.setTimeout(() => finish(new Error(`Echo player ${eventName} timeout`)), timeoutMs);
+    video.addEventListener(eventName, ready, { once: true }); video.addEventListener("error", failed, { once: true }); video.addEventListener("abort", failed, { once: true });
+  });
+
+  const prepare = async (slotIndex, targetShot, offsetSeconds = 0, generation = generationRef.current) => {
+    const video = playerRefs[slotIndex].current;
+    if (!video || shotMediaType(targetShot) !== "video") return false;
+    const uri = resolveMediaUri(shotRuntimeUri(targetShot));
+    const key = shotKey(targetShot); const slot = slotStateRef.current[slotIndex];
+    if (slot.key === key && slot.status === "ready" && slot.frameReady && video.readyState >= 2 && video.videoWidth > 0 && !video.error) return true;
+    slot.key = key; slot.status = "preparing"; slot.frameReady = false; slot.generation = generation; slot.error = "";
+    video.dataset.echoPreparingKey = key;
+    if (video.currentSrc !== uri && video.src !== uri) {
+      video.removeAttribute("src");
+      video.src = uri;
+      video.load();
+    }
+    if (video.readyState < 1) await waitFor(video, "loadedmetadata", 5000, generation);
+    if (video.readyState < 2) await waitFor(video, "loadeddata", 5000, generation);
+    if (slot.generation !== generation || slot.key !== key) throw new Error("stale-prepare");
+    const playbackMode = targetShot.media_contract?.playbackMode || "loop";
+    const target = mapEchoSourceTime({ elapsedSeconds: offsetSeconds + Number(targetShot.media_contract?.sourceInSeconds || 0), durationSeconds: video.duration, loop: playbackMode === "loop" });
+    if (!video.seeking && Math.abs(video.currentTime - target) > 0.08) {
+      video.currentTime = target;
+      await waitFor(video, "seeked", 3000, generation);
+    }
+    await video.play();
+    await new Promise((resolve, reject) => {
+      let settled = false; const finish = (error) => { if (settled) return; settled = true; window.clearTimeout(timer); error ? reject(error) : resolve(); };
+      const timer = window.setTimeout(() => finish(new Error("Echo player first-frame timeout")), 3000);
+      if (video.requestVideoFrameCallback) video.requestVideoFrameCallback(() => finish());
+      else window.requestAnimationFrame(() => finish());
+    });
+    if (slot.generation !== generation || slot.key !== key || video.videoWidth <= 0 || video.error) throw new Error("stale-or-empty-frame");
+    if (!playing) video.pause();
+    slot.status = "ready"; slot.frameReady = true; video.dataset.echoSourceKey = key; delete video.dataset.echoPreparingKey;
+    return true;
+  };
+
+  useEffect(() => {
+    if (shotMediaType(shot) !== "video") return undefined;
+    const generation = ++generationRef.current; const key = shotKey(shot);
+    const reusableIndex = slotStateRef.current.findIndex((slot, index) => slot.key === key && slot.status === "ready" && slot.frameReady && playerRefs[index].current?.readyState >= 2 && playerRefs[index].current?.videoWidth > 0 && !playerRefs[index].current?.error);
+    setStageStatus("buffering"); onBufferState?.({ status: "buffering", ready: false, currentKey: key, readyLookahead: 0, targetLookahead: Math.min(2, lookaheadShots.filter((item) => shotMediaType(item) === "video").length) });
+    const activate = (index) => {
+      if (generation !== generationRef.current) return;
+      activeIndexRef.current = index; setActiveIndex(index); setStageStatus("ready");
+      onBufferState?.({ status: "ready", ready: true, currentKey: key, readyLookahead: slotStateRef.current.filter((slot, slotIndex) => slotIndex !== index && slot.status === "ready").length, targetLookahead: Math.min(2, lookaheadShots.filter((item) => shotMediaType(item) === "video").length) });
+    };
+    if (reusableIndex >= 0) activate(reusableIndex);
+    else {
+      const incomingIndex = [0, 1, 2].find((index) => index !== activeIndexRef.current && slotStateRef.current[index].status !== "preparing") ?? ((activeIndexRef.current + 1) % 3);
+      prepare(incomingIndex, shot, Math.max(0, songTime - Number(shot.start_sec || 0)), generation).then((ready) => { if (ready) activate(incomingIndex); }).catch((error) => {
+        const slot = slotStateRef.current[incomingIndex]; if (slot.generation === generation) { slot.status = "error"; slot.error = String(error.message || error); }
+        if (generation !== generationRef.current) return;
+        setStageStatus("fallback"); onBufferState?.({ status: "fallback", ready: true, currentKey: key, error: String(error.message || error), readyLookahead: 0, targetLookahead: 0 });
+      });
+    }
+    return () => { if (generation === generationRef.current) generationRef.current += 1; };
+  }, [shot?.media_id, shot?.start_sec, shotRuntimeUri(shot)]);
+
+  useEffect(() => {
+    if (stageStatus !== "ready") return;
+    const generation = generationRef.current;
+    const targets = lookaheadShots.filter((item) => shotMediaType(item) === "video").slice(0, 2);
+    targets.forEach((targetShot) => {
+      const key = shotKey(targetShot);
+      if (slotStateRef.current.some((slot) => slot.key === key && (slot.status === "ready" || slot.status === "preparing"))) return;
+      const slotIndex = [0, 1, 2].find((index) => index !== activeIndexRef.current && slotStateRef.current[index].status !== "preparing");
+      if (slotIndex === undefined) return;
+      prepare(slotIndex, targetShot, 0, generation).then(() => {
+        playerRefs[slotIndex].current?.pause();
+        const readyLookahead = slotStateRef.current.filter((slot, index) => index !== activeIndexRef.current && slot.status === "ready").length;
+        onBufferState?.({ status: "ready", ready: true, currentKey: shotKey(shot), readyLookahead, targetLookahead: targets.length });
+      }).catch(() => {});
+    });
+  }, [stageStatus, lookaheadShots.map((item) => shotKey(item)).join("|")]);
+
+  useEffect(() => {
+    const video = playerRefs[activeIndex].current;
+    if (!video || shotMediaType(shot) !== "video" || video.seeking) return;
+    const expected = mapEchoSourceTime({ elapsedSeconds: Math.max(0, songTime - Number(shot.start_sec || 0)) + Number(shot.media_contract?.sourceInSeconds || 0), durationSeconds: video.duration, loop: (shot.media_contract?.playbackMode || "loop") === "loop" });
+    const correction = planEchoPlaybackCorrection({ expectedSeconds: expected, currentSeconds: video.currentTime, seeking: video.seeking });
+    if (correction.action === "seek") video.currentTime = Math.min(Number(video.duration || expected), correction.targetSeconds);
+    else video.playbackRate = correction.playbackRate;
+    if (playing && video.paused) video.play().catch(() => {});
+    if (!playing && !video.paused) video.pause();
+  }, [activeIndex, playing, shot?.media_id, songTime]);
+
+  useEffect(() => {
+    const sourceKey = shotKey(shot);
+    const video = playerRefs[activeIndex].current;
+    const slot = slotStateRef.current[activeIndex];
+    const isCurrentPresentedFrame = Boolean(
+      stageStatus === "ready"
+      && video
+      && slot?.key === sourceKey
+      && slot?.frameReady
+      && video.dataset.echoSourceKey === sourceKey
+      && video.readyState >= 2
+      && video.videoWidth > 0
+      && !video.error
+    );
+    onPresentedMediaChange?.(isCurrentPresentedFrame ? {
+      element: video,
+      kind: "video",
+      mediaId: String(shot?.media_id || ""),
+      uri: resolveMediaUri(shotRuntimeUri(shot)),
+      sourceKey,
+      presented: true,
+      playerIndex: activeIndex
+    } : {
+      element: null,
+      kind: "video",
+      mediaId: String(shot?.media_id || ""),
+      uri: resolveMediaUri(shotRuntimeUri(shot)),
+      sourceKey,
+      presented: false,
+      reason: stageStatus === "ready" ? "active-frame-not-presented" : stageStatus
+    });
+    return () => onPresentedMediaChange?.({ element: null, kind: "video", mediaId: String(shot?.media_id || ""), sourceKey, presented: false, reason: "binding-released" });
+  }, [activeIndex, stageStatus, shot?.media_id, shot?.start_sec, shotRuntimeUri(shot), onPresentedMediaChange]);
+
+  useEffect(() => {
+    let frame = 0; let previousMs = -Infinity;
+    const animateCamera = (now) => {
+      if (now - previousMs >= 1000 / 30) {
+        previousMs = now;
+        const camera = cameraMotionStyleForShot(shot, Number(clockRef?.current ?? songTime), vertical, shotIndex);
+        for (const ref of playerRefs) if (ref.current) { ref.current.style.transform = camera.transform; ref.current.style.transformOrigin = camera.transformOrigin; ref.current.style.objectPosition = camera.objectPosition; }
+        if (fallbackRef.current) { fallbackRef.current.style.transform = camera.transform; fallbackRef.current.style.transformOrigin = camera.transformOrigin; }
+      }
+      if (playing) frame = window.requestAnimationFrame(animateCamera);
+    };
+    frame = window.requestAnimationFrame(animateCamera);
+    return () => window.cancelAnimationFrame(frame);
+  }, [playing, shot?.media_id, shot?.start_sec, vertical, shotIndex, clockRef]);
+
+  useEffect(() => () => {
+    for (const ref of playerRefs) {
+      const video = ref.current;
+      if (!video) continue;
+      try { video.pause(); video.removeAttribute("src"); video.load(); } catch { /* best effort */ }
+    }
+  }, []);
+
+  return (
+    <>
+      <div ref={fallbackRef} data-echo-fallback={stageStatus} style={{ ...style, opacity: stageStatus === "ready" ? 0 : 1, position: "absolute", inset: 0, zIndex: 0, background: "radial-gradient(circle at center, rgba(9,28,46,.96), #020617 72%)", transition: "opacity .18s linear" }}>
+        {(shot.media_contract?.posterUri || shot.media_thumbnail) && <img src={resolveMediaUri(shot.media_contract?.posterUri || shot.media_thumbnail)} alt="Buffered shot fallback" style={{ width: "100%", height: "100%", objectFit: "cover" }} />}
+      </div>
+      {[0, 1, 2].map((index) => (
+        <video
+          key={`persistent-echo-player-${index}`}
+          ref={playerRefs[index]}
+          muted
+          loop
+          playsInline
+          preload="auto"
+          data-echo-player={index === activeIndex ? "current" : "standby"}
+          data-frame-presented={index === activeIndex && stageStatus === "ready" ? "true" : "false"}
+          style={{ ...style, position: 'absolute', inset: 0, opacity: index === activeIndex && stageStatus === "ready" ? 1 : 0, transition: `opacity ${shot.transition === "cut" ? .06 : .45}s linear`, zIndex: index === activeIndex ? 1 : 0 }}
+        />
+      ))}
+    </>
+  );
+}
+
+function PresentedEchoImage({ shot, style, onPresentedMediaChange }) {
+  const imageRef = useRef(null);
+  const mediaId = String(shot?.media_id || "");
+  const uri = resolveMediaUri(shotRuntimeUri(shot));
+  const sourceKey = `${mediaId}:${uri}`;
+  const publish = () => {
+    const element = imageRef.current;
+    const presented = Boolean(element?.complete && Number(element?.naturalWidth || 0) > 0);
+    onPresentedMediaChange?.(presented ? { element, kind: "image", mediaId, uri, sourceKey, presented: true } : { element: null, kind: "image", mediaId, uri, sourceKey, presented: false, reason: "image-frame-not-presented" });
+  };
+  useEffect(() => () => {
+    onPresentedMediaChange?.({ element: null, kind: "image", mediaId, uri, sourceKey, presented: false, reason: "binding-released" });
+  }, [mediaId, uri, sourceKey, onPresentedMediaChange]);
+  return <img ref={imageRef} src={uri} alt={shot?.media_title || "Echo still"} onLoad={publish} onError={publish} style={style} />;
 }
 
 const CAMERA_MOTION_OPTIONS = [
@@ -301,7 +746,386 @@ function cameraMotionStyleForShot(item, currentTime, isVertical, shotIndex = 0) 
   };
 }
 
-function HapaEchosView({ selectedSongId, onSelectSong }) {
+function EchoPlaybackClockBoundary({ clockRef, initialTime = 0, active = false, powerMode = "active", project = null, children }) {
+  const clockDiagnostics = globalThis.__HAPA_ECHO_CLOCK_DIAGNOSTICS__ ||= { topLevelRenders: 0, boundaryRenders: 0 };
+  clockDiagnostics.boundaryRenders += 1;
+  const [clockTime, setClockTime] = useState(Number(initialTime) || 0);
+  const signatureRef = useRef("");
+
+  useEffect(() => {
+    const next = Number(initialTime) || 0;
+    clockRef.current = next;
+    signatureRef.current = "";
+    setClockTime(next);
+  }, [clockRef, initialTime]);
+
+  useEffect(() => {
+    if (!active || powerMode === "hidden") return undefined;
+    let frame = 0;
+    const sample = () => {
+      const time = Number(clockRef.current) || 0;
+      const shotIndex = project?.timeline?.findIndex((item) => time >= item.start_sec && time < item.end_sec) ?? -1;
+      const lineIndex = project?.timed_lyrics?.findIndex((line) => time >= line.start && time < line.end) ?? -1;
+      const line = lineIndex >= 0 ? project?.timed_lyrics?.[lineIndex] : null;
+      const wordIndex = line?.words?.findIndex((word) => time >= word.start && time < word.end) ?? -1;
+      const cadence = powerMode === "docked" ? 2 : 4;
+      const signature = `${shotIndex}:${lineIndex}:${wordIndex}:${Math.floor(time * cadence)}`;
+      if (signature !== signatureRef.current) {
+        signatureRef.current = signature;
+        setClockTime(time);
+      }
+      frame = window.requestAnimationFrame(sample);
+    };
+    frame = window.requestAnimationFrame(sample);
+    return () => window.cancelAnimationFrame(frame);
+  }, [active, clockRef, powerMode, project]);
+
+  return children(clockTime);
+}
+
+function echoDirectorGraphVariantId(showGraph = null) {
+  return String(showGraph?.directorV2?.variantId || showGraph?.runId || showGraph?.id || "");
+}
+
+function echoIsfGraphRuntimeIdentity(showGraph = null) {
+  const director = showGraph?.directorV2 || {};
+  const variantId = echoDirectorGraphVariantId(showGraph);
+  const variantHash = String(director.variantHash || "");
+  const dirtyRanges = Array.isArray(director.patchLineage?.dirtyRanges)
+    ? director.patchLineage.dirtyRanges.map((range = {}) => ({
+      ...range,
+      startSeconds: Number(range.startSeconds ?? range.earliestDirtySeconds ?? range.start ?? range.fromSeconds ?? 0),
+      endSeconds: Number(range.endSeconds ?? range.endDirtySeconds ?? range.end ?? range.toSeconds ?? 0),
+      reason: String(range.reason || range.operation || range.editId || range.id || range.dependencyReasons?.join?.(" + ") || "dirty-range"),
+    }))
+    : [];
+  const visualizerCards = (showGraph?.tracks || [])
+    .filter((track) => track?.id === "track-b" || track?.role === "visualizer")
+    .flatMap((track) => track?.cards || []);
+  const shaderIds = Array.from(new Set(
+    visualizerCards
+      .map((card) => exactVisualizerSourceId(card))
+      .filter(Boolean)
+  ));
+  return {
+    variantId,
+    variantHash,
+    variantKey: `${variantId}:${variantHash}`,
+    dirtyKey: JSON.stringify(dirtyRanges),
+    dirtyRanges,
+    shaderIds,
+  };
+}
+
+function exactVisualizerSourceId(card = null) {
+  return String(card?.visualization?.sourceId || card?.sourceId || card?.visualization?.card?.id || "");
+}
+
+function normalizedRendererRuntimeStatus(status = "") {
+  const value = String(status || "").toLowerCase();
+  if (value === "error" || value === "failed") return "draw-error";
+  if (value.includes("compile")) return "compile-error";
+  if (value.includes("input")) return "input-error";
+  if (value.includes("hash")) return "hash-error";
+  if (value.includes("missing")) return "missing-id";
+  if (value.includes("draw")) return "draw-error";
+  return value;
+}
+
+function legacyEchoRendererTruth(visualizer = null, rendererId = "echo-avatar-builder") {
+  if (!visualizer || /^none$/i.test(String(visualizer.visualizer_id || visualizer.visualizer_title || ""))) return null;
+  const value = {
+    sourceId: String(visualizer.visualizer_id || ""),
+    title: String(visualizer.visualizer_title || visualizer.visualizer_id || "Unknown legacy visualizer"),
+    startSeconds: Number(visualizer.start_sec),
+    endSeconds: Number(visualizer.end_sec),
+  };
+  const approximation = echoLegacyCanvasApproximation(visualizer);
+  const options = approximation.supported
+    ? {
+      declaration: {
+        route: "supported-subset",
+        substitute: { id: approximation.mode, title: approximation.mode, route: "legacy-canvas-approximation" },
+        reason: approximation.reason,
+        fidelityLoss: ["pixel-equivalence-not-verified", "manifest-source-not-executed"],
+      },
+      route: "supported-subset",
+    }
+    : {
+      declaration: {
+        route: "unsupported",
+        reason: approximation.reason,
+        fidelityLoss: ["requested-shader-not-presented", "legacy-title-and-id-not-recognized"],
+      },
+      route: "unsupported",
+    };
+  return {
+    value,
+    approximation,
+    truth: resolveVisualizerRendererTruth(value, rendererId, options),
+    receipt: buildVisualizerRendererTruthReceipt(value, { [rendererId]: options }),
+  };
+}
+
+function exactEchoRendererTruth(card = null, presentation = {}, rendererId = "echo-avatar-builder") {
+  if (!card) return null;
+  const runtimeStatus = normalizedRendererRuntimeStatus(presentation.status || presentation.handoff || "loading");
+  const requestedId = String(presentation.requestedShaderId || presentation.shaderId || exactVisualizerSourceId(card));
+  const presentedId = String(presentation.presentedShaderId || "");
+  const heldPreviousFrame = presentation.heldPreviousFrame === true || presentation.heldPrevious === true;
+  const fallback = heldPreviousFrame && presentedId
+    ? { id: `${presentedId}@last-good-frame`, title: `${presentedId} last good frame`, route: "last-good-frame-hold" }
+    : null;
+  const options = {
+    runtimeStatus,
+    fallback,
+    reason: fallback ? "candidate-not-ready-last-good-frame-held" : "",
+  };
+  return {
+    truth: resolveVisualizerRendererTruth(card, rendererId, options),
+    receipt: buildVisualizerRendererTruthReceipt(card, { [rendererId]: options }),
+  };
+}
+
+function rendererTruthColor(status = "") {
+  if (status === "exact") return { color: "#bbf7d0", background: "rgba(16,185,129,.18)", border: "rgba(74,222,128,.42)" };
+  if (status === "approximation") return { color: "#fde68a", background: "rgba(245,158,11,.18)", border: "rgba(251,191,36,.45)" };
+  if (status === "fallback") return { color: "#fed7aa", background: "rgba(249,115,22,.2)", border: "rgba(251,146,60,.48)" };
+  return { color: "#fecaca", background: "rgba(239,68,68,.22)", border: "rgba(248,113,113,.52)" };
+}
+
+function compactEchoIsfPlaybackDiagnostics(diagnostics = {}, presentation = {}, lookaheadCards = []) {
+  const slots = Array.isArray(diagnostics.slots)
+    ? diagnostics.slots.map((slot = {}) => ({
+      shaderId: String(slot.shaderId || slot.sourceId || ""),
+      status: String(slot.status || (slot.ready ? "ready" : "idle")),
+      ready: slot.ready === true || slot.status === "ready",
+    })).slice(0, 3)
+    : [];
+  const prewarmRequested = Math.max(0, lookaheadCards.length - 1);
+  const prewarmReady = Number(
+    diagnostics.prewarmReady
+      ?? diagnostics.prewarm?.ready
+      ?? slots.filter((slot) => slot.ready).length
+      ?? 0
+  );
+  const sourceCache = diagnostics.sourceCache || diagnostics.sourceCacheStats || {};
+  const blackIntervalDetails = Array.isArray(diagnostics.blackIntervals)
+    ? diagnostics.blackIntervals.slice(-8)
+    : [];
+  const numericBlackIntervals = Number(diagnostics.blackIntervals || 0);
+  const blackIntervalCount = blackIntervalDetails.length || (Number.isFinite(numericBlackIntervals) ? Math.max(0, numericBlackIntervals) : 0);
+  const frameTiming = diagnostics.frameTiming || diagnostics.timing || {
+    lastMs: Number(diagnostics.lastFrameMs || 0),
+    averageMs: Number(diagnostics.averageFrameMs || 0),
+    maxMs: Number(diagnostics.maxFrameMs || 0),
+  };
+  return {
+    currentShaderId: String(diagnostics.currentShaderId || presentation.presentedShaderId || ""),
+    requestedShaderId: String(diagnostics.requestedShaderId || presentation.requestedShaderId || presentation.shaderId || ""),
+    handoffStatus: String(diagnostics.handoffStatus || presentation.handoff || presentation.status || "idle"),
+    heldPreviousFrame: presentation.heldPreviousFrame === true || presentation.heldPrevious === true,
+    prewarmReadiness: {
+      ready: Math.max(0, prewarmReady),
+      requested: prewarmRequested,
+      slots,
+    },
+    surfaceCount: Number(diagnostics.surfaceCount || 0),
+    contextCount: Number(diagnostics.contextCount || diagnostics.contexts || 0),
+    programCount: Number(diagnostics.programCount || diagnostics.programs || 0),
+    sourceCache,
+    handoffs: Number(diagnostics.handoffs || 0),
+    heldFrames: Number(diagnostics.heldFrames || 0),
+    blackIntervals: blackIntervalCount,
+    blackIntervalDetails,
+    frameTiming,
+  };
+}
+
+function exactIsfStatusIsFailure(status = "") {
+  return /(error|failed|missing|invalid|hash|compile|draw|input)/i.test(String(status || "idle"));
+}
+
+function drawExactIsfDiagnostic(ctx, width, height, { status = "loading", sourceId = "", error = "" } = {}, { preservePixels = false } = {}) {
+  const failed = exactIsfStatusIsFailure(status);
+  ctx.save();
+  ctx.fillStyle = preservePixels ? "rgba(2, 6, 23, 0.72)" : "rgba(2, 6, 23, 0.88)";
+  if (preservePixels) ctx.fillRect(20, 20, Math.min(Math.max(280, width * 0.52), width - 40), 82);
+  else ctx.fillRect(0, 0, width, height);
+  ctx.strokeStyle = failed ? "rgba(248, 113, 113, 0.82)" : "rgba(34, 211, 238, 0.72)";
+  ctx.lineWidth = 2;
+  ctx.strokeRect(20, 20, preservePixels ? Math.min(Math.max(280, width * 0.52), width - 40) : Math.max(1, width - 40), preservePixels ? 82 : Math.max(1, height - 40));
+  ctx.fillStyle = failed ? "#fecaca" : "#cffafe";
+  ctx.font = "700 12px monospace";
+  ctx.fillText(preservePixels ? `EXACT ISF HOLD · ${String(status).toUpperCase()}` : failed ? "EXACT ISF ERROR" : "EXACT ISF LOADING", 36, 52);
+  ctx.fillStyle = "rgba(226, 232, 240, 0.82)";
+  ctx.font = "10px monospace";
+  ctx.fillText(sourceId || "No graph-backed visualizer cue at this time", 36, 72);
+  if (error) ctx.fillText(String(error).slice(0, 88), 36, 91);
+  ctx.restore();
+}
+
+function normalizedStemFocus(value = "") {
+  const normalized = String(value || "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "");
+  return normalized === "leadvocals" ? "vocals" : normalized;
+}
+
+function requestedStemFocus(card = null) {
+  return String(card?.visualization?.card?.stemFocus || card?.provenance?.stemFocus || "master").trim() || "master";
+}
+
+function verifiedStemBinding(showGraph = null, card = null) {
+  const requested = requestedStemFocus(card);
+  const requestedKey = normalizedStemFocus(requested);
+  if (!requestedKey || ["master", "mix", "mastermix"].includes(requestedKey)) {
+    return { requested, requestedKey: "master", status: "master", bus: null, fallbackReason: "" };
+  }
+  if (showGraph?.stems?.nativeStatus !== "verified-local-registry-paths") {
+    return { requested, requestedKey, status: "master-fallback", bus: null, fallbackReason: "graph-stems-not-verified" };
+  }
+  const buses = Array.isArray(showGraph?.directorV2?.stemBuses) ? showGraph.directorV2.stemBuses : [];
+  const bus = buses.find((candidate) => [candidate?.id?.replace(/^bus:/i, ""), candidate?.stemId, candidate?.stemType]
+    .some((value) => normalizedStemFocus(value) === requestedKey));
+  if (!bus) return { requested, requestedKey, status: "master-fallback", bus: null, fallbackReason: "requested-stem-not-found" };
+  const registryStem = (showGraph?.stems?.items || []).find((candidate) => (
+    String(candidate?.id || "") === String(bus.stemId || "")
+    && String(candidate?.audioPath || "") === String(bus.audioPath || "")
+  ));
+  if (bus.truthStatus !== "verified_registry_path" || !bus.audioPath || !registryStem) {
+    return { requested, requestedKey, status: "master-fallback", bus: null, fallbackReason: "requested-stem-path-unverified" };
+  }
+  return { requested, requestedKey, status: "verified-stem", bus, fallbackReason: "" };
+}
+
+function analyserBandAverage(fftData, from, to) {
+  if (!fftData?.length) return 0;
+  let sum = 0;
+  const start = Math.floor(fftData.length * from);
+  const end = Math.max(start + 1, Math.floor(fftData.length * to));
+  for (let index = start; index < end; index += 1) sum += fftData[index];
+  return sum / Math.max(1, end - start) / 255;
+}
+
+function paletteSignalForPerspective(perspective = "") {
+  if (perspective === "red") return 0;
+  if (perspective === "green") return 120 / 360;
+  if (perspective === "magenta" || perspective === "purple") return 300 / 360;
+  return 180 / 360;
+}
+
+function liveSignalFrame(analyser, timeSeconds = 0, metadata = {}) {
+  const binCount = Math.max(1, Number(analyser?.frequencyBinCount || 256));
+  const fft = new Uint8Array(binCount);
+  const wave = new Uint8Array(binCount);
+  if (!analyser?.getByteFrequencyData || !analyser?.getByteTimeDomainData) {
+    return { ...metadata, status: "unavailable", truthStatus: "no-live-analyser", fft, wave, rms: 0, energy: 0, beat: 0, hook: 0, low: 0, bass: 0, mid: 0, high: 0, treble: 0, telemetryRms: 0, orbit: 0, palette: Math.max(0, Math.min(1, Number(metadata.palette ?? 0.5))), off: 0 };
+  }
+  analyser.getByteFrequencyData(fft);
+  analyser.getByteTimeDomainData(wave);
+  let sumSquares = 0;
+  for (const sample of wave) {
+    const normalized = (sample - 128) / 128;
+    sumSquares += normalized * normalized;
+  }
+  const rms = Math.sqrt(sumSquares / Math.max(1, wave.length));
+  const low = analyserBandAverage(fft, 0, 0.15);
+  const mid = analyserBandAverage(fft, 0.15, 0.55);
+  const high = analyserBandAverage(fft, 0.55, 1);
+  const energy = Math.max(rms, low * 0.9, mid * 0.72, high * 0.6);
+  return {
+    ...metadata,
+    status: "live",
+    truthStatus: "live-analyser",
+    fft,
+    wave,
+    rms,
+    energy,
+    beat: Math.max(0, Math.min(1, (low - 0.25) * 1.5)),
+    hook: Math.max(0, Math.min(1, (low - 0.4) * 2)),
+    low,
+    bass: low,
+    mid,
+    high,
+    treble: high,
+    telemetryRms: rms * 1.2,
+    orbit: 0.5 + Math.sin(Number(timeSeconds || 0) * 0.37) * 0.5,
+    palette: Math.max(0, Math.min(1, Number(metadata.palette ?? 0.5))),
+    off: 0
+  };
+}
+
+function visualizerCompositionInput(card = null, timeSeconds = 0) {
+  const layer = card?.visualization?.card?.layer || {};
+  const parameters = card?.parameters || {};
+  const start = Number(card?.startSeconds || 0);
+  const end = Number(card?.endSeconds || start + 1);
+  const duration = Math.max(0.001, end - start);
+  const transition = String(card?.transition || parameters.transition || layer.transition || "cut").toLowerCase();
+  const transitionSeconds = Math.min(duration / 4, Math.max(0.04, Number(parameters.transitionDurationSeconds ?? layer.transitionDurationSeconds ?? 0.35)));
+  const transitionAlpha = /(fade|cross|dissolve)/.test(transition)
+    ? Math.max(0, Math.min(1, (Number(timeSeconds) - start) / transitionSeconds, (end - Number(timeSeconds)) / transitionSeconds))
+    : 1;
+  return {
+    opacity: Number(parameters.opacity ?? layer.opacity ?? 1),
+    mix: Number(parameters.mix ?? layer.mix ?? 1),
+    blend: String(parameters.blendMode || layer.blend || "source-over"),
+    target: String(parameters.target || layer.target || "program"),
+    transitionAlpha
+  };
+}
+
+function compactFrameReceipt(receipt = null) {
+  if (!receipt || typeof receipt !== "object") return null;
+  return {
+    schemaVersion: receipt.schemaVersion || "",
+    timestampSeconds: Number(receipt.timestampSeconds || 0),
+    shaderId: receipt.shaderId || "",
+    sourceHash: receipt.sourceHash || "",
+    card: receipt.card ? { id: receipt.card.id || "", sourceCueIndex: receipt.card.sourceCueIndex ?? null, sourceId: receipt.card.sourceId || "", hash: receipt.card.hash || "" } : null,
+    input: receipt.input ? {
+      hash: receipt.input.hash || "",
+      defaultsApplied: (receipt.input.defaultsApplied || []).length,
+      controlsApplied: receipt.input.controlsApplied || [],
+      unknownControls: receipt.input.unknownControls || [],
+      invalidAudioMapUniforms: receipt.input.invalidAudioMapUniforms || [],
+      modulation: (receipt.input.modulationBindings || []).map((binding) => ({ uniform: binding.uniform, signal: binding.signal, status: binding.status }))
+    } : null,
+    media: receipt.media || null,
+    stem: receipt.stem || null,
+    composition: receipt.composition || null,
+    receiptHash: receipt.receiptHash || ""
+  };
+}
+
+function compactStemBinding(resource = null) {
+  if (!resource) return null;
+  return {
+    status: resource.status || "master",
+    requestedStem: resource.requestedStem || "master",
+    requestedKey: resource.requestedKey || "master",
+    resolvedStem: resource.status === "ready" ? resource.resolvedStem || resource.requestedStem : "master",
+    stemId: resource.status === "ready" ? resource.bus?.stemId || "" : "",
+    busId: resource.status === "ready" ? resource.bus?.id || "" : "",
+    truthStatus: resource.status === "ready" ? resource.bus?.truthStatus || "" : "master-live-analyser",
+    fallbackReason: resource.fallbackReason || ""
+  };
+}
+
+function disposeEchoStemResource(resource = null) {
+  if (!resource) return;
+  resource.disposed = true;
+  try { resource.element?.removeEventListener?.("canplay", resource.markReady); resource.element?.removeEventListener?.("loadeddata", resource.markReady); resource.element?.removeEventListener?.("error", resource.markFailed); } catch { /* best effort */ }
+  try { resource.element?.pause?.(); } catch { /* best effort */ }
+  try { resource.element?.removeAttribute?.("src"); resource.element?.load?.(); } catch { /* best effort */ }
+  try { resource.sourceNode?.disconnect?.(); } catch { /* best effort */ }
+  try { resource.analyser?.disconnect?.(); } catch { /* best effort */ }
+  try { resource.silentGain?.disconnect?.(); } catch { /* best effort */ }
+}
+
+function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }) {
+  const clockDiagnostics = globalThis.__HAPA_ECHO_CLOCK_DIAGNOSTICS__ ||= { topLevelRenders: 0, boundaryRenders: 0 };
+  clockDiagnostics.topLevelRenders += 1;
+  const powerMode = normalizePlaybackPowerMode(playbackMode);
   const [board, setBoard] = useState(null);
   const [gapsReport, setGapsReport] = useState(null);
   const [enriching, setEnriching] = useState(false);
@@ -318,9 +1142,12 @@ function HapaEchosView({ selectedSongId, onSelectSong }) {
   const [loadingVideoDetail, setLoadingVideoDetail] = useState(false);
   const [videoPickerQuery, setVideoPickerQuery] = useState("");
   const [shaderPickerQuery, setShaderPickerQuery] = useState("");
+  const [shaderCategoryFilter, setShaderCategoryFilter] = useState("all");
 
   const [directorProjects, setDirectorProjects] = useState([]);
   const [selectedProjectSongId, setSelectedProjectSongId] = useState(null);
+  const [selectedDirectionVariantId, setSelectedDirectionVariantId] = useState("legacy");
+  const [workingDirectionFork, setWorkingDirectionFork] = useState(null);
   const [loadingProjectDetail, setLoadingProjectDetail] = useState(false);
   const [planning, setPlanning] = useState(false);
   const [activeWorkbenchTab, setActiveWorkbenchTab] = useState("preview");
@@ -328,9 +1155,21 @@ function HapaEchosView({ selectedSongId, onSelectSong }) {
   const [currentTime, setCurrentTime] = useState(0);
   const audioRef = useRef(null);
   const currentTimeRef = useRef(0);
-  const currentTimeLastCommitRef = useRef(0);
   const activeProjectRef = useRef(null);
+  const echoPlaybackEngineRef = useRef(null);
+  const [echoPlaybackSnapshot, setEchoPlaybackSnapshot] = useState(null);
+  const [previewBufferState, setPreviewBufferState] = useState({ status: "idle", ready: false, readyLookahead: 0, targetLookahead: 0 });
+  const [previewPreparation, setPreviewPreparation] = useState({ status: "idle" });
   const canvasRef = useRef(null);
+  const exactIsfPlaybackPoolRef = useRef(null);
+  const exactIsfPlaybackPoolIdentityRef = useRef({ variantKey: "", dirtyKey: "", dirtyRangeCount: 0, shaderIds: [] });
+  const exactIsfPresentationRef = useRef({ status: "idle", sourceId: "", error: "" });
+  const exactIsfLastPresentedCanvasRef = useRef(null);
+  const [exactIsfStatus, setExactIsfStatus] = useState({ status: "idle", sourceId: "", error: "" });
+  const presentedMediaRef = useRef(null);
+  const activeStemResourceRef = useRef(null);
+  const exactIsfBindingDiagnosticsRef = useRef({ signature: "", updates: 0, last: { media: null, stem: null, frameReceipt: null, composition: null, playbackPool: null, rendererTruth: null, rendererTruthReceipt: null } });
+  const [exactIsfBindingDiagnostics, setExactIsfBindingDiagnostics] = useState({ media: null, stem: null, frameReceipt: null, composition: null, playbackPool: null, rendererTruth: null, rendererTruthReceipt: null });
   const audioContextRef = useRef(null);
   const analyserNodeRef = useRef(null);
   const connectedAudioRef = useRef(null);
@@ -342,7 +1181,34 @@ function HapaEchosView({ selectedSongId, onSelectSong }) {
   const activeDirectorProject = useMemo(() => (
     directorProjects.find(p => p.music_video_project.song_id === selectedProjectSongId) || directorProjects[0] || null
   ), [selectedProjectSongId, directorProjects]);
-  const activeProject = activeDirectorProject?.music_video_project || null;
+  const activeStoredProject = activeDirectorProject?.music_video_project || null;
+  const activeDirectionVariants = Array.isArray(activeStoredProject?.direction_script_variants)
+    ? activeStoredProject.direction_script_variants
+    : [];
+  const activeDirectionVariantGroups = useMemo(
+    () => groupEchoDirectionVariants(activeDirectionVariants),
+    [activeDirectionVariants],
+  );
+  const activeDirectionVariant = selectedDirectionVariantId === "legacy"
+    ? null
+    : activeDirectionVariants.find((variant) => echoDirectionVariantId(variant) === selectedDirectionVariantId) || null;
+  const activeDirectionVariantSelection = activeDirectionVariant ? selectedDirectionVariantId : "legacy";
+  const directionWorkingForkActive = Boolean(
+    workingDirectionFork
+      && activeDirectionVariant
+      && workingDirectionFork.sourceVariantId === echoDirectionVariantId(activeDirectionVariant),
+  );
+  const directionVariantReadOnly = Boolean(activeDirectionVariant && !directionWorkingForkActive);
+  const activeProject = useMemo(() => {
+    if (directionWorkingForkActive) return deriveEchoDirectionWorkingProject(workingDirectionFork);
+    if (!activeStoredProject || !activeDirectionVariant) return activeStoredProject;
+    const derived = deriveEchoDirectionVariantProject(activeStoredProject, activeDirectionVariant);
+    return derived.hyperframe_script
+      ? derived
+      : { ...derived, hyperframe_script: generateEchoHyperframeScript(derived), hyperframe_script_stale: false };
+  }, [activeDirectionVariant, activeStoredProject, directionWorkingForkActive, workingDirectionFork]);
+  const activeIsolatedStems = Array.from(new Set((activeProject?.stems_available || []).map((stem) => String(stem || "").trim()).filter(Boolean)));
+  const activeUsesAudioFallback = Boolean(activeProject && activeIsolatedStems.length === 0);
   const activeProjectHasDetail = Boolean(activeProject?.timeline);
   const videosReport = useMemo(() => gapsReport?.videos || [], [gapsReport]);
   const videosById = useMemo(() => new Map(videosReport.map((video) => [video.id, video])), [videosReport]);
@@ -367,9 +1233,191 @@ function HapaEchosView({ selectedSongId, onSelectSong }) {
     }).slice(0, 60);
   }, [flowFilter, sourceFilter, tagFilter, videoPickerQuery, videosReport]);
 
+  const publishExactBindingDiagnostics = useCallback((patch = {}) => {
+    const ledger = exactIsfBindingDiagnosticsRef.current;
+    const next = { ...ledger.last, ...patch };
+    const signature = JSON.stringify(next);
+    if (signature === ledger.signature) return;
+    ledger.signature = signature;
+    ledger.updates += 1;
+    ledger.last = next;
+    globalThis.__HAPA_ECHO_ISF_BINDING_DIAGNOSTICS__ = {
+      schemaVersion: "hapa.echo.isf-binding-diagnostics.v1",
+      updates: ledger.updates,
+      last: next
+    };
+    setExactIsfBindingDiagnostics(next);
+  }, []);
+
+  const handlePresentedMediaChange = useCallback((binding = null) => {
+    const current = presentedMediaRef.current;
+    if (binding?.presented && binding.element) {
+      presentedMediaRef.current = binding;
+    } else if (!current || !binding?.sourceKey || current.sourceKey === binding.sourceKey) {
+      presentedMediaRef.current = null;
+    }
+    const presented = presentedMediaRef.current;
+    publishExactBindingDiagnostics({
+      media: presented ? {
+        status: "presented",
+        kind: presented.kind,
+        mediaId: presented.mediaId,
+        sourceKey: presented.sourceKey
+      } : {
+        status: "unavailable",
+        kind: binding?.kind || "none",
+        mediaId: binding?.mediaId || "",
+        sourceKey: binding?.sourceKey || "",
+        reason: binding?.reason || "no-current-presented-media"
+      }
+    });
+  }, [publishExactBindingDiagnostics]);
+
+  const ensureActiveStemBinding = useCallback((showGraph, card) => {
+    const selection = verifiedStemBinding(showGraph, card);
+    const context = audioContextRef.current;
+    const verifiedBus = selection.bus;
+    const desiredKey = verifiedBus && context && context.state !== "closed"
+      ? `${echoDirectorGraphVariantId(showGraph)}:${verifiedBus.id}:${verifiedBus.audioPath}`
+      : `master:${selection.requestedKey}:${selection.fallbackReason || (verifiedBus ? "audio-context-unavailable" : selection.status)}`;
+    let resource = activeStemResourceRef.current;
+    if (resource?.key === desiredKey && !resource.disposed) return resource;
+    if (resource?.context && resource.context !== context) {
+      disposeEchoStemResource(resource);
+      resource = null;
+      activeStemResourceRef.current = null;
+    }
+
+    if (!verifiedBus || !context || context.state === "closed") {
+      if (resource?.element) {
+        try { resource.element.pause(); resource.element.removeAttribute("src"); resource.element.load(); } catch { /* decoder reset is best effort */ }
+      }
+      resource = resource || {};
+      Object.assign(resource, {
+        key: desiredKey,
+        requestedStem: selection.requested,
+        requestedKey: selection.requestedKey,
+        resolvedStem: "master",
+        status: selection.status === "master" ? "master" : "master-fallback",
+        fallbackReason: selection.fallbackReason || (verifiedBus ? "audio-context-unavailable" : ""),
+        bus: null,
+        targetUri: ""
+      });
+      activeStemResourceRef.current = resource;
+      return resource;
+    }
+
+    try {
+      if (!resource?.element) {
+        const element = document.createElement("audio");
+        element.dataset.echoStemDecoder = "active-singleton";
+        element.preload = "auto";
+        element.loop = true;
+        element.crossOrigin = "anonymous";
+        element.volume = 1;
+        const sourceNode = context.createMediaElementSource(element);
+        const analyser = context.createAnalyser();
+        analyser.fftSize = 512;
+        const silentGain = context.createGain();
+        silentGain.gain.value = 0;
+        sourceNode.connect(analyser);
+        analyser.connect(silentGain);
+        silentGain.connect(context.destination);
+        resource = {
+          context,
+          element,
+          sourceNode,
+          analyser,
+          silentGain,
+          playPending: false,
+          lastPlayAttemptAt: 0,
+          disposed: false,
+          targetUri: ""
+        };
+        const markReady = () => {
+          if (activeStemResourceRef.current !== resource || resource.disposed || !resource.targetUri) return;
+          resource.status = "ready";
+          publishExactBindingDiagnostics({ stem: compactStemBinding(resource) });
+        };
+        const markFailed = () => {
+          if (activeStemResourceRef.current !== resource || resource.disposed || !resource.targetUri) return;
+          resource.status = "master-fallback";
+          resource.fallbackReason = element.error?.message || "stem-decoder-error";
+          publishExactBindingDiagnostics({ stem: compactStemBinding(resource) });
+        };
+        resource.markReady = markReady;
+        resource.markFailed = markFailed;
+        element.addEventListener("canplay", markReady);
+        element.addEventListener("loadeddata", markReady);
+        element.addEventListener("error", markFailed);
+      }
+      const targetUri = resolveMediaUri(verifiedBus.audioPath);
+      Object.assign(resource, {
+        key: desiredKey,
+        requestedStem: selection.requested,
+        requestedKey: selection.requestedKey,
+        resolvedStem: verifiedBus.stemType || verifiedBus.id,
+        status: "loading",
+        fallbackReason: "",
+        bus: verifiedBus,
+        targetUri,
+        disposed: false
+      });
+      activeStemResourceRef.current = resource;
+      try { resource.element.pause(); } catch { /* best effort */ }
+      resource.element.src = targetUri;
+      resource.element.load();
+      return resource;
+    } catch (error) {
+      disposeEchoStemResource(resource);
+      const fallback = {
+        key: desiredKey,
+        requestedStem: selection.requested,
+        requestedKey: selection.requestedKey,
+        resolvedStem: "master",
+        status: "master-fallback",
+        fallbackReason: `stem-binding-error:${String(error?.message || error)}`
+      };
+      activeStemResourceRef.current = fallback;
+      return fallback;
+    }
+  }, [publishExactBindingDiagnostics]);
+
   useEffect(() => {
     activeProjectRef.current = activeProject;
   }, [activeProject]);
+
+  useEffect(() => {
+    const engine = createEchoPlaybackEngine({
+      adapter: {
+        renderer: "echo-react-ab",
+        onSnapshot: (snapshot) => {
+          globalThis.__HAPA_ECHO_PLAYBACK_ENGINE__ = snapshot;
+          if (snapshot.reason !== "init") setEchoPlaybackSnapshot(snapshot);
+        }
+      }
+    });
+    echoPlaybackEngineRef.current = engine;
+    return () => {
+      engine.destroy();
+      if (globalThis.__HAPA_ECHO_PLAYBACK_ENGINE__?.projectKey === engine.getSnapshot().projectKey) {
+        delete globalThis.__HAPA_ECHO_PLAYBACK_ENGINE__;
+      }
+      if (echoPlaybackEngineRef.current === engine) echoPlaybackEngineRef.current = null;
+    };
+  }, []);
+
+  useEffect(() => {
+    echoPlaybackEngineRef.current?.setProject(activeProject);
+  }, [activeProject]);
+
+  useEffect(() => {
+    echoPlaybackEngineRef.current?.setPowerMode(powerMode);
+  }, [powerMode]);
+
+  useEffect(() => {
+    echoPlaybackEngineRef.current?.setPlaying(isPlaying);
+  }, [isPlaying]);
 
   // Fetch song audio as same-origin Blob to bypass browser/Electron Web Audio CORS muting
   useEffect(() => {
@@ -440,6 +1488,10 @@ function HapaEchosView({ selectedSongId, onSelectSong }) {
     try {
       if (audioContextRef.current && audioContextRef.current.state !== "closed") {
         setAudioDiagnostics("Closing old AudioContext");
+        disposeEchoStemResource(activeStemResourceRef.current);
+        activeStemResourceRef.current = null;
+        analyserNodeRef.current = null;
+        connectedAudioRef.current = null;
         audioContextRef.current.close().catch(() => {});
       }
       
@@ -488,19 +1540,16 @@ function HapaEchosView({ selectedSongId, onSelectSong }) {
     { id: "isf:5fb697e9df59c70014cdc486", title: "RGB Halftone Twisted Tools", shaderType: "filter" },
     { id: "isf:66cd92f36049470019626844", title: "Extrude 2", shaderType: "filter" }
   ]);
+  const shaderPickerCategories = useMemo(
+    () => echoShaderPickerCategories(availableShaders),
+    [availableShaders],
+  );
   const filteredShaderOptions = useMemo(() => {
-    const query = shaderPickerQuery.trim().toLowerCase();
-    return availableShaders.filter((shader) => {
-      if (!query) return true;
-      return [
-        shader.id,
-        shader.title,
-        shader.shaderType,
-        shader.category,
-        shader.family
-      ].filter(Boolean).join(" ").toLowerCase().includes(query);
-    }).slice(0, 80);
-  }, [availableShaders, shaderPickerQuery]);
+    return filterEchoShaderPickerShaders(availableShaders, {
+      query: shaderPickerQuery,
+      category: shaderCategoryFilter,
+    });
+  }, [availableShaders, shaderCategoryFilter, shaderPickerQuery]);
   const [savingProject, setSavingProject] = useState(false);
   const [saveSuccessMessage, setSaveSuccessMessage] = useState("");
 
@@ -508,6 +1557,20 @@ function HapaEchosView({ selectedSongId, onSelectSong }) {
   const [directorVolume, setDirectorVolume] = useState(0.8);
   const [directorMuted, setDirectorMuted] = useState(false);
   const [audioDiagnostics, setAudioDiagnostics] = useState("Idle");
+  const powerResumePlayingRef = useRef(false);
+
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (powerMode === "active") {
+      if (audioContextRef.current?.state === "suspended") audioContextRef.current.resume().catch(() => {});
+      if (powerResumePlayingRef.current && audio?.paused) audio.play().catch(() => {});
+      powerResumePlayingRef.current = false;
+      return;
+    }
+    powerResumePlayingRef.current = Boolean(isPlaying && audio && !audio.paused);
+    if (audio && !audio.paused) audio.pause();
+    if (audioContextRef.current?.state === "running") audioContextRef.current.suspend().catch(() => {});
+  }, [powerMode]);
 
   // Sync preview volume
   useEffect(() => {
@@ -529,22 +1592,29 @@ function HapaEchosView({ selectedSongId, onSelectSong }) {
     setSelectedVisualizerIndex(0);
     setActiveTrackTab("video");
     setSaveSuccessMessage("");
+    setPreviewBufferState({ status: "idle", ready: false, readyLookahead: 0, targetLookahead: 0 });
+    setPreviewPreparation({ status: "idle" });
+    presentedMediaRef.current = null;
+    disposeEchoStemResource(activeStemResourceRef.current);
+    activeStemResourceRef.current = null;
+    exactIsfBindingDiagnosticsRef.current.frameBucket = -1;
+    publishExactBindingDiagnostics({ media: null, stem: null, frameReceipt: null, composition: null, playbackPool: null, rendererTruth: null, rendererTruthReceipt: null });
   }, [selectedProjectSongId]);
 
   // Playback timer ticker fallback
   useEffect(() => {
-    if (!isPlaying) return;
+    if (!isPlaying || powerMode === "hidden") return;
     let anim;
-    let lastCommit = performance.now();
+    let cadenceTimer;
 
     const tick = () => {
-      const now = performance.now();
       const audio = audioRef.current;
       const project = activeProjectRef.current;
 
       if (audio && !audio.paused) {
         const next = audio.currentTime;
         currentTimeRef.current = next;
+        echoPlaybackEngineRef.current?.tick(next, { playing: true });
         const duration = project?.duration || audio.duration || 180;
         if (next >= duration) {
           audio.pause();
@@ -554,52 +1624,117 @@ function HapaEchosView({ selectedSongId, onSelectSong }) {
           setIsPlaying(false);
           return;
         }
-        if (now - lastCommit > 120) {
-          lastCommit = now;
-          currentTimeLastCommitRef.current = now;
-          setCurrentTime(next);
-        }
       } else if (audio) {
         setIsPlaying(false);
         return;
       }
 
-      anim = requestAnimationFrame(tick);
+      if (powerMode === "docked") cadenceTimer = window.setTimeout(() => { anim = requestAnimationFrame(tick); }, 1000 / 12);
+      else anim = requestAnimationFrame(tick);
     };
     
     anim = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(anim);
-  }, [isPlaying]);
+    return () => {
+      cancelAnimationFrame(anim);
+      window.clearTimeout(cadenceTimer);
+    };
+  }, [isPlaying, powerMode]);
 
   // Audio time update handler
   const handleTimeUpdate = () => {
     if (!audioRef.current) return;
     const next = audioRef.current.currentTime;
     currentTimeRef.current = next;
-    const now = performance.now();
-    if (now - currentTimeLastCommitRef.current > 120) {
-      currentTimeLastCommitRef.current = now;
-      setCurrentTime(next);
-    }
+    echoPlaybackEngineRef.current?.tick(next, { playing: isPlaying, reason: "media-timeupdate" });
   };
 
   // Cleanup audio context on unmount
   useEffect(() => {
     return () => {
+      exactIsfPlaybackPoolRef.current?.dispose?.();
+      exactIsfPlaybackPoolRef.current = null;
+      exactIsfPlaybackPoolIdentityRef.current = { variantKey: "", dirtyKey: "", dirtyRangeCount: 0, shaderIds: [] };
+      exactIsfLastPresentedCanvasRef.current = null;
+      disposeEchoStemResource(activeStemResourceRef.current);
+      activeStemResourceRef.current = null;
       if (audioContextRef.current && audioContextRef.current.state !== "closed") {
         audioContextRef.current.close().catch(() => {});
       }
+      if (globalThis.__HAPA_ECHO_ISF_BINDING_DIAGNOSTICS__) delete globalThis.__HAPA_ECHO_ISF_BINDING_DIAGNOSTICS__;
+      if (globalThis.__HAPA_ECHO_ISF_PLAYBACK_DIAGNOSTICS__) delete globalThis.__HAPA_ECHO_ISF_PLAYBACK_DIAGNOSTICS__;
     };
   }, []);
 
   // Circular pulse visualizer canvas loop
   useEffect(() => {
-    if (activeWorkbenchTab !== "preview") return;
+    if (activeWorkbenchTab !== "preview" || powerMode === "hidden") return;
     let animFrame;
+    let cadenceTimer;
+    let disposed = false;
 
     const horizonHistory = [];
     const particles = [];
     const stars = [];
+
+    const publishExactStatus = (next = {}) => {
+      if (disposed) return;
+      const normalized = typeof next === "string" ? { status: next } : next || {};
+      const sourceId = String(normalized.sourceId || normalized.requestedShaderId || exactIsfPresentationRef.current.sourceId || "");
+      const status = String(normalized.status || "idle");
+      const error = String(normalized.error?.message || normalized.error || normalized.message || "");
+      const previousPresentation = exactIsfPresentationRef.current;
+      exactIsfPresentationRef.current = { ...normalized, status, sourceId, error };
+      if (
+        previousPresentation.status === status
+        && previousPresentation.sourceId === sourceId
+        && previousPresentation.error === error
+      ) return;
+      setExactIsfStatus({ status, sourceId, error });
+    };
+
+    const createExactPlaybackPool = (canvas) => {
+      try {
+        return createEchoIsfPlaybackPool({
+          width: canvas.width,
+          height: canvas.height,
+          apiBase: API_BASE,
+          maxSurfaces: 3,
+        });
+      } catch (error) {
+        publishExactStatus({ status: "error", sourceId: "", error: String(error?.message || error) });
+        return null;
+      }
+    };
+
+    const ensureExactPlaybackPool = (canvas, showGraph) => {
+      const nextIdentity = echoIsfGraphRuntimeIdentity(showGraph);
+      const previousIdentity = exactIsfPlaybackPoolIdentityRef.current;
+      let pool = exactIsfPlaybackPoolRef.current;
+      if (!pool) {
+        pool = createExactPlaybackPool(canvas);
+        exactIsfPlaybackPoolRef.current = pool;
+      } else if (
+        previousIdentity.variantKey !== nextIdentity.variantKey
+        || previousIdentity.dirtyKey !== nextIdentity.dirtyKey
+      ) {
+        const variantChanged = previousIdentity.variantKey !== nextIdentity.variantKey;
+        const changedDirtyRanges = !variantChanged && nextIdentity.dirtyRanges.length > Number(previousIdentity.dirtyRangeCount || 0)
+          ? nextIdentity.dirtyRanges.slice(Number(previousIdentity.dirtyRangeCount || 0))
+          : nextIdentity.dirtyRanges;
+        pool.invalidate?.({
+          shaderIds: variantChanged ? (previousIdentity.shaderIds || []) : [],
+          ranges: variantChanged ? [] : changedDirtyRanges,
+          cacheKey: variantChanged ? previousIdentity.variantKey : "",
+        });
+      }
+      exactIsfPlaybackPoolIdentityRef.current = {
+        variantKey: nextIdentity.variantKey,
+        dirtyKey: nextIdentity.dirtyKey,
+        dirtyRangeCount: nextIdentity.dirtyRanges.length,
+        shaderIds: nextIdentity.shaderIds,
+      };
+      return pool;
+    };
 
     const bandAvg = (fftData, from, to) => {
       let sum = 0;
@@ -631,7 +1766,7 @@ function HapaEchosView({ selectedSongId, onSelectSong }) {
       const playheadVisIndex = activeProject?.visualizer_timeline?.findIndex(item => t >= item.start_sec && t < item.end_sec);
       const currentVisItem = playheadVisIndex !== -1 && playheadVisIndex !== undefined ? activeProject.visualizer_timeline[playheadVisIndex] : activeProject?.visualizer_timeline?.[0];
       const visualizerTitle = currentVisItem?.visualizer_title || "None";
-      const isVideo = currentTimelineItem && currentTimelineItem.media_uri !== "";
+      const isVideo = shotMediaType(currentTimelineItem) === "video";
       
       const color = activeProject?.perspective === 'red' ? '#ef4444' : activeProject?.perspective === 'green' ? '#10b981' : '#06b6d4';
 
@@ -639,29 +1774,21 @@ function HapaEchosView({ selectedSongId, onSelectSong }) {
 
       // Generate or fetch audio inputs
       const timeVal = Date.now() / 1000;
-      const fftList = new Uint8Array(256);
-      const waveList = new Uint8Array(256);
+      const paletteSignal = paletteSignalForPerspective(activeProject?.perspective);
+      const masterSignalFrame = liveSignalFrame(analyserNode, t, { id: "master", label: "Master mix", source: "echo-master-audio", palette: paletteSignal });
+      const fftList = masterSignalFrame.status === "live" ? masterSignalFrame.fft : new Uint8Array(256);
+      const waveList = masterSignalFrame.status === "live" ? masterSignalFrame.wave : new Uint8Array(256);
       
       let rms = 0.15;
       let beatFlash = 0;
       let hookFlash = 0;
       let telemetryRms = 0;
 
-      if (analyserNode) {
-        analyserNode.getByteFrequencyData(fftList);
-        analyserNode.getByteTimeDomainData(waveList);
-        
-        let sumSquares = 0;
-        for (let i = 0; i < waveList.length; i++) {
-          const norm = (waveList[i] - 128) / 128;
-          sumSquares += norm * norm;
-        }
-        rms = Math.sqrt(sumSquares / waveList.length);
-        
-        const lowFreqEnergy = bandAvg(fftList, 0.0, 0.15);
-        beatFlash = Math.max(0, (lowFreqEnergy - 0.25) * 1.5);
-        hookFlash = Math.max(0, (lowFreqEnergy - 0.4) * 2.0);
-        telemetryRms = rms * 1.2;
+      if (masterSignalFrame.status === "live") {
+        rms = masterSignalFrame.rms;
+        beatFlash = masterSignalFrame.beat;
+        hookFlash = masterSignalFrame.hook;
+        telemetryRms = masterSignalFrame.telemetryRms;
       } else {
         // Procedural fallback
         rms = 0.15 + Math.sin(timeVal * 2.2) * 0.08 + Math.cos(timeVal * 0.7) * 0.05;
@@ -697,33 +1824,189 @@ function HapaEchosView({ selectedSongId, onSelectSong }) {
         telemetryRms
       };
 
-      const getRenderer = (title) => {
-        const titleStr = (title || "").toLowerCase();
-        if (titleStr.includes("matrix") || titleStr.includes("rain") || titleStr.includes("code")) return "matrix-rain";
-        if (titleStr.includes("liquid metal") || titleStr.includes("fluid") || titleStr.includes("metal") || titleStr.includes("water") || titleStr.includes("underwater")) return "liquid-metal";
-        if (titleStr.includes("halftone") || titleStr.includes("rgb") || titleStr.includes("cmyk") || titleStr.includes("color chords") || titleStr.includes("dot")) return "rgb-halftone";
-        if (titleStr.includes("ascii") || titleStr.includes("terminal") || titleStr.includes("console") || titleStr.includes("scanline")) return "ascii-art";
-        
-        // Map new ones
-        if (titleStr.includes("nebula") || titleStr.includes("galaxy") || titleStr.includes("cosmos") || titleStr.includes("space") || titleStr.includes("flare")) return "spectrum-nebula";
-        if (titleStr.includes("horizon") || titleStr.includes("waveform") || titleStr.includes("linescape") || titleStr.includes("wave")) return "waveform-horizon";
-        if (titleStr.includes("grid") || titleStr.includes("pulse") || titleStr.includes("beat") || titleStr.includes("cell") || titleStr.includes("circuit")) return "beat-grid-pulse";
-        if (titleStr.includes("particle") || titleStr.includes("storm") || titleStr.includes("star") || titleStr.includes("dust") || titleStr.includes("flots")) return "particle-storm";
-        if (titleStr.includes("cymatic") || titleStr.includes("ring") || titleStr.includes("circle") || titleStr.includes("orb") || titleStr.includes("vortex")) return "cymatic-rings";
-        if (titleStr.includes("aurora") || titleStr.includes("ribbon") || titleStr.includes("flow") || titleStr.includes("variation")) return "liquid-aurora";
-        if (titleStr.includes("warp") || titleStr.includes("hyperspace") || titleStr.includes("tunnel") || titleStr.includes("streak")) return "starfield-warp";
-        if (titleStr.includes("kaleido") || titleStr.includes("bloom") || titleStr.includes("flower") || titleStr.includes("mandala") || titleStr.includes("fractal") || titleStr.includes("sponge")) return "kaleido-bloom";
-        
-        // Catch-alls for other names in the manifest
-        if (titleStr.includes("extrude") || titleStr.includes("box") || titleStr.includes("tesseract") || titleStr.includes("cube")) return "starfield-warp";
-        if (titleStr.includes("glitch") || titleStr.includes("broken") || titleStr.includes("lcd")) return "ascii-art";
-        if (titleStr.includes("sketch") || titleStr.includes("draw") || titleStr.includes("cartoon")) return "kaleido-bloom";
-        
-        // Fallback default
-        return "spectrum-nebula";
-      };
-      
-      const renderMode = getRenderer(visualizerTitle);
+      const directorShowGraph = activeProject?.director_show_graph || null;
+      const hasDirectorShowGraph = Boolean(directorShowGraph?.tracks);
+      const graphVisualizerCards = hasDirectorShowGraph ? visualizerLookaheadCards(directorShowGraph, t, 3) : [];
+      const graphVisualizerCard = graphVisualizerCards[0] || null;
+
+      if (hasDirectorShowGraph) {
+        const pool = ensureExactPlaybackPool(canvas, directorShowGraph);
+        if (!graphVisualizerCard) {
+          const missing = { status: "error", sourceId: "", error: "No executable Track B card at this graph time" };
+          publishExactStatus(missing);
+          const heldCanvas = exactIsfLastPresentedCanvasRef.current;
+          if (heldCanvas) {
+            ctx.drawImage(heldCanvas, 0, 0, width, height);
+            drawExactIsfDiagnostic(ctx, width, height, missing, { preservePixels: true });
+          } else {
+            drawExactIsfDiagnostic(ctx, width, height, missing);
+          }
+        } else if (!pool) {
+          const heldCanvas = exactIsfLastPresentedCanvasRef.current;
+          if (heldCanvas) {
+            ctx.drawImage(heldCanvas, 0, 0, width, height);
+            drawExactIsfDiagnostic(ctx, width, height, exactIsfPresentationRef.current, { preservePixels: true });
+          } else {
+            drawExactIsfDiagnostic(ctx, width, height, exactIsfPresentationRef.current);
+          }
+        } else {
+          try {
+            const stemResource = ensureActiveStemBinding(directorShowGraph, graphVisualizerCard);
+            const masterAudio = audioRef.current;
+            if (stemResource?.element && !stemResource.disposed) {
+              const stemElement = stemResource.element;
+              if (stemElement.readyState >= 1 && masterAudio) {
+                const targetTime = Number(masterAudio.currentTime || t);
+                if (!stemElement.seeking && Math.abs(Number(stemElement.currentTime || 0) - targetTime) > 0.12) {
+                  try { stemElement.currentTime = targetTime; } catch { /* decoder may still be binding metadata */ }
+                }
+              }
+              if (isPlaying && stemResource.status === "ready" && stemElement.paused && !stemResource.playPending && performance.now() - stemResource.lastPlayAttemptAt > 750) {
+                stemResource.playPending = true;
+                stemResource.lastPlayAttemptAt = performance.now();
+                Promise.resolve().then(() => stemElement.play()).catch(() => {}).finally(() => { stemResource.playPending = false; });
+              } else if (!isPlaying && !stemElement.paused) {
+                stemElement.pause();
+              }
+            }
+            const signalFrames = {};
+            let selectedSignalFrame = null;
+            if (masterSignalFrame.status === "live") {
+              signalFrames.master = masterSignalFrame;
+              selectedSignalFrame = masterSignalFrame;
+            }
+            if (stemResource?.status === "ready" && stemResource.analyser) {
+              const stemFrame = liveSignalFrame(stemResource.analyser, t, {
+                id: stemResource.bus?.stemId || stemResource.requestedStem,
+                label: stemResource.resolvedStem,
+                source: "verified-registry-stem",
+                stemFocus: stemResource.requestedStem,
+                pathTruthStatus: stemResource.bus?.truthStatus,
+                palette: paletteSignal
+              });
+              signalFrames[stemResource.requestedStem] = stemFrame;
+              selectedSignalFrame = stemFrame;
+            }
+            const expectedMediaId = String(currentTimelineItem?.media_id || "");
+            const expectedMediaUri = resolveMediaUri(shotRuntimeUri(currentTimelineItem));
+            const presentedMedia = presentedMediaRef.current;
+            const currentPresentedMedia = presentedMedia?.presented
+              && presentedMedia.mediaId === expectedMediaId
+              && presentedMedia.uri === expectedMediaUri
+              ? presentedMedia
+              : null;
+            const compositionInput = visualizerCompositionInput(graphVisualizerCard, t);
+            const presentation = pool.present(graphVisualizerCard, {
+              time: t,
+              fft: fftList,
+              wave: waveList,
+              audio: selectedSignalFrame,
+              signalFrames,
+              mediaElement: currentPresentedMedia?.element || null,
+              mediaIdentity: currentPresentedMedia ? {
+                id: currentPresentedMedia.mediaId,
+                uri: currentPresentedMedia.uri,
+                sourceHash: currentTimelineItem?.media_contract?.sourceHash || currentTimelineItem?.media_sha256 || ""
+              } : null,
+              composition: compositionInput,
+              cacheKey: echoIsfGraphRuntimeIdentity(directorShowGraph).variantKey,
+              width,
+              height,
+            }) || {};
+            const prewarmResult = pool.prewarm({
+              cards: graphVisualizerCards.slice(1),
+              cacheKey: echoIsfGraphRuntimeIdentity(directorShowGraph).variantKey,
+            });
+            if (prewarmResult && typeof prewarmResult.catch === "function") prewarmResult.catch(() => {});
+            const requestedShaderId = String(presentation.requestedShaderId || presentation.shaderId || exactVisualizerSourceId(graphVisualizerCard));
+            const presentedShaderId = String(presentation.presentedShaderId || "");
+            const heldPreviousFrame = presentation.heldPreviousFrame === true || presentation.heldPrevious === true;
+            const namedStatus = String(presentation.handoff || presentation.status || "loading");
+            const composition = presentation.composition || compositionInput;
+            const rendererTruth = exactEchoRendererTruth(graphVisualizerCard, {
+              ...presentation,
+              status: presentation.status || namedStatus,
+              requestedShaderId,
+              presentedShaderId,
+              heldPreviousFrame,
+            }, "echo-avatar-builder");
+            const poolDiagnostics = compactEchoIsfPlaybackDiagnostics(pool.getDiagnostics?.() || pool.getState?.() || {}, presentation, graphVisualizerCards);
+            const frameBucket = Math.floor(t * 4);
+            if (exactIsfBindingDiagnosticsRef.current.frameBucket !== frameBucket) {
+              exactIsfBindingDiagnosticsRef.current.frameBucket = frameBucket;
+              globalThis.__HAPA_ECHO_ISF_PLAYBACK_DIAGNOSTICS__ = poolDiagnostics;
+              publishExactBindingDiagnostics({
+                media: currentPresentedMedia ? { status: "presented", kind: currentPresentedMedia.kind, mediaId: currentPresentedMedia.mediaId, sourceKey: currentPresentedMedia.sourceKey } : { status: "unavailable", kind: shotMediaType(currentTimelineItem), mediaId: expectedMediaId, sourceKey: "", reason: "no-current-presented-media" },
+                stem: compactStemBinding(stemResource),
+                frameReceipt: compactFrameReceipt(presentation.frameReceipt),
+                composition,
+                playbackPool: poolDiagnostics,
+                rendererTruth: rendererTruth?.truth || null,
+                rendererTruthReceipt: rendererTruth?.receipt || null,
+              });
+            }
+            publishExactStatus({
+              status: namedStatus,
+              sourceId: requestedShaderId,
+              requestedShaderId,
+              presentedShaderId,
+              error: String(presentation.error?.message || presentation.error || ""),
+            });
+            const presentationCanvas = presentation.canvas || exactIsfLastPresentedCanvasRef.current;
+            if (presentation.canvas) exactIsfLastPresentedCanvasRef.current = presentation.canvas;
+            if (presentationCanvas) {
+              ctx.save();
+              ctx.globalAlpha = Math.max(0, Math.min(1, Number(composition.effectiveAlpha ?? (composition.opacity * composition.mix * composition.transitionAlpha)) || 0));
+              ctx.globalCompositeOperation = composition.canvasComposite || "source-over";
+              ctx.drawImage(presentationCanvas, 0, 0, width, height);
+              ctx.restore();
+              if (!presentation.canvas || heldPreviousFrame || presentation.status !== "ready") {
+                drawExactIsfDiagnostic(ctx, width, height, {
+                  status: namedStatus,
+                  sourceId: `${presentedShaderId || "last-good"} → ${requestedShaderId}`,
+                  error: presentation.error,
+                }, { preservePixels: true });
+              }
+            } else {
+              drawExactIsfDiagnostic(ctx, width, height, {
+                status: namedStatus,
+                sourceId: requestedShaderId,
+                error: presentation.error,
+              });
+            }
+          } catch (error) {
+            const failed = { status: "error", sourceId: exactVisualizerSourceId(graphVisualizerCard), error: String(error?.message || error) };
+            publishExactStatus(failed);
+            const heldCanvas = exactIsfLastPresentedCanvasRef.current;
+            if (heldCanvas) {
+              ctx.drawImage(heldCanvas, 0, 0, width, height);
+              drawExactIsfDiagnostic(ctx, width, height, failed, { preservePixels: true });
+            } else {
+              drawExactIsfDiagnostic(ctx, width, height, failed);
+            }
+          }
+        }
+      } else {
+      const legacyRenderer = legacyEchoRendererTruth(currentVisItem, "echo-avatar-builder");
+      const renderMode = legacyRenderer?.approximation?.mode || "";
+      const legacyFrameBucket = Math.floor(t * 4);
+      if (exactIsfBindingDiagnosticsRef.current.legacyFrameBucket !== legacyFrameBucket) {
+        exactIsfBindingDiagnosticsRef.current.legacyFrameBucket = legacyFrameBucket;
+        publishExactBindingDiagnostics({
+          rendererTruth: legacyRenderer?.truth || null,
+          rendererTruthReceipt: legacyRenderer?.receipt || null,
+          frameReceipt: legacyRenderer ? {
+            schemaVersion: "hapa.echo.legacy-renderer-frame-receipt.v1",
+            timestampSeconds: Number(t.toFixed(3)),
+            requestedId: legacyRenderer.truth.requested.id,
+            status: legacyRenderer.truth.status,
+            substitute: legacyRenderer.truth.substitute,
+            reason: legacyRenderer.truth.reason,
+            fidelityLoss: legacyRenderer.truth.fidelityLoss,
+          } : null,
+          playbackPool: null,
+        });
+      }
 
       if (visualizerTitle === "None" || visualizerTitle === "none") {
         if (!isVideo) {
@@ -748,6 +2031,23 @@ function HapaEchosView({ selectedSongId, onSelectSong }) {
           ctx.font = '8px monospace';
           ctx.fillText("RESTING OPERATOR STATE // CONSOLE STANDBY", 35, 40);
         }
+      } else if (!renderMode) {
+        const truth = legacyRenderer?.truth;
+        ctx.save();
+        ctx.fillStyle = "rgba(2, 6, 23, 0.9)";
+        ctx.fillRect(0, 0, width, height);
+        ctx.strokeStyle = "rgba(248,113,113,.78)";
+        ctx.lineWidth = 2;
+        ctx.strokeRect(20, 20, width - 40, height - 40);
+        ctx.fillStyle = "#fecaca";
+        ctx.font = "800 13px monospace";
+        ctx.fillText("UNSUPPORTED LEGACY VISUALIZER", 36, 56);
+        ctx.fillStyle = "#cbd5e1";
+        ctx.font = "10px monospace";
+        ctx.fillText(String(truth?.requested?.id || currentVisItem?.visualizer_id || "missing-id").slice(0, 78), 36, 80);
+        ctx.fillText(String(truth?.reason || "legacy-title-and-id-not-recognized").slice(0, 78), 36, 100);
+        ctx.fillText("No substitute rendered.", 36, 120);
+        ctx.restore();
       } else if (renderMode === "matrix-rain") {
         // Draw Matrix Code Rain
         ctx.fillStyle = color;
@@ -1052,6 +2352,21 @@ function HapaEchosView({ selectedSongId, onSelectSong }) {
           ctx.restore();
         }
       }
+      if (renderMode && legacyRenderer?.truth) {
+        ctx.save();
+        ctx.fillStyle = "rgba(2,6,23,.78)";
+        ctx.fillRect(18, 18, Math.min(360, width - 36), 42);
+        ctx.strokeStyle = "rgba(251,191,36,.52)";
+        ctx.strokeRect(18, 18, Math.min(360, width - 36), 42);
+        ctx.fillStyle = "#fde68a";
+        ctx.font = "800 10px monospace";
+        ctx.fillText(`APPROXIMATION · ${legacyRenderer.truth.requested.id || "missing-id"}`.slice(0, 56), 30, 36);
+        ctx.fillStyle = "#cbd5e1";
+        ctx.font = "9px monospace";
+        ctx.fillText(`SUBSTITUTE ${legacyRenderer.truth.substitute?.id || renderMode} · PIXEL PARITY NOT CLAIMED`.slice(0, 70), 30, 51);
+        ctx.restore();
+      }
+      }
       
       // Glitch / Scanline Dissolve transition effect
       if (currentTimelineItem && currentTimelineItem.transition === "scanline-dissolve") {
@@ -1082,13 +2397,16 @@ function HapaEchosView({ selectedSongId, onSelectSong }) {
         }
       }
       
-      animFrame = requestAnimationFrame(render);
+      if (powerMode === "docked") cadenceTimer = window.setTimeout(() => { animFrame = requestAnimationFrame(render); }, 1000 / 12);
+      else animFrame = requestAnimationFrame(render);
     };
     render();
     return () => {
+      disposed = true;
       cancelAnimationFrame(animFrame);
+      window.clearTimeout(cadenceTimer);
     };
-  }, [activeWorkbenchTab, activeProject]);
+  }, [activeWorkbenchTab, activeProject, powerMode]);
 
   const uniqueTags = useMemo(() => {
     if (!gapsReport?.videos) return [];
@@ -1105,12 +2423,14 @@ function HapaEchosView({ selectedSongId, onSelectSong }) {
     return Array.from(set).sort();
   }, [gapsReport]);
 
-  const fetchProjectDetail = async (songId) => {
+  const fetchProjectDetail = async (songId, variantId = "") => {
     if (!songId) return;
     setLoadingProjectDetail(true);
     try {
-      const res = await fetch(`${API_BASE}/api/echos/director-project?songId=${encodeURIComponent(songId)}`);
-      if (!res.ok) return;
+      const params = new URLSearchParams({ songId });
+      if (variantId && variantId !== "legacy") params.set("variantId", variantId);
+      const res = await fetch(`${API_BASE}/api/echos/director-project?${params.toString()}`);
+      if (!res.ok) return null;
       const detail = await res.json();
       setDirectorProjects(prev => {
         const nextProject = detail.music_video_project;
@@ -1121,12 +2441,38 @@ function HapaEchosView({ selectedSongId, onSelectSong }) {
         next[index] = detail;
         return next;
       });
+      return detail;
     } catch (e) {
       console.error("Failed to load director project detail:", e);
+      return null;
     } finally {
       setLoadingProjectDetail(false);
     }
   };
+
+  const prepareSmoothPreview = async () => {
+    if (!selectedProjectSongId || ["queued", "running"].includes(previewPreparation.status)) return;
+    setPreviewPreparation({ status: "running", songId: selectedProjectSongId });
+    try {
+      const response = await fetch(`${API_BASE}/api/echos/director-preview/prepare?songId=${encodeURIComponent(selectedProjectSongId)}`, { method: "POST" });
+      const payload = await response.json(); setPreviewPreparation(payload);
+    } catch (error) { setPreviewPreparation({ status: "failed", error: String(error.message || error) }); }
+  };
+
+  useEffect(() => {
+    if (!selectedProjectSongId || !["queued", "running"].includes(previewPreparation.status)) return undefined;
+    const timer = window.setInterval(async () => {
+      try {
+        const response = await fetch(`${API_BASE}/api/echos/director-preview/prepare?songId=${encodeURIComponent(selectedProjectSongId)}`);
+        const payload = await response.json(); setPreviewPreparation(payload);
+        if (payload.status === "ready") await fetchProjectDetail(
+          selectedProjectSongId,
+          selectedDirectionVariantId === "legacy" ? "" : selectedDirectionVariantId,
+        );
+      } catch { /* the next poll can recover */ }
+    }, 1500);
+    return () => window.clearInterval(timer);
+  }, [previewPreparation.status, selectedDirectionVariantId, selectedProjectSongId]);
 
   const fetchVideoDetail = async (video) => {
     if (!video?.id) return;
@@ -1193,6 +2539,23 @@ function HapaEchosView({ selectedSongId, onSelectSong }) {
   };
 
   const handleUpdateShot = (shotIdx, updatedFields) => {
+    if (directionWorkingForkActive) {
+      setWorkingDirectionFork((current) => current ? {
+        ...current,
+        project: {
+          ...current.project,
+          timeline: (current.project.timeline || []).map((shot, idx) => idx === shotIdx ? { ...shot, ...updatedFields } : shot),
+          hyperframe_script_stale: true,
+          updated_at: new Date().toISOString(),
+        },
+      } : current);
+      setSaveSuccessMessage("");
+      return;
+    }
+    if (directionVariantReadOnly) {
+      setSaveSuccessMessage("Append-only variant preview is read-only; switch to Legacy current to edit.");
+      return;
+    }
     setDirectorProjects(prev => {
       return prev.map(p => {
         if (p.music_video_project.song_id !== selectedProjectSongId) return p;
@@ -1217,6 +2580,23 @@ function HapaEchosView({ selectedSongId, onSelectSong }) {
   };
 
   const handleUpdateVisualizer = (visIdx, updatedFields) => {
+    if (directionWorkingForkActive) {
+      setWorkingDirectionFork((current) => current ? {
+        ...current,
+        project: {
+          ...current.project,
+          visualizer_timeline: (current.project.visualizer_timeline || []).map((visualizer, idx) => idx === visIdx ? { ...visualizer, ...updatedFields } : visualizer),
+          hyperframe_script_stale: true,
+          updated_at: new Date().toISOString(),
+        },
+      } : current);
+      setSaveSuccessMessage("");
+      return;
+    }
+    if (directionVariantReadOnly) {
+      setSaveSuccessMessage("Append-only variant preview is read-only; switch to Legacy current to edit.");
+      return;
+    }
     setDirectorProjects(prev => {
       return prev.map(p => {
         if (p.music_video_project.song_id !== selectedProjectSongId) return p;
@@ -1241,6 +2621,23 @@ function HapaEchosView({ selectedSongId, onSelectSong }) {
   };
 
   const handleUpdateProjectSettings = (updatedFields) => {
+    if (directionWorkingForkActive) {
+      setWorkingDirectionFork((current) => current ? {
+        ...current,
+        project: {
+          ...current.project,
+          ...updatedFields,
+          hyperframe_script_stale: true,
+          updated_at: new Date().toISOString(),
+        },
+      } : current);
+      setSaveSuccessMessage("");
+      return;
+    }
+    if (directionVariantReadOnly) {
+      setSaveSuccessMessage("Append-only variant preview is read-only; switch to Legacy current to edit.");
+      return;
+    }
     setDirectorProjects(prev => {
       return prev.map(p => {
         if (p.music_video_project.song_id !== selectedProjectSongId) return p;
@@ -1259,7 +2656,51 @@ function HapaEchosView({ selectedSongId, onSelectSong }) {
     setSaveSuccessMessage("");
   };
 
+  const handleContinueFromDirectionCut = () => {
+    if (!activeDirectionVariant || !activeProject) return;
+    setWorkingDirectionFork(createEchoDirectionWorkingFork(activeProject, activeDirectionVariant));
+    setSaveSuccessMessage("Editable working cut started. Its source cut and Legacy current remain unchanged.");
+  };
+
+  const handleCancelDirectionFork = () => {
+    setWorkingDirectionFork(null);
+    setSaveSuccessMessage("Working cut discarded. The source cut remains unchanged.");
+  };
+
+  const handleSaveWorkingDirectionFork = async () => {
+    if (!directionWorkingForkActive || !workingDirectionFork || !activeProject) return;
+    setSavingProject(true);
+    setSaveSuccessMessage("");
+    try {
+      const projectToSave = withFreshHyperframeScript(activeProject);
+      const request = buildEchoDirectionForkRequest(workingDirectionFork, projectToSave);
+      const response = await fetch(`${API_BASE}/api/echos/direction-variant/fork`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(request),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload.message || payload.error || "Failed to save the new direction cut.");
+      await fetchProjectDetail(projectToSave.song_id, payload.variant?.id || payload.id || "");
+      setWorkingDirectionFork(null);
+      setSelectedDirectionVariantId(payload.variant?.id || payload.id || "legacy");
+      setSaveSuccessMessage("New append-only direction cut saved. Legacy current and the source cut are unchanged.");
+    } catch (error) {
+      setSaveSuccessMessage(`Could not save the new cut: ${error.message || String(error)}`);
+    } finally {
+      setSavingProject(false);
+    }
+  };
+
   const handleSaveProject = async (activeProject) => {
+    if (directionWorkingForkActive) {
+      await handleSaveWorkingDirectionFork();
+      return;
+    }
+    if (directionVariantReadOnly) {
+      setSaveSuccessMessage("Append-only variant preview was not written. Switch to Legacy current to save edits.");
+      return;
+    }
     setSavingProject(true);
     setSaveSuccessMessage("");
     try {
@@ -1307,22 +2748,16 @@ function HapaEchosView({ selectedSongId, onSelectSong }) {
   }, []);
 
   useEffect(() => {
+    setSelectedDirectionVariantId("legacy");
+    setWorkingDirectionFork(null);
+  }, [selectedProjectSongId]);
+
+  useEffect(() => {
     if (!selectedProjectSongId || activeProjectHasDetail || loadingProjectDetail) return;
     fetchProjectDetail(selectedProjectSongId);
   }, [activeProjectHasDetail, loadingProjectDetail, selectedProjectSongId]);
 
-  const buildFreshProjectScript = (project) => generateHyperframesScriptClient(
-    project.song_id,
-    project.song_title,
-    project.duration,
-    project.timeline,
-    project.visualizer_timeline || [],
-    project.timed_lyrics,
-    project.lyric_variant || "phrase-window",
-    project.audio_id || project.registry_track_id || project.song_id,
-    project.lyric_position || "bottom-center",
-    project.lyric_style || "neon-cyan"
-  );
+  const buildFreshProjectScript = (project) => generateEchoHyperframeScript(project);
 
   const withFreshHyperframeScript = (project) => ({
     ...project,
@@ -1668,6 +3103,7 @@ function HapaEchosView({ selectedSongId, onSelectSong }) {
                         <option value="all">All Sources</option>
                         <option value="avatar_card">Avatar Cards</option>
                         <option value="scene">Scenes</option>
+                        <option value="system_media">System Media</option>
                       </select>
                       <select 
                         value={flowFilter}
@@ -1685,7 +3121,7 @@ function HapaEchosView({ selectedSongId, onSelectSong }) {
                       >
                         <option value="all">All Tags</option>
                         {uniqueTags.map(tag => (
-                          <option key={tag} value={tag}>{tag}</option>
+                          <option key={tag} value={tag}>{echoMediaTagLabel(tag)}</option>
                         ))}
                       </select>
                     </div>
@@ -1737,10 +3173,10 @@ function HapaEchosView({ selectedSongId, onSelectSong }) {
                               fontSize: '8px', 
                               padding: '0.5px 4px', 
                               borderRadius: '2px', 
-                              background: video.source === 'scene' ? 'rgba(236, 72, 153, 0.15)' : 'rgba(6, 182, 212, 0.15)', 
-                              color: video.source === 'scene' ? 'var(--hapa-neon-fuchsia)' : 'var(--hapa-neon-cyan)'
+                              background: video.source === 'scene' ? 'rgba(236, 72, 153, 0.15)' : video.source === 'system_media' ? 'rgba(16, 185, 129, 0.15)' : 'rgba(6, 182, 212, 0.15)',
+                              color: video.source === 'scene' ? 'var(--hapa-neon-fuchsia)' : video.source === 'system_media' ? '#6ee7b7' : 'var(--hapa-neon-cyan)'
                             }}>
-                              {video.source === 'scene' ? 'Scene' : 'Card'}
+                              {echoMediaSourceLabel(video)}
                             </span>
                           </div>
                           
@@ -1803,7 +3239,7 @@ function HapaEchosView({ selectedSongId, onSelectSong }) {
                           <div style={{ fontSize: '9px', opacity: 0.7, display: 'flex', gap: '8px', alignItems: 'center' }}>
                             <span><strong>ID:</strong> {selectedDetailVideo.id}</span>
                             <span>•</span>
-                            <span><strong>Source:</strong> {selectedDetailVideo.source === 'scene' ? '🎬 Scene' : '👤 Card'}</span>
+                            <span><strong>Source:</strong> {echoMediaSourceLabel(selectedDetailVideo)}</span>
                           </div>
                         </div>
                         <span style={{ 
@@ -2071,7 +3507,14 @@ function HapaEchosView({ selectedSongId, onSelectSong }) {
 
                 {/* Right Sub-column: Main Workspace Container */}
                 <div className="media-details-pane" style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', gap: '12px', overflowY: 'auto' }}>
-                  {(() => {
+                  <EchoPlaybackClockBoundary
+                    clockRef={currentTimeRef}
+                    initialTime={currentTime}
+                    active={isPlaying}
+                    powerMode={powerMode}
+                    project={activeProject}
+                  >
+                  {(currentTime) => {
                     if (!activeProject) {
                       return (
                         <div style={{ textAlign: 'center', padding: '20px', opacity: 0.5, fontSize: '12px' }}>
@@ -2088,11 +3531,16 @@ function HapaEchosView({ selectedSongId, onSelectSong }) {
                     }
 
                     // Synced current timeline items
-                    const playheadShotIndex = activeProject.timeline?.findIndex(item => currentTime >= item.start_sec && currentTime < item.end_sec);
+                    const engineOwnsProject = echoPlaybackSnapshot?.projectKey === String(activeProject.song_id || activeProject.id || activeProject.song_title || "");
+                    const playheadShotIndex = engineOwnsProject && echoPlaybackSnapshot.targetShotIndex >= 0
+                      ? echoPlaybackSnapshot.targetShotIndex
+                      : activeProject.timeline?.findIndex(item => currentTime >= item.start_sec && currentTime < item.end_sec);
                     const currentTimelineItem = playheadShotIndex !== -1 && playheadShotIndex !== undefined ? activeProject.timeline[playheadShotIndex] : activeProject.timeline?.[0];
+                    const lookaheadTimelineItems = activeProject.timeline?.slice(Math.max(0, playheadShotIndex) + 1, Math.max(0, playheadShotIndex) + 3) || [];
                     const activeTimelineItem = activeProject.timeline?.[selectedShotIndex] || activeProject.timeline?.[0];
                     const activeVisualizerItem = activeProject.visualizer_timeline?.[selectedVisualizerIndex] || activeProject.visualizer_timeline?.[0];
                     const currentLine = activeProject.timed_lyrics?.find(l => currentTime >= l.start && currentTime < l.end);
+                    const pendingPreviewProxyCount = activeProject.timeline?.filter((item) => item.media_contract?.type === "video" && item.media_contract?.proxy?.status !== "ready").length || 0;
 
                     const isVerticalVideo = (item) => {
                       if (!item) return false;
@@ -2164,6 +3612,10 @@ function HapaEchosView({ selectedSongId, onSelectSong }) {
                         setAudioDiagnostics("Audio is still loading, please wait...");
                         return;
                       }
+                      if (!isPlaying && shotMediaType(currentTimelineItem) === "video" && !previewBufferState.ready) {
+                        setAudioDiagnostics("Preview is decoding the current frame and lookahead window...");
+                        return;
+                      }
                       if (audioRef.current) {
                         if (isPlaying) {
                           audioRef.current.pause();
@@ -2200,6 +3652,7 @@ function HapaEchosView({ selectedSongId, onSelectSong }) {
                     const handleScrub = (e) => {
                       const newTime = parseFloat(e.target.value);
                       currentTimeRef.current = newTime;
+                      echoPlaybackEngineRef.current?.seek(newTime);
                       setCurrentTime(newTime);
                       if (audioRef.current) {
                         audioRef.current.currentTime = newTime;
@@ -2268,6 +3721,83 @@ function HapaEchosView({ selectedSongId, onSelectSong }) {
                             </div>
                           </div>
                           <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', minWidth: '210px' }}>
+                              <select
+                                aria-label="Direction script version"
+                                value={activeDirectionVariantSelection}
+                                disabled={loadingProjectDetail}
+                                onChange={async (event) => {
+                                  const nextVariantId = event.target.value;
+                                  setWorkingDirectionFork(null);
+                                  setCurrentTime(0);
+                                  currentTimeRef.current = 0;
+                                  if (audioRef.current) audioRef.current.currentTime = 0;
+                                  if (nextVariantId === "legacy") {
+                                    setSelectedDirectionVariantId("legacy");
+                                    return;
+                                  }
+                                  setEchoOperationNotice(`Loading ${nextVariantId}…`);
+                                  const detail = await fetchProjectDetail(selectedProjectSongId, nextVariantId);
+                                  const hydratedVariant = detail?.music_video_project?.direction_script_variants?.find((variant) => (
+                                    echoDirectionVariantId(variant) === nextVariantId && Array.isArray(variant.timeline)
+                                  ));
+                                  if (!hydratedVariant) {
+                                    setEchoOperationNotice(`Could not load ${nextVariantId}; Legacy current remains selected.`);
+                                    return;
+                                  }
+                                  setSelectedDirectionVariantId(nextVariantId);
+                                  setEchoOperationNotice(`${echoDirectionVariantTitle(hydratedVariant)} loaded.`);
+                                }}
+                                style={{
+                                  background: '#090d16',
+                                  border: directionVariantReadOnly ? '1px solid rgba(16, 185, 129, 0.55)' : '1px solid rgba(255,255,255,0.15)',
+                                  color: '#fff',
+                                  padding: '4px 8px',
+                                  borderRadius: '4px',
+                                  fontSize: '10px',
+                                  outline: 'none',
+                                  fontWeight: 'bold',
+                                  cursor: loadingProjectDetail ? 'wait' : 'pointer'
+                                }}
+                              >
+                                <option value="legacy">Legacy current · editable</option>
+                                {activeDirectionVariantGroups.map((group) => (
+                                  <optgroup key={group.id} label={group.label}>
+                                    {group.variants.map((variant) => {
+                                      const id = echoDirectionVariantId(variant);
+                                      return <option key={id} value={id}>{echoDirectionVariantOptionLabel(variant)}</option>;
+                                    })}
+                                  </optgroup>
+                                ))}
+                              </select>
+                              <span style={{ fontSize: '8px', color: directionVariantReadOnly ? '#6ee7b7' : '#94a3b8', textAlign: 'right' }}>
+                                {directionWorkingForkActive
+                                  ? 'Editable working cut · source and Legacy remain unchanged'
+                                  : directionVariantReadOnly
+                                    ? 'Append-only preview · legacy project unchanged'
+                                    : `${activeDirectionVariants.length} append-only variant${activeDirectionVariants.length === 1 ? '' : 's'} available`}
+                              </span>
+                            </div>
+                            {directionVariantReadOnly && (
+                              <button
+                                type="button"
+                                data-testid="echo-continue-direction-cut"
+                                onClick={handleContinueFromDirectionCut}
+                                style={{ background: 'rgba(157,116,255,.14)', border: '1px solid #9d74ff', color: '#d8c8ff', fontSize: '9px', padding: '4px 8px', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}
+                              >
+                                Continue from this cut
+                              </button>
+                            )}
+                            {directionWorkingForkActive && (
+                              <button
+                                type="button"
+                                data-testid="echo-cancel-direction-cut"
+                                onClick={handleCancelDirectionFork}
+                                style={{ background: 'transparent', border: '1px solid #64748b', color: '#cbd5e1', fontSize: '9px', padding: '4px 8px', borderRadius: '4px', cursor: 'pointer' }}
+                              >
+                                Cancel working cut
+                              </button>
+                            )}
                             <select
                               value={activeProject.lyric_variant || "phrase-window"}
                               onChange={(e) => {
@@ -2338,7 +3868,7 @@ function HapaEchosView({ selectedSongId, onSelectSong }) {
                             <button
                               type="button"
                               onClick={() => handleSaveProject(activeProject)}
-                              disabled={savingProject}
+                              disabled={savingProject || directionVariantReadOnly}
                               style={{
                                 background: 'rgba(16, 185, 129, 0.15)',
                                 border: '1px solid var(--hapa-neon-green)',
@@ -2350,7 +3880,13 @@ function HapaEchosView({ selectedSongId, onSelectSong }) {
                                 fontWeight: 'bold'
                               }}
                             >
-                              {savingProject ? "Saving..." : "💾 Save Changes"}
+                              {savingProject
+                                ? "Saving..."
+                                : directionWorkingForkActive
+                                  ? "Save as new cut"
+                                  : directionVariantReadOnly
+                                    ? "🔒 Variant Preview"
+                                    : "💾 Save Changes"}
                             </button>
                             <span style={{ 
                               fontSize: '9px', 
@@ -2422,7 +3958,7 @@ function HapaEchosView({ selectedSongId, onSelectSong }) {
                             
                             {/* Tabs select */}
                             <div style={{ display: 'flex', gap: '6px', background: 'rgba(0,0,0,0.2)', padding: '3px', borderRadius: '4px', border: '1px solid rgba(255,255,255,0.04)' }}>
-                              {['preview', 'script', 'edl', 'journal'].map(tab => (
+                              {['preview', 'tracks', 'variation', 'live', 'palmier', 'script', 'edl', 'journal'].map(tab => (
                                 <button
                                   key={tab}
                                   type="button"
@@ -2440,6 +3976,10 @@ function HapaEchosView({ selectedSongId, onSelectSong }) {
                                   }}
                                 >
                                   {tab === 'preview' && '📹 Preview'}
+                                  {tab === 'tracks' && '🎚 Tracks'}
+                                  {tab === 'variation' && '🧬 Variations'}
+                                  {tab === 'live' && '🎭 Live Set'}
+                                  {tab === 'palmier' && '✂️ Palmier'}
                                   {tab === 'script' && '📄 Script'}
                                   {tab === 'edl' && '📋 EDL Table'}
                                   {tab === 'journal' && '📓 Narrative'}
@@ -2464,13 +4004,17 @@ function HapaEchosView({ selectedSongId, onSelectSong }) {
                                 {/* Composition Preview Screen */}
                                 <div className="media-preview-container" data-export-aspect="1920x1080" style={{ position: 'relative', width: '100%', aspectRatio: '16 / 9', minHeight: '280px', maxHeight: 'min(56vh, 560px)', borderRadius: '6px', overflow: 'hidden', border: '1px solid rgba(255,255,255,0.12)', background: '#020617', boxShadow: '0 4px 20px rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                                   
-                                  {currentTimelineItem && currentTimelineItem.media_uri !== "" && (
-                                    <video
-                                      key={`${currentTimelineItem.media_id}-${currentTimelineItem.start_sec}`}
-                                      src={resolveMediaUri(currentTimelineItem.media_uri)}
-                                      muted
-                                      playsInline
-                                      autoPlay={isPlaying}
+                                  {currentTimelineItem && shotMediaType(currentTimelineItem) === "video" && (
+                                    <PersistentEchoABPlayers
+                                      shot={currentTimelineItem}
+                                      lookaheadShots={lookaheadTimelineItems}
+                                      playing={isPlaying}
+                                      songTime={currentTime}
+                                      onBufferState={setPreviewBufferState}
+                                      onPresentedMediaChange={handlePresentedMediaChange}
+                                      clockRef={currentTimeRef}
+                                      vertical={isVertical}
+                                      shotIndex={activeShotIndex}
                                       style={{
                                         width: '100%',
                                         height: '100%',
@@ -2480,20 +4024,23 @@ function HapaEchosView({ selectedSongId, onSelectSong }) {
                                         objectPosition: cameraPreviewStyle.objectPosition,
                                         transition: 'transform 0.045s linear, object-position 0.045s linear',
                                         willChange: 'transform, object-position',
-                                        opacity: previewOpacity
+                                        opacity: 1
                                       }}
-                                      ref={(el) => {
-                                        if (el) {
-                                          if (isPlaying) {
-                                            el.play().catch(() => {});
-                                          } else {
-                                            el.pause();
-                                          }
-                                          const expectedTime = currentTime - currentTimelineItem.start_sec;
-                                          if (Math.abs(el.currentTime - expectedTime) > 0.3) {
-                                            el.currentTime = Math.max(0, expectedTime);
-                                          }
-                                        }
+                                    />
+                                  )}
+                                  {currentTimelineItem && shotMediaType(currentTimelineItem) === "image" && (
+                                    <PresentedEchoImage
+                                      key={`${currentTimelineItem.media_id}-${currentTimelineItem.start_sec}`}
+                                      shot={currentTimelineItem}
+                                      onPresentedMediaChange={handlePresentedMediaChange}
+                                      style={{
+                                        width: '100%',
+                                        height: '100%',
+                                        objectFit: 'cover',
+                                        transform: cameraPreviewStyle.transform,
+                                        transformOrigin: cameraPreviewStyle.transformOrigin,
+                                        objectPosition: cameraPreviewStyle.objectPosition,
+                                        opacity: 1
                                       }}
                                     />
                                   )}
@@ -2532,6 +4079,84 @@ function HapaEchosView({ selectedSongId, onSelectSong }) {
                                     {currentTimelineItem && (
                                       <span style={{ fontSize: '8px', fontWeight: 'bold', padding: '2.5px 6px', background: 'rgba(6, 182, 212, 0.14)', borderRadius: '3px', color: 'var(--hapa-neon-cyan)', border: '1px solid rgba(6, 182, 212, 0.28)' }}>
                                         CAM {currentTimelineItem.camera_motion || "auto"} @{Number(currentTimelineItem.camera_speed ?? 1.35).toFixed(1)}x
+                                      </span>
+                                    )}
+                                    {exactIsfBindingDiagnostics.rendererTruth && (() => {
+                                      const truth = exactIsfBindingDiagnostics.rendererTruth;
+                                      const tone = rendererTruthColor(truth.status);
+                                      return (
+                                        <span
+                                          data-echo-renderer-truth={truth.status}
+                                          data-echo-renderer-requested-id={truth.requested?.id || ""}
+                                          data-echo-renderer-substitute-id={truth.substitute?.id || ""}
+                                          data-echo-renderer-reason={truth.reason || ""}
+                                          data-echo-renderer-silent-default={truth.silentDefault === true ? "true" : "false"}
+                                          title={JSON.stringify(truth)}
+                                          style={{ fontSize: '8px', fontWeight: 'bold', padding: '2.5px 6px', borderRadius: '3px', color: tone.color, background: tone.background, border: `1px solid ${tone.border}` }}
+                                        >
+                                          RENDER {String(truth.status).toUpperCase()} · {truth.requested?.id || "MISSING ID"}{truth.substitute?.id ? ` → ${truth.substitute.id}` : ""}
+                                        </span>
+                                      );
+                                    })()}
+                                    {activeProject?.director_show_graph && (
+                                      <span
+                                        data-echo-exact-isf-status={exactIsfStatus.status}
+                                        title={exactIsfStatus.error || exactIsfStatus.sourceId}
+                                        style={{
+                                          fontSize: '8px',
+                                          fontWeight: 'bold',
+                                          padding: '2.5px 6px',
+                                          background: exactIsfStatusIsFailure(exactIsfStatus.status) ? 'rgba(239,68,68,0.24)' : 'rgba(34,211,238,0.16)',
+                                          borderRadius: '3px',
+                                          color: exactIsfStatusIsFailure(exactIsfStatus.status) ? '#fecaca' : '#cffafe',
+                                          border: exactIsfStatusIsFailure(exactIsfStatus.status) ? '1px solid rgba(248,113,113,0.55)' : '1px solid rgba(34,211,238,0.38)'
+                                        }}
+                                      >
+                                        ISF {exactIsfStatus.status === "ready" ? "EXACT" : exactIsfStatus.status.toUpperCase()}
+                                      </span>
+                                    )}
+                                    {activeProject?.director_show_graph && exactIsfBindingDiagnostics.playbackPool && (
+                                      <span
+                                        data-echo-isf-handoff={exactIsfBindingDiagnostics.playbackPool.handoffStatus || "idle"}
+                                        data-echo-isf-current-shader={exactIsfBindingDiagnostics.playbackPool.currentShaderId || ""}
+                                        data-echo-isf-requested-shader={exactIsfBindingDiagnostics.playbackPool.requestedShaderId || ""}
+                                        data-echo-isf-prewarm-ready={exactIsfBindingDiagnostics.playbackPool.prewarmReadiness?.ready || 0}
+                                        data-echo-isf-contexts={exactIsfBindingDiagnostics.playbackPool.contextCount || 0}
+                                        data-echo-isf-programs={exactIsfBindingDiagnostics.playbackPool.programCount || 0}
+                                        data-echo-isf-source-cache={JSON.stringify(exactIsfBindingDiagnostics.playbackPool.sourceCache || {})}
+                                        data-echo-isf-black-intervals={exactIsfBindingDiagnostics.playbackPool.blackIntervals || 0}
+                                        data-echo-isf-frame-ms={Number(exactIsfBindingDiagnostics.playbackPool.frameTiming?.lastMs || 0).toFixed(2)}
+                                        title={JSON.stringify(exactIsfBindingDiagnostics.playbackPool)}
+                                        style={{ fontSize: '8px', fontWeight: 'bold', padding: '2.5px 6px', background: exactIsfBindingDiagnostics.playbackPool.blackIntervals > 0 ? 'rgba(239,68,68,0.24)' : 'rgba(16,185,129,0.15)', borderRadius: '3px', color: exactIsfBindingDiagnostics.playbackPool.blackIntervals > 0 ? '#fecaca' : '#bbf7d0', border: '1px solid rgba(255,255,255,0.18)' }}
+                                      >
+                                        POOL {String(exactIsfBindingDiagnostics.playbackPool.handoffStatus || "IDLE").toUpperCase()} · WARM {exactIsfBindingDiagnostics.playbackPool.prewarmReadiness?.ready || 0}/{exactIsfBindingDiagnostics.playbackPool.prewarmReadiness?.requested || 0} · GL {exactIsfBindingDiagnostics.playbackPool.contextCount || 0}/{exactIsfBindingDiagnostics.playbackPool.programCount || 0} · BLACK {exactIsfBindingDiagnostics.playbackPool.blackIntervals || 0} · {Number(exactIsfBindingDiagnostics.playbackPool.frameTiming?.lastMs || 0).toFixed(1)}MS
+                                      </span>
+                                    )}
+                                    {activeProject?.director_show_graph && (
+                                      <span
+                                        data-echo-isf-media-binding={exactIsfBindingDiagnostics.media?.status || "unavailable"}
+                                        title={JSON.stringify(exactIsfBindingDiagnostics.media || {})}
+                                        style={{ fontSize: '8px', fontWeight: 'bold', padding: '2.5px 6px', background: exactIsfBindingDiagnostics.media?.status === 'presented' ? 'rgba(16,185,129,0.16)' : 'rgba(246,201,109,0.15)', borderRadius: '3px', color: exactIsfBindingDiagnostics.media?.status === 'presented' ? '#bbf7d0' : '#fde68a', border: '1px solid rgba(255,255,255,0.18)' }}
+                                      >
+                                        MEDIA {exactIsfBindingDiagnostics.media?.status === "presented" ? String(exactIsfBindingDiagnostics.media?.kind || "LIVE").toUpperCase() : "NONE"}
+                                      </span>
+                                    )}
+                                    {activeProject?.director_show_graph && (
+                                      <span
+                                        data-echo-isf-stem-binding={exactIsfBindingDiagnostics.stem?.status || "master"}
+                                        title={JSON.stringify(exactIsfBindingDiagnostics.stem || {})}
+                                        style={{ fontSize: '8px', fontWeight: 'bold', padding: '2.5px 6px', background: exactIsfBindingDiagnostics.stem?.status === 'ready' ? 'rgba(168,85,247,0.18)' : 'rgba(71,85,105,0.36)', borderRadius: '3px', color: exactIsfBindingDiagnostics.stem?.status === 'ready' ? '#e9d5ff' : '#cbd5e1', border: '1px solid rgba(255,255,255,0.18)' }}
+                                      >
+                                        STEM {String(exactIsfBindingDiagnostics.stem?.resolvedStem || "MASTER").toUpperCase()}
+                                      </span>
+                                    )}
+                                    {activeProject?.director_show_graph && (
+                                      <span
+                                        data-echo-isf-frame-receipt={exactIsfBindingDiagnostics.frameReceipt?.receiptHash || "pending"}
+                                        title={JSON.stringify(exactIsfBindingDiagnostics.frameReceipt || {})}
+                                        style={{ fontSize: '8px', fontWeight: 'bold', padding: '2.5px 6px', background: 'rgba(6,182,212,0.12)', borderRadius: '3px', color: '#a5f3fc', border: '1px solid rgba(34,211,238,0.3)' }}
+                                      >
+                                        FRAME {exactIsfBindingDiagnostics.frameReceipt?.receiptHash ? String(exactIsfBindingDiagnostics.frameReceipt.receiptHash).slice(-8).toUpperCase() : "WAIT"}
                                       </span>
                                     )}
                                   </div>
@@ -2777,11 +4402,11 @@ function HapaEchosView({ selectedSongId, onSelectSong }) {
                                   <button 
                                     type="button"
                                     onClick={handlePlayPause}
-                                    disabled={audioLoading}
+                                    disabled={audioLoading || (!isPlaying && shotMediaType(currentTimelineItem) === "video" && !previewBufferState.ready)}
                                     style={{
-                                      background: audioLoading ? 'rgba(255, 255, 255, 0.05)' : (isPlaying ? 'rgba(239, 68, 68, 0.15)' : 'rgba(16, 185, 129, 0.15)'),
-                                      border: audioLoading ? '1px solid rgba(255, 255, 255, 0.1)' : (isPlaying ? '1px solid var(--hapa-neon-red)' : '1px solid var(--hapa-neon-green)'),
-                                      color: audioLoading ? '#888' : (isPlaying ? 'var(--hapa-neon-red)' : 'var(--hapa-neon-green)'),
+                                      background: audioLoading || (!isPlaying && shotMediaType(currentTimelineItem) === "video" && !previewBufferState.ready) ? 'rgba(255, 255, 255, 0.05)' : (isPlaying ? 'rgba(239, 68, 68, 0.15)' : 'rgba(16, 185, 129, 0.15)'),
+                                      border: audioLoading || (!isPlaying && shotMediaType(currentTimelineItem) === "video" && !previewBufferState.ready) ? '1px solid rgba(255, 255, 255, 0.1)' : (isPlaying ? '1px solid var(--hapa-neon-red)' : '1px solid var(--hapa-neon-green)'),
+                                      color: audioLoading || (!isPlaying && shotMediaType(currentTimelineItem) === "video" && !previewBufferState.ready) ? '#888' : (isPlaying ? 'var(--hapa-neon-red)' : 'var(--hapa-neon-green)'),
                                       padding: '5px 12px',
                                       fontSize: '10px',
                                       fontWeight: 'bold',
@@ -2793,8 +4418,16 @@ function HapaEchosView({ selectedSongId, onSelectSong }) {
                                       flexShrink: 0
                                     }}
                                   >
-                                    {audioLoading ? "⏳ Loading..." : (isPlaying ? "⏸ Pause" : "▶ Play Show")}
+                                    {audioLoading ? "⏳ Audio..." : (!isPlaying && shotMediaType(currentTimelineItem) === "video" && !previewBufferState.ready ? "⏳ Buffering video..." : (isPlaying ? "⏸ Pause" : "▶ Play Show"))}
                                   </button>
+                                  <span style={{ fontFamily: 'monospace', fontSize: '9px', color: previewBufferState.status === 'fallback' ? 'var(--hapa-neon-gold)' : 'var(--hapa-neon-cyan)', flexShrink: 0 }}>
+                                    {previewBufferState.status.toUpperCase()} · {previewBufferState.readyLookahead || 0}/{previewBufferState.targetLookahead || 0} AHEAD
+                                  </span>
+                                  {pendingPreviewProxyCount > 0 && (
+                                    <button type="button" onClick={prepareSmoothPreview} disabled={["queued", "running"].includes(previewPreparation.status)} style={{ background: 'rgba(168,85,247,.16)', border: '1px solid var(--hapa-neon-violet)', color: 'var(--hapa-neon-violet)', padding: '5px 9px', fontSize: '9px', fontWeight: 'bold', borderRadius: '4px', cursor: ["queued", "running"].includes(previewPreparation.status) ? 'wait' : 'pointer', flexShrink: 0 }}>
+                                      {previewPreparation.status === "queued" ? `QUEUED ${pendingPreviewProxyCount} PROXIES…` : previewPreparation.status === "running" ? `COMPILING ${pendingPreviewProxyCount} PROXIES…` : `COMPILE SMOOTH PREVIEW (${pendingPreviewProxyCount})`}
+                                    </button>
+                                  )}
                                   
                                   <input 
                                     type="range" 
@@ -2878,7 +4511,13 @@ function HapaEchosView({ selectedSongId, onSelectSong }) {
                             {activeWorkbenchTab === "script" && (
                               <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                  <span style={{ fontSize: '9px', opacity: 0.7 }}>HyperFrames HTML video composition script.</span>
+                                  <span style={{ fontSize: '9px', opacity: 0.7 }}>
+                                    {directionWorkingForkActive
+                                      ? `Editable working cut from ${echoDirectionVariantTitle(activeDirectionVariant)}. Saving creates a new append-only cut.`
+                                      : directionVariantReadOnly
+                                        ? `Append-only HyperFrames variant: ${echoDirectionVariantTitle(activeDirectionVariant)}. Legacy script remains unchanged.`
+                                        : 'Legacy current HyperFrames HTML video composition script.'}
+                                  </span>
                                   <button 
                                     type="button"
                                     onClick={handleCopyScript}
@@ -2914,6 +4553,58 @@ function HapaEchosView({ selectedSongId, onSelectSong }) {
                                     : activeProject.hyperframe_script)}
                                 </div>
                               </div>
+                            )}
+
+                            {activeWorkbenchTab === "variation" && (
+                              <>
+                                <VariationLabPanel
+                                  project={activeProject}
+                                  onPromote={(patch) => handleUpdateProjectSettings({
+                                    variation_lab_promotion: patch,
+                                    director_patch_lineage: {
+                                      ...(activeProject.director_patch_lineage || {}),
+                                      parentTreatmentId: patch.parentTreatmentId,
+                                      parentCueGraphId: patch.parentCueGraphId,
+                                      promotedPatchHash: patch.patchHash,
+                                      nonDestructive: true
+                                    }
+                                  })}
+                                />
+                                <TasteMemoryPanel memory={activeProject.human_taste_memory} onChange={(memory) => handleUpdateProjectSettings({ human_taste_memory: memory })} />
+                              </>
+                            )}
+
+                            {activeWorkbenchTab === "tracks" && (
+                              <>
+                                <MultitrackDirectorEditor
+                                  project={activeProject}
+                                  showGraph={activeProject.director_show_graph || null}
+                                  onPatch={(patch) => handleUpdateProjectSettings({
+                                    director_show_graph_patches: [...(activeProject.director_show_graph_patches || []), patch],
+                                    director_patch_lineage: {
+                                      ...(activeProject.director_patch_lineage || {}),
+                                      lastDirtyRange: patch.dirtyRange,
+                                      patchCount: Number(activeProject.director_patch_lineage?.patchCount || 0) + 1
+                                    }
+                                  })}
+                                />
+                                <div style={{ marginTop: 8 }}>
+                                  <SongCardMintPanel
+                                    compact
+                                    songId={activeProject.registry_track_id || activeProject.audio_id || activeProject.song_id}
+                                    project={activeProject}
+                                    showGraph={activeProject.director_show_graph || null}
+                                  />
+                                </div>
+                              </>
+                            )}
+
+                            {activeWorkbenchTab === "palmier" && (
+                              <PalmierRoundTripPanel project={activeProject} />
+                            )}
+
+                            {activeWorkbenchTab === "live" && (
+                              <AlbumLiveSetPanel liveSet={activeProject.album_live_set || { schemaVersion: "hapa.showcase.album-live-set.v1", setHash: "not-loaded", entries: [], modes: { audience: { diagnostics: false }, operator: { diagnostics: true } } }} />
                             )}
 
                             {activeWorkbenchTab === "edl" && (
@@ -3028,6 +4719,14 @@ function HapaEchosView({ selectedSongId, onSelectSong }) {
                             {activeTrackTab === "video" ? (
                               activeTimelineItem ? (
                                 <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', fontSize: '11px' }}>
+                                  <ShotDecisionInspectorPanel
+                                    shot={activeTimelineItem}
+                                    onReview={(review) => {
+                                      const result = appendShotPreferenceEvent(activeProject.shot_preference_events || [], { ...review, operator: "local-human" });
+                                      const tasteMemory = appendTasteEvidence(activeProject.human_taste_memory?.schemaVersion ? activeProject.human_taste_memory : createTasteMemory(), { scope: "shot", scopeId: review.inspector.shotId, actionEventId: result.event.id, action: review.action, operator: "local-human", feature: `media:${review.targetMediaId || review.inspector.selectedMedia.id}`, targetId: review.targetMediaId || review.inspector.selectedMedia.id, recordedAt: result.event.recordedAt });
+                                      handleUpdateProjectSettings({ shot_preference_events: result.events, last_shot_preference_event: result.event, human_taste_memory: tasteMemory });
+                                    }}
+                                  />
                                   
                                   {/* Video Asset Selector */}
                                   <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
@@ -3098,7 +4797,7 @@ function HapaEchosView({ selectedSongId, onSelectSong }) {
                                             >
                                               <strong style={{ display: 'block', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', fontSize: '12.5px', marginBottom: '4px' }}>{video.title}</strong>
                                               <span style={{ display: 'block', opacity: 0.72, color: selected ? '#a5f3fc' : '#cbd5e1', fontSize: '10.5px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                                                {video.source} | {video.flowType || "untyped"} | {video.duration !== null ? `${Number(video.duration).toFixed(1)}s` : "loop"}
+                                                {echoMediaSourceLabel(video)} | {video.flowType || "untyped"} | {video.duration !== null ? `${Number(video.duration).toFixed(1)}s` : "loop"}
                                               </span>
                                             </button>
                                           );
@@ -3174,9 +4873,15 @@ function HapaEchosView({ selectedSongId, onSelectSong }) {
 
                                   {/* Active Stems Toggles */}
                                   <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                                    <label style={{ fontWeight: 'bold', color: '#ccc' }}>Active Audio Stems:</label>
+                                    <label style={{ fontWeight: 'bold', color: '#ccc' }}>{activeUsesAudioFallback ? 'Audio fallback profile:' : 'Active Audio Stems:'}</label>
+                                    {activeUsesAudioFallback ? (
+                                      <div data-testid="echo-audio-fallback-upgrade" style={{ padding: '7px 8px', border: '1px solid rgba(246,201,109,0.38)', background: 'rgba(246,201,109,0.08)', color: '#f8e2a7', fontSize: '9px', lineHeight: 1.45 }}>
+                                        <strong>No isolated stems claimed.</strong> This cut uses deterministic master-mix/section-energy, lyric-density, and manual-cue controls only.
+                                        <div style={{ marginTop: '4px', color: '#cbd5e1' }}>Upgrade: attach registry-linked stems or stronger timing, run offline telemetry, then recompile. Media locks and manual cues stay intact.</div>
+                                      </div>
+                                    ) : (
                                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
-                                      {["Vocals", "Bass", "Guitar", "Drums", "Backing Vocals"].map(stem => {
+                                      {activeIsolatedStems.map(stem => {
                                         const isChecked = activeTimelineItem.active_stems?.includes(stem);
                                         return (
                                           <button
@@ -3205,6 +4910,7 @@ function HapaEchosView({ selectedSongId, onSelectSong }) {
                                         );
                                       })}
                                     </div>
+                                    )}
                                   </div>
 
                                   {/* Rationale Text Area */}
@@ -3231,8 +4937,22 @@ function HapaEchosView({ selectedSongId, onSelectSong }) {
                                       type="search"
                                       value={shaderPickerQuery}
                                       onChange={(event) => setShaderPickerQuery(event.target.value)}
-                                      placeholder="Search shader name, id, type..."
+                                      placeholder="Search shader name, id, type, manifest category..."
                                       style={{ background: '#050b14', border: '1px solid rgba(16,185,129,0.35)', color: '#fff', padding: '9px 10px', borderRadius: '4px', fontSize: '12px', width: '100%', outline: 'none', minHeight: '36px' }}
+                                    />
+                                    <select
+                                      aria-label="Shader manifest category"
+                                      value={shaderCategoryFilter}
+                                      onChange={(event) => setShaderCategoryFilter(event.target.value)}
+                                      style={{ background: '#050b14', border: '1px solid rgba(34,211,238,0.3)', color: '#e2e8f0', padding: '8px 10px', borderRadius: '4px', fontSize: '11px', width: '100%', outline: 'none' }}
+                                    >
+                                      <option value="all">All manifest categories</option>
+                                      {shaderPickerCategories.map((category) => (
+                                        <option key={category} value={category}>{category}</option>
+                                      ))}
+                                    </select>
+                                    <EchoShaderSourcePreview
+                                      shader={availableShaders.find((shader) => shader.id === activeVisualizerItem.visualizer_id) || null}
                                     />
                                     <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '8px', maxHeight: '286px', overflowY: 'auto', border: '1px solid rgba(16,185,129,0.22)', borderRadius: '5px', background: 'rgba(1,7,14,0.72)', padding: '8px' }}>
                                       <button
@@ -3260,6 +4980,10 @@ function HapaEchosView({ selectedSongId, onSelectSong }) {
                                       </button>
                                       {filteredShaderOptions.map((shader) => {
                                         const selected = activeVisualizerItem.visualizer_id === shader.id;
+                                        const categories = shader.categories || [];
+                                        const statusLabel = selected
+                                          ? shader.manifestEligible ? "LIVE SOURCE PREVIEW" : "LEGACY APPROXIMATION"
+                                          : shader.manifestEligible ? "HASHED SOURCE" : "LEGACY APPROXIMATION";
                                         return (
                                           <button
                                             key={shader.id}
@@ -3285,6 +5009,12 @@ function HapaEchosView({ selectedSongId, onSelectSong }) {
                                           >
                                             <strong style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: '12.5px', color: selected ? '#d8ffe9' : '#ffffff', marginBottom: '3px' }}>{shader.title || shader.id}</strong>
                                             <span style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: '#9fb3c8', fontSize: '10.5px' }}>{shader.shaderType || "shader"} | {shader.id}</span>
+                                            <span style={{ display: 'flex', gap: '5px', flexWrap: 'wrap', alignItems: 'center', marginTop: '6px' }}>
+                                              <span data-echo-shader-readiness={shader.readiness} style={{ color: shader.manifestEligible ? '#86efac' : '#fde68a', fontSize: '8.5px', fontWeight: 'bold' }}>{statusLabel}</span>
+                                              {categories.map((category) => (
+                                                <span key={category} style={{ color: '#bae6fd', border: '1px solid rgba(56,189,248,.26)', borderRadius: '3px', padding: '1px 4px', fontSize: '8px' }}>{category}</span>
+                                              ))}
+                                            </span>
                                           </button>
                                         );
                                       })}
@@ -3295,7 +5025,7 @@ function HapaEchosView({ selectedSongId, onSelectSong }) {
                                       )}
                                     </div>
                                     <span style={{ fontSize: '10px', opacity: 0.78, color: '#a7f3d0' }}>
-                                      Showing {filteredShaderOptions.length} of {availableShaders.length} shaders.
+                                      Showing all {filteredShaderOptions.length} matching entries · {availableShaders.filter((shader) => echoShaderPickerEntry(shader).manifestEligible).length} exact manifest shaders available · no result cap.
                                     </span>
                                   </div>
 
@@ -3478,6 +5208,14 @@ function HapaEchosView({ selectedSongId, onSelectSong }) {
                               const blockLeftPct = (vis.start_sec / activeProject.duration) * 100;
                               const isSelected = activeTrackTab === "shader" && selectedVisualizerIndex === idx;
                               const hasShader = vis.visualizer_id !== "none";
+                              const graphCard = activeProject.director_show_graph
+                                ? visualizerLookaheadCards(activeProject.director_show_graph, Number(vis.start_sec || 0) + 0.0001, 1)[0] || null
+                                : null;
+                              const truthBundle = graphCard
+                                ? exactEchoRendererTruth(graphCard, { status: "declared" }, "echo-avatar-builder")
+                                : legacyEchoRendererTruth(vis, "echo-avatar-builder");
+                              const rendererTruth = truthBundle?.truth || null;
+                              const rendererTone = rendererTruthColor(rendererTruth?.status || "unsupported");
                               
                               const blockColor = isSelected 
                                 ? 'rgba(16, 185, 129, 0.25)' 
@@ -3520,7 +5258,12 @@ function HapaEchosView({ selectedSongId, onSelectSong }) {
                                     transition: 'all 0.15s ease',
                                     zIndex: 2
                                   }}
-                                  title={`Shader ${idx+1} [${vis.start_sec}s - ${vis.end_sec}s]: ${vis.visualizer_title}`}
+                                  data-echo-timeline-renderer-truth={rendererTruth?.status || (hasShader ? "unsupported" : "pass-through")}
+                                  data-echo-timeline-requested-id={rendererTruth?.requested?.id || vis.visualizer_id || ""}
+                                  data-echo-timeline-substitute-id={rendererTruth?.substitute?.id || ""}
+                                  title={rendererTruth
+                                    ? JSON.stringify(rendererTruth)
+                                    : `Shader ${idx+1} [${vis.start_sec}s - ${vis.end_sec}s]: Pass-through`}
                                 >
                                   <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '7.5px', fontWeight: 'bold', color: isSelected ? 'var(--hapa-neon-green)' : '#aaa', textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }}>
                                     <span>V{idx+1}</span>
@@ -3529,6 +5272,11 @@ function HapaEchosView({ selectedSongId, onSelectSong }) {
                                   <div style={{ fontSize: '7px', opacity: 0.8, textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap', marginTop: '1px', color: hasShader ? 'var(--hapa-neon-gold)' : '#666' }}>
                                     {hasShader ? `🎛️ ${vis.visualizer_title}` : `❌ Pass-through`}
                                   </div>
+                                  {rendererTruth && (
+                                    <div style={{ fontSize: '6px', fontWeight: 'bold', color: rendererTone.color, textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }}>
+                                      {rendererTruth.status.toUpperCase()}{rendererTruth.substitute?.id ? ` → ${rendererTruth.substitute.id}` : ""}
+                                    </div>
+                                  )}
                                 </div>
                               );
                             })}
@@ -3537,7 +5285,8 @@ function HapaEchosView({ selectedSongId, onSelectSong }) {
 
                       </div>
                     );
-                  })()}
+                  }}
+                  </EchoPlaybackClockBoundary>
                 </div>
 
               </div>
@@ -3547,77 +5296,6 @@ function HapaEchosView({ selectedSongId, onSelectSong }) {
       </div>
     </section>
   );
-}
-
-function generateHyperframesScriptClient(songId, songTitle, duration, timeline, visualizerTimeline, timedLyrics, lyricVariant, audioId = songId, lyricPosition = "bottom-center", lyricStyle = "neon-cyan") {
-  let html = `<!-- Hapa x HyperFrames Video Project Script -->\n`;
-  html += `<!-- Song: ${songTitle} (${songId}) -->\n`;
-  html += `<!-- Duration: ${duration} seconds -->\n\n`;
-  html += `<div class="hyperframe-video-composition"\n`;
-  html += `     data-width="1920"\n`;
-  html += `     data-height="1080"\n`;
-  html += `     data-duration="${duration}"\n`;
-  html += `     style="width: 1920px; height: 1080px; position: relative; background: #020617; overflow: hidden;">\n\n`;
-  
-  html += `  <!-- Canonical Audio Track -->\n`;
-  html += `  <audio src="/api/song-registry/audio/${encodeURIComponent(audioId)}"\n`;
-  html += `         data-start="0"\n`;
-  html += `         data-volume="1.0"></audio>\n\n`;
-  
-  html += `  <!-- Embed Lyric Timings -->\n`;
-  html += `  <script>\n`;
-  html += `    window.HAPA_LYRIC_TIMING = ${JSON.stringify({ lines: timedLyrics }, null, 2).split("\n").join("\n    ")};\n`;
-  html += `  </script>\n\n`;
-  
-  html += `  <!-- Directed Shot Timeline -->\n`;
-  (timeline || []).forEach((shot, idx) => {
-    const isVideo = shot.media_id !== "none";
-    html += `  <!-- Section: ${shot.section_label} (Shot ${shot.shot_index + 1}) -->\n`;
-    if (isVideo) {
-      html += `  <video id="shot-${idx + 1}"\n`;
-      html += `         src="${shot.media_uri}"\n`;
-      html += `         data-start="${shot.start_sec}"\n`;
-      html += `         data-duration="${(shot.end_sec - shot.start_sec).toFixed(1)}"\n`;
-      html += `         data-transition="${shot.transition}"\n`;
-      html += `         data-stems="${(shot.active_stems || []).join(",")}"\n`;
-      html += `         data-camera-motion="${shot.camera_motion || "auto"}"\n`;
-      html += `         data-camera-intensity="${Number(shot.camera_intensity ?? 1).toFixed(1)}"\n`;
-      html += `         data-camera-speed="${Number(shot.camera_speed ?? 1.35).toFixed(2)}"\n`;
-      html += `         muted playsinline style="width: 100%; height: 100%; object-fit: cover; position: absolute; top: 0; left: 0;"></video>\n`;
-    } else {
-      html += `  <div id="shot-${idx + 1}"\n`;
-      html += `       data-composition-id="hapa-empty-shot"\n`;
-      html += `       data-start="${shot.start_sec}"\n`;
-      html += `       data-duration="${(shot.end_sec - shot.start_sec).toFixed(1)}"\n`;
-      html += `       data-transition="${shot.transition}"\n`;
-      html += `       data-stems="${(shot.active_stems || []).join(",")}"\n`;
-      html += `       style="width: 100%; height: 100%; position: absolute; top: 0; left: 0; background: #000;"></div>\n`;
-    }
-  });
-
-  html += `\n  <!-- Parallel Visualizer Shader Timeline -->\n`;
-  (visualizerTimeline || []).forEach((vis, idx) => {
-    html += `  <div id="vis-${idx + 1}"\n`;
-    html += `       data-composition-id="hapa-visualizer"\n`;
-    html += `       data-start="${vis.start_sec}"\n`;
-    html += `       data-duration="${(vis.end_sec - vis.start_sec).toFixed(1)}"\n`;
-    html += `       data-transition="${vis.transition}"\n`;
-    html += `       data-shader-id="${vis.visualizer_id}"\n`;
-    html += `       style="width: 100%; height: 100%; position: absolute; top: 0; left: 0; pointer-events: none; z-index: 2;"></div>\n`;
-  });
-  
-  html += `\n  <!-- Lyric Typography Layer -->\n`;
-  html += `  <div class="hapa-lyric-layer"\n`;
-  html += `       data-composition-id="hapa-lyric-layer"\n`;
-  html += `       data-start="0"\n`;
-  html += `       data-duration="${duration}"\n`;
-  html += `       data-variant="${lyricVariant || "phrase-window"}"\n`;
-  html += `       data-position="${lyricPosition || "bottom-center"}"\n`;
-  html += `       data-style="${lyricStyle || "neon-cyan"}"\n`;
-  html += `       style="position: absolute; bottom: 80px; width: 100%; text-align: center; z-index: 10;"></div>\n`;
-  
-  html += `</div>\n`;
-  return html;
 }
 
 export default HapaEchosView;

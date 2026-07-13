@@ -1,14 +1,27 @@
 {
   "schemaVersion": "hapa.node.v1",
   "id": "hapa-avatar-builder",
+  "aliases": ["hapa-app-hapa-avatar-builder", "Hapa Avatar Builder"],
   "name": "Hapa Avatar Builder",
   "status": "local-first-canonical",
+  "surfaceParity": {
+    "verifiedAt": "2026-07-11",
+    "canonicalId": "hapa-avatar-builder",
+    "api": true,
+    "cli": true,
+    "ui": true,
+    "desktop": true,
+    "package": true,
+    "docs": true,
+    "evidence": "docs/API_CLI_UI_PARITY.md"
+  },
   "role": "Avatar Card builder, media healing workbench, Tarot Library manager, and 3D Tarot Draw operator app",
   "localRoot": "/Users/calderwong/Documents/Codex/2026-06-10/files-mentioned-by-the-user-screenshot/outputs/hapa-avatar-builder",
   "desktopAlias": "/Users/calderwong/Desktop/hapa-avatar-builder",
   "defaultPorts": {
     "api": 8787,
-    "vite": 5178
+    "vite": 5178,
+    "desktopStatic": 8797
   },
   "launch": {
     "cwd": "/Users/calderwong/Documents/Codex/2026-06-10/files-mentioned-by-the-user-screenshot/outputs/hapa-avatar-builder",
@@ -28,29 +41,52 @@
     "Media / Embodiment",
     "Memory / Lore / Provenance",
     "Name / Identity",
-    "Songs / Tarot / Scene Attach Packs"
+    "Songs / Tarot / Scene Attach Packs",
+    "Immutable Song Card Minting / Edition History / Timestamp Card Printing",
+    "Canonical Overwind Card Origin Outbox",
+    "Overwind acknowledged Card subscriber",
+    "Universal Overcard consumer: Hand / Deck / Placement / Formation / Responsibility"
   ],
   "interfaces": {
     "apiHealth": "http://127.0.0.1:8787/api/health",
-    "apiCapabilities": "README.md",
+    "apiCapabilities": "http://127.0.0.1:8787/api/overcard/capabilities",
     "cli": "npm run cli -- --help",
-    "ui": "http://127.0.0.1:5178"
+    "ui": "http://127.0.0.1:5178",
+    "cardOriginStatus": "http://127.0.0.1:8787/api/overwind/card-origin/status",
+    "cardOriginSync": "http://127.0.0.1:8787/api/overwind/card-origin/sync",
+    "legacyHistoryMigration": "http://127.0.0.1:8787/api/overwind/card-origin/migrate-legacy",
+    "cardSubscriberTruth": "http://127.0.0.1:8788/v1/cards",
+    "overcardHostTargets": "http://127.0.0.1:8787/api/overcard/host-targets",
+    "overcardProcessAdapters": "http://127.0.0.1:8787/api/overcard/process-adapters",
+    "songCardHeads": "http://127.0.0.1:8787/api/song-cards",
+    "songCardMintCli": "npm run song-card -- --help"
   },
+  "requiredNodes": [
+    "hapa-overcard",
+    "hapa-overwind-node"
+  ],
+  "optionalNodes": [
+    "hapa-dev-proto"
+  ],
+  "overcardAdapter": "overcard-adapter.json",
   "runtimeData": {
     "avatarStore": "data/avatar-store.json",
     "sceneStore": "data/scene-store.json",
     "tarotStore": "data/tarot-store.json",
     "mediaLibrary": "data/media-library.json",
-    "mediaDir": "data/media"
+    "mediaDir": "data/media",
+    "cardOriginOutbox": "data/overwind/origin-outbox.sqlite3",
+    "songCardMintLedger": "data/song-card-mints"
   },
   "subscribers": [
-    "hapa-atlas",
-    "hapa-second-brain",
-    "hapa-worldbuilding-wiki",
+    "hapa-overwind-node",
     "hapa-song-registry",
     "hapa-music-viz"
   ],
   "notes": [
+    "Ports 8787 and 8797 are roles of the same canonical service identity, not separate Card populations.",
+    "Overwind Postgres is acknowledged Card subscriber truth; Redis and Elasticsearch are rebuildable serving projections. Legacy Atlas, Second Brain, and Wiki fan-out files are audit-only, not canonical replication.",
+    "The API and dedicated desktop launcher bind loopback by default; privileged Card-origin operations require bearer auth.",
     "This node became canonical after merging the Pinokio app data back into the 3D Tarot Draw build.",
     "As of 2026-06-23 the canonical app also includes the Tarot Library management surface from the Pinokio branch.",
     "The Desktop Finder wrapper should resolve to /Users/calderwong/Desktop/hapa-avatar-builder/Hapa Avatar Builder.app.",

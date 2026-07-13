@@ -41,20 +41,36 @@ test("compiled music video projects are valid and structurally sound", () => {
     assert.ok(["neon-cyan", "magenta-glow", "gold-caption", "paper-white", "minimal-subtitle"].includes(proj.lyric_style || "neon-cyan"), `${file} invalid lyric_style: ${proj.lyric_style}`);
     if (Array.isArray(proj.timed_lyrics) && proj.timed_lyrics.length > 0) {
       const finalLyric = proj.timed_lyrics[proj.timed_lyrics.length - 1];
-      const isExactTiming = proj.lyric_timing_heal?.timingSource === "dear-papa-playlist-lyric-timing"
+      const exactSourceClaim = proj.lyric_timing_heal?.timingSource === "dear-papa-playlist-lyric-timing"
         || proj.song_edit_map?.provenance?.lyricTimingSource === "dear-papa-playlist-lyric-timing";
-      if (isExactTiming) {
-        assert.ok(finalLyric.end <= proj.duration + 0.1, `${file} exact timed lyrics must stay inside song duration`);
-        assert.ok(finalLyric.end >= proj.duration * 0.9, `${file} exact lyric timing sidecar must cover the later song arc; otherwise use synthetic full-song heal`);
-        assert.ok(proj.timed_lyrics.every((line) => Number.isFinite(Number(line.start)) && Number.isFinite(Number(line.end)) && line.end >= line.start), `${file} exact timed lyrics must preserve numeric start/end timing`);
-        assert.ok(proj.lyric_timing_heal?.timingPath || proj.song_edit_map?.provenance?.lyricTimingPath, `${file} exact timed lyrics must keep timing sidecar path provenance`);
+      const timingSourcePath = proj.lyric_timing_heal?.timingPath || proj.song_edit_map?.provenance?.lyricTimingPath || "";
+      const isSourceTiming = exactSourceClaim && Boolean(timingSourcePath);
+      if (exactSourceClaim) {
+        assert.ok(timingSourcePath, `${file} exact timed lyrics must keep timing sidecar path provenance`);
+      }
+      if (isSourceTiming) {
+        assert.ok(finalLyric.end <= proj.duration + 0.1, `${file} source timed lyrics must stay inside song duration`);
+        assert.ok(proj.timed_lyrics.every((line) => Number.isFinite(Number(line.start)) && Number.isFinite(Number(line.end)) && line.end >= line.start), `${file} source timed lyrics must preserve numeric start/end timing`);
         const expectedRegistryTrackId = proj.registry_track_id || proj.audio_id || "";
         const timingRegistryTrackId = proj.lyric_timing_heal?.registryTrackId || proj.song_edit_map?.provenance?.lyricTimingRegistryTrackId || "";
-        assert.equal(timingRegistryTrackId, expectedRegistryTrackId, `${file} exact lyric timing must match the project registry track`);
+        assert.equal(timingRegistryTrackId, expectedRegistryTrackId, `${file} source lyric timing must match the project registry track`);
+        const sourceHash = proj.lyric_timing_truth?.timingSourceSha256 || proj.lyric_timing_heal?.timingSourceSha256 || "";
+        const activeHash = proj.lyric_timing_truth?.activeTimingSha256 || proj.lyric_timing_heal?.activeTimingSha256 || "";
+        assert.ok(sourceHash, `${file} source lyric timing must retain a content hash`);
+        assert.equal(activeHash, sourceHash, `${file} active lyric timing bytes must match the cited source bytes`);
+        const alignmentTruth = proj.lyric_timing_truth?.status || proj.lyric_timing_truth?.qualityStatus || "";
+        assert.ok(
+          ["verified_source_content", "source_aligned_needs_review", "source-aligned", "source-aligned-needs-review"].includes(alignmentTruth),
+          `${file} source lyric timing must expose its alignment-quality truth instead of claiming full-song coverage`
+        );
       } else {
         assert.ok(finalLyric.end >= proj.duration * 0.9, `${file} timed lyrics should cover the later song arc`);
         const maxWords = Math.max(...proj.timed_lyrics.map((line) => String(line.text || "").split(/\s+/).filter(Boolean).length));
         assert.ok(maxWords <= 10, `${file} lyric lines should be phrase-sized after timing heal`);
+        if (proj.lyric_timing_truth) {
+          assert.equal(proj.lyric_timing_truth.status, "usable_inferred_missing_path", `${file} downgraded timing must carry an explicit inferred truth status`);
+          assert.ok(proj.lyric_timing_truth.warnings?.includes("do-not-label-exact"), `${file} downgraded timing must preserve its exact-claim warning`);
+        }
       }
       assert.equal(proj.lyric_timing_heal?.schemaVersion, "hapa.echos.lyric-timing-heal.v1", `${file} missing lyric timing heal provenance`);
     }

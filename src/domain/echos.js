@@ -75,6 +75,61 @@ function lowerSet(values) {
   return new Set(list(values).map((value) => String(value).toLowerCase()));
 }
 
+function normalizeFullContentHash(value) {
+  const raw = typeof value === "object" && value !== null ? value.value : value;
+  const normalized = String(raw || "").trim().toLowerCase().replace(/^sha256:/, "");
+  return /^[a-f0-9]{64}$/.test(normalized) ? normalized : "";
+}
+
+function mediaContentHash(input = {}) {
+  const metadata = input.metadata || {};
+  const technical = input.technical || metadata.technical || metadata.echosTechnicalAffordance || {};
+  const candidates = [
+    input.contentHash,
+    input.contentFingerprint,
+    input.sha256,
+    input.sourceSha256,
+    metadata.contentHash,
+    metadata.contentFingerprint,
+    metadata.sha256,
+    metadata.sourceSha256,
+    metadata.scrollSite?.sha256,
+    technical.contentHash,
+    technical.sha256,
+  ];
+  return candidates.map(normalizeFullContentHash).find(Boolean) || "";
+}
+
+function systemMediaAsset(record = {}) {
+  const asset = record.asset || {};
+  const metadata = asset.metadata || {};
+  return {
+    ...asset,
+    id: record.id || asset.id,
+    type: record.mediaType || asset.type,
+    title: record.title || record.name || asset.title || asset.name,
+    name: record.name || asset.name,
+    uri: record.uri || asset.uri,
+    thumbnailUri: record.thumbnailUri || asset.thumbnailUri || metadata.thumbnailUri || "",
+    contentHash: record.contentHash || asset.contentHash,
+    contentFingerprint: record.contentFingerprint || asset.contentFingerprint,
+    sha256: record.sha256 || asset.sha256,
+    tags: [...new Set([...list(record.tags), ...list(asset.tags)])],
+    metadata: {
+      ...metadata,
+      duration: metadata.duration ?? record.duration,
+      width: metadata.width ?? record.width,
+      height: metadata.height ?? record.height,
+    },
+  };
+}
+
+function isEchoSystemMediaVideo(record = {}) {
+  const asset = systemMediaAsset(record);
+  const tags = lowerSet(asset.tags);
+  return asset.type === "video" && (tags.has("scroll-site") || tags.has("scroll-fal"));
+}
+
 function sameNumber(a, b) {
   return Math.abs(Number(a) - Number(b)) < 0.001;
 }
@@ -116,6 +171,30 @@ function isDefaultBeatGrid(beats = []) {
     Number(beat.bar) === Math.floor(index / 4) + 1 &&
     Number(beat.beat) === (index % 4) + 1
   ));
+}
+
+function isUniformBeatGrid(beats = [], intervalSeconds = 0.5) {
+  const rows = list(beats);
+  return rows.length >= 8 && rows.every((beat, index) => (
+    sameNumber(beat.t ?? beat.start ?? beat.time, index * intervalSeconds) &&
+    Number(beat.bar) === Math.floor(index / 4) + 1 &&
+    Number(beat.beat) === (index % 4) + 1
+  ));
+}
+
+function hasMeasuredBeatSource(song = {}) {
+  const sync = song.sync || {};
+  const telemetry = song.audioTelemetry || song.telemetry || {};
+  return Boolean(
+    sync.audioTelemetryPath ||
+    sync.telemetryPath ||
+    sync.beatTimesPath ||
+    sync.beatSource ||
+    telemetry.sourcePath ||
+    telemetry.audioPath ||
+    telemetry.analysisHash ||
+    telemetry.provenance?.sourcePath
+  );
 }
 
 function isDefaultEnergyCurves(curves = {}) {
@@ -195,7 +274,9 @@ export function scoreEchoSongReadiness(song = {}) {
     anchor.kind === "suno-playlist-track"
   ));
   const generatedSections = sectionSignature(sections).join("|") === DEFAULT_SECTION_SIGNATURE.join("|");
-  const generatedBeats = isDefaultBeatGrid(beats);
+  const generatedLegacyBeats = isDefaultBeatGrid(beats);
+  const generatedHalfSecondBeats = isUniformBeatGrid(beats, 0.5) && !hasMeasuredBeatSource(song);
+  const generatedBeats = generatedLegacyBeats || generatedHalfSecondBeats;
   const generatedVocalDensity = vocalDensitySignature(vocalDensity).join("|") === DEFAULT_VOCAL_DENSITY_SIGNATURE.join("|");
   const generatedEnergyCurves = isDefaultEnergyCurves(energyCurves);
   const generatedNarrativeSpine = /^Local spine for ".+": Narrative journey tracing motifs from /i.test(song.narrativeSpine || "");
@@ -222,7 +303,8 @@ export function scoreEchoSongReadiness(song = {}) {
 
   const placeholderSignals = [
     generatedSections ? "default-section-map" : "",
-    generatedBeats ? "default-48-beat-grid" : "",
+    generatedLegacyBeats ? "default-48-beat-grid" : "",
+    generatedHalfSecondBeats ? "unproven-uniform-0.5s-beat-grid" : "",
     generatedVocalDensity ? "default-vocal-density-map" : "",
     generatedEnergyCurves ? "default-energy-curves" : "",
     generatedNarrativeSpine ? "generic-local-spine" : "",
@@ -327,7 +409,7 @@ function videoReport(asset, parentObj, source) {
   };
 }
 
-export function buildEchoGapsReport({ songbook = {}, itemStore = {}, sceneStore = {}, generatedAt = new Date().toISOString() } = {}) {
+export function buildEchoGapsReport({ songbook = {}, itemStore = {}, sceneStore = {}, mediaLibrary = {}, generatedAt = new Date().toISOString() } = {}) {
   const songCards = list(songbook.songCards);
   const songs = songCards.map((song) => {
     const readiness = scoreEchoSongReadiness(song);
@@ -347,19 +429,36 @@ export function buildEchoGapsReport({ songbook = {}, itemStore = {}, sceneStore 
   const videos = [];
   let avatarCardVideos = 0;
   let sceneVideos = 0;
+  let systemMediaVideos = 0;
+  const discoveredContentHashes = new Set();
+
+  const addAttachedVideo = (asset, parentObj, source) => {
+    const hash = mediaContentHash(asset);
+    if (hash) discoveredContentHashes.add(hash);
+    videos.push(videoReport(asset, parentObj, source));
+  };
 
   for (const card of list(itemStore.cards)) {
     for (const asset of list(card.mediaAssets).filter((item) => item.type === "video")) {
       avatarCardVideos++;
-      videos.push(videoReport(asset, card, { kind: "avatar_card", id: card.id }));
+      addAttachedVideo(asset, card, { kind: "avatar_card", id: card.id });
     }
   }
 
   for (const scene of list(sceneStore.scenes)) {
     for (const asset of list(scene.assets).filter((item) => item.type === "video")) {
       sceneVideos++;
-      videos.push(videoReport(asset, scene, { kind: "scene", id: scene.id }));
+      addAttachedVideo(asset, scene, { kind: "scene", id: scene.id });
     }
+  }
+
+  for (const record of list(mediaLibrary.records).filter(isEchoSystemMediaVideo)) {
+    const asset = systemMediaAsset(record);
+    const hash = mediaContentHash(asset);
+    if (hash && discoveredContentHashes.has(hash)) continue;
+    if (hash) discoveredContentHashes.add(hash);
+    systemMediaVideos++;
+    videos.push(videoReport(asset, record, { kind: "system_media", id: record.id }));
   }
 
   const average = (items) => items.length
@@ -396,6 +495,7 @@ export function buildEchoGapsReport({ songbook = {}, itemStore = {}, sceneStore 
       verifiedVideos: videos.filter((video) => video.truthStatus === ECHO_TRUTH_STATUS.VERIFIED).length,
       avatarCardVideos,
       sceneVideos,
+      systemMediaVideos,
     },
     songs,
     videos,

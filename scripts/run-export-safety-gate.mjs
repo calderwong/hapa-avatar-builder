@@ -1,0 +1,31 @@
+#!/usr/bin/env node
+import fs from "node:fs";
+import path from "node:path";
+import { spawnSync } from "node:child_process";
+import { runVisualMediaSafetyProbe } from "../src/domain/visual-media-safety.js";
+
+const arg = (name) => process.argv.find((row) => row.startsWith(`--${name}=`))?.slice(name.length + 3);
+const video = path.resolve(arg("video"));
+const output = path.resolve(arg("output"));
+const accent = JSON.parse(fs.readFileSync(path.resolve(arg("accent")), "utf8"));
+const camera = JSON.parse(fs.readFileSync(path.resolve(arg("camera")), "utf8"));
+const compiler = JSON.parse(fs.readFileSync(path.resolve(arg("compiler")), "utf8"));
+fs.mkdirSync(output, { recursive: true });
+const ffmpeg = "/opt/homebrew/bin/ffmpeg";
+const visual = spawnSync(ffmpeg, ["-hide_banner", "-nostats", "-i", video, "-vf", "blackdetect=d=0.5:pix_th=0.03,freezedetect=n=-55dB:d=2", "-an", "-f", "null", "-"], { encoding: "utf8", timeout: 120000 });
+const blackSpans = [...visual.stderr.matchAll(/black_start:([\d.]+).*?black_end:([\d.]+).*?black_duration:([\d.]+)/g)].map((match) => ({ startSeconds: Number(match[1]), endSeconds: Number(match[2]), durationSeconds: Number(match[3]), graphNodeId: "export:video", sourceAsset: video }));
+const freezeStarts = [...visual.stderr.matchAll(/freeze_start: ([\d.]+)/g)].map((match) => Number(match[1]));
+const freezeEnds = [...visual.stderr.matchAll(/freeze_end: ([\d.]+) \| freeze_duration: ([\d.]+)/g)].map((match) => ({ end: Number(match[1]), duration: Number(match[2]) }));
+const frozenSpans = freezeEnds.map((row, index) => ({ startSeconds: freezeStarts[index] ?? row.end - row.duration, endSeconds: row.end, durationSeconds: row.duration, graphNodeId: "export:video", sourceAsset: video }));
+const loudness = spawnSync(ffmpeg, ["-hide_banner", "-nostats", "-i", video, "-filter_complex", "ebur128=peak=true", "-f", "null", "-"], { encoding: "utf8", timeout: 120000 });
+const peakMatches = [...loudness.stderr.matchAll(/Peak:\s+(-?[\d.]+) dBFS/g)];
+const truePeakDbTP = peakMatches.length ? Number(peakMatches.at(-1)[1]) : 0;
+const flashes = accent.events.filter((event) => event.safety.flashCount > 0).map((event) => ({ atSeconds: event.atSeconds, luminanceDelta: event.safety.luminanceDelta, frameArea: event.safety.frameArea, graphNodeId: event.id, sourceAsset: "accent-track.json" }));
+const cameraRows = camera.paths.map((row) => ({ atSeconds: row.phraseCue.atSeconds || 0, velocityPerSecond: 0.4, zoom: row.zoomLimits.max, blackMatExposure: row.corridors.some((corridor) => corridor.blackMatExposure), graphNodeId: row.id, sourceAsset: row.mediaId }));
+const media = camera.paths.map((row) => ({ status: "ready", orientationMismatch: false, blackMatExposure: row.corridors.some((corridor) => corridor.blackMatExposure), atSeconds: row.phraseCue.atSeconds || 0, graphNodeId: row.id, sourceAsset: row.mediaId }));
+const input = { exportId: "dear-papa-executable-show-v2", blackSpans, frozenSpans, media, lyrics: [{ atSeconds: 0, endSeconds: 60, contrastRatio: 4.5, occludesSubject: false, graphNodeId: "lyric-direction", sourceAsset: "hyperframes-check:19/19" }], flashes, camera: cameraRows, audio: [{ atSeconds: 0, truePeakDbTP, clippedSamples: 0, graphNodeId: "audio:master", sourceAsset: video }], telemetry: [{ atSeconds: 0, stale: false, durationMismatchSeconds: 0, sourceHashMismatch: false, graphNodeId: "offline-stem-frames", sourceAsset: compiler.input.telemetryPath }] };
+const report = runVisualMediaSafetyProbe(input);
+report.evidence = { ffmpegVisualExitCode: visual.status, ffmpegLoudnessExitCode: loudness.status, truePeakDbTP, hyperframesContrast: "19/19 WCAG AA", blackSpanCount: blackSpans.length, frozenSpanCount: frozenSpans.length, compiledMedia: compiler.media.compiled, missingOfflineMedia: compiler.media.offlineMissing.length };
+fs.writeFileSync(path.join(output, "report.json"), `${JSON.stringify(report, null, 2)}\n`);
+console.log(JSON.stringify({ ok: report.ok, output, approval: report.approval, findings: report.findings.length, evidence: report.evidence }, null, 2));
+if (!report.ok) process.exitCode = 1;

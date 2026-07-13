@@ -43,8 +43,14 @@ try {
 }
 
 async function main(cmd, opts) {
-  if (!cmd || opts.help) {
+  if (!cmd || opts.help || ["help", "--help", "-h"].includes(cmd)) {
     printHelp();
+    return;
+  }
+
+  if (cmd === "capabilities") {
+    const manifest = JSON.parse(await readFile(path.join(ROOT, "hapa-node.json"), "utf8"));
+    print({ id: manifest.id, aliases: manifest.aliases || [], capabilities: manifest.capabilities || [], interfaces: manifest.interfaces || {}, errors: { invalidCommand: "non-zero exit with an actionable message", missingAvatar: "non-zero exit naming the required avatar id" } }, opts);
     return;
   }
 
