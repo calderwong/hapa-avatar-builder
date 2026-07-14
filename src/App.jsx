@@ -620,6 +620,8 @@ export default function App({ overcardAdapter }) {
   const inspectorRef = useRef(null);
   const avatarDetailRequestRef = useRef(0);
   const echoDirectorPrewarmVideosRef = useRef(new Map());
+  const overwindLibraryHydratorRef = useRef(null);
+  const overwindLibraryHydrationPromiseRef = useRef(null);
 
   useEffect(() => {
     const restoreRoute = () => {
@@ -1167,7 +1169,7 @@ export default function App({ overcardAdapter }) {
       blocking: true
     });
 
-    const hydrateOverwindLibrary = () => fetch(`${API_BASE}/api/overwind/library`)
+    const performOverwindLibraryHydration = () => fetch(`${API_BASE}/api/overwind/library`)
       .then((res) => (res.ok ? res.json() : Promise.reject(new Error(`Overwind library ${res.status}`))))
       .then((library) => {
         if (!alive) return library;
@@ -1190,6 +1192,17 @@ export default function App({ overcardAdapter }) {
         });
         return library;
       });
+
+    const hydrateOverwindLibrary = () => {
+      if (overwindLibraryHydrationPromiseRef.current) return overwindLibraryHydrationPromiseRef.current;
+      const promise = performOverwindLibraryHydration().catch((error) => {
+        if (overwindLibraryHydrationPromiseRef.current === promise) overwindLibraryHydrationPromiseRef.current = null;
+        throw error;
+      });
+      overwindLibraryHydrationPromiseRef.current = promise;
+      return promise;
+    };
+    overwindLibraryHydratorRef.current = hydrateOverwindLibrary;
 
     const loadLegacyStores = () => Promise.all([
       hydrateOverwindLibrary(),
@@ -1282,14 +1295,14 @@ export default function App({ overcardAdapter }) {
           syncAvatarDraftRecords(avatarDraftMerge.pendingRecords, "startup");
         }
         window.setTimeout(refreshSubscriberStatus, 0);
-        window.setTimeout(() => hydrateOverwindLibrary().catch((error) => updateQueueJob("overwind-card-plane", "Overwind Card plane", {
-          status: "degraded",
+        updateQueueJob("overwind-card-plane", "Overwind Card plane", {
+          status: "queued",
           kind: "sync",
-          detail: `Overwind hydration deferred: ${error.message}`,
-          available: "Compact shell remains available.",
-          queuedNext: "Retry Overwind Card hydration.",
+          detail: "Compact shell is active; the full Card library remains cold until a view needs Avatar or Item authoring records.",
+          available: "Echos and other shell-backed views remain responsive.",
+          queuedNext: "Hydrate the full Card library on explicit route intent.",
           blocking: false
-        })), 0);
+        });
       })
       .catch(() => loadLegacyStores())
       .catch(() => {
@@ -1330,8 +1343,26 @@ export default function App({ overcardAdapter }) {
       });
     return () => {
       alive = false;
+      if (overwindLibraryHydratorRef.current === hydrateOverwindLibrary) overwindLibraryHydratorRef.current = null;
     };
   }, []);
+
+  useEffect(() => {
+    const needsFullCardLibrary = getBuilderHostTarget(activeView).lazyLoad
+      .some((entry) => entry.store === "avatars" || entry.store === "items");
+    if (!needsFullCardLibrary) return undefined;
+    const timer = window.setTimeout(() => {
+      overwindLibraryHydratorRef.current?.().catch((error) => updateQueueJob("overwind-card-plane", "Overwind Card plane", {
+        status: "degraded",
+        kind: "sync",
+        detail: `Overwind hydration deferred: ${error.message}`,
+        available: "Compact shell remains available.",
+        queuedNext: "Retry Overwind Card hydration.",
+        blocking: false
+      }));
+    }, 900);
+    return () => window.clearTimeout(timer);
+  }, [activeView]);
 
   useEffect(() => {
     setTarotSyncState("queued");
@@ -1345,6 +1376,7 @@ export default function App({ overcardAdapter }) {
   }, []);
 
   useEffect(() => {
+    if (activeView === "echos") return undefined;
     if (!selectedAvatarId) return undefined;
     const currentAvatar = avatars.find((avatar) => avatar.id === selectedAvatarId);
     if (!currentAvatar || isCompactOverwindAvatar(currentAvatar)) {

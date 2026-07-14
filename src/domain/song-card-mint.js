@@ -1,4 +1,8 @@
 import { contextHash } from "./song-context-packet.js";
+import {
+  collectEmbeddedSongCardSnapshots,
+  compactSongCardConstituentSnapshot,
+} from "./song-card-constituents.js";
 
 export const SONG_CARD_HEAD_SCHEMA = "hapa.song-card.v2";
 export const SONG_CARD_EDITION_SCHEMA = "hapa.song-card.edition.v1";
@@ -8,6 +12,8 @@ export const SONG_CARD_PUBLIC_MANIFEST_SCHEMA = "hapa.song-card.public-manifest.
 export const SONG_CARD_PRIVATE_MANIFEST_SCHEMA = "hapa.song-card.private-manifest.v1";
 export const SONG_CARD_PRINTED_CARD_SCHEMA = "hapa.song-card.printed-card.v1";
 export const SONG_CARD_MINT_TELEMETRY_SCHEMA = "hapa.song-card.mint-telemetry.v1";
+export const SONG_CARD_SNAPSHOT_REGISTRY_SCHEMA = "hapa.song-card.constituent-snapshot-registry.v1";
+export const SONG_CARD_APPEARANCE_SNAPSHOT_CATALOG_SCHEMA = "hapa.song-card.appearance-snapshot-catalog.v1";
 
 const NON_MATERIAL_KEYS = new Set([
   "updatedAt", "updated_at", "createdAt", "created_at", "lastOpenedAt", "lastPlayedAt",
@@ -76,8 +82,71 @@ function defaultHash(value) {
 }
 
 function digest(value, hashFn = defaultHash) {
-  const result = hashFn(canonicalMintValue(value));
+  // The hash provider owns canonicalization. The default provider and the controller's
+  // stableMintStringify provider both canonicalize once; pre-normalizing here doubled
+  // the largest allocation in planning without changing the resulting digest.
+  const result = hashFn(value);
   return String(result).includes(":") ? String(result) : `sha256:${result}`;
+}
+
+function snapshotCollectionEntries(value = {}) {
+  if (value?.schemaVersion === SONG_CARD_SNAPSHOT_REGISTRY_SCHEMA) {
+    const snapshots = value.snapshots || {};
+    return Object.entries(value.references || {}).flatMap(([reference, snapshotDigest]) => {
+      const snapshot = snapshots[snapshotDigest];
+      return snapshot ? [[reference, snapshot]] : [];
+    });
+  }
+  if (Array.isArray(value)) return value.flatMap((snapshot, index) => snapshot && typeof snapshot === "object" ? [[snapshot.id || snapshot.cardId || String(index), snapshot]] : []);
+  return Object.entries(value || {}).filter(([, snapshot]) => snapshot && typeof snapshot === "object");
+}
+
+function compactSnapshotCollection(value = {}) {
+  return Object.fromEntries(snapshotCollectionEntries(value).flatMap(([reference, snapshot]) => {
+    const compact = compactSongCardConstituentSnapshot(snapshot, { id: reference });
+    return compact ? [[reference, compact]] : [];
+  }));
+}
+
+function looksLikeConstituentSnapshot(value = {}) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const schema = String(value.schemaVersion || value.cardType || "").toLowerCase();
+  return Boolean((value.id || value.cardId) && /(avatar|scene|item|tarot|visualizer)-?(?:card)?/u.test(schema));
+}
+
+const EMBEDDED_SNAPSHOT_KEYS = new Set([
+  "cardsnapshot", "mediacardsnapshot", "media_card_snapshot", "card_snapshot",
+]);
+
+function compactMintStructure(value, parentKey = "", currentKey = "") {
+  if (Array.isArray(value)) return value.map((item) => compactMintStructure(item, currentKey, ""));
+  if (!value || typeof value !== "object") return value;
+  const normalizedCurrent = String(currentKey || "").replace(/[^A-Za-z]/gu, "").toLowerCase();
+  const normalizedParent = String(parentKey || "").replace(/[^A-Za-z]/gu, "").toLowerCase();
+  if (EMBEDDED_SNAPSHOT_KEYS.has(currentKey) || EMBEDDED_SNAPSHOT_KEYS.has(normalizedCurrent)
+    || (normalizedCurrent === "card" && ["visualization", "media"].includes(normalizedParent))
+    || looksLikeConstituentSnapshot(value)) {
+    return compactSongCardConstituentSnapshot(value) || {};
+  }
+  if (["cardsnapshots", "card_snapshots"].includes(currentKey) || normalizedCurrent === "cardsnapshots") {
+    return compactSnapshotCollection(value);
+  }
+  return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, compactMintStructure(item, currentKey, key)]));
+}
+
+export function buildSongCardSnapshotRegistry(cardSnapshots = {}, hashFn = defaultHash) {
+  const snapshots = {};
+  const references = {};
+  for (const [reference, source] of snapshotCollectionEntries(cardSnapshots)) {
+    const snapshot = compactSongCardConstituentSnapshot(source, { id: reference });
+    if (!snapshot) continue;
+    const snapshotDigest = digest(snapshot, hashFn);
+    if (!snapshots[snapshotDigest]) snapshots[snapshotDigest] = snapshot;
+    references[String(reference)] = snapshotDigest;
+    const sourceId = String(snapshot.id || snapshot.cardId || "").trim();
+    if (sourceId && !references[sourceId]) references[sourceId] = snapshotDigest;
+  }
+  return canonicalMintValue({ schemaVersion: SONG_CARD_SNAPSHOT_REGISTRY_SCHEMA, snapshots, references });
 }
 
 function idText(value) {
@@ -98,9 +167,17 @@ function graphFamilyProjection(showGraph = {}, family) {
 }
 
 export function buildSongCardMintSnapshot({ song = {}, project = {}, showGraph = {}, render = {}, registry = {}, cardSnapshots = {}, rights = {}, approvals = {}, rendererTruth = {} } = {}) {
-  const graph = canonicalMintValue(showGraph);
-  const editor = canonicalMintValue(project);
-  const normalizedCards = canonicalMintValue(cardSnapshots);
+  const compactProject = compactMintStructure(project);
+  const compactGraph = compactMintStructure(showGraph);
+  const suppliedSnapshots = compactSnapshotCollection(cardSnapshots);
+  const embeddedSnapshots = collectEmbeddedSongCardSnapshots({
+    project: compactProject,
+    showGraph: compactGraph,
+    cardSnapshots: suppliedSnapshots,
+  });
+  const graph = canonicalMintValue(compactGraph);
+  const editor = canonicalMintValue(compactProject);
+  const normalizedCards = buildSongCardSnapshotRegistry({ ...embeddedSnapshots, ...suppliedSnapshots });
   const families = {
     videos: graphFamilyProjection(graph, "videos"),
     timing: graphFamilyProjection(graph, "timing"),
@@ -208,26 +285,47 @@ export function diffSongCardMintSnapshots(before = null, after = {}, hashFn = de
   };
 }
 
-function sourceSnapshotFor(card, track, cardSnapshots = {}) {
+function snapshotLookup(cardSnapshots = {}) {
+  const lookup = new Map();
+  for (const [reference, source] of snapshotCollectionEntries(cardSnapshots)) {
+    const snapshot = compactSongCardConstituentSnapshot(source, { id: reference });
+    if (!snapshot) continue;
+    lookup.set(String(reference), snapshot);
+    for (const identity of [snapshot.id, snapshot.cardId, snapshot.songCardSnapshot?.sourceId]) {
+      if (identity && !lookup.has(String(identity))) lookup.set(String(identity), snapshot);
+    }
+  }
+  return lookup;
+}
+
+function sourceSnapshotFor(card, track, snapshots) {
   const candidates = [card.visualization?.card?.id, card.visualization?.sourceId, card.media?.cardId, card.media?.id, card.id].filter(Boolean);
-  const list = Array.isArray(cardSnapshots) ? cardSnapshots : Object.values(cardSnapshots || {});
-  const found = list.find((item) => candidates.includes(item?.id) || candidates.includes(item?.cardId));
-  if (found) return { snapshot: canonicalMintValue(found, { portable: true }), sourceId: found.id || found.cardId, sourceKind: found.schemaVersion || found.cardType || "card" };
-  if (card.visualization?.card) return { snapshot: canonicalMintValue(card.visualization.card, { portable: true }), sourceId: card.visualization.card.id || card.visualization.sourceId, sourceKind: "visualizer-card" };
-  if (card.media) return { snapshot: canonicalMintValue({ schemaVersion: "hapa.song-card.constituent-media.v1", id: card.media.cardId || card.media.id || card.id, title: card.media.cardTitle || card.media.title || card.media.id || "Media", media: card.media, track: { id: track.id, role: track.role }, provenance: card.provenance || {} }, { portable: true }), sourceId: card.media.cardId || card.media.id || card.id, sourceKind: card.media.cardKind || "media-card" };
+  const found = candidates.map((candidate) => snapshots.get(String(candidate))).find(Boolean);
+  if (found) return { snapshot: canonicalMintValue(found, { portable: true }), sourceId: found.id || found.cardId || found.songCardSnapshot?.sourceId, sourceKind: found.schemaVersion || found.cardType || "card" };
+  if (card.visualization?.card) {
+    const snapshot = compactSongCardConstituentSnapshot(card.visualization.card, { id: card.visualization.card.id || card.visualization.sourceId, kind: "visualizer" });
+    return { snapshot: canonicalMintValue(snapshot, { portable: true }), sourceId: card.visualization.card.id || card.visualization.sourceId, sourceKind: "visualizer-card" };
+  }
+  if (card.media) {
+    const snapshot = compactSongCardConstituentSnapshot({ schemaVersion: "hapa.song-card.constituent-media.v1", id: card.media.cardId || card.media.id || card.id, title: card.media.cardTitle || card.media.title || card.media.id || "Media", media: card.media, track: { id: track.id, role: track.role }, provenance: card.provenance || {} }, { id: card.media.cardId || card.media.id || card.id, kind: card.media.cardKind || "media-card" });
+    return { snapshot: canonicalMintValue(snapshot, { portable: true }), sourceId: card.media.cardId || card.media.id || card.id, sourceKind: card.media.cardKind || "media-card" };
+  }
   return { snapshot: null, sourceId: card.id || "", sourceKind: "non-printable" };
 }
 
 export function compileSongCardAppearanceIndex({ showGraph = {}, cardSnapshots = {}, durationSeconds = null, hashFn = defaultHash } = {}) {
   const durationMs = Math.max(0, Math.round(Number(durationSeconds ?? showGraph.song?.durationSeconds ?? 0) * 1000));
+  const snapshots = snapshotLookup(cardSnapshots);
+  const snapshotCatalog = {};
   const appearances = graphCards(showGraph).flatMap(({ track, card, trackIndex, layerIndex }) => {
     if (card.knockedOut === true) return [];
     const startMs = Math.max(0, Math.round(Number(card.startSeconds || 0) * 1000));
     const endMs = Math.min(durationMs || Infinity, Math.round(Number(card.endSeconds || 0) * 1000));
     if (!(endMs > startMs)) return [];
-    const source = sourceSnapshotFor(card, track, cardSnapshots);
+    const source = sourceSnapshotFor(card, track, snapshots);
     const sourceDigest = source.snapshot ? digest(source.snapshot, hashFn) : null;
-    const base = { trackId: track.id || `track:${trackIndex}`, trackRole: track.role || "unknown", layerIndex, zOrder: Number(card.zOrder ?? card.parameters?.zOrder ?? track.zOrder ?? trackIndex * 100 + layerIndex), cueId: card.id || `cue:${trackIndex}:${layerIndex}`, shotId: card.provenance?.sourceSlotId || card.id || "", startMs, endMs, sourceCardId: source.sourceId, sourceCardKind: source.sourceKind, sourceCardRevision: card.provenance?.sourceRevision || source.snapshot?.revision || source.snapshot?.updatedAt || null, sourceDigest, snapshot: source.snapshot, printable: Boolean(source.snapshot), pureIvf: Boolean(card.visualization && !card.media?.id), provenance: canonicalMintValue({ ...(card.provenance || {}), visualizationSourceId: card.visualization?.sourceId || null }, { portable: true }) };
+    if (sourceDigest && !snapshotCatalog[sourceDigest]) snapshotCatalog[sourceDigest] = source.snapshot;
+    const base = { trackId: track.id || `track:${trackIndex}`, trackRole: track.role || "unknown", layerIndex, zOrder: Number(card.zOrder ?? card.parameters?.zOrder ?? track.zOrder ?? trackIndex * 100 + layerIndex), cueId: card.id || `cue:${trackIndex}:${layerIndex}`, shotId: card.provenance?.sourceSlotId || card.id || "", startMs, endMs, sourceCardId: source.sourceId, sourceCardKind: source.sourceKind, sourceCardRevision: card.provenance?.sourceRevision || source.snapshot?.revision || null, sourceDigest, snapshotRef: sourceDigest, printable: Boolean(source.snapshot), pureIvf: Boolean(card.visualization && !card.media?.id), provenance: canonicalMintValue({ ...(card.provenance || {}), visualizationSourceId: card.visualization?.sourceId || null }, { portable: true }) };
     return [{ ...base, appearanceId: `appearance:${digest(base, hashFn).replace(/^[^:]+:/, "").slice(0, 24)}` }];
   }).sort((a, b) => a.startMs - b.startMs || a.zOrder - b.zOrder || a.appearanceId.localeCompare(b.appearanceId));
   const boundaries = [...new Set([0, durationMs, ...appearances.flatMap((row) => [row.startMs, row.endMs])])].filter((value) => value >= 0 && value <= durationMs).sort((a, b) => a - b);
@@ -236,13 +334,48 @@ export function compileSongCardAppearanceIndex({ showGraph = {}, cardSnapshots =
     const active = appearances.filter((row) => row.startMs < endMs && row.endMs > startMs).sort((a, b) => a.zOrder - b.zOrder || a.appearanceId.localeCompare(b.appearanceId));
     return { startMs, endMs, appearanceIds: active.map((row) => row.appearanceId), truthStatus: active.length ? "covered" : "no-card" };
   });
-  const base = { schemaVersion: SONG_CARD_APPEARANCE_INDEX_SCHEMA, durationMs, intervalRule: "half-open-[startMs,endMs)", orderingRule: "zOrder-then-appearanceId; highest printable is primary", appearances, coverage, gaps: coverage.filter((row) => row.truthStatus === "no-card") };
+  const base = {
+    schemaVersion: SONG_CARD_APPEARANCE_INDEX_SCHEMA,
+    durationMs,
+    intervalRule: "half-open-[startMs,endMs)",
+    orderingRule: "zOrder-then-appearanceId; highest printable is primary",
+    snapshotCatalog: {
+      schemaVersion: SONG_CARD_APPEARANCE_SNAPSHOT_CATALOG_SCHEMA,
+      snapshots: snapshotCatalog,
+    },
+    appearances,
+    coverage,
+    gaps: coverage.filter((row) => row.truthStatus === "no-card"),
+  };
   return { ...base, indexDigest: digest(base, hashFn) };
 }
 
 export function querySongCardAppearances(index = {}, timeMs = 0) {
   const timestampMs = Math.max(0, Math.round(Number(timeMs) || 0));
-  const active = (index.appearances || []).filter((row) => row.startMs <= timestampMs && row.endMs > timestampMs).sort((a, b) => a.zOrder - b.zOrder || a.appearanceId.localeCompare(b.appearanceId));
+  const catalog = {};
+  for (const [snapshotDigest, snapshot] of Object.entries(index.snapshotCatalog?.snapshots || index.snapshots || {})) catalog[snapshotDigest] = snapshot;
+  for (const row of index.appearances || []) {
+    for (const [snapshotDigest, snapshot] of Object.entries(row.snapshotCatalog?.snapshots || {})) {
+      if (!catalog[snapshotDigest]) catalog[snapshotDigest] = snapshot;
+    }
+    const embedded = row.snapshot && typeof row.snapshot === "object" && Object.keys(row.snapshot).length
+      ? row.snapshot
+      : row.sourceSnapshot && typeof row.sourceSnapshot === "object" && Object.keys(row.sourceSnapshot).length
+        ? row.sourceSnapshot
+        : null;
+    if (embedded && (row.snapshotRef || row.sourceDigest)) catalog[row.snapshotRef || row.sourceDigest] = embedded;
+  }
+  const active = (index.appearances || []).filter((row) => row.startMs <= timestampMs && row.endMs > timestampMs).map((row) => {
+    const { snapshotCatalog: _catalog, ...appearance } = row;
+    const embedded = row.snapshot && typeof row.snapshot === "object" && Object.keys(row.snapshot).length
+      ? row.snapshot
+      : row.sourceSnapshot && typeof row.sourceSnapshot === "object" && Object.keys(row.sourceSnapshot).length
+        ? row.sourceSnapshot
+        : null;
+    const snapshot = embedded || catalog[row.snapshotRef || row.sourceDigest] || null;
+    const printable = row.printable === undefined ? Boolean(snapshot) : row.printable === true && Boolean(snapshot);
+    return { ...appearance, snapshot, sourceSnapshot: snapshot || {}, printable };
+  }).sort((a, b) => a.zOrder - b.zOrder || a.appearanceId.localeCompare(b.appearanceId));
   const printable = active.filter((row) => row.printable && row.snapshot);
   return { schemaVersion: "hapa.song-card.cards-at-time.v1", timestampMs, intervalRule: index.intervalRule || "half-open-[startMs,endMs)", truthStatus: timestampMs >= Number(index.durationMs || Infinity) ? "end-of-media" : active.length ? printable.length ? "printable" : "non-printable" : "no-card", primary: printable[printable.length - 1] || null, active };
 }

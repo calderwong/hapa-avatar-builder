@@ -9,7 +9,7 @@ const componentPath = path.join(root, "src/components/SongCardMintPanel.jsx");
 const source = fs.readFileSync(componentPath, "utf8");
 
 test("SongCardMintPanel exposes the standalone integration contract", () => {
-  assert.match(source, /function SongCardMintPanel\(\{ songId, project, showGraph, compact = false, viewerOnly = false, onEditionChange \}\)/);
+  assert.match(source, /function SongCardMintPanel\(\{ songId, project, showGraph, compact = false, viewerOnly = false, onEditionChange, planningRevision = "" \}\)/);
   assert.match(source, /fetch\("\/api\/local-ui-session", \{/);
   assert.match(source, /fetch\(base, \{ method: "GET"/);
   assert.match(source, /songCardAdminFetch\(`\$\{base\}\/plan`/);
@@ -46,7 +46,31 @@ test("mint UI names every operator-visible lifecycle and release gate", () => {
   assert.match(source, /Use recovery artifacts/);
   assert.match(source, /selectedArtifactsReviewed/);
   assert.match(source, /Cancel current plan/);
-  assert.match(source, />Retry plan</);
+  assert.match(source, /: "Retry plan"/);
+});
+
+test("background planning is revision-bounded, supersedable, and never silently retried after failure", () => {
+  assert.match(source, /const automaticPlanKey = \[/);
+  assert.match(source, /String\(planningRevision \|\| "initial-load"\)/);
+  assert.match(source, /project\.active_direction_script_variant\?\.fingerprint/);
+  assert.match(source, /showGraph\?\.directorV2\?\.variantHash/);
+  assert.match(source, /String\(selectedRevision\?\.id \|\| "initial-revision"\)/);
+  assert.match(source, /!revisionOptions\.some\(\(row\) => row\.id === selectedRevisionId\)/);
+  assert.match(source, /completedAutoPlanKeysRef/);
+  assert.match(source, /failedAutoPlanKeysRef/);
+  assert.match(source, /planningRequestRef\.current\?\.abort\?\.\(\)/);
+  assert.match(source, /activeAutoPlanKeyRef\.current !== automaticPlanKey/);
+  assert.match(source, /planningRequestRef\.current\.abort\(\)/);
+  assert.match(source, /const scheduledPlanningInput = planningInputRef\.current/);
+  assert.match(source, /loadFlow\(\{ source: "auto", autoKey: automaticPlanKey, planningInput: scheduledPlanningInput \}\)/);
+  assert.match(source, /failedAutoPlanKeysRef\.current\.add\(autoKey\)/);
+  assert.match(source, /failedAutoPlanKeysRef\.current\.has\(automaticPlanKey\)/);
+  assert.match(source, /failedAutoPlanKeysRef\.current\.delete\(automaticPlanKey\)/);
+  assert.match(source, /data-testid="song-card-plan-status"/);
+  assert.match(source, /data-testid="song-card-plan-wait"/);
+  assert.match(source, /data-testid="song-card-plan-failure"/);
+  assert.match(source, /will not retry automatically/);
+  assert.match(source, /disabled=\{phase === "planning"\}/);
 });
 
 test("edition history uses immutable edition artifact URLs and timestamp card resolution", () => {

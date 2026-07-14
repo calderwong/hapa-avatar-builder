@@ -53,6 +53,26 @@ const electronApiBase = globalThis.window?.hapaAvatarBuilder?.apiBase;
 const API_BASE = electronApiBase || (globalThis.location?.port === "5178" ? "http://127.0.0.1:8787" : "");
 const songRegistryApiBase = globalThis.window?.hapaAvatarBuilder?.songRegistryApiBase;
 const SONG_REGISTRY_API_BASE = songRegistryApiBase || "http://127.0.0.1:8798";
+const ECHO_SAVE_TIMEOUT_MS = 30_000;
+
+async function saveEchoProjectRequest(url, options = {}) {
+  const controller = new AbortController();
+  let timedOut = false;
+  const timeout = globalThis.setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, ECHO_SAVE_TIMEOUT_MS);
+  try {
+    return await fetch(url, { ...options, signal: controller.signal });
+  } catch (error) {
+    if (timedOut || error?.name === "AbortError") {
+      throw new Error("Save stopped after 30 seconds without a disk acknowledgment. The previous cut is unchanged; retry when ready.");
+    }
+    throw error;
+  } finally {
+    globalThis.clearTimeout(timeout);
+  }
+}
 
 function resolveMediaUri(uri) {
   if (typeof uri !== "string" || !uri) return uri;
@@ -1552,6 +1572,18 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
   }, [availableShaders, shaderCategoryFilter, shaderPickerQuery]);
   const [savingProject, setSavingProject] = useState(false);
   const [saveSuccessMessage, setSaveSuccessMessage] = useState("");
+  const [saveFeedbackTone, setSaveFeedbackTone] = useState("idle");
+  const [saveStartedAt, setSaveStartedAt] = useState(0);
+  const [saveElapsedSeconds, setSaveElapsedSeconds] = useState(0);
+  const [songCardPlanRevisionBySong, setSongCardPlanRevisionBySong] = useState({});
+
+  useEffect(() => {
+    if (!savingProject || !saveStartedAt) return undefined;
+    const updateElapsed = () => setSaveElapsedSeconds(Math.max(0, Math.floor((Date.now() - saveStartedAt) / 1000)));
+    updateElapsed();
+    const interval = window.setInterval(updateElapsed, 250);
+    return () => window.clearInterval(interval);
+  }, [saveStartedAt, savingProject]);
 
   // Volume control states
   const [directorVolume, setDirectorVolume] = useState(0.8);
@@ -1592,6 +1624,8 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
     setSelectedVisualizerIndex(0);
     setActiveTrackTab("video");
     setSaveSuccessMessage("");
+    setSaveFeedbackTone("idle");
+    setSaveElapsedSeconds(0);
     setPreviewBufferState({ status: "idle", ready: false, readyLookahead: 0, targetLookahead: 0 });
     setPreviewPreparation({ status: "idle" });
     presentedMediaRef.current = null;
@@ -2665,30 +2699,56 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
   const handleCancelDirectionFork = () => {
     setWorkingDirectionFork(null);
     setSaveSuccessMessage("Working cut discarded. The source cut remains unchanged.");
+    setSaveFeedbackTone("success");
+  };
+
+  const beginProjectSave = () => {
+    setSavingProject(true);
+    setSaveStartedAt(Date.now());
+    setSaveElapsedSeconds(0);
+    setSaveFeedbackTone("progress");
+    setSaveSuccessMessage("");
+  };
+
+  const queueSongCardPlanForSavedRevision = (songId, revision = "") => {
+    if (!songId) return;
+    setSongCardPlanRevisionBySong((current) => ({
+      ...current,
+      [songId]: revision || `${Date.now()}`,
+    }));
   };
 
   const handleSaveWorkingDirectionFork = async () => {
     if (!directionWorkingForkActive || !workingDirectionFork || !activeProject) return;
-    setSavingProject(true);
-    setSaveSuccessMessage("");
+    beginProjectSave();
     try {
       const projectToSave = withFreshHyperframeScript(activeProject);
       const request = buildEchoDirectionForkRequest(workingDirectionFork, projectToSave);
-      const response = await fetch(`${API_BASE}/api/echos/direction-variant/fork`, {
+      const response = await saveEchoProjectRequest(`${API_BASE}/api/echos/direction-variant/fork`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(request),
       });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(payload.message || payload.error || "Failed to save the new direction cut.");
-      await fetchProjectDetail(projectToSave.song_id, payload.variant?.id || payload.id || "");
+      const savedVariantId = payload.variant?.id || payload.id || "";
       setWorkingDirectionFork(null);
-      setSelectedDirectionVariantId(payload.variant?.id || payload.id || "legacy");
-      setSaveSuccessMessage("New append-only direction cut saved. Legacy current and the source cut are unchanged.");
+      setSelectedDirectionVariantId(savedVariantId || "legacy");
+      setSaveFeedbackTone("success");
+      setSaveSuccessMessage("New append-only direction cut saved. Song Card preparation continues separately in Tracks; Legacy current and the source cut are unchanged.");
+      void fetchProjectDetail(projectToSave.song_id, savedVariantId).then((detail) => {
+        if (detail) {
+          queueSongCardPlanForSavedRevision(projectToSave.song_id, savedVariantId || projectToSave.updated_at);
+          return;
+        }
+        setEchoOperationNotice("The cut is saved, but its background Song Card check is paused because the refreshed cut could not be loaded. Open Tracks and choose Retry plan when ready.");
+      });
     } catch (error) {
+      setSaveFeedbackTone("error");
       setSaveSuccessMessage(`Could not save the new cut: ${error.message || String(error)}`);
     } finally {
       setSavingProject(false);
+      setSaveStartedAt(0);
     }
   };
 
@@ -2699,31 +2759,37 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
     }
     if (directionVariantReadOnly) {
       setSaveSuccessMessage("Append-only variant preview was not written. Switch to Legacy current to save edits.");
+      setSaveFeedbackTone("error");
       return;
     }
-    setSavingProject(true);
-    setSaveSuccessMessage("");
+    beginProjectSave();
     try {
       const projectToSave = withFreshHyperframeScript(activeProject);
-      const res = await fetch(`${API_BASE}/api/echos/director-project`, {
+      const res = await saveEchoProjectRequest(`${API_BASE}/api/echos/director-project`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ music_video_project: projectToSave })
       });
       if (res.ok) {
-        setSaveSuccessMessage("Music video blueprint saved to disk.");
+        setSaveFeedbackTone("success");
+        setSaveSuccessMessage("Music video blueprint saved to disk. Song Card preparation is continuing separately in Tracks.");
         setDirectorProjects(prev => prev.map(p => (
           p.music_video_project.song_id === projectToSave.song_id
             ? { music_video_project: projectToSave }
             : p
         )));
+        queueSongCardPlanForSavedRevision(projectToSave.song_id, projectToSave.updated_at);
       } else {
-        console.error("Failed to save project server-side");
+        const payload = await res.json().catch(() => ({}));
+        throw new Error(payload.message || payload.error || `Save failed (${res.status}).`);
       }
     } catch (e) {
       console.error("Save error:", e);
+      setSaveFeedbackTone("error");
+      setSaveSuccessMessage(`Could not save the music video blueprint: ${e.message || String(e)}`);
     } finally {
       setSavingProject(false);
+      setSaveStartedAt(0);
     }
   };
 
@@ -3419,9 +3485,26 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
               {/* Director Workbench View */}
               <div className="section-head hapa-panel-head" style={{ flexShrink: 0, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <span><Film size={15} /> Director Video Blueprint Workbench ({directorProjects.length} plans loaded)</span>
-                {saveSuccessMessage && (
-                  <span style={{ fontSize: '11px', color: 'var(--hapa-neon-green)', fontWeight: 'bold', background: 'rgba(16, 185, 129, 0.1)', padding: '2px 8px', borderRadius: '4px', border: '1px solid var(--hapa-neon-green)' }}>
-                    {saveSuccessMessage}
+                {(savingProject || saveSuccessMessage) && (
+                  <span
+                    data-testid="echo-save-status"
+                    role={saveFeedbackTone === "error" ? "alert" : "status"}
+                    aria-live="polite"
+                    style={{
+                      fontSize: '11px',
+                      color: saveFeedbackTone === "error" ? 'var(--hapa-neon-red)' : saveFeedbackTone === "progress" ? 'var(--hapa-neon-gold)' : 'var(--hapa-neon-green)',
+                      fontWeight: 'bold',
+                      background: saveFeedbackTone === "error" ? 'rgba(239, 68, 68, 0.1)' : saveFeedbackTone === "progress" ? 'rgba(246, 201, 109, 0.1)' : 'rgba(16, 185, 129, 0.1)',
+                      padding: '2px 8px',
+                      borderRadius: '4px',
+                      border: `1px solid ${saveFeedbackTone === "error" ? 'var(--hapa-neon-red)' : saveFeedbackTone === "progress" ? 'var(--hapa-neon-gold)' : 'var(--hapa-neon-green)'}`,
+                    }}
+                  >
+                    {savingProject
+                      ? saveElapsedSeconds >= 10
+                        ? `Saving cut · ${saveElapsedSeconds}s · waiting for disk acknowledgment…`
+                        : `Saving cut · ${saveElapsedSeconds}s…`
+                      : saveSuccessMessage}
                   </span>
                 )}
               </div>
@@ -3881,7 +3964,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                               }}
                             >
                               {savingProject
-                                ? "Saving..."
+                                ? `Saving… ${saveElapsedSeconds}s`
                                 : directionWorkingForkActive
                                   ? "Save as new cut"
                                   : directionVariantReadOnly
@@ -4594,6 +4677,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                                     songId={activeProject.registry_track_id || activeProject.audio_id || activeProject.song_id}
                                     project={activeProject}
                                     showGraph={activeProject.director_show_graph || null}
+                                    planningRevision={songCardPlanRevisionBySong[activeProject.song_id] || ""}
                                   />
                                 </div>
                               </>

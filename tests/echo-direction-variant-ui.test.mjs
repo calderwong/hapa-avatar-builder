@@ -44,6 +44,21 @@ test("Echo can continue from a chosen cut and only saves it as a new append-only
   assert.match(source, /data-testid="echo-cancel-direction-cut"/);
 });
 
+test("Echo acknowledges save before refreshing and starts Song Card planning from the saved revision only", () => {
+  const forkSave = between("const handleSaveWorkingDirectionFork", "const handleSaveProject");
+  assert.match(source, /const ECHO_SAVE_TIMEOUT_MS = 30_000/);
+  assert.match(source, /Save stopped after 30 seconds without a disk acknowledgment/);
+  assert.match(forkSave, /saveEchoProjectRequest\(`/);
+  assert.doesNotMatch(forkSave, /await fetchProjectDetail/);
+  assert.match(forkSave, /New append-only direction cut saved\. Song Card preparation continues separately in Tracks/);
+  assert.match(forkSave, /void fetchProjectDetail\(projectToSave\.song_id, savedVariantId\)\.then/);
+  assert.match(forkSave, /queueSongCardPlanForSavedRevision\(projectToSave\.song_id/);
+  assert.match(source, /data-testid="echo-save-status"/);
+  assert.match(source, /Saving cut · \$\{saveElapsedSeconds\}s/);
+  assert.match(source, /planningRevision=\{songCardPlanRevisionBySong\[activeProject\.song_id\] \|\| ""\}/);
+  assert.match(source, /Music video blueprint saved to disk\. Song Card preparation is continuing separately in Tracks\./);
+});
+
 test("Echo lazily hydrates one selected cut while retaining the metadata catalog", () => {
   assert.match(source, /params\.set\("variantId", variantId\)/);
   assert.match(source, /fetchProjectDetail\(selectedProjectSongId, nextVariantId\)/);

@@ -6,6 +6,7 @@ import { execFile as execFileCallback } from "node:child_process";
 import { promisify } from "node:util";
 import {
   SONG_CARD_APPEARANCE_INDEX_SCHEMA as DOMAIN_APPEARANCE_INDEX_SCHEMA,
+  SONG_CARD_APPEARANCE_SNAPSHOT_CATALOG_SCHEMA as DOMAIN_APPEARANCE_SNAPSHOT_CATALOG_SCHEMA,
   SONG_CARD_PUBLIC_MANIFEST_SCHEMA as DOMAIN_PUBLIC_MANIFEST_SCHEMA,
   SONG_CARD_PRIVATE_MANIFEST_SCHEMA as DOMAIN_PRIVATE_MANIFEST_SCHEMA,
   buildSongCardHead,
@@ -34,6 +35,8 @@ export const SONG_CARD_MIGRATION_RECEIPT_SCHEMA = "hapa.song-card.migration-rece
 
 const DEFAULT_TELEMETRY_LIMIT = 256;
 const DEFAULT_TELEMETRY_EVENT_BYTES = 8 * 1024;
+const MAX_APPEARANCE_SNAPSHOT_COUNT = 2048;
+const MAX_APPEARANCE_SNAPSHOT_BYTES = 256 * 1024;
 const PUBLIC_LICENSE_STATUSES = new Set(["cleared", "licensed", "operator-authored", "public-domain"]);
 const PUBLIC_CONSENT_STATUSES = new Set(["approved", "cleared", "granted", "licensed", "operator-approved"]);
 
@@ -308,7 +311,34 @@ export async function decodePosterImage(filePath, { ffmpegPath = "ffmpeg", exec 
   }
 }
 
-function normalizeAppearance(row, index) {
+function normalizeAppearanceSnapshotCatalog(value) {
+  if (value === undefined || value === null) return null;
+  if (!isObject(value) || !isObject(value.snapshots)) {
+    fail("INVALID_TIMESTAMP_INDEX", "snapshotCatalog must contain a snapshots object");
+  }
+  const entries = Object.entries(value.snapshots);
+  if (entries.length > MAX_APPEARANCE_SNAPSHOT_COUNT) {
+    fail("INVALID_TIMESTAMP_INDEX", `snapshotCatalog is limited to ${MAX_APPEARANCE_SNAPSHOT_COUNT} snapshots`);
+  }
+  const snapshots = {};
+  for (const [snapshotRef, snapshot] of entries) {
+    const reference = assertIdentifier(snapshotRef, `snapshotCatalog.snapshots[${snapshotRef}]`);
+    if (!isObject(snapshot)) {
+      fail("INVALID_TIMESTAMP_INDEX", `Snapshot ${reference} must be an object`);
+    }
+    const copy = structuredClone(snapshot);
+    if (Buffer.byteLength(JSON.stringify(copy)) > MAX_APPEARANCE_SNAPSHOT_BYTES) {
+      fail("INVALID_TIMESTAMP_INDEX", `Snapshot ${reference} exceeds ${MAX_APPEARANCE_SNAPSHOT_BYTES} bytes`);
+    }
+    snapshots[reference] = copy;
+  }
+  return {
+    schemaVersion: DOMAIN_APPEARANCE_SNAPSHOT_CATALOG_SCHEMA,
+    snapshots,
+  };
+}
+
+function normalizeAppearance(row, index, snapshotCatalog = null) {
   if (!isObject(row)) fail("INVALID_TIMESTAMP_INDEX", `Appearance ${index} must be an object`);
   const startMs = Number(row.startMs);
   const endMs = Number(row.endMs);
@@ -318,7 +348,17 @@ function normalizeAppearance(row, index) {
   const cardId = assertIdentifier(row.cardId || row.sourceCardId || row.cueId, `appearances[${index}].cardId`);
   const snapshot = isObject(row.snapshot) ? structuredClone(row.snapshot)
     : isObject(row.sourceSnapshot) ? structuredClone(row.sourceSnapshot) : null;
-  return {
+  const snapshotRef = row.snapshotRef || row.sourceDigest
+    ? assertIdentifier(String(row.snapshotRef || row.sourceDigest), `appearances[${index}].snapshotRef`)
+    : null;
+  const referencedSnapshot = snapshotRef ? snapshotCatalog?.snapshots?.[snapshotRef] : null;
+  const printable = row.printable === undefined
+    ? Boolean(snapshot || referencedSnapshot)
+    : row.printable === true;
+  if (printable && !snapshot && !referencedSnapshot) {
+    fail("INVALID_TIMESTAMP_INDEX", `Printable appearance ${index} has no resolvable snapshot`, { snapshotRef });
+  }
+  const normalized = {
     ...structuredClone(row),
     appearanceId: assertIdentifier(row.appearanceId || `${cardId}:${startMs}:${endMs}:${index}`, `appearances[${index}].appearanceId`),
     cardId,
@@ -333,18 +373,28 @@ function normalizeAppearance(row, index) {
     zOrder: Number.isFinite(Number(row.zOrder ?? row.zIndex)) ? Number(row.zOrder ?? row.zIndex) : index,
     cueId: row.cueId ? String(row.cueId) : "",
     role: row.role ? String(row.role) : "media",
-    sourceSnapshot: snapshot || {},
-    snapshot,
-    printable: row.printable === undefined ? Boolean(snapshot) : row.printable === true,
+    snapshotRef,
+    printable,
     pureIvf: row.pureIvf === true,
     provenance: isObject(row.provenance) ? structuredClone(row.provenance) : {},
   };
+  if (snapshotRef && referencedSnapshot) {
+    delete normalized.snapshot;
+    delete normalized.sourceSnapshot;
+  } else {
+    normalized.sourceSnapshot = snapshot || {};
+    normalized.snapshot = snapshot;
+  }
+  return normalized;
 }
 
 export function validateTimestampIndex(timestampIndex = [], { durationMs = null } = {}) {
   const rows = Array.isArray(timestampIndex) ? timestampIndex : timestampIndex?.appearances;
   if (!Array.isArray(rows)) fail("INVALID_TIMESTAMP_INDEX", "timestampIndex must be an array or contain appearances[]");
-  const appearances = rows.map(normalizeAppearance).sort((left, right) => (
+  const snapshotCatalog = Array.isArray(timestampIndex)
+    ? null
+    : normalizeAppearanceSnapshotCatalog(timestampIndex?.snapshotCatalog);
+  const appearances = rows.map((row, index) => normalizeAppearance(row, index, snapshotCatalog)).sort((left, right) => (
     left.startMs - right.startMs || left.layer - right.layer || left.zIndex - right.zIndex || left.appearanceId.localeCompare(right.appearanceId)
   ));
   const ids = new Set();
@@ -361,6 +411,7 @@ export function validateTimestampIndex(timestampIndex = [], { durationMs = null 
     intervalConvention: "half-open",
     selectionOrder: ["layer", "zIndex", "appearanceId"],
     durationMs: durationMs === null ? null : Math.round(durationMs),
+    ...(snapshotCatalog ? { snapshotCatalog } : {}),
     appearances,
   };
   normalized.indexDigest = String(timestampIndex?.indexDigest || `sha256:${digest(normalized)}`);

@@ -137,6 +137,41 @@ test("timestamp queries use exact half-open boundaries, overlaps, and IVF snapsh
   assert.equal(cardsAtTimestamp(index, 1000)[0].pureIvf, true);
 });
 
+test("timestamp indexes preserve one compact snapshot catalog and resolve repeated appearance refs", () => {
+  const snapshotRef = "sha256:shared-card-snapshot";
+  const index = validateTimestampIndex({
+    durationMs: 1500,
+    snapshotCatalog: {
+      schemaVersion: "hapa.song-card.appearance-snapshot-catalog.v1",
+      snapshots: {
+        [snapshotRef]: {
+          schemaVersion: "hapa.avatar-card.v1",
+          id: "avatar:25",
+          title: "Boba Tea Strum Avatar",
+          songCardSnapshot: { schemaVersion: "hapa.song-card.constituent-snapshot.v2" },
+        },
+      },
+    },
+    appearances: [
+      { appearanceId: "a", sourceCardId: "avatar:25", startMs: 0, endMs: 1000, zOrder: 1, snapshotRef, sourceDigest: snapshotRef, printable: true },
+      { appearanceId: "b", sourceCardId: "avatar:25", startMs: 500, endMs: 1500, zOrder: 2, snapshotRef, sourceDigest: snapshotRef, printable: true },
+    ],
+  }, { durationMs: 1500 });
+
+  assert.equal(index.snapshotCatalog.snapshots[snapshotRef].title, "Boba Tea Strum Avatar");
+  assert.equal(Object.hasOwn(index.appearances[0], "snapshot"), false);
+  assert.equal(Object.hasOwn(index.appearances[1], "sourceSnapshot"), false);
+  assert.equal(JSON.stringify(index).match(/Boba Tea Strum Avatar/gu)?.length, 1);
+  assert.deepEqual(cardsAtTimestamp(index, 750).map((row) => row.snapshot.title), [
+    "Boba Tea Strum Avatar",
+    "Boba Tea Strum Avatar",
+  ]);
+  assert.throws(
+    () => validateTimestampIndex({ appearances: [{ sourceCardId: "missing", startMs: 0, endMs: 1000, snapshotRef: "sha256:missing", printable: true }] }),
+    (error) => error.code === "INVALID_TIMESTAMP_INDEX" && /no resolvable snapshot/u.test(error.message),
+  );
+});
+
 test("small encoded container tails become explicit non-printable appearances", async () => {
   const { base, sourceRoot, request } = await fixture();
   const timestampIndex = { ...request.timestampIndex, durationMs: 10_000 };

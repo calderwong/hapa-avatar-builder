@@ -22,7 +22,10 @@ test("appearance index uses exact half-open boundaries, stable overlap order, ex
   assert.equal(querySongCardAppearances(index, 5200).truthStatus, "no-card");
   assert.equal(querySongCardAppearances(index, 6000).truthStatus, "end-of-media");
   assert.equal(index.gaps.length, 1);
-  assert.equal(index.appearances.find((row) => row.sourceCardId === "isf:one").snapshot.title, "Frozen Shader");
+  assert.equal(querySongCardAppearances(index, 3000).active.find((row) => row.sourceCardId === "isf:one").snapshot.title, "Frozen Shader");
+  assert.equal(index.appearances.some((row) => Object.hasOwn(row, "snapshot")), false);
+  assert.ok(Object.keys(index.snapshotCatalog.snapshots).length >= 3);
+  assert.ok(index.appearances.filter((row) => row.printable).every((row) => row.snapshotRef === row.sourceDigest));
 });
 
 test("printed cards remain edition-pinned after the mutable source changes or disappears", () => {
@@ -35,4 +38,23 @@ test("printed cards remain edition-pinned after the mutable source changes or di
   assert.equal(printed.revision, 1);
   assert.equal(printed.songCardPrint.sourceDigest, appearance.sourceDigest);
   assert.equal(printed.songCardPrint.edition, 1);
+});
+
+test("legacy inline appearance snapshots remain printable", () => {
+  const legacy = {
+    durationMs: 1000,
+    intervalRule: "half-open-[startMs,endMs)",
+    appearances: [{
+      appearanceId: "appearance:legacy",
+      sourceCardId: "legacy-card",
+      sourceDigest: "sha256:legacy",
+      startMs: 0,
+      endMs: 1000,
+      zOrder: 0,
+      snapshot: { id: "legacy-card", title: "Legacy Historical Card" },
+    }],
+  };
+  const query = querySongCardAppearances(legacy, 500);
+  assert.equal(query.truthStatus, "printable");
+  assert.equal(query.primary.snapshot.title, "Legacy Historical Card");
 });

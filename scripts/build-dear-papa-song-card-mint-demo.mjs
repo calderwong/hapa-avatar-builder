@@ -11,6 +11,7 @@ import {
   createPrintedSongCard,
   diffSongCardMintSnapshots,
   fingerprintSongCardMintSnapshot,
+  querySongCardAppearances,
 } from "../src/domain/song-card-mint.js";
 import {
   MintLedgerError,
@@ -447,14 +448,12 @@ async function verifyEdition(ledger, headId, edition) {
 }
 
 function editedAppearanceAt(record, cueId, timestampMs) {
-  return (record.timestampIndex.appearances || []).find((row) => (
-    row.cueId === cueId && row.startMs <= timestampMs && row.endMs > timestampMs && row.snapshot
-  ));
+  return querySongCardAppearances(record.timestampIndex, timestampMs).active.find((row) => row.cueId === cueId && row.snapshot);
 }
 
 async function createHistoricalPrint({ verification, timestampMs, cueId, outputPath }) {
   const { record } = verification;
-  const active = (record.timestampIndex.appearances || []).filter((row) => row.startMs <= timestampMs && row.endMs > timestampMs);
+  const active = querySongCardAppearances(record.timestampIndex, timestampMs).active;
   const appearance = editedAppearanceAt(record, cueId, timestampMs);
   if (!appearance) throw new Error(`Edition ${verification.edition} has no printable historical ${cueId} appearance at ${timestampMs}ms`);
   const printed = createPrintedSongCard({

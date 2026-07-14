@@ -72,7 +72,12 @@ function displayValue(value) {
 }
 
 function savedRevisionRows(project = {}, showGraph = {}) {
-  const currentId = String(project.revision || project.editorRevision || project.updated_at || showGraph?.directorV2?.variantHash || "current");
+  const directionRevision = project.active_direction_script_variant?.fingerprint
+    || project.active_direction_script_variant?.id
+    || project.selected_direction_script_variant_id
+    || showGraph?.directorV2?.variantHash
+    || showGraph?.directorV2?.variantId;
+  const currentId = String(directionRevision || project.revision || project.editorRevision || project.updated_at || "current");
   const current = { id: currentId, label: `Current · ${currentId}`, project, showGraph };
   const saved = array(project.savedRevisions || project.saved_revisions || project.revisions)
     .filter((row) => row && typeof row === "object")
@@ -347,7 +352,7 @@ const styles = {
   input: { minWidth: 240, flex: 1, background: "#02040a", border: "1px solid #41516c", color: "#f8fafc", padding: 6 },
 };
 
-export default function SongCardMintPanel({ songId, project, showGraph, compact = false, viewerOnly = false, onEditionChange }) {
+export default function SongCardMintPanel({ songId, project, showGraph, compact = false, viewerOnly = false, onEditionChange, planningRevision = "" }) {
   const [songCard, setSongCard] = useState({ card: null, editions: [], latestEdition: 0, latest: null });
   const [plan, setPlan] = useState(null);
   const [remintCandidate, setRemintCandidate] = useState(null);
@@ -356,6 +361,9 @@ export default function SongCardMintPanel({ songId, project, showGraph, compact 
   const [phase, setPhase] = useState("idle");
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [planningError, setPlanningError] = useState("");
+  const [planningStartedAt, setPlanningStartedAt] = useState(0);
+  const [planningElapsedSeconds, setPlanningElapsedSeconds] = useState(0);
   const [gate, setGate] = useState("private-demo");
   const [renderMasterPath, setRenderMasterPath] = useState("");
   const [posterPath, setPosterPath] = useState("");
@@ -375,37 +383,62 @@ export default function SongCardMintPanel({ songId, project, showGraph, compact 
   const [exportingFormat, setExportingFormat] = useState("");
   const [currentTime, setCurrentTime] = useState(0);
   const requestRef = useRef(null);
+  const planningRequestRef = useRef(null);
+  const planningSequenceRef = useRef(0);
+  const activeAutoPlanKeyRef = useRef("");
+  const completedAutoPlanKeysRef = useRef(new Set());
+  const failedAutoPlanKeysRef = useRef(new Set());
+  const planningInputRef = useRef(null);
   const playbackHeartbeatRef = useRef(null);
   const autoBoundCandidateRef = useRef("");
   const localRenderStartedRef = useRef("");
   const remintRefreshErrorRef = useRef("");
   const editionHistoryRef = useRef(null);
   const playbackSessionRef = useRef(`song-card-ui:${Date.now()}:${Math.random().toString(36).slice(2)}`);
+  planningInputRef.current = {
+    selectedProject,
+    selectedShowGraph,
+    selectedCardSnapshots,
+  };
 
-  const loadFlow = useCallback(async () => {
-    requestRef.current?.abort?.();
+  const loadFlow = useCallback(async ({ source = "manual", autoKey = "", planningInput = null } = {}) => {
+    if (source === "auto" && autoKey && activeAutoPlanKeyRef.current === autoKey && planningRequestRef.current) return false;
+    planningRequestRef.current?.abort?.();
     if (!songId) {
       setError("Choose a Song Card before planning a mint.");
+      setPlanningError("Choose a Song Card before planning a mint.");
       setPhase("failed");
-      return;
+      return false;
     }
     const controller = new AbortController();
-    requestRef.current = controller;
+    const sequence = planningSequenceRef.current + 1;
+    planningSequenceRef.current = sequence;
+    planningRequestRef.current = controller;
+    activeAutoPlanKeyRef.current = autoKey;
     setPhase("planning");
+    setPlanningStartedAt(Date.now());
+    setPlanningElapsedSeconds(0);
+    setPlanningError("");
     setError("");
-    setNotice("");
+    setNotice(viewerOnly ? "" : source === "auto"
+      ? "Preparing Song Card options in the background. The saved edit is already safe and the editor remains available."
+      : "Checking this saved edit now. This request will run once unless you choose Retry plan again.");
+    const isCurrentRequest = () => planningSequenceRef.current === sequence && !controller.signal.aborted;
     try {
+      const { selectedProject, selectedShowGraph, selectedCardSnapshots } = planningInput || planningInputRef.current || {};
       const base = `/api/song-cards/${encodeURIComponent(songId)}`;
       if (viewerOnly) {
         const cardResponse = await fetch(base, { method: "GET", headers: { Accept: "application/json" }, signal: controller.signal });
         const cardPayload = await cardResponse.json().catch(() => ({}));
         if (!cardResponse.ok) throw new Error(cardPayload.error || cardPayload.message || `Song Card request failed (${cardResponse.status}).`);
+        if (!isCurrentRequest()) return false;
         const normalizedCard = normalizeSongCardMintPayload(cardPayload);
         setSongCard(normalizedCard);
         setSelectedEdition((current) => current || normalizedCard.latestEdition || normalizedCard.editions[0]?.edition || 0);
         setPlan(null);
         setPhase("idle");
-        return;
+        if (autoKey) completedAutoPlanKeysRef.current.add(autoKey);
+        return true;
       }
       const [cardResponse, planResponse] = await Promise.all([
         fetch(base, { method: "GET", headers: { Accept: "application/json" }, signal: controller.signal }),
@@ -420,6 +453,7 @@ export default function SongCardMintPanel({ songId, project, showGraph, compact 
       const planPayload = await planResponse.json().catch(() => ({}));
       if (!cardResponse.ok) throw new Error(cardPayload.error || cardPayload.message || `Song Card request failed (${cardResponse.status}).`);
       if (!planResponse.ok) throw new Error(planPayload.error || planPayload.message || `Mint plan failed (${planResponse.status}).`);
+      if (!isCurrentRequest()) return false;
       const normalizedCard = normalizeSongCardMintPayload(cardPayload);
       const normalizedPlan = normalizeSongCardMintPlan(planPayload);
       setSongCard(normalizedCard);
@@ -431,12 +465,35 @@ export default function SongCardMintPanel({ songId, project, showGraph, compact 
       setPosterPath(normalizedPlan.posterPath || "");
       setSelectedEdition((current) => current || normalizedCard.latestEdition || normalizedCard.editions[0]?.edition || 0);
       setPhase(normalizedPlan.status.toLowerCase().includes("render") ? "rendering" : "idle");
+      setNotice(source === "auto"
+        ? "Song Card plan ready for the last saved edit. No extra planning request will run until another save or an explicit retry."
+        : "Song Card plan ready for the selected saved edit.");
+      if (autoKey) completedAutoPlanKeysRef.current.add(autoKey);
+      return true;
     } catch (caught) {
-      if (caught?.name === "AbortError") return;
-      setError(caught?.message || "Song Card mint planning failed.");
+      if (caught?.name === "AbortError" || !isCurrentRequest()) return false;
+      const message = caught?.message || "Song Card mint planning failed.";
+      if (autoKey) failedAutoPlanKeysRef.current.add(autoKey);
+      setPlanningError(message);
+      setError(message);
       setPhase("failed");
+      setNotice("");
+      return false;
+    } finally {
+      if (planningSequenceRef.current === sequence) {
+        planningRequestRef.current = null;
+        activeAutoPlanKeyRef.current = "";
+        setPlanningStartedAt(0);
+      }
     }
-  }, [selectedCardSnapshots, selectedProject, selectedShowGraph, songId, viewerOnly]);
+  }, [songId, viewerOnly]);
+
+  const automaticPlanKey = [
+    String(songId || "no-song"),
+    String(selectedRevision?.id || "initial-revision"),
+    String(planningRevision || "initial-load"),
+    viewerOnly ? "viewer" : "editor",
+  ].join(":");
 
   const reportPlaybackActivity = useCallback((active) => {
     songCardAdminFetch("/api/song-card-playback/activity", {
@@ -475,14 +532,57 @@ export default function SongCardMintPanel({ songId, project, showGraph, compact 
   }, []);
 
   useEffect(() => {
-    if (!selectedRevisionId && revisionOptions[0]?.id) setSelectedRevisionId(revisionOptions[0].id);
+    planningSequenceRef.current += 1;
+    planningRequestRef.current?.abort?.();
+    planningRequestRef.current = null;
+    activeAutoPlanKeyRef.current = "";
+    completedAutoPlanKeysRef.current = new Set();
+    failedAutoPlanKeysRef.current = new Set();
+    setSelectedRevisionId(revisionOptions[0]?.id || "");
+    setPlanningError("");
+    setPlanningStartedAt(0);
+    setPlanningElapsedSeconds(0);
+  }, [songId, viewerOnly]);
+
+  useEffect(() => {
+    if (revisionOptions[0]?.id && !revisionOptions.some((row) => row.id === selectedRevisionId)) {
+      setSelectedRevisionId(revisionOptions[0].id);
+    }
   }, [revisionOptions, selectedRevisionId]);
 
   useEffect(() => {
-    if (!localSessionReady) return undefined;
-    loadFlow();
-    return () => requestRef.current?.abort?.();
-  }, [loadFlow, localSessionReady]);
+    if (phase !== "planning" || !planningStartedAt) return undefined;
+    const updateElapsed = () => setPlanningElapsedSeconds(Math.max(0, Math.floor((Date.now() - planningStartedAt) / 1000)));
+    updateElapsed();
+    const interval = window.setInterval(updateElapsed, 250);
+    return () => window.clearInterval(interval);
+  }, [phase, planningStartedAt]);
+
+  useEffect(() => {
+    if (!localSessionReady || !songId || (!viewerOnly && !selectedRevision?.id)) return undefined;
+    if (completedAutoPlanKeysRef.current.has(automaticPlanKey) || failedAutoPlanKeysRef.current.has(automaticPlanKey)) return undefined;
+    if (planningRequestRef.current && activeAutoPlanKeyRef.current !== automaticPlanKey) {
+      planningSequenceRef.current += 1;
+      planningRequestRef.current.abort();
+      planningRequestRef.current = null;
+      activeAutoPlanKeyRef.current = "";
+      setPhase("idle");
+      setPlanningStartedAt(0);
+      setNotice("A newer saved edit replaced the previous background check. Preparing only the latest revision.");
+    }
+    const scheduledPlanningInput = planningInputRef.current;
+    const timeout = window.setTimeout(() => {
+      if (completedAutoPlanKeysRef.current.has(automaticPlanKey) || failedAutoPlanKeysRef.current.has(automaticPlanKey)) return;
+      loadFlow({ source: "auto", autoKey: automaticPlanKey, planningInput: scheduledPlanningInput });
+    }, viewerOnly ? 0 : 600);
+    return () => window.clearTimeout(timeout);
+  }, [automaticPlanKey, loadFlow, localSessionReady, selectedRevision?.id, songId, viewerOnly]);
+
+  useEffect(() => () => {
+    planningSequenceRef.current += 1;
+    planningRequestRef.current?.abort?.();
+    requestRef.current?.abort?.();
+  }, []);
 
   useEffect(() => {
     if (!localSessionReady || !remintCandidate?.id || !["awaiting-approval", "approved", "queued", "rendering", "failed"].includes(remintCandidate.status)) return undefined;
@@ -537,6 +637,14 @@ export default function SongCardMintPanel({ songId, project, showGraph, compact 
   const localRenderProgressLabel = localRenderJob
     ? `${String(localRenderJob.stage || localRenderJob.status || "rendering").replace(/[-_]+/g, " ")} · ${localRenderPercent}%`
     : "";
+  const planningSlow = phase === "planning" && planningElapsedSeconds >= 10;
+  const planStatusLabel = phase === "planning"
+    ? `Preparing in background · ${planningElapsedSeconds}s`
+    : planningError
+      ? "Planning stopped · manual retry only"
+      : plan?.id
+        ? "Plan ready"
+        : "Plan not prepared";
   const uiState = viewerOnly && !error ? (songCard.latestEdition ? "Up to date" : "Changed") : deriveSongCardMintUiState({ plan, phase: effectivePhase, error, gate, renderMasterPath });
   const publicBlocked = gate === "public-gate" && array(plan?.blockers).length > 0;
   const selectedArtifactsReviewed = Boolean(plan?.id
@@ -599,10 +707,11 @@ export default function SongCardMintPanel({ songId, project, showGraph, compact 
 
   useEffect(() => {
     if (viewerOnly || remintCandidate?.status !== "render-ready" || !remintCandidate?.id) return;
+    if (phase === "planning") return;
     if (autoBoundCandidateRef.current === remintCandidate.id) return;
     autoBoundCandidateRef.current = remintCandidate.id;
     bindRemintRenderForReview();
-  }, [remintCandidate?.id, remintCandidate?.status, viewerOnly]);
+  }, [phase, remintCandidate?.id, remintCandidate?.status, viewerOnly]);
 
   function chooseEdition(edition) {
     const number = editionNumber(edition);
@@ -623,7 +732,31 @@ export default function SongCardMintPanel({ songId, project, showGraph, compact 
     setTimeout(() => editionHistoryRef.current?.scrollIntoView?.({ behavior: "smooth", block: "start" }), 0);
   }
 
+  function stopBackgroundPlanning() {
+    planningSequenceRef.current += 1;
+    planningRequestRef.current?.abort?.();
+    planningRequestRef.current = null;
+    activeAutoPlanKeyRef.current = "";
+    setPlanningStartedAt(0);
+  }
+
+  function beginExplicitPlanning(message) {
+    stopBackgroundPlanning();
+    const controller = new AbortController();
+    const sequence = planningSequenceRef.current + 1;
+    planningSequenceRef.current = sequence;
+    planningRequestRef.current = controller;
+    setPhase("planning");
+    setPlanningStartedAt(Date.now());
+    setPlanningElapsedSeconds(0);
+    setPlanningError("");
+    setError("");
+    setNotice(message);
+    return { controller, sequence };
+  }
+
   async function cancelFlow() {
+    stopBackgroundPlanning();
     requestRef.current?.abort?.();
     requestRef.current = null;
     try {
@@ -643,31 +776,45 @@ export default function SongCardMintPanel({ songId, project, showGraph, compact 
   }
 
   async function reviewSelectedArtifacts() {
-    if (!songId) return;
-    setPhase("planning");
-    setError("");
-    setNotice("");
+    if (!songId || phase === "planning") return;
+    const planningRequest = beginExplicitPlanning("Checking the selected recovery artifacts once. The saved edit remains available while this runs.");
     try {
       const response = await songCardAdminFetch(`/api/song-cards/${encodeURIComponent(songId)}/plan`, {
         method: "POST",
         headers: { Accept: "application/json", "Content-Type": "application/json" },
         body: JSON.stringify({ project: selectedProject, showGraph: selectedShowGraph, cardSnapshots: selectedCardSnapshots, renderMasterPath: renderMasterPath.trim(), posterPath: posterPath.trim(), gate }),
+        signal: planningRequest.controller.signal,
       });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(payload.error || payload.message || `Mint plan failed (${response.status}).`);
+      if (planningSequenceRef.current !== planningRequest.sequence || planningRequest.controller.signal.aborted) return;
       setPlan(normalizeSongCardMintPlan(payload));
       setRemintCandidate(payload.remintCandidate || null);
       setPhase("idle");
+      setPlanningStartedAt(0);
       setNotice("Selected revision, master, poster, and release gate are bound to this mint plan.");
     } catch (caught) {
-      setError(caught?.message || "Mint plan review failed.");
+      if (caught?.name === "AbortError" || planningSequenceRef.current !== planningRequest.sequence) return;
+      const message = caught?.message || "Mint plan review failed.";
+      setPlanningError(message);
+      setError(message);
       setPhase("failed");
+      setPlanningStartedAt(0);
+    } finally {
+      if (planningSequenceRef.current === planningRequest.sequence) {
+        planningRequestRef.current = null;
+        setPlanningStartedAt(0);
+      }
     }
   }
 
   function retryFlow() {
+    if (phase === "planning") return;
+    failedAutoPlanKeysRef.current.delete(automaticPlanKey);
+    completedAutoPlanKeysRef.current.delete(automaticPlanKey);
+    setPlanningError("");
     if (renderMasterPath.trim() || posterPath.trim()) reviewSelectedArtifacts();
-    else loadFlow();
+    else loadFlow({ source: "manual", autoKey: automaticPlanKey });
   }
 
   async function startLocalRender(candidateId, { announce = true } = {}) {
@@ -780,29 +927,39 @@ export default function SongCardMintPanel({ songId, project, showGraph, compact 
   }
 
   async function bindRemintRenderForReview() {
-    if (!remintCandidate?.id) return;
-    setPhase("planning");
-    setError("");
-    setNotice("");
+    if (!remintCandidate?.id || phase === "planning") return;
+    const planningRequest = beginExplicitPlanning("The final render is complete. Verifying its hashes and binding it to this exact saved edit once.");
     try {
       const response = await songCardAdminFetch(`/api/song-card-remints/${encodeURIComponent(remintCandidate.id)}/bind-render-plan`, {
         method: "POST",
         headers: { Accept: "application/json", "Content-Type": "application/json" },
         body: JSON.stringify({ project: selectedProject, showGraph: selectedShowGraph, cardSnapshots: selectedCardSnapshots, gate }),
+        signal: planningRequest.controller.signal,
       });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(payload.error || payload.message || `Rendered artifact review failed (${response.status}).`);
+      if (planningSequenceRef.current !== planningRequest.sequence || planningRequest.controller.signal.aborted) return;
       const reviewedPlan = normalizeSongCardMintPlan(payload);
       setPlan(reviewedPlan);
       setRemintCandidate(payload.remintCandidate || remintCandidate);
       setRenderMasterPath(reviewedPlan.renderMasterPath || "");
       setPosterPath(reviewedPlan.posterPath || "");
       setPhase("idle");
+      setPlanningStartedAt(0);
       setNotice("The queue's hashed master and poster are now bound to an exact mint plan. Review them, then confirm the edition separately.");
     } catch (caught) {
+      if (caught?.name === "AbortError" || planningSequenceRef.current !== planningRequest.sequence) return;
       autoBoundCandidateRef.current = "";
-      setError(caught?.message || "Rendered artifact review failed.");
+      const message = caught?.message || "Rendered artifact review failed.";
+      setPlanningError(message);
+      setError(message);
       setPhase("failed");
+      setPlanningStartedAt(0);
+    } finally {
+      if (planningSequenceRef.current === planningRequest.sequence) {
+        planningRequestRef.current = null;
+        setPlanningStartedAt(0);
+      }
     }
   }
 
@@ -1021,8 +1178,30 @@ export default function SongCardMintPanel({ songId, project, showGraph, compact 
       {!viewerOnly && <div style={styles.block}>
         <div style={{ ...styles.row, justifyContent: "space-between" }}>
           <strong>Mint plan</strong>
-          <span style={styles.label}>{plan?.id || "plan pending"}</span>
+          <div style={{ textAlign: "right" }}>
+            <span
+              data-testid="song-card-plan-status"
+              role={planningError ? "alert" : "status"}
+              aria-live="polite"
+              style={{ ...styles.label, color: planningError ? "#fb7185" : phase === "planning" ? "#f6c96d" : "#94a3b8" }}
+            >
+              {planStatusLabel}
+            </span>
+            <div style={styles.label}>{plan?.id || "plan pending"}</div>
+          </div>
         </div>
+        {phase === "planning" && (
+          <p data-testid="song-card-plan-wait" role="status" aria-live="polite" style={{ color: planningSlow ? "#f6c96d" : "#9cecff" }}>
+            {planningSlow
+              ? `Still preparing after ${planningElapsedSeconds}s. The saved edit is safe, this is running separately, and no duplicate request will be started.`
+              : `Preparing the last saved edit once in the background · ${planningElapsedSeconds}s elapsed. You can keep using the editor.`}
+          </p>
+        )}
+        {planningError && phase !== "planning" && (
+          <p data-testid="song-card-plan-failure" role="alert" style={{ color: "#fb7185" }}>
+            Planning stopped. The saved edit is safe and this failed request will not retry automatically. Choose Retry plan only when you want another attempt. {planningError}
+          </p>
+        )}
         <p>{displayValue(plan?.semanticDiff?.summary || plan?.semanticDiff?.reason) || (plan?.changed ? "The editor differs from the latest immutable edition." : "The editor matches the latest immutable edition.")}</p>
         <PlanList label="Dirty ranges" rows={plan?.dirtyRanges} />
         <PlanList label="Changed families" rows={plan?.changedFamilies} />
@@ -1087,7 +1266,9 @@ export default function SongCardMintPanel({ songId, project, showGraph, compact 
               View Edition {songCard.latestEdition}
             </button>
           )}
-          <button type="button" style={styles.button} onClick={retryFlow}>Retry plan</button>
+          <button type="button" data-testid="song-card-plan-retry" style={styles.button} disabled={phase === "planning"} onClick={retryFlow}>
+            {phase === "planning" ? `Planning… ${planningElapsedSeconds}s` : "Retry plan"}
+          </button>
         </div>
       </div>}
 

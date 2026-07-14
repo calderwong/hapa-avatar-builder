@@ -4,6 +4,7 @@ import {
   buildSongCardEdition,
   buildSongCardHead,
   buildSongCardMintSnapshot,
+  buildSongCardSnapshotRegistry,
   compileSongCardAppearanceIndex,
   diffSongCardMintSnapshots,
   fingerprintSongCardMintSnapshot,
@@ -11,6 +12,13 @@ import {
   migrateLegacySongCard,
   validateSongCardEdition,
 } from "../src/domain/song-card-mint.js";
+
+test("snapshot registry deduplicates aliases of the same canonical Card", () => {
+  const card = { id: "avatar-25", schemaVersion: "hapa.avatar-card.v1", primaryName: "Calder", revision: 25 };
+  const registry = buildSongCardSnapshotRegistry({ "timeline-card": card, "avatar-25": structuredClone(card) });
+  assert.equal(Object.keys(registry.snapshots).length, 1);
+  assert.equal(registry.references["timeline-card"], registry.references["avatar-25"]);
+});
 
 test("portable-reference detection rejects encoded traversal and embedded local paths while preserving canonical public roots", () => {
   for (const value of [

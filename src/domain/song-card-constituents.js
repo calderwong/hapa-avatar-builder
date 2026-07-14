@@ -6,12 +6,110 @@ function object(value) {
   return value && typeof value === "object" && !Array.isArray(value) ? value : {};
 }
 
-function clone(value) {
-  return value === undefined ? undefined : structuredClone(value);
-}
-
 function text(value) {
   return String(value || "").trim();
+}
+
+export const SONG_CARD_CONSTITUENT_SNAPSHOT_SCHEMA = "hapa.song-card.constituent-snapshot.v2";
+
+const PRINTABLE_ROOT_KEYS = [
+  "schemaVersion", "id", "cardId", "cardType", "kind", "type", "primaryName", "title", "name",
+  "names", "aliases", "status", "canonStatus", "summary", "description", "lore",
+  "three_paragraph_background_narrative", "tags", "rank", "quality", "revision", "version",
+  "characterSheet", "attribution", "authorship", "rights", "provenance", "hapaMergeProvenance",
+  "sourceRefs", "connections", "locationState", "utility", "broadGameMechanics", "aesthetic",
+  "promptPack", "tarotCard", "media", "thumbnail", "poster", "coverImage", "image", "videoUri", "videoSources",
+];
+const AUTHORING_ONLY_KEYS = new Set([
+  "assets", "asset", "mind", "memory", "memories", "activity", "history", "slots", "mediaslots",
+  "mediaassets", "telemetry", "operatornotes", "containedcards", "equipment",
+]);
+const PRINTABLE_SNAPSHOT_BUDGET = 48 * 1024;
+const PRINTABLE_VALUE_DEPTH = 5;
+const PRINTABLE_ARRAY_LIMIT = 48;
+const PRINTABLE_OBJECT_KEY_LIMIT = 64;
+
+function normalizedKey(value) {
+  return String(value || "").toLowerCase().replace(/[^a-z0-9]+/gu, "");
+}
+
+function boundedPrintableValue(value, state, depth = 0) {
+  if (value === undefined || typeof value === "function" || typeof value === "symbol") return undefined;
+  if (value === null || typeof value === "boolean" || typeof value === "number") {
+    state.remaining -= 16;
+    return state.remaining >= 0 ? value : undefined;
+  }
+  if (typeof value === "string") {
+    if (state.remaining <= 0) return undefined;
+    const limit = Math.min(8192, state.remaining);
+    const result = value.slice(0, limit);
+    state.remaining -= result.length + 2;
+    if (result.length < value.length) state.truncated = true;
+    return result;
+  }
+  if (depth >= PRINTABLE_VALUE_DEPTH || state.remaining <= 0) {
+    state.truncated = true;
+    return undefined;
+  }
+  if (Array.isArray(value)) {
+    const result = [];
+    if (value.length > PRINTABLE_ARRAY_LIMIT) state.truncated = true;
+    for (const item of value.slice(0, PRINTABLE_ARRAY_LIMIT)) {
+      const projected = boundedPrintableValue(item, state, depth + 1);
+      if (projected !== undefined) result.push(projected);
+      if (state.remaining <= 0) break;
+    }
+    return result;
+  }
+  if (!value || typeof value !== "object") return undefined;
+  const result = {};
+  const entries = Object.entries(value)
+    .filter(([key]) => !AUTHORING_ONLY_KEYS.has(normalizedKey(key)))
+    .slice(0, PRINTABLE_OBJECT_KEY_LIMIT);
+  if (Object.keys(value).length > entries.length) state.truncated = true;
+  for (const [key, item] of entries) {
+    state.remaining -= key.length + 4;
+    const projected = boundedPrintableValue(item, state, depth + 1);
+    if (projected !== undefined) result[key] = projected;
+    if (state.remaining <= 0) break;
+  }
+  return result;
+}
+
+export function compactSongCardConstituentSnapshot(snapshot = {}, fallback = {}) {
+  if (!snapshot || typeof snapshot !== "object" || Array.isArray(snapshot)) return null;
+  const priorProjection = snapshot.songCardSnapshot?.schemaVersion === SONG_CARD_CONSTITUENT_SNAPSHOT_SCHEMA
+    ? snapshot.songCardSnapshot
+    : {};
+  const state = { remaining: PRINTABLE_SNAPSHOT_BUDGET, truncated: false };
+  const projected = {};
+  for (const key of PRINTABLE_ROOT_KEYS) {
+    if (snapshot[key] === undefined || AUTHORING_ONLY_KEYS.has(normalizedKey(key))) continue;
+    state.remaining -= key.length + 4;
+    const value = boundedPrintableValue(snapshot[key], state, 0);
+    if (value !== undefined) projected[key] = value;
+    if (state.remaining <= 0) break;
+  }
+  const sourceId = snapshotIdentity(snapshot, priorProjection.sourceId || fallback.id);
+  if (!projected.id && sourceId) projected.id = sourceId;
+  if (!projected.title && fallback.title) projected.title = text(fallback.title);
+  if (!projected.kind && fallback.kind) projected.kind = normalizedKind(fallback.kind);
+  const omittedFamilies = [...(Array.isArray(priorProjection.omittedFamilies) ? priorProjection.omittedFamilies : []), ...Object.keys(snapshot)
+    .filter((key) => AUTHORING_ONLY_KEYS.has(normalizedKey(key)))
+    .map(normalizedKey)]
+    .filter((key, index, values) => values.indexOf(key) === index)
+    .sort();
+  projected.songCardSnapshot = {
+    schemaVersion: SONG_CARD_CONSTITUENT_SNAPSHOT_SCHEMA,
+    projection: "compact-printable-card",
+    sourceId,
+    sourceKind: normalizedKind(fallback.kind || priorProjection.sourceKind || snapshot.kind || snapshot.cardType || snapshot.schemaVersion),
+    sourceSchemaVersion: text(priorProjection.sourceSchemaVersion || snapshot.schemaVersion),
+    sourceRef: text(fallback.ref || priorProjection.sourceRef),
+    omittedFamilies,
+    truncated: priorProjection.truncated === true || state.truncated,
+  };
+  return projected;
 }
 
 function normalizedKind(value) {
@@ -34,7 +132,7 @@ function addSnapshots(target, value) {
   if (Array.isArray(value)) {
     for (const snapshot of value) {
       const id = snapshotIdentity(snapshot);
-      if (id && !target[id]) target[id] = clone(snapshot);
+      if (id && !target[id]) target[id] = compactSongCardConstituentSnapshot(snapshot, { id });
     }
     return;
   }
@@ -42,7 +140,7 @@ function addSnapshots(target, value) {
     if (!snapshot || typeof snapshot !== "object") continue;
     const id = snapshotIdentity(snapshot, key);
     if (!id || target[id]) continue;
-    target[id] = snapshotIdentity(snapshot) ? clone(snapshot) : { ...clone(snapshot), id };
+    target[id] = compactSongCardConstituentSnapshot(snapshot, { id });
   }
 }
 
@@ -182,7 +280,7 @@ export function hydrateSongCardConstituentSnapshots({
       unresolved.push(reference);
       continue;
     }
-    snapshots[reference.id] = clone(snapshot);
+    snapshots[reference.id] = compactSongCardConstituentSnapshot(snapshot, reference);
     hydrated.push({ id: reference.id, kind: kind || normalizedKind(snapshot.schemaVersion || snapshot.kind), ref: reference.ref, replacedSyntheticFallback: Boolean(existing) });
   }
 

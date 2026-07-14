@@ -67,6 +67,10 @@ test("Hell Week handoff preserves ownership, incremental state, feedback, and st
     assert.equal(firstCard.handoff.schemaVersion, "hapa.card-envelope.v1");
     assert.equal(firstCard.projection.readOnly, true);
     assert.ok(firstCard.assets.some((asset) => asset.type === "video"), "child video should be attached to the projection");
+    const indexedHealth = await fetchJson(`${BASE}/api/health`);
+    assert.equal(indexedHealth.body.handoffs.hellWeek.mediaPathIndex.directoryScans, 1);
+    assert.ok(indexedHealth.body.handoffs.hellWeek.mediaPathIndex.lookups >= 1);
+    assert.equal(indexedHealth.body.handoffs.hellWeek.mediaPathIndex.indexedDirectories, 1);
     const firstCardDetail = await fetchJson(`${BASE}/api/hell-week/cards/card-1`);
     assert.equal(firstCardDetail.response.status, 200);
     assert.equal(firstCardDetail.body.three_paragraph_background_narrative.origin, "First lore continues beyond the compact SQLite projection.");

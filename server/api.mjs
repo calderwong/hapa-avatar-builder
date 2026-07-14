@@ -358,6 +358,14 @@ const OVERWIND_ENTITY_NAMES = [
 
 const rawJsonCache = new Map();
 const normalizedJsonCache = new Map();
+const rawJsonInflight = new Map();
+const normalizedJsonInflight = new Map();
+const jsonStoreReadTelemetry = {
+  rawDiskReads: 0,
+  rawInflightHits: 0,
+  normalizedBuilds: 0,
+  normalizedInflightHits: 0
+};
 let overwindBootstrapCache = null;
 let overwindShellBootstrapCache = null;
 let hapaTranscribeProcess = null;
@@ -372,6 +380,10 @@ const DEFAULT_WEBRTC_ICE_SERVERS = [
 const BLUE_AVATAR_OWNER_PATH = process.env.HAPA_BLUE_AVATAR_OWNER_PATH || path.join(DATA_DIR, "blue-avatar-owner.json");
 const BLUE_AVATAR_OWNER_TTL_MS = Math.max(5000, Number(process.env.HAPA_BLUE_AVATAR_OWNER_TTL_MS || 16000) || 16000);
 const MAX_REQUEST_BYTES = Math.max(64 * 1024, Math.min(32 * 1024 * 1024, Number(process.env.HAPA_AVATAR_MAX_REQUEST_BYTES || 8 * 1024 * 1024)));
+const MAX_RETAINED_RAW_JSON_BYTES = Math.max(1024 * 1024, Math.min(64 * 1024 * 1024, Number(process.env.HAPA_AVATAR_RAW_JSON_CACHE_MAX_BYTES || 8 * 1024 * 1024)));
+const SONG_CARD_PLAN_TIMEOUT_MS = Math.max(1, Math.min(5 * 60 * 1000, Number(process.env.HAPA_SONG_CARD_PLAN_TIMEOUT_MS || 120_000) || 120_000));
+const SONG_CARD_MAX_CONSTITUENT_REFERENCES = Math.max(1, Math.min(4096, Number(process.env.HAPA_SONG_CARD_MAX_CONSTITUENT_REFERENCES || 512) || 512));
+const activeSongCardPlanRequests = new Map();
 const AVATAR_ADMIN_TOKEN = process.env.HAPA_AVATAR_ADMIN_TOKEN || process.env.HAPA_OVERWIND_TOKEN || "";
 const ALLOWED_ORIGINS = new Set([
   "http://127.0.0.1:5178", "http://localhost:5178", "http://127.0.0.1:8787", "http://localhost:8787",
@@ -512,7 +524,9 @@ function warmOverwindBootstrap() {
 }
 
 let cachedLedgerData = null;
-let isScanning = false;
+let cachedLedgerDataAt = 0;
+let ledgerScanPromise = null;
+const LIVE_LEDGER_CACHE_TTL_MS = Math.max(10_000, Number(process.env.HAPA_LEDGER_CACHE_TTL_MS || 60_000) || 60_000);
 
 function execQuery(cmd) {
   return new Promise((resolve) => {
@@ -523,11 +537,21 @@ function execQuery(cmd) {
   });
 }
 
-async function getLiveLedgerData() {
-  if (cachedLedgerData) {
-    return cachedLedgerData;
+async function getLiveLedgerData({ refresh = false } = {}) {
+  const cacheFresh = cachedLedgerData && Date.now() - cachedLedgerDataAt < LIVE_LEDGER_CACHE_TTL_MS;
+  if (!refresh && cacheFresh) return cachedLedgerData;
+  if (!ledgerScanPromise) {
+    ledgerScanPromise = computeLiveLedgerData()
+      .then((data) => {
+        cachedLedgerData = data;
+        cachedLedgerDataAt = Date.now();
+        return data;
+      })
+      .finally(() => {
+        ledgerScanPromise = null;
+      });
   }
-  return await computeLiveLedgerData();
+  return ledgerScanPromise;
 }
 
 async function walkDirectoryFiles(dir) {
@@ -1034,84 +1058,6 @@ async function computeLiveLedgerData() {
   };
 }
 
-async function triggerBackgroundLedgerScan() {
-  if (isScanning) return;
-  isScanning = true;
-  try {
-    const data = await computeLiveLedgerData();
-    cachedLedgerData = data;
-  } catch (err) {
-    console.error('[Ledger Cache] Error scanning ledger:', err);
-  } finally {
-    isScanning = false;
-  }
-}
-
-// Seed the cache immediately on startup
-try {
-  const storePath = "/Users/calderwong/Desktop/hapa-avatar-builder/data/avatar-store.json";
-  if (fs.existsSync(storePath)) {
-    const store = JSON.parse(fs.readFileSync(storePath, "utf8"));
-    const avatars = (store.avatars || []).map(a => ({
-      id: a.id,
-      name: a.name,
-      balance: a.balance || 0,
-      counts: {
-        images: 0,
-        videos: 0,
-        mindRecords: 267489,
-        secondBrainRecords: 78981,
-        wikiRecords: 59134,
-        guildLibraryCards: 1941,
-        tarotCards: 195,
-        itemCards: 1411,
-        total: 410259,
-        sizeBytes: 12000000000,
-        imageSize: 0,
-        videoSize: 0,
-        mindSize: 8500000000,
-        secondBrainSize: 4300000000,
-        wikiSize: 600669887,
-        guildLibraryCardsSize: 1941000,
-        tarotCardsSize: 9750000,
-        itemCardsSize: 35275000
-      }
-    }));
-    const cards = [];
-    avatars.forEach(av => {
-      cards.push({
-        id: `debit-${av.id}`,
-        avatarId: av.id,
-        cardType: "debit",
-        balance: av.balance,
-        limit: 0,
-        number: "400012345678" + av.id.slice(-4).replace(/[^0-9]/g, '9').padEnd(4, '0'),
-        holder: av.name,
-        expiry: "12/30",
-        status: "active"
-      });
-      cards.push({
-        id: `credit-${av.id}`,
-        avatarId: av.id,
-        cardType: "credit",
-        balance: 0,
-        limit: 7643,
-        number: "510012345678" + av.id.slice(-4).replace(/[^0-9]/g, '9').padEnd(4, '0'),
-        holder: av.name,
-        expiry: "12/30",
-        status: "active"
-      });
-    });
-    cachedLedgerData = { avatars, cards, transactions: [] };
-  }
-} catch (err) {
-  console.error("Error seeding ledger cache:", err);
-}
-
-// Trigger background scan immediately and set 1-minute interval
-triggerBackgroundLedgerScan();
-setInterval(triggerBackgroundLedgerScan, 60000);
-
 async function route(req, res) {
   if (!setCors(req, res)) {
     sendJson(res, 403, { error: "cors_origin_denied" });
@@ -1253,7 +1199,7 @@ async function route(req, res) {
 
   if ((pathname === "/api/v1/ledger-data" || pathname === "/v1/ledger-data") && req.method === "GET") {
     try {
-      const data = await getLiveLedgerData();
+      const data = await getLiveLedgerData({ refresh: url.searchParams.get("refresh") === "1" });
       sendJson(res, 200, { ok: true, data });
     } catch (err) {
       console.error("Error in ledger-data API:", err);
@@ -1263,16 +1209,15 @@ async function route(req, res) {
   }
 
   if (pathname === "/api/overcard/catalog" && req.method === "GET") {
-    const [avatars, items, tarot, world, songs, songCards] = await Promise.all([
-      readStore({ includeProjections: true, forceProjection: url.searchParams.get("refresh") === "1" }),
-      readItemStore(),
+    const [core, tarot, songs, songCards] = await Promise.all([
+      readBuilderCatalogCoreSources({ forceProjection: url.searchParams.get("refresh") === "1" }),
       readTarotStore(),
-      readSceneStore(),
       readHapaSongStore(),
       songCardMintController.catalogProjection()
     ]);
+    res.setHeader("X-Hapa-Catalog-Core-Sources", core.source);
     sendJson(res, 200, buildBuilderEntityCatalog(
-      { avatars, items, tarot, world, songs, songCards },
+      { avatars: core.avatars, items: core.items, tarot, world: core.world, songs, songCards },
       {
         kinds: String(url.searchParams.get("kinds") || "").split(",").map((value) => value.trim()).filter(Boolean),
         offset: url.searchParams.get("offset"),
@@ -1414,7 +1359,14 @@ async function route(req, res) {
         rssBytes: memory.rss,
         heapUsedBytes: memory.heapUsed,
         openFileCount: processOpenFileCount(),
-        fileStreams: fileStreamTelemetry()
+        fileStreams: fileStreamTelemetry(),
+        jsonStores: {
+          ...jsonStoreReadTelemetry,
+          rawCacheEntries: rawJsonCache.size,
+          normalizedCacheEntries: normalizedJsonCache.size,
+          rawInflight: rawJsonInflight.size,
+          normalizedInflight: normalizedJsonInflight.size
+        }
       },
       handoffs: {
         hellWeek: hellWeekHandoffTelemetry()
@@ -2131,9 +2083,16 @@ async function route(req, res) {
   const songCardPlanMatch = pathname.match(/^\/api\/song-cards\/([^/]+)\/plan$/);
   if (songCardPlanMatch && req.method === "POST") {
     if (!requireAdmin(req, res)) return;
+    const songId = decodeURIComponent(songCardPlanMatch[1]);
+    const operation = createSongCardPlanOperation(req, res, `song:${songId}`);
     try {
-      const songId = decodeURIComponent(songCardPlanMatch[1]);
-      const plan = await songCardMintController.plan(songId, await hydrateSongCardMintInput(await readBody(req)));
+      const body = await readBody(req);
+      operation.checkpoint("request-body-read");
+      const input = await hydrateSongCardMintInput(body, { signal: operation.signal });
+      await yieldSongCardPlanTurn(operation.signal);
+      operation.checkpoint("before-mint-planning");
+      const plan = await songCardMintController.plan(songId, input);
+      operation.checkpoint("after-mint-planning");
       const storedPlan = await songCardMintController.getPlan(plan.planId);
       const proposed = await songCardRemintStore.proposeFromPlan(songId, storedPlan);
       const remintQueue = await songCardRemintStore.view();
@@ -2142,7 +2101,9 @@ async function route(req, res) {
         : null;
       sendJson(res, 200, withSongCardRenderExecutor({ plan, remintCandidate }));
     } catch (error) {
-      sendSongCardMintError(res, error);
+      if (!suppressSongCardPlanErrorResponse(res, error)) sendSongCardMintError(res, error);
+    } finally {
+      operation.dispose();
     }
     return;
   }
@@ -2459,12 +2420,23 @@ async function route(req, res) {
   const songCardRemintBindMatch = pathname.match(/^\/api\/song-card-remints\/([^/]+)\/bind-render-plan$/);
   if (songCardRemintBindMatch && req.method === "POST") {
     if (!requireAdmin(req, res)) return;
+    const candidateId = decodeURIComponent(songCardRemintBindMatch[1]);
+    const operation = createSongCardPlanOperation(req, res, `remint:${candidateId}`);
     try {
+      const body = await readBody(req);
+      operation.checkpoint("request-body-read");
+      const input = await hydrateSongCardMintInput(body, { signal: operation.signal });
+      await yieldSongCardPlanTurn(operation.signal);
+      operation.checkpoint("before-remint-plan-binding");
       sendJson(res, 200, await songCardRemintStore.bindRenderPlan(
-        decodeURIComponent(songCardRemintBindMatch[1]),
-        await hydrateSongCardMintInput(await readBody(req)),
+        candidateId,
+        input,
       ));
-    } catch (error) { sendSongCardMintError(res, error); }
+    } catch (error) {
+      if (!suppressSongCardPlanErrorResponse(res, error)) sendSongCardMintError(res, error);
+    } finally {
+      operation.dispose();
+    }
     return;
   }
   const songCardRemintResultMatch = pathname.match(/^\/api\/song-card-remints\/([^/]+)\/jobs\/([^/]+)\/result$/);
@@ -3527,6 +3499,12 @@ const hellWeekProjectionCache = {
   queryCount: 0,
   cacheHits: 0
 };
+const hellWeekMediaDirectoryIndex = new Map();
+const hellWeekMediaPathTelemetry = {
+  lookups: 0,
+  directoryScans: 0,
+  directoryCacheHits: 0
+};
 
 function loadHellWeekProjection({ force = false } = {}) {
   const generatedAt = new Date().toISOString();
@@ -3536,6 +3514,7 @@ function loadHellWeekProjection({ force = false } = {}) {
       hellWeekProjectionCache.cacheHits += 1;
       return hellWeekProjectionCache.result;
     }
+    hellWeekMediaDirectoryIndex.clear();
 
     const query = `SELECT json_object(
       'id', id,
@@ -3840,7 +3819,7 @@ function addHellWeekAsset(assets, row, meta, avatarId, role) {
   const primaryPath = cleanHellWeekPath(row.media_local_path || row.thumbnail || meta.mediaLocalPath || meta.representativeMediaLocalPath || "");
   const generatedVideoPath = cleanHellWeekPath(meta.mediaPrompts?.generated_video_local || "");
   for (const [candidatePath, forcedType] of [[primaryPath, null], [generatedVideoPath, "video"]]) {
-    if (!candidatePath || !fs.existsSync(candidatePath) || assets.some((asset) => asset.path === candidatePath)) continue;
+    if (!candidatePath || !hellWeekMediaPathExists(candidatePath) || assets.some((asset) => asset.path === candidatePath)) continue;
     const isVideo = forcedType === "video" || row.media_kind === "video" || /\.(mp4|m4v|mov|webm)$/i.test(candidatePath);
     assets.push({
       id: `${row.id}-${role}-${isVideo ? "video" : "image"}`,
@@ -3859,6 +3838,24 @@ function addHellWeekAsset(assets, row, meta, avatarId, role) {
       }
     });
   }
+}
+
+function hellWeekMediaPathExists(candidatePath) {
+  hellWeekMediaPathTelemetry.lookups += 1;
+  const directory = path.dirname(candidatePath);
+  let names = hellWeekMediaDirectoryIndex.get(directory);
+  if (names === undefined) {
+    hellWeekMediaPathTelemetry.directoryScans += 1;
+    try {
+      names = new Set(fs.readdirSync(directory));
+    } catch {
+      names = null;
+    }
+    hellWeekMediaDirectoryIndex.set(directory, names);
+  } else {
+    hellWeekMediaPathTelemetry.directoryCacheHits += 1;
+  }
+  return names?.has(path.basename(candidatePath)) === true;
 }
 
 function cleanHellWeekPath(value) {
@@ -3891,7 +3888,13 @@ function hellWeekHandoffTelemetry() {
     lastSuccess: hellWeekProjectionCache.lastSuccess,
     lastError: hellWeekProjectionCache.lastError,
     queryCount: hellWeekProjectionCache.queryCount,
-    cacheHits: hellWeekProjectionCache.cacheHits
+    cacheHits: hellWeekProjectionCache.cacheHits,
+    mediaPathIndex: {
+      lookups: hellWeekMediaPathTelemetry.lookups,
+      directoryScans: hellWeekMediaPathTelemetry.directoryScans,
+      directoryCacheHits: hellWeekMediaPathTelemetry.directoryCacheHits,
+      indexedDirectories: hellWeekMediaDirectoryIndex.size
+    }
   };
 }
 
@@ -3966,12 +3969,14 @@ async function appendHellWeekFeedback(card, body = {}) {
   };
 }
 
-async function readStore({ includeProjections = false, forceProjection = false } = {}) {
+async function readStore({ includeProjections = false, forceProjection = false, signal = null } = {}) {
+  throwIfSongCardPlanStopped(signal, "before-avatar-store-read");
   const canonicalStore = await readNormalizedJson(STORE_PATH, "avatar-store", (store) => ({
     ...store,
     avatars: (store.avatars || []).map((avatar) => normalizeAvatarCard(avatar)),
     teams: normalizeAvatarTeams(store.teams, store.avatars || [])
-  }));
+  }), { signal });
+  throwIfSongCardPlanStopped(signal, "after-avatar-store-read");
   if (!includeProjections) return canonicalStore;
 
   const projection = loadHellWeekProjection({ force: forceProjection });
@@ -4052,10 +4057,11 @@ function isStaleAvatarUpdate(currentAvatar, incomingAvatar) {
   return incomingTime < currentTime;
 }
 
-async function readSceneStore() {
+async function readSceneStore({ signal = null } = {}) {
   try {
-    return await readNormalizedJson(SCENE_STORE_PATH, "scene-store", normalizeSceneGraph);
-  } catch {
+    return await readNormalizedJson(SCENE_STORE_PATH, "scene-store", normalizeSceneGraph, { signal });
+  } catch (error) {
+    if (signal?.aborted) throwIfSongCardPlanStopped(signal, "scene-store-read");
     const graph = createSceneGraphScaffold();
     await writeSceneStore(graph);
     return graph;
@@ -4997,40 +5003,259 @@ function uniqueStrings(items = []) {
   return [...new Set((Array.isArray(items) ? items : []).filter(Boolean).map((item) => String(item).trim()).filter(Boolean))];
 }
 
-async function hydrateSongCardMintInput(body = {}) {
+function songCardConstituentKind(value = "") {
+  const kind = String(value || "").trim().toLowerCase();
+  if (kind.includes("avatar")) return "avatar";
+  if (kind.includes("scene")) return "scene";
+  if (kind.includes("item") || kind.includes("card")) return "item";
+  return "";
+}
+
+function songCardReferenceTarget(reference = {}) {
+  const ref = String(reference.ref || "").trim();
+  const match = /#(cards|scenes|avatars)\/(.+)$/u.exec(ref);
+  let id = String(reference.id || "").trim();
+  let kind = songCardConstituentKind(reference.kind);
+  if (match) {
+    kind = match[1] === "cards" ? "item" : match[1] === "scenes" ? "scene" : "avatar";
+    try { id = decodeURIComponent(match[2]); } catch { id = match[2]; }
+  }
+  return { kind, id, referenceId: String(reference.id || "").trim() };
+}
+
+function songCardHydrationTargets(references = []) {
+  const targets = new Map();
+  for (const reference of references) {
+    const target = songCardReferenceTarget(reference);
+    const key = `${target.kind || "unknown"}:${target.id || target.referenceId}`;
+    const current = targets.get(key) || { key, kind: target.kind, id: target.id || target.referenceId, referenceIds: new Set(), references: [] };
+    if (target.referenceId) current.referenceIds.add(target.referenceId);
+    if (target.id) current.referenceIds.add(target.id);
+    current.references.push(reference);
+    targets.set(key, current);
+  }
+  return [...targets.values()];
+}
+
+function songCardTargetStoreKinds(targets = []) {
+  const kinds = new Set();
+  for (const target of targets) {
+    if (target.kind) kinds.add(target.kind);
+    else for (const kind of ["item", "scene", "avatar"]) kinds.add(kind);
+  }
+  return [...kinds].sort();
+}
+
+function songCardTargetIds(targets = [], kind) {
+  const ids = new Set();
+  for (const target of targets) {
+    if (target.kind && target.kind !== kind) continue;
+    if (target.id) ids.add(target.id);
+    for (const id of target.referenceIds || []) ids.add(id);
+  }
+  return ids;
+}
+
+function songCardStoreSubset(store = {}, kind, targets = []) {
+  const field = kind === "avatar" ? "avatars" : kind === "scene" ? "scenes" : "cards";
+  const ids = songCardTargetIds(targets, kind);
+  const rows = Array.isArray(store?.[field]) ? store[field] : [];
+  return {
+    ...store,
+    [field]: rows.filter((row) => ids.has(String(row?.id || row?.cardId || ""))),
+  };
+}
+
+function songCardProjectionStores(projection = {}, targets = []) {
+  return {
+    itemStore: songCardStoreSubset(projection.items || {}, "item", targets),
+    sceneStore: songCardStoreSubset(projection.world || {}, "scene", targets),
+    avatarStore: songCardStoreSubset({ avatars: projection.avatars || [] }, "avatar", targets),
+  };
+}
+
+async function currentSongCardOverwindProjection({ signal = null } = {}) {
+  throwIfSongCardPlanStopped(signal, "before-overwind-signature-check");
+  const signature = await createOverwindBootstrapSignature(null, false);
+  throwIfSongCardPlanStopped(signal, "after-overwind-signature-check");
+  if (overwindBootstrapCache?.signature === signature && overwindBootstrapCache.payload) {
+    return { status: "current", projection: overwindBootstrapCache.payload, signature };
+  }
+  const projection = await readPersistedOverwindProjection(signature, { signal });
+  if (!projection) return { status: "unavailable-or-stale", projection: null, signature };
+  overwindBootstrapCache = { signature, payload: projection };
+  return { status: "current", projection, signature };
+}
+
+async function readBuilderCatalogCoreSources({ forceProjection = false } = {}) {
+  const current = await currentSongCardOverwindProjection();
+  if (!current.projection) {
+    const [avatars, items, world] = await Promise.all([
+      readStore({ includeProjections: true, forceProjection }),
+      readItemStore(),
+      readSceneStore(),
+    ]);
+    return { source: "canonical-store-fallback", avatars, items, world };
+  }
+  const hellWeek = loadHellWeekProjection({ force: forceProjection });
+  const externalAvatars = hellWeek.ok ? hellWeek.cards : [];
+  return {
+    source: "current-signed-overwind-projection",
+    avatars: {
+      schemaVersion: current.projection.schemaVersion || "hapa.overwind.avatar-builder-bootstrap.v1",
+      updatedAt: current.projection.generatedAt || null,
+      avatars: [...(current.projection.avatars || []), ...externalAvatars],
+      externalProjections: {
+        hellWeek: {
+          ok: hellWeek.ok,
+          count: externalAvatars.length,
+          source: HAPA_DEV_PROTO_DB_PATH,
+          cursor: hellWeek.cursor || null,
+        },
+      },
+    },
+    items: current.projection.items || { cards: [] },
+    world: current.projection.world || { scenes: [] },
+  };
+}
+
+async function loadSongCardCanonicalStores(targets = [], { signal = null } = {}) {
+  const kinds = songCardTargetStoreKinds(targets);
+  const loaded = await Promise.all(kinds.map(async (kind) => {
+    throwIfSongCardPlanStopped(signal, `before-${kind}-constituent-store-read`);
+    const store = kind === "avatar"
+      ? await readStore({ signal })
+      : kind === "scene"
+        ? await readSceneStore({ signal })
+        : await readItemStore({ signal });
+    throwIfSongCardPlanStopped(signal, `after-${kind}-constituent-store-read`);
+    return [kind, songCardStoreSubset(store, kind, targets)];
+  }));
+  const stores = Object.fromEntries(loaded);
+  return {
+    loadedStoreKinds: kinds,
+    itemStore: stores.item || { cards: [] },
+    sceneStore: stores.scene || { scenes: [] },
+    avatarStore: stores.avatar || { avatars: [] },
+  };
+}
+
+function combinedSongCardHydrationReceipt({ references, targets, preflight, result, stages, projectionStatus, projectionSignature, loadedStoreKinds }) {
+  const hydrated = new Map();
+  for (const stage of stages) {
+    for (const row of stage.receipt?.hydrated || []) {
+      const key = `${row.kind || ""}:${row.id || ""}:${row.ref || ""}`;
+      if (!hydrated.has(key)) hydrated.set(key, { ...row, resolutionSource: stage.source });
+    }
+  }
+  return {
+    ...result.receipt,
+    requestedCount: references.length,
+    suppliedCount: preflight.receipt.suppliedCount,
+    hydratedCount: hydrated.size,
+    unresolvedCount: result.receipt.unresolvedCount,
+    hydrated: [...hydrated.values()],
+    unresolved: result.receipt.unresolved,
+    canonicalTargetCount: targets.length,
+    duplicateReferenceCount: Math.max(0, references.length - targets.length),
+    projection: {
+      status: projectionStatus,
+      regeneratedDuringRequest: false,
+      sourceSignatureSha256: projectionSignature ? createHash("sha256").update(projectionSignature).digest("hex") : "",
+    },
+    loadedStoreKinds,
+    bounds: {
+      referenceLimit: SONG_CARD_MAX_CONSTITUENT_REFERENCES,
+      timeoutMs: SONG_CARD_PLAN_TIMEOUT_MS,
+    },
+  };
+}
+
+async function hydrateSongCardMintInput(body = {}, { signal = null } = {}) {
   const input = body && typeof body === "object" && !Array.isArray(body) ? body : {};
   const project = input.project || {};
   const showGraph = input.showGraph || {};
   const references = collectSongCardConstituentReferences({ project, showGraph });
   if (!references.length) return input;
-
-  const [itemStore, sceneStore, avatarStore] = await Promise.all([
-    readItemStore().catch(() => ({ cards: [] })),
-    readSceneStore().catch(() => ({ scenes: [] })),
-    readStore().catch(() => ({ avatars: [] })),
-  ]);
-  const hydration = hydrateSongCardConstituentSnapshots({
+  if (references.length > SONG_CARD_MAX_CONSTITUENT_REFERENCES) {
+    throw songCardPlanOperationError(
+      "SONG_CARD_CONSTITUENT_LIMIT_EXCEEDED",
+      `Song Card planning requested ${references.length} constituent references; the limit is ${SONG_CARD_MAX_CONSTITUENT_REFERENCES}.`,
+      413,
+      { requestedCount: references.length, limit: SONG_CARD_MAX_CONSTITUENT_REFERENCES },
+    );
+  }
+  throwIfSongCardPlanStopped(signal, "before-constituent-hydration");
+  const targets = songCardHydrationTargets(references);
+  const preflight = hydrateSongCardConstituentSnapshots({
     project,
     showGraph,
     cardSnapshots: input.cardSnapshots || {},
-    itemStore,
-    sceneStore,
-    avatarStore,
+  });
+  let hydration = preflight;
+  let projectionStatus = preflight.receipt.unresolvedCount ? "not-checked" : "not-needed";
+  let projectionSignature = "";
+  let loadedStoreKinds = [];
+  const stages = [];
+
+  if (hydration.receipt.unresolvedCount) {
+    const projection = await currentSongCardOverwindProjection({ signal });
+    projectionStatus = projection.status;
+    projectionSignature = projection.signature;
+    if (projection.projection) {
+      const projectionTargets = songCardHydrationTargets(hydration.receipt.unresolved);
+      hydration = hydrateSongCardConstituentSnapshots({
+        project,
+        showGraph,
+        cardSnapshots: hydration.cardSnapshots,
+        ...songCardProjectionStores(projection.projection, projectionTargets),
+      });
+      stages.push({ source: "current-overwind-projection", receipt: hydration.receipt });
+    }
+  }
+
+  if (hydration.receipt.unresolvedCount) {
+    await yieldSongCardPlanTurn(signal);
+    const canonicalTargets = songCardHydrationTargets(hydration.receipt.unresolved);
+    const canonical = await loadSongCardCanonicalStores(canonicalTargets, { signal });
+    loadedStoreKinds = canonical.loadedStoreKinds;
+    hydration = hydrateSongCardConstituentSnapshots({
+      project,
+      showGraph,
+      cardSnapshots: hydration.cardSnapshots,
+      itemStore: canonical.itemStore,
+      sceneStore: canonical.sceneStore,
+      avatarStore: canonical.avatarStore,
+    });
+    stages.push({ source: "canonical-store", receipt: hydration.receipt });
+  }
+
+  throwIfSongCardPlanStopped(signal, "after-constituent-hydration");
+  const receipt = combinedSongCardHydrationReceipt({
+    references,
+    targets,
+    preflight,
+    result: hydration,
+    stages,
+    projectionStatus,
+    projectionSignature,
+    loadedStoreKinds,
   });
   return {
     ...input,
     cardSnapshots: hydration.cardSnapshots,
     context: {
       ...(input.context || {}),
-      constituentHydration: hydration.receipt,
+      constituentHydration: receipt,
     },
   };
 }
 
-async function readItemStore() {
+async function readItemStore({ signal = null } = {}) {
   try {
-    return await readNormalizedJson(ITEM_STORE_PATH, "item-store", normalizeItemManagerStore);
-  } catch {
+    return await readNormalizedJson(ITEM_STORE_PATH, "item-store", normalizeItemManagerStore, { signal });
+  } catch (error) {
+    if (signal?.aborted) throwIfSongCardPlanStopped(signal, "item-store-read");
     const store = createItemManagerScaffold();
     await writeItemStore(store);
     return store;
@@ -5653,11 +5878,16 @@ async function readOverwindShellBootstrap(selectedAvatarId = null) {
   return projection;
 }
 
-async function readPersistedOverwindProjection(signature) {
+async function readPersistedOverwindProjection(signature, { signal = null } = {}) {
   try {
-    const payload = JSON.parse(await readFile(OVERWIND_BOOTSTRAP_PATH, "utf8"));
+    throwIfSongCardPlanStopped(signal, "before-overwind-projection-read");
+    const source = await readFile(OVERWIND_BOOTSTRAP_PATH, { encoding: "utf8", ...(signal ? { signal } : {}) });
+    throwIfSongCardPlanStopped(signal, "before-overwind-projection-parse");
+    const payload = JSON.parse(source);
+    throwIfSongCardPlanStopped(signal, "after-overwind-projection-parse");
     return payload?.sourceSignature === signature ? payload : null;
-  } catch {
+  } catch (error) {
+    if (signal?.aborted) throwIfSongCardPlanStopped(signal, "overwind-projection-read");
     return null;
   }
 }
@@ -6630,43 +6860,107 @@ async function readJson(filePath) {
   return (await readCachedJson(filePath)).value;
 }
 
-async function readCachedJson(filePath) {
+function awaitJsonStoreFlight(promise, signal, phase) {
+  if (!signal) return promise;
+  throwIfSongCardPlanStopped(signal, phase);
+  return new Promise((resolve, reject) => {
+    const onAbort = () => {
+      try {
+        throwIfSongCardPlanStopped(signal, phase);
+      } catch (error) {
+        reject(error);
+      }
+    };
+    signal.addEventListener("abort", onAbort, { once: true });
+    promise.then(resolve, reject).finally(() => signal.removeEventListener("abort", onAbort));
+  });
+}
+
+async function readCachedJson(filePath, { signal = null } = {}) {
+  throwIfSongCardPlanStopped(signal, "before-json-store-read");
   const resolvedPath = path.resolve(filePath);
   const fileStat = await stat(resolvedPath);
+  throwIfSongCardPlanStopped(signal, "after-json-store-stat");
   const cached = rawJsonCache.get(resolvedPath);
   if (cached && cached.mtimeMs === fileStat.mtimeMs && cached.size === fileStat.size) {
     return cached;
   }
-  const value = JSON.parse(await readFile(resolvedPath, "utf8"));
-  const entry = {
-    value,
-    mtimeMs: fileStat.mtimeMs,
-    size: fileStat.size
-  };
-  rawJsonCache.set(resolvedPath, entry);
+  const currentFlight = rawJsonInflight.get(resolvedPath);
+  if (currentFlight && currentFlight.mtimeMs === fileStat.mtimeMs && currentFlight.size === fileStat.size) {
+    jsonStoreReadTelemetry.rawInflightHits += 1;
+    return awaitJsonStoreFlight(currentFlight.promise, signal, "shared-json-store-read");
+  }
+  const flight = { mtimeMs: fileStat.mtimeMs, size: fileStat.size, invalidated: false, promise: null };
+  flight.promise = (async () => {
+    jsonStoreReadTelemetry.rawDiskReads += 1;
+    const source = await readFile(resolvedPath, "utf8");
+    const entry = {
+      value: JSON.parse(source),
+      mtimeMs: fileStat.mtimeMs,
+      size: fileStat.size
+    };
+    if (!flight.invalidated) rawJsonCache.set(resolvedPath, entry);
+    return entry;
+  })();
+  rawJsonInflight.set(resolvedPath, flight);
+  flight.promise.finally(() => {
+    if (rawJsonInflight.get(resolvedPath) === flight) rawJsonInflight.delete(resolvedPath);
+  }).catch(() => {});
+  const entry = await awaitJsonStoreFlight(flight.promise, signal, "json-store-read");
+  throwIfSongCardPlanStopped(signal, "after-json-store-parse");
   return entry;
 }
 
-async function readNormalizedJson(filePath, cacheKey, normalizer) {
-  const entry = await readCachedJson(filePath);
+async function readNormalizedJson(filePath, cacheKey, normalizer, { signal = null } = {}) {
   const resolvedPath = path.resolve(filePath);
   const normalizedKey = `${cacheKey}:${resolvedPath}`;
-  const cached = normalizedJsonCache.get(normalizedKey);
-  if (cached && cached.mtimeMs === entry.mtimeMs && cached.size === entry.size) {
+  const fileStat = await stat(resolvedPath);
+  throwIfSongCardPlanStopped(signal, "after-normalized-json-store-stat");
+  let cached = normalizedJsonCache.get(normalizedKey);
+  if (cached && cached.mtimeMs === fileStat.mtimeMs && cached.size === fileStat.size) {
     return cached.value;
   }
-  const value = normalizer(entry.value);
-  normalizedJsonCache.set(normalizedKey, {
-    value,
-    mtimeMs: entry.mtimeMs,
-    size: entry.size
+  const entry = await readCachedJson(filePath, { signal });
+  cached = normalizedJsonCache.get(normalizedKey);
+  if (cached && cached.mtimeMs === entry.mtimeMs && cached.size === entry.size) return cached.value;
+  throwIfSongCardPlanStopped(signal, "before-json-store-normalize");
+  const currentFlight = normalizedJsonInflight.get(normalizedKey);
+  if (currentFlight && currentFlight.mtimeMs === entry.mtimeMs && currentFlight.size === entry.size) {
+    jsonStoreReadTelemetry.normalizedInflightHits += 1;
+    return awaitJsonStoreFlight(currentFlight.promise, signal, "shared-json-store-normalize");
+  }
+  const flight = { resolvedPath, mtimeMs: entry.mtimeMs, size: entry.size, invalidated: false, promise: null };
+  flight.promise = Promise.resolve().then(() => {
+    jsonStoreReadTelemetry.normalizedBuilds += 1;
+    const value = normalizer(entry.value);
+    if (!flight.invalidated) normalizedJsonCache.set(normalizedKey, {
+      value,
+      mtimeMs: entry.mtimeMs,
+      size: entry.size
+    });
+    return value;
+  }).finally(() => {
+    // The normalized cache is the reusable representation. Retaining the parsed
+    // authoring store as well doubles hundreds of megabytes without helping the
+    // next normalized read, so large raw trees are released immediately.
+    if (entry.size > MAX_RETAINED_RAW_JSON_BYTES) rawJsonCache.delete(resolvedPath);
+    if (normalizedJsonInflight.get(normalizedKey) === flight) normalizedJsonInflight.delete(normalizedKey);
   });
+  normalizedJsonInflight.set(normalizedKey, flight);
+  const value = await awaitJsonStoreFlight(flight.promise, signal, "json-store-normalize");
+  throwIfSongCardPlanStopped(signal, "after-json-store-normalize");
   return value;
 }
 
 function invalidateJsonCache(filePath) {
-  rawJsonCache.delete(path.resolve(filePath));
+  const resolvedPath = path.resolve(filePath);
+  rawJsonCache.delete(resolvedPath);
+  const rawFlight = rawJsonInflight.get(resolvedPath);
+  if (rawFlight) rawFlight.invalidated = true;
+  rawJsonInflight.delete(resolvedPath);
   normalizedJsonCache.clear();
+  for (const flight of normalizedJsonInflight.values()) flight.invalidated = true;
+  normalizedJsonInflight.clear();
   overwindBootstrapCache = null;
 }
 
@@ -6832,6 +7126,93 @@ async function readBody(req) {
   if (!chunks.length) return {};
   const text = Buffer.concat(chunks).toString("utf8");
   return text ? JSON.parse(text) : {};
+}
+
+function songCardPlanOperationError(code, message, statusCode, details = {}) {
+  const error = new Error(message);
+  error.code = code;
+  error.statusCode = statusCode;
+  error.details = details;
+  return error;
+}
+
+function createSongCardPlanOperation(req, res, requestKey) {
+  const controller = new AbortController();
+  const key = String(requestKey || "song-card-plan");
+  let disposed = false;
+  const abort = (error) => {
+    if (!controller.signal.aborted) controller.abort(error);
+  };
+  const prior = activeSongCardPlanRequests.get(key);
+  const operation = {
+    signal: controller.signal,
+    abort,
+    checkpoint(phase = "planning") {
+      if (!controller.signal.aborted) return;
+      const reason = controller.signal.reason instanceof Error
+        ? controller.signal.reason
+        : songCardPlanOperationError("SONG_CARD_PLAN_ABORTED", "Song Card planning was canceled.", 499);
+      reason.details = { ...(reason.details || {}), phase };
+      throw reason;
+    },
+    dispose() {
+      if (disposed) return;
+      disposed = true;
+      clearTimeout(timeout);
+      req.removeListener("aborted", onRequestAborted);
+      res.removeListener("close", onResponseClose);
+      if (activeSongCardPlanRequests.get(key) === operation) activeSongCardPlanRequests.delete(key);
+    },
+  };
+  activeSongCardPlanRequests.set(key, operation);
+  prior?.abort(songCardPlanOperationError(
+    "SONG_CARD_PLAN_SUPERSEDED",
+    "A newer request replaced this Song Card plan.",
+    409,
+    { requestKey: key },
+  ));
+  const onRequestAborted = () => abort(songCardPlanOperationError(
+    "SONG_CARD_PLAN_CLIENT_DISCONNECTED",
+    "The Song Card planning request was abandoned by its client.",
+    499,
+    { clientDisconnected: true },
+  ));
+  const onResponseClose = () => {
+    if (!res.writableEnded) onRequestAborted();
+  };
+  req.once("aborted", onRequestAborted);
+  res.once("close", onResponseClose);
+  const timeout = setTimeout(() => abort(songCardPlanOperationError(
+    "SONG_CARD_PLAN_TIMED_OUT",
+    `Song Card planning exceeded its ${SONG_CARD_PLAN_TIMEOUT_MS}ms safety window.`,
+    408,
+    { timeoutMs: SONG_CARD_PLAN_TIMEOUT_MS },
+  )), SONG_CARD_PLAN_TIMEOUT_MS);
+  timeout.unref?.();
+  return operation;
+}
+
+function throwIfSongCardPlanStopped(signal, phase = "planning") {
+  if (!signal?.aborted) return;
+  const reason = signal.reason instanceof Error
+    ? signal.reason
+    : songCardPlanOperationError("SONG_CARD_PLAN_ABORTED", "Song Card planning was canceled.", 499);
+  reason.details = { ...(reason.details || {}), phase };
+  throw reason;
+}
+
+async function yieldSongCardPlanTurn(signal) {
+  // Give socket-close and safety-timer events a real timers-phase checkpoint
+  // before entering the controller's CPU-heavy canonicalization work.
+  await new Promise((resolve) => setTimeout(resolve, Math.min(5, SONG_CARD_PLAN_TIMEOUT_MS)));
+  throwIfSongCardPlanStopped(signal, "event-loop-checkpoint");
+}
+
+function suppressSongCardPlanErrorResponse(res, error) {
+  return res.destroyed
+    || res.writableEnded
+    || error?.code === "SONG_CARD_PLAN_CLIENT_DISCONNECTED"
+    || error?.details?.clientDisconnected === true;
 }
 
 function sendJson(res, statusCode, payload) {
