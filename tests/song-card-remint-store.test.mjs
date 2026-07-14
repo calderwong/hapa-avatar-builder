@@ -22,6 +22,42 @@ function snapshot(mediaId, revision) {
   });
 }
 
+test("proposing an identical plan after cancel returns the newest lineaged attempt while an active attempt deduplicates", async (t) => {
+  const root = await fsp.mkdtemp(path.join(os.tmpdir(), "song-card-remint-reproposal-"));
+  t.after(() => fsp.rm(root, { recursive: true, force: true }));
+  const before = snapshot("media:a", "editor:1");
+  const after = snapshot("media:b", "editor:2");
+  const head = { latestEdition: 1, generation: 1, editions: [{ edition: 1, sourceRevision: "editor:1" }] };
+  const controller = {
+    ledger: {
+      getHead: async () => structuredClone(head),
+      readEdition: async () => ({ snapshot: structuredClone(before) }),
+    },
+  };
+  const storedPlan = {
+    planId: "plan:editor-2",
+    headId: "song-card:song-a",
+    input: { song: { title: "Song A" } },
+    sourceRevision: "editor:2",
+    snapshot: after,
+    semanticDiff: diffSongCardMintSnapshots(before, after),
+  };
+  const store = createSongCardRemintStore({ root, controller });
+  const first = await store.proposeFromPlan("song-a", storedPlan);
+  await store.cancel(first.id, { canceledBy: "operator:cj", reason: "try-again" });
+
+  const second = await store.proposeFromPlan("song-a", storedPlan);
+  assert.notEqual(second.id, first.id);
+  assert.equal(second.status, "awaiting-approval");
+  assert.equal(second.attemptNumber, 2);
+  assert.equal(second.attemptLineage.priorAttemptId, first.id);
+  assert.equal(second.attemptLineage.priorAttemptStatus, "canceled");
+
+  const identicalActive = await store.proposeFromPlan("song-a", storedPlan);
+  assert.equal(identicalActive.id, second.id, "proposeFromPlan returns the newest matching active attempt");
+  assert.equal((await store.view()).candidates.length, 2, "an active matching fingerprint still deduplicates");
+});
+
 test("persistent remint store survives restart, requires approval, and never increments the ledger itself", async (t) => {
   const root = await fsp.mkdtemp(path.join(os.tmpdir(), "song-card-remint-store-"));
   t.after(() => fsp.rm(root, { recursive: true, force: true }));

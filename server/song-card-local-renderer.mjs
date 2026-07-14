@@ -5,7 +5,9 @@ import fsp from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
+import { evaluateHyperFramesPixelAcceptance } from "../scripts/hyperframes-pixel-acceptance.mjs";
 import { preflightHyperFramesMedia } from "../src/domain/hyperframes-show-compiler.js";
+import { normalizeHyperFramesStemRole } from "../src/domain/hyperframes-visualizer-runtime.js";
 
 const execFile = promisify(execFileCallback);
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -16,6 +18,7 @@ const LOCAL_CHECKPOINT_SCHEMA = "hapa.song-card.local-render-checkpoint.v1";
 const REQUIRED_SCRIPTS = [
   "scripts/build-stem-telemetry-bundle.py",
   "scripts/compile-hyperframes-show-v2.mjs",
+  "scripts/hyperframes-pixel-acceptance.mjs",
   "scripts/hyperframes-pixel-capture.cjs",
   "scripts/run-local-hyperframes.mjs",
 ];
@@ -349,7 +352,7 @@ function runHyperFramesRender(args, { cwd, report, signal, registerProcess = nul
         const percent = total > 0 ? Math.min(85, 45 + Math.floor((completed / total) * 40)) : 45;
         if (percent > lastReportedPercent) {
           lastReportedPercent = percent;
-          report("render", percent, `Rendering frame ${completed.toLocaleString()} of ${total.toLocaleString()}.`);
+          report("render", percent, `Rendering frame ${completed.toLocaleString()} of ${total.toLocaleString()}.`, { completed, total });
         }
       } else if (/Assembling final video/iu.test(outputTail) && lastReportedPercent < 86) {
         lastReportedPercent = 86;
@@ -386,6 +389,84 @@ function runHyperFramesRender(args, { cwd, report, signal, registerProcess = nul
       error.code = code ?? closeSignal ?? "local_hyperframes_failed";
       finish(error);
     });
+    if (signal?.aborted) onAbort();
+  });
+}
+
+function runPixelQaCapture(executable, args, { cwd, report, signal, registerProcess = null }) {
+  return new Promise((resolve, reject) => {
+    throwIfAborted(signal);
+    const child = spawnChild(executable, args, {
+      cwd,
+      env: process.env,
+      stdio: ["ignore", "pipe", "pipe"],
+      detached: process.platform !== "win32",
+    });
+    let settled = false;
+    let killTimer = null;
+    let stdoutTail = "";
+    let stderrTail = "";
+    let stdoutLines = "";
+    const terminate = () => {
+      terminateProcessGroup(child, "SIGTERM");
+      if (!killTimer) killTimer = setTimeout(() => terminateProcessGroup(child, "SIGKILL"), 5_000);
+    };
+    const unregister = typeof registerProcess === "function" ? registerProcess({ child, terminate }) : null;
+    const cleanup = () => {
+      if (killTimer) clearTimeout(killTimer);
+      signal?.removeEventListener?.("abort", onAbort);
+      if (typeof unregister === "function") unregister();
+    };
+    const finish = (error = null) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      if (error) reject(error);
+      else resolve();
+    };
+    const onAbort = () => terminate();
+    const observeProgress = (chunk) => {
+      const value = String(chunk || "");
+      stdoutTail = `${stdoutTail}${value}`.slice(-512 * 1024);
+      stdoutLines += value;
+      const lines = stdoutLines.split(/\r?\n/u);
+      stdoutLines = lines.pop() || "";
+      for (const line of lines) {
+        let progress;
+        try { progress = JSON.parse(line); } catch { progress = null; }
+        if (progress?.type !== "pixel-qa-progress") continue;
+        const completed = Math.max(0, Number(progress.completed || 0));
+        const total = Math.max(0, Number(progress.total || 0));
+        const percent = total > 0 ? Math.min(39, 34 + Math.floor((completed / total) * 5)) : 34;
+        const cueIds = Array.isArray(progress.cueIds) ? progress.cueIds.map(text).filter(Boolean) : [];
+        const cueSummary = cueIds.length ? ` (${cueIds.slice(0, 2).join(", ")})` : "";
+        report(
+          "pixel-qa",
+          percent,
+          `Verifying shader cue ${completed.toLocaleString()} of ${total.toLocaleString()}${cueSummary}.`,
+          { completed, total, timestamp: Number(progress.timestamp || 0), cueIds },
+        );
+      }
+    };
+    child.stdout.on("data", observeProgress);
+    child.stderr.on("data", (chunk) => { stderrTail = `${stderrTail}${String(chunk || "")}`.slice(-512 * 1024); });
+    child.once("error", (error) => finish(error));
+    child.once("close", (code, closeSignal) => {
+      if (signal?.aborted) {
+        finish(abortError(signal));
+        return;
+      }
+      if (code === 0) {
+        finish();
+        return;
+      }
+      const error = new Error(`Shader verification exited with ${closeSignal ? `signal ${closeSignal}` : `code ${code}`}.`);
+      error.stdout = stdoutTail;
+      error.stderr = stderrTail;
+      error.code = code ?? closeSignal ?? "local_pixel_qa_failed";
+      finish(error);
+    });
+    signal?.addEventListener?.("abort", onAbort, { once: true });
     if (signal?.aborted) onAbort();
   });
 }
@@ -441,30 +522,8 @@ async function readLocalCheckpoint(checkpointPath, { identitySha256, outputDirec
 }
 
 function isolatedStemRole(value = "") {
-  const compact = text(value)
-    .toLowerCase()
-    .replace(/^(?:stem|bus)[:/_-]+/, "")
-    .replace(/[^a-z0-9]+/g, "");
-  const aliases = {
-    leadvocal: "vocals",
-    leadvocals: "vocals",
-    leadvoice: "vocals",
-    vocal: "vocals",
-    voice: "vocals",
-    backingvocal: "backingvocals",
-    backingvocals: "backingvocals",
-    backgroundvocal: "backingvocals",
-    backgroundvocals: "backingvocals",
-    bgvocals: "backingvocals",
-    drum: "drums",
-    key: "keyboard",
-    keys: "keyboard",
-    keyboards: "keyboard",
-    synths: "synth",
-    stringssection: "strings",
-  };
-  const role = aliases[compact] || compact;
-  return role && !["archivezip", "archive", "master", "mastermix", "mix", "fullmix"].includes(role) ? role : "";
+  const role = normalizeHyperFramesStemRole(value);
+  return role && !["archivezip", "archive", "master"].includes(role) ? role : "";
 }
 
 function usableStemItem(item = {}) {
@@ -602,22 +661,75 @@ function visualizerCards(showGraph = {}) {
     .map((card) => ({ card, track })));
 }
 
+export function reevaluateSongCardPixelReport(pixelReport = {}) {
+  const frames = Array.isArray(pixelReport?.frames) ? pixelReport.frames : [];
+  const evaluated = evaluateHyperFramesPixelAcceptance({
+    frames,
+    timelineReady: pixelReport?.acceptance?.timelineReady === true,
+    networkAttemptCount: Number(pixelReport?.offline?.networkAttemptCount || 0),
+    consoleErrorCount: Number(pixelReport?.consoleSummary?.errorCount ?? pixelReport?.consoleErrors?.length ?? 0),
+  });
+  return {
+    ...structuredClone(pixelReport || {}),
+    acceptance: evaluated.acceptance,
+    acceptanceDiagnostics: evaluated.diagnostics,
+    functionalOk: evaluated.functionalOk,
+    ok: evaluated.ok,
+  };
+}
+
+export function createSongCardPixelQaError(pixelReport = {}, { cause = null, reportPath = "" } = {}) {
+  const refreshed = reevaluateSongCardPixelReport(pixelReport);
+  const failedChecks = Object.entries(refreshed.acceptance || {})
+    .filter(([, value]) => value === false)
+    .map(([key]) => key);
+  const mismatchedFrames = refreshed.acceptanceDiagnostics?.mismatchedFrames || [];
+  const nonPositiveOpacityFrames = refreshed.acceptanceDiagnostics?.nonPositiveOpacityFrames || [];
+  const blankShaderCanvasFrames = refreshed.acceptance?.blankShaderCanvasFrames || [];
+  const blockers = [];
+  if (mismatchedFrames.length) blockers.push(`${mismatchedFrames.length} cue identity mismatch${mismatchedFrames.length === 1 ? "" : "es"}`);
+  if (nonPositiveOpacityFrames.length) blockers.push(`${nonPositiveOpacityFrames.length} invisible shader cue${nonPositiveOpacityFrames.length === 1 ? "" : "s"}`);
+  if (blankShaderCanvasFrames.length) blockers.push(`${blankShaderCanvasFrames.length} blank shader frame${blankShaderCanvasFrames.length === 1 ? "" : "s"}`);
+  if (!blockers.length && failedChecks.length) blockers.push(`failed checks: ${failedChecks.join(", ")}`);
+  if (!blockers.length) blockers.push("the shader verification process stopped without a passing report");
+  return localRendererError(
+    "local_renderer_truth_failed",
+    `Shader verification stopped before MP4 encoding: ${blockers.join("; ")}. The saved edit is intact and no edition was minted.`,
+    409,
+    {
+      stage: "pixel-qa",
+      failedChecks,
+      frameCount: Array.isArray(refreshed.frames) ? refreshed.frames.length : 0,
+      mismatchedFrames: structuredClone(mismatchedFrames),
+      nonPositiveOpacityFrames: structuredClone(nonPositiveOpacityFrames),
+      blankShaderCanvasFrames: structuredClone(blankShaderCanvasFrames),
+      semanticAliasMatches: structuredClone(refreshed.acceptanceDiagnostics?.semanticAliasMatches || []),
+      reportPath: text(reportPath) || null,
+      exitCode: Number.isInteger(cause?.code) ? cause.code : null,
+      signal: text(cause?.signal) || null,
+    },
+  );
+}
+
 function executedRendererTruth(showGraph, compilerReport, pixelReport) {
   const cues = visualizerCards(showGraph);
   const declared = Number(compilerReport?.visualizers?.declared || 0);
   const exact = Number(compilerReport?.visualizers?.exactProxy || 0);
   const unsupported = Number(compilerReport?.visualizers?.unsupported || 0);
-  const pixelFrames = Array.isArray(pixelReport?.frames) ? pixelReport.frames : [];
-  const pixelsPass = cues.length === 0 || (pixelReport?.ok === true
+  const verifiedPixelReport = reevaluateSongCardPixelReport(pixelReport);
+  const pixelFrames = Array.isArray(verifiedPixelReport?.frames) ? verifiedPixelReport.frames : [];
+  const pixelsPass = cues.length === 0 || (verifiedPixelReport?.ok === true
     && pixelFrames.length > 0
     && pixelFrames.every((frame) => frame?.metrics?.nonBlank === true && frame?.metrics?.nonFlat === true));
-  if (cues.length && (compilerReport?.ok !== true || declared !== cues.length || exact !== cues.length || unsupported !== 0 || !pixelsPass)) {
+  if (cues.length && !pixelsPass) throw createSongCardPixelQaError(verifiedPixelReport);
+  if (cues.length && (compilerReport?.ok !== true || declared !== cues.length || exact !== cues.length || unsupported !== 0)) {
     throw localRendererError("local_renderer_truth_failed", "The local render did not execute every requested shader cue with verified visible pixels.", 409, {
+      stage: "compile",
       requestedCueCount: cues.length,
       declared,
       exact,
       unsupported,
-      pixelReportOk: pixelReport?.ok === true,
+      pixelReportOk: verifiedPixelReport?.ok === true,
       pixelFrameCount: pixelFrames.length,
     });
   }
@@ -766,12 +878,48 @@ async function defaultPipeline({ project, showGraph, outputDirectory, masterPath
 
   report("pixel-qa", 34, "Sampling real rendered pixels for every shader cue.");
   const electronPath = path.join(ROOT, "node_modules/.bin/electron");
-  await execFile(electronPath, [
-    path.join(ROOT, "scripts/hyperframes-pixel-capture.cjs"),
-    `--project=${packageDirectory}`,
-    `--output=${qaDirectory}`,
-  ], { cwd: ROOT, maxBuffer: 64 * 1024 * 1024, signal });
-  const pixelReport = await readJson(path.join(qaDirectory, "pixel-capture-report.json"));
+  const pixelReportPath = path.join(qaDirectory, "pixel-capture-report.json");
+  await fsp.rm(pixelReportPath, { force: true });
+  let pixelProcessError = null;
+  try {
+    await runPixelQaCapture(electronPath, [
+      path.join(ROOT, "scripts/hyperframes-pixel-capture.cjs"),
+      `--project=${packageDirectory}`,
+      `--output=${qaDirectory}`,
+    ], { cwd: ROOT, report, signal, registerProcess });
+  } catch (error) {
+    if (signal?.aborted) throw abortError(signal);
+    pixelProcessError = error;
+  }
+  const capturedPixelReport = await readJson(pixelReportPath).catch(() => null);
+  if (!capturedPixelReport) {
+    throw localRendererError(
+      "local_pixel_qa_process_failed",
+      "Shader verification stopped before it produced a diagnostic report. The final MP4 did not start.",
+      500,
+      {
+        stage: "pixel-qa",
+        exitCode: Number.isInteger(pixelProcessError?.code) ? pixelProcessError.code : null,
+        signal: text(pixelProcessError?.signal) || null,
+      },
+    );
+  }
+  const pixelReport = reevaluateSongCardPixelReport(capturedPixelReport);
+  await writeJson(pixelReportPath, pixelReport);
+  if (pixelReport.ok !== true) throw createSongCardPixelQaError(pixelReport, { cause: pixelProcessError, reportPath: pixelReportPath });
+  if (pixelProcessError) {
+    throw localRendererError(
+      "local_pixel_qa_process_failed",
+      "Shader verification produced frames but its capture process did not finish cleanly. The final MP4 did not start.",
+      500,
+      {
+        stage: "pixel-qa",
+        exitCode: Number.isInteger(pixelProcessError?.code) ? pixelProcessError.code : null,
+        signal: text(pixelProcessError?.signal) || null,
+        reportPath: pixelReportPath,
+      },
+    );
+  }
   const rendererTruth = executedRendererTruth(showGraph, compilerReport, pixelReport);
 
   const renderedMasterPath = path.join(renderDirectory, "master.mp4");
@@ -912,7 +1060,16 @@ export function createSongCardLocalRenderBridge({
           outputDirectory,
           signal,
           registerProcess: runtime.registerProcess,
-          report: (nextStage, percent, message) => publish(candidateId, { status: "rendering", stage: nextStage, percent, message }),
+          report: (nextStage, percent, message, progress = {}) => publish(candidateId, {
+            status: "rendering",
+            stage: nextStage,
+            percent,
+            message,
+            completed: Number(progress?.completed || 0),
+            total: Number(progress?.total || 0),
+            cueIds: Array.isArray(progress?.cueIds) ? progress.cueIds : [],
+            ...structuredClone(progress || {}),
+          }),
         });
         throwIfAborted(signal);
         if (!pipelineResult?.masterPath || !pipelineResult?.posterPath) throw localRendererError("local_render_artifacts_missing", "The local renderer did not produce both a master and poster.");
@@ -1038,7 +1195,7 @@ export function createSongCardLocalRenderBridge({
       }
       publish(candidateId, {
         status: interruptedForShutdown ? "interrupted" : canceled ? "canceled" : "failed",
-        stage: interruptedForShutdown ? "interrupted" : canceled ? "canceled" : "failed",
+        stage: interruptedForShutdown ? "interrupted" : canceled ? "canceled" : failure.stage,
         message: interruptedForShutdown ? "Local render stopped for a safe Builder restart." : canceled ? "Local render canceled by the operator." : failure.message,
         error: failure,
         ...(interruptedForShutdown || canceled ? { stoppedAt: clock().toISOString() } : { failedAt: clock().toISOString() }),
@@ -1078,6 +1235,9 @@ export function createSongCardLocalRenderBridge({
         percent: 0,
         message: existing?.status === "failed" ? "Retrying the Builder-managed local render." : "Starting the Builder-managed local render.",
         error: null,
+        completed: 0,
+        total: 0,
+        cueIds: [],
         failedAt: null,
         stoppedAt: null,
         completedAt: null,

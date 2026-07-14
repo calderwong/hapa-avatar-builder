@@ -16,6 +16,26 @@ export const SONG_CARD_REMINT_RELEASE_RECEIPT_SCHEMA = "hapa.song-card.remint-re
 
 const REVISION_KINDS = ["source", "capability", "renderer", "editor"];
 const TERMINAL_CANDIDATE_STATES = new Set(["rejected", "canceled", "superseded"]);
+const RESET_ATTEMPT_FIELDS = [
+  "approval",
+  "canceledAt",
+  "canceledBy",
+  "cancelReason",
+  "mintedAt",
+  "mintedEdition",
+  "mintId",
+  "mintPlanId",
+  "mintReservation",
+  "rejectedAt",
+  "rejectedBy",
+  "rejectReason",
+  "releaseReceipt",
+  "releaseReceiptVerification",
+  "renderArtifacts",
+  "renderFailure",
+  "reviewedRender",
+  "supersededBy",
+];
 
 function at(value) {
   return String(value || new Date().toISOString());
@@ -42,6 +62,58 @@ function stableHash(value) {
 function safeId(value, fallback = "next-mint") {
   const normalized = text(value).trim().replace(/[^A-Za-z0-9._:-]+/gu, "-").replace(/^-+|-+$/gu, "");
   return normalized || fallback;
+}
+
+function positiveAttemptNumber(value, fallback = 1) {
+  const number = Number(value);
+  return Number.isInteger(number) && number > 0 ? number : fallback;
+}
+
+function prepareSongCardRemintAttempt(candidate, matchingCandidates, existingCandidates, eventAt) {
+  const priorAttempt = matchingCandidates.at(-1) || null;
+  if (!priorAttempt) {
+    return {
+      ...candidate,
+      attemptRootId: candidate.attemptRootId || candidate.id,
+      attemptNumber: positiveAttemptNumber(candidate.attemptNumber),
+      attemptLineage: candidate.attemptLineage || null,
+    };
+  }
+
+  const fresh = clone(candidate);
+  for (const field of RESET_ATTEMPT_FIELDS) delete fresh[field];
+  const priorAttemptNumber = positiveAttemptNumber(priorAttempt.attemptNumber, matchingCandidates.length);
+  let attemptNumber = Math.max(
+    priorAttemptNumber,
+    ...matchingCandidates.map((row, index) => positiveAttemptNumber(row.attemptNumber, index + 1)),
+  ) + 1;
+  const attemptRootId = priorAttempt.attemptRootId || candidate.attemptRootId || candidate.id;
+  const usedIds = new Set(existingCandidates.map((row) => row.id));
+  let id = `${attemptRootId}:attempt-${attemptNumber}`;
+  while (usedIds.has(id)) {
+    attemptNumber += 1;
+    id = `${attemptRootId}:attempt-${attemptNumber}`;
+  }
+  return {
+    ...fresh,
+    id,
+    status: "awaiting-approval",
+    attemptRootId,
+    attemptNumber,
+    attemptLineage: {
+      relation: "reproposed-after-terminal-attempt",
+      priorAttemptId: priorAttempt.id,
+      priorAttemptNumber,
+      priorAttemptStatus: priorAttempt.status,
+      fingerprint: candidate.fingerprint,
+      reproposedAt: at(eventAt),
+    },
+    approval: null,
+    renderWorkAuthorized: false,
+    mintAuthorized: false,
+    autoMint: false,
+    nextAction: "operator-review-and-approve-remint-render",
+  };
 }
 
 function durationMs(snapshot = {}) {
@@ -204,13 +276,17 @@ export function createSongCardRemintQueue({ candidates = [], budgets = {}, creat
 }
 
 export function upsertSongCardRemintCandidate(queue, input, { eventAt = null } = {}) {
-  const candidate = input?.schemaVersion === SONG_CARD_REMINT_CANDIDATE_SCHEMA
+  const plannedCandidate = input?.schemaVersion === SONG_CARD_REMINT_CANDIDATE_SCHEMA
     ? clone(input)
     : planSongCardRemintCandidate(input);
-  if (!candidate.changed) return clone(queue);
-  if ((queue.candidates || []).some((row) => row.fingerprint === candidate.fingerprint)) return clone(queue);
+  if (!plannedCandidate.changed) return clone(queue);
+  const existingCandidates = queue.candidates || [];
+  const matchingCandidates = existingCandidates.filter((row) => row.fingerprint === plannedCandidate.fingerprint);
+  if (matchingCandidates.some((row) => !TERMINAL_CANDIDATE_STATES.has(row.status))) return clone(queue);
+  const candidate = prepareSongCardRemintAttempt(plannedCandidate, matchingCandidates, existingCandidates, eventAt);
+  const priorAttempt = matchingCandidates.at(-1) || null;
   const supersededIds = [];
-  const candidates = (queue.candidates || []).map((row) => {
+  const candidates = existingCandidates.map((row) => {
     if (row.songId !== candidate.songId || TERMINAL_CANDIDATE_STATES.has(row.status) || ["render-ready", "minted"].includes(row.status)) return row;
     supersededIds.push(row.id);
     return { ...row, status: "superseded", supersededBy: candidate.id, renderWorkAuthorized: false, mintAuthorized: false };
@@ -226,6 +302,9 @@ export function upsertSongCardRemintCandidate(queue, input, { eventAt = null } =
       songId: candidate.songId,
       reasons: candidate.reasons.map((row) => row.kind),
       supersededIds,
+      attemptNumber: candidate.attemptNumber,
+      priorAttemptId: priorAttempt?.id || null,
+      priorAttemptStatus: priorAttempt?.status || null,
       autoMint: false,
     }],
   };
@@ -676,6 +755,10 @@ export function songCardRemintQueueView(queue) {
     policy: clone(queue.policy),
     candidates: queue.candidates.map((candidate) => ({
       id: candidate.id,
+      fingerprint: candidate.fingerprint,
+      attemptRootId: candidate.attemptRootId || candidate.id,
+      attemptNumber: positiveAttemptNumber(candidate.attemptNumber),
+      attemptLineage: clone(candidate.attemptLineage || null),
       planId: candidate.planId || null,
       mintPlanId: candidate.mintPlanId || null,
       songId: candidate.songId,

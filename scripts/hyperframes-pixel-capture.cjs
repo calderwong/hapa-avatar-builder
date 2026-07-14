@@ -6,6 +6,7 @@ const crypto = require("node:crypto");
 const fs = require("node:fs");
 const http = require("node:http");
 const path = require("node:path");
+const pixelAcceptancePromise = import("./hyperframes-pixel-acceptance.mjs");
 
 const ROOT = path.resolve(__dirname, "..");
 const value = (name, fallback = "") => {
@@ -199,6 +200,7 @@ app.commandLine.appendSwitch("disable-background-timer-throttling");
 app.commandLine.appendSwitch("disable-renderer-backgrounding");
 
 app.whenReady().then(async () => {
+  const { evaluateHyperFramesPixelAcceptance } = await pixelAcceptancePromise;
   let win;
   let localServer;
   const networkAttempts = [];
@@ -336,40 +338,25 @@ app.whenReady().then(async () => {
         expected: expectationByTime.get(timestamp.toFixed(6)) || null,
         renderState,
       });
+      process.stdout.write(`${JSON.stringify({
+        type: "pixel-qa-progress",
+        completed: index + 1,
+        total: timestamps.length,
+        timestamp,
+        cueIds: (renderState?.layers || renderState?.instances || []).map((layer) => layer.cueId || layer.id).filter(Boolean),
+      })}\n`);
     }
 
     const renderLayers = (frame) => frame.renderState?.layers || frame.renderState?.instances || [];
     const visualizerIds = frames.map((frame) => renderLayers(frame).map((layer) => layer.visualizerId).join("+") || "");
     const pixelHashes = frames.map((frame) => frame.pngSha256);
     const canvasPixelHashes = frames.map((frame) => frame.canvasPngSha256 || "");
-    const distinctIdTransitions = visualizerIds.slice(1).filter((id, index) => id && id !== visualizerIds[index]).length;
-    const fullFrameChangedTransitions = pixelHashes.slice(1).filter((digest, index) => digest !== pixelHashes[index]).length;
-    const canvasChangedTransitions = canvasPixelHashes.slice(1).filter((digest, index) => digest && digest !== canvasPixelHashes[index]).length;
-    const normalizedStem = (stem) => String(stem || "").replace(/[^a-z0-9]/gi, "").toLowerCase();
-    const matchesExpectedLayer = (actual, expected) => (
-      (actual.cueId || actual.id) === expected.cueId
-      && actual.visualizerId === expected.visualizerId
-      && normalizedStem(actual.stemFocus?.requested || actual.stemFocus) === normalizedStem(expected.stemFocus)
-    );
-    const frameMatchesExpected = (frame) => {
-      if (!frame.expected) return true;
-      const actualLayers = renderLayers(frame);
-      const expectedLayers = Array.isArray(frame.expected.layers)
-        ? frame.expected.layers
-        : [frame.expected];
-      return expectedLayers.length > 0
-        && expectedLayers.every((expectedLayer) => actualLayers.some((actualLayer) => matchesExpectedLayer(actualLayer, expectedLayer)));
-    };
-    const frameExpectedLayers = (frame) => (Array.isArray(frame.expected?.layers)
-      ? frame.expected.layers
-      : frame.expected ? [frame.expected] : []);
-    const frameHasPositiveEffectiveOpacity = (frame) => {
-      const expectedLayers = frameExpectedLayers(frame);
-      const actualLayers = renderLayers(frame);
-      return expectedLayers.length > 0 && expectedLayers.every((expectedLayer) => actualLayers.some((actualLayer) => (
-        matchesExpectedLayer(actualLayer, expectedLayer) && finite(actualLayer.effectiveOpacity, 0) > 0
-      )));
-    };
+    const evaluated = evaluateHyperFramesPixelAcceptance({
+      frames,
+      timelineReady: ready,
+      networkAttemptCount: networkAttempts.length,
+      consoleErrorCount: consoleErrors.length,
+    });
     const report = {
       schemaVersion: "hapa.hyperframes.pixel-capture.v2",
       project,
@@ -390,37 +377,12 @@ app.whenReady().then(async () => {
         path: expectationsPath,
         schemaVersion: expectations.schemaVersion || null,
       },
-      acceptance: {
-        timelineReady: ready,
-        renderStatePresent: frames.every((frame) => frame.renderState && Array.isArray(frame.renderState.layers || frame.renderState.instances)),
-        shaderCanvasCapturePresent: frames.every((frame) => frame.canvasPngSha256 && frame.renderState?.canvasSampleHash),
-        shaderLayersDrawn: frames.every((frame) => finite(frame.renderState?.drawnLayerCount, 0) >= frameExpectedLayers(frame).length),
-        positiveEffectiveOpacity: frames.every(frameHasPositiveEffectiveOpacity),
-        nonBlank: frames.every((frame) => frame.metrics.nonBlank),
-        nonFlat: frames.every((frame) => frame.metrics.nonFlat),
-        shaderCanvasNonBlank: frames.every((frame) => frame.canvasMetrics?.nonBlank),
-        blankShaderCanvasFrames: frames.filter((frame) => !frame.canvasMetrics?.nonBlank).map((frame) => frame.timestamp),
-        renderStateMatchesExpected: frames.every(frameMatchesExpected),
-        distinctIdTransitions,
-        fullFrameChangedTransitions,
-        canvasChangedTransitions,
-        idChangeCausesPixelChange: distinctIdTransitions === 0 || canvasChangedTransitions >= distinctIdTransitions,
-      },
+      acceptance: evaluated.acceptance,
+      acceptanceDiagnostics: evaluated.diagnostics,
       frames,
     };
-    report.functionalOk = report.offline.networkAttemptCount === 0
-      && consoleErrors.length === 0
-      && report.acceptance.timelineReady
-      && report.acceptance.renderStatePresent
-      && report.acceptance.shaderCanvasCapturePresent
-      && report.acceptance.shaderLayersDrawn
-      && report.acceptance.positiveEffectiveOpacity
-      && report.acceptance.nonBlank
-      && report.acceptance.nonFlat
-      && report.acceptance.renderStateMatchesExpected
-      && report.acceptance.distinctIdTransitions > 0
-      && report.acceptance.idChangeCausesPixelChange;
-    report.ok = report.functionalOk && report.acceptance.shaderCanvasNonBlank;
+    report.functionalOk = evaluated.functionalOk;
+    report.ok = evaluated.ok;
     const reportPath = path.join(output, "pixel-capture-report.json");
     fs.writeFileSync(reportPath, `${JSON.stringify(report, null, 2)}\n`);
     process.stdout.write(`${JSON.stringify({

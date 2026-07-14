@@ -14,10 +14,12 @@ import {
   createSongCardCompilerError,
   createSongCardLocalRenderBridge,
   createSongCardMediaPreflightError,
+  createSongCardPixelQaError,
   describeSongCardCompilerFailure,
   inspectSongCardLocalRenderer,
   preflightSongCardLocalMedia,
   preflightSongCardSignalGraph,
+  reevaluateSongCardPixelReport,
 } from "../server/song-card-local-renderer.mjs";
 
 const run = promisify(execFile);
@@ -227,6 +229,41 @@ test("compiler failures summarize offline cue counts and identifiers without exp
   assert.match(shaderFailure.message, /legacy:ivf:2: exact-proxy-asset-hash-mismatch/);
   assert.match(shaderFailure.message, /Shaders packaged 3\/4/);
   assert.equal(shaderFailure.details.visualizers.unresolved[0].reason, "exact-proxy-asset-hash-mismatch");
+});
+
+test("pixel QA reuses runtime stem semantics and reports the exact pre-encode gate", () => {
+  const report = {
+    schemaVersion: "hapa.hyperframes.pixel-capture.v2",
+    offline: { networkAttemptCount: 0 },
+    consoleSummary: { errorCount: 0 },
+    acceptance: { timelineReady: true },
+    frames: [{
+      timestamp: 12,
+      pngSha256: "sha256:frame",
+      canvasPngSha256: "sha256:canvas",
+      metrics: { nonBlank: true, nonFlat: true },
+      canvasMetrics: { nonBlank: true, nonFlat: true },
+      expected: { layers: [{ cueId: "card:b:9", visualizerId: "isf:blue", stemFocus: "leadVocals" }] },
+      renderState: {
+        layers: [{ cueId: "card:b:9", visualizerId: "isf:blue", stemFocus: "vocals", effectiveOpacity: 0.23 }],
+        drawnLayerCount: 1,
+        canvasSampleHash: "sha256:canvas-sample",
+      },
+    }],
+  };
+  const accepted = reevaluateSongCardPixelReport(report);
+  assert.equal(accepted.ok, true);
+  assert.equal(accepted.acceptanceDiagnostics.semanticAliasMatches[0].canonicalStemRole, "vocals");
+
+  const rejected = structuredClone(report);
+  rejected.frames[0].renderState.layers[0].effectiveOpacity = 0;
+  const error = createSongCardPixelQaError(rejected, { reportPath: "/managed/qa/pixel-capture-report.json" });
+  assert.equal(error.code, "local_renderer_truth_failed");
+  assert.equal(error.details.stage, "pixel-qa");
+  assert.deepEqual(error.details.failedChecks, ["positiveEffectiveOpacity"]);
+  assert.equal(error.details.nonPositiveOpacityFrames.length, 1);
+  assert.match(error.message, /before MP4 encoding/);
+  assert.match(error.message, /no edition was minted/);
 });
 
 test("local media preflight stops missing real cues before rendering and accepts explicit IVF-only blanks", async (t) => {
@@ -509,6 +546,7 @@ test("a local compile failure becomes one durable failed attempt and an approved
   const failed = await waitForCandidate(store, proposed.id, ["failed"]);
   const liveJob = await waitForLocalJob(bridge, proposed.id, ["failed"]);
   assert.equal(liveJob.status, "failed");
+  assert.equal(liveJob.stage, "compile", "the UI keeps the exact failed gate instead of replacing it with a generic failed stage");
   assert.equal(liveJob.error.code, "local_compile_media_offline");
   assert.equal(liveJob.error.details.media.missingCount, 2);
   assert.equal(failed.status, "failed");

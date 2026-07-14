@@ -4,6 +4,7 @@ import { buildSongCardMintSnapshot } from "../src/domain/song-card-mint.js";
 import {
   approveSongCardRemintCandidate,
   bindSongCardRemintMintPlan,
+  cancelSongCardRemintCandidate,
   claimSongCardRemintWork,
   createSongCardRemintQueue,
   enqueueApprovedSongCardRemints,
@@ -74,14 +75,78 @@ test("identical candidates deduplicate and a newer candidate supersedes unrender
     currentRevisions: { editor: "editor:2" },
   };
   let queue = createSongCardRemintQueue({ candidates: [input], createdAt: "2026-07-12T00:00:00Z" });
+  const firstId = queue.candidates[0].id;
   queue = upsertSongCardRemintCandidate(queue, input, { eventAt: "2026-07-12T00:00:01Z" });
   assert.equal(queue.candidates.length, 1);
+  assert.equal(queue.candidates[0].id, firstId);
+  assert.equal(queue.candidates[0].attemptNumber, 1);
   const newer = planSongCardRemintCandidate({ ...input, currentSnapshot: snapshot({ mediaId: "media:c" }), currentRevisions: { editor: "editor:3" } });
   queue = upsertSongCardRemintCandidate(queue, newer);
   assert.equal(queue.candidates.length, 2);
   assert.equal(queue.candidates[0].status, "superseded");
   assert.equal(queue.candidates[0].supersededBy, newer.id);
   assert.equal(queue.candidates[1].status, "awaiting-approval");
+});
+
+test("canceling an attempt preserves its terminal record while an identical proposal creates a lineaged approval attempt", () => {
+  const input = {
+    songId: "song-a",
+    latestEdition: 2,
+    mintedSnapshot: snapshot(),
+    currentSnapshot: snapshot({ mediaId: "media:b" }),
+    mintedRevisions: { editor: "editor:1" },
+    currentRevisions: { editor: "editor:2" },
+  };
+  let queue = createSongCardRemintQueue({ candidates: [input], createdAt: "2026-07-12T00:00:00Z" });
+  const first = queue.candidates[0];
+  queue = cancelSongCardRemintCandidate(queue, first.id, {
+    canceledBy: "operator:cj",
+    reason: "operator-canceled-render",
+    canceledAt: "2026-07-12T00:01:00Z",
+  });
+  const terminalRecord = structuredClone(queue.candidates[0]);
+
+  queue = upsertSongCardRemintCandidate(queue, input, { eventAt: "2026-07-12T00:02:00Z" });
+  assert.equal(queue.candidates.length, 2);
+  assert.deepEqual(queue.candidates[0], terminalRecord, "the canceled attempt remains immutable history");
+  const retried = queue.candidates[1];
+  assert.equal(retried.status, "awaiting-approval");
+  assert.equal(retried.fingerprint, first.fingerprint);
+  assert.notEqual(retried.id, first.id);
+  assert.equal(retried.attemptRootId, first.id);
+  assert.equal(retried.attemptNumber, 2);
+  assert.deepEqual(retried.attemptLineage, {
+    relation: "reproposed-after-terminal-attempt",
+    priorAttemptId: first.id,
+    priorAttemptNumber: 1,
+    priorAttemptStatus: "canceled",
+    fingerprint: first.fingerprint,
+    reproposedAt: "2026-07-12T00:02:00Z",
+  });
+  assert.equal(retried.approval, null);
+  assert.equal(retried.renderWorkAuthorized, false);
+
+  const afterIdenticalActiveProposal = upsertSongCardRemintCandidate(queue, input, { eventAt: "2026-07-12T00:03:00Z" });
+  assert.deepEqual(afterIdenticalActiveProposal, queue, "the new active attempt still deduplicates identical proposals");
+});
+
+test("rejected and superseded matching attempts may also be reproposed without rewriting terminal history", () => {
+  for (const status of ["rejected", "superseded"]) {
+    const input = {
+      songId: `song-${status}`,
+      latestEdition: 1,
+      mintedSnapshot: snapshot(),
+      currentSnapshot: snapshot({ mediaId: `media:${status}` }),
+      currentRevisions: { editor: `editor:${status}` },
+    };
+    let queue = createSongCardRemintQueue({ candidates: [input], createdAt: "2026-07-12T00:00:00Z" });
+    queue.candidates[0] = { ...queue.candidates[0], status, terminalMarker: status };
+    const terminalRecord = structuredClone(queue.candidates[0]);
+    queue = upsertSongCardRemintCandidate(queue, input, { eventAt: "2026-07-12T00:02:00Z" });
+    assert.deepEqual(queue.candidates[0], terminalRecord);
+    assert.equal(queue.candidates[1].status, "awaiting-approval");
+    assert.equal(queue.candidates[1].attemptLineage.priorAttemptStatus, status);
+  }
 });
 
 test("only explicitly approved candidates enter the existing album orchestrator and never add a mint job", () => {

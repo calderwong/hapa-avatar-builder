@@ -189,7 +189,7 @@ export class SongCardRemintStore {
     };
     if (!candidate.changed) return null;
     const { queue } = await this.mutate((current) => upsertSongCardRemintCandidate(current, candidate, { eventAt: this.now() }));
-    return queue.candidates.find((row) => row.fingerprint === candidate.fingerprint) || candidate;
+    return [...queue.candidates].reverse().find((row) => row.fingerprint === candidate.fingerprint) || candidate;
   }
 
   async view() { await this.initialize(); await this.pending; return songCardRemintQueueView(this.queue); }

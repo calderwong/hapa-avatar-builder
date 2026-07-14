@@ -309,6 +309,9 @@ export function explainSongCardMintReadiness({
   if (!localSessionReady) return "The Builder is establishing its secure local session. Minting will unlock automatically.";
   if (phase === "minting") return "The Builder is sealing the final video, Card timeline, telemetry, and lineage into the new immutable edition.";
   if (phase === "planning") return "The Builder is checking the saved edit and its mint plan. This usually takes only a moment.";
+  if (["canceled", "rejected", "superseded"].includes(remintCandidate?.status)) {
+    return `This render attempt is ${remintCandidate.status}. Choose Retry plan to create a clean new attempt from the same saved edit; no edition has been minted.`;
+  }
   if (localRenderFailed || remintCandidate?.status === "failed") {
     return "The final-video render stopped before completion. Choose Retry render to rebuild it from the same approved edit; no edition has been minted.";
   }
@@ -627,20 +630,24 @@ export default function SongCardMintPanel({ songId, project, showGraph, compact 
   }, [localSessionReady, remintCandidate?.id, remintCandidate?.status, renderExecutor?.available]);
 
   const predictedEdition = plan?.predictedEdition || Math.max(songCard.latestEdition + (plan?.changed ? 1 : 0), 1);
-  const localRenderFailed = Boolean(localRenderJob
+  const candidateInactive = ["canceled", "rejected", "superseded"].includes(remintCandidate?.status);
+  const localRenderFailed = Boolean(!candidateInactive && localRenderJob
     && localRenderJob.candidateId === remintCandidate?.id
     && String(localRenderJob.status).toLowerCase() === "failed");
-  const renderFailed = localRenderFailed || remintCandidate?.status === "failed";
+  const renderFailed = !candidateInactive && (localRenderFailed || remintCandidate?.status === "failed");
   const renderFailure = (localRenderFailed && localRenderJob?.error && typeof localRenderJob.error === "object" ? localRenderJob.error : null)
     || (remintCandidate?.renderFailure && typeof remintCandidate.renderFailure === "object" ? remintCandidate.renderFailure : null)
     || null;
   const renderFailureMessage = String(renderFailure?.message || (localRenderFailed ? localRenderJob?.message : "") || "");
   const renderFailureCode = String(renderFailure?.code || "local_render_failed");
+  const renderFailureStage = String(renderFailure?.stage || localRenderJob?.stage || "render").replace(/[-_]+/g, " ");
   const effectivePhase = renderFailed ? "failed" : ["approved", "queued", "rendering"].includes(remintCandidate?.status) ? "rendering" : phase;
   const renderAvailable = renderExecutor?.available === true;
   const localRenderPercent = Math.round(Number(localRenderJob?.progress?.percent || 0));
+  const localRenderCompleted = Math.round(Number(localRenderJob?.progress?.completed || 0));
+  const localRenderTotal = Math.round(Number(localRenderJob?.progress?.total || 0));
   const localRenderProgressLabel = localRenderJob
-    ? `${String(localRenderJob.stage || localRenderJob.status || "rendering").replace(/[-_]+/g, " ")} · ${localRenderPercent}%`
+    ? `${String(localRenderJob.stage || localRenderJob.status || "rendering").replace(/[-_]+/g, " ")} · ${localRenderPercent}%${localRenderTotal > 0 ? ` · ${localRenderCompleted}/${localRenderTotal}` : ""}`
     : "";
   const planningSlow = phase === "planning" && planningElapsedSeconds >= 10;
   const planStatusLabel = phase === "planning"
@@ -1224,7 +1231,7 @@ export default function SongCardMintPanel({ songId, project, showGraph, compact 
           {localRenderJob && localRenderJob.candidateId === remintCandidate.id && (
             <div data-testid="song-card-local-render-progress" role={localRenderFailed ? "alert" : "status"} aria-live="polite" style={{ marginTop: 8 }}>
               <div style={{ ...styles.row, justifyContent: "space-between" }}>
-                <strong>Local HyperFrames finishing</strong>
+                <strong>Final video render</strong>
                 <span style={styles.label}>{localRenderProgressLabel}</span>
               </div>
               <div aria-hidden="true" style={{ height: 5, marginTop: 5, background: "#111827", overflow: "hidden" }}>
@@ -1235,13 +1242,18 @@ export default function SongCardMintPanel({ songId, project, showGraph, compact 
           )}
           {renderFailed && renderFailureMessage && (
             <p data-testid="song-card-render-failure-detail" role="alert" style={{ color: "#fb7185", margin: "8px 0 0", overflowWrap: "anywhere" }}>
-              <strong>{renderFailureCode}</strong> · {renderFailureMessage}
+              <strong>{renderFailureStage} · {renderFailureCode}</strong> · {renderFailureMessage}
+            </p>
+          )}
+          {candidateInactive && (
+            <p data-testid="song-card-render-inactive" role="status" style={{ color: "#f6c96d", margin: "8px 0 0" }}>
+              This attempt is {remintCandidate.status}. Choose Retry plan below to create a clean new attempt from the same saved edit.
             </p>
           )}
           <p style={styles.label}>The Builder chooses the render and poster locations, then binds them automatically. Minting remains a separate confirmation.</p>
           <div style={styles.row}>
             {remintCandidate.status === "awaiting-approval" && <button type="button" data-testid="song-card-remint-approve" style={styles.primary} disabled={!localSessionReady || !renderAvailable} title={!renderAvailable ? renderExecutor?.reason || "Finishing renderer unavailable" : "Render with Builder-managed files"} onClick={approveAndQueueRemint}>Render next edition</button>}
-            {renderFailed && <button type="button" data-testid="song-card-remint-retry" style={styles.primary} disabled={!localSessionReady || !renderAvailable || phase === "rendering"} title={!renderAvailable ? renderExecutor?.reason || "Finishing renderer unavailable" : "Retry this exact approved render"} onClick={retryLocalRender}>Retry render</button>}
+            {renderFailed && remintCandidate.status === "failed" && <button type="button" data-testid="song-card-remint-retry" style={styles.primary} disabled={!localSessionReady || !renderAvailable || phase === "rendering"} title={!renderAvailable ? renderExecutor?.reason || "Finishing renderer unavailable" : "Retry this exact approved render"} onClick={retryLocalRender}>Retry render</button>}
             {remintCandidate.status === "render-ready" && <span data-testid="song-card-remint-auto-bind" style={styles.label}>Binding Builder-managed render…</span>}
             {remintCandidate.status === "render-ready" && error && <button type="button" data-testid="song-card-remint-bind" style={styles.button} onClick={bindRemintRenderForReview}>Retry automatic binding</button>}
             {["awaiting-approval", "approved", "queued", "rendering", "failed"].includes(remintCandidate.status) && <button type="button" data-testid="song-card-remint-cancel" style={styles.button} onClick={cancelRemintCandidate}>Cancel candidate</button>}

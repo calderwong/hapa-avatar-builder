@@ -1,5 +1,33 @@
 export const HYPERFRAMES_VISUALIZER_RUNTIME_SCHEMA = "hapa.hyperframes.visualizer-runtime.v1";
 export const HYPERFRAMES_VISUALIZER_DIAGNOSTIC_SCHEMA = "hapa.hyperframes.visualizer-diagnostic.v1";
+export const HYPERFRAMES_STEM_ROLE_ALIASES = Object.freeze({
+  master: "master",
+  mastermix: "master",
+  mix: "master",
+  fullmix: "master",
+  leadvocal: "vocals",
+  leadvocals: "vocals",
+  leadvoice: "vocals",
+  leadvoices: "vocals",
+  vocal: "vocals",
+  vocals: "vocals",
+  voice: "vocals",
+  voices: "vocals",
+  backingvocal: "backing-vocals",
+  backingvocals: "backing-vocals",
+  backgroundvocal: "backing-vocals",
+  backgroundvocals: "backing-vocals",
+  bgvocal: "backing-vocals",
+  bgvocals: "backing-vocals",
+  drum: "drums",
+  drums: "drums",
+  key: "keyboard",
+  keys: "keyboard",
+  keyboard: "keyboard",
+  keyboards: "keyboard",
+  synths: "synth",
+  stringssection: "strings",
+});
 
 const finite = (value, fallback = 0) => Number.isFinite(Number(value)) ? Number(value) : fallback;
 const clamp = (value, min = 0, max = 1) => Math.max(min, Math.min(max, finite(value, min)));
@@ -245,37 +273,19 @@ function frameAt(frames = [], timeSeconds = 0) {
   return { index: selected, frame: { ...frames[selected] } };
 }
 
-function normalizedStemRole(value = "") {
+export function normalizeHyperFramesStemRole(value = "") {
   const compact = text(value)
     .toLowerCase()
     .replace(/^(?:stem|bus)[:/_-]+/, "")
     .replace(/[^a-z0-9]+/g, "");
-  const aliases = {
-    master: "master",
-    mastermix: "master",
-    mix: "master",
-    leadvocal: "vocals",
-    leadvocals: "vocals",
-    vocal: "vocals",
-    vocals: "vocals",
-    backingvocal: "backing-vocals",
-    backingvocals: "backing-vocals",
-    drum: "drums",
-    drums: "drums",
-    key: "keyboard",
-    keys: "keyboard",
-    keyboards: "keyboard",
-    synths: "synth",
-    stringssection: "strings",
-  };
-  return aliases[compact] || compact;
+  return HYPERFRAMES_STEM_ROLE_ALIASES[compact] || compact;
 }
 
 function resolvedSignalFrame(show, instance, timeSeconds, stemFocus = null) {
-  const requestedStem = normalizedStemRole(stemFocus ?? instance.stemFocus ?? "master") || "master";
+  const requestedStem = normalizeHyperFramesStemRole(stemFocus ?? instance.stemFocus ?? "master") || "master";
   const masterResource = show.stemFrames?.master || null;
   const stemResource = (show.stemFrames?.stems || []).find((stem) => (
-    normalizedStemRole(stem.role) === requestedStem || normalizedStemRole(stem.id) === requestedStem
+    normalizeHyperFramesStemRole(stem.role) === requestedStem || normalizeHyperFramesStemRole(stem.id) === requestedStem
   )) || null;
   const master = masterResource ? { id: masterResource.id || "master", role: "master", ...frameAt(masterResource.frames, timeSeconds) } : null;
   if (requestedStem === "master") {
@@ -284,7 +294,7 @@ function resolvedSignalFrame(show, instance, timeSeconds, stemFocus = null) {
   const stem = stemResource ? { id: stemResource.id, role: stemResource.role, ...frameAt(stemResource.frames, timeSeconds) } : null;
   return {
     requestedStem,
-    resolvedStem: stem ? normalizedStemRole(stemResource.role || stemResource.id) : master ? "master" : null,
+    resolvedStem: stem ? normalizeHyperFramesStemRole(stemResource.role || stemResource.id) : master ? "master" : null,
     fallbackUsed: !stem && Boolean(master),
     stem: stem || master,
     master,

@@ -127,7 +127,8 @@ test("Next Mint candidates use managed render defaults, bind automatically, and 
   assert.match(source, /\/api\/song-card-remints\/enqueue/);
   assert.match(source, /\/api\/song-card-remints\/\$\{encodeURIComponent\(candidateId\)\}\/render-local/);
   assert.match(source, /data-testid="song-card-local-render-progress"/);
-  assert.match(source, /Local HyperFrames finishing/);
+  assert.match(source, /Final video render/);
+  assert.match(source, /localRenderCompleted\}\/\$\{localRenderTotal/);
   assert.match(source, /one low-memory worker/);
   assert.match(source, /localRenderStartedRef/);
   assert.match(source, /existing local render job and resumed monitoring/);
@@ -145,7 +146,9 @@ test("Next Mint candidates use managed render defaults, bind automatically, and 
   assert.match(source, /The final-video render stopped before completion\. Choose Retry render/);
   assert.match(source, /remintCandidate\?\.renderFailure/);
   assert.match(source, /data-testid="song-card-render-failure-detail"/);
-  assert.match(source, /<strong>\{renderFailureCode\}<\/strong> · \{renderFailureMessage\}/);
+  assert.match(source, /<strong>\{renderFailureStage\} · \{renderFailureCode\}<\/strong> · \{renderFailureMessage\}/);
+  assert.match(source, /data-testid="song-card-render-inactive"/);
+  assert.match(source, /Choose Retry plan below to create a clean new attempt/);
   assert.match(source, /\["awaiting-approval", "approved", "queued", "rendering", "failed"\]/);
   assert.match(source, /localRenderJob\.status\)\.toLowerCase\(\) === "failed"/);
   assert.match(source, /setError\(""\);[\s\S]*?await startLocalRender\(candidateId, \{ announce: false \}\)/);
