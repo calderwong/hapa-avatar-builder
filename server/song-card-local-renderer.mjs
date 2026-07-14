@@ -5,6 +5,7 @@ import fsp from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
+import { preflightHyperFramesMedia } from "../src/domain/hyperframes-show-compiler.js";
 
 const execFile = promisify(execFileCallback);
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -98,6 +99,151 @@ function localRendererError(code, message, statusCode = 409, details = {}) {
   error.statusCode = statusCode;
   error.details = details;
   return error;
+}
+
+const COMPILE_FAILURE_CUE_PREVIEW_LIMIT = 6;
+
+function compileFailureCueIds(value) {
+  return [...new Set((Array.isArray(value) ? value : []).map((entry) => text(entry)).filter(Boolean))];
+}
+
+function compileFailureCuePreview(cueIds) {
+  const visible = cueIds.slice(0, COMPILE_FAILURE_CUE_PREVIEW_LIMIT);
+  const remaining = cueIds.length - visible.length;
+  return `${visible.join(", ")}${remaining > 0 ? `, +${remaining} more` : ""}`;
+}
+
+export function describeSongCardCompilerFailure(report = {}, { cause = null, reportPath = "" } = {}) {
+  const mediaMissingCueIds = compileFailureCueIds(report?.media?.offlineMissing);
+  const visualizerMissingCueIds = compileFailureCueIds(report?.visualizers?.offlineMissing);
+  const mediaPreflightFailures = Array.isArray(report?.media?.preflight?.unresolved)
+    ? report.media.preflight.unresolved
+    : [];
+  const visualizerPreflightFailures = [
+    ...(Array.isArray(report?.visualizers?.preflight?.unresolved) ? report.visualizers.preflight.unresolved : []),
+    ...(Array.isArray(report?.visualizers?.packagingFailures) ? report.visualizers.packagingFailures : []),
+  ];
+  const mediaMissingCount = mediaMissingCueIds.length;
+  const visualizerMissingCount = visualizerMissingCueIds.length;
+  const mediaDeclared = Math.max(0, Number(report?.media?.declared || 0));
+  const mediaCompiled = Math.max(0, Number(report?.media?.compiled || 0));
+  const visualizerDeclared = Math.max(0, Number(report?.visualizers?.declared || 0));
+  const visualizerCompiled = Math.max(0, Number(report?.visualizers?.compiledAssets || report?.visualizers?.exactProxy || 0));
+  const failedChecks = Object.entries(report?.validation || {})
+    .filter(([, value]) => value === false || String(value).toLowerCase() === "fail")
+    .map(([key]) => key);
+  const code = mediaMissingCount && visualizerMissingCount
+    ? "local_compile_assets_offline"
+    : mediaMissingCount
+      ? "local_compile_media_offline"
+      : visualizerMissingCount
+        ? "local_compile_visualizer_offline"
+        : "local_compile_truth_failed";
+  const blockers = [];
+  if (mediaMissingCount) {
+    const diagnosticCueIds = mediaPreflightFailures.slice(0, COMPILE_FAILURE_CUE_PREVIEW_LIMIT).map((row) => (
+      `${text(row.cueId) || "unknown cue"}: ${text(row.reason) || "unresolved source"}`
+    ));
+    blockers.push(`${mediaMissingCount} media cue${mediaMissingCount === 1 ? "" : "s"} could not be packaged (${diagnosticCueIds.length ? diagnosticCueIds.join(", ") : compileFailureCuePreview(mediaMissingCueIds)}${mediaPreflightFailures.length > diagnosticCueIds.length ? `, +${mediaPreflightFailures.length - diagnosticCueIds.length} more` : ""})`);
+  }
+  if (visualizerMissingCount) {
+    const diagnosticCueIds = visualizerPreflightFailures.slice(0, COMPILE_FAILURE_CUE_PREVIEW_LIMIT).map((row) => (
+      `${text(row.cueId) || "unknown cue"}: ${text(row.reason) || "unresolved proxy"}`
+    ));
+    blockers.push(`${visualizerMissingCount} shader cue${visualizerMissingCount === 1 ? "" : "s"} could not be packaged (${diagnosticCueIds.length ? diagnosticCueIds.join(", ") : compileFailureCuePreview(visualizerMissingCueIds)}${visualizerPreflightFailures.length > diagnosticCueIds.length ? `, +${visualizerPreflightFailures.length - diagnosticCueIds.length} more` : ""})`);
+  }
+  if (!blockers.length) blockers.push(failedChecks.length ? `validation failed: ${failedChecks.join(", ")}` : "the offline truth check did not pass");
+  const shaderSummary = visualizerDeclared
+    ? ` Shaders packaged ${visualizerCompiled}/${visualizerDeclared}.`
+    : "";
+  return {
+    code,
+    message: `Offline show compilation failed: ${blockers.join("; ")}.${shaderSummary} The final MP4 did not start.`,
+    retryable: true,
+    stage: "compile",
+    details: {
+      stage: "compile",
+      validation: structuredClone(report?.validation || {}),
+      media: {
+        declared: mediaDeclared,
+        compiled: mediaCompiled,
+        missingCount: mediaMissingCount,
+        missingCueIds: mediaMissingCueIds,
+        unresolved: structuredClone(mediaPreflightFailures),
+      },
+      visualizers: {
+        declared: visualizerDeclared,
+        compiled: visualizerCompiled,
+        missingCount: visualizerMissingCount,
+        missingCueIds: visualizerMissingCueIds,
+        unresolved: structuredClone(visualizerPreflightFailures),
+      },
+      exitCode: Number.isInteger(cause?.code) ? cause.code : null,
+      signal: text(cause?.signal) || null,
+      reportPath: text(reportPath) || null,
+    },
+  };
+}
+
+export function createSongCardCompilerError(report, options = {}) {
+  const failure = describeSongCardCompilerFailure(report, options);
+  return localRendererError(failure.code, failure.message, 409, failure.details);
+}
+
+function usableLocalMediaFile(candidate) {
+  try {
+    const stat = fs.statSync(candidate);
+    return stat.isFile() && stat.size > 0;
+  } catch {
+    return false;
+  }
+}
+
+export function preflightSongCardLocalMedia({ project, showGraph, root = ROOT, projectPath = "" } = {}) {
+  return preflightHyperFramesMedia(showGraph, {
+    project,
+    root: path.resolve(root),
+    projectPath: projectPath || path.join(path.resolve(root), "data", "music-video-projects", "selected-project.json"),
+    isFile: usableLocalMediaFile,
+  });
+}
+
+export function createSongCardMediaPreflightError(preflight = {}) {
+  const unresolved = Array.isArray(preflight.unresolved) ? preflight.unresolved : [];
+  const preview = unresolved.slice(0, COMPILE_FAILURE_CUE_PREVIEW_LIMIT).map((row) => (
+    `${text(row.cueId) || "unknown cue"}: ${text(row.reason) || "unresolved source"}`
+  ));
+  const remaining = unresolved.length - preview.length;
+  const suffix = remaining > 0 ? `; +${remaining} more` : "";
+  return localRendererError(
+    "local_media_preflight_failed",
+    `Media preflight stopped the render before stem analysis: ${unresolved.length} real media cue${unresolved.length === 1 ? "" : "s"} could not be resolved (${preview.join("; ")}${suffix}). No media was substituted.`,
+    409,
+    {
+      stage: "media-preflight",
+      media: {
+        declared: Number(preflight.declaredCount || 0),
+        generated: Number(preflight.generatedCount || 0),
+        resolved: Number(preflight.resolvedCount || 0),
+        missingCount: Number(preflight.unresolvedCount || unresolved.length),
+        missingCueIds: unresolved.map((row) => text(row.cueId)).filter(Boolean),
+        unresolved: structuredClone(unresolved),
+      },
+    },
+  );
+}
+
+function publicRenderFailure(error, { stage = "failed", retryable = true } = {}) {
+  const errorCode = typeof error?.code === "string" && error.code.trim()
+    ? error.code.trim()
+    : "local_render_failed";
+  return {
+    code: errorCode,
+    message: error?.message || String(error || "Local render failed."),
+    retryable: Boolean(retryable),
+    stage: text(error?.details?.stage || stage) || "failed",
+    details: error?.details && typeof error.details === "object" ? structuredClone(error.details) : {},
+  };
 }
 
 function existingAbsoluteRegularFile(value) {
@@ -432,6 +578,12 @@ async function defaultPipeline({ project, showGraph, outputDirectory, masterPath
     writeJson(projectPath, project),
   ]);
 
+  throwIfAborted(signal);
+  report("media-preflight", 8, "Checking every real media cue before analysis or rendering.");
+  const mediaPreflight = preflightSongCardLocalMedia({ project, showGraph, root: ROOT, projectPath });
+  await writeJson(path.join(inputDirectory, "media-preflight.json"), mediaPreflight);
+  if (!mediaPreflight.ok) throw createSongCardMediaPreflightError(mediaPreflight);
+
   report("stem-analysis", 12, "Analyzing the verified local stems.");
   await execFile(process.env.HAPA_PYTHON || "python3", [
     path.join(ROOT, "scripts/build-stem-telemetry-bundle.py"),
@@ -442,17 +594,41 @@ async function defaultPipeline({ project, showGraph, outputDirectory, masterPath
 
   throwIfAborted(signal);
   report("compile", 24, "Compiling the exact selected cut into an offline HyperFrames show.");
-  await execFile(process.execPath, [
-    path.join(ROOT, "scripts/compile-hyperframes-show-v2.mjs"),
-    `--graph=${analyzedGraphPath}`,
-    `--telemetry=${telemetryPath}`,
-    `--project=${projectPath}`,
-    `--output=${packageDirectory}`,
-    `--audio=${masterPath}`,
-  ], { cwd: ROOT, maxBuffer: 64 * 1024 * 1024, signal });
-  const compilerReport = await readJson(path.join(packageDirectory, "compiler-report.json"));
+  const compilerReportPath = path.join(packageDirectory, "compiler-report.json");
+  await fsp.rm(compilerReportPath, { force: true });
+  let compileProcessError = null;
+  try {
+    await execFile(process.execPath, [
+      path.join(ROOT, "scripts/compile-hyperframes-show-v2.mjs"),
+      `--graph=${analyzedGraphPath}`,
+      `--telemetry=${telemetryPath}`,
+      `--project=${projectPath}`,
+      `--output=${packageDirectory}`,
+      `--audio=${masterPath}`,
+    ], { cwd: ROOT, maxBuffer: 64 * 1024 * 1024, signal });
+  } catch (error) {
+    if (signal?.aborted) throw abortError(signal);
+    compileProcessError = error;
+  }
+  const compilerReport = await readJson(compilerReportPath).catch(() => null);
+  if (compilerReport?.ok !== true && compilerReport) {
+    throw createSongCardCompilerError(compilerReport, { cause: compileProcessError, reportPath: compilerReportPath });
+  }
+  if (compileProcessError) {
+    throw localRendererError(
+      "local_compile_process_failed",
+      "Offline show compilation stopped before it could produce a validation report. The final MP4 did not start.",
+      500,
+      {
+        stage: "compile",
+        exitCode: Number.isInteger(compileProcessError?.code) ? compileProcessError.code : null,
+        signal: text(compileProcessError?.signal) || null,
+        reportPath: compilerReportPath,
+      },
+    );
+  }
   if (compilerReport?.ok !== true || compilerReport?.validation?.showcaseReady !== true) {
-    throw localRendererError("local_compile_truth_failed", "The exact cut failed offline media or shader compilation checks.", 409, compilerReport?.validation || {});
+    throw createSongCardCompilerError(compilerReport, { reportPath: compilerReportPath });
   }
 
   report("pixel-qa", 34, "Sampling real rendered pixels for every shader cue.");
@@ -715,14 +891,23 @@ export function createSongCardLocalRenderBridge({
     } catch (error) {
       const interruptedForShutdown = signal.aborted && runtime.abortMode === "shutdown";
       const canceled = signal.aborted && runtime.abortMode === "operator";
+      const activeStage = text(jobs.get(candidateId)?.stage || currentWork?.stage || "failed") || "failed";
+      const failure = publicRenderFailure(error, { stage: activeStage, retryable: !interruptedForShutdown && !canceled });
       if (currentWork && !interruptedForShutdown) {
-        await remintStore.recordResult(candidateId, currentWork.jobId, { ok: false, cancelled: canceled, message: error?.message || "Local render failed." }).catch(() => {});
+        await remintStore.recordResult(candidateId, currentWork.jobId, {
+          ok: false,
+          cancelled: canceled,
+          message: failure.message,
+          failure,
+          retryable: failure.retryable,
+          requiresExplicitRetry: !canceled,
+        }).catch(() => {});
       }
       publish(candidateId, {
         status: interruptedForShutdown ? "interrupted" : canceled ? "canceled" : "failed",
         stage: interruptedForShutdown ? "interrupted" : canceled ? "canceled" : "failed",
-        message: interruptedForShutdown ? "Local render stopped for a safe Builder restart." : canceled ? "Local render canceled by the operator." : error?.message || "Local render failed.",
-        error: { code: error?.code || "local_render_failed", message: error?.message || String(error) },
+        message: interruptedForShutdown ? "Local render stopped for a safe Builder restart." : canceled ? "Local render canceled by the operator." : failure.message,
+        error: failure,
         ...(interruptedForShutdown || canceled ? { stoppedAt: clock().toISOString() } : { failedAt: clock().toISOString() }),
       });
       throw error;

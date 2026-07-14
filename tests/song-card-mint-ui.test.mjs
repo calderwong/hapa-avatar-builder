@@ -143,6 +143,9 @@ test("Next Mint candidates use managed render defaults, bind automatically, and 
   assert.match(source, />Retry render</);
   assert.match(source, /async function retryLocalRender\(\)/);
   assert.match(source, /The final-video render stopped before completion\. Choose Retry render/);
+  assert.match(source, /remintCandidate\?\.renderFailure/);
+  assert.match(source, /data-testid="song-card-render-failure-detail"/);
+  assert.match(source, /<strong>\{renderFailureCode\}<\/strong> · \{renderFailureMessage\}/);
   assert.match(source, /\["awaiting-approval", "approved", "queued", "rendering", "failed"\]/);
   assert.match(source, /localRenderJob\.status\)\.toLowerCase\(\) === "failed"/);
   assert.match(source, /setError\(""\);[\s\S]*?await startLocalRender\(candidateId, \{ announce: false \}\)/);

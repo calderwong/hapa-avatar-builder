@@ -4,6 +4,11 @@ export function canonicalEchoAssetKey(value = "") {
   return String(value || "").split("#")[0];
 }
 
+export function echoShotRuntimeUri(shot = {}) {
+  if (shot?.media_contract?.type === "generated-visualizer" || shot?.media_id === "none") return "";
+  return String(shot?.media_contract?.runtimeUri || shot?.runtime_media_uri || shot?.media_uri || "");
+}
+
 export function planEchoPlayerLeases(project = null, currentShotIndex = 0, limit = ECHO_PLAYER_POOL_LIMIT) {
   const timeline = Array.isArray(project?.timeline) ? project.timeline : [];
   if (!timeline.length || limit <= 0) return [];
@@ -13,15 +18,16 @@ export function planEchoPlayerLeases(project = null, currentShotIndex = 0, limit
   for (let offset = 0; offset < timeline.length && offset < 3; offset += 1) {
     const shotIndex = (start + offset) % timeline.length;
     const shot = timeline[shotIndex];
-    if (!shot?.media_uri || shot.media_id === "none") continue;
-    const assetKey = canonicalEchoAssetKey(shot.media_uri);
+    const uri = echoShotRuntimeUri(shot);
+    if (!uri) continue;
+    const assetKey = canonicalEchoAssetKey(uri);
     if (!assetKey || seenAssets.has(assetKey)) continue;
     seenAssets.add(assetKey);
     leases.push({
       shotIndex,
       lookahead: offset,
       assetKey,
-      uri: shot.media_uri,
+      uri,
       startSeconds: Number(shot.start_sec || 0),
     });
     if (leases.length >= Math.min(ECHO_PLAYER_POOL_LIMIT, limit)) break;

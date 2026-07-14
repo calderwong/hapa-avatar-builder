@@ -14,6 +14,10 @@ import {
   nativeVisualizerRouteCounts,
   validateNativeVisualizerRoute,
 } from "../src/domain/native-visualizer-route.js";
+import {
+  assertEchoMediaPreflight,
+  preflightEchoAlbum,
+} from "./preflight-echo-director-media.mjs";
 
 const ROOT = path.resolve(import.meta.dirname, "..");
 const argument = (name, fallback) => {
@@ -22,16 +26,10 @@ const argument = (name, fallback) => {
 };
 const PROJECTS = path.resolve(argument("projects", path.join(ROOT, "data/music-video-projects")));
 const OUTPUT = path.resolve(argument("output", path.join(ROOT, "artifacts/echo-director-v2/album")));
+const VARIANTS = path.resolve(argument("variants", path.join(ROOT, "data/music-video-project-variants")));
 const MANIFEST_PATH = "/Users/calderwong/Desktop/hapa-music-viz/web/isf/manifest.json";
-const MANIFEST_BYTES = fs.readFileSync(MANIFEST_PATH);
 const PROXY_REGISTRY_PATH = path.join(path.dirname(MANIFEST_PATH), "proxies/native-exact-proxies.json");
-const PROXY_REGISTRY_BYTES = fs.existsSync(PROXY_REGISTRY_PATH) ? fs.readFileSync(PROXY_REGISTRY_PATH) : Buffer.from("{}");
-const PROXY_REGISTRY = JSON.parse(PROXY_REGISTRY_BYTES.toString("utf8"));
-const MANIFEST = hydrateManifestNativeRoutes(JSON.parse(MANIFEST_BYTES.toString("utf8")), PROXY_REGISTRY);
-const MANIFEST_HASH = `sha256:${crypto.createHash("sha256").update(MANIFEST_BYTES).digest("hex")}`;
-const PROXY_REGISTRY_HASH = `sha256:${crypto.createHash("sha256").update(PROXY_REGISTRY_BYTES).digest("hex")}`;
 const registryPath = "/Users/calderwong/Desktop/hapa-song-registry/data/registry.json";
-const REGISTRY = fs.existsSync(registryPath) ? JSON.parse(fs.readFileSync(registryPath, "utf8")) : null;
 
 function nativeProxyAvailable(proxy = {}, shader = {}) {
   const assetPath = String(proxy.assetPath || "");
@@ -95,6 +93,27 @@ function sameId(left, right) {
   return String(left || "").replace(/^isf:/i, "").toLowerCase()
     === String(right || "").replace(/^isf:/i, "").toLowerCase();
 }
+
+const mediaPreflight = preflightEchoAlbum({
+  projectsRoot: PROJECTS,
+  variantsRoot: VARIANTS,
+  avatarRoot: ROOT,
+});
+writeJson(path.join(OUTPUT, "media-preflight-report.json"), {
+  ...mediaPreflight,
+  generatedAt: new Date().toISOString(),
+});
+assertEchoMediaPreflight(mediaPreflight);
+
+// Only hydrate the large manifest/proxy/registry inputs after every source cut
+// has passed the local media gate.
+const MANIFEST_BYTES = fs.readFileSync(MANIFEST_PATH);
+const PROXY_REGISTRY_BYTES = fs.existsSync(PROXY_REGISTRY_PATH) ? fs.readFileSync(PROXY_REGISTRY_PATH) : Buffer.from("{}");
+const PROXY_REGISTRY = JSON.parse(PROXY_REGISTRY_BYTES.toString("utf8"));
+const MANIFEST = hydrateManifestNativeRoutes(JSON.parse(MANIFEST_BYTES.toString("utf8")), PROXY_REGISTRY);
+const MANIFEST_HASH = `sha256:${crypto.createHash("sha256").update(MANIFEST_BYTES).digest("hex")}`;
+const PROXY_REGISTRY_HASH = `sha256:${crypto.createHash("sha256").update(PROXY_REGISTRY_BYTES).digest("hex")}`;
+const REGISTRY = fs.existsSync(registryPath) ? JSON.parse(fs.readFileSync(registryPath, "utf8")) : null;
 
 const files = fs.readdirSync(PROJECTS).filter((file) => file.endsWith(".json")).sort();
 const rows = [];
@@ -359,10 +378,20 @@ const report = {
     silentFilteredCardCount: nativeRouteReport.silentFilteredCardCount,
     uniqueSourceIdCount: nativeRouteReport.uniqueSourceIdCount,
   },
+  mediaPreflight: {
+    schemaVersion: mediaPreflight.schemaVersion,
+    ok: mediaPreflight.ok,
+    projectCount: mediaPreflight.projectCount,
+    cutCount: mediaPreflight.cutCount,
+    declaredCount: mediaPreflight.declaredCount,
+    generatedCount: mediaPreflight.generatedCount,
+    resolvedCount: mediaPreflight.resolvedCount,
+    unresolvedCount: mediaPreflight.unresolvedCount,
+  },
   failures: rows.filter((row) => row.errors.length),
   projects: rows,
 };
 writeJson(path.join(OUTPUT, "album-hydration-report.json"), report);
 writeJson(path.join(OUTPUT, "native-shader-route-report.json"), nativeRouteReport);
-console.log(JSON.stringify({ ok: report.ok && nativeRouteReport.ok, output: OUTPUT, projects: report.projectCount, passing: report.passingProjects, portableCards: report.portableCardCount, executableLayers: report.executableLayerCount, pureIVFSlots: report.pureIVFSlots, nativeRoutes: nativeRouteReport.routeCounts }, null, 2));
+console.log(JSON.stringify({ ok: report.ok && nativeRouteReport.ok, output: OUTPUT, projects: report.projectCount, passing: report.passingProjects, portableCards: report.portableCardCount, executableLayers: report.executableLayerCount, pureIVFSlots: report.pureIVFSlots, nativeRoutes: nativeRouteReport.routeCounts, mediaPreflight: report.mediaPreflight }, null, 2));
 if (!report.ok || !nativeRouteReport.ok) process.exitCode = 1;

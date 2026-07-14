@@ -94,3 +94,40 @@ test("legacy director shots retain constituent Card identity in the editor graph
     cardTitle: "Avatar One",
   });
 });
+
+test("editor projection preserves runtime-contract media and explicit visualizer-only blanks", () => {
+  const projected = projectToEditorGraph({
+    song_id: "runtime-contract-song",
+    song_title: "Runtime Contract Song",
+    duration: 8,
+    timeline: [{
+      start_sec: 0,
+      end_sec: 4,
+      media_id: "media:scroll-source",
+      media_title: "Scroll source",
+      media_uri: "/media/scroll-source-a.mp4",
+      media_contract: {
+        type: "video",
+        originalUri: "/media/scroll-source-a.mp4",
+        runtimeUri: "/media/scroll-runtime-b.mp4",
+      },
+    }, {
+      start_sec: 4,
+      end_sec: 8,
+      media_id: "none",
+      media_title: "Visualizer Only",
+      media_uri: "",
+      media_contract: {
+        type: "generated-visualizer",
+        originalUri: "",
+        runtimeUri: "",
+      },
+    }],
+  });
+  const [runtime, generated] = projected.tracks[0].cards;
+  assert.equal(runtime.media.localPath, "/media/scroll-runtime-b.mp4");
+  assert.equal(runtime.provenance.rendererRoute, "video");
+  assert.equal(generated.media.id, "none");
+  assert.equal(generated.media.localPath, "");
+  assert.equal(generated.provenance.rendererRoute, "generated-visualizer");
+});

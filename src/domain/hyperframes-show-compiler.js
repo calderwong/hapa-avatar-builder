@@ -1,4 +1,6 @@
 import crypto from "node:crypto";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { getShowGraphCapability } from "./show-graph-capabilities.js";
 import { canonicalSha256 } from "./native-visualizer-route.js";
 import {
@@ -39,13 +41,164 @@ function normalizeTelemetry(bundle, duration) {
   return { schemaVersion: "hapa.hyperframes.offline-stem-frames.v2", fps, duration, stems, master, sourceHash: hash(bundle) };
 }
 
-function mediaMap(project) {
+function text(value) {
+  return String(value ?? "").trim();
+}
+
+function safeDecode(value) {
+  try { return decodeURIComponent(value); } catch { return value; }
+}
+
+export function resolveHyperFramesLocalFileUri(value) {
+  const reference = text(value);
+  if (!reference) return null;
+  try {
+    const parsed = new URL(reference, "http://hapa.local");
+    if (parsed.pathname !== "/api/local-file") return null;
+    const candidate = safeDecode(text(parsed.searchParams.get("path")));
+    return candidate && path.isAbsolute(candidate) ? path.normalize(candidate) : null;
+  } catch {
+    return null;
+  }
+}
+
+function resolveFileUri(value) {
+  const reference = text(value);
+  if (!/^file:/iu.test(reference)) return null;
+  try { return path.normalize(fileURLToPath(reference)); } catch { return null; }
+}
+
+function normalizedMediaReference(value) {
+  const localFile = resolveHyperFramesLocalFileUri(value);
+  if (localFile) return localFile.replaceAll("\\", "/");
+  const fileUri = resolveFileUri(value);
+  if (fileUri) return fileUri.replaceAll("\\", "/");
+  const reference = safeDecode(text(value)).replaceAll("\\", "/");
+  if (!reference) return "";
+  return reference.split(/[?#]/u, 1)[0];
+}
+
+function mediaReferenceKeys(value) {
+  const normalized = normalizedMediaReference(value);
+  if (!normalized) return [];
+  const basename = normalized.split("/").filter(Boolean).at(-1) || "";
+  return [...new Set([
+    `uri:${normalized}`,
+    basename ? `basename:${basename}` : "",
+  ].filter(Boolean))];
+}
+
+function normalizedContentHash(value) {
+  const raw = text(value).toLowerCase();
+  const match = raw.match(/(?:^|:)sha256:([a-f0-9]{64})$/u);
+  if (match) return `sha256:${match[1]}`;
+  return /^[a-f0-9]{64}$/u.test(raw) ? `sha256:${raw}` : raw;
+}
+
+function mediaIdentityKeys({ mediaId = null, contentHash = null } = {}) {
+  const normalizedMediaId = text(mediaId).toLowerCase();
+  const normalizedHash = normalizedContentHash(contentHash || normalizedMediaId);
+  return [
+    normalizedMediaId ? `media-id:${normalizedMediaId}` : "",
+    normalizedHash ? `content-hash:${normalizedHash}` : "",
+  ].filter(Boolean);
+}
+
+function mediaContractDescriptor(contract, shot, shotIndex) {
+  const originalUri = text(contract.originalUri || contract.original_uri || shot.media_uri || shot.mediaUri);
+  const runtimeUri = text(contract.runtimeUri || contract.runtime_uri || shot.runtime_media_uri || shot.runtimeMediaUri);
+  const type = text(contract.type).toLowerCase() || null;
+  const contentHash = text(contract.contentHash || contract.content_hash) || null;
+  return {
+    contract,
+    identity: hash({ type, originalUri, runtimeUri, contentHash, mimeType: contract.mimeType || contract.mime_type || null }),
+    summary: {
+      shotIndex,
+      mediaId: text(shot.media_id || shot.mediaId || contract.mediaId || contract.media_id) || null,
+      title: text(shot.media_title || shot.mediaTitle || contract.title) || null,
+      type,
+      originalUri: originalUri || null,
+      runtimeUri: runtimeUri || null,
+      contentHash,
+    },
+  };
+}
+
+export function indexHyperFramesMediaContracts(project) {
   const body = project?.music_video_project || project || {};
-  return new Map((body.timeline || []).flatMap((shot) => {
-    const contract = shot.media_contract || {};
-    const key = String(contract.originalUri || shot.media_uri || "").split("/").pop();
-    return key ? [[key, contract]] : [];
-  }));
+  const timeline = Array.isArray(body.timeline) ? body.timeline : [];
+  const mediaManifest = Array.isArray(body.media_manifest?.items)
+    ? body.media_manifest.items
+    : Array.isArray(body.mediaManifest?.items)
+      ? body.mediaManifest.items
+      : [];
+  const byAlias = new Map();
+  const conflictsByAlias = new Map();
+  const recordCount = Math.max(timeline.length, mediaManifest.length);
+  for (let shotIndex = 0; shotIndex < recordCount; shotIndex += 1) {
+    const shot = timeline[shotIndex] || {};
+    const manifestContract = mediaManifest[shotIndex] || {};
+    const inlineContract = shot.media_contract || shot.mediaContract || {};
+    const contract = Object.keys(inlineContract).length ? inlineContract : manifestContract;
+    const descriptor = mediaContractDescriptor(contract, shot, shotIndex);
+    const references = [
+      contract.originalUri,
+      contract.original_uri,
+      contract.runtimeUri,
+      contract.runtime_uri,
+      shot.media_uri,
+      shot.mediaUri,
+      shot.runtime_media_uri,
+      shot.runtimeMediaUri,
+    ];
+    const identityAliases = mediaIdentityKeys({
+      mediaId: shot.media_id || shot.mediaId || contract.mediaId || contract.media_id,
+      contentHash: contract.contentHash || contract.content_hash,
+    });
+    for (const alias of new Set([...identityAliases, ...references.flatMap(mediaReferenceKeys)])) {
+      const existing = byAlias.get(alias);
+      if (!existing) {
+        byAlias.set(alias, descriptor);
+        continue;
+      }
+      if (existing.identity === descriptor.identity) continue;
+      const rows = conflictsByAlias.get(alias) || [existing];
+      if (!rows.some((row) => row.identity === descriptor.identity)) rows.push(descriptor);
+      conflictsByAlias.set(alias, rows);
+    }
+  }
+  return {
+    schemaVersion: "hapa.hyperframes.media-contract-index.v1",
+    byAlias,
+    ambiguousAliases: new Set(conflictsByAlias.keys()),
+    conflictsByAlias,
+  };
+}
+
+function resolveIndexedMediaContract(card, contractIndex) {
+  const localPath = text(card.media?.localPath || card.media?.local_path);
+  const referenceAliases = mediaReferenceKeys(localPath);
+  const aliases = [
+    ...referenceAliases.filter((alias) => alias.startsWith("uri:")),
+    ...mediaIdentityKeys({
+      mediaId: card.media?.id,
+      contentHash: card.media?.contentHash || card.media?.content_hash,
+    }),
+    ...referenceAliases.filter((alias) => alias.startsWith("basename:")),
+  ];
+  for (const alias of aliases) {
+    const conflicts = contractIndex?.conflictsByAlias?.get(alias) || [];
+    if (conflicts.length) {
+      return {
+        status: "ambiguous",
+        alias,
+        conflicts: conflicts.map((row) => structuredClone(row.summary)),
+      };
+    }
+    const match = contractIndex?.byAlias?.get(alias);
+    if (match) return { status: "matched", alias, contract: match.contract, shotIndex: match.summary.shotIndex, conflicts: [] };
+  }
+  return { status: "unmatched", alias: null, contract: null, shotIndex: null, conflicts: [] };
 }
 
 function pathExtension(localPath, type) {
@@ -53,17 +206,178 @@ function pathExtension(localPath, type) {
   return match ? match[0].toLowerCase() : type === "image" ? ".jpg" : ".mp4";
 }
 
-function sourceFor(card, contractByFile) {
-  const localPath = card.media?.localPath || "";
-  const contract = contractByFile.get(localPath.split("/").pop());
-  const type = contract?.type || (card.knockedOut ? "generated-visualizer" : /\.(png|jpe?g|webp|gif|avif)$/i.test(localPath) ? "image" : "video");
+export function resolveHyperFramesMediaSource(card, contractIndex) {
+  const localPath = text(card.media?.localPath || card.media?.local_path);
+  const contractResolution = resolveIndexedMediaContract(card, contractIndex);
+  const contract = contractResolution.status === "matched" ? contractResolution.contract : null;
+  const mediaId = text(card.media?.id).toLowerCase();
+  const declaredTypes = [
+    contract?.type,
+    card.media?.type,
+    card.provenance?.rendererRoute,
+    card.provenance?.renderer_route,
+  ].map((value) => text(value).toLowerCase()).filter(Boolean);
+  const legacyNone = mediaId === "none";
+  let type;
+  let classificationReason;
+  if (legacyNone) {
+    type = "generated-visualizer";
+    classificationReason = "legacy-none-media-sentinel";
+  } else if (card.knockedOut === true) {
+    type = "generated-visualizer";
+    classificationReason = "explicit-knocked-out-media";
+  } else if (declaredTypes.includes("generated-visualizer")) {
+    type = "generated-visualizer";
+    classificationReason = "explicit-generated-visualizer-route";
+  } else if (declaredTypes.includes("image")) {
+    type = "image";
+    classificationReason = "explicit-image-route";
+  } else if (declaredTypes.includes("video")) {
+    type = "video";
+    classificationReason = "explicit-video-route";
+  } else if (/\.(png|jpe?g|webp|gif|avif)(?:$|[?#])/iu.test(localPath)) {
+    type = "image";
+    classificationReason = "legacy-image-extension";
+  } else {
+    type = "video";
+    classificationReason = localPath ? "legacy-video-default" : "untyped-media-without-uri";
+  }
+  const declaredContentHash = text(contract?.contentHash || contract?.content_hash);
+  const contentHash = declaredContentHash || hash({ localPath, id: card.media?.id }).slice(0, 24);
+  const originalUri = text(contract?.originalUri || contract?.original_uri) || localPath || null;
+  const runtimeUri = text(contract?.runtimeUri || contract?.runtime_uri) || null;
   return {
     type,
     originalPath: localPath || null,
-    runtimeUri: contract?.runtimeUri || null,
-    contentHash: contract?.contentHash || hash({ localPath, id: card.media?.id }).slice(0, 24),
-    assetName: type === "generated-visualizer" ? null : `${safe(contract?.contentHash?.slice(0, 24) || card.media?.id || hash(localPath).slice(0, 24))}${pathExtension(localPath, type)}`,
+    originalUri,
+    runtimeUri,
+    contentHash,
+    assetName: type === "generated-visualizer" ? null : `${safe(declaredContentHash.slice(0, 24) || card.media?.id || hash(localPath).slice(0, 24))}${pathExtension(localPath, type)}`,
     fidelity: type === "generated-visualizer" ? "exact-deterministic-graph" : "source-media",
+    classificationReason,
+    contractResolution: {
+      status: contractResolution.status,
+      alias: contractResolution.alias,
+      shotIndex: contractResolution.shotIndex,
+      conflicts: contractResolution.conflicts,
+    },
+  };
+}
+
+function decodedCandidateReference(value) {
+  const localFile = resolveHyperFramesLocalFileUri(value);
+  if (localFile) return { kind: "local-file-api", path: localFile };
+  const fileUri = resolveFileUri(value);
+  if (fileUri) return { kind: "file-uri", path: fileUri };
+  return { kind: "reference", path: safeDecode(text(value)) };
+}
+
+export function hyperFramesMediaSourceCandidates(instance, { root, projectPath } = {}) {
+  const resolvedRoot = path.resolve(text(root) || ".");
+  const resolvedProjectPath = path.resolve(text(projectPath) || path.join(resolvedRoot, "project.json"));
+  const projectDataRoot = path.resolve(path.dirname(resolvedProjectPath), "..");
+  const candidates = [];
+  const append = (value, origin) => {
+    const decoded = decodedCandidateReference(value);
+    const reference = text(decoded.path);
+    if (!reference) return;
+    if (decoded.kind !== "reference") {
+      candidates.push(reference);
+      return;
+    }
+    const normalized = reference.replaceAll("\\", "/");
+    if (normalized.startsWith("/media/")) {
+      candidates.push(path.join(resolvedRoot, "data", normalized.replace(/^\/+/, "")));
+      return;
+    }
+    if (path.isAbsolute(reference)) {
+      candidates.push(path.normalize(reference));
+      return;
+    }
+    candidates.push(origin === "runtime"
+      ? path.resolve(projectDataRoot, reference)
+      : path.resolve(resolvedRoot, reference));
+  };
+  append(instance?.source?.originalPath, "original");
+  append(instance?.source?.runtimeUri, "runtime");
+  append(instance?.source?.originalUri, "original");
+  return [...new Set(candidates)];
+}
+
+function mediaPreflightRows(showOrGraph, project) {
+  if (Array.isArray(showOrGraph)) return showOrGraph;
+  if (Array.isArray(showOrGraph?.instances?.media)) return showOrGraph.instances.media;
+  if (showOrGraph?.schemaVersion !== "hapa.music-viz.native-show-graph.v2") return [];
+  const contractIndex = indexHyperFramesMediaContracts(project);
+  return (showOrGraph.tracks || []).flatMap((track) => (track.cards || [])
+    .filter((card) => !card.visualization)
+    .map((card) => ({
+      id: card.id,
+      cueId: card.id,
+      mediaId: card.media?.id || null,
+      title: card.media?.title || null,
+      trackId: track.id,
+      start: finite(card.startSeconds),
+      end: finite(card.endSeconds),
+      source: resolveHyperFramesMediaSource(card, contractIndex),
+    })));
+}
+
+export function preflightHyperFramesMedia(showOrGraph, {
+  project = null,
+  root,
+  projectPath,
+  isFile = () => false,
+} = {}) {
+  const rows = mediaPreflightRows(showOrGraph, project);
+  const entries = rows.map((instance) => {
+    const source = instance?.source || {};
+    const generated = source.type === "generated-visualizer";
+    const attemptedPaths = generated ? [] : hyperFramesMediaSourceCandidates(instance, { root, projectPath });
+    let resolvedPath = null;
+    if (!generated && source.contractResolution?.status !== "ambiguous") {
+      resolvedPath = attemptedPaths.find((candidate) => {
+        try { return isFile(candidate) === true; } catch { return false; }
+      }) || null;
+    }
+    const reason = generated
+      ? "generated-visualizer-no-file-required"
+      : source.contractResolution?.status === "ambiguous"
+        ? "ambiguous-media-contract-alias"
+        : !attemptedPaths.length
+          ? "media-source-uri-missing"
+          : resolvedPath
+            ? "media-source-resolved"
+            : "media-source-file-unavailable";
+    return {
+      cueId: text(instance.cueId || instance.id) || null,
+      mediaId: text(instance.mediaId) || null,
+      title: text(instance.title) || null,
+      trackId: text(instance.trackId) || null,
+      start: finite(instance.start),
+      end: finite(instance.end),
+      type: text(source.type) || null,
+      originalUri: text(source.originalUri || source.originalPath) || null,
+      runtimeUri: text(source.runtimeUri) || null,
+      attemptedPaths,
+      resolvedPath,
+      generated,
+      ok: generated || Boolean(resolvedPath),
+      reason,
+      contractAlias: source.contractResolution?.alias || null,
+      aliasConflicts: structuredClone(source.contractResolution?.conflicts || []),
+    };
+  });
+  const unresolved = entries.filter((row) => !row.ok);
+  return {
+    schemaVersion: "hapa.hyperframes.media-preflight.v1",
+    ok: unresolved.length === 0,
+    declaredCount: entries.length,
+    generatedCount: entries.filter((row) => row.generated).length,
+    resolvedCount: entries.filter((row) => row.resolvedPath).length,
+    unresolvedCount: unresolved.length,
+    entries,
+    unresolved,
   };
 }
 
@@ -179,7 +493,7 @@ export function compileHyperFramesShow({ showGraph, telemetry, project, proxyReg
     ? (showGraph.directorV2?.recipe?.visualizerMix ?? 0.72)
     : visualizerMix;
   const resolvedVisualizerMix = Math.max(0, Math.min(1, finite(configuredVisualizerMix, 0.72)));
-  const contractByFile = mediaMap(project);
+  const mediaContractIndex = indexHyperFramesMediaContracts(project);
   const proxyById = registryProxyIndex(proxyRegistry);
   const templates = {
     "media-window-v1": { kind: "media-window", persistentPlayers: 2, fullBrightCrossfade: true },
@@ -250,7 +564,7 @@ export function compileHyperFramesShow({ showGraph, telemetry, project, proxyReg
         visualizerInstances.push(instance);
         layerOrder += 1;
       } else if (!card.visualization) {
-        mediaInstances.push({ ...base, templateId: "media-window-v1", mediaId: card.media?.id, title: card.media?.title, source: sourceFor(card, contractByFile), transition: card.transition || "crossfade", cameraKeyframes: card.cameraKeyframes || [] });
+        mediaInstances.push({ ...base, templateId: "media-window-v1", mediaId: card.media?.id, title: card.media?.title, source: resolveHyperFramesMediaSource(card, mediaContractIndex), transition: card.transition || "crossfade", cameraKeyframes: card.cameraKeyframes || [] });
       }
     }
   }

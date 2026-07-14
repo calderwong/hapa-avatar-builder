@@ -10,6 +10,11 @@ import {
   stableStringify,
 } from "../src/domain/echo-director-v2.js";
 import { hydrateManifestNativeRoutes } from "../src/domain/native-visualizer-route.js";
+import {
+  ECHO_MEDIA_PREFLIGHT_SCHEMA,
+  assertEchoMediaPreflight,
+  preflightEchoDirectionCut,
+} from "./preflight-echo-director-media.mjs";
 
 function parseArgs(argv) {
   const options = {
@@ -110,6 +115,26 @@ function main() {
   const projectPath = path.resolve(options.project);
   const outputDir = path.resolve(options.output);
   const project = readJson(projectPath);
+  const avatarRoot = path.resolve(options.avatarRoot);
+  const selectedCutPreflight = preflightEchoDirectionCut({
+    project,
+    sourcePath: projectPath,
+    avatarRoot,
+  });
+  const mediaPreflight = assertEchoMediaPreflight({
+    schemaVersion: ECHO_MEDIA_PREFLIGHT_SCHEMA,
+    scope: "selected-project-or-cut",
+    songId: selectedCutPreflight.songId,
+    songTitle: selectedCutPreflight.songTitle,
+    ok: selectedCutPreflight.ok,
+    cutCount: 1,
+    declaredCount: selectedCutPreflight.declaredCount,
+    generatedCount: selectedCutPreflight.generatedCount,
+    resolvedCount: selectedCutPreflight.resolvedCount,
+    unresolvedCount: selectedCutPreflight.unresolvedCount,
+    failures: selectedCutPreflight.failures,
+    cuts: [selectedCutPreflight],
+  });
   const manifestPath = path.resolve(options.manifest);
   const proxyRegistryPath = path.join(path.dirname(manifestPath), "proxies/native-exact-proxies.json");
   const manifest = hydrateManifestNativeRoutes(readJson(manifestPath), readJson(proxyRegistryPath, false) || {});
@@ -130,7 +155,7 @@ function main() {
     duration: options.duration,
     recipe,
     seed,
-    avatarRoot: path.resolve(options.avatarRoot),
+    avatarRoot,
     nativeProxyAvailable,
   }));
   const artifacts = family[0];
@@ -211,6 +236,7 @@ function main() {
     requestedCount,
     variants,
   });
+  writeJson(path.join(outputDir, "media-preflight-report.json"), mediaPreflight);
   const cueAdapterBase = {
     schemaVersion: "hapa.echo.cue-adapter-fixture.v2",
     cueGraphId: artifacts.cueGraph.cueGraphId,
@@ -239,6 +265,14 @@ function main() {
     stems: artifacts.showGraph.stems.count,
     visualizerTruth: artifacts.showGraph.truth.visualizers,
     timingWarnings: artifacts.receipt.warnings,
+    mediaPreflight: {
+      ok: mediaPreflight.ok,
+      cutCount: mediaPreflight.cutCount,
+      declaredCount: mediaPreflight.declaredCount,
+      generatedCount: mediaPreflight.generatedCount,
+      resolvedCount: mediaPreflight.resolvedCount,
+      unresolvedCount: mediaPreflight.unresolvedCount,
+    },
   }, 2)}\n`);
 }
 

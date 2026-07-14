@@ -34,6 +34,7 @@
     "echo:variants:builder-balanced:apply": "node scripts/append-balanced-builder-direction-variants.mjs --apply",
     "echo:variants:wide-cuts": "node scripts/append-balanced-builder-direction-variants.mjs --wide-cuts",
     "echo:variants:wide-cuts:apply": "node scripts/append-balanced-builder-direction-variants.mjs --wide-cuts --apply",
+    "echo:preflight-media": "node scripts/preflight-echo-director-media.mjs",
     "ingest:folder-images": "node scripts/ingest-folder-images-and-visual-matches.mjs",
     "heal:dossier-avatars": "node scripts/heal-dossier-avatar-mismatches.mjs",
     "tarot:refresh-ocr": "node scripts/refresh-tarot-ocr-details.mjs",

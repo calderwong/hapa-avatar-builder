@@ -171,6 +171,61 @@ test("completed render work stops at render-ready and still requires a separate 
   assert.equal(view.candidates[0].nextAction, "operator-confirm-song-card-mint");
 });
 
+test("a Builder-managed failure stops durably after one attempt and remains explicitly retryable from the approved plan", () => {
+  const candidate = planSongCardRemintCandidate({
+    songId: "song-a",
+    latestEdition: 0,
+    currentSnapshot: snapshot({ mediaId: "media:b", renderer: "hyperframes" }),
+    currentRevisions: { source: "source:1", renderer: "hyperframes:1" },
+  });
+  let queue = createSongCardRemintQueue({ candidates: [candidate] });
+  queue = approveSongCardRemintCandidate(queue, candidate.id, { approvedBy: "operator:durable-failure" });
+  queue = enqueueApprovedSongCardRemints(queue);
+  const batch = queue.batches[candidate.id];
+  const hyperframesIndex = batch.jobs.findIndex((job) => job.stage === "hyperframes");
+  batch.jobs = batch.jobs.map((job, index) => ({
+    ...job,
+    status: index < hyperframesIndex ? (job.expensiveDecision ? "cached" : "done") : index === hyperframesIndex ? "running" : "queued",
+    attempts: index === hyperframesIndex ? 1 : job.attempts,
+  }));
+  queue.candidates[0] = { ...queue.candidates[0], status: "rendering" };
+  const hyperframesJob = batch.jobs[hyperframesIndex];
+
+  queue = recordSongCardRemintJobResult(queue, candidate.id, hyperframesJob.id, {
+    ok: false,
+    message: "Offline show compilation failed: 20 media cues could not be packaged.",
+    retryable: true,
+    requiresExplicitRetry: true,
+    failure: {
+      code: "local_compile_media_offline",
+      message: "Offline show compilation failed: 20 media cues could not be packaged.",
+      stage: "compile",
+      retryable: true,
+      details: { media: { missingCount: 20, missingCueIds: ["legacy:media:1", "legacy:media:2"] } },
+    },
+  }, { recordedAt: "2026-07-14T02:44:20.268Z" });
+
+  const failedView = songCardRemintQueueView(queue).candidates[0];
+  const failedJob = queue.batches[candidate.id].jobs.find((job) => job.id === hyperframesJob.id);
+  assert.equal(failedJob.status, "failed", "the local bridge must not leave a stopped process silently queued");
+  assert.equal(failedJob.attempts, 1);
+  assert.equal(failedView.status, "failed");
+  assert.equal(failedView.nextAction, "operator-retry-approved-remint-render");
+  assert.equal(failedView.renderFailure.code, "local_compile_media_offline");
+  assert.equal(failedView.renderFailure.details.media.missingCount, 20);
+  assert.equal(failedView.approvedBy, "operator:durable-failure");
+  assert.equal(failedView.renderWorkAuthorized, true);
+
+  const retried = retrySongCardRemintRender(queue, candidate.id, { retriedAt: "2026-07-14T02:45:00.000Z" });
+  const retriedView = songCardRemintQueueView(retried).candidates[0];
+  assert.equal(retriedView.status, "queued");
+  assert.equal(retriedView.renderFailure, null);
+  assert.equal(retriedView.approvedBy, "operator:durable-failure");
+  assert.equal(retried.batches[candidate.id].jobs.find((job) => job.expensiveDecision).status, "cached");
+  assert.equal(retried.batches[candidate.id].jobs.find((job) => job.stage === "proxy").status, "done");
+  assert.equal(retried.batches[candidate.id].jobs.find((job) => job.stage === "hyperframes").status, "queued");
+});
+
 test("explicit render retry preserves approved decisions and rebuilds the failed HyperFrames chain without stale artifacts", () => {
   const candidate = planSongCardRemintCandidate({
     songId: "song-a",

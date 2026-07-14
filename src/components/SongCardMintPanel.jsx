@@ -631,6 +631,11 @@ export default function SongCardMintPanel({ songId, project, showGraph, compact 
     && localRenderJob.candidateId === remintCandidate?.id
     && String(localRenderJob.status).toLowerCase() === "failed");
   const renderFailed = localRenderFailed || remintCandidate?.status === "failed";
+  const renderFailure = (localRenderFailed && localRenderJob?.error && typeof localRenderJob.error === "object" ? localRenderJob.error : null)
+    || (remintCandidate?.renderFailure && typeof remintCandidate.renderFailure === "object" ? remintCandidate.renderFailure : null)
+    || null;
+  const renderFailureMessage = String(renderFailure?.message || (localRenderFailed ? localRenderJob?.message : "") || "");
+  const renderFailureCode = String(renderFailure?.code || "local_render_failed");
   const effectivePhase = renderFailed ? "failed" : ["approved", "queued", "rendering"].includes(remintCandidate?.status) ? "rendering" : phase;
   const renderAvailable = renderExecutor?.available === true;
   const localRenderPercent = Math.round(Number(localRenderJob?.progress?.percent || 0));
@@ -1225,8 +1230,13 @@ export default function SongCardMintPanel({ songId, project, showGraph, compact 
               <div aria-hidden="true" style={{ height: 5, marginTop: 5, background: "#111827", overflow: "hidden" }}>
                 <div style={{ width: `${localRenderPercent}%`, height: "100%", background: localRenderFailed ? "#fb7185" : "#00f3ff", transition: "width .25s ease" }} />
               </div>
-              {localRenderJob.message && <p style={{ ...styles.label, margin: "6px 0 0" }}>{localRenderJob.message}</p>}
+              {localRenderJob.message && !localRenderFailed && <p style={{ ...styles.label, margin: "6px 0 0" }}>{localRenderJob.message}</p>}
             </div>
+          )}
+          {renderFailed && renderFailureMessage && (
+            <p data-testid="song-card-render-failure-detail" role="alert" style={{ color: "#fb7185", margin: "8px 0 0", overflowWrap: "anywhere" }}>
+              <strong>{renderFailureCode}</strong> · {renderFailureMessage}
+            </p>
           )}
           <p style={styles.label}>The Builder chooses the render and poster locations, then binds them automatically. Minting remains a separate confirmation.</p>
           <div style={styles.row}>

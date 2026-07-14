@@ -545,6 +545,11 @@ export function buildEditorialTreatment(projectInput, cueGraph, manifest, regist
     .map((shot, index) => {
       const window = clipWindow(shot.start_sec, shot.end_sec, duration);
       if (!window) return null;
+      const archivalUri = String(shot.media_contract?.originalUri || shot.media_uri || shot.uri || "");
+      const runtimeUri = String(shot.media_contract?.runtimeUri || shot.runtime_media_uri || archivalUri);
+      const mediaType = String(shot.media_contract?.type || "");
+      const intentionalVisualizer = mediaType === "generated-visualizer"
+        || shot.media_id === "none";
       return {
         id: `slot:${index}`,
         sourceShotIndex: index,
@@ -564,12 +569,13 @@ export function buildEditorialTreatment(projectInput, cueGraph, manifest, regist
         media: {
           id: String(shot.media_id || `media:${index}`),
           title: String(shot.media_title || shot.media_id || `Media ${index + 1}`),
-          uri: String(shot.media_uri || shot.uri || ""),
-          localPath: resolveEchoMediaUri(shot.media_uri || shot.uri, options.avatarRoot),
-          sourceKind: shot.media_id === "none" || !(shot.media_uri || shot.uri)
+          uri: archivalUri,
+          runtimeUri,
+          localPath: resolveEchoMediaUri(runtimeUri, options.avatarRoot),
+          sourceKind: intentionalVisualizer
             ? "pure-visualizer"
-            : /\.(png|jpe?g|webp|gif)$/i.test(String(shot.media_uri || shot.uri || "")) ? "local-photo" : "local-video",
-          truthStatus: shot.media_id === "none" || !(shot.media_uri || shot.uri)
+            : mediaType === "image" || /\.(png|jpe?g|webp|gif|avif)(?:$|[?#])/i.test(runtimeUri || archivalUri) ? "local-photo" : "local-video",
+          truthStatus: intentionalVisualizer
             ? "intentional-no-media"
             : "existing_echo_candidate_unverified_semantics",
         },

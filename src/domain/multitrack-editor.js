@@ -48,7 +48,11 @@ function projectedShotMedia(shot = {}) {
   const media = {
     id: shot.media_id,
     title: shot.media_title,
-    localPath: shot.runtime_media_uri || shot.media_uri,
+    localPath: shot.media_contract?.runtimeUri
+      || shot.runtime_media_uri
+      || shot.media_contract?.originalUri
+      || shot.media_uri
+      || "",
   };
   if (!cardId) return media;
   return {

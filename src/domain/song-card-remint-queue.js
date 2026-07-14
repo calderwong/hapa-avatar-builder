@@ -327,6 +327,20 @@ function candidateStatusFromBatch(candidate, batch) {
   return candidate.status === "approved" ? "queued" : candidate.status;
 }
 
+function renderFailureFromResult(result, job, recordedAt) {
+  const supplied = result?.failure && typeof result.failure === "object" ? result.failure : {};
+  const suppliedDetails = supplied.details && typeof supplied.details === "object" ? supplied.details : {};
+  return {
+    code: text(supplied.code || result?.code || "remint_render_failed").slice(0, 160),
+    message: text(supplied.message || result?.message || "The final-video render stopped before completion.").slice(0, 2_000),
+    stage: text(supplied.stage || job?.stage || "render").slice(0, 160),
+    jobId: text(job?.id),
+    retryable: result?.retryable !== false && supplied.retryable !== false,
+    failedAt: at(recordedAt),
+    details: clone(suppliedDetails),
+  };
+}
+
 export function resumeSongCardRemintQueue(queue, { artifactIndexByCandidate = {}, resumedAt = null } = {}) {
   const batches = Object.fromEntries(Object.entries(queue.batches || {}).map(([candidateId, batch]) => [
     candidateId,
@@ -395,8 +409,22 @@ export function claimSongCardRemintWork(queue, { activePlayback = false, claimed
 export function recordSongCardRemintJobResult(queue, candidateId, jobId, result, { recordedAt = null } = {}) {
   const batch = queue.batches?.[candidateId];
   if (!batch) throw new Error(`Unknown remint batch: ${candidateId}`);
-  if (!batch.jobs.some((job) => job.id === jobId)) throw new Error(`Unknown remint job: ${jobId}`);
-  const nextBatch = recordAlbumJobResult(batch, jobId, result);
+  const currentJob = batch.jobs.find((job) => job.id === jobId);
+  if (!currentJob) throw new Error(`Unknown remint job: ${jobId}`);
+  const renderFailure = !result.ok && !result.cancelled ? renderFailureFromResult(result, currentJob, recordedAt) : null;
+  const requiresExplicitRetry = Boolean(renderFailure && result.requiresExplicitRetry === true);
+  const recordedBatch = recordAlbumJobResult(batch, jobId, result);
+  const nextBatch = requiresExplicitRetry ? {
+    ...recordedBatch,
+    status: "failed",
+    jobs: recordedBatch.jobs.map((job) => job.id === jobId ? {
+      ...job,
+      status: "failed",
+      receipt: null,
+      producedArtifacts: [],
+      failure: clone(renderFailure),
+    } : job),
+  } : recordedBatch;
   const releaseJob = nextBatch.jobs.find((job) => job.stage === "release-export");
   const releaseArtifacts = clone(releaseJob?.producedArtifacts || []);
   const releaseReceipt = clone(releaseJob?.receipt || null);
@@ -407,15 +435,29 @@ export function recordSongCardRemintJobResult(queue, candidateId, jobId, result,
       ...candidate,
       status,
       ...(status === "render-ready" ? { renderArtifacts: releaseArtifacts, releaseReceipt } : {}),
+      ...(status === "failed" ? {
+        renderFailure: clone(renderFailure || nextBatch.jobs.find((job) => job.status === "failed")?.failure || null),
+      } : result.ok ? { renderFailure: null } : {}),
       mintAuthorized: false,
-      nextAction: status === "render-ready" ? "operator-confirm-song-card-mint" : candidate.nextAction,
+      nextAction: status === "render-ready"
+        ? "operator-confirm-song-card-mint"
+        : status === "failed" && (renderFailure?.retryable !== false)
+          ? "operator-retry-approved-remint-render"
+          : candidate.nextAction,
     };
   });
   return {
     ...clone(queue),
     batches: { ...clone(queue.batches), [candidateId]: nextBatch },
     candidates,
-    events: [...queue.events, { type: result.ok ? "remint-job-completed" : result.cancelled ? "remint-job-canceled" : "remint-job-failed", at: at(recordedAt), candidateId, jobId, autoMint: false }],
+    events: [...queue.events, {
+      type: result.ok ? "remint-job-completed" : result.cancelled ? "remint-job-canceled" : "remint-job-failed",
+      at: at(recordedAt),
+      candidateId,
+      jobId,
+      ...(renderFailure ? { failureCode: renderFailure.code, retryable: renderFailure.retryable } : {}),
+      autoMint: false,
+    }],
   };
 }
 
@@ -485,6 +527,7 @@ export function retrySongCardRemintRender(queue, candidateId, { retriedAt = null
       approval: null,
       receipt: null,
       producedArtifacts: [],
+      failure: null,
       cost: { ...job.cost, measuredSeconds: null },
       logs: [...(job.logs || []), `explicit-render-retry:${at(retriedAt)}`],
     };
@@ -519,6 +562,7 @@ export function retrySongCardRemintRender(queue, candidateId, { retriedAt = null
       mintPlanId: null,
       mintReservation: null,
       mintAuthorized: false,
+      renderFailure: null,
       nextAction: "run-approved-remint-render",
     } : row),
     events: [...(queue.events || []), {
@@ -653,6 +697,7 @@ export function songCardRemintQueueView(queue) {
       releaseReceipt: clone(candidate.releaseReceipt || null),
       releaseReceiptVerification: clone(candidate.releaseReceiptVerification || null),
       reviewedRender: clone(candidate.reviewedRender || null),
+      renderFailure: clone(candidate.renderFailure || null),
       jobs: (queue.batches?.[candidate.id]?.jobs || []).map((job) => ({ id: job.id, stage: job.stage, status: job.status, artifactHash: job.artifactHash })),
     })),
   };

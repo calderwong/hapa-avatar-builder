@@ -4,7 +4,9 @@ import fs from "node:fs";
 import crypto from "node:crypto";
 import {
   assessTimingTruth,
+  buildCueGraph,
   buildDirectorV2Artifacts,
+  buildEditorialTreatment,
   contentHash,
   firstStableDifference,
   NATIVE_SHOW_GRAPH_SCHEMA,
@@ -181,4 +183,44 @@ test("Director v2 show graph carries the shared executable contract without JSON
   assert.deepEqual(JSON.parse(JSON.stringify(graph)), graph, "Echo JSON adapter must preserve the whole shared graph");
   assert.ok(graph.tracks[0].cards[0].transition);
   assert.equal(graph.tracks[0].cards[0].cameraKeyframes.length, 2);
+});
+
+test("Director v2 keeps archival lineage while selecting the runtime media contract", () => {
+  const inputs = fixture();
+  const shot = inputs.project.music_video_project.timeline[0];
+  shot.media_uri = "/media/scroll-source-a.mp4";
+  shot.runtime_media_uri = "";
+  shot.media_contract = {
+    type: "video",
+    originalUri: "/media/scroll-source-a.mp4",
+    runtimeUri: "/media/scroll-runtime-b.mp4",
+  };
+  const result = buildDirectorV2Artifacts({
+    ...inputs,
+    duration: 24,
+    recipe: "visualizer-forward",
+    seed: "runtime-media-contract",
+    avatarRoot: "/tmp/hapa-avatar-builder",
+  });
+  const selected = result.treatment.mediaSlots[0].candidateMedia[0];
+  assert.equal(selected.uri, "/media/scroll-source-a.mp4");
+  assert.equal(selected.runtimeUri, "/media/scroll-runtime-b.mp4");
+  assert.equal(selected.localPath, "/tmp/hapa-avatar-builder/data/media/scroll-runtime-b.mp4");
+  assert.equal(result.showGraph.tracks[0].cards[0].media.localPath, selected.localPath);
+});
+
+test("Director v2 does not silently reinterpret an untyped blank source as an intentional visualizer cue", () => {
+  const inputs = fixture();
+  const shot = inputs.project.music_video_project.timeline[0];
+  shot.media_id = "missing-real-media";
+  shot.media_uri = "";
+  delete shot.runtime_media_uri;
+  delete shot.media_contract;
+  const cueGraph = buildCueGraph(inputs.project, { duration: 24 });
+  const treatment = buildEditorialTreatment(inputs.project, cueGraph, inputs.manifest, inputs.registry, {
+    avatarRoot: "/tmp/hapa-avatar-builder",
+  });
+  const declared = treatment.mediaSlots[0].candidateMedia.find((media) => media.id === "missing-real-media");
+  assert.equal(declared.sourceKind, "local-video");
+  assert.notEqual(declared.truthStatus, "intentional-no-media");
 });

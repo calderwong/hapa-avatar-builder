@@ -11,8 +11,12 @@ import { SongCardMintController } from "../server/song-card-mint-controller.mjs"
 import { SongCardMintLedger } from "../server/song-card-mint-ledger.mjs";
 import { createSongCardRemintStore } from "../server/song-card-remint-store.mjs";
 import {
+  createSongCardCompilerError,
   createSongCardLocalRenderBridge,
+  createSongCardMediaPreflightError,
+  describeSongCardCompilerFailure,
   inspectSongCardLocalRenderer,
+  preflightSongCardLocalMedia,
 } from "../server/song-card-local-renderer.mjs";
 
 const run = promisify(execFile);
@@ -102,6 +106,17 @@ async function waitForCandidate(store, candidateId, acceptedStatuses, timeoutMs 
   assert.fail(`candidate ${candidateId} did not reach ${acceptedStatuses.join("/")}; last status ${candidate?.status || "missing"}`);
 }
 
+async function waitForLocalJob(bridge, candidateId, acceptedStatuses, timeoutMs = 15_000) {
+  const startedAt = Date.now();
+  let job = null;
+  while (Date.now() - startedAt < timeoutMs) {
+    job = bridge.status().jobs.find((row) => row.candidateId === candidateId) || null;
+    if (job && acceptedStatuses.includes(job.status)) return job;
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  assert.fail(`local job ${candidateId} did not reach ${acceptedStatuses.join("/")}; last status ${job?.status || "missing"}`);
+}
+
 function exactEditorFixture({ videoPath }) {
   const song = { id: "automatic-local-song", title: "Automatic Local Song", durationSeconds: 0.75, audioPath: "/api/song-registry/audio/automatic-local-song" };
   const showGraph = {
@@ -165,6 +180,87 @@ async function makeTinyRealFixture(root) {
   ]);
   return { videoPath, audioPath };
 }
+
+test("compiler failures summarize offline cue counts and identifiers without exposing the raw child command", () => {
+  const offlineMissing = Array.from({ length: 20 }, (_, index) => `legacy:media:${index + 1}`);
+  const report = {
+    ok: false,
+    media: {
+      declared: 77,
+      compiled: 57,
+      offlineMissing,
+      preflight: { unresolved: offlineMissing.map((cueId) => ({ cueId, reason: "media-source-file-unavailable", attemptedPaths: [`/missing/${cueId}.mp4`] })) },
+    },
+    visualizers: { declared: 14, exactProxy: 14, compiledAssets: 14, offlineMissing: [] },
+    validation: { lint: "pass", inspect: "pass", mediaOffline: "fail", visualizerOffline: "pass", showcaseReady: false },
+  };
+  const failure = describeSongCardCompilerFailure(report, {
+    cause: { code: 1 },
+    reportPath: "/managed/render/compiler-report.json",
+  });
+  assert.equal(failure.code, "local_compile_media_offline");
+  assert.match(failure.message, /20 media cues could not be packaged/);
+  assert.match(failure.message, /legacy:media:1/);
+  assert.match(failure.message, /\+14 more/);
+  assert.match(failure.message, /Shaders packaged 14\/14/);
+  assert.match(failure.message, /final MP4 did not start/);
+  assert.doesNotMatch(failure.message, /compile-hyperframes-show-v2|--graph=/);
+  assert.equal(failure.details.exitCode, 1);
+  assert.equal(failure.details.media.missingCount, 20);
+  assert.deepEqual(failure.details.media.missingCueIds, offlineMissing);
+  assert.equal(failure.details.media.unresolved[0].reason, "media-source-file-unavailable");
+  assert.equal(failure.details.visualizers.missingCount, 0);
+
+  const shaderFailure = describeSongCardCompilerFailure({
+    ok: false,
+    media: { declared: 2, compiled: 2, offlineMissing: [] },
+    visualizers: {
+      declared: 4,
+      compiledAssets: 3,
+      offlineMissing: ["legacy:ivf:2"],
+      preflight: { unresolved: [{ cueId: "legacy:ivf:2", reason: "exact-proxy-asset-hash-mismatch" }] },
+    },
+    validation: { visualizerPreflight: "fail", showcaseReady: false },
+  });
+  assert.equal(shaderFailure.code, "local_compile_visualizer_offline");
+  assert.match(shaderFailure.message, /legacy:ivf:2: exact-proxy-asset-hash-mismatch/);
+  assert.match(shaderFailure.message, /Shaders packaged 3\/4/);
+  assert.equal(shaderFailure.details.visualizers.unresolved[0].reason, "exact-proxy-asset-hash-mismatch");
+});
+
+test("local media preflight stops missing real cues before rendering and accepts explicit IVF-only blanks", async (t) => {
+  const root = await fsp.mkdtemp(path.join(os.tmpdir(), "hapa-song-card-media-preflight-"));
+  t.after(() => fsp.rm(root, { recursive: true, force: true }));
+  const videoPath = path.join(root, "fixture.mp4");
+  await fsp.writeFile(videoPath, "non-empty-media-fixture");
+  const editor = exactEditorFixture({ videoPath });
+  editor.showGraph.tracks[0].cards.push({
+    id: "card:a:ivf-only",
+    trackId: "track-a",
+    startSeconds: 0.5,
+    endSeconds: 0.75,
+    media: { id: "none", title: "Visualizer Only", localPath: "" },
+    provenance: { rendererRoute: "generated-visualizer" },
+  });
+
+  const passing = preflightSongCardLocalMedia({ ...editor, root, projectPath: path.join(root, "project.json") });
+  assert.equal(passing.ok, true);
+  assert.equal(passing.generatedCount, 1);
+  assert.equal(passing.resolvedCount, 1);
+
+  await fsp.rm(videoPath);
+  const blocked = preflightSongCardLocalMedia({ ...editor, root, projectPath: path.join(root, "project.json") });
+  assert.equal(blocked.ok, false);
+  assert.equal(blocked.unresolvedCount, 1);
+  assert.equal(blocked.unresolved[0].cueId, "card:a:0");
+  assert.equal(blocked.unresolved[0].reason, "media-source-file-unavailable");
+  const error = createSongCardMediaPreflightError(blocked);
+  assert.equal(error.code, "local_media_preflight_failed");
+  assert.equal(error.details.stage, "media-preflight");
+  assert.equal(error.details.media.missingCount, 1);
+  assert.match(error.message, /before stem analysis/);
+  assert.match(error.message, /No media was substituted/);
+});
 
 test("automatic local render preserves the exact editor revision, binds verified artifacts, and never auto-mints", { skip: !HAS_FFMPEG, timeout: 60_000 }, async (t) => {
   const root = await fsp.mkdtemp(path.join(os.tmpdir(), "hapa-song-card-local-workflow-"));
@@ -276,6 +372,60 @@ test("automatic local render preserves the exact editor revision, binds verified
   assert.equal(managedExportResponse.status, 201);
   const managedExport = await managedExportResponse.json();
   assert.equal(await fileSha256(managedExport.destination), artifact.sha256);
+});
+
+test("a local compile failure becomes one durable failed attempt and an approved explicit retry", { timeout: 20_000 }, async (t) => {
+  const root = await fsp.mkdtemp(path.join(os.tmpdir(), "hapa-song-card-local-compile-failure-"));
+  t.after(() => fsp.rm(root, { recursive: true, force: true }));
+  const sourceRoot = path.join(root, "source");
+  const mintRoot = path.join(root, "mint");
+  await fsp.mkdir(sourceRoot, { recursive: true });
+  const audioPath = path.join(sourceRoot, "master.dat");
+  await fsp.writeFile(audioPath, "verified-local-master");
+  const editor = exactEditorFixture({ videoPath: path.join(sourceRoot, "video.mp4") });
+  const ledger = new SongCardMintLedger({ root: mintRoot, allowedSourceRoots: [sourceRoot, mintRoot] });
+  const controller = new SongCardMintController({ root: mintRoot, ledger });
+  const store = createSongCardRemintStore({ root: mintRoot, controller });
+  const initialPlan = await controller.plan(editor.project.song_id, editor);
+  const proposed = await store.proposeFromPlan(editor.project.song_id, await controller.getPlan(initialPlan.planId));
+  await store.approve(proposed.id, { approvedBy: "operator:compile-failure-test" });
+  await store.enqueue();
+  const compilerReport = {
+    ok: false,
+    media: { declared: 3, compiled: 1, offlineMissing: ["legacy:media:1", "legacy:media:2"] },
+    visualizers: { declared: 1, exactProxy: 1, compiledAssets: 1, offlineMissing: [] },
+    validation: { mediaOffline: "fail", visualizerOffline: "pass", showcaseReady: false },
+  };
+  const bridge = createSongCardLocalRenderBridge({
+    root: mintRoot,
+    controller,
+    remintStore: store,
+    resolveRegistryMaster: async () => audioPath,
+    pipeline: async () => { throw createSongCardCompilerError(compilerReport, { cause: { code: 1 }, reportPath: "/managed/compiler-report.json" }); },
+  });
+
+  await bridge.start(proposed.id);
+  const failed = await waitForCandidate(store, proposed.id, ["failed"]);
+  const liveJob = await waitForLocalJob(bridge, proposed.id, ["failed"]);
+  assert.equal(liveJob.status, "failed");
+  assert.equal(liveJob.error.code, "local_compile_media_offline");
+  assert.equal(liveJob.error.details.media.missingCount, 2);
+  assert.equal(failed.status, "failed");
+  assert.equal(failed.renderFailure.code, "local_compile_media_offline");
+  assert.deepEqual(failed.renderFailure.details.media.missingCueIds, ["legacy:media:1", "legacy:media:2"]);
+  assert.equal(failed.approvedBy, "operator:compile-failure-test");
+  assert.equal(failed.renderWorkAuthorized, true);
+  assert.equal(failed.jobs.find((job) => job.stage === "hyperframes").status, "failed");
+  assert.equal(failed.jobs.find((job) => job.stage === "hyperframes").status, liveJob.status);
+
+  const retried = await store.retry(proposed.id);
+  const retriedCandidate = retried.candidates.find((candidate) => candidate.id === proposed.id);
+  assert.equal(retriedCandidate.status, "queued");
+  assert.equal(retriedCandidate.renderFailure, null);
+  assert.equal(retriedCandidate.approvedBy, "operator:compile-failure-test");
+  assert.equal(retriedCandidate.jobs.find((job) => job.stage === "decision-envelope").status, "done", "the completed decision envelope is preserved instead of rerun");
+  assert.equal(retriedCandidate.jobs.find((job) => job.stage === "proxy").status, "done");
+  assert.equal(retriedCandidate.jobs.find((job) => job.stage === "hyperframes").status, "queued");
 });
 
 test("a restarted local bridge rehydrates the hash-verified render checkpoint before QA and release", { skip: !HAS_FFMPEG, timeout: 60_000 }, async (t) => {

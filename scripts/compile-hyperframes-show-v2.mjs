@@ -5,7 +5,9 @@ import crypto from "node:crypto";
 import {
   clipHyperFramesShow,
   compileHyperFramesShow,
+  hyperFramesMediaSourceCandidates,
   inspectHyperFramesShow,
+  preflightHyperFramesMedia,
 } from "../src/domain/hyperframes-show-compiler.js";
 import { packageHyperFramesAudio } from "./lib/hyperframes-audio-package.mjs";
 
@@ -40,15 +42,14 @@ const stable = (input) => {
 const stableHash = (input) => sha256(JSON.stringify(stable(input)));
 const escapeHtml = (input) => String(input || "").replace(/[&<>"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[character]));
 
-for (const directory of ["assets/data", "assets/media", "assets/audio", "assets/visualizers", "assets/runtime"]) {
-  fs.mkdirSync(path.join(output, directory), { recursive: true });
-}
-
 const proxyRegistry = read(proxyRegistryPath);
+const showGraph = read(graphPath);
+const telemetry = read(telemetryPath);
+const project = read(projectPath);
 const fullShow = compileHyperFramesShow({
-  showGraph: read(graphPath),
-  telemetry: read(telemetryPath),
-  project: read(projectPath),
+  showGraph,
+  telemetry,
+  project,
   proxyRegistry,
   fps: 30,
 });
@@ -57,46 +58,224 @@ const show = requestedDuration && requestedDuration < fullShow.duration
   : fullShow;
 const boundedDemo = show.duration < fullShow.duration;
 
-function firstFile(candidates = []) {
-  return candidates.filter(Boolean).find((candidate) => fs.existsSync(candidate) && fs.statSync(candidate).isFile()) || null;
+function usableRegularFile(candidate) {
+  try {
+    const stat = fs.statSync(candidate);
+    return stat.isFile() && stat.size > 0;
+  } catch {
+    return false;
+  }
 }
 
-function mediaSourceCandidates(instance) {
-  const original = String(instance.source.originalPath || "");
-  const runtimeUri = String(instance.source.runtimeUri || "");
-  const projectDataRoot = path.resolve(path.dirname(projectPath), "..");
-  const candidates = [];
-  if (original) candidates.push(path.isAbsolute(original) ? original : path.resolve(ROOT, original));
-  if (runtimeUri.startsWith("/media/")) candidates.push(path.join(ROOT, "data", runtimeUri.replace(/^\/+/, "")));
-  if (runtimeUri) candidates.push(path.resolve(projectDataRoot, decodeURIComponent(runtimeUri).replace(/^\/+/, "")));
-  return candidates;
+function firstFile(candidates = []) {
+  return candidates.filter(Boolean).find(usableRegularFile) || null;
 }
+
+const musicVizRoot = path.resolve(path.dirname(proxyRegistryPath), "../../..");
+function proxySourceCandidates(proxy = {}) {
+  const assetPath = String(proxy.assetPath || "");
+  return [...new Set([
+    proxy.repositoryPath ? path.resolve(musicVizRoot, String(proxy.repositoryPath)) : "",
+    assetPath.startsWith("/static/") ? path.resolve(musicVizRoot, "web", assetPath.replace(/^\/static\//, "")) : "",
+    assetPath ? (path.isAbsolute(assetPath) ? assetPath : path.resolve(path.dirname(proxyRegistryPath), assetPath)) : "",
+  ].filter(Boolean))];
+}
+
+function preflightVisualizerProxies(instances = []) {
+  const entries = instances.map((instance) => {
+    const required = Boolean(instance.execution?.drawable);
+    const attemptedPaths = required && instance.proxy ? proxySourceCandidates(instance.proxy) : [];
+    const expectedSha256 = required ? String(instance.proxy?.assetSha256 || "") || null : null;
+    let resolvedPath = null;
+    let firstReadablePath = null;
+    let actualSha256 = null;
+    for (const candidate of attemptedPaths) {
+      if (!usableRegularFile(candidate)) continue;
+      let candidateSha256 = null;
+      try { candidateSha256 = fileSha256(candidate); } catch { continue; }
+      if (!firstReadablePath) {
+        firstReadablePath = candidate;
+        actualSha256 = candidateSha256;
+      }
+      if (expectedSha256 && candidateSha256 === expectedSha256) {
+        resolvedPath = candidate;
+        actualSha256 = candidateSha256;
+        break;
+      }
+    }
+    const ok = !required || Boolean(resolvedPath && expectedSha256 && actualSha256 === expectedSha256);
+    const reason = !required
+      ? "explicit-unsupported-diagnostic-no-asset-required"
+      : !instance.proxy
+        ? "exact-proxy-declaration-missing"
+        : !firstReadablePath
+          ? "exact-proxy-asset-unavailable"
+          : !resolvedPath
+            ? "exact-proxy-asset-hash-mismatch"
+            : "exact-proxy-asset-resolved";
+    return {
+      cueId: String(instance.cueId || instance.id || "") || null,
+      visualizerId: String(instance.visualizerId || "") || null,
+      start: Number(instance.start || 0),
+      end: Number(instance.end || 0),
+      required,
+      expectedSha256,
+      actualSha256,
+      attemptedPaths,
+      firstReadablePath,
+      resolvedPath,
+      ok,
+      reason,
+    };
+  });
+  const unresolved = entries.filter((row) => !row.ok);
+  return {
+    schemaVersion: "hapa.hyperframes.visualizer-preflight.v1",
+    ok: unresolved.length === 0,
+    declaredCount: entries.length,
+    requiredCount: entries.filter((row) => row.required).length,
+    unsupportedCount: entries.filter((row) => !row.required).length,
+    resolvedCount: entries.filter((row) => row.required && row.ok).length,
+    unresolvedCount: unresolved.length,
+    entries,
+    unresolved,
+  };
+}
+
+const mediaPreflight = preflightHyperFramesMedia(show, {
+  root: ROOT,
+  projectPath,
+  isFile: usableRegularFile,
+});
+const visualizerPreflight = preflightVisualizerProxies(show.instances.visualizers);
+const inspect = inspectHyperFramesShow(show);
+const offlineMissing = mediaPreflight.unresolved.map((row) => row.cueId);
+const visualizerPreflightMissing = visualizerPreflight.unresolved.map((row) => row.cueId);
+const manifestPath = path.join(output, "executable-show.json");
+const preflightPath = path.join(output, "compiler-preflight.json");
+const visualizerPreflightPath = path.join(output, "visualizer-preflight.json");
+fs.mkdirSync(output, { recursive: true });
+fs.writeFileSync(preflightPath, `${JSON.stringify(mediaPreflight, null, 2)}\n`);
+fs.writeFileSync(visualizerPreflightPath, `${JSON.stringify(visualizerPreflight, null, 2)}\n`);
+if (!mediaPreflight.ok || !visualizerPreflight.ok) {
+  if (!mediaPreflight.ok) {
+    console.error(`HyperFrames media preflight found ${mediaPreflight.unresolvedCount} unresolved cue(s) before packaging:`);
+    for (const issue of mediaPreflight.unresolved) {
+      console.error(JSON.stringify({
+        cueId: issue.cueId,
+        mediaId: issue.mediaId,
+        title: issue.title,
+        originalUri: issue.originalUri,
+        runtimeUri: issue.runtimeUri,
+        attemptedPaths: issue.attemptedPaths,
+        reason: issue.reason,
+      }));
+    }
+  }
+  if (!visualizerPreflight.ok) {
+    console.error(`HyperFrames visualizer preflight found ${visualizerPreflight.unresolvedCount} unresolved exact-proxy cue(s) before packaging:`);
+    for (const issue of visualizerPreflight.unresolved) {
+      console.error(JSON.stringify({
+        cueId: issue.cueId,
+        visualizerId: issue.visualizerId,
+        expectedSha256: issue.expectedSha256,
+        actualSha256: issue.actualSha256,
+        attemptedPaths: issue.attemptedPaths,
+        firstReadablePath: issue.firstReadablePath,
+        reason: issue.reason,
+      }));
+    }
+  }
+  const report = {
+    schemaVersion: "hapa.hyperframes.compiler-report.v3",
+    ok: false,
+    input: { graphPath, telemetryPath, projectPath, audioPath, proxyRegistryPath, requestedDuration },
+    output,
+    manifestPath,
+    preflightPath,
+    visualizerPreflightPath,
+    boundedDemo: { enabled: boundedDemo, sourceDurationSeconds: fullShow.duration, compiledDurationSeconds: show.duration },
+    deterministicHash: stableHash({ show, mediaPreflight, visualizerPreflight }),
+    inspect,
+    media: {
+      declared: show.instances.media.length,
+      generated: mediaPreflight.generatedCount,
+      compiled: 0,
+      audioCompiled: false,
+      audio: null,
+      offlineMissing,
+      preflight: mediaPreflight,
+    },
+    visualizers: {
+      declared: show.instances.visualizers.length,
+      exactProxy: show.instances.visualizers.filter((row) => row.execution.drawable).length,
+      unsupported: show.instances.visualizers.filter((row) => !row.execution.drawable).length,
+      compiledAssets: 0,
+      uniqueCompiledAssets: 0,
+      offlineMissing: visualizerPreflightMissing,
+      preflight: visualizerPreflight,
+      packagingFailures: [],
+      cueWindows: show.instances.visualizers.map((row) => ({ id: row.id, visualizerId: row.visualizerId, start: row.start, end: row.end, route: row.execution.route, pixelIdentitySeed: row.pixelIdentitySeed })),
+    },
+    runtime: { timeline: "not-packaged", visualizerScheduler: "not-packaged", networkDependencies: 0, lastRenderStateHook: null },
+    validation: {
+      lint: "pass",
+      inspect: inspect.ok ? "pass" : "fail",
+      cueCoverage: "pass",
+      mediaPreflight: mediaPreflight.ok ? "pass" : "fail",
+      mediaOffline: mediaPreflight.ok ? "pass" : "fail",
+      visualizerPreflight: visualizerPreflight.ok ? "pass" : "fail",
+      visualizerOffline: visualizerPreflight.ok ? "not-run" : "fail",
+      showcaseReady: false,
+    },
+  };
+  fs.writeFileSync(path.join(output, "compiler-report.json"), `${JSON.stringify(report, null, 2)}\n`);
+  console.log(JSON.stringify(report, null, 2));
+  throw new Error(`HyperFrames asset preflight failed for cue(s): ${[...offlineMissing, ...visualizerPreflightMissing].join(", ")}`);
+}
+
+for (const directory of ["assets/data", "assets/media", "assets/audio", "assets/visualizers", "assets/runtime"]) {
+  fs.mkdirSync(path.join(output, directory), { recursive: true });
+}
+const mediaResolutionByCueId = new Map(mediaPreflight.entries.map((row) => [row.cueId, row]));
 
 for (const instance of show.instances.media) {
   if (!instance.source.assetName) continue;
-  const source = firstFile(mediaSourceCandidates(instance));
+  const source = mediaResolutionByCueId.get(instance.cueId || instance.id)?.resolvedPath
+    || firstFile(hyperFramesMediaSourceCandidates(instance, { root: ROOT, projectPath }));
   const destination = path.join(output, "assets/media", instance.source.assetName);
   if (source && (!fs.existsSync(destination) || fileSha256(destination) !== fileSha256(source))) fs.copyFileSync(source, destination);
   instance.source.compiledUri = fs.existsSync(destination) ? `assets/media/${instance.source.assetName}` : null;
   instance.source.compiledSha256 = instance.source.compiledUri ? fileSha256(destination) : null;
 }
 
-const musicVizRoot = path.resolve(path.dirname(proxyRegistryPath), "../../..");
-function proxySourceCandidates(proxy = {}) {
-  const assetPath = String(proxy.assetPath || "");
-  return [
-    proxy.repositoryPath ? path.resolve(musicVizRoot, String(proxy.repositoryPath)) : "",
-    assetPath.startsWith("/static/") ? path.resolve(musicVizRoot, "web", assetPath.replace(/^\/static\//, "")) : "",
-    path.isAbsolute(assetPath) ? assetPath : path.resolve(path.dirname(proxyRegistryPath), assetPath),
-  ];
-}
-
 const copiedProxyByHash = new Map();
+const visualizerResolutionByCueId = new Map(visualizerPreflight.entries.map((row) => [row.cueId, row]));
+const visualizerPackagingFailures = [];
 for (const instance of show.instances.visualizers) {
   if (!instance.execution.drawable || !instance.proxy) continue;
-  const source = firstFile(proxySourceCandidates(instance.proxy));
-  if (!source || fileSha256(source) !== instance.proxy.assetSha256) {
-    instance.execution = { route: "unsupported", status: "unsupported", drawable: false, reason: source ? "exact-proxy-asset-hash-mismatch" : "exact-proxy-asset-unavailable", silentDefault: false };
+  const preflight = visualizerResolutionByCueId.get(instance.cueId || instance.id);
+  const source = preflight?.resolvedPath || firstFile(proxySourceCandidates(instance.proxy));
+  let failureReason = null;
+  let actualSha256 = null;
+  try {
+    actualSha256 = source && usableRegularFile(source) ? fileSha256(source) : null;
+    if (!source || !actualSha256) failureReason = "exact-proxy-asset-unavailable-during-packaging";
+    else if (actualSha256 !== instance.proxy.assetSha256) failureReason = "exact-proxy-asset-hash-mismatch-during-packaging";
+  } catch {
+    failureReason = "exact-proxy-asset-read-failed-during-packaging";
+  }
+  if (failureReason) {
+    visualizerPackagingFailures.push({
+      cueId: String(instance.cueId || instance.id || "") || null,
+      visualizerId: String(instance.visualizerId || "") || null,
+      expectedSha256: String(instance.proxy.assetSha256 || "") || null,
+      actualSha256,
+      attemptedPaths: preflight?.attemptedPaths || proxySourceCandidates(instance.proxy),
+      resolvedPath: source || null,
+      reason: failureReason,
+    });
+    instance.execution = { route: "unsupported", status: "unsupported", drawable: false, reason: failureReason, silentDefault: false };
     instance.rendererTruth = { ...instance.rendererTruth, status: "unsupported", readiness: "unavailable", route: "unsupported", reason: instance.execution.reason, fidelityLoss: ["requested-shader-not-presented"] };
     instance.proxy = null;
     continue;
@@ -104,7 +283,26 @@ for (const instance of show.instances.visualizers) {
   let compiledUri = copiedProxyByHash.get(instance.proxy.assetSha256);
   if (!compiledUri) {
     const destination = path.join(output, "assets/visualizers", instance.proxy.assetName);
-    if (!fs.existsSync(destination) || fileSha256(destination) !== instance.proxy.assetSha256) fs.copyFileSync(source, destination);
+    try {
+      if (!usableRegularFile(destination) || fileSha256(destination) !== instance.proxy.assetSha256) fs.copyFileSync(source, destination);
+      if (!usableRegularFile(destination) || fileSha256(destination) !== instance.proxy.assetSha256) throw new Error("packaged proxy hash mismatch");
+    } catch {
+      failureReason = "exact-proxy-asset-copy-failed-during-packaging";
+      visualizerPackagingFailures.push({
+        cueId: String(instance.cueId || instance.id || "") || null,
+        visualizerId: String(instance.visualizerId || "") || null,
+        expectedSha256: String(instance.proxy.assetSha256 || "") || null,
+        actualSha256: usableRegularFile(destination) ? fileSha256(destination) : null,
+        attemptedPaths: preflight?.attemptedPaths || proxySourceCandidates(instance.proxy),
+        resolvedPath: source || null,
+        destination,
+        reason: failureReason,
+      });
+      instance.execution = { route: "unsupported", status: "unsupported", drawable: false, reason: failureReason, silentDefault: false };
+      instance.rendererTruth = { ...instance.rendererTruth, status: "unsupported", readiness: "unavailable", route: "unsupported", reason: failureReason, fidelityLoss: ["requested-shader-not-presented"] };
+      instance.proxy = null;
+      continue;
+    }
     compiledUri = `assets/visualizers/${instance.proxy.assetName}`;
     copiedProxyByHash.set(instance.proxy.assetSha256, compiledUri);
   }
@@ -169,7 +367,6 @@ if (!fs.existsSync(pinnedTimelineSourcePath)) throw new Error(`Missing Hapa pinn
 const pinnedTimelineSource = fs.readFileSync(pinnedTimelineSourcePath, "utf8");
 fs.copyFileSync(pinnedTimelineSourcePath, path.join(output, "assets/runtime/pinned-timeline.js"));
 
-const manifestPath = path.join(output, "executable-show.json");
 fs.writeFileSync(manifestPath, `${JSON.stringify(show, null, 2)}\n`);
 fs.writeFileSync(path.join(output, "assets/data/show.js"), `window.HAPA_EXECUTABLE_SHOW=${JSON.stringify(show)};\n`);
 const designPath = "/Users/calderwong/Desktop/hapa-design-system/hyperframes/DESIGN.md";
@@ -216,9 +413,10 @@ function draw(t){mediaFrame(t);const state=evaluateHyperFramesVisualizers(S,t);X
 const timeline=new window.HapaPinnedTimeline(S.duration,draw);window.__timelines=window.__timelines||{};window.__timelines.main=timeline;const primeMedia=()=>{navigationReady=true};if(document.readyState==='complete')primeMedia();else window.addEventListener('load',primeMedia,{once:true});window.HAPA_ASSETS_READY=Promise.all([...proxyImages.values()].map(img=>img.decode?img.decode().catch(()=>{}):Promise.resolve())).then(()=>{const armed=navigationReady;navigationReady=false;timeline.seek(0).pause();timeline.flush();navigationReady=armed;return timeline});</script></body></html>`;
 fs.writeFileSync(path.join(output, "index.html"), html);
 
-const inspect = inspectHyperFramesShow(show);
-const offlineMissing = show.instances.media.filter((row) => row.source.type !== "generated-visualizer" && !row.source.compiledUri).map((row) => row.id);
-const visualizerOfflineMissing = show.instances.visualizers.filter((row) => row.execution.drawable && !row.proxy?.compiledUri).map((row) => row.id);
+const packagedVisualizerCueIds = new Set(show.instances.visualizers.filter((row) => row.proxy?.compiledUri).map((row) => row.cueId || row.id));
+const visualizerOfflineMissing = visualizerPreflight.entries
+  .filter((row) => row.required && !packagedVisualizerCueIds.has(row.cueId))
+  .map((row) => row.cueId);
 const sourceAudit = `${html}\n${JSON.stringify(show)}\n${pinnedTimelineSource}\n${fs.readFileSync(runtimeSourcePath, "utf8")}`;
 const networkReferences = sourceAudit.match(/https?:\/\//g) || [];
 const report = {
@@ -227,6 +425,8 @@ const report = {
   input: { graphPath, telemetryPath, projectPath, audioPath, proxyRegistryPath, requestedDuration },
   output,
   manifestPath,
+  preflightPath,
+  visualizerPreflightPath,
   boundedDemo: { enabled: boundedDemo, sourceDurationSeconds: fullShow.duration, compiledDurationSeconds: show.duration },
   deterministicHash: sha256(sourceAudit),
   inspect,
@@ -244,17 +444,21 @@ const report = {
       compiledSha256: compiledAudio.sha256,
     } : null,
     offlineMissing,
+    preflight: mediaPreflight,
   },
   visualizers: {
     declared: show.instances.visualizers.length,
     exactProxy: show.instances.visualizers.filter((row) => row.execution.drawable).length,
     unsupported: show.instances.visualizers.filter((row) => !row.execution.drawable).length,
-    compiledAssets: copiedProxyByHash.size,
+    compiledAssets: packagedVisualizerCueIds.size,
+    uniqueCompiledAssets: copiedProxyByHash.size,
     offlineMissing: visualizerOfflineMissing,
+    preflight: visualizerPreflight,
+    packagingFailures: visualizerPackagingFailures,
     cueWindows: show.instances.visualizers.map((row) => ({ id: row.id, visualizerId: row.visualizerId, start: row.start, end: row.end, route: row.execution.route, pixelIdentitySeed: row.pixelIdentitySeed })),
   },
   runtime: { timeline: "local-hapa-pinned-timeline", visualizerScheduler: "hyperframes-visualizer-runtime", networkDependencies: networkReferences.length, lastRenderStateHook: "window.HAPA_LAST_RENDER_STATE" },
-  validation: { lint: "pass", inspect: inspect.ok ? "pass" : "fail", cueCoverage: "pass", mediaOffline: offlineMissing.length ? "fail" : "pass", visualizerOffline: visualizerOfflineMissing.length ? "fail" : "pass", showcaseReady: inspect.ok && !offlineMissing.length && !visualizerOfflineMissing.length },
+  validation: { lint: "pass", inspect: inspect.ok ? "pass" : "fail", cueCoverage: "pass", mediaPreflight: mediaPreflight.ok ? "pass" : "fail", mediaOffline: offlineMissing.length ? "fail" : "pass", visualizerPreflight: visualizerPreflight.ok ? "pass" : "fail", visualizerOffline: visualizerOfflineMissing.length ? "fail" : "pass", showcaseReady: inspect.ok && !offlineMissing.length && !visualizerOfflineMissing.length },
 };
 fs.writeFileSync(path.join(output, "compiler-report.json"), `${JSON.stringify(report, null, 2)}\n`);
 console.log(JSON.stringify(report, null, 2));

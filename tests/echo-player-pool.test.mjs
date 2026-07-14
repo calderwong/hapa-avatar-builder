@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   ECHO_PLAYER_POOL_LIMIT,
   canonicalEchoAssetKey,
+  echoShotRuntimeUri,
   planEchoPlayerLeases,
   reconcileEchoPlayerSlots,
 } from "../src/domain/echo-player-pool.js";
@@ -39,4 +40,22 @@ test("Echo pool reuses the staged next shot without starting another request", (
   const plan = reconcileEchoPlayerSlots(slots, leases, 1);
   assert.equal(plan.assignments[0].slotIndex, 1);
   assert.equal(plan.assignments[0].reused, true);
+});
+
+test("Echo leases preload the verified runtime contract and skip intentional visualizer blanks", () => {
+  const leases = planEchoPlayerLeases({ timeline: [{
+    start_sec: 0,
+    end_sec: 4,
+    media_id: "scroll-source",
+    media_uri: "/media/scroll-source-a.mp4",
+    media_contract: { type: "video", runtimeUri: "/media/scroll-runtime-b.mp4" },
+  }, {
+    start_sec: 4,
+    end_sec: 8,
+    media_id: "none",
+    media_uri: "",
+    media_contract: { type: "generated-visualizer", runtimeUri: "" },
+  }] }, 0);
+  assert.equal(echoShotRuntimeUri({ media_id: "none", media_contract: { type: "generated-visualizer" } }), "");
+  assert.deepEqual(leases.map(({ uri }) => uri), ["/media/scroll-runtime-b.mp4"]);
 });

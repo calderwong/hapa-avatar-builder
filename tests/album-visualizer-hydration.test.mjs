@@ -1,13 +1,16 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import crypto from "node:crypto";
 import { spawnSync } from "node:child_process";
 
-test("album Director v2 hydration covers every Echo project with executable visualizer cards", () => {
-  const file = "./artifacts/echo-director-v2/album/album-hydration-report.json";
-  const compiled = spawnSync(process.execPath, ["scripts/compile-echo-director-v2-album.mjs"], {
+test("album Director v2 hydration covers every Echo project with executable visualizer cards", (t) => {
+  const output = fs.mkdtempSync(path.join(os.tmpdir(), "hapa-album-hydration-test-"));
+  t.after(() => fs.rmSync(output, { recursive: true, force: true }));
+  const file = path.join(output, "album-hydration-report.json");
+  const compiled = spawnSync(process.execPath, ["scripts/compile-echo-director-v2-album.mjs", "--output", output], {
     cwd: process.cwd(),
     encoding: "utf8",
   });
@@ -18,6 +21,16 @@ test("album Director v2 hydration covers every Echo project with executable visu
   assert.equal(report.projectCount, 79);
   assert.equal(report.passingProjects, 79);
   assert.equal(report.ok, true);
+  assert.deepEqual(report.mediaPreflight, {
+    schemaVersion: "hapa.echo.director-media-preflight.v1",
+    ok: true,
+    projectCount: 79,
+    cutCount: 477,
+    declaredCount: 27001,
+    generatedCount: 6869,
+    resolvedCount: 20132,
+    unresolvedCount: 0,
+  });
   assert.equal(report.sourceCueCount, 791);
   assert.equal(report.validClippedCueCount, 791);
   assert.equal(report.receiptCount, 791);
@@ -56,7 +69,7 @@ test("album Director v2 hydration covers every Echo project with executable visu
   assert.ok(report.projects.every((project) => project.nativeRouteCounts.invalid === 0 && project.nativeRouteCounts.intentKeys === 0 && project.nativeRouteCounts.silentDefaults === 0));
   assert.ok(report.projects.every((project) => project.nativeRouteErrors.length === 0 && project.nativeIntentKeyCount === 0));
 
-  const routeFile = "./artifacts/echo-director-v2/album/native-shader-route-report.json";
+  const routeFile = path.join(output, "native-shader-route-report.json");
   assert.equal(fs.existsSync(routeFile), true, "native shader route report must be freshly compiled");
   const routes = JSON.parse(fs.readFileSync(routeFile, "utf8"));
   assert.equal(routes.schemaVersion, "hapa.echo.album-native-shader-route-report.v1");
