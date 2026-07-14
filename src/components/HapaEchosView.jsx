@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   Clapperboard,
   Film,
@@ -61,6 +62,13 @@ const API_BASE = electronApiBase || (globalThis.location?.port === "5178" ? "htt
 const songRegistryApiBase = globalThis.window?.hapaAvatarBuilder?.songRegistryApiBase;
 const SONG_REGISTRY_API_BASE = songRegistryApiBase || "http://127.0.0.1:8798";
 const ECHO_SAVE_TIMEOUT_MS = 30_000;
+const ECHO_EXPANDED_PREVIEW_WIDTH = "min(calc(100vw - 32px), calc(177.7778vh - 384px))";
+const ECHO_EXPANDED_PREVIEW_MAX_HEIGHT = "calc(100vh - 216px)";
+
+function directorPreviewIsFullscreen(documentRef, previewSurface) {
+  const fullscreenElement = documentRef?.fullscreenElement || documentRef?.webkitFullscreenElement || null;
+  return Boolean(fullscreenElement && previewSurface && fullscreenElement === previewSurface);
+}
 
 async function saveEchoProjectRequest(url, options = {}) {
   const controller = new AbortController();
@@ -1235,6 +1243,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
   const [previewPreparation, setPreviewPreparation] = useState({ status: "idle" });
   const directorPreviewFullscreenRef = useRef(null);
   const directorPreviewFullscreenActiveRef = useRef(false);
+  const [directorPreviewExpanded, setDirectorPreviewExpanded] = useState(false);
   const [directorPreviewFullscreen, setDirectorPreviewFullscreen] = useState(false);
   const [directorPreviewFullscreenMessage, setDirectorPreviewFullscreenMessage] = useState("");
   const canvasRef = useRef(null);
@@ -1256,11 +1265,44 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
   const [audioBlobUrl, setAudioBlobUrl] = useState("");
   const [audioLoading, setAudioLoading] = useState(false);
 
+  const closeDirectorPreviewExpanded = useCallback(async () => {
+    const documentRef = globalThis.document;
+    const previewSurface = directorPreviewFullscreenRef.current;
+    if (directorPreviewIsFullscreen(documentRef, previewSurface)) {
+      const exitFullscreen = documentRef.exitFullscreen || documentRef.webkitExitFullscreen;
+      if (typeof exitFullscreen !== "function") {
+        setDirectorPreviewFullscreenMessage("Use Escape to leave native Full Screen before closing the large Preview.");
+        return;
+      }
+      try {
+        await Promise.resolve(exitFullscreen.call(documentRef));
+      } catch (error) {
+        setDirectorPreviewFullscreenMessage(`Could not leave native Full Screen: ${error?.message || "the window denied the request"}.`);
+        return;
+      }
+    }
+    setDirectorPreviewExpanded(false);
+    setDirectorPreviewFullscreenMessage("");
+  }, []);
+
+  const toggleDirectorPreviewExpanded = useCallback(() => {
+    if (directorPreviewExpanded) {
+      void closeDirectorPreviewExpanded();
+      return;
+    }
+    setDirectorPreviewFullscreenMessage("");
+    setDirectorPreviewExpanded(true);
+  }, [closeDirectorPreviewExpanded, directorPreviewExpanded]);
+
   const toggleDirectorPreviewFullscreen = useCallback(async () => {
     const documentRef = globalThis.document;
     const previewSurface = directorPreviewFullscreenRef.current;
     if (!documentRef || !previewSurface) {
       setDirectorPreviewFullscreenMessage("Full Screen is not available until the Preview is open.");
+      return;
+    }
+    if (!directorPreviewExpanded) {
+      setDirectorPreviewFullscreenMessage("Expand Preview before requesting native Full Screen.");
       return;
     }
 
@@ -1294,19 +1336,20 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
     } catch (error) {
       setDirectorPreviewFullscreenMessage(`Full Screen could not start: ${error?.message || "the window denied the request"}.`);
     }
-  }, []);
+  }, [directorPreviewExpanded]);
 
   useEffect(() => {
     const documentRef = globalThis.document;
     if (!documentRef?.addEventListener) return undefined;
 
     const syncDirectorPreviewFullscreen = () => {
-      const fullscreenElement = documentRef.fullscreenElement || documentRef.webkitFullscreenElement || null;
-      const previewIsFullscreen = fullscreenElement === directorPreviewFullscreenRef.current;
+      const previewSurface = directorPreviewFullscreenRef.current;
+      const previewIsFullscreen = directorPreviewIsFullscreen(documentRef, previewSurface);
       const previewWasFullscreen = directorPreviewFullscreenActiveRef.current;
       directorPreviewFullscreenActiveRef.current = previewIsFullscreen;
       setDirectorPreviewFullscreen(previewIsFullscreen);
       if (previewIsFullscreen) {
+        setDirectorPreviewExpanded(true);
         setDirectorPreviewFullscreenMessage("Full-screen Preview active. Press Escape or choose Exit Full Screen to return.");
       } else if (previewWasFullscreen) {
         setDirectorPreviewFullscreenMessage("Exited full-screen Preview.");
@@ -1315,7 +1358,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
     const reportDirectorPreviewFullscreenError = () => {
       directorPreviewFullscreenActiveRef.current = false;
       setDirectorPreviewFullscreen(false);
-      setDirectorPreviewFullscreenMessage("Full Screen was blocked by this window. You can keep using the inline Preview.");
+      setDirectorPreviewFullscreenMessage("Native Full Screen was blocked by this window. Expanded Preview stays open.");
     };
 
     documentRef.addEventListener("fullscreenchange", syncDirectorPreviewFullscreen);
@@ -1330,6 +1373,26 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
       documentRef.removeEventListener("webkitfullscreenerror", reportDirectorPreviewFullscreenError);
     };
   }, []);
+
+  useEffect(() => {
+    if (!directorPreviewExpanded) return undefined;
+    const documentRef = globalThis.document;
+    if (!documentRef?.addEventListener) return undefined;
+    const body = documentRef.body;
+    const previousBodyOverflow = body?.style?.overflow || "";
+    if (body?.style) body.style.overflow = "hidden";
+    const closeExpandedPreviewOnEscape = (event) => {
+      if (event.key === "Escape" && !directorPreviewFullscreenActiveRef.current) {
+        setDirectorPreviewExpanded(false);
+        setDirectorPreviewFullscreenMessage("");
+      }
+    };
+    documentRef.addEventListener("keydown", closeExpandedPreviewOnEscape);
+    return () => {
+      documentRef.removeEventListener("keydown", closeExpandedPreviewOnEscape);
+      if (body?.style) body.style.overflow = previousBodyOverflow;
+    };
+  }, [directorPreviewExpanded]);
 
   const activeDirectorProject = useMemo(() => (
     directorProjects.find(p => p.music_video_project.song_id === selectedProjectSongId) || directorProjects[0] || null
@@ -4236,7 +4299,16 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                         })()}
 
                         {/* Split Layout: Player Screen + Shot Inspector */}
-                        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(620px, 1.05fr) minmax(560px, 0.95fr)', gap: '15px', flexShrink: 0 }}>
+                        <div
+                          data-testid="echo-director-authoring-split"
+                          style={{
+                            display: 'grid',
+                            gridTemplateColumns: 'repeat(auto-fit, minmax(min(560px, 100%), 1fr))',
+                            gap: '15px',
+                            flexShrink: 0,
+                            minWidth: 0
+                          }}
+                        >
                           
                           {/* Left Panel: Previewer Tab Window */}
                           <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
@@ -4284,30 +4356,119 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                               />
                             )}
 
-                            {activeWorkbenchTab === "preview" && (
+                            {activeWorkbenchTab === "preview" && (() => {
+                              const previewSurface = (
                               <div
                                 ref={directorPreviewFullscreenRef}
-                                role="region"
+                                role={directorPreviewExpanded ? "dialog" : "region"}
+                                aria-modal={directorPreviewExpanded ? "true" : undefined}
                                 aria-label="Director Preview playback"
                                 data-testid="echo-director-preview-surface"
+                                data-expanded={directorPreviewExpanded ? "true" : "false"}
                                 data-fullscreen={directorPreviewFullscreen ? "true" : "false"}
                                 style={{
                                   display: 'flex',
                                   flexDirection: 'column',
                                   gap: '10px',
-                                  ...(directorPreviewFullscreen ? {
-                                    width: '100%',
-                                    height: '100%',
+                                  width: directorPreviewExpanded ? 'auto' : '100%',
+                                  minWidth: 0,
+                                  ...(directorPreviewExpanded ? {
+                                    position: 'fixed',
+                                    inset: 0,
+                                    zIndex: 2147483000,
+                                    height: '100vh',
                                     boxSizing: 'border-box',
-                                    padding: '14px',
-                                    overflowY: 'auto',
-                                    background: '#020617',
-                                    justifyContent: 'center'
-                                  } : {})
+                                    padding: '14px 16px 16px',
+                                    overflow: 'auto',
+                                    overscrollBehavior: 'contain',
+                                    background: 'radial-gradient(circle at top, #101b32 0%, #020617 58%)',
+                                    border: '1px solid rgba(34, 211, 238, 0.28)',
+                                    boxShadow: '0 24px 80px rgba(0,0,0,0.82)',
+                                    isolation: 'isolate',
+                                    alignItems: 'center',
+                                    justifyContent: 'flex-start'
+                                  } : {
+                                    position: 'relative'
+                                  })
                                 }}
                               >
+                                {directorPreviewExpanded && (
+                                  <div
+                                    data-testid="echo-director-preview-expanded-header"
+                                    style={{
+                                      width: ECHO_EXPANDED_PREVIEW_WIDTH,
+                                      maxWidth: '100%',
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      justifyContent: 'space-between',
+                                      gap: '12px',
+                                      flexWrap: 'wrap',
+                                      flexShrink: 0,
+                                      color: '#dbeafe',
+                                      fontFamily: 'monospace'
+                                    }}
+                                  >
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                                      <strong style={{ color: 'var(--hapa-neon-cyan)', fontSize: '11px', letterSpacing: '0.08em' }}>EXPANDED PREVIEW</strong>
+                                      <span style={{ color: '#94a3b8', fontSize: '9px' }}>Complete 16:9 frame and playback controls</span>
+                                    </div>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                                      <button
+                                        type="button"
+                                        data-testid="echo-director-preview-fullscreen"
+                                        onClick={toggleDirectorPreviewFullscreen}
+                                        aria-pressed={directorPreviewFullscreen}
+                                        aria-label={directorPreviewFullscreen ? "Exit Director Preview full screen" : "Open Director Preview full screen"}
+                                        title={directorPreviewFullscreen ? "Exit native Full Screen (Escape also works)" : "Use native Full Screen"}
+                                        style={{
+                                          display: 'inline-flex',
+                                          alignItems: 'center',
+                                          justifyContent: 'center',
+                                          gap: '5px',
+                                          flexShrink: 0,
+                                          padding: '6px 10px',
+                                          borderRadius: '4px',
+                                          border: '1px solid rgba(34, 211, 238, 0.55)',
+                                          background: directorPreviewFullscreen ? 'rgba(34, 211, 238, 0.18)' : 'rgba(34, 211, 238, 0.08)',
+                                          color: 'var(--hapa-neon-cyan)',
+                                          fontSize: '9px',
+                                          fontWeight: 'bold',
+                                          cursor: 'pointer'
+                                        }}
+                                      >
+                                        {directorPreviewFullscreen ? <Minimize2 size={13} aria-hidden="true" /> : <Maximize2 size={13} aria-hidden="true" />}
+                                        {directorPreviewFullscreen ? "Exit Full Screen" : "Full Screen"}
+                                      </button>
+                                      <button
+                                        type="button"
+                                        data-testid="echo-director-preview-close-expanded"
+                                        onClick={() => { void closeDirectorPreviewExpanded(); }}
+                                        aria-label="Close expanded Director Preview"
+                                        title="Return to compact Preview (Escape)"
+                                        style={{
+                                          display: 'inline-flex',
+                                          alignItems: 'center',
+                                          justifyContent: 'center',
+                                          gap: '5px',
+                                          flexShrink: 0,
+                                          padding: '6px 10px',
+                                          borderRadius: '4px',
+                                          border: '1px solid rgba(255,255,255,0.25)',
+                                          background: 'rgba(255,255,255,0.07)',
+                                          color: '#f8fafc',
+                                          fontSize: '9px',
+                                          fontWeight: 'bold',
+                                          cursor: 'pointer'
+                                        }}
+                                      >
+                                        <Minimize2 size={13} aria-hidden="true" />
+                                        Compact View
+                                      </button>
+                                    </div>
+                                  </div>
+                                )}
                                 {/* Composition Preview Screen */}
-                                <div className="media-preview-container" data-export-aspect="1920x1080" style={{ position: 'relative', width: directorPreviewFullscreen ? 'min(calc(177.7778vh - 220.4445px), calc(100vw - 28px))' : '100%', height: directorPreviewFullscreen ? 'min(calc(100vh - 124px), calc(56.25vw - 15.75px))' : 'auto', boxSizing: 'border-box', alignSelf: directorPreviewFullscreen ? 'center' : 'stretch', aspectRatio: '16 / 9', minHeight: directorPreviewFullscreen ? 0 : '280px', maxHeight: directorPreviewFullscreen ? 'none' : 'min(56vh, 560px)', flexShrink: 0, borderRadius: '6px', overflow: 'hidden', border: '1px solid rgba(255,255,255,0.12)', background: '#020617', boxShadow: '0 4px 20px rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                <div className="media-preview-container" data-testid="echo-director-preview-frame" data-export-aspect="1920x1080" style={{ position: 'relative', width: directorPreviewExpanded ? ECHO_EXPANDED_PREVIEW_WIDTH : '100%', height: 'auto', boxSizing: 'border-box', alignSelf: directorPreviewExpanded ? 'center' : 'stretch', aspectRatio: '16 / 9', minHeight: directorPreviewExpanded ? 0 : '280px', maxWidth: '100%', maxHeight: directorPreviewExpanded ? ECHO_EXPANDED_PREVIEW_MAX_HEIGHT : 'min(56vh, 560px)', flexShrink: 0, borderRadius: '6px', overflow: 'hidden', border: '1px solid rgba(255,255,255,0.12)', background: '#020617', boxShadow: '0 4px 20px rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                                   
                                   {currentTimelineItem && shotMediaType(currentTimelineItem) === "video" && (
                                     <PersistentEchoABPlayers
@@ -4703,7 +4864,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                                 </div>
 
                                 {/* Player Controls */}
-                                <div style={{ display: 'flex', gap: '12px', alignItems: 'center', alignSelf: directorPreviewFullscreen ? 'center' : 'stretch', width: directorPreviewFullscreen ? 'min(calc(177.7778vh - 220.4445px), calc(100vw - 28px))' : 'auto', boxSizing: 'border-box', background: 'rgba(0,0,0,0.2)', padding: '8px 12px', borderRadius: '4px', border: '1px solid rgba(255,255,255,0.06)' }}>
+                                <div data-testid="echo-director-preview-controls" style={{ display: 'flex', gap: '12px', rowGap: '8px', alignItems: 'center', alignSelf: directorPreviewExpanded ? 'center' : 'stretch', width: directorPreviewExpanded ? ECHO_EXPANDED_PREVIEW_WIDTH : 'auto', maxWidth: '100%', flexWrap: 'wrap', flexShrink: 0, boxSizing: 'border-box', background: 'rgba(0,0,0,0.2)', padding: '8px 12px', borderRadius: '4px', border: '1px solid rgba(255,255,255,0.06)' }}>
                                   <button 
                                     type="button"
                                     onClick={handlePlayPause}
@@ -4741,7 +4902,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                                     step="0.1" 
                                     value={currentTime} 
                                     onChange={handleScrub} 
-                                    style={{ flex: 1, height: '4px', accentColor: 'var(--hapa-neon-cyan)', cursor: 'pointer' }}
+                                    style={{ flex: directorPreviewExpanded ? '1 1 260px' : 1, minWidth: directorPreviewExpanded ? '180px' : 0, height: '4px', accentColor: 'var(--hapa-neon-cyan)', cursor: 'pointer' }}
                                   />
 
                                   <span style={{ fontFamily: 'monospace', fontSize: '10px', color: '#ccc', flexShrink: 0 }}>
@@ -4790,41 +4951,44 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                                     />
                                   </div>
 
-                                  <button
-                                    type="button"
-                                    data-testid="echo-director-preview-fullscreen"
-                                    onClick={toggleDirectorPreviewFullscreen}
-                                    aria-pressed={directorPreviewFullscreen}
-                                    aria-label={directorPreviewFullscreen ? "Exit Director Preview full screen" : "Open Director Preview full screen"}
-                                    title={directorPreviewFullscreen ? "Exit Full Screen (Escape also works)" : "Open Preview in Full Screen"}
-                                    style={{
-                                      display: 'inline-flex',
-                                      alignItems: 'center',
-                                      justifyContent: 'center',
-                                      gap: '5px',
-                                      flexShrink: 0,
-                                      padding: '5px 9px',
-                                      borderRadius: '4px',
-                                      border: '1px solid rgba(34, 211, 238, 0.65)',
-                                      background: directorPreviewFullscreen ? 'rgba(34, 211, 238, 0.18)' : 'rgba(34, 211, 238, 0.08)',
-                                      color: 'var(--hapa-neon-cyan)',
-                                      fontSize: '9px',
-                                      fontWeight: 'bold',
-                                      cursor: 'pointer'
-                                    }}
-                                  >
-                                    {directorPreviewFullscreen ? <Minimize2 size={13} aria-hidden="true" /> : <Maximize2 size={13} aria-hidden="true" />}
-                                    {directorPreviewFullscreen ? "Exit Full Screen" : "Full Screen"}
-                                  </button>
+                                  {!directorPreviewExpanded && (
+                                    <button
+                                      type="button"
+                                      data-testid="echo-director-preview-expand"
+                                      onClick={toggleDirectorPreviewExpanded}
+                                      aria-expanded={directorPreviewExpanded}
+                                      aria-label="Open larger Director Preview"
+                                      title="Expand Preview inside the app"
+                                      style={{
+                                        display: 'inline-flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        gap: '5px',
+                                        flexShrink: 0,
+                                        padding: '5px 9px',
+                                        borderRadius: '4px',
+                                        border: '1px solid rgba(34, 211, 238, 0.65)',
+                                        background: 'rgba(34, 211, 238, 0.08)',
+                                        color: 'var(--hapa-neon-cyan)',
+                                        fontSize: '9px',
+                                        fontWeight: 'bold',
+                                        cursor: 'pointer'
+                                      }}
+                                    >
+                                      <Maximize2 size={13} aria-hidden="true" />
+                                      Expand Preview
+                                    </button>
+                                  )}
                                 </div>
 
-                                {directorPreviewFullscreenMessage && (
+                                {directorPreviewExpanded && directorPreviewFullscreenMessage && (
                                   <div
                                     role="status"
                                     aria-live="polite"
                                     data-testid="echo-director-preview-fullscreen-status"
                                     style={{
-                                      alignSelf: directorPreviewFullscreen ? 'center' : 'flex-end',
+                                      alignSelf: 'center',
+                                      width: ECHO_EXPANDED_PREVIEW_WIDTH,
                                       maxWidth: '100%',
                                       color: directorPreviewFullscreenMessage.includes("not ") || directorPreviewFullscreenMessage.includes("could not") || directorPreviewFullscreenMessage.includes("blocked") ? 'var(--hapa-neon-gold)' : 'var(--hapa-neon-cyan)',
                                       fontFamily: 'monospace',
@@ -4836,8 +5000,8 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                                   </div>
                                 )}
 
-                                {/* Keep authoring diagnostics below the inline Preview; Full Screen reserves its footer for transport. */}
-                                {!directorPreviewFullscreen && (
+                                {/* Keep authoring diagnostics below the compact Preview; the large view reserves space for the complete frame and transport. */}
+                                {!directorPreviewExpanded && (
                                   <div style={{ fontSize: '8px', fontFamily: 'monospace', color: 'rgba(255, 255, 255, 0.4)', marginTop: '4px', borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: '4px', display: 'flex', gap: '8px', alignItems: 'center' }}>
                                     <span style={{ color: 'var(--hapa-neon-gold)', fontWeight: 'bold' }}>AUDIO TELEMETRY:</span>
                                     <span style={{ color: audioDiagnostics.includes("Error") || audioDiagnostics.includes("failed") ? 'var(--hapa-neon-red)' : 'var(--hapa-neon-cyan)' }}>{audioDiagnostics}</span>
@@ -4845,7 +5009,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                                 )}
 
                                 {/* Current Playback Shot Detail Card */}
-                                {currentTimelineItem && !directorPreviewFullscreen && (
+                                {currentTimelineItem && !directorPreviewExpanded && (
                                   <div style={{ background: 'rgba(0,0,0,0.15)', border: '1px solid rgba(255,255,255,0.05)', borderRadius: '4px', padding: '8px 10px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
                                     <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                                       <span style={{ fontSize: '10px', fontWeight: 'bold', color: 'var(--hapa-neon-cyan)' }}>
@@ -4858,7 +5022,11 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                                   </div>
                                 )}
                               </div>
-                            )}
+                              );
+                              return directorPreviewExpanded && globalThis.document?.body
+                                ? createPortal(previewSurface, globalThis.document.body)
+                                : previewSurface;
+                            })()}
 
                             {activeWorkbenchTab === "script" && (
                               <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
