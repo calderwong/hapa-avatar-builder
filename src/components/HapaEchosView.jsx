@@ -3,6 +3,8 @@ import {
   Clapperboard,
   Film,
   KanbanSquare,
+  Maximize2,
+  Minimize2,
   Music,
   Search,
   Volume2,
@@ -11,6 +13,11 @@ import {
 } from "lucide-react";
 import { normalizePlaybackPowerMode } from "../domain/playback-power-mode.js";
 import { mapEchoSourceTime, planEchoPlaybackCorrection } from "../domain/echo-playback-sync.js";
+import {
+  echoVisualizerAudioEnvelope,
+  normalizeEchoStemFocus,
+  resolveVerifiedEchoStemBinding,
+} from "../domain/echo-visualizer-audio-envelope.js";
 import { createEchoPlaybackEngine } from "../domain/echo-playback-engine.js";
 import {
   createEchoIsfSurface,
@@ -131,6 +138,45 @@ function shotMediaType(shot) {
 
 function shotRuntimeUri(shot) {
   return shot?.media_contract?.runtimeUri || shot?.runtime_media_uri || shot?.media_uri || "";
+}
+
+function isPresentedEchoVideoElement(element, expectedSourceKey = "") {
+  return Boolean(
+    element
+    && element.dataset?.echoPlayer === "current"
+    && element.dataset?.framePresented === "true"
+    && (!expectedSourceKey || element.dataset?.echoSourceKey === expectedSourceKey)
+    && Number(element.readyState || 0) >= 2
+    && Number(element.videoWidth || 0) > 0
+    && !element.seeking
+    && !element.error
+  );
+}
+
+function resolvePresentedEchoMediaBinding(surface, shot, callbackBinding = null) {
+  const mediaId = String(shot?.media_id || "");
+  const uri = resolveMediaUri(shotRuntimeUri(shot));
+  const sourceKey = `${mediaId}:${uri}`;
+  const callbackMatches = callbackBinding?.presented
+    && callbackBinding.element
+    && callbackBinding.mediaId === mediaId
+    && callbackBinding.uri === uri;
+  if (callbackMatches && (
+    callbackBinding.kind !== "video"
+    || isPresentedEchoVideoElement(callbackBinding.element, sourceKey)
+  )) return callbackBinding;
+
+  const element = surface?.querySelector?.('video[data-echo-player="current"][data-frame-presented="true"]');
+  if (!isPresentedEchoVideoElement(element, sourceKey)) return null;
+  return {
+    element,
+    kind: "video",
+    mediaId,
+    uri,
+    sourceKey,
+    presented: true,
+    recoveredFrom: "current-dom-player"
+  };
 }
 
 function toneToIntent(tone) {
@@ -532,6 +578,7 @@ function PersistentEchoABPlayers({ shot, lookaheadShots = [], playing, songTime,
           key={`persistent-echo-player-${index}`}
           ref={playerRefs[index]}
           muted
+          crossOrigin="anonymous"
           loop
           playsInline
           preload="auto"
@@ -557,7 +604,7 @@ function PresentedEchoImage({ shot, style, onPresentedMediaChange }) {
   useEffect(() => () => {
     onPresentedMediaChange?.({ element: null, kind: "image", mediaId, uri, sourceKey, presented: false, reason: "binding-released" });
   }, [mediaId, uri, sourceKey, onPresentedMediaChange]);
-  return <img ref={imageRef} src={uri} alt={shot?.media_title || "Echo still"} onLoad={publish} onError={publish} style={style} />;
+  return <img ref={imageRef} src={uri} crossOrigin="anonymous" alt={shot?.media_title || "Echo still"} onLoad={publish} onError={publish} style={style} />;
 }
 
 const CAMERA_MOTION_OPTIONS = [
@@ -986,35 +1033,11 @@ function drawExactIsfDiagnostic(ctx, width, height, { status = "loading", source
 }
 
 function normalizedStemFocus(value = "") {
-  const normalized = String(value || "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "");
-  return normalized === "leadvocals" ? "vocals" : normalized;
-}
-
-function requestedStemFocus(card = null) {
-  return String(card?.visualization?.card?.stemFocus || card?.provenance?.stemFocus || "master").trim() || "master";
+  return normalizeEchoStemFocus(value);
 }
 
 function verifiedStemBinding(showGraph = null, card = null) {
-  const requested = requestedStemFocus(card);
-  const requestedKey = normalizedStemFocus(requested);
-  if (!requestedKey || ["master", "mix", "mastermix"].includes(requestedKey)) {
-    return { requested, requestedKey: "master", status: "master", bus: null, fallbackReason: "" };
-  }
-  if (showGraph?.stems?.nativeStatus !== "verified-local-registry-paths") {
-    return { requested, requestedKey, status: "master-fallback", bus: null, fallbackReason: "graph-stems-not-verified" };
-  }
-  const buses = Array.isArray(showGraph?.directorV2?.stemBuses) ? showGraph.directorV2.stemBuses : [];
-  const bus = buses.find((candidate) => [candidate?.id?.replace(/^bus:/i, ""), candidate?.stemId, candidate?.stemType]
-    .some((value) => normalizedStemFocus(value) === requestedKey));
-  if (!bus) return { requested, requestedKey, status: "master-fallback", bus: null, fallbackReason: "requested-stem-not-found" };
-  const registryStem = (showGraph?.stems?.items || []).find((candidate) => (
-    String(candidate?.id || "") === String(bus.stemId || "")
-    && String(candidate?.audioPath || "") === String(bus.audioPath || "")
-  ));
-  if (bus.truthStatus !== "verified_registry_path" || !bus.audioPath || !registryStem) {
-    return { requested, requestedKey, status: "master-fallback", bus: null, fallbackReason: "requested-stem-path-unverified" };
-  }
-  return { requested, requestedKey, status: "verified-stem", bus, fallbackReason: "" };
+  return resolveVerifiedEchoStemBinding(showGraph, card);
 }
 
 function analyserBandAverage(fftData, from, to) {
@@ -1127,7 +1150,36 @@ function compactStemBinding(resource = null) {
     stemId: resource.status === "ready" ? resource.bus?.stemId || "" : "",
     busId: resource.status === "ready" ? resource.bus?.id || "" : "",
     truthStatus: resource.status === "ready" ? resource.bus?.truthStatus || "" : "master-live-analyser",
-    fallbackReason: resource.fallbackReason || ""
+    fallbackReason: resource.fallbackReason || resource.playbackError || "",
+    playbackBlocked: resource.playbackBlocked === true,
+    contextState: resource.context?.state || "",
+    mediaPaused: resource.element ? resource.element.paused === true : null,
+    mediaReadyState: Number(resource.element?.readyState || 0),
+    mediaCurrentTime: Number(resource.element?.currentTime || 0)
+  };
+}
+
+function echoStemTransportHealth(resource = null, playing = false) {
+  if (!resource || resource.status !== "ready" || !resource.analyser) {
+    return { usable: false, reason: resource?.fallbackReason || resource?.status || "stem-not-ready" };
+  }
+  if (resource.playbackBlocked) return { usable: false, reason: resource.playbackError || "stem-decoder-playback-blocked" };
+  if (resource.context?.state !== "running") return { usable: false, reason: `stem-audio-context-${resource.context?.state || "unavailable"}` };
+  if (playing && resource.element?.paused) return { usable: false, reason: "stem-decoder-paused-during-playback" };
+  return { usable: true, reason: "" };
+}
+
+function compactStemSignalBinding(resource = null, transport = { usable: false, reason: "" }) {
+  const binding = compactStemBinding(resource);
+  if (!binding || resource?.status !== "ready" || transport.usable) return binding;
+  return {
+    ...binding,
+    status: "master-fallback",
+    resolvedStem: "master",
+    stemId: "",
+    busId: "",
+    truthStatus: "master-live-analyser",
+    fallbackReason: transport.reason || binding.fallbackReason || "stem-transport-unavailable"
   };
 }
 
@@ -1172,6 +1224,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
   const [planning, setPlanning] = useState(false);
   const [activeWorkbenchTab, setActiveWorkbenchTab] = useState("preview");
   const [isPlaying, setIsPlaying] = useState(false);
+  const isPlayingRef = useRef(false);
   const [currentTime, setCurrentTime] = useState(0);
   const audioRef = useRef(null);
   const currentTimeRef = useRef(0);
@@ -1180,9 +1233,14 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
   const [echoPlaybackSnapshot, setEchoPlaybackSnapshot] = useState(null);
   const [previewBufferState, setPreviewBufferState] = useState({ status: "idle", ready: false, readyLookahead: 0, targetLookahead: 0 });
   const [previewPreparation, setPreviewPreparation] = useState({ status: "idle" });
+  const directorPreviewFullscreenRef = useRef(null);
+  const directorPreviewFullscreenActiveRef = useRef(false);
+  const [directorPreviewFullscreen, setDirectorPreviewFullscreen] = useState(false);
+  const [directorPreviewFullscreenMessage, setDirectorPreviewFullscreenMessage] = useState("");
   const canvasRef = useRef(null);
   const exactIsfPlaybackPoolRef = useRef(null);
   const exactIsfPlaybackPoolIdentityRef = useRef({ variantKey: "", dirtyKey: "", dirtyRangeCount: 0, shaderIds: [] });
+  const exactIsfPrewarmSignatureRef = useRef("");
   const exactIsfPresentationRef = useRef({ status: "idle", sourceId: "", error: "" });
   const exactIsfLastPresentedCanvasRef = useRef(null);
   const [exactIsfStatus, setExactIsfStatus] = useState({ status: "idle", sourceId: "", error: "" });
@@ -1197,6 +1255,81 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
 
   const [audioBlobUrl, setAudioBlobUrl] = useState("");
   const [audioLoading, setAudioLoading] = useState(false);
+
+  const toggleDirectorPreviewFullscreen = useCallback(async () => {
+    const documentRef = globalThis.document;
+    const previewSurface = directorPreviewFullscreenRef.current;
+    if (!documentRef || !previewSurface) {
+      setDirectorPreviewFullscreenMessage("Full Screen is not available until the Preview is open.");
+      return;
+    }
+
+    const fullscreenElement = documentRef.fullscreenElement || documentRef.webkitFullscreenElement || null;
+    try {
+      if (fullscreenElement === previewSurface) {
+        const exitFullscreen = documentRef.exitFullscreen || documentRef.webkitExitFullscreen;
+        if (typeof exitFullscreen !== "function") {
+          setDirectorPreviewFullscreenMessage("Use Escape to leave Full Screen in this window.");
+          return;
+        }
+        setDirectorPreviewFullscreenMessage("Closing full-screen Preview…");
+        await Promise.resolve(exitFullscreen.call(documentRef));
+        return;
+      }
+
+      if (fullscreenElement) {
+        setDirectorPreviewFullscreenMessage("Another full-screen view is active. Leave it before opening the Preview.");
+        return;
+      }
+
+      if (typeof previewSurface.requestFullscreen === "function") {
+        setDirectorPreviewFullscreenMessage("Opening full-screen Preview…");
+        await previewSurface.requestFullscreen();
+      } else if (typeof previewSurface.webkitRequestFullscreen === "function") {
+        setDirectorPreviewFullscreenMessage("Opening full-screen Preview…");
+        await Promise.resolve(previewSurface.webkitRequestFullscreen());
+      } else {
+        setDirectorPreviewFullscreenMessage("Full Screen is not supported in this window.");
+      }
+    } catch (error) {
+      setDirectorPreviewFullscreenMessage(`Full Screen could not start: ${error?.message || "the window denied the request"}.`);
+    }
+  }, []);
+
+  useEffect(() => {
+    const documentRef = globalThis.document;
+    if (!documentRef?.addEventListener) return undefined;
+
+    const syncDirectorPreviewFullscreen = () => {
+      const fullscreenElement = documentRef.fullscreenElement || documentRef.webkitFullscreenElement || null;
+      const previewIsFullscreen = fullscreenElement === directorPreviewFullscreenRef.current;
+      const previewWasFullscreen = directorPreviewFullscreenActiveRef.current;
+      directorPreviewFullscreenActiveRef.current = previewIsFullscreen;
+      setDirectorPreviewFullscreen(previewIsFullscreen);
+      if (previewIsFullscreen) {
+        setDirectorPreviewFullscreenMessage("Full-screen Preview active. Press Escape or choose Exit Full Screen to return.");
+      } else if (previewWasFullscreen) {
+        setDirectorPreviewFullscreenMessage("Exited full-screen Preview.");
+      }
+    };
+    const reportDirectorPreviewFullscreenError = () => {
+      directorPreviewFullscreenActiveRef.current = false;
+      setDirectorPreviewFullscreen(false);
+      setDirectorPreviewFullscreenMessage("Full Screen was blocked by this window. You can keep using the inline Preview.");
+    };
+
+    documentRef.addEventListener("fullscreenchange", syncDirectorPreviewFullscreen);
+    documentRef.addEventListener("webkitfullscreenchange", syncDirectorPreviewFullscreen);
+    documentRef.addEventListener("fullscreenerror", reportDirectorPreviewFullscreenError);
+    documentRef.addEventListener("webkitfullscreenerror", reportDirectorPreviewFullscreenError);
+    syncDirectorPreviewFullscreen();
+    return () => {
+      documentRef.removeEventListener("fullscreenchange", syncDirectorPreviewFullscreen);
+      documentRef.removeEventListener("webkitfullscreenchange", syncDirectorPreviewFullscreen);
+      documentRef.removeEventListener("fullscreenerror", reportDirectorPreviewFullscreenError);
+      documentRef.removeEventListener("webkitfullscreenerror", reportDirectorPreviewFullscreenError);
+    };
+  }, []);
 
   const activeDirectorProject = useMemo(() => (
     directorProjects.find(p => p.music_video_project.song_id === selectedProjectSongId) || directorProjects[0] || null
@@ -1273,7 +1406,10 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
     const current = presentedMediaRef.current;
     if (binding?.presented && binding.element) {
       presentedMediaRef.current = binding;
-    } else if (!current || !binding?.sourceKey || current.sourceKey === binding.sourceKey) {
+    } else if (
+      (!current || !binding?.sourceKey || current.sourceKey === binding.sourceKey)
+      && !(current?.kind === "video" && isPresentedEchoVideoElement(current.element, current.sourceKey))
+    ) {
       presentedMediaRef.current = null;
     }
     const presented = presentedMediaRef.current;
@@ -1320,6 +1456,11 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
         resolvedStem: "master",
         status: selection.status === "master" ? "master" : "master-fallback",
         fallbackReason: selection.fallbackReason || (verifiedBus ? "audio-context-unavailable" : ""),
+        playbackBlocked: false,
+        playbackError: "",
+        playPending: false,
+        lastPlayAttemptAt: 0,
+        sourceGeneration: Number(resource.sourceGeneration || 0) + 1,
         bus: null,
         targetUri: ""
       });
@@ -1351,6 +1492,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
           silentGain,
           playPending: false,
           lastPlayAttemptAt: 0,
+          sourceGeneration: 0,
           disposed: false,
           targetUri: ""
         };
@@ -1372,6 +1514,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
         element.addEventListener("error", markFailed);
       }
       const targetUri = resolveMediaUri(verifiedBus.audioPath);
+      const sourceGeneration = Number(resource.sourceGeneration || 0) + 1;
       Object.assign(resource, {
         key: desiredKey,
         requestedStem: selection.requested,
@@ -1379,6 +1522,11 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
         resolvedStem: verifiedBus.stemType || verifiedBus.id,
         status: "loading",
         fallbackReason: "",
+        playbackBlocked: false,
+        playbackError: "",
+        playPending: false,
+        lastPlayAttemptAt: 0,
+        sourceGeneration,
         bus: verifiedBus,
         targetUri,
         disposed: false
@@ -1406,6 +1554,10 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
   useEffect(() => {
     activeProjectRef.current = activeProject;
   }, [activeProject]);
+
+  useEffect(() => {
+    isPlayingRef.current = isPlaying;
+  }, [isPlaying]);
 
   useEffect(() => {
     const engine = createEchoPlaybackEngine({
@@ -1688,6 +1840,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
       exactIsfPlaybackPoolRef.current?.dispose?.();
       exactIsfPlaybackPoolRef.current = null;
       exactIsfPlaybackPoolIdentityRef.current = { variantKey: "", dirtyKey: "", dirtyRangeCount: 0, shaderIds: [] };
+      exactIsfPrewarmSignatureRef.current = "";
       exactIsfLastPresentedCanvasRef.current = null;
       disposeEchoStemResource(activeStemResourceRef.current);
       activeStemResourceRef.current = null;
@@ -1752,14 +1905,24 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
         || previousIdentity.dirtyKey !== nextIdentity.dirtyKey
       ) {
         const variantChanged = previousIdentity.variantKey !== nextIdentity.variantKey;
+        if (variantChanged) {
+          pool.dispose?.();
+          exactIsfLastPresentedCanvasRef.current = null;
+          exactIsfPrewarmSignatureRef.current = "";
+          pool = createExactPlaybackPool(canvas);
+          exactIsfPlaybackPoolRef.current = pool;
+        }
         const changedDirtyRanges = !variantChanged && nextIdentity.dirtyRanges.length > Number(previousIdentity.dirtyRangeCount || 0)
           ? nextIdentity.dirtyRanges.slice(Number(previousIdentity.dirtyRangeCount || 0))
           : nextIdentity.dirtyRanges;
-        pool.invalidate?.({
-          shaderIds: variantChanged ? (previousIdentity.shaderIds || []) : [],
-          ranges: variantChanged ? [] : changedDirtyRanges,
-          cacheKey: variantChanged ? previousIdentity.variantKey : "",
-        });
+        if (!variantChanged) {
+          pool.invalidate?.({
+            shaderIds: [],
+            ranges: changedDirtyRanges,
+            cacheKey: "",
+          });
+          exactIsfPrewarmSignatureRef.current = "";
+        }
       }
       exactIsfPlaybackPoolIdentityRef.current = {
         variantKey: nextIdentity.variantKey,
@@ -1784,6 +1947,12 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
         animFrame = requestAnimationFrame(render);
         return;
       }
+      const cssWidth = Math.max(1, Number(canvas.clientWidth || 0));
+      const pixelRatio = Math.max(1, Math.min(1.5, Number(globalThis.devicePixelRatio || 1)));
+      const targetWidth = Math.min(1280, Math.max(640, Math.round(cssWidth * pixelRatio)));
+      const targetHeight = Math.round(targetWidth * 9 / 16);
+      if (canvas.width !== targetWidth) canvas.width = targetWidth;
+      if (canvas.height !== targetHeight) canvas.height = targetHeight;
       const ctx = canvas.getContext('2d');
       if (!ctx) {
         animFrame = requestAnimationFrame(render);
@@ -1807,7 +1976,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
       const analyserNode = analyserNodeRef.current;
 
       // Generate or fetch audio inputs
-      const timeVal = Date.now() / 1000;
+      const timeVal = t;
       const paletteSignal = paletteSignalForPerspective(activeProject?.perspective);
       const masterSignalFrame = liveSignalFrame(analyserNode, t, { id: "master", label: "Master mix", source: "echo-master-audio", palette: paletteSignal });
       const fftList = masterSignalFrame.status === "live" ? masterSignalFrame.fft : new Uint8Array(256);
@@ -1895,11 +2064,36 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                   try { stemElement.currentTime = targetTime; } catch { /* decoder may still be binding metadata */ }
                 }
               }
-              if (isPlaying && stemResource.status === "ready" && stemElement.paused && !stemResource.playPending && performance.now() - stemResource.lastPlayAttemptAt > 750) {
+              const shouldPlayStem = isPlayingRef.current;
+              if (shouldPlayStem && stemResource.status === "ready" && stemElement.paused && !stemResource.playPending && performance.now() - stemResource.lastPlayAttemptAt > 750) {
                 stemResource.playPending = true;
                 stemResource.lastPlayAttemptAt = performance.now();
-                Promise.resolve().then(() => stemElement.play()).catch(() => {}).finally(() => { stemResource.playPending = false; });
-              } else if (!isPlaying && !stemElement.paused) {
+                const playGeneration = stemResource.sourceGeneration;
+                const playKey = stemResource.key;
+                const playUri = stemResource.targetUri;
+                const isCurrentPlayAttempt = () => (
+                  activeStemResourceRef.current === stemResource
+                  && !stemResource.disposed
+                  && stemResource.sourceGeneration === playGeneration
+                  && stemResource.key === playKey
+                  && stemResource.targetUri === playUri
+                );
+                Promise.resolve()
+                  .then(() => stemElement.play())
+                  .then(() => {
+                    if (!isCurrentPlayAttempt()) return;
+                    stemResource.playbackBlocked = false;
+                    stemResource.playbackError = "";
+                  })
+                  .catch((error) => {
+                    if (!isCurrentPlayAttempt()) return;
+                    stemResource.playbackBlocked = true;
+                    stemResource.playbackError = `stem-decoder-playback-blocked:${String(error?.message || error)}`;
+                    const transport = echoStemTransportHealth(stemResource, true);
+                    publishExactBindingDiagnostics({ stem: compactStemSignalBinding(stemResource, transport) });
+                  })
+                  .finally(() => { if (isCurrentPlayAttempt()) stemResource.playPending = false; });
+              } else if (!shouldPlayStem && !stemElement.paused) {
                 stemElement.pause();
               }
             }
@@ -1909,7 +2103,8 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
               signalFrames.master = masterSignalFrame;
               selectedSignalFrame = masterSignalFrame;
             }
-            if (stemResource?.status === "ready" && stemResource.analyser) {
+            const stemTransport = echoStemTransportHealth(stemResource, isPlayingRef.current);
+            if (stemTransport.usable) {
               const stemFrame = liveSignalFrame(stemResource.analyser, t, {
                 id: stemResource.bus?.stemId || stemResource.requestedStem,
                 label: stemResource.resolvedStem,
@@ -1919,16 +2114,16 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                 palette: paletteSignal
               });
               signalFrames[stemResource.requestedStem] = stemFrame;
+              signalFrames[normalizedStemFocus(stemResource.requestedStem)] = stemFrame;
               selectedSignalFrame = stemFrame;
             }
             const expectedMediaId = String(currentTimelineItem?.media_id || "");
-            const expectedMediaUri = resolveMediaUri(shotRuntimeUri(currentTimelineItem));
-            const presentedMedia = presentedMediaRef.current;
-            const currentPresentedMedia = presentedMedia?.presented
-              && presentedMedia.mediaId === expectedMediaId
-              && presentedMedia.uri === expectedMediaUri
-              ? presentedMedia
-              : null;
+            const currentPresentedMedia = resolvePresentedEchoMediaBinding(
+              directorPreviewFullscreenRef.current,
+              currentTimelineItem,
+              presentedMediaRef.current
+            );
+            if (currentPresentedMedia?.recoveredFrom) presentedMediaRef.current = currentPresentedMedia;
             const compositionInput = visualizerCompositionInput(graphVisualizerCard, t);
             const presentation = pool.present(graphVisualizerCard, {
               time: t,
@@ -1947,16 +2142,20 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
               width,
               height,
             }) || {};
-            const prewarmResult = pool.prewarm({
-              cards: graphVisualizerCards.slice(1),
-              cacheKey: echoIsfGraphRuntimeIdentity(directorShowGraph).variantKey,
-            });
-            if (prewarmResult && typeof prewarmResult.catch === "function") prewarmResult.catch(() => {});
+            const graphIdentity = echoIsfGraphRuntimeIdentity(directorShowGraph);
+            const prewarmCards = graphVisualizerCards.slice(1);
+            const prewarmSignature = `${graphIdentity.variantKey}:${prewarmCards.map((card) => `${exactVisualizerSourceId(card)}:${card?.visualization?.card?.source?.hash || ""}`).join("|")}`;
+            if (prewarmSignature !== exactIsfPrewarmSignatureRef.current) {
+              exactIsfPrewarmSignatureRef.current = prewarmSignature;
+              const prewarmResult = pool.prewarm({ cards: prewarmCards, cacheKey: graphIdentity.variantKey });
+              if (prewarmResult && typeof prewarmResult.catch === "function") prewarmResult.catch(() => {});
+            }
             const requestedShaderId = String(presentation.requestedShaderId || presentation.shaderId || exactVisualizerSourceId(graphVisualizerCard));
             const presentedShaderId = String(presentation.presentedShaderId || "");
             const heldPreviousFrame = presentation.heldPreviousFrame === true || presentation.heldPrevious === true;
             const namedStatus = String(presentation.handoff || presentation.status || "loading");
-            const composition = presentation.composition || compositionInput;
+            const audioEnvelope = echoVisualizerAudioEnvelope(selectedSignalFrame || masterSignalFrame);
+            const composition = { ...(presentation.composition || compositionInput), audioEnvelope };
             const rendererTruth = exactEchoRendererTruth(graphVisualizerCard, {
               ...presentation,
               status: presentation.status || namedStatus,
@@ -1971,7 +2170,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
               globalThis.__HAPA_ECHO_ISF_PLAYBACK_DIAGNOSTICS__ = poolDiagnostics;
               publishExactBindingDiagnostics({
                 media: currentPresentedMedia ? { status: "presented", kind: currentPresentedMedia.kind, mediaId: currentPresentedMedia.mediaId, sourceKey: currentPresentedMedia.sourceKey } : { status: "unavailable", kind: shotMediaType(currentTimelineItem), mediaId: expectedMediaId, sourceKey: "", reason: "no-current-presented-media" },
-                stem: compactStemBinding(stemResource),
+                stem: compactStemSignalBinding(stemResource, stemTransport),
                 frameReceipt: compactFrameReceipt(presentation.frameReceipt),
                 composition,
                 playbackPool: poolDiagnostics,
@@ -1992,7 +2191,10 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
               ctx.save();
               ctx.globalAlpha = Math.max(0, Math.min(1, Number(composition.effectiveAlpha ?? (composition.opacity * composition.mix * composition.transitionAlpha)) || 0));
               ctx.globalCompositeOperation = composition.canvasComposite || "source-over";
-              ctx.drawImage(presentationCanvas, 0, 0, width, height);
+              ctx.filter = `brightness(${audioEnvelope.brightness.toFixed(3)}) saturate(${audioEnvelope.saturation.toFixed(3)}) contrast(${audioEnvelope.contrast.toFixed(3)})`;
+              ctx.translate(width / 2, height / 2);
+              ctx.scale(audioEnvelope.scale, audioEnvelope.scale);
+              ctx.drawImage(presentationCanvas, -width / 2, -height / 2, width, height);
               ctx.restore();
               if (!presentation.canvas || heldPreviousFrame || presentation.status !== "ready") {
                 drawExactIsfDiagnostic(ctx, width, height, {
@@ -4083,9 +4285,29 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                             )}
 
                             {activeWorkbenchTab === "preview" && (
-                              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                              <div
+                                ref={directorPreviewFullscreenRef}
+                                role="region"
+                                aria-label="Director Preview playback"
+                                data-testid="echo-director-preview-surface"
+                                data-fullscreen={directorPreviewFullscreen ? "true" : "false"}
+                                style={{
+                                  display: 'flex',
+                                  flexDirection: 'column',
+                                  gap: '10px',
+                                  ...(directorPreviewFullscreen ? {
+                                    width: '100%',
+                                    height: '100%',
+                                    boxSizing: 'border-box',
+                                    padding: '14px',
+                                    overflowY: 'auto',
+                                    background: '#020617',
+                                    justifyContent: 'center'
+                                  } : {})
+                                }}
+                              >
                                 {/* Composition Preview Screen */}
-                                <div className="media-preview-container" data-export-aspect="1920x1080" style={{ position: 'relative', width: '100%', aspectRatio: '16 / 9', minHeight: '280px', maxHeight: 'min(56vh, 560px)', borderRadius: '6px', overflow: 'hidden', border: '1px solid rgba(255,255,255,0.12)', background: '#020617', boxShadow: '0 4px 20px rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                <div className="media-preview-container" data-export-aspect="1920x1080" style={{ position: 'relative', width: directorPreviewFullscreen ? 'min(calc(177.7778vh - 220.4445px), calc(100vw - 28px))' : '100%', height: directorPreviewFullscreen ? 'min(calc(100vh - 124px), calc(56.25vw - 15.75px))' : 'auto', boxSizing: 'border-box', alignSelf: directorPreviewFullscreen ? 'center' : 'stretch', aspectRatio: '16 / 9', minHeight: directorPreviewFullscreen ? 0 : '280px', maxHeight: directorPreviewFullscreen ? 'none' : 'min(56vh, 560px)', flexShrink: 0, borderRadius: '6px', overflow: 'hidden', border: '1px solid rgba(255,255,255,0.12)', background: '#020617', boxShadow: '0 4px 20px rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                                   
                                   {currentTimelineItem && shotMediaType(currentTimelineItem) === "video" && (
                                     <PersistentEchoABPlayers
@@ -4481,7 +4703,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                                 </div>
 
                                 {/* Player Controls */}
-                                <div style={{ display: 'flex', gap: '12px', alignItems: 'center', background: 'rgba(0,0,0,0.2)', padding: '8px 12px', borderRadius: '4px', border: '1px solid rgba(255,255,255,0.06)' }}>
+                                <div style={{ display: 'flex', gap: '12px', alignItems: 'center', alignSelf: directorPreviewFullscreen ? 'center' : 'stretch', width: directorPreviewFullscreen ? 'min(calc(177.7778vh - 220.4445px), calc(100vw - 28px))' : 'auto', boxSizing: 'border-box', background: 'rgba(0,0,0,0.2)', padding: '8px 12px', borderRadius: '4px', border: '1px solid rgba(255,255,255,0.06)' }}>
                                   <button 
                                     type="button"
                                     onClick={handlePlayPause}
@@ -4567,16 +4789,63 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                                       }}
                                     />
                                   </div>
+
+                                  <button
+                                    type="button"
+                                    data-testid="echo-director-preview-fullscreen"
+                                    onClick={toggleDirectorPreviewFullscreen}
+                                    aria-pressed={directorPreviewFullscreen}
+                                    aria-label={directorPreviewFullscreen ? "Exit Director Preview full screen" : "Open Director Preview full screen"}
+                                    title={directorPreviewFullscreen ? "Exit Full Screen (Escape also works)" : "Open Preview in Full Screen"}
+                                    style={{
+                                      display: 'inline-flex',
+                                      alignItems: 'center',
+                                      justifyContent: 'center',
+                                      gap: '5px',
+                                      flexShrink: 0,
+                                      padding: '5px 9px',
+                                      borderRadius: '4px',
+                                      border: '1px solid rgba(34, 211, 238, 0.65)',
+                                      background: directorPreviewFullscreen ? 'rgba(34, 211, 238, 0.18)' : 'rgba(34, 211, 238, 0.08)',
+                                      color: 'var(--hapa-neon-cyan)',
+                                      fontSize: '9px',
+                                      fontWeight: 'bold',
+                                      cursor: 'pointer'
+                                    }}
+                                  >
+                                    {directorPreviewFullscreen ? <Minimize2 size={13} aria-hidden="true" /> : <Maximize2 size={13} aria-hidden="true" />}
+                                    {directorPreviewFullscreen ? "Exit Full Screen" : "Full Screen"}
+                                  </button>
                                 </div>
 
-                                {/* Audio Diagnostics Output */}
-                                <div style={{ fontSize: '8px', fontFamily: 'monospace', color: 'rgba(255, 255, 255, 0.4)', marginTop: '4px', borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: '4px', display: 'flex', gap: '8px', alignItems: 'center' }}>
-                                  <span style={{ color: 'var(--hapa-neon-gold)', fontWeight: 'bold' }}>AUDIO TELEMETRY:</span>
-                                  <span style={{ color: audioDiagnostics.includes("Error") || audioDiagnostics.includes("failed") ? 'var(--hapa-neon-red)' : 'var(--hapa-neon-cyan)' }}>{audioDiagnostics}</span>
-                                </div>
+                                {directorPreviewFullscreenMessage && (
+                                  <div
+                                    role="status"
+                                    aria-live="polite"
+                                    data-testid="echo-director-preview-fullscreen-status"
+                                    style={{
+                                      alignSelf: directorPreviewFullscreen ? 'center' : 'flex-end',
+                                      maxWidth: '100%',
+                                      color: directorPreviewFullscreenMessage.includes("not ") || directorPreviewFullscreenMessage.includes("could not") || directorPreviewFullscreenMessage.includes("blocked") ? 'var(--hapa-neon-gold)' : 'var(--hapa-neon-cyan)',
+                                      fontFamily: 'monospace',
+                                      fontSize: '9px',
+                                      textAlign: 'right'
+                                    }}
+                                  >
+                                    {directorPreviewFullscreenMessage}
+                                  </div>
+                                )}
+
+                                {/* Keep authoring diagnostics below the inline Preview; Full Screen reserves its footer for transport. */}
+                                {!directorPreviewFullscreen && (
+                                  <div style={{ fontSize: '8px', fontFamily: 'monospace', color: 'rgba(255, 255, 255, 0.4)', marginTop: '4px', borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: '4px', display: 'flex', gap: '8px', alignItems: 'center' }}>
+                                    <span style={{ color: 'var(--hapa-neon-gold)', fontWeight: 'bold' }}>AUDIO TELEMETRY:</span>
+                                    <span style={{ color: audioDiagnostics.includes("Error") || audioDiagnostics.includes("failed") ? 'var(--hapa-neon-red)' : 'var(--hapa-neon-cyan)' }}>{audioDiagnostics}</span>
+                                  </div>
+                                )}
 
                                 {/* Current Playback Shot Detail Card */}
-                                {currentTimelineItem && (
+                                {currentTimelineItem && !directorPreviewFullscreen && (
                                   <div style={{ background: 'rgba(0,0,0,0.15)', border: '1px solid rgba(255,255,255,0.05)', borderRadius: '4px', padding: '8px 10px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
                                     <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                                       <span style={{ fontSize: '10px', fontWeight: 'bold', color: 'var(--hapa-neon-cyan)' }}>

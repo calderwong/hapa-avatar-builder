@@ -19,6 +19,7 @@ import {
   visualizerLookaheadCards,
 } from "../domain/echo-isf-browser-runtime.js";
 import { echoLegacyCanvasApproximation } from "../domain/echo-shader-picker.js";
+import { localFileApiUri } from "../domain/local-media-uri.js";
 import { buildTruthfulUnmintedVisualizerCard, resolveAuthoritativeTarotSongCardPrint } from "../domain/song-card-tarot-print.js";
 import {
   buildVisualizerRendererTruthReceipt,
@@ -856,9 +857,8 @@ function tarotDrawForgeOutputUri(value = "", apiBase = "") {
   if (!text) return "";
   if (/^(https?:|data:|blob:)/i.test(text)) return text;
   const base = tarotDrawApiBase(apiBase);
-  if (text.startsWith("file://")) return `${base}/api/local-file?path=${encodeURIComponent(text.replace(/^file:\/\//, ""))}`;
-  if (/^\/(Users|Volumes|var|tmp)\//.test(text)) return `${base}/api/local-file?path=${encodeURIComponent(text)}`;
-  if (text.startsWith("/api/local-file")) return base ? `${base}${text}` : text;
+  const localUri = localFileApiUri(text, base);
+  if (localUri) return localUri;
   if (text.startsWith("/")) return base && text.startsWith("/media/") ? `${base}${text}` : text;
   return text;
 }
@@ -18404,7 +18404,9 @@ function echoCanvasRoundRect(ctx, x, y, width, height, radius = 8) {
 
 function resolveTarotPreviewUri(uri = "") {
   if (typeof uri !== "string" || !uri) return "";
-  if (/^(data:|blob:|https?:|file:)/.test(uri)) return uri;
+  const localUri = localFileApiUri(uri, tarotDrawApiBase());
+  if (localUri) return localUri;
+  if (/^(data:|blob:|https?:)/.test(uri)) return uri;
   try {
     return new URL(uri, window.location.origin).href;
   } catch {

@@ -89,6 +89,7 @@ import {
 } from "./roomletInvite.mjs";
 import { fileStreamTelemetry, streamFileToResponse } from "./file-serving.mjs";
 import { EchoIsfAssetCatalog, writeEchoIsfAsset } from "./echo-isf-assets.mjs";
+import { buildPortableVisualizerCard } from "../src/domain/portable-visualizer-card.js";
 import { buildBuilderEntityCatalog } from "../src/overcard/entityCatalog.js";
 import { resolveBuilderRuntimeContext } from "../src/overcard/runtimeContext.js";
 import { builderProcessAdapterRegistrations, freezeBuilderRunContext, getBuilderProcessAdapter } from "../src/overcard/processAdapters.js";
@@ -106,6 +107,7 @@ import { createEchoDirectionVariantSummaryIndex } from "./echo-direction-variant
 import { collectSongCardConstituentReferences, hydrateSongCardConstituentSnapshots } from "../src/domain/song-card-constituents.js";
 import {
   ECHO_DIRECTION_FORK_PAYLOAD_SCHEMA,
+  deriveEchoDirectionVariantProject,
   echoDirectionVariantFingerprint,
   echoDirectionVariantId as domainEchoDirectionVariantId,
   echoDirectionVariantMetadata,
@@ -7242,6 +7244,38 @@ function compactEchoDirectorShowGraph(graph) {
   };
 }
 
+const ECHO_VARIANT_GRAPH_OVERLAY_SCHEMA = "hapa.echo.variant-graph-overlay.v1";
+const ECHO_VARIANT_GRAPH_DIRECTOR_FIELDS = Object.freeze([
+  "variantId",
+  "variantHash",
+  "parentVariantId",
+  "patchLineage",
+  "runtimeShaderRepair",
+]);
+
+function compactEchoDerivedVariantShowGraph(graph, options = {}) {
+  if (!graph?.tracks) return graph;
+  const compact = compactEchoDirectorShowGraph(graph);
+  if (!options.baseGraphAvailable) return compact;
+  const directorV2 = Object.fromEntries(ECHO_VARIANT_GRAPH_DIRECTOR_FIELDS.flatMap((field) => (
+    compact.directorV2?.[field] === undefined ? [] : [[field, compact.directorV2[field]]]
+  )));
+  const song = compact.song ? { ...compact.song } : compact.song;
+  if (song) delete song.lyricOverlay;
+  return {
+    ...compact,
+    song,
+    directorV2,
+    delivery: {
+      schemaVersion: ECHO_VARIANT_GRAPH_OVERLAY_SCHEMA,
+      mode: "base-graph-inheritance",
+      inheritsSongLyrics: true,
+      inheritsDirectorV2: true,
+      preserves: ["stems", "tracks", "portable-visualizer-cards", "variant-identity", "patch-lineage"],
+    },
+  };
+}
+
 function compactEchoDirectionScriptVariant(variant = {}, fallbackTimelineCount = 0) {
   const summary = summarizeEchoDirectionScriptVariant(variant, fallbackTimelineCount);
   return {
@@ -7268,18 +7302,369 @@ function echoDirectionVariantNotFound(safeSongId, variantId) {
   return error;
 }
 
+function echoRuntimeShaderFallbackIndex(value, length) {
+  let hash = 2166136261;
+  for (const byte of Buffer.from(String(value || ""))) {
+    hash ^= byte;
+    hash = Math.imul(hash, 16777619);
+  }
+  return length > 0 ? (hash >>> 0) % length : -1;
+}
+
+function echoRuntimeShaderDefaults(inputs = []) {
+  return Object.fromEntries((Array.isArray(inputs) ? inputs : []).flatMap((input) => {
+    const name = String(input?.NAME || input?.name || "").trim();
+    if (!name || String(input?.TYPE || input?.type || "").toLowerCase() === "image") return [];
+    const fallback = String(input?.TYPE || input?.type || "").toLowerCase() === "bool" ? false : 0;
+    return [[name, input.DEFAULT ?? input.default ?? fallback]];
+  }));
+}
+
+function echoRuntimeShaderReplacement(shader, catalog = []) {
+  const eligible = catalog.filter((candidate) => (
+    candidate?.directorEligible !== false
+    && candidate?.enabled !== false
+    && candidate?.runtimeEligibility !== "unsupported-quarantine"
+    && candidate?.pixelGate?.classification === "hash-bound-exact-proxy"
+    && candidate?.pixelGate?.status === "source-hash-verified"
+    && candidate?.id
+    && candidate?.source
+  ));
+  const sameRole = eligible.filter((candidate) => String(candidate.hmvRole || "") === String(shader?.hmvRole || ""));
+  const sameType = eligible.filter((candidate) => String(candidate.shaderType || "") === String(shader?.shaderType || ""));
+  const mediaIndependentSameRole = sameRole.filter((candidate) => String(candidate.shaderType || "").toLowerCase() !== "filter");
+  const mediaIndependent = eligible.filter((candidate) => String(candidate.shaderType || "").toLowerCase() !== "filter");
+  const candidates = (mediaIndependentSameRole.length
+    ? mediaIndependentSameRole
+    : sameRole.length
+      ? sameRole
+      : sameType.length
+        ? sameType
+        : mediaIndependent.length
+          ? mediaIndependent
+          : eligible)
+    .slice()
+    .sort((left, right) => String(left.id).localeCompare(String(right.id)));
+  return candidates[echoRuntimeShaderFallbackIndex(shader?.id, candidates.length)] || null;
+}
+
+function echoRuntimeShaderNeedsReplacement(shader) {
+  return Boolean(shader && (
+    shader.directorEligible === false
+    || shader.enabled === false
+    || shader.runtimeEligibility === "unsupported-quarantine"
+  ));
+}
+
+function echoRuntimeShaderRepairReason(shader) {
+  return shader?.runtimeEligibilityReason
+    || shader?.pixelGate?.reason
+    || "source-hash-verified-pixel-gate-quarantine";
+}
+
+function repairEchoRuntimeVisualizerTimeline(rows = [], catalog = [], scope = "visualizer-timeline") {
+  const catalogById = new Map(catalog.map((shader) => [String(shader?.id || ""), shader]));
+  const replacementById = new Map();
+  const replacements = [];
+  const timeline = (Array.isArray(rows) ? rows : []).map((row, index) => {
+    const originalId = String(row?.visualizer_id || row?.visualizerId || "");
+    const original = catalogById.get(originalId);
+    if (!echoRuntimeShaderNeedsReplacement(original)) return row;
+    let replacement = replacementById.get(originalId);
+    if (!replacement) {
+      replacement = echoRuntimeShaderReplacement(original, catalog);
+      if (!replacement) return row;
+      replacementById.set(originalId, replacement);
+    }
+    const reason = echoRuntimeShaderRepairReason(original);
+    replacements.push({
+      scope,
+      rowIndex: index,
+      startSeconds: Number(row?.start_sec ?? row?.startSeconds ?? 0),
+      endSeconds: Number(row?.end_sec ?? row?.endSeconds ?? 0),
+      originalId,
+      originalTitle: String(row?.visualizer_title || row?.visualizerTitle || original?.title || ""),
+      replacementId: replacement.id,
+      replacementTitle: replacement.title,
+      reason,
+    });
+    return {
+      ...row,
+      visualizer_id: replacement.id,
+      ...(Object.hasOwn(row || {}, "visualizerId") ? { visualizerId: replacement.id } : {}),
+      visualizer_title: replacement.title,
+      ...(Object.hasOwn(row || {}, "visualizerTitle") ? { visualizerTitle: replacement.title } : {}),
+      shader_repair: {
+        schemaVersion: "hapa.echo.runtime-shader-repair.v1",
+        reason,
+        originalId,
+        originalTitle: String(row?.visualizer_title || row?.visualizerTitle || original?.title || ""),
+        replacementId: replacement.id,
+        replacementTitle: replacement.title,
+        nonDestructive: true,
+      },
+    };
+  });
+  return { scope, timeline, replacementById, replacements, hydrations: [] };
+}
+
+function echoRuntimeShaderCardPortableIsExact(card, shader) {
+  const portable = card?.visualization?.card;
+  return Boolean(
+    portable?.schemaVersion === "hapa.visualizer-card.v2"
+    && String(portable.id || "") === String(shader?.id || "")
+    && String(portable.source?.hash || "").replace(/^sha256:/i, "").toLowerCase()
+      === String(shader?.sourceHash || "").replace(/^sha256:/i, "").toLowerCase(),
+  );
+}
+
+function hydrateEchoRuntimeShaderCard(card, shader, options = {}) {
+  const previousPortable = card.visualization?.card || {};
+  const previousLayer = previousPortable.layer || {};
+  const stemFocus = String(previousPortable.stemFocus || card.provenance?.stemFocus || "master");
+  const defaults = echoRuntimeShaderDefaults(shader.inputs);
+  const allowedControlNames = new Set(Object.keys(defaults));
+  const previousControls = card.parameters?.visualizerControls || previousPortable.controls || {};
+  const controls = {
+    ...defaults,
+    ...Object.fromEntries(Object.entries(previousControls).filter(([name]) => allowedControlNames.has(name))),
+  };
+  const portable = buildPortableVisualizerCard(shader, {
+    stemFocus,
+    layerRole: previousLayer.role || card.provenance?.layerRole || "atmosphere",
+    controls,
+    blendMode: card.parameters?.blendMode || previousLayer.blend || "screen",
+    opacity: Number(card.parameters?.opacity ?? previousLayer.opacity ?? 0.48),
+    target: card.parameters?.target || previousLayer.target || "program",
+    mix: Number(card.parameters?.mix ?? previousLayer.mix ?? 1),
+    transition: String(card.transition || previousLayer.transition || "crossfade"),
+    nativeProxyAvailable: Boolean(shader.nativeRoute?.proxy && shader.pixelGate?.playableFrameIndices?.length),
+    hyperframesProxy: shader.hyperframesProxy || null,
+    hyperframesProxyAvailable: Boolean(shader.hyperframesProxy && shader.pixelGate?.playableFrameIndices?.length),
+    provenanceSource: options.replacement ? "runtime-pixel-gate-repair" : "runtime-catalog-hydration",
+  });
+  const visualizerMappings = Object.fromEntries((portable.automation || []).map((binding) => [
+    binding.uniform,
+    `${binding.stemFocus || stemFocus}:${binding.signal}`,
+  ]));
+  const repairEvidence = options.replacement ? {
+    runtimeShaderRepair: {
+      schemaVersion: "hapa.echo.runtime-shader-repair.v1",
+      reason: options.reason,
+      originalId: options.original?.id,
+      originalTitle: options.original?.title,
+      replacementId: shader.id,
+      replacementTitle: shader.title,
+      nonDestructive: true,
+    },
+  } : {
+    runtimeShaderHydration: {
+      schemaVersion: "hapa.echo.runtime-shader-hydration.v1",
+      reason: options.reason || "portable-card-missing-or-stale",
+      sourceId: shader.id,
+      sourceHash: shader.sourceHash,
+      nonDestructive: true,
+    },
+  };
+  return {
+    ...card,
+    requestedSourceId: shader.id,
+    resolutionStatus: options.replacement ? "runtime-pixel-gate-repair" : "runtime-catalog-hydration",
+    executionStatus: "executable-runtime-repair",
+    media: {
+      ...(card.media || {}),
+      id: shader.id,
+      title: shader.title,
+    },
+    visualization: {
+      ...(card.visualization || {}),
+      requestedSourceId: shader.id,
+      sourceId: shader.id,
+      nativeKey: shader.nativeRoute?.nativeKey || null,
+      nativeRoute: portable.nativeRoute,
+      card: portable,
+      status: "exact",
+    },
+    parameters: {
+      ...(card.parameters || {}),
+      visualizerControls: controls,
+      visualizerMappings,
+    },
+    provenance: {
+      ...(card.provenance || {}),
+      requestedSourceId: shader.id,
+      manifestSource: shader.source,
+      resolutionStatus: options.replacement ? "runtime-pixel-gate-repair" : "runtime-catalog-hydration",
+      ...repairEvidence,
+    },
+  };
+}
+
+function repairEchoRuntimeShaderGraph(graph, catalog = [], scope = "director-show-graph") {
+  if (!graph?.tracks) return { scope, graph, replacementById: new Map(), replacements: [], hydrations: [] };
+  const catalogById = new Map(catalog.map((shader) => [String(shader?.id || ""), shader]));
+  const replacementById = new Map();
+  const replacements = [];
+  const hydrations = [];
+  const repairedGraph = structuredClone(graph);
+  for (const track of repairedGraph.tracks || []) {
+    if (track?.role !== "visualizer" && !["track-b", "ivf-stack"].includes(track?.id)) continue;
+    for (let cardIndex = 0; cardIndex < (track.cards || []).length; cardIndex += 1) {
+      const card = track.cards[cardIndex];
+      const originalId = String(card?.visualization?.sourceId || card?.visualization?.requestedSourceId || card?.visualization?.card?.id || "");
+      const original = catalogById.get(originalId);
+      if (!original) continue;
+      let target = original;
+      let replacement = null;
+      if (echoRuntimeShaderNeedsReplacement(original)) {
+        replacement = replacementById.get(originalId);
+        if (!replacement) {
+          replacement = echoRuntimeShaderReplacement(original, catalog);
+          if (!replacement) continue;
+          replacementById.set(originalId, replacement);
+        }
+        target = replacement;
+      }
+      if (!replacement && echoRuntimeShaderCardPortableIsExact(card, target)) continue;
+      const reason = replacement ? echoRuntimeShaderRepairReason(original) : "portable-card-missing-or-stale";
+      track.cards[cardIndex] = hydrateEchoRuntimeShaderCard(card, target, { replacement: Boolean(replacement), original, reason });
+      const evidence = {
+        scope,
+        trackId: String(track.id || ""),
+        cardId: String(card.id || ""),
+        startSeconds: Number(card.startSeconds || 0),
+        endSeconds: Number(card.endSeconds || 0),
+        sourceId: target.id,
+        sourceTitle: target.title,
+        sourceHash: target.sourceHash,
+        reason,
+      };
+      hydrations.push(evidence);
+      if (replacement) replacements.push({
+        ...evidence,
+        originalId,
+        originalTitle: original.title,
+        replacementId: replacement.id,
+        replacementTitle: replacement.title,
+      });
+    }
+  }
+  if (replacements.length || hydrations.length) {
+    repairedGraph.directorV2 = {
+      ...(repairedGraph.directorV2 || {}),
+      runtimeShaderRepair: {
+        schemaVersion: "hapa.echo.runtime-shader-repair-receipt.v1",
+        status: replacements.length ? "repaired" : "hydrated",
+        nonDestructive: true,
+        replacementCount: replacements.length,
+        hydrationCount: hydrations.length,
+        replacements,
+        hydrations,
+      },
+    };
+  }
+  return { scope, graph: repairedGraph, replacementById, replacements, hydrations };
+}
+
+function echoRuntimeShaderRepairReceipt(scopes = [], sourceKey = "sourceProjectMutated") {
+  const deliveredScopes = scopes.filter(Boolean).map((scope) => ({
+    scope: scope.scope,
+    replacementCount: scope.replacements.length,
+    hydrationCount: scope.hydrations.length,
+    replacements: scope.replacements,
+    hydrations: scope.hydrations,
+  }));
+  const replacements = deliveredScopes.flatMap((scope) => scope.replacements);
+  const hydrations = deliveredScopes.flatMap((scope) => scope.hydrations);
+  return {
+    schemaVersion: "hapa.echo.runtime-shader-repair-receipt.v1",
+    status: replacements.length ? "repaired" : hydrations.length ? "hydrated" : "not-required",
+    nonDestructive: true,
+    [sourceKey]: false,
+    replacementCount: replacements.length,
+    hydrationCount: hydrations.length,
+    replacements,
+    hydrations,
+    scopes: deliveredScopes,
+  };
+}
+
+function repairEchoRuntimeDirectionVariant(variant = {}, options = {}) {
+  const variantId = echoDirectionVariantId(variant) || "unnamed";
+  const catalog = options.catalog || [];
+  const sourceProfile = options.sourceProfile === true;
+  const selected = options.selected === true;
+  const scopes = [];
+  const delivered = { ...variant };
+  for (const field of ["visualizer_timeline", "visualizerTimeline"]) {
+    if (!Array.isArray(variant?.[field])) continue;
+    const result = repairEchoRuntimeVisualizerTimeline(
+      variant[field],
+      catalog,
+      `variant:${variantId}:${field}`,
+    );
+    delivered[field] = result.timeline;
+    scopes.push(result);
+  }
+
+  let hasDeclaredGraph = false;
+  for (const field of ["director_show_graph", "directorShowGraph"]) {
+    const declaredGraph = variant?.[field];
+    if (!declaredGraph?.tracks) continue;
+    hasDeclaredGraph = true;
+    const result = repairEchoRuntimeShaderGraph(
+      declaredGraph,
+      catalog,
+      `variant:${variantId}:${field}`,
+    );
+    delivered[field] = sourceProfile ? result.graph : compactEchoDirectorShowGraph(result.graph);
+    scopes.push(result);
+  }
+
+  if (selected && !hasDeclaredGraph) {
+    const derivedVariant = {
+      ...delivered,
+      ...(Array.isArray(delivered.visualizerTimeline) && !Array.isArray(delivered.visualizer_timeline)
+        ? { visualizer_timeline: delivered.visualizerTimeline }
+        : {}),
+    };
+    const derived = deriveEchoDirectionVariantProject(options.baseProject || {}, derivedVariant);
+    const result = repairEchoRuntimeShaderGraph(
+      derived.director_show_graph,
+      catalog,
+      `variant:${variantId}:derived-director-show-graph`,
+    );
+    delivered.director_show_graph = sourceProfile
+      ? result.graph
+      : compactEchoDerivedVariantShowGraph(result.graph, {
+        baseGraphAvailable: Boolean(options.baseProject?.director_show_graph?.tracks),
+      });
+    scopes.push(result);
+  }
+
+  const deliveredFullPayload = selected
+    || Array.isArray(variant?.visualizer_timeline)
+    || Array.isArray(variant?.visualizerTimeline)
+    || hasDeclaredGraph;
+  if (deliveredFullPayload) {
+    delivered.runtime_shader_repair_receipt = echoRuntimeShaderRepairReceipt(scopes, "sourceVariantMutated");
+  }
+  return { variant: delivered, scopes };
+}
+
 async function hydrateEchoDirectorProjectPayload(payload, safeSongId, options = {}) {
   const project = payload?.music_video_project || payload;
   if (!project || typeof project !== "object") return payload;
   const sourceProfile = options.profile === "source";
   const selectedVariantId = String(options.selectedVariantId || "").trim();
-  const [graphResult, indexedVariants] = await Promise.all([
+  const [graphResult, indexedVariants, shaderCatalog] = await Promise.all([
     readEchoDirectorShowGraph(project, safeSongId),
     sourceProfile
       ? readEchoDirectionScriptVariants(safeSongId)
       : echoDirectionVariantSummaryIndex
         .variantsForSongs([safeSongId], readEchoDirectionScriptVariants)
         .then((result) => result.bySong.get(safeSongId) || []),
+    echoIsfAssets.load().then((catalog) => catalog.shaders),
   ]);
   const embeddedVariants = Array.isArray(project.direction_script_variants)
     ? project.direction_script_variants
@@ -7309,7 +7694,41 @@ async function hydrateEchoDirectorProjectPayload(payload, safeSongId, options = 
     }
   }
 
-  const graph = sourceProfile ? graphResult.graph : compactEchoDirectorShowGraph(graphResult.graph);
+  const baseGraphRepair = repairEchoRuntimeShaderGraph(
+    graphResult.graph,
+    shaderCatalog,
+    "project:director-show-graph",
+  );
+  const baseTimelineRepair = repairEchoRuntimeVisualizerTimeline(
+    project.visualizer_timeline,
+    shaderCatalog,
+    "project:visualizer-timeline",
+  );
+  const repairedBaseTimeline = Array.isArray(project.visualizer_timeline)
+    ? baseTimelineRepair.timeline
+    : project.visualizer_timeline;
+  const variantBaseProject = {
+    ...project,
+    visualizer_timeline: repairedBaseTimeline,
+    director_show_graph: baseGraphRepair.graph,
+  };
+  const variantRepairScopes = [];
+  directionVariants = directionVariants.map((variant) => {
+    const result = repairEchoRuntimeDirectionVariant(variant, {
+      catalog: shaderCatalog,
+      sourceProfile,
+      selected: Boolean(deliveredVariantId && echoDirectionVariantId(variant) === deliveredVariantId),
+      baseProject: variantBaseProject,
+    });
+    variantRepairScopes.push(...result.scopes);
+    return result.variant;
+  });
+  const graph = sourceProfile ? baseGraphRepair.graph : compactEchoDirectorShowGraph(baseGraphRepair.graph);
+  const runtimeShaderRepairReceipt = echoRuntimeShaderRepairReceipt([
+    baseGraphRepair,
+    ...(Array.isArray(project.visualizer_timeline) ? [baseTimelineRepair] : []),
+    ...variantRepairScopes,
+  ]);
   const detailProfile = sourceProfile ? "source-v1" : "editor-bounded-v1";
   const graphReceipt = {
     ...graphResult.receipt,
@@ -7323,11 +7742,13 @@ async function hydrateEchoDirectorProjectPayload(payload, safeSongId, options = 
   };
   const hydratedProject = {
     ...project,
+    visualizer_timeline: repairedBaseTimeline,
     direction_script_variants: directionVariants,
     director_detail_profile: detailProfile,
     selected_direction_script_variant_id: deliveredVariantId,
     director_show_graph: graph,
     director_show_graph_receipt: graphReceipt,
+    runtime_shader_repair_receipt: runtimeShaderRepairReceipt,
   };
   return payload?.music_video_project
     ? { ...payload, music_video_project: hydratedProject }

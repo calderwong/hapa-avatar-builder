@@ -100,3 +100,38 @@ test("working continuation stays separate and serializes only an append-only chi
   assert.equal(request.director_show_graph, undefined);
   assert.equal(selected.timeline[0].media_id, "airy-a-media");
 });
+
+test("variant and working cuts retain canonical stem paths and portable shader cards", () => {
+  const base = project();
+  base.director_show_graph.stems = { items: [{ id: "stem:synth", stemType: "Synth", audioPath: "/stems/synth.wav" }] };
+  base.director_show_graph.directorV2.stemBuses = [{ id: "bus:synth", stemType: "Synth", audioPath: "/stems/synth.wav", truthStatus: "verified_registry_path" }];
+  base.director_show_graph.tracks.push({
+    id: "track-b",
+    role: "visualizer",
+    cards: [{
+      id: "card:b:0",
+      startSeconds: 0,
+      endSeconds: 20,
+      media: { id: "airy-a-viz", title: "airy-a Viz" },
+      visualization: {
+        sourceId: "airy-a-viz",
+        card: { schemaVersion: "hapa.visualizer-card.v2", id: "airy-a-viz", inputs: [{ NAME: "gain" }], audioMap: { gain: { signal: "rms", depth: 0.3 } }, source: { hash: "sha256:airy" }, stemFocus: "synth" },
+      },
+      parameters: { visualizerMappings: { gain: "synth:rms" } },
+    }],
+  });
+  const cut = variant("airy-a", "Airy", 1);
+  const selected = deriveEchoDirectionVariantProject(base, cut);
+  const visualizer = selected.director_show_graph.tracks.find((track) => track.id === "track-b").cards[0];
+  assert.equal(selected.director_show_graph.stems.items[0].audioPath, "/stems/synth.wav");
+  assert.equal(selected.director_show_graph.directorV2.stemBuses[0].truthStatus, "verified_registry_path");
+  assert.equal(visualizer.visualization.card.source.hash, "sha256:airy");
+  assert.equal(visualizer.visualization.card.stemFocus, "synth");
+
+  const working = createEchoDirectionWorkingFork(selected, cut);
+  working.project.timeline[0].media_id = "working-media";
+  const continued = deriveEchoDirectionWorkingProject(working);
+  const continuedVisualizer = continued.director_show_graph.tracks.find((track) => track.id === "track-b").cards[0];
+  assert.equal(continued.director_show_graph.stems.items[0].audioPath, "/stems/synth.wav");
+  assert.equal(continuedVisualizer.visualization.card.source.hash, "sha256:airy");
+});

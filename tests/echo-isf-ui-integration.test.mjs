@@ -22,7 +22,8 @@ test("Echo resolves graph-backed Track B cards through a bounded lookahead playb
   assert.match(echoSource, /visualization\?\.sourceId/);
   assert.match(echoSource, /width: canvas\.width/);
   assert.match(echoSource, /height: canvas\.height/);
-  assert.match(echoSource, /ctx\.drawImage\(presentationCanvas, 0, 0, width, height\)/);
+  assert.match(echoSource, /const audioEnvelope = echoVisualizerAudioEnvelope\(selectedSignalFrame \|\| masterSignalFrame\)/);
+  assert.match(echoSource, /ctx\.drawImage\(presentationCanvas, -width \/ 2, -height \/ 2, width, height\)/);
   assert.match(echoSource, /exactIsfPlaybackPoolRef\.current\?\.dispose\?\.\(\)/);
   assert.match(echoSource, /data-echo-exact-isf-status/);
   assert.match(echoSource, /EXACT ISF HOLD/);

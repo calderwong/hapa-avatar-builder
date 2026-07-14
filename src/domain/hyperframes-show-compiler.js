@@ -469,8 +469,77 @@ function nativeRouteForProxy(card, proxyResolution) {
 
 function audioSignals(portable = {}) {
   const declared = Array.isArray(portable.audioSignal) ? portable.audioSignal : portable.audioSignal ? [portable.audioSignal] : [];
-  const mapped = Object.values(portable.audioMap || {}).map((entry) => typeof entry === "string" ? entry : entry?.signal);
+  const mapped = Object.values(portable.audioMap || {}).map((entry) => typeof entry === "string" ? entry.split(":").at(-1) : entry?.signal);
   return [...new Set([...declared, ...mapped].map(String).filter((signal) => signal && signal !== "off"))];
+}
+
+const AUDIO_REACTIVE_SIGNALS = new Set(["rms", "peak", "onset", "beat", "low", "bass", "mid", "high", "treble"]);
+
+function normalizeAudioMapping(value, fallback = null) {
+  const base = fallback && typeof fallback === "object" && !Array.isArray(fallback) ? structuredClone(fallback) : {};
+  if (typeof value === "string") {
+    const parts = value.split(":").map((part) => part.trim()).filter(Boolean);
+    const signal = String(parts.pop() || base.signal || "off").toLowerCase();
+    return {
+      ...base,
+      signal,
+      ...(parts.length ? { stemFocus: parts.join(":") } : {}),
+      depth: base.depth ?? (AUDIO_REACTIVE_SIGNALS.has(signal) ? 0.2 : 0),
+    };
+  }
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    const merged = { ...base, ...structuredClone(value) };
+    merged.signal = String(merged.signal || "off").toLowerCase();
+    merged.depth = merged.depth ?? (AUDIO_REACTIVE_SIGNALS.has(merged.signal) ? 0.2 : 0);
+    return merged;
+  }
+  if (!Object.keys(base).length) return null;
+  base.signal = String(base.signal || "off").toLowerCase();
+  base.depth = base.depth ?? (AUDIO_REACTIVE_SIGNALS.has(base.signal) ? 0.2 : 0);
+  return base;
+}
+
+function normalizedVisualizerAudioMap(portable = {}, parameterMappings = {}) {
+  const portableMap = portable.audioMap && typeof portable.audioMap === "object" && !Array.isArray(portable.audioMap)
+    ? portable.audioMap
+    : {};
+  const overrides = parameterMappings && typeof parameterMappings === "object" && !Array.isArray(parameterMappings)
+    ? parameterMappings
+    : {};
+  const names = [...new Set([...Object.keys(portableMap), ...Object.keys(overrides)])].sort();
+  return Object.fromEntries(names.flatMap((name) => {
+    const declared = normalizeAudioMapping(portableMap[name]);
+    const normalized = Object.hasOwn(overrides, name)
+      ? normalizeAudioMapping(overrides[name], declared)
+      : declared;
+    return normalized ? [[name, normalized]] : [];
+  }));
+}
+
+function audioReactiveSignals(audioMap = {}) {
+  return [...new Set(Object.values(audioMap)
+    .map((mapping) => String(mapping?.signal || "").toLowerCase())
+    .filter((signal) => AUDIO_REACTIVE_SIGNALS.has(signal)))];
+}
+
+function presentationModulation(audioMap = {}) {
+  const mappedSignals = audioReactiveSignals(audioMap);
+  const primarySignal = mappedSignals.find((signal) => !["beat", "onset"].includes(signal)) || "rms";
+  const accentSignal = mappedSignals.find((signal) => ["beat", "onset"].includes(signal)) || "beat";
+  return {
+    schemaVersion: "hapa.hyperframes.presentation-modulation.v1",
+    mode: "audio-conditioned-proxy",
+    source: mappedSignals.length ? "declared-audio-map" : "generic-rms-beat-fallback",
+    primarySignal,
+    accentSignal,
+    primaryWeight: 0.7,
+    accentWeight: 0.3,
+    frameOffsetFrames: 3,
+    brightnessDepth: 0.38,
+    saturationDepth: 0.5,
+    scaleDepth: 0.055,
+    opacityDepth: 0.16,
+  };
 }
 
 export function hyperFramesPixelIdentity(instance = {}, frameIndex = 0) {
@@ -532,7 +601,22 @@ export function compileHyperFramesShow({ showGraph, telemetry, project, proxyReg
         const baseOpacity = Math.max(0, Math.min(1, finite(portable.layer?.opacity, 1)));
         const opacity = Math.max(0, Math.min(1, finite(card.parameters?.opacity, baseOpacity)));
         const controls = { ...(portable.controls || {}), ...(card.parameters?.visualizerControls || {}) };
-        const audioMap = { ...(portable.audioMap || {}), ...(card.parameters?.visualizerMappings || {}) };
+        const audioMap = normalizedVisualizerAudioMap(portable, card.parameters?.visualizerMappings);
+        const modulation = presentationModulation(audioMap);
+        const declaredAudioSignals = audioSignals({ ...portable, audioMap });
+        const reactiveAudioSignals = audioReactiveSignals(audioMap);
+        const resolvedAudioSignals = [...new Set([
+          ...declaredAudioSignals,
+          ...(reactiveAudioSignals.length ? [] : ["rms", "beat"]),
+          modulation.primarySignal,
+          modulation.accentSignal,
+        ])];
+        const mappedStemFocuses = [...new Set(Object.values(audioMap)
+          .map((mapping) => String(mapping?.stemFocus || "").trim())
+          .filter(Boolean))];
+        const instanceStemFocus = mappedStemFocuses.length === 1
+          ? mappedStemFocuses[0]
+          : String(portable.stemFocus || card.parameters?.stemFocus || "master");
         const instance = {
           ...base,
           templateId: "visualizer-proxy-layer-v2",
@@ -547,11 +631,12 @@ export function compileHyperFramesShow({ showGraph, telemetry, project, proxyReg
           fidelity: rendererTruth.status,
           rendererRoute: rendererTruth.route,
           unsupported: rendererTruth.fidelityLoss,
-          stemFocus: String(portable.stemFocus || "master"),
-          audioSignal: audioSignals(portable),
+          stemFocus: instanceStemFocus,
+          audioSignal: resolvedAudioSignals,
           inputs: structuredClone(portable.inputs || []),
           controls,
           audioMap,
+          presentationModulation: modulation,
           baseOpacity,
           opacity,
           visualizerMix: resolvedVisualizerMix,
@@ -676,7 +761,16 @@ export function inspectHyperFramesShow(show) {
     if (previous && (layer.start < previous.start || (layer.start === previous.start && layer.cueIndex < previous.cueIndex))) errors.push(`unstable-order:${layer.id}`);
     previous = layer;
     if (Object.keys(layer.audioMap || {}).some((name) => !(layer.inputs || []).some((input) => (input.NAME || input.name) === name) && !(name in (layer.controls || {})))) errors.push(`unhydrated-input:${layer.id}`);
-    if (!layer.stemFocus || !Array.isArray(layer.audioSignal)) errors.push(`missing-stem-wiring:${layer.id}`);
+    const audioSignals = Array.isArray(layer.audioSignal) ? layer.audioSignal.map((signal) => String(signal).toLowerCase()) : [];
+    const mappedReactive = Object.values(layer.audioMap || {}).some((mapping) => {
+      const signal = typeof mapping === "string" ? mapping.split(":").at(-1) : mapping?.signal;
+      return AUDIO_REACTIVE_SIGNALS.has(String(signal || "").toLowerCase());
+    });
+    const presentationReactive = layer.presentationModulation?.mode === "audio-conditioned-proxy"
+      && AUDIO_REACTIVE_SIGNALS.has(String(layer.presentationModulation?.primarySignal || "").toLowerCase())
+      && AUDIO_REACTIVE_SIGNALS.has(String(layer.presentationModulation?.accentSignal || "").toLowerCase());
+    if (!layer.stemFocus || !Array.isArray(layer.audioSignal) || audioSignals.length === 0) errors.push(`missing-stem-wiring:${layer.id}`);
+    if (!audioSignals.some((signal) => AUDIO_REACTIVE_SIGNALS.has(signal)) || (!mappedReactive && !presentationReactive)) errors.push(`nonreactive-visualizer:${layer.id}`);
     if (!Array.isArray(layer.unsupported)) errors.push(`implicit-unsupported:${layer.id}`);
     if (layer.rendererTruth?.schemaVersion !== VISUALIZER_RENDERER_TRUTH_SCHEMA || layer.rendererTruth?.rendererId !== "hyperframes") errors.push(`renderer-truth-missing:${layer.id}`);
     if (layer.rendererTruth?.visible !== true || layer.rendererTruth?.silentDefault !== false) errors.push(`renderer-truth-hidden:${layer.id}`);

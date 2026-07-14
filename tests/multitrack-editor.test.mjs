@@ -131,3 +131,59 @@ test("editor projection preserves runtime-contract media and explicit visualizer
   assert.equal(generated.media.localPath, "");
   assert.equal(generated.provenance.rendererRoute, "generated-visualizer");
 });
+
+test("timeline projection preserves verified stems and portable visualizer truth", () => {
+  const portableCard = {
+    schemaVersion: "hapa.visualizer-card.v2",
+    id: "isf:exact-one",
+    title: "Exact One",
+    inputs: [{ NAME: "gain", TYPE: "float", DEFAULT: 0.5 }],
+    audioMap: { gain: { signal: "rms", depth: 0.4 } },
+    audioSignal: ["rms"],
+    source: { hash: "sha256:exact", uri: "/static/exact.fs" },
+    stemFocus: "drums",
+  };
+  const projected = projectToEditorGraph({
+    song_id: "rich-song",
+    song_title: "Rich Song",
+    duration: 8,
+    timeline: [{ start_sec: 0, end_sec: 8, media_id: "new-media", media_title: "New Media", media_uri: "/new.mp4" }],
+    visualizer_timeline: [{ start_sec: 0, end_sec: 8, visualizer_id: "isf:exact-one", visualizer_title: "Exact One" }],
+    director_show_graph: {
+      song: { id: "rich-song", durationSeconds: 8 },
+      stems: { nativeStatus: "partial-local-paths", items: [{ id: "stem:drums", stemType: "Drums", audioPath: "/stems/drums.wav" }] },
+      tracks: [
+        { id: "track-a", role: "foundation", cards: [{ id: "card:a:0", startSeconds: 0, endSeconds: 8, media: { id: "old-media" }, parameters: { opacity: 1 } }] },
+        { id: "track-b", role: "visualizer", cards: [{ id: "card:b:0", startSeconds: 0, endSeconds: 8, media: { id: "isf:exact-one" }, visualization: { sourceId: "isf:exact-one", card: portableCard }, parameters: { visualizerMappings: { gain: "drums:rms" } }, provenance: { stemFocus: "drums" } }] },
+      ],
+      directorV2: { stemBuses: [{ id: "bus:drums", stemType: "Drums", audioPath: "/stems/drums.wav", truthStatus: "verified_registry_path" }], patchLineage: { patches: [], dirtyRanges: [] } },
+    },
+  });
+  const visualizer = projected.tracks.find((track) => track.id === "track-b").cards[0];
+  assert.equal(projected.stems.items[0].audioPath, "/stems/drums.wav");
+  assert.equal(projected.directorV2.stemBuses[0].truthStatus, "verified_registry_path");
+  assert.deepEqual(visualizer.visualization.card.inputs, portableCard.inputs);
+  assert.deepEqual(visualizer.visualization.card.audioMap, portableCard.audioMap);
+  assert.equal(visualizer.visualization.card.source.hash, "sha256:exact");
+  assert.equal(visualizer.parameters.visualizerMappings.gain, "drums:rms");
+});
+
+test("timeline projection marks an unknown shader instead of borrowing another shader's portable card", () => {
+  const projected = projectToEditorGraph({
+    song_id: "unknown-viz-song",
+    duration: 4,
+    visualizer_timeline: [{ start_sec: 0, end_sec: 4, visualizer_id: "isf:unknown", visualizer_title: "Unknown" }],
+    director_show_graph: {
+      song: { id: "unknown-viz-song", durationSeconds: 4 },
+      tracks: [
+        { id: "track-a", role: "foundation", cards: [] },
+        { id: "track-b", role: "visualizer", cards: [{ id: "card:b:0", startSeconds: 0, endSeconds: 4, visualization: { sourceId: "isf:known", card: { schemaVersion: "hapa.visualizer-card.v2", id: "isf:known" } } }] },
+      ],
+      directorV2: { patchLineage: { patches: [], dirtyRanges: [] } },
+    },
+  });
+  const visualizer = projected.tracks.find((track) => track.id === "track-b").cards[0];
+  assert.equal(visualizer.visualization.sourceId, "isf:unknown");
+  assert.equal(visualizer.visualization.card, undefined);
+  assert.equal(visualizer.provenance.portableCardStatus, "missing-for-requested-source");
+});

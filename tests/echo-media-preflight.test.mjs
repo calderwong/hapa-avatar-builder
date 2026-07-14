@@ -226,7 +226,7 @@ test("single-cut compiler does not let an unrelated broken saved cut block a val
     ], { cwd: REPO, encoding: "utf8" });
 
     assert.equal(result.status, 1);
-    assert.match(result.stderr, /Missing JSON input: .*manifest-does-not-exist/);
+    assert.match(result.stderr, /ISF manifest is required before Director shader selection: .*manifest-does-not-exist/);
     assert.doesNotMatch(result.stderr, /Echo media preflight failed/);
     assert.doesNotMatch(result.stderr, /old-missing\.mp4/);
   } finally {

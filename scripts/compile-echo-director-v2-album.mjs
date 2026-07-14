@@ -14,6 +14,7 @@ import {
   nativeVisualizerRouteCounts,
   validateNativeVisualizerRoute,
 } from "../src/domain/native-visualizer-route.js";
+import { loadGatedEchoIsfManifest, repairEchoProjectShaders } from "./echo-isf-gated-manifest.mjs";
 import {
   assertEchoMediaPreflight,
   preflightEchoAlbum,
@@ -28,6 +29,7 @@ const PROJECTS = path.resolve(argument("projects", path.join(ROOT, "data/music-v
 const OUTPUT = path.resolve(argument("output", path.join(ROOT, "artifacts/echo-director-v2/album")));
 const VARIANTS = path.resolve(argument("variants", path.join(ROOT, "data/music-video-project-variants")));
 const MANIFEST_PATH = "/Users/calderwong/Desktop/hapa-music-viz/web/isf/manifest.json";
+const PIXEL_GATE_PATH = "/Users/calderwong/Desktop/hapa-music-viz/docs/ISF_ALL_SHADER_PIXEL_GATE_REPORT.json";
 const PROXY_REGISTRY_PATH = path.join(path.dirname(MANIFEST_PATH), "proxies/native-exact-proxies.json");
 const registryPath = "/Users/calderwong/Desktop/hapa-song-registry/data/registry.json";
 
@@ -107,19 +109,22 @@ assertEchoMediaPreflight(mediaPreflight);
 
 // Only hydrate the large manifest/proxy/registry inputs after every source cut
 // has passed the local media gate.
-const MANIFEST_BYTES = fs.readFileSync(MANIFEST_PATH);
+const GATED_MANIFEST = loadGatedEchoIsfManifest({ manifestPath: MANIFEST_PATH, pixelGatePath: PIXEL_GATE_PATH });
+const MANIFEST_BYTES = GATED_MANIFEST.manifestBytes;
 const PROXY_REGISTRY_BYTES = fs.existsSync(PROXY_REGISTRY_PATH) ? fs.readFileSync(PROXY_REGISTRY_PATH) : Buffer.from("{}");
+const PIXEL_GATE_BYTES = GATED_MANIFEST.pixelGateBytes;
 const PROXY_REGISTRY = JSON.parse(PROXY_REGISTRY_BYTES.toString("utf8"));
-const MANIFEST = hydrateManifestNativeRoutes(JSON.parse(MANIFEST_BYTES.toString("utf8")), PROXY_REGISTRY);
+const MANIFEST = hydrateManifestNativeRoutes(GATED_MANIFEST.manifest, PROXY_REGISTRY);
 const MANIFEST_HASH = `sha256:${crypto.createHash("sha256").update(MANIFEST_BYTES).digest("hex")}`;
+const PIXEL_GATE_HASH = `sha256:${crypto.createHash("sha256").update(PIXEL_GATE_BYTES).digest("hex")}`;
 const PROXY_REGISTRY_HASH = `sha256:${crypto.createHash("sha256").update(PROXY_REGISTRY_BYTES).digest("hex")}`;
 const REGISTRY = fs.existsSync(registryPath) ? JSON.parse(fs.readFileSync(registryPath, "utf8")) : null;
 
 const files = fs.readdirSync(PROJECTS).filter((file) => file.endsWith(".json")).sort();
 const rows = [];
 for (const file of files) {
-  const payload = JSON.parse(fs.readFileSync(path.join(PROJECTS, file), "utf8"));
-  const project = payload.music_video_project || payload;
+  const sourcePayload = JSON.parse(fs.readFileSync(path.join(PROJECTS, file), "utf8"));
+  const { project: payload, projectBody: project, shaderRepair } = repairEchoProjectShaders(sourcePayload, MANIFEST);
   const artifacts = buildDirectorV2Artifacts({
     project: payload,
     manifest: MANIFEST,
@@ -256,6 +261,7 @@ for (const file of files) {
     title: project.song_title,
     directory,
     sourceProjectHash: artifacts.treatment.sourceProjectHash,
+    shaderRepair,
     manifestHash: MANIFEST_HASH,
     sourceCueCount: sourceCues.length,
     validClippedCueCount: clippedSourceCues.length,
@@ -313,12 +319,21 @@ const albumSourceRoutes = [...albumSourceRouteMap.values()].sort((left, right) =
   }),
 }));
 const visualizerCardCount = rows.reduce((sum, row) => sum + row.visualizerCardCount, 0);
+const shaderRepair = {
+  schemaVersion: "hapa.echo.album-shader-repair.v1",
+  pixelGatePath: PIXEL_GATE_PATH,
+  pixelGateHash: PIXEL_GATE_HASH,
+  replacementCount: rows.reduce((sum, row) => sum + Number(row.shaderRepair?.replacementCount || 0), 0),
+  repairedProjectCount: rows.filter((row) => Number(row.shaderRepair?.replacementCount || 0) > 0).length,
+  unresolvedQuarantineCount: rows.reduce((sum, row) => sum + Number(row.shaderRepair?.unresolvedCount || 0), 0),
+};
 const nativeRouteReport = {
   schemaVersion: "hapa.echo.album-native-shader-route-report.v1",
   routeEntrySchemaVersion: NATIVE_SHADER_ROUTE_SCHEMA,
   generatedAt: new Date().toISOString(),
   manifestPath: MANIFEST_PATH,
   manifestHash: MANIFEST_HASH,
+  shaderRepair,
   proxyRegistryPath: PROXY_REGISTRY_PATH,
   proxyRegistryHash: PROXY_REGISTRY_HASH,
   proxyRegistryCounts: MANIFEST.nativeRouteRegistry,
@@ -355,6 +370,7 @@ const report = {
   passingProjects: rows.filter((row) => row.errors.length === 0).length,
   manifestPath: MANIFEST_PATH,
   manifestHash: MANIFEST_HASH,
+  shaderRepair,
   sourceCueCount: rows.reduce((sum, row) => sum + row.sourceCueCount, 0),
   validClippedCueCount: rows.reduce((sum, row) => sum + row.validClippedCueCount, 0),
   receiptCount: rows.reduce((sum, row) => sum + row.receiptCount, 0),

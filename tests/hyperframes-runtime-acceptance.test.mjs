@@ -111,7 +111,15 @@ test("Dear Papa HyperFrames schedules every sequential visualizer cue with exact
     assert.equal(instance.stemFocus, portable.stemFocus || "master");
     assert.deepEqual(instance.inputs, portable.inputs || []);
     assert.deepEqual(instance.controls, { ...(portable.controls || {}), ...(card.parameters?.visualizerControls || {}) });
-    assert.deepEqual(instance.audioMap, { ...(portable.audioMap || {}), ...(card.parameters?.visualizerMappings || {}) });
+    assert.ok(Object.values(instance.audioMap).every((mapping) => mapping && typeof mapping === "object" && !Array.isArray(mapping)));
+    for (const [uniform, editorMapping] of Object.entries(card.parameters?.visualizerMappings || {})) {
+      const parts = String(editorMapping).split(":");
+      assert.equal(instance.audioMap[uniform].signal, parts.at(-1));
+      if (parts.length > 1) assert.equal(instance.audioMap[uniform].stemFocus, parts.slice(0, -1).join(":"));
+      if (portable.audioMap?.[uniform]?.depth != null) {
+        assert.equal(instance.audioMap[uniform].depth, portable.audioMap[uniform].depth, "editor aliases must preserve portable mapping depth");
+      }
+    }
     assert.ok(instance.audioSignal.length > 0);
     assert.equal(instance.baseOpacity, portable.layer?.opacity ?? 1);
     assert.equal(instance.opacity, card.parameters?.opacity ?? instance.baseOpacity);
@@ -171,7 +179,10 @@ test("HyperFrames evaluator is deterministic and a sequential visualizer ID chan
     assert.equal(layer.visualizerId, golden.samples[index].visualizerId);
     assert.equal(layer.stemFocus?.requested || layer.stemFocus, expected.stemFocus);
     assert.ok(layer.controls?.values || layer.controls);
-    assert.equal(layer.effectiveOpacity, expected.effectiveOpacity);
+    const expectedModulatedOpacity = expected.effectiveOpacity
+      * layer.transitionAlpha
+      * (layer.presentationModulation?.opacityMultiplier ?? 1);
+    assert.ok(Math.abs(layer.effectiveOpacity - expectedModulatedOpacity) < 1e-9);
     assert.equal(layer.blendMode, expected.blendMode);
     assert.equal(layer.target, expected.target);
     assert.ok(layer.proxyFrame?.frameIndex >= 0);

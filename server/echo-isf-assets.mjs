@@ -30,6 +30,7 @@ export class EchoIsfAssetCatalog {
     this.manifestPath = path.join(this.musicVizRoot, "web/isf/manifest.json");
     this.shaderRoot = path.join(this.musicVizRoot, "web/isf/shaders");
     this.runtimePath = path.join(this.musicVizRoot, "web/vendor/isf-renderer.js");
+    this.pixelGatePath = path.join(this.musicVizRoot, "docs/ISF_ALL_SHADER_PIXEL_GATE_REPORT.json");
     this.cacheCheckMs = Math.max(0, Number(cacheCheckMs) || 0);
     this.cache = null;
     this.loading = null;
@@ -50,13 +51,20 @@ export class EchoIsfAssetCatalog {
       return this.cache;
     }
 
-    const [manifestBytes, runtimeBytes, realShaderRoot] = await Promise.all([
+    const [manifestBytes, runtimeBytes, pixelGateBytes, realShaderRoot] = await Promise.all([
       readFile(this.manifestPath),
       readFile(this.runtimePath),
+      readFile(this.pixelGatePath),
       realpath(this.shaderRoot)
     ]);
     const manifest = JSON.parse(manifestBytes.toString("utf8"));
     const manifestShaders = Array.isArray(manifest?.shaders) ? manifest.shaders : [];
+    const pixelGate = pixelGateBytes ? JSON.parse(pixelGateBytes.toString("utf8")) : null;
+    if (!Array.isArray(pixelGate?.classifications) || pixelGate.classifications.length === 0) {
+      throw new Error(`ISF pixel-gate report is required and must contain shader classifications: ${this.pixelGatePath}`);
+    }
+    const pixelClassifications = new Map((Array.isArray(pixelGate?.classifications) ? pixelGate.classifications : [])
+      .map((entry) => [String(entry?.id || ""), entry]));
     const runtimeHash = sha256(runtimeBytes);
     const runtime = {
       filePath: this.runtimePath,
@@ -91,6 +99,14 @@ export class EchoIsfAssetCatalog {
       const bytes = await readFile(realSource);
       const hash = sha256(bytes);
       const fileStat = await stat(realSource);
+      const pixelEntry = pixelClassifications.get(id) || null;
+      const pixelEntryHash = normalizedHash(pixelEntry?.sourceHash);
+      const pixelGateMatchesSource = Boolean(pixelEntry && pixelEntryHash === hash);
+      if (!pixelEntry || !pixelGateMatchesSource) {
+        throw new Error(`ISF pixel-gate report is stale or incomplete for ${id}; rerun the pixel gate before browser playback.`);
+      }
+      const unsupportedByPixelGate = pixelGateMatchesSource && pixelEntry.classification === "unsupported-quarantine";
+      const directorEligible = shader.directorEligible !== false && shader.enabled !== false && !unsupportedByPixelGate;
       return {
         id,
         filePath: realSource,
@@ -106,7 +122,30 @@ export class EchoIsfAssetCatalog {
           sourceBytes: bytes.byteLength,
           runtime: runtime.source,
           runtimeHash: runtime.sourceHash,
-          runtimeBytes: runtime.sourceBytes
+          runtimeBytes: runtime.sourceBytes,
+          directorEligible,
+          enabled: shader.enabled !== false && !unsupportedByPixelGate,
+          pixelGate: pixelEntry ? {
+            schemaVersion: pixelGate?.schemaVersion || "",
+            status: pixelGateMatchesSource ? "source-hash-verified" : "stale-source-hash",
+            classification: pixelEntry.classification || "unclassified",
+            reason: pixelEntry.reason || "",
+            compileAttempted: pixelEntry.compileAttempted === true,
+            drawAttempted: pixelEntry.drawAttempted === true,
+            playableFrameIndices: Array.isArray(pixelEntry.playableFrameIndices) ? pixelEntry.playableFrameIndices : [],
+          } : {
+            schemaVersion: pixelGate?.schemaVersion || "",
+            status: pixelGate ? "classification-missing" : "report-unavailable",
+            classification: "unclassified",
+            reason: pixelGate ? "shader-id-not-present-in-pixel-gate" : "pixel-gate-report-unavailable",
+            compileAttempted: false,
+            drawAttempted: false,
+            playableFrameIndices: [],
+          },
+          runtimeEligibility: unsupportedByPixelGate ? "unsupported-quarantine" : directorEligible ? "eligible" : "manifest-ineligible",
+          runtimeEligibilityReason: unsupportedByPixelGate
+            ? pixelEntry.reason || "browser-isf-compile-or-draw-failed"
+            : directorEligible ? "source-hash-verified-pixel-gate" : "manifest-disabled",
         }
       };
     }));
@@ -116,15 +155,22 @@ export class EchoIsfAssetCatalog {
       if (byId.has(record.id)) throw new Error(`ISF manifest contains duplicate id ${record.id}.`);
       byId.set(record.id, record);
     }
-    const [manifestStat, runtimeStat] = await Promise.all([stat(this.manifestPath), stat(this.runtimePath)]);
+    const [manifestStat, runtimeStat, pixelGateStat] = await Promise.all([
+      stat(this.manifestPath),
+      stat(this.runtimePath),
+      stat(this.pixelGatePath).catch(() => null),
+    ]);
     this.cache = {
       checkedAt: Date.now(),
       manifestSignature: `${manifestStat.size}:${manifestStat.mtimeMs}`,
       runtimeSignature: `${runtimeStat.size}:${runtimeStat.mtimeMs}`,
+      pixelGateSignature: pixelGateStat ? `${pixelGateStat.size}:${pixelGateStat.mtimeMs}` : "missing",
       manifest: {
         version: manifest?.version ?? null,
         renderer: manifest?.renderer || null,
-        hash: sha256(manifestBytes)
+        hash: sha256(Buffer.concat([manifestBytes, pixelGateBytes || Buffer.alloc(0)])),
+        sourceHash: sha256(manifestBytes),
+        pixelGateHash: pixelGateBytes ? sha256(pixelGateBytes) : null,
       },
       runtime,
       records,
@@ -136,13 +182,15 @@ export class EchoIsfAssetCatalog {
 
   async #cacheFilesUnchanged(cache) {
     try {
-      const [manifestStat, runtimeStat, ...shaderStats] = await Promise.all([
+      const [manifestStat, runtimeStat, pixelGateStat, ...shaderStats] = await Promise.all([
         stat(this.manifestPath),
         stat(this.runtimePath),
+        stat(this.pixelGatePath).catch(() => null),
         ...cache.records.map((record) => stat(record.filePath))
       ]);
       if (`${manifestStat.size}:${manifestStat.mtimeMs}` !== cache.manifestSignature) return false;
       if (`${runtimeStat.size}:${runtimeStat.mtimeMs}` !== cache.runtimeSignature) return false;
+      if ((pixelGateStat ? `${pixelGateStat.size}:${pixelGateStat.mtimeMs}` : "missing") !== cache.pixelGateSignature) return false;
       return shaderStats.every((fileStat, index) =>
         `${fileStat.size}:${fileStat.mtimeMs}` === cache.records[index].fileSignature
       );

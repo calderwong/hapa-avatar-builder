@@ -49,14 +49,18 @@ test("album Director v2 hydration covers every Echo project with executable visu
   assert.deepEqual(report.nativeShaderRoutes.routeCounts, {
     total: 791,
     exactNative: 11,
-    exactProxy: 692,
-    unsupported: 88,
+    exactProxy: 780,
+    unsupported: 0,
     invalid: 0,
     intentKeys: 0,
     silentDefaults: 0,
   });
   assert.equal(report.nativeShaderRoutes.accountedCardCount, 791);
   assert.equal(report.nativeShaderRoutes.silentFilteredCardCount, 0);
+  assert.equal(report.shaderRepair.replacementCount, 88);
+  assert.ok(report.shaderRepair.repairedProjectCount > 0);
+  assert.equal(report.shaderRepair.unresolvedQuarantineCount, 0);
+  assert.ok(report.projects.every((project) => project.shaderRepair.ok));
   assert.ok(report.projects.every((project) => project.sourceCueCount === project.receiptCount));
   assert.ok(report.projects.every((project) => project.validClippedCueCount === project.visualizerCardCount));
   assert.ok(report.projects.every((project) => project.exactIdCount === project.visualizerCardCount));
@@ -77,14 +81,14 @@ test("album Director v2 hydration covers every Echo project with executable visu
   assert.equal(routes.cueCardCount, 791);
   assert.equal(routes.accountedCardCount, 791);
   assert.equal(routes.silentFilteredCardCount, 0);
-  assert.equal(routes.uniqueSourceIdCount, 181);
+  assert.equal(routes.uniqueSourceIdCount, 162);
   assert.equal(routes.proxyRegistryCounts.proxyCount, 163);
   assert.equal(routes.proxyRegistryCounts.failureCount, 19);
   assert.deepEqual(routes.verification, {
     exactProxyRequiresAvailableAsset: true,
     exactProxyRequiresSourceSha256Match: true,
     exactProxyRequiresAssetSha256Match: true,
-    verifiedExactProxyCueCount: 692,
+    verifiedExactProxyCueCount: 780,
   });
   assert.deepEqual(routes.compositorNativeKeys, ["plasma-sparkle", "matrix-rain", "audio-bars"]);
   assert.ok(routes.sourceRoutes.every((source) => source.routes.length === 1));
@@ -92,7 +96,8 @@ test("album Director v2 hydration covers every Echo project with executable visu
   assert.ok(routes.sourceRoutes.flatMap((source) => source.routes).filter((route) => route.route === "exact-native").every((route) => routes.compositorNativeKeys.includes(route.nativeKey)));
   assert.equal(routes.sourceRoutes.filter((source) => source.routes[0].route === "exact-native").length, 3);
   assert.equal(routes.sourceRoutes.filter((source) => source.routes[0].route === "hash-bound-exact-proxy").length, 159);
-  assert.equal(routes.sourceRoutes.filter((source) => source.routes[0].route === "unsupported").length, 19);
+  assert.equal(routes.sourceRoutes.filter((source) => source.routes[0].route === "unsupported").length, 0);
+  assert.deepEqual(routes.shaderRepair, report.shaderRepair);
 
   const proxyProject = report.projects.find((project) => project.nativeRouteCounts.exactProxy > 0);
   const proxyGraph = JSON.parse(fs.readFileSync(path.join(proxyProject.directory, "native-show-graph.json"), "utf8"));

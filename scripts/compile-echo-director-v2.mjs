@@ -10,6 +10,7 @@ import {
   stableStringify,
 } from "../src/domain/echo-director-v2.js";
 import { hydrateManifestNativeRoutes } from "../src/domain/native-visualizer-route.js";
+import { loadGatedEchoIsfManifest, repairEchoProjectShaders } from "./echo-isf-gated-manifest.mjs";
 import {
   ECHO_MEDIA_PREFLIGHT_SCHEMA,
   assertEchoMediaPreflight,
@@ -114,10 +115,10 @@ function main() {
   if (unknownRecipes.length) throw new Error(`Unknown --recipe ${unknownRecipes.join(", ")}; expected all or ${Object.keys(DEFAULT_VARIANT_RECIPES).join(", ")}`);
   const projectPath = path.resolve(options.project);
   const outputDir = path.resolve(options.output);
-  const project = readJson(projectPath);
+  const sourceProject = readJson(projectPath);
   const avatarRoot = path.resolve(options.avatarRoot);
   const selectedCutPreflight = preflightEchoDirectionCut({
-    project,
+    project: sourceProject,
     sourcePath: projectPath,
     avatarRoot,
   });
@@ -137,7 +138,10 @@ function main() {
   });
   const manifestPath = path.resolve(options.manifest);
   const proxyRegistryPath = path.join(path.dirname(manifestPath), "proxies/native-exact-proxies.json");
-  const manifest = hydrateManifestNativeRoutes(readJson(manifestPath), readJson(proxyRegistryPath, false) || {});
+  const pixelGatePath = path.join(path.resolve(path.dirname(manifestPath), "../.."), "docs/ISF_ALL_SHADER_PIXEL_GATE_REPORT.json");
+  const gatedManifest = loadGatedEchoIsfManifest({ manifestPath, pixelGatePath });
+  const manifest = hydrateManifestNativeRoutes(gatedManifest.manifest, readJson(proxyRegistryPath, false) || {});
+  const { project, shaderRepair } = repairEchoProjectShaders(sourceProject, manifest);
   const nativeProxyAvailable = nativeProxyAvailability(manifestPath);
   const registry = readJson(path.resolve(options.registry), false);
   const stemTelemetry = options.stemTelemetry ? readJson(path.resolve(options.stemTelemetry), false) : null;

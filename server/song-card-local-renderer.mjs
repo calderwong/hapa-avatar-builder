@@ -440,6 +440,136 @@ async function readLocalCheckpoint(checkpointPath, { identitySha256, outputDirec
   }
 }
 
+function isolatedStemRole(value = "") {
+  const compact = text(value)
+    .toLowerCase()
+    .replace(/^(?:stem|bus)[:/_-]+/, "")
+    .replace(/[^a-z0-9]+/g, "");
+  const aliases = {
+    leadvocal: "vocals",
+    leadvocals: "vocals",
+    leadvoice: "vocals",
+    vocal: "vocals",
+    voice: "vocals",
+    backingvocal: "backingvocals",
+    backingvocals: "backingvocals",
+    backgroundvocal: "backingvocals",
+    backgroundvocals: "backingvocals",
+    bgvocals: "backingvocals",
+    drum: "drums",
+    key: "keyboard",
+    keys: "keyboard",
+    keyboards: "keyboard",
+    synths: "synth",
+    stringssection: "strings",
+  };
+  const role = aliases[compact] || compact;
+  return role && !["archivezip", "archive", "master", "mastermix", "mix", "fullmix"].includes(role) ? role : "";
+}
+
+function usableStemItem(item = {}) {
+  const role = isolatedStemRole(item?.stemType || item?.role || item?.title || item?.id);
+  const audioPath = text(item?.audioPath);
+  if (!role || !audioPath) return null;
+  try {
+    return fs.statSync(audioPath).isFile() ? { item, role, audioPath } : null;
+  } catch {
+    return null;
+  }
+}
+
+function mappingStemFocus(value) {
+  if (typeof value === "string") {
+    const separator = value.lastIndexOf(":");
+    return separator > 0 ? value.slice(0, separator) : "";
+  }
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value.stemFocus || value.stem_focus || value.stem || ""
+    : "";
+}
+
+function visualizerRequestedStemRoles(card = {}) {
+  const portable = card?.visualization?.card || {};
+  const requests = [];
+  const add = (value, source) => {
+    const role = isolatedStemRole(value);
+    if (role) requests.push({ role, requested: text(value), source });
+  };
+  add(portable.stemFocus, "portable-card.stemFocus");
+  add(card?.visualization?.stemFocus, "visualization.stemFocus");
+  add(card?.parameters?.stemFocus, "parameters.stemFocus");
+  add(card?.provenance?.stemFocus, "provenance.stemFocus");
+  for (const [uniform, mapping] of Object.entries(portable.audioMap || {})) {
+    add(mappingStemFocus(mapping), `portable-card.audioMap.${uniform}`);
+  }
+  for (const [uniform, mapping] of Object.entries(card?.parameters?.visualizerMappings || {})) {
+    add(mappingStemFocus(mapping), `parameters.visualizerMappings.${uniform}`);
+  }
+  for (const [index, binding] of (Array.isArray(portable.automation) ? portable.automation : []).entries()) {
+    add(binding?.stemFocus, `portable-card.automation.${index}`);
+  }
+  return [...new Map(requests.map((request) => [`${request.role}\u0000${request.source}`, request])).values()];
+}
+
+export function preflightSongCardSignalGraph({ project = {}, showGraph = {} } = {}) {
+  const stemItems = Array.isArray(showGraph?.stems?.items) ? showGraph.stems.items : [];
+  const projectRoles = (Array.isArray(project?.stems_available) ? project.stems_available : [])
+    .map(isolatedStemRole)
+    .filter(Boolean);
+  const graphRoles = stemItems.map((item) => isolatedStemRole(item?.stemType || item?.role || item?.title || item?.id)).filter(Boolean);
+  const expectedStemRoles = [...new Set([...projectRoles, ...graphRoles])];
+  const verifiedStems = stemItems.map(usableStemItem).filter(Boolean);
+  const verifiedStemRoles = [...new Set(verifiedStems.map((entry) => entry.role))];
+  const verifiedRoleSet = new Set(verifiedStemRoles);
+  const shaderRows = visualizerCards(showGraph);
+  const unresolvedStemBindings = shaderRows.flatMap(({ card }) => (
+    visualizerRequestedStemRoles(card)
+      .filter((request) => !verifiedRoleSet.has(request.role))
+      .map((request) => ({
+        cardId: text(card?.id),
+        sourceId: text(card?.visualization?.sourceId || card?.visualization?.requestedSourceId || card?.visualization?.card?.id),
+        requestedStemRole: request.role,
+        requestedStemFocus: request.requested,
+        bindingSource: request.source,
+        reason: "visualizer-requested-stem-path-unverified",
+      }))
+  ));
+  const detachedVisualizers = shaderRows.filter(({ card }) => (
+    card?.visualization?.card?.schemaVersion !== "hapa.visualizer-card.v2"
+    || !text(card?.visualization?.card?.id)
+    || !text(card?.visualization?.card?.source?.hash)
+  )).map(({ card }) => ({
+    cardId: text(card?.id),
+    sourceId: text(card?.visualization?.sourceId || card?.visualization?.requestedSourceId),
+    reason: "portable-visualizer-card-missing-or-unbound",
+  }));
+  const errors = [];
+  if (expectedStemRoles.length > 0 && verifiedStems.length === 0) errors.push("isolated-stem-paths-detached");
+  if (unresolvedStemBindings.length > 0) errors.push("visualizer-stem-paths-detached");
+  if (detachedVisualizers.length > 0) errors.push("portable-visualizer-truth-detached");
+  return {
+    schemaVersion: "hapa.song-card.signal-graph-preflight.v1",
+    ok: errors.length === 0,
+    errors,
+    expectedStemRoles,
+    verifiedStemRoles,
+    unverifiedExpectedStemRoles: expectedStemRoles.filter((role) => !verifiedRoleSet.has(role)),
+    verifiedStemCount: verifiedStems.length,
+    visualizerCount: shaderRows.length,
+    unresolvedStemBindings,
+    detachedVisualizers,
+  };
+}
+
+function createSongCardSignalGraphError(preflight) {
+  return localRendererError(
+    "local_signal_graph_detached",
+    "The selected cut lost its isolated-stem paths or exact shader cards before compilation. The final MP4 did not start; re-save the repaired cut and retry.",
+    409,
+    { stage: "signal-graph-preflight", preflight },
+  );
+}
+
 function filteredStemGraph(showGraph, masterPath) {
   const graph = structuredClone(showGraph);
   const sourceItems = Array.isArray(graph?.stems?.items) ? graph.stems.items : [];
@@ -573,6 +703,9 @@ async function defaultPipeline({ project, showGraph, outputDirectory, masterPath
   const analyzedGraphPath = path.join(inputDirectory, "show-graph-with-telemetry.json");
   const projectPath = path.join(inputDirectory, "project.json");
   const telemetryPath = path.join(inputDirectory, "stem-telemetry.json");
+  const signalGraphPreflight = preflightSongCardSignalGraph({ project, showGraph });
+  await writeJson(path.join(inputDirectory, "signal-graph-preflight.json"), signalGraphPreflight);
+  if (!signalGraphPreflight.ok) throw createSongCardSignalGraphError(signalGraphPreflight);
   await Promise.all([
     writeJson(graphPath, filteredStemGraph(showGraph, masterPath)),
     writeJson(projectPath, project),

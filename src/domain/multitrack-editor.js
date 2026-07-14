@@ -64,9 +64,51 @@ function projectedShotMedia(shot = {}) {
   };
 }
 
-export function projectToEditorGraph(project = {}) {
+function clone(value) {
+  if (value === undefined) return undefined;
+  return typeof structuredClone === "function"
+    ? structuredClone(value)
+    : JSON.parse(JSON.stringify(value));
+}
+
+function visualizerSourceId(value = {}) {
+  const visualization = value.visualization || value;
+  return String(
+    visualization.requestedSourceId
+      || visualization.sourceId
+      || visualization.card?.id
+      || value.visualizer_id
+      || value.visualizerId
+      || value.media?.id
+      || "",
+  ).trim();
+}
+
+function visualizerTitle(value = {}) {
+  const visualization = value.visualization || value;
+  return String(
+    value.visualizer_title
+      || value.visualizerTitle
+      || visualization.card?.title
+      || visualization.nativeKey
+      || value.media?.title
+      || "",
+  ).trim();
+}
+
+function normalizedLookupKey(value) {
+  return String(value || "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "");
+}
+
+function trackByRole(graph, ids, roles) {
+  const tracks = Array.isArray(graph?.tracks) ? graph.tracks : [];
+  return tracks.find((track) => ids.includes(track.id))
+    || tracks.find((track) => roles.includes(track.role));
+}
+
+function legacyEditorGraph(project = {}) {
   const duration = Number(project.duration || 60);
-  const graph = {
+  return {
     schemaVersion: "hapa.music-viz.native-show-graph.v2",
     song: { id: project.song_id, title: project.song_title, durationSeconds: duration, lyricOverlay: { lines: project.timed_lyrics || [] } },
     stems: { items: (project.stems_available || []).map((title, index) => ({ id: `stem:${index}`, stemType: title, title })) },
@@ -75,6 +117,136 @@ export function projectToEditorGraph(project = {}) {
       { id: "ivf-stack", label: "IVF / ISF", role: "visualizer", cards: (project.visualizer_timeline || []).map((row, index) => ({ id: `legacy:ivf:${index}`, trackId: "ivf-stack", startSeconds: Number(row.start_sec), endSeconds: Number(row.end_sec), media: { id: row.visualizer_id, title: row.visualizer_title }, visualization: { sourceId: row.visualizer_id, nativeKey: row.visualizer_title, status: row.native_status || "browser-proxy" }, parameters: { opacity: Number(row.opacity ?? 0.5), blendMode: row.blend_mode || "screen", stemMap: row.active_stems || [] }, buffer: { state: "ready", readySeconds: Number(row.end_sec) - Number(row.start_sec) }, provenance: { rendererRoute: row.native_status || "browser-proxy" }, knockedOut: false })) },
     ],
     directorV2: { stemBuses: [], cameraKeyframes: [], visualTimeTrack: { events: [] }, accentTrack: { events: [] }, patchLineage: { patches: [], dirtyRanges: [] }, rendererSupport: {} },
+  };
+}
+
+function mergeMediaTimeline(graph, timeline = []) {
+  if (!Array.isArray(timeline)) return;
+  const track = trackByRole(graph, ["track-a", "media-a"], ["foundation", "media"]);
+  if (!track) return;
+  const templates = Array.isArray(track.cards) ? track.cards : [];
+  track.cards = timeline.map((shot, index) => {
+    const template = templates[index] || {};
+    const startSeconds = Number(shot.start_sec ?? shot.startSeconds ?? template.startSeconds ?? 0);
+    const endSeconds = Number(shot.end_sec ?? shot.endSeconds ?? template.endSeconds ?? startSeconds);
+    const proxyReady = shot.media_contract?.proxy?.status === "ready";
+    return {
+      ...clone(template),
+      id: template.id || `projected:${track.id}:${index}`,
+      trackId: track.id,
+      startSeconds,
+      endSeconds,
+      media: projectedShotMedia(shot),
+      parameters: {
+        ...(clone(template.parameters) || {}),
+        ...(shot.camera_motion ? { motion: shot.camera_motion } : {}),
+        ...(Array.isArray(shot.active_stems) ? { stemMap: clone(shot.active_stems) } : {}),
+      },
+      buffer: shot.media_contract?.proxy
+        ? { state: proxyReady ? "ready" : "pending", readySeconds: proxyReady ? endSeconds - startSeconds : 0 }
+        : clone(template.buffer),
+      provenance: {
+        ...(clone(template.provenance) || {}),
+        ...(shot.media_contract?.type ? { rendererRoute: shot.media_contract.type } : {}),
+      },
+      knockedOut: false,
+    };
+  });
+}
+
+function mergeVisualizerTimeline(graph, timeline = []) {
+  if (!Array.isArray(timeline)) return;
+  const track = trackByRole(graph, ["track-b", "ivf-stack"], ["visualizer"]);
+  if (!track) return;
+  const templates = Array.isArray(track.cards) ? track.cards : [];
+  const bySourceId = new Map();
+  const byTitle = new Map();
+  for (const card of templates) {
+    const sourceId = visualizerSourceId(card);
+    const title = normalizedLookupKey(visualizerTitle(card));
+    if (sourceId && !bySourceId.has(sourceId)) bySourceId.set(sourceId, card);
+    if (title && !byTitle.has(title)) byTitle.set(title, card);
+  }
+  track.cards = timeline.map((row, index) => {
+    const requestedSourceId = visualizerSourceId(row);
+    const requestedTitle = visualizerTitle(row);
+    const indexed = templates[index];
+    const indexedMatches = indexed && (
+      (requestedSourceId && visualizerSourceId(indexed) === requestedSourceId)
+      || (!requestedSourceId && normalizedLookupKey(visualizerTitle(indexed)) === normalizedLookupKey(requestedTitle))
+    );
+    const template = indexedMatches
+      ? indexed
+      : bySourceId.get(requestedSourceId)
+        || byTitle.get(normalizedLookupKey(requestedTitle))
+        || {};
+    const hasPortableCard = template.visualization?.card?.schemaVersion === "hapa.visualizer-card.v2";
+    const startSeconds = Number(row.start_sec ?? row.startSeconds ?? template.startSeconds ?? 0);
+    const endSeconds = Number(row.end_sec ?? row.endSeconds ?? template.endSeconds ?? startSeconds);
+    const visualization = hasPortableCard
+      ? {
+        ...clone(template.visualization),
+        sourceId: requestedSourceId || visualizerSourceId(template),
+        requestedSourceId: requestedSourceId || template.visualization?.requestedSourceId,
+        nativeKey: requestedTitle || template.visualization?.nativeKey,
+        status: row.native_status || template.visualization?.status || "exact",
+      }
+      : {
+        sourceId: requestedSourceId,
+        requestedSourceId,
+        nativeKey: requestedTitle,
+        status: row.native_status || "portable-card-missing",
+      };
+    return {
+      ...clone(template),
+      id: indexedMatches && template.id ? template.id : `projected:${track.id}:${index}`,
+      trackId: track.id,
+      startSeconds,
+      endSeconds,
+      media: {
+        ...(clone(template.media) || {}),
+        id: requestedSourceId || template.media?.id,
+        title: requestedTitle || template.media?.title,
+      },
+      visualization,
+      parameters: {
+        ...(clone(template.parameters) || {}),
+        opacity: Number(row.opacity ?? template.parameters?.opacity ?? 0.5),
+        blendMode: row.blend_mode || row.blendMode || template.parameters?.blendMode || "screen",
+        ...(Array.isArray(row.active_stems) ? { stemMap: clone(row.active_stems) } : {}),
+      },
+      buffer: clone(template.buffer) || { state: "ready", readySeconds: endSeconds - startSeconds },
+      provenance: {
+        ...(clone(template.provenance) || {}),
+        rendererRoute: row.native_status || template.provenance?.rendererRoute || (hasPortableCard ? "exact-browser-isf" : "portable-card-missing"),
+        portableCardStatus: hasPortableCard ? "preserved" : "missing-for-requested-source",
+      },
+      knockedOut: false,
+    };
+  });
+}
+
+export function projectToEditorGraph(project = {}) {
+  const declared = project.director_show_graph?.tracks ? clone(project.director_show_graph) : null;
+  const graph = declared || legacyEditorGraph(project);
+  const duration = Number(project.duration ?? graph.song?.durationSeconds ?? 60);
+  graph.song = {
+    ...(graph.song || {}),
+    id: project.song_id || graph.song?.id,
+    title: project.song_title || graph.song?.title,
+    durationSeconds: duration,
+    lyricOverlay: {
+      ...(graph.song?.lyricOverlay || {}),
+      lines: Array.isArray(project.timed_lyrics) ? clone(project.timed_lyrics) : graph.song?.lyricOverlay?.lines || [],
+    },
+  };
+  if (declared) {
+    mergeMediaTimeline(graph, project.timeline);
+    mergeVisualizerTimeline(graph, project.visualizer_timeline || project.visualizerTimeline);
+  }
+  graph.directorV2 = {
+    ...(graph.directorV2 || {}),
+    patchLineage: graph.directorV2?.patchLineage || { patches: [], dirtyRanges: [] },
   };
   return replayMultitrackPatches(graph, project.director_show_graph_patches || []);
 }

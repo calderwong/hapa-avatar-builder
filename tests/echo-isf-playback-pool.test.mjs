@@ -155,6 +155,7 @@ function poolFor(rows, options = {}) {
     height: 180,
     maxSurfaces: options.maxSurfaces ?? 3,
     sourceCacheMaxEntries: options.sourceCacheMaxEntries,
+    failureCacheMaxEntries: options.failureCacheMaxEntries,
     dependencies: harness.dependencies,
   });
   return { ...harness, pool };
@@ -280,6 +281,82 @@ test("known compile, draw, and filter-input failures retain the last good canvas
       await new Promise((resolve) => setImmediate(resolve));
     });
   }
+});
+
+test("an evicted compile failure is negatively cached instead of retried by render-frame prewarm", async (t) => {
+  const brokenRow = shader("isf:bounded-compile-failure", { compileError: true });
+  const readyRows = ["isf:ready-a", "isf:ready-b", "isf:ready-c"].map((id) => shader(id));
+  const broken = cue(brokenRow.id, 0, 10);
+  const readyCards = readyRows.map((row, index) => cue(row.id, 10 + index * 10, 20 + index * 10));
+  const { pool, counters } = poolFor([brokenRow, ...readyRows], { failureCacheMaxEntries: 2 });
+  t.after(() => pool.dispose());
+
+  const failed = await pool.prewarm([broken]);
+  assert.equal(failed.errors[0]?.status, "compile-error");
+  assert.equal(counters.sourceFetches.get(brokenRow.id), 1);
+  assert.equal(counters.compiles, 1);
+
+  await pool.prewarm(readyCards);
+  assert.equal(pool.getDiagnostics().slots.some((slot) => slot.shaderId === brokenRow.id), false, "lookahead may recycle the failed surface");
+  const compilesAfterEviction = counters.compiles;
+  for (let index = 0; index < 24; index += 1) {
+    const held = pool.present(broken, frame(index / 60));
+    assert.equal(held.status, "compile-error");
+    await pool.prewarm(readyCards);
+  }
+
+  const diagnostics = pool.getDiagnostics();
+  assert.equal(counters.sourceFetches.get(brokenRow.id), 1, "the failed source is not fetched again per frame");
+  assert.equal(counters.compiles, compilesAfterEviction, "the failed source is not recompiled again per frame");
+  assert.equal(diagnostics.failureCache.size, 1);
+  assert.equal(diagnostics.failureCache.limit, 2);
+});
+
+test("a malformed card cannot poison a later valid cue using the same shader", async (t) => {
+  const row = shader("isf:shared-after-binding-error");
+  const sourceHash = "fnv1a32:1234abcd";
+  const malformed = cue(row.id, 0, 10, {
+    portableHash: sourceHash,
+    audioMap: { uniformThatDoesNotExist: { signal: "rms", depth: 0.2 } },
+  });
+  const valid = cue(row.id, 10, 20, { portableHash: sourceHash });
+  const { pool, counters } = poolFor([row]);
+  t.after(() => pool.dispose());
+
+  const rejected = await pool.prewarm([malformed]);
+  assert.equal(rejected.errors[0]?.status, "input-error");
+  assert.equal(pool.getDiagnostics().failureCache.size, 0, "cue-specific input errors are never negatively cached");
+
+  const recovered = await pool.prewarm([valid]);
+  assert.equal(recovered.status, "ready");
+  const presented = pool.present(valid, frame(10.1));
+  assert.equal(presented.status, "ready");
+  assert.equal(presented.presentedShaderId, row.id);
+  assert.equal(counters.compiles, 1, "only the valid binding reaches shader compilation");
+});
+
+test("allocation protects both the visible slot and the most recently requested failed slot", async (t) => {
+  const stableRow = shader("isf:protected-visible");
+  const brokenRow = shader("isf:protected-request", { compileError: true });
+  const lookaheadRow = shader("isf:replaceable-lookahead");
+  const extraRow = shader("isf:new-lookahead");
+  const stable = cue(stableRow.id, 0, 10);
+  const broken = cue(brokenRow.id, 10, 20);
+  const lookahead = cue(lookaheadRow.id, 20, 30);
+  const extra = cue(extraRow.id, 30, 40);
+  const { pool } = poolFor([stableRow, brokenRow, lookaheadRow, extraRow]);
+  t.after(() => pool.dispose());
+
+  await pool.prewarm([stable, broken, lookahead]);
+  assert.equal(pool.present(stable, frame(1)).status, "ready");
+  assert.equal(pool.present(broken, frame(11)).status, "compile-error");
+  await pool.prewarm([extra]);
+
+  const shaderIds = pool.getDiagnostics().slots.map((slot) => slot.shaderId);
+  assert.ok(shaderIds.includes(stableRow.id), "visible last-good pixels remain protected");
+  assert.ok(shaderIds.includes(brokenRow.id), "the explicitly requested failure remains resident and explicit");
+  assert.ok(shaderIds.includes(extraRow.id), "the older lookahead is the recyclable slot");
+  assert.equal(shaderIds.includes(lookaheadRow.id), false);
 });
 
 test("dirty ranges use half-open cue windows and graph cache-key invalidation is selective", async (t) => {

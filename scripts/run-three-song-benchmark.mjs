@@ -6,12 +6,13 @@ import { performance } from "node:perf_hooks";
 import { buildDirectorV2Artifacts, compileDirectorVariant } from "../src/domain/echo-director-v2.js";
 import { DIRECTOR_BENCHMARK_SCHEMA, evaluateDefaultMigration, summarizeBenchmarkGraph } from "../src/domain/director-benchmark.js";
 import { projectToEditorGraph } from "../src/domain/multitrack-editor.js";
+import { loadGatedEchoIsfManifest, repairEchoProjectShaders } from "./echo-isf-gated-manifest.mjs";
 
 const root = path.resolve(import.meta.dirname, "..");
 const output = path.resolve(process.argv.find((row) => row.startsWith("--output="))?.slice(9) || path.join(root, "artifacts/three-song-benchmark"));
 const manifestPath = "/Users/calderwong/Desktop/hapa-music-viz/web/isf/manifest.json";
 const registryPath = "/Users/calderwong/Desktop/hapa-song-registry/data/registry.json";
-const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
+const { manifest } = loadGatedEchoIsfManifest({ manifestPath });
 const registry = fs.existsSync(registryPath) ? JSON.parse(fs.readFileSync(registryPath, "utf8")) : null;
 const fixtures = [
   ["dear-papa-song-dear-papa", "Dear Papa"],
@@ -42,14 +43,16 @@ for (const [songId, title] of fixtures) {
   const projectPath = path.join(root, "data/music-video-projects", `${songId}-video-project.json`);
   const payload = JSON.parse(fs.readFileSync(projectPath, "utf8"));
   const project = payload.music_video_project || payload;
+  const prepared = repairEchoProjectShaders(payload, manifest).project;
+  const preparedProject = prepared.music_video_project || prepared;
   const started = performance.now();
-  const base = buildDirectorV2Artifacts({ project: payload, manifest, registry, duration: Number(project.duration), recipe: "conservative", seed: `benchmark:${songId}:base`, avatarRoot: root });
+  const base = buildDirectorV2Artifacts({ project: prepared, manifest, registry, duration: Number(project.duration), recipe: "conservative", seed: `benchmark:${songId}:base`, avatarRoot: root });
   const decisionEnvelopeMs = performance.now() - started;
-  const current = projectToEditorGraph(project);
+  const current = projectToEditorGraph(preparedProject);
   const variants = [];
   for (const recipe of recipes) {
     const variantStarted = performance.now();
-    const graph = compileDirectorVariant({ treatment: base.treatment, cueGraph: base.cueGraph, recipe, seed: `benchmark:${songId}:${recipe}`, sourceProject: payload });
+    const graph = compileDirectorVariant({ treatment: base.treatment, cueGraph: base.cueGraph, recipe, seed: `benchmark:${songId}:${recipe}`, sourceProject: prepared });
     const compileMs = performance.now() - variantStarted;
     variants.push({ recipe, graph, compileMs });
   }

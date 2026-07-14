@@ -231,6 +231,94 @@ test("stem and master frames stay on canonical audio time while controls map fro
   assert.equal(layer.visualTime.visualTimeSeconds, 0.5, "visual time modulation must not retime offline stem frames");
 });
 
+test("stem aliases resolve lead vocals to verified vocal telemetry without master fallback", () => {
+  const show = fixtureShow();
+  const layer = show.instances.visualizers.find((candidate) => candidate.id === "cue:back");
+  layer.stemFocus = "leadVocals";
+  show.stemFrames.stems[0].id = "stem:vocals";
+  show.stemFrames.stems[0].role = "Vocals";
+
+  const evaluated = evaluateHyperFramesVisualizers(show, 0.25).layers.find((candidate) => candidate.id === "cue:back");
+  assert.equal(evaluated.stemFocus, "vocals");
+  assert.deepEqual(evaluated.stemResolution, { requested: "vocals", resolved: "vocals", fallbackUsed: false });
+  assert.equal(evaluated.stemFrame.role, "Vocals");
+  assert.equal(evaluated.mappedControls.values.gain, 0.3);
+});
+
+test("each audio-map uniform samples its declared stem instead of the portable instance stem", () => {
+  const show = fixtureShow();
+  const layer = show.instances.visualizers.find((candidate) => candidate.id === "cue:back");
+  layer.stemFocus = "master";
+  layer.audioMap.gain = { signal: "rms", depth: 0.5, stemFocus: "Drums" };
+  layer.audioMap.enabled = { signal: "onset", depth: 1, threshold: 0.5, stemFocus: "leadVocals" };
+  show.stemFrames.stems.push({
+    id: "stem:vocals",
+    role: "Vocals",
+    frames: [
+      { t: 0, rms: 0.05, onset: 0 },
+      { t: 0.25, rms: 0.1, onset: 0.9 },
+    ],
+  });
+
+  const evaluated = evaluateHyperFramesVisualizers(show, 0.25).layers.find((candidate) => candidate.id === "cue:back");
+  assert.equal(evaluated.stemFocus, "master", "mixed maps keep the instance/presentation focus independent");
+  assert.equal(evaluated.mappedControls.values.gain, 0.3, "gain uses drums rms 0.4, not master rms 0.3");
+  assert.equal(evaluated.mappedControls.values.enabled, true, "enabled uses vocal onset 0.9, not master onset 0.2");
+  assert.deepEqual(
+    evaluated.controlBindings.filter((binding) => ["gain", "enabled"].includes(binding.uniform)).map((binding) => ({
+      uniform: binding.uniform,
+      requestedStem: binding.requestedStem,
+      resolvedStem: binding.resolvedStem,
+      fallbackUsed: binding.fallbackUsed,
+    })),
+    [
+      { uniform: "gain", requestedStem: "drums", resolvedStem: "drums", fallbackUsed: false },
+      { uniform: "enabled", requestedStem: "vocals", resolvedStem: "vocals", fallbackUsed: false },
+    ],
+  );
+});
+
+test("audio-conditioned proxy presentation changes retained pixels materially and deterministically", () => {
+  const conditionedShow = ({ rms, onset }) => {
+    const show = fixtureShow();
+    const layer = show.instances.visualizers.find((candidate) => candidate.id === "cue:back");
+    layer.presentationModulation = {
+      schemaVersion: "hapa.hyperframes.presentation-modulation.v1",
+      mode: "audio-conditioned-proxy",
+      source: "declared-audio-map",
+      primarySignal: "rms",
+      accentSignal: "beat",
+      primaryWeight: 0.7,
+      accentWeight: 0.3,
+      frameOffsetFrames: 3,
+      brightnessDepth: 0.38,
+      saturationDepth: 0.5,
+      scaleDepth: 0.055,
+      opacityDepth: 0.16,
+    };
+    const frame = show.stemFrames.stems[0].frames.find((candidate) => candidate.t === 0.25);
+    Object.assign(frame, { rms, onset });
+    return show;
+  };
+  const lowShow = conditionedShow({ rms: 0, onset: 0 });
+  const highShow = conditionedShow({ rms: 1, onset: 1 });
+  const low = evaluateHyperFramesVisualizers(lowShow, 0.25).layers.find((candidate) => candidate.id === "cue:back");
+  const high = evaluateHyperFramesVisualizers(highShow, 0.25).layers.find((candidate) => candidate.id === "cue:back");
+  const repeated = evaluateHyperFramesVisualizers(highShow, 0.25).layers.find((candidate) => candidate.id === "cue:back");
+
+  assert.equal(low.proxyFrame.baseFrameIndex, high.proxyFrame.baseFrameIndex, "canonical visual time remains identical");
+  assert.equal(low.proxyFrame.audioFrameOffset, 0);
+  assert.equal(high.proxyFrame.audioFrameOffset, 3);
+  assert.notEqual(low.proxyFrame.frameIndex, high.proxyFrame.frameIndex, "audio energy selects a materially different retained shader frame");
+  assert.notEqual(low.pixelFrameIdentity, high.pixelFrameIdentity);
+  assert.equal(low.presentationModulation.brightness, 1);
+  assert.equal(high.presentationModulation.brightness, 1.38);
+  assert.equal(high.presentationModulation.saturation, 1.5);
+  assert.equal(high.presentationModulation.scale, 1.055);
+  assert.ok(high.effectiveOpacity > low.effectiveOpacity);
+  assert.deepEqual(high, repeated, "the same show time and stem frame must produce the same presentation");
+});
+
 test("transition opacity and visualizer accents are evaluated without hidden decisions", () => {
   const state = evaluateHyperFramesVisualizers(fixtureShow(), 0.25);
   const back = state.layers.find((layer) => layer.id === "cue:back");

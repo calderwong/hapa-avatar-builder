@@ -17,6 +17,7 @@ import {
   describeSongCardCompilerFailure,
   inspectSongCardLocalRenderer,
   preflightSongCardLocalMedia,
+  preflightSongCardSignalGraph,
 } from "../server/song-card-local-renderer.mjs";
 
 const run = promisify(execFile);
@@ -260,6 +261,106 @@ test("local media preflight stops missing real cues before rendering and accepts
   assert.equal(error.details.media.missingCount, 1);
   assert.match(error.message, /before stem analysis/);
   assert.match(error.message, /No media was substituted/);
+});
+
+test("signal graph preflight catches lossy variant projection before stem analysis or rendering", async (t) => {
+  const root = await fsp.mkdtemp(path.join(os.tmpdir(), "hapa-song-card-signal-preflight-"));
+  t.after(() => fsp.rm(root, { recursive: true, force: true }));
+  const synthPath = path.join(root, "synth.wav");
+  await fsp.writeFile(synthPath, "verified-stem");
+  const portable = {
+    schemaVersion: "hapa.visualizer-card.v2",
+    id: "isf:exact",
+    source: { hash: `sha256:${"a".repeat(64)}` },
+  };
+  const rich = preflightSongCardSignalGraph({
+    project: { stems_available: ["archive-zip", "Synth"] },
+    showGraph: {
+      stems: { nativeStatus: "partial-local-paths", items: [{ id: "archive", stemType: "archive-zip", audioPath: "" }, { id: "synth", stemType: "Synth", audioPath: synthPath }] },
+      tracks: [{ id: "track-b", role: "visualizer", cards: [{ id: "card:b:0", visualization: { sourceId: "isf:exact", card: portable } }] }],
+    },
+  });
+  assert.equal(rich.ok, true);
+  assert.equal(rich.verifiedStemCount, 1);
+
+  const lossy = preflightSongCardSignalGraph({
+    project: { stems_available: ["Synth", "Drums", "Vocals"] },
+    showGraph: {
+      stems: { items: [{ id: "stem:0", stemType: "Synth", title: "Synth" }, { id: "stem:1", stemType: "Drums", title: "Drums" }] },
+      tracks: [{ id: "ivf-stack", role: "visualizer", cards: [{ id: "legacy:ivf:0", visualization: { sourceId: "isf:exact" } }] }],
+    },
+  });
+  assert.equal(lossy.ok, false);
+  assert.deepEqual(lossy.errors, ["isolated-stem-paths-detached", "portable-visualizer-truth-detached"]);
+  assert.equal(lossy.detachedVisualizers[0].cardId, "legacy:ivf:0");
+});
+
+test("signal graph preflight rejects partially detached visualizer stems and resolves vocal aliases", async (t) => {
+  const root = await fsp.mkdtemp(path.join(os.tmpdir(), "hapa-song-card-stem-coverage-"));
+  t.after(() => fsp.rm(root, { recursive: true, force: true }));
+  const drumsPath = path.join(root, "drums.wav");
+  const vocalsPath = path.join(root, "vocals.wav");
+  await Promise.all([
+    fsp.writeFile(drumsPath, "verified-drums"),
+    fsp.writeFile(vocalsPath, "verified-vocals"),
+  ]);
+  const portable = (id, stemFocus = "master") => ({
+    schemaVersion: "hapa.visualizer-card.v2",
+    id,
+    stemFocus,
+    source: { hash: `sha256:${"b".repeat(64)}` },
+  });
+  const baseGraph = {
+    stems: {
+      nativeStatus: "partial-local-paths",
+      items: [
+        { id: "stem:drums", stemType: "Drums", audioPath: drumsPath },
+        { id: "stem:vocals", stemType: "Vocals", audioPath: vocalsPath },
+        { id: "stem:bass", stemType: "Bass", audioPath: path.join(root, "missing-bass.wav") },
+      ],
+    },
+    tracks: [{
+      id: "track-b",
+      role: "visualizer",
+      cards: [
+        { id: "card:vocals", visualization: { sourceId: "isf:vocals", card: portable("isf:vocals", "leadVocals") } },
+        {
+          id: "card:mixed",
+          visualization: { sourceId: "isf:mixed", card: portable("isf:mixed") },
+          parameters: { visualizerMappings: { gain: "drums:rms", warp: { stemFocus: "Bass", signal: "peak" } } },
+        },
+      ],
+    }],
+  };
+
+  const partial = preflightSongCardSignalGraph({
+    project: { stems_available: ["Drums", "Vocals", "Bass"] },
+    showGraph: baseGraph,
+  });
+  assert.equal(partial.verifiedStemCount, 2, "one valid stem must not hide a different requested missing stem");
+  assert.deepEqual(partial.verifiedStemRoles.sort(), ["drums", "vocals"]);
+  assert.deepEqual(partial.unverifiedExpectedStemRoles, ["bass"]);
+  assert.equal(partial.ok, false);
+  assert.deepEqual(partial.errors, ["visualizer-stem-paths-detached"]);
+  assert.deepEqual(partial.unresolvedStemBindings, [{
+    cardId: "card:mixed",
+    sourceId: "isf:mixed",
+    requestedStemRole: "bass",
+    requestedStemFocus: "Bass",
+    bindingSource: "parameters.visualizerMappings.warp",
+    reason: "visualizer-requested-stem-path-unverified",
+  }]);
+
+  const repaired = structuredClone(baseGraph);
+  repaired.stems.items[2].audioPath = path.join(root, "bass.wav");
+  await fsp.writeFile(repaired.stems.items[2].audioPath, "verified-bass");
+  const complete = preflightSongCardSignalGraph({
+    project: { stems_available: ["Drums", "leadVocals", "Bass"] },
+    showGraph: repaired,
+  });
+  assert.equal(complete.ok, true);
+  assert.deepEqual(complete.unresolvedStemBindings, []);
+  assert.ok(complete.verifiedStemRoles.includes("vocals"), "leadVocals requests must resolve to the Vocals registry role");
 });
 
 test("automatic local render preserves the exact editor revision, binds verified artifacts, and never auto-mints", { skip: !HAS_FFMPEG, timeout: 60_000 }, async (t) => {

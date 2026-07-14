@@ -63,6 +63,11 @@ test("Builder serves a hash-verified ISF catalog/runtime and hydrates the compil
   assert.equal(shaders.length, 182);
   assert.equal(new Set(shaders.map((shader) => shader.id)).size, 182);
   assert.equal(new Set(shaders.map((shader) => shader.source)).size, 182);
+  const pixelGateQuarantine = shaders.filter((shader) => shader.runtimeEligibility === "unsupported-quarantine");
+  assert.equal(pixelGateQuarantine.length, 19);
+  assert.ok(pixelGateQuarantine.every((shader) => shader.directorEligible === false && shader.enabled === false));
+  assert.ok(pixelGateQuarantine.every((shader) => shader.pixelGate?.status === "source-hash-verified"));
+  assert.equal(shaders.find((shader) => shader.id === "isf:5e7a80447c113618206dee1e")?.pixelGate?.classification, "unsupported-quarantine");
   for (const shader of shaders) {
     assert.match(shader.id, /^(isf:|builtin:)/);
     assert.match(shader.source, /^\/api\/echos\/shader-source\?id=/);
@@ -138,4 +143,15 @@ test("Builder serves a hash-verified ISF catalog/runtime and hydrates the compil
   assert.ok(visualizerTrack.cards.length > 0);
   assert.equal(project.director_show_graph_receipt.visualizerCards, visualizerTrack.cards.length);
   assert.ok(visualizerTrack.cards.every((card) => card.visualization?.sourceId));
+
+  const blueResponse = await fetch(`${BASE}/api/echos/director-project?songId=dear-papa-song-blue`);
+  assert.equal(blueResponse.status, 200);
+  const blue = (await blueResponse.json()).music_video_project;
+  assert.ok(blue.runtime_shader_repair_receipt.replacementCount > 0);
+  assert.equal(blue.runtime_shader_repair_receipt.sourceProjectMutated, false);
+  assert.ok(blue.runtime_shader_repair_receipt.replacements.some((row) => row.originalId === "isf:5e7a80447c113618206dee1e"));
+  assert.equal(blue.visualizer_timeline.some((row) => row.visualizer_id === "isf:5e7a80447c113618206dee1e"), false);
+  const blueVisualizerCards = blue.director_show_graph.tracks.find((track) => track.id === "track-b" || track.role === "visualizer").cards;
+  assert.equal(blueVisualizerCards.some((card) => card.visualization?.sourceId === "isf:5e7a80447c113618206dee1e"), false);
+  assert.ok(blueVisualizerCards.some((card) => card.provenance?.runtimeShaderRepair?.originalId === "isf:5e7a80447c113618206dee1e"));
 });

@@ -2,6 +2,9 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import test from "node:test";
 import vm from "node:vm";
+import {
+  resolveVerifiedEchoStemBinding,
+} from "../src/domain/echo-visualizer-audio-envelope.js";
 
 const source = fs.readFileSync(new URL("../src/components/HapaEchosView.jsx", import.meta.url), "utf8");
 
@@ -31,9 +34,6 @@ function functionSource(name) {
 
 function loadHelpers() {
   const names = [
-    "normalizedStemFocus",
-    "requestedStemFocus",
-    "verifiedStemBinding",
     "analyserBandAverage",
     "paletteSignalForPerspective",
     "liveSignalFrame",
@@ -57,15 +57,20 @@ test("Echo binds only the currently presented media frame, never a standby decod
   assert.match(image, /element\?\.complete/);
   assert.match(image, /naturalWidth/);
   assert.match(image, /reason: "binding-released"/);
+  const resolver = functionSource("resolvePresentedEchoMediaBinding");
+  assert.match(resolver, /video\[data-echo-player="current"\]\[data-frame-presented="true"\]/);
+  assert.match(resolver, /isPresentedEchoVideoElement\(element, sourceKey\)/);
+  assert.match(resolver, /recoveredFrom: "current-dom-player"/);
   const exactDraw = between("const expectedMediaId", "const compositionInput");
-  assert.match(exactDraw, /presentedMedia\.mediaId === expectedMediaId/);
-  assert.match(exactDraw, /presentedMedia\.uri === expectedMediaUri/);
+  assert.match(exactDraw, /resolvePresentedEchoMediaBinding\(/);
+  assert.match(exactDraw, /directorPreviewFullscreenRef\.current/);
+  assert.match(exactDraw, /presentedMediaRef\.current/);
   assert.match(source, /mediaElement: currentPresentedMedia\?\.element \|\| null/);
   assert.match(source, /mediaIdentity: currentPresentedMedia \?/);
 });
 
 test("Echo uses one reusable verified stem decoder and never invents a near-match", () => {
-  const { verifiedStemBinding } = loadHelpers();
+  const verifiedStemBinding = resolveVerifiedEchoStemBinding;
   const verifiedGraph = {
     stems: { nativeStatus: "verified-local-registry-paths", items: [{ id: "stem-synth", audioPath: "/verified/synth.mp3" }, { id: "stem-vocals", audioPath: "/verified/vocals.mp3" }] },
     directorV2: { stemBuses: [
@@ -92,6 +97,16 @@ test("Echo uses one reusable verified stem decoder and never invents a near-matc
   assert.match(bindingBlock, /resource\.element\.src = targetUri/);
   assert.match(bindingBlock, /dataset\.echoStemDecoder = "active-singleton"/);
   assert.match(bindingBlock, /silentGain\.gain\.value = 0/);
+  assert.match(source, /crossOrigin = "anonymous"/);
+  assert.match(source, /const shouldPlayStem = isPlayingRef\.current/);
+  assert.match(source, /stemResource\.playbackBlocked = true/);
+  assert.match(source, /stem-decoder-playback-blocked/);
+  assert.match(source, /const playGeneration = stemResource\.sourceGeneration/);
+  assert.match(source, /stemResource\.sourceGeneration === playGeneration/);
+  assert.match(source, /const stemTransport = echoStemTransportHealth\(stemResource, isPlayingRef\.current\)/);
+  assert.match(source, /if \(stemTransport\.usable\)/);
+  assert.match(source, /compactStemSignalBinding\(stemResource, stemTransport\)/);
+  assert.doesNotMatch(source, /stemElement\.play\(\)\)\.catch\(\(\) => \{\}\)/);
 });
 
 test("Echo live signal frames cover the complete album vocabulary without procedural exact-path signals", () => {
@@ -136,7 +151,10 @@ test("Echo applies returned blend, opacity, and only real fade-like transitions"
   assert.equal(fadeMiddle.transitionAlpha, 1);
   assert.match(source, /ctx\.globalAlpha = Math\.max/);
   assert.match(source, /ctx\.globalCompositeOperation = composition\.canvasComposite/);
-  assert.match(source, /ctx\.drawImage\(presentationCanvas, 0, 0, width, height\)/);
+  assert.match(source, /const audioEnvelope = echoVisualizerAudioEnvelope\(selectedSignalFrame \|\| masterSignalFrame\)/);
+  assert.match(source, /ctx\.filter = `brightness\(\$\{audioEnvelope\.brightness\.toFixed\(3\)\}\)/);
+  assert.match(source, /ctx\.scale\(audioEnvelope\.scale, audioEnvelope\.scale\)/);
+  assert.match(source, /ctx\.drawImage\(presentationCanvas, -width \/ 2, -height \/ 2, width, height\)/);
 });
 
 test("Echo surfaces bounded frame, media, stem, and composition receipts", () => {

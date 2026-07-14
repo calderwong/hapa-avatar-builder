@@ -7,10 +7,21 @@ const catalogFlights = new Map();
 const sourceFlights = new Map();
 const runtimeFlights = new Map();
 const DEFAULT_SOURCE_CACHE_LIMIT = 32;
+const DEFAULT_ISF_CLOCK_FPS = 60;
+const ISF_CLOCK_SEEK_THRESHOLD_SECONDS = 0.5;
 let sourceCacheLimit = DEFAULT_SOURCE_CACHE_LIMIT;
 const sourceCacheStats = { hits: 0, misses: 0, evictions: 0 };
 const dependencyIds = new WeakMap();
+const RESOLVED_DEPENDENCIES = Symbol("echo-isf-resolved-dependencies");
+const DEFAULT_FAILURE_CACHE_LIMIT = 64;
+// Binding/input failures are cue-specific and may recover when the next card or
+// media frame arrives, so they must never poison every use of the same shader.
+const TERMINAL_PREPARE_FAILURES = new Set(["missing-id", "hash-error", "compile-error", "unsupported-quarantine"]);
 let nextDependencyId = 1;
+
+function defaultBrowserFetch(...args) {
+  return globalThis.fetch(...args);
+}
 
 function dependencyId(value) {
   if ((typeof value !== "object" && typeof value !== "function") || value === null) return String(value);
@@ -113,11 +124,12 @@ function errorText(error) {
 
 function resolveDependencies(options = {}) {
   const injected = options.dependencies || {};
+  if (injected?.[RESOLVED_DEPENDENCIES]) return injected;
   const injectedFetch = options.fetchImpl || injected.fetch;
   const globalFetch = typeof globalThis.fetch === "function"
-    ? globalThis.fetch.bind(globalThis)
+    ? defaultBrowserFetch
     : null;
-  return {
+  const dependencies = {
     fetch: injectedFetch || globalFetch,
     crypto: injected.crypto || globalThis.crypto,
     document: injected.document || globalThis.document,
@@ -127,6 +139,8 @@ function resolveDependencies(options = {}) {
     loadRuntime: injected.loadRuntime,
     sha256: injected.sha256,
   };
+  Object.defineProperty(dependencies, RESOLVED_DEPENDENCIES, { value: true });
+  return dependencies;
 }
 
 async function sha256Hex(text, dependencies) {
@@ -307,6 +321,65 @@ function rendererError(renderer, fallback) {
   return renderer?.error?.message || renderer?.error || fallback;
 }
 
+function finitePlaybackNumber(...values) {
+  for (const value of values) {
+    const number = Number(value);
+    if (Number.isFinite(number)) return number;
+  }
+  return 0;
+}
+
+function roundedClockSeconds(value) {
+  return Math.round(finitePlaybackNumber(value) * 1_000_000) / 1_000_000;
+}
+
+function isfPlaybackClock(input = {}, previous = null, options = {}) {
+  const time = Math.max(0, roundedClockSeconds(finitePlaybackNumber(
+    input.time,
+    input.playheadSeconds,
+    input.audio?.playheadSeconds,
+    input.audio?.timestampSeconds,
+    input.audio?.currentTime,
+    input.mediaElement?.currentTime,
+  )));
+  const requestedFrameRate = finitePlaybackNumber(
+    input.clockFrameRate,
+    input.frameRate,
+    input.fps,
+    options.clockFrameRate,
+    options.frameRate,
+    DEFAULT_ISF_CLOCK_FPS,
+  );
+  const frameRate = Math.max(1, Math.min(240, requestedFrameRate || DEFAULT_ISF_CLOCK_FPS));
+  const rawDelta = previous ? roundedClockSeconds(time - previous.time) : 0;
+  const seekThreshold = Math.max(ISF_CLOCK_SEEK_THRESHOLD_SECONDS, 8 / frameRate);
+  const rephased = !previous
+    || input.clockReset === true
+    || input.seeking === true
+    || previous.frameRate !== frameRate
+    || rawDelta < 0
+    || rawDelta > seekThreshold;
+  const timeDelta = rephased ? 0 : Math.max(0, rawDelta);
+  const frameIndex = Math.max(0, Math.floor(time * frameRate + Number.EPSILON * 8));
+  const secondsInDay = ((time % 86_400) + 86_400) % 86_400;
+  return {
+    time,
+    timeDelta,
+    frameIndex,
+    frameRate,
+    date: [1970, 1, 1, roundedClockSeconds(secondsInDay)],
+    rephased,
+    reusedFrame: false,
+  };
+}
+
+function pushRendererPlaybackClock(renderer, clock) {
+  renderer?.setValue?.("TIME", clock.time);
+  renderer?.setValue?.("TIMEDELTA", clock.timeDelta);
+  renderer?.setValue?.("FRAMEINDEX", clock.frameIndex);
+  renderer?.setValue?.("DATE", clock.date);
+}
+
 export function createEchoIsfSurface(options = {}) {
   const apiBase = cleanApiBase(options.apiBase);
   const dependencies = resolveDependencies(options);
@@ -320,6 +393,10 @@ export function createEchoIsfSurface(options = {}) {
   let renderer = null;
   let currentShader = null;
   let currentShaderId = "";
+  let activeClock = isfPlaybackClock({}, null, options);
+  let lastRenderedClock = null;
+  let lastRenderedWidth = 0;
+  let lastRenderedHeight = 0;
   let disposed = false;
   let prepareSequence = 0;
   let state = {
@@ -331,6 +408,7 @@ export function createEchoIsfSurface(options = {}) {
     error: "",
     composition: null,
     frameReceipt: null,
+    clock: null,
     width: canvas.width,
     height: canvas.height,
   };
@@ -377,6 +455,9 @@ export function createEchoIsfSurface(options = {}) {
         ? dependencies.createRenderer({ library, gl, canvas })
         : new library.Renderer(gl);
       if (!renderer) throw new Error("ISF renderer creation failed");
+      if (typeof renderer.setDateUniforms === "function") {
+        renderer.setDateUniforms = () => pushRendererPlaybackClock(renderer, activeClock);
+      }
     }
   };
 
@@ -395,6 +476,14 @@ export function createEchoIsfSurface(options = {}) {
       await ensureCore();
       const shader = findExactShader(shaderId);
       if (!shader) return publish("missing-id", { sourceId: shaderId, shaderId, error: `Shader ID is not present in the catalog: ${shaderId}` });
+      if (shader.directorEligible === false || shader.enabled === false) {
+        return publish("unsupported-quarantine", {
+          sourceId: shaderId,
+          shaderId,
+          sourceHash: normalizedHash(shader.sourceHash || shader.sourceSha256),
+          error: String(shader.quarantineReason || shader.failureReason || `Shader ${shaderId} is quarantined and cannot run in browser playback`),
+        });
+      }
       const bindingValidation = validateEchoIsfCardBindings(shader, typeof cardOrId === "object" ? cardOrId : {});
       if (!bindingValidation.ok) {
         return publish("input-error", {
@@ -419,9 +508,12 @@ export function createEchoIsfSurface(options = {}) {
       }
       currentShader = shader;
       currentShaderId = shaderId;
+      lastRenderedClock = null;
+      lastRenderedWidth = 0;
+      lastRenderedHeight = 0;
       return publish("ready", { sourceId: shaderId, shaderId, sourceHash: verified.observedHash, error: "" });
     } catch (error) {
-      const status = ["missing-id", "hash-error", "compile-error", "draw-error", "input-error"].includes(error?.code)
+      const status = ["missing-id", "hash-error", "compile-error", "draw-error", "input-error", "unsupported-quarantine"].includes(error?.code)
         ? error.code
         : "compile-error";
       return publish(status, { sourceId: shaderId, shaderId, error: errorText(error) });
@@ -442,12 +534,13 @@ export function createEchoIsfSurface(options = {}) {
     const height = Math.max(1, Math.round(Number(input.height) || canvas.height || 1));
     if (canvas.width !== width) canvas.width = width;
     if (canvas.height !== height) canvas.height = height;
+    const clock = isfPlaybackClock(input, lastRenderedClock, options);
     let intent = null;
     try {
       intent = buildEchoIsfFrameIntent({
         shader: currentShader,
         card: input.card || {},
-        timestampSeconds: Number(input.time) || 0,
+        timestampSeconds: clock.time,
         sourceHash: state.sourceHash,
         values: input.values || {},
         signalFrames: input.signalFrames || {},
@@ -464,17 +557,40 @@ export function createEchoIsfSurface(options = {}) {
           error: intent.error,
           composition: intent.composition,
           frameReceipt: intent.frameReceipt,
+          clock,
+        });
+      }
+      const reusePausedFrame = input.forceRedraw !== true
+        && lastRenderedClock
+        && clock.time === lastRenderedClock.time
+        && clock.frameIndex === lastRenderedClock.frameIndex
+        && width === lastRenderedWidth
+        && height === lastRenderedHeight;
+      if (reusePausedFrame) {
+        return publish("ready", {
+          sourceId: shaderId,
+          shaderId,
+          error: "",
+          composition: intent.composition,
+          frameReceipt: intent.frameReceipt,
+          clock: { ...clock, reusedFrame: true },
         });
       }
       for (const [name, value] of Object.entries(intent.values)) renderer.setValue?.(name, value);
       for (const [name, value] of Object.entries(intent.imageInputs)) renderer.setValue?.(name, value);
+      activeClock = clock;
+      pushRendererPlaybackClock(renderer, activeClock);
       renderer.draw(canvas);
+      lastRenderedClock = clock;
+      lastRenderedWidth = width;
+      lastRenderedHeight = height;
       return publish("ready", {
         sourceId: shaderId,
         shaderId,
         error: "",
         composition: intent.composition,
         frameReceipt: intent.frameReceipt,
+        clock,
       });
     } catch (error) {
       return publish("draw-error", {
@@ -483,6 +599,7 @@ export function createEchoIsfSurface(options = {}) {
         error: errorText(error),
         composition: intent?.composition || null,
         frameReceipt: intent?.frameReceipt || null,
+        clock,
       });
     }
   };
@@ -497,7 +614,8 @@ export function createEchoIsfSurface(options = {}) {
     gl = null;
     currentShader = null;
     currentShaderId = "";
-    publish("disposed", { sourceId: "", shaderId: "", sourceHash: "", error: "" });
+    lastRenderedClock = null;
+    publish("disposed", { sourceId: "", shaderId: "", sourceHash: "", error: "", clock: null });
   };
 
   return { canvas, prepare, draw, getState: snapshot, dispose };
@@ -540,14 +658,21 @@ function poolCardContentKey(card = {}) {
 
 export function createEchoIsfPlaybackPool(options = {}) {
   const maxSurfaces = Math.max(2, Math.min(3, Math.floor(Number(options.maxSurfaces) || 3)));
+  const requestedFailureCacheLimit = Number(options.failureCacheMaxEntries);
+  const failureCacheLimit = Number.isFinite(requestedFailureCacheLimit) && requestedFailureCacheLimit > 0
+    ? Math.max(1, Math.min(512, Math.floor(requestedFailureCacheLimit)))
+    : DEFAULT_FAILURE_CACHE_LIMIT;
   const onStatus = typeof options.onStatus === "function" ? options.onStatus : () => {};
+  const dependencies = resolveDependencies(options);
   const slots = [];
   const warmingByKey = new Map();
+  const failedByKey = new Map();
   let presentedSlot = null;
   let useSequence = 0;
   let slotSequence = 0;
   let disposed = false;
   let requestedShaderId = "";
+  let requestedKey = "";
   let handoffStatus = "idle";
   let handoffs = 0;
   let heldFrames = 0;
@@ -570,13 +695,36 @@ export function createEchoIsfPlaybackPool(options = {}) {
     return slot;
   };
 
+  const cachedFailure = (key) => {
+    const failure = failedByKey.get(key) || null;
+    if (!failure) return null;
+    failedByKey.delete(key);
+    failedByKey.set(key, failure);
+    return failure;
+  };
+
+  const rememberFailure = (key, failure = {}) => {
+    const entry = {
+      key,
+      shaderId: String(failure.shaderId || ""),
+      status: String(failure.status || "compile-error"),
+      error: String(failure.error || ""),
+      sourceHash: String(failure.sourceHash || ""),
+    };
+    failedByKey.delete(key);
+    failedByKey.set(key, entry);
+    while (failedByKey.size > failureCacheLimit) failedByKey.delete(failedByKey.keys().next().value);
+    return entry;
+  };
+
+  const forgetFailure = (key) => failedByKey.delete(key);
+
   const attachSurface = (slot) => {
     slot.surface = createEchoIsfSurface({
       apiBase: options.apiBase,
       width: options.width,
       height: options.height,
-      dependencies: options.dependencies,
-      fetchImpl: options.fetchImpl,
+      dependencies,
       onStatus: (state) => {
         slot.runtimeStatus = state.status;
         slot.observedSourceHash = String(state.sourceHash || slot.observedSourceHash || "");
@@ -621,7 +769,7 @@ export function createEchoIsfPlaybackPool(options = {}) {
   };
 
   const evictableSlot = () => slots
-    .filter((slot) => slot !== presentedSlot && slot.status !== "loading")
+    .filter((slot) => slot !== presentedSlot && slot.key !== requestedKey && slot.status !== "loading")
     .sort((left, right) => left.lastUsed - right.lastUsed || left.id.localeCompare(right.id))[0] || null;
 
   const allocateSlot = () => {
@@ -662,7 +810,14 @@ export function createEchoIsfPlaybackPool(options = {}) {
     if (!shaderId) return Promise.resolve({ status: "missing-id", shaderId: "", error: "Prewarm requires an exact shader ID", slot: null });
     const key = poolCardContentKey(card);
     const declaredSourceHash = poolCardSourceHash(card);
-    const existing = slots.find((slot) => slot.key === key && !slot.invalidated);
+    let existing = slots.find((slot) => slot.key === key && !slot.invalidated);
+    if (existing && existing.status === "input-error" && !existing.ready) {
+      // A portable-card binding error belongs to that cue, not to the shader
+      // program. Recreate the surface so a later valid card with the same
+      // source ID/hash can prepare normally.
+      removeSlot(existing);
+      existing = null;
+    }
     if (existing?.ready) {
       rememberCard(existing, card, cacheKey);
       touch(existing);
@@ -672,6 +827,10 @@ export function createEchoIsfPlaybackPool(options = {}) {
       rememberCard(existing, card, cacheKey);
       touch(existing);
       return Promise.resolve({ status: existing.status, shaderId, error: existing.error, slot: existing });
+    }
+    const failure = cachedFailure(key);
+    if (failure) {
+      return Promise.resolve({ ...failure, shaderId, slot: null, cachedFailure: true });
     }
     if (warmingByKey.has(key)) return warmingByKey.get(key);
     const slot = existing || allocateSlot();
@@ -695,6 +854,10 @@ export function createEchoIsfPlaybackPool(options = {}) {
         slot.ready = slot.status === "ready";
         slot.error = String(result.error || "");
         slot.observedSourceHash = String(result.sourceHash || slot.observedSourceHash || "");
+        if (slot.ready) forgetFailure(key);
+        else if (TERMINAL_PREPARE_FAILURES.has(slot.status)) {
+          rememberFailure(key, { ...result, shaderId, status: slot.status, error: slot.error });
+        }
         touch(slot);
         emit(slot.ready ? "prewarm-ready" : "prewarm-error", { shaderId, error: slot.error });
         return { ...result, shaderId, slot };
@@ -706,6 +869,7 @@ export function createEchoIsfPlaybackPool(options = {}) {
         slot.status = "compile-error";
         slot.ready = false;
         slot.error = errorText(error);
+        rememberFailure(key, { shaderId, status: slot.status, error: slot.error });
         emit("prewarm-error", { shaderId, error: slot.error });
         return { status: slot.status, shaderId, error: slot.error, slot };
       })
@@ -771,17 +935,19 @@ export function createEchoIsfPlaybackPool(options = {}) {
     const card = combinedInput.card;
     const shaderId = exactSourceId(card);
     requestedShaderId = shaderId;
+    requestedKey = shaderId ? poolCardContentKey(card) : "";
     if (disposed) return holdResult("disposed", shaderId, "ISF playback pool is disposed");
     if (!shaderId) return holdResult("missing-id", "", "Presentation requires an exact shader ID");
-    const key = poolCardContentKey(card);
+    const key = requestedKey;
     const candidate = slots.find((slot) => slot.key === key && !slot.invalidated);
     const slot = candidate?.ready ? candidate : null;
     if (!slot) {
-      if (!candidate) prepareCard(card, String(combinedInput.cacheKey || "")).catch(() => {});
-      const pendingStatus = candidate && candidate.status !== "loading" && candidate.status !== "idle"
+      const failure = candidate ? null : cachedFailure(key);
+      if (!candidate && !failure) prepareCard(card, String(combinedInput.cacheKey || "")).catch(() => {});
+      const pendingStatus = failure?.status || (candidate && candidate.status !== "loading" && candidate.status !== "idle"
         ? candidate.status
-        : "handoff-pending";
-      const pendingError = candidate?.error || "Candidate shader is still prewarming";
+        : "handoff-pending");
+      const pendingError = failure?.error || candidate?.error || "Candidate shader is still prewarming";
       return holdResult(pendingStatus, shaderId, pendingError);
     }
     const startedAt = globalThis.performance?.now?.() ?? Date.now();
@@ -801,6 +967,7 @@ export function createEchoIsfPlaybackPool(options = {}) {
     hasPresentedFrame = true;
     slot.presented = true;
     slot.status = "ready";
+    forgetFailure(key);
     slot.lastResult = result;
     rememberCard(slot, card, String(combinedInput.cacheKey || ""));
     touch(slot);
@@ -829,6 +996,7 @@ export function createEchoIsfPlaybackPool(options = {}) {
     const hasShaderFilter = shaderIds.size > 0;
     const hasRangeFilter = ranges.length > 0;
     const hasCacheFilter = Boolean(cacheKey);
+    if (hasShaderFilter || hasRangeFilter || hasCacheFilter) failedByKey.clear();
     const affected = slots.filter((slot) => {
       const shaderMatch = !hasShaderFilter || shaderIds.has(slot.shaderId);
       const rangeMatch = !hasRangeFilter || ranges.some((range) => slot.ranges.some((candidate) => rangesOverlap(candidate, range)));
@@ -862,6 +1030,7 @@ export function createEchoIsfPlaybackPool(options = {}) {
     const p95Index = sortedTimes.length ? Math.min(sortedTimes.length - 1, Math.ceil(sortedTimes.length * 0.95) - 1) : 0;
     return {
       maxSurfaces,
+      failureCacheLimit,
       surfaceCount: slots.length,
       poolSize: slots.length,
       contextCount,
@@ -878,6 +1047,11 @@ export function createEchoIsfPlaybackPool(options = {}) {
       handoffs,
       heldFrames,
       evictions,
+      failureCache: {
+        size: failedByKey.size,
+        limit: failureCacheLimit,
+        entries: [...failedByKey.values()].map((failure) => ({ ...failure })),
+      },
       blackIntervals: blackIntervals.map((interval) => ({ ...interval })),
       blackIntervalCount: blackIntervals.length,
       prewarmReady: slots.filter((slot) => slot.ready && slot !== presentedSlot).length,
@@ -920,6 +1094,7 @@ export function createEchoIsfPlaybackPool(options = {}) {
     if (disposed) return;
     disposed = true;
     warmingByKey.clear();
+    failedByKey.clear();
     for (const slot of [...slots]) removeSlot(slot);
     presentedSlot = null;
     emit("disposed");

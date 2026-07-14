@@ -5,6 +5,7 @@ import crypto from "node:crypto";
 import { spawnSync } from "node:child_process";
 import { buildDirectorV2Artifacts } from "../src/domain/echo-director-v2.js";
 import { createEchoPlaybackEngine } from "../src/domain/echo-playback-engine.js";
+import { loadGatedEchoIsfManifest, repairEchoProjectShaders } from "./echo-isf-gated-manifest.mjs";
 
 const ROOT = path.resolve(path.dirname(new URL(import.meta.url).pathname), "..");
 const arg = (name, fallback = null) => {
@@ -18,7 +19,7 @@ const dearPapa = arg("dearPapa");
 fs.mkdirSync(OUTPUT, { recursive: true });
 const read = (file) => JSON.parse(fs.readFileSync(file, "utf8"));
 const projectDir = path.join(ROOT, "data/music-video-projects");
-const manifest = read("/Users/calderwong/Desktop/hapa-music-viz/web/isf/manifest.json");
+const { manifest } = loadGatedEchoIsfManifest();
 const registry = read("/Users/calderwong/Desktop/hapa-song-registry/data/registry.json");
 
 const real = [
@@ -30,8 +31,9 @@ const rows = [];
 for (const [id, file, proves] of real) {
   const payload = read(path.join(projectDir, file));
   const project = payload.music_video_project || payload;
+  const prepared = repairEchoProjectShaders(payload, manifest).project;
   const artifacts = buildDirectorV2Artifacts({
-    project: payload,
+    project: prepared,
     manifest,
     registry,
     duration: Math.min(60, Number(project.duration || 60)),

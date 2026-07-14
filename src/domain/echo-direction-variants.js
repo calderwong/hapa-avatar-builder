@@ -2,6 +2,7 @@ import { projectToEditorGraph } from "./multitrack-editor.js";
 
 export const ECHO_DIRECTION_WORKING_FORK_SCHEMA = "hapa.echo.direction-working-fork.v1";
 export const ECHO_DIRECTION_FORK_PAYLOAD_SCHEMA = "hapa.echo.direction-variant-fork-request.v1";
+export const ECHO_VARIANT_GRAPH_OVERLAY_SCHEMA = "hapa.echo.variant-graph-overlay.v1";
 
 const VARIANT_PROJECT_PATCH_FIELDS = Object.freeze([
   "lyric_variant",
@@ -32,6 +33,27 @@ function clone(value) {
   return typeof structuredClone === "function"
     ? structuredClone(value)
     : JSON.parse(JSON.stringify(value));
+}
+
+function hydrateEchoVariantGraphOverlay(baseGraph, declaredGraph) {
+  const declared = clone(declaredGraph);
+  if (declared?.delivery?.schemaVersion !== ECHO_VARIANT_GRAPH_OVERLAY_SCHEMA) return declared;
+  const base = clone(baseGraph) || {};
+  return {
+    ...base,
+    ...declared,
+    song: {
+      ...(base.song || {}),
+      ...(declared.song || {}),
+      lyricOverlay: declared.song?.lyricOverlay || base.song?.lyricOverlay || { lines: [] },
+    },
+    stems: declared.stems || base.stems,
+    tracks: Array.isArray(declared.tracks) ? declared.tracks : base.tracks || [],
+    directorV2: {
+      ...(base.directorV2 || {}),
+      ...(declared.directorV2 || {}),
+    },
+  };
 }
 
 function stable(value) {
@@ -189,8 +211,8 @@ export function deriveEchoDirectionVariantProject(baseProject = {}, variant = {}
   };
   const declaredGraph = variant.director_show_graph || variant.directorShowGraph;
   const graph = declaredGraph?.tracks
-    ? clone(declaredGraph)
-    : projectToEditorGraph({ ...projected, director_show_graph: null });
+    ? hydrateEchoVariantGraphOverlay(baseProject.director_show_graph, declaredGraph)
+    : projectToEditorGraph({ ...projected, director_show_graph: baseProject.director_show_graph });
   const variantHash = echoDirectionVariantFingerprint(variant);
   graph.directorV2 = {
     ...(graph.directorV2 || {}),
@@ -247,7 +269,7 @@ export function deriveEchoDirectionWorkingProject(workingFork = {}) {
     timeline: project.timeline || [],
     visualizer_timeline: project.visualizer_timeline || [],
   });
-  const graph = projectToEditorGraph({ ...project, director_show_graph: null });
+  const graph = projectToEditorGraph(project);
   graph.directorV2 = {
     ...(graph.directorV2 || {}),
     variantId: `working:${workingFork.sourceVariantId}`,

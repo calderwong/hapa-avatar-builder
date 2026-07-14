@@ -1,5 +1,6 @@
 import fs from "fs";
 import path from "path";
+import { loadGatedEchoIsfManifest } from "./echo-isf-gated-manifest.mjs";
 
 const DATA_DIR = "./data";
 const PROJECTS_DIR = path.join(DATA_DIR, "music-video-projects");
@@ -82,17 +83,10 @@ function findSongMetadata(song) {
 }
 
 // Load visualizers
-let shaders = [];
-if (fs.existsSync(manifestPath)) {
-  try {
-    const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf-8"));
-    shaders = (manifest.shaders || []).filter((shader) => (
-      shader?.enabled !== false && shader?.directorEligible !== false && shader?.id && shader?.source
-    ));
-  } catch (e) {
-    console.warn("Failed to load visualizer manifest:", e);
-  }
-}
+const { manifest: gatedIsfManifest } = loadGatedEchoIsfManifest({ manifestPath });
+const shaders = (gatedIsfManifest.shaders || []).filter((shader) => (
+  shader?.enabled !== false && shader?.directorEligible !== false && shader?.id && shader?.source
+));
 
 // Helper to hash string deterministically
 function getSimpleHash(str) {

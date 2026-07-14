@@ -245,11 +245,37 @@ function frameAt(frames = [], timeSeconds = 0) {
   return { index: selected, frame: { ...frames[selected] } };
 }
 
-function resolvedSignalFrame(show, instance, timeSeconds) {
-  const requestedStem = text(instance.stemFocus || "master").toLowerCase() || "master";
+function normalizedStemRole(value = "") {
+  const compact = text(value)
+    .toLowerCase()
+    .replace(/^(?:stem|bus)[:/_-]+/, "")
+    .replace(/[^a-z0-9]+/g, "");
+  const aliases = {
+    master: "master",
+    mastermix: "master",
+    mix: "master",
+    leadvocal: "vocals",
+    leadvocals: "vocals",
+    vocal: "vocals",
+    vocals: "vocals",
+    backingvocal: "backing-vocals",
+    backingvocals: "backing-vocals",
+    drum: "drums",
+    drums: "drums",
+    key: "keyboard",
+    keys: "keyboard",
+    keyboards: "keyboard",
+    synths: "synth",
+    stringssection: "strings",
+  };
+  return aliases[compact] || compact;
+}
+
+function resolvedSignalFrame(show, instance, timeSeconds, stemFocus = null) {
+  const requestedStem = normalizedStemRole(stemFocus ?? instance.stemFocus ?? "master") || "master";
   const masterResource = show.stemFrames?.master || null;
   const stemResource = (show.stemFrames?.stems || []).find((stem) => (
-    text(stem.role).toLowerCase() === requestedStem || text(stem.id).toLowerCase() === requestedStem
+    normalizedStemRole(stem.role) === requestedStem || normalizedStemRole(stem.id) === requestedStem
   )) || null;
   const master = masterResource ? { id: masterResource.id || "master", role: "master", ...frameAt(masterResource.frames, timeSeconds) } : null;
   if (requestedStem === "master") {
@@ -258,7 +284,7 @@ function resolvedSignalFrame(show, instance, timeSeconds) {
   const stem = stemResource ? { id: stemResource.id, role: stemResource.role, ...frameAt(stemResource.frames, timeSeconds) } : null;
   return {
     requestedStem,
-    resolvedStem: stem ? text(stemResource.role || stemResource.id).toLowerCase() : master ? "master" : null,
+    resolvedStem: stem ? normalizedStemRole(stemResource.role || stemResource.id) : master ? "master" : null,
     fallbackUsed: !stem && Boolean(master),
     stem: stem || master,
     master,
@@ -283,7 +309,7 @@ function mappedInputValue(input, baseValue, signal, depth, threshold = 0.5) {
   return normalizeEchoIsfInputValue(input, finite(baseValue) + signal * finite(depth));
 }
 
-function mappedControls(instance, signalResource) {
+function mappedControls(instance, signalResource, resolveSignalResource = null) {
   const inputs = instance.inputs || [];
   const byName = new Map(inputs.map((input) => [inputName(input), input]).filter(([name]) => name));
   const values = echoIsfManifestDefaults({ inputs });
@@ -298,26 +324,37 @@ function mappedControls(instance, signalResource) {
   }
   const bindings = [];
   const invalidAudioMapUniforms = [];
-  for (const [uniform, mapping] of Object.entries(instance.audioMap || {})) {
+  for (const [uniform, rawMapping] of Object.entries(instance.audioMap || {})) {
+    const mapping = typeof rawMapping === "string"
+      ? { signal: rawMapping.split(":").at(-1) || "off", stemFocus: rawMapping.includes(":") ? rawMapping.slice(0, rawMapping.lastIndexOf(":")) : null, depth: 0.2 }
+      : rawMapping || {};
+    const mappingSignals = mapping.stemFocus && typeof resolveSignalResource === "function"
+      ? resolveSignalResource(mapping.stemFocus)
+      : signalResource;
+    const bindingStem = {
+      requestedStem: mappingSignals.requestedStem,
+      resolvedStem: mappingSignals.resolvedStem,
+      fallbackUsed: mappingSignals.fallbackUsed,
+    };
     const input = byName.get(uniform);
     if (!input) {
       invalidAudioMapUniforms.push(uniform);
-      bindings.push({ uniform, signal: text(mapping?.signal || "off"), status: "uniform-not-declared", value: null });
+      bindings.push({ uniform, signal: text(mapping?.signal || "off"), status: "uniform-not-declared", ...bindingStem, value: null });
       continue;
     }
     const signal = text(mapping?.signal || "off").toLowerCase();
     const baseValue = values[uniform];
     if (inputType(input) === "image") {
-      bindings.push({ uniform, signal, status: "image-input-handled-separately", baseValue: null, signalValue: null, value: null });
+      bindings.push({ uniform, signal, status: "image-input-handled-separately", ...bindingStem, baseValue: null, signalValue: null, value: null });
       continue;
     }
     if (signal === "off" || !signal) {
-      bindings.push({ uniform, signal: "off", status: "disabled", baseValue, signalValue: null, value: baseValue });
+      bindings.push({ uniform, signal: "off", status: "disabled", ...bindingStem, baseValue, signalValue: null, value: baseValue });
       continue;
     }
-    const resolved = signalValue(signalResource.stem?.frame, signal);
+    const resolved = signalValue(mappingSignals.stem?.frame, signal);
     if (resolved == null) {
-      bindings.push({ uniform, signal, status: "missing-signal", baseValue, signalValue: null, value: baseValue });
+      bindings.push({ uniform, signal, status: "missing-signal", ...bindingStem, baseValue, signalValue: null, value: baseValue });
       continue;
     }
     const value = mappedInputValue(input, baseValue, resolved, mapping?.depth ?? 0, mapping?.threshold ?? 0.5);
@@ -326,9 +363,7 @@ function mappedControls(instance, signalResource) {
       uniform,
       signal,
       status: "mapped",
-      requestedStem: signalResource.requestedStem,
-      resolvedStem: signalResource.resolvedStem,
-      fallbackUsed: signalResource.fallbackUsed,
+      ...bindingStem,
       baseValue,
       signalValue: round(resolved),
       depth: mapping?.depth ?? 0,
@@ -393,7 +428,7 @@ function proxyContract(instance = {}) {
   return { ok: issues.length === 0, issues, nativeRoute, proxy: { ...proxy, frameCount, fps, frameWidth, frameHeight, atlasWidth, atlasHeight }, sourceHash };
 }
 
-function proxyFrame(contract, visualTimeSeconds) {
+function proxyFrame(contract, visualTimeSeconds, modulation = null) {
   const { proxy } = contract;
   const playableFrameIndices = Array.isArray(proxy.playableFrameIndices)
     ? proxy.playableFrameIndices.map(Number).filter((index) => Number.isInteger(index) && index >= 0 && index < proxy.frameCount)
@@ -411,9 +446,17 @@ function proxyFrame(contract, visualTimeSeconds) {
   } else {
     frameIndex = playable[Math.min(playable.length - 1, Math.floor(loopTimeSeconds * proxy.fps))];
   }
+  const baseFrameIndex = frameIndex;
+  const audioFrameOffset = Math.round(finite(modulation?.frameOffsetFrames));
+  if (audioFrameOffset !== 0 && playable.length > 1) {
+    const basePlayableIndex = Math.max(0, playable.indexOf(frameIndex));
+    frameIndex = playable[modulo(basePlayableIndex + audioFrameOffset, playable.length)];
+  }
   const sourceRect = [frameIndex * proxy.frameWidth, 0, proxy.frameWidth, proxy.frameHeight];
   return {
     frameIndex,
+    baseFrameIndex,
+    audioFrameOffset,
     frameTimeSeconds: round(frameTimes[frameIndex] ?? frameIndex / proxy.fps),
     loopTimeSeconds: round(loopTimeSeconds),
     frameSelectionPolicy: text(proxy.frameSelectionPolicy || "declared-sampled-loop"),
@@ -454,6 +497,40 @@ function executionTruth(instance, contract) {
 function controlEnergy(values = {}) {
   const numbers = Object.values(values).flatMap((value) => Array.isArray(value) ? value : [value]).map(Number).filter(Number.isFinite);
   return numbers.length ? round(numbers.reduce((sum, value) => sum + clamp(Math.abs(value)), 0) / numbers.length) : 0;
+}
+
+function resolvedPresentationModulation(instance, signalResource) {
+  const declaration = instance.presentationModulation;
+  if (!declaration || declaration.mode !== "audio-conditioned-proxy") return null;
+  const primarySignal = text(declaration.primarySignal || "rms").toLowerCase();
+  const accentSignal = text(declaration.accentSignal || "beat").toLowerCase();
+  const primaryValue = signalValue(signalResource.stem?.frame, primarySignal)
+    ?? signalValue(signalResource.master?.frame, primarySignal)
+    ?? 0;
+  const accentValue = signalValue(signalResource.stem?.frame, accentSignal)
+    ?? signalValue(signalResource.master?.frame, accentSignal)
+    ?? 0;
+  const primaryWeight = Math.max(0, finite(declaration.primaryWeight, 0.7));
+  const accentWeight = Math.max(0, finite(declaration.accentWeight, 0.3));
+  const weightTotal = Math.max(Number.EPSILON, primaryWeight + accentWeight);
+  const energy = clamp((primaryValue * primaryWeight + accentValue * accentWeight) / weightTotal);
+  const frameOffsetFrames = Math.round(energy * Math.max(0, finite(declaration.frameOffsetFrames, 3)));
+  const opacityDepth = clamp(declaration.opacityDepth, 0, 0.5);
+  return {
+    schemaVersion: "hapa.hyperframes.resolved-presentation-modulation.v1",
+    mode: "audio-conditioned-proxy",
+    source: text(declaration.source || "declared-audio-map"),
+    primarySignal,
+    accentSignal,
+    primaryValue: round(primaryValue),
+    accentValue: round(accentValue),
+    energy: round(energy),
+    frameOffsetFrames,
+    brightness: round(1 + energy * clamp(declaration.brightnessDepth, 0, 1)),
+    saturation: round(1 + energy * clamp(declaration.saturationDepth, 0, 1.5)),
+    scale: round(1 + energy * clamp(declaration.scaleDepth, 0, 0.15)),
+    opacityMultiplier: round(1 - opacityDepth + energy * opacityDepth),
+  };
 }
 
 function diagnostic(instance, window, issues) {
@@ -556,22 +633,29 @@ export function evaluateHyperFramesVisualizers(show = {}, timeSeconds = 0) {
     }
     const visualTime = visualTimeFor(show, instance, time, window);
     const signals = resolvedSignalFrame(show, instance, time);
-    const controls = mappedControls(instance, signals);
+    const controls = mappedControls(
+      instance,
+      signals,
+      (stemFocus) => resolvedSignalFrame(show, instance, time, stemFocus),
+    );
+    const presentationModulation = resolvedPresentationModulation(instance, signals);
     const transition = transitionEnvelope(instance, time, window);
     const opacity = clamp(instance.opacity, 0, 1);
     const visualizerMix = clamp(instance.visualizerMix, 0, 1);
     const declaredEffective = Number(instance.effectiveOpacity);
     const baseEffectiveOpacity = Number.isFinite(declaredEffective) ? clamp(declaredEffective) : opacity * visualizerMix;
-    const effectiveOpacity = round(baseEffectiveOpacity * transition.alpha);
+    const effectiveOpacity = round(baseEffectiveOpacity * transition.alpha * (presentationModulation?.opacityMultiplier ?? 1));
     const bindingDiagnostics = [
       ...(signals.fallbackUsed ? ["requested-stem-absent-master-frame-used"] : []),
       ...(!signals.stem ? ["stem-and-master-frame-unavailable"] : []),
       ...controls.invalidAudioMapUniforms.map((uniform) => `audio-map-uniform-not-declared:${uniform}`),
       ...controls.bindings.filter((binding) => binding.status === "missing-signal").map((binding) => `signal-unavailable:${binding.signal}`),
     ];
-    const resolvedProxyFrame = proxyFrame(contract, visualTime.visualTimeSeconds);
+    const resolvedProxyFrame = proxyFrame(contract, visualTime.visualTimeSeconds, presentationModulation);
     const declaredSignals = Array.isArray(instance.audioSignal) ? instance.audioSignal : [instance.audioSignal].filter(Boolean);
-    const primarySignal = declaredSignals.map((signal) => signalValue(signals.stem?.frame, signal)).find((value) => value != null) ?? 0;
+    const primarySignal = presentationModulation?.primaryValue
+      ?? declaredSignals.map((signal) => signalValue(signals.stem?.frame, signal)).find((value) => value != null)
+      ?? 0;
     const seed = canonicalHash(instance.pixelIdentitySeed);
     const pixelSignature = /^[a-f0-9]{64}$/.test(seed) ? `sha256:${seed}` : text(contract.proxy.assetSha256);
     drawable.push({
@@ -603,6 +687,7 @@ export function evaluateHyperFramesVisualizers(show = {}, timeSeconds = 0) {
       controlValues: controls.values,
       controlBindings: controls.bindings,
       controlEnergy: controlEnergy(controls.values),
+      presentationModulation,
       opacity: round(opacity),
       visualizerMix: round(visualizerMix),
       baseEffectiveOpacity: round(baseEffectiveOpacity),

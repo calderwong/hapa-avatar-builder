@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import crypto from "node:crypto";
 import {
+  createEchoIsfPlaybackPool,
   createEchoIsfSurface,
   loadEchoIsfCatalog,
   resetEchoIsfBrowserRuntimeCaches,
@@ -65,6 +66,66 @@ test("default browser fetch keeps its Window/global receiver", async () => {
     globalThis.fetch = originalFetch;
     resetEchoIsfBrowserRuntimeCaches();
   }
+});
+
+test("playback-pool surfaces share one default-fetch catalog and source flight", async (t) => {
+  const originalFetch = globalThis.fetch;
+  const source = "/*{}*/ void main(){ gl_FragColor=vec4(0.5); }";
+  const row = shaderRow(source);
+  const calls = { catalog: 0, source: 0, runtime: 0, compile: 0 };
+  const apiBase = "http://runtime-default-fetch-single-flight.test";
+  resetEchoIsfBrowserRuntimeCaches();
+  globalThis.fetch = async function sharedDefaultFetch(url) {
+    assert.equal(this, globalThis);
+    if (String(url).endsWith("/api/echos/shaders")) {
+      calls.catalog += 1;
+      return response([row]);
+    }
+    if (String(url).includes("/api/echos/shader-source")) {
+      calls.source += 1;
+      return response(source);
+    }
+    return response({}, 404);
+  };
+  t.after(() => {
+    globalThis.fetch = originalFetch;
+    resetEchoIsfBrowserRuntimeCaches();
+  });
+  const pool = createEchoIsfPlaybackPool({
+    apiBase,
+    width: 320,
+    height: 180,
+    maxSurfaces: 2,
+    dependencies: {
+      sha256,
+      createCanvas: () => fakeCanvas([]),
+      loadRuntime: async () => {
+        calls.runtime += 1;
+        return { Renderer: class {} };
+      },
+      createRenderer: () => ({
+        valid: true,
+        loadSource(value) { calls.compile += 1; assert.equal(value, source); },
+        setValue() {},
+        draw() {},
+        cleanup() {},
+      }),
+    },
+  });
+  t.after(() => pool.dispose());
+  const card = (hash) => ({
+    visualization: {
+      sourceId: row.id,
+      card: { id: row.id, source: { hash }, audioMap: { gain: { signal: "rms", depth: 0.5 } } },
+    },
+  });
+
+  const warmed = await pool.prewarm([card("portable:a"), card("portable:b")]);
+  assert.equal(warmed.ready, 2);
+  assert.equal(calls.catalog, 1);
+  assert.equal(calls.source, 1);
+  assert.equal(calls.runtime, 1);
+  assert.equal(calls.compile, 2, "each surface compiles once while sharing immutable network bytes");
 });
 
 test("catalog/runtime/source loading is single-flight and draw uses exact source ID", async () => {
@@ -183,6 +244,105 @@ test("renderer compilation and drawing failures remain distinguishable", async (
   failCompile = false;
   assert.equal((await surface.prepare(card)).status, "ready");
   assert.equal(surface.draw({ card }).status, "draw-error");
+});
+
+test("live renderer clock is pinned to the music playhead across pause, advance, and scrub", async () => {
+  const source = "playhead clock shader";
+  const row = shaderRow(source, { inputs: [{ NAME: "gain", TYPE: "float", DEFAULT: 0.5 }] });
+  const uniformFrames = [];
+  const uniforms = {};
+  let drawCalls = 0;
+  const renderer = {
+    valid: true,
+    loadSource() {},
+    setValue(name, value) { uniforms[name] = value; },
+    setDateUniforms() { throw new Error("wall-clock setter must be replaced"); },
+    draw() {
+      this.setDateUniforms();
+      drawCalls += 1;
+      uniformFrames.push({ ...uniforms, DATE: [...uniforms.DATE] });
+    },
+  };
+  const dependencies = {
+    fetch: async (url) => String(url).endsWith("/api/echos/shaders") ? response([row]) : response(source),
+    sha256,
+    createCanvas: () => fakeCanvas([]),
+    loadRuntime: async () => ({ Renderer: class {} }),
+    createRenderer: () => renderer,
+  };
+  const surface = createEchoIsfSurface({ apiBase: "http://runtime-playhead-clock.test", dependencies });
+  const card = { visualization: { sourceId: row.id } };
+  assert.equal((await surface.prepare(card)).status, "ready");
+
+  const first = surface.draw({ card, time: 12, frameRate: 30 });
+  assert.deepEqual(first.clock, {
+    time: 12,
+    timeDelta: 0,
+    frameIndex: 360,
+    frameRate: 30,
+    date: [1970, 1, 1, 12],
+    rephased: true,
+    reusedFrame: false,
+  });
+  assert.deepEqual(
+    { TIME: uniformFrames[0].TIME, TIMEDELTA: uniformFrames[0].TIMEDELTA, FRAMEINDEX: uniformFrames[0].FRAMEINDEX },
+    { TIME: 12, TIMEDELTA: 0, FRAMEINDEX: 360 },
+  );
+
+  const paused = surface.draw({ card, time: 12, frameRate: 30 });
+  assert.equal(drawCalls, 1, "a paused playhead must not advance feedback buffers or vendor frame state");
+  assert.equal(paused.clock.reusedFrame, true);
+  assert.equal(paused.clock.frameIndex, 360);
+
+  const advanced = surface.draw({ card, time: 12.1, frameRate: 30 });
+  assert.equal(drawCalls, 2);
+  assert.equal(advanced.clock.timeDelta, 0.1);
+  assert.equal(advanced.clock.frameIndex, 363);
+  assert.deepEqual(
+    { TIME: uniformFrames[1].TIME, TIMEDELTA: uniformFrames[1].TIMEDELTA, FRAMEINDEX: uniformFrames[1].FRAMEINDEX },
+    { TIME: 12.1, TIMEDELTA: 0.1, FRAMEINDEX: 363 },
+  );
+
+  const scrubbed = surface.draw({ card, time: 2, frameRate: 30 });
+  assert.equal(drawCalls, 3);
+  assert.equal(scrubbed.clock.time, 2);
+  assert.equal(scrubbed.clock.timeDelta, 0);
+  assert.equal(scrubbed.clock.frameIndex, 60);
+  assert.equal(scrubbed.clock.rephased, true);
+  assert.deepEqual(
+    { TIME: uniformFrames[2].TIME, TIMEDELTA: uniformFrames[2].TIMEDELTA, FRAMEINDEX: uniformFrames[2].FRAMEINDEX },
+    { TIME: 2, TIMEDELTA: 0, FRAMEINDEX: 60 },
+  );
+});
+
+test("catalog-quarantined shaders fail explicitly before source fetch or compilation", async () => {
+  const source = "known unsupported shader";
+  const row = shaderRow(source, {
+    directorEligible: false,
+    quarantineReason: "pixel-gate shader-compile failure",
+  });
+  const calls = { source: 0, compile: 0 };
+  const dependencies = {
+    fetch: async (url) => {
+      if (String(url).endsWith("/api/echos/shaders")) return response([row]);
+      calls.source += 1;
+      return response(source);
+    },
+    sha256,
+    createCanvas: () => fakeCanvas([]),
+    loadRuntime: async () => ({ Renderer: class {} }),
+    createRenderer: () => ({
+      valid: true,
+      loadSource() { calls.compile += 1; },
+      draw() {},
+    }),
+  };
+  const surface = createEchoIsfSurface({ apiBase: "http://runtime-quarantine.test", dependencies });
+  const result = await surface.prepare({ visualization: { sourceId: row.id } });
+  assert.equal(result.status, "unsupported-quarantine");
+  assert.match(result.error, /pixel-gate shader-compile failure/);
+  assert.equal(calls.source, 0);
+  assert.equal(calls.compile, 0);
 });
 
 test("show-graph selectors use only executable Track B source IDs and exact time windows", () => {

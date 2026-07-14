@@ -3,11 +3,12 @@ import fs from "node:fs";
 import path from "node:path";
 import { buildDirectorV2Artifacts } from "../src/domain/echo-director-v2.js";
 import { validatePhraseCadence } from "../src/domain/phrase-cadence.js";
+import { loadGatedEchoIsfManifest, repairEchoProjectShaders } from "./echo-isf-gated-manifest.mjs";
 
 const arg = (name) => process.argv.find((row) => row.startsWith(`--${name}=`))?.slice(name.length + 3);
 const output = path.resolve(arg("output"));
 fs.mkdirSync(output, { recursive: true });
-const manifest = JSON.parse(fs.readFileSync("/Users/calderwong/Desktop/hapa-music-viz/web/isf/manifest.json", "utf8"));
+const { manifest } = loadGatedEchoIsfManifest();
 const registry = JSON.parse(fs.readFileSync("/Users/calderwong/Desktop/hapa-song-registry/data/registry.json", "utf8"));
 const projectDir = path.resolve("data/music-video-projects");
 const fixtures = [
@@ -18,7 +19,8 @@ const fixtures = [
 const rows = fixtures.map((file) => {
   const payload = JSON.parse(fs.readFileSync(path.join(projectDir, file), "utf8"));
   const project = payload.music_video_project || payload;
-  const artifacts = buildDirectorV2Artifacts({ project: payload, manifest, registry, duration: Math.min(60, Number(project.duration || 60)), recipe: "visualizer-forward", seed: `cadence-proof:${project.song_id}` });
+  const prepared = repairEchoProjectShaders(payload, manifest).project;
+  const artifacts = buildDirectorV2Artifacts({ project: prepared, manifest, registry, duration: Math.min(60, Number(project.duration || 60)), recipe: "visualizer-forward", seed: `cadence-proof:${project.song_id}` });
   const cadence = artifacts.showGraph.directorV2.cadenceTrack;
   const beatTimes = project.song_edit_map?.audioTelemetry?.beatTimes || [];
   const validation = validatePhraseCadence(cadence, { beatTimes });

@@ -204,6 +204,7 @@ import TarotLibraryView, {
 } from "./components/TarotLibraryView.jsx";
 import HellWeekView from "./components/HellWeekView.jsx";
 import SongCardMintPanel from "./components/SongCardMintPanel.jsx";
+import { localFileApiUri } from "./domain/local-media-uri.js";
 
 const ThreeAvatarViewer = lazy(() => import("./components/ThreeAvatarViewer.jsx"));
 const TarotDraw3DView = lazy(() => import("./components/TarotDraw3DView.jsx"));
@@ -238,7 +239,9 @@ const SONG_REGISTRY_DETAIL_PREFETCH_LIMIT = Math.max(0, Number(import.meta.env?.
 
 function resolveMediaUri(uri) {
   if (typeof uri !== "string" || !uri) return uri;
-  if (/^(data:|blob:|https?:|file:)/.test(uri)) return uri;
+  const localUri = localFileApiUri(uri, API_BASE);
+  if (localUri) return localUri;
+  if (/^(data:|blob:|https?:)/.test(uri)) return uri;
   if (uri.startsWith("/media/")) {
     const base = API_BASE || "http://127.0.0.1:8787";
     return `${base}${uri}`;

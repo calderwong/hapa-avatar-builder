@@ -48,6 +48,99 @@ test("HyperFrames compiler emits pinned templated executable shows", () => {
   assert.ok(inspectHyperFramesShow(a).ok);
 });
 
+test("HyperFrames preserves structured audio mappings and gives legacy shaders a deterministic reactive envelope", () => {
+  const graph = JSON.parse(fs.readFileSync("work/dear-papa-stem-telemetry/native-show-graph.json", "utf8"));
+  const telemetry = JSON.parse(fs.readFileSync("work/dear-papa-stem-telemetry/stem-telemetry.json", "utf8"));
+  const project = JSON.parse(fs.readFileSync("data/music-video-projects/dear-papa-song-dear-papa-video-project.json", "utf8"));
+  const declaredCard = graph.tracks.flatMap((track) => track.cards || []).find((card) => card.visualization?.card?.audioMap);
+  const declaredUniform = Object.keys(declaredCard.visualization.card.audioMap)[0];
+  const declaredMapping = declaredCard.visualization.card.audioMap[declaredUniform];
+  const declaredShow = compileHyperFramesShow({ showGraph: graph, telemetry, project, fps: 30 });
+  const declaredLayer = declaredShow.instances.visualizers.find((layer) => layer.id === declaredCard.id);
+
+  assert.equal(typeof declaredLayer.audioMap[declaredUniform], "object", "stem:signal editor strings must not replace executable mapping objects");
+  assert.equal(declaredLayer.audioMap[declaredUniform].signal, declaredMapping.signal);
+  assert.equal(declaredLayer.audioMap[declaredUniform].depth, declaredMapping.depth, "portable mapping depth remains authoritative");
+  assert.equal(declaredLayer.presentationModulation.mode, "audio-conditioned-proxy");
+  assert.ok(declaredLayer.audioSignal.some((signal) => ["rms", "beat", "onset", "low", "bass", "mid", "high", "treble"].includes(signal)));
+
+  const overrideGraph = structuredClone(graph);
+  const overrideCard = overrideGraph.tracks.flatMap((track) => track.cards || []).find((card) => card.id === declaredCard.id);
+  const overrideUniform = (overrideCard.visualization.card.inputs || []).find((input) => String(input.TYPE || input.type).toLowerCase() !== "image")?.NAME;
+  assert.ok(overrideUniform, "fixture needs a value input for the stem override regression");
+  overrideCard.visualization.card.stemFocus = "master";
+  overrideCard.parameters = {
+    ...(overrideCard.parameters || {}),
+    visualizerMappings: {
+      [overrideUniform]: "drums:rms",
+    },
+  };
+  const overrideShow = compileHyperFramesShow({ showGraph: overrideGraph, telemetry, project, fps: 30 });
+  const overrideLayer = overrideShow.instances.visualizers.find((layer) => layer.id === overrideCard.id);
+  assert.equal(overrideLayer.audioMap[overrideUniform].stemFocus, "drums");
+  assert.equal(overrideLayer.audioMap[overrideUniform].signal, "rms");
+  assert.equal(overrideLayer.stemFocus, "drums", "one explicit mapping stem must override the portable master for presentation modulation");
+
+  const compatibleLegacyShow = structuredClone(declaredShow);
+  const compatibleLegacyLayer = compatibleLegacyShow.instances.visualizers.find((layer) => layer.id === declaredCard.id);
+  compatibleLegacyLayer.audioMap = Object.fromEntries(Object.entries(compatibleLegacyLayer.audioMap).map(([uniform, mapping]) => [
+    uniform,
+    `${mapping.stemFocus || compatibleLegacyLayer.stemFocus}:${mapping.signal}`,
+  ]));
+  delete compatibleLegacyLayer.presentationModulation;
+  assert.equal(inspectHyperFramesShow(compatibleLegacyShow).ok, true, "legacy string maps with real reactive signals remain inspectable");
+
+  const sourceHash = `sha256:${"9".repeat(64)}`;
+  const assetSha256 = `sha256:${"8".repeat(64)}`;
+  const legacyGraph = nativeMediaGraph([
+    mediaCard("cue-generated", { id: "none", title: "Generated IVF", localPath: "" }, { knockedOut: true }),
+  ]);
+  legacyGraph.tracks.push({
+    id: "ivf-stack",
+    role: "visualizer",
+    cards: [{
+      id: "legacy:ivf:reactive",
+      startSeconds: 0,
+      endSeconds: 12,
+      parameters: { opacity: 0.5, blendMode: "screen" },
+      visualization: { sourceId: "isf:legacy-reactive", nativeKey: "Legacy Reactive" },
+    }],
+  });
+  const legacyShow = compileHyperFramesShow({
+    showGraph: legacyGraph,
+    telemetry: {
+      fps: 2,
+      stems: [{ id: "stem:master", role: "master", frames: [{ t: 0, rms: 0.1, onset: 0 }, { t: 0.5, rms: 0.8, onset: 1 }] }],
+      masterMix: { frames: [{ t: 0, rms: 0.1, onset: 0 }, { t: 0.5, rms: 0.8, onset: 1 }] },
+    },
+    project: { timeline: [] },
+    proxyRegistry: {
+      proxies: [{
+        id: "isf:legacy-reactive",
+        sourceHash,
+        assetPath: "/static/isf/proxies/legacy-reactive.png",
+        assetSha256,
+        width: 16,
+        height: 9,
+        frameCount: 8,
+        fps: 4,
+      }],
+    },
+  });
+  const legacyLayer = legacyShow.instances.visualizers[0];
+  assert.deepEqual(legacyLayer.audioSignal, ["rms", "beat"]);
+  assert.equal(legacyLayer.presentationModulation.source, "generic-rms-beat-fallback");
+  assert.equal(inspectHyperFramesShow(legacyShow).ok, true);
+
+  const detached = structuredClone(legacyShow);
+  detached.instances.visualizers[0].audioSignal = [];
+  delete detached.instances.visualizers[0].presentationModulation;
+  const detachedInspection = inspectHyperFramesShow(detached);
+  assert.equal(detachedInspection.ok, false);
+  assert.ok(detachedInspection.errors.includes("missing-stem-wiring:legacy:ivf:reactive"));
+  assert.ok(detachedInspection.errors.includes("nonreactive-visualizer:legacy:ivf:reactive"));
+});
+
 test("HyperFrames matches source/runtime aliases and preserves explicit pure-IVF and knockout cues", () => {
   const contentHash = "d".repeat(64);
   const sourceUri = `/media/scroll-source-shot-${contentHash.slice(0, 12)}.mp4`;
