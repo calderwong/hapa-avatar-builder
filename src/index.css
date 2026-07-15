@@ -17153,6 +17153,63 @@ h1 {
     linear-gradient(135deg, rgba(2, 6, 23, 0.58), rgba(19, 8, 36, 0.44));
 }
 
+@media (max-width: 640px) {
+  .hapa-echos-view {
+    height: auto;
+    min-height: 100%;
+    padding: 8px;
+  }
+
+  .hapa-echos-view .echos-workspace-grid {
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
+  }
+
+  .hapa-echos-view .echos-right-col {
+    height: auto !important;
+    min-height: 0 !important;
+    overflow: visible !important;
+    padding: 10px !important;
+  }
+
+  .hapa-echos-view .directory-tabs {
+    overflow-x: auto;
+  }
+
+  .hapa-echos-view .directory-tabs > button {
+    flex: 0 0 112px !important;
+  }
+
+  .hapa-echos-view .media-explorer-layout {
+    flex: none !important;
+    flex-direction: column !important;
+    min-height: 0 !important;
+    overflow: visible !important;
+  }
+
+  .hapa-echos-view .media-list-pane {
+    width: 100% !important;
+    height: 190px;
+    min-height: 190px !important;
+    padding-right: 0 !important;
+    padding-bottom: 8px;
+    border-right: 0 !important;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  }
+
+  .hapa-echos-view .media-details-pane {
+    width: 100%;
+    min-height: 0 !important;
+    overflow: visible !important;
+  }
+
+  .hapa-echos-view .media-detail-console > header {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+}
+
 .tarot-phone-bridge-panel {
   position: absolute;
   top: 128px;

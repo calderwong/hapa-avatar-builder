@@ -13,6 +13,9 @@ function finite(value, fallback = 0) {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
+import { echoProjectAudioRoute } from "./echo-audio-route.js";
+import { resolveEchoOutputProfile } from "./echo-output-profile.js";
+
 /**
  * Generate the portable HyperFrames representation used by Echo previews and
  * append-only direction-script revisions. The input project is not mutated.
@@ -25,21 +28,34 @@ export function generateEchoHyperframeScript(project = {}) {
   const visualizerTimeline = Array.isArray(project.visualizer_timeline) ? project.visualizer_timeline : [];
   const timedLyrics = Array.isArray(project.timed_lyrics) ? project.timed_lyrics : [];
   const lyricVariant = project.lyric_variant || "phrase-window";
-  const audioId = project.audio_id || project.registry_track_id || songId;
+  const audioRoute = echoProjectAudioRoute(project);
   const lyricPosition = project.lyric_position || "bottom-center";
   const lyricStyle = project.lyric_style || "neon-cyan";
+  const outputProfile = resolveEchoOutputProfile(project);
+  const lyricBottom = Math.round(outputProfile.height * outputProfile.safeArea.lyricBottom);
 
   let html = `<!-- Hapa x HyperFrames Video Project Script -->\n`;
   html += `<!-- Song: ${songTitle} (${songId}) -->\n`;
-  html += `<!-- Duration: ${duration} seconds -->\n\n`;
+  html += `<!-- Duration: ${duration} seconds -->\n`;
+  html += `<!-- Output Profile: ${outputProfile.label} (${outputProfile.id}, ${outputProfile.aspectRatio}, ${outputProfile.width}x${outputProfile.height} @ ${outputProfile.fps}fps) -->\n\n`;
   html += `<div class="hyperframe-video-composition"\n`;
-  html += `     data-width="1920"\n`;
-  html += `     data-height="1080"\n`;
+  html += `     data-output-profile="${outputProfile.id}"\n`;
+  html += `     data-output-profile-schema="${outputProfile.schemaVersion}"\n`;
+  html += `     data-orientation="${outputProfile.orientation}"\n`;
+  html += `     data-aspect-ratio="${outputProfile.aspectRatio}"\n`;
+  html += `     data-width="${outputProfile.width}"\n`;
+  html += `     data-height="${outputProfile.height}"\n`;
+  html += `     data-fps="${outputProfile.fps}"\n`;
   html += `     data-duration="${duration}"\n`;
-  html += `     style="width: 1920px; height: 1080px; position: relative; background: #020617; overflow: hidden;">\n\n`;
+  html += `     style="width: ${outputProfile.width}px; height: ${outputProfile.height}px; position: relative; background: #020617; overflow: hidden;">\n\n`;
+
+  html += `  <!-- Canonical Output Metadata -->\n`;
+  html += `  <script>\n`;
+  html += `    window.HAPA_OUTPUT_PROFILE = ${JSON.stringify(outputProfile, null, 2).split("\n").join("\n    ")};\n`;
+  html += `  </script>\n\n`;
 
   html += `  <!-- Canonical Audio Track -->\n`;
-  html += `  <audio src="/api/song-registry/audio/${encodeURIComponent(audioId)}"\n`;
+  html += `  <audio src="${audioRoute.uri || ""}"\n`;
   html += `         data-start="0"\n`;
   html += `         data-volume="1.0"></audio>\n\n`;
 
@@ -105,7 +121,8 @@ export function generateEchoHyperframeScript(project = {}) {
   html += `       data-variant="${lyricVariant}"\n`;
   html += `       data-position="${lyricPosition}"\n`;
   html += `       data-style="${lyricStyle}"\n`;
-  html += `       style="position: absolute; bottom: 80px; width: 100%; text-align: center; z-index: 10;"></div>\n`;
+  html += `       data-safe-bottom="${lyricBottom}"\n`;
+  html += `       style="position: absolute; bottom: ${lyricBottom}px; width: 100%; text-align: center; z-index: 10;"></div>\n`;
   html += `</div>\n`;
   return html;
 }

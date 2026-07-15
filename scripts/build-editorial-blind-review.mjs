@@ -26,7 +26,7 @@ for (const [songId, title] of fixtures) {
   const project = payload.music_video_project || payload;
   const prepared = repairEchoProjectShaders(payload, manifest).project;
   const preparedProject = prepared.music_video_project || prepared;
-  const base = buildDirectorV2Artifacts({ project: prepared, manifest, registry, duration: Number(project.duration), recipe: "conservative", seed: `blind:${songId}:base`, avatarRoot: root });
+  const base = buildDirectorV2Artifacts({ project: prepared, sourceProject: payload, manifest, registry, duration: Number(project.duration), recipe: "conservative", seed: `blind:${songId}:base`, avatarRoot: root });
   const candidates = [{ pipelineId: "current", graph: projectToEditorGraph(preparedProject) }];
   for (const recipe of ["conservative", "kinetic", "visualizer-forward"]) candidates.push({ pipelineId: recipe, graph: compileDirectorVariant({ treatment: base.treatment, cueGraph: base.cueGraph, recipe, seed: `blind:${songId}:${recipe}`, sourceProject: prepared }) });
   const songDir = path.join(output, "graphs", songId);

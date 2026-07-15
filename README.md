@@ -225,7 +225,36 @@ The Preview tab exposes the same operation as **Compile Smooth Preview**. Playba
 electron scripts/echos-album-playback-acceptance-smoke.cjs
 ```
 
-The album also carries three append-only **Wide Coverage Director Passes** for every song: Airy (about 45% video time), Rhythmic (about 70%), and Dense (about 92%). They reuse the inherited music decisions and nested shot windows, then refill video from an album-wide least-used queue across Scroll/FAL, Builder Scene, and Builder Avatar Cards. Preview them from the **Direction script version** selector. **Continue from this cut** opens an editable working copy; **Save as new cut** creates a lineage-bound child without changing Legacy or the source cut.
+### Landscape and Vertical music-video output
+
+Use **Video orientation** in the Echo Director setup to choose the final music-video shape before directing or editing a cut:
+
+- **Landscape** is the backwards-compatible default: 1920×1080, 16:9, 30 fps.
+- **Vertical** is the phone format: 1080×1920, 9:16, 30 fps.
+
+The chosen output profile is saved with the project and travels through Director variants, the multitrack editor, HyperFrame compilation, local rendering, release QA, and Song Card mint identity. The Preview frame changes to the real export aspect ratio, including profile-specific title, action, and lyric safe areas. Source-media orientation is independent: wide and tall inputs are cover-cropped into the selected frame without changing the output profile. The same camera-crop corridor drives Preview and final HyperFrames output, so off-center subjects retain the selected framing instead of snapping back to a centered cover crop.
+
+Saving strips preview-only graph and certificate fields from the authoring project, then deterministically recompiles that one song before Song Card planning starts. Render-start certification repeats the single-song compile as a fail-safe. A failed compile leaves the edit intact and blocks rendering with a retry message; it never falls back to a stale Landscape graph. To rebuild one saved project without rewriting album-wide reports:
+
+```bash
+node scripts/compile-echo-director-v2-album.mjs --song dear-papa-song-boba-tea-strum
+```
+
+New generated-media requests inherit the selected output dimensions. Existing projects with no output profile remain Landscape. To inspect album-wide Vertical plans without changing saved projects, run:
+
+```bash
+node scripts/generate-music-video-plans.mjs --orientation=vertical
+```
+
+Add `--apply` only when the resulting plans are intentionally ready to replace saved project files; apply mode creates the script's normal project backup first.
+
+With the normal API and Vite development servers running, verify the 390×844 phone editor, selector, 9:16 preview frame, and 360×640 preview canvas with:
+
+```bash
+electron scripts/echo-vertical-phone-smoke.cjs
+```
+
+The album also carries three append-only **Wide Coverage Director Passes** for every song: Airy (about 45% video time), Rhythmic (about 70%), and Dense (about 92%). They reuse the inherited music decisions and nested shot windows, then refill video from an album-wide least-used queue across Scroll/FAL, Builder Scene, and Builder Avatar Cards. Choose any pass from the **Direction script version** selector to open an editable working copy immediately. The working copy keeps that pass's higher-quality media and portable cards, and it can be switched directly to **Vertical** for a 1080×1920 phone video. **Save as new cut** creates a lineage-bound child without changing Legacy or the selected source cut; the editor keeps the saved high-quality graph pinned while the child's background certification finishes, then reopens that child as the next editable copy.
 
 Dry-run or append the repeatable album pass with:
 

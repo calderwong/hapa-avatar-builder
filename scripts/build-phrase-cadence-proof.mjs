@@ -20,7 +20,7 @@ const rows = fixtures.map((file) => {
   const payload = JSON.parse(fs.readFileSync(path.join(projectDir, file), "utf8"));
   const project = payload.music_video_project || payload;
   const prepared = repairEchoProjectShaders(payload, manifest).project;
-  const artifacts = buildDirectorV2Artifacts({ project: prepared, manifest, registry, duration: Math.min(60, Number(project.duration || 60)), recipe: "visualizer-forward", seed: `cadence-proof:${project.song_id}` });
+  const artifacts = buildDirectorV2Artifacts({ project: prepared, sourceProject: payload, manifest, registry, duration: Math.min(60, Number(project.duration || 60)), recipe: "visualizer-forward", seed: `cadence-proof:${project.song_id}` });
   const cadence = artifacts.showGraph.directorV2.cadenceTrack;
   const beatTimes = project.song_edit_map?.audioTelemetry?.beatTimes || [];
   const validation = validatePhraseCadence(cadence, { beatTimes });

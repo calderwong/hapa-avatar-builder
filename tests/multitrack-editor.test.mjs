@@ -3,6 +3,55 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import { applyMultitrackOperation, buildMultitrackProjection, editorGraphMintFingerprint, projectToEditorGraph, replayMultitrackPatches } from "../src/domain/multitrack-editor.js";
 
+test("editor graphs carry canonical Echo output orientation into mint identity", () => {
+  const landscape = projectToEditorGraph({ song_id: "song", duration: 4 });
+  const vertical = projectToEditorGraph({ song_id: "song", duration: 4, output_profile: "vertical" });
+  assert.equal(landscape.outputProfile.id, "landscape");
+  assert.equal(vertical.outputProfile.id, "vertical");
+  assert.equal(vertical.directorV2.outputProfile.height, 1920);
+  assert.notEqual(editorGraphMintFingerprint(landscape), editorGraphMintFingerprint(vertical));
+});
+
+test("Vertical editor projection reframes hydrated camera corridors before mint planning", () => {
+  const landscapeStart = { x: 0, y: 0.1, width: 1, height: 0.8 };
+  const landscapeEnd = { x: 0, y: 0.08, width: 1, height: 0.84 };
+  const verticalStart = { x: 0.3, y: 0, width: 0.4, height: 1 };
+  const verticalEnd = { x: 0.28, y: 0, width: 0.44, height: 1 };
+  const projected = projectToEditorGraph({
+    song_id: "camera-song",
+    duration: 4,
+    output_profile: "vertical",
+    director_show_graph: {
+      schemaVersion: "hapa.music-viz.native-show-graph.v2",
+      outputProfile: "landscape",
+      song: { id: "camera-song", durationSeconds: 4 },
+      tracks: [],
+      directorV2: {
+        outputProfile: "landscape",
+        mediaRoleCamera: [{
+          id: "camera-path:one",
+          corridors: [
+            { targetAspect: 16 / 9, startCrop: landscapeStart, endCrop: landscapeEnd },
+            { targetAspect: 9 / 16, startCrop: verticalStart, endCrop: verticalEnd },
+          ],
+          keyframes: [{ offset: 0, crop: landscapeStart }, { offset: 1, crop: landscapeEnd }],
+        }],
+        cameraKeyframes: [
+          { atSeconds: 0, cameraPathId: "camera-path:one", crop: landscapeStart },
+          { atSeconds: 4, cameraPathId: "camera-path:one", crop: landscapeEnd },
+        ],
+        patchLineage: { patches: [], dirtyRanges: [] },
+      },
+    },
+  });
+
+  assert.equal(projected.outputProfile.id, "vertical");
+  assert.equal(projected.directorV2.outputProfile.id, "vertical");
+  assert.equal(projected.directorV2.mediaRoleCamera[0].corridors[0].targetAspect, 9 / 16);
+  assert.deepEqual(projected.directorV2.mediaRoleCamera[0].keyframes.map((row) => row.crop), [verticalStart, verticalEnd]);
+  assert.deepEqual(projected.directorV2.cameraKeyframes.map((row) => row.crop), [verticalStart, verticalEnd]);
+});
+
 const graph = JSON.parse(fs.readFileSync("work/dear-papa-stem-telemetry/native-show-graph.json", "utf8"));
 
 test("multitrack projection exposes every playback-affecting lane with readiness and support", () => {
@@ -44,6 +93,8 @@ test("UI saves patches rather than browser-only control state", () => {
   assert.match(component, /onPatch\?\.\(result\.patch\)/);
   assert.match(host, /director_show_graph_patches/);
   assert.match(host, /lastDirtyRange/);
+  assert.match(host, /activeShowGraph = useMemo/);
+  assert.match(host, /showGraph=\{activeShowGraph\}/);
   assert.match(component, /readiness/);
   assert.match(component, /rendererSupport/);
 });

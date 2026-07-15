@@ -91,6 +91,101 @@ test("master fallback is explicit only when the requested stem frame is absent",
   assert.equal(requestedPresent.frameReceipt.input.modulationBindings[0].status, "missing-signal");
 });
 
+test("each uniform resolves its declared stem instead of inheriting the card default", () => {
+  const shader = {
+    id: "isf:multi-stem",
+    shaderType: "generator",
+    inputs: [
+      { NAME: "drumGain", TYPE: "float", DEFAULT: 0, MIN: 0, MAX: 1 },
+      { NAME: "vocalGain", TYPE: "float", DEFAULT: 0, MIN: 0, MAX: 1 },
+    ],
+  };
+  const card = portableCard({
+    visualization: {
+      sourceId: shader.id,
+      card: {
+        stemFocus: "drums",
+        controls: {},
+        layer: {},
+        audioMap: {
+          drumGain: { signal: "rms", stemFocus: "drums", depth: 1 },
+          vocalGain: { signal: "rms", stemFocus: "leadVocals", depth: 1 },
+        },
+      },
+    },
+  });
+  const intent = buildEchoIsfFrameIntent({
+    shader,
+    card,
+    signalFrames: { drums: { rms: 0.1 }, vocals: { rms: 0.9 }, master: { rms: 0.5 } },
+  });
+  assert.equal(intent.values.drumGain, 0.1);
+  assert.equal(intent.values.vocalGain, 0.9);
+  assert.deepEqual(intent.frameReceipt.input.modulationBindings.map((binding) => ({
+    uniform: binding.uniform,
+    requestedStem: binding.requestedStem,
+    resolvedStem: binding.resolvedStem,
+  })), [
+    { uniform: "drumGain", requestedStem: "drums", resolvedStem: "drums" },
+    { uniform: "vocalGain", requestedStem: "leadVocals", resolvedStem: "vocals" },
+  ]);
+});
+
+test("generated range-relative depth is explicit while unmarked legacy depth stays absolute", () => {
+  const shader = {
+    id: "isf:wide-range",
+    shaderType: "generator",
+    inputs: [{ NAME: "seed", TYPE: "float", DEFAULT: 1000, MIN: 0, MAX: 10000 }],
+  };
+  const baseCard = portableCard({
+    visualization: { sourceId: shader.id, card: { stemFocus: "master", controls: {}, layer: {}, audioMap: { seed: { signal: "rms", depth: 0.2, depthMode: "range-relative", depthFraction: 0.2 } } } },
+  });
+  const relative = buildEchoIsfFrameIntent({ shader, card: baseCard, signalFrames: { master: { rms: 1 } } });
+  assert.equal(relative.values.seed, 3000);
+  assert.equal(relative.frameReceipt.input.modulationBindings[0].depth, 2000);
+  assert.equal(relative.frameReceipt.input.modulationBindings[0].depthMode, "range-relative");
+  const legacyCard = structuredClone(baseCard);
+  delete legacyCard.visualization.card.audioMap.seed.depthMode;
+  delete legacyCard.visualization.card.audioMap.seed.depthFraction;
+  const legacy = buildEchoIsfFrameIntent({ shader, card: legacyCard, signalFrames: { master: { rms: 1 } } });
+  assert.equal(legacy.values.seed, 1000.2);
+  assert.equal(legacy.frameReceipt.input.modulationBindings[0].depth, 0.2);
+  assert.equal(legacy.frameReceipt.input.modulationBindings[0].depthMode, "absolute");
+});
+
+test("generated mappings choose deterministic per-component headroom instead of pinning at input maxima", () => {
+  const shader = {
+    id: "isf:headroom",
+    shaderType: "generator",
+    inputs: [
+      { NAME: "gain", TYPE: "float", DEFAULT: 10, MIN: 0, MAX: 10 },
+      { NAME: "tint", TYPE: "color", DEFAULT: [1, 0, 1, 0], MIN: [0, 0, 0, 0], MAX: [1, 1, 1, 1] },
+    ],
+  };
+  const card = portableCard({
+    visualization: {
+      sourceId: shader.id,
+      card: {
+        stemFocus: "master",
+        controls: {},
+        layer: {},
+        audioMap: {
+          gain: { signal: "rms", depthMode: "range-relative", depthFraction: 0.2 },
+          tint: { signal: "rms", depthMode: "range-relative", depthFraction: 0.2 },
+        },
+      },
+    },
+  });
+  const intent = buildEchoIsfFrameIntent({ shader, card, signalFrames: { master: { rms: 1 } } });
+  assert.equal(intent.values.gain, 8);
+  assert.deepEqual(intent.values.tint, [0.8, 0.2, 0.8, 0.2]);
+  const gain = intent.frameReceipt.input.modulationBindings.find((binding) => binding.uniform === "gain");
+  const tint = intent.frameReceipt.input.modulationBindings.find((binding) => binding.uniform === "tint");
+  assert.equal(gain.headroomPolicy, "auto-headroom-v1");
+  assert.equal(gain.direction, "down");
+  assert.deepEqual(tint.direction, ["down", "up", "down", "up"]);
+});
+
 test("filter media, audio-map validation, and composition failures are explicit", () => {
   const shader = {
     id: "isf:filter",
@@ -180,6 +275,8 @@ test("the complete catalog and album satisfy media/default/audio-map frame contr
   const byId = new Map((manifest.shaders || []).map((shader) => [shader.id, shader]));
   let graphCount = 0;
   let cardCount = 0;
+  let reactiveCardCount = 0;
+  let effectiveReactiveCardCount = 0;
   for (const directory of fs.readdirSync(albumRoot)) {
     const graphPath = path.join(albumRoot, directory, "native-show-graph.json");
     if (!fs.existsSync(graphPath)) continue;
@@ -190,8 +287,30 @@ test("the complete catalog and album satisfy media/default/audio-map frame contr
       const shader = byId.get(card.visualization?.sourceId);
       assert.ok(shader, `${directory} references unknown shader ${card.visualization?.sourceId}`);
       assert.equal(validateEchoIsfCardBindings(shader, card).ok, true, `${directory}/${card.id} maps an undeclared uniform`);
+      const audioMap = { ...(shader.audioMap || {}), ...(card.visualization?.card?.audioMap || {}) };
+      const mappings = Object.values(audioMap).map((mapping) => typeof mapping === "string"
+        ? { signal: mapping.split(":").at(-1), stemFocus: mapping.includes(":") ? mapping.slice(0, mapping.lastIndexOf(":")) : null }
+        : mapping || {});
+      const reactiveMappings = mappings.filter((mapping) => !["", "off", "canvas"].includes(String(mapping.signal || "").toLowerCase()));
+      if (reactiveMappings.length) {
+        reactiveCardCount += 1;
+        const signals = [...new Set(reactiveMappings.map((mapping) => String(mapping.signal).toLowerCase()))];
+        const roles = [...new Set([card.visualization?.card?.stemFocus || "master", ...reactiveMappings.map((mapping) => mapping.stemFocus).filter(Boolean)])];
+        const lowFrame = Object.fromEntries(signals.map((signal) => [signal, 0]));
+        const highFrame = Object.fromEntries(signals.map((signal) => [signal, 1]));
+        const lowSignalFrames = Object.fromEntries(roles.map((role) => [role, lowFrame]));
+        const highSignalFrames = Object.fromEntries(roles.map((role) => [role, highFrame]));
+        lowSignalFrames.master = lowFrame;
+        highSignalFrames.master = highFrame;
+        const lowIntent = buildEchoIsfFrameIntent({ shader, card, signalFrames: lowSignalFrames, mediaElement: readyMedia });
+        const highIntent = buildEchoIsfFrameIntent({ shader, card, signalFrames: highSignalFrames, mediaElement: readyMedia });
+        if (JSON.stringify(lowIntent.values) !== JSON.stringify(highIntent.values)) effectiveReactiveCardCount += 1;
+        else assert.fail(`${directory}/${card.id} declares audio modulation but signal 0→1 changes no shader input`);
+      }
     }
   }
   assert.equal(graphCount, 79);
   assert.equal(cardCount, 791);
+  assert.ok(reactiveCardCount > 0);
+  assert.equal(effectiveReactiveCardCount, reactiveCardCount, "every album card with a reactive mapping must produce a measurable input change");
 });

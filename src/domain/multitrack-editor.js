@@ -1,9 +1,13 @@
 import { applyDirtyRangePatch } from "./dirty-range-rebuild.js";
 import { contextHash } from "./song-context-packet.js";
+import { resolveEchoOutputProfile } from "./echo-output-profile.js";
 
 export const MULTITRACK_EDITOR_SCHEMA = "hapa.director.multitrack-editor.v1";
 
 export function editorGraphMintProjection(graph = {}, renderSpec = {}) {
+  const outputProfile = resolveEchoOutputProfile(
+    Object.keys(renderSpec || {}).length ? renderSpec : graph.outputProfile || graph.output_profile,
+  );
   return {
     song: graph.song || null,
     stems: graph.stems || null,
@@ -32,7 +36,7 @@ export function editorGraphMintProjection(graph = {}, renderSpec = {}) {
       effects: graph.directorV2?.effects || [],
       rendererSupport: graph.directorV2?.rendererSupport || null,
     },
-    renderSpec,
+    renderSpec: outputProfile,
   };
 }
 
@@ -69,6 +73,58 @@ function clone(value) {
   return typeof structuredClone === "function"
     ? structuredClone(value)
     : JSON.parse(JSON.stringify(value));
+}
+
+const aspectMatches = (left, right) => Math.abs(Number(left) - Number(right)) <= 0.000001;
+
+export function reframeEchoShowGraphOutputProfile(graphInput = {}, profileValue) {
+  const graph = clone(graphInput) || {};
+  const outputProfile = resolveEchoOutputProfile(profileValue ?? graph.outputProfile ?? graph.output_profile);
+  const targetAspect = outputProfile.width / outputProfile.height;
+  const director = clone(graph.directorV2) || {};
+  const cameraById = new Map();
+
+  director.mediaRoleCamera = (director.mediaRoleCamera || []).map((path) => {
+    const corridors = Array.isArray(path?.corridors) ? path.corridors.map((corridor) => clone(corridor)) : [];
+    const selectedIndex = corridors.findIndex((corridor) => aspectMatches(corridor?.targetAspect, targetAspect));
+    const selected = selectedIndex >= 0 ? corridors[selectedIndex] : null;
+    const orderedCorridors = selected
+      ? [selected, ...corridors.filter((_, index) => index !== selectedIndex)]
+      : corridors;
+    const reframed = {
+      ...path,
+      corridors: orderedCorridors,
+      activeTargetAspect: targetAspect,
+      activeOutputProfileId: outputProfile.id,
+      ...(selected ? {
+        keyframes: [
+          { ...(path.keyframes?.[0] || {}), offset: 0, crop: clone(selected.startCrop) },
+          { ...(path.keyframes?.[1] || {}), offset: 1, crop: clone(selected.endCrop) },
+        ],
+      } : {}),
+    };
+    if (reframed.id) cameraById.set(reframed.id, { path: reframed, selected });
+    return reframed;
+  });
+
+  const cameraOccurrence = new Map();
+  director.cameraKeyframes = (director.cameraKeyframes || []).map((row) => {
+    const camera = cameraById.get(row?.cameraPathId);
+    if (!camera?.selected) return clone(row);
+    const occurrence = cameraOccurrence.get(row.cameraPathId) || 0;
+    cameraOccurrence.set(row.cameraPathId, occurrence + 1);
+    return {
+      ...row,
+      crop: clone(occurrence % 2 === 0 ? camera.selected.startCrop : camera.selected.endCrop),
+      outputProfileId: outputProfile.id,
+      targetAspect,
+    };
+  });
+
+  graph.outputProfile = outputProfile;
+  delete graph.output_profile;
+  graph.directorV2 = { ...director, outputProfile };
+  return graph;
 }
 
 function visualizerSourceId(value = {}) {
@@ -108,8 +164,10 @@ function trackByRole(graph, ids, roles) {
 
 function legacyEditorGraph(project = {}) {
   const duration = Number(project.duration || 60);
+  const outputProfile = resolveEchoOutputProfile(project);
   return {
     schemaVersion: "hapa.music-viz.native-show-graph.v2",
+    outputProfile,
     song: { id: project.song_id, title: project.song_title, durationSeconds: duration, lyricOverlay: { lines: project.timed_lyrics || [] } },
     stems: { items: (project.stems_available || []).map((title, index) => ({ id: `stem:${index}`, stemType: title, title })) },
     tracks: [
@@ -228,8 +286,10 @@ function mergeVisualizerTimeline(graph, timeline = []) {
 
 export function projectToEditorGraph(project = {}) {
   const declared = project.director_show_graph?.tracks ? clone(project.director_show_graph) : null;
-  const graph = declared || legacyEditorGraph(project);
+  let graph = declared || legacyEditorGraph(project);
   const duration = Number(project.duration ?? graph.song?.durationSeconds ?? 60);
+  const outputProfile = resolveEchoOutputProfile(project.output_profile || project.outputProfile || graph.outputProfile);
+  graph = reframeEchoShowGraphOutputProfile(graph, outputProfile);
   graph.song = {
     ...(graph.song || {}),
     id: project.song_id || graph.song?.id,
@@ -246,6 +306,7 @@ export function projectToEditorGraph(project = {}) {
   }
   graph.directorV2 = {
     ...(graph.directorV2 || {}),
+    outputProfile,
     patchLineage: graph.directorV2?.patchLineage || { patches: [], dirtyRanges: [] },
   };
   return replayMultitrackPatches(graph, project.director_show_graph_patches || []);

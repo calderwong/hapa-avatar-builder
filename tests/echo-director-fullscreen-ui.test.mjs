@@ -95,12 +95,18 @@ test("Escape closes only the in-app overlay while the browser owns native Fullsc
   assert.match(lifecycle, /Exited full-screen Preview/);
 });
 
-test("large Preview fits the complete 16:9 frame and wrapping controls inside the viewport", () => {
+test("large Preview fits both Landscape and Vertical frames with wrapping controls", () => {
   assert.match(source, /ECHO_EXPANDED_PREVIEW_WIDTH = "min\(calc\(100vw - 32px\), calc\(177\.7778vh - 384px\)\)"/);
+  assert.match(source, /ECHO_VERTICAL_EXPANDED_PREVIEW_WIDTH = "min\(calc\(100vw - 32px\), calc\(56\.25vh - 121\.5px\)\)"/);
   assert.match(source, /ECHO_EXPANDED_PREVIEW_MAX_HEIGHT = "calc\(100vh - 216px\)"/);
+  assert.match(source, /data-testid="echo-output-orientation"/);
+  assert.match(source, /aria-label="Video orientation"/);
+  assert.match(source, /output_profile: resolveEchoOutputProfile\(event\.target\.value\)/);
   assert.match(source, /data-testid="echo-director-preview-frame"/);
-  assert.match(source, /data-export-aspect="1920x1080"/);
-  assert.match(source, /aspectRatio: '16 \/ 9'/);
+  assert.match(source, /data-export-aspect=\{`\$\{activeOutputProfile\.width\}x\$\{activeOutputProfile\.height\}`\}/);
+  assert.match(source, /data-output-profile=\{activeOutputProfile\.id\}/);
+  assert.match(source, /aspectRatio: `\$\{activeOutputProfile\.width\} \/ \$\{activeOutputProfile\.height\}`/);
+  assert.match(source, /compactPreviewWidth = isVerticalOutput \? "min\(100%, 315px, 31\.5vh\)" : "100%"/);
   assert.match(source, /maxHeight: directorPreviewExpanded \? ECHO_EXPANDED_PREVIEW_MAX_HEIGHT/);
   assert.match(source, /flexShrink: 0/);
   assert.match(source, /justifyContent: 'flex-start'/);
@@ -109,8 +115,11 @@ test("large Preview fits the complete 16:9 frame and wrapping controls inside th
   assert.match(source, /flex: directorPreviewExpanded \? '1 1 260px'/);
   assert.match(source, /!directorPreviewExpanded && \(/);
   assert.match(source, /currentTimelineItem && !directorPreviewExpanded/);
-  assert.match(source, /Math\.min\(1280, Math\.max\(640, Math\.round\(cssWidth \* pixelRatio\)\)\)/);
-  assert.match(source, /Math\.round\(targetWidth \* 9 \/ 16\)/);
+  assert.match(source, /Math\.min\(activeOutputProfile\.width, Math\.max\(640, Math\.round\(cssWidth \* pixelRatio\)\)\)/);
+  assert.match(source, /Math\.round\(targetWidth \* activeOutputProfile\.height \/ activeOutputProfile\.width\)/);
+  assert.match(source, /width=\{isVerticalOutput \? 360 : 640\}/);
+  assert.match(source, /height=\{isVerticalOutput \? 640 : 360\}/);
+  assert.match(source, /previousIdentity\.sizeKey !== nextSizeKey/);
 });
 
 test("compact Preview stacks the shot inspector before fixed columns can clip it", () => {

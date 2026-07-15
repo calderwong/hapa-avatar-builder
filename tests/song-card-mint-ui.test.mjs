@@ -145,13 +145,28 @@ test("Next Mint candidates use managed render defaults, bind automatically, and 
   assert.match(source, /async function retryLocalRender\(\)/);
   assert.match(source, /The final-video render stopped before completion\. Choose Retry render/);
   assert.match(source, /remintCandidate\?\.renderFailure/);
+  assert.match(source, /renderRequestFailure/);
+  assert.match(source, /localRenderFailed \|\| remintCandidate\?\.status === "failed" \|\| Boolean\(renderRequestFailure\)/);
+  assert.match(source, /String\(localJob\?\.status \|\| ""\)\.toLowerCase\(\) === "failed" \|\| next\?\.status === "failed"/);
   assert.match(source, /data-testid="song-card-render-failure-detail"/);
-  assert.match(source, /<strong>\{renderFailureStage\} · \{renderFailureCode\}<\/strong> · \{renderFailureMessage\}/);
+  assert.match(source, /data-testid="song-card-render-failure-action"/);
+  assert.match(source, /data-failure-category=\{renderFailureHelp\.category\}/);
+  assert.match(source, /export function explainSongCardRenderFailure/);
+  for (const category of ["renderer-build", "source-changed", "audio-stems", "visual-media", "shader-route", "local-resources"]) {
+    assert.ok(source.includes(`category: "${category}"`), `missing actionable render failure category ${category}`);
+  }
+  assert.match(source, /\["approved", "queued", "rendering", "failed"\]\.includes\(remintCandidate\.status\)/);
+  assert.match(source, /disabled=\{!localSessionReady \|\| !renderAvailable \|\| effectivePhase === "rendering"\}/);
+  assert.match(source, /normalizeSongCardRenderFailure\(payload/);
   assert.match(source, /data-testid="song-card-render-inactive"/);
   assert.match(source, /Choose Retry plan below to create a clean new attempt/);
   assert.match(source, /\["awaiting-approval", "approved", "queued", "rendering", "failed"\]/);
   assert.match(source, /localRenderJob\.status\)\.toLowerCase\(\) === "failed"/);
   assert.match(source, /setError\(""\);[\s\S]*?await startLocalRender\(candidateId, \{ announce: false \}\)/);
+  assert.match(source, /payload\.rehydrated === true && payload\.reviewRequired === true/);
+  assert.match(source, /setPlan\(replacementPlan\)/);
+  assert.match(source, /setRemintCandidate\(payload\.replacementCandidate \|\| null\)/);
+  assert.match(source, /Review and approve the replacement before rendering/);
 });
 
 test("mint confirmation never fails silently and opens the minted edition for viewing", () => {

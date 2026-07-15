@@ -1,3 +1,9 @@
+import {
+  applyVisualizerAudioMapping,
+  normalizeVisualizerAudioMapping,
+  visualizerAudioMappingDepthMode,
+} from "./hyperframes-visualizer-runtime.js";
+
 export const ECHO_ISF_FRAME_RECEIPT_SCHEMA = "hapa.echo.isf-frame-receipt.v1";
 
 const SUPPORTED_VALUE_TYPES = new Set(["float", "long", "bool", "event", "color", "point2d"]);
@@ -124,6 +130,52 @@ function mergedAudioMap(shader = {}, card = {}) {
   return { ...(shader.audioMap || {}), ...(portableCard(card).audioMap || {}) };
 }
 
+function parsedAudioMapping(mapping, defaultStem = "master") {
+  const normalized = normalizeVisualizerAudioMapping(mapping, {
+    generated: typeof mapping === "string",
+    materializeDepth: false,
+  }) || { signal: "off" };
+  return {
+    ...normalized,
+    signal: String(normalized.signal || "off").toLowerCase(),
+    stemFocus: String(normalized.stemFocus || normalized.stem_focus || defaultStem),
+  };
+}
+
+function normalizedStemKey(value = "") {
+  const normalized = String(value || "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "");
+  if (["leadvocals", "leadvoice", "voice"].includes(normalized)) return "vocals";
+  if (["backingvocals", "backgroundvocals", "bgvocals"].includes(normalized)) return "backingvocals";
+  if (["mastermix", "mix", "fullmix"].includes(normalized)) return "master";
+  return normalized;
+}
+
+function resolveSignalFrame(signalFrames = {}, requestedStem = "master") {
+  const frameEntries = Object.entries(signalFrames || {});
+  const requestedKey = normalizedStemKey(requestedStem);
+  const requestedEntry = frameEntries.find(([key]) => key === requestedStem)
+    || frameEntries.find(([key]) => normalizedStemKey(key) === requestedKey);
+  const masterEntry = frameEntries.find(([key]) => normalizedStemKey(key) === "master");
+  const fallbackUsed = !requestedEntry && requestedKey !== "master" && Boolean(masterEntry);
+  const resolvedEntry = requestedEntry || (fallbackUsed ? masterEntry : null);
+  return {
+    requestedStem: String(requestedStem || "master"),
+    requestedStemPresent: Boolean(requestedEntry),
+    resolvedStem: String(resolvedEntry?.[0] || requestedStem || "master"),
+    fallbackUsed,
+    frame: normalizedSignalFrame(resolvedEntry?.[1] || {}),
+  };
+}
+
+export function echoIsfRequiredStemFocuses(card = {}, shader = {}) {
+  const portable = portableCard(card);
+  const defaultStem = String(portable.stemFocus || card?.visualization?.stemFocus || "master");
+  return [...new Set([
+    defaultStem,
+    ...Object.values(mergedAudioMap(shader, card)).map((mapping) => parsedAudioMapping(mapping, defaultStem).stemFocus),
+  ].map((role) => String(role || "master")).filter(Boolean))];
+}
+
 export function validateEchoIsfCardBindings(shader = {}, card = {}) {
   const declared = new Set((shader.inputs || []).map(inputName).filter(Boolean));
   const audioMap = mergedAudioMap(shader, card);
@@ -197,16 +249,6 @@ export function normalizeEchoIsfComposition(card = {}, timestampSeconds = 0, ove
   return { ...normalized, effectiveAlpha: round(normalized.opacity * normalized.mix * normalized.transitionAlpha) };
 }
 
-function mappedValue(input, baseValue, signal, depth, threshold = 0.5) {
-  const type = inputType(input);
-  if (type === "bool" || type === "event") return normalizeEchoIsfInputValue(input, signal >= threshold ? true : baseValue);
-  if (Array.isArray(baseValue)) {
-    const depths = Array.isArray(depth) ? depth : Array(baseValue.length).fill(finite(depth, 0));
-    return normalizeEchoIsfInputValue(input, baseValue.map((value, index) => finite(value) + signal * finite(depths[index])));
-  }
-  return normalizeEchoIsfInputValue(input, finite(baseValue) + signal * finite(depth));
-}
-
 function normalizedSignalFrame(frame = {}) {
   return Object.fromEntries(Object.entries(frame || {}).flatMap(([signal, value]) => {
     const candidate = typeof value === "object" && value !== null && !Array.isArray(value) && !ArrayBuffer.isView(value)
@@ -256,13 +298,13 @@ export function buildEchoIsfFrameIntent({
   const validation = validateEchoIsfCardBindings(shader, card);
   const requestedStem = String(portable.stemFocus || card?.visualization?.stemFocus || "master");
   const frames = Object.keys(signalFrames || {}).length ? signalFrames : audio ? { master: audio } : {};
-  const requestedStemPresent = Object.prototype.hasOwnProperty.call(frames, requestedStem);
-  const masterPresent = Object.prototype.hasOwnProperty.call(frames, "master");
-  const fallbackUsed = !requestedStemPresent && requestedStem !== "master" && masterPresent;
-  const resolvedStem = requestedStemPresent ? requestedStem : fallbackUsed ? "master" : requestedStem;
-  const resolvedFrame = normalizedSignalFrame(frames?.[resolvedStem] || {});
+  const defaultStemResolution = resolveSignalFrame(frames, requestedStem);
+  const { requestedStemPresent, resolvedStem, fallbackUsed, frame: resolvedFrame } = defaultStemResolution;
   const modulationBindings = [];
-  for (const [uniform, mapping] of Object.entries(validation.audioMap)) {
+  for (const [uniform, rawMapping] of Object.entries(validation.audioMap)) {
+    const mapping = parsedAudioMapping(rawMapping, requestedStem);
+    const mappingStem = resolveSignalFrame(frames, mapping.stemFocus);
+    const mappingFrame = mappingStem.frame;
     const input = byName.get(uniform);
     if (!input) continue;
     const signal = String(mapping?.signal || "off");
@@ -270,9 +312,9 @@ export function buildEchoIsfFrameIntent({
       modulationBindings.push({
         uniform,
         signal,
-        requestedStem,
-        resolvedStem,
-        fallbackUsed,
+        requestedStem: mappingStem.requestedStem,
+        resolvedStem: mappingStem.resolvedStem,
+        fallbackUsed: mappingStem.fallbackUsed,
         status: "image-input-handled-separately",
         signalValue: null,
         depth: mapping?.depth ?? 0,
@@ -281,20 +323,28 @@ export function buildEchoIsfFrameIntent({
       });
       continue;
     }
-    const signalPresent = signal !== "off" && Object.prototype.hasOwnProperty.call(resolvedFrame, signal);
+    const signalPresent = signal !== "off" && Object.prototype.hasOwnProperty.call(mappingFrame, signal);
     const baseValue = finalValues[uniform];
+    const applied = signalPresent
+      ? applyVisualizerAudioMapping(input, baseValue, mappingFrame[signal], mapping, { normalize: normalizeEchoIsfInputValue })
+      : null;
     if (signalPresent) {
-      finalValues[uniform] = mappedValue(input, baseValue, resolvedFrame[signal], mapping?.depth ?? 0, mapping?.threshold ?? 0.5);
+      finalValues[uniform] = applied.value;
     }
     modulationBindings.push({
       uniform,
       signal,
-      requestedStem,
-      resolvedStem,
-      fallbackUsed,
+      requestedStem: mappingStem.requestedStem,
+      resolvedStem: mappingStem.resolvedStem,
+      fallbackUsed: mappingStem.fallbackUsed,
       status: signal === "off" ? "disabled" : signalPresent ? "mapped" : "missing-signal",
-      signalValue: signalPresent ? resolvedFrame[signal] : null,
-      depth: mapping?.depth ?? 0,
+      signalValue: signalPresent ? mappingFrame[signal] : null,
+      depth: applied?.depth ?? mapping.depth ?? 0,
+      effectiveDepth: applied?.effectiveDepth ?? null,
+      depthMode: visualizerAudioMappingDepthMode(mapping),
+      depthFraction: visualizerAudioMappingDepthMode(mapping) === "absolute" ? null : mapping.depthFraction ?? mapping.depth_fraction ?? mapping.depth ?? 0.2,
+      direction: applied?.direction ?? null,
+      headroomPolicy: applied?.headroomPolicy ?? null,
       baseValue,
       value: finalValues[uniform],
     });

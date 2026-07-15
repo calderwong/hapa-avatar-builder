@@ -5,7 +5,7 @@ import { execFile, execFileSync, spawn, execSync, exec } from "node:child_proces
 import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { appendFile, mkdir, readFile, writeFile, stat, readdir, access, rm } from "node:fs/promises";
 import fs from "node:fs";
-import { networkInterfaces, tmpdir } from "node:os";
+import { homedir, networkInterfaces, tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
@@ -89,7 +89,6 @@ import {
 } from "./roomletInvite.mjs";
 import { fileStreamTelemetry, streamFileToResponse } from "./file-serving.mjs";
 import { EchoIsfAssetCatalog, writeEchoIsfAsset } from "./echo-isf-assets.mjs";
-import { buildPortableVisualizerCard } from "../src/domain/portable-visualizer-card.js";
 import { buildBuilderEntityCatalog } from "../src/overcard/entityCatalog.js";
 import { resolveBuilderRuntimeContext } from "../src/overcard/runtimeContext.js";
 import { builderProcessAdapterRegistrations, freezeBuilderRunContext, getBuilderProcessAdapter } from "../src/overcard/processAdapters.js";
@@ -102,9 +101,27 @@ import { AvatarOverwindOrigin } from "./avatar-overwind-origin.mjs";
 import { AvatarOverwindSubscriber, resolveOverwindToken } from "./avatar-overwind-subscriber.mjs";
 import { MintLedgerError, createSongCardMintController } from "./song-card-mint-controller.mjs";
 import { createSongCardRemintStore } from "./song-card-remint-store.mjs";
-import { createSongCardLocalRenderBridge } from "./song-card-local-renderer.mjs";
+import { createSongCardLocalRenderBridge, inspectSongCardRendererBuildIdentity } from "./song-card-local-renderer.mjs";
+import { inspectEchoDeliveryRuntimeBuildIdentity } from "./echo-delivery-runtime-build.mjs";
+import { createEchoRenderStartCertificateBinding } from "./echo-render-start-certificate.mjs";
+import {
+  inspectEchoServerBootFreshness,
+  inspectEchoServerDeliveryBuildIdentity,
+} from "./echo-server-delivery-build.mjs";
+import { createEchoMintPlanCanonicalResolver } from "./echo-mint-plan-canonical-resolver.mjs";
+import {
+  createEchoMintPlanCertificationQueue,
+  readFreshEchoPlanCertificationBlockers,
+} from "./echo-mint-plan-certification-queue.mjs";
 import { createEchoDirectionVariantSummaryIndex } from "./echo-direction-variant-summary-index.mjs";
+import { guardEchoCertifiedGraphDelivery, readEchoDirectorShowGraphArtifact } from "./echo-director-show-graph-loader.mjs";
+import {
+  stableCertificationFileProof,
+  stableCertificationFileSha256,
+} from "./stable-certification-file-proof.mjs";
 import { collectSongCardConstituentReferences, hydrateSongCardConstituentSnapshots } from "../src/domain/song-card-constituents.js";
+import { echoProjectAudioRoute } from "../src/domain/echo-audio-route.js";
+import { attachEchoOutputProfile, resolveEchoOutputProfile } from "../src/domain/echo-output-profile.js";
 import {
   ECHO_DIRECTION_FORK_PAYLOAD_SCHEMA,
   deriveEchoDirectionVariantProject,
@@ -115,9 +132,20 @@ import {
   pickEchoDirectionVariantProjectPatch,
   summarizeEchoDirectionVariantMetadata,
 } from "../src/domain/echo-direction-variants.js";
+import {
+  echoRuntimeShaderRepairReceipt,
+  projectEchoRuntimeShaderRepairProvenance,
+  repairEchoRuntimeDirectionVariant,
+  repairEchoRuntimeShaderGraph,
+  repairEchoRuntimeVisualizerTimeline,
+} from "../src/domain/echo-runtime-shader-repair.js";
+import { validateEchoCompiledShowGraph } from "../src/domain/echo-compiled-show-graph.js";
+import { prepareEchoProjectForPersistence } from "./echo-project-persistence.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, "..");
+const DEFAULT_HAPA_MUSIC_VIZ_ROOT = path.join(homedir(), "Desktop", "hapa-music-viz");
+const ECHO_SERVER_BOOT_IDENTITY = inspectEchoServerDeliveryBuildIdentity({ root: ROOT });
 const SERVER_STARTED_AT = new Date().toISOString();
 const SERVER_PROCESS_OWNER = process.env.HAPA_AVATAR_PROCESS_OWNER || "standalone-api";
 const SERVER_BUILD_SIGNATURE = process.env.HAPA_AVATAR_BUILD_SIGNATURE || createHash("sha256")
@@ -148,6 +176,8 @@ const songCardPlaybackSessions = new Map();
 const SONG_CARD_PLAYBACK_HEARTBEAT_TTL_MS = 15_000;
 const SONG_CARD_RENDER_EXECUTOR_HEARTBEAT_TTL_MS = Math.max(5_000, Number(process.env.HAPA_SONG_CARD_RENDER_EXECUTOR_HEARTBEAT_TTL_MS || 20_000) || 20_000);
 const SONG_CARD_RENDER_EXECUTOR_CONFIG = String(process.env.HAPA_SONG_CARD_RENDER_EXECUTOR || "").trim();
+const SONG_CARD_EXTERNAL_WORKER_PROTOCOL_SCHEMA = "hapa.song-card.external-render-worker-retired.v1";
+const SONG_CARD_LOCAL_RENDER_ENDPOINT = "POST /api/song-card-remints/:candidateId/render-local";
 let songCardRenderExecutorHeartbeat = null;
 let songCardLocalRenderBridge = null;
 function activeSongCardPlaybackSessions(now = Date.now()) {
@@ -169,28 +199,28 @@ function noteSongCardRenderExecutor(body = {}, now = Date.now()) {
 function songCardRenderExecutorStatus(now = Date.now()) {
   const connected = Boolean(songCardRenderExecutorHeartbeat && songCardRenderExecutorHeartbeat.expiresAt > now);
   const configured = Boolean(SONG_CARD_RENDER_EXECUTOR_CONFIG);
-  const releaseCapable = connected && songCardRenderExecutorHeartbeat.capabilities.includes("release-export");
-  const status = connected ? releaseCapable ? "connected" : "incompatible" : configured ? "offline" : "not-installed";
+  const advertisedReleaseCapable = connected && songCardRenderExecutorHeartbeat.capabilities.includes("release-export");
+  const status = connected || configured ? "retired" : "not-installed";
   const external = {
     schemaVersion: "hapa.song-card.render-executor-status.v1",
-    available: releaseCapable,
+    available: false,
     connected,
-    releaseCapable,
+    releaseCapable: false,
+    advertisedReleaseCapable,
+    protocolCertified: false,
+    claimAuthority: false,
     configured,
     status,
-    executionModel: connected ? "external-worker" : "planner-only",
+    executionModel: connected || configured ? "external-worker-retired" : "planner-only",
     executorId: connected ? songCardRenderExecutorHeartbeat.executorId : null,
     adapter: connected ? songCardRenderExecutorHeartbeat.adapter : SONG_CARD_RENDER_EXECUTOR_CONFIG || null,
     capabilities: connected ? songCardRenderExecutorHeartbeat.capabilities : [],
     lastSeenAt: songCardRenderExecutorHeartbeat?.lastSeenAt || null,
     heartbeatTtlMs: SONG_CARD_RENDER_EXECUTOR_HEARTBEAT_TTL_MS,
-    reason: connected
-      ? releaseCapable
-        ? "A render executor is connected and can finish a release export."
-        : "The connected render executor cannot produce a release export."
-      : configured
-        ? "The configured render executor is not connected."
-        : "No Song Card render executor is installed; this service can plan, bind worker artifacts, mint, and export, but cannot render a new cut by itself.",
+    recommendedEndpoint: SONG_CARD_LOCAL_RENDER_ENDPOINT,
+    reason: connected || configured
+      ? "External render-worker claims and results are retired because that protocol is not exact-plan certified. Use the Builder-managed local renderer."
+      : "No certified external Song Card renderer is installed. Use the Builder-managed local renderer when it is available.",
   };
   let builtIn = null;
   try {
@@ -207,11 +237,6 @@ function songCardRenderExecutorStatus(now = Date.now()) {
       reason: error instanceof Error ? error.message : String(error),
     };
   }
-  if (releaseCapable) return {
-    ...external,
-    jobs: Array.isArray(builtIn?.jobs) ? builtIn.jobs : [],
-    builtInRenderer: builtIn,
-  };
   if (builtIn?.available === true && builtIn?.releaseCapable !== false) return {
     ...builtIn,
     schemaVersion: builtIn.schemaVersion || "hapa.song-card.render-executor-status.v1",
@@ -232,6 +257,21 @@ function songCardRenderExecutorStatus(now = Date.now()) {
     builtInRenderer: builtIn,
   };
 }
+function retiredSongCardExternalWorkerPayload({ candidateId = null, jobId = null } = {}) {
+  return {
+    schemaVersion: SONG_CARD_EXTERNAL_WORKER_PROTOCOL_SCHEMA,
+    error: "external_render_worker_protocol_not_certified",
+    message: "External render-worker claims and results are retired because they are not bound to the Builder's exact-plan render certificate. Start or resume this candidate with the Builder-managed local renderer.",
+    failClosed: true,
+    queueMutated: false,
+    protocolCertified: false,
+    claimAuthority: false,
+    executionModel: "builder-managed-local",
+    useEndpoint: SONG_CARD_LOCAL_RENDER_ENDPOINT,
+    ...(candidateId ? { candidateId } : {}),
+    ...(jobId ? { jobId } : {}),
+  };
+}
 function withSongCardRenderExecutor(payload = {}) {
   const renderExecutor = songCardRenderExecutorStatus();
   return {
@@ -243,14 +283,20 @@ function withSongCardRenderExecutor(payload = {}) {
 const DEAR_PAPA_SONGBOOK_PATH = process.env.HAPA_DEAR_PAPA_SONGBOOK || path.join(ROOT, "data/dear-papa-songbook.json");
 const HAPA_SONG_STORE_PATH = process.env.HAPA_SONG_STORE || path.join(ROOT, "data/hapa-songs-store.json");
 const SONG_CARD_MINT_ROOT = process.env.HAPA_SONG_CARD_MINT_ROOT || path.join(ROOT, "data/song-card-mints");
+const echoMintPlanCanonicalResolver = createEchoMintPlanCanonicalResolver({
+  avatarRoot: ROOT,
+  musicVizRoot: process.env.HAPA_MUSIC_VIZ_ROOT || DEFAULT_HAPA_MUSIC_VIZ_ROOT,
+});
 const songCardMintController = createSongCardMintController({
   root: SONG_CARD_MINT_ROOT,
   exportRoot: process.env.HAPA_SONG_CARD_EXPORT_ROOT || undefined,
   allowedSourceRoots: [
     ROOT,
-    process.env.HAPA_MUSIC_VIZ_ROOT || "/Users/calderwong/Desktop/hapa-music-viz",
+    process.env.HAPA_MUSIC_VIZ_ROOT || DEFAULT_HAPA_MUSIC_VIZ_ROOT,
     ...String(process.env.HAPA_SONG_CARD_SOURCE_ROOTS || "").split(path.delimiter).map((entry) => entry.trim()).filter(Boolean),
   ],
+  mintPlanCompatibilityResolver: echoMintPlanCanonicalResolver,
+  enforceMintPlanCompatibility: true,
 });
 const songCardRemintStore = createSongCardRemintStore({
   root: SONG_CARD_MINT_ROOT,
@@ -261,6 +307,7 @@ songCardLocalRenderBridge = createSongCardLocalRenderBridge({
   controller: songCardMintController,
   remintStore: songCardRemintStore,
   resolveRegistryMaster: async (songId) => String((await findRegistrySong(songId))?.localPath || "").trim(),
+  certifyStart: certifySongCardLocalRenderStart,
 });
 const CARD_INPUT_STANDARD_BASE_URL = (process.env.HAPA_CARD_INPUT_STANDARD_URL || "http://127.0.0.1:8896").replace(/\/+$/, "");
 const CARD_INPUT_STANDARD_ENABLED = process.env.HAPA_CARD_INPUT_STANDARD_ENABLED !== "0";
@@ -286,7 +333,7 @@ const HAPA_TRANSCRIBE_MAX_BYTES = Math.max(256_000, Number(process.env.HAPA_TRAN
 const HAPA_TRANSCRIBE_EMPTY_CLIP_DIR = process.env.HAPA_TRANSCRIBE_EMPTY_CLIP_DIR || path.join(ROOT, "artifacts/transcribe-empty-clips");
 const HAPA_TRANSCRIBE_SAVE_EMPTY_CLIPS = process.env.HAPA_TRANSCRIBE_SAVE_EMPTY_CLIPS !== "0";
 const MEDIA_DIR = process.env.HAPA_MEDIA_DIR || path.join(ROOT, "data/media");
-const HAPA_MUSIC_VIZ_ROOT = process.env.HAPA_MUSIC_VIZ_ROOT || "/Users/calderwong/Desktop/hapa-music-viz";
+const HAPA_MUSIC_VIZ_ROOT = process.env.HAPA_MUSIC_VIZ_ROOT || DEFAULT_HAPA_MUSIC_VIZ_ROOT;
 const ECHO_DIRECTOR_V2_ALBUM_DIR = process.env.HAPA_ECHO_DIRECTOR_V2_ALBUM_DIR || path.join(ROOT, "artifacts/echo-director-v2/album");
 const ECHO_DIRECTION_VARIANTS_DIR = process.env.HAPA_ECHO_DIRECTION_VARIANTS_DIR || path.join(DATA_DIR, "music-video-project-variants");
 const echoDirectionVariantSummaryIndex = createEchoDirectionVariantSummaryIndex({
@@ -294,9 +341,47 @@ const echoDirectionVariantSummaryIndex = createEchoDirectionVariantSummaryIndex(
 });
 const echoIsfAssets = new EchoIsfAssetCatalog({ musicVizRoot: HAPA_MUSIC_VIZ_ROOT });
 const echoDirectorShowGraphCache = new Map();
+const echoMintPlanCertificationQueue = createEchoMintPlanCertificationQueue();
+const echoDirectorProjectCompileJobs = new Map();
 const echoPreviewPreparationJobs = new Map();
 const echoPreviewPreparationQueue = [];
 let activeEchoPreviewPreparationSongId = "";
+
+function compileEchoDirectorProject(songIdInput) {
+  const songId = String(songIdInput || "").trim();
+  if (!songId || path.basename(songId) !== songId) {
+    const error = new Error("A safe Echo song ID is required for targeted compilation.");
+    error.code = "echo_project_song_id_unsafe";
+    throw error;
+  }
+  const active = echoDirectorProjectCompileJobs.get(songId);
+  if (active) return active;
+  const job = execFileAsync(process.execPath, [
+    path.join(ROOT, "scripts", "compile-echo-director-v2-album.mjs"),
+    "--projects", path.join(ROOT, "data", "music-video-projects"),
+    "--output", ECHO_DIRECTOR_V2_ALBUM_DIR,
+    "--variants", ECHO_DIRECTION_VARIANTS_DIR,
+    "--song", songId,
+  ], {
+    cwd: ROOT,
+    timeout: 120_000,
+    maxBuffer: 16 * 1024 * 1024,
+  }).then(({ stdout, stderr }) => {
+    echoDirectorShowGraphCache.clear();
+    let receipt = null;
+    try { receipt = JSON.parse(String(stdout || "").trim()); } catch { /* Preserve bounded output below. */ }
+    return {
+      ok: true,
+      songId,
+      receipt,
+      output: String(stdout || stderr || "").trim().slice(-8_000),
+    };
+  }).finally(() => {
+    echoDirectorProjectCompileJobs.delete(songId);
+  });
+  echoDirectorProjectCompileJobs.set(songId, job);
+  return job;
+}
 
 function pumpEchoPreviewPreparationQueue() {
   if (activeEchoPreviewPreparationSongId || !echoPreviewPreparationQueue.length) return;
@@ -1796,7 +1881,7 @@ async function route(req, res) {
       for (const { file, payload } of projectFiles) {
         try {
           if (summaryOnly) {
-            const project = payload.music_video_project || {};
+            const project = attachEchoOutputProfile(payload.music_video_project || {});
             const songId = project.song_id || file.replace(/-video-project\.json$/u, "");
             const fileVariants = indexedVariants.bySong.get(songId) || [];
             const variants = mergeEchoDirectionScriptVariants(fileVariants, project.direction_script_variants);
@@ -1804,11 +1889,12 @@ async function route(req, res) {
               music_video_project: {
                 song_id: project.song_id,
                 song_title: project.song_title,
-                audio_id: project.audio_id || project.registry_track_id || project.song_id,
+                audio_id: echoProjectAudioRoute(project).id,
                 registry_track_id: project.registry_track_id || null,
                 perspective: project.perspective,
                 avatar_name: project.avatar_name,
                 duration: project.duration,
+                output_profile: project.output_profile,
                 lyric_variant: project.lyric_variant,
                 lyric_position: project.lyric_position,
                 lyric_style: project.lyric_style,
@@ -1827,7 +1913,9 @@ async function route(req, res) {
               }
             });
           } else {
-            projects.push(payload);
+            projects.push(payload?.music_video_project
+              ? { ...payload, music_video_project: attachEchoOutputProfile(payload.music_video_project) }
+              : attachEchoOutputProfile(payload));
           }
         } catch (e) {
           console.error("Failed to summarize project file:", file, e);
@@ -2010,18 +2098,29 @@ async function route(req, res) {
       }
       const projectsDir = path.join(DATA_DIR, "music-video-projects");
       const filePath = path.join(projectsDir, `${proj.song_id}-video-project.json`);
-      const persistedProject = { ...proj };
-      if (Array.isArray(persistedProject.direction_script_variants)) {
-        const embeddedVariants = persistedProject.direction_script_variants.filter((variant) => variant?.variant_source?.kind !== "append-only-project-variant");
-        if (embeddedVariants.length) persistedProject.direction_script_variants = embeddedVariants;
-        else delete persistedProject.direction_script_variants;
-      }
+      const persistedProject = prepareEchoProjectForPersistence(proj);
       await writeFile(filePath, JSON.stringify({ ...body, music_video_project: persistedProject }, null, 2), "utf-8");
       console.log(`[api] Updated music video project plan: ${proj.song_id}`);
       sendJson(res, 200, { success: true });
     } catch (e) {
       console.error("Failed to save director project:", e);
       sendJson(res, 500, { error: "failed_to_save_project" });
+    }
+    return;
+  }
+
+  if (pathname === "/api/echos/director-project/compile" && req.method === "POST") {
+    try {
+      const body = await readBody(req);
+      const result = await compileEchoDirectorProject(body.songId || body.song_id);
+      sendJson(res, 200, { success: true, ...result });
+    } catch (error) {
+      console.error("Failed to compile the saved Echo project:", error);
+      sendJson(res, 422, {
+        error: error?.code || "echo_project_compile_failed",
+        message: error instanceof Error ? error.message : String(error),
+        diagnostic: String(error?.stdout || error?.stderr || "").trim().slice(-4_000) || null,
+      });
     }
     return;
   }
@@ -2043,7 +2142,8 @@ async function route(req, res) {
   if (pathname === "/api/echos/director-plan" && req.method === "POST") {
     const apply = url.searchParams.get("apply") === "1" || url.searchParams.get("mode") === "apply";
     const mode = apply ? "apply" : "dry-run";
-    const command = `node scripts/generate-music-video-plans.mjs ${apply ? "--apply" : "--dry-run"}`;
+    const outputProfile = resolveEchoOutputProfile(url.searchParams.get("orientation"));
+    const command = `node scripts/generate-music-video-plans.mjs ${apply ? "--apply" : "--dry-run"} --orientation=${outputProfile.id}`;
     import("node:child_process").then(({ exec }) => {
       exec(command, { cwd: ROOT }, (err, stdout, stderr) => {
         if (err) {
@@ -2058,6 +2158,7 @@ async function route(req, res) {
       status: "queued",
       mode,
       apply,
+      output_profile: outputProfile,
       guardrail: apply ? "writes enabled by explicit apply mode" : "dry-run default; no project files will be written"
     });
     return;
@@ -2352,6 +2453,39 @@ async function route(req, res) {
     if (!requireAdmin(req, res)) return;
     try {
       const candidateId = decodeURIComponent(songCardLocalRenderMatch[1]);
+      const queue = await songCardRemintStore.view();
+      const candidate = queue.candidates.find((row) => row.id === candidateId);
+      if (!candidate?.planId) {
+        const error = new Error(`Remint candidate ${candidateId} has no saved source plan.`);
+        error.code = "REMINT_SOURCE_PLAN_NOT_FOUND";
+        error.statusCode = 404;
+        throw error;
+      }
+      const prepared = await songCardMintController.rehydratePlan(candidate.planId);
+      if (prepared.rehydrated) {
+        const replacementPlan = await songCardMintController.getPlan(prepared.plan.planId);
+        const replacementCandidate = await songCardRemintStore.proposeFromPlan(replacementPlan.songId, replacementPlan);
+        await songCardRemintStore.supersede(candidateId, {
+          replacementCandidateId: replacementCandidate?.id || "",
+          replacementPlanId: replacementPlan.planId,
+          reason: "canonical-mint-plan-rehydrated",
+        });
+        sendJson(res, 200, withSongCardRenderExecutor({
+          schemaVersion: "hapa.song-card.mint-plan-rehydration-handoff.v1",
+          rehydrated: true,
+          reviewRequired: true,
+          started: false,
+          candidateId,
+          supersededPlanId: prepared.supersededPlanId,
+          replacementPlan: prepared.plan,
+          replacementCandidate,
+          compatibility: prepared.compatibility,
+          renderStarted: false,
+          message: "The saved edit was rebuilt from its canonical compiled graph. Review and approve the replacement; no render work started.",
+        }));
+        return;
+      }
+      await songCardMintController.assertPlanRunnable(candidate.planId);
       const started = await songCardLocalRenderBridge.start(candidateId);
       sendJson(res, started?.started === false ? 200 : 202, withSongCardRenderExecutor({
         ...started,
@@ -2379,24 +2513,7 @@ async function route(req, res) {
   }
   if (pathname === "/api/song-card-remints/claim" && req.method === "POST") {
     if (!requireAdmin(req, res)) return;
-    try {
-      const body = await readBody(req);
-      noteSongCardRenderExecutor(body);
-      const songCardSessions = activeSongCardPlaybackSessions();
-      const serverObservedActive = activeTarotStreamConsumers > 0 || songCardSessions > 0;
-      const activePlayback = serverObservedActive || body.activePlayback !== false;
-      sendJson(res, 200, {
-        ...(await songCardRemintStore.claim({ ...body, activePlayback })),
-        renderExecutor: songCardRenderExecutorStatus(),
-        playbackPolicy: {
-          activePlayback,
-          serverObservedActive,
-          activeTarotStreamConsumers,
-          activeSongCardSessions: songCardSessions,
-          defaultProtectedUnlessExplicitlyIdle: true,
-        },
-      });
-    } catch (error) { sendSongCardMintError(res, error); }
+    sendJson(res, 409, retiredSongCardExternalWorkerPayload());
     return;
   }
   const songCardRemintActionMatch = pathname.match(/^\/api\/song-card-remints\/([^/]+)\/(approve|cancel)$/);
@@ -2444,15 +2561,10 @@ async function route(req, res) {
   const songCardRemintResultMatch = pathname.match(/^\/api\/song-card-remints\/([^/]+)\/jobs\/([^/]+)\/result$/);
   if (songCardRemintResultMatch && req.method === "POST") {
     if (!requireAdmin(req, res)) return;
-    try {
-      const body = await readBody(req);
-      noteSongCardRenderExecutor(body);
-      sendJson(res, 200, withSongCardRenderExecutor(await songCardRemintStore.recordResult(
-        decodeURIComponent(songCardRemintResultMatch[1]),
-        decodeURIComponent(songCardRemintResultMatch[2]),
-        body,
-      )));
-    } catch (error) { sendSongCardMintError(res, error); }
+    sendJson(res, 409, retiredSongCardExternalWorkerPayload({
+      candidateId: decodeURIComponent(songCardRemintResultMatch[1]),
+      jobId: decodeURIComponent(songCardRemintResultMatch[2]),
+    }));
     return;
   }
 
@@ -7302,363 +7414,457 @@ function echoDirectionVariantNotFound(safeSongId, variantId) {
   return error;
 }
 
-function echoRuntimeShaderFallbackIndex(value, length) {
-  let hash = 2166136261;
-  for (const byte of Buffer.from(String(value || ""))) {
-    hash ^= byte;
-    hash = Math.imul(hash, 16777619);
+function stableEchoCertificationValue(value) {
+  if (Array.isArray(value)) return value.map(stableEchoCertificationValue);
+  if (value && typeof value === "object") {
+    return Object.fromEntries(Object.keys(value).sort().map((key) => [key, stableEchoCertificationValue(value[key])]));
   }
-  return length > 0 ? (hash >>> 0) % length : -1;
+  return value;
 }
 
-function echoRuntimeShaderDefaults(inputs = []) {
-  return Object.fromEntries((Array.isArray(inputs) ? inputs : []).flatMap((input) => {
-    const name = String(input?.NAME || input?.name || "").trim();
-    if (!name || String(input?.TYPE || input?.type || "").toLowerCase() === "image") return [];
-    const fallback = String(input?.TYPE || input?.type || "").toLowerCase() === "bool" ? false : 0;
-    return [[name, input.DEFAULT ?? input.default ?? fallback]];
-  }));
+function echoCertificationSha256(value) {
+  return `sha256:${createHash("sha256").update(JSON.stringify(stableEchoCertificationValue(value))).digest("hex")}`;
 }
 
-function echoRuntimeShaderReplacement(shader, catalog = []) {
-  const eligible = catalog.filter((candidate) => (
-    candidate?.directorEligible !== false
-    && candidate?.enabled !== false
-    && candidate?.runtimeEligibility !== "unsupported-quarantine"
-    && candidate?.pixelGate?.classification === "hash-bound-exact-proxy"
-    && candidate?.pixelGate?.status === "source-hash-verified"
-    && candidate?.id
-    && candidate?.source
-  ));
-  const sameRole = eligible.filter((candidate) => String(candidate.hmvRole || "") === String(shader?.hmvRole || ""));
-  const sameType = eligible.filter((candidate) => String(candidate.shaderType || "") === String(shader?.shaderType || ""));
-  const mediaIndependentSameRole = sameRole.filter((candidate) => String(candidate.shaderType || "").toLowerCase() !== "filter");
-  const mediaIndependent = eligible.filter((candidate) => String(candidate.shaderType || "").toLowerCase() !== "filter");
-  const candidates = (mediaIndependentSameRole.length
-    ? mediaIndependentSameRole
-    : sameRole.length
-      ? sameRole
-      : sameType.length
-        ? sameType
-        : mediaIndependent.length
-          ? mediaIndependent
-          : eligible)
-    .slice()
-    .sort((left, right) => String(left.id).localeCompare(String(right.id)));
-  return candidates[echoRuntimeShaderFallbackIndex(shader?.id, candidates.length)] || null;
+function echoCertificationFileSha256(filePath) {
+  try {
+    return stableCertificationFileSha256(filePath, { label: "Echo execution registry" });
+  } catch {
+    return null;
+  }
 }
 
-function echoRuntimeShaderNeedsReplacement(shader) {
-  return Boolean(shader && (
-    shader.directorEligible === false
-    || shader.enabled === false
-    || shader.runtimeEligibility === "unsupported-quarantine"
-  ));
+function echoExecutionRegistryIdentities(shaderCatalog = []) {
+  const proxyRegistryPath = process.env.HAPA_HYPERFRAMES_PROXY_REGISTRY
+    || path.join(HAPA_MUSIC_VIZ_ROOT, "web/isf/proxies/native-exact-proxies.json");
+  return {
+    shaderCatalogSha256: echoCertificationSha256(shaderCatalog),
+    proxyRegistrySha256: echoCertificationFileSha256(proxyRegistryPath),
+    songRegistrySha256: echoCertificationFileSha256(SONG_REGISTRY_DATA_PATH),
+    songbookSha256: echoCertificationFileSha256(DEAR_PAPA_SONGBOOK_PATH),
+  };
 }
 
-function echoRuntimeShaderRepairReason(shader) {
-  return shader?.runtimeEligibilityReason
-    || shader?.pixelGate?.reason
-    || "source-hash-verified-pixel-gate-quarantine";
+async function loadEchoExecutionRegistryIdentities({ fresh = false } = {}) {
+  const catalog = fresh
+    ? await new EchoIsfAssetCatalog({ musicVizRoot: HAPA_MUSIC_VIZ_ROOT, cacheCheckMs: 0 }).load()
+    : await echoIsfAssets.load();
+  return echoExecutionRegistryIdentities(catalog.shaders || []);
 }
 
-function repairEchoRuntimeVisualizerTimeline(rows = [], catalog = [], scope = "visualizer-timeline") {
-  const catalogById = new Map(catalog.map((shader) => [String(shader?.id || ""), shader]));
-  const replacementById = new Map();
-  const replacements = [];
-  const timeline = (Array.isArray(rows) ? rows : []).map((row, index) => {
-    const originalId = String(row?.visualizer_id || row?.visualizerId || "");
-    const original = catalogById.get(originalId);
-    if (!echoRuntimeShaderNeedsReplacement(original)) return row;
-    let replacement = replacementById.get(originalId);
-    if (!replacement) {
-      replacement = echoRuntimeShaderReplacement(original, catalog);
-      if (!replacement) return row;
-      replacementById.set(originalId, replacement);
-    }
-    const reason = echoRuntimeShaderRepairReason(original);
-    replacements.push({
-      scope,
-      rowIndex: index,
-      startSeconds: Number(row?.start_sec ?? row?.startSeconds ?? 0),
-      endSeconds: Number(row?.end_sec ?? row?.endSeconds ?? 0),
-      originalId,
-      originalTitle: String(row?.visualizer_title || row?.visualizerTitle || original?.title || ""),
-      replacementId: replacement.id,
-      replacementTitle: replacement.title,
-      reason,
+function stableJsonCertificationProof(filePath, label = "JSON source") {
+  const proof = stableCertificationFileProof(filePath, { label });
+  return {
+    path: proof.path,
+    statIdentity: proof.statIdentity,
+    sha256: proof.sha256,
+    value: JSON.parse(proof.bytes.toString("utf8")),
+  };
+}
+
+function songCardRenderCertificationError(reason, message, details = {}) {
+  const error = new Error(message);
+  error.code = "local_render_start_certification_not_ready";
+  error.statusCode = 409;
+  error.details = {
+    stage: "render-start-certification",
+    reason: String(reason || "execution-certificate-not-ready"),
+    ...details,
+  };
+  return error;
+}
+
+function runEchoReadinessCertificationProcess(args, {
+  timeoutMs = 70 * 60_000,
+  maxBuffer = 16 * 1024 * 1024,
+} = {}) {
+  return new Promise((resolve, reject) => {
+    const detached = process.platform !== "win32";
+    const child = spawn(process.execPath, args, {
+      cwd: ROOT,
+      env: process.env,
+      detached,
+      stdio: ["ignore", "pipe", "pipe"],
     });
-    return {
-      ...row,
-      visualizer_id: replacement.id,
-      ...(Object.hasOwn(row || {}, "visualizerId") ? { visualizerId: replacement.id } : {}),
-      visualizer_title: replacement.title,
-      ...(Object.hasOwn(row || {}, "visualizerTitle") ? { visualizerTitle: replacement.title } : {}),
-      shader_repair: {
-        schemaVersion: "hapa.echo.runtime-shader-repair.v1",
-        reason,
-        originalId,
-        originalTitle: String(row?.visualizer_title || row?.visualizerTitle || original?.title || ""),
-        replacementId: replacement.id,
-        replacementTitle: replacement.title,
-        nonDestructive: true,
-      },
-    };
-  });
-  return { scope, timeline, replacementById, replacements, hydrations: [] };
-}
-
-function echoRuntimeShaderCardPortableIsExact(card, shader) {
-  const portable = card?.visualization?.card;
-  return Boolean(
-    portable?.schemaVersion === "hapa.visualizer-card.v2"
-    && String(portable.id || "") === String(shader?.id || "")
-    && String(portable.source?.hash || "").replace(/^sha256:/i, "").toLowerCase()
-      === String(shader?.sourceHash || "").replace(/^sha256:/i, "").toLowerCase(),
-  );
-}
-
-function hydrateEchoRuntimeShaderCard(card, shader, options = {}) {
-  const previousPortable = card.visualization?.card || {};
-  const previousLayer = previousPortable.layer || {};
-  const stemFocus = String(previousPortable.stemFocus || card.provenance?.stemFocus || "master");
-  const defaults = echoRuntimeShaderDefaults(shader.inputs);
-  const allowedControlNames = new Set(Object.keys(defaults));
-  const previousControls = card.parameters?.visualizerControls || previousPortable.controls || {};
-  const controls = {
-    ...defaults,
-    ...Object.fromEntries(Object.entries(previousControls).filter(([name]) => allowedControlNames.has(name))),
-  };
-  const portable = buildPortableVisualizerCard(shader, {
-    stemFocus,
-    layerRole: previousLayer.role || card.provenance?.layerRole || "atmosphere",
-    controls,
-    blendMode: card.parameters?.blendMode || previousLayer.blend || "screen",
-    opacity: Number(card.parameters?.opacity ?? previousLayer.opacity ?? 0.48),
-    target: card.parameters?.target || previousLayer.target || "program",
-    mix: Number(card.parameters?.mix ?? previousLayer.mix ?? 1),
-    transition: String(card.transition || previousLayer.transition || "crossfade"),
-    nativeProxyAvailable: Boolean(shader.nativeRoute?.proxy && shader.pixelGate?.playableFrameIndices?.length),
-    hyperframesProxy: shader.hyperframesProxy || null,
-    hyperframesProxyAvailable: Boolean(shader.hyperframesProxy && shader.pixelGate?.playableFrameIndices?.length),
-    provenanceSource: options.replacement ? "runtime-pixel-gate-repair" : "runtime-catalog-hydration",
-  });
-  const visualizerMappings = Object.fromEntries((portable.automation || []).map((binding) => [
-    binding.uniform,
-    `${binding.stemFocus || stemFocus}:${binding.signal}`,
-  ]));
-  const repairEvidence = options.replacement ? {
-    runtimeShaderRepair: {
-      schemaVersion: "hapa.echo.runtime-shader-repair.v1",
-      reason: options.reason,
-      originalId: options.original?.id,
-      originalTitle: options.original?.title,
-      replacementId: shader.id,
-      replacementTitle: shader.title,
-      nonDestructive: true,
-    },
-  } : {
-    runtimeShaderHydration: {
-      schemaVersion: "hapa.echo.runtime-shader-hydration.v1",
-      reason: options.reason || "portable-card-missing-or-stale",
-      sourceId: shader.id,
-      sourceHash: shader.sourceHash,
-      nonDestructive: true,
-    },
-  };
-  return {
-    ...card,
-    requestedSourceId: shader.id,
-    resolutionStatus: options.replacement ? "runtime-pixel-gate-repair" : "runtime-catalog-hydration",
-    executionStatus: "executable-runtime-repair",
-    media: {
-      ...(card.media || {}),
-      id: shader.id,
-      title: shader.title,
-    },
-    visualization: {
-      ...(card.visualization || {}),
-      requestedSourceId: shader.id,
-      sourceId: shader.id,
-      nativeKey: shader.nativeRoute?.nativeKey || null,
-      nativeRoute: portable.nativeRoute,
-      card: portable,
-      status: "exact",
-    },
-    parameters: {
-      ...(card.parameters || {}),
-      visualizerControls: controls,
-      visualizerMappings,
-    },
-    provenance: {
-      ...(card.provenance || {}),
-      requestedSourceId: shader.id,
-      manifestSource: shader.source,
-      resolutionStatus: options.replacement ? "runtime-pixel-gate-repair" : "runtime-catalog-hydration",
-      ...repairEvidence,
-    },
-  };
-}
-
-function repairEchoRuntimeShaderGraph(graph, catalog = [], scope = "director-show-graph") {
-  if (!graph?.tracks) return { scope, graph, replacementById: new Map(), replacements: [], hydrations: [] };
-  const catalogById = new Map(catalog.map((shader) => [String(shader?.id || ""), shader]));
-  const replacementById = new Map();
-  const replacements = [];
-  const hydrations = [];
-  const repairedGraph = structuredClone(graph);
-  for (const track of repairedGraph.tracks || []) {
-    if (track?.role !== "visualizer" && !["track-b", "ivf-stack"].includes(track?.id)) continue;
-    for (let cardIndex = 0; cardIndex < (track.cards || []).length; cardIndex += 1) {
-      const card = track.cards[cardIndex];
-      const originalId = String(card?.visualization?.sourceId || card?.visualization?.requestedSourceId || card?.visualization?.card?.id || "");
-      const original = catalogById.get(originalId);
-      if (!original) continue;
-      let target = original;
-      let replacement = null;
-      if (echoRuntimeShaderNeedsReplacement(original)) {
-        replacement = replacementById.get(originalId);
-        if (!replacement) {
-          replacement = echoRuntimeShaderReplacement(original, catalog);
-          if (!replacement) continue;
-          replacementById.set(originalId, replacement);
-        }
-        target = replacement;
+    const output = { stdout: [], stderr: [], stdoutBytes: 0, stderrBytes: 0 };
+    let terminalError = null;
+    let killTimer = null;
+    const killTree = (signal) => {
+      try {
+        if (detached && child.pid) process.kill(-child.pid, signal);
+        else child.kill(signal);
+      } catch (error) {
+        if (error?.code !== "ESRCH") terminalError ||= error;
       }
-      if (!replacement && echoRuntimeShaderCardPortableIsExact(card, target)) continue;
-      const reason = replacement ? echoRuntimeShaderRepairReason(original) : "portable-card-missing-or-stale";
-      track.cards[cardIndex] = hydrateEchoRuntimeShaderCard(card, target, { replacement: Boolean(replacement), original, reason });
-      const evidence = {
-        scope,
-        trackId: String(track.id || ""),
-        cardId: String(card.id || ""),
-        startSeconds: Number(card.startSeconds || 0),
-        endSeconds: Number(card.endSeconds || 0),
-        sourceId: target.id,
-        sourceTitle: target.title,
-        sourceHash: target.sourceHash,
-        reason,
-      };
-      hydrations.push(evidence);
-      if (replacement) replacements.push({
-        ...evidence,
-        originalId,
-        originalTitle: original.title,
-        replacementId: replacement.id,
-        replacementTitle: replacement.title,
-      });
+    };
+    const stop = (error) => {
+      terminalError ||= error;
+      killTree("SIGTERM");
+      if (!killTimer) {
+        killTimer = setTimeout(() => killTree("SIGKILL"), 5_000);
+        killTimer.unref?.();
+      }
+    };
+    const collect = (name, chunk) => {
+      const bytesKey = `${name}Bytes`;
+      output[bytesKey] += chunk.length;
+      if (output[bytesKey] > maxBuffer) {
+        const error = new Error(`Echo readiness ${name} exceeded its bounded output buffer.`);
+        error.code = "ERR_CHILD_PROCESS_STDIO_MAXBUFFER";
+        stop(error);
+        return;
+      }
+      output[name].push(chunk);
+    };
+    child.stdout.on("data", (chunk) => collect("stdout", Buffer.from(chunk)));
+    child.stderr.on("data", (chunk) => collect("stderr", Buffer.from(chunk)));
+    child.on("error", (error) => { terminalError ||= error; });
+    const timeout = setTimeout(() => {
+      const error = new Error(`Echo readiness certification exceeded ${Math.round(timeoutMs / 60_000)} minutes.`);
+      error.code = "ETIMEDOUT";
+      stop(error);
+    }, timeoutMs);
+    timeout.unref?.();
+    child.on("close", (code, signal) => {
+      clearTimeout(timeout);
+      if (killTimer) clearTimeout(killTimer);
+      const stdout = Buffer.concat(output.stdout).toString("utf8");
+      const stderr = Buffer.concat(output.stderr).toString("utf8");
+      if (!terminalError && code === 0) {
+        resolve({ stdout, stderr });
+        return;
+      }
+      const error = terminalError || new Error(`Echo readiness certification exited with code ${code ?? "unknown"}${signal ? ` (${signal})` : ""}.`);
+      error.stdout = stdout;
+      error.stderr = stderr;
+      error.exitCode = code;
+      error.signal = signal;
+      reject(error);
+    });
+  });
+}
+
+function prepareEchoMintPlanExecutionCertificate(planId) {
+  const key = String(planId || "").trim();
+  const storageId = key.replace(/^plan:/u, "");
+  if (!/^plan:[a-f0-9]{32}$/u.test(key) || path.basename(storageId) !== storageId) {
+    throw songCardRenderCertificationError(
+      "saved-plan-id-unsafe",
+      "The saved mint-plan identity is malformed and cannot be certified.",
+      { planId: key || null },
+    );
+  }
+  const reportPath = path.join(ROOT, "artifacts", "echo-render-readiness", "plans", `${storageId}.json`);
+  return echoMintPlanCertificationQueue.run(key, async () => {
+    await mkdir(path.dirname(reportPath), { recursive: true });
+    const planProof = stableJsonCertificationProof(songCardMintController.planPath(key), "The saved mint plan");
+    if (String(planProof.value?.planId || "") !== key) {
+      throw songCardRenderCertificationError(
+        "saved-plan-identity-mismatch",
+        "The Builder could not certify this saved cut automatically because its stored identity changed. The edit is intact and no MP4 work started.",
+        { planId: key },
+      );
     }
-  }
-  if (replacements.length || hydrations.length) {
-    repairedGraph.directorV2 = {
-      ...(repairedGraph.directorV2 || {}),
-      runtimeShaderRepair: {
-        schemaVersion: "hapa.echo.runtime-shader-repair-receipt.v1",
-        status: replacements.length ? "repaired" : "hydrated",
-        nonDestructive: true,
-        replacementCount: replacements.length,
-        hydrationCount: hydrations.length,
-        replacements,
-        hydrations,
-      },
-    };
-  }
-  return { scope, graph: repairedGraph, replacementById, replacements, hydrations };
-}
-
-function echoRuntimeShaderRepairReceipt(scopes = [], sourceKey = "sourceProjectMutated") {
-  const deliveredScopes = scopes.filter(Boolean).map((scope) => ({
-    scope: scope.scope,
-    replacementCount: scope.replacements.length,
-    hydrationCount: scope.hydrations.length,
-    replacements: scope.replacements,
-    hydrations: scope.hydrations,
-  }));
-  const replacements = deliveredScopes.flatMap((scope) => scope.replacements);
-  const hydrations = deliveredScopes.flatMap((scope) => scope.hydrations);
-  return {
-    schemaVersion: "hapa.echo.runtime-shader-repair-receipt.v1",
-    status: replacements.length ? "repaired" : hydrations.length ? "hydrated" : "not-required",
-    nonDestructive: true,
-    [sourceKey]: false,
-    replacementCount: replacements.length,
-    hydrationCount: hydrations.length,
-    replacements,
-    hydrations,
-    scopes: deliveredScopes,
-  };
-}
-
-function repairEchoRuntimeDirectionVariant(variant = {}, options = {}) {
-  const variantId = echoDirectionVariantId(variant) || "unnamed";
-  const catalog = options.catalog || [];
-  const sourceProfile = options.sourceProfile === true;
-  const selected = options.selected === true;
-  const scopes = [];
-  const delivered = { ...variant };
-  for (const field of ["visualizer_timeline", "visualizerTimeline"]) {
-    if (!Array.isArray(variant?.[field])) continue;
-    const result = repairEchoRuntimeVisualizerTimeline(
-      variant[field],
-      catalog,
-      `variant:${variantId}:${field}`,
-    );
-    delivered[field] = result.timeline;
-    scopes.push(result);
-  }
-
-  let hasDeclaredGraph = false;
-  for (const field of ["director_show_graph", "directorShowGraph"]) {
-    const declaredGraph = variant?.[field];
-    if (!declaredGraph?.tracks) continue;
-    hasDeclaredGraph = true;
-    const result = repairEchoRuntimeShaderGraph(
-      declaredGraph,
-      catalog,
-      `variant:${variantId}:${field}`,
-    );
-    delivered[field] = sourceProfile ? result.graph : compactEchoDirectorShowGraph(result.graph);
-    scopes.push(result);
-  }
-
-  if (selected && !hasDeclaredGraph) {
-    const derivedVariant = {
-      ...delivered,
-      ...(Array.isArray(delivered.visualizerTimeline) && !Array.isArray(delivered.visualizer_timeline)
-        ? { visualizer_timeline: delivered.visualizerTimeline }
-        : {}),
-    };
-    const derived = deriveEchoDirectionVariantProject(options.baseProject || {}, derivedVariant);
-    const result = repairEchoRuntimeShaderGraph(
-      derived.director_show_graph,
-      catalog,
-      `variant:${variantId}:derived-director-show-graph`,
-    );
-    delivered.director_show_graph = sourceProfile
-      ? result.graph
-      : compactEchoDerivedVariantShowGraph(result.graph, {
-        baseGraphAvailable: Boolean(options.baseProject?.director_show_graph?.tracks),
+    const projectSongId = String(planProof.value?.input?.project?.song_id || "").trim();
+    if (!projectSongId || path.basename(projectSongId) !== projectSongId) {
+      throw songCardRenderCertificationError(
+        "saved-plan-song-id-unsafe",
+        "The saved cut does not identify one safe canonical Echo song for compilation.",
+        { planId: key, projectSongId: projectSongId || null },
+      );
+    }
+    await rm(reportPath, { force: true });
+    const startedAtMs = Date.now();
+    try {
+      await compileEchoDirectorProject(projectSongId);
+      await runEchoReadinessCertificationProcess([
+        path.join(ROOT, "scripts", "preflight-echo-render-readiness.mjs"),
+        `--avatar-root=${ROOT}`,
+        `--projects=${path.join(ROOT, "data", "music-video-projects")}`,
+        `--variants=${ECHO_DIRECTION_VARIANTS_DIR}`,
+        `--album=${ECHO_DIRECTOR_V2_ALBUM_DIR}`,
+        `--music-viz-root=${HAPA_MUSIC_VIZ_ROOT}`,
+        `--registry=${SONG_REGISTRY_DATA_PATH}`,
+        `--songbook=${DEAR_PAPA_SONGBOOK_PATH}`,
+        `--plans=${songCardMintController.paths.plans}`,
+        `--remint-queue=${songCardRemintStore.path}`,
+        `--plan=${key}`,
+        "--apply-stem-repairs=true",
+        `--report=${reportPath}`,
+      ]);
+      return { ok: true, planId: key, reportPath };
+    } catch (error) {
+      const readiness = readFreshEchoPlanCertificationBlockers({
+        reportPath,
+        planId: key,
+        planSha256: planProof.sha256,
+        startedAtMs,
       });
-    scopes.push(result);
+      const blockers = readiness?.blockers || [];
+      const firstBlocker = blockers[0]?.message || "A render-readiness check did not pass.";
+      const output = `${error?.stdout || ""}\n${error?.stderr || ""}`.trim().slice(-8_000);
+      throw songCardRenderCertificationError(
+        "automatic-plan-certification-failed",
+        `The Builder could not certify this saved cut automatically: ${firstBlocker} The edit is intact and no MP4 work started. Repair the reported item, restart the Builder if requested, then choose Retry.`,
+        {
+          planId: key,
+          blockers,
+          remedy: "Repair the reported item, restart the Builder if requested, then choose Retry.",
+          diagnostic: output || null,
+        },
+      );
+    }
+  });
+}
+
+async function certifySongCardLocalRenderStart({ candidate, storedPlan } = {}) {
+  const candidateId = String(candidate?.id || "").trim();
+  const planId = String(candidate?.planId || storedPlan?.planId || "").trim();
+  if (!candidateId || !planId || planId !== String(storedPlan?.planId || "").trim()) {
+    throw songCardRenderCertificationError(
+      "candidate-plan-binding-invalid",
+      "The selected render candidate is not bound to one exact saved mint plan.",
+      { candidateId: candidateId || null, planId: planId || null },
+    );
   }
 
-  const deliveredFullPayload = selected
-    || Array.isArray(variant?.visualizer_timeline)
-    || Array.isArray(variant?.visualizerTimeline)
-    || hasDeclaredGraph;
-  if (deliveredFullPayload) {
-    delivered.runtime_shader_repair_receipt = echoRuntimeShaderRepairReceipt(scopes, "sourceVariantMutated");
+  const loadCurrentCertificate = async ({
+    expectedPlanSha256 = null,
+    expectedCertificateSha256 = null,
+    expectedExecutionPublicationSha256 = null,
+  } = {}) => {
+    await songCardMintController.assertPlanRunnable(planId);
+    const planProof = stableJsonCertificationProof(songCardMintController.planPath(planId), "The saved mint plan");
+    if (String(planProof.value?.planId || "") !== planId) {
+      throw songCardRenderCertificationError(
+        "saved-plan-identity-mismatch",
+        "The saved mint-plan file does not contain the plan identity requested by this render.",
+        { candidateId, planId, observedPlanId: planProof.value?.planId || null },
+      );
+    }
+    if (expectedPlanSha256 && planProof.sha256 !== expectedPlanSha256) {
+      throw songCardRenderCertificationError(
+        "saved-plan-changed-after-certification",
+        "The saved cut changed after render-start certification. Retry after the current cut is certified.",
+        { candidateId, planId, expectedPlanSha256, observedPlanSha256: planProof.sha256 },
+      );
+    }
+    const project = planProof.value?.input?.project;
+    const projectSongId = String(project?.song_id || "").trim();
+    const safeSongId = path.basename(projectSongId);
+    if (!project || !projectSongId || safeSongId !== projectSongId) {
+      throw songCardRenderCertificationError(
+        "saved-plan-song-id-unsafe",
+        "The saved cut does not identify one safe canonical Echo song.",
+        { candidateId, planId, projectSongId: projectSongId || null },
+      );
+    }
+    const canonicalProjectPath = path.join(ROOT, "data", "music-video-projects", `${safeSongId}-video-project.json`);
+    let canonicalProject;
+    try {
+      const canonicalProjectProof = stableJsonCertificationProof(canonicalProjectPath, "The canonical Echo project");
+      canonicalProject = canonicalProjectProof.value?.music_video_project || canonicalProjectProof.value;
+      if (String(canonicalProject?.song_id || "").trim() !== safeSongId) throw new Error("canonical song identity mismatch");
+    } catch (error) {
+      throw songCardRenderCertificationError(
+        "canonical-project-not-ready",
+        "The canonical Echo project for this saved cut is missing, stale, or invalid.",
+        { candidateId, planId, projectSongId: safeSongId, canonicalProjectPath, message: error?.message || String(error) },
+      );
+    }
+
+    const bootFreshness = inspectEchoServerBootFreshness(ECHO_SERVER_BOOT_IDENTITY, { root: ROOT, refresh: true });
+    if (!bootFreshness.ok) {
+      throw songCardRenderCertificationError(
+        bootFreshness.reason,
+        "The Builder server changed and must restart before this render can use a certified execution graph.",
+        { candidateId, planId, serverDelivery: bootFreshness },
+      );
+    }
+
+    let rendererBuildIdentity;
+    let deliveryRuntimeBuildIdentity;
+    let currentRegistries;
+    try {
+      [rendererBuildIdentity, deliveryRuntimeBuildIdentity, currentRegistries] = await Promise.all([
+        inspectSongCardRendererBuildIdentity({ root: ROOT, strict: true }),
+        inspectEchoDeliveryRuntimeBuildIdentity({ root: ROOT, strict: true }),
+        loadEchoExecutionRegistryIdentities({ fresh: true }),
+      ]);
+    } catch (error) {
+      throw songCardRenderCertificationError(
+        error?.code || "delivery-build-not-ready",
+        error?.message || "The current renderer delivery build is not certifiable.",
+        { candidateId, planId },
+      );
+    }
+
+    const graphResult = await readEchoDirectorShowGraphArtifact({
+      albumRoot: ECHO_DIRECTOR_V2_ALBUM_DIR,
+      root: ROOT,
+      project,
+      canonicalProject,
+      songId: safeSongId,
+      cutId: planId,
+      cutKind: "saved-mint-plan",
+      cutFingerprint: planProof.sha256,
+      cache: echoDirectorShowGraphCache,
+      currentRendererBuildSha256: rendererBuildIdentity.sha256,
+      currentDeliveryRuntimeBuildSha256: deliveryRuntimeBuildIdentity.sha256,
+      currentServerDeliveryBuildSha256: ECHO_SERVER_BOOT_IDENTITY.sha256,
+      currentRegistries,
+      runtimeRouteContext: {
+        root: ROOT,
+        mediaDir: MEDIA_DIR,
+        songRegistryPath: SONG_REGISTRY_DATA_PATH,
+        songbookPath: DEAR_PAPA_SONGBOOK_PATH,
+      },
+    });
+    const receipt = graphResult?.receipt || {};
+    if (
+      !graphResult?.graph
+      || receipt.status !== "ready"
+      || receipt.source !== "validated-derived-execution-graph"
+      || receipt.cutId !== planId
+      || receipt.cutKind !== "saved-mint-plan"
+      || receipt.cutFingerprint !== planProof.sha256
+      || receipt.executionGraph?.status !== "ready"
+      || receipt.executionGraph?.rendererBuildSha256 !== rendererBuildIdentity.sha256
+      || receipt.executionGraph?.deliveryRuntimeBuildSha256 !== deliveryRuntimeBuildIdentity.sha256
+      || receipt.executionGraph?.serverDeliveryBuildSha256 !== ECHO_SERVER_BOOT_IDENTITY.sha256
+      || !/^sha256:[a-f0-9]{64}$/iu.test(String(receipt.executionGraph?.certifierSourceSha256 || ""))
+    ) {
+      throw songCardRenderCertificationError(
+        receipt.reason || receipt.executionGraph?.reason || "exact-saved-cut-certificate-missing",
+        "The Builder does not yet have a valid execution certificate for this exact saved cut. Automatic certification will run before any MP4 work starts.",
+        {
+          candidateId,
+          planId,
+          projectSongId: safeSongId,
+          planSha256: planProof.sha256,
+          certificateStatus: receipt.status || null,
+          certificateSource: receipt.source || null,
+          executionGraphStatus: receipt.executionGraph?.status || null,
+          executionGraphReason: receipt.executionGraph?.reason || null,
+        },
+      );
+    }
+    let certificateBinding;
+    try {
+      certificateBinding = createEchoRenderStartCertificateBinding({
+        candidateId,
+        planId,
+        planSha256: planProof.sha256,
+        receipt,
+      });
+    } catch (error) {
+      throw songCardRenderCertificationError(
+        "execution-publication-identity-invalid",
+        "The exact saved cut is not bound to one verified immutable execution publication. Automatic certification will rebuild it before any MP4 work starts.",
+        { candidateId, planId, message: error?.message || String(error) },
+      );
+    }
+    const { certificateSha256 } = certificateBinding;
+    if (
+      expectedExecutionPublicationSha256
+      && certificateBinding.publicationIdentitySha256 !== expectedExecutionPublicationSha256
+    ) {
+      throw songCardRenderCertificationError(
+        "execution-publication-changed-after-start",
+        "The immutable execution publication changed after rendering began. Retry to use one exact evidence receipt.",
+        {
+          candidateId,
+          planId,
+          expectedExecutionPublicationSha256,
+          observedExecutionPublicationSha256: certificateBinding.publicationIdentitySha256,
+          expectedCertificateSha256,
+          observedCertificateSha256: certificateSha256,
+        },
+      );
+    }
+    if (expectedCertificateSha256 && certificateSha256 !== expectedCertificateSha256) {
+      throw songCardRenderCertificationError(
+        "execution-certificate-changed-after-start",
+        "The exact execution certificate changed as rendering began. Retry to use one immutable certificate.",
+        { candidateId, planId, expectedCertificateSha256, observedCertificateSha256: certificateSha256 },
+      );
+    }
+    return {
+      planProof,
+      project,
+      graph: graphResult.graph,
+      receipt,
+      rendererBuildIdentity,
+      deliveryRuntimeBuildIdentity,
+      certificateSha256,
+      executionPublication: certificateBinding.publicationIdentity,
+      executionPublicationSha256: certificateBinding.publicationIdentitySha256,
+    };
+  };
+
+  let certified;
+  try {
+    certified = await loadCurrentCertificate();
+  } catch (error) {
+    const reason = String(error?.details?.reason || "");
+    const cannotRepairInProcess = [
+      "server_restart_required",
+      "delivery_build_receipt_stale",
+      "delivery-build-not-ready",
+      "saved-plan-changed-after-certification",
+    ].includes(reason);
+    if (error?.code !== "local_render_start_certification_not_ready" || cannotRepairInProcess) throw error;
+    await prepareEchoMintPlanExecutionCertificate(planId);
+    certified = await loadCurrentCertificate();
   }
-  return { variant: delivered, scopes };
+  return {
+    ok: true,
+    candidateId,
+    planId,
+    storedPlan: certified.planProof.value,
+    project: certified.project,
+    showGraph: certified.graph,
+    rendererBuildSha256: certified.rendererBuildIdentity.sha256,
+    summary: {
+      schemaVersion: "hapa.song-card.local-render-start-certificate.v1",
+      status: "ready",
+      certificateSha256: certified.certificateSha256,
+      planSha256: certified.planProof.sha256,
+      cutId: planId,
+      cutKind: "saved-mint-plan",
+      cutFingerprint: certified.planProof.sha256,
+      parentGraphSha256: certified.receipt.executionGraph.parentGraphSha256,
+      outputGraphSha256: certified.receipt.executionGraph.outputGraphSha256,
+      rendererBuildSha256: certified.rendererBuildIdentity.sha256,
+      deliveryRuntimeBuildSha256: certified.deliveryRuntimeBuildIdentity.sha256,
+      serverDeliveryBuildSha256: ECHO_SERVER_BOOT_IDENTITY.sha256,
+      certifierSourceSha256: certified.receipt.executionGraph.certifierSourceSha256,
+      executionReceiptSha256: certified.executionPublication.receiptSha256,
+      executionPublication: certified.executionPublication,
+      executionPublicationSha256: certified.executionPublicationSha256,
+    },
+    assertFresh: async () => {
+      await loadCurrentCertificate({
+        expectedPlanSha256: certified.planProof.sha256,
+        expectedCertificateSha256: certified.certificateSha256,
+        expectedExecutionPublicationSha256: certified.executionPublicationSha256,
+      });
+      return true;
+    },
+  };
 }
 
 async function hydrateEchoDirectorProjectPayload(payload, safeSongId, options = {}) {
-  const project = payload?.music_video_project || payload;
-  if (!project || typeof project !== "object") return payload;
+  const sourceProject = payload?.music_video_project || payload;
+  if (!sourceProject || typeof sourceProject !== "object") return payload;
+  const project = attachEchoOutputProfile(sourceProject);
   const sourceProfile = options.profile === "source";
   const selectedVariantId = String(options.selectedVariantId || "").trim();
-  const [graphResult, indexedVariants, shaderCatalog] = await Promise.all([
-    readEchoDirectorShowGraph(project, safeSongId),
+  const [initialGraphResult, indexedVariants, shaderCatalog] = await Promise.all([
+    // Certification hashes bind to the exact persisted source bytes. Normalize
+    // the profile only for the hydrated response; legacy projects without an
+    // output_profile must keep their existing graph certificate valid.
+    readEchoDirectorShowGraph(sourceProject, safeSongId, selectedVariantId || "base"),
     sourceProfile
       ? readEchoDirectionScriptVariants(safeSongId)
       : echoDirectionVariantSummaryIndex
@@ -7666,6 +7872,7 @@ async function hydrateEchoDirectorProjectPayload(payload, safeSongId, options = 
         .then((result) => result.bySong.get(safeSongId) || []),
     echoIsfAssets.load().then((catalog) => catalog.shaders),
   ]);
+  let graphResult = initialGraphResult;
   const embeddedVariants = Array.isArray(project.direction_script_variants)
     ? project.direction_script_variants
     : [];
@@ -7684,6 +7891,18 @@ async function hydrateEchoDirectorProjectPayload(payload, safeSongId, options = 
       const embeddedVariant = embeddedVariants.find((variant) => echoDirectionVariantId(variant) === selectedVariantId);
       const fullVariant = selectedVariant || embeddedVariant;
       if (!fullVariant) throw echoDirectionVariantNotFound(safeSongId, selectedVariantId);
+      const deliveredCutFingerprint = echoDirectionVariantFingerprint(fullVariant);
+      if (graphResult?.receipt?.cutFingerprint !== deliveredCutFingerprint) {
+        graphResult = {
+          graph: null,
+          receipt: {
+            ...(graphResult?.receipt || {}),
+            status: "preparing",
+            reason: "cut_fingerprint_changed_during_hydration",
+            cutFingerprint: deliveredCutFingerprint,
+          },
+        };
+      }
       deliveredVariantId = selectedVariantId;
       directionVariants = directionVariants.map((variant) => (
         echoDirectionVariantId(variant) === selectedVariantId ? fullVariant : variant
@@ -7694,7 +7913,7 @@ async function hydrateEchoDirectorProjectPayload(payload, safeSongId, options = 
     }
   }
 
-  const baseGraphRepair = repairEchoRuntimeShaderGraph(
+  let baseGraphRepair = repairEchoRuntimeShaderGraph(
     graphResult.graph,
     shaderCatalog,
     "project:director-show-graph",
@@ -7704,6 +7923,25 @@ async function hydrateEchoDirectorProjectPayload(payload, safeSongId, options = 
     shaderCatalog,
     "project:visualizer-timeline",
   );
+  if (graphResult?.receipt?.source === "validated-derived-execution-graph") {
+    const deliveryGate = guardEchoCertifiedGraphDelivery({
+      graphResult,
+      shaderRepair: baseGraphRepair,
+      currentRegistries: {
+        ...echoExecutionRegistryIdentities(shaderCatalog),
+        rendererBuildSha256: graphResult?.receipt?.currentRendererBuildSha256 || null,
+        deliveryRuntimeBuildSha256: graphResult?.receipt?.currentDeliveryRuntimeBuildSha256 || null,
+        serverDeliveryBuildSha256: graphResult?.receipt?.currentServerDeliveryBuildSha256 || null,
+      },
+    });
+    graphResult = deliveryGate.graphResult;
+    baseGraphRepair = deliveryGate.shaderRepair;
+  }
+  const shaderLineageProjection = projectEchoRuntimeShaderRepairProvenance(
+    baseGraphRepair.graph,
+    baseTimelineRepair,
+  );
+  baseGraphRepair = { ...baseGraphRepair, graph: shaderLineageProjection.graph };
   const repairedBaseTimeline = Array.isArray(project.visualizer_timeline)
     ? baseTimelineRepair.timeline
     : project.visualizer_timeline;
@@ -7714,14 +7952,39 @@ async function hydrateEchoDirectorProjectPayload(payload, safeSongId, options = 
   };
   const variantRepairScopes = [];
   directionVariants = directionVariants.map((variant) => {
+    const selected = Boolean(deliveredVariantId && echoDirectionVariantId(variant) === deliveredVariantId);
     const result = repairEchoRuntimeDirectionVariant(variant, {
       catalog: shaderCatalog,
       sourceProfile,
-      selected: Boolean(deliveredVariantId && echoDirectionVariantId(variant) === deliveredVariantId),
+      // Selected-cut execution graphs must come from the immutable readiness
+      // publication. Runtime shader repair may repair the selected cut's
+      // metadata, but it must never synthesize an uncertified execution graph.
+      selected: false,
       baseProject: variantBaseProject,
+      compactGraph: compactEchoDirectorShowGraph,
+      compactDerivedGraph: compactEchoDerivedVariantShowGraph,
     });
     variantRepairScopes.push(...result.scopes);
-    return result.variant;
+    if (!selected) return result.variant;
+    if (!graphResult.graph) {
+      const blocked = { ...result.variant };
+      delete blocked.director_show_graph;
+      delete blocked.directorShowGraph;
+      blocked.execution_preview = { status: "preparing", reason: graphResult.receipt?.reason || "certified-execution-graph-unavailable" };
+      return blocked;
+    }
+    const delivered = { ...result.variant };
+    delete delivered.director_show_graph;
+    delete delivered.directorShowGraph;
+    return {
+      ...delivered,
+      execution_preview: {
+        status: "ready",
+        cutId: deliveredVariantId,
+        graphSha256: graphResult.receipt?.sourceHash || null,
+        certified: graphResult.receipt?.source === "validated-derived-execution-graph",
+      },
+    };
   });
   const graph = sourceProfile ? baseGraphRepair.graph : compactEchoDirectorShowGraph(baseGraphRepair.graph);
   const runtimeShaderRepairReceipt = echoRuntimeShaderRepairReceipt([
@@ -7921,7 +8184,7 @@ async function createEchoDirectionVariantFork(body = {}) {
       parentVariantId,
     },
   };
-  child.fingerprint = `sha256:${createHash("sha256").update(JSON.stringify(child)).digest("hex")}`;
+  child.fingerprint = echoDirectionVariantFingerprint(child);
 
   const variantsRoot = path.resolve(ECHO_DIRECTION_VARIANTS_DIR);
   const songDirectory = path.resolve(variantsRoot, songId);
@@ -8029,82 +8292,76 @@ async function readEchoDirectionScriptVariant(safeSongId, requestedVariantId) {
   return null;
 }
 
-async function readEchoDirectorShowGraph(project, safeSongId) {
-  const albumRoot = path.resolve(ECHO_DIRECTOR_V2_ALBUM_DIR);
-  const graphPath = path.resolve(albumRoot, path.basename(safeSongId), "native-show-graph.json");
-  const sourcePath = path.relative(ROOT, graphPath);
-  const receiptBase = {
-    schemaVersion: "hapa.echo.director-show-graph-receipt.v1",
-    source: "compiled-director-v2-album",
-    sourcePath,
-    projectSongId: project.song_id || safeSongId
-  };
-  if (!withinDirectory(albumRoot, graphPath)) {
-    return {
-      graph: null,
-      receipt: { ...receiptBase, status: "invalid", reason: "compiled_graph_path_outside_album_root" }
-    };
-  }
-
-  let cached;
-  try {
-    const fileStat = await stat(graphPath);
-    const signature = `${fileStat.size}:${fileStat.mtimeMs}`;
-    cached = echoDirectorShowGraphCache.get(graphPath);
-    if (!cached || cached.signature !== signature) {
-      const bytes = await readFile(graphPath);
-      cached = {
-        signature,
-        sourceBytes: bytes.byteLength,
-        sourceHash: `sha256:${createHash("sha256").update(bytes).digest("hex")}`,
-        graph: JSON.parse(bytes.toString("utf8"))
-      };
-      echoDirectorShowGraphCache.set(graphPath, cached);
-    }
-  } catch (error) {
-    if (error?.code === "ENOENT") {
-      return {
-        graph: null,
-        receipt: { ...receiptBase, status: "missing", reason: "compiled_graph_not_found" }
-      };
-    }
+async function readEchoDirectorShowGraph(project, safeSongId, cutId = "base") {
+  const requestedCutId = String(cutId || "base").trim() || "base";
+  const bootFreshness = inspectEchoServerBootFreshness(ECHO_SERVER_BOOT_IDENTITY, { root: ROOT, refresh: true });
+  if (!bootFreshness.ok) {
     return {
       graph: null,
       receipt: {
-        ...receiptBase,
-        status: "invalid",
-        reason: "compiled_graph_read_failed",
-        message: error instanceof Error ? error.message : String(error)
-      }
+        schemaVersion: "hapa.echo.director-show-graph-receipt.v1",
+        source: "compiled-director-v2-album",
+        projectSongId: project?.song_id || safeSongId,
+        cutId: requestedCutId,
+        status: "preparing",
+        reason: "server_restart_required",
+        serverDelivery: bootFreshness,
+      },
     };
   }
-
-  const graph = cached.graph;
-  const graphSongId = String(graph?.song?.id || "").trim();
-  const expectedSongIds = new Set([
-    project.song_id,
-    project.audio_id,
-    project.registry_track_id
-  ].map((value) => String(value || "").trim()).filter(Boolean));
-  const visualizerTrack = (graph?.tracks || []).find((track) => track?.role === "visualizer" || track?.id === "track-b");
-  const reasons = [];
-  if (graph?.schemaVersion !== "hapa.music-viz.native-show-graph.v2") reasons.push("unexpected_graph_schema");
-  if (!graphSongId || !expectedSongIds.has(graphSongId)) reasons.push("graph_song_identity_mismatch");
-  if (!visualizerTrack || !Array.isArray(visualizerTrack.cards)) reasons.push("visualizer_track_missing");
-  if (!graph?.directorV2?.variantId || !graph?.directorV2?.variantHash) reasons.push("director_variant_identity_missing");
-  const receipt = {
-    ...receiptBase,
-    status: reasons.length ? "invalid" : "ready",
-    graphSchemaVersion: graph?.schemaVersion || null,
-    graphSongId: graphSongId || null,
-    variantId: graph?.directorV2?.variantId || null,
-    variantHash: graph?.directorV2?.variantHash || null,
-    sourceHash: cached.sourceHash,
-    sourceBytes: cached.sourceBytes,
-    visualizerCards: Array.isArray(visualizerTrack?.cards) ? visualizerTrack.cards.length : 0,
-    ...(reasons.length ? { reason: "compiled_graph_validation_failed", reasons } : {})
-  };
-  return { graph: reasons.length ? null : graph, receipt };
+  let cutFingerprint = null;
+  if (requestedCutId !== "base") {
+    const storedVariant = await readEchoDirectionScriptVariant(safeSongId, requestedCutId);
+    const embeddedVariant = Array.isArray(project?.direction_script_variants)
+      ? project.direction_script_variants.find((variant) => echoDirectionVariantId(variant) === requestedCutId)
+      : null;
+    const currentVariant = storedVariant || embeddedVariant;
+    cutFingerprint = currentVariant ? echoDirectionVariantFingerprint(currentVariant) : null;
+  }
+  let rendererBuildIdentity;
+  let deliveryRuntimeBuildIdentity;
+  let currentRegistries;
+  try {
+    [rendererBuildIdentity, deliveryRuntimeBuildIdentity, currentRegistries] = await Promise.all([
+      inspectSongCardRendererBuildIdentity({ root: ROOT, strict: true }),
+      inspectEchoDeliveryRuntimeBuildIdentity({ root: ROOT, strict: true }),
+      loadEchoExecutionRegistryIdentities(),
+    ]);
+  } catch (error) {
+    if (error?.code !== "delivery_build_receipt_stale") throw error;
+    return {
+      graph: null,
+      receipt: {
+        schemaVersion: "hapa.echo.director-show-graph-receipt.v1",
+        source: "compiled-director-v2-album",
+        projectSongId: project?.song_id || safeSongId,
+        cutId: requestedCutId,
+        status: "preparing",
+        reason: "delivery_build_receipt_stale",
+        message: error.message,
+      },
+    };
+  }
+  return readEchoDirectorShowGraphArtifact({
+    albumRoot: ECHO_DIRECTOR_V2_ALBUM_DIR,
+    root: ROOT,
+    project,
+    songId: safeSongId,
+    cutId: requestedCutId,
+    cutKind: requestedCutId === "base" ? "base" : "saved-variant",
+    cutFingerprint,
+    cache: echoDirectorShowGraphCache,
+    currentRendererBuildSha256: rendererBuildIdentity.sha256,
+    currentDeliveryRuntimeBuildSha256: deliveryRuntimeBuildIdentity.sha256,
+    currentServerDeliveryBuildSha256: ECHO_SERVER_BOOT_IDENTITY.sha256,
+    currentRegistries,
+    runtimeRouteContext: {
+      root: ROOT,
+      mediaDir: MEDIA_DIR,
+      songRegistryPath: SONG_REGISTRY_DATA_PATH,
+      songbookPath: DEAR_PAPA_SONGBOOK_PATH,
+    },
+  });
 }
 
 function withinDirectory(root, candidate) {

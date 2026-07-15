@@ -28,6 +28,8 @@ const argument = (name, fallback) => {
 const PROJECTS = path.resolve(argument("projects", path.join(ROOT, "data/music-video-projects")));
 const OUTPUT = path.resolve(argument("output", path.join(ROOT, "artifacts/echo-director-v2/album")));
 const VARIANTS = path.resolve(argument("variants", path.join(ROOT, "data/music-video-project-variants")));
+const TARGET_SONG = String(argument("song", "") || "").trim();
+if (TARGET_SONG && path.basename(TARGET_SONG) !== TARGET_SONG) throw new Error(`Unsafe target song ID: ${TARGET_SONG}`);
 const MANIFEST_PATH = "/Users/calderwong/Desktop/hapa-music-viz/web/isf/manifest.json";
 const PIXEL_GATE_PATH = "/Users/calderwong/Desktop/hapa-music-viz/docs/ISF_ALL_SHADER_PIXEL_GATE_REPORT.json";
 const PROXY_REGISTRY_PATH = path.join(path.dirname(MANIFEST_PATH), "proxies/native-exact-proxies.json");
@@ -62,9 +64,16 @@ function nativeProxyAvailable(proxy = {}, shader = {}) {
 
 function writeJson(filePath, value) {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  const bytes = `${stableStringify(value, 2)}\n`;
+  try {
+    if (fs.readFileSync(filePath, "utf8") === bytes) return false;
+  } catch (error) {
+    if (error?.code !== "ENOENT") throw error;
+  }
   const tempPath = `${filePath}.${process.pid}.${Date.now()}.tmp`;
-  fs.writeFileSync(tempPath, `${stableStringify(value, 2)}\n`);
+  fs.writeFileSync(tempPath, bytes);
   fs.renameSync(tempPath, filePath);
+  return true;
 }
 
 function clippedWindow(cue, duration) {
@@ -100,11 +109,14 @@ const mediaPreflight = preflightEchoAlbum({
   projectsRoot: PROJECTS,
   variantsRoot: VARIANTS,
   avatarRoot: ROOT,
+  songId: TARGET_SONG,
 });
-writeJson(path.join(OUTPUT, "media-preflight-report.json"), {
-  ...mediaPreflight,
-  generatedAt: new Date().toISOString(),
-});
+if (!TARGET_SONG) {
+  writeJson(path.join(OUTPUT, "media-preflight-report.json"), {
+    ...mediaPreflight,
+    generatedAt: new Date().toISOString(),
+  });
+}
 assertEchoMediaPreflight(mediaPreflight);
 
 // Only hydrate the large manifest/proxy/registry inputs after every source cut
@@ -120,13 +132,24 @@ const PIXEL_GATE_HASH = `sha256:${crypto.createHash("sha256").update(PIXEL_GATE_
 const PROXY_REGISTRY_HASH = `sha256:${crypto.createHash("sha256").update(PROXY_REGISTRY_BYTES).digest("hex")}`;
 const REGISTRY = fs.existsSync(registryPath) ? JSON.parse(fs.readFileSync(registryPath, "utf8")) : null;
 
-const files = fs.readdirSync(PROJECTS).filter((file) => file.endsWith(".json")).sort();
+const files = fs.readdirSync(PROJECTS).filter((file) => {
+  if (!file.endsWith(".json")) return false;
+  if (!TARGET_SONG) return true;
+  try {
+    const sourcePayload = JSON.parse(fs.readFileSync(path.join(PROJECTS, file), "utf8"));
+    const project = sourcePayload.music_video_project || sourcePayload;
+    return String(project.song_id || "").trim() === TARGET_SONG;
+  } catch {
+    return false;
+  }
+}).sort();
 const rows = [];
 for (const file of files) {
   const sourcePayload = JSON.parse(fs.readFileSync(path.join(PROJECTS, file), "utf8"));
   const { project: payload, projectBody: project, shaderRepair } = repairEchoProjectShaders(sourcePayload, MANIFEST);
   const artifacts = buildDirectorV2Artifacts({
     project: payload,
+    sourceProject: sourcePayload,
     manifest: MANIFEST,
     registry: REGISTRY,
     duration: Number(project.duration || 0),
@@ -407,7 +430,19 @@ const report = {
   failures: rows.filter((row) => row.errors.length),
   projects: rows,
 };
-writeJson(path.join(OUTPUT, "album-hydration-report.json"), report);
-writeJson(path.join(OUTPUT, "native-shader-route-report.json"), nativeRouteReport);
-console.log(JSON.stringify({ ok: report.ok && nativeRouteReport.ok, output: OUTPUT, projects: report.projectCount, passing: report.passingProjects, portableCards: report.portableCardCount, executableLayers: report.executableLayerCount, pureIVFSlots: report.pureIVFSlots, nativeRoutes: nativeRouteReport.routeCounts, mediaPreflight: report.mediaPreflight }, null, 2));
+if (TARGET_SONG) {
+  writeJson(path.join(OUTPUT, TARGET_SONG, "targeted-compile-receipt.json"), {
+    schemaVersion: "hapa.echo.director-v2-targeted-compile.v1",
+    ok: report.ok && nativeRouteReport.ok && report.projectCount === 1,
+    generatedAt: report.generatedAt,
+    songId: TARGET_SONG,
+    project: rows[0] || null,
+    mediaPreflight: report.mediaPreflight,
+    nativeShaderRoutes: report.nativeShaderRoutes,
+  });
+} else {
+  writeJson(path.join(OUTPUT, "album-hydration-report.json"), report);
+  writeJson(path.join(OUTPUT, "native-shader-route-report.json"), nativeRouteReport);
+}
+console.log(JSON.stringify({ ok: report.ok && nativeRouteReport.ok && (!TARGET_SONG || report.projectCount === 1), mode: TARGET_SONG ? "targeted-song" : "album", songId: TARGET_SONG || null, output: OUTPUT, projects: report.projectCount, passing: report.passingProjects, portableCards: report.portableCardCount, executableLayers: report.executableLayerCount, pureIVFSlots: report.pureIVFSlots, nativeRoutes: nativeRouteReport.routeCounts, mediaPreflight: report.mediaPreflight }, null, 2));
 if (!report.ok || !nativeRouteReport.ok) process.exitCode = 1;

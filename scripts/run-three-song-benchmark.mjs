@@ -46,7 +46,7 @@ for (const [songId, title] of fixtures) {
   const prepared = repairEchoProjectShaders(payload, manifest).project;
   const preparedProject = prepared.music_video_project || prepared;
   const started = performance.now();
-  const base = buildDirectorV2Artifacts({ project: prepared, manifest, registry, duration: Number(project.duration), recipe: "conservative", seed: `benchmark:${songId}:base`, avatarRoot: root });
+  const base = buildDirectorV2Artifacts({ project: prepared, sourceProject: payload, manifest, registry, duration: Number(project.duration), recipe: "conservative", seed: `benchmark:${songId}:base`, avatarRoot: root });
   const decisionEnvelopeMs = performance.now() - started;
   const current = projectToEditorGraph(preparedProject);
   const variants = [];

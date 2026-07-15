@@ -1,10 +1,12 @@
 import { projectToEditorGraph } from "./multitrack-editor.js";
+import { resolveEchoOutputProfile } from "./echo-output-profile.js";
 
 export const ECHO_DIRECTION_WORKING_FORK_SCHEMA = "hapa.echo.direction-working-fork.v1";
 export const ECHO_DIRECTION_FORK_PAYLOAD_SCHEMA = "hapa.echo.direction-variant-fork-request.v1";
 export const ECHO_VARIANT_GRAPH_OVERLAY_SCHEMA = "hapa.echo.variant-graph-overlay.v1";
 
 const VARIANT_PROJECT_PATCH_FIELDS = Object.freeze([
+  "output_profile",
   "lyric_variant",
   "lyric_position",
   "lyric_style",
@@ -64,13 +66,15 @@ function stable(value) {
 
 function compactHash(value) {
   const input = JSON.stringify(stable(value));
-  let left = 0x811c9dc5;
-  let right = 0x9e3779b9;
+  const lanes = [0x811c9dc5, 0x9e3779b9, 0x85ebca6b, 0xc2b2ae35, 0x27d4eb2f, 0x165667b1, 0xd3a2646c, 0xfd7046c5];
+  const multipliers = [0x01000193, 0x85ebca6b, 0xc2b2ae35, 0x27d4eb2f, 0x165667b1, 0xd3a2646c, 0xfd7046c5, 0x9e3779b1];
   for (let index = 0; index < input.length; index += 1) {
-    left = Math.imul(left ^ input.charCodeAt(index), 0x01000193) >>> 0;
-    right = Math.imul(right ^ (input.charCodeAt(index) + index), 0x85ebca6b) >>> 0;
+    const code = input.charCodeAt(index);
+    for (let lane = 0; lane < lanes.length; lane += 1) {
+      lanes[lane] = Math.imul(lanes[lane] ^ (code + index + (lane * 131)), multipliers[lane]) >>> 0;
+    }
   }
-  return `${left.toString(16).padStart(8, "0")}${right.toString(16).padStart(8, "0")}`;
+  return lanes.map((lane) => lane.toString(16).padStart(8, "0")).join("");
 }
 
 function metadataObject(variant, camel, snake, aliases = []) {
@@ -86,15 +90,77 @@ export function echoDirectionVariantTitle(variant = {}) {
   return text(variant.title || variant.label || variant.name || echoDirectionVariantId(variant) || "Direction cut");
 }
 
+export function echoDirectionVariantDeclaredFingerprint(variant = {}) {
+  return text(variant.fingerprint || variant.variantFingerprint || variant.variant_fingerprint || variant.receiptHash || variant.receipt_hash);
+}
+
+function echoDirectionVariantContentPayload(variant = {}) {
+  const payload = clone(object(variant));
+  for (const field of [
+    "fingerprint", "variantFingerprint", "variant_fingerprint", "receiptHash", "receipt_hash",
+    "variant_source", "projectionValidation", "runtime_shader_repair_receipt", "runtimeShaderRepairReceipt",
+    "delivery_receipt", "deliveryReceipt", "execution_preview", "executionPreview",
+  ]) {
+    delete payload[field];
+  }
+  for (const field of ["director_show_graph", "directorShowGraph"]) {
+    if (payload[field]?.directorV2) {
+      delete payload[field].directorV2.variantHash;
+    }
+  }
+  return payload;
+}
+
 export function echoDirectionVariantFingerprint(variant = {}) {
-  const declared = text(variant.fingerprint || variant.variantFingerprint || variant.variant_fingerprint || variant.receiptHash || variant.receipt_hash);
-  if (declared) return declared;
-  return `fnv:${compactHash({
-    id: echoDirectionVariantId(variant),
-    seed: variant.seed || "",
-    timeline: variant.timeline || [],
-    visualizerTimeline: variant.visualizer_timeline || variant.visualizerTimeline || [],
-  })}`;
+  return `content-v2:${compactHash(echoDirectionVariantContentPayload(variant))}`;
+}
+
+export function validateEchoDirectionVariantProjection({ baseProject = {}, variant = {}, graph = {} } = {}) {
+  const reasons = [];
+  const variantId = echoDirectionVariantId(variant);
+  const expectedFingerprint = echoDirectionVariantFingerprint(variant);
+  const declaredFingerprint = echoDirectionVariantDeclaredFingerprint(variant);
+  const expectedSongIds = [...new Set([
+    baseProject.song_id,
+    baseProject.audio_id,
+    baseProject.registry_track_id,
+    baseProject.director_show_graph?.song?.id,
+  ].map(text).filter(Boolean))];
+  const graphSongId = text(graph?.song?.id);
+  const expectedDuration = number(baseProject.director_show_graph?.song?.durationSeconds ?? baseProject.duration, null);
+  const graphDuration = number(graph?.song?.durationSeconds, null);
+  const baseSchema = text(baseProject.director_show_graph?.schemaVersion);
+  const graphSchema = text(graph?.schemaVersion);
+  const baseSourceHash = text(baseProject.director_show_graph?.directorV2?.source?.sourceProjectHash);
+  const graphSourceHash = text(graph?.directorV2?.source?.sourceProjectHash);
+  if (!variantId) reasons.push("variant-id-missing");
+  if (!graphSongId || !expectedSongIds.includes(graphSongId)) reasons.push("variant-graph-song-mismatch");
+  if (expectedDuration !== null && (graphDuration === null || Math.abs(graphDuration - expectedDuration) > 0.050001)) reasons.push("variant-graph-duration-mismatch");
+  if (!Array.isArray(graph?.tracks)) reasons.push("variant-graph-tracks-missing");
+  if (baseSchema && graphSchema !== baseSchema) reasons.push("variant-graph-schema-mismatch");
+  if (text(graph?.directorV2?.variantId) !== variantId) reasons.push("variant-graph-id-mismatch");
+  if (text(graph?.directorV2?.variantHash) !== expectedFingerprint) reasons.push("variant-graph-fingerprint-mismatch");
+  if (declaredFingerprint.startsWith("content-v2:") && declaredFingerprint !== expectedFingerprint) reasons.push("variant-declared-fingerprint-mismatch");
+  if (baseSourceHash && graphSourceHash !== baseSourceHash) reasons.push("variant-parent-source-hash-mismatch");
+  return {
+    schemaVersion: "hapa.echo.direction-variant-projection-validation.v1",
+    ok: reasons.length === 0,
+    reasons,
+    variantId: variantId || null,
+    expectedFingerprint,
+    declaredFingerprint: declaredFingerprint || null,
+    declaredFingerprintStatus: !declaredFingerprint
+      ? "absent"
+      : declaredFingerprint.startsWith("content-v2:")
+        ? declaredFingerprint === expectedFingerprint ? "verified" : "mismatch"
+        : "legacy-claim-not-authoritative",
+    graphSongId: graphSongId || null,
+    expectedSongIds,
+    expectedDurationSeconds: expectedDuration,
+    graphDurationSeconds: graphDuration,
+    baseSourceProjectHash: baseSourceHash || null,
+    graphSourceProjectHash: graphSourceHash || null,
+  };
 }
 
 export function echoDirectionVariantMetadata(variant = {}) {
@@ -180,14 +246,31 @@ export function groupEchoDirectionVariants(variants = []) {
 }
 
 export function pickEchoDirectionVariantProjectPatch(project = {}) {
-  return Object.fromEntries(VARIANT_PROJECT_PATCH_FIELDS
+  const patch = Object.fromEntries(VARIANT_PROJECT_PATCH_FIELDS
     .filter((key) => project[key] !== undefined)
     .map((key) => [key, clone(project[key])]));
+  if (patch.output_profile !== undefined) patch.output_profile = resolveEchoOutputProfile(patch.output_profile);
+  return patch;
 }
 
-export function deriveEchoDirectionVariantProject(baseProject = {}, variant = {}) {
+export function deriveEchoDirectionVariantProject(baseProject = {}, variant = {}, options = {}) {
   const id = echoDirectionVariantId(variant);
   if (!id) return baseProject;
+  const identityVariant = options.identityVariant || variant;
+  const identityVariantId = echoDirectionVariantId(identityVariant);
+  if (identityVariantId !== id) {
+    const error = new Error(`Direction cut ${id} cannot use identity from ${identityVariantId || "an unnamed cut"}.`);
+    error.code = "echo_direction_variant_identity_mismatch";
+    error.validation = {
+      schemaVersion: "hapa.echo.direction-variant-projection-validation.v1",
+      ok: false,
+      reasons: ["variant-identity-id-mismatch"],
+      variantId: id,
+      identityVariantId: identityVariantId || null,
+    };
+    throw error;
+  }
+  const variantHash = echoDirectionVariantFingerprint(identityVariant);
   const timeline = Array.isArray(variant.timeline) ? clone(variant.timeline) : baseProject.timeline;
   const visualizerTimeline = Array.isArray(variant.visualizer_timeline)
     ? clone(variant.visualizer_timeline)
@@ -209,17 +292,61 @@ export function deriveEchoDirectionVariantProject(baseProject = {}, variant = {}
     visualizer_timeline: visualizerTimeline,
     media_density_telemetry: clone(densityTelemetry),
   };
+  const executionPreview = object(variant.execution_preview || variant.executionPreview);
+  if (text(executionPreview.status) === "preparing") {
+    const reason = text(executionPreview.reason) || "certified-execution-graph-unavailable";
+    return {
+      ...projected,
+      director_show_graph: null,
+      hyperframe_script: text(variant.hyperframe_script || variant.hyperframeScript),
+      hyperframe_script_stale: !text(variant.hyperframe_script || variant.hyperframeScript),
+      execution_preview: clone(executionPreview),
+      active_direction_script_variant: {
+        id,
+        title: echoDirectionVariantTitle(variant),
+        fingerprint: variantHash,
+        ...echoDirectionVariantMetadata(variant),
+        seed: variant.seed || null,
+        parent: clone(variant.parent || variant.lineage || null),
+        nonDestructive: true,
+        projectionValidation: {
+          schemaVersion: "hapa.echo.direction-variant-projection-validation.v1",
+          ok: false,
+          reasons: [reason],
+          variantId: id,
+          expectedFingerprint: variantHash,
+        },
+      },
+    };
+  }
   const declaredGraph = variant.director_show_graph || variant.directorShowGraph;
+  const certifiedReceipt = object(baseProject.director_show_graph_receipt);
+  const certifiedSelectedGraph = Boolean(
+    baseProject.director_show_graph?.tracks
+    && text(baseProject.selected_direction_script_variant_id) === id
+    && text(certifiedReceipt.status) === "ready"
+    && text(certifiedReceipt.source) === "validated-derived-execution-graph"
+    && text(certifiedReceipt.cutId) === id
+    && text(certifiedReceipt.cutFingerprint) === variantHash
+  );
   const graph = declaredGraph?.tracks
     ? hydrateEchoVariantGraphOverlay(baseProject.director_show_graph, declaredGraph)
-    : projectToEditorGraph({ ...projected, director_show_graph: baseProject.director_show_graph });
-  const variantHash = echoDirectionVariantFingerprint(variant);
+    : certifiedSelectedGraph
+      ? clone(baseProject.director_show_graph)
+      : projectToEditorGraph({ ...projected, director_show_graph: baseProject.director_show_graph });
   graph.directorV2 = {
     ...(graph.directorV2 || {}),
     variantId: id,
     variantHash,
     parentVariantId: variant.parent?.variantId || variant.lineage?.parentVariantId || null,
   };
+  const validation = validateEchoDirectionVariantProjection({ baseProject, variant: identityVariant, graph });
+  if (!validation.ok) {
+    const error = new Error(`Direction cut ${id} failed projection validation: ${validation.reasons.join(", ")}`);
+    error.code = "echo_direction_variant_projection_invalid";
+    error.validation = validation;
+    throw error;
+  }
   return {
     ...projected,
     director_show_graph: graph,
@@ -233,6 +360,7 @@ export function deriveEchoDirectionVariantProject(baseProject = {}, variant = {}
       seed: variant.seed || null,
       parent: clone(variant.parent || variant.lineage || null),
       nonDestructive: true,
+      projectionValidation: validation,
     },
   };
 }

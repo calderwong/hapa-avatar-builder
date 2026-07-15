@@ -3,6 +3,7 @@ import {
   collectEmbeddedSongCardSnapshots,
   compactSongCardConstituentSnapshot,
 } from "./song-card-constituents.js";
+import { resolveEchoOutputProfile } from "./echo-output-profile.js";
 
 export const SONG_CARD_HEAD_SCHEMA = "hapa.song-card.v2";
 export const SONG_CARD_EDITION_SCHEMA = "hapa.song-card.edition.v1";
@@ -177,6 +178,9 @@ export function buildSongCardMintSnapshot({ song = {}, project = {}, showGraph =
   });
   const graph = canonicalMintValue(compactGraph);
   const editor = canonicalMintValue(compactProject);
+  const outputProfile = resolveEchoOutputProfile(
+    graph.outputProfile || graph.output_profile || editor.output_profile || editor.outputProfile,
+  );
   const normalizedCards = buildSongCardSnapshotRegistry({ ...embeddedSnapshots, ...suppliedSnapshots });
   const families = {
     videos: graphFamilyProjection(graph, "videos"),
@@ -187,7 +191,7 @@ export function buildSongCardMintSnapshot({ song = {}, project = {}, showGraph =
     camera: [graph.directorV2?.cameraKeyframes || [], graphCards(graph).map(({ card }) => ({ id: card.id, cameraKeyframes: card.cameraKeyframes, motion: card.parameters?.motion, cameraIntensity: card.parameters?.cameraIntensity }))],
     lyrics: [graph.song?.lyricOverlay || null, editor.timed_lyrics || editor.lyricTimings || [], editor.lyric_variant, editor.lyric_position, editor.lyric_style],
     attribution: [song.authorship || song.attribution || null, rights],
-    renderer: [render, rendererTruth, graph.directorV2?.rendererSupport || null],
+    renderer: [render, rendererTruth, graph.directorV2?.rendererSupport || null, outputProfile],
     direction: [graph.directorV2?.visualTimeTrack || null, graph.directorV2?.accentTrack || null, graph.directorV2?.effects || [], graph.directorV2?.modulation || null],
   };
   return canonicalMintValue({
@@ -196,6 +200,7 @@ export function buildSongCardMintSnapshot({ song = {}, project = {}, showGraph =
     editor,
     showGraph: graph,
     render,
+    outputProfile,
     registry,
     cardSnapshots: normalizedCards,
     rights,

@@ -7,6 +7,7 @@ const fs = require("node:fs");
 const http = require("node:http");
 const path = require("node:path");
 const pixelAcceptancePromise = import("./hyperframes-pixel-acceptance.mjs");
+const outputProfilePromise = import("../src/domain/echo-output-profile.js");
 
 const ROOT = path.resolve(__dirname, "..");
 const value = (name, fallback = "") => {
@@ -200,7 +201,10 @@ app.commandLine.appendSwitch("disable-background-timer-throttling");
 app.commandLine.appendSwitch("disable-renderer-backgrounding");
 
 app.whenReady().then(async () => {
-  const { evaluateHyperFramesPixelAcceptance } = await pixelAcceptancePromise;
+  const [{ evaluateHyperFramesPixelAcceptance }, { resolveEchoOutputProfile }] = await Promise.all([
+    pixelAcceptancePromise,
+    outputProfilePromise,
+  ]);
   let win;
   let localServer;
   const networkAttempts = [];
@@ -213,6 +217,7 @@ app.whenReady().then(async () => {
       throw new Error(`Explicit expectations file is missing: ${expectationsPath}`);
     }
     const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
+    const outputProfile = resolveEchoOutputProfile(manifest?.outputProfile ?? manifest?.output_profile);
     const timestampSource = explicitTimes
       || (suppliedExpectations?.samples || []).map((row) => row.timestamp).join(",")
       || defaultTimestamps(manifest).join(",");
@@ -236,8 +241,8 @@ app.whenReady().then(async () => {
     win = new BrowserWindow({
       show: false,
       frame: false,
-      width: 1920,
-      height: 1080,
+      width: outputProfile.width,
+      height: outputProfile.height,
       useContentSize: true,
       backgroundColor: "#02040a",
       webPreferences: { contextIsolation: true, nodeIntegration: false, autoplayPolicy: "no-user-gesture-required" },
@@ -264,6 +269,15 @@ app.whenReady().then(async () => {
       "Boolean(window.__timelines && window.__timelines.main && typeof window.__timelines.main.seek === 'function' && window.HAPA_EXECUTABLE_SHOW)",
     );
     if (!ready) throw new Error("HyperFrames timeline did not expose synchronous seek readiness");
+    const assetReadiness = await win.webContents.executeJavaScript(`Promise.race([
+      Promise.resolve(window.HAPA_ASSETS_READY).then(() => ({ ok: true })).catch((error) => ({ ok: false, code: "shader-atlas-decode-failed", message: String(error && error.message || error) })),
+      new Promise((resolve) => setTimeout(() => resolve({ ok: false, code: "shader-atlas-decode-timeout", message: "Shader atlases did not finish decoding within 120 seconds." }), 120000)),
+    ])`, true);
+    if (!assetReadiness?.ok) {
+      const error = new Error(assetReadiness?.message || "Shader atlas assets did not become ready");
+      error.code = assetReadiness?.code || "shader-atlas-readiness-failed";
+      throw error;
+    }
 
     const frames = [];
     for (let index = 0; index < timestamps.length; index += 1) {
@@ -363,6 +377,7 @@ app.whenReady().then(async () => {
       entry,
       executableShow: manifestPath,
       showHash: manifest.showHash || null,
+      outputProfile,
       timestamps: frames.map((frame) => frame.timestamp),
       offline: { networkAttemptCount: networkAttempts.length, networkAttempts },
       loopback: {

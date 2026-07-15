@@ -1,5 +1,12 @@
 export const HYPERFRAMES_VISUALIZER_RUNTIME_SCHEMA = "hapa.hyperframes.visualizer-runtime.v1";
 export const HYPERFRAMES_VISUALIZER_DIAGNOSTIC_SCHEMA = "hapa.hyperframes.visualizer-diagnostic.v1";
+export const VISUALIZER_AUDIO_HEADROOM_POLICY = "auto-headroom-v1";
+export const VISUALIZER_AUDIO_EFFECTIVENESS_POLICY = "per-uniform-material-effect-v1";
+export const VISUALIZER_AUDIO_REACTIVE_SIGNALS = new Set([
+  "rms", "peak", "onset", "beat", "energy",
+  "low", "bass", "mid", "high", "treble",
+  "palette", "orbit",
+]);
 export const HYPERFRAMES_STEM_ROLE_ALIASES = Object.freeze({
   master: "master",
   mastermix: "master",
@@ -87,6 +94,10 @@ function normalizeEchoIsfInputValue(input = {}, value) {
   ), 6);
 }
 
+export function normalizeVisualizerAudioInputValue(input = {}, value) {
+  return normalizeEchoIsfInputValue(input, value);
+}
+
 function echoIsfManifestDefaults(shader = {}) {
   const values = {};
   for (const input of shader.inputs || []) {
@@ -106,6 +117,261 @@ function echoIsfManifestDefaults(shader = {}) {
     values[name] = normalizeEchoIsfInputValue(input, declared ?? fallback);
   }
   return values;
+}
+
+export function visualizerAudioMappingDepthMode(mapping = {}) {
+  const declared = text(mapping?.depthMode || mapping?.depth_mode).toLowerCase();
+  if (["absolute", "range-relative"].includes(declared)) return declared;
+  if (Object.hasOwn(mapping || {}, "depthFraction") || Object.hasOwn(mapping || {}, "depth_fraction")) return "range-relative";
+  if (Object.hasOwn(mapping || {}, "depth")) return "absolute";
+  return VISUALIZER_AUDIO_REACTIVE_SIGNALS.has(text(mapping?.signal).toLowerCase()) ? "range-relative" : "absolute";
+}
+
+function visualizerInputRangeDepth(input = {}, fraction = 0.2) {
+  const type = inputType(input);
+  const minimum = inputField(input, "MIN", "min");
+  const maximum = inputField(input, "MAX", "max");
+  if (["color", "point2d"].includes(type)) {
+    const length = type === "color" ? 4 : 2;
+    return Array.from({ length }, (_, index) => {
+      const min = Number(Array.isArray(minimum) ? minimum[index] : minimum);
+      const max = Number(Array.isArray(maximum) ? maximum[index] : maximum);
+      return Number.isFinite(min) && Number.isFinite(max) && max > min
+        ? (max - min) * Number(fraction)
+        : Number(fraction);
+    });
+  }
+  const min = Number(minimum);
+  const max = Number(maximum);
+  return Number.isFinite(min) && Number.isFinite(max) && max > min
+    ? (max - min) * Number(fraction)
+    : Number(fraction);
+}
+
+/**
+ * Normalize editor/portable mappings without reinterpreting an explicit legacy
+ * depth. Newly generated reactive mappings opt into range-relative magnitude
+ * and deterministic headroom direction; unmarked stored object depths remain
+ * the legacy positive absolute contract.
+ */
+export function normalizeVisualizerAudioMapping(value, {
+  fallback = null,
+  input = null,
+  generated = false,
+  materializeDepth = true,
+} = {}) {
+  const base = fallback && typeof fallback === "object" && !Array.isArray(fallback) ? { ...fallback } : {};
+  let merged;
+  let valueHasDepth = false;
+  let valueHasDepthFraction = false;
+  let valueDeclaredMode = "";
+  let stringMapping = false;
+  if (typeof value === "string") {
+    stringMapping = true;
+    const parts = value.split(":").map((part) => part.trim()).filter(Boolean);
+    const signal = text(parts.pop() || base.signal || "off").toLowerCase();
+    merged = { ...base, signal, ...(parts.length ? { stemFocus: parts.join(":") } : {}) };
+  } else if (value && typeof value === "object" && !Array.isArray(value)) {
+    valueHasDepth = Object.hasOwn(value, "depth");
+    valueHasDepthFraction = Object.hasOwn(value, "depthFraction") || Object.hasOwn(value, "depth_fraction");
+    valueDeclaredMode = text(value.depthMode || value.depth_mode).toLowerCase();
+    merged = { ...base, ...value, signal: text(value.signal ?? base.signal ?? "off").toLowerCase() };
+  } else if (Object.keys(base).length) {
+    merged = { ...base, signal: text(base.signal || "off").toLowerCase() };
+  } else {
+    return null;
+  }
+
+  const reactive = VISUALIZER_AUDIO_REACTIVE_SIGNALS.has(text(merged.signal).toLowerCase());
+  const inheritedMode = text(base.depthMode || base.depth_mode).toLowerCase();
+  const inheritedHasFraction = Object.hasOwn(base, "depthFraction") || Object.hasOwn(base, "depth_fraction");
+  const inheritedHasDepth = Object.hasOwn(base, "depth");
+  let depthMode;
+  if (["absolute", "range-relative"].includes(valueDeclaredMode)) depthMode = valueDeclaredMode;
+  else if (valueHasDepthFraction) depthMode = "range-relative";
+  else if (generated && valueHasDepth && reactive) depthMode = "range-relative";
+  else if (valueHasDepth) depthMode = "absolute";
+  else if (["absolute", "range-relative"].includes(inheritedMode)) depthMode = inheritedMode;
+  else if (inheritedHasFraction) depthMode = "range-relative";
+  else if (inheritedHasDepth) depthMode = "absolute";
+  else if ((generated || stringMapping) && reactive) depthMode = "range-relative";
+  else depthMode = reactive ? "range-relative" : "absolute";
+
+  if (depthMode === "absolute") {
+    return {
+      ...merged,
+      depthMode: "absolute",
+      depth: merged.depth ?? (reactive ? 0.2 : 0),
+    };
+  }
+
+  const inheritedFraction = base.depthFraction ?? base.depth_fraction;
+  const fractionValue = valueHasDepthFraction
+    ? (merged.depthFraction ?? merged.depth_fraction)
+    : valueDeclaredMode === "range-relative" && valueHasDepth
+      ? merged.depth
+      : generated && valueHasDepth
+        ? merged.depth
+        : inheritedFraction ?? merged.depth ?? 0.2;
+  const fraction = Number(fractionValue);
+  const depthFraction = Number.isFinite(fraction) ? Math.max(0, fraction) : 0.2;
+  return {
+    ...merged,
+    depthMode: "range-relative",
+    depthFraction,
+    ...(materializeDepth ? { depth: visualizerInputRangeDepth(input || {}, depthFraction) } : {}),
+    headroomPolicy: text(merged.headroomPolicy || merged.headroom_policy || VISUALIZER_AUDIO_HEADROOM_POLICY),
+    direction: text(merged.direction || "auto"),
+  };
+}
+
+export function visualizerAudioMappingDepth(input = {}, mapping = {}) {
+  if (visualizerAudioMappingDepthMode(mapping) === "absolute") return mapping.depth ?? 0;
+  const fraction = Number(mapping.depthFraction ?? mapping.depth_fraction ?? mapping.depth ?? 0.2);
+  return visualizerInputRangeDepth(input, Number.isFinite(fraction) ? Math.max(0, fraction) : 0.2);
+}
+
+function visualizerComponentBounds(input, index = null) {
+  const type = inputType(input);
+  const minimum = inputField(input, "MIN", "min");
+  const maximum = inputField(input, "MAX", "max");
+  const color = type === "color";
+  return {
+    min: finite(Array.isArray(minimum) ? minimum[index] : minimum, color ? 0 : -Number.MAX_SAFE_INTEGER),
+    max: finite(Array.isArray(maximum) ? maximum[index] : maximum, color ? 1 : Number.MAX_SAFE_INTEGER),
+  };
+}
+
+function visualizerLongMinimumDepth(input, baseValue, direction) {
+  const values = inputField(input, "VALUES", "values");
+  if (!Array.isArray(values) || !values.length) return 1;
+  const candidates = values.map(Number).filter(Number.isFinite).filter((candidate) => (
+    direction < 0 ? candidate < baseValue : candidate > baseValue
+  ));
+  if (!candidates.length) return 0;
+  return Math.min(...candidates.map((candidate) => Math.abs(candidate - baseValue)));
+}
+
+function visualizerDirection(input, baseValue, bounds, mapping = {}) {
+  const declared = text(mapping.direction || "auto").toLowerCase();
+  if (["down", "negative", "decrease", "-1"].includes(declared)) return -1;
+  if (["up", "positive", "increase", "+1", "1"].includes(declared)) return 1;
+  if (text(mapping.headroomPolicy || mapping.headroom_policy) !== VISUALIZER_AUDIO_HEADROOM_POLICY) return 1;
+  if (inputType(input) === "long") {
+    const values = inputField(input, "VALUES", "values");
+    if (Array.isArray(values) && values.length) {
+      const numeric = values.map(Number).filter(Number.isFinite);
+      const hasDown = numeric.some((candidate) => candidate < baseValue);
+      const hasUp = numeric.some((candidate) => candidate > baseValue);
+      // Numeric MIN/MAX can advertise headroom that an enum cannot actually
+      // occupy. Prefer the only direction containing a declared alternate so
+      // generated mappings do not normalize straight back to their base value.
+      if (hasDown !== hasUp) return hasDown ? -1 : 1;
+    }
+  }
+  const up = Math.max(0, bounds.max - baseValue);
+  const down = Math.max(0, baseValue - bounds.min);
+  return down > up ? -1 : 1;
+}
+
+function applyVisualizerScalarMapping(input, baseValue, signal, depth, mapping, normalize, componentIndex = null) {
+  const type = inputType(input);
+  const bounds = visualizerComponentBounds(input, componentIndex);
+  const direction = visualizerDirection(input, finite(baseValue), bounds, mapping);
+  let magnitude = Math.abs(finite(depth));
+  if (magnitude > 0 && text(mapping.headroomPolicy || mapping.headroom_policy) === VISUALIZER_AUDIO_HEADROOM_POLICY && type === "long") {
+    magnitude = Math.max(magnitude, visualizerLongMinimumDepth(input, finite(baseValue), direction));
+  }
+  const headroom = direction < 0 ? Math.max(0, finite(baseValue) - bounds.min) : Math.max(0, bounds.max - finite(baseValue));
+  if (text(mapping.headroomPolicy || mapping.headroom_policy) === VISUALIZER_AUDIO_HEADROOM_POLICY) {
+    magnitude = Math.min(magnitude, headroom);
+  }
+  const rawValue = finite(baseValue) + clamp(signal) * magnitude * direction;
+  return { value: normalize(input, rawValue), direction, effectiveDepth: magnitude * direction };
+}
+
+/** Apply the same generated mapping policy in browser Preview and HyperFrames. */
+export function applyVisualizerAudioMapping(input = {}, baseValue, signalValue, mapping = {}, {
+  normalize = normalizeEchoIsfInputValue,
+} = {}) {
+  const type = inputType(input);
+  const signal = clamp(signalValue);
+  const depth = visualizerAudioMappingDepth(input, mapping);
+  const headroomPolicy = text(mapping.headroomPolicy || mapping.headroom_policy);
+  if (type === "bool" || type === "event") {
+    const threshold = finite(mapping.threshold, 0.5);
+    const value = signal >= threshold
+      ? headroomPolicy === VISUALIZER_AUDIO_HEADROOM_POLICY ? !Boolean(baseValue) : true
+      : baseValue;
+    return {
+      value: normalize(input, value),
+      depth,
+      effectiveDepth: null,
+      direction: Boolean(baseValue) ? "toggle-off" : "toggle-on",
+      headroomPolicy: headroomPolicy || null,
+    };
+  }
+  if (Array.isArray(baseValue)) {
+    const depths = Array.isArray(depth) ? depth : Array(baseValue.length).fill(finite(depth));
+    const components = baseValue.map((value, index) => applyVisualizerScalarMapping(
+      input,
+      value,
+      signal,
+      depths[index],
+      mapping,
+      (_input, candidate) => candidate,
+      index,
+    ));
+    return {
+      value: normalize(input, components.map((component) => component.value)),
+      depth,
+      effectiveDepth: components.map((component) => component.effectiveDepth),
+      direction: components.map((component) => component.direction < 0 ? "down" : "up"),
+      headroomPolicy: headroomPolicy || null,
+    };
+  }
+  const scalar = applyVisualizerScalarMapping(input, baseValue, signal, depth, mapping, normalize);
+  return {
+    ...scalar,
+    depth,
+    direction: scalar.direction < 0 ? "down" : "up",
+    headroomPolicy: headroomPolicy || null,
+  };
+}
+
+function visualizerMaterialRatio(input, lowValue, highValue) {
+  const type = inputType(input);
+  if (["bool", "event", "long"].includes(type)) return lowValue === highValue ? 0 : 1;
+  const low = Array.isArray(lowValue) ? lowValue : [lowValue];
+  const high = Array.isArray(highValue) ? highValue : [highValue];
+  return Math.max(0, ...low.map((value, index) => {
+    const bounds = visualizerComponentBounds(input, Array.isArray(lowValue) ? index : null);
+    const range = bounds.max - bounds.min;
+    const denominator = Number.isFinite(range) && range > 0 && range < Number.MAX_SAFE_INTEGER
+      ? range
+      : Math.max(1, Math.abs(finite(value)), Math.abs(finite(high[index])));
+    return Math.abs(finite(high[index]) - finite(value)) / denominator;
+  }));
+}
+
+export function inspectVisualizerAudioMappingEffect(input = {}, baseValue, mapping = {}, options = {}) {
+  const low = applyVisualizerAudioMapping(input, baseValue, 0, mapping, options);
+  const high = applyVisualizerAudioMapping(input, baseValue, 1, mapping, options);
+  const changed = JSON.stringify(low.value) !== JSON.stringify(high.value);
+  const materialRatio = visualizerMaterialRatio(input, low.value, high.value);
+  return {
+    policy: VISUALIZER_AUDIO_EFFECTIVENESS_POLICY,
+    lowValue: low.value,
+    highValue: high.value,
+    changed,
+    materialRatio: round(materialRatio),
+    material: changed && materialRatio + 1e-9 >= 0.01,
+    direction: high.direction,
+    effectiveDepth: high.effectiveDepth,
+    depthMode: visualizerAudioMappingDepthMode(mapping),
+    depthFraction: mapping.depthFraction ?? mapping.depth_fraction ?? null,
+    headroomPolicy: high.headroomPolicy,
+  };
 }
 
 function stableLayerRows(show = {}) {
@@ -306,17 +572,19 @@ function signalValue(frame = {}, signal = "") {
   const aliases = { bass: "low", treble: "high", beat: "onset" };
   const key = aliases[name] || name;
   const value = Number(frame?.[key]);
-  return Number.isFinite(value) ? clamp(value) : null;
-}
-
-function mappedInputValue(input, baseValue, signal, depth, threshold = 0.5) {
-  const type = inputType(input);
-  if (type === "bool" || type === "event") return normalizeEchoIsfInputValue(input, signal >= threshold ? true : baseValue);
-  if (Array.isArray(baseValue)) {
-    const depths = Array.isArray(depth) ? depth : Array(baseValue.length).fill(finite(depth));
-    return normalizeEchoIsfInputValue(input, baseValue.map((value, index) => finite(value) + signal * finite(depths[index])));
+  if (Number.isFinite(value)) return clamp(value);
+  const rms = clamp(finite(frame?.rms));
+  const low = clamp(finite(frame?.low));
+  const mid = clamp(finite(frame?.mid));
+  const high = clamp(finite(frame?.high));
+  if (name === "energy") return clamp((rms * 0.55) + (low * 0.2) + (mid * 0.15) + (high * 0.1));
+  const palette = modulo((low * 0.17) + (mid * 0.37) + (high * 0.46), 1);
+  if (name === "palette") return palette;
+  if (name === "orbit") {
+    const timeSeconds = finite(frame?.t);
+    return clamp(0.5 + (Math.sin((timeSeconds * 0.37) + (palette * Math.PI * 2)) * 0.5));
   }
-  return normalizeEchoIsfInputValue(input, finite(baseValue) + signal * finite(depth));
+  return null;
 }
 
 function mappedControls(instance, signalResource, resolveSignalResource = null) {
@@ -335,9 +603,12 @@ function mappedControls(instance, signalResource, resolveSignalResource = null) 
   const bindings = [];
   const invalidAudioMapUniforms = [];
   for (const [uniform, rawMapping] of Object.entries(instance.audioMap || {})) {
-    const mapping = typeof rawMapping === "string"
-      ? { signal: rawMapping.split(":").at(-1) || "off", stemFocus: rawMapping.includes(":") ? rawMapping.slice(0, rawMapping.lastIndexOf(":")) : null, depth: 0.2 }
-      : rawMapping || {};
+    const input = byName.get(uniform);
+    const mapping = normalizeVisualizerAudioMapping(rawMapping, {
+      input,
+      generated: typeof rawMapping === "string",
+      materializeDepth: false,
+    }) || {};
     const mappingSignals = mapping.stemFocus && typeof resolveSignalResource === "function"
       ? resolveSignalResource(mapping.stemFocus)
       : signalResource;
@@ -346,7 +617,6 @@ function mappedControls(instance, signalResource, resolveSignalResource = null) 
       resolvedStem: mappingSignals.resolvedStem,
       fallbackUsed: mappingSignals.fallbackUsed,
     };
-    const input = byName.get(uniform);
     if (!input) {
       invalidAudioMapUniforms.push(uniform);
       bindings.push({ uniform, signal: text(mapping?.signal || "off"), status: "uniform-not-declared", ...bindingStem, value: null });
@@ -367,7 +637,8 @@ function mappedControls(instance, signalResource, resolveSignalResource = null) 
       bindings.push({ uniform, signal, status: "missing-signal", ...bindingStem, baseValue, signalValue: null, value: baseValue });
       continue;
     }
-    const value = mappedInputValue(input, baseValue, resolved, mapping?.depth ?? 0, mapping?.threshold ?? 0.5);
+    const applied = applyVisualizerAudioMapping(input, baseValue, resolved, mapping);
+    const value = applied.value;
     values[uniform] = value;
     bindings.push({
       uniform,
@@ -376,7 +647,12 @@ function mappedControls(instance, signalResource, resolveSignalResource = null) 
       ...bindingStem,
       baseValue,
       signalValue: round(resolved),
-      depth: mapping?.depth ?? 0,
+      depth: applied.depth,
+      effectiveDepth: applied.effectiveDepth,
+      depthMode: visualizerAudioMappingDepthMode(mapping),
+      depthFraction: mapping.depthFraction ?? mapping.depth_fraction ?? null,
+      direction: applied.direction,
+      headroomPolicy: applied.headroomPolicy,
       value,
     });
   }

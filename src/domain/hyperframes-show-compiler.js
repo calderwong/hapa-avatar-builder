@@ -7,6 +7,14 @@ import {
   VISUALIZER_RENDERER_TRUTH_SCHEMA,
   resolveVisualizerRendererTruth,
 } from "./visualizer-renderer-capability.js";
+import {
+  VISUALIZER_AUDIO_HEADROOM_POLICY,
+  VISUALIZER_AUDIO_REACTIVE_SIGNALS,
+  inspectVisualizerAudioMappingEffect,
+  normalizeVisualizerAudioInputValue,
+  normalizeVisualizerAudioMapping,
+} from "./hyperframes-visualizer-runtime.js";
+import { resolveEchoOutputProfile } from "./echo-output-profile.js";
 export { evaluateHyperFramesVisualizers } from "./hyperframes-visualizer-runtime.js";
 
 const stable = (value) => {
@@ -109,9 +117,12 @@ function mediaContractDescriptor(contract, shot, shotIndex) {
   const runtimeUri = text(contract.runtimeUri || contract.runtime_uri || shot.runtime_media_uri || shot.runtimeMediaUri);
   const type = text(contract.type).toLowerCase() || null;
   const contentHash = text(contract.contentHash || contract.content_hash) || null;
+  const visualContract = contract.visualContract || contract.visual_contract || {};
+  const allowBlank = contract.allowBlank === true || contract.allow_blank === true || visualContract.allowBlank === true || visualContract.allow_blank === true;
+  const samplingPolicy = text(contract.videoSamplingPolicy || contract.video_sampling_policy || contract.samplingPolicy || contract.sampling_policy || visualContract.samplingPolicy || visualContract.sampling_policy) || null;
   return {
     contract,
-    identity: hash({ type, originalUri, runtimeUri, contentHash, mimeType: contract.mimeType || contract.mime_type || null }),
+    identity: hash({ type, originalUri, runtimeUri, contentHash, mimeType: contract.mimeType || contract.mime_type || null, allowBlank, samplingPolicy }),
     summary: {
       shotIndex,
       mediaId: text(shot.media_id || shot.mediaId || contract.mediaId || contract.media_id) || null,
@@ -120,6 +131,8 @@ function mediaContractDescriptor(contract, shot, shotIndex) {
       originalUri: originalUri || null,
       runtimeUri: runtimeUri || null,
       contentHash,
+      allowBlank,
+      samplingPolicy,
     },
   };
 }
@@ -246,6 +259,30 @@ export function resolveHyperFramesMediaSource(card, contractIndex) {
   const contentHash = declaredContentHash || hash({ localPath, id: card.media?.id }).slice(0, 24);
   const originalUri = text(contract?.originalUri || contract?.original_uri) || localPath || null;
   const runtimeUri = text(contract?.runtimeUri || contract?.runtime_uri) || null;
+  const contractVisual = contract?.visualContract || contract?.visual_contract || {};
+  const cardVisual = card.media?.visualContract || card.media?.visual_contract || {};
+  const allowBlank = contract?.allowBlank === true
+    || contract?.allow_blank === true
+    || contractVisual.allowBlank === true
+    || contractVisual.allow_blank === true
+    || card.media?.allowBlank === true
+    || card.media?.allow_blank === true
+    || cardVisual.allowBlank === true
+    || cardVisual.allow_blank === true;
+  const samplingPolicy = text(
+    contract?.videoSamplingPolicy
+    || contract?.video_sampling_policy
+    || contract?.samplingPolicy
+    || contract?.sampling_policy
+    || contractVisual.samplingPolicy
+    || contractVisual.sampling_policy
+    || card.media?.videoSamplingPolicy
+    || card.media?.video_sampling_policy
+    || card.media?.samplingPolicy
+    || card.media?.sampling_policy
+    || cardVisual.samplingPolicy
+    || cardVisual.sampling_policy,
+  ) || null;
   return {
     type,
     originalPath: localPath || null,
@@ -255,6 +292,9 @@ export function resolveHyperFramesMediaSource(card, contractIndex) {
     assetName: type === "generated-visualizer" ? null : `${safe(declaredContentHash.slice(0, 24) || card.media?.id || hash(localPath).slice(0, 24))}${pathExtension(localPath, type)}`,
     fidelity: type === "generated-visualizer" ? "exact-deterministic-graph" : "source-media",
     classificationReason,
+    allowBlank,
+    samplingPolicy,
+    visualContract: { allowBlank, samplingPolicy },
     contractResolution: {
       status: contractResolution.status,
       alias: contractResolution.alias,
@@ -357,6 +397,15 @@ export function preflightHyperFramesMedia(showOrGraph, {
       start: finite(instance.start),
       end: finite(instance.end),
       type: text(source.type) || null,
+      allowBlank: source.allowBlank === true,
+      samplingPolicy: text(source.samplingPolicy) || null,
+      visualContract: structuredClone(source.visualContract || {}),
+      source: {
+        type: text(source.type) || null,
+        allowBlank: source.allowBlank === true,
+        samplingPolicy: text(source.samplingPolicy) || null,
+        visualContract: structuredClone(source.visualContract || {}),
+      },
       originalUri: text(source.originalUri || source.originalPath) || null,
       runtimeUri: text(source.runtimeUri) || null,
       attemptedPaths,
@@ -408,6 +457,18 @@ function normalizedProxy(candidate = null, visualizerId = "", sourceHash = "") {
     : nonBlankFrameIndices.length
       ? nonBlankFrameIndices
       : declaredFrameIndices;
+  const frameProofRows = declaredFrameIndices.map((index) => frameMetrics[index] || null);
+  const playbackProof = {
+    verified: candidate.verified === true,
+    declaredFrameCount: frameCount,
+    metricFrameCount: frameProofRows.filter(Boolean).length,
+    nonBlankFrameCount: frameProofRows.filter((frame) => frame?.nonBlank === true).length,
+    nonFlatFrameCount: frameProofRows.filter((frame) => frame?.nonFlat === true).length,
+    playableFrameCount: frameProofRows.filter((frame) => frame?.playable === true).length,
+    allFramesNonBlank: frameProofRows.length === frameCount && frameProofRows.every((frame) => frame?.nonBlank === true),
+    allFramesNonFlat: frameProofRows.length === frameCount && frameProofRows.every((frame) => frame?.nonFlat === true),
+    allFramesPlayable: frameProofRows.length === frameCount && frameProofRows.every((frame) => frame?.playable === true),
+  };
   return {
     reason: "hash-bound-exact-proxy-instance-ready",
     proxy: {
@@ -426,6 +487,7 @@ function normalizedProxy(candidate = null, visualizerId = "", sourceHash = "") {
       frameCount,
       fps,
       frameTimes,
+      playbackProof,
       playableFrameIndices,
       omittedFrameIndices: declaredFrameIndices.filter((index) => !playableFrameIndices.includes(index)),
       frameSelectionPolicy: playableFrameIndices.length < frameCount ? "verified-nonblank-samples" : "declared-sampled-loop",
@@ -473,30 +535,19 @@ function audioSignals(portable = {}) {
   return [...new Set([...declared, ...mapped].map(String).filter((signal) => signal && signal !== "off"))];
 }
 
-const AUDIO_REACTIVE_SIGNALS = new Set(["rms", "peak", "onset", "beat", "low", "bass", "mid", "high", "treble"]);
+const AUDIO_REACTIVE_SIGNALS = VISUALIZER_AUDIO_REACTIVE_SIGNALS;
 
-function normalizeAudioMapping(value, fallback = null) {
-  const base = fallback && typeof fallback === "object" && !Array.isArray(fallback) ? structuredClone(fallback) : {};
-  if (typeof value === "string") {
-    const parts = value.split(":").map((part) => part.trim()).filter(Boolean);
-    const signal = String(parts.pop() || base.signal || "off").toLowerCase();
-    return {
-      ...base,
-      signal,
-      ...(parts.length ? { stemFocus: parts.join(":") } : {}),
-      depth: base.depth ?? (AUDIO_REACTIVE_SIGNALS.has(signal) ? 0.2 : 0),
-    };
-  }
-  if (value && typeof value === "object" && !Array.isArray(value)) {
-    const merged = { ...base, ...structuredClone(value) };
-    merged.signal = String(merged.signal || "off").toLowerCase();
-    merged.depth = merged.depth ?? (AUDIO_REACTIVE_SIGNALS.has(merged.signal) ? 0.2 : 0);
-    return merged;
-  }
-  if (!Object.keys(base).length) return null;
-  base.signal = String(base.signal || "off").toLowerCase();
-  base.depth = base.depth ?? (AUDIO_REACTIVE_SIGNALS.has(base.signal) ? 0.2 : 0);
-  return base;
+function visualizerInputName(input = {}) {
+  return String(input.NAME || input.name || "");
+}
+
+function normalizeAudioMapping(value, fallback = null, input = null) {
+  return normalizeVisualizerAudioMapping(value, {
+    fallback,
+    input,
+    generated: typeof value === "string",
+    materializeDepth: true,
+  });
 }
 
 function normalizedVisualizerAudioMap(portable = {}, parameterMappings = {}) {
@@ -506,14 +557,36 @@ function normalizedVisualizerAudioMap(portable = {}, parameterMappings = {}) {
   const overrides = parameterMappings && typeof parameterMappings === "object" && !Array.isArray(parameterMappings)
     ? parameterMappings
     : {};
+  const inputByName = new Map((portable.inputs || []).map((input) => [visualizerInputName(input), input]).filter(([name]) => name));
   const names = [...new Set([...Object.keys(portableMap), ...Object.keys(overrides)])].sort();
   return Object.fromEntries(names.flatMap((name) => {
-    const declared = normalizeAudioMapping(portableMap[name]);
+    const input = inputByName.get(name) || null;
+    const declared = normalizeAudioMapping(portableMap[name], null, input);
     const normalized = Object.hasOwn(overrides, name)
-      ? normalizeAudioMapping(overrides[name], declared)
+      ? normalizeAudioMapping(overrides[name], declared, input)
       : declared;
     return normalized ? [[name, normalized]] : [];
   }));
+}
+
+function visualizerModulationEffectiveness(portable = {}, controls = {}, audioMap = {}) {
+  const inputByName = new Map((portable.inputs || []).map((input) => [visualizerInputName(input), input]).filter(([name]) => name));
+  const entries = Object.entries(audioMap).sort(([left], [right]) => left.localeCompare(right)).flatMap(([uniform, mapping]) => {
+    const input = inputByName.get(uniform);
+    if (!input) return [];
+    const declared = input.DEFAULT ?? input.default;
+    const baseValue = normalizeVisualizerAudioInputValue(input, Object.hasOwn(controls, uniform) ? controls[uniform] : declared);
+    const effect = inspectVisualizerAudioMappingEffect(input, baseValue, mapping);
+    const enforced = AUDIO_REACTIVE_SIGNALS.has(String(mapping?.signal || "").toLowerCase())
+      && String(mapping?.headroomPolicy || mapping?.headroom_policy || "") === VISUALIZER_AUDIO_HEADROOM_POLICY;
+    return [{ uniform, signal: String(mapping?.signal || "off"), enforced, ...effect }];
+  });
+  return {
+    schemaVersion: "hapa.hyperframes.modulation-effectiveness.v1",
+    policy: "per-uniform-material-effect-v1",
+    ok: entries.every((entry) => !entry.enforced || entry.material),
+    entries,
+  };
 }
 
 function audioReactiveSignals(audioMap = {}) {
@@ -555,8 +628,179 @@ export function hyperFramesPixelIdentity(instance = {}, frameIndex = 0) {
   });
 }
 
+function drawableVisualRows(show = {}) {
+  return [
+    ...(show.instances?.media || [])
+      .filter((layer) => layer?.source?.type !== "generated-visualizer")
+      .map((layer) => ({ layer, kind: "media" })),
+    ...(show.instances?.visualizers || [])
+      .filter((layer) => layer?.execution?.drawable === true && Number(layer?.effectiveOpacity) > 0)
+      .map((layer) => ({ layer, kind: "visualizer" })),
+  ].sort((left, right) => (
+    finite(left.layer?.start) - finite(right.layer?.start)
+    || finite(left.layer?.end) - finite(right.layer?.end)
+    || String(left.layer?.id || "").localeCompare(String(right.layer?.id || ""))
+  ));
+}
+
+function setLayerWindow(layer, start, end, normalization) {
+  layer.start = start;
+  layer.end = end;
+  layer.duration = end - start;
+  layer.coverageNormalization = [
+    ...(Array.isArray(layer.coverageNormalization) ? layer.coverageNormalization : []),
+    normalization,
+  ];
+}
+
+export function normalizeHyperFramesVisualCoverage(show, {
+  toleranceSeconds = 1 / Math.max(1, Number(show?.fps) || 30) + 1e-6,
+  tailToleranceSeconds = 0.050001,
+} = {}) {
+  const duration = Number(show?.duration);
+  const rows = drawableVisualRows(show);
+  const receipts = [];
+  if (!(duration > 0) || !rows.length) return { normalized: false, toleranceSeconds, tailToleranceSeconds, receipts };
+
+  const first = rows[0];
+  const firstStart = finite(first.layer.start);
+  if (firstStart > 0 && firstStart <= toleranceSeconds) {
+    const receipt = { reason: "leading-frame-gap-extended", fromSeconds: firstStart, toSeconds: 0 };
+    setLayerWindow(first.layer, 0, finite(first.layer.end), receipt);
+    receipts.push({ cueId: first.layer.id || first.layer.cueId || null, ...receipt });
+  }
+
+  let coverageEnd = finite(rows[0].layer.end);
+  let coverageOwner = rows[0].layer;
+  for (const row of rows.slice(1)) {
+    const start = finite(row.layer.start);
+    const end = finite(row.layer.end);
+    const gapSeconds = start - coverageEnd;
+    if (gapSeconds > 0 && gapSeconds <= toleranceSeconds) {
+      const receipt = { reason: "interior-frame-gap-extended", fromSeconds: coverageEnd, toSeconds: start, gapSeconds };
+      setLayerWindow(coverageOwner, finite(coverageOwner.start), start, receipt);
+      receipts.push({ cueId: coverageOwner.id || coverageOwner.cueId || null, ...receipt });
+      coverageEnd = start;
+    }
+    if (end > coverageEnd) {
+      coverageEnd = end;
+      coverageOwner = row.layer;
+    }
+  }
+  const tailGapSeconds = duration - coverageEnd;
+  if (tailGapSeconds > 0 && tailGapSeconds <= tailToleranceSeconds) {
+    const receipt = { reason: "tail-frame-gap-extended", fromSeconds: coverageEnd, toSeconds: duration, gapSeconds: tailGapSeconds };
+    setLayerWindow(coverageOwner, finite(coverageOwner.start), duration, receipt);
+    receipts.push({ cueId: coverageOwner.id || coverageOwner.cueId || null, ...receipt });
+  }
+  return { normalized: receipts.length > 0, toleranceSeconds, tailToleranceSeconds, receipts };
+}
+
+export function inspectHyperFramesVisualCoverage(show = {}, { toleranceSeconds = 1e-6 } = {}) {
+  const duration = Number(show?.duration);
+  const rows = drawableVisualRows(show);
+  const gaps = [];
+  let coverageEnd = 0;
+  for (const row of rows) {
+    const start = Number(row.layer?.start);
+    const end = Number(row.layer?.end);
+    if (!(Number.isFinite(start) && Number.isFinite(end) && end > start)) continue;
+    if (start - coverageEnd > toleranceSeconds) {
+      gaps.push({ startSeconds: coverageEnd, endSeconds: start, durationSeconds: start - coverageEnd });
+    }
+    coverageEnd = Math.max(coverageEnd, end);
+  }
+  if (Number.isFinite(duration) && duration - coverageEnd > toleranceSeconds) {
+    gaps.push({ startSeconds: coverageEnd, endSeconds: duration, durationSeconds: duration - coverageEnd });
+  }
+  return {
+    schemaVersion: "hapa.hyperframes.visual-coverage.v1",
+    ok: Number.isFinite(duration) && duration > 0 && rows.length > 0 && gaps.length === 0,
+    durationSeconds: Number.isFinite(duration) ? duration : null,
+    drawableLayerCount: rows.length,
+    mediaLayerCount: rows.filter((row) => row.kind === "media").length,
+    visualizerLayerCount: rows.filter((row) => row.kind === "visualizer").length,
+    coveredUntilSeconds: coverageEnd,
+    gaps,
+  };
+}
+
+export function hyperFramesMediaPresentationWindow(instances = [], instanceIndex = 0, {
+  crossfadeSeconds = 0.45,
+  seamToleranceSeconds = 0.050001,
+} = {}) {
+  const media = Array.isArray(instances) ? instances : [];
+  const index = Number(instanceIndex);
+  const current = media[index];
+  if (!current) return null;
+  const start = Number(current.start) || 0;
+  const end = Number(current.end) || start;
+  const duration = Math.max(0, end - start);
+  const sameTrack = (candidate) => candidate
+    && candidate?.source?.type !== "generated-visualizer"
+    && String(candidate.trackId || "") === String(current.trackId || "");
+  const previous = media.slice(0, index).reverse().find((candidate) => sameTrack(candidate) && Math.abs(Number(candidate.end) - start) <= seamToleranceSeconds);
+  const previousDuration = previous ? Math.max(0, Number(previous.end) - Number(previous.start)) : duration;
+  const incomingFade = previous ? Math.min(crossfadeSeconds, duration / 2, previousDuration / 2) : 0;
+  return {
+    logicalStart: start,
+    logicalEnd: end,
+    logicalDuration: duration,
+    presentationStart: start - incomingFade,
+    presentationEnd: end,
+    presentationDuration: duration + incomingFade,
+    incomingFadeSeconds: incomingFade,
+    previousCueId: previous?.id || previous?.cueId || null,
+  };
+}
+
+export function hyperFramesMediaOpacityState(instances = [], instanceIndex = 0, timeSeconds = 0, options = {}) {
+  const media = Array.isArray(instances) ? instances : [];
+  const current = media[Number(instanceIndex)];
+  const window = hyperFramesMediaPresentationWindow(media, instanceIndex, options);
+  if (!current || !window) return { visible: false, alpha: 0, localSeconds: 0, phase: "missing" };
+  const time = Number(timeSeconds) || 0;
+  const start = window.logicalStart;
+  const end = window.logicalEnd;
+  const incomingFade = window.incomingFadeSeconds;
+  if (incomingFade > 0 && time >= start - incomingFade && time < start) {
+    return {
+      visible: true,
+      alpha: Math.max(0, Math.min(1, (time - (start - incomingFade)) / incomingFade)),
+      localSeconds: Math.max(0, time - (start - incomingFade)),
+      phase: "incoming-crossfade",
+    };
+  }
+  if (time >= start && time < end) {
+    return {
+      visible: true,
+      alpha: 1,
+      localSeconds: Math.max(0, time - start + incomingFade),
+      phase: "active",
+    };
+  }
+  return { visible: false, alpha: 0, localSeconds: Math.max(0, time - start), phase: "inactive" };
+}
+
 export function compileHyperFramesShow({ showGraph, telemetry, project, proxyRegistry = {}, fps = 30, visualizerMix = null } = {}) {
   if (showGraph?.schemaVersion !== "hapa.music-viz.native-show-graph.v2") throw new Error("HyperFrames compiler requires Native Show Graph v2");
+  const projectBody = project?.music_video_project || project?.project || project || {};
+  const projectProfileValue = projectBody.output_profile ?? projectBody.outputProfile;
+  const graphProfileValue = showGraph.outputProfile ?? showGraph.output_profile;
+  const directorProfileValue = showGraph.directorV2?.outputProfile ?? showGraph.directorV2?.output_profile;
+  const projectProfileDeclared = projectProfileValue !== undefined && projectProfileValue !== null;
+  const graphProfileDeclared = graphProfileValue !== undefined && graphProfileValue !== null;
+  const directorProfileDeclared = directorProfileValue !== undefined && directorProfileValue !== null;
+  const projectOutputProfile = resolveEchoOutputProfile(projectProfileValue);
+  const graphOutputProfile = resolveEchoOutputProfile(graphProfileValue ?? directorProfileValue);
+  if ((graphProfileDeclared && directorProfileDeclared
+      && resolveEchoOutputProfile(graphProfileValue).id !== resolveEchoOutputProfile(directorProfileValue).id)
+    || (projectProfileDeclared && projectOutputProfile.id !== graphOutputProfile.id)) {
+    const error = new Error(`Echo output profile mismatch: project=${projectOutputProfile.id}, graph=${graphOutputProfile.id}. Recompile the canonical Show Graph before packaging.`);
+    error.code = "echo_output_profile_mismatch";
+    throw error;
+  }
+  const outputProfile = projectProfileDeclared ? projectOutputProfile : graphOutputProfile;
   const duration = finite(showGraph.song?.durationSeconds, 60);
   const configuredVisualizerMix = visualizerMix == null
     ? (showGraph.directorV2?.recipe?.visualizerMix ?? 0.72)
@@ -572,21 +816,42 @@ export function compileHyperFramesShow({ showGraph, telemetry, project, proxyReg
   };
   const mediaInstances = [];
   const visualizerInstances = [];
+  const accentCards = [];
+  const classificationErrors = [];
   let layerOrder = 0;
   for (const track of showGraph.tracks || []) {
     for (const card of track.cards || []) {
+      const declaredStart = finite(card.startSeconds);
+      const declaredEnd = finite(card.endSeconds);
+      const tailRoundingOverrun = declaredEnd - duration;
+      const normalizedEnd = tailRoundingOverrun > 0 && tailRoundingOverrun <= 0.050001
+        ? duration
+        : declaredEnd;
       const base = {
         id: card.id,
         cueId: card.id,
         cueIndex: Number.isInteger(card.sourceCueIndex) ? card.sourceCueIndex : layerOrder,
         layerOrder,
         trackId: track.id,
-        start: finite(card.startSeconds),
-        end: finite(card.endSeconds),
-        duration: finite(card.endSeconds) - finite(card.startSeconds),
+        start: declaredStart,
+        end: normalizedEnd,
+        duration: normalizedEnd - declaredStart,
+        ...(normalizedEnd !== declaredEnd ? {
+          windowNormalization: {
+            reason: "tail-rounding-clamped",
+            declaredEnd,
+            resolvedEnd: normalizedEnd,
+            overrunSeconds: tailRoundingOverrun,
+          },
+        } : {}),
       };
-      const isVisualizerCue = Boolean(card.visualization && (track.role === "visualizer" || track.id === "track-b" || card.visualization.card?.schemaVersion === "hapa.visualizer-card.v2"));
-      if (isVisualizerCue) {
+      const isAccentCue = track.role === "accent";
+      const isVisualizerTrack = track.role === "visualizer" || track.id === "track-b";
+      const hasPortableVisualizer = card.visualization?.card?.schemaVersion === "hapa.visualizer-card.v2";
+      const isVisualizerCue = Boolean(card.visualization && (isVisualizerTrack || hasPortableVisualizer));
+      if (isAccentCue) {
+        accentCards.push(structuredClone(card));
+      } else if (isVisualizerCue) {
         const portable = card.visualization.card || {};
         const proxyResolution = proxyForCard(card, proxyById);
         const execution = proxyResolution.proxy
@@ -602,6 +867,7 @@ export function compileHyperFramesShow({ showGraph, telemetry, project, proxyReg
         const opacity = Math.max(0, Math.min(1, finite(card.parameters?.opacity, baseOpacity)));
         const controls = { ...(portable.controls || {}), ...(card.parameters?.visualizerControls || {}) };
         const audioMap = normalizedVisualizerAudioMap(portable, card.parameters?.visualizerMappings);
+        const modulationEffectiveness = visualizerModulationEffectiveness(portable, controls, audioMap);
         const modulation = presentationModulation(audioMap);
         const declaredAudioSignals = audioSignals({ ...portable, audioMap });
         const reactiveAudioSignals = audioReactiveSignals(audioMap);
@@ -636,6 +902,7 @@ export function compileHyperFramesShow({ showGraph, telemetry, project, proxyReg
           inputs: structuredClone(portable.inputs || []),
           controls,
           audioMap,
+          modulationEffectiveness,
           presentationModulation: modulation,
           baseOpacity,
           opacity,
@@ -650,15 +917,39 @@ export function compileHyperFramesShow({ showGraph, telemetry, project, proxyReg
         layerOrder += 1;
       } else if (!card.visualization) {
         mediaInstances.push({ ...base, templateId: "media-window-v1", mediaId: card.media?.id, title: card.media?.title, source: resolveHyperFramesMediaSource(card, mediaContractIndex), transition: card.transition || "crossfade", cameraKeyframes: card.cameraKeyframes || [] });
+      } else {
+        classificationErrors.push({
+          cueId: text(card.id) || null,
+          trackId: text(track.id) || null,
+          trackRole: text(track.role) || null,
+          reason: "visualization-card-route-or-schema-invalid",
+        });
       }
     }
   }
+  mediaInstances.sort((left, right) => left.start - right.start || left.end - right.end || left.cueIndex - right.cueIndex || left.id.localeCompare(right.id));
   visualizerInstances.sort((left, right) => left.start - right.start || left.end - right.end || left.cueIndex - right.cueIndex || left.id.localeCompare(right.id));
+  const declaredAccentEvents = Array.isArray(showGraph.directorV2?.accentTrack?.events)
+    ? showGraph.directorV2.accentTrack.events
+    : Array.isArray(showGraph.directorV2?.effects)
+      ? showGraph.directorV2.effects
+      : accentCards.map((card) => ({
+        id: `effect:${card.id}`,
+        cueId: card.provenance?.cueId || card.id,
+        kind: "bounded-accent",
+        startSeconds: finite(card.startSeconds),
+        endSeconds: finite(card.endSeconds),
+        opacity: finite(card.parameters?.opacity, 1),
+      }));
+  const compiledAccentTrack = showGraph.directorV2?.accentTrack
+    ? structuredClone(showGraph.directorV2.accentTrack)
+    : { schemaVersion: "hapa.director-v2.accent-track.v1", events: structuredClone(declaredAccentEvents), eventCount: declaredAccentEvents.length };
   const lyrics = (showGraph.song?.lyricOverlay?.lines || []).map((line, index) => ({ index, start: finite(line.start), end: finite(line.end), text: line.text, words: line.words || [] }));
   const stemFrames = normalizeTelemetry(telemetry, duration);
   const manifest = {
     schemaVersion: "hapa.hyperframes.executable-show.v2",
     title: showGraph.song?.title || "Hapa Show",
+    outputProfile,
     duration,
     fps,
     source: { showGraphHash: hash(showGraph), telemetryHash: stemFrames.sourceHash, treatmentId: showGraph.directorV2?.treatmentId, variantHash: showGraph.directorV2?.variantHash },
@@ -669,14 +960,14 @@ export function compileHyperFramesShow({ showGraph, telemetry, project, proxyReg
       media: mediaInstances,
       visualizers: visualizerInstances,
       lyrics: [{ templateId: "lyric-phrase-window-v1", lines: lyrics }],
-      accents: structuredClone(showGraph.directorV2?.accentTrack?.events || []),
+      accents: structuredClone(declaredAccentEvents),
     },
     automation: {
       camera: structuredClone(showGraph.directorV2?.cameraKeyframes || []),
       modulationBindings: structuredClone(showGraph.directorV2?.modulationBindings || []),
       timeModulation: structuredClone(showGraph.directorV2?.timeModulation || []),
       visualTimeTrack: structuredClone(showGraph.directorV2?.visualTimeTrack || null),
-      accentTrack: structuredClone(showGraph.directorV2?.accentTrack || null),
+      accentTrack: compiledAccentTrack,
     },
     stemFrames,
     visualizerCoverage: {
@@ -687,8 +978,12 @@ export function compileHyperFramesShow({ showGraph, telemetry, project, proxyReg
       firstStart: visualizerInstances[0]?.start ?? null,
       lastEnd: visualizerInstances.at(-1)?.end ?? null,
     },
+    classificationErrors,
     validation: { lint: "pending", inspect: "pending", goldenTimestamps: "pending", mediaOffline: "pending", showcaseReady: false },
   };
+  manifest.visualCoverageNormalization = normalizeHyperFramesVisualCoverage(manifest);
+  manifest.visualizerCoverage = visualizerCoverage(manifest.instances.visualizers);
+  manifest.visualCoverage = inspectHyperFramesVisualCoverage(manifest);
   manifest.showHash = hash(manifest);
   return manifest;
 }
@@ -743,7 +1038,9 @@ export function clipHyperFramesShow(show, requestedDuration) {
   clipped.stemFrames.duration = duration;
   clipped.stemFrames.stems = (clipped.stemFrames.stems || []).map((stem) => ({ ...stem, frames: (stem.frames || []).filter((frame) => finite(frame.t) <= duration) }));
   if (clipped.stemFrames.master) clipped.stemFrames.master.frames = (clipped.stemFrames.master.frames || []).filter((frame) => finite(frame.t) <= duration);
+  clipped.visualCoverageNormalization = normalizeHyperFramesVisualCoverage(clipped);
   clipped.visualizerCoverage = visualizerCoverage(clipped.instances.visualizers);
+  clipped.visualCoverage = inspectHyperFramesVisualCoverage(clipped);
   clipped.showHash = hash({ ...clipped, showHash: undefined });
   return clipped;
 }
@@ -752,15 +1049,41 @@ export function inspectHyperFramesShow(show) {
   const serialized = JSON.stringify(show);
   const errors = [];
   if (show.schemaVersion !== "hapa.hyperframes.executable-show.v2") errors.push("schema");
+  const duration = Number(show.duration);
+  if (!(Number.isFinite(duration) && duration > 0)) errors.push("invalid-show-duration");
   if (/Math\.random|Date\.now|AudioContext|getUserMedia|fetch\(|https?:\/\//.test(serialized)) errors.push("runtime-nondeterminism-or-network");
   if (!show.stemFrames?.stems?.length) errors.push("missing-offline-stems");
-  if (!show.instances?.media?.length || !show.instances?.visualizers?.length) errors.push("missing-layer-family");
+  if (!show.instances?.media?.length && !show.instances?.visualizers?.length) errors.push("missing-visual-layer");
+  for (const issue of show.classificationErrors || []) {
+    errors.push(`invalid-visualization-route:${String(issue?.cueId || "unknown")}`);
+  }
+  const visualCoverage = inspectHyperFramesVisualCoverage(show);
+  if (!visualCoverage.ok) errors.push("incomplete-visual-coverage");
+  const cueIds = new Set();
+  const windowTolerance = 1 / Math.max(1, Number(show.fps) || 30) + 1e-6;
+  const inspectWindow = (layer, kind) => {
+    const id = String(layer?.id || layer?.cueId || "").trim();
+    if (!id) errors.push(`missing-cue-id:${kind}`);
+    else if (cueIds.has(id)) errors.push(`duplicate-cue-id:${id}`);
+    else cueIds.add(id);
+    const start = Number(layer?.start);
+    const end = Number(layer?.end);
+    if (!(Number.isFinite(start) && Number.isFinite(end) && start >= 0 && end > start)) {
+      errors.push(`invalid-window:${id || kind}`);
+    } else if (Number.isFinite(duration) && duration > 0 && (start >= duration || end > duration + windowTolerance)) {
+      errors.push(`window-outside-show:${id || kind}`);
+    }
+  };
+  for (const layer of show.instances?.media || []) inspectWindow(layer, "media");
   let previous = null;
   for (const layer of show.instances?.visualizers || []) {
-    if (!(Number.isFinite(layer.start) && Number.isFinite(layer.end) && layer.end > layer.start)) errors.push(`invalid-window:${layer.id}`);
+    inspectWindow(layer, "visualizer");
     if (previous && (layer.start < previous.start || (layer.start === previous.start && layer.cueIndex < previous.cueIndex))) errors.push(`unstable-order:${layer.id}`);
     previous = layer;
     if (Object.keys(layer.audioMap || {}).some((name) => !(layer.inputs || []).some((input) => (input.NAME || input.name) === name) && !(name in (layer.controls || {})))) errors.push(`unhydrated-input:${layer.id}`);
+    for (const entry of layer.modulationEffectiveness?.entries || []) {
+      if (entry.enforced && entry.material !== true) errors.push(`ineffective-audio-mapping:${layer.id}:${entry.uniform}`);
+    }
     const audioSignals = Array.isArray(layer.audioSignal) ? layer.audioSignal.map((signal) => String(signal).toLowerCase()) : [];
     const mappedReactive = Object.values(layer.audioMap || {}).some((mapping) => {
       const signal = typeof mapping === "string" ? mapping.split(":").at(-1) : mapping?.signal;
@@ -794,6 +1117,7 @@ export function inspectHyperFramesShow(show) {
     templateCount: Object.keys(show.templates || {}).length,
     instanceCount: (show.instances?.media || []).length + visualizers.length,
     visualizerCoverage: show.visualizerCoverage,
+    visualCoverage,
     deduplication: { manifestBytes: Buffer.byteLength(serialized), expandedTemplateEstimateBytes: expandedEstimate, repeatedSceneStructuresTemplated: true },
     offlineFrameCount: (show.stemFrames?.stems || []).reduce((sum, stem) => sum + stem.frames.length, 0),
   };

@@ -17,6 +17,8 @@ import {
   validateSongCardEdition,
 } from "../src/domain/song-card-mint.js";
 import { projectToEditorGraph } from "../src/domain/multitrack-editor.js";
+import { resolveEchoOutputProfile } from "../src/domain/echo-output-profile.js";
+import { assessSongCardMintPlanCompatibility } from "../src/domain/song-card-mint-plan-compatibility.js";
 import { buildPrintedCardLineageReceipt, validateSongCardEditionLineage } from "../src/domain/song-card-lineage.js";
 import { buildVisualizerRendererTruthReceipt } from "../src/domain/visualizer-renderer-capability.js";
 import {
@@ -152,11 +154,73 @@ async function readJson(filePath, fallback = null) {
   try { return JSON.parse(await fsp.readFile(filePath, "utf8")); } catch (error) { if (error?.code === "ENOENT") return fallback; throw error; }
 }
 
+function mintPlanStorageId(planId) {
+  const value = String(planId || "").trim();
+  if (!value.startsWith("plan:")) {
+    throw controllerError("invalid_mint_plan_id", "Mint plan ID is malformed.");
+  }
+  const storageId = value.slice("plan:".length);
+  if (
+    !storageId
+    || storageId.length > 160
+    || storageId === "."
+    || storageId === ".."
+    || !/^[A-Za-z0-9][A-Za-z0-9._-]*$/u.test(storageId)
+    || path.basename(storageId) !== storageId
+  ) {
+    throw controllerError("invalid_mint_plan_id", "Mint plan ID is malformed.");
+  }
+  return storageId;
+}
+
+function stableFileStatIdentity(stat) {
+  return [stat.dev, stat.ino, stat.size, stat.mtimeNs, stat.ctimeNs].map(String).join(":");
+}
+
+async function readMintPlanJsonNoFollow(filePath, expectedPlanId) {
+  let handle;
+  try {
+    handle = await fsp.open(filePath, fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW || 0));
+    const before = await handle.stat({ bigint: true });
+    if (!before.isFile() || before.size <= 0n) {
+      throw controllerError("invalid_mint_plan_file", "Mint plan is not a non-empty regular file.", 409);
+    }
+    const bytes = await handle.readFile();
+    const after = await handle.stat({ bigint: true });
+    if (stableFileStatIdentity(before) !== stableFileStatIdentity(after)) {
+      throw controllerError("mint_plan_changed_during_read", "Mint plan changed while it was being read. Retry the operation.", 409);
+    }
+    let plan;
+    try {
+      plan = JSON.parse(bytes.toString("utf8"));
+    } catch {
+      throw controllerError("invalid_mint_plan_json", "Mint plan JSON is invalid.", 409);
+    }
+    const declaredPlanId = String(plan?.planId || "").trim();
+    const declaredId = String(plan?.id || "").trim();
+    if (declaredPlanId !== expectedPlanId || declaredId && declaredId !== expectedPlanId) {
+      throw controllerError("mint_plan_identity_mismatch", "Mint plan file identity does not match the requested plan.", 409);
+    }
+    return plan;
+  } catch (error) {
+    if (error?.code === "ENOENT") throw controllerError("mint_plan_not_found", "Mint plan was not found.", 404);
+    if (error?.code === "ELOOP" || error?.code === "EMLINK") {
+      throw controllerError("invalid_mint_plan_file", "Mint plan must be a direct regular file, not a link.", 409);
+    }
+    throw error;
+  } finally {
+    await handle?.close().catch(() => {});
+  }
+}
+
 async function atomicJson(filePath, value) {
   await fsp.mkdir(path.dirname(filePath), { recursive: true });
   const temporary = `${filePath}.${process.pid}.${crypto.randomUUID()}.tmp`;
   const handle = await fsp.open(temporary, "wx", 0o600);
-  try { await handle.writeFile(`${JSON.stringify(value, null, 2)}\n`); await handle.sync(); } finally { await handle.close(); }
+  // Mint plans contain several independently verified projections of the same
+  // show. Compact JSON keeps Bok-scale plans below the V8/string-pressure
+  // ceiling without changing their parsed identity or execution behavior.
+  try { await handle.writeFile(`${JSON.stringify(value)}\n`); await handle.sync(); } finally { await handle.close(); }
   await fsp.rename(temporary, filePath);
 }
 
@@ -223,6 +287,8 @@ export class SongCardMintController {
     exportRoot = null,
     fallbackExportRoot = null,
     runCommand = execFile,
+    mintPlanCompatibilityResolver = null,
+    enforceMintPlanCompatibility = Boolean(mintPlanCompatibilityResolver),
   } = {}) {
     if (!root) throw controllerError("mint_root_required", "Song Card mint root is required.", 500);
     this.root = path.resolve(root);
@@ -234,6 +300,8 @@ export class SongCardMintController {
     this.exportRootIsBuilderManaged = !configuredExportRoot;
     this.fallbackExportRoot = path.resolve(fallbackExportRoot || process.env.HAPA_SONG_CARD_FALLBACK_EXPORT_ROOT || defaultAppOwnedExportRoot());
     this.runCommand = runCommand;
+    this.mintPlanCompatibilityResolver = typeof mintPlanCompatibilityResolver === "function" ? mintPlanCompatibilityResolver : null;
+    this.enforceMintPlanCompatibility = enforceMintPlanCompatibility === true;
     this.paths = { plans: path.join(this.root, "plans"), events: path.join(this.root, "events.ndjson"), managedRenders: this.managedRenderRoot };
     if (Array.isArray(this.ledger.allowedSourceRoots) && !this.ledger.allowedSourceRoots.includes(this.managedRenderRoot)) {
       this.ledger.allowedSourceRoots.push(this.managedRenderRoot);
@@ -375,20 +443,140 @@ export class SongCardMintController {
     };
   }
 
-  planPath(planId) { return path.join(this.paths.plans, `${String(planId).replace(/^plan:/u, "")}.json`); }
+  planPath(planId) {
+    const candidate = path.resolve(this.paths.plans, `${mintPlanStorageId(planId)}.json`);
+    if (!isInside(path.resolve(this.paths.plans), candidate)) {
+      throw controllerError("invalid_mint_plan_id", "Mint plan ID is malformed.");
+    }
+    return candidate;
+  }
 
   async getPlan(planId) {
-    const plan = await readJson(this.planPath(planId));
-    if (!plan) throw controllerError("mint_plan_not_found", "Mint plan was not found.", 404);
-    return plan;
+    const normalizedPlanId = String(planId || "").trim();
+    return readMintPlanJsonNoFollow(this.planPath(normalizedPlanId), normalizedPlanId);
+  }
+
+  async inspectPlanCompatibility(planOrId) {
+    const plan = typeof planOrId === "string" ? await this.getPlan(planOrId) : planOrId;
+    const initial = assessSongCardMintPlanCompatibility({ plan });
+    if (!initial.requiresRepair || !this.mintPlanCompatibilityResolver) return initial;
+    try {
+      return await this.mintPlanCompatibilityResolver(plan);
+    } catch (error) {
+      return {
+        ...initial,
+        status: "non-runnable",
+        runnable: false,
+        reasons: ["mint-plan-compatibility-resolver-failed"],
+        blocker: {
+          ...initial.blocker,
+          details: {
+            reasons: ["mint-plan-compatibility-resolver-failed"],
+            errorCode: String(error?.code || ""),
+            message: error instanceof Error ? error.message : String(error),
+          },
+        },
+      };
+    }
+  }
+
+  async assertPlanRunnable(planId) {
+    const plan = await this.getPlan(planId);
+    if (["canceled", "rejected", "superseded", "non-runnable"].includes(String(plan.status || "").toLowerCase())) {
+      throw controllerError("mint_plan_not_runnable", `Mint plan ${plan.planId} is ${plan.status} and cannot render.`, 409, {
+        planId: plan.planId,
+        status: plan.status,
+        compatibility: plan.mintPlanCompatibility || null,
+      });
+    }
+    const compatibility = await this.inspectPlanCompatibility(plan);
+    if (compatibility.status === "current") return { plan, compatibility };
+    if (compatibility.status === "rehydrated") {
+      throw controllerError(
+        "mint_plan_rehydration_required",
+        "This saved plan has a proven canonical replacement. Rebuild the plan and review the replacement before rendering.",
+        409,
+        { planId: plan.planId, compatibility: compatibility.receipt },
+      );
+    }
+    throw controllerError(
+      "mint_plan_not_runnable",
+      "This saved plan contains a detached legacy graph and cannot begin rendering until a canonical replacement is proven.",
+      409,
+      { planId: plan.planId, compatibility },
+    );
+  }
+
+  async rehydratePlan(planId) {
+    const plan = await this.getPlan(planId);
+    if (["completed", "minted", "canceled", "rejected", "superseded"].includes(String(plan.status || "").toLowerCase())) {
+      throw controllerError("mint_plan_not_runnable", `Mint plan ${plan.planId} is ${plan.status} and cannot be rebuilt.`, 409, {
+        planId: plan.planId,
+        status: plan.status,
+      });
+    }
+    const compatibility = await this.inspectPlanCompatibility(plan);
+    if (compatibility.status === "current") {
+      return { rehydrated: false, plan: this.publicPlan(plan), compatibility: compatibility.receipt };
+    }
+    if (compatibility.status !== "rehydrated") {
+      plan.status = "non-runnable";
+      plan.mintPlanCompatibility = compatibility;
+      plan.hardBlockers = [...(plan.hardBlockers || []).filter((row) => row?.code !== compatibility.blocker?.code), compatibility.blocker];
+      plan.blockers = [...(plan.blockers || []).filter((row) => row?.code !== compatibility.blocker?.code), compatibility.blocker];
+      plan.logs = [...(plan.logs || []), { at: this.now(), message: "mint-plan-canonical-rehydration-blocked" }].slice(-50);
+      await atomicJson(this.planPath(plan.planId), plan);
+      throw controllerError(
+        "mint_plan_not_runnable",
+        "The legacy mint plan could not be matched to a canonical compiled graph and has been marked non-runnable.",
+        409,
+        { planId: plan.planId, compatibility },
+      );
+    }
+    const replacementPublic = await this.plan(plan.songId, compatibility.input, { persist: true });
+    const replacement = await this.getPlan(replacementPublic.planId);
+    plan.status = "superseded";
+    plan.supersededAt = this.now();
+    plan.supersededBy = replacement.planId;
+    plan.mintPlanCompatibility = compatibility.receipt;
+    plan.logs = [...(plan.logs || []), { at: this.now(), message: `mint-plan-rehydrated:${replacement.planId}` }].slice(-50);
+    await atomicJson(this.planPath(plan.planId), plan);
+    return {
+      rehydrated: true,
+      supersededPlanId: plan.planId,
+      plan: this.publicPlan(replacement),
+      compatibility: compatibility.receipt,
+    };
   }
 
   async plan(songIdInput, body = {}, { persist = true } = {}) {
     await this.initialize();
     const songId = songKey(songIdInput);
     const headId = headIdFor(songId);
-    const project = structuredClone(body.project || {});
-    const showGraph = structuredClone(body.showGraph?.tracks ? body.showGraph : project.director_show_graph?.tracks ? project.director_show_graph : projectToEditorGraph(project));
+    let project = structuredClone(body.project || {});
+    let showGraph = structuredClone(body.showGraph?.tracks ? body.showGraph : project.director_show_graph?.tracks ? project.director_show_graph : projectToEditorGraph(project));
+    const projectOutputProfile = resolveEchoOutputProfile(project);
+    const graphOutputProfile = resolveEchoOutputProfile(showGraph?.outputProfile ?? showGraph?.output_profile);
+    if (projectOutputProfile.id !== graphOutputProfile.id) {
+      showGraph = projectToEditorGraph({ ...project, director_show_graph: showGraph });
+    }
+    const draftCompatibility = await this.inspectPlanCompatibility({
+      schemaVersion: SONG_CARD_MINT_PLAN_SCHEMA,
+      songId,
+      input: { ...body, project, showGraph },
+    });
+    if (draftCompatibility.status === "rehydrated") {
+      body = { ...body, ...draftCompatibility.input };
+      project = structuredClone(draftCompatibility.input.project);
+      showGraph = structuredClone(draftCompatibility.input.showGraph);
+    } else if (draftCompatibility.requiresRepair && this.enforceMintPlanCompatibility) {
+      throw controllerError(
+        "mint_plan_not_runnable",
+        "The editor produced a detached legacy graph and no identity-compatible canonical compiled graph could be proven. The plan was not saved.",
+        409,
+        { compatibility: draftCompatibility },
+      );
+    }
     const song = structuredClone(body.song || { id: songId, songId, title: project.song_title || showGraph.song?.title || songId });
     let renderMasterPath = String(body.renderMasterPath || body.render?.masterPath || "").trim();
     let posterPath = String(body.posterPath || body.render?.posterPath || "").trim();
@@ -461,6 +649,7 @@ export class SongCardMintController {
       snapshot,
       appearanceIndex,
       lineage: lineageFor({ songId, sourceRevision, snapshot, showGraph }),
+      ...(body.receipts?.mintPlanCompatibility ? { mintPlanCompatibility: structuredClone(body.receipts.mintPlanCompatibility) } : {}),
     };
     if (persist) await atomicJson(this.planPath(planId), plan);
     return this.publicPlan(plan);
@@ -473,7 +662,9 @@ export class SongCardMintController {
 
   async mint(songIdInput, options = {}) {
     const songId = songKey(songIdInput);
-    const stored = await this.getPlan(options.planId);
+    const stored = this.enforceMintPlanCompatibility
+      ? (await this.assertPlanRunnable(options.planId)).plan
+      : await this.getPlan(options.planId);
     if (stored.songId !== songId) throw controllerError("mint_plan_song_mismatch", "Mint plan belongs to a different Song Card.", 409);
     if (stored.status === "canceled") throw controllerError("mint_plan_canceled", "Canceled mint plans cannot publish.", 409);
     const confirmedMasterPath = String(stored.input?.renderMasterPath || stored.renderMasterPath || "").trim();
@@ -598,7 +789,12 @@ export class SongCardMintController {
     return this.publicPlan(plan);
   }
 
-  async retry(planId) { const plan = await this.getPlan(planId); return this.plan(plan.songId, plan.input); }
+  async retry(planId) {
+    const rebuilt = await this.rehydratePlan(planId);
+    if (rebuilt.rehydrated) return rebuilt.plan;
+    const plan = await this.getPlan(planId);
+    return this.plan(plan.songId, plan.input);
+  }
   async getJob(jobId) { const plans = await fsp.readdir(this.paths.plans).catch(() => []); for (const name of plans) { const plan = await readJson(path.join(this.paths.plans, name)); if (plan?.jobId === jobId || `mint:${sha({ planId: plan?.planId, idempotencyKey: plan?.planId }).slice(0, 32)}` === jobId) return this.publicPlan(plan); } throw controllerError("mint_job_not_found", "Mint job was not found.", 404); }
 
   async getSongCard(songIdInput) {

@@ -35,6 +35,66 @@ function graph(mediaId = "media-a") {
   };
 }
 
+test("mint planning reconciles a supplied Landscape graph to a Vertical project", async () => {
+  const base = await fsp.mkdtemp(path.join(os.tmpdir(), "song-card-orientation-plan-"));
+  try {
+    const controller = new SongCardMintController({ root: path.join(base, "mint") });
+    const suppliedGraph = graph();
+    suppliedGraph.outputProfile = "landscape";
+    suppliedGraph.directorV2.outputProfile = "landscape";
+    suppliedGraph.directorV2.mediaRoleCamera = [{
+      id: "camera-path:one",
+      corridors: [
+        { targetAspect: 16 / 9, startCrop: { x: 0, y: 0, width: 1, height: 1 }, endCrop: { x: 0, y: 0, width: 1, height: 1 } },
+        { targetAspect: 9 / 16, startCrop: { x: 0.3, y: 0, width: 0.4, height: 1 }, endCrop: { x: 0.28, y: 0, width: 0.44, height: 1 } },
+      ],
+    }];
+    suppliedGraph.directorV2.cameraKeyframes = [
+      { atSeconds: 0, cameraPathId: "camera-path:one" },
+      { atSeconds: 10, cameraPathId: "camera-path:one" },
+    ];
+
+    const publicPlan = await controller.plan("dear-papa", {
+      project: { song_id: "dear-papa", song_title: "Dear Papa", duration: 10, output_profile: "vertical" },
+      showGraph: suppliedGraph,
+    });
+    const stored = await controller.getPlan(publicPlan.planId);
+    assert.equal(stored.input.project.output_profile, "vertical");
+    assert.equal(stored.input.showGraph.outputProfile.id, "vertical");
+    assert.equal(stored.input.showGraph.directorV2.outputProfile.id, "vertical");
+    assert.equal(stored.input.showGraph.directorV2.mediaRoleCamera[0].corridors[0].targetAspect, 9 / 16);
+    assert.equal(stored.snapshot.outputProfile.id, "vertical");
+  } finally { await removeFixture(base); }
+});
+
+test("mint-plan storage rejects traversal, symlinks, and file-identity mismatches", async () => {
+  const base = await fsp.mkdtemp(path.join(os.tmpdir(), "song-card-plan-boundary-"));
+  try {
+    const controller = new SongCardMintController({ root: path.join(base, "mint") });
+    await controller.initialize();
+    assert.throws(() => controller.planPath("plan:../../escape"), (error) => error.code === "invalid_mint_plan_id");
+    assert.throws(() => controller.planPath("/tmp/absolute"), (error) => error.code === "invalid_mint_plan_id");
+    assert.throws(() => controller.planPath("plan:%2e%2e%2fescape"), (error) => error.code === "invalid_mint_plan_id");
+    assert.throws(() => controller.planPath("plan:.."), (error) => error.code === "invalid_mint_plan_id");
+
+    const validPath = controller.planPath("plan:legacy-safe");
+    await fsp.writeFile(validPath, JSON.stringify({ planId: "plan:legacy-safe", status: "changed" }));
+    assert.equal((await controller.getPlan("plan:legacy-safe")).planId, "plan:legacy-safe");
+
+    await fsp.writeFile(controller.planPath("plan:mismatch"), JSON.stringify({ planId: "plan:someone-else" }));
+    await assert.rejects(controller.getPlan("plan:mismatch"), (error) => error.code === "mint_plan_identity_mismatch");
+    await fsp.writeFile(controller.planPath("plan:mismatch-id"), JSON.stringify({ planId: "plan:mismatch-id", id: "plan:someone-else" }));
+    await assert.rejects(controller.getPlan("plan:mismatch-id"), (error) => error.code === "mint_plan_identity_mismatch");
+    await fsp.writeFile(controller.planPath("plan:missing-identity"), JSON.stringify({ status: "changed" }));
+    await assert.rejects(controller.getPlan("plan:missing-identity"), (error) => error.code === "mint_plan_identity_mismatch");
+
+    const outside = path.join(base, "outside.json");
+    await fsp.writeFile(outside, JSON.stringify({ planId: "plan:linked" }));
+    await fsp.symlink(outside, controller.planPath("plan:linked"));
+    await assert.rejects(controller.getPlan("plan:linked"), (error) => error.code === "invalid_mint_plan_file");
+  } finally { await removeFixture(base); }
+});
+
 test("controller persists exact plans, mints E1/E2, restarts, streams by role, and prints historical cards", async () => {
   const base = await fsp.mkdtemp(path.join(os.tmpdir(), "song-card-controller-"));
   try {

@@ -2,10 +2,14 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import {
+  applyVisualizerAudioMapping,
   evaluateHyperFramesVisualizers,
   HapaHyperFramesVisualizerRuntime,
   HYPERFRAMES_VISUALIZER_RUNTIME_SCHEMA,
+  inspectVisualizerAudioMappingEffect,
+  normalizeVisualizerAudioMapping,
 } from "../src/domain/hyperframes-visualizer-runtime.js";
+import { buildEchoIsfFrameIntent } from "../src/domain/echo-isf-frame-intent.js";
 
 const sourceHash = `sha256:${"a".repeat(64)}`;
 const assetHash = `sha256:${"b".repeat(64)}`;
@@ -276,6 +280,79 @@ test("each audio-map uniform samples its declared stem instead of the portable i
       { uniform: "enabled", requestedStem: "vocals", resolvedStem: "vocals", fallbackUsed: false },
     ],
   );
+});
+
+test("shared mapping policy preserves legacy numerics and gives generated float/enum mappings material headroom", () => {
+  const gain = { NAME: "gain", TYPE: "float", DEFAULT: 1, MIN: 0, MAX: 1 };
+  const legacy = normalizeVisualizerAudioMapping({ signal: "rms", depth: 0.2 }, { input: gain });
+  assert.equal(legacy.depthMode, "absolute");
+  assert.equal(legacy.headroomPolicy, undefined);
+  assert.equal(applyVisualizerAudioMapping(gain, 1, 1, legacy).value, 1, "legacy positive-at-max behavior remains byte-compatible");
+
+  const generated = normalizeVisualizerAudioMapping({ signal: "rms", depth: 0.2 }, { input: gain, generated: true, materializeDepth: false });
+  assert.equal(generated.depthMode, "range-relative");
+  assert.equal(generated.headroomPolicy, "auto-headroom-v1");
+  assert.equal(applyVisualizerAudioMapping(gain, 1, 1, generated).value, 0.8);
+  assert.equal(inspectVisualizerAudioMappingEffect(gain, 1, generated).material, true);
+
+  const mode = { NAME: "mode", TYPE: "long", DEFAULT: 4, MIN: 0, MAX: 4, VALUES: [0, 2, 4] };
+  const generatedMode = normalizeVisualizerAudioMapping({ signal: "beat", depth: 0.01 }, { input: mode, generated: true, materializeDepth: false });
+  assert.equal(applyVisualizerAudioMapping(mode, 4, 1, generatedMode).value, 2, "generated enums move by at least one declared step");
+  assert.equal(inspectVisualizerAudioMappingEffect(mode, 4, generatedMode).material, true);
+
+  const asymmetricMode = { NAME: "asymmetricMode", TYPE: "long", DEFAULT: 4, MIN: 0, MAX: 10, VALUES: [0, 4] };
+  const asymmetricMapping = normalizeVisualizerAudioMapping({ signal: "beat", depth: 0.01 }, { input: asymmetricMode, generated: true, materializeDepth: false });
+  assert.equal(
+    applyVisualizerAudioMapping(asymmetricMode, 4, 1, asymmetricMapping).value,
+    0,
+    "generated enums choose a direction that contains a declared alternate even when numeric bounds advertise empty headroom",
+  );
+  assert.equal(inspectVisualizerAudioMappingEffect(asymmetricMode, 4, asymmetricMapping).material, true);
+});
+
+test("Preview and offline runtime apply identical generated values across scalar, enum, bool, and vector inputs", () => {
+  const inputs = [
+    { NAME: "floatMax", TYPE: "float", DEFAULT: 1, MIN: 0, MAX: 1 },
+    { NAME: "floatMin", TYPE: "float", DEFAULT: 0, MIN: 0, MAX: 1 },
+    { NAME: "mode", TYPE: "long", DEFAULT: 4, MIN: 0, MAX: 10, VALUES: [0, 4] },
+    { NAME: "enabled", TYPE: "bool", DEFAULT: true },
+    { NAME: "tint", TYPE: "color", DEFAULT: [1, 0, 1, 0], MIN: [0, 0, 0, 0], MAX: [1, 1, 1, 1] },
+    { NAME: "origin", TYPE: "point2D", DEFAULT: [1, -1], MIN: [-1, -1], MAX: [1, 1] },
+  ];
+  const audioMap = Object.fromEntries(inputs.map((input) => [
+    input.NAME,
+    normalizeVisualizerAudioMapping(
+      { signal: "rms", depth: 0.2 },
+      { input, generated: true, materializeDepth: false },
+    ),
+  ]));
+  const card = {
+    id: "cue:parity",
+    startSeconds: 0,
+    endSeconds: 2,
+    visualization: {
+      sourceId: "isf:parity",
+      card: { id: "isf:parity", inputs, controls: {}, audioMap, stemFocus: "master", layer: {} },
+    },
+  };
+  const preview = buildEchoIsfFrameIntent({
+    shader: { id: "isf:parity", inputs },
+    card,
+    signalFrames: { master: { rms: 0.75 } },
+  });
+  const show = fixtureShow();
+  const layer = exactLayer({
+    id: "cue:parity",
+    visualizerId: "isf:parity",
+    inputs,
+    controls: {},
+    audioMap,
+    stemFocus: "master",
+  });
+  show.instances.visualizers = [layer];
+  show.stemFrames.master.frames = [{ t: 0, rms: 0.75 }];
+  const offline = evaluateHyperFramesVisualizers(show, 0.25).layers[0];
+  assert.deepEqual(offline.mappedControls.values, preview.values);
 });
 
 test("audio-conditioned proxy presentation changes retained pixels materially and deterministically", () => {

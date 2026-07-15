@@ -67,20 +67,32 @@ test("Song Card mint API is authenticated, restart-safe, range-correct, private-
   assert.equal(remintsBeforeMint.candidates[0].autoMint, false);
   assert.equal((await fetch(`${api}/api/song-card-remints/executor-status`)).status, 401);
   const incompleteExecutorHeartbeat = await fetch(`${api}/api/song-card-remints/executor-heartbeat`, { method: "POST", headers: auth, body: JSON.stringify({ executorId: "preview-only-worker", adapter: "test", capabilities: ["preview"] }) }).then((response) => response.json());
+  const incompleteExternalStatus = incompleteExecutorHeartbeat.externalExecutor || incompleteExecutorHeartbeat;
+  assert.equal(incompleteExternalStatus.connected, true);
+  assert.equal(incompleteExternalStatus.available, false);
+  assert.equal(incompleteExternalStatus.releaseCapable, false);
+  assert.equal(incompleteExternalStatus.protocolCertified, false);
+  assert.equal(incompleteExternalStatus.claimAuthority, false);
+  assert.equal(incompleteExternalStatus.status, "retired");
+  assert.equal(incompleteExternalStatus.executionModel, "external-worker-retired");
   if (planPayload.renderExecutor.available) {
-    assert.equal(incompleteExecutorHeartbeat.available, true, "an incompatible external heartbeat cannot suppress the built-in renderer");
+    assert.equal(incompleteExecutorHeartbeat.available, true, "a retired external heartbeat cannot suppress the built-in renderer");
     assert.equal(incompleteExecutorHeartbeat.status, "ready");
-    assert.equal(incompleteExecutorHeartbeat.externalExecutor.connected, true);
-    assert.equal(incompleteExecutorHeartbeat.externalExecutor.status, "incompatible");
   } else {
-    assert.equal(incompleteExecutorHeartbeat.connected, true);
     assert.equal(incompleteExecutorHeartbeat.available, false);
-    assert.equal(incompleteExecutorHeartbeat.status, "incompatible");
+    assert.equal(incompleteExecutorHeartbeat.status, "retired");
   }
   const executorHeartbeat = await fetch(`${api}/api/song-card-remints/executor-heartbeat`, { method: "POST", headers: auth, body: JSON.stringify({ executorId: "test-render-worker", adapter: "test", capabilities: ["release-export"] }) }).then((response) => response.json());
-  assert.equal(executorHeartbeat.available, true);
-  assert.equal(executorHeartbeat.status, "connected");
-  assert.equal(executorHeartbeat.executorId, "test-render-worker");
+  const releaseExternalStatus = executorHeartbeat.externalExecutor || executorHeartbeat;
+  assert.equal(releaseExternalStatus.connected, true);
+  assert.equal(releaseExternalStatus.available, false);
+  assert.equal(releaseExternalStatus.releaseCapable, false);
+  assert.equal(releaseExternalStatus.advertisedReleaseCapable, true);
+  assert.equal(releaseExternalStatus.protocolCertified, false);
+  assert.equal(releaseExternalStatus.claimAuthority, false);
+  assert.equal(releaseExternalStatus.status, "retired");
+  assert.equal(releaseExternalStatus.executorId, "test-render-worker");
+  assert.equal(executorHeartbeat.available, planPayload.renderExecutor.available, "an external heartbeat cannot create render authority");
   const candidatePath = encodeURIComponent(remintsBeforeMint.candidates[0].id);
   for (const endpoint of [
     `/api/song-card-remints/${candidatePath}/approve`,
@@ -95,9 +107,25 @@ test("Song Card mint API is authenticated, restart-safe, range-correct, private-
   const playbackSession = "api-test-playback";
   const playbackActive = await fetch(`${api}/api/song-card-playback/activity`, { method: "POST", headers: auth, body: JSON.stringify({ sessionId: playbackSession, active: true }) }).then((response) => response.json());
   assert.equal(playbackActive.activeSessionCount, 1);
-  const protectedClaim = await fetch(`${api}/api/song-card-remints/claim`, { method: "POST", headers: auth, body: JSON.stringify({ activePlayback: false }) }).then((response) => response.json());
-  assert.equal(protectedClaim.playbackPolicy.serverObservedActive, true);
-  assert.equal(protectedClaim.playbackPolicy.activePlayback, true);
+  const remintQueuePath = path.join(mintRoot, "remint-queue.json");
+  const queueBeforeRetiredWorkerCalls = await fsp.readFile(remintQueuePath, "utf8");
+  const retiredClaimResponse = await fetch(`${api}/api/song-card-remints/claim`, { method: "POST", headers: auth, body: JSON.stringify({ executorId: "test-render-worker", activePlayback: false }) });
+  assert.equal(retiredClaimResponse.status, 409);
+  const retiredClaim = await retiredClaimResponse.json();
+  assert.equal(retiredClaim.error, "external_render_worker_protocol_not_certified");
+  assert.equal(retiredClaim.failClosed, true);
+  assert.equal(retiredClaim.queueMutated, false);
+  assert.equal(retiredClaim.protocolCertified, false);
+  assert.equal(retiredClaim.claimAuthority, false);
+  assert.equal(retiredClaim.useEndpoint, "POST /api/song-card-remints/:candidateId/render-local");
+  const retiredResultResponse = await fetch(`${api}/api/song-card-remints/${candidatePath}/jobs/fake/result`, { method: "POST", headers: auth, body: JSON.stringify({ executorId: "test-render-worker", ok: true }) });
+  assert.equal(retiredResultResponse.status, 409);
+  const retiredResult = await retiredResultResponse.json();
+  assert.equal(retiredResult.error, "external_render_worker_protocol_not_certified");
+  assert.equal(retiredResult.queueMutated, false);
+  assert.equal(retiredResult.candidateId, remintsBeforeMint.candidates[0].id);
+  assert.equal(retiredResult.jobId, "fake");
+  assert.equal(await fsp.readFile(remintQueuePath, "utf8"), queueBeforeRetiredWorkerCalls, "retired worker endpoints must not mutate the durable queue");
   await fetch(`${api}/api/song-card-playback/activity`, { method: "POST", headers: auth, body: JSON.stringify({ sessionId: playbackSession, active: false }) });
   assert.equal((await fetch(`${api}/api/song-card-mint-jobs/${plan.planId}`)).status, 401);
   const publicJob = await fetch(`${api}/api/song-card-mint-jobs/${plan.planId}`, { headers: { authorization: "Bearer mint-api-token" } }).then((response) => response.json()); assert.equal(JSON.stringify(publicJob).includes(base), false);

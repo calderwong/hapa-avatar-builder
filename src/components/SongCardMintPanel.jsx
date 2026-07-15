@@ -223,6 +223,102 @@ export function normalizeSongCardLocalRenderJob(payload = {}, candidateId = "") 
   };
 }
 
+export function normalizeSongCardRenderFailure(payload = {}, fallback = {}) {
+  const supplied = payload?.failure && typeof payload.failure === "object"
+    ? payload.failure
+    : payload?.error && typeof payload.error === "object"
+      ? payload.error
+      : {};
+  const details = supplied.details && typeof supplied.details === "object"
+    ? supplied.details
+    : payload?.details && typeof payload.details === "object"
+      ? payload.details
+      : fallback?.details && typeof fallback.details === "object"
+        ? fallback.details
+        : {};
+  return {
+    code: String(supplied.code || (typeof payload?.error === "string" ? payload.error : "") || fallback.code || "local_render_failed"),
+    message: String(supplied.message || payload?.message || fallback.message || "The final-video render stopped before completion."),
+    stage: String(supplied.stage || details.stage || fallback.stage || "render"),
+    retryable: supplied.retryable !== false && fallback.retryable !== false,
+    details,
+  };
+}
+
+function renderFailureEvidence(failure = {}) {
+  const details = failure?.details && typeof failure.details === "object" ? failure.details : {};
+  const nested = [
+    ...array(details.blockers),
+    ...array(details.failures),
+    ...array(details.media?.unresolved),
+    ...array(details.visualizers?.unresolved),
+  ];
+  return [
+    failure.code,
+    failure.stage,
+    details.inputRole,
+    details.reason,
+    ...nested.flatMap((row) => [row?.code, row?.stage, row?.reason]),
+  ]
+    .map((value) => String(value || "").toLowerCase())
+    .filter(Boolean)
+    .join(" ");
+}
+
+export function explainSongCardRenderFailure(failure = {}) {
+  const normalized = normalizeSongCardRenderFailure({}, failure);
+  const evidence = renderFailureEvidence(normalized);
+  if (/renderer[_-]build|build[_-]changed|delivery[_-]runtime/.test(evidence)) {
+    return {
+      category: "renderer-build",
+      title: "The Builder changed during this render check.",
+      nextAction: "Let the current Builder update finish, then choose Retry render. The next attempt will certify one stable renderer before video work starts.",
+    };
+  }
+  if (/source[_-]input[_-]changed|source[_-]snapshot|stale|changed[_-]during|managed[_-]master[_-]hash[_-]mismatch|release[_-]checkpoint[_-]mismatch/.test(evidence)) {
+    return {
+      category: "source-changed",
+      title: "A source file changed while the cut was being checked.",
+      nextAction: "Choose Retry render after the edit or media update finishes. The Builder will take a fresh, consistent snapshot; the saved edit is intact.",
+    };
+  }
+  if (/audio|master|stem|telemetry/.test(evidence)) {
+    return {
+      category: "audio-stems",
+      title: "The song audio or one of its selected stems did not pass verification.",
+      nextAction: "Repair or reconnect the named audio source, then choose Retry render. No MP4 work will start until every required audio input passes.",
+    };
+  }
+  if (/visual[_-]media|media[_-]preflight|media[_-]offline|video[_-]decode|poster/.test(evidence)) {
+    return {
+      category: "visual-media",
+      title: "A video or image used by this cut could not be verified.",
+      nextAction: "Restore or replace the named visual, then choose Retry render. The Builder will recheck the whole cut before encoding.",
+    };
+  }
+  if (/shader|visualizer|proxy|route|render[_-]readiness|execution[_-]graph|renderer[_-]truth/.test(evidence)) {
+    return {
+      category: "shader-route",
+      title: "A shader or visualization route is not ready for final rendering.",
+      nextAction: "Refresh the cut after shader repair or certification completes, then choose Retry render. The Builder will not substitute an unverified effect.",
+    };
+  }
+  if (/enospc|disk|memory|enomem|heap|sigkill|sigterm|killed/.test(evidence) || /disk|memory/.test(normalized.message.toLowerCase())) {
+    return {
+      category: "local-resources",
+      title: "The local finishing process ran out of available resources.",
+      nextAction: "Free disk space or close memory-heavy apps, then choose Retry render. Verified work from the same edit can be reused.",
+    };
+  }
+  return {
+    category: "render",
+    title: "The final-video render stopped before completion.",
+    nextAction: normalized.retryable
+      ? "Choose Retry render to run the same approved edit again. No edition was minted."
+      : "This attempt cannot be retried as-is. Choose Retry plan to prepare a clean candidate from the saved edit.",
+  };
+}
+
 export function songCardEditionArtifactUrl(songId, edition, ticket = "") {
   if (!songId || !editionNumber(edition)) return "";
   const base = `/api/song-cards/${encodeURIComponent(songId)}/editions/${editionNumber(edition)}/artifact/master`;
@@ -361,6 +457,7 @@ export default function SongCardMintPanel({ songId, project, showGraph, compact 
   const [remintCandidate, setRemintCandidate] = useState(null);
   const [renderExecutor, setRenderExecutor] = useState(null);
   const [localRenderJob, setLocalRenderJob] = useState(null);
+  const [renderRequestFailure, setRenderRequestFailure] = useState(null);
   const [phase, setPhase] = useState("idle");
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -464,6 +561,7 @@ export default function SongCardMintPanel({ songId, project, showGraph, compact 
       setRemintCandidate(planPayload.remintCandidate || null);
       setRenderExecutor(normalizeSongCardRenderExecutor(planPayload));
       setLocalRenderJob(normalizeSongCardLocalRenderJob(planPayload, planPayload.remintCandidate?.id || ""));
+      setRenderRequestFailure(null);
       setRenderMasterPath(normalizedPlan.renderMasterPath || "");
       setPosterPath(normalizedPlan.posterPath || "");
       setSelectedEdition((current) => current || normalizedCard.latestEdition || normalizedCard.editions[0]?.edition || 0);
@@ -600,9 +698,12 @@ export default function SongCardMintPanel({ songId, project, showGraph, compact 
           const localJob = normalizeSongCardLocalRenderJob(payload, remintCandidate.id);
           setRenderExecutor(normalizeSongCardRenderExecutor(payload));
           setLocalRenderJob(localJob);
+          if (localJob && String(localJob.status || "").toLowerCase() !== "failed") setRenderRequestFailure(null);
           setError((current) => current === remintRefreshErrorRef.current ? "" : current);
           remintRefreshErrorRef.current = "";
-          if (["approved", "queued", "rendering"].includes(next?.status)
+          if (String(localJob?.status || "").toLowerCase() === "failed" || next?.status === "failed") {
+            setPhase("failed");
+          } else if (["approved", "queued", "rendering"].includes(next?.status)
             || ["queued", "rendering"].includes(String(localJob?.status || "").toLowerCase())) {
             setPhase("rendering");
           }
@@ -634,13 +735,19 @@ export default function SongCardMintPanel({ songId, project, showGraph, compact 
   const localRenderFailed = Boolean(!candidateInactive && localRenderJob
     && localRenderJob.candidateId === remintCandidate?.id
     && String(localRenderJob.status).toLowerCase() === "failed");
-  const renderFailed = !candidateInactive && (localRenderFailed || remintCandidate?.status === "failed");
+  const renderFailed = !candidateInactive && (localRenderFailed || remintCandidate?.status === "failed" || Boolean(renderRequestFailure));
   const renderFailure = (localRenderFailed && localRenderJob?.error && typeof localRenderJob.error === "object" ? localRenderJob.error : null)
     || (remintCandidate?.renderFailure && typeof remintCandidate.renderFailure === "object" ? remintCandidate.renderFailure : null)
+    || renderRequestFailure
     || null;
-  const renderFailureMessage = String(renderFailure?.message || (localRenderFailed ? localRenderJob?.message : "") || "");
+  const renderFailureMessage = String(renderFailure?.message || (localRenderFailed ? localRenderJob?.message : "") || "The final-video render stopped before completion.");
   const renderFailureCode = String(renderFailure?.code || "local_render_failed");
   const renderFailureStage = String(renderFailure?.stage || localRenderJob?.stage || "render").replace(/[-_]+/g, " ");
+  const renderFailureHelp = explainSongCardRenderFailure(renderFailure || {
+    code: renderFailureCode,
+    message: renderFailureMessage,
+    stage: renderFailureStage,
+  });
   const effectivePhase = renderFailed ? "failed" : ["approved", "queued", "rendering"].includes(remintCandidate?.status) ? "rendering" : phase;
   const renderAvailable = renderExecutor?.available === true;
   const localRenderPercent = Math.round(Number(localRenderJob?.progress?.percent || 0));
@@ -674,7 +781,7 @@ export default function SongCardMintPanel({ songId, project, showGraph, compact 
     selectedArtifactsReviewed,
     remintCandidate,
     renderAvailable,
-    localRenderFailed,
+    localRenderFailed: renderFailed,
     latestEdition: songCard.latestEdition,
   });
   const selectedEditionRecord = songCard.editions.find((edition) => edition.edition === selectedEdition) || songCard.latest;
@@ -832,6 +939,7 @@ export default function SongCardMintPanel({ songId, project, showGraph, compact 
   async function startLocalRender(candidateId, { announce = true } = {}) {
     if (!candidateId) return null;
     localRenderStartedRef.current = candidateId;
+    setRenderRequestFailure(null);
     try {
       const response = await songCardAdminFetch(`/api/song-card-remints/${encodeURIComponent(candidateId)}/render-local`, {
         method: "POST",
@@ -839,8 +947,28 @@ export default function SongCardMintPanel({ songId, project, showGraph, compact 
         body: "{}",
       });
       const payload = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(payload.error || payload.message || `Local render failed to start (${response.status}).`);
+      if (!response.ok) {
+        const failure = normalizeSongCardRenderFailure(payload, {
+          code: `local_render_start_${response.status}`,
+          message: `The Builder could not start the final render (${response.status}).`,
+          stage: "render-start",
+        });
+        setRenderRequestFailure(failure);
+        throw Object.assign(new Error(failure.message), failure);
+      }
       setRenderExecutor(normalizeSongCardRenderExecutor(payload));
+      setRenderRequestFailure(null);
+      if (payload.rehydrated === true && payload.reviewRequired === true) {
+        const replacementPlan = normalizeSongCardMintPlan(payload.replacementPlan || {});
+        setPlan(replacementPlan);
+        setRemintCandidate(payload.replacementCandidate || null);
+        setLocalRenderJob(null);
+        localRenderStartedRef.current = "";
+        setPhase("idle");
+        setError("");
+        setNotice(payload.message || "The saved edit was rebuilt from its canonical graph. Review and approve the replacement before rendering.");
+        return payload;
+      }
       setLocalRenderJob(normalizeSongCardLocalRenderJob(payload, candidateId));
       const nextCandidate = array(payload.candidates).find((row) => row.id === candidateId)
         || payload.remintCandidate
@@ -854,6 +982,7 @@ export default function SongCardMintPanel({ songId, project, showGraph, compact 
       return payload;
     } catch (caught) {
       localRenderStartedRef.current = "";
+      setRenderRequestFailure((current) => current || normalizeSongCardRenderFailure({}, caught));
       throw caught;
     }
   }
@@ -863,6 +992,7 @@ export default function SongCardMintPanel({ songId, project, showGraph, compact 
     setPhase("rendering");
     setError("");
     setNotice("");
+    setRenderRequestFailure(null);
     try {
       const headers = { Accept: "application/json", "Content-Type": "application/json" };
       const approveResponse = await songCardAdminFetch(`/api/song-card-remints/${encodeURIComponent(remintCandidate.id)}/approve`, {
@@ -881,7 +1011,9 @@ export default function SongCardMintPanel({ songId, project, showGraph, compact 
       setRemintCandidate(candidate);
       const localRender = await startLocalRender(remintCandidate.id, { announce: false });
       setPhase("idle");
-      setNotice(localRender?.started === false
+      setNotice(localRender?.reviewRequired === true
+        ? localRender.message || "The saved edit was rebuilt safely. Review and approve the replacement before rendering."
+        : localRender?.started === false
         ? `Next Mint Edition ${candidate.predictedEdition || predictedEdition} is already rendering locally; monitoring resumed.`
         : `Next Mint Edition ${candidate.predictedEdition || predictedEdition} is approved and rendering locally with one low-memory worker.`);
     } catch (caught) {
@@ -897,6 +1029,7 @@ export default function SongCardMintPanel({ songId, project, showGraph, compact 
     setPhase("rendering");
     setError("");
     setNotice("");
+    setRenderRequestFailure(null);
     setLocalRenderJob((current) => current?.candidateId === candidateId ? {
       ...current,
       status: "queued",
@@ -907,7 +1040,9 @@ export default function SongCardMintPanel({ songId, project, showGraph, compact 
     try {
       const payload = await startLocalRender(candidateId, { announce: false });
       setPhase("idle");
-      setNotice(payload?.started === false
+      setNotice(payload?.reviewRequired === true
+        ? payload.message || "The saved edit was rebuilt safely. Review and approve the replacement before rendering."
+        : payload?.started === false
         ? "The render retry is already running; monitoring has resumed."
         : `Retry started for Edition ${remintCandidate.predictedEdition || predictedEdition} from the same approved edit.`);
     } catch (caught) {
@@ -929,6 +1064,7 @@ export default function SongCardMintPanel({ songId, project, showGraph, compact 
       if (!response.ok) throw new Error(queue.error || queue.message || `Remint cancellation failed (${response.status}).`);
       setRemintCandidate(array(queue.candidates).find((row) => row.id === remintCandidate.id) || null);
       setLocalRenderJob(null);
+      setRenderRequestFailure(null);
       localRenderStartedRef.current = "";
       setPhase("idle");
       setNotice("Next Mint render candidate canceled; immutable editions were not changed.");
@@ -1240,10 +1376,21 @@ export default function SongCardMintPanel({ songId, project, showGraph, compact 
               {localRenderJob.message && !localRenderFailed && <p style={{ ...styles.label, margin: "6px 0 0" }}>{localRenderJob.message}</p>}
             </div>
           )}
-          {renderFailed && renderFailureMessage && (
-            <p data-testid="song-card-render-failure-detail" role="alert" style={{ color: "#fb7185", margin: "8px 0 0", overflowWrap: "anywhere" }}>
-              <strong>{renderFailureStage} · {renderFailureCode}</strong> · {renderFailureMessage}
-            </p>
+          {renderFailed && (
+            <div
+              data-testid="song-card-render-failure-detail"
+              data-failure-category={renderFailureHelp.category}
+              role="alert"
+              style={{ color: "#fb7185", margin: "8px 0 0", overflowWrap: "anywhere" }}
+            >
+              <strong>{renderFailureHelp.title}</strong>
+              <p style={{ margin: "4px 0" }}>{renderFailureMessage}</p>
+              <p data-testid="song-card-render-failure-action" style={{ color: "#f6c96d", margin: "4px 0" }}>{renderFailureHelp.nextAction}</p>
+              <details style={{ color: "#94a3b8" }}>
+                <summary style={{ cursor: "pointer" }}>Technical details</summary>
+                <code>{renderFailureStage} · {renderFailureCode}</code>
+              </details>
+            </div>
           )}
           {candidateInactive && (
             <p data-testid="song-card-render-inactive" role="status" style={{ color: "#f6c96d", margin: "8px 0 0" }}>
@@ -1253,7 +1400,7 @@ export default function SongCardMintPanel({ songId, project, showGraph, compact 
           <p style={styles.label}>The Builder chooses the render and poster locations, then binds them automatically. Minting remains a separate confirmation.</p>
           <div style={styles.row}>
             {remintCandidate.status === "awaiting-approval" && <button type="button" data-testid="song-card-remint-approve" style={styles.primary} disabled={!localSessionReady || !renderAvailable} title={!renderAvailable ? renderExecutor?.reason || "Finishing renderer unavailable" : "Render with Builder-managed files"} onClick={approveAndQueueRemint}>Render next edition</button>}
-            {renderFailed && remintCandidate.status === "failed" && <button type="button" data-testid="song-card-remint-retry" style={styles.primary} disabled={!localSessionReady || !renderAvailable || phase === "rendering"} title={!renderAvailable ? renderExecutor?.reason || "Finishing renderer unavailable" : "Retry this exact approved render"} onClick={retryLocalRender}>Retry render</button>}
+            {renderFailed && ["approved", "queued", "rendering", "failed"].includes(remintCandidate.status) && <button type="button" data-testid="song-card-remint-retry" style={styles.primary} disabled={!localSessionReady || !renderAvailable || effectivePhase === "rendering"} title={!renderAvailable ? renderExecutor?.reason || "Finishing renderer unavailable" : "Retry this exact approved render"} onClick={retryLocalRender}>Retry render</button>}
             {remintCandidate.status === "render-ready" && <span data-testid="song-card-remint-auto-bind" style={styles.label}>Binding Builder-managed render…</span>}
             {remintCandidate.status === "render-ready" && error && <button type="button" data-testid="song-card-remint-bind" style={styles.button} onClick={bindRemintRenderForReview}>Retry automatic binding</button>}
             {["awaiting-approval", "approved", "queued", "rendering", "failed"].includes(remintCandidate.status) && <button type="button" data-testid="song-card-remint-cancel" style={styles.button} onClick={cancelRemintCandidate}>Cancel candidate</button>}

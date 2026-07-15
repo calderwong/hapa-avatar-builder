@@ -117,7 +117,13 @@ test("Dear Papa HyperFrames schedules every sequential visualizer cue with exact
       assert.equal(instance.audioMap[uniform].signal, parts.at(-1));
       if (parts.length > 1) assert.equal(instance.audioMap[uniform].stemFocus, parts.slice(0, -1).join(":"));
       if (portable.audioMap?.[uniform]?.depth != null) {
-        assert.equal(instance.audioMap[uniform].depth, portable.audioMap[uniform].depth, "editor aliases must preserve portable mapping depth");
+        const portableMapping = portable.audioMap[uniform];
+        if (instance.audioMap[uniform].depthMode === "range-relative") {
+          assert.equal(instance.audioMap[uniform].depthMode, "range-relative");
+          assert.equal(instance.audioMap[uniform].depthFraction, portableMapping.depth, "editor aliases must preserve portable range-relative depth intent");
+        } else {
+          assert.equal(instance.audioMap[uniform].depth, portableMapping.depth, "non-reactive and explicit legacy absolute depth must be preserved");
+        }
       }
     }
     assert.ok(instance.audioSignal.length > 0);
@@ -156,7 +162,10 @@ test("Dear Papa HyperFrames schedules every sequential visualizer cue with exact
   assert.equal(show.visualizerCoverage.exactProxyCount, expected.length);
   assert.equal(show.visualizerCoverage.unsupportedCount, 0);
   assert.equal(show.visualizerCoverage.silentDefaultCount, 0);
-  assert.deepEqual(show.instances.accents, graph.directorV2?.accentTrack?.events || []);
+  const expectedAccents = graph.directorV2?.accentTrack?.events?.length
+    ? graph.directorV2.accentTrack.events
+    : (graph.directorV2?.effects || []);
+  assert.deepEqual(show.instances.accents, expectedAccents);
   assert.ok(hyperframes.inspectHyperFramesShow(show).ok, hyperframes.inspectHyperFramesShow(show).errors.join(", "));
 });
 
@@ -219,7 +228,9 @@ test("HyperFrames keeps undeclared shaders visible as unsupported instead of sub
   assert.equal(show.visualizerCoverage.exactProxyCount, 2);
   assert.equal(show.visualizerCoverage.unsupportedCount, 1);
   assert.equal(show.visualizerCoverage.silentDefaultCount, 0);
-  assert.ok(hyperframes.inspectHyperFramesShow(show).ok, hyperframes.inspectHyperFramesShow(show).errors.join(", "));
+  const inspection = hyperframes.inspectHyperFramesShow(show);
+  assert.equal(inspection.ok, false, "an unsupported full-frame shader must remain visible as a diagnostic but cannot certify visual coverage");
+  assert.ok(inspection.errors.includes("incomplete-visual-coverage"));
 });
 
 test("HyperFrames project generation and pixel capture are offline-only and locally runnable", () => {

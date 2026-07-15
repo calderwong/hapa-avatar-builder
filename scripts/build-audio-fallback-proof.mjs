@@ -16,7 +16,7 @@ for (const file of fs.readdirSync(projectRoot).filter((name) => name.endsWith("-
   const project = payload.music_video_project || payload;
   if ((project.stems_available || []).length) continue;
   const prepared = repairEchoProjectShaders(payload, manifest).project;
-  const artifacts = buildDirectorV2Artifacts({ project: prepared, manifest, registry, duration: Math.min(60, Number(project.duration || 60)), recipe: "visualizer-forward", seed: `fallback-proof:${project.song_id}` });
+  const artifacts = buildDirectorV2Artifacts({ project: prepared, sourceProject: payload, manifest, registry, duration: Math.min(60, Number(project.duration || 60)), recipe: "visualizer-forward", seed: `fallback-proof:${project.song_id}` });
   const profile = artifacts.showGraph.directorV2.audioFallbackProfile;
   const validation = validateAudioFallbackProfile(profile);
   rows.push({ songId: project.song_id, title: project.song_title, validation, mode: profile.mode, truthStatus: profile.truthStatus, isolatedStemCount: profile.isolatedStemCount, unavailableSignals: profile.unavailableSignals, busKinds: profile.buses.map((bus) => bus.kind), frameCount: profile.deterministicControlEnvelope.frames.length, envelopeHash: profile.deterministicControlEnvelope.hash, upgradePath: profile.upgradePath });

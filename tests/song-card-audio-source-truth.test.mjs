@@ -46,7 +46,7 @@ test("HyperFrames deterministically transcodes an unsupported source suffix inst
   assert.notEqual(first.destination, second.destination);
 });
 
-test("Song Card source resolution ignores relative or missing editor paths and falls back to a verified registry master", { skip: !HAS_FFMPEG }, async (t) => {
+test("Song Card source resolution requires the verified registry master and never trusts editable plan paths as song identity", { skip: !HAS_FFMPEG }, async (t) => {
   const { root, wavPath } = await fixture(t);
   let registryCalls = 0;
   const resolved = await resolveSongCardMasterAudio({
@@ -60,17 +60,30 @@ test("Song Card source resolution ignores relative or missing editor paths and f
   assert.equal(resolved, wavPath);
   assert.equal(registryCalls, 1);
 
+  const registryPath = path.join(root, "registry-master.wav");
+  await fsp.copyFile(wavPath, registryPath);
   registryCalls = 0;
-  const direct = await resolveSongCardMasterAudio({
+  const registryFirst = await resolveSongCardMasterAudio({
     songId: "song:source-truth",
     storedPlan: { input: { song: { audioPath: wavPath } } },
     resolveRegistryMaster: async () => {
       registryCalls += 1;
-      return { masterPath: path.join(root, "wrong.wav") };
+      return { masterPath: registryPath };
     },
   });
-  assert.equal(direct, wavPath);
-  assert.equal(registryCalls, 0);
+  assert.equal(registryFirst, registryPath);
+  assert.equal(registryCalls, 1);
+
+  registryCalls = 0;
+  await assert.rejects(resolveSongCardMasterAudio({
+    songId: "song:source-truth",
+    storedPlan: { input: { song: { audioPath: wavPath } } },
+    resolveRegistryMaster: async () => {
+      registryCalls += 1;
+      return { masterPath: path.join(root, "missing-registry-master.wav") };
+    },
+  }), (error) => error?.code === "local_master_audio_missing");
+  assert.equal(registryCalls, 1);
 
   await assert.rejects(
     resolveSongCardMasterAudio({

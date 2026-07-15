@@ -5,6 +5,7 @@ import vm from "node:vm";
 import {
   resolveVerifiedEchoStemBinding,
 } from "../src/domain/echo-visualizer-audio-envelope.js";
+import { createEchoLiveSignalTracker } from "../src/domain/echo-live-signal-transport.js";
 
 const source = fs.readFileSync(new URL("../src/components/HapaEchosView.jsx", import.meta.url), "utf8");
 
@@ -34,9 +35,7 @@ function functionSource(name) {
 
 function loadHelpers() {
   const names = [
-    "analyserBandAverage",
     "paletteSignalForPerspective",
-    "liveSignalFrame",
     "visualizerCompositionInput"
   ];
   const context = { result: null, Uint8Array, Math, Number, String, Set, Array, Object };
@@ -69,7 +68,7 @@ test("Echo binds only the currently presented media frame, never a standby decod
   assert.match(source, /mediaIdentity: currentPresentedMedia \?/);
 });
 
-test("Echo uses one reusable verified stem decoder and never invents a near-match", () => {
+test("Echo uses a bounded generation-bound verified stem decoder pool and never invents a near-match", () => {
   const verifiedStemBinding = resolveVerifiedEchoStemBinding;
   const verifiedGraph = {
     stems: { nativeStatus: "verified-local-registry-paths", items: [{ id: "stem-synth", audioPath: "/verified/synth.mp3" }, { id: "stem-vocals", audioPath: "/verified/vocals.mp3" }] },
@@ -93,43 +92,67 @@ test("Echo uses one reusable verified stem decoder and never invents a near-matc
 
   const bindingBlock = between("const ensureActiveStemBinding", "useEffect(() => {\n    activeProjectRef.current");
   assert.equal((bindingBlock.match(/document\.createElement\("audio"\)/g) || []).length, 1);
-  assert.match(bindingBlock, /if \(!resource\?\.element\)/);
-  assert.match(bindingBlock, /resource\.element\.src = targetUri/);
-  assert.match(bindingBlock, /dataset\.echoStemDecoder = "active-singleton"/);
+  assert.match(bindingBlock, /stemDecoderPoolRef\.current/);
+  assert.match(bindingBlock, /pool\.set\(desiredKey, resource\)/);
+  assert.match(bindingBlock, /element\.src = targetUri/);
+  assert.match(bindingBlock, /dataset\.echoStemDecoder = "bounded-pool"/);
   assert.match(bindingBlock, /silentGain\.gain\.value = 0/);
+  assert.match(bindingBlock, /readyGeneration = sourceGeneration/);
+  assert.match(bindingBlock, /readyUri = targetUri/);
+  assert.match(bindingBlock, /eventMatchesGeneration/);
+  assert.match(bindingBlock, /echoStemDecoderRetryDue/);
+  assert.match(bindingBlock, /nextEchoStemDecoderRetryState/);
+  assert.match(bindingBlock, /failureCount: retrySeed\.failureCount/);
+  assert.match(bindingBlock, /pool\.set\(desiredKey, fallback\)/);
+  const pruneBlock = functionSource("pruneEchoStemDecoderPool");
+  assert.match(pruneBlock, /pauseEchoStemDecoderPool\(pool, playingKeys\)/);
+  assert.match(pruneBlock, /while \(pool\.size > hardLimit/);
+  assert.match(pruneBlock, /disposeEchoStemResource\(resource\)/);
+  assert.doesNotMatch(pruneBlock, /pool\.size <= limit\) return/);
   assert.match(source, /crossOrigin = "anonymous"/);
   assert.match(source, /const shouldPlayStem = isPlayingRef\.current/);
-  assert.match(source, /stemResource\.playbackBlocked = true/);
+  assert.match(source, /resource\.playbackBlocked = true/);
   assert.match(source, /stem-decoder-playback-blocked/);
-  assert.match(source, /const playGeneration = stemResource\.sourceGeneration/);
-  assert.match(source, /stemResource\.sourceGeneration === playGeneration/);
-  assert.match(source, /const stemTransport = echoStemTransportHealth\(stemResource, isPlayingRef\.current\)/);
-  assert.match(source, /if \(stemTransport\.usable\)/);
+  assert.match(source, /resource\.playbackRetryExhausted !== true/);
+  assert.match(source, /resource\.playbackNextRetryAtMs == null \|\| echoStemPlaybackRetryDue\(resource, echoStemDecoderNow\(\)\)/);
+  assert.match(source, /Object\.assign\(resource, nextEchoStemPlaybackRetryState\(resource, echoStemDecoderNow\(\)\)\)/);
+  assert.match(source, /const playGeneration = resource\.sourceGeneration/);
+  assert.match(source, /resource\.sourceGeneration === playGeneration/);
+  assert.match(source, /targetTimeSeconds: targetTime/);
+  assert.match(source, /echoIsfRequiredStemFocuses\(graphVisualizerCard\)\.slice\(0, ECHO_STEM_DECODER_POOL_LIMIT\)/);
+  assert.match(source, /protectedResourceKeys,\s+ECHO_STEM_DECODER_POOL_LIMIT,\s+currentResourceKeys,/);
+  assert.match(source, /pauseEchoStemDecoderPool\(stemDecoderPoolRef\.current\)/);
+  assert.doesNotMatch(source, /expectedActivity: !allowSilent/);
+  assert.match(source, /if \(!transport\.usable\) continue/);
   assert.match(source, /compactStemSignalBinding\(stemResource, stemTransport\)/);
   assert.doesNotMatch(source, /stemElement\.play\(\)\)\.catch\(\(\) => \{\}\)/);
 });
 
 test("Echo live signal frames cover the complete album vocabulary without procedural exact-path signals", () => {
-  const { liveSignalFrame, paletteSignalForPerspective } = loadHelpers();
+  const { paletteSignalForPerspective } = loadHelpers();
+  const tracker = createEchoLiveSignalTracker();
   const analyser = {
+    context: { sampleRate: 48_000 },
     frequencyBinCount: 8,
     getByteFrequencyData(target) { target.set([255, 192, 128, 96, 64, 32, 16, 8]); },
     getByteTimeDomainData(target) { target.set([128, 160, 96, 144, 112, 136, 120, 128]); }
   };
-  const frame = liveSignalFrame(analyser, 2, { palette: paletteSignalForPerspective("magenta") });
+  const frame = tracker.sample(analyser, 2, { observedAtSeconds: 2, palette: paletteSignalForPerspective("magenta") });
   for (const signal of ["rms", "beat", "energy", "bass", "mid", "treble", "palette", "orbit", "off"]) {
     assert.equal(Number.isFinite(frame[signal]), true, signal);
     assert.ok(frame[signal] >= 0 && frame[signal] <= 1, signal);
   }
   assert.equal(frame.bass, frame.low);
   assert.equal(frame.treble, frame.high);
-  const unavailable = liveSignalFrame(null, 0, { palette: 0.25 });
+  assert.equal(frame.truthStatus, "live-analyser-vocabulary-aligned");
+  const unavailable = tracker.sample(null, 0, { observedAtSeconds: 3, palette: 0.25 });
   assert.equal(unavailable.status, "unavailable");
   assert.equal(unavailable.truthStatus, "no-live-analyser");
-  assert.equal(unavailable.palette, 0.25);
+  assert.equal(unavailable.palette, 0);
   assert.match(source, /const signalFrames = \{\};/);
   assert.match(source, /if \(masterSignalFrame\.status === "live"\)/);
-  assert.match(source, /signalFrames\[stemResource\.requestedStem\] = stemFrame/);
+  assert.match(source, /signalFrames\[binding\.role\] = stemFrame/);
+  assert.match(source, /echoIsfRequiredStemFocuses\(graphVisualizerCard\)/);
 });
 
 test("Echo applies returned blend, opacity, and only real fade-like transitions", () => {

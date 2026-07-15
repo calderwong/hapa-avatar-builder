@@ -142,33 +142,21 @@ test("Echo repairs variant-only timelines and declared graphs without expanding 
 
   const derivedProject = (await (await fetch(`${BASE}/api/echos/director-project?songId=${SONG_ID}&variantId=derived-only`)).json()).music_video_project;
   const derived = derivedProject.direction_script_variants.find((variant) => variant.id === "derived-only");
-  assert.ok(derived?.director_show_graph?.tracks, "a selected cut without a graph should receive a rich derived graph");
+  assert.equal(derived?.director_show_graph, undefined, "an unpublished cut must not receive an on-demand execution graph");
+  assert.equal(derived?.execution_preview?.status, "preparing");
   assert.notEqual(derived.visualizer_timeline[0].visualizer_id, QUARANTINED_ID);
   assert.equal(derived.visualizer_timeline[0].shader_repair.originalId, QUARANTINED_ID);
-  const derivedCard = visualizerCards(derived.director_show_graph)[0];
-  assert.equal(derivedCard.visualization.sourceId, derived.visualizer_timeline[0].visualizer_id);
-  assert.equal(derivedCard.visualization.card.schemaVersion, "hapa.visualizer-card.v2");
-  assert.equal(derivedCard.visualization.card.id, derivedCard.visualization.sourceId);
-  assert.equal(derivedCard.visualization.card.source.hash, shaderById.get(derivedCard.visualization.sourceId).sourceHash);
-  assert.equal(derived.director_show_graph.delivery.schemaVersion, "hapa.echo.variant-graph-overlay.v1");
-  assert.equal(derived.director_show_graph.directorV2.cueGraph, undefined, "the wire graph should not duplicate inherited base director data");
-  const runtimeDerived = deriveEchoDirectionVariantProject(derivedProject, derived);
-  assert.deepEqual(runtimeDerived.director_show_graph.directorV2.cueGraph, derivedProject.director_show_graph.directorV2.cueGraph);
-  assert.deepEqual(runtimeDerived.director_show_graph.song.lyricOverlay, derivedProject.director_show_graph.song.lyricOverlay);
-  assert.equal(visualizerCards(runtimeDerived.director_show_graph)[0].visualization.card.id, derivedCard.visualization.card.id);
   assert.equal(derived.runtime_shader_repair_receipt.sourceVariantMutated, false);
   assert.ok(derived.runtime_shader_repair_receipt.scopes.some((scope) => scope.scope === "variant:derived-only:visualizer_timeline" && scope.replacementCount === 1));
-  assert.ok(derivedProject.runtime_shader_repair_receipt.scopes.some((scope) => scope.scope === "variant:derived-only:derived-director-show-graph"));
+  assert.ok(!derivedProject.runtime_shader_repair_receipt.scopes.some((scope) => scope.scope === "variant:derived-only:derived-director-show-graph"));
+  assert.equal(deriveEchoDirectionVariantProject(derivedProject, derived).director_show_graph, null, "the client projection must not recreate an unpublished graph");
 
   const declaredProject = (await (await fetch(`${BASE}/api/echos/director-project?songId=${SONG_ID}&variantId=declared-graph`)).json()).music_video_project;
   const declared = declaredProject.direction_script_variants.find((variant) => variant.id === "declared-graph");
   assert.notEqual(declared.visualizerTimeline[0].visualizerId, QUARANTINED_ID);
   assert.equal(declared.visualizerTimeline[0].visualizer_id, declared.visualizerTimeline[0].visualizerId);
-  const declaredCard = visualizerCards(declared.directorShowGraph)[0];
-  assert.notEqual(declaredCard.visualization.sourceId, QUARANTINED_ID);
-  assert.equal(declaredCard.visualization.card.id, declaredCard.visualization.sourceId);
-  assert.equal(declaredCard.visualization.card.source.hash, shaderById.get(declaredCard.visualization.sourceId).sourceHash);
-  assert.equal(declaredCard.provenance.runtimeShaderRepair.originalId, QUARANTINED_ID);
+  assert.equal(declared.directorShowGraph, undefined, "a declared source graph cannot bypass immutable cut certification");
+  assert.equal(declared.execution_preview.status, "preparing");
   assert.ok(declared.runtime_shader_repair_receipt.scopes.some((scope) => scope.scope === "variant:declared-graph:directorShowGraph" && scope.replacementCount === 1));
 
   const sourceProject = (await (await fetch(`${BASE}/api/echos/director-project?songId=${SONG_ID}&profile=source`)).json()).music_video_project;

@@ -17,3 +17,35 @@ test("generated results return only as provenance-marked pending candidates", ()
   assert.equal(candidate.status, "candidate-pending-human-review");
   assert.match(candidate.replacementPolicy, /never-silent/);
 });
+
+test("Vertical projects request exact 9:16 generated media independently of source dimensions", () => {
+  const verticalProject = {
+    ...project,
+    output_profile: "vertical",
+    timeline: project.timeline.map((shot) => ({
+      ...shot,
+      media_contract: { dimensions: { width: 1920, height: 1080 } },
+    })),
+  };
+  const plan = buildMissingMediaPlan(verticalProject, { maxRequests: 1 });
+  assert.deepEqual(plan.requests[0].requestedOutput, {
+    profileId: "vertical",
+    durationSeconds: 5,
+    aspect: "9:16",
+    width: 1080,
+    height: 1920,
+    fps: 30,
+    startFrameReference: null,
+    endFrameReference: null,
+  });
+  assert.equal(plan.requests[0].framing.outputOrientation, "vertical");
+
+  const candidate = registerGeneratedMediaCandidate(
+    plan,
+    plan.requests[0].id,
+    { contentHash: "b".repeat(64), path: "/local/vertical.mp4", width: 1920, height: 1080 },
+    { sourceNodeId: "hapa-mlx", operator: "human" },
+  );
+  assert.equal(candidate.outputConformance.status, "mismatch");
+  assert.equal(candidate.status, "candidate-pending-human-review");
+});

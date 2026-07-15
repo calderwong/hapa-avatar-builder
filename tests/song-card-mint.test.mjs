@@ -90,6 +90,23 @@ test("semantic fingerprints ignore volatile UI/path state and change for every p
   assert.deepEqual(exact.dirtyRanges[0].affectedAppearanceIds.sort(), exact.affectedAppearanceIds.sort());
 });
 
+test("changing Echo output orientation invalidates the renderer family for the full song", () => {
+  const base = fixture();
+  base.project.output_profile = "landscape";
+  const landscape = buildSongCardMintSnapshot(base);
+  const verticalInput = structuredClone(base);
+  verticalInput.project.output_profile = "vertical";
+  const vertical = buildSongCardMintSnapshot(verticalInput);
+  const diff = diffSongCardMintSnapshots(landscape, vertical);
+
+  assert.equal(landscape.outputProfile.id, "landscape");
+  assert.equal(vertical.outputProfile.id, "vertical");
+  assert.ok(diff.changedFamilies.includes("renderer"));
+  assert.deepEqual(diff.dirtyRanges.map(({ startMs, endMs, reason }) => ({ startMs, endMs, reason })), [
+    { startMs: 0, endMs: 10_000, reason: "renderer-only-material-change" },
+  ]);
+});
+
 test("stable heads and immutable edition records validate while legacy empty cards remain head-only", () => {
   const source = fixture();
   const snapshot = buildSongCardMintSnapshot(source);

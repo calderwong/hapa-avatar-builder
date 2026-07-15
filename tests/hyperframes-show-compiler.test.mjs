@@ -9,7 +9,9 @@ import { pathToFileURL } from "node:url";
 import {
   compileHyperFramesShow,
   hyperFramesMediaSourceCandidates,
+  hyperFramesMediaOpacityState,
   indexHyperFramesMediaContracts,
+  inspectHyperFramesVisualCoverage,
   inspectHyperFramesShow,
   preflightHyperFramesMedia,
   resolveHyperFramesLocalFileUri,
@@ -30,12 +32,17 @@ function mediaCard(id, media, extras = {}) {
   return { id, trackId: "media-a", startSeconds: 0, endSeconds: 4, media, parameters: {}, provenance: {}, ...extras };
 }
 
+const EXACT_PROXY_REGISTRY = JSON.parse(fs.readFileSync(
+  path.join(os.homedir(), "Desktop", "hapa-music-viz", "web", "isf", "proxies", "native-exact-proxies.json"),
+  "utf8",
+));
+
 test("HyperFrames compiler emits pinned templated executable shows", () => {
   const graph = JSON.parse(fs.readFileSync("work/dear-papa-stem-telemetry/native-show-graph.json", "utf8"));
   const telemetry = JSON.parse(fs.readFileSync("work/dear-papa-stem-telemetry/stem-telemetry.json", "utf8"));
   const project = JSON.parse(fs.readFileSync("data/music-video-projects/dear-papa-song-dear-papa-video-project.json", "utf8"));
-  const a = compileHyperFramesShow({ showGraph: graph, telemetry, project, fps: 30 });
-  const b = compileHyperFramesShow({ showGraph: graph, telemetry, project, fps: 30 });
+  const a = compileHyperFramesShow({ showGraph: graph, telemetry, project, proxyRegistry: EXACT_PROXY_REGISTRY, fps: 30 });
+  const b = compileHyperFramesShow({ showGraph: graph, telemetry, project, proxyRegistry: EXACT_PROXY_REGISTRY, fps: 30 });
   assert.deepEqual(a, b);
   assert.equal(a.deterministicPolicy.runtimeDecisionCalls, false);
   assert.equal(a.deterministicPolicy.runtimeAudioAnalysis, false);
@@ -48,21 +55,58 @@ test("HyperFrames compiler emits pinned templated executable shows", () => {
   assert.ok(inspectHyperFramesShow(a).ok);
 });
 
-test("HyperFrames preserves structured audio mappings and gives legacy shaders a deterministic reactive envelope", () => {
+test("HyperFrames preserves legacy absolute depth and scales only explicitly generated range-relative mappings", () => {
   const graph = JSON.parse(fs.readFileSync("work/dear-papa-stem-telemetry/native-show-graph.json", "utf8"));
   const telemetry = JSON.parse(fs.readFileSync("work/dear-papa-stem-telemetry/stem-telemetry.json", "utf8"));
   const project = JSON.parse(fs.readFileSync("data/music-video-projects/dear-papa-song-dear-papa-video-project.json", "utf8"));
-  const declaredCard = graph.tracks.flatMap((track) => track.cards || []).find((card) => card.visualization?.card?.audioMap);
-  const declaredUniform = Object.keys(declaredCard.visualization.card.audioMap)[0];
-  const declaredMapping = declaredCard.visualization.card.audioMap[declaredUniform];
-  const declaredShow = compileHyperFramesShow({ showGraph: graph, telemetry, project, fps: 30 });
+  const reactiveSignals = new Set(["rms", "peak", "onset", "beat", "energy", "low", "bass", "mid", "high", "treble", "palette", "orbit"]);
+  const declaredCard = graph.tracks.flatMap((track) => track.cards || []).find((card) => (
+    Object.values(card.visualization?.card?.audioMap || {}).some((mapping) => reactiveSignals.has(String(mapping?.signal || "").toLowerCase()))
+  ));
+  const [declaredUniform, declaredMapping] = Object.entries(declaredCard.visualization.card.audioMap)
+    .find(([, mapping]) => reactiveSignals.has(String(mapping?.signal || "").toLowerCase()));
+  const declaredInput = declaredCard.visualization.card.inputs.find((input) => (input.NAME || input.name) === declaredUniform);
+  const declaredShow = compileHyperFramesShow({ showGraph: graph, telemetry, project, proxyRegistry: EXACT_PROXY_REGISTRY, fps: 30 });
   const declaredLayer = declaredShow.instances.visualizers.find((layer) => layer.id === declaredCard.id);
 
   assert.equal(typeof declaredLayer.audioMap[declaredUniform], "object", "stem:signal editor strings must not replace executable mapping objects");
   assert.equal(declaredLayer.audioMap[declaredUniform].signal, declaredMapping.signal);
-  assert.equal(declaredLayer.audioMap[declaredUniform].depth, declaredMapping.depth, "portable mapping depth remains authoritative");
+  const declaredMin = Number(declaredInput?.MIN ?? declaredInput?.min);
+  const declaredMax = Number(declaredInput?.MAX ?? declaredInput?.max);
+  const expectedDepth = Number.isFinite(declaredMin) && Number.isFinite(declaredMax) && declaredMax > declaredMin
+    ? (declaredMax - declaredMin) * declaredMapping.depth
+    : declaredMapping.depth;
+  assert.equal(declaredLayer.audioMap[declaredUniform].depthMode, "absolute");
+  assert.equal(declaredLayer.audioMap[declaredUniform].depth, declaredMapping.depth, "an explicit legacy depth without a mode must remain absolute");
   assert.equal(declaredLayer.presentationModulation.mode, "audio-conditioned-proxy");
   assert.ok(declaredLayer.audioSignal.some((signal) => ["rms", "beat", "onset", "low", "bass", "mid", "high", "treble"].includes(signal)));
+
+  const generatedGraph = structuredClone(graph);
+  const generatedCard = generatedGraph.tracks.flatMap((track) => track.cards || []).find((card) => card.id === declaredCard.id);
+  generatedCard.visualization.card.audioMap[declaredUniform] = {
+    ...generatedCard.visualization.card.audioMap[declaredUniform],
+    depthMode: "range-relative",
+    depthFraction: declaredMapping.depth,
+  };
+  const generatedShow = compileHyperFramesShow({ showGraph: generatedGraph, telemetry, project, proxyRegistry: EXACT_PROXY_REGISTRY, fps: 30 });
+  const generatedLayer = generatedShow.instances.visualizers.find((layer) => layer.id === generatedCard.id);
+  assert.equal(generatedLayer.audioMap[declaredUniform].depthMode, "range-relative");
+  assert.equal(generatedLayer.audioMap[declaredUniform].depthFraction, declaredMapping.depth);
+  assert.equal(generatedLayer.audioMap[declaredUniform].depth, expectedDepth, "an explicitly generated mapping must scale to the declared input range");
+
+  const legacyOverrideGraph = structuredClone(generatedGraph);
+  const legacyOverrideCard = legacyOverrideGraph.tracks.flatMap((track) => track.cards || []).find((card) => card.id === declaredCard.id);
+  legacyOverrideCard.parameters = {
+    ...(legacyOverrideCard.parameters || {}),
+    visualizerMappings: {
+      ...(legacyOverrideCard.parameters?.visualizerMappings || {}),
+      [declaredUniform]: { signal: declaredMapping.signal, depth: 0.125 },
+    },
+  };
+  const legacyOverrideShow = compileHyperFramesShow({ showGraph: legacyOverrideGraph, telemetry, project, proxyRegistry: EXACT_PROXY_REGISTRY, fps: 30 });
+  const legacyOverrideLayer = legacyOverrideShow.instances.visualizers.find((layer) => layer.id === legacyOverrideCard.id);
+  assert.equal(legacyOverrideLayer.audioMap[declaredUniform].depthMode, "absolute", "an unmarked editor depth overrides generated relative intent as legacy absolute");
+  assert.equal(legacyOverrideLayer.audioMap[declaredUniform].depth, 0.125);
 
   const overrideGraph = structuredClone(graph);
   const overrideCard = overrideGraph.tracks.flatMap((track) => track.cards || []).find((card) => card.id === declaredCard.id);
@@ -75,11 +119,24 @@ test("HyperFrames preserves structured audio mappings and gives legacy shaders a
       [overrideUniform]: "drums:rms",
     },
   };
-  const overrideShow = compileHyperFramesShow({ showGraph: overrideGraph, telemetry, project, fps: 30 });
+  const overrideShow = compileHyperFramesShow({ showGraph: overrideGraph, telemetry, project, proxyRegistry: EXACT_PROXY_REGISTRY, fps: 30 });
   const overrideLayer = overrideShow.instances.visualizers.find((layer) => layer.id === overrideCard.id);
   assert.equal(overrideLayer.audioMap[overrideUniform].stemFocus, "drums");
   assert.equal(overrideLayer.audioMap[overrideUniform].signal, "rms");
   assert.equal(overrideLayer.stemFocus, "drums", "one explicit mapping stem must override the portable master for presentation modulation");
+
+  const absoluteGraph = structuredClone(graph);
+  const absoluteCard = absoluteGraph.tracks.flatMap((track) => track.cards || []).find((card) => card.id === declaredCard.id);
+  absoluteCard.visualization.card.audioMap[declaredUniform] = {
+    ...absoluteCard.visualization.card.audioMap[declaredUniform],
+    depth: 0.2,
+    depthMode: "absolute",
+  };
+  absoluteCard.parameters.visualizerMappings = {};
+  const absoluteShow = compileHyperFramesShow({ showGraph: absoluteGraph, telemetry, project, proxyRegistry: EXACT_PROXY_REGISTRY, fps: 30 });
+  const absoluteLayer = absoluteShow.instances.visualizers.find((layer) => layer.id === absoluteCard.id);
+  assert.equal(absoluteLayer.audioMap[declaredUniform].depthMode, "absolute");
+  assert.equal(absoluteLayer.audioMap[declaredUniform].depth, 0.2);
 
   const compatibleLegacyShow = structuredClone(declaredShow);
   const compatibleLegacyLayer = compatibleLegacyShow.instances.visualizers.find((layer) => layer.id === declaredCard.id);
@@ -139,6 +196,30 @@ test("HyperFrames preserves structured audio mappings and gives legacy shaders a
   assert.equal(detachedInspection.ok, false);
   assert.ok(detachedInspection.errors.includes("missing-stem-wiring:legacy:ivf:reactive"));
   assert.ok(detachedInspection.errors.includes("nonreactive-visualizer:legacy:ivf:reactive"));
+});
+
+test("HyperFrames gates each generated uniform on a material low-to-high effect", () => {
+  const graph = JSON.parse(fs.readFileSync("work/dear-papa-stem-telemetry/native-show-graph.json", "utf8"));
+  const telemetry = JSON.parse(fs.readFileSync("work/dear-papa-stem-telemetry/stem-telemetry.json", "utf8"));
+  const project = JSON.parse(fs.readFileSync("data/music-video-projects/dear-papa-song-dear-papa-video-project.json", "utf8"));
+  const reactiveSignals = new Set(["rms", "peak", "onset", "beat", "energy", "low", "bass", "mid", "high", "treble", "palette", "orbit"]);
+  const card = graph.tracks.flatMap((track) => track.cards || []).find((candidate) => (
+    Object.values(candidate.visualization?.card?.audioMap || {}).some((mapping) => reactiveSignals.has(String(mapping?.signal || "").toLowerCase()))
+  ));
+  const uniform = Object.keys(card.visualization.card.audioMap).find((name) => (
+    reactiveSignals.has(String(card.visualization.card.audioMap[name]?.signal || "").toLowerCase())
+  ));
+  card.visualization.card.audioMap[uniform] = {
+    ...card.visualization.card.audioMap[uniform],
+    depthMode: "range-relative",
+    depthFraction: 0,
+  };
+  const show = compileHyperFramesShow({ showGraph: graph, telemetry, project, proxyRegistry: EXACT_PROXY_REGISTRY, fps: 30 });
+  const layer = show.instances.visualizers.find((candidate) => candidate.id === card.id);
+  const gate = layer.modulationEffectiveness.entries.find((entry) => entry.uniform === uniform);
+  assert.equal(gate.enforced, true);
+  assert.equal(gate.material, false);
+  assert.ok(inspectHyperFramesShow(show).errors.includes(`ineffective-audio-mapping:${card.id}:${uniform}`));
 });
 
 test("HyperFrames matches source/runtime aliases and preserves explicit pure-IVF and knockout cues", () => {
@@ -245,6 +326,42 @@ test("HyperFrames uses media manifest contracts as a secondary source", () => {
   assert.equal(source.contentHash, contentHash);
 });
 
+test("HyperFrames propagates blank, sampling, and declared-kind contracts through real media preflight", () => {
+  const runtimeUri = "/media/intentional-black.mp4";
+  const graph = nativeMediaGraph([mediaCard("contracted-blank", {
+    id: "intentional-black",
+    localPath: runtimeUri,
+  }, { endSeconds: 12 })]);
+  const project = {
+    timeline: [{
+      media_id: "intentional-black",
+      media_uri: runtimeUri,
+      media_contract: {
+        type: "video",
+        originalUri: runtimeUri,
+        runtimeUri,
+        allowBlank: true,
+        samplingPolicy: "interior-three-v1",
+      },
+    }],
+  };
+  const expectedPath = path.join("/workspace/hapa-avatar-builder", "data/media/intentional-black.mp4");
+  const preflight = preflightHyperFramesMedia(graph, {
+    project,
+    root: "/workspace/hapa-avatar-builder",
+    projectPath: "/workspace/hapa-avatar-builder/data/music-video-projects/project.json",
+    isFile: (candidate) => candidate === expectedPath,
+  });
+  assert.equal(preflight.ok, true);
+  assert.equal(preflight.entries[0].type, "video");
+  assert.equal(preflight.entries[0].allowBlank, true);
+  assert.equal(preflight.entries[0].samplingPolicy, "interior-three-v1");
+  assert.deepEqual(preflight.entries[0].source.visualContract, {
+    allowBlank: true,
+    samplingPolicy: "interior-three-v1",
+  });
+});
+
 test("HyperFrames inline shot contracts override stale positional media manifest aliases", () => {
   const staleHash = "1".repeat(64);
   const currentHash = "2".repeat(64);
@@ -323,6 +440,145 @@ test("HyperFrames leaves arbitrary blank media unresolved with actionable cue di
   });
 });
 
+test("HyperFrames rejects generated placeholders that leave a media-only cut visually blank", () => {
+  const graph = nativeMediaGraph([
+    mediaCard("cue-media-only", { id: "none", title: "Intentional generated background", localPath: "" }, { knockedOut: true }),
+  ]);
+  const show = compileHyperFramesShow({
+    showGraph: graph,
+    project: { timeline: [] },
+    telemetry: {
+      fps: 2,
+      stems: [{ id: "stem:master", role: "master", frames: [{ t: 0, rms: 0.2 }, { t: 12, rms: 0.3 }] }],
+      masterMix: { frames: [{ t: 0, rms: 0.2 }, { t: 12, rms: 0.3 }] },
+    },
+  });
+  assert.equal(show.instances.visualizers.length, 0);
+  assert.equal(show.instances.media.length, 1);
+  assert.equal(inspectHyperFramesShow(show).ok, false);
+  assert.equal(inspectHyperFramesVisualCoverage(show).drawableLayerCount, 0);
+  assert.ok(inspectHyperFramesShow(show).errors.includes("incomplete-visual-coverage"));
+});
+
+test("HyperFrames never silently drops malformed visualization cards", () => {
+  const graph = nativeMediaGraph([
+    mediaCard("full-media", { id: "clip", title: "Clip", localPath: "/media/clip.mp4", type: "video" }, { endSeconds: 12 }),
+    {
+      id: "malformed-viz",
+      trackId: "media-a",
+      startSeconds: 2,
+      endSeconds: 4,
+      visualization: { sourceId: "isf:malformed-without-portable-card" },
+      parameters: {},
+    },
+  ]);
+  const show = compileHyperFramesShow({
+    showGraph: graph,
+    project: { timeline: [] },
+    telemetry: {
+      fps: 2,
+      stems: [{ id: "master", role: "master", frames: [{ t: 0, rms: 0.2 }, { t: 12, rms: 0.3 }] }],
+      masterMix: { frames: [{ t: 0, rms: 0.2 }, { t: 12, rms: 0.3 }] },
+    },
+  });
+  assert.deepEqual(show.classificationErrors, [{
+    cueId: "malformed-viz",
+    trackId: "media-a",
+    trackRole: "media",
+    reason: "visualization-card-route-or-schema-invalid",
+  }]);
+  assert.ok(inspectHyperFramesShow(show).errors.includes("invalid-visualization-route:malformed-viz"));
+});
+
+test("HyperFrames preserves legacy accent cards as bounded accent events instead of misclassifying them as shaders", () => {
+  const graph = JSON.parse(fs.readFileSync("work/dear-papa-stem-telemetry/native-show-graph.json", "utf8"));
+  const telemetry = JSON.parse(fs.readFileSync("work/dear-papa-stem-telemetry/stem-telemetry.json", "utf8"));
+  const project = JSON.parse(fs.readFileSync("data/music-video-projects/dear-papa-song-dear-papa-video-project.json", "utf8"));
+  const accentCards = graph.tracks.find((track) => track.role === "accent")?.cards || [];
+  const show = compileHyperFramesShow({ showGraph: graph, telemetry, project, proxyRegistry: EXACT_PROXY_REGISTRY, fps: 30 });
+  assert.equal(show.classificationErrors.length, 0);
+  assert.equal(show.instances.accents.length, accentCards.length);
+  assert.equal(show.automation.accentTrack.events.length, accentCards.length);
+  assert.equal(inspectHyperFramesShow(show).ok, true);
+});
+
+test("HyperFrames permits richer derived accent event streams than the editorial accent-card count", () => {
+  const graph = nativeMediaGraph([
+    mediaCard("full-media", { id: "clip", title: "Clip", localPath: "/media/clip.mp4", type: "video" }, { endSeconds: 12 }),
+  ]);
+  graph.tracks.push({
+    id: "track-c",
+    role: "accent",
+    cards: [0, 1].map((index) => ({
+      id: `card:c:${index}`,
+      trackId: "track-c",
+      startSeconds: 2 + index,
+      endSeconds: 2.2 + index,
+      visualization: { sourceId: "director:accent", status: "deterministic-intent-port" },
+      parameters: {},
+    })),
+  });
+  graph.directorV2 = {
+    accentTrack: {
+      events: [0, 1, 2].map((index) => ({ id: `accent:${index}`, atSeconds: 2 + index, endSeconds: 2.1 + index })),
+    },
+  };
+  const show = compileHyperFramesShow({
+    showGraph: graph,
+    project: { timeline: [] },
+    telemetry: {
+      fps: 2,
+      stems: [{ id: "master", role: "master", frames: [{ t: 0, rms: 0.2 }, { t: 12, rms: 0.3 }] }],
+      masterMix: { frames: [{ t: 0, rms: 0.2 }, { t: 12, rms: 0.3 }] },
+    },
+  });
+  assert.equal(show.classificationErrors.length, 0);
+  assert.equal(show.instances.accents.length, 3);
+  assert.equal(show.automation.accentTrack.events.length, 3);
+});
+
+test("HyperFrames normalizes sub-frame coverage tails and rejects real interior visual gaps", () => {
+  const telemetry = {
+    fps: 2,
+    stems: [{ id: "stem:master", role: "master", frames: [{ t: 0, rms: 0.2 }, { t: 4, rms: 0.3 }] }],
+    masterMix: { frames: [{ t: 0, rms: 0.2 }, { t: 4, rms: 0.3 }] },
+  };
+  const nearlyFull = nativeMediaGraph([
+    mediaCard("cue-nearly-full", { id: "clip", title: "Clip", localPath: "/media/clip.mp4", type: "video" }, { endSeconds: 11.96 }),
+  ]);
+  const normalized = compileHyperFramesShow({ showGraph: nearlyFull, telemetry, project: { timeline: [] }, fps: 30 });
+  assert.equal(normalized.instances.media[0].end, 12);
+  assert.equal(normalized.visualCoverage.ok, true);
+  assert.ok(normalized.visualCoverageNormalization.receipts.some((row) => row.reason === "tail-frame-gap-extended"));
+
+  const gapped = nativeMediaGraph([
+    mediaCard("cue-a", { id: "clip-a", title: "A", localPath: "/media/a.mp4", type: "video" }, { startSeconds: 0, endSeconds: 4 }),
+    mediaCard("cue-b", { id: "clip-b", title: "B", localPath: "/media/b.mp4", type: "video" }, { startSeconds: 6, endSeconds: 12 }),
+  ]);
+  const blocked = compileHyperFramesShow({ showGraph: gapped, telemetry, project: { timeline: [] }, fps: 30 });
+  assert.equal(inspectHyperFramesShow(blocked).ok, false);
+  assert.deepEqual(inspectHyperFramesVisualCoverage(blocked).gaps, [{ startSeconds: 4, endSeconds: 6, durationSeconds: 2 }]);
+});
+
+test("HyperFrames contiguous cuts crossfade at full combined brightness instead of fading through black", () => {
+  const media = [
+    { id: "outgoing", trackId: "media-a", start: 0, end: 4 },
+    { id: "incoming", trackId: "media-a", start: 4, end: 8 },
+  ];
+  for (const time of [3.55, 3.7, 3.9, 3.999]) {
+    const outgoing = hyperFramesMediaOpacityState(media, 0, time);
+    const incoming = hyperFramesMediaOpacityState(media, 1, time);
+    const compositedCoverage = incoming.alpha + outgoing.alpha * (1 - incoming.alpha);
+    assert.ok(Math.abs(compositedCoverage - 1) < 1e-9, `source-over coverage must stay at one at ${time}s`);
+    assert.equal(outgoing.alpha, 1, "the outgoing layer remains opaque beneath the incoming dissolve");
+  }
+  assert.equal(hyperFramesMediaOpacityState(media, 0, 4).alpha, 0);
+  assert.equal(hyperFramesMediaOpacityState(media, 1, 4).alpha, 1);
+  assert.ok(Math.abs(hyperFramesMediaOpacityState(media, 1, 3.999).localSeconds - hyperFramesMediaOpacityState(media, 1, 4).localSeconds) < 0.01, "incoming motion stays continuous across the seam");
+  assert.equal(hyperFramesMediaOpacityState(media, 0, 0).alpha, 1, "the show must begin fully visible");
+  assert.equal(hyperFramesMediaOpacityState(media, 1, 7.99).alpha, 1, "the show must end fully visible");
+});
+
 test("HyperFrames CLI writes an authoritative failed preflight report before asset packaging", (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "hapa-hyperframes-preflight-"));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
@@ -380,7 +636,7 @@ test("HyperFrames CLI fails closed before packaging when an exact visualizer pro
     cards: [{
       id: "cue-missing-proxy",
       startSeconds: 0,
-      endSeconds: 4,
+      endSeconds: 12,
       parameters: {},
       visualization: {
         sourceId: "isf:test-missing-proxy",
@@ -463,7 +719,7 @@ test("HyperFrames visualizer preflight accepts a later hash-exact proxy candidat
     cards: [{
       id: "cue-exact-proxy",
       startSeconds: 0,
-      endSeconds: 4,
+      endSeconds: 12,
       parameters: {},
       visualization: {
         sourceId: "isf:test-exact-proxy",
@@ -514,4 +770,39 @@ test("HyperFrames visualizer preflight accepts a later hash-exact proxy candidat
   assert.equal(proxyPreflight.firstReadablePath, staleAssetPath);
   assert.equal(proxyPreflight.resolvedPath, exactAssetPath);
   assert.equal(proxyPreflight.reason, "exact-proxy-asset-resolved");
+});
+
+test("HyperFrames inspection rejects invalid duration, cue windows, and duplicate cue identities", () => {
+  const graph = JSON.parse(fs.readFileSync("work/dear-papa-stem-telemetry/native-show-graph.json", "utf8"));
+  const telemetry = JSON.parse(fs.readFileSync("work/dear-papa-stem-telemetry/stem-telemetry.json", "utf8"));
+  const project = JSON.parse(fs.readFileSync("data/music-video-projects/dear-papa-song-dear-papa-video-project.json", "utf8"));
+  const valid = compileHyperFramesShow({ showGraph: graph, telemetry, project, proxyRegistry: EXACT_PROXY_REGISTRY, fps: 30 });
+  assert.equal(inspectHyperFramesShow(valid).ok, true);
+
+  const zeroDuration = structuredClone(valid);
+  zeroDuration.duration = 0;
+  assert.ok(inspectHyperFramesShow(zeroDuration).errors.includes("invalid-show-duration"));
+
+  const invalidMedia = structuredClone(valid);
+  invalidMedia.instances.media[0].start = 0;
+  invalidMedia.instances.media[0].end = 0;
+  assert.ok(inspectHyperFramesShow(invalidMedia).errors.includes(`invalid-window:${invalidMedia.instances.media[0].id}`));
+
+  const outOfRange = structuredClone(valid);
+  outOfRange.instances.media[0].end = valid.duration + 1;
+  assert.ok(inspectHyperFramesShow(outOfRange).errors.includes(`window-outside-show:${outOfRange.instances.media[0].id}`));
+
+  const duplicate = structuredClone(valid);
+  assert.ok(duplicate.instances.media.length > 1, "fixture needs two media cues");
+  duplicate.instances.media[1].id = duplicate.instances.media[0].id;
+  assert.ok(inspectHyperFramesShow(duplicate).errors.includes(`duplicate-cue-id:${duplicate.instances.media[0].id}`));
+
+  const roundedGraph = structuredClone(graph);
+  const roundedCard = roundedGraph.tracks.flatMap((track) => track.cards || []).find((card) => !card.visualization);
+  roundedCard.endSeconds = roundedGraph.song.durationSeconds + 0.04;
+  const rounded = compileHyperFramesShow({ showGraph: roundedGraph, telemetry, project, proxyRegistry: EXACT_PROXY_REGISTRY, fps: 30 });
+  const normalized = rounded.instances.media.find((row) => row.id === roundedCard.id);
+  assert.equal(normalized.end, rounded.duration);
+  assert.equal(normalized.windowNormalization.reason, "tail-rounding-clamped");
+  assert.equal(inspectHyperFramesShow(rounded).ok, true);
 });

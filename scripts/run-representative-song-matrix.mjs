@@ -34,6 +34,7 @@ for (const [id, file, proves] of real) {
   const prepared = repairEchoProjectShaders(payload, manifest).project;
   const artifacts = buildDirectorV2Artifacts({
     project: prepared,
+    sourceProject: payload,
     manifest,
     registry,
     duration: Math.min(60, Number(project.duration || 60)),

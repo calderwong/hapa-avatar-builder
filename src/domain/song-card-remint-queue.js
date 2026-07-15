@@ -420,23 +420,129 @@ function renderFailureFromResult(result, job, recordedAt) {
   };
 }
 
+function compactResumeEvents(events, {
+  eventType,
+  summaryType,
+  compactable,
+  countFields = [],
+} = {}) {
+  const preserved = [];
+  const observedCounts = Object.fromEntries(countFields.map((field) => [field, new Set()]));
+  let compactedCount = 0;
+  let firstAt = "";
+  let lastAt = "";
+  const include = (event, count = 1) => {
+    compactedCount += Math.max(0, Number(count) || 0);
+    const eventFirstAt = String(event.firstAt || event.at || "");
+    const eventLastAt = String(event.lastAt || event.at || "");
+    if (eventFirstAt && (!firstAt || eventFirstAt < firstAt)) firstAt = eventFirstAt;
+    if (eventLastAt && (!lastAt || eventLastAt > lastAt)) lastAt = eventLastAt;
+    for (const field of countFields) {
+      const values = Array.isArray(event[`${field}Values`]) ? event[`${field}Values`] : [event[field]];
+      for (const value of values) {
+        const numeric = Number(value);
+        if (Number.isFinite(numeric) && numeric >= 0) observedCounts[field].add(numeric);
+      }
+    }
+  };
+  for (const event of events || []) {
+    if (event?.type === summaryType) {
+      include(event, event.compactedCount);
+      continue;
+    }
+    if (event?.type === eventType && compactable(event)) {
+      include(event);
+      continue;
+    }
+    preserved.push(clone(event));
+  }
+  if (!compactedCount) return clone(events || []);
+  const summary = {
+    schemaVersion: "hapa.song-card.resume-history-compaction.v1",
+    type: summaryType,
+    at: lastAt || firstAt || null,
+    compactedEventType: eventType,
+    compactedCount,
+    firstAt: firstAt || null,
+    lastAt: lastAt || null,
+    ...Object.fromEntries(countFields.map((field) => [
+      `${field}Values`,
+      [...observedCounts[field]].sort((left, right) => left - right),
+    ])),
+    reason: "legacy-or-no-op-startup-resume-events-compacted",
+    autoMint: false,
+  };
+  const insertAt = preserved.findIndex((event) => String(event?.at || "") > String(summary.at || ""));
+  if (insertAt < 0) return [...preserved, summary];
+  return [...preserved.slice(0, insertAt), summary, ...preserved.slice(insertAt)];
+}
+
+export function compactSongCardRemintResumeHistory(queue) {
+  const compacted = {
+    ...clone(queue),
+    events: compactResumeEvents(queue?.events, {
+      eventType: "remint-queue-resumed",
+      summaryType: "remint-queue-resume-history-compacted",
+      compactable: (event) => !Number(event?.recoveredBatchCount || 0),
+      countFields: ["batchCount"],
+    }),
+    batches: Object.fromEntries(Object.entries(queue?.batches || {}).map(([candidateId, batch]) => [
+      candidateId,
+      {
+        ...clone(batch),
+        events: compactResumeEvents(batch?.events, {
+          eventType: "resume",
+          summaryType: "resume-history-compacted",
+          compactable: (event) => event?.stateChanged !== true,
+          countFields: ["artifactIndexEntries"],
+        }),
+      },
+    ])),
+  };
+  return JSON.stringify(compacted) === JSON.stringify(queue) ? queue : compacted;
+}
+
 export function resumeSongCardRemintQueue(queue, { artifactIndexByCandidate = {}, resumedAt = null } = {}) {
-  const batches = Object.fromEntries(Object.entries(queue.batches || {}).map(([candidateId, batch]) => [
-    candidateId,
-    resumeAlbumBatch(batch, artifactIndexByCandidate[candidateId] || {}),
-  ]));
+  let recoveredBatchCount = 0;
+  const batches = Object.fromEntries(Object.entries(queue.batches || {}).map(([candidateId, batch]) => {
+    const resumed = resumeAlbumBatch(batch, artifactIndexByCandidate[candidateId] || {});
+    const withoutResumeEvent = { ...resumed, events: batch.events || [] };
+    if (JSON.stringify(withoutResumeEvent) === JSON.stringify(batch)) return [candidateId, clone(batch)];
+    recoveredBatchCount += 1;
+    const resumeEvent = resumed.events.at(-1);
+    return [candidateId, {
+      ...resumed,
+      events: [
+        ...resumed.events.slice(0, -1),
+        { ...resumeEvent, stateChanged: true },
+      ],
+    }];
+  }));
   const candidates = queue.candidates.map((candidate) => {
     const batch = batches[candidate.id];
     if (!batch) return candidate;
     const status = candidateStatusFromBatch(candidate, batch);
     return { ...candidate, status, mintAuthorized: false, nextAction: status === "render-ready" ? "operator-confirm-song-card-mint" : candidate.nextAction };
   });
-  return {
+  const resumed = {
     ...clone(queue),
     status: Object.keys(batches).length ? "ready" : queue.status,
     batches,
     candidates,
-    events: [...queue.events, { type: "remint-queue-resumed", at: at(resumedAt), batchCount: Object.keys(batches).length, autoMint: false }],
+  };
+  const changed = recoveredBatchCount > 0
+    || JSON.stringify(resumed.candidates) !== JSON.stringify(queue.candidates)
+    || resumed.status !== queue.status;
+  if (!changed) return resumed;
+  return {
+    ...resumed,
+    events: [...queue.events, {
+      type: "remint-queue-resumed",
+      at: at(resumedAt),
+      batchCount: Object.keys(batches).length,
+      recoveredBatchCount,
+      autoMint: false,
+    }],
   };
 }
 
@@ -504,18 +610,24 @@ export function recordSongCardRemintJobResult(queue, candidateId, jobId, result,
       failure: clone(renderFailure),
     } : job),
   } : recordedBatch;
-  const releaseJob = nextBatch.jobs.find((job) => job.stage === "release-export");
+  const finalizedBatch = {
+    ...nextBatch,
+    jobs: nextBatch.jobs.map((job) => job.id === jobId
+      ? { ...job, resultPersistenceGuard: result.ok ? null : (job.resultPersistenceGuard || null) }
+      : job),
+  };
+  const releaseJob = finalizedBatch.jobs.find((job) => job.stage === "release-export");
   const releaseArtifacts = clone(releaseJob?.producedArtifacts || []);
   const releaseReceipt = clone(releaseJob?.receipt || null);
   const candidates = queue.candidates.map((candidate) => {
     if (candidate.id !== candidateId) return candidate;
-    const status = candidateStatusFromBatch(candidate, nextBatch);
+    const status = candidateStatusFromBatch(candidate, finalizedBatch);
     return {
       ...candidate,
       status,
       ...(status === "render-ready" ? { renderArtifacts: releaseArtifacts, releaseReceipt } : {}),
       ...(status === "failed" ? {
-        renderFailure: clone(renderFailure || nextBatch.jobs.find((job) => job.status === "failed")?.failure || null),
+        renderFailure: clone(renderFailure || finalizedBatch.jobs.find((job) => job.status === "failed")?.failure || null),
       } : result.ok ? { renderFailure: null } : {}),
       mintAuthorized: false,
       nextAction: status === "render-ready"
@@ -527,7 +639,7 @@ export function recordSongCardRemintJobResult(queue, candidateId, jobId, result,
   });
   return {
     ...clone(queue),
-    batches: { ...clone(queue.batches), [candidateId]: nextBatch },
+    batches: { ...clone(queue.batches), [candidateId]: finalizedBatch },
     candidates,
     events: [...queue.events, {
       type: result.ok ? "remint-job-completed" : result.cancelled ? "remint-job-canceled" : "remint-job-failed",
@@ -774,6 +886,9 @@ export function songCardRemintQueueView(queue) {
       mintAuthorized: false,
       autoMint: false,
       nextAction: candidate.nextAction,
+      supersededBy: candidate.supersededBy || null,
+      supersededByPlanId: candidate.supersededByPlanId || null,
+      supersededAt: candidate.supersededAt || null,
       mintedEdition: candidate.mintedEdition || null,
       mintId: candidate.mintId || null,
       renderArtifacts: clone(candidate.renderArtifacts || []),

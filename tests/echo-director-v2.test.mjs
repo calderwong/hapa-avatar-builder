@@ -13,6 +13,7 @@ import {
   normalizeStemRecords,
   stableStringify,
 } from "../src/domain/echo-director-v2.js";
+import { validateEchoCompiledShowGraph } from "../src/domain/echo-compiled-show-graph.js";
 
 function fixture() {
   const project = {
@@ -132,6 +133,71 @@ test("same treatment, recipe, and seed compile byte-identically", () => {
   assert.deepEqual(one.showGraph.tracks.map((track) => track.id), ["track-a", "track-b", "track-c"]);
 });
 
+test("fresh compilation binds sourceProjectHash to the raw persisted project", () => {
+  const inputs = fixture();
+  const rawProject = structuredClone(inputs.project);
+  const preparedProject = structuredClone(rawProject);
+  preparedProject.music_video_project.visualizer_timeline[0].visualizer_id = "isf:fixture-b";
+  preparedProject.music_video_project.runtime_shader_repair_receipt = {
+    schemaVersion: "hapa.isf.pixel-gate-repair.v1",
+    replacementCount: 1,
+    sourceProjectMutated: false,
+  };
+  const result = buildDirectorV2Artifacts({
+    ...inputs,
+    project: preparedProject,
+    sourceProject: rawProject,
+    duration: 24,
+    recipe: "visualizer-forward",
+    seed: "raw-source-lineage",
+  });
+  const rawBody = rawProject.music_video_project;
+  assert.equal(result.treatment.sourceProjectHash, contentHash(rawBody));
+  assert.notEqual(result.treatment.sourceProjectHash, contentHash(preparedProject.music_video_project));
+  assert.equal(validateEchoCompiledShowGraph({ project: rawBody, graph: result.showGraph }).ok, true);
+});
+
+test("fresh compilation preserves bounded per-card quarantine replacement lineage", () => {
+  const inputs = fixture();
+  const rawProject = structuredClone(inputs.project);
+  const preparedProject = structuredClone(rawProject);
+  preparedProject.music_video_project.visualizer_timeline[0] = {
+    ...preparedProject.music_video_project.visualizer_timeline[0],
+    visualizer_id: "isf:fixture-b",
+    visualizer_title: "Fixture B",
+    shader_repair: {
+      schemaVersion: "hapa.echo.runtime-shader-repair.v1",
+      cueIndex: 0,
+      reason: "fixture-quarantine",
+      originalId: "isf:fixture-a",
+      originalTitle: "Fixture A",
+      replacementId: "isf:fixture-b",
+      replacementTitle: "Fixture B",
+      nonDestructive: true,
+      ignoredAggregatePayload: { mustNotReachCard: true },
+    },
+  };
+  const result = buildDirectorV2Artifacts({
+    ...inputs,
+    project: preparedProject,
+    sourceProject: rawProject,
+    duration: 24,
+    recipe: "visualizer-forward",
+    seed: "repair-lineage",
+  });
+  const card = result.showGraph.tracks.find((track) => track.id === "track-b").cards[0];
+  assert.equal(card.visualization.sourceId, "isf:fixture-b");
+  assert.deepEqual(card.provenance.runtimeShaderRepair, {
+    schemaVersion: "hapa.echo.runtime-shader-repair.v1",
+    reason: "fixture-quarantine",
+    originalId: "isf:fixture-a",
+    originalTitle: "Fixture A",
+    replacementId: "isf:fixture-b",
+    replacementTitle: "Fixture B",
+    nonDestructive: true,
+  });
+});
+
 test("recipe variants reuse treatment decisions and preserve hydrated visualizer wiring", () => {
   const inputs = fixture();
   const conservative = buildDirectorV2Artifacts({ ...inputs, duration: 24, recipe: "conservative", seed: "family" });
@@ -142,7 +208,7 @@ test("recipe variants reuse treatment decisions and preserve hydrated visualizer
   assert.equal(contentHash(conservative.treatment), contentHash(kinetic.treatment));
   assert.ok(conservative.treatment.visualizers.every((visualizer) => visualizer.inputs.length > 0));
   assert.ok(conservative.treatment.visualizers.every((visualizer) => Object.keys(visualizer.audioMap).length > 0));
-  assert.deepEqual(Object.keys(conservative.treatment.inputHashes).sort(), ["canon", "lyrics", "mediaAffordances", "promptAgent", "song", "stems", "telemetry", "visualizerCatalog"]);
+  assert.deepEqual(Object.keys(conservative.treatment.inputHashes).sort(), ["canon", "lyrics", "mediaAffordances", "promptAgent", "song", "stemActivity", "stems", "telemetry", "visualizerCatalog"]);
   assert.ok(conservative.showGraph.directorV2.modulationBindings.some((binding) => binding.target.kind === "visualizer_uniform"));
   assert.ok(kinetic.showGraph.tracks[2].cards.length >= conservative.showGraph.tracks[2].cards.length);
   assert.equal(conservative.receipt.basePlanId, conservative.treatment.treatmentId);

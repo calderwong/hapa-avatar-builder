@@ -23,6 +23,7 @@ import {
   createSongCardLifecycleEvent,
   validateSongCardEditionLineage,
 } from "../src/domain/song-card-lineage.js";
+import { acquireOwnedFileLock, releaseOwnedFileLock } from "./owned-file-lock.mjs";
 
 const execFile = promisify(execFileCallback);
 
@@ -32,6 +33,7 @@ export const SONG_CARD_MINT_PRIVATE_CUSTODY_SCHEMA = DOMAIN_PRIVATE_MANIFEST_SCH
 export const SONG_CARD_TIMESTAMP_INDEX_SCHEMA = DOMAIN_APPEARANCE_INDEX_SCHEMA;
 export const SONG_CARD_LINEAGE_SCHEMA = "hapa.song-card.edition-lineage.v1";
 export const SONG_CARD_MIGRATION_RECEIPT_SCHEMA = "hapa.song-card.migration-receipt.v1";
+export const SONG_CARD_MINT_LOCK_SCHEMA = "hapa.song-card.mint-ledger-lock.v1";
 
 const DEFAULT_TELEMETRY_LIMIT = 256;
 const DEFAULT_TELEMETRY_EVENT_BYTES = 8 * 1024;
@@ -111,16 +113,6 @@ async function canonicalProspectivePath(targetPath) {
   }
   const canonicalParent = await fsp.realpath(cursor);
   return path.resolve(canonicalParent, ...suffix);
-}
-
-function processIsAlive(pid) {
-  if (!Number.isInteger(Number(pid)) || Number(pid) <= 0) return false;
-  try {
-    process.kill(Number(pid), 0);
-    return true;
-  } catch (error) {
-    return error?.code === "EPERM";
-  }
 }
 
 function assertRelativePublicPath(value, field) {
@@ -752,23 +744,20 @@ export class SongCardMintLedger {
     const startedAt = Date.now();
     while (true) {
       try {
-        const handle = await fsp.open(lockPath, "wx", 0o600);
-        await handle.writeFile(JSON.stringify({ pid: process.pid, acquiredAt: this.now() }));
-        await handle.sync();
+        const owner = acquireOwnedFileLock({
+          lockPath,
+          schemaVersion: SONG_CARD_MINT_LOCK_SCHEMA,
+          staleLegacyMs: this.staleLockMs,
+          createdAt: this.now(),
+        });
+        let released = false;
         return async () => {
-          await handle.close().catch(() => {});
-          await fsp.unlink(lockPath).catch((error) => { if (error?.code !== "ENOENT") throw error; });
+          if (released) return;
+          released = true;
+          releaseOwnedFileLock(owner);
         };
       } catch (error) {
-        if (error?.code !== "EEXIST") throw error;
-        const stat = await fsp.stat(lockPath).catch(() => null);
-        if (stat && Date.now() - stat.mtimeMs > this.staleLockMs) {
-          const owner = await readJson(lockPath, null).catch(() => null);
-          if (!processIsAlive(owner?.pid)) {
-            await fsp.unlink(lockPath).catch(() => {});
-            continue;
-          }
-        }
+        if (!["OWNED_FILE_LOCK_BUSY", "OWNED_FILE_LOCK_CHANGED"].includes(error?.code)) throw error;
         if (Date.now() - startedAt > this.lockTimeoutMs) fail("LOCK_TIMEOUT", `Timed out waiting for mint lock ${name}`);
         await new Promise((resolve) => setTimeout(resolve, 15));
       }

@@ -153,6 +153,7 @@ function main() {
   }));
   const family = recipePlan.map(({ recipe, seed }) => buildDirectorV2Artifacts({
     project,
+    sourceProject,
     manifest,
     registry,
     stemTelemetry,

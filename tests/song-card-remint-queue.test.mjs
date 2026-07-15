@@ -6,6 +6,7 @@ import {
   bindSongCardRemintMintPlan,
   cancelSongCardRemintCandidate,
   claimSongCardRemintWork,
+  compactSongCardRemintResumeHistory,
   createSongCardRemintQueue,
   enqueueApprovedSongCardRemints,
   planSongCardRemintCandidate,
@@ -16,6 +17,43 @@ import {
   songCardRemintQueueView,
   upsertSongCardRemintCandidate,
 } from "../src/domain/song-card-remint-queue.js";
+
+test("legacy no-op resume telemetry compacts without deleting real recovery provenance", () => {
+  const queue = createSongCardRemintQueue();
+  queue.events = [
+    { type: "remint-candidate-created", at: "2026-07-13T00:00:00.000Z" },
+    { type: "remint-queue-resumed", at: "2026-07-13T00:01:00.000Z", batchCount: 0, autoMint: false },
+    { type: "remint-queue-resumed", at: "2026-07-13T00:02:00.000Z", batchCount: 2, autoMint: false },
+    { type: "remint-queue-resumed", at: "2026-07-13T00:03:00.000Z", batchCount: 2, recoveredBatchCount: 1, autoMint: false },
+  ];
+  queue.batches = {
+    "candidate:a": {
+      schemaVersion: "hapa.director.album-batch.v1",
+      status: "ready",
+      jobs: [],
+      events: [
+        { type: "claim", at: "2026-07-13T00:00:30.000Z" },
+        { type: "resume", at: "2026-07-13T00:01:00.000Z", artifactIndexEntries: 0 },
+        { type: "resume", at: "2026-07-13T00:02:00.000Z", artifactIndexEntries: 1 },
+        { type: "resume", at: "2026-07-13T00:03:00.000Z", artifactIndexEntries: 1, stateChanged: true },
+      ],
+    },
+  };
+
+  const compacted = compactSongCardRemintResumeHistory(queue);
+  const queueSummary = compacted.events.find((event) => event.type === "remint-queue-resume-history-compacted");
+  assert.equal(queueSummary.compactedCount, 2);
+  assert.deepEqual(queueSummary.batchCountValues, [0, 2]);
+  assert.equal(compacted.events.some((event) => event.type === "remint-candidate-created"), true);
+  assert.equal(compacted.events.some((event) => event.type === "remint-queue-resumed" && event.recoveredBatchCount === 1), true);
+  const batchEvents = compacted.batches["candidate:a"].events;
+  const batchSummary = batchEvents.find((event) => event.type === "resume-history-compacted");
+  assert.equal(batchSummary.compactedCount, 2);
+  assert.deepEqual(batchSummary.artifactIndexEntriesValues, [0, 1]);
+  assert.equal(batchEvents.some((event) => event.type === "claim"), true);
+  assert.equal(batchEvents.some((event) => event.type === "resume" && event.stateChanged === true), true);
+  assert.deepEqual(compactSongCardRemintResumeHistory(compacted), compacted, "the migration must be idempotent");
+});
 
 function snapshot({ mediaId = "media:a", endSeconds = 8, renderer = "native", revision = "editor:1" } = {}) {
   const showGraph = {
@@ -196,6 +234,13 @@ test("restart recovery deduplicates content-addressed artifacts and enqueue is i
   });
   assert.equal(queue.batches[candidate.id].jobs.find((job) => job.id === queued.id).status, "cached");
   assert.equal(queue.candidates[0].mintAuthorized, false);
+  const recovered = structuredClone(queue);
+  queue = resumeSongCardRemintQueue(queue, {
+    artifactIndexByCandidate: {
+      [candidate.id]: { [queued.artifactHash]: { valid: true, receipt: { sha256: "cached" }, artifacts: ["cached-render"] } },
+    },
+  });
+  assert.deepEqual(queue, recovered, "a fully recovered queue must not gain another startup event");
 });
 
 test("active playback applies the scaled album budget while an idle kiosk can claim work", () => {

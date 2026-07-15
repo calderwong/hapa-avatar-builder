@@ -90,6 +90,9 @@ test("Echo summary endpoint stays compact and lazy-loads project detail", async 
     assert.equal(firstProject.hyperframe_script, undefined, "summary must not ship full HyperFrames script");
     assert.equal(firstProject.timeline, undefined, "summary must not ship full timeline");
     assert.equal(typeof firstProject.timeline_count, "number", "summary should include timeline count");
+    assert.equal(firstProject.output_profile.id, "landscape", "legacy projects should summarize with the Landscape default");
+    assert.equal(firstProject.output_profile.width, 1920);
+    assert.equal(firstProject.output_profile.height, 1080);
 
     const targetSummary = summaries.find((row) => row.music_video_project.song_id === targetSongId).music_video_project;
     assert.equal(targetSummary.direction_script_variant_count, 1);
@@ -123,6 +126,7 @@ test("Echo summary endpoint stays compact and lazy-loads project detail", async 
     const detail = JSON.parse(detailText).music_video_project;
     assert.ok(Array.isArray(detail.timeline), "detail endpoint should hydrate the timeline");
     assert.ok(detail.hyperframe_script, "detail endpoint should hydrate the HyperFrames script");
+    assert.equal(detail.output_profile.id, "landscape", "legacy detail hydration should expose the canonical Landscape profile");
     assert.ok(detailText.length > summaryText.length / summaries.length, "detail payload should be intentionally larger than one summary row");
 
     const targetDetailResponse = await fetch(`${BASE}/api/echos/director-project?songId=${encodeURIComponent(targetSongId)}`);
@@ -159,10 +163,20 @@ test("Echo summary endpoint stays compact and lazy-loads project detail", async 
       parentVariantId: "direction:scroll-fal",
       requestedId: "edited-fixture-cut",
       title: "Fixture · Edited cut",
-      timeline: [{ shot_index: 0, start_sec: 0, end_sec: 4, media_id: "human-choice", media_uri: "/media/human-choice.mp4" }],
+      timeline: [{
+        shot_index: 0,
+        start_sec: 0,
+        end_sec: 4,
+        media_id: "human-choice",
+        media_uri: "/media/human-choice.mp4",
+        media_card_id: "ship-card-high-quality",
+        media_card_kind: "hapa.ship-card.v1",
+        media_card_ref: "/cards/ship-card-high-quality.json",
+        media_card_title: "High Quality Ship Card",
+      }],
       visualizerTimeline: [{ start_sec: 0, end_sec: 4, visualizer_id: "isf:fixture" }],
       mediaDensityTelemetry: { profile: "airy" },
-      projectPatch: { lyric_style: "cinematic", ignored_private_field: "must-not-persist" },
+      projectPatch: { output_profile: "vertical", lyric_style: "cinematic", ignored_private_field: "must-not-persist" },
       hyperframeScript: "<div data-direction-variant=\"edited-fixture\"></div>",
     };
     const forkResponse = await fetch(`${BASE}/api/echos/direction-variant/fork`, {
@@ -180,13 +194,23 @@ test("Echo summary endpoint stays compact and lazy-loads project detail", async 
     assert.equal(childVariant.parent.variantId, "direction:scroll-fal");
     assert.equal(childVariant.parent.immutableParent, true);
     assert.equal(childVariant.timeline[0].media_id, "human-choice");
+    assert.equal(childVariant.timeline[0].media_card_id, "ship-card-high-quality");
+    assert.equal(childVariant.timeline[0].media_card_kind, "hapa.ship-card.v1");
+    assert.equal(childVariant.timeline[0].media_card_ref, "/cards/ship-card-high-quality.json");
+    assert.equal(childVariant.timeline[0].media_card_title, "High Quality Ship Card");
     assert.equal(childVariant.project_patch.lyric_style, "cinematic");
+    assert.equal(childVariant.project_patch.output_profile.id, "vertical");
+    assert.equal(childVariant.project_patch.output_profile.width, 1080);
+    assert.equal(childVariant.project_patch.output_profile.height, 1920);
     assert.equal(childVariant.project_patch.ignored_private_field, undefined);
-    assert.match(childVariant.fingerprint, /^sha256:[a-f0-9]{64}$/);
+    assert.match(childVariant.fingerprint, /^content-v2:[a-f0-9]{64}$/);
     const forkedDetail = (await (await fetch(`${BASE}/api/echos/director-project?songId=${encodeURIComponent(targetSongId)}&variantId=edited-fixture-cut`)).json()).music_video_project;
     const hydratedChild = forkedDetail.direction_script_variants.find((variant) => variant.id === "edited-fixture-cut");
     assert.equal(hydratedChild.lineage.parentVariantId, "direction:scroll-fal");
     assert.equal(hydratedChild.variant_source.nonDestructive, true);
+    assert.equal(hydratedChild.timeline[0].media_card_id, "ship-card-high-quality");
+    assert.equal(hydratedChild.timeline[0].media_card_kind, "hapa.ship-card.v1");
+    assert.equal(hydratedChild.timeline[0].media_card_ref, "/cards/ship-card-high-quality.json");
     const postForkSummaryResponse = await fetch(`${BASE}/api/echos/director-projects?summary=1`);
     assert.equal(postForkSummaryResponse.headers.get("x-hapa-echo-direction-variant-summary"), "index+authoritative-fallback");
     const postForkSummaries = await postForkSummaryResponse.json();

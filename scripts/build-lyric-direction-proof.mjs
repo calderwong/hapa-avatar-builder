@@ -15,7 +15,7 @@ for (const file of fs.readdirSync(root).filter((name) => name.endsWith("-video-p
   const payload = JSON.parse(fs.readFileSync(path.join(root, file), "utf8"));
   const project = payload.music_video_project || payload;
   const prepared = repairEchoProjectShaders(payload, manifest).project;
-  const artifacts = buildDirectorV2Artifacts({ project: prepared, manifest, registry, duration: Math.min(60, Number(project.duration || 60)), recipe: "visualizer-forward", seed: `lyric-direction:${project.song_id}` });
+  const artifacts = buildDirectorV2Artifacts({ project: prepared, sourceProject: payload, manifest, registry, duration: Math.min(60, Number(project.duration || 60)), recipe: "visualizer-forward", seed: `lyric-direction:${project.song_id}` });
   const track = artifacts.showGraph.directorV2.lyricDirectionTrack;
   const validation = validateLyricDirectionTrack(track, artifacts.cueGraph.lyricCues);
   rows.push({ songId: project.song_id, title: project.song_title, validation, modes: [...new Set(track.sections.map((section) => section.mode))].sort(), lowConfidenceSections: track.sections.filter((section) => section.timing.truthStatus === "low-confidence-calm").length, exactWordCount: track.sections.reduce((sum, section) => sum + section.timing.words.length, 0) });

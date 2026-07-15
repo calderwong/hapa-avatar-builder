@@ -3,6 +3,13 @@ import {
   resolveNativeVisualizerRoute,
   validateNativeVisualizerRoute,
 } from "./native-visualizer-route.js";
+import {
+  VISUALIZER_AUDIO_HEADROOM_POLICY,
+  VISUALIZER_AUDIO_REACTIVE_SIGNALS,
+  inspectVisualizerAudioMappingEffect,
+  normalizeVisualizerAudioInputValue,
+  normalizeVisualizerAudioMapping,
+} from "./hyperframes-visualizer-runtime.js";
 
 export const PORTABLE_VISUALIZER_CARD_SCHEMA = "hapa.visualizer-card.v2";
 
@@ -23,10 +30,22 @@ export function portableVisualizerSourceHash(shader = {}, options = {}) {
   })));
 }
 
+function generatedAudioMap(audioMap = {}, inputs = []) {
+  const inputByName = new Map(inputs.map((input) => [String(input.NAME || input.name || ""), input]));
+  return Object.fromEntries(Object.entries(audioMap).map(([uniform, rawMapping]) => {
+    const normalized = normalizeVisualizerAudioMapping(rawMapping, {
+      input: inputByName.get(uniform),
+      generated: true,
+      materializeDepth: false,
+    });
+    return [uniform, normalized ?? rawMapping];
+  }));
+}
+
 export function buildPortableVisualizerCard(shader = {}, options = {}) {
   const inputs = Array.isArray(shader.inputs) ? shader.inputs : [];
   const controls = options.controls || {};
-  const audioMap = shader.audioMap && typeof shader.audioMap === "object" ? shader.audioMap : {};
+  const audioMap = generatedAudioMap(shader.audioMap && typeof shader.audioMap === "object" ? shader.audioMap : {}, inputs);
   const signals = [...new Set(Object.values(audioMap).map((row) => String(row?.signal || "off")).filter((signal) => signal !== "off"))];
   const manifestBacked = Boolean(shader.id && shader.source);
   const sourceHash = portableVisualizerSourceHash(shader, options);
@@ -129,8 +148,12 @@ export function buildPortableVisualizerCard(shader = {}, options = {}) {
     automation: Object.entries(audioMap).map(([uniform, mapping]) => ({
       uniform,
       signal: String(mapping?.signal || "off"),
-      depth: Number(mapping?.depth ?? 0),
-      stemFocus: String(options.stemFocus || "master"),
+      depth: mapping?.depth ?? mapping?.depthFraction ?? mapping?.depth_fraction ?? 0,
+      depthMode: String(mapping?.depthMode || mapping?.depth_mode || "absolute"),
+      depthFraction: mapping?.depthFraction ?? mapping?.depth_fraction ?? null,
+      headroomPolicy: mapping?.headroomPolicy ?? mapping?.headroom_policy ?? null,
+      direction: mapping?.direction ?? null,
+      stemFocus: String(mapping?.stemFocus || mapping?.stem_focus || options.stemFocus || "master"),
     })),
     provenance: {
       source: String(options.provenanceSource || "music-viz-isf-manifest"),
@@ -147,6 +170,16 @@ export function validatePortableVisualizerCard(card = {}) {
   if (!card.source?.uri) errors.push("source-uri");
   for (const uniform of Object.keys(card.audioMap || {})) {
     if (!(card.inputs || []).some((input) => input.NAME === uniform)) errors.push(`audio-map-input-missing:${uniform}`);
+  }
+  for (const [uniform, mapping] of Object.entries(card.audioMap || {})) {
+    const input = (card.inputs || []).find((candidate) => String(candidate.NAME || candidate.name || "") === uniform);
+    const enforced = Boolean(input)
+      && VISUALIZER_AUDIO_REACTIVE_SIGNALS.has(String(mapping?.signal || "").toLowerCase())
+      && String(mapping?.headroomPolicy || mapping?.headroom_policy || "") === VISUALIZER_AUDIO_HEADROOM_POLICY;
+    if (!enforced) continue;
+    const declared = input.DEFAULT ?? input.default;
+    const baseValue = normalizeVisualizerAudioInputValue(input, Object.hasOwn(card.controls || {}, uniform) ? card.controls[uniform] : declared);
+    if (!inspectVisualizerAudioMappingEffect(input, baseValue, mapping).material) errors.push(`audio-map-ineffective:${uniform}`);
   }
   for (const [renderer, support] of Object.entries(card.rendererSupport || {})) {
     if (!["exact-native", "exact-browser-isf", "exact-proxy", "hash-bound-exact-proxy", "executed-offline-instance", "approximate-native", "browser-proxy", "pending", "unsupported"].includes(support.route)) errors.push(`renderer-route:${renderer}`);

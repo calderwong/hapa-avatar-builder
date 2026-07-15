@@ -246,11 +246,23 @@ export function preflightEchoAlbum({
   variantsRoot = path.join(ROOT, "data/music-video-project-variants"),
   avatarRoot = ROOT,
   isFile = safeFile,
+  songId = "",
 } = {}) {
   const resolvedProjectsRoot = path.resolve(projectsRoot);
+  const selectedSongId = text(songId);
+  if (selectedSongId && path.basename(selectedSongId) !== selectedSongId) {
+    throw new Error(`Unsafe Echo media-preflight song ID: ${selectedSongId}`);
+  }
   const projects = [];
   const inputCuts = [];
-  const projectPaths = jsonFiles(resolvedProjectsRoot);
+  const projectPaths = jsonFiles(resolvedProjectsRoot).filter((projectPath) => {
+    if (!selectedSongId) return true;
+    try {
+      return text(bodyOf(readJson(projectPath)).song_id) === selectedSongId;
+    } catch {
+      return path.basename(projectPath, ".json") === selectedSongId;
+    }
+  });
   if (!projectPaths.length) {
     const context = {
       songId: "album",
@@ -303,7 +315,8 @@ export function preflightEchoAlbum({
   const summary = summarizeCuts(cuts);
   return {
     schemaVersion: ECHO_MEDIA_PREFLIGHT_SCHEMA,
-    scope: "album-base-projects-and-saved-cuts",
+    scope: selectedSongId ? "song-base-project-and-saved-cuts" : "album-base-projects-and-saved-cuts",
+    songId: selectedSongId || null,
     projectsRoot: resolvedProjectsRoot,
     variantsRoot: path.resolve(variantsRoot),
     projectCount: projects.length,

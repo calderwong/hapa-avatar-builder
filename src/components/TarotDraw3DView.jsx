@@ -4,6 +4,7 @@ import { BadgeCheck, BookOpenCheck, Camera, CircleDot, Film, Grid3X3, Images, Li
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { queryValenTarotReading } from "../domain/valenTarotBridge.js";
+import { echoProjectAudioRoute } from "../domain/echo-audio-route.js";
 import {
   ECHO_PLAYER_POOL_LIMIT,
   canonicalEchoAssetKey,
@@ -17015,8 +17016,9 @@ function echoDirectorProjectMatchesCard(project = null, card = {}) {
 function mergeDropZoneSongWithEchoDirectorProject(song = null, project = null, card = {}) {
   if (!project) return song;
   const base = song || {};
-  const audioId = project.audio_id || project.registry_track_id || "";
-  const audioUri = resolveTarotPreviewUri(project.audio_uri || (audioId ? `/api/song-registry/audio/${encodeURIComponent(audioId)}` : ""));
+  const audioRoute = echoProjectAudioRoute(project);
+  const audioId = audioRoute.id || "";
+  const audioUri = resolveTarotPreviewUri(audioRoute.uri || "");
   const timedLyrics = Array.isArray(project.timed_lyrics) ? project.timed_lyrics : [];
   const timingTruth = project.lyric_timing_truth || {};
   const timingTrusted = Boolean(

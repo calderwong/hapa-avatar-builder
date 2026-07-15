@@ -135,7 +135,11 @@ test("Builder serves a hash-verified ISF catalog/runtime and hydrates the compil
   const detailResponse = await fetch(`${BASE}/api/echos/director-project?songId=dear-papa-song-dear-papa`);
   assert.equal(detailResponse.status, 200);
   const project = (await detailResponse.json()).music_video_project;
-  assert.equal(project.director_show_graph_receipt.status, "ready");
+  assert.equal(
+    project.director_show_graph_receipt.status,
+    "ready",
+    `Director graph hydration must be ready: ${JSON.stringify(project.director_show_graph_receipt)}`,
+  );
   assert.match(project.director_show_graph_receipt.sourceHash, /^sha256:[a-f0-9]{64}$/);
   assert.equal(project.director_show_graph.schemaVersion, "hapa.music-viz.native-show-graph.v2");
   assert.ok([project.song_id, project.audio_id, project.registry_track_id].includes(project.director_show_graph.song.id));

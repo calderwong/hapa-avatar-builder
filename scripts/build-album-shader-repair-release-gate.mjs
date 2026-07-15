@@ -200,11 +200,15 @@ if (nativeRoutes.proxyRegistryHash !== proxyRegistryHash) violate("proxy-registr
 const assetCatalog = new EchoIsfAssetCatalog({ musicVizRoot: MUSIC_VIZ_ROOT, cacheCheckMs: Number.MAX_SAFE_INTEGER });
 const catalog = await assetCatalog.load();
 const catalogById = catalog.byId;
+const manifestById = new Map((manifest.shaders || []).map((shader) => [String(shader?.id || ""), shader]));
+const proxyFailureById = new Map((proxyRegistry.failures || []).map((failure) => [String(failure?.id || ""), failure]));
+const exactProxyById = new Map((proxyRegistry.proxies || []).map((proxy) => [String(proxy?.id || ""), proxy]));
 const graphFiles = [];
 const sourceProjectFiles = [];
 const projectRows = [];
 const allCards = [];
 const sourceCueByCard = new Map();
+const repairLineages = [];
 let sourceCueCount = 0;
 let validClippedCueCount = 0;
 let graphCueCount = 0;
@@ -212,10 +216,133 @@ let receiptCount = 0;
 let sourceClippedDuration = 0;
 let compiledDuration = 0;
 let immutableIdCount = 0;
+let directIdentityCount = 0;
+let approvedRepairLineageCount = 0;
 let exactTitleCount = 0;
 let titleSubstitutionCount = 0;
 let silentDefaultCount = 0;
 let fallbackCount = 0;
+
+function sameText(left, right) {
+  return String(left || "").trim() === String(right || "").trim();
+}
+
+function runtimeRepairLineage({ projectEvidence, sourceCueIndex, sourceCue, card }) {
+  const projectRepair = projectEvidence?.shaderRepair;
+  const aggregateReceipts = (projectRepair?.replacements || [])
+    .filter((row) => Number(row?.cueIndex) === Number(sourceCueIndex));
+  const repairedTimelineCue = projectRepair?.timeline?.[sourceCueIndex];
+  const runtimeReceipt = repairedTimelineCue?.shader_repair || null;
+  const present = aggregateReceipts.length > 0 || runtimeReceipt != null;
+  const originalId = String(sourceCue?.visualizer_id || "");
+  const originalTitle = String(sourceCue?.visualizer_title || "");
+  if (!present) return {
+    present: false,
+    ok: true,
+    originalId,
+    originalTitle,
+    executableId: originalId,
+    executableTitle: originalTitle,
+    errors: [],
+    evidence: null,
+  };
+
+  const errors = [];
+  if (projectRepair?.schemaVersion !== "hapa.echo.pixel-gate-timeline-repair.v1") errors.push("project-repair-schema");
+  if (projectRepair?.ok !== true) errors.push("project-repair-not-ok");
+  if (aggregateReceipts.length !== 1) errors.push("aggregate-receipt-count");
+  if (runtimeReceipt?.schemaVersion !== "hapa.echo.runtime-shader-repair.v1") errors.push("runtime-receipt-schema");
+  const aggregate = aggregateReceipts[0] || {};
+  const fields = ["cueIndex", "originalId", "originalTitle", "replacementId", "replacementTitle", "reason", "nonDestructive"];
+  for (const field of fields) {
+    if (JSON.stringify(aggregate?.[field]) !== JSON.stringify(runtimeReceipt?.[field])) errors.push(`receipt-field:${field}`);
+  }
+  if (aggregate?.nonDestructive !== true || runtimeReceipt?.nonDestructive !== true) errors.push("repair-not-non-destructive");
+  if (String(aggregate?.originalId || "") !== originalId) errors.push("original-id");
+  if (!sameText(aggregate?.originalTitle, originalTitle)) errors.push("original-title");
+
+  const replacementId = String(aggregate?.replacementId || runtimeReceipt?.replacementId || "");
+  const replacementTitle = String(aggregate?.replacementTitle || runtimeReceipt?.replacementTitle || "");
+  if (!replacementId || replacementId === originalId) errors.push("replacement-id");
+  if (String(repairedTimelineCue?.visualizer_id || "") !== replacementId) errors.push("timeline-replacement-id");
+  if (!sameText(repairedTimelineCue?.visualizer_title, replacementTitle)) errors.push("timeline-replacement-title");
+
+  const originalManifest = manifestById.get(originalId);
+  const originalCatalog = catalogById.get(originalId)?.public;
+  const quarantine = proxyFailureById.get(originalId);
+  const originalHash = normalizedSha256(originalManifest?.sourceHash);
+  if (!originalManifest || !originalCatalog) errors.push("original-source-missing");
+  if (!sameText(originalManifest?.title, originalTitle) || !sameText(originalCatalog?.title, originalTitle)) errors.push("original-source-title");
+  if (String(originalManifest?.source || "") !== String(originalCatalog?.sourceOriginal || "")) errors.push("original-source-uri");
+  if (!originalHash || originalHash !== normalizedSha256(originalCatalog?.sourceHash)) errors.push("original-source-hash");
+  if (!quarantine
+    || quarantine.route !== "unsupported"
+    || quarantine.quarantine?.status !== "quarantined"
+    || quarantine.quarantine?.executable !== false
+    || quarantine.silentDefault !== false) errors.push("original-not-approved-quarantine");
+  if (String(quarantine?.source || "") !== String(originalManifest?.source || "")) errors.push("quarantine-source-uri");
+  if (normalizedSha256(quarantine?.sourceHash) !== originalHash) errors.push("quarantine-source-hash");
+  if (!sameText(quarantine?.title, originalTitle)) errors.push("quarantine-source-title");
+  if (String(quarantine?.reason || "") !== String(aggregate?.reason || "")) errors.push("quarantine-reason");
+
+  const replacementManifest = manifestById.get(replacementId);
+  const replacementCatalog = catalogById.get(replacementId)?.public;
+  const exactProxy = exactProxyById.get(replacementId);
+  const replacementHash = normalizedSha256(replacementManifest?.sourceHash);
+  if (!replacementManifest || !replacementCatalog) errors.push("replacement-source-missing");
+  if (!sameText(replacementManifest?.title, replacementTitle) || !sameText(replacementCatalog?.title, replacementTitle)) errors.push("replacement-source-title");
+  if (String(replacementManifest?.source || "") !== String(replacementCatalog?.sourceOriginal || "")) errors.push("replacement-source-uri");
+  if (!replacementHash || replacementHash !== normalizedSha256(replacementCatalog?.sourceHash)) errors.push("replacement-source-hash");
+  if (!exactProxy
+    || exactProxy.route !== "hash-bound-exact-proxy"
+    || exactProxy.status !== "exact"
+    || exactProxy.verified !== true
+    || exactProxy.silentDefault !== false) errors.push("replacement-not-executable-exact-proxy");
+  if (String(exactProxy?.source || "") !== String(replacementManifest?.source || "")) errors.push("replacement-proxy-source-uri");
+  if (normalizedSha256(exactProxy?.sourceHash) !== replacementHash) errors.push("replacement-proxy-source-hash");
+  if (!sameText(exactProxy?.title, replacementTitle)) errors.push("replacement-proxy-title");
+
+  const portable = card?.visualization?.card || {};
+  if (String(portable.id || "") !== replacementId) errors.push("card-replacement-id");
+  if (!sameText(portable.title, replacementTitle)) errors.push("card-replacement-title");
+  if (String(portable.source?.uri || "") !== String(replacementManifest?.source || "")) errors.push("card-replacement-source-uri");
+  if (normalizedSha256(portable.source?.hash) !== replacementHash) errors.push("card-replacement-source-hash");
+
+  return {
+    present: true,
+    ok: errors.length === 0,
+    originalId,
+    originalTitle,
+    executableId: replacementId,
+    executableTitle: replacementTitle,
+    errors: [...new Set(errors)],
+    evidence: {
+      songId: projectEvidence.songId,
+      sourceCueIndex,
+      reason: String(aggregate?.reason || runtimeReceipt?.reason || ""),
+      nonDestructive: aggregate?.nonDestructive === true && runtimeReceipt?.nonDestructive === true,
+      original: {
+        id: originalId,
+        title: originalTitle,
+        source: String(originalManifest?.source || ""),
+        sourceHash: originalHash,
+        quarantineRoute: String(quarantine?.route || ""),
+        quarantineStatus: String(quarantine?.quarantine?.status || ""),
+      },
+      replacement: {
+        id: replacementId,
+        title: replacementTitle,
+        source: String(replacementManifest?.source || ""),
+        sourceHash: replacementHash,
+        route: String(exactProxy?.route || ""),
+        assetPath: String(exactProxy?.assetPath || ""),
+        assetSha256: normalizedSha256(exactProxy?.assetSha256),
+      },
+      ok: errors.length === 0,
+      errors: [...new Set(errors)],
+    },
+  };
+}
 
 for (const projectEvidence of [...(hydration.projects || [])].sort((left, right) => String(left.songId).localeCompare(String(right.songId)))) {
   const sourceProjectPath = path.join(PROJECT_ROOT, projectEvidence.file);
@@ -238,6 +365,8 @@ for (const projectEvidence of [...(hydration.projects || [])].sort((left, right)
   });
   const cardByIndex = new Map(cards.map((card) => [Number(card.sourceCueIndex), card]));
   let projectImmutableIds = 0;
+  let projectDirectIdentities = 0;
+  let projectApprovedRepairLineages = 0;
   let projectExactTitles = 0;
   let projectSilentDefaults = 0;
   let projectFallbacks = 0;
@@ -252,6 +381,18 @@ for (const projectEvidence of [...(hydration.projects || [])].sort((left, right)
       receiptCount: receipts.length,
     });
   }
+  if (projectEvidence.shaderRepair) {
+    const projectRepair = projectEvidence.shaderRepair;
+    const runtimeReceiptCount = (projectRepair.timeline || []).filter((cue) => cue?.shader_repair != null).length;
+    const repairErrors = [];
+    if (projectRepair.schemaVersion !== "hapa.echo.pixel-gate-timeline-repair.v1") repairErrors.push("schema");
+    if (projectRepair.ok !== true) repairErrors.push("not-ok");
+    if (!Array.isArray(projectRepair.timeline) || projectRepair.timeline.length !== sourceCues.length) repairErrors.push("timeline-count");
+    if (!Array.isArray(projectRepair.replacements) || projectRepair.replacements.length !== Number(projectRepair.replacementCount || 0)) repairErrors.push("aggregate-count");
+    if (runtimeReceiptCount !== Number(projectRepair.replacementCount || 0)) repairErrors.push("runtime-receipt-count");
+    if ((projectRepair.replacements || []).some((repair) => !Number.isInteger(Number(repair?.cueIndex)) || Number(repair.cueIndex) < 0 || Number(repair.cueIndex) >= sourceCues.length)) repairErrors.push("cue-index-range");
+    if (repairErrors.length) violate("project-shader-repair-receipt-invalid", { songId: projectEvidence.songId, errors: repairErrors });
+  }
 
   for (const row of validCues) {
     const card = cardByIndex.get(row.sourceCueIndex);
@@ -262,7 +403,30 @@ for (const projectEvidence of [...(hydration.projects || [])].sort((left, right)
     const requestedId = String(row.cue.visualizer_id || "");
     const portable = card.visualization?.card || {};
     const nativeRoute = card.visualization?.nativeRoute || {};
-    const record = catalogById.get(requestedId);
+    const repairLineage = runtimeRepairLineage({
+      projectEvidence,
+      sourceCueIndex: row.sourceCueIndex,
+      sourceCue: row.cue,
+      card,
+    });
+    const executableId = repairLineage.executableId;
+    const originalRecord = catalogById.get(requestedId);
+    const executableRecord = catalogById.get(executableId);
+    if (repairLineage.present) {
+      repairLineages.push(repairLineage.evidence);
+      if (!repairLineage.ok) {
+        violate("shader-repair-lineage-invalid", {
+          songId: projectEvidence.songId,
+          sourceCueIndex: row.sourceCueIndex,
+          requestedId,
+          executableId,
+          errors: repairLineage.errors,
+        });
+      } else {
+        approvedRepairLineageCount += 1;
+        projectApprovedRepairLineages += 1;
+      }
+    }
     const identityChain = [
       card.requestedSourceId,
       card.executionReceipt?.requestedSourceId,
@@ -274,11 +438,23 @@ for (const projectEvidence of [...(hydration.projects || [])].sort((left, right)
       nativeRoute.requested?.id,
       portable.nativeRoute?.requested?.id,
     ];
-    const identityExact = Boolean(requestedId) && identityChain.every((value) => String(value || "") === requestedId);
-    if (!identityExact) violate("requested-id-mutated", { songId: projectEvidence.songId, sourceCueIndex: row.sourceCueIndex, requestedId, identityChain });
+    const identityExact = Boolean(executableId) && identityChain.every((value) => String(value || "") === executableId);
+    const identityLineageExact = identityExact && (!repairLineage.present || repairLineage.ok);
+    if (!identityLineageExact) violate("requested-id-mutated", {
+      songId: projectEvidence.songId,
+      sourceCueIndex: row.sourceCueIndex,
+      requestedId,
+      executableId,
+      approvedRepair: repairLineage.present && repairLineage.ok,
+      identityChain,
+    });
     else {
       immutableIdCount += 1;
       projectImmutableIds += 1;
+      if (!repairLineage.present) {
+        directIdentityCount += 1;
+        projectDirectIdentities += 1;
+      }
     }
 
     if (Math.abs(Number(card.startSeconds) - row.startSeconds) > 0.001 || Math.abs(Number(card.endSeconds) - row.endSeconds) > 0.001) {
@@ -290,18 +466,30 @@ for (const projectEvidence of [...(hydration.projects || [])].sort((left, right)
       });
     }
 
-    const manifestTitle = String(record?.public?.title || "");
+    const originalManifestTitle = String(originalRecord?.public?.title || "");
+    const executableManifestTitle = String(executableRecord?.public?.title || "");
     const sourceTitle = String(row.cue.visualizer_title || "");
     const titleChain = [portable.title, nativeRoute.requested?.title, portable.nativeRoute?.requested?.title];
     const normalizedTitle = (value) => String(value || "").trim();
-    const titleExact = Boolean(manifestTitle)
-      && sourceTitle === manifestTitle
-      && String(portable.title || "") === manifestTitle
-      && titleChain.slice(1).every((value) => normalizedTitle(value) === normalizedTitle(manifestTitle))
+    const titleExact = Boolean(originalManifestTitle)
+      && Boolean(executableManifestTitle)
+      && sourceTitle === originalManifestTitle
+      && String(portable.title || "") === executableManifestTitle
+      && titleChain.slice(1).every((value) => normalizedTitle(value) === normalizedTitle(executableManifestTitle))
+      && (!repairLineage.present || repairLineage.ok)
       && card.resolutionStatus === "exact-id";
     if (!titleExact) {
       titleSubstitutionCount += 1;
-      violate("title-substitution-detected", { songId: projectEvidence.songId, sourceCueIndex: row.sourceCueIndex, sourceTitle, manifestTitle, titleChain, resolutionStatus: card.resolutionStatus });
+      violate("title-substitution-detected", {
+        songId: projectEvidence.songId,
+        sourceCueIndex: row.sourceCueIndex,
+        sourceTitle,
+        originalManifestTitle,
+        executableManifestTitle,
+        approvedRepair: repairLineage.present && repairLineage.ok,
+        titleChain,
+        resolutionStatus: card.resolutionStatus,
+      });
     } else {
       exactTitleCount += 1;
       projectExactTitles += 1;
@@ -330,7 +518,15 @@ for (const projectEvidence of [...(hydration.projects || [])].sort((left, right)
       const validation = validateVisualizerRendererTruth(truth);
       projectRendererRoutes[surface].push(truth.route);
       if (!validation.ok) violate("renderer-truth-invalid", { songId: projectEvidence.songId, sourceCueIndex: row.sourceCueIndex, surface, errors: validation.errors });
-      if (truth.requested?.id !== requestedId) violate("renderer-requested-id-mutated", { songId: projectEvidence.songId, sourceCueIndex: row.sourceCueIndex, surface, expected: requestedId, actual: truth.requested?.id });
+      if (truth.requested?.id !== executableId) violate("renderer-requested-id-mutated", {
+        songId: projectEvidence.songId,
+        sourceCueIndex: row.sourceCueIndex,
+        surface,
+        originalRequestedId: requestedId,
+        expectedExecutableId: executableId,
+        approvedRepair: repairLineage.present && repairLineage.ok,
+        actual: truth.requested?.id,
+      });
       if (!renderer.routes.has(truth.route)) violate("renderer-route-unrecognized", { songId: projectEvidence.songId, sourceCueIndex: row.sourceCueIndex, surface, route: truth.route });
       if (!["exact", "unsupported"].includes(truth.status)) violate("renderer-substitution-status", { songId: projectEvidence.songId, sourceCueIndex: row.sourceCueIndex, surface, status: truth.status });
       if (truth.silentDefault !== false) {
@@ -350,7 +546,13 @@ for (const projectEvidence of [...(hydration.projects || [])].sort((left, right)
     }
 
     allCards.push(card);
-    sourceCueByCard.set(card, { songId: projectEvidence.songId, sourceCueIndex: row.sourceCueIndex, requestedId });
+    sourceCueByCard.set(card, {
+      songId: projectEvidence.songId,
+      sourceCueIndex: row.sourceCueIndex,
+      requestedId,
+      executableId,
+      approvedRepair: repairLineage.present && repairLineage.ok,
+    });
   }
 
   const sourceDuration = durationOf(validCues);
@@ -372,6 +574,8 @@ for (const projectEvidence of [...(hydration.projects || [])].sort((left, right)
     sourceClippedDuration: sourceDuration,
     compiledDuration: graphDuration,
     immutableIdCount: projectImmutableIds,
+    directIdentityCount: projectDirectIdentities,
+    approvedRepairLineageCount: projectApprovedRepairLineages,
     exactTitleCount: projectExactTitles,
     silentDefaultCount: projectSilentDefaults,
     fallbackCount: projectFallbacks,
@@ -384,16 +588,21 @@ compiledDuration = Number(compiledDuration.toFixed(6));
 
 // Verify every unique shader requested by the album through the same content-
 // addressed catalog and response writer used by the Echo API.
-const cueCountsById = new Map();
+const requestedCueCountsById = new Map();
+const executableCueCountsById = new Map();
 for (const card of allCards) {
-  const id = sourceCueByCard.get(card).requestedId;
-  cueCountsById.set(id, (cueCountsById.get(id) || 0) + 1);
+  const lineage = sourceCueByCard.get(card);
+  requestedCueCountsById.set(lineage.requestedId, (requestedCueCountsById.get(lineage.requestedId) || 0) + 1);
+  executableCueCountsById.set(lineage.executableId, (executableCueCountsById.get(lineage.executableId) || 0) + 1);
 }
+const lineageSourceIds = [...new Set([...requestedCueCountsById.keys(), ...executableCueCountsById.keys()])].sort();
 const sourceContracts = [];
-for (const [id, cueCount] of [...cueCountsById.entries()].sort(([left], [right]) => left.localeCompare(right))) {
+for (const id of lineageSourceIds) {
+  const requestedCueCount = Number(requestedCueCountsById.get(id) || 0);
+  const executableCueCount = Number(executableCueCountsById.get(id) || 0);
   const record = catalogById.get(id);
   if (!record) {
-    violate("requested-source-not-in-catalog", { id, cueCount });
+    violate("lineage-source-not-in-catalog", { id, requestedCueCount, executableCueCount });
     continue;
   }
   const publicRow = record.public;
@@ -403,7 +612,7 @@ for (const [id, cueCount] of [...cueCountsById.entries()].sort(([left], [right])
   const direct = await assetCatalog.shader(id, publicHash);
   const mismatch = await assetCatalog.shader(id, "0".repeat(64));
   const response = responseContract(record, { contentType: "text/plain; charset=utf-8", shaderId: id });
-  const cards = allCards.filter((card) => sourceCueByCard.get(card).requestedId === id);
+  const cards = allCards.filter((card) => sourceCueByCard.get(card).executableId === id);
   const cardHashes = [...new Set(cards.map((card) => normalizedSha256(card.visualization?.card?.source?.hash)))];
   const sourceUris = [...new Set(cards.map((card) => String(card.visualization?.card?.source?.uri || "")))];
   const errors = [];
@@ -413,14 +622,16 @@ for (const [id, cueCount] of [...cueCountsById.entries()].sort(([left], [right])
   if (direct.status !== "ready" || direct.record !== record) errors.push("catalog-ready-contract");
   if (mismatch.status !== "hash-mismatch") errors.push("catalog-hash-rejection-contract");
   if (!response.ok) errors.push(...response.errors.map((error) => `response:${error}`));
-  if (cardHashes.length !== 1 || cardHashes[0] !== publicHash) errors.push("cue-source-hash");
-  if (sourceUris.length !== 1 || sourceUris[0] !== publicRow.sourceOriginal) errors.push("cue-source-uri");
+  if (executableCueCount > 0 && (cardHashes.length !== 1 || cardHashes[0] !== publicHash)) errors.push("cue-source-hash");
+  if (executableCueCount > 0 && (sourceUris.length !== 1 || sourceUris[0] !== publicRow.sourceOriginal)) errors.push("cue-source-uri");
   if (sha256Bytes(record.bytes) !== publicHash) errors.push("source-bytes-hash");
   if (errors.length) violate("source-response-contract-invalid", { id, errors });
   sourceContracts.push({
     id,
     title: publicRow.title,
-    cueCount,
+    cueCount: requestedCueCount,
+    requestedCueCount,
+    executableCueCount,
     sourceOriginal: publicRow.sourceOriginal,
     source: publicRow.source,
     sourceHash: publicHash,
@@ -456,7 +667,7 @@ if (!runtimeContract.ok) violate("runtime-response-contract-invalid", { runtimeR
 // route classification evidence bind to real, locally present pixel assets.
 const proxyContractsByKey = new Map();
 for (const card of allCards) {
-  const { songId, sourceCueIndex, requestedId } = sourceCueByCard.get(card);
+  const { songId, sourceCueIndex, requestedId, executableId, approvedRepair } = sourceCueByCard.get(card);
   const sourceHash = normalizedSha256(card.visualization?.card?.source?.hash);
   const nativeRoute = card.visualization?.nativeRoute;
   const hyperframesTruth = card.__releaseGateRendererTruth.hyperframes;
@@ -473,12 +684,12 @@ for (const card of allCards) {
     if (!assetHash) errors.push("proxy-asset-hash-missing");
     if (!errors.length && sha256Bytes(fs.readFileSync(assetPath)) !== assetHash) errors.push("proxy-asset-hash");
     if (![proxy?.width, proxy?.height, proxy?.frameCount, proxy?.fps].every((value) => Number(value) > 0)) errors.push("proxy-dimensions");
-    if (errors.length) violate("proxy-contract-invalid", { songId, sourceCueIndex, requestedId, surface, errors });
-    const key = `${surface}\0${requestedId}`;
+    if (errors.length) violate("proxy-contract-invalid", { songId, sourceCueIndex, requestedId, executableId, approvedRepair, surface, errors });
+    const key = `${surface}\0${executableId}`;
     const existing = proxyContractsByKey.get(key);
     const row = {
       surface,
-      id: requestedId,
+      id: executableId,
       assetPath: proxy?.assetPath || "",
       assetSha256: assetHash,
       sourceHash,
@@ -515,6 +726,10 @@ const rendererRows = Object.fromEntries(Object.keys(RENDERERS).map((surface) => 
 
 for (const card of allCards) delete card.__releaseGateRendererTruth;
 
+const declaredProjectRepairCount = (hydration.projects || [])
+  .reduce((sum, project) => sum + Number(project.shaderRepair?.replacementCount || 0), 0);
+const declaredAlbumRepairCount = Number(hydration.shaderRepair?.replacementCount || 0);
+
 const assertions = {
   expected79Projects: projectRows.length === 79 && hydration.projectCount === 79 && hydration.passingProjects === 79,
   expected791SourceCues: sourceCueCount === 791,
@@ -528,20 +743,30 @@ const assertions = {
     && Math.abs(hydration.sourceClippedDuration - sourceClippedDuration) <= 0.001
     && Math.abs(hydration.compiledDuration - compiledDuration) <= 0.001,
   immutableRequestedIds100Percent: immutableIdCount === graphCueCount,
+  directOrApprovedRepairIdentityCoverage100Percent: directIdentityCount + approvedRepairLineageCount === graphCueCount,
+  approvedRepairLineagesValid: repairLineages.length === declaredProjectRepairCount
+    && approvedRepairLineageCount === declaredProjectRepairCount
+    && repairLineages.every((lineage) => lineage?.ok === true),
+  hydrationShaderRepairCountsAgree: hydration.shaderRepair == null
+    ? declaredProjectRepairCount === 0 && approvedRepairLineageCount === 0
+    : hydration.shaderRepair.schemaVersion === "hapa.echo.album-shader-repair.v1"
+      && hydration.shaderRepair.unresolvedQuarantineCount === 0
+      && declaredAlbumRepairCount === declaredProjectRepairCount
+      && declaredAlbumRepairCount === approvedRepairLineageCount,
   exactManifestTitles100Percent: exactTitleCount === graphCueCount && titleSubstitutionCount === 0,
   zeroSilentDefaults: silentDefaultCount === 0 && Object.values(rendererRows).every((row) => row.silentDefaultCount === 0),
   zeroFallbacksOrSubstitutes: fallbackCount === 0 && Object.values(rendererRows).every((row) => row.substituteCount === 0),
   allPortableCardsValid: !violations.some((row) => row.code === "portable-card-invalid"),
-  requestedSourceCatalogCoverage100Percent: sourceContracts.length === cueCountsById.size && sourceContracts.every((row) => row.ok),
+  requestedSourceCatalogCoverage100Percent: sourceContracts.length === lineageSourceIds.length && sourceContracts.every((row) => row.ok),
   allShaderSourcesHashPinned: sourceContracts.every((row) => normalizedSha256(new URL(row.source, "http://hapa.local").searchParams.get("sha256")) === row.sourceHash),
   sourceResponseContractsValid: sourceContracts.every((row) => row.responseStatus === 200 && row.hashMismatchRejected && row.cacheControl === "public, max-age=31536000, immutable"),
   runtimeResponseContractValid: runtimeContract.ok,
   rendererReceiptCoverage100Percent: Object.values(rendererRows).every((row) => row.receiptCount === graphCueCount),
   rendererRoutesRecognized: Object.values(rendererRows).every((row) => row.allRoutesRecognized),
   rendererUnsupportedAccountingExplicit: Object.values(rendererRows).every((row) => row.allUnsupportedExplicit),
-  nativeRouteCountsAgree: rendererRows.native.routeCounts["exact-native"] === nativeRoutes.routeCounts.exactNative
-    && rendererRows.native.routeCounts["hash-bound-exact-proxy"] === nativeRoutes.routeCounts.exactProxy
-    && rendererRows.native.routeCounts.unsupported === nativeRoutes.routeCounts.unsupported
+  nativeRouteCountsAgree: Number(rendererRows.native.routeCounts["exact-native"] || 0) === Number(nativeRoutes.routeCounts.exactNative || 0)
+    && Number(rendererRows.native.routeCounts["hash-bound-exact-proxy"] || 0) === Number(nativeRoutes.routeCounts.exactProxy || 0)
+    && Number(rendererRows.native.routeCounts.unsupported || 0) === Number(nativeRoutes.routeCounts.unsupported || 0)
     && nativeRoutes.accountedCardCount === graphCueCount
     && nativeRoutes.silentFilteredCardCount === 0,
   exactProxyAssetsHashVerified: proxyContracts.length > 0 && proxyContracts.every((row) => row.ok),
@@ -574,6 +799,8 @@ const evidence = {
     sourceClippedDuration,
     compiledDuration,
     immutableIdCount,
+    directIdentityCount,
+    approvedRepairLineageCount,
     exactTitleCount,
     titleSubstitutionCount,
     silentDefaultCount,
@@ -583,10 +810,20 @@ const evidence = {
   sources: {
     manifestShaderCount: manifest.shaders?.length || 0,
     catalogShaderCount: catalog.shaders.length,
-    albumUniqueRequestedIdCount: cueCountsById.size,
+    albumUniqueRequestedIdCount: requestedCueCountsById.size,
+    albumUniqueExecutableIdCount: executableCueCountsById.size,
+    albumUniqueLineageSourceIdCount: lineageSourceIds.length,
     validContractCount: sourceContracts.filter((row) => row.ok).length,
     runtime: runtimeContract,
     contracts: sourceContracts,
+  },
+  shaderRepairs: {
+    schemaVersion: "hapa.echo.approved-shader-repair-lineage.v1",
+    declaredAlbumRepairCount,
+    declaredProjectRepairCount,
+    approvedRepairLineageCount,
+    invalidRepairLineageCount: repairLineages.filter((lineage) => lineage?.ok !== true).length,
+    lineages: repairLineages,
   },
   proxies: {
     registryProxyCount: proxyRegistry.proxies?.length || 0,

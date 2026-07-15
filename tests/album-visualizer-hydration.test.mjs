@@ -25,10 +25,10 @@ test("album Director v2 hydration covers every Echo project with executable visu
     schemaVersion: "hapa.echo.director-media-preflight.v1",
     ok: true,
     projectCount: 79,
-    cutCount: 477,
-    declaredCount: 27001,
-    generatedCount: 6869,
-    resolvedCount: 20132,
+    cutCount: 478,
+    declaredCount: 27062,
+    generatedCount: 6874,
+    resolvedCount: 20188,
     unresolvedCount: 0,
   });
   assert.equal(report.sourceCueCount, 791);

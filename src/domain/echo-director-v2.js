@@ -8,6 +8,14 @@ import { buildLyricDirectionTrack } from "./lyric-direction-track.js";
 import { buildAudioFallbackProfile } from "./audio-fallback-profile.js";
 import { buildMediaDiversityReport } from "./media-diversity-budget.js";
 import { buildSafeCameraPath, classifyMediaRole } from "./media-role-camera.js";
+import { resolveEchoOutputProfile } from "./echo-output-profile.js";
+import {
+  compactEchoStemBindingDecision,
+  declaredEchoStemRolesForWindow,
+  directorStemRole,
+  explicitEchoAllowSilentRoles,
+  selectEchoActiveStemBinding,
+} from "./echo-stem-binding-repair.js";
 import path from "node:path";
 
 const DEFAULT_AVATAR_ROOT = "/Users/calderwong/Desktop/hapa-avatar-builder";
@@ -16,7 +24,7 @@ export const DIRECTOR_V2_SCHEMA = "hapa.echo.director-plan.v2";
 export const CUE_GRAPH_SCHEMA = "hapa.echo.cue-graph.v2";
 export const TREATMENT_SCHEMA = "hapa.echo.editorial-treatment.v2";
 export const NATIVE_SHOW_GRAPH_SCHEMA = "hapa.music-viz.native-show-graph.v2";
-export const DIRECTOR_V2_COMPILER_VERSION = "echo-director-v2.3.0";
+export const DIRECTOR_V2_COMPILER_VERSION = "echo-director-v2.4.0";
 
 export const DEFAULT_VARIANT_RECIPES = Object.freeze({
   conservative: Object.freeze({
@@ -524,8 +532,8 @@ function numericDefaults(inputs = []) {
   );
 }
 
-function focusForSection(sectionType, availableRoles) {
-  const preferred = {
+function stemPreferencesForSection(sectionType) {
+  return {
     intro: ["synth", "keyboard", "strings"],
     verse: ["leadVocals", "guitar", "keyboard"],
     chorus: ["drums", "bass", "backingVocals"],
@@ -533,14 +541,22 @@ function focusForSection(sectionType, availableRoles) {
     bridge: ["strings", "backingVocals", "synth"],
     outro: ["leadVocals", "strings", "synth"],
   }[String(sectionType || "").toLowerCase()] || ["leadVocals", "drums", "bass", "synth"];
+}
+
+function focusForSection(sectionType, availableRoles) {
+  const preferred = stemPreferencesForSection(sectionType);
   return preferred.find((role) => availableRoles.has(role)) || [...availableRoles][0] || "master";
 }
 
 export function buildEditorialTreatment(projectInput, cueGraph, manifest, registry = null, options = {}) {
   const project = projectBody(projectInput) || {};
+  const outputProfile = resolveEchoOutputProfile(project);
   const duration = cueGraph.durationSeconds;
   const stems = normalizeStemRecords(project, registry);
   const availableRoles = new Set(stems.map((stem) => stem.role));
+  const stemTelemetry = options.stemTelemetry?.schemaVersion === "hapa.stem-telemetry-bundle.v1"
+    ? options.stemTelemetry
+    : null;
   const sourceShots = (project.timeline || [])
     .map((shot, index) => {
       const window = clipWindow(shot.start_sec, shot.end_sec, duration);
@@ -644,7 +660,28 @@ export function buildEditorialTreatment(projectInput, cueGraph, manifest, regist
       const resolution = resolveManifestShader(manifest, requestedSourceId, requestedTitle);
       const { shader } = resolution;
       const section = cueGraph.sections.find((item) => item.startSeconds <= window[0] && item.endSeconds > window[0]);
-      const stemFocus = focusForSection(section?.type, availableRoles);
+      const requestedStemFocus = directorStemRole(
+        segment.stem_focus
+        || segment.stemFocus
+        || focusForSection(section?.type, availableRoles),
+      );
+      const audioSignals = Object.values(shader?.audioMap || {})
+        .map((mapping) => String(mapping?.signal || "").trim().toLowerCase())
+        .filter((signal) => signal && signal !== "off" && signal !== "canvas");
+      const stemBinding = selectEchoActiveStemBinding({
+        telemetry: stemTelemetry,
+        requestedRole: requestedStemFocus,
+        startSeconds: window[0],
+        endSeconds: window[1],
+        signals: audioSignals,
+        declaredActiveRoles: declaredEchoStemRolesForWindow(project.timeline, window[0], window[1]),
+        preferredRoles: stemPreferencesForSection(section?.type),
+        availableRoles: [...availableRoles],
+        availableStemSources: stems,
+        allowSilentRoles: explicitEchoAllowSilentRoles({ telemetry: stemTelemetry }),
+        allowMasterFallback: true,
+      });
+      const stemFocus = stemBinding.selectedRole;
       const layerRole = index % 3 === 0 ? "atmosphere" : index % 3 === 1 ? "rhythm" : "accent";
       const controls = numericDefaults(shader?.inputs || []);
       const blendMode = index % 2 === 0 ? "screen" : "plus-lighter";
@@ -685,6 +722,11 @@ export function buildEditorialTreatment(projectInput, cueGraph, manifest, regist
           ? "music-viz-isf-manifest-exact-id"
           : `music-viz-isf-manifest-${resolution.receipt.status}`,
       });
+      portableCard.provenance = {
+        ...(portableCard.provenance || {}),
+        stemBindingDecision: compactEchoStemBindingDecision(stemBinding),
+      };
+      const runtimeShaderRepair = boundedRuntimeShaderRepairProvenance(segment, shader?.id);
       const visualizer = {
         id: `visualizer:${index}:${slug(requestedSourceId || requestedTitle)}`,
         sourceCueIndex: index,
@@ -700,7 +742,9 @@ export function buildEditorialTreatment(projectInput, cueGraph, manifest, regist
         endSeconds: window[1],
         transition: String(segment.transition || "crossfade"),
         layerRole,
+        requestedStemFocus,
         stemFocus,
+        stemBinding,
         inputs: shader?.inputs || [],
         audioMap: shader?.audioMap || {},
         controls,
@@ -711,6 +755,7 @@ export function buildEditorialTreatment(projectInput, cueGraph, manifest, regist
         eligibility,
         nativeRoute: portableCard.nativeRoute,
         portableCard,
+        ...(runtimeShaderRepair ? { runtimeShaderRepair } : {}),
       };
       return {
         visualizer,
@@ -724,6 +769,7 @@ export function buildEditorialTreatment(projectInput, cueGraph, manifest, regist
           fallbackUsed: resolution.receipt.fallbackUsed,
           reason: eligibility.reason,
           nativeRoute: portableCard.nativeRoute,
+          stemBinding,
           startSeconds: window[0],
           endSeconds: window[1],
         },
@@ -738,7 +784,8 @@ export function buildEditorialTreatment(projectInput, cueGraph, manifest, regist
     songTitle: String(project.song_title || "Untitled"),
     registryTrackId: String(project.registry_track_id || project.audio_id || ""),
     durationSeconds: duration,
-    sourceProjectHash: contentHash(project),
+    outputProfile,
+    sourceProjectHash: String(options.sourceProjectHash || contentHash(project)),
     cueGraphId: cueGraph.cueGraphId,
     stems,
     mediaSlots,
@@ -749,6 +796,13 @@ export function buildEditorialTreatment(projectInput, cueGraph, manifest, regist
       lyrics: contentHash(cueGraph.lyricCues),
       telemetry: contentHash({ sections: cueGraph.sections, editCues: cueGraph.editCues, timingTruth: cueGraph.timingTruth }),
       stems: contentHash(stems),
+      stemActivity: contentHash({
+        schemaVersion: stemTelemetry?.schemaVersion || null,
+        analysisVersion: stemTelemetry?.analysisVersion || null,
+        truthStatus: stemTelemetry?.truthStatus || null,
+        fps: stemTelemetry?.fps || null,
+        decisions: visualizers.map((visualizer) => visualizer.stemBinding),
+      }),
       mediaAffordances: contentHash(mediaSlots),
       visualizerCatalog: contentHash(visualizers),
       canon: contentHash(project.canon_affordance_graph || null),
@@ -779,11 +833,32 @@ function provenanceStrings(input) {
   return Object.fromEntries(Object.entries(input).map(([key, value]) => [key, String(value ?? "")]));
 }
 
+function boundedRuntimeShaderRepairProvenance(segment = {}, executableSourceId = "") {
+  const repair = segment?.shader_repair || segment?.shaderRepair;
+  const originalId = String(repair?.originalId || "").trim();
+  const replacementId = String(repair?.replacementId || "").trim();
+  if (
+    !originalId
+    || !replacementId
+    || replacementId !== String(executableSourceId || "").trim()
+    || repair?.nonDestructive !== true
+  ) return null;
+  return {
+    schemaVersion: "hapa.echo.runtime-shader-repair.v1",
+    reason: String(repair.reason || "").trim(),
+    originalId,
+    originalTitle: String(repair.originalTitle || "").trim(),
+    replacementId,
+    replacementTitle: String(repair.replacementTitle || "").trim(),
+    nonDestructive: true,
+  };
+}
+
 function visualizerMappings(visualizer) {
   return Object.fromEntries(
     Object.entries(visualizer.audioMap || {}).map(([uniform, mapping]) => [
       uniform,
-      `${visualizer.stemFocus}:${String(mapping?.signal || "off")}`,
+      `${directorStemRole(mapping?.stemFocus || mapping?.stem_focus || visualizer.stemFocus)}:${String(mapping?.signal || "off")}`,
     ]),
   );
 }
@@ -810,7 +885,7 @@ function modulationBindings(visualizers, recipe) {
       .filter(([, mapping]) => String(mapping?.signal || "off") !== "off")
       .map(([uniform, mapping]) => ({
         id: `${visualizer.id}:${uniform}`,
-        source: { kind: "stem_signal", stemFocus: visualizer.stemFocus, signal: String(mapping.signal) },
+        source: { kind: "stem_signal", stemFocus: directorStemRole(mapping?.stemFocus || mapping?.stem_focus || visualizer.stemFocus), signal: String(mapping.signal) },
         target: { kind: "visualizer_uniform", visualizerId: visualizer.id, uniform },
         envelope: executableEnvelope({
           depth: round(clamp(mapping.depth ?? 0.2) * recipe.visualizerMix),
@@ -900,6 +975,7 @@ function admitVisualizerLayers(visualizers, requestedMaxLayers) {
 
 export function compileDirectorVariant({ treatment, cueGraph, recipe = "conservative", seed = "echo-v2", sourceProject = null }) {
   const normalizedRecipe = recipeFor(recipe);
+  const outputProfile = resolveEchoOutputProfile(treatment.outputProfile ?? projectBody(sourceProject));
   const slots = treatment.mediaSlots.map((slot, index) => {
     const candidates = slot.candidateMedia || [];
     const offset = normalizedRecipe.mediaOffset % Math.max(1, candidates.length);
@@ -1005,6 +1081,7 @@ export function compileDirectorVariant({ treatment, cueGraph, recipe = "conserva
         executionStatus,
         layerIndex: visualizer.layerAdmission.layerIndex,
         maxConcurrentLayers: visualizer.layerAdmission.maxConcurrentLayers,
+        stemBinding: compactEchoStemBindingDecision(visualizer.stemBinding),
         fallbackReceipt: visualizer.manifestResolution.fallbackUsed || knockedOut
           ? {
             requestedSourceId: visualizer.requestedSourceId,
@@ -1025,17 +1102,26 @@ export function compileDirectorVariant({ treatment, cueGraph, recipe = "conserva
         visualizerMappings: visualizerMappings(visualizer),
         favorite: visualizer.id === firstExecutableVisualizerId,
       },
-      provenance: provenanceStrings({
-        treatmentId: treatment.treatmentId,
-        manifestSource: visualizer.source,
-        stemFocus: visualizer.stemFocus,
-        layerRole: visualizer.layerRole,
-        fidelity: visualizer.fidelity,
-        requestedSourceId: visualizer.requestedSourceId,
-        resolutionStatus: visualizer.manifestResolution.status,
-        eligibilityStatus: visualizer.eligibility.status,
-        executionStatus,
-      }),
+      provenance: {
+        ...provenanceStrings({
+          treatmentId: treatment.treatmentId,
+          manifestSource: visualizer.source,
+          stemFocus: visualizer.stemFocus,
+          requestedStemFocus: visualizer.requestedStemFocus,
+          stemBindingStatus: visualizer.stemBinding?.status,
+          stemBindingReason: visualizer.stemBinding?.reason,
+          stemBindingPolicy: visualizer.stemBinding?.policy,
+          stemTelemetryAnalysisVersion: visualizer.stemBinding?.telemetry?.analysisVersion,
+          stemTelemetrySelectedAudioHash: visualizer.stemBinding?.selectedEvidence?.audioHash,
+          layerRole: visualizer.layerRole,
+          fidelity: visualizer.fidelity,
+          requestedSourceId: visualizer.requestedSourceId,
+          resolutionStatus: visualizer.manifestResolution.status,
+          eligibilityStatus: visualizer.eligibility.status,
+          executionStatus,
+        }),
+        ...(visualizer.runtimeShaderRepair ? { runtimeShaderRepair: visualizer.runtimeShaderRepair } : {}),
+      },
       executionReceipt: {
         sourceCueIndex: visualizer.sourceCueIndex,
         requestedSourceId: visualizer.requestedSourceId,
@@ -1050,6 +1136,7 @@ export function compileDirectorVariant({ treatment, cueGraph, recipe = "conserva
         layerIndex: visualizer.layerAdmission.layerIndex,
         maxConcurrentLayers: visualizer.layerAdmission.maxConcurrentLayers,
         nativeRoute: visualizer.nativeRoute,
+        stemBinding: compactEchoStemBindingDecision(visualizer.stemBinding),
       },
       knockedOut,
     };
@@ -1119,12 +1206,14 @@ export function compileDirectorVariant({ treatment, cueGraph, recipe = "conserva
     durationSeconds: treatment.durationSeconds,
     timingTruth: cueGraph.timingTruth,
   });
+  const selectedOutputAspect = outputProfile.width / outputProfile.height;
+  const cameraTargetAspects = [...new Set([selectedOutputAspect, 16 / 9, 9 / 16, 1])];
   const mediaRoleCamera = slots.map((slot, index) => {
     const sourceShot = source.timeline?.[slot.sourceShotIndex ?? index] || {};
     const contract = sourceShot.media_contract || {};
     const technical = {
-      width: contract.dimensions?.width || 1920,
-      height: contract.dimensions?.height || 1080,
+      width: contract.dimensions?.width || outputProfile.width,
+      height: contract.dimensions?.height || outputProfile.height,
       durationSec: Number(slot.endSeconds) - Number(slot.startSeconds),
       fps: contract.fps || 24,
       codec: contract.type === "image" ? "image" : contract.proxy?.codec || "unknown",
@@ -1133,12 +1222,22 @@ export function compileDirectorVariant({ treatment, cueGraph, recipe = "conserva
     const phraseCue = cueGraph.lyricCues.find((cue) => Number(cue.startSeconds) >= Number(slot.startSeconds) && Number(cue.startSeconds) < Number(slot.endSeconds)) || cueGraph.cues.find((cue) => Number(cue.atSeconds) >= Number(slot.startSeconds) && Number(cue.atSeconds) < Number(slot.endSeconds));
     const analysis = slot.selectedMedia.roi || { status: "center-safe-fallback", evidence: "no-subject-analysis-attached", subjectROI: { x: 0.25, y: 0.2, width: 0.5, height: 0.6 }, faceCount: 0 };
     const role = classifyMediaRole({ technical, subjectROI: analysis.subjectROI, atSectionStart: cadenceTrack.sections.some((section) => Math.abs(section.startSeconds - slot.startSeconds) < 0.001), isFinal: index === slots.length - 1 });
-    return buildSafeCameraPath({ mediaId: slot.selectedMedia.id, technical, analysis, role, phraseCue });
+    return buildSafeCameraPath({
+      mediaId: slot.selectedMedia.id,
+      technical,
+      analysis,
+      role,
+      phraseCue,
+      // The first corridor drives camera keyframes. Keep it aligned with the
+      // selected export profile while retaining the alternate crop plans.
+      targetAspects: cameraTargetAspects,
+    });
   });
   const graphBase = {
     schemaVersion: NATIVE_SHOW_GRAPH_SCHEMA,
     ok: true,
     createdAt: String(source.provenance?.generatedAt || "source-time-unavailable"),
+    outputProfile,
     song: {
       id: treatment.registryTrackId || treatment.songId,
       title: treatment.songTitle,
@@ -1180,6 +1279,13 @@ export function compileDirectorVariant({ treatment, cueGraph, recipe = "conserva
       })),
       count: treatment.stems.length,
       nativeStatus: treatment.stems.every((stem) => stem.audioPath) ? "verified-local-registry-paths" : "partial-local-paths",
+      bindingActivity: {
+        policy: treatment.visualizers[0]?.stemBinding?.policy || null,
+        telemetry: treatment.visualizers[0]?.stemBinding?.telemetry || null,
+        decisionCount: treatment.visualizers.length,
+        repairedCount: treatment.visualizers.filter((visualizer) => visualizer.stemBinding?.changed).length,
+        blockedCount: treatment.visualizers.filter((visualizer) => String(visualizer.stemBinding?.status || "").startsWith("blocked-")).length,
+      },
     },
     tracks: [
       { id: "track-a", label: "Media foundation", role: "foundation", buffer: { id: "buffer-a", targetSeconds: 8, readySeconds: 0, state: "planned", nativeStatus: "requires-precompute", dirty: true }, cards: trackA },
@@ -1198,6 +1304,7 @@ export function compileDirectorVariant({ treatment, cueGraph, recipe = "conserva
     edits: [],
     directorV2: {
       schemaVersion: DIRECTOR_V2_SCHEMA,
+      outputProfile,
       basePlanId: treatment.treatmentId,
       treatmentId: treatment.treatmentId,
       cueGraphId: cueGraph.cueGraphId,
@@ -1228,6 +1335,13 @@ export function compileDirectorVariant({ treatment, cueGraph, recipe = "conserva
         candidates: (slot.candidateMedia || []).map((candidate, rank) => ({ ...candidate, rank })),
       })),
       visualizerLayers: compiledVisualizers,
+      stemBindingDecisions: compiledVisualizers.map((visualizer) => ({
+        visualizerId: visualizer.id,
+        sourceCueIndex: visualizer.sourceCueIndex,
+        startSeconds: visualizer.startSeconds,
+        endSeconds: visualizer.endSeconds,
+        decision: compactEchoStemBindingDecision(visualizer.stemBinding),
+      })),
       visualizerReceipts: treatment.visualizerReceipts.map((receipt) => {
         const card = trackB.find((candidate) => candidate.executionReceipt.sourceCueIndex === receipt.sourceCueIndex);
         return card ? card.executionReceipt : receipt;
@@ -1300,10 +1414,16 @@ export function compileDirectorVariant({ treatment, cueGraph, recipe = "conserva
   return { ...compiled, directorV2: { ...compiled.directorV2, mediaDiversityReport: buildMediaDiversityReport(compiled) } };
 }
 
-export function buildDirectorV2Artifacts({ project, manifest, registry = null, stemTelemetry = null, duration, recipe, seed, avatarRoot, nativeProxyAvailable = null }) {
+export function buildDirectorV2Artifacts({ project, sourceProject = project, manifest, registry = null, stemTelemetry = null, duration, recipe, seed, avatarRoot, nativeProxyAvailable = null }) {
+  const sourceProjectBody = projectBody(sourceProject) || {};
   const cueGraph = buildCueGraph(project, { duration, stemTelemetry });
-  const treatment = buildEditorialTreatment(project, cueGraph, manifest, registry, { avatarRoot, nativeProxyAvailable });
-  const showGraph = compileDirectorVariant({ treatment, cueGraph, recipe, seed, sourceProject: project });
+  const treatment = buildEditorialTreatment(project, cueGraph, manifest, registry, {
+    avatarRoot,
+    nativeProxyAvailable,
+    sourceProjectHash: contentHash(sourceProjectBody),
+    stemTelemetry,
+  });
+  const showGraph = compileDirectorVariant({ treatment, cueGraph, recipe, seed, sourceProject });
   return {
     cueGraph,
     treatment,
@@ -1321,6 +1441,7 @@ export function buildDirectorV2Artifacts({ project, manifest, registry = null, s
       locks: treatment.locks,
       inheritedPatches: [],
       sourceProjectHash: treatment.sourceProjectHash,
+      outputProfile: showGraph.outputProfile,
       truth: showGraph.truth,
       warnings: cueGraph.timingTruth.warnings,
     },
