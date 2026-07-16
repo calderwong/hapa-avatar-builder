@@ -132,6 +132,48 @@ test("compiled Echo graph requires root and director output profiles to match th
   );
 });
 
+test("compiled Echo graph validates a derived cut profile without losing canonical source lineage", () => {
+  const canonical = fixture();
+  const selectedProject = { ...canonical.project, output_profile: "vertical" };
+  canonical.graph.outputProfile = "vertical";
+  canonical.graph.directorV2.outputProfile = "vertical";
+  canonical.graph = sealVariant(canonical.graph);
+
+  const validation = validateEchoCompiledShowGraph({
+    project: selectedProject,
+    sourceProject: canonical.project,
+    graph: canonical.graph,
+  });
+  assert.equal(validation.ok, true);
+  assert.equal(validation.projectOutputProfile.id, "vertical");
+  assert.equal(validation.graphOutputProfile.id, "vertical");
+  assert.equal(validation.directorOutputProfile.id, "vertical");
+  assert.equal(validation.expectedSourceProjectHash, contentHash(canonical.project));
+
+  assert.deepEqual(
+    validateEchoCompiledShowGraph({ project: selectedProject, graph: canonical.graph }).reasons,
+    ["source_project_hash_mismatch"],
+  );
+});
+
+test("compiled Echo graph rejects lineage borrowed from another song identity", () => {
+  const canonical = fixture();
+  const selectedProject = { ...canonical.project, output_profile: "vertical" };
+  canonical.graph.outputProfile = "vertical";
+  canonical.graph.directorV2.outputProfile = "vertical";
+  canonical.graph = sealVariant(canonical.graph);
+
+  const wrongSong = { ...canonical.project, song_id: "song:other" };
+  const wrongAudio = { ...canonical.project, audio_id: "audio:other" };
+  const wrongRegistry = { ...canonical.project, registry_track_id: "registry:other" };
+  assert.ok(validateEchoCompiledShowGraph({ project: selectedProject, sourceProject: wrongSong, graph: canonical.graph })
+    .reasons.includes("source_project_song_identity_mismatch"));
+  assert.ok(validateEchoCompiledShowGraph({ project: selectedProject, sourceProject: wrongAudio, graph: canonical.graph })
+    .reasons.includes("source_project_audio_identity_mismatch"));
+  assert.ok(validateEchoCompiledShowGraph({ project: selectedProject, sourceProject: wrongRegistry, graph: canonical.graph })
+    .reasons.includes("source_project_registry_identity_mismatch"));
+});
+
 test("compiled Echo graph defaults a missing graph profile to Landscape before comparison", () => {
   const project = fixture();
   project.project.output_profile = "vertical";

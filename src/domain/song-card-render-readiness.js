@@ -11,6 +11,7 @@ import {
   normalizeHyperFramesStemRole,
 } from "./hyperframes-visualizer-runtime.js";
 import { canonicalSha256 } from "./native-visualizer-route.js";
+import { inspectPortableVisualizerAttachment } from "./portable-visualizer-card.js";
 
 export const SONG_CARD_RENDER_READINESS_SCHEMA = "hapa.song-card.render-readiness.v1";
 
@@ -66,6 +67,8 @@ function compact(values, limit = MAX_DETAIL_ROWS) {
 
 function graphVisualizerCards(showGraph = {}) {
   return (showGraph.tracks || []).flatMap((track) => (track.cards || []).flatMap((card) => {
+    const sourceId = text(card?.visualization?.sourceId || card?.visualization?.requestedSourceId || card?.visualization?.card?.id).toLowerCase();
+    if (card?.disabled === true || card?.knockedOut === true || card?.knocked_out === true || sourceId === "none") return [];
     const requested = Boolean(card.visualization && (
       track.role === "visualizer"
       || track.id === "track-b"
@@ -490,14 +493,40 @@ function inputPreflightBlocker(kind, preflight, addBlocker) {
     ...(kind === "signal-graph" && detachedVisualizers.length ? ["detached-visualizers-present"] : []),
   ];
   if (!contractIssues.length) return;
-  const cueIds = unresolved.map((row) => text(row?.cueId || row?.cardId)).filter(Boolean);
+  const detachedVisualizerDetails = detachedVisualizers.slice(0, MAX_DETAIL_ROWS).map((row) => {
+    const cardId = text(row?.cardId || row?.card);
+    const sourceId = text(row?.sourceId || row?.source);
+    const sourceTitle = text(row?.sourceTitle || row?.title);
+    const startSeconds = row?.startSeconds ?? row?.start;
+    const endSeconds = row?.endSeconds ?? row?.end;
+    return {
+      ...(cardId ? { cardId } : {}),
+      ...(sourceId ? { sourceId } : {}),
+      ...(sourceTitle ? { sourceTitle } : {}),
+      ...(startSeconds !== null && startSeconds !== undefined && text(startSeconds) && Number.isFinite(Number(startSeconds))
+        ? { startSeconds: Number(startSeconds) }
+        : {}),
+      ...(endSeconds !== null && endSeconds !== undefined && text(endSeconds) && Number.isFinite(Number(endSeconds))
+        ? { endSeconds: Number(endSeconds) }
+        : {}),
+      ...(text(row?.reason) ? { reason: text(row.reason) } : {}),
+    };
+  });
+  const firstDetachedVisualizer = detachedVisualizerDetails[0] || {};
+  const cueIds = [
+    ...unresolved.map((row) => text(row?.cueId || row?.cardId)),
+    ...detachedVisualizerDetails.map((row) => text(row.cardId)),
+  ].filter(Boolean);
   addBlocker({
     code: `${kind}-preflight-failed`,
     stage: `${kind}-preflight`,
     message: kind === "media"
       ? "One or more media cues cannot be resolved before local rendering."
-      : "The selected cut has detached stem paths or portable visualizer bindings.",
+      : detachedVisualizerDetails.length
+        ? "One or more selected shaders are detached from their portable final-render cards."
+        : "The selected cut has detached stem paths or portable visualizer bindings.",
     cueId: cueIds[0] || null,
+    visualizerId: firstDetachedVisualizer.sourceId || null,
     details: {
       errors: errors.slice(0, MAX_DETAIL_ROWS),
       contractIssues,
@@ -506,6 +535,7 @@ function inputPreflightBlocker(kind, preflight, addBlocker) {
       unresolvedCount,
       unresolvedStemBindingCount: unresolvedStemBindings.length,
       detachedVisualizerCount: detachedVisualizers.length,
+      detachedVisualizers: detachedVisualizerDetails,
       cueIds: cueIds.slice(0, MAX_DETAIL_ROWS),
     },
   });
@@ -571,6 +601,25 @@ export function preflightSongCardRenderReadiness({
     });
   } else {
     inputPreflightBlocker("signal-graph", effectiveSignalPreflight, addBlocker);
+  }
+
+  for (const { card } of graphVisualizerCards(showGraph)) {
+    const attachment = inspectPortableVisualizerAttachment(card);
+    if (attachment.ok) continue;
+    addBlocker({
+      code: "portable-visualizer-attachment-invalid",
+      stage: "visualizer-contract",
+      message: "A requested visualizer is not bound to a matching portable card with a canonical SHA-256 source identity.",
+      cueId: text(card?.id),
+      visualizerId: attachment.requestedSourceId || attachment.cardId,
+      details: {
+        errors: attachment.errors,
+        requestedSourceIds: attachment.requestedSourceIds,
+        portableCardId: attachment.cardId,
+        sourceUri: attachment.sourceUri,
+        sourceHash: attachment.sourceHash,
+      },
+    });
   }
 
   let show;

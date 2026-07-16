@@ -282,6 +282,7 @@ export async function readEchoDirectorShowGraphArtifact({
   root,
   project,
   canonicalProject = null,
+  sourceProject = undefined,
   songId,
   cutId = "base",
   cutKind = null,
@@ -342,7 +343,12 @@ export async function readEchoDirectorShowGraphArtifact({
   }
 
   const canonicalGraph = cached.graph;
-  const canonicalValidation = validateGraph({ project: canonicalProject || project, graph: canonicalGraph });
+  const canonicalValidationProject = canonicalProject || project;
+  const canonicalValidation = validateGraph({
+    project: canonicalValidationProject,
+    sourceProject: canonicalValidationProject,
+    graph: canonicalGraph,
+  });
   const requestedCutId = text(cutId) || "base";
   const requestedCutKind = text(cutKind) || (requestedCutId === "base" ? "base" : "saved-variant");
   const requestedCutFingerprint = requestedCutId === "base" ? cached.sourceHash : text(cutFingerprint);
@@ -357,6 +363,7 @@ export async function readEchoDirectorShowGraphArtifact({
       parentGraphPath: graphPath,
       parentGraphSha256: cached.sourceHash,
       project,
+      sourceProject,
       validateGraph,
     })
     : {

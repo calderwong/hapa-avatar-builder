@@ -1397,7 +1397,7 @@ test("signal graph preflight catches lossy variant projection before stem analys
   const portable = {
     schemaVersion: "hapa.visualizer-card.v2",
     id: "isf:exact",
-    source: { hash: `sha256:${"a".repeat(64)}` },
+    source: { uri: "/static/isf/exact.fs", hash: `sha256:${"a".repeat(64)}` },
   };
   const rich = preflightSongCardSignalGraph({
     project: { stems_available: ["archive-zip", "Synth"] },
@@ -1409,16 +1409,54 @@ test("signal graph preflight catches lossy variant projection before stem analys
   assert.equal(rich.ok, true);
   assert.equal(rich.verifiedStemCount, 1);
 
+  for (const [label, visualization, expectedError] of [
+    [
+      "invalid hash",
+      { sourceId: "isf:exact", card: { ...portable, source: { ...portable.source, hash: "sha256:short" } } },
+      "source-hash",
+    ],
+    [
+      "mismatched requested ID",
+      { sourceId: "isf:other", card: portable },
+      "requested-source-id-mismatch",
+    ],
+  ]) {
+    const detached = preflightSongCardSignalGraph({
+      project: { stems_available: ["Synth"] },
+      showGraph: {
+        stems: { items: [{ id: "synth", stemType: "Synth", audioPath: synthPath }] },
+        tracks: [{ id: "track-b", role: "visualizer", cards: [{ id: `card:${label}`, visualization }] }],
+      },
+    });
+    assert.equal(detached.ok, false, label);
+    assert.deepEqual(detached.errors, ["portable-visualizer-truth-detached"], label);
+    assert.ok(detached.detachedVisualizers[0].attachmentErrors.includes(expectedError), label);
+  }
+
   const lossy = preflightSongCardSignalGraph({
     project: { stems_available: ["Synth", "Drums", "Vocals"] },
     showGraph: {
       stems: { items: [{ id: "stem:0", stemType: "Synth", title: "Synth" }, { id: "stem:1", stemType: "Drums", title: "Drums" }] },
-      tracks: [{ id: "ivf-stack", role: "visualizer", cards: [{ id: "legacy:ivf:0", visualization: { sourceId: "isf:exact" } }] }],
+      tracks: [{ id: "ivf-stack", role: "visualizer", cards: [{
+        id: "legacy:ivf:0",
+        startSeconds: 213,
+        endSeconds: 230,
+        media: { title: "Linescape" },
+        visualization: { sourceId: "isf:exact" },
+      }] }],
     },
   });
   assert.equal(lossy.ok, false);
   assert.deepEqual(lossy.errors, ["isolated-stem-paths-detached", "portable-visualizer-truth-detached"]);
-  assert.equal(lossy.detachedVisualizers[0].cardId, "legacy:ivf:0");
+  assert.deepEqual(lossy.detachedVisualizers[0], {
+    cardId: "legacy:ivf:0",
+    sourceId: "isf:exact",
+    sourceTitle: "Linescape",
+    startSeconds: 213,
+    endSeconds: 230,
+    reason: "portable-visualizer-card-missing-or-unbound",
+    attachmentErrors: ["schema-version", "id", "source-uri", "source-hash"],
+  });
 });
 
 test("signal graph preflight rejects partially detached visualizer stems and resolves vocal aliases", async (t) => {
@@ -1434,7 +1472,7 @@ test("signal graph preflight rejects partially detached visualizer stems and res
     schemaVersion: "hapa.visualizer-card.v2",
     id,
     stemFocus,
-    source: { hash: `sha256:${"b".repeat(64)}` },
+    source: { uri: `/${id}.fs`, hash: `sha256:${"b".repeat(64)}` },
   });
   const baseGraph = {
     stems: {

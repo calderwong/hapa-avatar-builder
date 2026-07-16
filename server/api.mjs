@@ -8124,14 +8124,8 @@ async function createEchoDirectionVariantFork(body = {}) {
     throw echoDirectionForkError("parent_variant_changed", "The source cut changed after this working fork began.", 409);
   }
 
-  const now = new Date().toISOString();
   const requestedId = body.requestedId ? safeEchoDirectionPathSegment(body.requestedId, "variant") : "";
-  const parentSlug = parentVariantId.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 72) || "direction-cut";
-  const entropy = randomBytes(8).toString("hex");
-  const childId = requestedId || `${parentSlug}-edit-${Date.now().toString(36)}-${entropy.slice(0, 8)}`;
   const parentMetadata = echoDirectionVariantMetadata(parentVariant);
-  const editOrdinal = parentVariants.filter((variant) => variant.lineage?.parentVariantId === parentVariantId).length + 1;
-  const editLabel = `Edit ${editOrdinal}`;
   const projectPatch = pickEchoDirectionVariantProjectPatch(body.projectPatch || {});
   const visualizerTimeline = Array.isArray(body.visualizerTimeline)
     ? body.visualizerTimeline
@@ -8139,6 +8133,41 @@ async function createEchoDirectionVariantFork(body = {}) {
       ? parentVariant.visualizer_timeline
       : undefined;
   const densityTelemetry = body.mediaDensityTelemetry || parentVariant.media_density_telemetry || null;
+  const normalizedTitle = String(body.title || domainEchoDirectionVariantTitle(parentVariant)).replace(/\s+/g, " ").trim();
+  const forkRequestFingerprint = echoCertificationSha256({
+    schemaVersion: ECHO_DIRECTION_FORK_PAYLOAD_SCHEMA,
+    songId,
+    parentVariantId,
+    parentFingerprint,
+    title: normalizedTitle,
+    timeline,
+    visualizerTimeline: visualizerTimeline || null,
+    mediaDensityTelemetry: densityTelemetry,
+    projectPatch,
+    hyperframeScript: String(body.hyperframeScript || ""),
+  });
+  const existingRequestedChild = requestedId
+    ? parentVariants.find((variant) => echoDirectionVariantId(variant) === requestedId)
+    : null;
+  if (existingRequestedChild) {
+    if (existingRequestedChild.fork_request_fingerprint === forkRequestFingerprint
+      && existingRequestedChild.lineage?.parentVariantId === parentVariantId) {
+      return {
+        success: true,
+        idempotentReplay: true,
+        variant: summarizeEchoDirectionScriptVariant(existingRequestedChild),
+        lineage: existingRequestedChild.lineage,
+      };
+    }
+    throw echoDirectionForkError("direction_variant_conflict", "A different direction cut already uses that request identifier.", 409);
+  }
+
+  const now = new Date().toISOString();
+  const parentSlug = parentVariantId.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 72) || "direction-cut";
+  const entropy = randomBytes(8).toString("hex");
+  const childId = requestedId || `${parentSlug}-edit-${Date.now().toString(36)}-${entropy.slice(0, 8)}`;
+  const editOrdinal = parentVariants.filter((variant) => variant.lineage?.parentVariantId === parentVariantId).length + 1;
+  const editLabel = `Edit ${editOrdinal}`;
   const child = {
     schemaVersion: "hapa.echo.direction-script-variant.v1",
     id: childId,
@@ -8147,6 +8176,7 @@ async function createEchoDirectionVariantFork(body = {}) {
     createdAt: now,
     updatedAt: now,
     selectionMode: "human-working-fork",
+    fork_request_fingerprint: forkRequestFingerprint,
     variationSet: {
       id: `${parentMetadata.variationSet?.id || "direction"}-edited-cuts`,
       label: `${parentMetadata.variationSet?.label || "Direction"} · Edited cuts`,
@@ -8310,12 +8340,13 @@ async function readEchoDirectorShowGraph(project, safeSongId, cutId = "base") {
     };
   }
   let cutFingerprint = null;
+  let currentVariant = null;
   if (requestedCutId !== "base") {
     const storedVariant = await readEchoDirectionScriptVariant(safeSongId, requestedCutId);
     const embeddedVariant = Array.isArray(project?.direction_script_variants)
       ? project.direction_script_variants.find((variant) => echoDirectionVariantId(variant) === requestedCutId)
       : null;
-    const currentVariant = storedVariant || embeddedVariant;
+    currentVariant = storedVariant || embeddedVariant;
     cutFingerprint = currentVariant ? echoDirectionVariantFingerprint(currentVariant) : null;
   }
   let rendererBuildIdentity;
@@ -8342,10 +8373,18 @@ async function readEchoDirectorShowGraph(project, safeSongId, cutId = "base") {
       },
     };
   }
+  const executionProject = currentVariant
+    ? {
+      ...project,
+      ...pickEchoDirectionVariantProjectPatch(currentVariant.project_patch || currentVariant.projectPatch || {}),
+    }
+    : project;
   return readEchoDirectorShowGraphArtifact({
     albumRoot: ECHO_DIRECTOR_V2_ALBUM_DIR,
     root: ROOT,
-    project,
+    project: executionProject,
+    canonicalProject: project,
+    sourceProject: project,
     songId: safeSongId,
     cutId: requestedCutId,
     cutKind: requestedCutId === "base" ? "base" : "saved-variant",

@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { isPortableVisualizerAttachment } from "./portable-visualizer-card.js";
 
 export const SONG_CARD_MINT_PLAN_COMPATIBILITY_SCHEMA = "hapa.song-card.mint-plan-compatibility.v1";
 export const SONG_CARD_MINT_RENDER_INVALIDATION_SCHEMA = "hapa.song-card.mint-render-invalidation.v1";
@@ -24,13 +25,31 @@ function stemPath(item = {}) {
   return text(item.audioPath || item.path || item.sourcePath || item.localPath || item.uri);
 }
 
+function visualizerTrack(track = {}) {
+  return track?.role === "visualizer" || ["track-b", "ivf-stack"].includes(track?.id);
+}
+
+function visualizerPassThrough(card = {}) {
+  const sourceId = text(
+    card?.visualization?.sourceId
+      || card?.visualization?.requestedSourceId
+      || card?.visualization?.card?.id
+      || card?.media?.id,
+  ).toLowerCase();
+  return card?.disabled === true
+    || card?.knockedOut === true
+    || card?.knocked_out === true
+    || sourceId === "none";
+}
+
 function visualizerCards(graph = {}) {
-  const track = list(graph.tracks).find((row) => row?.role === "visualizer" || ["track-b", "ivf-stack"].includes(row?.id));
-  return list(track?.cards);
+  return list(graph.tracks)
+    .filter(visualizerTrack)
+    .flatMap((track) => list(track?.cards).filter((card) => !visualizerPassThrough(card)));
 }
 
 function portableVisualizer(card = {}) {
-  return card?.visualization?.card?.schemaVersion === "hapa.visualizer-card.v2";
+  return isPortableVisualizerAttachment(card);
 }
 
 function archiveStem(item = {}) {
@@ -71,7 +90,6 @@ export function inspectSongCardMintGraphCompatibility(graph = {}, { includeHash 
     && stems.length > 0
     && unboundStemCount === 0
     && list(graph?.directorV2?.stemBuses).length > 0
-    && cards.length > 0
     && detachedVisualizerCount === 0;
   return {
     schemaVersion: SONG_CARD_MINT_PLAN_COMPATIBILITY_SCHEMA,
@@ -96,6 +114,68 @@ function declaredText(entries = {}) {
   return Object.fromEntries(Object.entries(entries)
     .map(([key, value]) => [key, text(value)])
     .filter(([, value]) => Boolean(value)));
+}
+
+/**
+ * Proves that a projected `working:<saved-id>` graph is only a transient alias
+ * for the exact append-only cut named by `<saved-id>`. Missing or contradictory
+ * lineage fields fail closed instead of allowing a similarly named cut to be
+ * loaded during canonical recovery.
+ */
+export function resolveSongCardMintWorkingAliasIdentity({ project = {}, graph = {} } = {}) {
+  const graphVariantId = text(graph?.directorV2?.variantId);
+  const applicable = graphVariantId.startsWith("working:");
+  if (!applicable) {
+    return {
+      applicable: false,
+      ok: true,
+      graphVariantId: graphVariantId || null,
+      resolvedVariantId: null,
+      reasons: [],
+    };
+  }
+
+  const savedVariantId = text(graphVariantId.slice("working:".length));
+  const parentVariantId = text(graph?.directorV2?.parentVariantId);
+  const graphVariantHash = text(graph?.directorV2?.variantHash);
+  const activeVariants = [
+    project?.active_direction_script_variant,
+    project?.activeDirectionScriptVariant,
+  ].filter((value) => value && typeof value === "object" && !Array.isArray(value));
+  const activeVariantIds = [...new Set(activeVariants.map((value) => text(value.id)).filter(Boolean))];
+  const activeWorkingHashes = [...new Set(activeVariants
+    .map((value) => text(value.workingHash || value.working_hash))
+    .filter(Boolean))];
+  const activeSavedIdMatches = Boolean(savedVariantId)
+    && activeVariants.length > 0
+    && activeVariants.every((value) => text(value.id) === savedVariantId);
+  const activeWorkingFork = activeVariants.length > 0
+    && activeVariants.every((value) => value.workingFork === true || value.working_fork === true);
+  const activeWorkingHash = activeWorkingHashes.length === 1
+    && activeVariants.every((value) => text(value.workingHash || value.working_hash) === activeWorkingHashes[0])
+    ? activeWorkingHashes[0]
+    : "";
+  const reasons = [];
+  if (!savedVariantId) reasons.push("working-alias-saved-variant-id-missing");
+  if (!savedVariantId || parentVariantId !== savedVariantId) reasons.push("working-alias-parent-variant-mismatch");
+  if (!activeSavedIdMatches) reasons.push("working-alias-active-variant-mismatch");
+  if (!activeWorkingFork) reasons.push("working-alias-marker-missing");
+  if (!activeWorkingHash || !graphVariantHash) reasons.push("working-alias-hash-missing");
+  else if (activeWorkingHash !== graphVariantHash) reasons.push("working-alias-hash-mismatch");
+  const ok = reasons.length === 0;
+  return {
+    applicable: true,
+    ok,
+    graphVariantId,
+    savedVariantId: savedVariantId || null,
+    resolvedVariantId: ok ? savedVariantId : null,
+    parentVariantId: parentVariantId || null,
+    activeVariantIds,
+    activeWorkingFork,
+    activeWorkingHashes,
+    graphVariantHash: graphVariantHash || null,
+    reasons,
+  };
 }
 
 function durationDeclarations(entries = {}) {
@@ -206,19 +286,24 @@ function projectPatchMismatches(project = {}, variant = {}) {
   ));
 }
 
+function graphRequiresCanonicalRepair(graphInspection = {}) {
+  return Boolean(graphInspection.legacyProjection || Number(graphInspection.detachedVisualizerCount) > 0);
+}
+
 function nonRunnable(plan, graphInspection, reasons, details = {}) {
   return {
     schemaVersion: SONG_CARD_MINT_PLAN_COMPATIBILITY_SCHEMA,
     status: "non-runnable",
     runnable: false,
-    requiresRepair: graphInspection.legacyProjection,
+    requiresRepair: graphRequiresCanonicalRepair(graphInspection)
+      || details?.workingAliasIdentity?.applicable === true,
     planId: text(plan?.planId || plan?.id) || null,
     graphInspection,
     reasons,
     blocker: {
       code: "mint-plan-canonical-graph-unavailable",
       stage: "mint-plan-compatibility",
-      message: "This saved mint plan uses a detached legacy editor graph and no identity-compatible canonical compiled graph was proven. It must be superseded before rendering.",
+      message: "This saved mint plan uses a detached editor graph and no identity-compatible canonical compiled graph was proven. It must be superseded before rendering.",
       details: { reasons, ...details },
     },
   };
@@ -226,8 +311,8 @@ function nonRunnable(plan, graphInspection, reasons, details = {}) {
 
 /**
  * Returns one of:
- * - current: the saved graph is not the legacy fallback and may continue to
- *   the ordinary readiness checks;
+ * - current: the saved graph has no legacy projection or detached portable
+ *   visualizer signature and may continue to the ordinary readiness checks;
  * - rehydrated: an exact edit-lineage match was proven and a replacement input
  *   using the canonical graph is supplied;
  * - non-runnable: fail closed before render.
@@ -243,7 +328,18 @@ export function assessSongCardMintPlanCompatibility({
   const project = input.project || {};
   const graph = input.showGraph || {};
   let graphInspection = inspectSongCardMintGraphCompatibility(graph, { includeHash: false });
-  if (!graphInspection.legacyProjection) {
+  const workingAliasIdentity = resolveSongCardMintWorkingAliasIdentity({ project, graph });
+  if (workingAliasIdentity.applicable && !workingAliasIdentity.ok) {
+    graphInspection = {
+      ...graphInspection,
+      graphHash: songCardMintCompatibilityHash(graph),
+    };
+    return nonRunnable(plan, graphInspection, ["working-variant-alias-identity-mismatch"], {
+      workingAliasIdentity,
+    });
+  }
+
+  if (!graphRequiresCanonicalRepair(graphInspection) && !workingAliasIdentity.applicable) {
     return {
       schemaVersion: SONG_CARD_MINT_PLAN_COMPATIBILITY_SCHEMA,
       status: "current",
@@ -266,12 +362,14 @@ export function assessSongCardMintPlanCompatibility({
   };
 
   if (!canonicalProject || !canonicalGraph || !sourceVariant) {
-    return nonRunnable(plan, graphInspection, ["canonical-compiled-graph-not-resolved"]);
+    return nonRunnable(plan, graphInspection, ["canonical-compiled-graph-not-resolved"], {
+      ...(workingAliasIdentity.applicable ? { workingAliasIdentity } : {}),
+    });
   }
 
   const canonicalInspection = inspectSongCardMintGraphCompatibility(canonicalGraph, { includeHash: true });
   const savedVariantDeclarations = declaredText({
-    showGraph: graph?.directorV2?.variantId,
+    showGraph: workingAliasIdentity.resolvedVariantId || graph?.directorV2?.variantId,
     project: project?.active_direction_script_variant?.id,
     projectCamel: project?.activeDirectionScriptVariant?.id,
   });
@@ -343,13 +441,19 @@ export function assessSongCardMintPlanCompatibility({
       savedEditorialHash,
       sourceEditorialHash,
       patchMismatches,
+      ...(workingAliasIdentity.applicable ? { workingAliasIdentity } : {}),
     });
   }
 
   const receipt = {
     schemaVersion: SONG_CARD_MINT_PLAN_COMPATIBILITY_SCHEMA,
     action: "rehydrated-canonical-compiled-graph",
-    legacyProducer: "projectToEditorGraph:fallback-v1",
+    ...(graphInspection.legacyProjection ? { legacyProducer: "projectToEditorGraph:fallback-v1" } : {}),
+    repairProducer: graphInspection.legacyProjection
+      ? "projectToEditorGraph:fallback-v1"
+      : workingAliasIdentity.applicable
+        ? "projectToEditorGraph:saved-working-alias"
+        : "projectToEditorGraph:detached-portable-visualizer",
     savedPlanId: text(plan?.planId || plan?.id) || null,
     savedVariantId,
     savedEditorialHash,
@@ -363,7 +467,9 @@ export function assessSongCardMintPlanCompatibility({
       variantId: true,
       editorialPayload: true,
       projectPatch: true,
+      ...(workingAliasIdentity.applicable ? { workingAlias: true } : {}),
     },
+    ...(workingAliasIdentity.applicable ? { workingAliasIdentity: structuredClone(workingAliasIdentity) } : {}),
     sourceEvidence: structuredClone(sourceEvidence),
   };
   const rehydratedProject = {

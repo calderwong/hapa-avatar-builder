@@ -49,7 +49,7 @@ function fixture(root) {
     schemaVersion: "hapa.visualizer-card.v2",
     id: "isf:fixture-ready",
     title: "Fixture Ready",
-    source: { hash: sourceHash },
+    source: { uri: "/static/isf/fixture-ready.fs", hash: sourceHash },
     stemFocus: "leadVocals",
     inputs: [
       { NAME: "gain", TYPE: "float", DEFAULT: 0.2, MIN: 0, MAX: 1 },
@@ -178,6 +178,35 @@ test("Song Card readiness blocks hash drift, detached preflights, and unsupporte
   assert.equal(unproven.ok, false);
   assert.ok(unproven.blockers.some((row) => row.code === "exact-proxy-playback-proof-invalid"));
 
+  const detachedVisualizers = Array.from({ length: 14 }, (_, index) => ({
+    cardId: `projected:track-b:${index}`,
+    sourceId: index === 0 ? "isf:linescape" : `isf:detached-${index}`,
+    sourceTitle: index === 0 ? "Linescape" : `Detached ${index}`,
+    startSeconds: 213 + index,
+    endSeconds: 230 + index,
+    reason: "portable-visualizer-card-missing-or-unbound",
+  }));
+  const detachedSignal = preflightSongCardRenderReadiness({
+    project: {},
+    showGraph: fixtureData.showGraph,
+    proxyRegistry: fixtureData.proxyRegistry,
+    proxyRegistryPath: fixtureData.proxyRegistryPath,
+    root,
+    signalPreflight: {
+      ...passingSignalPreflight,
+      ok: false,
+      errors: ["portable-visualizer-truth-detached"],
+      detachedVisualizers,
+    },
+    mediaPreflight: passingMediaPreflight,
+  });
+  const detachedBlocker = detachedSignal.blockers.find((row) => row.code === "signal-graph-preflight-failed");
+  assert.equal(detachedBlocker.cueId, "projected:track-b:0");
+  assert.equal(detachedBlocker.visualizerId, "isf:linescape");
+  assert.equal(detachedBlocker.details.detachedVisualizerCount, 14);
+  assert.equal(detachedBlocker.details.detachedVisualizers.length, 12, "failure evidence must stay bounded");
+  assert.deepEqual(detachedBlocker.details.detachedVisualizers[0], detachedVisualizers[0]);
+
   fs.writeFileSync(fixtureData.assetPath, "tampered-proxy-atlas");
 
   const hashDrift = preflightSongCardRenderReadiness({
@@ -246,4 +275,32 @@ test("Song Card readiness blocks hash drift, detached preflights, and unsupporte
   assert.equal(inconsistentEvidence.ok, false);
   assert.ok(inconsistentEvidence.blockers.some((row) => row.code === "signal-graph-preflight-failed"));
   assert.ok(inconsistentEvidence.blockers.some((row) => row.code === "media-preflight-failed"));
+});
+
+test("Song Card readiness fails closed on noncanonical hashes and requested/card ID mismatches", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "hapa-render-readiness-attachment-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  for (const [label, mutate, expectedError] of [
+    ["invalid hash", (visualization) => { visualization.card.source.hash = "sha256:short"; }, "source-hash"],
+    ["mismatched ID", (visualization) => { visualization.sourceId = "isf:other"; }, "requested-source-id-mismatch"],
+    ["missing source URI", (visualization) => { delete visualization.card.source.uri; }, "source-uri"],
+  ]) {
+    const fixtureData = fixture(root);
+    const visualization = fixtureData.showGraph.tracks.find((track) => track.role === "visualizer").cards[0].visualization;
+    mutate(visualization);
+    const report = preflightSongCardRenderReadiness({
+      project: {},
+      showGraph: fixtureData.showGraph,
+      proxyRegistry: fixtureData.proxyRegistry,
+      proxyRegistryPath: fixtureData.proxyRegistryPath,
+      root,
+      signalGraphPreflight: passingSignalPreflight,
+      mediaPreflight: passingMediaPreflight,
+    });
+    const blocker = report.blockers.find((row) => row.code === "portable-visualizer-attachment-invalid");
+    assert.equal(report.ok, false, label);
+    assert.ok(blocker, label);
+    assert.ok(blocker.details.errors.includes(expectedError), label);
+    assert.ok(report.blockers.some((row) => row.code === "visualizer-route-not-exact"), label);
+  }
 });

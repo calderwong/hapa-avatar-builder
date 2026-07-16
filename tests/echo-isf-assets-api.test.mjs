@@ -68,6 +68,16 @@ test("Builder serves a hash-verified ISF catalog/runtime and hydrates the compil
   assert.ok(pixelGateQuarantine.every((shader) => shader.directorEligible === false && shader.enabled === false));
   assert.ok(pixelGateQuarantine.every((shader) => shader.pixelGate?.status === "source-hash-verified"));
   assert.equal(shaders.find((shader) => shader.id === "isf:5e7a80447c113618206dee1e")?.pixelGate?.classification, "unsupported-quarantine");
+  const finalReadyCatalog = shaders.filter((shader) => shader.directorEligible !== false && shader.enabled !== false);
+  assert.equal(finalReadyCatalog.length, 161);
+  assert.ok(finalReadyCatalog.every((shader) => shader.hyperframesProxy?.verified === true));
+  assert.ok(finalReadyCatalog.every((shader) => shader.hyperframesProxy?.sourceHash === shader.sourceHash));
+  assert.ok(finalReadyCatalog.every((shader) => ["exact-native", "hash-bound-exact-proxy"].includes(shader.nativeRoute?.route)));
+  const linescape = shaders.find((shader) => shader.id === "isf:5f4321100c6c470015d2fec0");
+  assert.equal(linescape?.title, "Linescape");
+  assert.equal(linescape?.hyperframesProxy?.frameCount, 8);
+  assert.match(linescape?.hyperframesProxy?.assetSha256 || "", /^sha256:[a-f0-9]{64}$/);
+  assert.deepEqual(linescape?.hyperframesProxy?.controls, { Offset_X: 1, Speed: 0 });
   for (const shader of shaders) {
     assert.match(shader.id, /^(isf:|builtin:)/);
     assert.match(shader.source, /^\/api\/echos\/shader-source\?id=/);

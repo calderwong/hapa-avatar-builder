@@ -103,13 +103,13 @@ test("portable cards mirror native route truth and route accounting cannot silen
     id: "isf:5e7a80467c113618206dee48",
     title: "Audio Bars",
     source: "/audio-bars.fs",
-    sourceHash: "sha256:audio-source",
+    sourceHash: `sha256:${"a".repeat(64)}`,
   });
   const unsupportedCard = buildPortableVisualizerCard({
     id: "isf:unknown",
     title: "Unknown",
     source: "/unknown.fs",
-    sourceHash: "sha256:unknown-source",
+    sourceHash: `sha256:${"b".repeat(64)}`,
   });
   assert.equal(validatePortableVisualizerCard(exactCard).ok, true);
   assert.equal(validatePortableVisualizerCard(unsupportedCard).ok, true);

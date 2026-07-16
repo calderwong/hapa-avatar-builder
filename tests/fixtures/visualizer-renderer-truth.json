@@ -5,7 +5,7 @@
     "title": "Fixture Exact Source",
     "source": {
       "uri": "/api/echo/isf/isf%3Afixture-exact-source/source",
-      "hash": "sha256:fixture-source-hash",
+      "hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       "truthStatus": "manifest-source-reference"
     },
     "rendererSupport": {

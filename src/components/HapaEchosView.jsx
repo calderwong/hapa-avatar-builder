@@ -35,11 +35,13 @@ import {
   sampleEchoLiveSignalFrame,
 } from "../domain/echo-live-signal-transport.js";
 import {
+  buildEchoShaderSelectionUpdate,
   buildEchoShaderPickerPreviewCard,
   echoLegacyCanvasApproximation,
   echoShaderPickerCategories,
   echoShaderPickerEntry,
   filterEchoShaderPickerShaders,
+  formatEchoShaderPreviewError,
 } from "../domain/echo-shader-picker.js";
 import {
   buildVisualizerRendererTruthReceipt,
@@ -65,15 +67,20 @@ import {
   echoCameraKeyframeAt,
 } from "../domain/echo-camera-framing.js";
 import { projectToEditorGraph } from "../domain/multitrack-editor.js";
+import { isPortableVisualizerAttachment } from "../domain/portable-visualizer-card.js";
 import {
+  beginEchoSongCardPlanWait,
   buildEchoDirectionForkRequest,
   createEchoDirectionWorkingFork,
   deriveEchoDirectionVariantProject,
+  deriveEchoSavedDirectionPlanningProject,
   deriveEchoDirectionWorkingProject,
   echoDirectionVariantId,
   echoDirectionVariantOptionLabel,
   echoDirectionVariantTitle,
   groupEchoDirectionVariants,
+  pinEchoSongCardPlanSnapshot,
+  restoreEchoSongCardPlanSnapshot,
 } from "../domain/echo-direction-variants.js";
 
 const electronApiBase = globalThis.window?.hapaAvatarBuilder?.apiBase;
@@ -92,7 +99,7 @@ function directorPreviewIsFullscreen(documentRef, previewSurface) {
   return Boolean(fullscreenElement && previewSurface && fullscreenElement === previewSurface);
 }
 
-async function saveEchoProjectRequest(url, options = {}) {
+async function saveEchoProjectRequest(url, options = {}, recovery = {}) {
   const controller = new AbortController();
   let timedOut = false;
   const timeout = globalThis.setTimeout(() => {
@@ -102,8 +109,19 @@ async function saveEchoProjectRequest(url, options = {}) {
   try {
     return await fetch(url, { ...options, signal: controller.signal });
   } catch (error) {
+    const outcomeUnknown = recovery.outcomeUnknown === true || recovery.editableCut === true;
+    if (outcomeUnknown) {
+      const unknownError = new Error(recovery.editableCut === true
+        ? `${timedOut ? "Save acknowledgment timed out after 30 seconds" : "The save connection ended before acknowledgment"}. The outcome is unknown. Keep this page open and use Check save outcome; the editor will stay locked to the same request ID so it cannot create a duplicate cut.`
+        : `${timedOut ? "Save acknowledgment timed out after 30 seconds" : "The save connection ended before acknowledgment"}. The outcome is unknown. Keep this edit open and use Check Legacy save before making more changes or retrying.`);
+      unknownError.code = "echo_save_outcome_unknown";
+      unknownError.cause = error;
+      throw unknownError;
+    }
     if (timedOut || error?.name === "AbortError") {
-      throw new Error("Save stopped after 30 seconds without a disk acknowledgment. The previous cut is unchanged; retry when ready.");
+      const timeoutError = new Error("The Builder request timed out after 30 seconds. Retry when the service is available.");
+      timeoutError.code = "echo_save_timeout";
+      throw timeoutError;
     }
     throw error;
   } finally {
@@ -276,7 +294,7 @@ function EchoShaderSourcePreview({ shader = null }) {
         status: String(next.status || "idle"),
         sourceId: String(next.sourceId || entry.id || ""),
         sourceHash: String(next.sourceHash || entry.sourceHash || ""),
-        error: String(next.error || ""),
+        error: formatEchoShaderPreviewError(next.error),
       };
       const signature = JSON.stringify(normalized);
       if (signature === lastSignature) return;
@@ -363,7 +381,7 @@ function EchoShaderSourcePreview({ shader = null }) {
     surface.prepare(card).then((prepared) => {
       publish(prepared);
       if (!disposed && prepared?.status === "ready") animationFrame = requestAnimationFrame(draw);
-    }).catch((error) => publish({ status: "compile-error", error: String(error?.message || error) }));
+    }).catch((error) => publish({ status: "compile-error", error }));
     return () => {
       disposed = true;
       cancelAnimationFrame(animationFrame);
@@ -372,7 +390,7 @@ function EchoShaderSourcePreview({ shader = null }) {
   }, [entry.id, entry.legacyApproximation, entry.manifestEligible, entry.sourceHash]);
 
   const failure = exactIsfStatusIsFailure(state.status) || state.status === "unsupported";
-  const label = state.status === "ready" ? "EXACT SOURCE READY" : state.status === "approximation" ? "LEGACY APPROXIMATION" : state.status.toUpperCase();
+  const label = state.status === "ready" ? "LIVE PREVIEW READY" : state.status === "approximation" ? "LEGACY APPROXIMATION" : state.status.toUpperCase();
   return (
     <div
       data-echo-shader-source-preview={entry.id || "none"}
@@ -929,6 +947,20 @@ function exactVisualizerSourceId(card = null) {
   return String(card?.visualization?.sourceId || card?.sourceId || card?.visualization?.card?.id || "");
 }
 
+function detachedEchoVisualizerCards(showGraph = null) {
+  return (showGraph?.tracks || [])
+    .filter((track) => track?.id === "track-b" || track?.role === "visualizer")
+    .flatMap((track) => track?.cards || [])
+    .filter((card) => Boolean(
+      card?.visualization
+      && card?.disabled !== true
+      && card?.knockedOut !== true
+      && card?.knocked_out !== true
+      && String(card?.visualization?.sourceId || card?.visualization?.requestedSourceId || card?.visualization?.card?.id || "").toLowerCase() !== "none"
+    ))
+    .filter((card) => !isPortableVisualizerAttachment(card));
+}
+
 function normalizedRendererRuntimeStatus(status = "") {
   const value = String(status || "").toLowerCase();
   if (value === "error" || value === "failed") return "draw-error";
@@ -1307,6 +1339,8 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
   const [selectedDirectionVariantId, setSelectedDirectionVariantId] = useState("legacy");
   const [workingDirectionFork, setWorkingDirectionFork] = useState(null);
   const [directionForkTransitionPending, setDirectionForkTransitionPending] = useState(false);
+  const [pendingSavedDirectionCut, setPendingSavedDirectionCut] = useState(null);
+  const [pendingLegacyProjectSave, setPendingLegacyProjectSave] = useState(null);
   const [loadingProjectDetail, setLoadingProjectDetail] = useState(false);
   const projectDetailRequestCountRef = useRef(0);
   const projectDetailGenerationBySongRef = useRef(new Map());
@@ -1934,8 +1968,36 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
   const [saveFeedbackTone, setSaveFeedbackTone] = useState("idle");
   const [saveStartedAt, setSaveStartedAt] = useState(0);
   const [saveElapsedSeconds, setSaveElapsedSeconds] = useState(0);
+  const [directorHasUnsavedChanges, setDirectorHasUnsavedChanges] = useState(false);
   const [songCardPlanRevisionBySong, setSongCardPlanRevisionBySong] = useState({});
-  const directorEditingLocked = savingProject || directionForkTransitionPending || loadingProjectDetail;
+  const [songCardPlanSnapshotBySong, setSongCardPlanSnapshotBySong] = useState({});
+  const activeSongCardPlanEntry = activeProject?.song_id
+    ? songCardPlanSnapshotBySong[activeProject.song_id] || null
+    : null;
+  const activeSongCardPlanSnapshotMatches = Boolean(
+    activeSongCardPlanEntry?.status === "ready"
+      && activeSongCardPlanEntry.cutId === activeDirectionVariantSelection,
+  );
+  const activeSongCardPlanWaiting = Boolean(
+    activeSongCardPlanEntry?.status === "waiting"
+      || (activeDirectionVariantSelection !== "legacy" && !activeSongCardPlanSnapshotMatches),
+  );
+  const activeSongCardPlanProject = activeSongCardPlanSnapshotMatches
+    ? activeSongCardPlanEntry.project
+    : (!activeSongCardPlanWaiting && activeDirectionVariantSelection === "legacy" ? activeProject : null);
+  const activeSongCardPlanShowGraph = activeSongCardPlanSnapshotMatches
+    ? activeSongCardPlanEntry.showGraph
+    : (!activeSongCardPlanWaiting && activeDirectionVariantSelection === "legacy" ? activeShowGraph : null);
+  const activeSongCardPlanningRevision = activeSongCardPlanSnapshotMatches
+    ? activeSongCardPlanEntry.revision
+    : (activeDirectionVariantSelection === "legacy"
+      ? songCardPlanRevisionBySong[activeProject?.song_id] || ""
+      : "");
+  const directorEditingLocked = savingProject
+    || directionForkTransitionPending
+    || Boolean(pendingSavedDirectionCut)
+    || Boolean(pendingLegacyProjectSave)
+    || loadingProjectDetail;
 
   useEffect(() => {
     if (!savingProject || !saveStartedAt) return undefined;
@@ -3010,6 +3072,30 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
     }
   };
 
+  const handleSelectDirectorProjectSong = async (songId) => {
+    if (!songId || songId === selectedProjectSongId || directorEditingLocked || directorHasUnsavedChanges) return;
+    setEchoOperationNotice("Loading the saved Legacy graph before switching songs…");
+    const detailResult = await fetchProjectDetail(songId, "", { commit: false, priority: "foreground" });
+    const detailProject = detailResult?.detail?.music_video_project;
+    if (!detailProject?.director_show_graph?.tracks) {
+      setEchoOperationNotice("Could not load that song's saved Legacy graph. The current song remains open.");
+      return;
+    }
+    if (!commitDirectorProjectDetail(detailResult.detail, detailResult.requestGeneration)) {
+      setEchoOperationNotice("A newer song refresh superseded this response. The current song remains open; try again.");
+      return;
+    }
+    const savedShowGraph = projectToEditorGraph(detailProject);
+    queueSongCardPlanForSavedRevision(
+      songId,
+      detailProject.director_show_graph_receipt?.sourceHash || detailProject.updated_at || "legacy",
+      { cutId: "legacy", project: detailProject, showGraph: savedShowGraph },
+    );
+    setDirectorHasUnsavedChanges(false);
+    setSelectedProjectSongId(songId);
+    setEchoOperationNotice(`${detailProject.song_title || "Song"} opened from its saved Legacy graph.`);
+  };
+
   const editableDirectionForkFromDetail = (detail, variantId, options = {}) => {
     const project = detail?.music_video_project;
     const variant = project?.direction_script_variants?.find((candidate) => (
@@ -3018,23 +3104,25 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
     if (!project || !variant) return null;
     const projectedProject = attachEchoOutputProfile(deriveEchoDirectionVariantProject(project, variant));
     const fallbackProject = options.fallbackProject;
-    const selectedProject = projectedProject?.director_show_graph?.tracks
-      ? projectedProject
-      : fallbackProject?.director_show_graph?.tracks
-        ? {
-          ...projectedProject,
-          director_show_graph: fallbackProject.director_show_graph,
-          editor_graph_fallback: {
-            schemaVersion: "hapa.echo.editor-graph-fallback.v1",
-            source: "saved-working-snapshot",
-            reason: projectedProject?.execution_preview?.reason || "saved-cut-certification-pending",
-            preservesPortableCards: true,
-          },
-        }
-        : null;
+    const savedProjection = deriveEchoSavedDirectionPlanningProject(project, variant, { fallbackProject });
+    const savedProject = savedProjection ? attachEchoOutputProfile(savedProjection) : null;
+    const selectedProject = savedProject || (fallbackProject?.director_show_graph?.tracks
+      ? {
+        ...projectedProject,
+        director_show_graph: fallbackProject.director_show_graph,
+      }
+      : null);
     if (!selectedProject) return null;
+    if (!savedProject) selectedProject.editor_graph_fallback = {
+      schemaVersion: "hapa.echo.editor-graph-fallback.v1",
+      source: "saved-working-snapshot",
+      reason: projectedProject?.execution_preview?.reason || "saved-cut-certification-pending",
+      preservesPortableCards: true,
+      pinnedSavedCut: false,
+    };
     return {
       variant,
+      savedProject,
       workingFork: createEchoDirectionWorkingFork(selectedProject, variant),
     };
   };
@@ -3127,6 +3215,19 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
     }
   };
 
+  const markSongCardPlanUnsaved = () => {
+    const songId = activeProject?.song_id || selectedProjectSongId;
+    if (!songId) return;
+    setDirectorHasUnsavedChanges(true);
+    setSongCardPlanSnapshotBySong((current) => beginEchoSongCardPlanWait(
+      current,
+      songId,
+      `unsaved:${activeDirectionVariantSelection || "legacy"}`,
+      activeDirectionVariantSelection || "legacy",
+      { reusePrevious: true },
+    ));
+  };
+
   const updateSelectedDirectionCut = (updateProject) => {
     if (directorEditingLocked) return false;
     if (!activeDirectionVariant || !activeProject) return false;
@@ -3146,6 +3247,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
 
   const handleUpdateShot = (shotIdx, updatedFields) => {
     if (directorEditingLocked) return;
+    markSongCardPlanUnsaved();
     if (updateSelectedDirectionCut((project) => ({
       ...project,
       timeline: (project.timeline || []).map((shot, idx) => idx === shotIdx ? { ...shot, ...updatedFields } : shot),
@@ -3177,6 +3279,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
 
   const handleUpdateVisualizer = (visIdx, updatedFields) => {
     if (directorEditingLocked) return;
+    markSongCardPlanUnsaved();
     if (updateSelectedDirectionCut((project) => ({
       ...project,
       visualizer_timeline: (project.visualizer_timeline || []).map((visualizer, idx) => idx === visIdx ? { ...visualizer, ...updatedFields } : visualizer),
@@ -3208,6 +3311,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
 
   const handleUpdateProjectSettings = (updatedFields) => {
     if (directorEditingLocked) return;
+    markSongCardPlanUnsaved();
     if (updateSelectedDirectionCut((project) => ({
       ...project,
       ...updatedFields,
@@ -3234,18 +3338,68 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
 
   const handleContinueFromDirectionCut = () => {
     if (directorEditingLocked || !activeDirectionVariant || !activeProject) return;
+    setDirectorHasUnsavedChanges(false);
     setWorkingDirectionFork(createEchoDirectionWorkingFork(activeProject, activeDirectionVariant));
     setSaveSuccessMessage("Editable working cut started. Its source cut and Legacy current remain unchanged.");
   };
 
   const handleCancelDirectionFork = () => {
     if (directorEditingLocked) return;
+    if (activeProject?.song_id) {
+      setSongCardPlanSnapshotBySong((current) => restoreEchoSongCardPlanSnapshot(
+        current,
+        activeProject.song_id,
+        { toReady: true },
+      ));
+    }
     setWorkingDirectionFork(null);
+    setDirectorHasUnsavedChanges(false);
     setSaveSuccessMessage("Working cut discarded. The source cut remains unchanged.");
     setSaveFeedbackTone("success");
   };
 
-  const beginProjectSave = () => {
+  const handleDiscardLegacyChanges = async () => {
+    if (directorEditingLocked || !directorHasUnsavedChanges || activeDirectionVariantSelection !== "legacy") return;
+    setEchoOperationNotice("Reloading the saved Legacy graph and discarding local changes…");
+    const detailResult = await fetchProjectDetail(
+      selectedProjectSongId,
+      "",
+      { commit: false, priority: "foreground" },
+    );
+    const legacyProject = detailResult?.detail?.music_video_project;
+    if (!legacyProject?.director_show_graph?.tracks) {
+      setSaveFeedbackTone("error");
+      setSaveSuccessMessage("Could not reload the saved Legacy graph. Your local changes remain open and have not been discarded.");
+      return;
+    }
+    if (!commitDirectorProjectDetail(detailResult.detail, detailResult.requestGeneration)) {
+      setSaveFeedbackTone("error");
+      setSaveSuccessMessage("A newer project refresh superseded the Legacy reload. Your local changes remain open; try Discard Legacy edits again.");
+      return;
+    }
+    const legacyShowGraph = projectToEditorGraph(legacyProject);
+    queueSongCardPlanForSavedRevision(
+      selectedProjectSongId,
+      legacyProject.director_show_graph_receipt?.sourceHash || legacyProject.updated_at || "legacy",
+      { cutId: "legacy", project: legacyProject, showGraph: legacyShowGraph },
+    );
+    setWorkingDirectionFork(null);
+    setDirectorHasUnsavedChanges(false);
+    setSaveFeedbackTone("success");
+    setSaveSuccessMessage("Unsaved Legacy changes discarded. The saved Legacy graph is open again.");
+    setEchoOperationNotice("Saved Legacy baseline restored.");
+  };
+
+  const beginProjectSave = (songId = "", cutId = "") => {
+    if (songId) {
+      setSongCardPlanSnapshotBySong((current) => beginEchoSongCardPlanWait(
+        current,
+        songId,
+        `saving:${cutId || "legacy"}`,
+        cutId || "legacy",
+        { reusePrevious: true },
+      ));
+    }
     setSavingProject(true);
     setSaveStartedAt(Date.now());
     setSaveElapsedSeconds(0);
@@ -3253,59 +3407,285 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
     setSaveSuccessMessage("");
   };
 
-  const queueSongCardPlanForSavedRevision = (songId, revision = "") => {
+  const queueSongCardPlanForSavedRevision = (songId, revision = "", snapshot = null) => {
     if (!songId) return;
+    const savedRevision = revision || `${Date.now()}`;
+    if (snapshot?.project && snapshot?.showGraph?.tracks) {
+      setSongCardPlanSnapshotBySong((current) => pinEchoSongCardPlanSnapshot(
+        current,
+        songId,
+        savedRevision,
+        snapshot,
+      ));
+    }
     setSongCardPlanRevisionBySong((current) => ({
       ...current,
-      [songId]: revision || `${Date.now()}`,
+      [songId]: savedRevision,
     }));
+  };
+
+  const reopenSavedDirectionCut = async (pending, suppliedDetailResult = null) => {
+    const songId = pending?.songId || "";
+    const variantId = pending?.variantId || "";
+    if (!songId || !variantId || !pending?.fallbackProject) return false;
+    const opening = { ...pending, status: "opening", reason: "" };
+    setPendingSavedDirectionCut(opening);
+    setDirectionForkTransitionPending(true);
+    setSaveFeedbackTone("progress");
+    setSaveSuccessMessage("Cut saved. Opening its protected editable copy…");
+    try {
+      const detailResult = suppliedDetailResult || await fetchProjectDetail(
+        songId,
+        variantId,
+        { commit: false, priority: "foreground" },
+      );
+      const detail = detailResult?.detail;
+      const hydratedVariant = detail?.music_video_project?.direction_script_variants?.find((variant) => (
+        echoDirectionVariantId(variant) === variantId && Array.isArray(variant.timeline)
+      ));
+      if (!hydratedVariant) throw new Error("its saved metadata is still preparing");
+      const editableSelection = editableDirectionForkFromDetail(detail, variantId, {
+        fallbackProject: pending.fallbackProject,
+      });
+      if (!editableSelection) throw new Error("its protected editable copy is still preparing");
+      if (!commitDirectorProjectDetail(detail, detailResult.requestGeneration)) {
+        throw new Error("a newer detail refresh superseded this response");
+      }
+      setWorkingDirectionFork(editableSelection.workingFork);
+      setSelectedDirectionVariantId(variantId);
+      setDirectorHasUnsavedChanges(false);
+      if (editableSelection.savedProject?.director_show_graph?.tracks) {
+        const savedShowGraph = projectToEditorGraph(editableSelection.savedProject);
+        const detachedVisualizerCount = detachedEchoVisualizerCards(savedShowGraph).length;
+        setSaveSuccessMessage(detachedVisualizerCount === 0
+          ? "New append-only direction cut saved and reopened as an editable copy. Every shader card is attached while Song Card preparation continues in Tracks."
+          : `New append-only direction cut saved and reopened as an editable copy. ${detachedVisualizerCount} shader ${detachedVisualizerCount === 1 ? "card is" : "cards are"} rebuilding; Song Card preparation will repair ${detachedVisualizerCount === 1 ? "it" : "them"} before offering Render.`);
+        queueSongCardPlanForSavedRevision(
+          songId,
+          variantId || pending.fallbackProject.updated_at,
+          {
+            cutId: variantId,
+            project: editableSelection.savedProject,
+            showGraph: savedShowGraph,
+          },
+        );
+      } else {
+        setEchoOperationNotice("The cut is saved and editable. Song Card preparation will wait for its saved render graph instead of using the reopened working copy.");
+      }
+      setPendingSavedDirectionCut(null);
+      setSaveFeedbackTone("success");
+      return true;
+    } catch (error) {
+      const reason = error?.message || String(error);
+      setPendingSavedDirectionCut({ ...pending, status: "retry", reason });
+      setSaveFeedbackTone("error");
+      setSaveSuccessMessage(`The cut is saved, but its editable copy could not be reopened because ${reason}. Choose Reopen saved cut; editing stays locked so the saved request cannot conflict with another cut.`);
+      setEchoOperationNotice("The saved cut still needs to be reopened. No edits were discarded, and the consumed save ID cannot be reused for different content.");
+      return false;
+    } finally {
+      setDirectionForkTransitionPending(false);
+    }
+  };
+
+  const handleRecoverPendingDirectionCut = async () => {
+    const pending = pendingSavedDirectionCut;
+    if (!pending || directionForkTransitionPending || savingProject) return;
+    if (pending.status !== "unknown") {
+      await reopenSavedDirectionCut(pending);
+      return;
+    }
+    setDirectionForkTransitionPending(true);
+    setPendingSavedDirectionCut({ ...pending, status: "opening", reason: "" });
+    setSaveFeedbackTone("progress");
+    setSaveSuccessMessage("Checking the original save request without changing its content or ID…");
+    try {
+      let detailResult = await fetchProjectDetail(
+        pending.songId,
+        pending.variantId,
+        { commit: false, priority: "foreground" },
+      );
+      let hydratedVariant = detailResult?.detail?.music_video_project?.direction_script_variants?.find((variant) => (
+        echoDirectionVariantId(variant) === pending.variantId
+      ));
+      if (!hydratedVariant) {
+        const response = await saveEchoProjectRequest(`${API_BASE}/api/echos/direction-variant/fork`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(pending.request),
+        }, { editableCut: true });
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(payload.message || payload.error || "The original save request could not be reconciled.");
+        detailResult = null;
+      }
+      setDirectionForkTransitionPending(false);
+      await reopenSavedDirectionCut({ ...pending, status: "opening" }, detailResult);
+    } catch (error) {
+      const reason = error?.message || String(error);
+      setPendingSavedDirectionCut({ ...pending, status: "unknown", reason });
+      setDirectionForkTransitionPending(false);
+      setSaveFeedbackTone("error");
+      setSaveSuccessMessage(`The save outcome is still unknown: ${reason} Keep this page open and choose Check save outcome again. Editing remains locked to the original request ID.`);
+    }
   };
 
   const handleSaveWorkingDirectionFork = async () => {
     if (!directionWorkingForkActive || !workingDirectionFork || !activeProject) return;
-    beginProjectSave();
+    beginProjectSave(activeProject.song_id, activeDirectionVariantSelection);
     try {
       const projectToSave = withFreshHyperframeScript(activeProject);
       const request = buildEchoDirectionForkRequest(workingDirectionFork, projectToSave);
-      const response = await saveEchoProjectRequest(`${API_BASE}/api/echos/direction-variant/fork`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(request),
-      });
-      const payload = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(payload.message || payload.error || "Failed to save the new direction cut.");
-      const savedVariantId = payload.variant?.id || payload.id || "";
-      if (!savedVariantId) throw new Error("The new direction cut was saved without an editable cut identifier.");
-      setDirectionForkTransitionPending(true);
-      setSaveFeedbackTone("success");
-      setSaveSuccessMessage("New append-only direction cut saved. Opening its protected editable copy; Legacy current and the source cut are unchanged.");
-      void fetchProjectDetail(projectToSave.song_id, savedVariantId, { commit: false, priority: "foreground" }).then((detailResult) => {
-        const detail = detailResult?.detail;
-        if (detail) {
-          const editableSelection = editableDirectionForkFromDetail(detail, savedVariantId, { fallbackProject: projectToSave });
-          if (editableSelection) {
-            if (!commitDirectorProjectDetail(detail, detailResult.requestGeneration)) {
-              setEchoOperationNotice("The cut is saved, but a newer detail refresh superseded this response. The current working copy remains open unchanged.");
-              return;
-            }
-            setWorkingDirectionFork(editableSelection.workingFork);
-            setSelectedDirectionVariantId(savedVariantId);
-            setSaveSuccessMessage("New append-only direction cut saved and reopened as an editable copy. Higher-quality cards remain attached while Song Card preparation continues in Tracks.");
-          } else {
-            setEchoOperationNotice("The cut is saved, but its editable child is still preparing. The current working copy remains open with its higher-quality cards intact.");
-          }
-          queueSongCardPlanForSavedRevision(projectToSave.song_id, savedVariantId || projectToSave.updated_at);
+      let payload = {};
+      let reconciledDetailResult = null;
+      try {
+        const response = await saveEchoProjectRequest(`${API_BASE}/api/echos/direction-variant/fork`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(request),
+        }, { editableCut: true });
+        payload = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(payload.message || payload.error || "Failed to save the new direction cut.");
+      } catch (error) {
+        if (error?.code !== "echo_save_outcome_unknown" || !request.requestedId) throw error;
+        reconciledDetailResult = await fetchProjectDetail(
+          projectToSave.song_id,
+          request.requestedId,
+          { commit: false, priority: "foreground" },
+        );
+        const reconciledVariant = reconciledDetailResult?.detail?.music_video_project?.direction_script_variants?.find((variant) => (
+          echoDirectionVariantId(variant) === request.requestedId
+        ));
+        if (!reconciledVariant) {
+          setPendingSavedDirectionCut({
+            status: "unknown",
+            songId: projectToSave.song_id,
+            variantId: request.requestedId,
+            fallbackProject: projectToSave,
+            request,
+            reason: error.message,
+          });
+          setSaveFeedbackTone("error");
+          setSaveSuccessMessage("The save outcome could not be confirmed. Keep this page open and choose Check save outcome. Editing is locked to the original content and request ID, so the recovery cannot create a conflicting duplicate.");
+          setEchoOperationNotice("Save outcome unknown. The current edit is preserved and locked until the original request is reconciled.");
           return;
         }
-        setEchoOperationNotice("The cut is saved, but its editable child could not be refreshed. The current working copy remains open and unchanged; retry the saved cut when ready.");
-      }).catch((error) => {
-        setEchoOperationNotice(`The cut is saved, but its editable child could not be refreshed: ${error.message || String(error)}. The current working copy remains open.`);
-      }).finally(() => {
-        setDirectionForkTransitionPending(false);
-      });
+        payload = { variant: { id: request.requestedId }, idempotentReplay: true, reconciledAfterTimeout: true };
+      }
+      const savedVariantId = payload.variant?.id || payload.id || request.requestedId || "";
+      if (!savedVariantId) throw new Error("The new direction cut was saved without an editable cut identifier.");
+      const pendingSavedCut = {
+        status: "opening",
+        songId: projectToSave.song_id,
+        variantId: savedVariantId,
+        fallbackProject: projectToSave,
+        request,
+      };
+      setDirectorHasUnsavedChanges(false);
+      setSongCardPlanSnapshotBySong((current) => beginEchoSongCardPlanWait(
+        current,
+        projectToSave.song_id,
+        savedVariantId,
+        savedVariantId,
+        { reusePrevious: true },
+      ));
+      setPendingSavedDirectionCut(pendingSavedCut);
+      setDirectionForkTransitionPending(true);
+      setSaveFeedbackTone("success");
+      setSaveSuccessMessage(payload.reconciledAfterTimeout
+        ? "The timed-out save was found on disk under the same request ID. Opening that one saved cut now; no duplicate was created."
+        : "New append-only direction cut saved. Opening its protected editable copy; Legacy current and the source cut are unchanged.");
+      void reopenSavedDirectionCut(pendingSavedCut, reconciledDetailResult);
     } catch (error) {
       setSaveFeedbackTone("error");
       setSaveSuccessMessage(`Could not save the new cut: ${error.message || String(error)}`);
+    } finally {
+      setSavingProject(false);
+      setSaveStartedAt(0);
+    }
+  };
+
+  const finishSavedLegacyProject = async (projectToSave) => {
+    try {
+      const compileResponse = await saveEchoProjectRequest(`${API_BASE}/api/echos/director-project/compile`, {
+        method: 'POST',
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ songId: projectToSave.song_id })
+      });
+      const compilePayload = await compileResponse.json().catch(() => ({}));
+      if (!compileResponse.ok) {
+        setSaveFeedbackTone("error");
+        setSaveSuccessMessage(`Music video blueprint is saved, but its render graph could not be rebuilt: ${compilePayload.message || compilePayload.error || `compile failed (${compileResponse.status})`}. Choose Save again to retry graph preparation; Discard is no longer shown because the edit is already on disk.`);
+        return false;
+      }
+      const refreshedDetailResult = await fetchProjectDetail(
+        projectToSave.song_id,
+        "",
+        { commit: false, priority: "foreground" },
+      );
+      const refreshedProject = refreshedDetailResult?.detail?.music_video_project;
+      if (!refreshedProject?.director_show_graph?.tracks) {
+        setSaveFeedbackTone("error");
+        setSaveSuccessMessage("Music video blueprint and render graph are saved, but the Builder could not reload that graph. Choose Save again before rendering; Discard is no longer shown because the edit is already on disk.");
+        return false;
+      }
+      if (!commitDirectorProjectDetail(refreshedDetailResult.detail, refreshedDetailResult.requestGeneration)) {
+        setSaveFeedbackTone("error");
+        setSaveSuccessMessage("Music video blueprint and render graph are saved, but a newer project refresh superseded the reload. Reopen this song or choose Save again before rendering; the saved edit will not be described as discarded.");
+        return false;
+      }
+      setSaveFeedbackTone("success");
+      setSaveSuccessMessage("Music video blueprint saved to disk. Song Card preparation is continuing separately in Tracks.");
+      queueSongCardPlanForSavedRevision(projectToSave.song_id, projectToSave.updated_at, {
+        cutId: "legacy",
+        project: refreshedProject,
+        showGraph: projectToEditorGraph(refreshedProject),
+      });
+      return true;
+    } catch (error) {
+      setSaveFeedbackTone("error");
+      setSaveSuccessMessage(`Music video blueprint is saved, but graph preparation stopped: ${error.message || String(error)} Choose Save again to retry; the saved edit will not be described as discarded.`);
+      return false;
+    }
+  };
+
+  const handleRecoverPendingLegacySave = async () => {
+    const pending = pendingLegacyProjectSave;
+    if (!pending || savingProject || directionForkTransitionPending) return;
+    setSavingProject(true);
+    setSaveStartedAt(Date.now());
+    setSaveFeedbackTone("progress");
+    setSaveSuccessMessage("Checking whether the exact Legacy edit reached disk…");
+    try {
+      const detailResult = await fetchProjectDetail(
+        pending.songId,
+        "",
+        { commit: false, priority: "foreground" },
+      );
+      const diskProject = detailResult?.detail?.music_video_project;
+      if (!diskProject) throw new Error("the saved Legacy project could not be read yet");
+      if (String(diskProject.updated_at || "") !== String(pending.project.updated_at || "")) {
+        const response = await saveEchoProjectRequest(`${API_BASE}/api/echos/director-project`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ music_video_project: pending.project }),
+        }, { outcomeUnknown: true });
+        if (!response.ok) {
+          const payload = await response.json().catch(() => ({}));
+          throw new Error(payload.message || payload.error || `The exact Legacy save retry failed (${response.status}).`);
+        }
+      }
+      setDirectorProjects((current) => current.map((row) => (
+        row.music_video_project.song_id === pending.songId
+          ? { music_video_project: pending.project }
+          : row
+      )));
+      setDirectorHasUnsavedChanges(false);
+      setPendingLegacyProjectSave({ ...pending, status: "preparing" });
+      await finishSavedLegacyProject(pending.project);
+      setPendingLegacyProjectSave(null);
+    } catch (error) {
+      setPendingLegacyProjectSave({ ...pending, status: "unknown", reason: error.message || String(error) });
+      setSaveFeedbackTone("error");
+      setSaveSuccessMessage(`The Legacy save outcome is still unknown: ${error.message || String(error)} Keep this page open and choose Check Legacy save again; editing remains locked until disk state is known.`);
     } finally {
       setSavingProject(false);
       setSaveStartedAt(0);
@@ -3322,42 +3702,39 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
       setSaveFeedbackTone("error");
       return;
     }
-    beginProjectSave();
+    const projectToSave = withFreshHyperframeScript(activeProject);
+    beginProjectSave(activeProject.song_id, "legacy");
     try {
-      const projectToSave = withFreshHyperframeScript(activeProject);
       const res = await saveEchoProjectRequest(`${API_BASE}/api/echos/director-project`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ music_video_project: projectToSave })
-      });
-      if (res.ok) {
-        setDirectorProjects(prev => prev.map(p => (
-          p.music_video_project.song_id === projectToSave.song_id
-            ? { music_video_project: projectToSave }
-            : p
-        )));
-        const compileResponse = await saveEchoProjectRequest(`${API_BASE}/api/echos/director-project/compile`, {
-          method: 'POST',
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ songId: projectToSave.song_id })
-        });
-        const compilePayload = await compileResponse.json().catch(() => ({}));
-        if (!compileResponse.ok) {
-          setSaveFeedbackTone("error");
-          setSaveSuccessMessage(`Music video blueprint saved, but its render graph could not be rebuilt: ${compilePayload.message || compilePayload.error || `compile failed (${compileResponse.status})`}. Your edit is intact; retry Save before rendering.`);
-          return;
-        }
-        setSaveFeedbackTone("success");
-        setSaveSuccessMessage("Music video blueprint saved to disk. Song Card preparation is continuing separately in Tracks.");
-        queueSongCardPlanForSavedRevision(projectToSave.song_id, projectToSave.updated_at);
-      } else {
+      }, { outcomeUnknown: true });
+      if (!res.ok) {
         const payload = await res.json().catch(() => ({}));
         throw new Error(payload.message || payload.error || `Save failed (${res.status}).`);
       }
-    } catch (e) {
-      console.error("Save error:", e);
+      setDirectorProjects((current) => current.map((row) => (
+        row.music_video_project.song_id === projectToSave.song_id
+          ? { music_video_project: projectToSave }
+          : row
+      )));
+      setDirectorHasUnsavedChanges(false);
+      await finishSavedLegacyProject(projectToSave);
+    } catch (error) {
+      console.error("Save error:", error);
       setSaveFeedbackTone("error");
-      setSaveSuccessMessage(`Could not save the music video blueprint: ${e.message || String(e)}`);
+      if (error?.code === "echo_save_outcome_unknown") {
+        setPendingLegacyProjectSave({
+          status: "unknown",
+          songId: projectToSave.song_id,
+          project: projectToSave,
+          reason: error.message,
+        });
+        setSaveSuccessMessage("The Legacy save outcome is unknown. Keep this page open and choose Check Legacy save. Editing and Discard stay locked until the Builder proves whether this exact edit reached disk.");
+      } else {
+        setSaveSuccessMessage(`Could not save the music video blueprint: ${error.message || String(error)}`);
+      }
     } finally {
       setSavingProject(false);
       setSaveStartedAt(0);
@@ -4060,7 +4437,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
               {/* Director Workbench View */}
               <div className="section-head hapa-panel-head" style={{ flexShrink: 0, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <span><Film size={15} /> Director Video Blueprint Workbench ({directorProjects.length} plans loaded)</span>
-                {(savingProject || directionForkTransitionPending || saveSuccessMessage) && (
+                {(savingProject || directionForkTransitionPending || pendingSavedDirectionCut || pendingLegacyProjectSave || saveSuccessMessage) && (
                   <span
                     data-testid="echo-save-status"
                     role={saveFeedbackTone === "error" ? "alert" : "status"}
@@ -4075,13 +4452,39 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                       border: `1px solid ${saveFeedbackTone === "error" ? 'var(--hapa-neon-red)' : saveFeedbackTone === "progress" ? 'var(--hapa-neon-gold)' : 'var(--hapa-neon-green)'}`,
                     }}
                   >
-                    {savingProject
-                      ? saveElapsedSeconds >= 10
-                        ? `Saving cut · ${saveElapsedSeconds}s · waiting for disk acknowledgment…`
-                        : `Saving cut · ${saveElapsedSeconds}s…`
-                      : directionForkTransitionPending
-                        ? "Cut saved · opening its editable copy…"
-                      : saveSuccessMessage}
+                    <span>
+                      {savingProject
+                        ? saveElapsedSeconds >= 10
+                          ? `Saving cut · ${saveElapsedSeconds}s · waiting for disk acknowledgment…`
+                          : `Saving cut · ${saveElapsedSeconds}s…`
+                        : directionForkTransitionPending
+                          ? pendingSavedDirectionCut?.status === "unknown"
+                            ? "Checking the original save outcome…"
+                            : "Cut saved · opening its editable copy…"
+                          : pendingLegacyProjectSave?.status === "preparing"
+                            ? "Legacy edit is on disk · preparing its render graph…"
+                          : saveSuccessMessage}
+                    </span>
+                    {pendingSavedDirectionCut && !directionForkTransitionPending && !savingProject && (
+                      <button
+                        type="button"
+                        data-testid="echo-recover-saved-direction-cut"
+                        onClick={handleRecoverPendingDirectionCut}
+                        style={{ marginLeft: '8px', background: 'rgba(15,23,42,.8)', border: '1px solid currentColor', color: 'inherit', borderRadius: '3px', padding: '2px 7px', fontSize: '9px', fontWeight: 'bold', cursor: 'pointer' }}
+                      >
+                        {pendingSavedDirectionCut.status === "unknown" ? "Check save outcome" : "Reopen saved cut"}
+                      </button>
+                    )}
+                    {pendingLegacyProjectSave?.status === "unknown" && !savingProject && (
+                      <button
+                        type="button"
+                        data-testid="echo-recover-legacy-save"
+                        onClick={handleRecoverPendingLegacySave}
+                        style={{ marginLeft: '8px', background: 'rgba(15,23,42,.8)', border: '1px solid currentColor', color: 'inherit', borderRadius: '3px', padding: '2px 7px', fontSize: '9px', fontWeight: 'bold', cursor: 'pointer' }}
+                      >
+                        Check Legacy save
+                      </button>
+                    )}
                   </span>
                 )}
               </div>
@@ -4126,8 +4529,9 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                       return (
                         <div 
                           key={proj.song_id} 
-                          aria-disabled={directorEditingLocked}
-                          onClick={() => { if (!directorEditingLocked) setSelectedProjectSongId(proj.song_id); }}
+                          aria-disabled={directorEditingLocked || directorHasUnsavedChanges}
+                          title={directorHasUnsavedChanges && !isSelected ? "Save or cancel the current edit before switching songs." : ""}
+                          onClick={() => { void handleSelectDirectorProjectSong(proj.song_id); }}
                           style={{ 
                             display: 'flex', 
                             justifyContent: 'space-between', 
@@ -4136,7 +4540,8 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                             borderRadius: '4px',
                             background: isSelected ? 'rgba(255,255,255,0.08)' : 'transparent',
                             border: isSelected ? '1px solid rgba(255,255,255,0.2)' : '1px solid transparent',
-                            cursor: 'pointer',
+                            cursor: directorEditingLocked || directorHasUnsavedChanges ? 'not-allowed' : 'pointer',
+                            opacity: directorHasUnsavedChanges && !isSelected ? 0.58 : 1,
                             fontSize: '11px',
                             transition: 'all 0.15s ease'
                           }}
@@ -4398,18 +4803,49 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                                 aria-label="Direction script version"
                                 data-testid="echo-direction-version"
                                 value={activeDirectionVariantSelection}
-                                disabled={loadingProjectDetail || directorEditingLocked}
+                                disabled={loadingProjectDetail || directorEditingLocked || directorHasUnsavedChanges}
                                 onChange={async (event) => {
-                                  if (directorEditingLocked) return;
+                                  if (directorEditingLocked || directorHasUnsavedChanges) return;
                                   const nextVariantId = event.target.value;
                                   setCurrentTime(0);
                                   currentTimeRef.current = 0;
                                   if (audioRef.current) audioRef.current.currentTime = 0;
                                   if (nextVariantId === "legacy") {
+                                    setEchoOperationNotice("Loading the saved Legacy graph…");
+                                    const legacyDetailResult = await fetchProjectDetail(
+                                      selectedProjectSongId,
+                                      "",
+                                      { commit: false, priority: "foreground" },
+                                    );
+                                    const legacyProject = legacyDetailResult?.detail?.music_video_project;
+                                    if (!legacyProject?.director_show_graph?.tracks) {
+                                      setEchoOperationNotice("Could not load the saved Legacy graph. The current editable cut remains open.");
+                                      return;
+                                    }
+                                    if (!commitDirectorProjectDetail(legacyDetailResult.detail, legacyDetailResult.requestGeneration)) {
+                                      setEchoOperationNotice("A newer project refresh superseded the Legacy response. The current editable cut remains open; try again.");
+                                      return;
+                                    }
+                                    const legacyShowGraph = projectToEditorGraph(legacyProject);
+                                    queueSongCardPlanForSavedRevision(
+                                      selectedProjectSongId,
+                                      legacyProject.director_show_graph_receipt?.sourceHash || legacyProject.updated_at || "legacy",
+                                      { cutId: "legacy", project: legacyProject, showGraph: legacyShowGraph },
+                                    );
                                     setWorkingDirectionFork(null);
+                                    setDirectorHasUnsavedChanges(false);
                                     setSelectedDirectionVariantId("legacy");
+                                    setSaveFeedbackTone("success");
+                                    setSaveSuccessMessage("Legacy reopened from its saved graph. Newer cuts and their working copies remain unchanged.");
+                                    setEchoOperationNotice("Legacy baseline opened from its saved graph.");
                                     return;
                                   }
+                                  setSongCardPlanSnapshotBySong((current) => beginEchoSongCardPlanWait(
+                                    current,
+                                    selectedProjectSongId,
+                                    `loading:${nextVariantId}`,
+                                    nextVariantId,
+                                  ));
                                   setEchoOperationNotice(`Loading ${nextVariantId}…`);
                                   const detailResult = await fetchProjectDetail(selectedProjectSongId, nextVariantId, { commit: false, priority: "foreground" });
                                   const detail = detailResult?.detail;
@@ -4417,21 +4853,43 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                                     echoDirectionVariantId(variant) === nextVariantId && Array.isArray(variant.timeline)
                                   ));
                                   if (!hydratedVariant) {
+                                    setSongCardPlanSnapshotBySong((current) => restoreEchoSongCardPlanSnapshot(
+                                      current,
+                                      selectedProjectSongId,
+                                    ));
                                     setEchoOperationNotice(`Could not load ${nextVariantId}; the current editable cut remains open.`);
                                     return;
                                   }
                                   try {
                                     const editableSelection = editableDirectionForkFromDetail(detail, nextVariantId);
                                     if (!editableSelection) throw new Error("its certified card graph is still preparing");
+                                    if (!editableSelection.savedProject?.director_show_graph?.tracks) {
+                                      throw new Error("its saved render graph is still preparing");
+                                    }
+                                    const savedShowGraph = projectToEditorGraph(editableSelection.savedProject);
                                     if (!commitDirectorProjectDetail(detail, detailResult.requestGeneration)) {
                                       throw new Error("a newer detail refresh superseded this response");
                                     }
+                                    queueSongCardPlanForSavedRevision(
+                                      selectedProjectSongId,
+                                      nextVariantId,
+                                      {
+                                        cutId: nextVariantId,
+                                        project: editableSelection.savedProject,
+                                        showGraph: savedShowGraph,
+                                      },
+                                    );
                                     setWorkingDirectionFork(editableSelection.workingFork);
+                                    setDirectorHasUnsavedChanges(false);
                                     setSelectedDirectionVariantId(nextVariantId);
                                     setSaveFeedbackTone("success");
                                     setSaveSuccessMessage("Editable copy opened from the selected cut. Its higher-quality cards and source lineage are preserved; saving creates a new cut.");
                                     setEchoOperationNotice(`${echoDirectionVariantTitle(hydratedVariant)} opened for editing.`);
                                   } catch (error) {
+                                    setSongCardPlanSnapshotBySong((current) => restoreEchoSongCardPlanSnapshot(
+                                      current,
+                                      selectedProjectSongId,
+                                    ));
                                     setEchoOperationNotice(`Could not open ${nextVariantId} for editing yet: ${error.message || String(error)}. The current editable cut remains open.`);
                                   }
                                 }}
@@ -4444,7 +4902,11 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                                   fontSize: '10px',
                                   outline: 'none',
                                   fontWeight: 'bold',
-                                  cursor: loadingProjectDetail || directorEditingLocked ? 'wait' : 'pointer'
+                                  cursor: loadingProjectDetail || directorEditingLocked
+                                    ? 'wait'
+                                    : directorHasUnsavedChanges
+                                      ? 'not-allowed'
+                                      : 'pointer'
                                 }}
                               >
                                 <option value="legacy">Legacy baseline</option>
@@ -4457,8 +4919,12 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                                   </optgroup>
                                 ))}
                               </select>
-                              <span style={{ fontSize: '8px', color: directionVariantReadOnly ? '#6ee7b7' : '#94a3b8', textAlign: 'right' }}>
-                                {directionWorkingForkActive
+                              <span style={{ fontSize: '8px', color: directorHasUnsavedChanges ? '#f6c96d' : directionVariantReadOnly ? '#6ee7b7' : '#94a3b8', textAlign: 'right' }}>
+                                {directorHasUnsavedChanges
+                                  ? directionWorkingForkActive
+                                    ? 'Unsaved changes · Save or cancel before switching cuts or songs'
+                                    : 'Unsaved Legacy changes · Save or discard before switching cuts or songs'
+                                  : directionWorkingForkActive
                                   ? 'Editable copy · source cut and Legacy stay unchanged · Vertical ready'
                                   : directionVariantReadOnly
                                     ? 'Saved source is protected · any edit starts a new working copy'
@@ -4485,6 +4951,17 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                                 style={{ background: 'transparent', border: '1px solid #64748b', color: '#cbd5e1', fontSize: '9px', padding: '4px 8px', borderRadius: '4px', cursor: 'pointer' }}
                               >
                                 Cancel working cut
+                              </button>
+                            )}
+                            {directorHasUnsavedChanges && !directionWorkingForkActive && activeDirectionVariantSelection === "legacy" && (
+                              <button
+                                type="button"
+                                data-testid="echo-discard-legacy-edits"
+                                disabled={directorEditingLocked}
+                                onClick={handleDiscardLegacyChanges}
+                                style={{ background: 'transparent', border: '1px solid #f59e0b', color: '#fcd34d', fontSize: '9px', padding: '4px 8px', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}
+                              >
+                                Discard Legacy edits
                               </button>
                             )}
                             <label style={{ display: 'flex', flexDirection: 'column', gap: '2px', minWidth: '158px', color: '#94a3b8', fontSize: '8px', fontWeight: 'bold', letterSpacing: '0.05em', textTransform: 'uppercase' }}>
@@ -5489,13 +5966,31 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                                   })}
                                 />
                                 <div style={{ marginTop: 8 }}>
-                                  <SongCardMintPanel
-                                    compact
-                                    songId={echoProjectAudioRoute(activeProject).id}
-                                    project={activeProject}
-                                    showGraph={activeShowGraph}
-                                    planningRevision={songCardPlanRevisionBySong[activeProject.song_id] || ""}
-                                  />
+                                  {activeSongCardPlanWaiting || !activeSongCardPlanProject || !activeSongCardPlanShowGraph ? (
+                                    <div
+                                      data-testid="echo-song-card-plan-waiting"
+                                      style={{
+                                        padding: "10px 12px",
+                                        border: "1px solid rgba(251,191,36,.45)",
+                                        borderRadius: 4,
+                                        background: "rgba(120,53,15,.16)",
+                                        color: "#fde68a",
+                                        fontSize: 10,
+                                        lineHeight: 1.45,
+                                      }}
+                                    >
+                                      <strong>Save this cut before rendering.</strong>{" "}
+                                      Your visualizer edit is intact. The Builder is waiting for this exact saved cut and its rebuilt shader cards; it will not silently render an older version. If Save reports a problem, follow that message and retry Save.
+                                    </div>
+                                  ) : (
+                                    <SongCardMintPanel
+                                      compact
+                                      songId={echoProjectAudioRoute(activeSongCardPlanProject).id}
+                                      project={activeSongCardPlanProject}
+                                      showGraph={activeSongCardPlanShowGraph}
+                                      planningRevision={activeSongCardPlanningRevision}
+                                    />
+                                  )}
                                 </div>
                               </>
                             )}
@@ -5858,10 +6353,10 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                                     <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '8px', maxHeight: '286px', overflowY: 'auto', border: '1px solid rgba(16,185,129,0.22)', borderRadius: '5px', background: 'rgba(1,7,14,0.72)', padding: '8px' }}>
                                       <button
                                         type="button"
-                                        onClick={() => handleUpdateVisualizer(selectedVisualizerIndex, {
-                                          visualizer_id: "none",
-                                          visualizer_title: "None"
-                                        })}
+                                        onClick={() => handleUpdateVisualizer(
+                                          selectedVisualizerIndex,
+                                          buildEchoShaderSelectionUpdate({ id: "none", title: "None" }, activeVisualizerItem),
+                                        )}
                                         style={{
                                           textAlign: 'left',
                                           background: activeVisualizerItem.visualizer_id === "none" ? 'rgba(16, 185, 129, 0.22)' : 'rgba(8,15,26,0.94)',
@@ -5882,17 +6377,26 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                                       {filteredShaderOptions.map((shader) => {
                                         const selected = activeVisualizerItem.visualizer_id === shader.id;
                                         const categories = shader.categories || [];
-                                        const statusLabel = selected
-                                          ? shader.manifestEligible ? "LIVE SOURCE PREVIEW" : "LEGACY APPROXIMATION"
-                                          : shader.manifestEligible ? "HASHED SOURCE" : "LEGACY APPROXIMATION";
+                                        const unavailableMessage = shader.legacyApproximation
+                                          ? "This legacy approximation is not selectable for a saved music video. Choose a Final render ready shader."
+                                          : "This shader source is catalogued, but its verified final-render proxy is not available yet. Choose a Final render ready shader.";
+                                        const statusLabel = shader.finalRenderReady
+                                          ? "FINAL RENDER READY"
+                                          : shader.legacyApproximation
+                                            ? "LEGACY APPROXIMATION · NOT FINAL READY"
+                                            : "SOURCE AVAILABLE · FINAL RENDER UNAVAILABLE";
                                         return (
                                           <button
                                             key={shader.id}
                                             type="button"
-                                            onClick={() => handleUpdateVisualizer(selectedVisualizerIndex, {
-                                              visualizer_id: shader.id,
-                                              visualizer_title: shader.title || shader.id
-                                            })}
+                                            disabled={!shader.finalRenderReady}
+                                            aria-disabled={shader.finalRenderReady ? "false" : "true"}
+                                            title={shader.finalRenderReady ? `Use ${shader.title || shader.id} in Preview and final render` : unavailableMessage}
+                                            onClick={() => handleUpdateVisualizer(
+                                              selectedVisualizerIndex,
+                                              buildEchoShaderSelectionUpdate(shader, activeVisualizerItem),
+                                            )}
+                                            data-echo-shader-final-render-ready={shader.finalRenderReady ? "true" : "false"}
                                             style={{
                                               textAlign: 'left',
                                               background: selected ? 'rgba(16, 185, 129, 0.2)' : 'rgba(8,15,26,0.94)',
@@ -5900,7 +6404,8 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                                               color: selected ? '#caffea' : '#f8fafc',
                                               borderRadius: '5px',
                                               padding: '10px 12px',
-                                              cursor: 'pointer',
+                                              cursor: shader.finalRenderReady ? 'pointer' : 'not-allowed',
+                                              opacity: shader.finalRenderReady ? 1 : 0.68,
                                               fontSize: '12px',
                                               lineHeight: 1.35,
                                               overflow: 'hidden',
@@ -5911,11 +6416,12 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                                             <strong style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: '12.5px', color: selected ? '#d8ffe9' : '#ffffff', marginBottom: '3px' }}>{shader.title || shader.id}</strong>
                                             <span style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: '#9fb3c8', fontSize: '10.5px' }}>{shader.shaderType || "shader"} | {shader.id}</span>
                                             <span style={{ display: 'flex', gap: '5px', flexWrap: 'wrap', alignItems: 'center', marginTop: '6px' }}>
-                                              <span data-echo-shader-readiness={shader.readiness} style={{ color: shader.manifestEligible ? '#86efac' : '#fde68a', fontSize: '8.5px', fontWeight: 'bold' }}>{statusLabel}</span>
+                                              <span data-echo-shader-readiness={shader.readiness} style={{ color: shader.finalRenderReady ? '#86efac' : shader.manifestEligible ? '#bae6fd' : '#fde68a', fontSize: '8.5px', fontWeight: 'bold' }}>{statusLabel}</span>
                                               {categories.map((category) => (
                                                 <span key={category} style={{ color: '#bae6fd', border: '1px solid rgba(56,189,248,.26)', borderRadius: '3px', padding: '1px 4px', fontSize: '8px' }}>{category}</span>
                                               ))}
                                             </span>
+                                            {!shader.finalRenderReady && <span data-echo-shader-selection-blocker style={{ display: 'block', color: '#f6c96d', fontSize: '8.5px', marginTop: '5px' }}>{unavailableMessage}</span>}
                                           </button>
                                         );
                                       })}
@@ -5926,7 +6432,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                                       )}
                                     </div>
                                     <span style={{ fontSize: '10px', opacity: 0.78, color: '#a7f3d0' }}>
-                                      Showing all {filteredShaderOptions.length} matching entries · {availableShaders.filter((shader) => echoShaderPickerEntry(shader).manifestEligible).length} exact manifest shaders available · no result cap.
+                                      Showing all {filteredShaderOptions.length} matching entries · {availableShaders.filter((shader) => echoShaderPickerEntry(shader).finalRenderReady).length} final-render-ready · {availableShaders.filter((shader) => echoShaderPickerEntry(shader).manifestEligible).length} catalogued sources · no result cap.
                                     </span>
                                   </div>
 

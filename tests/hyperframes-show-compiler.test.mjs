@@ -37,8 +37,22 @@ const EXACT_PROXY_REGISTRY = JSON.parse(fs.readFileSync(
   "utf8",
 ));
 
-test("HyperFrames compiler emits pinned templated executable shows", () => {
+function canonicalShowGraphFixture() {
   const graph = JSON.parse(fs.readFileSync("work/dear-papa-stem-telemetry/native-show-graph.json", "utf8"));
+  const proxyById = new Map((EXACT_PROXY_REGISTRY.proxies || []).map((proxy) => [String(proxy.id).toLowerCase(), proxy]));
+  for (const track of graph.tracks || []) {
+    for (const card of track.cards || []) {
+      const portable = card.visualization?.card;
+      if (!portable) continue;
+      const proxy = proxyById.get(String(card.visualization?.sourceId || portable.id || "").toLowerCase());
+      if (proxy?.sourceHash) portable.source = { ...(portable.source || {}), hash: proxy.sourceHash };
+    }
+  }
+  return graph;
+}
+
+test("HyperFrames compiler emits pinned templated executable shows", () => {
+  const graph = canonicalShowGraphFixture();
   const telemetry = JSON.parse(fs.readFileSync("work/dear-papa-stem-telemetry/stem-telemetry.json", "utf8"));
   const project = JSON.parse(fs.readFileSync("data/music-video-projects/dear-papa-song-dear-papa-video-project.json", "utf8"));
   const a = compileHyperFramesShow({ showGraph: graph, telemetry, project, proxyRegistry: EXACT_PROXY_REGISTRY, fps: 30 });
@@ -55,8 +69,51 @@ test("HyperFrames compiler emits pinned templated executable shows", () => {
   assert.ok(inspectHyperFramesShow(a).ok);
 });
 
+test("HyperFrames compiler never resolves a proxy for an invalid or mismatched portable attachment", () => {
+  const sourceHash = `sha256:${"a".repeat(64)}`;
+  const proxyRegistry = {
+    proxies: [{
+      id: "isf:strict",
+      sourceHash,
+      assetPath: "/static/isf/proxies/strict.png",
+      assetSha256: `sha256:${"b".repeat(64)}`,
+      width: 16,
+      height: 9,
+      frameCount: 2,
+      fps: 2,
+    }],
+  };
+  const baseGraph = nativeMediaGraph([]);
+  baseGraph.tracks.push({
+    id: "track-b",
+    role: "visualizer",
+    cards: [{
+      id: "viz:strict",
+      startSeconds: 0,
+      endSeconds: 4,
+      visualization: {
+        sourceId: "isf:strict",
+        card: { schemaVersion: "hapa.visualizer-card.v2", id: "isf:strict", source: { uri: "/static/isf/strict.fs", hash: sourceHash } },
+      },
+    }],
+  });
+  for (const [label, mutate] of [
+    ["invalid hash", (visualization) => { visualization.card.source.hash = "sha256:short"; }],
+    ["mismatched ID", (visualization) => { visualization.sourceId = "isf:other"; }],
+  ]) {
+    const graph = structuredClone(baseGraph);
+    mutate(graph.tracks.find((track) => track.role === "visualizer").cards[0].visualization);
+    const show = compileHyperFramesShow({ showGraph: graph, telemetry: {}, project: {}, proxyRegistry });
+    const instance = show.instances.visualizers[0];
+    assert.equal(instance.execution.route, "unsupported", label);
+    assert.equal(instance.execution.drawable, false, label);
+    assert.equal(instance.proxy, null, label);
+    assert.match(instance.execution.reason, /^portable-visualizer-attachment-/, label);
+  }
+});
+
 test("HyperFrames preserves legacy absolute depth and scales only explicitly generated range-relative mappings", () => {
-  const graph = JSON.parse(fs.readFileSync("work/dear-papa-stem-telemetry/native-show-graph.json", "utf8"));
+  const graph = canonicalShowGraphFixture();
   const telemetry = JSON.parse(fs.readFileSync("work/dear-papa-stem-telemetry/stem-telemetry.json", "utf8"));
   const project = JSON.parse(fs.readFileSync("data/music-video-projects/dear-papa-song-dear-papa-video-project.json", "utf8"));
   const reactiveSignals = new Set(["rms", "peak", "onset", "beat", "energy", "low", "bass", "mid", "high", "treble", "palette", "orbit"]);
@@ -160,7 +217,11 @@ test("HyperFrames preserves legacy absolute depth and scales only explicitly gen
       startSeconds: 0,
       endSeconds: 12,
       parameters: { opacity: 0.5, blendMode: "screen" },
-      visualization: { sourceId: "isf:legacy-reactive", nativeKey: "Legacy Reactive" },
+      visualization: {
+        sourceId: "isf:legacy-reactive",
+        nativeKey: "Legacy Reactive",
+        card: { schemaVersion: "hapa.visualizer-card.v2", id: "isf:legacy-reactive", source: { uri: "/static/isf/legacy-reactive.fs", hash: sourceHash } },
+      },
     }],
   });
   const legacyShow = compileHyperFramesShow({
@@ -199,7 +260,7 @@ test("HyperFrames preserves legacy absolute depth and scales only explicitly gen
 });
 
 test("HyperFrames gates each generated uniform on a material low-to-high effect", () => {
-  const graph = JSON.parse(fs.readFileSync("work/dear-papa-stem-telemetry/native-show-graph.json", "utf8"));
+  const graph = canonicalShowGraphFixture();
   const telemetry = JSON.parse(fs.readFileSync("work/dear-papa-stem-telemetry/stem-telemetry.json", "utf8"));
   const project = JSON.parse(fs.readFileSync("data/music-video-projects/dear-papa-song-dear-papa-video-project.json", "utf8"));
   const reactiveSignals = new Set(["rms", "peak", "onset", "beat", "energy", "low", "bass", "mid", "high", "treble", "palette", "orbit"]);
@@ -491,7 +552,7 @@ test("HyperFrames never silently drops malformed visualization cards", () => {
 });
 
 test("HyperFrames preserves legacy accent cards as bounded accent events instead of misclassifying them as shaders", () => {
-  const graph = JSON.parse(fs.readFileSync("work/dear-papa-stem-telemetry/native-show-graph.json", "utf8"));
+  const graph = canonicalShowGraphFixture();
   const telemetry = JSON.parse(fs.readFileSync("work/dear-papa-stem-telemetry/stem-telemetry.json", "utf8"));
   const project = JSON.parse(fs.readFileSync("data/music-video-projects/dear-papa-song-dear-papa-video-project.json", "utf8"));
   const accentCards = graph.tracks.find((track) => track.role === "accent")?.cards || [];
@@ -644,7 +705,7 @@ test("HyperFrames CLI fails closed before packaging when an exact visualizer pro
           schemaVersion: "hapa.visualizer-card.v2",
           id: "isf:test-missing-proxy",
           title: "Missing Exact Proxy",
-          source: { hash: sourceHash },
+          source: { uri: "/static/isf/test-missing-proxy.fs", hash: sourceHash },
           inputs: [],
           controls: {},
           audioMap: {},
@@ -727,7 +788,7 @@ test("HyperFrames visualizer preflight accepts a later hash-exact proxy candidat
           schemaVersion: "hapa.visualizer-card.v2",
           id: "isf:test-exact-proxy",
           title: "Exact Proxy Candidate",
-          source: { hash: sourceHash },
+          source: { uri: "/static/isf/test-exact-proxy.fs", hash: sourceHash },
           inputs: [],
           controls: {},
           audioMap: {},
@@ -773,7 +834,7 @@ test("HyperFrames visualizer preflight accepts a later hash-exact proxy candidat
 });
 
 test("HyperFrames inspection rejects invalid duration, cue windows, and duplicate cue identities", () => {
-  const graph = JSON.parse(fs.readFileSync("work/dear-papa-stem-telemetry/native-show-graph.json", "utf8"));
+  const graph = canonicalShowGraphFixture();
   const telemetry = JSON.parse(fs.readFileSync("work/dear-papa-stem-telemetry/stem-telemetry.json", "utf8"));
   const project = JSON.parse(fs.readFileSync("data/music-video-projects/dear-papa-song-dear-papa-video-project.json", "utf8"));
   const valid = compileHyperFramesShow({ showGraph: graph, telemetry, project, proxyRegistry: EXACT_PROXY_REGISTRY, fps: 30 });

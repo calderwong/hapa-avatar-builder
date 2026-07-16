@@ -47,6 +47,11 @@ function sameCompiledGraphIdentity(left = {}, right = {}) {
   return ["runId", "variantId", "variantHash"].every((key) => (text(left?.[key]) || null) === (text(right?.[key]) || null));
 }
 
+function projectSongAliases(project = {}) {
+  const body = project?.music_video_project || project?.project || project || {};
+  return [body.song_id, body.audio_id, body.registry_track_id].map(text).filter(Boolean);
+}
+
 function jsonBytes(value) {
   return Buffer.from(`${JSON.stringify(value, null, 2)}\n`, "utf8");
 }
@@ -701,6 +706,8 @@ function assertExecutionBinding({
   cutId,
   expectedCutKind = null,
   expectedCutFingerprint = null,
+  project = {},
+  sourceProject = undefined,
 } = {}) {
   const cut = evidence?.cut || {};
   const cutKind = text(cut?.kind);
@@ -721,6 +728,15 @@ function assertExecutionBinding({
   if (text(lineage?.cutKind) !== cutKind) reasons.push("lineage-cut-kind-mismatch");
   if (text(lineage?.cutFingerprint) !== cutFingerprint) reasons.push("lineage-cut-fingerprint-mismatch");
   if (!sameCompiledGraphIdentity(lineage?.parentIdentity, parentIdentity)) reasons.push("lineage-parent-identity-mismatch");
+  const graphSongId = text(graph?.song?.id);
+  const parentSongId = text(parentGraph?.song?.id);
+  const songAliases = new Set([
+    ...projectSongAliases(project),
+    ...projectSongAliases(sourceProject === undefined ? project : sourceProject),
+  ]);
+  if (graphSongId !== parentSongId && !(songAliases.has(graphSongId) && songAliases.has(parentSongId))) {
+    reasons.push("graph-parent-song-identity-mismatch");
+  }
   if (reasons.length) {
     throw new Error(`The Echo execution graph is not bound to the exact canonical parent, semantic cut, and stored cut identity: ${reasons.join(", ")}.`);
   }
@@ -747,6 +763,7 @@ export function publishEchoExecutionGraph({
   expectedCurrentPointerSha256 = undefined,
   graph,
   project,
+  sourceProject = undefined,
   evidence = {},
   validateGraph = validateEchoCompiledShowGraph,
   assertPublicationFresh = null,
@@ -771,7 +788,7 @@ export function publishEchoExecutionGraph({
   if (initialCurrentToken !== null && !SHA256.test(text(initialCurrentToken))) {
     throw new Error("The expected Echo execution pointer token is invalid.");
   }
-  const validation = validateGraph({ project, graph });
+  const validation = validateGraph({ project, sourceProject, graph });
   if (!validation?.ok) throw new Error(`The derived Echo execution graph is invalid: ${(validation?.reasons || ["validation-failed"]).join(", ")}.`);
   const variantHash = text(graph?.directorV2?.variantHash);
   if (!/^[a-f0-9]{64}$/iu.test(variantHash)) throw new Error("The derived Echo execution graph has no content identity.");
@@ -787,6 +804,8 @@ export function publishEchoExecutionGraph({
     cutId: store.cutId,
     expectedCutKind: cutKind,
     expectedCutFingerprint: cutFingerprint,
+    project,
+    sourceProject,
   });
   const assertFresh = (stage) => {
     if (typeof assertPublicationFresh !== "function") return;
@@ -883,6 +902,7 @@ export function resolveEchoExecutionGraph({
   cutKind = null,
   cutFingerprint = null,
   project,
+  sourceProject = undefined,
   validateGraph = validateEchoCompiledShowGraph,
 } = {}) {
   let store;
@@ -967,6 +987,8 @@ export function resolveEchoExecutionGraph({
       cutId: store.cutId,
       expectedCutKind: cutKind,
       expectedCutFingerprint: cutFingerprint,
+      project,
+      sourceProject,
     });
   } catch {
     return rejected("execution-parent-cut-binding-invalid");
@@ -985,7 +1007,7 @@ export function resolveEchoExecutionGraph({
     || receipt?.output?.variantHash !== pointer.variantHash
     || text(graph?.directorV2?.variantHash) !== pointer.variantHash
   ) return rejected("execution-receipt-contract-invalid");
-  const validation = validateGraph({ project, graph });
+  const validation = validateGraph({ project, sourceProject, graph });
   if (!validation?.ok) return rejected("execution-graph-validation-failed", { validation });
   return {
     ok: true,

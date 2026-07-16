@@ -9,10 +9,20 @@ import { evaluateHyperFramesVisualizers } from "../src/domain/hyperframes-visual
 
 const MUSIC_VIZ_ROOT = process.env.HAPA_MUSIC_VIZ_ROOT || "/Users/calderwong/Desktop/hapa-music-viz";
 const read = (file) => JSON.parse(fs.readFileSync(file, "utf8"));
-const graph = read("work/dear-papa-stem-telemetry/native-show-graph.json");
 const telemetry = read("work/dear-papa-stem-telemetry/stem-telemetry.json");
 const project = read("data/music-video-projects/dear-papa-song-dear-papa-video-project.json");
 const proxyRegistry = read(path.join(MUSIC_VIZ_ROOT, "web/isf/proxies/native-exact-proxies.json"));
+const graph = read("work/dear-papa-stem-telemetry/native-show-graph.json");
+const proxyById = new Map((proxyRegistry.proxies || []).map((proxy) => [proxy.id, proxy]));
+for (const track of graph.tracks || []) {
+  for (const card of track.cards || []) {
+    const portable = card.visualization?.card;
+    if (!portable) continue;
+    const proxy = proxyById.get(card.visualization?.sourceId);
+    assert.match(proxy?.sourceHash || "", /^sha256:[0-9a-f]{64}$/, `fixture proxy identity missing for ${card.visualization?.sourceId}`);
+    portable.source = { ...(portable.source || {}), hash: proxy.sourceHash };
+  }
+}
 const golden = read("tests/fixtures/hyperframes-dear-papa-golden-timestamps.json");
 const visualizerMix = 0.64;
 
@@ -135,7 +145,7 @@ test("Dear Papa HyperFrames schedules every sequential visualizer cue with exact
     assert.equal(instance.target, portable.layer?.target || card.parameters?.target || "program");
     assert.ok(instance.transition);
     assert.match(instance.sourceHash, /^sha256:[0-9a-f]{64}$/);
-    assert.match(instance.declaredSourceHash, /^(?:sha256:[0-9a-f]{64}|fnv1a32:[0-9a-f]{8})$/);
+    assert.match(instance.declaredSourceHash, /^sha256:[0-9a-f]{64}$/);
     assert.equal(instance.execution.route, "hash-bound-exact-proxy");
     assert.equal(instance.execution.status, "exact");
     assert.equal(instance.execution.drawable, true);

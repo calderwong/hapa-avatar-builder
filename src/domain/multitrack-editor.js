@@ -1,6 +1,7 @@
 import { applyDirtyRangePatch } from "./dirty-range-rebuild.js";
 import { contextHash } from "./song-context-packet.js";
 import { resolveEchoOutputProfile } from "./echo-output-profile.js";
+import { isPortableVisualizerAttachment } from "./portable-visualizer-card.js";
 
 export const MULTITRACK_EDITOR_SCHEMA = "hapa.director.multitrack-editor.v1";
 
@@ -228,6 +229,16 @@ function mergeVisualizerTimeline(graph, timeline = []) {
   track.cards = timeline.map((row, index) => {
     const requestedSourceId = visualizerSourceId(row);
     const requestedTitle = visualizerTitle(row);
+    const rowPortableCandidate = row.portable_visualizer_card
+      || row.portableVisualizerCard
+      || row.visualization?.card
+      || null;
+    const rowPortableCard = isPortableVisualizerAttachment({
+      sourceId: requestedSourceId,
+      card: rowPortableCandidate,
+    })
+      ? rowPortableCandidate
+      : null;
     const indexed = templates[index];
     const indexedMatches = indexed && (
       (requestedSourceId && visualizerSourceId(indexed) === requestedSourceId)
@@ -238,16 +249,31 @@ function mergeVisualizerTimeline(graph, timeline = []) {
       : bySourceId.get(requestedSourceId)
         || byTitle.get(normalizedLookupKey(requestedTitle))
         || {};
-    const hasPortableCard = template.visualization?.card?.schemaVersion === "hapa.visualizer-card.v2";
+    const templatePortableCard = isPortableVisualizerAttachment({
+      sourceId: requestedSourceId,
+      card: template.visualization?.card,
+    })
+      ? template.visualization.card
+      : null;
+    const portableCard = rowPortableCard || templatePortableCard;
+    const hasPortableCard = Boolean(portableCard);
+    const passThrough = requestedSourceId.toLowerCase() === "none"
+      || row.disabled === true
+      || row.knocked_out === true
+      || row.knockedOut === true;
     const startSeconds = Number(row.start_sec ?? row.startSeconds ?? template.startSeconds ?? 0);
     const endSeconds = Number(row.end_sec ?? row.endSeconds ?? template.endSeconds ?? startSeconds);
-    const visualization = hasPortableCard
-      ? {
+    let visualization = null;
+    if (!passThrough) {
+      visualization = hasPortableCard ? {
         ...clone(template.visualization),
         sourceId: requestedSourceId || visualizerSourceId(template),
         requestedSourceId: requestedSourceId || template.visualization?.requestedSourceId,
         nativeKey: requestedTitle || template.visualization?.nativeKey,
         status: row.native_status || template.visualization?.status || "exact",
+        sourceHash: portableCard.source?.hash || template.visualization?.sourceHash,
+        nativeRoute: clone(portableCard.nativeRoute) || clone(template.visualization?.nativeRoute),
+        card: clone(portableCard),
       }
       : {
         sourceId: requestedSourceId,
@@ -255,6 +281,14 @@ function mergeVisualizerTimeline(graph, timeline = []) {
         nativeKey: requestedTitle,
         status: row.native_status || "portable-card-missing",
       };
+    }
+    const portableCardStatus = passThrough
+      ? "pass-through-no-visualizer"
+      : rowPortableCard
+        ? "attached-from-editor-selection"
+        : hasPortableCard
+          ? "preserved"
+          : "missing-for-requested-source";
     return {
       ...clone(template),
       id: indexedMatches && template.id ? template.id : `projected:${track.id}:${index}`,
@@ -269,17 +303,21 @@ function mergeVisualizerTimeline(graph, timeline = []) {
       visualization,
       parameters: {
         ...(clone(template.parameters) || {}),
-        opacity: Number(row.opacity ?? template.parameters?.opacity ?? 0.5),
+        opacity: passThrough ? 0 : Number(row.opacity ?? template.parameters?.opacity ?? 0.5),
         blendMode: row.blend_mode || row.blendMode || template.parameters?.blendMode || "screen",
         ...(Array.isArray(row.active_stems) ? { stemMap: clone(row.active_stems) } : {}),
       },
       buffer: clone(template.buffer) || { state: "ready", readySeconds: endSeconds - startSeconds },
       provenance: {
         ...(clone(template.provenance) || {}),
-        rendererRoute: row.native_status || template.provenance?.rendererRoute || (hasPortableCard ? "exact-browser-isf" : "portable-card-missing"),
-        portableCardStatus: hasPortableCard ? "preserved" : "missing-for-requested-source",
+        rendererRoute: passThrough
+          ? "pass-through"
+          : row.native_status || template.provenance?.rendererRoute || (hasPortableCard ? "exact-browser-isf" : "portable-card-missing"),
+        portableCardStatus,
       },
-      knockedOut: false,
+      disabled: passThrough,
+      knockedOut: passThrough,
+      knocked_out: passThrough,
     };
   });
 }

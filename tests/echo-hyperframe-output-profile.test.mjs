@@ -149,7 +149,7 @@ test("HyperFrames phone packages use manifest dimensions, safe areas, portrait t
           schemaVersion: "hapa.visualizer-card.v2",
           id: "isf:vertical-profile-proxy",
           title: "Vertical Profile Proxy",
-          source: { hash: sourceHash },
+          source: { uri: "/static/isf/shaders/vertical-profile-proxy.fs", hash: sourceHash },
           inputs: [],
           controls: {},
           audioMap: {},

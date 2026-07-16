@@ -74,5 +74,14 @@ test("Echo picker renders a source-backed compile preview and keeps the complete
   assert.match(echoSource, /data-echo-shader-preview-status/);
   assert.match(echoSource, /All manifest categories/);
   assert.match(echoSource, /no result cap/);
+  assert.match(echoSource, /buildEchoShaderSelectionUpdate\(shader, activeVisualizerItem\)/);
+  assert.match(echoSource, /FINAL RENDER READY/);
+  assert.match(echoSource, /SOURCE AVAILABLE · FINAL RENDER UNAVAILABLE/);
+  assert.match(echoSource, /LEGACY APPROXIMATION · NOT FINAL READY/);
+  assert.match(echoSource, /disabled=\{!shader\.finalRenderReady\}/);
+  assert.match(echoSource, /data-echo-shader-selection-blocker/);
+  assert.match(echoSource, /Choose a Final render ready shader/);
+  assert.match(echoSource, /formatEchoShaderPreviewError\(next\.error\)/);
+  assert.doesNotMatch(echoSource, /error: String\(next\.error/);
   assert.doesNotMatch(echoSource, /filteredShaderOptions[\s\S]{0,500}\.slice\(0, 80\)/);
 });

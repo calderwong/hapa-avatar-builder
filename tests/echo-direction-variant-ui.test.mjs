@@ -63,23 +63,50 @@ test("all newer-cut edit controls use copy-on-write instead of rejecting the sel
 
 test("Echo acknowledges save before refreshing and starts Song Card planning from the saved revision only", () => {
   const forkSave = between("const handleSaveWorkingDirectionFork", "const handleSaveProject");
+  const reopenSavedCut = between("const reopenSavedDirectionCut", "const handleRecoverPendingDirectionCut");
+  const recoverUnknownSave = between("const handleRecoverPendingDirectionCut", "const handleSaveWorkingDirectionFork");
+  const finishLegacySave = between("const finishSavedLegacyProject", "const handleRecoverPendingLegacySave");
+  const recoverLegacySave = between("const handleRecoverPendingLegacySave", "const handleSaveProject");
   const projectSave = between("const handleSaveProject", "const handleRunDirector");
   assert.match(source, /const ECHO_SAVE_TIMEOUT_MS = 30_000/);
-  assert.match(source, /Save stopped after 30 seconds without a disk acknowledgment/);
+  assert.match(source, /Save acknowledgment timed out after 30 seconds/);
+  assert.match(source, /unknownError\.code = "echo_save_outcome_unknown"/);
   assert.match(forkSave, /saveEchoProjectRequest\(`/);
-  assert.doesNotMatch(forkSave, /await fetchProjectDetail/);
+  assert.match(forkSave, /request\.requestedId[\s\S]*await fetchProjectDetail\([\s\S]*request\.requestedId/);
+  assert.match(forkSave, /no duplicate was created/);
   assert.match(forkSave, /New append-only direction cut saved\. Opening its protected editable copy/);
-  assert.match(forkSave, /void fetchProjectDetail\(projectToSave\.song_id, savedVariantId, \{ commit: false, priority: "foreground" \}\)\.then/);
-  assert.match(forkSave, /queueSongCardPlanForSavedRevision\(projectToSave\.song_id/);
+  assert.match(forkSave, /setPendingSavedDirectionCut\(pendingSavedCut\)/);
+  assert.match(forkSave, /payload\.variant\?\.id \|\| payload\.id \|\| request\.requestedId/);
+  assert.match(forkSave, /void reopenSavedDirectionCut\(pendingSavedCut, reconciledDetailResult\)/);
+  assert.match(reopenSavedCut, /fetchProjectDetail\([\s\S]*songId,[\s\S]*variantId/);
+  assert.match(reopenSavedCut, /queueSongCardPlanForSavedRevision\([\s\S]*songId,[\s\S]*variantId[\s\S]*project: editableSelection\.savedProject,[\s\S]*showGraph: savedShowGraph/);
+  assert.match(recoverUnknownSave, /body: JSON\.stringify\(pending\.request\)/);
+  assert.match(source, /data-testid="echo-recover-saved-direction-cut"/);
+  assert.match(source, /Check save outcome/);
   assert.match(source, /data-testid="echo-save-status"/);
   assert.match(source, /Saving cut · \$\{saveElapsedSeconds\}s/);
-  assert.match(source, /planningRevision=\{songCardPlanRevisionBySong\[activeProject\.song_id\] \|\| ""\}/);
+  assert.match(source, /activeSongCardPlanEntry\?\.status === "ready"[\s\S]*activeSongCardPlanEntry\.cutId === activeDirectionVariantSelection/);
+  assert.match(source, /data-testid="echo-song-card-plan-waiting"/);
+  assert.match(source, /it will not silently render an older version/);
+  assert.match(source, /project=\{activeSongCardPlanProject\}/);
+  assert.match(source, /showGraph=\{activeSongCardPlanShowGraph\}/);
+  assert.match(source, /planningRevision=\{activeSongCardPlanningRevision\}/);
   assert.match(source, /Music video blueprint saved to disk\. Song Card preparation is continuing separately in Tracks\./);
-  assert.match(projectSave, /\/api\/echos\/director-project\/compile/);
+  assert.match(finishLegacySave, /\/api\/echos\/director-project\/compile/);
+  assert.match(finishLegacySave, /fetchProjectDetail\([\s\S]*projectToSave\.song_id/);
+  assert.match(finishLegacySave, /project: refreshedProject,[\s\S]*showGraph: projectToEditorGraph\(refreshedProject\)/);
   assert.ok(
-    projectSave.indexOf("/api/echos/director-project/compile") < projectSave.indexOf("queueSongCardPlanForSavedRevision(projectToSave.song_id"),
+    finishLegacySave.indexOf("/api/echos/director-project/compile") < finishLegacySave.indexOf("queueSongCardPlanForSavedRevision(projectToSave.song_id"),
     "the saved source must receive a fresh canonical graph before Song Card planning begins",
   );
+  assert.match(projectSave, /\{ outcomeUnknown: true \}/);
+  assert.match(projectSave, /setDirectorHasUnsavedChanges\(false\)[\s\S]*await finishSavedLegacyProject\(projectToSave\)/);
+  assert.match(projectSave, /setPendingLegacyProjectSave\(\{[\s\S]*status: "unknown"/);
+  assert.match(recoverLegacySave, /diskProject\.updated_at[\s\S]*pending\.project\.updated_at/);
+  assert.match(recoverLegacySave, /body: JSON\.stringify\(\{ music_video_project: pending\.project \}\)/);
+  assert.match(recoverLegacySave, /\{ outcomeUnknown: true \}/);
+  assert.doesNotMatch(recoverLegacySave, /setPendingLegacyProjectSave\(null\)[\s\S]*Your local changes remain open/);
+  assert.match(source, /data-testid="echo-recover-legacy-save"/);
 });
 
 test("Echo lazily hydrates one selected cut while retaining the metadata catalog", () => {
@@ -90,20 +117,22 @@ test("Echo lazily hydrates one selected cut while retaining the metadata catalog
   assert.match(source, /commitDirectorProjectDetail\(detail, detailResult\.requestGeneration\)/);
   assert.match(source, /setWorkingDirectionFork\(editableSelection\.workingFork\)/);
   assert.match(source, /setSelectedDirectionVariantId\(nextVariantId\)/);
-  assert.match(source, /disabled=\{loadingProjectDetail \|\| directorEditingLocked\}/);
+  assert.match(source, /disabled=\{loadingProjectDetail \|\| directorEditingLocked \|\| directorHasUnsavedChanges\}/);
 });
 
 test("a freshly saved cut stays pinned to its high-quality graph while certification catches up", () => {
   const helper = between("const editableDirectionForkFromDetail", "const prepareSmoothPreview");
   const forkSave = between("const handleSaveWorkingDirectionFork", "const handleSaveProject");
+  const reopenSavedCut = between("const reopenSavedDirectionCut", "const handleRecoverPendingDirectionCut");
   assert.match(helper, /fallbackProject\?\.director_show_graph\?\.tracks/);
   assert.match(helper, /source: "saved-working-snapshot"/);
   assert.match(helper, /preservesPortableCards: true/);
   assert.match(forkSave, /setDirectionForkTransitionPending\(true\)/);
-  assert.match(forkSave, /editableDirectionForkFromDetail\(detail, savedVariantId, \{ fallbackProject: projectToSave \}\)/);
-  assert.match(forkSave, /commitDirectorProjectDetail\(detail, detailResult\.requestGeneration\)[\s\S]*setWorkingDirectionFork\(editableSelection\.workingFork\)[\s\S]*setSelectedDirectionVariantId\(savedVariantId\)/);
-  assert.match(forkSave, /\.finally\(\(\) => \{[\s\S]*setDirectionForkTransitionPending\(false\)/);
-  const beforeRefresh = forkSave.slice(0, forkSave.indexOf("void fetchProjectDetail"));
+  assert.match(reopenSavedCut, /editableDirectionForkFromDetail\(detail, variantId, \{[\s\S]*fallbackProject: pending\.fallbackProject/);
+  assert.match(reopenSavedCut, /commitDirectorProjectDetail\(detail, detailResult\.requestGeneration\)[\s\S]*setWorkingDirectionFork\(editableSelection\.workingFork\)[\s\S]*setSelectedDirectionVariantId\(variantId\)/);
+  assert.match(reopenSavedCut, /setPendingSavedDirectionCut\(\{ \.\.\.pending, status: "retry", reason \}\)/);
+  assert.match(reopenSavedCut, /finally[\s\S]*setDirectionForkTransitionPending\(false\)/);
+  const beforeRefresh = forkSave.slice(0, forkSave.indexOf("void reopenSavedDirectionCut"));
   assert.doesNotMatch(beforeRefresh, /setWorkingDirectionFork\(null\)/);
   assert.doesNotMatch(beforeRefresh, /setSelectedDirectionVariantId\(savedVariantId/);
 });
@@ -111,14 +140,35 @@ test("a freshly saved cut stays pinned to its high-quality graph while certifica
 test("save and child hydration lock every editing path instead of dropping in-flight changes", () => {
   const edits = between("const updateSelectedDirectionCut", "const handleContinueFromDirectionCut");
   const selector = between('aria-label="Direction script version"', 'aria-label="Video orientation"');
-  assert.match(source, /const directorEditingLocked = savingProject \|\| directionForkTransitionPending \|\| loadingProjectDetail/);
+  assert.match(source, /const directorEditingLocked = savingProject[\s\S]*\|\| directionForkTransitionPending[\s\S]*\|\| Boolean\(pendingSavedDirectionCut\)[\s\S]*\|\| Boolean\(pendingLegacyProjectSave\)[\s\S]*\|\| loadingProjectDetail/);
   assert.match(source, /data-edit-locked=\{directorEditingLocked \? "true" : "false"\}/);
   assert.match(source, /pointerEvents: directorEditingLocked \? 'none' : 'auto'/);
   assert.match(edits, /if \(directorEditingLocked\) return/);
-  assert.match(selector, /disabled=\{loadingProjectDetail \|\| directorEditingLocked\}/);
+  assert.match(selector, /disabled=\{loadingProjectDetail \|\| directorEditingLocked \|\| directorHasUnsavedChanges\}/);
   assert.match(source, /data-testid="echo-output-orientation"[\s\S]*disabled=\{directorEditingLocked\}/);
   assert.match(source, /data-testid="echo-save-direction-cut"[\s\S]*disabled=\{directorEditingLocked \|\| directionVariantReadOnly\}/);
   assert.match(source, /Cut saved · opening its editable copy/);
+  assert.match(source, /editing stays locked so the saved request cannot conflict with another cut/);
+});
+
+test("cut and song navigation preserve dirty work and reload the saved Legacy graph", () => {
+  const selector = between('aria-label="Direction script version"', 'aria-label="Video orientation"');
+  const songSelection = between("const handleSelectDirectorProjectSong", "const editableDirectionForkFromDetail");
+  assert.match(source, /setDirectorHasUnsavedChanges\(true\)/);
+  assert.match(selector, /Unsaved changes · Save or cancel before switching cuts or songs/);
+  assert.match(selector, /fetchProjectDetail\([\s\S]*selectedProjectSongId,[\s\S]*"",[\s\S]*priority: "foreground"/);
+  assert.match(selector, /commitDirectorProjectDetail\(legacyDetailResult\.detail, legacyDetailResult\.requestGeneration\)/);
+  assert.match(selector, /cutId: "legacy", project: legacyProject, showGraph: legacyShowGraph/);
+  assert.match(songSelection, /if \(!songId \|\| songId === selectedProjectSongId \|\| directorEditingLocked \|\| directorHasUnsavedChanges\) return/);
+  assert.match(songSelection, /fetchProjectDetail\(songId, "", \{ commit: false, priority: "foreground" \}\)/);
+  assert.match(songSelection, /commitDirectorProjectDetail\(detailResult\.detail, detailResult\.requestGeneration\)/);
+  assert.match(source, /aria-disabled=\{directorEditingLocked \|\| directorHasUnsavedChanges\}/);
+  assert.match(selector, /Unsaved Legacy changes · Save or discard before switching cuts or songs/);
+  assert.match(selector, /data-testid="echo-discard-legacy-edits"/);
+  const discardLegacy = between("const handleDiscardLegacyChanges", "const beginProjectSave");
+  assert.match(discardLegacy, /fetchProjectDetail\([\s\S]*selectedProjectSongId,[\s\S]*""/);
+  assert.match(discardLegacy, /setDirectorHasUnsavedChanges\(false\)/);
+  assert.match(discardLegacy, /Unsaved Legacy changes discarded/);
 });
 
 test("cut selection stays locked, bounded, and smoke-tested through detail hydration", () => {

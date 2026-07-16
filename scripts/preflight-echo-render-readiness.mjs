@@ -1993,6 +1993,11 @@ async function run(options = {}) {
             graph: identifiedExecutionGraph,
             project: descriptor.cutKind === "saved-mint-plan"
               ? descriptor.project
+              : descriptor.cutKind === "saved-variant"
+                ? descriptor.project
+                : descriptor.canonicalProject || descriptor.project,
+            sourceProject: descriptor.cutKind === "saved-mint-plan"
+              ? descriptor.project
               : descriptor.canonicalProject || descriptor.project,
             evidence,
             assertPublicationFresh,

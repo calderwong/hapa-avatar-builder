@@ -31,6 +31,7 @@ Every CLI mutation requires both `--apply` and a token matching `HAPA_SONG_CARD_
 - Cleanup may remove abandoned staging only. It never deletes edition bundles. Archive and revoke are governance states, not deletion.
 - Use CLI `backup`, `restore`, `export`, `import`, and `recover` for custody operations. Restore requires an empty target ledger; use import for merges.
 - The UI's managed export endpoint is `POST /api/song-cards/:songId/editions/:edition/export` with `{ "format": "video" }` or `{ "format": "bundle" }`. It never accepts a destination path from the browser.
+- A detached portable Visualizer Card fails before MP4 work begins. The UI names the shader and bounded cue range when that evidence is available. **Rebuild from saved cut** resolves the append-only saved revision to its canonical graph, supersedes the failed candidate, and requires a fresh review before rendering. It does not mutate the failed attempt or mint an edition. Use ordinary **Retry render** only for transient failures whose plan remains canonical.
 
 Private edition media is never exposed as an unauthenticated file route. An authenticated operator requests a short-lived, edition/role-bound artifact ticket at `POST /api/song-cards/:songId/editions/:edition/artifact-ticket`; the `<video>` element uses that ticket for immutable HTTP range playback. The server hashes each immutable artifact once per process/stat identity and reuses the verified digest for subsequent range requests, while the explicit verify endpoint rechecks the complete bundle.
 

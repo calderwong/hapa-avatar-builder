@@ -37,7 +37,7 @@ function fixture() {
     stems: { items: [{ id: "stem:vocals", stemType: "Vocals", audioPath: "/audio/vocals.wav" }] },
     tracks: [
       { id: "track-a", role: "foundation", cards: [{ id: "media:one", startSeconds: 0, endSeconds: 10, media: { id: "media:one" } }] },
-      { id: "track-b", role: "visualizer", cards: [{ id: "viz:one", startSeconds: 0, endSeconds: 10, visualization: { sourceId: "isf:one", card: { schemaVersion: "hapa.visualizer-card.v2", id: "isf:one" } } }] },
+      { id: "track-b", role: "visualizer", cards: [{ id: "viz:one", startSeconds: 0, endSeconds: 10, visualization: { sourceId: "isf:one", card: { schemaVersion: "hapa.visualizer-card.v2", id: "isf:one", source: { uri: "/static/isf/one.fs", hash: `sha256:${"1".repeat(64)}` } } } }] },
       { id: "track-c", role: "accent", cards: [] },
     ],
     directorV2: { variantId: "cut-one", variantHash: "content-v2:canonical", stemBuses: [{ id: "bus:vocals" }], rendererSupport: {} },
@@ -62,6 +62,54 @@ function fixture() {
     logs: [],
   };
   return { plan, canonicalProject, canonicalGraph, sourceVariant };
+}
+
+async function createCanonicalResolverStore(t) {
+  const root = await fsp.mkdtemp(path.join(os.tmpdir(), "song-card-working-alias-"));
+  t.after(() => fsp.rm(root, { recursive: true, force: true }));
+  const projectsRoot = path.join(root, "projects");
+  const variantsRoot = path.join(root, "variants");
+  const albumRoot = path.join(root, "album");
+  const songId = "song-slug";
+  const timeline = [{ start_sec: 0, end_sec: 10, media_id: "media:one", media_title: "One" }];
+  const visualizerTimeline = [{ start_sec: 0, end_sec: 10, visualizer_id: "isf:one", visualizer_title: "One" }];
+  const rawProject = {
+    song_id: songId,
+    audio_id: "registry-song",
+    song_title: "Song",
+    duration: 10,
+    timeline,
+    visualizer_timeline: visualizerTimeline,
+    active_direction_script_variant: { id: "base" },
+  };
+  const sourceProjectHash = contentHash(rawProject);
+  const compiledGraph = reidentifyEchoCompiledShowGraph({
+    schemaVersion: "hapa.music-viz.native-show-graph.v2",
+    song: { id: "registry-song", title: "Song", durationSeconds: 10 },
+    stems: { items: [{ id: "stem:vocals", stemType: "Vocals", audioPath: "/audio/vocals.wav" }] },
+    tracks: [
+      { id: "track-a", role: "foundation", cards: [{ id: "media:one", startSeconds: 0, endSeconds: 10, media: { id: "media:one" } }] },
+      { id: "track-b", role: "visualizer", cards: [{ id: "viz:one", startSeconds: 0, endSeconds: 10, visualization: { sourceId: "isf:one", card: { schemaVersion: "hapa.visualizer-card.v2", id: "isf:one", source: { uri: "/static/isf/one.fs", hash: `sha256:${"1".repeat(64)}` } } } }] },
+      { id: "track-c", role: "accent", cards: [] },
+    ],
+    directorV2: {
+      stemBuses: [{ id: "bus:vocals" }],
+      source: { sourceProjectHash, inputHashes: { project: "a".repeat(64) } },
+      provenance: { sourceProjectHash },
+    },
+  });
+  const sourceVariant = { id: "cut-one", timeline, visualizer_timeline: visualizerTimeline };
+  await Promise.all([
+    fsp.mkdir(projectsRoot, { recursive: true }),
+    fsp.mkdir(path.join(variantsRoot, songId), { recursive: true }),
+    fsp.mkdir(path.join(albumRoot, songId), { recursive: true }),
+  ]);
+  await Promise.all([
+    fsp.writeFile(path.join(projectsRoot, `${songId}-video-project.json`), `${JSON.stringify(rawProject)}\n`),
+    fsp.writeFile(path.join(variantsRoot, songId, "cut-one.json"), `${JSON.stringify(sourceVariant)}\n`),
+    fsp.writeFile(path.join(albumRoot, songId, "native-show-graph.json"), `${JSON.stringify(compiledGraph)}\n`),
+  ]);
+  return { root, projectsRoot, variantsRoot, albumRoot, rawProject, compiledGraph };
 }
 
 test("controller retry supersedes a proven legacy plan with a new canonical plan revision", async (t) => {
@@ -185,6 +233,80 @@ test("rehydration cannot bless an old rendered master for the replacement graph"
   assert.notEqual(replacement.status, "ready");
 });
 
+test("canonical recovery loads the saved cut behind a proven working alias", async (t) => {
+  const store = await createCanonicalResolverStore(t);
+  const saved = fixture().plan;
+  const workingHash = "content-v2:working-cut-one";
+  const detachedGraph = structuredClone(store.compiledGraph);
+  detachedGraph.tracks.find((track) => track.role === "visualizer").cards[0].visualization = {
+    sourceId: "isf:one",
+    status: "portable-card-missing",
+  };
+  detachedGraph.directorV2 = {
+    ...detachedGraph.directorV2,
+    variantId: "working:cut-one",
+    variantHash: workingHash,
+    parentVariantId: "cut-one",
+  };
+  saved.input.project = {
+    ...store.rawProject,
+    active_direction_script_variant: {
+      id: "cut-one",
+      workingFork: true,
+      workingHash,
+    },
+  };
+  saved.input.showGraph = detachedGraph;
+  const resolver = createEchoMintPlanCanonicalResolver({
+    avatarRoot: store.root,
+    projectsRoot: store.projectsRoot,
+    variantsRoot: store.variantsRoot,
+    albumRoot: store.albumRoot,
+    shaderCatalog: [],
+  });
+
+  const result = await resolver(saved);
+
+  assert.equal(result.status, "rehydrated");
+  assert.equal(result.receipt.savedVariantId, "cut-one");
+  assert.equal(result.receipt.workingAliasIdentity.resolvedVariantId, "cut-one");
+  assert.equal(result.receipt.sourceEvidence.sourceId, path.join("variants", "song-slug", "cut-one.json"));
+  assert.equal(result.input.showGraph.directorV2.variantId, "cut-one");
+});
+
+test("canonical recovery rejects a working alias when its lineage proof disagrees", async (t) => {
+  const root = await fsp.mkdtemp(path.join(os.tmpdir(), "song-card-working-alias-mismatch-"));
+  t.after(() => fsp.rm(root, { recursive: true, force: true }));
+  const value = fixture();
+  const saved = value.plan;
+  const graph = structuredClone(saved.input.showGraph);
+  graph.tracks = value.canonicalGraph.tracks;
+  graph.stems = value.canonicalGraph.stems;
+  graph.directorV2 = {
+    ...value.canonicalGraph.directorV2,
+    variantId: "working:cut-one",
+    variantHash: "content-v2:working-cut-one",
+    parentVariantId: "cut-two",
+  };
+  graph.tracks.find((track) => track.role === "visualizer").cards[0].visualization = {
+    sourceId: "isf:one",
+    status: "portable-card-missing",
+  };
+  saved.input.showGraph = graph;
+  saved.input.project.active_direction_script_variant = {
+    id: "cut-one",
+    workingFork: true,
+    workingHash: graph.directorV2.variantHash,
+  };
+  const resolver = createEchoMintPlanCanonicalResolver({ avatarRoot: root, shaderCatalog: [] });
+
+  const result = await resolver(saved);
+
+  assert.equal(result.status, "non-runnable");
+  assert.deepEqual(result.reasons, ["working-variant-alias-identity-mismatch"]);
+  assert.ok(result.blocker.details.workingAliasIdentity.reasons.includes("working-alias-parent-variant-mismatch"));
+});
+
 test("canonical resolution reloads the shader catalog and binds its current digest", async (t) => {
   const root = await fsp.mkdtemp(path.join(os.tmpdir(), "song-card-plan-catalog-freshness-"));
   t.after(() => fsp.rm(root, { recursive: true, force: true }));
@@ -210,7 +332,7 @@ test("canonical resolution reloads the shader catalog and binds its current dige
     stems: { items: [{ id: "stem:vocals", stemType: "Vocals", audioPath: "/audio/vocals.wav" }] },
     tracks: [
       { id: "track-a", role: "foundation", cards: [{ id: "media:one", startSeconds: 0, endSeconds: 10, media: { id: "media:one" } }] },
-      { id: "track-b", role: "visualizer", cards: [{ id: "viz:one", startSeconds: 0, endSeconds: 10, visualization: { sourceId: "isf:one", card: { schemaVersion: "hapa.visualizer-card.v2", id: "isf:one" } } }] },
+      { id: "track-b", role: "visualizer", cards: [{ id: "viz:one", startSeconds: 0, endSeconds: 10, visualization: { sourceId: "isf:one", card: { schemaVersion: "hapa.visualizer-card.v2", id: "isf:one", source: { uri: "/static/isf/one.fs", hash: `sha256:${"1".repeat(64)}` } } } }] },
       { id: "track-c", role: "accent", cards: [] },
     ],
     directorV2: {

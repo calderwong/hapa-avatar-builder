@@ -2,10 +2,13 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   buildEchoShaderPickerPreviewCard,
+  buildEchoShaderSelectionUpdate,
   echoLegacyCanvasApproximation,
+  echoShaderFinalRenderReadiness,
   echoShaderManifestCategories,
   echoShaderPickerCategories,
   filterEchoShaderPickerShaders,
+  formatEchoShaderPreviewError,
 } from "../src/domain/echo-shader-picker.js";
 
 function manifestShader(index, patch = {}) {
@@ -25,6 +28,31 @@ function manifestShader(index, patch = {}) {
     inputs: [],
     audioMap: {},
     ...patch,
+  };
+}
+
+function exactProxy(index, controls = {}) {
+  return {
+    assetPath: `/static/isf/proxies/${index}.png`,
+    assetSha256: `sha256:${"f".repeat(64)}`,
+    sourceHash: `sha256:${String(index).padStart(64, "0")}`,
+    width: 160,
+    height: 90,
+    frameCount: 8,
+    fps: 4,
+    controls,
+    verified: true,
+  };
+}
+
+function playablePixelGate() {
+  return {
+    status: "source-hash-verified",
+    classification: "hash-bound-exact-proxy",
+    compileAttempted: true,
+    drawAttempted: true,
+    playableFrameIndices: [0, 2, 4],
+    reason: "hash-verified-browser-isf-playable-pixels",
   };
 }
 
@@ -64,6 +92,107 @@ test("source-backed picker preview cards retain exact ID and hash", () => {
   assert.equal(card.visualization.card.source.hash, shader.sourceHash);
   assert.equal(card.visualization.card.audioMap.amount.signal, "rms");
   assert.equal(buildEchoShaderPickerPreviewCard({ id: "builtin:spectrum-nebula" }), null);
+});
+
+test("picker selection carries a catalog-backed portable card and preserves cue settings", () => {
+  const shader = manifestShader(9, {
+    inputs: [{ NAME: "gain", TYPE: "float", DEFAULT: 0.25 }],
+    audioMap: { gain: { signal: "rms", depth: 0.4 } },
+    pixelGate: playablePixelGate(),
+    hyperframesProxy: exactProxy(9, { gain: 0.25 }),
+  });
+  const update = buildEchoShaderSelectionUpdate(shader, {
+    opacity: 0.72,
+    blend_mode: "overlay",
+    transition: "dissolve",
+    stem_focus: "drums",
+    visualizer_controls: { gain: 0.8, removedUniform: 1 },
+  });
+  assert.equal(update.finalRenderReady, true);
+  assert.equal(update.final_render_ready, true);
+  assert.equal(update.native_status, "exact");
+  assert.equal(update.portable_visualizer_card.schemaVersion, "hapa.visualizer-card.v2");
+  assert.equal(update.portable_visualizer_card.id, shader.id);
+  assert.equal(update.portable_visualizer_card.source.uri, shader.source);
+  assert.equal(update.portable_visualizer_card.source.hash, shader.sourceHash);
+  assert.deepEqual(update.portable_visualizer_card.controls, { gain: 0.25 });
+  assert.equal(update.portable_visualizer_card.stemFocus, "drums");
+  assert.equal(update.portable_visualizer_card.layer.opacity, 0.72);
+  assert.equal(update.portable_visualizer_card.layer.blend, "overlay");
+  assert.equal(update.portable_visualizer_card.layer.transition, "dissolve");
+  assert.equal(update.portable_visualizer_card.provenance.finalRenderReady, true);
+  assert.equal(update.portable_visualizer_card.provenance.pixelGate.classification, "hash-bound-exact-proxy");
+});
+
+test("final-render readiness comes from playable, source-verified pixel-gate truth", () => {
+  const sourceOnly = manifestShader(10);
+  const ready = manifestShader(11, {
+    pixelGate: playablePixelGate(),
+    hyperframesProxy: exactProxy(11),
+  });
+  const missingProxy = manifestShader(14, { pixelGate: playablePixelGate() });
+  const quarantined = manifestShader(12, {
+    runtimeEligibility: "unsupported-quarantine",
+    pixelGate: {
+      status: "source-hash-verified",
+      classification: "unsupported-quarantine",
+      compileAttempted: true,
+      drawAttempted: true,
+      playableFrameIndices: [],
+      reason: "compile failed",
+    },
+  });
+  assert.equal(echoShaderFinalRenderReadiness(sourceOnly).finalRenderReady, false);
+  assert.equal(echoShaderFinalRenderReadiness(ready).finalRenderReady, true);
+  assert.equal(echoShaderFinalRenderReadiness(missingProxy).reason, "hyperframes-exact-proxy-missing-or-unverified");
+  assert.equal(echoShaderFinalRenderReadiness(quarantined).finalRenderReady, false);
+  const nonCanonicalHash = manifestShader(16, {
+    sourceHash: `sha256:${"A".repeat(64)}`,
+    pixelGate: playablePixelGate(),
+    hyperframesProxy: {
+      ...exactProxy(16),
+      sourceHash: `sha256:${"A".repeat(64)}`,
+    },
+  });
+  assert.equal(echoShaderFinalRenderReadiness(nonCanonicalHash).finalRenderReady, false);
+  assert.equal(echoShaderFinalRenderReadiness(nonCanonicalHash).reason, "source-hash-not-canonical");
+});
+
+test("pass-through disables the cue and a zero-control shader cannot inherit stale uniforms", () => {
+  const none = buildEchoShaderSelectionUpdate({ id: "none", title: "None" }, {
+    portable_visualizer_card: { controls: { staleGain: 1 } },
+  });
+  assert.equal(none.disabled, true);
+  assert.equal(none.knocked_out, true);
+  assert.equal(none.knockedOut, true);
+  assert.equal(none.portable_visualizer_card, null);
+
+  const shader = manifestShader(13, {
+    inputs: [],
+    pixelGate: playablePixelGate(),
+    hyperframesProxy: exactProxy(13),
+  });
+  const selected = buildEchoShaderSelectionUpdate(shader, {
+    visualizer_controls: { staleGain: 1 },
+  });
+  assert.deepEqual(selected.portable_visualizer_card.controls, {});
+  assert.equal(selected.disabled, false);
+  assert.equal(selected.knocked_out, false);
+  assert.equal(selected.knockedOut, false);
+});
+
+test("preview-only shaders cannot create a detached editor selection", () => {
+  assert.throws(
+    () => buildEchoShaderSelectionUpdate(manifestShader(15, { pixelGate: playablePixelGate() })),
+    (error) => error?.code === "echo_shader_not_final_render_ready"
+      && error?.reason === "hyperframes-exact-proxy-missing-or-unverified",
+  );
+});
+
+test("preview diagnostics turn structured errors into readable text", () => {
+  assert.equal(formatEchoShaderPreviewError({ error: { message: "Uniform gain failed to compile" } }), "Uniform gain failed to compile");
+  assert.equal(formatEchoShaderPreviewError({ code: "compile_error", stage: "fragment" }), "code: compile_error · stage: fragment");
+  assert.notEqual(formatEchoShaderPreviewError({ reason: { code: "bad_source" } }), "[object Object]");
 });
 
 test("legacy canvas approximation maps only deliberate IDs or keywords and has no Spectrum default", () => {

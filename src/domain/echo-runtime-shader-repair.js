@@ -1,4 +1,7 @@
-import { buildPortableVisualizerCard } from "./portable-visualizer-card.js";
+import {
+  buildPortableVisualizerCard,
+  inspectPortableVisualizerAttachment,
+} from "./portable-visualizer-card.js";
 import {
   deriveEchoDirectionVariantProject,
   echoDirectionVariantId,
@@ -70,8 +73,9 @@ function replacementFor(shader, catalog = []) {
 
 function portableCardIsExact(card, shader) {
   const portable = card?.visualization?.card;
+  const attachment = inspectPortableVisualizerAttachment(card);
   return Boolean(
-    portable?.schemaVersion === "hapa.visualizer-card.v2"
+    attachment.ok
     && text(portable.id) === text(shader?.id)
     && text(portable.source?.hash).replace(/^sha256:/iu, "").toLowerCase()
       === text(shader?.sourceHash).replace(/^sha256:/iu, "").toLowerCase()

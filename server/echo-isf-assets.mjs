@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { readFile, realpath, stat } from "node:fs/promises";
 import path from "node:path";
+import { hydrateManifestNativeRoutes } from "../src/domain/native-visualizer-route.js";
 
 const SOURCE_PREFIX = "/static/isf/shaders/";
 const SHA256_PATTERN = /^[a-f0-9]{64}$/i;
@@ -31,6 +32,7 @@ export class EchoIsfAssetCatalog {
     this.shaderRoot = path.join(this.musicVizRoot, "web/isf/shaders");
     this.runtimePath = path.join(this.musicVizRoot, "web/vendor/isf-renderer.js");
     this.pixelGatePath = path.join(this.musicVizRoot, "docs/ISF_ALL_SHADER_PIXEL_GATE_REPORT.json");
+    this.proxyRegistryPath = path.join(this.musicVizRoot, "web/isf/proxies/native-exact-proxies.json");
     this.cacheCheckMs = Math.max(0, Number(cacheCheckMs) || 0);
     this.cache = null;
     this.loading = null;
@@ -51,15 +53,20 @@ export class EchoIsfAssetCatalog {
       return this.cache;
     }
 
-    const [manifestBytes, runtimeBytes, pixelGateBytes, realShaderRoot] = await Promise.all([
+    const [manifestBytes, runtimeBytes, pixelGateBytes, proxyRegistryBytes, realShaderRoot] = await Promise.all([
       readFile(this.manifestPath),
       readFile(this.runtimePath),
       readFile(this.pixelGatePath),
+      readFile(this.proxyRegistryPath),
       realpath(this.shaderRoot)
     ]);
     const manifest = JSON.parse(manifestBytes.toString("utf8"));
     const manifestShaders = Array.isArray(manifest?.shaders) ? manifest.shaders : [];
     const pixelGate = pixelGateBytes ? JSON.parse(pixelGateBytes.toString("utf8")) : null;
+    const proxyRegistry = JSON.parse(proxyRegistryBytes.toString("utf8"));
+    if (!Array.isArray(proxyRegistry?.proxies)) {
+      throw new Error(`ISF exact-proxy registry is required and must contain proxy records: ${this.proxyRegistryPath}`);
+    }
     if (!Array.isArray(pixelGate?.classifications) || pixelGate.classifications.length === 0) {
       throw new Error(`ISF pixel-gate report is required and must contain shader classifications: ${this.pixelGatePath}`);
     }
@@ -75,7 +82,7 @@ export class EchoIsfAssetCatalog {
       source: versionedUrl("/api/echos/isf-runtime.js", runtimeHash)
     };
 
-    const records = await Promise.all(manifestShaders.map(async (shader, index) => {
+    const sourceRecords = await Promise.all(manifestShaders.map(async (shader, index) => {
       const id = String(shader?.id || "").trim();
       const sourceOriginal = String(shader?.source || "").trim();
       if (!id) throw new Error(`ISF manifest shader ${index} is missing an id.`);
@@ -150,27 +157,36 @@ export class EchoIsfAssetCatalog {
       };
     }));
 
+    const hydratedManifest = hydrateManifestNativeRoutes({ shaders: sourceRecords.map((record) => record.public) }, proxyRegistry);
+    const hydratedPublicById = new Map(hydratedManifest.shaders.map((shader) => [shader.id, shader]));
+    const records = sourceRecords.map((record) => ({
+      ...record,
+      public: hydratedPublicById.get(record.id) || record.public,
+    }));
     const byId = new Map();
     for (const record of records) {
       if (byId.has(record.id)) throw new Error(`ISF manifest contains duplicate id ${record.id}.`);
       byId.set(record.id, record);
     }
-    const [manifestStat, runtimeStat, pixelGateStat] = await Promise.all([
+    const [manifestStat, runtimeStat, pixelGateStat, proxyRegistryStat] = await Promise.all([
       stat(this.manifestPath),
       stat(this.runtimePath),
       stat(this.pixelGatePath).catch(() => null),
+      stat(this.proxyRegistryPath),
     ]);
     this.cache = {
       checkedAt: Date.now(),
       manifestSignature: `${manifestStat.size}:${manifestStat.mtimeMs}`,
       runtimeSignature: `${runtimeStat.size}:${runtimeStat.mtimeMs}`,
       pixelGateSignature: pixelGateStat ? `${pixelGateStat.size}:${pixelGateStat.mtimeMs}` : "missing",
+      proxyRegistrySignature: `${proxyRegistryStat.size}:${proxyRegistryStat.mtimeMs}`,
       manifest: {
         version: manifest?.version ?? null,
         renderer: manifest?.renderer || null,
-        hash: sha256(Buffer.concat([manifestBytes, pixelGateBytes || Buffer.alloc(0)])),
+        hash: sha256(Buffer.concat([manifestBytes, pixelGateBytes || Buffer.alloc(0), proxyRegistryBytes])),
         sourceHash: sha256(manifestBytes),
         pixelGateHash: pixelGateBytes ? sha256(pixelGateBytes) : null,
+        proxyRegistryHash: sha256(proxyRegistryBytes),
       },
       runtime,
       records,
@@ -182,15 +198,17 @@ export class EchoIsfAssetCatalog {
 
   async #cacheFilesUnchanged(cache) {
     try {
-      const [manifestStat, runtimeStat, pixelGateStat, ...shaderStats] = await Promise.all([
+      const [manifestStat, runtimeStat, pixelGateStat, proxyRegistryStat, ...shaderStats] = await Promise.all([
         stat(this.manifestPath),
         stat(this.runtimePath),
         stat(this.pixelGatePath).catch(() => null),
+        stat(this.proxyRegistryPath),
         ...cache.records.map((record) => stat(record.filePath))
       ]);
       if (`${manifestStat.size}:${manifestStat.mtimeMs}` !== cache.manifestSignature) return false;
       if (`${runtimeStat.size}:${runtimeStat.mtimeMs}` !== cache.runtimeSignature) return false;
       if ((pixelGateStat ? `${pixelGateStat.size}:${pixelGateStat.mtimeMs}` : "missing") !== cache.pixelGateSignature) return false;
+      if (`${proxyRegistryStat.size}:${proxyRegistryStat.mtimeMs}` !== cache.proxyRegistrySignature) return false;
       return shaderStats.every((fileStat, index) =>
         `${fileStat.size}:${fileStat.mtimeMs}` === cache.records[index].fileSignature
       );

@@ -376,6 +376,81 @@ test("saved-plan loading validates the immutable parent with its canonical proje
   assert.equal(loaded.graph.marker, "saved-plan-execution");
 });
 
+test("saved-variant loading validates its effective profile against canonical source lineage", async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "echo-loader-saved-variant-source-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const albumRoot = path.join(root, "album");
+  const songId = "song-loader";
+  const songRoot = path.join(albumRoot, songId);
+  fs.mkdirSync(songRoot, { recursive: true });
+  const parentGraphPath = path.join(songRoot, "native-show-graph.json");
+  const parent = graph("canonical-parent", "1");
+  parent.runId = "canonical";
+  fs.writeFileSync(parentGraphPath, `${JSON.stringify(parent, null, 2)}\n`);
+  const parentGraphSha256 = echoExecutionFileSha256(parentGraphPath);
+  const cutId = "vertical-saved-cut";
+  const cutKind = "saved-variant";
+  const cutFingerprint = `content-v2:${"9".repeat(64)}`;
+  const derived = executionGraph(parent, parentGraphSha256, {
+    marker: "vertical-saved-execution",
+    hashCharacter: "2",
+    cutId,
+    cutKind,
+    cutFingerprint,
+  });
+  const canonicalProject = { song_id: songId, identity: "canonical", output_profile: "landscape" };
+  const selectedProject = { ...canonicalProject, identity: "selected", output_profile: "vertical" };
+  const splitValidate = ({ project, sourceProject, graph: suppliedGraph }) => {
+    const lineageProject = sourceProject === undefined ? project : sourceProject;
+    const canonicalGraph = suppliedGraph?.marker === "canonical-parent";
+    const ok = suppliedGraph?.schemaVersion === "hapa.music-viz.native-show-graph.v2"
+      && project?.identity === (canonicalGraph ? "canonical" : "selected")
+      && lineageProject?.identity === "canonical";
+    return { ok, reasons: ok ? [] : ["source-project-binding-mismatch"] };
+  };
+  publishEchoExecutionGraph({
+    albumRoot,
+    songId,
+    cutId,
+    cutKind,
+    cutFingerprint,
+    parentGraphPath,
+    expectedParentGraphSha256: parentGraphSha256,
+    graph: derived,
+    project: selectedProject,
+    sourceProject: canonicalProject,
+    evidence: evidence({ parent, parentGraphSha256, parentGraphPath, cutId, cutKind, cutFingerprint }),
+    validateGraph: splitValidate,
+  });
+
+  const request = {
+    albumRoot,
+    root,
+    project: selectedProject,
+    canonicalProject,
+    songId,
+    cutId,
+    cutKind,
+    cutFingerprint,
+    validateGraph: splitValidate,
+    currentRendererBuildSha256: RENDERER_BUILD_SHA256,
+    currentDeliveryRuntimeBuildSha256: DELIVERY_RUNTIME_BUILD_SHA256,
+    currentServerDeliveryBuildSha256: SERVER_DELIVERY_BUILD_SHA256,
+  };
+  const loaded = await readEchoDirectorShowGraphArtifact({ ...request, sourceProject: canonicalProject });
+  assert.equal(loaded.receipt.source, "validated-derived-execution-graph");
+  assert.equal(loaded.graph.marker, "vertical-saved-execution");
+
+  const missingSource = await readEchoDirectorShowGraphArtifact(request);
+  assert.equal(missingSource.graph, null);
+  assert.equal(missingSource.receipt.reason, "exact_cut_execution_graph_not_ready");
+  assert.equal(missingSource.receipt.executionGraph.reason, "execution-graph-validation-failed");
+  const wrongSource = await readEchoDirectorShowGraphArtifact({ ...request, sourceProject: { ...canonicalProject, identity: "wrong" } });
+  assert.equal(wrongSource.graph, null);
+  assert.equal(wrongSource.receipt.reason, "exact_cut_execution_graph_not_ready");
+  assert.equal(wrongSource.receipt.executionGraph.reason, "execution-graph-validation-failed");
+});
+
 test("non-base cuts without stems or visualizers require their exact execution pointer", async (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "echo-loader-no-stem-cut-"));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));

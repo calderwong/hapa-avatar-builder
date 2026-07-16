@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   assessSongCardMintPlanCompatibility,
   inspectSongCardMintGraphCompatibility,
+  resolveSongCardMintWorkingAliasIdentity,
 } from "../src/domain/song-card-mint-plan-compatibility.js";
 
 function legacyGraph() {
@@ -50,7 +51,7 @@ function canonicalGraph() {
           id: "viz:0",
           startSeconds: 0,
           endSeconds: 12,
-          visualization: { sourceId: "isf:one", card: { schemaVersion: "hapa.visualizer-card.v2", id: "isf:one" } },
+          visualization: { sourceId: "isf:one", card: { schemaVersion: "hapa.visualizer-card.v2", id: "isf:one", source: { uri: "/static/isf/one.fs", hash: `sha256:${"1".repeat(64)}` } } },
         }],
       },
       { id: "track-c", role: "accent", cards: [] },
@@ -85,6 +86,28 @@ function plan() {
   };
 }
 
+function workingDetachedPlan() {
+  const saved = plan();
+  const graph = canonicalGraph();
+  graph.tracks.find((track) => track.role === "visualizer").cards[0].visualization = {
+    sourceId: "isf:one",
+    status: "portable-card-missing",
+  };
+  graph.directorV2 = {
+    ...graph.directorV2,
+    variantId: "working:cut-one",
+    variantHash: "content-v2:working-cut-one",
+    parentVariantId: "cut-one",
+  };
+  saved.input.showGraph = graph;
+  saved.input.project.active_direction_script_variant = {
+    id: "cut-one",
+    workingFork: true,
+    workingHash: graph.directorV2.variantHash,
+  };
+  return saved;
+}
+
 test("detects the pathless projectToEditorGraph producer signature without classifying arbitrary small graphs", () => {
   const legacy = inspectSongCardMintGraphCompatibility(legacyGraph());
   assert.equal(legacy.legacyProjection, true);
@@ -98,6 +121,198 @@ test("detects the pathless projectToEditorGraph producer signature without class
     directorV2: {},
   });
   assert.equal(intentionallySmall.legacyProjection, false);
+});
+
+test("modern graphs with a detached portable visualizer require canonical repair", () => {
+  const saved = workingDetachedPlan();
+  const inspection = inspectSongCardMintGraphCompatibility(saved.input.showGraph);
+  const result = assessSongCardMintPlanCompatibility({ plan: saved });
+
+  assert.equal(inspection.legacyProjection, false);
+  assert.equal(inspection.detachedVisualizerCount, 1);
+  assert.equal(result.status, "non-runnable");
+  assert.equal(result.requiresRepair, true);
+  assert.deepEqual(result.reasons, ["canonical-compiled-graph-not-resolved"]);
+});
+
+test("visualizer-track cards without a visualization object still require canonical repair", () => {
+  const saved = plan();
+  saved.input.showGraph = canonicalGraph();
+  const card = saved.input.showGraph.tracks.find((track) => track.role === "visualizer").cards[0];
+  card.media = { id: "isf:one", title: "One" };
+  delete card.visualization;
+
+  const inspection = inspectSongCardMintGraphCompatibility(saved.input.showGraph);
+  const result = assessSongCardMintPlanCompatibility({ plan: saved });
+  assert.equal(inspection.visualizerCount, 1);
+  assert.equal(inspection.detachedVisualizerCount, 1);
+  assert.equal(result.status, "non-runnable");
+  assert.equal(result.requiresRepair, true);
+});
+
+test("intentional None pass-through cards remain canonical and runnable", () => {
+  const graph = canonicalGraph();
+  graph.tracks.find((track) => track.role === "visualizer").cards = [{
+    id: "viz:none",
+    startSeconds: 0,
+    endSeconds: 12,
+    visualization: null,
+    disabled: true,
+    knockedOut: true,
+    provenance: { portableCardStatus: "pass-through-no-visualizer" },
+  }];
+  const saved = plan();
+  saved.input.showGraph = graph;
+  const inspection = inspectSongCardMintGraphCompatibility(graph);
+  const result = assessSongCardMintPlanCompatibility({ plan: saved });
+
+  assert.equal(inspection.visualizerCount, 0);
+  assert.equal(inspection.detachedVisualizerCount, 0);
+  assert.equal(inspection.canonical, true);
+  assert.equal(result.status, "current");
+  assert.equal(result.runnable, true);
+});
+
+test("partial v2 cards without renderer identity still require canonical repair", () => {
+  const graph = canonicalGraph();
+  graph.tracks.find((track) => track.role === "visualizer").cards[0].visualization.card = {
+    schemaVersion: "hapa.visualizer-card.v2",
+    id: "isf:one",
+    source: {},
+  };
+  const saved = plan();
+  saved.input.showGraph = graph;
+  const inspection = inspectSongCardMintGraphCompatibility(graph);
+  const result = assessSongCardMintPlanCompatibility({ plan: saved });
+
+  assert.equal(inspection.detachedVisualizerCount, 1);
+  assert.equal(inspection.canonical, false);
+  assert.equal(result.status, "non-runnable");
+  assert.equal(result.requiresRepair, true);
+});
+
+test("invalid hashes and mismatched requested IDs are detached and can be canonically repaired", () => {
+  for (const [label, mutate] of [
+    ["invalid hash", (card) => { card.visualization.card.source.hash = "sha256:one"; }],
+    ["mismatched requested ID", (card) => { card.visualization.sourceId = "isf:other"; }],
+    ["missing source URI", (card) => { delete card.visualization.card.source.uri; }],
+  ]) {
+    const saved = plan();
+    saved.input.showGraph = canonicalGraph();
+    const visualizer = saved.input.showGraph.tracks.find((track) => track.role === "visualizer").cards[0];
+    mutate(visualizer);
+    const inspection = inspectSongCardMintGraphCompatibility(saved.input.showGraph);
+    const sourceVariant = {
+      id: "cut-one",
+      timeline: structuredClone(saved.input.project.timeline),
+      visualizer_timeline: structuredClone(saved.input.project.visualizer_timeline),
+      project_patch: { lyric_style: "cyan" },
+    };
+    const canonicalProject = {
+      song_id: "song-slug",
+      audio_id: "registry-song",
+      duration: 12,
+      visualizer_timeline: structuredClone(sourceVariant.visualizer_timeline),
+      active_direction_script_variant: { id: "cut-one" },
+    };
+    const result = assessSongCardMintPlanCompatibility({
+      plan: saved,
+      canonicalProject,
+      canonicalGraph: canonicalGraph(),
+      sourceVariant,
+    });
+
+    assert.equal(inspection.detachedVisualizerCount, 1, label);
+    assert.equal(inspection.canonical, false, label);
+    assert.equal(result.status, "rehydrated", label);
+    assert.equal(result.runnable, true, label);
+    assert.equal(result.requiresRepair, true, label);
+    assert.equal(result.canonicalGraphInspection.detachedVisualizerCount, 0, label);
+  }
+});
+
+test("a proven working alias normalizes to its saved append-only cut", () => {
+  const saved = workingDetachedPlan();
+  const sourceVariant = {
+    id: "cut-one",
+    timeline: structuredClone(saved.input.project.timeline),
+    visualizer_timeline: structuredClone(saved.input.project.visualizer_timeline),
+    project_patch: { lyric_style: "cyan" },
+  };
+  const canonicalProject = {
+    song_id: "song-slug",
+    audio_id: "registry-song",
+    duration: 12,
+    visualizer_timeline: structuredClone(sourceVariant.visualizer_timeline),
+    active_direction_script_variant: { id: "cut-one" },
+  };
+  const result = assessSongCardMintPlanCompatibility({
+    plan: saved,
+    canonicalProject,
+    canonicalGraph: canonicalGraph(),
+    sourceVariant,
+  });
+
+  assert.equal(result.status, "rehydrated");
+  assert.equal(result.receipt.savedVariantId, "cut-one");
+  assert.equal(result.receipt.identityProof.workingAlias, true);
+  assert.equal(result.receipt.workingAliasIdentity.graphVariantId, "working:cut-one");
+  assert.equal(result.receipt.workingAliasIdentity.resolvedVariantId, "cut-one");
+});
+
+test("a fully portable working alias is still reloaded from its proven saved cut", () => {
+  const saved = workingDetachedPlan();
+  saved.input.showGraph.tracks.find((track) => track.role === "visualizer").cards = structuredClone(
+    canonicalGraph().tracks.find((track) => track.role === "visualizer").cards,
+  );
+  const sourceVariant = {
+    id: "cut-one",
+    timeline: structuredClone(saved.input.project.timeline),
+    visualizer_timeline: structuredClone(saved.input.project.visualizer_timeline),
+    project_patch: { lyric_style: "cyan" },
+  };
+  const result = assessSongCardMintPlanCompatibility({
+    plan: saved,
+    canonicalProject: {
+      song_id: "song-slug",
+      audio_id: "registry-song",
+      duration: 12,
+      visualizer_timeline: structuredClone(sourceVariant.visualizer_timeline),
+      active_direction_script_variant: { id: "cut-one" },
+    },
+    canonicalGraph: canonicalGraph(),
+    sourceVariant,
+  });
+
+  assert.equal(result.status, "rehydrated");
+  assert.equal(result.requiresRepair, true);
+  assert.equal(result.receipt.repairProducer, "projectToEditorGraph:saved-working-alias");
+  assert.equal(result.receipt.identityProof.workingAlias, true);
+});
+
+test("working alias normalization rejects every incomplete or contradictory identity proof", () => {
+  for (const [label, mutate, expectedReason] of [
+    ["parent variant", (saved) => { saved.input.showGraph.directorV2.parentVariantId = "cut-two"; }, "working-alias-parent-variant-mismatch"],
+    ["active saved variant", (saved) => { saved.input.project.active_direction_script_variant.id = "cut-two"; }, "working-alias-active-variant-mismatch"],
+    ["working marker", (saved) => { saved.input.project.active_direction_script_variant.workingFork = false; }, "working-alias-marker-missing"],
+    ["working hash", (saved) => { saved.input.project.active_direction_script_variant.workingHash = "content-v2:other"; }, "working-alias-hash-mismatch"],
+    ["graph hash", (saved) => { saved.input.showGraph.directorV2.variantHash = ""; }, "working-alias-hash-missing"],
+  ]) {
+    const saved = workingDetachedPlan();
+    mutate(saved);
+    const identity = resolveSongCardMintWorkingAliasIdentity({
+      project: saved.input.project,
+      graph: saved.input.showGraph,
+    });
+    const result = assessSongCardMintPlanCompatibility({ plan: saved });
+
+    assert.equal(identity.applicable, true, label);
+    assert.equal(identity.ok, false, label);
+    assert.equal(identity.resolvedVariantId, null, label);
+    assert.ok(identity.reasons.includes(expectedReason), label);
+    assert.equal(result.status, "non-runnable", label);
+    assert.deepEqual(result.reasons, ["working-variant-alias-identity-mismatch"], label);
+  }
 });
 
 test("rehydrates only when song, duration, variant, timeline, visualizers, and project patch all match", () => {

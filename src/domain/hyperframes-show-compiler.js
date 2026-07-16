@@ -15,6 +15,7 @@ import {
   normalizeVisualizerAudioMapping,
 } from "./hyperframes-visualizer-runtime.js";
 import { resolveEchoOutputProfile } from "./echo-output-profile.js";
+import { inspectPortableVisualizerAttachment } from "./portable-visualizer-card.js";
 export { evaluateHyperFramesVisualizers } from "./hyperframes-visualizer-runtime.js";
 
 const stable = (value) => {
@@ -350,7 +351,7 @@ function mediaPreflightRows(showOrGraph, project) {
   if (showOrGraph?.schemaVersion !== "hapa.music-viz.native-show-graph.v2") return [];
   const contractIndex = indexHyperFramesMediaContracts(project);
   return (showOrGraph.tracks || []).flatMap((track) => (track.cards || [])
-    .filter((card) => !card.visualization)
+    .filter((card) => !card.visualization && !isVisualizerTrack(track))
     .map((card) => ({
       id: card.id,
       cueId: card.id,
@@ -361,6 +362,19 @@ function mediaPreflightRows(showOrGraph, project) {
       end: finite(card.endSeconds),
       source: resolveHyperFramesMediaSource(card, contractIndex),
     })));
+}
+
+function isVisualizerTrack(track = {}) {
+  return track.role === "visualizer" || ["track-b", "ivf-stack"].includes(track.id);
+}
+
+function visualizerPassThroughCard(track = {}, card = {}) {
+  if (!isVisualizerTrack(track)) return false;
+  const sourceId = text(card?.visualization?.sourceId || card?.visualization?.requestedSourceId || card?.visualization?.card?.id || card?.media?.id).toLowerCase();
+  return card.disabled === true
+    || card.knockedOut === true
+    || card.knocked_out === true
+    || sourceId === "none";
 }
 
 export function preflightHyperFramesMedia(showOrGraph, {
@@ -501,10 +515,21 @@ function normalizedProxy(candidate = null, visualizerId = "", sourceHash = "") {
 
 function proxyForCard(card, proxyById) {
   const portable = card.visualization?.card || {};
-  const visualizerId = String(card.visualization?.sourceId || portable.id || "");
+  const attachment = inspectPortableVisualizerAttachment(card);
+  const visualizerId = String(card.visualization?.sourceId || card.visualization?.requestedSourceId || portable.id || card.media?.id || "");
   const declaredSourceHash = String(portable.source?.hash || card.visualization?.sourceHash || card.visualization?.nativeRoute?.requested?.sourceHash || "");
+  if (!attachment.ok) {
+    return {
+      visualizerId,
+      sourceHash: declaredSourceHash,
+      declaredSourceHash,
+      proxy: null,
+      reason: `portable-visualizer-attachment-${attachment.errors.join("+")}`,
+      attachment,
+    };
+  }
   const registry = proxyById.get(normalizedId(visualizerId));
-  const sourceHash = String(registry?.sourceHash || declaredSourceHash);
+  const sourceHash = declaredSourceHash;
   const candidate = registry || portable.hyperframesProxy || card.visualization?.nativeRoute?.proxy || null;
   return { visualizerId, sourceHash, declaredSourceHash, ...normalizedProxy(candidate, visualizerId, sourceHash) };
 }
@@ -846,13 +871,14 @@ export function compileHyperFramesShow({ showGraph, telemetry, project, proxyReg
         } : {}),
       };
       const isAccentCue = track.role === "accent";
-      const isVisualizerTrack = track.role === "visualizer" || track.id === "track-b";
-      const hasPortableVisualizer = card.visualization?.card?.schemaVersion === "hapa.visualizer-card.v2";
-      const isVisualizerCue = Boolean(card.visualization && (isVisualizerTrack || hasPortableVisualizer));
+      const visualizerTrack = isVisualizerTrack(track);
+      if (visualizerPassThroughCard(track, card)) continue;
+      const hasPortableVisualizer = inspectPortableVisualizerAttachment(card).ok;
+      const isVisualizerCue = visualizerTrack || Boolean(card.visualization && hasPortableVisualizer);
       if (isAccentCue) {
         accentCards.push(structuredClone(card));
       } else if (isVisualizerCue) {
-        const portable = card.visualization.card || {};
+        const portable = card.visualization?.card || {};
         const proxyResolution = proxyForCard(card, proxyById);
         const execution = proxyResolution.proxy
           ? { mode: "offline-proxy-atlas", route: "hash-bound-exact-proxy", status: "exact", drawable: true, reason: proxyResolution.reason, silentDefault: false }

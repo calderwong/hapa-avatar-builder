@@ -10,7 +10,10 @@ import {
   repairEchoRuntimeShaderGraph,
   repairEchoRuntimeVisualizerTimeline,
 } from "../src/domain/echo-runtime-shader-repair.js";
-import { assessSongCardMintPlanCompatibility } from "../src/domain/song-card-mint-plan-compatibility.js";
+import {
+  assessSongCardMintPlanCompatibility,
+  resolveSongCardMintWorkingAliasIdentity,
+} from "../src/domain/song-card-mint-plan-compatibility.js";
 import { EchoIsfAssetCatalog } from "./echo-isf-assets.mjs";
 
 const text = (value) => String(value ?? "").trim();
@@ -119,8 +122,15 @@ export function createEchoMintPlanCanonicalResolver({
     const project = plan?.input?.project || {};
     const graph = plan?.input?.showGraph || {};
     const songId = safePathSegment(project.song_id);
+    const workingAliasIdentity = resolveSongCardMintWorkingAliasIdentity({ project, graph });
+    if (workingAliasIdentity.applicable && !workingAliasIdentity.ok) {
+      return blockedCompatibility(plan, "working-variant-alias-identity-mismatch", {
+        workingAliasIdentity,
+      });
+    }
     const variantId = safePathSegment(
-      graph?.directorV2?.variantId
+      workingAliasIdentity.resolvedVariantId
+        || graph?.directorV2?.variantId
         || project?.active_direction_script_variant?.id
         || project?.activeDirectionScriptVariant?.id,
     );

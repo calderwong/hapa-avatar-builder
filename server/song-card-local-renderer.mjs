@@ -13,6 +13,7 @@ import { repairEchoShowGraphStemBindings } from "../src/domain/echo-stem-binding
 import { reidentifyEchoCompiledShowGraph, validateEchoCompiledShowGraph } from "../src/domain/echo-compiled-show-graph.js";
 import { echoOutputProfileCacheKey, resolveEchoOutputProfile } from "../src/domain/echo-output-profile.js";
 import { preflightSongCardRenderReadiness } from "../src/domain/song-card-render-readiness.js";
+import { inspectPortableVisualizerAttachment } from "../src/domain/portable-visualizer-card.js";
 import {
   loadRenderAudioInputPreflightCache,
   preflightRenderAudioInputs,
@@ -1871,14 +1872,31 @@ export function preflightSongCardSignalGraph({ project = {}, showGraph = {} } = 
       }))
   ));
   const detachedVisualizers = shaderRows.filter(({ card }) => (
-    card?.visualization?.card?.schemaVersion !== "hapa.visualizer-card.v2"
-    || !text(card?.visualization?.card?.id)
-    || !text(card?.visualization?.card?.source?.hash)
-  )).map(({ card }) => ({
-    cardId: text(card?.id),
-    sourceId: text(card?.visualization?.sourceId || card?.visualization?.requestedSourceId),
-    reason: "portable-visualizer-card-missing-or-unbound",
-  }));
+    !inspectPortableVisualizerAttachment(card).ok
+  )).map(({ card }) => {
+    const attachment = inspectPortableVisualizerAttachment(card);
+    const startSeconds = card?.startSeconds ?? card?.start_sec ?? card?.start;
+    const endSeconds = card?.endSeconds ?? card?.end_sec ?? card?.end;
+    return {
+      cardId: text(card?.id),
+      sourceId: text(card?.visualization?.sourceId || card?.visualization?.requestedSourceId || card?.visualization?.card?.id),
+      sourceTitle: text(
+        card?.visualization?.card?.title
+        || card?.visualization?.title
+        || card?.visualization?.nativeKey
+        || card?.media?.title
+        || card?.provenance?.sourceTitle,
+      ),
+      ...(startSeconds !== null && startSeconds !== undefined && text(startSeconds) && Number.isFinite(Number(startSeconds))
+        ? { startSeconds: Number(startSeconds) }
+        : {}),
+      ...(endSeconds !== null && endSeconds !== undefined && text(endSeconds) && Number.isFinite(Number(endSeconds))
+        ? { endSeconds: Number(endSeconds) }
+        : {}),
+      reason: "portable-visualizer-card-missing-or-unbound",
+      attachmentErrors: attachment.errors,
+    };
+  });
   const errors = [];
   if (expectedStemRoles.length > 0 && verifiedStems.length === 0) errors.push("isolated-stem-paths-detached");
   if (unresolvedStemBindings.length > 0) errors.push("visualizer-stem-paths-detached");
@@ -1928,11 +1946,25 @@ function filteredStemGraph(showGraph, masterPath) {
 
 function visualizerCards(showGraph = {}) {
   return (showGraph.tracks || []).flatMap((track) => (track.cards || [])
-    .filter((card) => Boolean(card?.visualization && (
-      track.role === "visualizer"
-      || track.id === "track-b"
-      || card.visualization.card?.schemaVersion === "hapa.visualizer-card.v2"
-    )))
+    .filter((card) => {
+      const sourceId = text(
+        card?.visualization?.sourceId
+          || card?.visualization?.requestedSourceId
+          || card?.visualization?.card?.id
+          || card?.media?.id,
+      ).toLowerCase();
+      const passThrough = card?.disabled === true
+        || card?.knockedOut === true
+        || card?.knocked_out === true
+        || sourceId === "none";
+      const visualizerTrack = track.role === "visualizer"
+        || track.id === "track-b"
+        || track.id === "ivf-stack";
+      const portableOutsideVisualizerTrack = Boolean(
+        card?.visualization?.card?.schemaVersion === "hapa.visualizer-card.v2",
+      );
+      return !passThrough && (visualizerTrack || portableOutsideVisualizerTrack);
+    })
     .map((card) => ({ card, track })));
 }
 

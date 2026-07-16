@@ -13,6 +13,64 @@ import {
 
 export const PORTABLE_VISUALIZER_CARD_SCHEMA = "hapa.visualizer-card.v2";
 
+const CANONICAL_SHA256_PATTERN = /^sha256:[a-f0-9]{64}$/u;
+
+function text(value = "") {
+  return String(value ?? "").trim();
+}
+
+/**
+ * Portable visualizer attachments are render identities, not loose labels.
+ * Keep this stricter than canonicalSha256(): stored card truth must already be
+ * the normalized lowercase `sha256:<64 hex>` representation.
+ */
+export function canonicalPortableVisualizerSourceHash(value = "") {
+  const declared = text(value);
+  return CANONICAL_SHA256_PATTERN.test(declared) ? declared : "";
+}
+
+/**
+ * Validates the identity binding between a requested visualization and its
+ * frozen portable card. Accepts either a cue (`{ visualization }`) or the
+ * visualization declaration itself (`{ sourceId, card }`).
+ */
+export function inspectPortableVisualizerAttachment(value = {}) {
+  const visualization = value?.visualization && typeof value.visualization === "object"
+    ? value.visualization
+    : value;
+  const card = visualization?.card && typeof visualization.card === "object"
+    ? visualization.card
+    : null;
+  const requestedIds = [...new Set([
+    text(visualization?.sourceId),
+    text(visualization?.requestedSourceId),
+  ].filter(Boolean))];
+  const cardId = text(card?.id);
+  const sourceUri = text(card?.source?.uri);
+  const sourceHash = text(card?.source?.hash);
+  const errors = [];
+  if (card?.schemaVersion !== PORTABLE_VISUALIZER_CARD_SCHEMA) errors.push("schema-version");
+  if (!cardId) errors.push("id");
+  if (!requestedIds.length) errors.push("requested-source-id");
+  if (cardId && requestedIds.some((requestedId) => requestedId !== cardId)) errors.push("requested-source-id-mismatch");
+  if (!sourceUri) errors.push("source-uri");
+  if (!canonicalPortableVisualizerSourceHash(sourceHash)) errors.push("source-hash");
+  return {
+    ok: errors.length === 0,
+    errors,
+    requestedSourceId: requestedIds[0] || null,
+    requestedSourceIds: requestedIds,
+    cardId: cardId || null,
+    sourceUri: sourceUri || null,
+    sourceHash: sourceHash || null,
+    card,
+  };
+}
+
+export function isPortableVisualizerAttachment(value = {}) {
+  return inspectPortableVisualizerAttachment(value).ok;
+}
+
 function stableHash(value = "") {
   let hash = 2166136261;
   for (const byte of new TextEncoder().encode(String(value))) {
@@ -168,6 +226,7 @@ export function validatePortableVisualizerCard(card = {}) {
   if (card.schemaVersion !== PORTABLE_VISUALIZER_CARD_SCHEMA) errors.push("schema-version");
   if (!card.id) errors.push("id");
   if (!card.source?.uri) errors.push("source-uri");
+  if (!canonicalPortableVisualizerSourceHash(card.source?.hash)) errors.push("source-hash");
   for (const uniform of Object.keys(card.audioMap || {})) {
     if (!(card.inputs || []).some((input) => input.NAME === uniform)) errors.push(`audio-map-input-missing:${uniform}`);
   }

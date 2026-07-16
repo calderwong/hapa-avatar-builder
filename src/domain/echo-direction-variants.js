@@ -1,9 +1,56 @@
-import { projectToEditorGraph } from "./multitrack-editor.js";
+import { projectToEditorGraph, reframeEchoShowGraphOutputProfile } from "./multitrack-editor.js";
 import { resolveEchoOutputProfile } from "./echo-output-profile.js";
 
 export const ECHO_DIRECTION_WORKING_FORK_SCHEMA = "hapa.echo.direction-working-fork.v1";
 export const ECHO_DIRECTION_FORK_PAYLOAD_SCHEMA = "hapa.echo.direction-variant-fork-request.v1";
 export const ECHO_VARIANT_GRAPH_OVERLAY_SCHEMA = "hapa.echo.variant-graph-overlay.v1";
+
+export function beginEchoSongCardPlanWait(state = {}, songId = "", revision = "", cutId = "", options = {}) {
+  const id = text(songId);
+  if (!id) return state;
+  const current = object(state)[id];
+  const previous = options.reusePrevious === true && current?.status === "waiting"
+    ? current.previous || null
+    : current || null;
+  return {
+    ...state,
+    [id]: {
+      status: "waiting",
+      revision: text(revision) || "saving",
+      cutId: text(cutId || revision) || null,
+      previous,
+    },
+  };
+}
+
+export function pinEchoSongCardPlanSnapshot(state = {}, songId = "", revision = "", snapshot = null) {
+  const id = text(songId);
+  if (!id || !snapshot?.project || !snapshot?.showGraph?.tracks) return state;
+  return {
+    ...state,
+    [id]: {
+      status: "ready",
+      revision: text(revision),
+      cutId: text(snapshot.cutId || revision) || null,
+      project: snapshot.project,
+      showGraph: snapshot.showGraph,
+    },
+  };
+}
+
+export function restoreEchoSongCardPlanSnapshot(state = {}, songId = "", options = {}) {
+  const id = text(songId);
+  const current = object(state)[id];
+  if (!id || current?.status !== "waiting") return state;
+  let previous = current.previous || null;
+  if (options.toReady === true) {
+    while (previous?.status === "waiting") previous = previous.previous || null;
+  }
+  if (previous) return { ...state, [id]: previous };
+  const next = { ...state };
+  delete next[id];
+  return next;
+}
 
 const VARIANT_PROJECT_PATCH_FIELDS = Object.freeze([
   "output_profile",
@@ -329,11 +376,12 @@ export function deriveEchoDirectionVariantProject(baseProject = {}, variant = {}
     && text(certifiedReceipt.cutId) === id
     && text(certifiedReceipt.cutFingerprint) === variantHash
   );
-  const graph = declaredGraph?.tracks
+  const sourceGraph = declaredGraph?.tracks
     ? hydrateEchoVariantGraphOverlay(baseProject.director_show_graph, declaredGraph)
     : certifiedSelectedGraph
       ? clone(baseProject.director_show_graph)
       : projectToEditorGraph({ ...projected, director_show_graph: baseProject.director_show_graph });
+  const graph = reframeEchoShowGraphOutputProfile(sourceGraph, projected.output_profile);
   graph.directorV2 = {
     ...(graph.directorV2 || {}),
     variantId: id,
@@ -365,17 +413,72 @@ export function deriveEchoDirectionVariantProject(baseProject = {}, variant = {}
   };
 }
 
+/**
+ * Pins Song Card planning to the append-only saved cut. A preparing delivery
+ * may borrow the already loaded portable-card graph as a projection template,
+ * but the returned graph is re-identified as the saved child and never as the
+ * automatically reopened `working:` copy.
+ */
+export function deriveEchoSavedDirectionPlanningProject(baseProject = {}, variant = {}, options = {}) {
+  const projected = deriveEchoDirectionVariantProject(baseProject, variant);
+  if (projected?.director_show_graph?.tracks) {
+    return {
+      ...projected,
+      editor_graph_fallback: {
+        schemaVersion: "hapa.echo.editor-graph-fallback.v1",
+        source: "saved-child-certified-projection",
+        reason: "saved-cut-graph-ready",
+        preservesPortableCards: true,
+        pinnedSavedCut: true,
+      },
+    };
+  }
+  const fallbackGraph = options.fallbackProject?.director_show_graph;
+  if (!fallbackGraph?.tracks) return null;
+  const locallyProjectableVariant = clone(variant);
+  delete locallyProjectableVariant.execution_preview;
+  delete locallyProjectableVariant.executionPreview;
+  try {
+    const pinned = deriveEchoDirectionVariantProject(
+      { ...baseProject, director_show_graph: clone(fallbackGraph) },
+      locallyProjectableVariant,
+      { identityVariant: variant },
+    );
+    return {
+      ...pinned,
+      editor_graph_fallback: {
+        schemaVersion: "hapa.echo.editor-graph-fallback.v1",
+        source: "saved-child-local-projection",
+        reason: text(projected?.execution_preview?.reason) || "saved-cut-certification-pending",
+        preservesPortableCards: true,
+        pinnedSavedCut: true,
+      },
+    };
+  } catch {
+    return null;
+  }
+}
+
 export function createEchoDirectionWorkingFork(project = {}, sourceVariant = {}) {
   const sourceVariantId = echoDirectionVariantId(sourceVariant);
   if (!sourceVariantId) throw new Error("A source direction cut is required.");
   const sourceVariantFingerprint = echoDirectionVariantFingerprint(sourceVariant);
+  const startedAt = new Date().toISOString();
+  const sourceSlug = sourceVariantId.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 72) || "direction-cut";
+  const requestedChildId = `${sourceSlug}-edit-${compactHash({
+    songId: text(project.song_id),
+    sourceVariantId,
+    sourceVariantFingerprint,
+    startedAt,
+  }).slice(0, 16)}`;
   const projectSnapshot = clone(project);
   delete projectSnapshot.direction_script_variants;
   return {
     schemaVersion: ECHO_DIRECTION_WORKING_FORK_SCHEMA,
     sourceVariantId,
     sourceVariantFingerprint,
-    startedAt: new Date().toISOString(),
+    requestedChildId,
+    startedAt,
     project: {
       ...projectSnapshot,
       active_direction_script_variant: {
@@ -422,6 +525,7 @@ export function buildEchoDirectionForkRequest(workingFork = {}, project = workin
     songId: text(project.song_id),
     parentVariantId: text(workingFork.sourceVariantId),
     expectedParentFingerprint: text(workingFork.sourceVariantFingerprint),
+    requestedId: text(workingFork.requestedChildId),
     title: `${text(project.song_title) || "Song"} · Edited cut`,
     timeline: clone(project.timeline || []),
     visualizerTimeline: clone(project.visualizer_timeline || []),

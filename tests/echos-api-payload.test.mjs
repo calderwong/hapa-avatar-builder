@@ -226,10 +226,20 @@ test("Echo summary endpoint stays compact and lazy-loads project detail", async 
     assert.equal(staleParentResponse.status, 409);
     assert.equal((await staleParentResponse.json()).error, "parent_variant_changed");
 
-    const conflictResponse = await fetch(`${BASE}/api/echos/direction-variant/fork`, {
+    const replayResponse = await fetch(`${BASE}/api/echos/direction-variant/fork`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(forkRequest),
+    });
+    assert.equal(replayResponse.status, 201);
+    const replayPayload = await replayResponse.json();
+    assert.equal(replayPayload.idempotentReplay, true);
+    assert.equal(replayPayload.variant.id, "edited-fixture-cut");
+
+    const conflictResponse = await fetch(`${BASE}/api/echos/direction-variant/fork`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ...forkRequest, timeline: [{ ...forkRequest.timeline[0], media_id: "different-human-choice" }] }),
     });
     assert.equal(conflictResponse.status, 409);
     assert.equal((await conflictResponse.json()).error, "direction_variant_conflict");

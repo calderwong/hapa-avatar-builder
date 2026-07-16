@@ -2,6 +2,10 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import { applyMultitrackOperation, buildMultitrackProjection, editorGraphMintFingerprint, projectToEditorGraph, replayMultitrackPatches } from "../src/domain/multitrack-editor.js";
+import { buildEchoShaderSelectionUpdate } from "../src/domain/echo-shader-picker.js";
+import { compileHyperFramesShow, preflightHyperFramesMedia } from "../src/domain/hyperframes-show-compiler.js";
+import { buildFoundationTimeline } from "../src/domain/hyperframes-foundation-reel.js";
+import { preflightSongCardSignalGraph } from "../server/song-card-local-renderer.mjs";
 
 test("editor graphs carry canonical Echo output orientation into mint identity", () => {
   const landscape = projectToEditorGraph({ song_id: "song", duration: 4 });
@@ -184,6 +188,7 @@ test("editor projection preserves runtime-contract media and explicit visualizer
 });
 
 test("timeline projection preserves verified stems and portable visualizer truth", () => {
+  const sourceHash = `sha256:${"e".repeat(64)}`;
   const portableCard = {
     schemaVersion: "hapa.visualizer-card.v2",
     id: "isf:exact-one",
@@ -191,7 +196,7 @@ test("timeline projection preserves verified stems and portable visualizer truth
     inputs: [{ NAME: "gain", TYPE: "float", DEFAULT: 0.5 }],
     audioMap: { gain: { signal: "rms", depth: 0.4 } },
     audioSignal: ["rms"],
-    source: { hash: "sha256:exact", uri: "/static/exact.fs" },
+    source: { hash: sourceHash, uri: "/static/exact.fs" },
     stemFocus: "drums",
   };
   const projected = projectToEditorGraph({
@@ -215,7 +220,7 @@ test("timeline projection preserves verified stems and portable visualizer truth
   assert.equal(projected.directorV2.stemBuses[0].truthStatus, "verified_registry_path");
   assert.deepEqual(visualizer.visualization.card.inputs, portableCard.inputs);
   assert.deepEqual(visualizer.visualization.card.audioMap, portableCard.audioMap);
-  assert.equal(visualizer.visualization.card.source.hash, "sha256:exact");
+  assert.equal(visualizer.visualization.card.source.hash, sourceHash);
   assert.equal(visualizer.parameters.visualizerMappings.gain, "drums:rms");
 });
 
@@ -237,4 +242,115 @@ test("timeline projection marks an unknown shader instead of borrowing another s
   assert.equal(visualizer.visualization.sourceId, "isf:unknown");
   assert.equal(visualizer.visualization.card, undefined);
   assert.equal(visualizer.provenance.portableCardStatus, "missing-for-requested-source");
+});
+
+test("timeline projection attaches the exact row-carried card for a shader absent from graph templates", () => {
+  const shader = {
+    id: "isf:new-picker-shader",
+    title: "New Picker Shader",
+    source: "/api/echos/shader-source?id=isf:new-picker-shader",
+    sourceHash: `sha256:${"a".repeat(64)}`,
+    enabled: true,
+    directorEligible: true,
+    inputs: [{ NAME: "gain", TYPE: "float", DEFAULT: 0.5 }],
+    audioMap: { gain: { signal: "rms", depth: 0.25 } },
+    pixelGate: {
+      status: "source-hash-verified",
+      classification: "hash-bound-exact-proxy",
+      compileAttempted: true,
+      drawAttempted: true,
+      playableFrameIndices: [0, 1],
+    },
+    hyperframesProxy: {
+      assetPath: "/static/isf/proxies/new-picker-shader.png",
+      assetSha256: `sha256:${"b".repeat(64)}`,
+      sourceHash: `sha256:${"a".repeat(64)}`,
+      width: 160,
+      height: 90,
+      frameCount: 2,
+      fps: 4,
+      controls: { gain: 0.5 },
+      verified: true,
+    },
+  };
+  const selection = buildEchoShaderSelectionUpdate(shader, {
+    opacity: 0.61,
+    blend_mode: "screen",
+    transition: "crossfade",
+    visualizer_controls: { gain: 0.7 },
+  });
+  const projected = projectToEditorGraph({
+    song_id: "new-picker-song",
+    duration: 4,
+    visualizer_timeline: [{ start_sec: 0, end_sec: 4, ...selection }],
+    director_show_graph: {
+      song: { id: "new-picker-song", durationSeconds: 4 },
+      tracks: [
+        { id: "track-a", role: "foundation", cards: [] },
+        { id: "track-b", role: "visualizer", cards: [{ id: "card:b:0", startSeconds: 0, endSeconds: 4, visualization: { sourceId: "isf:old-template", card: { schemaVersion: "hapa.visualizer-card.v2", id: "isf:old-template" } } }] },
+      ],
+      directorV2: { patchLineage: { patches: [], dirtyRanges: [] } },
+    },
+  });
+  const visualizer = projected.tracks.find((track) => track.id === "track-b").cards[0];
+  assert.equal(visualizer.visualization.sourceId, shader.id);
+  assert.equal(visualizer.visualization.card.schemaVersion, "hapa.visualizer-card.v2");
+  assert.equal(visualizer.visualization.card.id, shader.id);
+  assert.equal(visualizer.visualization.card.source.hash, shader.sourceHash);
+  assert.equal(visualizer.visualization.card.controls.gain, 0.5);
+  assert.equal(visualizer.provenance.portableCardStatus, "attached-from-editor-selection");
+});
+
+test("None selection projects as a disabled pass-through cue that preflight does not classify as a visualizer", () => {
+  const selection = buildEchoShaderSelectionUpdate({ id: "none", title: "None" }, {});
+  const projected = projectToEditorGraph({
+    song_id: "pass-through-song",
+    duration: 4,
+    timeline: [{
+      start_sec: 0,
+      end_sec: 4,
+      media_id: "media:foundation",
+      media_title: "Foundation",
+      media_uri: "/media/foundation.mp4",
+    }],
+    visualizer_timeline: [{ start_sec: 0, end_sec: 4, ...selection }],
+    director_show_graph: {
+      schemaVersion: "hapa.music-viz.native-show-graph.v2",
+      song: { id: "pass-through-song", durationSeconds: 4 },
+      tracks: [
+        {
+          id: "track-a",
+          role: "foundation",
+          cards: [{
+            id: "card:a:0",
+            startSeconds: 0,
+            endSeconds: 4,
+            media: { id: "none", title: "Intentional blank" },
+            knockedOut: true,
+            provenance: { rendererRoute: "generated-visualizer" },
+          }],
+        },
+        { id: "track-b", role: "visualizer", cards: [{ id: "card:b:0", startSeconds: 0, endSeconds: 4, visualization: { sourceId: "isf:old", card: { schemaVersion: "hapa.visualizer-card.v2", id: "isf:old" } } }] },
+      ],
+      directorV2: { patchLineage: { patches: [], dirtyRanges: [] } },
+    },
+  });
+  const cue = projected.tracks.find((track) => track.id === "track-b").cards[0];
+  assert.equal(cue.visualization, null);
+  assert.equal(cue.knockedOut, true);
+  assert.equal(cue.disabled, true);
+  assert.equal(cue.parameters.opacity, 0);
+  assert.equal(cue.provenance.rendererRoute, "pass-through");
+  assert.equal(cue.provenance.portableCardStatus, "pass-through-no-visualizer");
+  const signalPreflight = preflightSongCardSignalGraph({ project: {}, showGraph: projected });
+  assert.equal(signalPreflight.visualizerCount, 0);
+  assert.deepEqual(signalPreflight.detachedVisualizers, []);
+  assert.doesNotMatch(signalPreflight.errors.join(" "), /portable-visualizer-truth-detached/);
+  const directMediaPreflight = preflightHyperFramesMedia(projected, { project: {}, root: ".", isFile: () => false });
+  assert.equal(directMediaPreflight.entries.length, 1);
+  assert.equal(directMediaPreflight.entries[0].cueId, "card:a:0");
+  const show = compileHyperFramesShow({ showGraph: projected, telemetry: {}, project: {}, proxyRegistry: {} });
+  assert.equal(show.instances.visualizers.length, 0);
+  assert.equal(show.instances.media.length, 1);
+  assert.doesNotThrow(() => buildFoundationTimeline(show, { projectRoot: ".", fps: 30 }));
 });

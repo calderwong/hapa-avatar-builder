@@ -329,6 +329,89 @@ test("publishes an append-only execution graph and activates it only after paren
   assert.equal(stale.reason, "execution-parent-graph-stale");
 });
 
+test("publication and resolution keep effective project validation separate from canonical source lineage", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "echo-execution-source-project-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const albumRoot = path.join(root, "album");
+  const songId = "song-source-project";
+  const songRoot = path.join(albumRoot, songId);
+  fs.mkdirSync(songRoot, { recursive: true });
+  const parentGraphPath = path.join(songRoot, "native-show-graph.json");
+  const parent = parentGraph(songId);
+  fs.writeFileSync(parentGraphPath, `${JSON.stringify(parent)}\n`);
+  const parentGraphSha256 = echoExecutionFileSha256(parentGraphPath);
+  const cutId = "vertical-cut";
+  const cutKind = "saved-variant";
+  const cutFingerprint = `content-v2:${"6".repeat(64)}`;
+  const graph = derivedGraph({ songId, parent, parentGraphSha256, cutId, cutKind, cutFingerprint });
+  const project = { identity: "effective-vertical" };
+  const sourceProject = { identity: "canonical-source" };
+  const splitValidate = ({ project: effective, sourceProject: source, graph: suppliedGraph }) => {
+    const ok = suppliedGraph?.schemaVersion === "hapa.music-viz.native-show-graph.v2"
+      && effective?.identity === "effective-vertical"
+      && source?.identity === "canonical-source";
+    return { ok, reasons: ok ? [] : ["source-project-binding-mismatch"] };
+  };
+  const args = publicationArgs({
+    albumRoot,
+    songId,
+    parentGraphPath,
+    parent,
+    parentGraphSha256,
+    graph,
+    cutId,
+    cutKind,
+    cutFingerprint,
+    validateGraph: splitValidate,
+  });
+  args.project = project;
+  args.sourceProject = sourceProject;
+  publishEchoExecutionGraph(args);
+
+  const resolution = {
+    albumRoot,
+    songId,
+    cutId,
+    cutKind,
+    cutFingerprint,
+    parentGraphPath,
+    parentGraphSha256,
+    project,
+    validateGraph: splitValidate,
+  };
+  assert.equal(resolveEchoExecutionGraph({ ...resolution, sourceProject }).ok, true);
+  assert.equal(resolveEchoExecutionGraph(resolution).reason, "execution-graph-validation-failed");
+  assert.equal(resolveEchoExecutionGraph({ ...resolution, sourceProject: { identity: "wrong-source" } }).reason, "execution-graph-validation-failed");
+});
+
+test("execution publication rejects a graph routed to a different parent song", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "echo-execution-parent-song-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const albumRoot = path.join(root, "album");
+  const songId = "song-parent-binding";
+  const songRoot = path.join(albumRoot, songId);
+  fs.mkdirSync(songRoot, { recursive: true });
+  const parentGraphPath = path.join(songRoot, "native-show-graph.json");
+  const registryAudioId = "registry-audio-parent";
+  const parent = parentGraph(registryAudioId);
+  fs.writeFileSync(parentGraphPath, `${JSON.stringify(parent)}\n`);
+  const parentGraphSha256 = echoExecutionFileSha256(parentGraphPath);
+  const graph = derivedGraph({ songId, parent, parentGraphSha256 });
+  graph.song.id = "different-audio-identity";
+  const args = publicationArgs({ albumRoot, songId, parentGraphPath, parent, parentGraphSha256, graph });
+  args.project = { song_id: songId, audio_id: registryAudioId };
+
+  assert.throws(
+    () => publishEchoExecutionGraph(args),
+    /graph-parent-song-identity-mismatch/u,
+  );
+
+  const aliasedGraph = derivedGraph({ songId, parent, parentGraphSha256 });
+  const aliasedArgs = publicationArgs({ albumRoot, songId, parentGraphPath, parent, parentGraphSha256, graph: aliasedGraph });
+  aliasedArgs.project = { song_id: songId, audio_id: registryAudioId };
+  assert.equal(publishEchoExecutionGraph(aliasedArgs).status, "published");
+});
+
 test("publishes and resolves a media-only execution graph with an explicit no-telemetry proof", (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "echo-execution-media-only-"));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));

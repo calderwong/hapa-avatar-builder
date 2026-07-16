@@ -2,9 +2,11 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { buildPortableVisualizerCard, validatePortableVisualizerCard } from "../src/domain/portable-visualizer-card.js";
 
+const SOURCE_HASH = `sha256:${"a".repeat(64)}`;
+
 test("portable visualizer card retains executable layer and honest renderer truth", () => {
   const card = buildPortableVisualizerCard({
-    id: "isf:test", title: "Test", source: "/static/test.fs",
+    id: "isf:test", title: "Test", source: "/static/test.fs", sourceHash: SOURCE_HASH,
     inputs: [{ NAME: "gain", TYPE: "float", DEFAULT: 0.4 }],
     audioMap: { gain: { signal: "rms", depth: 0.3 } },
   }, { controls: { gain: 0.4 }, stemFocus: "synth", layerRole: "rhythm", opacity: 0.6, blendMode: "screen", target: "program", mix: 0.8, nativeKey: "audio-bars" });
@@ -24,12 +26,12 @@ test("portable visualizer card retains executable layer and honest renderer trut
   assert.equal(card.nativeRoute.reason, "native-route-undeclared");
   assert.equal(card.rendererSupport.hyperframes.route, "unsupported");
   assert.equal(card.rendererSupport.hyperframes.reason, "visualizer-instance-proxy-undeclared");
-  assert.ok(card.source.hash.startsWith("fnv1a32:"));
+  assert.equal(card.source.hash, SOURCE_HASH);
 });
 
 test("portable generator preserves explicitly absolute legacy mappings", () => {
   const card = buildPortableVisualizerCard({
-    id: "isf:absolute", source: "/absolute.fs",
+    id: "isf:absolute", source: "/absolute.fs", sourceHash: SOURCE_HASH,
     inputs: [{ NAME: "gain", TYPE: "float", DEFAULT: 0.4, MIN: 0, MAX: 10 }],
     audioMap: { gain: { signal: "rms", depth: 0.3, depthMode: "absolute" } },
   });
@@ -39,7 +41,7 @@ test("portable generator preserves explicitly absolute legacy mappings", () => {
 });
 
 test("portable card validator rejects audio maps without matching input metadata", () => {
-  const card = buildPortableVisualizerCard({ id: "isf:bad", source: "/bad.fs", inputs: [], audioMap: { ghost: { signal: "beat" } } });
+  const card = buildPortableVisualizerCard({ id: "isf:bad", source: "/bad.fs", sourceHash: SOURCE_HASH, inputs: [], audioMap: { ghost: { signal: "beat" } } });
   const result = validatePortableVisualizerCard(card);
   assert.equal(result.ok, false);
   assert.ok(result.errors.includes("audio-map-input-missing:ghost"));
@@ -47,7 +49,7 @@ test("portable card validator rejects audio maps without matching input metadata
 
 test("portable generator rejects sub-material generated mappings without reinterpreting legacy absolute maps", () => {
   const generated = buildPortableVisualizerCard({
-    id: "isf:ineffective", source: "/ineffective.fs",
+    id: "isf:ineffective", source: "/ineffective.fs", sourceHash: SOURCE_HASH,
     inputs: [{ NAME: "gain", TYPE: "float", DEFAULT: 1, MIN: 0, MAX: 1 }],
     audioMap: { gain: { signal: "rms", depth: 0 } },
   });
@@ -55,10 +57,17 @@ test("portable generator rejects sub-material generated mappings without reinter
   assert.ok(validatePortableVisualizerCard(generated).errors.includes("audio-map-ineffective:gain"));
 
   const legacy = buildPortableVisualizerCard({
-    id: "isf:legacy-zero", source: "/legacy-zero.fs",
+    id: "isf:legacy-zero", source: "/legacy-zero.fs", sourceHash: SOURCE_HASH,
     inputs: [{ NAME: "gain", TYPE: "float", DEFAULT: 1, MIN: 0, MAX: 1 }],
     audioMap: { gain: { signal: "rms", depth: 0, depthMode: "absolute" } },
   });
   assert.equal(legacy.audioMap.gain.headroomPolicy, undefined);
   assert.equal(validatePortableVisualizerCard(legacy).ok, true, "legacy absolute contracts remain readable and are not silently rewritten");
+});
+
+test("portable card validator requires an already canonical lowercase SHA-256 source identity", () => {
+  for (const sourceHash of ["sha256:short", `sha256:${"A".repeat(64)}`, "a".repeat(64), "fnv1a32:12345678"]) {
+    const card = buildPortableVisualizerCard({ id: "isf:bad-hash", source: "/bad-hash.fs", sourceHash });
+    assert.ok(validatePortableVisualizerCard(card).errors.includes("source-hash"), sourceHash);
+  }
 });

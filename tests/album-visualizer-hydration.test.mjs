@@ -21,16 +21,20 @@ test("album Director v2 hydration covers every Echo project with executable visu
   assert.equal(report.projectCount, 79);
   assert.equal(report.passingProjects, 79);
   assert.equal(report.ok, true);
-  assert.deepEqual(report.mediaPreflight, {
-    schemaVersion: "hapa.echo.director-media-preflight.v1",
-    ok: true,
-    projectCount: 79,
-    cutCount: 478,
-    declaredCount: 27062,
-    generatedCount: 6874,
-    resolvedCount: 20188,
-    unresolvedCount: 0,
-  });
+  assert.equal(report.mediaPreflight.schemaVersion, "hapa.echo.director-media-preflight.v1");
+  assert.equal(report.mediaPreflight.ok, true);
+  assert.equal(report.mediaPreflight.projectCount, 79);
+  // Saved direction cuts are append-only operator data, so successful edits may
+  // grow these totals without changing the canonical 79-song album contract.
+  assert.ok(report.mediaPreflight.cutCount >= 478);
+  assert.ok(report.mediaPreflight.declaredCount >= 27062);
+  assert.ok(report.mediaPreflight.generatedCount >= 6874);
+  assert.ok(report.mediaPreflight.resolvedCount >= 20188);
+  assert.equal(
+    report.mediaPreflight.declaredCount,
+    report.mediaPreflight.generatedCount + report.mediaPreflight.resolvedCount,
+  );
+  assert.equal(report.mediaPreflight.unresolvedCount, 0);
   assert.equal(report.sourceCueCount, 791);
   assert.equal(report.validClippedCueCount, 791);
   assert.equal(report.receiptCount, 791);

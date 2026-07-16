@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const componentPath = path.join(root, "src/components/SongCardMintPanel.jsx");
 const source = fs.readFileSync(componentPath, "utf8");
+const failureHelpSource = fs.readFileSync(path.join(root, "src/domain/song-card-render-failure-help.js"), "utf8");
 
 test("SongCardMintPanel exposes the standalone integration contract", () => {
   assert.match(source, /function SongCardMintPanel\(\{ songId, project, showGraph, compact = false, viewerOnly = false, onEditionChange, planningRevision = "" \}\)/);
@@ -141,22 +142,41 @@ test("Next Mint candidates use managed render defaults, bind automatically, and 
   assert.match(source, /queue's hashed master and poster/);
   assert.match(source, /data-testid="song-card-remint-cancel"/);
   assert.match(source, /data-testid="song-card-remint-retry"/);
-  assert.match(source, />Retry render</);
+  assert.match(source, /renderFailureHelp\.buttonLabel \|\| "Retry render"/);
   assert.match(source, /async function retryLocalRender\(\)/);
-  assert.match(source, /The final-video render stopped before completion\. Choose Retry render/);
+  assert.match(source, /The final-video render stopped before completion\. Use the recovery action below/);
   assert.match(source, /remintCandidate\?\.renderFailure/);
   assert.match(source, /renderRequestFailure/);
   assert.match(source, /localRenderFailed \|\| remintCandidate\?\.status === "failed" \|\| Boolean\(renderRequestFailure\)/);
   assert.match(source, /String\(localJob\?\.status \|\| ""\)\.toLowerCase\(\) === "failed" \|\| next\?\.status === "failed"/);
   assert.match(source, /data-testid="song-card-render-failure-detail"/);
   assert.match(source, /data-testid="song-card-render-failure-action"/);
+  assert.match(source, /data-testid="song-card-render-failure-target"/);
   assert.match(source, /data-failure-category=\{renderFailureHelp\.category\}/);
-  assert.match(source, /export function explainSongCardRenderFailure/);
+  assert.match(source, /from "\.\.\/domain\/song-card-render-failure-help\.js"/);
+  assert.match(source, /export \{ explainSongCardRenderFailure, normalizeSongCardRenderFailure \}/);
+  assert.match(failureHelpSource, /export function explainSongCardRenderFailure/);
+  assert.match(failureHelpSource, /function collectEvidence/);
+  assert.match(failureHelpSource, /function detachedVisualizersFromSelectedCut/);
+  assert.match(failureHelpSource, /detachedVisualizers: inferredDetachedVisualizers/);
+  assert.match(source, /\{ project: selectedProject, showGraph: selectedShowGraph, candidate: remintCandidate \}/);
+  assert.match(failureHelpSource, /selectedCutMatchesRenderCandidate/);
+  assert.match(failureHelpSource, /contextualInferenceAllowed/);
+  assert.match(failureHelpSource, /buttonLabel: "Rebuild from saved cut"/);
+  assert.match(source, /Affected shader:/);
+  assert.match(failureHelpSource, /lost its final-render attachment\. Your saved edit is intact, and no MP4 work started/);
+  assert.match(source, /renderFailureHelp\.summary \|\| renderFailureMessage/);
+  assert.match(source, /renderFailureHelp\.rawFailureMessage/);
+  const failureExplainerStart = failureHelpSource.indexOf("export function explainSongCardRenderFailure");
+  const shaderFailureIndex = failureHelpSource.indexOf('category: "shader-route"', failureExplainerStart);
+  const audioFailureIndex = failureHelpSource.indexOf('category: "audio-stems"', failureExplainerStart);
+  assert.ok(shaderFailureIndex > failureExplainerStart && shaderFailureIndex < audioFailureIndex, "shader evidence must win over generic stem wording");
   for (const category of ["renderer-build", "source-changed", "audio-stems", "visual-media", "shader-route", "local-resources"]) {
-    assert.ok(source.includes(`category: "${category}"`), `missing actionable render failure category ${category}`);
+    assert.ok(failureHelpSource.includes(`category: "${category}"`), `missing actionable render failure category ${category}`);
   }
   assert.match(source, /\["approved", "queued", "rendering", "failed"\]\.includes\(remintCandidate\.status\)/);
-  assert.match(source, /disabled=\{!localSessionReady \|\| !renderAvailable \|\| effectivePhase === "rendering"\}/);
+  assert.match(source, /disabled=\{!localSessionReady \|\| \(!renderFailureHelp\.rebuildFromSavedCut && !renderAvailable\) \|\| effectivePhase === "rendering"\}/);
+  assert.match(source, /if \(!candidateId \|\| \(!rebuildingSavedCut && !renderAvailable\)\) return/);
   assert.match(source, /normalizeSongCardRenderFailure\(payload/);
   assert.match(source, /data-testid="song-card-render-inactive"/);
   assert.match(source, /Choose Retry plan below to create a clean new attempt/);

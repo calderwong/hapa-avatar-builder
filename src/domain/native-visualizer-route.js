@@ -185,6 +185,12 @@ export function hydrateManifestNativeRoutes(manifest = {}, registry = {}) {
       frameCount: proxyEntry.frameCount,
       fps: proxyEntry.fps,
       frameTimes: Array.isArray(proxyEntry.frameTimes) ? [...proxyEntry.frameTimes] : [],
+      controls: proxyEntry.controls && typeof proxyEntry.controls === "object" && !Array.isArray(proxyEntry.controls)
+        ? structuredClone(proxyEntry.controls)
+        : {},
+      imageInputs: Array.isArray(proxyEntry.imageInputs) ? structuredClone(proxyEntry.imageInputs) : [],
+      durationSeconds: proxyEntry.durationSeconds,
+      fidelityBoundary: text(proxyEntry.fidelityBoundary),
       verified: proxyEntry.verified === true,
     } : null;
     let nativeRoute = null;

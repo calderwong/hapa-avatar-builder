@@ -49,10 +49,12 @@ function declaredOutputProfile(container = {}) {
  * Shared truth boundary for compiled Echo graphs. The API and the project-wide
  * readiness sweep must reject exactly the same stale or misrouted artifacts.
  */
-export function validateEchoCompiledShowGraph({ project = {}, graph = {} } = {}) {
-  const sourceProject = projectBody(project);
+export function validateEchoCompiledShowGraph({ project = {}, sourceProject = undefined, graph = {} } = {}) {
+  const hasExplicitSourceProject = sourceProject !== undefined;
+  const validationProject = projectBody(project);
+  const lineageProject = projectBody(sourceProject === undefined ? project : sourceProject);
   const projectOutputProfile = resolveEchoOutputProfile(
-    sourceProject?.output_profile ?? sourceProject?.outputProfile,
+    validationProject?.output_profile ?? validationProject?.outputProfile,
   );
   const graphOutputProfileDeclaration = declaredOutputProfile(graph);
   const directorOutputProfileDeclaration = declaredOutputProfile(graph?.directorV2);
@@ -60,9 +62,9 @@ export function validateEchoCompiledShowGraph({ project = {}, graph = {} } = {})
   const directorOutputProfile = directorOutputProfileDeclaration.profile;
   const graphSongId = text(graph?.song?.id);
   const expectedSongIds = [...new Set([
-    sourceProject.song_id,
-    sourceProject.audio_id,
-    sourceProject.registry_track_id,
+    validationProject.song_id,
+    validationProject.audio_id,
+    validationProject.registry_track_id,
   ].map(text).filter(Boolean))];
   const visualizerTrack = (Array.isArray(graph?.tracks) ? graph.tracks : [])
     .find((track) => track?.role === "visualizer" || track?.id === "track-b");
@@ -70,7 +72,7 @@ export function validateEchoCompiledShowGraph({ project = {}, graph = {} } = {})
   const variantHash = text(graph?.directorV2?.variantHash);
   const declaredSourceProjectHash = text(graph?.directorV2?.source?.sourceProjectHash);
   const provenanceSourceProjectHash = text(graph?.directorV2?.provenance?.sourceProjectHash);
-  const expectedSourceProjectHash = contentHash(sourceProject);
+  const expectedSourceProjectHash = contentHash(lineageProject);
   const inputHashes = graph?.directorV2?.source?.inputHashes;
   const inputHashEntries = inputHashes && typeof inputHashes === "object" && !Array.isArray(inputHashes)
     ? Object.entries(inputHashes)
@@ -84,6 +86,21 @@ export function validateEchoCompiledShowGraph({ project = {}, graph = {} } = {})
     ? contentHash(canonicalEchoCompiledVariantBody(graph))
     : null;
   const reasons = [];
+  if (hasExplicitSourceProject && text(lineageProject.song_id) !== text(validationProject.song_id)) {
+    reasons.push("source_project_song_identity_mismatch");
+  }
+  if (hasExplicitSourceProject
+    && text(lineageProject.audio_id)
+    && text(validationProject.audio_id)
+    && text(lineageProject.audio_id) !== text(validationProject.audio_id)) {
+    reasons.push("source_project_audio_identity_mismatch");
+  }
+  if (hasExplicitSourceProject
+    && text(lineageProject.registry_track_id)
+    && text(validationProject.registry_track_id)
+    && text(lineageProject.registry_track_id) !== text(validationProject.registry_track_id)) {
+    reasons.push("source_project_registry_identity_mismatch");
+  }
   if (graph?.schemaVersion !== "hapa.music-viz.native-show-graph.v2") reasons.push("unexpected_graph_schema");
   if (!graphSongId || !expectedSongIds.includes(graphSongId)) reasons.push("graph_song_identity_mismatch");
   if (!visualizerTrack || !Array.isArray(visualizerTrack.cards)) reasons.push("visualizer_track_missing");
