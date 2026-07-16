@@ -6,6 +6,7 @@ APP_ROOT="$(cd "$APP_ROOT" && pwd -P)"
 EXPECTED_BUILD_SIGNATURE="$(/usr/bin/python3 -c 'import hashlib, pathlib, sys; h=hashlib.sha256(); [h.update(pathlib.Path(p).read_bytes()) for p in sys.argv[1:]]; print(h.hexdigest()[:16])' "$APP_ROOT/server/api.mjs" "$APP_ROOT/server/file-serving.mjs")"
 CANONICAL_LAUNCHD_LABEL="com.hapa.avatarbuilder.8797.codex"
 CANONICAL_PORT="8797"
+OPERATOR_CONSOLE_PORT="${HAPA_AVATAR_OPERATOR_PORT:-8799}"
 LOG_DIR="$APP_ROOT/logs"
 LOG_FILE="$LOG_DIR/desktop-dedicated-launcher.log"
 mkdir -p "$LOG_DIR"
@@ -88,26 +89,90 @@ stop_listeners_on_port() {
   done
 }
 
+desktop_process_pids() {
+  ps -axo pid=,command= | awk -v root="$APP_ROOT" '
+    index($0, root "/node_modules/.bin/electron .") ||
+    index($0, root "/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron .") {
+      print $1
+    }
+  ' | sort -u
+}
+
+is_owned_desktop_process() {
+  local pid="$1"
+  local command
+  command="$(ps -p "$pid" -o command= 2>/dev/null || true)"
+  case "$command" in
+    "$APP_ROOT/node_modules/.bin/electron ."*|"$APP_ROOT/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron ."*)
+      return 0
+      ;;
+  esac
+  return 1
+}
+
 close_existing_desktops() {
   if [ "${HAPA_AVATAR_KEEP_EXISTING:-0}" = "1" ]; then
     echo "[$(timestamp)] Keeping existing Hapa Avatar Builder desktop windows by request"
     return
   fi
-  local closed=0
-  ps -axo pid=,command= | while read -r pid command; do
-    case "$command" in
-      *"$APP_ROOT/node_modules/.bin/electron ."*|*"$APP_ROOT/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron ."*)
-        if [ "$pid" != "$$" ]; then
-          echo "[$(timestamp)] Closing stale Hapa Avatar Builder desktop process $pid"
-          kill "$pid" >/dev/null 2>&1 || true
-          closed=1
-        fi
-        ;;
-    esac
-  done
-  if [ "$closed" = "1" ]; then
-    sleep 1
+
+  local output
+  output="$(desktop_process_pids || true)"
+  if [ -z "$output" ]; then
+    return
   fi
+
+  local -a pids
+  pids=("${(@f)output}")
+  local pid
+  for pid in "${pids[@]}"; do
+    if [ "$pid" != "$$" ] && is_owned_desktop_process "$pid"; then
+      echo "[$(timestamp)] Closing stale Hapa Avatar Builder desktop process $pid"
+      kill -TERM "$pid" >/dev/null 2>&1 || true
+    fi
+  done
+
+  local remaining
+  for _ in {1..24}; do
+    remaining=0
+    for pid in "${pids[@]}"; do
+      if is_owned_desktop_process "$pid"; then
+        remaining=1
+        break
+      fi
+    done
+    if [ "$remaining" = "0" ]; then
+      if is_listening "$OPERATOR_CONSOLE_PORT"; then
+        echo "[$(timestamp)] Optional operator-console port $OPERATOR_CONSOLE_PORT remains occupied by another process; the Builder UI will continue without it"
+      fi
+      return
+    fi
+    sleep 0.25
+  done
+
+  for pid in "${pids[@]}"; do
+    if is_owned_desktop_process "$pid"; then
+      echo "[$(timestamp)] Force-stopping unresponsive Hapa Avatar Builder desktop process $pid"
+      kill -KILL "$pid" >/dev/null 2>&1 || true
+    fi
+  done
+
+  for _ in {1..20}; do
+    remaining=0
+    for pid in "${pids[@]}"; do
+      if is_owned_desktop_process "$pid"; then
+        remaining=1
+        break
+      fi
+    done
+    if [ "$remaining" = "0" ]; then
+      return
+    fi
+    sleep 0.1
+  done
+
+  echo "[$(timestamp)] ERROR: an old Hapa Avatar Builder desktop process would not stop"
+  exit 1
 }
 
 echo "[$(timestamp)] Dedicated Hapa Avatar Builder launcher starting from $APP_ROOT"
@@ -128,9 +193,15 @@ close_existing_desktops
 echo "[$(timestamp)] Building production UI"
 npm run build
 
-port_candidates=(8797 8795 8796 8798 8799)
+# 8799 is reserved for the optional Electron operator console and must never be
+# selected as the Builder UI/API port.
+port_candidates=(8797 8795 8796 8798)
 if [ -n "${HAPA_AVATAR_DEDICATED_PORT:-}" ]; then
-  port_candidates=("$HAPA_AVATAR_DEDICATED_PORT" "${port_candidates[@]}")
+  if [ "$HAPA_AVATAR_DEDICATED_PORT" = "$OPERATOR_CONSOLE_PORT" ]; then
+    echo "[$(timestamp)] Ignoring dedicated UI port $HAPA_AVATAR_DEDICATED_PORT because it is reserved for the optional operator console"
+  else
+    port_candidates=("$HAPA_AVATAR_DEDICATED_PORT" "${port_candidates[@]}")
+  fi
 fi
 
 selected_port=""

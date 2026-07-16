@@ -27,6 +27,7 @@ Universal Hapa Card Plane v1 is released. Avatar/Item JSON stores remain authori
 
 - Open `/Users/calderwong/Desktop/hapa-avatar-builder` for Hapa Avatar Builder work. Do not extend `/Users/calderwong/pinokio/api/hapa-avatar-builder-desktop/app` unless explicitly doing provenance recovery.
 - Desktop launch gotcha: `8787` can be API-only. Electron must load a port that serves Hapa Avatar Builder HTML at `/`; current launcher logic probes and may reuse `8789` or another fallback UI/static API port. The known-good Desktop entry points are `/Users/calderwong/Desktop/Launch Hapa Avatar Builder.app` and `/Users/calderwong/Desktop/Launch Hapa Avatar Builder.command`, both backed by `scripts/launch-desktop-dedicated.zsh`.
+- Desktop lifecycle boundary: the Electron shell is single-instance. Port `8799` belongs only to its optional operator console and must not be selected as a Builder UI/API fallback. A console-port collision must warn and continue opening the UI; closing the last Builder window must release the shell.
 - Preserve the 3D Tarot Draw surface when merging from generated or Pinokio app copies.
 - Preserve the Tarot Library management surface when merging from the Pinokio app copy.
 - Do not overwrite Avatar IDs when duplicate app copies diverge. If an incoming ID points to a different identity, import it under a provenance-marked replacement ID.

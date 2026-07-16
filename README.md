@@ -91,7 +91,7 @@ Dedicated desktop launchers:
 /Users/calderwong/Desktop/Launch Hapa Avatar Builder.command
 ```
 
-These launchers call `scripts/launch-desktop-dedicated.zsh`, build the production UI, start or reuse a dedicated static UI/API port beginning at `8797`, then launch Electron with `HAPA_AVATAR_DESKTOP_URL` pinned to that endpoint. Port `8794` is reserved exclusively for the canonical Overcard host. Use the dedicated launchers when the normal `8787` environment is confusing or stale.
+These launchers call `scripts/launch-desktop-dedicated.zsh`, build the production UI, start or reuse a dedicated static UI/API port beginning at `8797`, then launch Electron with `HAPA_AVATAR_DESKTOP_URL` pinned to that endpoint. Port `8794` is reserved exclusively for the canonical Overcard host, and `8799` is reserved for the optional desktop operator console. Reopening the Builder focuses or recreates the one desktop window; it no longer starts a competing shell. If the optional console port is occupied, the Builder opens without that diagnostic helper instead of failing. Use the dedicated launchers when the normal `8787` environment is confusing or stale.
 
 ## Local Media Preview, Sorting, And Video Branches
 

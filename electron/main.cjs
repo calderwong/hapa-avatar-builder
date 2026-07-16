@@ -6,6 +6,9 @@ const fs = require("node:fs");
 const crypto = require("node:crypto");
 const { ensureLocalOvercardHost, probeOvercardHost } = require("@hapa/overcard/host");
 
+const HAS_SINGLE_INSTANCE_LOCK = app.requestSingleInstanceLock();
+if (!HAS_SINGLE_INSTANCE_LOCK) app.quit();
+
 const ROOT = path.resolve(__dirname, "..");
 const EXPECTED_BUILD_SIGNATURE = crypto.createHash("sha256")
   .update(fs.readFileSync(path.join(ROOT, "server/api.mjs")))
@@ -14,6 +17,7 @@ const EXPECTED_BUILD_SIGNATURE = crypto.createHash("sha256")
   .slice(0, 16);
 const HOST = "127.0.0.1";
 const BIND_HOST = process.env.HAPA_AVATAR_BIND_HOST || HOST;
+const OPERATOR_CONSOLE_PORT = readPort(process.env.HAPA_AVATAR_OPERATOR_PORT, 8799);
 const DEFAULT_PORT = readPort(process.env.HAPA_AVATAR_PORT, 8787);
 const PORTS = uniquePorts([
   ...(process.env.HAPA_AVATAR_DESKTOP_PORTS || "").split(","),
@@ -23,7 +27,7 @@ const PORTS = uniquePorts([
   8790,
   8791,
   8792
-]);
+]).filter((port) => port !== OPERATOR_CONSOLE_PORT);
 let apiProcess = null;
 let desktopUrl = null;
 let isQuitting = false;
@@ -34,6 +38,8 @@ let overcardShutdownStarted = false;
 const consoleLogs = [];
 const MAX_CONSOLE_LOGS = 500;
 const DESKTOP_DEBUG = process.env.HAPA_AVATAR_DESKTOP_DEBUG === "1";
+let operatorConsoleServer = null;
+let windowCreationPromise = null;
 
 function overcardOrigins(rendererUrl = "") {
   const values = [
@@ -311,6 +317,25 @@ async function resolveDesktopUrl() {
   throw new Error(`No desktop UI port was available. Checked ${occupied}`);
 }
 
+function focusMainWindow() {
+  if (!mainWindow || mainWindow.isDestroyed()) return false;
+  if (mainWindow.isMinimized()) mainWindow.restore();
+  if (!mainWindow.isVisible()) mainWindow.show();
+  mainWindow.focus();
+  return true;
+}
+
+async function ensureMainWindow() {
+  if (!app.isReady()) await app.whenReady();
+  if (focusMainWindow()) return mainWindow;
+  if (!windowCreationPromise) {
+    windowCreationPromise = createWindow().finally(() => {
+      windowCreationPromise = null;
+    });
+  }
+  return windowCreationPromise;
+}
+
 async function createWindow() {
   const url = await resolveDesktopUrl();
   try {
@@ -351,6 +376,9 @@ async function createWindow() {
 const fsPromises = require("node:fs/promises");
 
 function startOperatorConsoleServer() {
+  if (operatorConsoleServer?.listening) {
+    return Promise.resolve({ ok: true, port: OPERATOR_CONSOLE_PORT, reused: true });
+  }
   const server = http.createServer(async (req, res) => {
     const url = new URL(req.url, `http://${req.headers.host || "127.0.0.1"}`);
     const requestOrigin = String(req.headers.origin || "");
@@ -417,41 +445,82 @@ function startOperatorConsoleServer() {
       res.end(JSON.stringify({ ok: false, error: err.message }));
     }
   });
-  server.listen(8799, "127.0.0.1", () => {
-    console.log("[Operator Console] Listening on http://127.0.0.1:8799");
+  operatorConsoleServer = server;
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (result) => {
+      if (settled) return;
+      settled = true;
+      resolve(result);
+    };
+    server.on("error", (error) => {
+      if (operatorConsoleServer === server) operatorConsoleServer = null;
+      const reason = error?.code === "EADDRINUSE"
+        ? `Port ${OPERATOR_CONSOLE_PORT} is already in use`
+        : (error instanceof Error ? error.message : String(error));
+      console.warn(`[Operator Console] ${reason}; continuing without the optional console. The Builder UI can still launch.`);
+      finish({ ok: false, port: OPERATOR_CONSOLE_PORT, error: error?.code || "operator_console_error" });
+    });
+    server.listen(OPERATOR_CONSOLE_PORT, HOST, () => {
+      console.log(`[Operator Console] Listening on http://${HOST}:${OPERATOR_CONSOLE_PORT}`);
+      finish({ ok: true, port: OPERATOR_CONSOLE_PORT, reused: false });
+    });
   });
 }
 
-app.whenReady().then(() => {
-  installMediaPermissionHandlers();
-  ipcMain.handle("hapa-overcard:status", async () => readOvercardStatus());
-  ipcMain.handle("hapa-overcard:ensure", async () => runOvercardLifecycle((rendererUrl) => ensureOvercardHost(rendererUrl)));
-  ipcMain.handle("hapa-overcard:reconnect", async () => runOvercardLifecycle((rendererUrl) => ensureOvercardHost(rendererUrl)));
-  startOperatorConsoleServer();
-  return createWindow();
-});
+function closeOperatorConsoleServer() {
+  const server = operatorConsoleServer;
+  operatorConsoleServer = null;
+  if (!server?.listening) return;
+  server.close((error) => {
+    if (error) console.warn(`[Operator Console] Shutdown warning: ${error.message}`);
+  });
+}
 
-app.on("activate", () => {
-  if (BrowserWindow.getAllWindows().length === 0) createWindow();
-});
-
-app.on("window-all-closed", () => {
-  if (process.platform !== "darwin") app.quit();
-});
-
-app.on("before-quit", (event) => {
-  isQuitting = true;
-  if (overcardHost && !overcardShutdownStarted) {
-    event.preventDefault();
-    overcardShutdownStarted = true;
-    void overcardHost.close().finally(() => {
-      overcardHost = null;
-      app.quit();
+if (HAS_SINGLE_INSTANCE_LOCK) {
+  app.on("second-instance", () => {
+    void ensureMainWindow().catch((error) => {
+      console.error(`[desktop] Could not restore the existing Builder window: ${error instanceof Error ? error.message : String(error)}`);
     });
-    return;
-  }
-  if (apiProcess) {
-    apiProcess.kill();
-    apiProcess = null;
-  }
-});
+  });
+
+  app.whenReady().then(async () => {
+    installMediaPermissionHandlers();
+    ipcMain.handle("hapa-overcard:status", async () => readOvercardStatus());
+    ipcMain.handle("hapa-overcard:ensure", async () => runOvercardLifecycle((rendererUrl) => ensureOvercardHost(rendererUrl)));
+    ipcMain.handle("hapa-overcard:reconnect", async () => runOvercardLifecycle((rendererUrl) => ensureOvercardHost(rendererUrl)));
+    await startOperatorConsoleServer();
+    return ensureMainWindow();
+  }).catch((error) => {
+    console.error(`[desktop] Hapa Avatar Builder failed to open: ${error instanceof Error ? error.stack || error.message : String(error)}`);
+    app.quit();
+  });
+
+  app.on("activate", () => {
+    void ensureMainWindow().catch((error) => {
+      console.error(`[desktop] Could not activate the Builder window: ${error instanceof Error ? error.message : String(error)}`);
+    });
+  });
+
+  app.on("window-all-closed", () => {
+    app.quit();
+  });
+
+  app.on("before-quit", (event) => {
+    isQuitting = true;
+    closeOperatorConsoleServer();
+    if (overcardHost && !overcardShutdownStarted) {
+      event.preventDefault();
+      overcardShutdownStarted = true;
+      void overcardHost.close().finally(() => {
+        overcardHost = null;
+        app.quit();
+      });
+      return;
+    }
+    if (apiProcess) {
+      apiProcess.kill();
+      apiProcess = null;
+    }
+  });
+}
