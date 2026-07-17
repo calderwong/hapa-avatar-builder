@@ -38,5 +38,7 @@ test("dedicated launcher waits for owned desktop shutdown and reserves port 8799
   assert.match(launcher, /Force-stopping unresponsive Hapa Avatar Builder desktop process/);
   assert.match(launcher, /kill -KILL/);
   assert.doesNotMatch(launcher, /ps -axo pid=,command= \| while/);
+  assert.match(launcher, /echoDeliveryFreshness/);
+  assert.match(launcher, /echo_freshness\.get\("ok"\) is True/);
   await exec("/bin/zsh", ["-n", launcherPath.pathname]);
 });

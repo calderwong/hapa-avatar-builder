@@ -34,6 +34,8 @@
     "echo:variants:builder-balanced:apply": "node scripts/append-balanced-builder-direction-variants.mjs --apply",
     "echo:variants:wide-cuts": "node scripts/append-balanced-builder-direction-variants.mjs --wide-cuts",
     "echo:variants:wide-cuts:apply": "node scripts/append-balanced-builder-direction-variants.mjs --wide-cuts --apply",
+    "echo:variants:parity:missing": "node scripts/ingest-scroll-site-media.mjs --missing-only --variants-only && node scripts/append-balanced-builder-direction-variants.mjs --missing-only && node scripts/append-balanced-builder-direction-variants.mjs --wide-cuts --missing-only",
+    "echo:variants:parity:missing:apply": "node scripts/ingest-scroll-site-media.mjs --missing-only --variants-only --apply && node scripts/append-balanced-builder-direction-variants.mjs --missing-only --apply && node scripts/append-balanced-builder-direction-variants.mjs --wide-cuts --missing-only --apply",
     "echo:preflight-media": "node scripts/preflight-echo-director-media.mjs",
     "echo:preflight-render": "node scripts/preflight-echo-render-readiness.mjs",
     "echo:repair-stem-bindings": "node scripts/preflight-echo-render-readiness.mjs --apply-stem-repairs",

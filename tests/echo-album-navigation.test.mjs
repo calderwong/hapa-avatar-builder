@@ -61,6 +61,23 @@ test("the checked-in Director UI renders the complete filtered roster without a 
   assert.match(source, /inspectEchoDirectorProjectDetail\(detailResult\?\.detail\)/u);
 });
 
+test("a persisted timeline remains a successful save while its render graph prepares", () => {
+  const source = fs.readFileSync(path.join(root, "src/components/HapaEchosView.jsx"), "utf8");
+  assert.match(source, /const refreshedInspection = inspectEchoDirectorProjectDetail/u);
+  assert.match(source, /if \(!refreshedInspection\.hasEditorGraph\)[\s\S]*setSaveFeedbackTone\("success"\)/u);
+  assert.doesNotMatch(source, /could not reload that graph\. Choose Save again before rendering/u);
+});
+
+test("director parity repair fills only complete missing cut families", () => {
+  const balanced = fs.readFileSync(path.join(root, "scripts/append-balanced-builder-direction-variants.mjs"), "utf8");
+  const scroll = fs.readFileSync(path.join(root, "scripts/ingest-scroll-site-media.mjs"), "utf8");
+  const packageJson = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
+  assert.match(balanced, /const MISSING_ONLY = args\.has\("--missing-only"\)/u);
+  assert.match(balanced, /Partial director-cut family found/u);
+  assert.match(scroll, /const VARIANTS_ONLY = args\.has\("--variants-only"\)/u);
+  assert.match(packageJson.scripts["echo:variants:parity:missing:apply"], /--missing-only/u);
+});
+
 test("every current Echo album card has one accessible Director project", () => {
   const songbook = JSON.parse(fs.readFileSync(path.join(root, "data/dear-papa-songbook.json"), "utf8"));
   const projectDir = path.join(root, "data/music-video-projects");
@@ -84,4 +101,28 @@ test("every current Echo album card has one accessible Director project", () => 
   const watermelon = projects.find((project) => project.song_title === "Watermelon Honey, Due");
   assert.equal(watermelon?.song_id, "dear-papa-song-watermelon-honey-due");
   assert.ok(watermelon.timeline.length > 0);
+});
+
+test("every current Echo album project has the standard five protected director cuts", () => {
+  const projectDir = path.join(root, "data/music-video-projects");
+  const variantsDir = path.join(root, "data/music-video-project-variants");
+  const requiredCutIds = [
+    "scroll-fal-authored-v1",
+    "scroll-scene-avatar-balanced-v1",
+    "wide-coverage-airy-v1",
+    "wide-coverage-rhythmic-v1",
+    "wide-coverage-dense-v1",
+  ];
+  const projects = fs.readdirSync(projectDir)
+    .filter((file) => file.endsWith("-video-project.json"))
+    .map((file) => JSON.parse(fs.readFileSync(path.join(projectDir, file), "utf8")).music_video_project);
+
+  for (const project of projects) {
+    const available = new Set(fs.readdirSync(path.join(variantsDir, project.song_id))
+      .filter((file) => file.endsWith(".json"))
+      .map((file) => file.replace(/\.json$/u, "")));
+    for (const cutId of requiredCutIds) {
+      assert.ok(available.has(cutId), `${project.song_title} is missing director cut ${cutId}`);
+    }
+  }
 });

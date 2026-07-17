@@ -45,6 +45,7 @@ const BACKUPS_DIR = path.join(DATA_DIR, "backups");
 const args = new Set(process.argv.slice(2));
 const APPLY = args.has("--apply");
 const WIDE_CUTS = args.has("--wide-cuts");
+const MISSING_ONLY = args.has("--missing-only");
 const RUN_STARTED_AT = new Date().toISOString();
 const RUN_ID = `builder-expanded-direction-${RUN_STARTED_AT.replace(/[:.]/g, "-")}`;
 const VARIANT_TITLE = "Scroll + FAL + Builder Scenes/Avatars · Balanced Recast";
@@ -335,6 +336,26 @@ function upsertById(existing = [], incoming = []) {
   return [...incoming, ...existing.filter((row) => !ids.has(row.id))];
 }
 
+async function projectFilesMissingCompleteVariantSet(projectFiles, variantIds) {
+  const selected = [];
+  for (const fileName of projectFiles) {
+    const payload = await readJson(path.join(PROJECTS_DIR, fileName));
+    const project = payload.music_video_project || payload;
+    if (!project?.song_id) continue;
+    const states = await Promise.all(variantIds.map((variantId) => (
+      stat(path.join(VARIANTS_DIR, project.song_id, `${variantId}.json`))
+        .then(() => true)
+        .catch((error) => error?.code === "ENOENT" ? false : Promise.reject(error))
+    )));
+    if (states.every(Boolean)) continue;
+    if (states.some(Boolean)) {
+      throw new Error(`Partial director-cut family found for ${project.song_id}; refusing to replace append-only cuts while filling gaps.`);
+    }
+    selected.push(fileName);
+  }
+  return selected;
+}
+
 function validateCardReferences(candidates, itemCardIds, sceneIds, avatarIds) {
   const unresolved = candidates.filter((candidate) => {
     if (candidate.cardKind === "item") return !itemCardIds.has(candidate.cardId);
@@ -567,6 +588,7 @@ async function runWideCoverageCutPass({
       provenanceExclusion: "explicit-hapa-dev-proto-origin-only",
       preserveExistingVariants: true,
       preserveLegacyProjects: true,
+      missingOnly: MISSING_ONLY,
     },
     candidates: {
       extracted: extraction.telemetry,
@@ -713,7 +735,17 @@ async function main() {
     throw new Error(`Content deduplication removed a required source family: ${JSON.stringify(candidatesByGroup)}.`);
   }
 
-  const projectFiles = (await readdir(PROJECTS_DIR)).filter((file) => file.endsWith("-video-project.json")).sort();
+  const allProjectFiles = (await readdir(PROJECTS_DIR)).filter((file) => file.endsWith("-video-project.json")).sort();
+  const requestedVariantIds = WIDE_CUTS
+    ? WIDE_CUTS_CONFIG.map((profile) => profile.variantId)
+    : [SCROLL_SCENE_AVATAR_BALANCED_VARIANT_ID];
+  const projectFiles = MISSING_ONLY
+    ? await projectFilesMissingCompleteVariantSet(allProjectFiles, requestedVariantIds)
+    : allProjectFiles;
+  if (MISSING_ONLY && projectFiles.length === 0) {
+    console.log(json({ ok: true, dryRun: !APPLY, missingOnly: true, generated: 0, message: "Every project already has the requested director-cut family." }));
+    return;
+  }
   if (WIDE_CUTS) {
     await runWideCoverageCutPass({
       candidates,
@@ -786,6 +818,7 @@ async function main() {
       browserSafety: "Scene yuv420p; all media local, nonzero, >=720 short edge, >=2.5 seconds",
       preserveExistingVariants: true,
       preserveLegacyProjects: true,
+      missingOnly: MISSING_ONLY,
     },
     candidates: {
       extracted: extraction.telemetry,

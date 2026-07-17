@@ -32,7 +32,12 @@ payload = json.load(sys.stdin)
 expected_signature = sys.argv[1]
 expected_owner = sys.argv[2]
 runtime = payload.get("runtime") or {}
-ok = payload.get("service") == "hapa-avatar-builder" and runtime.get("buildSignature") == expected_signature
+echo_freshness = runtime.get("echoDeliveryFreshness") or {}
+ok = (
+    payload.get("service") == "hapa-avatar-builder"
+    and runtime.get("buildSignature") == expected_signature
+    and echo_freshness.get("ok") is True
+)
 if expected_owner:
     ok = ok and runtime.get("processOwner") == expected_owner
 raise SystemExit(0 if ok else 1)
@@ -221,7 +226,7 @@ if canonical_launchd_registered; then
   if is_hapa_endpoint "$CANONICAL_PORT" "launchd-canonical"; then
     selected_port="$CANONICAL_PORT"
     reuse_existing="1"
-    echo "[$(timestamp)] Canonical launchd API matches build $EXPECTED_BUILD_SIGNATURE"
+    echo "[$(timestamp)] Canonical launchd API matches build $EXPECTED_BUILD_SIGNATURE and current Echo delivery sources"
   else
     echo "[$(timestamp)] ERROR: canonical launchd API did not become ready with build $EXPECTED_BUILD_SIGNATURE"
     exit 1

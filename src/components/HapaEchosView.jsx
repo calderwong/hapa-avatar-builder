@@ -3636,15 +3636,28 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
         { commit: false, priority: "foreground" },
       );
       const refreshedProject = refreshedDetailResult?.detail?.music_video_project;
-      if (!refreshedProject?.director_show_graph?.tracks) {
+      const refreshedInspection = inspectEchoDirectorProjectDetail(refreshedDetailResult?.detail);
+      if (!refreshedInspection.canOpen) {
         setSaveFeedbackTone("error");
-        setSaveSuccessMessage("Music video blueprint and render graph are saved, but the Builder could not reload that graph. Choose Save again before rendering; Discard is no longer shown because the edit is already on disk.");
+        setSaveSuccessMessage("Music video blueprint is saved, but the Builder could not reload its playable timeline. Reopen this song; the saved edit remains on disk.");
         return false;
       }
       if (!commitDirectorProjectDetail(refreshedDetailResult.detail, refreshedDetailResult.requestGeneration)) {
         setSaveFeedbackTone("error");
         setSaveSuccessMessage("Music video blueprint and render graph are saved, but a newer project refresh superseded the reload. Reopen this song or choose Save again before rendering; the saved edit will not be described as discarded.");
         return false;
+      }
+      if (!refreshedInspection.hasEditorGraph) {
+        const graphReason = refreshedProject?.director_show_graph_receipt?.reason || "graph preparation is still running";
+        setSaveFeedbackTone("success");
+        setSaveSuccessMessage(graphReason === "server_restart_required"
+          ? "Music video blueprint saved to disk. The current timeline is open; restart the Builder once to load its render graph before rendering."
+          : "Music video blueprint saved to disk. The current timeline is open while its render graph finishes preparing.");
+        setEchoOperationNotice(graphReason === "server_restart_required"
+          ? "Save complete. A Builder restart is required before this saved revision can render."
+          : "Save complete. Song Card preparation is continuing separately in Tracks.");
+        queueSongCardPlanForSavedRevision(projectToSave.song_id, refreshedProject?.updated_at || projectToSave.updated_at);
+        return true;
       }
       setSaveFeedbackTone("success");
       setSaveSuccessMessage("Music video blueprint saved to disk. Song Card preparation is continuing separately in Tracks.");

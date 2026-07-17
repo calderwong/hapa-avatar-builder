@@ -58,6 +58,8 @@ const BACKUPS_DIR = path.join(DATA_DIR, "backups");
 const args = new Set(process.argv.slice(2));
 const APPLY = args.has("--apply");
 const DRY_RUN = !APPLY;
+const MISSING_ONLY = args.has("--missing-only");
+const VARIANTS_ONLY = args.has("--variants-only");
 const RUN_STARTED_AT = new Date().toISOString();
 const RUN_ID = `scroll-site-media-${RUN_STARTED_AT.replace(/[:.]/g, "-")}`;
 const IMPORT_ID = "scroll-site-root-fal-v1";
@@ -213,7 +215,7 @@ async function createPathsAndAsset(entry) {
     if (!(await stat(sourceFramePath).catch(() => null))) continue;
     const frameFileName = `scroll-frame-${entry.id}-${short}-${marker}.jpg`;
     const frameMediaPath = path.join(MEDIA_DIR, frameFileName);
-    if (APPLY) await ensureSymlink(sourceFramePath, frameMediaPath);
+    if (APPLY && !VARIANTS_ONLY) await ensureSymlink(sourceFramePath, frameMediaPath);
     frameRows.push({
       marker,
       label: `${marker[0].toUpperCase()}${marker.slice(1)} frame`,
@@ -228,7 +230,7 @@ async function createPathsAndAsset(entry) {
     });
   }
 
-  if (APPLY) {
+  if (APPLY && !VARIANTS_ONLY) {
     await ensureSymlink(entry.sourcePath, sourceMediaPath);
     if (runtimeSource && await stat(runtimeSource).catch(() => null)) await ensureSymlink(runtimeSource, path.join(MEDIA_DIR, runtimeFileName));
     if (mobileRuntimeSource && await stat(mobileRuntimeSource).catch(() => null)) await ensureSymlink(mobileRuntimeSource, path.join(MEDIA_DIR, mobileRuntimeFileName));
@@ -398,11 +400,29 @@ async function buildVariants(entries, assetByClipId, projectFiles) {
 async function backupStores() {
   const backupDir = path.join(BACKUPS_DIR, RUN_ID);
   await mkdir(backupDir, { recursive: true });
-  for (const filePath of [ITEM_STORE_PATH, SCENE_STORE_PATH, MEDIA_LIBRARY_PATH, VARIANTS_INDEX_PATH]) {
+  const storePaths = VARIANTS_ONLY
+    ? [VARIANTS_INDEX_PATH]
+    : [ITEM_STORE_PATH, SCENE_STORE_PATH, MEDIA_LIBRARY_PATH, VARIANTS_INDEX_PATH];
+  for (const filePath of storePaths) {
     if (!(await stat(filePath).catch(() => null))) continue;
     await copyFile(filePath, path.join(backupDir, path.basename(filePath)));
   }
   return backupDir;
+}
+
+async function projectsMissingScrollVariant(projectFiles) {
+  const selected = [];
+  for (const fileName of projectFiles) {
+    const payload = await readJson(path.join(PROJECTS_DIR, fileName));
+    const project = payload.music_video_project || payload;
+    if (!project?.song_id) continue;
+    const variantPath = path.join(VARIANTS_DIR, project.song_id, `${SCROLL_FAL_DIRECTION_VARIANT_ID}.json`);
+    const exists = await stat(variantPath).then(() => true).catch((error) => (
+      error?.code === "ENOENT" ? false : Promise.reject(error)
+    ));
+    if (!exists) selected.push(fileName);
+  }
+  return selected;
 }
 
 async function main() {
@@ -452,7 +472,10 @@ async function main() {
     updatedAt: RUN_STARTED_AT,
   });
 
-  const projectFiles = (await readdir(PROJECTS_DIR)).filter((file) => file.endsWith("-video-project.json")).sort();
+  const allProjectFiles = (await readdir(PROJECTS_DIR)).filter((file) => file.endsWith("-video-project.json")).sort();
+  const projectFiles = MISSING_ONLY
+    ? await projectsMissingScrollVariant(allProjectFiles)
+    : allProjectFiles;
   const parentHashesBefore = new Map(await Promise.all(projectFiles.map(async (file) => [file, await sha256File(path.join(PROJECTS_DIR, file))])));
   const variants = await buildVariants(entries, assetByClipId, projectFiles);
   const existingVariantIndex = await readJson(VARIANTS_INDEX_PATH, {
@@ -496,6 +519,8 @@ async function main() {
       replacementEligibility: "authored-site-manifest-only",
       forbiddenLineages: ["Hell Week", "hapa-dev-proto", "LTX"],
       preserveLegacyProjects: true,
+      missingOnly: MISSING_ONLY,
+      variantsOnly: VARIANTS_ONLY,
     },
     counts: {
       sourceVideos: entries.length,
@@ -513,7 +538,7 @@ async function main() {
     validation: {
       uniqueFullHashes: new Set(entries.map((entry) => entry.sha256)).size,
       sourceFilesReadable: entries.length,
-      parentProjectFilesPreserved: projectFiles.length,
+      parentProjectFilesPreserved: allProjectFiles.length,
       variantTimelinesWithForbiddenMedia: variants.filter(({ variant }) => /hell[ -]?week|hapa[-_]dev[-_]proto|\bltx\b/i.test(JSON.stringify(variant.timeline))).length,
       originalProjectsMutated: 0,
     },
@@ -541,11 +566,13 @@ async function main() {
   let backupDir = "";
   if (APPLY) {
     backupDir = await backupStores();
-    await Promise.all([
-      atomicWrite(ITEM_STORE_PATH, json(nextItemStore)),
-      atomicWrite(SCENE_STORE_PATH, json(nextSceneStore)),
-      atomicWrite(MEDIA_LIBRARY_PATH, json(nextMediaLibrary)),
-    ]);
+    if (!VARIANTS_ONLY) {
+      await Promise.all([
+        atomicWrite(ITEM_STORE_PATH, json(nextItemStore)),
+        atomicWrite(SCENE_STORE_PATH, json(nextSceneStore)),
+        atomicWrite(MEDIA_LIBRARY_PATH, json(nextMediaLibrary)),
+      ]);
+    }
     for (const { songId, variant } of variants) {
       const variantPath = path.join(VARIANTS_DIR, songId, `${variant.id}.json`);
       assertWithin(VARIANTS_DIR, variantPath, "Direction variant");

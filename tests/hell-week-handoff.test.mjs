@@ -56,6 +56,7 @@ test("Hell Week handoff preserves ownership, incremental state, feedback, and st
     assert.equal(health.response.status, 200);
     assert.equal(health.body.runtime.processOwner, "contract-test");
     assert.match(health.body.runtime.buildSignature, /^[a-f0-9]{16}$/);
+    assert.equal(health.body.runtime.echoDeliveryFreshness.ok, true);
 
     const envelope = await fetchJson(`${BASE}/api/hell-week/cards?envelope=1`);
     assert.equal(envelope.response.status, 200, JSON.stringify(envelope.body));

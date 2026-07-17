@@ -1439,6 +1439,7 @@ async function route(req, res) {
         pid: process.pid,
         processOwner: SERVER_PROCESS_OWNER,
         buildSignature: SERVER_BUILD_SIGNATURE,
+        echoDeliveryFreshness: inspectEchoServerBootFreshness(ECHO_SERVER_BOOT_IDENTITY, { root: ROOT, refresh: true }),
         startedAt: SERVER_STARTED_AT,
         uptimeSeconds: Math.round(process.uptime()),
         port,
