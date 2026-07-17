@@ -82,6 +82,10 @@ import {
   pinEchoSongCardPlanSnapshot,
   restoreEchoSongCardPlanSnapshot,
 } from "../domain/echo-direction-variants.js";
+import {
+  filterEchoDirectorProjectRows,
+  inspectEchoDirectorProjectDetail,
+} from "../domain/echo-album-navigation.js";
 
 const electronApiBase = globalThis.window?.hapaAvatarBuilder?.apiBase;
 const API_BASE = electronApiBase || (globalThis.location?.port === "5178" ? "http://127.0.0.1:8787" : "");
@@ -1516,6 +1520,10 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
   const activeDirectorProject = useMemo(() => (
     directorProjects.find(p => p.music_video_project.song_id === selectedProjectSongId) || directorProjects[0] || null
   ), [selectedProjectSongId, directorProjects]);
+  const visibleDirectorProjects = useMemo(
+    () => filterEchoDirectorProjectRows(directorProjects, searchQuery),
+    [directorProjects, searchQuery],
+  );
   const activeStoredProject = activeDirectorProject?.music_video_project || null;
   const activeDirectionVariants = Array.isArray(activeStoredProject?.direction_script_variants)
     ? activeStoredProject.direction_script_variants
@@ -3073,27 +3081,33 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
   };
 
   const handleSelectDirectorProjectSong = async (songId) => {
-    if (!songId || songId === selectedProjectSongId || directorEditingLocked || directorHasUnsavedChanges) return;
-    setEchoOperationNotice("Loading the saved Legacy graph before switching songs…");
+    if (!songId || directorEditingLocked || directorHasUnsavedChanges) return;
+    if (songId === selectedProjectSongId && activeProjectHasDetail) return;
+    setEchoOperationNotice("Loading that song's timeline and saved editing graph…");
     const detailResult = await fetchProjectDetail(songId, "", { commit: false, priority: "foreground" });
-    const detailProject = detailResult?.detail?.music_video_project;
-    if (!detailProject?.director_show_graph?.tracks) {
-      setEchoOperationNotice("Could not load that song's saved Legacy graph. The current song remains open.");
+    const selection = inspectEchoDirectorProjectDetail(detailResult?.detail);
+    const detailProject = selection.project;
+    if (!selection.canOpen) {
+      setEchoOperationNotice("Could not load that song's timeline. The current song remains open.");
       return;
     }
     if (!commitDirectorProjectDetail(detailResult.detail, detailResult.requestGeneration)) {
       setEchoOperationNotice("A newer song refresh superseded this response. The current song remains open; try again.");
       return;
     }
-    const savedShowGraph = projectToEditorGraph(detailProject);
-    queueSongCardPlanForSavedRevision(
-      songId,
-      detailProject.director_show_graph_receipt?.sourceHash || detailProject.updated_at || "legacy",
-      { cutId: "legacy", project: detailProject, showGraph: savedShowGraph },
-    );
+    if (selection.hasEditorGraph) {
+      const savedShowGraph = projectToEditorGraph(detailProject);
+      queueSongCardPlanForSavedRevision(
+        songId,
+        detailProject.director_show_graph_receipt?.sourceHash || detailProject.updated_at || "legacy",
+        { cutId: "legacy", project: detailProject, showGraph: savedShowGraph },
+      );
+    }
     setDirectorHasUnsavedChanges(false);
     setSelectedProjectSongId(songId);
-    setEchoOperationNotice(`${detailProject.song_title || "Song"} opened from its saved Legacy graph.`);
+    setEchoOperationNotice(selection.hasEditorGraph
+      ? `${detailProject.song_title || "Song"} opened from its saved Legacy graph.`
+      : `${detailProject.song_title || "Song"} opened. Its preview is ready while the editing graph prepares.`);
   };
 
   const editableDirectionForkFromDetail = (detail, variantId, options = {}) => {
@@ -4516,12 +4530,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
 
                   {/* Scrollable list of items */}
                   <div className="media-scroll-container" style={{ display: 'flex', flexDirection: 'column', gap: '4px', flex: 1, overflowY: 'auto', background: 'rgba(0,0,0,0.15)', padding: '6px', borderRadius: '4px', border: '1px solid rgba(255,255,255,0.05)' }}>
-                    {directorProjects.filter(p => {
-                      const proj = p.music_video_project;
-                      return searchQuery === "" || 
-                        proj.song_title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                        proj.song_id.toLowerCase().includes(searchQuery.toLowerCase());
-                    }).map(p => {
+                    {visibleDirectorProjects.map(p => {
                       const proj = p.music_video_project;
                       const isSelected = selectedProjectSongId === proj.song_id;
                       const perspectiveColor = proj.perspective === 'red' ? 'var(--hapa-neon-red)' : proj.perspective === 'green' ? 'var(--hapa-neon-green)' : 'var(--hapa-neon-cyan)';
@@ -4567,7 +4576,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                           </div>
                         </div>
                       );
-                    }).slice(0, 100)}
+                    })}
                     {directorProjects.length === 0 && (
                       <div style={{ textAlign: 'center', padding: '12px', opacity: 0.5, fontSize: '11px' }}>
                         No director plans found. Click the planning button on the left to compile them.

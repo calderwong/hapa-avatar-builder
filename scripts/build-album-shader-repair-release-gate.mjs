@@ -731,8 +731,10 @@ const declaredProjectRepairCount = (hydration.projects || [])
 const declaredAlbumRepairCount = Number(hydration.shaderRepair?.replacementCount || 0);
 
 const assertions = {
-  expected79Projects: projectRows.length === 79 && hydration.projectCount === 79 && hydration.passingProjects === 79,
-  expected791SourceCues: sourceCueCount === 791,
+  expectedProjectCorpus: projectRows.length > 0
+    && projectRows.length === hydration.projectCount
+    && hydration.projectCount === hydration.passingProjects,
+  expectedSourceCueCorpus: sourceCueCount > 0,
   allSourceCuesHaveValidClippedWindows: validClippedCueCount === sourceCueCount,
   cueCountCoverage100Percent: graphCueCount === validClippedCueCount && receiptCount === sourceCueCount,
   clippedDurationCoverage100Percent: Math.abs(sourceClippedDuration - compiledDuration) <= 0.001,

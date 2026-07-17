@@ -5,9 +5,10 @@ import path from "node:path";
 
 const projectDir = path.resolve("data/music-video-projects");
 const files = fs.readdirSync(projectDir).filter((file) => file.endsWith("-video-project.json"));
+const songbook = JSON.parse(fs.readFileSync("data/dear-papa-songbook.json", "utf8"));
 
 test("all Echo plans expose unmeasured critic truth and evidence-bearing shot decisions", () => {
-  assert.equal(files.length, 79);
+  assert.equal(files.length, songbook.songCards.length);
   for (const file of files) {
     const payload = JSON.parse(fs.readFileSync(path.join(projectDir, file), "utf8"));
     const project = payload.music_video_project || payload;

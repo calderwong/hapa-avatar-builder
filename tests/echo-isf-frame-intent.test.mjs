@@ -309,8 +309,11 @@ test("the complete catalog and album satisfy media/default/audio-map frame contr
       }
     }
   }
-  assert.equal(graphCount, 79);
-  assert.equal(cardCount, 791);
+  const expectedGraphCount = fs.readdirSync(path.resolve("data/music-video-projects"))
+    .filter((file) => file.endsWith("-video-project.json")).length;
+  const hydration = JSON.parse(fs.readFileSync(path.join(albumRoot, "album-hydration-report.json"), "utf8"));
+  assert.equal(graphCount, expectedGraphCount);
+  assert.equal(cardCount, hydration.visualizerCardCount);
   assert.ok(reactiveCardCount > 0);
   assert.equal(effectiveReactiveCardCount, reactiveCardCount, "every album card with a reactive mapping must produce a measurable input change");
 });

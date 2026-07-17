@@ -159,7 +159,8 @@ test("cut and song navigation preserve dirty work and reload the saved Legacy gr
   assert.match(selector, /fetchProjectDetail\([\s\S]*selectedProjectSongId,[\s\S]*"",[\s\S]*priority: "foreground"/);
   assert.match(selector, /commitDirectorProjectDetail\(legacyDetailResult\.detail, legacyDetailResult\.requestGeneration\)/);
   assert.match(selector, /cutId: "legacy", project: legacyProject, showGraph: legacyShowGraph/);
-  assert.match(songSelection, /if \(!songId \|\| songId === selectedProjectSongId \|\| directorEditingLocked \|\| directorHasUnsavedChanges\) return/);
+  assert.match(songSelection, /if \(!songId \|\| directorEditingLocked \|\| directorHasUnsavedChanges\) return/);
+  assert.match(songSelection, /if \(songId === selectedProjectSongId && activeProjectHasDetail\) return/);
   assert.match(songSelection, /fetchProjectDetail\(songId, "", \{ commit: false, priority: "foreground" \}\)/);
   assert.match(songSelection, /commitDirectorProjectDetail\(detailResult\.detail, detailResult\.requestGeneration\)/);
   assert.match(source, /aria-disabled=\{directorEditingLocked \|\| directorHasUnsavedChanges\}/);

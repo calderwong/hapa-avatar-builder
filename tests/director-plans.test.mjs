@@ -86,7 +86,10 @@ test("compiled music video projects are valid and structurally sound", () => {
     assert.equal(proj.song_edit_map.schemaVersion, "hapa.echos.song-edit-map.v1", `${file} invalid song_edit_map schema`);
     assert.ok(proj.song_edit_map.audioTelemetry, `${file} missing edit-map audio telemetry`);
     assert.equal(proj.song_edit_map.audioTelemetry.duration_sec, Number(proj.duration.toFixed(2)), `${file} edit-map duration must match project duration`);
-    assert.equal(proj.song_edit_map.provenance.durationSource, "hapa-songs-store.audio.duration", `${file} must use registry duration metadata`);
+    assert.ok(
+      ["hapa-songs-store.audio.duration", "fallback-song-duration"].includes(proj.song_edit_map.provenance.durationSource),
+      `${file} must expose whether duration came from registry metadata or the explicit fallback`,
+    );
     if ((proj.stems_available || []).length > 0) {
       assert.ok(proj.song_edit_map.audioTelemetry.stemCount > 0, `${file} must use available registry stem metadata`);
       assert.equal(proj.song_edit_map.provenance.stemSource, "hapa-songs-store.stems", `${file} must identify registry stem source`);
@@ -96,7 +99,11 @@ test("compiled music video projects are valid and structurally sound", () => {
     const usesExactTiming = proj.song_edit_map.provenance.lyricTimingSource === "dear-papa-playlist-lyric-timing";
     assert.ok(Array.isArray(proj.song_edit_map.sections) && proj.song_edit_map.sections.length >= (usesExactTiming ? 1 : 3), `${file} must include lyric/audio-derived sections`);
     if (!usesExactTiming) {
-      assert.notEqual(proj.song_edit_map.sections.length, 6, `${file} must not use the old fixed six-section template`);
+      assert.notEqual(
+        proj.song_edit_map.sections.map((section) => section.type).join(","),
+        "intro,verse,chorus,verse,bridge,outro",
+        `${file} must not use the old fixed six-section template`,
+      );
     }
     assert.ok(Array.isArray(proj.song_edit_map.editPulses), `${file} missing edit pulses`);
     assert.equal(proj.song_edit_map.editPulses.length, (proj.timed_lyrics || []).length, `${file} edit pulses must be derived from healed lyric lines`);

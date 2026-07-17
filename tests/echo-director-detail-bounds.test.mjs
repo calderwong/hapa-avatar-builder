@@ -79,13 +79,16 @@ test("Boba Tea Strum detail stays bounded and hydrates only the selected cut", a
     [SELECTED_VARIANT_ID],
   );
   assert.ok(sourceProject.direction_script_variants.every((variant) => Array.isArray(variant.timeline)), "the explicit source profile remains lossless");
-  assert.ok(
-    coldProject.director_show_graph,
-    `the compact detail must retain a ready Director graph: ${JSON.stringify(coldProject.director_show_graph_receipt)}`,
-  );
-  for (const field of coldProject.director_show_graph_receipt.delivery.omittedDirectorV2Fields) {
-    assert.equal(coldProject.director_show_graph.directorV2[field], undefined, `${field} should not ride the editor response`);
-    assert.notEqual(sourceProject.director_show_graph.directorV2[field], undefined, `${field} must remain available from the source profile`);
+  assert.ok(Array.isArray(coldProject.timeline) && coldProject.timeline.length > 0, "timeline hydration must remain available while graph certification prepares");
+  assert.ok(["ready", "preparing"].includes(coldProject.director_show_graph_receipt.status));
+  if (coldProject.director_show_graph) {
+    for (const field of coldProject.director_show_graph_receipt.delivery.omittedDirectorV2Fields) {
+      assert.equal(coldProject.director_show_graph.directorV2[field], undefined, `${field} should not ride the editor response`);
+      assert.notEqual(sourceProject.director_show_graph.directorV2[field], undefined, `${field} must remain available from the source profile`);
+    }
+  } else {
+    assert.equal(coldProject.director_show_graph_receipt.status, "preparing");
+    assert.ok(coldProject.director_show_graph_receipt.reason);
   }
 
   assert.ok(cold.bytes < 3_000_000, `cold editor detail exceeded its 3 MB budget: ${cold.bytes}`);

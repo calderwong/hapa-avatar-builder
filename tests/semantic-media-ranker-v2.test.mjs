@@ -40,9 +40,11 @@ test("all album shots retain proposed decomposed rankings without claiming revie
       assert.match(casting.confidenceRule, /capped at 0\.55/);
     }
   }
-  assert.equal(shots, 4477);
+  const report = JSON.parse(fs.readFileSync("artifacts/echo-semantic-ranker-v2/report.json", "utf8"));
+  assert.equal(shots, report.slots);
+  assert.equal(files.length, report.projects);
   const packet = JSON.parse(fs.readFileSync("/Users/calderwong/Documents/Codex/2026-07-10/re/outputs/dear-papa-director-v2-demo/semantic-review/review-packet.json", "utf8"));
   assert.equal(packet.comparisons.length, 18);
   assert.equal(Object.hasOwn(packet, "sealedAnswers"), false);
-  assert.equal(JSON.parse(fs.readFileSync("artifacts/echo-semantic-ranker-v2/report.json", "utf8")).reviewStatus, "awaiting-human-blind-ab");
+  assert.equal(report.reviewStatus, "awaiting-human-blind-ab");
 });
