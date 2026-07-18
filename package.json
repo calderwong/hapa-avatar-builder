@@ -29,6 +29,8 @@
     "enrich:tarot": "node scripts/enrich-tarot-library.mjs",
     "enrich:avatars": "node scripts/enrich-avatar-media.mjs",
     "ingest:folder-videos": "node scripts/ingest-folder-videos.mjs",
+    "ingest:deevid": "node scripts/ingest-deevid-media-card-set.mjs",
+    "ingest:deevid:full": "npm run ingest:deevid && node scripts/analyze-echos-media-affordances-v2.mjs --apply && npm run mind:quality-pass && npm run mind:story-spine-pass && npm run audit:mind-quality && npm run audit:healing",
     "ingest:scroll-site": "node scripts/ingest-scroll-site-media.mjs",
     "echo:variants:builder-balanced": "node scripts/append-balanced-builder-direction-variants.mjs",
     "echo:variants:builder-balanced:apply": "node scripts/append-balanced-builder-direction-variants.mjs --apply",

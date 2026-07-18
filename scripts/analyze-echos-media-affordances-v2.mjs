@@ -83,7 +83,7 @@ async function contactSheet(filePath, duration, hash) {
   await run("/opt/homebrew/bin/ffmpeg", [
     "-v", "error", "-y", "-ss", "0", "-i", filePath, "-ss", String(mid), "-i", filePath, "-ss", String(end), "-i", filePath,
     "-filter_complex", "[0:v]scale=320:-2[a];[1:v]scale=320:-2[b];[2:v]scale=320:-2[c];[a][b][c]hstack=inputs=3[out]",
-    "-map", "[out]", "-frames:v", "1", "-q:v", "4", output,
+    "-map", "[out]", "-frames:v", "1", "-q:v", "4", "-strict", "unofficial", output,
   ], { maxBuffer: 2 * 1024 * 1024 });
   return output;
 }

@@ -30,6 +30,7 @@ import {
   createSystemMediaLibrary,
   normalizeSystemMediaLibrary
 } from "../src/domain/systemMedia.js";
+import { parseVisionToolOutput } from "../src/domain/vision-output.js";
 
 const execFile = promisify(execFileCallback);
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -630,8 +631,7 @@ async function runVision(paths) {
   for (let index = 0; index < chunks.length; index += 1) {
     console.error(`[folder-video-ingest] Vision chunk ${index + 1}/${chunks.length} (${chunks[index].length} frames)`);
     const { stdout } = await execFile(TOOL_PATH, chunks[index], { cwd: ROOT, maxBuffer: 140 * 1024 * 1024 });
-    for (const line of stdout.split("\n").filter(Boolean)) {
-      const result = JSON.parse(line);
+    for (const result of parseVisionToolOutput(stdout)) {
       results.set(result.path, result);
     }
   }

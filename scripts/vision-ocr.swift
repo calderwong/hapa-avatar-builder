@@ -28,16 +28,17 @@ for path in paths {
     continue
   }
 
-  let request = VNRecognizeTextRequest()
-  request.recognitionLevel = .accurate
-  request.usesLanguageCorrection = true
-  request.recognitionLanguages = ["en-US"]
-  request.minimumTextHeight = 0.004
+  let textRequest = VNRecognizeTextRequest()
+  textRequest.recognitionLevel = .accurate
+  textRequest.usesLanguageCorrection = true
+  textRequest.recognitionLanguages = ["en-US"]
+  textRequest.minimumTextHeight = 0.004
+  let classifyRequest = VNClassifyImageRequest()
 
   let handler = VNImageRequestHandler(cgImage: cgImage, options: [:])
   do {
-    try handler.perform([request])
-    let observations = (request.results ?? []).sorted { left, right in
+    try handler.perform([textRequest, classifyRequest])
+    let observations = (textRequest.results ?? []).sorted { left, right in
       let dy = abs(left.boundingBox.midY - right.boundingBox.midY)
       if dy > 0.012 {
         return left.boundingBox.midY > right.boundingBox.midY
@@ -62,12 +63,24 @@ for path in paths {
     let averageConfidence = confidenceValues.isEmpty
       ? 0.0
       : confidenceValues.reduce(0.0, +) / Double(confidenceValues.count)
+    let labels = (classifyRequest.results ?? [])
+      .filter { $0.confidence >= 0.01 }
+      .prefix(32)
+      .map { observation in
+        [
+          "identifier": observation.identifier,
+          "confidence": Double(observation.confidence)
+        ] as [String: Any]
+      }
     payload.append([
       "path": path,
       "engine": "apple-vision",
       "confidence": averageConfidence,
       "text": text,
-      "lines": lines
+      "textLines": lines,
+      "lines": lines,
+      "labels": labels,
+      "ok": true
     ])
   } catch {
     payload.append([
@@ -75,7 +88,10 @@ for path in paths {
       "engine": "apple-vision",
       "error": String(describing: error),
       "text": "",
-      "lines": []
+      "textLines": [],
+      "lines": [],
+      "labels": [],
+      "ok": false
     ])
   }
 }
