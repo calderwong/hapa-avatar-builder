@@ -176,13 +176,15 @@ test("Next Mint candidates use managed render defaults, bind automatically, and 
   }
   assert.match(source, /\["approved", "queued", "rendering", "failed"\]\.includes\(remintCandidate\.status\)/);
   assert.match(source, /disabled=\{!localSessionReady \|\| \(!renderFailureHelp\.rebuildFromSavedCut && !renderAvailable\) \|\| effectivePhase === "rendering"\}/);
+  assert.match(source, /body: JSON\.stringify\(\{ rebuildFromSavedCut \}\)/);
+  assert.match(source, /rebuildFromSavedCut: rebuildingSavedCut/);
   assert.match(source, /if \(!candidateId \|\| \(!rebuildingSavedCut && !renderAvailable\)\) return/);
   assert.match(source, /normalizeSongCardRenderFailure\(payload/);
   assert.match(source, /data-testid="song-card-render-inactive"/);
   assert.match(source, /Choose Retry plan below to create a clean new attempt/);
   assert.match(source, /\["awaiting-approval", "approved", "queued", "rendering", "failed"\]/);
   assert.match(source, /localRenderJob\.status\)\.toLowerCase\(\) === "failed"/);
-  assert.match(source, /setError\(""\);[\s\S]*?await startLocalRender\(candidateId, \{ announce: false \}\)/);
+  assert.match(source, /setError\(""\);[\s\S]*?await startLocalRender\(candidateId, \{ announce: false, rebuildFromSavedCut: rebuildingSavedCut \}\)/);
   assert.match(source, /payload\.rehydrated === true && payload\.reviewRequired === true/);
   assert.match(source, /setPlan\(replacementPlan\)/);
   assert.match(source, /setRemintCandidate\(payload\.replacementCandidate \|\| null\)/);

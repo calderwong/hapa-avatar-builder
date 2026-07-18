@@ -93,8 +93,8 @@ test("album Director v2 hydration covers every Echo project with executable visu
   assert.equal(routes.accountedCardCount, report.visualizerCardCount);
   assert.equal(routes.silentFilteredCardCount, 0);
   assert.ok(routes.uniqueSourceIdCount > 0);
-  assert.equal(routes.proxyRegistryCounts.proxyCount, 163);
-  assert.equal(routes.proxyRegistryCounts.failureCount, 19);
+  assert.equal(routes.proxyRegistryCounts.proxyCount, 162);
+  assert.equal(routes.proxyRegistryCounts.failureCount, 20);
   assert.deepEqual(routes.verification, {
     exactProxyRequiresAvailableAsset: true,
     exactProxyRequiresSourceSha256Match: true,

@@ -850,7 +850,7 @@ export default function SongCardMintPanel({ songId, project, showGraph, compact 
     else loadFlow({ source: "manual", autoKey: automaticPlanKey });
   }
 
-  async function startLocalRender(candidateId, { announce = true } = {}) {
+  async function startLocalRender(candidateId, { announce = true, rebuildFromSavedCut = false } = {}) {
     if (!candidateId) return null;
     localRenderStartedRef.current = candidateId;
     setRenderRequestFailure(null);
@@ -858,7 +858,7 @@ export default function SongCardMintPanel({ songId, project, showGraph, compact 
       const response = await songCardAdminFetch(`/api/song-card-remints/${encodeURIComponent(candidateId)}/render-local`, {
         method: "POST",
         headers: { Accept: "application/json", "Content-Type": "application/json" },
-        body: "{}",
+        body: JSON.stringify({ rebuildFromSavedCut }),
       });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) {
@@ -955,7 +955,7 @@ export default function SongCardMintPanel({ songId, project, showGraph, compact 
       error: null,
     } : current);
     try {
-      const payload = await startLocalRender(candidateId, { announce: false });
+      const payload = await startLocalRender(candidateId, { announce: false, rebuildFromSavedCut: rebuildingSavedCut });
       setPhase("idle");
       setNotice(payload?.reviewRequired === true
         ? payload.message || "The saved edit was rebuilt safely. Review and approve the replacement before rendering."

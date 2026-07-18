@@ -1322,6 +1322,13 @@ test("pixel QA reuses runtime stem semantics and reports the exact pre-encode ga
   assert.equal(error.details.nonPositiveOpacityFrames.length, 1);
   assert.match(error.message, /before MP4 encoding/);
   assert.match(error.message, /no edition was minted/);
+
+  const blank = structuredClone(report);
+  blank.frames[0].canvasMetrics = { nonBlank: false, nonFlat: false, lumaMax: 0 };
+  const blankError = createSongCardPixelQaError(blank);
+  assert.deepEqual(blankError.details.failedChecks, ["shaderCanvasNonBlank"]);
+  assert.deepEqual(blankError.details.blankShaderCanvasFrames, [12]);
+  assert.equal(blankError.details.blankShaderCanvasFrameDetails[0].expected[0].visualizerId, "isf:blue");
 });
 
 test("local media preflight stops missing real cues before rendering and accepts explicit IVF-only blanks", async (t) => {

@@ -116,9 +116,9 @@ export function createEchoMintPlanCanonicalResolver({
     return structuredClone((await catalog.load()).shaders || []);
   };
 
-  return async function resolveEchoMintPlanCompatibility(plan = {}) {
+  return async function resolveEchoMintPlanCompatibility(plan = {}, { forceCanonicalRefresh = false } = {}) {
     const initial = assessSongCardMintPlanCompatibility({ plan });
-    if (!initial.requiresRepair) return initial;
+    if (!initial.requiresRepair && !forceCanonicalRefresh) return initial;
     const project = plan?.input?.project || {};
     const graph = plan?.input?.showGraph || {};
     const songId = safePathSegment(project.song_id);
@@ -198,6 +198,7 @@ export function createEchoMintPlanCanonicalResolver({
           directionVariantSha256: digest(loadedVariant.variant),
           shaderCatalogSha256,
         },
+        forceCanonicalRefresh,
       });
     } catch (error) {
       return blockedCompatibility(plan, "canonical-resolution-failed", {

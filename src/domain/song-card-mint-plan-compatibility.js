@@ -296,7 +296,8 @@ function nonRunnable(plan, graphInspection, reasons, details = {}) {
     status: "non-runnable",
     runnable: false,
     requiresRepair: graphRequiresCanonicalRepair(graphInspection)
-      || details?.workingAliasIdentity?.applicable === true,
+      || details?.workingAliasIdentity?.applicable === true
+      || details?.forceCanonicalRefresh === true,
     planId: text(plan?.planId || plan?.id) || null,
     graphInspection,
     reasons,
@@ -323,6 +324,7 @@ export function assessSongCardMintPlanCompatibility({
   canonicalGraph = null,
   sourceVariant = null,
   sourceEvidence = {},
+  forceCanonicalRefresh = false,
 } = {}) {
   const input = plan?.input || {};
   const project = input.project || {};
@@ -339,7 +341,7 @@ export function assessSongCardMintPlanCompatibility({
     });
   }
 
-  if (!graphRequiresCanonicalRepair(graphInspection) && !workingAliasIdentity.applicable) {
+  if (!forceCanonicalRefresh && !graphRequiresCanonicalRepair(graphInspection) && !workingAliasIdentity.applicable) {
     return {
       schemaVersion: SONG_CARD_MINT_PLAN_COMPATIBILITY_SCHEMA,
       status: "current",
@@ -363,6 +365,7 @@ export function assessSongCardMintPlanCompatibility({
 
   if (!canonicalProject || !canonicalGraph || !sourceVariant) {
     return nonRunnable(plan, graphInspection, ["canonical-compiled-graph-not-resolved"], {
+      forceCanonicalRefresh,
       ...(workingAliasIdentity.applicable ? { workingAliasIdentity } : {}),
     });
   }
@@ -453,7 +456,9 @@ export function assessSongCardMintPlanCompatibility({
       ? "projectToEditorGraph:fallback-v1"
       : workingAliasIdentity.applicable
         ? "projectToEditorGraph:saved-working-alias"
-        : "projectToEditorGraph:detached-portable-visualizer",
+        : forceCanonicalRefresh
+          ? "projectToEditorGraph:forced-canonical-refresh"
+          : "projectToEditorGraph:detached-portable-visualizer",
     savedPlanId: text(plan?.planId || plan?.id) || null,
     savedVariantId,
     savedEditorialHash,

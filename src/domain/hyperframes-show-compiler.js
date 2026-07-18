@@ -2,7 +2,7 @@ import crypto from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { getShowGraphCapability } from "./show-graph-capabilities.js";
-import { canonicalSha256 } from "./native-visualizer-route.js";
+import { canonicalSha256, inspectProxyFramePixelEvidence } from "./native-visualizer-route.js";
 import {
   VISUALIZER_RENDERER_TRUTH_SCHEMA,
   resolveVisualizerRendererTruth,
@@ -463,6 +463,9 @@ function normalizedProxy(candidate = null, visualizerId = "", sourceHash = "") {
     ? candidate.frameTimes.map((value, index) => finite(value, index / fps))
     : Array.from({ length: frameCount }, (_, index) => index / fps);
   const frameMetrics = Array.isArray(candidate.frames) ? candidate.frames : [];
+  if (frameMetrics.length > 0 && !inspectProxyFramePixelEvidence(candidate).ok) {
+    return { proxy: null, reason: "exact-proxy-visible-rgb-evidence-invalid" };
+  }
   const declaredFrameIndices = Array.from({ length: frameCount }, (_, index) => index);
   const nonBlankFrameIndices = declaredFrameIndices.filter((index) => frameMetrics[index]?.nonBlank !== false);
   const nonFlatFrameIndices = nonBlankFrameIndices.filter((index) => frameMetrics[index]?.nonFlat !== false);

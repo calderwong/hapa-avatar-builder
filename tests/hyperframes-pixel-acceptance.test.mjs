@@ -15,13 +15,14 @@ function frame({
   opacity = 0.2,
   png = "frame-a",
   canvas = "canvas-a",
+  canvasNonBlank = true,
 } = {}) {
   return {
     timestamp,
     pngSha256: png,
     canvasPngSha256: canvas,
     metrics: { nonBlank: true, nonFlat: true },
-    canvasMetrics: { nonBlank: true, nonFlat: true },
+    canvasMetrics: { nonBlank: canvasNonBlank, nonFlat: canvasNonBlank, lumaMax: canvasNonBlank ? 128 : 0 },
     expected: { layers: [{ cueId, visualizerId, stemFocus: expectedStem }] },
     renderState: {
       layers: [{ cueId, visualizerId, stemFocus: actualStem, effectiveOpacity: opacity }],
@@ -97,4 +98,21 @@ test("real cue, shader, stem, and opacity mismatches remain fail-closed and diag
   assert.equal(result.acceptance.positiveEffectiveOpacity, false);
   assert.equal(result.diagnostics.mismatchedFrames[0].expected[0].canonicalStemRole, "drums");
   assert.equal(result.diagnostics.mismatchedFrames[0].actual[0].canonicalStemRole, "vocals");
+});
+
+test("blank shader canvas diagnostics preserve the exact cue and visualizer for safe replanning", () => {
+  const result = evaluateHyperFramesPixelAcceptance({
+    frames: [frame({ timestamp: 210.5, cueId: "card:b:9", visualizerId: "isf:alpha-only", canvasNonBlank: false })],
+    timelineReady: true,
+  });
+  assert.equal(result.ok, false);
+  assert.deepEqual(result.acceptance.blankShaderCanvasFrames, [210.5]);
+  assert.deepEqual(result.diagnostics.blankShaderCanvasFrameDetails[0].expected[0], {
+    cueId: "card:b:9",
+    visualizerId: "isf:alpha-only",
+    stemFocus: "leadVocals",
+    canonicalStemRole: "vocals",
+    effectiveOpacity: null,
+  });
+  assert.equal(result.diagnostics.blankShaderCanvasFrameDetails[0].canvasMetrics.lumaMax, 0);
 });

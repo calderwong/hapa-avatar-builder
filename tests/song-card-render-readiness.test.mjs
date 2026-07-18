@@ -38,9 +38,10 @@ function fixture(root) {
       frameTimes: [0, 0.5],
       verified: true,
       frames: [
-        { index: 0, nonBlank: true, nonFlat: true, playable: true },
-        { index: 1, nonBlank: true, nonFlat: true, playable: true },
+        { index: 0, lumaMax: 128, lumaRange: 96, nonBlank: true, nonFlat: true, playable: true },
+        { index: 1, lumaMax: 160, lumaRange: 112, nonBlank: true, nonFlat: true, playable: true },
       ],
+      playableFrameIndices: [0, 1],
     }],
   };
   const proxyRegistryPath = path.join(proxyDirectory, "native-exact-proxies.json");
@@ -177,6 +178,24 @@ test("Song Card readiness blocks hash drift, detached preflights, and unsupporte
   });
   assert.equal(unproven.ok, false);
   assert.ok(unproven.blockers.some((row) => row.code === "exact-proxy-playback-proof-invalid"));
+
+  const alphaOnlyRegistry = structuredClone(fixtureData.proxyRegistry);
+  for (const frame of alphaOnlyRegistry.proxies[0].frames) {
+    Object.assign(frame, { lumaMax: 0, lumaRange: 0, nonBlank: true, nonFlat: true, playable: true });
+  }
+  const alphaOnly = preflightSongCardRenderReadiness({
+    project: {},
+    showGraph: fixtureData.showGraph,
+    proxyRegistry: alphaOnlyRegistry,
+    proxyRegistryPath: fixtureData.proxyRegistryPath,
+    root,
+    projectPath: path.join(root, "project.json"),
+    signalPreflight: passingSignalPreflight,
+    mediaPreflight: passingMediaPreflight,
+  });
+  assert.equal(alphaOnly.ok, false);
+  const alphaOnlyBlocker = alphaOnly.blockers.find((row) => row.code === "visualizer-route-not-exact");
+  assert.equal(alphaOnlyBlocker.details.reason, "exact-proxy-visible-rgb-evidence-invalid");
 
   const detachedVisualizers = Array.from({ length: 14 }, (_, index) => ({
     cardId: `projected:track-b:${index}`,

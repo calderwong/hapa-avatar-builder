@@ -117,6 +117,16 @@ export function evaluateHyperFramesPixelAcceptance({
   const canvasChangedTransitions = changedTransitions(canvasPixelHashes);
   const idTransitionsMatchExpected = distinctIdTransitions === expectedDistinctIdTransitions;
   const idChangeCausesPixelChange = distinctIdTransitions === 0 || canvasChangedTransitions >= distinctIdTransitions;
+  const blankShaderCanvasFrameDetails = rows
+    .filter((frame) => frame.canvasMetrics?.nonBlank !== true)
+    .map((frame) => ({
+      timestamp: finite(frame.timestamp),
+      expected: frameExpectedLayers(frame).map(layerSummary),
+      actual: renderLayers(frame).map(layerSummary),
+      canvasMetrics: frame.canvasMetrics && typeof frame.canvasMetrics === "object"
+        ? { ...frame.canvasMetrics }
+        : null,
+    }));
   const acceptance = {
     timelineReady: Boolean(timelineReady),
     renderStatePresent: rows.length > 0 && rows.every((frame) => frame.renderState && Array.isArray(frame.renderState.layers || frame.renderState.instances)),
@@ -155,6 +165,7 @@ export function evaluateHyperFramesPixelAcceptance({
     diagnostics: {
       mismatchedFrames,
       nonPositiveOpacityFrames,
+      blankShaderCanvasFrameDetails,
       semanticAliasMatches,
     },
   };

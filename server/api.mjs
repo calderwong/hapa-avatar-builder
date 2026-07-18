@@ -2541,6 +2541,7 @@ async function route(req, res) {
     if (!requireAdmin(req, res)) return;
     try {
       const candidateId = decodeURIComponent(songCardLocalRenderMatch[1]);
+      const body = await readBody(req);
       const queue = await songCardRemintStore.view();
       const candidate = queue.candidates.find((row) => row.id === candidateId);
       if (!candidate?.planId) {
@@ -2549,7 +2550,9 @@ async function route(req, res) {
         error.statusCode = 404;
         throw error;
       }
-      const prepared = await songCardMintController.rehydratePlan(candidate.planId);
+      const prepared = await songCardMintController.rehydratePlan(candidate.planId, {
+        forceCanonicalRefresh: body.rebuildFromSavedCut === true,
+      });
       if (prepared.rehydrated) {
         const replacementPlan = await songCardMintController.getPlan(prepared.plan.planId);
         const replacementCandidate = await songCardRemintStore.proposeFromPlan(replacementPlan.songId, replacementPlan);

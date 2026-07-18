@@ -143,6 +143,64 @@ test("controller retry supersedes a proven legacy plan with a new canonical plan
   assert.equal(storedReplacement.mintPlanCompatibility.action, "rehydrated-canonical-compiled-graph");
 });
 
+test("forced saved-cut recovery rebuilds a structurally current plan from canonical sources", async (t) => {
+  const root = await fsp.mkdtemp(path.join(os.tmpdir(), "song-card-forced-canonical-refresh-"));
+  t.after(() => fsp.rm(root, { recursive: true, force: true }));
+  const value = fixture();
+  value.plan.input.project = structuredClone(value.canonicalProject);
+  value.plan.input.showGraph = structuredClone(value.canonicalGraph);
+  let resolverOptions = null;
+  const controller = new SongCardMintController({
+    root,
+    mintPlanCompatibilityResolver: async (plan, options) => {
+      resolverOptions = options;
+      return assessSongCardMintPlanCompatibility({
+        plan,
+        canonicalProject: value.canonicalProject,
+        canonicalGraph: value.canonicalGraph,
+        sourceVariant: value.sourceVariant,
+        sourceEvidence: { sourceKind: "test-sidecar" },
+        forceCanonicalRefresh: options?.forceCanonicalRefresh === true,
+      });
+    },
+    enforceMintPlanCompatibility: true,
+  });
+  await controller.initialize();
+  await fsp.writeFile(controller.planPath(value.plan.planId), `${JSON.stringify(value.plan, null, 2)}\n`);
+
+  const initial = await controller.inspectPlanCompatibility(value.plan.planId);
+  assert.equal(initial.status, "current", "the fixture must exercise catalog drift rather than legacy graph repair");
+
+  const rebuilt = await controller.rehydratePlan(value.plan.planId, { forceCanonicalRefresh: true });
+  const superseded = await controller.getPlan(value.plan.planId);
+  const replacement = await controller.getPlan(rebuilt.plan.planId);
+
+  assert.deepEqual(resolverOptions, { forceCanonicalRefresh: true });
+  assert.equal(rebuilt.rehydrated, true);
+  assert.notEqual(replacement.planId, value.plan.planId);
+  assert.equal(superseded.status, "superseded");
+  assert.equal(replacement.input.receipts.mintPlanCompatibility.repairProducer, "projectToEditorGraph:forced-canonical-refresh");
+  assert.equal(replacement.status, "changed", "the rebuilt plan must return to review instead of rendering automatically");
+});
+
+test("forced saved-cut recovery fails closed when canonical resolution is unavailable", async (t) => {
+  const root = await fsp.mkdtemp(path.join(os.tmpdir(), "song-card-forced-refresh-unavailable-"));
+  t.after(() => fsp.rm(root, { recursive: true, force: true }));
+  const value = fixture();
+  value.plan.input.project = structuredClone(value.canonicalProject);
+  value.plan.input.showGraph = structuredClone(value.canonicalGraph);
+  const controller = new SongCardMintController({ root });
+  await controller.initialize();
+  await fsp.writeFile(controller.planPath(value.plan.planId), `${JSON.stringify(value.plan, null, 2)}\n`);
+
+  await assert.rejects(
+    controller.rehydratePlan(value.plan.planId, { forceCanonicalRefresh: true }),
+    (error) => error?.code === "mint_plan_not_runnable"
+      && error?.details?.compatibility?.reasons?.includes("canonical-compiled-graph-not-resolved"),
+  );
+  assert.equal((await controller.getPlan(value.plan.planId)).status, "non-runnable");
+});
+
 test("render assertion blocks the stale plan before a worker can start", async (t) => {
   const root = await fsp.mkdtemp(path.join(os.tmpdir(), "song-card-plan-render-guard-"));
   t.after(() => fsp.rm(root, { recursive: true, force: true }));

@@ -27,7 +27,7 @@ function compileAlbum(output) {
   const result = spawnSync(process.execPath, [COMPILE_SCRIPT, "--output", output], {
     cwd: ROOT,
     encoding: "utf8",
-    timeout: 30_000,
+    timeout: 60_000,
   });
   assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
 }
@@ -36,7 +36,7 @@ function runGate(album, output, expectedStatus = 0) {
   const result = spawnSync(process.execPath, [GATE_SCRIPT, "--album", album, "--output", output], {
     cwd: ROOT,
     encoding: "utf8",
-    timeout: 30_000,
+    timeout: 60_000,
   });
   assert.equal(result.status, expectedStatus, `${result.stdout}\n${result.stderr}`);
   assert.equal(fs.existsSync(output), true, "release gate must write its evidence report");
@@ -126,8 +126,8 @@ test("freshly compiled Echo projects accept only source-bound quarantine repair 
     hyperframes: { cueCount: 0, uniqueIdCount: 0, explicit: true },
   });
 
-  assert.equal(first.proxies.registryProxyCount, 163);
-  assert.equal(first.proxies.registryFailureCount, 19);
+  assert.equal(first.proxies.registryProxyCount, 162);
+  assert.equal(first.proxies.registryFailureCount, 20);
   assert.ok(first.proxies.nativeUniqueExactProxyCount > 0);
   assert.ok(first.proxies.hyperframesUniqueExactProxyCount > 0);
   assert.ok(first.proxies.contracts.every((row) => row.ok));

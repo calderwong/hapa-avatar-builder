@@ -456,12 +456,12 @@ export class SongCardMintController {
     return readMintPlanJsonNoFollow(this.planPath(normalizedPlanId), normalizedPlanId);
   }
 
-  async inspectPlanCompatibility(planOrId) {
+  async inspectPlanCompatibility(planOrId, { forceCanonicalRefresh = false } = {}) {
     const plan = typeof planOrId === "string" ? await this.getPlan(planOrId) : planOrId;
-    const initial = assessSongCardMintPlanCompatibility({ plan });
+    const initial = assessSongCardMintPlanCompatibility({ plan, forceCanonicalRefresh });
     if (!initial.requiresRepair || !this.mintPlanCompatibilityResolver) return initial;
     try {
-      return await this.mintPlanCompatibilityResolver(plan);
+      return await this.mintPlanCompatibilityResolver(plan, { forceCanonicalRefresh });
     } catch (error) {
       return {
         ...initial,
@@ -507,7 +507,7 @@ export class SongCardMintController {
     );
   }
 
-  async rehydratePlan(planId) {
+  async rehydratePlan(planId, { forceCanonicalRefresh = false } = {}) {
     const plan = await this.getPlan(planId);
     if (["completed", "minted", "canceled", "rejected", "superseded"].includes(String(plan.status || "").toLowerCase())) {
       throw controllerError("mint_plan_not_runnable", `Mint plan ${plan.planId} is ${plan.status} and cannot be rebuilt.`, 409, {
@@ -515,7 +515,7 @@ export class SongCardMintController {
         status: plan.status,
       });
     }
-    const compatibility = await this.inspectPlanCompatibility(plan);
+    const compatibility = await this.inspectPlanCompatibility(plan, { forceCanonicalRefresh });
     if (compatibility.status === "current") {
       return { rehydrated: false, plan: this.publicPlan(plan), compatibility: compatibility.receipt };
     }

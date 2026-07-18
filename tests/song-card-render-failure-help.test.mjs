@@ -83,6 +83,25 @@ test("render failure help classifies real evidence and bounds selected-cut infer
   assert.equal(missingStems.affectedShader, undefined);
   assert.equal(missingStems.rebuildFromSavedCut, undefined);
 
+  const blankShader = explainSongCardRenderFailure({
+    code: "local_renderer_truth_failed",
+    stage: "pixel-qa",
+    details: {
+      failedChecks: ["shaderCanvasNonBlank"],
+      blankShaderCanvasFrames: [210.5],
+      blankShaderCanvasFrameDetails: [{
+        timestamp: 210.5,
+        expected: [{ cueId: "card:b:9", visualizerId: "isf:alpha-only" }],
+      }],
+    },
+  }, context);
+  assert.equal(blankShader.category, "shader-route");
+  assert.equal(blankShader.rebuildFromSavedCut, true);
+  assert.equal(blankShader.title, "The selected shader produced a blank final-render frame.");
+  assert.equal(blankShader.affectedShader, "isf:alpha-only · at 3:30.5 (210.5s)");
+  assert.equal(blankShader.buttonLabel, "Rebuild from saved cut");
+  assert.match(blankShader.nextAction, /corrected shader catalog/);
+
   const detached = explainSongCardRenderFailure({
     code: "local_render_start_certification_not_ready",
     stage: "render-start-certification",

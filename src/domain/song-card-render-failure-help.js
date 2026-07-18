@@ -63,7 +63,8 @@ export function normalizeSongCardRenderFailure(payload = {}, fallback = {}) {
 const MAX_RENDER_FAILURE_EVIDENCE = 192;
 const EVIDENCE_KEYS = new Set([
   "blocker", "blockers", "category", "cause", "causes", "code", "error", "errors",
-  "failure", "failures", "inputrole", "kind", "reason", "stage", "status", "type", "unresolved",
+  "failure", "failures", "failedchecks", "inputrole", "kind", "reason", "stage", "status", "type", "unresolved",
+  "blankshadercanvasframes", "blankshadercanvasframedetails",
 ]);
 const IGNORED_EVIDENCE_KEYS = new Set([
   "command", "diagnostic", "diagnostics", "log", "logs", "message", "output", "stack", "stderr", "stdout",
@@ -167,6 +168,24 @@ function detachedVisualizerTarget(failure = {}) {
   };
 }
 
+function blankShaderTarget(failure = {}) {
+  const details = failure?.details && typeof failure.details === "object" ? failure.details : {};
+  const row = rows(details.blankShaderCanvasFrameDetails)[0] || null;
+  const layer = rows(row?.expected)[0] || rows(row?.actual)[0] || null;
+  const timestamp = optionalSeconds(row?.timestamp ?? rows(details.blankShaderCanvasFrames)[0]);
+  if (!row && timestamp === null) return null;
+  const sourceId = String(layer?.visualizerId || "").trim();
+  const cardId = String(layer?.cueId || "").trim();
+  const name = sourceId || "Selected shader";
+  const range = timestamp === null ? "" : `at ${formatTime(timestamp)} (${Math.round(timestamp * 100) / 100}s)`;
+  return {
+    name,
+    range,
+    label: range ? `${name} · ${range}` : name,
+    technicalDetail: [cardId && `card ${cardId}`, sourceId && `source ${sourceId}`, "blank final-render RGB frame"].filter(Boolean).join(" · "),
+  };
+}
+
 function detachedVisualizersFromSelectedCut(showGraph = {}, project = {}) {
   const graph = Array.isArray(showGraph?.tracks)
     ? showGraph
@@ -237,7 +256,10 @@ export function explainSongCardRenderFailure(failure = {}, context = {}) {
     : normalized;
   const evidence = failureEvidence(contextualFailure);
   const detachedVisualizer = storedDetachedVisualizer || detachedVisualizerTarget(contextualFailure);
-  const rebuildFromSavedCut = /portable[_-](?:visualizer[_-])?(?:truth[_-]detached|card[_-]missing|card[_-]missing[_-]or[_-]unbound)|detached[_-]visualizers?[_-]present|missing[_-]for[_-]requested[_-]source/.test(evidence);
+  const blankShader = blankShaderTarget(contextualFailure);
+  const detachedFromFinalRender = /portable[_-](?:visualizer[_-])?(?:truth[_-]detached|card[_-]missing|card[_-]missing[_-]or[_-]unbound)|detached[_-]visualizers?[_-]present|missing[_-]for[_-]requested[_-]source/.test(evidence);
+  const blankFinalRenderFrame = /shadercanvasnonblank|blankshadercanvasframes?|blank[_-]shader[_-](?:canvas[_-])?frames?/.test(evidence);
+  const rebuildFromSavedCut = detachedFromFinalRender || blankFinalRenderFrame;
   if (/renderer[_-]build|build[_-]changed|delivery[_-]runtime/.test(evidence)) return {
     category: "renderer-build",
     title: "The Builder changed during this render check.",
@@ -249,20 +271,27 @@ export function explainSongCardRenderFailure(failure = {}, context = {}) {
     nextAction: "Choose Retry render after the edit or media update finishes. The Builder will take a fresh, consistent snapshot; the saved edit is intact.",
   };
   if (rebuildFromSavedCut || /shader|visualizer|portable[_-]card|proxy|renderer[_-]truth/.test(evidence)) {
-    const affectedSelection = detachedVisualizer
-      ? `${detachedVisualizer.name}${detachedVisualizer.range ? ` at ${detachedVisualizer.range}` : ""}`
+    const affectedTarget = detachedVisualizer || blankShader;
+    const affectedSelection = affectedTarget
+      ? `${affectedTarget.name}${affectedTarget.range ? ` ${affectedTarget.range}` : ""}`
       : "the edited shader";
     return {
       category: "shader-route",
-      title: rebuildFromSavedCut ? "The edited shader is detached from its final-render card." : "A shader or visualization route is not ready for final rendering.",
+      title: blankFinalRenderFrame
+        ? "The selected shader produced a blank final-render frame."
+        : rebuildFromSavedCut ? "The edited shader is detached from its final-render card." : "A shader or visualization route is not ready for final rendering.",
       ...(rebuildFromSavedCut ? {
-        summary: `${detachedVisualizer?.name || "The edited shader"} lost its final-render attachment. Your saved edit is intact, and no MP4 work started.`,
+        summary: blankFinalRenderFrame
+          ? `${blankShader?.name || "The selected shader"} produced no visible RGB at the checked frame. Your saved edit is intact, and no MP4 work started.`
+          : `${detachedVisualizer?.name || "The edited shader"} lost its final-render attachment. Your saved edit is intact, and no MP4 work started.`,
         rawFailureMessage: normalized.message,
       } : {}),
       nextAction: rebuildFromSavedCut
-        ? `Choose Rebuild from saved cut. The Builder will reattach ${affectedSelection} from this saved edit, then ask you to review the replacement before rendering. No edition was minted.`
+        ? blankFinalRenderFrame
+          ? `Choose Rebuild from saved cut. The Builder will refresh ${affectedSelection} against the corrected shader catalog, then ask you to review the replacement before rendering. No edition was minted.`
+          : `Choose Rebuild from saved cut. The Builder will reattach ${affectedSelection} from this saved edit, then ask you to review the replacement before rendering. No edition was minted.`
         : "Refresh the cut after shader repair or certification completes, then choose Retry render. The Builder will not substitute an unverified effect.",
-      ...(detachedVisualizer ? { affectedShader: detachedVisualizer.label, technicalDetail: detachedVisualizer.technicalDetail } : {}),
+      ...(affectedTarget ? { affectedShader: affectedTarget.label, technicalDetail: affectedTarget.technicalDetail } : {}),
       ...(rebuildFromSavedCut ? {
         rebuildFromSavedCut: true,
         buttonLabel: "Rebuild from saved cut",

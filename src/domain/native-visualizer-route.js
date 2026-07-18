@@ -37,6 +37,26 @@ function finitePositive(value) {
   return Number.isFinite(number) && number > 0 ? number : null;
 }
 
+export function inspectProxyFramePixelEvidence(proxy = {}) {
+  const frameCount = Number(proxy.frameCount);
+  const frames = Array.isArray(proxy.frames) ? proxy.frames : [];
+  const playableFrameIndices = Array.isArray(proxy.playableFrameIndices)
+    ? proxy.playableFrameIndices.map(Number)
+    : [];
+  const errors = [];
+  if (!Number.isInteger(frameCount) || frameCount <= 0) errors.push("frame-count-invalid");
+  if (frames.length !== frameCount) errors.push("metric-frame-count-mismatch");
+  if (playableFrameIndices.length !== frameCount
+    || playableFrameIndices.some((value, index) => value !== index)) errors.push("playable-frame-index-contract-invalid");
+  frames.forEach((frame, index) => {
+    if (frame?.nonBlank !== true) errors.push(`frame-${index}-blank`);
+    if (frame?.nonFlat !== true) errors.push(`frame-${index}-flat`);
+    const lumaMax = Number(frame?.lumaMax);
+    if (!Number.isFinite(lumaMax) || lumaMax <= 2) errors.push(`frame-${index}-visible-rgb-missing`);
+  });
+  return { ok: errors.length === 0, errors };
+}
+
 function losses(values, fallback = []) {
   const source = Array.isArray(values) ? values : fallback;
   return [...new Set(source.map(text).filter(Boolean))].sort();
@@ -164,13 +184,24 @@ export function resolveNativeVisualizerRoute(shader = {}, options = {}) {
 }
 
 export function hydrateManifestNativeRoutes(manifest = {}, registry = {}) {
-  const proxyById = new Map((registry.proxies || []).map((entry) => [normalizedShaderId(entry.id || entry.shaderId), entry]));
+  const proxyRows = Array.isArray(registry.proxies) ? registry.proxies : [];
+  const proxyEvidence = new Map(proxyRows.map((entry) => [
+    normalizedShaderId(entry.id || entry.shaderId),
+    inspectProxyFramePixelEvidence(entry),
+  ]));
+  const proxyById = new Map(proxyRows
+    .filter((entry) => proxyEvidence.get(normalizedShaderId(entry.id || entry.shaderId))?.ok)
+    .map((entry) => [normalizedShaderId(entry.id || entry.shaderId), entry]));
+  const invalidProxyById = new Map(proxyRows
+    .filter((entry) => !proxyEvidence.get(normalizedShaderId(entry.id || entry.shaderId))?.ok)
+    .map((entry) => [normalizedShaderId(entry.id || entry.shaderId), entry]));
   const failureById = new Map((registry.failures || []).map((entry) => [normalizedShaderId(entry.id || entry.shaderId), entry]));
   const shaders = (manifest.shaders || []).map((shader) => {
     const normalizedId = normalizedShaderId(shader.id || shader.shaderId);
     const proxyEntry = proxyById.get(normalizedId) || null;
+    const invalidProxyEntry = invalidProxyById.get(normalizedId) || null;
     const failureEntry = failureById.get(normalizedId) || null;
-    const sourceHash = canonicalSha256(shader.sourceHash || proxyEntry?.sourceHash || failureEntry?.sourceHash || shader.hash);
+    const sourceHash = canonicalSha256(shader.sourceHash || proxyEntry?.sourceHash || invalidProxyEntry?.sourceHash || failureEntry?.sourceHash || shader.hash);
     const requested = { id: text(shader.id || (shader.shaderId ? `isf:${shader.shaderId}` : "")), title: text(shader.title), sourceHash };
     const explicitPort = DECLARED_NATIVE_SHADER_PORTS[normalizedId] || "";
     const hyperframesProxy = proxyEntry ? {
@@ -204,6 +235,18 @@ export function hydrateManifestNativeRoutes(manifest = {}, registry = {}) {
         proxy: null,
         fidelityLoss: [],
         reason: "declared-native-metal-port",
+        silentDefault: false,
+      };
+    } else if (invalidProxyEntry) {
+      nativeRoute = {
+        schemaVersion: NATIVE_SHADER_ROUTE_SCHEMA,
+        requested,
+        route: "unsupported",
+        status: "unsupported",
+        nativeKey: null,
+        proxy: null,
+        fidelityLoss: ["requested-shader-not-presented"],
+        reason: "proxy-frame-visible-rgb-evidence-invalid",
         silentDefault: false,
       };
     } else if (shader.nativeRoute && typeof shader.nativeRoute === "object") {
@@ -241,7 +284,19 @@ export function hydrateManifestNativeRoutes(manifest = {}, registry = {}) {
         silentDefault: false,
       };
     }
-    return { ...shader, sourceHash, ...(nativeRoute ? { nativeRoute } : {}), ...(hyperframesProxy ? { hyperframesProxy } : {}) };
+    const invalidProxyQuarantine = invalidProxyEntry && !explicitPort ? {
+      enabled: false,
+      directorEligible: false,
+      runtimeEligibility: "unsupported-quarantine",
+      runtimeEligibilityReason: "proxy-frame-visible-rgb-evidence-invalid",
+      pixelGate: {
+        ...(shader.pixelGate && typeof shader.pixelGate === "object" ? shader.pixelGate : {}),
+        classification: "unsupported-quarantine",
+        reason: "proxy-frame-visible-rgb-evidence-invalid",
+        playableFrameIndices: [],
+      },
+    } : {};
+    return { ...shader, sourceHash, ...(nativeRoute ? { nativeRoute } : {}), ...(hyperframesProxy ? { hyperframesProxy } : {}), ...invalidProxyQuarantine };
   });
   return {
     ...manifest,
@@ -250,6 +305,7 @@ export function hydrateManifestNativeRoutes(manifest = {}, registry = {}) {
       schemaVersion: text(registry.schemaVersion),
       sourceManifestSha256: canonicalSha256(registry.sourceManifestSha256),
       proxyCount: Number(registry.proxies?.length || 0),
+      invalidProxyCount: invalidProxyById.size,
       failureCount: Number(registry.failures?.length || 0),
     },
   };

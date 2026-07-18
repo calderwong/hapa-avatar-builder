@@ -64,12 +64,12 @@ test("Builder serves a hash-verified ISF catalog/runtime and hydrates the compil
   assert.equal(new Set(shaders.map((shader) => shader.id)).size, 182);
   assert.equal(new Set(shaders.map((shader) => shader.source)).size, 182);
   const pixelGateQuarantine = shaders.filter((shader) => shader.runtimeEligibility === "unsupported-quarantine");
-  assert.equal(pixelGateQuarantine.length, 19);
+  assert.equal(pixelGateQuarantine.length, 20);
   assert.ok(pixelGateQuarantine.every((shader) => shader.directorEligible === false && shader.enabled === false));
   assert.ok(pixelGateQuarantine.every((shader) => shader.pixelGate?.status === "source-hash-verified"));
   assert.equal(shaders.find((shader) => shader.id === "isf:5e7a80447c113618206dee1e")?.pixelGate?.classification, "unsupported-quarantine");
   const finalReadyCatalog = shaders.filter((shader) => shader.directorEligible !== false && shader.enabled !== false);
-  assert.equal(finalReadyCatalog.length, 161);
+  assert.equal(finalReadyCatalog.length, 160);
   assert.ok(finalReadyCatalog.every((shader) => shader.hyperframesProxy?.verified === true));
   assert.ok(finalReadyCatalog.every((shader) => shader.hyperframesProxy?.sourceHash === shader.sourceHash));
   assert.ok(finalReadyCatalog.every((shader) => ["exact-native", "hash-bound-exact-proxy"].includes(shader.nativeRoute?.route)));
@@ -146,7 +146,11 @@ test("Builder serves a hash-verified ISF catalog/runtime and hydrates the compil
   assert.equal(detailResponse.status, 200);
   const project = (await detailResponse.json()).music_video_project;
   assert.ok(["ready", "preparing"].includes(project.director_show_graph_receipt.status));
-  assert.match(project.director_show_graph_receipt.sourceHash, /^sha256:[a-f0-9]{64}$/);
+  if (project.director_show_graph_receipt.status === "ready") {
+    assert.match(project.director_show_graph_receipt.sourceHash, /^sha256:[a-f0-9]{64}$/);
+  } else {
+    assert.ok(project.director_show_graph_receipt.reason);
+  }
   assert.ok(Array.isArray(project.timeline) && project.timeline.length > 0);
   if (project.director_show_graph) {
     assert.equal(project.director_show_graph.schemaVersion, "hapa.music-viz.native-show-graph.v2");

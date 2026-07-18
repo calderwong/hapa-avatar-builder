@@ -1993,6 +1993,7 @@ export function createSongCardPixelQaError(pixelReport = {}, { cause = null, rep
   const mismatchedFrames = refreshed.acceptanceDiagnostics?.mismatchedFrames || [];
   const nonPositiveOpacityFrames = refreshed.acceptanceDiagnostics?.nonPositiveOpacityFrames || [];
   const blankShaderCanvasFrames = refreshed.acceptance?.blankShaderCanvasFrames || [];
+  const blankShaderCanvasFrameDetails = refreshed.acceptanceDiagnostics?.blankShaderCanvasFrameDetails || [];
   const blockers = [];
   if (mismatchedFrames.length) blockers.push(`${mismatchedFrames.length} cue identity mismatch${mismatchedFrames.length === 1 ? "" : "es"}`);
   if (nonPositiveOpacityFrames.length) blockers.push(`${nonPositiveOpacityFrames.length} invisible shader cue${nonPositiveOpacityFrames.length === 1 ? "" : "s"}`);
@@ -2010,6 +2011,7 @@ export function createSongCardPixelQaError(pixelReport = {}, { cause = null, rep
       mismatchedFrames: structuredClone(mismatchedFrames),
       nonPositiveOpacityFrames: structuredClone(nonPositiveOpacityFrames),
       blankShaderCanvasFrames: structuredClone(blankShaderCanvasFrames),
+      blankShaderCanvasFrameDetails: structuredClone(blankShaderCanvasFrameDetails),
       semanticAliasMatches: structuredClone(refreshed.acceptanceDiagnostics?.semanticAliasMatches || []),
       reportPath: text(reportPath) || null,
       exitCode: Number.isInteger(cause?.code) ? cause.code : null,
