@@ -1,5 +1,16 @@
 # Hapa Avatar Builder Agent Guide
 
+<!-- HAPA_ECOSYSTEM_AGENT_CONTEXT_START -->
+## Ecosystem stage and claim discipline
+
+- Treat this repository's Hapa-facing work as **First Pass / Prototype Stage** unless the owning docs explicitly declare a narrower, evidence-backed maturity for the capability in scope. Never imply a general stability, compatibility, availability, support, or production-readiness guarantee.
+- `Core` means important to current ecosystem operation, not production-ready. Preserve explicit local states such as released, verified, MVP, scaffold, deprecated, or archive/reference, and keep each claim bounded to its evidence.
+- Use Hapa as an artist kit: apps/nodes are work surfaces or specialized paints, Cards/Decks are reusable swatches and recipes, agents are paintbrushes, and protocols keep the canvas attributable and reversible. Begin from the nearest existing app, Card, agent pattern, or protocol as a jump-off point; inspect it, adapt it, verify it, and write useful evidence back.
+- Preserve origin ownership, custody, authority, privacy, licenses, upstream attribution, and lineage. Hapa presence or integration never transfers upstream ownership.
+- The open invite to for-profit and nonprofit teams is exploratory. Do not imply partnership, endorsement, acceptance, compatibility, decentralization, funding, nonprofit status, commerce capability, or commercial terms without separate evidence and explicit human approval.
+- Canonical guidance: `$HAPA_FRONT_DOOR_ROOT/docs/ECOSYSTEM_STAGE_AND_PARTICIPATION.md` ([public copy](https://github.com/calderwong/hapa/blob/main/docs/ECOSYSTEM_STAGE_AND_PARTICIPATION.md)).
+<!-- HAPA_ECOSYSTEM_AGENT_CONTEXT_END -->
+
 Universal Hapa Card Plane v1 is released. Avatar/Item JSON stores remain authoring-owned here; origin events publish through the durable outbox, and acknowledged subscriber reads use Overwind Postgres with Redis/Elasticsearch serving projections.
 
 ## Node Role
