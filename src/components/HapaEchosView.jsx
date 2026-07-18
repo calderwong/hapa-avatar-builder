@@ -93,6 +93,7 @@ const songRegistryApiBase = globalThis.window?.hapaAvatarBuilder?.songRegistryAp
 const SONG_REGISTRY_API_BASE = songRegistryApiBase || "http://127.0.0.1:8798";
 const ECHO_SAVE_TIMEOUT_MS = 30_000;
 const ECHO_PROJECT_DETAIL_TIMEOUT_MS = 15_000;
+const ECHO_PROJECT_GRAPH_WARMUP_TIMEOUT_MS = 10 * 60_000;
 const ECHO_EXPANDED_PREVIEW_WIDTH = "min(calc(100vw - 32px), calc(177.7778vh - 384px))";
 const ECHO_VERTICAL_EXPANDED_PREVIEW_WIDTH = "min(calc(100vw - 32px), calc(56.25vh - 121.5px))";
 const ECHO_EXPANDED_PREVIEW_MAX_HEIGHT = "calc(100vh - 216px)";
@@ -126,6 +127,35 @@ async function saveEchoProjectRequest(url, options = {}, recovery = {}) {
       const timeoutError = new Error("The Builder request timed out after 30 seconds. Retry when the service is available.");
       timeoutError.code = "echo_save_timeout";
       throw timeoutError;
+    }
+    throw error;
+  } finally {
+    globalThis.clearTimeout(timeout);
+  }
+}
+
+async function warmEchoProjectGraphsRequest(url, songId) {
+  const controller = new AbortController();
+  let timedOut = false;
+  const timeout = globalThis.setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, ECHO_PROJECT_GRAPH_WARMUP_TIMEOUT_MS);
+  try {
+    const response = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ songId }),
+      signal: controller.signal,
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(payload.message || payload.error || `preview preparation failed (${response.status})`);
+    }
+    return payload;
+  } catch (error) {
+    if (timedOut || error?.name === "AbortError") {
+      throw new Error("Preview preparation timed out. The service may still finish it in the background; try this cut again shortly.");
     }
     throw error;
   } finally {
@@ -1343,6 +1373,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
   const [selectedDirectionVariantId, setSelectedDirectionVariantId] = useState("legacy");
   const [workingDirectionFork, setWorkingDirectionFork] = useState(null);
   const [directionForkTransitionPending, setDirectionForkTransitionPending] = useState(false);
+  const [directionCutSelectionPending, setDirectionCutSelectionPending] = useState(false);
   const [pendingSavedDirectionCut, setPendingSavedDirectionCut] = useState(null);
   const [pendingLegacyProjectSave, setPendingLegacyProjectSave] = useState(null);
   const [loadingProjectDetail, setLoadingProjectDetail] = useState(false);
@@ -2003,6 +2034,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
       : "");
   const directorEditingLocked = savingProject
     || directionForkTransitionPending
+    || directionCutSelectionPending
     || Boolean(pendingSavedDirectionCut)
     || Boolean(pendingLegacyProjectSave)
     || loadingProjectDetail;
@@ -3078,6 +3110,35 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
       projectDetailRequestCountRef.current = Math.max(0, projectDetailRequestCountRef.current - 1);
       setLoadingProjectDetail(projectDetailRequestCountRef.current > 0);
     }
+  };
+
+  const fetchPreparedProjectDetail = async (songId, variantId = "") => {
+    let detailResult = await fetchProjectDetail(
+      songId,
+      variantId,
+      { commit: false, priority: "foreground" },
+    );
+    let project = detailResult?.detail?.music_video_project;
+    if (project?.director_show_graph?.tracks) return detailResult;
+    if (!project) throw new Error("the saved script detail could not be loaded");
+
+    const readinessReason = project.director_show_graph_receipt?.reason || "saved preview graph unavailable";
+    if (readinessReason === "server_restart_required") {
+      throw new Error("the Builder service was updated and needs one restart before saved cuts can reopen");
+    }
+
+    setEchoOperationNotice("Preparing this song’s saved preview graphs once. Its scripts and cuts remain unchanged…");
+    await warmEchoProjectGraphsRequest(`${API_BASE}/api/echos/director-project/compile`, songId);
+    detailResult = await fetchProjectDetail(
+      songId,
+      variantId,
+      { commit: false, priority: "foreground" },
+    );
+    project = detailResult?.detail?.music_video_project;
+    if (!project?.director_show_graph?.tracks) {
+      throw new Error(project?.director_show_graph_receipt?.reason || readinessReason);
+    }
+    return detailResult;
   };
 
   const handleSelectDirectorProjectSong = async (songId) => {
@@ -4464,7 +4525,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
               {/* Director Workbench View */}
               <div className="section-head hapa-panel-head" style={{ flexShrink: 0, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <span><Film size={15} /> Director Video Blueprint Workbench ({directorProjects.length} plans loaded)</span>
-                {(savingProject || directionForkTransitionPending || pendingSavedDirectionCut || pendingLegacyProjectSave || saveSuccessMessage) && (
+                {(savingProject || directionCutSelectionPending || directionForkTransitionPending || pendingSavedDirectionCut || pendingLegacyProjectSave || saveSuccessMessage) && (
                   <span
                     data-testid="echo-save-status"
                     role={saveFeedbackTone === "error" ? "alert" : "status"}
@@ -4484,6 +4545,8 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                         ? saveElapsedSeconds >= 10
                           ? `Saving cut · ${saveElapsedSeconds}s · waiting for disk acknowledgment…`
                           : `Saving cut · ${saveElapsedSeconds}s…`
+                        : directionCutSelectionPending
+                          ? "Preparing this song’s saved preview graphs…"
                         : directionForkTransitionPending
                           ? pendingSavedDirectionCut?.status === "unknown"
                             ? "Checking the original save outcome…"
@@ -4829,37 +4892,38 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                                 onChange={async (event) => {
                                   if (directorEditingLocked || directorHasUnsavedChanges) return;
                                   const nextVariantId = event.target.value;
+                                  setDirectionCutSelectionPending(true);
                                   setCurrentTime(0);
                                   currentTimeRef.current = 0;
                                   if (audioRef.current) audioRef.current.currentTime = 0;
                                   if (nextVariantId === "legacy") {
                                     setEchoOperationNotice("Loading the saved Legacy graph…");
-                                    const legacyDetailResult = await fetchProjectDetail(
-                                      selectedProjectSongId,
-                                      "",
-                                      { commit: false, priority: "foreground" },
-                                    );
-                                    const legacyProject = legacyDetailResult?.detail?.music_video_project;
-                                    if (!legacyProject?.director_show_graph?.tracks) {
-                                      setEchoOperationNotice("Could not load the saved Legacy graph. The current editable cut remains open.");
-                                      return;
+                                    try {
+                                      const legacyDetailResult = await fetchPreparedProjectDetail(selectedProjectSongId, "");
+                                      const legacyProject = legacyDetailResult?.detail?.music_video_project;
+                                      if (!legacyProject?.director_show_graph?.tracks) {
+                                        throw new Error("the saved Legacy preview graph is unavailable");
+                                      }
+                                      if (!commitDirectorProjectDetail(legacyDetailResult.detail, legacyDetailResult.requestGeneration)) {
+                                        throw new Error("a newer project refresh superseded the Legacy response");
+                                      }
+                                      const legacyShowGraph = projectToEditorGraph(legacyProject);
+                                      queueSongCardPlanForSavedRevision(
+                                        selectedProjectSongId,
+                                        legacyProject.director_show_graph_receipt?.sourceHash || legacyProject.updated_at || "legacy",
+                                        { cutId: "legacy", project: legacyProject, showGraph: legacyShowGraph },
+                                      );
+                                      setWorkingDirectionFork(null);
+                                      setDirectorHasUnsavedChanges(false);
+                                      setSelectedDirectionVariantId("legacy");
+                                      setSaveFeedbackTone("success");
+                                      setSaveSuccessMessage("Legacy reopened from its saved graph. Newer cuts and their working copies remain unchanged.");
+                                      setEchoOperationNotice("Legacy baseline opened from its saved graph.");
+                                    } catch (error) {
+                                      setEchoOperationNotice(`Could not load the saved Legacy graph: ${error.message || String(error)}. The current editable cut remains open.`);
+                                    } finally {
+                                      setDirectionCutSelectionPending(false);
                                     }
-                                    if (!commitDirectorProjectDetail(legacyDetailResult.detail, legacyDetailResult.requestGeneration)) {
-                                      setEchoOperationNotice("A newer project refresh superseded the Legacy response. The current editable cut remains open; try again.");
-                                      return;
-                                    }
-                                    const legacyShowGraph = projectToEditorGraph(legacyProject);
-                                    queueSongCardPlanForSavedRevision(
-                                      selectedProjectSongId,
-                                      legacyProject.director_show_graph_receipt?.sourceHash || legacyProject.updated_at || "legacy",
-                                      { cutId: "legacy", project: legacyProject, showGraph: legacyShowGraph },
-                                    );
-                                    setWorkingDirectionFork(null);
-                                    setDirectorHasUnsavedChanges(false);
-                                    setSelectedDirectionVariantId("legacy");
-                                    setSaveFeedbackTone("success");
-                                    setSaveSuccessMessage("Legacy reopened from its saved graph. Newer cuts and their working copies remain unchanged.");
-                                    setEchoOperationNotice("Legacy baseline opened from its saved graph.");
                                     return;
                                   }
                                   setSongCardPlanSnapshotBySong((current) => beginEchoSongCardPlanWait(
@@ -4869,20 +4933,13 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                                     nextVariantId,
                                   ));
                                   setEchoOperationNotice(`Loading ${nextVariantId}…`);
-                                  const detailResult = await fetchProjectDetail(selectedProjectSongId, nextVariantId, { commit: false, priority: "foreground" });
-                                  const detail = detailResult?.detail;
-                                  const hydratedVariant = detail?.music_video_project?.direction_script_variants?.find((variant) => (
-                                    echoDirectionVariantId(variant) === nextVariantId && Array.isArray(variant.timeline)
-                                  ));
-                                  if (!hydratedVariant) {
-                                    setSongCardPlanSnapshotBySong((current) => restoreEchoSongCardPlanSnapshot(
-                                      current,
-                                      selectedProjectSongId,
-                                    ));
-                                    setEchoOperationNotice(`Could not load ${nextVariantId}; the current editable cut remains open.`);
-                                    return;
-                                  }
                                   try {
+                                    const detailResult = await fetchPreparedProjectDetail(selectedProjectSongId, nextVariantId);
+                                    const detail = detailResult?.detail;
+                                    const hydratedVariant = detail?.music_video_project?.direction_script_variants?.find((variant) => (
+                                      echoDirectionVariantId(variant) === nextVariantId && Array.isArray(variant.timeline)
+                                    ));
+                                    if (!hydratedVariant) throw new Error("its saved script detail could not be loaded");
                                     const editableSelection = editableDirectionForkFromDetail(detail, nextVariantId);
                                     if (!editableSelection) throw new Error("its certified card graph is still preparing");
                                     if (!editableSelection.savedProject?.director_show_graph?.tracks) {
@@ -4913,6 +4970,8 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                                       selectedProjectSongId,
                                     ));
                                     setEchoOperationNotice(`Could not open ${nextVariantId} for editing yet: ${error.message || String(error)}. The current editable cut remains open.`);
+                                  } finally {
+                                    setDirectionCutSelectionPending(false);
                                   }
                                 }}
                                 style={{
@@ -5101,6 +5160,8 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                             >
                               {savingProject
                                 ? `Saving… ${saveElapsedSeconds}s`
+                                : directionCutSelectionPending
+                                  ? "Preparing cut…"
                                 : directionForkTransitionPending
                                   ? "Opening saved cut…"
                                 : directionWorkingForkActive

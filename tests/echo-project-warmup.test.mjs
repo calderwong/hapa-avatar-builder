@@ -39,3 +39,11 @@ test("new and idempotently replayed direction cuts finish the same graph warm-up
   assert.match(settlement, /await warmEchoDirectorProject\(songId, \{ variantId \}\)/);
   assert.match(settlement, /status: "blocked"/);
 });
+
+test("selected-cut hydration preserves an earlier readiness blocker when no certificate fingerprint was delivered", () => {
+  const hydration = between("async function hydrateEchoDirectorProjectPayload", "function echoDirectionVariantRows");
+
+  assert.match(hydration, /const certifiedCutFingerprint = String\(graphResult\?\.receipt\?\.cutFingerprint \|\| ""\)/);
+  assert.match(hydration, /if \(certifiedCutFingerprint && certifiedCutFingerprint !== deliveredCutFingerprint\)/);
+  assert.match(hydration, /reason: "cut_fingerprint_changed_during_hydration"/);
+});

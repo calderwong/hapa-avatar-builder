@@ -7980,7 +7980,8 @@ async function hydrateEchoDirectorProjectPayload(payload, safeSongId, options = 
       const fullVariant = selectedVariant || embeddedVariant;
       if (!fullVariant) throw echoDirectionVariantNotFound(safeSongId, selectedVariantId);
       const deliveredCutFingerprint = echoDirectionVariantFingerprint(fullVariant);
-      if (graphResult?.receipt?.cutFingerprint !== deliveredCutFingerprint) {
+      const certifiedCutFingerprint = String(graphResult?.receipt?.cutFingerprint || "");
+      if (certifiedCutFingerprint && certifiedCutFingerprint !== deliveredCutFingerprint) {
         graphResult = {
           graph: null,
           receipt: {

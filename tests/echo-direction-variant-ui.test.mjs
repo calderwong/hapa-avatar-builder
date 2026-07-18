@@ -110,14 +110,34 @@ test("Echo acknowledges save before refreshing and starts Song Card planning fro
 });
 
 test("Echo lazily hydrates one selected cut while retaining the metadata catalog", () => {
+  const preparation = between("const fetchPreparedProjectDetail", "const handleSelectDirectorProjectSong");
+  const selector = between('aria-label="Direction script version"', 'aria-label="Video orientation"');
   assert.match(source, /params\.set\("variantId", variantId\)/);
-  assert.match(source, /fetchProjectDetail\(selectedProjectSongId, nextVariantId, \{ commit: false, priority: "foreground" \}\)/);
+  assert.equal((preparation.match(/fetchProjectDetail\(/g) || []).length, 2, "preparation should retry the exact selected cut after warm-up");
+  assert.match(preparation, /warmEchoProjectGraphsRequest\(`\$\{API_BASE\}\/api\/echos\/director-project\/compile`, songId\)/);
+  assert.match(selector, /fetchPreparedProjectDetail\(selectedProjectSongId, nextVariantId\)/);
   assert.match(source, /echoDirectionVariantId\(variant\) === nextVariantId && Array\.isArray\(variant\.timeline\)/);
   assert.match(source, /editableDirectionForkFromDetail\(detail, nextVariantId\)/);
   assert.match(source, /commitDirectorProjectDetail\(detail, detailResult\.requestGeneration\)/);
   assert.match(source, /setWorkingDirectionFork\(editableSelection\.workingFork\)/);
   assert.match(source, /setSelectedDirectionVariantId\(nextVariantId\)/);
   assert.match(source, /disabled=\{loadingProjectDetail \|\| directorEditingLocked \|\| directorHasUnsavedChanges\}/);
+});
+
+test("a stale cut selection prepares every saved graph for that song without changing a script", () => {
+  const warmupRequest = between("async function warmEchoProjectGraphsRequest", "function resolveMediaUri");
+  const preparation = between("const fetchPreparedProjectDetail", "const handleSelectDirectorProjectSong");
+  const selector = between('aria-label="Direction script version"', 'aria-label="Video orientation"');
+
+  assert.match(source, /const ECHO_PROJECT_GRAPH_WARMUP_TIMEOUT_MS = 10 \* 60_000/);
+  assert.match(warmupRequest, /body: JSON\.stringify\(\{ songId \}\)/);
+  assert.doesNotMatch(warmupRequest, /variantId/);
+  assert.match(preparation, /if \(project\?\.director_show_graph\?\.tracks\) return detailResult/);
+  assert.match(preparation, /readinessReason === "server_restart_required"/);
+  assert.match(preparation, /Preparing this song’s saved preview graphs once/);
+  assert.match(selector, /setDirectionCutSelectionPending\(true\)/);
+  assert.equal((selector.match(/setDirectionCutSelectionPending\(false\)/g) || []).length, 2);
+  assert.match(source, /\|\| directionCutSelectionPending[\s\S]*\|\| Boolean\(pendingSavedDirectionCut\)/);
 });
 
 test("a freshly saved cut stays pinned to its high-quality graph while certification catches up", () => {
@@ -156,7 +176,7 @@ test("cut and song navigation preserve dirty work and reload the saved Legacy gr
   const songSelection = between("const handleSelectDirectorProjectSong", "const editableDirectionForkFromDetail");
   assert.match(source, /setDirectorHasUnsavedChanges\(true\)/);
   assert.match(selector, /Unsaved changes · Save or cancel before switching cuts or songs/);
-  assert.match(selector, /fetchProjectDetail\([\s\S]*selectedProjectSongId,[\s\S]*"",[\s\S]*priority: "foreground"/);
+  assert.match(selector, /fetchPreparedProjectDetail\(selectedProjectSongId, ""\)/);
   assert.match(selector, /commitDirectorProjectDetail\(legacyDetailResult\.detail, legacyDetailResult\.requestGeneration\)/);
   assert.match(selector, /cutId: "legacy", project: legacyProject, showGraph: legacyShowGraph/);
   assert.match(songSelection, /if \(!songId \|\| directorEditingLocked \|\| directorHasUnsavedChanges\) return/);
@@ -190,7 +210,7 @@ test("cut selection stays locked, bounded, and smoke-tested through detail hydra
 
 test("failed or preparing cut hydration retains the current editable selection", () => {
   const selector = between('aria-label="Direction script version"', 'aria-label="Video orientation"');
-  assert.match(selector, /the current editable cut remains open/);
+  assert.match(selector, /[Tt]he current editable cut remains open/);
   assert.doesNotMatch(selector, /const nextVariantId = event\.target\.value;\s*setWorkingDirectionFork\(null\)/);
   assert.doesNotMatch(selector, /if \(!hydratedVariant\) \{\s*setSelectedDirectionVariantId\("legacy"\)/);
   assert.doesNotMatch(selector, /catch \(error\) \{\s*setSelectedDirectionVariantId\("legacy"\)/);
