@@ -24,6 +24,7 @@ npm run echo:keyframes:run
 npm run echo:keyframes:pause
 npm run echo:keyframes:resume
 npm run echo:keyframes:stop-after-current
+node scripts/echo-scene-keyframe-process.mjs configure --concurrency 3 --per-run-claim-limit 3
 ```
 
 Lower-level bounded worker operations:
@@ -41,10 +42,10 @@ Only `prompt` and `image` are claimable lanes. Any attempt to claim or complete 
 
 ## Codex worker loop
 
-The Codex app heartbeat `echo-state-keyframe-worker` checks this process every 30 minutes. When state is `running`, each heartbeat is bounded to:
+The Codex app heartbeat `echo-state-keyframe-worker` checks this process every 10 minutes. When state is `running`, each heartbeat is bounded to:
 
-- at most two Terra prompt workers;
-- at most two Terra Codex GPT Image workers;
+- at most three Terra prompt workers;
+- at most three Terra Codex GPT Image workers;
 - sequential parent-agent installation of returned files to avoid state races; and
 - at most one missing Song Registry timing analysis before replanning.
 

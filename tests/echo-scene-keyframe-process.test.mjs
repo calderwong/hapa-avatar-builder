@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   claimEchoSceneKeyframeQuests,
   completeEchoSceneKeyframeQuest,
+  configureEchoSceneKeyframeProcess,
   createEchoSceneKeyframeProcess,
   echoSceneKeyframeCountStatus,
   echoSceneKeyframeProcessSummary,
@@ -72,6 +73,18 @@ test("claims respect process state, concurrency, run limits, and categorically r
   assert.throws(() => claimEchoSceneKeyframeQuests(first.process, { lane: "video", at }), /Unsupported claim lane/u);
   const videoId = first.process.counts[0].lanes.video.quest.id;
   assert.throws(() => completeEchoSceneKeyframeQuest(first.process, videoId, { at }), /Video generation is held/u);
+});
+
+test("throughput can be raised without invalidating work and cannot contradict live leases", () => {
+  let process = startEchoSceneKeyframeProcess(createEchoSceneKeyframeProcess({ settings: { concurrency: 2, perRunClaimLimit: 2 }, counts: [sourceCount(0), sourceCount(1), sourceCount(2)] }), { at });
+  let claimed = claimEchoSceneKeyframeQuests(process, { runnerId: "terra", runId: "batch-a", limit: 2, at });
+  process = configureEchoSceneKeyframeProcess(claimed.process, { settings: { concurrency: 3, perRunClaimLimit: 3 }, at: nextMinute });
+  assert.equal(process.settings.concurrency, 3);
+  assert.equal(process.settings.perRunClaimLimit, 3);
+  assert.equal(process.events.at(-1).type, "process-settings-configured");
+  const extra = claimEchoSceneKeyframeQuests(process, { runnerId: "terra", runId: "batch-b", limit: 3, at: nextMinute });
+  assert.equal(extra.claims.length, 1);
+  assert.throws(() => configureEchoSceneKeyframeProcess(extra.process, { settings: { concurrency: 2 }, at: nextMinute }), /below 3 active claims/u);
 });
 
 test("accepted pilot artifacts import without replaying provider work", () => {

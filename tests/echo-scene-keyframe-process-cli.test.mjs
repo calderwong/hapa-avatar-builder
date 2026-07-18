@@ -38,3 +38,14 @@ test("pause and resume controls are restart-safe and image claims remain blocked
   report = run(["pause"]);
   assert.equal(report.process.status, "paused");
 });
+
+test("operator can increase bounded throughput without rebuilding the process", () => {
+  const before = run(["status"]);
+  const report = run(["configure", "--concurrency", "4", "--per-run-claim-limit", "4"]);
+  assert.equal(report.configured, true);
+  assert.equal(report.process.countTotal, before.process.countTotal);
+  const state = JSON.parse(fs.readFileSync(report.processPath, "utf8"));
+  assert.equal(state.settings.concurrency, 4);
+  assert.equal(state.settings.perRunClaimLimit, 4);
+  assert.ok(state.events.some((event) => event.type === "process-settings-configured"));
+});

@@ -32,6 +32,26 @@ export function createEchoSceneKeyframeProcess({ processId = "echo-scene-keyfram
 }
 
 /**
+ * Change bounded worker throughput without rebuilding or invalidating any
+ * count. Lowering concurrency below the number of live leases is refused so
+ * an operator cannot create a projection that contradicts work in flight.
+ */
+export function configureEchoSceneKeyframeProcess(process, { settings = {}, at = EPOCH } = {}) {
+  const next = clone(process);
+  assertProcess(next);
+  const configured = normalizeSettings({ ...next.settings, ...settings });
+  const claimed = activeClaims(next).length;
+  if (configured.concurrency < claimed) {
+    throw new Error(`Concurrency ${configured.concurrency} is below ${claimed} active claims.`);
+  }
+  if (stableStringify(configured) === stableStringify(next.settings)) return next;
+  const prior = next.settings;
+  next.settings = configured;
+  next.events.push({ type: "process-settings-configured", at, prior, settings: configured, activeClaims: claimed });
+  return next;
+}
+
+/**
  * Add or reconcile four-count windows.  Replaying identical source-backed
  * windows is a no-op; changed input hashes preserve their old facts in history
  * and open a fresh content-addressed prompt quest.

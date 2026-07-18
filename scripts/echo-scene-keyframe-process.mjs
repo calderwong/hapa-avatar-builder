@@ -10,6 +10,7 @@ import { fileURLToPath } from "node:url";
 import {
   claimEchoSceneKeyframeQuests,
   completeEchoSceneKeyframeQuest,
+  configureEchoSceneKeyframeProcess,
   createEchoSceneKeyframeProcess,
   echoSceneKeyframeProcessSummary,
   failEchoSceneKeyframeQuest,
@@ -33,7 +34,7 @@ const PILOT_ROOT = path.resolve(process.env.HAPA_ECHO_KEYFRAME_PILOT_ROOT || pat
 const GENERATED_ROOT = path.resolve(process.env.HAPA_ECHO_KEYFRAME_GENERATED_ROOT || path.join(ROOT, DEFAULTS.generatedRoot));
 const MEDIA_CARDS_PATH = path.join(RUNTIME_ROOT, "media-cards.json");
 
-const PROCESS_SETTINGS = Object.freeze({ concurrency: 2, perRunClaimLimit: 2, leaseMs: 45 * 60 * 1000, maxAttempts: 3 });
+const PROCESS_SETTINGS = Object.freeze({ concurrency: 3, perRunClaimLimit: 3, leaseMs: 45 * 60 * 1000, maxAttempts: 3 });
 
 function now() { return new Date().toISOString(); }
 function hashValue(value) { return `sha256:${crypto.createHash("sha256").update(typeof value === "string" ? value : stableStringify(value, 0)).digest("hex")}`; }
@@ -48,7 +49,7 @@ function writeProcess(next, prior = null) {
 }
 
 function optionsFrom(argv) {
-  const options = { command: "status", apply: false, lane: null, limit: null, runnerId: "codex-terra", runId: `run-${Date.now()}`, questId: null, result: null, localPath: null, error: null, retry: true };
+  const options = { command: "status", apply: false, lane: null, limit: null, runnerId: "codex-terra", runId: `run-${Date.now()}`, questId: null, result: null, localPath: null, error: null, retry: true, concurrency: null, perRunClaimLimit: null, leaseMs: null, maxAttempts: null };
   const args = [...argv];
   if (args[0] && !args[0].startsWith("--")) options.command = args.shift();
   while (args.length) {
@@ -64,6 +65,9 @@ function optionsFrom(argv) {
     options[key] = value;
   }
   if (options.limit !== null) options.limit = Number(options.limit);
+  for (const key of ["concurrency", "perRunClaimLimit", "leaseMs", "maxAttempts"]) {
+    if (options[key] !== null) options[key] = Number(options[key]);
+  }
   return options;
 }
 
@@ -296,6 +300,19 @@ function control(command) {
   return report(next, readJson(AUDIT_PATH));
 }
 
+function configure(options) {
+  const prior = requireProcess();
+  const settings = Object.fromEntries(
+    ["concurrency", "perRunClaimLimit", "leaseMs", "maxAttempts"]
+      .filter((key) => options[key] !== null)
+      .map((key) => [key, options[key]]),
+  );
+  if (!Object.keys(settings).length) throw new Error("configure requires at least one setting");
+  const next = configureEchoSceneKeyframeProcess(prior, { settings, at: now() });
+  writeProcess(next, prior);
+  return report(next, readJson(AUDIT_PATH), { configured: true });
+}
+
 export function run(argv = process.argv.slice(2)) {
   const options = optionsFrom(argv);
   if (options.command === "init") {
@@ -307,6 +324,7 @@ export function run(argv = process.argv.slice(2)) {
     return initialize({ start: true });
   }
   if (["start", "pause", "resume", "stop-after-current"].includes(options.command)) return control(options.command);
+  if (options.command === "configure") return configure(options);
   if (options.command === "status") return report(requireProcess(), readJson(AUDIT_PATH));
   if (options.command === "claim") return claim(options);
   if (options.command === "prompt-complete") return completePrompt(options);
