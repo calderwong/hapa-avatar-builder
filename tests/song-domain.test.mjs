@@ -10,8 +10,10 @@ import {
   attachSceneToSong,
   attachSongMedia,
   attachVisualizerToSong,
+  auditHapaSongStore,
   createHapaSongStoreFromDearPapaSongbook,
-  normalizeHapaSong
+  normalizeHapaSong,
+  normalizeHapaSongStore
 } from "../src/domain/song.js";
 
 test("Dear Papa songbook normalizes into Hapa Song cards", () => {
@@ -93,6 +95,30 @@ test("song normalization preserves reviewable reference connectors and context l
   assert.equal(song.referenceConnectors[0].provenance.reviewStatus, "assistant-analyzed-pending-human-review");
   assert.deepEqual(song.referenceConnectors[0].semanticEffect.traversalEdges, ["mentor", "controller-memory"]);
   assert.equal(song.contextualLayers[0].referenceIds[0], "star-fox");
+});
+
+test("song store preserves comparative reference graph edges", () => {
+  const store = normalizeHapaSongStore({
+    referenceGraphEdges: [{
+      fromReferenceId: "incarnations",
+      toReferenceId: "ff8",
+      relationType: "role-outlives-holder",
+      score: 0.8
+    }]
+  });
+  assert.equal(store.referenceGraphEdges.length, 1);
+  assert.equal(store.referenceGraphEdges[0].relationType, "role-outlives-holder");
+});
+
+test("song audit separates candidate, comparative, and total reviewable connectors", () => {
+  const audit = auditHapaSongStore([{ referenceConnectors: [
+    { evidence: { classification: "candidate-phonetic" } },
+    { evidence: { classification: "comparative-mechanical-resonance" } },
+    { evidence: { classification: "explicit-name-cluster" } }
+  ] }]);
+  assert.equal(audit.candidateReferenceConnectorCount, 1);
+  assert.equal(audit.comparativeReferenceConnectorCount, 1);
+  assert.equal(audit.reviewableReferenceConnectorCount, 2);
 });
 
 test("song normalization preserves exact lyric timing sidecar word data", () => {

@@ -4679,6 +4679,69 @@ h1 {
   background: rgba(2, 6, 23, 0.62);
 }
 
+.song-reference-card.is-reviewable {
+  border-color: rgba(255, 193, 92, 0.42);
+  background: linear-gradient(145deg, rgba(77, 52, 14, 0.32), rgba(17, 20, 31, 0.92));
+}
+
+.song-reference-evidence {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.38rem;
+  align-items: center;
+}
+
+.song-reference-evidence b,
+.song-reference-evidence span {
+  border: 1px solid rgba(116, 206, 255, 0.25);
+  border-radius: 999px;
+  padding: 0.2rem 0.46rem;
+  font-size: 0.65rem;
+  letter-spacing: 0.05em;
+  color: var(--hapa-cyan-soft);
+}
+
+.song-reference-card.is-reviewable .song-reference-evidence b {
+  border-color: rgba(255, 193, 92, 0.48);
+  color: #ffd483;
+}
+
+.song-reference-caveat {
+  margin: 0;
+  color: rgba(219, 226, 240, 0.62);
+  font-size: 0.72rem;
+}
+
+.song-reference-routes {
+  display: grid;
+  gap: 0.55rem;
+  margin-top: 0.9rem;
+}
+
+.song-reference-routes article {
+  display: grid;
+  grid-template-columns: minmax(8rem, 0.8fr) auto minmax(8rem, 0.8fr);
+  gap: 0.55rem;
+  align-items: center;
+  border: 1px solid rgba(151, 124, 255, 0.22);
+  border-radius: 0.65rem;
+  padding: 0.58rem 0.68rem;
+  background: rgba(17, 18, 31, 0.72);
+}
+
+.song-reference-routes article > span {
+  color: rgba(210, 196, 255, 0.74);
+  font-size: 0.68rem;
+  text-align: center;
+}
+
+.song-reference-routes article > p {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: rgba(218, 224, 239, 0.72);
+  font-size: 0.75rem;
+}
+
 .song-context-layer-list article {
   display: grid;
   gap: 5px;

@@ -1,5 +1,6 @@
 export const SONG_REFERENCE_CATALOG_SCHEMA = "hapa.song-reference-catalog.v1";
 export const SONG_REFERENCE_CONNECTOR_SCHEMA = "hapa.song-reference-connector.v1";
+export const SONG_REFERENCE_GRAPH_EDGE_SCHEMA = "hapa.song-reference-graph-edge.v1";
 export const SONG_CONTEXT_LAYER_SCHEMA = "hapa.song-context-layer.v1";
 export const ECHO_SEMANTIC_TRAVERSAL_SCHEMA = "hapa.echo-semantic-traversal.v1";
 
@@ -37,6 +38,14 @@ export function normalizeSongReferenceCatalog(catalog = []) {
       publicContext: text(reference.publicContext),
       themes: unique(reference.themes || []).map(String),
       traversalTerms: unique(reference.traversalTerms || []).map(String),
+      mechanics: unique(reference.mechanics || []).map(String),
+      signalLexicon: {
+        literal: unique(reference.signalLexicon?.literal || []).map(String),
+        phonetic: unique(reference.signalLexicon?.phonetic || []).map(String),
+        orthographic: unique(reference.signalLexicon?.orthographic || []).map(String),
+        multilingual: unique(reference.signalLexicon?.multilingual || []).map(String),
+        mechanical: unique(reference.signalLexicon?.mechanical || []).map(String)
+      },
       source: {
         label: text(reference.source?.label, reference.title || id),
         url: text(reference.source?.url),
@@ -80,11 +89,54 @@ export function normalizeSongReferenceConnectors(connectors = []) {
         expositionFunction: text(connector?.semanticEffect?.expositionFunction),
         traversalEdges: unique(connector?.semanticEffect?.traversalEdges || []).map(String)
       },
+      evidence: {
+        classification: text(connector?.evidence?.classification, "confirmed-direct"),
+        score: Math.max(0, Math.min(1, Number(connector?.evidence?.score ?? 1))),
+        channels: unique(connector?.evidence?.channels || ["literal"]).map(String),
+        signals: list(connector?.evidence?.signals).map((signal) => ({
+          channel: text(signal?.channel, "literal"),
+          value: text(signal?.value),
+          explanation: text(signal?.explanation)
+        })).filter((signal) => signal.value || signal.explanation),
+        corroboratingReferenceIds: unique(connector?.evidence?.corroboratingReferenceIds || []).map(String),
+        caveat: text(connector?.evidence?.caveat)
+      },
       provenance: {
         method: text(connector?.provenance?.method, "literal-alias-match"),
         source: text(connector?.provenance?.source),
         reviewStatus: text(connector?.provenance?.reviewStatus, "assistant-analyzed-pending-human-review"),
         generatedAt: text(connector?.provenance?.generatedAt)
+      }
+    }];
+  });
+}
+
+export function normalizeSongReferenceGraphEdges(edges = []) {
+  const seen = new Set();
+  return list(edges).flatMap((edge) => {
+    const fromReferenceId = text(edge?.fromReferenceId);
+    const toReferenceId = text(edge?.toReferenceId);
+    const relationType = text(edge?.relationType, "thematic-resonance");
+    const id = text(edge?.id, `${fromReferenceId}:${relationType}:${toReferenceId}`);
+    if (!id || !fromReferenceId || !toReferenceId || fromReferenceId === toReferenceId || seen.has(id)) return [];
+    seen.add(id);
+    return [{
+      schemaVersion: SONG_REFERENCE_GRAPH_EDGE_SCHEMA,
+      id,
+      fromReferenceId,
+      toReferenceId,
+      relationType,
+      evidenceClass: text(edge?.evidenceClass, "source-backed-comparative"),
+      score: Math.max(0, Math.min(1, Number(edge?.score ?? 0.5))),
+      sharedMechanics: unique(edge?.sharedMechanics || []).map(String),
+      sharedThemes: unique(edge?.sharedThemes || []).map(String),
+      rationale: text(edge?.rationale),
+      traversalEffect: text(edge?.traversalEffect),
+      provenance: {
+        sourceIds: unique(edge?.provenance?.sourceIds || []).map(String),
+        method: text(edge?.provenance?.method, "cross-corpus-comparison"),
+        reviewStatus: text(edge?.provenance?.reviewStatus, "assistant-analyzed-pending-human-review"),
+        generatedAt: text(edge?.provenance?.generatedAt)
       }
     }];
   });

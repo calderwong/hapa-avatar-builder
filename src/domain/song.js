@@ -3,7 +3,8 @@ import {
   normalizeEchoSemanticTraversal,
   normalizeSongContextLayers,
   normalizeSongReferenceCatalog,
-  normalizeSongReferenceConnectors
+  normalizeSongReferenceConnectors,
+  normalizeSongReferenceGraphEdges
 } from "./song-reference-graph.js";
 
 export const HAPA_SONG_STORE_VERSION = "hapa.songs.store.v1";
@@ -123,6 +124,7 @@ export function normalizeHapaSongStore(input = {}, songbook = {}, songLibrary = 
     album: normalizeAlbum(songbook.album || input.album || {}),
     songs,
     referenceCatalog: normalizeSongReferenceCatalog(input.referenceCatalog || []),
+    referenceGraphEdges: normalizeSongReferenceGraphEdges(input.referenceGraphEdges || []),
     semanticTraversal: normalizeEchoSemanticTraversal(input.semanticTraversal),
     visualizerCatalog: normalizeVisualizerCatalog(input.visualizerCatalog || HAPA_SONG_VISUALIZER_CATALOG),
     audit: auditHapaSongStore(songs),
@@ -436,6 +438,12 @@ export function auditHapaSongStore(songs = []) {
     storyBeatCount,
     withReferenceConnectors,
     referenceConnectorCount,
+    candidateReferenceConnectorCount: songs.reduce((sum, song) => sum + (song.referenceConnectors || []).filter((connector) => connector.evidence?.classification?.startsWith("candidate")).length, 0),
+    comparativeReferenceConnectorCount: songs.reduce((sum, song) => sum + (song.referenceConnectors || []).filter((connector) => connector.evidence?.classification?.startsWith("comparative")).length, 0),
+    reviewableReferenceConnectorCount: songs.reduce((sum, song) => sum + (song.referenceConnectors || []).filter((connector) => {
+      const classification = connector.evidence?.classification || "";
+      return classification.startsWith("candidate") || classification.startsWith("comparative");
+    }).length, 0),
     contextLayerCount,
     readyForBuilder: songs.length > 0 && withLyrics > 0
   };

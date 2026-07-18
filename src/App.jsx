@@ -5769,6 +5769,7 @@ function HapaSongsView({
   const visualizerCatalog = store.visualizerCatalog?.length ? store.visualizerCatalog : HAPA_SONG_VISUALIZER_CATALOG;
   const referenceCatalog = store.referenceCatalog || [];
   const referencesById = useMemo(() => referenceCatalogIndex(referenceCatalog), [referenceCatalog]);
+  const referenceGraphEdges = store.referenceGraphEdges || [];
   const registryLoadedCount = Array.isArray(songLibrary?.songs) ? songLibrary.songs.length : 0;
   const registryTotal = Number(songLibrary?.total) || registryLoadedCount;
   const sourceLabel = dataMode === "full" ? "API" : dataMode === "loading" ? "LOADING" : "FALLBACK";
@@ -5801,6 +5802,13 @@ function HapaSongsView({
   const linkedVisualizerIds = new Set((selectedSong?.visualizers || []).map((link) => link.id).filter(Boolean));
   const mediaInputId = `song-media-${String(selectedSong?.id || "none").replace(/[^a-z0-9_-]+/gi, "-")}`;
   const selectedAuthorAvatar = avatars.find((avatar) => avatar.id === storyDraft.avatarId) || null;
+  const selectedReferenceIds = new Set((selectedSong?.referenceConnectors || []).map((connector) => connector.referenceId));
+  const selectedReferenceGraphEdges = referenceGraphEdges.filter((edge) => (
+    selectedReferenceIds.has(edge.fromReferenceId) || selectedReferenceIds.has(edge.toReferenceId)
+  ));
+  const selectedCandidateCount = (selectedSong?.referenceConnectors || []).filter((connector) => (
+    connector.evidence?.classification?.startsWith("candidate") || connector.evidence?.classification?.startsWith("comparative")
+  )).length;
 
   useEffect(() => {
     if (!selectedSong) return;
@@ -5925,6 +5933,7 @@ function HapaSongsView({
               <StatusChip label="AVATARS" value={selectedSong.attachments?.avatarLinks?.length || 0} tone="rose" />
               <StatusChip label="SCENES" value={selectedSong.attachments?.sceneLinks?.length || 0} tone="cyan" />
               <StatusChip label="REFERENCES" value={selectedSong.referenceConnectors?.length || 0} tone="orange" />
+              <StatusChip label="CANDIDATES" value={selectedCandidateCount} tone="gold" />
             </div>
 
             {audioSrc && (
@@ -5961,7 +5970,7 @@ function HapaSongsView({
             <section className="song-reference-panel hapa-card" data-card-type="protocol" aria-label="Reference connectors">
               <div className="section-head hapa-panel-head compact">
                 <span><Link2 size={14} /> Reference connectors</span>
-                <em>{selectedSong.referenceConnectors?.length || 0} lyric edges · {selectedSong.contextualLayers?.length || 0} layers</em>
+                <em>{selectedSong.referenceConnectors?.length || 0} lyric edges · {selectedCandidateCount} reviewable · {selectedSong.contextualLayers?.length || 0} layers</em>
               </div>
               {(selectedSong.contextualLayers || []).length > 0 && (
                 <div className="song-context-layer-list">
@@ -5977,12 +5986,14 @@ function HapaSongsView({
               <div className="song-reference-list">
                 {(selectedSong.referenceConnectors || []).map((connector) => {
                   const reference = referencesById.get(connector.referenceId);
+                  const evidenceClass = connector.evidence?.classification || connector.confidence;
+                  const reviewable = evidenceClass?.startsWith("candidate") || evidenceClass?.startsWith("comparative");
                   return (
-                    <article className="song-reference-card" key={connector.id}>
+                    <article className={`song-reference-card ${reviewable ? "is-reviewable" : "is-direct"}`} key={connector.id}>
                       <header>
                         <div>
                           <strong>{reference?.title || connector.referenceTitle}</strong>
-                          <span>{connector.relationType} · line {connector.target?.lineStart} · {connector.confidence}</span>
+                          <span>{connector.relationType} · line {connector.target?.lineStart} · {Math.round((connector.evidence?.score ?? 1) * 100)}%</span>
                         </div>
                         {reference?.source?.url && (
                           <a href={reference.source.url} target="_blank" rel="noreferrer" aria-label={`Open source for ${reference.title}`}>
@@ -5990,6 +6001,10 @@ function HapaSongsView({
                           </a>
                         )}
                       </header>
+                      <div className="song-reference-evidence">
+                        <b>{reviewable ? "REVIEWABLE INFERENCE" : "DIRECT LYRIC EVIDENCE"}</b>
+                        {(connector.evidence?.channels || []).map((channel) => <span key={channel}>{channel}</span>)}
+                      </div>
                       <blockquote>{connector.target?.lyricText}</blockquote>
                       <dl>
                         <div><dt>Surface</dt><dd>{connector.semanticEffect?.withoutContext}</dd></div>
@@ -6000,6 +6015,7 @@ function HapaSongsView({
                       <footer>
                         {(connector.semanticEffect?.traversalEdges || []).map((edge) => <span key={edge}>{edge}</span>)}
                       </footer>
+                      {connector.evidence?.caveat && <p className="song-reference-caveat">{connector.evidence.caveat}</p>}
                     </article>
                   );
                 })}
@@ -6010,6 +6026,22 @@ function HapaSongsView({
                   </div>
                 )}
               </div>
+              {selectedReferenceGraphEdges.length > 0 && (
+                <div className="song-reference-routes" aria-label="Cross-reference traversal routes">
+                  <div className="section-head hapa-panel-head compact">
+                    <span><GitBranch size={13} /> Cross-reference routes</span>
+                    <em>{selectedReferenceGraphEdges.length} comparative edges</em>
+                  </div>
+                  {selectedReferenceGraphEdges.map((edge) => (
+                    <article key={edge.id}>
+                      <strong>{referencesById.get(edge.fromReferenceId)?.title || edge.fromReferenceId}</strong>
+                      <span>{edge.relationType} · {Math.round((edge.score || 0) * 100)}%</span>
+                      <strong>{referencesById.get(edge.toReferenceId)?.title || edge.toReferenceId}</strong>
+                      <p>{edge.rationale}</p>
+                    </article>
+                  ))}
+                </div>
+              )}
             </section>
 
             <div className="song-lineage-panel">
