@@ -1,6 +1,6 @@
 # Echo Scene Prompt and Keyframe Pipeline
 
-Status: First-pass design and Kanban plan. This document does not authorize image or video generation.
+Status: First-pass design and Kanban plan. Image generation is now separately authorized through the bounded Codex-only process documented in `ECHO_SCENE_KEYFRAME_OPERATIONS.md`; this document still does not authorize OpenAI API dispatch or video generation.
 
 ## Outcome
 
