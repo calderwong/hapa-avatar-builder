@@ -175,6 +175,7 @@ import {
   normalizeHapaSongStore,
   upsertSongInStore
 } from "./domain/song.js";
+import { referenceCatalogIndex } from "./domain/song-reference-graph.js";
 import {
   addTarotCard,
   addTarotDeck,
@@ -5766,6 +5767,8 @@ function HapaSongsView({
   });
   const songs = store.songs || [];
   const visualizerCatalog = store.visualizerCatalog?.length ? store.visualizerCatalog : HAPA_SONG_VISUALIZER_CATALOG;
+  const referenceCatalog = store.referenceCatalog || [];
+  const referencesById = useMemo(() => referenceCatalogIndex(referenceCatalog), [referenceCatalog]);
   const registryLoadedCount = Array.isArray(songLibrary?.songs) ? songLibrary.songs.length : 0;
   const registryTotal = Number(songLibrary?.total) || registryLoadedCount;
   const sourceLabel = dataMode === "full" ? "API" : dataMode === "loading" ? "LOADING" : "FALLBACK";
@@ -5780,6 +5783,7 @@ function HapaSongsView({
         song.author,
         song.lyrics?.status,
         song.lore?.summary,
+        ...(song.referenceConnectors || []).flatMap((connector) => [connector.referenceTitle, connector.referenceId]),
         ...(song.tags || [])
       ].join(" ").toLowerCase().includes(needle);
     });
@@ -5920,6 +5924,7 @@ function HapaSongsView({
               <StatusChip label="MEDIA" value={selectedSong.media?.length || 0} tone="gold" />
               <StatusChip label="AVATARS" value={selectedSong.attachments?.avatarLinks?.length || 0} tone="rose" />
               <StatusChip label="SCENES" value={selectedSong.attachments?.sceneLinks?.length || 0} tone="cyan" />
+              <StatusChip label="REFERENCES" value={selectedSong.referenceConnectors?.length || 0} tone="orange" />
             </div>
 
             {audioSrc && (
@@ -5952,6 +5957,60 @@ function HapaSongsView({
                 <p>{showcaseText(selectedSong.lore?.broadGameMechanic, "Game mechanic pending.")}</p>
               </article>
             </div>
+
+            <section className="song-reference-panel hapa-card" data-card-type="protocol" aria-label="Reference connectors">
+              <div className="section-head hapa-panel-head compact">
+                <span><Link2 size={14} /> Reference connectors</span>
+                <em>{selectedSong.referenceConnectors?.length || 0} lyric edges · {selectedSong.contextualLayers?.length || 0} layers</em>
+              </div>
+              {(selectedSong.contextualLayers || []).length > 0 && (
+                <div className="song-context-layer-list">
+                  {(selectedSong.contextualLayers || []).map((layer) => (
+                    <article key={layer.id}>
+                      <strong>{layer.label}</strong>
+                      <p>{layer.summary}</p>
+                      <span>{layer.changesExpositionBy}</span>
+                    </article>
+                  ))}
+                </div>
+              )}
+              <div className="song-reference-list">
+                {(selectedSong.referenceConnectors || []).map((connector) => {
+                  const reference = referencesById.get(connector.referenceId);
+                  return (
+                    <article className="song-reference-card" key={connector.id}>
+                      <header>
+                        <div>
+                          <strong>{reference?.title || connector.referenceTitle}</strong>
+                          <span>{connector.relationType} · line {connector.target?.lineStart} · {connector.confidence}</span>
+                        </div>
+                        {reference?.source?.url && (
+                          <a href={reference.source.url} target="_blank" rel="noreferrer" aria-label={`Open source for ${reference.title}`}>
+                            <Link2 size={13} /> source
+                          </a>
+                        )}
+                      </header>
+                      <blockquote>{connector.target?.lyricText}</blockquote>
+                      <dl>
+                        <div><dt>Surface</dt><dd>{connector.semanticEffect?.withoutContext}</dd></div>
+                        <div><dt>Context loaded</dt><dd>{connector.semanticEffect?.withContext}</dd></div>
+                        <div><dt>Thematic shift</dt><dd>{connector.semanticEffect?.thematicShift}</dd></div>
+                        <div><dt>Exposition</dt><dd>{connector.semanticEffect?.expositionFunction}</dd></div>
+                      </dl>
+                      <footer>
+                        {(connector.semanticEffect?.traversalEdges || []).map((edge) => <span key={edge}>{edge}</span>)}
+                      </footer>
+                    </article>
+                  );
+                })}
+                {!(selectedSong.referenceConnectors || []).length && (
+                  <div className="empty-state inline">
+                    <Link2 size={18} />
+                    <span>No source-backed lyric connector has been matched on this song yet.</span>
+                  </div>
+                )}
+              </div>
+            </section>
 
             <div className="song-lineage-panel">
               <div className="section-head hapa-panel-head compact">

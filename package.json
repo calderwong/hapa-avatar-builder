@@ -48,6 +48,8 @@
     "tarot:audit-production": "node scripts/audit-drawable-card-production-readiness.mjs",
     "sync:dear-papa": "node scripts/sync-dear-papa-songbook-from-registry.mjs",
     "sync:dear-papa-timings": "node scripts/sync-dear-papa-lyric-timings.mjs",
+    "echo:references": "node scripts/ingest-echo-reference-connectors.mjs",
+    "echo:references:apply": "node scripts/ingest-echo-reference-connectors.mjs --apply",
     "audit:healing": "node scripts/audit-avatar-card-song-lore-coverage.mjs",
     "heal:song-deck": "node scripts/heal-dear-papa-song-deck-coverage.mjs",
     "heal:relationship-web": "node scripts/run-avatar-relationship-web-healing-pass.mjs",

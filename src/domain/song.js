@@ -1,4 +1,10 @@
 import { inferAssetKind, slugify } from "./avatar.js";
+import {
+  normalizeEchoSemanticTraversal,
+  normalizeSongContextLayers,
+  normalizeSongReferenceCatalog,
+  normalizeSongReferenceConnectors
+} from "./song-reference-graph.js";
 
 export const HAPA_SONG_STORE_VERSION = "hapa.songs.store.v1";
 export const HAPA_SONG_CARD_VERSION = "hapa.song-card.v1";
@@ -116,6 +122,8 @@ export function normalizeHapaSongStore(input = {}, songbook = {}, songLibrary = 
     },
     album: normalizeAlbum(songbook.album || input.album || {}),
     songs,
+    referenceCatalog: normalizeSongReferenceCatalog(input.referenceCatalog || []),
+    semanticTraversal: normalizeEchoSemanticTraversal(input.semanticTraversal),
     visualizerCatalog: normalizeVisualizerCatalog(input.visualizerCatalog || HAPA_SONG_VISUALIZER_CATALOG),
     audit: auditHapaSongStore(songs),
     sourceAnchors: normalizeSourceAnchors(songbook.sourceAnchors || input.sourceAnchors || []),
@@ -193,6 +201,8 @@ export function normalizeHapaSong(existing = {}, sourceCard = {}, registryTrack 
     visualizers,
     comments,
     storyBeats,
+    referenceConnectors: normalizeSongReferenceConnectors(existing.referenceConnectors || []),
+    contextualLayers: normalizeSongContextLayers(existing.contextualLayers || []),
     tags,
     attribution: normalizeSongAttribution(existing.attribution || {}, sourceCard, registryTrack),
     lineage: normalizeSongLineage(existing.lineage || {}, sourceCard, registryTrack),
@@ -410,6 +420,9 @@ export function auditHapaSongStore(songs = []) {
   const withMedia = songs.filter((song) => (song.media || []).length > 0).length;
   const withVisualizers = songs.filter((song) => (song.visualizers || []).length > 0).length;
   const storyBeatCount = songs.reduce((sum, song) => sum + (song.storyBeats || []).length, 0);
+  const withReferenceConnectors = songs.filter((song) => (song.referenceConnectors || []).length > 0).length;
+  const referenceConnectorCount = songs.reduce((sum, song) => sum + (song.referenceConnectors || []).length, 0);
+  const contextLayerCount = songs.reduce((sum, song) => sum + (song.contextualLayers || []).length, 0);
   return {
     songs: songs.length,
     withLyrics,
@@ -421,6 +434,9 @@ export function auditHapaSongStore(songs = []) {
     withMedia,
     withVisualizers,
     storyBeatCount,
+    withReferenceConnectors,
+    referenceConnectorCount,
+    contextLayerCount,
     readyForBuilder: songs.length > 0 && withLyrics > 0
   };
 }

@@ -62,6 +62,39 @@ test("song attachments preserve avatars, scenes, media, visualizers, and story b
   assert.equal(song.storyBeats[0].body.includes("bridge-crossing"), true);
 });
 
+test("song normalization preserves reviewable reference connectors and context layers", () => {
+  const song = normalizeHapaSong({
+    id: "reference-song",
+    title: "Reference Song",
+    referenceConnectors: [{
+      id: "reference-song:star-fox:line-3",
+      referenceId: "star-fox",
+      referenceTitle: "Star Fox 64",
+      target: { songId: "reference-song", lineStart: 3, lyricText: "Do a barrel roll", matchedText: "barrel roll" },
+      semanticEffect: {
+        withoutContext: "A flight instruction.",
+        withContext: "A mentor voice remembered through controller motion.",
+        thematicShift: "Navigation becomes inherited guidance.",
+        expositionFunction: "The command imports a story and a tactile memory.",
+        traversalEdges: ["mentor", "controller-memory"]
+      }
+    }],
+    contextualLayers: [{
+      id: "public-story-worlds",
+      label: "Public story worlds",
+      referenceIds: ["star-fox"],
+      connectorIds: ["reference-song:star-fox:line-3"],
+      changesExpositionBy: "Loading a prior game world."
+    }]
+  });
+
+  assert.equal(song.referenceConnectors.length, 1);
+  assert.equal(song.referenceConnectors[0].target.lineStart, 3);
+  assert.equal(song.referenceConnectors[0].provenance.reviewStatus, "assistant-analyzed-pending-human-review");
+  assert.deepEqual(song.referenceConnectors[0].semanticEffect.traversalEdges, ["mentor", "controller-memory"]);
+  assert.equal(song.contextualLayers[0].referenceIds[0], "star-fox");
+});
+
 test("song normalization preserves exact lyric timing sidecar word data", () => {
   const song = normalizeHapaSong({
     id: "timed-song",
