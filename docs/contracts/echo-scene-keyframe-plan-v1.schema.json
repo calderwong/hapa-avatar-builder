@@ -1,0 +1,150 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "hapa.echo.scene-keyframe-plan.v1",
+  "title": "Echo four-count scene prompt and keyframe plan",
+  "type": "object",
+  "required": ["schemaVersion", "songId", "sourceRevision", "timingState", "counts"],
+  "properties": {
+    "schemaVersion": { "const": "hapa.echo.scene-keyframe-plan.v1" },
+    "songId": { "type": "string", "minLength": 1 },
+    "sourceRevision": {
+      "type": "object",
+      "required": ["songContextHash", "lyricsHash", "timingHash", "seedSetHash", "promptPolicyHash"],
+      "properties": {
+        "songContextHash": { "type": "string", "minLength": 1 },
+        "lyricsHash": { "type": "string", "minLength": 1 },
+        "timingHash": { "type": "string", "minLength": 1 },
+        "referenceGraphHash": { "type": ["string", "null"] },
+        "seedSetHash": { "type": "string", "minLength": 1 },
+        "directorTreatmentHash": { "type": ["string", "null"] },
+        "promptPolicyHash": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    },
+    "timingState": {
+      "enum": ["verified-four-counts", "needs-timing-truth"]
+    },
+    "counts": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/count" }
+    }
+  },
+  "$defs": {
+    "quest": {
+      "type": "object",
+      "required": ["status"],
+      "properties": {
+        "status": {
+          "enum": ["blocked_by_timing", "blocked_by_prompt", "blocked_by_keyframe", "not_open", "open", "held", "claimed", "complete", "failed"]
+        },
+        "questId": { "type": ["string", "null"] },
+        "executionPolicy": { "type": ["string", "null"] },
+        "attemptIds": { "type": "array", "items": { "type": "string" } }
+      },
+      "additionalProperties": true
+    },
+    "citation": {
+      "type": "object",
+      "required": ["startSeconds", "endSeconds", "excerpt"],
+      "properties": {
+        "lineId": { "type": ["string", "null"] },
+        "startSeconds": { "type": "number", "minimum": 0 },
+        "endSeconds": { "type": "number", "minimum": 0 },
+        "excerpt": { "type": "string" },
+        "role": { "enum": ["overlap", "preceding-continuity", "following-continuity"] }
+      },
+      "additionalProperties": false
+    },
+    "seedAsset": {
+      "type": "object",
+      "required": ["avatarId", "colorRole", "assetId", "contentHash", "sourceLineage"],
+      "properties": {
+        "avatarId": { "enum": ["red-reaper", "avatar-2", "avatar-3"] },
+        "colorRole": { "enum": ["red", "blue", "green"] },
+        "assetId": { "type": "string", "minLength": 1 },
+        "mediaCardId": { "type": ["string", "null"] },
+        "contentHash": { "type": "string", "minLength": 1 },
+        "retrievalHandle": { "type": ["string", "null"] },
+        "visualContribution": { "type": "string" },
+        "sourceLineage": { "type": "object" }
+      },
+      "additionalProperties": true
+    },
+    "promptArtifact": {
+      "type": "object",
+      "required": ["status", "quest", "sceneText", "gptImagePrompt", "negativePrompt", "justification", "evidence"],
+      "properties": {
+        "status": { "enum": ["missing", "ready", "stale", "failed"] },
+        "quest": { "$ref": "#/$defs/quest" },
+        "sceneText": { "type": ["string", "null"] },
+        "gptImagePrompt": { "type": ["string", "null"] },
+        "negativePrompt": { "type": ["string", "null"] },
+        "justification": { "type": ["string", "null"] },
+        "evidence": {
+          "type": "object",
+          "properties": {
+            "lyricCitations": { "type": "array", "items": { "$ref": "#/$defs/citation" } },
+            "cueIds": { "type": "array", "items": { "type": "string" } },
+            "contextNodeIds": { "type": "array", "items": { "type": "string" } },
+            "referenceConnectorIds": { "type": "array", "items": { "type": "string" } }
+          },
+          "additionalProperties": false
+        },
+        "generatorReceipt": { "type": ["object", "null"] },
+        "staleReasons": { "type": "array", "items": { "type": "string" } }
+      },
+      "additionalProperties": true
+    },
+    "mediaArtifact": {
+      "type": "object",
+      "required": ["status", "quest"],
+      "properties": {
+        "status": { "enum": ["missing", "candidate", "keyframe_exists", "video_exists", "stale", "failed"] },
+        "quest": { "$ref": "#/$defs/quest" },
+        "assetId": { "type": ["string", "null"] },
+        "mediaCardId": { "type": ["string", "null"] },
+        "contentHash": { "type": ["string", "null"] },
+        "retrievalHandle": { "type": ["string", "null"] },
+        "reviewStatus": { "type": ["string", "null"] },
+        "eligibleForDirector": { "type": "boolean" },
+        "staleReasons": { "type": "array", "items": { "type": "string" } }
+      },
+      "additionalProperties": true
+    },
+    "count": {
+      "type": "object",
+      "required": ["id", "ordinal", "window", "aggregateState", "seedAssets", "prompt", "image", "video"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "ordinal": { "type": "integer", "minimum": 0 },
+        "window": {
+          "type": "object",
+          "required": ["beatStart", "beatEndExclusive", "startSeconds", "endSeconds", "timingTruthStatus"],
+          "properties": {
+            "beatStart": { "type": "integer", "minimum": 0 },
+            "beatEndExclusive": { "type": "integer", "minimum": 1 },
+            "startSeconds": { "type": "number", "minimum": 0 },
+            "endSeconds": { "type": "number", "minimum": 0 },
+            "timingTruthStatus": { "type": "string", "minLength": 1 },
+            "partialFinalCount": { "type": "boolean" }
+          },
+          "additionalProperties": true
+        },
+        "aggregateState": {
+          "enum": ["needs_timing_truth", "missing_prompt", "prompt_quest_open", "prompt_ready", "image_quest_open", "keyframe_candidate", "keyframe_exists", "video_quest_held", "video_exists", "stale"]
+        },
+        "seedAssets": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 3,
+          "items": { "$ref": "#/$defs/seedAsset" }
+        },
+        "prompt": { "$ref": "#/$defs/promptArtifact" },
+        "image": { "$ref": "#/$defs/mediaArtifact" },
+        "video": { "$ref": "#/$defs/mediaArtifact" }
+      },
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": false
+}
