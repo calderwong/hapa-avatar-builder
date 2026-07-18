@@ -1,5 +1,5 @@
 import { generateEchoHyperframeScript } from "./echo-hyperframe-script.js";
-import { hasHapaDevProtoOrigin } from "./builder-direction-candidates.js";
+import { hasExcludedEchoDirectorOrigin } from "./builder-direction-candidates.js";
 
 export const SCROLL_FAL_DIRECTION_VARIANT_ID = "scroll-fal-authored-v1";
 export const SCROLL_FAL_DIRECTION_VARIANT_VERSION = "hapa.echo.direction-script-variant.v1";
@@ -84,10 +84,14 @@ function normalizeSourceGroup(candidate = {}) {
   if (source === "scroll" || source.includes("scroll") || source.includes("fal")) return "scroll";
   if (source === "scene" || source.includes("scene")) return "scene";
   if (source === "avatar" || source.includes("avatar")) return "avatar";
+  if (source === "deevid" || source.includes("deevid")) return "deevid";
+  if (source === "tarot" || source.includes("tarot")) return "tarot";
   const cohort = String(candidate.cohort || "").trim().toLowerCase();
   if (cohort === "root" || cohort.includes("fal") || cohort.includes("scroll")) return "scroll";
   if (cohort.includes("scene")) return "scene";
   if (cohort.includes("avatar")) return "avatar";
+  if (cohort.includes("deevid")) return "deevid";
+  if (cohort.includes("tarot")) return "tarot";
   return "";
 }
 
@@ -164,7 +168,7 @@ export function isBalancedDirectorMediaAllowed(candidate = {}, policy = {}) {
     ? policy.allowedSourceGroups
     : BALANCED_SOURCE_GROUPS);
   if (!candidate.id || !candidate.uri || candidate.autoEligible === false || !allowedSourceGroups.has(sourceGroup)) return false;
-  if (hasHapaDevProtoOrigin(
+  if (hasExcludedEchoDirectorOrigin(
     candidate.origin,
     candidate.provenance,
     candidate.sourceProvenance,
@@ -181,6 +185,9 @@ export function isBalancedDirectorMediaAllowed(candidate = {}, policy = {}) {
 }
 
 export function buildBalancedDirectorCandidates(entries = [], policy = {}) {
+  const sourceOrder = list(policy.allowedSourceGroups).length
+    ? list(policy.allowedSourceGroups).map((sourceGroup) => normalizeSourceGroup({ sourceGroup })).filter(Boolean)
+    : BALANCED_SOURCE_GROUPS;
   return list(entries)
     .filter((entry) => isBalancedDirectorMediaAllowed(entry, policy))
     .map((entry, index) => {
@@ -196,7 +203,7 @@ export function buildBalancedDirectorCandidates(entries = [], policy = {}) {
       };
     })
     .filter((entry) => entry.authoredUse !== "card-overlay")
-    .sort((a, b) => BALANCED_SOURCE_GROUPS.indexOf(a.sourceGroup) - BALANCED_SOURCE_GROUPS.indexOf(b.sourceGroup)
+    .sort((a, b) => sourceOrder.indexOf(a.sourceGroup) - sourceOrder.indexOf(b.sourceGroup)
       || a.routeOrder - b.routeOrder
       || String(a.id).localeCompare(String(b.id)));
 }
@@ -889,11 +896,13 @@ export function recastBalancedEchoDirectorProject(project = {}, candidateEntries
     scrollForbiddenMarkers: options.scrollForbiddenMarkers || DEFAULT_FORBIDDEN,
   };
   const candidates = buildBalancedDirectorCandidates(candidateEntries, policy);
-  if (!candidates.length) throw new Error("No eligible Scroll, Scene, or Avatar director candidates were supplied.");
-  const availableGroups = BALANCED_SOURCE_GROUPS.filter((sourceGroup) => (
+  if (!candidates.length) throw new Error("No eligible mixed-library director candidates were supplied.");
+  const requiredGroups = list(policy.allowedSourceGroups)
+    .map((sourceGroup) => normalizeSourceGroup({ sourceGroup }))
+    .filter((sourceGroup, index, all) => sourceGroup && all.indexOf(sourceGroup) === index);
+  const availableGroups = requiredGroups.filter((sourceGroup) => (
     candidates.some((candidate) => candidate.sourceGroup === sourceGroup)
   ));
-  const requiredGroups = list(policy.allowedSourceGroups).filter((sourceGroup) => BALANCED_SOURCE_GROUPS.includes(sourceGroup));
   const missingGroups = requiredGroups.filter((sourceGroup) => !availableGroups.includes(sourceGroup));
   if (options.requireAllSourceGroups !== false && missingGroups.length) {
     throw new Error(`Balanced director recast requires eligible candidates for: ${missingGroups.join(", ")}.`);
@@ -1026,11 +1035,11 @@ export function recastBalancedEchoDirectorProject(project = {}, candidateEntries
   });
 
   const createdAt = options.createdAt || new Date().toISOString();
-  const sourceCandidatesByGroup = Object.fromEntries(BALANCED_SOURCE_GROUPS.map((sourceGroup) => [
+  const sourceCandidatesByGroup = Object.fromEntries(requiredGroups.map((sourceGroup) => [
     sourceGroup,
     candidates.filter((candidate) => candidate.sourceGroup === sourceGroup).length,
   ]));
-  const selectionsBySource = Object.fromEntries(BALANCED_SOURCE_GROUPS.map((sourceGroup) => [
+  const selectionsBySource = Object.fromEntries(requiredGroups.map((sourceGroup) => [
     sourceGroup,
     selections.filter((selection) => selection.sourceGroup === sourceGroup).length,
   ]));
@@ -1084,7 +1093,7 @@ export function recastBalancedEchoDirectorProject(project = {}, candidateEntries
       mode: "balanced-mixed-library-allowlist",
       allowedSourceGroups: policy.allowedSourceGroups,
       allowedScrollCohorts: policy.allowedScrollCohorts,
-      forbiddenProvenanceLineages: ["hapa-dev-proto"],
+      forbiddenProvenanceLineages: options.forbiddenProvenanceLineages || ["hapa-dev-proto", "hell-week"],
       provenanceExclusionScope: "explicit-origin-lineage-only",
       technicallyEligibleOnly: true,
       ...(state.sharedUsageCounts instanceof Map ? {
@@ -1232,7 +1241,7 @@ export function validateBalancedDirectorRevision(variant = {}, options = {}) {
     if (evidence.provenance?.checked !== true || evidence.provenance?.scope !== "explicit-origin-lineage-only") {
       failures.push(`shot ${index} is missing provenance-scoped exclusion evidence`);
     }
-    if (hasHapaDevProtoOrigin(...references.map((source) => ({ source })))) {
+    if (hasExcludedEchoDirectorOrigin(...references.map((source) => ({ source })))) {
       failures.push(`shot ${index} has forbidden explicit provenance`);
     }
     const identity = evidence.technicalIdentity || technicalIdentity(candidate);

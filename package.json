@@ -34,6 +34,8 @@
     "ingest:scroll-site": "node scripts/ingest-scroll-site-media.mjs",
     "echo:variants:builder-balanced": "node scripts/append-balanced-builder-direction-variants.mjs",
     "echo:variants:builder-balanced:apply": "node scripts/append-balanced-builder-direction-variants.mjs --apply",
+    "echo:variants:builder-media-eligible": "node scripts/append-eligible-builder-media-direction-variants.mjs",
+    "echo:variants:builder-media-eligible:apply": "node scripts/append-eligible-builder-media-direction-variants.mjs --apply",
     "echo:variants:wide-cuts": "node scripts/append-balanced-builder-direction-variants.mjs --wide-cuts",
     "echo:variants:wide-cuts:apply": "node scripts/append-balanced-builder-direction-variants.mjs --wide-cuts --apply",
     "echo:variants:parity:missing": "node scripts/ingest-scroll-site-media.mjs --missing-only --variants-only && node scripts/append-balanced-builder-direction-variants.mjs --missing-only && node scripts/append-balanced-builder-direction-variants.mjs --wide-cuts --missing-only",

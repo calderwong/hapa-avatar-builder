@@ -97,13 +97,40 @@ test("balanced mixed-library eligibility scopes hapa-dev-proto exclusion to expl
       recordId: "opaque-card-id",
     },
   };
+  const forbiddenHellWeekOrigin = {
+    ...candidate("scene", "transition", 8),
+    id: "scene-forbidden-hell-week-origin",
+    origin: { sourceSystem: "hell-week" },
+  };
 
   assert.equal(isBalancedDirectorMediaAllowed(loreOnly), true, "descriptive text is not provenance");
   assert.equal(isBalancedDirectorMediaAllowed(forbiddenOrigin), false, "explicit repository origin is provenance");
+  assert.equal(isBalancedDirectorMediaAllowed(forbiddenHellWeekOrigin), false, "explicit Hell Week origin is provenance");
   assert.deepEqual(
     buildBalancedDirectorCandidates([loreOnly, forbiddenOrigin]).map((entry) => entry.id),
     ["scene-lore-reference"],
   );
+});
+
+test("balanced recast accepts an explicit four-library Builder source policy", () => {
+  const sourceGroups = ["avatar", "deevid", "tarot", "scene"];
+  const candidates = sourceGroups.flatMap((sourceGroup, groupIndex) => [
+    candidate(sourceGroup, "loop", 20 + groupIndex * 2),
+    candidate(sourceGroup, "transition", 21 + groupIndex * 2),
+  ]);
+  const variant = recastBalancedEchoDirectorProject(projectWithShots(8), candidates, {
+    variantId: "builder-deevid-tarot-scene-eligible-v1",
+    allowedSourceGroups: sourceGroups,
+    sourcePattern: sourceGroups,
+    rotateSourcePattern: false,
+    createdAt: "2026-07-18T12:00:00.000Z",
+    seed: "four-library-builder-fixture",
+  });
+
+  assert.deepEqual(variant.selectionEvidence.map((selection) => selection.sourceGroup), [...sourceGroups, ...sourceGroups]);
+  assert.deepEqual(variant.telemetry.sourceCandidatesByGroup, { avatar: 2, deevid: 2, tarot: 2, scene: 2 });
+  assert.deepEqual(variant.sourcePolicy.forbiddenProvenanceLineages, ["hapa-dev-proto", "hell-week"]);
+  assert.deepEqual(validateBalancedDirectorRevision(variant), { ok: true, timelineShots: 8, replacementShots: 8 });
 });
 
 test("balanced recast rotates all three sources, drains deterministic shuffle bags, and preserves direction", () => {

@@ -36,30 +36,37 @@ function sourceValues(value = {}) {
     value?.sourceRepo,
     value?.sourceRepository,
     value?.sourceNode,
+    value?.sourceKind,
+    value?.originId,
+    value?.originNode,
     value?.sourcePath,
     value?.targetPath,
     value?.originalPath,
   ].filter(Boolean);
 }
 
+function normalizedSourceValue(value = "") {
+  return String(value).trim().toLowerCase().replaceAll("\\", "/");
+}
+
 function isDevProtoSourceValue(value = "") {
-  const normalized = String(value).trim().toLowerCase().replaceAll("\\", "/");
+  const normalized = normalizedSourceValue(value);
   return normalizedToken(normalized).includes("hapa-dev-proto")
     || HAPA_DEV_PROTO_MEDIA_ROOTS.some((root) => normalized.startsWith(root));
 }
 
-/**
- * Excludes a Card only when its explicit origin/provenance names hapa-dev-proto.
- * Titles, OCR, descriptive tags, and lore are intentionally not searched.
- */
-export function hasHapaDevProtoOrigin(...records) {
+function isHellWeekSourceValue(value = "") {
+  return normalizedToken(normalizedSourceValue(value)).includes("hell-week");
+}
+
+function hasExplicitOriginMatch(predicate, records = []) {
   const queue = records.filter(Boolean);
   const visited = new Set();
   while (queue.length) {
     const value = queue.shift();
     if (!value || typeof value !== "object" || visited.has(value)) continue;
     visited.add(value);
-    if (sourceValues(value).some((entry) => isDevProtoSourceValue(entry))) return true;
+    if (sourceValues(value).some((entry) => predicate(entry))) return true;
     for (const key of ["origin", "provenance", "sourceProvenance", "cardOrigin", "hapaOrigin", "records", "folderIngest", "storage"]) {
       const nested = value[key];
       if (Array.isArray(nested)) queue.push(...nested);
@@ -67,6 +74,24 @@ export function hasHapaDevProtoOrigin(...records) {
     }
   }
   return false;
+}
+
+/**
+ * Excludes a Card only when its explicit origin/provenance names hapa-dev-proto.
+ * Titles, OCR, descriptive tags, and lore are intentionally not searched.
+ */
+export function hasHapaDevProtoOrigin(...records) {
+  return hasExplicitOriginMatch(isDevProtoSourceValue, records);
+}
+
+/** Excludes Hell Week only when explicit origin/provenance names it. */
+export function hasHellWeekOrigin(...records) {
+  return hasExplicitOriginMatch(isHellWeekSourceValue, records);
+}
+
+/** Shared exclusion contract for new Echo Director media passes. */
+export function hasExcludedEchoDirectorOrigin(...records) {
+  return hasHapaDevProtoOrigin(...records) || hasHellWeekOrigin(...records);
 }
 
 function isVideoAsset(asset = {}) {
@@ -144,9 +169,11 @@ function motionRole(asset = {}, owner = {}) {
 
 function isTechnicallyEligible(asset = {}, owner = {}, options = {}) {
   if (!isVideoAsset(asset)) return false;
-  if (hasHapaDevProtoOrigin(asset, asset.metadata, owner, owner?.hapaMergeProvenance)) return false;
+  const originPredicate = typeof options.originPredicate === "function" ? options.originPredicate : hasHapaDevProtoOrigin;
+  if (originPredicate(asset, asset.metadata, owner, owner?.hapaMergeProvenance)) return false;
   const uri = String(asset.uri || asset.url || asset.src || "");
-  if (!uri.startsWith("/media/")) return false;
+  const allowedUriPrefixes = list(options.allowedUriPrefixes).length ? options.allowedUriPrefixes : ["/media/"];
+  if (!allowedUriPrefixes.some((prefix) => uri.startsWith(prefix))) return false;
   const { width, height } = assetDimensions(asset);
   const shortEdge = Math.min(width, height);
   if (shortEdge < finite(options.minShortEdge, DEFAULT_MIN_SHORT_EDGE)) return false;
@@ -159,7 +186,10 @@ function isTechnicallyEligible(asset = {}, owner = {}, options = {}) {
   if (markers.some((marker) => INVALID_TECHNICAL_MARKERS.some((invalid) => marker.includes(invalid)))) return false;
   const technical = technicalFor(asset, options);
   const technicalStatus = technical.status || asset.metadata?.echosTechnicalAffordance?.status || "";
-  if (options.requireVerifiedTechnical && technicalStatus !== "verified-source-file") return false;
+  const verifiedTechnicalStatuses = new Set(list(options.verifiedTechnicalStatuses).length
+    ? options.verifiedTechnicalStatuses
+    : ["verified-source-file"]);
+  if (options.requireVerifiedTechnical && !verifiedTechnicalStatuses.has(technicalStatus)) return false;
   const pixelFormat = String(technical.pixelFormat || asset.metadata?.echosTechnicalAffordance?.pixelFormat || "").toLowerCase();
   if (options.requireBrowserSafePixelFormat && pixelFormat && pixelFormat !== "yuv420p") return false;
   if (options.availableMediaFiles instanceof Set && !options.availableMediaFiles.has(mediaFileName(uri))) return false;
@@ -326,6 +356,80 @@ export function buildAvatarDirectorCandidates(avatarStore = {}, options = {}) {
     }, options);
   });
   return dedupeCandidates(candidates, options.usedIdentities || new Set());
+}
+
+export function buildDeevidDirectorCandidates(itemStore = {}, options = {}) {
+  const rows = list(itemStore.cards)
+    .filter((card) => String(card.id || "").startsWith("card-media-deevid-")
+      || card.cardRecord?.schemaVersion === "hapa.deevid-media-card-record.v1")
+    .sort((a, b) => String(a.id).localeCompare(String(b.id)))
+    .flatMap((card) => list(card.mediaAssets).map((asset) => ({ card, asset })))
+    .filter(({ card, asset }) => isTechnicallyEligible(asset, card, options))
+    .sort((a, b) => String(a.card.id).localeCompare(String(b.card.id)) || String(a.asset.id).localeCompare(String(b.asset.id)));
+  const candidates = rows.map(({ card, asset }, index) => commonCandidate(asset, card, {
+    id: `builder-deevid:${card.id}:${asset.id}`,
+    cardId: card.id,
+    cardKind: "item",
+    cardRef: `data/item-manager-store.json#cards/${card.id}`,
+    cardTitle: card.title || card.name || card.id,
+    ownerId: card.id,
+    ownerTitle: card.title || card.name || card.id,
+    title: card.title || card.name || asset.title || asset.id,
+    sourceGroup: "deevid",
+    cohort: "builder-deevid",
+    routeOrder: index,
+    origin: { sourceSystem: "hapa-avatar-builder", sourceStore: "data/item-manager-store.json", recordId: card.id },
+  }, options));
+  return dedupeCandidates(candidates, options.usedIdentities || new Set());
+}
+
+export function buildTarotDirectorCandidates(tarotStore = {}, options = {}) {
+  const rows = list(tarotStore.cards)
+    .sort((a, b) => String(a.id).localeCompare(String(b.id)))
+    .flatMap((card) => list(card.assets).map((asset) => ({ card, asset })))
+    .filter(({ card, asset }) => isTechnicallyEligible(asset, card, options))
+    .sort((a, b) => String(a.card.id).localeCompare(String(b.card.id)) || String(a.asset.id).localeCompare(String(b.asset.id)));
+  const candidates = rows.map(({ card, asset }, index) => commonCandidate(asset, card, {
+    id: `builder-tarot:${card.id}:${asset.id}`,
+    cardId: card.id,
+    cardKind: "tarot",
+    cardRef: `data/tarot-store.json#cards/${card.id}`,
+    cardTitle: card.title || card.name || card.id,
+    ownerId: card.id,
+    ownerTitle: card.title || card.name || card.id,
+    title: `${card.title || card.name || card.id} · ${asset.name || asset.title || asset.id}`,
+    sourceGroup: "tarot",
+    cohort: "builder-tarot",
+    routeOrder: index,
+    origin: { sourceSystem: "hapa-avatar-builder", sourceStore: "data/tarot-store.json", recordId: card.id },
+  }, options));
+  return dedupeCandidates(candidates, options.usedIdentities || new Set());
+}
+
+export function buildEligibleBuilderMediaDirectorCandidates(stores = {}, options = {}) {
+  const usedIdentities = new Set();
+  const shared = { ...options, usedIdentities, originPredicate: hasExcludedEchoDirectorOrigin };
+  for (const key of ["deevidOptions", "tarotOptions", "sceneOptions", "avatarOptions"]) delete shared[key];
+  const deevid = buildDeevidDirectorCandidates(stores.itemStore, { ...shared, ...options.deevidOptions, usedIdentities });
+  const tarot = buildTarotDirectorCandidates(stores.tarotStore, { ...shared, ...options.tarotOptions, usedIdentities });
+  const scene = buildSceneDirectorCandidates(stores.sceneStore, { ...shared, ...options.sceneOptions, usedIdentities });
+  const avatar = buildAvatarDirectorCandidates(stores.avatarStore, { ...shared, ...options.avatarOptions, usedIdentities });
+  const candidates = [...avatar, ...deevid, ...tarot, ...scene];
+  return {
+    candidates,
+    groups: { avatar, deevid, tarot, scene },
+    telemetry: {
+      total: candidates.length,
+      avatar: avatar.length,
+      deevid: deevid.length,
+      tarot: tarot.length,
+      scene: scene.length,
+      uniqueTechnicalIdentities: usedIdentities.size,
+      minShortEdge: finite(options.minShortEdge, DEFAULT_MIN_SHORT_EDGE),
+      minDurationSeconds: finite(options.minDurationSeconds, DEFAULT_MIN_DURATION_SECONDS),
+      excludedOrigin: "hapa-dev-proto-and-hell-week-explicit-provenance-only",
+    },
+  };
 }
 
 export function buildBuilderExpandedDirectorCandidates(stores = {}, options = {}) {
