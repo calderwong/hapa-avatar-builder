@@ -10,19 +10,39 @@ Use Hapa as an artist kit. Apps and nodes are work surfaces or specialized paint
 Calder welcomes **for-profit and nonprofit teams and organizations** to suggest a clearly attributed ecosystem presence, service integration, public-interest pilot, connector, Card/Deck, agent route, or future decentralized-commerce experiment. This is an open invitation to explore, not a promise of partnership, acceptance, compatibility, decentralization, funding, commerce capability, or commercial outcome. Canonical guidance: `$HAPA_FRONT_DOOR_ROOT/docs/ECOSYSTEM_STAGE_AND_PARTICIPATION.md` ([public copy](https://github.com/calderwong/hapa/blob/main/docs/ECOSYSTEM_STAGE_AND_PARTICIPATION.md)).
 <!-- HAPA_ECOSYSTEM_CONTEXT_END -->
 
+## Place in the Hapa artist kit
+
+Avatar Builder is Hapa's embodiment and media-assembly workbench: the place to
+turn source media, identity notes, scene links, Tarot Cards, and song/video
+direction into reusable Avatar- and media-shaped jump-off points.
+
+| Question | Truthful answer |
+| --- | --- |
+| Best jump-off point for | Building and healing Avatar Cards, organizing Tarot media, operating the 3D Tarot Draw, attaching scene/world context, and preparing attributable media or Song Card records. |
+| Shared paint it consumes | [`@hapa/overcard`](https://github.com/calderwong/hapa-overcard) supplies Hand, Deck, Placement, Formation, attachment, and bounded-responsibility behavior. Builder is a consumer, not the owner of that shared capability. |
+| Records it owns | Avatar, item, scene, Tarot, media, direction, and Song Card authoring state created in this app, including its durable Card-origin outbox. |
+| Neighboring Hapa capabilities | [Overwind](https://github.com/calderwong/hapa-overwind-node) acknowledges published Card events; Roomlet joins exported Tarot rooms; Song Registry and Music Viz consume bounded outputs. |
+| What it does not own | Overcard's shared package, Overwind subscriber history, third-party frameworks or media, or authority merely because a Card is visible or placed. |
+
+**Current state:** `local-first-canonical` identifies this checkout as Calder's
+authoritative Avatar Builder source; it is not a production-readiness or API
+stability guarantee. The declared UI/API/CLI/desktop/package parity is bounded
+to `docs/API_CLI_UI_PARITY.md` and its checks.
+
 Universal Hapa Card Plane v1 is released. Avatar Builder retains authoring custody of its Avatar and Item stores, publishes immutable events through its durable Overwind outbox, and consumes Overwind Postgres as acknowledged Card subscriber truth; Redis/Postgres serves hot hydration and Elasticsearch serves search/sort/facets. See `docs/OVERWIND_CARD_ORIGIN.md` and `docs/OVERWIND_CARD_SUBSCRIBER.md`.
 
 Hapa Avatar Builder is a neonblade+ operator app for assembling avatar media into a reusable Avatar Card. It standardizes the Red/Reaper scaffold into required media slots, tracks completeness as XP/level progress, exposes a local API and CLI for agents, and includes a kanban board for build and healing work.
 
 ## Source Of Truth
 
-Use this checkout as the source of truth:
+Use the repository root of the current checkout as the source of truth. On
+Calder's workstation, the stable operator-facing alias is:
 
 ```text
 /Users/calderwong/Desktop/hapa-avatar-builder
 ```
 
-That desktop path resolves to:
+That alias currently resolves to the historical Codex working checkout:
 
 ```text
 /Users/calderwong/Documents/Codex/2026-06-10/files-mentioned-by-the-user-screenshot/outputs/hapa-avatar-builder
@@ -47,7 +67,25 @@ The canonical app now contains both Tarot surfaces:
 
 See `docs/CANONICAL_SOURCE_OF_TRUTH.md` and `data/merge-reports/2026-06-23-pinokio-canonical-audit.md` for the merge history and data audit.
 
-Universal Hand, menu attachment, responsibility, cross-app sync, and Tarot Formation behavior is documented in `docs/OVERCARD.md`. This app consumes `/Users/calderwong/Desktop/hapa-overcard`; it does not own or copy the shared feature.
+Universal Hand, menu attachment, responsibility, cross-app sync, and Tarot
+Formation behavior is documented in `docs/OVERCARD.md`. This app consumes the
+separate `hapa-overcard` repository; it does not own or copy the shared feature.
+
+## Publication, ownership, and licenses
+
+The Hapa application and integration work in this repository is attributed to
+Hapa.ai / Calder Wong unless a file or source record says otherwise. React,
+Electron, Three.js, Hypercore, and other dependencies remain the work of their
+respective projects and retain their own licenses. Creator profile images,
+platform marks, sponsor logos, linked songs/videos, and other referenced media
+remain the property of their respective creators and rights holders; catalog
+presence is a source-labeled research or interoperability reference, not Hapa
+authorship, sponsorship, or endorsement.
+
+No repository-wide license grant is currently declared. Public GitHub
+visibility does not by itself grant permission to reuse Hapa-authored code or
+bundled media; review each dependency and asset's terms and contact Calder
+before redistribution.
 
 ## What It Builds
 

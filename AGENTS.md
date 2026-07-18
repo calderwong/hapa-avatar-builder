@@ -11,6 +11,25 @@
 - Canonical guidance: `$HAPA_FRONT_DOOR_ROOT/docs/ECOSYSTEM_STAGE_AND_PARTICIPATION.md` ([public copy](https://github.com/calderwong/hapa/blob/main/docs/ECOSYSTEM_STAGE_AND_PARTICIPATION.md)).
 <!-- HAPA_ECOSYSTEM_AGENT_CONTEXT_END -->
 
+## Capability orientation for agents
+
+- **Paint/work surface:** embodiment, Avatar Card/media assembly, Tarot
+  management and Draw, scene/world attachment, and song/video direction.
+- **Shared paint:** consume `hapa-overcard` for Hand, Deck, Placement,
+  Formation, attachment, and responsibility. Do not fork those contracts here.
+- **Jump-off material:** source-labeled Avatar, item, scene, Tarot, media, and
+  Song Card records. Adapt them without stripping creator, tool, rights, or
+  lineage fields.
+- **Current claim:** `local-first-canonical` identifies the owning checkout,
+  not a stable release. Parity claims are limited to
+  `docs/API_CLI_UI_PARITY.md`.
+- **Custody route:** Builder owns origin authoring; its durable outbox stages
+  events; only an Overwind Postgres acknowledgement creates subscriber truth.
+  Roomlet and media/song apps are bounded consumers, not co-owners.
+- **Publication rule:** third-party names, profile images, logos, songs, and
+  linked media are references owned by their respective rights holders. Never
+  imply Hapa authorship, sponsorship, endorsement, or reuse rights.
+
 Universal Hapa Card Plane v1 is released. Avatar/Item JSON stores remain authoring-owned here; origin events publish through the durable outbox, and acknowledged subscriber reads use Overwind Postgres with Redis/Elasticsearch serving projections.
 
 ## Node Role
