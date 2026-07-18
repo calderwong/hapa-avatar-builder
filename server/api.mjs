@@ -343,6 +343,7 @@ const echoIsfAssets = new EchoIsfAssetCatalog({ musicVizRoot: HAPA_MUSIC_VIZ_ROO
 const echoDirectorShowGraphCache = new Map();
 const echoMintPlanCertificationQueue = createEchoMintPlanCertificationQueue();
 const echoDirectorProjectCompileJobs = new Map();
+const echoDirectorProjectWarmupJobs = new Map();
 const echoPreviewPreparationJobs = new Map();
 const echoPreviewPreparationQueue = [];
 let activeEchoPreviewPreparationSongId = "";
@@ -381,6 +382,90 @@ function compileEchoDirectorProject(songIdInput) {
   });
   echoDirectorProjectCompileJobs.set(songId, job);
   return job;
+}
+
+function warmEchoDirectorProject(songIdInput, { variantId: variantIdInput = "" } = {}) {
+  const songId = String(songIdInput || "").trim();
+  const variantId = String(variantIdInput || "").trim();
+  if (!songId || path.basename(songId) !== songId) {
+    const error = new Error("A safe Echo song ID is required for render-graph warm-up.");
+    error.code = "echo_project_song_id_unsafe";
+    throw error;
+  }
+  if (variantId && (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,199}$/u.test(variantId) || path.basename(variantId) !== variantId)) {
+    const error = new Error("A safe Echo direction cut ID is required for render-graph warm-up.");
+    error.code = "echo_project_variant_id_unsafe";
+    throw error;
+  }
+  const warmupKey = `${songId}\u0000${variantId || "base"}`;
+  const active = echoDirectorProjectWarmupJobs.get(warmupKey);
+  if (active) return active;
+  const projectPath = path.join(ROOT, "data", "music-video-projects", `${songId}-video-project.json`);
+  const reportDirectory = path.join(ROOT, "artifacts", "echo-render-readiness", "projects", songId);
+  const reportPath = path.join(reportDirectory, `${variantId || "base"}.json`);
+  const job = compileEchoDirectorProject(songId).then(async (compileResult) => {
+    await mkdir(reportDirectory, { recursive: true });
+    await rm(reportPath, { force: true });
+    const args = [
+      path.join(ROOT, "scripts", "preflight-echo-render-readiness.mjs"),
+      `--avatar-root=${ROOT}`,
+      `--projects=${path.join(ROOT, "data", "music-video-projects")}`,
+      `--variants=${ECHO_DIRECTION_VARIANTS_DIR}`,
+      `--album=${ECHO_DIRECTOR_V2_ALBUM_DIR}`,
+      `--music-viz-root=${HAPA_MUSIC_VIZ_ROOT}`,
+      `--registry=${SONG_REGISTRY_DATA_PATH}`,
+      `--songbook=${DEAR_PAPA_SONGBOOK_PATH}`,
+      `--project=${projectPath}`,
+      ...(variantId ? [`--variant=${variantId}`] : []),
+      "--apply-stem-repairs=true",
+      "--skip-mint-plans=true",
+      `--report=${reportPath}`,
+    ];
+    const { stdout, stderr } = await runEchoReadinessCertificationProcess(args, { timeoutMs: 10 * 60_000 });
+    echoDirectorShowGraphCache.clear();
+    let certification = null;
+    try { certification = JSON.parse(String(stdout || "").trim()); } catch { /* Preserve bounded output below. */ }
+    if (certification && certification.ok !== true) {
+      const error = new Error(`Echo render-graph warm-up did not certify ${variantId || "the base cut"}.`);
+      error.code = "echo_project_warmup_not_ready";
+      error.stdout = stdout;
+      error.stderr = stderr;
+      throw error;
+    }
+    return {
+      ...compileResult,
+      warmup: {
+        ok: true,
+        status: certification?.status || "ready-no-known-blockers",
+        songId,
+        cutId: variantId || "base",
+        reportPath: path.relative(ROOT, reportPath),
+        readyCutCount: Number(certification?.readyCutCount || 0),
+        blockedCutCount: Number(certification?.blockedCutCount || 0),
+      },
+    };
+  }).finally(() => {
+    echoDirectorShowGraphCache.clear();
+    echoDirectorProjectWarmupJobs.delete(warmupKey);
+  });
+  echoDirectorProjectWarmupJobs.set(warmupKey, job);
+  return job;
+}
+
+async function settleEchoDirectionCutWarmup(songId, variantId) {
+  try {
+    return (await warmEchoDirectorProject(songId, { variantId })).warmup;
+  } catch (error) {
+    console.warn(`Saved Echo direction cut ${variantId} but its render graph is not ready:`, error);
+    return {
+      ok: false,
+      status: "blocked",
+      songId,
+      cutId: variantId,
+      error: error?.code || "echo_project_warmup_failed",
+      message: error instanceof Error ? error.message : String(error),
+    };
+  }
 }
 
 function pumpEchoPreviewPreparationQueue() {
@@ -2113,7 +2198,9 @@ async function route(req, res) {
   if (pathname === "/api/echos/director-project/compile" && req.method === "POST") {
     try {
       const body = await readBody(req);
-      const result = await compileEchoDirectorProject(body.songId || body.song_id);
+      const result = await warmEchoDirectorProject(body.songId || body.song_id, {
+        variantId: body.variantId || body.variant_id || "",
+      });
       sendJson(res, 200, { success: true, ...result });
     } catch (error) {
       console.error("Failed to compile the saved Echo project:", error);
@@ -8153,11 +8240,13 @@ async function createEchoDirectionVariantFork(body = {}) {
   if (existingRequestedChild) {
     if (existingRequestedChild.fork_request_fingerprint === forkRequestFingerprint
       && existingRequestedChild.lineage?.parentVariantId === parentVariantId) {
+      const warmup = await settleEchoDirectionCutWarmup(songId, requestedId);
       return {
         success: true,
         idempotentReplay: true,
         variant: summarizeEchoDirectionScriptVariant(existingRequestedChild),
         lineage: existingRequestedChild.lineage,
+        warmup,
       };
     }
     throw echoDirectionForkError("direction_variant_conflict", "A different direction cut already uses that request identifier.", 409);
@@ -8231,10 +8320,12 @@ async function createEchoDirectionVariantFork(body = {}) {
     throw error;
   }
   echoDirectionVariantSummaryIndex.invalidate(songId);
+  const warmup = await settleEchoDirectionCutWarmup(songId, childId);
   return {
     success: true,
     variant: summarizeEchoDirectionScriptVariant(child),
     lineage: child.lineage,
+    warmup,
   };
 }
 
