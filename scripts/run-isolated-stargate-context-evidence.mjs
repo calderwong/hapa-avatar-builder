@@ -8,7 +8,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const mode = process.argv.includes("--proposal-mint-capture") ? "proposal-mint-capture" : process.argv.includes("--wisdom-council-capture") ? "wisdom-council-capture" : process.argv.includes("--context-forge-capture") ? "context-forge-capture" : process.argv.includes("--spatial-truth-capture") ? "spatial-truth-capture" : process.argv.includes("--media-comment-capture") ? "media-comment-capture" : process.argv.includes("--gate-pass-capture") ? "gate-pass-capture" : process.argv.includes("--gate-pass") ? "gate-pass" : process.argv.includes("--catalog-return-capture") ? "catalog-return-capture" : process.argv.includes("--catalog-return") ? "catalog-return" : process.argv.includes("--mint-capture") ? "mint-capture" : process.argv.includes("--capture") ? "capture" : process.argv.includes("--smoke") ? "smoke" : process.argv.includes("--core-smoke") ? "core-smoke" : "all";
+const mode = process.argv.includes("--interaction-smoke") ? "interaction-smoke" : process.argv.includes("--proposal-mint-capture") ? "proposal-mint-capture" : process.argv.includes("--wisdom-council-capture") ? "wisdom-council-capture" : process.argv.includes("--context-forge-capture") ? "context-forge-capture" : process.argv.includes("--spatial-truth-capture") ? "spatial-truth-capture" : process.argv.includes("--media-comment-capture") ? "media-comment-capture" : process.argv.includes("--gate-pass-capture") ? "gate-pass-capture" : process.argv.includes("--gate-pass") ? "gate-pass" : process.argv.includes("--catalog-return-capture") ? "catalog-return-capture" : process.argv.includes("--catalog-return") ? "catalog-return" : process.argv.includes("--mint-capture") ? "mint-capture" : process.argv.includes("--capture") ? "capture" : process.argv.includes("--smoke") ? "smoke" : process.argv.includes("--core-smoke") ? "core-smoke" : "all";
 const runtimeRoot = await fsp.mkdtemp(path.join(os.tmpdir(), "hapa-stargate-context-evidence-"));
 const port = 22600 + Math.floor(Math.random() * 300);
 const baseUrl = `http://127.0.0.1:${port}/`;
@@ -112,6 +112,7 @@ try {
   const electron = path.join(ROOT, "node_modules", ".bin", "electron");
   const results = [];
   if (["all", "core-smoke"].includes(mode)) results.push(await run("npm", ["run", "smoke:tarot"], { ...sharedEnv, SMOKE_URL: baseUrl }));
+  if (mode === "interaction-smoke") results.push(await run(electron, ["scripts/tarot-stargate-smoke.cjs"], { ...sharedEnv, SMOKE_URL: baseUrl, SMOKE_ARTIFACT_SUFFIX: "interaction-ux" }));
   if (["all", "smoke"].includes(mode)) results.push(await run(electron, ["scripts/tarot-stargate-context-smoke.cjs"], { ...sharedEnv, SMOKE_URL: baseUrl }));
   if (["all", "capture"].includes(mode)) results.push(await run(electron, ["scripts/capture-tarot-stargate-context-card.cjs"], { ...sharedEnv, CAPTURE_URL: baseUrl }));
   if (mode === "mint-capture") results.push(await run(electron, ["scripts/capture-tarot-stargate-mint.cjs"], { ...evidenceEnv, CAPTURE_URL: baseUrl }));

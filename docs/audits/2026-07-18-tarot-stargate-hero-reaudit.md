@@ -123,3 +123,21 @@ Automatic failures remaining: **none in the reviewed active desktop or narrow sc
 - Build and tests that share `dist` must run sequentially. Parallel execution produced an invalid red result by replacing the exact assets an Echo API test was reading; the final verification was rerun sequentially and passed 959/959.
 - Runtime append-only Echo edits were diagnosed but not deleted, rewritten, or absorbed to force a green result. The isolated test and later full run passed without mutating those user records.
 - Candidate reusable lesson: **Cards Become Coordinates** — preserve ordered Card identity, make energy flow legible, reveal only a redacted destination, and bind every visual state to protocol truth before representing arrival.
+
+## 2026-07-19 interaction-access correction
+
+The visual review above did not prove that an operator could actually arrange the formation. Human testing exposed four gaps: the guided hero camera continued to overwrite OrbitControls, the glowing sockets were presentation meshes rather than dependable pointer targets, formation selection was implicit, and a held Card consumed the mouse wheel instead of allowing camera zoom. This means the earlier `2/2` operator-functionality score was premature; it described rendered states, not a verified input path.
+
+The corrected arranging experience now:
+
+- releases the cinematic camera into free orbit after the entrance, with explicit **Free Camera** and **Reset View** controls;
+- supports orbit, wheel zoom, and right-drag pan while the Gate is open;
+- gives every numbered Stargate socket a real hit area;
+- supports both click-Card/click-slot and drag-Card/release-on-slot placement;
+- shows the ordered formation and explains why a Card is excluded;
+- offers **Auto-fill** as an accessible fallback, drawing identity-sealed Cards when the table does not contain two eligible Cards;
+- reveals additional sockets progressively as the formation grows.
+
+Verification is intentionally split by evidence strength. The focused Stargate interaction contract passes 5/5 and the production build passes. A hidden Electron real-pointer run was attempted, but the isolated window remained behind the lazy-loaded Tarot boundary before the canvas mounted; that run does **not** count as interaction proof. Final human confirmation remains required after the already-running Avatar Builder refreshes to the rebuilt bundle.
+
+Reusable lesson: **a rendered target is not an affordance**. Any spatial feature claimed as usable must have a traced pointer route, a reachable camera view, visible eligibility/exclusion feedback, a non-spatial fallback, and evidence captured after the real application surface mounts.

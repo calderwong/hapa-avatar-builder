@@ -4322,7 +4322,33 @@ export default function TarotDraw3DView({ cards = [], avatarId = "local-operator
             <div><dt>Identity</dt><dd>{stargate.sealedCount || 0} sealed{stargate.missingIdentityCount ? ` / ${stargate.missingIdentityCount} need custody` : ""}</dd></div>
             <div><dt>Address</dt><dd>{stargate.redactedAddress || stargate.formationFingerprint || "Withheld until derivation"}</dd></div>
           </dl>
-          <div className="tarot-spatial-truth-status" data-state={spatialTruth.state} data-fixture={spatialTruth.publicFixture ? "true" : "false"}>
+          <div className="tarot-stargate-access" aria-label="Stargate interaction controls">
+            <div className="tarot-stargate-camera-controls">
+              <button type="button" data-active={stargate.cameraMode === "free" ? "true" : "false"} disabled={stargate.cameraMode === "free"} onClick={() => callGame("setStargateCameraMode", "free")} title="Release the cinematic camera so the table can be orbited, zoomed, and panned">
+                <Camera size={11} /> Free Camera
+              </button>
+              <button type="button" onClick={() => callGame("resetStargateCameraView")} title="Reframe the Stargate, then release camera control">
+                <RefreshCw size={11} /> Reset View
+              </button>
+              <button type="button" data-intent="primary" onClick={() => callGame("autoFillStargateFormation")} title="Use Gate-ready table Cards, drawing an identity-sealed pair from the deck when necessary">
+                <Grid3X3 size={11} /> Auto-fill
+              </button>
+            </div>
+            <div className="tarot-stargate-slot-guide" aria-label="Ordered Gate slots">
+              {Array.from({ length: Math.min(8, Math.max(2, Number(stargate.slotCount || 0) + 1)) }, (_, index) => {
+                const formationEntry = stargate.formationEntries?.[index];
+                return (
+                  <span key={`gate-slot-${index + 1}`} data-filled={formationEntry ? "true" : "false"}>
+                    <i>{String(index + 1).padStart(2, "0")}</i>
+                    <b>{formationEntry?.title || (index === Number(stargate.slotCount || 0) ? "Drop next Card" : "Empty")}</b>
+                  </span>
+                );
+              })}
+            </div>
+            <small><strong>Place:</strong> click a Card, then click a numbered ring — or drag it there. <strong>Camera:</strong> drag empty space · wheel zoom · right-drag pan.</small>
+            {stargate.excludedCount > 0 && <em>{stargate.excludedCount} placed Card{stargate.excludedCount === 1 ? " is" : "s are"} outside this Formation{stargate.excluded?.[0] ? ` · ${stargate.excluded[0].title}: ${stargate.excluded[0].reason}` : ""}</em>}
+          </div>
+          {stargate.slotCount >= 2 && <div className="tarot-spatial-truth-status" data-state={spatialTruth.state} data-fixture={spatialTruth.publicFixture ? "true" : "false"}>
             <header><span><CircleDot size={11} /> Truth Constellation</span><strong>{spatialTruth.accepted || 0} verified</strong></header>
             <div className="tarot-spatial-truth-orbit" aria-hidden="true">
               {["PL", "GA", "PE", "CM", "CO", "BU", "WI", "PR", "MI", "RS"].map((label, index) => <i key={label} data-lit={index < Number(spatialTruth.accepted || 0) ? "true" : "false"}>{label}</i>)}
@@ -4333,15 +4359,17 @@ export default function TarotDraw3DView({ cards = [], avatarId = "local-operator
               {spatialTruth.resultCardId && <b>Result Card pressed · proposed only</b>}
             </footer>
             {spatialTruth.publicFixture && <em>Public deterministic showcase receipts · not live provider, network, council, or mint evidence.</em>}
-          </div>
-          <button className="hapa-btn tarot-context-forge-open" data-intent={stargateOpen ? "warning" : undefined} type="button" disabled={!stargateOpen} onClick={openContextForge}>
-            <Sparkles size={13} /> Context Forge
-            <em>{stargateOpen ? `${stargate.slotCount} Cards → sealed packet` : "Open Gate first"}</em>
-          </button>
-          <button className="hapa-btn tarot-wisdom-council-open" data-intent={contextForge.packet ? "warning" : undefined} type="button" disabled={!stargateOpen} onClick={openWisdomCouncil}>
-            <BookOpenCheck size={13} /> Wisdom Council
-            <em>{contextForge.packet ? "1–3 peer-blind Cards → visible dissent" : "Seal Context first"}</em>
-          </button>
+          </div>}
+          {stargate.slotCount >= 2 && <>
+            <button className="hapa-btn tarot-context-forge-open" data-intent={stargateOpen ? "warning" : undefined} type="button" disabled={!stargateOpen} onClick={openContextForge}>
+              <Sparkles size={13} /> Context Forge
+              <em>{stargateOpen ? `${stargate.slotCount} Cards → sealed packet` : "Open Gate first"}</em>
+            </button>
+            <button className="hapa-btn tarot-wisdom-council-open" data-intent={contextForge.packet ? "warning" : undefined} type="button" disabled={!stargateOpen} onClick={openWisdomCouncil}>
+              <BookOpenCheck size={13} /> Wisdom Council
+              <em>{contextForge.packet ? "1–3 peer-blind Cards → visible dissent" : "Seal Context first"}</em>
+            </button>
+          </>}
           {stargate.requiresFreshPass && (
             <div className="tarot-stargate-return-policy" data-truth="disconnected">
               <Route size={13} />
@@ -6210,7 +6238,8 @@ function createTarotDrawGame({ canvas, cards, avatarId = "local-operator", avata
 
   const controls = new OrbitControls(camera, renderer.domElement);
   controls.enableDamping = true;
-  controls.enablePan = false;
+  controls.enablePan = true;
+  controls.screenSpacePanning = true;
   controls.minDistance = 4.6;
   controls.maxDistance = CAMERA_GALLERY_RECOVERY_MAX_DISTANCE;
   controls.maxPolarAngle = Math.PI * 0.48;
@@ -6438,6 +6467,9 @@ function createTarotDrawGame({ canvas, cards, avatarId = "local-operator", avata
   let stargateFixtureEntryIds = [];
   let stargateCameraBlend = 0;
   let stargateCameraOrigin = null;
+  let stargateCameraMode = "guided";
+  let stargateCameraGuidedUntil = 0;
+  let stargateManualFormation = false;
   let stargateSealStartedAt = 0;
   let stargateSealProgress = 0;
   let stargateRequiresFreshPass = false;
@@ -6447,6 +6479,7 @@ function createTarotDrawGame({ canvas, cards, avatarId = "local-operator", avata
   let stargatePeerArrival = { state: "idle", progress: 0, startedAt: 0, joined: false, peers: [], proofId: "", proofDigest: "", resultCardId: "" };
   let forgeEntries = new Map();
   let heldEntry = null;
+  let heldPointerGesture = null;
   let hoveredEntry = null;
   let selectedEntry = null;
   let dropZoneEntry = null;
@@ -6686,6 +6719,9 @@ function createTarotDrawGame({ canvas, cards, avatarId = "local-operator", avata
     applyRoomletHostControl,
     toggleStargateMode,
     dialStargate,
+    setStargateCameraMode,
+    resetStargateCameraView,
+    autoFillStargateFormation,
     loadStargateDemoFormation,
     setStargateRuntimeState,
     setStargateMintStage,
@@ -6792,16 +6828,50 @@ function createTarotDrawGame({ canvas, cards, avatarId = "local-operator", avata
     publishHud(true);
   }
 
-  function stargateEligibleEntries() {
-    const candidates = placedEntries
-      .filter((entry) => entry && !entry.liveCamera && !entry.isCameraCard && !entry.isPhoneCard && !entry.isBlueAvatarCard)
-      .filter((entry) => !entry.isMediaComment)
-      .filter((entry) => !entry.stargateContextHero)
-      .filter((entry) => !entry.lockedDropZone && !entry.lockedMediaPool && !entry.lockedCenterVisualizer && !entry.lockedDock)
+  function stargateEntryExclusionReason(entry) {
+    if (!entry) return "Unavailable Card";
+    if (entry.liveCamera || entry.isCameraCard || entry.isPhoneCard || entry.isBlueAvatarCard) return "Live bridge Cards cannot become coordinates";
+    if (entry.isMediaComment) return "Comment Cards remain attached to their source";
+    if (entry.stargateContextHero) return "A Context Card represents a Gate; it cannot define itself";
+    if (entry.lockedDropZone) return "Card is locked in the creator drop zone";
+    if (entry.lockedMediaPool) return "Card is locked in the media pool";
+    if (entry.lockedCenterVisualizer) return "Card is locked in the visualizer";
+    if (entry.lockedDock) return "Card is locked in the dock";
+    return "";
+  }
+
+  function stargateBaseEligibleEntries() {
+    return placedEntries
+      .filter((entry) => !stargateEntryExclusionReason(entry))
       .sort((first, second) => Number(first.placedAt || 0) - Number(second.placedAt || 0));
+  }
+
+  function stargateEligibleEntries() {
+    const candidates = stargateBaseEligibleEntries();
+    if (stargateManualFormation) {
+      return candidates
+        .filter((entry) => entry.gatePinned)
+        .sort((first, second) => Number(first.gateSlotIndex ?? 99) - Number(second.gateSlotIndex ?? 99))
+        .slice(0, 8);
+    }
     const fixtureEntries = candidates.filter((entry) => entry.stargateFixture);
     return (stargateFixtureActive && fixtureEntries.length ? fixtureEntries : candidates)
       .slice(0, 8);
+  }
+
+  function stargateCandidateDiagnostics() {
+    const eligibleEntries = stargateBaseEligibleEntries();
+    const excludedEntries = placedEntries
+      .map((entry) => ({ title: entry?.card?.title || "Untitled Card", reason: stargateEntryExclusionReason(entry) }))
+      .filter((item) => item.reason);
+    const sealedDeckCount = deckCards.filter((card, index) => resolveStargateCardIdentity(card, null, index).ok).length;
+    return {
+      eligibleCount: eligibleEntries.length,
+      excludedCount: excludedEntries.length,
+      excluded: excludedEntries.slice(0, 3),
+      sealedDeckCount,
+      manual: stargateManualFormation
+    };
   }
 
   function stargateMemberSignature(identityResults = stargateIdentityResults) {
@@ -6837,15 +6907,17 @@ function createTarotDrawGame({ canvas, cards, avatarId = "local-operator", avata
       entry.stackLayer = home.stackLayer;
       setCardTargetRotation(entry, home.basePitch, home.baseRotationY, home.baseRoll);
       entry.gateSlotIndex = -1;
+      entry.gatePinned = false;
       entry.stargateHome = null;
     });
+    stargateManualFormation = false;
     resolvePlacedCardStacks();
   }
 
   function arrangeStargateEntries(entries = stargateEntries, { burst = false } = {}) {
     entries.forEach((entry, index) => {
       rememberStargateEntryHome(entry);
-      const target = tarotStargateSlotPosition(index, entries.length);
+      const target = tarotStargateSlotPosition(index, Math.max(2, entries.length));
       entry.targetPosition.copy(target);
       // Present the ordered Cards to the operator, not edge-on to the camera.
       // The canonical Tarot Card face begins flat on the table; positive X pitch
@@ -6862,6 +6934,50 @@ function createTarotDrawGame({ canvas, cards, avatarId = "local-operator", avata
     resolvePlacedCardStacks();
   }
 
+  function autoFillStargateFormation() {
+    if (!stargateMode) toggleStargateMode();
+    const candidates = stargateBaseEligibleEntries();
+    const needed = Math.max(0, 2 - candidates.length);
+    if (needed) {
+      const sealedDeckCards = deckCards
+        .filter((card, index) => resolveStargateCardIdentity(card, null, index).ok)
+        .slice(0, needed);
+      sealedDeckCards.forEach((card, index) => {
+        deckCards = deckCards.filter((item) => item !== card);
+        const entry = createCardEntry(card);
+        entry.state = "placed";
+        entry.group.position.copy(DECK_POSITION).add(new THREE.Vector3(index * 0.08, 0.18 + index * 0.02, -0.16));
+        entry.targetPosition.copy(entry.group.position);
+        entry.placedAt = placedEntries.length;
+        entry.playing = playing;
+        placedEntries.push(entry);
+        world.add(entry.group);
+        animateInstantDealEntry(entry, entry.group.position.clone(), index, 0.82);
+        candidates.push(entry);
+      });
+    }
+    if (candidates.length < 2) {
+      const diagnostics = stargateCandidateDiagnostics();
+      const message = `${diagnostics.eligibleCount} Gate-ready Card${diagnostics.eligibleCount === 1 ? "" : "s"} on the table · ${diagnostics.sealedDeckCount} identity-sealed in deck`;
+      status = message;
+      setStargateState("arranging", message);
+      return false;
+    }
+    placedEntries.forEach((entry) => {
+      entry.gatePinned = false;
+      entry.gateSlotIndex = -1;
+    });
+    candidates.slice(0, 8).forEach((entry, index) => {
+      entry.gatePinned = true;
+      entry.gateSlotIndex = index;
+    });
+    stargateManualFormation = true;
+    refreshStargateFormation({ burst: true });
+    status = `${Math.min(8, candidates.length)} table Cards ordered into the Gate`;
+    publishHud(true);
+    return true;
+  }
+
   function setStargateState(nextState, message = "") {
     if (stargateState === nextState && !message) return;
     stargateState = nextState;
@@ -6874,12 +6990,34 @@ function createTarotDrawGame({ canvas, cards, avatarId = "local-operator", avata
     const nextEntries = stargateEligibleEntries();
     if (nextEntries.length < 2) {
       const wasLiveGate = ["active", "dialing"].includes(stargateState);
-      restoreStargateEntryHomes();
-      stargateEntries = nextEntries;
+      if (stargateManualFormation) {
+        stargateEntries.filter((entry) => !nextEntries.includes(entry)).forEach((entry) => {
+          const home = entry?.stargateHome;
+          if (!home) return;
+          entry.targetPosition.copy(home.targetPosition);
+          entry.floatMotion = home.floatMotion;
+          entry.stackLayer = home.stackLayer;
+          setCardTargetRotation(entry, home.basePitch, home.baseRotationY, home.baseRoll);
+          entry.stargateHome = null;
+        });
+        stargateEntries = nextEntries;
+        arrangeStargateEntries(stargateEntries, { burst });
+      } else {
+        restoreStargateEntryHomes();
+        stargateEntries = nextEntries;
+      }
       stargateIdentityResults = nextEntries.map((entry, index) => resolveStargateCardIdentity(entry.card, entry, index));
       stargateResult = null;
       stargateFormationSignature = stargateMemberSignature();
-      setStargateState(wasLiveGate ? "stale" : "arranging", wasLiveGate ? "Formation lost a required Card; close and redial" : "Place at least two durable Cards on the table");
+      const diagnostics = stargateCandidateDiagnostics();
+      const nextSlot = nextEntries.length + 1;
+      setStargateState(wasLiveGate ? "stale" : "arranging", wasLiveGate
+        ? "Formation lost a required Card; close and redial"
+        : nextEntries.length
+          ? `Slot ${nextSlot} is waiting · click another Card, then click the numbered ring`
+          : diagnostics.eligibleCount
+            ? `${diagnostics.eligibleCount} table Card${diagnostics.eligibleCount === 1 ? " is" : "s are"} Gate-ready · use Auto-fill or place Cards in numbered slots`
+            : "No Gate-ready table Cards · use Auto-fill to draw an identity-sealed pair from the deck");
       return false;
     }
     const previousSignature = stargateFormationSignature;
@@ -6952,6 +7090,8 @@ function createTarotDrawGame({ canvas, cards, avatarId = "local-operator", avata
   function toggleStargateMode() {
     if (stargateMode) {
       stargateMode = false;
+      stargateCameraMode = "guided";
+      stargateCameraGuidedUntil = 0;
       stargateState = "dormant";
       stargateProgress = 0;
       stargateStartedAt = 0;
@@ -6975,6 +7115,9 @@ function createTarotDrawGame({ canvas, cards, avatarId = "local-operator", avata
       return false;
     }
     stargateMode = true;
+    stargateCameraMode = "guided";
+    stargateCameraBlend = 0;
+    stargateCameraGuidedUntil = elapsedTime + (stargateReducedMotion ? 0.18 : 1.05);
     stargateState = "arranging";
     stargateProgress = 0;
     stargateError = "";
@@ -7129,6 +7272,7 @@ function createTarotDrawGame({ canvas, cards, avatarId = "local-operator", avata
   function stargateHudState() {
     const missingIdentityCount = stargateIdentityResults.filter((identity) => !identity.ok).length;
     const safeGate = stargateRestoredContext?.gate || null;
+    const candidateDiagnostics = stargateCandidateDiagnostics();
     return {
       mode: stargateMode,
       state: stargateState,
@@ -7136,6 +7280,18 @@ function createTarotDrawGame({ canvas, cards, avatarId = "local-operator", avata
       slotCount: stargateEntries.length,
       sealedCount: stargateIdentityResults.length - missingIdentityCount,
       missingIdentityCount,
+      cameraMode: stargateCameraMode,
+      eligibleCount: candidateDiagnostics.eligibleCount,
+      excludedCount: candidateDiagnostics.excludedCount,
+      excluded: candidateDiagnostics.excluded,
+      sealedDeckCount: candidateDiagnostics.sealedDeckCount,
+      formationMode: candidateDiagnostics.manual ? "manual" : "automatic",
+      formationEntries: stargateEntries.map((entry, index) => ({
+        slot: index + 1,
+        cardId: cardIdentity(entry.card),
+        title: entry.card?.title || "Untitled Card",
+        identitySealed: Boolean(stargateIdentityResults[index]?.ok)
+      })),
       redactedAddress: stargateResult ? redactedStargateAddress(stargateResult.stargateAddress) : safeGate?.addressRedacted || "",
       formationFingerprint: stargateResult ? `formation:${stargateResult.formationDigest.slice(0, 12)}…` : safeGate?.semanticFormationDigest ? `formation:${safeGate.semanticFormationDigest.slice(0, 12)}…` : "",
       formationDigest: stargateResult?.formationDigest || safeGate?.semanticFormationDigest || "",
@@ -7493,7 +7649,7 @@ function createTarotDrawGame({ canvas, cards, avatarId = "local-operator", avata
   }
 
   function updateStargateExperience(delta, elapsed) {
-    if (stargateMode && elapsed - stargateLastScanAt > 0.52 && !["dialing", "sealing"].includes(stargateState)) {
+    if (stargateMode && !heldEntry && elapsed - stargateLastScanAt > 0.52 && !["dialing", "sealing"].includes(stargateState)) {
       stargateLastScanAt = elapsed;
       refreshStargateFormation();
     }
@@ -7575,6 +7731,7 @@ function createTarotDrawGame({ canvas, cards, avatarId = "local-operator", avata
   }
 
   function updateStargateCamera(delta) {
+    if (stargateMode && stargateCameraMode === "free") return;
     const targetBlend = stargateMode ? 1 : 0;
     const blendRate = stargateReducedMotion ? 1 : 1 - Math.pow(0.0015, Math.max(0.001, delta));
     stargateCameraBlend = THREE.MathUtils.lerp(stargateCameraBlend, targetBlend, blendRate);
@@ -7591,14 +7748,52 @@ function createTarotDrawGame({ canvas, cards, avatarId = "local-operator", avata
       camera.fov = nextFov;
       camera.updateProjectionMatrix();
     }
+    if (stargateMode && stargateCameraMode === "guided" && stargateCameraBlend > 0.985 && elapsedTime >= stargateCameraGuidedUntil) {
+      stargateCameraMode = "free";
+      publishHud(true);
+    }
+  }
+
+  function setStargateCameraMode(nextMode = "free") {
+    const normalized = nextMode === "guided" ? "guided" : "free";
+    if (!stargateMode || stargateCameraMode === normalized) return false;
+    stargateCameraMode = normalized;
+    if (normalized === "free") {
+      stargateCameraGuidedUntil = 0;
+      controls.enabled = !heldEntry;
+      status = "Free camera · drag empty space to orbit, wheel to zoom, right-drag to pan";
+    } else {
+      stargateCameraOrigin = {
+        position: camera.position.clone(),
+        target: controls.target.clone(),
+        fov: camera.fov
+      };
+      stargateCameraBlend = 0;
+      stargateCameraGuidedUntil = elapsedTime + (stargateReducedMotion ? 0.18 : 1.05);
+      status = "Reframing Stargate hero view";
+    }
+    publishHud(true);
+    return true;
+  }
+
+  function resetStargateCameraView() {
+    if (!stargateMode) return false;
+    if (stargateCameraMode === "guided") stargateCameraMode = "free";
+    return setStargateCameraMode("guided");
+  }
+
+  function handleOrbitStart() {
+    if (stargateMode && stargateCameraMode === "guided" && !heldEntry) setStargateCameraMode("free");
   }
 
   function start() {
     canvas.addEventListener("pointermove", handlePointerMove);
     canvas.addEventListener("pointerdown", unlockAudioFromGesture, { capture: true });
     canvas.addEventListener("pointerdown", handlePointerDown);
+    canvas.addEventListener("pointerup", handlePointerUp);
     canvas.addEventListener("pointerleave", clearHover);
     canvas.addEventListener("wheel", handleWheel, { passive: false, capture: true });
+    controls.addEventListener("start", handleOrbitStart);
     window.addEventListener("resize", resize);
     resize();
     if (typeof PerformanceObserver !== "undefined") {
@@ -7692,6 +7887,10 @@ function createTarotDrawGame({ canvas, cards, avatarId = "local-operator", avata
 	        disableStargateMode: () => stargateMode ? toggleStargateMode() : true,
 	        toggleStargateMode,
 	        dialStargate,
+	        freeStargateCamera: () => setStargateCameraMode("free"),
+	        resetStargateCameraView,
+	        autoFillStargateFormation,
+	        getStargateInteractionTargets,
 	        loadStargateDemoFormation: () => loadStargateDemoFormation(),
 	        activateStargateDemo: () => loadStargateDemoFormation({ autoDial: true }),
 	        selectFirstStargateCard: () => {
@@ -8913,6 +9112,9 @@ function createTarotDrawGame({ canvas, cards, avatarId = "local-operator", avata
     }
     if (!stargateMode) {
       stargateMode = true;
+      stargateCameraMode = "guided";
+      stargateCameraBlend = 0;
+      stargateCameraGuidedUntil = elapsedTime + (stargateReducedMotion ? 0.18 : 1.05);
       stargateCameraOrigin = {
         position: camera.position.clone(),
         target: controls.target.clone(),
@@ -13962,6 +14164,10 @@ function createTarotDrawGame({ canvas, cards, avatarId = "local-operator", avata
 
   function handlePointerMove(event) {
     updatePointer(event);
+    if (heldPointerGesture && event.pointerId === heldPointerGesture.pointerId) {
+      const distance = Math.hypot(event.clientX - heldPointerGesture.startX, event.clientY - heldPointerGesture.startY);
+      if (distance >= 8) heldPointerGesture.moved = true;
+    }
     const hit = raycastTable();
     if (hit) pointerWorld.copy(hit).setY(TABLE_Y);
     if (heldEntry) {
@@ -13983,6 +14189,33 @@ function createTarotDrawGame({ canvas, cards, avatarId = "local-operator", avata
         status = heldEntry.magnetized ? `Dock pulling: ${heldEntry.card.title}` : `Moving ${heldEntry.isBlueAvatarCard ? "Blue Avatar" : "Camera"} Card`;
         controls.enabled = false;
         return;
+      }
+      const stargateSlotHit = raycastStargateSlot();
+      if (stargateSlotHit) {
+        const exclusionReason = stargateEntryExclusionReason(heldEntry);
+        if (!exclusionReason) {
+          const previousZone = heldEntry.magnetZone || "";
+          const previousSlot = Number(heldEntry.gateHoverSlot ?? -1);
+          const target = stargateSlotDisplayPosition(stargateSlotHit.index);
+          heldEntry.magnetized = true;
+          heldEntry.magnetZone = "stargate";
+          heldEntry.gateHoverSlot = stargateSlotHit.index;
+          heldEntry.targetPosition.copy(target).setY(0.68);
+          heldEntry.baseRotationY = 0;
+          setCardTargetRotation(heldEntry, 0.58, 0, 0);
+          if (previousZone !== "stargate" || previousSlot !== stargateSlotHit.index) {
+            status = `Gate slot ${String(stargateSlotHit.index + 1).padStart(2, "0")} pulling: ${heldEntry.card.title}`;
+            publishHud(true);
+          }
+          controls.enabled = false;
+          return;
+        }
+        if (heldEntry.magnetZone !== "stargate-blocked") {
+          heldEntry.magnetized = false;
+          heldEntry.magnetZone = "stargate-blocked";
+          status = `Gate withheld ${heldEntry.card.title}: ${exclusionReason}`;
+          publishHud(true);
+        }
       }
       const activeMagnet = strongestMagnetZone(pointerWorld);
       const magnetZone = activeMagnet.strength > 0 ? activeMagnet.id : "";
@@ -14115,6 +14348,13 @@ function createTarotDrawGame({ canvas, cards, avatarId = "local-operator", avata
       return;
     }
     if (heldEntry) {
+      const stargateSlotHit = raycastStargateSlot();
+      if (stargateSlotHit) {
+        placeHeldInStargateSlot(heldEntry, stargateSlotHit.index);
+        heldPointerGesture = null;
+        event.preventDefault();
+        return;
+      }
       const hit = raycastTable();
       if (!hit) return;
       placeHeld(hit);
@@ -14135,7 +14375,39 @@ function createTarotDrawGame({ canvas, cards, avatarId = "local-operator", avata
       event.preventDefault();
       return;
     }
-    if (hoveredEntry) pickUp(hoveredEntry);
+    if (hoveredEntry) {
+      const pickedEntry = hoveredEntry;
+      pickUp(pickedEntry);
+      heldPointerGesture = {
+        pointerId: event.pointerId,
+        startX: event.clientX,
+        startY: event.clientY,
+        moved: false,
+        entry: pickedEntry
+      };
+      try { canvas.setPointerCapture?.(event.pointerId); } catch { /* Pointer capture is an enhancement, not a requirement. */ }
+      event.preventDefault();
+    }
+  }
+
+  function handlePointerUp(event) {
+    const gesture = heldPointerGesture;
+    if (!gesture || gesture.pointerId !== event.pointerId) return;
+    heldPointerGesture = null;
+    try { canvas.releasePointerCapture?.(event.pointerId); } catch { /* The browser may already have released capture. */ }
+    if (!gesture.moved || heldEntry !== gesture.entry) return;
+    updatePointer(event);
+    const stargateSlotHit = raycastStargateSlot();
+    if (stargateSlotHit) {
+      placeHeldInStargateSlot(heldEntry, stargateSlotHit.index);
+      event.preventDefault();
+      return;
+    }
+    const hit = raycastTable();
+    if (hit) {
+      placeHeld(hit);
+      event.preventDefault();
+    }
   }
 
   function handleWheel(event) {
@@ -14158,6 +14430,9 @@ function createTarotDrawGame({ canvas, cards, avatarId = "local-operator", avata
       publishHud(true);
       return;
     }
+    // In an open Gate, the wheel belongs to the camera unless a Card is being
+    // carried. This prevents a stale selection from silently stealing zoom.
+    if (stargateMode && stargateCameraMode === "free") return;
     if (selectedEntry?.isCameraCard) {
       moveSelectedCameraCardByWheel(event);
       return;
@@ -14384,6 +14659,33 @@ function createTarotDrawGame({ canvas, cards, avatarId = "local-operator", avata
     return raycaster.ray.intersectPlane(tablePlane, pointerWorld) ? pointerWorld : null;
   }
 
+  function raycastStargateSlot() {
+    if (!stargateMode) return null;
+    const slots = stargateRig.userData.stargate?.slots || [];
+    const hitTargets = slots
+      .filter((slot) => slot.visible)
+      .map((slot) => slot.userData.refs?.hitArea)
+      .filter(Boolean);
+    if (!hitTargets.length) return null;
+    raycaster.setFromCamera(pointer, camera);
+    const hits = [];
+    raycaster.intersectObjects(hitTargets, false, hits);
+    const hit = hits[0];
+    if (!hit) return null;
+    return {
+      index: Number(hit.object.userData.stargateSlotIndex || 0),
+      point: hit.point
+    };
+  }
+
+  function stargateSlotDisplayPosition(index, target = new THREE.Vector3()) {
+    const activeCount = stargateEntries.length;
+    const count = index < activeCount
+      ? Math.max(2, activeCount)
+      : Math.min(8, Math.max(2, activeCount + 1));
+    return tarotStargateSlotPosition(index, count, target);
+  }
+
   function isDeckHit() {
     raycaster.setFromCamera(pointer, camera);
     deckHitsScratch.length = 0;
@@ -14548,6 +14850,68 @@ function createTarotDrawGame({ canvas, cards, avatarId = "local-operator", avata
       y: Math.round(y),
       state: entry.state
     };
+  }
+
+  function placeHeldInStargateSlot(entry, requestedSlot = 0) {
+    if (!entry || !stargateMode) return false;
+    const exclusionReason = stargateEntryExclusionReason(entry);
+    if (exclusionReason) {
+      entry.magnetized = false;
+      entry.magnetZone = "";
+      status = `Gate withheld ${entry.card.title}: ${exclusionReason}`;
+      publishHud(true);
+      return false;
+    }
+    const homePosition = pointerWorld.clone();
+    homePosition.x = THREE.MathUtils.clamp(homePosition.x, -BOARD_LIMIT_X, SPREAD_LANE_MAX_X);
+    homePosition.y = CARD_TABLE_BASE_Y;
+    homePosition.z = THREE.MathUtils.clamp(homePosition.z, -BOARD_LIMIT_Z, BOARD_LIMIT_Z);
+    if (!entry.stargateHome) {
+      entry.stargateHome = {
+        targetPosition: homePosition,
+        basePitch: 0,
+        baseRotationY: 0,
+        baseRoll: 0,
+        floatMotion: null,
+        stackLayer: 0
+      };
+    }
+    heldEntry = null;
+    clearSelectedEntry();
+    entry.state = "placed";
+    entry.hover = false;
+    entry.floatMotion = null;
+    entry.lockedDropZone = false;
+    entry.lockedMediaPool = false;
+    entry.lockedCenterVisualizer = false;
+    entry.lockedDock = false;
+    entry.lockedCameraCard = false;
+    entry.lockedBlueAvatarCard = false;
+    entry.magnetized = false;
+    entry.magnetZone = "";
+    entry.gateHoverSlot = -1;
+    entry.playing = playing;
+    if (!placedEntries.includes(entry)) placedEntries.push(entry);
+
+    const ordered = placedEntries
+      .filter((item) => item !== entry && item.gatePinned && !stargateEntryExclusionReason(item))
+      .sort((first, second) => Number(first.gateSlotIndex ?? 99) - Number(second.gateSlotIndex ?? 99));
+    const insertionIndex = THREE.MathUtils.clamp(Number(requestedSlot) || 0, 0, Math.min(ordered.length, 7));
+    ordered.splice(insertionIndex, 0, entry);
+    ordered.slice(0, 8).forEach((item, index) => {
+      item.gatePinned = true;
+      item.gateSlotIndex = index;
+    });
+    stargateManualFormation = true;
+    refreshStargateFormation({ burst: true });
+    controls.enabled = true;
+    canvas.style.cursor = "default";
+    audio.play("place");
+    const target = stargateSlotDisplayPosition(Math.min(insertionIndex, 7));
+    createBurst(target.x, target.z, insertionIndex % 2 ? 0xf6c96d : 0x00f3ff, 1.08);
+    status = `Gate slot ${String(insertionIndex + 1).padStart(2, "0")}: ${entry.card.title}`;
+    publishHud(true);
+    return true;
   }
 
   function placeHeld(hit) {
@@ -15892,7 +16256,7 @@ function createTarotDrawGame({ canvas, cards, avatarId = "local-operator", avata
       lastResizeCheck = elapsedTime;
       resize();
     }
-    updateCameraRail(delta);
+    if (!stargateMode) updateCameraRail(delta);
     updateStargateCamera(delta);
     controls.update();
 
@@ -17377,6 +17741,36 @@ function createTarotDrawGame({ canvas, cards, avatarId = "local-operator", avata
     };
   }
 
+  function stargateClientPoint(object, lift = 0) {
+    if (!object) return null;
+    const rect = canvas.getBoundingClientRect();
+    const point = new THREE.Vector3();
+    object.getWorldPosition(point);
+    point.y += lift;
+    point.project(camera);
+    return {
+      x: Math.round(rect.left + ((point.x + 1) / 2) * rect.width),
+      y: Math.round(rect.top + ((1 - point.y) / 2) * rect.height),
+      inView: point.z >= -1 && point.z <= 1
+    };
+  }
+
+  function getStargateInteractionTargets() {
+    const slots = stargateRig.userData.stargate?.slots || [];
+    return {
+      cards: stargateEntries.map((entry, index) => ({
+        index,
+        cardId: cardIdentity(entry.card),
+        title: entry.card?.title || "Untitled Card",
+        client: stargateClientPoint(entry.group, 0.08)
+      })),
+      slots: slots.filter((slot) => slot.visible).map((slot, index) => ({
+        index,
+        client: stargateClientPoint(slot, 0.04)
+      }))
+    };
+  }
+
   function previewFrameDiagnostics(preview = null) {
     const canvasRect = renderer.domElement.getBoundingClientRect();
     const viewportWidth = Math.max(1, canvasRect.width || renderer.domElement.width || 1);
@@ -17493,8 +17887,10 @@ function createTarotDrawGame({ canvas, cards, avatarId = "local-operator", avata
     canvas.removeEventListener("pointermove", handlePointerMove);
     canvas.removeEventListener("pointerdown", unlockAudioFromGesture, { capture: true });
     canvas.removeEventListener("pointerdown", handlePointerDown);
+    canvas.removeEventListener("pointerup", handlePointerUp);
     canvas.removeEventListener("pointerleave", clearHover);
     canvas.removeEventListener("wheel", handleWheel, { capture: true });
+    controls.removeEventListener("start", handleOrbitStart);
     window.removeEventListener("resize", resize);
     if (syncLeaseInterval) window.clearInterval(syncLeaseInterval);
     if (isSubscriber) {

@@ -71,3 +71,25 @@ test("Tarot Draw source exposes the hero action, truth states, safe diagnostics,
   assert.match(css, /prefers-reduced-motion/);
   assert.doesNotMatch(component, /stargateResult\.rendezvousTopic/);
 });
+
+test("Stargate construction exposes real slot targets, camera release, drag placement, and a no-precision fallback", async () => {
+  const [component, visual, css] = await Promise.all([
+    readFile(new URL("../src/components/TarotDraw3DView.jsx", import.meta.url), "utf8"),
+    readFile(new URL("../src/domain/tarot-stargate-visual.js", import.meta.url), "utf8"),
+    readFile(new URL("../src/index.css", import.meta.url), "utf8"),
+  ]);
+  for (const token of [
+    "raycastStargateSlot",
+    "placeHeldInStargateSlot",
+    "handlePointerUp",
+    "autoFillStargateFormation",
+    "setStargateCameraMode",
+    "resetStargateCameraView",
+    'stargateCameraMode === "free"',
+    "drag empty space to orbit",
+  ]) assert.match(component, new RegExp(token));
+  assert.match(visual, /stargateSlotHitArea/);
+  assert.match(visual, /CircleGeometry\(0\.62/);
+  assert.match(css, /\.tarot-stargate-access/);
+  assert.match(css, /\.tarot-stargate-slot-guide/);
+});

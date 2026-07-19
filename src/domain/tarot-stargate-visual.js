@@ -277,6 +277,7 @@ function createBeam(index) {
 function createGateSlot(index) {
   const root = new THREE.Group();
   root.name = `stargateSlot${index + 1}`;
+  root.userData.stargateSlotIndex = index;
   const color = GATE_PALETTE[index % GATE_PALETTE.length];
   const ring = new THREE.Mesh(
     new THREE.RingGeometry(0.47, 0.515, 48),
@@ -297,8 +298,18 @@ function createGateSlot(index) {
   );
   label.position.set(0, 0.16, 0.45);
   label.rotation.x = -Math.PI * 0.22;
-  root.add(ring, bracket, label);
-  root.userData.refs = { ring, bracket, label };
+  // The luminous ring is intentionally thin. Give it a generous invisible
+  // interaction surface so a held Card can actually be dropped into the slot.
+  const hitArea = new THREE.Mesh(
+    new THREE.CircleGeometry(0.62, 32),
+    new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false, side: THREE.DoubleSide })
+  );
+  hitArea.name = `stargateSlotHitArea${index + 1}`;
+  hitArea.rotation.x = -Math.PI / 2;
+  hitArea.position.y = 0.055;
+  hitArea.userData.stargateSlotIndex = index;
+  root.add(ring, bracket, label, hitArea);
+  root.userData.refs = { ring, bracket, label, hitArea };
   return root;
 }
 
@@ -726,9 +737,14 @@ export function updateTarotStargateRig(root, options = {}) {
 
   data.slots.forEach((slot, index) => {
     const active = index < activeSlots;
-    const position = tarotStargateSlotPosition(index, Math.max(2, activeSlots));
+    // Keep two empty targets visible at first, then reveal the next available
+    // slot as the ordered formation grows. This makes Gate construction
+    // discoverable without turning all eight targets into visual noise.
+    const visibleSlots = Math.min(8, Math.max(2, activeSlots + 1));
+    const formationSlots = Math.max(2, activeSlots);
+    const position = tarotStargateSlotPosition(index, active ? formationSlots : visibleSlots);
     slot.position.copy(position);
-    slot.visible = targetVisible && (active || index < Math.max(2, activeSlots));
+    slot.visible = targetVisible && index < visibleSlots;
     const refs = slot.userData.refs;
     refs.ring.material.opacity = slot.visible ? data.visibleBlend * (active ? 0.2 + data.energy * 0.58 : 0.08) : 0;
     refs.bracket.material.opacity = slot.visible ? data.visibleBlend * (active ? 0.82 : 0.28) : 0;
