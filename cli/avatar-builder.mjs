@@ -23,7 +23,8 @@ import {
 } from "../src/domain/avatar.js";
 import {
   buildStargateContextCard,
-  restoreStargateContextCard
+  restoreStargateContextCard,
+  stargateContextMintReview
 } from "../src/domain/tarot-stargate-context-card.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -79,6 +80,35 @@ async function main(cmd, opts) {
     const inputFile = option(opts, "file", "card");
     if (!inputFile) throw new Error("stargate-context-restore requires --file <stargate-context-card.json>.");
     print(restoreStargateContextCard(await readJsonInput(inputFile)), { ...opts, json: true });
+    return;
+  }
+
+  if (cmd === "stargate-context-review") {
+    const inputFile = option(opts, "file", "card");
+    if (!inputFile) throw new Error("stargate-context-review requires --file <stargate-context-card.json>.");
+    print(stargateContextMintReview(await readJsonInput(inputFile)), { ...opts, json: true });
+    return;
+  }
+
+  if (cmd === "stargate-context-mint") {
+    const cardId = option(opts, "card-id", "card");
+    if (!cardId || opts.approve !== true) throw new Error("stargate-context-mint requires --card-id <id> --approve --actor <human-id>.");
+    const actorId = String(opts.actor || "").trim();
+    if (!actorId) throw new Error("stargate-context-mint requires --actor <human-id> for explicit authority.");
+    const reviewResponse = await stargateApiRequest(opts, "/api/tarot/stargate/context-card/review", { method: "POST", body: { cardId } });
+    const result = await stargateApiRequest(opts, "/api/tarot/stargate/context-card/mint", {
+      method: "POST",
+      body: { cardId, reviewDigest: reviewResponse.review.reviewDigest, approval: { approved: true, decision: "approve", actorId, actorType: "human", method: "explicit-cli-control" } },
+      admin: true
+    });
+    print(result, { ...opts, json: true });
+    return;
+  }
+
+  if (cmd === "stargate-context-status") {
+    const cardId = option(opts, "card-id", "card");
+    if (!cardId) throw new Error("stargate-context-status requires --card-id <id>.");
+    print(await stargateApiRequest(opts, `/api/tarot/stargate/context-card/status?${new URLSearchParams({ cardId })}`), { ...opts, json: true });
     return;
   }
 
@@ -1094,6 +1124,18 @@ function print(payload, opts) {
   console.log(JSON.stringify(payload, null, 2));
 }
 
+async function stargateApiRequest(opts, pathname, { method = "GET", body, admin = false } = {}) {
+  const baseUrl = String(option(opts, "api-url", "api") || process.env.HAPA_AVATAR_URL || "http://127.0.0.1:8787").replace(/\/$/, "");
+  const token = String(process.env.HAPA_AVATAR_ADMIN_TOKEN || "").trim();
+  if (admin && !token) throw new Error("HAPA_AVATAR_ADMIN_TOKEN must be set for a CLI mint; credentials are never accepted in argv.");
+  const headers = { accept: "application/json", "content-type": "application/json" };
+  if (token) headers.authorization = `Bearer ${token}`;
+  const response = await fetch(`${baseUrl}${pathname}`, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(payload.message || payload.error || `Avatar Builder API request failed: ${response.status}`);
+  return payload;
+}
+
 function printHelp() {
   console.log(`Hapa Avatar Builder CLI
 
@@ -1101,6 +1143,9 @@ Commands:
   list [--json]
   stargate-context-card --scene-file ./scene-card.json --stargate-file ./derived-gate.json [--actor local-operator] [--json]
   stargate-context-restore --file ./stargate-context-card.json [--json]
+  stargate-context-review --file ./stargate-context-card.json [--json]
+  stargate-context-mint --card-id <id> --approve --actor <human-id> [--api-url http://127.0.0.1:8787] [--json]
+  stargate-context-status --card-id <id> [--api-url http://127.0.0.1:8787] [--json]
   scaffold Red Reaper --id red-reaper [--primary Red] [--json]
   audit <avatar-id> [--json]
   attach <avatar-id> [--target comic|video|agent] [--json]

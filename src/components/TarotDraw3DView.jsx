@@ -2011,6 +2011,13 @@ export default function TarotDraw3DView({ cards = [], avatarId = "local-operator
     error: "",
     card: null
   });
+  const [stargateMint, setStargateMint] = useState({
+    open: false,
+    status: "idle",
+    review: null,
+    result: null,
+    error: ""
+  });
   const [sceneInvite, setSceneInvite] = useState({
     status: "idle",
     message: "",
@@ -2214,6 +2221,14 @@ export default function TarotDraw3DView({ cards = [], avatarId = "local-operator
   const selectedCardIsScene = Boolean(selectedCard && isTarotDrawSceneCard(selectedCard));
   const selectedCardIsStargateContext = Boolean(selectedCard && isStargateContextCard(selectedCard));
   const selectedCardStargateContext = selectedCardIsStargateContext ? stargateContextEnvelopeFromCard(selectedCard) : null;
+  const savedStargateContextCard = sceneSave.card && isStargateContextCard(sceneSave.card) ? sceneSave.card : null;
+  const mintTruthState = stargateMint.result?.state || stargateMint.review?.sync?.state || "proposed_unminted";
+  const mintStages = [
+    { id: "proposed_unminted", label: "Proposed", complete: true },
+    { id: "origin_staged", label: "Origin staged", complete: ["origin_staged", "overwind_acknowledged", "catalog_pending", "catalog_indexed", "subscriber_unavailable", "local-stale"].includes(mintTruthState) },
+    { id: "overwind_acknowledged", label: "Overwind ack", complete: ["overwind_acknowledged", "catalog_pending", "catalog_indexed", "subscriber_unavailable", "local-stale"].includes(mintTruthState) && Boolean(stargateMint.result?.origin?.durableAcknowledgement) },
+    { id: "catalog_indexed", label: "Catalog indexed", complete: mintTruthState === "catalog_indexed" }
+  ];
   const selectedCardSceneSnapshot = selectedCardIsScene ? tarotDrawSceneSnapshot(selectedCard) : null;
   const selectedCardForgeStage = selectedCardForgeMeta.stage || "requested";
   const selectedCardForgeQueueNote = selectedCardForgeMeta.loopQueueState === "waiting-for-ltx-slot" || selectedCardForgeMeta.loopStatus === "waiting-for-ltx-slot"
@@ -3220,6 +3235,65 @@ export default function TarotDraw3DView({ cards = [], avatarId = "local-operator
     }
   }
 
+  async function openStargateMintReview(event) {
+    event?.preventDefault?.();
+    event?.stopPropagation?.();
+    const card = savedStargateContextCard;
+    if (!card) return;
+    setStargateMint({ open: true, status: "reviewing", review: null, result: null, error: "" });
+    callGame("setStargateMintStage", "reviewing");
+    try {
+      const response = await fetch(`${tarotDrawApiBase(apiBase)}/api/tarot/stargate/context-card/review`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ cardId: card.id })
+      });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok || !payload?.review) throw new Error(payload?.message || payload?.error || `Review failed: ${response.status}`);
+      setStargateMint({ open: true, status: "ready", review: payload, result: null, error: "" });
+      callGame("setStargateMintStage", "proposed_unminted");
+    } catch (error) {
+      setStargateMint({ open: true, status: "failed", review: null, result: null, error: error?.message || "Mint review failed" });
+      callGame("setStargateMintStage", "failed");
+    }
+  }
+
+  async function approveStargateMint(event) {
+    event?.preventDefault?.();
+    event?.stopPropagation?.();
+    const review = stargateMint.review?.review;
+    const card = savedStargateContextCard;
+    if (!card || !review?.reviewDigest || stargateMint.status === "minting") return;
+    setStargateMint((current) => ({ ...current, status: "minting", error: "" }));
+    callGame("setStargateMintStage", "origin_staged");
+    try {
+      const sessionResponse = await fetch(`${tarotDrawApiBase(apiBase)}/api/local-ui-session`, { method: "POST", headers: { Accept: "application/json" }, credentials: "same-origin" });
+      if (!sessionResponse.ok) {
+        const sessionFailure = await sessionResponse.json().catch(() => ({}));
+        throw new Error(sessionFailure.message || sessionFailure.error || `Local Builder session failed: ${sessionResponse.status}`);
+      }
+      const response = await fetch(`${tarotDrawApiBase(apiBase)}/api/tarot/stargate/context-card/mint`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify({
+          cardId: card.id,
+          reviewDigest: review.reviewDigest,
+          approval: { approved: true, decision: "approve", actorId: avatarId || "local-operator", actorType: "human", method: "explicit-ui-control" }
+        })
+      });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok || !payload?.state) throw new Error(payload?.message || payload?.error || `Mint failed: ${response.status}`);
+      if (payload.origin?.durableAcknowledgement) callGame("setStargateMintStage", "overwind_acknowledged");
+      window.setTimeout(() => callGame("setStargateMintStage", payload.state), 520);
+      setSceneSave((current) => ({ ...current, card: payload.card || current.card, message: `Return Card · ${String(payload.state).replaceAll("_", " ")}` }));
+      setStargateMint((current) => ({ ...current, status: "complete", result: payload, error: "" }));
+    } catch (error) {
+      setStargateMint((current) => ({ ...current, status: "failed", error: error?.message || "Mint failed" }));
+      callGame("setStargateMintStage", "failed");
+    }
+  }
+
   function loadSelectedSceneCard(event) {
     event?.preventDefault?.();
     event?.stopPropagation?.();
@@ -3415,7 +3489,55 @@ export default function TarotDraw3DView({ cards = [], avatarId = "local-operator
           <span><BookOpenCheck size={14} /> Scene</span>
           <strong>{sceneSave.error || sceneSave.message || "Scene state ready"}</strong>
           <em>{sceneSave.card?.id || "tarot-draw-scene"}</em>
+          {savedStargateContextCard && !stargateMint.open && (
+            <button className="hapa-btn tarot-stargate-mint-open" type="button" onClick={openStargateMintReview}>
+              <BadgeCheck size={13} /> Review &amp; Mint
+            </button>
+          )}
         </div>
+      )}
+      {stargateMint.open && (
+        <section className="tarot-stargate-mint-chamber" data-state={mintTruthState} data-status={stargateMint.status} aria-label="Stargate Context Card mint review" aria-live="polite">
+          <div className="tarot-stargate-mint-aura" aria-hidden="true"><i /><i /><i /><i /></div>
+          <header>
+            <span><BadgeCheck size={16} /> Return Card Custody</span>
+            <button type="button" aria-label="Close mint review" onClick={() => setStargateMint((current) => ({ ...current, open: false }))}><X size={15} /></button>
+          </header>
+          <div className="tarot-stargate-custody-track" aria-label="Custody stages">
+            {mintStages.map((stage, index) => (
+              <div key={stage.id} data-complete={stage.complete ? "true" : "false"} data-current={stage.id === mintTruthState ? "true" : "false"}>
+                <b>{stage.complete ? "✓" : index + 1}</b><span>{stage.label}</span>
+              </div>
+            ))}
+          </div>
+          {stargateMint.status === "reviewing" && <div className="tarot-stargate-mint-scanner"><i /></div>}
+          {stargateMint.review?.review && (
+            <div className="tarot-stargate-mint-review">
+              <div className="tarot-stargate-mint-cardprint">
+                {savedStargateContextCard?.imageUri && <img src={savedStargateContextCard.imageUri} alt="Proposed Stargate Return Card" />}
+                <span>RETURN CARD</span><strong>{stargateMint.review.review.title}</strong><em>{stargateMint.review.review.cardId}</em>
+              </div>
+              <div className="tarot-stargate-mint-proof">
+                <p className="eyebrow">Explicit human authority · locally asserted</p>
+                <h3>{stargateMint.review.review.formation?.members?.length || 0} Cards form this destination</h3>
+                <ol>{(stargateMint.review.review.formation?.members || []).map((member) => <li key={`${member.position}-${member.cardId}`}><b>{member.position + 1}</b><span>{member.cardId}</span></li>)}</ol>
+                <dl>
+                  <div><dt>Scene</dt><dd>{stargateMint.review.review.scene?.snapshotFingerprint || "sealed"}</dd></div>
+                  <div><dt>Context</dt><dd>{stargateMint.review.review.commitments?.context || "sealed"}</dd></div>
+                  <div><dt>Privacy</dt><dd>{stargateMint.review.review.authority?.joinAuthorityIncluded ? "unsafe" : "join authority excluded"}</dd></div>
+                  <div><dt>Commerce</dt><dd>not inferred · no offer</dd></div>
+                </dl>
+                {stargateMint.status !== "complete" && (
+                  <button className="hapa-btn tarot-stargate-mint-approve" type="button" disabled={stargateMint.status === "minting"} onClick={approveStargateMint}>
+                    <Sparkles size={14} /> {stargateMint.status === "minting" ? "Witnessing custody…" : "Approve & Mint Exact Revision"}
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+          {stargateMint.result && <footer data-state={stargateMint.result.state}><strong>{String(stargateMint.result.state).replaceAll("_", " ")}</strong><span>{stargateMint.result.stableCardReference || "Origin staged locally"}</span></footer>}
+          {stargateMint.error && <footer data-state="failed"><strong>Proof halted truthfully</strong><span>{stargateMint.error}</span></footer>}
+        </section>
       )}
       {sceneInvite.status !== "idle" && (
         <div className="tarot-scene-invite-rail hapa-panel" data-variant="notch" data-status={sceneInvite.status} aria-live="polite">
@@ -5514,6 +5636,7 @@ function createTarotDrawGame({ canvas, cards, avatarId = "local-operator", avata
   let stargateRequiresFreshPass = false;
   let stargateRestoredContext = null;
   let stargateLastContextCard = null;
+  let stargateMintStage = "idle";
   let forgeEntries = new Map();
   let heldEntry = null;
   let hoveredEntry = null;
@@ -5749,6 +5872,7 @@ function createTarotDrawGame({ canvas, cards, avatarId = "local-operator", avata
     dialStargate,
     loadStargateDemoFormation,
     setStargateRuntimeState,
+    setStargateMintStage,
     setEchoDirectorProject,
     spawnForgeCard,
     updateForgeCard,
@@ -6116,9 +6240,25 @@ function createTarotDrawGame({ canvas, cards, avatarId = "local-operator", avata
       formationFingerprint: stargateResult ? `formation:${stargateResult.formationDigest.slice(0, 12)}…` : safeGate?.semanticFormationDigest ? `formation:${safeGate.semanticFormationDigest.slice(0, 12)}…` : "",
       requiresFreshPass: stargateRequiresFreshPass,
       contextCardId: stargateLastContextCard?.id || "",
+      mintStage: stargateMintStage,
       fixtureDisclosure: stargateFixtureActive ? "Public deterministic test vector — not a production invitation." : "",
       message: stargateError || (stargateState === "active" ? "Gate open; destination derived locally" : "Arrange identity-sealed Cards into an ordered Gate")
     };
+  }
+
+  function setStargateMintStage(nextStage = "idle") {
+    const allowed = new Set(["idle", "reviewing", "proposed_unminted", "origin_staged", "overwind_acknowledged", "catalog_pending", "catalog_indexed", "subscriber_unavailable", "local-stale", "revision_mismatch", "failed"]);
+    stargateMintStage = allowed.has(String(nextStage)) ? String(nextStage) : "failed";
+    const hero = placedEntries.find((entry) => entry.stargateContextHero);
+    if (hero) {
+      hero.stargateMintStage = stargateMintStage;
+      const palette = forgeStageVisual(stargateMintStage);
+      createBurst(hero.targetPosition.x, hero.targetPosition.z, palette.color, stargateMintStage === "catalog_indexed" ? 2.2 : 1.18);
+      createBurst(hero.targetPosition.x, hero.targetPosition.z, palette.accent, stargateMintStage === "catalog_indexed" ? 1.65 : 0.82);
+    }
+    status = stargateMintStage === "catalog_indexed" ? "Return Card indexed in .hapaCatalog" : `Return Card custody: ${stargateMintStage.replaceAll("_", " ")}`;
+    publishHud(true);
+    return stargateMintStage;
   }
 
   function updateStargateExperience(delta, elapsed) {
@@ -7250,6 +7390,8 @@ function createTarotDrawGame({ canvas, cards, avatarId = "local-operator", avata
     setCardTargetRotation(entry, fromStargate ? 1.14 : 0, entry.baseRotationY, 0);
     if (fromStargate) {
       entry.stargateContextHero = true;
+      entry.stargateMintStage = "proposed_unminted";
+      stargateMintStage = "proposed_unminted";
       entry.group.scale.setScalar(1.65);
       entry.floatMotion = {
         x: 0.018,
@@ -14381,8 +14523,10 @@ function createTarotDrawGame({ canvas, cards, avatarId = "local-operator", avata
       halo.material.opacity = forgeActive ? 0.74 + hoverPulse * 0.16 : forgeComplete ? 0.5 + hoverPulse * 0.08 : phoneToolActive ? 0.78 + hoverPulse * 0.16 : dockLocked ? 0.1 + hoverPulse * 0.02 : lockedZone ? 0.68 : entry.hover ? 0.72 + hoverPulse * 0.16 : entry.state === "held" ? 0.52 : 0.2;
       halo.scale.setScalar(forgeActive ? 1.22 + Math.sin(elapsed * 3.6) * 0.075 : forgeComplete ? 1.1 + hoverPulse * 0.025 : phoneToolActive ? 1.22 + hoverPulse * 0.06 : dockLocked ? 0.99 + Math.sin(elapsed * 2.1 + entry.placedAt) * 0.008 : lockedZone ? 1.16 + Math.sin(elapsed * 2.8) * 0.045 : entry.hover ? 1.18 + hoverPulse * 0.04 : 1);
     }
+    if (isTarotDrawForgeCard(entry.card) || entry.stargateContextHero) {
+      updateForgeConstructionRig(entry, delta, elapsed, entry.stargateContextHero ? (entry.stargateMintStage || stargateMintStage || "proposed_unminted") : (entry.forgeState?.stage || entry.card?.drawForge?.stage || "requested"));
+    }
     if (isTarotDrawForgeCard(entry.card)) {
-      updateForgeConstructionRig(entry, delta, elapsed, entry.forgeState?.stage || entry.card?.drawForge?.stage || "requested");
       updateForgePlaque(entry);
     }
     updateCardTargetLock(entry.refs?.targetLock, (entry.state === "placed" || entry.state === "phone-tractor") && (entry.hover || phoneToolActive || forgeActive), elapsed, lockedZone || phoneToolActive || forgeActive);
@@ -16305,6 +16449,12 @@ function createForgeConstructionRig() {
 }
 
 function forgeStageVisual(stage = "requested") {
+  if (stage === "catalog_indexed") return { color: 0x00f3ff, accent: 0xf6c96d, progress: 1, speed: 1.06, power: 1 };
+  if (stage === "overwind_acknowledged" || stage === "catalog_pending") return { color: 0x45f2c8, accent: 0xf6c96d, progress: 0.76, speed: 1.28, power: 1 };
+  if (stage === "origin_staged") return { color: 0xf6c96d, accent: 0xff6df2, progress: 0.5, speed: 1.42, power: 1 };
+  if (stage === "reviewing" || stage === "proposed_unminted") return { color: 0x00f3ff, accent: 0xf6c96d, progress: 0.22, speed: 0.92, power: 0.9 };
+  if (["subscriber_unavailable", "local-stale"].includes(stage)) return { color: 0xffb347, accent: 0x00f3ff, progress: 0.76, speed: 0.52, power: 0.78 };
+  if (stage === "revision_mismatch") return { color: 0xfb7185, accent: 0xffb347, progress: 0.6, speed: 0.34, power: 0.9 };
   if (stage === "complete") return { color: 0xf6c96d, accent: 0x00f3ff, progress: 1, speed: 0.56, power: 0.58 };
   if (stage === "video-generating") return { color: 0xff6df2, accent: 0xf6c96d, progress: 0.82, speed: 1.18, power: 1 };
   if (stage === "image-ready") return { color: 0xf6c96d, accent: 0x00f3ff, progress: 0.66, speed: 0.92, power: 0.88 };

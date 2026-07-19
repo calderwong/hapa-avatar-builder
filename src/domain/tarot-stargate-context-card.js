@@ -7,6 +7,7 @@ import {
 
 export const STARGATE_CONTEXT_CARD_SCHEMA = "hapa.stargate-context-card.v1";
 export const STARGATE_CONTEXT_RESTORE_SCHEMA = "hapa.stargate-context-restore.v1";
+export const STARGATE_CONTEXT_MINT_REVIEW_SCHEMA = "hapa.stargate-context-mint-review.v1";
 export const STARGATE_CONTEXT_CONNECTION_POLICY = "requires-fresh-gate-pass";
 
 const DIGEST = /^[a-f0-9]{64}$/;
@@ -36,6 +37,10 @@ function canonicalJson(value) {
 
 function digest(value) {
   return bytesToHex(sha256(new TextEncoder().encode(canonicalJson(value))));
+}
+
+function shortDigest(value, length = 16) {
+  return String(value || "").replace(/^sha256:/, "").slice(0, length);
 }
 
 function requiredText(value, path) {
@@ -147,6 +152,122 @@ export function validateStargateContextEnvelope(envelope = {}) {
   const serialized = canonicalJson(envelope);
   if (FULL_GATE_ADDRESS.test(serialized)) throw new TypeError("Stargate Context contains a full private address");
   return envelope;
+}
+
+export function stargateContextMintReview(card = {}) {
+  const envelope = validateStargateContextEnvelope(stargateContextEnvelopeFromCard(card));
+  restoreStargateContextCard(card);
+  const safeReview = {
+    schemaVersion: STARGATE_CONTEXT_MINT_REVIEW_SCHEMA,
+    cardId: requiredText(card.id, "$.card.id"),
+    title: String(card.title || "Stargate Context Card"),
+    sourceRevisionId: String(envelope.revisionId || "r1"),
+    truthStatus: String(envelope.truthStatus || "proposed_unminted"),
+    origin: {
+      nodeId: String(envelope.origin?.nodeId || ""),
+      actorId: String(envelope.origin?.actorId || ""),
+      sourceSceneCardId: String(envelope.origin?.sourceSceneCardId || "")
+    },
+    scene: {
+      snapshotId: String(envelope.scene?.snapshotId || ""),
+      snapshotFingerprint: shortDigest(envelope.scene?.snapshotDigest),
+      formationId: String(envelope.scene?.formationId || ""),
+      formationRevision: Number(envelope.scene?.formationRevision || 1),
+      omittedLocalReferences: Number(envelope.scene?.omittedLocalReferences || 0)
+    },
+    formation: {
+      memberCount: envelope.formation.members.length,
+      purposeCode: String(envelope.formation.purposeCode || envelope.gate?.purposeCode || ""),
+      members: envelope.formation.members.map((member) => ({
+        position: member.position,
+        cardId: String(member.cardId || ""),
+        role: String(member.role || ""),
+        cardRevisionId: String(member.cardRevisionId || ""),
+        recordFingerprint: shortDigest(member.cardRecordDigest)
+      }))
+    },
+    commitments: {
+      context: shortDigest(envelope.contextDigest),
+      scene: shortDigest(envelope.scene?.snapshotDigest),
+      formation: shortDigest(envelope.gate?.semanticFormationDigest),
+      gate: shortDigest(envelope.gate?.gateCommitment),
+      invitation: envelope.gate?.invitationCommitment ? shortDigest(envelope.gate.invitationCommitment) : null
+    },
+    privacy: {
+      scope: String(envelope.gate?.privacyScope || "invite_only"),
+      address: String(envelope.gate?.addressRedacted || "withheld"),
+      connectionPolicy: envelope.connectionPolicy,
+      excludedSecrets: [...(envelope.excludedSecrets || [])]
+    },
+    authority: {
+      decisionRequired: true,
+      mintAuthority: String(envelope.lineage?.mintAuthority || "human-explicit-only"),
+      joinAuthorityIncluded: false,
+      autoConnect: false,
+      commerceEligibility: "not_inferred"
+    }
+  };
+  return {
+    ...safeReview,
+    reviewDigest: digest(safeReview)
+  };
+}
+
+export function approveStargateContextCardForMint(card = {}, approval = {}) {
+  const review = stargateContextMintReview(card);
+  if (approval.approved !== true || String(approval.decision || "approve") !== "approve") {
+    throw new TypeError("Explicit mint approval is required");
+  }
+  if (String(approval.actorType || "") !== "human") throw new TypeError("Mint approval actorType must be human");
+  const actorId = requiredText(approval.actorId, "$.approval.actorId");
+  const currentEnvelope = stargateContextEnvelopeFromCard(card);
+  if (currentEnvelope.truthStatus === "origin_staged" && (!approval.reviewDigest || approval.reviewDigest === card.mintApproval?.reviewDigest)) return card;
+  if (approval.reviewDigest && approval.reviewDigest !== review.reviewDigest) throw new TypeError("Mint review changed before approval");
+  if (currentEnvelope.truthStatus !== "proposed_unminted") throw new TypeError(`Stargate Context Card is not proposed: ${currentEnvelope.truthStatus || "missing"}`);
+  const approvedAt = String(approval.approvedAt || new Date().toISOString());
+  const sourceRevisionNumber = Math.max(2, Number(String(currentEnvelope.revisionId || "r1").replace(/^r/, "")) + 1 || 2);
+  const { contextDigest: _previousDigest, ...previousUnsigned } = currentEnvelope;
+  const nextUnsigned = {
+    ...previousUnsigned,
+    revisionId: `r${sourceRevisionNumber}`,
+    truthStatus: "origin_staged",
+    updatedAt: approvedAt,
+    mintApproval: {
+      decision: "approved",
+      actorId,
+      actorType: "human",
+      method: String(approval.method || "explicit-ui-control"),
+      identityAssurance: "locally-asserted-not-remotely-verified",
+      approvedAt,
+      reviewDigest: review.reviewDigest
+    }
+  };
+  const nextEnvelope = { ...nextUnsigned, contextDigest: digest(nextUnsigned) };
+  validateStargateContextEnvelope(nextEnvelope);
+  const replaceTag = (values = []) => [...new Set(values.filter((value) => value !== "proposed-unminted").concat("origin-staged", "human-approved-mint"))];
+  return {
+    ...card,
+    status: "origin_staged",
+    tags: replaceTag(card.tags),
+    stargateContext: nextEnvelope,
+    mintApproval: nextEnvelope.mintApproval,
+    enrichment: {
+      ...(card.enrichment || {}),
+      needsReview: false,
+      tags: replaceTag(card.enrichment?.tags),
+      media: {
+        ...(card.enrichment?.media || {}),
+        stargateContext: nextEnvelope
+      }
+    },
+    lineage: {
+      ...(card.lineage || {}),
+      mintedIn: "Hapa Avatar Builder explicit local human approval; origin event staged",
+      mintApprovedAt: approvedAt,
+      mintActorId: actorId,
+      sourceRevisionId: nextEnvelope.revisionId
+    }
+  };
 }
 
 export function buildStargateContextCard({ sceneCard, stargate, origin = {}, invitationCommitment = null } = {}) {

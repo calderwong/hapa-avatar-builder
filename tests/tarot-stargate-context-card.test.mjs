@@ -4,8 +4,10 @@ import {
   STARGATE_CONTEXT_CARD_SCHEMA,
   STARGATE_CONTEXT_CONNECTION_POLICY,
   buildStargateContextCard,
+  approveStargateContextCardForMint,
   isStargateContextCard,
   restoreStargateContextCard,
+  stargateContextMintReview,
   stargateContextEnvelopeFromCard,
   validateStargateContextEnvelope
 } from "../src/domain/tarot-stargate-context-card.js";
@@ -117,4 +119,24 @@ test("local path references are omitted from the portable snapshot with an hones
   const card = buildStargateContextCard({ sceneCard, stargate });
   assert.equal(card.stargateContext.scene.omittedLocalReferences, 1);
   assert.equal(card.sceneSnapshot.cards[0].card.imageUri, "[local-reference-omitted:imageUri]");
+});
+
+test("human mint review preserves identity, exposes safe commitments, and stages one exact revision", () => {
+  const { sceneCard, stargate } = fixture();
+  const card = buildStargateContextCard({ sceneCard, stargate, origin: { actorId: "calder" } });
+  const review = stargateContextMintReview(card);
+  assert.equal(review.authority.decisionRequired, true);
+  assert.equal(review.authority.joinAuthorityIncluded, false);
+  assert.equal(review.formation.memberCount, 4);
+  assert.equal(review.privacy.connectionPolicy, STARGATE_CONTEXT_CONNECTION_POLICY);
+  assert.equal(JSON.stringify(review).includes(stargate.rendezvousTopic), false);
+  assert.throws(() => approveStargateContextCardForMint(card, { approved: true, actorId: "calder", actorType: "agent", reviewDigest: review.reviewDigest }), /actorType must be human/);
+  assert.throws(() => approveStargateContextCardForMint(card, { approved: true, actorId: "calder", actorType: "human", reviewDigest: "changed" }), /review changed/);
+  const staged = approveStargateContextCardForMint(card, { approved: true, decision: "approve", actorId: "calder", actorType: "human", method: "explicit-test-control", approvedAt: "2026-07-18T12:00:00.000Z", reviewDigest: review.reviewDigest });
+  assert.equal(staged.id, card.id);
+  assert.equal(staged.stargateContext.truthStatus, "origin_staged");
+  assert.equal(staged.stargateContext.revisionId, "r2");
+  assert.equal(staged.mintApproval.identityAssurance, "locally-asserted-not-remotely-verified");
+  assert.equal(restoreStargateContextCard(staged).connected, false);
+  assert.equal(JSON.stringify(staged).includes(STARGATE_PUBLIC_DEMO_SECRET), false);
 });

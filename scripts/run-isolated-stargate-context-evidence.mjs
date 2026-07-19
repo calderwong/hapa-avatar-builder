@@ -1,16 +1,19 @@
 #!/usr/bin/env node
 import { spawn } from "node:child_process";
 import { once } from "node:events";
+import { createServer } from "node:http";
 import fsp from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const mode = process.argv.includes("--capture") ? "capture" : process.argv.includes("--smoke") ? "smoke" : process.argv.includes("--core-smoke") ? "core-smoke" : "all";
+const mode = process.argv.includes("--mint-capture") ? "mint-capture" : process.argv.includes("--capture") ? "capture" : process.argv.includes("--smoke") ? "smoke" : process.argv.includes("--core-smoke") ? "core-smoke" : "all";
 const runtimeRoot = await fsp.mkdtemp(path.join(os.tmpdir(), "hapa-stargate-context-evidence-"));
 const port = 22600 + Math.floor(Math.random() * 300);
 const baseUrl = `http://127.0.0.1:${port}/`;
+const overwindPort = port + 400;
+const catalogPort = port + 800;
 const paths = Object.fromEntries(Object.entries({ avatar: "avatar-store.json", kanban: "kanban.json", scene: "scene-store.json", item: "item-store.json", inventory: "inventory-store.json", tarot: "tarot-store.json", songs: "song-store.json", subscribers: "subscribers", overwind: "overwind", mint: "mints" }).map(([key, value]) => [key, path.join(runtimeRoot, value)]));
 
 const seedSvg = `data:image/svg+xml;charset=utf-8,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="768" height="1152"><rect width="768" height="1152" fill="#020617"/><circle cx="384" cy="480" r="220" fill="none" stroke="#00f3ff" stroke-width="18"/><text x="384" y="870" text-anchor="middle" fill="#f8f3e7" font-family="monospace" font-size="48">BUILD WEEK</text></svg>')}`;
@@ -45,6 +48,27 @@ const sharedEnv = {
   HAPA_SONG_CARD_MINT_ROOT: paths.mint
 };
 
+let fixtureLedger = 76;
+const overwindFixture = createServer(async (req, res) => {
+  const chunks = [];
+  for await (const chunk of req) chunks.push(chunk);
+  const body = chunks.length ? JSON.parse(Buffer.concat(chunks).toString("utf8")) : {};
+  const results = (body.events || []).map((event) => ({ event_id: event.event_id, outcome: "accepted", durable: true, overwind_watermark: ++fixtureLedger }));
+  res.writeHead(200, { "content-type": "application/json" });
+  res.end(JSON.stringify({ ok: true, results }));
+});
+const catalogFixture = createServer((req, res) => {
+  const expected = Number(new URL(req.url, `http://127.0.0.1:${catalogPort}`).searchParams.get("expected_revision") || 1);
+  const cardId = decodeURIComponent(String(req.url).match(/\/v1\/overwind\/cards\/([^/]+)\/projection-status/)?.[1] || "");
+  res.writeHead(200, { "content-type": "application/json" });
+  res.end(JSON.stringify(req.url.startsWith("/v1/overwind/subscriber/sync") ? { ok: true, mode: "isolated-visual-fixture", applied: 1, cursor: fixtureLedger } : {
+    ok: true, schemaVersion: "hapa.catalog.card-projection-status.v1", state: "catalog_indexed", card_id: cardId,
+    expected_revision: expected, indexed_revision: expected, subscriber_cursor: fixtureLedger, truth_state: "overwind-acknowledged",
+    identity: { second_card_head_created: false, projection_owner: ".hapaCatalog", record_owner: "Overwind" },
+    commerce: { eligibility: "not_inferred", source_only: true, offer_count: 0, sellable: false }
+  }));
+});
+
 function run(command, args, env = sharedEnv) {
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, { cwd: ROOT, env, stdio: ["ignore", "pipe", "pipe"] });
@@ -66,7 +90,12 @@ async function waitForHealth(child, output) {
 }
 
 const serverOutput = [];
-const server = spawn(process.execPath, ["server/api.mjs", "--host", "127.0.0.1", "--port", String(port), "--static", "dist"], { cwd: ROOT, env: sharedEnv, stdio: ["ignore", "pipe", "pipe"] });
+await Promise.all([
+  new Promise((resolve) => overwindFixture.listen(overwindPort, "127.0.0.1", resolve)),
+  new Promise((resolve) => catalogFixture.listen(catalogPort, "127.0.0.1", resolve))
+]);
+const evidenceEnv = { ...sharedEnv, HAPA_AVATAR_ADMIN_TOKEN: "isolated-avatar-token", HAPA_OVERWIND_TOKEN: "isolated-overwind-token", HAPA_OVERWIND_URL: `http://127.0.0.1:${overwindPort}`, HAPA_CATALOG_URL: `http://127.0.0.1:${catalogPort}`, HAPA_CATALOG_TOKEN: "isolated-catalog-token" };
+const server = spawn(process.execPath, ["server/api.mjs", "--host", "127.0.0.1", "--port", String(port), "--static", "dist"], { cwd: ROOT, env: evidenceEnv, stdio: ["ignore", "pipe", "pipe"] });
 server.stdout.on("data", (chunk) => serverOutput.push(String(chunk)));
 server.stderr.on("data", (chunk) => serverOutput.push(String(chunk)));
 try {
@@ -76,6 +105,7 @@ try {
   if (["all", "core-smoke"].includes(mode)) results.push(await run("npm", ["run", "smoke:tarot"], { ...sharedEnv, SMOKE_URL: baseUrl }));
   if (["all", "smoke"].includes(mode)) results.push(await run(electron, ["scripts/tarot-stargate-context-smoke.cjs"], { ...sharedEnv, SMOKE_URL: baseUrl }));
   if (["all", "capture"].includes(mode)) results.push(await run(electron, ["scripts/capture-tarot-stargate-context-card.cjs"], { ...sharedEnv, CAPTURE_URL: baseUrl }));
+  if (mode === "mint-capture") results.push(await run(electron, ["scripts/capture-tarot-stargate-mint.cjs"], { ...evidenceEnv, CAPTURE_URL: baseUrl }));
   console.log(JSON.stringify({ ok: true, mode, isolated: true, userAppTouched: false, baseUrl, runtimeRootDeleted: true, runs: results.length }, null, 2));
 } finally {
   if (server.exitCode === null) {
@@ -83,4 +113,5 @@ try {
     await once(server, "exit").catch(() => {});
   }
   await fsp.rm(runtimeRoot, { recursive: true, force: true });
+  await Promise.all([new Promise((resolve) => overwindFixture.close(resolve)), new Promise((resolve) => catalogFixture.close(resolve))]);
 }

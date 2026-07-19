@@ -11498,6 +11498,192 @@ h1 {
   pointer-events: none;
 }
 
+.tarot-scene-save-rail:has(.tarot-stargate-mint-open) {
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  pointer-events: auto;
+}
+
+.tarot-stargate-mint-open {
+  grid-column: 3;
+  grid-row: 1 / 3;
+  min-height: 31px !important;
+  padding: 5px 9px !important;
+  border-color: rgba(246, 201, 109, 0.62) !important;
+  color: var(--hapa-neon-gold) !important;
+  box-shadow: 0 0 20px rgba(246, 201, 109, 0.16);
+  pointer-events: auto;
+}
+
+.tarot-stargate-mint-chamber {
+  --mint-state: 246, 201, 109;
+  position: absolute;
+  top: 142px;
+  right: 18px;
+  z-index: 12;
+  width: min(620px, calc(100% - 36px));
+  max-height: calc(100% - 238px);
+  overflow: auto;
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid rgba(var(--mint-state), 0.64);
+  color: var(--hapa-ink);
+  background:
+    radial-gradient(circle at 16% 12%, rgba(var(--mint-state), 0.2), transparent 36%),
+    linear-gradient(145deg, rgba(8, 27, 44, 0.94), rgba(2, 6, 23, 0.88));
+  box-shadow: 0 28px 90px rgba(0, 0, 0, 0.55), 0 0 48px rgba(var(--mint-state), 0.2), inset 0 0 38px rgba(0, 243, 255, 0.05);
+  backdrop-filter: blur(24px) saturate(1.3);
+  clip-path: polygon(17px 0, 100% 0, 100% calc(100% - 17px), calc(100% - 17px) 100%, 0 100%, 0 17px);
+  isolation: isolate;
+}
+
+.tarot-stargate-mint-chamber[data-state="catalog_indexed"] { --mint-state: 0, 243, 255; }
+.tarot-stargate-mint-chamber[data-state="overwind_acknowledged"],
+.tarot-stargate-mint-chamber[data-state="catalog_pending"] { --mint-state: 69, 242, 200; }
+.tarot-stargate-mint-chamber[data-state="subscriber_unavailable"],
+.tarot-stargate-mint-chamber[data-state="local-stale"] { --mint-state: 255, 179, 71; }
+.tarot-stargate-mint-chamber[data-state="revision_mismatch"],
+.tarot-stargate-mint-chamber[data-status="failed"] { --mint-state: 251, 113, 133; }
+
+.tarot-stargate-mint-aura {
+  position: absolute;
+  inset: -60%;
+  z-index: -1;
+  pointer-events: none;
+  background: conic-gradient(from 20deg, transparent, rgba(0, 243, 255, 0.09), transparent 22%, rgba(246, 201, 109, 0.12), transparent 55%, rgba(255, 109, 242, 0.1), transparent);
+  animation: tarot-mint-aura-spin 18s linear infinite;
+}
+
+.tarot-stargate-mint-aura i {
+  position: absolute;
+  inset: 44%;
+  border: 1px solid rgba(var(--mint-state), 0.38);
+  border-radius: 50%;
+  box-shadow: 0 0 22px rgba(var(--mint-state), 0.22);
+}
+.tarot-stargate-mint-aura i:nth-child(2) { inset: 42%; transform: rotate(45deg); }
+.tarot-stargate-mint-aura i:nth-child(3) { inset: 40%; transform: rotate(90deg); }
+.tarot-stargate-mint-aura i:nth-child(4) { inset: 38%; transform: rotate(135deg); }
+
+.tarot-stargate-mint-chamber > header,
+.tarot-stargate-mint-chamber > header span {
+  display: flex;
+  align-items: center;
+}
+.tarot-stargate-mint-chamber > header { justify-content: space-between; gap: 12px; }
+.tarot-stargate-mint-chamber > header span {
+  gap: 8px;
+  color: rgb(var(--mint-state));
+  font-family: var(--hapa-mono);
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+.tarot-stargate-mint-chamber > header button {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid rgba(var(--mint-state), 0.34);
+  background: rgba(2, 6, 23, 0.72);
+  color: var(--hapa-ink);
+  cursor: pointer;
+}
+
+.tarot-stargate-custody-track {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 4px;
+}
+.tarot-stargate-custody-track > div {
+  position: relative;
+  min-width: 0;
+  display: grid;
+  justify-items: center;
+  gap: 5px;
+  padding: 8px 4px;
+  border: 1px solid rgba(139, 166, 214, 0.14);
+  background: rgba(2, 6, 23, 0.52);
+  color: rgba(139, 166, 214, 0.72);
+}
+.tarot-stargate-custody-track > div:not(:last-child)::after {
+  content: "";
+  position: absolute;
+  top: 17px;
+  left: calc(50% + 13px);
+  width: calc(100% - 22px);
+  height: 2px;
+  background: rgba(139, 166, 214, 0.15);
+}
+.tarot-stargate-custody-track > div[data-complete="true"] {
+  border-color: rgba(var(--mint-state), 0.45);
+  color: rgb(var(--mint-state));
+  box-shadow: inset 0 0 16px rgba(var(--mint-state), 0.09);
+}
+.tarot-stargate-custody-track > div[data-complete="true"]::after { background: linear-gradient(90deg, rgb(var(--mint-state)), rgba(var(--mint-state), 0.18)); box-shadow: 0 0 9px rgba(var(--mint-state), 0.54); }
+.tarot-stargate-custody-track b {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border: 1px solid currentColor;
+  border-radius: 50%;
+  background: #06111f;
+  font-family: var(--hapa-mono);
+  font-size: 9px;
+}
+.tarot-stargate-custody-track span { overflow: hidden; max-width: 100%; font-family: var(--hapa-mono); font-size: 7px; font-weight: 800; text-overflow: ellipsis; text-transform: uppercase; white-space: nowrap; }
+
+.tarot-stargate-mint-scanner { height: 62px; overflow: hidden; border: 1px solid rgba(0, 243, 255, 0.22); background: repeating-linear-gradient(180deg, rgba(0, 243, 255, 0.02) 0 2px, transparent 2px 7px); }
+.tarot-stargate-mint-scanner i { display: block; width: 100%; height: 2px; background: #00f3ff; box-shadow: 0 0 16px #00f3ff; animation: tarot-mint-scan 1.4s ease-in-out infinite; }
+
+.tarot-stargate-mint-review { display: grid; grid-template-columns: 166px minmax(0, 1fr); gap: 14px; }
+.tarot-stargate-mint-cardprint { position: relative; min-height: 248px; overflow: hidden; display: grid; align-content: end; gap: 4px; padding: 11px; border: 1px solid rgba(var(--mint-state), 0.58); background: radial-gradient(circle at 50% 28%, rgba(var(--mint-state), 0.22), transparent 48%), #020617; box-shadow: 0 0 26px rgba(var(--mint-state), 0.12); }
+.tarot-stargate-mint-cardprint img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0.7; }
+.tarot-stargate-mint-cardprint::after { content: ""; position: absolute; inset: 0; background: linear-gradient(180deg, transparent 38%, rgba(2, 6, 23, 0.96)); }
+.tarot-stargate-mint-cardprint span,
+.tarot-stargate-mint-cardprint strong,
+.tarot-stargate-mint-cardprint em { position: relative; z-index: 1; font-family: var(--hapa-mono); font-style: normal; }
+.tarot-stargate-mint-cardprint span { color: rgb(var(--mint-state)); font-size: 8px; font-weight: 900; letter-spacing: 0.12em; }
+.tarot-stargate-mint-cardprint strong { color: #fff; font-size: 12px; line-height: 1.25; }
+.tarot-stargate-mint-cardprint em { overflow: hidden; color: var(--hapa-muted); font-size: 6px; text-overflow: ellipsis; white-space: nowrap; }
+
+.tarot-stargate-mint-proof { min-width: 0; display: grid; align-content: start; gap: 9px; }
+.tarot-stargate-mint-proof p,
+.tarot-stargate-mint-proof h3 { margin: 0; }
+.tarot-stargate-mint-proof h3 { color: #fff; font-size: 15px; }
+.tarot-stargate-mint-proof ol { max-height: 94px; overflow: auto; display: grid; gap: 4px; margin: 0; padding: 0; list-style: none; }
+.tarot-stargate-mint-proof li { min-width: 0; display: grid; grid-template-columns: 22px minmax(0, 1fr); align-items: center; gap: 6px; font-family: var(--hapa-mono); font-size: 7px; }
+.tarot-stargate-mint-proof li b { color: var(--hapa-neon-gold); }
+.tarot-stargate-mint-proof li span { overflow: hidden; color: var(--hapa-muted); text-overflow: ellipsis; white-space: nowrap; }
+.tarot-stargate-mint-proof dl { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; margin: 0; }
+.tarot-stargate-mint-proof dl div { min-width: 0; display: grid; gap: 2px; padding: 6px; border: 1px solid rgba(var(--mint-state), 0.16); background: rgba(2, 6, 23, 0.46); }
+.tarot-stargate-mint-proof dt,
+.tarot-stargate-mint-proof dd { overflow: hidden; margin: 0; font-family: var(--hapa-mono); text-overflow: ellipsis; white-space: nowrap; }
+.tarot-stargate-mint-proof dt { color: var(--hapa-muted); font-size: 7px; text-transform: uppercase; }
+.tarot-stargate-mint-proof dd { color: rgb(var(--mint-state)); font-size: 8px; }
+.tarot-stargate-mint-approve { justify-self: stretch; min-height: 36px !important; border-color: rgba(var(--mint-state), 0.68) !important; color: rgb(var(--mint-state)) !important; background: linear-gradient(90deg, rgba(var(--mint-state), 0.14), rgba(255, 109, 242, 0.1)) !important; box-shadow: 0 0 24px rgba(var(--mint-state), 0.18); }
+.tarot-stargate-mint-chamber > footer { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 10px; padding: 9px 10px; border: 1px solid rgba(var(--mint-state), 0.34); background: rgba(var(--mint-state), 0.07); font-family: var(--hapa-mono); }
+.tarot-stargate-mint-chamber > footer strong { color: rgb(var(--mint-state)); font-size: 9px; text-transform: uppercase; }
+.tarot-stargate-mint-chamber > footer span { overflow: hidden; color: var(--hapa-muted); font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
+
+@keyframes tarot-mint-aura-spin { to { transform: rotate(360deg); } }
+@keyframes tarot-mint-scan { 0%, 100% { transform: translateY(3px); opacity: 0.35; } 50% { transform: translateY(56px); opacity: 1; } }
+
+@media (max-width: 760px) {
+  .tarot-stargate-mint-chamber { top: 78px; right: 8px; width: calc(100% - 16px); max-height: calc(100% - 166px); }
+  .tarot-stargate-mint-review { grid-template-columns: 106px minmax(0, 1fr); }
+  .tarot-stargate-mint-cardprint { min-height: 188px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tarot-stargate-mint-aura,
+  .tarot-stargate-mint-scanner i { animation: none; }
+}
+
 .tarot-scene-save-rail[data-status="saving"] {
   border-color: rgba(0, 243, 255, 0.55);
   box-shadow:

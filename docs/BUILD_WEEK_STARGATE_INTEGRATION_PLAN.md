@@ -108,6 +108,8 @@ The Catalog layer must demonstrate interoperability without creating a competing
 4. **`.hapaCatalog` subscribes and projects.** The existing subscriber indexes the acknowledged Card into Card Multiverse and hydrates its Living Card dossier. Catalog may own discovery, Deck membership, merchandising, entitlement, analytics, and an explicitly approved offer; it does not create another Card head or rewrite source history.
 5. **Catalog returns to the source experience.** A stable `Open in Avatar Builder` action resolves the exact Card ID and pinned revision, restores the saved Tarot scene and ordered Formation, and remains disconnected until the user deliberately requests or supplies a fresh Gate Pass.
 
+**Implementation checkpoint (`CAT-GATE-001`, 2026-07-18):** the source-side human review, one-event mint, durable Overwind acknowledgement, exact Catalog subscriber projection/status, and UI/API/CLI surfaces are implemented. The saved Return Card remains physically present on the 3D table and becomes the center of a four-stage custody ritual; its visual state never advances beyond the evidence returned by the origin and subscriber. Catalog records the Card as source-only with no inferred offer or second Card head. Cross-node return/deep-link presentation remains the next Catalog-facing task.
+
 The visible sync rail is append-only and revision-specific:
 
 `Proposed -> Origin staged -> Overwind acknowledged -> Catalog indexed`

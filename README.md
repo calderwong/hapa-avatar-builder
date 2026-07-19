@@ -65,7 +65,7 @@ The canonical app now contains both Tarot surfaces:
 - `Tarot Library` manages decks, sets, cards, backs, loop videos, and avatar links.
 - `Tarot Draw` is the 3D Three.js reading table.
 
-Tarot Draw also contains the Build Week Stargate path. A valid ordered Formation can be dialed into a deterministic private namespace; **Save Gate** then reuses the existing Scene Card path to deal one proposed portable Context Card. Loading that Card restores the exact scene and Formation but stays disconnected until a fresh transient Gate Pass is supplied. The durable Card never contains the cohort secret, raw Pass/token, full private topic/address, private key, credential, or local path. See `docs/BUILD_WEEK_STARGATE_INTEGRATION_PLAN.md` and `docs/audits/2026-07-18-stargate-context-card.md`.
+Tarot Draw also contains the Build Week Stargate path. A valid ordered Formation can be dialed into a deterministic private namespace; **Save Gate** reuses the existing Scene Card path to deal one proposed portable Context Card. **Review & Mint** then requires explicit human approval, stages one origin event, accepts only a durable Overwind acknowledgement with cursor, and checks `.hapaCatalog` for the exact Card/revision. The same physical 3D Return Card visualizes those proof stages. Loading it restores the exact scene and Formation but stays disconnected until a fresh transient Gate Pass is supplied. The durable Card never contains the cohort secret, raw Pass/token, full private topic/address, private key, credential, or local path. See `docs/BUILD_WEEK_STARGATE_INTEGRATION_PLAN.md` and the audits under `docs/audits/`.
 
 See `docs/CANONICAL_SOURCE_OF_TRUTH.md` and `data/merge-reports/2026-06-23-pinokio-canonical-audit.md` for the merge history and data audit.
 

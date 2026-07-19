@@ -13,13 +13,13 @@ Verified 2026-07-11 for canonical node `hapa-avatar-builder`; aliases are `hapa-
 
 The canonical domain module is `src/domain/tarot-stargate-context-card.js`. All surfaces create the same `proposed_unminted` safe Card and restore the same exact ordered Formation in a disconnected state:
 
-| Surface | Proposal | Restore |
+| Surface | Proposal / restore | Human mint and exact sync proof |
 | --- | --- | --- |
-| UI | Dial a valid Gate in 3D Tarot Draw, then use **Save Gate**. The existing Scene Card persistence/deal path produces one physical Context Card. | Select the Card and use **Restore Gate**. The exact scene/Formation returns; a fresh Gate Pass remains required. |
-| API | `POST /api/tarot/stargate/context-card/preview` with `sceneCard`, derived `stargate`, and optional safe origin/commitment fields. | `POST /api/tarot/stargate/context-card/restore` with `card`. Invalid schema, digest, snapshot commitment, or connection policy returns `422`. |
-| CLI | `hapa-avatar stargate-context-card --scene-file <json> --stargate-file <json> [--actor <id>]` | `hapa-avatar stargate-context-restore --file <json>` |
+| UI | Dial a valid Gate in 3D Tarot Draw, then use **Save Gate**. Select the Card and use **Restore Gate** to restore the exact disconnected Formation. | **Review & Mint** shows Formation, fingerprints, commitments, excluded authority, origin, and revision. The four-stage 3D custody relay illuminates only from returned evidence. |
+| API | `POST /api/tarot/stargate/context-card/preview`; `POST /api/tarot/stargate/context-card/restore`. | `POST .../review`; authenticated `POST .../mint`; `GET .../status?cardId=...`. |
+| CLI | `stargate-context-card`; `stargate-context-restore`; `stargate-context-review --file <json>`. | `stargate-context-mint --card-id <id> --approve --actor <human-id>` and `stargate-context-status --card-id <id>`. The bearer token comes only from `HAPA_AVATAR_ADMIN_TOKEN`, never argv. |
 
-The parity contract explicitly excludes cohort secrets, raw Passes/tokens, full rendezvous topics/addresses, private keys, credentials, and local paths. `tests/tarot-stargate-context-parity.test.mjs` compares the domain/UI core, isolated API, and CLI results for one fixture.
+The parity contract explicitly excludes cohort secrets, raw Passes/tokens, full rendezvous topics/addresses, private keys, credentials, and local paths. Minting preserves one stable global Card ID: Avatar Builder stages one `card.created` event, Overwind alone acknowledges it with a durable cursor, and `.hapaCatalog` consumes that exact Card/revision through its existing subscriber. Catalog remains a source-only, non-sellable projection until separate governed commerce authority exists.
 
 Registry resolution is verified as follows:
 

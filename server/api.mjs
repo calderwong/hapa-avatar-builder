@@ -103,6 +103,7 @@ import { negotiateCapabilities, validateNodeAdapterManifest } from "@hapa/overca
 import { ensureLocalOvercardHost } from "@hapa/overcard/host";
 import { AvatarOverwindOrigin } from "./avatar-overwind-origin.mjs";
 import { AvatarOverwindSubscriber, resolveOverwindToken } from "./avatar-overwind-subscriber.mjs";
+import { StargateContextMintService } from "./stargate-context-mint-service.mjs";
 import { MintLedgerError, createSongCardMintController } from "./song-card-mint-controller.mjs";
 import { createSongCardRemintStore } from "./song-card-remint-store.mjs";
 import { createSongCardLocalRenderBridge, inspectSongCardRendererBuildIdentity } from "./song-card-local-renderer.mjs";
@@ -507,6 +508,11 @@ const avatarOverwindOrigin = new AvatarOverwindOrigin({
   dbPath: AVATAR_OVERWIND_OUTBOX_PATH,
   overwindUrl: AVATAR_OVERWIND_URL,
   token: overwindToken
+});
+const stargateContextMintService = new StargateContextMintService({
+  origin: avatarOverwindOrigin,
+  readStore: readTarotStore,
+  writeStore: writeTarotStore
 });
 const avatarOverwindSubscriber = new AvatarOverwindSubscriber({
   dbPath: AVATAR_OVERWIND_SUBSCRIBER_PATH,
@@ -3185,6 +3191,41 @@ async function route(req, res) {
       });
     } catch (error) {
       sendJson(res, 422, { error: "invalid_stargate_context", message: error?.message || String(error) });
+    }
+    return;
+  }
+
+  if (pathname === "/api/tarot/stargate/context-card/review" && req.method === "POST") {
+    try {
+      const body = await readBody(req);
+      sendJson(res, 200, await stargateContextMintService.review({ cardId: body.cardId || body.card?.id, card: body.card || null }));
+    } catch (error) {
+      sendJson(res, Number(error?.statusCode || 422), { error: error?.code || "stargate_context_review_failed", message: error?.message || String(error) });
+    }
+    return;
+  }
+
+  if (pathname === "/api/tarot/stargate/context-card/mint" && req.method === "POST") {
+    if (!requireAdmin(req, res)) return;
+    try {
+      const body = await readBody(req);
+      const result = await stargateContextMintService.mint({
+        cardId: body.cardId,
+        reviewDigest: body.reviewDigest,
+        approval: body.approval || {}
+      });
+      sendJson(res, result.ok ? 200 : 503, result);
+    } catch (error) {
+      sendJson(res, Number(error?.statusCode || 422), { error: error?.code || "stargate_context_mint_failed", message: error?.message || String(error), failClosed: true });
+    }
+    return;
+  }
+
+  if (pathname === "/api/tarot/stargate/context-card/status" && req.method === "GET") {
+    try {
+      sendJson(res, 200, await stargateContextMintService.status({ cardId: url.searchParams.get("cardId") || "" }));
+    } catch (error) {
+      sendJson(res, Number(error?.statusCode || 422), { error: error?.code || "stargate_context_status_failed", message: error?.message || String(error) });
     }
     return;
   }

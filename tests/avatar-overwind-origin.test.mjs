@@ -18,7 +18,7 @@ test("Avatar Builder canonical outbox covers history, acknowledgement, repair, a
     adapter.appendOperation("avatar",revised,"card.relationship.appended",{relationship_id:"rel-1",relationship_type:"related_to",operation:"add",source_card_id:adapter.pending()[0].card_id,target_card_id:"hapa-card:v1:dGFyZ2V0:Y2FyZA"},"2026-07-11T00:03:00Z");
     await adapter.commitStoreMutation("avatar",{avatars:[revised]},{avatars:[]},()=>writeFile(source,JSON.stringify({avatars:[]})));
     assert.deepEqual(adapter.pending().map((event)=>event.event_type),["card.created","card.revised","card.comment.appended","card.relationship.appended","card.tombstoned"]);
-    const sent=[]; const ack=await adapter.upload(async (_url,options)=>{const events=JSON.parse(options.body).events;sent.push(...events);return new Response(JSON.stringify({ok:true,results:events.map((event)=>({event_id:event.event_id,outcome:"accepted",durable:true}))}),{status:200,headers:{"content-type":"application/json"}});});
+    const sent=[]; const ack=await adapter.upload(async (_url,options)=>{const events=JSON.parse(options.body).events;sent.push(...events);return new Response(JSON.stringify({ok:true,results:events.map((event,index)=>({event_id:event.event_id,outcome:"accepted",durable:true,overwind_watermark:index+1}))}),{status:200,headers:{"content-type":"application/json"}});});
     assert.equal(ack.acknowledged,5); assert.deepEqual(adapter.health(),{ok:true,sourceHead:5,acknowledgedHead:5,pending:0,failures:0,repairMutations:0});
 
     const subscriberDir=path.join(root,"subscribers");await mkdir(subscriberDir);
@@ -63,6 +63,45 @@ test("Overwind origin preserves song kind, store.songs, and a collision-safe Son
     assert.equal(editionEvent.payload.card.provenance.source_schema, "hapa.song-card.edition.v1");
     assert.equal(editionEvent.payload.card.content.authoritative.immutable, true);
     assert.equal(editionEvent.payload.card.content.authoritative.acknowledgements.catalog, "pending");
+    adapter.close();
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("Stargate mint creates one stable Card head and only accepts a durable cursor acknowledgement", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "stargate-origin-"));
+  try {
+    const adapter = new AvatarOverwindOrigin({ dbPath: path.join(root, "outbox.sqlite3"), token: "fixture" });
+    const card = { id: "tarot-stargate-context:demo", title: "Return Card", tarotMainType: "stargate_context", status: "origin_staged", stargateContext: { schemaVersion: "hapa.stargate-context-card.v1", revisionId: "r2", connectionPolicy: "requires-fresh-gate-pass" } };
+    let writes = 0;
+    const staged = await adapter.commitCardMint("tarot", card, async () => { writes += 1; });
+    assert.equal(staged.event.event_type, "card.created");
+    assert.equal(staged.event.payload.card.card_type, "stargate_context");
+    assert.equal(staged.event.payload.card.truth.state, "origin-staged");
+    assert.equal(staged.event.payload.card.timestamps.acknowledged_at, null);
+    const cardId = staged.event.card_id;
+    const retried = await adapter.commitCardMint("tarot", card, async () => { writes += 1; });
+    assert.equal(retried.outcome, "idempotent_mint_retry");
+    assert.equal(adapter.pending().length, 1);
+    assert.equal(writes, 2);
+    const weak = await adapter.upload(async (_url, options) => {
+      const event = JSON.parse(options.body).events[0];
+      return new Response(JSON.stringify({ ok: true, results: [{ event_id: event.event_id, outcome: "accepted", durable: true }] }), { status: 200, headers: { "content-type": "application/json" } });
+    }, [staged.event.event_id]);
+    assert.equal(weak.acknowledged, 0);
+    assert.equal(adapter.statusForRecord("tarot", card).durableAcknowledgement, false);
+    const accepted = await adapter.upload(async (_url, options) => {
+      const event = JSON.parse(options.body).events[0];
+      return new Response(JSON.stringify({ ok: true, results: [{ event_id: event.event_id, outcome: "accepted", durable: true, overwind_watermark: 47 }] }), { status: 200, headers: { "content-type": "application/json" } });
+    }, [staged.event.event_id]);
+    assert.equal(accepted.acknowledged, 1);
+    const status = adapter.statusForRecord("tarot", card);
+    assert.equal(status.cardId, cardId);
+    assert.equal(status.originSequence, 1);
+    assert.equal(status.revision, 1);
+    assert.equal(status.ledgerPosition, 47);
+    assert.equal(status.durableAcknowledgement, true);
     adapter.close();
   } finally {
     await rm(root, { recursive: true, force: true });
