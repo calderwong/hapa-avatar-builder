@@ -78,9 +78,24 @@ function classifyPayload(payload, file) {
   const packet = payload?.packet || payload;
   if (packet?.schemaVersion === "hapa.echo.screenplay-source-packet.v1") return { kind: "packet", payload: packet, songId: packet.song?.id || null };
   if (payload?.schemaVersion === "hapa.echo.full-song-visual-screenplay.v1") return { kind: "screenplay", payload, songId: payload.songId || null };
+  if (payload?.nonCandidateStatus === "incomplete-direct-llm-authoring-draft" && payload?.schemaTarget === "hapa.echo.full-song-visual-screenplay.v1") {
+    return { kind: "screenplay", payload, songId: payload.songId || null, draft: true, validationError: "explicit incomplete direct-LLM authoring draft" };
+  }
   if (payload?.status === "approved" && payload?.reviewType === "independent_screenplay_review") return { kind: "approval", payload, songId: payload.songId || null };
   if (payload?.candidatePath || /review/iu.test(path.basename(file))) return { kind: "review", payload, songId: payload.songId || null };
   return { kind: "other", payload, songId: payload?.songId || null };
+}
+
+function countIdsFromPayload(payload, songId) {
+  const found = [];
+  const visit = (value) => {
+    if (!value || typeof value !== "object") return;
+    if (typeof value.countId === "string" && (!songId || value.countId.startsWith(`${songId}-count-`))) found.push(value.countId);
+    if (Array.isArray(value)) for (const item of value) visit(item);
+    else for (const child of Object.values(value)) visit(child);
+  };
+  visit(payload);
+  return [...new Set(found)];
 }
 
 export function discoverEchoScreenplayArtifacts(processState, screenplayRoot) {
@@ -97,7 +112,7 @@ export function discoverEchoScreenplayArtifacts(processState, screenplayRoot) {
       return { ...inspected, countIds: inspected.kind === "packet"
         ? (inspected.payload?.fourCounts || []).map((count) => count.id).filter(Boolean)
         : inspected.kind === "screenplay"
-          ? (inspected.payload?.sequencePlan || []).flatMap((sequence) => sequence?.counts || []).map((count) => count?.countId).filter(Boolean)
+          ? countIdsFromPayload(inspected.payload, songId)
           : [] };
     } catch (error) {
       const songId = inferSongId(text, file, songIds);

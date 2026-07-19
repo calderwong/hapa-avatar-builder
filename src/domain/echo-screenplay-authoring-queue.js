@@ -54,6 +54,8 @@ function artifactSummary(artifact) {
     countCoverage: artifact.countCoverage,
     rejected: Boolean(artifact.rejected),
     finalized: Boolean(artifact.finalized),
+    draft: Boolean(artifact.draft),
+    nonCandidateStatus: artifact.payload?.nonCandidateStatus || null,
     validationError: artifact.validationError || null,
   };
 }
@@ -109,9 +111,9 @@ function chooseState({ total, packet, screenplay, approved, processFacts }) {
     return "staged_imported";
   }
   if (approved) return "approved";
-  if (screenplay?.finalized && screenplay.countCoverage.exact && !screenplay.rejected) return "awaiting_review";
+  if (screenplay?.finalized && screenplay.countCoverage.exact && !screenplay.rejected && screenplay.valid !== false && !screenplay.validationError) return "awaiting_review";
   if (screenplay) {
-    if (screenplay.readable !== false && screenplay.countCoverage.exact && !screenplay.rejected) return "awaiting_finalization";
+    if (screenplay.readable !== false && screenplay.countCoverage.exact && !screenplay.rejected && screenplay.valid !== false && !screenplay.validationError) return "awaiting_finalization";
     return "authoring_partial";
   }
   if (packet?.countCoverage.exact && packet.valid !== false && packet.readable !== false) return "packet_ready";
@@ -229,7 +231,7 @@ export function inspectEchoScreenplayArtifact(process, artifact) {
   } catch (error) {
     validationError = error.message;
   }
-  return { ...artifact, finalized, screenplayHash, validationError };
+  return { ...artifact, valid: validationError ? false : artifact.valid, finalized, screenplayHash, validationError };
 }
 
 export function inspectEchoScreenplaySourcePacketArtifact(artifact) {

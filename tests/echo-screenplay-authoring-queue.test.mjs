@@ -22,6 +22,7 @@ function count(songId, ordinal, { prompt = "missing", screenplayHash = null, ima
 }
 
 const ids = (songId, total = 2) => Array.from({ length: total }, (_, index) => `${songId}-count-${String(index + 1).padStart(4, "0")}`);
+const fixtureHash = `sha256:${"a".repeat(64)}`;
 const packet = (songId, countIds) => ({ kind: "packet", songId, file: `${songId}.packet.json`, payload: { fourCounts: countIds.map((id) => ({ id })) }, readable: true });
 const screenplay = (songId, countIds, extra = {}) => ({ kind: "screenplay", songId, file: `${songId}.screenplay.json`, payload: { songId, sequencePlan: [{ counts: countIds.map((countId) => ({ countId })) }], authoringProvenance: extra.authoringProvenance }, readable: true, finalized: Boolean(extra.finalized), screenplayHash: extra.screenplayHash || null, rejected: Boolean(extra.rejected), validationError: extra.validationError || null });
 
@@ -69,6 +70,17 @@ test("rejected and unreadable screenplay artifacts cannot advance beyond authori
   assert.ok(report.rows[0].blockers.includes("best_coverage_screenplay_rejected"));
 });
 
+test("exact count coverage cannot bypass failed screenplay validation", () => {
+  const process = { status: "paused", counts: [count("song", 1), count("song", 2)], events: [] };
+  const artifacts = [
+    packet("song", ids("song")),
+    screenplay("song", ids("song"), { validationError: "Enhanced screenplay authoringMethodAudit is required." }),
+  ];
+  const report = projectEchoScreenplayAuthoringQueue({ process, artifacts });
+  assert.equal(report.rows[0].state, "authoring_partial");
+  assert.ok(report.rows[0].blockers.includes("screenplay_validation_failed"));
+});
+
 test("CLI defaults to read-only and --out --apply writes only the report", () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "echo-authoring-queue-"));
   const processFile = path.join(root, "process.json");
@@ -86,6 +98,16 @@ test("CLI defaults to read-only and --out --apply writes only the report", () =>
     authoringInstruction: {},
     qualityPolicy: {},
     approvedAvatarSeeds: { assets: [] },
+    castAttribution: { primary: { avatarId: "avatar-fixture" }, additional: [] },
+    sourceRevision: {
+      songContextHash: fixtureHash,
+      lyricsHash: fixtureHash,
+      timingHash: fixtureHash,
+      referenceGraphHash: fixtureHash,
+      seedSetHash: fixtureHash,
+      directorTreatmentHash: fixtureHash,
+      promptPolicyHash: fixtureHash,
+    },
   } }));
   const beforeProcess = fs.readFileSync(processFile, "utf8");
   const beforeFiles = fs.readdirSync(root).sort();
@@ -117,4 +139,27 @@ test("malformed in-progress candidate is counted from observed count ids without
   assert.equal(result.report.rows[0].state, "authoring_partial");
   assert.equal(result.report.rows[0].exactCountCoverage.screenplay.matched, 1);
   assert.ok(result.report.rows[0].blockers.includes("screenplay_json_incomplete_or_unreadable"));
+});
+
+test("explicit resumable direct-LLM draft reports exact partial coverage without becoming a candidate", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "echo-authoring-resumable-draft-"));
+  const processFile = path.join(root, "process.json");
+  const artifactsRoot = path.join(root, "screenplays");
+  fs.mkdirSync(artifactsRoot);
+  fs.writeFileSync(processFile, JSON.stringify({ status: "paused", events: [], counts: [count("song", 1), count("song", 2), count("song", 3)] }));
+  fs.writeFileSync(path.join(artifactsRoot, "song.screenplay.INCOMPLETE.json"), JSON.stringify({
+    nonCandidateStatus: "incomplete-direct-llm-authoring-draft",
+    schemaTarget: "hapa.echo.full-song-visual-screenplay.v1",
+    songId: "song",
+    requiredAuthoringStillOutstanding: { countTotal: 3, authoredCompleteCountRecords: 2 },
+    partialScreenplay: { openingCounts: [{ countId: "song-count-0001" }, { countId: "song-count-0002" }] },
+  }));
+  const result = run(["--process", processFile, "--screenplay-root", artifactsRoot]);
+  const row = result.report.rows[0];
+  assert.equal(row.state, "authoring_partial");
+  assert.equal(row.exactCountCoverage.screenplay.matched, 2);
+  assert.equal(row.exactCountCoverage.screenplay.missing, 1);
+  assert.equal(row.selectedArtifacts.screenplay.draft, true);
+  assert.equal(row.selectedArtifacts.screenplay.nonCandidateStatus, "incomplete-direct-llm-authoring-draft");
+  assert.ok(row.blockers.includes("screenplay_validation_failed"));
 });
