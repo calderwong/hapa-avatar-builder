@@ -45,6 +45,7 @@ test("screenplay CLI validates read-only then imports and activates image quests
   assert.equal(imported.process.status, "paused");
   let state = JSON.parse(fs.readFileSync(files.processPath, "utf8"));
   assert.ok(state.counts.every((count) => count.lanes.prompt.artifact.state === "ready" && count.lanes.image.quest.status === "blocked_by_prompt" && count.lanes.video.quest.status === "blocked_by_keyframe"));
+  assert.throws(() => run(["activate-images", "--apply", "--process", files.processPath, "--events", files.events, "--screenplay", files.screenplayPath]), /requires --count-ids/u);
   const activated = run(["activate-images", "--apply", "--process", files.processPath, "--events", files.events, "--screenplay", files.screenplayPath, "--count-ids", state.counts[0].id]);
   assert.equal(activated.process.status, "paused");
   state = JSON.parse(fs.readFileSync(files.processPath, "utf8"));

@@ -368,23 +368,22 @@ export function importApprovedEchoSongVisualScreenplay(process, screenplay, {
 export function activateEchoSongVisualScreenplayImages(process, {
   songId,
   screenplayHash,
-  countIds = null,
+  countIds,
   at = EPOCH,
 } = {}) {
   const next = clone(process);
   assertProcess(next);
   requireString(songId, "songId");
   requireString(screenplayHash, "screenplayHash");
-  const requestedIds = countIds === null ? null : new Set(countIds);
-  if (requestedIds && requestedIds.size !== countIds.length) throw new Error("countIds contains duplicates.");
+  if (!Array.isArray(countIds) || !countIds.length) throw new Error("Selective image activation requires a non-empty countIds list.");
+  const requestedIds = new Set(countIds);
+  if (requestedIds.size !== countIds.length) throw new Error("countIds contains duplicates.");
   const candidates = next.counts.filter((count) => count.songId === songId
     && count.lanes.prompt.artifact.state === "ready"
     && count.lanes.prompt.artifact.screenplayRef?.screenplayHash === screenplayHash);
-  const selected = requestedIds
-    ? candidates.filter((count) => requestedIds.has(count.id))
-    : candidates;
+  const selected = candidates.filter((count) => requestedIds.has(count.id));
   if (!selected.length) throw new Error(`No staged screenplay prompts found for ${songId}.`);
-  if (requestedIds && selected.length !== requestedIds.size) throw new Error("Some requested countIds are not staged by this screenplay.");
+  if (selected.length !== requestedIds.size) throw new Error("Some requested countIds are not staged by this screenplay.");
 
   const originalVideo = new Map(next.counts.map((count) => [count.id, stableStringify(count.lanes.video)]));
   const activated = [];

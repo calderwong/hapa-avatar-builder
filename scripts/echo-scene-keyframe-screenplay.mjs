@@ -94,6 +94,7 @@ export function run(argv = process.argv.slice(2)) {
   const requestedHash = options.screenplayHash || validation.screenplayHash;
   if (requestedHash !== validation.screenplayHash) throw new Error("--screenplay-hash must match the validated screenplay hash.");
   const countIds = options.countIds ? options.countIds.split(",").map((value) => value.trim()).filter(Boolean) : null;
+  if (!countIds?.length) throw new Error("activate-images requires --count-ids with an explicit comma-separated selection.");
   const next = activateEchoSongVisualScreenplayImages(prior, { songId: requestedSong, screenplayHash: requestedHash, countIds, at: now() });
   if (next.status !== "paused") throw new Error(`Image activation must preserve paused process state; got ${next.status}.`);
   writeProcess(processPath, eventPath, next, prior);
@@ -101,7 +102,7 @@ export function run(argv = process.argv.slice(2)) {
 }
 
 function usage() {
-  return "Usage: node scripts/echo-scene-keyframe-screenplay.mjs <validate|import-approved|activate-images> --screenplay <file> [--apply]\n\nvalidate is read-only. import-approved requires --approval and --apply; activate-images requires --apply. Both write only the supplied process state and event log, require it to be paused, never call a provider, and leave video held.\n";
+  return "Usage: node scripts/echo-scene-keyframe-screenplay.mjs <validate|import-approved|activate-images> --screenplay <file> [--apply]\n\nvalidate is read-only. import-approved requires --approval and --apply; activate-images requires --count-ids <id,...> and --apply. Both write only the supplied process state and event log, require it to be paused, never call a provider, and leave video held.\n";
 }
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   try { const result = run(); process.stdout.write(result.help ? usage() : `${stableStringify(result)}\n`); }

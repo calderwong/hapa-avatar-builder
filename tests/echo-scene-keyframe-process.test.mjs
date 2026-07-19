@@ -347,6 +347,9 @@ test("screenplay image activation is explicit, content-addressed, and leaves vid
   const screenplay = screenplayFor(process);
   process = importApprovedEchoSongVisualScreenplay(process, screenplay, { approvalReceipt: approvalReceipt(screenplay, "review-2"), at });
   const beforeVideo = process.counts.map((count) => structuredClone(count.lanes.video));
+  assert.throws(() => activateEchoSongVisualScreenplayImages(process, {
+    songId: "echo-song", screenplayHash: screenplay.provenance.contentHash, at: nextMinute,
+  }), /non-empty countIds/u);
   process = activateEchoSongVisualScreenplayImages(process, {
     songId: "echo-song", screenplayHash: screenplay.provenance.contentHash, countIds: [process.counts[0].id], at: nextMinute,
   });
