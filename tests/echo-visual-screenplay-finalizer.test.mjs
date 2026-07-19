@@ -45,7 +45,7 @@ function candidateFor(state) {
   return {
     schemaVersion: "hapa.echo.full-song-visual-screenplay.v1",
     songId: "song-finalizer",
-    sourceRevision: { songContextHash: hash("1"), lyricsHash: hash("2"), timingHash: hash("3"), referenceGraphHash: null, seedSetHash: hash("4"), directorTreatmentHash: null, promptPolicyHash: hash("5") },
+    sourceRevision: { songContextHash: hash("1"), lyricsHash: hash("2"), timingHash: hash("3"), referenceGraphHash: hash("7"), seedSetHash: hash("4"), directorTreatmentHash: hash("8"), promptPolicyHash: hash("5") },
     semanticMining: { songThesis: "A trace can be held without becoming a verdict.", emotionalArc: [], teachingOrQuestion: "What can a frame prove?", motifLexicon: [], referencePolicy: { rule: "reference-as-mechanic-not-copy", literalDepictionAllowed: false } },
     avatarContinuity: { seedAssets: [{ avatarId: "blue", colorRole: "blue", assetId: "seed-blue", contentHash: hash("6"), retrievalHandle: "/approved/blue.png", identityInvariants: ["face"], visualContribution: "Blue" }], globalInvariants: ["face"], allowedVariation: ["camera"], cleanReferenceRequired: true },
     sequencePlan: [{ id: "sequence-1", label: "phrase", purpose: "test", counts, diversityGate: { maxAdjacentDuplicateVisualTuples: 2, tupleFields: ["location", "camera", "composition", "primaryMotif", "action", "energy"], requireActionOrStateChange: true, intentionalHoldRequiresReason: true, repetitionReviewRequired: true } }],
@@ -56,21 +56,47 @@ function candidateFor(state) {
   };
 }
 
+function sourcePacketFor(state) {
+  return {
+    schemaVersion: "hapa.echo.screenplay-source-packet.v1",
+    mode: "read-only-source-packet",
+    song: { id: "song-finalizer", lyricMaster: { status: "matched_exact", text: "If I pause it, I might know" } },
+    fourCounts: state.counts.map((count) => ({
+      id: count.id,
+      ordinal: count.countOrdinal,
+      lyricOverlap: [{ text: "If I pause it, I might know" }],
+      continuity: { current: { prompt: { state: "missing" }, keyframe: { state: "missing" }, video: { state: "missing", quest: "held" } } },
+    })),
+    referenceEvidence: [],
+    resolvedSongReferences: [],
+    albumContextReservoir: [],
+    authoringInstruction: {},
+    qualityPolicy: {},
+    approvedAvatarSeeds: { assets: [] },
+    castAttribution: { primary: { avatarId: "blue" }, additional: [] },
+    sourceRevision: { songContextHash: hash("1"), lyricsHash: hash("2"), timingHash: hash("3"), referenceGraphHash: hash("7"), seedSetHash: hash("4"), directorTreatmentHash: hash("8"), promptPolicyHash: hash("5") },
+    packetHash: hash("a"),
+  };
+}
+
 function fixture() {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "echo-finalizer-"));
   const state = pauseEchoSceneKeyframeProcess(createEchoSceneKeyframeProcess({ counts: [sourceCount(0), sourceCount(1)] }), { at });
   const processPath = path.join(directory, "process.json");
   const candidatePath = path.join(directory, "candidate.json");
+  const packetPath = path.join(directory, "packet.json");
   const outputPath = path.join(directory, "finalized.json");
   fs.writeFileSync(processPath, JSON.stringify(state));
   fs.writeFileSync(candidatePath, JSON.stringify(candidateFor(state)));
-  return { directory, state, processPath, candidatePath, outputPath };
+  fs.writeFileSync(packetPath, JSON.stringify(sourcePacketFor(state)));
+  return { directory, state, processPath, candidatePath, packetPath, outputPath };
 }
 
 function args(files, extras = []) {
   return [
     "--process", files.processPath,
     "--screenplay", files.candidatePath,
+    "--source-packet", files.packetPath,
     "--output", files.outputPath,
     "--requested-model", "gpt-5.6-terra",
     "--agent-task-name", "/root/full-song-author",
@@ -145,4 +171,25 @@ test("finalizer refuses a running process, active claims, candidate overwrite, a
   overwriteArgs[overwriteArgs.indexOf(files.outputPath)] = files.candidatePath;
   assert.throws(() => run(overwriteArgs), /refuses to overwrite/u);
   assert.throws(() => run(args(files).filter((value, index, list) => value !== "--requested-model" && list[index - 1] !== "--requested-model")), /requestedModel/u);
+});
+
+test("finalizer refuses a screenplay whose reference decisions or source revision do not match its packet", () => {
+  const files = fixture();
+  const packet = JSON.parse(fs.readFileSync(files.packetPath, "utf8"));
+  packet.referenceEvidence = [{
+    id: "connector-1",
+    source: "song.referenceConnectors",
+    confidence: "direct",
+    referenceId: "work",
+    target: { songId: "song-finalizer", lyricText: "If I pause it, I might know", matchedText: "pause" },
+  }];
+  fs.writeFileSync(files.packetPath, JSON.stringify(packet));
+  assert.throws(() => run(args(files)), /Reference coverage failed/u);
+
+  const clean = sourcePacketFor(files.state);
+  fs.writeFileSync(files.packetPath, JSON.stringify(clean));
+  const candidate = JSON.parse(fs.readFileSync(files.candidatePath, "utf8"));
+  candidate.sourceRevision.lyricsHash = hash("9");
+  fs.writeFileSync(files.candidatePath, JSON.stringify(candidate));
+  assert.throws(() => run(args(files)), /sourceRevision\.lyricsHash/u);
 });

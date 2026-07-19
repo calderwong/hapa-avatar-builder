@@ -17,12 +17,17 @@ import {
   finalizeEchoSongVisualScreenplayMetadata,
   validateEchoSongVisualScreenplay,
 } from "../src/domain/echo-scene-keyframe-process.js";
+import {
+  validateEchoScreenplayReferenceCoverage,
+  validateEchoScreenplaySourcePacket,
+} from "../src/domain/echo-screenplay-source-packet.js";
 import { atomicWriteJson, stableStringify } from "./echo-scene-keyframes.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const defaults = Object.freeze({
   process: "data/echo-scene-keyframes/process.json",
   screenplay: null,
+  sourcePacket: null,
   output: null,
   requestedModel: null,
   agentTaskName: null,
@@ -108,9 +113,22 @@ export function run(argv = process.argv.slice(2)) {
   if (options.help) return { help: true };
   const processPath = resolve(options.process);
   const screenplayPath = resolve(options.screenplay);
+  const sourcePacketPath = resolve(options.sourcePacket);
   const state = readJson(processPath, "process state");
   const candidate = readJson(screenplayPath, "screenplay candidate");
+  const sourcePacketPayload = readJson(sourcePacketPath, "source packet");
+  const sourcePacket = sourcePacketPayload.packet || sourcePacketPayload;
   requirePausedIdleProcess(state);
+  const packetValidation = validateEchoScreenplaySourcePacket(sourcePacket);
+  if (!packetValidation.ok) throw new Error(`Source packet validation failed: ${packetValidation.errors.join(", ")}`);
+  if (candidate.songId !== sourcePacket.song.id) throw new Error(`Screenplay songId ${candidate.songId} does not match source packet songId ${sourcePacket.song.id}.`);
+  if (options.sourcePacketHash !== sourcePacket.packetHash) throw new Error("--source-packet-hash does not match the supplied immutable source packet.");
+  for (const key of ["songContextHash", "lyricsHash", "timingHash", "referenceGraphHash", "seedSetHash", "directorTreatmentHash", "promptPolicyHash"]) {
+    if (candidate.sourceRevision?.[key] !== sourcePacket.sourceRevision?.[key]) throw new Error(`Screenplay sourceRevision.${key} does not match the immutable source packet.`);
+  }
+  const authoredCounts = (candidate.sequencePlan || []).flatMap((sequence) => sequence?.counts || []);
+  const referenceCoverage = validateEchoScreenplayReferenceCoverage(authoredCounts, sourcePacket);
+  if (!referenceCoverage.ok) throw new Error(`Reference coverage failed: ${referenceCoverage.errors.join("; ")}`);
   const protectedBefore = stableStringify(contentOutsideFinalizerAuthority(candidate));
   const finalized = finalizeEchoSongVisualScreenplayMetadata(candidate, metadata(options));
   if (stableStringify(contentOutsideFinalizerAuthority(finalized)) !== protectedBefore) {
@@ -131,6 +149,7 @@ export function run(argv = process.argv.slice(2)) {
     processStatus: state.status,
     activeClaims: 0,
     inputPath: screenplayPath,
+    sourcePacketPath,
     outputPath: options.apply ? outputPath : null,
     songId: validation.songId,
     countTotal: validation.counts.length,
@@ -138,6 +157,7 @@ export function run(argv = process.argv.slice(2)) {
     authoringArtifactHash: finalized.authoringProvenance.artifactHash,
     screenplayHash: validation.screenplayHash,
     sceneOrSemanticTextChanged: false,
+    referenceCoverage,
     imageActivation: "not-performed",
     videoGeneration: "held-not-touched",
     finalized,
@@ -146,7 +166,7 @@ export function run(argv = process.argv.slice(2)) {
 
 function usage() {
   return [
-    "Usage: node scripts/finalize-echo-visual-screenplay.mjs --screenplay <candidate.json> --process <process.json> [--output <final.json> --apply] \\",
+    "Usage: node scripts/finalize-echo-visual-screenplay.mjs --screenplay <candidate.json> --source-packet <immutable.packet.json> --process <process.json> [--output <final.json> --apply] \\",
     "  --requested-model <model> --agent-task-name <task> --source-packet-hash <sha256:...> --instruction-hash <sha256:...> \\",
     "  --started-at <ISO> --completed-at <ISO> --attested-by <actor> --attested-at <ISO> --created-by <actor> --created-at <ISO>",
     "",
