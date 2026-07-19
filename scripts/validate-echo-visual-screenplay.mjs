@@ -87,18 +87,27 @@ function validateAuthoringProvenance(provenance, errors) {
 }
 
 function promptSentenceSkeleton(count) {
-  let text = String(count?.prompt?.gptImagePrompt || "").toLocaleLowerCase();
+  return authoredSurfaceSkeleton(count, count?.prompt?.gptImagePrompt);
+}
+
+function authoredSurfaceSkeleton(count, value) {
+  let text = String(value || "").toLocaleLowerCase();
+  const extraction = count?.semanticExtraction || {};
   const replacements = [
-    count?.shot?.location,
-    count?.shot?.action,
-    count?.shot?.primaryMotif,
-    ...(count?.semanticExtraction?.lyricCitations || []).map((citation) => citation?.excerpt),
-  ].filter(Boolean).sort((left, right) => String(right).length - String(left).length);
+    ...Object.values(count?.shot || {}),
+    ...["nouns", "verbs", "visibleActions", "concepts", "teachings", "symbols", "wordplayCues", "explicitReferences", "hiddenReferenceCandidates"]
+      .flatMap((key) => Array.isArray(extraction[key]) ? extraction[key] : []),
+    extraction.emotionalMovement,
+    extraction.teachingOrQuestion,
+    ...(extraction.lyricCitations || []).map((citation) => citation?.excerpt),
+    ...(count?.castAppearances || []).flatMap((appearance) => [appearance?.narrativeFunction, appearance?.evidenceBasis]),
+  ].filter((replacement) => typeof replacement === "string" && replacement.trim())
+    .sort((left, right) => String(right).length - String(left).length);
   for (const replacement of replacements) {
     const escaped = String(replacement).replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
     if (escaped) text = text.replace(new RegExp(escaped, "gu"), "{slot}");
   }
-  return text.replace(/\b\d+(?:\.\d+)?\b/gu, "{number}").replace(/\s+/gu, " ").trim();
+  return text.replace(/\b\d+(?:[.:]\d+)*\b/gu, "{number}").replace(/\s+/gu, " ").trim();
 }
 
 function validateReservoirInspiration(count, location, errors) {
@@ -176,6 +185,23 @@ function validateEnhancedPromptLeadDiversity(document, counts, errors) {
   }
   const maximumReuse = Math.max(2, Math.ceil(counts.length / 12));
   for (const [lead, rows] of leads) if (rows.length > maximumReuse) fail(errors, "document", `repeated enhanced prompt lead appears ${rows.length} times (maximum ${maximumReuse}): ${lead}`);
+  const surfaces = [
+    ["sceneText", (count) => count?.prompt?.sceneText],
+    ["justification", (count) => count?.prompt?.justification],
+    ["metaphor", (count) => count?.semanticExtraction?.metaphor],
+  ];
+  for (const [label, read] of surfaces) {
+    const skeletons = new Map();
+    for (const count of counts) {
+      const skeleton = authoredSurfaceSkeleton(count, read(count));
+      const rows = skeletons.get(skeleton) || [];
+      rows.push(count?.countId);
+      skeletons.set(skeleton, rows);
+    }
+    for (const [skeleton, rows] of skeletons) {
+      if (rows.length > maximumReuse) fail(errors, "document", `repeated authored ${label} scaffold appears ${rows.length} times (maximum ${maximumReuse}): ${skeleton.slice(0, 180)}`);
+    }
+  }
 }
 
 function validateCount(count, location, errors) {

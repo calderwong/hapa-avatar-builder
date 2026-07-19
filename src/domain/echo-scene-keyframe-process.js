@@ -999,6 +999,30 @@ function validateEnhancedPromptLeadDiversity(entries, screenplay) {
   for (const [lead, rows] of leads) {
     if (rows.length > maximumReuse) throw new Error(`Repeated enhanced prompt lead appears ${rows.length} times (maximum ${maximumReuse}): ${lead}.`);
   }
+  validateEnhancedAuthoredSurfaceDiversity(entries);
+}
+
+function validateEnhancedAuthoredSurfaceDiversity(entries) {
+  const surfaces = [
+    ["sceneText", (entry) => entry.prompt.sceneText],
+    ["justification", (entry) => entry.prompt.justification],
+    ["metaphor", (entry) => entry.semanticExtraction.metaphor],
+  ];
+  const maximumReuse = Math.max(2, Math.ceil(entries.length / 12));
+  for (const [label, read] of surfaces) {
+    const skeletons = new Map();
+    for (const entry of entries) {
+      const skeleton = authoredSurfaceSkeleton(entry, read(entry));
+      const rows = skeletons.get(skeleton) || [];
+      rows.push(entry.countId);
+      skeletons.set(skeleton, rows);
+    }
+    for (const [skeleton, rows] of skeletons) {
+      if (rows.length > maximumReuse) {
+        throw new Error(`Repeated authored ${label} scaffold appears ${rows.length} times (maximum ${maximumReuse}): ${skeleton.slice(0, 180)}.`);
+      }
+    }
+  }
 }
 
 function validateGlobalSceneDiversity(entries) {
@@ -1049,18 +1073,27 @@ function normalizeVisualValue(value) {
 }
 
 function promptSentenceSkeleton(entry) {
-  let text = String(entry.prompt.gptImagePrompt || "").toLocaleLowerCase();
+  return authoredSurfaceSkeleton(entry, entry.prompt.gptImagePrompt);
+}
+
+function authoredSurfaceSkeleton(entry, value) {
+  let text = String(value || "").toLocaleLowerCase();
+  const extraction = entry.semanticExtraction || {};
   const replacements = [
-    entry.shot.location,
-    entry.shot.action,
-    entry.shot.primaryMotif,
-    ...entry.semanticExtraction.lyricCitations.map((citation) => citation.excerpt),
-  ].filter(Boolean).sort((left, right) => String(right).length - String(left).length);
+    ...Object.values(entry.shot || {}),
+    ...["nouns", "verbs", "visibleActions", "concepts", "teachings", "symbols", "wordplayCues", "explicitReferences", "hiddenReferenceCandidates"]
+      .flatMap((key) => Array.isArray(extraction[key]) ? extraction[key] : []),
+    extraction.emotionalMovement,
+    extraction.teachingOrQuestion,
+    ...(extraction.lyricCitations || []).map((citation) => citation.excerpt),
+    ...(entry.castAppearances || []).flatMap((appearance) => [appearance.narrativeFunction, appearance.evidenceBasis]),
+  ].filter((replacement) => typeof replacement === "string" && replacement.trim())
+    .sort((left, right) => String(right).length - String(left).length);
   for (const replacement of replacements) {
     const escaped = String(replacement).replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
     if (escaped) text = text.replace(new RegExp(escaped, "gu"), "{slot}");
   }
-  return text.replace(/\b\d+(?:\.\d+)?\b/gu, "{number}").replace(/\s+/gu, " ").trim();
+  return text.replace(/\b\d+(?:[.:]\d+)*\b/gu, "{number}").replace(/\s+/gu, " ").trim();
 }
 
 function validateReservoirInspiration(entry) {

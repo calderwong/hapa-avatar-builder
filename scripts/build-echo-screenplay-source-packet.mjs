@@ -49,7 +49,10 @@ function approvedSeeds(pilotRoot, avatarId, colorRole) {
       if (seed.avatarId === avatarId || String(seed.colorRole || "").toLowerCase() === String(colorRole || "").toLowerCase()) seeds.push(seed);
     }
   }
-  return [...new Map(seeds.filter((seed) => seed.retrievalHandle).map((seed) => [seed.retrievalHandle, seed])).values()];
+  return [...new Map(seeds.filter((seed) => seed.retrievalHandle).map((seed) => [seed.retrievalHandle, {
+    ...seed,
+    contentHash: seed.contentHash || (fs.existsSync(seed.retrievalHandle) ? fileHash(seed.retrievalHandle) : null),
+  }])).values()];
 }
 
 function fileHash(filePath) {

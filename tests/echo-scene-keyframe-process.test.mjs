@@ -445,6 +445,34 @@ test("enhanced cast-aware screenplays reject a repeated production-label prompt 
   assert.throws(() => validateEchoSongVisualScreenplay(process, screenplay), /Repeated enhanced prompt lead/u);
 });
 
+test("enhanced cast-aware screenplays reject slot-filled scene, justification, and metaphor scaffolds", () => {
+  const process = createEchoSceneKeyframeProcess({ counts: Array.from({ length: 12 }, (_, index) => sourceCount(index)) });
+  const screenplay = screenplayFor(process, { mutate: (value) => {
+    value.avatarContinuity.castPolicy = { primaryAvatarId: "avatar-2", selectionRule: "smallest useful cast", referencedAvatarRule: "explicit binding only", evergreenRule: "optional action-backed cast" };
+    const authoredPrompts = [
+      "Rain cleaves a copper arch while Blue catches the falling hinge.",
+      "A white kite drags sparks upstream above an empty ferry.",
+      "Three mirrors refuse the sunrise and turn toward a seed.",
+      "The rope bridge blooms underfoot as fog drains from the valley.",
+      "Cold glass gathers a warm fingerprint beside a sleeping engine.",
+      "A paper bird crosses the engine room carrying one blue thread.",
+      "Blue reeds bend around a lantern that has just gone dark.",
+      "The empty chair tips toward thunder across a flooded kitchen.",
+      "Salt crystals map an open palm beneath a rotating skylight.",
+      "A cedar door floats above the tide with its key still turning.",
+      "The compass needle stitches torn cloth across a field table.",
+      "Green smoke clears around a seedling breaking black concrete.",
+    ];
+    for (const entry of value.sequencePlan[0].counts) {
+      entry.prompt.gptImagePrompt = authoredPrompts[entry.ordinal];
+      entry.prompt.sceneText = `${entry.shot.action} at ${entry.shot.location}; ${entry.shot.primaryMotif} holds ${entry.shot.composition} under ${entry.shot.lighting}.`;
+      entry.prompt.justification = `${entry.shot.action} at ${entry.shot.location}; ${entry.shot.primaryMotif} makes ${entry.semanticExtraction.teachingOrQuestion} visible.`;
+      entry.semanticExtraction.metaphor = `${entry.shot.primaryMotif} turns ${entry.semanticExtraction.concepts[0]} into physical action.`;
+    }
+  } });
+  assert.throws(() => validateEchoSongVisualScreenplay(process, screenplay), /Repeated authored sceneText scaffold/u);
+});
+
 test("reservoir inspiration is optional but must materially affect its count when present", () => {
   const process = createEchoSceneKeyframeProcess({ counts: [sourceCount()] });
   const decorative = screenplayFor(process, { mutate: (value) => {

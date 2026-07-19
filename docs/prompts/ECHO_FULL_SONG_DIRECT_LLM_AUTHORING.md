@@ -27,6 +27,7 @@ Author one integrated visual screenplay for every source-backed four-count in th
 ## Prohibited shortcuts
 
 - Do not write or run a deterministic scene generator, loop, template expander, catalog rotation, modulo selector, or phrase substitution system.
+- This prohibition covers every authored surface: `semanticExtraction`, `shot`, `sceneText`, `gptImagePrompt`, `justification`, `metaphor`, reference mechanics, and cast actions. Writing distinct nouns/actions into a shared sentence constructor is deterministic assembly, not direct LLM analysis, even when every rendered sentence is technically unique.
 - Do not assign locations, cameras, actions, energy labels, compositions, references, or motifs by index rotation.
 - Do not stamp the same Beginning/Pressure/Release wording or any other sentence scaffold into every GPT Image prompt.
 - Do not use an external provider or generate images or videos.
@@ -35,6 +36,8 @@ Author one integrated visual screenplay for every source-backed four-count in th
 - Do not default to the same standing Avatar, forest/corridor, portrait scale, or atmospheric lighting merely because the identity seed contains those elements. The seed preserves identity; the song chooses the world.
 
 Shared seed-identity and negative-safety clauses may repeat where operationally necessary. The cinematic body, scene causality, semantic extraction, and justification must be individually reasoned for each count.
+
+The validator removes count-specific slots—including shot fields, lyric excerpts, semantic terms, and cast evidence—and compares the remaining prose scaffolds. Repeated scene, justification, metaphor, or prompt skeletons above the album-scaled limit are unimportable unless they are explicitly justified intentional holds.
 
 For enhanced cast-aware screenplays, do not begin most prompts with the same production-label sentence (for example, a repeated “Cinematic 16:9 key frame for exact four-count…” lead). Open directly on the count's distinctive image, action, material, or camera event. The validator treats heavily repeated prompt leads as templated authoring even when later nouns are different.
 

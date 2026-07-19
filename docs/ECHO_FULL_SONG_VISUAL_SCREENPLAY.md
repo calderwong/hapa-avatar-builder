@@ -64,6 +64,8 @@ Plan phrase-sized sequences of 3–8 counts before writing individual prompts. E
 
 Sequence phases such as beginning, pressure, turn, and release belong in screenplay metadata. Do not stamp the same phase labels or sentence scaffold into every GPT Image prompt. Shared avatar-seed and safety language may repeat where operationally required, but the cinematic body of each prompt must be individually written from that count's lyric evidence, inherited material state, and consequence for the next shot.
 
+Direct authoring is evaluated by structure, not raw vocabulary counts. A screenplay fails if a script inserts otherwise diverse actions, locations, motifs, lenses, citations, or cast names into recurring constructors for `sceneText`, `gptImagePrompt`, `justification`, or `metaphor`. Mechanical tooling may transport source facts and calculate hashes; it may not manufacture the authored visual or explanatory prose.
+
 The schema requires a diversity gate. Its default policy is intentionally strict:
 
 - at most two adjacent duplicate visual tuples, measured from location, camera, composition, primary motif, action, and energy;

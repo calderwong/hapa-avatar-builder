@@ -16,7 +16,7 @@ test("screenplay source packet retains evidence labels, seed provenance, and adj
     telemetry: { status: "complete", runId: "t", duration: 2 },
     windows,
     avatar: { id: "blue", primaryName: "Blue", assets: [{ id: "seed", type: "image", uri: "/seed.png", metadata: { storage: { path: "/seed.png" }, intelligence: { confidence: "high" } } }] },
-    approvedSeeds: [{ assetId: "approved", colorRole: "blue", retrievalHandle: "/approved.png", visualContribution: "Preserve identity", sourceLineage: { review: "existing-avatar-source" } }],
+    approvedSeeds: [{ avatarId: "blue", assetId: "approved", colorRole: "blue", retrievalHandle: "/approved.png", contentHash: `sha256:${"a".repeat(64)}`, identityInvariants: ["Blue face"], visualContribution: "Preserve identity", sourceLineage: { review: "existing-avatar-source" } }],
     process: { counts: [{ id: "song-a-count-0001", lanes: { prompt: { artifact: { state: "ready", result: { sceneText: "first scene" }, contentHash: "p" }, quest: {} }, image: { artifact: { state: "keyframe_exists", result: { localPath: "/frame.png" }, contentHash: "i" }, quest: {} }, video: { artifact: {}, quest: { status: "held" } } } }] },
     mediaCards: { cards: [] },
     graphEdges: [{ sourceSongId: "song-a", classification: "candidate" }],
@@ -27,6 +27,9 @@ test("screenplay source packet retains evidence labels, seed provenance, and adj
   assert.equal(packet.evidenceSummary.direct, 1);
   assert.equal(packet.evidenceSummary.candidate, 2);
   assert.equal(packet.approvedAvatarSeeds.assets[0].localPath, "/approved.png");
+  assert.equal(packet.approvedAvatarSeeds.assets[0].contentHash, `sha256:${"a".repeat(64)}`);
+  assert.equal(packet.approvedAvatarSeeds.assets[0].avatarId, "blue");
+  assert.deepEqual(packet.approvedAvatarSeeds.assets[0].identityInvariants, ["Blue face"]);
   assert.equal(packet.fourCounts[0].continuity.current.keyframe.state, "keyframe_exists");
   assert.equal(packet.fourCounts[1].continuity.previous.id, "song-a-count-0001");
   assert.equal(packet.resolvedSongReferences[0].referenceId, "work");
@@ -52,7 +55,7 @@ test("authoring grammar follows the selected Avatar instead of hard-coding a col
 });
 
 test("source packet separates evergreen cast from explicitly attributed referenced Avatars", () => {
-  const seed = (avatarId, castRole) => ({ avatarId, castRole, species: "human", baseCharacterId: avatarId, assetId: `${avatarId}-seed`, contentHash: `sha256:${avatarId}`, retrievalHandle: `/${avatarId}.png`, identityInvariants: ["identity"], visualContribution: avatarId });
+  const seed = (avatarId, castRole) => ({ avatarId, castRole, species: "human", baseCharacterId: avatarId, assetId: `${avatarId}-seed`, contentHash: `sha256:${avatarId.replace(/[^a-f0-9]/gu, "a").padEnd(64, "a").slice(0, 64)}`, retrievalHandle: `/${avatarId}.png`, identityInvariants: ["identity"], visualContribution: avatarId });
   const packet = buildEchoScreenplaySourcePacket({
     song,
     windows,
@@ -74,6 +77,18 @@ test("validator rejects malformed evidence confidence and window continuity", ()
   assert.equal(result.ok, false);
   assert.ok(result.errors.includes("referenceEvidence.confidence"));
   assert.ok(result.errors.includes("fourCounts:x"));
+});
+
+test("validator rejects seed assets without immutable SHA-256 provenance", () => {
+  const packet = buildEchoScreenplaySourcePacket({
+    song,
+    windows,
+    avatar: { id: "blue", primaryName: "Blue" },
+    approvedSeeds: [{ avatarId: "blue", assetId: "seed", retrievalHandle: "/seed.png", contentHash: "pending" }],
+  });
+  const result = validateEchoScreenplaySourcePacket(packet);
+  assert.equal(result.ok, false);
+  assert.ok(result.errors.includes("approvedAvatarSeeds.contentHash:seed"));
 });
 
 test("read-only CLI builds a validated full-source packet and does not create output files", () => {

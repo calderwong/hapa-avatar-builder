@@ -153,13 +153,20 @@ export function buildEchoScreenplaySourcePacket({ song, project, telemetry, wind
   const allAssets = [...(avatar?.assets || []), ...(avatar?.mediaAssets || [])].map(compactAsset);
   const suppliedSeeds = approvedSeeds.map((seed) => ({
     id: seed.assetId || seed.id || null,
+    avatarId: seed.avatarId || avatar?.id || song?.performancePerspective?.avatarId || null,
+    colorRole: seed.colorRole || null,
+    castRole: seed.castRole || "primary",
+    species: seed.species || "human",
+    baseCharacterId: seed.baseCharacterId || seed.avatarId || avatar?.id || song?.performancePerspective?.avatarId || null,
     name: seed.colorRole ? `${seed.colorRole}-approved-seed` : seed.name || null,
     type: "image",
     uri: seed.uri || null,
     localPath: seed.retrievalHandle || seed.localPath || null,
+    contentHash: seed.contentHash || null,
     requirementId: seed.sourceLineage?.role || seed.requirementId || null,
     tags: ["approved-seed", ...(seed.colorRole ? [seed.colorRole] : [])],
     confidence: seed.sourceLineage?.review === "existing-avatar-source" ? "direct" : "contextual",
+    identityInvariants: Array.isArray(seed.identityInvariants) ? seed.identityInvariants : [],
     visualContribution: seed.visualContribution || null,
     sourceLineage: seed.sourceLineage || null,
   }));
@@ -285,6 +292,10 @@ export function validateEchoScreenplaySourcePacket(packet) {
   if (!Array.isArray(packet?.albumContextReservoir)) errors.push("albumContextReservoir");
   if (!packet?.authoringInstruction || !packet?.qualityPolicy) errors.push("authoringInstruction/qualityPolicy");
   if (!Array.isArray(packet?.approvedAvatarSeeds?.assets)) errors.push("approvedAvatarSeeds.assets");
+  for (const seed of packet?.approvedAvatarSeeds?.assets || []) {
+    if (!seed?.id || !seed?.localPath) errors.push(`approvedAvatarSeeds.asset:${seed?.id || "missing"}`);
+    if (!/^sha256:[a-f0-9]{64}$/u.test(String(seed?.contentHash || ""))) errors.push(`approvedAvatarSeeds.contentHash:${seed?.id || "missing"}`);
+  }
   if (!packet?.castAttribution?.primary?.avatarId || !Array.isArray(packet?.castAttribution?.additional)) errors.push("castAttribution");
   const castIds = new Set();
   for (const member of packet?.castAttribution?.additional || []) {
@@ -292,6 +303,9 @@ export function validateEchoScreenplaySourcePacket(packet) {
     castIds.add(member.avatarId);
     if (!["evergreen", "referenced-avatar"].includes(member.castClass) || !member.species || !member.evidenceStatus) errors.push(`castAttribution.policy:${member.avatarId}`);
     if (!Array.isArray(member.seedAssets) || !member.seedAssets.length) errors.push(`castAttribution.seedAssets:${member.avatarId}`);
+    for (const seed of member.seedAssets || []) {
+      if (!/^sha256:[a-f0-9]{64}$/u.test(String(seed?.contentHash || ""))) errors.push(`castAttribution.seedContentHash:${member.avatarId}`);
+    }
   }
   for (const row of packet?.referenceEvidence || []) if (!['direct', 'candidate', 'contextual'].includes(row.confidence)) errors.push("referenceEvidence.confidence");
   for (const window of packet?.fourCounts || []) if (!window.id || !window.continuity?.current) errors.push(`fourCounts:${window?.id || "unknown"}`);
