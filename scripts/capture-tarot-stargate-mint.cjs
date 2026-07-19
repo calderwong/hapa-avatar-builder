@@ -67,7 +67,7 @@ app.whenReady().then(async () => {
     const manifest = {
       schemaVersion: "hapa.demo-capture.v1", captureId: "cat-gate-001-custody-relay-2026-07-18-01", taskId: "CAT-GATE-001", title: "Return Card Custody Relay",
       surface: "canonical-hapa-avatar-builder-tarot-draw-isolated-electron-window", sourceUrl: targetUrl,
-      capture: { windowWidth: width, windowHeight: height, surfaceWidth: surfaceSize.width, surfaceHeight: surfaceSize.height, fps, frameCount: frameIndex, durationSeconds: durationMs / 1000, audio: false },
+      capture: { windowWidth: width, windowHeight: height, surfaceWidth: surfaceSize.width, surfaceHeight: surfaceSize.height, fps, frameCount: frameIndex, encodedDurationSeconds: Number((frameIndex / fps).toFixed(3)), observationWindowSeconds: durationMs / 1000, timingPolicy: "Observed named-window frames are normalized to 12 fps; encoded duration is frame count divided by encoded fps.", audio: false },
       story: ["active four-Card Gate", "Gate collapses into physical Return Card", "human review chamber", "Origin/Overwind/Catalog custody relay", "cyan-gold exact projection proof"],
       truthBoundary: "Visual capture uses isolated deterministic Overwind/Catalog acknowledgement fixtures. Real origin durability and Catalog subscriber semantics are verified separately by automated tests; no live production network claim is made.",
       observed: truth, privacy: { namedWindowOnly: true, desktopExcluded: true, fullAddressExcluded: true, cohortSecretExcluded: true, privateTopicExcluded: true },
