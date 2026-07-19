@@ -160,6 +160,8 @@ The shortest coherent judge path is:
 
 **STG-011 browser checkpoint (`2026-07-18`):** the canonical Comment Cam now binds an exact selected source revision and active Gate context, records explicit append-only consent, reuses the existing Camera Card, produces separate Comment/Lesson/Result Cards, and visualizes custody as an animated 3D tether. The primary phone path uses a token-bound native camera picker over local HTTP and requires no certificate. Isolated browser evidence is complete and truth-audited; an actual human phone scan/upload remains a distinct physical-device proof and may not be inferred from browser automation.
 
+**UI3D-003 spatial checkpoint (`2026-07-18`):** the canonical Tarot scene now admits only identity-, source-, time-, truth-status-, and SHA-256-bound event envelopes into a bounded Truth Constellation. Ten event families have distinct sigils and commitment packets, while the existing Stargate retains the sole hero effect budget. An unverified event produces a rejection receipt and no visual cue. A proposed Spatial Truth Result Card seals accepted and rejected outcomes without claiming mint authority. Real Gate, peer, Comment, proposal, origin-mint, and Card-placement receipts are wired when their source digests exist; council, general session, and Build Week ledger ingestion remain truthfully assigned to their integration tasks. The isolated showcase uses public deterministic fixture receipts and says so in the UI and manifest.
+
 ## Priority order
 
 ### P0 — submission spine

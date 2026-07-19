@@ -45,6 +45,17 @@ import {
   updateTarotStargateRig,
 } from "../domain/tarot-stargate-visual.js";
 import {
+  buildTarotSpatialTruthResultCard,
+  projectTarotSpatialTruthEvent,
+  publicSpatialTruthShowcaseEvents,
+} from "../domain/tarot-spatial-truth.js";
+import {
+  clearTarotSpatialTruthRig,
+  createTarotSpatialTruthRig,
+  emitTarotSpatialTruthCue,
+  updateTarotSpatialTruthRig,
+} from "../domain/tarot-spatial-truth-visual.js";
+import {
   buildVisualizerRendererTruthReceipt,
   resolveVisualizerRendererTruth,
 } from "../domain/visualizer-renderer-capability.js";
@@ -2129,6 +2140,16 @@ export default function TarotDraw3DView({ cards = [], avatarId = "local-operator
       fixtureDisclosure: "",
       message: "Place two to eight identity-sealed Cards"
     },
+    spatialTruth: {
+      state: "idle",
+      accepted: 0,
+      rejected: 0,
+      lastFamily: "",
+      eventCommitments: [],
+      resultCardId: "",
+      publicFixture: false,
+      truthBoundary: "Verified events may emit bounded effects."
+    },
     renderer: { calls: 0, triangles: 0, geometries: 0, textures: 0 }
   });
   const selectedCard = hud.selectedCard || null;
@@ -2213,6 +2234,7 @@ export default function TarotDraw3DView({ cards = [], avatarId = "local-operator
   const sceneInviteBusy = sceneInvite.status === "creating";
   const sceneInviteNote = sceneInvite.error || sceneInvite.message || "Create a Hypercore/WebRTC camera invitation for this scene";
   const stargate = hud.stargate || { mode: false, state: "dormant", progress: 0, slotCount: 0, sealedCount: 0, missingIdentityCount: 0, redactedAddress: "", formationFingerprint: "", fixtureDisclosure: "", message: "Place two to eight identity-sealed Cards" };
+  const spatialTruth = hud.spatialTruth || { state: "idle", accepted: 0, rejected: 0, lastFamily: "", eventCommitments: [], resultCardId: "", publicFixture: false, truthBoundary: "Verified events may emit bounded effects." };
   const stargateBusy = stargate.state === "dialing";
   const stargateNeedsIdentity = stargate.state === "needs_identity";
   const stargateActive = stargate.state === "active";
@@ -3413,6 +3435,16 @@ export default function TarotDraw3DView({ cards = [], avatarId = "local-operator
       if (!response.ok || !payload?.review) throw new Error(payload?.message || payload?.error || `Review failed: ${response.status}`);
       setStargateMint({ open: true, status: "ready", review: payload, result: null, error: "" });
       callGame("setStargateMintStage", "proposed_unminted");
+      callGame("ingestSpatialTruthEvent", {
+        eventId: `proposal-created:${card.id}:${payload.review.reviewDigest}`,
+        type: "proposal.created",
+        truthStatus: "verified_event",
+        observedAt: new Date().toISOString(),
+        sourceNode: "hapa-avatar-builder",
+        payloadDigest: payload.review.reviewDigest,
+        subjectCardId: card.id,
+        label: "Candidate revision proposed for human review"
+      });
     } catch (error) {
       setStargateMint({ open: true, status: "failed", review: null, result: null, error: error?.message || "Mint review failed" });
       callGame("setStargateMintStage", "failed");
@@ -3881,6 +3913,18 @@ export default function TarotDraw3DView({ cards = [], avatarId = "local-operator
             <div><dt>Identity</dt><dd>{stargate.sealedCount || 0} sealed{stargate.missingIdentityCount ? ` / ${stargate.missingIdentityCount} need custody` : ""}</dd></div>
             <div><dt>Address</dt><dd>{stargate.redactedAddress || stargate.formationFingerprint || "Withheld until derivation"}</dd></div>
           </dl>
+          <div className="tarot-spatial-truth-status" data-state={spatialTruth.state} data-fixture={spatialTruth.publicFixture ? "true" : "false"}>
+            <header><span><CircleDot size={11} /> Truth Constellation</span><strong>{spatialTruth.accepted || 0} verified</strong></header>
+            <div className="tarot-spatial-truth-orbit" aria-hidden="true">
+              {["PL", "GA", "PE", "CM", "CO", "BU", "WI", "PR", "MI", "RS"].map((label, index) => <i key={label} data-lit={index < Number(spatialTruth.accepted || 0) ? "true" : "false"}>{label}</i>)}
+            </div>
+            <footer>
+              <span>{spatialTruth.lastFamily ? `${spatialTruth.lastFamily} witnessed` : "Effects wait for verified receipts"}{spatialTruth.rejected ? ` · ${spatialTruth.rejected} withheld` : ""}</span>
+              {spatialTruth.state === "idle" && stargateOpen && <button type="button" onClick={() => callGame("playSpatialTruthShowcase", { intervalMs: 320 })}><Sparkles size={11} /> Witness</button>}
+              {spatialTruth.resultCardId && <b>Result Card pressed · proposed only</b>}
+            </footer>
+            {spatialTruth.publicFixture && <em>Public deterministic showcase receipts · not live provider, network, council, or mint evidence.</em>}
+          </div>
           {stargate.requiresFreshPass && (
             <div className="tarot-stargate-return-policy" data-truth="disconnected">
               <Route size={13} />
@@ -5902,9 +5946,10 @@ function createTarotDrawGame({ canvas, cards, avatarId = "local-operator", avata
   const sparkGroup = new THREE.Group();
   const spawnNetworkLayer = new THREE.Group();
   const stargateRig = createTarotStargateRig();
+  const spatialTruthRig = createTarotSpatialTruthRig();
   previewGroup.name = "tarotDropZonePreviewRig";
   spawnNetworkLayer.name = "tarotSpawnNetworkLayer";
-  world.add(board, deck, slotGroup, mediaPoolZone, dropZone, previewGroup, spawnNetworkLayer, sparkGroup, stargateRig);
+  world.add(board, deck, slotGroup, mediaPoolZone, dropZone, previewGroup, spawnNetworkLayer, sparkGroup, stargateRig, spatialTruthRig.group);
 
   addLighting(scene);
   addDepthProps(world, resources);
@@ -6128,6 +6173,10 @@ function createTarotDrawGame({ canvas, cards, avatarId = "local-operator", avata
   let slotMeshes = [];
   let placementBursts = [];
   let mediaCommentTethers = [];
+  const spatialTruthReceipts = new Map();
+  let spatialTruthRejected = [];
+  let spatialTruthResultCard = null;
+  let spatialTruthShowcasePlaying = false;
   let compactMode = null;
   let cameraRailBlend = 0;
   let cameraGalleryRecovery = null;
@@ -6580,6 +6629,14 @@ function createTarotDrawGame({ canvas, cards, avatarId = "local-operator", avata
     createBurst(0, -0.62, 0x00f3ff, 2.7);
     createBurst(0, -0.62, 0xa472ff, 2.2);
     createBurst(0, -0.62, 0xf6c96d, 1.75);
+    witnessRuntimeSpatialEvent({
+      eventId: String(proof.proofId || `peer-arrival:${String(proof.proofDigest || "").slice(0, 24)}`),
+      type: "peer.arrived",
+      payloadDigest: proof.proofDigest,
+      sourceNode: "hapa-peer-proof",
+      label: "Two signed peers arrived",
+      subjectCardId: proof?.card?.cardId || stargateLastContextCard?.id || null
+    });
     publishHud(true);
     return true;
   }
@@ -6678,6 +6735,16 @@ function createTarotDrawGame({ canvas, cards, avatarId = "local-operator", avata
       const palette = forgeStageVisual(stargateMintStage);
       createBurst(hero.targetPosition.x, hero.targetPosition.z, palette.color, stargateMintStage === "catalog_indexed" ? 2.2 : 1.18);
       createBurst(hero.targetPosition.x, hero.targetPosition.z, palette.accent, stargateMintStage === "catalog_indexed" ? 1.65 : 0.82);
+      if (["origin_staged", "overwind_acknowledged", "catalog_pending", "catalog_indexed"].includes(stargateMintStage)) {
+        witnessRuntimeSpatialEvent({
+          eventId: `human-mint:${cardIdentity(hero.card)}:${hero.card?.revision || hero.card?.cardRevisionId || 1}`,
+          type: "card.minted",
+          payloadDigest: hero.card?.cardRecordDigest || hero.card?.recordDigest,
+          sourceNode: "hapa-avatar-builder-origin",
+          label: "Human-authorized exact revision staged",
+          subjectCardId: cardIdentity(hero.card)
+        });
+      }
     }
     status = stargateMintStage === "catalog_indexed" ? "Return Card indexed in .hapaCatalog" : `Return Card custody: ${stargateMintStage.replaceAll("_", " ")}`;
     publishHud(true);
@@ -6700,6 +6767,13 @@ function createTarotDrawGame({ canvas, cards, avatarId = "local-operator", avata
         audio.play("gate-open");
         createBurst(0, -0.62, 0x45f2c8, 2.2);
         createBurst(0, -0.62, 0xff6df2, 1.5);
+        witnessRuntimeSpatialEvent({
+          eventId: `stargate-activated:${String(stargateResult?.formationDigest || "").slice(0, 24)}`,
+          type: "stargate.activated",
+          payloadDigest: stargateResult?.formationDigest,
+          sourceNode: "hapa-avatar-builder",
+          label: "Deterministic Stargate activated"
+        });
         publishHud(true);
       }
     }
@@ -6885,6 +6959,10 @@ function createTarotDrawGame({ canvas, cards, avatarId = "local-operator", avata
 	          selectEntry(entry);
 	          return true;
 	        },
+	        ingestSpatialTruthEvent: (event = {}) => ingestSpatialTruthEvent(event),
+	        playSpatialTruthShowcase: (options = {}) => playSpatialTruthShowcase(options),
+	        pressSpatialTruthResultCard: (options = {}) => pressSpatialTruthResultCard(options),
+	        clearSpatialTruthConstellation,
 	        markStargateStale: () => setStargateRuntimeState("stale"),
 	        markStargateExpired: () => setStargateRuntimeState("expired"),
 	        markStargateDisconnected: () => setStargateRuntimeState("disconnected"),
@@ -7612,6 +7690,27 @@ function createTarotDrawGame({ canvas, cards, avatarId = "local-operator", avata
     createBurst(entry.targetPosition.x, entry.targetPosition.z, 0xf6c96d, 2.4);
     createBurst(entry.targetPosition.x, entry.targetPosition.z, 0xff6df2, 1.55);
     createBurst(sourceEntry?.targetPosition?.x || 0, sourceEntry?.targetPosition?.z || -0.6, 0x00f3ff, 1.15);
+    const consentSource = Array.isArray(card?.provenance?.sources)
+      ? card.provenance.sources.find((source) => source?.kind === "consent")
+      : null;
+    witnessRuntimeSpatialEvent({
+      eventId: String(card?.comment?.consentEventId || `comment-consent:${card.id}`),
+      type: "comment.consent.granted",
+      payloadDigest: consentSource?.recordDigest,
+      sourceNode: "hapa-avatar-builder",
+      label: "Bounded Comment consent verified",
+      subjectCardId: sourceCardId,
+      actorId: card?.authority?.originActorId || null
+    });
+    witnessRuntimeSpatialEvent({
+      eventId: `comment-finalized:${card.id}`,
+      type: "comment.card.finalized",
+      payloadDigest: card.cardRecordDigest || card.recordDigest,
+      sourceNode: "hapa-avatar-builder",
+      label: "Separate Comment Card finalized",
+      subjectCardId: card.id,
+      actorId: card?.authority?.originActorId || null
+    });
     audio.play("gate-open", { quiet: true });
     status = `Separate Comment Card materialized · source ${sourceEntry ? "unchanged" : "reference pinned"}`;
     publishHud(true);
@@ -7719,6 +7818,135 @@ function createTarotDrawGame({ canvas, cards, avatarId = "local-operator", avata
       tether.group.removeFromParent();
     });
     mediaCommentTethers = [];
+  }
+
+  function spatialTruthHudState() {
+    const accepted = Array.from(spatialTruthReceipts.values());
+    return {
+      state: spatialTruthShowcasePlaying ? "playing" : accepted.length ? "witnessed" : "idle",
+      accepted: accepted.length,
+      rejected: spatialTruthRejected.length,
+      lastFamily: accepted.at(-1)?.cue?.family || "",
+      eventCommitments: accepted.slice(-10).map((item) => item.cue.eventCommitment),
+      resultCardId: spatialTruthResultCard?.id || "",
+      publicFixture: accepted.some((item) => item.event.publicFixture === true),
+      truthBoundary: "Verified events may emit bounded effects. Rejected records emit none. Spatial projection is not mint, network, or execution authority."
+    };
+  }
+
+  function ingestSpatialTruthEvent(input = {}) {
+    const projection = projectTarotSpatialTruthEvent(input);
+    if (!projection.ok) {
+      spatialTruthRejected = [...spatialTruthRejected.slice(-15), {
+        eventId: String(input?.eventId || input?.id || "withheld"),
+        reason: projection.reason,
+        detail: projection.detail
+      }];
+      status = `Spatial cue withheld · ${projection.reason.replaceAll("_", " ")}`;
+      publishHud(true);
+      return projection;
+    }
+    if (spatialTruthReceipts.has(projection.event.eventId)) return {
+      ...projection,
+      duplicate: true,
+      emitted: false
+    };
+    const visual = emitTarotSpatialTruthCue(spatialTruthRig, projection.cue, elapsedTime);
+    spatialTruthReceipts.set(projection.event.eventId, projection);
+    status = `Verified ${projection.cue.family} event joined the Truth Constellation`;
+    if (visual) {
+      const anchor = visual.root.position;
+      createBurst(anchor.x, anchor.z, projection.cue.color, 0.78 + projection.cue.strength);
+      createBurst(anchor.x, anchor.z, projection.cue.accent, 0.52 + projection.cue.strength * 0.62);
+    }
+    publishHud(true);
+    return { ...projection, duplicate: false, emitted: Boolean(visual) };
+  }
+
+  function witnessRuntimeSpatialEvent({ eventId, type, payloadDigest, sourceNode, label, subjectCardId = null, actorId = null } = {}) {
+    const digest = String(payloadDigest || "").trim().replace(/^sha256:/i, "");
+    if (!/^[a-f0-9]{64}$/i.test(digest)) return { ok: false, reason: "runtime_receipt_digest_unavailable", cue: null };
+    return ingestSpatialTruthEvent({
+      eventId,
+      type,
+      truthStatus: "verified_event",
+      observedAt: new Date().toISOString(),
+      sourceNode,
+      payloadDigest: digest,
+      subjectCardId,
+      actorId,
+      label
+    });
+  }
+
+  async function pressSpatialTruthResultCard({ reveal = true } = {}) {
+    const accepted = Array.from(spatialTruthReceipts.values());
+    if (!accepted.length) return null;
+    const card = await buildTarotSpatialTruthResultCard({
+      accepted,
+      rejected: spatialTruthRejected,
+      gateCommitment: stargateResult ? stargateGateCommitment(stargateResult) : stargateRestoredContext?.gate?.gateCommitment || ""
+    });
+    spatialTruthResultCard = card;
+    if (reveal) {
+      const existing = placedEntries.find((entry) => cardIdentity(entry.card) === card.id);
+      const entry = existing || spawnFieldMediaCard(card, {
+        zone: "field",
+        originPosition: new THREE.Vector3(0, 1.38, -0.78),
+        statusText: "Spatial Truth Result Card pressed · proposed, not minted"
+      });
+      if (entry) {
+        entry.isSpatialTruthResult = true;
+        entry.targetPosition.set(-1.7, CARD_TABLE_BASE_Y + 0.1, -0.22);
+        entry.baseRotationY = 0.12;
+        setCardTargetRotation(entry, 0.04, entry.baseRotationY, 0.04);
+        createBurst(entry.targetPosition.x, entry.targetPosition.z, 0xff6df2, 2.2);
+        createBurst(entry.targetPosition.x, entry.targetPosition.z, 0xf6c96d, 1.7);
+      }
+    }
+    status = `Spatial Truth Result Card · ${accepted.length} verified / ${spatialTruthRejected.length} rejected · proposed only`;
+    publishHud(true);
+    return card;
+  }
+
+  function waitForSpatialTruthBeat(delayMs = 0) {
+    return new Promise((resolve) => window.setTimeout(resolve, stargateReducedMotion ? Math.min(80, delayMs) : delayMs));
+  }
+
+  async function playSpatialTruthShowcase({ intervalMs = 380, includeRejectedProbe = true, revealResult = true } = {}) {
+    if (spatialTruthShowcasePlaying) return spatialTruthHudState();
+    spatialTruthShowcasePlaying = true;
+    if (includeRejectedProbe) ingestSpatialTruthEvent({
+      eventId: "showcase-rejected-proposal",
+      type: "card.minted",
+      truthStatus: "proposed_unminted",
+      observedAt: "2026-07-18T19:59:59.000Z",
+      sourceNode: "public-build-week-fixture",
+      payloadDigest: `${"f".repeat(64)}`,
+      label: "Unapproved mint must stay dark",
+      publicFixture: true
+    });
+    for (const event of publicSpatialTruthShowcaseEvents()) {
+      if (event.type === "stargate.activated" && Array.from(spatialTruthReceipts.values()).some((item) => item.event.type === "stargate.activated")) continue;
+      ingestSpatialTruthEvent(event);
+      await waitForSpatialTruthBeat(intervalMs);
+    }
+    const resultCard = await pressSpatialTruthResultCard({ reveal: revealResult });
+    spatialTruthShowcasePlaying = false;
+    status = "Truth Constellation complete · every visible cue has a verified receipt";
+    publishHud(true);
+    return { ...spatialTruthHudState(), resultCard };
+  }
+
+  function clearSpatialTruthConstellation() {
+    clearTarotSpatialTruthRig(spatialTruthRig);
+    spatialTruthReceipts.clear();
+    spatialTruthRejected = [];
+    spatialTruthResultCard = null;
+    spatialTruthShowcasePlaying = false;
+    status = "Truth Constellation cleared";
+    publishHud(true);
+    return true;
   }
 
   function sceneRestorableEntries() {
@@ -13679,6 +13907,14 @@ function createTarotDrawGame({ canvas, cards, avatarId = "local-operator", avata
     updateVideoPlayback(entry);
     audio.play("place");
     createBurst(x, z, 0xf6c96d, 0.94);
+    witnessRuntimeSpatialEvent({
+      eventId: `card-placed:${cardIdentity(entry.card)}:${entry.placedAt}`,
+      type: "card.placed",
+      payloadDigest: entry.card?.cardRecordDigest || entry.card?.recordDigest || entry.card?.custody?.recordDigest,
+      sourceNode: "hapa-avatar-builder",
+      label: "Identity-sealed Card placed",
+      subjectCardId: cardIdentity(entry.card)
+    });
     status = `Placed: ${entry.card.title}`;
     controls.enabled = true;
     canvas.style.cursor = "default";
@@ -14993,6 +15229,12 @@ function createTarotDrawGame({ canvas, cards, avatarId = "local-operator", avata
     }
     updateStargateExperience(delta, elapsed);
     updateMediaCommentTethers(delta, elapsed);
+    updateTarotSpatialTruthRig(spatialTruthRig, {
+      delta,
+      elapsed,
+      gateOpen: ["active", "connected", "sealing"].includes(stargateState),
+      reducedMotion: stargateReducedMotion
+    });
     updateSpawnNetwork(spawnNetwork, camera, elapsed);
     updatePhoneLaserVisual(elapsed);
     updateBursts(delta);
@@ -15675,6 +15917,7 @@ function createTarotDrawGame({ canvas, cards, avatarId = "local-operator", avata
         avatarName: spawnNetwork.avatar?.name || ""
       } : { kind: "", count: 0, avatarName: "" },
       stargate: stargateHudState(),
+      spatialTruth: spatialTruthHudState(),
       layoutId,
       backStyle,
       musicVisualizerMode,
@@ -15918,6 +16161,27 @@ function createTarotDrawGame({ canvas, cards, avatarId = "local-operator", avata
           depthRings: stargateRig.userData.stargate?.depthRings?.length || 0,
           shockwaves: stargateRig.userData.stargate?.shockwaveRings?.length || 0
         }
+      },
+      spatialTruth: {
+        ...spatialTruthHudState(),
+        receipts: Array.from(spatialTruthReceipts.values()).map((item) => ({
+          eventId: item.event.eventId,
+          type: item.event.type,
+          family: item.cue.family,
+          sourceNode: item.event.sourceNode,
+          payloadDigest: item.event.payloadDigest,
+          publicFixture: item.event.publicFixture
+        })),
+        rejectedEvents: spatialTruthRejected.map((item) => ({ ...item })),
+        visualCueCount: spatialTruthRig.cues.length,
+        visible: spatialTruthRig.group.visible,
+        resultCard: spatialTruthResultCard ? {
+          id: spatialTruthResultCard.id,
+          recordDigest: spatialTruthResultCard.cardRecordDigest,
+          truthState: spatialTruthResultCard.truthState,
+          accepted: spatialTruthResultCard.spatialTruth?.accepted?.length || 0,
+          rejected: spatialTruthResultCard.spatialTruth?.rejected?.length || 0
+        } : null
       },
       avatarName,
       deckCount: deckCards.length,

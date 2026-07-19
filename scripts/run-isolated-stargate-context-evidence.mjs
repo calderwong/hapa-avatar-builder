@@ -8,7 +8,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const mode = process.argv.includes("--media-comment-capture") ? "media-comment-capture" : process.argv.includes("--gate-pass-capture") ? "gate-pass-capture" : process.argv.includes("--gate-pass") ? "gate-pass" : process.argv.includes("--catalog-return-capture") ? "catalog-return-capture" : process.argv.includes("--catalog-return") ? "catalog-return" : process.argv.includes("--mint-capture") ? "mint-capture" : process.argv.includes("--capture") ? "capture" : process.argv.includes("--smoke") ? "smoke" : process.argv.includes("--core-smoke") ? "core-smoke" : "all";
+const mode = process.argv.includes("--spatial-truth-capture") ? "spatial-truth-capture" : process.argv.includes("--media-comment-capture") ? "media-comment-capture" : process.argv.includes("--gate-pass-capture") ? "gate-pass-capture" : process.argv.includes("--gate-pass") ? "gate-pass" : process.argv.includes("--catalog-return-capture") ? "catalog-return-capture" : process.argv.includes("--catalog-return") ? "catalog-return" : process.argv.includes("--mint-capture") ? "mint-capture" : process.argv.includes("--capture") ? "capture" : process.argv.includes("--smoke") ? "smoke" : process.argv.includes("--core-smoke") ? "core-smoke" : "all";
 const runtimeRoot = await fsp.mkdtemp(path.join(os.tmpdir(), "hapa-stargate-context-evidence-"));
 const port = 22600 + Math.floor(Math.random() * 300);
 const baseUrl = `http://127.0.0.1:${port}/`;
@@ -114,6 +114,7 @@ try {
   if (mode === "gate-pass") results.push(await run(electron, ["scripts/tarot-stargate-gate-pass-smoke.cjs"], { ...evidenceEnv, SMOKE_URL: baseUrl }));
   if (mode === "gate-pass-capture") results.push(await run(electron, ["scripts/capture-tarot-stargate-gate-pass.cjs"], { ...evidenceEnv, CAPTURE_URL: baseUrl }));
   if (mode === "media-comment-capture") results.push(await run(electron, ["scripts/capture-tarot-stargate-comment-card.cjs"], { ...evidenceEnv, CAPTURE_URL: baseUrl }));
+  if (mode === "spatial-truth-capture") results.push(await run(electron, ["scripts/capture-tarot-spatial-truth-constellation.cjs"], { ...evidenceEnv, CAPTURE_URL: baseUrl }));
   console.log(JSON.stringify({ ok: true, mode, isolated: true, userAppTouched: false, baseUrl, runtimeRootDeleted: true, runs: results.length }, null, 2));
 } finally {
   if (server.exitCode === null) {
