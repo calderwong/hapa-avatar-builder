@@ -112,6 +112,7 @@ import {
   AVATAR_MEDIA_COMMENT_MAX_BYTES,
   openAvatarMediaCommentService,
 } from "./avatar-media-comment-service.mjs";
+import { openAvatarContextGenerationService } from "./avatar-context-generation-service.mjs";
 import { MintLedgerError, createSongCardMintController } from "./song-card-mint-controller.mjs";
 import { createSongCardRemintStore } from "./song-card-remint-store.mjs";
 import { createSongCardLocalRenderBridge, inspectSongCardRendererBuildIdentity } from "./song-card-local-renderer.mjs";
@@ -534,6 +535,11 @@ const stargateContextReturnResolver = new StargateContextReturnResolver({
 const stargateGatePassBroker = new StargateGatePassBroker();
 const AVATAR_MEDIA_COMMENT_ROOT = process.env.HAPA_AVATAR_MEDIA_COMMENT_ROOT || path.join(DATA_DIR, "media-comments");
 const avatarMediaCommentService = await openAvatarMediaCommentService({ root: AVATAR_MEDIA_COMMENT_ROOT });
+const AVATAR_CONTEXT_GENERATION_ROOT = process.env.HAPA_AVATAR_CONTEXT_GENERATION_ROOT || path.join(DATA_DIR, "context-generation");
+const avatarContextGenerationService = await openAvatarContextGenerationService({
+  root: AVATAR_CONTEXT_GENERATION_ROOT,
+  ollamaEndpoint: process.env.HAPA_AVATAR_OLLAMA_URL || "http://127.0.0.1:11434",
+});
 const STARGATE_GATE_PASS_PROFILE_ROOT = process.env.HAPA_GATE_PASS_PROFILE_ROOT || path.join(OVERWIND_DIR, "gate-pass");
 const OVERWIND_BOOTSTRAP_PATH = path.join(OVERWIND_DIR, "avatar-builder-bootstrap.json");
 const OVERWIND_SHELL_BOOTSTRAP_PATH = path.join(OVERWIND_DIR, "avatar-builder-shell-bootstrap.json");
@@ -1582,6 +1588,38 @@ async function route(req, res) {
 
   if (pathname === "/api/media-comments" && req.method === "GET") {
     sendJson(res, 200, avatarMediaCommentService.list());
+    return;
+  }
+
+  if (pathname === "/api/context-generation" && req.method === "GET") {
+    sendJson(res, 200, avatarContextGenerationService.list());
+    return;
+  }
+
+  if (pathname === "/api/context-generation/packets" && req.method === "POST") {
+    try {
+      const packet = await avatarContextGenerationService.freezePacket(await readBody(req));
+      sendJson(res, 201, { ok: true, packet });
+    } catch (error) {
+      sendJson(res, Number(error?.statusCode || 422), { ok: false, error: error?.code || "context_packet_failed", message: error?.message || String(error) });
+    }
+    return;
+  }
+
+  const contextPacketMatch = pathname.match(/^\/api\/context-generation\/packets\/([^/]+)$/);
+  if (contextPacketMatch && req.method === "GET") {
+    const packet = avatarContextGenerationService.packet(decodeURIComponent(contextPacketMatch[1]));
+    sendJson(res, packet ? 200 : 404, packet ? { ok: true, packet } : { ok: false, error: "context_packet_not_found" });
+    return;
+  }
+
+  if (pathname === "/api/context-generation/runs" && req.method === "POST") {
+    try {
+      const result = await avatarContextGenerationService.generate(await readBody(req));
+      sendJson(res, 201, { ok: true, result });
+    } catch (error) {
+      sendJson(res, Number(error?.statusCode || 422), { ok: false, error: error?.code || "context_generation_failed", message: error?.message || String(error) });
+    }
     return;
   }
 

@@ -56,6 +56,13 @@ import {
   updateTarotSpatialTruthRig,
 } from "../domain/tarot-spatial-truth-visual.js";
 import {
+  beginTarotContextForge,
+  createTarotContextForgeRig,
+  disposeTarotContextForgeRig,
+  setTarotContextForgeStage,
+  updateTarotContextForgeRig,
+} from "../domain/tarot-context-forge-visual.js";
+import {
   buildVisualizerRendererTruthReceipt,
   resolveVisualizerRendererTruth,
 } from "../domain/visualizer-renderer-capability.js";
@@ -2059,6 +2066,18 @@ export default function TarotDraw3DView({ cards = [], avatarId = "local-operator
     result: null,
     error: ""
   });
+  const [contextForge, setContextForge] = useState({
+    open: false,
+    status: "idle",
+    mode: "deterministic_scaffold",
+    instruction: "Combine these ordered Cards into one bounded Concept Card proposal.",
+    modelId: "",
+    actorId: "calder",
+    displayName: "Calder",
+    packet: null,
+    result: null,
+    error: ""
+  });
   const [sceneInvitePreviewOpen, setSceneInvitePreviewOpen] = useState(false);
   const [phoneQrDataUrl, setPhoneQrDataUrl] = useState("");
   const [hud, setHud] = useState({
@@ -2150,6 +2169,16 @@ export default function TarotDraw3DView({ cards = [], avatarId = "local-operator
       publicFixture: false,
       truthBoundary: "Verified events may emit bounded effects."
     },
+    contextForge: {
+      state: "idle",
+      mode: "deterministic_scaffold",
+      sourceCount: 0,
+      packetDigest: "",
+      runDigest: "",
+      resultCardId: "",
+      generationPerformed: false,
+      truthBoundary: "Human-selected evidence only."
+    },
     renderer: { calls: 0, triangles: 0, geometries: 0, textures: 0 }
   });
   const selectedCard = hud.selectedCard || null;
@@ -2235,6 +2264,7 @@ export default function TarotDraw3DView({ cards = [], avatarId = "local-operator
   const sceneInviteNote = sceneInvite.error || sceneInvite.message || "Create a Hypercore/WebRTC camera invitation for this scene";
   const stargate = hud.stargate || { mode: false, state: "dormant", progress: 0, slotCount: 0, sealedCount: 0, missingIdentityCount: 0, redactedAddress: "", formationFingerprint: "", fixtureDisclosure: "", message: "Place two to eight identity-sealed Cards" };
   const spatialTruth = hud.spatialTruth || { state: "idle", accepted: 0, rejected: 0, lastFamily: "", eventCommitments: [], resultCardId: "", publicFixture: false, truthBoundary: "Verified events may emit bounded effects." };
+  const contextForgeVisual = hud.contextForge || { state: "idle", mode: "deterministic_scaffold", sourceCount: 0, packetDigest: "", runDigest: "", resultCardId: "", generationPerformed: false, truthBoundary: "Human-selected evidence only." };
   const stargateBusy = stargate.state === "dialing";
   const stargateNeedsIdentity = stargate.state === "needs_identity";
   const stargateActive = stargate.state === "active";
@@ -2953,6 +2983,81 @@ export default function TarotDraw3DView({ cards = [], avatarId = "local-operator
   function closeMediaCommentCapture() {
     if (["creating", "recording", "uploading"].includes(mediaComment.status)) return;
     setMediaComment((current) => ({ ...current, open: false }));
+  }
+
+  function openContextForge() {
+    const draft = callGame("contextForgeDraft");
+    setContextForge((current) => ({
+      ...current,
+      open: true,
+      status: "idle",
+      packet: null,
+      result: null,
+      error: draft?.ok ? "" : draft?.message || "Open a derived Stargate before sealing a Context Packet."
+    }));
+  }
+
+  function closeContextForge() {
+    if (["freezing", "generating"].includes(contextForge.status)) return;
+    setContextForge((current) => ({ ...current, open: false }));
+  }
+
+  async function freezeContextForgePacket() {
+    const draft = callGame("contextForgeDraft");
+    if (!draft?.ok) {
+      setContextForge((current) => ({ ...current, status: "failed", error: draft?.message || "A live ordered Stargate is required." }));
+      return;
+    }
+    const actor = {
+      actorId: String(contextForge.actorId || "local-operator").trim(),
+      actorType: "human",
+      displayName: String(contextForge.displayName || "Local operator").trim()
+    };
+    setContextForge((current) => ({ ...current, status: "freezing", packet: null, result: null, error: "" }));
+    callGame("beginContextForge", { mode: contextForge.mode, sourceCount: draft.evidenceCards.length });
+    try {
+      const response = await fetch(`${tarotDrawApiBase(apiBase)}/api/context-generation/packets`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...draft, actor, purpose: contextForge.instruction })
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || !payload.packet) throw new Error(payload.message || "Context Packet could not be frozen.");
+      callGame("contextForgePacketFrozen", payload.packet);
+      setContextForge((current) => ({ ...current, status: "sealed", packet: payload.packet, error: "" }));
+    } catch (error) {
+      callGame("failContextForge", error?.message || "Context Packet failed");
+      setContextForge((current) => ({ ...current, status: "failed", error: error?.message || "Context Packet failed." }));
+    }
+  }
+
+  async function generateContextForgeProposal() {
+    if (!contextForge.packet?.packetId) return;
+    if (contextForge.mode === "ollama_local" && !String(contextForge.modelId || "").trim()) {
+      setContextForge((current) => ({ ...current, error: "Choose the exact local Ollama model before invoking it." }));
+      return;
+    }
+    const actor = {
+      actorId: String(contextForge.actorId || "local-operator").trim(),
+      actorType: "human",
+      displayName: String(contextForge.displayName || "Local operator").trim()
+    };
+    setContextForge((current) => ({ ...current, status: "generating", result: null, error: "" }));
+    callGame("beginContextGeneration", { mode: contextForge.mode, packetDigest: contextForge.packet.packetDigest });
+    try {
+      const response = await fetch(`${tarotDrawApiBase(apiBase)}/api/context-generation/runs`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ packetId: contextForge.packet.packetId, mode: contextForge.mode, instruction: contextForge.instruction, modelId: String(contextForge.modelId || "").trim(), actor })
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || !payload.result?.card) throw new Error(payload.message || "Context proposal failed.");
+      callGame("completeContextGeneration", payload.result);
+      setContextForge((current) => ({ ...current, status: "complete", result: payload.result, error: "" }));
+    } catch (error) {
+      callGame("failContextForge", error?.message || "Context proposal failed");
+      setContextForge((current) => ({ ...current, status: "failed", error: error?.message || "Context proposal failed." }));
+    }
   }
 
   function mediaCommentRequest(deviceKind = mediaComment.mode) {
@@ -3808,6 +3913,48 @@ export default function TarotDraw3DView({ cards = [], avatarId = "local-operator
         </section>
       )}
 
+      {contextForge.open && (
+        <section className="tarot-context-forge-chamber" data-status={contextForge.status} data-mode={contextForge.mode} aria-label="Stargate Context Forge" aria-live="polite">
+          <div className="tarot-context-forge-aura" aria-hidden="true"><i /><i /><i /><i /></div>
+          <header>
+            <span><Sparkles size={15} /> Stargate Context Forge</span>
+            <strong>{contextForge.status === "complete" ? "PROPOSAL MATERIALIZED" : contextForge.status === "sealed" ? "PACKET SEALED" : `${stargate.slotCount || 0} SOURCE CARDS`}</strong>
+            <button className="hapa-btn" type="button" onClick={closeContextForge}>Close</button>
+          </header>
+          <div className="tarot-context-forge-machine" aria-hidden="true">
+            <div className="tarot-context-source-fan">
+              {Array.from({ length: Math.max(1, Math.min(8, Number(stargate.slotCount || contextForgeVisual.sourceCount || 1))) }, (_, index) => <i key={index} style={{ "--card-index": index, "--card-count": Math.max(1, Number(stargate.slotCount || 1)) }}><b>{String(index + 1).padStart(2, "0")}</b></i>)}
+            </div>
+            <div className="tarot-context-convergence"><i /><i /><i /><b>SEALED</b></div>
+            <div className="tarot-context-provider-orb" data-live={contextForge.mode === "ollama_local" ? "true" : "false"}><i /><i /><b>{contextForge.mode === "ollama_local" ? "LOCAL AI" : "NO MODEL"}</b></div>
+            <div className="tarot-context-result-print" data-revealed={contextForge.result ? "true" : "false"}><i /><b>{contextForge.result?.card?.title || "PROPOSAL"}</b><em>UNMINTED</em></div>
+          </div>
+          <div className="tarot-context-forge-truth-strip">
+            <span data-ready={stargateOpen ? "true" : "false"}><Route size={11} /> Exact Gate order</span>
+            <span data-ready={contextForge.packet ? "true" : "false"}><BadgeCheck size={11} /> Human-selected seal</span>
+            <span data-ready={contextForge.result?.run?.generationPerformed ? "true" : "false"}><CircleDot size={11} /> {contextForge.result?.run?.generationPerformed ? "Provider invoked" : "No generation claim"}</span>
+            <span data-ready="true"><BadgeCheck size={11} /> No auto-mint</span>
+          </div>
+          <div className="tarot-context-forge-fields">
+            <label className="tarot-context-forge-intent"><span>Bounded instruction</span><textarea value={contextForge.instruction} onChange={(event) => setContextForge((current) => ({ ...current, instruction: event.target.value, packet: null, result: null, status: "idle", error: "" }))} /></label>
+            <label><span>Human selector</span><input value={contextForge.displayName} onChange={(event) => setContextForge((current) => ({ ...current, displayName: event.target.value }))} /></label>
+            <label><span>Actor ID</span><input value={contextForge.actorId} onChange={(event) => setContextForge((current) => ({ ...current, actorId: event.target.value }))} /></label>
+          </div>
+          <div className="tarot-context-forge-modes" role="radiogroup" aria-label="Context Forge execution mode">
+            <button type="button" role="radio" aria-checked={contextForge.mode === "deterministic_scaffold"} data-active={contextForge.mode === "deterministic_scaffold" ? "true" : "false"} disabled={Boolean(contextForge.packet)} onClick={() => setContextForge((current) => ({ ...current, mode: "deterministic_scaffold", error: "" }))}><BadgeCheck size={13} /><span><b>Evidence Scaffold</b><em>Deterministic · no model · no semantic claim</em></span></button>
+            <button type="button" role="radio" aria-checked={contextForge.mode === "ollama_local"} data-active={contextForge.mode === "ollama_local" ? "true" : "false"} disabled={Boolean(contextForge.packet)} onClick={() => setContextForge((current) => ({ ...current, mode: "ollama_local", error: "" }))}><Sparkles size={13} /><span><b>Ollama Local</b><em>Concrete runtime + model + prompt provenance</em></span></button>
+            {contextForge.mode === "ollama_local" && <label><span>Exact model ID</span><input placeholder="qwen3.5:2b" value={contextForge.modelId} onChange={(event) => setContextForge((current) => ({ ...current, modelId: event.target.value, error: "" }))} /></label>}
+          </div>
+          <div className="tarot-context-forge-actions">
+            <button className="hapa-btn tarot-context-freeze" data-intent="primary" type="button" disabled={!stargateOpen || ["freezing", "generating"].includes(contextForge.status) || Boolean(contextForge.packet)} onClick={freezeContextForgePacket}><BadgeCheck size={13} /> {contextForge.status === "freezing" ? "Converging Cards…" : "1 · Freeze Context Packet"}</button>
+            <button className="hapa-btn tarot-context-materialize" data-intent="warning" type="button" disabled={!contextForge.packet || ["freezing", "generating"].includes(contextForge.status) || Boolean(contextForge.result)} onClick={generateContextForgeProposal}><Sparkles size={13} /> {contextForge.status === "generating" ? (contextForge.mode === "ollama_local" ? "Local model in flight…" : "Pressing scaffold…") : "2 · Materialize Proposal"}</button>
+          </div>
+          {contextForge.packet && <footer data-state="sealed"><strong>{contextForge.packet.packetId}</strong><span>{contextForge.packet.evidence.length} exact Card revisions · {contextForge.packet.packetDigest.slice(0, 16)}…</span></footer>}
+          {contextForge.result && <footer data-state="complete"><div><strong>{contextForge.result.card.title}</strong><span>{contextForge.result.run.generationPerformed ? `${contextForge.result.run.provider.providerId} · ${contextForge.result.run.provider.modelId} · ${contextForge.result.run.provider.modelVersion}` : "Deterministic evidence scaffold · no provider invoked"} · proposed only</span></div><button className="hapa-btn" data-intent="warning" type="button" onClick={() => setContextForge((current) => ({ ...current, open: false }))}><Sparkles size={13} /> Reveal in 3D</button></footer>}
+          {contextForge.error && <footer data-state="failed"><strong>Forge halted truthfully</strong><span>{contextForge.error}</span></footer>}
+        </section>
+      )}
+
       {mediaComment.open && (
         <section className="tarot-comment-chamber" data-status={mediaComment.status} aria-label="Consented Comment Card capture" aria-live="polite">
           <div className="tarot-comment-chamber-aura" aria-hidden="true"><i /><i /><i /></div>
@@ -3925,6 +4072,10 @@ export default function TarotDraw3DView({ cards = [], avatarId = "local-operator
             </footer>
             {spatialTruth.publicFixture && <em>Public deterministic showcase receipts · not live provider, network, council, or mint evidence.</em>}
           </div>
+          <button className="hapa-btn tarot-context-forge-open" data-intent={stargateOpen ? "warning" : undefined} type="button" disabled={!stargateOpen} onClick={openContextForge}>
+            <Sparkles size={13} /> Context Forge
+            <em>{stargateOpen ? `${stargate.slotCount} Cards → sealed packet` : "Open Gate first"}</em>
+          </button>
           {stargate.requiresFreshPass && (
             <div className="tarot-stargate-return-policy" data-truth="disconnected">
               <Route size={13} />
@@ -5947,9 +6098,10 @@ function createTarotDrawGame({ canvas, cards, avatarId = "local-operator", avata
   const spawnNetworkLayer = new THREE.Group();
   const stargateRig = createTarotStargateRig();
   const spatialTruthRig = createTarotSpatialTruthRig();
+  const contextForgeRig = createTarotContextForgeRig();
   previewGroup.name = "tarotDropZonePreviewRig";
   spawnNetworkLayer.name = "tarotSpawnNetworkLayer";
-  world.add(board, deck, slotGroup, mediaPoolZone, dropZone, previewGroup, spawnNetworkLayer, sparkGroup, stargateRig, spatialTruthRig.group);
+  world.add(board, deck, slotGroup, mediaPoolZone, dropZone, previewGroup, spawnNetworkLayer, sparkGroup, stargateRig, spatialTruthRig.group, contextForgeRig.group);
 
   addLighting(scene);
   addDepthProps(world, resources);
@@ -6177,6 +6329,7 @@ function createTarotDrawGame({ canvas, cards, avatarId = "local-operator", avata
   let spatialTruthRejected = [];
   let spatialTruthResultCard = null;
   let spatialTruthShowcasePlaying = false;
+  let contextForgeState = { state: "idle", mode: "deterministic_scaffold", sourceCount: 0, packetDigest: "", runDigest: "", resultCardId: "", generationPerformed: false, message: "" };
   let compactMode = null;
   let cameraRailBlend = 0;
   let cameraGalleryRecovery = null;
@@ -6270,6 +6423,12 @@ function createTarotDrawGame({ canvas, cards, avatarId = "local-operator", avata
     beginStargatePeerArrival,
     witnessStargatePeerArrival,
     failStargatePeerArrival,
+    contextForgeDraft,
+    beginContextForge,
+    contextForgePacketFrozen,
+    beginContextGeneration,
+    completeContextGeneration,
+    failContextForge,
     setEchoDirectorProject,
     spawnForgeCard,
     updateForgeCard,
@@ -6724,6 +6883,123 @@ function createTarotDrawGame({ canvas, cards, avatarId = "local-operator", avata
       fixtureDisclosure: stargateFixtureActive ? "Public deterministic test vector — not a production invitation." : "",
       message: stargateError || (["active", "connected"].includes(stargateState) ? "Gate open; destination derived locally" : "Arrange identity-sealed Cards into an ordered Gate")
     };
+  }
+
+  function contextForgeHudState() {
+    return {
+      ...contextForgeState,
+      packetDigest: contextForgeState.packetDigest ? `${contextForgeState.packetDigest.slice(0, 12)}…` : "",
+      runDigest: contextForgeState.runDigest ? `${contextForgeState.runDigest.slice(0, 12)}…` : "",
+      truthBoundary: contextForgeState.generationPerformed
+        ? "A concrete local provider invocation produced a proposal; human mint authority remains required."
+        : "Human-selected evidence seal or deterministic scaffold; no model-generation claim."
+    };
+  }
+
+  function contextForgeDraft() {
+    if (!["active", "connected"].includes(stargateState) || !stargateResult || !stargateEntries.length) {
+      return { ok: false, message: "Open a freshly derived Stargate before sealing a Context Packet." };
+    }
+    const evidenceCards = stargateEntries.map((entry, index) => {
+      const identity = stargateIdentityResults[index]?.member;
+      if (!identity) return null;
+      return {
+        card: {
+          ...entry.card,
+          cardId: identity.cardId,
+          cardCoreKey: identity.cardCoreKey,
+          cardRevisionId: identity.cardRevisionId,
+          cardRecordDigest: identity.cardRecordDigest,
+          stargateRole: identity.role
+        },
+        selectedFields: ["title", "summary", "keywords"]
+      };
+    }).filter(Boolean);
+    if (evidenceCards.length !== stargateEntries.length) return { ok: false, message: "Every Formation Card needs a complete custody identity before Context Forge." };
+    return {
+      ok: true,
+      evidenceCards,
+      gate: {
+        formationDigest: stargateResult.formationDigest,
+        gateCommitment: stargateGateCommitment(stargateResult),
+        redactedAddress: redactedStargateAddress(stargateResult.stargateAddress),
+        orderedCardIds: evidenceCards.map((item) => item.card.cardId)
+      }
+    };
+  }
+
+  function beginContextForge({ mode = "deterministic_scaffold", sourceCount = stargateEntries.length } = {}) {
+    contextForgeState = { state: "sealing", mode, sourceCount, packetDigest: "", runDigest: "", resultCardId: "", generationPerformed: false, message: "Ordered Cards converging into one sealed Context Packet" };
+    beginTarotContextForge(contextForgeRig, { sourceCount, mode, elapsed: elapsedTime });
+    audio.play("gate-dial", { quiet: true });
+    createBurst(0, -0.58, 0x00f3ff, 2.3);
+    createBurst(0, -0.58, 0xf6c96d, 1.75);
+    status = "Context Forge · sealing exact selected evidence";
+    publishHud(true);
+    return contextForgeHudState();
+  }
+
+  function contextForgePacketFrozen(packet = {}) {
+    contextForgeState = { ...contextForgeState, state: "sealed", packetDigest: String(packet.packetDigest || ""), sourceCount: Number(packet.evidence?.length || contextForgeState.sourceCount), message: "Context Packet frozen; sources unchanged" };
+    setTarotContextForgeStage(contextForgeRig, { state: "sealed", packetDigest: packet.packetDigest, elapsed: elapsedTime });
+    createBurst(0, -0.58, 0x45f2c8, 2.6);
+    createBurst(0, -0.58, 0xf6c96d, 1.55);
+    audio.play("spread", { quiet: true });
+    status = "Context Packet sealed · no generation performed";
+    publishHud(true);
+    return contextForgeHudState();
+  }
+
+  function beginContextGeneration({ mode = contextForgeState.mode, packetDigest = contextForgeState.packetDigest } = {}) {
+    contextForgeState = { ...contextForgeState, state: mode === "ollama_local" ? "invoking" : "scaffolding", mode, packetDigest, generationPerformed: false, message: mode === "ollama_local" ? "Waiting for a concrete local provider receipt" : "Pressing deterministic evidence scaffold; no model invoked" };
+    setTarotContextForgeStage(contextForgeRig, { state: mode === "ollama_local" ? "invoking" : "sealed", packetDigest, elapsed: elapsedTime });
+    createBurst(0, -0.58, mode === "ollama_local" ? 0xff6df2 : 0x45f2c8, 2.1);
+    status = mode === "ollama_local" ? "Context Forge · local model invocation in flight" : "Context Forge · deterministic scaffold in progress";
+    publishHud(true);
+    return contextForgeHudState();
+  }
+
+  function completeContextGeneration(result = {}) {
+    const card = result.card;
+    const run = result.run || {};
+    if (!card?.id || !run.runDigest) return failContextForge("Context Forge result lacked a sealed Card or run digest");
+    const generated = run.generationPerformed === true;
+    contextForgeState = { ...contextForgeState, state: generated ? "proposal" : "scaffold", mode: run.mode || contextForgeState.mode, packetDigest: run.packetDigest || contextForgeState.packetDigest, runDigest: run.runDigest, resultCardId: card.id, generationPerformed: generated, message: generated ? "Local provider proposal materialized; human review required" : "Deterministic evidence scaffold materialized; no model claim" };
+    setTarotContextForgeStage(contextForgeRig, { state: generated ? "proposal" : "scaffold", packetDigest: run.packetDigest, runDigest: run.runDigest, elapsed: elapsedTime });
+    const entry = spawnFieldMediaCard(card, { zone: "field", originPosition: new THREE.Vector3(0, 1.55, -0.52), statusText: `Context ${generated ? "proposal" : "scaffold"} materialized · proposed only` });
+    if (entry) {
+      entry.contextForgeHero = true;
+      entry.targetPosition.set(1.55, 1.22, 0.18);
+      entry.baseRotationY = -0.18;
+      setCardTargetRotation(entry, 1.04, entry.baseRotationY, -0.055);
+      entry.group.scale.setScalar(1.52);
+      entry.floatMotion = { x: 0.025, y: 0.045, z: 0.018, speed: 0.52, phase: Math.PI * 0.68 };
+      createBurst(entry.targetPosition.x, entry.targetPosition.z, generated ? 0xff6df2 : 0x45f2c8, 3.15);
+      createBurst(entry.targetPosition.x, entry.targetPosition.z, 0xf6c96d, 2.15);
+      createBurst(0, -0.58, 0x00f3ff, 2.45);
+    }
+    witnessRuntimeSpatialEvent({
+      eventId: `context-proposal:${run.runId || card.id}`,
+      type: "proposal.created",
+      payloadDigest: card.cardRecordDigest || card.recordDigest,
+      sourceNode: generated ? "ollama-local" : "hapa-avatar-builder-deterministic",
+      label: generated ? "Local provider proposal created" : "Deterministic scaffold created",
+      subjectCardId: card.id,
+      actorId: run.requestedBy?.actorId || null
+    });
+    audio.play("gate-open", { quiet: true });
+    status = generated ? "Local AI proposal revealed · unminted" : "Evidence scaffold revealed · no generation claim";
+    publishHud(true);
+    return entry || contextForgeHudState();
+  }
+
+  function failContextForge(message = "Context Forge halted truthfully") {
+    contextForgeState = { ...contextForgeState, state: "failed", message, generationPerformed: false };
+    setTarotContextForgeStage(contextForgeRig, { state: "failed", elapsed: elapsedTime });
+    createBurst(0, -0.58, 0xff473d, 1.35);
+    status = message;
+    publishHud(true);
+    return contextForgeHudState();
   }
 
   function setStargateMintStage(nextStage = "idle") {
@@ -15235,6 +15511,12 @@ function createTarotDrawGame({ canvas, cards, avatarId = "local-operator", avata
       gateOpen: ["active", "connected", "sealing"].includes(stargateState),
       reducedMotion: stargateReducedMotion
     });
+    updateTarotContextForgeRig(contextForgeRig, {
+      delta,
+      elapsed,
+      gateOpen: ["active", "connected", "sealing"].includes(stargateState),
+      reducedMotion: stargateReducedMotion
+    });
     updateSpawnNetwork(spawnNetwork, camera, elapsed);
     updatePhoneLaserVisual(elapsed);
     updateBursts(delta);
@@ -15918,6 +16200,7 @@ function createTarotDrawGame({ canvas, cards, avatarId = "local-operator", avata
       } : { kind: "", count: 0, avatarName: "" },
       stargate: stargateHudState(),
       spatialTruth: spatialTruthHudState(),
+      contextForge: contextForgeHudState(),
       layoutId,
       backStyle,
       musicVisualizerMode,
@@ -16182,6 +16465,15 @@ function createTarotDrawGame({ canvas, cards, avatarId = "local-operator", avata
           accepted: spatialTruthResultCard.spatialTruth?.accepted?.length || 0,
           rejected: spatialTruthResultCard.spatialTruth?.rejected?.length || 0
         } : null
+      },
+      contextForge: {
+        ...contextForgeState,
+        visualState: contextForgeRig.state,
+        visible: contextForgeRig.group.visible,
+        sourceGlyphs: contextForgeRig.glyphs.length,
+        rails: contextForgeRig.rails.length,
+        proposalVisible: contextForgeRig.proposal.scale.x > 0.01,
+        truthBoundary: contextForgeHudState().truthBoundary
       },
       avatarName,
       deckCount: deckCards.length,
@@ -16732,6 +17024,7 @@ function createTarotDrawGame({ canvas, cards, avatarId = "local-operator", avata
     stopDropZonePreview();
     disposeDockBackgroundPlayer(dockBackgroundPlayer);
     for (const entry of [...placedEntries, heldEntry].filter(Boolean)) disposeEntry(entry);
+    disposeTarotContextForgeRig(contextForgeRig);
     disposeObject(world);
     disposeResourceLibrary(resources);
     dropSong.dispose();

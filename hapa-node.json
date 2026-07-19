@@ -44,6 +44,7 @@
     "Songs / Tarot / Scene Attach Packs",
     "Immutable Song Card Minting / Edition History / Timestamp Card Printing",
     "Portable Stargate Context Cards / human mint / exact Catalog projection status / disconnected Formation restore",
+    "Stargate Context Forge / sealed selected-Card packets / deterministic scaffold / local Ollama proposal",
     "Canonical Overwind Card Origin Outbox",
     "Overwind acknowledged Card subscriber",
     "Universal Overcard consumer: Hand / Deck / Placement / Formation / Responsibility"
@@ -66,7 +67,8 @@
     "stargateContextMintReview": "http://127.0.0.1:8787/api/tarot/stargate/context-card/review",
     "stargateContextMint": "http://127.0.0.1:8787/api/tarot/stargate/context-card/mint",
     "stargateContextSyncStatus": "http://127.0.0.1:8787/api/tarot/stargate/context-card/status",
-    "stargateContextCli": "npm run cli -- stargate-context-card --help"
+    "stargateContextCli": "npm run cli -- stargate-context-card --help",
+    "contextGeneration": "http://127.0.0.1:8787/api/context-generation"
   },
   "requiredNodes": [
     "hapa-overcard",
@@ -84,7 +86,8 @@
     "mediaLibrary": "data/media-library.json",
     "mediaDir": "data/media",
     "cardOriginOutbox": "data/overwind/origin-outbox.sqlite3",
-    "songCardMintLedger": "data/song-card-mints"
+    "songCardMintLedger": "data/song-card-mints",
+    "contextGenerationLedger": "data/context-generation"
   },
   "subscribers": [
     "hapa-overwind-node",

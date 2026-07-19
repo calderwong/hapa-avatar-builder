@@ -33,6 +33,18 @@ All surfaces use the append-only service in `server/avatar-media-comment-service
 
 Browser, physical-device, local-network, and broader-network claims remain separate. See `docs/CONSENTED_MEDIA_COMMENTS.md` and `tests/avatar-media-comment-parity.test.mjs`.
 
+## Stargate Context Forge parity
+
+The append-only `server/avatar-context-generation-service.mjs` is the sole packet/run authority. It freezes exact human-selected Card revisions in Gate order, then either creates a truth-labeled deterministic scaffold with no model call or invokes an explicitly selected loopback Ollama model with concrete provider/model/prompt provenance. Every output is a separate proposed, unminted Result Card and every source Card remains unchanged.
+
+| Surface | Packet and proposal behavior |
+| --- | --- |
+| UI | **Context Forge** projects ordered Card glyphs into a sealed prism at the active Gate. **Evidence Scaffold** stays visibly non-generative; **Ollama Local** records the concrete invocation before revealing the textured Result Card in 3D. |
+| API | `GET /api/context-generation`; `POST /api/context-generation/packets`; `GET /api/context-generation/packets/:packetId`; `POST /api/context-generation/runs`. |
+| CLI | `context-packets`, `context-packet-freeze`, and `context-generate`; local model credentials are neither needed nor accepted in argv. |
+
+See `docs/STARGATE_CONTEXT_FORGE.md`, `tests/avatar-context-generation-parity.test.mjs`, and the truth-audited capture manifest in `artifacts/demos/STG-012/`.
+
 Registry resolution is verified as follows:
 
 - Quest Keeper maps `hapa-avatar-builder` to board `hapa-app-hapa-avatar-builder` in `hapa-quest-keeper/src/quest-core.mjs`.

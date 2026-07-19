@@ -145,6 +145,47 @@ async function main(cmd, opts) {
     return;
   }
 
+  if (cmd === "context-packets") {
+    print(await contextGenerationApiRequest(opts, "/api/context-generation"), { ...opts, json: true });
+    return;
+  }
+
+  if (cmd === "context-packet-freeze") {
+    const cardsFile = option(opts, "cards-file", "cards");
+    const actorId = String(opts.actor || "").trim();
+    const formationDigest = String(option(opts, "formation-digest", "formation") || "").trim();
+    const gateCommitment = String(option(opts, "gate-commitment", "gate") || "").trim();
+    if (!cardsFile || !actorId || !formationDigest || !gateCommitment) throw new Error("context-packet-freeze requires --cards-file <json-array> --formation-digest <sha256> --gate-commitment <sha256> --actor <human-id>.");
+    const source = await readJsonInput(cardsFile);
+    const cards = Array.isArray(source) ? source : source.cards;
+    if (!Array.isArray(cards) || !cards.length) throw new Error("context-packet-freeze --cards-file must contain a Card array or { cards: [...] }.");
+    const evidenceCards = cards.map((card) => ({ card, selectedFields: String(option(opts, "fields") || "title,summary,keywords").split(",").map((item) => item.trim()).filter(Boolean) }));
+    print(await contextGenerationApiRequest(opts, "/api/context-generation/packets", {
+      method: "POST",
+      body: {
+        evidenceCards,
+        purpose: String(option(opts, "purpose", "instruction") || "Combine this ordered evidence into a bounded proposal."),
+        actor: { actorId, actorType: "human", displayName: String(option(opts, "display-name", "name") || actorId) },
+        gate: { formationDigest, gateCommitment, redactedAddress: String(option(opts, "redacted-address", "address") || "withheld"), orderedCardIds: cards.map((card) => card.cardId || card.id) },
+      },
+    }), { ...opts, json: true });
+    return;
+  }
+
+  if (cmd === "context-generate") {
+    const packetId = String(option(opts, "packet-id", "packet") || "").trim();
+    const mode = String(opts.mode || "deterministic_scaffold").trim();
+    const instruction = String(option(opts, "instruction", "purpose") || "Combine this ordered evidence into a bounded proposal.").trim();
+    const actorId = String(opts.actor || "").trim();
+    if (!packetId || !actorId || !["deterministic_scaffold", "ollama_local"].includes(mode)) throw new Error("context-generate requires --packet-id <id> --mode deterministic_scaffold|ollama_local --actor <human-id>.");
+    if (mode === "ollama_local" && !opts.model) throw new Error("context-generate --mode ollama_local requires --model <concrete-model-id>.");
+    print(await contextGenerationApiRequest(opts, "/api/context-generation/runs", {
+      method: "POST",
+      body: { packetId, mode, instruction, modelId: String(opts.model || ""), endpoint: String(opts.endpoint || ""), actor: { actorId, actorType: "human", displayName: String(option(opts, "display-name", "name") || actorId) } },
+    }), { ...opts, json: true });
+    return;
+  }
+
   if (cmd === "media-comments") {
     print(await mediaCommentApiRequest(opts, "/api/media-comments"), { ...opts, json: true });
     return;
@@ -1275,6 +1316,18 @@ async function mediaCommentApiRequest(opts, pathname, { method = "GET", body, bi
   return payload;
 }
 
+async function contextGenerationApiRequest(opts, pathname, { method = "GET", body } = {}) {
+  const baseUrl = String(option(opts, "api-url", "api") || process.env.HAPA_AVATAR_URL || "http://127.0.0.1:8787").replace(/\/$/, "");
+  const response = await fetch(`${baseUrl}${pathname}`, {
+    method,
+    headers: { accept: "application/json", ...(body === undefined ? {} : { "content-type": "application/json" }) },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(payload.message || payload.error || `Avatar Builder Context Forge request failed: ${response.status}`);
+  return payload;
+}
+
 function printHelp() {
   console.log(`Hapa Avatar Builder CLI
 
@@ -1288,6 +1341,9 @@ Commands:
   stargate-context-return --card-id <global-id> --revision <n> [--source hapa-avatar-builder] [--api-url http://127.0.0.1:8787] [--json]
   stargate-pass-request --card-id <global-id> --revision <n> --actor <human-id> --consent [--source hapa-avatar-builder] [--api-url http://127.0.0.1:8787] [--json]
   stargate-pass-proof --request-id <id> --consent [--api-url http://127.0.0.1:8787] [--json]
+  context-packets [--api-url http://127.0.0.1:8787] [--json]
+  context-packet-freeze --cards-file ./cards.json --formation-digest <sha256> --gate-commitment <sha256> --actor <human-id> [--fields title,summary,keywords] [--purpose "..."] [--json]
+  context-generate --packet-id <id> --mode deterministic_scaffold|ollama_local --actor <human-id> [--model qwen3.5:2b] [--endpoint http://127.0.0.1:11434] [--instruction "..."] [--json]
   media-comments [--api-url http://127.0.0.1:8787] [--json]
   media-comment-create --source-file ./card.json --formation-digest <sha256> --gate-commitment <sha256> --actor <human-id> [--device browser_webcam|physical_phone] [--consent] [--token-out ./private-token] [--json]
   media-comment-status --capture-id <id> [--json]
