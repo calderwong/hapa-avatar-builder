@@ -112,6 +112,28 @@ async function main(cmd, opts) {
     return;
   }
 
+  if (cmd === "stargate-context-return") {
+    const cardId = option(opts, "card-id", "card");
+    const revision = Number(option(opts, "revision", "expected-revision") || 0);
+    if (!cardId || !Number.isSafeInteger(revision) || revision < 1) throw new Error("stargate-context-return requires --card-id <global-id> --revision <positive-integer>.");
+    const query = new URLSearchParams({ cardId, expectedRevision: String(revision), sourceNode: String(opts.source || "hapa-avatar-builder") });
+    print(await stargateApiRequest(opts, `/api/tarot/stargate/context-card/resolve?${query}`), { ...opts, json: true });
+    return;
+  }
+
+  if (cmd === "stargate-pass-request") {
+    const cardId = option(opts, "card-id", "card");
+    const revision = Number(option(opts, "revision", "expected-revision") || 0);
+    const actorId = String(opts.actor || "").trim();
+    if (!cardId || !Number.isSafeInteger(revision) || revision < 1 || !actorId || opts.consent !== true) throw new Error("stargate-pass-request requires --card-id <global-id> --revision <n> --actor <human-id> --consent.");
+    print(await stargateApiRequest(opts, "/api/tarot/stargate/pass/request", {
+      method: "POST",
+      admin: true,
+      body: { cardId, revision, sourceNode: String(opts.source || "hapa-avatar-builder"), actorId, consent: true }
+    }), { ...opts, json: true });
+    return;
+  }
+
   if (cmd === "list") {
     const store = await readStore();
     const avatars = store.avatars.map((avatar) => ({
@@ -1146,6 +1168,8 @@ Commands:
   stargate-context-review --file ./stargate-context-card.json [--json]
   stargate-context-mint --card-id <id> --approve --actor <human-id> [--api-url http://127.0.0.1:8787] [--json]
   stargate-context-status --card-id <id> [--api-url http://127.0.0.1:8787] [--json]
+  stargate-context-return --card-id <global-id> --revision <n> [--source hapa-avatar-builder] [--api-url http://127.0.0.1:8787] [--json]
+  stargate-pass-request --card-id <global-id> --revision <n> --actor <human-id> --consent [--source hapa-avatar-builder] [--api-url http://127.0.0.1:8787] [--json]
   scaffold Red Reaper --id red-reaper [--primary Red] [--json]
   audit <avatar-id> [--json]
   attach <avatar-id> [--target comic|video|agent] [--json]

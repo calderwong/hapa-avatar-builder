@@ -102,8 +102,11 @@
     "smoke:stargate-context": "electron scripts/tarot-stargate-context-smoke.cjs",
     "capture:stargate-context": "electron scripts/capture-tarot-stargate-context-card.cjs",
     "capture:stargate-mint": "electron scripts/capture-tarot-stargate-mint.cjs",
+    "capture:stargate-catalog-return": "electron scripts/capture-tarot-stargate-catalog-return.cjs",
     "evidence:stargate-context": "node scripts/run-isolated-stargate-context-evidence.mjs",
     "evidence:stargate-mint": "node scripts/run-isolated-stargate-context-evidence.mjs --mint-capture",
+    "evidence:stargate-catalog-return": "node scripts/run-isolated-stargate-context-evidence.mjs --catalog-return",
+    "evidence:stargate-catalog-return-capture": "node scripts/run-isolated-stargate-context-evidence.mjs --catalog-return-capture",
     "smoke:echo-player-pool": "electron scripts/echo-player-pool-smoke.cjs",
     "smoke:mind-ui": "electron scripts/avatar-mind-ui-smoke.cjs",
     "smoke:phone-card": "electron scripts/phone-card-smoke.cjs"

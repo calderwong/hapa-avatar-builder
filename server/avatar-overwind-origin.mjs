@@ -154,6 +154,36 @@ export class AvatarOverwindOrigin {
       acknowledgedAt: row?.acknowledged_at || null
     };
   }
+  headForCard(cardId = "") {
+    const row = cardId ? this.db.prepare("SELECT revision,event_id,event_digest FROM heads WHERE card_id=?").get(String(cardId)) : null;
+    return row ? { cardId: String(cardId), revision: Number(row.revision || 0), eventId: row.event_id || null, eventDigest: row.event_digest || null } : null;
+  }
+  exactRevision(cardId = "", revision = 0) {
+    const expectedRevision = Number(revision || 0);
+    if (!cardId || !Number.isSafeInteger(expectedRevision) || expectedRevision < 1) return null;
+    const row = this.db.prepare("SELECT event_json,state,receipt_json,origin_sequence,revision,event_id,event_digest,acknowledged_at FROM outbox WHERE card_id=? AND revision=? ORDER BY origin_sequence DESC LIMIT 1").get(String(cardId), expectedRevision);
+    if (!row) return null;
+    const event = JSON.parse(row.event_json);
+    const card = event?.payload?.card?.content?.authoritative || null;
+    if (!card) return null;
+    const receipt = row.receipt_json ? JSON.parse(row.receipt_json) : null;
+    const ledgerPosition = Number(receipt?.overwind_watermark || receipt?.ledger_position || receipt?.cursor || 0);
+    return {
+      cardId: String(cardId),
+      revision: Number(row.revision || 0),
+      originSequence: Number(row.origin_sequence || 0),
+      eventId: row.event_id || null,
+      eventDigest: row.event_digest || null,
+      state: row.state || "origin-staged",
+      durableAcknowledgement: row.state === "acknowledged" && ledgerPosition > 0,
+      ledgerPosition: ledgerPosition || null,
+      acknowledgedAt: row.acknowledged_at || null,
+      event,
+      card,
+      envelope: event?.payload?.card || null,
+      head: this.headForCard(cardId)
+    };
+  }
   async migrateLegacy(subscriberDir, subscribers=[]) { const central=await this.readNdjson(path.join(subscriberDir,"events.ndjson")); let sequence=0; this.db.exec("BEGIN IMMEDIATE"); try{for(const event of central){sequence++;const raw=canonical(event),lineDigest=sha(raw);this.db.prepare("INSERT OR IGNORE INTO legacy_history(sequence,line_digest,event_json) VALUES(?,?,?)").run(sequence,lineDigest,raw);}this.db.exec("COMMIT");}catch(error){this.db.exec("ROLLBACK");throw error;}const targets={};for(const subscriber of subscribers)targets[subscriber]=(await this.readNdjson(path.join(subscriberDir,`${subscriber}.ndjson`))).length;return{schema:"hapa.avatar-builder.legacy-history-migration.v1",central_events:central.length,central_digest:sha(central),assigned_sequences:sequence,target_counts:targets,duplicate_target_rows:Object.values(targets).reduce((a,b)=>a+b,0),canonical_source:"events.ndjson",history_truncated:false}; }
   async readNdjson(file){try{return (await readFile(file,"utf8")).split("\n").filter(Boolean).map(JSON.parse);}catch{return[];}}
   health(){const row=this.db.prepare("SELECT coalesce(max(origin_sequence),0) source_head,coalesce(max(CASE WHEN state='acknowledged' THEN origin_sequence ELSE 0 END),0) acknowledged_head,sum(CASE WHEN state='pending' THEN 1 ELSE 0 END) pending,sum(CASE WHEN last_error IS NOT NULL THEN 1 ELSE 0 END) failures FROM outbox").get();return{ok:Number(this.db.prepare("SELECT count(*) n FROM mutations WHERE state='repair'").get().n)===0,sourceHead:Number(row.source_head),acknowledgedHead:Number(row.acknowledged_head),pending:Number(row.pending||0),failures:Number(row.failures||0),repairMutations:Number(this.db.prepare("SELECT count(*) n FROM mutations WHERE state='repair'").get().n)};}

@@ -104,6 +104,8 @@ import { ensureLocalOvercardHost } from "@hapa/overcard/host";
 import { AvatarOverwindOrigin } from "./avatar-overwind-origin.mjs";
 import { AvatarOverwindSubscriber, resolveOverwindToken } from "./avatar-overwind-subscriber.mjs";
 import { StargateContextMintService } from "./stargate-context-mint-service.mjs";
+import { StargateContextReturnResolver } from "./stargate-context-return-resolver.mjs";
+import { StargateGatePassBroker } from "./stargate-gate-pass-broker.mjs";
 import { MintLedgerError, createSongCardMintController } from "./song-card-mint-controller.mjs";
 import { createSongCardRemintStore } from "./song-card-remint-store.mjs";
 import { createSongCardLocalRenderBridge, inspectSongCardRendererBuildIdentity } from "./song-card-local-renderer.mjs";
@@ -519,6 +521,11 @@ const avatarOverwindSubscriber = new AvatarOverwindSubscriber({
   baseUrl: AVATAR_OVERWIND_URL,
   token: overwindToken
 });
+const stargateContextReturnResolver = new StargateContextReturnResolver({
+  origin: avatarOverwindOrigin,
+  subscriber: avatarOverwindSubscriber
+});
+const stargateGatePassBroker = new StargateGatePassBroker();
 const OVERWIND_BOOTSTRAP_PATH = path.join(OVERWIND_DIR, "avatar-builder-bootstrap.json");
 const OVERWIND_SHELL_BOOTSTRAP_PATH = path.join(OVERWIND_DIR, "avatar-builder-shell-bootstrap.json");
 const OVERWIND_BOOTSTRAP_PROJECTION_VERSION = "hapa.overwind.avatar-builder-bootstrap.v5.avatar-loadout-mind-spines";
@@ -3226,6 +3233,59 @@ async function route(req, res) {
       sendJson(res, 200, await stargateContextMintService.status({ cardId: url.searchParams.get("cardId") || "" }));
     } catch (error) {
       sendJson(res, Number(error?.statusCode || 422), { error: error?.code || "stargate_context_status_failed", message: error?.message || String(error) });
+    }
+    return;
+  }
+
+  if (pathname === "/api/tarot/stargate/context-card/resolve" && req.method === "GET") {
+    try {
+      sendJson(res, 200, await stargateContextReturnResolver.resolve({
+        cardId: url.searchParams.get("cardId") || "",
+        expectedRevision: Number(url.searchParams.get("expectedRevision") || 0),
+        sourceNode: url.searchParams.get("sourceNode") || "hapa-avatar-builder"
+      }));
+    } catch (error) {
+      sendJson(res, Number(error?.statusCode || 422), {
+        error: error?.code || "stargate_context_return_failed",
+        message: error?.message || String(error),
+        detail: error?.detail || null,
+        connected: false,
+        requiresFreshGatePass: true
+      });
+    }
+    return;
+  }
+
+  if (pathname === "/api/tarot/stargate/pass/request" && req.method === "POST") {
+    if (!requireAdmin(req, res)) return;
+    try {
+      const body = await readBody(req);
+      const resolution = await stargateContextReturnResolver.resolve({
+        cardId: body.cardId || "",
+        expectedRevision: Number(body.revision || 0),
+        sourceNode: body.sourceNode || "hapa-avatar-builder"
+      });
+      const context = resolution.card?.stargateContext || resolution.card?.enrichment?.media?.stargateContext || {};
+      sendJson(res, 202, stargateGatePassBroker.request({
+        cardId: resolution.identity.globalCardId,
+        revision: resolution.identity.pinnedRevision,
+        actorId: body.actorId || "",
+        consent: body.consent === true,
+        formationCommitment: context.gate?.semanticFormationDigest || "",
+        contextCommitment: context.contextDigest || ""
+      }));
+    } catch (error) {
+      sendJson(res, Number(error?.statusCode || 422), { error: error?.code || "stargate_pass_request_failed", message: error?.message || String(error), connected: false, passPresent: false });
+    }
+    return;
+  }
+
+  const stargatePassRequestStatusMatch = pathname.match(/^\/api\/tarot\/stargate\/pass\/requests\/([^/]+)$/);
+  if (stargatePassRequestStatusMatch && req.method === "GET") {
+    try {
+      sendJson(res, 200, stargateGatePassBroker.status(decodeURIComponent(stargatePassRequestStatusMatch[1])));
+    } catch (error) {
+      sendJson(res, Number(error?.statusCode || 404), { error: error?.code || "stargate_pass_request_unavailable", message: error?.message || String(error), connected: false, passPresent: false });
     }
     return;
   }

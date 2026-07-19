@@ -1970,6 +1970,7 @@ export default function TarotDraw3DView({ cards = [], avatarId = "local-operator
   const cardBrowserScrollRef = useRef(null);
   const readingRequestRef = useRef(0);
   const readingEnabledRef = useRef(false);
+  const catalogReturnRef = useRef("");
   const baseTarotPiles = useMemo(() => buildTarotPileSummaries(cards), [cards]);
   const [reading, setReading] = useState({ status: "idle" });
   const [readingEnabled, setReadingEnabled] = useState(false);
@@ -2016,6 +2017,13 @@ export default function TarotDraw3DView({ cards = [], avatarId = "local-operator
     status: "idle",
     review: null,
     result: null,
+    error: ""
+  });
+  const [catalogReturn, setCatalogReturn] = useState({
+    status: "idle",
+    intent: "restore_disconnected",
+    resolution: null,
+    request: null,
     error: ""
   });
   const [sceneInvite, setSceneInvite] = useState({
@@ -2362,6 +2370,47 @@ export default function TarotDraw3DView({ cards = [], avatarId = "local-operator
   useEffect(() => {
     gameRef.current?.setPlaybackMode?.(playbackMode);
   }, [playbackMode]);
+
+  useEffect(() => {
+    const cardId = String(urlParams.get("stargate_card") || "").trim();
+    const revision = Number(urlParams.get("stargate_revision") || 0);
+    const sourceNode = String(urlParams.get("stargate_source") || "hapa-avatar-builder").trim();
+    const requestedIntent = String(urlParams.get("stargate_intent") || "restore_disconnected").trim();
+    const intent = ["restore_disconnected", "request_pass"].includes(requestedIntent) ? requestedIntent : "restore_disconnected";
+    if (!cardId) return undefined;
+    const handoffKey = `${cardId}|${revision}|${sourceNode}|${intent}`;
+    if (catalogReturnRef.current === handoffKey) return undefined;
+    catalogReturnRef.current = handoffKey;
+    if (!cardId.startsWith("hapa-card:v1:") || !Number.isSafeInteger(revision) || revision < 1 || sourceNode !== "hapa-avatar-builder") {
+      setCatalogReturn({ status: "failed", intent, resolution: null, request: null, error: "Catalog return handoff is not a valid pinned Avatar Builder Card identity." });
+      return undefined;
+    }
+    let cancelled = false;
+    setCatalogReturn({ status: "resolving", intent, resolution: null, request: null, error: "" });
+    const query = new URLSearchParams({ cardId, expectedRevision: String(revision), sourceNode });
+    fetch(`${tarotDrawApiBase(apiBase)}/api/tarot/stargate/context-card/resolve?${query}`, { headers: { Accept: "application/json" } })
+      .then(async (response) => {
+        const payload = await response.json().catch(() => null);
+        if (!response.ok || !payload?.ok || !payload?.card) throw new Error(payload?.message || payload?.error || `Return Card resolution failed: ${response.status}`);
+        if (cancelled) return;
+        const game = gameRef.current;
+        const sceneLoaded = game?.loadSceneFromCard?.(payload.card);
+        const contextRestored = sceneLoaded && game?.restoreStargateContextFromCard?.(payload.card);
+        if (!contextRestored) throw new Error("The exact Return Card resolved, but its committed Tarot scene could not be reconstructed.");
+        game?.spawnSceneCard?.({ card: payload.card, fromStargate: true, fromCatalogReturn: true, statusText: `Catalog Return arrived: ${payload.card.title}` });
+        const custodyStage = payload.custody?.truthState === "overwind-acknowledged" ? "overwind_acknowledged"
+          : payload.custody?.truthState === "origin-staged" ? "origin_staged"
+            : payload.custody?.truthState === "local-stale" ? "local-stale"
+              : "proposed_unminted";
+        game?.setStargateMintStage?.(custodyStage);
+        setSceneSave({ status: "loaded", message: `Restored ${payload.card.title} from .hapaCatalog — disconnected; fresh Pass required`, error: "", card: payload.card });
+        setCatalogReturn({ status: intent === "request_pass" ? "pass-ready" : "restored", intent, resolution: payload, request: null, error: "" });
+      })
+      .catch((error) => {
+        if (!cancelled) setCatalogReturn({ status: "failed", intent, resolution: null, request: null, error: error?.message || "Catalog Return Card resolution failed" });
+      });
+    return () => { cancelled = true; };
+  }, [apiBase, urlParams]);
 
   useEffect(() => {
     const currentRunId = forgeRequest.run?.id || forgeRequest.card?.drawForge?.runId || "";
@@ -3310,6 +3359,36 @@ export default function TarotDraw3DView({ cards = [], avatarId = "local-operator
     }
   }
 
+  async function requestCatalogReturnGatePass(event) {
+    event?.preventDefault?.();
+    event?.stopPropagation?.();
+    const resolution = catalogReturn.resolution;
+    if (!resolution?.identity?.globalCardId || catalogReturn.status === "requesting-pass") return;
+    setCatalogReturn((current) => ({ ...current, status: "requesting-pass", request: null, error: "" }));
+    try {
+      const base = tarotDrawApiBase(apiBase);
+      const sessionResponse = await fetch(`${base}/api/local-ui-session`, { method: "POST", headers: { Accept: "application/json" }, credentials: "same-origin" });
+      if (!sessionResponse.ok) throw new Error("Local human consent session could not be established.");
+      const response = await fetch(`${base}/api/tarot/stargate/pass/request`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify({
+          cardId: resolution.identity.globalCardId,
+          revision: resolution.identity.pinnedRevision,
+          sourceNode: resolution.identity.originNode,
+          actorId: avatarId || "local-operator",
+          consent: true
+        })
+      });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok || !payload?.requestId) throw new Error(payload?.message || payload?.error || `Gate Pass request failed: ${response.status}`);
+      setCatalogReturn((current) => ({ ...current, status: "pass-requested", request: payload, error: "" }));
+    } catch (error) {
+      setCatalogReturn((current) => ({ ...current, status: "pass-failed", request: null, error: error?.message || "Gate Pass request failed" }));
+    }
+  }
+
   async function requestForgeCard(event) {
     event?.preventDefault?.();
     const title = forgeTitle.trim() || `${avatarName} Draw Card`;
@@ -3489,10 +3568,13 @@ export default function TarotDraw3DView({ cards = [], avatarId = "local-operator
           <span><BookOpenCheck size={14} /> Scene</span>
           <strong>{sceneSave.error || sceneSave.message || "Scene state ready"}</strong>
           <em>{sceneSave.card?.id || "tarot-draw-scene"}</em>
-          {savedStargateContextCard && !stargateMint.open && (
+          {savedStargateContextCard && !stargateMint.open && !catalogReturn.resolution && (
             <button className="hapa-btn tarot-stargate-mint-open" type="button" onClick={openStargateMintReview}>
               <BadgeCheck size={13} /> Review &amp; Mint
             </button>
+          )}
+          {savedStargateContextCard && catalogReturn.resolution && (
+            <span className="tarot-stargate-return-receipt"><BadgeCheck size={12} /> PIN r{catalogReturn.resolution.identity?.pinnedRevision || "—"} · {String(catalogReturn.resolution.custody?.truthState || "resolved").replaceAll("_", " ").replaceAll("-", " ")}</span>
           )}
         </div>
       )}
@@ -3614,6 +3696,49 @@ export default function TarotDraw3DView({ cards = [], avatarId = "local-operator
             </button>
           )}
           {stargate.fixtureDisclosure && <em>{stargate.fixtureDisclosure}</em>}
+        </aside>
+      )}
+
+      {catalogReturn.status !== "idle" && (
+        <aside className="tarot-catalog-return" data-state={catalogReturn.status} aria-live="polite" aria-label="Catalog Return Card handoff">
+          <div className="tarot-catalog-return-sigil" aria-hidden="true"><i /><i /><i /><b>✦</b></div>
+          <header>
+            <span><Sparkles size={14} /> .hapaCatalog Return</span>
+            <strong>{catalogReturn.status === "resolving" ? "Resolving exact pin" : catalogReturn.error ? "Return halted" : "Exact pin restored"}</strong>
+          </header>
+          {catalogReturn.resolution ? (
+            <div className="tarot-catalog-return-body">
+              <div className="tarot-catalog-return-copy">
+                <p className="eyebrow">Cards → coordinates → portable context</p>
+                <h3>{catalogReturn.resolution.card?.title || "Stargate Context Card"}</h3>
+                <p>The source Card crossed Catalog custody, then rebuilt this exact Tarot Formation without carrying a live session.</p>
+              </div>
+              <dl>
+                <div><dt>Pinned</dt><dd>r{catalogReturn.resolution.identity?.pinnedRevision || "—"}</dd></div>
+                <div><dt>Formation</dt><dd>{catalogReturn.resolution.restore?.formationCount || 0} Cards</dd></div>
+                <div><dt>Custody</dt><dd>{String(catalogReturn.resolution.custody?.truthState || "unavailable").replaceAll("_", " ").replaceAll("-", " ")}</dd></div>
+                <div><dt>Connection</dt><dd>Disconnected</dd></div>
+              </dl>
+              {catalogReturn.resolution.newerRevision?.available && (
+                <div className="tarot-catalog-return-newer"><span>Newer revision available</span><strong>r{catalogReturn.resolution.newerRevision.revision}</strong><em>Your r{catalogReturn.resolution.identity.pinnedRevision} pin was not changed.</em></div>
+              )}
+              <div className="tarot-catalog-return-authority">
+                <span><Route size={13} /><strong>Fresh Gate Pass boundary</strong></span>
+                <p>{catalogReturn.request ? "Request issued directly from this node. Waiting for a peer-issued Pass; Join remains locked." : "Preview and restore are complete. Requesting a Pass is a separate explicit act; Join requires a fresh verified Pass and local consent."}</p>
+                <div>
+                  {!catalogReturn.request && (
+                    <button className="hapa-btn" type="button" disabled={catalogReturn.status === "requesting-pass"} onClick={requestCatalogReturnGatePass}>
+                      <Link2 size={13} /> {catalogReturn.status === "requesting-pass" ? "Requesting…" : "Request Fresh Gate Pass"}
+                    </button>
+                  )}
+                  <button className="hapa-btn" type="button" disabled title="A fresh verified Gate Pass has not been received.">Join Stargate · Locked</button>
+                </div>
+                {catalogReturn.request && <code>{catalogReturn.request.requestId}</code>}
+              </div>
+            </div>
+          ) : (
+            <div className="tarot-catalog-return-loading"><span>{catalogReturn.error || "Reading local origin history and bounded Overwind custody…"}</span><em>No Catalog dependency · no auto-connect</em></div>
+          )}
         </aside>
       )}
 
@@ -5963,6 +6088,7 @@ function createTarotDrawGame({ canvas, cards, avatarId = "local-operator", avata
   function stargateEligibleEntries() {
     const candidates = placedEntries
       .filter((entry) => entry && !entry.liveCamera && !entry.isCameraCard && !entry.isPhoneCard && !entry.isBlueAvatarCard)
+      .filter((entry) => !entry.stargateContextHero)
       .filter((entry) => !entry.lockedDropZone && !entry.lockedMediaPool && !entry.lockedCenterVisualizer && !entry.lockedDock)
       .sort((first, second) => Number(first.placedAt || 0) - Number(second.placedAt || 0));
     const fixtureEntries = candidates.filter((entry) => entry.stargateFixture);
@@ -7365,7 +7491,7 @@ function createTarotDrawGame({ canvas, cards, avatarId = "local-operator", avata
     return restored;
   }
 
-  function spawnSceneCard({ card, statusText = "", fromStargate = false } = {}) {
+  function spawnSceneCard({ card, statusText = "", fromStargate = false, fromCatalogReturn = false } = {}) {
     if (!card) return null;
     const { entry, origin } = createInstantDealEntry(card, placedEntries.length, {
       originPosition: fromStargate
@@ -7411,7 +7537,20 @@ function createTarotDrawGame({ canvas, cards, avatarId = "local-operator", avata
     resolvePlacedCardStacks();
     createBurst(entry.targetPosition.x, entry.targetPosition.z, 0xf6c96d, 0.96);
     createBurst(entry.targetPosition.x, entry.targetPosition.z, 0x00f3ff, 0.72);
-    if (fromStargate) completeStargateContextSeal(card);
+    if (fromStargate && !fromCatalogReturn) completeStargateContextSeal(card);
+    if (fromCatalogReturn) {
+      stargateRequiresFreshPass = true;
+      stargateRestoredContext = stargateContextEnvelopeFromCard(card);
+      stargateLastContextCard = card;
+      stargateCohortSecret = "";
+      stargateResult = null;
+      stargateProgress = 0;
+      stargateState = "disconnected";
+      stargateError = "Exact Catalog pin restored; fresh Gate Pass required to connect";
+      createBurst(0, -0.62, 0x00f3ff, 2.1);
+      createBurst(0, -0.62, 0xf6c96d, 1.65);
+      createBurst(0, -0.62, 0xff6df2, 1.28);
+    }
     status = statusText || `Scene saved: ${card.title}`;
     audio.play("draw", { quiet: true });
     publishHud(true);

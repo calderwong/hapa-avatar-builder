@@ -8,7 +8,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const mode = process.argv.includes("--mint-capture") ? "mint-capture" : process.argv.includes("--capture") ? "capture" : process.argv.includes("--smoke") ? "smoke" : process.argv.includes("--core-smoke") ? "core-smoke" : "all";
+const mode = process.argv.includes("--catalog-return-capture") ? "catalog-return-capture" : process.argv.includes("--catalog-return") ? "catalog-return" : process.argv.includes("--mint-capture") ? "mint-capture" : process.argv.includes("--capture") ? "capture" : process.argv.includes("--smoke") ? "smoke" : process.argv.includes("--core-smoke") ? "core-smoke" : "all";
 const runtimeRoot = await fsp.mkdtemp(path.join(os.tmpdir(), "hapa-stargate-context-evidence-"));
 const port = 22600 + Math.floor(Math.random() * 300);
 const baseUrl = `http://127.0.0.1:${port}/`;
@@ -106,6 +106,8 @@ try {
   if (["all", "smoke"].includes(mode)) results.push(await run(electron, ["scripts/tarot-stargate-context-smoke.cjs"], { ...sharedEnv, SMOKE_URL: baseUrl }));
   if (["all", "capture"].includes(mode)) results.push(await run(electron, ["scripts/capture-tarot-stargate-context-card.cjs"], { ...sharedEnv, CAPTURE_URL: baseUrl }));
   if (mode === "mint-capture") results.push(await run(electron, ["scripts/capture-tarot-stargate-mint.cjs"], { ...evidenceEnv, CAPTURE_URL: baseUrl }));
+  if (mode === "catalog-return") results.push(await run(electron, ["scripts/tarot-stargate-catalog-return-smoke.cjs"], { ...evidenceEnv, SMOKE_URL: baseUrl }));
+  if (mode === "catalog-return-capture") results.push(await run(electron, ["scripts/capture-tarot-stargate-catalog-return.cjs"], { ...evidenceEnv, CAPTURE_URL: baseUrl }));
   console.log(JSON.stringify({ ok: true, mode, isolated: true, userAppTouched: false, baseUrl, runtimeRootDeleted: true, runs: results.length }, null, 2));
 } finally {
   if (server.exitCode === null) {
