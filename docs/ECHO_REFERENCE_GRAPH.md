@@ -2,6 +2,10 @@
 
 The Hapa Songs view treats the Dear Papa song store as the active Echo Album workbench. Lyrics remain source text; interpretation is attached as reviewable graph data.
 
+## Album lineage
+
+`Dear Papa` and `Echo Album` are not competing canon roots. Echo is the later music-visualizer projection of the substantially same song corpus. Genesis and runtime consumers resolve a song by stable song/card IDs and lyric SHA-256 before album title, retain both titles as aliases, and record which projection supplied media or exposition. A title change must not fork an Avatar's song memory.
+
 ## Data model
 
 - `referenceCatalog` holds source-backed external works and concepts. Public sources, personal/shared context, and technical standards keep distinct provenance.

@@ -1,3 +1,14 @@
+import {
+  normalizeEchoAlbumLineage,
+  normalizeEchoReferenceMindContext,
+  normalizeEchoReferenceSnapshot,
+  normalizeEchoSemanticPrimitives
+} from "./avatarEchoGenesis.js";
+import {
+  normalizeSongContextLayers,
+  normalizeSongReferenceConnectors
+} from "./song-reference-graph.js";
+
 export const CONTRACT_VERSION = "hapa.avatar-card.v1";
 export const AVATAR_MIND_VERSION = "hapa.avatar-mind.v1";
 export const AVATAR_MODEL_REQUIREMENT_ID = "avatar_3d_model";
@@ -959,6 +970,19 @@ export function createAvatarMindSummary(avatar, allAvatars = []) {
     dearPapaSongContext: {
       albumId: mind.dearPapaSongContext.albumId,
       albumTitle: mind.dearPapaSongContext.albumTitle,
+      albumAliases: mind.dearPapaSongContext.albumAliases,
+      albumLineage: mind.dearPapaSongContext.albumLineage,
+      echoReferenceGraph: {
+        schemaVersion: mind.dearPapaSongContext.echoReferenceGraph.schemaVersion,
+        graphHash: mind.dearPapaSongContext.echoReferenceGraph.graphHash,
+        sourceStoreUpdatedAt: mind.dearPapaSongContext.echoReferenceGraph.sourceStoreUpdatedAt,
+        catalogCount: mind.dearPapaSongContext.echoReferenceGraph.catalogCount,
+        edgeCount: mind.dearPapaSongContext.echoReferenceGraph.edgeCount,
+        connectorCount: mind.dearPapaSongContext.echoReferenceGraph.connectorCount,
+        ingestionRunId: mind.dearPapaSongContext.echoReferenceGraph.ingestionRunId,
+        reviewStatus: mind.dearPapaSongContext.echoReferenceGraph.reviewStatus,
+        status: mind.dearPapaSongContext.echoReferenceGraph.status
+      },
       author: mind.dearPapaSongContext.author,
       performancePerspective: mind.dearPapaSongContext.performancePerspective,
       songCardIndexPath: mind.dearPapaSongContext.songCardIndexPath,
@@ -3664,6 +3688,9 @@ function normalizeDearPapaSongContext(context = {}) {
       "Each song card assigns one Red, Blue, or Green singer perspective for lore, relationship, and Genesis flavor."
     ),
     performancePerspective: normalizeDearPapaPerspective(source.performancePerspective || source.performance_perspective),
+    albumAliases: normalizeStringList(source.albumAliases || source.album_aliases),
+    albumLineage: normalizeEchoAlbumLineage(source.albumLineage || source.album_lineage),
+    echoReferenceGraph: normalizeEchoReferenceMindContext(source.echoReferenceGraph || source.echo_reference_graph),
     selectedSongCards: normalizeMindCollection(source.selectedSongCards || source.selected_song_cards, normalizeDearPapaSongChoice, "dear-papa-song-card"),
     relationshipPrompts: normalizeMindCollection(source.relationshipPrompts || source.relationship_prompts, normalizeDearPapaRelationshipPrompt, "dear-papa-relationship"),
     sourceAnchors: normalizeStringList(source.sourceAnchors || source.source_anchors),
@@ -3697,6 +3724,11 @@ function normalizeDearPapaSongChoice(choice = {}, fallbackId = "dear-papa-song-c
     cardId: stringValue(source.cardId || source.card_id || source.id),
     title: stringValue(source.title || source.name, "Untitled Dear Papa song"),
     albumId: stringValue(source.albumId || source.album_id, "dear-papa-album"),
+    albumTitle: stringValue(source.albumTitle || source.album_title, "Dear Papa"),
+    albumAliases: normalizeStringList(source.albumAliases || source.album_aliases),
+    albumLineage: normalizeEchoAlbumLineage(source.albumLineage || source.album_lineage),
+    activeAlbumProjection: normalizeMindObject(source.activeAlbumProjection || source.active_album_projection),
+    lineageKey: stringValue(source.lineageKey || source.lineage_key),
     author: stringValue(source.author, "Calder"),
     perspective: normalizeDearPapaPerspective(source.perspective),
     whySelected: stringValue(source.whySelected || source.why_selected || source.whyChosen || source.why_chosen),
@@ -3704,6 +3736,11 @@ function normalizeDearPapaSongChoice(choice = {}, fallbackId = "dear-papa-song-c
     communicationUse: stringValue(source.communicationUse || source.communication_use),
     lyricsSha256: stringValue(source.lyricsSha256 || source.lyrics_sha256),
     sourcePath: stringValue(source.sourcePath || source.source_path),
+    referenceConnectors: normalizeSongReferenceConnectors(source.referenceConnectors || source.reference_connectors || []),
+    contextualLayers: normalizeSongContextLayers(source.contextualLayers || source.contextual_layers || []),
+    referenceSnapshots: normalizeMindCollection(source.referenceSnapshots || source.reference_snapshots, normalizeMindPassthroughRecord, "echo-reference"),
+    semanticPrimitives: normalizeEchoSemanticPrimitives(source.semanticPrimitives || source.semantic_primitives),
+    referenceGraphSnapshot: normalizeEchoReferenceSnapshot(source.referenceGraphSnapshot || source.reference_graph_snapshot),
     status: stringValue(source.status, "active"),
     createdAt: source.createdAt || source.created_at || now,
     updatedAt: source.updatedAt || source.updated_at || now
@@ -3967,11 +4004,19 @@ function summarizeDearPapaSongChoice(choice = {}) {
     songId: choice.songId,
     cardId: choice.cardId,
     title: choice.title,
+    albumTitle: choice.albumTitle,
+    albumAliases: choice.albumAliases,
+    activeAlbumProjection: choice.activeAlbumProjection,
+    lineageKey: choice.lineageKey,
     author: choice.author,
     perspective: choice.perspective,
     communicationUse: choice.communicationUse,
     genesisInstruction: choice.genesisInstruction,
     lyricsSha256: choice.lyricsSha256,
+    referenceIds: choice.referenceGraphSnapshot?.referenceIds || [],
+    referenceConnectorCount: choice.referenceConnectors?.length || 0,
+    semanticPrimitives: choice.semanticPrimitives,
+    referenceGraphHash: choice.referenceGraphSnapshot?.graphHash || "",
     status: choice.status
   };
 }

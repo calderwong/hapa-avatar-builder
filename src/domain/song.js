@@ -121,7 +121,7 @@ export function normalizeHapaSongStore(input = {}, songbook = {}, songLibrary = 
       source: "data/dear-papa-songbook.json",
       registryCollection: "dear-papa"
     },
-    album: normalizeAlbum(songbook.album || input.album || {}),
+    album: normalizeAlbum({ ...(input.album || {}), ...(songbook.album || {}) }),
     songs,
     referenceCatalog: normalizeSongReferenceCatalog(input.referenceCatalog || []),
     referenceGraphEdges: normalizeSongReferenceGraphEdges(input.referenceGraphEdges || []),
@@ -176,6 +176,15 @@ export function normalizeHapaSong(existing = {}, sourceCard = {}, registryTrack 
     songId,
     albumId: sourceCard.albumId || existing.albumId || DEAR_PAPA_ALBUM_ID,
     albumTitle: sourceCard.albumTitle || existing.albumTitle || DEAR_PAPA_ALBUM_TITLE,
+    albumAliases: uniqueTextList([
+      ...(existing.albumAliases || sourceCard.albumAliases || []),
+      sourceCard.albumTitle || existing.albumTitle || DEAR_PAPA_ALBUM_TITLE,
+      "Echo Album"
+    ]),
+    albumLineage: normalizeSongAlbumLineage(existing.albumLineage || sourceCard.albumLineage || {}, {
+      id: sourceCard.albumId || existing.albumId || DEAR_PAPA_ALBUM_ID,
+      title: sourceCard.albumTitle || existing.albumTitle || DEAR_PAPA_ALBUM_TITLE
+    }),
     trackNumber: Number(sourceCard.trackNumber || existing.trackNumber || ordinal + 1),
     title,
     author,
@@ -485,13 +494,45 @@ function findRegistryTrackForCard(card = {}, tracksBySongId = new Map()) {
 }
 
 function normalizeAlbum(album = {}) {
+  const sourceTitle = album.title || DEAR_PAPA_ALBUM_TITLE;
+  const activeProjection = album.activeProjection && typeof album.activeProjection === "object"
+    ? album.activeProjection
+    : {};
   return {
     id: album.id || DEAR_PAPA_ALBUM_ID,
-    title: album.title || DEAR_PAPA_ALBUM_TITLE,
+    title: sourceTitle,
     author: album.author || "Calder",
     scope: "dear-papa-only",
+    lineageScope: album.lineageScope || "echo-dear-papa-same-song-lineage",
+    aliases: uniqueTextList([...(album.aliases || []), sourceTitle, "Echo Album"]),
+    activeProjection: {
+      id: activeProjection.id || "echo-album",
+      title: activeProjection.title || "Echo Album",
+      kind: activeProjection.kind || "later-music-visualizer-projection",
+      status: activeProjection.status || "active"
+    },
+    identityRule: album.identityRule || "Resolve stable song/card IDs and lyrics SHA-256 before album title; Echo Album is a later projection of the substantially same song corpus.",
     summary: album.summary || "",
     sourcePath: album.sourcePath || "/Users/calderwong/comics/Dear Papa - Album"
+  };
+}
+
+function normalizeSongAlbumLineage(lineage = {}, sourceAlbum = {}) {
+  const source = lineage && typeof lineage === "object" ? lineage : {};
+  return {
+    schemaVersion: source.schemaVersion || "hapa.song-album-lineage.v1",
+    canonicalWorkId: source.canonicalWorkId || "echo-dear-papa-song-lineage",
+    sourceAlbum: {
+      id: source.sourceAlbum?.id || sourceAlbum.id || DEAR_PAPA_ALBUM_ID,
+      title: source.sourceAlbum?.title || sourceAlbum.title || DEAR_PAPA_ALBUM_TITLE
+    },
+    activeProjection: {
+      id: source.activeProjection?.id || "echo-album",
+      title: source.activeProjection?.title || "Echo Album",
+      kind: source.activeProjection?.kind || "later-music-visualizer-projection"
+    },
+    identityRule: source.identityRule || "Resolve stable song/card IDs and lyrics SHA-256 before album title.",
+    status: source.status || "operator-confirmed-lineage"
   };
 }
 

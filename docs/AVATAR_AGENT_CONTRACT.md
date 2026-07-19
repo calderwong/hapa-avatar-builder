@@ -6,12 +6,27 @@ The local agent contract lives at:
 data/avatar-agent-contract.json
 ```
 
-It defines two Hapa Avatar agents:
+It defines the Hapa Avatar agent archetypes, including:
 
 - `hapa-avatar-genesis`
 - `hapa-avatar-journal-maintenance`
 
 Both agents declare Codex and Hermes harness bindings, persistence targets, output expectations, and the shared Avatar Mind classification vocabulary.
+
+## Dear Papa / Echo Reference Graph Gate
+
+Genesis treats `Dear Papa` and `Echo Album` as source/release projections of the substantially same songs. Stable song/card IDs and lyric SHA-256 establish identity before album title.
+
+Before a new Genesis run or a major Mind refresh, load the current `data/hapa-songs-store.json`, not only the older Songbook manifest. Existing selections must be hydrated with current reference connectors, contextual layers, reference snapshots, semantic primitives, and graph provenance. Connector inference remains reviewable Hapa lore; it cannot silently become hard Avatar biography.
+
+Preview or apply the current roster update with:
+
+```bash
+node scripts/run-echo-reference-avatar-genesis-update.mjs
+node scripts/run-echo-reference-avatar-genesis-update.mjs --apply
+```
+
+The apply path backs up `data/avatar-store.json`, preserves prior Song Choices, adds three connector-rich current songs per Avatar by default, and records a graph-hash Genesis receipt.
 
 ## Red Benchmark Gate
 

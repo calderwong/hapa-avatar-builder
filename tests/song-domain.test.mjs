@@ -20,6 +20,8 @@ test("Dear Papa songbook normalizes into Hapa Song cards", () => {
   const store = createHapaSongStoreFromDearPapaSongbook(dearPapaSongbook);
   assert.equal(store.schemaVersion, HAPA_SONG_STORE_VERSION);
   assert.equal(store.scope.albumTitle, "Dear Papa");
+  assert.equal(store.album.activeProjection.title, "Echo Album");
+  assert.deepEqual(store.album.aliases, ["Dear Papa", "Echo Album"]);
   assert.equal(store.songs.length, dearPapaSongbook.songCards.length);
   assert.equal(store.audit.songs, dearPapaSongbook.songCards.length);
   assert.ok(store.audit.songs >= 51);
@@ -27,6 +29,8 @@ test("Dear Papa songbook normalizes into Hapa Song cards", () => {
   assert.equal(store.visualizerCatalog.some((visualizer) => visualizer.id === "builtin:spectrum-nebula"), true);
   const firstSong = store.songs[0];
   assert.equal(firstSong.albumTitle, "Dear Papa");
+  assert.deepEqual(firstSong.albumAliases, ["Dear Papa", "Echo Album"]);
+  assert.equal(firstSong.albumLineage.activeProjection.title, "Echo Album");
   assert.ok(firstSong.lyrics.status);
   assert.ok(firstSong.lineage.sourceCardId);
 });
