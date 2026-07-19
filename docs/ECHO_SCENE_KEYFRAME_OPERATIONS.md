@@ -27,6 +27,15 @@ npm run echo:keyframes:stop-after-current
 node scripts/echo-scene-keyframe-process.mjs configure --concurrency 3 --per-run-claim-limit 3
 ```
 
+Read-only screenplay-authoring controls:
+
+```bash
+node scripts/echo-screenplay-authoring-queue.mjs
+node scripts/validate-echo-screenplay-authoring-draft.mjs --file <explicit-INCOMPLETE-draft.json>
+```
+
+The authoring queue distinguishes `packet_ready`, `authoring_partial`, `awaiting_finalization`, `awaiting_review`, `approved`, `staged_imported`, `image_activation_partial`, and `complete`. Count coverage cannot advance a song when authorship, provenance, source revision, or draft integrity fails. An incomplete direct-author draft must be an exact contiguous prefix; gaps, duplicate count IDs, declaration mismatches, or authored-field automation fail closed.
+
 Lower-level bounded worker operations:
 
 ```bash
@@ -76,3 +85,6 @@ These numbers are projections from current local evidence, not a guarantee of fi
 - Installation creates a new revisioned filename, hashes both outputs, records dimensions and provider/run identity, and leaves `eligibleForDirector: false` pending review.
 - Existing Director cuts and Song Card editions are unchanged.
 - OpenAI API credentials are neither required nor read by this process.
+- Direct-author screenplay work is performed by one declared LLM author with zero subagents and zero authored-field scripts/templates. Mechanical validators may inspect or hash authored text but may not create or rewrite it.
+- Each incomplete tranche is audited for exact contiguous source order, count declaration truth, semantic/shot/prompt completeness, and repeated scene/prompt/justification/metaphor scaffolds before the same author may continue.
+- A complete candidate still requires a different independent reviewer and an immutable approval receipt before prompt import. Image activation remains a separate bounded step after import; video stays held.

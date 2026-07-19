@@ -24,6 +24,8 @@ Author one integrated visual screenplay for every source-backed four-count in th
 - Treat Thorsun, Little Toe, Calder, and Bo as optional evergreen styling variants of the shared RGB human base. Treat Thor as a cat, Leo as a dog, and Falka/Mimi as her registered cyber-engineer/captain Avatar. Use this pool to broaden cast and staging only where the lyric, energy, action, symbol, reference mechanic, or teaching gives the character something specific to do. Do not rotate them mechanically or add them as decoration.
 - Emit `castAppearances` for every enhanced count. Only `on_screen` entries may list seed assets; additional on-screen cast requires the primary Avatar on-screen too. Prefer the smallest useful cast and never exceed primary plus three additions.
 - Preserve existing prompt/image/keyframe/video facts with `preserve_existing_media`; author missing counts as `candidate_direction_only` and keep every new prompt `stage_only` with image activation `not_requested`.
+- When one model turn cannot honestly cover the full song, stop at the largest high-quality contiguous prefix. Keep it as an explicit `incomplete-direct-llm-authoring-draft`, report the exact authored count, and continue only with the same sole author. Never pad the remainder, skip a middle range, or label a count-complete shell as a candidate.
+- After every bounded tranche, run the read-only draft audit. It may validate integrity and authored-surface diversity, but it may not generate, rewrite, repair, or fill authored fields.
 
 ## Prohibited shortcuts
 
@@ -56,7 +58,8 @@ Before emitting a count, verify all of the following:
 
 ## Output
 
-- Produce exactly one JSON document using schema `hapa.echo.full-song-visual-screenplay.v1` and covering all packet counts in exact source order.
+- The final candidate is exactly one JSON document using schema `hapa.echo.full-song-visual-screenplay.v1` and covers all packet counts in exact source order.
+- A resumable work artifact must remain visibly non-candidate: `nonCandidateStatus: incomplete-direct-llm-authoring-draft`, `schemaTarget: hapa.echo.full-song-visual-screenplay.v1`, a truthful `authoredCompleteCountRecords`, the immutable packet `sourceRevision`, and a contiguous prefix of directly authored records. It is never reviewable, finalizable, importable, or image-active.
 - Leave mechanically derived hashes as the literal string `pending`; the trusted finalizer will calculate hashes without changing scene content.
 - Set schema-valid `review.status` to `staged` and add the review note `candidate-awaiting-independent-review; not approved and not activated`.
 - Do not claim that the candidate is approved and do not activate any image quest.

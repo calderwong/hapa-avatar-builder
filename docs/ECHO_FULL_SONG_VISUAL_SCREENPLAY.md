@@ -117,6 +117,14 @@ npm run echo:screenplay:finalize -- \
 
 Dry-run is the default. A write requires a distinct output path, a paused process, and zero active claims. The finalizer never alters process state, activates an image, claims a quest, calls a provider, installs media, or touches held video state.
 
+For an explicitly incomplete direct-author draft, use the separate read-only audit:
+
+```bash
+node scripts/validate-echo-screenplay-authoring-draft.mjs --file path/to/INCOMPLETE.json
+```
+
+It verifies exact contiguous source coverage, truthful authored-count declarations, immutable source revisions, flat sole-author/no-automation attestation, semantic/shot/prompt completeness, and the same repetition/diversity gates used by the final screenplay. It performs zero provider calls and zero process or media mutation.
+
 The canonical screenplay hash covers the entire finalized document—including scene/semantic text, prompts, prompt hashes, seed provenance, authoring attestation, review state, and generation policy—except for the `provenance.contentHash` field itself, which is removed from the hash preimage to avoid self-reference. Both runtime import validation and the standalone validator recompute this hash; a declared value is never trusted.
 
 ## Staging and activation states
@@ -154,6 +162,8 @@ The repository provides a read-only validator:
 ```bash
 npm run echo:screenplay:validate -- --file path/to/screenplay.json
 ```
+
+An incomplete draft is never a screenplay candidate. Its records must form the exact contiguous prefix of current source-backed counts, and its declared authored count, immutable source revision, flat author audit, semantic fields, prompt surfaces, and diversity checks must agree before the same sole author continues.
 
 With no screenplay files staged in `data/echo-scene-keyframes/screenplays/`, it exits successfully and reports that nothing is awaiting validation. The validator checks the high-value operational rules that are hard to express in basic JSON schema alone: staged-only prompt mode, explicit activation linkage, nonliteral reference mechanics, four-beat timing windows, adjacent repetition gates, canonical per-count prompt hashes, and the recomputed canonical screenplay content hash.
 
