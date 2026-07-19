@@ -31,7 +31,7 @@ Read-only screenplay-authoring controls:
 
 ```bash
 node scripts/echo-screenplay-authoring-queue.mjs
-node scripts/validate-echo-screenplay-authoring-draft.mjs --file <explicit-INCOMPLETE-draft.json>
+node scripts/validate-echo-screenplay-authoring-draft.mjs --file <explicit-INCOMPLETE-draft.json> --packet <immutable-source-packet.json>
 ```
 
 The authoring queue distinguishes `packet_ready`, `authoring_partial`, `awaiting_finalization`, `awaiting_review`, `approved`, `staged_imported`, `image_activation_partial`, and `complete`. Count coverage cannot advance a song when authorship, provenance, source revision, or draft integrity fails. An incomplete direct-author draft must be an exact contiguous prefix; gaps, duplicate count IDs, declaration mismatches, or authored-field automation fail closed.

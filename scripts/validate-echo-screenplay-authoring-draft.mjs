@@ -5,11 +5,16 @@ import process from "node:process";
 import { fileURLToPath } from "node:url";
 import { validateEchoScreenplayAuthoredCountTranche } from "../src/domain/echo-scene-keyframe-process.js";
 import { inspectEchoScreenplayDraftArtifact } from "../src/domain/echo-screenplay-authoring-queue.js";
+import {
+  validateEchoScreenplayReferenceCoverage,
+  validateEchoScreenplaySourcePacket,
+} from "../src/domain/echo-screenplay-source-packet.js";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const defaults = {
   process: "data/echo-scene-keyframes/process.json",
   file: null,
+  packet: null,
 };
 
 function parseArgs(argv) {
@@ -40,10 +45,20 @@ export function run(argv = process.argv.slice(2)) {
   const options = parseArgs(argv);
   if (options.help) return { help: true };
   if (!options.file) throw new Error("--file <incomplete-screenplay.json> is required.");
+  if (!options.packet) throw new Error("--packet <immutable-source-packet.json> is required.");
   const processPath = path.resolve(root, options.process);
   const file = path.resolve(root, options.file);
+  const packetFile = path.resolve(root, options.packet);
   const processState = JSON.parse(fs.readFileSync(processPath, "utf8"));
   const payload = JSON.parse(fs.readFileSync(file, "utf8"));
+  const packetPayload = JSON.parse(fs.readFileSync(packetFile, "utf8"));
+  const packet = packetPayload.packet || packetPayload;
+  const packetValidation = validateEchoScreenplaySourcePacket(packet);
+  if (!packetValidation.ok) throw new Error(`Source packet validation failed: ${packetValidation.errors.join(", ")}`);
+  if (payload.songId !== packet.song.id) throw new Error(`Draft songId ${payload.songId} does not match packet songId ${packet.song.id}.`);
+  for (const key of ["songContextHash", "lyricsHash", "timingHash", "referenceGraphHash", "seedSetHash", "directorTreatmentHash", "promptPolicyHash"]) {
+    if (payload.sourceRevision?.[key] !== packet.sourceRevision?.[key]) throw new Error(`Draft sourceRevision.${key} does not match the immutable source packet.`);
+  }
   const records = collectCountRecords(payload.partialScreenplay);
   const artifact = inspectEchoScreenplayDraftArtifact(processState, {
     kind: "screenplay",
@@ -56,22 +71,26 @@ export function run(argv = process.argv.slice(2)) {
   });
   if (!artifact.draftIntegrity?.ok) throw new Error(artifact.validationError);
   const quality = validateEchoScreenplayAuthoredCountTranche(records, { enhanced: true });
+  const referenceCoverage = validateEchoScreenplayReferenceCoverage(records, packet);
+  if (!referenceCoverage.ok) throw new Error(`Reference coverage failed: ${referenceCoverage.errors.join("; ")}`);
   return {
     ok: true,
     mode: "read-only-draft-audit",
     providerCalls: 0,
     processMutated: false,
     file,
+    packetFile,
     songId: payload.songId,
     integrity: artifact.draftIntegrity,
     quality,
+    referenceCoverage,
   };
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   try {
     const result = run();
-    if (result.help) process.stdout.write("Usage: node scripts/validate-echo-screenplay-authoring-draft.mjs --file <draft.json> [--process <process.json>]\n");
+    if (result.help) process.stdout.write("Usage: node scripts/validate-echo-screenplay-authoring-draft.mjs --file <draft.json> --packet <immutable-source-packet.json> [--process <process.json>]\n");
     else process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
   } catch (error) {
     process.stderr.write(`${error.stack || error.message}\n`);

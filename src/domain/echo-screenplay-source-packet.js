@@ -45,6 +45,73 @@ function graphEvidence(songId, graphEdges = []) {
 
 function unique(values) { return [...new Set(values.filter(Boolean))]; }
 
+function normalizeLyricCoverageText(value) {
+  return String(value || "")
+    .normalize("NFKD")
+    .replace(/\p{M}+/gu, "")
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .trim()
+    .replace(/\s+/gu, " ");
+}
+
+function countOverlapsConnector(count, connector) {
+  const targetText = normalizeLyricCoverageText(connector?.target?.lyricText);
+  const matchedText = normalizeLyricCoverageText(connector?.target?.matchedText);
+  if (!targetText && !matchedText) return false;
+  return (count?.lyricOverlap || []).some((overlap) => {
+    const text = normalizeLyricCoverageText(overlap?.text || overlap?.excerpt);
+    if (text.length < 4) return false;
+    return (targetText && (targetText.includes(text) || text.includes(targetText)))
+      || (matchedText && (matchedText.includes(text) || text.includes(matchedText)));
+  });
+}
+
+/**
+ * Fail closed when an authored tranche reaches a lyric-backed reference but
+ * never records that connector in any overlapping count. This prevents
+ * `explicitNoReferenceApplies` from bypassing the source packet.
+ */
+export function validateEchoScreenplayReferenceCoverage(records, packet) {
+  const authoredById = new Map((records || []).map((record) => [record?.countId, record]));
+  const packetCounts = new Map((packet?.fourCounts || []).map((count) => [count?.id, count]));
+  const songConnectorEvidence = (packet?.referenceEvidence || []).filter((row) => row?.source === "song.referenceConnectors"
+    && row?.id
+    && (!row?.target?.songId || row.target.songId === packet?.song?.id));
+  const knownConnectorIds = new Set(songConnectorEvidence.map((row) => row.id));
+  const mechanics = (records || []).flatMap((record) => (record?.semanticExtraction?.referenceMechanics || [])
+    .map((mechanic) => ({ countId: record.countId, connectorId: mechanic?.connectorId || null })));
+  const unexpectedConnectorIds = unique(mechanics.map((row) => row.connectorId).filter((id) => id && !knownConnectorIds.has(id)));
+  const required = songConnectorEvidence.map((connector) => {
+    const applicableCountIds = [...authoredById.keys()].filter((countId) => countOverlapsConnector(packetCounts.get(countId), connector));
+    const coveredCountIds = applicableCountIds.filter((countId) => (authoredById.get(countId)?.semanticExtraction?.referenceMechanics || [])
+      .some((mechanic) => mechanic?.connectorId === connector.id));
+    return {
+      connectorId: connector.id,
+      referenceId: connector.referenceId || null,
+      confidence: connector.confidence || "contextual",
+      applicableCountIds,
+      coveredCountIds,
+      covered: applicableCountIds.length === 0 || coveredCountIds.length > 0,
+    };
+  }).filter((row) => row.applicableCountIds.length > 0);
+  const missingConnectorIds = required.filter((row) => !row.covered).map((row) => row.connectorId);
+  const errors = [
+    ...missingConnectorIds.map((id) => `missing overlapping reference mechanic: ${id}`),
+    ...unexpectedConnectorIds.map((id) => `reference mechanic is not in the immutable song packet: ${id}`),
+  ];
+  return {
+    ok: errors.length === 0,
+    authoredCountRecords: authoredById.size,
+    applicableConnectors: required.length,
+    coveredConnectors: required.filter((row) => row.covered).length,
+    missingConnectorIds,
+    unexpectedConnectorIds,
+    connectorCoverage: required,
+    errors,
+  };
+}
+
 function promptSafeReference(reference, connectors = [], edges = []) {
   const connectorEffects = connectors.map((connector) => connector.semanticEffect || {});
   const relatedEdges = edges.filter((edge) => edge.fromReferenceId === reference.id || edge.toReferenceId === reference.id);

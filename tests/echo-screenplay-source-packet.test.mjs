@@ -3,7 +3,11 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { buildEchoScreenplaySourcePacket, validateEchoScreenplaySourcePacket } from "../src/domain/echo-screenplay-source-packet.js";
+import {
+  buildEchoScreenplaySourcePacket,
+  validateEchoScreenplayReferenceCoverage,
+  validateEchoScreenplaySourcePacket,
+} from "../src/domain/echo-screenplay-source-packet.js";
 import { run } from "../scripts/build-echo-screenplay-source-packet.mjs";
 
 const song = { id: "song-a", title: "Song A", lyrics: { status: "matched_exact", text: "hello" }, performancePerspective: { avatarId: "blue", avatarName: "Blue" }, referenceConnectors: [{ id: "direct", referenceId: "work", classification: "explicit", semanticEffect: { traversalEdges: ["memory-route"] } }], contextualLayers: [{ id: "layer", status: "soft" }] };
@@ -92,6 +96,53 @@ test("validator rejects seed assets without immutable SHA-256 provenance", () =>
   const result = validateEchoScreenplaySourcePacket(packet);
   assert.equal(result.ok, false);
   assert.ok(result.errors.includes("approvedAvatarSeeds.contentHash:seed"));
+});
+
+test("reference coverage cannot be bypassed by explicitNoReferenceApplies on an overlapping lyric", () => {
+  const packet = buildEchoScreenplaySourcePacket({
+    song: { ...song, referenceConnectors: song.referenceConnectors.map((connector) => ({ ...connector, target: { lyricText: "hello", matchedText: "hello", songId: "song-a" } })) },
+    windows,
+    referenceCatalog: [{ id: "work", title: "Work", kind: "book" }],
+  });
+  const record = {
+    countId: "song-a-count-0001",
+    semanticExtraction: { referenceMechanics: [], explicitNoReferenceApplies: true },
+  };
+  const result = validateEchoScreenplayReferenceCoverage([record], packet);
+  assert.equal(result.ok, false);
+  assert.deepEqual(result.missingConnectorIds, ["direct"]);
+});
+
+test("reference coverage accepts the packet connector and ignores future lyric connectors outside the tranche", () => {
+  const packet = buildEchoScreenplaySourcePacket({
+    song: {
+      ...song,
+      referenceConnectors: [
+        ...song.referenceConnectors.map((connector) => ({ ...connector, target: { lyricText: "hello", matchedText: "hello", songId: "song-a" } })),
+        { id: "future", referenceId: "future-work", classification: "candidate", target: { lyricText: "world", matchedText: "world", songId: "song-a" } },
+      ],
+    },
+    windows,
+    referenceCatalog: [{ id: "work", title: "Work", kind: "book" }, { id: "future-work", title: "Future", kind: "book" }],
+  });
+  const firstOnly = [{
+    countId: "song-a-count-0001",
+    semanticExtraction: { referenceMechanics: [{ connectorId: "direct" }], explicitNoReferenceApplies: false },
+  }];
+  const result = validateEchoScreenplayReferenceCoverage(firstOnly, packet);
+  assert.equal(result.ok, true);
+  assert.equal(result.applicableConnectors, 1);
+  assert.equal(result.coveredConnectors, 1);
+});
+
+test("reference coverage rejects connector ids invented outside the immutable packet", () => {
+  const packet = buildEchoScreenplaySourcePacket({ song: { ...song, referenceConnectors: song.referenceConnectors.map((connector) => ({ ...connector, target: { lyricText: "hello", matchedText: "hello", songId: "song-a" } })) }, windows, referenceCatalog: [{ id: "work", title: "Work", kind: "book" }] });
+  const result = validateEchoScreenplayReferenceCoverage([{
+    countId: "song-a-count-0001",
+    semanticExtraction: { referenceMechanics: [{ connectorId: "invented" }] },
+  }], packet);
+  assert.equal(result.ok, false);
+  assert.deepEqual(result.unexpectedConnectorIds, ["invented"]);
 });
 
 test("read-only CLI builds a validated full-source packet and does not create output files", () => {

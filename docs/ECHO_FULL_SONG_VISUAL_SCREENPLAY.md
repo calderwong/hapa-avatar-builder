@@ -120,7 +120,7 @@ Dry-run is the default. A write requires a distinct output path, a paused proces
 For an explicitly incomplete direct-author draft, use the separate read-only audit:
 
 ```bash
-node scripts/validate-echo-screenplay-authoring-draft.mjs --file path/to/INCOMPLETE.json
+node scripts/validate-echo-screenplay-authoring-draft.mjs --file path/to/INCOMPLETE.json --packet path/to/immutable.packet.json
 ```
 
 It verifies exact contiguous source coverage, truthful authored-count declarations, immutable source revisions, flat sole-author/no-automation attestation, semantic/shot/prompt completeness, and the same repetition/diversity gates used by the final screenplay. It performs zero provider calls and zero process or media mutation.
