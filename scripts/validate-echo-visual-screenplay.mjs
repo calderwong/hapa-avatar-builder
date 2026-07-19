@@ -306,6 +306,9 @@ function validateDocument(document, filePath) {
   const errors = [];
   if (document?.schemaVersion !== SCHEMA_VERSION) fail(errors, "document", `schemaVersion must be ${SCHEMA_VERSION}`);
   if (!nonEmptyString(document?.songId)) fail(errors, "document", "songId is required");
+  for (const field of ["songContextHash", "lyricsHash", "timingHash", "seedSetHash", "promptPolicyHash"]) {
+    if (!/^sha256:[a-f0-9]{64}$/u.test(String(document?.sourceRevision?.[field] || ""))) fail(errors, "document", `sourceRevision.${field} requires a SHA-256 value`);
+  }
   validateAuthoringProvenance(document?.authoringProvenance, errors);
   if (document?.generationPolicy?.promptImportMode !== "stage_only") fail(errors, "document", "promptImportMode must be stage_only");
   if (document?.generationPolicy?.imageActivationRequired !== true) fail(errors, "document", "imageActivationRequired must be true");

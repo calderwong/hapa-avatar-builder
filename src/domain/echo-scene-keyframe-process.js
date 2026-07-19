@@ -593,7 +593,7 @@ function validateFullSongScreenplayHeader(screenplay, { requireApproval }) {
     if (!screenplay[key]) throw new Error(`Screenplay ${key} is required.`);
   }
   for (const key of ["songContextHash", "lyricsHash", "timingHash", "seedSetHash", "promptPolicyHash"]) {
-    if (typeof screenplay.sourceRevision[key] !== "string" || !screenplay.sourceRevision[key].trim()) throw new Error(`Screenplay sourceRevision.${key} is required.`);
+    if (!/^sha256:[a-f0-9]{64}$/u.test(String(screenplay.sourceRevision[key] || ""))) throw new Error(`Screenplay sourceRevision.${key} requires a SHA-256 value.`);
   }
   if (!Array.isArray(screenplay.avatarContinuity.seedAssets) || !screenplay.avatarContinuity.seedAssets.length) throw new Error("Screenplay avatarContinuity.seedAssets is required.");
   const seedIds = new Set();

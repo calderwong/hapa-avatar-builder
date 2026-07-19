@@ -279,7 +279,17 @@ export function buildEchoScreenplaySourcePacket({ song, project, telemetry, wind
       "No process mutation: no claim, resume, provider call, image install, or media-card update.",
     ],
   };
-  return { ...packet, packetHash: hash(packet) };
+  const sourceRevision = {
+    songContextHash: hash({ song: packet.song, directorContext: packet.directorContext }),
+    lyricsHash: hash(packet.song.lyricMaster),
+    timingHash: hash({ timing: packet.timing, windows: packet.fourCounts.map(({ continuity: _continuity, ...window }) => window) }),
+    referenceGraphHash: hash({ evidence: packet.referenceEvidence, resolved: packet.resolvedSongReferences, reservoir: packet.albumContextReservoir }),
+    seedSetHash: hash({ primary: packet.approvedAvatarSeeds.assets, additional: packet.castAttribution.additional.map((member) => ({ avatarId: member.avatarId, seedAssets: member.seedAssets })) }),
+    directorTreatmentHash: hash(packet.directorContext),
+    promptPolicyHash: hash({ authoringInstruction: packet.authoringInstruction, qualityPolicy: packet.qualityPolicy, constraints: packet.constraints }),
+  };
+  const revisionedPacket = { ...packet, sourceRevision };
+  return { ...revisionedPacket, packetHash: hash(revisionedPacket) };
 }
 
 export function validateEchoScreenplaySourcePacket(packet) {
@@ -291,6 +301,9 @@ export function validateEchoScreenplaySourcePacket(packet) {
   if (!Array.isArray(packet?.resolvedSongReferences)) errors.push("resolvedSongReferences");
   if (!Array.isArray(packet?.albumContextReservoir)) errors.push("albumContextReservoir");
   if (!packet?.authoringInstruction || !packet?.qualityPolicy) errors.push("authoringInstruction/qualityPolicy");
+  for (const key of ["songContextHash", "lyricsHash", "timingHash", "referenceGraphHash", "seedSetHash", "directorTreatmentHash", "promptPolicyHash"]) {
+    if (!/^sha256:[a-f0-9]{64}$/u.test(String(packet?.sourceRevision?.[key] || ""))) errors.push(`sourceRevision.${key}`);
+  }
   if (!Array.isArray(packet?.approvedAvatarSeeds?.assets)) errors.push("approvedAvatarSeeds.assets");
   for (const seed of packet?.approvedAvatarSeeds?.assets || []) {
     if (!seed?.id || !seed?.localPath) errors.push(`approvedAvatarSeeds.asset:${seed?.id || "missing"}`);

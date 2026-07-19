@@ -24,6 +24,9 @@ test("screenplay source packet retains evidence labels, seed provenance, and adj
     albumConnectors: [{ sourceSongId: "other-song", referenceId: "other", confidence: "candidate", semanticEffect: { traversalEdges: ["return-route"] } }],
   });
   assert.equal(packet.mode, "read-only-source-packet");
+  assert.match(packet.sourceRevision.songContextHash, /^sha256:[a-f0-9]{64}$/u);
+  assert.match(packet.sourceRevision.seedSetHash, /^sha256:[a-f0-9]{64}$/u);
+  assert.match(packet.sourceRevision.promptPolicyHash, /^sha256:[a-f0-9]{64}$/u);
   assert.equal(packet.evidenceSummary.direct, 1);
   assert.equal(packet.evidenceSummary.candidate, 2);
   assert.equal(packet.approvedAvatarSeeds.assets[0].localPath, "/approved.png");
