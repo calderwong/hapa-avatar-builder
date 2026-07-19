@@ -975,7 +975,30 @@ function validateScreenplaySequenceQuality(entries, screenplay) {
     }
   }
   validateGlobalSceneDiversity(entries);
+  validateEnhancedPromptLeadDiversity(entries, screenplay);
   for (const entry of entries) validateReservoirInspiration(entry);
+}
+
+function validateEnhancedPromptLeadDiversity(entries, screenplay) {
+  if (!screenplay.avatarContinuity?.castPolicy || entries.length < 6) return;
+  const leads = new Map();
+  for (const entry of entries) {
+    const lead = String(entry.prompt.gptImagePrompt || "")
+      .split(/[.!?]/u, 1)[0]
+      .toLocaleLowerCase()
+      .replace(/\b\d+(?:[.:]\d+)*\b/gu, "{number}")
+      .replace(/[“”"']/gu, "")
+      .replace(/\s+/gu, " ")
+      .trim();
+    const key = lead.split(" ").slice(0, 8).join(" ");
+    const rows = leads.get(key) || [];
+    rows.push(entry.countId);
+    leads.set(key, rows);
+  }
+  const maximumReuse = Math.max(2, Math.ceil(entries.length / 12));
+  for (const [lead, rows] of leads) {
+    if (rows.length > maximumReuse) throw new Error(`Repeated enhanced prompt lead appears ${rows.length} times (maximum ${maximumReuse}): ${lead}.`);
+  }
 }
 
 function validateGlobalSceneDiversity(entries) {

@@ -36,6 +36,8 @@ Author one integrated visual screenplay for every source-backed four-count in th
 
 Shared seed-identity and negative-safety clauses may repeat where operationally necessary. The cinematic body, scene causality, semantic extraction, and justification must be individually reasoned for each count.
 
+For enhanced cast-aware screenplays, do not begin most prompts with the same production-label sentence (for example, a repeated “Cinematic 16:9 key frame for exact four-count…” lead). Open directly on the count's distinctive image, action, material, or camera event. The validator treats heavily repeated prompt leads as templated authoring even when later nouns are different.
+
 ## Image-worthy frame test
 
 Before emitting a count, verify all of the following:

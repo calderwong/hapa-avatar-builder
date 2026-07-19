@@ -435,6 +435,16 @@ test("whole-song diversity gate scales across long sequences and catches templat
   assert.throws(() => validateEchoSongVisualScreenplay(process, templated), /Repeated prompt sentence skeleton/u);
 });
 
+test("enhanced cast-aware screenplays reject a repeated production-label prompt lead", () => {
+  const process = createEchoSceneKeyframeProcess({ counts: Array.from({ length: 12 }, (_, index) => sourceCount(index)) });
+  const screenplay = screenplayFor(process, { mutate: (value) => {
+    value.avatarContinuity.castPolicy = { primaryAvatarId: "avatar-2", selectionRule: "smallest useful cast", referencedAvatarRule: "explicit binding only", evergreenRule: "optional action-backed cast" };
+    const bodies = ["Rain cleaves the copper arch.", "A white kite drags sparks upstream.", "Three mirrors refuse the sunrise.", "The rope bridge blooms underfoot.", "Cold glass gathers a warm fingerprint.", "A paper bird crosses the engine room.", "Blue reeds bend around a lantern.", "The empty chair tips toward thunder.", "Salt crystals map an open palm.", "A cedar door floats above the tide.", "The compass needle stitches torn cloth.", "Green smoke clears around a seedling."];
+    for (const entry of value.sequencePlan[0].counts) entry.prompt.gptImagePrompt = `Cinematic 16:9 key frame for exact four-count ${entry.ordinal}. ${bodies[entry.ordinal]}`;
+  } });
+  assert.throws(() => validateEchoSongVisualScreenplay(process, screenplay), /Repeated enhanced prompt lead/u);
+});
+
 test("reservoir inspiration is optional but must materially affect its count when present", () => {
   const process = createEchoSceneKeyframeProcess({ counts: [sourceCount()] });
   const decorative = screenplayFor(process, { mutate: (value) => {

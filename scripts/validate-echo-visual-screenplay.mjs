@@ -163,6 +163,21 @@ function validateCast(document, counts, errors) {
   }
 }
 
+function validateEnhancedPromptLeadDiversity(document, counts, errors) {
+  if (!document?.avatarContinuity?.castPolicy || counts.length < 6) return;
+  const leads = new Map();
+  for (const count of counts) {
+    const lead = String(count?.prompt?.gptImagePrompt || "").split(/[.!?]/u, 1)[0].toLocaleLowerCase()
+      .replace(/\b\d+(?:[.:]\d+)*\b/gu, "{number}").replace(/[“”"']/gu, "").replace(/\s+/gu, " ").trim();
+    const key = lead.split(" ").slice(0, 8).join(" ");
+    const rows = leads.get(key) || [];
+    rows.push(count?.countId);
+    leads.set(key, rows);
+  }
+  const maximumReuse = Math.max(2, Math.ceil(counts.length / 12));
+  for (const [lead, rows] of leads) if (rows.length > maximumReuse) fail(errors, "document", `repeated enhanced prompt lead appears ${rows.length} times (maximum ${maximumReuse}): ${lead}`);
+}
+
 function validateCount(count, location, errors) {
   if (!nonEmptyString(count?.countId)) fail(errors, location, "countId is required");
   const window = count?.window;
@@ -310,6 +325,7 @@ function validateDocument(document, filePath) {
     }
   }
   validateCast(document, allCounts, errors);
+  validateEnhancedPromptLeadDiversity(document, allCounts, errors);
   validateGlobalSceneDiversity(allCounts, errors);
   if (!nonEmptyString(document?.provenance?.contentHash)) {
     fail(errors, "document", "provenance.contentHash is required");
