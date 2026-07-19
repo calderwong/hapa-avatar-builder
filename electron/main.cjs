@@ -397,6 +397,18 @@ function startOperatorConsoleServer() {
       return;
     }
     try {
+      if (url.pathname === "/v1/focus" && req.method === "POST") {
+        await ensureMainWindow();
+        const focused = focusMainWindow();
+        res.writeHead(focused ? 200 : 503, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({
+          ok: focused,
+          service: "hapa-avatar-builder-desktop",
+          pid: process.pid,
+          action: focused ? "focused" : "window_not_available",
+        }));
+        return;
+      }
       if (url.pathname === "/v1/screenshot") {
         if (!mainWindow || mainWindow.isDestroyed()) {
           res.writeHead(400, { "Content-Type": "application/json" });

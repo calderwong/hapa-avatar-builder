@@ -93,3 +93,23 @@ Before implementing a derivative or standalone Tarot Draw app:
 5. Obtain Calder’s explicit approval for any deliberate deviation before calling the derivative interface complete.
 
 If another copy has only one of the Tarot surfaces, merge into this canonical app instead of launching or extending the duplicate.
+
+## Launcher Incident And Guardrail — 2026-07-19
+
+The dedicated launcher previously closed the active Electron window and rebuilt `dist` before checking whether the healthy canonical `8797` service could simply be reused. Because the Finder wrapper runs silently in the background and had no preparation lock, repeated clicks started concurrent Vite builds against the same output directory. One build failed while emptying `dist/generated`; the surviving launch later failed an overly short health probe and exited before recreating the Electron window. An older, unrelated `hapa-dev-proto` process remained visible, which made the failure look like a source-of-truth mix-up even though the Avatar launcher never targeted dev-proto.
+
+The same audit found that Electron inherited the preparation log for its entire lifetime. Repeated Chromium/Metal messages had grown `desktop-dedicated-launcher.log` to approximately 678 MiB and more than four million lines, making every diagnostic read unnecessarily expensive. Launcher and Electron output are now separated, oversized logs are timestamp-archived rather than deleted, and that known repeated graphics error is sampled.
+
+Operational guardrails:
+
+1. Reuse and open a healthy canonical `8797` endpoint before doing build work.
+2. Serialize launcher preparation with an owned, stale-recoverable lock.
+3. Preserve an existing Electron window by default and rely on Electron's single-instance focus behavior.
+4. Treat window termination as explicit recovery via `HAPA_AVATAR_REPLACE_DESKTOP=1`, never routine launch behavior.
+5. Rebuild only for a missing or mismatched endpoint, or explicit `HAPA_AVATAR_FORCE_REBUILD=1` maintenance.
+6. Give local UI/API probes enough time to survive a busy workstation without misclassifying a healthy Hapa service.
+7. If the registered canonical service still owns a listening `8797` while probes are delayed, preserve and open it; busyness is not authorization to restart it.
+8. Keep preparation and long-lived runtime logs separate, threshold-rotated, and recoverable; repeated renderer noise is evidence to sample, not an append-only license to exhaust the workstation.
+9. Focus an already-running Builder through its exact loopback desktop control before paying the cost of a second Electron bootstrap; retain Electron's single-instance lock as the fallback.
+
+Lesson Card candidate: a launcher must validate and reuse the live canonical surface before it mutates build output or window state. A silent retry is a concurrency event, not permission to repeat destructive preparation.

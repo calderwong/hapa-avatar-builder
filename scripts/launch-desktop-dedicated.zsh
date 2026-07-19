@@ -9,24 +9,87 @@ CANONICAL_PORT="8797"
 OPERATOR_CONSOLE_PORT="${HAPA_AVATAR_OPERATOR_PORT:-8799}"
 LOG_DIR="$APP_ROOT/logs"
 LOG_FILE="$LOG_DIR/desktop-dedicated-launcher.log"
+ELECTRON_LOG_FILE="$LOG_DIR/desktop-electron.log"
+MAX_LOG_BYTES="${HAPA_AVATAR_MAX_DESKTOP_LOG_BYTES:-20971520}"
+LAUNCH_LOCK_DIR="$LOG_DIR/.desktop-launch.lock"
+LAUNCH_LOCK_HELD="0"
+PROBE_TIMEOUT_SECONDS="${HAPA_AVATAR_PROBE_TIMEOUT_SECONDS:-5}"
 mkdir -p "$LOG_DIR"
 
 export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:$PATH"
+
+rotate_log_if_large() {
+  local file="$1"
+  local size="0"
+  if [ ! -f "$file" ]; then
+    return
+  fi
+  size="$(/usr/bin/stat -f '%z' "$file" 2>/dev/null || echo 0)"
+  if [ "$size" -lt "$MAX_LOG_BYTES" ]; then
+    return
+  fi
+  local archived="${file%.log}.$(/bin/date '+%Y%m%d-%H%M%S').log"
+  /bin/mv "$file" "$archived"
+}
+
+rotate_log_if_large "$LOG_FILE"
+rotate_log_if_large "$ELECTRON_LOG_FILE"
 exec >> "$LOG_FILE" 2>&1
 
 timestamp() {
   date "+%Y-%m-%d %H:%M:%S"
 }
 
+release_launch_lock() {
+  if [ "$LAUNCH_LOCK_HELD" != "1" ]; then
+    return
+  fi
+  /bin/rm -f "$LAUNCH_LOCK_DIR/owner-pid"
+  /bin/rmdir "$LAUNCH_LOCK_DIR" >/dev/null 2>&1 || true
+  LAUNCH_LOCK_HELD="0"
+}
+
+acquire_launch_lock() {
+  local announced="0"
+  local owner_pid=""
+  for _ in {1..1200}; do
+    if /bin/mkdir "$LAUNCH_LOCK_DIR" >/dev/null 2>&1; then
+      echo "$$" > "$LAUNCH_LOCK_DIR/owner-pid"
+      LAUNCH_LOCK_HELD="1"
+      trap release_launch_lock EXIT INT TERM HUP
+      return
+    fi
+
+    owner_pid="$(<"$LAUNCH_LOCK_DIR/owner-pid" 2>/dev/null || true)"
+    if [ -n "$owner_pid" ] && ! kill -0 "$owner_pid" >/dev/null 2>&1; then
+      echo "[$(timestamp)] Recovering stale desktop-launch lock left by process $owner_pid"
+      /bin/rm -f "$LAUNCH_LOCK_DIR/owner-pid"
+      /bin/rmdir "$LAUNCH_LOCK_DIR" >/dev/null 2>&1 || true
+      continue
+    fi
+
+    if [ "$announced" = "0" ]; then
+      echo "[$(timestamp)] Another Avatar Builder launch is preparing; waiting instead of starting a competing build"
+      announced="1"
+    fi
+    sleep 0.25
+  done
+
+  echo "[$(timestamp)] ERROR: timed out waiting for the existing Avatar Builder launch preparation"
+  exit 1
+}
+
 is_hapa_html() {
   local port="$1"
-  curl -fsS --max-time 1 "http://127.0.0.1:${port}/" 2>/dev/null | head -c 1024 | grep -q "Hapa Avatar Builder"
+  local payload
+  payload="$(curl -fsS --connect-timeout 1 --max-time "$PROBE_TIMEOUT_SECONDS" "http://127.0.0.1:${port}/" 2>/dev/null || true)"
+  [[ "$payload" == *"Hapa Avatar Builder"* ]]
 }
 
 is_hapa_api() {
   local port="$1"
   local expected_owner="${2:-}"
-  curl -fsS --max-time 1 "http://127.0.0.1:${port}/api/health" 2>/dev/null | /usr/bin/python3 -c '
+  curl -fsS --connect-timeout 1 --max-time "$PROBE_TIMEOUT_SECONDS" "http://127.0.0.1:${port}/api/health" 2>/dev/null | /usr/bin/python3 -c '
 import json, sys
 payload = json.load(sys.stdin)
 expected_signature = sys.argv[1]
@@ -50,6 +113,32 @@ is_hapa_endpoint() {
   is_hapa_html "$port" && is_hapa_api "$port" "$expected_owner"
 }
 
+wait_for_hapa_endpoint() {
+  local port="$1"
+  local expected_owner="${2:-}"
+  local attempts="${3:-3}"
+  local attempt
+  for (( attempt = 1; attempt <= attempts; attempt++ )); do
+    if is_hapa_endpoint "$port" "$expected_owner"; then
+      return 0
+    fi
+    if [ "$attempt" -lt "$attempts" ]; then
+      sleep 0.5
+    fi
+  done
+  return 1
+}
+
+focus_existing_desktop() {
+  curl -fsS --connect-timeout 1 --max-time "$PROBE_TIMEOUT_SECONDS" \
+    -X POST "http://127.0.0.1:${OPERATOR_CONSOLE_PORT}/v1/focus" 2>/dev/null | /usr/bin/python3 -c '
+import json, sys
+payload = json.load(sys.stdin)
+ok = payload.get("ok") is True and payload.get("service") == "hapa-avatar-builder-desktop" and payload.get("action") == "focused"
+raise SystemExit(0 if ok else 1)
+' 2>/dev/null
+}
+
 launchd_target() {
   echo "gui/$(id -u)/${CANONICAL_LAUNCHD_LABEL}"
 }
@@ -66,32 +155,6 @@ restart_canonical_launchd() {
 is_listening() {
   local port="$1"
   lsof -nP -iTCP:"${port}" -sTCP:LISTEN >/dev/null 2>&1
-}
-
-pids_for_port() {
-  local port="$1"
-  lsof -nP -tiTCP:"${port}" -sTCP:LISTEN 2>/dev/null | sort -u
-}
-
-stop_listeners_on_port() {
-  local port="$1"
-  local pids
-  pids="$(pids_for_port "$port" || true)"
-  if [ -z "$pids" ]; then
-    return
-  fi
-  echo "$pids" | while read -r pid; do
-    if [ -n "$pid" ]; then
-      echo "[$(timestamp)] Stopping stale Hapa desktop server process $pid on port $port"
-      kill "$pid" >/dev/null 2>&1 || true
-    fi
-  done
-  for _ in {1..24}; do
-    if ! is_listening "$port"; then
-      return
-    fi
-    sleep 0.25
-  done
 }
 
 desktop_process_pids() {
@@ -116,8 +179,8 @@ is_owned_desktop_process() {
 }
 
 close_existing_desktops() {
-  if [ "${HAPA_AVATAR_KEEP_EXISTING:-0}" = "1" ]; then
-    echo "[$(timestamp)] Keeping existing Hapa Avatar Builder desktop windows by request"
+  if [ "${HAPA_AVATAR_REPLACE_DESKTOP:-0}" != "1" ]; then
+    echo "[$(timestamp)] Preserving any existing Avatar Builder window; Electron will focus it on a repeat launch"
     return
   fi
 
@@ -193,10 +256,7 @@ if [ ! -d node_modules ]; then
   npm install
 fi
 
-close_existing_desktops
-
-echo "[$(timestamp)] Building production UI"
-npm run build
+acquire_launch_lock
 
 # 8799 is reserved for the optional Electron operator console and must never be
 # selected as the Builder UI/API port.
@@ -211,19 +271,37 @@ fi
 
 selected_port=""
 reuse_existing="0"
-reuse_desktop_server="${HAPA_AVATAR_REUSE_DESKTOP_SERVER:-0}"
+force_rebuild="${HAPA_AVATAR_FORCE_REBUILD:-0}"
 
-if canonical_launchd_registered; then
-  if ! is_hapa_endpoint "$CANONICAL_PORT" "launchd-canonical"; then
+if [ "$force_rebuild" != "1" ] && canonical_launchd_registered && wait_for_hapa_endpoint "$CANONICAL_PORT" "launchd-canonical" 3; then
+  selected_port="$CANONICAL_PORT"
+  reuse_existing="1"
+  echo "[$(timestamp)] Healthy canonical Hapa UI is already ready on port $CANONICAL_PORT; skipping rebuild"
+fi
+
+if [ "$force_rebuild" != "1" ] && [ -z "$selected_port" ] && canonical_launchd_registered && is_listening "$CANONICAL_PORT"; then
+  selected_port="$CANONICAL_PORT"
+  reuse_existing="1"
+  echo "[$(timestamp)] Canonical port $CANONICAL_PORT is owned and listening but busy; preserving it and opening the Builder instead of rebuilding or restarting"
+fi
+
+if [ -z "$selected_port" ]; then
+  close_existing_desktops
+  echo "[$(timestamp)] Preparing production UI because no matching canonical endpoint was ready"
+  npm run build
+fi
+
+if [ -z "$selected_port" ] && canonical_launchd_registered; then
+  if ! wait_for_hapa_endpoint "$CANONICAL_PORT" "launchd-canonical" 2; then
     restart_canonical_launchd
-    for _ in {1..80}; do
+    for _ in {1..120}; do
       if is_hapa_endpoint "$CANONICAL_PORT" "launchd-canonical"; then
         break
       fi
-      sleep 0.25
+      sleep 0.5
     done
   fi
-  if is_hapa_endpoint "$CANONICAL_PORT" "launchd-canonical"; then
+  if wait_for_hapa_endpoint "$CANONICAL_PORT" "launchd-canonical" 3; then
     selected_port="$CANONICAL_PORT"
     reuse_existing="1"
     echo "[$(timestamp)] Canonical launchd API matches build $EXPECTED_BUILD_SIGNATURE and current Echo delivery sources"
@@ -237,13 +315,8 @@ if [ -z "$selected_port" ]; then
   for port in "${port_candidates[@]}"; do
     if is_hapa_endpoint "$port"; then
       selected_port="$port"
-      if [ "$reuse_desktop_server" = "1" ]; then
-        reuse_existing="1"
-      else
-        echo "[$(timestamp)] Rebuilding against existing Hapa UI port $port; restarting server so API routes match the new build"
-        stop_listeners_on_port "$port"
-        reuse_existing="0"
-      fi
+      reuse_existing="1"
+      echo "[$(timestamp)] Reusing matching Hapa UI port $port without stopping its server"
       break
     fi
   done
@@ -300,5 +373,22 @@ export HAPA_AVATAR_API_BASE="$desktop_url"
 export HAPA_AVATAR_PUBLIC_PORT="$selected_port"
 export HAPA_AVATAR_PUBLIC_HTTPS_PORT="$https_port"
 
+if focus_existing_desktop; then
+  echo "[$(timestamp)] Focused the existing Hapa Avatar Builder window through its loopback desktop control"
+  release_launch_lock
+  trap - EXIT INT TERM HUP
+  exit 0
+fi
+
 echo "[$(timestamp)] Launching Electron desktop shell at $desktop_url"
-exec npm run desktop
+release_launch_lock
+trap - EXIT INT TERM HUP
+npm run desktop 2>&1 | /usr/bin/awk '
+/GL_INVALID_OPERATION.*mtl_pipeline_cache/ {
+  gpu_errors += 1
+  if (gpu_errors <= 5) { print; fflush() }
+  else if (gpu_errors == 6) { print "[desktop] Repeated Metal pipeline errors suppressed after five samples"; fflush() }
+  next
+}
+{ print; fflush() }
+' >> "$ELECTRON_LOG_FILE"
