@@ -52,7 +52,8 @@ The reference repository remains valuable as a tested protocol lab and append-on
 5. A thin Stargate adapter calls the transplanted, tested derivation core and returns the semantic digest, private rendezvous topic, explanation, and truth state.
 6. Existing Invite Cam / Roomlet / Phone Card participation gains the signed Stargate invitation and session-feed behavior.
 7. Communication, consented comments, Wisdom evaluations, generated proposals, mint decisions, and build history return to the table as Cards rather than opening a parallel product workspace.
-8. Builder's existing API and CLI gain parity routes over the same Stargate core. The renderer never owns secrets, peer keys, provider credentials, or mint authority.
+8. An explicitly human-minted Stargate Context Card publishes one origin event through Overwind. `.hapaCatalog` subscribes to that acknowledged identity and projects it into discovery, dossier, composition, and optional commerce surfaces without minting a second Card or becoming the Card head.
+9. Builder's existing API and CLI gain parity routes over the same Stargate core. The renderer never owns secrets, peer keys, provider credentials, or mint authority.
 
 ## P0 hero interaction: Dial a Stargate
 
@@ -95,6 +96,43 @@ The saved Gate Card is immediately dealt onto the Tarot table using the existing
 - A receiving node verifies the Card, resolves or accepts the Pass, asks for explicit local consent, and derives the same private namespace locally. If the Pass is absent or expired, the Card can still restore/teach the context and request a fresh Pass from an authorized inviter.
 - A later Hapa Keys integration may seal a Pass to named recipient keys. P0 uses the already-tested opaque signed invitation and never represents it as a durable public Card field.
 
+### Mint, live, and return through `.hapaCatalog`
+
+The Catalog layer must demonstrate interoperability without creating a competing Card authority:
+
+1. **Save Gate creates a proposal.** The Builder deals a proposed `hapa.stargate-context-card.v1` onto the table. It is restorable locally, but it is not described as minted, shared, acknowledged, sellable, or live in Catalog yet.
+2. **Review & Mint is human-gated.** A compact review surface shows the exact ordered Formation, scene fingerprint, safe commitments, privacy scope, excluded secrets, revision, and origin. Only explicit approval appends the origin mint event.
+3. **Overwind acknowledges the one identity.** The Builder reports `origin staged` until durable acknowledgement and a cursor exist. Only then may it report `Overwind acknowledged` for that exact Card ID and revision.
+4. **`.hapaCatalog` subscribes and projects.** The existing subscriber indexes the acknowledged Card into Card Multiverse and hydrates its Living Card dossier. Catalog may own discovery, Deck membership, merchandising, entitlement, analytics, and an explicitly approved offer; it does not create another Card head or rewrite source history.
+5. **Catalog returns to the source experience.** A stable `Open in Avatar Builder` action resolves the exact Card ID and pinned revision, restores the saved Tarot scene and ordered Formation, and remains disconnected until the user deliberately requests or supplies a fresh Gate Pass.
+
+The visible sync rail is append-only and revision-specific:
+
+`Proposed -> Origin staged -> Overwind acknowledged -> Catalog indexed`
+
+It also has truthful exception states: `local-stale`, `revision mismatch`, `subscriber unavailable`, `pass absent`, and `pass expired`. A newer source revision appears as **Newer revision available**; Catalog never silently changes the namespace of a pinned Gate Card.
+
+#### Avatar Builder actions
+
+- **Save Gate** — create the proposed safe Context Card and deal it onto the existing table.
+- **Review & Mint** — show the exact mint boundary and require a human decision.
+- **View in .hapaCatalog** — enable only when Catalog has indexed the exact acknowledged Card revision; otherwise show the current sync state.
+- **Copy Card Reference** — copy a stable Card ID/revision/source resolver, never a Pass or private address.
+- **Add to Shared Hand** — keep the Card portable through the existing Overcard collection path.
+
+#### `.hapaCatalog` actions and presentation
+
+- Extend the existing Scene Portal reveal into a **Convergence Portal** for Stargate Context Cards rather than building another Catalog mini-app.
+- The Living Card dossier presents: identity and hero media; Formation recipe; purpose/privacy; ordered member Cards; source scene; safe Gate commitments; lineage/history/comments; acknowledgement and projection watermarks; revision and freshness; discoverability, joinability, entitlement, and commerce as independent states.
+- **Preview Context** reads the safe scene and Formation without joining.
+- **Open in Avatar Builder** restores the exact pinned scene and Formation without reconnecting.
+- **Request Gate Pass** asks an authorized inviter for a fresh transient capability.
+- **Join Stargate** appears only when a valid, fresh Pass is present and still requires local consent.
+- **Add to Deck**, **Add to Shared Hand**, **Inspect Live Lineage**, and **Compare Formation Revisions** reuse existing composition, dossier, and comparison grammar.
+- P0 keeps the Card `commerce_eligible=false` and `source_only` unless a later explicit human policy creates an offer. Discoverable, deckable, owned, joinable, entitled, and sellable never collapse into one state.
+
+The durable Card, Overwind history, Catalog projection, URLs, logs, and captures never contain the cohort secret, raw Pass, full rendezvous topic/address, private keys, credentials, or local paths. A Gate Pass is short-lived signed runtime authority linked to—but never embedded in—the durable Card.
+
 ## Golden demonstration cut
 
 The shortest coherent judge path is:
@@ -102,10 +140,13 @@ The shortest coherent judge path is:
 1. Open the familiar Tarot Draw cockpit with a curated Build Week deck.
 2. Draw and order a small Formation containing a Concept/Protocol Card, a Creator Content Card, and a Sponsor or Wisdom Card.
 3. Enter Stargate mode and visibly derive a deterministic private meeting address from that exact ordered Formation.
-4. Join from a second isolated profile or the existing Phone Card/Roomlet path; show why the peers matched without revealing the private address.
-5. Exchange a signed communication or consented video comment that becomes a separate attributable proposed Card while the source Card remains unchanged.
-6. Use the resulting context to request one local generated image or Card proposal, review it with a compact Wisdom set, and preserve human mint authority.
-7. Call up the Build Week ledger as a spatial Card history, including the mistake, strategy correction, test evidence, demo clips, GPT Image memorials, and open Krea quests.
+4. Save the active Gate, review its safe envelope, and explicitly mint the one Stargate Context Card.
+5. Watch the same Card advance from origin staging through Overwind acknowledgement into `.hapaCatalog`; open its Convergence Portal dossier, inspect its Formation/lineage, and add it to a named Deck.
+6. Use **Open in Avatar Builder** to restore the exact scene and Formation from Catalog, still visibly disconnected.
+7. Request a fresh Gate Pass and join from a second isolated profile or the existing Phone Card/Roomlet path; show why the peers matched without revealing the private address.
+8. Exchange a signed communication or consented video comment that becomes a separate attributable proposed Card while the source Card remains unchanged.
+9. Use the resulting context to request one local generated image or Card proposal, review it with a compact Wisdom set, and preserve human mint authority.
+10. Call up the Build Week ledger as a spatial Card history, including the mistake, strategy correction, test evidence, demo clips, GPT Image memorials, and open Krea quests.
 
 ## Priority order
 
@@ -114,11 +155,19 @@ The shortest coherent judge path is:
 - The full Dial-a-Stargate activation sequence in the existing table, fed by the shared Hand.
 - Formation-to-Stargate identity adapter and private derivation using the existing tested vectors.
 - Save Gate through the existing Scene Card path, then place/pass that portable Context Card through the shared Hand.
+- Explicitly human-mint the Context Card, receive Overwind acknowledgement, and project the exact revision automatically into `.hapaCatalog`.
+- One source-aware Convergence Portal dossier with Formation, lineage, freshness, stable Builder restore, and transient Pass actions.
 - One short-lived Gate Pass accepted by a second isolated Hapa profile, with no private capability material in the durable Card.
 - One two-profile signed meeting and message path using existing Roomlet/Phone surfaces.
 - Curated Build Week deck and build-history Cards in the existing family rail/browser.
 - Existing Camera/Phone Card plus one durable consented Comment Card.
 - Existing Electron packaging and a repeatable capture-safe golden route.
+
+### Board implementation chain
+
+`UI3D-001 Dial -> NAV-001 Save proposal -> CAT-GATE-001 human mint/sync -> CAT-GATE-002 Catalog dossier/return -> NAV-002 fresh Pass -> CAT-GATE-003 interoperability proof -> NAV-003 two-node replay -> STG-016 golden path`
+
+The `.hapaCatalog` companion board owns the subscriber projection, Convergence Portal/Living Card presentation, deep-link resolver, and Catalog-side truth states. The Build Week board owns the cross-node golden path and evidence. Cross-board prerequisites are recorded as links and acceptance statements rather than pretending one append-only board controls another.
 
 ### P1 — meaning and authority
 
