@@ -21,6 +21,7 @@ import {
   activateEchoSongVisualScreenplayImages,
   deriveEchoSongVisualScreenplayPromptHash,
   validateEchoSongVisualScreenplay,
+  validateEchoScreenplayAuthoredCountTranche,
 } from "../src/domain/echo-scene-keyframe-process.js";
 
 const at = "2026-07-18T12:00:00.000Z";
@@ -445,6 +446,43 @@ test("whole-song diversity gate scales across long sequences and catches templat
     }
   } });
   assert.throws(() => validateEchoSongVisualScreenplay(process, templated), /Repeated prompt sentence skeleton/u);
+});
+
+test("partial direct-author tranche uses the complete screenplay quality gates without mutation", () => {
+  const process = pauseEchoSceneKeyframeProcess(createEchoSceneKeyframeProcess({ counts: Array.from({ length: 8 }, (_, index) => sourceCount(index)) }), { at });
+  const screenplay = screenplayFor(process);
+  const entries = screenplay.sequencePlan[0].counts;
+  const sceneTexts = [
+    "A blue signal bends across the wet floor.", "The observer parts a curtain of static.",
+    "Glass birds rise when the corridor opens.", "Under a copper lamp, the map folds itself.",
+    "Rain erases the lock but leaves the doorway.", "A low camera finds the returned compass.",
+    "Two shadows exchange places beside the river.", "Dawn enters through the repaired antenna.",
+  ];
+  const prompts = [
+    "Ground-level blue light bends through rain on tile; macro lens, empty hall.", "Frame an observer parting silver static with both hands, overhead view.",
+    "Glass birds lift from an opening corridor in hard side light, wide crane shot.", "A copper lamp watches an unmarked map fold itself on a stone table.",
+    "Backlit rain removes a rusted lock while the doorway remains in sharp focus.", "Use a low tracking camera as a brass compass rolls back into an open palm.",
+    "At river dusk, two long shadows exchange banks without their owners moving.", "Dawn floods a repaired antenna array from behind, telephoto compression.",
+  ];
+  const justifications = [
+    "The opening signal becomes a physical refraction.", "Static turns observation into an active clearing gesture.",
+    "The lyric's release is carried by fragile upward motion.", "Folding converts uncertainty into a visible choice.",
+    "The erased lock distinguishes access from possession.", "The returning compass resolves the prior directional doubt.",
+    "Exchanged shadows make reciprocity spatially legible.", "The repaired antenna closes the tranche with received light.",
+  ];
+  const metaphors = ["signal as river", "static as curtain", "birds as released questions", "map as closing hand", "rain as locksmith", "compass as apology", "shadows as ferrymen", "antenna as dawn root"];
+  entries.forEach((entry, index) => {
+    entry.prompt.sceneText = sceneTexts[index];
+    entry.prompt.gptImagePrompt = prompts[index];
+    entry.prompt.justification = justifications[index];
+    entry.semanticExtraction.metaphor = metaphors[index];
+  });
+  const before = JSON.stringify(entries);
+  assert.deepEqual(validateEchoScreenplayAuthoredCountTranche(entries), { ok: true, authoredCountRecords: 8, enhanced: true });
+  assert.equal(JSON.stringify(entries), before);
+  const templated = structuredClone(entries);
+  templated.forEach((entry) => { entry.prompt.sceneText = "The Avatar holds the changing object beneath the changing light."; });
+  assert.throws(() => validateEchoScreenplayAuthoredCountTranche(templated), /Duplicate or near-duplicate sceneText|Repeated authored sceneText scaffold/u);
 });
 
 test("enhanced cast-aware screenplays reject a repeated production-label prompt lead", () => {

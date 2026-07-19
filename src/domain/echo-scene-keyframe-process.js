@@ -1000,6 +1000,24 @@ function validateScreenplaySequenceQuality(entries, screenplay) {
   for (const entry of entries) validateReservoirInspiration(entry);
 }
 
+/**
+ * Read-only quality audit for an explicitly incomplete direct-author tranche.
+ * It validates authored semantic/shot/prompt surfaces and the same diversity
+ * rules as a complete screenplay, but cannot finalize, import, or mutate work.
+ */
+export function validateEchoScreenplayAuthoredCountTranche(entries, { enhanced = true } = {}) {
+  if (!Array.isArray(entries) || !entries.length) throw new Error("Authored count tranche must contain at least one record.");
+  for (const entry of entries) {
+    requireString(entry?.countId, "screenplay tranche countId");
+    validateScreenplaySemanticAndSceneEntry(entry, entry.countId);
+    validateScreenplayPrompt(entry.prompt, entry.countId);
+  }
+  validateScreenplaySequenceQuality(entries, {
+    avatarContinuity: enhanced ? { castPolicy: { trancheAuditOnly: true } } : {},
+  });
+  return { ok: true, authoredCountRecords: entries.length, enhanced };
+}
+
 function validateEnhancedPromptLeadDiversity(entries, screenplay) {
   if (!screenplay.avatarContinuity?.castPolicy || entries.length < 6) return;
   const leads = new Map();
