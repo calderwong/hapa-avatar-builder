@@ -38,6 +38,22 @@ Universal Hapa Card Plane v1 is released. Avatar/Item JSON stores remain authori
 
 ## Source Of Truth
 
+### Name-resolution and Tarot Draw inheritance gate
+
+- A request that says **“Hapa Avatar Builder,” “Avatar Builder,” “Tarot Draw,” “Tarot Draw UI,” “Tarot Draw 3D,” “Phone Card in Tarot Draw,”** or **“Camera Card in Tarot Draw”** resolves first to this canonical checkout and `src/components/TarotDraw3DView.jsx`.
+- `hapa-avatar-node` is a separate avatar/phamiliar generation service. `hapa-dev-proto` contains downstream or historical Tarot integrations. Neither is the owner of the Hapa Avatar Builder 3D Tarot Draw environment.
+- Before designing, extracting, or rebuilding a Tarot Draw surface, inspect the running canonical Builder UI and trace the relevant behavior in `TarotDraw3DView.jsx`, `PhoneCardMobileView.jsx`, `server/api.mjs`, and `server/roomletInvite.mjs`. Source search alone is not enough to establish interaction or visual parity.
+- The canonical inheritance target is the whole 3D cockpit: room/table composition, HUD and control dock, Card-family rail, camera behavior, draw/flip/drag/place interactions, Card media surfaces, cinematic and visualizer modes, Camera Card, Phone Card, and scene save/invite behavior. A standalone app may curate its data and adapters, but it must not replace that environment with a new interaction design unless Calder explicitly approves the redesign.
+- Treat copies and extractions as downstream consumers. Record the exact source commit and preserve Calder Wong / Hapa.ai authorship, upstream attribution, and the distinction between inherited behavior and new implementation.
+
+### Turn-to-Lore reflection gate
+
+- Before starting a meaningful implementation turn, identify the nearest completed Hapa surface that already serves the objective and state what will be reused, adapted, or deliberately left alone.
+- Before creating a replacement component or service, record the canonical owner, inspect its running behavior when available, and explain why extraction or extension is insufficient. If that explanation is missing, stop and reuse the existing surface.
+- At each meaningful checkpoint or correction, append: the objective, evidence inspected, what worked, what was noise, what was misunderstood, what changed, what remains reusable, and the new guardrail. Preserve mistakes as learning evidence; do not rewrite them into a false clean history.
+- Mark reusable outcomes as explicit Skill, Lore, Lesson Card, Decision Card, or Flow-explainer candidates. The raw Codex Turn remains the attributed source and can later be mined by Hapa Turn Miner; the derived artifact must link back to that Turn instead of replacing it.
+- A task is not fully handed off when code and tests exist but the reuse decision and learning delta are absent. Keep the reflection concise and operational so future agents can act on it.
+
 - Canonical local checkout: `/Users/calderwong/Desktop/hapa-avatar-builder`.
 - Resolved checkout: `/Users/calderwong/Documents/Codex/2026-06-10/files-mentioned-by-the-user-screenshot/outputs/hapa-avatar-builder`.
 - Current Avatar Card store: `data/avatar-store.json`, verified on 2026-06-29 with 74 unique Avatar Builder cards.

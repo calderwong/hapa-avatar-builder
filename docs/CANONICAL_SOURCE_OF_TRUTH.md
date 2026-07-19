@@ -82,4 +82,14 @@ Useful Codex session anchors:
 
 ## Operator Rule
 
-When a future agent looks for "hapa-avatar-builder", pick the checkout with `src/components/TarotDraw3DView.jsx` and `src/components/TarotLibraryView.jsx`. If another copy has only one of those surfaces, merge into this canonical app instead of launching or extending the duplicate.
+When a future agent looks for **“Hapa Avatar Builder,” “Avatar Builder,” “Tarot Draw,” “Tarot Draw UI,” “Tarot Draw 3D,” “Phone Card in Tarot Draw,” “Camera Card in Tarot Draw,”** or **“Invite Cam,”** pick the checkout with `src/components/TarotDraw3DView.jsx` and `src/components/TarotLibraryView.jsx`. These names do not resolve to `hapa-avatar-node` or `hapa-dev-proto`.
+
+Before implementing a derivative or standalone Tarot Draw app:
+
+1. Open the running canonical Tarot Draw and inspect the complete cockpit, not only a source-search result or a downstream integration.
+2. Trace `src/components/TarotDraw3DView.jsx`, `src/components/PhoneCardMobileView.jsx`, `server/api.mjs`, and `server/roomletInvite.mjs` at an exact commit.
+3. Record a side-by-side parity matrix for the room/table composition, HUD and controls, Card-family rail, camera and Card manipulation, media surfaces, Camera Card, Phone Card, and scene save/invite behavior.
+4. Treat “self-contained” as a packaging requirement. It does not authorize a replacement visual or interaction design.
+5. Obtain Calder’s explicit approval for any deliberate deviation before calling the derivative interface complete.
+
+If another copy has only one of the Tarot surfaces, merge into this canonical app instead of launching or extending the duplicate.
