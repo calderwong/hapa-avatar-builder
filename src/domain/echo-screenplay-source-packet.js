@@ -68,17 +68,51 @@ function distinctiveCoverageTokens(value) {
   return normalizeLyricCoverageText(value).split(" ").filter((token) => token.length >= 3 && !LYRIC_COVERAGE_STOPWORDS.has(token));
 }
 
-function countOverlapsConnector(count, connector) {
+function packetLyricLineNumbers(packet) {
+  const master = String(packet?.song?.lyricMaster?.text || "").split(/\r?\n/u)
+    .map((text, index) => ({ lineNumber: index + 1, text: normalizeLyricCoverageText(text) }))
+    .filter((line) => line.text);
+  const timeline = [...new Map((packet?.fourCounts || []).flatMap((count) => count?.lyricOverlap || [])
+    .filter((line) => line?.lineId)
+    .sort((left, right) => (left.startSeconds ?? Number.MAX_SAFE_INTEGER) - (right.startSeconds ?? Number.MAX_SAFE_INTEGER))
+    .map((line) => [line.lineId, line])).values()];
+  const result = new Map();
+  let masterIndex = 0;
+  let cursor = 0;
+  for (const line of timeline) {
+    const text = normalizeLyricCoverageText(line?.text || line?.excerpt);
+    if (!text) continue;
+    let found = null;
+    for (let index = masterIndex; index < master.length; index += 1) {
+      const startAt = index === masterIndex ? cursor : 0;
+      const position = master[index].text.indexOf(text, startAt);
+      if (position >= 0) { found = { index, cursor: position + text.length }; break; }
+    }
+    if (!found) continue;
+    masterIndex = found.index;
+    cursor = found.cursor;
+    result.set(line.lineId, master[masterIndex].lineNumber);
+  }
+  return result;
+}
+
+function countOverlapsConnector(count, connector, lineNumberById = new Map()) {
   const targetText = normalizeLyricCoverageText(connector?.target?.lyricText);
   const matchedText = normalizeLyricCoverageText(connector?.target?.matchedText);
   if (!targetText && !matchedText) return false;
+  const lineStart = Number(connector?.target?.lineStart);
+  const lineEnd = Number(connector?.target?.lineEnd ?? connector?.target?.lineStart);
+  const mappedLines = (count?.lyricOverlap || []).map((overlap) => lineNumberById.get(overlap?.lineId)).filter(Number.isFinite);
+  if (mappedLines.length && Number.isFinite(lineStart) && Number.isFinite(lineEnd)) {
+    return mappedLines.some((lineNumber) => lineNumber >= lineStart && lineNumber <= lineEnd);
+  }
   return (count?.lyricOverlap || []).some((overlap) => {
     const text = normalizeLyricCoverageText(overlap?.text || overlap?.excerpt);
     if (text.length < 4) return false;
     const distinctive = distinctiveCoverageTokens(text);
     if (!distinctive.length) return false;
-    const targetMatch = targetText && (targetText.includes(text) || text.includes(targetText));
     const matchedMatch = matchedText && (matchedText.includes(text) || text.includes(matchedText));
+    const targetMatch = distinctive.length >= 2 && targetText && (targetText.includes(text) || text.includes(targetText));
     return Boolean(targetMatch || matchedMatch);
   });
 }
@@ -96,16 +130,17 @@ export function validateEchoScreenplayReferenceCoverage(records, packet) {
     && (!row?.target?.songId || row.target.songId === packet?.song?.id));
   const knownConnectorIds = new Set(songConnectorEvidence.map((row) => row.id));
   const connectorById = new Map(songConnectorEvidence.map((row) => [row.id, row]));
+  const lineNumberById = packetLyricLineNumbers(packet);
   const mechanics = (records || []).flatMap((record) => (record?.semanticExtraction?.referenceMechanics || [])
     .map((mechanic) => ({ countId: record.countId, connectorId: mechanic?.connectorId || null, evidenceStatus: mechanic?.evidenceStatus || "" })));
   const unexpectedConnectorIds = unique(mechanics.map((row) => row.connectorId).filter((id) => id && !knownConnectorIds.has(id)));
   const promotedCandidateMechanics = mechanics.filter((row) => {
     const confidence = connectorById.get(row.connectorId)?.confidence;
     if (!['candidate', 'contextual'].includes(confidence)) return false;
-    return /(verified|confirmed|direct|explicit|canon)/u.test(String(row.evidenceStatus).toLowerCase());
+    return /\b(verified|confirmed|direct|explicit|canon|canonical)\b/u.test(String(row.evidenceStatus).toLowerCase());
   });
   const required = songConnectorEvidence.map((connector) => {
-    const applicableCountIds = [...authoredById.keys()].filter((countId) => countOverlapsConnector(packetCounts.get(countId), connector));
+    const applicableCountIds = [...authoredById.keys()].filter((countId) => countOverlapsConnector(packetCounts.get(countId), connector, lineNumberById));
     const coveredCountIds = applicableCountIds.filter((countId) => (authoredById.get(countId)?.semanticExtraction?.referenceMechanics || [])
       .some((mechanic) => mechanic?.connectorId === connector.id));
     return {

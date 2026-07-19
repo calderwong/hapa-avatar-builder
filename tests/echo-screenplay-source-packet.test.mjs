@@ -165,6 +165,46 @@ test("reference coverage does not attach a later connector through a generic fra
   assert.equal(result.applicableConnectors, 0);
 });
 
+test("reference coverage does not attach a multi-line connector through one repeated proper name", () => {
+  const packet = buildEchoScreenplaySourcePacket({
+    song: {
+      ...song,
+      referenceConnectors: [{ id: "jane", referenceId: "jane-work", classification: "candidate", target: { lyricText: "Bella played Jane in the trees", matchedText: "played Jane", songId: "song-a" } }],
+    },
+    windows: [{ id: "song-a-count-0001", ordinal: 1, lyricOverlap: [{ text: "Bella" }] }],
+    referenceCatalog: [{ id: "jane-work", title: "Jane", kind: "book" }],
+  });
+  const result = validateEchoScreenplayReferenceCoverage([{
+    countId: "song-a-count-0001",
+    semanticExtraction: { referenceMechanics: [], explicitNoReferenceApplies: true },
+  }], packet);
+  assert.equal(result.ok, true);
+  assert.equal(result.applicableConnectors, 0);
+});
+
+test("reference coverage uses physical master-line order to disambiguate repeated refrains", () => {
+  const packet = buildEchoScreenplaySourcePacket({
+    song: {
+      ...song,
+      lyrics: { status: "matched_exact", text: "first refrain\n\nunrelated middle\n\nfirst refrain with target" },
+      referenceConnectors: [{ id: "late", referenceId: "late-work", classification: "direct", target: { lineStart: 5, lineEnd: 5, lyricText: "first refrain with target", matchedText: "target", songId: "song-a" } }],
+    },
+    windows: [
+      { id: "song-a-count-0001", ordinal: 1, lyricOverlap: [{ lineId: "line-1", startSeconds: 1, text: "first refrain" }] },
+      { id: "song-a-count-0002", ordinal: 2, lyricOverlap: [{ lineId: "line-2", startSeconds: 2, text: "unrelated middle" }] },
+      { id: "song-a-count-0003", ordinal: 3, lyricOverlap: [{ lineId: "line-3", startSeconds: 3, text: "first refrain with target" }] },
+    ],
+    referenceCatalog: [{ id: "late-work", title: "Late", kind: "song" }],
+  });
+  const records = [1, 2, 3].map((ordinal) => ({
+    countId: `song-a-count-${String(ordinal).padStart(4, "0")}`,
+    semanticExtraction: { referenceMechanics: ordinal === 3 ? [{ connectorId: "late", evidenceStatus: "verified" }] : [], explicitNoReferenceApplies: ordinal !== 3 },
+  }));
+  const result = validateEchoScreenplayReferenceCoverage(records, packet);
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.connectorCoverage[0].applicableCountIds, ["song-a-count-0003"]);
+});
+
 test("reference coverage rejects connector ids invented outside the immutable packet", () => {
   const packet = buildEchoScreenplaySourcePacket({ song: { ...song, referenceConnectors: song.referenceConnectors.map((connector) => ({ ...connector, target: { lyricText: "hello", matchedText: "hello", songId: "song-a" } })) }, windows, referenceCatalog: [{ id: "work", title: "Work", kind: "book" }] });
   const result = validateEchoScreenplayReferenceCoverage([{
@@ -220,6 +260,11 @@ test("candidate reference mechanics cannot promote their evidence status to veri
   }], packet);
   assert.equal(result.ok, false);
   assert.equal(result.promotedCandidateMechanics.length, 1);
+  const directional = validateEchoScreenplayReferenceCoverage([{
+    countId: "song-a-count-0001",
+    semanticExtraction: { referenceMechanics: [{ connectorId: "candidate", evidenceStatus: "directional" }] },
+  }], packet);
+  assert.equal(directional.ok, true);
 });
 
 test("read-only CLI builds a validated full-source packet and does not create output files", () => {
