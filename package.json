@@ -99,6 +99,9 @@
     "smoke:tarot": "electron scripts/tarot-smoke.cjs",
     "smoke:stargate": "electron scripts/tarot-stargate-smoke.cjs",
     "capture:stargate": "electron scripts/capture-tarot-stargate-hero.cjs",
+    "smoke:stargate-context": "electron scripts/tarot-stargate-context-smoke.cjs",
+    "capture:stargate-context": "electron scripts/capture-tarot-stargate-context-card.cjs",
+    "evidence:stargate-context": "node scripts/run-isolated-stargate-context-evidence.mjs",
     "smoke:echo-player-pool": "electron scripts/echo-player-pool-smoke.cjs",
     "smoke:mind-ui": "electron scripts/avatar-mind-ui-smoke.cjs",
     "smoke:phone-card": "electron scripts/phone-card-smoke.cjs"

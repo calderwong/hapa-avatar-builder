@@ -33,6 +33,12 @@ import {
   STARGATE_PUBLIC_DEMO_SECRET,
 } from "../domain/tarot-stargate-derivation.js";
 import {
+  buildStargateContextCard,
+  isStargateContextCard,
+  restoreStargateContextCard,
+  stargateContextEnvelopeFromCard,
+} from "../domain/tarot-stargate-context-card.js";
+import {
   createTarotStargateRig,
   tarotStargateSlotPosition,
   updateTarotStargateRig,
@@ -2173,8 +2179,8 @@ export default function TarotDraw3DView({ cards = [], avatarId = "local-operator
   const fieldCaptureClock = fieldCapture.durationSeconds
     ? `${formatFieldMediaDuration(fieldCapture.elapsedSeconds)} / ${formatFieldMediaDuration(fieldCapture.durationSeconds)}`
     : formatFieldMediaDuration(fieldCapture.elapsedSeconds);
-  const sceneSaveBusy = sceneSave.status === "saving";
-  const sceneSaveNote = sceneSave.error || sceneSave.message || "Save current card positions";
+  const sceneSaveBusy = ["saving", "sealing"].includes(sceneSave.status);
+  const sceneSaveNote = sceneSave.error || sceneSave.message || (hud.stargate?.state === "active" ? "Seal this active Gate into one portable Context Card" : "Save current card positions");
   const sceneInviteBusy = sceneInvite.status === "creating";
   const sceneInviteNote = sceneInvite.error || sceneInvite.message || "Create a Hypercore/WebRTC camera invitation for this scene";
   const stargate = hud.stargate || { mode: false, state: "dormant", progress: 0, slotCount: 0, sealedCount: 0, missingIdentityCount: 0, redactedAddress: "", formationFingerprint: "", fixtureDisclosure: "", message: "Place two to eight identity-sealed Cards" };
@@ -2206,6 +2212,8 @@ export default function TarotDraw3DView({ cards = [], avatarId = "local-operator
   const selectedCardForgeMeta = selectedCard ? tarotDrawForgeMeta(selectedCard) : {};
   const selectedCardIsForge = Boolean(selectedCard && isTarotDrawForgeCard(selectedCard));
   const selectedCardIsScene = Boolean(selectedCard && isTarotDrawSceneCard(selectedCard));
+  const selectedCardIsStargateContext = Boolean(selectedCard && isStargateContextCard(selectedCard));
+  const selectedCardStargateContext = selectedCardIsStargateContext ? stargateContextEnvelopeFromCard(selectedCard) : null;
   const selectedCardSceneSnapshot = selectedCardIsScene ? tarotDrawSceneSnapshot(selectedCard) : null;
   const selectedCardForgeStage = selectedCardForgeMeta.stage || "requested";
   const selectedCardForgeQueueNote = selectedCardForgeMeta.loopQueueState === "waiting-for-ltx-slot" || selectedCardForgeMeta.loopStatus === "waiting-for-ltx-slot"
@@ -2298,6 +2306,7 @@ export default function TarotDraw3DView({ cards = [], avatarId = "local-operator
       game = createTarotDrawGame({
         canvas,
         cards,
+        avatarId,
         avatarName,
         apiBase,
         productionAudit,
@@ -2321,7 +2330,7 @@ export default function TarotDraw3DView({ cards = [], avatarId = "local-operator
       game.dispose();
       if (gameRef.current === game) gameRef.current = null;
     };
-  }, [avatarName, apiBase, handleReadingClear, handleReadingRequest]);
+  }, [avatarId, avatarName, apiBase, handleReadingClear, handleReadingRequest]);
 
   useEffect(() => {
     gameRef.current?.reconcileCards?.(cards);
@@ -3165,17 +3174,20 @@ export default function TarotDraw3DView({ cards = [], avatarId = "local-operator
   async function saveCurrentScene(event) {
     event?.preventDefault?.();
     event?.stopPropagation?.();
-    if (sceneSave.status === "saving") return;
-    setSceneSave({ status: "saving", message: "Capturing table scene", error: "", card: null });
+    if (["saving", "sealing"].includes(sceneSave.status)) return;
+    const saveGate = stargateActive;
+    setSceneSave({ status: saveGate ? "sealing" : "saving", message: saveGate ? "Gate energy converging into one Return Card" : "Capturing table scene", error: "", card: null });
     try {
-      const card = callGame("createSceneSnapshotCard");
+      const card = callGame(saveGate ? "createStargateContextCard" : "createSceneSnapshotCard");
       if (!card) throw new Error("No restorable cards are currently on the Tarot table.");
-      setSceneSave({ status: "saving", message: "Persisting scene card", error: "", card });
-      const response = await fetch(`${tarotDrawApiBase(apiBase)}/api/tarot/cards`, {
+      setSceneSave({ status: saveGate ? "sealing" : "saving", message: saveGate ? "Sealing safe context; joining authority stays transient" : "Persisting scene card", error: "", card });
+      const request = fetch(`${tarotDrawApiBase(apiBase)}/api/tarot/cards`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(card)
       });
+      const minimumHeroBeat = saveGate ? new Promise((resolve) => window.setTimeout(resolve, 2400)) : Promise.resolve();
+      const [response] = await Promise.all([request, minimumHeroBeat]);
       const store = await response.json().catch(() => null);
       if (!response.ok || !store?.cards) throw new Error(store?.error || store?.message || `Scene save failed: ${response.status}`);
       const savedCard = store.cards.find((item) => item.id === card.id) || card;
@@ -3186,13 +3198,23 @@ export default function TarotDraw3DView({ cards = [], avatarId = "local-operator
         sceneSnapshot: tarotDrawSceneSnapshot(savedCard) || card.sceneSnapshot
       };
       onTarotSceneSaved?.({ card: sceneCard, store, sceneSnapshot: sceneCard.sceneSnapshot });
-      callGame("spawnSceneCard", { card: sceneCard, statusText: `Scene saved: ${sceneCard.title}` });
-      setSceneSave({ status: "complete", message: `${sceneCard.title} saved`, error: "", card: sceneCard });
+      callGame("spawnSceneCard", {
+        card: sceneCard,
+        fromStargate: saveGate,
+        statusText: saveGate ? `Return Card sealed: ${sceneCard.title}` : `Scene saved: ${sceneCard.title}`
+      });
+      setSceneSave({
+        status: "complete",
+        message: saveGate ? `${sceneCard.title} proposed — fresh Pass required` : `${sceneCard.title} saved`,
+        error: "",
+        card: sceneCard
+      });
     } catch (error) {
+      if (saveGate) callGame("cancelStargateContextSeal");
       setSceneSave({
         status: "failed",
-        message: "Scene save failed",
-        error: error?.message || "Scene save failed",
+        message: saveGate ? "Gate Card seal failed" : "Scene save failed",
+        error: error?.message || (saveGate ? "Gate Card seal failed" : "Scene save failed"),
         card: null
       });
     }
@@ -3204,9 +3226,10 @@ export default function TarotDraw3DView({ cards = [], avatarId = "local-operator
     if (!selectedCardIsScene || !selectedCardSceneSnapshot) return;
     const loaded = callGame("loadSceneFromCard", selectedCard);
     if (loaded) {
+      if (selectedCardIsStargateContext) callGame("restoreStargateContextFromCard", selectedCard);
       setSceneSave({
         status: "loaded",
-        message: `Loaded ${selectedCard.title}`,
+        message: selectedCardIsStargateContext ? `Restored ${selectedCard.title} — disconnected; fresh Pass required` : `Loaded ${selectedCard.title}`,
         error: "",
         card: selectedCard
       });
@@ -3457,6 +3480,12 @@ export default function TarotDraw3DView({ cards = [], avatarId = "local-operator
             <div><dt>Identity</dt><dd>{stargate.sealedCount || 0} sealed{stargate.missingIdentityCount ? ` / ${stargate.missingIdentityCount} need custody` : ""}</dd></div>
             <div><dt>Address</dt><dd>{stargate.redactedAddress || stargate.formationFingerprint || "Withheld until derivation"}</dd></div>
           </dl>
+          {stargate.requiresFreshPass && (
+            <div className="tarot-stargate-return-policy" data-truth="disconnected">
+              <Route size={13} />
+              <span><strong>Return context restored</strong><em>No secret or live session traveled with this Card. Request a fresh Gate Pass to connect.</em></span>
+            </div>
+          )}
           {stargateNeedsIdentity && (
             <button className="hapa-btn tarot-stargate-demo-toggle" type="button" onClick={loadPublicStargateDemo}>
               <Sparkles size={13} /> Load Public Demo Formation
@@ -3861,12 +3890,14 @@ export default function TarotDraw3DView({ cards = [], avatarId = "local-operator
             className="hapa-btn tarot-save-scene-toggle"
             type="button"
             data-status={sceneSave.status}
+            data-mode={stargateActive ? "stargate" : "scene"}
+            data-intent={stargateActive ? "primary" : undefined}
             disabled={sceneSaveBusy}
             onClick={saveCurrentScene}
             title={sceneSaveNote}
           >
-            <BookOpenCheck size={14} />
-            {sceneSaveBusy ? "Saving Scene" : "Save Scene"}
+            {stargateActive || sceneSave.status === "sealing" ? <Route size={14} /> : <BookOpenCheck size={14} />}
+            {sceneSave.status === "sealing" ? "Sealing Gate" : sceneSave.status === "saving" ? "Saving Scene" : stargateActive ? "Save Gate" : "Save Scene"}
           </button>
           <button
             className="hapa-btn tarot-stargate-toggle"
@@ -3874,7 +3905,7 @@ export default function TarotDraw3DView({ cards = [], avatarId = "local-operator
             data-state={stargate.state}
             data-intent={stargate.state === "ready" || stargateBusy ? "primary" : undefined}
             aria-pressed={stargate.mode}
-            disabled={stargateBusy}
+            disabled={stargateBusy || sceneSave.status === "sealing"}
             onClick={handleStargateAction}
             title={stargate.message || "Arrange ordered Hapa Cards and dial a deterministic private namespace"}
           >
@@ -4325,10 +4356,15 @@ export default function TarotDraw3DView({ cards = [], avatarId = "local-operator
                       disabled={!selectedCardSceneSnapshot}
                       onClick={loadSelectedSceneCard}
                     >
-                      <RefreshCw size={13} />
-                      Load Scene
+                      {selectedCardIsStargateContext ? <Route size={13} /> : <RefreshCw size={13} />}
+                      {selectedCardIsStargateContext ? "Restore Gate" : "Load Scene"}
                     </button>
                     <span>{selectedCardSceneSnapshot ? formatTarotDrawSceneSnapshotSummary(selectedCardSceneSnapshot) : "No scene snapshot payload"}</span>
+                    {selectedCardStargateContext && (
+                      <em className="tarot-stargate-context-policy">
+                        Proposed · {selectedCardStargateContext.formation?.members?.length || 0} ordered Cards · Fresh Gate Pass required
+                      </em>
+                    )}
                     {sceneSave.error && <em>{sceneSave.error}</em>}
                   </>
                 ) : (
@@ -5223,7 +5259,7 @@ function writeTarotDrawSettings(storageKey, settings) {
   }
 }
 
-function createTarotDrawGame({ canvas, cards, avatarName, apiBase = "", productionAudit = null, soundEnabled = false, playbackMode = "active", prewarmedEchoVideos = null, onHud, onReadingRequest, onReadingClear }) {
+function createTarotDrawGame({ canvas, cards, avatarId = "local-operator", avatarName, apiBase = "", productionAudit = null, soundEnabled = false, playbackMode = "active", prewarmedEchoVideos = null, onHud, onReadingRequest, onReadingClear }) {
   const renderer = new THREE.WebGLRenderer({
     canvas,
     antialias: false,
@@ -5473,6 +5509,11 @@ function createTarotDrawGame({ canvas, cards, avatarName, apiBase = "", producti
   let stargateFixtureEntryIds = [];
   let stargateCameraBlend = 0;
   let stargateCameraOrigin = null;
+  let stargateSealStartedAt = 0;
+  let stargateSealProgress = 0;
+  let stargateRequiresFreshPass = false;
+  let stargateRestoredContext = null;
+  let stargateLastContextCard = null;
   let forgeEntries = new Map();
   let heldEntry = null;
   let hoveredEntry = null;
@@ -5713,6 +5754,9 @@ function createTarotDrawGame({ canvas, cards, avatarName, apiBase = "", producti
     updateForgeCard,
     captureSceneSnapshot,
     createSceneSnapshotCard,
+    createStargateContextCard: createStargateContextCardFromActiveGate,
+    restoreStargateContextFromCard,
+    cancelStargateContextSeal,
     spawnSceneCard,
     loadSceneFromCard,
     spawnBrowserCard,
@@ -5905,6 +5949,11 @@ function createTarotDrawGame({ canvas, cards, avatarName, apiBase = "", producti
         : `${missingIdentity.length} Card${missingIdentity.length === 1 ? " needs" : "s need"} custody identity before this Gate can resolve`);
       return false;
     }
+    if (stargateRequiresFreshPass) {
+      stargateResult = null;
+      setStargateState("disconnected", "Context restored exactly; fresh Gate Pass required to connect");
+      return true;
+    }
     const formation = {
       schemaVersion: STARGATE_FORMATION_SCHEMA,
       purposeCode: "build-week-domino",
@@ -5947,6 +5996,11 @@ function createTarotDrawGame({ canvas, cards, avatarName, apiBase = "", producti
       stargateResult = null;
       stargateFormationSignature = "";
       stargateCohortSecret = "";
+      stargateSealStartedAt = 0;
+      stargateSealProgress = 0;
+      stargateRequiresFreshPass = false;
+      stargateRestoredContext = null;
+      stargateLastContextCard = null;
       restoreStargateEntryHomes();
       stargateEntries = [];
       stargateIdentityResults = [];
@@ -5962,6 +6016,11 @@ function createTarotDrawGame({ canvas, cards, avatarName, apiBase = "", producti
     stargateError = "";
     stargateResult = null;
     stargateFormationSignature = "";
+    stargateRequiresFreshPass = false;
+    stargateRestoredContext = null;
+    stargateLastContextCard = null;
+    stargateSealStartedAt = 0;
+    stargateSealProgress = 0;
     stargateCohortSecret = stargateFixtureActive ? STARGATE_PUBLIC_DEMO_SECRET : createMemoryOnlyCohortSecret();
     stargateCameraOrigin = {
       position: camera.position.clone(),
@@ -6045,22 +6104,25 @@ function createTarotDrawGame({ canvas, cards, avatarName, apiBase = "", producti
 
   function stargateHudState() {
     const missingIdentityCount = stargateIdentityResults.filter((identity) => !identity.ok).length;
+    const safeGate = stargateRestoredContext?.gate || null;
     return {
       mode: stargateMode,
       state: stargateState,
-      progress: Number(stargateProgress.toFixed(3)),
+      progress: Number((stargateState === "sealing" ? stargateSealProgress : stargateProgress).toFixed(3)),
       slotCount: stargateEntries.length,
       sealedCount: stargateIdentityResults.length - missingIdentityCount,
       missingIdentityCount,
-      redactedAddress: stargateResult ? redactedStargateAddress(stargateResult.stargateAddress) : "",
-      formationFingerprint: stargateResult ? `formation:${stargateResult.formationDigest.slice(0, 12)}…` : "",
+      redactedAddress: stargateResult ? redactedStargateAddress(stargateResult.stargateAddress) : safeGate?.addressRedacted || "",
+      formationFingerprint: stargateResult ? `formation:${stargateResult.formationDigest.slice(0, 12)}…` : safeGate?.semanticFormationDigest ? `formation:${safeGate.semanticFormationDigest.slice(0, 12)}…` : "",
+      requiresFreshPass: stargateRequiresFreshPass,
+      contextCardId: stargateLastContextCard?.id || "",
       fixtureDisclosure: stargateFixtureActive ? "Public deterministic test vector — not a production invitation." : "",
       message: stargateError || (stargateState === "active" ? "Gate open; destination derived locally" : "Arrange identity-sealed Cards into an ordered Gate")
     };
   }
 
   function updateStargateExperience(delta, elapsed) {
-    if (stargateMode && elapsed - stargateLastScanAt > 0.52 && !["dialing"].includes(stargateState)) {
+    if (stargateMode && elapsed - stargateLastScanAt > 0.52 && !["dialing", "sealing"].includes(stargateState)) {
       stargateLastScanAt = elapsed;
       refreshStargateFormation();
     }
@@ -6078,10 +6140,37 @@ function createTarotDrawGame({ canvas, cards, avatarName, apiBase = "", producti
         publishHud(true);
       }
     }
+    if (stargateState === "sealing") {
+      const duration = stargateReducedMotion ? 0.75 : 2.25;
+      stargateSealProgress = THREE.MathUtils.clamp((elapsed - stargateSealStartedAt) / duration, 0, 1);
+      stargateProgress = stargateSealProgress;
+      const orbit = THREE.MathUtils.smoothstep(stargateSealProgress, 0.03, 0.46);
+      const gather = THREE.MathUtils.smoothstep(stargateSealProgress, 0.58, 0.98);
+      stargateEntries.forEach((entry, index) => {
+        const slot = tarotStargateSlotPosition(index, stargateEntries.length);
+        slot.y = 0.46 + index * 0.01;
+        const angle = -Math.PI / 2 + index / stargateEntries.length * Math.PI * 2;
+        const orbitTarget = new THREE.Vector3(
+          Math.cos(angle) * 1.42,
+          1.43 + Math.sin(angle) * 0.76,
+          -0.48 + Math.cos(angle) * 0.08
+        );
+        const sealTarget = new THREE.Vector3(
+          (index - (stargateEntries.length - 1) / 2) * 0.055,
+          1.32 + Math.sin(index * 1.7) * 0.055,
+          -0.54 + index * 0.012
+        );
+        entry.targetPosition.lerpVectors(slot, orbitTarget, orbit);
+        entry.targetPosition.lerp(sealTarget, gather);
+        entry.baseRotationY += (index % 2 ? -1 : 1) * delta * (0.3 + orbit * 0.4);
+        setCardTargetRotation(entry, 0.58 - orbit * 0.2 + gather * 0.38, entry.baseRotationY, Math.sin(angle) * orbit * 0.08);
+        entry.group.scale.setScalar(1 + Math.sin(stargateSealProgress * Math.PI) * 0.12);
+      });
+    }
     const sources = stargateEntries.map((entry) => entry.group.position);
     updateTarotStargateRig(stargateRig, {
       state: stargateMode ? stargateState : "dormant",
-      progress: stargateProgress,
+      progress: stargateState === "sealing" ? stargateSealProgress : stargateProgress,
       activeSlots: stargateEntries.length,
       sources,
       elapsed,
@@ -6189,6 +6278,13 @@ function createTarotDrawGame({ canvas, cards, avatarName, apiBase = "", producti
         mintDiagnosticDroppedVideoCenter: diagnosticMintDroppedVideoCenter,
         captureSceneSnapshot,
         createSceneSnapshotCard,
+        createStargateContextCard: createStargateContextCardFromActiveGate,
+        restoreStargateContextCard: (card = stargateLastContextCard) => {
+          if (!card) return false;
+          const loaded = loadSceneFromCard(card);
+          return loaded ? restoreStargateContextFromCard(card) : false;
+        },
+        cancelStargateContextSeal,
         loadLatestSceneCard: () => {
           const sceneCard = placedEntries.find((entry) => isTarotDrawSceneCard(entry.card))?.card ||
             cards.find((card) => isTarotDrawSceneCard(card));
@@ -7031,10 +7127,110 @@ function createTarotDrawGame({ canvas, cards, avatarName, apiBase = "", producti
     return buildTarotDrawSceneCard(snapshot, avatarName);
   }
 
-  function spawnSceneCard({ card, statusText = "" } = {}) {
+  function createStargateContextCardFromActiveGate() {
+    settleHeldEntryForSceneSave();
+    if (stargateState !== "active" || !stargateResult) {
+      status = "Save Gate requires an active, derived Stargate";
+      publishHud(true);
+      return null;
+    }
+    const snapshot = captureSceneSnapshot();
+    if (!snapshot.cards.length) {
+      status = "Save Gate needs at least one restorable Card";
+      publishHud(true);
+      return null;
+    }
+    const sceneCard = buildTarotDrawSceneCard(snapshot, avatarName);
+    const contextCard = buildStargateContextCard({
+      sceneCard,
+      stargate: stargateResult,
+      origin: { nodeId: "hapa-avatar-builder", actorId: avatarId || "local-operator" }
+    });
+    stargateLastContextCard = contextCard;
+    stargateSealStartedAt = elapsedTime;
+    stargateSealProgress = 0;
+    stargateState = "sealing";
+    stargateProgress = 0;
+    stargateError = "Gate energy converging into one portable Return Card";
+    status = "Sealing Stargate Context Card";
+    audio.play("gate-dial", { quiet: true });
+    createBurst(0, -0.62, 0x00f3ff, 1.8);
+    createBurst(0, -0.62, 0xf6c96d, 1.35);
+    publishHud(true);
+    return contextCard;
+  }
+
+  function cancelStargateContextSeal() {
+    if (stargateState !== "sealing") return false;
+    stargateSealProgress = 0;
+    stargateSealStartedAt = 0;
+    stargateState = stargateResult ? "active" : "disconnected";
+    stargateProgress = stargateResult ? 1 : 0;
+    stargateError = stargateResult ? "Gate open; Context Card seal cancelled" : "Context Card seal cancelled";
+    arrangeStargateEntries(stargateEntries, { burst: false });
+    publishHud(true);
+    return true;
+  }
+
+  function completeStargateContextSeal(card = stargateLastContextCard) {
+    if (!card || !isStargateContextCard(card)) return false;
+    stargateRestoredContext = stargateContextEnvelopeFromCard(card);
+    stargateRequiresFreshPass = true;
+    stargateCohortSecret = "";
+    stargateResult = null;
+    stargateSealProgress = 1;
+    stargateProgress = 0;
+    stargateState = "disconnected";
+    stargateError = "Return Card sealed; fresh Gate Pass required to reconnect";
+    stargateEntries.forEach((entry) => entry.group.scale.setScalar(1));
+    arrangeStargateEntries(stargateEntries, { burst: true });
+    status = `Return Card proposed: ${card.title}`;
+    audio.play("gate-close", { quiet: true });
+    createBurst(0, -0.62, 0x45f2c8, 1.7);
+    createBurst(0, -0.62, 0xff6df2, 1.25);
+    publishHud(true);
+    return true;
+  }
+
+  function restoreStargateContextFromCard(card = {}) {
+    let restored;
+    try {
+      restored = restoreStargateContextCard(card);
+    } catch (error) {
+      status = error?.message || "Stargate Context Card failed validation";
+      publishHud(true);
+      return false;
+    }
+    if (!stargateMode) {
+      stargateMode = true;
+      stargateCameraOrigin = {
+        position: camera.position.clone(),
+        target: controls.target.clone(),
+        fov: camera.fov
+      };
+    }
+    stargateRequiresFreshPass = true;
+    stargateRestoredContext = stargateContextEnvelopeFromCard(card);
+    stargateLastContextCard = card;
+    stargateCohortSecret = "";
+    stargateResult = null;
+    stargateSealProgress = 0;
+    stargateProgress = 0;
+    stargateState = "disconnected";
+    stargateError = "Context restored exactly; fresh Gate Pass required to connect";
+    previewGroup.visible = false;
+    refreshStargateFormation({ burst: true });
+    status = `Stargate context restored: ${card.title}`;
+    publishHud(true);
+    return restored;
+  }
+
+  function spawnSceneCard({ card, statusText = "", fromStargate = false } = {}) {
     if (!card) return null;
     const { entry, origin } = createInstantDealEntry(card, placedEntries.length, {
-      originPosition: DECK_POSITION.clone().add(new THREE.Vector3(-0.22, 0.26, -0.18))
+      originPosition: fromStargate
+        ? new THREE.Vector3(0, 1.42, -0.58)
+        : DECK_POSITION.clone().add(new THREE.Vector3(-0.22, 0.26, -0.18))
     });
     entry.state = "placed";
     entry.slotIndex = -1;
@@ -7046,42 +7242,72 @@ function createTarotDrawGame({ canvas, cards, avatarName, apiBase = "", producti
       phase: Math.random() * Math.PI * 2
     } : null;
     entry.targetPosition.set(
-      THREE.MathUtils.clamp(-0.72 + (placedEntries.length % 4) * 0.28, -BOARD_LIMIT_X, SPREAD_LANE_MAX_X),
-      CARD_TABLE_BASE_Y,
-      THREE.MathUtils.clamp(0.42 + (placedEntries.length % 3) * 0.22, -BOARD_LIMIT_Z, BOARD_LIMIT_Z)
+      fromStargate ? 0 : THREE.MathUtils.clamp(-0.72 + (placedEntries.length % 4) * 0.28, -BOARD_LIMIT_X, SPREAD_LANE_MAX_X),
+      fromStargate ? 1.75 : CARD_TABLE_BASE_Y,
+      fromStargate ? 1.02 : THREE.MathUtils.clamp(0.42 + (placedEntries.length % 3) * 0.22, -BOARD_LIMIT_Z, BOARD_LIMIT_Z)
     );
     entry.baseRotationY = Math.atan2(entry.targetPosition.x, 5.5) * 0.34;
-    setCardTargetRotation(entry, 0, entry.baseRotationY, 0);
+    setCardTargetRotation(entry, fromStargate ? 1.14 : 0, entry.baseRotationY, 0);
+    if (fromStargate) {
+      entry.stargateContextHero = true;
+      entry.group.scale.setScalar(1.65);
+      entry.floatMotion = {
+        x: 0.018,
+        y: 0.028,
+        z: 0.012,
+        speed: 0.5,
+        phase: Math.PI * 0.35
+      };
+    }
     entry.placedAt = placedEntries.length;
     entry.playing = playing;
     if (!placedEntries.includes(entry)) placedEntries.push(entry);
-    selectEntry(entry);
+    if (fromStargate) clearSelectedEntry();
+    else selectEntry(entry);
     animateInstantDealEntry(entry, origin, 0, 0.98);
     refreshForgeEntryRegistry();
     resolvePlacedCardStacks();
     createBurst(entry.targetPosition.x, entry.targetPosition.z, 0xf6c96d, 0.96);
     createBurst(entry.targetPosition.x, entry.targetPosition.z, 0x00f3ff, 0.72);
+    if (fromStargate) completeStargateContextSeal(card);
     status = statusText || `Scene saved: ${card.title}`;
     audio.play("draw", { quiet: true });
     publishHud(true);
     return entry;
   }
 
-  function findSceneRestorableCard(snapshotItem = {}) {
+  function findSceneRestorableCard(snapshotItem = {}, sealedIdentity = null) {
     const snapshotCard = snapshotItem.card || {};
     const key = snapshotItem.cardId || cardIdentity(snapshotCard);
+    const withSealedIdentity = (candidate = {}) => sealedIdentity ? {
+      ...candidate,
+      cardId: sealedIdentity.cardId,
+      cardCoreKey: sealedIdentity.cardCoreKey,
+      cardRevisionId: sealedIdentity.cardRevisionId,
+      cardRecordDigest: sealedIdentity.cardRecordDigest,
+      stargateRole: sealedIdentity.role
+    } : candidate;
     if (key) {
       const libraryCard = cards.find((card) => cardIdentity(card) === key);
       if (libraryCard) {
-        return {
+        return withSealedIdentity({
           ...snapshotCard,
           ...libraryCard,
+          // A portable scene is the custody authority for the exact identity
+          // that was sealed into it. The local library can enrich visuals and
+          // copy, but an older/partial library record must not erase the
+          // Formation identity carried by the Context Card.
+          cardId: snapshotCard.cardId || libraryCard.cardId || libraryCard.id,
+          cardCoreKey: snapshotCard.cardCoreKey || libraryCard.cardCoreKey,
+          cardRevisionId: snapshotCard.cardRevisionId || libraryCard.cardRevisionId,
+          cardRecordDigest: snapshotCard.cardRecordDigest || libraryCard.cardRecordDigest,
+          stargateRole: snapshotCard.stargateRole || libraryCard.stargateRole,
           drawScene: snapshotCard.drawScene || libraryCard.drawScene,
           sceneSnapshot: tarotDrawSceneSnapshot(snapshotCard) || tarotDrawSceneSnapshot(libraryCard) || undefined
-        };
+        });
       }
     }
-    return snapshotCard?.title ? snapshotCard : null;
+    return snapshotCard?.title ? withSealedIdentity(snapshotCard) : null;
   }
 
   function placeSceneEntryInField(entry, snapshotItem = {}, index = 0) {
@@ -7196,13 +7422,19 @@ function createTarotDrawGame({ canvas, cards, avatarName, apiBase = "", producti
       return false;
     }
     audio.play("spread", { quiet: true });
+    const sealedFormationMembers = isStargateContextCard(card)
+      ? (stargateContextEnvelopeFromCard(card)?.formation?.members || [])
+      : [];
+    const sealedIdentityByCardId = new Map(sealedFormationMembers.map((member) => [member.cardId, member]));
     suspendDropZonePreviewRefresh();
     try {
       clearSceneForLoad();
       restoreSceneSettings(snapshot.settings || {});
       const cardsByZone = [...snapshot.cards].sort((first, second) => Number(first.placedAt ?? first.index ?? 0) - Number(second.placedAt ?? second.index ?? 0));
       cardsByZone.forEach((snapshotItem, index) => {
-        const restoreCard = findSceneRestorableCard(snapshotItem);
+        const sealedIdentity = sealedIdentityByCardId.get(String(snapshotItem.cardId || snapshotItem.card?.cardId || snapshotItem.card?.id || "")) ||
+          sealedFormationMembers[index] || null;
+        const restoreCard = findSceneRestorableCard(snapshotItem, sealedIdentity);
         if (!restoreCard) return;
         const entry = createCardEntry(restoreCard);
         entry.group.position.copy(DECK_POSITION.clone().add(new THREE.Vector3(index * 0.018, index * 0.01, -index * 0.012)));
@@ -14097,6 +14329,19 @@ function createTarotDrawGame({ canvas, cards, avatarName, apiBase = "", producti
       hoverEulerScratch.set(dockLocked ? -0.012 : entry.lockedCenterVisualizer ? -0.045 : lockedZone ? -0.025 : -0.08, 0, lockedZone ? 0.012 : 0.035);
       q.multiply(hoverQuaternionScratch.setFromEuler(hoverEulerScratch));
     }
+    if (entry.stargateContextHero && entry.state === "placed" && stargateState === "disconnected") {
+      focusNormal.copy(camera.position).sub(target).normalize();
+      focusUp.set(0, 1, 0).applyQuaternion(camera.quaternion);
+      focusUp.addScaledVector(focusNormal, -focusUp.dot(focusNormal));
+      if (focusUp.lengthSq() < 0.0001) focusUp.set(0, 0, -1).addScaledVector(focusNormal, focusNormal.z).normalize();
+      else focusUp.normalize();
+      focusRight.crossVectors(focusNormal, focusUp).normalize();
+      focusUp.crossVectors(focusRight, focusNormal).normalize();
+      focusRight.multiplyScalar(-1);
+      focusUp.multiplyScalar(-1);
+      focusMatrix.makeBasis(focusRight, focusNormal, focusUp);
+      q.copy(focusQuaternion.setFromRotationMatrix(focusMatrix));
+    }
     applyCardFocusPose(entry, target, q);
     entry.group.position.lerp(target, 1 - Math.pow(0.001, delta));
     entry.group.quaternion.slerp(q, 1 - Math.pow(0.002, delta));
@@ -14866,8 +15111,19 @@ function createTarotDrawGame({ canvas, cards, avatarName, apiBase = "", producti
         ...stargateHudState(),
         protocolVersion: STARGATE_PROTOCOL_VERSION,
         formationMemberIds: stargateIdentityResults.map(({ member }) => member.cardId),
+        formationIdentityInputs: stargateEntries.map((entry) => ({
+          cardId: String(entry?.card?.cardId || entry?.card?.id || ""),
+          hasCardCoreKey: Boolean(entry?.card?.cardCoreKey || entry?.card?.hypercore?.key || entry?.card?.custody?.cardCoreKey),
+          hasCardRevisionId: Boolean(entry?.card?.cardRevisionId || entry?.card?.revisionId || entry?.card?.semanticVersion || entry?.card?.revision),
+          hasCardRecordDigest: Boolean(entry?.card?.cardRecordDigest || entry?.card?.recordDigest || entry?.card?.custody?.recordDigest),
+          role: String(entry?.card?.stargateRole || "")
+        })),
         missingIdentity: stargateIdentityResults.flatMap((identity) => identity.missing),
         derivationObserved: Boolean(stargateResult),
+        contextCardId: stargateLastContextCard?.id || null,
+        contextCardProposed: Boolean(stargateLastContextCard && isStargateContextCard(stargateLastContextCard)),
+        contextRestoreLocked: stargateRequiresFreshPass,
+        contextDigest: stargateRestoredContext?.contextDigest || null,
         privateTopicWithheld: true,
         cohortSecretWithheld: true,
         reducedMotion: stargateReducedMotion,

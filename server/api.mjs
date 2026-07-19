@@ -53,6 +53,10 @@ import {
   updateTarotSet
 } from "../src/domain/tarot.js";
 import {
+  buildStargateContextCard,
+  restoreStargateContextCard
+} from "../src/domain/tarot-stargate-context-card.js";
+import {
   createSystemMediaLibrary,
   normalizeSystemMediaLibrary
 } from "../src/domain/systemMedia.js";
@@ -3159,6 +3163,39 @@ async function route(req, res) {
     await writeTarotStore(store);
     await appendSubscriberRegistration("tarot.set-updated", { tarot: store });
     sendJson(res, 200, store);
+    return;
+  }
+
+  if (pathname === "/api/tarot/stargate/context-card/preview" && req.method === "POST") {
+    try {
+      const body = await readBody(req);
+      const card = buildStargateContextCard({
+        sceneCard: body.sceneCard,
+        stargate: body.stargate,
+        origin: body.origin || { nodeId: "hapa-avatar-builder", actorId: "api-client" },
+        invitationCommitment: body.invitationCommitment || null
+      });
+      sendJson(res, 200, {
+        schemaVersion: "hapa.stargate-context-card-preview.v1",
+        card,
+        restore: restoreStargateContextCard(card),
+        truthStatus: "proposed_unminted",
+        persisted: false,
+        connected: false
+      });
+    } catch (error) {
+      sendJson(res, 422, { error: "invalid_stargate_context", message: error?.message || String(error) });
+    }
+    return;
+  }
+
+  if (pathname === "/api/tarot/stargate/context-card/restore" && req.method === "POST") {
+    try {
+      const body = await readBody(req);
+      sendJson(res, 200, restoreStargateContextCard(body.card || body));
+    } catch (error) {
+      sendJson(res, 422, { error: "invalid_stargate_context", message: error?.message || String(error) });
+    }
     return;
   }
 

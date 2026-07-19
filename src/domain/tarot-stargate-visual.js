@@ -10,9 +10,10 @@ const STATE_COLORS = Object.freeze({
   ready: 0xf6c96d,
   dialing: 0x00f3ff,
   active: 0x45f2c8,
+  sealing: 0xf6c96d,
   stale: 0xffb347,
   expired: 0x7b8794,
-  disconnected: 0xff5b6e
+  disconnected: 0x7aa7ff
 });
 
 function materialOpacity(material, opacity) {
@@ -461,7 +462,7 @@ export function createTarotStargateRig() {
   return root;
 }
 
-function updateBeam(beam, source, slotIndex, activeSlots, energy, elapsed, reducedMotion) {
+function updateBeam(beam, source, slotIndex, activeSlots, energy, elapsed, reducedMotion, reverse = false) {
   const active = slotIndex < activeSlots && source;
   const positions = beam.geometry.attributes.position.array;
   const start = source || new THREE.Vector3(0, 0, 0);
@@ -486,7 +487,8 @@ function updateBeam(beam, source, slotIndex, activeSlots, energy, elapsed, reduc
   const pulse = reducedMotion ? 1 : 0.72 + Math.sin(elapsed * 6.4 + beam.userData.phase) * 0.28;
   beam.material.opacity = active ? (0.08 + energy * 0.54) * pulse : 0;
   const spark = beam.userData.spark;
-  const sparkT = reducedMotion ? 0.82 : (elapsed * 0.31 + slotIndex * 0.127) % 1;
+  const travel = reducedMotion ? 0.82 : (elapsed * 0.31 + slotIndex * 0.127) % 1;
+  const sparkT = reverse ? 1 - travel : travel;
   const sparkPoint = Math.min(10, Math.floor(sparkT * 11));
   spark.position.fromArray(positions, sparkPoint * 3);
   spark.material.opacity = active ? energy * 0.9 : 0;
@@ -513,9 +515,10 @@ export function updateTarotStargateRig(root, options = {}) {
   if (!targetVisible && data.visibleBlend < 0.012) root.visible = false;
 
   const readyEnergy = state === "ready" ? 0.44 : state === "needs_identity" ? 0.2 : state === "arranging" ? 0.24 : 0;
-  const activeEnergy = state === "dialing" ? 0.42 + progress * 0.58 : state === "active" ? 1 : ["stale", "disconnected"].includes(state) ? 0.48 : state === "expired" ? 0.18 : readyEnergy;
+  const activeEnergy = state === "dialing" ? 0.42 + progress * 0.58 : state === "active" ? 1 : state === "sealing" ? 1.08 : state === "stale" ? 0.48 : state === "disconnected" ? 0.26 : state === "expired" ? 0.18 : readyEnergy;
   data.energy = THREE.MathUtils.lerp(data.energy, activeEnergy, reducedMotion ? 1 : 1 - Math.pow(0.004, delta || 0.016));
-  const openTarget = state === "active" ? 1 : state === "dialing" ? THREE.MathUtils.smoothstep(progress, 0.48, 0.94) : state === "stale" ? 0.34 : 0;
+  const sealCollapse = state === "sealing" ? THREE.MathUtils.smoothstep(progress, 0.08, 0.98) : 0;
+  const openTarget = state === "active" ? 1 : state === "dialing" ? THREE.MathUtils.smoothstep(progress, 0.48, 0.94) : state === "sealing" ? 1 - sealCollapse : state === "stale" ? 0.34 : state === "disconnected" ? 0.08 : 0;
   data.openBlend = THREE.MathUtils.lerp(data.openBlend, openTarget, reducedMotion ? 1 : 1 - Math.pow(0.0005, delta || 0.016));
 
   const motionTime = reducedMotion ? 0.75 : elapsed;
@@ -529,8 +532,9 @@ export function updateTarotStargateRig(root, options = {}) {
   data.baseLight.intensity = data.visibleBlend * data.energy * 18;
 
   const breathing = reducedMotion ? 1 : 0.86 + Math.sin(motionTime * 2.4) * 0.14;
-  data.aperture.position.y = GATE_CENTER.y - (1 - data.visibleBlend) * 0.42;
-  data.aperture.scale.setScalar(0.92 + data.energy * 0.08 + (state === "active" ? breathing * 0.018 : 0));
+  data.aperture.position.y = GATE_CENTER.y - (1 - data.visibleBlend) * 0.42 - sealCollapse * 0.3;
+  data.aperture.position.z = GATE_CENTER.z + sealCollapse * 0.18;
+  data.aperture.scale.setScalar((0.92 + data.energy * 0.08 + (state === "active" ? breathing * 0.018 : 0)) * (1 - sealCollapse * 0.78));
   data.outerRing.rotation.z = reducedMotion ? 0.04 : motionTime * (0.08 + data.energy * 0.18);
   data.middleRing.rotation.z = reducedMotion ? -0.08 : -motionTime * (0.14 + data.energy * 0.28);
   data.innerRing.rotation.z = reducedMotion ? 0.12 : motionTime * (0.22 + data.energy * 0.36);
@@ -546,7 +550,7 @@ export function updateTarotStargateRig(root, options = {}) {
     const stagger = THREE.MathUtils.clamp((data.openBlend * 1.35) - index / data.irisSegments.length * 0.35, 0, 1);
     segment.rotation.z = (index % 2 ? 1 : -1) * stagger * 0.46;
     segment.scale.setScalar(1 + stagger * 0.42);
-    segment.material.opacity = data.visibleBlend * (1 - stagger * 0.94);
+    segment.material.opacity = data.visibleBlend * (1 - stagger * 0.94) * (state === "disconnected" ? 0.24 : 1);
     segment.material.emissive.copy(stateColor);
     segment.material.emissiveIntensity = 0.12 + data.energy * 0.62;
   });
@@ -555,17 +559,17 @@ export function updateTarotStargateRig(root, options = {}) {
   data.horizonMaterial.uniforms.uEnergy.value = data.energy;
   data.horizonMaterial.uniforms.uStateColor.value.copy(stateColor);
   data.horizonBack.material.opacity = data.openBlend * 0.94;
-  data.constellation.material.opacity = data.openBlend * (0.44 + data.energy * 0.46);
+  data.constellation.material.opacity = data.openBlend * (0.44 + data.energy * 0.46) * (1 - sealCollapse);
   data.constellation.rotation.z = reducedMotion ? 0.08 : motionTime * 0.035;
   data.constellation.scale.setScalar(0.88 + data.openBlend * 0.12);
   data.particles.material.opacity = data.visibleBlend * data.energy * 0.68;
   data.particles.rotation.z = reducedMotion ? 0 : motionTime * 0.09;
-  data.particles.scale.setScalar(0.88 + data.energy * 0.18);
+  data.particles.scale.setScalar((0.88 + data.energy * 0.18) * (1 - sealCollapse * 0.52));
   data.portalLight.color.copy(stateColor);
   data.portalLight.intensity = data.openBlend * (5 + data.energy * 8);
   data.rimLight.intensity = data.openBlend * (2.5 + data.energy * 5.5);
 
-  const dialedChevronCount = state === "active" ? activeSlots : state === "dialing" ? Math.floor(progress * (activeSlots + 1)) : 0;
+  const dialedChevronCount = ["active", "sealing"].includes(state) ? activeSlots : state === "dialing" ? Math.floor(progress * (activeSlots + 1)) : 0;
   data.chevrons.forEach((chevron, index) => {
     const engaged = index < activeSlots && (state === "ready" || state === "needs_identity" || index < dialedChevronCount);
     const signal = chevron.userData.signal;
@@ -586,7 +590,7 @@ export function updateTarotStargateRig(root, options = {}) {
     refs.label.material.opacity = slot.visible ? data.visibleBlend * (active ? 0.92 : 0.3) : 0;
     refs.ring.rotation.z = reducedMotion ? 0 : motionTime * (0.14 + index * 0.012) * (index % 2 ? -1 : 1);
   });
-  data.beams.forEach((beam, index) => updateBeam(beam, sources[index], index, activeSlots, data.energy, motionTime, reducedMotion));
+  data.beams.forEach((beam, index) => updateBeam(beam, sources[index], index, activeSlots, data.energy, motionTime, reducedMotion, state === "sealing"));
   data.lastState = state;
 }
 

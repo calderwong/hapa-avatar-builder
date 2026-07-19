@@ -43,6 +43,7 @@
     "Name / Identity",
     "Songs / Tarot / Scene Attach Packs",
     "Immutable Song Card Minting / Edition History / Timestamp Card Printing",
+    "Portable proposed Stargate Context Cards / disconnected Formation restore",
     "Canonical Overwind Card Origin Outbox",
     "Overwind acknowledged Card subscriber",
     "Universal Overcard consumer: Hand / Deck / Placement / Formation / Responsibility"
@@ -59,7 +60,10 @@
     "overcardHostTargets": "http://127.0.0.1:8787/api/overcard/host-targets",
     "overcardProcessAdapters": "http://127.0.0.1:8787/api/overcard/process-adapters",
     "songCardHeads": "http://127.0.0.1:8787/api/song-cards",
-    "songCardMintCli": "npm run song-card -- --help"
+    "songCardMintCli": "npm run song-card -- --help",
+    "stargateContextPreview": "http://127.0.0.1:8787/api/tarot/stargate/context-card/preview",
+    "stargateContextRestore": "http://127.0.0.1:8787/api/tarot/stargate/context-card/restore",
+    "stargateContextCli": "npm run cli -- stargate-context-card --help"
   },
   "requiredNodes": [
     "hapa-overcard",

@@ -9,6 +9,18 @@ Verified 2026-07-11 for canonical node `hapa-avatar-builder`; aliases are `hapa-
 | UI | Header identifies Hapa Avatar Builder and consumes the same catalog, HostTargets, process adapters, Hand, and capability host | pointer, keyboard, touch, route and card actions; visible state/recovery feedback | Shared changes require an online canonical host; offline actions are visibly rejected rather than implied committed | `outputs/shared-hand-header-visual-qa/report.json` |
 | Desktop | Same UI and API with a scoped preload lifecycle bridge | status / ensure / reconnect only | context isolation, Node integration off, web security on, no credential exposure | `electron/main.cjs`, `electron/preload.cjs` |
 
+## Portable Stargate Context Card parity
+
+The canonical domain module is `src/domain/tarot-stargate-context-card.js`. All surfaces create the same `proposed_unminted` safe Card and restore the same exact ordered Formation in a disconnected state:
+
+| Surface | Proposal | Restore |
+| --- | --- | --- |
+| UI | Dial a valid Gate in 3D Tarot Draw, then use **Save Gate**. The existing Scene Card persistence/deal path produces one physical Context Card. | Select the Card and use **Restore Gate**. The exact scene/Formation returns; a fresh Gate Pass remains required. |
+| API | `POST /api/tarot/stargate/context-card/preview` with `sceneCard`, derived `stargate`, and optional safe origin/commitment fields. | `POST /api/tarot/stargate/context-card/restore` with `card`. Invalid schema, digest, snapshot commitment, or connection policy returns `422`. |
+| CLI | `hapa-avatar stargate-context-card --scene-file <json> --stargate-file <json> [--actor <id>]` | `hapa-avatar stargate-context-restore --file <json>` |
+
+The parity contract explicitly excludes cohort secrets, raw Passes/tokens, full rendezvous topics/addresses, private keys, credentials, and local paths. `tests/tarot-stargate-context-parity.test.mjs` compares the domain/UI core, isolated API, and CLI results for one fixture.
+
 Registry resolution is verified as follows:
 
 - Quest Keeper maps `hapa-avatar-builder` to board `hapa-app-hapa-avatar-builder` in `hapa-quest-keeper/src/quest-core.mjs`.

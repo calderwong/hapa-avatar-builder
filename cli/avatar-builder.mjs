@@ -21,6 +21,10 @@ import {
   upsertMindFact,
   upsertRelationshipMapping
 } from "../src/domain/avatar.js";
+import {
+  buildStargateContextCard,
+  restoreStargateContextCard
+} from "../src/domain/tarot-stargate-context-card.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, "..");
@@ -51,6 +55,30 @@ async function main(cmd, opts) {
   if (cmd === "capabilities") {
     const manifest = JSON.parse(await readFile(path.join(ROOT, "hapa-node.json"), "utf8"));
     print({ id: manifest.id, aliases: manifest.aliases || [], capabilities: manifest.capabilities || [], interfaces: manifest.interfaces || {}, errors: { invalidCommand: "non-zero exit with an actionable message", missingAvatar: "non-zero exit naming the required avatar id" } }, opts);
+    return;
+  }
+
+  if (cmd === "stargate-context-card") {
+    const sceneFile = option(opts, "scene-file", "scene");
+    const stargateFile = option(opts, "stargate-file", "gate");
+    if (!sceneFile || !stargateFile) throw new Error("stargate-context-card requires --scene-file <scene-card.json> and --stargate-file <derived-stargate.json>.");
+    const [sceneCard, stargate] = await Promise.all([
+      readJsonInput(sceneFile),
+      readJsonInput(stargateFile)
+    ]);
+    print(buildStargateContextCard({
+      sceneCard,
+      stargate,
+      origin: { nodeId: "hapa-avatar-builder", actorId: String(opts.actor || "cli-client") },
+      invitationCommitment: opts["invitation-commitment"] || null
+    }), { ...opts, json: true });
+    return;
+  }
+
+  if (cmd === "stargate-context-restore") {
+    const inputFile = option(opts, "file", "card");
+    if (!inputFile) throw new Error("stargate-context-restore requires --file <stargate-context-card.json>.");
+    print(restoreStargateContextCard(await readJsonInput(inputFile)), { ...opts, json: true });
     return;
   }
 
@@ -1014,6 +1042,15 @@ function collectPositionals(opts) {
   return opts._.filter(Boolean);
 }
 
+async function readJsonInput(filePath) {
+  const resolved = path.resolve(String(filePath));
+  try {
+    return JSON.parse(await readFile(resolved, "utf8"));
+  } catch (error) {
+    throw new Error(`Could not read JSON input ${resolved}: ${error?.message || String(error)}`);
+  }
+}
+
 function option(opts, ...names) {
   for (const name of names) {
     if (opts[name] !== undefined) return opts[name];
@@ -1062,6 +1099,8 @@ function printHelp() {
 
 Commands:
   list [--json]
+  stargate-context-card --scene-file ./scene-card.json --stargate-file ./derived-gate.json [--actor local-operator] [--json]
+  stargate-context-restore --file ./stargate-context-card.json [--json]
   scaffold Red Reaper --id red-reaper [--primary Red] [--json]
   audit <avatar-id> [--json]
   attach <avatar-id> [--target comic|video|agent] [--json]

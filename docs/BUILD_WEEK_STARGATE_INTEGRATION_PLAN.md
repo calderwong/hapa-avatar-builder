@@ -77,6 +77,8 @@ Use a small state machine: `dormant -> arranging -> ready -> dialing -> active -
 
 ### Save Gate as a Card
 
+**Implementation checkpoint (`NAV-001`, 2026-07-18):** implemented in the canonical Tarot Draw with domain/UI/API/CLI parity. The active Gate now reverses its energy flow, lifts and converges the ordered Cards, contracts into a physical proposed Context Card, and restores the exact Formation while remaining disconnected. The final truth and evidence audit is `docs/audits/2026-07-18-stargate-context-card.md`. Human mint, Overwind acknowledgement, Catalog projection, and fresh Pass issuance remain separate downstream tasks.
+
 Avatar Builder already turns **Save Scene** into a restorable Scene Card containing the Tarot snapshot and canonical Formation. When a Gate is active, the same action becomes **Save Gate** and extends that existing Card with a safe `hapa.stargate-context-card.v1` envelope:
 
 - restorable Tarot scene snapshot and canonical Formation;
