@@ -63,6 +63,14 @@ import {
   updateTarotContextForgeRig,
 } from "../domain/tarot-context-forge-visual.js";
 import {
+  beginTarotWisdomCouncil,
+  completeTarotWisdomCouncil,
+  createTarotWisdomCouncilRig,
+  disposeTarotWisdomCouncilRig,
+  failTarotWisdomCouncil,
+  updateTarotWisdomCouncilRig,
+} from "../domain/tarot-wisdom-council-visual.js";
+import {
   buildVisualizerRendererTruthReceipt,
   resolveVisualizerRendererTruth,
 } from "../domain/visualizer-renderer-capability.js";
@@ -2078,6 +2086,18 @@ export default function TarotDraw3DView({ cards = [], avatarId = "local-operator
     result: null,
     error: ""
   });
+  const [wisdomCouncil, setWisdomCouncil] = useState({
+    open: false,
+    status: "idle",
+    instruction: "What should this Formation teach while preserving evidence, human intent, and unresolved tradeoffs?",
+    modelId: "qwen3.5:27b",
+    actorId: "calder",
+    displayName: "Calder",
+    foundationCards: [],
+    selectedIds: [],
+    result: null,
+    error: ""
+  });
   const [sceneInvitePreviewOpen, setSceneInvitePreviewOpen] = useState(false);
   const [phoneQrDataUrl, setPhoneQrDataUrl] = useState("");
   const [hud, setHud] = useState({
@@ -2179,6 +2199,15 @@ export default function TarotDraw3DView({ cards = [], avatarId = "local-operator
       generationPerformed: false,
       truthBoundary: "Human-selected evidence only."
     },
+    wisdomCouncil: {
+      state: "idle",
+      seatCount: 0,
+      dissentCount: 0,
+      creativeDirectorCount: 0,
+      resultCardId: "",
+      lessonCardId: "",
+      truthBoundary: "Peer-blind proposals only."
+    },
     renderer: { calls: 0, triangles: 0, geometries: 0, textures: 0 }
   });
   const selectedCard = hud.selectedCard || null;
@@ -2265,6 +2294,7 @@ export default function TarotDraw3DView({ cards = [], avatarId = "local-operator
   const stargate = hud.stargate || { mode: false, state: "dormant", progress: 0, slotCount: 0, sealedCount: 0, missingIdentityCount: 0, redactedAddress: "", formationFingerprint: "", fixtureDisclosure: "", message: "Place two to eight identity-sealed Cards" };
   const spatialTruth = hud.spatialTruth || { state: "idle", accepted: 0, rejected: 0, lastFamily: "", eventCommitments: [], resultCardId: "", publicFixture: false, truthBoundary: "Verified events may emit bounded effects." };
   const contextForgeVisual = hud.contextForge || { state: "idle", mode: "deterministic_scaffold", sourceCount: 0, packetDigest: "", runDigest: "", resultCardId: "", generationPerformed: false, truthBoundary: "Human-selected evidence only." };
+  const wisdomCouncilVisual = hud.wisdomCouncil || { state: "idle", seatCount: 0, dissentCount: 0, creativeDirectorCount: 0, resultCardId: "", lessonCardId: "", truthBoundary: "Peer-blind proposals only." };
   const stargateBusy = stargate.state === "dialing";
   const stargateNeedsIdentity = stargate.state === "needs_identity";
   const stargateActive = stargate.state === "active";
@@ -3057,6 +3087,77 @@ export default function TarotDraw3DView({ cards = [], avatarId = "local-operator
     } catch (error) {
       callGame("failContextForge", error?.message || "Context proposal failed");
       setContextForge((current) => ({ ...current, status: "failed", error: error?.message || "Context proposal failed." }));
+    }
+  }
+
+  async function openWisdomCouncil() {
+    setContextForge((current) => ({ ...current, open: false }));
+    setWisdomCouncil((current) => ({
+      ...current,
+      open: true,
+      status: "loading",
+      result: null,
+      error: contextForge.packet?.packetId ? "" : "Seal a Context Packet in Context Forge before convening the Council."
+    }));
+    try {
+      const response = await fetch(`${tarotDrawApiBase(apiBase)}/api/wisdom-councils`);
+      const payload = await response.json().catch(() => ({}));
+      const foundationCards = payload.foundation?.cards || [];
+      if (!response.ok || !foundationCards.length) throw new Error(payload.message || "Wisdom foundation Cards are unavailable.");
+      setWisdomCouncil((current) => ({
+        ...current,
+        status: "idle",
+        foundationCards,
+        selectedIds: current.selectedIds.length ? current.selectedIds.filter((id) => foundationCards.some((card) => card.cardId === id)).slice(0, 3) : foundationCards.slice(0, 3).map((card) => card.cardId),
+        error: contextForge.packet?.packetId ? "" : current.error
+      }));
+    } catch (error) {
+      setWisdomCouncil((current) => ({ ...current, status: "failed", error: error?.message || "Wisdom foundation Cards are unavailable." }));
+    }
+  }
+
+  function closeWisdomCouncil() {
+    if (wisdomCouncil.status === "invoking") return;
+    setWisdomCouncil((current) => ({ ...current, open: false }));
+  }
+
+  function toggleWisdomSeat(cardId) {
+    if (wisdomCouncil.status === "invoking") return;
+    setWisdomCouncil((current) => {
+      const selected = current.selectedIds.includes(cardId)
+        ? current.selectedIds.filter((id) => id !== cardId)
+        : current.selectedIds.length < 3
+          ? [...current.selectedIds, cardId]
+          : current.selectedIds;
+      return { ...current, selectedIds: selected, result: null, error: "" };
+    });
+  }
+
+  async function runWisdomCouncil() {
+    if (!contextForge.packet?.packetId) {
+      setWisdomCouncil((current) => ({ ...current, error: "Seal a Context Packet in Context Forge first." }));
+      return;
+    }
+    if (!wisdomCouncil.selectedIds.length || !String(wisdomCouncil.modelId || "").trim()) {
+      setWisdomCouncil((current) => ({ ...current, error: "Choose one to three Wisdom Cards and one exact local model." }));
+      return;
+    }
+    const actor = { actorId: String(wisdomCouncil.actorId || "local-operator").trim(), actorType: "human", displayName: String(wisdomCouncil.displayName || "Local operator").trim() };
+    setWisdomCouncil((current) => ({ ...current, status: "invoking", result: null, error: "" }));
+    callGame("beginWisdomCouncil", { seatCount: wisdomCouncil.selectedIds.length });
+    try {
+      const response = await fetch(`${tarotDrawApiBase(apiBase)}/api/wisdom-councils/runs`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ packetId: contextForge.packet.packetId, wisdomCardIds: wisdomCouncil.selectedIds, instruction: wisdomCouncil.instruction, modelId: String(wisdomCouncil.modelId || "").trim(), actor })
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || !payload.result?.run?.seal?.sealed || !payload.result?.cards?.lesson || !payload.result?.cards?.result) throw new Error(payload.message || "Wisdom Council failed atomically.");
+      callGame("completeWisdomCouncil", payload.result);
+      setWisdomCouncil((current) => ({ ...current, status: "complete", result: payload.result, error: "" }));
+    } catch (error) {
+      callGame("failWisdomCouncil", error?.message || "Wisdom Council failed atomically");
+      setWisdomCouncil((current) => ({ ...current, status: "failed", result: null, error: error?.message || "Wisdom Council failed atomically." }));
     }
   }
 
@@ -3955,6 +4056,54 @@ export default function TarotDraw3DView({ cards = [], avatarId = "local-operator
         </section>
       )}
 
+      {wisdomCouncil.open && (
+        <section className="tarot-wisdom-council-chamber" data-status={wisdomCouncil.status} aria-label="Peer-blind Wisdom Council" aria-live="polite">
+          <div className="tarot-wisdom-council-aura" aria-hidden="true"><i /><i /><i /><i /><i /></div>
+          <header>
+            <span><BookOpenCheck size={15} /> Stargate Wisdom Council</span>
+            <strong>{wisdomCouncil.status === "complete" ? "DISSENT SEALED · NO FALSE CONSENSUS" : wisdomCouncil.status === "invoking" ? "THREE VOICES IN FLIGHT" : "PEER-BLIND CHAMBERS"}</strong>
+            <button className="hapa-btn" type="button" onClick={closeWisdomCouncil}>Close</button>
+          </header>
+          <div className="tarot-wisdom-council-machine" aria-hidden="true">
+            <div className="tarot-wisdom-seat" data-role="primary" data-active={wisdomCouncil.selectedIds[0] ? "true" : "false"}><i /><b>PRIMARY</b><em>{wisdomCouncil.foundationCards.find((card) => card.cardId === wisdomCouncil.selectedIds[0])?.title || "Seat empty"}</em></div>
+            <div className="tarot-wisdom-seat" data-role="companion" data-active={wisdomCouncil.selectedIds[1] ? "true" : "false"}><i /><b>COMPANION</b><em>{wisdomCouncil.foundationCards.find((card) => card.cardId === wisdomCouncil.selectedIds[1])?.title || "Seat empty"}</em></div>
+            <div className="tarot-wisdom-seat" data-role="sentinel" data-active={wisdomCouncil.selectedIds[2] ? "true" : "false"}><i /><b>SENTINEL</b><em>{wisdomCouncil.foundationCards.find((card) => card.cardId === wisdomCouncil.selectedIds[2])?.title || "Seat empty"}</em></div>
+            <div className="tarot-wisdom-blind-walls"><i /><i /></div>
+            <div className="tarot-wisdom-council-core" data-sealed={wisdomCouncil.result ? "true" : "false"}><i /><i /><b>{wisdomCouncil.result ? "ATOMIC SEAL" : "NO PEER VIEW"}</b></div>
+            <div className="tarot-wisdom-dissent-spectrum" data-visible={wisdomCouncil.result ? "true" : "false"}>
+              {["scope", "goal", "evidence", "mechanism", "true-tradeoff"].map((kind, index) => {
+                const faultAngle = -56 + index * 28;
+                return <i key={kind} data-kind={kind} data-active={Number((wisdomCouncil.result?.run?.dissent?.summary?.countsByCategory || {})[kind] || 0) > 0 ? "true" : "false"} style={{ "--fault-angle": `${faultAngle}deg`, "--fault-label-angle": `${-faultAngle}deg` }}><b>{kind}</b></i>;
+              })}
+            </div>
+            <div className="tarot-wisdom-human-dais" data-visible={wisdomCouncil.result?.run?.dissent?.creativeDirectorQueue?.length ? "true" : "false"}><i /><b>HUMAN AUTHORITY</b><em>choose value · defer · narrow experiment</em></div>
+          </div>
+          <div className="tarot-wisdom-truth-strip">
+            <span data-ready={contextForge.packet ? "true" : "false"}><BadgeCheck size={11} /> Exact Context seal</span>
+            <span data-ready={wisdomCouncil.selectedIds.length ? "true" : "false"}><CircleDot size={11} /> {wisdomCouncil.selectedIds.length || 0} independent seat{wisdomCouncil.selectedIds.length === 1 ? "" : "s"}</span>
+            <span data-ready="true"><BadgeCheck size={11} /> No sibling prompts</span>
+            <span data-ready={wisdomCouncil.result ? "true" : "false"}><Route size={11} /> {wisdomCouncil.result ? "Dissent preserved" : "No averaged verdict"}</span>
+          </div>
+          <div className="tarot-wisdom-card-selector" role="group" aria-label="Select one to three Wisdom Cards">
+            {wisdomCouncil.foundationCards.map((card) => {
+              const selectedIndex = wisdomCouncil.selectedIds.indexOf(card.cardId);
+              return <button key={card.cardId} type="button" data-selected={selectedIndex >= 0 ? "true" : "false"} data-seat={selectedIndex >= 0 ? ["primary", "companion", "sentinel"][selectedIndex] : ""} disabled={wisdomCouncil.status === "invoking" || (selectedIndex < 0 && wisdomCouncil.selectedIds.length >= 3)} onClick={() => toggleWisdomSeat(card.cardId)}><i>{selectedIndex >= 0 ? selectedIndex + 1 : "+"}</i><span><b>{card.title}</b><em>{card.subtitle}</em></span><small>{card.summary}</small></button>;
+            })}
+          </div>
+          <div className="tarot-wisdom-council-fields">
+            <label><span>Question for each independent Card</span><textarea value={wisdomCouncil.instruction} onChange={(event) => setWisdomCouncil((current) => ({ ...current, instruction: event.target.value, result: null, error: "" }))} /></label>
+            <label><span>Exact local model</span><input value={wisdomCouncil.modelId} onChange={(event) => setWisdomCouncil((current) => ({ ...current, modelId: event.target.value, result: null, error: "" }))} /></label>
+            <label><span>Human convener</span><input value={wisdomCouncil.displayName} onChange={(event) => setWisdomCouncil((current) => ({ ...current, displayName: event.target.value }))} /></label>
+          </div>
+          <div className="tarot-wisdom-council-actions">
+            <button className="hapa-btn" data-intent="warning" type="button" disabled={!contextForge.packet || !wisdomCouncil.selectedIds.length || wisdomCouncil.status === "invoking" || Boolean(wisdomCouncil.result)} onClick={runWisdomCouncil}><Sparkles size={13} /> {wisdomCouncil.status === "invoking" ? "Independent local seats in flight…" : `Convene ${wisdomCouncil.selectedIds.length || 0}-Seat Council`}</button>
+            <em>All seats seal together or no Council Result Card exists.</em>
+          </div>
+          {wisdomCouncil.result && <footer data-state="complete"><div><strong>{wisdomCouncil.result.cards.result.title}</strong><span>{wisdomCouncil.result.run.seatCount} seats · {wisdomCouncil.result.run.dissent.summary.unresolvedCount} unresolved · {wisdomCouncil.result.run.dissent.creativeDirectorQueue.length} human route{wisdomCouncil.result.run.dissent.creativeDirectorQueue.length === 1 ? "" : "s"} · proposed only</span></div><button className="hapa-btn" data-intent="warning" type="button" onClick={() => setWisdomCouncil((current) => ({ ...current, open: false }))}><Sparkles size={13} /> Enter the Council Field</button></footer>}
+          {wisdomCouncil.error && <footer data-state="failed"><strong>Council halted truthfully</strong><span>{wisdomCouncil.error}</span></footer>}
+        </section>
+      )}
+
       {mediaComment.open && (
         <section className="tarot-comment-chamber" data-status={mediaComment.status} aria-label="Consented Comment Card capture" aria-live="polite">
           <div className="tarot-comment-chamber-aura" aria-hidden="true"><i /><i /><i /></div>
@@ -4075,6 +4224,10 @@ export default function TarotDraw3DView({ cards = [], avatarId = "local-operator
           <button className="hapa-btn tarot-context-forge-open" data-intent={stargateOpen ? "warning" : undefined} type="button" disabled={!stargateOpen} onClick={openContextForge}>
             <Sparkles size={13} /> Context Forge
             <em>{stargateOpen ? `${stargate.slotCount} Cards → sealed packet` : "Open Gate first"}</em>
+          </button>
+          <button className="hapa-btn tarot-wisdom-council-open" data-intent={contextForge.packet ? "warning" : undefined} type="button" disabled={!stargateOpen} onClick={openWisdomCouncil}>
+            <BookOpenCheck size={13} /> Wisdom Council
+            <em>{contextForge.packet ? "1–3 peer-blind Cards → visible dissent" : "Seal Context first"}</em>
           </button>
           {stargate.requiresFreshPass && (
             <div className="tarot-stargate-return-policy" data-truth="disconnected">
@@ -6099,9 +6252,10 @@ function createTarotDrawGame({ canvas, cards, avatarId = "local-operator", avata
   const stargateRig = createTarotStargateRig();
   const spatialTruthRig = createTarotSpatialTruthRig();
   const contextForgeRig = createTarotContextForgeRig();
+  const wisdomCouncilRig = createTarotWisdomCouncilRig();
   previewGroup.name = "tarotDropZonePreviewRig";
   spawnNetworkLayer.name = "tarotSpawnNetworkLayer";
-  world.add(board, deck, slotGroup, mediaPoolZone, dropZone, previewGroup, spawnNetworkLayer, sparkGroup, stargateRig, spatialTruthRig.group, contextForgeRig.group);
+  world.add(board, deck, slotGroup, mediaPoolZone, dropZone, previewGroup, spawnNetworkLayer, sparkGroup, stargateRig, spatialTruthRig.group, contextForgeRig.group, wisdomCouncilRig.group);
 
   addLighting(scene);
   addDepthProps(world, resources);
@@ -6330,6 +6484,7 @@ function createTarotDrawGame({ canvas, cards, avatarId = "local-operator", avata
   let spatialTruthResultCard = null;
   let spatialTruthShowcasePlaying = false;
   let contextForgeState = { state: "idle", mode: "deterministic_scaffold", sourceCount: 0, packetDigest: "", runDigest: "", resultCardId: "", generationPerformed: false, message: "" };
+  let wisdomCouncilState = { state: "idle", seatCount: 0, dissentCount: 0, creativeDirectorCount: 0, resultCardId: "", lessonCardId: "", runDigest: "", message: "" };
   let compactMode = null;
   let cameraRailBlend = 0;
   let cameraGalleryRecovery = null;
@@ -6429,6 +6584,9 @@ function createTarotDrawGame({ canvas, cards, avatarId = "local-operator", avata
     beginContextGeneration,
     completeContextGeneration,
     failContextForge,
+    beginWisdomCouncil,
+    completeWisdomCouncil,
+    failWisdomCouncil,
     setEchoDirectorProject,
     spawnForgeCard,
     updateForgeCard,
@@ -6896,6 +7054,18 @@ function createTarotDrawGame({ canvas, cards, avatarId = "local-operator", avata
     };
   }
 
+  function wisdomCouncilHudState() {
+    return {
+      ...wisdomCouncilState,
+      runDigest: wisdomCouncilState.runDigest ? `${wisdomCouncilState.runDigest.slice(0, 12)}…` : "",
+      truthBoundary: wisdomCouncilState.state === "sealed"
+        ? "Independent local provider-model hypotheses sealed atomically; dissent remains unresolved and human authority remains required."
+        : wisdomCouncilState.state === "failed"
+          ? "Council failed atomically; no partial Council Result or Lesson Card was admitted."
+          : "Peer-blind Wisdom seats are proposal-only and cannot see sibling Cards or outputs before the seal."
+    };
+  }
+
   function contextForgeDraft() {
     if (!["active", "connected"].includes(stargateState) || !stargateResult || !stargateEntries.length) {
       return { ok: false, message: "Open a freshly derived Stargate before sealing a Context Packet." };
@@ -7000,6 +7170,75 @@ function createTarotDrawGame({ canvas, cards, avatarId = "local-operator", avata
     status = message;
     publishHud(true);
     return contextForgeHudState();
+  }
+
+  function beginWisdomCouncil({ seatCount = 3 } = {}) {
+    wisdomCouncilState = { state: "invoking", seatCount: Math.max(1, Math.min(3, Number(seatCount) || 1)), dissentCount: 0, creativeDirectorCount: 0, resultCardId: "", lessonCardId: "", runDigest: "", message: "Independent Wisdom Card seats released behind peer-blind partitions" };
+    beginTarotWisdomCouncil(wisdomCouncilRig, { seatCount: wisdomCouncilState.seatCount, elapsed: elapsedTime });
+    [-1.18, 0, 1.18].slice(0, wisdomCouncilState.seatCount).forEach((x, index) => {
+      createBurst(x, -0.78, [0x00f3ff, 0xf6c96d, 0xff6df2][index], 2.15);
+    });
+    audio.play("gate-dial", { quiet: true });
+    status = `${wisdomCouncilState.seatCount} peer-blind Wisdom seat${wisdomCouncilState.seatCount === 1 ? "" : "s"} in flight`;
+    publishHud(true);
+    return wisdomCouncilHudState();
+  }
+
+  function completeWisdomCouncil(payload = {}) {
+    const run = payload.run || {};
+    const lesson = payload.cards?.lesson;
+    const result = payload.cards?.result;
+    if (!run.seal?.sealed || !run.runDigest || !lesson?.id || !result?.id) return failWisdomCouncil("Council response lacked one atomic seal and both proposed Cards");
+    const dissent = run.dissent || {};
+    const countsByCategory = dissent.summary?.countsByCategory || {};
+    const creativeDirectorCount = dissent.creativeDirectorQueue?.length || 0;
+    wisdomCouncilState = { state: "sealed", seatCount: run.seatCount || run.seats?.length || 0, dissentCount: dissent.summary?.unresolvedCount || 0, creativeDirectorCount, resultCardId: result.id, lessonCardId: lesson.id, runDigest: run.runDigest, message: "Dissent classified, not averaged; human tradeoffs remain open" };
+    completeTarotWisdomCouncil(wisdomCouncilRig, { countsByCategory, creativeDirectorCount, elapsed: elapsedTime });
+    placedEntries.filter((entry) => entry.contextForgeHero).forEach((entry) => {
+      entry.contextForgeHero = false;
+      entry.targetPosition.set(0, 0.88, -1.78);
+      entry.group.scale.setScalar(0.82);
+      entry.floatMotion = { x: 0.018, y: 0.028, z: 0.012, speed: 0.42, phase: 0.4 };
+    });
+    const lessonEntry = spawnFieldMediaCard(lesson, { zone: "field", originPosition: new THREE.Vector3(0, 1.72, -0.72), statusText: "Council Lesson materialized · proposed only" });
+    const resultEntry = spawnFieldMediaCard(result, { zone: "field", originPosition: new THREE.Vector3(0, 1.72, -0.72), statusText: "Council Result materialized · unresolved and unminted" });
+    if (lessonEntry) {
+      lessonEntry.wisdomCouncilHero = "lesson";
+      lessonEntry.targetPosition.set(-1.92, 1.38, 0.44);
+      lessonEntry.baseRotationY = 0.19;
+      setCardTargetRotation(lessonEntry, 1.03, lessonEntry.baseRotationY, 0.045);
+      lessonEntry.group.scale.setScalar(1.3);
+      lessonEntry.floatMotion = { x: 0.024, y: 0.045, z: 0.016, speed: 0.47, phase: 0.2 };
+      createBurst(lessonEntry.targetPosition.x, lessonEntry.targetPosition.z, 0x45f2c8, 3.2);
+    }
+    if (resultEntry) {
+      resultEntry.wisdomCouncilHero = "result";
+      resultEntry.targetPosition.set(1.92, 1.38, 0.44);
+      resultEntry.baseRotationY = -0.19;
+      setCardTargetRotation(resultEntry, 1.03, resultEntry.baseRotationY, -0.045);
+      resultEntry.group.scale.setScalar(1.3);
+      resultEntry.floatMotion = { x: 0.024, y: 0.045, z: 0.016, speed: 0.47, phase: Math.PI * 0.72 };
+      createBurst(resultEntry.targetPosition.x, resultEntry.targetPosition.z, 0xa472ff, 3.3);
+      createBurst(resultEntry.targetPosition.x, resultEntry.targetPosition.z, 0xf6c96d, creativeDirectorCount ? 2.7 : 1.4);
+    }
+    Object.values(countsByCategory).forEach((count, index) => {
+      if (!Number(count)) return;
+      createBurst(Math.cos(index * 1.18) * 0.9, -0.78 + Math.sin(index * 1.18) * 0.28, [0x00f3ff, 0xf6c96d, 0x45f2c8, 0xa472ff, 0xff8a55][index], 1.6 + Math.min(1.4, Number(count) * 0.2));
+    });
+    witnessRuntimeSpatialEvent({ eventId: `wisdom-council:${run.councilId}`, type: "council.result.pressed", payloadDigest: result.cardRecordDigest || result.recordDigest, sourceNode: "hapa-avatar-builder-wisdom-council", label: "Peer-blind Wisdom Council sealed", subjectCardId: result.id, actorId: run.requestedBy?.actorId || null });
+    audio.play("gate-open", { quiet: true });
+    status = `${wisdomCouncilState.seatCount} voices preserved · ${wisdomCouncilState.dissentCount} unresolved · proposed only`;
+    publishHud(true);
+    return { lessonEntry, resultEntry, ...wisdomCouncilHudState() };
+  }
+
+  function failWisdomCouncil(message = "Wisdom Council failed atomically") {
+    wisdomCouncilState = { ...wisdomCouncilState, state: "failed", dissentCount: 0, creativeDirectorCount: 0, resultCardId: "", lessonCardId: "", runDigest: "", message };
+    failTarotWisdomCouncil(wisdomCouncilRig, { elapsed: elapsedTime });
+    createBurst(0, -0.78, 0xff473d, 1.75);
+    status = message;
+    publishHud(true);
+    return wisdomCouncilHudState();
   }
 
   function setStargateMintStage(nextStage = "idle") {
@@ -15517,6 +15756,12 @@ function createTarotDrawGame({ canvas, cards, avatarId = "local-operator", avata
       gateOpen: ["active", "connected", "sealing"].includes(stargateState),
       reducedMotion: stargateReducedMotion
     });
+    updateTarotWisdomCouncilRig(wisdomCouncilRig, {
+      delta,
+      elapsed,
+      gateOpen: ["active", "connected", "sealing"].includes(stargateState),
+      reducedMotion: stargateReducedMotion
+    });
     updateSpawnNetwork(spawnNetwork, camera, elapsed);
     updatePhoneLaserVisual(elapsed);
     updateBursts(delta);
@@ -16201,6 +16446,7 @@ function createTarotDrawGame({ canvas, cards, avatarId = "local-operator", avata
       stargate: stargateHudState(),
       spatialTruth: spatialTruthHudState(),
       contextForge: contextForgeHudState(),
+      wisdomCouncil: wisdomCouncilHudState(),
       layoutId,
       backStyle,
       musicVisualizerMode,
@@ -16474,6 +16720,16 @@ function createTarotDrawGame({ canvas, cards, avatarId = "local-operator", avata
         rails: contextForgeRig.rails.length,
         proposalVisible: contextForgeRig.proposal.scale.x > 0.01,
         truthBoundary: contextForgeHudState().truthBoundary
+      },
+      wisdomCouncil: {
+        ...wisdomCouncilState,
+        visualState: wisdomCouncilRig.state,
+        visible: wisdomCouncilRig.group.visible,
+        visibleSeats: wisdomCouncilRig.seats.filter((seat) => seat.group.visible).length,
+        activeFaultLines: wisdomCouncilRig.faultLines.filter((item) => item.fracture.material.opacity > 0.1).length,
+        humanDaisVisible: wisdomCouncilRig.humanDais.scale.x > 0.01,
+        resultCards: placedEntries.filter((entry) => entry.wisdomCouncilHero).map((entry) => ({ kind: entry.wisdomCouncilHero, id: entry.card?.id || null })),
+        truthBoundary: wisdomCouncilHudState().truthBoundary
       },
       avatarName,
       deckCount: deckCards.length,
@@ -17025,6 +17281,7 @@ function createTarotDrawGame({ canvas, cards, avatarId = "local-operator", avata
     disposeDockBackgroundPlayer(dockBackgroundPlayer);
     for (const entry of [...placedEntries, heldEntry].filter(Boolean)) disposeEntry(entry);
     disposeTarotContextForgeRig(contextForgeRig);
+    disposeTarotWisdomCouncilRig(wisdomCouncilRig);
     disposeObject(world);
     disposeResourceLibrary(resources);
     dropSong.dispose();

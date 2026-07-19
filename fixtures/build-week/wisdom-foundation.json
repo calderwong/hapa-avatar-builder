@@ -1,0 +1,49 @@
+{
+  "schemaVersion": "hapa.wisdom-demo-source-import.v1",
+  "sourceNode": "hapa-wisdom-studio",
+  "sourceCommit": "d95c4e7bc9cbc82caec074fc85e4b67610dd4d85",
+  "sourceCatalogSha256": "ee629749684d290889165e2fcda94b96ac0a904b8b7882a8cc4a0147c445dd08",
+  "catalogVersion": "0.1",
+  "truthBoundary": "Cleared three-row subset for Build Week portable projections. The source catalog remains the origin authority; unresolved upstream citations and licensing are not inferred.",
+  "cards": [
+    {
+      "Card ID": "NAR-001",
+      "Card Name": "Narrative Purpose & Audience",
+      "Wisdom / Claim": "Narrative choices are only meaningful relative to who is telling, to whom, in what situation, and for what intended effect.",
+      "Evaluation Protocol": "State the implied teller, audience, situation, and purpose. For each major formal choice, ask what reader operation it enables. Flag choices whose effect cannot be named or conflicts with the work's stated aim.",
+      "Evidence to Extract": "Narrator cues; address to reader; framing language; declared or inferred purpose; technique-to-effect links.",
+      "Score Anchors (0 / 2 / 4)": "0: no stable audience/purpose and choices feel arbitrary. 2: purpose is inferable but several choices do not serve it. 4: audience, purpose, and technique reinforce one another.",
+      "Advice Pattern": "Name the intended reader effect, identify the choice that weakens it, recommend the smallest formal change that restores alignment, and preserve any productive ambiguity.",
+      "Guardrails / Misuse": "Do not reduce art to a single conscious intention; allow layered, emergent, or conflicting purposes when the text supports them.",
+      "Output Artifact": "Diagnosis, priority score, one recommended action, preserve note, success test",
+      "Version": "0.1",
+      "sourceRowSha256": "ee90d566a3f10a006e833e0751b842624d9c59abe96c5e2e67d2e1164a25a7a5"
+    },
+    {
+      "Card ID": "REV-032",
+      "Card Name": "AI Evidence & Confidence Requirement",
+      "Wisdom / Claim": "An AI revision agent should cite specific textual evidence, distinguish observation from inference, and report confidence before its advice is trusted.",
+      "Evaluation Protocol": "Require evidence spans/scene IDs, diagnosis, scale, confidence, alternative explanations, and source card. Reject claims without traceable support; sample-check evidence.",
+      "Evidence to Extract": "Quoted text; location; card ID; confidence; rationale; alternatives; source lineage.",
+      "Score Anchors (0 / 2 / 4)": "0: unsupported fluent judgment. 2: evidence exists but is selective or confidence uncalibrated. 4: claims are traceable, hedged, and independently verifiable.",
+      "Advice Pattern": "Ask the agent to reissue the advice with exact evidence, uncertainty, and a success test; do not accept the rewrite alone.",
+      "Guardrails / Misuse": "Textual evidence does not guarantee correct interpretation; preserve human evaluation of intent, ethics, and aesthetics.",
+      "Output Artifact": "Diagnosis, priority score, one recommended action, preserve note, success test",
+      "Version": "0.1",
+      "sourceRowSha256": "fe6ba9b5c9b173f042cc6f315b16afd54f3c3d3b0d0eadfc481a692af916b71f"
+    },
+    {
+      "Card ID": "REV-036",
+      "Card Name": "Human Intent & Final Authority",
+      "Wisdom / Claim": "AI can expand options and feedback bandwidth, but artistic intention, ethical judgment, genre positioning, and final selection require an accountable human or explicitly governed authority.",
+      "Evaluation Protocol": "Require a declared human/agent owner, intent memo, protected constraints, decision log, override policy, provenance, and final sign-off. Audit whether AI generated options or silently set goals.",
+      "Evidence to Extract": "Owner; intent; prompt; outputs; accepted/rejected options; ethical review; final text; provenance.",
+      "Score Anchors (0 / 2 / 4)": "0: AI substitutes for unacknowledged authorship or final judgment. 2: oversight exists but decisions/provenance are incomplete. 4: roles are explicit, options are evaluated, and authority/accountability are traceable.",
+      "Advice Pattern": "Pause automation at the highest-impact decision and require an accountable owner to state intention, choose among options, and document why.",
+      "Guardrails / Misuse": "Human authority does not guarantee quality or ethics; it establishes accountability and preserves deliberate authorship.",
+      "Output Artifact": "Diagnosis, priority score, one recommended action, preserve note, success test",
+      "Version": "0.1",
+      "sourceRowSha256": "709841bcd5fa981aea1e002357b60e8b3e5a9c558abcf13d78918eb0b7489ca8"
+    }
+  ]
+}

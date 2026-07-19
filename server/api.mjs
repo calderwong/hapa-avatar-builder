@@ -113,6 +113,7 @@ import {
   openAvatarMediaCommentService,
 } from "./avatar-media-comment-service.mjs";
 import { openAvatarContextGenerationService } from "./avatar-context-generation-service.mjs";
+import { openAvatarWisdomCouncilService } from "./avatar-wisdom-council-service.mjs";
 import { MintLedgerError, createSongCardMintController } from "./song-card-mint-controller.mjs";
 import { createSongCardRemintStore } from "./song-card-remint-store.mjs";
 import { createSongCardLocalRenderBridge, inspectSongCardRendererBuildIdentity } from "./song-card-local-renderer.mjs";
@@ -538,6 +539,12 @@ const avatarMediaCommentService = await openAvatarMediaCommentService({ root: AV
 const AVATAR_CONTEXT_GENERATION_ROOT = process.env.HAPA_AVATAR_CONTEXT_GENERATION_ROOT || path.join(DATA_DIR, "context-generation");
 const avatarContextGenerationService = await openAvatarContextGenerationService({
   root: AVATAR_CONTEXT_GENERATION_ROOT,
+  ollamaEndpoint: process.env.HAPA_AVATAR_OLLAMA_URL || "http://127.0.0.1:11434",
+});
+const AVATAR_WISDOM_COUNCIL_ROOT = process.env.HAPA_AVATAR_WISDOM_COUNCIL_ROOT || path.join(DATA_DIR, "wisdom-councils");
+const avatarWisdomCouncilService = await openAvatarWisdomCouncilService({
+  root: AVATAR_WISDOM_COUNCIL_ROOT,
+  foundationPath: path.join(ROOT, "fixtures", "build-week", "wisdom-foundation.json"),
   ollamaEndpoint: process.env.HAPA_AVATAR_OLLAMA_URL || "http://127.0.0.1:11434",
 });
 const STARGATE_GATE_PASS_PROFILE_ROOT = process.env.HAPA_GATE_PASS_PROFILE_ROOT || path.join(OVERWIND_DIR, "gate-pass");
@@ -1619,6 +1626,27 @@ async function route(req, res) {
       sendJson(res, 201, { ok: true, result });
     } catch (error) {
       sendJson(res, Number(error?.statusCode || 422), { ok: false, error: error?.code || "context_generation_failed", message: error?.message || String(error) });
+    }
+    return;
+  }
+
+  if (pathname === "/api/wisdom-councils" && req.method === "GET") {
+    sendJson(res, 200, avatarWisdomCouncilService.list());
+    return;
+  }
+
+  if (pathname === "/api/wisdom-councils/runs" && req.method === "POST") {
+    try {
+      const body = await readBody(req);
+      const packet = avatarContextGenerationService.packet(body.packetId);
+      if (!packet) {
+        sendJson(res, 404, { ok: false, error: "context_packet_not_found", message: "The selected frozen Context Packet was not found." });
+        return;
+      }
+      const result = await avatarWisdomCouncilService.run({ ...body, packet });
+      sendJson(res, 201, { ok: true, result });
+    } catch (error) {
+      sendJson(res, Number(error?.statusCode || 422), { ok: false, error: error?.code || "wisdom_council_failed", message: error?.message || String(error), details: error?.details || null });
     }
     return;
   }

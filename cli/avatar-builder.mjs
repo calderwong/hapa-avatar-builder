@@ -186,6 +186,37 @@ async function main(cmd, opts) {
     return;
   }
 
+  if (cmd === "wisdom-foundation") {
+    const result = await contextGenerationApiRequest(opts, "/api/wisdom-councils");
+    print({ schemaVersion: result.schemaVersion, foundation: result.foundation, dissentClasses: result.dissentClasses, truthBoundary: result.truthBoundary }, { ...opts, json: true });
+    return;
+  }
+
+  if (cmd === "wisdom-councils") {
+    print(await contextGenerationApiRequest(opts, "/api/wisdom-councils"), { ...opts, json: true });
+    return;
+  }
+
+  if (cmd === "wisdom-council-run") {
+    const packetId = String(option(opts, "packet-id", "packet") || "").trim();
+    const actorId = String(opts.actor || "").trim();
+    const modelId = String(opts.model || "").trim();
+    const wisdomCardIds = String(option(opts, "cards", "wisdom-cards") || "").split(",").map((item) => item.trim()).filter(Boolean);
+    if (!packetId || !actorId || !modelId || wisdomCardIds.length < 1 || wisdomCardIds.length > 3) throw new Error("wisdom-council-run requires --packet-id <id> --cards <one,two,three> --model <concrete-model-id> --actor <human-id>.");
+    print(await contextGenerationApiRequest(opts, "/api/wisdom-councils/runs", {
+      method: "POST",
+      body: {
+        packetId,
+        wisdomCardIds,
+        instruction: String(option(opts, "instruction", "question") || "Evaluate the frozen Context Packet while preserving uncertainty and human authority."),
+        modelId,
+        endpoint: String(opts.endpoint || ""),
+        actor: { actorId, actorType: "human", displayName: String(option(opts, "display-name", "name") || actorId) },
+      },
+    }), { ...opts, json: true });
+    return;
+  }
+
   if (cmd === "media-comments") {
     print(await mediaCommentApiRequest(opts, "/api/media-comments"), { ...opts, json: true });
     return;
@@ -1344,6 +1375,9 @@ Commands:
   context-packets [--api-url http://127.0.0.1:8787] [--json]
   context-packet-freeze --cards-file ./cards.json --formation-digest <sha256> --gate-commitment <sha256> --actor <human-id> [--fields title,summary,keywords] [--purpose "..."] [--json]
   context-generate --packet-id <id> --mode deterministic_scaffold|ollama_local --actor <human-id> [--model qwen3.5:2b] [--endpoint http://127.0.0.1:11434] [--instruction "..."] [--json]
+  wisdom-foundation [--api-url http://127.0.0.1:8787] [--json]
+  wisdom-councils [--api-url http://127.0.0.1:8787] [--json]
+  wisdom-council-run --packet-id <id> --cards <card-id[,card-id,card-id]> --model qwen3.5:2b --actor <human-id> [--endpoint http://127.0.0.1:11434] [--instruction "..."] [--json]
   media-comments [--api-url http://127.0.0.1:8787] [--json]
   media-comment-create --source-file ./card.json --formation-digest <sha256> --gate-commitment <sha256> --actor <human-id> [--device browser_webcam|physical_phone] [--consent] [--token-out ./private-token] [--json]
   media-comment-status --capture-id <id> [--json]

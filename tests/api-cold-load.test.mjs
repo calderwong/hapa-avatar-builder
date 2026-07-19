@@ -30,6 +30,7 @@ async function createFixture(t, { largeAvatar = false, invalidCanonicalCore = fa
     hellWeek: "hell-week.sqlite3",
     overwind: "overwind",
     mint: "mint",
+    wisdom: "wisdom-councils",
   }).map(([key, name]) => [key, path.join(base, name)]));
   const avatar = {
     id: "cold-avatar",
@@ -96,6 +97,7 @@ async function createFixture(t, { largeAvatar = false, invalidCanonicalCore = fa
       HAPA_AVATAR_OVERWIND_SUBSCRIBER_SYNC: "0",
       HAPA_OVERWIND_WARM_FULL: "0",
       HAPA_SONG_CARD_MINT_ROOT: paths.mint,
+      HAPA_AVATAR_WISDOM_COUNCIL_ROOT: paths.wisdom,
     },
     stdio: ["ignore", "pipe", "pipe"],
   });

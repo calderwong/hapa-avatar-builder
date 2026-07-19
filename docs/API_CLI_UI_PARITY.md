@@ -45,6 +45,18 @@ The append-only `server/avatar-context-generation-service.mjs` is the sole packe
 
 See `docs/STARGATE_CONTEXT_FORGE.md`, `tests/avatar-context-generation-parity.test.mjs`, and the truth-audited capture manifest in `artifacts/demos/STG-012/`.
 
+## Stargate Wisdom Council parity
+
+The append-only `server/avatar-wisdom-council-service.mjs` is the sole seat, atomic-seal, dissent, and proposed-Card authority. One to three provider-model seats share one frozen Context Packet but each sees only its selected Wisdom Card. Structural disagreement is classified into five classes without score averaging or preferred-action selection; protected-value conflicts route to an accountable human.
+
+| Surface | Council behavior |
+| --- | --- |
+| UI | **Wisdom Council** stages three peer-blind sentinel chambers over the active Gate, seals all seats together, reveals five dissent fault lines and the gold human dais, then emits separate Lesson and Result Cards in 3D. |
+| API | `GET /api/wisdom-councils`; `POST /api/wisdom-councils/runs`. |
+| CLI | `wisdom-foundation`, `wisdom-councils`, and `wisdom-council-run`; the provider is a credential-free loopback Ollama origin. |
+
+See `docs/STARGATE_WISDOM_COUNCIL.md`, `tests/avatar-wisdom-council-service.test.mjs`, `tests/tarot-wisdom-council-visual.test.mjs`, and the truth-audited capture manifest in `artifacts/demos/STG-013/`.
+
 Registry resolution is verified as follows:
 
 - Quest Keeper maps `hapa-avatar-builder` to board `hapa-app-hapa-avatar-builder` in `hapa-quest-keeper/src/quest-core.mjs`.
