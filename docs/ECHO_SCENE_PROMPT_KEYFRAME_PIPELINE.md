@@ -82,7 +82,7 @@ The agent must return:
 - `negativePrompt`: exclusions such as unwanted text, unlisted characters, identity drift, extra limbs, wardrobe drift, or prohibited visual claims.
 - `justification`: why the image fits this count.
 - `evidence`: lyric citations, cue IDs, context-node IDs, and reference-connector IDs supporting the decision.
-- `seedUse`: what each seed contributes and what must remain visually consistent.
+- `seedUse`: what each count-selected on-screen seed contributes and what must remain visually consistent. Multi-character prompts carry the primary Red/Blue/Green seed plus only the referenced/evergreen cast actually staged in that count; authorized but absent cast is not sent to GPT Image.
 - `continuity`: what should carry from the previous frame and leave room for the next frame.
 - `confidence` and explicit `gaps`.
 

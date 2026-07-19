@@ -126,6 +126,43 @@ function validateReservoirInspiration(count, location, errors) {
   }
 }
 
+function validateCast(document, counts, errors) {
+  const seeds = new Map();
+  for (const seed of document?.avatarContinuity?.seedAssets || []) {
+    if (!nonEmptyString(seed?.avatarId) || !nonEmptyString(seed?.assetId) || !nonEmptyString(seed?.retrievalHandle)) fail(errors, "document", "each Avatar seed requires avatarId, assetId, and retrievalHandle");
+    if (seeds.has(seed?.assetId)) fail(errors, "document", `duplicate Avatar seed assetId: ${seed?.assetId}`);
+    seeds.set(seed?.assetId, seed);
+  }
+  const attribution = new Map();
+  for (const member of document?.avatarContinuity?.castAttribution || []) {
+    if (!nonEmptyString(member?.avatarId) || attribution.has(member?.avatarId)) fail(errors, "document", `invalid or duplicate cast attribution: ${member?.avatarId || "missing"}`);
+    attribution.set(member?.avatarId, member);
+    if (!Array.isArray(member?.seedAssetIds) || !member.seedAssetIds.length || member.seedAssetIds.some((id) => !seeds.has(id))) fail(errors, "document", `cast attribution requires registered seeds: ${member?.avatarId}`);
+    if (member?.castClass === "referenced-avatar" && !/(confirmed|verified|resolved|explicit|user)/u.test(String(member?.evidenceStatus || "").toLowerCase())) fail(errors, "document", `referenced Avatar requires resolved attribution evidence: ${member?.avatarId}`);
+  }
+  const primaryAvatarId = document?.avatarContinuity?.castPolicy?.primaryAvatarId || document?.avatarContinuity?.seedAssets?.find((seed) => seed.castRole === "primary")?.avatarId || document?.avatarContinuity?.seedAssets?.[0]?.avatarId;
+  for (const [index, count] of counts.entries()) {
+    if (count.castAppearances === undefined) continue;
+    const location = `count[${index}].castAppearances`;
+    if (!Array.isArray(count.castAppearances) || !count.castAppearances.length) { fail(errors, location, "must be a non-empty array"); continue; }
+    let primaryOnScreen = false; let additions = 0;
+    const seen = new Set();
+    for (const appearance of count.castAppearances) {
+      if (!nonEmptyString(appearance?.avatarId) || seen.has(appearance?.avatarId)) fail(errors, location, `invalid or duplicate Avatar: ${appearance?.avatarId || "missing"}`);
+      seen.add(appearance?.avatarId);
+      if (appearance?.avatarId !== primaryAvatarId && !attribution.has(appearance?.avatarId)) fail(errors, location, `unattributed additional Avatar: ${appearance?.avatarId}`);
+      if (!nonEmptyString(appearance?.narrativeFunction) || !nonEmptyString(appearance?.evidenceBasis)) fail(errors, location, `Avatar ${appearance?.avatarId} requires narrativeFunction and evidenceBasis`);
+      if (appearance?.presence === "on_screen") {
+        if (!Array.isArray(appearance.seedAssetIds) || !appearance.seedAssetIds.length) fail(errors, location, `on-screen Avatar ${appearance?.avatarId} requires seeds`);
+        for (const id of appearance?.seedAssetIds || []) if (seeds.get(id)?.avatarId !== appearance.avatarId) fail(errors, location, `Avatar ${appearance.avatarId} has foreign or missing seed ${id}`);
+        if (appearance.avatarId === primaryAvatarId) primaryOnScreen = true; else additions += 1;
+      } else if (appearance?.seedAssetIds?.length) fail(errors, location, `non-visible Avatar ${appearance?.avatarId} must not add image seeds`);
+    }
+    if (additions && !primaryOnScreen) fail(errors, location, "additional cast must appear on top of the primary director Avatar");
+    if (additions > 3) fail(errors, location, "at most three additional on-screen cast members are allowed");
+  }
+}
+
 function validateCount(count, location, errors) {
   if (!nonEmptyString(count?.countId)) fail(errors, location, "countId is required");
   const window = count?.window;
@@ -272,6 +309,7 @@ function validateDocument(document, filePath) {
       fail(errors, `count:${count?.countId || index}`, "promptHash does not match canonical runtime prompt content");
     }
   }
+  validateCast(document, allCounts, errors);
   validateGlobalSceneDiversity(allCounts, errors);
   if (!nonEmptyString(document?.provenance?.contentHash)) {
     fail(errors, "document", "provenance.contentHash is required");

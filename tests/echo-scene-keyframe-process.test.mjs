@@ -249,6 +249,32 @@ test("whole-song screenplay validator requires exact source order and fresh coun
   assert.throws(() => validateEchoSongVisualScreenplay(process, stale), /Stale screenplay timing window/u);
 });
 
+test("enhanced screenplay keeps primary Avatar and forwards only count-selected additional cast seeds", () => {
+  const process = createEchoSceneKeyframeProcess({ counts: [sourceCount()] });
+  const addCast = (value) => {
+    const primary = value.avatarContinuity.seedAssets[0];
+    Object.assign(primary, { castRole: "primary", species: "human", baseCharacterId: "rgb-shared-human-base" });
+    value.avatarContinuity.seedAssets.push({ avatarId: "pinokio-bella", colorRole: null, castRole: "referenced", species: "human", baseCharacterId: "pinokio-bella", assetId: "bella-seed", contentHash: "sha256:bella", retrievalHandle: "/bella.png", identityInvariants: ["Bella face"], visualContribution: "Bella" });
+    value.avatarContinuity.castPolicy = { primaryAvatarId: "avatar-2", selectionRule: "smallest useful cast", referencedAvatarRule: "explicit binding only", evergreenRule: "optional action-backed cast" };
+    value.avatarContinuity.castAttribution = [{ avatarId: "pinokio-bella", name: "Bella", aliases: ["lil'"], castClass: "referenced-avatar", species: "human", baseCharacterId: "pinokio-bella", evidenceStatus: "user-confirmed-song-avatar-binding", appearanceRule: "lyric-supported counts only", relationshipBounds: ["no invented relationship"], connectorIds: [], seedAssetIds: ["bella-seed"] }];
+    value.sequencePlan[0].counts[0].castAppearances = [
+      { avatarId: "avatar-2", presence: "on_screen", narrativeFunction: "primary director witness", evidenceBasis: "song perspective", seedAssetIds: ["blue-seed"], interactionBounds: [] },
+      { avatarId: "pinokio-bella", presence: "on_screen", narrativeFunction: "performs the addressed response", evidenceBasis: "explicit operator Avatar binding plus lyric address", seedAssetIds: ["bella-seed"], interactionBounds: ["no invented romance"] },
+    ];
+  };
+  const screenplay = screenplayFor(process, { mutate: addCast });
+  const validation = validateEchoSongVisualScreenplay(process, screenplay);
+  assert.deepEqual(validation.counts[0].runtimePrompt.seedUse.map((seed) => seed.assetId), ["blue-seed", "bella-seed"]);
+  assert.deepEqual(validation.counts[0].runtimePrompt.evidence.castAppearances.map((appearance) => appearance.avatarId), ["avatar-2", "pinokio-bella"]);
+
+  const noPrimary = screenplayFor(process, { mutate: (value) => { addCast(value); value.sequencePlan[0].counts[0].castAppearances.shift(); } });
+  assert.throws(() => validateEchoSongVisualScreenplay(process, noPrimary), /on top of the primary director Avatar/u);
+  const wrongSeed = screenplayFor(process, { mutate: (value) => { addCast(value); value.sequencePlan[0].counts[0].castAppearances[1].seedAssetIds = ["blue-seed"]; } });
+  assert.throws(() => validateEchoSongVisualScreenplay(process, wrongSeed), /invalid seed/u);
+  const unresolved = screenplayFor(process, { mutate: (value) => { addCast(value); value.avatarContinuity.castAttribution[0].evidenceStatus = "name-match-only"; } });
+  assert.throws(() => validateEchoSongVisualScreenplay(process, unresolved), /resolved attribution evidence/u);
+});
+
 test("screenplay declared prompt hash is verified against canonical runtime prompt content", () => {
   const process = createEchoSceneKeyframeProcess({ counts: [sourceCount()] });
   const screenplay = screenplayFor(process);

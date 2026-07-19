@@ -254,6 +254,7 @@ export function validateEchoSongVisualScreenplay(process, screenplay, { requireA
     }
     validateScreenplayPrompt(entry.prompt, countId);
     validateScreenplaySemanticAndSceneEntry(entry, countId);
+    validateScreenplayCastAppearance(screenplay, entry, countId);
     if (hasActiveClaim(count)) throw new Error(`Cannot import screenplay over active claim: ${countId}`);
     const runtimePrompt = runtimePromptFromScreenplayCount(screenplay, entry, { previous: targetCounts[index - 1] || null, next: targetCounts[index + 1] || null });
     const promptHash = canonicalRuntimePromptHash(runtimePrompt);
@@ -595,6 +596,27 @@ function validateFullSongScreenplayHeader(screenplay, { requireApproval }) {
     if (typeof screenplay.sourceRevision[key] !== "string" || !screenplay.sourceRevision[key].trim()) throw new Error(`Screenplay sourceRevision.${key} is required.`);
   }
   if (!Array.isArray(screenplay.avatarContinuity.seedAssets) || !screenplay.avatarContinuity.seedAssets.length) throw new Error("Screenplay avatarContinuity.seedAssets is required.");
+  const seedIds = new Set();
+  for (const seed of screenplay.avatarContinuity.seedAssets) {
+    for (const key of ["avatarId", "assetId", "contentHash", "retrievalHandle"]) requireString(seed?.[key], `screenplay.avatarContinuity.seedAssets.${key}`);
+    if (seedIds.has(seed.assetId)) throw new Error(`Duplicate screenplay Avatar seed assetId: ${seed.assetId}`);
+    seedIds.add(seed.assetId);
+  }
+  if (screenplay.avatarContinuity.castAttribution !== undefined) {
+    if (!Array.isArray(screenplay.avatarContinuity.castAttribution)) throw new Error("Screenplay avatarContinuity.castAttribution must be an array.");
+    const castIds = new Set();
+    for (const member of screenplay.avatarContinuity.castAttribution) {
+      for (const key of ["avatarId", "name", "castClass", "species", "baseCharacterId", "evidenceStatus", "appearanceRule"]) requireString(member?.[key], `screenplay.avatarContinuity.castAttribution.${key}`);
+      if (castIds.has(member.avatarId)) throw new Error(`Duplicate screenplay cast attribution: ${member.avatarId}`);
+      castIds.add(member.avatarId);
+      if (!Array.isArray(member.seedAssetIds) || !member.seedAssetIds.length || member.seedAssetIds.some((assetId) => !seedIds.has(assetId))) {
+        throw new Error(`Screenplay cast attribution requires registered seed assets for ${member.avatarId}.`);
+      }
+      if (member.castClass === "referenced-avatar" && !/(confirmed|verified|resolved|explicit|user)/u.test(String(member.evidenceStatus).toLowerCase())) {
+        throw new Error(`Referenced Avatar ${member.avatarId} requires resolved attribution evidence.`);
+      }
+    }
+  }
   if (screenplay.generationPolicy.promptImportMode !== "stage_only" || screenplay.generationPolicy.imageActivationRequired !== true
     || screenplay.generationPolicy.providerPolicy !== "codex-built-in-gpt-image-only" || screenplay.generationPolicy.videoPolicy !== "held-until-separately-enabled") {
     throw new Error("Screenplay generationPolicy must preserve stage-only Codex image and held-video policy.");
@@ -806,6 +828,13 @@ function sameScreenplayWindow(window, count) {
 }
 
 function runtimePromptFromScreenplayCount(screenplay, entry, { previous, next }) {
+  const castAppearances = clone(entry.castAppearances || []);
+  const onScreenSeedIds = new Set(castAppearances
+    .filter((appearance) => appearance.presence === "on_screen")
+    .flatMap((appearance) => appearance.seedAssetIds || []));
+  const seedUse = castAppearances.length
+    ? screenplay.avatarContinuity.seedAssets.filter((seed) => onScreenSeedIds.has(seed.assetId))
+    : screenplay.avatarContinuity.seedAssets;
   return {
     sceneText: entry.prompt.sceneText,
     gptImagePrompt: entry.prompt.gptImagePrompt,
@@ -818,8 +847,9 @@ function runtimePromptFromScreenplayCount(screenplay, entry, { previous, next })
         explicitNoReferenceApplies: entry.semanticExtraction.explicitNoReferenceApplies === true,
       },
       interpretation: entry.shot.action,
+      ...(entry.castAppearances !== undefined ? { castAppearances } : {}),
     },
-    seedUse: clone(screenplay.avatarContinuity.seedAssets),
+    seedUse: clone(seedUse),
     continuity: {
       carriesFromPrevious: previous ? `Carry continuity from ${previous.id}.` : "Establish the opening continuity state.",
       preparesNext: next ? `Prepare continuity for ${next.id}.` : "Resolve into the song's final continuity state.",
@@ -829,6 +859,40 @@ function runtimePromptFromScreenplayCount(screenplay, entry, { previous, next })
       gaps: entry.semanticExtraction.explicitNoLyricOverlap === true ? "No overlapping lyric is asserted for this count." : "Reference mechanics remain evidence-status bounded.",
     },
   };
+}
+
+function validateScreenplayCastAppearance(screenplay, entry, countId) {
+  if (entry.castAppearances === undefined) return;
+  if (!Array.isArray(entry.castAppearances) || !entry.castAppearances.length) throw new Error(`Screenplay castAppearances must be a non-empty array for ${countId}.`);
+  const primaryAvatarId = screenplay.avatarContinuity.castPolicy?.primaryAvatarId
+    || screenplay.avatarContinuity.seedAssets.find((seed) => seed.castRole === "primary")?.avatarId
+    || screenplay.avatarContinuity.seedAssets[0]?.avatarId;
+  const attributed = new Map((screenplay.avatarContinuity.castAttribution || []).map((member) => [member.avatarId, member]));
+  const seeds = new Map(screenplay.avatarContinuity.seedAssets.map((seed) => [seed.assetId, seed]));
+  const seen = new Set();
+  let primaryOnScreen = false;
+  let additionalOnScreen = 0;
+  for (const appearance of entry.castAppearances) {
+    for (const key of ["avatarId", "presence", "narrativeFunction", "evidenceBasis"]) requireString(appearance?.[key], `screenplay.castAppearances.${key}`);
+    if (seen.has(appearance.avatarId)) throw new Error(`Duplicate castAppearance Avatar ${appearance.avatarId} for ${countId}.`);
+    seen.add(appearance.avatarId);
+    if (appearance.avatarId !== primaryAvatarId && !attributed.has(appearance.avatarId)) {
+      throw new Error(`Unattributed additional Avatar ${appearance.avatarId} for ${countId}.`);
+    }
+    if (appearance.presence === "on_screen") {
+      if (!Array.isArray(appearance.seedAssetIds) || !appearance.seedAssetIds.length) throw new Error(`On-screen Avatar ${appearance.avatarId} requires seedAssetIds for ${countId}.`);
+      for (const assetId of appearance.seedAssetIds) {
+        const seed = seeds.get(assetId);
+        if (!seed || seed.avatarId !== appearance.avatarId) throw new Error(`On-screen Avatar ${appearance.avatarId} has invalid seed ${assetId} for ${countId}.`);
+      }
+      if (appearance.avatarId === primaryAvatarId) primaryOnScreen = true;
+      else additionalOnScreen += 1;
+    } else if (Array.isArray(appearance.seedAssetIds) && appearance.seedAssetIds.length) {
+      throw new Error(`Non-visible Avatar ${appearance.avatarId} must not add image seeds for ${countId}.`);
+    }
+  }
+  if (additionalOnScreen && !primaryOnScreen) throw new Error(`Additional cast must appear on top of the primary director Avatar for ${countId}.`);
+  if (additionalOnScreen > 3) throw new Error(`At most three additional on-screen cast members are allowed for ${countId}.`);
 }
 
 export function deriveEchoSongVisualScreenplayPromptHash(screenplay, entry, { previous = null, next = null } = {}) {

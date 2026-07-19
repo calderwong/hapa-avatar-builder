@@ -51,6 +51,23 @@ test("authoring grammar follows the selected Avatar instead of hard-coding a col
   assert.doesNotMatch(packet.authoringInstruction.actionGrammar, /^Blue performs/u);
 });
 
+test("source packet separates evergreen cast from explicitly attributed referenced Avatars", () => {
+  const seed = (avatarId, castRole) => ({ avatarId, castRole, species: "human", baseCharacterId: avatarId, assetId: `${avatarId}-seed`, contentHash: `sha256:${avatarId}`, retrievalHandle: `/${avatarId}.png`, identityInvariants: ["identity"], visualContribution: avatarId });
+  const packet = buildEchoScreenplaySourcePacket({
+    song,
+    windows,
+    avatar: { id: "blue", primaryName: "Blue" },
+    approvedSeeds: [seed("blue", "primary")],
+    evergreenCast: [{ avatarId: "avatar-39", name: "Thor", castClass: "evergreen", species: "cat", baseCharacterId: "avatar-39", evidenceStatus: "user-authorized-evergreen", seedAssets: [{ ...seed("avatar-39", "evergreen"), species: "cat" }] }],
+    referencedAvatarCast: [{ avatarId: "pinokio-bella", name: "Bella", castClass: "referenced-avatar", species: "human", baseCharacterId: "pinokio-bella", evidenceStatus: "user-confirmed-song-avatar-binding", sourceAttribution: "explicit operator binding", seedAssets: [seed("pinokio-bella", "referenced")] }],
+  });
+  assert.equal(packet.castAttribution.primary.avatarId, "blue");
+  assert.equal(packet.castAttribution.additional.find((member) => member.avatarId === "avatar-39").species, "cat");
+  assert.equal(packet.castAttribution.additional.find((member) => member.avatarId === "pinokio-bella").castClass, "referenced-avatar");
+  assert.match(packet.authoringInstruction.avatarConsistency.castSelectionRule, /smallest useful cast/u);
+  assert.deepEqual(validateEchoScreenplaySourcePacket(packet), { ok: true, errors: [] });
+});
+
 test("validator rejects malformed evidence confidence and window continuity", () => {
   const packet = { schemaVersion: "hapa.echo.screenplay-source-packet.v1", song: { id: "x" }, fourCounts: [{ id: "x" }], referenceEvidence: [{ confidence: "unsupported" }], approvedAvatarSeeds: { assets: [] } };
   const result = validateEchoScreenplaySourcePacket(packet);

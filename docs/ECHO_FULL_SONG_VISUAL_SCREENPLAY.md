@@ -75,7 +75,7 @@ Continuity belongs to Avatar identity, carried material, or scene consequence—
 
 ### 4. Preserve Avatar identity while allowing cinematography to move
 
-`avatarContinuity` supplies 1–3 content-hashed Red/Blue/Green seed assets. It records:
+`avatarContinuity` supplies a content-hashed seed catalog and a cast-attribution ledger. Legacy screenplays may contain only 1–3 Red/Blue/Green seeds; enhanced screenplays keep that primary anchor and may additionally authorize referenced or evergreen cast. It records:
 
 - identity invariants for each Avatar;
 - global invariants (for example, face, silhouette, palette markers, and characteristic accessory);
@@ -83,6 +83,10 @@ Continuity belongs to Avatar identity, carried material, or scene consequence—
 - whether the source seed must be sanitized before use because incidental pseudo-text or markings conflict with the no-logo/no-readable-text policy.
 
 The seed is an identity reference, not a command to repeat the same full-body pose or background.
+
+Every enhanced count records `castAppearances`. Red, Blue, or Green remains the primary director Avatar. A referenced Avatar such as Bella is additional cast, resolved by exact Avatar ID and explicit song attribution—not by a name match. Thorsun, Little Toe, Calder, and Bo are evergreen outfit/styling variants of the shared RGB human base. Thor is an evergreen cat, Leo is an evergreen dog, and Falka (also known as Mimi) is an evergreen cyber-engineer/captain. They may join any song when the count gives them a concrete action or narrative function; none is mandatory.
+
+Only `presence: on_screen` cast contributes image seeds. Voice-only, symbolic, absent, or merely mentioned cast contributes no seed. An on-screen additional Avatar requires its own seed, identity invariants, evidence basis, and interaction bounds, and the primary director Avatar remains on-screen with it. This prevents Bella from becoming “another Green,” avoids the Green/Leo and Thor/Thorsun name collisions, and gives GPT Image explicit multi-character identity evidence.
 
 Incidental figures or animals visible in an approved seed are not an automatic rejection. Image review prioritizes lyric/context attachment, visible action, reference payoff, composition, and continuity. An incidental subject fails only when it displaces the count's main action, invents an unsupported relationship, or makes multiple frames collapse into the same seed-derived tableau.
 

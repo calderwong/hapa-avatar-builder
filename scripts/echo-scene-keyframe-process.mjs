@@ -140,25 +140,29 @@ function initialize({ start = false } = {}) {
   return report(next, audit, { initialized: true });
 }
 
-function evidenceFor(audit, claim) {
+function evidenceFor(audit, claim, completedPrompt = null) {
   const song = audit.songs.find((candidate) => candidate.songId === claim.songId);
   const index = song?.windows.findIndex((window) => window.id === claim.countId) ?? -1;
   const window = index >= 0 ? song.windows[index] : null;
   const avatarColor = String(song?.directorContext?.avatarName || "").toLowerCase();
   const seeds = seedCatalog();
   const seed = seeds.get(avatarColor) || [...seeds.values()][Math.abs(Number(claim.countOrdinal || 0)) % Math.max(1, seeds.size)] || null;
+  const promptSeeds = (completedPrompt?.seedUse || []).filter((candidate) => {
+    if (!candidate?.retrievalHandle || !fs.existsSync(candidate.retrievalHandle)) return false;
+    return !candidate.contentHash || candidate.contentHash === hashFile(candidate.retrievalHandle);
+  });
   return {
     song: song ? { songId: song.songId, songTitle: song.songTitle, durationSeconds: song.durationSeconds, directorContext: song.directorContext } : null,
     count: window,
     continuity: song && index >= 0 ? { previous: song.windows[index - 1] || null, next: song.windows[index + 1] || null } : null,
-    seedAssets: seed ? [seed] : [],
+    seedAssets: promptSeeds.length ? promptSeeds : seed ? [seed] : [],
     outputContract: {
       sceneText: "concise visible frame action",
       gptImagePrompt: "background/scene, subject, action, composition, lighting, palette, lens, energy, identity-preservation constraints",
       negativePrompt: "no readable text, logos, UI, identity/wardrobe drift, or malformed anatomy; supplemental seed-derived subjects are acceptable when they strengthen the lyric/context and do not displace the primary action",
       justification: "cite exact overlapping lyrics and explain contextual/reference transformation",
       evidence: "lyric citations plus cue/context/reference IDs where present",
-      seedUse: "state what each supplied Avatar image contributes and preserves",
+      seedUse: "state what each supplied Avatar image contributes and preserves; keep identities distinct and stage only cast listed on-screen in completedPrompt.evidence.castAppearances",
       continuity: "state what carries in and what the next count needs",
       confidenceAndGaps: "explicitly separate verified evidence from interpretation",
       semanticDensity: "for lyric-bearing counts, make multiple mined elements visible: a concrete noun/symbol plus a verb/state change and the concept/teaching",
@@ -189,10 +193,11 @@ function claim(options) {
     videoPolicy: "held; do not generate video",
     claims: claims.map((entry) => {
       const count = next.counts.find((candidate) => candidate.id === entry.countId);
+      const completedPrompt = entry.lane === "image" ? count?.lanes?.prompt?.artifact?.result || null : null;
       return {
         ...entry,
-        evidencePacket: evidenceFor(audit, entry),
-        completedPrompt: entry.lane === "image" ? count?.lanes?.prompt?.artifact?.result || null : null,
+        evidencePacket: evidenceFor(audit, entry, completedPrompt),
+        completedPrompt,
       };
     }),
   };
@@ -245,6 +250,8 @@ function installImage(options) {
   };
   render(["-i", source, "-frames:v", "1"], nativePath);
   render(["-i", source, "-frames:v", "1", "-vf", "scale=1920:1080:force_original_aspect_ratio=decrease:flags=lanczos,pad=1920:1080:(ow-iw)/2:(oh-ih)/2:color=black"], directorPath);
+  const promptArtifact = found.count.lanes.prompt.artifact;
+  const promptResult = promptArtifact?.result || {};
   const result = {
     keyframeExists: true,
     localPath: directorPath,
@@ -255,6 +262,11 @@ function installImage(options) {
     conformance: { profileId: "landscape", status: "exact-director-derivative", derivation: "lanczos-fit-plus-pad-from-codex-native-output" },
     reviewStatus: "candidate-pending-human-review",
     eligibleForDirector: false,
+    promptProvenance: {
+      promptContentHash: promptArtifact?.contentHash || null,
+      seedAssets: (promptResult.seedUse || []).map((seed) => ({ avatarId: seed.avatarId, assetId: seed.assetId, castRole: seed.castRole || null, species: seed.species || null, contentHash: seed.contentHash || null, retrievalHandle: seed.retrievalHandle || null })),
+      castAppearances: promptResult.evidence?.castAppearances || [],
+    },
     installedAt: now(),
   };
   const next = completeEchoSceneKeyframeQuest(prior, options.questId, { result, runnerId: options.runnerId, at: result.installedAt });

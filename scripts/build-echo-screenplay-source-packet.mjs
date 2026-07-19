@@ -1,10 +1,12 @@
 #!/usr/bin/env node
+import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 import { atomicWriteJson, buildFourCountWindows, stableStringify } from "./echo-scene-keyframes.mjs";
 import { buildEchoScreenplaySourcePacket, validateEchoScreenplaySourcePacket } from "../src/domain/echo-screenplay-source-packet.js";
+import { ECHO_AVATAR_CAST_REGISTRY } from "../src/domain/echo-avatar-cast-registry.js";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const defaults = Object.freeze({ song: null, songs: "data/hapa-songs-store.json", avatars: "data/avatar-store.json", projects: "data/music-video-projects", telemetryRoot: path.join(process.env.HOME || "", "Desktop/hapa-song-registry/data/audio_telemetry/latest"), process: "data/echo-scene-keyframes/process.json", mediaCards: "data/echo-scene-keyframes/media-cards.json", pilotRoot: "artifacts/echo-scene-keyframes/pilot", out: null, apply: false });
@@ -50,6 +52,54 @@ function approvedSeeds(pilotRoot, avatarId, colorRole) {
   return [...new Map(seeds.filter((seed) => seed.retrievalHandle).map((seed) => [seed.retrievalHandle, seed])).values()];
 }
 
+function fileHash(filePath) {
+  return `sha256:${crypto.createHash("sha256").update(fs.readFileSync(filePath)).digest("hex")}`;
+}
+
+function castSeed(avatar, member) {
+  const assets = [...(avatar?.assets || []), ...(avatar?.mediaAssets || [])];
+  const requested = member.seedAssetId ? assets.find((asset) => asset.id === member.seedAssetId) : null;
+  const asset = requested || assets.find((candidate) => {
+    const localPath = candidate?.metadata?.storage?.path || candidate?.storage?.path;
+    return String(candidate?.type || "").startsWith("image") && localPath && fs.existsSync(localPath);
+  });
+  const configuredHandle = member.seedRelativePath ? path.resolve(root, member.seedRelativePath) : null;
+  const retrievalHandle = configuredHandle && fs.existsSync(configuredHandle)
+    ? configuredHandle
+    : asset?.metadata?.storage?.path || asset?.storage?.path || null;
+  if (!asset || !retrievalHandle || !fs.existsSync(retrievalHandle)) return [];
+  return [{
+    avatarId: avatar.id,
+    colorRole: member.colorRole || null,
+    castRole: member.castClass === "referenced-avatar" ? "referenced" : "evergreen",
+    species: member.species,
+    baseCharacterId: member.baseCharacterId,
+    assetId: asset.id,
+    contentHash: fileHash(retrievalHandle),
+    retrievalHandle,
+    identityInvariants: member.identityInvariants || ["registered face/species", "registered styling", "distinct cast identity"],
+    visualContribution: member.visualContribution || `${avatar.primaryName || member.name} identity and registered styling`,
+  }];
+}
+
+function resolveCast(registry, avatars, songId) {
+  const byId = new Map((avatars?.avatars || []).map((avatar) => [avatar.id, avatar]));
+  const expand = (member) => {
+    const avatar = byId.get(member.avatarId);
+    if (!avatar) throw new Error(`Cast registry Avatar not found: ${member.avatarId}`);
+    return {
+      ...member,
+      name: member.name || avatar.primaryName || avatar.id,
+      aliases: member.aliases || avatar.aliases || [],
+      seedAssets: castSeed(avatar, member),
+    };
+  };
+  return {
+    evergreenCast: (registry?.evergreen || []).filter((member) => byId.has(member.avatarId)).map(expand),
+    referencedAvatarCast: (registry?.songBindings?.[songId] || []).map(expand),
+  };
+}
+
 export function run(argv = process.argv.slice(2)) {
   const { help, options } = parseArgs(argv);
   if (help) return { help: true };
@@ -64,9 +114,10 @@ export function run(argv = process.argv.slice(2)) {
   const avatars = read(resolve(options.avatars));
   const avatarId = song.performancePerspective?.avatarId || song.performancePerspective?.avatar_id;
   const avatar = (avatars?.avatars || []).find((row) => row.id === avatarId) || null;
+  const cast = resolveCast(ECHO_AVATAR_CAST_REGISTRY, avatars, song.id);
   if (options.out && !options.apply) throw new Error("--out requires --apply; default mode is stdout-only.");
   if (options.apply && !options.out) throw new Error("--apply requires --out <path>.");
-  const packet = buildEchoScreenplaySourcePacket({ song, project: found?.project, telemetry, windows, avatar, approvedSeeds: approvedSeeds(resolve(options.pilotRoot), avatarId, song.performancePerspective?.teamColor), process: read(resolve(options.process)), mediaCards: read(resolve(options.mediaCards)), graphEdges: store?.referenceGraphEdges || [], referenceCatalog: store?.referenceCatalog || [], albumConnectors: (store?.songs || []).flatMap((row) => (row.referenceConnectors || []).map((connector) => ({ ...connector, sourceSongId: row.id }))) });
+  const packet = buildEchoScreenplaySourcePacket({ song, project: found?.project, telemetry, windows, avatar, approvedSeeds: approvedSeeds(resolve(options.pilotRoot), avatarId, song.performancePerspective?.teamColor), evergreenCast: cast.evergreenCast, referencedAvatarCast: cast.referencedAvatarCast, process: read(resolve(options.process)), mediaCards: read(resolve(options.mediaCards)), graphEdges: store?.referenceGraphEdges || [], referenceCatalog: store?.referenceCatalog || [], albumConnectors: (store?.songs || []).flatMap((row) => (row.referenceConnectors || []).map((connector) => ({ ...connector, sourceSongId: row.id }))) });
   const validation = validateEchoScreenplaySourcePacket(packet);
   const result = { packet, validation, projectFile: found?.file || null, applied: false, output: null };
   if (options.apply) {

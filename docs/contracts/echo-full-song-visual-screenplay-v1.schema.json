@@ -96,10 +96,13 @@
     },
     "avatarSeed": {
       "type": "object",
-      "required": ["avatarId", "colorRole", "assetId", "contentHash", "retrievalHandle", "identityInvariants"],
+      "required": ["avatarId", "assetId", "contentHash", "retrievalHandle", "identityInvariants"],
       "properties": {
-        "avatarId": { "enum": ["red-reaper", "avatar-2", "avatar-3"] },
-        "colorRole": { "enum": ["red", "blue", "green"] },
+        "avatarId": { "type": "string", "minLength": 1 },
+        "colorRole": { "type": ["string", "null"], "enum": ["red", "blue", "green", null] },
+        "castRole": { "enum": ["primary", "evergreen", "referenced"] },
+        "species": { "enum": ["human", "cat", "dog", "other"] },
+        "baseCharacterId": { "type": ["string", "null"] },
         "assetId": { "type": "string", "minLength": 1 },
         "contentHash": { "type": "string", "minLength": 1 },
         "retrievalHandle": { "type": "string", "minLength": 1 },
@@ -112,10 +115,54 @@
       "type": "object",
       "required": ["seedAssets", "globalInvariants", "allowedVariation"],
       "properties": {
-        "seedAssets": { "type": "array", "minItems": 1, "maxItems": 3, "items": { "$ref": "#/$defs/avatarSeed" } },
+        "seedAssets": { "type": "array", "minItems": 1, "maxItems": 16, "items": { "$ref": "#/$defs/avatarSeed" } },
+        "castAttribution": { "type": "array", "items": { "$ref": "#/$defs/castAttribution" } },
+        "castPolicy": {
+          "type": "object",
+          "required": ["primaryAvatarId", "selectionRule", "referencedAvatarRule", "evergreenRule"],
+          "properties": {
+            "primaryAvatarId": { "type": "string", "minLength": 1 },
+            "selectionRule": { "type": "string", "minLength": 1 },
+            "referencedAvatarRule": { "type": "string", "minLength": 1 },
+            "evergreenRule": { "type": "string", "minLength": 1 }
+          },
+          "additionalProperties": false
+        },
         "globalInvariants": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
         "allowedVariation": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
         "cleanReferenceRequired": { "type": "boolean", "default": false }
+      },
+      "additionalProperties": false
+    },
+    "castAttribution": {
+      "type": "object",
+      "required": ["avatarId", "name", "castClass", "species", "baseCharacterId", "evidenceStatus", "appearanceRule", "seedAssetIds"],
+      "properties": {
+        "avatarId": { "type": "string", "minLength": 1 },
+        "name": { "type": "string", "minLength": 1 },
+        "aliases": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+        "castClass": { "enum": ["primary-director-avatar", "evergreen", "referenced-avatar"] },
+        "species": { "enum": ["human", "cat", "dog", "other"] },
+        "baseCharacterId": { "type": "string", "minLength": 1 },
+        "evidenceStatus": { "type": "string", "minLength": 1 },
+        "sourceAttribution": { "type": ["string", "null"] },
+        "appearanceRule": { "type": "string", "minLength": 1 },
+        "relationshipBounds": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+        "connectorIds": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+        "seedAssetIds": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } }
+      },
+      "additionalProperties": false
+    },
+    "castAppearance": {
+      "type": "object",
+      "required": ["avatarId", "presence", "narrativeFunction", "evidenceBasis", "seedAssetIds"],
+      "properties": {
+        "avatarId": { "type": "string", "minLength": 1 },
+        "presence": { "enum": ["on_screen", "voice_only", "symbolic", "absent"] },
+        "narrativeFunction": { "type": "string", "minLength": 1 },
+        "evidenceBasis": { "type": "string", "minLength": 1 },
+        "seedAssetIds": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+        "interactionBounds": { "type": "array", "items": { "type": "string", "minLength": 1 } }
       },
       "additionalProperties": false
     },
@@ -250,6 +297,7 @@
           },
           "additionalProperties": false
         },
+        "castAppearances": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/castAppearance" } },
         "shot": { "$ref": "#/$defs/shot" },
         "prompt": { "$ref": "#/$defs/stagePrompt" },
         "imageActivation": { "$ref": "#/$defs/imageActivation" }

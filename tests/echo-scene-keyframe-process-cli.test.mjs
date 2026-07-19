@@ -49,3 +49,31 @@ test("operator can increase bounded throughput without rebuilding the process", 
   assert.equal(state.settings.perRunClaimLimit, 4);
   assert.ok(state.events.some((event) => event.type === "process-settings-configured"));
 });
+
+test("image claim forwards every count-selected Avatar seed from the completed prompt", () => {
+  run(["resume"]);
+  const promptClaim = run(["claim", "--lane", "prompt", "--limit", "1", "--runner-id", "cast-test", "--run-id", "cast-prompt"]);
+  assert.equal(promptClaim.claims.length, 1);
+  const green = path.join(runtimeRoot, "green-seed.png");
+  const bella = path.join(runtimeRoot, "bella-seed.png");
+  fs.writeFileSync(green, "green");
+  fs.writeFileSync(bella, "bella");
+  const resultPath = path.join(runtimeRoot, "cast-prompt-result.json");
+  fs.writeFileSync(resultPath, JSON.stringify({
+    sceneText: "Green and Bella pull the same rope from opposite sides.",
+    gptImagePrompt: "Cinematic two-character rope handoff.",
+    negativePrompt: "no text",
+    justification: "The shared action makes the lyric relationship visible.",
+    evidence: { castAppearances: [{ avatarId: "avatar-3", presence: "on_screen" }, { avatarId: "pinokio-bella", presence: "on_screen" }] },
+    seedUse: [
+      { avatarId: "avatar-3", assetId: "green", castRole: "primary", retrievalHandle: green },
+      { avatarId: "pinokio-bella", assetId: "bella", castRole: "referenced", retrievalHandle: bella },
+    ],
+    continuity: { carriesFromPrevious: "rope", preparesNext: "handoff" },
+  }));
+  run(["prompt-complete", "--quest-id", promptClaim.claims[0].questId, "--runner-id", "cast-test", "--result", resultPath]);
+  const imageClaim = run(["claim", "--lane", "image", "--limit", "1", "--runner-id", "cast-test", "--run-id", "cast-image"]);
+  assert.equal(imageClaim.claims.length, 1);
+  assert.deepEqual(imageClaim.claims[0].evidencePacket.seedAssets.map((seed) => seed.avatarId), ["avatar-3", "pinokio-bella"]);
+  run(["pause"]);
+});

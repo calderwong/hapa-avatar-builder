@@ -81,7 +81,7 @@ function promptSafeReference(reference, connectors = [], edges = []) {
   };
 }
 
-function authoringInstruction(song, avatar, approvedSeeds, resolvedReferences, reservoir) {
+function authoringInstruction(song, avatar, approvedSeeds, resolvedReferences, reservoir, castAttribution) {
   const text = String(song?.lyrics?.text || "").toLowerCase();
   const picks = (items) => items.filter((item) => text.includes(item));
   const nouns = picks(["notification", "scroll", "static", "frame", "books", "paint", "skin", "trace", "map", "nodes", "stream", "screens", "timestamp", "hearts", "signals", "playlist", "emoji", "code", "glance", "layers", "lock"]);
@@ -107,7 +107,18 @@ function authoringInstruction(song, avatar, approvedSeeds, resolvedReferences, r
       avatarId: avatar?.id || song?.performancePerspective?.avatarId || null,
       identityRule: "Keep the supplied avatar's face, hair, recognizable wardrobe silhouette, and approved seed traits stable while varying location, shot, scale, lighting, and one symbolic transformation.",
       approvedSeedContributions: approvedSeeds.map((seed) => seed.visualContribution).filter(Boolean),
-      secondCharacterRule: "The Avatar seed is identity and continuity evidence, not a ban on every incidental seed-derived figure or animal. Additional subjects may remain when they strengthen the lyric or established Avatar ecology; reject them when they displace the count's primary action, create an unsupported relationship, or make the frame generic.",
+      secondCharacterRule: "The primary Red/Blue/Green Avatar remains the director anchor. A resolved referenced Avatar may join only in counts where lyric/reference evidence supports that presence. Evergreen cast may join any song when their action materially strengthens the scene. Never turn a name-only lyric match into a new embodied person, invent a relationship, or replace the primary Avatar by accident.",
+      castSelectionRule: "For each count, choose the smallest useful cast. Record every on-screen Avatar in castAppearances, bind each one to its own approved seed, and state the visible action that earns its presence. A referenced Avatar is additional cast on top of the primary anchor, not a costume for the primary Avatar.",
+      evergreenVariationRule: "Thorsun, Little Toe, Calder, and Bo are alternate styled embodiments of the same approved character base as Red/Blue/Green. Thor is a cat, Leo is a dog, and Falka/Mimi is a cyber-engineer/captain Avatar. Use them as optional evergreen supporting cast for visual variety, but preserve their registered styling/species and do not add them as generic decoration.",
+      resolvedCast: castAttribution.map((member) => ({
+        avatarId: member.avatarId,
+        name: member.name,
+        castClass: member.castClass,
+        species: member.species || "human",
+        baseCharacterId: member.baseCharacterId || member.avatarId,
+        evidenceStatus: member.evidenceStatus,
+        appearanceRule: member.appearanceRule,
+      })),
     },
     frameQualityFloor: {
       concreteAnchors: "For lyric-bearing counts, make at least two mined lyric elements materially visible, normally a noun/symbol plus a verb/state change. Instrumental counts must instead use source-backed section, energy, continuity, and reference mechanics.",
@@ -136,7 +147,7 @@ function countState(window, index) {
   };
 }
 
-export function buildEchoScreenplaySourcePacket({ song, project, telemetry, windows, avatar = null, approvedSeeds = [], process = null, mediaCards = null, graphEdges = [], referenceCatalog = [], albumConnectors = [] } = {}) {
+export function buildEchoScreenplaySourcePacket({ song, project, telemetry, windows, avatar = null, approvedSeeds = [], evergreenCast = [], referencedAvatarCast = [], process = null, mediaCards = null, graphEdges = [], referenceCatalog = [], albumConnectors = [] } = {}) {
   if (!song?.id) throw new Error("A canonical song record is required.");
   const index = processIndex(process, mediaCards);
   const allAssets = [...(avatar?.assets || []), ...(avatar?.mediaAssets || [])].map(compactAsset);
@@ -153,6 +164,22 @@ export function buildEchoScreenplaySourcePacket({ song, project, telemetry, wind
     sourceLineage: seed.sourceLineage || null,
   }));
   const seeds = (suppliedSeeds.length ? suppliedSeeds : allAssets.filter((asset) => asset.type === "image" || asset.type === "image/png" || asset.localPath)).slice(0, 24);
+  const castAttribution = [...evergreenCast, ...referencedAvatarCast].map((member) => ({
+    avatarId: member.avatarId,
+    name: member.name,
+    aliases: member.aliases || [],
+    castClass: member.castClass,
+    species: member.species || "human",
+    baseCharacterId: member.baseCharacterId || member.avatarId,
+    evidenceStatus: member.evidenceStatus || (member.castClass === "evergreen" ? "user-authorized-evergreen" : "unresolved"),
+    sourceAttribution: member.sourceAttribution || null,
+    connectorIds: member.connectorIds || [],
+    appearanceRule: member.appearanceRule || (member.castClass === "evergreen"
+      ? "May appear when the count-level action materially benefits from this cast member; never required."
+      : "May appear only where the song evidence supports this Avatar identity or role."),
+    relationshipBounds: member.relationshipBounds || ["Do not infer romance, kinship, ownership, or identity equivalence from a shared name."],
+    seedAssets: (member.seedAssets || []).map((seed) => ({ ...seed })),
+  }));
   const evidence = [...connectorEvidence(song), ...graphEvidence(song.id, graphEdges)];
   const catalogById = new Map(referenceCatalog.map((reference) => [reference.id, reference]));
   const songConnectors = song?.referenceConnectors || [];
@@ -208,7 +235,17 @@ export function buildEchoScreenplaySourcePacket({ song, project, telemetry, wind
       assets: seeds,
       rule: "Use only explicitly supplied/approved seed assets. Do not invent a second embodied character from a reference hypothesis.",
     },
-    authoringInstruction: authoringInstruction(song, avatar, seeds, resolvedSongReferences, albumContextReservoir),
+    castAttribution: {
+      primary: {
+        avatarId: avatar?.id || song.performancePerspective?.avatarId || null,
+        name: avatar?.primaryName || song.performancePerspective?.avatarName || null,
+        castClass: "primary-director-avatar",
+        seedAssets: seeds,
+      },
+      additional: castAttribution,
+      rule: "Primary Red/Blue/Green identity anchors the song. Referenced Avatars and evergreen cast are additional, count-selected embodiments with distinct seed provenance.",
+    },
+    authoringInstruction: authoringInstruction(song, avatar, seeds, resolvedSongReferences, albumContextReservoir, castAttribution),
     qualityPolicy: {
       lyricGrounding: "Every scene must cite local lyric overlap or a source-backed director affordance.",
       imageryDensity: "Every lyric-bearing count must make multiple mined elements visible: concrete nouns/symbols, an active verb or state change, and the count's concept/teaching. Do not substitute a generic mood portrait.",
@@ -216,7 +253,7 @@ export function buildEchoScreenplaySourcePacket({ song, project, telemetry, wind
       referenceTranslation: "Read resolved references and the album reservoir for functional cues. Extract mechanics into original visual behavior, material rules, camera grammar, or causality; avoid protected source imagery and textual identifiers.",
       referenceDiversity: "A reference cue earns its place only when it materially changes the frame. Repeated mechanics must evolve rather than reproduce the same tableau.",
       continuity: "Carry forward the prior count's resolved visual state and leave a deliberate opening for the next count.",
-      identity: "Preserve approved Avatar seed identity and wardrobe traits; use only authorized additional subjects.",
+      identity: "Preserve each approved Avatar's identity, wardrobe/species traits, and seed provenance. Keep the primary director Avatar anchored while allowing authorized additional cast to perform lyric-backed actions.",
       acceptancePriority: "Review semantic attachment, visible lyric action, reference payoff, composition, and continuity before incidental subject exclusions. Seed-derived animals/figures are acceptable when coherent and non-displacing.",
     },
     fourCounts: windows.map((window, position) => ({
@@ -229,6 +266,8 @@ export function buildEchoScreenplaySourcePacket({ song, project, telemetry, wind
     })),
     constraints: [
       "Do not treat a candidate connector as confirmed canon.",
+      "Do not embody a referenced Avatar from name similarity alone; require an explicit cast attribution record.",
+      "Every on-screen additional Avatar must have a count-level castAppearance and a supplied seed asset.",
       "Extract a reference mechanic into original visual behavior; do not copy franchise-specific characters, logos, quotes, or distinctive designs.",
       "No process mutation: no claim, resume, provider call, image install, or media-card update.",
     ],
@@ -246,6 +285,14 @@ export function validateEchoScreenplaySourcePacket(packet) {
   if (!Array.isArray(packet?.albumContextReservoir)) errors.push("albumContextReservoir");
   if (!packet?.authoringInstruction || !packet?.qualityPolicy) errors.push("authoringInstruction/qualityPolicy");
   if (!Array.isArray(packet?.approvedAvatarSeeds?.assets)) errors.push("approvedAvatarSeeds.assets");
+  if (!packet?.castAttribution?.primary?.avatarId || !Array.isArray(packet?.castAttribution?.additional)) errors.push("castAttribution");
+  const castIds = new Set();
+  for (const member of packet?.castAttribution?.additional || []) {
+    if (!member.avatarId || castIds.has(member.avatarId)) errors.push(`castAttribution:${member?.avatarId || "missing"}`);
+    castIds.add(member.avatarId);
+    if (!["evergreen", "referenced-avatar"].includes(member.castClass) || !member.species || !member.evidenceStatus) errors.push(`castAttribution.policy:${member.avatarId}`);
+    if (!Array.isArray(member.seedAssets) || !member.seedAssets.length) errors.push(`castAttribution.seedAssets:${member.avatarId}`);
+  }
   for (const row of packet?.referenceEvidence || []) if (!['direct', 'candidate', 'contextual'].includes(row.confidence)) errors.push("referenceEvidence.confidence");
   for (const window of packet?.fourCounts || []) if (!window.id || !window.continuity?.current) errors.push(`fourCounts:${window?.id || "unknown"}`);
   return { ok: errors.length === 0, errors };
