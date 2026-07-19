@@ -11,6 +11,7 @@ const STATE_COLORS = Object.freeze({
   dialing: 0x00f3ff,
   active: 0x45f2c8,
   sealing: 0xf6c96d,
+  connected: 0x45f2c8,
   stale: 0xffb347,
   expired: 0x7b8794,
   disconnected: 0x7aa7ff
@@ -263,6 +264,67 @@ function createGateSlot(index) {
   return root;
 }
 
+function createPeerPresence(label, color, side) {
+  const root = new THREE.Group();
+  root.name = `stargatePeerPresence${label}`;
+  root.position.set(side * 0.62, 2.03, -0.38);
+  const glow = new THREE.Mesh(
+    new THREE.CircleGeometry(0.33, 64),
+    new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending })
+  );
+  glow.position.z = -0.025;
+  const outer = new THREE.Mesh(
+    new THREE.TorusGeometry(0.3, 0.022, 10, 72),
+    new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending })
+  );
+  const inner = new THREE.Mesh(
+    new THREE.TorusGeometry(0.2, 0.012, 8, 56),
+    new THREE.MeshBasicMaterial({ color: 0xf6c96d, transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending })
+  );
+  inner.position.z = 0.015;
+  const core = new THREE.Mesh(
+    new THREE.IcosahedronGeometry(0.085, 1),
+    new THREE.MeshBasicMaterial({ color, wireframe: true, transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending })
+  );
+  core.position.z = 0.03;
+  const labelPlane = new THREE.Mesh(
+    new THREE.PlaneGeometry(0.86, 0.27),
+    new THREE.MeshBasicMaterial({ map: gateLabelTexture(label.toUpperCase(), `#${new THREE.Color(color).getHexString()}`), transparent: true, opacity: 0, depthWrite: false })
+  );
+  labelPlane.position.set(0, -0.47, 0.02);
+  root.add(glow, outer, inner, core, labelPlane);
+  root.userData.refs = { glow, outer, inner, core, label: labelPlane };
+  root.userData.side = side;
+  return root;
+}
+
+function createPeerRail(side, color) {
+  const curve = new THREE.CatmullRomCurve3([
+    new THREE.Vector3(side * 4.1, 0.72, 0.5),
+    new THREE.Vector3(side * 3.0, 1.7, 0.14),
+    new THREE.Vector3(side * 2.12, 1.08, -0.18),
+    new THREE.Vector3(side * 0.68, 2.03, -0.38)
+  ]);
+  const points = curve.getPoints(72);
+  const line = new THREE.Line(
+    new THREE.BufferGeometry().setFromPoints(points),
+    new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending })
+  );
+  line.name = `stargatePeerSignatureRail${side < 0 ? "Aurora" : "Beacon"}`;
+  const packets = Array.from({ length: 4 }, (_, index) => {
+    const packet = new THREE.Mesh(
+      new THREE.OctahedronGeometry(index === 0 ? 0.075 : 0.045, 0),
+      new THREE.MeshBasicMaterial({ color: index === 0 ? 0xf6c96d : color, transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending })
+    );
+    line.add(packet);
+    return packet;
+  });
+  line.userData.curve = curve;
+  line.userData.packets = packets;
+  line.userData.side = side;
+  return line;
+}
+
 export function tarotStargateSlotPosition(index, count, target = new THREE.Vector3()) {
   const safeCount = Math.max(2, Math.min(8, Number(count) || 2));
   if (safeCount <= 4) {
@@ -428,8 +490,15 @@ export function createTarotStargateRig() {
 
   const slots = Array.from({ length: 8 }, (_, index) => createGateSlot(index));
   const beams = Array.from({ length: 8 }, (_, index) => createBeam(index));
+  const peerPresences = [
+    createPeerPresence("Aurora", 0x00f3ff, -1),
+    createPeerPresence("Beacon", 0xa472ff, 1)
+  ];
+  const peerRails = [createPeerRail(-1, 0x00f3ff), createPeerRail(1, 0xa472ff)];
   slots.forEach((slot) => root.add(slot));
   beams.forEach((beam) => root.add(beam));
+  peerRails.forEach((rail) => root.add(rail));
+  peerPresences.forEach((presence) => root.add(presence));
   root.add(base, pylons, aperture);
   root.userData.stargate = {
     base,
@@ -454,6 +523,8 @@ export function createTarotStargateRig() {
     pylons,
     slots,
     beams,
+    peerPresences,
+    peerRails,
     visibleBlend: 0,
     openBlend: 0,
     energy: 0,
@@ -505,6 +576,12 @@ export function updateTarotStargateRig(root, options = {}) {
   const activeSlots = Math.max(0, Math.min(8, Number(options.activeSlots || 0)));
   const sources = Array.isArray(options.sources) ? options.sources : [];
   const reducedMotion = Boolean(options.reducedMotion);
+  const peerArrival = options.peerArrival || { state: "idle", progress: 0, peers: [] };
+  const peerArrivalState = String(peerArrival.state || "idle");
+  const peerArrivalProgress = THREE.MathUtils.clamp(Number(peerArrival.progress || 0), 0, 1);
+  const peerVerifying = peerArrivalState === "verifying";
+  const peerVisible = ["verifying", "arriving", "joined"].includes(peerArrivalState);
+  const peerJoined = ["arriving", "joined"].includes(peerArrivalState);
   const stateColor = new THREE.Color(STATE_COLORS[state] || STATE_COLORS.dormant);
   const targetVisible = state !== "dormant";
   const visibilityRate = reducedMotion ? 1 : 1 - Math.pow(0.0008, delta || 0.016);
@@ -515,10 +592,10 @@ export function updateTarotStargateRig(root, options = {}) {
   if (!targetVisible && data.visibleBlend < 0.012) root.visible = false;
 
   const readyEnergy = state === "ready" ? 0.44 : state === "needs_identity" ? 0.2 : state === "arranging" ? 0.24 : 0;
-  const activeEnergy = state === "dialing" ? 0.42 + progress * 0.58 : state === "active" ? 1 : state === "sealing" ? 1.08 : state === "stale" ? 0.48 : state === "disconnected" ? 0.26 : state === "expired" ? 0.18 : readyEnergy;
+  const activeEnergy = state === "dialing" ? 0.42 + progress * 0.58 : ["active", "connected"].includes(state) ? 1 : state === "sealing" ? 1.08 : state === "stale" ? 0.48 : state === "disconnected" ? (peerVerifying ? 0.58 : 0.26) : state === "expired" ? 0.18 : readyEnergy;
   data.energy = THREE.MathUtils.lerp(data.energy, activeEnergy, reducedMotion ? 1 : 1 - Math.pow(0.004, delta || 0.016));
   const sealCollapse = state === "sealing" ? THREE.MathUtils.smoothstep(progress, 0.08, 0.98) : 0;
-  const openTarget = state === "active" ? 1 : state === "dialing" ? THREE.MathUtils.smoothstep(progress, 0.48, 0.94) : state === "sealing" ? 1 - sealCollapse : state === "stale" ? 0.34 : state === "disconnected" ? 0.08 : 0;
+  const openTarget = ["active", "connected"].includes(state) ? 1 : state === "dialing" ? THREE.MathUtils.smoothstep(progress, 0.48, 0.94) : state === "sealing" ? 1 - sealCollapse : state === "stale" ? 0.34 : state === "disconnected" ? (peerVerifying ? 0.22 : 0.08) : 0;
   data.openBlend = THREE.MathUtils.lerp(data.openBlend, openTarget, reducedMotion ? 1 : 1 - Math.pow(0.0005, delta || 0.016));
 
   const motionTime = reducedMotion ? 0.75 : elapsed;
@@ -569,9 +646,10 @@ export function updateTarotStargateRig(root, options = {}) {
   data.portalLight.intensity = data.openBlend * (5 + data.energy * 8);
   data.rimLight.intensity = data.openBlend * (2.5 + data.energy * 5.5);
 
-  const dialedChevronCount = ["active", "sealing"].includes(state) ? activeSlots : state === "dialing" ? Math.floor(progress * (activeSlots + 1)) : 0;
+  const peerChevronCount = peerVisible ? Math.floor((peerJoined ? peerArrivalProgress : (0.2 + ((motionTime * 0.7) % 0.8))) * 8) : 0;
+  const dialedChevronCount = ["active", "connected", "sealing"].includes(state) ? activeSlots : state === "dialing" ? Math.floor(progress * (activeSlots + 1)) : peerChevronCount;
   data.chevrons.forEach((chevron, index) => {
-    const engaged = index < activeSlots && (state === "ready" || state === "needs_identity" || index < dialedChevronCount);
+    const engaged = peerVisible ? index < dialedChevronCount : index < activeSlots && (state === "ready" || state === "needs_identity" || index < dialedChevronCount);
     const signal = chevron.userData.signal;
     const pulse = reducedMotion ? 1 : 0.78 + Math.sin(motionTime * 5.6 + index) * 0.22;
     signal.material.opacity = engaged ? (state === "active" ? 0.95 : 0.36 + data.energy * 0.5) * pulse : 0.06;
@@ -591,6 +669,36 @@ export function updateTarotStargateRig(root, options = {}) {
     refs.ring.rotation.z = reducedMotion ? 0 : motionTime * (0.14 + index * 0.012) * (index % 2 ? -1 : 1);
   });
   data.beams.forEach((beam, index) => updateBeam(beam, sources[index], index, activeSlots, data.energy, motionTime, reducedMotion, state === "sealing"));
+  data.peerRails.forEach((rail, railIndex) => {
+    const strength = peerVisible ? (peerJoined ? 0.2 + peerArrivalProgress * 0.45 : 0.24 + Math.sin(motionTime * 4 + railIndex) * 0.08) : 0;
+    rail.material.opacity = strength;
+    rail.userData.packets.forEach((packet, packetIndex) => {
+      const travel = reducedMotion ? 0.82 : (motionTime * (peerVerifying ? 0.36 : 0.52) + packetIndex * 0.22 + railIndex * 0.08) % 1;
+      packet.position.copy(rail.userData.curve.getPoint(travel));
+      packet.rotation.x = motionTime * 2.2;
+      packet.rotation.y = motionTime * 1.7;
+      packet.material.opacity = peerVisible ? (0.34 + (packetIndex === 0 ? 0.56 : 0.3)) * (peerJoined ? 1 : 0.78) : 0;
+      packet.scale.setScalar(peerJoined ? 0.9 + peerArrivalProgress * 0.55 : 0.72 + Math.sin(motionTime * 7 + packetIndex) * 0.15);
+    });
+  });
+  data.peerPresences.forEach((presence, index) => {
+    const refs = presence.userData.refs;
+    const arrival = peerJoined ? THREE.MathUtils.smoothstep(peerArrivalProgress, 0.16 + index * 0.12, 0.78 + index * 0.1) : 0;
+    const verifyPulse = peerVerifying ? 0.18 + Math.sin(motionTime * 4.8 + index * 1.4) * 0.06 : 0;
+    const opacity = THREE.MathUtils.clamp(arrival + verifyPulse, 0, 1);
+    presence.visible = peerVisible;
+    presence.position.x = presence.userData.side * (0.62 + (1 - arrival) * 0.42);
+    presence.scale.setScalar(0.62 + opacity * 0.38 + (peerJoined && !reducedMotion ? Math.sin(motionTime * 3.4 + index) * 0.025 : 0));
+    refs.glow.material.opacity = opacity * 0.2;
+    refs.outer.material.opacity = opacity * 0.92;
+    refs.inner.material.opacity = opacity * 0.76;
+    refs.core.material.opacity = opacity;
+    refs.label.material.opacity = opacity * 0.94;
+    refs.outer.rotation.z = reducedMotion ? 0 : motionTime * (index ? -0.7 : 0.7);
+    refs.inner.rotation.z = reducedMotion ? 0 : motionTime * (index ? 1.05 : -1.05);
+    refs.core.rotation.x = motionTime * 0.8;
+    refs.core.rotation.y = motionTime * 1.1;
+  });
   data.lastState = state;
 }
 

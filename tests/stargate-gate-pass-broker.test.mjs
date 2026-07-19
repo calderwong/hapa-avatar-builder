@@ -14,6 +14,24 @@ test("Gate Pass request is explicit, transient, Catalog-independent, and never i
   assert.equal(receipt.join.allowed, false);
   assert.equal(receipt.effects.p2p_joined, false);
   assert.deepEqual(broker.status(receipt.requestId), receipt);
+  assert.throws(() => broker.authorizeProof({ requestId: receipt.requestId, cardId: "hapa-card:v1:a:b", revision: 2 }), /Explicit receiving-node consent/);
+  assert.throws(() => broker.authorizeProof({ requestId: receipt.requestId, cardId: "hapa-card:v1:a:b", revision: 3, formationCommitment: "formation-safe", contextCommitment: "context-safe", consent: true }), (error) => error.code === "stargate_pass_request_mismatch");
+  const authorization = broker.authorizeProof({ requestId: receipt.requestId, cardId: "hapa-card:v1:a:b", revision: 2, formationCommitment: "formation-safe", contextCommitment: "context-safe", consent: true });
+  assert.equal(authorization.receipt.state, "running_two_node_arrival_proof");
+  assert.equal(authorization.receipt.delivery.transportStarted, true);
+  const complete = broker.completeProof(receipt.requestId, {
+    status: "passed",
+    proofId: "proof:1",
+    proofDigest: "digest:1",
+    gatePass: { passCommitment: "pass-safe", expiresAt: "2026-07-18T20:00:50.000Z" },
+    arrival: { joined: true, peerCount: 2 },
+    resultCard: { id: "result:1" }
+  });
+  assert.equal(complete.state, "joined_two_verified_peers");
+  assert.equal(complete.pass.verified, true);
+  assert.equal(complete.pass.persisted, false);
+  assert.equal(complete.join.allowed, true);
+  assert.equal(complete.effects.catalog_contacted, false);
   now += 61_000;
   assert.throws(() => broker.status(receipt.requestId), /unavailable or expired/);
 });

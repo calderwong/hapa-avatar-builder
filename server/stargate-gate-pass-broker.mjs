@@ -49,4 +49,50 @@ export class StargateGatePassBroker {
     if (!row) throw Object.assign(new Error("Gate Pass request is unavailable or expired."), { code: "stargate_pass_request_unavailable", statusCode: 404 });
     return row.receipt;
   }
+
+  authorizeProof({ requestId = "", cardId = "", revision = 0, formationCommitment = "", contextCommitment = "", consent = false } = {}) {
+    const receipt = this.status(requestId);
+    const expectedRevision = Number(revision || 0);
+    if (consent !== true) throw Object.assign(new Error("Explicit receiving-node consent is required before starting a two-node arrival proof."), { code: "stargate_pass_consent_required", statusCode: 422 });
+    const checks = {
+      cardId: receipt.sourceCard.globalCardId === text(cardId),
+      revision: receipt.sourceCard.pinnedRevision === expectedRevision,
+      formation: !receipt.commitments.formation || receipt.commitments.formation === text(formationCommitment),
+      context: !receipt.commitments.context || receipt.commitments.context === text(contextCommitment),
+      originalConsent: receipt.authority.explicitConsent === true
+    };
+    if (!Object.values(checks).every(Boolean)) throw Object.assign(new Error("Gate Pass proof request no longer matches the exact pinned Context Card."), { code: "stargate_pass_request_mismatch", statusCode: 409, checks });
+    receipt.state = "running_two_node_arrival_proof";
+    receipt.delivery = { ...receipt.delivery, transportStarted: true };
+    receipt.join = { ...receipt.join, attempted: true, reason: "Waiting for reciprocal signatures, exact Card commitments, and explicit consent on both isolated peers." };
+    return { receipt, checks };
+  }
+
+  completeProof(requestId = "", proof = {}) {
+    const receipt = this.status(requestId);
+    const joined = proof?.status === "passed" && proof?.arrival?.joined === true && proof?.arrival?.peerCount === 2;
+    receipt.state = joined ? "joined_two_verified_peers" : "arrival_proof_failed";
+    receipt.pass = {
+      present: true,
+      verified: joined,
+      persisted: false,
+      commitment: proof?.gatePass?.passCommitment || null,
+      expiresAt: proof?.gatePass?.expiresAt || null
+    };
+    receipt.join = {
+      allowed: joined,
+      attempted: true,
+      reason: joined ? "Two isolated peers verified one exact Card revision, one signed fresh Pass, and explicit consent." : "The bounded two-node proof did not satisfy every Gate commitment."
+    };
+    receipt.delivery = { ...receipt.delivery, transportStarted: true, completed: true };
+    receipt.effects = { catalog_contacted: false, p2p_joined: joined, external_writes: 0 };
+    receipt.proof = {
+      proofId: proof?.proofId || null,
+      proofDigest: proof?.proofDigest || null,
+      status: proof?.status || "failed",
+      peerCount: Number(proof?.arrival?.peerCount || 0),
+      resultCardId: proof?.resultCard?.id || null
+    };
+    return receipt;
+  }
 }

@@ -13601,6 +13601,7 @@ h1 {
 .tarot-stargate-toggle[data-state="ready"],
 .tarot-stargate-toggle[data-state="dialing"],
 .tarot-stargate-toggle[data-state="active"],
+.tarot-stargate-toggle[data-state="connected"],
 .tarot-stargate-toggle[data-state="sealing"] {
   color: #f8f3e7 !important;
   border-color: rgba(246, 201, 109, 0.82) !important;
@@ -13612,6 +13613,7 @@ h1 {
 .tarot-stargate-toggle[data-state="ready"]::after,
 .tarot-stargate-toggle[data-state="dialing"]::after,
 .tarot-stargate-toggle[data-state="active"]::after,
+.tarot-stargate-toggle[data-state="connected"]::after,
 .tarot-stargate-toggle[data-state="sealing"]::after {
   opacity: 1;
   animation: tarot-stargate-button-scan 2.4s linear infinite;
@@ -13649,6 +13651,8 @@ h1 {
 }
 
 .tarot-catalog-return[data-state="pass-requested"] { --return-tone: 69, 242, 200; }
+.tarot-catalog-return[data-state="verifying-peers"] { --return-tone: 164, 114, 255; }
+.tarot-catalog-return[data-state="joined"] { --return-tone: 69, 242, 200; box-shadow: 0 22px 65px rgba(0, 0, 0, 0.48), 0 0 58px rgba(69, 242, 200, 0.24), 0 0 92px rgba(164, 114, 255, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.1); }
 .tarot-catalog-return[data-state="failed"],
 .tarot-catalog-return[data-state="pass-failed"] { --return-tone: 255, 116, 72; }
 
@@ -13709,7 +13713,36 @@ h1 {
 .tarot-catalog-return-authority > div { display: flex; flex-wrap: wrap; gap: 6px; }
 .tarot-catalog-return-authority button { min-height: 30px !important; border-color: rgba(var(--return-tone), 0.44) !important; color: rgb(var(--return-tone)) !important; }
 .tarot-catalog-return-authority button:disabled { color: var(--hapa-muted) !important; opacity: 0.52; }
+.tarot-catalog-return-authority .tarot-stargate-peer-proof { border-color: rgba(164, 114, 255, 0.72) !important; color: #cfb7ff !important; background: linear-gradient(100deg, rgba(0, 243, 255, 0.11), rgba(164, 114, 255, 0.17), rgba(246, 201, 109, 0.1)) !important; box-shadow: 0 0 24px rgba(164, 114, 255, 0.2); }
+.tarot-catalog-return[data-state="verifying-peers"] .tarot-catalog-return-sigil i:nth-child(1),
+.tarot-catalog-return[data-state="verifying-peers"] .tarot-catalog-return-sigil i:nth-child(2) { animation: tarot-peer-orbit 1.6s linear infinite; }
+.tarot-catalog-return[data-state="verifying-peers"] .tarot-catalog-return-sigil i:nth-child(2) { animation-direction: reverse; animation-duration: 1.05s; }
 .tarot-catalog-return-authority code { overflow: hidden; color: var(--hapa-muted); font-size: 7px; text-overflow: ellipsis; white-space: nowrap; }
+.tarot-stargate-peer-arrival { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; padding-top: 4px; }
+.tarot-stargate-peer-arrival-lock { grid-column: 1 / -1; position: relative; min-height: 35px; overflow: hidden; display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 2px 10px; padding: 7px 11px 7px 46px; border: 1px solid rgba(246, 201, 109, 0.42); background: radial-gradient(circle at 22px 50%, rgba(246, 201, 109, 0.24), transparent 32px), linear-gradient(90deg, rgba(69, 242, 200, 0.09), rgba(164, 114, 255, 0.08)); }
+.tarot-stargate-peer-arrival-lock i { position: absolute; left: 12px; top: 9px; width: 21px; height: 21px; border: 1px solid #f6c96d; border-radius: 50%; box-shadow: 0 0 11px rgba(246, 201, 109, 0.62); animation: tarot-peer-orbit 3.2s linear infinite; }
+.tarot-stargate-peer-arrival-lock i:nth-child(2) { inset: 13px auto auto 16px; width: 13px; height: 13px; border-color: #45f2c8; border-style: dashed; animation-direction: reverse; animation-duration: 1.9s; }
+.tarot-stargate-peer-arrival-lock b,
+.tarot-stargate-peer-arrival-lock span { font-family: var(--hapa-mono); }
+.tarot-stargate-peer-arrival-lock b { color: #f6c96d; font-size: 8px; letter-spacing: 0.12em; }
+.tarot-stargate-peer-arrival-lock span { color: #45f2c8; font-size: 7px; text-align: right; }
+.tarot-stargate-peer-arrival article { --peer-color: 0, 243, 255; min-width: 0; display: grid; grid-template-columns: 38px minmax(0, 1fr); gap: 4px 7px; align-items: center; padding: 7px; border: 1px solid rgba(var(--peer-color), 0.38); background: linear-gradient(125deg, rgba(var(--peer-color), 0.12), rgba(2, 6, 23, 0.64)); box-shadow: inset 0 0 18px rgba(var(--peer-color), 0.05); }
+.tarot-stargate-peer-arrival article[data-peer="beacon"] { --peer-color: 164, 114, 255; }
+.tarot-stargate-peer-orbit { position: relative; grid-row: span 2; width: 34px; height: 34px; display: grid; place-items: center; color: rgb(var(--peer-color)); }
+.tarot-stargate-peer-orbit i { position: absolute; inset: 1px; border: 1px solid rgb(var(--peer-color)); border-radius: 50%; box-shadow: 0 0 11px rgba(var(--peer-color), 0.55); animation: tarot-peer-orbit 2.6s linear infinite; }
+.tarot-stargate-peer-orbit i:nth-child(2) { inset: 6px; border-color: #f6c96d; border-style: dashed; animation-direction: reverse; animation-duration: 1.7s; }
+.tarot-stargate-peer-orbit b { font-family: var(--hapa-mono); font-size: 10px; text-shadow: 0 0 9px rgb(var(--peer-color)); }
+.tarot-stargate-peer-arrival article span { min-width: 0; display: grid; gap: 1px; }
+.tarot-stargate-peer-arrival article strong,
+.tarot-stargate-peer-arrival article em,
+.tarot-stargate-peer-arrival article small,
+.tarot-stargate-peer-arrival footer { font-family: var(--hapa-mono); font-style: normal; }
+.tarot-stargate-peer-arrival article strong { color: #fff; font-size: 8px; letter-spacing: 0.08em; text-transform: uppercase; }
+.tarot-stargate-peer-arrival article em { overflow: hidden; color: rgb(var(--peer-color)); font-size: 6px; text-overflow: ellipsis; white-space: nowrap; }
+.tarot-stargate-peer-arrival article small { grid-column: 2; color: var(--hapa-muted); font-size: 6px; }
+.tarot-stargate-peer-arrival footer { grid-column: 1 / -1; display: grid; grid-template-columns: auto auto 1fr; align-items: center; gap: 6px; color: #45f2c8; font-size: 7px; }
+.tarot-stargate-peer-arrival footer em { color: var(--hapa-muted); font-style: normal; text-align: right; }
+@keyframes tarot-peer-orbit { to { transform: rotate(360deg); } }
 .tarot-catalog-return-loading { display: grid; gap: 4px; color: #f8f3e7; font-size: 9px; }
 .tarot-catalog-return-loading em { color: var(--hapa-muted); font-family: var(--hapa-mono); font-size: 7px; font-style: normal; text-transform: uppercase; }
 
@@ -13744,6 +13777,7 @@ h1 {
 
 .tarot-stargate-status[data-state="ready"] { --gate-state: 246, 201, 109; }
 .tarot-stargate-status[data-state="active"] { --gate-state: 69, 242, 200; }
+.tarot-stargate-status[data-state="connected"] { --gate-state: 69, 242, 200; }
 .tarot-stargate-status[data-state="sealing"] { --gate-state: 246, 201, 109; }
 .tarot-stargate-status[data-state="needs_identity"],
 .tarot-stargate-status[data-state="disconnected"] { --gate-state: 255, 116, 72; }
@@ -13911,7 +13945,7 @@ h1 {
   display: none;
 }
 
-.tarot-draw-view:is([data-stargate="dialing"], [data-stargate="active"], [data-stargate="sealing"], [data-stargate="disconnected"]) .tarot-control-actions > button:not(.tarot-save-scene-toggle):not(.tarot-stargate-toggle):not(.tarot-scene-invite-toggle):not(.tarot-camera-card-toggle):not(.tarot-phone-card-toggle) {
+.tarot-draw-view:is([data-stargate="dialing"], [data-stargate="active"], [data-stargate="connected"], [data-stargate="sealing"], [data-stargate="disconnected"]) .tarot-control-actions > button:not(.tarot-save-scene-toggle):not(.tarot-stargate-toggle):not(.tarot-scene-invite-toggle):not(.tarot-camera-card-toggle):not(.tarot-phone-card-toggle) {
   display: none;
 }
 

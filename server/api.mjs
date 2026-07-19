@@ -106,6 +106,8 @@ import { AvatarOverwindSubscriber, resolveOverwindToken } from "./avatar-overwin
 import { StargateContextMintService } from "./stargate-context-mint-service.mjs";
 import { StargateContextReturnResolver } from "./stargate-context-return-resolver.mjs";
 import { StargateGatePassBroker } from "./stargate-gate-pass-broker.mjs";
+import { runStargateGatePassProof } from "./stargate-gate-pass-proof.mjs";
+import { STARGATE_PUBLIC_DEMO_SECRET } from "../src/domain/tarot-stargate-derivation.js";
 import { MintLedgerError, createSongCardMintController } from "./song-card-mint-controller.mjs";
 import { createSongCardRemintStore } from "./song-card-remint-store.mjs";
 import { createSongCardLocalRenderBridge, inspectSongCardRendererBuildIdentity } from "./song-card-local-renderer.mjs";
@@ -526,6 +528,7 @@ const stargateContextReturnResolver = new StargateContextReturnResolver({
   subscriber: avatarOverwindSubscriber
 });
 const stargateGatePassBroker = new StargateGatePassBroker();
+const STARGATE_GATE_PASS_PROFILE_ROOT = process.env.HAPA_GATE_PASS_PROFILE_ROOT || path.join(OVERWIND_DIR, "gate-pass");
 const OVERWIND_BOOTSTRAP_PATH = path.join(OVERWIND_DIR, "avatar-builder-bootstrap.json");
 const OVERWIND_SHELL_BOOTSTRAP_PATH = path.join(OVERWIND_DIR, "avatar-builder-shell-bootstrap.json");
 const OVERWIND_BOOTSTRAP_PROJECTION_VERSION = "hapa.overwind.avatar-builder-bootstrap.v5.avatar-loadout-mind-spines";
@@ -3276,6 +3279,49 @@ async function route(req, res) {
       }));
     } catch (error) {
       sendJson(res, Number(error?.statusCode || 422), { error: error?.code || "stargate_pass_request_failed", message: error?.message || String(error), connected: false, passPresent: false });
+    }
+    return;
+  }
+
+  if (pathname === "/api/tarot/stargate/pass/proof" && req.method === "POST") {
+    if (!requireAdmin(req, res)) return;
+    try {
+      const body = await readBody(req);
+      if (body.consent !== true) throw Object.assign(new Error("Explicit local consent is required to run the two-node Gate Pass proof."), { code: "stargate_pass_consent_required", statusCode: 422 });
+      const pending = stargateGatePassBroker.status(body.requestId || "");
+      const resolution = await stargateContextReturnResolver.resolve({
+        cardId: pending.sourceCard.globalCardId,
+        expectedRevision: pending.sourceCard.pinnedRevision,
+        sourceNode: "hapa-avatar-builder"
+      });
+      const context = resolution.card?.stargateContext || resolution.card?.enrichment?.media?.stargateContext || {};
+      stargateGatePassBroker.authorizeProof({
+        requestId: pending.requestId,
+        cardId: resolution.identity.globalCardId,
+        revision: resolution.identity.pinnedRevision,
+        formationCommitment: context.gate?.semanticFormationDigest || "",
+        contextCommitment: context.contextDigest || "",
+        consent: true
+      });
+      const proof = await runStargateGatePassProof({
+        profileRoot: STARGATE_GATE_PASS_PROFILE_ROOT,
+        globalCardId: resolution.identity.globalCardId,
+        revision: resolution.identity.pinnedRevision,
+        sourceNode: resolution.identity.originNode,
+        card: resolution.card,
+        cohortSecretBase64Url: STARGATE_PUBLIC_DEMO_SECRET,
+        timeoutMs: 18_000
+      });
+      const store = addTarotCard(await readTarotStore(), proof.resultCard);
+      await writeTarotStore(store);
+      await appendSubscriberRegistration("tarot.card-created", { tarot: store, cardId: proof.resultCard.id, source: "stargate-gate-pass-proof" });
+      const receipt = stargateGatePassBroker.completeProof(pending.requestId, proof);
+      sendJson(res, proof.status === "passed" ? 200 : 409, { ok: proof.status === "passed", receipt, proof, resultCard: proof.resultCard, persisted: true });
+    } catch (error) {
+      const message = error?.code === "gate_pass_issuer_gate_mismatch"
+        ? "This restored Card is valid, but the local demo node does not hold its live private Gate capability. A real connected issuer must provide the fresh Pass."
+        : error?.message || String(error);
+      sendJson(res, Number(error?.statusCode || (error?.code === "gate_pass_issuer_gate_mismatch" ? 409 : 422)), { error: error?.code || "stargate_pass_proof_failed", message, connected: false, passPersisted: false });
     }
     return;
   }

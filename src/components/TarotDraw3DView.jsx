@@ -2202,11 +2202,13 @@ export default function TarotDraw3DView({ cards = [], avatarId = "local-operator
   const stargateBusy = stargate.state === "dialing";
   const stargateNeedsIdentity = stargate.state === "needs_identity";
   const stargateActive = stargate.state === "active";
+  const stargateConnected = stargate.state === "connected";
+  const stargateOpen = stargateActive || stargateConnected;
   const stargateButtonLabel = !stargate.mode
     ? "Stargate"
     : stargateBusy
       ? `Dialing ${Math.round(Number(stargate.progress || 0) * 100)}%`
-      : stargateActive
+      : stargateOpen
         ? "Close Gate"
         : stargate.state === "ready"
           ? "Dial Gate"
@@ -2893,7 +2895,7 @@ export default function TarotDraw3DView({ cards = [], avatarId = "local-operator
   }
 
   function handleStargateAction() {
-    if (!stargate.mode || stargateActive || stargate.state !== "ready") {
+    if (!stargate.mode || stargateOpen || stargate.state !== "ready") {
       callGame("toggleStargateMode");
       return;
     }
@@ -3389,6 +3391,37 @@ export default function TarotDraw3DView({ cards = [], avatarId = "local-operator
     }
   }
 
+  async function runCatalogReturnPeerArrival(event) {
+    event?.preventDefault?.();
+    event?.stopPropagation?.();
+    const request = catalogReturn.request;
+    if (!request?.requestId || ["verifying-peers", "joined"].includes(catalogReturn.status)) return;
+    const visualProofStartedAt = performance.now();
+    setCatalogReturn((current) => ({ ...current, status: "verifying-peers", proof: null, resultCard: null, error: "" }));
+    callGame("beginStargatePeerArrival");
+    try {
+      const base = tarotDrawApiBase(apiBase);
+      const sessionResponse = await fetch(`${base}/api/local-ui-session`, { method: "POST", headers: { Accept: "application/json" }, credentials: "same-origin" });
+      if (!sessionResponse.ok) throw new Error("Local human consent session could not be established.");
+      const response = await fetch(`${base}/api/tarot/stargate/pass/proof`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify({ requestId: request.requestId, consent: true })
+      });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok || !payload?.ok || payload?.proof?.status !== "passed") throw new Error(payload?.message || payload?.error || `Two-node Gate Pass proof failed: ${response.status}`);
+      const minimumSignatureRailMs = window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches ? 500 : 3200;
+      const remainingHeroBeat = Math.max(0, minimumSignatureRailMs - (performance.now() - visualProofStartedAt));
+      if (remainingHeroBeat > 0) await new Promise((resolve) => window.setTimeout(resolve, remainingHeroBeat));
+      if (!callGame("witnessStargatePeerArrival", payload.proof)) throw new Error("The proof passed, but its Card/Gate arrival could not be projected into this exact Tarot scene.");
+      setCatalogReturn((current) => ({ ...current, status: "joined", proof: payload.proof, resultCard: payload.resultCard, request: payload.receipt || current.request, error: "" }));
+    } catch (error) {
+      callGame("failStargatePeerArrival", error?.message || "Gate Pass proof halted truthfully");
+      setCatalogReturn((current) => ({ ...current, status: "pass-failed", proof: null, resultCard: null, error: error?.message || "Two-node Gate Pass proof failed" }));
+    }
+  }
+
   async function requestForgeCard(event) {
     event?.preventDefault?.();
     const title = forgeTitle.trim() || `${avatarName} Draw Card`;
@@ -3704,7 +3737,7 @@ export default function TarotDraw3DView({ cards = [], avatarId = "local-operator
           <div className="tarot-catalog-return-sigil" aria-hidden="true"><i /><i /><i /><b>✦</b></div>
           <header>
             <span><Sparkles size={14} /> .hapaCatalog Return</span>
-            <strong>{catalogReturn.status === "resolving" ? "Resolving exact pin" : catalogReturn.error ? "Return halted" : "Exact pin restored"}</strong>
+            <strong>{catalogReturn.status === "resolving" ? "Resolving exact pin" : catalogReturn.status === "verifying-peers" ? "Signature rails active" : catalogReturn.status === "joined" ? "Two peers present" : catalogReturn.error ? "Return halted" : "Exact pin restored"}</strong>
           </header>
           {catalogReturn.resolution ? (
             <div className="tarot-catalog-return-body">
@@ -3717,24 +3750,50 @@ export default function TarotDraw3DView({ cards = [], avatarId = "local-operator
                 <div><dt>Pinned</dt><dd>r{catalogReturn.resolution.identity?.pinnedRevision || "—"}</dd></div>
                 <div><dt>Formation</dt><dd>{catalogReturn.resolution.restore?.formationCount || 0} Cards</dd></div>
                 <div><dt>Custody</dt><dd>{String(catalogReturn.resolution.custody?.truthState || "unavailable").replaceAll("_", " ").replaceAll("-", " ")}</dd></div>
-                <div><dt>Connection</dt><dd>Disconnected</dd></div>
+                <div><dt>Connection</dt><dd>{catalogReturn.status === "joined" ? "2 verified peers" : catalogReturn.status === "verifying-peers" ? "verifying" : "Disconnected"}</dd></div>
               </dl>
               {catalogReturn.resolution.newerRevision?.available && (
                 <div className="tarot-catalog-return-newer"><span>Newer revision available</span><strong>r{catalogReturn.resolution.newerRevision.revision}</strong><em>Your r{catalogReturn.resolution.identity.pinnedRevision} pin was not changed.</em></div>
               )}
               <div className="tarot-catalog-return-authority">
-                <span><Route size={13} /><strong>Fresh Gate Pass boundary</strong></span>
-                <p>{catalogReturn.request ? "Request issued directly from this node. Waiting for a peer-issued Pass; Join remains locked." : "Preview and restore are complete. Requesting a Pass is a separate explicit act; Join requires a fresh verified Pass and local consent."}</p>
+                <span><Route size={13} /><strong>{catalogReturn.status === "joined" ? "Signed arrival witnessed" : catalogReturn.status === "verifying-peers" ? "Reciprocal proof in flight" : "Fresh Gate Pass boundary"}</strong></span>
+                <p>{catalogReturn.status === "joined"
+                  ? "Aurora and Beacon independently verified the exact Card revision, Formation, Gate commitment, expiry, and consent. The Pass remained memory-only."
+                  : catalogReturn.status === "verifying-peers"
+                    ? "Two isolated Hapa profiles are exchanging reciprocal signed hello/ack packets over Hyperswarm + Noise. The Gate stays locked until every commitment matches."
+                    : catalogReturn.request
+                      ? "Request issued directly from this node. Run the bounded two-node proof to receive a fresh peer-issued Pass; Join remains locked until verification succeeds."
+                      : "Preview and restore are complete. Requesting a Pass is a separate explicit act; Join requires a fresh verified Pass and local consent."}</p>
                 <div>
                   {!catalogReturn.request && (
                     <button className="hapa-btn" type="button" disabled={catalogReturn.status === "requesting-pass"} onClick={requestCatalogReturnGatePass}>
                       <Link2 size={13} /> {catalogReturn.status === "requesting-pass" ? "Requesting…" : "Request Fresh Gate Pass"}
                     </button>
                   )}
-                  <button className="hapa-btn" type="button" disabled title="A fresh verified Gate Pass has not been received.">Join Stargate · Locked</button>
+                  {catalogReturn.request && catalogReturn.status !== "joined" && (
+                    <button className="hapa-btn tarot-stargate-peer-proof" type="button" disabled={catalogReturn.status === "verifying-peers"} onClick={runCatalogReturnPeerArrival}>
+                      <Route size={13} /> {catalogReturn.status === "verifying-peers" ? "Verifying Two Peers…" : "Open Gate to Aurora + Beacon"}
+                    </button>
+                  )}
+                  <button className="hapa-btn" type="button" disabled title={catalogReturn.status === "joined" ? "Verified arrival projected into this exact Tarot scene." : "A fresh verified Gate Pass has not been received."}>
+                    {catalogReturn.status === "joined" ? "Joined · 2 Peers" : "Join Stargate · Locked"}
+                  </button>
                 </div>
                 {catalogReturn.request && <code>{catalogReturn.request.requestId}</code>}
               </div>
+              {catalogReturn.proof?.arrival?.joined && (
+                <div className="tarot-stargate-peer-arrival" aria-label="Verified Stargate peers">
+                  <div className="tarot-stargate-peer-arrival-lock"><i /><i /><b>GATE LOCK</b><span>EXACT IDENTITY UNCHANGED</span></div>
+                  {(catalogReturn.proof.peers || []).slice(0, 2).map((peer, index) => (
+                    <article key={peer.nodeId || peer.displayLabel} data-peer={index === 0 ? "aurora" : "beacon"}>
+                      <div className="tarot-stargate-peer-orbit"><i /><i /><b>{index === 0 ? "A" : "B"}</b></div>
+                      <span><strong>{peer.displayLabel || (index === 0 ? "Aurora" : "Beacon")}</strong><em>{peer.fingerprint || "signature verified"}</em></span>
+                      <small>Signed · consented · Noise</small>
+                    </article>
+                  ))}
+                  <footer><BadgeCheck size={13} /><strong>2 processes · 2 profiles · 7/7 negative cases</strong><em>Pass not persisted · Catalog not required</em></footer>
+                </div>
+              )}
             </div>
           ) : (
             <div className="tarot-catalog-return-loading"><span>{catalogReturn.error || "Reading local origin history and bounded Overwind custody…"}</span><em>No Catalog dependency · no auto-connect</em></div>
@@ -5762,6 +5821,7 @@ function createTarotDrawGame({ canvas, cards, avatarId = "local-operator", avata
   let stargateRestoredContext = null;
   let stargateLastContextCard = null;
   let stargateMintStage = "idle";
+  let stargatePeerArrival = { state: "idle", progress: 0, startedAt: 0, joined: false, peers: [], proofId: "", proofDigest: "", resultCardId: "" };
   let forgeEntries = new Map();
   let heldEntry = null;
   let hoveredEntry = null;
@@ -5998,6 +6058,9 @@ function createTarotDrawGame({ canvas, cards, avatarId = "local-operator", avata
     loadStargateDemoFormation,
     setStargateRuntimeState,
     setStargateMintStage,
+    beginStargatePeerArrival,
+    witnessStargatePeerArrival,
+    failStargatePeerArrival,
     setEchoDirectorProject,
     spawnForgeCard,
     updateForgeCard,
@@ -6204,6 +6267,11 @@ function createTarotDrawGame({ canvas, cards, avatarId = "local-operator", avata
       setStargateState("disconnected", "Context restored exactly; fresh Gate Pass required to connect");
       return true;
     }
+    if (stargatePeerArrival.joined && stargateRestoredContext) {
+      stargateResult = null;
+      setStargateState("connected", "Two signed peers arrived with exact Card commitments and explicit consent");
+      return true;
+    }
     const formation = {
       schemaVersion: STARGATE_FORMATION_SCHEMA,
       purposeCode: "build-week-domino",
@@ -6251,6 +6319,7 @@ function createTarotDrawGame({ canvas, cards, avatarId = "local-operator", avata
       stargateRequiresFreshPass = false;
       stargateRestoredContext = null;
       stargateLastContextCard = null;
+      stargatePeerArrival = { state: "idle", progress: 0, startedAt: 0, joined: false, peers: [], proofId: "", proofDigest: "", resultCardId: "" };
       restoreStargateEntryHomes();
       stargateEntries = [];
       stargateIdentityResults = [];
@@ -6269,6 +6338,7 @@ function createTarotDrawGame({ canvas, cards, avatarId = "local-operator", avata
     stargateRequiresFreshPass = false;
     stargateRestoredContext = null;
     stargateLastContextCard = null;
+    stargatePeerArrival = { state: "idle", progress: 0, startedAt: 0, joined: false, peers: [], proofId: "", proofDigest: "", resultCardId: "" };
     stargateSealStartedAt = 0;
     stargateSealProgress = 0;
     stargateCohortSecret = stargateFixtureActive ? STARGATE_PUBLIC_DEMO_SECRET : createMemoryOnlyCohortSecret();
@@ -6308,6 +6378,57 @@ function createTarotDrawGame({ canvas, cards, avatarId = "local-operator", avata
     stargateProgress = nextState === "stale" ? Math.min(stargateProgress, 0.55) : 0;
     status = stargateError;
     audio.play(nextState === "stale" ? "gate-arm" : "gate-close", { quiet: true });
+    publishHud(true);
+    return true;
+  }
+
+  function beginStargatePeerArrival() {
+    if (!stargateMode || !stargateRestoredContext || !stargateRequiresFreshPass) return false;
+    stargatePeerArrival = { state: "verifying", progress: 0, startedAt: elapsedTime, joined: false, peers: [], proofId: "", proofDigest: "", resultCardId: "" };
+    stargateError = "Two isolated peers are verifying signatures, consent, and this exact Card revision";
+    status = "Gate Pass signature rails active";
+    audio.play("gate-dial", { quiet: true });
+    createBurst(-1.72, -0.4, 0x00f3ff, 1.25);
+    createBurst(1.72, -0.4, 0xa472ff, 1.25);
+    publishHud(true);
+    return true;
+  }
+
+  function witnessStargatePeerArrival(proof = {}) {
+    if (!stargateMode || !stargateRestoredContext || proof?.status !== "passed" || proof?.arrival?.joined !== true || proof?.arrival?.peerCount !== 2 || proof?.card?.gateIdentityChanged !== false) return false;
+    const peers = Array.isArray(proof.peers)
+      ? proof.peers.slice(0, 2).map((peer, index) => ({ label: peer.displayLabel || ["Aurora", "Beacon"][index], fingerprint: peer.fingerprint || "verified" }))
+      : [{ label: "Aurora", fingerprint: "verified" }, { label: "Beacon", fingerprint: "verified" }];
+    stargatePeerArrival = {
+      state: "arriving",
+      progress: 0,
+      startedAt: elapsedTime,
+      joined: true,
+      peers,
+      proofId: String(proof.proofId || ""),
+      proofDigest: String(proof.proofDigest || ""),
+      resultCardId: String(proof.resultCard?.id || "")
+    };
+    stargateRequiresFreshPass = false;
+    stargateState = "connected";
+    stargateProgress = 1;
+    stargateError = "Aurora + Beacon materializing through one signed, consented Gate Pass";
+    status = "Two verified peers arrived at the unchanged Stargate";
+    audio.play("gate-open");
+    createBurst(0, -0.62, 0x00f3ff, 2.7);
+    createBurst(0, -0.62, 0xa472ff, 2.2);
+    createBurst(0, -0.62, 0xf6c96d, 1.75);
+    publishHud(true);
+    return true;
+  }
+
+  function failStargatePeerArrival(message = "Gate Pass proof halted truthfully") {
+    stargatePeerArrival = { state: "failed", progress: 0, startedAt: 0, joined: false, peers: [], proofId: "", proofDigest: "", resultCardId: "" };
+    stargateRequiresFreshPass = true;
+    stargateState = "disconnected";
+    stargateError = message;
+    status = message;
+    audio.play("gate-close", { quiet: true });
     publishHud(true);
     return true;
   }
@@ -6367,8 +6488,20 @@ function createTarotDrawGame({ canvas, cards, avatarId = "local-operator", avata
       requiresFreshPass: stargateRequiresFreshPass,
       contextCardId: stargateLastContextCard?.id || "",
       mintStage: stargateMintStage,
+      peerArrival: {
+        state: stargatePeerArrival.state,
+        progress: Number(stargatePeerArrival.progress.toFixed(3)),
+        joined: stargatePeerArrival.joined,
+        peerCount: stargatePeerArrival.joined ? stargatePeerArrival.peers.length : 0,
+        peers: stargatePeerArrival.peers,
+        proofId: stargatePeerArrival.proofId,
+        proofDigest: stargatePeerArrival.proofDigest,
+        resultCardId: stargatePeerArrival.resultCardId,
+        passPersisted: false,
+        gateIdentityChanged: false
+      },
       fixtureDisclosure: stargateFixtureActive ? "Public deterministic test vector — not a production invitation." : "",
-      message: stargateError || (stargateState === "active" ? "Gate open; destination derived locally" : "Arrange identity-sealed Cards into an ordered Gate")
+      message: stargateError || (["active", "connected"].includes(stargateState) ? "Gate open; destination derived locally" : "Arrange identity-sealed Cards into an ordered Gate")
     };
   }
 
@@ -6433,6 +6566,17 @@ function createTarotDrawGame({ canvas, cards, avatarId = "local-operator", avata
         entry.group.scale.setScalar(1 + Math.sin(stargateSealProgress * Math.PI) * 0.12);
       });
     }
+    if (stargatePeerArrival.state === "verifying") {
+      stargatePeerArrival.progress = Math.min(0.82, (elapsed - stargatePeerArrival.startedAt) / (stargateReducedMotion ? 0.8 : 3.8));
+    } else if (stargatePeerArrival.state === "arriving") {
+      stargatePeerArrival.progress = THREE.MathUtils.clamp((elapsed - stargatePeerArrival.startedAt) / (stargateReducedMotion ? 0.7 : 2.8), 0, 1);
+      if (stargatePeerArrival.progress >= 1) {
+        stargatePeerArrival.state = "joined";
+        stargateError = "Aurora + Beacon present · signatures verified · explicit consent · exact Gate unchanged";
+        status = "Two verified Hapa peers present";
+        publishHud(true);
+      }
+    }
     const sources = stargateEntries.map((entry) => entry.group.position);
     updateTarotStargateRig(stargateRig, {
       state: stargateMode ? stargateState : "dormant",
@@ -6441,7 +6585,8 @@ function createTarotDrawGame({ canvas, cards, avatarId = "local-operator", avata
       sources,
       elapsed,
       delta,
-      reducedMotion: stargateReducedMotion
+      reducedMotion: stargateReducedMotion,
+      peerArrival: stargatePeerArrival
     });
     if (stargateMode) {
       previewGroup.visible = false;
@@ -6573,6 +6718,9 @@ function createTarotDrawGame({ canvas, cards, avatarId = "local-operator", avata
 	        markStargateStale: () => setStargateRuntimeState("stale"),
 	        markStargateExpired: () => setStargateRuntimeState("expired"),
 	        markStargateDisconnected: () => setStargateRuntimeState("disconnected"),
+	        beginStargatePeerArrival,
+	        witnessStargatePeerArrival,
+	        failStargatePeerArrival,
 	        autoDealInstantStart,
 	        autoPlaceSpread: () => autoPlace(layoutId),
 	        lockFirstMotionCardInDropZone: diagnosticLockFirstMotionCardInDropZone,
@@ -7442,6 +7590,7 @@ function createTarotDrawGame({ canvas, cards, avatarId = "local-operator", avata
     if (!card || !isStargateContextCard(card)) return false;
     stargateRestoredContext = stargateContextEnvelopeFromCard(card);
     stargateRequiresFreshPass = true;
+    stargatePeerArrival = { state: "idle", progress: 0, startedAt: 0, joined: false, peers: [], proofId: "", proofDigest: "", resultCardId: "" };
     stargateCohortSecret = "";
     stargateResult = null;
     stargateSealProgress = 1;
@@ -7477,6 +7626,7 @@ function createTarotDrawGame({ canvas, cards, avatarId = "local-operator", avata
     }
     stargateRequiresFreshPass = true;
     stargateRestoredContext = stargateContextEnvelopeFromCard(card);
+    stargatePeerArrival = { state: "idle", progress: 0, startedAt: 0, joined: false, peers: [], proofId: "", proofDigest: "", resultCardId: "" };
     stargateLastContextCard = card;
     stargateCohortSecret = "";
     stargateResult = null;
@@ -7540,6 +7690,7 @@ function createTarotDrawGame({ canvas, cards, avatarId = "local-operator", avata
     if (fromStargate && !fromCatalogReturn) completeStargateContextSeal(card);
     if (fromCatalogReturn) {
       stargateRequiresFreshPass = true;
+      stargatePeerArrival = { state: "idle", progress: 0, startedAt: 0, joined: false, peers: [], proofId: "", proofDigest: "", resultCardId: "" };
       stargateRestoredContext = stargateContextEnvelopeFromCard(card);
       stargateLastContextCard = card;
       stargateCohortSecret = "";
@@ -15416,7 +15567,9 @@ function createTarotDrawGame({ canvas, cards, avatarId = "local-operator", avata
           energy: Number((stargateRig.userData.stargate?.energy || 0).toFixed(3)),
           chevrons: stargateRig.userData.stargate?.chevrons?.length || 0,
           beams: stargateRig.userData.stargate?.beams?.length || 0,
-          slots: stargateRig.userData.stargate?.slots?.length || 0
+          slots: stargateRig.userData.stargate?.slots?.length || 0,
+          peerPresences: stargateRig.userData.stargate?.peerPresences?.length || 0,
+          peerRails: stargateRig.userData.stargate?.peerRails?.length || 0
         }
       },
       avatarName,

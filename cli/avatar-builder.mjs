@@ -134,6 +134,17 @@ async function main(cmd, opts) {
     return;
   }
 
+  if (cmd === "stargate-pass-proof") {
+    const requestId = option(opts, "request-id", "request");
+    if (!requestId || opts.consent !== true) throw new Error("stargate-pass-proof requires --request-id <id> --consent.");
+    print(await stargateApiRequest(opts, "/api/tarot/stargate/pass/proof", {
+      method: "POST",
+      admin: true,
+      body: { requestId, consent: true }
+    }), { ...opts, json: true });
+    return;
+  }
+
   if (cmd === "list") {
     const store = await readStore();
     const avatars = store.avatars.map((avatar) => ({
@@ -1170,6 +1181,7 @@ Commands:
   stargate-context-status --card-id <id> [--api-url http://127.0.0.1:8787] [--json]
   stargate-context-return --card-id <global-id> --revision <n> [--source hapa-avatar-builder] [--api-url http://127.0.0.1:8787] [--json]
   stargate-pass-request --card-id <global-id> --revision <n> --actor <human-id> --consent [--source hapa-avatar-builder] [--api-url http://127.0.0.1:8787] [--json]
+  stargate-pass-proof --request-id <id> --consent [--api-url http://127.0.0.1:8787] [--json]
   scaffold Red Reaper --id red-reaper [--primary Red] [--json]
   audit <avatar-id> [--json]
   attach <avatar-id> [--target comic|video|agent] [--json]
