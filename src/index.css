@@ -13345,6 +13345,216 @@ h1 {
   color: var(--hapa-neon-red);
 }
 
+.tarot-stargate-toggle {
+  --ctl-accent: var(--hapa-neon-cyan);
+  min-width: 118px;
+  position: relative;
+  overflow: hidden !important;
+  border-color: rgba(0, 243, 255, 0.48) !important;
+  color: var(--hapa-neon-cyan) !important;
+  background:
+    radial-gradient(circle at 20% 50%, rgba(0, 243, 255, 0.18), transparent 42%),
+    linear-gradient(135deg, rgba(0, 243, 255, 0.09), rgba(255, 109, 242, 0.08)),
+    rgba(2, 6, 23, 0.86) !important;
+}
+
+.tarot-stargate-toggle::after {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  pointer-events: none;
+  border: 1px solid transparent;
+  background: linear-gradient(90deg, transparent, rgba(246, 201, 109, 0.72), transparent) border-box;
+  transform: translateX(-110%);
+  opacity: 0;
+}
+
+.tarot-stargate-toggle[data-state="ready"],
+.tarot-stargate-toggle[data-state="dialing"],
+.tarot-stargate-toggle[data-state="active"] {
+  color: #f8f3e7 !important;
+  border-color: rgba(246, 201, 109, 0.82) !important;
+  box-shadow:
+    0 0 22px rgba(0, 243, 255, 0.24),
+    inset 0 0 18px rgba(246, 201, 109, 0.11);
+}
+
+.tarot-stargate-toggle[data-state="ready"]::after,
+.tarot-stargate-toggle[data-state="dialing"]::after,
+.tarot-stargate-toggle[data-state="active"]::after {
+  opacity: 1;
+  animation: tarot-stargate-button-scan 2.4s linear infinite;
+}
+
+.tarot-stargate-toggle[data-state="needs_identity"] {
+  border-color: rgba(255, 116, 72, 0.68) !important;
+  color: #ff9a78 !important;
+}
+
+@keyframes tarot-stargate-button-scan {
+  to { transform: translateX(110%); }
+}
+
+.tarot-stargate-status {
+  --gate-state: 0, 243, 255;
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  z-index: 6;
+  width: min(390px, calc(100% - 500px));
+  min-width: 310px;
+  display: grid;
+  gap: 9px;
+  padding: 12px 14px 13px;
+  border: 1px solid rgba(var(--gate-state), 0.46);
+  background:
+    linear-gradient(135deg, rgba(var(--gate-state), 0.13), transparent 52%),
+    linear-gradient(180deg, rgba(7, 20, 32, 0.9), rgba(2, 6, 23, 0.78));
+  box-shadow:
+    0 18px 48px rgba(0, 0, 0, 0.38),
+    0 0 30px rgba(var(--gate-state), 0.14),
+    inset 0 1px 0 rgba(255, 255, 255, 0.07);
+  backdrop-filter: blur(20px);
+  clip-path: polygon(13px 0, 100% 0, 100% calc(100% - 13px), calc(100% - 13px) 100%, 0 100%, 0 13px);
+  pointer-events: auto;
+}
+
+.tarot-stargate-status[data-state="ready"] { --gate-state: 246, 201, 109; }
+.tarot-stargate-status[data-state="active"] { --gate-state: 69, 242, 200; }
+.tarot-stargate-status[data-state="needs_identity"],
+.tarot-stargate-status[data-state="disconnected"] { --gate-state: 255, 116, 72; }
+.tarot-stargate-status[data-state="stale"] { --gate-state: 255, 179, 71; }
+.tarot-stargate-status[data-state="expired"] { --gate-state: 123, 135, 148; }
+
+.tarot-stargate-status header,
+.tarot-stargate-status header span {
+  display: flex;
+  align-items: center;
+}
+
+.tarot-stargate-status header {
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.tarot-stargate-status header span {
+  gap: 7px;
+  color: rgb(var(--gate-state));
+  font-family: var(--hapa-mono);
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+}
+
+.tarot-stargate-status header strong {
+  color: #f8f3e7;
+  font-family: var(--hapa-mono);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.tarot-stargate-progress {
+  height: 3px;
+  overflow: hidden;
+  background: rgba(125, 211, 252, 0.12);
+}
+
+.tarot-stargate-progress i {
+  width: max(5%, var(--stargate-progress));
+  height: 100%;
+  display: block;
+  background: linear-gradient(90deg, rgb(var(--gate-state)), var(--hapa-neon-gold), var(--hapa-neon-rose));
+  box-shadow: 0 0 13px rgba(var(--gate-state), 0.72);
+  transition: width 160ms linear;
+}
+
+.tarot-stargate-status p {
+  margin: 0;
+  color: rgba(248, 243, 231, 0.9);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.tarot-stargate-status dl {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+  margin: 0;
+}
+
+.tarot-stargate-status dl div {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+  padding: 7px 8px;
+  border: 1px solid rgba(var(--gate-state), 0.18);
+  background: rgba(2, 6, 23, 0.48);
+}
+
+.tarot-stargate-status dt,
+.tarot-stargate-status dd,
+.tarot-stargate-status > em {
+  font-family: var(--hapa-mono);
+  font-style: normal;
+}
+
+.tarot-stargate-status dt {
+  color: var(--hapa-muted);
+  font-size: 8px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.tarot-stargate-status dd {
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  color: rgb(var(--gate-state));
+  font-size: 9px;
+  font-weight: 800;
+  line-height: 1.22;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tarot-stargate-demo-toggle {
+  justify-self: start;
+  min-height: 30px !important;
+  border-color: rgba(246, 201, 109, 0.52) !important;
+  color: var(--hapa-neon-gold) !important;
+}
+
+.tarot-stargate-status > em {
+  color: rgba(246, 201, 109, 0.78);
+  font-size: 8px;
+  line-height: 1.35;
+  letter-spacing: 0.035em;
+}
+
+.tarot-draw-view:is([data-stargate="dialing"], [data-stargate="active"]) .tarot-draw-controls {
+  width: auto;
+  max-width: calc(100% - 28px);
+  padding: 8px;
+  border-color: rgba(246, 201, 109, 0.46);
+  background:
+    linear-gradient(135deg, rgba(0, 243, 255, 0.11), rgba(246, 201, 109, 0.12)),
+    rgba(2, 6, 23, 0.82);
+}
+
+.tarot-draw-view:is([data-stargate="dialing"], [data-stargate="active"]) .tarot-control-grid {
+  display: none;
+}
+
+.tarot-draw-view:is([data-stargate="dialing"], [data-stargate="active"]) .tarot-control-actions > button:not(.tarot-save-scene-toggle):not(.tarot-stargate-toggle):not(.tarot-scene-invite-toggle):not(.tarot-camera-card-toggle):not(.tarot-phone-card-toggle) {
+  display: none;
+}
+
+.tarot-draw-view:is([data-stargate="dialing"], [data-stargate="active"]) .tarot-control-actions {
+  flex-wrap: nowrap;
+}
+
 .tarot-camera-mic-toggle {
   --ctl-accent: var(--hapa-neon-cyan);
 }
@@ -17327,6 +17537,38 @@ h1 {
     animation-iteration-count: 1 !important;
     scroll-behavior: auto !important;
     transition-duration: 0.01ms !important;
+  }
+
+  .tarot-stargate-toggle::after {
+    animation: none !important;
+    transform: translateX(0);
+  }
+}
+
+@media (max-width: 980px) {
+  .tarot-stargate-status {
+    top: 190px;
+    left: 14px;
+    right: 14px;
+    width: min(450px, calc(100% - 28px));
+    min-width: 0;
+  }
+}
+
+@media (max-width: 640px) {
+  .tarot-stargate-status {
+    top: 174px;
+    gap: 7px;
+    padding: 10px;
+  }
+
+  .tarot-stargate-status dl {
+    grid-template-columns: 1fr;
+  }
+
+  .tarot-stargate-status dl div {
+    grid-template-columns: 76px minmax(0, 1fr);
+    align-items: center;
   }
 }
 

@@ -97,12 +97,15 @@
     "smoke:electron": "electron scripts/electron-smoke.cjs",
     "soak:song-card-electron": "electron scripts/run-song-card-electron-kiosk-soak.cjs",
     "smoke:tarot": "electron scripts/tarot-smoke.cjs",
+    "smoke:stargate": "electron scripts/tarot-stargate-smoke.cjs",
+    "capture:stargate": "electron scripts/capture-tarot-stargate-hero.cjs",
     "smoke:echo-player-pool": "electron scripts/echo-player-pool-smoke.cjs",
     "smoke:mind-ui": "electron scripts/avatar-mind-ui-smoke.cjs",
     "smoke:phone-card": "electron scripts/phone-card-smoke.cjs"
   },
   "dependencies": {
     "@hapa/overcard": "file:../../../../../../Desktop/hapa-overcard",
+    "@noble/hashes": "^2.2.0",
     "@vitejs/plugin-react": "^6.0.1",
     "concurrently": "^8.2.2",
     "electron": "^39.2.6",

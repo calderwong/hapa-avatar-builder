@@ -23,6 +23,21 @@ import { echoLegacyCanvasApproximation } from "../domain/echo-shader-picker.js";
 import { localFileApiUri } from "../domain/local-media-uri.js";
 import { buildTruthfulUnmintedVisualizerCard, resolveAuthoritativeTarotSongCardPrint } from "../domain/song-card-tarot-print.js";
 import {
+  buildPublicDemoGateCards,
+  createMemoryOnlyCohortSecret,
+  deriveStargate,
+  redactedStargateAddress,
+  resolveStargateCardIdentity,
+  STARGATE_FORMATION_SCHEMA,
+  STARGATE_PROTOCOL_VERSION,
+  STARGATE_PUBLIC_DEMO_SECRET,
+} from "../domain/tarot-stargate-derivation.js";
+import {
+  createTarotStargateRig,
+  tarotStargateSlotPosition,
+  updateTarotStargateRig,
+} from "../domain/tarot-stargate-visual.js";
+import {
   buildVisualizerRendererTruthReceipt,
   resolveVisualizerRendererTruth,
 } from "../domain/visualizer-renderer-capability.js";
@@ -2067,6 +2082,18 @@ export default function TarotDraw3DView({ cards = [], avatarId = "local-operator
     piles: [],
     dropZoneCard: null,
     spawnNetwork: { kind: "", count: 0, avatarName: "" },
+    stargate: {
+      mode: false,
+      state: "dormant",
+      progress: 0,
+      slotCount: 0,
+      sealedCount: 0,
+      missingIdentityCount: 0,
+      redactedAddress: "",
+      formationFingerprint: "",
+      fixtureDisclosure: "",
+      message: "Place two to eight identity-sealed Cards"
+    },
     renderer: { calls: 0, triangles: 0, geometries: 0, textures: 0 }
   });
   const selectedCard = hud.selectedCard || null;
@@ -2150,6 +2177,21 @@ export default function TarotDraw3DView({ cards = [], avatarId = "local-operator
   const sceneSaveNote = sceneSave.error || sceneSave.message || "Save current card positions";
   const sceneInviteBusy = sceneInvite.status === "creating";
   const sceneInviteNote = sceneInvite.error || sceneInvite.message || "Create a Hypercore/WebRTC camera invitation for this scene";
+  const stargate = hud.stargate || { mode: false, state: "dormant", progress: 0, slotCount: 0, sealedCount: 0, missingIdentityCount: 0, redactedAddress: "", formationFingerprint: "", fixtureDisclosure: "", message: "Place two to eight identity-sealed Cards" };
+  const stargateBusy = stargate.state === "dialing";
+  const stargateNeedsIdentity = stargate.state === "needs_identity";
+  const stargateActive = stargate.state === "active";
+  const stargateButtonLabel = !stargate.mode
+    ? "Stargate"
+    : stargateBusy
+      ? `Dialing ${Math.round(Number(stargate.progress || 0) * 100)}%`
+      : stargateActive
+        ? "Close Gate"
+        : stargate.state === "ready"
+          ? "Dial Gate"
+          : stargateNeedsIdentity
+            ? "Needs Identity"
+            : "Close Gate";
   const activeSceneInvite = sceneInvite.invite || hud.phoneBridgeInvite || null;
   const activeSceneInvitePreviewUrl = activeSceneInvite?.links?.desktopHtmlUrl || sceneInvite.htmlUrl || activeSceneInvite?.links?.htmlUrl || "";
   const roomletParticipantCards = useMemo(() => {
@@ -2777,6 +2819,18 @@ export default function TarotDraw3DView({ cards = [], avatarId = "local-operator
     callGame("setPhoneBridgeEnabled", true);
   }
 
+  function handleStargateAction() {
+    if (!stargate.mode || stargateActive || stargate.state !== "ready") {
+      callGame("toggleStargateMode");
+      return;
+    }
+    callGame("dialStargate");
+  }
+
+  function loadPublicStargateDemo() {
+    callGame("loadStargateDemoFormation");
+  }
+
   async function createSceneCameraInvite(event) {
     event?.preventDefault?.();
     event?.stopPropagation?.();
@@ -3295,6 +3349,7 @@ export default function TarotDraw3DView({ cards = [], avatarId = "local-operator
       data-cinematic={cinematicMode ? "true" : "false"}
       data-field-capture={fieldCapture.status}
       data-card-browser={cardBrowserOpen ? "open" : "closed"}
+      data-stargate={stargate.state}
       aria-label="3D Tarot Draw"
       onDragEnter={handleMediaDragEnter}
       onDragOver={handleMediaDragOver}
@@ -3388,6 +3443,28 @@ export default function TarotDraw3DView({ cards = [], avatarId = "local-operator
           <span><strong>{productionAudit?.imageOnlyCount || 0}</strong><em>Image-only hidden</em></span>
         </div>
       </div>
+
+      {stargate.mode && (
+        <aside className="tarot-stargate-status hapa-panel" data-variant="notch" data-state={stargate.state} aria-live="polite" aria-label="Stargate status">
+          <header>
+            <span><Route size={14} /> Stargate</span>
+            <strong>{String(stargate.state || "arranging").replaceAll("_", " ")}</strong>
+          </header>
+          <div className="tarot-stargate-progress" style={{ "--stargate-progress": `${Math.round(Number(stargate.progress || 0) * 100)}%` }} aria-hidden="true"><i /></div>
+          <p>{stargate.message || "Arrange identity-sealed Cards into an ordered Gate."}</p>
+          <dl>
+            <div><dt>Formation</dt><dd>{stargate.slotCount || 0} ordered Card{stargate.slotCount === 1 ? "" : "s"}</dd></div>
+            <div><dt>Identity</dt><dd>{stargate.sealedCount || 0} sealed{stargate.missingIdentityCount ? ` / ${stargate.missingIdentityCount} need custody` : ""}</dd></div>
+            <div><dt>Address</dt><dd>{stargate.redactedAddress || stargate.formationFingerprint || "Withheld until derivation"}</dd></div>
+          </dl>
+          {stargateNeedsIdentity && (
+            <button className="hapa-btn tarot-stargate-demo-toggle" type="button" onClick={loadPublicStargateDemo}>
+              <Sparkles size={13} /> Load Public Demo Formation
+            </button>
+          )}
+          {stargate.fixtureDisclosure && <em>{stargate.fixtureDisclosure}</em>}
+        </aside>
+      )}
 
       {hud.phoneBridgeEnabled && hud.phoneBridgeQrVisible && (
         <aside className="tarot-phone-bridge-panel hapa-panel" data-variant="notch" aria-live="polite">
@@ -3790,6 +3867,19 @@ export default function TarotDraw3DView({ cards = [], avatarId = "local-operator
           >
             <BookOpenCheck size={14} />
             {sceneSaveBusy ? "Saving Scene" : "Save Scene"}
+          </button>
+          <button
+            className="hapa-btn tarot-stargate-toggle"
+            type="button"
+            data-state={stargate.state}
+            data-intent={stargate.state === "ready" || stargateBusy ? "primary" : undefined}
+            aria-pressed={stargate.mode}
+            disabled={stargateBusy}
+            onClick={handleStargateAction}
+            title={stargate.message || "Arrange ordered Hapa Cards and dial a deterministic private namespace"}
+          >
+            <Route size={14} />
+            {stargateButtonLabel}
           </button>
           <button
             className="hapa-btn tarot-scene-invite-toggle"
@@ -5310,9 +5400,10 @@ function createTarotDrawGame({ canvas, cards, avatarName, apiBase = "", producti
   const previewGroup = new THREE.Group();
   const sparkGroup = new THREE.Group();
   const spawnNetworkLayer = new THREE.Group();
+  const stargateRig = createTarotStargateRig();
   previewGroup.name = "tarotDropZonePreviewRig";
   spawnNetworkLayer.name = "tarotSpawnNetworkLayer";
-  world.add(board, deck, slotGroup, mediaPoolZone, dropZone, previewGroup, spawnNetworkLayer, sparkGroup);
+  world.add(board, deck, slotGroup, mediaPoolZone, dropZone, previewGroup, spawnNetworkLayer, sparkGroup, stargateRig);
 
   addLighting(scene);
   addDepthProps(world, resources);
@@ -5336,6 +5427,7 @@ function createTarotDrawGame({ canvas, cards, avatarName, apiBase = "", producti
   const cameraJournalKey = tarotCameraJournalKey(avatarName);
   const persistedSettings = readTarotDrawSettings(settingsKey);
   const persistedCameraJournal = readTarotCameraJournal(cameraJournalKey);
+  const stargateReducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches === true;
 
   let animationFrame = 0;
   let animationTimer = 0;
@@ -5366,6 +5458,21 @@ function createTarotDrawGame({ canvas, cards, avatarName, apiBase = "", producti
   let lyricCrawlAngleDegrees = clampLyricCrawlAngleDegrees(persistedSettings?.lyricCrawlAngleDegrees);
   let deckCards = shuffleList(cards);
   let placedEntries = [];
+  let stargateMode = false;
+  let stargateState = "dormant";
+  let stargateProgress = 0;
+  let stargateStartedAt = 0;
+  let stargateLastScanAt = -Infinity;
+  let stargateEntries = [];
+  let stargateIdentityResults = [];
+  let stargateResult = null;
+  let stargateError = "";
+  let stargateCohortSecret = "";
+  let stargateFormationSignature = "";
+  let stargateFixtureActive = false;
+  let stargateFixtureEntryIds = [];
+  let stargateCameraBlend = 0;
+  let stargateCameraOrigin = null;
   let forgeEntries = new Map();
   let heldEntry = null;
   let hoveredEntry = null;
@@ -5597,6 +5704,10 @@ function createTarotDrawGame({ canvas, cards, avatarName, apiBase = "", producti
     setPhoneBridgeQrVisible,
     activatePhoneBridgeInvite,
     applyRoomletHostControl,
+    toggleStargateMode,
+    dialStargate,
+    loadStargateDemoFormation,
+    setStargateRuntimeState,
     setEchoDirectorProject,
     spawnForgeCard,
     updateForgeCard,
@@ -5679,6 +5790,328 @@ function createTarotDrawGame({ canvas, cards, avatarName, apiBase = "", producti
   function setProductionAudit(nextAudit = null) {
     productionAudit = nextAudit;
     publishHud(true);
+  }
+
+  function stargateEligibleEntries() {
+    const candidates = placedEntries
+      .filter((entry) => entry && !entry.liveCamera && !entry.isCameraCard && !entry.isPhoneCard && !entry.isBlueAvatarCard)
+      .filter((entry) => !entry.lockedDropZone && !entry.lockedMediaPool && !entry.lockedCenterVisualizer && !entry.lockedDock)
+      .sort((first, second) => Number(first.placedAt || 0) - Number(second.placedAt || 0));
+    const fixtureEntries = candidates.filter((entry) => entry.stargateFixture);
+    return (stargateFixtureActive && fixtureEntries.length ? fixtureEntries : candidates)
+      .slice(0, 8);
+  }
+
+  function stargateMemberSignature(identityResults = stargateIdentityResults) {
+    return identityResults.map(({ member }) => [
+      member.position,
+      member.role,
+      member.cardId,
+      member.cardCoreKey,
+      member.cardRevisionId,
+      member.cardRecordDigest,
+      member.orientation
+    ].join(":" )).join("|");
+  }
+
+  function rememberStargateEntryHome(entry) {
+    if (!entry || entry.stargateHome) return;
+    entry.stargateHome = {
+      targetPosition: entry.targetPosition.clone(),
+      basePitch: Number(entry.basePitch || 0),
+      baseRotationY: Number(entry.baseRotationY || 0),
+      baseRoll: Number(entry.baseRoll || 0),
+      floatMotion: entry.floatMotion,
+      stackLayer: Number(entry.stackLayer || 0)
+    };
+  }
+
+  function restoreStargateEntryHomes() {
+    stargateEntries.forEach((entry) => {
+      const home = entry?.stargateHome;
+      if (!home) return;
+      entry.targetPosition.copy(home.targetPosition);
+      entry.floatMotion = home.floatMotion;
+      entry.stackLayer = home.stackLayer;
+      setCardTargetRotation(entry, home.basePitch, home.baseRotationY, home.baseRoll);
+      entry.gateSlotIndex = -1;
+      entry.stargateHome = null;
+    });
+    resolvePlacedCardStacks();
+  }
+
+  function arrangeStargateEntries(entries = stargateEntries, { burst = false } = {}) {
+    entries.forEach((entry, index) => {
+      rememberStargateEntryHome(entry);
+      const target = tarotStargateSlotPosition(index, entries.length);
+      entry.targetPosition.copy(target);
+      // Present the ordered Cards to the operator, not edge-on to the camera.
+      // The canonical Tarot Card face begins flat on the table; positive X pitch
+      // lifts that face toward the Stargate hero camera while preserving the
+      // same Card objects, drag state, and saved-scene custody.
+      entry.targetPosition.y = 0.46 + index * 0.01;
+      entry.floatMotion = null;
+      entry.stackLayer = 0;
+      entry.gateSlotIndex = index;
+      entry.baseRotationY = (index - (entries.length - 1) / 2) * -0.025;
+      setCardTargetRotation(entry, 0.58, entry.baseRotationY, 0);
+      if (burst) createBurst(target.x, target.z, index % 2 ? 0xf6c96d : 0x00f3ff, 0.7);
+    });
+    resolvePlacedCardStacks();
+  }
+
+  function setStargateState(nextState, message = "") {
+    if (stargateState === nextState && !message) return;
+    stargateState = nextState;
+    if (message) stargateError = message;
+    publishHud(true);
+  }
+
+  function refreshStargateFormation({ burst = false } = {}) {
+    if (!stargateMode) return false;
+    const nextEntries = stargateEligibleEntries();
+    if (nextEntries.length < 2) {
+      const wasLiveGate = ["active", "dialing"].includes(stargateState);
+      restoreStargateEntryHomes();
+      stargateEntries = nextEntries;
+      stargateIdentityResults = nextEntries.map((entry, index) => resolveStargateCardIdentity(entry.card, entry, index));
+      stargateResult = null;
+      stargateFormationSignature = stargateMemberSignature();
+      setStargateState(wasLiveGate ? "stale" : "arranging", wasLiveGate ? "Formation lost a required Card; close and redial" : "Place at least two durable Cards on the table");
+      return false;
+    }
+    const previousSignature = stargateFormationSignature;
+    const previousEntries = new Set(stargateEntries);
+    stargateEntries.filter((entry) => !nextEntries.includes(entry)).forEach((entry) => {
+      const home = entry.stargateHome;
+      if (!home) return;
+      entry.targetPosition.copy(home.targetPosition);
+      entry.floatMotion = home.floatMotion;
+      entry.stackLayer = home.stackLayer;
+      setCardTargetRotation(entry, home.basePitch, home.baseRotationY, home.baseRoll);
+      entry.stargateHome = null;
+      entry.gateSlotIndex = -1;
+    });
+    stargateEntries = nextEntries;
+    stargateIdentityResults = stargateEntries.map((entry, index) => resolveStargateCardIdentity(entry.card, entry, index));
+    stargateFormationSignature = stargateMemberSignature();
+    arrangeStargateEntries(stargateEntries, { burst: burst || stargateEntries.some((entry) => !previousEntries.has(entry)) });
+    const missingIdentity = stargateIdentityResults.filter((identity) => !identity.ok);
+    if (missingIdentity.length) {
+      stargateResult = null;
+      const changedLiveGate = ["active", "dialing"].includes(stargateState) && previousSignature && previousSignature !== stargateFormationSignature;
+      setStargateState(changedLiveGate ? "stale" : "needs_identity", changedLiveGate
+        ? "Formation identity changed; close and redial after Card custody is repaired"
+        : `${missingIdentity.length} Card${missingIdentity.length === 1 ? " needs" : "s need"} custody identity before this Gate can resolve`);
+      return false;
+    }
+    const formation = {
+      schemaVersion: STARGATE_FORMATION_SCHEMA,
+      purposeCode: "build-week-domino",
+      members: stargateIdentityResults.map(({ member }) => member)
+    };
+    if (!stargateCohortSecret) stargateCohortSecret = stargateFixtureActive ? STARGATE_PUBLIC_DEMO_SECRET : createMemoryOnlyCohortSecret();
+    try {
+      const nextResult = deriveStargate({
+        formation,
+        protocolVersion: STARGATE_PROTOCOL_VERSION,
+        privacyScope: "invite_only",
+        cohortSecretBase64Url: stargateCohortSecret
+      });
+      if (["active", "dialing"].includes(stargateState) && previousSignature && previousSignature !== stargateFormationSignature) {
+        stargateResult = nextResult;
+        setStargateState("stale", "Formation changed; close and redial to enter the new destination");
+        return true;
+      }
+      stargateResult = nextResult;
+      if (!stargateState || ["dormant", "arranging", "needs_identity"].includes(stargateState)) {
+        setStargateState("ready", `${stargateEntries.length} ordered Card coordinates locked`);
+      } else {
+        publishHud(true);
+      }
+      return true;
+    } catch (error) {
+      stargateResult = null;
+      setStargateState("needs_identity", error?.message || "Gate derivation is blocked by invalid Card identity");
+      return false;
+    }
+  }
+
+  function toggleStargateMode() {
+    if (stargateMode) {
+      stargateMode = false;
+      stargateState = "dormant";
+      stargateProgress = 0;
+      stargateStartedAt = 0;
+      stargateError = "";
+      stargateResult = null;
+      stargateFormationSignature = "";
+      stargateCohortSecret = "";
+      restoreStargateEntryHomes();
+      stargateEntries = [];
+      stargateIdentityResults = [];
+      previewGroup.visible = true;
+      status = "Stargate closed; Tarot table restored";
+      audio.play("gate-close");
+      publishHud(true);
+      return false;
+    }
+    stargateMode = true;
+    stargateState = "arranging";
+    stargateProgress = 0;
+    stargateError = "";
+    stargateResult = null;
+    stargateFormationSignature = "";
+    stargateCohortSecret = stargateFixtureActive ? STARGATE_PUBLIC_DEMO_SECRET : createMemoryOnlyCohortSecret();
+    stargateCameraOrigin = {
+      position: camera.position.clone(),
+      target: controls.target.clone(),
+      fov: camera.fov
+    };
+    previewGroup.visible = false;
+    audio.play("gate-arm");
+    refreshStargateFormation({ burst: true });
+    status = stargateState === "ready" ? "Stargate coordinates ready" : stargateError;
+    publishHud(true);
+    return true;
+  }
+
+  function dialStargate() {
+    if (!stargateMode) toggleStargateMode();
+    if (!refreshStargateFormation()) return false;
+    if (stargateState !== "ready") return false;
+    stargateState = "dialing";
+    stargateProgress = 0;
+    stargateStartedAt = elapsedTime;
+    stargateError = "Cards are becoming coordinates";
+    status = "Dialing deterministic private Stargate";
+    audio.play("gate-dial");
+    createBurst(0, -0.62, 0x00f3ff, 1.4);
+    createBurst(0, -0.62, 0xf6c96d, 1.1);
+    publishHud(true);
+    return true;
+  }
+
+  function setStargateRuntimeState(nextState = "disconnected", message = "") {
+    if (!["stale", "expired", "disconnected"].includes(nextState) || !stargateMode) return false;
+    stargateState = nextState;
+    stargateError = message || (nextState === "expired" ? "Gate invitation expired" : nextState === "disconnected" ? "Gate transport disconnected" : "Formation changed; redial required");
+    stargateProgress = nextState === "stale" ? Math.min(stargateProgress, 0.55) : 0;
+    status = stargateError;
+    audio.play(nextState === "stale" ? "gate-arm" : "gate-close", { quiet: true });
+    publishHud(true);
+    return true;
+  }
+
+  function removeStargateFixtureEntries() {
+    if (!stargateFixtureEntryIds.length) return;
+    const fixtureIds = new Set(stargateFixtureEntryIds);
+    const fixtureEntries = placedEntries.filter((entry) => fixtureIds.has(cardIdentity(entry.card)));
+    fixtureEntries.forEach((entry) => disposeEntry(entry));
+    placedEntries = placedEntries.filter((entry) => !fixtureIds.has(cardIdentity(entry.card)));
+    stargateFixtureEntryIds = [];
+  }
+
+  function loadStargateDemoFormation({ autoDial = false } = {}) {
+    if (stargateMode) {
+      restoreStargateEntryHomes();
+      stargateEntries = [];
+    }
+    removeStargateFixtureEntries();
+    const fixtureCards = buildPublicDemoGateCards();
+    const origin = DECK_POSITION.clone().add(new THREE.Vector3(0.28, 0.18, -0.24));
+    fixtureCards.forEach((card, index) => {
+      const entry = createCardEntry(card);
+      entry.state = "placed";
+      entry.group.position.copy(origin).add(new THREE.Vector3(index * 0.035, index * 0.018, -index * 0.02));
+      entry.targetPosition.copy(entry.group.position);
+      entry.placedAt = placedEntries.length;
+      entry.playing = playing;
+      entry.stargateFixture = true;
+      placedEntries.push(entry);
+      world.add(entry.group);
+      stargateFixtureEntryIds.push(cardIdentity(card));
+      animateInstantDealEntry(entry, entry.group.position.clone(), index, 1.05);
+    });
+    stargateFixtureActive = true;
+    stargateCohortSecret = STARGATE_PUBLIC_DEMO_SECRET;
+    if (!stargateMode) toggleStargateMode();
+    else refreshStargateFormation({ burst: true });
+    status = "Public deterministic Stargate formation loaded";
+    publishHud(true);
+    if (autoDial) window.setTimeout(() => { if (!disposed) dialStargate(); }, stargateReducedMotion ? 120 : 780);
+    return true;
+  }
+
+  function stargateHudState() {
+    const missingIdentityCount = stargateIdentityResults.filter((identity) => !identity.ok).length;
+    return {
+      mode: stargateMode,
+      state: stargateState,
+      progress: Number(stargateProgress.toFixed(3)),
+      slotCount: stargateEntries.length,
+      sealedCount: stargateIdentityResults.length - missingIdentityCount,
+      missingIdentityCount,
+      redactedAddress: stargateResult ? redactedStargateAddress(stargateResult.stargateAddress) : "",
+      formationFingerprint: stargateResult ? `formation:${stargateResult.formationDigest.slice(0, 12)}…` : "",
+      fixtureDisclosure: stargateFixtureActive ? "Public deterministic test vector — not a production invitation." : "",
+      message: stargateError || (stargateState === "active" ? "Gate open; destination derived locally" : "Arrange identity-sealed Cards into an ordered Gate")
+    };
+  }
+
+  function updateStargateExperience(delta, elapsed) {
+    if (stargateMode && elapsed - stargateLastScanAt > 0.52 && !["dialing"].includes(stargateState)) {
+      stargateLastScanAt = elapsed;
+      refreshStargateFormation();
+    }
+    if (stargateState === "dialing") {
+      const duration = stargateReducedMotion ? 1.15 : 4.4;
+      stargateProgress = THREE.MathUtils.clamp((elapsed - stargateStartedAt) / duration, 0, 1);
+      if (stargateProgress >= 1) {
+        stargateProgress = 1;
+        stargateState = "active";
+        stargateError = "Gate open; destination derived locally";
+        status = "Stargate active";
+        audio.play("gate-open");
+        createBurst(0, -0.62, 0x45f2c8, 2.2);
+        createBurst(0, -0.62, 0xff6df2, 1.5);
+        publishHud(true);
+      }
+    }
+    const sources = stargateEntries.map((entry) => entry.group.position);
+    updateTarotStargateRig(stargateRig, {
+      state: stargateMode ? stargateState : "dormant",
+      progress: stargateProgress,
+      activeSlots: stargateEntries.length,
+      sources,
+      elapsed,
+      delta,
+      reducedMotion: stargateReducedMotion
+    });
+    if (stargateMode) {
+      previewGroup.visible = false;
+      if (centerVisualizer) centerVisualizer.visible = false;
+      if (lyricCrawl) lyricCrawl.visible = false;
+    }
+  }
+
+  function updateStargateCamera(delta) {
+    const targetBlend = stargateMode ? 1 : 0;
+    const blendRate = stargateReducedMotion ? 1 : 1 - Math.pow(0.0015, Math.max(0.001, delta));
+    stargateCameraBlend = THREE.MathUtils.lerp(stargateCameraBlend, targetBlend, blendRate);
+    if (!stargateCameraOrigin || stargateCameraBlend < 0.001) {
+      if (!stargateMode && stargateCameraBlend < 0.001) stargateCameraOrigin = null;
+      return;
+    }
+    const heroPosition = compactMode ? new THREE.Vector3(0, 3.72, 7.25) : new THREE.Vector3(0, 3.18, 6.42);
+    const heroTarget = compactMode ? new THREE.Vector3(0, 0.96, -0.5) : new THREE.Vector3(0, 0.86, -0.58);
+    camera.position.lerpVectors(stargateCameraOrigin.position, heroPosition, stargateCameraBlend);
+    controls.target.lerpVectors(stargateCameraOrigin.target, heroTarget, stargateCameraBlend);
+    const nextFov = THREE.MathUtils.lerp(stargateCameraOrigin.fov, compactMode ? 55 : 46, stargateCameraBlend);
+    if (Math.abs(camera.fov - nextFov) > 0.01) {
+      camera.fov = nextFov;
+      camera.updateProjectionMatrix();
+    }
   }
 
   function start() {
@@ -5769,6 +6202,15 @@ function createTarotDrawGame({ canvas, cards, avatarName, apiBase = "", producti
         },
         spawnRelationshipNetwork: () => spawnNetworkFromDropZone("relationship"),
         spawnSkillNetwork: () => spawnNetworkFromDropZone("skill"),
+	        enableStargateMode: () => stargateMode || toggleStargateMode(),
+	        disableStargateMode: () => stargateMode ? toggleStargateMode() : true,
+	        toggleStargateMode,
+	        dialStargate,
+	        loadStargateDemoFormation: () => loadStargateDemoFormation(),
+	        activateStargateDemo: () => loadStargateDemoFormation({ autoDial: true }),
+	        markStargateStale: () => setStargateRuntimeState("stale"),
+	        markStargateExpired: () => setStargateRuntimeState("expired"),
+	        markStargateDisconnected: () => setStargateRuntimeState("disconnected"),
 	        autoDealInstantStart,
 	        autoPlaceSpread: () => autoPlace(layoutId),
 	        lockFirstMotionCardInDropZone: diagnosticLockFirstMotionCardInDropZone,
@@ -13343,6 +13785,7 @@ function createTarotDrawGame({ canvas, cards, avatarName, apiBase = "", producti
   }
 
   function tarotHasActiveMotion() {
+    if (stargateMode || stargateCameraBlend > 0.01 || ["dialing", "active"].includes(stargateState)) return true;
     if (heldEntry || hoveredEntry || spawnNetwork || placementBursts.length) return true;
     if (placedEntries.some(isForgeEntryActive)) return true;
     if (cameraCardPending || (cameraCardEntry?.video && !cameraCardEntry.video.paused)) return true;
@@ -13465,6 +13908,7 @@ function createTarotDrawGame({ canvas, cards, avatarName, apiBase = "", producti
       resize();
     }
     updateCameraRail(delta);
+    updateStargateCamera(delta);
     controls.update();
 
     if (!isSubscriber && performance.now() < syncSubscriberLeaseUntil && elapsedTime - lastBroadcastTime > 0.1) {
@@ -13539,6 +13983,7 @@ function createTarotDrawGame({ canvas, cards, avatarName, apiBase = "", producti
         angleDegrees: lyricCrawlAngleDegrees
       });
     }
+    updateStargateExperience(delta, elapsed);
     updateSpawnNetwork(spawnNetwork, camera, elapsed);
     updatePhoneLaserVisual(elapsed);
     updateBursts(delta);
@@ -14113,6 +14558,11 @@ function createTarotDrawGame({ canvas, cards, avatarName, apiBase = "", producti
     const iframe = document.getElementById("tarot-youtube-overlay");
     if (!iframe) return;
 
+    if (stargateMode) {
+      iframe.style.display = "none";
+      return;
+    }
+
     const hasVideoCardInDropZone = dropZoneEntry && ["creator_content_card"].includes(dropZoneEntry.card?.cardType);
     const hasLocalFullVideo = hasVideoCardInDropZone && dropZoneEntry.card.videoSources?.some(s => s.uri && !s.uri.includes("youtube") && s.uri.endsWith(".mp4"));
     const ytEmbedUrl = (hasVideoCardInDropZone && !hasLocalFullVideo) ? getYoutubeEmbedUrl(dropZoneEntry.card.sourceRefs?.[0], { controls: false }) : null;
@@ -14200,6 +14650,7 @@ function createTarotDrawGame({ canvas, cards, avatarName, apiBase = "", producti
         count: spawnNetwork.cards.length,
         avatarName: spawnNetwork.avatar?.name || ""
       } : { kind: "", count: 0, avatarName: "" },
+      stargate: stargateHudState(),
       layoutId,
       backStyle,
       musicVisualizerMode,
@@ -14411,6 +14862,24 @@ function createTarotDrawGame({ canvas, cards, avatarName, apiBase = "", producti
 	    const previewPlayingCount = dropPreview?.screens?.filter((screen) => screen.video && !screen.video.paused).length || 0;
 	    const dockBackgroundPlaying = Boolean(dockBackgroundPlayer.screen?.video && !dockBackgroundPlayer.screen.video.paused);
 	    return {
+      stargate: {
+        ...stargateHudState(),
+        protocolVersion: STARGATE_PROTOCOL_VERSION,
+        formationMemberIds: stargateIdentityResults.map(({ member }) => member.cardId),
+        missingIdentity: stargateIdentityResults.flatMap((identity) => identity.missing),
+        derivationObserved: Boolean(stargateResult),
+        privateTopicWithheld: true,
+        cohortSecretWithheld: true,
+        reducedMotion: stargateReducedMotion,
+        visual: {
+          visible: Boolean(stargateRig.visible),
+          openBlend: Number((stargateRig.userData.stargate?.openBlend || 0).toFixed(3)),
+          energy: Number((stargateRig.userData.stargate?.energy || 0).toFixed(3)),
+          chevrons: stargateRig.userData.stargate?.chevrons?.length || 0,
+          beams: stargateRig.userData.stargate?.beams?.length || 0,
+          slots: stargateRig.userData.stargate?.slots?.length || 0
+        }
+      },
       avatarName,
       deckCount: deckCards.length,
       placedCount: placedEntries.length,
@@ -23144,6 +23613,34 @@ function createTarotAudio(initialEnabled = false) {
     }
     if (kind === "empty") {
       tone(ctx, 120, now, 0.14, { type: "sawtooth", to: 82, gain: 0.025 * gainScale });
+      return;
+    }
+    if (kind === "gate-arm") {
+      tone(ctx, 72, now, 0.72, { type: "sine", to: 108, gain: 0.055 * gainScale });
+      tone(ctx, 216, now + 0.12, 0.52, { type: "triangle", to: 324, gain: 0.032 * gainScale });
+      noise(ctx, now + 0.05, 0.44, { gain: 0.022 * gainScale, frequency: 620, q: 1.5 });
+      return;
+    }
+    if (kind === "gate-dial") {
+      [0, 0.34, 0.68, 1.02].forEach((offset, index) => {
+        tone(ctx, 164 + index * 74, now + offset, 0.42, { type: index % 2 ? "triangle" : "sine", to: 246 + index * 92, gain: 0.036 * gainScale });
+        noise(ctx, now + offset, 0.24, { gain: 0.018 * gainScale, frequency: 520 + index * 220, q: 2.1 });
+      });
+      tone(ctx, 58, now, 1.72, { type: "sine", to: 116, gain: 0.052 * gainScale });
+      return;
+    }
+    if (kind === "gate-open") {
+      noise(ctx, now, 1.1, { gain: 0.046 * gainScale, frequency: 1280, q: 0.72 });
+      tone(ctx, 48, now, 1.34, { type: "sine", to: 96, gain: 0.072 * gainScale });
+      [220, 330, 440, 660, 880].forEach((frequency, index) => {
+        tone(ctx, frequency, now + 0.12 + index * 0.075, 0.92 - index * 0.055, { type: "triangle", to: frequency * 1.28, gain: (0.038 - index * 0.003) * gainScale });
+      });
+      return;
+    }
+    if (kind === "gate-close") {
+      tone(ctx, 420, now, 0.58, { type: "triangle", to: 92, gain: 0.04 * gainScale });
+      tone(ctx, 84, now + 0.16, 0.72, { type: "sine", to: 48, gain: 0.05 * gainScale });
+      noise(ctx, now, 0.32, { gain: 0.018 * gainScale, frequency: 340, q: 1.2 });
       return;
     }
     if (kind === "clear") {
