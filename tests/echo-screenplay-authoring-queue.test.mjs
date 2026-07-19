@@ -152,7 +152,14 @@ test("explicit resumable direct-LLM draft reports exact partial coverage without
     schemaTarget: "hapa.echo.full-song-visual-screenplay.v1",
     songId: "song",
     requiredAuthoringStillOutstanding: { countTotal: 3, authoredCompleteCountRecords: 2 },
-    partialScreenplay: { openingCounts: [{ countId: "song-count-0001" }, { countId: "song-count-0002" }] },
+    sourceRevision: {
+      songContextHash: fixtureHash, lyricsHash: fixtureHash, timingHash: fixtureHash,
+      referenceGraphHash: fixtureHash, seedSetHash: fixtureHash,
+      directorTreatmentHash: fixtureHash, promptPolicyHash: fixtureHash,
+    },
+    authoringAttestation: { method: "direct_llm_analysis", subagentsSpawned: 0, scriptsOrTemplatesUsedForAuthoredFields: "none" },
+    authoringMethodAudit: { soleAuthorTaskName: "/root/writer", subagentsSpawned: 0, authoredFieldAutomationUsed: false, authoredFieldTools: [] },
+    partialScreenplay: { openingCounts: [{ countId: "song-count-0001", ordinal: 1 }, { countId: "song-count-0002", ordinal: 2 }] },
   }));
   const result = run(["--process", processFile, "--screenplay-root", artifactsRoot]);
   const row = result.report.rows[0];
@@ -161,5 +168,32 @@ test("explicit resumable direct-LLM draft reports exact partial coverage without
   assert.equal(row.exactCountCoverage.screenplay.missing, 1);
   assert.equal(row.selectedArtifacts.screenplay.draft, true);
   assert.equal(row.selectedArtifacts.screenplay.nonCandidateStatus, "incomplete-direct-llm-authoring-draft");
+  assert.equal(row.selectedArtifacts.screenplay.draftIntegrity.ok, true);
   assert.ok(row.blockers.includes("screenplay_validation_failed"));
+});
+
+test("resumable draft fails closed when its tranche is non-contiguous", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "echo-authoring-broken-draft-"));
+  const processFile = path.join(root, "process.json");
+  const artifactsRoot = path.join(root, "screenplays");
+  fs.mkdirSync(artifactsRoot);
+  fs.writeFileSync(processFile, JSON.stringify({ status: "paused", events: [], counts: [count("song", 1), count("song", 2), count("song", 3)] }));
+  fs.writeFileSync(path.join(artifactsRoot, "song.screenplay.INCOMPLETE.json"), JSON.stringify({
+    nonCandidateStatus: "incomplete-direct-llm-authoring-draft",
+    schemaTarget: "hapa.echo.full-song-visual-screenplay.v1",
+    songId: "song",
+    requiredAuthoringStillOutstanding: { countTotal: 3, authoredCompleteCountRecords: 2 },
+    sourceRevision: {
+      songContextHash: fixtureHash, lyricsHash: fixtureHash, timingHash: fixtureHash,
+      referenceGraphHash: fixtureHash, seedSetHash: fixtureHash,
+      directorTreatmentHash: fixtureHash, promptPolicyHash: fixtureHash,
+    },
+    authoringAttestation: { method: "direct_llm_analysis", subagentsSpawned: 0, scriptsOrTemplatesUsedForAuthoredFields: "none" },
+    authoringMethodAudit: { soleAuthorTaskName: "/root/writer", subagentsSpawned: 0, authoredFieldAutomationUsed: false, authoredFieldTools: [] },
+    partialScreenplay: { openingCounts: [{ countId: "song-count-0001", ordinal: 1 }, { countId: "song-count-0003", ordinal: 3 }] },
+  }));
+  const row = run(["--process", processFile, "--screenplay-root", artifactsRoot]).report.rows[0];
+  assert.equal(row.state, "authoring_partial");
+  assert.equal(row.selectedArtifacts.screenplay.draftIntegrity.ok, false);
+  assert.ok(row.blockers.includes("screenplay_draft_integrity_failed"));
 });

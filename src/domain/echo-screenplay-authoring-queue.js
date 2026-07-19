@@ -56,7 +56,61 @@ function artifactSummary(artifact) {
     finalized: Boolean(artifact.finalized),
     draft: Boolean(artifact.draft),
     nonCandidateStatus: artifact.payload?.nonCandidateStatus || null,
+    draftIntegrity: artifact.draftIntegrity || null,
     validationError: artifact.validationError || null,
+  };
+}
+
+function draftCountRecords(value, records = []) {
+  if (!value || typeof value !== "object") return records;
+  if (typeof value.countId === "string") records.push({ countId: value.countId, ordinal: value.ordinal });
+  if (Array.isArray(value)) for (const item of value) draftCountRecords(item, records);
+  else for (const child of Object.values(value)) draftCountRecords(child, records);
+  return records;
+}
+
+/** Validate the resumable, explicitly non-candidate authoring surface. */
+export function inspectEchoScreenplayDraftArtifact(process, artifact) {
+  if (!artifact?.draft) return artifact;
+  const errors = [];
+  const expected = (process?.counts || [])
+    .filter((count) => count.timingStatus === "ready" && count.songId === artifact.songId)
+    .sort((left, right) => (left.countOrdinal || 0) - (right.countOrdinal || 0));
+  const records = draftCountRecords(artifact.payload?.partialScreenplay);
+  const observedIds = records.map((record) => record.countId);
+  const declared = artifact.payload?.requiredAuthoringStillOutstanding || {};
+  const audit = artifact.payload?.authoringMethodAudit || {};
+  const attestation = artifact.payload?.authoringAttestation || {};
+  if (!expected.length) errors.push("timing-ready song counts are missing");
+  if (declared.countTotal !== expected.length) errors.push("declared countTotal does not match source-backed count total");
+  if (declared.authoredCompleteCountRecords !== records.length) errors.push("declared authoredCompleteCountRecords does not match observed records");
+  if (new Set(observedIds).size !== observedIds.length) errors.push("duplicate countId records");
+  const expectedPrefix = expected.slice(0, records.length);
+  records.forEach((record, index) => {
+    if (record.countId !== expectedPrefix[index]?.id) errors.push(`non-contiguous or out-of-order countId at draft position ${index + 1}`);
+    if (record.ordinal !== expectedPrefix[index]?.countOrdinal) errors.push(`ordinal mismatch at draft position ${index + 1}`);
+  });
+  for (const key of ["songContextHash", "lyricsHash", "timingHash", "referenceGraphHash", "seedSetHash", "directorTreatmentHash", "promptPolicyHash"]) {
+    if (!/^sha256:[a-f0-9]{64}$/u.test(String(artifact.payload?.sourceRevision?.[key] || ""))) errors.push(`sourceRevision.${key}`);
+  }
+  if (attestation.method !== "direct_llm_analysis") errors.push("authoringAttestation.method");
+  if (attestation.subagentsSpawned !== 0 || audit.subagentsSpawned !== 0) errors.push("subagentsSpawned must be zero");
+  if (attestation.scriptsOrTemplatesUsedForAuthoredFields !== "none" || audit.authoredFieldAutomationUsed !== false) errors.push("authored-field automation must be absent");
+  if (!audit.soleAuthorTaskName || !Array.isArray(audit.authoredFieldTools) || audit.authoredFieldTools.length) errors.push("sole-author method audit");
+  const draftIntegrity = {
+    ok: errors.length === 0,
+    expectedCountTotal: expected.length,
+    observedAuthoredRecords: records.length,
+    contiguousPrefixThroughOrdinal: errors.length === 0 && records.length ? records.at(-1).ordinal : null,
+    errors,
+  };
+  return {
+    ...artifact,
+    valid: draftIntegrity.ok,
+    draftIntegrity,
+    validationError: draftIntegrity.ok
+      ? "explicit incomplete direct-LLM authoring draft"
+      : `Draft integrity failed: ${errors.join(", ")}`,
   };
 }
 
@@ -162,6 +216,7 @@ export function projectEchoScreenplayAuthoringQueue({ process, artifacts = [], g
     else if (packet.readable === false || packet.valid === false) blockers.push("source_packet_invalid");
     else if (!packet.countCoverage.exact) blockers.push("source_packet_count_coverage_inexact");
     if (screenplay?.readable === false) blockers.push("screenplay_json_incomplete_or_unreadable");
+    if (screenplay?.draftIntegrity?.ok === false) blockers.push("screenplay_draft_integrity_failed");
     if (screenplay?.rejected) blockers.push("best_coverage_screenplay_rejected");
     if (screenplay?.validationError) blockers.push("screenplay_validation_failed");
     if (screenplay?.countCoverage && !screenplay.countCoverage.exact) blockers.push("screenplay_count_coverage_incomplete");

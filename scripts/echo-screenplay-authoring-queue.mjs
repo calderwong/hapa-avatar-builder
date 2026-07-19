@@ -10,6 +10,7 @@ import process from "node:process";
 import { fileURLToPath } from "node:url";
 import {
   inspectEchoScreenplayArtifact,
+  inspectEchoScreenplayDraftArtifact,
   inspectEchoScreenplaySourcePacketArtifact,
   projectEchoScreenplayAuthoringQueue,
 } from "../src/domain/echo-screenplay-authoring-queue.js";
@@ -109,11 +110,12 @@ export function discoverEchoScreenplayArtifacts(processState, screenplayRoot) {
       const songId = classified.songId || inferSongId(text, file, songIds);
       const inspected = inspectEchoScreenplayArtifact(processState,
         inspectEchoScreenplaySourcePacketArtifact({ ...common, ...classified, songId }));
-      return { ...inspected, countIds: inspected.kind === "packet"
+      const withCountIds = { ...inspected, countIds: inspected.kind === "packet"
         ? (inspected.payload?.fourCounts || []).map((count) => count.id).filter(Boolean)
         : inspected.kind === "screenplay"
           ? countIdsFromPayload(inspected.payload, songId)
           : [] };
+      return inspectEchoScreenplayDraftArtifact(processState, withCountIds);
     } catch (error) {
       const songId = inferSongId(text, file, songIds);
       const looksLikePacket = /\.packet\.json$/u.test(file);
