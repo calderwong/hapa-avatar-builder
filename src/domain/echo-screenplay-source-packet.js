@@ -95,9 +95,15 @@ export function validateEchoScreenplayReferenceCoverage(records, packet) {
     && row?.id
     && (!row?.target?.songId || row.target.songId === packet?.song?.id));
   const knownConnectorIds = new Set(songConnectorEvidence.map((row) => row.id));
+  const connectorById = new Map(songConnectorEvidence.map((row) => [row.id, row]));
   const mechanics = (records || []).flatMap((record) => (record?.semanticExtraction?.referenceMechanics || [])
-    .map((mechanic) => ({ countId: record.countId, connectorId: mechanic?.connectorId || null })));
+    .map((mechanic) => ({ countId: record.countId, connectorId: mechanic?.connectorId || null, evidenceStatus: mechanic?.evidenceStatus || "" })));
   const unexpectedConnectorIds = unique(mechanics.map((row) => row.connectorId).filter((id) => id && !knownConnectorIds.has(id)));
+  const promotedCandidateMechanics = mechanics.filter((row) => {
+    const confidence = connectorById.get(row.connectorId)?.confidence;
+    if (!['candidate', 'contextual'].includes(confidence)) return false;
+    return /(verified|confirmed|direct|explicit|canon)/u.test(String(row.evidenceStatus).toLowerCase());
+  });
   const required = songConnectorEvidence.map((connector) => {
     const applicableCountIds = [...authoredById.keys()].filter((countId) => countOverlapsConnector(packetCounts.get(countId), connector));
     const coveredCountIds = applicableCountIds.filter((countId) => (authoredById.get(countId)?.semanticExtraction?.referenceMechanics || [])
@@ -115,6 +121,7 @@ export function validateEchoScreenplayReferenceCoverage(records, packet) {
   const errors = [
     ...missingConnectorIds.map((id) => `missing overlapping reference mechanic: ${id}`),
     ...unexpectedConnectorIds.map((id) => `reference mechanic is not in the immutable song packet: ${id}`),
+    ...promotedCandidateMechanics.map((row) => `candidate/contextual connector was promoted by evidenceStatus in ${row.countId}: ${row.connectorId}`),
   ];
   return {
     ok: errors.length === 0,
@@ -123,9 +130,86 @@ export function validateEchoScreenplayReferenceCoverage(records, packet) {
     coveredConnectors: required.filter((row) => row.covered).length,
     missingConnectorIds,
     unexpectedConnectorIds,
+    promotedCandidateMechanics,
     connectorCoverage: required,
     errors,
   };
+}
+
+function normalizedSeed(seed) {
+  return {
+    assetId: seed?.assetId || seed?.id || null,
+    avatarId: seed?.avatarId || null,
+    contentHash: seed?.contentHash || null,
+    retrievalHandle: seed?.retrievalHandle || seed?.localPath || null,
+  };
+}
+
+/** Bind every runtime seed and cast record to the packet's approved assets. */
+export function validateEchoScreenplaySeedBinding(screenplay, packet) {
+  const primaryAvatarId = packet?.approvedAvatarSeeds?.avatarId || packet?.castAttribution?.primary?.avatarId || null;
+  const packetSeeds = [
+    ...(packet?.approvedAvatarSeeds?.assets || []),
+    ...(packet?.castAttribution?.additional || []).flatMap((member) => member?.seedAssets || []),
+  ].map(normalizedSeed);
+  const approvedByAssetId = new Map(packetSeeds.map((seed) => [seed.assetId, seed]));
+  const screenplaySeeds = (screenplay?.avatarContinuity?.seedAssets || []).map(normalizedSeed);
+  const errors = [];
+  for (const seed of screenplaySeeds) {
+    const approved = approvedByAssetId.get(seed.assetId);
+    if (!approved) errors.push(`unapproved screenplay seed assetId: ${seed.assetId || "missing"}`);
+    else for (const key of ["avatarId", "contentHash", "retrievalHandle"]) {
+      if (seed[key] !== approved[key]) errors.push(`screenplay seed ${seed.assetId} ${key} does not match packet`);
+    }
+  }
+  if (!screenplaySeeds.some((seed) => seed.avatarId === primaryAvatarId && approvedByAssetId.has(seed.assetId))) {
+    errors.push(`screenplay is missing an approved primary Avatar seed for ${primaryAvatarId || "unknown"}`);
+  }
+  const packetCast = new Map((packet?.castAttribution?.additional || []).map((member) => [member.avatarId, member]));
+  for (const member of screenplay?.avatarContinuity?.castAttribution || []) {
+    const approved = packetCast.get(member?.avatarId);
+    if (!approved) errors.push(`screenplay cast member is not attributed by packet: ${member?.avatarId || "missing"}`);
+    else for (const key of ["castClass", "species", "baseCharacterId"]) {
+      if (member?.[key] !== approved?.[key]) errors.push(`screenplay cast ${member.avatarId} ${key} does not match packet`);
+    }
+  }
+  return {
+    ok: errors.length === 0,
+    primaryAvatarId,
+    approvedSeedCount: packetSeeds.length,
+    screenplaySeedCount: screenplaySeeds.length,
+    errors,
+  };
+}
+
+/** Ensure authored lyric citations are local packet evidence, not invented text. */
+export function validateEchoScreenplayLyricCitationCoverage(records, packet) {
+  const packetCounts = new Map((packet?.fourCounts || []).map((count) => [count?.id, count]));
+  const errors = [];
+  let lyricBearingCounts = 0;
+  for (const record of records || []) {
+    const source = packetCounts.get(record?.countId);
+    if (!source) { errors.push(`authored count is not in packet: ${record?.countId || "missing"}`); continue; }
+    const overlaps = source.lyricOverlap || [];
+    const citations = record?.semanticExtraction?.lyricCitations || [];
+    if (!overlaps.length) {
+      if (citations.length) errors.push(`instrumental count cites lyrics absent from packet: ${record.countId}`);
+      continue;
+    }
+    lyricBearingCounts += 1;
+    if (!citations.length) { errors.push(`lyric-bearing count has no packet citation: ${record.countId}`); continue; }
+    for (const citation of citations) {
+      const candidates = overlaps.filter((overlap) => overlap?.lineId === citation?.lineId);
+      if (!candidates.length) { errors.push(`citation lineId is not local to ${record.countId}: ${citation?.lineId || "missing"}`); continue; }
+      const cited = normalizeLyricCoverageText(citation?.excerpt);
+      const matches = candidates.some((overlap) => {
+        const text = normalizeLyricCoverageText(overlap?.text || overlap?.excerpt);
+        return cited && distinctiveCoverageTokens(cited).length > 0 && (text.includes(cited) || cited.includes(text));
+      });
+      if (!matches) errors.push(`citation excerpt does not match packet lyric in ${record.countId}: ${citation?.lineId || "missing"}`);
+    }
+  }
+  return { ok: errors.length === 0, authoredCountRecords: (records || []).length, lyricBearingCounts, errors };
 }
 
 function promptSafeReference(reference, connectors = [], edges = []) {

@@ -65,7 +65,7 @@ function sourcePacketFor(state) {
     fourCounts: state.counts.map((count) => ({
       id: count.id,
       ordinal: count.countOrdinal,
-      lyricOverlap: [{ text: "If I pause it, I might know" }],
+      lyricOverlap: [{ lineId: `line-${count.countOrdinal}`, text: "If I pause it, I might know" }],
       continuity: { current: { prompt: { state: "missing" }, keyframe: { state: "missing" }, video: { state: "missing", quest: "held" } } },
     })),
     referenceEvidence: [],
@@ -73,7 +73,7 @@ function sourcePacketFor(state) {
     albumContextReservoir: [],
     authoringInstruction: {},
     qualityPolicy: {},
-    approvedAvatarSeeds: { assets: [] },
+    approvedAvatarSeeds: { avatarId: "blue", assets: [{ id: "seed-blue", avatarId: "blue", contentHash: hash("6"), localPath: "/approved/blue.png" }] },
     castAttribution: { primary: { avatarId: "blue" }, additional: [] },
     sourceRevision: { songContextHash: hash("1"), lyricsHash: hash("2"), timingHash: hash("3"), referenceGraphHash: hash("7"), seedSetHash: hash("4"), directorTreatmentHash: hash("8"), promptPolicyHash: hash("5") },
   };

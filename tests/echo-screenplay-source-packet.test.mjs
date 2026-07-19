@@ -6,7 +6,9 @@ import test from "node:test";
 import {
   buildEchoScreenplaySourcePacket,
   deriveEchoScreenplaySourcePacketHash,
+  validateEchoScreenplayLyricCitationCoverage,
   validateEchoScreenplayReferenceCoverage,
+  validateEchoScreenplaySeedBinding,
   validateEchoScreenplaySourcePacket,
 } from "../src/domain/echo-screenplay-source-packet.js";
 import { run } from "../scripts/build-echo-screenplay-source-packet.mjs";
@@ -171,6 +173,53 @@ test("reference coverage rejects connector ids invented outside the immutable pa
   }], packet);
   assert.equal(result.ok, false);
   assert.deepEqual(result.unexpectedConnectorIds, ["invented"]);
+});
+
+test("lyric citations must use a line and excerpt local to the packet count", () => {
+  const packet = buildEchoScreenplaySourcePacket({
+    song,
+    windows: [{ id: "song-a-count-0001", ordinal: 1, lyricOverlap: [{ lineId: "line-1", text: "hello from the shoreline" }] }],
+  });
+  const valid = validateEchoScreenplayLyricCitationCoverage([{
+    countId: "song-a-count-0001",
+    semanticExtraction: { lyricCitations: [{ lineId: "line-1", excerpt: "hello from the shoreline" }] },
+  }], packet);
+  assert.equal(valid.ok, true);
+  const fabricated = validateEchoScreenplayLyricCitationCoverage([{
+    countId: "song-a-count-0001",
+    semanticExtraction: { lyricCitations: [{ lineId: "line-elsewhere", excerpt: "invented lyric" }] },
+  }], packet);
+  assert.equal(fabricated.ok, false);
+  assert.match(fabricated.errors[0], /not local/u);
+});
+
+test("screenplay seed binding accepts only exact packet-approved Avatar assets", () => {
+  const packet = buildEchoScreenplaySourcePacket({
+    song,
+    windows,
+    avatar: { id: "blue", primaryName: "Blue" },
+    approvedSeeds: [{ avatarId: "blue", assetId: "seed-blue", retrievalHandle: "/approved/blue.png", contentHash: `sha256:${"6".repeat(64)}` }],
+  });
+  const screenplay = { avatarContinuity: { seedAssets: [{ avatarId: "blue", assetId: "seed-blue", retrievalHandle: "/approved/blue.png", contentHash: `sha256:${"6".repeat(64)}` }] } };
+  assert.equal(validateEchoScreenplaySeedBinding(screenplay, packet).ok, true);
+  screenplay.avatarContinuity.seedAssets[0].retrievalHandle = "/unapproved/replacement.png";
+  const result = validateEchoScreenplaySeedBinding(screenplay, packet);
+  assert.equal(result.ok, false);
+  assert.match(result.errors.join(" "), /retrievalHandle/u);
+});
+
+test("candidate reference mechanics cannot promote their evidence status to verified", () => {
+  const packet = buildEchoScreenplaySourcePacket({
+    song: { ...song, referenceConnectors: [{ id: "candidate", referenceId: "work", classification: "candidate", target: { lyricText: "hello", matchedText: "hello", songId: "song-a" } }] },
+    windows,
+    referenceCatalog: [{ id: "work", title: "Work", kind: "book" }],
+  });
+  const result = validateEchoScreenplayReferenceCoverage([{
+    countId: "song-a-count-0001",
+    semanticExtraction: { referenceMechanics: [{ connectorId: "candidate", evidenceStatus: "verified" }] },
+  }], packet);
+  assert.equal(result.ok, false);
+  assert.equal(result.promotedCandidateMechanics.length, 1);
 });
 
 test("read-only CLI builds a validated full-source packet and does not create output files", () => {

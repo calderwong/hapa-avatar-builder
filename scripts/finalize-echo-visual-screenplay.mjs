@@ -18,7 +18,9 @@ import {
   validateEchoSongVisualScreenplay,
 } from "../src/domain/echo-scene-keyframe-process.js";
 import {
+  validateEchoScreenplayLyricCitationCoverage,
   validateEchoScreenplayReferenceCoverage,
+  validateEchoScreenplaySeedBinding,
   validateEchoScreenplaySourcePacket,
 } from "../src/domain/echo-screenplay-source-packet.js";
 import { atomicWriteJson, stableStringify } from "./echo-scene-keyframes.mjs";
@@ -129,6 +131,10 @@ export function run(argv = process.argv.slice(2)) {
   const authoredCounts = (candidate.sequencePlan || []).flatMap((sequence) => sequence?.counts || []);
   const referenceCoverage = validateEchoScreenplayReferenceCoverage(authoredCounts, sourcePacket);
   if (!referenceCoverage.ok) throw new Error(`Reference coverage failed: ${referenceCoverage.errors.join("; ")}`);
+  const lyricCitationCoverage = validateEchoScreenplayLyricCitationCoverage(authoredCounts, sourcePacket);
+  if (!lyricCitationCoverage.ok) throw new Error(`Lyric citation coverage failed: ${lyricCitationCoverage.errors.join("; ")}`);
+  const seedBinding = validateEchoScreenplaySeedBinding(candidate, sourcePacket);
+  if (!seedBinding.ok) throw new Error(`Avatar seed binding failed: ${seedBinding.errors.join("; ")}`);
   const protectedBefore = stableStringify(contentOutsideFinalizerAuthority(candidate));
   const finalized = finalizeEchoSongVisualScreenplayMetadata(candidate, metadata(options));
   if (stableStringify(contentOutsideFinalizerAuthority(finalized)) !== protectedBefore) {
@@ -158,6 +164,8 @@ export function run(argv = process.argv.slice(2)) {
     screenplayHash: validation.screenplayHash,
     sceneOrSemanticTextChanged: false,
     referenceCoverage,
+    lyricCitationCoverage,
+    seedBinding,
     imageActivation: "not-performed",
     videoGeneration: "held-not-touched",
     finalized,

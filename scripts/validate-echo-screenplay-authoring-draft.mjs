@@ -6,7 +6,9 @@ import { fileURLToPath } from "node:url";
 import { validateEchoScreenplayAuthoredCountTranche } from "../src/domain/echo-scene-keyframe-process.js";
 import { inspectEchoScreenplayDraftArtifact } from "../src/domain/echo-screenplay-authoring-queue.js";
 import {
+  validateEchoScreenplayLyricCitationCoverage,
   validateEchoScreenplayReferenceCoverage,
+  validateEchoScreenplaySeedBinding,
   validateEchoScreenplaySourcePacket,
 } from "../src/domain/echo-screenplay-source-packet.js";
 
@@ -73,6 +75,10 @@ export function run(argv = process.argv.slice(2)) {
   const quality = validateEchoScreenplayAuthoredCountTranche(records, { enhanced: true });
   const referenceCoverage = validateEchoScreenplayReferenceCoverage(records, packet);
   if (!referenceCoverage.ok) throw new Error(`Reference coverage failed: ${referenceCoverage.errors.join("; ")}`);
+  const lyricCitationCoverage = validateEchoScreenplayLyricCitationCoverage(records, packet);
+  if (!lyricCitationCoverage.ok) throw new Error(`Lyric citation coverage failed: ${lyricCitationCoverage.errors.join("; ")}`);
+  const seedBinding = validateEchoScreenplaySeedBinding(payload.partialScreenplay, packet);
+  if (!seedBinding.ok) throw new Error(`Avatar seed binding failed: ${seedBinding.errors.join("; ")}`);
   return {
     ok: true,
     mode: "read-only-draft-audit",
@@ -84,6 +90,8 @@ export function run(argv = process.argv.slice(2)) {
     integrity: artifact.draftIntegrity,
     quality,
     referenceCoverage,
+    lyricCitationCoverage,
+    seedBinding,
   };
 }
 
