@@ -13696,6 +13696,14 @@ h1 {
 .tarot-catalog-return-copy h3 { margin: 0; }
 .tarot-catalog-return-copy h3 { color: #fff; font-size: 18px; line-height: 1.12; }
 .tarot-catalog-return-copy > p:last-child { color: rgba(248, 243, 231, 0.68); font-size: 9px; line-height: 1.45; }
+.tarot-catalog-return-identity { position: relative; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 7px; min-width: 0; padding: 7px 9px; overflow: hidden; border: 1px solid rgba(var(--return-tone), 0.34); background: linear-gradient(90deg, rgba(var(--return-tone), 0.12), rgba(246, 201, 109, 0.05), rgba(164, 114, 255, 0.08)); box-shadow: inset 0 0 18px rgba(var(--return-tone), 0.05); }
+.tarot-catalog-return-identity::after { content: ""; position: absolute; inset: 0 auto 0 -30%; width: 22%; background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.26), transparent); transform: skewX(-18deg); animation: tarot-return-identity-scan 2.8s ease-in-out infinite; pointer-events: none; }
+.tarot-catalog-return-identity span,
+.tarot-catalog-return-identity code,
+.tarot-catalog-return-identity b { position: relative; z-index: 1; font-family: var(--hapa-mono); }
+.tarot-catalog-return-identity span { color: var(--hapa-neon-gold); font-size: 7px; font-weight: 900; letter-spacing: 0.08em; text-transform: uppercase; }
+.tarot-catalog-return-identity code { min-width: 0; overflow: hidden; color: rgb(var(--return-tone)); font-size: 7px; text-overflow: ellipsis; white-space: nowrap; }
+.tarot-catalog-return-identity b { color: #f8f3e7; font-size: 7px; white-space: nowrap; }
 .tarot-catalog-return-body > dl { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 5px; margin: 0; }
 .tarot-catalog-return-body > dl div { min-width: 0; display: grid; gap: 2px; padding: 7px; border: 1px solid rgba(var(--return-tone), 0.18); background: rgba(2, 6, 23, 0.5); }
 .tarot-catalog-return-body dt { color: var(--hapa-muted); font-family: var(--hapa-mono); font-size: 6px; text-transform: uppercase; }
@@ -13749,6 +13757,14 @@ h1 {
 @keyframes tarot-catalog-return-arrive {
   from { opacity: 0; transform: translate3d(-34px, -12px, 0) scale(0.88); filter: blur(8px); }
   to { opacity: 1; transform: none; filter: blur(0); }
+}
+@keyframes tarot-return-identity-scan {
+  0%, 54% { transform: translateX(0) skewX(-18deg); opacity: 0; }
+  62% { opacity: 1; }
+  82%, 100% { transform: translateX(650%) skewX(-18deg); opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .tarot-catalog-return-identity::after { animation: none; }
 }
 
 .tarot-stargate-status {

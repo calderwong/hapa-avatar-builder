@@ -64,7 +64,7 @@ test("Tarot Draw source exposes the hero action, truth states, safe diagnostics,
   for (const token of ["toggleStargateMode", "dialStargate", "loadStargateDemoFormation", "needs_identity", "dialing", "active", "stale", "expired", "disconnected", "privateTopicWithheld", "cohortSecretWithheld"]) {
     assert.match(component, new RegExp(token));
   }
-  for (const token of ["stargateAperture", "stargateIris", "stargateEventHorizon", "stargateEnergyRibbon", "stargateDestinationConstellation", "uOpen", "reducedMotion"]) {
+  for (const token of ["stargateAperture", "stargateIris", "stargateEventHorizon", "stargateEnergyRibbon", "stargateDestinationConstellation", "stargatePortalDepthTunnel", "stargateApertureShockwaves", "uOpen", "reducedMotion"]) {
     assert.match(visual, new RegExp(token));
   }
   assert.match(css, /\.tarot-stargate-status/);

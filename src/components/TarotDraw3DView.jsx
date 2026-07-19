@@ -3746,6 +3746,11 @@ export default function TarotDraw3DView({ cards = [], avatarId = "local-operator
                 <h3>{catalogReturn.resolution.card?.title || "Stargate Context Card"}</h3>
                 <p>The source Card crossed Catalog custody, then rebuilt this exact Tarot Formation without carrying a live session.</p>
               </div>
+              <div className="tarot-catalog-return-identity" aria-label="Exact portable Card identity">
+                <span>Same Card identity</span>
+                <code>{catalogReturn.resolution.identity?.globalCardId || "Identity unavailable"}</code>
+                <b>PINNED r{catalogReturn.resolution.identity?.pinnedRevision || "—"}</b>
+              </div>
               <dl>
                 <div><dt>Pinned</dt><dd>r{catalogReturn.resolution.identity?.pinnedRevision || "—"}</dd></div>
                 <div><dt>Formation</dt><dd>{catalogReturn.resolution.restore?.formationCount || 0} Cards</dd></div>
@@ -15569,7 +15574,9 @@ function createTarotDrawGame({ canvas, cards, avatarId = "local-operator", avata
           beams: stargateRig.userData.stargate?.beams?.length || 0,
           slots: stargateRig.userData.stargate?.slots?.length || 0,
           peerPresences: stargateRig.userData.stargate?.peerPresences?.length || 0,
-          peerRails: stargateRig.userData.stargate?.peerRails?.length || 0
+          peerRails: stargateRig.userData.stargate?.peerRails?.length || 0,
+          depthRings: stargateRig.userData.stargate?.depthRings?.length || 0,
+          shockwaves: stargateRig.userData.stargate?.shockwaveRings?.length || 0
         }
       },
       avatarName,

@@ -4,6 +4,45 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { AvatarOverwindOrigin } from "../server/avatar-overwind-origin.mjs";
+import { buildStargateContextCard } from "../src/domain/tarot-stargate-context-card.js";
+import {
+  STARGATE_FORMATION_SCHEMA,
+  STARGATE_PROTOCOL_VERSION,
+  STARGATE_PUBLIC_DEMO_SECRET,
+  buildPublicDemoGateCards,
+  deriveStargate,
+  resolveStargateCardIdentity
+} from "../src/domain/tarot-stargate-derivation.js";
+
+function realStargateContextCard() {
+  const cards = buildPublicDemoGateCards();
+  const formation = {
+    schemaVersion: STARGATE_FORMATION_SCHEMA,
+    purposeCode: "origin-envelope-regression",
+    members: cards.map((card, index) => resolveStargateCardIdentity(card, { flipped: false }, index).member)
+  };
+  const stargate = deriveStargate({
+    formation,
+    protocolVersion: STARGATE_PROTOCOL_VERSION,
+    privacyScope: "invite_only",
+    cohortSecretBase64Url: STARGATE_PUBLIC_DEMO_SECRET
+  });
+  const snapshot = {
+    schemaVersion: "hapa.tarot-draw.scene-snapshot.v1",
+    id: "origin-envelope-scene",
+    title: "Origin Envelope Scene",
+    createdAt: "2026-07-18T00:00:00.000Z",
+    settings: { layoutId: "bella" },
+    camera: { position: { x: 0, y: 3.18, z: 6.42 }, target: { x: 0, y: 0.86, z: -0.58 }, fov: 46 },
+    counts: { cards: cards.length, locked: 0, field: cards.length, skippedTransient: 0 },
+    cards: cards.map((card, index) => ({ index, zone: "field", cardId: card.id, title: card.title, card, position: { x: index - 1.5, y: 0.46, z: 0.24 }, rotation: { pitch: 0.58, yaw: 0, roll: 0, pitchOffset: 0, angleOffset: 0 }, stackLayer: 0, placedAt: index, focusProgress: 0, scale: 1, locked: false }))
+  };
+  return buildStargateContextCard({
+    sceneCard: { id: snapshot.id, title: snapshot.title, cardType: "reference_card", status: "draft", sceneSnapshot: snapshot, enrichment: { media: { sceneSnapshot: snapshot } } },
+    stargate,
+    origin: { nodeId: "hapa-avatar-builder", actorId: "build-week-operator" }
+  });
+}
 
 test("Avatar Builder canonical outbox covers history, acknowledgement, repair, and legacy migration", async () => {
   const root=await mkdtemp(path.join(os.tmpdir(),"avatar-overwind-"));
@@ -102,6 +141,25 @@ test("Stargate mint creates one stable Card head and only accepts a durable curs
     assert.equal(status.revision, 1);
     assert.equal(status.ledgerPosition, 47);
     assert.equal(status.durableAcknowledgement, true);
+    adapter.close();
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("real Stargate Context builder output remains a Stargate projection even when generic Card metadata is incomplete", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "stargate-envelope-real-"));
+  try {
+    const adapter = new AvatarOverwindOrigin({ dbPath: path.join(root, "outbox.sqlite3") });
+    const built = realStargateContextCard();
+    assert.equal(built.cardType, "reference_card", "the portable UI Card intentionally retains its generic Tarot rendering type");
+    assert.equal(adapter.envelope("tarot", built, 1, built.createdAt).card_type, "stargate_context");
+
+    const withoutConvenienceLabel = { ...built };
+    delete withoutConvenienceLabel.tarotMainType;
+    const envelope = adapter.envelope("tarot", withoutConvenienceLabel, 1, built.createdAt);
+    assert.equal(envelope.card_type, "stargate_context", "the protocol schema, not a presentation convenience field, owns the projection type");
+    assert.equal(envelope.content.authoritative.stargateContext.schemaVersion, "hapa.stargate-context-card.v1");
     adapter.close();
   } finally {
     await rm(root, { recursive: true, force: true });

@@ -212,6 +212,44 @@ function createConstellation() {
   }));
 }
 
+function createPortalDepthTunnel(count = 9) {
+  const root = new THREE.Group();
+  root.name = "stargatePortalDepthTunnel";
+  const rings = Array.from({ length: count }, (_, index) => {
+    const color = index % 3 === 0 ? 0xf6c96d : index % 2 === 0 ? 0xff6df2 : 0x00f3ff;
+    const ring = new THREE.Mesh(
+      new THREE.TorusGeometry(0.79 - index * 0.025, 0.008 + (index % 3) * 0.002, 8, 96),
+      new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending })
+    );
+    ring.name = `stargatePortalDepthRing${index + 1}`;
+    ring.position.z = -0.02 - index * 0.075;
+    ring.userData.phase = index / count;
+    root.add(ring);
+    return ring;
+  });
+  root.userData.rings = rings;
+  return root;
+}
+
+function createGateShockwaves(count = 3) {
+  const root = new THREE.Group();
+  root.name = "stargateApertureShockwaves";
+  root.position.z = 0.155;
+  const rings = Array.from({ length: count }, (_, index) => {
+    const color = index === 0 ? 0xf6c96d : index === 1 ? 0x00f3ff : 0xff6df2;
+    const ring = new THREE.Mesh(
+      new THREE.TorusGeometry(0.92, 0.012 - index * 0.002, 8, 112),
+      new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending })
+    );
+    ring.name = `stargateApertureShockwave${index + 1}`;
+    ring.userData.phase = index / count;
+    root.add(ring);
+    return ring;
+  });
+  root.userData.rings = rings;
+  return root;
+}
+
 function createBeam(index) {
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute("position", new THREE.BufferAttribute(new Float32Array(12 * 3), 3));
@@ -466,13 +504,15 @@ export function createTarotStargateRig() {
   const constellation = createConstellation();
   constellation.name = "stargateDestinationConstellation";
   constellation.position.z = 0.12;
+  const depthTunnel = createPortalDepthTunnel();
+  const shockwaves = createGateShockwaves();
   const portalLight = new THREE.PointLight(0x00f3ff, 0, 8.5, 1.25);
   portalLight.name = "stargatePortalLight";
   portalLight.position.set(0, 0.05, 0.55);
   const rimLight = new THREE.PointLight(0xff6df2, 0, 5.5, 1.4);
   rimLight.name = "stargateRimLight";
   rimLight.position.set(0.74, 0.62, 0.35);
-  aperture.add(horizonBack, iris, outerRing, middleRing, innerRing, glyphDisc, horizon, constellation, particles, portalLight, rimLight);
+  aperture.add(depthTunnel, horizonBack, iris, outerRing, middleRing, innerRing, glyphDisc, horizon, constellation, particles, shockwaves, portalLight, rimLight);
 
   const pylons = new THREE.Group();
   pylons.name = "stargateSupports";
@@ -518,6 +558,10 @@ export function createTarotStargateRig() {
     chevrons,
     particles,
     constellation,
+    depthTunnel,
+    depthRings: depthTunnel.userData.rings,
+    shockwaves,
+    shockwaveRings: shockwaves.userData.rings,
     portalLight,
     rimLight,
     pylons,
@@ -639,6 +683,30 @@ export function updateTarotStargateRig(root, options = {}) {
   data.constellation.material.opacity = data.openBlend * (0.44 + data.energy * 0.46) * (1 - sealCollapse);
   data.constellation.rotation.z = reducedMotion ? 0.08 : motionTime * 0.035;
   data.constellation.scale.setScalar(0.88 + data.openBlend * 0.12);
+  data.depthRings.forEach((ring, index) => {
+    const phase = ring.userData.phase;
+    const travel = reducedMotion ? phase : (phase + motionTime * (0.075 + data.energy * 0.055)) % 1;
+    const depthScale = 0.56 + travel * 0.54;
+    ring.scale.setScalar(depthScale);
+    ring.position.z = -0.62 + travel * 0.7;
+    ring.rotation.z = reducedMotion ? index * 0.11 : motionTime * (index % 2 ? -0.16 : 0.13) + index * 0.22;
+    if (index % 3 === 0) ring.material.color.setHex(0xf6c96d);
+    else if (index % 2 === 0) ring.material.color.setHex(0xff6df2);
+    else ring.material.color.copy(stateColor);
+    ring.material.opacity = data.openBlend * data.energy * Math.sin(travel * Math.PI) * (index % 3 === 0 ? 0.3 : 0.2);
+  });
+  const shockwaveClock = peerVisible
+    ? peerArrivalProgress * 2.2 + (reducedMotion ? 0.4 : motionTime * 0.12)
+    : state === "dialing"
+      ? progress * 2.4
+      : reducedMotion ? 0.4 : motionTime * 0.18;
+  data.shockwaveRings.forEach((ring, index) => {
+    const phase = reducedMotion ? (0.22 + index * 0.2) : (shockwaveClock + ring.userData.phase) % 1;
+    const arrivalBoost = peerVisible ? 0.45 + peerArrivalProgress * 0.55 : 1;
+    ring.scale.setScalar(0.9 + phase * (0.62 + data.energy * 0.28));
+    ring.rotation.z = reducedMotion ? index * 0.18 : motionTime * (index % 2 ? -0.22 : 0.18);
+    ring.material.opacity = data.openBlend * data.energy * arrivalBoost * Math.pow(1 - phase, 2) * (index === 0 ? 0.58 : 0.42);
+  });
   data.particles.material.opacity = data.visibleBlend * data.energy * 0.68;
   data.particles.rotation.z = reducedMotion ? 0 : motionTime * 0.09;
   data.particles.scale.setScalar((0.88 + data.energy * 0.18) * (1 - sealCollapse * 0.52));

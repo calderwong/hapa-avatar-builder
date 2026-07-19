@@ -16,6 +16,11 @@ const nativeAlias = (origin, localId) => `hapa-native:v1:${b64(origin)}:${b64(lo
 const recordsFor = (kind, store) => kind === "avatar" ? (store?.avatars || []) : kind === "song" ? (store?.songs || []) : kind === "song-card-edition" ? (store?.editions || []) : (store?.cards || []);
 const recordId = (record) => String(record?.id || record?.cardId || record?.avatarId || "").trim();
 const originLocalId = (kind, record) => { const id = recordId(record); return id && kind === "song" ? `song:${id}` : id && kind === "song-card-edition" ? `song-edition:${id}` : id; };
+const isStargateContextRecord = (kind, record) => {
+  if (kind !== "tarot" || !record || typeof record !== "object") return false;
+  const context = record.stargateContext || record.enrichment?.media?.stargateContext;
+  return record.tarotMainType === "stargate_context" || context?.schemaVersion === "hapa.stargate-context-card.v1";
+};
 
 export class AvatarOverwindOrigin {
   constructor({ dbPath, originNode = "hapa-avatar-builder", overwindUrl = "http://127.0.0.1:8788", token = "" }) {
@@ -35,7 +40,7 @@ export class AvatarOverwindOrigin {
     const localId = originLocalId(kind, record); if (!localId) throw new Error(`${kind} record requires id`);
     const cardId = cardIdFor(this.originNode, localId);
     return { schema:"hapa.card.envelope.v1",card_id:cardId,identity:{global_id:cardId,origin_node:this.originNode,origin_local_id:localId,aliases:[nativeAlias(this.originNode,localId)]},
-      card_type:kind === "avatar" ? "avatar_card" : kind === "song" ? "song_card" : kind === "song-card-edition" ? "song_card_edition" : kind === "tarot" && record?.tarotMainType === "stargate_context" ? "stargate_context" : String(record.cardType || record.kind || "item_card"),title:String(record.title || record.primaryName || record.name || localId),
+      card_type:kind === "avatar" ? "avatar_card" : kind === "song" ? "song_card" : kind === "song-card-edition" ? "song_card_edition" : isStargateContextRecord(kind, record) ? "stargate_context" : String(record.cardType || record.kind || "item_card"),title:String(record.title || record.primaryName || record.name || localId),
       summary:String(record.summary || record.description || record.lore || ""),owner:String(record.owner || this.originNode),actor:this.originNode,
       truth:{state:"origin-staged",record_owner:this.originNode},visibility:String(record.visibility || "fleet"),revision:{number:revision,event_id:null},
       provenance:{created_by_node:this.originNode,source_schema:kind === "avatar" ? "hapa.avatar-card.v1" : kind === "song" ? String(record.schemaVersion || "hapa.song-card.v2") : kind === "song-card-edition" ? String(record.schemaVersion || "hapa.song-card.edition.v1") : kind === "tarot" ? String(record.stargateContext?.schemaVersion || record.schemaVersion || "hapa.tarot-card.v1") : "hapa.item-card.v1",source_ref:`avatar-builder://${kind}/${localId}`},
