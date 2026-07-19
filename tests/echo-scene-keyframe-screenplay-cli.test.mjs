@@ -31,7 +31,7 @@ function fixture() {
   const state = pauseEchoSceneKeyframeProcess(createEchoSceneKeyframeProcess({ counts: [sourceCount(0), sourceCount(1)] }), { at });
   const processPath = path.join(root, "process.json"); const screenplayPath = path.join(root, "screenplay.json"); const approvalPath = path.join(root, "approval.json"); const events = path.join(root, "events.ndjson");
   const screenplayDocument = screenplay(state);
-  fs.writeFileSync(processPath, JSON.stringify(state)); fs.writeFileSync(screenplayPath, JSON.stringify(screenplayDocument)); fs.writeFileSync(approvalPath, JSON.stringify({ id: "review-1", status: "approved", reviewType: "independent_screenplay_review", reviewedBy: "cli-independent-reviewer", reviewedAt: "2026-07-18T12:30:00.000Z", screenplayHash: screenplayDocument.provenance.contentHash, authoringArtifactHash: screenplayDocument.authoringProvenance.artifactHash }));
+  fs.writeFileSync(processPath, JSON.stringify(state)); fs.writeFileSync(screenplayPath, JSON.stringify(screenplayDocument)); fs.writeFileSync(approvalPath, JSON.stringify({ id: "review-1", status: "approved", reviewType: "independent_screenplay_review", reviewedBy: "cli-independent-reviewer", reviewedAt: "2026-07-18T12:30:00.000Z", songId: "song-a", screenplayHash: screenplayDocument.provenance.contentHash, authoringArtifactHash: screenplayDocument.authoringProvenance.artifactHash }));
   return { processPath, screenplayPath, approvalPath, events };
 }
 
@@ -53,6 +53,21 @@ test("screenplay CLI validates read-only then imports and activates image quests
   assert.equal(state.counts[1].lanes.image.quest.status, "blocked_by_prompt");
   assert.ok(state.counts.every((count) => count.lanes.video.quest.status === "blocked_by_keyframe"));
   assert.match(fs.readFileSync(files.events, "utf8"), /song-screenplay-images-activated/);
+});
+
+test("screenplay CLI reactivates an exact staged selection from its embedded approval receipt", () => {
+  const files = fixture();
+  const imported = run(["import-approved", "--apply", "--process", files.processPath, "--events", files.events, "--screenplay", files.screenplayPath, "--approval", files.approvalPath]);
+  const state = JSON.parse(fs.readFileSync(files.processPath, "utf8"));
+  const screenplayHash = imported.validation.screenplayHash;
+  assert.throws(() => run(["activate-staged", "--apply", "--process", files.processPath, "--events", files.events, "--song", "song-a", "--screenplay-hash", screenplayHash]), /requires --count-ids/u);
+  const activated = run(["activate-staged", "--apply", "--process", files.processPath, "--events", files.events, "--song", "song-a", "--screenplay-hash", screenplayHash, "--count-ids", state.counts[1].id]);
+  assert.equal(activated.providerCalls, 0);
+  assert.equal(activated.videoGeneration, "held");
+  const after = JSON.parse(fs.readFileSync(files.processPath, "utf8"));
+  assert.equal(after.counts[0].lanes.image.quest.status, "blocked_by_prompt");
+  assert.equal(after.counts[1].lanes.image.quest.status, "open");
+  assert.equal(after.counts[1].lanes.video.quest.status, "blocked_by_keyframe");
 });
 
 test("screenplay write commands fail closed when process is not paused or approval is absent", () => {
