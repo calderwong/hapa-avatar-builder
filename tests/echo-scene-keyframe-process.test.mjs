@@ -5,16 +5,22 @@ import {
   completeEchoSceneKeyframeQuest,
   configureEchoSceneKeyframeProcess,
   createEchoSceneKeyframeProcess,
+  deriveEchoSongVisualScreenplayAuthoringProvenanceHash,
+  deriveEchoSongVisualScreenplayContentHash,
   echoSceneKeyframeCountStatus,
   echoSceneKeyframeProcessSummary,
   failEchoSceneKeyframeQuest,
   importEchoSceneKeyframeArtifacts,
+  importApprovedEchoSongVisualScreenplay,
   pauseEchoSceneKeyframeProcess,
   planEchoSceneKeyframeCounts,
   releaseExpiredEchoSceneKeyframeLeases,
   requestEchoSceneKeyframeStopAfterCurrent,
   resumeEchoSceneKeyframeProcess,
   startEchoSceneKeyframeProcess,
+  activateEchoSongVisualScreenplayImages,
+  deriveEchoSongVisualScreenplayPromptHash,
+  validateEchoSongVisualScreenplay,
 } from "../src/domain/echo-scene-keyframe-process.js";
 
 const at = "2026-07-18T12:00:00.000Z";
@@ -30,6 +36,108 @@ const sourceCount = (countOrdinal = 0, overrides = {}) => ({
   inputHash: `source:${countOrdinal}`,
   ...overrides,
 });
+
+function screenplayFor(process, { songId = "echo-song", approval = true, mutate = null } = {}) {
+  const counts = process.counts.filter((count) => count.songId === songId && count.timingStatus === "ready")
+    .sort((left, right) => left.countOrdinal - right.countOrdinal)
+    .map((count) => ({
+      countId: count.id,
+      ordinal: count.countOrdinal,
+      window: {
+        beatStart: count.beatStart,
+        beatEndExclusive: count.beatEndExclusive,
+        startSeconds: count.startSeconds,
+        endSeconds: count.endSeconds,
+        timingTruthStatus: "measured-source-audio",
+      },
+      semanticExtraction: {
+        nouns: [`anchor-${count.countOrdinal}`],
+        verbs: ["observe"],
+        visibleActions: ["leans toward the signal"],
+        concepts: ["continuity"],
+        teachings: ["attention can remain unresolved"],
+        symbols: [`motif-${count.countOrdinal}`],
+        emotionalMovement: "curious to settled",
+        wordplayCues: [],
+        explicitReferences: [],
+        hiddenReferenceCandidates: [],
+        metaphor: `motif-${count.countOrdinal}`,
+        teachingOrQuestion: "continuity",
+        lyricCitations: [{ lineId: `line-${count.countOrdinal}`, excerpt: "test lyric", startSeconds: count.startSeconds, endSeconds: count.endSeconds, role: "overlap" }],
+        referenceMechanics: [],
+        explicitNoReferenceApplies: true,
+      },
+      shot: {
+        location: `corridor-${count.countOrdinal}`,
+        action: `observe the signal-${count.countOrdinal}`,
+        primaryMotif: `motif-${count.countOrdinal}`,
+        camera: `medium-profile-${count.countOrdinal}`,
+        composition: `left-third-observer-${count.countOrdinal}`,
+        lighting: "soft blue rim",
+        energy: `shift-${count.countOrdinal}`,
+        intentionalHold: false,
+        holdReason: null,
+      },
+      prompt: {
+        status: "approved",
+        executionMode: "stage_only",
+        sceneText: `frame ${count.countOrdinal}`,
+        gptImagePrompt: `cinematic ${["listening", "crossing", "opening", "returning"][count.countOrdinal % 4]} frame ${count.countOrdinal}`,
+        negativePrompt: "no text",
+        justification: "timing grounded",
+        promptHash: "pending",
+      },
+      imageActivation: { status: "not_requested" },
+      disposition: "candidate_direction_only",
+    }));
+  const screenplay = {
+    schemaVersion: "hapa.echo.full-song-visual-screenplay.v1",
+    songId,
+    sourceRevision: { songContextHash: "sha256:context", lyricsHash: "sha256:lyrics", timingHash: "sha256:timing", referenceGraphHash: null, seedSetHash: "sha256:seeds", directorTreatmentHash: null, promptPolicyHash: "sha256:policy" },
+    semanticMining: { songThesis: "test thesis", emotionalArc: [{ id: "arc-1", label: "opening", emotionalState: "curious", visualConsequence: "hold" }], teachingOrQuestion: "what persists", motifLexicon: [{ term: "signal", meaning: "connection", visualAffordances: ["light"], avoidLiteralization: ["text"] }], referencePolicy: { rule: "reference-as-mechanic-not-copy", literalDepictionAllowed: false, notes: null } },
+    avatarContinuity: { seedAssets: [{ avatarId: "avatar-2", colorRole: "blue", assetId: "blue-seed", contentHash: "sha256:seed", retrievalHandle: "/seed.png", identityInvariants: ["face"], visualContribution: "Blue" }], globalInvariants: ["face"], allowedVariation: ["camera"], cleanReferenceRequired: false },
+    sequencePlan: [{ id: "sequence-1", label: "test", purpose: "test sequence", counts, diversityGate: { maxAdjacentDuplicateVisualTuples: 2, tupleFields: ["location", "camera", "composition", "primaryMotif", "action", "energy"], requireActionOrStateChange: true, intentionalHoldRequiresReason: true, repetitionReviewRequired: true } }],
+    generationPolicy: { promptImportMode: "stage_only", imageActivationRequired: true, providerPolicy: "codex-built-in-gpt-image-only", videoPolicy: "held-until-separately-enabled", allowedPromptStatesForActivation: ["staged", "approved"] },
+    review: { status: approval ? "approved-for-selective-activation" : "staged", reviewNotes: [] },
+    authoringProvenance: {
+      method: "direct_llm_analysis",
+      requestedModel: "gpt-5.6-terra",
+      agentTaskName: "echo-screenplay-test-author",
+      sourcePacketHash: "sha256:source-packet",
+      instructionHash: "sha256:instructions",
+      startedAt: "2026-07-18T11:00:00.000Z",
+      completedAt: at,
+      promptAuthoringPolicy: "no-deterministic-scene-generation",
+      heuristicGeneratorUsed: false,
+      artifactHash: "pending",
+      attestation: { type: "authoring-provenance-v1", artifactHash: "pending", attestedBy: "echo-screenplay-test-author", attestedAt: at },
+    },
+    provenance: { createdAt: at, createdBy: "test", contentHash: "sha256:screenplay-test" },
+  };
+  screenplay.authoringProvenance.artifactHash = deriveEchoSongVisualScreenplayAuthoringProvenanceHash(screenplay.authoringProvenance);
+  screenplay.authoringProvenance.attestation.artifactHash = screenplay.authoringProvenance.artifactHash;
+  if (mutate) mutate(screenplay);
+  for (const [index, entry] of screenplay.sequencePlan[0].counts.entries()) {
+    entry.prompt.promptHash = deriveEchoSongVisualScreenplayPromptHash(screenplay, entry, {
+      previous: process.counts[index - 1] || null,
+      next: process.counts[index + 1] || null,
+    });
+  }
+  screenplay.provenance.contentHash = deriveEchoSongVisualScreenplayContentHash(screenplay);
+  return screenplay;
+}
+
+function approvalReceipt(screenplay, id = "review-1") {
+  return {
+    id,
+    status: "approved",
+    reviewType: "independent_screenplay_review",
+    reviewedBy: "independent-reviewer",
+    reviewedAt: "2026-07-18T12:30:00.000Z",
+    screenplayHash: screenplay.provenance.contentHash,
+    authoringArtifactHash: screenplay.authoringProvenance.artifactHash,
+  };
+}
 
 test("replanning an unchanged four-count is idempotent and input changes retain stale lineage", () => {
   let process = createEchoSceneKeyframeProcess({ counts: [sourceCount()] });
@@ -127,4 +235,198 @@ test("summary keeps independent lane facts and treats missing timing as incomple
   assert.equal(summary.lanes.prompt.quests.not_open, 1);
   assert.equal(summary.complete, false);
   assert.equal(echoSceneKeyframeCountStatus(process.counts[1]), "needs_timing_truth");
+});
+
+test("whole-song screenplay validator requires exact source order and fresh count inputs", () => {
+  const process = createEchoSceneKeyframeProcess({ counts: [sourceCount(0), sourceCount(1)] });
+  const screenplay = screenplayFor(process);
+  const valid = validateEchoSongVisualScreenplay(process, screenplay, { requireApproval: true });
+  assert.equal(valid.songId, "echo-song");
+  assert.equal(valid.counts.length, 2);
+  const reversed = screenplayFor(process, { mutate: (value) => value.sequencePlan[0].counts.reverse() });
+  assert.throws(() => validateEchoSongVisualScreenplay(process, reversed), /exactly match source order/u);
+  const stale = screenplayFor(process, { mutate: (value) => { value.sequencePlan[0].counts[0].window.startSeconds = 99; } });
+  assert.throws(() => validateEchoSongVisualScreenplay(process, stale), /Stale screenplay timing window/u);
+});
+
+test("screenplay declared prompt hash is verified against canonical runtime prompt content", () => {
+  const process = createEchoSceneKeyframeProcess({ counts: [sourceCount()] });
+  const screenplay = screenplayFor(process);
+  screenplay.sequencePlan[0].counts[0].prompt.gptImagePrompt = "tampered after hash";
+  assert.throws(() => validateEchoSongVisualScreenplay(process, screenplay), /promptContentHash does not match prompt/u);
+});
+
+test("screenplay declared content hash is recomputed instead of trusted", () => {
+  const process = createEchoSceneKeyframeProcess({ counts: [sourceCount()] });
+  const screenplay = screenplayFor(process);
+  screenplay.semanticMining.songThesis = "tampered after finalization";
+  assert.throws(() => validateEchoSongVisualScreenplay(process, screenplay), /contentHash does not match canonical screenplay content/u);
+});
+
+test("screenplay provenance requires direct LLM authoring, a consistent attestation, and independent review", () => {
+  const process = createEchoSceneKeyframeProcess({ counts: [sourceCount()] });
+  const missing = screenplayFor(process, { mutate: (value) => { delete value.authoringProvenance; } });
+  assert.throws(() => validateEchoSongVisualScreenplay(process, missing), /authoringProvenance is required/u);
+  const legacy = screenplayFor(process, { mutate: (value) => { value.authoringProvenance.method = "legacy_heuristic"; } });
+  assert.throws(() => validateEchoSongVisualScreenplay(process, legacy), /permanently unimportable/u);
+  const inconsistent = screenplayFor(process, { mutate: (value) => { value.authoringProvenance.attestation.artifactHash = "sha256:wrong"; } });
+  assert.throws(() => validateEchoSongVisualScreenplay(process, inconsistent), /attestation must bind/u);
+  const approved = screenplayFor(process);
+  const selfReview = approvalReceipt(approved, "self-review");
+  selfReview.reviewedBy = approved.authoringProvenance.agentTaskName;
+  assert.throws(() => importApprovedEchoSongVisualScreenplay(process, approved, { approvalReceipt: selfReview, at }), /must be independent/u);
+});
+
+test("a separate independent receipt approves an immutable staged screenplay without changing its reviewed hash", () => {
+  const process = createEchoSceneKeyframeProcess({ counts: [sourceCount()] });
+  const screenplay = screenplayFor(process, { approval: false });
+  const receipt = approvalReceipt(screenplay);
+  assert.doesNotThrow(() => importApprovedEchoSongVisualScreenplay(process, screenplay, { approvalReceipt: receipt }));
+});
+
+test("approved screenplay stages prompt lane only and preserves image/video facts", () => {
+  let process = createEchoSceneKeyframeProcess({ counts: [sourceCount(0), sourceCount(1)] });
+  const screenplay = screenplayFor(process);
+  const before = process.counts.map((count) => structuredClone({ image: count.lanes.image, video: count.lanes.video }));
+  process = importApprovedEchoSongVisualScreenplay(process, screenplay, {
+    approvalReceipt: approvalReceipt(screenplay, "review-1"), runnerId: "terra", runId: "screenplay-a", at,
+  });
+  for (const [index, count] of process.counts.entries()) {
+    assert.equal(count.lanes.prompt.artifact.state, "ready");
+    assert.equal(count.lanes.prompt.quest.status, "complete");
+    assert.deepEqual({ image: count.lanes.image, video: count.lanes.video }, before[index]);
+    assert.equal(count.lanes.image.quest.status, "blocked_by_prompt");
+    assert.equal(count.lanes.video.quest.status, "blocked_by_keyframe");
+  }
+  assert.equal(process.events.at(-1).type, "song-screenplay-prompts-imported");
+  const replay = importApprovedEchoSongVisualScreenplay(process, screenplay, { approvalReceipt: approvalReceipt(screenplay, "review-1"), at });
+  assert.equal(replay.events.length, process.events.length);
+});
+
+test("screenplay image activation is explicit, content-addressed, and leaves video held policy untouched", () => {
+  let process = createEchoSceneKeyframeProcess({ counts: [sourceCount(0), sourceCount(1)] });
+  const screenplay = screenplayFor(process);
+  process = importApprovedEchoSongVisualScreenplay(process, screenplay, { approvalReceipt: approvalReceipt(screenplay, "review-2"), at });
+  const beforeVideo = process.counts.map((count) => structuredClone(count.lanes.video));
+  process = activateEchoSongVisualScreenplayImages(process, {
+    songId: "echo-song", screenplayHash: screenplay.provenance.contentHash, countIds: [process.counts[0].id], at: nextMinute,
+  });
+  assert.equal(process.counts[0].lanes.image.quest.status, "open");
+  assert.equal(process.counts[0].lanes.image.quest.inputHash, process.counts[0].lanes.prompt.artifact.contentHash);
+  assert.equal(process.counts[1].lanes.image.quest.status, "blocked_by_prompt");
+  assert.deepEqual(process.counts.map((count) => count.lanes.video), beforeVideo);
+  assert.equal(process.events.at(-1).type, "song-screenplay-images-activated");
+});
+
+test("screenplay import fails closed over active claims and does not replace downstream work", () => {
+  let process = startEchoSceneKeyframeProcess(createEchoSceneKeyframeProcess({ counts: [sourceCount()] }), { at });
+  const claimed = claimEchoSceneKeyframeQuests(process, { runnerId: "terra", runId: "active", at });
+  const screenplay = screenplayFor(claimed.process);
+  assert.throws(() => importApprovedEchoSongVisualScreenplay(claimed.process, screenplay, { approvalReceipt: approvalReceipt(screenplay, "review-3"), at }), /active claim/u);
+});
+
+test("screenplay can validate and preserve existing media while staging missing counts", () => {
+  let process = createEchoSceneKeyframeProcess({ counts: [sourceCount(0), sourceCount(1)] });
+  process = importEchoSceneKeyframeArtifacts(process, process.counts[0].id, {
+    at,
+    promptResult: { sceneText: "legacy prompt", contentHash: "legacy-prompt" },
+    imageResult: { localPath: "/legacy.png", contentHash: "legacy-image" },
+  });
+  const before = structuredClone(process.counts[0].lanes);
+  const screenplay = screenplayFor(process, { mutate: (value) => { value.sequencePlan[0].counts[0].disposition = "preserve_existing_media"; value.sequencePlan[0].counts[0].imageActivation = { status: "complete", imageQuestId: "legacy" }; } });
+  const validation = validateEchoSongVisualScreenplay(process, screenplay, { requireApproval: true });
+  assert.deepEqual(validation.preservedCountIds, [process.counts[0].id]);
+  assert.deepEqual(validation.stagedCountIds, [process.counts[1].id]);
+  process = importApprovedEchoSongVisualScreenplay(process, screenplay, { approvalReceipt: approvalReceipt(screenplay, "review-preserve"), at });
+  assert.deepEqual(process.counts[0].lanes, before);
+  assert.equal(process.counts[1].lanes.prompt.artifact.state, "ready");
+  assert.deepEqual(process.events.at(-1).preservedCountIds, [process.counts[0].id]);
+});
+
+test("preserve_existing_media is rejected without an existing prompt or media artifact", () => {
+  const process = createEchoSceneKeyframeProcess({ counts: [sourceCount()] });
+  const screenplay = screenplayFor(process, { mutate: (value) => { value.sequencePlan[0].counts[0].disposition = "preserve_existing_media"; value.sequencePlan[0].counts[0].imageActivation = { status: "complete", imageQuestId: "missing" }; } });
+  assert.throws(() => validateEchoSongVisualScreenplay(process, screenplay), /requires existing prompt or media state/u);
+});
+
+test("screenplay quality gates require semantic, scene, lyric, and reference decisions", () => {
+  const process = createEchoSceneKeyframeProcess({ counts: [sourceCount()] });
+  const missingMining = screenplayFor(process, { mutate: (value) => { delete value.sequencePlan[0].counts[0].semanticExtraction.metaphor; } });
+  assert.throws(() => validateEchoSongVisualScreenplay(process, missingMining), /semanticExtraction.metaphor/u);
+  const missingConcept = screenplayFor(process, { mutate: (value) => { value.sequencePlan[0].counts[0].semanticExtraction.concepts = []; } });
+  assert.throws(() => validateEchoSongVisualScreenplay(process, missingConcept), /semanticExtraction.concepts/u);
+  const missingScene = screenplayFor(process, { mutate: (value) => { delete value.sequencePlan[0].counts[0].shot.energy; } });
+  assert.throws(() => validateEchoSongVisualScreenplay(process, missingScene), /shot.energy/u);
+  const missingReference = screenplayFor(process, { mutate: (value) => { value.sequencePlan[0].counts[0].semanticExtraction = { ...value.sequencePlan[0].counts[0].semanticExtraction, explicitNoReferenceApplies: false }; } });
+  assert.throws(() => validateEchoSongVisualScreenplay(process, missingReference), /reference decision needs/u);
+  const missingLyric = screenplayFor(process, { mutate: (value) => { value.sequencePlan[0].counts[0].semanticExtraction.lyricCitations = []; } });
+  assert.throws(() => validateEchoSongVisualScreenplay(process, missingLyric), /without lyric citations/u);
+});
+
+test("screenplay quality gates reject unannotated adjacent holds and near duplicate scene language", () => {
+  const process = createEchoSceneKeyframeProcess({ counts: [sourceCount(0), sourceCount(1), sourceCount(2)] });
+  const repeated = screenplayFor(process, { mutate: (value) => {
+    for (const entry of value.sequencePlan[0].counts) {
+      entry.shot.location = "same corridor";
+      entry.shot.camera = "same shot";
+      entry.shot.composition = "same composition";
+      entry.shot.primaryMotif = "same motif";
+      entry.shot.action = "same action";
+      entry.shot.energy = "same energy";
+    }
+  } });
+  assert.throws(() => validateEchoSongVisualScreenplay(process, repeated), /Repeated location\+shot\+pose\+motif/u);
+  const held = screenplayFor(process, { mutate: (value) => {
+    for (const entry of value.sequencePlan[0].counts) {
+      entry.shot.location = "same corridor";
+      entry.shot.camera = "same shot";
+      entry.shot.composition = "same composition";
+      entry.shot.primaryMotif = "same motif";
+      entry.shot.action = "same action";
+      entry.shot.energy = "same energy";
+      entry.shot.intentionalHold = true;
+      entry.shot.holdReason = "Deliberate three-count listening hold.";
+    }
+  } });
+  assert.doesNotThrow(() => validateEchoSongVisualScreenplay(process, held));
+  const duplicateText = screenplayFor(process, { mutate: (value) => {
+    value.sequencePlan[0].counts[1].prompt.sceneText = value.sequencePlan[0].counts[0].prompt.sceneText;
+  } });
+  assert.throws(() => validateEchoSongVisualScreenplay(process, duplicateText), /near-duplicate sceneText/u);
+});
+
+test("whole-song diversity gate scales across long sequences and catches templated prompt skeletons", () => {
+  const process = createEchoSceneKeyframeProcess({ counts: Array.from({ length: 24 }, (_, index) => sourceCount(index)) });
+  const lowComposition = screenplayFor(process, { mutate: (value) => {
+    for (const entry of value.sequencePlan[0].counts) entry.shot.composition = "one repeated composition";
+  } });
+  assert.throws(() => validateEchoSongVisualScreenplay(process, lowComposition), /Global composition diversity is too low/u);
+  const templated = screenplayFor(process, { mutate: (value) => {
+    for (const entry of value.sequencePlan[0].counts) {
+      entry.prompt.gptImagePrompt = `Study ${entry.shot.location} while ${entry.shot.action}; lyric ${entry.ordinal}.`;
+    }
+  } });
+  assert.throws(() => validateEchoSongVisualScreenplay(process, templated), /Repeated prompt sentence skeleton/u);
+});
+
+test("reservoir inspiration is optional but must materially affect its count when present", () => {
+  const process = createEchoSceneKeyframeProcess({ counts: [sourceCount()] });
+  const decorative = screenplayFor(process, { mutate: (value) => {
+    value.sequencePlan[0].counts[0].semanticExtraction.nonInheritedReservoirInspiration = [{
+      referenceId: "reservoir-1",
+      mechanicOnly: "shared responsibility passes through a quiet handoff",
+      notEvidenceOfSongReference: true,
+    }];
+  } });
+  assert.throws(() => validateEchoSongVisualScreenplay(process, decorative), /decorative rather than materially explained/u);
+  const functional = screenplayFor(process, { mutate: (value) => {
+    const entry = value.sequencePlan[0].counts[0];
+    entry.semanticExtraction.nonInheritedReservoirInspiration = [{
+      referenceId: "reservoir-1",
+      mechanicOnly: "shared responsibility passes through a quiet handoff",
+      notEvidenceOfSongReference: true,
+    }];
+    entry.shot.action = "Blue stages a shared responsibility handoff in the light.";
+  } });
+  assert.doesNotThrow(() => validateEchoSongVisualScreenplay(process, functional));
 });

@@ -1,0 +1,358 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "hapa.echo.full-song-visual-screenplay.v1",
+  "title": "Echo full-song visual screenplay",
+  "description": "A staged, evidence-grounded visual screenplay. It is planning-only until an explicit image activation is recorded for an individual four-count.",
+  "type": "object",
+  "required": ["schemaVersion", "songId", "sourceRevision", "semanticMining", "avatarContinuity", "sequencePlan", "generationPolicy", "authoringProvenance", "provenance"],
+  "properties": {
+    "schemaVersion": { "const": "hapa.echo.full-song-visual-screenplay.v1" },
+    "songId": { "type": "string", "minLength": 1 },
+    "title": { "type": ["string", "null"] },
+    "sourceRevision": { "$ref": "#/$defs/sourceRevision" },
+    "semanticMining": { "$ref": "#/$defs/semanticMining" },
+    "avatarContinuity": { "$ref": "#/$defs/avatarContinuity" },
+    "sequencePlan": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/sequence" }
+    },
+    "generationPolicy": { "$ref": "#/$defs/generationPolicy" },
+    "authoringProvenance": { "$ref": "#/$defs/authoringProvenance" },
+    "review": { "$ref": "#/$defs/review" },
+    "provenance": { "$ref": "#/$defs/provenance" }
+  },
+  "$defs": {
+    "idList": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
+    "sourceRevision": {
+      "type": "object",
+      "required": ["songContextHash", "lyricsHash", "timingHash", "referenceGraphHash", "seedSetHash", "promptPolicyHash"],
+      "properties": {
+        "songContextHash": { "type": "string", "minLength": 1 },
+        "lyricsHash": { "type": "string", "minLength": 1 },
+        "timingHash": { "type": "string", "minLength": 1 },
+        "referenceGraphHash": { "type": ["string", "null"] },
+        "seedSetHash": { "type": "string", "minLength": 1 },
+        "directorTreatmentHash": { "type": ["string", "null"] },
+        "promptPolicyHash": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    },
+    "citation": {
+      "type": "object",
+      "required": ["excerpt", "startSeconds", "endSeconds", "role"],
+      "properties": {
+        "lineId": { "type": ["string", "null"] },
+        "excerpt": { "type": "string", "minLength": 1 },
+        "startSeconds": { "type": "number", "minimum": 0 },
+        "endSeconds": { "type": "number", "minimum": 0 },
+        "role": { "enum": ["overlap", "preceding-continuity", "following-continuity", "section-context"] }
+      },
+      "additionalProperties": false
+    },
+    "semanticMining": {
+      "type": "object",
+      "required": ["songThesis", "emotionalArc", "teachingOrQuestion", "referencePolicy", "motifLexicon"],
+      "properties": {
+        "songThesis": { "type": "string", "minLength": 1 },
+        "emotionalArc": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/arcBeat" } },
+        "teachingOrQuestion": { "type": "string", "minLength": 1 },
+        "motifLexicon": { "type": "array", "items": { "$ref": "#/$defs/motif" } },
+        "referencePolicy": {
+          "type": "object",
+          "required": ["rule", "literalDepictionAllowed"],
+          "properties": {
+            "rule": { "const": "reference-as-mechanic-not-copy" },
+            "literalDepictionAllowed": { "const": false },
+            "notes": { "type": ["string", "null"] }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "arcBeat": {
+      "type": "object",
+      "required": ["id", "label", "emotionalState", "visualConsequence"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "label": { "type": "string", "minLength": 1 },
+        "emotionalState": { "type": "string", "minLength": 1 },
+        "visualConsequence": { "type": "string", "minLength": 1 },
+        "lyricCitations": { "type": "array", "items": { "$ref": "#/$defs/citation" } }
+      },
+      "additionalProperties": false
+    },
+    "motif": {
+      "type": "object",
+      "required": ["term", "meaning", "visualAffordances"],
+      "properties": {
+        "term": { "type": "string", "minLength": 1 },
+        "meaning": { "type": "string", "minLength": 1 },
+        "visualAffordances": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
+        "avoidLiteralization": { "type": "array", "items": { "type": "string" } }
+      },
+      "additionalProperties": false
+    },
+    "avatarSeed": {
+      "type": "object",
+      "required": ["avatarId", "colorRole", "assetId", "contentHash", "retrievalHandle", "identityInvariants"],
+      "properties": {
+        "avatarId": { "enum": ["red-reaper", "avatar-2", "avatar-3"] },
+        "colorRole": { "enum": ["red", "blue", "green"] },
+        "assetId": { "type": "string", "minLength": 1 },
+        "contentHash": { "type": "string", "minLength": 1 },
+        "retrievalHandle": { "type": "string", "minLength": 1 },
+        "identityInvariants": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
+        "visualContribution": { "type": ["string", "null"] }
+      },
+      "additionalProperties": false
+    },
+    "avatarContinuity": {
+      "type": "object",
+      "required": ["seedAssets", "globalInvariants", "allowedVariation"],
+      "properties": {
+        "seedAssets": { "type": "array", "minItems": 1, "maxItems": 3, "items": { "$ref": "#/$defs/avatarSeed" } },
+        "globalInvariants": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
+        "allowedVariation": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
+        "cleanReferenceRequired": { "type": "boolean", "default": false }
+      },
+      "additionalProperties": false
+    },
+    "referenceMechanic": {
+      "type": "object",
+      "required": ["connectorId", "mechanic", "visualAffordance", "evidenceStatus", "nonLiteralTranslation"],
+      "properties": {
+        "connectorId": { "type": "string", "minLength": 1 },
+        "mechanic": { "type": "string", "minLength": 1 },
+        "visualAffordance": { "type": "string", "minLength": 1 },
+        "evidenceStatus": { "enum": ["verified", "supported", "directional", "unresolved"] },
+        "nonLiteralTranslation": { "type": "string", "minLength": 1 },
+        "doNotDepict": { "type": "array", "items": { "type": "string" } }
+      },
+      "additionalProperties": false
+    },
+    "shot": {
+      "type": "object",
+      "required": ["location", "action", "primaryMotif", "camera", "composition", "lighting", "energy"],
+      "properties": {
+        "location": { "type": "string", "minLength": 1 },
+        "action": { "type": "string", "minLength": 1 },
+        "primaryMotif": { "type": "string", "minLength": 1 },
+        "camera": { "type": "string", "minLength": 1 },
+        "composition": { "type": "string", "minLength": 1 },
+        "lighting": { "type": "string", "minLength": 1 },
+        "energy": { "type": "string", "minLength": 1 },
+        "intentionalHold": { "type": "boolean", "default": false },
+        "holdReason": { "type": ["string", "null"] }
+      },
+      "additionalProperties": false
+    },
+    "stagePrompt": {
+      "type": "object",
+      "required": ["status", "executionMode"],
+      "properties": {
+        "status": { "enum": ["missing", "staged", "approved", "stale", "rejected"] },
+        "executionMode": { "const": "stage_only" },
+        "sceneText": { "type": ["string", "null"] },
+        "gptImagePrompt": { "type": ["string", "null"] },
+        "negativePrompt": { "type": ["string", "null"] },
+        "justification": { "type": ["string", "null"] },
+        "promptHash": { "type": ["string", "null"] },
+        "importReceipt": { "type": ["object", "null"] },
+        "staleReasons": { "type": "array", "items": { "type": "string" } }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "status": { "enum": ["staged", "approved"] } }, "required": ["status"] },
+          "then": {
+            "required": ["sceneText", "gptImagePrompt", "negativePrompt", "justification", "promptHash"],
+            "properties": {
+              "sceneText": { "type": "string", "minLength": 1 },
+              "gptImagePrompt": { "type": "string", "minLength": 1 },
+              "negativePrompt": { "type": "string", "minLength": 1 },
+              "justification": { "type": "string", "minLength": 1 },
+              "promptHash": { "type": "string", "minLength": 1 }
+            }
+          }
+        }
+      ],
+      "additionalProperties": false
+    },
+    "imageActivation": {
+      "type": "object",
+      "required": ["status"],
+      "properties": {
+        "status": { "enum": ["not_requested", "requested", "claimed", "complete", "failed", "stale"] },
+        "activationId": { "type": ["string", "null"] },
+        "requestedBy": { "type": ["string", "null"] },
+        "requestedAt": { "type": ["string", "null"], "format": "date-time" },
+        "approvedPromptHash": { "type": ["string", "null"] },
+        "providerPolicy": { "type": ["string", "null"] },
+        "imageQuestId": { "type": ["string", "null"] },
+        "reason": { "type": ["string", "null"] }
+      },
+      "additionalProperties": false
+    },
+    "count": {
+      "type": "object",
+      "required": ["countId", "ordinal", "window", "disposition", "semanticExtraction", "shot", "prompt", "imageActivation"],
+      "properties": {
+        "countId": { "type": "string", "minLength": 1 },
+        "ordinal": { "type": "integer", "minimum": 1 },
+        "disposition": { "enum": ["preserve_existing_media", "candidate_direction_only"] },
+        "window": {
+          "type": "object",
+          "required": ["beatStart", "beatEndExclusive", "startSeconds", "endSeconds", "timingTruthStatus"],
+          "properties": {
+            "beatStart": { "type": "integer", "minimum": 0 },
+            "beatEndExclusive": { "type": "integer", "minimum": 1 },
+            "startSeconds": { "type": "number", "minimum": 0 },
+            "endSeconds": { "type": "number", "exclusiveMinimum": 0 },
+            "timingTruthStatus": { "type": "string", "minLength": 1 },
+            "partialFinalCount": { "type": "boolean", "default": false }
+          },
+          "additionalProperties": false
+        },
+        "semanticExtraction": {
+          "type": "object",
+          "required": ["lyricCitations", "nouns", "verbs", "visibleActions", "concepts", "teachings", "symbols", "emotionalMovement", "wordplayCues", "explicitReferences", "hiddenReferenceCandidates", "metaphor", "teachingOrQuestion", "referenceMechanics"],
+          "properties": {
+            "lyricCitations": { "type": "array", "items": { "$ref": "#/$defs/citation" } },
+            "nouns": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+            "verbs": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+            "visibleActions": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
+            "concepts": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
+            "teachings": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
+            "symbols": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
+            "emotionalMovement": { "type": "string", "minLength": 1 },
+            "wordplayCues": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+            "explicitReferences": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+            "hiddenReferenceCandidates": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+            "metaphor": { "type": "string", "minLength": 1 },
+            "teachingOrQuestion": { "type": "string", "minLength": 1 },
+            "referenceMechanics": { "type": "array", "items": { "$ref": "#/$defs/referenceMechanic" } },
+            "explicitNoLyricOverlap": { "type": "boolean", "default": false },
+            "explicitNoReferenceApplies": { "type": "boolean", "default": false },
+            "nonInheritedReservoirInspiration": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["referenceId", "mechanicOnly", "notEvidenceOfSongReference"],
+                "properties": {
+                  "referenceId": { "type": "string", "minLength": 1 },
+                  "mechanicOnly": { "type": "string", "minLength": 1 },
+                  "notEvidenceOfSongReference": { "const": true }
+                },
+                "additionalProperties": false
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        "shot": { "$ref": "#/$defs/shot" },
+        "prompt": { "$ref": "#/$defs/stagePrompt" },
+        "imageActivation": { "$ref": "#/$defs/imageActivation" }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "imageActivation": { "properties": { "status": { "const": "not_requested" } }, "required": ["status"] } } },
+          "then": { "properties": { "prompt": { "properties": { "executionMode": { "const": "stage_only" } } } } }
+        }
+      ],
+      "additionalProperties": false
+    },
+    "diversityGate": {
+      "type": "object",
+      "required": ["maxAdjacentDuplicateVisualTuples", "tupleFields", "requireActionOrStateChange", "intentionalHoldRequiresReason"],
+      "properties": {
+        "maxAdjacentDuplicateVisualTuples": { "type": "integer", "minimum": 1, "maximum": 2 },
+        "tupleFields": {
+          "type": "array",
+          "minItems": 4,
+          "items": { "enum": ["location", "camera", "composition", "primaryMotif", "action", "energy"] }
+        },
+        "requireActionOrStateChange": { "const": true },
+        "intentionalHoldRequiresReason": { "const": true },
+        "repetitionReviewRequired": { "const": true }
+      },
+      "additionalProperties": false
+    },
+    "sequence": {
+      "type": "object",
+      "required": ["id", "label", "purpose", "counts", "diversityGate"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "label": { "type": "string", "minLength": 1 },
+        "purpose": { "type": "string", "minLength": 1 },
+        "arcBeatIds": { "$ref": "#/$defs/idList" },
+        "counts": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/count" } },
+        "diversityGate": { "$ref": "#/$defs/diversityGate" }
+      },
+      "additionalProperties": false
+    },
+    "generationPolicy": {
+      "type": "object",
+      "required": ["promptImportMode", "imageActivationRequired", "providerPolicy", "videoPolicy"],
+      "properties": {
+        "promptImportMode": { "const": "stage_only" },
+        "imageActivationRequired": { "const": true },
+        "providerPolicy": { "const": "codex-built-in-gpt-image-only" },
+        "videoPolicy": { "const": "held-until-separately-enabled" },
+        "allowedPromptStatesForActivation": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "enum": ["staged", "approved"] }
+        }
+      },
+      "additionalProperties": false
+    },
+    "review": {
+      "type": "object",
+      "properties": {
+        "status": { "enum": ["draft", "staged", "approved-for-selective-activation", "stale"] },
+        "reviewNotes": { "type": "array", "items": { "type": "string" } }
+      },
+      "additionalProperties": false
+    },
+    "authoringProvenance": {
+      "type": "object",
+      "required": ["method", "requestedModel", "agentTaskName", "sourcePacketHash", "instructionHash", "startedAt", "completedAt", "promptAuthoringPolicy", "heuristicGeneratorUsed", "artifactHash", "attestation"],
+      "properties": {
+        "method": { "const": "direct_llm_analysis" },
+        "requestedModel": { "type": "string", "minLength": 1 },
+        "agentTaskName": { "type": "string", "minLength": 1 },
+        "sourcePacketHash": { "type": "string", "minLength": 1 },
+        "instructionHash": { "type": "string", "minLength": 1 },
+        "startedAt": { "type": "string", "format": "date-time" },
+        "completedAt": { "type": "string", "format": "date-time" },
+        "promptAuthoringPolicy": { "const": "no-deterministic-scene-generation" },
+        "heuristicGeneratorUsed": { "const": false },
+        "artifactHash": { "type": "string", "minLength": 1 },
+        "attestation": {
+          "type": "object",
+          "required": ["type", "artifactHash", "attestedBy", "attestedAt"],
+          "properties": {
+            "type": { "const": "authoring-provenance-v1" },
+            "artifactHash": { "type": "string", "minLength": 1 },
+            "attestedBy": { "type": "string", "minLength": 1 },
+            "attestedAt": { "type": "string", "format": "date-time" }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "provenance": {
+      "type": "object",
+      "required": ["createdAt", "createdBy", "contentHash"],
+      "properties": {
+        "createdAt": { "type": "string", "format": "date-time" },
+        "createdBy": { "type": "string" },
+        "contentHash": { "type": "string" }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

@@ -155,12 +155,15 @@ function evidenceFor(audit, claim) {
     outputContract: {
       sceneText: "concise visible frame action",
       gptImagePrompt: "background/scene, subject, action, composition, lighting, palette, lens, energy, identity-preservation constraints",
-      negativePrompt: "no text, no logos, no unlisted characters, no identity/wardrobe drift, no malformed anatomy",
+      negativePrompt: "no readable text, logos, UI, identity/wardrobe drift, or malformed anatomy; supplemental seed-derived subjects are acceptable when they strengthen the lyric/context and do not displace the primary action",
       justification: "cite exact overlapping lyrics and explain contextual/reference transformation",
       evidence: "lyric citations plus cue/context/reference IDs where present",
       seedUse: "state what each supplied Avatar image contributes and preserves",
       continuity: "state what carries in and what the next count needs",
       confidenceAndGaps: "explicitly separate verified evidence from interpretation",
+      semanticDensity: "for lyric-bearing counts, make multiple mined elements visible: a concrete noun/symbol plus a verb/state change and the concept/teaching",
+      acceptancePriority: "judge semantic attachment, visible lyric action, reference payoff, composition, and continuity before incidental subject exclusions; polished but generic imagery fails",
+      workerProtocol: "docs/prompts/ECHO_GPT_IMAGE_KEYFRAME_WORKER.md",
     },
   };
 }

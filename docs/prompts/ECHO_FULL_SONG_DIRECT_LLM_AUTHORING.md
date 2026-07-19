@@ -1,0 +1,50 @@
+# Echo full-song direct-LLM screenplay authoring task
+
+Author one integrated visual screenplay for every source-backed four-count in the supplied song packet.
+
+## Required inputs
+
+- Read the complete song packet, including the full lyrics, all timed counts, Director context, visual affordances, current media continuity, approved Avatar seed assets, resolved song-reference connectors, and the explicitly non-inherited album context reservoir.
+- Read the full-song screenplay contract and production standard.
+- Use the accepted direct-LLM phrase pilot as a quality floor, not as a scene template.
+- Read the independent pilot audit and correct its two identified risks throughout the full song.
+
+## Authoring method
+
+- Perform direct LLM analysis of the complete song before writing count prompts.
+- First design the song thesis, emotional movement, recurring material vocabulary, reference mechanics, and phrase-sized cinematic sequences across the entire song.
+- Then author every count individually from its exact timed lyric evidence, local nouns, verbs, action, concepts, teaching, symbols, wordplay, and evidence-bounded reference mechanics. Make at least two mined lyric elements materially visible in every lyric-bearing frame: normally a concrete noun/symbol and a verb/state change.
+- Carry material and narrative consequences between adjacent counts. Each count must visibly inherit something from the prior count and cause or prepare something in the next count.
+- Use references for their mechanics and thematic pressure, not literal franchise imitation. Read their plots, systems, character dynamics, transformations, spatial rules, and recurring symbols as possible cinematic grammar. Hidden or uncertain reference candidates must retain their evidence status.
+- The album context reservoir is optional inspiration, never evidence that the song contains a reference. If used, identify the non-inherited mechanic and make its effect materially legible as an action, material behavior, camera rule, spatial relationship, or consequence—not as a decorative title or theme label.
+- If a reference mechanic recurs, evolve it. Change its consequence, scale, material, relationship, or viewpoint so the graph visibly accumulates meaning rather than repeating a franchise-adjacent tableau.
+- Bind every count to the exact approved Red, Blue, and/or Green Avatar seed assets selected by the packet. Preserve identity while varying pose, action, scale, lens, environment, lighting, and cinematic grammar.
+- Preserve existing prompt/image/keyframe/video facts with `preserve_existing_media`; author missing counts as `candidate_direction_only` and keep every new prompt `stage_only` with image activation `not_requested`.
+
+## Prohibited shortcuts
+
+- Do not write or run a deterministic scene generator, loop, template expander, catalog rotation, modulo selector, or phrase substitution system.
+- Do not assign locations, cameras, actions, energy labels, compositions, references, or motifs by index rotation.
+- Do not stamp the same Beginning/Pressure/Release wording or any other sentence scaffold into every GPT Image prompt.
+- Do not use an external provider or generate images or videos.
+- Do not invent lyrics, private facts, absent people, or unsupported references.
+- Do not default to the same standing Avatar, forest/corridor, portrait scale, or atmospheric lighting merely because the identity seed contains those elements. The seed preserves identity; the song chooses the world.
+
+Shared seed-identity and negative-safety clauses may repeat where operationally necessary. The cinematic body, scene causality, semantic extraction, and justification must be individually reasoned for each count.
+
+## Image-worthy frame test
+
+Before emitting a count, verify all of the following:
+
+- A viewer can point to the local lyric noun/symbol and the local verb/state change in the image.
+- The frame has a specific location, affected object/material, composition, lens/camera position, light source, palette, and energy.
+- Its justification explains why this frame belongs at this exact four-count and how a contextual/reference layer changes the reading.
+- It remains distinct from adjacent frames even if the Avatar is mentally removed.
+- Incidental seed-derived animals or figures are not automatic failures. Keep them when they support the Avatar ecology or lyric; remove them when they replace the lyric action, create unsupported relationships, or homogenize the sequence.
+
+## Output
+
+- Produce exactly one JSON document using schema `hapa.echo.full-song-visual-screenplay.v1` and covering all packet counts in exact source order.
+- Leave mechanically derived hashes as the literal string `pending`; the trusted finalizer will calculate hashes without changing scene content.
+- Set schema-valid `review.status` to `staged` and add the review note `candidate-awaiting-independent-review; not approved and not activated`.
+- Do not claim that the candidate is approved and do not activate any image quest.
