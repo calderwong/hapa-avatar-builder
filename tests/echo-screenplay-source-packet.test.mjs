@@ -5,6 +5,7 @@ import path from "node:path";
 import test from "node:test";
 import {
   buildEchoScreenplaySourcePacket,
+  deriveEchoScreenplaySourcePacketHash,
   validateEchoScreenplayReferenceCoverage,
   validateEchoScreenplaySourcePacket,
 } from "../src/domain/echo-screenplay-source-packet.js";
@@ -28,6 +29,7 @@ test("screenplay source packet retains evidence labels, seed provenance, and adj
     albumConnectors: [{ sourceSongId: "other-song", referenceId: "other", confidence: "candidate", semanticEffect: { traversalEdges: ["return-route"] } }],
   });
   assert.equal(packet.mode, "read-only-source-packet");
+  assert.equal(packet.packetHash, deriveEchoScreenplaySourcePacketHash(packet));
   assert.match(packet.sourceRevision.songContextHash, /^sha256:[a-f0-9]{64}$/u);
   assert.match(packet.sourceRevision.seedSetHash, /^sha256:[a-f0-9]{64}$/u);
   assert.match(packet.sourceRevision.promptPolicyHash, /^sha256:[a-f0-9]{64}$/u);
@@ -79,11 +81,20 @@ test("source packet separates evergreen cast from explicitly attributed referenc
 });
 
 test("validator rejects malformed evidence confidence and window continuity", () => {
-  const packet = { schemaVersion: "hapa.echo.screenplay-source-packet.v1", song: { id: "x" }, fourCounts: [{ id: "x" }], referenceEvidence: [{ confidence: "unsupported" }], approvedAvatarSeeds: { assets: [] } };
+  const content = { schemaVersion: "hapa.echo.screenplay-source-packet.v1", song: { id: "x" }, fourCounts: [{ id: "x" }], referenceEvidence: [{ confidence: "unsupported" }], approvedAvatarSeeds: { assets: [] } };
+  const packet = { ...content, packetHash: deriveEchoScreenplaySourcePacketHash(content) };
   const result = validateEchoScreenplaySourcePacket(packet);
   assert.equal(result.ok, false);
   assert.ok(result.errors.includes("referenceEvidence.confidence"));
   assert.ok(result.errors.includes("fourCounts:x"));
+});
+
+test("validator rejects a packet whose immutable content no longer matches its packet hash", () => {
+  const packet = buildEchoScreenplaySourcePacket({ song, windows });
+  packet.song.title = "tampered";
+  const result = validateEchoScreenplaySourcePacket(packet);
+  assert.equal(result.ok, false);
+  assert.ok(result.errors.includes("packetHash"));
 });
 
 test("validator rejects seed assets without immutable SHA-256 provenance", () => {

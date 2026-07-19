@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { projectEchoScreenplayAuthoringQueue } from "../src/domain/echo-screenplay-authoring-queue.js";
+import { deriveEchoScreenplaySourcePacketHash } from "../src/domain/echo-screenplay-source-packet.js";
 import { run } from "../scripts/echo-screenplay-authoring-queue.mjs";
 
 function count(songId, ordinal, { prompt = "missing", screenplayHash = null, imageQuest = "blocked_by_prompt", image = "missing", video = "blocked_by_keyframe" } = {}) {
@@ -88,7 +89,7 @@ test("CLI defaults to read-only and --out --apply writes only the report", () =>
   fs.mkdirSync(artifactsRoot);
   const state = { processId: "fixture", status: "paused", events: [], counts: [count("song", 1), count("song", 2)] };
   fs.writeFileSync(processFile, JSON.stringify(state));
-  fs.writeFileSync(path.join(artifactsRoot, "song.packet.json"), JSON.stringify({ packet: {
+  const packetContent = {
     schemaVersion: "hapa.echo.screenplay-source-packet.v1",
     song: { id: "song" },
     fourCounts: ids("song").map((id) => ({ id, continuity: { current: { id } } })),
@@ -108,7 +109,8 @@ test("CLI defaults to read-only and --out --apply writes only the report", () =>
       directorTreatmentHash: fixtureHash,
       promptPolicyHash: fixtureHash,
     },
-  } }));
+  };
+  fs.writeFileSync(path.join(artifactsRoot, "song.packet.json"), JSON.stringify({ packet: { ...packetContent, packetHash: deriveEchoScreenplaySourcePacketHash(packetContent) } }));
   const beforeProcess = fs.readFileSync(processFile, "utf8");
   const beforeFiles = fs.readdirSync(root).sort();
   const dry = run(["--process", processFile, "--screenplay-root", artifactsRoot], { generatedAt: "2026-01-01T00:00:00Z" });

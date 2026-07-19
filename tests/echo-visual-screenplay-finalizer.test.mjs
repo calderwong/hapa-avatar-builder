@@ -12,6 +12,7 @@ import {
   startEchoSceneKeyframeProcess,
   validateEchoSongVisualScreenplay,
 } from "../src/domain/echo-scene-keyframe-process.js";
+import { deriveEchoScreenplaySourcePacketHash } from "../src/domain/echo-screenplay-source-packet.js";
 import { run } from "../scripts/finalize-echo-visual-screenplay.mjs";
 
 const at = "2026-07-18T14:00:00.000Z";
@@ -57,7 +58,7 @@ function candidateFor(state) {
 }
 
 function sourcePacketFor(state) {
-  return {
+  const packet = {
     schemaVersion: "hapa.echo.screenplay-source-packet.v1",
     mode: "read-only-source-packet",
     song: { id: "song-finalizer", lyricMaster: { status: "matched_exact", text: "If I pause it, I might know" } },
@@ -75,8 +76,8 @@ function sourcePacketFor(state) {
     approvedAvatarSeeds: { assets: [] },
     castAttribution: { primary: { avatarId: "blue" }, additional: [] },
     sourceRevision: { songContextHash: hash("1"), lyricsHash: hash("2"), timingHash: hash("3"), referenceGraphHash: hash("7"), seedSetHash: hash("4"), directorTreatmentHash: hash("8"), promptPolicyHash: hash("5") },
-    packetHash: hash("a"),
   };
+  return { ...packet, packetHash: deriveEchoScreenplaySourcePacketHash(packet) };
 }
 
 function fixture() {
@@ -100,7 +101,7 @@ function args(files, extras = []) {
     "--output", files.outputPath,
     "--requested-model", "gpt-5.6-terra",
     "--agent-task-name", "/root/full-song-author",
-    "--source-packet-hash", hash("a"),
+    "--source-packet-hash", JSON.parse(fs.readFileSync(files.packetPath, "utf8")).packetHash,
     "--instruction-hash", hash("b"),
     "--started-at", "2026-07-18T13:00:00.000Z",
     "--completed-at", "2026-07-18T13:45:00.000Z",
@@ -183,6 +184,7 @@ test("finalizer refuses a screenplay whose reference decisions or source revisio
     referenceId: "work",
     target: { songId: "song-finalizer", lyricText: "If I pause it, I might know", matchedText: "pause" },
   }];
+  packet.packetHash = deriveEchoScreenplaySourcePacketHash(packet);
   fs.writeFileSync(files.packetPath, JSON.stringify(packet));
   assert.throws(() => run(args(files)), /Reference coverage failed/u);
 

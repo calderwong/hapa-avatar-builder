@@ -9,6 +9,11 @@ function stable(value) {
 }
 
 function hash(value) { return `sha256:${crypto.createHash("sha256").update(stable(value)).digest("hex")}`; }
+export function deriveEchoScreenplaySourcePacketHash(packet) {
+  const content = structuredClone(packet || {});
+  delete content.packetHash;
+  return hash(content);
+}
 function compactAsset(asset) {
   const storage = asset?.metadata?.storage || asset?.storage || {};
   return {
@@ -356,7 +361,7 @@ export function buildEchoScreenplaySourcePacket({ song, project, telemetry, wind
     promptPolicyHash: hash({ authoringInstruction: packet.authoringInstruction, qualityPolicy: packet.qualityPolicy, constraints: packet.constraints }),
   };
   const revisionedPacket = { ...packet, sourceRevision };
-  return { ...revisionedPacket, packetHash: hash(revisionedPacket) };
+  return { ...revisionedPacket, packetHash: deriveEchoScreenplaySourcePacketHash(revisionedPacket) };
 }
 
 export function validateEchoScreenplaySourcePacket(packet) {
@@ -389,5 +394,6 @@ export function validateEchoScreenplaySourcePacket(packet) {
   }
   for (const row of packet?.referenceEvidence || []) if (!['direct', 'candidate', 'contextual'].includes(row.confidence)) errors.push("referenceEvidence.confidence");
   for (const window of packet?.fourCounts || []) if (!window.id || !window.continuity?.current) errors.push(`fourCounts:${window?.id || "unknown"}`);
+  if (packet?.packetHash !== deriveEchoScreenplaySourcePacketHash(packet)) errors.push("packetHash");
   return { ok: errors.length === 0, errors };
 }
