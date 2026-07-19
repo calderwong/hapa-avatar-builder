@@ -21,6 +21,18 @@ The canonical domain module is `src/domain/tarot-stargate-context-card.js`. All 
 
 The parity contract explicitly excludes cohort secrets, raw Passes/tokens, full rendezvous topics/addresses, private keys, credentials, and local paths. Minting preserves one stable global Card ID: Avatar Builder stages one `card.created` event, Overwind alone acknowledges it with a durable cursor, and `.hapaCatalog` consumes that exact Card/revision through its existing subscriber. Catalog remains a source-only, non-sellable projection until separate governed commerce authority exists.
 
+## Consented media Comment Card parity
+
+All surfaces use the append-only service in `server/avatar-media-comment-service.mjs`. A finalized capture creates a separate proposed Comment Card plus Lesson and Result Cards; the exact source snapshot remains unchanged and nothing is minted automatically.
+
+| Surface | Capture and custody behavior |
+| --- | --- |
+| UI | **Comment Cam** opens the consent-and-attribution chamber over the active Gate. Existing Camera Card records in place; **Phone · No Certificate** uses the native phone camera picker over a token-bound local HTTP page. **Reveal Card in 3D** exposes the separate amber Comment Card and animated lineage tether. |
+| API | `/api/media-comments` plus capture, status, consent, binary media, revoke, and content-addressed asset routes. Physical-phone requests require the short-lived invite token. |
+| CLI | `media-comments`, `media-comment-create`, `media-comment-status`, `media-comment-consent`, `media-comment-upload`, and `media-comment-revoke`. `HAPA_AVATAR_COMMENT_TOKEN` is the only CLI token source; `--token-out` prevents capability material from entering terminal history. |
+
+Browser, physical-device, local-network, and broader-network claims remain separate. See `docs/CONSENTED_MEDIA_COMMENTS.md` and `tests/avatar-media-comment-parity.test.mjs`.
+
 Registry resolution is verified as follows:
 
 - Quest Keeper maps `hapa-avatar-builder` to board `hapa-app-hapa-avatar-builder` in `hapa-quest-keeper/src/quest-core.mjs`.

@@ -108,6 +108,10 @@ import { StargateContextReturnResolver } from "./stargate-context-return-resolve
 import { StargateGatePassBroker } from "./stargate-gate-pass-broker.mjs";
 import { runStargateGatePassProof } from "./stargate-gate-pass-proof.mjs";
 import { STARGATE_PUBLIC_DEMO_SECRET } from "../src/domain/tarot-stargate-derivation.js";
+import {
+  AVATAR_MEDIA_COMMENT_MAX_BYTES,
+  openAvatarMediaCommentService,
+} from "./avatar-media-comment-service.mjs";
 import { MintLedgerError, createSongCardMintController } from "./song-card-mint-controller.mjs";
 import { createSongCardRemintStore } from "./song-card-remint-store.mjs";
 import { createSongCardLocalRenderBridge, inspectSongCardRendererBuildIdentity } from "./song-card-local-renderer.mjs";
@@ -528,6 +532,8 @@ const stargateContextReturnResolver = new StargateContextReturnResolver({
   subscriber: avatarOverwindSubscriber
 });
 const stargateGatePassBroker = new StargateGatePassBroker();
+const AVATAR_MEDIA_COMMENT_ROOT = process.env.HAPA_AVATAR_MEDIA_COMMENT_ROOT || path.join(DATA_DIR, "media-comments");
+const avatarMediaCommentService = await openAvatarMediaCommentService({ root: AVATAR_MEDIA_COMMENT_ROOT });
 const STARGATE_GATE_PASS_PROFILE_ROOT = process.env.HAPA_GATE_PASS_PROFILE_ROOT || path.join(OVERWIND_DIR, "gate-pass");
 const OVERWIND_BOOTSTRAP_PATH = path.join(OVERWIND_DIR, "avatar-builder-bootstrap.json");
 const OVERWIND_SHELL_BOOTSTRAP_PATH = path.join(OVERWIND_DIR, "avatar-builder-shell-bootstrap.json");
@@ -1571,6 +1577,96 @@ async function route(req, res) {
 
   if (pathname === "/api/phone-bridge/info" && req.method === "GET") {
     sendJson(res, 200, phoneBridgeInfo(req, url));
+    return;
+  }
+
+  if (pathname === "/api/media-comments" && req.method === "GET") {
+    sendJson(res, 200, avatarMediaCommentService.list());
+    return;
+  }
+
+  if (pathname === "/api/media-comments/captures" && req.method === "POST") {
+    try {
+      const body = await readBody(req);
+      const capture = await avatarMediaCommentService.createCapture(body);
+      const consent = body.consent?.granted === true
+        ? await avatarMediaCommentService.grantConsent(capture.captureId, {
+          authorityId: body.consent.authorityId || body.actor?.actorId,
+          allowAudio: body.consent.allowAudio !== false,
+          evidenceNote: body.consent.evidenceNote || "Explicitly approved in the Avatar Builder Tarot Draw consent chamber",
+        }, { inviteToken: capture.inviteToken })
+        : null;
+      sendJson(res, 201, { ok: true, capture: consent || capture, inviteToken: capture.inviteToken || null });
+    } catch (error) {
+      sendJson(res, Number(error?.statusCode || 422), { ok: false, error: error?.code || "media_comment_capture_failed", message: error?.message || String(error) });
+    }
+    return;
+  }
+
+  const mediaCommentCaptureMatch = pathname.match(/^\/api\/media-comments\/captures\/([a-zA-Z0-9_-]+)$/);
+  if (mediaCommentCaptureMatch && req.method === "GET") {
+    try {
+      const capture = avatarMediaCommentService.captureByCredential(mediaCommentCaptureMatch[1], mediaCommentInviteToken(req, url));
+      sendJson(res, 200, { ok: true, capture });
+    } catch (error) {
+      sendJson(res, Number(error?.statusCode || 404), { ok: false, error: error?.code || "media_comment_capture_unavailable", message: error?.message || String(error) });
+    }
+    return;
+  }
+
+  const mediaCommentConsentMatch = pathname.match(/^\/api\/media-comments\/captures\/([a-zA-Z0-9_-]+)\/consent$/);
+  if (mediaCommentConsentMatch && req.method === "POST") {
+    try {
+      const body = await readBody(req);
+      const capture = await avatarMediaCommentService.grantConsent(mediaCommentConsentMatch[1], body, { inviteToken: mediaCommentInviteToken(req, url) });
+      sendJson(res, 201, { ok: true, capture });
+    } catch (error) {
+      sendJson(res, Number(error?.statusCode || 422), { ok: false, error: error?.code || "media_comment_consent_failed", message: error?.message || String(error) });
+    }
+    return;
+  }
+
+  const mediaCommentMediaMatch = pathname.match(/^\/api\/media-comments\/captures\/([a-zA-Z0-9_-]+)\/media$/);
+  if (mediaCommentMediaMatch && req.method === "PUT") {
+    try {
+      const bytes = await readRawBody(req, AVATAR_MEDIA_COMMENT_MAX_BYTES);
+      const result = await avatarMediaCommentService.finalizeCapture(mediaCommentMediaMatch[1], {
+        bytes,
+        mimeType: req.headers["content-type"] || "application/octet-stream",
+        durationSeconds: req.headers["x-hapa-comment-duration"],
+        width: req.headers["x-hapa-comment-width"],
+        height: req.headers["x-hapa-comment-height"],
+        actorId: req.headers["x-hapa-comment-actor"],
+        deviceId: req.headers["x-hapa-comment-device"],
+        expectedSha256: req.headers["x-hapa-comment-sha256"] || null,
+        inviteToken: mediaCommentInviteToken(req, url),
+      });
+      sendJson(res, 201, { ok: true, result });
+    } catch (error) {
+      sendJson(res, Number(error?.statusCode || 422), { ok: false, error: error?.code || "media_comment_finalize_failed", message: error?.message || String(error) });
+    }
+    return;
+  }
+
+  const mediaCommentRevokeMatch = pathname.match(/^\/api\/media-comments\/captures\/([a-zA-Z0-9_-]+)\/revoke$/);
+  if (mediaCommentRevokeMatch && req.method === "POST") {
+    try {
+      const body = await readBody(req);
+      sendJson(res, 201, await avatarMediaCommentService.revokeConsent({ captureId: mediaCommentRevokeMatch[1], authorityId: body.authorityId, reason: body.reason }, { inviteToken: mediaCommentInviteToken(req, url) }));
+    } catch (error) {
+      sendJson(res, Number(error?.statusCode || 422), { ok: false, error: error?.code || "media_comment_revoke_failed", message: error?.message || String(error) });
+    }
+    return;
+  }
+
+  const mediaCommentAssetMatch = pathname.match(/^\/api\/media-comments\/assets\/([a-f0-9]{64})$/);
+  if (mediaCommentAssetMatch && (req.method === "GET" || req.method === "HEAD")) {
+    try {
+      const asset = await avatarMediaCommentService.asset(mediaCommentAssetMatch[1]);
+      await serveLocalFile(asset.filePath, req, res);
+    } catch (error) {
+      sendJson(res, Number(error?.statusCode || 404), { ok: false, error: error?.code || "comment_asset_not_found", message: error?.message || String(error) });
+    }
     return;
   }
 
@@ -7517,6 +7613,32 @@ async function readBody(req) {
   return text ? JSON.parse(text) : {};
 }
 
+function mediaCommentInviteToken(req, url) {
+  return String(req.headers["x-hapa-comment-token"] || url?.searchParams?.get("token") || "").trim();
+}
+
+async function readRawBody(req, limitBytes = MAX_REQUEST_BYTES) {
+  const limit = Math.max(1, Number(limitBytes) || MAX_REQUEST_BYTES);
+  const declared = Number(req.headers["content-length"] || 0);
+  if (declared > limit) {
+    const error = new Error(`request_body_too_large: limit=${limit}`);
+    error.statusCode = 413;
+    throw error;
+  }
+  const chunks = [];
+  let total = 0;
+  for await (const chunk of req) {
+    total += chunk.length;
+    if (total > limit) {
+      const error = new Error(`request_body_too_large: limit=${limit}`);
+      error.statusCode = 413;
+      throw error;
+    }
+    chunks.push(chunk);
+  }
+  return Buffer.concat(chunks);
+}
+
 function songCardPlanOperationError(code, message, statusCode, details = {}) {
   const error = new Error(message);
   error.code = code;
@@ -9035,9 +9157,10 @@ function phoneBridgeInfo(req, url) {
 
 async function createPhoneBridgeInvite(req, url, body = {}) {
   cleanupPhoneBridgeSessions();
+  const commentCaptureRequest = body.commentCapture && typeof body.commentCapture === "object" ? body.commentCapture : null;
   const session = safePhoneBridgeSessionId(body.session || "") || randomPhoneBridgeSessionId("scene");
   const record = ensurePhoneBridgeSession(session);
-  const origin = publicPhoneBridgeOrigin(req);
+  const origin = commentCaptureRequest ? publicNativePhoneBridgeOrigin() : publicPhoneBridgeOrigin(req);
   const desktopOrigin = requestPhoneBridgeOrigin(req);
   const now = Date.now();
   const createdAt = new Date(now).toISOString();
@@ -9054,10 +9177,20 @@ async function createPhoneBridgeInvite(req, url, body = {}) {
   const desktopJsonUrl = `${desktopInviteBaseUrl}.json`;
   const desktopRoomletInviteUrl = `${desktopInviteBaseUrl}.hapa-room`;
   const desktopRoomletControlUrl = `${desktopInviteBaseUrl}/roomlet-controls`;
-  const certificateUrl = publicPhoneBridgeCertificateUrl(req);
+  const certificateUrl = commentCaptureRequest ? null : publicPhoneBridgeCertificateUrl(req);
   const sceneSnapshot = body.sceneSnapshot && typeof body.sceneSnapshot === "object" ? body.sceneSnapshot : null;
   const title = cleanPhoneBridgeInviteTitle(body.title || "Scene Webcam Invitation");
   const avatarName = cleanPhoneBridgeInviteTitle(body.avatarName || sceneSnapshot?.avatarName || "Hapa");
+  const commentCapture = commentCaptureRequest ? await avatarMediaCommentService.createCapture({
+    sourceCard: commentCaptureRequest.sourceCard,
+    context: commentCaptureRequest.context,
+    actor: commentCaptureRequest.actor,
+    device: {
+      kind: "physical_phone",
+      deviceId: commentCaptureRequest.device?.deviceId || `phone-${inviteId}`,
+      displayLabel: commentCaptureRequest.device?.displayLabel || "Phone native camera",
+    },
+  }) : null;
   const iceServers = phoneBridgeIceServers();
   const roomletRoomView = sceneSnapshot?.roomletRoomView || sceneSnapshot?.roomletParticipants || null;
   const roomletNetwork = body.roomletNetwork && typeof body.roomletNetwork === "object"
@@ -9159,7 +9292,9 @@ async function createPhoneBridgeInvite(req, url, body = {}) {
       desktopRoomletControlUrl,
       phoneCardUrl: `${origin}/phone-card?session=${encodeURIComponent(record.id)}&invite=${encodeURIComponent(inviteId)}&card=${encodeURIComponent(cardId)}`,
       desktopPhoneCardUrl: `${desktopOrigin}/phone-card?session=${encodeURIComponent(record.id)}&invite=${encodeURIComponent(inviteId)}&card=${encodeURIComponent(cardId)}`,
-      certificateUrl
+      certificateUrl,
+      nativeCaptureUrl: commentCapture ? htmlUrl : null,
+      secureLiveCameraUrl: commentCapture ? `${publicPhoneBridgeOrigin(req)}/phone-card?session=${encodeURIComponent(record.id)}&invite=${encodeURIComponent(inviteId)}&card=${encodeURIComponent(cardId)}` : null,
     },
     roomlet: {
       invite: roomlet.invite,
@@ -9177,6 +9312,21 @@ async function createPhoneBridgeInvite(req, url, body = {}) {
       }
     },
     sceneSnapshot,
+    commentCapture: commentCapture ? {
+      schemaVersion: commentCapture.schemaVersion,
+      captureId: commentCapture.captureId,
+      inviteToken: commentCapture.inviteToken,
+      expiresAt: commentCapture.expiresAt,
+      actor: commentCapture.actor,
+      device: commentCapture.device,
+      sourceRef: commentCapture.sourceRef,
+      sourceSnapshotDigest: commentCapture.sourceSnapshotDigest,
+      context: commentCapture.context,
+      status: commentCapture.status,
+      defaultPath: "native-camera-picker",
+      certificateRequired: false,
+      truthBoundary: "This HTTP path invokes the phone's native camera picker and uploads one bounded file. Live WebRTC/FPV remains a separate optional secure path. A physical-device claim still requires independent demo evidence."
+    } : null,
     card
   };
   invite.integrity = {
@@ -9353,6 +9503,8 @@ function renderPhoneBridgeInviteHtml(invite = {}) {
   const inviteFileBase = `./${encodeURIComponent(invite.id || "hapa-room")}`;
   const jsonUrl = `${inviteFileBase}.json`;
   const roomletInviteUrl = `${inviteFileBase}.hapa-room`;
+  const hasCommentCapture = Boolean(invite.commentCapture?.captureId && invite.commentCapture?.inviteToken);
+  const sourceTitle = escapePhoneBridgeHtml(invite.commentCapture?.sourceRef?.cardId || invite.card?.title || "Selected Hapa Card");
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -9375,6 +9527,18 @@ function renderPhoneBridgeInviteHtml(invite = {}) {
     .meta span { display: grid; gap: 4px; border: 1px solid rgba(255,255,255,0.09); padding: 10px; background: rgba(2, 8, 18, 0.68); overflow-wrap: anywhere; }
     .meta strong { color: var(--gold); font: 800 10px ui-monospace, SFMono-Regular, Menlo, monospace; text-transform: uppercase; letter-spacing: 0.08em; }
     .actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+    .native-capture { display: ${hasCommentCapture ? "grid" : "none"}; gap: 14px; border-color: rgba(246, 201, 109, 0.5); background: radial-gradient(circle at 82% 10%, rgba(246, 201, 109, 0.17), transparent 34%), linear-gradient(180deg, rgba(12, 22, 39, 0.96), rgba(3, 9, 20, 0.92)); }
+    .native-capture h2 { margin: 0; font-size: clamp(22px, 7vw, 42px); line-height: 1; }
+    .native-capture label { display: flex; gap: 10px; align-items: flex-start; padding: 12px; border: 1px solid rgba(246, 201, 109, 0.28); background: rgba(2, 8, 18, 0.7); color: var(--ink); font-size: 14px; line-height: 1.4; }
+    .native-capture input[type="checkbox"] { width: 22px; height: 22px; flex: 0 0 auto; accent-color: var(--gold); }
+    .native-capture input[type="file"] { width: 100%; padding: 12px; border: 1px dashed rgba(0, 243, 255, 0.48); color: var(--ink); background: rgba(0, 243, 255, 0.06); }
+    .native-proof { display: grid; grid-template-columns: repeat(3, 1fr); gap: 7px; }
+    .native-proof span { padding: 9px; border: 1px solid rgba(69, 242, 200, 0.22); color: #45f2c8; font: 800 10px ui-monospace, SFMono-Regular, Menlo, monospace; text-align: center; text-transform: uppercase; }
+    .advanced-live { opacity: .74; }
+    .advanced-live summary { cursor: pointer; color: var(--cyan); font: 800 11px ui-monospace, SFMono-Regular, Menlo, monospace; text-transform: uppercase; }
+    #result { display: none; gap: 6px; padding: 12px; border: 1px solid rgba(69, 242, 200, 0.44); background: rgba(69, 242, 200, 0.07); }
+    #result[data-visible="true"] { display: grid; }
+    #result strong { color: #45f2c8; }
     #status { color: var(--cyan); font: 800 12px ui-monospace, SFMono-Regular, Menlo, monospace; text-transform: uppercase; letter-spacing: 0.08em; }
     #error { color: #ff7f9b; font-size: 13px; min-height: 1.2em; }
   </style>
@@ -9384,18 +9548,32 @@ function renderPhoneBridgeInviteHtml(invite = {}) {
     <section>
       <p id="status">Invitation Created</p>
       <h1>${title}</h1>
-      <p>This camera invite is linked to the current Hapa Tarot Draw scene. Start the camera here, or open the full Phone Card controller for flight controls.</p>
+      <p>${hasCommentCapture ? `Record one bounded Comment on ${sourceTitle}. The default path opens this phone's native camera and needs no certificate.` : "This camera invite is linked to the current Hapa Tarot Draw scene. Start the camera here, or open the full Phone Card controller for flight controls."}</p>
     </section>
-    <section>
+    <section class="native-capture">
+      <p id="native-kicker">ZERO-CERTIFICATE NATIVE CAPTURE</p>
+      <h2>Leave a Video Comment Card</h2>
+      <p>The source Card stays unchanged. Your clip becomes a separate proposed Card with your consent, attribution, exact source revision, and this Gate context attached.</p>
+      <div class="native-proof"><span>Source pinned</span><span>Consent sealed</span><span>Separate Card</span></div>
+      <label><input id="consent" type="checkbox"> <span>I am <strong>${escapePhoneBridgeHtml(invite.commentCapture?.actor?.displayName || "the named author")}</strong>. I consent to record one bounded video Comment, including audio if present, for this session. Reuse requires explicit approval.</span></label>
+      <input id="native-file" type="file" accept="video/webm,video/mp4,video/quicktime,video/*" capture="user">
+      <video id="native-preview" playsinline controls muted></video>
+      <div class="actions"><button id="upload-comment" type="button">Seal Comment Card</button></div>
+      <div id="result"><strong>Comment Card proposed</strong><span id="result-card"></span><span>Source unchanged · nothing auto-minted</span></div>
+    </section>
+    <section class="advanced-live">
+      <details ${hasCommentCapture ? "" : "open"}>
+      <summary>${hasCommentCapture ? "Optional secure live FPV / Phone Card controls" : "Live camera controls"}</summary>
       <video id="preview" playsinline autoplay muted></video>
       <div class="actions">
-        <button id="join" type="button">Join With Camera</button>
+        <button id="join" type="button">Join Live Camera</button>
         <button id="stop" type="button" disabled>Stop Camera</button>
         <a id="phone-card-link" class="button" href="${phoneCardUrl}">Open Phone Card</a>
         <a class="button" href="${jsonUrl}" download="${escapePhoneBridgeHtml(invite.id || "scene-invite")}.json">Invite JSON</a>
         <a class="button" href="${roomletInviteUrl}" download="${escapePhoneBridgeHtml(invite.id || "hapa-room")}.hapa-room">Roomlet Invite</a>
       </div>
       <p id="error"></p>
+      </details>
     </section>
     <section class="meta">
       <span><strong>Card</strong>${cardId}</span>
@@ -9414,12 +9592,92 @@ function renderPhoneBridgeInviteHtml(invite = {}) {
       stop: document.getElementById("stop"),
       phoneCardLink: document.getElementById("phone-card-link")
     };
+    const native = {
+      consent: document.getElementById("consent"),
+      file: document.getElementById("native-file"),
+      preview: document.getElementById("native-preview"),
+      upload: document.getElementById("upload-comment"),
+      result: document.getElementById("result"),
+      resultCard: document.getElementById("result-card")
+    };
     let pc = null;
     let stream = null;
     let since = 0;
     let pollTimer = 0;
     function setStatus(text) { els.status.textContent = text || "Invitation Created"; }
     function setError(text) { els.error.textContent = text || ""; }
+    function commentApi(pathname) {
+      const base = new URL(invite.links.nativeCaptureUrl || location.href);
+      return new URL(pathname, base.origin).href;
+    }
+    function commentHeaders(extra = {}) {
+      return { "x-hapa-comment-token": invite.commentCapture && invite.commentCapture.inviteToken || "", ...extra };
+    }
+    async function videoMetadataFor(file) {
+      const objectUrl = URL.createObjectURL(file);
+      try {
+        const video = document.createElement("video");
+        video.preload = "metadata";
+        video.src = objectUrl;
+        await new Promise((resolve, reject) => { video.onloadedmetadata = resolve; video.onerror = () => reject(new Error("Could not read the selected video")); });
+        return { duration: Number(video.duration || 0), width: Number(video.videoWidth || 0), height: Number(video.videoHeight || 0), objectUrl };
+      } catch (error) {
+        URL.revokeObjectURL(objectUrl);
+        throw error;
+      }
+    }
+    async function sealNativeComment() {
+      if (!invite.commentCapture) return;
+      setError("");
+      if (!native.consent.checked) { setError("Check the consent statement before recording or upload."); return; }
+      const file = native.file.files && native.file.files[0];
+      if (!file) { setError("Capture or choose one video first."); return; }
+      native.upload.disabled = true;
+      setStatus("Sealing Consent");
+      let metadata;
+      try {
+        metadata = await videoMetadataFor(file);
+        native.preview.src = metadata.objectUrl;
+        const consentResponse = await fetch(commentApi("/api/media-comments/captures/" + encodeURIComponent(invite.commentCapture.captureId) + "/consent"), {
+          method: "POST", headers: commentHeaders({ "Content-Type": "application/json" }),
+          body: JSON.stringify({ authorityId: invite.commentCapture.actor.actorId, allowAudio: true, evidenceNote: "Confirmed on the zero-certificate native phone capture surface" })
+        });
+        const consentPayload = await consentResponse.json().catch(() => ({}));
+        if (!consentResponse.ok) throw new Error(consentPayload.message || "Consent could not be sealed");
+        setStatus("Pressing Comment Card");
+        const uploadResponse = await fetch(commentApi("/api/media-comments/captures/" + encodeURIComponent(invite.commentCapture.captureId) + "/media"), {
+          method: "PUT",
+          headers: commentHeaders({
+            "Content-Type": file.type || "video/mp4",
+            "x-hapa-comment-duration": String(metadata.duration || 0.1),
+            "x-hapa-comment-width": String(metadata.width || 1),
+            "x-hapa-comment-height": String(metadata.height || 1),
+            "x-hapa-comment-actor": invite.commentCapture.actor.actorId,
+            "x-hapa-comment-device": invite.commentCapture.device.deviceId
+          }),
+          body: file
+        });
+        const uploadPayload = await uploadResponse.json().catch(() => ({}));
+        if (!uploadResponse.ok) throw new Error(uploadPayload.message || "Comment Card upload failed");
+        native.result.dataset.visible = "true";
+        native.resultCard.textContent = uploadPayload.result.card.id;
+        setStatus("Comment Card Proposed");
+        await postEvent("desktop", "comment-card-finalized", {
+          inviteId: invite.id,
+          captureId: invite.commentCapture.captureId,
+          card: uploadPayload.result.card,
+          lessonCard: uploadPayload.result.lessonCard,
+          resultCard: uploadPayload.result.resultCard,
+          manifest: { ...uploadPayload.result, card: undefined, lessonCard: undefined, resultCard: undefined },
+          physicalDeviceClaim: uploadPayload.result.physicalDeviceClaim
+        });
+      } catch (error) {
+        setError(error && error.message || "Comment capture failed.");
+        setStatus("Comment Capture Halted");
+      } finally {
+        native.upload.disabled = false;
+      }
+    }
     if (els.phoneCardLink && invite.links.desktopPhoneCardUrl && /^(localhost|127\\.0\\.0\\.1|\\[::1\\])$/.test(location.hostname)) {
       els.phoneCardLink.href = invite.links.desktopPhoneCardUrl;
     }
@@ -9510,6 +9768,15 @@ function renderPhoneBridgeInviteHtml(invite = {}) {
     }
     els.join.addEventListener("click", join);
     els.stop.addEventListener("click", stop);
+    if (native.upload) native.upload.addEventListener("click", sealNativeComment);
+    if (native.file) native.file.addEventListener("change", () => {
+      const file = native.file.files && native.file.files[0];
+      if (!file) return;
+      const previewUrl = URL.createObjectURL(file);
+      native.preview.src = previewUrl;
+      native.preview.play().catch(() => {});
+      setStatus("Video Ready For Consent");
+    });
     postEvent("desktop", "viewer-ready", {
       userAgent: navigator.userAgent,
       inviteId: invite.id,
@@ -9632,6 +9899,14 @@ function publicPhoneBridgeOrigin(req) {
   const publicHost = process.env.HAPA_AVATAR_PUBLIC_HOST || firstLanIPv4Address() || "127.0.0.1";
   const publicPort = process.env.HAPA_AVATAR_PUBLIC_PORT || port;
   return `${proto}://${publicHost}:${publicPort}`;
+}
+
+function publicNativePhoneBridgeOrigin() {
+  const explicit = process.env.HAPA_AVATAR_PUBLIC_HTTP_ORIGIN || process.env.HAPA_AVATAR_PUBLIC_ORIGIN || "";
+  if (/^http:\/\//.test(explicit)) return explicit.replace(/\/+$/, "");
+  const publicHost = process.env.HAPA_AVATAR_PUBLIC_HOST || firstLanIPv4Address() || "127.0.0.1";
+  const publicPort = process.env.HAPA_AVATAR_PUBLIC_PORT || port;
+  return `http://${publicHost}:${publicPort}`;
 }
 
 function requestPhoneBridgeOrigin(req) {

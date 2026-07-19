@@ -109,6 +109,7 @@
     "evidence:stargate-catalog-return-capture": "node scripts/run-isolated-stargate-context-evidence.mjs --catalog-return-capture",
     "evidence:stargate-gate-pass": "node scripts/run-isolated-stargate-context-evidence.mjs --gate-pass",
     "evidence:stargate-gate-pass-capture": "node scripts/run-isolated-stargate-context-evidence.mjs --gate-pass-capture",
+    "evidence:stargate-media-comment-capture": "node scripts/run-isolated-stargate-context-evidence.mjs --media-comment-capture",
     "evidence:stargate-interoperability-roundtrip": "node scripts/run-stargate-interoperability-roundtrip-evidence.mjs",
     "smoke:echo-player-pool": "electron scripts/echo-player-pool-smoke.cjs",
     "smoke:mind-ui": "electron scripts/avatar-mind-ui-smoke.cjs",

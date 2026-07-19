@@ -80,7 +80,7 @@ export function isStargateContextCard(card = {}) {
   return stargateContextEnvelopeFromCard(card)?.schemaVersion === STARGATE_CONTEXT_CARD_SCHEMA;
 }
 
-function gateCommitment(stargate = {}) {
+export function stargateGateCommitment(stargate = {}) {
   const rendezvousTopic = requiredText(stargate.rendezvousTopic, "$.stargate.rendezvousTopic");
   if (!DIGEST.test(rendezvousTopic)) throw new TypeError("$.stargate.rendezvousTopic must be a lowercase SHA-256 digest");
   return digest({
@@ -322,7 +322,7 @@ export function buildStargateContextCard({ sceneCard, stargate, origin = {}, inv
       privacyScope: String(stargate.privacyScope || "invite_only"),
       purposeCode: String(semanticFormation.purposeCode || ""),
       semanticFormationDigest: stargate.formationDigest,
-      gateCommitment: gateCommitment(stargate),
+      gateCommitment: stargateGateCommitment(stargate),
       invitationCommitment: DIGEST.test(invitationCommitment || "") ? invitationCommitment : null,
       addressRedacted
     },

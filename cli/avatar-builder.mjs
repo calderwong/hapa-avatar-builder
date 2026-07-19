@@ -145,6 +145,100 @@ async function main(cmd, opts) {
     return;
   }
 
+  if (cmd === "media-comments") {
+    print(await mediaCommentApiRequest(opts, "/api/media-comments"), { ...opts, json: true });
+    return;
+  }
+
+  if (cmd === "media-comment-create") {
+    const sourceFile = option(opts, "source-file", "source");
+    const actorId = String(opts.actor || "").trim();
+    const deviceKind = String(opts.device || "browser_webcam").trim();
+    if (!sourceFile || !actorId) throw new Error("media-comment-create requires --source-file <card.json> --actor <human-id>.");
+    if (!["browser_webcam", "physical_phone"].includes(deviceKind)) throw new Error("media-comment-create --device must be browser_webcam or physical_phone.");
+    const tokenOut = deviceKind === "physical_phone" ? option(opts, "token-out") : null;
+    if (deviceKind === "physical_phone" && !tokenOut) throw new Error("media-comment-create --device physical_phone requires --token-out <private-file> so the capability is never printed to terminal history.");
+    if (tokenOut) {
+      const tokenPath = path.resolve(String(tokenOut));
+      try {
+        await stat(tokenPath);
+        throw new Error(`Refusing to overwrite an existing Comment capability file: ${tokenPath}`);
+      } catch (error) {
+        if (error?.code !== "ENOENT") throw error;
+      }
+    }
+    const sourceCard = await readJsonInput(sourceFile);
+    const body = {
+      sourceCard,
+      context: {
+        timecode: { startSeconds: Number(opts.start || 0), endSeconds: Number(opts.end || 8) },
+        formationDigest: String(option(opts, "formation-digest", "formation") || ""),
+        gateCommitment: String(option(opts, "gate-commitment", "gate") || ""),
+        redactedAddress: String(option(opts, "redacted-address", "address") || "withheld")
+      },
+      actor: { actorId, actorType: "human", displayName: String(option(opts, "display-name", "name") || actorId) },
+      device: { kind: deviceKind, deviceId: String(option(opts, "device-id", "device-identity") || `${deviceKind}-cli`), displayLabel: String(option(opts, "device-label", "label") || (deviceKind === "physical_phone" ? "Phone native camera" : "Avatar Builder CLI webcam")) },
+      ...(opts.consent === true ? { consent: { granted: true, authorityId: actorId, allowAudio: opts["no-audio"] !== true, evidenceNote: "Explicitly approved through the Avatar Builder CLI" } } : {})
+    };
+    const response = await mediaCommentApiRequest(opts, "/api/media-comments/captures", { method: "POST", body });
+    if (response.inviteToken) {
+      const tokenPath = path.resolve(String(tokenOut));
+      await mkdir(path.dirname(tokenPath), { recursive: true });
+      await writeFile(tokenPath, `${response.inviteToken}\n`, { encoding: "utf8", mode: 0o600, flag: "wx" });
+      response.inviteToken = null;
+      response.inviteTokenStoredAt = tokenPath;
+    }
+    print(response, { ...opts, json: true });
+    return;
+  }
+
+  if (cmd === "media-comment-status") {
+    const captureId = option(opts, "capture-id", "capture");
+    if (!captureId) throw new Error("media-comment-status requires --capture-id <id>.");
+    print(await mediaCommentApiRequest(opts, `/api/media-comments/captures/${encodeURIComponent(captureId)}`), { ...opts, json: true });
+    return;
+  }
+
+  if (cmd === "media-comment-consent") {
+    const captureId = option(opts, "capture-id", "capture");
+    const actorId = String(opts.actor || "").trim();
+    if (!captureId || !actorId || opts.consent !== true) throw new Error("media-comment-consent requires --capture-id <id> --actor <human-id> --consent.");
+    print(await mediaCommentApiRequest(opts, `/api/media-comments/captures/${encodeURIComponent(captureId)}/consent`, { method: "POST", body: { authorityId: actorId, allowAudio: opts["no-audio"] !== true, evidenceNote: "Explicitly approved through the Avatar Builder CLI" } }), { ...opts, json: true });
+    return;
+  }
+
+  if (cmd === "media-comment-upload") {
+    const captureId = option(opts, "capture-id", "capture");
+    const file = option(opts, "file", "media");
+    const actorId = String(opts.actor || "").trim();
+    const deviceId = String(option(opts, "device-id", "device") || "").trim();
+    const duration = Number(opts.duration || 0);
+    const width = Number(opts.width || 0);
+    const height = Number(opts.height || 0);
+    if (!captureId || !file || !actorId || !deviceId || !(duration > 0) || !(width > 0) || !(height > 0)) throw new Error("media-comment-upload requires --capture-id <id> --file <video> --actor <human-id> --device-id <id> --duration <seconds> --width <px> --height <px>.");
+    const resolved = path.resolve(String(file));
+    const bytes = await readFile(resolved);
+    print(await mediaCommentApiRequest(opts, `/api/media-comments/captures/${encodeURIComponent(captureId)}/media`, {
+      method: "PUT",
+      binary: bytes,
+      headers: {
+        "content-type": String(opts["mime-type"] || (resolved.endsWith(".mp4") ? "video/mp4" : "video/webm")),
+        "x-hapa-comment-duration": String(duration), "x-hapa-comment-width": String(width), "x-hapa-comment-height": String(height),
+        "x-hapa-comment-actor": actorId, "x-hapa-comment-device": deviceId,
+        ...(opts.sha256 ? { "x-hapa-comment-sha256": String(opts.sha256) } : {})
+      }
+    }), { ...opts, json: true });
+    return;
+  }
+
+  if (cmd === "media-comment-revoke") {
+    const captureId = option(opts, "capture-id", "capture");
+    const actorId = String(opts.actor || "").trim();
+    if (!captureId || !actorId) throw new Error("media-comment-revoke requires --capture-id <id> --actor <human-id>.");
+    print(await mediaCommentApiRequest(opts, `/api/media-comments/captures/${encodeURIComponent(captureId)}/revoke`, { method: "POST", body: { authorityId: actorId, reason: String(opts.reason || "Revoked through the Avatar Builder CLI") } }), { ...opts, json: true });
+    return;
+  }
+
   if (cmd === "list") {
     const store = await readStore();
     const avatars = store.avatars.map((avatar) => ({
@@ -1169,6 +1263,18 @@ async function stargateApiRequest(opts, pathname, { method = "GET", body, admin 
   return payload;
 }
 
+async function mediaCommentApiRequest(opts, pathname, { method = "GET", body, binary, headers: extraHeaders = {} } = {}) {
+  const baseUrl = String(option(opts, "api-url", "api") || process.env.HAPA_AVATAR_URL || "http://127.0.0.1:8787").replace(/\/$/, "");
+  const inviteToken = String(process.env.HAPA_AVATAR_COMMENT_TOKEN || "").trim();
+  const headers = { accept: "application/json", ...extraHeaders };
+  if (inviteToken) headers["x-hapa-comment-token"] = inviteToken;
+  if (body !== undefined) headers["content-type"] = "application/json";
+  const response = await fetch(`${baseUrl}${pathname}`, { method, headers, body: binary || (body === undefined ? undefined : JSON.stringify(body)) });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(payload.message || payload.error || `Avatar Builder media Comment request failed: ${response.status}`);
+  return payload;
+}
+
 function printHelp() {
   console.log(`Hapa Avatar Builder CLI
 
@@ -1182,6 +1288,12 @@ Commands:
   stargate-context-return --card-id <global-id> --revision <n> [--source hapa-avatar-builder] [--api-url http://127.0.0.1:8787] [--json]
   stargate-pass-request --card-id <global-id> --revision <n> --actor <human-id> --consent [--source hapa-avatar-builder] [--api-url http://127.0.0.1:8787] [--json]
   stargate-pass-proof --request-id <id> --consent [--api-url http://127.0.0.1:8787] [--json]
+  media-comments [--api-url http://127.0.0.1:8787] [--json]
+  media-comment-create --source-file ./card.json --formation-digest <sha256> --gate-commitment <sha256> --actor <human-id> [--device browser_webcam|physical_phone] [--consent] [--token-out ./private-token] [--json]
+  media-comment-status --capture-id <id> [--json]
+  media-comment-consent --capture-id <id> --actor <human-id> --consent [--json]
+  media-comment-upload --capture-id <id> --file ./comment.webm --actor <human-id> --device-id <id> --duration <seconds> --width <px> --height <px> [--mime-type video/webm] [--json]
+  media-comment-revoke --capture-id <id> --actor <human-id> [--reason "..."] [--json]
   scaffold Red Reaper --id red-reaper [--primary Red] [--json]
   audit <avatar-id> [--json]
   attach <avatar-id> [--target comic|video|agent] [--json]

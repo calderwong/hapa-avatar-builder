@@ -18089,6 +18089,106 @@ h1 {
   }
 }
 
+.tarot-comment-chamber {
+  --comment-state: 246, 201, 109;
+  position: absolute;
+  top: 92px;
+  right: 24px;
+  z-index: 24;
+  width: min(650px, calc(100vw - 390px));
+  max-height: calc(100% - 188px);
+  overflow: auto;
+  display: grid;
+  gap: 11px;
+  padding: 15px;
+  border: 1px solid rgba(var(--comment-state), 0.58);
+  background:
+    radial-gradient(circle at 80% 12%, rgba(255, 109, 242, 0.14), transparent 34%),
+    radial-gradient(circle at 16% 20%, rgba(0, 243, 255, 0.13), transparent 31%),
+    linear-gradient(145deg, rgba(3, 12, 24, 0.97), rgba(8, 12, 28, 0.94));
+  box-shadow: 0 26px 72px rgba(0, 0, 0, 0.56), 0 0 42px rgba(var(--comment-state), 0.17), inset 0 0 42px rgba(var(--comment-state), 0.035);
+  clip-path: polygon(16px 0, calc(100% - 28px) 0, 100% 28px, 100% calc(100% - 16px), calc(100% - 16px) 100%, 28px 100%, 0 calc(100% - 28px), 0 16px);
+  backdrop-filter: blur(18px);
+}
+
+.tarot-comment-chamber[data-status="complete"] { --comment-state: 69, 242, 200; }
+.tarot-comment-chamber[data-status="failed"] { --comment-state: 251, 113, 133; }
+.tarot-comment-chamber[data-status="recording"],
+.tarot-comment-chamber[data-status="uploading"] { --comment-state: 0, 243, 255; }
+
+.tarot-comment-chamber-aura { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
+.tarot-comment-chamber-aura i { position: absolute; top: -24%; left: 70%; width: 260px; height: 260px; border: 1px solid rgba(var(--comment-state), 0.2); border-radius: 50%; box-shadow: 0 0 38px rgba(var(--comment-state), 0.12); animation: tarot-comment-orbit 9s linear infinite; }
+.tarot-comment-chamber-aura i:nth-child(2) { top: -19%; left: 73%; width: 210px; height: 210px; border-style: dashed; animation-direction: reverse; animation-duration: 6s; }
+.tarot-comment-chamber-aura i:nth-child(3) { top: -10%; left: 77%; width: 146px; height: 146px; border-color: rgba(255, 109, 242, 0.25); animation-duration: 4s; }
+
+.tarot-comment-chamber > header,
+.tarot-comment-chamber > header span { position: relative; display: flex; align-items: center; gap: 8px; }
+.tarot-comment-chamber > header { z-index: 1; justify-content: space-between; }
+.tarot-comment-chamber > header span { color: rgb(var(--comment-state)); font-family: var(--hapa-mono); font-size: 10px; font-weight: 900; letter-spacing: 0.1em; text-transform: uppercase; }
+.tarot-comment-chamber > header strong { margin-left: auto; color: rgba(var(--comment-state), 0.82); font-family: var(--hapa-mono); font-size: 7px; letter-spacing: 0.14em; }
+.tarot-comment-chamber > header button { min-height: 28px !important; padding: 5px 9px !important; }
+
+.tarot-comment-card-split { position: relative; display: grid; grid-template-columns: 112px minmax(120px, 1fr) 112px; align-items: center; justify-content: center; gap: 8px; min-height: 174px; padding: 12px 48px; overflow: hidden; border: 1px solid rgba(var(--comment-state), 0.2); background: radial-gradient(circle at 50% 50%, rgba(var(--comment-state), 0.12), transparent 44%), repeating-linear-gradient(90deg, rgba(255,255,255,.018) 0 1px, transparent 1px 22px), rgba(2, 6, 23, 0.55); }
+.tarot-comment-card-split article { position: relative; z-index: 2; width: 106px; aspect-ratio: .66; display: grid; align-content: end; gap: 4px; padding: 10px; overflow: hidden; border: 1px solid rgba(0, 243, 255, 0.64); background: radial-gradient(circle at 50% 30%, rgba(0,243,255,.3), transparent 46%), #020617; box-shadow: 0 0 28px rgba(0, 243, 255, .18); transform: perspective(500px) rotateY(8deg); }
+.tarot-comment-card-split article[data-card="comment"] { justify-self: end; border-color: rgba(246, 201, 109, 0.76); background: radial-gradient(circle at 50% 30%, rgba(246,201,109,.34), transparent 46%), #160c19; box-shadow: 0 0 32px rgba(246, 201, 109, .22); transform: perspective(500px) rotateY(-8deg); animation: tarot-comment-card-arrive 1.25s cubic-bezier(.2,.82,.24,1) both; }
+.tarot-comment-card-split article::before { content: ""; position: absolute; inset: 10px; border: 1px dashed currentColor; border-radius: 50%; opacity: .32; animation: tarot-comment-orbit 7s linear infinite; }
+.tarot-comment-card-split article i,
+.tarot-comment-card-split article b,
+.tarot-comment-card-split article em { position: relative; z-index: 1; overflow: hidden; font-family: var(--hapa-mono); font-style: normal; text-overflow: ellipsis; white-space: nowrap; }
+.tarot-comment-card-split article i { align-self: start; color: #f8f3e7; font-size: 28px; font-weight: 900; text-shadow: 0 0 16px currentColor; }
+.tarot-comment-card-split article b { color: #fff; font-size: 8px; }
+.tarot-comment-card-split article em { color: #9fb5c9; font-size: 6px; text-transform: uppercase; }
+.tarot-comment-custody-beam { position: relative; height: 78px; display: grid; place-items: center; }
+.tarot-comment-custody-beam::before,
+.tarot-comment-custody-beam::after { content: ""; position: absolute; right: 0; left: 0; top: 37px; height: 1px; background: linear-gradient(90deg, #00f3ff, #f6c96d, #ff6df2); box-shadow: 0 0 14px rgba(var(--comment-state), .8); }
+.tarot-comment-custody-beam::after { top: 31px; height: 13px; opacity: .2; filter: blur(6px); }
+.tarot-comment-custody-beam i { position: absolute; top: 27px; left: 0; width: 22px; height: 22px; border: 2px solid #f6c96d; transform: rotate(45deg); background: #020617; box-shadow: 0 0 18px rgba(246, 201, 109, .74); animation: tarot-comment-packet 2.4s ease-in-out infinite; }
+.tarot-comment-custody-beam i:nth-child(2) { border-color: #ff6df2; animation-delay: -1.2s; }
+.tarot-comment-custody-beam span { z-index: 2; padding: 4px 8px; border: 1px solid rgba(246,201,109,.28); background: rgba(2,6,23,.9); color: #f6c96d; font-family: var(--hapa-mono); font-size: 6px; font-weight: 900; letter-spacing: .1em; white-space: nowrap; }
+
+.tarot-comment-proof-strip { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+.tarot-comment-proof-strip span { min-width: 0; display: flex; align-items: center; gap: 5px; padding: 7px; overflow: hidden; border: 1px solid rgba(251, 113, 133, .24); background: rgba(251, 113, 133, .05); color: #fb7185; font-family: var(--hapa-mono); font-size: 7px; font-weight: 800; text-overflow: ellipsis; white-space: nowrap; }
+.tarot-comment-proof-strip span[data-ready="true"] { border-color: rgba(69, 242, 200, .26); background: rgba(69, 242, 200, .06); color: #45f2c8; }
+
+.tarot-comment-fields { display: grid; grid-template-columns: 1.2fr 1fr .55fr .55fr; gap: 6px; }
+.tarot-comment-fields label { display: grid; gap: 4px; }
+.tarot-comment-fields label span { color: var(--hapa-muted); font-family: var(--hapa-mono); font-size: 7px; font-weight: 800; text-transform: uppercase; }
+.tarot-comment-fields input { min-width: 0; height: 31px; padding: 6px 8px; border: 1px solid rgba(var(--comment-state), .22); background: rgba(2,6,23,.72); color: #fff; font-family: var(--hapa-mono); font-size: 9px; }
+.tarot-comment-fields input:focus { border-color: rgb(var(--comment-state)); outline: none; box-shadow: 0 0 12px rgba(var(--comment-state), .15); }
+
+.tarot-comment-consent { display: grid; grid-template-columns: 22px minmax(0, 1fr); align-items: start; gap: 8px; padding: 9px; border: 1px solid rgba(246, 201, 109, .25); background: rgba(246, 201, 109, .055); color: #d9e6ee; font-size: 9px; line-height: 1.4; cursor: pointer; }
+.tarot-comment-consent input { width: 18px; height: 18px; margin: 0; accent-color: #f6c96d; }
+.tarot-comment-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; }
+.tarot-comment-actions button { min-height: 38px !important; }
+.tarot-comment-boundary { margin: 0; color: var(--hapa-muted); font-family: var(--hapa-mono); font-size: 7px; line-height: 1.45; }
+.tarot-comment-chamber > footer { display: grid; gap: 2px; padding: 8px 10px; border: 1px solid rgba(var(--comment-state), .28); background: rgba(var(--comment-state), .06); font-family: var(--hapa-mono); }
+.tarot-comment-chamber > footer strong { color: rgb(var(--comment-state)); font-size: 8px; text-transform: uppercase; }
+.tarot-comment-chamber > footer span { overflow: hidden; color: var(--hapa-muted); font-size: 7px; text-overflow: ellipsis; white-space: nowrap; }
+.tarot-comment-chamber > footer[data-state="failed"] { --comment-state: 251, 113, 133; }
+.tarot-comment-chamber > footer[data-state="complete"] { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.tarot-comment-chamber > footer[data-state="complete"] > div { display: grid; min-width: 0; gap: 3px; }
+.tarot-comment-chamber > footer[data-state="complete"] .tarot-comment-reveal { flex: 0 0 auto; border-color: rgba(246, 201, 109, .72); box-shadow: 0 0 18px rgba(246, 201, 109, .18); }
+
+.tarot-phone-bridge-native-note { margin: 0; padding: 7px; border: 1px solid rgba(69, 242, 200, .24); background: rgba(69, 242, 200, .06); color: #45f2c8; font-family: var(--hapa-mono); font-size: 8px; line-height: 1.4; }
+
+@keyframes tarot-comment-orbit { to { transform: rotate(1turn); } }
+@keyframes tarot-comment-packet { 0% { left: 0; opacity: 0; transform: rotate(45deg) scale(.55); } 16% { opacity: 1; } 84% { opacity: 1; } 100% { left: calc(100% - 22px); opacity: 0; transform: rotate(225deg) scale(1.15); } }
+@keyframes tarot-comment-card-arrive { 0% { opacity: 0; transform: perspective(500px) translateX(-120px) rotateY(-65deg) scale(.3); filter: blur(10px); } 66% { opacity: 1; transform: perspective(500px) translateX(8px) rotateY(4deg) scale(1.06); filter: blur(0); } 100% { transform: perspective(500px) rotateY(-8deg) scale(1); } }
+
+@media (max-width: 900px) {
+  .tarot-comment-chamber { top: 82px; right: 8px; width: calc(100% - 16px); max-height: calc(100% - 164px); }
+  .tarot-comment-card-split { grid-template-columns: 86px minmax(82px, 1fr) 86px; padding: 10px 14px; }
+  .tarot-comment-card-split article { width: 82px; }
+  .tarot-comment-fields { grid-template-columns: 1fr 1fr; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tarot-comment-chamber-aura i,
+  .tarot-comment-card-split article[data-card="comment"],
+  .tarot-comment-card-split article::before,
+  .tarot-comment-custody-beam i { animation: none; }
+}
+
 .tarot-phone-bridge-panel {
   position: absolute;
   top: 128px;
@@ -18102,6 +18202,11 @@ h1 {
   border-color: rgba(0, 243, 255, 0.42);
   background: linear-gradient(180deg, rgba(6, 18, 31, 0.96), rgba(5, 10, 22, 0.92));
   box-shadow: 0 0 28px rgba(0, 243, 255, 0.14);
+}
+
+.tarot-draw-view:has(.tarot-comment-chamber) .tarot-phone-bridge-panel {
+  right: auto;
+  left: 24px;
 }
 
 .tarot-phone-bridge-panel header,

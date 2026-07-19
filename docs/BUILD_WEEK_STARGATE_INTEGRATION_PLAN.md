@@ -55,6 +55,10 @@ The reference repository remains valuable as a tested protocol lab and append-on
 8. An explicitly human-minted Stargate Context Card publishes one origin event through Overwind. `.hapaCatalog` subscribes to that acknowledged identity and projects it into discovery, dossier, composition, and optional commerce surfaces without minting a second Card or becoming the Card head.
 9. Builder's existing API and CLI gain parity routes over the same Stargate core. The renderer never owns secrets, peer keys, provider credentials, or mint authority.
 
+### Visual direction checkpoint
+
+The Stargate is the dominant visual event, not a form wrapped around a protocol. Ordered Cards physically become the dial; numbered slot energy resolves into the aperture; chevrons lock; depth rings, shockwaves, ribbons, tunnel parallax, table lighting, and camera easing express state. Downstream Card creation uses the same spatial grammar: input tools stay visible while active, then withdraw so the resulting Card owns the hero frame. Source-to-output relationships remain visible as animated lineage packets rather than being explained only in text.
+
 ## P0 hero interaction: Dial a Stargate
 
 ### Enter Dial mode
@@ -153,6 +157,8 @@ The shortest coherent judge path is:
 8. Exchange a signed communication or consented video comment that becomes a separate attributable proposed Card while the source Card remains unchanged.
 9. Use the resulting context to request one local generated image or Card proposal, review it with a compact Wisdom set, and preserve human mint authority.
 10. Call up the Build Week ledger as a spatial Card history, including the mistake, strategy correction, test evidence, demo clips, GPT Image memorials, and open Krea quests.
+
+**STG-011 browser checkpoint (`2026-07-18`):** the canonical Comment Cam now binds an exact selected source revision and active Gate context, records explicit append-only consent, reuses the existing Camera Card, produces separate Comment/Lesson/Result Cards, and visualizes custody as an animated 3D tether. The primary phone path uses a token-bound native camera picker over local HTTP and requires no certificate. Isolated browser evidence is complete and truth-audited; an actual human phone scan/upload remains a distinct physical-device proof and may not be inferred from browser automation.
 
 ## Priority order
 

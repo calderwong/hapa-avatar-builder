@@ -36,6 +36,7 @@ import {
   buildStargateContextCard,
   isStargateContextCard,
   restoreStargateContextCard,
+  stargateGateCommitment,
   stargateContextEnvelopeFromCard,
 } from "../domain/tarot-stargate-context-card.js";
 import {
@@ -2033,9 +2034,22 @@ export default function TarotDraw3DView({ cards = [], avatarId = "local-operator
     invite: null,
     htmlUrl: ""
   });
+  const [mediaComment, setMediaComment] = useState({
+    open: false,
+    status: "idle",
+    mode: "physical_phone",
+    actorId: "calder",
+    displayName: "Calder",
+    consent: false,
+    allowAudio: true,
+    startSeconds: 0,
+    endSeconds: 8,
+    capture: null,
+    result: null,
+    error: ""
+  });
   const [sceneInvitePreviewOpen, setSceneInvitePreviewOpen] = useState(false);
   const [phoneQrDataUrl, setPhoneQrDataUrl] = useState("");
-  const [phoneCertQrDataUrl, setPhoneCertQrDataUrl] = useState("");
   const [hud, setHud] = useState({
     status: "Preparing table",
     deckCount: cards.length,
@@ -2231,6 +2245,8 @@ export default function TarotDraw3DView({ cards = [], avatarId = "local-operator
   const selectedCardIsScene = Boolean(selectedCard && isTarotDrawSceneCard(selectedCard));
   const selectedCardIsStargateContext = Boolean(selectedCard && isStargateContextCard(selectedCard));
   const selectedCardStargateContext = selectedCardIsStargateContext ? stargateContextEnvelopeFromCard(selectedCard) : null;
+  const selectedCommentIdentity = useMemo(() => selectedCard ? resolveStargateCardIdentity(selectedCard, null, 0) : null, [selectedCard]);
+  const selectedCommentReady = Boolean(selectedCommentIdentity?.ok && stargateOpen && stargate.formationDigest && stargate.gateCommitment);
   const savedStargateContextCard = sceneSave.card && isStargateContextCard(sceneSave.card) ? sceneSave.card : null;
   const mintTruthState = stargateMint.result?.state || stargateMint.review?.sync?.state || "proposed_unminted";
   const mintStages = [
@@ -2503,33 +2519,21 @@ export default function TarotDraw3DView({ cards = [], avatarId = "local-operator
   }, [hud.phoneBridgeMobileUrl, hud.phoneBridgeQrVisible]);
 
   useEffect(() => {
-    let cancelled = false;
-    const url = hud.phoneBridgeCertificateUrl || "";
-    if (!url) {
-      setPhoneCertQrDataUrl("");
-      return () => {
-        cancelled = true;
-      };
-    }
-    QRCode.toDataURL(url, {
-      errorCorrectionLevel: "M",
-      margin: 1,
-      width: 112,
-      color: {
-        dark: "#07111f",
-        light: "#f4fbff"
-      }
-    })
-      .then((dataUrl) => {
-        if (!cancelled) setPhoneCertQrDataUrl(dataUrl);
-      })
-      .catch(() => {
-        if (!cancelled) setPhoneCertQrDataUrl("");
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [hud.phoneBridgeCertificateUrl]);
+    const result = hud.phoneBridgeInvite?.commentResult;
+    if (!result?.card?.id) return;
+    setMediaComment((current) => current.result?.card?.id === result.card.id ? current : {
+      ...current,
+      open: true,
+      status: "complete",
+      result: {
+        ...(result.manifest || {}),
+        card: result.card,
+        lessonCard: result.lessonCard,
+        resultCard: result.resultCard
+      },
+      error: ""
+    });
+  }, [hud.phoneBridgeInvite?.commentResult?.card?.id]);
 
   useEffect(() => {
     let cancelled = false;
@@ -2906,6 +2910,108 @@ export default function TarotDraw3DView({ cards = [], avatarId = "local-operator
     callGame("loadStargateDemoFormation");
   }
 
+  function openMediaCommentCapture(mode = "physical_phone") {
+    setMediaComment((current) => ({
+      ...current,
+      open: true,
+      status: "idle",
+      mode: mode === "browser_webcam" ? "browser_webcam" : "physical_phone",
+      capture: null,
+      result: null,
+      error: selectedCard
+        ? selectedCommentIdentity?.ok
+          ? stargateOpen
+            ? ""
+            : "Open a Stargate first so the Comment can carry exact Formation and Gate context."
+          : `This Card is missing custody identity: ${(selectedCommentIdentity?.missing || []).join(", ")}`
+        : "Select the source Card you want to comment on first."
+    }));
+  }
+
+  function closeMediaCommentCapture() {
+    if (["creating", "recording", "uploading"].includes(mediaComment.status)) return;
+    setMediaComment((current) => ({ ...current, open: false }));
+  }
+
+  function mediaCommentRequest(deviceKind = mediaComment.mode) {
+    if (!selectedCard || !selectedCommentIdentity?.ok) throw new Error("Select an identity-sealed source Card before capturing a Comment.");
+    if (!stargateOpen || !stargate.formationDigest || !stargate.gateCommitment) throw new Error("Open the ordered Stargate before capturing so its exact context can be bound.");
+    const startSeconds = Math.max(0, Number(mediaComment.startSeconds || 0));
+    const endSeconds = Math.max(startSeconds, Number(mediaComment.endSeconds || startSeconds));
+    return {
+      sourceCard: selectedCard,
+      context: {
+        timecode: { startSeconds, endSeconds },
+        formationDigest: stargate.formationDigest,
+        gateCommitment: stargate.gateCommitment,
+        redactedAddress: stargate.redactedAddress || "withheld"
+      },
+      actor: {
+        actorId: String(mediaComment.actorId || "local-operator").trim(),
+        actorType: "human",
+        displayName: String(mediaComment.displayName || "Local operator").trim()
+      },
+      device: {
+        kind: deviceKind,
+        deviceId: deviceKind === "physical_phone" ? `phone-${Date.now().toString(36)}` : `builder-webcam-${Date.now().toString(36)}`,
+        displayLabel: deviceKind === "physical_phone" ? "Phone native camera" : "Avatar Builder Camera Card"
+      }
+    };
+  }
+
+  async function recordBrowserMediaComment() {
+    if (!mediaComment.consent) {
+      setMediaComment((current) => ({ ...current, error: "Explicit consent is required before the Camera Card records." }));
+      return;
+    }
+    try {
+      const request = mediaCommentRequest("browser_webcam");
+      setMediaComment((current) => ({ ...current, status: "creating", mode: "browser_webcam", error: "", result: null }));
+      const createResponse = await fetch(`${tarotDrawApiBase(apiBase)}/api/media-comments/captures`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...request,
+          consent: {
+            granted: true,
+            authorityId: request.actor.actorId,
+            allowAudio: mediaComment.allowAudio,
+            evidenceNote: "Explicitly approved in the Avatar Builder Tarot Draw consent chamber"
+          }
+        })
+      });
+      const createPayload = await createResponse.json().catch(() => ({}));
+      if (!createResponse.ok || !createPayload.capture) throw new Error(createPayload.message || "Could not create the consented Comment capture.");
+      setMediaComment((current) => ({ ...current, status: "recording", capture: createPayload.capture }));
+      const duration = Math.max(1, Math.min(16, Math.round(Number(mediaComment.endSeconds || 8) - Number(mediaComment.startSeconds || 0)) || 8));
+      const artifact = await gameRef.current?.recordCameraClip?.(duration, {
+        returnArtifact: true,
+        onProgress: (progress) => setMediaComment((current) => ({ ...current, status: progress.stage === "recording" ? "recording" : current.status }))
+      });
+      if (!artifact?.blob) throw new Error("Camera Card did not return a bounded capture artifact.");
+      setMediaComment((current) => ({ ...current, status: "uploading" }));
+      const uploadResponse = await fetch(`${tarotDrawApiBase(apiBase)}/api/media-comments/captures/${encodeURIComponent(createPayload.capture.captureId)}/media`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": artifact.mimeType || artifact.blob.type || "video/webm",
+          "x-hapa-comment-duration": String(artifact.durationSeconds || duration),
+          "x-hapa-comment-width": String(artifact.width || 640),
+          "x-hapa-comment-height": String(artifact.height || 360),
+          "x-hapa-comment-actor": request.actor.actorId,
+          "x-hapa-comment-device": request.device.deviceId
+        },
+        body: artifact.blob
+      });
+      const uploadPayload = await uploadResponse.json().catch(() => ({}));
+      if (!uploadResponse.ok || !uploadPayload.result?.card) throw new Error(uploadPayload.message || "Comment Card finalization failed.");
+      callGame("spawnMediaCommentCard", uploadPayload.result.card, { sourceCardId: request.sourceCard.cardId || request.sourceCard.id, origin: "browser_webcam" });
+      window.setTimeout(() => callGame("setCameraCardEnabled", false, { statusText: "Comment Card materialized · source unchanged" }), 900);
+      setMediaComment((current) => ({ ...current, status: "complete", result: uploadPayload.result, error: "" }));
+    } catch (error) {
+      setMediaComment((current) => ({ ...current, status: "failed", error: error?.message || "Comment capture failed." }));
+    }
+  }
+
   async function createSceneCameraInvite(event) {
     event?.preventDefault?.();
     event?.stopPropagation?.();
@@ -2918,6 +3024,7 @@ export default function TarotDraw3DView({ cards = [], avatarId = "local-operator
       htmlUrl: ""
     });
     try {
+      const commentCapture = mediaCommentRequest("physical_phone");
       const sceneSnapshot = callGame("captureSceneSnapshot") || null;
       const session = `tarot-scene-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
       const cardId = `webcam-invite-${session}`;
@@ -2929,7 +3036,8 @@ export default function TarotDraw3DView({ cards = [], avatarId = "local-operator
           cardId,
           title: `${avatarName || "Hapa"} Scene Camera`,
           avatarName,
-          sceneSnapshot
+          sceneSnapshot,
+          commentCapture
         })
       });
       const payload = await response.json().catch(() => null);
@@ -2947,6 +3055,7 @@ export default function TarotDraw3DView({ cards = [], avatarId = "local-operator
         invite,
         htmlUrl: desktopHtmlUrl
       });
+      setMediaComment((current) => ({ ...current, status: "invited", mode: "physical_phone", capture: invite.commentCapture || null, error: "" }));
       if (desktopHtmlUrl) setSceneInvitePreviewOpen(true);
     } catch (error) {
       setSceneInvite({
@@ -2956,6 +3065,7 @@ export default function TarotDraw3DView({ cards = [], avatarId = "local-operator
         invite: null,
         htmlUrl: ""
       });
+      setMediaComment((current) => ({ ...current, status: "failed", error: error?.message || "Phone Comment invitation failed" }));
     }
   }
 
@@ -3647,11 +3757,65 @@ export default function TarotDraw3DView({ cards = [], avatarId = "local-operator
                     <Sparkles size={14} /> {stargateMint.status === "minting" ? "Witnessing custody…" : "Approve & Mint Exact Revision"}
                   </button>
                 )}
+                <button
+                  className="hapa-btn tarot-comment-card-open"
+                  data-intent={selectedCommentReady ? "warning" : undefined}
+                  type="button"
+                  onClick={() => openMediaCommentCapture("browser_webcam")}
+                  title={selectedCommentReady ? "Create a separately attributed Comment Card" : "This needs an identity-sealed source Card and an open Stargate"}
+                >
+                  <Camera size={13} />
+                  Comment Card
+                </button>
+                <span>{selectedCommentReady ? "Exact source + Gate context ready" : "Open Gate + select sealed source"}</span>
               </div>
             </div>
           )}
           {stargateMint.result && <footer data-state={stargateMint.result.state}><strong>{String(stargateMint.result.state).replaceAll("_", " ")}</strong><span>{stargateMint.result.syncResultCard ? `Result Card pressed · ${stargateMint.result.stableCardReference || "origin staged"}` : (stargateMint.result.stableCardReference || "Origin staged locally")}</span></footer>}
           {stargateMint.error && <footer data-state="failed"><strong>Proof halted truthfully</strong><span>{stargateMint.error}</span></footer>}
+        </section>
+      )}
+
+      {mediaComment.open && (
+        <section className="tarot-comment-chamber" data-status={mediaComment.status} aria-label="Consented Comment Card capture" aria-live="polite">
+          <div className="tarot-comment-chamber-aura" aria-hidden="true"><i /><i /><i /></div>
+          <header>
+            <span><Camera size={15} /> Comment Card Bridge</span>
+            <strong>{mediaComment.status === "complete" ? "CARD PROPOSED" : "SOURCE LOCKED"}</strong>
+            <button className="hapa-btn" type="button" onClick={closeMediaCommentCapture}>Close</button>
+          </header>
+          <div className="tarot-comment-card-split" aria-hidden="true">
+            <article data-card="source"><i>01</i><b>{selectedCard?.title || "Select source"}</b><em>{selectedCommentIdentity?.member?.cardRevisionId || "identity needed"}</em></article>
+            <div className="tarot-comment-custody-beam"><i /><i /><span>CONSENT + ATTRIBUTION</span></div>
+            <article data-card="comment"><i>02</i><b>{mediaComment.displayName || "Author"} · Comment</b><em>separate proposed Card</em></article>
+          </div>
+          <div className="tarot-comment-proof-strip">
+            <span data-ready={selectedCommentIdentity?.ok ? "true" : "false"}><BadgeCheck size={11} /> Exact source revision</span>
+            <span data-ready={stargateOpen ? "true" : "false"}><Route size={11} /> {stargate.redactedAddress || "Gate not open"}</span>
+            <span data-ready="true"><BadgeCheck size={11} /> Source stays unchanged</span>
+          </div>
+          <div className="tarot-comment-fields">
+            <label><span>Human actor</span><input value={mediaComment.displayName} onChange={(event) => setMediaComment((current) => ({ ...current, displayName: event.target.value }))} /></label>
+            <label><span>Actor ID</span><input value={mediaComment.actorId} onChange={(event) => setMediaComment((current) => ({ ...current, actorId: event.target.value }))} /></label>
+            <label><span>From</span><input type="number" min="0" step="0.1" value={mediaComment.startSeconds} onChange={(event) => setMediaComment((current) => ({ ...current, startSeconds: event.target.value }))} /></label>
+            <label><span>To</span><input type="number" min="0" step="0.1" value={mediaComment.endSeconds} onChange={(event) => setMediaComment((current) => ({ ...current, endSeconds: event.target.value }))} /></label>
+          </div>
+          <label className="tarot-comment-consent">
+            <input type="checkbox" checked={mediaComment.consent} onChange={(event) => setMediaComment((current) => ({ ...current, consent: event.target.checked, error: "" }))} />
+            <span>I authorize this bounded Camera Card recording. Audio is {mediaComment.allowAudio ? "included" : "excluded"}; reuse requires explicit approval; this does not grant source ownership or mint authority.</span>
+          </label>
+          <div className="tarot-comment-actions">
+            <button className="hapa-btn" data-intent="warning" type="button" disabled={!selectedCommentReady || !mediaComment.consent || ["creating", "recording", "uploading"].includes(mediaComment.status)} onClick={recordBrowserMediaComment}>
+              <Camera size={14} /> {mediaComment.status === "recording" ? "Recording Camera Card…" : mediaComment.status === "uploading" ? "Sealing Comment…" : "Record 8s Camera Card"}
+            </button>
+            <button className="hapa-btn" data-intent="primary" type="button" disabled={!selectedCommentReady || sceneInviteBusy || ["recording", "uploading"].includes(mediaComment.status)} onClick={createSceneCameraInvite}>
+              <Smartphone size={14} /> {sceneInviteBusy ? "Opening Phone Bridge…" : "Phone · No Certificate"}
+            </button>
+          </div>
+          <p className="tarot-comment-boundary">Phone uses the native camera picker over the local HTTP bridge. Live FPV remains an optional secure path. Browser, physical-device, local-network, and broader-network evidence are reported separately.</p>
+          {mediaComment.status === "invited" && <footer data-state="invited"><strong>Scan the existing Phone Card QR</strong><span>Consent and capture continue on the phone; no certificate is required.</span></footer>}
+          {mediaComment.result && <footer data-state="complete"><div><strong>{mediaComment.result.card.title}</strong><span>{mediaComment.result.card.id} · Lesson + Result Cards pressed · source unchanged · not minted</span></div><button className="hapa-btn tarot-comment-reveal" data-intent="warning" type="button" onClick={() => setMediaComment((current) => ({ ...current, open: false }))}><Sparkles size={13} /> Reveal Card in 3D</button></footer>}
+          {mediaComment.error && <footer data-state="failed"><strong>Capture halted truthfully</strong><span>{mediaComment.error}</span></footer>}
         </section>
       )}
       {sceneInvite.status !== "idle" && (
@@ -3821,7 +3985,7 @@ export default function TarotDraw3DView({ cards = [], avatarId = "local-operator
           </div>
           <strong>
             {hud.phoneBridgeConnected ? "Phone Card live" : hud.phoneBridgeStatus || "Waiting for phone scan"}
-            <em>{hud.phoneBridgeSecure ? "HTTPS" : "HTTP fallback"}</em>
+            <em>{activeSceneInvite?.commentCapture ? "NATIVE · NO CERT" : hud.phoneBridgeSecure ? "SECURE LIVE" : "LOCAL BRIDGE"}</em>
           </strong>
           {hud.phoneBridgeError && <p className="tarot-phone-bridge-error">{hud.phoneBridgeError}</p>}
           {activeSceneInvite?.links?.desktopHtmlUrl && (
@@ -3867,17 +4031,7 @@ export default function TarotDraw3DView({ cards = [], avatarId = "local-operator
               ))}
             </div>
           )}
-          {hud.phoneBridgeCertificateUrl && (
-            <a className="tarot-phone-bridge-cert" href={hud.phoneBridgeCertificateUrl} target="_blank" rel="noreferrer">
-              Local CA certificate
-            </a>
-          )}
-          {phoneCertQrDataUrl && (
-            <div className="tarot-phone-bridge-trust">
-              <img src={phoneCertQrDataUrl} alt="QR code for local CA certificate" />
-              <span>Trust CA first if your phone blocks HTTPS.</span>
-            </div>
-          )}
+          {activeSceneInvite?.commentCapture && <p className="tarot-phone-bridge-native-note">Scan → use the phone camera → consent → seal. No certificate installation. Live FPV is optional and reported separately.</p>}
         </aside>
       )}
 
@@ -4228,11 +4382,11 @@ export default function TarotDraw3DView({ cards = [], avatarId = "local-operator
             type="button"
             data-status={sceneInvite.status}
             disabled={sceneInviteBusy}
-            onClick={createSceneCameraInvite}
-            title={sceneInviteNote}
+            onClick={() => openMediaCommentCapture("physical_phone")}
+            title="Bind a phone or Camera Card Comment to the selected source and active Gate"
           >
             <Link2 size={14} />
-            {sceneInviteBusy ? "Inviting..." : sceneInvite.status === "ready" ? "Invite Live" : "Invite Cam"}
+            {sceneInviteBusy ? "Inviting..." : sceneInvite.status === "ready" ? "Comment Live" : "Comment Cam"}
           </button>
           <button className="hapa-btn tarot-mini-toggle" type="button" aria-pressed={miniMode} onClick={() => setMiniMode((value) => !value)}>
             {miniMode ? <Maximize2 size={14} /> : <Minimize2 size={14} />}
@@ -5973,6 +6127,7 @@ function createTarotDrawGame({ canvas, cards, avatarId = "local-operator", avata
   let lastDynamicStackTime = -Infinity;
   let slotMeshes = [];
   let placementBursts = [];
+  let mediaCommentTethers = [];
   let compactMode = null;
   let cameraRailBlend = 0;
   let cameraGalleryRecovery = null;
@@ -6077,6 +6232,7 @@ function createTarotDrawGame({ canvas, cards, avatarId = "local-operator", avata
     spawnSceneCard,
     loadSceneFromCard,
     spawnBrowserCard,
+    spawnMediaCommentCard,
     spawnMusicSlotCards,
     wipeSpawnedCards,
     useSpawnedCardsOnSurface,
@@ -6156,6 +6312,7 @@ function createTarotDrawGame({ canvas, cards, avatarId = "local-operator", avata
   function stargateEligibleEntries() {
     const candidates = placedEntries
       .filter((entry) => entry && !entry.liveCamera && !entry.isCameraCard && !entry.isPhoneCard && !entry.isBlueAvatarCard)
+      .filter((entry) => !entry.isMediaComment)
       .filter((entry) => !entry.stargateContextHero)
       .filter((entry) => !entry.lockedDropZone && !entry.lockedMediaPool && !entry.lockedCenterVisualizer && !entry.lockedDock)
       .sort((first, second) => Number(first.placedAt || 0) - Number(second.placedAt || 0));
@@ -6490,6 +6647,8 @@ function createTarotDrawGame({ canvas, cards, avatarId = "local-operator", avata
       missingIdentityCount,
       redactedAddress: stargateResult ? redactedStargateAddress(stargateResult.stargateAddress) : safeGate?.addressRedacted || "",
       formationFingerprint: stargateResult ? `formation:${stargateResult.formationDigest.slice(0, 12)}…` : safeGate?.semanticFormationDigest ? `formation:${safeGate.semanticFormationDigest.slice(0, 12)}…` : "",
+      formationDigest: stargateResult?.formationDigest || safeGate?.semanticFormationDigest || "",
+      gateCommitment: stargateResult ? stargateGateCommitment(stargateResult) : safeGate?.gateCommitment || "",
       requiresFreshPass: stargateRequiresFreshPass,
       contextCardId: stargateLastContextCard?.id || "",
       mintStage: stargateMintStage,
@@ -6720,6 +6879,12 @@ function createTarotDrawGame({ canvas, cards, avatarId = "local-operator", avata
 	        dialStargate,
 	        loadStargateDemoFormation: () => loadStargateDemoFormation(),
 	        activateStargateDemo: () => loadStargateDemoFormation({ autoDial: true }),
+	        selectFirstStargateCard: () => {
+	          const entry = stargateEntries[0] || null;
+	          if (!entry) return false;
+	          selectEntry(entry);
+	          return true;
+	        },
 	        markStargateStale: () => setStargateRuntimeState("stale"),
 	        markStargateExpired: () => setStargateRuntimeState("expired"),
 	        markStargateDisconnected: () => setStargateRuntimeState("disconnected"),
@@ -6922,7 +7087,7 @@ function createTarotDrawGame({ canvas, cards, avatarId = "local-operator", avata
     return true;
   }
 
-  async function recordCameraClip(durationSeconds = TAROT_FIELD_CAPTURE_DURATIONS[0], { onProgress = null } = {}) {
+  async function recordCameraClip(durationSeconds = TAROT_FIELD_CAPTURE_DURATIONS[0], { onProgress = null, returnArtifact = false } = {}) {
     const requestedDuration = TAROT_FIELD_CAPTURE_DURATIONS.includes(durationSeconds) ? durationSeconds : TAROT_FIELD_CAPTURE_DURATIONS[0];
     if (!cameraCardEntry) await setCameraCardEnabled(true);
     const entry = cameraCardEntry;
@@ -7014,6 +7179,28 @@ function createTarotDrawGame({ canvas, cards, avatarId = "local-operator", avata
     const actualDurationSeconds = (performance.now() - startedAt) / 1000;
     const blob = new Blob(chunks, { type: recorder.mimeType || mimeType || "video/webm" });
     if (!blob.size) throw new Error("Webcam Card clip recorded no media data.");
+    if (returnArtifact) {
+      onProgress?.({
+        status: "complete",
+        stage: "captured-unminted",
+        message: "Bounded Camera Card artifact ready for consented Comment finalization",
+        progress: 0.9,
+        elapsedSeconds: actualDurationSeconds,
+        durationSeconds: requestedDuration
+      });
+      return {
+        blob,
+        mimeType: blob.type || "video/webm",
+        bytes: blob.size,
+        durationSeconds: actualDurationSeconds,
+        width: canvas.width,
+        height: canvas.height,
+        firstFrameDataUrl,
+        lastFrameDataUrl,
+        proposed: true,
+        minted: false
+      };
+    }
     const dataUrl = await dataUrlFromBlob(blob);
     const baseName = `${avatarName || "hapa"}-webcam-card-${requestedDuration}s-${new Date().toISOString().replace(/[:.]/g, "-")}`;
     const persistedVideo = await persistTarotDrawMedia({
@@ -7398,6 +7585,140 @@ function createTarotDrawGame({ canvas, cards, avatarId = "local-operator", avata
       publishHud(true);
     }
     return entry;
+  }
+
+  function spawnMediaCommentCard(card, options = {}) {
+    if (!card?.id) return null;
+    const sourceCardId = String(options.sourceCardId || card.comment?.sourceCardRef?.cardId || "");
+    const sourceEntry = [...placedEntries, heldEntry].filter(Boolean).find((candidate) => cardIdentity(candidate.card) === sourceCardId) || null;
+    const originPosition = options.origin === "physical_phone" && phoneCardEntry
+      ? phoneCardEntry.group.position.clone().add(new THREE.Vector3(0, 0.24, -0.12))
+      : cameraCardEntry
+        ? cameraCardEntry.group.position.clone().add(new THREE.Vector3(0, 0.24, -0.12))
+        : new THREE.Vector3(0, 1.1, -0.45);
+    const entry = spawnFieldMediaCard(card, {
+      zone: "field",
+      originPosition,
+      statusText: `Comment Card proposed · ${card.title}`
+    });
+    if (!entry) return null;
+    entry.isMediaComment = true;
+    entry.commentSourceCardId = sourceCardId;
+    entry.targetPosition.set(1.72, CARD_TABLE_BASE_Y + 0.08, -0.22 + (mediaCommentTethers.length % 3) * 0.32);
+    entry.baseRotationY = -0.12;
+    setCardTargetRotation(entry, 0.04, entry.baseRotationY, -0.04);
+    const tether = createMediaCommentTether(sourceEntry, entry);
+    if (tether) mediaCommentTethers.push(tether);
+    createBurst(entry.targetPosition.x, entry.targetPosition.z, 0xf6c96d, 2.4);
+    createBurst(entry.targetPosition.x, entry.targetPosition.z, 0xff6df2, 1.55);
+    createBurst(sourceEntry?.targetPosition?.x || 0, sourceEntry?.targetPosition?.z || -0.6, 0x00f3ff, 1.15);
+    audio.play("gate-open", { quiet: true });
+    status = `Separate Comment Card materialized · source ${sourceEntry ? "unchanged" : "reference pinned"}`;
+    publishHud(true);
+    return entry;
+  }
+
+  function createMediaCommentTether(sourceEntry, commentEntry) {
+    if (!commentEntry) return null;
+    const group = new THREE.Group();
+    group.name = `CommentCustodyTether:${commentEntry.card?.id || "comment"}`;
+    const points = 32;
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute("position", new THREE.BufferAttribute(new Float32Array(points * 3), 3));
+    const cyan = new THREE.Line(geometry, new THREE.LineBasicMaterial({ color: 0x00f3ff, transparent: true, opacity: 0.62, depthWrite: false, blending: THREE.AdditiveBlending }));
+    const amber = new THREE.Line(geometry.clone(), new THREE.LineDashedMaterial({ color: 0xf6c96d, dashSize: 0.14, gapSize: 0.08, transparent: true, opacity: 0.84, depthWrite: false, blending: THREE.AdditiveBlending }));
+    amber.computeLineDistances();
+    const packets = [0x00f3ff, 0xf6c96d, 0xff6df2].map((color, index) => {
+      const packet = new THREE.Mesh(
+        new THREE.OctahedronGeometry(0.045 + index * 0.006, 0),
+        new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.9, depthWrite: false, blending: THREE.AdditiveBlending })
+      );
+      packet.userData.phase = index / 3;
+      return packet;
+    });
+    const lineageNodes = Array.from({ length: 13 }, (_, index) => {
+      const color = [0x00f3ff, 0xf6c96d, 0xff6df2][index % 3];
+      const node = new THREE.Mesh(
+        new THREE.IcosahedronGeometry(index % 4 === 0 ? 0.044 : 0.026, 0),
+        new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.72, depthWrite: false, blending: THREE.AdditiveBlending })
+      );
+      node.userData.curvePosition = index / 12;
+      return node;
+    });
+    const seals = [0x00f3ff, 0xf6c96d].map((color, index) => {
+      const seal = new THREE.Mesh(
+        new THREE.TorusGeometry(index ? 0.15 : 0.12, 0.012, 8, 48),
+        new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.78, depthWrite: false, blending: THREE.AdditiveBlending })
+      );
+      seal.rotation.x = Math.PI / 2;
+      return seal;
+    });
+    group.add(cyan, amber, ...lineageNodes, ...packets, ...seals);
+    world.add(group);
+    return { group, sourceEntry, commentEntry, cyan, amber, lineageNodes, packets, seals, createdAt: elapsedTime, life: 0, points };
+  }
+
+  function updateMediaCommentTethers(delta, elapsed) {
+    mediaCommentTethers = mediaCommentTethers.filter((tether) => {
+      const source = tether.sourceEntry;
+      const comment = tether.commentEntry;
+      if (!comment?.group?.parent || (source && !source.group?.parent)) {
+        disposeObject(tether.group);
+        tether.group.removeFromParent();
+        return false;
+      }
+      tether.life += delta;
+      const start = source?.group?.position || new THREE.Vector3(-0.2, 0.1, -0.6);
+      const end = comment.group.position;
+      const control = new THREE.Vector3((start.x + end.x) * 0.5, Math.max(start.y, end.y) + 0.82, (start.z + end.z) * 0.5 - 0.14);
+      for (const line of [tether.cyan, tether.amber]) {
+        const positions = line.geometry.attributes.position.array;
+        for (let index = 0; index < tether.points; index += 1) {
+          const t = index / (tether.points - 1);
+          const inv = 1 - t;
+          positions[index * 3] = inv * inv * start.x + 2 * inv * t * control.x + t * t * end.x;
+          positions[index * 3 + 1] = inv * inv * (start.y + 0.16) + 2 * inv * t * control.y + t * t * (end.y + 0.16);
+          positions[index * 3 + 2] = inv * inv * start.z + 2 * inv * t * control.z + t * t * end.z;
+        }
+        line.geometry.attributes.position.needsUpdate = true;
+        line.geometry.computeBoundingSphere();
+        if (line === tether.amber) line.computeLineDistances();
+      }
+      const arrival = THREE.MathUtils.clamp(tether.life / 1.8, 0, 1);
+      tether.cyan.material.opacity = 0.18 + arrival * 0.36;
+      tether.amber.material.opacity = 0.28 + arrival * 0.54 + Math.sin(elapsed * 4.2) * 0.08;
+      const curve = new THREE.QuadraticBezierCurve3(start.clone().add(new THREE.Vector3(0, 0.16, 0)), control, end.clone().add(new THREE.Vector3(0, 0.16, 0)));
+      tether.lineageNodes.forEach((node, index) => {
+        node.position.copy(curve.getPoint(node.userData.curvePosition));
+        const wave = 0.78 + Math.sin(elapsed * 4.6 - index * 0.72) * 0.34;
+        node.scale.setScalar((0.45 + arrival * 0.72) * wave);
+        node.rotation.x = elapsed * (0.34 + index * 0.012);
+        node.rotation.y = -elapsed * (0.42 + index * 0.01);
+        node.material.opacity = 0.24 + arrival * 0.48 + Math.sin(elapsed * 3.4 - index) * 0.1;
+      });
+      tether.packets.forEach((packet, index) => {
+        const travel = (elapsed * (0.18 + index * 0.025) + packet.userData.phase) % 1;
+        packet.position.copy(curve.getPoint(travel));
+        packet.rotation.x = elapsed * (1.2 + index * 0.3);
+        packet.rotation.y = elapsed * (1.7 - index * 0.2);
+        packet.scale.setScalar(0.62 + arrival * 0.54 + Math.sin(elapsed * 5 + index) * 0.08);
+      });
+      tether.seals[0].position.copy(start).add(new THREE.Vector3(0, 0.12, 0));
+      tether.seals[1].position.copy(end).add(new THREE.Vector3(0, 0.12, 0));
+      tether.seals.forEach((seal, index) => {
+        seal.rotation.z = elapsed * (index ? -0.6 : 0.52);
+        seal.scale.setScalar(0.8 + arrival * 0.35 + Math.sin(elapsed * 3 + index) * 0.06);
+      });
+      return true;
+    });
+  }
+
+  function clearMediaCommentTethers() {
+    mediaCommentTethers.forEach((tether) => {
+      disposeObject(tether.group);
+      tether.group.removeFromParent();
+    });
+    mediaCommentTethers = [];
   }
 
   function sceneRestorableEntries() {
@@ -7826,6 +8147,7 @@ function createTarotDrawGame({ canvas, cards, avatarId = "local-operator", avata
       disposeEntry(entry);
     }
     for (const burst of placementBursts) disposeObject(burst.group);
+    clearMediaCommentTethers();
     placedEntries = placedEntries.filter((entry) => preservedLive.has(entry));
     refreshForgeEntryRegistry();
     heldEntry = null;
@@ -8402,6 +8724,7 @@ function createTarotDrawGame({ canvas, cards, avatarId = "local-operator", avata
       disposeEntry(entry);
     }
     for (const burst of placementBursts) disposeObject(burst.group);
+    clearMediaCommentTethers();
     placedEntries = placedEntries.filter((entry) => preservedDock.has(entry));
     refreshForgeEntryRegistry();
     heldEntry = null;
@@ -8441,6 +8764,7 @@ function createTarotDrawGame({ canvas, cards, avatarId = "local-operator", avata
       .filter((entry) => !preservedEntries.has(entry));
     for (const entry of entriesToRemove) disposeEntry(entry);
     for (const burst of placementBursts) disposeObject(burst.group);
+    clearMediaCommentTethers();
 
     placedEntries = preserveLocked
       ? placedEntries.filter((entry) => preservedEntries.has(entry))
@@ -9535,11 +9859,11 @@ function createTarotDrawGame({ canvas, cards, avatarId = "local-operator", avata
     publishHud(true);
   }
 
-  async function setCameraCardEnabled(nextEnabled) {
+  async function setCameraCardEnabled(nextEnabled, options = {}) {
     if (!nextEnabled) {
       removeCameraCard();
       cameraCardError = "";
-      status = "Camera Card off";
+      status = options.statusText || "Camera Card off";
       audio.play("back", { quiet: true });
       publishHud(true);
       return false;
@@ -10447,6 +10771,21 @@ function createTarotDrawGame({ canvas, cards, avatarId = "local-operator", avata
 
   async function handlePhoneBridgeEvent(event = {}) {
     if (!event?.type) return;
+    if (event.type === "comment-card-finalized" && event.payload?.card) {
+      const payload = event.payload;
+      spawnMediaCommentCard(payload.card, {
+        sourceCardId: payload.card.comment?.sourceCardRef?.cardId,
+        origin: "physical_phone"
+      });
+      phoneBridgeInvite = {
+        ...(phoneBridgeInvite || {}),
+        commentResult: payload
+      };
+      phoneBridgeStatus = "Phone Comment Card proposed · source unchanged";
+      status = "Physical phone Comment Card arrived through the existing bridge";
+      publishHud(true);
+      return;
+    }
     if (event.type === "viewer-ready" || event.type === "hello") {
       if (event.payload?.inviteId || event.payload?.cardId) {
         phoneBridgeInvite = {
@@ -14455,7 +14794,7 @@ function createTarotDrawGame({ canvas, cards, avatarId = "local-operator", avata
 
   function tarotHasActiveMotion() {
     if (stargateMode || stargateCameraBlend > 0.01 || ["dialing", "active"].includes(stargateState)) return true;
-    if (heldEntry || hoveredEntry || spawnNetwork || placementBursts.length) return true;
+    if (heldEntry || hoveredEntry || spawnNetwork || placementBursts.length || mediaCommentTethers.length) return true;
     if (placedEntries.some(isForgeEntryActive)) return true;
     if (cameraCardPending || (cameraCardEntry?.video && !cameraCardEntry.video.paused)) return true;
     if (blueAvatarPending || blueAvatarInFlight || blueAvatarQueue.length || ["generating", "polling", "speaking", "tap-to-play"].includes(blueAvatarVoiceStatus)) return true;
@@ -14653,6 +14992,7 @@ function createTarotDrawGame({ canvas, cards, avatarId = "local-operator", avata
       });
     }
     updateStargateExperience(delta, elapsed);
+    updateMediaCommentTethers(delta, elapsed);
     updateSpawnNetwork(spawnNetwork, camera, elapsed);
     updatePhoneLaserVisual(elapsed);
     updateBursts(delta);
