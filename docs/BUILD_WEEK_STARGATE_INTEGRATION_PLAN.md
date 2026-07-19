@@ -46,11 +46,54 @@ The reference repository remains valuable as a tested protocol lab and append-on
 ## Target architecture
 
 1. `TarotDraw3DView.jsx` remains the sole 3D product surface.
-2. Existing ordered Card placement and scene snapshots produce a canonical Formation payload.
-3. A thin Stargate adapter calls the transplanted, tested derivation core and returns the semantic digest, private rendezvous topic, explanation, and truth state.
-4. Existing Invite Cam / Roomlet / Phone Card participation gains the signed Stargate invitation and session-feed behavior.
-5. Communication, consented comments, Wisdom evaluations, generated proposals, mint decisions, and build history return to the table as Cards rather than opening a parallel product workspace.
-6. Builder’s existing API and CLI gain parity routes over the same Stargate core. The renderer never owns secrets, peer keys, provider credentials, or mint authority.
+2. The shared `hapa-overcard` Hand remains the portable Card tray. Avatar Builder consumes its held Card references and projects accepted placements into Tarot Draw without creating another Hand or collection reducer.
+3. Existing ordered Card placement and scene snapshots produce a canonical Formation payload.
+4. A narrow adapter resolves each Gate-eligible Card's stable ID, revision, record digest, origin core key, role, orientation, and contiguous dial position for the tested Stargate derivation core. Camera, pose, hover, live Phone/Webcam presence, and other transient presentation state remain excluded.
+5. A thin Stargate adapter calls the transplanted, tested derivation core and returns the semantic digest, private rendezvous topic, explanation, and truth state.
+6. Existing Invite Cam / Roomlet / Phone Card participation gains the signed Stargate invitation and session-feed behavior.
+7. Communication, consented comments, Wisdom evaluations, generated proposals, mint decisions, and build history return to the table as Cards rather than opening a parallel product workspace.
+8. Builder's existing API and CLI gain parity routes over the same Stargate core. The renderer never owns secrets, peer keys, provider credentials, or mint authority.
+
+## P0 hero interaction: Dial a Stargate
+
+### Enter Dial mode
+
+- Add **Stargate** to the existing Tarot control dock beside Save Scene and Invite Cam.
+- Activating it morphs the existing center visualizer into a Gate aperture and reveals an ordered ring of magnetic Card slots. This reuses the current renderer, board rails, bursts, visualizer, shader, camera, and audio systems.
+- The shared Hand remains visible and usable. Picking up a Hand Card and placing it into a Gate slot commits through Overcard Placement; ordinary Tarot Cards already on the table can be moved into the same slots.
+- Slots are visibly numbered and connected in sequence. The sequence—not incidental world coordinates—defines dial order. Reordering a Card visibly invalidates the prior digest and prepares a different namespace.
+- Only Cards with a complete stable identity can become Gate members. Incomplete or proposed Cards remain viewable but show a truthful **Needs Card identity** state instead of silently receiving invented authority.
+
+### Activation sequence
+
+Use a small state machine: `dormant -> arranging -> ready -> dialing -> active -> expired/disconnected`.
+
+1. **Arranging:** each accepted Card snaps into a numbered slot; the table rail sends a short light pulse to that slot and the HUD names its role.
+2. **Ready:** the system shows the ordered Formation summary, purpose, privacy scope, and Gate-readiness checks. The **Dial** action enables only after the closed Formation validates.
+3. **Dialing:** Cards lift slightly in order; cyan/gold energy traces the chain; the center aperture spins open; the horizon tunnel and tabletop lighting intensify; the camera eases toward the Gate. Reduced-motion mode uses light, sound, and status changes without the camera move or rapid rotation.
+4. **Active:** the HUD shows a redacted address, semantic digest fingerprint, connected participant count, and an explicit private/local truth label. Roomlet peers appear as participant Cards or stars around the aperture.
+5. **Changed:** moving, replacing, or reordering a semantic member marks the current Gate stale and requires a deliberate redial. Camera movement and live Phone/Webcam presence do not change the address.
+
+### Save Gate as a Card
+
+Avatar Builder already turns **Save Scene** into a restorable Scene Card containing the Tarot snapshot and canonical Formation. When a Gate is active, the same action becomes **Save Gate** and extends that existing Card with a safe `hapa.stargate-context-card.v1` envelope:
+
+- restorable Tarot scene snapshot and canonical Formation;
+- purpose, privacy scope, Card order, roles, revisions, digests, and origin references;
+- semantic Formation digest, invitation commitment when present, Gate commitment, and redacted address;
+- creator/node identity, timestamps, lineage, session/build evidence references, and truth status;
+- connection policy `requires-fresh-gate-pass`.
+
+The durable Card must not contain the cohort secret, raw invitation token, full rendezvous topic, full address, private key, local profile path, or bearer/provider credentials.
+
+The saved Gate Card is immediately dealt onto the Tarot table using the existing Scene Card animation and can be placed into the shared Hand. Opening it later restores the exact scene and ordered Formation but never reconnects automatically.
+
+### Pass the Card to another Hapa node
+
+- The durable Gate Card is the human-facing object that can move through the shared Hand, Card core/custody, export, or another compatible node.
+- Joining authority is a separately stored, short-lived signed **Gate Pass** attached transiently to that Card. This preserves the one-Card experience without writing capability secrets into Card history.
+- A receiving node verifies the Card, resolves or accepts the Pass, asks for explicit local consent, and derives the same private namespace locally. If the Pass is absent or expired, the Card can still restore/teach the context and request a fresh Pass from an authorized inviter.
+- A later Hapa Keys integration may seal a Pass to named recipient keys. P0 uses the already-tested opaque signed invitation and never represents it as a durable public Card field.
 
 ## Golden demonstration cut
 
@@ -68,7 +111,10 @@ The shortest coherent judge path is:
 
 ### P0 — submission spine
 
-- Formation-to-Stargate adapter in the existing table.
+- The full Dial-a-Stargate activation sequence in the existing table, fed by the shared Hand.
+- Formation-to-Stargate identity adapter and private derivation using the existing tested vectors.
+- Save Gate through the existing Scene Card path, then place/pass that portable Context Card through the shared Hand.
+- One short-lived Gate Pass accepted by a second isolated Hapa profile, with no private capability material in the durable Card.
 - One two-profile signed meeting and message path using existing Roomlet/Phone surfaces.
 - Curated Build Week deck and build-history Cards in the existing family rail/browser.
 - Existing Camera/Phone Card plus one durable consented Comment Card.
