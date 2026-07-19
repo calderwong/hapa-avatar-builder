@@ -19,6 +19,7 @@
     },
     "generationPolicy": { "$ref": "#/$defs/generationPolicy" },
     "authoringProvenance": { "$ref": "#/$defs/authoringProvenance" },
+    "authoringMethodAudit": { "$ref": "#/$defs/authoringMethodAudit" },
     "review": { "$ref": "#/$defs/review" },
     "provenance": { "$ref": "#/$defs/provenance" }
   },
@@ -388,6 +389,23 @@
           },
           "additionalProperties": false
         }
+      },
+      "additionalProperties": false
+    },
+    "authoringMethodAudit": {
+      "type": "object",
+      "required": ["soleAuthorTaskName", "subagentsSpawned", "rejectedOrSameSongCandidatesRead", "foreignQualityReferencesRead", "continuedOwnDraftPaths", "authoredFieldAutomationUsed", "authoredFieldTools", "sourceFilesRead", "attestedAt"],
+      "properties": {
+        "soleAuthorTaskName": { "type": "string", "minLength": 1 },
+        "subagentsSpawned": { "const": 0 },
+        "rejectedOrSameSongCandidatesRead": { "type": "array", "maxItems": 0 },
+        "foreignQualityReferencesRead": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true },
+        "continuedOwnDraftPaths": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true },
+        "authoredFieldAutomationUsed": { "const": false },
+        "authoredFieldTools": { "type": "array", "maxItems": 0 },
+        "mechanicalValidationTools": { "type": "array", "items": { "type": "string" } },
+        "sourceFilesRead": { "type": "array", "minItems": 3, "items": { "type": "string", "minLength": 1 }, "uniqueItems": true },
+        "attestedAt": { "type": "string", "format": "date-time" }
       },
       "additionalProperties": false
     },

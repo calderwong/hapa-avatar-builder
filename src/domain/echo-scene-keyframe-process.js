@@ -617,6 +617,7 @@ function validateFullSongScreenplayHeader(screenplay, { requireApproval }) {
       }
     }
   }
+  if (screenplay.avatarContinuity.castPolicy) validateAuthoringMethodAudit(screenplay.authoringMethodAudit, screenplay.authoringProvenance?.agentTaskName);
   if (screenplay.generationPolicy.promptImportMode !== "stage_only" || screenplay.generationPolicy.imageActivationRequired !== true
     || screenplay.generationPolicy.providerPolicy !== "codex-built-in-gpt-image-only" || screenplay.generationPolicy.videoPolicy !== "held-until-separately-enabled") {
     throw new Error("Screenplay generationPolicy must preserve stage-only Codex image and held-video policy.");
@@ -626,6 +627,26 @@ function validateFullSongScreenplayHeader(screenplay, { requireApproval }) {
   }
   requireString(screenplay.provenance?.contentHash, "screenplay.provenance.contentHash");
   validateScreenplayAuthoringProvenance(screenplay.authoringProvenance);
+}
+
+function validateAuthoringMethodAudit(audit, agentTaskName) {
+  if (!audit || typeof audit !== "object") throw new Error("Enhanced screenplay authoringMethodAudit is required.");
+  if (requireString(audit.soleAuthorTaskName, "screenplay.authoringMethodAudit.soleAuthorTaskName") !== agentTaskName) {
+    throw new Error("Screenplay authoringMethodAudit sole author must match authoringProvenance.agentTaskName.");
+  }
+  if (audit.subagentsSpawned !== 0) throw new Error("Screenplay authoringMethodAudit must report zero subagents spawned.");
+  if (!Array.isArray(audit.rejectedOrSameSongCandidatesRead) || audit.rejectedOrSameSongCandidatesRead.length) {
+    throw new Error("Screenplay authoringMethodAudit must report no rejected or same-song screenplay candidates read.");
+  }
+  if (!Array.isArray(audit.foreignQualityReferencesRead)) throw new Error("Screenplay authoringMethodAudit.foreignQualityReferencesRead must be an array.");
+  if (!Array.isArray(audit.continuedOwnDraftPaths)) throw new Error("Screenplay authoringMethodAudit.continuedOwnDraftPaths must be an array.");
+  if (audit.authoredFieldAutomationUsed !== false || !Array.isArray(audit.authoredFieldTools) || audit.authoredFieldTools.length) {
+    throw new Error("Screenplay authoringMethodAudit must report no authored-field automation or tools.");
+  }
+  if (!Array.isArray(audit.sourceFilesRead) || audit.sourceFilesRead.length < 3 || audit.sourceFilesRead.some((file) => typeof file !== "string" || !file.trim())) {
+    throw new Error("Screenplay authoringMethodAudit requires at least three explicit source files.");
+  }
+  if (!Number.isFinite(Date.parse(audit.attestedAt))) throw new Error("Screenplay authoringMethodAudit.attestedAt must be a valid date-time.");
 }
 
 /**

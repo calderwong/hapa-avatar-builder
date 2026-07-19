@@ -68,6 +68,8 @@ Sequence phases such as beginning, pressure, turn, and release belong in screenp
 
 Direct authoring is evaluated by structure, not raw vocabulary counts. A screenplay fails if a script inserts otherwise diverse actions, locations, motifs, lenses, citations, or cast names into recurring constructors for `sceneText`, `gptImagePrompt`, `justification`, or `metaphor`. Mechanical tooling may transport source facts and calculate hashes; it may not manufacture the authored visual or explanatory prose.
 
+Enhanced cast-aware screenplays also carry `authoringMethodAudit`: one sole author task, zero downstream author agents, no rejected or same-song screenplay as a starting shell, and no authored-field automation. The same sole author may resume its own named incomplete draft across turns. Any approved foreign quality example read for structure is explicitly disclosed and checked for copied prose. The independent reviewer compares this attestation with the live task tree and normalized-scaffold report; a self-declaration alone is not approval evidence.
+
 The schema requires a diversity gate. Its default policy is intentionally strict:
 
 - at most two adjacent duplicate visual tuples, measured from location, camera, composition, primary motif, action, and energy;

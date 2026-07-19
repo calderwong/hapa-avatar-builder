@@ -40,6 +40,8 @@ Shared seed-identity and negative-safety clauses may repeat where operationally 
 
 The validator removes count-specific slots—including shot fields, lyric excerpts, semantic terms, and cast evidence—and compares the remaining prose scaffolds. Repeated scene, justification, metaphor, or prompt skeletons above the album-scaled limit are unimportable unless they are explicitly justified intentional holds.
 
+For enhanced cast-aware screenplays, include a top-level `authoringMethodAudit` naming the sole author task, reporting zero spawned subagents, zero rejected or same-song screenplay candidates read, and zero authored-field automation/tools. A sole author may continue its own explicitly recorded incomplete draft across turns; list those paths separately in `continuedOwnDraftPaths`. Approved foreign quality references may be read only as declared structural/quality examples and must be listed in `foreignQualityReferencesRead`; the reviewer checks that their prose was not copied. List the authoritative packet/contracts read and any mechanical validators used only after authorship. This audit is bound by the final screenplay content hash and independently checked before import.
+
 For enhanced cast-aware screenplays, do not begin most prompts with the same production-label sentence (for example, a repeated “Cinematic 16:9 key frame for exact four-count…” lead). Open directly on the count's distinctive image, action, material, or camera event. The validator treats heavily repeated prompt leads as templated authoring even when later nouns are different.
 
 ## Image-worthy frame test

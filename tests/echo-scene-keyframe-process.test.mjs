@@ -112,6 +112,18 @@ function screenplayFor(process, { songId = "echo-song", approval = true, mutate 
       artifactHash: "pending",
       attestation: { type: "authoring-provenance-v1", artifactHash: "pending", attestedBy: "echo-screenplay-test-author", attestedAt: at },
     },
+    authoringMethodAudit: {
+      soleAuthorTaskName: "echo-screenplay-test-author",
+      subagentsSpawned: 0,
+      rejectedOrSameSongCandidatesRead: [],
+      foreignQualityReferencesRead: [],
+      continuedOwnDraftPaths: [],
+      authoredFieldAutomationUsed: false,
+      authoredFieldTools: [],
+      mechanicalValidationTools: ["node --test"],
+      sourceFilesRead: ["packet.json", "authoring.md", "contract.md"],
+      attestedAt: at,
+    },
     provenance: { createdAt: at, createdBy: "test", contentHash: "sha256:screenplay-test" },
   };
   screenplay.authoringProvenance.artifactHash = deriveEchoSongVisualScreenplayAuthoringProvenanceHash(screenplay.authoringProvenance);
@@ -471,6 +483,21 @@ test("enhanced cast-aware screenplays reject slot-filled scene, justification, a
     }
   } });
   assert.throws(() => validateEchoSongVisualScreenplay(process, screenplay), /Repeated authored sceneText scaffold/u);
+});
+
+test("enhanced cast-aware screenplays require a flat direct-author method audit", () => {
+  const process = createEchoSceneKeyframeProcess({ counts: Array.from({ length: 6 }, (_, index) => sourceCount(index)) });
+  const delegated = screenplayFor(process, { mutate: (value) => {
+    value.avatarContinuity.castPolicy = { primaryAvatarId: "avatar-2", selectionRule: "smallest useful cast", referencedAvatarRule: "explicit binding only", evergreenRule: "optional action-backed cast" };
+    value.authoringMethodAudit.subagentsSpawned = 1;
+  } });
+  assert.throws(() => validateEchoSongVisualScreenplay(process, delegated), /zero subagents/u);
+  const templated = screenplayFor(process, { mutate: (value) => {
+    value.avatarContinuity.castPolicy = { primaryAvatarId: "avatar-2", selectionRule: "smallest useful cast", referencedAvatarRule: "explicit binding only", evergreenRule: "optional action-backed cast" };
+    value.authoringMethodAudit.authoredFieldAutomationUsed = true;
+    value.authoringMethodAudit.authoredFieldTools = ["slot renderer"];
+  } });
+  assert.throws(() => validateEchoSongVisualScreenplay(process, templated), /no authored-field automation/u);
 });
 
 test("reservoir inspiration is optional but must materially affect its count when present", () => {

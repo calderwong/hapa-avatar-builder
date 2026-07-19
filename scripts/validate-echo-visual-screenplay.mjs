@@ -86,6 +86,20 @@ function validateAuthoringProvenance(provenance, errors) {
   }
 }
 
+function validateAuthoringMethodAudit(document, errors) {
+  if (!document?.avatarContinuity?.castPolicy) return;
+  const audit = document?.authoringMethodAudit;
+  if (!audit || typeof audit !== "object") { fail(errors, "document", "enhanced screenplay authoringMethodAudit is required"); return; }
+  if (!nonEmptyString(audit.soleAuthorTaskName) || audit.soleAuthorTaskName !== document?.authoringProvenance?.agentTaskName) fail(errors, "document", "authoringMethodAudit sole author must match agentTaskName");
+  if (audit.subagentsSpawned !== 0) fail(errors, "document", "authoringMethodAudit must report zero subagents spawned");
+  if (!Array.isArray(audit.rejectedOrSameSongCandidatesRead) || audit.rejectedOrSameSongCandidatesRead.length) fail(errors, "document", "authoringMethodAudit must report no rejected or same-song screenplay candidates read");
+  if (!Array.isArray(audit.foreignQualityReferencesRead)) fail(errors, "document", "authoringMethodAudit.foreignQualityReferencesRead must be an array");
+  if (!Array.isArray(audit.continuedOwnDraftPaths)) fail(errors, "document", "authoringMethodAudit.continuedOwnDraftPaths must be an array");
+  if (audit.authoredFieldAutomationUsed !== false || !Array.isArray(audit.authoredFieldTools) || audit.authoredFieldTools.length) fail(errors, "document", "authoringMethodAudit must report no authored-field automation or tools");
+  if (!Array.isArray(audit.sourceFilesRead) || audit.sourceFilesRead.length < 3 || audit.sourceFilesRead.some((file) => !nonEmptyString(file))) fail(errors, "document", "authoringMethodAudit requires at least three explicit source files");
+  if (!Number.isFinite(Date.parse(audit.attestedAt))) fail(errors, "document", "authoringMethodAudit.attestedAt must be a valid date-time");
+}
+
 function promptSentenceSkeleton(count) {
   return authoredSurfaceSkeleton(count, count?.prompt?.gptImagePrompt);
 }
@@ -310,6 +324,7 @@ function validateDocument(document, filePath) {
     if (!/^sha256:[a-f0-9]{64}$/u.test(String(document?.sourceRevision?.[field] || ""))) fail(errors, "document", `sourceRevision.${field} requires a SHA-256 value`);
   }
   validateAuthoringProvenance(document?.authoringProvenance, errors);
+  validateAuthoringMethodAudit(document, errors);
   if (document?.generationPolicy?.promptImportMode !== "stage_only") fail(errors, "document", "promptImportMode must be stage_only");
   if (document?.generationPolicy?.imageActivationRequired !== true) fail(errors, "document", "imageActivationRequired must be true");
   if (document?.generationPolicy?.providerPolicy !== "codex-built-in-gpt-image-only") fail(errors, "document", "providerPolicy must be codex-built-in-gpt-image-only");
