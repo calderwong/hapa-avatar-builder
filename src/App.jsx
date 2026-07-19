@@ -206,6 +206,7 @@ import TarotLibraryView, {
 import HellWeekView from "./components/HellWeekView.jsx";
 import SongCardMintPanel from "./components/SongCardMintPanel.jsx";
 import { localFileApiUri } from "./domain/local-media-uri.js";
+import { buildPublicDemoGateCards } from "./domain/tarot-stargate-derivation.js";
 
 const ThreeAvatarViewer = lazy(() => import("./components/ThreeAvatarViewer.jsx"));
 const TarotDraw3DView = lazy(() => import("./components/TarotDraw3DView.jsx"));
@@ -217,6 +218,21 @@ const EMPTY_TAROT_DRAW_PROJECTION = {
   audit: { ready: 0, blocked: 0, missingMedia: 0 },
   state: "queued"
 };
+
+function publicStargateDemoRequested() {
+  try { return new URLSearchParams(globalThis.location?.search || "").get("stargateDemo") === "1"; }
+  catch { return false; }
+}
+
+function publicStargateDemoProjection() {
+  const cards = buildPublicDemoGateCards();
+  return {
+    cards,
+    audit: { total: cards.length, ready: cards.length, blocked: 0, missingMedia: 0, fixture: true, truthBoundary: "Public deterministic Build Week vector; not a production invitation or local library claim." },
+    state: "ready",
+    fixtureDisclosure: "Public deterministic four-Card vector boots immediately while local stores hydrate."
+  };
+}
 
 function initialAvatarBuilderView() {
   try {
@@ -611,8 +627,8 @@ export default function App({ overcardAdapter }) {
   const [attachPack, setAttachPack] = useState(null);
   const [sceneAttachPack, setSceneAttachPack] = useState(null);
   const [healingQueue, setHealingQueue] = useState(null);
-  const [tarotDrawProjection, setTarotDrawProjection] = useState(EMPTY_TAROT_DRAW_PROJECTION);
-  const [tarotDrawSceneArmed, setTarotDrawSceneArmed] = useState(false);
+  const [tarotDrawProjection, setTarotDrawProjection] = useState(() => publicStargateDemoRequested() ? publicStargateDemoProjection() : EMPTY_TAROT_DRAW_PROJECTION);
+  const [tarotDrawSceneArmed, setTarotDrawSceneArmed] = useState(publicStargateDemoRequested);
   const [tarotDrawHostAvatarId, setTarotDrawHostAvatarId] = useState(FALLBACK_AVATARS[0]?.id || null);
   const [queueJobs, setQueueJobs] = useState(createInitialQueueJobs);
   const persistTimers = useRef(new Map());

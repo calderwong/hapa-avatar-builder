@@ -63,11 +63,14 @@ import {
   updateTarotContextForgeRig,
 } from "../domain/tarot-context-forge-visual.js";
 import {
+  beginTarotProposalReview,
   beginTarotWisdomCouncil,
+  completeTarotProposalMint,
   completeTarotWisdomCouncil,
   createTarotWisdomCouncilRig,
   disposeTarotWisdomCouncilRig,
   failTarotWisdomCouncil,
+  recordTarotProposalDecision,
   updateTarotWisdomCouncilRig,
 } from "../domain/tarot-wisdom-council-visual.js";
 import {
@@ -2098,6 +2101,17 @@ export default function TarotDraw3DView({ cards = [], avatarId = "local-operator
     result: null,
     error: ""
   });
+  const [proposalReview, setProposalReview] = useState({
+    open: false,
+    status: "idle",
+    cardKind: "result",
+    review: null,
+    result: null,
+    decision: "",
+    rationale: "Approve this exact Council proposal for one origin Card head while preserving the dissent and evidence trail.",
+    revisionInstruction: "Preserve dissent; tighten the bounded experiment and success test.",
+    error: ""
+  });
   const [sceneInvitePreviewOpen, setSceneInvitePreviewOpen] = useState(false);
   const [phoneQrDataUrl, setPhoneQrDataUrl] = useState("");
   const [hud, setHud] = useState({
@@ -2207,6 +2221,13 @@ export default function TarotDraw3DView({ cards = [], avatarId = "local-operator
       resultCardId: "",
       lessonCardId: "",
       truthBoundary: "Peer-blind proposals only."
+    },
+    proposalReview: {
+      state: "idle",
+      decision: "",
+      progress: 0,
+      resultCardId: "",
+      truthBoundary: "Only explicit human approval crosses the Mint Gate."
     },
     renderer: { calls: 0, triangles: 0, geometries: 0, textures: 0 }
   });
@@ -3161,6 +3182,60 @@ export default function TarotDraw3DView({ cards = [], avatarId = "local-operator
     }
   }
 
+  async function openProposalReview(cardKind = "result") {
+    const card = wisdomCouncil.result?.cards?.[cardKind];
+    if (!card?.id) return;
+    setProposalReview((current) => ({ ...current, open: true, status: "reviewing", cardKind, review: null, result: null, decision: "", error: "" }));
+    setWisdomCouncil((current) => ({ ...current, open: false }));
+    callGame("beginProposalReview", { cardId: card.id, cardKind });
+    try {
+      const response = await fetch(`${tarotDrawApiBase(apiBase)}/api/proposal-reviews/open`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ cardId: card.id, actor: { actorId: String(wisdomCouncil.actorId || "local-operator").trim(), actorType: "human", displayName: String(wisdomCouncil.displayName || "Local operator").trim() } })
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || !payload.review?.reviewDigest) throw new Error(payload.message || "Proposal review could not be opened.");
+      setProposalReview((current) => ({ ...current, status: "ready", review: payload, error: "" }));
+    } catch (error) {
+      setProposalReview((current) => ({ ...current, status: "failed", error: error?.message || "Proposal review could not be opened." }));
+    }
+  }
+
+  async function submitProposalDecision(decision) {
+    const review = proposalReview.review?.review;
+    const card = proposalReview.review?.card;
+    if (!review?.reviewDigest || !card?.id || proposalReview.status === "deciding") return;
+    setProposalReview((current) => ({ ...current, status: "deciding", decision, result: null, error: "" }));
+    try {
+      const sessionResponse = await fetch(`${tarotDrawApiBase(apiBase)}/api/local-ui-session`, { method: "POST", headers: { Accept: "application/json" }, credentials: "same-origin" });
+      if (!sessionResponse.ok) {
+        const failure = await sessionResponse.json().catch(() => ({}));
+        throw new Error(failure.message || "Local Builder authority session could not be established.");
+      }
+      const response = await fetch(`${tarotDrawApiBase(apiBase)}/api/proposal-reviews/decisions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify({
+          cardId: card.id,
+          reviewDigest: review.reviewDigest,
+          decision,
+          rationale: String(proposalReview.rationale || `${decision} selected by explicit human control`).trim(),
+          revisionInstruction: decision === "revise" ? String(proposalReview.revisionInstruction || "").trim() : "",
+          actor: { actorId: String(wisdomCouncil.actorId || "local-operator").trim(), actorType: "human", displayName: String(wisdomCouncil.displayName || "Local operator").trim() }
+        })
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || !payload.state) throw new Error(payload.message || "The append-only decision failed closed.");
+      callGame("recordProposalDecision", { decision, payload });
+      if (payload.minted && payload.resultCard) callGame("completeProposalMint", payload);
+      setProposalReview((current) => ({ ...current, status: "complete", result: payload, error: "" }));
+    } catch (error) {
+      setProposalReview((current) => ({ ...current, status: "failed", error: error?.message || "The append-only decision failed closed." }));
+    }
+  }
+
   function mediaCommentRequest(deviceKind = mediaComment.mode) {
     if (!selectedCard || !selectedCommentIdentity?.ok) throw new Error("Select an identity-sealed source Card before capturing a Comment.");
     if (!stargateOpen || !stargate.formationDigest || !stargate.gateCommitment) throw new Error("Open the ordered Stargate before capturing so its exact context can be bound.");
@@ -4099,8 +4174,46 @@ export default function TarotDraw3DView({ cards = [], avatarId = "local-operator
             <button className="hapa-btn" data-intent="warning" type="button" disabled={!contextForge.packet || !wisdomCouncil.selectedIds.length || wisdomCouncil.status === "invoking" || Boolean(wisdomCouncil.result)} onClick={runWisdomCouncil}><Sparkles size={13} /> {wisdomCouncil.status === "invoking" ? "Independent local seats in flight…" : `Convene ${wisdomCouncil.selectedIds.length || 0}-Seat Council`}</button>
             <em>All seats seal together or no Council Result Card exists.</em>
           </div>
-          {wisdomCouncil.result && <footer data-state="complete"><div><strong>{wisdomCouncil.result.cards.result.title}</strong><span>{wisdomCouncil.result.run.seatCount} seats · {wisdomCouncil.result.run.dissent.summary.unresolvedCount} unresolved · {wisdomCouncil.result.run.dissent.creativeDirectorQueue.length} human route{wisdomCouncil.result.run.dissent.creativeDirectorQueue.length === 1 ? "" : "s"} · proposed only</span></div><button className="hapa-btn" data-intent="warning" type="button" onClick={() => setWisdomCouncil((current) => ({ ...current, open: false }))}><Sparkles size={13} /> Enter the Council Field</button></footer>}
+          {wisdomCouncil.result && <footer data-state="complete"><div><strong>{wisdomCouncil.result.cards.result.title}</strong><span>{wisdomCouncil.result.run.seatCount} seats · {wisdomCouncil.result.run.dissent.summary.unresolvedCount} unresolved · {wisdomCouncil.result.run.dissent.creativeDirectorQueue.length} human route{wisdomCouncil.result.run.dissent.creativeDirectorQueue.length === 1 ? "" : "s"} · proposed only</span></div><div className="tarot-wisdom-result-actions"><button className="hapa-btn" type="button" onClick={() => setWisdomCouncil((current) => ({ ...current, open: false }))}><Sparkles size={13} /> Enter Field</button><button className="hapa-btn" data-intent="warning" type="button" onClick={() => openProposalReview("result")}><BadgeCheck size={13} /> Review Mint Gate</button></div></footer>}
           {wisdomCouncil.error && <footer data-state="failed"><strong>Council halted truthfully</strong><span>{wisdomCouncil.error}</span></footer>}
+        </section>
+      )}
+
+      {proposalReview.open && (
+        <section className="tarot-proposal-mint-gate" data-status={proposalReview.status} data-decision={proposalReview.decision || "none"} aria-label="Human proposal review and Mint Gate" aria-live="polite">
+          <div className="tarot-mint-gate-cosmos" aria-hidden="true"><i /><i /><i /><i /><i /><i /></div>
+          <header>
+            <span><BadgeCheck size={15} /> Human Mint Gate</span>
+            <strong>{proposalReview.status === "deciding" && proposalReview.decision === "approve" ? "CARD CROSSING CUSTODY" : proposalReview.result?.minted ? "ORIGIN EVENT REACHED PEER" : "APPEND-ONLY AUTHORITY"}</strong>
+            <button className="hapa-btn" type="button" disabled={proposalReview.status === "deciding"} onClick={() => setProposalReview((current) => ({ ...current, open: false }))}>Close</button>
+          </header>
+          <div className="tarot-mint-gate-machine" data-crossing={proposalReview.status === "deciding" && proposalReview.decision === "approve" ? "true" : "false"} data-complete={proposalReview.result?.minted ? "true" : "false"} aria-hidden="true">
+            <article className="tarot-mint-proposal-card"><i>PROPOSAL</i><b>{proposalReview.review?.card?.title || wisdomCouncil.result?.cards?.result?.title || "Council Result"}</b><em>{proposalReview.review?.review?.proposalCardDigest?.slice(0, 16) || "exact digest pending"}…</em></article>
+            <div className="tarot-mint-authority-door"><i /><i /><b>HUMAN</b></div>
+            <div className="tarot-mint-custody-rail">
+              {["AUTHORITY", "ORIGIN", "CATALOG", "PEER"].map((label, index) => <i key={label} data-node={index + 1}><b>{label}</b><em>{index === 0 ? "decision" : index === 1 ? "event" : index === 2 ? "index" : "receipt"}</em></i>)}
+            </div>
+            <article className="tarot-mint-result-card"><i>RESULT</i><b>Mint Gate Receipt</b><em>{proposalReview.result?.state ? String(proposalReview.result.state).replaceAll("_", " ") : "awaiting explicit decision"}</em></article>
+          </div>
+          <div className="tarot-mint-truth-strip">
+            <span data-ready={proposalReview.review ? "true" : "false"}><BadgeCheck size={11} /> Exact proposal frozen</span>
+            <span data-ready="true"><CircleDot size={11} /> Human control only</span>
+            <span data-ready={proposalReview.result?.origin?.eventId ? "true" : "false"}><Route size={11} /> One origin head</span>
+            <span data-ready={proposalReview.result?.peer?.status === "passed" ? "true" : "false"}><Route size={11} /> Exact peer receipt</span>
+          </div>
+          <div className="tarot-mint-review-copy">
+            <label><span>Human rationale · appended, never overwritten</span><textarea value={proposalReview.rationale} disabled={proposalReview.status === "deciding" || proposalReview.status === "complete"} onChange={(event) => setProposalReview((current) => ({ ...current, rationale: event.target.value, error: "" }))} /></label>
+            <label data-visible={proposalReview.decision === "revise" ? "true" : "false"}><span>Revision instruction</span><textarea value={proposalReview.revisionInstruction} disabled={proposalReview.status === "deciding" || proposalReview.status === "complete"} onChange={(event) => setProposalReview((current) => ({ ...current, revisionInstruction: event.target.value, error: "" }))} /></label>
+          </div>
+          <div className="tarot-mint-decision-deck" role="group" aria-label="Append-only human decision">
+            <button type="button" data-decision="revise" disabled={proposalReview.status !== "ready"} onMouseEnter={() => setProposalReview((current) => ({ ...current, decision: "revise" }))} onClick={() => submitProposalDecision("revise")}><i>01</i><b>Revise</b><em>request sharper Card</em></button>
+            <button type="button" data-decision="reject" disabled={proposalReview.status !== "ready"} onMouseEnter={() => setProposalReview((current) => ({ ...current, decision: "reject" }))} onClick={() => submitProposalDecision("reject")}><i>02</i><b>Reject</b><em>record refusal</em></button>
+            <button type="button" data-decision="defer" disabled={proposalReview.status !== "ready"} onMouseEnter={() => setProposalReview((current) => ({ ...current, decision: "defer" }))} onClick={() => submitProposalDecision("defer")}><i>03</i><b>Defer</b><em>preserve for later</em></button>
+            <button type="button" data-decision="approve" disabled={proposalReview.status !== "ready"} onMouseEnter={() => setProposalReview((current) => ({ ...current, decision: "approve" }))} onClick={() => submitProposalDecision("approve")}><i>04</i><b>Approve + Mint</b><em>cross custody gate</em></button>
+          </div>
+          {proposalReview.status === "deciding" && <footer data-state="crossing"><strong>{proposalReview.decision === "approve" ? "Custody sequence in flight" : `${proposalReview.decision} decision appending`}</strong><span>{proposalReview.decision === "approve" ? "Human → Origin → Overwind → Catalog → distinct local peer" : "No mint, publication, or peer announcement will occur."}</span></footer>}
+          {proposalReview.result && <footer data-state={proposalReview.result.minted ? "minted" : "unminted"}><strong>{proposalReview.result.resultCard?.title || `${proposalReview.result.decision?.decision} · unminted`}</strong><span>{proposalReview.result.minted ? `${String(proposalReview.result.state).replaceAll("_", " ")} · ${proposalReview.result.origin?.cardId || "origin recorded"}` : "Append-only human decision recorded; proposal remains unminted."}</span></footer>}
+          {proposalReview.error && <footer data-state="failed"><strong>Mint Gate halted truthfully</strong><span>{proposalReview.error}</span></footer>}
         </section>
       )}
 
@@ -6485,6 +6598,7 @@ function createTarotDrawGame({ canvas, cards, avatarId = "local-operator", avata
   let spatialTruthShowcasePlaying = false;
   let contextForgeState = { state: "idle", mode: "deterministic_scaffold", sourceCount: 0, packetDigest: "", runDigest: "", resultCardId: "", generationPerformed: false, message: "" };
   let wisdomCouncilState = { state: "idle", seatCount: 0, dissentCount: 0, creativeDirectorCount: 0, resultCardId: "", lessonCardId: "", runDigest: "", message: "" };
+  let proposalReviewState = { state: "idle", decision: "", progress: 0, resultCardId: "", proposalCardId: "", peerProofDigest: "", message: "" };
   let compactMode = null;
   let cameraRailBlend = 0;
   let cameraGalleryRecovery = null;
@@ -6587,6 +6701,9 @@ function createTarotDrawGame({ canvas, cards, avatarId = "local-operator", avata
     beginWisdomCouncil,
     completeWisdomCouncil,
     failWisdomCouncil,
+    beginProposalReview,
+    recordProposalDecision,
+    completeProposalMint,
     setEchoDirectorProject,
     spawnForgeCard,
     updateForgeCard,
@@ -7066,6 +7183,18 @@ function createTarotDrawGame({ canvas, cards, avatarId = "local-operator", avata
     };
   }
 
+  function proposalReviewHudState() {
+    return {
+      ...proposalReviewState,
+      progress: Number((wisdomCouncilRig.mintProgress || proposalReviewState.progress || 0).toFixed(3)),
+      truthBoundary: proposalReviewState.state === "peer_announced"
+        ? "Verified human decision, origin, Catalog, and bounded two-process peer receipts drive this completed projection."
+        : proposalReviewState.state.endsWith("_unminted")
+          ? "A verified append-only human decision is shown; no mint, origin event, Catalog mutation, or peer announcement occurred."
+          : "Review staging is not mint authority; only a verified explicit human approval may cross the custody rail."
+    };
+  }
+
   function contextForgeDraft() {
     if (!["active", "connected"].includes(stargateState) || !stargateResult || !stargateEntries.length) {
       return { ok: false, message: "Open a freshly derived Stargate before sealing a Context Packet." };
@@ -7239,6 +7368,103 @@ function createTarotDrawGame({ canvas, cards, avatarId = "local-operator", avata
     status = message;
     publishHud(true);
     return wisdomCouncilHudState();
+  }
+
+  function beginProposalReview({ cardId = "" } = {}) {
+    proposalReviewState = { state: "reviewing", decision: "", progress: 0, resultCardId: "", proposalCardId: cardId, peerProofDigest: "", message: "Exact Council proposal held before the human authority door" };
+    beginTarotProposalReview(wisdomCouncilRig, { elapsed: elapsedTime });
+    const hero = placedEntries.find((entry) => entry.card?.id === cardId || entry.wisdomCouncilHero === "result");
+    if (hero) {
+      hero.targetPosition.set(-1.82, 1.18, 0.58);
+      setCardTargetRotation(hero, 1.08, 0.24, 0.04);
+      hero.group.scale.setScalar(1.2);
+      hero.floatMotion = { x: 0.018, y: 0.036, z: 0.012, speed: 0.52, phase: 0.2 };
+    }
+    createBurst(-1.56, -0.08, 0xf6c96d, 2.6);
+    audio.play("gate-dial", { quiet: true });
+    status = "Exact proposal staged before Human Mint Gate · no decision yet";
+    publishHud(true);
+    return proposalReviewHudState();
+  }
+
+  function recordProposalDecision({ decision = "defer", payload = null } = {}) {
+    const verifiedDecision = payload?.decision?.decision === decision && payload?.decision?.decisionDigest;
+    if (!verifiedDecision) {
+      status = "Decision visual withheld: verified append-only receipt missing";
+      publishHud(true);
+      return proposalReviewHudState();
+    }
+    proposalReviewState = {
+      ...proposalReviewState,
+      state: payload.minted ? "minting" : `${decision}_unminted`,
+      decision,
+      progress: 0,
+      resultCardId: payload.resultCard?.id || "",
+      peerProofDigest: payload.peer?.proofDigest || "",
+      message: payload.minted ? "Verified approval released one exact Card into the custody rail" : `Verified ${decision} decision recorded; proposal remains unminted`
+    };
+    recordTarotProposalDecision(wisdomCouncilRig, { decision, elapsed: elapsedTime });
+    witnessRuntimeSpatialEvent({
+      eventId: payload.decision.decisionId,
+      type: `proposal.decision.${decision}`,
+      payloadDigest: payload.decision.decisionDigest,
+      sourceNode: "hapa-avatar-builder-proposal-review",
+      label: `Human proposal decision: ${decision}`,
+      subjectCardId: payload.card?.id || proposalReviewState.proposalCardId,
+      actorId: payload.decision.actor?.actorId || null
+    });
+    createBurst(-1.5, -0.08, decision === "approve" ? 0xf6c96d : decision === "reject" ? 0xfb7185 : decision === "revise" ? 0x00f3ff : 0xa472ff, 3.1);
+    status = payload.minted ? "Human approval verified · exact Card entering Origin custody" : `${decision} recorded append-only · no mint`;
+    publishHud(true);
+    return proposalReviewHudState();
+  }
+
+  function completeProposalMint(payload = {}) {
+    if (!payload?.minted || !payload?.resultCard?.id || payload?.peer?.status !== "passed" || !payload?.origin?.eventId) {
+      status = "Mint completion visual withheld: complete origin and peer receipts are required";
+      publishHud(true);
+      return proposalReviewHudState();
+    }
+    const startedAt = elapsedTime;
+    const custodyBursts = [
+      { delay: 280, x: -1.42, z: -0.02, color: 0xf6c96d, label: "Human authority" },
+      { delay: 1180, x: -0.52, z: -0.22, color: 0x00f3ff, label: "Origin event" },
+      { delay: 2180, x: 0.52, z: -0.22, color: 0x45f2c8, label: "Catalog index" },
+      { delay: 3180, x: 1.42, z: -0.02, color: 0xff6df2, label: "Peer receipt" },
+    ];
+    custodyBursts.forEach((step) => window.setTimeout(() => {
+      createBurst(step.x, step.z, step.color, 3.5);
+      status = `${step.label} verified`;
+      audio.play(step.delay > 3000 ? "gate-open" : "gate-dial", { quiet: true });
+      publishHud(true);
+    }, step.delay));
+    window.setTimeout(() => {
+      completeTarotProposalMint(wisdomCouncilRig, { elapsed: elapsedTime });
+      proposalReviewState = { ...proposalReviewState, state: "peer_announced", decision: "approve", progress: 1, resultCardId: payload.resultCard.id, peerProofDigest: payload.peer.proofDigest, message: "Human → Origin → Catalog → exact peer receipt complete" };
+      const approvedEntry = placedEntries.find((entry) => entry.card?.id === payload.card?.id || entry.wisdomCouncilHero === "result");
+      if (approvedEntry && payload.card) {
+        approvedEntry.card = payload.card;
+        approvedEntry.wisdomCouncilHero = "minted";
+        approvedEntry.targetPosition.set(-1.96, 1.34, 0.46);
+        approvedEntry.group.scale.setScalar(1.28);
+      }
+      const resultEntry = spawnFieldMediaCard(payload.resultCard, { zone: "field", originPosition: new THREE.Vector3(1.62, 1.08, 0.32), statusText: "Mint Gate Result materialized from verified custody receipts" });
+      if (resultEntry) {
+        resultEntry.wisdomCouncilHero = "mint-gate-result";
+        resultEntry.targetPosition.set(1.96, 1.34, 0.46);
+        resultEntry.baseRotationY = -0.2;
+        setCardTargetRotation(resultEntry, 1.02, resultEntry.baseRotationY, -0.045);
+        resultEntry.group.scale.setScalar(1.34);
+        resultEntry.floatMotion = { x: 0.028, y: 0.05, z: 0.018, speed: 0.48, phase: Math.PI * 0.65 };
+      }
+      witnessRuntimeSpatialEvent({ eventId: payload.origin.eventId, type: "proposal.mint.peer-announced", payloadDigest: payload.peer.proofDigest, sourceNode: "hapa-avatar-builder-origin", label: "Mint Gate custody chain completed", subjectCardId: payload.card.id, actorId: payload.decision?.actor?.actorId || null });
+      createBurst(1.62, 0.14, 0x45f2c8, 5.2);
+      createBurst(1.62, 0.14, 0xf6c96d, 3.7);
+      status = "Mint Gate complete · exact origin event stored by distinct Hapa peer";
+      publishHud(true);
+    }, 4200);
+    proposalReviewState = { ...proposalReviewState, state: "minting", progress: 0, message: "Verified custody receipts replaying in order", startedAt };
+    return proposalReviewHudState();
   }
 
   function setStargateMintStage(nextStage = "idle") {
@@ -16447,6 +16673,7 @@ function createTarotDrawGame({ canvas, cards, avatarId = "local-operator", avata
       spatialTruth: spatialTruthHudState(),
       contextForge: contextForgeHudState(),
       wisdomCouncil: wisdomCouncilHudState(),
+      proposalReview: proposalReviewHudState(),
       layoutId,
       backStyle,
       musicVisualizerMode,
@@ -16730,6 +16957,17 @@ function createTarotDrawGame({ canvas, cards, avatarId = "local-operator", avata
         humanDaisVisible: wisdomCouncilRig.humanDais.scale.x > 0.01,
         resultCards: placedEntries.filter((entry) => entry.wisdomCouncilHero).map((entry) => ({ kind: entry.wisdomCouncilHero, id: entry.card?.id || null })),
         truthBoundary: wisdomCouncilHudState().truthBoundary
+      },
+      proposalReview: {
+        ...proposalReviewState,
+        visualState: wisdomCouncilRig.mintState,
+        visible: wisdomCouncilRig.mintGate.visible,
+        progress: Number((wisdomCouncilRig.mintProgress || 0).toFixed(3)),
+        litCustodyNodes: wisdomCouncilRig.mintNodes.filter((node) => node.active).length,
+        proposalVisible: wisdomCouncilRig.proposalToken.scale.x > 0.01,
+        resultVisible: wisdomCouncilRig.resultPortal.scale.x > 0.01,
+        resultCards: placedEntries.filter((entry) => entry.wisdomCouncilHero === "mint-gate-result").map((entry) => ({ id: entry.card?.id || null })),
+        truthBoundary: proposalReviewHudState().truthBoundary
       },
       avatarName,
       deckCount: deckCards.length,

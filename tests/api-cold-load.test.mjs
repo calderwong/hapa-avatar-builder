@@ -31,6 +31,7 @@ async function createFixture(t, { largeAvatar = false, invalidCanonicalCore = fa
     overwind: "overwind",
     mint: "mint",
     wisdom: "wisdom-councils",
+    proposalReviews: "proposal-reviews",
   }).map(([key, name]) => [key, path.join(base, name)]));
   const avatar = {
     id: "cold-avatar",
@@ -98,6 +99,8 @@ async function createFixture(t, { largeAvatar = false, invalidCanonicalCore = fa
       HAPA_OVERWIND_WARM_FULL: "0",
       HAPA_SONG_CARD_MINT_ROOT: paths.mint,
       HAPA_AVATAR_WISDOM_COUNCIL_ROOT: paths.wisdom,
+      HAPA_AVATAR_PROPOSAL_REVIEW_ROOT: paths.proposalReviews,
+      HAPA_AVATAR_PROPOSAL_PEER_ROOT: path.join(base, "proposal-peer"),
     },
     stdio: ["ignore", "pipe", "pipe"],
   });

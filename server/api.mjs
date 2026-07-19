@@ -114,6 +114,7 @@ import {
 } from "./avatar-media-comment-service.mjs";
 import { openAvatarContextGenerationService } from "./avatar-context-generation-service.mjs";
 import { openAvatarWisdomCouncilService } from "./avatar-wisdom-council-service.mjs";
+import { openAvatarProposalReviewService } from "./avatar-proposal-review-service.mjs";
 import { MintLedgerError, createSongCardMintController } from "./song-card-mint-controller.mjs";
 import { createSongCardRemintStore } from "./song-card-remint-store.mjs";
 import { createSongCardLocalRenderBridge, inspectSongCardRendererBuildIdentity } from "./song-card-local-renderer.mjs";
@@ -546,6 +547,16 @@ const avatarWisdomCouncilService = await openAvatarWisdomCouncilService({
   root: AVATAR_WISDOM_COUNCIL_ROOT,
   foundationPath: path.join(ROOT, "fixtures", "build-week", "wisdom-foundation.json"),
   ollamaEndpoint: process.env.HAPA_AVATAR_OLLAMA_URL || "http://127.0.0.1:11434",
+});
+const AVATAR_PROPOSAL_REVIEW_ROOT = process.env.HAPA_AVATAR_PROPOSAL_REVIEW_ROOT || path.join(DATA_DIR, "proposal-reviews");
+const avatarProposalReviewService = await openAvatarProposalReviewService({
+  root: AVATAR_PROPOSAL_REVIEW_ROOT,
+  peerProfileRoot: process.env.HAPA_AVATAR_PROPOSAL_PEER_ROOT || path.join(OVERWIND_DIR, "proposal-peer-announcements"),
+  peerTimeoutMs: Number(process.env.HAPA_AVATAR_PROPOSAL_PEER_TIMEOUT_MS || 45_000),
+  proposalSource: () => avatarWisdomCouncilService.list().cards,
+  origin: avatarOverwindOrigin,
+  readStore: readTarotStore,
+  writeStore: writeTarotStore,
 });
 const STARGATE_GATE_PASS_PROFILE_ROOT = process.env.HAPA_GATE_PASS_PROFILE_ROOT || path.join(OVERWIND_DIR, "gate-pass");
 const OVERWIND_BOOTSTRAP_PATH = path.join(OVERWIND_DIR, "avatar-builder-bootstrap.json");
@@ -1647,6 +1658,32 @@ async function route(req, res) {
       sendJson(res, 201, { ok: true, result });
     } catch (error) {
       sendJson(res, Number(error?.statusCode || 422), { ok: false, error: error?.code || "wisdom_council_failed", message: error?.message || String(error), details: error?.details || null });
+    }
+    return;
+  }
+
+  if (pathname === "/api/proposal-reviews" && req.method === "GET") {
+    sendJson(res, 200, avatarProposalReviewService.list());
+    return;
+  }
+
+  if (pathname === "/api/proposal-reviews/open" && req.method === "POST") {
+    try {
+      const result = await avatarProposalReviewService.review(await readBody(req));
+      sendJson(res, 201, result);
+    } catch (error) {
+      sendJson(res, Number(error?.statusCode || 422), { ok: false, error: error?.code || "proposal_review_failed", message: error?.message || String(error) });
+    }
+    return;
+  }
+
+  if (pathname === "/api/proposal-reviews/decisions" && req.method === "POST") {
+    if (!requireAdmin(req, res)) return;
+    try {
+      const result = await avatarProposalReviewService.decide(await readBody(req));
+      sendJson(res, result.minted ? 201 : 200, result);
+    } catch (error) {
+      sendJson(res, Number(error?.statusCode || 422), { ok: false, error: error?.code || "proposal_decision_failed", message: error?.message || String(error), failClosed: true });
     }
     return;
   }

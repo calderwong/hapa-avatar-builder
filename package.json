@@ -113,6 +113,7 @@
     "evidence:stargate-spatial-truth-capture": "node scripts/run-isolated-stargate-context-evidence.mjs --spatial-truth-capture",
     "evidence:stargate-context-forge-capture": "node scripts/run-isolated-stargate-context-evidence.mjs --context-forge-capture",
     "evidence:stargate-wisdom-council-capture": "node scripts/run-isolated-stargate-context-evidence.mjs --wisdom-council-capture",
+    "evidence:stargate-proposal-mint-capture": "node scripts/run-isolated-stargate-context-evidence.mjs --proposal-mint-capture",
     "evidence:stargate-interoperability-roundtrip": "node scripts/run-stargate-interoperability-roundtrip-evidence.mjs",
     "smoke:echo-player-pool": "electron scripts/echo-player-pool-smoke.cjs",
     "smoke:mind-ui": "electron scripts/avatar-mind-ui-smoke.cjs",

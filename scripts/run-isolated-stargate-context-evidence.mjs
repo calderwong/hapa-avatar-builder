@@ -8,20 +8,20 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const mode = process.argv.includes("--wisdom-council-capture") ? "wisdom-council-capture" : process.argv.includes("--context-forge-capture") ? "context-forge-capture" : process.argv.includes("--spatial-truth-capture") ? "spatial-truth-capture" : process.argv.includes("--media-comment-capture") ? "media-comment-capture" : process.argv.includes("--gate-pass-capture") ? "gate-pass-capture" : process.argv.includes("--gate-pass") ? "gate-pass" : process.argv.includes("--catalog-return-capture") ? "catalog-return-capture" : process.argv.includes("--catalog-return") ? "catalog-return" : process.argv.includes("--mint-capture") ? "mint-capture" : process.argv.includes("--capture") ? "capture" : process.argv.includes("--smoke") ? "smoke" : process.argv.includes("--core-smoke") ? "core-smoke" : "all";
+const mode = process.argv.includes("--proposal-mint-capture") ? "proposal-mint-capture" : process.argv.includes("--wisdom-council-capture") ? "wisdom-council-capture" : process.argv.includes("--context-forge-capture") ? "context-forge-capture" : process.argv.includes("--spatial-truth-capture") ? "spatial-truth-capture" : process.argv.includes("--media-comment-capture") ? "media-comment-capture" : process.argv.includes("--gate-pass-capture") ? "gate-pass-capture" : process.argv.includes("--gate-pass") ? "gate-pass" : process.argv.includes("--catalog-return-capture") ? "catalog-return-capture" : process.argv.includes("--catalog-return") ? "catalog-return" : process.argv.includes("--mint-capture") ? "mint-capture" : process.argv.includes("--capture") ? "capture" : process.argv.includes("--smoke") ? "smoke" : process.argv.includes("--core-smoke") ? "core-smoke" : "all";
 const runtimeRoot = await fsp.mkdtemp(path.join(os.tmpdir(), "hapa-stargate-context-evidence-"));
 const port = 22600 + Math.floor(Math.random() * 300);
 const baseUrl = `http://127.0.0.1:${port}/`;
 const overwindPort = port + 400;
 const catalogPort = port + 800;
-const paths = Object.fromEntries(Object.entries({ avatar: "avatar-store.json", kanban: "kanban.json", scene: "scene-store.json", item: "item-store.json", inventory: "inventory-store.json", tarot: "tarot-store.json", songs: "song-store.json", subscribers: "subscribers", overwind: "overwind", mint: "mints", comments: "media-comments", context: "context-generation", wisdom: "wisdom-councils", phoneInvites: "phone-bridge-invites" }).map(([key, value]) => [key, path.join(runtimeRoot, value)]));
+const paths = Object.fromEntries(Object.entries({ avatar: "avatar-store.json", kanban: "kanban.json", scene: "scene-store.json", item: "item-store.json", inventory: "inventory-store.json", tarot: "tarot-store.json", songs: "song-store.json", subscribers: "subscribers", overwind: "overwind", mint: "mints", comments: "media-comments", context: "context-generation", wisdom: "wisdom-councils", proposalReviews: "proposal-reviews", proposalPeers: "proposal-peer-announcements", phoneInvites: "phone-bridge-invites" }).map(([key, value]) => [key, path.join(runtimeRoot, value)]));
 
 const seedSvg = `data:image/svg+xml;charset=utf-8,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="768" height="1152"><rect width="768" height="1152" fill="#020617"/><circle cx="384" cy="480" r="220" fill="none" stroke="#00f3ff" stroke-width="18"/><text x="384" y="870" text-anchor="middle" fill="#f8f3e7" font-family="monospace" font-size="48">BUILD WEEK</text></svg>')}`;
 await Promise.all([
   fsp.writeFile(paths.avatar, JSON.stringify({ schemaVersion: "hapa.avatar-store.v1", avatars: [{ id: "build-week-operator", schemaVersion: "hapa.avatar-card.v1", primaryName: "Build Week Operator", names: [{ name: "Build Week Operator" }], slots: [], assets: [] }], teams: [] })),
   fsp.writeFile(paths.kanban, JSON.stringify({ schemaVersion: "hapa.kanban.v1", lanes: [] })),
   fsp.writeFile(paths.scene, JSON.stringify({ schemaVersion: "hapa.scene-graph.v1", places: [], scenes: [], timelines: [] })),
-  fsp.writeFile(paths.item, JSON.stringify({ schemaVersion: "hapa.item-manager-store.v1", cards: [] })),
+  fsp.writeFile(paths.item, JSON.stringify({ schemaVersion: "hapa.item-manager-store.v1", cards: [{ id: "build-week-item-seed", title: "Build Week Item Seed", cardType: "reference_card", tarotMainType: "protocol", summary: "A harmless isolated seed that lets the canonical Tarot projection mount before the public four-Card Stargate vector is staged.", imageUri: seedSvg, asset: { id: "build-week-item-seed-face", name: "Build Week Item Seed", type: "image", mimeType: "image/svg+xml", uri: seedSvg, source: "isolated-evidence-fixture", tags: ["tarot-card"] }, assets: [{ id: "build-week-item-seed-face", name: "Build Week Item Seed", type: "image", mimeType: "image/svg+xml", uri: seedSvg, source: "isolated-evidence-fixture", tags: ["tarot-card"] }], primaryAssetId: "build-week-item-seed-face", status: "draft", createdAt: "2026-07-18T00:00:00.000Z", updatedAt: "2026-07-18T00:00:00.000Z" }] })),
   fsp.writeFile(paths.inventory, JSON.stringify({ schemaVersion: "hapa.inventory-store.v1", avatarInventories: [] })),
   fsp.writeFile(paths.tarot, JSON.stringify({ schemaVersion: "hapa.tarot-library.v1", cards: [{ schemaVersion: "hapa.tarot-card.v1", id: "build-week-seed", title: "Build Week Seed", cardType: "reference_card", number: "00", suit: "custom", arcana: "custom", orientation: "upright", keywords: ["build-week"], meaning: "A harmless seed Card for isolated product evidence.", reversedMeaning: "", promptNotes: "", status: "draft", deckIds: [], setIds: [], avatarLinks: [], asset: { id: "build-week-seed-face", name: "Build Week Seed", type: "image", mimeType: "image/svg+xml", uri: seedSvg, source: "isolated-evidence-fixture", tags: ["tarot-card"] }, assets: [{ id: "build-week-seed-face", name: "Build Week Seed", type: "image", mimeType: "image/svg+xml", uri: seedSvg, source: "isolated-evidence-fixture", tags: ["tarot-card"] }], primaryAssetId: "build-week-seed-face", enrichment: null, createdAt: "2026-07-18T00:00:00.000Z", updatedAt: "2026-07-18T00:00:00.000Z" }], decks: [], sets: [], spreads: [], updatedAt: "2026-07-18T00:00:00.000Z" })),
   fsp.writeFile(paths.songs, JSON.stringify({ schemaVersion: "hapa.song-store.v1", songs: [] })),
@@ -50,6 +50,9 @@ const sharedEnv = {
   HAPA_AVATAR_MEDIA_COMMENT_ROOT: paths.comments,
   HAPA_AVATAR_CONTEXT_GENERATION_ROOT: paths.context,
   HAPA_AVATAR_WISDOM_COUNCIL_ROOT: paths.wisdom,
+  HAPA_AVATAR_PROPOSAL_REVIEW_ROOT: paths.proposalReviews,
+  HAPA_AVATAR_PROPOSAL_PEER_ROOT: paths.proposalPeers,
+  HAPA_AVATAR_PROPOSAL_PEER_TIMEOUT_MS: "90000",
   HAPA_AVATAR_OLLAMA_URL: "http://127.0.0.1:11434",
   HAPA_PHONE_BRIDGE_INVITE_DIR: paths.phoneInvites
 };
@@ -88,9 +91,9 @@ function run(command, args, env = sharedEnv) {
 }
 
 async function waitForHealth(child, output) {
-  for (let attempt = 0; attempt < 160 && child.exitCode === null; attempt += 1) {
+  for (let attempt = 0; attempt < 600 && child.exitCode === null; attempt += 1) {
     try { const response = await fetch(`${baseUrl}api/health`); if (response.ok) return; } catch {}
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    await new Promise((resolve) => setTimeout(resolve, 200));
   }
   throw new Error(`Isolated Avatar Builder API did not start: ${output.join("").slice(-3000)}`);
 }
@@ -120,6 +123,7 @@ try {
   if (mode === "spatial-truth-capture") results.push(await run(electron, ["scripts/capture-tarot-spatial-truth-constellation.cjs"], { ...evidenceEnv, CAPTURE_URL: baseUrl }));
   if (mode === "context-forge-capture") results.push(await run(electron, ["scripts/capture-tarot-context-forge.cjs"], { ...evidenceEnv, CAPTURE_URL: baseUrl }));
   if (mode === "wisdom-council-capture") results.push(await run(electron, ["scripts/capture-tarot-wisdom-council.cjs"], { ...evidenceEnv, CAPTURE_URL: baseUrl }));
+  if (mode === "proposal-mint-capture") results.push(await run(electron, ["scripts/capture-tarot-proposal-mint-gate.cjs"], { ...evidenceEnv, CAPTURE_URL: baseUrl }));
   console.log(JSON.stringify({ ok: true, mode, isolated: true, userAppTouched: false, baseUrl, runtimeRootDeleted: true, runs: results.length }, null, 2));
 } finally {
   if (server.exitCode === null) {

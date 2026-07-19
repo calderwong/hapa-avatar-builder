@@ -217,6 +217,42 @@ async function main(cmd, opts) {
     return;
   }
 
+  if (cmd === "proposal-reviews") {
+    print(await contextGenerationApiRequest(opts, "/api/proposal-reviews"), { ...opts, json: true });
+    return;
+  }
+
+  if (cmd === "proposal-review-open") {
+    const cardId = String(option(opts, "card-id", "card") || "").trim();
+    const actorId = String(opts.actor || "").trim();
+    if (!cardId || !actorId) throw new Error("proposal-review-open requires --card-id <id> --actor <human-id>.");
+    print(await contextGenerationApiRequest(opts, "/api/proposal-reviews/open", {
+      method: "POST",
+      body: { cardId, actor: { actorId, actorType: "human", displayName: String(option(opts, "display-name", "name") || actorId) } }
+    }), { ...opts, json: true });
+    return;
+  }
+
+  if (cmd === "proposal-decide") {
+    const cardId = String(option(opts, "card-id", "card") || "").trim();
+    const reviewDigest = String(option(opts, "review-digest", "review") || "").trim();
+    const decision = String(opts.decision || "").trim().toLowerCase();
+    const actorId = String(opts.actor || "").trim();
+    if (!cardId || !reviewDigest || !actorId || !["revise", "reject", "defer", "approve"].includes(decision)) throw new Error("proposal-decide requires --card-id <id> --review-digest <sha256> --decision revise|reject|defer|approve --actor <human-id>.");
+    if (decision === "revise" && !String(option(opts, "revision-instruction", "instruction") || "").trim()) throw new Error("proposal-decide --decision revise requires --revision-instruction <text>.");
+    print(await stargateApiRequest(opts, "/api/proposal-reviews/decisions", {
+      method: "POST",
+      admin: true,
+      body: {
+        cardId, reviewDigest, decision,
+        rationale: String(opts.rationale || `${decision} selected by explicit CLI control`),
+        revisionInstruction: String(option(opts, "revision-instruction", "instruction") || ""),
+        actor: { actorId, actorType: "human", displayName: String(option(opts, "display-name", "name") || actorId) }
+      }
+    }), { ...opts, json: true });
+    return;
+  }
+
   if (cmd === "media-comments") {
     print(await mediaCommentApiRequest(opts, "/api/media-comments"), { ...opts, json: true });
     return;
@@ -1378,6 +1414,9 @@ Commands:
   wisdom-foundation [--api-url http://127.0.0.1:8787] [--json]
   wisdom-councils [--api-url http://127.0.0.1:8787] [--json]
   wisdom-council-run --packet-id <id> --cards <card-id[,card-id,card-id]> --model qwen3.5:2b --actor <human-id> [--endpoint http://127.0.0.1:11434] [--instruction "..."] [--json]
+  proposal-reviews [--api-url http://127.0.0.1:8787] [--json]
+  proposal-review-open --card-id <id> --actor <human-id> [--display-name "..."] [--json]
+  proposal-decide --card-id <id> --review-digest <sha256> --decision revise|reject|defer|approve --actor <human-id> [--rationale "..."] [--revision-instruction "..."] [--json]
   media-comments [--api-url http://127.0.0.1:8787] [--json]
   media-comment-create --source-file ./card.json --formation-digest <sha256> --gate-commitment <sha256> --actor <human-id> [--device browser_webcam|physical_phone] [--consent] [--token-out ./private-token] [--json]
   media-comment-status --capture-id <id> [--json]

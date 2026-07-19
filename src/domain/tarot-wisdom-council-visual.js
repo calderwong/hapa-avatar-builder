@@ -9,6 +9,7 @@ const ORANGE = 0xff8a55;
 const SEAT_COLORS = [CYAN, GOLD, MAGENTA];
 const DISSENT_COLORS = [CYAN, GOLD, MINT, VIOLET, ORANGE];
 const CENTER = new THREE.Vector3(0, 2.16, -0.72);
+const MINT_NODE_COLORS = [GOLD, CYAN, MINT, MAGENTA];
 
 function glow(color, opacity = 0.8) {
   return new THREE.MeshBasicMaterial({ color, transparent: true, opacity, depthWrite: false, blending: THREE.AdditiveBlending });
@@ -107,10 +108,62 @@ export function createTarotWisdomCouncilRig() {
   humanDais.position.set(0, -0.88, 0.72);
   humanDais.scale.setScalar(0.001);
 
-  group.add(crown, core, coreCage, sealRing, ...seats.map((seat) => seat.group), ...partitions, humanDais);
+  const mintGate = new THREE.Group();
+  mintGate.name = "wisdomCouncilMintGate";
+  mintGate.visible = false;
+  const mintRailCurve = new THREE.CatmullRomCurve3([
+    new THREE.Vector3(-1.66, -0.92, 0.8),
+    new THREE.Vector3(-0.72, -0.62, 0.44),
+    new THREE.Vector3(0.12, -0.48, 0.24),
+    new THREE.Vector3(0.86, -0.68, 0.46),
+    new THREE.Vector3(1.66, -0.92, 0.8),
+  ]);
+  const mintRail = new THREE.Line(new THREE.BufferGeometry().setFromPoints(mintRailCurve.getPoints(96)), line(GOLD, 0.12));
+  const authorityDoor = new THREE.Group();
+  const authorityOuter = new THREE.Mesh(new THREE.TorusGeometry(0.42, 0.035, 10, 72), glow(GOLD, 0.62));
+  const authorityInner = new THREE.Mesh(new THREE.TorusGeometry(0.28, 0.018, 8, 56), glow(MINT, 0.3));
+  authorityOuter.scale.y = 1.28; authorityInner.scale.y = 1.28;
+  authorityDoor.position.copy(mintRailCurve.getPoint(0.02));
+  authorityDoor.add(authorityOuter, authorityInner);
+  const mintNodes = MINT_NODE_COLORS.map((color, index) => {
+    const group = new THREE.Group();
+    const base = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.22, 0.14, 6), glow(color, 0.18));
+    const beacon = new THREE.Mesh(new THREE.OctahedronGeometry(0.1, 0), glow(color, 0.14));
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(0.18, 0.018, 8, 42), glow(color, 0.16));
+    ring.rotation.x = Math.PI / 2; beacon.position.y = 0.18;
+    group.position.copy(mintRailCurve.getPoint([0.08, 0.36, 0.64, 0.92][index]));
+    group.add(base, beacon, ring);
+    mintGate.add(group);
+    return { group, base, beacon, ring, color, active: false };
+  });
+  const proposalToken = new THREE.Group();
+  const proposalCard = new THREE.Mesh(new THREE.BoxGeometry(0.31, 0.46, 0.045), glow(VIOLET, 0.78));
+  const proposalFrame = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(0.37, 0.52, 0.06)), line(GOLD, 0.92));
+  const proposalSeal = new THREE.Mesh(new THREE.IcosahedronGeometry(0.08, 1), glow(GOLD, 0.78));
+  proposalSeal.position.z = 0.065;
+  proposalToken.add(proposalCard, proposalFrame, proposalSeal);
+  proposalToken.position.copy(mintRailCurve.getPoint(0));
+  proposalToken.scale.setScalar(0.001);
+  const resultPortal = new THREE.Group();
+  const resultHalo = new THREE.Mesh(new THREE.TorusKnotGeometry(0.29, 0.025, 72, 10, 2, 3), glow(MINT, 0.46));
+  const resultCard = new THREE.Mesh(new THREE.BoxGeometry(0.37, 0.54, 0.055), glow(MINT, 0.74));
+  const resultFrame = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(0.44, 0.62, 0.07)), line(GOLD, 0.92));
+  resultPortal.position.copy(mintRailCurve.getPoint(1));
+  resultPortal.add(resultHalo, resultCard, resultFrame);
+  resultPortal.scale.setScalar(0.001);
+  const mintSparks = Array.from({ length: 18 }, (_, index) => {
+    const spark = new THREE.Mesh(new THREE.OctahedronGeometry(0.025 + (index % 3) * 0.008, 0), glow(MINT_NODE_COLORS[index % 4], 0));
+    mintGate.add(spark);
+    return spark;
+  });
+  mintGate.add(mintRail, authorityDoor, proposalToken, resultPortal);
+
+  group.add(crown, core, coreCage, sealRing, ...seats.map((seat) => seat.group), ...partitions, humanDais, mintGate);
   return {
     group, crown, core, coreCage, sealRing, seats, positions, beams, partitions, faultLines, humanDais, humanOrb, authorityRing,
+    mintGate, mintRail, mintRailCurve, authorityDoor, authorityOuter, authorityInner, mintNodes, proposalToken, proposalCard, proposalFrame, proposalSeal, resultPortal, resultHalo, resultCard, resultFrame, mintSparks,
     state: "idle", seatCount: 0, startedAt: 0, completedAt: 0, dissentCounts: {}, creativeDirectorCount: 0,
+    mintState: "idle", mintStartedAt: 0, mintCompletedAt: 0, mintDecision: "", mintProgress: 0,
   };
 }
 
@@ -160,8 +213,48 @@ export function failTarotWisdomCouncil(rig, { elapsed = 0 } = {}) {
   return true;
 }
 
+export function beginTarotProposalReview(rig, { elapsed = 0 } = {}) {
+  if (!rig?.mintGate) return false;
+  rig.group.visible = true;
+  rig.mintGate.visible = true;
+  rig.mintState = "reviewing";
+  rig.mintDecision = "";
+  rig.mintStartedAt = elapsed;
+  rig.mintCompletedAt = 0;
+  rig.mintProgress = 0;
+  rig.proposalToken.position.copy(rig.mintRailCurve.getPoint(0));
+  rig.proposalToken.scale.setScalar(0.001);
+  rig.resultPortal.scale.setScalar(0.001);
+  rig.mintRail.material.opacity = 0.18;
+  rig.mintNodes.forEach((node) => { node.active = false; node.beacon.material.opacity = 0.12; node.ring.material.opacity = 0.16; });
+  rig.mintSparks.forEach((spark) => { spark.material.opacity = 0; });
+  return true;
+}
+
+export function recordTarotProposalDecision(rig, { decision = "defer", elapsed = 0 } = {}) {
+  if (!rig?.mintGate) return false;
+  rig.mintDecision = decision;
+  rig.mintStartedAt = elapsed;
+  rig.mintState = decision === "approve" ? "minting" : `${decision}_unminted`;
+  const color = decision === "approve" ? GOLD : decision === "reject" ? 0xfb7185 : decision === "revise" ? CYAN : VIOLET;
+  rig.proposalCard.material.color.setHex(color);
+  rig.proposalFrame.material.color.setHex(color);
+  rig.authorityOuter.material.color.setHex(color);
+  return true;
+}
+
+export function completeTarotProposalMint(rig, { elapsed = 0 } = {}) {
+  if (!rig?.mintGate) return false;
+  rig.mintState = "peer_announced";
+  rig.mintDecision = "approve";
+  rig.mintCompletedAt = elapsed;
+  rig.mintProgress = 1;
+  rig.mintNodes.forEach((node) => { node.active = true; node.beacon.material.opacity = 0.96; node.ring.material.opacity = 0.8; });
+  return true;
+}
+
 export function updateTarotWisdomCouncilRig(rig, { delta = 0, elapsed = 0, gateOpen = false, reducedMotion = false } = {}) {
-  if (!rig?.group || rig.state === "idle") return;
+  if (!rig?.group || (rig.state === "idle" && !rig.mintGate?.visible)) return;
   const age = Math.max(0, elapsed - rig.startedAt);
   const entrance = THREE.MathUtils.smoothstep(Math.min(1, age / (reducedMotion ? 0.25 : 1.35)), 0, 1);
   rig.group.scale.setScalar((0.72 + entrance * 0.28) * (gateOpen ? 1 : 0.62));
@@ -207,6 +300,45 @@ export function updateTarotWisdomCouncilRig(rig, { delta = 0, elapsed = 0, gateO
     rig.humanDais.scale.setScalar(rig.creativeDirectorCount ? Math.max(0.001, daisReveal) : 0.001);
     rig.authorityRing.rotation.z = elapsed * -0.42;
     rig.humanOrb.scale.setScalar(0.84 + Math.sin(elapsed * 3.7) * 0.18);
+  }
+  if (rig.mintGate.visible) {
+    const reviewReveal = THREE.MathUtils.smoothstep(Math.min(1, Math.max(0, elapsed - rig.mintStartedAt) / (reducedMotion ? 0.18 : 0.72)), 0, 1);
+    rig.proposalToken.scale.setScalar(Math.max(0.001, reviewReveal));
+    rig.authorityOuter.rotation.z = elapsed * 0.52;
+    rig.authorityInner.rotation.z = elapsed * -0.8;
+    rig.proposalSeal.rotation.x = elapsed * 1.4;
+    rig.proposalSeal.rotation.y = elapsed * -1.1;
+    let progress = 0;
+    if (rig.mintState === "minting") progress = THREE.MathUtils.smoothstep(Math.min(1, Math.max(0, elapsed - rig.mintStartedAt) / (reducedMotion ? 0.8 : 4.2)), 0, 1);
+    if (rig.mintState === "peer_announced") progress = 1;
+    rig.mintProgress = progress;
+    if (["minting", "peer_announced"].includes(rig.mintState)) {
+      rig.proposalToken.position.copy(rig.mintRailCurve.getPoint(progress));
+      rig.proposalToken.rotation.y = Math.sin(progress * Math.PI * 4) * 0.32;
+      rig.proposalToken.rotation.z = Math.sin(progress * Math.PI) * -0.18;
+      rig.mintRail.material.opacity = 0.38 + progress * 0.58;
+      rig.mintNodes.forEach((node, index) => {
+        const threshold = [0.05, 0.32, 0.6, 0.87][index];
+        node.active = progress >= threshold;
+        node.beacon.material.opacity = node.active ? 0.92 : 0.1;
+        node.ring.material.opacity = node.active ? 0.66 + Math.sin(elapsed * 4 + index) * 0.18 : 0.12;
+        node.beacon.scale.setScalar(node.active ? 0.9 + Math.sin(elapsed * 5.2 + index) * 0.22 : 0.62);
+        node.ring.rotation.z = elapsed * (index % 2 ? -0.68 : 0.68);
+      });
+      rig.mintSparks.forEach((spark, index) => {
+        const local = (progress + index / rig.mintSparks.length * 0.24) % 1;
+        spark.position.copy(rig.mintRailCurve.getPoint(local));
+        spark.position.y += Math.sin(elapsed * 4 + index) * 0.12;
+        spark.material.opacity = progress > 0.02 ? 0.28 + Math.sin(elapsed * 5 + index) * 0.22 : 0;
+      });
+      const resultReveal = THREE.MathUtils.smoothstep(Math.min(1, Math.max(0, progress - 0.72) / 0.28), 0, 1);
+      rig.resultPortal.scale.setScalar(Math.max(0.001, resultReveal * (0.96 + Math.sin(elapsed * 4.8) * 0.06)));
+      rig.resultHalo.rotation.x = elapsed * 0.6;
+      rig.resultHalo.rotation.y = elapsed * -0.84;
+    } else {
+      rig.proposalToken.position.copy(rig.mintRailCurve.getPoint(0));
+      rig.proposalToken.position.y += Math.sin(elapsed * 2.4) * 0.06;
+    }
   }
 }
 
