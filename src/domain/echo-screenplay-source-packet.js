@@ -60,6 +60,14 @@ function normalizeLyricCoverageText(value) {
     .replace(/\s+/gu, " ");
 }
 
+const LYRIC_COVERAGE_STOPWORDS = new Set([
+  "a", "an", "and", "are", "be", "been", "but", "for", "he", "her", "his", "i", "in", "is", "it", "my", "of", "on", "our", "said", "say", "she", "so", "that", "the", "their", "then", "they", "this", "to", "was", "we", "with", "you", "your",
+]);
+
+function distinctiveCoverageTokens(value) {
+  return normalizeLyricCoverageText(value).split(" ").filter((token) => token.length >= 3 && !LYRIC_COVERAGE_STOPWORDS.has(token));
+}
+
 function countOverlapsConnector(count, connector) {
   const targetText = normalizeLyricCoverageText(connector?.target?.lyricText);
   const matchedText = normalizeLyricCoverageText(connector?.target?.matchedText);
@@ -67,8 +75,11 @@ function countOverlapsConnector(count, connector) {
   return (count?.lyricOverlap || []).some((overlap) => {
     const text = normalizeLyricCoverageText(overlap?.text || overlap?.excerpt);
     if (text.length < 4) return false;
-    return (targetText && (targetText.includes(text) || text.includes(targetText)))
-      || (matchedText && (matchedText.includes(text) || text.includes(matchedText)));
+    const distinctive = distinctiveCoverageTokens(text);
+    if (!distinctive.length) return false;
+    const targetMatch = targetText && (targetText.includes(text) || text.includes(targetText));
+    const matchedMatch = matchedText && (matchedText.includes(text) || text.includes(matchedText));
+    return Boolean(targetMatch || matchedMatch);
   });
 }
 

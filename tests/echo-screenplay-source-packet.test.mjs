@@ -146,6 +146,23 @@ test("reference coverage accepts the packet connector and ignores future lyric c
   assert.equal(result.coveredConnectors, 1);
 });
 
+test("reference coverage does not attach a later connector through a generic fragment such as I said", () => {
+  const packet = buildEchoScreenplaySourcePacket({
+    song: {
+      ...song,
+      referenceConnectors: [{ id: "later", referenceId: "later-work", classification: "candidate", target: { lyricText: "I said I would take you there when you were born wild", matchedText: "born wild", songId: "song-a" } }],
+    },
+    windows: [{ id: "song-a-count-0001", ordinal: 1, lyricOverlap: [{ text: "I said" }] }],
+    referenceCatalog: [{ id: "later-work", title: "Later", kind: "song" }],
+  });
+  const result = validateEchoScreenplayReferenceCoverage([{
+    countId: "song-a-count-0001",
+    semanticExtraction: { referenceMechanics: [], explicitNoReferenceApplies: true },
+  }], packet);
+  assert.equal(result.ok, true);
+  assert.equal(result.applicableConnectors, 0);
+});
+
 test("reference coverage rejects connector ids invented outside the immutable packet", () => {
   const packet = buildEchoScreenplaySourcePacket({ song: { ...song, referenceConnectors: song.referenceConnectors.map((connector) => ({ ...connector, target: { lyricText: "hello", matchedText: "hello", songId: "song-a" } })) }, windows, referenceCatalog: [{ id: "work", title: "Work", kind: "book" }] });
   const result = validateEchoScreenplayReferenceCoverage([{
