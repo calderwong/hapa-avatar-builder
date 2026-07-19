@@ -3535,7 +3535,7 @@ export default function TarotDraw3DView({ cards = [], avatarId = "local-operator
               </div>
             </div>
           )}
-          {stargateMint.result && <footer data-state={stargateMint.result.state}><strong>{String(stargateMint.result.state).replaceAll("_", " ")}</strong><span>{stargateMint.result.stableCardReference || "Origin staged locally"}</span></footer>}
+          {stargateMint.result && <footer data-state={stargateMint.result.state}><strong>{String(stargateMint.result.state).replaceAll("_", " ")}</strong><span>{stargateMint.result.syncResultCard ? `Result Card pressed · ${stargateMint.result.stableCardReference || "origin staged"}` : (stargateMint.result.stableCardReference || "Origin staged locally")}</span></footer>}
           {stargateMint.error && <footer data-state="failed"><strong>Proof halted truthfully</strong><span>{stargateMint.error}</span></footer>}
         </section>
       )}

@@ -60,7 +60,7 @@ app.whenReady().then(async () => {
       fullAddressLeaked: /hapa-gate:v1:[a-z2-7]{52}/i.test(document.body.innerText),
       publicSecretLeaked: document.body.innerText.includes('AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8')
     }))()`);
-    if (!saveClicked || !reviewClicked || !mintClicked || truth.state !== "catalog_indexed" || truth.chamber !== "catalog_indexed" || truth.stages.filter(x => x.complete === "true").length !== 4 || truth.fullAddressLeaked || truth.publicSecretLeaked || !/join authority excluded/i.test(truth.text)) throw new Error(`Visual truth gate failed: ${JSON.stringify(truth)}`);
+    if (!saveClicked || !reviewClicked || !mintClicked || truth.state !== "catalog_indexed" || truth.chamber !== "catalog_indexed" || truth.stages.filter(x => x.complete === "true").length !== 4 || truth.fullAddressLeaked || truth.publicSecretLeaked || !/join authority excluded/i.test(truth.text) || !/result card pressed/i.test(truth.text)) throw new Error(`Visual truth gate failed: ${JSON.stringify(truth)}`);
     if (errors.length) throw new Error(`Renderer console errors:\n${errors.join("\n")}`);
     await fs.writeFile(poster, (await win.capturePage()).toPNG());
     await run("ffmpeg", ["-y", "-framerate", String(fps), "-i", path.join(framesDir, "frame-%05d.png"), "-vf", `fps=${fps},pad=ceil(iw/2)*2:ceil(ih/2)*2`, "-c:v", "libx264", "-preset", "medium", "-crf", "18", "-pix_fmt", "yuv420p", "-movflags", "+faststart", output]);

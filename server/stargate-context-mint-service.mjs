@@ -30,6 +30,47 @@ function combineState(origin = {}, catalog = null) {
   return "proposed_unminted";
 }
 
+function resultArtwork(state = "origin_staged") {
+  const indexed = state === "catalog_indexed";
+  const label = String(state).replaceAll("_", " ").replaceAll("-", " ").toUpperCase();
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="768" height="1152" viewBox="0 0 768 1152"><defs><radialGradient id="g"><stop stop-color="${indexed ? "#00f3ff" : "#f6c96d"}" stop-opacity=".42"/><stop offset="1" stop-color="#020617"/></radialGradient></defs><rect width="768" height="1152" rx="42" fill="#020617"/><path d="M42 18h684l24 24v1068l-24 24H42l-24-24V42z" fill="url(#g)" stroke="${indexed ? "#00f3ff" : "#f6c96d"}" stroke-width="10"/><text x="384" y="112" text-anchor="middle" fill="#8ef7ff" font-family="monospace" font-size="24" letter-spacing="7">HAPA CUSTODY RECEIPT</text><circle cx="384" cy="455" r="210" fill="none" stroke="#f6c96d" stroke-width="9" stroke-dasharray="22 12"/><circle cx="384" cy="455" r="150" fill="none" stroke="#00f3ff" stroke-width="6"/><path d="m300 455 52 52 122-134" fill="none" stroke="${indexed ? "#45f2c8" : "#f6c96d"}" stroke-width="24" stroke-linecap="round" stroke-linejoin="round"/><text x="384" y="760" text-anchor="middle" fill="#f8f3e7" font-family="system-ui" font-size="42" font-weight="800">Stargate Catalog</text><text x="384" y="816" text-anchor="middle" fill="#f8f3e7" font-family="system-ui" font-size="42" font-weight="800">Sync Result Card</text><text x="384" y="900" text-anchor="middle" fill="${indexed ? "#00f3ff" : "#f6c96d"}" font-family="monospace" font-size="23" letter-spacing="4">${label}</text><text x="384" y="1018" text-anchor="middle" fill="#9bd8e7" font-family="monospace" font-size="16">SOURCE ONLY · NO OFFER · NO JOIN AUTHORITY</text></svg>`;
+  return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+}
+
+export function buildStargateCatalogSyncResultCard({ sourceCard, state, origin = {}, catalog = null, catalogError = null, observedAt = new Date().toISOString() } = {}) {
+  const sourceId = cleanText(sourceCard?.id);
+  if (!sourceId) throw new TypeError("Sync Result Card requires a source Card ID");
+  const stableReference = cleanText(origin.cardId);
+  const eventId = cleanText(origin.eventId);
+  const suffix = cleanText(origin.eventDigest).replace(/^sha256:/, "").slice(0, 16) || cleanText(sourceCard?.stargateContext?.contextDigest).slice(0, 16) || "pending";
+  const result = {
+    schemaVersion: "hapa.stargate-catalog-sync-result.v1",
+    state: cleanText(state) || "origin_staged",
+    source: { localCardId: sourceId, globalCardId: stableReference || null, sourceRevisionId: cleanText(sourceCard?.stargateContext?.revisionId) || null, overwindRevision: Number(origin.revision || 0) || null },
+    origin: { eventId: eventId || null, eventDigest: cleanText(origin.eventDigest) || null, originSequence: Number(origin.originSequence || 0) || null, durableAcknowledgement: origin.durableAcknowledgement === true, ledgerPosition: Number(origin.ledgerPosition || 0) || null },
+    catalog: catalog ? { state: cleanText(catalog.state), indexedRevision: Number(catalog.indexed_revision || 0) || null, subscriberCursor: Number(catalog.subscriber_cursor || 0) || null, secondCardHeadCreated: catalog.identity?.second_card_head_created === true, sourceOnly: catalog.commerce?.source_only !== false, sellable: catalog.commerce?.sellable === true, offerCount: Number(catalog.commerce?.offer_count || 0) } : null,
+    exception: catalogError ? { code: cleanText(catalogError.code) || "subscriber_unavailable" } : null,
+    boundaries: { joinAuthorityIncluded: false, commerceEligibility: "not_inferred", sourceOnly: true, secondReturnCardHeadCreated: false },
+    observedAt
+  };
+  return {
+    id: `stargate-catalog-sync-result:${sourceId}:${suffix}`,
+    title: "Stargate Catalog Sync Result",
+    cardType: "reference_card",
+    tarotMainType: "stargate_catalog_sync_result",
+    status: state === "catalog_indexed" ? "verified_local_evidence" : "bounded_status_evidence",
+    truthStatus: result.state,
+    summary: `Exact Return Card custody result: ${result.state.replaceAll("_", " ")}.`,
+    tags: ["stargate", "catalog-sync", "custody-receipt", "source-only", result.state],
+    imageUri: resultArtwork(result.state),
+    stargateCatalogSyncResult: result,
+    enrichment: { needsReview: false, tags: ["build-week", "protocol-evidence"], media: { stargateCatalogSyncResult: result } },
+    lineage: { sourceCardId: sourceId, sourceGlobalCardId: stableReference || null, sourceEventId: eventId || null, recordOwner: "hapa-avatar-builder", projectionOwner: ".hapaCatalog" },
+    createdAt: observedAt,
+    updatedAt: observedAt
+  };
+}
+
 export class StargateCatalogProjectionClient {
   constructor({ baseUrl = process.env.HAPA_CATALOG_URL || "http://127.0.0.1:8770", token = safeCatalogToken() } = {}) {
     this.baseUrl = String(baseUrl).replace(/\/$/, "");
@@ -137,6 +178,14 @@ export class StargateContextMintService {
       }
     }
     const state = combineState(origin, catalog);
+    const observedAt = new Date().toISOString();
+    const syncResultCard = buildStargateCatalogSyncResultCard({ sourceCard: nextCard, state, origin, catalog, catalogError, observedAt });
+    const completedStore = await this.readStore();
+    await this.writeStore({
+      ...completedStore,
+      cards: [...(completedStore.cards || []).filter((candidate) => candidate.id !== syncResultCard.id), syncResultCard],
+      updatedAt: observedAt
+    });
     return {
       ok: ["origin_staged", "overwind_acknowledged", "catalog_pending", "catalog_indexed", "subscriber_unavailable", "local-stale"].includes(state),
       schemaVersion: STARGATE_CONTEXT_MINT_RESULT_SCHEMA,
@@ -148,6 +197,7 @@ export class StargateContextMintService {
       catalog,
       catalogSync,
       catalogError,
+      syncResultCard,
       stableCardReference: origin.cardId || null,
       expectedRevision: origin.revision || 1,
       humanApproval: {

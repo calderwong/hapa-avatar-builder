@@ -9,6 +9,8 @@ Avatar Builder extends the existing Tarot Draw Return Card instead of creating a
 
 An accepted response is not enough to claim acknowledgement. Avatar Builder reports `overwind_acknowledged` only when the exact event has durable acceptance and a positive ledger cursor. It then asks `.hapaCatalog`'s existing Overwind subscriber to consume deltas and checks the exact Card ID/revision. Catalog does not manually import the Card, create a second head, infer an offer, or gain join authority.
 
+The terminal observation is pressed into a separate local `hapa.stargate-catalog-sync-result.v1` evidence Card. It contains the safe source/global identity, exact event/revision/cursor state, Catalog projection status, and explicit no-authority/no-offer boundaries. It is not a second Return Card head and does not claim to be canonical Overwind truth unless separately minted later.
+
 ## Visible truth states
 
 `Proposed -> Origin staged -> Overwind acknowledged -> Catalog indexed`
