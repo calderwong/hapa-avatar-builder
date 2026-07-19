@@ -15,6 +15,8 @@ The screenplay makes an album-scale visual plan reviewable before a queue create
 
 The existing `echo-scene-keyframe-plan-v1` remains the runtime per-count state. This contract is an upstream editorial artifact. A later adapter may translate an *activated* screenplay count into the existing runtime prompt/image quest; it may never silently import all staged prompts as executable work.
 
+`sourceRevision` is copied from the read-only song packet and contains SHA-256 identities for song context, lyrics, timing windows, reference graph, Avatar seed set, Director treatment, and prompt policy. `pending` values are invalid. This binds the authored screenplay to the exact evidence bundle reviewed by the LLM and the independent reviewer.
+
 ## Authoring workflow
 
 ```mermaid

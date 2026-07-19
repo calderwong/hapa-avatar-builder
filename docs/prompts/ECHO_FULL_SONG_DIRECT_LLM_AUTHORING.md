@@ -5,6 +5,7 @@ Author one integrated visual screenplay for every source-backed four-count in th
 ## Required inputs
 
 - Read the complete song packet, including the full lyrics, all timed counts, Director context, visual affordances, current media continuity, approved Avatar seed assets, resolved song-reference connectors, and the explicitly non-inherited album context reservoir.
+- Copy the packet's content-addressed `sourceRevision` object exactly. Never substitute `pending`, a label, or an invented digest for song context, lyrics, timing, reference graph, seed set, Director treatment, or prompt-policy hashes.
 - Read the full-song screenplay contract and production standard.
 - Use the accepted direct-LLM phrase pilot as a quality floor, not as a scene template.
 - Read the independent pilot audit and correct its two identified risks throughout the full song.
