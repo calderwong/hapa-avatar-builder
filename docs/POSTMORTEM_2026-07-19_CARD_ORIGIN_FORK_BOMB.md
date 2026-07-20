@@ -114,3 +114,11 @@ The exact STG-014 capture path must still be rerun separately before making perf
 The reusable lesson is broader than this one proof: `child_process.fork()` is an execution boundary, not merely a convenient spawn helper. Parent execution flags are code, and inheriting them can change which program the child runs. Hapa process-based proofs must use allowlisted child configuration, explicit roles, bounded ownership, and post-run process accounting.
 
 This incident should become a Process Boundary Safety Lesson Card and remain linked to the originating Codex Turn rather than being rewritten as a clean implementation history.
+
+## Stargate Gate Pass follow-up audit
+
+The protocol-wide static pass subsequently found the same blacklist-shaped `process.execArgv.filter(...)` boundary in `server/stargate-gate-pass-proof.mjs`. No evidence showed that the Stargate proof had reproduced the incident; it was identified before bounded re-execution.
+
+Commit `7ac2974` removed inherited execution arguments and parent `NODE_OPTIONS`, added a worker-role recursion sentinel, moved child creation inside cleanup ownership, added bounded `SIGKILL` escalation, removed the automatic timeout retry, and made the proof measure cleanup before persisting success. The prescribed file-based proof passed 3/3 and returned from 32 to 32 Node processes with zero Stargate workers and zero proof temp roots.
+
+Additional reusable learning: executable parent state crosses Node boundaries through both `process.execArgv` and `NODE_OPTIONS`; cleanup claims must be observed before they become proof evidence; and retry count belongs in the spawn-amplification budget. Full follow-up evidence is in `docs/audits/2026-07-19-stargate-gate-pass-process-boundary.md`.
