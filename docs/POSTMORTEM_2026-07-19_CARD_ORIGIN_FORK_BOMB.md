@@ -21,7 +21,7 @@ This was an exponential process-spawn failure. It was not caused by the Hapa Ava
 - Trivial Node and process-inspection commands consequently spent 60 seconds or more waiting with almost no accumulated CPU time.
 - Hapa's four intentional detached services were identified separately and left running.
 
-No deletion or application-data mutation was part of the incident response. Temporary proof profiles were created under the operating-system temporary directory; no customer or external peer data was involved.
+No repository, Card-store, generated-media, or application-data deletion was part of the incident response. Temporary proof profiles created under the operating-system temporary directory were removed after the process tree was contained; no customer or external peer data was involved.
 
 ## What started it
 
@@ -76,6 +76,7 @@ Node executed the eval program; the worker path became an ordinary argument. The
 4. Repeated process-group containment until the matching runaway count reached zero.
 5. Verified total Node processes fell to 32.
 6. Inspected the remaining four PID-1 Node services and preserved them because they were the intentional Avatar Builder API, `.hapaCatalog`, and maintenance-console services.
+7. Removed only macOS temporary directories matching the incident-specific `hapa-origin-proof-*` prefix and verified that zero remained. APFS cleanup took roughly nine minutes because the exponential spawn created thousands of separate profile roots.
 
 Load averages remain slow-moving historical indicators and take time to decay after the runnable queue is cleared; command responsiveness returned immediately after containment.
 
@@ -100,6 +101,7 @@ Observed after the correction:
 
 - The focused file passed all 3 tests, including both boundary tests and the live two-peer proof, in 310 milliseconds.
 - No Card-origin proof or worker process remained afterward.
+- No incident-specific `hapa-origin-proof-*` temporary directory remained afterward.
 - Total Node process count returned to the pre-test baseline of 32.
 - A trivial Node command returned in 0.03 seconds instead of more than 60 seconds.
 - The four intentional detached Hapa services remained running.
