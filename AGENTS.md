@@ -82,6 +82,14 @@ Universal Hapa Card Plane v1 is released. Avatar/Item JSON stores remain authori
 - Prefer repeatable scripts for data merges and audits. Record merge reports under `data/merge-reports/`.
 - Maintain UI/API/CLI parity when adding new cards, tarot, media, song, or world-store behavior.
 
+### Process-spawning proof safety gate
+
+- Never use `node -e`, `node --eval`, or `node --input-type=module -e` to smoke-test a module that calls `child_process.fork()` unless the fork boundary explicitly sets `execArgv: []` and carries a tested recursion sentinel. Node forks inherit the parent's execution arguments by default; an inherited eval program can execute again instead of the intended worker file.
+- Run the Card origin transport proof only through `node --test tests/card-origin-announcement-proof.test.mjs`. Do not replace that command with an inline eval shortcut.
+- A process-spawning command that stalls must not be retried until its child command lines and process count are inspected. Stop the originating process group before changing timeouts or adding debug retries.
+- Every new fork/worker path must have: an explicit execution-argument policy, a recursion/role marker, child creation inside the owner's cleanup boundary, bounded graceful shutdown, `SIGTERM` fallback, `SIGKILL` fallback, and a regression test for the process boundary.
+- Treat mass process creation as an incident, not as ordinary cold-load latency. Record the triggering command, owning code path, process count, containment action, and learning delta before resuming feature work.
+
 ## Completion Commit Protocol
 
 - A source or documentation task is not complete until its scoped changes have passed the required verification and are recorded in a focused commit.

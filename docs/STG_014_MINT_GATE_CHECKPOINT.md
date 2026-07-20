@@ -30,7 +30,7 @@ Review staging is never authority. Missing origin or peer evidence withholds the
 
 The dedicated isolated Electron capture did not complete on the saturated workstation. Two attempts failed closed while freezing the Context Packet; a third low-pressure attempt lost the isolated chamber during the extended wait. No successful STG-014 poster or product clip is claimed, and the Kanban task must not move to Review or Done yet.
 
-This is a capture-harness/cold-runtime issue, not evidence that the service contract failed: the focused service and visual tests pass. It still blocks visual acceptance because screenshots must be inspected for composition and wow factor before closure.
+Correction recorded 2026-07-19: the workstation saturation was not normal capture-harness or cold-runtime behavior. It was caused by an unsafe inline-eval smoke command interacting with inherited `child_process.fork()` execution arguments and recursively starting the Card-origin proof. See `docs/POSTMORTEM_2026-07-19_CARD_ORIGIN_FORK_BOMB.md`. The focused service and visual tests passed before the incident, but the failed capture attempts made during saturation are not valid performance evidence. Visual acceptance remains blocked until the exact capture path is rerun on the corrected process boundary.
 
 ## Resume point
 
