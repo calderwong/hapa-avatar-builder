@@ -67,7 +67,7 @@ The Stargate is the dominant visual event, not a form wrapped around a protocol.
 - Activating it morphs the existing center visualizer into a Gate aperture and reveals an ordered ring of magnetic Card slots. This reuses the current renderer, board rails, bursts, visualizer, shader, camera, and audio systems.
 - The shared Hand remains visible and usable. Picking up a Hand Card and placing it into a Gate slot commits through Overcard Placement; ordinary Tarot Cards already on the table can be moved into the same slots.
 - Slots are visibly numbered and connected in sequence. The sequence—not incidental world coordinates—defines dial order. Reordering a Card visibly invalidates the prior digest and prepares a different namespace.
-- Only Cards with a complete stable identity can become Gate members. Incomplete or proposed Cards remain viewable but show a truthful **Needs Card identity** state instead of silently receiving invented authority.
+- Only Cards with a complete stable identity can become Gate members. Incomplete or proposed Cards remain viewable and fail closed at **Needs Identity**. Because much of the legacy Tarot Draw library is a runtime projection rather than a portable Card record, the operator may explicitly use **Prepare & Lock Coordinates** to create deterministic, session-local projection receipts for those exact Cards. This fallback is visibly local, does not mutate or mint the sources, does not claim Hypercore append or portable custody, and must not be mistaken for the durable Card migration still required across the wider library.
 
 ### Activation sequence
 

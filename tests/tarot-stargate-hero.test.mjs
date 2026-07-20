@@ -5,6 +5,7 @@ import test from "node:test";
 import {
   buildPublicDemoGateCards,
   deriveStargate,
+  prepareStargateLocalProjectionCard,
   redactedStargateAddress,
   resolveStargateCardIdentity,
   STARGATE_FORMATION_SCHEMA,
@@ -55,13 +56,30 @@ test("an ordinary Card without custody identity fails visibly instead of receivi
   assert.equal(identity.member.cardId, "ordinary-card");
 });
 
+test("an explicit local preparation creates deterministic Gate identity without mutating or overstating the source", () => {
+  const source = { id: "ordinary-card", title: "Ordinary Card", summary: "A local projection.", tags: ["z", "a"] };
+  const prepared = prepareStargateLocalProjectionCard(source);
+  const replay = prepareStargateLocalProjectionCard(structuredClone(source));
+  assert.equal(resolveStargateCardIdentity(prepared).ok, true);
+  assert.equal(source.cardCoreKey, undefined);
+  assert.equal(prepared.cardCoreKey, replay.cardCoreKey);
+  assert.equal(prepared.cardRecordDigest, replay.cardRecordDigest);
+  assert.equal(prepared.custody.identityBasis, "deterministic_local_projection");
+  assert.equal(prepared.custody.durableReceipt, false);
+  assert.equal(prepared.custody.sourceMutation, false);
+  assert.equal(prepared.custody.minted, false);
+  assert.equal(prepared.custody.hypercoreAppended, false);
+  assert.equal(prepared.custody.portableCustody, false);
+  assert.notEqual(prepareStargateLocalProjectionCard({ ...source, summary: "Changed." }).cardRecordDigest, prepared.cardRecordDigest);
+});
+
 test("Tarot Draw source exposes the hero action, truth states, safe diagnostics, and reduced-motion path", async () => {
   const [component, visual, css] = await Promise.all([
     readFile(new URL("../src/components/TarotDraw3DView.jsx", import.meta.url), "utf8"),
     readFile(new URL("../src/domain/tarot-stargate-visual.js", import.meta.url), "utf8"),
     readFile(new URL("../src/index.css", import.meta.url), "utf8"),
   ]);
-  for (const token of ["toggleStargateMode", "dialStargate", "loadStargateDemoFormation", "needs_identity", "dialing", "active", "stale", "expired", "disconnected", "privateTopicWithheld", "cohortSecretWithheld"]) {
+  for (const token of ["toggleStargateMode", "dialStargate", "prepareStargateFormationIdentity", "Prepare &amp; Lock Coordinates", "Dial This Formation", "Save This Gate", "loadStargateDemoFormation", "needs_identity", "dialing", "active", "stale", "expired", "disconnected", "privateTopicWithheld", "cohortSecretWithheld"]) {
     assert.match(component, new RegExp(token));
   }
   for (const token of ["stargateAperture", "stargateIris", "stargateEventHorizon", "stargateEnergyRibbon", "stargateDestinationConstellation", "stargatePortalDepthTunnel", "stargateApertureShockwaves", "uOpen", "reducedMotion"]) {
@@ -92,4 +110,6 @@ test("Stargate construction exposes real slot targets, camera release, drag plac
   assert.match(visual, /CircleGeometry\(0\.62/);
   assert.match(css, /\.tarot-stargate-access/);
   assert.match(css, /\.tarot-stargate-slot-guide/);
+  assert.match(css, /\.tarot-stargate-next-step/);
+  assert.match(css, /\.tarot-stargate-steps/);
 });

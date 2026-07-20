@@ -13993,6 +13993,34 @@ h1 {
   line-height: 1.4;
 }
 
+.tarot-stargate-steps {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 5px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.tarot-stargate-steps li {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  align-items: center;
+  gap: 4px;
+  padding: 5px;
+  border: 1px solid rgba(125, 211, 252, 0.14);
+  background: rgba(2, 6, 23, 0.42);
+  color: rgba(159, 181, 201, 0.65);
+}
+
+.tarot-stargate-steps li[data-state="complete"] { border-color: rgba(69, 242, 200, 0.32); color: #45f2c8; }
+.tarot-stargate-steps li[data-state="current"] { border-color: rgba(var(--gate-state), 0.7); color: rgb(var(--gate-state)); box-shadow: inset 0 0 12px rgba(var(--gate-state), 0.1); }
+.tarot-stargate-steps b,
+.tarot-stargate-steps span { min-width: 0; font-family: var(--hapa-mono); font-size: 6px; text-transform: uppercase; }
+.tarot-stargate-steps b { display: grid; place-items: center; width: 16px; height: 16px; border: 1px solid currentColor; border-radius: 50%; font-size: 7px; }
+.tarot-stargate-steps span { overflow: hidden; font-weight: 800; text-overflow: ellipsis; white-space: nowrap; }
+
 .tarot-stargate-status dl {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -14160,6 +14188,15 @@ h1 {
   box-shadow: inset 0 0 12px rgba(var(--gate-state), 0.08);
 }
 
+.tarot-stargate-slot-guide span[data-identity="missing"] {
+  border-color: rgba(255, 116, 72, 0.62);
+  background: linear-gradient(110deg, rgba(255, 116, 72, 0.12), rgba(2, 6, 23, 0.5));
+}
+
+.tarot-stargate-slot-guide span[data-identity="ready"] {
+  border-color: rgba(69, 242, 200, 0.52);
+}
+
 .tarot-stargate-slot-guide i,
 .tarot-stargate-slot-guide b,
 .tarot-stargate-access small,
@@ -14167,6 +14204,26 @@ h1 {
   font-family: var(--hapa-mono);
   font-style: normal;
 }
+
+.tarot-stargate-next-step {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 9px;
+  padding: 9px 10px;
+  border: 1px solid rgba(var(--gate-state), 0.56);
+  background: linear-gradient(105deg, rgba(var(--gate-state), 0.14), rgba(246, 201, 109, 0.07)), rgba(2, 6, 23, 0.72);
+  box-shadow: inset 0 0 18px rgba(var(--gate-state), 0.06), 0 0 20px rgba(var(--gate-state), 0.08);
+}
+
+.tarot-stargate-next-step > span { min-width: 0; display: grid; gap: 3px; }
+.tarot-stargate-next-step strong,
+.tarot-stargate-next-step em { font-family: var(--hapa-mono); font-style: normal; }
+.tarot-stargate-next-step strong { color: #f8f3e7; font-size: 8px; letter-spacing: 0.05em; text-transform: uppercase; }
+.tarot-stargate-next-step em { color: rgba(248, 243, 231, 0.66); font-size: 6.5px; line-height: 1.35; }
+.tarot-stargate-next-step .hapa-btn { min-height: 31px !important; border-color: rgba(var(--gate-state), 0.72) !important; color: #f8f3e7 !important; white-space: nowrap; }
+.tarot-stargate-next-step[data-step="dial"] { --gate-state: 246, 201, 109; }
+.tarot-stargate-next-step[data-step="save"] { --gate-state: 69, 242, 200; }
 
 .tarot-stargate-slot-guide i {
   color: rgb(var(--gate-state));
