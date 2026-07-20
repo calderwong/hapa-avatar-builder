@@ -1,0 +1,38 @@
+{
+  "schema": "hapa.hyperframes.director-plan.v2",
+  "title": "Hapa Stargate — OpenAI Codex Build Week",
+  "target_duration_seconds": 176,
+  "hard_max_duration_seconds": 179,
+  "canvas": { "width": 1920, "height": 1080, "fps": 30 },
+  "style": {
+    "system": "Hapa NeonBlade",
+    "colors": {
+      "protocol": "cyan",
+      "creation": "magenta",
+      "verified": "green",
+      "human_authority": "gold",
+      "media": "violet"
+    },
+    "transitions": ["card-materialize", "finite-scan-sweep", "portal-light-bridge"],
+    "prohibited": ["generic-saas-slides", "random-motion", "unlicensed-music", "secret-bearing-screens"]
+  },
+  "scenes": [
+    { "id": "HF-01", "in": 0, "out": 13, "source": "heygen-presenter-plus-card-materialization", "status": "presenter-take-required" },
+    { "id": "HF-02", "in": 13, "out": 27, "source": "pre-existing-versus-build-week-history-plate", "status": "hyperframes-compose" },
+    { "id": "HF-03", "in": 27, "out": 47, "source": "current-card-birth-custody-capture", "status": "capture-required", "acceptance": "ordinary Cards visibly move from missing custody to exact ready receipts after one explicit human action" },
+    { "id": "HF-04", "in": 47, "out": 67, "source": "artifacts/demos/UI3D-001/tarot-stargate-hero-progression.mp4", "status": "available" },
+    { "id": "HF-05", "in": 67, "out": 85, "source": "artifacts/demos/NAV-001/gate-becomes-a-card.mp4", "status": "available" },
+    { "id": "HF-06", "in": 85, "out": 104, "source": "CAT-GATE-001-plus-CAT-GATE-002-plus-CAT-GATE-003-selects", "status": "available" },
+    { "id": "HF-07", "in": 104, "out": 123, "source": "artifacts/demos/NAV-002/signed-peer-arrival.mp4", "status": "available" },
+    { "id": "HF-08", "in": 123, "out": 145, "source": "STG-012-plus-STG-013-selects", "status": "available" },
+    { "id": "HF-09", "in": 145, "out": 165, "source": "commit-cards-evidence-corridor", "status": "hyperframes-compose" },
+    { "id": "HF-10", "in": 165, "out": 176, "source": "heygen-presenter-over-living-gate", "status": "presenter-take-required" }
+  ],
+  "truth_overlays": {
+    "history": "Avatar Builder + Tarot Draw: pre-existing. Stargate: Build Week extension.",
+    "custody": "Hypercore custody is not mint, commerce, ownership, or canon.",
+    "p2p": "Encrypted two-profile local proof; not an internet-scale claim.",
+    "ai": "Local-model output remains proposed and unminted.",
+    "git": "22 commits • 124 files • +19,136 / −326"
+  }
+}

@@ -1,0 +1,53 @@
+{
+  "schema": "hapa.codex-build-week.change-manifest.v1",
+  "audit_date": "2026-07-19",
+  "timezone": "America/Los_Angeles",
+  "official_event": {
+    "starts_at": "2026-07-13T09:00:00-07:00",
+    "ends_at": "2026-07-21T17:00:00-07:00",
+    "rules_url": "https://openai.devpost.com/rules",
+    "schedule_url": "https://openai.devpost.com/details/dates"
+  },
+  "pre_existing_foundation": [
+    "Hapa Avatar Builder",
+    "Hapa Card model and renderer",
+    "Avatar and media construction surfaces",
+    "Electron, UI, API, and CLI application shell",
+    "3D Tarot Draw environment"
+  ],
+  "cutoff_evidence": {
+    "last_pre_cutoff_commit": "158fbf30d0e683a2a8498e884fdbd73385b93233",
+    "first_post_cutoff_commit": "cd393e2873fae80ce2019d9c69012fecb348a0ba",
+    "excluded_package_commit": {
+      "commit": "cd393e2873fae80ce2019d9c69012fecb348a0ba",
+      "reason": "The commit packages a current pre-existing release and is not treated as newly authored Build Week software.",
+      "files_changed": 354,
+      "insertions": 51014,
+      "deletions": 932
+    }
+  },
+  "focused_build_week_line": {
+    "base_exclusive": "0b793a9aa2b02d7f989735921d83140f37ffc7f2",
+    "first_commit": "bb93294370bc2d7bf449de7613b6fa6b0e0f6525",
+    "head_inclusive": "f10c2f821959efe679c2c3b675438e8082a1d3fd",
+    "commit_count": 22,
+    "files_changed": 124,
+    "insertions": 19136,
+    "deletions": 326,
+    "classification": {
+      "production_code": { "insertions": 12525, "deletions": 297 },
+      "tests_and_proofs": { "insertions": 4832, "deletions": 14 },
+      "documentation": { "insertions": 1326, "deletions": 10 },
+      "data_and_manifests": { "insertions": 449, "deletions": 5 },
+      "other": { "insertions": 4, "deletions": 0 }
+    }
+  },
+  "claim_boundary": {
+    "minimum_not_total": true,
+    "uncommitted_work_excluded": true,
+    "existing_app_not_claimed_as_new": true,
+    "local_p2p_not_claimed_as_internet_scale": true,
+    "custody_not_claimed_as_mint_commerce_or_canon": true,
+    "local_ai_output_is_proposed_and_unminted": true
+  }
+}
