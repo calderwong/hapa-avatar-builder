@@ -3,8 +3,33 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { runStargateGatePassProof } from "../server/stargate-gate-pass-proof.mjs";
+import {
+  STARGATE_GATE_PASS_PEER_WORKER_ENV,
+  assertStargateGatePassProofProcessBoundary,
+  runStargateGatePassProof,
+  stargateGatePassWorkerForkOptions
+} from "../server/stargate-gate-pass-proof.mjs";
 import { gatePassFixture } from "./stargate-gate-pass-fixture.mjs";
+
+test("Gate Pass workers inherit no executable Node state", () => {
+  const options = stargateGatePassWorkerForkOptions({
+    env: {
+      NODE_OPTIONS: "--require parent-preload.cjs",
+      EXAMPLE_PARENT_VALUE: "preserved"
+    }
+  });
+  assert.deepEqual(options.execArgv, []);
+  assert.equal(options.env.NODE_OPTIONS, undefined);
+  assert.equal(options.env.EXAMPLE_PARENT_VALUE, "preserved");
+  assert.equal(options.env[STARGATE_GATE_PASS_PEER_WORKER_ENV], "1");
+});
+
+test("a Gate Pass peer-worker environment cannot recursively start the proof", () => {
+  assert.throws(
+    () => assertStargateGatePassProofProcessBoundary({ env: { [STARGATE_GATE_PASS_PEER_WORKER_ENV]: "1" } }),
+    (error) => error?.code === "stargate_gate_pass_recursive_worker"
+  );
+});
 
 test("two isolated profiles exchange one exact Card over a signed consented Gate Pass", { timeout: 45_000 }, async () => {
   const root = mkdtempSync(path.join(os.tmpdir(), "hapa-pass-proof-"));
@@ -29,6 +54,7 @@ test("two isolated profiles exchange one exact Card over a signed consented Gate
     assert.equal(result.negativeCases.every((entry) => entry.passed), true);
     assert.equal(result.effects.catalogContacted, false);
     assert.equal(result.effects.gateIdentityChanged, false);
+    assert.deepEqual(result.cleanup, { childProcessesStopped: true, swarmsDestroyed: true, gatePassPersisted: false });
     assert.equal(result.resultCard.stargateGatePassResult.arrival.peerCount, 2);
     assert.equal(existsSync(path.join(root, "gate-pass-proofs.ndjson")), true);
     const persisted = readFileSync(path.join(root, "gate-pass-proofs.ndjson"), "utf8");

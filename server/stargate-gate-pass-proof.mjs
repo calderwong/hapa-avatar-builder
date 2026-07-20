@@ -19,13 +19,30 @@ import {
 } from "./stargate-gate-pass-protocol.mjs";
 
 const WORKER_PATH = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "stargate-gate-pass-peer-worker.mjs");
+export const STARGATE_GATE_PASS_PEER_WORKER_ENV = "HAPA_STARGATE_GATE_PASS_PEER_WORKER";
 
-function child(profileRoot, label) {
-  return fork(WORKER_PATH, ["--profile-root", profileRoot, "--label", label], {
+export function stargateGatePassWorkerForkOptions({ env = process.env } = {}) {
+  const workerEnv = { ...env };
+  delete workerEnv.NODE_OPTIONS;
+  return {
     stdio: ["ignore", "ignore", "ignore", "ipc"],
     serialization: "advanced",
-    execArgv: process.execArgv.filter((entry) => !entry.startsWith("--input-type"))
+    // A fork inherits process.execArgv by default. Parent eval, test-runner,
+    // inspector, loader, and preload arguments must not cross this boundary.
+    execArgv: [],
+    env: { ...workerEnv, [STARGATE_GATE_PASS_PEER_WORKER_ENV]: "1" }
+  };
+}
+
+export function assertStargateGatePassProofProcessBoundary({ env = process.env } = {}) {
+  if (env[STARGATE_GATE_PASS_PEER_WORKER_ENV] !== "1") return;
+  throw Object.assign(new Error("A Stargate Gate Pass peer worker cannot start another Gate Pass proof"), {
+    code: "stargate_gate_pass_recursive_worker"
   });
+}
+
+function child(profileRoot, label) {
+  return fork(WORKER_PATH, ["--profile-root", profileRoot, "--label", label], stargateGatePassWorkerForkOptions());
 }
 
 function onceMessage(process, expectedTypes, timeoutMs = 35_000) {
@@ -36,7 +53,7 @@ function onceMessage(process, expectedTypes, timeoutMs = 35_000) {
       if (message?.type === "failed") return done(reject, Object.assign(new Error(message.error?.message ?? "Peer worker failed"), { code: message.error?.code }));
       if (types.has(message?.type)) done(resolve, message);
     }
-    function onExit(code) { if (code !== 0) done(reject, new Error(`Peer worker exited ${code} without a sanitized result`)); }
+    function onExit(code, signal) { done(reject, new Error(`Peer worker exited ${code ?? signal ?? "unknown"} before ${[...types].join(" or ")}`)); }
     function done(settle, value) {
       clearTimeout(timer);
       process.off("message", onMessage);
@@ -48,13 +65,64 @@ function onceMessage(process, expectedTypes, timeoutMs = 35_000) {
   });
 }
 
-async function stopChild(process) {
-  if (process.exitCode !== null || !process.connected) return;
-  const stopped = new Promise((resolve) => process.once("exit", resolve));
-  process.send({ type: "shutdown" });
-  const timer = setTimeout(() => process.kill("SIGTERM"), 1_500);
-  await stopped.catch(() => {});
-  clearTimeout(timer);
+function childExited(childProcess) {
+  return childProcess.exitCode !== null || childProcess.signalCode !== null;
+}
+
+async function waitForChildExit(childProcess, timeoutMs) {
+  if (childExited(childProcess)) return true;
+  return await new Promise((resolve) => {
+    const onExit = () => done(true);
+    const timer = setTimeout(() => done(false), timeoutMs);
+    function done(exited) {
+      clearTimeout(timer);
+      childProcess.off("exit", onExit);
+      resolve(exited);
+    }
+    childProcess.once("exit", onExit);
+  });
+}
+
+async function stopChild(childProcess) {
+  if (!childProcess || childExited(childProcess)) return true;
+  if (childProcess.connected) {
+    try { childProcess.send({ type: "shutdown" }); } catch {}
+  }
+  if (await waitForChildExit(childProcess, 1_500)) return true;
+  try { childProcess.kill("SIGTERM"); } catch {}
+  if (await waitForChildExit(childProcess, 1_500)) return true;
+  try { childProcess.kill("SIGKILL"); } catch {}
+  return await waitForChildExit(childProcess, 1_500);
+}
+
+async function stopBootstrap(bootstrapNode) {
+  if (!bootstrapNode) return true;
+  try {
+    await bootstrapNode.dht.destroy({ force: true });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function cleanupAttempt({ peerA, peerB, bootstrapNode }) {
+  const [peerAStopped, peerBStopped, bootstrapStopped] = await Promise.all([
+    stopChild(peerA),
+    stopChild(peerB),
+    stopBootstrap(bootstrapNode)
+  ]);
+  return {
+    childProcessesStopped: peerAStopped && peerBStopped,
+    swarmsDestroyed: bootstrapStopped
+  };
+}
+
+function assertAttemptCleanup(cleanup) {
+  if (cleanup.childProcessesStopped && cleanup.swarmsDestroyed) return;
+  throw Object.assign(new Error("Stargate Gate Pass proof cleanup did not return to its owned process boundary"), {
+    code: "stargate_gate_pass_cleanup_failed",
+    cleanup
+  });
 }
 
 async function openLoopbackBootstrap() {
@@ -116,14 +184,16 @@ async function runAttempt({ profileRoot, globalCardId, revision, sourceNode = "h
   const peerBProfile = path.join(runRoot, "peer-b");
   await Promise.all([mkdir(peerAProfile, { recursive: true, mode: 0o700 }), mkdir(peerBProfile, { recursive: true, mode: 0o700 })]);
   const contextCardPacket = buildContextCardHandoff({ globalCardId, revision, sourceNode, card });
-  const peerA = child(peerAProfile, "Aurora");
-  const peerB = child(peerBProfile, "Beacon");
-  const processIds = [peerA.pid, peerB.pid];
-  const readyAPromise = onceMessage(peerA, "ready", timeoutMs);
-  const readyBPromise = onceMessage(peerB, "ready", timeoutMs);
+  let peerA;
+  let peerB;
   let gatePassToken = null;
   let bootstrapNode = null;
   try {
+    peerA = child(peerAProfile, "Aurora");
+    peerB = child(peerBProfile, "Beacon");
+    const processIds = [peerA.pid, peerB.pid];
+    const readyAPromise = onceMessage(peerA, "ready", timeoutMs);
+    const readyBPromise = onceMessage(peerB, "ready", timeoutMs);
     bootstrapNode = await openLoopbackBootstrap();
     const [readyA, readyB] = await Promise.all([readyAPromise, readyBPromise]);
     if (readyA.identity.nodeId === readyB.identity.nodeId || peerA.pid === peerB.pid) throw new Error("Peer isolation failed");
@@ -147,6 +217,11 @@ async function runAttempt({ profileRoot, globalCardId, revision, sourceNode = "h
     const receiverStored = resultB.result.card.receivedDurably === true;
     const privateFieldLeakCheckPassed = [resultA.result, resultB.result].every((result) => result.handshakeLeakCheck.passed && result.forbiddenFields.length === 0);
     const passed = allAccepted && transportObserved && signatureVerified && cardMatched && receiverStored && privateFieldLeakCheckPassed && negativeCases.every((entry) => entry.passed);
+    const cleanup = await cleanupAttempt({ peerA, peerB, bootstrapNode });
+    assertAttemptCleanup(cleanup);
+    peerA = null;
+    peerB = null;
+    bootstrapNode = null;
     const unsigned = {
       schemaVersion: GATE_PASS_RESULT_SCHEMA,
       proofId: runId,
@@ -190,7 +265,7 @@ async function runAttempt({ profileRoot, globalCardId, revision, sourceNode = "h
       },
       arrival: { joined: passed, peerCount: passed ? 2 : 0, labels: passed ? ["Aurora", "Beacon"] : [], canonicalTarotProjectionAllowed: passed },
       negativeCases,
-      cleanup: { swarmsDestroyed: true, childProcessesStopped: true, gatePassPersisted: false },
+      cleanup: { ...cleanup, gatePassPersisted: false },
       withheld: ["Gate Pass token", "cohort secret", "full rendezvous topic", "full Stargate address", "profile paths", "private signing keys"],
       effects: { catalogContacted: false, catalogMutated: false, sourceCardMutated: false, gateIdentityChanged: false, p2pJoined: passed },
       truthBoundary: "Observed on two isolated local child processes using a memory-only signed Pass and live Hyperswarm discovery through an ephemeral loopback DHT. This does not prove internet-wide availability or geographic remoteness."
@@ -218,21 +293,12 @@ async function runAttempt({ profileRoot, globalCardId, revision, sourceNode = "h
     return result;
   } finally {
     gatePassToken = null;
-    await Promise.all([stopChild(peerA), stopChild(peerB)]);
-    if (bootstrapNode) await bootstrapNode.dht.destroy({ force: true }).catch(() => {});
+    const cleanup = await cleanupAttempt({ peerA, peerB, bootstrapNode });
+    assertAttemptCleanup(cleanup);
   }
 }
 
 export async function runStargateGatePassProof(options) {
-  let firstError;
-  try { return await runAttempt(options); }
-  catch (error) {
-    firstError = error;
-    if (error?.code !== "gate_pass_timeout" && !/timed out/i.test(error?.message ?? "")) throw error;
-  }
-  try { return await runAttempt(options); }
-  catch (error) {
-    if (error?.code === "gate_pass_timeout" || /timed out/i.test(error?.message ?? "")) error.message = `Two independent Gate Pass attempts timed out; first: ${firstError.message}; second: ${error.message}`;
-    throw error;
-  }
+  assertStargateGatePassProofProcessBoundary();
+  return await runAttempt(options);
 }
