@@ -5,13 +5,13 @@ import test from "node:test";
 import {
   buildPublicDemoGateCards,
   deriveStargate,
-  prepareStargateLocalProjectionCard,
   redactedStargateAddress,
   resolveStargateCardIdentity,
   STARGATE_FORMATION_SCHEMA,
   STARGATE_PROTOCOL_VERSION,
   STARGATE_PUBLIC_DEMO_SECRET,
 } from "../src/domain/tarot-stargate-derivation.js";
+import { applyCardCustodyReceipt } from "../src/domain/card-custody.js";
 
 const EXPECTED_GOLDEN_DIGEST = "121814ebb6adad60af103fdce1cbfe0a70edcca8ef0846e6260b9f5c8a45be8f";
 const EXPECTED_GOLDEN_ADDRESS = "hapa-gate:v1:72eeamh2g3mxe2jbnww44f4wbvrgl4o3od242ikj6mpmv3wn2gnq";
@@ -56,21 +56,35 @@ test("an ordinary Card without custody identity fails visibly instead of receivi
   assert.equal(identity.member.cardId, "ordinary-card");
 });
 
-test("an explicit local preparation creates deterministic Gate identity without mutating or overstating the source", () => {
+test("a verified Card-core receipt creates Gate identity without implying mint or commerce", () => {
   const source = { id: "ordinary-card", title: "Ordinary Card", summary: "A local projection.", tags: ["z", "a"] };
-  const prepared = prepareStargateLocalProjectionCard(source);
-  const replay = prepareStargateLocalProjectionCard(structuredClone(source));
+  const prepared = applyCardCustodyReceipt(source, {
+    schemaVersion: "hapa.card-custody-receipt.v1",
+    cardId: "ordinary-card",
+    cardCoreKey: "a".repeat(64),
+    cardRevisionId: "created-1234567890abcdef",
+    cardRecordDigest: "b".repeat(64),
+    originPublicKey: "c".repeat(64),
+    originNodeId: "hapa-avatar-builder",
+    createdAt: "2026-07-20T00:00:00.000Z",
+    headEventDigest: "d".repeat(64),
+    historyLength: 1,
+    lifecycleStatus: "draft",
+    custodyState: "origin_appended",
+    replicationState: "origin_only",
+    minted: false,
+    catalogPublished: false,
+    commerceEligible: false,
+    canonical: false,
+  });
   assert.equal(resolveStargateCardIdentity(prepared).ok, true);
   assert.equal(source.cardCoreKey, undefined);
-  assert.equal(prepared.cardCoreKey, replay.cardCoreKey);
-  assert.equal(prepared.cardRecordDigest, replay.cardRecordDigest);
-  assert.equal(prepared.custody.identityBasis, "deterministic_local_projection");
-  assert.equal(prepared.custody.durableReceipt, false);
-  assert.equal(prepared.custody.sourceMutation, false);
+  assert.equal(prepared.custody.identityBasis, "hypercore_origin_event");
+  assert.equal(prepared.custody.durableReceipt, true);
   assert.equal(prepared.custody.minted, false);
-  assert.equal(prepared.custody.hypercoreAppended, false);
-  assert.equal(prepared.custody.portableCustody, false);
-  assert.notEqual(prepareStargateLocalProjectionCard({ ...source, summary: "Changed." }).cardRecordDigest, prepared.cardRecordDigest);
+  assert.equal(prepared.custody.hypercoreAppended, true);
+  assert.equal(prepared.custody.portableCustody, true);
+  assert.equal(prepared.custody.commerceEligible, false);
 });
 
 test("Tarot Draw source exposes the hero action, truth states, safe diagnostics, and reduced-motion path", async () => {
@@ -79,7 +93,7 @@ test("Tarot Draw source exposes the hero action, truth states, safe diagnostics,
     readFile(new URL("../src/domain/tarot-stargate-visual.js", import.meta.url), "utf8"),
     readFile(new URL("../src/index.css", import.meta.url), "utf8"),
   ]);
-  for (const token of ["toggleStargateMode", "dialStargate", "prepareStargateFormationIdentity", "Prepare &amp; Lock Coordinates", "Dial This Formation", "Save This Gate", "loadStargateDemoFormation", "needs_identity", "dialing", "active", "stale", "expired", "disconnected", "privateTopicWithheld", "cohortSecretWithheld"]) {
+  for (const token of ["toggleStargateMode", "dialStargate", "prepareStargateFormationIdentity", "Create Cores & Lock Coordinates", "/api/cards/custody/ensure", "Dial This Formation", "Save This Gate", "loadStargateDemoFormation", "needs_identity", "creating_custody", "dialing", "active", "stale", "expired", "disconnected", "privateTopicWithheld", "cohortSecretWithheld"]) {
     assert.match(component, new RegExp(token));
   }
   for (const token of ["stargateAperture", "stargateIris", "stargateEventHorizon", "stargateEnergyRibbon", "stargateDestinationConstellation", "stargatePortalDepthTunnel", "stargateApertureShockwaves", "uOpen", "reducedMotion"]) {

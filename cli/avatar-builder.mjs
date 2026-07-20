@@ -76,6 +76,26 @@ async function main(cmd, opts) {
     return;
   }
 
+  if (cmd === "card-custody-status") {
+    const cardId = String(option(opts, "card-id", "card") || "").trim();
+    const suffix = cardId ? `?${new URLSearchParams({ cardId })}` : "";
+    print(await stargateApiRequest(opts, `/api/cards/custody${suffix}`), { ...opts, json: true });
+    return;
+  }
+
+  if (cmd === "card-custody-ensure") {
+    const inputFile = option(opts, "file", "card-file");
+    const actorId = String(opts.actor || "").trim();
+    if (!inputFile || !actorId) throw new Error("card-custody-ensure requires --file <card.json> --actor <human-or-local-operator-id>.");
+    const card = await readJsonInput(inputFile);
+    print(await stargateApiRequest(opts, "/api/cards/custody/ensure", {
+      method: "POST",
+      admin: true,
+      body: { card, actorId, evidenceRef: String(option(opts, "evidence", "evidence-ref") || "cli:explicit-create-card-core") },
+    }), { ...opts, json: true });
+    return;
+  }
+
   if (cmd === "stargate-context-restore") {
     const inputFile = option(opts, "file", "card");
     if (!inputFile) throw new Error("stargate-context-restore requires --file <stargate-context-card.json>.");
@@ -1400,6 +1420,8 @@ function printHelp() {
 
 Commands:
   list [--json]
+  card-custody-status [--card-id <id>] [--api-url http://127.0.0.1:8787] [--json]
+  card-custody-ensure --file ./card.json --actor <human-or-local-operator-id> [--evidence <ref>] [--api-url http://127.0.0.1:8787] [--json]
   stargate-context-card --scene-file ./scene-card.json --stargate-file ./derived-gate.json [--actor local-operator] [--json]
   stargate-context-restore --file ./stargate-context-card.json [--json]
   stargate-context-review --file ./stargate-context-card.json [--json]

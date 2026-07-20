@@ -9,6 +9,19 @@ Verified 2026-07-11 for canonical node `hapa-avatar-builder`; aliases are `hapa-
 | UI | Header identifies Hapa Avatar Builder and consumes the same catalog, HostTargets, process adapters, Hand, and capability host | pointer, keyboard, touch, route and card actions; visible state/recovery feedback | Shared changes require an online canonical host; offline actions are visibly rejected rather than implied committed | `outputs/shared-hand-header-visual-qa/report.json` |
 | Desktop | Same UI and API with a scoped preload lifecycle bridge | status / ensure / reconnect only | context isolation, Node integration off, web security on, no credential exposure | `electron/main.cjs`, `electron/preload.cjs` |
 
+## Per-Card Hypercore custody parity
+
+Every durable Builder Card receives a real per-Card Hypercore when it first becomes durable. This root `card.created` event is separate from mint, Overwind acknowledgement, Catalog publication, commerce eligibility, and canon.
+
+| Surface | Create/read custody |
+| --- | --- |
+| UI | Tarot Draw Stargate uses **Create Cores & Lock Coordinates** for identity-missing legacy projections. The protected same-machine operation returns and applies the exact custody receipt before Gate derivation. |
+| API | `GET /api/cards/custody[?cardId=...]`; protected `POST /api/cards/custody/ensure`. Exact reads verify the named Card core; index reads use the compact registry and create nothing. |
+| CLI | `card-custody-status`; `card-custody-ensure --file <card.json> --actor <id>`. Mutation authority comes from `HAPA_AVATAR_ADMIN_TOKEN`, never argv. |
+| Data | One origin Hypercore per durable Card plus one append-only registry Hypercore under the ignored runtime root `data/card-custody/`. |
+
+All surfaces return `hapa.card-custody-receipt.v1`. See `docs/CARD_HYPERCORE_CUSTODY.md` and `tests/card-custody-parity.test.mjs`.
+
 ## Portable Stargate Context Card parity
 
 The canonical domain module is `src/domain/tarot-stargate-context-card.js`. All surfaces create the same `proposed_unminted` safe Card and restore the same exact ordered Formation in a disconnected state:

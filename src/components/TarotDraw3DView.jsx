@@ -21,12 +21,12 @@ import {
 } from "../domain/echo-isf-browser-runtime.js";
 import { echoLegacyCanvasApproximation } from "../domain/echo-shader-picker.js";
 import { localFileApiUri } from "../domain/local-media-uri.js";
+import { applyCardCustodyReceipt, CARD_CUSTODY_RECEIPT_SCHEMA } from "../domain/card-custody.js";
 import { buildTruthfulUnmintedVisualizerCard, resolveAuthoritativeTarotSongCardPrint } from "../domain/song-card-tarot-print.js";
 import {
   buildPublicDemoGateCards,
   createMemoryOnlyCohortSecret,
   deriveStargate,
-  prepareStargateLocalProjectionCard,
   redactedStargateAddress,
   resolveStargateCardIdentity,
   STARGATE_FORMATION_SCHEMA,
@@ -2317,22 +2317,24 @@ export default function TarotDraw3DView({ cards = [], avatarId = "local-operator
   const spatialTruth = hud.spatialTruth || { state: "idle", accepted: 0, rejected: 0, lastFamily: "", eventCommitments: [], resultCardId: "", publicFixture: false, truthBoundary: "Verified events may emit bounded effects." };
   const contextForgeVisual = hud.contextForge || { state: "idle", mode: "deterministic_scaffold", sourceCount: 0, packetDigest: "", runDigest: "", resultCardId: "", generationPerformed: false, truthBoundary: "Human-selected evidence only." };
   const wisdomCouncilVisual = hud.wisdomCouncil || { state: "idle", seatCount: 0, dissentCount: 0, creativeDirectorCount: 0, resultCardId: "", lessonCardId: "", truthBoundary: "Peer-blind proposals only." };
-  const stargateBusy = stargate.state === "dialing";
-  const stargateNeedsIdentity = stargate.state === "needs_identity";
+  const stargateBusy = ["dialing", "creating_custody"].includes(stargate.state);
+  const stargateNeedsIdentity = ["needs_identity", "creating_custody"].includes(stargate.state);
   const stargateActive = stargate.state === "active";
   const stargateConnected = stargate.state === "connected";
   const stargateOpen = stargateActive || stargateConnected;
   const stargateMissingIdentityCount = Number(stargate.missingIdentityCount || 0);
   const stargateButtonLabel = !stargate.mode
     ? "Stargate"
-    : stargateBusy
-      ? `Dialing ${Math.round(Number(stargate.progress || 0) * 100)}%`
+    : stargate.state === "creating_custody"
+      ? "Creating Card Cores"
+      : stargateBusy
+        ? `Dialing ${Math.round(Number(stargate.progress || 0) * 100)}%`
       : stargateOpen
         ? "Close Gate"
         : stargate.state === "ready"
           ? "Dial Gate"
           : stargateNeedsIdentity
-            ? `Prepare ${stargateMissingIdentityCount} Card${stargateMissingIdentityCount === 1 ? "" : "s"}`
+            ? `Create ${stargateMissingIdentityCount} Card Core${stargateMissingIdentityCount === 1 ? "" : "s"}`
             : "Close Gate";
   const activeSceneInvite = sceneInvite.invite || hud.phoneBridgeInvite || null;
   const activeSceneInvitePreviewUrl = activeSceneInvite?.links?.desktopHtmlUrl || sceneInvite.htmlUrl || activeSceneInvite?.links?.htmlUrl || "";
@@ -4326,13 +4328,13 @@ export default function TarotDraw3DView({ cards = [], avatarId = "local-operator
           <p>{stargate.message || "Arrange identity-sealed Cards into an ordered Gate."}</p>
           <ol className="tarot-stargate-steps" aria-label="Stargate activation steps">
             <li data-state={stargate.slotCount >= 2 ? "complete" : "current"}><b>1</b><span>Place Cards</span></li>
-            <li data-state={stargateNeedsIdentity ? "current" : stargate.slotCount >= 2 ? "complete" : "waiting"}><b>2</b><span>Prepare</span></li>
+            <li data-state={stargateNeedsIdentity ? "current" : stargate.slotCount >= 2 ? "complete" : "waiting"}><b>2</b><span>Create Cores</span></li>
             <li data-state={stargateBusy || stargate.state === "ready" ? "current" : stargateOpen ? "complete" : "waiting"}><b>3</b><span>Dial Gate</span></li>
             <li data-state={stargateOpen ? "current" : "waiting"}><b>4</b><span>Save Gate</span></li>
           </ol>
           <dl>
             <div><dt>Formation</dt><dd>{stargate.slotCount || 0} ordered Card{stargate.slotCount === 1 ? "" : "s"}</dd></div>
-            <div><dt>Identity</dt><dd>{stargate.locallyPreparedCount ? `${stargate.sealedCount || 0} ready · ${stargate.locallyPreparedCount} local` : `${stargate.sealedCount || 0} sealed${stargate.missingIdentityCount ? ` / ${stargate.missingIdentityCount} need preparation` : ""}`}</dd></div>
+            <div><dt>Identity</dt><dd>{stargate.custodyCreatedCount ? `${stargate.sealedCount || 0} core-backed · ${stargate.custodyCreatedCount} created now` : `${stargate.sealedCount || 0} core-backed${stargate.missingIdentityCount ? ` / ${stargate.missingIdentityCount} need cores` : ""}`}</dd></div>
             <div><dt>Address</dt><dd>{stargate.redactedAddress || stargate.formationFingerprint || "Withheld until derivation"}</dd></div>
           </dl>
           <div className="tarot-stargate-access" aria-label="Stargate interaction controls">
@@ -4353,7 +4355,7 @@ export default function TarotDraw3DView({ cards = [], avatarId = "local-operator
                 return (
                   <span key={`gate-slot-${index + 1}`} data-filled={formationEntry ? "true" : "false"} data-identity={formationEntry?.identitySealed ? "ready" : formationEntry ? "missing" : "empty"}>
                     <i>{String(index + 1).padStart(2, "0")}</i>
-                    <b>{formationEntry ? `${formationEntry.title}${formationEntry.identityKind === "local_projection" ? " · local" : formationEntry.identitySealed ? " · ready" : " · prepare"}` : (index === Number(stargate.slotCount || 0) ? "Drop next Card" : "Empty")}</b>
+                    <b>{formationEntry ? `${formationEntry.title}${formationEntry.identityKind === "hypercore_origin" ? " · core" : formationEntry.identitySealed ? " · ready" : " · create core"}` : (index === Number(stargate.slotCount || 0) ? "Drop next Card" : "Empty")}</b>
                   </span>
                 );
               })}
@@ -4363,9 +4365,9 @@ export default function TarotDraw3DView({ cards = [], avatarId = "local-operator
           </div>
           {stargateNeedsIdentity && (
             <div className="tarot-stargate-next-step" data-step="prepare">
-              <span><strong>Next: prepare these {stargate.missingIdentityCount} Cards</strong><em>This adds deterministic local revision receipts to these exact projections. Source Cards stay unchanged; this is not minting or portable Hypercore custody.</em></span>
-              <button className="hapa-btn" data-intent="primary" type="button" onClick={() => callGame("prepareStargateFormationIdentity")}>
-                <BadgeCheck size={13} /> Prepare &amp; Lock Coordinates
+              <span><strong>Next: create {stargate.missingIdentityCount} Card Core{stargate.missingIdentityCount === 1 ? "" : "s"}</strong><em>Each Card receives a persisted Hypercore and card.created receipt. This establishes custody only; it does not mint, publish, canonize, or enable commerce.</em></span>
+              <button className="hapa-btn" data-intent="primary" type="button" disabled={stargate.state === "creating_custody"} onClick={() => callGame("prepareStargateFormationIdentity")}>
+                <BadgeCheck size={13} /> {stargate.state === "creating_custody" ? "Creating Card Cores" : "Create Cores & Lock Coordinates"}
               </button>
             </div>
           )}
@@ -6497,7 +6499,7 @@ function createTarotDrawGame({ canvas, cards, avatarId = "local-operator", avata
   let stargateFormationSignature = "";
   let stargateFixtureActive = false;
   let stargateFixtureEntryIds = [];
-  let stargateLocallyPreparedCount = 0;
+  let stargateCustodyCreatedCount = 0;
   let stargateCameraBlend = 0;
   let stargateCameraOrigin = null;
   let stargateCameraMode = "guided";
@@ -6807,7 +6809,13 @@ function createTarotDrawGame({ canvas, cards, avatarId = "local-operator", avata
   }
 
   function reconcileCards(nextCards = []) {
-    const incoming = Array.isArray(nextCards) ? nextCards.filter(Boolean) : [];
+    const retainedReceipts = new Map(cards
+      .filter((card) => card?.custody?.schemaVersion === CARD_CUSTODY_RECEIPT_SCHEMA)
+      .map((card) => [cardIdentity(card), card.custody]));
+    const incoming = (Array.isArray(nextCards) ? nextCards.filter(Boolean) : []).map((card) => {
+      const receipt = retainedReceipts.get(cardIdentity(card));
+      return receipt ? applyCardCustodyReceipt(card, receipt) : card;
+    });
     const previousCards = cards;
     const previousById = new Map(previousCards.map((card) => [cardIdentity(card), card]).filter(([id]) => id));
     const incomingById = new Map(incoming.map((card) => [cardIdentity(card), card]).filter(([id]) => id));
@@ -6969,14 +6977,13 @@ function createTarotDrawGame({ canvas, cards, avatarId = "local-operator", avata
 
   function autoFillStargateFormation() {
     if (!stargateMode) toggleStargateMode();
-    const candidates = stargateBaseEligibleEntries()
-      .filter((entry, index) => resolveStargateCardIdentity(entry.card, entry, index).ok);
+    const candidates = stargateBaseEligibleEntries();
     const needed = Math.max(0, 2 - candidates.length);
     if (needed) {
-      const sealedDeckCards = deckCards
-        .filter((card, index) => resolveStargateCardIdentity(card, null, index).ok)
+      const availableDeckCards = deckCards
+        .filter((card) => Boolean(cardIdentity(card)))
         .slice(0, needed);
-      sealedDeckCards.forEach((card, index) => {
+      availableDeckCards.forEach((card, index) => {
         deckCards = deckCards.filter((item) => item !== card);
         const entry = createCardEntry(card);
         entry.state = "placed";
@@ -6992,7 +6999,7 @@ function createTarotDrawGame({ canvas, cards, avatarId = "local-operator", avata
     }
     if (candidates.length < 2) {
       const diagnostics = stargateCandidateDiagnostics();
-      const message = `${diagnostics.eligibleCount} Gate-ready Card${diagnostics.eligibleCount === 1 ? "" : "s"} on the table · ${diagnostics.sealedDeckCount} identity-sealed in deck`;
+      const message = `${diagnostics.eligibleCount} Gate-eligible Card${diagnostics.eligibleCount === 1 ? "" : "s"} on the table · place or draw one more Card`;
       status = message;
       setStargateState("arranging", message);
       return false;
@@ -7012,31 +7019,78 @@ function createTarotDrawGame({ canvas, cards, avatarId = "local-operator", avata
     return true;
   }
 
-  function prepareStargateFormationIdentity() {
-    if (!stargateMode || stargateEntries.length < 2) return false;
-    let preparedCount = 0;
-    stargateEntries.forEach((entry) => {
-      if (resolveStargateCardIdentity(entry.card, entry, entry.gateSlotIndex || 0).ok) return;
-      const preparedCard = prepareStargateLocalProjectionCard(entry.card);
-      entry.card = preparedCard;
-      preparedCount += 1;
-      const id = cardIdentity(preparedCard);
-      cards = cards.map((card) => cardIdentity(card) === id ? preparedCard : card);
-      deckCards = deckCards.map((card) => cardIdentity(card) === id ? preparedCard : card);
+  function applyCustodyReceiptToRuntime(receipt) {
+    const update = (card) => cardIdentity(card) === receipt.cardId ? applyCardCustodyReceipt(card, receipt) : card;
+    cards = cards.map(update);
+    deckCards = deckCards.map(update);
+    [...placedEntries, heldEntry, ...forgeEntries.values()].filter(Boolean).forEach((entry) => {
+      if (cardIdentity(entry.card) === receipt.cardId) entry.card = update(entry.card);
     });
-    if (!preparedCount) return refreshStargateFormation({ burst: true });
-    stargateLocallyPreparedCount += preparedCount;
-    stargateFixtureActive = false;
-    stargateCohortSecret = createMemoryOnlyCohortSecret();
-    const ready = refreshStargateFormation({ burst: true });
-    status = ready ? `${preparedCount} local Card projection${preparedCount === 1 ? "" : "s"} prepared · ready to dial` : "Local Card preparation did not resolve this Formation";
-    if (ready) {
-      stargateError = `${preparedCount} Card${preparedCount === 1 ? "" : "s"} prepared locally · click Dial This Formation`;
+  }
+
+  async function hydratePersistedCardCustody() {
+    try {
+      const response = await fetch(tarotApiUrl("/api/cards/custody"), { headers: { Accept: "application/json" }, credentials: "same-origin" });
+      if (!response.ok) return false;
+      const packet = await response.json();
+      const receipts = Array.isArray(packet.receipts) ? packet.receipts : [];
+      receipts.forEach(applyCustodyReceiptToRuntime);
+      if (receipts.length) {
+        if (stargateMode) refreshStargateFormation();
+        publishHud(true);
+      }
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  async function prepareStargateFormationIdentity() {
+    if (!stargateMode || stargateEntries.length < 2) return false;
+    if (stargateState === "creating_custody") return false;
+    const targets = stargateEntries.filter((entry) => !resolveStargateCardIdentity(entry.card, entry, entry.gateSlotIndex || 0).ok);
+    if (!targets.length) return refreshStargateFormation({ burst: true });
+    setStargateState("creating_custody", `Creating ${targets.length} append-only Card core${targets.length === 1 ? "" : "s"}`);
+    try {
+      const sessionResponse = await fetch(tarotApiUrl("/api/local-ui-session"), {
+        method: "POST",
+        headers: { Accept: "application/json" },
+        credentials: "same-origin",
+      });
+      if (!sessionResponse.ok) throw new Error("The local custody session could not be established");
+      let createdCount = 0;
+      for (const entry of targets) {
+        const response = await fetch(tarotApiUrl("/api/cards/custody/ensure"), {
+          method: "POST",
+          headers: { Accept: "application/json", "Content-Type": "application/json" },
+          credentials: "same-origin",
+          body: JSON.stringify({
+            card: entry.card,
+            actorId: avatarId || "local-operator",
+            evidenceRef: "tarot-draw:explicit-create-card-core",
+          }),
+        });
+        const packet = await response.json().catch(() => ({}));
+        if (!response.ok || !packet.receipt) throw new Error(packet.message || packet.error || `Card custody failed (${response.status})`);
+        applyCustodyReceiptToRuntime(packet.receipt);
+        if (packet.created) createdCount += 1;
+      }
+      stargateCustodyCreatedCount += createdCount;
+      stargateFixtureActive = false;
+      stargateCohortSecret = createMemoryOnlyCohortSecret();
+      const ready = refreshStargateFormation({ burst: true });
+      status = ready ? `${targets.length} Card core${targets.length === 1 ? "" : "s"} verified · ready to dial` : "Card core creation did not resolve this Formation";
+      if (!ready) return false;
+      stargateError = `${targets.length} Card${targets.length === 1 ? " is" : "s are"} Hypercore-backed · click Dial This Formation`;
       audio.play("gate-arm");
       createBurst(0, -0.62, 0xf6c96d, 1.5);
       publishHud(true);
+      return true;
+    } catch (error) {
+      status = "Card custody creation failed";
+      setStargateState("needs_identity", error?.message || "Card custody creation failed closed");
+      return false;
     }
-    return ready;
   }
 
   function setStargateState(nextState, message = "") {
@@ -7347,13 +7401,13 @@ function createTarotDrawGame({ canvas, cards, avatarId = "local-operator", avata
       excluded: candidateDiagnostics.excluded,
       sealedDeckCount: candidateDiagnostics.sealedDeckCount,
       formationMode: candidateDiagnostics.manual ? "manual" : "automatic",
-      locallyPreparedCount: stargateLocallyPreparedCount,
+      custodyCreatedCount: stargateCustodyCreatedCount,
       formationEntries: stargateEntries.map((entry, index) => ({
         slot: index + 1,
         cardId: cardIdentity(entry.card),
         title: entry.card?.title || "Untitled Card",
         identitySealed: Boolean(stargateIdentityResults[index]?.ok),
-        identityKind: entry.card?.stargateProjectionIdentity ? "local_projection" : stargateIdentityResults[index]?.ok ? "durable" : "missing"
+        identityKind: entry.card?.custody?.hypercoreAppended === true ? "hypercore_origin" : stargateIdentityResults[index]?.ok ? "durable" : "missing"
       })),
       redactedAddress: stargateResult ? redactedStargateAddress(stargateResult.stargateAddress) : safeGate?.addressRedacted || "",
       formationFingerprint: stargateResult ? `formation:${stargateResult.formationDigest.slice(0, 12)}…` : safeGate?.semanticFormationDigest ? `formation:${safeGate.semanticFormationDigest.slice(0, 12)}…` : "",
@@ -7991,6 +8045,7 @@ function createTarotDrawGame({ canvas, cards, avatarId = "local-operator", avata
     };
     window.__THREE_GAME_DIAGNOSTICS__ = diagnosticsHandle;
     canvas.__hapaTarotDrawDiagnostics = diagnosticsHandle;
+    void hydratePersistedCardCustody();
     if (playbackPowerPolicy(playbackPowerMode, { activeFps: TAROT_ACTIVE_FPS }).animationEnabled) animate();
   }
 

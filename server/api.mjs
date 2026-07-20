@@ -115,6 +115,7 @@ import {
 import { openAvatarContextGenerationService } from "./avatar-context-generation-service.mjs";
 import { openAvatarWisdomCouncilService } from "./avatar-wisdom-council-service.mjs";
 import { openAvatarProposalReviewService } from "./avatar-proposal-review-service.mjs";
+import { openAvatarCardCustodyService } from "./card-custody-service.mjs";
 import { MintLedgerError, createSongCardMintController } from "./song-card-mint-controller.mjs";
 import { createSongCardRemintStore } from "./song-card-remint-store.mjs";
 import { createSongCardLocalRenderBridge, inspectSongCardRendererBuildIdentity } from "./song-card-local-renderer.mjs";
@@ -577,6 +578,8 @@ const avatarProposalReviewService = await openAvatarProposalReviewService({
   readStore: readTarotStore,
   writeStore: writeTarotStore,
 });
+const AVATAR_CARD_CUSTODY_ROOT = process.env.HAPA_AVATAR_CARD_CUSTODY_ROOT || path.join(DATA_DIR, "card-custody");
+const avatarCardCustodyService = openAvatarCardCustodyService({ root: AVATAR_CARD_CUSTODY_ROOT });
 const STARGATE_GATE_PASS_PROFILE_ROOT = process.env.HAPA_GATE_PASS_PROFILE_ROOT || path.join(OVERWIND_DIR, "gate-pass");
 const OVERWIND_BOOTSTRAP_PATH = path.join(OVERWIND_DIR, "avatar-builder-bootstrap.json");
 const OVERWIND_SHELL_BOOTSTRAP_PATH = path.join(OVERWIND_DIR, "avatar-builder-shell-bootstrap.json");
@@ -3397,6 +3400,48 @@ async function route(req, res) {
     await writeTarotStore(store);
     await appendSubscriberRegistration("tarot.set-updated", { tarot: store });
     sendJson(res, 200, store);
+    return;
+  }
+
+  if (pathname === "/api/cards/custody" && req.method === "GET") {
+    try {
+      const cardId = String(url.searchParams.get("cardId") || "").trim();
+      if (cardId) {
+        const receipt = await avatarCardCustodyService.get(cardId);
+        sendJson(res, receipt ? 200 : 404, {
+          schemaVersion: "hapa.card-custody-read.v1",
+          ok: Boolean(receipt),
+          cardId,
+          receipt,
+          truthBoundary: "Exact Card reads verify the registered Hypercore head; no core is created by this route.",
+        });
+        return;
+      }
+      sendJson(res, 200, { ok: true, ...(await avatarCardCustodyService.list()) });
+    } catch (error) {
+      sendJson(res, 500, { error: "card_custody_read_failed", message: error?.message || String(error), failClosed: true });
+    }
+    return;
+  }
+
+  if (pathname === "/api/cards/custody/ensure" && req.method === "POST") {
+    if (!requireAdmin(req, res)) return;
+    try {
+      const body = await readBody(req);
+      const result = await avatarCardCustodyService.ensure({
+        card: body.card,
+        actorId: String(body.actorId || "local-operator"),
+        evidenceRef: String(body.evidenceRef || "ui:explicit-create-card-core"),
+      });
+      sendJson(res, result.created ? 201 : 200, {
+        schemaVersion: "hapa.card-custody-ensure-result.v1",
+        ok: true,
+        ...result,
+        authorityBoundary: "Custody creation appends card.created only; it does not mint, publish, canonize, or enable commerce.",
+      });
+    } catch (error) {
+      sendJson(res, 422, { error: "card_custody_ensure_failed", message: error?.message || String(error), failClosed: true });
+    }
     return;
   }
 

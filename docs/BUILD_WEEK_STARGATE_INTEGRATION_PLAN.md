@@ -67,11 +67,11 @@ The Stargate is the dominant visual event, not a form wrapped around a protocol.
 - Activating it morphs the existing center visualizer into a Gate aperture and reveals an ordered ring of magnetic Card slots. This reuses the current renderer, board rails, bursts, visualizer, shader, camera, and audio systems.
 - The shared Hand remains visible and usable. Picking up a Hand Card and placing it into a Gate slot commits through Overcard Placement; ordinary Tarot Cards already on the table can be moved into the same slots.
 - Slots are visibly numbered and connected in sequence. The sequence—not incidental world coordinates—defines dial order. Reordering a Card visibly invalidates the prior digest and prepares a different namespace.
-- Only Cards with a complete stable identity can become Gate members. Incomplete or proposed Cards remain viewable and fail closed at **Needs Identity**. Because much of the legacy Tarot Draw library is a runtime projection rather than a portable Card record, the operator may explicitly use **Prepare & Lock Coordinates** to create deterministic, session-local projection receipts for those exact Cards. This fallback is visibly local, does not mutate or mint the sources, does not claim Hypercore append or portable custody, and must not be mistaken for the durable Card migration still required across the wider library.
+- Only Cards with a complete stable identity can become Gate members. Raw live inputs remain viewable but must be explicitly captured before they become Cards. Because much of the legacy Tarot Draw library is a runtime projection, the operator may use **Create Cores & Lock Coordinates** to lazily create or verify a real per-Card Hypercore and append `card.created` for each selected projection. This establishes durable custody without minting, Overwind acknowledgement, Catalog publication, commerce authority, or canon, and it does not bulk-process the wider library during launch.
 
 ### Activation sequence
 
-Use a small state machine: `dormant -> arranging -> ready -> dialing -> active -> expired/disconnected`.
+Use a small state machine: `dormant -> arranging -> needs_identity -> creating_custody -> ready -> dialing -> active -> expired/disconnected`.
 
 1. **Arranging:** each accepted Card snaps into a numbered slot; the table rail sends a short light pulse to that slot and the HUD names its role.
 2. **Ready:** the system shows the ordered Formation summary, purpose, privacy scope, and Gate-readiness checks. The **Dial** action enables only after the closed Formation validates.

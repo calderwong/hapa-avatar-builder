@@ -23,9 +23,13 @@
 - **Current claim:** `local-first-canonical` identifies the owning checkout,
   not a stable release. Parity claims are limited to
   `docs/API_CLI_UI_PARITY.md`.
-- **Custody route:** Builder owns origin authoring; its durable outbox stages
-  events; only an Overwind Postgres acknowledgement creates subscriber truth.
-  Roomlet and media/song apps are bounded consumers, not co-owners.
+- **Custody route:** every durable Builder Hapa Card receives one append-only
+  origin Hypercore at Card birth. `card.created` establishes Card custody but
+  does not mint, publish, canonize, or enable commerce. Builder still owns
+  origin authoring; its durable outbox stages later publication events, and
+  only an Overwind Postgres acknowledgement creates subscriber truth. Roomlet
+  and media/song apps are bounded consumers, not co-owners. Legacy projections
+  upgrade lazily at first durable use; never bulk-create Card cores at launch.
 - **Publication rule:** third-party names, profile images, logos, songs, and
   linked media are references owned by their respective rights holders. Never
   imply Hapa authorship, sponsorship, endorsement, or reuse rights.

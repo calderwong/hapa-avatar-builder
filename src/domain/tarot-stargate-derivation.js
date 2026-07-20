@@ -10,7 +10,6 @@ export const STARGATE_PROTOCOL_VERSION = "hapa.stargate.v1";
 export const STARGATE_FORMATION_SCHEMA = "hapa.formation.v1";
 export const STARGATE_DERIVATION_SCHEMA = "hapa.stargate-derivation.v1";
 export const STARGATE_SEMANTIC_FORMATION_SCHEMA = "hapa.stargate-semantic-formation.v1";
-export const STARGATE_LOCAL_PROJECTION_IDENTITY_SCHEMA = "hapa.stargate-local-projection-identity.v1";
 export const STARGATE_PUBLIC_DEMO_SECRET = "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8";
 export const STARGATE_PRIVACY_SCOPES = Object.freeze(["invite_only", "private_cohort"]);
 export const STARGATE_FORMATION_ROLES = Object.freeze(["anchor", "lens", "participant", "resource", "sentinel", "result"]);
@@ -215,83 +214,6 @@ export function resolveStargateCardIdentity(card = {}, entry = null, position = 
       cardRevisionId,
       cardRecordDigest,
       orientation: entry?.flipped ? "reversed" : "upright"
-    }
-  };
-}
-
-function stableTextList(values = []) {
-  return [...new Set((Array.isArray(values) ? values : []).map((value) => String(value || "").trim()).filter(Boolean))].sort();
-}
-
-function safeSourceRefs(refs = []) {
-  return (Array.isArray(refs) ? refs : [])
-    .map((ref) => typeof ref === "string"
-      ? { kind: "opaque_source_ref" }
-      : {
-          kind: String(ref?.kind || ""),
-          cardId: String(ref?.cardId || ref?.id || ""),
-          revisionId: String(ref?.revisionId || ""),
-          recordDigest: String(ref?.recordDigest || "").replace(/^sha256:/u, "").toLowerCase(),
-          truthStatus: String(ref?.truthStatus || "")
-        })
-    .filter((ref) => Object.values(ref).some(Boolean));
-}
-
-/**
- * Explicitly prepares an ordinary local Card projection for one Stargate session.
- * This creates deterministic projection identity; it does not mutate the source,
- * mint a Card, append a Hypercore record, or claim portable custody.
- */
-export function prepareStargateLocalProjectionCard(card = {}) {
-  const existing = resolveStargateCardIdentity(card);
-  if (existing.ok) return card;
-  const sourceCardId = String(card.cardId || card.id || "").trim();
-  if (!sourceCardId) throw new TypeError("A stable source Card ID is required before local Stargate preparation");
-  const semanticSnapshot = {
-    schemaVersion: STARGATE_LOCAL_PROJECTION_IDENTITY_SCHEMA,
-    sourceCardId,
-    sourceRevision: String(card.cardRevisionId || card.revisionId || card.semanticVersion || card.revision || card.updatedAt || "unversioned"),
-    title: String(card.title || "Untitled Card"),
-    summary: String(card.summary || card.meaning || ""),
-    cardType: String(card.cardType || ""),
-    tarotMainType: String(card.tarotMainType || ""),
-    sourceKind: String(card.sourceKind || card.kind || ""),
-    keywords: stableTextList(card.keywords),
-    tags: stableTextList(card.tags),
-    sourceRefs: safeSourceRefs(card.sourceRefs)
-  };
-  const snapshotDigest = bytesToHex(sha256Bytes(new TextEncoder().encode(canonicalJson(semanticSnapshot))));
-  const coreKey = DIGEST.test(existing.member.cardCoreKey)
-    ? existing.member.cardCoreKey
-    : bytesToHex(sha256Bytes(new TextEncoder().encode(`${STARGATE_LOCAL_PROJECTION_IDENTITY_SCHEMA}\0${sourceCardId}`)));
-  const revisionId = existing.member.cardRevisionId || `projection-${snapshotDigest.slice(0, 16)}`;
-  const recordDigest = DIGEST.test(existing.member.cardRecordDigest) ? existing.member.cardRecordDigest : snapshotDigest;
-  return {
-    ...card,
-    cardId: sourceCardId,
-    cardCoreKey: coreKey,
-    cardRevisionId: revisionId,
-    cardRecordDigest: recordDigest,
-    recordDigest,
-    custody: {
-      ...(card.custody && typeof card.custody === "object" ? card.custody : {}),
-      schemaVersion: STARGATE_LOCAL_PROJECTION_IDENTITY_SCHEMA,
-      cardCoreKey: coreKey,
-      recordDigest,
-      identityBasis: "deterministic_local_projection",
-      scope: "current_stargate_session",
-      durableReceipt: false,
-      sourceMutation: false,
-      minted: false,
-      hypercoreAppended: false,
-      portableCustody: false
-    },
-    stargateProjectionIdentity: {
-      schemaVersion: STARGATE_LOCAL_PROJECTION_IDENTITY_SCHEMA,
-      sourceCardId,
-      semanticSnapshot,
-      snapshotDigest,
-      truthBoundary: "Local deterministic projection identity only; source unchanged, session-bounded, not minted, not Hypercore-appended."
     }
   };
 }

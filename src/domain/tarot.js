@@ -536,6 +536,13 @@ function normalizeTarotCard(card = {}) {
   return {
     schemaVersion: TAROT_CARD_VERSION,
     id,
+    cardId: card.cardId || id,
+    cardCoreKey: card.cardCoreKey || card.hypercore?.key || card.custody?.cardCoreKey || null,
+    cardRevisionId: card.cardRevisionId || card.revisionId || card.custody?.cardRevisionId || null,
+    cardRecordDigest: card.cardRecordDigest || card.recordDigest || card.custody?.cardRecordDigest || card.custody?.recordDigest || null,
+    recordDigest: card.recordDigest || card.cardRecordDigest || card.custody?.cardRecordDigest || card.custody?.recordDigest || null,
+    originPublicKey: card.originPublicKey || card.custody?.originPublicKey || null,
+    custody: card.custody && typeof card.custody === "object" ? structuredClone(card.custody) : null,
     title,
     slug: card.slug || slugify(title) || id,
     cardType: TAROT_CARD_TYPES.includes(card.cardType) ? card.cardType : "card_front",
