@@ -1,0 +1,21 @@
+{
+  "schemaVersion": "hapa.dear-papa-red-blue-green-songbook.v1",
+  "album": {
+    "id": "dear-papa-album",
+    "title": "Dear Papa",
+    "author": "Calder",
+    "scope": "runtime-hydrated"
+  },
+  "summary": {
+    "songCards": 0,
+    "fixtureDisclosure": "Public-safe empty bootstrap. The local API hydrates operator-owned runtime data when available."
+  },
+  "songCards": [],
+  "sourceAnchors": [],
+  "sync": {
+    "source": "judge-bootstrap-fixture",
+    "status": "empty-bootstrap"
+  },
+  "generatedAt": "2026-07-19T00:00:00.000Z",
+  "updatedAt": "2026-07-19T00:00:00.000Z"
+}

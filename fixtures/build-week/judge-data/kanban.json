@@ -1,0 +1,23 @@
+{
+  "schemaVersion": "hapa.kanban-board.v1",
+  "boardId": "hapa-avatar-builder-judge-bootstrap",
+  "title": "Hapa Avatar Builder — Runtime-Hydrated Board",
+  "lanes": [
+    {
+      "id": "lane-intake",
+      "title": "Intake",
+      "cards": []
+    },
+    {
+      "id": "lane-build",
+      "title": "Build",
+      "cards": []
+    },
+    {
+      "id": "lane-verify",
+      "title": "Verify",
+      "cards": []
+    }
+  ],
+  "updatedAt": "2026-07-19T00:00:00.000Z"
+}

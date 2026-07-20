@@ -33,3 +33,11 @@ test("the Item-to-Tarot projection carries existing custody instead of stripping
     "cardRecordDigest: card.cardRecordDigest || card.recordDigest || card.custody?.cardRecordDigest",
   ]) assert.match(source, new RegExp(token.replace(/[?.|]/gu, "\\$&")));
 });
+
+test("the explicit custody interaction advances from creating_custody to ready", async () => {
+  const source = await readFile(new URL("../src/components/TarotDraw3DView.jsx", import.meta.url), "utf8");
+  const custodyStart = source.indexOf('setStargateState("creating_custody"');
+  const readyTransition = source.indexOf('setStargateState("ready", readyMessage)');
+  assert.ok(custodyStart >= 0, "custody start state must remain explicit");
+  assert.ok(readyTransition > custodyStart, "successful custody must explicitly leave creating_custody for ready");
+});

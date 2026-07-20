@@ -1,0 +1,16 @@
+{
+  "schemaVersion": "hapa.ballad-of-bella.packet.v1",
+  "id": "judge-empty-ballad-packet",
+  "status": "not-included-in-public-bootstrap",
+  "objective": "",
+  "source": {
+    "rawText": "",
+    "kind": "withheld-from-judge-bootstrap"
+  },
+  "sourceRefs": [],
+  "mechanics": [],
+  "derivedConventions": [],
+  "avatarCount": 0,
+  "weeklyProgramSnapshot": null,
+  "generatedAt": "2026-07-19T00:00:00.000Z"
+}

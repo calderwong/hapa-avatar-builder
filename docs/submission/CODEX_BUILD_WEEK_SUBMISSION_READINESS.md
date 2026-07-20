@@ -3,67 +3,51 @@
 Status date: 2026-07-19  
 Recommended track: **Developer Tools**
 
-The product story is now bounded: Hapa is a decentralized Card protocol/platform, not the submitted company. Hapa Avatar Builder is one participant. The eligible Build Week work is the auditable Stargate extension inside the pre-existing Tarot Draw application.
+The product story is bounded: Hapa is a decentralized Card protocol/platform, not the submitted company. Hapa Avatar Builder is one participant. The eligible Build Week work is the auditable Stargate extension inside the pre-existing Tarot Draw application.
 
-## Resolved in this pass
+## Resolved
 
 - [x] Verified the official July 13, 2026 9:00 AM PT start and July 21, 2026 5:00 PM PT deadline.
-- [x] Separated the pre-existing application from eligible extension work.
-- [x] Excluded the large release-packaging commit from the new-work headline.
-- [x] Measured a conservative 22-commit focused line across 124 files.
-- [x] Selected a coherent proof path: custody → ordered dial → portable Context Card → Catalog round trip → signed local peer → Context Forge → Wisdom Council.
-- [x] Replaced the over-scoped story with an under-three-minute narration that explicitly explains Codex and GPT-5.6.
-- [x] Defined a HyperFrames director plan using existing captures plus one essential new custody capture.
-- [x] Added an explicit Build Week disclosure to the repository README.
-- [x] Drafted judge-facing Devpost copy aligned with the cutoff audit and video.
-- [x] Kept physical phone, live Krea attachment, STG-014 product capture, Memorial Corridor, and Passport outside the submission-critical path.
+- [x] Separated the pre-existing application from eligible extension work and excluded the large release-packaging commit from the new-work headline.
+- [x] Measured a conservative 22-commit product line across 124 files.
+- [x] Selected one coherent proof path: custody → ordered dial → portable Context Card → Catalog round trip → signed local peers → Context Forge → Wisdom Council.
+- [x] Kept physical phone, live Krea attachment, STG-014 product capture, Memorial Corridor, and Passport outside the submission claim.
+- [x] Captured two ordinary public-safe Cards receiving real per-Card Hypercore custody, resolving their Formation, and dialing the Gate in an isolated application window.
+- [x] Corrected the custody UI transition from `creating_custody` to `ready` and added a regression test.
+- [x] Created a silent, caption-led HyperFrames cut from current evidence so the submission does not depend on HeyGen or voiceover.
+- [x] Replaced ignored machine-local imports with tracked empty public-safe bootstrap stores.
+- [x] Vendored and pinned the Overcard package required for a reproducible source install.
+- [x] Added judge packaging, SHA-256 manifesting, secret/fixture/preflight checks, and a five-minute judge route.
+- [x] Updated the two inherited dependency chains; the clean package audit records zero known advisories.
+- [x] Drafted every Devpost narrative field and recorded the rights, privacy, and claim audit.
 
-## Submission-critical work remaining
+## Human or external actions remaining
 
-### Product proof
-
-- [ ] Human-test the current Card-birth custody interaction in Tarot Draw at `f10c2f8`.
-- [ ] Capture HF-03: ordinary Cards → **Create Cores & Lock Coordinates** → exact ready receipts.
-- [ ] Run a bounded release verification on a clean worktree or packaged build without touching the operator’s running app.
-- [ ] Confirm the public demo formation contains no private address, Gate secret, Pass, token, key, credential, local path, or personal corpus content.
-- [ ] Make a free judge-access path: a reproducible macOS test build or an equally clear install-and-sample route.
-
-### Video
-
-- [ ] Generate the new HeyGen narration from `CODEX_BUILD_WEEK_HYPERFRAMES_SCRIPT_V2.md` and confirm rights to the avatar and voice.
-- [ ] Compose the evidence corridor and pre-existing/new history plate in HyperFrames.
-- [ ] Assemble at 1920×1080, add captions, and keep the final encoded duration at or below 2:57.
-- [ ] Confirm that every spoken capability appears on screen and that every unproven capability is absent.
-- [ ] Use owned app sound only, or silence under narration; do not use music without confirmed submission rights.
-- [ ] Upload publicly to YouTube and verify playback in a signed-out/incognito window.
-
-### Devpost and repository
-
-- [ ] Run `/feedback` in the primary Codex build task and record its Codex Session ID. Do not invent or substitute a different task ID.
-- [ ] Keep the existing repository private and grant access to `testing@devpost.com` and `build-week-event@openai.com`, **or** make the relevant repository public with a deliberate license. The current repository has no repo-wide license, so private sharing is the safer default.
-- [ ] Push the focused committed history and this submission packet. Exclude unrelated uncommitted Echo experiments.
-- [ ] Add final README setup, sample-data, test, architecture-decision, Codex-acceleration, and GPT-5.6 contribution sections if the existing text does not make them judge-readable in five minutes.
-- [ ] Complete Devpost title, one-line description, Developer Tools track selection, screenshots, public video URL, repository/test access, and the required Session ID.
+- [ ] Watch the complete final video once and confirm public-use rights for every pre-existing image visible in the captured application.
+- [ ] Optionally record and add a rights-cleared voiceover. The silent caption-led cut is the safe fallback.
+- [ ] Upload the video publicly and verify playback in a signed-out/incognito window.
+- [ ] Run `/feedback` in the primary Codex build task and record its real Session ID. Do not invent or substitute another task ID.
+- [ ] Keep the repository private and grant access to `testing@devpost.com` and `build-week-event@openai.com`, or deliberately make it public with an appropriate repo-wide license. Private sharing is safer because the current repository has no repo-wide license.
+- [ ] Push the focused committed history and submission packet without the unrelated uncommitted Echo experiments.
+- [ ] Paste the completed field draft into Devpost, add URLs/screenshots/Session ID, and press submit.
 
 ## Current verification truth
 
-- The Card-birth custody focused suite recorded **13/13 passing** and the application build passed for the committed implementation.
+- The focused judge suite records **24/24 passing**, including custody, deterministic Formation, Context Card, Gate Pass, process boundary, and encrypted two-profile local proof.
 - A broader earlier suite recorded **997/997 passing** at the Wisdom Council milestone.
-- There is not yet a clean, current, full-suite green receipt for `f10c2f8`; do not imply one.
+- The clean judge source package has its own bounded build, semantic receipt, zero-advisory dependency audit, manifest preflight, HTTP health check, and focused-suite receipt. This is not a claim that every historical repository test was rerun.
 - The signed P2P evidence is a real two-profile local proof. Remote internet reachability has not been proven.
-- Physical phone participation has not been proven. The consented Camera Comment Card path can be shown only as a local/browser capture path.
+- Physical phone participation has not been proven. The Camera Comment Card path is a consented local/browser capture path.
 - Context Forge uses local Ollama 0.24.0 with `qwen3.5:27b`; its Card remains proposed and unminted until human approval.
 
-## Final go/no-go gate
+## Autonomous go/no-go gate
 
-Submit only when all of the following are true:
-
-1. The current custody flow is human-visible and captured.
-2. A judge can run or inspect the project without private local assets.
-3. The final video is under three minutes, captioned, rights-safe, and explicitly explains Codex plus GPT-5.6.
-4. The README and video distinguish pre-existing work from the Build Week extension.
-5. `/feedback` has produced the real primary Codex Session ID.
-6. The final repository state is available to judges and matches the video.
+1. The current custody flow is visible in a pinned capture.
+2. A judge can build, test, launch, and inspect the project without private local assets.
+3. The final cut is under three minutes, captioned, silent, and explicit about Codex plus GPT-5.6.
+4. The README, video, and field packet distinguish pre-existing work from the Build Week extension.
+5. Every source file and evidence artifact is pinned in a release manifest.
+6. Human publication actions remain explicit and are not silently treated as complete.
 
 ## Submission framing
 

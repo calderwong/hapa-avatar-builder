@@ -7079,9 +7079,10 @@ function createTarotDrawGame({ canvas, cards, avatarId = "local-operator", avata
       stargateFixtureActive = false;
       stargateCohortSecret = createMemoryOnlyCohortSecret();
       const ready = refreshStargateFormation({ burst: true });
-      status = ready ? `${targets.length} Card core${targets.length === 1 ? "" : "s"} verified · ready to dial` : "Card core creation did not resolve this Formation";
       if (!ready) return false;
-      stargateError = `${targets.length} Card${targets.length === 1 ? " is" : "s are"} Hypercore-backed · click Dial This Formation`;
+      const readyMessage = `${targets.length} Card${targets.length === 1 ? " is" : "s are"} Hypercore-backed · click Dial This Formation`;
+      setStargateState("ready", readyMessage);
+      status = `${targets.length} Card core${targets.length === 1 ? "" : "s"} verified · ready to dial`;
       audio.play("gate-arm");
       createBurst(0, -0.62, 0xf6c96d, 1.5);
       publishHud(true);
@@ -7381,6 +7382,48 @@ function createTarotDrawGame({ canvas, cards, avatarId = "local-operator", avata
     status = "Public deterministic Stargate formation loaded";
     publishHud(true);
     if (autoDial) window.setTimeout(() => { if (!disposed) dialStargate(); }, stargateReducedMotion ? 120 : 780);
+    return true;
+  }
+
+  function loadStargateCustodyDemoFormation() {
+    if (stargateMode) {
+      restoreStargateEntryHomes();
+      stargateEntries = [];
+    }
+    removeStargateFixtureEntries();
+    const fixtureCards = buildPublicDemoGateCards().slice(0, 2).map((source, index) => {
+      const card = { ...source, id: `build-week-custody-card-${index + 1}`, cardId: `build-week-custody-card-${index + 1}` };
+      delete card.cardCoreKey;
+      delete card.cardRevisionId;
+      delete card.cardRecordDigest;
+      delete card.recordDigest;
+      delete card.revisionId;
+      delete card.semanticVersion;
+      delete card.revision;
+      delete card.hypercore;
+      delete card.custody;
+      return card;
+    });
+    const origin = DECK_POSITION.clone().add(new THREE.Vector3(0.28, 0.18, -0.24));
+    fixtureCards.forEach((card, index) => {
+      const entry = createCardEntry(card);
+      entry.state = "placed";
+      entry.group.position.copy(origin).add(new THREE.Vector3(index * 0.05, index * 0.02, -index * 0.02));
+      entry.targetPosition.copy(entry.group.position);
+      entry.placedAt = placedEntries.length;
+      entry.playing = playing;
+      entry.stargateFixture = true;
+      placedEntries.push(entry);
+      world.add(entry.group);
+      stargateFixtureEntryIds.push(cardIdentity(card));
+      animateInstantDealEntry(entry, entry.group.position.clone(), index, 1.05);
+    });
+    stargateFixtureActive = false;
+    stargateCohortSecret = "";
+    if (!stargateMode) toggleStargateMode();
+    else refreshStargateFormation({ burst: true });
+    status = "Two public-safe Cards placed without custody identity";
+    publishHud(true);
     return true;
   }
 
@@ -8010,6 +8053,7 @@ function createTarotDrawGame({ canvas, cards, avatarId = "local-operator", avata
 	        autoFillStargateFormation,
 	        getStargateInteractionTargets,
 	        loadStargateDemoFormation: () => loadStargateDemoFormation(),
+	        loadStargateCustodyDemoFormation,
 	        activateStargateDemo: () => loadStargateDemoFormation({ autoDial: true }),
 	        selectFirstStargateCard: () => {
 	          const entry = stargateEntries[0] || null;

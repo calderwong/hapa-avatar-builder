@@ -9,5 +9,12 @@
     "specifier": "0.1.1",
     "sourceLinksAllowed": false
   },
+  "judgePackaging": {
+    "sourceCommit": "38061f03551e183af6a74b2659963f6a161f53bc",
+    "specifier": "file:vendor/hapa-overcard-0.1.1.tgz",
+    "sha256": "db8d42ee6bcc39c6a92972162f5486498a691a8015075b57dc54bd6da6c4450d",
+    "builtFromCleanWorktree": true,
+    "scope": "OpenAI Codex Build Week judge-access bundle"
+  },
   "generatedAt": "2026-07-12T04:12:40.491Z"
 }

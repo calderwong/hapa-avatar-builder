@@ -8,13 +8,13 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const mode = process.argv.includes("--interaction-smoke") ? "interaction-smoke" : process.argv.includes("--proposal-mint-capture") ? "proposal-mint-capture" : process.argv.includes("--wisdom-council-capture") ? "wisdom-council-capture" : process.argv.includes("--context-forge-capture") ? "context-forge-capture" : process.argv.includes("--spatial-truth-capture") ? "spatial-truth-capture" : process.argv.includes("--media-comment-capture") ? "media-comment-capture" : process.argv.includes("--gate-pass-capture") ? "gate-pass-capture" : process.argv.includes("--gate-pass") ? "gate-pass" : process.argv.includes("--catalog-return-capture") ? "catalog-return-capture" : process.argv.includes("--catalog-return") ? "catalog-return" : process.argv.includes("--mint-capture") ? "mint-capture" : process.argv.includes("--capture") ? "capture" : process.argv.includes("--smoke") ? "smoke" : process.argv.includes("--core-smoke") ? "core-smoke" : "all";
+const mode = process.argv.includes("--custody-capture") ? "custody-capture" : process.argv.includes("--interaction-smoke") ? "interaction-smoke" : process.argv.includes("--proposal-mint-capture") ? "proposal-mint-capture" : process.argv.includes("--wisdom-council-capture") ? "wisdom-council-capture" : process.argv.includes("--context-forge-capture") ? "context-forge-capture" : process.argv.includes("--spatial-truth-capture") ? "spatial-truth-capture" : process.argv.includes("--media-comment-capture") ? "media-comment-capture" : process.argv.includes("--gate-pass-capture") ? "gate-pass-capture" : process.argv.includes("--gate-pass") ? "gate-pass" : process.argv.includes("--catalog-return-capture") ? "catalog-return-capture" : process.argv.includes("--catalog-return") ? "catalog-return" : process.argv.includes("--mint-capture") ? "mint-capture" : process.argv.includes("--capture") ? "capture" : process.argv.includes("--smoke") ? "smoke" : process.argv.includes("--core-smoke") ? "core-smoke" : "all";
 const runtimeRoot = await fsp.mkdtemp(path.join(os.tmpdir(), "hapa-stargate-context-evidence-"));
 const port = 22600 + Math.floor(Math.random() * 300);
 const baseUrl = `http://127.0.0.1:${port}/`;
 const overwindPort = port + 400;
 const catalogPort = port + 800;
-const paths = Object.fromEntries(Object.entries({ avatar: "avatar-store.json", kanban: "kanban.json", scene: "scene-store.json", item: "item-store.json", inventory: "inventory-store.json", tarot: "tarot-store.json", songs: "song-store.json", subscribers: "subscribers", overwind: "overwind", mint: "mints", comments: "media-comments", context: "context-generation", wisdom: "wisdom-councils", proposalReviews: "proposal-reviews", proposalPeers: "proposal-peer-announcements", phoneInvites: "phone-bridge-invites" }).map(([key, value]) => [key, path.join(runtimeRoot, value)]));
+const paths = Object.fromEntries(Object.entries({ avatar: "avatar-store.json", kanban: "kanban.json", scene: "scene-store.json", item: "item-store.json", inventory: "inventory-store.json", tarot: "tarot-store.json", songs: "song-store.json", subscribers: "subscribers", overwind: "overwind", mint: "mints", custody: "card-custody", comments: "media-comments", context: "context-generation", wisdom: "wisdom-councils", proposalReviews: "proposal-reviews", proposalPeers: "proposal-peer-announcements", phoneInvites: "phone-bridge-invites" }).map(([key, value]) => [key, path.join(runtimeRoot, value)]));
 
 const seedSvg = `data:image/svg+xml;charset=utf-8,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="768" height="1152"><rect width="768" height="1152" fill="#020617"/><circle cx="384" cy="480" r="220" fill="none" stroke="#00f3ff" stroke-width="18"/><text x="384" y="870" text-anchor="middle" fill="#f8f3e7" font-family="monospace" font-size="48">BUILD WEEK</text></svg>')}`;
 await Promise.all([
@@ -47,6 +47,7 @@ const sharedEnv = {
   HAPA_OVERWIND_WARM_FULL: "0",
   HAPA_GATE_PASS_PROFILE_ROOT: path.join(runtimeRoot, "gate-pass-profiles"),
   HAPA_SONG_CARD_MINT_ROOT: paths.mint,
+  HAPA_AVATAR_CARD_CUSTODY_ROOT: paths.custody,
   HAPA_AVATAR_MEDIA_COMMENT_ROOT: paths.comments,
   HAPA_AVATAR_CONTEXT_GENERATION_ROOT: paths.context,
   HAPA_AVATAR_WISDOM_COUNCIL_ROOT: paths.wisdom,
@@ -78,20 +79,42 @@ const catalogFixture = createServer((req, res) => {
   }));
 });
 
-function run(command, args, env = sharedEnv) {
+function run(command, args, env = sharedEnv, timeoutMs = 180_000) {
   return new Promise((resolve, reject) => {
-    const child = spawn(command, args, { cwd: ROOT, env, stdio: ["ignore", "pipe", "pipe"] });
+    const child = spawn(command, args, { cwd: ROOT, env, shell: false, stdio: ["ignore", "pipe", "pipe"] });
     let stdout = "";
     let stderr = "";
+    let settled = false;
+    const timeout = setTimeout(() => {
+      if (child.exitCode === null) child.kill("SIGTERM");
+      const force = setTimeout(() => { if (child.exitCode === null) child.kill("SIGKILL"); }, 2_000);
+      force.unref();
+    }, timeoutMs);
+    timeout.unref();
     child.stdout.on("data", (chunk) => { stdout += chunk; process.stdout.write(chunk); });
     child.stderr.on("data", (chunk) => { stderr += chunk; process.stderr.write(chunk); });
-    child.on("error", reject);
-    child.on("close", (code) => code === 0 ? resolve({ stdout, stderr }) : reject(new Error(`${command} exited ${code}\n${stderr}`)));
+    child.on("error", (error) => { if (!settled) { settled = true; clearTimeout(timeout); reject(error); } });
+    child.on("close", (code) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      code === 0 ? resolve({ stdout, stderr }) : reject(new Error(`${command} exited ${code}\n${stderr}`));
+    });
   });
 }
 
+async function stopOwnedChild(child) {
+  if (!child || child.exitCode !== null) return;
+  child.kill("SIGTERM");
+  await Promise.race([once(child, "exit"), new Promise((resolve) => setTimeout(resolve, 2_000))]);
+  if (child.exitCode === null) {
+    child.kill("SIGKILL");
+    await Promise.race([once(child, "exit"), new Promise((resolve) => setTimeout(resolve, 2_000))]);
+  }
+}
+
 async function waitForHealth(child, output) {
-  for (let attempt = 0; attempt < 600 && child.exitCode === null; attempt += 1) {
+  for (let attempt = 0; attempt < 150 && child.exitCode === null; attempt += 1) {
     try { const response = await fetch(`${baseUrl}api/health`); if (response.ok) return; } catch {}
     await new Promise((resolve) => setTimeout(resolve, 200));
   }
@@ -104,13 +127,14 @@ await Promise.all([
   new Promise((resolve) => catalogFixture.listen(catalogPort, "127.0.0.1", resolve))
 ]);
 const evidenceEnv = { ...sharedEnv, HAPA_AVATAR_ADMIN_TOKEN: "isolated-avatar-token", HAPA_OVERWIND_TOKEN: "isolated-overwind-token", HAPA_OVERWIND_URL: `http://127.0.0.1:${overwindPort}`, HAPA_CATALOG_URL: `http://127.0.0.1:${catalogPort}`, HAPA_CATALOG_TOKEN: "isolated-catalog-token" };
-const server = spawn(process.execPath, ["server/api.mjs", "--host", "127.0.0.1", "--port", String(port), "--static", "dist"], { cwd: ROOT, env: evidenceEnv, stdio: ["ignore", "pipe", "pipe"] });
+const server = spawn(process.execPath, ["server/api.mjs", "--host", "127.0.0.1", "--port", String(port), "--static", "dist"], { cwd: ROOT, env: evidenceEnv, shell: false, stdio: ["ignore", "pipe", "pipe"] });
 server.stdout.on("data", (chunk) => serverOutput.push(String(chunk)));
 server.stderr.on("data", (chunk) => serverOutput.push(String(chunk)));
 try {
   await waitForHealth(server, serverOutput);
   const electron = path.join(ROOT, "node_modules", ".bin", "electron");
   const results = [];
+  if (mode === "custody-capture") results.push(await run(electron, ["scripts/capture-tarot-card-custody.cjs"], { ...evidenceEnv, CAPTURE_URL: baseUrl }));
   if (["all", "core-smoke"].includes(mode)) results.push(await run("npm", ["run", "smoke:tarot"], { ...sharedEnv, SMOKE_URL: baseUrl }));
   if (mode === "interaction-smoke") results.push(await run(electron, ["scripts/tarot-stargate-smoke.cjs"], { ...sharedEnv, SMOKE_URL: baseUrl, SMOKE_ARTIFACT_SUFFIX: "interaction-ux" }));
   if (["all", "smoke"].includes(mode)) results.push(await run(electron, ["scripts/tarot-stargate-context-smoke.cjs"], { ...sharedEnv, SMOKE_URL: baseUrl }));
@@ -127,10 +151,7 @@ try {
   if (mode === "proposal-mint-capture") results.push(await run(electron, ["scripts/capture-tarot-proposal-mint-gate.cjs"], { ...evidenceEnv, CAPTURE_URL: baseUrl }));
   console.log(JSON.stringify({ ok: true, mode, isolated: true, userAppTouched: false, baseUrl, runtimeRootDeleted: true, runs: results.length }, null, 2));
 } finally {
-  if (server.exitCode === null) {
-    server.kill("SIGTERM");
-    await once(server, "exit").catch(() => {});
-  }
+  await stopOwnedChild(server);
   await fsp.rm(runtimeRoot, { recursive: true, force: true });
   await Promise.all([new Promise((resolve) => overwindFixture.close(resolve)), new Promise((resolve) => catalogFixture.close(resolve))]);
 }

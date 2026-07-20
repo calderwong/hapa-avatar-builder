@@ -57,10 +57,10 @@ import { useOvercardAttachments } from "@hapa/overcard/react";
 import { resolveBuilderViewContext } from "./overcard/viewContext.js";
 import { resolveTarotAttachmentContext } from "./overcard/tarotFormationAdapter.js";
 import BuilderHeaderHand from "./overcard/BuilderHeaderHand.jsx";
-import dearPapaSongbook from "../data/dear-papa-songbook.json";
-import hapaSongsStoreSeed from "../data/hapa-songs-store.json";
-import balladOfBellaPacket from "../data/ballad-of-bella/ballad-of-bella-packet.json";
-import kanbanSeed from "../data/kanban.json";
+import dearPapaSongbook from "../fixtures/build-week/judge-data/dear-papa-songbook.json";
+import hapaSongsStoreSeed from "../fixtures/build-week/judge-data/hapa-songs-store.json";
+import balladOfBellaPacket from "../fixtures/build-week/judge-data/ballad-of-bella-packet.json";
+import kanbanSeed from "../fixtures/build-week/judge-data/kanban.json";
 import {
   ASSET_NODE_TYPES,
   AVATAR_MIND_VERSION,

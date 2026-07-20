@@ -1,0 +1,33 @@
+{
+  "schemaVersion": "hapa.songs.store.v1",
+  "scope": {
+    "library": "runtime-hydrated",
+    "source": "public-safe-empty-bootstrap"
+  },
+  "album": {
+    "id": "dear-papa-album",
+    "title": "Dear Papa",
+    "author": "Calder",
+    "scope": "runtime-hydrated"
+  },
+  "songs": [],
+  "referenceCatalog": [],
+  "referenceGraphEdges": [],
+  "semanticTraversal": {
+    "reviewStatus": "not-included-in-judge-bootstrap",
+    "contextAnchors": [],
+    "traversalRules": []
+  },
+  "visualizerCatalog": [],
+  "sourceAnchors": [],
+  "audit": {
+    "songs": 0,
+    "readyForBuilder": false,
+    "fixture": true
+  },
+  "createdAt": "2026-07-19T00:00:00.000Z",
+  "updatedAt": "2026-07-19T00:00:00.000Z",
+  "generatedFrom": {
+    "source": "judge-bootstrap-fixture"
+  }
+}
