@@ -42,23 +42,24 @@ function stamp(root) {
   });
 }
 
-test("delivery identity requires a pre-build token and binds source to the whole served dist", async (t) => {
+test("delivery identity binds source to executable assets and excludes runtime media", async (t) => {
   const root = fixture(t);
   assert.throws(() => writeEchoDeliveryBuildReceipt({ root }), /requires the exact pre-build/i);
   const firstReceipt = stamp(root);
   const first = await inspectEchoDeliveryRuntimeBuildIdentity({ root, refresh: true });
   assert.equal(first.buildReceipt.semanticSha256, firstReceipt.semanticSha256);
-  assert.ok(first.servedBundle.files.some((entry) => entry.path === "dist/media/clip.bin"));
-  assert.ok(first.servedBundle.files.some((entry) => entry.path === "dist/sample/readme.txt"));
+  assert.ok(first.servedBundle.files.some((entry) => entry.path === "dist/assets/app.js"));
+  assert.ok(!first.servedBundle.files.some((entry) => entry.path === "dist/media/clip.bin"));
+  assert.ok(!first.servedBundle.files.some((entry) => entry.path === "dist/sample/readme.txt"));
   assert.ok(!first.servedBundle.files.some((entry) => entry.path.endsWith("hapa-echo-delivery-build.json")));
 
   fs.writeFileSync(path.join(root, "dist/media/new.bin"), "new");
-  await assert.rejects(
-    inspectEchoDeliveryRuntimeBuildIdentity({ root, refresh: true }),
-    (error) => error?.code === "delivery_build_receipt_stale",
-  );
-  fs.rmSync(path.join(root, "dist/media/new.bin"));
+  const mediaOnly = await inspectEchoDeliveryRuntimeBuildIdentity({ root, refresh: true });
+  assert.equal(mediaOnly.sha256, first.sha256);
   fs.writeFileSync(path.join(root, "dist/sample/readme.txt"), "sample-v2");
+  const sampleOnly = await inspectEchoDeliveryRuntimeBuildIdentity({ root, refresh: true });
+  assert.equal(sampleOnly.sha256, first.sha256);
+  fs.writeFileSync(path.join(root, "dist/assets/app.js"), "console.log('fixture-v2')\n");
   await assert.rejects(
     inspectEchoDeliveryRuntimeBuildIdentity({ root, refresh: true }),
     (error) => error?.code === "delivery_build_receipt_stale",
@@ -87,12 +88,12 @@ test("delivery cache invalidates on source, receipt, removal, and dist symlink d
   stamp(root);
   await inspectEchoDeliveryRuntimeBuildIdentity({ root, refresh: true });
 
-  fs.rmSync(path.join(root, "dist/media/clip.bin"));
+  fs.rmSync(path.join(root, "dist/assets/app.js"));
   await assert.rejects(inspectEchoDeliveryRuntimeBuildIdentity({ root, refresh: true }), (error) => error?.code === "delivery_build_receipt_stale");
-  fs.writeFileSync(path.join(root, "dist/media/clip.bin"), "clip-v1");
+  fs.writeFileSync(path.join(root, "dist/assets/app.js"), "console.log('fixture')\n");
   stamp(root);
 
-  fs.symlinkSync(path.join(root, "dist/assets/app.js"), path.join(root, "dist/media/link.js"));
+  fs.symlinkSync(path.join(root, "dist/index.html"), path.join(root, "dist/assets/link.js"));
   await assert.rejects(inspectEchoDeliveryRuntimeBuildIdentity({ root, refresh: true }), /symlinks are unsupported/i);
 });
 

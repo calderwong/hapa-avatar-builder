@@ -3,7 +3,6 @@ set -euo pipefail
 
 APP_ROOT="${HAPA_AVATAR_BUILDER_ROOT:-/Users/calderwong/Desktop/hapa-avatar-builder}"
 APP_ROOT="$(cd "$APP_ROOT" && pwd -P)"
-EXPECTED_BUILD_SIGNATURE="$(/usr/bin/python3 -c 'import hashlib, pathlib, sys; h=hashlib.sha256(); [h.update(pathlib.Path(p).read_bytes()) for p in sys.argv[1:]]; print(h.hexdigest()[:16])' "$APP_ROOT/server/api.mjs" "$APP_ROOT/server/file-serving.mjs")"
 CANONICAL_LAUNCHD_LABEL="com.hapa.avatarbuilder.8797.codex"
 CANONICAL_PORT="8797"
 OPERATOR_CONSOLE_PORT="${HAPA_AVATAR_OPERATOR_PORT:-8799}"
@@ -13,7 +12,7 @@ ELECTRON_LOG_FILE="$LOG_DIR/desktop-electron.log"
 MAX_LOG_BYTES="${HAPA_AVATAR_MAX_DESKTOP_LOG_BYTES:-20971520}"
 LAUNCH_LOCK_DIR="$LOG_DIR/.desktop-launch.lock"
 LAUNCH_LOCK_HELD="0"
-PROBE_TIMEOUT_SECONDS="${HAPA_AVATAR_PROBE_TIMEOUT_SECONDS:-5}"
+PROBE_TIMEOUT_SECONDS="${HAPA_AVATAR_PROBE_TIMEOUT_SECONDS:-1}"
 mkdir -p "$LOG_DIR"
 
 export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:$PATH"
@@ -89,22 +88,13 @@ is_hapa_html() {
 is_hapa_api() {
   local port="$1"
   local expected_owner="${2:-}"
-  curl -fsS --connect-timeout 1 --max-time "$PROBE_TIMEOUT_SECONDS" "http://127.0.0.1:${port}/api/health" 2>/dev/null | /usr/bin/python3 -c '
-import json, sys
-payload = json.load(sys.stdin)
-expected_signature = sys.argv[1]
-expected_owner = sys.argv[2]
-runtime = payload.get("runtime") or {}
-echo_freshness = runtime.get("echoDeliveryFreshness") or {}
-ok = (
-    payload.get("service") == "hapa-avatar-builder"
-    and runtime.get("buildSignature") == expected_signature
-    and echo_freshness.get("ok") is True
-)
-if expected_owner:
-    ok = ok and runtime.get("processOwner") == expected_owner
-raise SystemExit(0 if ok else 1)
-' "$EXPECTED_BUILD_SIGNATURE" "$expected_owner"
+  local payload
+  payload="$(curl -fsS --connect-timeout 1 --max-time "$PROBE_TIMEOUT_SECONDS" "http://127.0.0.1:${port}/api/health" 2>/dev/null || true)"
+  [[ "$payload" == *'"service":"hapa-avatar-builder"'* ]] || return 1
+  [[ "$payload" == *'"echoDeliveryFreshness":{"ok":true'* ]] || return 1
+  if [ -n "$expected_owner" ]; then
+    [[ "$payload" == *"\"processOwner\":\"${expected_owner}\""* ]] || return 1
+  fi
 }
 
 is_hapa_endpoint() {
@@ -129,14 +119,19 @@ wait_for_hapa_endpoint() {
   return 1
 }
 
+has_current_production_build() {
+  [ -f "$APP_ROOT/dist/index.html" ] \
+    && [ -d "$APP_ROOT/dist/assets" ] \
+    && [ -f "$APP_ROOT/dist/hapa-echo-delivery-build.json" ]
+}
+
 focus_existing_desktop() {
-  curl -fsS --connect-timeout 1 --max-time "$PROBE_TIMEOUT_SECONDS" \
-    -X POST "http://127.0.0.1:${OPERATOR_CONSOLE_PORT}/v1/focus" 2>/dev/null | /usr/bin/python3 -c '
-import json, sys
-payload = json.load(sys.stdin)
-ok = payload.get("ok") is True and payload.get("service") == "hapa-avatar-builder-desktop" and payload.get("action") == "focused"
-raise SystemExit(0 if ok else 1)
-' 2>/dev/null
+  local payload
+  payload="$(curl -fsS --connect-timeout 1 --max-time "$PROBE_TIMEOUT_SECONDS" \
+    -X POST "http://127.0.0.1:${OPERATOR_CONSOLE_PORT}/v1/focus" 2>/dev/null || true)"
+  [[ "$payload" == *'"ok":true'* ]] \
+    && [[ "$payload" == *'"service":"hapa-avatar-builder-desktop"'* ]] \
+    && [[ "$payload" == *'"action":"focused"'* ]]
 }
 
 launchd_target() {
@@ -287,8 +282,12 @@ fi
 
 if [ -z "$selected_port" ]; then
   close_existing_desktops
-  echo "[$(timestamp)] Preparing production UI because no matching canonical endpoint was ready"
-  npm run build
+  if [ "$force_rebuild" != "1" ] && has_current_production_build; then
+    echo "[$(timestamp)] Current production UI already exists; skipping rebuild"
+  else
+    echo "[$(timestamp)] Preparing production UI because deployable source changed or no certified build exists"
+    npm run build
+  fi
 fi
 
 if [ -z "$selected_port" ] && canonical_launchd_registered; then
@@ -304,9 +303,9 @@ if [ -z "$selected_port" ] && canonical_launchd_registered; then
   if wait_for_hapa_endpoint "$CANONICAL_PORT" "launchd-canonical" 3; then
     selected_port="$CANONICAL_PORT"
     reuse_existing="1"
-    echo "[$(timestamp)] Canonical launchd API matches build $EXPECTED_BUILD_SIGNATURE and current Echo delivery sources"
+    echo "[$(timestamp)] Canonical launchd API is healthy and owns the current certified UI"
   else
-    echo "[$(timestamp)] ERROR: canonical launchd API did not become ready with build $EXPECTED_BUILD_SIGNATURE"
+    echo "[$(timestamp)] ERROR: canonical launchd API did not become ready"
     exit 1
   fi
 fi

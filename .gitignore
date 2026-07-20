@@ -7,6 +7,7 @@ logs/
 artifacts/
 outputs/
 work/
+public/generated/
 
 # Local-first runtime data. Keep these on disk, but do not publish them as repo source.
 data/**

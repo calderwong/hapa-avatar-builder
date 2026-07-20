@@ -3,6 +3,9 @@ import react from "@vitejs/plugin-react";
 
 export default defineConfig({
   plugins: [react()],
+  // Only curated, source-controlled demo assets belong in the application
+  // bundle. Generated/runtime media is served from the external media root.
+  publicDir: "public-static",
   resolve: {
     // Linked Hapa packages must share the Builder's React dispatcher in production.
     // Without this, the Overcard workspace can contribute a second React instance

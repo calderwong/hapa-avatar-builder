@@ -12,13 +12,14 @@ import os from "node:os";
 import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
+import { resolveEchoSceneKeyframeGeneratedRoot } from "../server/avatar-runtime-paths.mjs";
 
 export const DEFAULTS = Object.freeze({
   projects: "data/music-video-projects",
   telemetryRoot: path.join(os.homedir(), "Desktop/hapa-song-registry/data/audio_telemetry/latest"),
   runtimeRoot: "data/echo-scene-keyframes",
   pilotRoot: "artifacts/echo-scene-keyframes/pilot",
-  generatedRoot: "public/generated/media-queue/echo-scene-keyframes",
+  generatedRoot: resolveEchoSceneKeyframeGeneratedRoot(),
 });
 
 function number(value) {

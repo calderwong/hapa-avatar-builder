@@ -32,6 +32,7 @@ async function createFixture(t, { largeAvatar = false, invalidCanonicalCore = fa
     mint: "mint",
     wisdom: "wisdom-councils",
     proposalReviews: "proposal-reviews",
+    generatedMedia: "generated-media",
   }).map(([key, name]) => [key, path.join(base, name)]));
   const avatar = {
     id: "cold-avatar",
@@ -53,6 +54,7 @@ async function createFixture(t, { largeAvatar = false, invalidCanonicalCore = fa
     fsp.writeFile(paths.songbook, JSON.stringify({ schemaVersion: "hapa.dear-papa-songbook.v1", songs: [] })),
     fsp.mkdir(paths.overwind, { recursive: true }),
     fsp.mkdir(paths.mint, { recursive: true }),
+    fsp.mkdir(paths.generatedMedia, { recursive: true }),
   ]);
   execFileSync("/usr/bin/sqlite3", [paths.hellWeek, `CREATE TABLE cards (
     id TEXT PRIMARY KEY, core_name TEXT, parent_id TEXT, name TEXT, media_local_path TEXT,
@@ -101,6 +103,7 @@ async function createFixture(t, { largeAvatar = false, invalidCanonicalCore = fa
       HAPA_AVATAR_WISDOM_COUNCIL_ROOT: paths.wisdom,
       HAPA_AVATAR_PROPOSAL_REVIEW_ROOT: paths.proposalReviews,
       HAPA_AVATAR_PROPOSAL_PEER_ROOT: path.join(base, "proposal-peer"),
+      HAPA_AVATAR_GENERATED_MEDIA_ROOT: paths.generatedMedia,
     },
     stdio: ["ignore", "pipe", "pipe"],
   });
@@ -134,6 +137,19 @@ test("concurrent cold readers share one raw parse and one normalized Avatar buil
   assert.equal(end.rawDiskReads - start.rawDiskReads, 1, JSON.stringify({ start, end }));
   assert.equal(end.normalizedBuilds - start.normalizedBuilds, 1, JSON.stringify({ start, end }));
   assert.ok(end.rawInflightHits - start.rawInflightHits >= 1, JSON.stringify({ start, end }));
+});
+
+test("external generated media keeps its legacy application URL without entering dist", async (t) => {
+  const fixture = await createFixture(t);
+  const keyframeDirectory = path.join(fixture.paths.generatedMedia, "echo-scene-keyframes");
+  await fsp.mkdir(keyframeDirectory, { recursive: true });
+  await fsp.writeFile(path.join(keyframeDirectory, "sample.png"), "external-keyframe");
+
+  const response = await fetch(`${fixture.api}/generated/media-queue/echo-scene-keyframes/sample.png`);
+  assert.equal(response.status, 200);
+  assert.equal(await response.text(), "external-keyframe");
+  const missing = await fetch(`${fixture.api}/generated/media-queue/echo-scene-keyframes/missing.png`);
+  assert.equal(missing.status, 404);
 });
 
 test("Overcard catalog uses a current signed compact projection without opening canonical core stores", async (t) => {

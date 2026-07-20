@@ -12,6 +12,8 @@
     "dev": "concurrently -k -n API,UI -c cyan,magenta \"HAPA_AVATAR_TRUST_LOCAL_UI=1 node server/api.mjs --port 8787\" \"vite --host 127.0.0.1 --port 5178\"",
     "api": "node server/api.mjs --port 8787",
     "build": "node scripts/build-echo-delivery-runtime.mjs",
+    "build:check": "node scripts/check-production-build.mjs",
+    "media:migrate-external": "node scripts/migrate-generated-media-out-of-public.mjs",
     "start": "node server/api.mjs --port 8787 --static dist",
     "desktop": "electron .",
     "desktop:dev": "concurrently -k -n API,UI,DESKTOP -c cyan,magenta,green \"HAPA_AVATAR_TRUST_LOCAL_UI=1 node server/api.mjs --port 8787\" \"vite --host 127.0.0.1 --port 5178\" \"wait-on http://127.0.0.1:5178 && VITE_DEV_SERVER_URL=http://127.0.0.1:5178 electron .\"",

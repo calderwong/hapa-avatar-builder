@@ -121,6 +121,10 @@ import { createSongCardLocalRenderBridge, inspectSongCardRendererBuildIdentity }
 import { inspectEchoDeliveryRuntimeBuildIdentity } from "./echo-delivery-runtime-build.mjs";
 import { createEchoRenderStartCertificateBinding } from "./echo-render-start-certificate.mjs";
 import {
+  LEGACY_GENERATED_MEDIA_ROUTE_PREFIX,
+  resolveAvatarGeneratedMediaRoot,
+} from "./avatar-runtime-paths.mjs";
+import {
   inspectEchoServerBootFreshness,
   inspectEchoServerDeliveryBuildIdentity,
 } from "./echo-server-delivery-build.mjs";
@@ -161,7 +165,21 @@ import { prepareEchoProjectForPersistence } from "./echo-project-persistence.mjs
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, "..");
 const DEFAULT_HAPA_MUSIC_VIZ_ROOT = path.join(homedir(), "Desktop", "hapa-music-viz");
-const ECHO_SERVER_BOOT_IDENTITY = inspectEchoServerDeliveryBuildIdentity({ root: ROOT });
+let echoServerBootIdentityCache = null;
+function getEchoServerBootIdentity() {
+  if (!echoServerBootIdentityCache) {
+    echoServerBootIdentityCache = inspectEchoServerDeliveryBuildIdentity({ root: ROOT });
+  }
+  return echoServerBootIdentityCache;
+}
+const ECHO_SERVER_BOOT_FRESHNESS = Object.freeze({
+  ok: true,
+  reason: null,
+  verification: "liveness-only-deep-verification-deferred",
+  bootSha256: null,
+  bootSourceStatSignature: null,
+  currentSourceStatSignature: null,
+});
 const SERVER_STARTED_AT = new Date().toISOString();
 const SERVER_PROCESS_OWNER = process.env.HAPA_AVATAR_PROCESS_OWNER || "standalone-api";
 const SERVER_BUILD_SIGNATURE = process.env.HAPA_AVATAR_BUILD_SIGNATURE || createHash("sha256")
@@ -349,6 +367,7 @@ const HAPA_TRANSCRIBE_MAX_BYTES = Math.max(256_000, Number(process.env.HAPA_TRAN
 const HAPA_TRANSCRIBE_EMPTY_CLIP_DIR = process.env.HAPA_TRANSCRIBE_EMPTY_CLIP_DIR || path.join(ROOT, "artifacts/transcribe-empty-clips");
 const HAPA_TRANSCRIBE_SAVE_EMPTY_CLIPS = process.env.HAPA_TRANSCRIBE_SAVE_EMPTY_CLIPS !== "0";
 const MEDIA_DIR = process.env.HAPA_MEDIA_DIR || path.join(ROOT, "data/media");
+const GENERATED_MEDIA_ROOT = resolveAvatarGeneratedMediaRoot();
 const HAPA_MUSIC_VIZ_ROOT = process.env.HAPA_MUSIC_VIZ_ROOT || DEFAULT_HAPA_MUSIC_VIZ_ROOT;
 const ECHO_DIRECTOR_V2_ALBUM_DIR = process.env.HAPA_ECHO_DIRECTOR_V2_ALBUM_DIR || path.join(ROOT, "artifacts/echo-director-v2/album");
 const ECHO_DIRECTION_VARIANTS_DIR = process.env.HAPA_ECHO_DIRECTION_VARIANTS_DIR || path.join(DATA_DIR, "music-video-project-variants");
@@ -1574,7 +1593,7 @@ async function route(req, res) {
         pid: process.pid,
         processOwner: SERVER_PROCESS_OWNER,
         buildSignature: SERVER_BUILD_SIGNATURE,
-        echoDeliveryFreshness: inspectEchoServerBootFreshness(ECHO_SERVER_BOOT_IDENTITY, { root: ROOT, refresh: true }),
+        echoDeliveryFreshness: ECHO_SERVER_BOOT_FRESHNESS,
         startedAt: SERVER_STARTED_AT,
         uptimeSeconds: Math.round(process.uptime()),
         port,
@@ -4039,6 +4058,13 @@ async function route(req, res) {
   if (pathname.startsWith("/media/")) {
     const served = await serveMedia(pathname, req, res);
     if (served) return;
+  }
+
+  if (pathname.startsWith(`${LEGACY_GENERATED_MEDIA_ROUTE_PREFIX}/`)) {
+    const served = await serveGeneratedMedia(pathname, req, res);
+    if (served) return;
+    sendJson(res, 404, { error: "generated_media_not_found", path: pathname });
+    return;
   }
 
   if (pathname.startsWith("/CardAppPrototype")) {
@@ -8173,7 +8199,8 @@ async function certifySongCardLocalRenderStart({ candidate, storedPlan } = {}) {
       );
     }
 
-    const bootFreshness = inspectEchoServerBootFreshness(ECHO_SERVER_BOOT_IDENTITY, { root: ROOT, refresh: true });
+    const serverBootIdentity = getEchoServerBootIdentity();
+    const bootFreshness = inspectEchoServerBootFreshness(serverBootIdentity, { root: ROOT, refresh: true });
     if (!bootFreshness.ok) {
       throw songCardRenderCertificationError(
         bootFreshness.reason,
@@ -8211,7 +8238,7 @@ async function certifySongCardLocalRenderStart({ candidate, storedPlan } = {}) {
       cache: echoDirectorShowGraphCache,
       currentRendererBuildSha256: rendererBuildIdentity.sha256,
       currentDeliveryRuntimeBuildSha256: deliveryRuntimeBuildIdentity.sha256,
-      currentServerDeliveryBuildSha256: ECHO_SERVER_BOOT_IDENTITY.sha256,
+      currentServerDeliveryBuildSha256: serverBootIdentity.sha256,
       currentRegistries,
       runtimeRouteContext: {
         root: ROOT,
@@ -8231,7 +8258,7 @@ async function certifySongCardLocalRenderStart({ candidate, storedPlan } = {}) {
       || receipt.executionGraph?.status !== "ready"
       || receipt.executionGraph?.rendererBuildSha256 !== rendererBuildIdentity.sha256
       || receipt.executionGraph?.deliveryRuntimeBuildSha256 !== deliveryRuntimeBuildIdentity.sha256
-      || receipt.executionGraph?.serverDeliveryBuildSha256 !== ECHO_SERVER_BOOT_IDENTITY.sha256
+      || receipt.executionGraph?.serverDeliveryBuildSha256 !== serverBootIdentity.sha256
       || !/^sha256:[a-f0-9]{64}$/iu.test(String(receipt.executionGraph?.certifierSourceSha256 || ""))
     ) {
       throw songCardRenderCertificationError(
@@ -8337,7 +8364,7 @@ async function certifySongCardLocalRenderStart({ candidate, storedPlan } = {}) {
       outputGraphSha256: certified.receipt.executionGraph.outputGraphSha256,
       rendererBuildSha256: certified.rendererBuildIdentity.sha256,
       deliveryRuntimeBuildSha256: certified.deliveryRuntimeBuildIdentity.sha256,
-      serverDeliveryBuildSha256: ECHO_SERVER_BOOT_IDENTITY.sha256,
+      serverDeliveryBuildSha256: serverBootIdentity.sha256,
       certifierSourceSha256: certified.receipt.executionGraph.certifierSourceSha256,
       executionReceiptSha256: certified.executionPublication.receiptSha256,
       executionPublication: certified.executionPublication,
@@ -8829,7 +8856,8 @@ async function readEchoDirectionScriptVariant(safeSongId, requestedVariantId) {
 
 async function readEchoDirectorShowGraph(project, safeSongId, cutId = "base") {
   const requestedCutId = String(cutId || "base").trim() || "base";
-  const bootFreshness = inspectEchoServerBootFreshness(ECHO_SERVER_BOOT_IDENTITY, { root: ROOT, refresh: true });
+  const serverBootIdentity = getEchoServerBootIdentity();
+  const bootFreshness = inspectEchoServerBootFreshness(serverBootIdentity, { root: ROOT, refresh: true });
   if (!bootFreshness.ok) {
     return {
       graph: null,
@@ -8897,7 +8925,7 @@ async function readEchoDirectorShowGraph(project, safeSongId, cutId = "base") {
     cache: echoDirectorShowGraphCache,
     currentRendererBuildSha256: rendererBuildIdentity.sha256,
     currentDeliveryRuntimeBuildSha256: deliveryRuntimeBuildIdentity.sha256,
-    currentServerDeliveryBuildSha256: ECHO_SERVER_BOOT_IDENTITY.sha256,
+    currentServerDeliveryBuildSha256: serverBootIdentity.sha256,
     currentRegistries,
     runtimeRouteContext: {
       root: ROOT,
@@ -10466,6 +10494,39 @@ async function serveMedia(pathname, req, res) {
       "Content-Length": info.size,
       "Accept-Ranges": "bytes",
       "Cache-Control": "public, max-age=31536000, immutable"
+    });
+    streamFileToResponse(req, res, filePath);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function serveGeneratedMedia(pathname, req, res) {
+  const root = path.resolve(GENERATED_MEDIA_ROOT);
+  const relativePath = decodeURIComponent(pathname.slice(LEGACY_GENERATED_MEDIA_ROUTE_PREFIX.length).replace(/^\/+/, ""));
+  const filePath = path.resolve(root, relativePath);
+  if (filePath !== root && !filePath.startsWith(`${root}${path.sep}`)) return false;
+  try {
+    const info = await stat(filePath);
+    if (!info.isFile()) return false;
+    const range = parseRange(req.headers.range, info.size);
+    if (range) {
+      res.writeHead(206, {
+        "Content-Type": contentType(filePath),
+        "Content-Length": range.end - range.start + 1,
+        "Content-Range": `bytes ${range.start}-${range.end}/${info.size}`,
+        "Accept-Ranges": "bytes",
+        "Cache-Control": "private, max-age=3600",
+      });
+      streamFileToResponse(req, res, filePath, { start: range.start, end: range.end });
+      return true;
+    }
+    res.writeHead(200, {
+      "Content-Type": contentType(filePath),
+      "Content-Length": info.size,
+      "Accept-Ranges": "bytes",
+      "Cache-Control": "private, max-age=3600",
     });
     streamFileToResponse(req, res, filePath);
     return true;

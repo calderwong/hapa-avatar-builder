@@ -46,7 +46,9 @@ test("dedicated launcher serializes preparation, fast-opens healthy UI, and rese
   assert.ok(launcher.indexOf("if focus_existing_desktop") < launcher.indexOf("npm run desktop 2>&1"));
   assert.match(launcher, /Preserving any existing Avatar Builder window; Electron will focus it on a repeat launch/);
   assert.match(launcher, /release_launch_lock[\s\S]*npm run desktop 2>&1 \| \/usr\/bin\/awk/);
-  assert.match(launcher, /HAPA_AVATAR_PROBE_TIMEOUT_SECONDS:-5/);
+  assert.match(launcher, /HAPA_AVATAR_PROBE_TIMEOUT_SECONDS:-1/);
+  assert.match(launcher, /has_current_production_build\(\)[\s\S]*dist\/index\.html[\s\S]*dist\/assets[\s\S]*hapa-echo-delivery-build\.json/);
+  assert.match(launcher, /Current production UI already exists; skipping rebuild/);
   assert.match(launcher, /HAPA_AVATAR_MAX_DESKTOP_LOG_BYTES:-20971520/);
   assert.match(launcher, /rotate_log_if_large "\$LOG_FILE"/);
   assert.match(launcher, /Repeated Metal pipeline errors suppressed after five samples/);
@@ -59,6 +61,7 @@ test("dedicated launcher serializes preparation, fast-opens healthy UI, and rese
   assert.doesNotMatch(launcher, /Stopping stale Hapa desktop server process/);
   assert.doesNotMatch(launcher, /ps -axo pid=,command= \| while/);
   assert.match(launcher, /echoDeliveryFreshness/);
-  assert.match(launcher, /echo_freshness\.get\("ok"\) is True/);
+  assert.match(launcher, /"echoDeliveryFreshness":\{"ok":true/);
+  assert.doesNotMatch(launcher, /\/usr\/bin\/python3/);
   await exec("/bin/zsh", ["-n", launcherPath.pathname]);
 });

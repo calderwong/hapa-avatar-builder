@@ -22,6 +22,7 @@ import {
   resumeEchoSceneKeyframeProcess,
   startEchoSceneKeyframeProcess,
 } from "../src/domain/echo-scene-keyframe-process.js";
+import { resolveEchoSceneKeyframeGeneratedRoot } from "../server/avatar-runtime-paths.mjs";
 import { DEFAULTS, atomicWriteJson, buildAudit, stableStringify } from "./echo-scene-keyframes.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -31,7 +32,7 @@ const AUDIT_PATH = path.join(RUNTIME_ROOT, "audit.json");
 const EVENT_PATH = path.join(RUNTIME_ROOT, "events.ndjson");
 const CLAIM_ROOT = path.join(RUNTIME_ROOT, "claims");
 const PILOT_ROOT = path.resolve(process.env.HAPA_ECHO_KEYFRAME_PILOT_ROOT || path.join(ROOT, DEFAULTS.pilotRoot));
-const GENERATED_ROOT = path.resolve(process.env.HAPA_ECHO_KEYFRAME_GENERATED_ROOT || path.join(ROOT, DEFAULTS.generatedRoot));
+const GENERATED_ROOT = resolveEchoSceneKeyframeGeneratedRoot();
 const MEDIA_CARDS_PATH = path.join(RUNTIME_ROOT, "media-cards.json");
 
 const PROCESS_SETTINGS = Object.freeze({ concurrency: 3, perRunClaimLimit: 3, leaseMs: 45 * 60 * 1000, maxAttempts: 3 });

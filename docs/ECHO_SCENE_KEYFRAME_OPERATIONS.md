@@ -67,9 +67,9 @@ When state is `paused`, `stop_after_current`, or `completed`, the heartbeat perf
 - `data/echo-scene-keyframes/events.ndjson`: append-only process event journal.
 - `data/echo-scene-keyframes/claims/`: bounded Codex claim/evidence packets and worker results.
 - `data/echo-scene-keyframes/media-cards.json`: generated candidate Media Card records.
-- `public/generated/media-queue/echo-scene-keyframes/`: native and Director-size keyframe files.
+- `~/Library/Application Support/Hapa Avatar Builder/generated-media/echo-scene-keyframes/`: native and Director-size keyframe files. Override with `HAPA_ECHO_KEYFRAME_GENERATED_ROOT` when another custody volume is required.
 
-Runtime state and generated media stay local and outside Git. Source code, tests, and contracts are committed separately.
+Runtime state and generated media stay local, outside Git, and outside the deployable Vite public directory. The local API preserves the legacy `/generated/media-queue/...` application URL while streaming from the external media root. Source code, tests, and contracts are committed separately.
 
 ## Current audited scale
 

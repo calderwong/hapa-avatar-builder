@@ -23,6 +23,7 @@ const REQUIRED_REACHABLE_PATHS = Object.freeze([
 const SOURCE_EXTENSIONS = Object.freeze([".js", ".jsx", ".mjs", ".ts", ".tsx", ".json", ".css"]);
 const cache = new Map();
 const dependencySignatureCache = new Map();
+const buildInputSnapshotCache = new Map();
 const DEPENDENCY_SIGNATURE_TTL_MS = 250;
 
 function hashBytes(bytes) {
@@ -92,8 +93,7 @@ export function echoDeliveryRuntimeBuildSourceStatSignature({ root = ROOT, files
     ];
   let distRows;
   try {
-    distRows = enumerateServedDist(resolvedRoot)
-      .filter((entry) => entry.relativePath !== BUILD_RECEIPT_RELATIVE_PATH)
+    distRows = enumerateServedDist(resolvedRoot, { bundleOnly: true })
       .map((entry) => ({ path: entry.relativePath, stat: fileStatIdentity(entry.filePath) }));
   } catch (error) {
     distRows = [{ path: "dist", error: String(error?.message || error) }];
@@ -213,7 +213,7 @@ function bareImportIdentities(root, specifiers) {
   }).sort((left, right) => left.specifier.localeCompare(right.specifier));
 }
 
-function enumerateServedDist(root) {
+function enumerateServedDist(root, { bundleOnly = false } = {}) {
   const distRoot = path.join(root, "dist");
   const distLstat = fs.lstatSync(distRoot);
   if (distLstat.isSymbolicLink() || !distLstat.isDirectory()) {
@@ -230,6 +230,12 @@ function enumerateServedDist(root) {
     for (const entry of entries) {
       const logicalPath = path.join(logicalDirectory, entry.name);
       const physicalPath = path.join(physicalDirectory, entry.name);
+      if (
+        bundleOnly
+        && logicalDirectory === distRoot
+        && entry.name !== "index.html"
+        && entry.name !== "assets"
+      ) continue;
       if (entry.isDirectory()) {
         visit(physicalPath, logicalPath);
         continue;
@@ -247,8 +253,7 @@ function enumerateServedDist(root) {
 }
 
 function servedBundleIdentity(root) {
-  const before = enumerateServedDist(root)
-    .filter((entry) => entry.relativePath !== BUILD_RECEIPT_RELATIVE_PATH);
+  const before = enumerateServedDist(root, { bundleOnly: true });
   if (!before.some((entry) => entry.relativePath === "dist/index.html")) {
     throw new Error("Delivery runtime served dist is missing dist/index.html.");
   }
@@ -261,8 +266,7 @@ function servedBundleIdentity(root) {
       stat,
     };
   });
-  const after = enumerateServedDist(root)
-    .filter((entry) => entry.relativePath !== BUILD_RECEIPT_RELATIVE_PATH);
+  const after = enumerateServedDist(root, { bundleOnly: true });
   const enumeration = (rows) => JSON.stringify(rows.map(({ relativePath, filePath }) => ({
     relativePath,
     filePath: path.resolve(filePath),
@@ -408,6 +412,12 @@ export function snapshotEchoDeliveryBuildInputs({ root = ROOT } = {}) {
   const resolvedRoot = resolvedRootPath(root);
   const source = sourceBuildIdentity(resolvedRoot);
   const tool = buildToolIdentity(resolvedRoot);
+  buildInputSnapshotCache.set(resolvedRoot, {
+    source,
+    tool,
+    sourceStatSignature: capturedStatSignature(resolvedRoot, source.rows),
+    toolStatSignature: capturedStatSignature(resolvedRoot, tool.rows),
+  });
   return {
     sourceSha256: source.sha256,
     buildToolSha256: tool.sha256,
@@ -426,8 +436,16 @@ export function writeEchoDeliveryBuildReceipt({
   if (!sha256Pattern.test(String(expectedSourceSha256 || "")) || !sha256Pattern.test(String(expectedBuildToolSha256 || ""))) {
     throw new Error("Echo delivery receipt requires the exact pre-build source and build-tool identities.");
   }
-  const sourceBefore = sourceBuildIdentity(resolvedRoot);
-  const toolBefore = buildToolIdentity(resolvedRoot);
+  const cachedInputs = buildInputSnapshotCache.get(resolvedRoot);
+  const cachedInputsCurrent = Boolean(
+    cachedInputs
+    && cachedInputs.source.sha256 === expectedSourceSha256
+    && cachedInputs.tool.sha256 === expectedBuildToolSha256
+    && sourceStatSignature(resolvedRoot, cachedInputs.source.rows.map((entry) => entry.filePath)) === cachedInputs.sourceStatSignature
+    && sourceStatSignature(resolvedRoot, cachedInputs.tool.rows.map((entry) => entry.filePath)) === cachedInputs.toolStatSignature
+  );
+  const sourceBefore = cachedInputsCurrent ? cachedInputs.source : sourceBuildIdentity(resolvedRoot);
+  const toolBefore = cachedInputsCurrent ? cachedInputs.tool : buildToolIdentity(resolvedRoot);
   if (sourceBefore.sha256 !== expectedSourceSha256) {
     throw new Error("Echo delivery source changed while Vite was building; refusing to stamp stale output.");
   }
@@ -442,17 +460,22 @@ export function writeEchoDeliveryBuildReceipt({
   });
   const receiptPath = path.join(resolvedRoot, BUILD_RECEIPT_RELATIVE_PATH);
   atomicJson(receiptPath, { ...semantic, generatedAt: new Date().toISOString() });
-  const sourceAfter = sourceBuildIdentity(resolvedRoot);
-  const toolAfter = buildToolIdentity(resolvedRoot);
-  const distAfter = servedBundleIdentity(resolvedRoot);
+  const sourceAfterStatSignature = sourceStatSignature(resolvedRoot, sourceBefore.rows.map((entry) => entry.filePath));
+  const toolAfterStatSignature = sourceStatSignature(resolvedRoot, toolBefore.rows.map((entry) => entry.filePath));
+  const sourceBeforeStatSignature = capturedStatSignature(resolvedRoot, sourceBefore.rows);
+  const toolBeforeStatSignature = capturedStatSignature(resolvedRoot, toolBefore.rows);
+  const distAfter = enumerateServedDist(resolvedRoot, { bundleOnly: true })
+    .map((entry) => ({ path: entry.relativePath, stat: fileStatIdentity(entry.filePath) }));
+  const capturedDist = distBefore.files.map((entry) => ({ path: entry.path, stat: entry.stat }));
   if (
-    sourceAfter.sha256 !== sourceBefore.sha256
-    || toolAfter.sha256 !== toolBefore.sha256
-    || distAfter.sha256 !== distBefore.sha256
+    sourceAfterStatSignature !== sourceBeforeStatSignature
+    || toolAfterStatSignature !== toolBeforeStatSignature
+    || JSON.stringify(distAfter) !== JSON.stringify(capturedDist)
   ) {
     fs.rmSync(receiptPath, { force: true });
     throw new Error("Echo delivery source, build tool, or served dist changed while its receipt was being written.");
   }
+  buildInputSnapshotCache.delete(resolvedRoot);
   return { ...semantic, receiptPath };
 }
 
@@ -463,8 +486,7 @@ function capturedDependencySignature(root, sourceRows, distRows) {
       throw new Error(`Delivery runtime dependency changed while it was being identified: ${filePath}.`);
     }
   }
-  const currentDist = enumerateServedDist(root)
-    .filter((entry) => entry.relativePath !== BUILD_RECEIPT_RELATIVE_PATH)
+  const currentDist = enumerateServedDist(root, { bundleOnly: true })
     .map((entry) => ({ path: entry.relativePath, stat: fileStatIdentity(entry.filePath) }));
   const capturedDist = distRows.map((row) => ({ path: row.path, stat: row.stat }));
   if (JSON.stringify(currentDist) !== JSON.stringify(capturedDist)) {
