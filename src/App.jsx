@@ -212,6 +212,7 @@ import SongCardMintPanel from "./components/SongCardMintPanel.jsx";
 import { localFileApiUri } from "./domain/local-media-uri.js";
 import { buildPublicDemoGateCards } from "./domain/tarot-stargate-derivation.js";
 import { buildBuildWeekPublicDemoProjection } from "./domain/build-week-public-demo.js";
+import { publicBuildWeekDemoRequested, resolvePublicDemoAssetUri } from "./domain/public-demo-runtime.js";
 
 const ThreeAvatarViewer = lazy(() => import("./components/ThreeAvatarViewer.jsx"));
 const TarotDraw3DView = lazy(() => import("./components/TarotDraw3DView.jsx"));
@@ -224,12 +225,9 @@ const EMPTY_TAROT_DRAW_PROJECTION = {
   state: "queued"
 };
 
-function publicStargateDemoRequested() {
-  try { return new URLSearchParams(globalThis.location?.search || "").get("stargateDemo") === "1"; }
-  catch { return false; }
-}
-
-const PUBLIC_BUILD_WEEK_DEMO = publicStargateDemoRequested();
+const PUBLIC_BUILD_WEEK_DEMO = publicBuildWeekDemoRequested({
+  forced: import.meta.env?.VITE_PUBLIC_BUILD_WEEK_DEMO === "1"
+});
 
 function publicStargateDemoProjection() {
   return buildBuildWeekPublicDemoProjection({
@@ -263,6 +261,8 @@ const SONG_REGISTRY_DETAIL_PREFETCH_LIMIT = Math.max(0, Number(import.meta.env?.
 
 function resolveMediaUri(uri) {
   if (typeof uri !== "string" || !uri) return uri;
+  const publicDemoUri = resolvePublicDemoAssetUri(uri, import.meta.env?.BASE_URL || "/");
+  if (publicDemoUri !== uri) return publicDemoUri;
   const localUri = localFileApiUri(uri, API_BASE);
   if (localUri) return localUri;
   if (/^(data:|blob:|https?:)/.test(uri)) return uri;
@@ -577,7 +577,7 @@ export default function App({ overcardAdapter }) {
 
   const [avatars, setAvatars] = useState(FALLBACK_AVATARS);
   const [avatarTeams, setAvatarTeams] = useState(() => normalizeAvatarTeams(avatarStoreSeed.teams || [], FALLBACK_AVATARS));
-  const [expandedTeamIds, setExpandedTeamIds] = useState(["core-protocol-team"]);
+  const [expandedTeamIds, setExpandedTeamIds] = useState([PUBLIC_BUILD_WEEK_DEMO ? "rgb-public-demo" : "core-protocol-team"]);
   const [board, setBoard] = useState(kanbanSeed);
   const [sceneGraph, setSceneGraph] = useState(FALLBACK_SCENE_GRAPH);
   const [tarotStore, setTarotStore] = useState(FALLBACK_TAROT_STORE);
@@ -629,8 +629,8 @@ export default function App({ overcardAdapter }) {
   const [attachPack, setAttachPack] = useState(null);
   const [sceneAttachPack, setSceneAttachPack] = useState(null);
   const [healingQueue, setHealingQueue] = useState(null);
-  const [tarotDrawProjection, setTarotDrawProjection] = useState(() => publicStargateDemoRequested() ? publicStargateDemoProjection() : EMPTY_TAROT_DRAW_PROJECTION);
-  const [tarotDrawSceneArmed, setTarotDrawSceneArmed] = useState(publicStargateDemoRequested);
+  const [tarotDrawProjection, setTarotDrawProjection] = useState(() => PUBLIC_BUILD_WEEK_DEMO ? publicStargateDemoProjection() : EMPTY_TAROT_DRAW_PROJECTION);
+  const [tarotDrawSceneArmed, setTarotDrawSceneArmed] = useState(() => PUBLIC_BUILD_WEEK_DEMO);
   const [tarotDrawHostAvatarId, setTarotDrawHostAvatarId] = useState(FALLBACK_AVATARS[0]?.id || null);
   const [queueJobs, setQueueJobs] = useState(createInitialQueueJobs);
   const persistTimers = useRef(new Map());
@@ -12153,7 +12153,15 @@ function clipsSignature(clips = []) {
 }
 
 function isRenderableMediaUri(uri) {
-  return typeof uri === "string" && (/^\/sample\//.test(uri) || /^\/media\//.test(uri) || /^https?:/.test(uri) || uri.startsWith("data:") || uri.startsWith("blob:"));
+  const publicDemoAssetPrefix = resolvePublicDemoAssetUri("/demo/", import.meta.env?.BASE_URL || "/");
+  return typeof uri === "string" && (
+    uri.startsWith(publicDemoAssetPrefix) ||
+    /^\/sample\//.test(uri) ||
+    /^\/media\//.test(uri) ||
+    /^https?:/.test(uri) ||
+    uri.startsWith("data:") ||
+    uri.startsWith("blob:")
+  );
 }
 
 function HoverPreviewCard({ preview }) {
