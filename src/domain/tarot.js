@@ -140,6 +140,13 @@ export function createTarotCard(input = {}) {
   return normalizeTarotCard({
     schemaVersion: TAROT_CARD_VERSION,
     id,
+    cardId: input.cardId || id,
+    cardCoreKey: input.cardCoreKey || input.hypercore?.key || input.custody?.cardCoreKey || null,
+    cardRevisionId: input.cardRevisionId || input.revisionId || input.custody?.cardRevisionId || null,
+    cardRecordDigest: input.cardRecordDigest || input.recordDigest || input.custody?.cardRecordDigest || input.custody?.recordDigest || null,
+    recordDigest: input.recordDigest || input.cardRecordDigest || input.custody?.cardRecordDigest || input.custody?.recordDigest || null,
+    originPublicKey: input.originPublicKey || input.custody?.originPublicKey || null,
+    custody: input.custody && typeof input.custody === "object" ? structuredClone(input.custody) : null,
     title,
     slug: input.slug || slugify(title) || id,
     cardType: TAROT_CARD_TYPES.includes(input.cardType) ? input.cardType : "card_front",

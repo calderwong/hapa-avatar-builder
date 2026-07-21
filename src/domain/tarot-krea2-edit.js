@@ -54,7 +54,8 @@ export function buildTarotKrea2EditRequest({
   subjectCard = null,
   requestId,
   consentEventId,
-  realPerson = false
+  realPerson = false,
+  identityUseBasis = "self_or_subject_consented"
 } = {}) {
   const source = tarotKrea2AssetReference(sourceAsset);
   const subject = tarotKrea2AssetReference(subjectAsset);
@@ -82,7 +83,7 @@ export function buildTarotKrea2EditRequest({
       return_to: `card:${sourceCard?.id || "krea2-candidate"}`
     },
     use_assertion: {
-      basis: "self_or_subject_consented",
+      basis: String(identityUseBasis || "self_or_subject_consented"),
       asserted_by: String(avatarId || "local-operator"),
       purpose: `Local Tarot Draw image proposal: ${prompt}`,
       real_person: Boolean(realPerson),

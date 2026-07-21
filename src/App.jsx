@@ -1089,6 +1089,10 @@ export default function App({ overcardAdapter }) {
     if (!tarotDrawSceneArmed) {
       return undefined;
     }
+    if (tarotDataMode !== "full") {
+      ensureTarotStoreLoaded();
+      return undefined;
+    }
     if (tarotDrawProjection.cards.length) {
       return undefined;
     }
@@ -1131,11 +1135,12 @@ export default function App({ overcardAdapter }) {
         normalizedInventoryStore,
         songLibrary,
         normalizedHapaSongStore,
-        tarotAttachmentContext
+        tarotAttachmentContext,
+        normalizedTarotStore.cards
       ));
       markQueueReady("derived-tarot-draw-projection", "Tarot Draw projection", "Drawable Tarot projection ready.");
     }, 900);
-  }, [tarotDrawSceneArmed, avatarDataMode, normalizedItemManager.cards, tarotDrawHostInventory, tarotDrawHostAvatar?.id, avatars, normalizedInventoryStore, songLibrary, normalizedHapaSongStore, tarotAttachmentContext]);
+  }, [tarotDrawSceneArmed, tarotDataMode, avatarDataMode, normalizedItemManager.cards, tarotDrawHostInventory, tarotDrawHostAvatar?.id, avatars, normalizedInventoryStore, songLibrary, normalizedHapaSongStore, tarotAttachmentContext, normalizedTarotStore.cards]);
 
   useEffect(() => {
     if (!isTarotDrawView || tarotDrawSceneArmed) {
@@ -6989,8 +6994,8 @@ const AVATAR_TAROT_MAJOR_ARCANA = [
 const TAROT_ITEM_AVATAR_LOOP_SOURCE_WINDOW = Math.max(3, Number(import.meta.env?.VITE_TAROT_ITEM_AVATAR_LOOP_SOURCE_WINDOW || 12));
 const TAROT_PROFILE_AVATAR_LOOP_TILE_LIMIT = Math.max(1, Number(import.meta.env?.VITE_TAROT_PROFILE_AVATAR_LOOP_TILE_LIMIT || 4));
 
-function buildTarotDrawProjection(cards = [], avatarInventory = null, avatars = [], inventoryStore = {}, songLibrary = FALLBACK_SONG_LIBRARY, hapaSongStore = null, attachmentContext = null) {
-  const candidates = buildTarotDrawCards(cards, avatarInventory, avatars, inventoryStore, songLibrary, hapaSongStore);
+function buildTarotDrawProjection(cards = [], avatarInventory = null, avatars = [], inventoryStore = {}, songLibrary = FALLBACK_SONG_LIBRARY, hapaSongStore = null, attachmentContext = null, tarotLibraryCards = []) {
+  const candidates = buildTarotDrawCards(cards, avatarInventory, avatars, inventoryStore, songLibrary, hapaSongStore, tarotLibraryCards);
   const requested = new Set(attachmentContext?.cardIds || []);
   const matching = requested.size ? candidates.filter((card) => requested.has(card.id)) : [];
   const scopedCandidates = requested.size && matching.length ? matching : candidates;
@@ -7010,7 +7015,7 @@ function getYoutubeThumbnailUrl(url) {
   return (match && match[2].length === 11) ? `https://img.youtube.com/vi/${match[2]}/mqdefault.jpg` : null;
 }
 
-function buildTarotDrawCards(cards = [], avatarInventory = null, avatars = [], inventoryStore = {}, songLibrary = FALLBACK_SONG_LIBRARY, hapaSongStore = null) {
+function buildTarotDrawCards(cards = [], avatarInventory = null, avatars = [], inventoryStore = {}, songLibrary = FALLBACK_SONG_LIBRARY, hapaSongStore = null, tarotLibraryCards = []) {
   const resolveAvatarContact = createTarotAvatarContactResolver(songLibrary, avatars, hapaSongStore);
   const priorityIds = new Set([
     ...(avatarInventory?.hardpoints || []).flatMap((hardpoint) => hardpoint.cardIds || []),
@@ -7209,11 +7214,66 @@ function buildTarotDrawCards(cards = [], avatarInventory = null, avatars = [], i
     );
   const avatarDrawCards = buildAvatarThemeTarotCards(avatars, selectedAvatar, songLibrary, hapaSongStore, resolveAvatarContact);
   const songDrawCards = buildHapaSongTarotCards(hapaSongStore, avatars, songLibrary, resolveAvatarContact);
-  return uniqueDrawCards([...itemDrawCards, ...avatarDrawCards, ...songDrawCards]).sort((a, b) =>
+  const libraryDrawCards = buildTarotLibraryDrawCards(tarotLibraryCards);
+  return uniqueDrawCards([...libraryDrawCards, ...itemDrawCards, ...avatarDrawCards, ...songDrawCards]).sort((a, b) =>
     b.priority - a.priority ||
     b.videoScore - a.videoScore ||
     compareText(a.title, b.title)
   );
+}
+
+function buildTarotLibraryDrawCards(cards = []) {
+  return (cards || [])
+    .filter((card) => (card.enrichment?.tags || []).includes("tarot-draw-ready"))
+    .map((card) => {
+      const primary = card.asset || (card.assets || []).find((asset) => asset?.type === "image" && asset?.uri) || null;
+      const imageUri = primary?.uri || "";
+      if (!imageUri) return null;
+      const buildWeek = card.enrichment?.media?.codexBuildWeek || {};
+      const category = buildWeek.category ? titleizeItemLabel(buildWeek.category) : "Tarot Library";
+      return {
+        id: card.id,
+        cardId: card.cardId || card.id,
+        cardCoreKey: card.cardCoreKey || card.custody?.cardCoreKey || null,
+        cardRevisionId: card.cardRevisionId || card.custody?.cardRevisionId || null,
+        cardRecordDigest: card.cardRecordDigest || card.recordDigest || card.custody?.cardRecordDigest || null,
+        recordDigest: card.recordDigest || card.cardRecordDigest || card.custody?.cardRecordDigest || null,
+        originPublicKey: card.originPublicKey || card.custody?.originPublicKey || null,
+        custody: card.custody && typeof card.custody === "object" ? structuredClone(card.custody) : null,
+        title: card.title,
+        subtitle: `${category} Card${buildWeek.number || card.number ? ` · ${buildWeek.number || card.number}` : ""}`,
+        archetype: buildWeek.category ? `Codex Build Week ${category}` : "Tarot Library",
+        tarotNumber: buildWeek.number || card.number || "",
+        summary: card.meaning || card.enrichment?.symbolicSummary || "Mined Hapa Card.",
+        description: card.enrichment?.textSynopsis || card.meaning || "",
+        keywords: card.keywords || [],
+        stats: { provenance: (buildWeek.sourceTurnIds || []).length, review: 1, identityTruth: 0 },
+        tags: card.enrichment?.tags || [],
+        sourceKind: "tarot-library",
+        kind: buildWeek.category ? `${buildWeek.category}_card` : "tarot-card",
+        cardType: card.cardType || "reference_card",
+        tarotMainType: buildWeek.category ? `${buildWeek.category}_card` : "tarot_library_card",
+        highResImageUri: resolveMediaUri(imageUri),
+        imageUri: resolveMediaUri(imageUri),
+        posterUri: resolveMediaUri(imageUri),
+        videoUri: "",
+        originalVideoUri: "",
+        videoSources: [],
+        songLinks: [],
+        productionMediaPriority: "explicit-image-card",
+        productionMediaReason: "Explicit tarot-draw-ready image Card",
+        priority: Number(buildWeek.priority ?? 2),
+        videoScore: 0,
+        avatarContacts: [],
+        creatorContacts: [],
+        sponsorContacts: [],
+        connections: null,
+        sourceRefs: (buildWeek.sourceTurnIds || []).map((turnId) => `hapa-turn://${turnId}`),
+        enrichment: card.enrichment || null,
+        lineage: buildWeek.lineage || null
+      };
+    })
+    .filter(Boolean);
 }
 
 function auditTarotDrawProductionCandidates(cards = [], songLibrary = FALLBACK_SONG_LIBRARY) {
@@ -7226,11 +7286,12 @@ function auditTarotDrawProductionCandidates(cards = [], songLibrary = FALLBACK_S
     const hasResolvedAudio = cardHasResolvedDropZoneAudio(card);
     const songDrawReady = isSongDrawCard && hasDropZoneSong;
     const isCreatorSetCard = ["creator_card", "creator_content_card", "creator_sponsor_card", "set"].includes(card.cardType);
-    const productionReady = hasLoopingVideo || songDrawReady || isCreatorSetCard;
+    const isApprovedImageCard = hasDisplayImage && (card.tags || []).includes("tarot-draw-ready");
+    const productionReady = hasLoopingVideo || songDrawReady || isCreatorSetCard || isApprovedImageCard;
     const imageOnly = hasDisplayImage && !hasLoopingVideo && !songDrawReady && !isCreatorSetCard;
     const reasons = [
       !productionReady ? "missing-looping-video" : "",
-      imageOnly ? "image-only-production-hidden" : ""
+      imageOnly && !isApprovedImageCard ? "image-only-production-hidden" : ""
     ].filter(Boolean);
     const warnings = [
       !hasDropZoneSong ? "missing-dear-papa-song" : "",
@@ -7245,6 +7306,7 @@ function auditTarotDrawProductionCandidates(cards = [], songLibrary = FALLBACK_S
       hasDisplayImage,
       hasDropZoneSong,
       hasResolvedAudio,
+      isApprovedImageCard,
       imageOnly,
       productionReady,
       reasons,
@@ -7257,7 +7319,7 @@ function auditTarotDrawProductionCandidates(cards = [], songLibrary = FALLBACK_S
   return {
     schemaVersion: "hapa.tarot-draw-production-audit.v2",
     generatedAt: new Date().toISOString(),
-    policy: "Production draw cards require at least one looping video, except Hapa Song cards, which are drawable music-slot control cards when they carry a song payload. Dear Papa song links are optional enrichment for visual cards and do not hide otherwise playable video cards. Image-only non-song cards are hidden from production draw and queued for media enrichment.",
+    policy: "Production draw cards require at least one looping video, except Hapa Song cards with a song payload, creator/set controls, and reviewed Tarot Library image Cards explicitly tagged tarot-draw-ready. Other image-only non-song cards remain hidden and queued for media enrichment.",
     requireResolvedAudio: false,
     candidates: candidates.length,
     productionReady: productionRecords.length,

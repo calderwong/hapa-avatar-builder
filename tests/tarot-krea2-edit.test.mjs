@@ -37,6 +37,7 @@ test("Tarot Krea 2 request preserves ordered references, consent event, and Card
     subjectCard: { id: "red-card", revision: 8 },
     requestId: "request-1",
     consentEventId: "consent-1",
+    identityUseBasis: "synthetic_nonhuman",
     realPerson: false,
   });
   assert.equal(request.schema, TAROT_KREA2_REQUEST_SCHEMA);
@@ -44,6 +45,7 @@ test("Tarot Krea 2 request preserves ordered references, consent event, and Card
   assert.equal(request.subject_image.sha256, "b".repeat(64));
   assert.equal(request.hapa_context.source_card.card_id, "scene-card");
   assert.equal(request.hapa_context.subject_card.card_id, "red-card");
+  assert.equal(request.use_assertion.basis, "synthetic_nonhuman");
   assert.equal(request.use_assertion.event_id, request.hapa_context.consent_event_id);
   assert.equal(request.client_context.app_id, "hapa-avatar-builder-tarot-draw");
 });
