@@ -134,6 +134,8 @@ npm run build
 npm start
 ```
 
+Production app launches enable the Tarot Draw Phone Card bridge by default: the HTTP app listener accepts LAN connections and a secure companion listener starts on the next port. The desktop UI continues to open on loopback, while its QR uses the current LAN address. Keep the phone and Mac on the same reachable network and trust the generated Hapa local CA certificate on the phone. API-only launches remain loopback-only; see [`docs/PHONE_CARD_BRIDGE.md`](docs/PHONE_CARD_BRIDGE.md) for overrides and the security boundary.
+
 For the optional Tarot Draw Krea lane, start `hapa-krea2-identity-node` on its default loopback port `8774` before opening **Krea Edit**. The Builder reads the node's owner-only token from its normal runtime root. Alternate local deployments can set `HAPA_KREA2_URL`, `HAPA_KREA2_RUNTIME_ROOT`, or `HAPA_KREA2_BEARER_TOKEN_FILE` on the Builder server process; never place the bearer token in browser configuration.
 
 Open the desktop shell:

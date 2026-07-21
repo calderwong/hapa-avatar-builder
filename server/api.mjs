@@ -650,13 +650,15 @@ for (let index = 2; index < process.argv.length; index += 1) {
 }
 
 const port = Number(args.get("port") || process.env.PORT || 8787);
-const host = String(args.get("host") || process.env.HAPA_AVATAR_HOST || process.env.HOST || "127.0.0.1");
+const staticDir = args.get("static") ? path.resolve(ROOT, String(args.get("static"))) : null;
+const configuredHost = args.get("host") || process.env.HAPA_AVATAR_HOST || process.env.HOST || "";
+const usesAppLaunchDefaults = Boolean(staticDir) && !configuredHost;
+const host = String(configuredHost || (usesAppLaunchDefaults ? "0.0.0.0" : "127.0.0.1"));
 ALLOWED_ORIGINS.add(`http://127.0.0.1:${port}`);
 ALLOWED_ORIGINS.add(`http://localhost:${port}`);
-const httpsPortArg = args.get("https-port") ?? process.env.HAPA_AVATAR_HTTPS_PORT ?? "";
+const httpsPortArg = args.get("https-port") ?? process.env.HAPA_AVATAR_HTTPS_PORT ?? (usesAppLaunchDefaults ? true : "");
 const httpsPort = httpsPortArg === true ? port + 1 : Math.max(0, Number(httpsPortArg || 0) || 0);
 const httpsHost = String(args.get("https-host") || process.env.HAPA_AVATAR_HTTPS_HOST || host);
-const staticDir = args.get("static") ? path.resolve(ROOT, String(args.get("static"))) : null;
 const LOCAL_UI_SESSION_COOKIE = `hapa_avatar_local_session_${port}`;
 const LOCAL_UI_SESSION_ENABLED = ["127.0.0.1", "localhost", "::1", "0.0.0.0", "::"].includes(host.toLowerCase())
   && (Boolean(staticDir) || process.env.HAPA_AVATAR_TRUST_LOCAL_UI === "1" || args.get("trust-local-ui") === true);

@@ -16,7 +16,7 @@ const EXPECTED_BUILD_SIGNATURE = crypto.createHash("sha256")
   .digest("hex")
   .slice(0, 16);
 const HOST = "127.0.0.1";
-const BIND_HOST = process.env.HAPA_AVATAR_BIND_HOST || HOST;
+const BIND_HOST = process.env.HAPA_AVATAR_BIND_HOST || "0.0.0.0";
 const OPERATOR_CONSOLE_PORT = readPort(process.env.HAPA_AVATAR_OPERATOR_PORT, 8799);
 const DEFAULT_PORT = readPort(process.env.HAPA_AVATAR_PORT, 8787);
 const PORTS = uniquePorts([

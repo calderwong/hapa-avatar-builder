@@ -336,7 +336,7 @@ if [ -z "$selected_port" ]; then
 fi
 
 desktop_url="http://127.0.0.1:${selected_port}"
-bind_host="${HAPA_AVATAR_BIND_HOST:-127.0.0.1}"
+bind_host="${HAPA_AVATAR_BIND_HOST:-0.0.0.0}"
 https_port="${HAPA_AVATAR_HTTPS_PORT:-$((selected_port + 1))}"
 
 if [ "$reuse_existing" = "1" ]; then
