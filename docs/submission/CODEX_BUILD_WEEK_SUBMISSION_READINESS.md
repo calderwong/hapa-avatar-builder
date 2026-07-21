@@ -25,7 +25,8 @@ The product story is bounded: Hapa is a decentralized Card protocol/platform, no
 
 - [ ] Watch the complete final video once and confirm public-use rights for every pre-existing image visible in the captured application.
 - [ ] Optionally record and add a rights-cleared voiceover. The silent caption-led cut is the safe fallback.
-- [ ] Upload the video publicly and verify playback in a signed-out/incognito window.
+- [x] Published the [demo video](https://youtu.be/Y-RR2AwnH5A) and verified that its public YouTube page resolves.
+- [ ] Verify full playback in a signed-out/incognito window.
 - [ ] Run `/feedback` in the primary Codex build task and record its real Session ID. Do not invent or substitute another task ID.
 - [ ] Keep the repository private and grant access to `testing@devpost.com` and `build-week-event@openai.com`, or deliberately make it public with an appropriate repo-wide license. Private sharing is safer because the current repository has no repo-wide license.
 - [ ] Push the focused committed history and submission packet without the unrelated uncommitted Echo experiments.

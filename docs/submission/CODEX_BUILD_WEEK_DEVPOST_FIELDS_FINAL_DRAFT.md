@@ -74,10 +74,11 @@ The next step is remote multi-machine testing of the current local P2P proof, fo
 
 Codex Desktop, GPT-5.6 Sol (operator-declared), Electron, React, Three.js, Hypercore, Hyperbee, Hyperswarm, Noise, Protomux, Node.js, Ollama, qwen3.5:27b, HyperFrames, and FFmpeg.
 
-## Links to fill after publication
+## Submission links and remaining operator values
+
+Public demo video: [Hapa.ai — Hapa Avatar Builder — Codex Build Week demo](https://youtu.be/Y-RR2AwnH5A)
 
 ```text
-Public demo video: [YOUTUBE_URL]
 Judge source/repository: [REPOSITORY_OR_BUILD_URL]
 Primary Codex Session ID from /feedback: [CODEX_SESSION_ID]
 Testing instructions: docs/submission/JUDGE_QUICKSTART.md

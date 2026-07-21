@@ -45,6 +45,8 @@ A clean public checkout opens with a curated, source-controlled demo volume inst
 
 The remaining Avatar, Song, Tarot, Item, lore, and media rosters stay in ignored local-first stores and are not published. See `docs/submission/PUBLIC_SAFE_FIXTURE_BOUNDARY.md` for the exact inclusion and claim boundary.
 
+Watch the [Hapa Avatar Builder Codex Build Week demo](https://youtu.be/Y-RR2AwnH5A).
+
 ## Source Of Truth
 
 Use the repository root of the current checkout as the source of truth. On

@@ -13,6 +13,8 @@ if (rootIndex === -1 || !argv[rootIndex + 1]) {
 
 const root = path.resolve(argv[rootIndex + 1]);
 const failures = [];
+const publicDemoVideoUrl = "https://youtu.be/Y-RR2AwnH5A";
+const youtubePlaceholder = ["[", "YOUTUBE_URL", "]"].join("");
 const required = [
   "JUDGE_PACKAGE_MANIFEST.json",
   "package.json",
@@ -34,6 +36,22 @@ const required = [
 ];
 for (const relativePath of required) {
   if (!existsSync(path.join(root, relativePath))) failures.push(`missing:${relativePath}`);
+}
+
+const videoLinkRequired = [
+  "README.md",
+  "docs/submission/README.md",
+  "docs/submission/CODEX_BUILD_WEEK_DEVPOST_COPY_DRAFT.md",
+  "docs/submission/CODEX_BUILD_WEEK_DEVPOST_FIELDS_FINAL_DRAFT.md",
+  "docs/submission/JUDGE_QUICKSTART.md",
+  "docs/submission/RIGHTS_PRIVACY_CLAIM_AUDIT.md",
+  "docs/submission/codex-build-week-change-manifest-v1.json"
+];
+for (const relativePath of videoLinkRequired) {
+  const absolutePath = path.join(root, relativePath);
+  if (existsSync(absolutePath) && !readFileSync(absolutePath, "utf8").includes(publicDemoVideoUrl)) {
+    failures.push(`missing-demo-video-url:${relativePath}`);
+  }
 }
 
 for (const forbidden of [".git", "node_modules", "dist", "artifacts", "data", "public-static/media", "public-static/sample"]) {
@@ -93,6 +111,7 @@ const walk = (directory) => {
     }
     if (!entry.isFile() || !textExtensions.has(path.extname(entry.name).toLowerCase())) continue;
     const text = readFileSync(absolutePath, "utf8");
+    if (text.includes(youtubePlaceholder)) failures.push(`youtube-placeholder:${relativePath}`);
     for (const pattern of secretPatterns) {
       if (pattern.regex.test(text)) failures.push(`secret-pattern:${pattern.name}:${relativePath}`);
     }

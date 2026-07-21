@@ -8,6 +8,11 @@
     "rules_url": "https://openai.devpost.com/rules",
     "schedule_url": "https://openai.devpost.com/details/dates"
   },
+  "submission_artifacts": {
+    "demo_video_platform": "YouTube",
+    "demo_video_title": "Hapa.ai - Hapa Avatar Builder - Codex Build Week demo",
+    "demo_video_url": "https://youtu.be/Y-RR2AwnH5A"
+  },
   "pre_existing_foundation": [
     "Hapa Avatar Builder",
     "Hapa Card model and renderer",

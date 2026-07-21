@@ -46,7 +46,7 @@ These tests cover the custody, deterministic Formation, portable Context Card, G
 ## Suggested judge route
 
 1. Read `docs/submission/CODEX_BUILD_WEEK_CUTOFF_AND_CHANGE_AUDIT.md` for the pre-existing/new boundary.
-2. Watch the captioned silent HyperFrames video.
+2. Watch the [Hapa Avatar Builder Codex Build Week demo](https://youtu.be/Y-RR2AwnH5A).
 3. Inspect `src/components/TarotDraw3DView.jsx` for the user-facing Formation, custody, Gate, Context Card, Forge, and Wisdom flow.
 4. Inspect `src/domain/` and `server/` for the deterministic and P2P primitives.
 5. Run the focused tests above.

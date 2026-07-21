@@ -58,10 +58,11 @@ GPT-5.6 was the build-time reasoning partner, not a hidden runtime dependency. R
 
 The demonstrated P2P route is an encrypted two-profile local proof, not an internet-scale deployment. Hypercore custody does not imply mint, ownership, commerce eligibility, or canon. Local-model output remains proposed and unminted. Physical-phone participation, live Krea attachment, Memorial Corridor, Passport, and the STG-014 product flow are outside the submission video unless separately proven in a current capture.
 
-## Submission fields still requiring operator values
+## Submission links and remaining operator values
+
+Public demo video: [Hapa.ai — Hapa Avatar Builder — Codex Build Week demo](https://youtu.be/Y-RR2AwnH5A)
 
 ```text
-Public demo video: [YOUTUBE_URL]
 Repository or judge-access build: [REPOSITORY_OR_BUILD_URL]
 Primary Codex Session ID from /feedback: [CODEX_SESSION_ID]
 Testing instructions: [FINAL_JUDGE_QUICKSTART]

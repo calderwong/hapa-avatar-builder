@@ -4,6 +4,7 @@ Status date: 2026-07-19
 
 ## Submission video
 
+- Published submission artifact: [Hapa.ai — Hapa Avatar Builder — Codex Build Week demo](https://youtu.be/Y-RR2AwnH5A).
 - The current HyperFrames cut is silent and contains no third-party music, narration, or sound effects.
 - Its footage is screen capture of the operator's Hapa Avatar Builder product work and the new isolated Build Week custody proof.
 - Captions and motion graphics were authored for this submission.

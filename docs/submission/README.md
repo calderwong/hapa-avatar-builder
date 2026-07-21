@@ -2,6 +2,8 @@
 
 This directory keeps the submission story inspectable and prevents the existing Hapa Avatar Builder from being presented as if it were created during Build Week.
 
+Demo video: [Hapa.ai — Hapa Avatar Builder — Codex Build Week demo](https://youtu.be/Y-RR2AwnH5A)
+
 - [`CODEX_BUILD_WEEK_CUTOFF_AND_CHANGE_AUDIT.md`](CODEX_BUILD_WEEK_CUTOFF_AND_CHANGE_AUDIT.md) defines the official cutoff and the conservative Git-history measurement.
 - [`codex-build-week-change-manifest-v1.json`](codex-build-week-change-manifest-v1.json) provides the machine-readable claim boundary.
 - [`CODEX_BUILD_WEEK_HYPERFRAMES_SCRIPT_V2.md`](CODEX_BUILD_WEEK_HYPERFRAMES_SCRIPT_V2.md) is the under-three-minute narration and shot plan.
