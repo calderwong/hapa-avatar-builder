@@ -77,3 +77,14 @@ The focused contract suite covers manifest balance, source lineage, bounded gene
 - **What remains reusable:** the manifest-driven generator and installer can support later mined Sets without copying the 3D UI, node credentials, or Krea preset definitions.
 - **New guardrail:** a durable Card install is not complete until the serialized consumer store still contains the custody receipt after every normalization boundary and the consumer UI can recover the whole Set without title-by-title searching. Generation prompts that say “no text” also remain human-review claims, not proof that a diffusion result contains no pseudo-lettering.
 - **Promotion candidates:** Skill Card — **Card-Guided Distillation**; Lesson Card — **Receipts Must Survive Projection**; Flow explainer — **Raw Turn → Curated Card → Generated Proposal → Tarot Draw**.
+
+### 3D Details correction
+
+- **Objective:** make every settled Build Week Card open the existing in-field Details panel directly from the 3D table.
+- **Evidence inspected:** the live 17-Card scene, the browser-spawn adapter, the shared Details target, and the selected/hovered Card eligibility check.
+- **What worked:** the existing target projection and `openDetailTarget` handler already opened the correct panel; they did not need a replacement interaction.
+- **What was noise:** image, lineage, and Card normalization were intact and did not explain the missing target.
+- **What was misunderstood:** selected-card fallback had been restricted to Forge Cards, so a newly spawned Build Week Card could be selected and settled while exposing no Details target.
+- **What changed:** hovered settled Cards still take precedence, then any settled selected Card exposes the same 3D Details target; held, animating, and already-open Cards remain excluded.
+- **What remains reusable:** one shared target and panel now cover Browser, Build Week, Forge, and ordinary Tarot Cards.
+- **New guardrail:** every new 3D Card ingress must pass the same settled selected/hovered Details-target contract; Card family must not gate basic inspection.

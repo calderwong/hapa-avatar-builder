@@ -88,6 +88,10 @@ import {
   buildTarotCardBrowserCollections,
   filterTarotCardBrowserItemsByQuery,
 } from "../domain/tarot-card-browser-collections.js";
+import {
+  isTarotCardDetailTargetSettled,
+  resolveTarotCardDetailTargetEntry,
+} from "../domain/tarot-card-detail-target.js";
 import BuilderOvercardPickupActions from "../overcard/BuilderOvercardPickupActions.jsx";
 import { migrateTarotSceneSnapshot, tarotFormationToSceneSnapshot, tarotSceneSnapshotToFormation } from "../overcard/tarotFormationAdapter.js";
 
@@ -15345,23 +15349,11 @@ function createTarotDrawGame({ canvas, cards, avatarId = "local-operator", avata
   }
 
   function cardDetailTargetEntry() {
-    if (selectedEntry && !selectedEntry.detailsOpen && isTarotDrawForgeCard(selectedEntry.card) && isCardDetailTargetSettled(selectedEntry)) return selectedEntry;
-    if (!hoveredEntry || selectedEntry?.detailsOpen || heldEntry) return null;
-    if (!isCardDetailTargetSettled(hoveredEntry)) return null;
-    return hoveredEntry;
-  }
-
-  function isCardDetailTargetSettled(entry) {
-    return Boolean(
-      entry &&
-      entry.state === "placed" &&
-      !entry.drawAnim &&
-      (entry.delay || 0) <= 0
-    );
+    return resolveTarotCardDetailTargetEntry({ selectedEntry, hoveredEntry, heldEntry });
   }
 
   function projectCardDetailTarget(entry) {
-    if (!entry || !isCardDetailTargetSettled(entry)) return null;
+    if (!entry || !isTarotCardDetailTargetSettled(entry)) return null;
     const rect = canvas.getBoundingClientRect();
     if (!rect.width || !rect.height) return null;
     entry.group.getWorldPosition(detailTargetWorld);
