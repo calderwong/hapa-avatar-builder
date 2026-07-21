@@ -1,6 +1,6 @@
 # Codex Build Week submission readiness
 
-Status date: 2026-07-19  
+Status date: 2026-07-21  
 Recommended track: **Developer Tools**
 
 The product story is bounded: Hapa is a decentralized Card protocol/platform, not the submitted company. Hapa Avatar Builder is one participant. The eligible Build Week work is the auditable Stargate extension inside the pre-existing Tarot Draw application.
@@ -14,23 +14,23 @@ The product story is bounded: Hapa is a decentralized Card protocol/platform, no
 - [x] Kept physical phone, live Krea attachment, STG-014 product capture, Memorial Corridor, and Passport outside the submission claim.
 - [x] Captured two ordinary public-safe Cards receiving real per-Card Hypercore custody, resolving their Formation, and dialing the Gate in an isolated application window.
 - [x] Corrected the custody UI transition from `creating_custody` to `ready` and added a regression test.
-- [x] Created a silent, caption-led HyperFrames cut from current evidence so the submission does not depend on HeyGen or voiceover.
+- [x] Retained the silent HyperFrames cut and script as production-planning evidence while clearly distinguishing them from the final upload.
 - [x] Replaced ignored machine-local imports with a bounded tracked public demo volume while keeping the remaining private rosters excluded.
 - [x] Vendored and pinned the Overcard package required for a reproducible source install.
 - [x] Added judge packaging, SHA-256 manifesting, secret/fixture/preflight checks, and a five-minute judge route.
 - [x] Updated the two inherited dependency chains; the clean package audit records zero known advisories.
 - [x] Drafted every Devpost narrative field and recorded the rights, privacy, and claim audit.
+- [x] Identified the primary Codex build task and recorded its `/feedback` Session ID: `019f720f-422d-7f60-a149-2256bb37a762`.
+- [x] Published and pushed the public repository at [github.com/calderwong/hapa-avatar-builder](https://github.com/calderwong/hapa-avatar-builder).
+- [x] Reconciled the public project name as **Hapa Avatar Builder** across GitHub, YouTube, Devpost, and this packet.
+- [x] Verified that the organizer's July 20 announcement explicitly permits an unlisted YouTube link.
 
 ## Human or external actions remaining
 
-- [ ] Watch the complete final video once and confirm public-use rights for every pre-existing image visible in the captured application.
-- [ ] Optionally record and add a rights-cleared voiceover. The silent caption-led cut is the safe fallback.
-- [x] Published the [demo video](https://youtu.be/Y-RR2AwnH5A) and verified that its public YouTube page resolves.
-- [ ] Verify full playback in a signed-out/incognito window.
-- [ ] Run `/feedback` in the primary Codex build task and record its real Session ID. Do not invent or substitute another task ID.
-- [ ] Keep the repository private and grant access to `testing@devpost.com` and `build-week-event@openai.com`, or deliberately make it public with an appropriate repo-wide license. Private sharing is safer because the current repository has no repo-wide license.
-- [ ] Push the focused committed history and submission packet without the unrelated uncommitted Echo experiments.
-- [ ] Paste the completed field draft into Devpost, add URLs/screenshots/Session ID, and press submit.
+- [ ] Confirm public-use rights for every pre-existing image visible in the uploaded demo.
+- [ ] If time permits, replace the 3:08 upload with a cut at or below three minutes whose audio explicitly says how Codex and GPT-5.6 were used.
+- [ ] Choose and add an appropriate repo-wide license, or deliberately make the repository private and grant access to `testing@devpost.com` and `build-week-event@openai.com`.
+- [ ] Complete the Devpost submission with the submitter type and country-of-residence answers, which cannot be safely inferred from repository data.
 
 ## Current verification truth
 
@@ -45,11 +45,11 @@ The product story is bounded: Hapa is a decentralized Card protocol/platform, no
 
 1. The current custody flow is visible in a pinned capture.
 2. A judge can build, test, launch, and inspect the project without private local assets.
-3. The final cut is under three minutes, captioned, silent, and explicit about Codex plus GPT-5.6.
+3. The uploaded cut is accurately described: narrated, 3:08, unlisted, and subject to the explicit-duration/model-name risks above.
 4. The README, video, and field packet distinguish pre-existing work from the Build Week extension.
 5. Every source file and evidence artifact is pinned in a release manifest.
 6. Human publication actions remain explicit and are not silently treated as complete.
 
 ## Submission framing
 
-> Hapa Stargate is a Codex-built reference path inside the pre-existing Hapa Avatar Builder. It turns ordered, Hypercore-backed Card Documents into deterministic collaboration spaces, portable safe Context Cards, attributable Catalog round trips, encrypted local peer meetings, and human-governed local-AI proposals. Hapa remains the shared platform; Avatar Builder is one participant demonstrating the protocol in action.
+> Hapa Avatar Builder is the submitted application. Its Codex-built Stargate reference path turns ordered, Hypercore-backed Card Documents into deterministic collaboration spaces, portable safe Context Cards, attributable Catalog round trips, encrypted local peer meetings, and human-governed local-AI proposals. Hapa remains the shared platform; Avatar Builder is one participant demonstrating the protocol in action.

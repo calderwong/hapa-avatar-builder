@@ -1,16 +1,15 @@
 # Rights, privacy, and claim audit
 
-Status date: 2026-07-19
+Status date: 2026-07-21
 
 ## Submission video
 
 - Published submission artifact: [Hapa.ai — Hapa Avatar Builder — Codex Build Week demo](https://youtu.be/Y-RR2AwnH5A).
-- The current HyperFrames cut is silent and contains no third-party music, narration, or sound effects.
-- Its footage is screen capture of the operator's Hapa Avatar Builder product work and the new isolated Build Week custody proof.
-- Captions and motion graphics were authored for this submission.
+- The uploaded video is a 3:08 narrated screen recording of the operator's Hapa Avatar Builder product work. The older silent HyperFrames cut and its script are retained only as production-planning evidence.
+- The upload is unlisted. The organizer's July 20 announcement explicitly says an unlisted YouTube link is acceptable.
+- The upload exceeds the stated three-minute maximum by about eight seconds, and the narration refers to Codex and the GPT model line without explicitly saying `GPT-5.6`. Those are submission risks and are not represented as resolved by the repository packet.
 - The isolated capture records only its named application window. It does not record the desktop, notifications, or other applications.
-- The final video must be reviewed once by the operator before public upload because visual-asset provenance inside the pre-existing private Avatar Builder library cannot be independently established from source metadata alone.
-- A later voiceover must use the operator's own voice or another voice for which the operator has submission rights.
+- The operator must confirm public-use rights for every visible pre-existing image because provenance inside the private Avatar Builder library cannot be independently established from source metadata alone.
 
 ## Judge source package
 
@@ -30,7 +29,6 @@ Status date: 2026-07-19
 
 ## Final human gates
 
-1. Watch the complete final encoded video and confirm every visible pre-existing image may be used in the public submission.
-2. Add only a rights-cleared voiceover, if desired.
-3. Verify the uploaded video signed out.
-4. Keep the repository private and grant the two judge accounts access unless a deliberate repo-wide license decision is made.
+1. Confirm every visible pre-existing image may be used in the public submission.
+2. If time permits, replace the upload with a version at or below three minutes whose audio explicitly names Codex and GPT-5.6.
+3. Choose and add an appropriate repository-wide license, or make the repository private and grant the two judge accounts access.

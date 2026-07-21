@@ -9,9 +9,14 @@
     "schedule_url": "https://openai.devpost.com/details/dates"
   },
   "submission_artifacts": {
+    "project_name": "Hapa Avatar Builder",
+    "repository_url": "https://github.com/calderwong/hapa-avatar-builder",
+    "codex_feedback_session_id": "019f720f-422d-7f60-a149-2256bb37a762",
     "demo_video_platform": "YouTube",
     "demo_video_title": "Hapa.ai - Hapa Avatar Builder - Codex Build Week demo",
-    "demo_video_url": "https://youtu.be/Y-RR2AwnH5A"
+    "demo_video_url": "https://youtu.be/Y-RR2AwnH5A",
+    "demo_video_duration_seconds": 188.314,
+    "demo_video_visibility": "unlisted (organizer announcement says unlisted is acceptable)"
   },
   "pre_existing_foundation": [
     "Hapa Avatar Builder",

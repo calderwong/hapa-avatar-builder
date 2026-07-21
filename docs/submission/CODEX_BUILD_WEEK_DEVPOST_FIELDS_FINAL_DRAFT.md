@@ -2,7 +2,7 @@
 
 ## Project name
 
-Hapa Stargate
+Hapa Avatar Builder
 
 ## One-line description
 
@@ -74,13 +74,13 @@ The next step is remote multi-machine testing of the current local P2P proof, fo
 
 Codex Desktop, GPT-5.6 Sol (operator-declared), Electron, React, Three.js, Hypercore, Hyperbee, Hyperswarm, Noise, Protomux, Node.js, Ollama, qwen3.5:27b, HyperFrames, and FFmpeg.
 
-## Submission links and remaining operator values
+## Submission links
 
 Public demo video: [Hapa.ai — Hapa Avatar Builder — Codex Build Week demo](https://youtu.be/Y-RR2AwnH5A)
 
 ```text
-Judge source/repository: [REPOSITORY_OR_BUILD_URL]
-Primary Codex Session ID from /feedback: [CODEX_SESSION_ID]
+Judge source/repository: https://github.com/calderwong/hapa-avatar-builder
+Primary Codex Session ID from /feedback: 019f720f-422d-7f60-a149-2256bb37a762
 Testing instructions: docs/submission/JUDGE_QUICKSTART.md
 ```
 
