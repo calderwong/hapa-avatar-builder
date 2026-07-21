@@ -6998,6 +6998,7 @@ function createTarotDrawGame({ canvas, cards, avatarId = "local-operator", avata
   let phoneFpvLastAudioSyncAt = 0;
   let phoneFpvStats = { active: false, frames: 0, width: 0, height: 0, fps: PHONE_FPV_STREAM_FPS, hasVideoTrack: false, hasAudioTrack: false, audioSource: "", lastFrameAt: 0, lastError: "" };
   let phonePose = { x: PHONE_CARD_POSITION.x, y: PHONE_CARD_POSITION.y, z: PHONE_CARD_POSITION.z, yaw: 0, pitch: -0.08, roll: 0 };
+  let phonePoseTelemetry = { source: "", active: false, hasSample: false, samples: 0, lastAt: 0 };
   let phoneCameraFacing = "user";
   let phoneLaserVisual = null;
   let phoneLaserTaggedEntry = null;
@@ -14015,6 +14016,15 @@ function createTarotDrawGame({ canvas, cards, avatarId = "local-operator", avata
       pitch: THREE.MathUtils.clamp(Number.isFinite(nextPitch) ? nextPitch : Number(phonePose.pitch || -0.08), PHONE_PITCH_MIN, PHONE_PITCH_MAX),
       roll: Number.isFinite(nextRoll) ? normalizePhoneAngle(nextRoll) : normalizePhoneAngle(phonePose.roll || 0)
     };
+    if (packet?.source || packet?.orientation || packet?.sentAt) {
+      phonePoseTelemetry = {
+        source: String(packet.source || "flight-controls"),
+        active: Boolean(packet.orientation?.active),
+        hasSample: Boolean(packet.orientation?.hasSample),
+        samples: Number(packet.orientation?.samples || phonePoseTelemetry.samples || 0),
+        lastAt: Number(packet.sentAt || Date.now())
+      };
+    }
     if (phoneCardEntry) {
       phoneCardEntry.cameraCardBaseY = phonePose.y;
       phoneCardEntry.targetPosition.set(phonePose.x, phonePose.y, phonePose.z);
@@ -18025,6 +18035,8 @@ function createTarotDrawGame({ canvas, cards, avatarId = "local-operator", avata
           actionMemory: phoneActionIds.length,
           status: phoneTractorEntry ? `Tractor: ${phoneTractorEntry.card?.title || "card"}` : phoneTractorStatus || phoneLaserStatus || ""
         },
+        pose: { ...phonePose },
+        orientation: { ...phonePoseTelemetry },
         position: phoneCardEntry ? vector3Summary(phoneCardEntry.targetPosition) : vector3Summary(new THREE.Vector3(phonePose.x, phonePose.y, phonePose.z))
       },
       piles: buildTarotPileSummaries(deckCards, cards),

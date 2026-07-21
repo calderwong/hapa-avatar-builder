@@ -54,3 +54,12 @@ The equivalent desktop overrides are `HAPA_AVATAR_BIND_HOST` and `HAPA_AVATAR_HT
 - **What was misunderstood:** direct HTTP fixed hydration but cannot expose mobile camera APIs on an ordinary LAN address. Reachability and media permission are separate browser boundaries.
 - **What changed:** the QR once again uses the existing direct HTTPS origin, while the certificate-download/setup interstitial remains removed.
 - **New guardrail:** Phone Card verification must assert `isSecureContext`, `navigator.mediaDevices.getUserMedia`, peer connection, and inbound desktop FPV—not only controller pixels.
+
+### Gyroscope telemetry restoration
+
+- **Objective:** make the Tarot Phone Card mirror physical phone tilt as soon as the user joins the media bridge.
+- **Evidence inspected:** the pre–Build Week orientation quaternion path, iOS sensor permission APIs, live data-channel state, mobile pose diagnostics, desktop pose receipt, and the rendered Phone Card target transform.
+- **What worked:** the original quaternion calibration, bounded pose mapping, unreliable low-latency data channel, and Tarot transform application were still intact.
+- **What was misunderstood:** camera join and motion permission were separate gestures. A connected camera/FPV session could therefore look healthy while orientation sampling remained disabled.
+- **What changed:** Join With Camera now requests both iOS orientation and motion permissions in the initiating gesture, listens to relative and absolute orientation events, and retains Use Motion as a retry. Mobile and desktop diagnostics record sample count, source, timestamp, and applied pose.
+- **New guardrail:** the secure Phone Card smoke must inject two orientation samples and prove a nonzero mobile pose delta plus a `device-orientation` pose receipt in Tarot.

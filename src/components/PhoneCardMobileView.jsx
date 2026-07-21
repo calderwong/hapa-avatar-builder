@@ -46,6 +46,21 @@ function screenOrientationRadians() {
   return THREE.MathUtils.degToRad(angle);
 }
 
+async function requestPhoneSensorPermissions() {
+  const sensorTypes = [globalThis.DeviceOrientationEvent, globalThis.DeviceMotionEvent].filter(Boolean);
+  const requesters = new Set();
+  const requests = [];
+  for (const sensorType of sensorTypes) {
+    const requester = sensorType?.requestPermission;
+    if (typeof requester !== "function" || requesters.has(requester)) continue;
+    requesters.add(requester);
+    requests.push(requester.call(sensorType));
+  }
+  if (!requests.length) return true;
+  const permissions = await Promise.all(requests);
+  return permissions.every((permission) => permission === "granted");
+}
+
 function deviceOrientationQuaternion(orientation = {}) {
   const alpha = THREE.MathUtils.degToRad(Number(orientation.alpha || 0));
   const beta = THREE.MathUtils.degToRad(Number(orientation.beta || 0));
@@ -588,7 +603,7 @@ export default function PhoneCardMobileView({ apiBase = "" }) {
   const pollTimerRef = useRef(0);
   const rafRef = useRef(0);
   const controlsRef = useRef({ x: 0, y: 0, z: 0, yaw: 0, pitch: 0 });
-  const orientationRef = useRef({ alpha: 0, beta: 0, gamma: 0, screenAngle: 0, active: false, hasSample: false });
+  const orientationRef = useRef({ alpha: 0, beta: 0, gamma: 0, screenAngle: 0, active: false, hasSample: false, samples: 0, lastAt: 0, eventType: "" });
   const orientationCalibrationRef = useRef({ ready: false, deviceBase: null, poseBase: DEFAULT_PHONE_POSE });
   const motionRef = useRef({ active: false, x: 0, y: 0, z: 0, baseX: 0, baseY: 0, baseZ: 0, calibrated: false });
   const velocityRef = useRef({ x: 0, y: 0, z: 0 });
@@ -761,6 +776,39 @@ export default function PhoneCardMobileView({ apiBase = "" }) {
     };
   }, []);
 
+  const requestOrientation = useCallback(async () => {
+    try {
+      setError("");
+      const granted = await requestPhoneSensorPermissions();
+      if (!granted) {
+        setOrientationEnabled(false);
+        orientationRef.current.active = false;
+        setError("Motion permission was denied.");
+        return false;
+      }
+      setOrientationEnabled(true);
+      orientationRef.current = {
+        ...orientationRef.current,
+        active: true,
+        hasSample: false,
+        samples: 0,
+        lastAt: 0,
+        eventType: "",
+        screenAngle: THREE.MathUtils.radToDeg(screenOrientationRadians())
+      };
+      orientationCalibrationRef.current = { ready: false, deviceBase: null, poseBase: { ...poseRef.current } };
+      motionRef.current = { ...motionRef.current, active: false, calibrated: false };
+      velocityRef.current = { x: 0, y: 0, z: 0 };
+      setStatus("Phone aim telemetry active");
+      return true;
+    } catch (orientationError) {
+      setOrientationEnabled(false);
+      orientationRef.current.active = false;
+      setError(orientationError?.message || "Motion telemetry unavailable");
+      return false;
+    }
+  }, []);
+
   useEffect(() => {
     const diagnostics = {
       kind: "hapa-phone-card",
@@ -783,6 +831,7 @@ export default function PhoneCardMobileView({ apiBase = "" }) {
           mediaReady: Boolean(streamRef.current),
           desktopFpvReady: desktopFpvReadyRef.current,
           cameraFacing: cameraFacingRef.current,
+          orientation: { ...orientationRef.current },
           tools: phoneToolState,
           fpv,
           xrActive: Boolean(xrSessionRef.current),
@@ -817,7 +866,8 @@ export default function PhoneCardMobileView({ apiBase = "" }) {
   const startPhoneCard = useCallback(async () => {
     if (!session) return;
     setError("");
-    setStatus("Requesting camera and mic");
+    const motionReady = await requestOrientation();
+    setStatus(motionReady ? "Requesting camera and mic · motion ready" : "Requesting camera and mic");
     if (!navigator.mediaDevices?.getUserMedia) {
       setError("Camera/mic access is not available here. Mobile browsers usually require HTTPS for local-network camera access.");
       setStatus("Media blocked");
@@ -904,7 +954,7 @@ export default function PhoneCardMobileView({ apiBase = "" }) {
       setError(startError?.message || "Phone media could not start");
       setStatus("Media blocked");
     }
-  }, [cardId, handlePhoneChannelMessage, inviteId, postEvent, session]);
+  }, [cardId, handlePhoneChannelMessage, inviteId, postEvent, requestOrientation, session]);
 
   const switchCameraFacing = useCallback(async () => {
     if (!navigator.mediaDevices?.getUserMedia || !streamRef.current) return;
@@ -999,27 +1049,6 @@ export default function PhoneCardMobileView({ apiBase = "" }) {
       status: action === "laser-tag" ? "Tagging reticle" : action === "tractor-toggle" ? "Tractor command sent" : current.status
     }));
     return true;
-  }, []);
-
-  const requestOrientation = useCallback(async () => {
-    try {
-      if (typeof DeviceOrientationEvent !== "undefined" && typeof DeviceOrientationEvent.requestPermission === "function") {
-        const permission = await DeviceOrientationEvent.requestPermission();
-        if (permission !== "granted") {
-          setError("Motion permission was denied.");
-          return;
-        }
-      }
-      setOrientationEnabled(true);
-      orientationRef.current.active = true;
-      orientationRef.current.screenAngle = THREE.MathUtils.radToDeg(screenOrientationRadians());
-      orientationCalibrationRef.current = { ready: false, deviceBase: null, poseBase: { ...poseRef.current } };
-      motionRef.current = { ...motionRef.current, active: false, calibrated: false };
-      velocityRef.current = { x: 0, y: 0, z: 0 };
-      setStatus("Phone aim telemetry active");
-    } catch (orientationError) {
-      setError(orientationError?.message || "Motion telemetry unavailable");
-    }
   }, []);
 
   const setControls = useCallback((updates) => {
@@ -1290,17 +1319,29 @@ export default function PhoneCardMobileView({ apiBase = "" }) {
   useEffect(() => {
     function handleOrientation(event) {
       if (!orientationRef.current.active) return;
+      const current = orientationRef.current;
+      const alpha = event.alpha == null ? current.alpha : Number(event.alpha);
+      const beta = event.beta == null ? current.beta : Number(event.beta);
+      const gamma = event.gamma == null ? current.gamma : Number(event.gamma);
+      if (![alpha, beta, gamma].some(Number.isFinite)) return;
       orientationRef.current = {
         active: true,
         hasSample: true,
-        alpha: Number(event.alpha || 0),
-        beta: Number(event.beta || 0),
-        gamma: Number(event.gamma || 0),
-        screenAngle: THREE.MathUtils.radToDeg(screenOrientationRadians())
+        alpha: Number.isFinite(alpha) ? alpha : current.alpha,
+        beta: Number.isFinite(beta) ? beta : current.beta,
+        gamma: Number.isFinite(gamma) ? gamma : current.gamma,
+        screenAngle: THREE.MathUtils.radToDeg(screenOrientationRadians()),
+        samples: Number(current.samples || 0) + 1,
+        lastAt: performance.now(),
+        eventType: event.type || "deviceorientation"
       };
     }
     window.addEventListener("deviceorientation", handleOrientation, true);
-    return () => window.removeEventListener("deviceorientation", handleOrientation, true);
+    window.addEventListener("deviceorientationabsolute", handleOrientation, true);
+    return () => {
+      window.removeEventListener("deviceorientation", handleOrientation, true);
+      window.removeEventListener("deviceorientationabsolute", handleOrientation, true);
+    };
   }, []);
 
   useEffect(() => {

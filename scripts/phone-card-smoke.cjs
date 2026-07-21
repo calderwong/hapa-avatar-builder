@@ -4,7 +4,8 @@ const path = require("node:path");
 
 const ROOT = path.resolve(__dirname, "..");
 const targetUrl = process.env.SMOKE_PHONE_URL || "https://127.0.0.1:8798/phone-card?session=phone-smoke";
-const verifyMediaBridge = process.env.SMOKE_PHONE_MEDIA === "1";
+const verifyMotionBridge = process.env.SMOKE_PHONE_MOTION === "1";
+const verifyMediaBridge = process.env.SMOKE_PHONE_MEDIA === "1" || verifyMotionBridge;
 const errors = [];
 
 if (verifyMediaBridge) {
@@ -227,6 +228,36 @@ app.whenReady().then(async () => {
         error: document.querySelector(".phone-card-error")?.textContent || ""
       })`);
       if (!paired) throw new Error(`Phone camera/FPV pairing did not complete: ${JSON.stringify(mediaBridge)}`);
+      if (verifyMotionBridge) {
+        const motionResult = await win.webContents.executeJavaScript(`
+          (async () => {
+            const emit = (alpha, beta, gamma) => {
+              const event = new Event("deviceorientation");
+              Object.defineProperties(event, {
+                alpha: { value: alpha },
+                beta: { value: beta },
+                gamma: { value: gamma }
+              });
+              window.dispatchEvent(event);
+            };
+            const before = { ...window.__HAPA_PHONE_CARD_DIAGNOSTICS__?.state?.pose };
+            emit(0, 0, 0);
+            await new Promise((resolve) => setTimeout(resolve, 120));
+            emit(34, 22, -18);
+            await new Promise((resolve) => setTimeout(resolve, 700));
+            const diagnostics = window.__HAPA_PHONE_CARD_DIAGNOSTICS__?.state;
+            const after = { ...diagnostics?.pose };
+            const delta = Math.abs((after.yaw || 0) - (before.yaw || 0))
+              + Math.abs((after.pitch || 0) - (before.pitch || 0))
+              + Math.abs((after.roll || 0) - (before.roll || 0));
+            return { before, after, delta, orientation: diagnostics?.orientation || null };
+          })()
+        `);
+        mediaBridge.motion = motionResult;
+        if (!motionResult.orientation?.hasSample || motionResult.orientation.samples < 2 || motionResult.delta < 0.08) {
+          throw new Error(`Phone gyro telemetry did not change pose: ${JSON.stringify(motionResult)}`);
+        }
+      }
     }
 
     const image = await win.capturePage();
