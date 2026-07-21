@@ -2,6 +2,7 @@
   "name": "hapa-avatar-builder",
   "version": "0.1.0",
   "private": true,
+  "license": "MIT",
   "type": "module",
   "description": "Hapa neonblade+ Avatar Builder for assembling agent-ready avatar media cards, completeness audits, healing plans, and kanban progress.",
   "main": "electron/main.cjs",

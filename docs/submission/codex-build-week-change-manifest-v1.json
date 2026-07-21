@@ -11,6 +11,7 @@
   "submission_artifacts": {
     "project_name": "Hapa Avatar Builder",
     "repository_url": "https://github.com/calderwong/hapa-avatar-builder",
+    "repository_license": "MIT",
     "codex_feedback_session_id": "019f720f-422d-7f60-a149-2256bb37a762",
     "demo_video_platform": "YouTube",
     "demo_video_title": "Hapa.ai - Hapa Avatar Builder - Codex Build Week demo",

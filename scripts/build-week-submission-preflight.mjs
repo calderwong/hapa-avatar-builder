@@ -24,6 +24,7 @@ const unresolvedSubmissionPlaceholders = [
 ];
 const required = [
   "JUDGE_PACKAGE_MANIFEST.json",
+  "LICENSE",
   "package.json",
   "package-lock.json",
   "vendor/hapa-overcard-0.1.1.tgz",

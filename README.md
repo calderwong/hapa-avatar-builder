@@ -183,7 +183,7 @@ The broader repository suite is available with `npm test`. The judge route focus
 - Avatar Builder owns the authoring state created here. It consumes [`@hapa/overcard`](https://github.com/calderwong/hapa-overcard) for shared Hand, Deck, Placement, Formation, attachment, and responsibility behavior.
 - Card custody is distinct from minting, publication, subscriber acknowledgement, ownership, commerce eligibility, and canon.
 - Third-party frameworks, names, images, logos, songs, and linked media remain the property of their respective owners. A reference in the app is not a claim of Hapa authorship, sponsorship, endorsement, or reuse rights.
-- No repository-wide license grant is currently declared. Public visibility alone does not grant permission to reuse Hapa-authored code or bundled media.
+- Hapa-authored software in this repository is available under the [MIT License](LICENSE). Third-party frameworks, names, images, logos, songs, and linked media remain subject to their own rights and licenses.
 
 ## Key documentation
 

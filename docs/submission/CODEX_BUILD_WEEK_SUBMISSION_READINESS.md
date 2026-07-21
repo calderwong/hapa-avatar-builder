@@ -24,13 +24,14 @@ The product story is bounded: Hapa is a decentralized Card protocol/platform, no
 - [x] Published and pushed the public repository at [github.com/calderwong/hapa-avatar-builder](https://github.com/calderwong/hapa-avatar-builder).
 - [x] Reconciled the public project name as **Hapa Avatar Builder** across GitHub, YouTube, Devpost, and this packet.
 - [x] Verified that the organizer's July 20 announcement explicitly permits an unlisted YouTube link.
+- [x] Added the operator-selected MIT repository license required for the public judging path.
 
 ## Human or external actions remaining
 
 - [ ] Confirm public-use rights for every pre-existing image visible in the uploaded demo.
 - [ ] If time permits, replace the 3:08 upload with a cut at or below three minutes whose audio explicitly says how Codex and GPT-5.6 were used.
-- [ ] Choose and add an appropriate repo-wide license, or deliberately make the repository private and grant access to `testing@devpost.com` and `build-week-event@openai.com`.
-- [ ] Complete the Devpost submission with the submitter type and country-of-residence answers, which cannot be safely inferred from repository data.
+- [x] Recorded the operator-confirmed Devpost values: Individual submitter, United States residence, and acceptance of the Official Rules and Devpost Terms.
+- [ ] Complete the final Devpost submission and verify its submitted state.
 
 ## Current verification truth
 

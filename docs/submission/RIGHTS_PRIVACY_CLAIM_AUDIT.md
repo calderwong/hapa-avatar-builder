@@ -31,4 +31,5 @@ Status date: 2026-07-21
 
 1. Confirm every visible pre-existing image may be used in the public submission.
 2. If time permits, replace the upload with a version at or below three minutes whose audio explicitly names Codex and GPT-5.6.
-3. Choose and add an appropriate repository-wide license, or make the repository private and grant the two judge accounts access.
+
+The public repository uses the operator-selected MIT License. The operator also confirmed United States residence and acceptance of the Official Rules and Devpost Terms on 2026-07-21.
