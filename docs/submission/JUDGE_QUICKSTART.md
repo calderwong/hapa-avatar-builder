@@ -27,9 +27,11 @@ The final command must print `"ok": true` and a semantic SHA-256 receipt.
 node server/api.mjs --host 127.0.0.1 --port 8899 --static dist
 ```
 
-Open `http://127.0.0.1:8899/?view=tarot&stargateDemo=1`. The non-default port avoids colliding with another local Hapa node. The package intentionally starts with empty public-safe stores plus four clearly labelled deterministic demo Cards. It does not contain the operator's private Card/media libraries. No certificate is used or required.
+Open `http://127.0.0.1:8899/?view=tarot&stargateDemo=1`. The non-default port avoids colliding with another local Hapa node. The package starts with a curated public demo volume: Red, Blue, and Green; three text-only Echo State Song Cards; five sampled Cards in each visible foundation family; 18 additional Protocol/Skill Cards required by the RGB profile loadouts; the complete 16-card Build Week Wisdom Set with its generated proposal artwork; and four clearly labelled deterministic Stargate demo Cards. It does not contain the remaining private Avatar, Song, Tarot, Card, or media libraries. No certificate is used or required.
 
 In the Stargate panel, choose **Load Public Demo Formation**, inspect the ordered slots, and dial the Gate. This fixture proves the deterministic UI route without representing a live invitation. The included captioned evidence video shows the separate isolated proof in which two ordinary Cards receive new per-Card Hypercore custody before the Gate resolves.
+
+Use the Avatar rail to inspect the RGB profiles and their six-Card public loadouts. Use **Songs** for the Echo State previews, **Items** for the sampled and profile-required foundation Cards, and **Tarot Library → Codex Build Week Wisdom Set** for the complete Wisdom Set.
 
 ## Focused implementation tests
 

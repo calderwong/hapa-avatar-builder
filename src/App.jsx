@@ -59,6 +59,10 @@ import { resolveTarotAttachmentContext } from "./overcard/tarotFormationAdapter.
 import BuilderHeaderHand from "./overcard/BuilderHeaderHand.jsx";
 import dearPapaSongbook from "../fixtures/build-week/judge-data/dear-papa-songbook.json";
 import hapaSongsStoreSeed from "../fixtures/build-week/judge-data/hapa-songs-store.json";
+import avatarStoreSeed from "../fixtures/build-week/judge-data/avatar-store.json";
+import itemManagerStoreSeed from "../fixtures/build-week/judge-data/item-manager-store.json";
+import inventoryStoreSeed from "../fixtures/build-week/judge-data/inventory-store.json";
+import tarotStoreSeed from "../fixtures/build-week/judge-data/tarot-store.json";
 import balladOfBellaPacket from "../fixtures/build-week/judge-data/ballad-of-bella-packet.json";
 import kanbanSeed from "../fixtures/build-week/judge-data/kanban.json";
 import {
@@ -277,22 +281,17 @@ function resolveSongRegistryUri(uri) {
   return uri;
 }
 
-const FALLBACK_AVATARS = [
-  createAvatarScaffold({
-    id: "red-reaper",
-    names: ["Red", "Reaper"],
-    primaryName: "Red",
-    aliases: ["Reaper"],
-    summary: "Fallback Red/Reaper scaffold. The local API store loads the full card when available.",
-    operatorNotes: "Fallback only; live media assets are kept in data/avatar-store.json and served by the API."
-  })
-];
+const FALLBACK_AVATARS = (avatarStoreSeed.avatars || []).map((avatar) => normalizeAvatarCard(avatar));
 
 const INTAKE_SEED = [];
 const FALLBACK_SCENE_GRAPH = createSceneGraphScaffold();
-const FALLBACK_TAROT_STORE = createTarotStore();
-const FALLBACK_ITEM_MANAGER = createItemManagerScaffold();
-const FALLBACK_INVENTORY_STORE = createInventoryStoreScaffold();
+const FALLBACK_TAROT_STORE = normalizeTarotStore(tarotStoreSeed);
+const FALLBACK_ITEM_MANAGER = normalizeItemManagerStore(itemManagerStoreSeed);
+const FALLBACK_INVENTORY_STORE = createInventoryStoreScaffold({
+  ...inventoryStoreSeed,
+  avatars: FALLBACK_AVATARS,
+  itemCards: FALLBACK_ITEM_MANAGER.cards
+});
 const ITEM_GROUP_MODES = [
   { id: "type", label: "Type" },
   { id: "avatar", label: "Avatar" },

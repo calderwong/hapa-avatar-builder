@@ -1,33 +1,15 @@
 {
   "schemaVersion": "hapa.songs.store.v1",
-  "scope": {
-    "library": "runtime-hydrated",
-    "source": "public-safe-empty-bootstrap"
-  },
-  "album": {
-    "id": "dear-papa-album",
-    "title": "Dear Papa",
-    "author": "Calder",
-    "scope": "runtime-hydrated"
-  },
+  "scope": { "library": "build-week-public-demo", "albumId": "echo-state-demo-album", "albumTitle": "Echo State", "source": "tracked-public-demo-fixture" },
+  "album": { "id": "echo-state-demo-album", "title": "Echo State", "author": "Calder", "scope": "build-week-public-demo" },
   "songs": [],
   "referenceCatalog": [],
   "referenceGraphEdges": [],
-  "semanticTraversal": {
-    "reviewStatus": "not-included-in-judge-bootstrap",
-    "contextAnchors": [],
-    "traversalRules": []
-  },
+  "semanticTraversal": { "reviewStatus": "curated-public-demo", "contextAnchors": [], "traversalRules": [] },
   "visualizerCatalog": [],
   "sourceAnchors": [],
-  "audit": {
-    "songs": 0,
-    "readyForBuilder": false,
-    "fixture": true
-  },
-  "createdAt": "2026-07-19T00:00:00.000Z",
-  "updatedAt": "2026-07-19T00:00:00.000Z",
-  "generatedFrom": {
-    "source": "judge-bootstrap-fixture"
-  }
+  "audit": { "songs": 3, "readyForBuilder": true, "fixture": true, "truthBoundary": "Text-only previews; no audio or private media bundled." },
+  "createdAt": "2026-07-21T00:00:00.000Z",
+  "updatedAt": "2026-07-21T00:00:00.000Z",
+  "generatedFrom": { "source": "tracked-public-demo-fixture" }
 }

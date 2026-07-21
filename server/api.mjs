@@ -190,6 +190,13 @@ const SERVER_BUILD_SIGNATURE = process.env.HAPA_AVATAR_BUILD_SIGNATURE || create
   .slice(0, 16);
 const execFileAsync = promisify(execFile);
 const DATA_DIR = path.join(ROOT, "data");
+const PUBLIC_DEMO_DATA_DIR = path.join(ROOT, "fixtures/build-week/judge-data");
+const PUBLIC_DEMO_AVATAR_STORE_PATH = path.join(PUBLIC_DEMO_DATA_DIR, "avatar-store.json");
+const PUBLIC_DEMO_ITEM_STORE_PATH = path.join(PUBLIC_DEMO_DATA_DIR, "item-manager-store.json");
+const PUBLIC_DEMO_INVENTORY_STORE_PATH = path.join(PUBLIC_DEMO_DATA_DIR, "inventory-store.json");
+const PUBLIC_DEMO_TAROT_STORE_PATH = path.join(PUBLIC_DEMO_DATA_DIR, "tarot-store.json");
+const PUBLIC_DEMO_SONGBOOK_PATH = path.join(PUBLIC_DEMO_DATA_DIR, "dear-papa-songbook.json");
+const PUBLIC_DEMO_SONG_STORE_PATH = path.join(PUBLIC_DEMO_DATA_DIR, "hapa-songs-store.json");
 const STORE_PATH = process.env.HAPA_AVATAR_STORE || path.join(ROOT, "data/avatar-store.json");
 const KANBAN_PATH = process.env.HAPA_KANBAN_STORE || path.join(ROOT, "data/kanban.json");
 const SCENE_STORE_PATH = process.env.HAPA_SCENE_STORE || path.join(ROOT, "data/scene-store.json");
@@ -4630,7 +4637,10 @@ async function appendHellWeekFeedback(card, body = {}) {
 
 async function readStore({ includeProjections = false, forceProjection = false, signal = null } = {}) {
   throwIfSongCardPlanStopped(signal, "before-avatar-store-read");
-  const canonicalStore = await readNormalizedJson(STORE_PATH, "avatar-store", (store) => ({
+  const readableStorePath = !process.env.HAPA_AVATAR_STORE && !fs.existsSync(STORE_PATH)
+    ? PUBLIC_DEMO_AVATAR_STORE_PATH
+    : STORE_PATH;
+  const canonicalStore = await readNormalizedJson(readableStorePath, `avatar-store:${readableStorePath}`, (store) => ({
     ...store,
     avatars: (store.avatars || []).map((avatar) => normalizeAvatarCard(avatar)),
     teams: normalizeAvatarTeams(store.teams, store.avatars || [])
@@ -4735,7 +4745,10 @@ async function writeSceneStore(graph) {
 
 async function readTarotStore() {
   try {
-    return await readNormalizedJson(TAROT_STORE_PATH, "tarot-store", normalizeTarotStore);
+    const readableStorePath = !process.env.HAPA_TAROT_STORE && !fs.existsSync(TAROT_STORE_PATH)
+      ? PUBLIC_DEMO_TAROT_STORE_PATH
+      : TAROT_STORE_PATH;
+    return await readNormalizedJson(readableStorePath, `tarot-store:${readableStorePath}`, normalizeTarotStore);
   } catch {
     const store = createTarotStore();
     await writeTarotStore(store);
@@ -5912,7 +5925,10 @@ async function hydrateSongCardMintInput(body = {}, { signal = null } = {}) {
 
 async function readItemStore({ signal = null } = {}) {
   try {
-    return await readNormalizedJson(ITEM_STORE_PATH, "item-store", normalizeItemManagerStore, { signal });
+    const readableStorePath = !process.env.HAPA_ITEM_STORE && !fs.existsSync(ITEM_STORE_PATH)
+      ? PUBLIC_DEMO_ITEM_STORE_PATH
+      : ITEM_STORE_PATH;
+    return await readNormalizedJson(readableStorePath, `item-store:${readableStorePath}`, normalizeItemManagerStore, { signal });
   } catch (error) {
     if (signal?.aborted) throwIfSongCardPlanStopped(signal, "item-store-read");
     const store = createItemManagerScaffold();
@@ -5935,9 +5951,12 @@ async function readInventoryStore() {
   try {
     const store = await readStore();
     const itemStore = await readItemStore();
+    const readableStorePath = !process.env.HAPA_INVENTORY_STORE && !fs.existsSync(INVENTORY_STORE_PATH)
+      ? PUBLIC_DEMO_INVENTORY_STORE_PATH
+      : INVENTORY_STORE_PATH;
     return await readNormalizedJson(
-      INVENTORY_STORE_PATH,
-      `inventory-store:${store.updatedAt || ""}:${itemStore.updatedAt || ""}`,
+      readableStorePath,
+      `inventory-store:${readableStorePath}:${store.updatedAt || ""}:${itemStore.updatedAt || ""}`,
       (inventory) => normalizeInventoryStore(inventory, store.avatars || [], itemStore.cards || [])
     );
   } catch {
@@ -5959,13 +5978,19 @@ async function writeInventoryStore(store) {
 }
 
 async function readDearPapaSongbook() {
-  return readJson(DEAR_PAPA_SONGBOOK_PATH);
+  const readableSongbookPath = !process.env.HAPA_DEAR_PAPA_SONGBOOK && !fs.existsSync(DEAR_PAPA_SONGBOOK_PATH)
+    ? PUBLIC_DEMO_SONGBOOK_PATH
+    : DEAR_PAPA_SONGBOOK_PATH;
+  return readJson(readableSongbookPath);
 }
 
 async function readHapaSongStore() {
   const songbook = await readDearPapaSongbook();
   try {
-    return await readNormalizedJson(HAPA_SONG_STORE_PATH, "hapa-song-store", (store) => normalizeHapaSongStore(store, songbook));
+    const readableStorePath = !process.env.HAPA_SONG_STORE && !fs.existsSync(HAPA_SONG_STORE_PATH)
+      ? PUBLIC_DEMO_SONG_STORE_PATH
+      : HAPA_SONG_STORE_PATH;
+    return await readNormalizedJson(readableStorePath, `hapa-song-store:${readableStorePath}`, (store) => normalizeHapaSongStore(store, songbook));
   } catch {
     const store = createHapaSongStoreFromDearPapaSongbook(songbook);
     await writeHapaSongStore(store);

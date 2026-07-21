@@ -4,6 +4,8 @@ This directory holds local-first Avatar Builder runtime state. The app reads and
 
 Tracked source should live in `src/`, `server/`, `cli/`, `scripts/`, `docs/`, and protocol manifests. Runtime data should stay local unless a future protocol document promotes a specific small fixture.
 
+The Build Week public release promotes one such bounded fixture under `fixtures/build-week/judge-data/`: three RGB Avatars, three Echo State Song Cards, sampled/profile-required foundation Cards, and the complete 16-card Build Week Wisdom Set. These fixtures are public bootstrap material, not replacements for the local-first operator stores.
+
 Important local files:
 
 - `avatar-store.json` - active Avatar Cards and team assignments.

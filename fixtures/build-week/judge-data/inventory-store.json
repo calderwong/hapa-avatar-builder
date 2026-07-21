@@ -1,0 +1,29 @@
+{
+  "schemaVersion": "hapa.inventory-store.v1",
+  "scope": "build-week-public-rgb-loadouts",
+  "avatarInventories": [
+    {
+      "avatarId": "red-reaper",
+      "avatarName": "Red",
+      "library": ["protocol-red-team-weakness-probe", "protocol-truth-lane-audit", "protocol-authority-rollback-envelope", "skill-hapa-protocol", "skill-hapa-capability-cards-standards-forging", "skill-hapa-skill-overwatch-multi-agent-kanban-orchestration"],
+      "deck": ["protocol-red-team-weakness-probe", "protocol-truth-lane-audit", "protocol-authority-rollback-envelope", "skill-hapa-protocol", "skill-hapa-capability-cards-standards-forging", "skill-hapa-skill-overwatch-multi-agent-kanban-orchestration"],
+      "hand": [], "trainingDeck": [], "equipped": [], "archive": [], "cardStates": [], "hardpoints": []
+    },
+    {
+      "avatarId": "avatar-2",
+      "avatarName": "Blue",
+      "library": ["protocol-source-provenance-trace", "protocol-blue-intelligence-filter", "protocol-canon-authority-map", "skill-hapa-capability-memory-lore-provenance", "skill-hapa-node-hapa-lance-node", "skill-hapa-node-hapa-telemetry-node"],
+      "deck": ["protocol-source-provenance-trace", "protocol-blue-intelligence-filter", "protocol-canon-authority-map", "skill-hapa-capability-memory-lore-provenance", "skill-hapa-node-hapa-lance-node", "skill-hapa-node-hapa-telemetry-node"],
+      "hand": [], "trainingDeck": [], "equipped": [], "archive": [], "cardStates": [], "hardpoints": []
+    },
+    {
+      "avatarId": "avatar-3",
+      "avatarName": "Green",
+      "library": ["protocol-stakeholder-weighting-table", "protocol-directional-decision-gate", "protocol-repair-loop", "skill-hapa-capability-governance-consul", "skill-hapa-node-consul-node-proto", "skill-hapa-node-hapa-cultivation-suite"],
+      "deck": ["protocol-stakeholder-weighting-table", "protocol-directional-decision-gate", "protocol-repair-loop", "skill-hapa-capability-governance-consul", "skill-hapa-node-consul-node-proto", "skill-hapa-node-hapa-cultivation-suite"],
+      "hand": [], "trainingDeck": [], "equipped": [], "archive": [], "cardStates": [], "hardpoints": []
+    }
+  ],
+  "createdAt": "2026-07-21T00:00:00.000Z",
+  "updatedAt": "2026-07-21T00:00:00.000Z"
+}

@@ -1,0 +1,3461 @@
+{
+  "schemaVersion": "hapa.tarot-library.v1",
+  "scope": "build-week-public-wisdom-set",
+  "fixtureDisclosure": "Complete 16-card Build Week Wisdom Set. Generated images remain review-stage proposals and are not identity truth, mint, or canon.",
+  "decks": [],
+  "sets": [
+    {
+      "schemaVersion": "hapa.tarot-set.v1",
+      "id": "codex-build-week-2026",
+      "title": "Codex Build Week Wisdom Set",
+      "slug": "codex-build-week",
+      "description": "A mined and human-curated Hapa Set of Turn, Skill, Capability, and Protocol Cards derived from attributed Codex work between July 13 and July 20, 2026.",
+      "status": "review",
+      "tags": [
+        "hapa",
+        "tarot",
+        "codex-build-week",
+        "turn-mined",
+        "judge-demo"
+      ],
+      "cardIds": [
+        "codex-build-week-turn-wisdom-studio",
+        "codex-build-week-turn-echo-forge",
+        "codex-build-week-turn-language-garden",
+        "codex-build-week-turn-identity-forge",
+        "codex-build-week-skill-card-distillation",
+        "codex-build-week-skill-render-truth",
+        "codex-build-week-skill-four-count-reading",
+        "codex-build-week-skill-heuristic-lantern",
+        "codex-build-week-capability-novel-wisdom",
+        "codex-build-week-capability-pocket-cinema",
+        "codex-build-week-capability-keyframe-loom",
+        "codex-build-week-capability-local-identity",
+        "codex-build-week-protocol-bootstrap-without-burden",
+        "codex-build-week-protocol-pause-resume-complete",
+        "codex-build-week-protocol-proposal-not-truth",
+        "codex-build-week-protocol-raw-turn-lineage"
+      ],
+      "createdAt": "2026-07-21T04:55:37.581Z",
+      "updatedAt": "2026-07-21T06:08:18.400Z"
+    }
+  ],
+  "cards": [
+    {
+      "schemaVersion": "hapa.tarot-card.v1",
+      "id": "codex-build-week-protocol-raw-turn-lineage",
+      "cardId": "codex-build-week-protocol-raw-turn-lineage",
+      "cardCoreKey": "fe9fc500f8bf7a186cfadf34565cff37120779978063c912204692d371b6c1e0",
+      "cardRevisionId": "created-58bde7a2afda82db",
+      "cardRecordDigest": "7e56061c71d6a76ae13cc1b62cd9cc7fbdec9392f67ee0b90bbc40c0f9a2b51b",
+      "recordDigest": "7e56061c71d6a76ae13cc1b62cd9cc7fbdec9392f67ee0b90bbc40c0f9a2b51b",
+      "originPublicKey": "9c6f36f3faa16ba28a5d48b2be0e3ceaf8456b8e4f1150b708769510150aee96",
+      "custody": {
+        "schemaVersion": "hapa.card-custody-receipt.v1",
+        "cardId": "codex-build-week-protocol-raw-turn-lineage",
+        "cardCoreKey": "fe9fc500f8bf7a186cfadf34565cff37120779978063c912204692d371b6c1e0",
+        "cardRevisionId": "created-58bde7a2afda82db",
+        "cardRecordDigest": "7e56061c71d6a76ae13cc1b62cd9cc7fbdec9392f67ee0b90bbc40c0f9a2b51b",
+        "originPublicKey": "9c6f36f3faa16ba28a5d48b2be0e3ceaf8456b8e4f1150b708769510150aee96",
+        "originNodeId": "hapa-avatar-builder",
+        "createdAt": "2026-07-21T04:55:40.678Z",
+        "headEventDigest": "08bd874b41954693d34a3e34cfc255df141a1b20eceaaeececd83027b91163cc",
+        "historyLength": 1,
+        "lifecycleStatus": "draft",
+        "custodyState": "origin_appended",
+        "replicationState": "origin_only",
+        "minted": false,
+        "catalogPublished": false,
+        "commerceEligible": false,
+        "canonical": false,
+        "identityBasis": "hypercore_origin_event",
+        "durableReceipt": true,
+        "hypercoreAppended": true,
+        "portableCustody": true,
+        "sourceMutation": false
+      },
+      "title": "Raw Turn, Derived Card",
+      "slug": "raw-turn-derived-card",
+      "cardType": "reference_card",
+      "number": "P-04",
+      "suit": "custom",
+      "arcana": "custom",
+      "orientation": "upright",
+      "keywords": [
+        "protocol",
+        "turn-mining",
+        "lineage",
+        "attribution",
+        "derived-card"
+      ],
+      "meaning": "Keep exact user and model messages source-separated; every reusable Card points back to the mined Turn, and every downstream artifact registers that creation relationship.",
+      "reversedMeaning": "A polished lesson that erases the prompt, response, correction, model, or source file that made it possible.",
+      "promptNotes": "Restage this synthetic non-human mascot tending an immutable archive of raw conversation scrolls that branch into luminous derived cards, each joined by visible golden lineage threads. Hapa tarot illustration, green, cyan, and archival gold, no readable text.",
+      "status": "review",
+      "deckIds": [],
+      "setIds": [
+        "codex-build-week-2026"
+      ],
+      "avatarLinks": [],
+      "asset": {
+        "id": "codex-build-week-protocol-raw-turn-lineage-krea2-image",
+        "name": "Raw Turn, Derived Card · Krea 2 proposal",
+        "uri": "/demo/wisdom-set/codex-build-week-protocol-raw-turn-lineage.png",
+        "type": "image",
+        "requirementId": "tarot_card",
+        "tags": [
+          "tarot-card",
+          "krea2",
+          "generated-proposal",
+          "human-review"
+        ],
+        "source": "tarot-upload",
+        "notes": "Tarot card media attached to the Hapa Tarot library.",
+        "metadata": {
+          "tarotMediaRole": "primary_image",
+          "sha256": "4a6156eb3ab3ae0e0233168305e5acae11adbb68832ad7468734dc8abf999056",
+          "generatedBy": "hapa-krea2-identity-node",
+          "taskId": "kidtask_fcfb1db17202422e969a87cf6c5bd699",
+          "preset": "build_week_fast",
+          "identityTruth": false,
+          "humanReviewRequired": true,
+          "tarotCardId": "codex-build-week-protocol-raw-turn-lineage"
+        },
+        "processing": {
+          "status": "attached",
+          "attachedToCard": false,
+          "processedAt": "2026-07-21T06:08:19.819Z",
+          "attachedToTarotCard": true
+        },
+        "createdAt": "2026-07-21T20:08:58.236Z"
+      },
+      "assets": [
+        {
+          "id": "codex-build-week-protocol-raw-turn-lineage-krea2-image",
+          "name": "Raw Turn, Derived Card · Krea 2 proposal",
+          "uri": "/demo/wisdom-set/codex-build-week-protocol-raw-turn-lineage.png",
+          "type": "image",
+          "requirementId": "tarot_card",
+          "tags": [
+            "tarot-card",
+            "krea2",
+            "generated-proposal",
+            "human-review"
+          ],
+          "source": "tarot-upload",
+          "notes": "Tarot card media attached to the Hapa Tarot library.",
+          "metadata": {
+            "tarotMediaRole": "primary_image",
+            "sha256": "4a6156eb3ab3ae0e0233168305e5acae11adbb68832ad7468734dc8abf999056",
+            "generatedBy": "hapa-krea2-identity-node",
+            "taskId": "kidtask_fcfb1db17202422e969a87cf6c5bd699",
+            "preset": "build_week_fast",
+            "identityTruth": false,
+            "humanReviewRequired": true,
+            "tarotCardId": "codex-build-week-protocol-raw-turn-lineage"
+          },
+          "processing": {
+            "status": "attached",
+            "attachedToCard": false,
+            "processedAt": "2026-07-21T06:08:19.819Z",
+            "attachedToTarotCard": true
+          },
+          "createdAt": "2026-07-21T20:08:58.236Z"
+        }
+      ],
+      "primaryAssetId": "codex-build-week-protocol-raw-turn-lineage-krea2-image",
+      "enrichment": {
+        "schemaVersion": "hapa.tarot-enrichment.v1",
+        "status": "enriched",
+        "method": "hapa-turn-miner+krea2",
+        "confidence": "high",
+        "needsReview": true,
+        "ocrText": "",
+        "ocrLines": [],
+        "visualLabels": [],
+        "detectedTitle": "",
+        "detectedNumber": "",
+        "detectedSuit": "",
+        "detectedArcana": "",
+        "detectedCardType": "",
+        "detectedAvatars": [],
+        "visualDescription": "Restage this synthetic non-human mascot tending an immutable archive of raw conversation scrolls that branch into luminous derived cards, each joined by visible golden lineage threads. Hapa tarot illustration, green, cyan, and archival gold, no readable text.",
+        "symbolicSummary": "Keep exact user and model messages source-separated; every reusable Card points back to the mined Turn, and every downstream artifact registers that creation relationship.",
+        "textSynopsis": "PROTOCOL Card derived from attributed Codex turns during the July 13–20 Build Week window.",
+        "loreNotes": "",
+        "sourceTextSnippets": [],
+        "media": {
+          "codexBuildWeek": {
+            "schemaVersion": "hapa.codex-build-week-card.v1",
+            "setId": "codex-build-week-2026",
+            "category": "protocol",
+            "number": "P-04",
+            "order": 16,
+            "priority": 1,
+            "dateRange": {
+              "start": "2026-07-13T07:00:00.000Z",
+              "end": "2026-07-21T06:59:59.999Z",
+              "timezone": "America/Los_Angeles"
+            },
+            "sourcePlatform": "codex",
+            "sourceTurnIds": [
+              "ai_turn:0c1a2f820cb45ca7",
+              "ai_turn:ad9f0b1d826b2b0d",
+              "ai_turn:c8dff458c5d1f00a"
+            ],
+            "sourceRefs": [
+              "hapa-turn://ai_turn:0c1a2f820cb45ca7",
+              "hapa-turn://ai_turn:ad9f0b1d826b2b0d",
+              "hapa-turn://ai_turn:c8dff458c5d1f00a"
+            ],
+            "derivedBy": [
+              "Calder / CJ",
+              "Calder.agents()"
+            ],
+            "imageGeneration": {
+              "provider": "hapa-krea2-identity-node",
+              "taskId": "kidtask_fcfb1db17202422e969a87cf6c5bd699",
+              "preset": "build_week_fast",
+              "seed": 4304,
+              "artifactId": "sha256:4a6156eb3ab3ae0e0233168305e5acae11adbb68832ad7468734dc8abf999056",
+              "outputSha256": "4a6156eb3ab3ae0e0233168305e5acae11adbb68832ad7468734dc8abf999056",
+              "sourceFixture": "green-leaf-mascot.png",
+              "sourceBasis": "synthetic_nonhuman",
+              "sourceLicense": "CC0-1.0",
+              "identityTruth": false,
+              "humanReviewRequired": true
+            },
+            "lineage": {
+              "rawTurnsRemainAuthoritative": true,
+              "sourceCardUnchanged": true,
+              "generatedOutputIsIdentityTruth": false,
+              "minted": false,
+              "canonical": false
+            }
+          }
+        },
+        "tags": [
+          "codex-build-week",
+          "protocol-card",
+          "turn-mined",
+          "tarot-draw-ready",
+          "krea2-generated",
+          "unminted"
+        ],
+        "enrichedAt": "2026-07-21T06:08:18.400Z"
+      },
+      "createdAt": "2026-07-21T04:55:37.581Z",
+      "updatedAt": "2026-07-21T06:08:18.400Z"
+    },
+    {
+      "schemaVersion": "hapa.tarot-card.v1",
+      "id": "codex-build-week-protocol-proposal-not-truth",
+      "cardId": "codex-build-week-protocol-proposal-not-truth",
+      "cardCoreKey": "3f69cdca32e7d98c5ab9163e257244bef951c0f30089ceb01e4f7dea92c78d62",
+      "cardRevisionId": "created-ae9655927dfa812d",
+      "cardRecordDigest": "d4df99952a86807fe7a99b2a38bc9cca928b7ec348823c4c831394d59345e9a3",
+      "recordDigest": "d4df99952a86807fe7a99b2a38bc9cca928b7ec348823c4c831394d59345e9a3",
+      "originPublicKey": "aa72a07f2642982f746bf40f083de557299b5cd559a3a68b67e740a8237444d5",
+      "custody": {
+        "schemaVersion": "hapa.card-custody-receipt.v1",
+        "cardId": "codex-build-week-protocol-proposal-not-truth",
+        "cardCoreKey": "3f69cdca32e7d98c5ab9163e257244bef951c0f30089ceb01e4f7dea92c78d62",
+        "cardRevisionId": "created-ae9655927dfa812d",
+        "cardRecordDigest": "d4df99952a86807fe7a99b2a38bc9cca928b7ec348823c4c831394d59345e9a3",
+        "originPublicKey": "aa72a07f2642982f746bf40f083de557299b5cd559a3a68b67e740a8237444d5",
+        "originNodeId": "hapa-avatar-builder",
+        "createdAt": "2026-07-21T04:55:40.485Z",
+        "headEventDigest": "6fa22c2d2b5e6c228f4caf32c004c36e5b7ff21659aea4de8039755fa36757e2",
+        "historyLength": 1,
+        "lifecycleStatus": "draft",
+        "custodyState": "origin_appended",
+        "replicationState": "origin_only",
+        "minted": false,
+        "catalogPublished": false,
+        "commerceEligible": false,
+        "canonical": false,
+        "identityBasis": "hypercore_origin_event",
+        "durableReceipt": true,
+        "hypercoreAppended": true,
+        "portableCustody": true,
+        "sourceMutation": false
+      },
+      "title": "Proposal Is Not Truth",
+      "slug": "proposal-is-not-truth",
+      "cardType": "reference_card",
+      "number": "P-03",
+      "suit": "custom",
+      "arcana": "custom",
+      "orientation": "upright",
+      "keywords": [
+        "protocol",
+        "proposal",
+        "human-review",
+        "identity-truth",
+        "disclosure"
+      ],
+      "meaning": "Generated identity media remains provisional, filtered, source-preserving, visibly AI-generated, and subject to human acceptance before promotion or publication.",
+      "reversedMeaning": "A generated resemblance silently promoted into canon, mint, or identity authority.",
+      "promptNotes": "Restage this synthetic non-human mascot presenting a luminous image inside an unmistakable review frame, while the untouched source remains safe beside it and a human approval gate waits ahead. Hapa tarot illustration, jade, red, and silver, no text.",
+      "status": "review",
+      "deckIds": [],
+      "setIds": [
+        "codex-build-week-2026"
+      ],
+      "avatarLinks": [],
+      "asset": {
+        "id": "codex-build-week-protocol-proposal-not-truth-krea2-image",
+        "name": "Proposal Is Not Truth · Krea 2 proposal",
+        "uri": "/demo/wisdom-set/codex-build-week-protocol-proposal-not-truth.png",
+        "type": "image",
+        "requirementId": "tarot_card",
+        "tags": [
+          "tarot-card",
+          "krea2",
+          "generated-proposal",
+          "human-review"
+        ],
+        "source": "tarot-upload",
+        "notes": "Tarot card media attached to the Hapa Tarot library.",
+        "metadata": {
+          "tarotMediaRole": "primary_image",
+          "sha256": "da1e7db961ee756f1dffcc72fa15ce47c5de3c4b2f8b68fedeb9968fe61870ad",
+          "generatedBy": "hapa-krea2-identity-node",
+          "taskId": "kidtask_a1eead5c20424e1ea9c99579675dd0be",
+          "preset": "build_week_fast",
+          "identityTruth": false,
+          "humanReviewRequired": true,
+          "tarotCardId": "codex-build-week-protocol-proposal-not-truth"
+        },
+        "processing": {
+          "status": "attached",
+          "attachedToCard": false,
+          "processedAt": "2026-07-21T06:08:19.735Z",
+          "attachedToTarotCard": true
+        },
+        "createdAt": "2026-07-21T20:08:58.236Z"
+      },
+      "assets": [
+        {
+          "id": "codex-build-week-protocol-proposal-not-truth-krea2-image",
+          "name": "Proposal Is Not Truth · Krea 2 proposal",
+          "uri": "/demo/wisdom-set/codex-build-week-protocol-proposal-not-truth.png",
+          "type": "image",
+          "requirementId": "tarot_card",
+          "tags": [
+            "tarot-card",
+            "krea2",
+            "generated-proposal",
+            "human-review"
+          ],
+          "source": "tarot-upload",
+          "notes": "Tarot card media attached to the Hapa Tarot library.",
+          "metadata": {
+            "tarotMediaRole": "primary_image",
+            "sha256": "da1e7db961ee756f1dffcc72fa15ce47c5de3c4b2f8b68fedeb9968fe61870ad",
+            "generatedBy": "hapa-krea2-identity-node",
+            "taskId": "kidtask_a1eead5c20424e1ea9c99579675dd0be",
+            "preset": "build_week_fast",
+            "identityTruth": false,
+            "humanReviewRequired": true,
+            "tarotCardId": "codex-build-week-protocol-proposal-not-truth"
+          },
+          "processing": {
+            "status": "attached",
+            "attachedToCard": false,
+            "processedAt": "2026-07-21T06:08:19.735Z",
+            "attachedToTarotCard": true
+          },
+          "createdAt": "2026-07-21T20:08:58.236Z"
+        }
+      ],
+      "primaryAssetId": "codex-build-week-protocol-proposal-not-truth-krea2-image",
+      "enrichment": {
+        "schemaVersion": "hapa.tarot-enrichment.v1",
+        "status": "enriched",
+        "method": "hapa-turn-miner+krea2",
+        "confidence": "high",
+        "needsReview": true,
+        "ocrText": "",
+        "ocrLines": [],
+        "visualLabels": [],
+        "detectedTitle": "",
+        "detectedNumber": "",
+        "detectedSuit": "",
+        "detectedArcana": "",
+        "detectedCardType": "",
+        "detectedAvatars": [],
+        "visualDescription": "Restage this synthetic non-human mascot presenting a luminous image inside an unmistakable review frame, while the untouched source remains safe beside it and a human approval gate waits ahead. Hapa tarot illustration, jade, red, and silver, no text.",
+        "symbolicSummary": "Generated identity media remains provisional, filtered, source-preserving, visibly AI-generated, and subject to human acceptance before promotion or publication.",
+        "textSynopsis": "PROTOCOL Card derived from attributed Codex turns during the July 13–20 Build Week window.",
+        "loreNotes": "",
+        "sourceTextSnippets": [],
+        "media": {
+          "codexBuildWeek": {
+            "schemaVersion": "hapa.codex-build-week-card.v1",
+            "setId": "codex-build-week-2026",
+            "category": "protocol",
+            "number": "P-03",
+            "order": 15,
+            "priority": 2,
+            "dateRange": {
+              "start": "2026-07-13T07:00:00.000Z",
+              "end": "2026-07-21T06:59:59.999Z",
+              "timezone": "America/Los_Angeles"
+            },
+            "sourcePlatform": "codex",
+            "sourceTurnIds": [
+              "ai_turn:7ef42b6aa200fb0c",
+              "ai_turn:c8dff458c5d1f00a"
+            ],
+            "sourceRefs": [
+              "hapa-turn://ai_turn:7ef42b6aa200fb0c",
+              "hapa-turn://ai_turn:c8dff458c5d1f00a"
+            ],
+            "derivedBy": [
+              "Calder / CJ",
+              "Calder.agents()"
+            ],
+            "imageGeneration": {
+              "provider": "hapa-krea2-identity-node",
+              "taskId": "kidtask_a1eead5c20424e1ea9c99579675dd0be",
+              "preset": "build_week_fast",
+              "seed": 4303,
+              "artifactId": "sha256:da1e7db961ee756f1dffcc72fa15ce47c5de3c4b2f8b68fedeb9968fe61870ad",
+              "outputSha256": "da1e7db961ee756f1dffcc72fa15ce47c5de3c4b2f8b68fedeb9968fe61870ad",
+              "sourceFixture": "green-leaf-mascot.png",
+              "sourceBasis": "synthetic_nonhuman",
+              "sourceLicense": "CC0-1.0",
+              "identityTruth": false,
+              "humanReviewRequired": true
+            },
+            "lineage": {
+              "rawTurnsRemainAuthoritative": true,
+              "sourceCardUnchanged": true,
+              "generatedOutputIsIdentityTruth": false,
+              "minted": false,
+              "canonical": false
+            }
+          }
+        },
+        "tags": [
+          "codex-build-week",
+          "protocol-card",
+          "turn-mined",
+          "tarot-draw-ready",
+          "krea2-generated",
+          "unminted"
+        ],
+        "enrichedAt": "2026-07-21T06:08:18.400Z"
+      },
+      "createdAt": "2026-07-21T04:55:37.581Z",
+      "updatedAt": "2026-07-21T06:08:18.400Z"
+    },
+    {
+      "schemaVersion": "hapa.tarot-card.v1",
+      "id": "codex-build-week-protocol-pause-resume-complete",
+      "cardId": "codex-build-week-protocol-pause-resume-complete",
+      "cardCoreKey": "c80035737e9a00e1b4b6337e71d96a45e03fac8fed15ba4bc48687b2ef773a10",
+      "cardRevisionId": "created-9381d909682c6dd1",
+      "cardRecordDigest": "ae90a0eaf566874dc3d49185474098fae7e5152556b600784c26b8c12c777a4f",
+      "recordDigest": "ae90a0eaf566874dc3d49185474098fae7e5152556b600784c26b8c12c777a4f",
+      "originPublicKey": "d1c5b4093545d8fe13abf65b615b7d0ccb7e2ed5bbfda2d9e6871651811f61cb",
+      "custody": {
+        "schemaVersion": "hapa.card-custody-receipt.v1",
+        "cardId": "codex-build-week-protocol-pause-resume-complete",
+        "cardCoreKey": "c80035737e9a00e1b4b6337e71d96a45e03fac8fed15ba4bc48687b2ef773a10",
+        "cardRevisionId": "created-9381d909682c6dd1",
+        "cardRecordDigest": "ae90a0eaf566874dc3d49185474098fae7e5152556b600784c26b8c12c777a4f",
+        "originPublicKey": "d1c5b4093545d8fe13abf65b615b7d0ccb7e2ed5bbfda2d9e6871651811f61cb",
+        "originNodeId": "hapa-avatar-builder",
+        "createdAt": "2026-07-21T04:55:40.288Z",
+        "headEventDigest": "ad5534a78c0aff0ee994ac9217e2cb0461b4732c4ebafd682f12e6dcf6876073",
+        "historyLength": 1,
+        "lifecycleStatus": "draft",
+        "custodyState": "origin_appended",
+        "replicationState": "origin_only",
+        "minted": false,
+        "catalogPublished": false,
+        "commerceEligible": false,
+        "canonical": false,
+        "identityBasis": "hypercore_origin_event",
+        "durableReceipt": true,
+        "hypercoreAppended": true,
+        "portableCustody": true,
+        "sourceMutation": false
+      },
+      "title": "Pause, Resume, Complete",
+      "slug": "pause-resume-complete",
+      "cardType": "reference_card",
+      "number": "P-02",
+      "suit": "custom",
+      "arcana": "custom",
+      "orientation": "upright",
+      "keywords": [
+        "protocol",
+        "pause",
+        "resume",
+        "durable-work",
+        "completion"
+      ],
+      "meaning": "Long-running creative work advances through durable bounded claims, explicit pause and resume, monotonic state, cancellation recovery, and a measurable completion condition.",
+      "reversedMeaning": "A process that must remain watched because stopping loses its place or duplicates work.",
+      "promptNotes": "Restage this synthetic non-human mascot beside a great circular work wheel with clear resting, moving, paused, recovered, and completed phases, each step preserving its place. Hapa tarot illustration, green, violet, and gold, no readable text.",
+      "status": "review",
+      "deckIds": [],
+      "setIds": [
+        "codex-build-week-2026"
+      ],
+      "avatarLinks": [],
+      "asset": {
+        "id": "codex-build-week-protocol-pause-resume-complete-krea2-image",
+        "name": "Pause, Resume, Complete · Krea 2 proposal",
+        "uri": "/demo/wisdom-set/codex-build-week-protocol-pause-resume-complete.png",
+        "type": "image",
+        "requirementId": "tarot_card",
+        "tags": [
+          "tarot-card",
+          "krea2",
+          "generated-proposal",
+          "human-review"
+        ],
+        "source": "tarot-upload",
+        "notes": "Tarot card media attached to the Hapa Tarot library.",
+        "metadata": {
+          "tarotMediaRole": "primary_image",
+          "sha256": "1ae1d3ee0a8327349193bac1fd14fd088218925ab5e9ce72da0e91a300b0a017",
+          "generatedBy": "hapa-krea2-identity-node",
+          "taskId": "kidtask_6cb0dfab6b7f454b85ae52f19dca3d0f",
+          "preset": "build_week_fast",
+          "identityTruth": false,
+          "humanReviewRequired": true,
+          "tarotCardId": "codex-build-week-protocol-pause-resume-complete"
+        },
+        "processing": {
+          "status": "attached",
+          "attachedToCard": false,
+          "processedAt": "2026-07-21T06:08:19.648Z",
+          "attachedToTarotCard": true
+        },
+        "createdAt": "2026-07-21T20:08:58.236Z"
+      },
+      "assets": [
+        {
+          "id": "codex-build-week-protocol-pause-resume-complete-krea2-image",
+          "name": "Pause, Resume, Complete · Krea 2 proposal",
+          "uri": "/demo/wisdom-set/codex-build-week-protocol-pause-resume-complete.png",
+          "type": "image",
+          "requirementId": "tarot_card",
+          "tags": [
+            "tarot-card",
+            "krea2",
+            "generated-proposal",
+            "human-review"
+          ],
+          "source": "tarot-upload",
+          "notes": "Tarot card media attached to the Hapa Tarot library.",
+          "metadata": {
+            "tarotMediaRole": "primary_image",
+            "sha256": "1ae1d3ee0a8327349193bac1fd14fd088218925ab5e9ce72da0e91a300b0a017",
+            "generatedBy": "hapa-krea2-identity-node",
+            "taskId": "kidtask_6cb0dfab6b7f454b85ae52f19dca3d0f",
+            "preset": "build_week_fast",
+            "identityTruth": false,
+            "humanReviewRequired": true,
+            "tarotCardId": "codex-build-week-protocol-pause-resume-complete"
+          },
+          "processing": {
+            "status": "attached",
+            "attachedToCard": false,
+            "processedAt": "2026-07-21T06:08:19.648Z",
+            "attachedToTarotCard": true
+          },
+          "createdAt": "2026-07-21T20:08:58.236Z"
+        }
+      ],
+      "primaryAssetId": "codex-build-week-protocol-pause-resume-complete-krea2-image",
+      "enrichment": {
+        "schemaVersion": "hapa.tarot-enrichment.v1",
+        "status": "enriched",
+        "method": "hapa-turn-miner+krea2",
+        "confidence": "high",
+        "needsReview": true,
+        "ocrText": "",
+        "ocrLines": [],
+        "visualLabels": [],
+        "detectedTitle": "",
+        "detectedNumber": "",
+        "detectedSuit": "",
+        "detectedArcana": "",
+        "detectedCardType": "",
+        "detectedAvatars": [],
+        "visualDescription": "Restage this synthetic non-human mascot beside a great circular work wheel with clear resting, moving, paused, recovered, and completed phases, each step preserving its place. Hapa tarot illustration, green, violet, and gold, no readable text.",
+        "symbolicSummary": "Long-running creative work advances through durable bounded claims, explicit pause and resume, monotonic state, cancellation recovery, and a measurable completion condition.",
+        "textSynopsis": "PROTOCOL Card derived from attributed Codex turns during the July 13–20 Build Week window.",
+        "loreNotes": "",
+        "sourceTextSnippets": [],
+        "media": {
+          "codexBuildWeek": {
+            "schemaVersion": "hapa.codex-build-week-card.v1",
+            "setId": "codex-build-week-2026",
+            "category": "protocol",
+            "number": "P-02",
+            "order": 14,
+            "priority": 3,
+            "dateRange": {
+              "start": "2026-07-13T07:00:00.000Z",
+              "end": "2026-07-21T06:59:59.999Z",
+              "timezone": "America/Los_Angeles"
+            },
+            "sourcePlatform": "codex",
+            "sourceTurnIds": [
+              "ai_turn:543bea3631931c6e",
+              "ai_turn:649d9f11257fe4f6"
+            ],
+            "sourceRefs": [
+              "hapa-turn://ai_turn:543bea3631931c6e",
+              "hapa-turn://ai_turn:649d9f11257fe4f6"
+            ],
+            "derivedBy": [
+              "Calder / CJ",
+              "Calder.agents()"
+            ],
+            "imageGeneration": {
+              "provider": "hapa-krea2-identity-node",
+              "taskId": "kidtask_6cb0dfab6b7f454b85ae52f19dca3d0f",
+              "preset": "build_week_fast",
+              "seed": 4302,
+              "artifactId": "sha256:1ae1d3ee0a8327349193bac1fd14fd088218925ab5e9ce72da0e91a300b0a017",
+              "outputSha256": "1ae1d3ee0a8327349193bac1fd14fd088218925ab5e9ce72da0e91a300b0a017",
+              "sourceFixture": "green-leaf-mascot.png",
+              "sourceBasis": "synthetic_nonhuman",
+              "sourceLicense": "CC0-1.0",
+              "identityTruth": false,
+              "humanReviewRequired": true
+            },
+            "lineage": {
+              "rawTurnsRemainAuthoritative": true,
+              "sourceCardUnchanged": true,
+              "generatedOutputIsIdentityTruth": false,
+              "minted": false,
+              "canonical": false
+            }
+          }
+        },
+        "tags": [
+          "codex-build-week",
+          "protocol-card",
+          "turn-mined",
+          "tarot-draw-ready",
+          "krea2-generated",
+          "unminted"
+        ],
+        "enrichedAt": "2026-07-21T06:08:18.400Z"
+      },
+      "createdAt": "2026-07-21T04:55:37.581Z",
+      "updatedAt": "2026-07-21T06:08:18.400Z"
+    },
+    {
+      "schemaVersion": "hapa.tarot-card.v1",
+      "id": "codex-build-week-protocol-bootstrap-without-burden",
+      "cardId": "codex-build-week-protocol-bootstrap-without-burden",
+      "cardCoreKey": "a6e85d0e784694d477b2007c415c2f7cd88e725f364c7af9580b6636537f6c21",
+      "cardRevisionId": "created-c19523695507a3a9",
+      "cardRecordDigest": "f1320d7645229c17a832ce75897ae4f96684e44319f41e89d46fe5d242b9ddc0",
+      "recordDigest": "f1320d7645229c17a832ce75897ae4f96684e44319f41e89d46fe5d242b9ddc0",
+      "originPublicKey": "e3540f584b7b963fe2fb7aeb8161db73cee985e2fbf63021d8fbd7532eb15a81",
+      "custody": {
+        "schemaVersion": "hapa.card-custody-receipt.v1",
+        "cardId": "codex-build-week-protocol-bootstrap-without-burden",
+        "cardCoreKey": "a6e85d0e784694d477b2007c415c2f7cd88e725f364c7af9580b6636537f6c21",
+        "cardRevisionId": "created-c19523695507a3a9",
+        "cardRecordDigest": "f1320d7645229c17a832ce75897ae4f96684e44319f41e89d46fe5d242b9ddc0",
+        "originPublicKey": "e3540f584b7b963fe2fb7aeb8161db73cee985e2fbf63021d8fbd7532eb15a81",
+        "originNodeId": "hapa-avatar-builder",
+        "createdAt": "2026-07-21T04:55:40.085Z",
+        "headEventDigest": "962a4f2d83ee736e9d5c8416f75d2c3ba83556b12cab96deaad08415cb050e29",
+        "historyLength": 1,
+        "lifecycleStatus": "draft",
+        "custodyState": "origin_appended",
+        "replicationState": "origin_only",
+        "minted": false,
+        "catalogPublished": false,
+        "commerceEligible": false,
+        "canonical": false,
+        "identityBasis": "hypercore_origin_event",
+        "durableReceipt": true,
+        "hypercoreAppended": true,
+        "portableCustody": true,
+        "sourceMutation": false
+      },
+      "title": "Bootstrap Without Burden",
+      "slug": "bootstrap-without-burden",
+      "cardType": "reference_card",
+      "number": "P-01",
+      "suit": "custom",
+      "arcana": "custom",
+      "orientation": "upright",
+      "keywords": [
+        "protocol",
+        "bootstrap",
+        "credentials",
+        "local-session",
+        "defaults"
+      ],
+      "meaning": "A trusted local Hapa app establishes its own scoped session and safe defaults; the operator is not asked to copy bearer tokens or choose internal runtime paths.",
+      "reversedMeaning": "Security theater that transfers secret handling and implementation details to the user.",
+      "promptNotes": "Restage this synthetic non-human mascot as a welcoming protocol guardian who opens one safe local gate automatically while bearer keys remain sealed behind the wall. Hapa tarot illustration, jade, cyan, and warm gold, no letters or readable text.",
+      "status": "review",
+      "deckIds": [],
+      "setIds": [
+        "codex-build-week-2026"
+      ],
+      "avatarLinks": [],
+      "asset": {
+        "id": "codex-build-week-protocol-bootstrap-without-burden-krea2-image",
+        "name": "Bootstrap Without Burden · Krea 2 proposal",
+        "uri": "/demo/wisdom-set/codex-build-week-protocol-bootstrap-without-burden.png",
+        "type": "image",
+        "requirementId": "tarot_card",
+        "tags": [
+          "tarot-card",
+          "krea2",
+          "generated-proposal",
+          "human-review"
+        ],
+        "source": "tarot-upload",
+        "notes": "Tarot card media attached to the Hapa Tarot library.",
+        "metadata": {
+          "tarotMediaRole": "primary_image",
+          "sha256": "c65585c5b2a1b1fbf6d5c40794132149f6cc9ece5799bf3372f15dec038745ee",
+          "generatedBy": "hapa-krea2-identity-node",
+          "taskId": "kidtask_80bba1e2469742d584ccae89fb7fccd4",
+          "preset": "build_week_fast",
+          "identityTruth": false,
+          "humanReviewRequired": true,
+          "tarotCardId": "codex-build-week-protocol-bootstrap-without-burden"
+        },
+        "processing": {
+          "status": "attached",
+          "attachedToCard": false,
+          "processedAt": "2026-07-21T06:08:19.565Z",
+          "attachedToTarotCard": true
+        },
+        "createdAt": "2026-07-21T20:08:58.236Z"
+      },
+      "assets": [
+        {
+          "id": "codex-build-week-protocol-bootstrap-without-burden-krea2-image",
+          "name": "Bootstrap Without Burden · Krea 2 proposal",
+          "uri": "/demo/wisdom-set/codex-build-week-protocol-bootstrap-without-burden.png",
+          "type": "image",
+          "requirementId": "tarot_card",
+          "tags": [
+            "tarot-card",
+            "krea2",
+            "generated-proposal",
+            "human-review"
+          ],
+          "source": "tarot-upload",
+          "notes": "Tarot card media attached to the Hapa Tarot library.",
+          "metadata": {
+            "tarotMediaRole": "primary_image",
+            "sha256": "c65585c5b2a1b1fbf6d5c40794132149f6cc9ece5799bf3372f15dec038745ee",
+            "generatedBy": "hapa-krea2-identity-node",
+            "taskId": "kidtask_80bba1e2469742d584ccae89fb7fccd4",
+            "preset": "build_week_fast",
+            "identityTruth": false,
+            "humanReviewRequired": true,
+            "tarotCardId": "codex-build-week-protocol-bootstrap-without-burden"
+          },
+          "processing": {
+            "status": "attached",
+            "attachedToCard": false,
+            "processedAt": "2026-07-21T06:08:19.565Z",
+            "attachedToTarotCard": true
+          },
+          "createdAt": "2026-07-21T20:08:58.236Z"
+        }
+      ],
+      "primaryAssetId": "codex-build-week-protocol-bootstrap-without-burden-krea2-image",
+      "enrichment": {
+        "schemaVersion": "hapa.tarot-enrichment.v1",
+        "status": "enriched",
+        "method": "hapa-turn-miner+krea2",
+        "confidence": "high",
+        "needsReview": true,
+        "ocrText": "",
+        "ocrLines": [],
+        "visualLabels": [],
+        "detectedTitle": "",
+        "detectedNumber": "",
+        "detectedSuit": "",
+        "detectedArcana": "",
+        "detectedCardType": "",
+        "detectedAvatars": [],
+        "visualDescription": "Restage this synthetic non-human mascot as a welcoming protocol guardian who opens one safe local gate automatically while bearer keys remain sealed behind the wall. Hapa tarot illustration, jade, cyan, and warm gold, no letters or readable text.",
+        "symbolicSummary": "A trusted local Hapa app establishes its own scoped session and safe defaults; the operator is not asked to copy bearer tokens or choose internal runtime paths.",
+        "textSynopsis": "PROTOCOL Card derived from attributed Codex turns during the July 13–20 Build Week window.",
+        "loreNotes": "",
+        "sourceTextSnippets": [],
+        "media": {
+          "codexBuildWeek": {
+            "schemaVersion": "hapa.codex-build-week-card.v1",
+            "setId": "codex-build-week-2026",
+            "category": "protocol",
+            "number": "P-01",
+            "order": 13,
+            "priority": 4,
+            "dateRange": {
+              "start": "2026-07-13T07:00:00.000Z",
+              "end": "2026-07-21T06:59:59.999Z",
+              "timezone": "America/Los_Angeles"
+            },
+            "sourcePlatform": "codex",
+            "sourceTurnIds": [
+              "ai_turn:8c67b717228292eb",
+              "ai_turn:03bdeb775a0bf183"
+            ],
+            "sourceRefs": [
+              "hapa-turn://ai_turn:8c67b717228292eb",
+              "hapa-turn://ai_turn:03bdeb775a0bf183"
+            ],
+            "derivedBy": [
+              "Calder / CJ",
+              "Calder.agents()"
+            ],
+            "imageGeneration": {
+              "provider": "hapa-krea2-identity-node",
+              "taskId": "kidtask_80bba1e2469742d584ccae89fb7fccd4",
+              "preset": "build_week_fast",
+              "seed": 4301,
+              "artifactId": "sha256:c65585c5b2a1b1fbf6d5c40794132149f6cc9ece5799bf3372f15dec038745ee",
+              "outputSha256": "c65585c5b2a1b1fbf6d5c40794132149f6cc9ece5799bf3372f15dec038745ee",
+              "sourceFixture": "green-leaf-mascot.png",
+              "sourceBasis": "synthetic_nonhuman",
+              "sourceLicense": "CC0-1.0",
+              "identityTruth": false,
+              "humanReviewRequired": true
+            },
+            "lineage": {
+              "rawTurnsRemainAuthoritative": true,
+              "sourceCardUnchanged": true,
+              "generatedOutputIsIdentityTruth": false,
+              "minted": false,
+              "canonical": false
+            }
+          }
+        },
+        "tags": [
+          "codex-build-week",
+          "protocol-card",
+          "turn-mined",
+          "tarot-draw-ready",
+          "krea2-generated",
+          "unminted"
+        ],
+        "enrichedAt": "2026-07-21T06:08:18.400Z"
+      },
+      "createdAt": "2026-07-21T04:55:37.581Z",
+      "updatedAt": "2026-07-21T06:08:18.400Z"
+    },
+    {
+      "schemaVersion": "hapa.tarot-card.v1",
+      "id": "codex-build-week-capability-local-identity",
+      "cardId": "codex-build-week-capability-local-identity",
+      "cardCoreKey": "4d86a2a4a7f484462fdc81746cc675c53cd50fc8f8fab57308e9e720968dc6b9",
+      "cardRevisionId": "created-04531464724b468b",
+      "cardRecordDigest": "e6620d894c425ee3a9e30a18efec2de6d69a596ed7418949e0773105fd23b75c",
+      "recordDigest": "e6620d894c425ee3a9e30a18efec2de6d69a596ed7418949e0773105fd23b75c",
+      "originPublicKey": "530063e1a2cca83ea4bd006bc6754f2d6c0a325e94aa1afe77d94033cedce367",
+      "custody": {
+        "schemaVersion": "hapa.card-custody-receipt.v1",
+        "cardId": "codex-build-week-capability-local-identity",
+        "cardCoreKey": "4d86a2a4a7f484462fdc81746cc675c53cd50fc8f8fab57308e9e720968dc6b9",
+        "cardRevisionId": "created-04531464724b468b",
+        "cardRecordDigest": "e6620d894c425ee3a9e30a18efec2de6d69a596ed7418949e0773105fd23b75c",
+        "originPublicKey": "530063e1a2cca83ea4bd006bc6754f2d6c0a325e94aa1afe77d94033cedce367",
+        "originNodeId": "hapa-avatar-builder",
+        "createdAt": "2026-07-21T04:55:39.893Z",
+        "headEventDigest": "ead87149f7fb448c3d8d562752319db261fc2d4a75baf04dc406ca05f24723cc",
+        "historyLength": 1,
+        "lifecycleStatus": "draft",
+        "custodyState": "origin_appended",
+        "replicationState": "origin_only",
+        "minted": false,
+        "catalogPublished": false,
+        "commerceEligible": false,
+        "canonical": false,
+        "identityBasis": "hypercore_origin_event",
+        "durableReceipt": true,
+        "hypercoreAppended": true,
+        "portableCustody": true,
+        "sourceMutation": false
+      },
+      "title": "Local Identity Restage",
+      "slug": "local-identity-restage",
+      "cardType": "reference_card",
+      "number": "C-04",
+      "suit": "custom",
+      "arcana": "custom",
+      "orientation": "upright",
+      "keywords": [
+        "capability",
+        "identity-edit",
+        "local-first",
+        "krea2",
+        "provenance"
+      ],
+      "meaning": "A consent-aware Hapa app can submit ordered references to one protected local MLX worker and receive a filtered, content-addressed edit proposal with provenance.",
+      "reversedMeaning": "Browser-held credentials, hidden remote custody, or silent substitution of an unsupported image operation.",
+      "promptNotes": "Transform this synthetic observatory into a protected local identity-restage station with ordered reference portals, one warm worker, a safety prism, and a content-addressed proposal returning to a card. Hapa tarot illustration, green, cobalt, and silver, no text.",
+      "status": "review",
+      "deckIds": [],
+      "setIds": [
+        "codex-build-week-2026"
+      ],
+      "avatarLinks": [],
+      "asset": {
+        "id": "codex-build-week-capability-local-identity-krea2-image",
+        "name": "Local Identity Restage · Krea 2 proposal",
+        "uri": "/demo/wisdom-set/codex-build-week-capability-local-identity.png",
+        "type": "image",
+        "requirementId": "tarot_card",
+        "tags": [
+          "tarot-card",
+          "krea2",
+          "generated-proposal",
+          "human-review"
+        ],
+        "source": "tarot-upload",
+        "notes": "Tarot card media attached to the Hapa Tarot library.",
+        "metadata": {
+          "tarotMediaRole": "primary_image",
+          "sha256": "9c06bd31d0b06801d3ccf3d5efd8106e88af1f5a490a5a41e84fae92e5028080",
+          "generatedBy": "hapa-krea2-identity-node",
+          "taskId": "kidtask_b65231efdfef456faeac3311d45ac202",
+          "preset": "build_week_fast",
+          "identityTruth": false,
+          "humanReviewRequired": true,
+          "tarotCardId": "codex-build-week-capability-local-identity"
+        },
+        "processing": {
+          "status": "attached",
+          "attachedToCard": false,
+          "processedAt": "2026-07-21T06:08:19.480Z",
+          "attachedToTarotCard": true
+        },
+        "createdAt": "2026-07-21T20:08:58.236Z"
+      },
+      "assets": [
+        {
+          "id": "codex-build-week-capability-local-identity-krea2-image",
+          "name": "Local Identity Restage · Krea 2 proposal",
+          "uri": "/demo/wisdom-set/codex-build-week-capability-local-identity.png",
+          "type": "image",
+          "requirementId": "tarot_card",
+          "tags": [
+            "tarot-card",
+            "krea2",
+            "generated-proposal",
+            "human-review"
+          ],
+          "source": "tarot-upload",
+          "notes": "Tarot card media attached to the Hapa Tarot library.",
+          "metadata": {
+            "tarotMediaRole": "primary_image",
+            "sha256": "9c06bd31d0b06801d3ccf3d5efd8106e88af1f5a490a5a41e84fae92e5028080",
+            "generatedBy": "hapa-krea2-identity-node",
+            "taskId": "kidtask_b65231efdfef456faeac3311d45ac202",
+            "preset": "build_week_fast",
+            "identityTruth": false,
+            "humanReviewRequired": true,
+            "tarotCardId": "codex-build-week-capability-local-identity"
+          },
+          "processing": {
+            "status": "attached",
+            "attachedToCard": false,
+            "processedAt": "2026-07-21T06:08:19.480Z",
+            "attachedToTarotCard": true
+          },
+          "createdAt": "2026-07-21T20:08:58.236Z"
+        }
+      ],
+      "primaryAssetId": "codex-build-week-capability-local-identity-krea2-image",
+      "enrichment": {
+        "schemaVersion": "hapa.tarot-enrichment.v1",
+        "status": "enriched",
+        "method": "hapa-turn-miner+krea2",
+        "confidence": "high",
+        "needsReview": true,
+        "ocrText": "",
+        "ocrLines": [],
+        "visualLabels": [],
+        "detectedTitle": "",
+        "detectedNumber": "",
+        "detectedSuit": "",
+        "detectedArcana": "",
+        "detectedCardType": "",
+        "detectedAvatars": [],
+        "visualDescription": "Transform this synthetic observatory into a protected local identity-restage station with ordered reference portals, one warm worker, a safety prism, and a content-addressed proposal returning to a card. Hapa tarot illustration, green, cobalt, and silver, no text.",
+        "symbolicSummary": "A consent-aware Hapa app can submit ordered references to one protected local MLX worker and receive a filtered, content-addressed edit proposal with provenance.",
+        "textSynopsis": "CAPABILITY Card derived from attributed Codex turns during the July 13–20 Build Week window.",
+        "loreNotes": "",
+        "sourceTextSnippets": [],
+        "media": {
+          "codexBuildWeek": {
+            "schemaVersion": "hapa.codex-build-week-card.v1",
+            "setId": "codex-build-week-2026",
+            "category": "capability",
+            "number": "C-04",
+            "order": 12,
+            "priority": 5,
+            "dateRange": {
+              "start": "2026-07-13T07:00:00.000Z",
+              "end": "2026-07-21T06:59:59.999Z",
+              "timezone": "America/Los_Angeles"
+            },
+            "sourcePlatform": "codex",
+            "sourceTurnIds": [
+              "ai_turn:c8dff458c5d1f00a",
+              "ai_turn:7ef42b6aa200fb0c"
+            ],
+            "sourceRefs": [
+              "hapa-turn://ai_turn:c8dff458c5d1f00a",
+              "hapa-turn://ai_turn:7ef42b6aa200fb0c"
+            ],
+            "derivedBy": [
+              "Calder / CJ",
+              "Calder.agents()"
+            ],
+            "imageGeneration": {
+              "provider": "hapa-krea2-identity-node",
+              "taskId": "kidtask_b65231efdfef456faeac3311d45ac202",
+              "preset": "build_week_fast",
+              "seed": 3304,
+              "artifactId": "sha256:9c06bd31d0b06801d3ccf3d5efd8106e88af1f5a490a5a41e84fae92e5028080",
+              "outputSha256": "9c06bd31d0b06801d3ccf3d5efd8106e88af1f5a490a5a41e84fae92e5028080",
+              "sourceFixture": "green-observatory-scene.png",
+              "sourceBasis": "synthetic_nonhuman",
+              "sourceLicense": "CC0-1.0",
+              "identityTruth": false,
+              "humanReviewRequired": true
+            },
+            "lineage": {
+              "rawTurnsRemainAuthoritative": true,
+              "sourceCardUnchanged": true,
+              "generatedOutputIsIdentityTruth": false,
+              "minted": false,
+              "canonical": false
+            }
+          }
+        },
+        "tags": [
+          "codex-build-week",
+          "capability-card",
+          "turn-mined",
+          "tarot-draw-ready",
+          "krea2-generated",
+          "unminted"
+        ],
+        "enrichedAt": "2026-07-21T06:08:18.400Z"
+      },
+      "createdAt": "2026-07-21T04:55:37.581Z",
+      "updatedAt": "2026-07-21T06:08:18.400Z"
+    },
+    {
+      "schemaVersion": "hapa.tarot-card.v1",
+      "id": "codex-build-week-capability-keyframe-loom",
+      "cardId": "codex-build-week-capability-keyframe-loom",
+      "cardCoreKey": "c362643a1a16a70fceff1ec69f33e888b3356334277070d845e35e027687b785",
+      "cardRevisionId": "created-1fbb048559cada2c",
+      "cardRecordDigest": "225bc4866630eba181482e47f28af3139af582ad2034741c32f8ffa161d0106f",
+      "recordDigest": "225bc4866630eba181482e47f28af3139af582ad2034741c32f8ffa161d0106f",
+      "originPublicKey": "aac7f599227ba4a87cc308d271e80c78581c57fb52c639905bb38c089920f515",
+      "custody": {
+        "schemaVersion": "hapa.card-custody-receipt.v1",
+        "cardId": "codex-build-week-capability-keyframe-loom",
+        "cardCoreKey": "c362643a1a16a70fceff1ec69f33e888b3356334277070d845e35e027687b785",
+        "cardRevisionId": "created-1fbb048559cada2c",
+        "cardRecordDigest": "225bc4866630eba181482e47f28af3139af582ad2034741c32f8ffa161d0106f",
+        "originPublicKey": "aac7f599227ba4a87cc308d271e80c78581c57fb52c639905bb38c089920f515",
+        "originNodeId": "hapa-avatar-builder",
+        "createdAt": "2026-07-21T04:55:39.699Z",
+        "headEventDigest": "719ffbe22f4c582f7ea31057f45112e0c255460781cef6e89ff5b02cf532561b",
+        "historyLength": 1,
+        "lifecycleStatus": "draft",
+        "custodyState": "origin_appended",
+        "replicationState": "origin_only",
+        "minted": false,
+        "catalogPublished": false,
+        "commerceEligible": false,
+        "canonical": false,
+        "identityBasis": "hypercore_origin_event",
+        "durableReceipt": true,
+        "hypercoreAppended": true,
+        "portableCustody": true,
+        "sourceMutation": false
+      },
+      "title": "The Endless Keyframe Loom",
+      "slug": "the-endless-keyframe-loom",
+      "cardType": "reference_card",
+      "number": "C-03",
+      "suit": "custom",
+      "arcana": "custom",
+      "orientation": "upright",
+      "keywords": [
+        "capability",
+        "keyframes",
+        "durable-queue",
+        "pause-resume",
+        "album"
+      ],
+      "meaning": "A durable album process can claim one missing four-count at a time, generate its prompt and image, pause safely, resume, and continue until coverage is complete.",
+      "reversedMeaning": "An unbounded batch with no durable claims, recovery, or honest completion state.",
+      "promptNotes": "Transform this synthetic observatory into an endless celestial loom weaving one cinematic keyframe for every four-beat star, with visible queued, active, paused, and completed constellations. Hapa tarot illustration, emerald and electric blue, no text.",
+      "status": "review",
+      "deckIds": [],
+      "setIds": [
+        "codex-build-week-2026"
+      ],
+      "avatarLinks": [],
+      "asset": {
+        "id": "codex-build-week-capability-keyframe-loom-krea2-image",
+        "name": "The Endless Keyframe Loom · Krea 2 proposal",
+        "uri": "/demo/wisdom-set/codex-build-week-capability-keyframe-loom.png",
+        "type": "image",
+        "requirementId": "tarot_card",
+        "tags": [
+          "tarot-card",
+          "krea2",
+          "generated-proposal",
+          "human-review"
+        ],
+        "source": "tarot-upload",
+        "notes": "Tarot card media attached to the Hapa Tarot library.",
+        "metadata": {
+          "tarotMediaRole": "primary_image",
+          "sha256": "94ea7d0f4b839f6c3c3be58a9787ff9b0aeb5e686afedcc71a15aace2fee4392",
+          "generatedBy": "hapa-krea2-identity-node",
+          "taskId": "kidtask_9e668cb150b847a7adfc796000403663",
+          "preset": "build_week_fast",
+          "identityTruth": false,
+          "humanReviewRequired": true,
+          "tarotCardId": "codex-build-week-capability-keyframe-loom"
+        },
+        "processing": {
+          "status": "attached",
+          "attachedToCard": false,
+          "processedAt": "2026-07-21T06:08:19.393Z",
+          "attachedToTarotCard": true
+        },
+        "createdAt": "2026-07-21T20:08:58.236Z"
+      },
+      "assets": [
+        {
+          "id": "codex-build-week-capability-keyframe-loom-krea2-image",
+          "name": "The Endless Keyframe Loom · Krea 2 proposal",
+          "uri": "/demo/wisdom-set/codex-build-week-capability-keyframe-loom.png",
+          "type": "image",
+          "requirementId": "tarot_card",
+          "tags": [
+            "tarot-card",
+            "krea2",
+            "generated-proposal",
+            "human-review"
+          ],
+          "source": "tarot-upload",
+          "notes": "Tarot card media attached to the Hapa Tarot library.",
+          "metadata": {
+            "tarotMediaRole": "primary_image",
+            "sha256": "94ea7d0f4b839f6c3c3be58a9787ff9b0aeb5e686afedcc71a15aace2fee4392",
+            "generatedBy": "hapa-krea2-identity-node",
+            "taskId": "kidtask_9e668cb150b847a7adfc796000403663",
+            "preset": "build_week_fast",
+            "identityTruth": false,
+            "humanReviewRequired": true,
+            "tarotCardId": "codex-build-week-capability-keyframe-loom"
+          },
+          "processing": {
+            "status": "attached",
+            "attachedToCard": false,
+            "processedAt": "2026-07-21T06:08:19.393Z",
+            "attachedToTarotCard": true
+          },
+          "createdAt": "2026-07-21T20:08:58.236Z"
+        }
+      ],
+      "primaryAssetId": "codex-build-week-capability-keyframe-loom-krea2-image",
+      "enrichment": {
+        "schemaVersion": "hapa.tarot-enrichment.v1",
+        "status": "enriched",
+        "method": "hapa-turn-miner+krea2",
+        "confidence": "high",
+        "needsReview": true,
+        "ocrText": "",
+        "ocrLines": [],
+        "visualLabels": [],
+        "detectedTitle": "",
+        "detectedNumber": "",
+        "detectedSuit": "",
+        "detectedArcana": "",
+        "detectedCardType": "",
+        "detectedAvatars": [],
+        "visualDescription": "Transform this synthetic observatory into an endless celestial loom weaving one cinematic keyframe for every four-beat star, with visible queued, active, paused, and completed constellations. Hapa tarot illustration, emerald and electric blue, no text.",
+        "symbolicSummary": "A durable album process can claim one missing four-count at a time, generate its prompt and image, pause safely, resume, and continue until coverage is complete.",
+        "textSynopsis": "CAPABILITY Card derived from attributed Codex turns during the July 13–20 Build Week window.",
+        "loreNotes": "",
+        "sourceTextSnippets": [],
+        "media": {
+          "codexBuildWeek": {
+            "schemaVersion": "hapa.codex-build-week-card.v1",
+            "setId": "codex-build-week-2026",
+            "category": "capability",
+            "number": "C-03",
+            "order": 11,
+            "priority": 6,
+            "dateRange": {
+              "start": "2026-07-13T07:00:00.000Z",
+              "end": "2026-07-21T06:59:59.999Z",
+              "timezone": "America/Los_Angeles"
+            },
+            "sourcePlatform": "codex",
+            "sourceTurnIds": [
+              "ai_turn:543bea3631931c6e",
+              "ai_turn:26b7abaa0f703ae5"
+            ],
+            "sourceRefs": [
+              "hapa-turn://ai_turn:543bea3631931c6e",
+              "hapa-turn://ai_turn:26b7abaa0f703ae5"
+            ],
+            "derivedBy": [
+              "Calder / CJ",
+              "Calder.agents()"
+            ],
+            "imageGeneration": {
+              "provider": "hapa-krea2-identity-node",
+              "taskId": "kidtask_9e668cb150b847a7adfc796000403663",
+              "preset": "build_week_fast",
+              "seed": 3303,
+              "artifactId": "sha256:94ea7d0f4b839f6c3c3be58a9787ff9b0aeb5e686afedcc71a15aace2fee4392",
+              "outputSha256": "94ea7d0f4b839f6c3c3be58a9787ff9b0aeb5e686afedcc71a15aace2fee4392",
+              "sourceFixture": "green-observatory-scene.png",
+              "sourceBasis": "synthetic_nonhuman",
+              "sourceLicense": "CC0-1.0",
+              "identityTruth": false,
+              "humanReviewRequired": true
+            },
+            "lineage": {
+              "rawTurnsRemainAuthoritative": true,
+              "sourceCardUnchanged": true,
+              "generatedOutputIsIdentityTruth": false,
+              "minted": false,
+              "canonical": false
+            }
+          }
+        },
+        "tags": [
+          "codex-build-week",
+          "capability-card",
+          "turn-mined",
+          "tarot-draw-ready",
+          "krea2-generated",
+          "unminted"
+        ],
+        "enrichedAt": "2026-07-21T06:08:18.400Z"
+      },
+      "createdAt": "2026-07-21T04:55:37.581Z",
+      "updatedAt": "2026-07-21T06:08:18.400Z"
+    },
+    {
+      "schemaVersion": "hapa.tarot-card.v1",
+      "id": "codex-build-week-capability-pocket-cinema",
+      "cardId": "codex-build-week-capability-pocket-cinema",
+      "cardCoreKey": "1b0294153c8f81ab6dd09f1db722dfc12a287096c40d165e58af498bd7baaa6a",
+      "cardRevisionId": "created-b1713c1f5c9c5722",
+      "cardRecordDigest": "01dcec61acfe8f1e8eaaaf48ec18150488b6897cd8afde097c26a26b5d692e41",
+      "recordDigest": "01dcec61acfe8f1e8eaaaf48ec18150488b6897cd8afde097c26a26b5d692e41",
+      "originPublicKey": "9c1c1c2fc49aad88a687c98fb833b0d383e504fd6499cd7cd84b7ac48246c387",
+      "custody": {
+        "schemaVersion": "hapa.card-custody-receipt.v1",
+        "cardId": "codex-build-week-capability-pocket-cinema",
+        "cardCoreKey": "1b0294153c8f81ab6dd09f1db722dfc12a287096c40d165e58af498bd7baaa6a",
+        "cardRevisionId": "created-b1713c1f5c9c5722",
+        "cardRecordDigest": "01dcec61acfe8f1e8eaaaf48ec18150488b6897cd8afde097c26a26b5d692e41",
+        "originPublicKey": "9c1c1c2fc49aad88a687c98fb833b0d383e504fd6499cd7cd84b7ac48246c387",
+        "originNodeId": "hapa-avatar-builder",
+        "createdAt": "2026-07-21T04:55:39.499Z",
+        "headEventDigest": "fd13193e52ae2e83cebea4f50b84eb2e20925d07d0ebbab6f3a566b84f81dab5",
+        "historyLength": 1,
+        "lifecycleStatus": "draft",
+        "custodyState": "origin_appended",
+        "replicationState": "origin_only",
+        "minted": false,
+        "catalogPublished": false,
+        "commerceEligible": false,
+        "canonical": false,
+        "identityBasis": "hypercore_origin_event",
+        "durableReceipt": true,
+        "hypercoreAppended": true,
+        "portableCustody": true,
+        "sourceMutation": false
+      },
+      "title": "Pocket Cinema",
+      "slug": "pocket-cinema",
+      "cardType": "reference_card",
+      "number": "C-02",
+      "suit": "custom",
+      "arcana": "custom",
+      "orientation": "upright",
+      "keywords": [
+        "capability",
+        "vertical-video",
+        "phone",
+        "echo-album",
+        "1080x1920"
+      ],
+      "meaning": "Editable Echo cuts can freeze a canonical vertical profile, certify 1080×1920 delivery, and preserve high-quality cards through working-copy, render, and mint paths.",
+      "reversedMeaning": "A phone crop that is merely a landscape render hidden behind a tall frame.",
+      "promptNotes": "Transform this synthetic observatory into a towering pocket cinema, with a true vertical beam, editable film layers, mobile framing guides, and a certified portrait artifact rising through the roof. Hapa tarot illustration, green, neon pink, and gold, no letters.",
+      "status": "review",
+      "deckIds": [],
+      "setIds": [
+        "codex-build-week-2026"
+      ],
+      "avatarLinks": [],
+      "asset": {
+        "id": "codex-build-week-capability-pocket-cinema-krea2-image",
+        "name": "Pocket Cinema · Krea 2 proposal",
+        "uri": "/demo/wisdom-set/codex-build-week-capability-pocket-cinema.png",
+        "type": "image",
+        "requirementId": "tarot_card",
+        "tags": [
+          "tarot-card",
+          "krea2",
+          "generated-proposal",
+          "human-review"
+        ],
+        "source": "tarot-upload",
+        "notes": "Tarot card media attached to the Hapa Tarot library.",
+        "metadata": {
+          "tarotMediaRole": "primary_image",
+          "sha256": "8adf2d5acbfa0ec8ebac02316676dcce206c6f43a68edc4dc4e95880a2946aad",
+          "generatedBy": "hapa-krea2-identity-node",
+          "taskId": "kidtask_785b4764655c479195da9a664468e7ec",
+          "preset": "build_week_fast",
+          "identityTruth": false,
+          "humanReviewRequired": true,
+          "tarotCardId": "codex-build-week-capability-pocket-cinema"
+        },
+        "processing": {
+          "status": "attached",
+          "attachedToCard": false,
+          "processedAt": "2026-07-21T06:08:19.302Z",
+          "attachedToTarotCard": true
+        },
+        "createdAt": "2026-07-21T20:08:58.236Z"
+      },
+      "assets": [
+        {
+          "id": "codex-build-week-capability-pocket-cinema-krea2-image",
+          "name": "Pocket Cinema · Krea 2 proposal",
+          "uri": "/demo/wisdom-set/codex-build-week-capability-pocket-cinema.png",
+          "type": "image",
+          "requirementId": "tarot_card",
+          "tags": [
+            "tarot-card",
+            "krea2",
+            "generated-proposal",
+            "human-review"
+          ],
+          "source": "tarot-upload",
+          "notes": "Tarot card media attached to the Hapa Tarot library.",
+          "metadata": {
+            "tarotMediaRole": "primary_image",
+            "sha256": "8adf2d5acbfa0ec8ebac02316676dcce206c6f43a68edc4dc4e95880a2946aad",
+            "generatedBy": "hapa-krea2-identity-node",
+            "taskId": "kidtask_785b4764655c479195da9a664468e7ec",
+            "preset": "build_week_fast",
+            "identityTruth": false,
+            "humanReviewRequired": true,
+            "tarotCardId": "codex-build-week-capability-pocket-cinema"
+          },
+          "processing": {
+            "status": "attached",
+            "attachedToCard": false,
+            "processedAt": "2026-07-21T06:08:19.302Z",
+            "attachedToTarotCard": true
+          },
+          "createdAt": "2026-07-21T20:08:58.236Z"
+        }
+      ],
+      "primaryAssetId": "codex-build-week-capability-pocket-cinema-krea2-image",
+      "enrichment": {
+        "schemaVersion": "hapa.tarot-enrichment.v1",
+        "status": "enriched",
+        "method": "hapa-turn-miner+krea2",
+        "confidence": "high",
+        "needsReview": true,
+        "ocrText": "",
+        "ocrLines": [],
+        "visualLabels": [],
+        "detectedTitle": "",
+        "detectedNumber": "",
+        "detectedSuit": "",
+        "detectedArcana": "",
+        "detectedCardType": "",
+        "detectedAvatars": [],
+        "visualDescription": "Transform this synthetic observatory into a towering pocket cinema, with a true vertical beam, editable film layers, mobile framing guides, and a certified portrait artifact rising through the roof. Hapa tarot illustration, green, neon pink, and gold, no letters.",
+        "symbolicSummary": "Editable Echo cuts can freeze a canonical vertical profile, certify 1080×1920 delivery, and preserve high-quality cards through working-copy, render, and mint paths.",
+        "textSynopsis": "CAPABILITY Card derived from attributed Codex turns during the July 13–20 Build Week window.",
+        "loreNotes": "",
+        "sourceTextSnippets": [],
+        "media": {
+          "codexBuildWeek": {
+            "schemaVersion": "hapa.codex-build-week-card.v1",
+            "setId": "codex-build-week-2026",
+            "category": "capability",
+            "number": "C-02",
+            "order": 10,
+            "priority": 7,
+            "dateRange": {
+              "start": "2026-07-13T07:00:00.000Z",
+              "end": "2026-07-21T06:59:59.999Z",
+              "timezone": "America/Los_Angeles"
+            },
+            "sourcePlatform": "codex",
+            "sourceTurnIds": [
+              "ai_turn:fbcdc9030ef10126",
+              "ai_turn:23d6789331481382"
+            ],
+            "sourceRefs": [
+              "hapa-turn://ai_turn:fbcdc9030ef10126",
+              "hapa-turn://ai_turn:23d6789331481382"
+            ],
+            "derivedBy": [
+              "Calder / CJ",
+              "Calder.agents()"
+            ],
+            "imageGeneration": {
+              "provider": "hapa-krea2-identity-node",
+              "taskId": "kidtask_785b4764655c479195da9a664468e7ec",
+              "preset": "build_week_fast",
+              "seed": 3302,
+              "artifactId": "sha256:8adf2d5acbfa0ec8ebac02316676dcce206c6f43a68edc4dc4e95880a2946aad",
+              "outputSha256": "8adf2d5acbfa0ec8ebac02316676dcce206c6f43a68edc4dc4e95880a2946aad",
+              "sourceFixture": "green-observatory-scene.png",
+              "sourceBasis": "synthetic_nonhuman",
+              "sourceLicense": "CC0-1.0",
+              "identityTruth": false,
+              "humanReviewRequired": true
+            },
+            "lineage": {
+              "rawTurnsRemainAuthoritative": true,
+              "sourceCardUnchanged": true,
+              "generatedOutputIsIdentityTruth": false,
+              "minted": false,
+              "canonical": false
+            }
+          }
+        },
+        "tags": [
+          "codex-build-week",
+          "capability-card",
+          "turn-mined",
+          "tarot-draw-ready",
+          "krea2-generated",
+          "unminted"
+        ],
+        "enrichedAt": "2026-07-21T06:08:18.400Z"
+      },
+      "createdAt": "2026-07-21T04:55:37.581Z",
+      "updatedAt": "2026-07-21T06:08:18.400Z"
+    },
+    {
+      "schemaVersion": "hapa.tarot-card.v1",
+      "id": "codex-build-week-capability-novel-wisdom",
+      "cardId": "codex-build-week-capability-novel-wisdom",
+      "cardCoreKey": "d8d8203e26ec988f25ae3ef62a4c2db3475e1f7bc9c4e415b07b8bc8def9b0a8",
+      "cardRevisionId": "created-c327ebca697a96a1",
+      "cardRecordDigest": "669c93e8d9dc1638f215f5ab9e30e1e80c135b73382c31e56bc3aebdf3310c96",
+      "recordDigest": "669c93e8d9dc1638f215f5ab9e30e1e80c135b73382c31e56bc3aebdf3310c96",
+      "originPublicKey": "3a967501c62d6b650bed86456ea1517f469a2ba6eb4345489b0db32077eff75c",
+      "custody": {
+        "schemaVersion": "hapa.card-custody-receipt.v1",
+        "cardId": "codex-build-week-capability-novel-wisdom",
+        "cardCoreKey": "d8d8203e26ec988f25ae3ef62a4c2db3475e1f7bc9c4e415b07b8bc8def9b0a8",
+        "cardRevisionId": "created-c327ebca697a96a1",
+        "cardRecordDigest": "669c93e8d9dc1638f215f5ab9e30e1e80c135b73382c31e56bc3aebdf3310c96",
+        "originPublicKey": "3a967501c62d6b650bed86456ea1517f469a2ba6eb4345489b0db32077eff75c",
+        "originNodeId": "hapa-avatar-builder",
+        "createdAt": "2026-07-21T04:55:39.285Z",
+        "headEventDigest": "81c872996c744cdf6c6a9d261acd9692bbd828902de2368d88690e9cf43e1e51",
+        "historyLength": 1,
+        "lifecycleStatus": "draft",
+        "custodyState": "origin_appended",
+        "replicationState": "origin_only",
+        "minted": false,
+        "catalogPublished": false,
+        "commerceEligible": false,
+        "canonical": false,
+        "identityBasis": "hypercore_origin_event",
+        "durableReceipt": true,
+        "hypercoreAppended": true,
+        "portableCustody": true,
+        "sourceMutation": false
+      },
+      "title": "Novel-Scale Wisdom",
+      "slug": "novel-scale-wisdom",
+      "cardType": "reference_card",
+      "number": "C-01",
+      "suit": "custom",
+      "arcana": "custom",
+      "orientation": "upright",
+      "keywords": [
+        "capability",
+        "novel",
+        "wisdom-studio",
+        "modular-writing",
+        "experience"
+      ],
+      "meaning": "A local studio can ingest long work, maintain modular character, scene, plot, timeline, and narrative answers, and append Card-derived Experience over time.",
+      "reversedMeaning": "Whole-document rewrites that erase provenance and make every change indivisible.",
+      "promptNotes": "Transform this synthetic observatory into a novel-scale wisdom engine: a long glowing manuscript winds through modular character, scene, plot, and timeline chambers beneath a constellation of cards. Hapa tarot illustration, emerald, cyan, and gold, no text.",
+      "status": "review",
+      "deckIds": [],
+      "setIds": [
+        "codex-build-week-2026"
+      ],
+      "avatarLinks": [],
+      "asset": {
+        "id": "codex-build-week-capability-novel-wisdom-krea2-image",
+        "name": "Novel-Scale Wisdom · Krea 2 proposal",
+        "uri": "/demo/wisdom-set/codex-build-week-capability-novel-wisdom.png",
+        "type": "image",
+        "requirementId": "tarot_card",
+        "tags": [
+          "tarot-card",
+          "krea2",
+          "generated-proposal",
+          "human-review"
+        ],
+        "source": "tarot-upload",
+        "notes": "Tarot card media attached to the Hapa Tarot library.",
+        "metadata": {
+          "tarotMediaRole": "primary_image",
+          "sha256": "48f7aac3756f540868c7eb2b84d59ea63dd9c4ac0ad1ff555081c919331abda8",
+          "generatedBy": "hapa-krea2-identity-node",
+          "taskId": "kidtask_856e1fd8cf294ea28a988b4c6e3af35e",
+          "preset": "build_week_fast",
+          "identityTruth": false,
+          "humanReviewRequired": true,
+          "tarotCardId": "codex-build-week-capability-novel-wisdom"
+        },
+        "processing": {
+          "status": "attached",
+          "attachedToCard": false,
+          "processedAt": "2026-07-21T06:08:19.214Z",
+          "attachedToTarotCard": true
+        },
+        "createdAt": "2026-07-21T20:08:58.236Z"
+      },
+      "assets": [
+        {
+          "id": "codex-build-week-capability-novel-wisdom-krea2-image",
+          "name": "Novel-Scale Wisdom · Krea 2 proposal",
+          "uri": "/demo/wisdom-set/codex-build-week-capability-novel-wisdom.png",
+          "type": "image",
+          "requirementId": "tarot_card",
+          "tags": [
+            "tarot-card",
+            "krea2",
+            "generated-proposal",
+            "human-review"
+          ],
+          "source": "tarot-upload",
+          "notes": "Tarot card media attached to the Hapa Tarot library.",
+          "metadata": {
+            "tarotMediaRole": "primary_image",
+            "sha256": "48f7aac3756f540868c7eb2b84d59ea63dd9c4ac0ad1ff555081c919331abda8",
+            "generatedBy": "hapa-krea2-identity-node",
+            "taskId": "kidtask_856e1fd8cf294ea28a988b4c6e3af35e",
+            "preset": "build_week_fast",
+            "identityTruth": false,
+            "humanReviewRequired": true,
+            "tarotCardId": "codex-build-week-capability-novel-wisdom"
+          },
+          "processing": {
+            "status": "attached",
+            "attachedToCard": false,
+            "processedAt": "2026-07-21T06:08:19.214Z",
+            "attachedToTarotCard": true
+          },
+          "createdAt": "2026-07-21T20:08:58.236Z"
+        }
+      ],
+      "primaryAssetId": "codex-build-week-capability-novel-wisdom-krea2-image",
+      "enrichment": {
+        "schemaVersion": "hapa.tarot-enrichment.v1",
+        "status": "enriched",
+        "method": "hapa-turn-miner+krea2",
+        "confidence": "high",
+        "needsReview": true,
+        "ocrText": "",
+        "ocrLines": [],
+        "visualLabels": [],
+        "detectedTitle": "",
+        "detectedNumber": "",
+        "detectedSuit": "",
+        "detectedArcana": "",
+        "detectedCardType": "",
+        "detectedAvatars": [],
+        "visualDescription": "Transform this synthetic observatory into a novel-scale wisdom engine: a long glowing manuscript winds through modular character, scene, plot, and timeline chambers beneath a constellation of cards. Hapa tarot illustration, emerald, cyan, and gold, no text.",
+        "symbolicSummary": "A local studio can ingest long work, maintain modular character, scene, plot, timeline, and narrative answers, and append Card-derived Experience over time.",
+        "textSynopsis": "CAPABILITY Card derived from attributed Codex turns during the July 13–20 Build Week window.",
+        "loreNotes": "",
+        "sourceTextSnippets": [],
+        "media": {
+          "codexBuildWeek": {
+            "schemaVersion": "hapa.codex-build-week-card.v1",
+            "setId": "codex-build-week-2026",
+            "category": "capability",
+            "number": "C-01",
+            "order": 9,
+            "priority": 8,
+            "dateRange": {
+              "start": "2026-07-13T07:00:00.000Z",
+              "end": "2026-07-21T06:59:59.999Z",
+              "timezone": "America/Los_Angeles"
+            },
+            "sourcePlatform": "codex",
+            "sourceTurnIds": [
+              "ai_turn:0c1a2f820cb45ca7",
+              "ai_turn:194badf1bf2acff7"
+            ],
+            "sourceRefs": [
+              "hapa-turn://ai_turn:0c1a2f820cb45ca7",
+              "hapa-turn://ai_turn:194badf1bf2acff7"
+            ],
+            "derivedBy": [
+              "Calder / CJ",
+              "Calder.agents()"
+            ],
+            "imageGeneration": {
+              "provider": "hapa-krea2-identity-node",
+              "taskId": "kidtask_856e1fd8cf294ea28a988b4c6e3af35e",
+              "preset": "build_week_fast",
+              "seed": 3301,
+              "artifactId": "sha256:48f7aac3756f540868c7eb2b84d59ea63dd9c4ac0ad1ff555081c919331abda8",
+              "outputSha256": "48f7aac3756f540868c7eb2b84d59ea63dd9c4ac0ad1ff555081c919331abda8",
+              "sourceFixture": "green-observatory-scene.png",
+              "sourceBasis": "synthetic_nonhuman",
+              "sourceLicense": "CC0-1.0",
+              "identityTruth": false,
+              "humanReviewRequired": true
+            },
+            "lineage": {
+              "rawTurnsRemainAuthoritative": true,
+              "sourceCardUnchanged": true,
+              "generatedOutputIsIdentityTruth": false,
+              "minted": false,
+              "canonical": false
+            }
+          }
+        },
+        "tags": [
+          "codex-build-week",
+          "capability-card",
+          "turn-mined",
+          "tarot-draw-ready",
+          "krea2-generated",
+          "unminted"
+        ],
+        "enrichedAt": "2026-07-21T06:08:18.400Z"
+      },
+      "createdAt": "2026-07-21T04:55:37.581Z",
+      "updatedAt": "2026-07-21T06:08:18.400Z"
+    },
+    {
+      "schemaVersion": "hapa.tarot-card.v1",
+      "id": "codex-build-week-skill-heuristic-lantern",
+      "cardId": "codex-build-week-skill-heuristic-lantern",
+      "cardCoreKey": "3601b628342726a5227ee262d5ab98dfb876a801fa9a88b418710e8c53b0b8e5",
+      "cardRevisionId": "created-3b2e13a37bdc2d8b",
+      "cardRecordDigest": "4dfc786891185f6d3d8c794ffb5e24692e7b4c98919e805df7b29181a7ec082e",
+      "recordDigest": "4dfc786891185f6d3d8c794ffb5e24692e7b4c98919e805df7b29181a7ec082e",
+      "originPublicKey": "c57fecb27fbe8ccf621cab67edb52c6661c8967c827319d85923bc0da7a98bcd",
+      "custody": {
+        "schemaVersion": "hapa.card-custody-receipt.v1",
+        "cardId": "codex-build-week-skill-heuristic-lantern",
+        "cardCoreKey": "3601b628342726a5227ee262d5ab98dfb876a801fa9a88b418710e8c53b0b8e5",
+        "cardRevisionId": "created-3b2e13a37bdc2d8b",
+        "cardRecordDigest": "4dfc786891185f6d3d8c794ffb5e24692e7b4c98919e805df7b29181a7ec082e",
+        "originPublicKey": "c57fecb27fbe8ccf621cab67edb52c6661c8967c827319d85923bc0da7a98bcd",
+        "originNodeId": "hapa-avatar-builder",
+        "createdAt": "2026-07-21T04:55:39.095Z",
+        "headEventDigest": "1f95c5117e26c72ab48f6d42aca325dd0bab61871a2df155aa2a4ec31b3a5ae7",
+        "historyLength": 1,
+        "lifecycleStatus": "draft",
+        "custodyState": "origin_appended",
+        "replicationState": "origin_only",
+        "minted": false,
+        "catalogPublished": false,
+        "commerceEligible": false,
+        "canonical": false,
+        "identityBasis": "hypercore_origin_event",
+        "durableReceipt": true,
+        "hypercoreAppended": true,
+        "portableCustody": true,
+        "sourceMutation": false
+      },
+      "title": "The Heuristic Lantern",
+      "slug": "the-heuristic-lantern",
+      "cardType": "reference_card",
+      "number": "S-04",
+      "suit": "custom",
+      "arcana": "custom",
+      "orientation": "upright",
+      "keywords": [
+        "skill",
+        "audit",
+        "heuristic",
+        "llm",
+        "truthfulness"
+      ],
+      "meaning": "Audit whether claimed model reasoning actually occurred, expose deterministic shortcuts, and preserve the rejected artifact as learning evidence.",
+      "reversedMeaning": "A template engine wearing the language of interpretation.",
+      "promptNotes": "Restage this synthetic non-human explorer holding a bright diagnostic lantern between a living reasoning tree and a repeating mechanical stencil, revealing the difference clearly. Hapa tarot illustration, deep blue, white, and warning orange, no readable text.",
+      "status": "review",
+      "deckIds": [],
+      "setIds": [
+        "codex-build-week-2026"
+      ],
+      "avatarLinks": [],
+      "asset": {
+        "id": "codex-build-week-skill-heuristic-lantern-krea2-image",
+        "name": "The Heuristic Lantern · Krea 2 proposal",
+        "uri": "/demo/wisdom-set/codex-build-week-skill-heuristic-lantern.png",
+        "type": "image",
+        "requirementId": "tarot_card",
+        "tags": [
+          "tarot-card",
+          "krea2",
+          "generated-proposal",
+          "human-review"
+        ],
+        "source": "tarot-upload",
+        "notes": "Tarot card media attached to the Hapa Tarot library.",
+        "metadata": {
+          "tarotMediaRole": "primary_image",
+          "sha256": "4b88279a3bde22f5d667a1d85a352174c689e2056d7ce63e3d40c371786d378d",
+          "generatedBy": "hapa-krea2-identity-node",
+          "taskId": "kidtask_ffea89c7b9a84caca27684d87c79bf73",
+          "preset": "build_week_fast",
+          "identityTruth": false,
+          "humanReviewRequired": true,
+          "tarotCardId": "codex-build-week-skill-heuristic-lantern"
+        },
+        "processing": {
+          "status": "attached",
+          "attachedToCard": false,
+          "processedAt": "2026-07-21T06:08:19.125Z",
+          "attachedToTarotCard": true
+        },
+        "createdAt": "2026-07-21T20:08:58.236Z"
+      },
+      "assets": [
+        {
+          "id": "codex-build-week-skill-heuristic-lantern-krea2-image",
+          "name": "The Heuristic Lantern · Krea 2 proposal",
+          "uri": "/demo/wisdom-set/codex-build-week-skill-heuristic-lantern.png",
+          "type": "image",
+          "requirementId": "tarot_card",
+          "tags": [
+            "tarot-card",
+            "krea2",
+            "generated-proposal",
+            "human-review"
+          ],
+          "source": "tarot-upload",
+          "notes": "Tarot card media attached to the Hapa Tarot library.",
+          "metadata": {
+            "tarotMediaRole": "primary_image",
+            "sha256": "4b88279a3bde22f5d667a1d85a352174c689e2056d7ce63e3d40c371786d378d",
+            "generatedBy": "hapa-krea2-identity-node",
+            "taskId": "kidtask_ffea89c7b9a84caca27684d87c79bf73",
+            "preset": "build_week_fast",
+            "identityTruth": false,
+            "humanReviewRequired": true,
+            "tarotCardId": "codex-build-week-skill-heuristic-lantern"
+          },
+          "processing": {
+            "status": "attached",
+            "attachedToCard": false,
+            "processedAt": "2026-07-21T06:08:19.125Z",
+            "attachedToTarotCard": true
+          },
+          "createdAt": "2026-07-21T20:08:58.236Z"
+        }
+      ],
+      "primaryAssetId": "codex-build-week-skill-heuristic-lantern-krea2-image",
+      "enrichment": {
+        "schemaVersion": "hapa.tarot-enrichment.v1",
+        "status": "enriched",
+        "method": "hapa-turn-miner+krea2",
+        "confidence": "high",
+        "needsReview": true,
+        "ocrText": "",
+        "ocrLines": [],
+        "visualLabels": [],
+        "detectedTitle": "",
+        "detectedNumber": "",
+        "detectedSuit": "",
+        "detectedArcana": "",
+        "detectedCardType": "",
+        "detectedAvatars": [],
+        "visualDescription": "Restage this synthetic non-human explorer holding a bright diagnostic lantern between a living reasoning tree and a repeating mechanical stencil, revealing the difference clearly. Hapa tarot illustration, deep blue, white, and warning orange, no readable text.",
+        "symbolicSummary": "Audit whether claimed model reasoning actually occurred, expose deterministic shortcuts, and preserve the rejected artifact as learning evidence.",
+        "textSynopsis": "The Heuristic Lantern tests whether a system that speaks in the language of interpretation actually performed the reasoning it claims. The practitioner follows the execution path from UI promise to prompt construction, provider or local-model call, response handling, deterministic transforms, and final artifact. They then use counterfactual probes: change an input that should matter and observe whether the output responds, while holding irrelevant variables stable. The result classifies the behavior as model-driven, heuristic, hybrid, fallback, or unproven. A rejected artifact is retained with the evidence that disqualified it, turning an embarrassing shortcut into a reusable lesson and preventing the same false capability claim from resurfacing elsewhere.",
+        "loreNotes": "Polished interfaces and fluent output can hide hard-coded templates, hash-derived choices, stale cache reuse, or a model path that was never invoked. The danger is not the existence of heuristics; it is presenting deterministic machinery as semantic judgment and allowing downstream Cards to inherit that false provenance.",
+        "sourceTextSnippets": [],
+        "media": {
+          "codexBuildWeek": {
+            "schemaVersion": "hapa.codex-build-week-card.v1",
+            "setId": "codex-build-week-2026",
+            "category": "skill",
+            "number": "S-04",
+            "order": 8,
+            "priority": 9,
+            "dateRange": {
+              "start": "2026-07-13T07:00:00.000Z",
+              "end": "2026-07-21T06:59:59.999Z",
+              "timezone": "America/Los_Angeles"
+            },
+            "sourcePlatform": "codex",
+            "sourceTurnIds": [
+              "ai_turn:ad9f0b1d826b2b0d",
+              "ai_turn:338e22c1d7e7d82c"
+            ],
+            "sourceRefs": [
+              "hapa-turn://ai_turn:ad9f0b1d826b2b0d",
+              "hapa-turn://ai_turn:338e22c1d7e7d82c"
+            ],
+            "derivedBy": [
+              "Calder / CJ",
+              "Calder.agents()"
+            ],
+            "skillProfile": {
+              "schemaVersion": "hapa.codex-build-week-skill-profile.v1",
+              "technicalAnchor": "Claim-to-execution audit for model reasoning and deterministic shortcuts",
+              "summary": "The Heuristic Lantern tests whether a system that speaks in the language of interpretation actually performed the reasoning it claims. The practitioner follows the execution path from UI promise to prompt construction, provider or local-model call, response handling, deterministic transforms, and final artifact. They then use counterfactual probes: change an input that should matter and observe whether the output responds, while holding irrelevant variables stable. The result classifies the behavior as model-driven, heuristic, hybrid, fallback, or unproven. A rejected artifact is retained with the evidence that disqualified it, turning an embarrassing shortcut into a reusable lesson and preventing the same false capability claim from resurfacing elsewhere.",
+              "context": "Polished interfaces and fluent output can hide hard-coded templates, hash-derived choices, stale cache reuse, or a model path that was never invoked. The danger is not the existence of heuristics; it is presenting deterministic machinery as semantic judgment and allowing downstream Cards to inherit that false provenance.",
+              "application": "Use it when generated results repeat suspiciously, ignore meaningful source changes, claim analysis without model receipts, or survive after the supposed provider is unavailable. It is useful during feature review, incident diagnosis, benchmark design, and before promoting an AI-assisted workflow into a trusted Hapa Card or protocol.",
+              "method": [
+                "Write the exact capability claim and the observable behavior that would distinguish genuine input-sensitive reasoning from a fixed or cached transform.",
+                "Trace the implementation path through prompt assembly, model or provider invocation, cache and fallback branches, parsing, post-processing, and artifact creation.",
+                "Run controlled counterfactuals: vary semantically important inputs, preserve irrelevant variables, and compare outputs, receipts, timing, and branch telemetry.",
+                "Classify the path as model-driven, heuristic, hybrid, fallback, or unproven; correct the UI claim and preserve the rejected artifact, cause, and new guardrail."
+              ],
+              "capabilities": [
+                {
+                  "name": "Claim-to-Call Trace",
+                  "mode": "Active",
+                  "description": "Connects an operator-visible reasoning claim to the exact executable branch, model call, cache, and transform that produced the artifact."
+                },
+                {
+                  "name": "Counterfactual Probe",
+                  "mode": "Active",
+                  "description": "Changes meaning-bearing inputs to test whether the output is genuinely sensitive to the evidence it claims to interpret."
+                },
+                {
+                  "name": "Shortcut Exposure",
+                  "mode": "Passive",
+                  "description": "Surfaces deterministic templates, hash choices, stale caches, and silent fallbacks instead of letting fluent presentation conceal them."
+                },
+                {
+                  "name": "Rejected Artifact Retention",
+                  "mode": "Passive",
+                  "description": "Keeps the failed output and its disqualifying evidence as learning material rather than rewriting the history into a clean success story."
+                }
+              ],
+              "proof": "A successful audit provides branch and invocation evidence, counterfactual results, and a bounded classification of what actually happened. The UI claim matches that classification, and the rejected artifact remains linked to the cause, correction, and regression guardrail.",
+              "limits": "This Skill cannot prove a model's private internal chain of thought. It can only establish the observable implementation path, inputs, outputs, receipts, and sensitivity of the system. Heuristics are not inherently invalid; they become a problem when undisclosed, misattributed, or used outside the conditions they were tested for."
+            },
+            "imageGeneration": {
+              "provider": "hapa-krea2-identity-node",
+              "taskId": "kidtask_ffea89c7b9a84caca27684d87c79bf73",
+              "preset": "build_week_fast",
+              "seed": 2304,
+              "artifactId": "sha256:4b88279a3bde22f5d667a1d85a352174c689e2056d7ce63e3d40c371786d378d",
+              "outputSha256": "4b88279a3bde22f5d667a1d85a352174c689e2056d7ce63e3d40c371786d378d",
+              "sourceFixture": "blue-orb-explorer.png",
+              "sourceBasis": "synthetic_nonhuman",
+              "sourceLicense": "CC0-1.0",
+              "identityTruth": false,
+              "humanReviewRequired": true
+            },
+            "lineage": {
+              "rawTurnsRemainAuthoritative": true,
+              "sourceCardUnchanged": true,
+              "generatedOutputIsIdentityTruth": false,
+              "minted": false,
+              "canonical": false
+            }
+          }
+        },
+        "tags": [
+          "codex-build-week",
+          "skill-card",
+          "turn-mined",
+          "tarot-draw-ready",
+          "krea2-generated",
+          "unminted"
+        ],
+        "enrichedAt": "2026-07-21T06:08:18.400Z"
+      },
+      "createdAt": "2026-07-21T04:55:37.581Z",
+      "updatedAt": "2026-07-21T06:08:18.400Z"
+    },
+    {
+      "schemaVersion": "hapa.tarot-card.v1",
+      "id": "codex-build-week-skill-four-count-reading",
+      "cardId": "codex-build-week-skill-four-count-reading",
+      "cardCoreKey": "6dc124ce1584af2b3fe77fc6636cea0d98c80975f1848dd63b0bc59d637bf690",
+      "cardRevisionId": "created-5c92e3f410b95076",
+      "cardRecordDigest": "4136059c830d29b2e7242c1af00781d41a607c89afe380e1b918dc9ceb7dd827",
+      "recordDigest": "4136059c830d29b2e7242c1af00781d41a607c89afe380e1b918dc9ceb7dd827",
+      "originPublicKey": "73362abe281922d80bb3d07f3257631763c289fa118bf18e5821db8ea6c78795",
+      "custody": {
+        "schemaVersion": "hapa.card-custody-receipt.v1",
+        "cardId": "codex-build-week-skill-four-count-reading",
+        "cardCoreKey": "6dc124ce1584af2b3fe77fc6636cea0d98c80975f1848dd63b0bc59d637bf690",
+        "cardRevisionId": "created-5c92e3f410b95076",
+        "cardRecordDigest": "4136059c830d29b2e7242c1af00781d41a607c89afe380e1b918dc9ceb7dd827",
+        "originPublicKey": "73362abe281922d80bb3d07f3257631763c289fa118bf18e5821db8ea6c78795",
+        "originNodeId": "hapa-avatar-builder",
+        "createdAt": "2026-07-21T04:55:38.904Z",
+        "headEventDigest": "6f5f96c8801366c1580a6b97c1ea1c3fe985afe0876116064080e4af9add4868",
+        "historyLength": 1,
+        "lifecycleStatus": "draft",
+        "custodyState": "origin_appended",
+        "replicationState": "origin_only",
+        "minted": false,
+        "catalogPublished": false,
+        "commerceEligible": false,
+        "canonical": false,
+        "identityBasis": "hypercore_origin_event",
+        "durableReceipt": true,
+        "hypercoreAppended": true,
+        "portableCustody": true,
+        "sourceMutation": false
+      },
+      "title": "Four-Count Scene Reading",
+      "slug": "four-count-scene-reading",
+      "cardType": "reference_card",
+      "number": "S-03",
+      "suit": "custom",
+      "arcana": "custom",
+      "orientation": "upright",
+      "keywords": [
+        "skill",
+        "four-count",
+        "scene-prompt",
+        "lyrics",
+        "keyframe"
+      ],
+      "meaning": "Read a verified four-beat interval through lyrics, verbs, symbols, references, characters, and energy before proposing a single keyframe composition.",
+      "reversedMeaning": "Treating four counts as four seconds or rotating generic templates through a song.",
+      "promptNotes": "Restage this synthetic non-human explorer conducting four luminous beats that unfold into lyrics, action symbols, character silhouettes, and one decisive cinematic keyframe. Hapa tarot illustration, rhythmic blue, pink, and gold light, no text.",
+      "status": "review",
+      "deckIds": [],
+      "setIds": [
+        "codex-build-week-2026"
+      ],
+      "avatarLinks": [],
+      "asset": {
+        "id": "codex-build-week-skill-four-count-reading-krea2-image",
+        "name": "Four-Count Scene Reading · Krea 2 proposal",
+        "uri": "/demo/wisdom-set/codex-build-week-skill-four-count-reading.png",
+        "type": "image",
+        "requirementId": "tarot_card",
+        "tags": [
+          "tarot-card",
+          "krea2",
+          "generated-proposal",
+          "human-review"
+        ],
+        "source": "tarot-upload",
+        "notes": "Tarot card media attached to the Hapa Tarot library.",
+        "metadata": {
+          "tarotMediaRole": "primary_image",
+          "sha256": "52a151d5ee4bd56f1992998eab6d705224a6b1922d9c09e84947530bf66718fc",
+          "generatedBy": "hapa-krea2-identity-node",
+          "taskId": "kidtask_7277dbfb2d004d2792ffda09cc223ac0",
+          "preset": "build_week_fast",
+          "identityTruth": false,
+          "humanReviewRequired": true,
+          "tarotCardId": "codex-build-week-skill-four-count-reading"
+        },
+        "processing": {
+          "status": "attached",
+          "attachedToCard": false,
+          "processedAt": "2026-07-21T06:08:19.038Z",
+          "attachedToTarotCard": true
+        },
+        "createdAt": "2026-07-21T20:08:58.236Z"
+      },
+      "assets": [
+        {
+          "id": "codex-build-week-skill-four-count-reading-krea2-image",
+          "name": "Four-Count Scene Reading · Krea 2 proposal",
+          "uri": "/demo/wisdom-set/codex-build-week-skill-four-count-reading.png",
+          "type": "image",
+          "requirementId": "tarot_card",
+          "tags": [
+            "tarot-card",
+            "krea2",
+            "generated-proposal",
+            "human-review"
+          ],
+          "source": "tarot-upload",
+          "notes": "Tarot card media attached to the Hapa Tarot library.",
+          "metadata": {
+            "tarotMediaRole": "primary_image",
+            "sha256": "52a151d5ee4bd56f1992998eab6d705224a6b1922d9c09e84947530bf66718fc",
+            "generatedBy": "hapa-krea2-identity-node",
+            "taskId": "kidtask_7277dbfb2d004d2792ffda09cc223ac0",
+            "preset": "build_week_fast",
+            "identityTruth": false,
+            "humanReviewRequired": true,
+            "tarotCardId": "codex-build-week-skill-four-count-reading"
+          },
+          "processing": {
+            "status": "attached",
+            "attachedToCard": false,
+            "processedAt": "2026-07-21T06:08:19.038Z",
+            "attachedToTarotCard": true
+          },
+          "createdAt": "2026-07-21T20:08:58.236Z"
+        }
+      ],
+      "primaryAssetId": "codex-build-week-skill-four-count-reading-krea2-image",
+      "enrichment": {
+        "schemaVersion": "hapa.tarot-enrichment.v1",
+        "status": "enriched",
+        "method": "hapa-turn-miner+krea2",
+        "confidence": "high",
+        "needsReview": true,
+        "ocrText": "",
+        "ocrLines": [],
+        "visualLabels": [],
+        "detectedTitle": "",
+        "detectedNumber": "",
+        "detectedSuit": "",
+        "detectedArcana": "",
+        "detectedCardType": "",
+        "detectedAvatars": [],
+        "visualDescription": "Restage this synthetic non-human explorer conducting four luminous beats that unfold into lyrics, action symbols, character silhouettes, and one decisive cinematic keyframe. Hapa tarot illustration, rhythmic blue, pink, and gold light, no text.",
+        "symbolicSummary": "Read a verified four-beat interval through lyrics, verbs, symbols, references, characters, and energy before proposing a single keyframe composition.",
+        "textSynopsis": "Four-Count Scene Reading converts one verified musical interval into one purposeful cinematic composition. The interval is derived from tempo, meter, and authoritative timing—not guessed as four seconds. Within that window, the practitioner reads the active lyric or phoneme, musical energy, verbs, symbols, characters, reference Cards, and continuity from the surrounding shots. Those signals converge into a single keyframe decision with a clear subject, action, environment, camera, light, palette, and emotional turn. The goal is not to decorate every beat independently; it is to discover the most consequential visual statement the four-count can carry while remaining traceable to the song and compatible with the sequence around it.",
+        "loreNotes": "Keyframe pipelines become generic when they rotate prompt templates or treat equal clock durations as equal musical phrases. Songs organize meaning rhythmically. A four-count is useful only when its actual time boundary, lyrical content, musical role, and narrative neighbors are read together.",
+        "sourceTextSnippets": [],
+        "media": {
+          "codexBuildWeek": {
+            "schemaVersion": "hapa.codex-build-week-card.v1",
+            "setId": "codex-build-week-2026",
+            "category": "skill",
+            "number": "S-03",
+            "order": 7,
+            "priority": 10,
+            "dateRange": {
+              "start": "2026-07-13T07:00:00.000Z",
+              "end": "2026-07-21T06:59:59.999Z",
+              "timezone": "America/Los_Angeles"
+            },
+            "sourcePlatform": "codex",
+            "sourceTurnIds": [
+              "ai_turn:26b7abaa0f703ae5",
+              "ai_turn:cba0f019a1769c5a"
+            ],
+            "sourceRefs": [
+              "hapa-turn://ai_turn:26b7abaa0f703ae5",
+              "hapa-turn://ai_turn:cba0f019a1769c5a"
+            ],
+            "derivedBy": [
+              "Calder / CJ",
+              "Calder.agents()"
+            ],
+            "skillProfile": {
+              "schemaVersion": "hapa.codex-build-week-skill-profile.v1",
+              "technicalAnchor": "Beat-bounded semantic reading for one evidence-backed keyframe",
+              "summary": "Four-Count Scene Reading converts one verified musical interval into one purposeful cinematic composition. The interval is derived from tempo, meter, and authoritative timing—not guessed as four seconds. Within that window, the practitioner reads the active lyric or phoneme, musical energy, verbs, symbols, characters, reference Cards, and continuity from the surrounding shots. Those signals converge into a single keyframe decision with a clear subject, action, environment, camera, light, palette, and emotional turn. The goal is not to decorate every beat independently; it is to discover the most consequential visual statement the four-count can carry while remaining traceable to the song and compatible with the sequence around it.",
+              "context": "Keyframe pipelines become generic when they rotate prompt templates or treat equal clock durations as equal musical phrases. Songs organize meaning rhythmically. A four-count is useful only when its actual time boundary, lyrical content, musical role, and narrative neighbors are read together.",
+              "application": "Use it while filling missing album keyframes, storyboarding music videos, directing lyric-driven transitions, or reviewing whether an existing image belongs to its exact musical moment. It works best one bounded interval at a time inside a durable pause/resume queue.",
+              "method": [
+                "Resolve the interval start and end from authoritative tempo, meter, beat-grid, and lyric-timing evidence; record the math and source revision.",
+                "Collect the active lyric or phoneme, dominant verbs, stem or energy change, symbols, characters, locations, and relevant reference Cards for that window.",
+                "Read the previous and next compositions so the proposed frame advances continuity instead of resetting to a generic tableau.",
+                "Commit to one keyframe: name the subject, action, environment, camera, lighting, palette, emotional turn, must-show evidence, and exclusions; then preserve the reading with the prompt."
+              ],
+              "capabilities": [
+                {
+                  "name": "Beat-Bound Window",
+                  "mode": "Passive",
+                  "description": "Anchors the scene to verified musical timing and prevents the four-count from collapsing into an arbitrary four-second unit."
+                },
+                {
+                  "name": "Semantic Convergence",
+                  "mode": "Active",
+                  "description": "Combines lyric, action, symbol, character, reference, and energy evidence into one visual reading."
+                },
+                {
+                  "name": "Single-Frame Commitment",
+                  "mode": "Active",
+                  "description": "Chooses one decisive composition instead of distributing weak ideas across generic variants."
+                },
+                {
+                  "name": "Continuity Check",
+                  "mode": "Passive",
+                  "description": "Tests the frame against neighboring shots, character identity, visual grammar, and the song's larger arc."
+                }
+              ],
+              "proof": "A successful reading exposes its exact timed interval and cites the signals that shaped the frame. The resulting prompt has one coherent composition, preserves character and sequence continuity, and changes meaningfully when the lyric, beat role, or neighboring shot changes.",
+              "limits": "The reading is an attributed creative interpretation, not canonical song meaning. Missing lyric or stem evidence must be disclosed. The Skill does not guarantee a generated image will obey the prompt, and it must not fabricate timing, characters, symbols, or emotional claims to make a thin interval seem richer."
+            },
+            "imageGeneration": {
+              "provider": "hapa-krea2-identity-node",
+              "taskId": "kidtask_7277dbfb2d004d2792ffda09cc223ac0",
+              "preset": "build_week_fast",
+              "seed": 2303,
+              "artifactId": "sha256:52a151d5ee4bd56f1992998eab6d705224a6b1922d9c09e84947530bf66718fc",
+              "outputSha256": "52a151d5ee4bd56f1992998eab6d705224a6b1922d9c09e84947530bf66718fc",
+              "sourceFixture": "blue-orb-explorer.png",
+              "sourceBasis": "synthetic_nonhuman",
+              "sourceLicense": "CC0-1.0",
+              "identityTruth": false,
+              "humanReviewRequired": true
+            },
+            "lineage": {
+              "rawTurnsRemainAuthoritative": true,
+              "sourceCardUnchanged": true,
+              "generatedOutputIsIdentityTruth": false,
+              "minted": false,
+              "canonical": false
+            }
+          }
+        },
+        "tags": [
+          "codex-build-week",
+          "skill-card",
+          "turn-mined",
+          "tarot-draw-ready",
+          "krea2-generated",
+          "unminted"
+        ],
+        "enrichedAt": "2026-07-21T06:08:18.400Z"
+      },
+      "createdAt": "2026-07-21T04:55:37.581Z",
+      "updatedAt": "2026-07-21T06:08:18.400Z"
+    },
+    {
+      "schemaVersion": "hapa.tarot-card.v1",
+      "id": "codex-build-week-skill-render-truth",
+      "cardId": "codex-build-week-skill-render-truth",
+      "cardCoreKey": "04f1a5c92e29798bd5e35c7f650fc83f45c25d9da1d763bfae25dd2b4a507f20",
+      "cardRevisionId": "created-5baf472964d4e38e",
+      "cardRecordDigest": "7598a695cffd745037664da4642df17796188556c0343e6c5f9d6eb88e0f2bb9",
+      "recordDigest": "7598a695cffd745037664da4642df17796188556c0343e6c5f9d6eb88e0f2bb9",
+      "originPublicKey": "62767c6b5c3a478b70a21a729289fd250412da8a3287f343fd7833ab77e3b43b",
+      "custody": {
+        "schemaVersion": "hapa.card-custody-receipt.v1",
+        "cardId": "codex-build-week-skill-render-truth",
+        "cardCoreKey": "04f1a5c92e29798bd5e35c7f650fc83f45c25d9da1d763bfae25dd2b4a507f20",
+        "cardRevisionId": "created-5baf472964d4e38e",
+        "cardRecordDigest": "7598a695cffd745037664da4642df17796188556c0343e6c5f9d6eb88e0f2bb9",
+        "originPublicKey": "62767c6b5c3a478b70a21a729289fd250412da8a3287f343fd7833ab77e3b43b",
+        "originNodeId": "hapa-avatar-builder",
+        "createdAt": "2026-07-21T04:55:38.712Z",
+        "headEventDigest": "ac48fb39e03e0309abf0dc2c25549d8b9c2e0b5906533c4351275e8b641ff454",
+        "historyLength": 1,
+        "lifecycleStatus": "draft",
+        "custodyState": "origin_appended",
+        "replicationState": "origin_only",
+        "minted": false,
+        "catalogPublished": false,
+        "commerceEligible": false,
+        "canonical": false,
+        "identityBasis": "hypercore_origin_event",
+        "durableReceipt": true,
+        "hypercoreAppended": true,
+        "portableCustody": true,
+        "sourceMutation": false
+      },
+      "title": "Render Truth Preflight",
+      "slug": "render-truth-preflight",
+      "cardType": "reference_card",
+      "number": "S-02",
+      "suit": "custom",
+      "arcana": "custom",
+      "orientation": "upright",
+      "keywords": [
+        "skill",
+        "preflight",
+        "rendering",
+        "media",
+        "truth"
+      ],
+      "meaning": "Inspect every source, codec, shader, graph, and final artifact before expensive work begins; separate a foundation reel from the actual mintable composition.",
+      "reversedMeaning": "Fixing failures one video at a time while the systemic incompatibility remains invisible.",
+      "promptNotes": "Restage this synthetic non-human explorer as a media preflight navigator examining a branching film path through codec gates, shader prisms, audio waves, and one certified final artifact. Hapa tarot illustration, sapphire and gold, no readable text.",
+      "status": "review",
+      "deckIds": [],
+      "setIds": [
+        "codex-build-week-2026"
+      ],
+      "avatarLinks": [],
+      "asset": {
+        "id": "codex-build-week-skill-render-truth-krea2-image",
+        "name": "Render Truth Preflight · Krea 2 proposal",
+        "uri": "/demo/wisdom-set/codex-build-week-skill-render-truth.png",
+        "type": "image",
+        "requirementId": "tarot_card",
+        "tags": [
+          "tarot-card",
+          "krea2",
+          "generated-proposal",
+          "human-review"
+        ],
+        "source": "tarot-upload",
+        "notes": "Tarot card media attached to the Hapa Tarot library.",
+        "metadata": {
+          "tarotMediaRole": "primary_image",
+          "sha256": "8f2d87f8579babfb12ac1e56aa5c66fbe0b1a84fa4da18c4000bdbb0f4568b40",
+          "generatedBy": "hapa-krea2-identity-node",
+          "taskId": "kidtask_62f92df7e59041f69c923f9040b868f1",
+          "preset": "build_week_fast",
+          "identityTruth": false,
+          "humanReviewRequired": true,
+          "tarotCardId": "codex-build-week-skill-render-truth"
+        },
+        "processing": {
+          "status": "attached",
+          "attachedToCard": false,
+          "processedAt": "2026-07-21T06:08:18.952Z",
+          "attachedToTarotCard": true
+        },
+        "createdAt": "2026-07-21T20:08:58.236Z"
+      },
+      "assets": [
+        {
+          "id": "codex-build-week-skill-render-truth-krea2-image",
+          "name": "Render Truth Preflight · Krea 2 proposal",
+          "uri": "/demo/wisdom-set/codex-build-week-skill-render-truth.png",
+          "type": "image",
+          "requirementId": "tarot_card",
+          "tags": [
+            "tarot-card",
+            "krea2",
+            "generated-proposal",
+            "human-review"
+          ],
+          "source": "tarot-upload",
+          "notes": "Tarot card media attached to the Hapa Tarot library.",
+          "metadata": {
+            "tarotMediaRole": "primary_image",
+            "sha256": "8f2d87f8579babfb12ac1e56aa5c66fbe0b1a84fa4da18c4000bdbb0f4568b40",
+            "generatedBy": "hapa-krea2-identity-node",
+            "taskId": "kidtask_62f92df7e59041f69c923f9040b868f1",
+            "preset": "build_week_fast",
+            "identityTruth": false,
+            "humanReviewRequired": true,
+            "tarotCardId": "codex-build-week-skill-render-truth"
+          },
+          "processing": {
+            "status": "attached",
+            "attachedToCard": false,
+            "processedAt": "2026-07-21T06:08:18.952Z",
+            "attachedToTarotCard": true
+          },
+          "createdAt": "2026-07-21T20:08:58.236Z"
+        }
+      ],
+      "primaryAssetId": "codex-build-week-skill-render-truth-krea2-image",
+      "enrichment": {
+        "schemaVersion": "hapa.tarot-enrichment.v1",
+        "status": "enriched",
+        "method": "hapa-turn-miner+krea2",
+        "confidence": "high",
+        "needsReview": true,
+        "ocrText": "",
+        "ocrLines": [],
+        "visualLabels": [],
+        "detectedTitle": "",
+        "detectedNumber": "",
+        "detectedSuit": "",
+        "detectedArcana": "",
+        "detectedCardType": "",
+        "detectedAvatars": [],
+        "visualDescription": "Restage this synthetic non-human explorer as a media preflight navigator examining a branching film path through codec gates, shader prisms, audio waves, and one certified final artifact. Hapa tarot illustration, sapphire and gold, no readable text.",
+        "symbolicSummary": "Inspect every source, codec, shader, graph, and final artifact before expensive work begins; separate a foundation reel from the actual mintable composition.",
+        "textSynopsis": "Render Truth Preflight is the discipline of proving that a media plan can actually execute before a long or costly render begins. It inventories every source asset, codec, duration, shader runtime, stem or signal binding, graph revision, output profile, and expected final artifact, then tests the transitions between them. The practitioner distinguishes a useful foundation reel or preview from the exact composition eligible for review, release, or minting. Instead of repairing failures one clip at a time, the Skill looks for shared incompatibilities—stale hashes, unsupported decoders, missing shader dependencies, mismatched orientations, detached graphs, or unverified fallbacks—and blocks the queue until the contract is truthful and reproducible.",
+        "loreNotes": "Creative previews can appear healthy while depending on silent fallbacks, stale assets, or renderer features that the final pipeline cannot reproduce. Once multiplied across an album or batch, a small compatibility lie becomes expensive rework. Preflight moves that discovery to the cheapest possible point.",
+        "sourceTextSnippets": [],
+        "media": {
+          "codexBuildWeek": {
+            "schemaVersion": "hapa.codex-build-week-card.v1",
+            "setId": "codex-build-week-2026",
+            "category": "skill",
+            "number": "S-02",
+            "order": 6,
+            "priority": 11,
+            "dateRange": {
+              "start": "2026-07-13T07:00:00.000Z",
+              "end": "2026-07-21T06:59:59.999Z",
+              "timezone": "America/Los_Angeles"
+            },
+            "sourcePlatform": "codex",
+            "sourceTurnIds": [
+              "ai_turn:be11efd71e1d081f",
+              "ai_turn:584722801b3bf42b"
+            ],
+            "sourceRefs": [
+              "hapa-turn://ai_turn:be11efd71e1d081f",
+              "hapa-turn://ai_turn:584722801b3bf42b"
+            ],
+            "derivedBy": [
+              "Calder / CJ",
+              "Calder.agents()"
+            ],
+            "skillProfile": {
+              "schemaVersion": "hapa.codex-build-week-skill-profile.v1",
+              "technicalAnchor": "Fail-closed media and render-graph compatibility preflight",
+              "summary": "Render Truth Preflight is the discipline of proving that a media plan can actually execute before a long or costly render begins. It inventories every source asset, codec, duration, shader runtime, stem or signal binding, graph revision, output profile, and expected final artifact, then tests the transitions between them. The practitioner distinguishes a useful foundation reel or preview from the exact composition eligible for review, release, or minting. Instead of repairing failures one clip at a time, the Skill looks for shared incompatibilities—stale hashes, unsupported decoders, missing shader dependencies, mismatched orientations, detached graphs, or unverified fallbacks—and blocks the queue until the contract is truthful and reproducible.",
+              "context": "Creative previews can appear healthy while depending on silent fallbacks, stale assets, or renderer features that the final pipeline cannot reproduce. Once multiplied across an album or batch, a small compatibility lie becomes expensive rework. Preflight moves that discovery to the cheapest possible point.",
+              "application": "Use it before album-scale renders, Song Card editions, remints, codec migrations, shader-driven exports, orientation changes, or any queued media job whose cost grows with duration or card count. It is also the right response when many individual clips fail in similar ways.",
+              "method": [
+                "Build a complete source census with stable IDs, paths or URIs, hashes, codecs, dimensions, durations, and ownership or provenance boundaries.",
+                "Resolve the exact graph and runtime contract: shader dependencies, signal bindings, output profile, renderer identity, and the revision each decision belongs to.",
+                "Run bounded decode, representative-frame, transition, and artifact probes; record unsupported features and every fallback rather than hiding them.",
+                "Classify outputs as foundation, preview, render-ready, or release/mint eligible, and allow expensive work only when the required receipts match the final target."
+              ],
+              "capabilities": [
+                {
+                  "name": "Source Census",
+                  "mode": "Active",
+                  "description": "Enumerates every material input and its exact technical and provenance identity before execution."
+                },
+                {
+                  "name": "Compatibility Gate",
+                  "mode": "Passive",
+                  "description": "Blocks a render when codecs, shaders, signals, graph revisions, or output profiles cannot satisfy the declared plan."
+                },
+                {
+                  "name": "Artifact Tier Separation",
+                  "mode": "Active",
+                  "description": "Distinguishes a useful foundation or preview from the exact artifact allowed to enter release or mint review."
+                },
+                {
+                  "name": "Fail-Closed Receipt",
+                  "mode": "Passive",
+                  "description": "Requires evidence from the executed renderer path instead of promoting optimistic configuration claims."
+                }
+              ],
+              "proof": "A successful preflight produces a source-to-artifact receipt: every required input resolves, representative frames decode and render, graph and renderer revisions match, fallbacks are explicit, and the final target profile is reproducible. A failed preflight names the shared blocker before the full queue spends time or money.",
+              "limits": "Preflight proves the tested environment and exact revisions, not all future machines or providers. It does not judge artistic quality, grant release authority, or turn a preview into a mintable composition. Any source, graph, runtime, or output-profile change invalidates the affected proof."
+            },
+            "imageGeneration": {
+              "provider": "hapa-krea2-identity-node",
+              "taskId": "kidtask_62f92df7e59041f69c923f9040b868f1",
+              "preset": "build_week_fast",
+              "seed": 2302,
+              "artifactId": "sha256:8f2d87f8579babfb12ac1e56aa5c66fbe0b1a84fa4da18c4000bdbb0f4568b40",
+              "outputSha256": "8f2d87f8579babfb12ac1e56aa5c66fbe0b1a84fa4da18c4000bdbb0f4568b40",
+              "sourceFixture": "blue-orb-explorer.png",
+              "sourceBasis": "synthetic_nonhuman",
+              "sourceLicense": "CC0-1.0",
+              "identityTruth": false,
+              "humanReviewRequired": true
+            },
+            "lineage": {
+              "rawTurnsRemainAuthoritative": true,
+              "sourceCardUnchanged": true,
+              "generatedOutputIsIdentityTruth": false,
+              "minted": false,
+              "canonical": false
+            }
+          }
+        },
+        "tags": [
+          "codex-build-week",
+          "skill-card",
+          "turn-mined",
+          "tarot-draw-ready",
+          "krea2-generated",
+          "unminted"
+        ],
+        "enrichedAt": "2026-07-21T06:08:18.400Z"
+      },
+      "createdAt": "2026-07-21T04:55:37.581Z",
+      "updatedAt": "2026-07-21T06:08:18.400Z"
+    },
+    {
+      "schemaVersion": "hapa.tarot-card.v1",
+      "id": "codex-build-week-skill-card-distillation",
+      "cardId": "codex-build-week-skill-card-distillation",
+      "cardCoreKey": "cecbcd8a2dded6963c49c4819a23d480f120a40018908a69c9993017ac02f5da",
+      "cardRevisionId": "created-c77e003cec6da664",
+      "cardRecordDigest": "448f8afbec536dfcfe780b78a4224823270b00b42909d57f315ab7192d437d1d",
+      "recordDigest": "448f8afbec536dfcfe780b78a4224823270b00b42909d57f315ab7192d437d1d",
+      "originPublicKey": "c859b2123b9d0c43009c2ac3290f6445f91a6d52da27f7b05df2b4f1397582bf",
+      "custody": {
+        "schemaVersion": "hapa.card-custody-receipt.v1",
+        "cardId": "codex-build-week-skill-card-distillation",
+        "cardCoreKey": "cecbcd8a2dded6963c49c4819a23d480f120a40018908a69c9993017ac02f5da",
+        "cardRevisionId": "created-c77e003cec6da664",
+        "cardRecordDigest": "448f8afbec536dfcfe780b78a4224823270b00b42909d57f315ab7192d437d1d",
+        "originPublicKey": "c859b2123b9d0c43009c2ac3290f6445f91a6d52da27f7b05df2b4f1397582bf",
+        "originNodeId": "hapa-avatar-builder",
+        "createdAt": "2026-07-21T04:55:38.505Z",
+        "headEventDigest": "a1c774002af1ff88a8924d6bfccb9d1c92e81340443eb716dd77e57cd9f66317",
+        "historyLength": 1,
+        "lifecycleStatus": "draft",
+        "custodyState": "origin_appended",
+        "replicationState": "origin_only",
+        "minted": false,
+        "catalogPublished": false,
+        "commerceEligible": false,
+        "canonical": false,
+        "identityBasis": "hypercore_origin_event",
+        "durableReceipt": true,
+        "hypercoreAppended": true,
+        "portableCustody": true,
+        "sourceMutation": false
+      },
+      "title": "Card-Guided Distillation",
+      "slug": "card-guided-distillation",
+      "cardType": "reference_card",
+      "number": "S-01",
+      "suit": "custom",
+      "arcana": "custom",
+      "orientation": "upright",
+      "keywords": [
+        "skill",
+        "distillation",
+        "card-guided",
+        "evidence",
+        "writing"
+      ],
+      "meaning": "Extract structured answers from long-form material, preserve uncertainty, and let relevant Cards challenge or enhance each modular conclusion.",
+      "reversedMeaning": "Summaries presented as understanding without evidence, dissent, or traceable Card use.",
+      "promptNotes": "Restage this synthetic non-human explorer as a precise distiller of a towering manuscript, separating evidence crystals, unanswered questions, and reusable wisdom cards into clear vessels. Hapa tarot illustration, blue glass, amber sparks, no letters or readable text.",
+      "status": "review",
+      "deckIds": [],
+      "setIds": [
+        "codex-build-week-2026"
+      ],
+      "avatarLinks": [],
+      "asset": {
+        "id": "codex-build-week-skill-card-distillation-krea2-image",
+        "name": "Card-Guided Distillation · Krea 2 proposal",
+        "uri": "/demo/wisdom-set/codex-build-week-skill-card-distillation.png",
+        "type": "image",
+        "requirementId": "tarot_card",
+        "tags": [
+          "tarot-card",
+          "krea2",
+          "generated-proposal",
+          "human-review"
+        ],
+        "source": "tarot-upload",
+        "notes": "Tarot card media attached to the Hapa Tarot library.",
+        "metadata": {
+          "tarotMediaRole": "primary_image",
+          "sha256": "eebe7eecd39bf6083eb04ad4c65b7e743453de947d1d6f200ba95bd2fbfee99d",
+          "generatedBy": "hapa-krea2-identity-node",
+          "taskId": "kidtask_93aec04a973e444697101b5a45677be9",
+          "preset": "build_week_fast",
+          "identityTruth": false,
+          "humanReviewRequired": true,
+          "tarotCardId": "codex-build-week-skill-card-distillation"
+        },
+        "processing": {
+          "status": "attached",
+          "attachedToCard": false,
+          "processedAt": "2026-07-21T06:08:18.869Z",
+          "attachedToTarotCard": true
+        },
+        "createdAt": "2026-07-21T20:08:58.236Z"
+      },
+      "assets": [
+        {
+          "id": "codex-build-week-skill-card-distillation-krea2-image",
+          "name": "Card-Guided Distillation · Krea 2 proposal",
+          "uri": "/demo/wisdom-set/codex-build-week-skill-card-distillation.png",
+          "type": "image",
+          "requirementId": "tarot_card",
+          "tags": [
+            "tarot-card",
+            "krea2",
+            "generated-proposal",
+            "human-review"
+          ],
+          "source": "tarot-upload",
+          "notes": "Tarot card media attached to the Hapa Tarot library.",
+          "metadata": {
+            "tarotMediaRole": "primary_image",
+            "sha256": "eebe7eecd39bf6083eb04ad4c65b7e743453de947d1d6f200ba95bd2fbfee99d",
+            "generatedBy": "hapa-krea2-identity-node",
+            "taskId": "kidtask_93aec04a973e444697101b5a45677be9",
+            "preset": "build_week_fast",
+            "identityTruth": false,
+            "humanReviewRequired": true,
+            "tarotCardId": "codex-build-week-skill-card-distillation"
+          },
+          "processing": {
+            "status": "attached",
+            "attachedToCard": false,
+            "processedAt": "2026-07-21T06:08:18.869Z",
+            "attachedToTarotCard": true
+          },
+          "createdAt": "2026-07-21T20:08:58.236Z"
+        }
+      ],
+      "primaryAssetId": "codex-build-week-skill-card-distillation-krea2-image",
+      "enrichment": {
+        "schemaVersion": "hapa.tarot-enrichment.v1",
+        "status": "enriched",
+        "method": "hapa-turn-miner+krea2",
+        "confidence": "high",
+        "needsReview": true,
+        "ocrText": "",
+        "ocrLines": [],
+        "visualLabels": [],
+        "detectedTitle": "",
+        "detectedNumber": "",
+        "detectedSuit": "",
+        "detectedArcana": "",
+        "detectedCardType": "",
+        "detectedAvatars": [],
+        "visualDescription": "Restage this synthetic non-human explorer as a precise distiller of a towering manuscript, separating evidence crystals, unanswered questions, and reusable wisdom cards into clear vessels. Hapa tarot illustration, blue glass, amber sparks, no letters or readable text.",
+        "symbolicSummary": "Extract structured answers from long-form material, preserve uncertainty, and let relevant Cards challenge or enhance each modular conclusion.",
+        "textSynopsis": "Card-Guided Distillation turns an unwieldy manuscript, transcript, research packet, or conversation corpus into modular answers that remain attached to their evidence. The practitioner does not compress everything into one authoritative-sounding synopsis. They separate direct source claims, reasonable inference, unresolved questions, and contradictions; then invite relevant existing Cards to support, challenge, or extend each module. The result is a working knowledge structure whose parts can be inspected and revised independently. This matters when a team needs speed without surrendering provenance: readers can see what came from the source, what came from prior Hapa wisdom, what remains uncertain, and which conclusion should be revisited when new evidence arrives.",
+        "loreNotes": "Long-form material often contains several overlapping problems, voices, timelines, and levels of certainty. A flat summary hides those boundaries and makes later correction expensive. This Skill treats distillation as a sequence of evidence-bearing questions and keeps Card-derived interpretation visibly separate from the source corpus.",
+        "sourceTextSnippets": [],
+        "media": {
+          "codexBuildWeek": {
+            "schemaVersion": "hapa.codex-build-week-card.v1",
+            "setId": "codex-build-week-2026",
+            "category": "skill",
+            "number": "S-01",
+            "order": 5,
+            "priority": 12,
+            "dateRange": {
+              "start": "2026-07-13T07:00:00.000Z",
+              "end": "2026-07-21T06:59:59.999Z",
+              "timezone": "America/Los_Angeles"
+            },
+            "sourcePlatform": "codex",
+            "sourceTurnIds": [
+              "ai_turn:0c1a2f820cb45ca7",
+              "ai_turn:512c7b158df0bbdc"
+            ],
+            "sourceRefs": [
+              "hapa-turn://ai_turn:0c1a2f820cb45ca7",
+              "hapa-turn://ai_turn:512c7b158df0bbdc"
+            ],
+            "derivedBy": [
+              "Calder / CJ",
+              "Calder.agents()"
+            ],
+            "skillProfile": {
+              "schemaVersion": "hapa.codex-build-week-skill-profile.v1",
+              "technicalAnchor": "Evidence-bound long-form synthesis with Card challenge passes",
+              "summary": "Card-Guided Distillation turns an unwieldy manuscript, transcript, research packet, or conversation corpus into modular answers that remain attached to their evidence. The practitioner does not compress everything into one authoritative-sounding synopsis. They separate direct source claims, reasonable inference, unresolved questions, and contradictions; then invite relevant existing Cards to support, challenge, or extend each module. The result is a working knowledge structure whose parts can be inspected and revised independently. This matters when a team needs speed without surrendering provenance: readers can see what came from the source, what came from prior Hapa wisdom, what remains uncertain, and which conclusion should be revisited when new evidence arrives.",
+              "context": "Long-form material often contains several overlapping problems, voices, timelines, and levels of certainty. A flat summary hides those boundaries and makes later correction expensive. This Skill treats distillation as a sequence of evidence-bearing questions and keeps Card-derived interpretation visibly separate from the source corpus.",
+              "application": "Use it for novel and lore analysis, research dossiers, meeting or interview synthesis, design archives, and any large source where multiple agents or humans must reuse conclusions later. It is especially useful before story planning, Wisdom Council review, Card forging, or migration into a queryable knowledge system.",
+              "method": [
+                "Partition the source into durable questions or decision-sized modules instead of summarizing by arbitrary chunk length.",
+                "For each module, record the source-backed answer, exact evidence references, inference boundary, contradictions, and open questions.",
+                "Retrieve relevant Cards and classify each contribution as support, challenge, extension, or unrelated context; never merge Card language into source truth silently.",
+                "Revise the modular answer, preserve dissent and uncertainty, and write the resulting Card links and next investigation step back to the record."
+              ],
+              "capabilities": [
+                {
+                  "name": "Evidence Separation",
+                  "mode": "Passive",
+                  "description": "Keeps direct source claims, inference, Card contribution, and unanswered questions visibly distinct."
+                },
+                {
+                  "name": "Card Challenge Pass",
+                  "mode": "Active",
+                  "description": "Invites relevant Cards to corroborate, dispute, or deepen one modular conclusion without replacing its source."
+                },
+                {
+                  "name": "Modular Revision",
+                  "mode": "Active",
+                  "description": "Updates one answer when evidence changes without forcing a rewrite of the entire corpus summary."
+                },
+                {
+                  "name": "Uncertainty Ledger",
+                  "mode": "Passive",
+                  "description": "Retains contradictions, weak evidence, and unresolved questions as first-class output rather than smoothing them away."
+                }
+              ],
+              "proof": "A successful run yields independently readable modules whose claims point to source evidence, whose Card contributions are labeled, and whose unresolved questions remain visible. Another reader should be able to challenge or update one module without reconstructing the full source analysis.",
+              "limits": "This Skill does not make weak evidence true, guarantee that retrieval found every relevant Card, or replace domain-expert review. Card selection can introduce bias; missing evidence must stay missing rather than being filled by fluent synthesis."
+            },
+            "imageGeneration": {
+              "provider": "hapa-krea2-identity-node",
+              "taskId": "kidtask_93aec04a973e444697101b5a45677be9",
+              "preset": "build_week_fast",
+              "seed": 2301,
+              "artifactId": "sha256:eebe7eecd39bf6083eb04ad4c65b7e743453de947d1d6f200ba95bd2fbfee99d",
+              "outputSha256": "eebe7eecd39bf6083eb04ad4c65b7e743453de947d1d6f200ba95bd2fbfee99d",
+              "sourceFixture": "blue-orb-explorer.png",
+              "sourceBasis": "synthetic_nonhuman",
+              "sourceLicense": "CC0-1.0",
+              "identityTruth": false,
+              "humanReviewRequired": true
+            },
+            "lineage": {
+              "rawTurnsRemainAuthoritative": true,
+              "sourceCardUnchanged": true,
+              "generatedOutputIsIdentityTruth": false,
+              "minted": false,
+              "canonical": false
+            }
+          }
+        },
+        "tags": [
+          "codex-build-week",
+          "skill-card",
+          "turn-mined",
+          "tarot-draw-ready",
+          "krea2-generated",
+          "unminted"
+        ],
+        "enrichedAt": "2026-07-21T06:08:18.400Z"
+      },
+      "createdAt": "2026-07-21T04:55:37.581Z",
+      "updatedAt": "2026-07-21T06:08:18.400Z"
+    },
+    {
+      "schemaVersion": "hapa.tarot-card.v1",
+      "id": "codex-build-week-turn-identity-forge",
+      "cardId": "codex-build-week-turn-identity-forge",
+      "cardCoreKey": "2a3baf4dc159d5e6c567180818d14f7c8b6852bc8ef1c8d906bbc4c939321cae",
+      "cardRevisionId": "created-73f0707d478d8d73",
+      "cardRecordDigest": "e8c1cee376d09ce3ab8933de7701599be1139a8e1e0b83accc88c40618ee3913",
+      "recordDigest": "e8c1cee376d09ce3ab8933de7701599be1139a8e1e0b83accc88c40618ee3913",
+      "originPublicKey": "a119ae90d6a46b36cd056cee9d6388d3ccc92147c42a28f033e90ed010d50cf3",
+      "custody": {
+        "schemaVersion": "hapa.card-custody-receipt.v1",
+        "cardId": "codex-build-week-turn-identity-forge",
+        "cardCoreKey": "2a3baf4dc159d5e6c567180818d14f7c8b6852bc8ef1c8d906bbc4c939321cae",
+        "cardRevisionId": "created-73f0707d478d8d73",
+        "cardRecordDigest": "e8c1cee376d09ce3ab8933de7701599be1139a8e1e0b83accc88c40618ee3913",
+        "originPublicKey": "a119ae90d6a46b36cd056cee9d6388d3ccc92147c42a28f033e90ed010d50cf3",
+        "originNodeId": "hapa-avatar-builder",
+        "createdAt": "2026-07-21T04:55:38.301Z",
+        "headEventDigest": "21e304ba9820be4776aeb72327d61da6dc719d47118d6e9d7b174c4f642ba2fa",
+        "historyLength": 1,
+        "lifecycleStatus": "draft",
+        "custodyState": "origin_appended",
+        "replicationState": "origin_only",
+        "minted": false,
+        "catalogPublished": false,
+        "commerceEligible": false,
+        "canonical": false,
+        "identityBasis": "hypercore_origin_event",
+        "durableReceipt": true,
+        "hypercoreAppended": true,
+        "portableCustody": true,
+        "sourceMutation": false
+      },
+      "title": "The Identity Forge",
+      "slug": "the-identity-forge",
+      "cardType": "reference_card",
+      "number": "T-04",
+      "suit": "custom",
+      "arcana": "custom",
+      "orientation": "upright",
+      "keywords": [
+        "turn",
+        "krea2",
+        "mlx",
+        "identity-edit",
+        "local-node"
+      ],
+      "meaning": "Krea 2 and an identity adapter become a narrow, local Apple MLX node with a protected contract, measured presets, durable tasks, filtering, and proposal-based results.",
+      "reversedMeaning": "A demo that hides upstream ownership, bypasses consent, or calls generated similarity identity truth.",
+      "promptNotes": "Restage this synthetic non-human figure inside a protected local identity forge: one warm Apple-silicon core, ordered reference light, a sealed task queue, and a provisional image emerging for review. Hapa tarot illustration, red, cobalt, and silver, no text.",
+      "status": "review",
+      "deckIds": [],
+      "setIds": [
+        "codex-build-week-2026"
+      ],
+      "avatarLinks": [],
+      "asset": {
+        "id": "codex-build-week-turn-identity-forge-krea2-image",
+        "name": "The Identity Forge · Krea 2 proposal",
+        "uri": "/demo/wisdom-set/codex-build-week-turn-identity-forge.png",
+        "type": "image",
+        "requirementId": "tarot_card",
+        "tags": [
+          "tarot-card",
+          "krea2",
+          "generated-proposal",
+          "human-review"
+        ],
+        "source": "tarot-upload",
+        "notes": "Tarot card media attached to the Hapa Tarot library.",
+        "metadata": {
+          "tarotMediaRole": "primary_image",
+          "sha256": "1eedede4c9fb0bdbb7dd5a90dab393f197a3817c026f1570b7425ceaa46ff9dd",
+          "generatedBy": "hapa-krea2-identity-node",
+          "taskId": "kidtask_c4c6ab4d96824b6c99ae708bd75016e1",
+          "preset": "build_week_fast",
+          "identityTruth": false,
+          "humanReviewRequired": true,
+          "tarotCardId": "codex-build-week-turn-identity-forge"
+        },
+        "processing": {
+          "status": "attached",
+          "attachedToCard": false,
+          "processedAt": "2026-07-21T06:08:18.783Z",
+          "attachedToTarotCard": true
+        },
+        "createdAt": "2026-07-21T20:08:58.236Z"
+      },
+      "assets": [
+        {
+          "id": "codex-build-week-turn-identity-forge-krea2-image",
+          "name": "The Identity Forge · Krea 2 proposal",
+          "uri": "/demo/wisdom-set/codex-build-week-turn-identity-forge.png",
+          "type": "image",
+          "requirementId": "tarot_card",
+          "tags": [
+            "tarot-card",
+            "krea2",
+            "generated-proposal",
+            "human-review"
+          ],
+          "source": "tarot-upload",
+          "notes": "Tarot card media attached to the Hapa Tarot library.",
+          "metadata": {
+            "tarotMediaRole": "primary_image",
+            "sha256": "1eedede4c9fb0bdbb7dd5a90dab393f197a3817c026f1570b7425ceaa46ff9dd",
+            "generatedBy": "hapa-krea2-identity-node",
+            "taskId": "kidtask_c4c6ab4d96824b6c99ae708bd75016e1",
+            "preset": "build_week_fast",
+            "identityTruth": false,
+            "humanReviewRequired": true,
+            "tarotCardId": "codex-build-week-turn-identity-forge"
+          },
+          "processing": {
+            "status": "attached",
+            "attachedToCard": false,
+            "processedAt": "2026-07-21T06:08:18.783Z",
+            "attachedToTarotCard": true
+          },
+          "createdAt": "2026-07-21T20:08:58.236Z"
+        }
+      ],
+      "primaryAssetId": "codex-build-week-turn-identity-forge-krea2-image",
+      "enrichment": {
+        "schemaVersion": "hapa.tarot-enrichment.v1",
+        "status": "enriched",
+        "method": "hapa-turn-miner+krea2",
+        "confidence": "high",
+        "needsReview": true,
+        "ocrText": "",
+        "ocrLines": [],
+        "visualLabels": [],
+        "detectedTitle": "",
+        "detectedNumber": "",
+        "detectedSuit": "",
+        "detectedArcana": "",
+        "detectedCardType": "",
+        "detectedAvatars": [],
+        "visualDescription": "Restage this synthetic non-human figure inside a protected local identity forge: one warm Apple-silicon core, ordered reference light, a sealed task queue, and a provisional image emerging for review. Hapa tarot illustration, red, cobalt, and silver, no text.",
+        "symbolicSummary": "Krea 2 and an identity adapter become a narrow, local Apple MLX node with a protected contract, measured presets, durable tasks, filtering, and proposal-based results.",
+        "textSynopsis": "TURN Card derived from attributed Codex turns during the July 13–20 Build Week window.",
+        "loreNotes": "",
+        "sourceTextSnippets": [],
+        "media": {
+          "codexBuildWeek": {
+            "schemaVersion": "hapa.codex-build-week-card.v1",
+            "setId": "codex-build-week-2026",
+            "category": "turn",
+            "number": "T-04",
+            "order": 4,
+            "priority": 13,
+            "dateRange": {
+              "start": "2026-07-13T07:00:00.000Z",
+              "end": "2026-07-21T06:59:59.999Z",
+              "timezone": "America/Los_Angeles"
+            },
+            "sourcePlatform": "codex",
+            "sourceTurnIds": [
+              "ai_turn:c8dff458c5d1f00a",
+              "ai_turn:7ef42b6aa200fb0c"
+            ],
+            "sourceRefs": [
+              "hapa-turn://ai_turn:c8dff458c5d1f00a",
+              "hapa-turn://ai_turn:7ef42b6aa200fb0c"
+            ],
+            "derivedBy": [
+              "Calder / CJ",
+              "Calder.agents()"
+            ],
+            "imageGeneration": {
+              "provider": "hapa-krea2-identity-node",
+              "taskId": "kidtask_c4c6ab4d96824b6c99ae708bd75016e1",
+              "preset": "build_week_fast",
+              "seed": 1304,
+              "artifactId": "sha256:1eedede4c9fb0bdbb7dd5a90dab393f197a3817c026f1570b7425ceaa46ff9dd",
+              "outputSha256": "1eedede4c9fb0bdbb7dd5a90dab393f197a3817c026f1570b7425ceaa46ff9dd",
+              "sourceFixture": "red-robot-head.png",
+              "sourceBasis": "synthetic_nonhuman",
+              "sourceLicense": "CC0-1.0",
+              "identityTruth": false,
+              "humanReviewRequired": true
+            },
+            "lineage": {
+              "rawTurnsRemainAuthoritative": true,
+              "sourceCardUnchanged": true,
+              "generatedOutputIsIdentityTruth": false,
+              "minted": false,
+              "canonical": false
+            }
+          }
+        },
+        "tags": [
+          "codex-build-week",
+          "turn-card",
+          "turn-mined",
+          "tarot-draw-ready",
+          "krea2-generated",
+          "unminted"
+        ],
+        "enrichedAt": "2026-07-21T06:08:18.400Z"
+      },
+      "createdAt": "2026-07-21T04:55:37.581Z",
+      "updatedAt": "2026-07-21T06:08:18.400Z"
+    },
+    {
+      "schemaVersion": "hapa.tarot-card.v1",
+      "id": "codex-build-week-turn-language-garden",
+      "cardId": "codex-build-week-turn-language-garden",
+      "cardCoreKey": "5055976ab2a439b3e9b5c71defdeed757b39a7212dc8825a67b0946aadffc48f",
+      "cardRevisionId": "created-8395677327d8cb30",
+      "cardRecordDigest": "d146917c84c94407a4825442dd5ba2909d8c1f66ea300c5943803869eb1277ca",
+      "recordDigest": "d146917c84c94407a4825442dd5ba2909d8c1f66ea300c5943803869eb1277ca",
+      "originPublicKey": "8760b1e51d49f6d052150adadd0afa88aec76bb42c0adc78a859216e9adade0c",
+      "custody": {
+        "schemaVersion": "hapa.card-custody-receipt.v1",
+        "cardId": "codex-build-week-turn-language-garden",
+        "cardCoreKey": "5055976ab2a439b3e9b5c71defdeed757b39a7212dc8825a67b0946aadffc48f",
+        "cardRevisionId": "created-8395677327d8cb30",
+        "cardRecordDigest": "d146917c84c94407a4825442dd5ba2909d8c1f66ea300c5943803869eb1277ca",
+        "originPublicKey": "8760b1e51d49f6d052150adadd0afa88aec76bb42c0adc78a859216e9adade0c",
+        "originNodeId": "hapa-avatar-builder",
+        "createdAt": "2026-07-21T04:55:38.112Z",
+        "headEventDigest": "19f51d6b5a7e7a75b1419b183db750507454784fbc9d335e0c4b6d78fba37e0e",
+        "historyLength": 1,
+        "lifecycleStatus": "draft",
+        "custodyState": "origin_appended",
+        "replicationState": "origin_only",
+        "minted": false,
+        "catalogPublished": false,
+        "commerceEligible": false,
+        "canonical": false,
+        "identityBasis": "hypercore_origin_event",
+        "durableReceipt": true,
+        "hypercoreAppended": true,
+        "portableCustody": true,
+        "sourceMutation": false
+      },
+      "title": "The Language Garden",
+      "slug": "the-language-garden",
+      "cardType": "reference_card",
+      "number": "T-03",
+      "suit": "custom",
+      "arcana": "custom",
+      "orientation": "upright",
+      "keywords": [
+        "turn",
+        "hapa-language",
+        "meaning-cards",
+        "multilingual",
+        "local-first"
+      ],
+      "meaning": "Multilingual source material grows into Meaning Cards, compact query sidecars, learning loops, and recoverable local knowledge without surrendering the original corpus.",
+      "reversedMeaning": "Translation flattened into detached labels with no source bytes, learning state, or recovery path.",
+      "promptNotes": "Restage this synthetic non-human figure as a gardener of multilingual meaning, tending luminous glyph-seeds that grow into branching semantic cards and mirrored speech constellations. Hapa tarot illustration, violet, turquoise, and leaf green, no readable text.",
+      "status": "review",
+      "deckIds": [],
+      "setIds": [
+        "codex-build-week-2026"
+      ],
+      "avatarLinks": [],
+      "asset": {
+        "id": "codex-build-week-turn-language-garden-krea2-image",
+        "name": "The Language Garden · Krea 2 proposal",
+        "uri": "/demo/wisdom-set/codex-build-week-turn-language-garden.png",
+        "type": "image",
+        "requirementId": "tarot_card",
+        "tags": [
+          "tarot-card",
+          "krea2",
+          "generated-proposal",
+          "human-review"
+        ],
+        "source": "tarot-upload",
+        "notes": "Tarot card media attached to the Hapa Tarot library.",
+        "metadata": {
+          "tarotMediaRole": "primary_image",
+          "sha256": "559b64f7c2fd1c6f417d99b0fb00562b4b2f3d1a709d8996a62edc8ec35cc6e1",
+          "generatedBy": "hapa-krea2-identity-node",
+          "taskId": "kidtask_bb902329f6ff479aae2eff551a6d304b",
+          "preset": "build_week_fast",
+          "identityTruth": false,
+          "humanReviewRequired": true,
+          "tarotCardId": "codex-build-week-turn-language-garden"
+        },
+        "processing": {
+          "status": "attached",
+          "attachedToCard": false,
+          "processedAt": "2026-07-21T06:08:18.696Z",
+          "attachedToTarotCard": true
+        },
+        "createdAt": "2026-07-21T20:08:58.236Z"
+      },
+      "assets": [
+        {
+          "id": "codex-build-week-turn-language-garden-krea2-image",
+          "name": "The Language Garden · Krea 2 proposal",
+          "uri": "/demo/wisdom-set/codex-build-week-turn-language-garden.png",
+          "type": "image",
+          "requirementId": "tarot_card",
+          "tags": [
+            "tarot-card",
+            "krea2",
+            "generated-proposal",
+            "human-review"
+          ],
+          "source": "tarot-upload",
+          "notes": "Tarot card media attached to the Hapa Tarot library.",
+          "metadata": {
+            "tarotMediaRole": "primary_image",
+            "sha256": "559b64f7c2fd1c6f417d99b0fb00562b4b2f3d1a709d8996a62edc8ec35cc6e1",
+            "generatedBy": "hapa-krea2-identity-node",
+            "taskId": "kidtask_bb902329f6ff479aae2eff551a6d304b",
+            "preset": "build_week_fast",
+            "identityTruth": false,
+            "humanReviewRequired": true,
+            "tarotCardId": "codex-build-week-turn-language-garden"
+          },
+          "processing": {
+            "status": "attached",
+            "attachedToCard": false,
+            "processedAt": "2026-07-21T06:08:18.696Z",
+            "attachedToTarotCard": true
+          },
+          "createdAt": "2026-07-21T20:08:58.236Z"
+        }
+      ],
+      "primaryAssetId": "codex-build-week-turn-language-garden-krea2-image",
+      "enrichment": {
+        "schemaVersion": "hapa.tarot-enrichment.v1",
+        "status": "enriched",
+        "method": "hapa-turn-miner+krea2",
+        "confidence": "high",
+        "needsReview": true,
+        "ocrText": "",
+        "ocrLines": [],
+        "visualLabels": [],
+        "detectedTitle": "",
+        "detectedNumber": "",
+        "detectedSuit": "",
+        "detectedArcana": "",
+        "detectedCardType": "",
+        "detectedAvatars": [],
+        "visualDescription": "Restage this synthetic non-human figure as a gardener of multilingual meaning, tending luminous glyph-seeds that grow into branching semantic cards and mirrored speech constellations. Hapa tarot illustration, violet, turquoise, and leaf green, no readable text.",
+        "symbolicSummary": "Multilingual source material grows into Meaning Cards, compact query sidecars, learning loops, and recoverable local knowledge without surrendering the original corpus.",
+        "textSynopsis": "TURN Card derived from attributed Codex turns during the July 13–20 Build Week window.",
+        "loreNotes": "",
+        "sourceTextSnippets": [],
+        "media": {
+          "codexBuildWeek": {
+            "schemaVersion": "hapa.codex-build-week-card.v1",
+            "setId": "codex-build-week-2026",
+            "category": "turn",
+            "number": "T-03",
+            "order": 3,
+            "priority": 14,
+            "dateRange": {
+              "start": "2026-07-13T07:00:00.000Z",
+              "end": "2026-07-21T06:59:59.999Z",
+              "timezone": "America/Los_Angeles"
+            },
+            "sourcePlatform": "codex",
+            "sourceTurnIds": [
+              "ai_turn:edb8075c77e42678",
+              "ai_turn:8c67b717228292eb"
+            ],
+            "sourceRefs": [
+              "hapa-turn://ai_turn:edb8075c77e42678",
+              "hapa-turn://ai_turn:8c67b717228292eb"
+            ],
+            "derivedBy": [
+              "Calder / CJ",
+              "Calder.agents()"
+            ],
+            "imageGeneration": {
+              "provider": "hapa-krea2-identity-node",
+              "taskId": "kidtask_bb902329f6ff479aae2eff551a6d304b",
+              "preset": "build_week_fast",
+              "seed": 1303,
+              "artifactId": "sha256:559b64f7c2fd1c6f417d99b0fb00562b4b2f3d1a709d8996a62edc8ec35cc6e1",
+              "outputSha256": "559b64f7c2fd1c6f417d99b0fb00562b4b2f3d1a709d8996a62edc8ec35cc6e1",
+              "sourceFixture": "red-robot-head.png",
+              "sourceBasis": "synthetic_nonhuman",
+              "sourceLicense": "CC0-1.0",
+              "identityTruth": false,
+              "humanReviewRequired": true
+            },
+            "lineage": {
+              "rawTurnsRemainAuthoritative": true,
+              "sourceCardUnchanged": true,
+              "generatedOutputIsIdentityTruth": false,
+              "minted": false,
+              "canonical": false
+            }
+          }
+        },
+        "tags": [
+          "codex-build-week",
+          "turn-card",
+          "turn-mined",
+          "tarot-draw-ready",
+          "krea2-generated",
+          "unminted"
+        ],
+        "enrichedAt": "2026-07-21T06:08:18.400Z"
+      },
+      "createdAt": "2026-07-21T04:55:37.581Z",
+      "updatedAt": "2026-07-21T06:08:18.400Z"
+    },
+    {
+      "schemaVersion": "hapa.tarot-card.v1",
+      "id": "codex-build-week-turn-echo-forge",
+      "cardId": "codex-build-week-turn-echo-forge",
+      "cardCoreKey": "3faf627e1788a254013bfbec4c850956ed6b6547b80fa8219bad8da3214b878f",
+      "cardRevisionId": "created-ecec1990eff00779",
+      "cardRecordDigest": "50678d18c826ec957268139c8333c4bcf2dab9886bb19e0e95b064e8f64117c7",
+      "recordDigest": "50678d18c826ec957268139c8333c4bcf2dab9886bb19e0e95b064e8f64117c7",
+      "originPublicKey": "988380784b4f3356b91066cc30a0442c5869b3c0e05ccb980aca76282d15480e",
+      "custody": {
+        "schemaVersion": "hapa.card-custody-receipt.v1",
+        "cardId": "codex-build-week-turn-echo-forge",
+        "cardCoreKey": "3faf627e1788a254013bfbec4c850956ed6b6547b80fa8219bad8da3214b878f",
+        "cardRevisionId": "created-ecec1990eff00779",
+        "cardRecordDigest": "50678d18c826ec957268139c8333c4bcf2dab9886bb19e0e95b064e8f64117c7",
+        "originPublicKey": "988380784b4f3356b91066cc30a0442c5869b3c0e05ccb980aca76282d15480e",
+        "originNodeId": "hapa-avatar-builder",
+        "createdAt": "2026-07-21T04:55:37.930Z",
+        "headEventDigest": "9eeb2cfc3462c99203a174412f112963a6fc712224db358492f33e22d734cf56",
+        "historyLength": 1,
+        "lifecycleStatus": "draft",
+        "custodyState": "origin_appended",
+        "replicationState": "origin_only",
+        "minted": false,
+        "catalogPublished": false,
+        "commerceEligible": false,
+        "canonical": false,
+        "identityBasis": "hypercore_origin_event",
+        "durableReceipt": true,
+        "hypercoreAppended": true,
+        "portableCustody": true,
+        "sourceMutation": false
+      },
+      "title": "The Echo Album Forge",
+      "slug": "the-echo-album-forge",
+      "cardType": "reference_card",
+      "number": "T-02",
+      "suit": "custom",
+      "arcana": "custom",
+      "orientation": "upright",
+      "keywords": [
+        "turn",
+        "echo-album",
+        "media-forge",
+        "render-truth",
+        "song-card"
+      ],
+      "meaning": "The album director becomes a repeatable media forge: diverse Hapa assets flow through editing, render truth, explicit minting, and inspectable delivery rather than one-off cuts.",
+      "reversedMeaning": "A render that looks finished but cannot prove its source, final artifact, or mint boundary.",
+      "promptNotes": "Restage this synthetic non-human figure at a mythic audiovisual forge where song waves become film strips, cards, and a single verified golden artifact. Hapa tarot illustration, neon crimson, teal, and gold, dynamic machinery, no letters or readable text.",
+      "status": "review",
+      "deckIds": [],
+      "setIds": [
+        "codex-build-week-2026"
+      ],
+      "avatarLinks": [],
+      "asset": {
+        "id": "codex-build-week-turn-echo-forge-krea2-image",
+        "name": "The Echo Album Forge · Krea 2 proposal",
+        "uri": "/demo/wisdom-set/codex-build-week-turn-echo-forge.png",
+        "type": "image",
+        "requirementId": "tarot_card",
+        "tags": [
+          "tarot-card",
+          "krea2",
+          "generated-proposal",
+          "human-review"
+        ],
+        "source": "tarot-upload",
+        "notes": "Tarot card media attached to the Hapa Tarot library.",
+        "metadata": {
+          "tarotMediaRole": "primary_image",
+          "sha256": "388af41e4a91438702e85fbfc9ccc1b35da52a067e33879aea133313d02dcf89",
+          "generatedBy": "hapa-krea2-identity-node",
+          "taskId": "kidtask_0b6da038d3aa425a8788a64c06b91f50",
+          "preset": "build_week_fast",
+          "identityTruth": false,
+          "humanReviewRequired": true,
+          "tarotCardId": "codex-build-week-turn-echo-forge"
+        },
+        "processing": {
+          "status": "attached",
+          "attachedToCard": false,
+          "processedAt": "2026-07-21T06:08:18.610Z",
+          "attachedToTarotCard": true
+        },
+        "createdAt": "2026-07-21T20:08:58.236Z"
+      },
+      "assets": [
+        {
+          "id": "codex-build-week-turn-echo-forge-krea2-image",
+          "name": "The Echo Album Forge · Krea 2 proposal",
+          "uri": "/demo/wisdom-set/codex-build-week-turn-echo-forge.png",
+          "type": "image",
+          "requirementId": "tarot_card",
+          "tags": [
+            "tarot-card",
+            "krea2",
+            "generated-proposal",
+            "human-review"
+          ],
+          "source": "tarot-upload",
+          "notes": "Tarot card media attached to the Hapa Tarot library.",
+          "metadata": {
+            "tarotMediaRole": "primary_image",
+            "sha256": "388af41e4a91438702e85fbfc9ccc1b35da52a067e33879aea133313d02dcf89",
+            "generatedBy": "hapa-krea2-identity-node",
+            "taskId": "kidtask_0b6da038d3aa425a8788a64c06b91f50",
+            "preset": "build_week_fast",
+            "identityTruth": false,
+            "humanReviewRequired": true,
+            "tarotCardId": "codex-build-week-turn-echo-forge"
+          },
+          "processing": {
+            "status": "attached",
+            "attachedToCard": false,
+            "processedAt": "2026-07-21T06:08:18.610Z",
+            "attachedToTarotCard": true
+          },
+          "createdAt": "2026-07-21T20:08:58.236Z"
+        }
+      ],
+      "primaryAssetId": "codex-build-week-turn-echo-forge-krea2-image",
+      "enrichment": {
+        "schemaVersion": "hapa.tarot-enrichment.v1",
+        "status": "enriched",
+        "method": "hapa-turn-miner+krea2",
+        "confidence": "high",
+        "needsReview": true,
+        "ocrText": "",
+        "ocrLines": [],
+        "visualLabels": [],
+        "detectedTitle": "",
+        "detectedNumber": "",
+        "detectedSuit": "",
+        "detectedArcana": "",
+        "detectedCardType": "",
+        "detectedAvatars": [],
+        "visualDescription": "Restage this synthetic non-human figure at a mythic audiovisual forge where song waves become film strips, cards, and a single verified golden artifact. Hapa tarot illustration, neon crimson, teal, and gold, dynamic machinery, no letters or readable text.",
+        "symbolicSummary": "The album director becomes a repeatable media forge: diverse Hapa assets flow through editing, render truth, explicit minting, and inspectable delivery rather than one-off cuts.",
+        "textSynopsis": "TURN Card derived from attributed Codex turns during the July 13–20 Build Week window.",
+        "loreNotes": "",
+        "sourceTextSnippets": [],
+        "media": {
+          "codexBuildWeek": {
+            "schemaVersion": "hapa.codex-build-week-card.v1",
+            "setId": "codex-build-week-2026",
+            "category": "turn",
+            "number": "T-02",
+            "order": 2,
+            "priority": 15,
+            "dateRange": {
+              "start": "2026-07-13T07:00:00.000Z",
+              "end": "2026-07-21T06:59:59.999Z",
+              "timezone": "America/Los_Angeles"
+            },
+            "sourcePlatform": "codex",
+            "sourceTurnIds": [
+              "ai_turn:24412170acf336ac",
+              "ai_turn:584722801b3bf42b"
+            ],
+            "sourceRefs": [
+              "hapa-turn://ai_turn:24412170acf336ac",
+              "hapa-turn://ai_turn:584722801b3bf42b"
+            ],
+            "derivedBy": [
+              "Calder / CJ",
+              "Calder.agents()"
+            ],
+            "imageGeneration": {
+              "provider": "hapa-krea2-identity-node",
+              "taskId": "kidtask_0b6da038d3aa425a8788a64c06b91f50",
+              "preset": "build_week_fast",
+              "seed": 1302,
+              "artifactId": "sha256:388af41e4a91438702e85fbfc9ccc1b35da52a067e33879aea133313d02dcf89",
+              "outputSha256": "388af41e4a91438702e85fbfc9ccc1b35da52a067e33879aea133313d02dcf89",
+              "sourceFixture": "red-robot-head.png",
+              "sourceBasis": "synthetic_nonhuman",
+              "sourceLicense": "CC0-1.0",
+              "identityTruth": false,
+              "humanReviewRequired": true
+            },
+            "lineage": {
+              "rawTurnsRemainAuthoritative": true,
+              "sourceCardUnchanged": true,
+              "generatedOutputIsIdentityTruth": false,
+              "minted": false,
+              "canonical": false
+            }
+          }
+        },
+        "tags": [
+          "codex-build-week",
+          "turn-card",
+          "turn-mined",
+          "tarot-draw-ready",
+          "krea2-generated",
+          "unminted"
+        ],
+        "enrichedAt": "2026-07-21T06:08:18.400Z"
+      },
+      "createdAt": "2026-07-21T04:55:37.581Z",
+      "updatedAt": "2026-07-21T06:08:18.400Z"
+    },
+    {
+      "schemaVersion": "hapa.tarot-card.v1",
+      "id": "codex-build-week-turn-wisdom-studio",
+      "cardId": "codex-build-week-turn-wisdom-studio",
+      "cardCoreKey": "455ff2a7fdbbae48d62475fea92486c5daa2e5ed4667651ae6aea39651d866c4",
+      "cardRevisionId": "created-5c576640101baf67",
+      "cardRecordDigest": "962149326a13cbff11e58330feea5e23d336e541444ba27c882b246ae7b14f7f",
+      "recordDigest": "962149326a13cbff11e58330feea5e23d336e541444ba27c882b246ae7b14f7f",
+      "originPublicKey": "e445b35da13335d5b0e6297158fe977787c45d6a3f02a9b89d1db7709c800f62",
+      "custody": {
+        "schemaVersion": "hapa.card-custody-receipt.v1",
+        "cardId": "codex-build-week-turn-wisdom-studio",
+        "cardCoreKey": "455ff2a7fdbbae48d62475fea92486c5daa2e5ed4667651ae6aea39651d866c4",
+        "cardRevisionId": "created-5c576640101baf67",
+        "cardRecordDigest": "962149326a13cbff11e58330feea5e23d336e541444ba27c882b246ae7b14f7f",
+        "originPublicKey": "e445b35da13335d5b0e6297158fe977787c45d6a3f02a9b89d1db7709c800f62",
+        "originNodeId": "hapa-avatar-builder",
+        "createdAt": "2026-07-21T04:55:37.742Z",
+        "headEventDigest": "c5a0429f3770710ab04d079157e69fc42c6bae166e014984b7f5e476058eb2f4",
+        "historyLength": 1,
+        "lifecycleStatus": "draft",
+        "custodyState": "origin_appended",
+        "replicationState": "origin_only",
+        "minted": false,
+        "catalogPublished": false,
+        "commerceEligible": false,
+        "canonical": false,
+        "identityBasis": "hypercore_origin_event",
+        "durableReceipt": true,
+        "hypercoreAppended": true,
+        "portableCustody": true,
+        "sourceMutation": false
+      },
+      "title": "The Wisdom Studio Opens",
+      "slug": "the-wisdom-studio-opens",
+      "cardType": "reference_card",
+      "number": "T-01",
+      "suit": "custom",
+      "arcana": "custom",
+      "orientation": "upright",
+      "keywords": [
+        "turn",
+        "wisdom-studio",
+        "creative-writing",
+        "card-reasoning",
+        "novel-scale"
+      ],
+      "meaning": "A raw card collection becomes a working, novel-scale studio where AI and human collaborators can distill, evaluate, storyboard, and revise enduring narrative structures.",
+      "reversedMeaning": "A beautiful interface that only performs placeholder reasoning or loses the Card evidence behind its advice.",
+      "promptNotes": "Restage this synthetic non-human figure as the luminous keeper of a vast celestial writing studio, with orbiting wisdom cards, a glowing manuscript river, and modular story constellations. Hapa tarot illustration, cyan and magenta light, clear central subject, no letters or readable text.",
+      "status": "review",
+      "deckIds": [],
+      "setIds": [
+        "codex-build-week-2026"
+      ],
+      "avatarLinks": [],
+      "asset": {
+        "id": "codex-build-week-turn-wisdom-studio-krea2-image",
+        "name": "The Wisdom Studio Opens · Krea 2 proposal",
+        "uri": "/demo/wisdom-set/codex-build-week-turn-wisdom-studio.png",
+        "type": "image",
+        "requirementId": "tarot_card",
+        "tags": [
+          "tarot-card",
+          "krea2",
+          "generated-proposal",
+          "human-review"
+        ],
+        "source": "tarot-upload",
+        "notes": "Tarot card media attached to the Hapa Tarot library.",
+        "metadata": {
+          "tarotMediaRole": "primary_image",
+          "sha256": "bade409435a160b4fd839b54fa2705ff8326f5ac75ae1ce559fcb3fabf7c48f2",
+          "generatedBy": "hapa-krea2-identity-node",
+          "taskId": "kidtask_791b710eab5e464ba0cb487162a0654a",
+          "preset": "build_week_fast",
+          "identityTruth": false,
+          "humanReviewRequired": true,
+          "tarotCardId": "codex-build-week-turn-wisdom-studio"
+        },
+        "processing": {
+          "status": "attached",
+          "attachedToCard": false,
+          "processedAt": "2026-07-21T06:08:18.526Z",
+          "attachedToTarotCard": true
+        },
+        "createdAt": "2026-07-21T20:08:58.236Z"
+      },
+      "assets": [
+        {
+          "id": "codex-build-week-turn-wisdom-studio-krea2-image",
+          "name": "The Wisdom Studio Opens · Krea 2 proposal",
+          "uri": "/demo/wisdom-set/codex-build-week-turn-wisdom-studio.png",
+          "type": "image",
+          "requirementId": "tarot_card",
+          "tags": [
+            "tarot-card",
+            "krea2",
+            "generated-proposal",
+            "human-review"
+          ],
+          "source": "tarot-upload",
+          "notes": "Tarot card media attached to the Hapa Tarot library.",
+          "metadata": {
+            "tarotMediaRole": "primary_image",
+            "sha256": "bade409435a160b4fd839b54fa2705ff8326f5ac75ae1ce559fcb3fabf7c48f2",
+            "generatedBy": "hapa-krea2-identity-node",
+            "taskId": "kidtask_791b710eab5e464ba0cb487162a0654a",
+            "preset": "build_week_fast",
+            "identityTruth": false,
+            "humanReviewRequired": true,
+            "tarotCardId": "codex-build-week-turn-wisdom-studio"
+          },
+          "processing": {
+            "status": "attached",
+            "attachedToCard": false,
+            "processedAt": "2026-07-21T06:08:18.526Z",
+            "attachedToTarotCard": true
+          },
+          "createdAt": "2026-07-21T20:08:58.236Z"
+        }
+      ],
+      "primaryAssetId": "codex-build-week-turn-wisdom-studio-krea2-image",
+      "enrichment": {
+        "schemaVersion": "hapa.tarot-enrichment.v1",
+        "status": "enriched",
+        "method": "hapa-turn-miner+krea2",
+        "confidence": "high",
+        "needsReview": true,
+        "ocrText": "",
+        "ocrLines": [],
+        "visualLabels": [],
+        "detectedTitle": "",
+        "detectedNumber": "",
+        "detectedSuit": "",
+        "detectedArcana": "",
+        "detectedCardType": "",
+        "detectedAvatars": [],
+        "visualDescription": "Restage this synthetic non-human figure as the luminous keeper of a vast celestial writing studio, with orbiting wisdom cards, a glowing manuscript river, and modular story constellations. Hapa tarot illustration, cyan and magenta light, clear central subject, no letters or readable text.",
+        "symbolicSummary": "A raw card collection becomes a working, novel-scale studio where AI and human collaborators can distill, evaluate, storyboard, and revise enduring narrative structures.",
+        "textSynopsis": "TURN Card derived from attributed Codex turns during the July 13–20 Build Week window.",
+        "loreNotes": "",
+        "sourceTextSnippets": [],
+        "media": {
+          "codexBuildWeek": {
+            "schemaVersion": "hapa.codex-build-week-card.v1",
+            "setId": "codex-build-week-2026",
+            "category": "turn",
+            "number": "T-01",
+            "order": 1,
+            "priority": 16,
+            "dateRange": {
+              "start": "2026-07-13T07:00:00.000Z",
+              "end": "2026-07-21T06:59:59.999Z",
+              "timezone": "America/Los_Angeles"
+            },
+            "sourcePlatform": "codex",
+            "sourceTurnIds": [
+              "ai_turn:0c1a2f820cb45ca7",
+              "ai_turn:194badf1bf2acff7"
+            ],
+            "sourceRefs": [
+              "hapa-turn://ai_turn:0c1a2f820cb45ca7",
+              "hapa-turn://ai_turn:194badf1bf2acff7"
+            ],
+            "derivedBy": [
+              "Calder / CJ",
+              "Calder.agents()"
+            ],
+            "imageGeneration": {
+              "provider": "hapa-krea2-identity-node",
+              "taskId": "kidtask_791b710eab5e464ba0cb487162a0654a",
+              "preset": "build_week_fast",
+              "seed": 1301,
+              "artifactId": "sha256:bade409435a160b4fd839b54fa2705ff8326f5ac75ae1ce559fcb3fabf7c48f2",
+              "outputSha256": "bade409435a160b4fd839b54fa2705ff8326f5ac75ae1ce559fcb3fabf7c48f2",
+              "sourceFixture": "red-robot-head.png",
+              "sourceBasis": "synthetic_nonhuman",
+              "sourceLicense": "CC0-1.0",
+              "identityTruth": false,
+              "humanReviewRequired": true
+            },
+            "lineage": {
+              "rawTurnsRemainAuthoritative": true,
+              "sourceCardUnchanged": true,
+              "generatedOutputIsIdentityTruth": false,
+              "minted": false,
+              "canonical": false
+            }
+          }
+        },
+        "tags": [
+          "codex-build-week",
+          "turn-card",
+          "turn-mined",
+          "tarot-draw-ready",
+          "krea2-generated",
+          "unminted"
+        ],
+        "enrichedAt": "2026-07-21T06:08:18.400Z"
+      },
+      "createdAt": "2026-07-21T04:55:37.581Z",
+      "updatedAt": "2026-07-21T06:08:18.400Z"
+    }
+  ],
+  "spreads": [],
+  "updatedAt": "2026-07-21T00:00:00.000Z"
+}

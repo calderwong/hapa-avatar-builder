@@ -33,6 +33,18 @@ Universal Hapa Card Plane v1 is released. Avatar Builder retains authoring custo
 
 Hapa Avatar Builder is a neonblade+ operator app for assembling avatar media into a reusable Avatar Card. It standardizes the Red/Reaper scaffold into required media slots, tracks completeness as XP/level progress, exposes a local API and CLI for agents, and includes a kanban board for build and healing work.
 
+## Public Build Week demo volume
+
+A clean public checkout opens with a curated, source-controlled demo volume instead of the full operator libraries:
+
+- Red, Blue, and Green, each with the six Protocol/Skill Cards required by the compact public profile.
+- Three text-only Echo State Song Cards: **Red Signal**, **Blue Return**, and **Green Horizon**.
+- Five sampled Protocol, Skill, and Node Cards, plus the profile-required loadouts.
+- The complete 16-card **Codex Build Week** Wisdom Set and its review-stage generated artwork.
+- Four deterministic Stargate demo Cards for the focused judge route.
+
+The remaining Avatar, Song, Tarot, Item, lore, and media rosters stay in ignored local-first stores and are not published. See `docs/submission/PUBLIC_SAFE_FIXTURE_BOUNDARY.md` for the exact inclusion and claim boundary.
+
 ## Source Of Truth
 
 Use the repository root of the current checkout as the source of truth. On

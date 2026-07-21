@@ -61,6 +61,7 @@ Universal Hapa Card Plane v1 is released. Avatar/Item JSON stores remain authori
 - Canonical local checkout: `/Users/calderwong/Desktop/hapa-avatar-builder`.
 - Resolved checkout: `/Users/calderwong/Documents/Codex/2026-06-10/files-mentioned-by-the-user-screenshot/outputs/hapa-avatar-builder`.
 - Current Avatar Card store: `data/avatar-store.json`, verified on 2026-06-29 with 74 unique Avatar Builder cards.
+- Public-package exception: when ignored runtime stores are absent, the app reads the deliberately bounded tracked fixtures under `fixtures/build-week/judge-data/`. The 3-Avatar public seed is not a stale canonical checkout and must never be expanded by copying the full private roster into Git.
 - Do not use `/Users/calderwong/Documents/Codex/2026-06-12/can-you-create-a-desktop-version/outputs/hapa-avatar-builder-desktop` as source of truth. It is an older non-Pinokio desktop export with only 32 cards.
 - `README.md` defines the run commands, CLI/API surface, and current operator workflow.
 - `src/App.jsx` owns the operator UI, including the `Tarot Library` and `Tarot Draw` tabs.

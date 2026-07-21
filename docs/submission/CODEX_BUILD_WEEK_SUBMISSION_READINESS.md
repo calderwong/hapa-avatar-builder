@@ -15,7 +15,7 @@ The product story is bounded: Hapa is a decentralized Card protocol/platform, no
 - [x] Captured two ordinary public-safe Cards receiving real per-Card Hypercore custody, resolving their Formation, and dialing the Gate in an isolated application window.
 - [x] Corrected the custody UI transition from `creating_custody` to `ready` and added a regression test.
 - [x] Created a silent, caption-led HyperFrames cut from current evidence so the submission does not depend on HeyGen or voiceover.
-- [x] Replaced ignored machine-local imports with tracked empty public-safe bootstrap stores.
+- [x] Replaced ignored machine-local imports with a bounded tracked public demo volume while keeping the remaining private rosters excluded.
 - [x] Vendored and pinned the Overcard package required for a reproducible source install.
 - [x] Added judge packaging, SHA-256 manifesting, secret/fixture/preflight checks, and a five-minute judge route.
 - [x] Updated the two inherited dependency chains; the clean package audit records zero known advisories.
