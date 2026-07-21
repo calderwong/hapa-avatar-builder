@@ -89,6 +89,27 @@
       "title": "Card-Guided Distillation",
       "meaning": "Extract structured answers from long-form material, preserve uncertainty, and let relevant Cards challenge or enhance each modular conclusion.",
       "reversedMeaning": "Summaries presented as understanding without evidence, dissent, or traceable Card use.",
+      "skillProfile": {
+        "schemaVersion": "hapa.codex-build-week-skill-profile.v1",
+        "technicalAnchor": "Evidence-bound long-form synthesis with Card challenge passes",
+        "summary": "Card-Guided Distillation turns an unwieldy manuscript, transcript, research packet, or conversation corpus into modular answers that remain attached to their evidence. The practitioner does not compress everything into one authoritative-sounding synopsis. They separate direct source claims, reasonable inference, unresolved questions, and contradictions; then invite relevant existing Cards to support, challenge, or extend each module. The result is a working knowledge structure whose parts can be inspected and revised independently. This matters when a team needs speed without surrendering provenance: readers can see what came from the source, what came from prior Hapa wisdom, what remains uncertain, and which conclusion should be revisited when new evidence arrives.",
+        "context": "Long-form material often contains several overlapping problems, voices, timelines, and levels of certainty. A flat summary hides those boundaries and makes later correction expensive. This Skill treats distillation as a sequence of evidence-bearing questions and keeps Card-derived interpretation visibly separate from the source corpus.",
+        "application": "Use it for novel and lore analysis, research dossiers, meeting or interview synthesis, design archives, and any large source where multiple agents or humans must reuse conclusions later. It is especially useful before story planning, Wisdom Council review, Card forging, or migration into a queryable knowledge system.",
+        "method": [
+          "Partition the source into durable questions or decision-sized modules instead of summarizing by arbitrary chunk length.",
+          "For each module, record the source-backed answer, exact evidence references, inference boundary, contradictions, and open questions.",
+          "Retrieve relevant Cards and classify each contribution as support, challenge, extension, or unrelated context; never merge Card language into source truth silently.",
+          "Revise the modular answer, preserve dissent and uncertainty, and write the resulting Card links and next investigation step back to the record."
+        ],
+        "capabilities": [
+          { "name": "Evidence Separation", "mode": "Passive", "description": "Keeps direct source claims, inference, Card contribution, and unanswered questions visibly distinct." },
+          { "name": "Card Challenge Pass", "mode": "Active", "description": "Invites relevant Cards to corroborate, dispute, or deepen one modular conclusion without replacing its source." },
+          { "name": "Modular Revision", "mode": "Active", "description": "Updates one answer when evidence changes without forcing a rewrite of the entire corpus summary." },
+          { "name": "Uncertainty Ledger", "mode": "Passive", "description": "Retains contradictions, weak evidence, and unresolved questions as first-class output rather than smoothing them away." }
+        ],
+        "proof": "A successful run yields independently readable modules whose claims point to source evidence, whose Card contributions are labeled, and whose unresolved questions remain visible. Another reader should be able to challenge or update one module without reconstructing the full source analysis.",
+        "limits": "This Skill does not make weak evidence true, guarantee that retrieval found every relevant Card, or replace domain-expert review. Card selection can introduce bias; missing evidence must stay missing rather than being filled by fluent synthesis."
+      },
       "keywords": ["skill", "distillation", "card-guided", "evidence", "writing"],
       "sourceTurnIds": ["ai_turn:0c1a2f820cb45ca7", "ai_turn:512c7b158df0bbdc"],
       "sourceFixture": "blue-orb-explorer.png",
@@ -103,6 +124,27 @@
       "title": "Render Truth Preflight",
       "meaning": "Inspect every source, codec, shader, graph, and final artifact before expensive work begins; separate a foundation reel from the actual mintable composition.",
       "reversedMeaning": "Fixing failures one video at a time while the systemic incompatibility remains invisible.",
+      "skillProfile": {
+        "schemaVersion": "hapa.codex-build-week-skill-profile.v1",
+        "technicalAnchor": "Fail-closed media and render-graph compatibility preflight",
+        "summary": "Render Truth Preflight is the discipline of proving that a media plan can actually execute before a long or costly render begins. It inventories every source asset, codec, duration, shader runtime, stem or signal binding, graph revision, output profile, and expected final artifact, then tests the transitions between them. The practitioner distinguishes a useful foundation reel or preview from the exact composition eligible for review, release, or minting. Instead of repairing failures one clip at a time, the Skill looks for shared incompatibilities—stale hashes, unsupported decoders, missing shader dependencies, mismatched orientations, detached graphs, or unverified fallbacks—and blocks the queue until the contract is truthful and reproducible.",
+        "context": "Creative previews can appear healthy while depending on silent fallbacks, stale assets, or renderer features that the final pipeline cannot reproduce. Once multiplied across an album or batch, a small compatibility lie becomes expensive rework. Preflight moves that discovery to the cheapest possible point.",
+        "application": "Use it before album-scale renders, Song Card editions, remints, codec migrations, shader-driven exports, orientation changes, or any queued media job whose cost grows with duration or card count. It is also the right response when many individual clips fail in similar ways.",
+        "method": [
+          "Build a complete source census with stable IDs, paths or URIs, hashes, codecs, dimensions, durations, and ownership or provenance boundaries.",
+          "Resolve the exact graph and runtime contract: shader dependencies, signal bindings, output profile, renderer identity, and the revision each decision belongs to.",
+          "Run bounded decode, representative-frame, transition, and artifact probes; record unsupported features and every fallback rather than hiding them.",
+          "Classify outputs as foundation, preview, render-ready, or release/mint eligible, and allow expensive work only when the required receipts match the final target."
+        ],
+        "capabilities": [
+          { "name": "Source Census", "mode": "Active", "description": "Enumerates every material input and its exact technical and provenance identity before execution." },
+          { "name": "Compatibility Gate", "mode": "Passive", "description": "Blocks a render when codecs, shaders, signals, graph revisions, or output profiles cannot satisfy the declared plan." },
+          { "name": "Artifact Tier Separation", "mode": "Active", "description": "Distinguishes a useful foundation or preview from the exact artifact allowed to enter release or mint review." },
+          { "name": "Fail-Closed Receipt", "mode": "Passive", "description": "Requires evidence from the executed renderer path instead of promoting optimistic configuration claims." }
+        ],
+        "proof": "A successful preflight produces a source-to-artifact receipt: every required input resolves, representative frames decode and render, graph and renderer revisions match, fallbacks are explicit, and the final target profile is reproducible. A failed preflight names the shared blocker before the full queue spends time or money.",
+        "limits": "Preflight proves the tested environment and exact revisions, not all future machines or providers. It does not judge artistic quality, grant release authority, or turn a preview into a mintable composition. Any source, graph, runtime, or output-profile change invalidates the affected proof."
+      },
       "keywords": ["skill", "preflight", "rendering", "media", "truth"],
       "sourceTurnIds": ["ai_turn:be11efd71e1d081f", "ai_turn:584722801b3bf42b"],
       "sourceFixture": "blue-orb-explorer.png",
@@ -117,6 +159,27 @@
       "title": "Four-Count Scene Reading",
       "meaning": "Read a verified four-beat interval through lyrics, verbs, symbols, references, characters, and energy before proposing a single keyframe composition.",
       "reversedMeaning": "Treating four counts as four seconds or rotating generic templates through a song.",
+      "skillProfile": {
+        "schemaVersion": "hapa.codex-build-week-skill-profile.v1",
+        "technicalAnchor": "Beat-bounded semantic reading for one evidence-backed keyframe",
+        "summary": "Four-Count Scene Reading converts one verified musical interval into one purposeful cinematic composition. The interval is derived from tempo, meter, and authoritative timing—not guessed as four seconds. Within that window, the practitioner reads the active lyric or phoneme, musical energy, verbs, symbols, characters, reference Cards, and continuity from the surrounding shots. Those signals converge into a single keyframe decision with a clear subject, action, environment, camera, light, palette, and emotional turn. The goal is not to decorate every beat independently; it is to discover the most consequential visual statement the four-count can carry while remaining traceable to the song and compatible with the sequence around it.",
+        "context": "Keyframe pipelines become generic when they rotate prompt templates or treat equal clock durations as equal musical phrases. Songs organize meaning rhythmically. A four-count is useful only when its actual time boundary, lyrical content, musical role, and narrative neighbors are read together.",
+        "application": "Use it while filling missing album keyframes, storyboarding music videos, directing lyric-driven transitions, or reviewing whether an existing image belongs to its exact musical moment. It works best one bounded interval at a time inside a durable pause/resume queue.",
+        "method": [
+          "Resolve the interval start and end from authoritative tempo, meter, beat-grid, and lyric-timing evidence; record the math and source revision.",
+          "Collect the active lyric or phoneme, dominant verbs, stem or energy change, symbols, characters, locations, and relevant reference Cards for that window.",
+          "Read the previous and next compositions so the proposed frame advances continuity instead of resetting to a generic tableau.",
+          "Commit to one keyframe: name the subject, action, environment, camera, lighting, palette, emotional turn, must-show evidence, and exclusions; then preserve the reading with the prompt."
+        ],
+        "capabilities": [
+          { "name": "Beat-Bound Window", "mode": "Passive", "description": "Anchors the scene to verified musical timing and prevents the four-count from collapsing into an arbitrary four-second unit." },
+          { "name": "Semantic Convergence", "mode": "Active", "description": "Combines lyric, action, symbol, character, reference, and energy evidence into one visual reading." },
+          { "name": "Single-Frame Commitment", "mode": "Active", "description": "Chooses one decisive composition instead of distributing weak ideas across generic variants." },
+          { "name": "Continuity Check", "mode": "Passive", "description": "Tests the frame against neighboring shots, character identity, visual grammar, and the song's larger arc." }
+        ],
+        "proof": "A successful reading exposes its exact timed interval and cites the signals that shaped the frame. The resulting prompt has one coherent composition, preserves character and sequence continuity, and changes meaningfully when the lyric, beat role, or neighboring shot changes.",
+        "limits": "The reading is an attributed creative interpretation, not canonical song meaning. Missing lyric or stem evidence must be disclosed. The Skill does not guarantee a generated image will obey the prompt, and it must not fabricate timing, characters, symbols, or emotional claims to make a thin interval seem richer."
+      },
       "keywords": ["skill", "four-count", "scene-prompt", "lyrics", "keyframe"],
       "sourceTurnIds": ["ai_turn:26b7abaa0f703ae5", "ai_turn:cba0f019a1769c5a"],
       "sourceFixture": "blue-orb-explorer.png",
@@ -131,6 +194,27 @@
       "title": "The Heuristic Lantern",
       "meaning": "Audit whether claimed model reasoning actually occurred, expose deterministic shortcuts, and preserve the rejected artifact as learning evidence.",
       "reversedMeaning": "A template engine wearing the language of interpretation.",
+      "skillProfile": {
+        "schemaVersion": "hapa.codex-build-week-skill-profile.v1",
+        "technicalAnchor": "Claim-to-execution audit for model reasoning and deterministic shortcuts",
+        "summary": "The Heuristic Lantern tests whether a system that speaks in the language of interpretation actually performed the reasoning it claims. The practitioner follows the execution path from UI promise to prompt construction, provider or local-model call, response handling, deterministic transforms, and final artifact. They then use counterfactual probes: change an input that should matter and observe whether the output responds, while holding irrelevant variables stable. The result classifies the behavior as model-driven, heuristic, hybrid, fallback, or unproven. A rejected artifact is retained with the evidence that disqualified it, turning an embarrassing shortcut into a reusable lesson and preventing the same false capability claim from resurfacing elsewhere.",
+        "context": "Polished interfaces and fluent output can hide hard-coded templates, hash-derived choices, stale cache reuse, or a model path that was never invoked. The danger is not the existence of heuristics; it is presenting deterministic machinery as semantic judgment and allowing downstream Cards to inherit that false provenance.",
+        "application": "Use it when generated results repeat suspiciously, ignore meaningful source changes, claim analysis without model receipts, or survive after the supposed provider is unavailable. It is useful during feature review, incident diagnosis, benchmark design, and before promoting an AI-assisted workflow into a trusted Hapa Card or protocol.",
+        "method": [
+          "Write the exact capability claim and the observable behavior that would distinguish genuine input-sensitive reasoning from a fixed or cached transform.",
+          "Trace the implementation path through prompt assembly, model or provider invocation, cache and fallback branches, parsing, post-processing, and artifact creation.",
+          "Run controlled counterfactuals: vary semantically important inputs, preserve irrelevant variables, and compare outputs, receipts, timing, and branch telemetry.",
+          "Classify the path as model-driven, heuristic, hybrid, fallback, or unproven; correct the UI claim and preserve the rejected artifact, cause, and new guardrail."
+        ],
+        "capabilities": [
+          { "name": "Claim-to-Call Trace", "mode": "Active", "description": "Connects an operator-visible reasoning claim to the exact executable branch, model call, cache, and transform that produced the artifact." },
+          { "name": "Counterfactual Probe", "mode": "Active", "description": "Changes meaning-bearing inputs to test whether the output is genuinely sensitive to the evidence it claims to interpret." },
+          { "name": "Shortcut Exposure", "mode": "Passive", "description": "Surfaces deterministic templates, hash choices, stale caches, and silent fallbacks instead of letting fluent presentation conceal them." },
+          { "name": "Rejected Artifact Retention", "mode": "Passive", "description": "Keeps the failed output and its disqualifying evidence as learning material rather than rewriting the history into a clean success story." }
+        ],
+        "proof": "A successful audit provides branch and invocation evidence, counterfactual results, and a bounded classification of what actually happened. The UI claim matches that classification, and the rejected artifact remains linked to the cause, correction, and regression guardrail.",
+        "limits": "This Skill cannot prove a model's private internal chain of thought. It can only establish the observable implementation path, inputs, outputs, receipts, and sensitivity of the system. Heuristics are not inherently invalid; they become a problem when undisclosed, misattributed, or used outside the conditions they were tested for."
+      },
       "keywords": ["skill", "audit", "heuristic", "llm", "truthfulness"],
       "sourceTurnIds": ["ai_turn:ad9f0b1d826b2b0d", "ai_turn:338e22c1d7e7d82c"],
       "sourceFixture": "blue-orb-explorer.png",

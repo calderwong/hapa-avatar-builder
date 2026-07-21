@@ -95,7 +95,8 @@ for (const definition of manifest.cards) {
       confidence: "high",
       needsReview: true,
       symbolicSummary: definition.meaning,
-      textSynopsis: `${definition.category.toUpperCase()} Card derived from attributed Codex turns during the July 13–20 Build Week window.`,
+      textSynopsis: definition.skillProfile?.summary || `${definition.category.toUpperCase()} Card derived from attributed Codex turns during the July 13–20 Build Week window.`,
+      loreNotes: definition.skillProfile?.context || "",
       visualDescription: definition.instruction,
       tags: ["codex-build-week", `${definition.category}-card`, "turn-mined", "tarot-draw-ready", "krea2-generated", "unminted"],
       media: {
@@ -111,6 +112,7 @@ for (const definition of manifest.cards) {
           sourceTurnIds: definition.sourceTurnIds,
           sourceRefs: definition.sourceTurnIds.map((turnId) => `hapa-turn://${turnId}`),
           derivedBy: manifest.source.derivedBy,
+          ...(definition.skillProfile ? { skillProfile: structuredClone(definition.skillProfile) } : {}),
           imageGeneration: {
             provider: manifest.imageGeneration.provider,
             taskId: generated.taskId,

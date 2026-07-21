@@ -65,6 +65,25 @@ The focused contract suite covers manifest balance, source lineage, bounded gene
 4. Krea Edit shows node-owned presets when the local Krea node is available.
 5. No Card is presented as minted, canonical, published, or identity truth.
 6. Clearing the Build Week search restores the complete Card Browser library.
+7. Each Skill Card shows a substantial Summary plus Context, Application, four-step Method, Active/Passive capabilities, Proof, and Limits in 3D Details.
+
+## Skill Card content standard
+
+The four Build Week Skill Cards meet the minimum content shape demonstrated by `hapa-dev-proto` Cards while remaining native to the Avatar Builder Tarot store. Their one-line `meaning` remains the fast symbolic read. A versioned `skillProfile` adds the deeper reusable layer: technical anchor, substantial summary, operating context, practical application, four-step method, named Active/Passive capabilities, observable proof, and explicit limits.
+
+This is durable Card content, not UI-only decoration. The installer writes the profile beneath `enrichment.media.codexBuildWeek.skillProfile`; Card Browser uses its summary and application, and 3D Details renders the complete profile. Exact source Turn IDs remain authoritative. The expanded prose is a curated derived interpretation and does not replace, quote, or silently promote the raw Turns.
+
+### Skill Card depth correction
+
+- **Objective:** bring the four Build Week Skill Cards up to the minimum useful context and application depth demonstrated by `hapa-dev-proto` without transferring source ownership or copying its UI.
+- **Evidence inspected:** the Cards / Standards / Forging capability route, Dev Proto Card quality and Skill Forge contracts, representative Dev Proto Cards, the Build Week manifest, the durable Tarot store, and the live Browser/3D projections.
+- **Owner and consumers:** Avatar Builder remains the authoring owner; `hapa-dev-proto` is a reference standard. Tarot Card Browser and 3D Details consume the expanded profile. Evidence writes back to the manifest, installer, tests, and this runbook.
+- **What worked:** preserving the short symbolic `meaning` while adding a versioned profile keeps fast Tarot readability and supplies the deeper context, method, application, proof, and limits needed for reuse.
+- **What was noise:** visual polish, image-generation quality, and raw word count alone did not solve the knowledge-quality gap.
+- **What was misunderstood:** the former `textSynopsis` only named the mining window; it was metadata, not an adequate Skill summary.
+- **What changed:** every Skill Card now carries a technical anchor, substantial summary, context, application, four-step method, four named Active/Passive capabilities, proof, and limits in durable Card data.
+- **What remains reusable:** `hapa.codex-build-week-skill-profile.v1` can deepen later mined demo Sets without changing the core Tarot Card schema or inventing UI-only fields.
+- **New guardrail:** a mined Skill Card is not judge-ready when it only names an idea; it must teach when and how to apply the Skill, how to recognize success, where it fails, and which exact Turns remain authoritative.
 
 ## Turn-to-Lore reflection
 

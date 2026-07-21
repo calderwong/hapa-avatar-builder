@@ -7230,6 +7230,7 @@ function buildTarotLibraryDrawCards(cards = []) {
       const imageUri = primary?.uri || "";
       if (!imageUri) return null;
       const buildWeek = card.enrichment?.media?.codexBuildWeek || {};
+      const skillProfile = buildWeek.skillProfile || {};
       const category = buildWeek.category ? titleizeItemLabel(buildWeek.category) : "Tarot Library";
       return {
         id: card.id,
@@ -7244,8 +7245,10 @@ function buildTarotLibraryDrawCards(cards = []) {
         subtitle: `${category} Card${buildWeek.number || card.number ? ` · ${buildWeek.number || card.number}` : ""}`,
         archetype: buildWeek.category ? `Codex Build Week ${category}` : "Tarot Library",
         tarotNumber: buildWeek.number || card.number || "",
-        summary: card.meaning || card.enrichment?.symbolicSummary || "Mined Hapa Card.",
-        description: card.enrichment?.textSynopsis || card.meaning || "",
+        summary: skillProfile.summary || card.enrichment?.textSynopsis || card.meaning || card.enrichment?.symbolicSummary || "Mined Hapa Card.",
+        description: skillProfile.application || card.enrichment?.loreNotes || card.enrichment?.textSynopsis || card.meaning || "",
+        meaning: card.meaning || card.enrichment?.symbolicSummary || "",
+        reversedMeaning: card.reversedMeaning || "",
         keywords: card.keywords || [],
         stats: { provenance: (buildWeek.sourceTurnIds || []).length, review: 1, identityTruth: 0 },
         tags: card.enrichment?.tags || [],

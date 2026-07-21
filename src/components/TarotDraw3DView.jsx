@@ -1614,9 +1614,20 @@ function buildSelectedCardTextSections(card = {}) {
   const drawForge = tarotDrawForgeMeta(card);
   const sceneSnapshot = tarotDrawSceneSnapshot(card);
   const mediaTelemetry = card.mediaTelemetry || card.captureTelemetry || {};
+  const skillProfile = card.enrichment?.media?.codexBuildWeek?.skillProfile || {};
   const sections = [];
-  pushSelectedCardSection(sections, "Summary", card.summary || lore.summary);
+  pushSelectedCardSection(sections, "Summary", skillProfile.summary || card.summary || lore.summary);
   pushSelectedCardSection(sections, "Meaning", card.meaning);
+  pushSelectedCardSection(sections, "Context", skillProfile.context);
+  pushSelectedCardSection(sections, "Application", skillProfile.application);
+  pushSelectedCardSection(sections, "Method", (skillProfile.method || []).map((step, index) => `${index + 1}. ${step}`));
+  pushSelectedCardSection(sections, "Skills / Capabilities Encoded", (skillProfile.capabilities || []).map((capability) => [
+    capability.name,
+    capability.mode ? `(${capability.mode})` : "",
+    capability.description ? `— ${capability.description}` : ""
+  ].filter(Boolean).join(" ")));
+  pushSelectedCardSection(sections, "Proof", skillProfile.proof);
+  pushSelectedCardSection(sections, "Limits", skillProfile.limits);
   pushSelectedCardSection(sections, "Scene Snapshot", sceneSnapshot ? [
     formatTarotDrawSceneSnapshotSummary(sceneSnapshot),
     sceneSnapshot.title,

@@ -29,6 +29,29 @@ test("every Build Week Card carries mined Turn lineage and bounded Krea art dire
   assert.equal(manifest.imageGeneration.identityTruth, false);
 });
 
+test("Build Week Skill Cards meet the Dev Proto minimum context and application standard", () => {
+  const skillCards = manifest.cards.filter((card) => card.category === "skill");
+  assert.equal(skillCards.length, 4);
+  for (const card of skillCards) {
+    const profile = card.skillProfile;
+    assert.equal(profile?.schemaVersion, "hapa.codex-build-week-skill-profile.v1", card.id);
+    assert.ok(profile.technicalAnchor.length >= 30, card.id);
+    assert.ok(profile.summary.split(/\s+/).length >= 80, card.id);
+    assert.ok(profile.context.split(/\s+/).length >= 35, card.id);
+    assert.ok(profile.application.split(/\s+/).length >= 30, card.id);
+    assert.equal(profile.method.length, 4, card.id);
+    assert.ok(profile.method.every((step) => step.length >= 70), card.id);
+    assert.ok(profile.capabilities.length >= 4, card.id);
+    assert.equal(new Set(profile.capabilities.map((capability) => capability.name)).size, profile.capabilities.length, card.id);
+    for (const capability of profile.capabilities) {
+      assert.match(capability.mode, /^(Active|Passive)$/);
+      assert.ok(capability.description.length >= 70, `${card.id}:${capability.name}`);
+    }
+    assert.ok(profile.proof.length >= 180, card.id);
+    assert.ok(profile.limits.length >= 180, card.id);
+  }
+});
+
 test("Tarot card creation preserves a verified custody receipt", () => {
   const digest = "a".repeat(64);
   const card = createTarotCard({
@@ -53,12 +76,17 @@ test("Tarot card creation preserves a verified custody receipt", () => {
 });
 
 test("Tarot Draw lazy-loads explicit Tarot library Cards without weakening the default media gate", async () => {
-  const [appSource, hostTargetsSource] = await Promise.all([
+  const [appSource, tarotDrawSource, installerSource, hostTargetsSource] = await Promise.all([
     readFile(new URL("../src/App.jsx", import.meta.url), "utf8"),
+    readFile(new URL("../src/components/TarotDraw3DView.jsx", import.meta.url), "utf8"),
+    readFile(new URL("../scripts/install-codex-build-week-tarot-set.mjs", import.meta.url), "utf8"),
     readFile(new URL("../src/overcard/hostTargets.js", import.meta.url), "utf8")
   ]);
   assert.match(appSource, /buildTarotLibraryDrawCards\(tarotLibraryCards\)/);
   assert.match(appSource, /includes\("tarot-draw-ready"\)/);
   assert.match(appSource, /ensureTarotStoreLoaded/);
+  assert.match(appSource, /skillProfile\.summary/);
+  assert.match(tarotDrawSource, /Skills \/ Capabilities Encoded/);
+  assert.match(installerSource, /skillProfile: structuredClone\(definition\.skillProfile\)/);
   assert.match(hostTargetsSource, /store: "tarot"/);
 });
