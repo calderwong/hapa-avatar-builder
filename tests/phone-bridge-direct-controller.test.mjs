@@ -25,9 +25,9 @@ test("Phone Card QR opens the existing local controller without a certificate ga
   assert.match(phone, /Hapa Phone Card/);
   assert.match(phone, /Join With Camera/);
   assert.match(phone, /Use Motion/);
-  assert.match(phone, /requestPhoneSensorPermissions/);
-  assert.match(phone, /Promise\.all\(requests\)/);
-  assert.match(phone, /deviceorientationabsolute/);
+  assert.match(phone, /requestPhoneOrientationPermission/);
+  assert.match(phone, /await orientationEvent\.requestPermission\(\)/);
+  assert.doesNotMatch(phone, /DeviceMotionEvent\.requestPermission|deviceorientationabsolute/);
   assert.match(phone, /const motionReady = await requestOrientation\(\)/);
   assert.match(tarot, /phonePoseTelemetry/);
   assert.match(phone, /window\.__HAPA_PHONE_CARD_DIAGNOSTICS__/);

@@ -61,5 +61,15 @@ The equivalent desktop overrides are `HAPA_AVATAR_BIND_HOST` and `HAPA_AVATAR_HT
 - **Evidence inspected:** the pre–Build Week orientation quaternion path, iOS sensor permission APIs, live data-channel state, mobile pose diagnostics, desktop pose receipt, and the rendered Phone Card target transform.
 - **What worked:** the original quaternion calibration, bounded pose mapping, unreliable low-latency data channel, and Tarot transform application were still intact.
 - **What was misunderstood:** camera join and motion permission were separate gestures. A connected camera/FPV session could therefore look healthy while orientation sampling remained disabled.
-- **What changed:** Join With Camera now requests both iOS orientation and motion permissions in the initiating gesture, listens to relative and absolute orientation events, and retains Use Motion as a retry. Mobile and desktop diagnostics record sample count, source, timestamp, and applied pose.
+- **Initial change (later corrected below):** Join With Camera requested both iOS orientation and motion permissions in the initiating gesture and listened to relative and absolute orientation events. It retained Use Motion as a retry and added mobile/desktop diagnostics for sample count, source, timestamp, and applied pose.
 - **New guardrail:** the secure Phone Card smoke must inject two orientation samples and prove a nonzero mobile pose delta plus a `device-orientation` pose receipt in Tarot.
+
+### Original orientation stream correction
+
+- **Objective:** restore the full-range physical pointing behavior from the pre–Build Week Phone Card.
+- **Evidence inspected:** the live bridge was connected with camera, FPV, and an open data channel, but desktop diagnostics showed `orientation.active: true`, `hasSample: false`, and `samples: 0`. The June 30 and July 13 source snapshots used one `DeviceOrientationEvent` permission request and one `deviceorientation` listener.
+- **What worked:** the original quaternion calibration and Tarot Card-facing transform already preserve the phone's full angular range and remain reusable.
+- **What was noise:** the controller's small yaw/pitch motion made the Card appear to have weak gyro sensitivity even though no orientation samples were arriving.
+- **What was misunderstood:** requesting both orientation and motion permissions concurrently and listening to both relative and absolute streams was broader, but not equivalent to the stable iOS contract.
+- **What changed:** restored the original single-permission, single-stream orientation path while keeping Join-triggered permission and telemetry diagnostics.
+- **New guardrail:** do not broaden the iOS sensor permission or event-source contract without physical-device evidence; zero samples means acquisition failure, not low sensitivity.

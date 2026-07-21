@@ -254,7 +254,7 @@ app.whenReady().then(async () => {
           })()
         `);
         mediaBridge.motion = motionResult;
-        if (!motionResult.orientation?.hasSample || motionResult.orientation.samples < 2 || motionResult.delta < 0.08) {
+        if (!motionResult.orientation?.hasSample || motionResult.orientation.samples < 2 || motionResult.delta < 0.65) {
           throw new Error(`Phone gyro telemetry did not change pose: ${JSON.stringify(motionResult)}`);
         }
       }

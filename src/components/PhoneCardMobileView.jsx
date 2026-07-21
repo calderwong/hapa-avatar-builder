@@ -46,19 +46,10 @@ function screenOrientationRadians() {
   return THREE.MathUtils.degToRad(angle);
 }
 
-async function requestPhoneSensorPermissions() {
-  const sensorTypes = [globalThis.DeviceOrientationEvent, globalThis.DeviceMotionEvent].filter(Boolean);
-  const requesters = new Set();
-  const requests = [];
-  for (const sensorType of sensorTypes) {
-    const requester = sensorType?.requestPermission;
-    if (typeof requester !== "function" || requesters.has(requester)) continue;
-    requesters.add(requester);
-    requests.push(requester.call(sensorType));
-  }
-  if (!requests.length) return true;
-  const permissions = await Promise.all(requests);
-  return permissions.every((permission) => permission === "granted");
+async function requestPhoneOrientationPermission() {
+  const orientationEvent = globalThis.DeviceOrientationEvent;
+  if (typeof orientationEvent?.requestPermission !== "function") return true;
+  return (await orientationEvent.requestPermission()) === "granted";
 }
 
 function deviceOrientationQuaternion(orientation = {}) {
@@ -779,7 +770,7 @@ export default function PhoneCardMobileView({ apiBase = "" }) {
   const requestOrientation = useCallback(async () => {
     try {
       setError("");
-      const granted = await requestPhoneSensorPermissions();
+      const granted = await requestPhoneOrientationPermission();
       if (!granted) {
         setOrientationEnabled(false);
         orientationRef.current.active = false;
@@ -1337,11 +1328,7 @@ export default function PhoneCardMobileView({ apiBase = "" }) {
       };
     }
     window.addEventListener("deviceorientation", handleOrientation, true);
-    window.addEventListener("deviceorientationabsolute", handleOrientation, true);
-    return () => {
-      window.removeEventListener("deviceorientation", handleOrientation, true);
-      window.removeEventListener("deviceorientationabsolute", handleOrientation, true);
-    };
+    return () => window.removeEventListener("deviceorientation", handleOrientation, true);
   }, []);
 
   useEffect(() => {
