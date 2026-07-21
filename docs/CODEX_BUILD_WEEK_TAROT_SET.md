@@ -51,26 +51,29 @@ Before mutating `data/tarot-store.json`, the installer writes a timestamped copy
 
 Tarot Draw now lazy-loads the Tarot store when the 3D experience opens. Only image Cards carrying the explicit `tarot-draw-ready` enrichment tag enter this additional lane, so the existing production-media audit remains strict for all other projections. The Set's curated order is preserved with Turn Cards first, followed by Skill, Capability, and Protocol Cards. Each 3D Card exposes its category, source Turn count, generated image, review state, and custody/provenance fields.
 
+The Card Browser exposes the Set as a first-class **Featured Set**. Selecting **Codex Build Week** loads all 16 Cards, while **Add All 16** places the complete ordered Set on the 3D table. Spaced and hyphenated searches are normalized, so both `Codex Build Week` and `codex-build-week` resolve the Set. Every Browser tile has an explicit **Details** affordance; selecting it populates the Browser detail pane with Set, family, and mined-Turn lineage. **Add & Open 3D Details** then places that Card and opens its in-field detail panel.
+
 The existing in-field **Krea Edit** workflow remains available, allowing judges to select one of these Cards and create a new bounded edit proposal without mutating the mined source Card.
 
 ## Verification
 
 The focused contract suite covers manifest balance, source lineage, bounded generation inputs, custody preservation, adapter behavior, and Tarot Krea request semantics. A live demo should additionally verify:
 
-1. Tarot Draw Card Browser finds exactly one high-resolution `The Wisdom Studio Opens` Card and can quick-add it to the table.
+1. Tarot Draw Card Browser's Featured Set control loads all 16 ordered Build Week Cards, and `Add All 16` is available.
 2. All 16 generated images return HTTP 200 from `/media/codex-build-week/cards/`.
-3. Selecting a Card shows its Turn/Skill/Capability/Protocol label and mined summary.
+3. Selecting a Browser tile populates Details with its Set, Turn/Skill/Capability/Protocol label, mined Turn lineage, and summary.
 4. Krea Edit shows node-owned presets when the local Krea node is available.
 5. No Card is presented as minted, canonical, published, or identity truth.
+6. Clearing the Build Week search restores the complete Card Browser library.
 
 ## Turn-to-Lore reflection
 
 - **Objective:** turn one bounded week of Codex work into an explorable, attributed Hapa Card Set without replacing the existing 3D cockpit or raw Turn evidence.
 - **Evidence inspected:** the refreshed Second Brain Turn corpus, the canonical Tarot store/domain, the running Tarot Draw, the production Krea preset contract, generation digests, Card custody receipts, and the live browser projection.
 - **What worked:** extending the existing Tarot projection with one explicit `tarot-draw-ready` lane preserved the cockpit, media audit, and Krea credential boundary. Fixed seeds plus synthetic fixtures produced a coherent visual family quickly.
-- **What was noise:** broad media-library results and title-independent browser tags were not useful proof that the Set was reachable. Exact Card-title search, quick-add confirmation, and the placed-card counter were authoritative UI evidence.
+- **What was noise:** broad media-library counts and title-independent tags were not useful proof that the complete Set was reachable. Set-level result count, explicit Details, and a reversible clear-search check are authoritative UI evidence.
 - **What was misunderstood:** the first install created Hypercore origins correctly, but `createTarotCard` stripped their receipts while rebuilding the normalized record. The custody service was not the problem; the Tarot creation projection was. The creation path now preserves the verified receipt, with a regression test.
-- **What changed:** Tarot Draw lazy-loads durable Tarot Cards; the Set has 16 digest-verified images, ordered priorities, source Turn lineage, and preserved custody; the Krea request builder accepts the truthful `synthetic_nonhuman` basis used for this run.
+- **What changed:** Tarot Draw lazy-loads durable Tarot Cards; the Card Browser now exposes the Set as one 16-Card Featured Set with normalized search, Add All, and explicit Details; the Cards retain digest-verified images, ordered priorities, source Turn lineage, and custody; the Krea request builder accepts the truthful `synthetic_nonhuman` basis used for this run.
 - **What remains reusable:** the manifest-driven generator and installer can support later mined Sets without copying the 3D UI, node credentials, or Krea preset definitions.
-- **New guardrail:** a durable Card install is not complete until the serialized consumer store still contains the custody receipt after every normalization boundary. Generation prompts that say “no text” also remain human-review claims, not proof that a diffusion result contains no pseudo-lettering.
+- **New guardrail:** a durable Card install is not complete until the serialized consumer store still contains the custody receipt after every normalization boundary and the consumer UI can recover the whole Set without title-by-title searching. Generation prompts that say “no text” also remain human-review claims, not proof that a diffusion result contains no pseudo-lettering.
 - **Promotion candidates:** Skill Card — **Card-Guided Distillation**; Lesson Card — **Receipts Must Survive Projection**; Flow explainer — **Raw Turn → Curated Card → Generated Proposal → Tarot Draw**.

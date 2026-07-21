@@ -84,6 +84,10 @@ import {
   chooseTarotKrea2Preset,
   tarotKrea2PresetGroups,
 } from "../domain/tarot-krea2-edit.js";
+import {
+  buildTarotCardBrowserCollections,
+  filterTarotCardBrowserItemsByQuery,
+} from "../domain/tarot-card-browser-collections.js";
 import BuilderOvercardPickupActions from "../overcard/BuilderOvercardPickupActions.jsx";
 import { migrateTarotSceneSnapshot, tarotFormationToSceneSnapshot, tarotSceneSnapshotToFormation } from "../overcard/tarotFormationAdapter.js";
 
@@ -1755,21 +1759,6 @@ function buildTarotCardBrowserItems(cards = [], apiBase = "") {
     });
 }
 
-function filterTarotCardBrowserItems(items = [], query = "") {
-  const term = String(query || "").trim().toLowerCase();
-  if (!term) return items;
-  return items.filter((item) => [
-    item.title,
-    item.subtitle,
-    item.label,
-    item.kind,
-    item.card?.summary,
-    item.card?.meaning,
-    ...(item.keywords || []),
-    ...(item.tags || [])
-  ].join(" ").toLowerCase().includes(term));
-}
-
 function buildTarotCardBrowserTypeFilters(items = []) {
   return TAROT_CARD_BROWSER_TYPE_FILTERS.map((filter) => ({
     ...filter,
@@ -2301,9 +2290,10 @@ export default function TarotDraw3DView({ cards = [], avatarId = "local-operator
   const selectedCardTextSections = useMemo(() => selectedCard ? buildSelectedCardTextSections(selectedCard) : [], [selectedCard]);
   const selectedCardImageSources = useMemo(() => selectedCard ? buildSelectedCardImageSources(selectedCard) : [], [selectedCard]);
   const cardBrowserItems = useMemo(() => buildTarotCardBrowserItems(cards, apiBase), [cards, apiBase]);
+  const cardBrowserCollections = useMemo(() => buildTarotCardBrowserCollections(cardBrowserItems), [cardBrowserItems]);
   const cardBrowserTypeFilters = useMemo(() => buildTarotCardBrowserTypeFilters(cardBrowserItems), [cardBrowserItems]);
   const typeFilteredCardBrowserItems = useMemo(() => filterTarotCardBrowserItemsByType(cardBrowserItems, cardBrowserTypeFilter), [cardBrowserItems, cardBrowserTypeFilter]);
-  const filteredCardBrowserItems = useMemo(() => filterTarotCardBrowserItems(typeFilteredCardBrowserItems, cardBrowserQuery), [typeFilteredCardBrowserItems, cardBrowserQuery]);
+  const filteredCardBrowserItems = useMemo(() => filterTarotCardBrowserItemsByQuery(typeFilteredCardBrowserItems, cardBrowserQuery), [typeFilteredCardBrowserItems, cardBrowserQuery]);
   const visibleCardBrowserItems = filteredCardBrowserItems.slice(0, cardBrowserVisibleCount);
   const cardBrowserHasMore = cardBrowserVisibleCount < filteredCardBrowserItems.length;
   const activeCardBrowserFilter = cardBrowserTypeFilters.find((filter) => filter.id === cardBrowserTypeFilter) || cardBrowserTypeFilters[0];
@@ -3708,7 +3698,39 @@ export default function TarotDraw3DView({ cards = [], avatarId = "local-operator
     setSelectedBrowserItem(item);
   }
 
-  function addBrowserItemToScene(item, { quick = false } = {}) {
+  function showCardBrowserCollection(collection) {
+    if (!collection) return;
+    setCardBrowserTypeFilter("all");
+    setCardBrowserQuery(collection.title);
+    setSelectedBrowserItem(collection.items[0] || null);
+    setCardBrowserVisibleCount(Math.max(TAROT_CARD_BROWSER_MAX_INITIAL, collection.items.length));
+    setBrowserAddState({ status: "idle", message: "", itemId: collection.id });
+    cardBrowserScrollRef.current?.scrollTo?.({ top: 0 });
+  }
+
+  function addBrowserCollectionToScene(collection) {
+    if (!collection?.items?.length) return;
+    let added = 0;
+    collection.items.forEach((item, index) => {
+      const card = cardFromTarotBrowserItem(item);
+      const entry = callGame("spawnBrowserCard", card, {
+        zone: "field",
+        index,
+        statusText: `${collection.title}: ${index + 1}/${collection.items.length} · ${item.title || card.title}`
+      });
+      if (entry) added += 1;
+    });
+    setSelectedBrowserItem(collection.items[0] || null);
+    setBrowserAddState({
+      status: added === collection.items.length ? "complete" : "failed",
+      message: added === collection.items.length
+        ? `Added all ${added} ${collection.title} Cards`
+        : `Added ${added}/${collection.items.length} ${collection.title} Cards`,
+      itemId: collection.id
+    });
+  }
+
+  function addBrowserItemToScene(item, { quick = false, openDetails = false } = {}) {
     if (!item) return;
     const card = cardFromTarotBrowserItem(item);
     const entry = callGame("spawnBrowserCard", card, {
@@ -3719,12 +3741,14 @@ export default function TarotDraw3DView({ cards = [], avatarId = "local-operator
       setBrowserAddState({ status: "failed", message: "Could not add media to scene", itemId: item.id });
       return;
     }
+    if (openDetails) callGame("toggleSelectedDetails");
     setBrowserAddState({ status: "complete", message: `${item.title || card.title} added`, itemId: item.id });
   }
 
   function quickAddBrowserItem(event, item) {
     event.preventDefault();
     event.stopPropagation();
+    setSelectedBrowserItem(item);
     addBrowserItemToScene(item, { quick: true });
   }
 
@@ -4988,6 +5012,36 @@ export default function TarotDraw3DView({ cards = [], avatarId = "local-operator
               <X size={14} />
             </button>
           </header>
+          {cardBrowserCollections.length > 0 && (
+            <section className="tarot-card-browser-collections" aria-label="Featured Tarot Sets">
+              <span><Grid3X3 size={14} /> Featured Sets</span>
+              {cardBrowserCollections.map((collection) => (
+                <article key={collection.id}>
+                  <button
+                    className="tarot-card-browser-collection-open"
+                    type="button"
+                    onClick={() => showCardBrowserCollection(collection)}
+                    aria-label={`Show all ${collection.count} ${collection.title} Cards`}
+                  >
+                    <strong>{collection.title}</strong>
+                    <em>{collection.count} Cards · {collection.categories.join(" / ")}</em>
+                  </button>
+                  <button
+                    className="hapa-btn tarot-card-browser-collection-add"
+                    data-intent="primary"
+                    type="button"
+                    onClick={() => addBrowserCollectionToScene(collection)}
+                    disabled={browserAddState.status === "complete" && browserAddState.itemId === collection.id}
+                  >
+                    <Plus size={13} />
+                    {browserAddState.status === "complete" && browserAddState.itemId === collection.id
+                      ? `All ${collection.count} Added`
+                      : `Add All ${collection.count}`}
+                  </button>
+                </article>
+              ))}
+            </section>
+          )}
           <nav className="tarot-card-browser-filters" aria-label="Card type filters">
             {cardBrowserTypeFilters.map((filter) => {
               const disabled = filter.id !== "all" && filter.count <= 0;
@@ -5021,6 +5075,7 @@ export default function TarotDraw3DView({ cards = [], avatarId = "local-operator
                       className="tarot-card-browser-tile"
                       type="button"
                       key={item.id}
+                      aria-label={`View details for ${item.title}`}
                       data-kind={item.kind}
                       data-selected={selectedBrowserItem?.id === item.id ? "true" : "false"}
                       style={{ "--tile-delay": `${Math.min(index % 16, 15) * 18}ms` }}
@@ -5035,6 +5090,7 @@ export default function TarotDraw3DView({ cards = [], avatarId = "local-operator
                         <img src={item.uri} alt="" loading="lazy" decoding="async" />
                       )}
                       <span className="tarot-card-browser-kind">{item.kind === "video" ? <Film size={13} /> : <Images size={13} />}</span>
+                      <span className="tarot-card-browser-details-hint"><BookOpenCheck size={12} /> Details</span>
                       <span className="tarot-card-browser-caption">
                         <strong>{item.title}</strong>
                         <em>{item.label || item.subtitle || item.kind}</em>
@@ -5095,14 +5151,32 @@ export default function TarotDraw3DView({ cards = [], avatarId = "local-operator
                         <dt>Source</dt>
                         <dd>{selectedBrowserItem.label || selectedBrowserItem.card?.sourceKind || "media"}</dd>
                       </div>
+                      {selectedBrowserItem.card?.enrichment?.media?.codexBuildWeek?.setId && (
+                        <div>
+                          <dt>Set</dt>
+                          <dd>{selectedBrowserItem.card.enrichment.media.codexBuildWeek.setTitle || (selectedBrowserItem.card.enrichment.media.codexBuildWeek.setId === "codex-build-week-2026" ? "Codex Build Week" : selectedBrowserItem.card.enrichment.media.codexBuildWeek.setId)}</dd>
+                        </div>
+                      )}
+                      {selectedBrowserItem.card?.enrichment?.media?.codexBuildWeek?.category && (
+                        <div>
+                          <dt>Family</dt>
+                          <dd>{selectedBrowserItem.card.enrichment.media.codexBuildWeek.category} Card</dd>
+                        </div>
+                      )}
+                      {selectedBrowserItem.card?.enrichment?.media?.codexBuildWeek?.sourceTurnIds?.length > 0 && (
+                        <div>
+                          <dt>Lineage</dt>
+                          <dd>{selectedBrowserItem.card.enrichment.media.codexBuildWeek.sourceTurnIds.length} mined Turn{selectedBrowserItem.card.enrichment.media.codexBuildWeek.sourceTurnIds.length === 1 ? "" : "s"}</dd>
+                        </div>
+                      )}
                     </dl>
                     <p>{selectedBrowserItem.card?.summary || selectedBrowserItem.card?.meaning || "Add this media as a live card object in the Tarot Draw scene."}</p>
                     <div className="tarot-card-browser-tags">
                       {(selectedBrowserItem.keywords || selectedBrowserItem.tags || []).slice(0, 8).map((tag) => <span key={tag}>{tag}</span>)}
                     </div>
-                    <button className="hapa-btn" data-intent="primary" type="button" onClick={() => addBrowserItemToScene(selectedBrowserItem)}>
-                      <Plus size={14} />
-                      Add To Scene
+                    <button className="hapa-btn" data-intent="primary" type="button" onClick={() => addBrowserItemToScene(selectedBrowserItem, { openDetails: true })}>
+                      <BookOpenCheck size={14} />
+                      Add & Open 3D Details
                     </button>
                   </div>
                 </>
