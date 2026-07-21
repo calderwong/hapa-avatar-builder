@@ -8,9 +8,12 @@ import { avatarBuilderOvercardRenderers } from "./overcard/renderers.jsx";
 import InventoryCollectionBridge from "./overcard/InventoryCollectionBridge.jsx";
 import BuilderPickupDelegator from "./overcard/BuilderPickupDelegator.jsx";
 import BuilderEmbeddedOvercardBridge from "./overcard/BuilderEmbeddedOvercardBridge.jsx";
+import { publicBuildWeekDemoRequested } from "./domain/public-demo-runtime.js";
 import "./index.css";
 
-const publicBuildWeekDemo = new URLSearchParams(globalThis.location?.search || "").get("stargateDemo") === "1";
+const publicBuildWeekDemo = publicBuildWeekDemoRequested({
+  forced: import.meta.env?.VITE_PUBLIC_BUILD_WEEK_DEMO === "1"
+});
 const publicDemoOvercardAdapter = {
   async load() {
     return {

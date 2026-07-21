@@ -2,7 +2,7 @@
 
 Hapa Avatar Builder is a local-first visual workbench for creating Avatar Cards and connecting them to media, skills, protocols, items, scenes, lore, songs, and other Cards. It also includes a 3D Tarot Draw where those Cards can be arranged, explored, saved as scenes, and used to form collaboration contexts.
 
-[Watch the Codex Build Week demo](https://youtu.be/Y-RR2AwnH5A) · [Open the judge quickstart](docs/submission/JUDGE_QUICKSTART.md) · [Read the Build Week scope](docs/submission/CODEX_BUILD_WEEK_CUTOFF_AND_CHANGE_AUDIT.md)
+[Open the live Red, Blue, and Green demo](https://calderwong.github.io/hapa-avatar-builder/?view=builder&stargateDemo=1) · [Watch the Codex Build Week demo](https://youtu.be/Y-RR2AwnH5A) · [Open the judge quickstart](docs/submission/JUDGE_QUICKSTART.md) · [Read the Build Week scope](docs/submission/CODEX_BUILD_WEEK_CUTOFF_AND_CHANGE_AUDIT.md)
 
 ## What you can do
 
@@ -21,6 +21,8 @@ Hapa Avatar Builder is a local-first visual workbench for creating Avatar Cards 
 | **Shared Hand** | Carries Cards, Decks, and Sets between compatible workspaces without transferring ownership or authority. | Use **Manage** to edit the Hand, **Detach** to float it across views, and **Dock** to return it to the header. |
 
 ## Public Build Week demo
+
+The [hosted GitHub Pages demo](https://calderwong.github.io/hapa-avatar-builder/?view=builder&stargateDemo=1) starts in its bounded static public fixture mode. It does not connect to the private local operator stores or services, and changes made in the hosted UI are not durable.
 
 The public branch contains a deliberately bounded demo rather than the private operator libraries. It includes:
 

@@ -13,6 +13,7 @@
     "dev": "concurrently -k -n API,UI -c cyan,magenta \"HAPA_AVATAR_TRUST_LOCAL_UI=1 node server/api.mjs --port 8787\" \"vite --host 127.0.0.1 --port 5178\"",
     "api": "node server/api.mjs --port 8787",
     "build": "node scripts/build-echo-delivery-runtime.mjs",
+    "build:pages": "HAPA_GITHUB_PAGES=1 VITE_PUBLIC_BUILD_WEEK_DEMO=1 vite build && node scripts/prepare-github-pages.mjs",
     "build:check": "node scripts/check-production-build.mjs",
     "judge:package": "node scripts/build-build-week-judge-package.mjs",
     "judge:preflight": "node scripts/build-week-submission-preflight.mjs",
