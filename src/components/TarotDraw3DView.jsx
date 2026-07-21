@@ -12382,8 +12382,10 @@ function createTarotDrawGame({ canvas, cards, avatarId = "local-operator", avata
       phoneBridgeQrVisible = true;
       phoneBridgeConnected = false;
       phoneBridgeSince = 0;
-      phoneBridgeStatus = payload.localNetworkDirect
-        ? "Local Phone Card ready; waiting for phone scan"
+      phoneBridgeStatus = payload.secureContextLikely
+        ? "Secure Phone Card ready; waiting for phone scan"
+        : payload.localNetworkDirect
+          ? "Local Phone Card ready; camera may be unavailable"
         : payload.secureContextLikely === false
           ? "QR ready; secure bridge unavailable"
         : "Secure QR ready; waiting for phone scan";

@@ -10,16 +10,17 @@ test("Phone Card QR opens the existing local controller without a certificate ga
     readFile(new URL("../src/components/PhoneCardMobileView.jsx", import.meta.url), "utf8"),
   ]);
 
-  assert.match(server, /const origin = publicNativePhoneBridgeOrigin\(\);/);
+  assert.match(server, /const origin = publicPhoneBridgeOrigin\(req\);/);
   assert.match(server, /const mobileUrl = `\$\{origin\}\/phone-card\?session=/);
   assert.match(server, /localNetworkDirect: true/);
+  assert.match(server, /secureDirect: origin\.startsWith\("https:\/\/"\)/);
   assert.match(server, /certificateRequired: false/);
   assert.match(server, /publicNativePhoneBridgeOrigin\(\)/);
   assert.match(server, /!phoneBridgeOrigins\.includes\(origin\)/);
   assert.doesNotMatch(server, /pathname === "\/phone-card\/setup"/);
   assert.match(main, /const isPhoneCardRoute = globalThis\.location\?\.pathname === "\/phone-card"/);
   assert.match(main, /isPhoneCardRoute \? \(/);
-  assert.match(tarot, /Local Phone Card ready; waiting for phone scan/);
+  assert.match(tarot, /Secure Phone Card ready; waiting for phone scan/);
   assert.doesNotMatch(tarot, /SETUP → SECURE|one-time phone setup/);
   assert.match(phone, /Hapa Phone Card/);
   assert.match(phone, /Join With Camera/);

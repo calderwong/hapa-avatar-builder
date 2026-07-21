@@ -9386,7 +9386,7 @@ function phoneBridgeInfo(req, url) {
   cleanupPhoneBridgeSessions();
   const session = safePhoneBridgeSessionId(url.searchParams.get("session") || "");
   const record = ensurePhoneBridgeSession(session);
-  const origin = publicNativePhoneBridgeOrigin();
+  const origin = publicPhoneBridgeOrigin(req);
   const mobileUrl = `${origin}/phone-card?session=${encodeURIComponent(record.id)}`;
   const certificateUrl = publicPhoneBridgeCertificateUrl(req);
   const eventsUrl = `${origin}/api/phone-bridge/events`;
@@ -9396,6 +9396,7 @@ function phoneBridgeInfo(req, url) {
     session: record.id,
     mobileUrl,
     localNetworkDirect: true,
+    secureDirect: origin.startsWith("https://"),
     certificateRequired: false,
     origin,
     certificateUrl,
@@ -9406,10 +9407,12 @@ function phoneBridgeInfo(req, url) {
     },
     httpsEnabled: httpsBridgeActive,
     httpsPort: httpsBridgeActive ? httpsPort : null,
-    secureContextLikely: /^(http:\/\/(localhost|127\.0\.0\.1|\[::1\]))/.test(mobileUrl),
+    secureContextLikely: origin.startsWith("https://") || /^(http:\/\/(localhost|127\.0\.0\.1|\[::1\]))/.test(mobileUrl),
     notes: [
-      "The QR opens the existing Phone Card controller directly over the local network; no certificate setup page is required.",
-      httpsBridgeActive ? "An optional HTTPS companion listener is available but is not the default Phone Card route." : "The local HTTP Phone Card route is active."
+      httpsBridgeActive
+        ? "The QR opens the existing secure Phone Card controller directly; no certificate download or setup page is inserted."
+        : "The secure bridge is unavailable, so mobile camera and motion APIs may be blocked.",
+      "The direct controller preserves camera, desktop FPV, telemetry, and flight controls."
     ],
     expiresAt: new Date(record.createdAt + PHONE_BRIDGE_SESSION_TTL_MS).toISOString()
   };

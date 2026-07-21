@@ -6,7 +6,7 @@ Production application launches serve the Builder on the LAN and start the secur
 node server/api.mjs --port 8899 --static dist
 ```
 
-The HTTP listener binds to `0.0.0.0` and the HTTPS listener uses the next port, so the example exposes the Builder at port `8899` and an optional secure companion at port `8900`. The desktop UI still opens through `127.0.0.1`; the QR projects the current LAN address and opens the existing Phone Card controller directly over HTTP. The controller, telemetry, and flight controls do not require a certificate setup page.
+The HTTP listener binds to `0.0.0.0` and the HTTPS listener uses the next port, so the example exposes the Builder at port `8899` and the Phone Card at port `8900`. The desktop UI still opens through `127.0.0.1`; the QR projects the current LAN address and opens the existing Phone Card controller directly over HTTPS. No certificate-download/setup page is inserted into the flow. The secure context preserves camera, desktop FPV, telemetry, and flight controls.
 
 API-only launches remain loopback-only unless configured otherwise. Any launch can opt out or override explicitly:
 
@@ -34,7 +34,7 @@ The equivalent desktop overrides are `HAPA_AVATAR_BIND_HOST` and `HAPA_AVATAR_HT
 - **Evidence inspected:** the live Electron QR, the direct HTTP `/phone-card` route, `PhoneCardMobileView`, and the regression introduced by the certificate setup page.
 - **What worked:** the original local-network controller already contains the complete control and telemetry experience; it only needs a LAN-reachable listener.
 - **What was misunderstood:** adding a certificate bootstrap did not repair the Phone Card—it replaced the first-run experience and prevented users from reaching the established controller.
-- **What changed:** the QR again targets the direct local HTTP Phone Card route with `certificateRequired: false`; the optional HTTPS listener is not forced into the flow.
+- **What changed:** the QR again targets the direct secure local Phone Card route with `certificateRequired: false`; no setup page is forced into the flow.
 - **New guardrail:** Phone Card repair work must preserve `/phone-card` as the QR destination unless the operator explicitly requests a replacement onboarding flow.
 
 ### LAN blank-screen correction
@@ -45,3 +45,12 @@ The equivalent desktop overrides are `HAPA_AVATAR_BIND_HOST` and `HAPA_AVATAR_HT
 - **What was misunderstood:** ES module requests carry an `Origin` header; allowing only loopback CORS origins turned the LAN module response into a 403 JSON document while leaving the HTML as a blank shell. The shared desktop bootstrap also started an irrelevant loopback-only Overcard client on the phone.
 - **What changed:** the server admits only its explicitly advertised Phone Card origins, and `/phone-card` bypasses desktop-only Overcard providers.
 - **New guardrail:** Phone Card acceptance must run against the advertised LAN URL and assert both controller diagnostics and visible pixels; a loopback-only smoke is insufficient.
+
+### Secure-media restoration
+
+- **Objective:** restore camera capture and desktop FPV without reintroducing certificate onboarding.
+- **Evidence inspected:** the pre–Build Week `phoneBridgeInfo` implementation, current phone `isSecureContext` state, camera permission path, WebRTC offer/answer path, desktop FPV track attachment, and the existing July 16 LAN certificate.
+- **What worked:** the original direct HTTPS QR supplied the secure browser context required by `getUserMedia`; the controller and WebRTC implementation themselves were still intact.
+- **What was misunderstood:** direct HTTP fixed hydration but cannot expose mobile camera APIs on an ordinary LAN address. Reachability and media permission are separate browser boundaries.
+- **What changed:** the QR once again uses the existing direct HTTPS origin, while the certificate-download/setup interstitial remains removed.
+- **New guardrail:** Phone Card verification must assert `isSecureContext`, `navigator.mediaDevices.getUserMedia`, peer connection, and inbound desktop FPV—not only controller pixels.

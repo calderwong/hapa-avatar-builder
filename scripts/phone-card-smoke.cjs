@@ -4,7 +4,13 @@ const path = require("node:path");
 
 const ROOT = path.resolve(__dirname, "..");
 const targetUrl = process.env.SMOKE_PHONE_URL || "https://127.0.0.1:8798/phone-card?session=phone-smoke";
+const verifyMediaBridge = process.env.SMOKE_PHONE_MEDIA === "1";
 const errors = [];
+
+if (verifyMediaBridge) {
+  app.commandLine.appendSwitch("use-fake-device-for-media-stream");
+  app.commandLine.appendSwitch("use-fake-ui-for-media-stream");
+}
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -190,12 +196,45 @@ app.whenReady().then(async () => {
     if (!pixels.ok) throw new Error(`Phone FPV canvas is blank or unreadable: ${JSON.stringify(pixels)}`);
     if (errors.length) throw new Error(`Renderer console errors:\n${errors.join("\n")}`);
 
+    let mediaBridge = null;
+    if (verifyMediaBridge) {
+      const mediaCapability = await win.webContents.executeJavaScript(`({
+        secureContext: window.isSecureContext,
+        getUserMedia: typeof navigator.mediaDevices?.getUserMedia === "function",
+        peerConnection: typeof RTCPeerConnection === "function"
+      })`);
+      if (!mediaCapability.secureContext || !mediaCapability.getUserMedia || !mediaCapability.peerConnection) {
+        throw new Error(`Phone media capability is unavailable: ${JSON.stringify(mediaCapability)}`);
+      }
+      const cameraRequested = await win.webContents.executeJavaScript(`
+        (() => {
+          const button = [...document.querySelectorAll("button")].find((item) => /join with camera/i.test(item.textContent || ""));
+          button?.click();
+          return Boolean(button);
+        })()
+      `);
+      if (!cameraRequested) throw new Error("Phone camera join action is unavailable");
+      const paired = await waitFor(win, `
+        Boolean(window.__HAPA_PHONE_CARD_DIAGNOSTICS__?.state?.connected && window.__HAPA_PHONE_CARD_DIAGNOSTICS__?.state?.desktopFpvReady)
+      `, 30000);
+      mediaBridge = await win.webContents.executeJavaScript(`({
+        secureContext: window.isSecureContext,
+        connected: Boolean(window.__HAPA_PHONE_CARD_DIAGNOSTICS__?.state?.connected),
+        mediaReady: Boolean(window.__HAPA_PHONE_CARD_DIAGNOSTICS__?.state?.mediaReady),
+        desktopFpvReady: Boolean(window.__HAPA_PHONE_CARD_DIAGNOSTICS__?.state?.desktopFpvReady),
+        peerState: window.__HAPA_PHONE_CARD_DIAGNOSTICS__?.state?.peerState || "",
+        status: document.querySelector(".phone-card-hero p")?.textContent || "",
+        error: document.querySelector(".phone-card-error")?.textContent || ""
+      })`);
+      if (!paired) throw new Error(`Phone camera/FPV pairing did not complete: ${JSON.stringify(mediaBridge)}`);
+    }
+
     const image = await win.capturePage();
     const screenshotPath = path.join(ROOT, "artifacts/smoke/phone-card-mobile.png");
     await fs.mkdir(path.dirname(screenshotPath), { recursive: true });
     await fs.writeFile(screenshotPath, image.toPNG());
 
-    console.log(JSON.stringify({ ok: true, targetUrl, state, pixels, screenshotPath }, null, 2));
+    console.log(JSON.stringify({ ok: true, targetUrl, state, pixels, mediaBridge, screenshotPath }, null, 2));
     await app.quit();
   } catch (error) {
     console.error("Renderer errors collected:", errors);
