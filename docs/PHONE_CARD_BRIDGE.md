@@ -36,3 +36,12 @@ The equivalent desktop overrides are `HAPA_AVATAR_BIND_HOST` and `HAPA_AVATAR_HT
 - **What was misunderstood:** adding a certificate bootstrap did not repair the Phone Card—it replaced the first-run experience and prevented users from reaching the established controller.
 - **What changed:** the QR again targets the direct local HTTP Phone Card route with `certificateRequired: false`; the optional HTTPS listener is not forced into the flow.
 - **New guardrail:** Phone Card repair work must preserve `/phone-card` as the QR destination unless the operator explicitly requests a replacement onboarding flow.
+
+### LAN blank-screen correction
+
+- **Objective:** make the direct controller hydrate from the same LAN origin advertised by the QR.
+- **Evidence inspected:** the exact LAN HTML, module and lazy-chunk responses, renderer resource timing, CORS response headers, and a Phone Card smoke run against the advertised IP rather than loopback.
+- **What worked:** the static listener served the shell and assets, and the existing controller rendered once its module request was admitted.
+- **What was misunderstood:** ES module requests carry an `Origin` header; allowing only loopback CORS origins turned the LAN module response into a 403 JSON document while leaving the HTML as a blank shell. The shared desktop bootstrap also started an irrelevant loopback-only Overcard client on the phone.
+- **What changed:** the server admits only its explicitly advertised Phone Card origins, and `/phone-card` bypasses desktop-only Overcard providers.
+- **New guardrail:** Phone Card acceptance must run against the advertised LAN URL and assert both controller diagnostics and visible pixels; a loopback-only smoke is insufficient.

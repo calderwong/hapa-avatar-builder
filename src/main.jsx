@@ -16,18 +16,24 @@ const overcardAdapter = createAvatarBuilderOvercardAdapter({
   hostTargetsUrl: `${["5177", "5178"].includes(globalThis.location?.port) ? "http://127.0.0.1:8787" : ""}/api/overcard/host-targets`,
 });
 
+const isPhoneCardRoute = globalThis.location?.pathname === "/phone-card";
+
 createRoot(document.getElementById("root")).render(
   <React.StrictMode>
-    <OvercardProvider
-      adapter={overcardAdapter}
-      renderers={avatarBuilderOvercardRenderers}
-      theme={{ accent: "#26d9ff", surface: "#071221", text: "#e8f8ff" }}
-    >
-      <InventoryCollectionBridge />
-      <BuilderPickupDelegator />
-      <BuilderEmbeddedOvercardBridge />
-      <OvercardTelemetryBadge className="builder-overcard-telemetry" />
+    {isPhoneCardRoute ? (
       <App overcardAdapter={overcardAdapter} />
-    </OvercardProvider>
+    ) : (
+      <OvercardProvider
+        adapter={overcardAdapter}
+        renderers={avatarBuilderOvercardRenderers}
+        theme={{ accent: "#26d9ff", surface: "#071221", text: "#e8f8ff" }}
+      >
+        <InventoryCollectionBridge />
+        <BuilderPickupDelegator />
+        <BuilderEmbeddedOvercardBridge />
+        <OvercardTelemetryBadge className="builder-overcard-telemetry" />
+        <App overcardAdapter={overcardAdapter} />
+      </OvercardProvider>
+    )}
   </React.StrictMode>
 );

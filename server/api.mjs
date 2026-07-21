@@ -9076,7 +9076,13 @@ function processOpenFileCount() {
 
 function setCors(req, res) {
   const origin = req.headers.origin;
-  if (origin && !ALLOWED_ORIGINS.has(origin)) return false;
+  const phoneBridgeOrigins = origin
+    ? [
+      publicNativePhoneBridgeOrigin(),
+      httpsBridgeActive ? publicPhoneBridgeOrigin(req) : ""
+    ].filter(Boolean)
+    : [];
+  if (origin && !ALLOWED_ORIGINS.has(origin) && !phoneBridgeOrigins.includes(origin)) return false;
   if (origin) res.setHeader("Access-Control-Allow-Origin", origin);
   res.setHeader("Vary", "Origin");
   res.setHeader("Access-Control-Allow-Methods", "GET,HEAD,POST,PUT,DELETE,OPTIONS");

@@ -92,7 +92,24 @@ app.whenReady().then(async () => {
     const mounted = await waitFor(win, `
       Boolean(document.querySelector(".phone-card-mobile") && window.__HAPA_PHONE_CARD_DIAGNOSTICS__?.kind === "hapa-phone-card")
     `, 30000);
-    if (!mounted) throw new Error("Phone Card mobile route did not mount");
+    if (!mounted) {
+      const failureState = await win.webContents.executeJavaScript(`
+        (() => ({
+          href: location.href,
+          secureContext: window.isSecureContext,
+          readyState: document.readyState,
+          rootHtml: document.querySelector("#root")?.innerHTML.slice(0, 1200) || "",
+          bodyText: document.body?.innerText.slice(0, 1200) || "",
+          resources: performance.getEntriesByType("resource").map((entry) => ({
+            name: entry.name,
+            initiatorType: entry.initiatorType,
+            duration: Math.round(entry.duration),
+            transferSize: entry.transferSize
+          })).slice(-30)
+        }))()
+      `);
+      throw new Error(`Phone Card mobile route did not mount: ${JSON.stringify(failureState)}\nRenderer errors: ${JSON.stringify(errors)}`);
+    }
 
     const applied = await win.webContents.executeJavaScript(`
       (() => {
