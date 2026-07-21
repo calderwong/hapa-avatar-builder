@@ -38,6 +38,7 @@ GitHub project sites need both bundle URLs and data-authored media URLs to honor
 - The focused public-demo/runtime suite passed 8 tests; the Overcard suite passed 54 tests; the normal production build and receipt check passed.
 - The broader `npm test` was also attempted from the clean public checkout. Tests that require ignored operator stores and generated Echo work failed with missing `data/avatar-store.json`, `data/music-video-projects/`, and other local-only evidence. Two idle Echo subtests were stopped after their child commands and process count were inspected. Private runtime data was deliberately not copied into this public worktree to make unrelated tests pass.
 - The full Stargate interaction smoke mounted the hosted scene but its real Card-click assertion did not lift the first Formation Card. The deployment-specific smoke separately proved the public deck and nonblank 3D render; the flaky interaction assertion remains outside this hosting change.
+- The first hosted workflow stopped at `npm ci`: npm 10 required two optional peer records that npm 11 had tolerated as absent from the lockfile. The lock was refreshed with npm 10.9.4, then an npm 10 clean install and the Pages build both passed. Keep CI's lockfile resolver in the local preflight when dependencies or the lockfile change.
 
 ## Reusable candidates
 
