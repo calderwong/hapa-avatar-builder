@@ -6,7 +6,7 @@ Production application launches serve the Builder on the LAN and start the secur
 node server/api.mjs --port 8899 --static dist
 ```
 
-The HTTP listener binds to `0.0.0.0` and the HTTPS listener uses the next port, so the example exposes the Builder at port `8899` and the secure phone route at port `8900`. The desktop UI still opens through `127.0.0.1`; the QR projects the current LAN address. The QR first opens a reachable HTTP setup page where the phone can download the generated Hapa local CA certificate, see platform-specific trust instructions, and continue into the secure Phone Card. Camera and motion APIs remain on the HTTPS origin.
+The HTTP listener binds to `0.0.0.0` and the HTTPS listener uses the next port, so the example exposes the Builder at port `8899` and an optional secure companion at port `8900`. The desktop UI still opens through `127.0.0.1`; the QR projects the current LAN address and opens the existing Phone Card controller directly over HTTP. The controller, telemetry, and flight controls do not require a certificate setup page.
 
 API-only launches remain loopback-only unless configured otherwise. Any launch can opt out or override explicitly:
 
@@ -25,14 +25,14 @@ The equivalent desktop overrides are `HAPA_AVATAR_BIND_HOST` and `HAPA_AVATAR_HT
 - **What was misunderstood:** an HTTPS companion port alone is insufficient when the main listener still binds only to loopback; the QR can advertise a correct LAN address that no socket accepts.
 - **What changed:** static application launches now default to `0.0.0.0` plus `port + 1` HTTPS, and both desktop launch paths use the same LAN bind default. API-only launches retain their loopback default.
 - **What remains reusable:** the current Phone Card, certificate, invite, and signaling implementation remains the single canonical bridge.
-- **New guardrail:** a Phone Card launch is not healthy unless the advertised QR host is accepted by a listener and `phoneBridgeInfo` reports an active secure origin; loopback API tests must continue to pass an explicit host.
+- **New guardrail:** a Phone Card launch is not healthy unless the advertised QR host is accepted by the LAN listener and `phoneBridgeInfo` reports the direct local controller URL; loopback API tests must continue to pass an explicit host.
 - **Promotion candidate:** Lesson Card — **A Reachable QR Requires a Reachable Listener**.
 
-### Certificate-bootstrap correction
+### Direct-controller restoration
 
-- **Objective:** make a first-time phone scan render an actionable page instead of failing at an untrusted TLS handshake.
-- **Evidence inspected:** the live Electron listener pair, live QR payload, certificate SAN and validity, CA verification, HTTP/HTTPS probes with and without the CA, and the Tarot QR presentation.
-- **What worked:** the existing HTTP listener can safely distribute the public CA certificate and preserve the same session into the secure controller.
-- **What was misunderstood:** LAN reachability fixed the socket boundary, but a QR that points directly at a private CA HTTPS origin still fails before React can explain how to establish trust.
-- **What changed:** the QR now targets a no-store HTTP setup page with certificate installation and explicit secure handoff; the encrypted Phone Card, WebRTC, and signaling paths remain unchanged.
-- **New guardrail:** first-run QR flows that depend on a private CA must bootstrap trust on a reachable non-TLS route; trust instructions hidden in JSON metadata do not count as a usable phone flow.
+- **Objective:** restore the pre-existing Phone Card controller, telemetry, and flight controls as the first surface reached by the QR.
+- **Evidence inspected:** the live Electron QR, the direct HTTP `/phone-card` route, `PhoneCardMobileView`, and the regression introduced by the certificate setup page.
+- **What worked:** the original local-network controller already contains the complete control and telemetry experience; it only needs a LAN-reachable listener.
+- **What was misunderstood:** adding a certificate bootstrap did not repair the Phone Card—it replaced the first-run experience and prevented users from reaching the established controller.
+- **What changed:** the QR again targets the direct local HTTP Phone Card route with `certificateRequired: false`; the optional HTTPS listener is not forced into the flow.
+- **New guardrail:** Phone Card repair work must preserve `/phone-card` as the QR destination unless the operator explicitly requests a replacement onboarding flow.

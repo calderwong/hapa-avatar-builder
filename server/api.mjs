@@ -1634,11 +1634,6 @@ async function route(req, res) {
     return;
   }
 
-  if (pathname === "/phone-card/setup" && (req.method === "GET" || req.method === "HEAD")) {
-    servePhoneBridgeSetupPage(req, res, url);
-    return;
-  }
-
   if (pathname === "/api/media-comments" && req.method === "GET") {
     sendJson(res, 200, avatarMediaCommentService.list());
     return;
@@ -9385,12 +9380,8 @@ function phoneBridgeInfo(req, url) {
   cleanupPhoneBridgeSessions();
   const session = safePhoneBridgeSessionId(url.searchParams.get("session") || "");
   const record = ensurePhoneBridgeSession(session);
-  const mobile = phoneBridgeMobileUrls(req, record.id, {
-    inviteId: url.searchParams.get("invite") || "",
-    cardId: url.searchParams.get("card") || ""
-  });
-  const origin = mobile.secureOrigin;
-  const mobileUrl = mobile.setupRequired ? mobile.setupUrl : mobile.secureMobileUrl;
+  const origin = publicNativePhoneBridgeOrigin();
+  const mobileUrl = `${origin}/phone-card?session=${encodeURIComponent(record.id)}`;
   const certificateUrl = publicPhoneBridgeCertificateUrl(req);
   const eventsUrl = `${origin}/api/phone-bridge/events`;
   const infoUrl = `${origin}/api/phone-bridge/info?session=${encodeURIComponent(record.id)}`;
@@ -9398,9 +9389,8 @@ function phoneBridgeInfo(req, url) {
     ok: true,
     session: record.id,
     mobileUrl,
-    setupUrl: mobile.setupUrl,
-    secureMobileUrl: mobile.secureMobileUrl,
-    setupRequired: mobile.setupRequired,
+    localNetworkDirect: true,
+    certificateRequired: false,
     origin,
     certificateUrl,
     iceServers: phoneBridgeIceServers(),
@@ -9410,132 +9400,13 @@ function phoneBridgeInfo(req, url) {
     },
     httpsEnabled: httpsBridgeActive,
     httpsPort: httpsBridgeActive ? httpsPort : null,
-    secureContextLikely: mobile.secureMobileUrl.startsWith("https://") || /^(http:\/\/(localhost|127\.0\.0\.1|\[::1\]))/.test(mobile.secureMobileUrl),
+    secureContextLikely: /^(http:\/\/(localhost|127\.0\.0\.1|\[::1\]))/.test(mobileUrl),
     notes: [
-      httpsBridgeActive
-        ? "The QR opens a reachable setup page before handing off to the secure HTTPS phone bridge."
-        : "Phone camera and mic usually require HTTPS on mobile browsers.",
-      "If the phone warns that the certificate is not trusted, install and trust the Hapa local CA certificate from certificateUrl."
+      "The QR opens the existing Phone Card controller directly over the local network; no certificate setup page is required.",
+      httpsBridgeActive ? "An optional HTTPS companion listener is available but is not the default Phone Card route." : "The local HTTP Phone Card route is active."
     ],
     expiresAt: new Date(record.createdAt + PHONE_BRIDGE_SESSION_TTL_MS).toISOString()
   };
-}
-
-function phoneBridgeMobileUrls(req, session = "", { inviteId = "", cardId = "" } = {}) {
-  const query = new URLSearchParams({ session: safePhoneBridgeSessionId(session) || randomPhoneBridgeSessionId() });
-  const safeInviteId = safePhoneBridgeInviteId(inviteId);
-  const safeCardId = safePhoneBridgeInviteId(cardId);
-  if (safeInviteId) query.set("invite", safeInviteId);
-  if (safeCardId) query.set("card", safeCardId);
-  const secureOrigin = publicPhoneBridgeOrigin(req);
-  const setupOrigin = publicNativePhoneBridgeOrigin();
-  const secureMobileUrl = `${secureOrigin}/phone-card?${query}`;
-  const setupUrl = `${setupOrigin}/phone-card/setup?${query}`;
-  return {
-    secureOrigin,
-    setupOrigin,
-    secureMobileUrl,
-    setupUrl,
-    setupRequired: httpsBridgeActive && secureMobileUrl.startsWith("https://")
-  };
-}
-
-function servePhoneBridgeSetupPage(req, res, url) {
-  cleanupPhoneBridgeSessions();
-  const requestedSession = safePhoneBridgeSessionId(url.searchParams.get("session") || "");
-  const record = ensurePhoneBridgeSession(requestedSession);
-  const mobile = phoneBridgeMobileUrls(req, record.id, {
-    inviteId: url.searchParams.get("invite") || "",
-    cardId: url.searchParams.get("card") || ""
-  });
-  const certificateUrl = publicPhoneBridgeCertificateUrl(req);
-  const html = renderPhoneBridgeSetupHtml({
-    session: record.id,
-    certificateUrl,
-    secureMobileUrl: mobile.secureMobileUrl,
-    secureReady: httpsBridgeActive
-  });
-  res.writeHead(200, {
-    "Content-Type": "text/html; charset=utf-8",
-    "Cache-Control": "no-store",
-    "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
-    "Referrer-Policy": "no-referrer",
-    "X-Content-Type-Options": "nosniff"
-  });
-  res.end(req.method === "HEAD" ? "" : html);
-}
-
-function renderPhoneBridgeSetupHtml({ session = "", certificateUrl = "", secureMobileUrl = "", secureReady = false } = {}) {
-  const safeSession = escapePhoneBridgeHtml(session);
-  const safeCertificateUrl = escapePhoneBridgeHtml(certificateUrl);
-  const safeSecureMobileUrl = escapePhoneBridgeHtml(secureMobileUrl);
-  return `<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <title>Set Up Hapa Phone Card</title>
-  <style>
-    :root { color-scheme: dark; --cyan: #00f3ff; --gold: #f6c96d; --ink: #effcff; --muted: #a5bacd; --line: rgba(0,243,255,.3); }
-    * { box-sizing: border-box; }
-    body { margin: 0; min-height: 100svh; padding: max(22px, env(safe-area-inset-top)) 18px max(26px, env(safe-area-inset-bottom)); color: var(--ink); background: radial-gradient(circle at 20% 8%, rgba(0,243,255,.16), transparent 30%), radial-gradient(circle at 88% 20%, rgba(246,201,109,.13), transparent 32%), #020814; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
-    main { width: min(680px, 100%); margin: 0 auto; display: grid; gap: 14px; }
-    section { padding: 19px; border: 1px solid var(--line); background: linear-gradient(180deg, rgba(7,21,35,.96), rgba(3,9,20,.92)); box-shadow: 0 0 32px rgba(0,243,255,.1); clip-path: polygon(13px 0, 100% 0, 100% calc(100% - 13px), calc(100% - 13px) 100%, 0 100%, 0 13px); }
-    .kicker { margin: 0 0 9px; color: var(--cyan); font: 900 11px ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .11em; text-transform: uppercase; }
-    h1 { margin: 0 0 12px; font-size: clamp(34px, 11vw, 62px); line-height: .92; }
-    h2 { margin: 0 0 8px; color: var(--gold); font-size: 18px; }
-    p, li { color: var(--muted); line-height: 1.5; }
-    ol { margin: 10px 0 0; padding-left: 22px; }
-    li + li { margin-top: 7px; }
-    .step { display: grid; grid-template-columns: 34px 1fr; gap: 12px; align-items: start; }
-    .number { width: 34px; height: 34px; display: grid; place-items: center; border: 1px solid var(--cyan); color: var(--cyan); font: 900 14px ui-monospace, SFMono-Regular, Menlo, monospace; }
-    .actions { display: grid; gap: 10px; margin-top: 14px; }
-    a { min-height: 50px; display: flex; align-items: center; justify-content: center; padding: 12px 15px; border: 1px solid var(--line); color: var(--ink); background: rgba(0,243,255,.1); text-decoration: none; text-align: center; font: 900 12px ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .06em; text-transform: uppercase; }
-    a.primary { border-color: rgba(246,201,109,.72); background: rgba(246,201,109,.13); color: var(--gold); }
-    .proof { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 12px; }
-    .proof span { padding: 7px 9px; border: 1px solid rgba(69,242,200,.26); color: #45f2c8; font: 800 10px ui-monospace, SFMono-Regular, Menlo, monospace; text-transform: uppercase; }
-    code { overflow-wrap: anywhere; color: var(--cyan); font-size: 11px; }
-    .warning { color: #ffcf7a; }
-  </style>
-</head>
-<body>
-  <main>
-    <section>
-      <p class="kicker">Hapa Phone Card · One-time secure setup</p>
-      <h1>Connect this phone</h1>
-      <p>The Mac is reachable. Your phone must trust Hapa's local certificate before its browser can open the camera, motion controls, and encrypted scene link.</p>
-      <div class="proof"><span>Mac found</span><span>Session ${safeSession}</span><span>${secureReady ? "Secure bridge ready" : "Secure bridge starting"}</span></div>
-    </section>
-    <section class="step">
-      <div class="number">1</div>
-      <div>
-        <h2>Install the Hapa local certificate</h2>
-        <p>Download the certificate on this phone. This authorizes only the local Hapa bridge certificate generated by this Mac.</p>
-        <div class="actions"><a href="${safeCertificateUrl}" download>Download Hapa certificate</a></div>
-      </div>
-    </section>
-    <section class="step">
-      <div class="number">2</div>
-      <div>
-        <h2>Enable trust</h2>
-        <ol>
-          <li><strong>iPhone/iPad:</strong> install the downloaded profile, then open Settings → General → About → Certificate Trust Settings and enable full trust for “Hapa Avatar Builder Local CA.”</li>
-          <li><strong>Android:</strong> open Settings → Security → Encryption &amp; credentials → Install a certificate → CA certificate. Device wording may vary.</li>
-        </ol>
-      </div>
-    </section>
-    <section class="step">
-      <div class="number">3</div>
-      <div>
-        <h2>Open the secure Phone Card</h2>
-        <p class="warning">Finish the trust step first. If the browser still warns, close that tab and tap the button again.</p>
-        <div class="actions"><a class="primary" href="${safeSecureMobileUrl}">Open secure Phone Card</a></div>
-        <p><code>${safeSecureMobileUrl}</code></p>
-      </div>
-    </section>
-  </main>
-</body>
-</html>`;
 }
 
 async function createPhoneBridgeInvite(req, url, body = {}) {
