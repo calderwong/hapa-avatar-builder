@@ -10,6 +10,10 @@
   },
   "submission_artifacts": {
     "project_name": "Hapa Avatar Builder",
+    "devpost_project_url": "https://devpost.com/software/hapa-ai",
+    "devpost_submission_id": 1102452,
+    "devpost_submission_status": "Submitted",
+    "devpost_submitted_at": "2026-07-21T18:12:15.336-04:00",
     "repository_url": "https://github.com/calderwong/hapa-avatar-builder",
     "repository_license": "MIT",
     "codex_feedback_session_id": "019f720f-422d-7f60-a149-2256bb37a762",

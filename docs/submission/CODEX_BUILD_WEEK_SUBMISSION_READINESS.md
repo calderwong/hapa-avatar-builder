@@ -31,7 +31,7 @@ The product story is bounded: Hapa is a decentralized Card protocol/platform, no
 - [ ] Confirm public-use rights for every pre-existing image visible in the uploaded demo.
 - [ ] If time permits, replace the 3:08 upload with a cut at or below three minutes whose audio explicitly says how Codex and GPT-5.6 were used.
 - [x] Recorded the operator-confirmed Devpost values: Individual submitter, United States residence, and acceptance of the Official Rules and Devpost Terms.
-- [ ] Complete the final Devpost submission and verify its submitted state.
+- [x] Submitted Devpost entry `1102452` at `2026-07-21T18:12:15.336-04:00` and verified its `Submitted` state.
 
 ## Current verification truth
 

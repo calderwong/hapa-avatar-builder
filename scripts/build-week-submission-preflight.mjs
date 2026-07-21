@@ -15,6 +15,8 @@ const root = path.resolve(argv[rootIndex + 1]);
 const failures = [];
 const publicDemoVideoUrl = "https://youtu.be/Y-RR2AwnH5A";
 const publicRepositoryUrl = "https://github.com/calderwong/hapa-avatar-builder";
+const devpostProjectUrl = "https://devpost.com/software/hapa-ai";
+const devpostSubmissionId = "1102452";
 const codexFeedbackSessionId = "019f720f-422d-7f60-a149-2256bb37a762";
 const youtubePlaceholder = ["[", "YOUTUBE_URL", "]"].join("");
 const unresolvedSubmissionPlaceholders = [
@@ -73,6 +75,21 @@ for (const relativePath of resolvedSubmissionValueRequired) {
   const text = readFileSync(absolutePath, "utf8");
   if (!text.includes(publicRepositoryUrl)) failures.push(`missing-repository-url:${relativePath}`);
   if (!text.includes(codexFeedbackSessionId)) failures.push(`missing-feedback-session-id:${relativePath}`);
+}
+
+const submittedReceiptRequired = [
+  "docs/submission/README.md",
+  "docs/submission/CODEX_BUILD_WEEK_SUBMISSION_READINESS.md",
+  "docs/submission/codex-build-week-change-manifest-v1.json"
+];
+for (const relativePath of submittedReceiptRequired) {
+  const absolutePath = path.join(root, relativePath);
+  if (!existsSync(absolutePath)) continue;
+  const text = readFileSync(absolutePath, "utf8");
+  if (!text.includes(devpostSubmissionId)) failures.push(`missing-devpost-submission-id:${relativePath}`);
+  if (relativePath !== "docs/submission/CODEX_BUILD_WEEK_SUBMISSION_READINESS.md" && !text.includes(devpostProjectUrl)) {
+    failures.push(`missing-devpost-project-url:${relativePath}`);
+  }
 }
 
 for (const forbidden of [".git", "node_modules", "dist", "artifacts", "data", "public-static/media", "public-static/sample"]) {

@@ -5,6 +5,7 @@ This directory keeps the submission story inspectable and prevents the existing 
 Demo video: [Hapa.ai — Hapa Avatar Builder — Codex Build Week demo](https://youtu.be/Y-RR2AwnH5A)
 
 Repository: [github.com/calderwong/hapa-avatar-builder](https://github.com/calderwong/hapa-avatar-builder)  
+Devpost submission: [Hapa Avatar Builder](https://devpost.com/software/hapa-ai) — Submitted as entry `1102452`  
 Primary Codex `/feedback` Session ID: `019f720f-422d-7f60-a149-2256bb37a762`
 
 - [`CODEX_BUILD_WEEK_CUTOFF_AND_CHANGE_AUDIT.md`](CODEX_BUILD_WEEK_CUTOFF_AND_CHANGE_AUDIT.md) defines the official cutoff and the conservative Git-history measurement.
