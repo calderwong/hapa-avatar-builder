@@ -78,6 +78,12 @@ import {
   buildVisualizerRendererTruthReceipt,
   resolveVisualizerRendererTruth,
 } from "../domain/visualizer-renderer-capability.js";
+import {
+  buildTarotKrea2EditRequest,
+  buildTarotKrea2ResultCard,
+  chooseTarotKrea2Preset,
+  tarotKrea2PresetGroups,
+} from "../domain/tarot-krea2-edit.js";
 import BuilderOvercardPickupActions from "../overcard/BuilderOvercardPickupActions.jsx";
 import { migrateTarotSceneSnapshot, tarotFormationToSceneSnapshot, tarotSceneSnapshotToFormation } from "../overcard/tarotFormationAdapter.js";
 
@@ -119,6 +125,7 @@ const TAROT_CARD_BROWSER_TYPE_FILTERS = [
   { id: "sponsor", label: "Sponsors", pileIds: ["sponsor", "creator_sponsor_card"], textHints: ["sponsor", "deal", "brand", "lingopie", "aura"], accent: "#10b981" }
 ];
 const TAROT_DRAW_FORGE_POLL_MS = 2600;
+const TAROT_KREA2_POLL_MS = 2200;
 const TAROT_DRAW_FORGE_STYLE_TAG = "early-2000s brushed-pixel CRPG art fused with comic-book mythic futurism, teal-gold arcane technology, and Hapaverse celestial relic design.";
 const TAROT_DRAW_FORGE_CLOCK_MS = 1000;
 const TAROT_FIELD_CAPTURE_FPS = 24;
@@ -2002,6 +2009,7 @@ export default function TarotDraw3DView({ cards = [], avatarId = "local-operator
   const readingRequestRef = useRef(0);
   const readingEnabledRef = useRef(false);
   const catalogReturnRef = useRef("");
+  const kreaMaterializedTaskIdsRef = useRef(new Set());
   const baseTarotPiles = useMemo(() => buildTarotPileSummaries(cards), [cards]);
   const [reading, setReading] = useState({ status: "idle" });
   const [readingEnabled, setReadingEnabled] = useState(false);
@@ -2026,6 +2034,14 @@ export default function TarotDraw3DView({ cards = [], avatarId = "local-operator
   const [forgeWatchIds, setForgeWatchIds] = useState({});
   const [variationRequest, setVariationRequest] = useState({ status: "idle", cardId: "", error: "" });
   const [forgeClockNow, setForgeClockNow] = useState(() => Date.now());
+  const [kreaPanelOpen, setKreaPanelOpen] = useState(false);
+  const [kreaCatalog, setKreaCatalog] = useState({ status: "idle", connected: false, presets: null, health: null, error: "" });
+  const [kreaPresetId, setKreaPresetId] = useState("");
+  const [kreaInstruction, setKreaInstruction] = useState("Preserve the selected Card's identity and symbolic anchors while restaging it as a polished Hapa Tarot portrait.");
+  const [kreaSeed, setKreaSeed] = useState(42);
+  const [kreaSlots, setKreaSlots] = useState({ source: null, subject: null });
+  const [kreaUseAssertion, setKreaUseAssertion] = useState({ consent: false, safe: false, disclosure: false, realPerson: false });
+  const [kreaRequest, setKreaRequest] = useState({ status: "idle", task: null, resultCard: null, error: "" });
   const [fieldCapture, setFieldCapture] = useState({
     status: "idle",
     stage: "",
@@ -2292,6 +2308,12 @@ export default function TarotDraw3DView({ cards = [], avatarId = "local-operator
   const cardBrowserHasMore = cardBrowserVisibleCount < filteredCardBrowserItems.length;
   const activeCardBrowserFilter = cardBrowserTypeFilters.find((filter) => filter.id === cardBrowserTypeFilter) || cardBrowserTypeFilters[0];
   const selectedCardImage = selectedCardImageSources[Math.min(selectedCardImageIndex, Math.max(selectedCardImageSources.length - 1, 0))] || null;
+  const kreaPresetGroups = useMemo(() => tarotKrea2PresetGroups(kreaCatalog.presets || {}), [kreaCatalog.presets]);
+  const kreaPresets = [...kreaPresetGroups.featured, ...kreaPresetGroups.other];
+  const kreaPreset = kreaPresets.find((preset) => preset.id === kreaPresetId) || null;
+  const kreaRequiresSubject = Number(kreaPreset?.references || 1) === 2;
+  const kreaBusy = ["uploading", "submitting", "queued", "running"].includes(kreaRequest.status);
+  const kreaResultArtifact = (kreaRequest.task?.artifacts || []).find((artifact) => artifact?.uri && artifact?.media_type?.startsWith("image/")) || (kreaRequest.task?.artifacts || []).find((artifact) => artifact?.uri) || null;
   const selectedCardVideoSource = useMemo(() => {
     if (!selectedCard) return null;
     return selectedCard.videoSources?.find((source) => source.uri) || (selectedCard.videoUri ? {
@@ -2595,6 +2617,53 @@ export default function TarotDraw3DView({ cards = [], avatarId = "local-operator
     const timer = window.setInterval(() => setForgeClockNow(Date.now()), TAROT_DRAW_FORGE_CLOCK_MS);
     return () => window.clearInterval(timer);
   }, [forgeCard, selectedCardIsForge]);
+
+  useEffect(() => {
+    const taskId = kreaRequest.task?.task_id || "";
+    if (!taskId || ["succeeded", "failed", "cancelled"].includes(kreaRequest.status)) return undefined;
+    let cancelled = false;
+    async function pollKreaTask() {
+      try {
+        const response = await fetch(`${tarotDrawApiBase(apiBase)}/api/tarot/krea2/tasks/${encodeURIComponent(taskId)}`, { headers: { Accept: "application/json" } });
+        const task = await response.json().catch(() => null);
+        if (!response.ok || task?.error) throw new Error(task?.error?.message || `Krea 2 task poll failed: ${response.status}`);
+        if (cancelled) return;
+        const status = String(task?.status || "queued");
+        let resultCard = kreaRequest.resultCard || null;
+        if (status === "succeeded" && !kreaMaterializedTaskIdsRef.current.has(taskId)) {
+          resultCard = buildTarotKrea2ResultCard({
+            task,
+            sourceCard: kreaRequest.context?.source?.card,
+            subjectCard: kreaRequest.context?.subject?.card,
+            preset: kreaRequest.context?.preset,
+            instruction: kreaRequest.context?.instruction
+          });
+          if (resultCard) {
+            kreaMaterializedTaskIdsRef.current.add(taskId);
+            callGame("spawnBrowserCard", resultCard, {
+              zone: "field",
+              statusText: `Krea 2 proposal ready: ${resultCard.title}`
+            });
+          }
+        }
+        setKreaRequest((current) => ({
+          ...current,
+          status,
+          task,
+          resultCard: resultCard || current.resultCard,
+          error: status === "failed" ? task?.error?.message || task?.recovery || "Krea 2 edit failed" : ""
+        }));
+      } catch (error) {
+        if (!cancelled) setKreaRequest((current) => ({ ...current, error: error?.message || "Krea 2 task poll failed" }));
+      }
+    }
+    pollKreaTask();
+    const timer = window.setInterval(pollKreaTask, TAROT_KREA2_POLL_MS);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [apiBase, kreaRequest.task?.task_id, kreaRequest.status]);
 
   useEffect(() => {
     let cancelled = false;
@@ -3854,6 +3923,151 @@ export default function TarotDraw3DView({ cards = [], avatarId = "local-operator
     }
   }
 
+  function selectedCardKreaSlot() {
+    if (!selectedCard || !selectedCardImage?.uri) return null;
+    return {
+      card: selectedCard,
+      uri: selectedCardImage.uri,
+      label: selectedCardImage.label || selectedCard.title || "Selected Card image"
+    };
+  }
+
+  async function openKreaPanel(event) {
+    event?.preventDefault?.();
+    event?.stopPropagation?.();
+    const opening = !kreaPanelOpen;
+    setKreaPanelOpen(opening);
+    if (!opening) return;
+    setForgePanelOpen(false);
+    const selectedSlot = selectedCardKreaSlot();
+    if (selectedSlot) setKreaSlots((current) => ({ ...current, source: selectedSlot }));
+    setKreaCatalog((current) => ({ ...current, status: "loading", error: "" }));
+    try {
+      const response = await fetch(`${tarotDrawApiBase(apiBase)}/api/tarot/krea2`, { headers: { Accept: "application/json" } });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(payload?.error?.message || `Krea 2 discovery failed: ${response.status}`);
+      const nextPresetId = chooseTarotKrea2Preset(payload?.presets || {}, kreaPresetId);
+      setKreaPresetId(nextPresetId);
+      setKreaCatalog({
+        status: payload?.connected ? "ready" : "offline",
+        connected: Boolean(payload?.connected),
+        presets: payload?.presets || null,
+        health: payload?.health || null,
+        error: payload?.error?.message || ""
+      });
+    } catch (error) {
+      setKreaCatalog({ status: "offline", connected: false, presets: null, health: null, error: error?.message || "Krea 2 discovery failed" });
+    }
+  }
+
+  function useSelectedCardForKrea(slotName) {
+    const slot = selectedCardKreaSlot();
+    if (!slot) {
+      setKreaRequest((current) => ({ ...current, error: "Select a Card with a still image first." }));
+      return;
+    }
+    setKreaSlots((current) => ({ ...current, [slotName]: slot }));
+    setKreaRequest((current) => ({ ...current, error: "" }));
+  }
+
+  async function uploadTarotKrea2Slot(slot, role) {
+    if (!slot?.uri) throw new Error(`Choose a ${role} Card image first.`);
+    const imageResponse = await fetch(slot.uri);
+    if (!imageResponse.ok) throw new Error(`Could not read the ${role} image: ${imageResponse.status}`);
+    const blob = await imageResponse.blob();
+    if (!String(blob.type || "").startsWith("image/")) throw new Error(`${role} must resolve to a still image.`);
+    const response = await fetch(`${tarotDrawApiBase(apiBase)}/api/tarot/krea2/assets`, {
+      method: "POST",
+      headers: {
+        "Content-Type": blob.type || "image/png",
+        "X-Hapa-File-Name": `${slot.card?.id || role}.png`
+      },
+      body: blob
+    });
+    const payload = await response.json().catch(() => null);
+    if (!response.ok || payload?.error) throw new Error(payload?.error?.message || `Krea 2 ${role} upload failed: ${response.status}`);
+    return payload;
+  }
+
+  async function submitKreaEdit(event) {
+    event?.preventDefault?.();
+    event?.stopPropagation?.();
+    if (kreaBusy) return;
+    if (!kreaCatalog.connected) {
+      setKreaRequest((current) => ({ ...current, status: "failed", error: kreaCatalog.error || "Start the local Krea 2 node first." }));
+      return;
+    }
+    if (!kreaSlots.source?.card) {
+      setKreaRequest((current) => ({ ...current, status: "failed", error: "Choose the source Card image." }));
+      return;
+    }
+    if (kreaRequiresSubject && !kreaSlots.subject?.card) {
+      setKreaRequest((current) => ({ ...current, status: "failed", error: "This preset needs image 2: select a subject Card and use it as Subject." }));
+      return;
+    }
+    if (!kreaUseAssertion.consent || !kreaUseAssertion.safe || !kreaUseAssertion.disclosure) {
+      setKreaRequest((current) => ({ ...current, status: "failed", error: "Confirm consent, safe use, and AI disclosure before submitting." }));
+      return;
+    }
+    const instruction = kreaInstruction.trim();
+    if (!instruction) {
+      setKreaRequest((current) => ({ ...current, status: "failed", error: "Describe the bounded image edit." }));
+      return;
+    }
+    const context = {
+      source: kreaSlots.source,
+      subject: kreaRequiresSubject ? kreaSlots.subject : null,
+      preset: kreaPreset,
+      instruction
+    };
+    setKreaRequest({ status: "uploading", task: null, resultCard: null, error: "", context });
+    try {
+      const sourceAsset = await uploadTarotKrea2Slot(kreaSlots.source, "source");
+      const subjectAsset = kreaRequiresSubject ? await uploadTarotKrea2Slot(kreaSlots.subject, "subject") : null;
+      setKreaRequest((current) => ({ ...current, status: "submitting" }));
+      const requestId = window.crypto?.randomUUID?.() || `krea2-${Date.now().toString(36)}`;
+      const consentEventId = window.crypto?.randomUUID?.() || `krea2-consent-${Date.now().toString(36)}`;
+      const request = buildTarotKrea2EditRequest({
+        sourceAsset,
+        subjectAsset,
+        instruction,
+        preset: kreaPresetId,
+        seed: kreaSeed,
+        avatarId,
+        sourceCard: kreaSlots.source.card,
+        subjectCard: kreaRequiresSubject ? kreaSlots.subject.card : null,
+        requestId,
+        consentEventId,
+        realPerson: kreaUseAssertion.realPerson
+      });
+      const response = await fetch(`${tarotDrawApiBase(apiBase)}/api/tarot/krea2/edits`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(request)
+      });
+      const task = await response.json().catch(() => null);
+      if (!response.ok || task?.error || !task?.task_id) throw new Error(task?.error?.message || `Krea 2 edit submission failed: ${response.status}`);
+      setKreaRequest({ status: String(task.status || "queued"), task, resultCard: null, error: "", context });
+    } catch (error) {
+      setKreaRequest((current) => ({ ...current, status: "failed", error: error?.message || "Krea 2 edit failed" }));
+    }
+  }
+
+  async function cancelKreaEdit(event) {
+    event?.preventDefault?.();
+    event?.stopPropagation?.();
+    const taskId = kreaRequest.task?.task_id;
+    if (!taskId) return;
+    try {
+      const response = await fetch(`${tarotDrawApiBase(apiBase)}/api/tarot/krea2/tasks/${encodeURIComponent(taskId)}/cancel`, { method: "POST" });
+      const task = await response.json().catch(() => null);
+      if (!response.ok || task?.error) throw new Error(task?.error?.message || `Krea 2 cancellation failed: ${response.status}`);
+      setKreaRequest((current) => ({ ...current, status: String(task?.status || "cancelled"), task, error: "" }));
+    } catch (error) {
+      setKreaRequest((current) => ({ ...current, error: error?.message || "Krea 2 cancellation failed" }));
+    }
+  }
+
   async function requestForgeCard(event) {
     event?.preventDefault?.();
     const title = forgeTitle.trim() || `${avatarName} Draw Card`;
@@ -4607,6 +4821,74 @@ export default function TarotDraw3DView({ cards = [], avatarId = "local-operator
         </aside>
       )}
 
+      {kreaPanelOpen && (
+        <aside className="tarot-krea-panel hapa-panel" data-variant="notch" aria-label="Krea 2 image edit" aria-live="polite" onPointerDown={(event) => event.stopPropagation()}>
+          <header>
+            <span><Images size={14} /> Krea 2 / Flux Edit</span>
+            <div className="tarot-krea-node-state" data-connected={kreaCatalog.connected ? "true" : "false"}>
+              <i /> {kreaCatalog.status === "loading" ? "Checking" : kreaCatalog.connected ? "Local node" : "Offline"}
+            </div>
+            <button className="hapa-btn" type="button" onClick={() => setKreaPanelOpen(false)} aria-label="Close Krea 2 editor"><X size={14} /></button>
+          </header>
+          <div className="tarot-krea-slots">
+            <article data-ready={kreaSlots.source?.uri ? "true" : "false"}>
+              {kreaSlots.source?.uri ? <img src={kreaSlots.source.uri} alt="" /> : <Images size={22} />}
+              <span><strong>Image 1 · {kreaRequiresSubject ? "Scene" : "Source"}</strong><em>{kreaSlots.source?.card?.title || "Select a Card with a still image"}</em></span>
+              <button className="hapa-btn" type="button" onClick={() => useSelectedCardForKrea("source")}>Use Selected</button>
+            </article>
+            <article data-ready={kreaSlots.subject?.uri ? "true" : "false"} data-disabled={!kreaRequiresSubject ? "true" : "false"}>
+              {kreaSlots.subject?.uri ? <img src={kreaSlots.subject.uri} alt="" /> : <UserRound size={22} />}
+              <span><strong>Image 2 · Subject</strong><em>{kreaRequiresSubject ? kreaSlots.subject?.card?.title || "Select the subject Card second" : "Not used by this preset"}</em></span>
+              <button className="hapa-btn" type="button" disabled={!kreaRequiresSubject} onClick={() => useSelectedCardForKrea("subject")}>Use Selected</button>
+            </article>
+          </div>
+          <form className="tarot-krea-form" onSubmit={submitKreaEdit}>
+            <label>
+              <span>Edit preset</span>
+              <select value={kreaPresetId} onChange={(event) => setKreaPresetId(event.target.value)} disabled={!kreaPresets.length || kreaBusy}>
+                {!kreaPresets.length && <option value="">Start Krea 2 to load presets</option>}
+                {kreaPresetGroups.featured.length > 0 && <optgroup label="This week's Avatar Builder defaults">
+                  {kreaPresetGroups.featured.map((preset) => <option key={preset.id} value={preset.id}>{preset.label}</option>)}
+                </optgroup>}
+                {kreaPresetGroups.other.length > 0 && <optgroup label="Other enabled Krea 2 presets">
+                  {kreaPresetGroups.other.map((preset) => <option key={preset.id} value={preset.id}>{preset.label}</option>)}
+                </optgroup>}
+              </select>
+            </label>
+            {kreaPreset && <div className="tarot-krea-preset-truth"><strong>{String(kreaPreset.status || "prototype").replaceAll("_", " ")}</strong><span>{kreaPreset.references} image{kreaPreset.references === 1 ? "" : "s"} · {String(kreaPreset.operation || "edit").replaceAll("_", " ")}</span><em>{kreaPreset.warnings?.[0]}</em></div>}
+            <label>
+              <span>Bounded edit instruction</span>
+              <textarea value={kreaInstruction} onChange={(event) => setKreaInstruction(event.target.value)} rows={4} disabled={kreaBusy} />
+            </label>
+            <label className="tarot-krea-seed"><span>Seed</span><input type="number" min="0" step="1" value={kreaSeed} onChange={(event) => setKreaSeed(event.target.value)} disabled={kreaBusy} /></label>
+            <fieldset className="tarot-krea-assertions">
+              <legend>Local identity-use gate</legend>
+              <label><input type="checkbox" checked={kreaUseAssertion.consent} onChange={(event) => setKreaUseAssertion((current) => ({ ...current, consent: event.target.checked }))} /> I have permission to use these images.</label>
+              <label><input type="checkbox" checked={kreaUseAssertion.safe} onChange={(event) => setKreaUseAssertion((current) => ({ ...current, safe: event.target.checked }))} /> No minor, sexual, or deceptive identity edit.</label>
+              <label><input type="checkbox" checked={kreaUseAssertion.disclosure} onChange={(event) => setKreaUseAssertion((current) => ({ ...current, disclosure: event.target.checked }))} /> I will disclose that the result is AI-generated.</label>
+              <label><input type="checkbox" checked={kreaUseAssertion.realPerson} onChange={(event) => setKreaUseAssertion((current) => ({ ...current, realPerson: event.target.checked }))} /> The reference includes a real person.</label>
+            </fieldset>
+            <div className="tarot-krea-actions">
+              <button
+                className="hapa-btn"
+                data-intent="primary"
+                type="submit"
+                disabled={kreaBusy || !kreaCatalog.connected || !kreaPreset || !kreaSlots.source?.uri || (kreaRequiresSubject && !kreaSlots.subject?.uri)}
+              >
+                <Sparkles size={14} /> {kreaBusy ? "Editing" : "Create Edit Proposal"}
+              </button>
+              {kreaRequest.task?.task_id && ["queued", "running"].includes(kreaRequest.status) && <button className="hapa-btn" type="button" onClick={cancelKreaEdit}>Cancel</button>}
+            </div>
+          </form>
+          <div className="tarot-krea-progress" data-status={kreaRequest.status}>
+            <span><strong>{String(kreaRequest.task?.stage || kreaRequest.status || kreaCatalog.status).replaceAll("_", " ")}</strong><em>{kreaRequest.task?.task_id || kreaCatalog.error || "Select a Card image, preset, and instruction."}</em></span>
+            <i style={{ "--krea-progress": String(kreaRequest.task?.progress || (kreaRequest.status === "succeeded" ? 1 : 0)) }} />
+          </div>
+          {kreaResultArtifact?.uri && <div className="tarot-krea-result"><img src={kreaResultArtifact.uri} alt={`${kreaRequest.resultCard?.title || "Krea 2 edit"} proposal`} /><span><strong>Proposal in the field</strong><em>Source unchanged · human review required · not minted</em></span><button className="hapa-btn" type="button" onClick={() => callGame("toggleSelectedDetails")}><BookOpenCheck size={13} /> Details</button></div>}
+          {kreaRequest.error && <p className="tarot-forge-error">{kreaRequest.error}</p>}
+        </aside>
+      )}
+
       {forgePanelOpen && (
         <aside className="tarot-forge-panel hapa-panel" data-variant="notch" aria-live="polite" onPointerDown={(event) => event.stopPropagation()}>
           <header>
@@ -4846,9 +5128,13 @@ export default function TarotDraw3DView({ cards = [], avatarId = "local-operator
             <Sparkles size={14} />
             Draw
           </button>
-          <button className="hapa-btn tarot-forge-card-toggle" data-intent="primary" type="button" aria-pressed={forgePanelOpen} onClick={() => setForgePanelOpen((value) => !value)}>
+          <button className="hapa-btn tarot-forge-card-toggle" data-intent="primary" type="button" aria-pressed={forgePanelOpen} onClick={() => { setKreaPanelOpen(false); setForgePanelOpen((value) => !value); }}>
             <Sparkles size={14} />
             Forge
+          </button>
+          <button className="hapa-btn tarot-krea-card-toggle" data-intent="warning" type="button" aria-pressed={kreaPanelOpen} onClick={openKreaPanel}>
+            <Images size={14} />
+            Krea Edit
           </button>
           <button
             className="hapa-btn tarot-card-browser-toggle"
@@ -5366,6 +5652,10 @@ export default function TarotDraw3DView({ cards = [], avatarId = "local-operator
                     >
                       <Route size={13} />
                       {variationRequest.status === "requesting" ? "Forging Variation" : "Forge Variation"}
+                    </button>
+                    <button className="hapa-btn" data-intent="warning" type="button" disabled={!selectedCardImage?.uri} onClick={openKreaPanel}>
+                      <Images size={13} />
+                      Krea Edit
                     </button>
                     <span>{selectedCardForgeMeta.edition?.label || selectedCardForgeMeta.parentCardId ? selectedCardForgeMeta.edition?.label || "Child edition" : "Parented edition run"}</span>
                     {variationRequest.error && <em>{variationRequest.error}</em>}

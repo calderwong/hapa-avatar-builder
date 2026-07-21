@@ -13117,8 +13117,329 @@ h1 {
   padding: 8px;
 }
 
+.tarot-krea-panel {
+  position: absolute;
+  top: 124px;
+  left: 14px;
+  z-index: 7;
+  width: min(500px, calc(100% - 28px));
+  max-height: calc(100% - 246px);
+  display: grid;
+  gap: 10px;
+  overflow-y: auto;
+  padding: 12px;
+  border: 1px solid rgba(246, 201, 109, 0.38);
+  background:
+    linear-gradient(135deg, rgba(246, 201, 109, 0.16), transparent 42%),
+    linear-gradient(315deg, rgba(0, 243, 255, 0.13), transparent 52%),
+    rgba(2, 6, 23, 0.9);
+  color: var(--hapa-ink);
+  pointer-events: auto;
+  box-shadow: 0 22px 56px rgba(0, 0, 0, 0.45), inset 0 0 28px rgba(246, 201, 109, 0.07);
+}
+
+.tarot-krea-panel > header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 9px;
+}
+
+.tarot-krea-panel > header > span {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--hapa-neon-gold);
+  font: 900 11px/1 var(--hapa-mono);
+  text-transform: uppercase;
+}
+
+.tarot-krea-panel > header > .hapa-btn {
+  width: 32px;
+  min-width: 32px;
+  height: 32px;
+  padding: 0;
+}
+
+.tarot-krea-node-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--hapa-muted);
+  font: 800 9px/1 var(--hapa-mono);
+  text-transform: uppercase;
+}
+
+.tarot-krea-node-state i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #fb7185;
+  box-shadow: 0 0 10px rgba(251, 113, 133, 0.5);
+}
+
+.tarot-krea-node-state[data-connected="true"] i {
+  background: #65f58a;
+  box-shadow: 0 0 10px rgba(101, 245, 138, 0.55);
+}
+
+.tarot-krea-slots {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.tarot-krea-slots article {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 54px minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+  border: 1px solid rgba(125, 211, 252, 0.18);
+  background: rgba(2, 6, 23, 0.56);
+  padding: 7px;
+}
+
+.tarot-krea-slots article[data-ready="true"] {
+  border-color: rgba(246, 201, 109, 0.42);
+  background: linear-gradient(135deg, rgba(246, 201, 109, 0.1), transparent 68%), rgba(2, 6, 23, 0.58);
+}
+
+.tarot-krea-slots article[data-disabled="true"] {
+  opacity: 0.48;
+}
+
+.tarot-krea-slots article > img,
+.tarot-krea-slots article > svg {
+  grid-row: span 2;
+  width: 54px;
+  height: 54px;
+  border: 1px solid rgba(246, 201, 109, 0.22);
+  background: rgba(2, 6, 23, 0.72);
+  object-fit: cover;
+}
+
+.tarot-krea-slots article > svg {
+  padding: 14px;
+  color: var(--hapa-muted);
+}
+
+.tarot-krea-slots article span {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.tarot-krea-slots strong,
+.tarot-krea-slots em {
+  min-width: 0;
+  overflow: hidden;
+  font-family: var(--hapa-mono);
+  font-style: normal;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tarot-krea-slots strong {
+  color: var(--hapa-neon-cyan);
+  font-size: 9px;
+  text-transform: uppercase;
+}
+
+.tarot-krea-slots em {
+  color: var(--hapa-muted);
+  font-size: 8.5px;
+}
+
+.tarot-krea-slots .hapa-btn {
+  grid-column: 2;
+  min-height: 28px;
+  padding: 5px 8px;
+  font-size: 9px;
+}
+
+.tarot-krea-form {
+  display: grid;
+  gap: 8px;
+}
+
+.tarot-krea-form > label {
+  display: grid;
+  gap: 5px;
+  color: var(--hapa-muted);
+  font: 800 9px/1 var(--hapa-mono);
+  text-transform: uppercase;
+}
+
+.tarot-krea-form select,
+.tarot-krea-form textarea,
+.tarot-krea-form input[type="number"] {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid rgba(125, 211, 252, 0.2);
+  background: rgba(2, 6, 23, 0.72);
+  color: var(--hapa-ink);
+  font: 700 11px/1.35 var(--hapa-font);
+  padding: 9px 10px;
+}
+
+.tarot-krea-form textarea {
+  min-height: 84px;
+  resize: vertical;
+}
+
+.tarot-krea-preset-truth {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 4px 8px;
+  border: 1px solid rgba(246, 201, 109, 0.2);
+  background: rgba(2, 6, 23, 0.5);
+  padding: 7px 8px;
+  font-family: var(--hapa-mono);
+}
+
+.tarot-krea-preset-truth strong,
+.tarot-krea-preset-truth span {
+  color: var(--hapa-neon-gold);
+  font-size: 8.5px;
+  text-transform: uppercase;
+}
+
+.tarot-krea-preset-truth em {
+  grid-column: 1 / -1;
+  color: var(--hapa-muted);
+  font-size: 8.5px;
+  font-style: normal;
+  line-height: 1.35;
+}
+
+.tarot-krea-seed {
+  grid-template-columns: auto minmax(88px, 140px);
+  align-items: center;
+}
+
+.tarot-krea-assertions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px 10px;
+  margin: 0;
+  border: 1px solid rgba(125, 211, 252, 0.16);
+  padding: 8px;
+}
+
+.tarot-krea-assertions legend {
+  color: var(--hapa-neon-cyan);
+  font: 900 8.5px/1 var(--hapa-mono);
+  text-transform: uppercase;
+}
+
+.tarot-krea-assertions label {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  color: var(--hapa-muted);
+  font: 700 8.5px/1.3 var(--hapa-mono);
+}
+
+.tarot-krea-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.tarot-krea-actions .hapa-btn:first-child {
+  flex: 1;
+  min-height: 38px;
+  justify-content: center;
+}
+
+.tarot-krea-progress {
+  position: relative;
+  display: grid;
+  gap: 6px;
+  overflow: hidden;
+  border: 1px solid rgba(125, 211, 252, 0.18);
+  background: rgba(2, 6, 23, 0.58);
+  padding: 8px 8px 10px;
+}
+
+.tarot-krea-progress span {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.tarot-krea-progress strong,
+.tarot-krea-progress em {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-family: var(--hapa-mono);
+  font-style: normal;
+}
+
+.tarot-krea-progress strong {
+  color: var(--hapa-neon-gold);
+  font-size: 9px;
+  text-transform: uppercase;
+}
+
+.tarot-krea-progress em {
+  color: var(--hapa-muted);
+  font-size: 8px;
+}
+
+.tarot-krea-progress > i {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  width: 100%;
+  height: 3px;
+  background: linear-gradient(90deg, var(--hapa-neon-cyan), var(--hapa-neon-gold));
+  box-shadow: 0 0 12px rgba(0, 243, 255, 0.42);
+  transform: scaleX(var(--krea-progress, 0));
+  transform-origin: left center;
+  transition: transform 280ms ease;
+}
+
+.tarot-krea-result {
+  display: grid;
+  grid-template-columns: 82px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 9px;
+  border: 1px solid rgba(101, 245, 138, 0.32);
+  background: linear-gradient(135deg, rgba(101, 245, 138, 0.1), transparent 72%), rgba(2, 6, 23, 0.62);
+  padding: 7px;
+}
+
+.tarot-krea-result img {
+  width: 82px;
+  height: 82px;
+  object-fit: cover;
+}
+
+.tarot-krea-result span {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+  font-family: var(--hapa-mono);
+}
+
+.tarot-krea-result strong {
+  color: #65f58a;
+  font-size: 9px;
+  text-transform: uppercase;
+}
+
+.tarot-krea-result em {
+  color: var(--hapa-muted);
+  font-size: 8px;
+  font-style: normal;
+  line-height: 1.35;
+}
+
 @media (max-width: 760px) {
-  .tarot-forge-panel {
+  .tarot-forge-panel,
+  .tarot-krea-panel {
     top: 106px;
     max-height: calc(100% - 210px);
     overflow-y: auto;
@@ -13127,6 +13448,24 @@ h1 {
   .tarot-forge-state,
   .tarot-forge-timing {
     grid-template-columns: 1fr;
+  }
+
+  .tarot-krea-slots,
+  .tarot-krea-assertions {
+    grid-template-columns: 1fr;
+  }
+
+  .tarot-krea-result {
+    grid-template-columns: 68px minmax(0, 1fr);
+  }
+
+  .tarot-krea-result img {
+    width: 68px;
+    height: 68px;
+  }
+
+  .tarot-krea-result .hapa-btn {
+    grid-column: 1 / -1;
   }
 }
 
@@ -14623,6 +14962,7 @@ h1 {
 .tarot-draw-view.is-cinematic .tarot-draw-hud,
 .tarot-draw-view.is-cinematic .tarot-camera-journal,
 .tarot-draw-view.is-cinematic .tarot-forge-panel,
+.tarot-draw-view.is-cinematic .tarot-krea-panel,
 .tarot-draw-view.is-cinematic .tarot-blue-avatar-panel,
 .tarot-draw-view.is-cinematic .tarot-draw-controls,
 .tarot-draw-view.is-cinematic .tarot-selected-detail-toggle,

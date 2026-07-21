@@ -65,6 +65,8 @@ The canonical app now contains both Tarot surfaces:
 - `Tarot Library` manages decks, sets, cards, backs, loop videos, and avatar links.
 - `Tarot Draw` is the 3D Three.js reading table.
 
+Tarot Draw also has a credential-safe **Krea Edit** lane for the local Hapa Krea 2 / Flux Identity Node. Select a Card with a still image, bind it as Image 1, choose one of the node-owned Avatar Builder presets, satisfy the explicit identity-use assertions, and create a draft proposal directly in the 3D field. Two-reference presets expose a second subject slot. The Builder discovers enabled presets from the running node and proxies tasks and artifacts without exposing the node bearer token to the browser. Results remain unminted proposals, do not change the source Card, and are not identity truth. See `docs/KREA2_TAROT_DRAW_INTEGRATION.md`.
+
 Tarot Draw also contains the Build Week Stargate path. Place two to eight Cards in numbered order. If an older Card projection lacks custody, **Create Cores & Lock Coordinates** lazily creates or verifies one real per-Card Hypercore, appends `card.created`, and applies the persisted receipt without bulk-processing the library at launch. Custody creation remains separate from mint, Overwind acknowledgement, `.hapaCatalog` publication, commerce eligibility, and canon. Then use **Dial This Formation** to enter the derived private namespace and **Save This Gate** to deal one proposed portable Context Card. **Review & Mint** remains an explicit later human authority gate. The same physical 3D Return Card visualizes the downstream proof stages. Loading it restores the exact scene and Formation but stays disconnected until a fresh transient Gate Pass is supplied. The durable Card never contains the cohort secret, raw Pass/token, full private topic/address, private key, credential, or local path. See `docs/CARD_HYPERCORE_CUSTODY.md`, `docs/BUILD_WEEK_STARGATE_INTEGRATION_PLAN.md`, and the audits under `docs/audits/`.
 
 ### OpenAI Codex Build Week disclosure
@@ -129,6 +131,8 @@ Run the production web build and local API:
 npm run build
 npm start
 ```
+
+For the optional Tarot Draw Krea lane, start `hapa-krea2-identity-node` on its default loopback port `8774` before opening **Krea Edit**. The Builder reads the node's owner-only token from its normal runtime root. Alternate local deployments can set `HAPA_KREA2_URL`, `HAPA_KREA2_RUNTIME_ROOT`, or `HAPA_KREA2_BEARER_TOKEN_FILE` on the Builder server process; never place the bearer token in browser configuration.
 
 Open the desktop shell:
 
@@ -233,7 +237,10 @@ curl http://127.0.0.1:8787/api/avatars/red-reaper/heal-plan
 curl http://127.0.0.1:8787/api/avatars/red-reaper/kanban
 curl http://127.0.0.1:8787/api/overwind/card-origin/status
 curl -X POST http://127.0.0.1:8787/api/overwind/card-origin/sync
+curl http://127.0.0.1:8787/api/tarot/krea2
 ```
+
+`/api/tarot/krea2` reports truthful node and preset availability. The adjacent protected Builder routes upload source images, submit and poll edit tasks, cancel work, and stream result artifacts. The Builder server is the credential boundary; the browser never receives the Krea node token or direct protected node URLs.
 
 Avatar and item-store writes now stage canonical create, revise, and tombstone events in a SQLite/WAL origin outbox before the source file is replaced. Comments and relationships append through `/api/overwind/card-origin/operation`. Queued events are not called replicated until Overwind returns a durable acknowledgement. See `docs/OVERWIND_CARD_ORIGIN.md`.
 

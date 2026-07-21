@@ -92,6 +92,11 @@ import {
   createRoomletTarotInvite
 } from "./roomletInvite.mjs";
 import { fileStreamTelemetry, streamFileToResponse } from "./file-serving.mjs";
+import {
+  TAROT_KREA2_MAX_IMAGE_BYTES,
+  adapterErrorPayload as tarotKrea2AdapterErrorPayload,
+  createTarotKrea2Adapter,
+} from "./krea2-tarot-adapter.mjs";
 import { EchoIsfAssetCatalog, writeEchoIsfAsset } from "./echo-isf-assets.mjs";
 import { buildBuilderEntityCatalog } from "../src/overcard/entityCatalog.js";
 import { resolveBuilderRuntimeContext } from "../src/overcard/runtimeContext.js";
@@ -346,6 +351,7 @@ songCardLocalRenderBridge = createSongCardLocalRenderBridge({
 });
 const CARD_INPUT_STANDARD_BASE_URL = (process.env.HAPA_CARD_INPUT_STANDARD_URL || "http://127.0.0.1:8896").replace(/\/+$/, "");
 const CARD_INPUT_STANDARD_ENABLED = process.env.HAPA_CARD_INPUT_STANDARD_ENABLED !== "0";
+const tarotKrea2Adapter = createTarotKrea2Adapter();
 const HAPA_DEV_PROTO_DEBUG_URL = String(process.env.HAPA_DEV_PROTO_DEBUG_URL || "").replace(/\/+$/, "");
 const HAPA_DEV_PROTO_DEBUG_TOKEN = String(process.env.HAPA_DEV_PROTO_DEBUG_TOKEN || "").trim();
 const TAROT_DRAW_FORGE_LTX_BF16_MODEL = "dgrauet/ltx-2.3-mlx";
@@ -3320,6 +3326,76 @@ async function route(req, res) {
 
   if (pathname === "/api/tarot/dashboard" && req.method === "GET") {
     sendJson(res, 200, createTarotLibraryDashboard(await readTarotStore()));
+    return;
+  }
+
+  if (pathname === "/api/tarot/krea2" && req.method === "GET") {
+    sendJson(res, 200, await tarotKrea2Adapter.inspect());
+    return;
+  }
+
+  if (pathname === "/api/tarot/krea2/assets" && req.method === "POST") {
+    try {
+      const bytes = await readRawBody(req, TAROT_KREA2_MAX_IMAGE_BYTES);
+      const asset = await tarotKrea2Adapter.uploadImage(bytes, {
+        mimeType: req.headers["content-type"] || "image/png",
+        fileName: req.headers["x-hapa-file-name"] || "tarot-card.png"
+      });
+      sendJson(res, 201, asset);
+    } catch (error) {
+      const payload = tarotKrea2AdapterErrorPayload(error);
+      sendJson(res, payload.statusCode, { ok: false, error: payload });
+    }
+    return;
+  }
+
+  if (pathname === "/api/tarot/krea2/edits" && req.method === "POST") {
+    try {
+      sendJson(res, 202, await tarotKrea2Adapter.submitEdit(await readBody(req)));
+    } catch (error) {
+      const payload = tarotKrea2AdapterErrorPayload(error);
+      sendJson(res, payload.statusCode, { ok: false, error: payload });
+    }
+    return;
+  }
+
+  const tarotKrea2TaskMatch = pathname.match(/^\/api\/tarot\/krea2\/tasks\/([^/]+)$/);
+  if (tarotKrea2TaskMatch && req.method === "GET") {
+    try {
+      sendJson(res, 200, await tarotKrea2Adapter.task(decodeURIComponent(tarotKrea2TaskMatch[1])));
+    } catch (error) {
+      const payload = tarotKrea2AdapterErrorPayload(error);
+      sendJson(res, payload.statusCode, { ok: false, error: payload });
+    }
+    return;
+  }
+
+  const tarotKrea2CancelMatch = pathname.match(/^\/api\/tarot\/krea2\/tasks\/([^/]+)\/cancel$/);
+  if (tarotKrea2CancelMatch && req.method === "POST") {
+    try {
+      sendJson(res, 200, await tarotKrea2Adapter.cancel(decodeURIComponent(tarotKrea2CancelMatch[1])));
+    } catch (error) {
+      const payload = tarotKrea2AdapterErrorPayload(error);
+      sendJson(res, payload.statusCode, { ok: false, error: payload });
+    }
+    return;
+  }
+
+  const tarotKrea2AssetMatch = pathname.match(/^\/api\/tarot\/krea2\/assets\/([^/]+)\/content$/);
+  if (tarotKrea2AssetMatch && req.method === "GET") {
+    try {
+      const asset = await tarotKrea2Adapter.assetContent(decodeURIComponent(tarotKrea2AssetMatch[1]));
+      res.writeHead(200, {
+        "Content-Type": asset.contentType,
+        "Content-Length": asset.buffer.length,
+        "Cache-Control": asset.cacheControl,
+        ...(asset.etag ? { ETag: asset.etag } : {})
+      });
+      res.end(asset.buffer);
+    } catch (error) {
+      const payload = tarotKrea2AdapterErrorPayload(error);
+      sendJson(res, payload.statusCode, { ok: false, error: payload });
+    }
     return;
   }
 
