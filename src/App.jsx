@@ -211,6 +211,7 @@ import HellWeekView from "./components/HellWeekView.jsx";
 import SongCardMintPanel from "./components/SongCardMintPanel.jsx";
 import { localFileApiUri } from "./domain/local-media-uri.js";
 import { buildPublicDemoGateCards } from "./domain/tarot-stargate-derivation.js";
+import { buildBuildWeekPublicDemoProjection } from "./domain/build-week-public-demo.js";
 
 const ThreeAvatarViewer = lazy(() => import("./components/ThreeAvatarViewer.jsx"));
 const TarotDraw3DView = lazy(() => import("./components/TarotDraw3DView.jsx"));
@@ -228,14 +229,16 @@ function publicStargateDemoRequested() {
   catch { return false; }
 }
 
+const PUBLIC_BUILD_WEEK_DEMO = publicStargateDemoRequested();
+
 function publicStargateDemoProjection() {
-  const cards = buildPublicDemoGateCards();
-  return {
-    cards,
-    audit: { total: cards.length, ready: cards.length, blocked: 0, missingMedia: 0, fixture: true, truthBoundary: "Public deterministic Build Week vector; not a production invitation or local library claim." },
-    state: "ready",
-    fixtureDisclosure: "Public deterministic four-Card vector boots immediately while local stores hydrate."
-  };
+  return buildBuildWeekPublicDemoProjection({
+    avatars: FALLBACK_AVATARS,
+    itemCards: FALLBACK_ITEM_MANAGER.cards,
+    tarotCards: FALLBACK_TAROT_STORE.cards,
+    songs: FALLBACK_HAPA_SONG_STORE.songs,
+    gateCards: buildPublicDemoGateCards()
+  });
 }
 
 function initialAvatarBuilderView() {
@@ -573,7 +576,7 @@ export default function App({ overcardAdapter }) {
   }
 
   const [avatars, setAvatars] = useState(FALLBACK_AVATARS);
-  const [avatarTeams, setAvatarTeams] = useState([]);
+  const [avatarTeams, setAvatarTeams] = useState(() => normalizeAvatarTeams(avatarStoreSeed.teams || [], FALLBACK_AVATARS));
   const [expandedTeamIds, setExpandedTeamIds] = useState(["core-protocol-team"]);
   const [board, setBoard] = useState(kanbanSeed);
   const [sceneGraph, setSceneGraph] = useState(FALLBACK_SCENE_GRAPH);
@@ -651,7 +654,8 @@ export default function App({ overcardAdapter }) {
     return () => globalThis.removeEventListener?.("popstate", restoreRoute);
   }, []);
   const echoDirectorProjectCacheRef = useRef(new Map());
-  const overcardAttachments = useOvercardAttachments();
+  const liveOvercardAttachments = useOvercardAttachments();
+  const overcardAttachments = PUBLIC_BUILD_WEEK_DEMO ? {} : liveOvercardAttachments;
 
   const resolveEchoDirectorProject = useCallback(async (songId) => {
     if (!songId) return null;
@@ -1178,6 +1182,26 @@ export default function App({ overcardAdapter }) {
   }, []);
 
   useEffect(() => {
+    if (PUBLIC_BUILD_WEEK_DEMO) {
+      setAvatars(FALLBACK_AVATARS);
+      setAvatarTeams(normalizeAvatarTeams(avatarStoreSeed.teams || [], FALLBACK_AVATARS));
+      setItemManager(FALLBACK_ITEM_MANAGER);
+      setInventoryStore(FALLBACK_INVENTORY_STORE);
+      setTarotStore(FALLBACK_TAROT_STORE);
+      setHapaSongStore(FALLBACK_HAPA_SONG_STORE);
+      setAvatarDataMode("full");
+      setItemDataMode("full");
+      setTarotDataMode("full");
+      setSongDataMode("full");
+      setApiState("demo");
+      setWorldSyncState("saved");
+      setTarotSyncState("saved");
+      markQueueReady("overwind-bootstrap", "Public fixture bootstrap", "Isolated Build Week fixtures are active.");
+      markQueueReady("overwind-card-plane", "Public Card plane", "RGB and their attached public Cards are active; live Overwind hydration is disabled.");
+      markQueueReady("song-registry", "Echo State fixtures", "Three public Song Cards are active without a private registry connection.");
+      markQueueReady("tarot-store", "Wisdom Set fixtures", "The complete 16-card Build Week Wisdom Set is active.");
+      return undefined;
+    }
     let alive = true;
     updateQueueJob("overwind-bootstrap", "Overwind shell bootstrap", {
       status: "loading",
@@ -1367,6 +1391,7 @@ export default function App({ overcardAdapter }) {
   }, []);
 
   useEffect(() => {
+    if (PUBLIC_BUILD_WEEK_DEMO) return undefined;
     const needsFullCardLibrary = getBuilderHostTarget(activeView).lazyLoad
       .some((entry) => entry.store === "avatars" || entry.store === "items");
     if (!needsFullCardLibrary) return undefined;
@@ -1384,6 +1409,7 @@ export default function App({ overcardAdapter }) {
   }, [activeView]);
 
   useEffect(() => {
+    if (PUBLIC_BUILD_WEEK_DEMO) return undefined;
     setTarotSyncState("queued");
     updateQueueJob("tarot-store", "Tarot library store", {
       status: "queued",
@@ -1395,6 +1421,7 @@ export default function App({ overcardAdapter }) {
   }, []);
 
   useEffect(() => {
+    if (PUBLIC_BUILD_WEEK_DEMO) return undefined;
     if (activeView === "echos") return undefined;
     if (!selectedAvatarId) return undefined;
     const currentAvatar = avatars.find((avatar) => avatar.id === selectedAvatarId);
@@ -1415,6 +1442,7 @@ export default function App({ overcardAdapter }) {
   }, [selectedAvatarId, avatars, activeView]);
 
   useEffect(() => {
+    if (PUBLIC_BUILD_WEEK_DEMO) return undefined;
     const cleanups = [];
     const defer = (loader, delayMs) => {
       const cleanup = scheduleDeferredLoad(loader, delayMs);
@@ -1426,6 +1454,7 @@ export default function App({ overcardAdapter }) {
   }, [activeView]);
 
   useEffect(() => {
+    if (PUBLIC_BUILD_WEEK_DEMO) return undefined;
     updateQueueJob("song-registry", "Dear Papa song registry", {
       status: "queued",
       kind: "store",
@@ -3392,11 +3421,18 @@ export default function App({ overcardAdapter }) {
           </div>
         </div>
 
-        <BuilderHeaderHand
-          adapter={overcardAdapter}
-          onOpenManager={(intent) => openOvercardManagement(intent.kind)}
-          onOpenLibrary={() => openOvercardManagement("library")}
-        />
+        {PUBLIC_BUILD_WEEK_DEMO ? (
+          <div className="builder-header-hand" aria-label="Build Week public fixture boundary">
+            <strong>BUILD WEEK PUBLIC DEMO</strong>
+            <em>RGB fixtures · private Hand disconnected</em>
+          </div>
+        ) : (
+          <BuilderHeaderHand
+            adapter={overcardAdapter}
+            onOpenManager={(intent) => openOvercardManagement(intent.kind)}
+            onOpenLibrary={() => openOvercardManagement("library")}
+          />
+        )}
 
         <div className="telemetry">
           <StatusChip label="API" value={apiState.toUpperCase()} tone={apiState === "api" ? "green" : "gold"} />

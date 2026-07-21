@@ -7,21 +7,33 @@
       "avatarName": "Red",
       "library": ["protocol-red-team-weakness-probe", "protocol-truth-lane-audit", "protocol-authority-rollback-envelope", "skill-hapa-protocol", "skill-hapa-capability-cards-standards-forging", "skill-hapa-skill-overwatch-multi-agent-kanban-orchestration"],
       "deck": ["protocol-red-team-weakness-probe", "protocol-truth-lane-audit", "protocol-authority-rollback-envelope", "skill-hapa-protocol", "skill-hapa-capability-cards-standards-forging", "skill-hapa-skill-overwatch-multi-agent-kanban-orchestration"],
-      "hand": [], "trainingDeck": [], "equipped": [], "archive": [], "cardStates": [], "hardpoints": []
+      "hand": [], "trainingDeck": [], "equipped": [], "archive": [], "cardStates": [],
+      "hardpoints": [
+        { "id": "protocols", "cardIds": ["protocol-red-team-weakness-probe", "protocol-truth-lane-audit", "protocol-authority-rollback-envelope"] },
+        { "id": "skills", "cardIds": ["skill-hapa-protocol", "skill-hapa-capability-cards-standards-forging", "skill-hapa-skill-overwatch-multi-agent-kanban-orchestration"] }
+      ]
     },
     {
       "avatarId": "avatar-2",
       "avatarName": "Blue",
       "library": ["protocol-source-provenance-trace", "protocol-blue-intelligence-filter", "protocol-canon-authority-map", "skill-hapa-capability-memory-lore-provenance", "skill-hapa-node-hapa-lance-node", "skill-hapa-node-hapa-telemetry-node"],
       "deck": ["protocol-source-provenance-trace", "protocol-blue-intelligence-filter", "protocol-canon-authority-map", "skill-hapa-capability-memory-lore-provenance", "skill-hapa-node-hapa-lance-node", "skill-hapa-node-hapa-telemetry-node"],
-      "hand": [], "trainingDeck": [], "equipped": [], "archive": [], "cardStates": [], "hardpoints": []
+      "hand": [], "trainingDeck": [], "equipped": [], "archive": [], "cardStates": [],
+      "hardpoints": [
+        { "id": "protocols", "cardIds": ["protocol-source-provenance-trace", "protocol-blue-intelligence-filter", "protocol-canon-authority-map"] },
+        { "id": "skills", "cardIds": ["skill-hapa-capability-memory-lore-provenance", "skill-hapa-node-hapa-lance-node", "skill-hapa-node-hapa-telemetry-node"] }
+      ]
     },
     {
       "avatarId": "avatar-3",
       "avatarName": "Green",
       "library": ["protocol-stakeholder-weighting-table", "protocol-directional-decision-gate", "protocol-repair-loop", "skill-hapa-capability-governance-consul", "skill-hapa-node-consul-node-proto", "skill-hapa-node-hapa-cultivation-suite"],
       "deck": ["protocol-stakeholder-weighting-table", "protocol-directional-decision-gate", "protocol-repair-loop", "skill-hapa-capability-governance-consul", "skill-hapa-node-consul-node-proto", "skill-hapa-node-hapa-cultivation-suite"],
-      "hand": [], "trainingDeck": [], "equipped": [], "archive": [], "cardStates": [], "hardpoints": []
+      "hand": [], "trainingDeck": [], "equipped": [], "archive": [], "cardStates": [],
+      "hardpoints": [
+        { "id": "protocols", "cardIds": ["protocol-stakeholder-weighting-table", "protocol-directional-decision-gate", "protocol-repair-loop"] },
+        { "id": "skills", "cardIds": ["skill-hapa-capability-governance-consul", "skill-hapa-node-consul-node-proto", "skill-hapa-node-hapa-cultivation-suite"] }
+      ]
     }
   ],
   "createdAt": "2026-07-21T00:00:00.000Z",

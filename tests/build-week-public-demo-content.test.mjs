@@ -5,9 +5,11 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 
 import { normalizeAvatarCard } from "../src/domain/avatar.js";
+import { buildBuildWeekPublicDemoProjection } from "../src/domain/build-week-public-demo.js";
 import { normalizeInventoryStore, normalizeItemManagerStore } from "../src/domain/item.js";
 import { normalizeHapaSongStore } from "../src/domain/song.js";
 import { normalizeTarotStore } from "../src/domain/tarot.js";
+import { buildPublicDemoGateCards } from "../src/domain/tarot-stargate-derivation.js";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const fixtureRoot = path.join(root, "fixtures/build-week/judge-data");
@@ -49,7 +51,39 @@ test("RGB profile loadout references close over the shipped public Item and Song
     }
     const avatarInventory = inventory.avatarInventories.find((row) => row.avatarId === avatar.id);
     assert.equal(avatarInventory?.deck.length, 6, `${avatar.primaryName} inventory deck`);
+    assert.equal(avatarInventory?.hardpoints.find((row) => row.id === "protocols")?.cardIds.length, 3, `${avatar.primaryName} equipped protocols`);
+    assert.equal(avatarInventory?.hardpoints.find((row) => row.id === "skills")?.cardIds.length, 3, `${avatar.primaryName} equipped skills`);
   }
+});
+
+test("Tarot Draw public projection exposes RGB, every attached loadout, Echo State, Wisdom, and Stargate Cards", async () => {
+  const avatarStore = await readJson("avatar-store.json");
+  const avatars = avatarStore.avatars.map(normalizeAvatarCard);
+  const itemStore = normalizeItemManagerStore(await readJson("item-manager-store.json"));
+  const tarotStore = normalizeTarotStore(await readJson("tarot-store.json"));
+  const songbook = await readJson("dear-papa-songbook.json");
+  const songStore = normalizeHapaSongStore(await readJson("hapa-songs-store.json"), songbook, { status: "unavailable", songs: [] });
+  const gateCards = buildPublicDemoGateCards();
+  const projection = buildBuildWeekPublicDemoProjection({
+    avatars,
+    itemCards: itemStore.cards,
+    tarotCards: tarotStore.cards,
+    songs: songStore.songs,
+    gateCards
+  });
+
+  assert.equal(projection.cards.length, 59);
+  assert.equal(projection.audit.hiddenFromProduction, 0);
+  assert.equal(projection.cards.filter((card) => card.cardType === "avatar_card").length, 3);
+  assert.equal(projection.cards.filter((card) => card.cardType === "song_card").length, 3);
+  assert.equal(projection.cards.filter((card) => card.tags?.includes("wisdom-set")).length, 16);
+  for (const avatar of avatars) {
+    assert.ok(projection.cards.some((card) => card.id === `avatar-tarot-${avatar.id}`));
+    for (const loadout of [...avatar.mind.protocolCardLoadout, ...avatar.mind.skillCardLoadout]) {
+      assert.ok(projection.cards.some((card) => card.id === loadout.id), `${avatar.primaryName} Tarot Draw missing ${loadout.id}`);
+    }
+  }
+  for (const gateCard of gateCards) assert.ok(projection.cards.some((card) => card.id === gateCard.id));
 });
 
 test("complete 16-card Build Week Wisdom Set retains membership, art, custody, and review boundaries", async () => {

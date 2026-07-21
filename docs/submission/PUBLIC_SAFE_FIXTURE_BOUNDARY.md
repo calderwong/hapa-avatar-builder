@@ -22,6 +22,8 @@ The public package ships a deliberately bounded content volume rather than an em
 
 The tracked stores live under `fixtures/build-week/judge-data/`. A clean checkout reads them only when the corresponding local-first store under `data/` does not exist. The first explicit edit writes to the normal ignored runtime store; it never mutates the tracked public fixture in place.
 
+The judge URL's `stargateDemo=1` mode is stricter: it stays on the tracked fixtures even when a private local store or Overwind service exists, disconnects the Shared Hand display, equips the RGB profile loadouts into their visible Protocol/Skill lanes, and projects the complete 59-Card public volume into Tarot Draw.
+
 The package builder excludes all of `data/**`, `artifacts/**`, third-party reference images under `public-static/media/`, the older sample reference board, dependency folders, and prebuilt app bundles. It includes only the curated assets under `public-static/demo/`.
 
 This is a review-stage demo volume. Visibility does not imply mint, canon, endorsement, identity authority, ownership transfer, or commercial eligibility.

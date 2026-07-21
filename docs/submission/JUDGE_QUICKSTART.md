@@ -33,6 +33,8 @@ In the Stargate panel, choose **Load Public Demo Formation**, inspect the ordere
 
 Use the Avatar rail to inspect the RGB profiles and their six-Card public loadouts. Use **Songs** for the Echo State previews, **Items** for the sampled and profile-required foundation Cards, and **Tarot Library → Codex Build Week Wisdom Set** for the complete Wisdom Set.
 
+**Tarot Draw** opens as a 59-Card review volume: 3 RGB Avatar Cards, all 33 public Item/loadout Cards, 3 Echo State Song Cards, all 16 Wisdom Set Cards, and 4 deterministic Stargate Cards. Its type backs expose Skills, Protocols, Capabilities, Nodes, Turns, Avatars, and Songs. Image-only fixture Cards are deliberately drawable for review; this does not claim production-loop readiness.
+
 ## Focused implementation tests
 
 ```bash
