@@ -6,7 +6,7 @@ Production application launches serve the Builder on the LAN and start the secur
 node server/api.mjs --port 8899 --static dist
 ```
 
-The HTTP listener binds to `0.0.0.0` and the HTTPS listener uses the next port, so the example exposes the Builder at port `8899` and the secure phone route at port `8900`. The desktop UI still opens through `127.0.0.1`; the QR projects the current LAN address. The Phone Card requires the phone and Mac to share a reachable network, and the phone must trust the generated Hapa local CA certificate before camera and motion APIs can use the local HTTPS origin.
+The HTTP listener binds to `0.0.0.0` and the HTTPS listener uses the next port, so the example exposes the Builder at port `8899` and the secure phone route at port `8900`. The desktop UI still opens through `127.0.0.1`; the QR projects the current LAN address. The QR first opens a reachable HTTP setup page where the phone can download the generated Hapa local CA certificate, see platform-specific trust instructions, and continue into the secure Phone Card. Camera and motion APIs remain on the HTTPS origin.
 
 API-only launches remain loopback-only unless configured otherwise. Any launch can opt out or override explicitly:
 
@@ -27,3 +27,12 @@ The equivalent desktop overrides are `HAPA_AVATAR_BIND_HOST` and `HAPA_AVATAR_HT
 - **What remains reusable:** the current Phone Card, certificate, invite, and signaling implementation remains the single canonical bridge.
 - **New guardrail:** a Phone Card launch is not healthy unless the advertised QR host is accepted by a listener and `phoneBridgeInfo` reports an active secure origin; loopback API tests must continue to pass an explicit host.
 - **Promotion candidate:** Lesson Card — **A Reachable QR Requires a Reachable Listener**.
+
+### Certificate-bootstrap correction
+
+- **Objective:** make a first-time phone scan render an actionable page instead of failing at an untrusted TLS handshake.
+- **Evidence inspected:** the live Electron listener pair, live QR payload, certificate SAN and validity, CA verification, HTTP/HTTPS probes with and without the CA, and the Tarot QR presentation.
+- **What worked:** the existing HTTP listener can safely distribute the public CA certificate and preserve the same session into the secure controller.
+- **What was misunderstood:** LAN reachability fixed the socket boundary, but a QR that points directly at a private CA HTTPS origin still fails before React can explain how to establish trust.
+- **What changed:** the QR now targets a no-store HTTP setup page with certificate installation and explicit secure handoff; the encrypted Phone Card, WebRTC, and signaling paths remain unchanged.
+- **New guardrail:** first-run QR flows that depend on a private CA must bootstrap trust on a reachable non-TLS route; trust instructions hidden in JSON metadata do not count as a usable phone flow.

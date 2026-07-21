@@ -4761,8 +4761,11 @@ export default function TarotDraw3DView({ cards = [], avatarId = "local-operator
           </div>
           <strong>
             {hud.phoneBridgeConnected ? "Phone Card live" : hud.phoneBridgeStatus || "Waiting for phone scan"}
-            <em>{activeSceneInvite?.commentCapture ? "NATIVE · NO CERT" : hud.phoneBridgeSecure ? "SECURE LIVE" : "LOCAL BRIDGE"}</em>
+            <em>{activeSceneInvite?.commentCapture ? "NATIVE · NO CERT" : /\/phone-card\/setup(?:[/?#]|$)/.test(hud.phoneBridgeMobileUrl || "") ? "SETUP → SECURE" : hud.phoneBridgeSecure ? "SECURE LIVE" : "LOCAL BRIDGE"}</em>
           </strong>
+          {/\/phone-card\/setup(?:[/?#]|$)/.test(hud.phoneBridgeMobileUrl || "") && (
+            <p className="tarot-phone-bridge-native-note">The QR opens phone setup first. Install and trust the Hapa certificate once, then open the secure Phone Card from that page.</p>
+          )}
           {hud.phoneBridgeError && <p className="tarot-phone-bridge-error">{hud.phoneBridgeError}</p>}
           {activeSceneInvite?.links?.desktopHtmlUrl && (
             <div className="tarot-phone-bridge-actions">
@@ -12382,7 +12385,9 @@ function createTarotDrawGame({ canvas, cards, avatarId = "local-operator", avata
       phoneBridgeQrVisible = true;
       phoneBridgeConnected = false;
       phoneBridgeSince = 0;
-      phoneBridgeStatus = payload.secureContextLikely === false
+      phoneBridgeStatus = payload.setupRequired
+        ? "Scan for one-time phone setup"
+        : payload.secureContextLikely === false
         ? "QR ready; secure bridge unavailable"
         : "Secure QR ready; waiting for phone scan";
       startPhoneBridgePolling();
