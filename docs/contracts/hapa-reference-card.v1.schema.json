@@ -1,0 +1,356 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://hapa.ai/schemas/hapa-reference-card.v1.schema.json",
+  "title": "Hapa Reference Card v1",
+  "description": "A revisioned, attributable, rights-aware reference and interpretation record. Evidence, review approval, publication, and canon are independent authorities.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "id",
+    "revisionId",
+    "title",
+    "referenceType",
+    "occurrences",
+    "citations",
+    "claims",
+    "interpretations",
+    "relationships",
+    "authority",
+    "rightsAndPrivacy",
+    "provenance"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "hapa.reference-card.v1" },
+    "id": { "type": "string", "minLength": 1 },
+    "revisionId": { "type": "string", "minLength": 1 },
+    "parentRevisionId": { "type": "string" },
+    "title": { "type": "string", "minLength": 1 },
+    "aliases": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "uniqueItems": true
+    },
+    "referenceType": { "$ref": "#/$defs/nodeType" },
+    "summary": { "type": "string" },
+    "publicContext": { "type": "string" },
+    "occurrences": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/occurrence" }
+    },
+    "citations": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/citation" }
+    },
+    "claims": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/claim" }
+    },
+    "interpretations": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/interpretation" }
+    },
+    "relationships": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/edge" }
+    },
+    "signalLexicon": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "literal": { "$ref": "#/$defs/stringSet" },
+        "phonetic": { "$ref": "#/$defs/stringSet" },
+        "orthographic": { "$ref": "#/$defs/stringSet" },
+        "multilingual": { "$ref": "#/$defs/stringSet" },
+        "mechanical": { "$ref": "#/$defs/stringSet" }
+      }
+    },
+    "themes": { "$ref": "#/$defs/stringSet" },
+    "mechanics": { "$ref": "#/$defs/stringSet" },
+    "emotions": { "$ref": "#/$defs/stringSet" },
+    "mediaEntities": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "type", "label", "pointer", "rightsStatus"],
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "type": { "type": "string", "minLength": 1 },
+          "label": { "type": "string" },
+          "pointer": { "type": "string" },
+          "rightsStatus": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "unresolved": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "label", "possibleNamespaces", "attempts", "leverage", "status"],
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "label": { "type": "string", "minLength": 1 },
+          "possibleNamespaces": { "$ref": "#/$defs/stringSet" },
+          "attempts": { "$ref": "#/$defs/stringSet" },
+          "leverage": { "$ref": "#/$defs/confidence" },
+          "status": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "authority": { "$ref": "#/$defs/authority" },
+    "rightsAndPrivacy": { "$ref": "#/$defs/rightsAndPrivacy" },
+    "custody": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["originCoreKey", "eventId", "contentDigest", "custodyStatus"],
+      "properties": {
+        "originCoreKey": { "type": "string" },
+        "eventId": { "type": "string" },
+        "contentDigest": { "type": "string" },
+        "custodyStatus": { "type": "string", "minLength": 1 }
+      }
+    },
+    "provenance": { "$ref": "#/$defs/provenance" }
+  },
+  "$defs": {
+    "stringSet": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "uniqueItems": true
+    },
+    "confidence": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "nodeType": {
+      "enum": [
+        "song",
+        "lyric-span",
+        "reference-card",
+        "context-layer",
+        "external-work",
+        "person",
+        "place",
+        "media",
+        "mechanic",
+        "motif",
+        "emotion",
+        "unresolved-namespace"
+      ]
+    },
+    "edgeType": {
+      "enum": [
+        "occurs-in",
+        "alludes-to",
+        "supports",
+        "challenges",
+        "alternative-to",
+        "same-entity-as",
+        "alias-of",
+        "adaptation-of",
+        "recurs-with",
+        "contrasts-with",
+        "transforms",
+        "imports-mechanic",
+        "imports-emotion",
+        "thematic-resonance",
+        "narrative-continuation",
+        "corroborates",
+        "supersedes"
+      ]
+    },
+    "evidenceClass": {
+      "enum": ["direct", "source-backed-candidate", "comparative", "unresolved"]
+    },
+    "reviewStatus": {
+      "enum": ["proposed", "pending-review", "approved", "challenged", "rejected", "superseded", "withdrawn"]
+    },
+    "canonStatus": {
+      "enum": ["non-canon", "soft-canon", "canon"]
+    },
+    "visibility": {
+      "enum": ["private", "shared", "public"]
+    },
+    "occurrence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "songId", "albumProjection", "lyricSpan", "relationType", "confidence", "status", "pointer"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "songId": { "type": "string", "minLength": 1 },
+        "songTitle": { "type": "string" },
+        "albumProjection": { "type": "string", "minLength": 1 },
+        "lyricSpan": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["lineStart", "lineEnd", "startSeconds", "endSeconds", "lyricText", "matchedText"],
+          "properties": {
+            "lineStart": { "type": "integer", "minimum": 1 },
+            "lineEnd": { "type": "integer", "minimum": 1 },
+            "startSeconds": { "type": ["number", "null"], "minimum": 0 },
+            "endSeconds": { "type": ["number", "null"], "minimum": 0 },
+            "lyricText": { "type": "string" },
+            "matchedText": { "type": "string" }
+          }
+        },
+        "relationType": { "$ref": "#/$defs/edgeType" },
+        "confidence": { "$ref": "#/$defs/confidence" },
+        "status": { "$ref": "#/$defs/reviewStatus" },
+        "pointer": { "type": "string" }
+      }
+    },
+    "citation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "label", "url", "sourceClass", "retrievedAt", "safeExcerpt", "claimIds", "visibility", "rights", "freshness"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "label": { "type": "string" },
+        "url": { "type": "string" },
+        "sourceClass": { "type": "string", "minLength": 1 },
+        "publisher": { "type": "string" },
+        "author": { "type": "string" },
+        "publishedAt": { "type": "string" },
+        "retrievedAt": { "type": "string" },
+        "safeExcerpt": { "type": "string" },
+        "claimIds": { "$ref": "#/$defs/stringSet" },
+        "visibility": { "$ref": "#/$defs/visibility" },
+        "rights": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["licenseStatus", "quotationPolicy", "notes"],
+          "properties": {
+            "licenseStatus": { "type": "string", "minLength": 1 },
+            "quotationPolicy": { "type": "string", "minLength": 1 },
+            "notes": { "type": "string" }
+          }
+        },
+        "freshness": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status", "checkedAt", "failure"],
+          "properties": {
+            "status": { "type": "string", "minLength": 1 },
+            "checkedAt": { "type": "string" },
+            "failure": { "type": "string" }
+          }
+        }
+      }
+    },
+    "claim": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "kind", "text", "evidenceClass", "confidence", "citationIds", "occurrenceIds", "caveat"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "kind": { "enum": ["source-fact", "lyric-observation", "inference", "human-decision"] },
+        "text": { "type": "string", "minLength": 1 },
+        "evidenceClass": { "$ref": "#/$defs/evidenceClass" },
+        "confidence": { "$ref": "#/$defs/confidence" },
+        "citationIds": { "$ref": "#/$defs/stringSet" },
+        "occurrenceIds": { "$ref": "#/$defs/stringSet" },
+        "caveat": { "type": "string" }
+      }
+    },
+    "interpretation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "title", "summary", "readingLayers", "confidence", "status", "claimIds", "caveats", "proposedBy", "approvedBy"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "title": { "type": "string", "minLength": 1 },
+        "summary": { "type": "string", "minLength": 1 },
+        "readingLayers": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["surface", "contextual", "thematic", "emotional", "narrative", "operationalMechanic"],
+          "properties": {
+            "surface": { "type": "string" },
+            "contextual": { "type": "string" },
+            "thematic": { "type": "string" },
+            "emotional": { "type": "string" },
+            "narrative": { "type": "string" },
+            "operationalMechanic": { "type": "string" }
+          }
+        },
+        "confidence": { "$ref": "#/$defs/confidence" },
+        "status": { "$ref": "#/$defs/reviewStatus" },
+        "claimIds": { "$ref": "#/$defs/stringSet" },
+        "caveats": { "$ref": "#/$defs/stringSet" },
+        "proposedBy": { "type": "string" },
+        "approvedBy": { "type": "string" }
+      }
+    },
+    "edge": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schemaVersion", "id", "fromId", "fromType", "toId", "toType", "relationType", "direction", "weight", "confidence", "evidenceClass", "status", "rationale", "claimIds", "citationIds", "derived", "humanApproved", "provenance"],
+      "properties": {
+        "schemaVersion": { "const": "hapa.reference-edge.v1" },
+        "id": { "type": "string", "minLength": 1 },
+        "fromId": { "type": "string", "minLength": 1 },
+        "fromType": { "$ref": "#/$defs/nodeType" },
+        "toId": { "type": "string", "minLength": 1 },
+        "toType": { "$ref": "#/$defs/nodeType" },
+        "relationType": { "$ref": "#/$defs/edgeType" },
+        "direction": { "enum": ["directed", "bidirectional"] },
+        "weight": { "$ref": "#/$defs/confidence" },
+        "confidence": { "$ref": "#/$defs/confidence" },
+        "evidenceClass": { "$ref": "#/$defs/evidenceClass" },
+        "status": { "$ref": "#/$defs/reviewStatus" },
+        "rationale": { "type": "string" },
+        "claimIds": { "$ref": "#/$defs/stringSet" },
+        "citationIds": { "$ref": "#/$defs/stringSet" },
+        "derived": { "type": "boolean" },
+        "humanApproved": { "type": "boolean" },
+        "provenance": { "$ref": "#/$defs/provenance" }
+      }
+    },
+    "authority": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["evidenceClass", "reviewStatus", "canonStatus", "approvedBy", "approvedAt", "canonizedBy", "canonizedAt"],
+      "properties": {
+        "evidenceClass": { "$ref": "#/$defs/evidenceClass" },
+        "reviewStatus": { "$ref": "#/$defs/reviewStatus" },
+        "canonStatus": { "$ref": "#/$defs/canonStatus" },
+        "approvedBy": { "type": "string" },
+        "approvedAt": { "type": "string" },
+        "canonizedBy": { "type": "string" },
+        "canonizedAt": { "type": "string" }
+      }
+    },
+    "rightsAndPrivacy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["visibility", "containsPersonalData", "containsPrivateClues", "licenseStatus", "quotationPolicy", "publicProjectionAllowed"],
+      "properties": {
+        "visibility": { "$ref": "#/$defs/visibility" },
+        "containsPersonalData": { "type": "boolean" },
+        "containsPrivateClues": { "type": "boolean" },
+        "licenseStatus": { "type": "string", "minLength": 1 },
+        "quotationPolicy": { "type": "string", "minLength": 1 },
+        "publicProjectionAllowed": { "type": "boolean" }
+      }
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["method", "sourceRunId", "sourcePacketHash", "configurationVersion", "model", "createdBy", "createdAt", "decisionIds"],
+      "properties": {
+        "method": { "type": "string", "minLength": 1 },
+        "sourceRunId": { "type": "string" },
+        "sourcePacketHash": { "type": "string" },
+        "configurationVersion": { "type": "string" },
+        "model": { "type": "string" },
+        "createdBy": { "type": "string" },
+        "createdAt": { "type": "string" },
+        "decisionIds": { "$ref": "#/$defs/stringSet" }
+      }
+    }
+  }
+}

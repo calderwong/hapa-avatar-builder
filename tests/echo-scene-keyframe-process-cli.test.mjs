@@ -6,11 +6,38 @@ import { spawnSync } from "node:child_process";
 import test from "node:test";
 
 const runtimeRoot = fs.mkdtempSync(path.join(os.tmpdir(), "echo-keyframe-process-cli-"));
+const repoRoot = path.resolve(import.meta.dirname, "..");
+const pilotRoot = path.join(runtimeRoot, "pilot");
+
+for (const name of ["dear-papa", "gates-at-the-mountain", "save-point"]) {
+  const source = path.join(repoRoot, "artifacts", "echo-scene-keyframes", "pilot", name, "plan.json");
+  const plan = JSON.parse(fs.readFileSync(source, "utf8"));
+  const target = path.join(pilotRoot, name);
+  fs.mkdirSync(target, { recursive: true });
+  plan.counts = (plan.counts || []).map((count) => {
+    const imagePath = path.join(target, `${count.id}.png`);
+    fs.writeFileSync(imagePath, `fixture:${count.id}`);
+    return {
+      ...count,
+      image: {
+        ...count.image,
+        status: "keyframe_exists",
+        retrievalHandle: imagePath,
+      },
+    };
+  });
+  fs.writeFileSync(path.join(target, "plan.json"), JSON.stringify(plan));
+}
+
 function run(args) {
   const result = spawnSync(process.execPath, ["scripts/echo-scene-keyframe-process.mjs", ...args], {
-    cwd: path.resolve(import.meta.dirname, ".."),
+    cwd: repoRoot,
     encoding: "utf8",
-    env: { ...process.env, HAPA_ECHO_KEYFRAME_RUNTIME_ROOT: runtimeRoot },
+    env: {
+      ...process.env,
+      HAPA_ECHO_KEYFRAME_RUNTIME_ROOT: runtimeRoot,
+      HAPA_ECHO_KEYFRAME_PILOT_ROOT: pilotRoot,
+    },
   });
   if (result.status !== 0) throw new Error(result.stderr || result.stdout);
   return JSON.parse(result.stdout);

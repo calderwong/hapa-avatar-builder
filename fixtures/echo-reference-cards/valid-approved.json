@@ -1,0 +1,186 @@
+{
+  "schemaVersion": "hapa.reference-card.v1",
+  "id": "reference:litrpg-save-point",
+  "revisionId": "reference:litrpg-save-point:r3",
+  "parentRevisionId": "reference:litrpg-save-point:r2",
+  "title": "Save Point / LitRPG mechanic",
+  "aliases": ["save point", "checkpoint", "respawn memory"],
+  "referenceType": "external-work",
+  "summary": "A reviewable LitRPG and game-system lens for persistence, party, and return-after-failure language.",
+  "publicContext": "LitRPG externalizes game mechanics as story-operating rules.",
+  "occurrences": [
+    {
+      "id": "save-point:line-4",
+      "songId": "save-point",
+      "songTitle": "Save Point (Found You in the Code)",
+      "albumProjection": "Echo Album",
+      "lyricSpan": {
+        "lineStart": 4,
+        "lineEnd": 5,
+        "startSeconds": 18.2,
+        "endSeconds": 26.1,
+        "lyricText": "Found you in the code / saved where the party returns",
+        "matchedText": "saved"
+      },
+      "relationType": "imports-mechanic",
+      "confidence": 0.92,
+      "status": "approved",
+      "pointer": "hapa://songs/save-point?line=4"
+    }
+  ],
+  "citations": [
+    {
+      "id": "citation-litrpg-definition",
+      "label": "Publisher description of LitRPG mechanics",
+      "url": "https://example.com/litrpg",
+      "sourceClass": "publisher",
+      "publisher": "Example Publisher",
+      "retrievedAt": "2026-07-23T19:00:00.000Z",
+      "safeExcerpt": "Game mechanics operate inside the narrative.",
+      "claimIds": ["claim-litrpg-source"],
+      "visibility": "public",
+      "rights": {
+        "licenseStatus": "reference-only",
+        "quotationPolicy": "minimal-rights-safe-excerpt"
+      },
+      "freshness": {
+        "status": "current",
+        "checkedAt": "2026-07-23T19:00:00.000Z"
+      }
+    }
+  ],
+  "claims": [
+    {
+      "id": "claim-litrpg-source",
+      "kind": "source-fact",
+      "text": "LitRPG stories can make game mechanics part of the story world.",
+      "evidenceClass": "direct",
+      "confidence": 0.97,
+      "citationIds": ["citation-litrpg-definition"]
+    },
+    {
+      "id": "claim-save-point-reading",
+      "kind": "inference",
+      "text": "The lyric can treat memory and relationship as a persistence mechanic.",
+      "evidenceClass": "comparative",
+      "confidence": 0.7,
+      "occurrenceIds": ["save-point:line-4"],
+      "caveat": "This is an interpretive route, not a claim of authorial intent."
+    }
+  ],
+  "interpretations": [
+    {
+      "id": "interpretation-save-point-memory",
+      "title": "Memory as persistence",
+      "summary": "The save point turns remembered relationship into a return path after loss.",
+      "readingLayers": {
+        "surface": "Someone is found and retained.",
+        "contextual": "A save mechanic supplies persistence language.",
+        "thematic": "Care resists erasure.",
+        "emotional": "Reassurance after feared loss.",
+        "narrative": "Return becomes possible.",
+        "operationalMechanic": "Checkpoint persistence."
+      },
+      "confidence": 0.72,
+      "status": "approved",
+      "claimIds": ["claim-save-point-reading"],
+      "caveats": ["Comparative mechanic; not hard canon."],
+      "proposedBy": "reference-miner",
+      "approvedBy": "human-reviewer"
+    },
+    {
+      "id": "interpretation-save-point-party",
+      "title": "Chosen party as durable identity",
+      "summary": "The party can be read as chosen family whose shared state survives a reset.",
+      "readingLayers": {
+        "surface": "A group returns together.",
+        "contextual": "Party composition supplies a social-system lens.",
+        "thematic": "Identity is relational.",
+        "emotional": "Belonging survives interruption.",
+        "narrative": "The group carries continuity.",
+        "operationalMechanic": "Party-state continuity."
+      },
+      "confidence": 0.61,
+      "status": "proposed",
+      "claimIds": ["claim-save-point-reading"],
+      "caveats": ["Alternative interpretation pending separate review."],
+      "proposedBy": "album-researcher"
+    }
+  ],
+  "relationships": [
+    {
+      "id": "reference:litrpg-save-point:recurs-with:song:our-anima",
+      "fromId": "reference:litrpg-save-point",
+      "fromType": "reference-card",
+      "toId": "song:our-anima",
+      "toType": "song",
+      "relationType": "recurs-with",
+      "direction": "bidirectional",
+      "weight": 0.58,
+      "confidence": 0.54,
+      "evidenceClass": "comparative",
+      "status": "proposed",
+      "rationale": "Both songs can be traversed through recurrence and return.",
+      "claimIds": ["claim-save-point-reading"],
+      "citationIds": ["citation-litrpg-definition"],
+      "derived": true,
+      "humanApproved": false,
+      "provenance": {
+        "method": "cross-song-mechanic-comparison",
+        "sourceRunId": "run-echo-reference-pilot-1",
+        "sourcePacketHash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "createdBy": "reference-miner",
+        "createdAt": "2026-07-23T19:10:00.000Z"
+      }
+    }
+  ],
+  "signalLexicon": {
+    "literal": ["save", "party"],
+    "mechanical": ["checkpoint", "respawn", "persistent state"]
+  },
+  "themes": ["memory", "return", "chosen family"],
+  "mechanics": ["checkpoint persistence", "party state"],
+  "emotions": ["reassurance", "belonging"],
+  "mediaEntities": [],
+  "unresolved": [
+    {
+      "id": "unresolved-code-name",
+      "label": "Whether a code-name phrase points to a specific work",
+      "possibleNamespaces": ["game", "novel", "personal clue"],
+      "attempts": ["catalog alias search"],
+      "leverage": 0.64,
+      "status": "open"
+    }
+  ],
+  "authority": {
+    "evidenceClass": "comparative",
+    "reviewStatus": "approved",
+    "canonStatus": "non-canon",
+    "approvedBy": "human-reviewer",
+    "approvedAt": "2026-07-23T19:20:00.000Z"
+  },
+  "rightsAndPrivacy": {
+    "visibility": "public",
+    "containsPersonalData": false,
+    "containsPrivateClues": false,
+    "licenseStatus": "reference-only",
+    "quotationPolicy": "minimal-rights-safe-excerpt",
+    "publicProjectionAllowed": true
+  },
+  "custody": {
+    "originCoreKey": "",
+    "eventId": "",
+    "contentDigest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "custodyStatus": "uncommitted"
+  },
+  "provenance": {
+    "method": "human-reviewed-reference-mining",
+    "sourceRunId": "run-echo-reference-pilot-1",
+    "sourcePacketHash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "configurationVersion": "echo-reference-miner.v1",
+    "model": "prototype-unspecified",
+    "createdBy": "reference-miner",
+    "createdAt": "2026-07-23T19:10:00.000Z",
+    "decisionIds": ["decision-reference-litrpg-approve"]
+  }
+}

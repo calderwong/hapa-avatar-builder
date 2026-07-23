@@ -1,0 +1,36 @@
+{
+  "schemaVersion": "hapa.reference-card.v1",
+  "id": "reference:unsupported-canon",
+  "title": "Unsupported canon claim",
+  "referenceType": "external-work",
+  "occurrences": [
+    {
+      "id": "song-one:line-1",
+      "songId": "song-one",
+      "lyricSpan": {
+        "lineStart": 1,
+        "lineEnd": 1,
+        "lyricText": "A possible clue"
+      }
+    }
+  ],
+  "claims": [
+    {
+      "id": "claim-one",
+      "kind": "inference",
+      "text": "A possible reading.",
+      "evidenceClass": "source-backed-candidate",
+      "confidence": 0.4,
+      "occurrenceIds": ["song-one:line-1"]
+    }
+  ],
+  "authority": {
+    "evidenceClass": "source-backed-candidate",
+    "reviewStatus": "pending-review",
+    "canonStatus": "canon"
+  },
+  "rightsAndPrivacy": {
+    "visibility": "private",
+    "publicProjectionAllowed": false
+  }
+}
