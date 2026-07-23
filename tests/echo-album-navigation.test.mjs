@@ -71,10 +71,17 @@ test("a persisted timeline remains a successful save while its render graph prep
 test("director parity repair fills only complete missing cut families", () => {
   const balanced = fs.readFileSync(path.join(root, "scripts/append-balanced-builder-direction-variants.mjs"), "utf8");
   const scroll = fs.readFileSync(path.join(root, "scripts/ingest-scroll-site-media.mjs"), "utf8");
+  const plans = fs.readFileSync(path.join(root, "scripts/generate-music-video-plans.mjs"), "utf8");
   const packageJson = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
   assert.match(balanced, /const MISSING_ONLY = args\.has\("--missing-only"\)/u);
   assert.match(balanced, /Partial director-cut family found/u);
   assert.match(scroll, /const VARIANTS_ONLY = args\.has\("--variants-only"\)/u);
+  assert.match(plans, /const MISSING_ONLY = args\.has\("--missing-only"\)/u);
+  assert.match(plans, /!fs\.existsSync\(path\.join\(PROJECTS_DIR/u);
+  assert.match(plans, /--registry-track-ids=/u);
+  assert.match(plans, /activeStems\.push\("Master Mix"\)/u);
+  assert.match(plans, /three-part-master-mix-energy-arc/u);
+  assert.match(packageJson.scripts["echo:director:plans:missing:apply"], /--missing-only --apply/u);
   assert.match(packageJson.scripts["echo:variants:parity:missing:apply"], /--missing-only/u);
 });
 

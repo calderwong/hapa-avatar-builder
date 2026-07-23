@@ -10,6 +10,17 @@ const RUN_ID = new Date().toISOString().replace(/[:.]/g, "-");
 const GENERATED_AT = new Date().toISOString();
 const args = new Set(process.argv.slice(2));
 const APPLY_MUTATIONS = args.has("--apply") || process.env.HAPA_ECHOS_APPLY === "1";
+const MISSING_ONLY = args.has("--missing-only");
+const requestedRegistryTrackIdsArgument = process.argv.find((arg) => arg.startsWith("--registry-track-ids="));
+const REQUESTED_REGISTRY_TRACK_IDS = new Set(
+  String(requestedRegistryTrackIdsArgument || "")
+    .split("=")
+    .slice(1)
+    .join("=")
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean),
+);
 const requestedOrientation = process.argv.find((arg) => arg.startsWith("--orientation="))?.split("=").slice(1).join("=")
   || process.env.HAPA_ECHO_OUTPUT_ORIENTATION
   || "landscape";
@@ -478,6 +489,56 @@ function buildSongEditMap(song, songMetadata, duration) {
   const singingDuration = Math.max(1, singingEnd - singingStart);
   const seenCounts = {};
 
+  if (!lyricLines.length) {
+    const openingEnd = Number(Math.max(0.1, Math.min(duration * 0.18, duration - 0.2)).toFixed(2));
+    const closingStart = Number(Math.max(openingEnd + 0.1, duration * 0.82).toFixed(2));
+    const sections = [
+      { id: "intro_1", type: "intro", label: "Instrumental Opening", start: 0, end: openingEnd, lyricLineCount: 0, wordCount: 0, vocalDensity: "none", energy: 0.24, visualStrategy: "establish the master-mix instrumental palette" },
+      { id: "instrumental_1", type: "instrumental", label: "Instrumental Development", start: openingEnd, end: closingStart, lyricLineCount: 0, wordCount: 0, vocalDensity: "none", energy: 0.58, visualStrategy: "develop motion and shader density from the master-mix energy arc" },
+      { id: "outro_1", type: "outro", label: "Instrumental Ringout", start: closingStart, end: duration, lyricLineCount: 0, wordCount: 0, vocalDensity: "none", energy: 0.2, visualStrategy: "resolve the master-mix instrumental arc" },
+    ];
+    return {
+      schemaVersion: "hapa.echos.song-edit-map.v1",
+      provenance: {
+        durationSource: songMetadata?.duration ? "hapa-songs-store.audio.duration" : "fallback-song-duration",
+        lyricSource: "none-published",
+        lyricTimingSource: "instrumental-master-mix-arc",
+        lyricTimingStrategy: "three-part-master-mix-energy-arc",
+        lyricTimingPath: "",
+        lyricTimingRegistryTrackId: songMetadata?.registryTrackId || song?.registryTrackId || "",
+        lyricTimingRejectedExact: rejectedExactTiming,
+        stemSource: stemKinds.length ? "hapa-songs-store.stems" : "none",
+        confidence: stemKinds.length ? "registry_stem_instrumental_arc" : "registry_master_mix_instrumental_arc",
+      },
+      audioTelemetry: {
+        duration_sec: Number(duration.toFixed(2)),
+        lyricLineCount: 0,
+        lyricBlockCount: 0,
+        wordCount: 0,
+        wordsPerMinute: 0,
+        stemCount: stemKinds.length,
+        stemKinds,
+      },
+      sections,
+      timedLyrics: [],
+      editPulses: [],
+      vocalDensity: sections.map((section) => ({
+        start_sec: section.start,
+        end_sec: section.end,
+        vocal_density: "none",
+        source: "no-published-lyrics",
+      })),
+      energyCurves: {
+        source: stemKinds.length ? "available-stem-instrumental-arc" : "master-mix-instrumental-arc",
+        points: sections.map((section) => ({
+          t: section.start,
+          section_id: section.id,
+          energy: section.energy,
+        })),
+      },
+    };
+  }
+
   const sections = [];
   const timedLyrics = [];
   let sectionCursor = singingStart;
@@ -832,7 +893,13 @@ function generateHyperframesScript(songId, songTitle, duration, timeline, visual
   return html;
 }
 
-const songCards = songbook.songCards || [];
+const songCards = (songbook.songCards || []).filter((song, index) => {
+  const registryTrackId = song.registryTrackId || song.lineage?.registryTrackId || song.songId || "";
+  if (REQUESTED_REGISTRY_TRACK_IDS.size && !REQUESTED_REGISTRY_TRACK_IDS.has(registryTrackId)) return false;
+  if (!MISSING_ONLY) return true;
+  const songId = song.id || `song_${index}`;
+  return !fs.existsSync(path.join(PROJECTS_DIR, `${songId}-video-project.json`));
+});
 let dbVideos = [];
 try {
   const { DatabaseSync } = await import("node:sqlite");
@@ -927,7 +994,7 @@ if (rejectedUnplayableVideos.length) {
 }
 const plannedOutputs = [];
 
-console.log(`Compiling music video plans for ${songCards.length} songs in ${APPLY_MUTATIONS ? "apply" : "dry-run"} mode...`);
+console.log(`Compiling music video plans for ${songCards.length} ${MISSING_ONLY ? "missing " : ""}songs in ${APPLY_MUTATIONS ? "apply" : "dry-run"} mode...`);
 if (!APPLY_MUTATIONS) {
   console.log("Dry run only. Use --apply or HAPA_ECHOS_APPLY=1 to write director project files.");
 }
@@ -1030,7 +1097,7 @@ songCards.forEach((song, idx) => {
       }
 
       const activeStems = chooseActiveStems(sec, stemsAvailable);
-      if (!activeStems.length) activeStems.push("Vocals");
+      if (!activeStems.length) activeStems.push("Master Mix");
 
       // Audio bindings
       const audioBindings = [];
