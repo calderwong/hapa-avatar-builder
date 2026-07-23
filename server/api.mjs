@@ -167,6 +167,19 @@ import {
 } from "../src/domain/echo-runtime-shader-repair.js";
 import { validateEchoCompiledShowGraph } from "../src/domain/echo-compiled-show-graph.js";
 import { prepareEchoProjectForPersistence } from "./echo-project-persistence.mjs";
+import { createEchoReferenceMiningStore } from "./echo-reference-mining-store.mjs";
+import { createEchoReferenceBatchQueue } from "./echo-reference-batch-queue.mjs";
+import {
+  buildEchoReferenceObservability,
+  buildEchoReferenceEvidenceInspector,
+  createEchoReferenceClueEvent,
+  previewEchoReferenceClueRerun,
+  projectEchoReferenceDownstreamPackets,
+  projectEchoReferenceModerationItem,
+  projectEchoReferenceChallengeHistory,
+  projectEchoReferenceRunReceipt,
+  searchEchoReferenceGraph,
+} from "../src/domain/echo-reference-mining.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, "..");
@@ -322,6 +335,16 @@ function withSongCardRenderExecutor(payload = {}) {
 }
 const DEAR_PAPA_SONGBOOK_PATH = process.env.HAPA_DEAR_PAPA_SONGBOOK || path.join(ROOT, "data/dear-papa-songbook.json");
 const HAPA_SONG_STORE_PATH = process.env.HAPA_SONG_STORE || path.join(ROOT, "data/hapa-songs-store.json");
+const ECHO_REFERENCE_MINING_ROOT = process.env.HAPA_ECHO_REFERENCE_MINING_ROOT || path.join(ROOT, "data/echo-reference-mining");
+const echoReferenceMiningStore = createEchoReferenceMiningStore({
+  root: ECHO_REFERENCE_MINING_ROOT,
+  songStorePath: HAPA_SONG_STORE_PATH,
+});
+const echoReferenceBatchQueue = createEchoReferenceBatchQueue({
+  root: path.join(ECHO_REFERENCE_MINING_ROOT, "queue"),
+  songStorePath: HAPA_SONG_STORE_PATH,
+  miningStore: echoReferenceMiningStore,
+});
 const SONG_CARD_MINT_ROOT = process.env.HAPA_SONG_CARD_MINT_ROOT || path.join(ROOT, "data/song-card-mints");
 const echoMintPlanCanonicalResolver = createEchoMintPlanCanonicalResolver({
   avatarRoot: ROOT,
@@ -2073,6 +2096,380 @@ async function route(req, res) {
   if (pathname === "/api/kanban") {
     const board = await readJson(KANBAN_PATH);
     sendJson(res, 200, url.searchParams.get("mode") === "shell" ? compactKanbanForOverwindShell(board) : board);
+    return;
+  }
+
+  if (pathname === "/api/echos/references" && req.method === "GET") {
+    const songId = String(url.searchParams.get("songId") || "").trim();
+    const summaryOnly = url.searchParams.get("summary") === "1";
+    sendJson(res, 200, await echoReferenceMiningStore.projection({
+      songId,
+      lens: url.searchParams.get("lens") || "",
+      query: url.searchParams.get("query") || "",
+      includeCards: !summaryOnly,
+      includeGraph: !summaryOnly,
+    }));
+    return;
+  }
+
+  if (pathname === "/api/echos/references/mine" && req.method === "POST") {
+    try {
+      const body = await readBody(req);
+      const apply = body.apply === true;
+      const selectedSongId = String(body.songId || "").trim();
+      const result = await echoReferenceMiningStore.run({
+        apply,
+        songIds: selectedSongId ? [selectedSongId] : [],
+        maxPairs: body.maxPairs,
+        maxCandidatesPerSong: body.maxCandidatesPerSong,
+        allowExternalResearch: false,
+      });
+      sendJson(res, apply ? 200 : 202, {
+        ...projectEchoReferenceRunReceipt(result, apply ? echoReferenceMiningStore : {}),
+        guardrail: apply
+          ? "Local result stored. Public projection and canon remain disabled."
+          : "Dry-run only. Send apply=true to persist the local result.",
+      });
+    } catch (error) {
+      sendJson(res, Number(error?.statusCode || 400), {
+        ok: false,
+        error: "echo_reference_mining_failed",
+        message: error?.message || String(error),
+      });
+    }
+    return;
+  }
+
+  if (pathname === "/api/echos/references/inspector" && req.method === "GET") {
+    const cardId = String(url.searchParams.get("cardId") || "").trim();
+    const run = await echoReferenceMiningStore.currentRun();
+    const inspector = buildEchoReferenceEvidenceInspector(run, cardId, {
+      songId: url.searchParams.get("songId") || "",
+      edgeId: url.searchParams.get("edgeId") || "",
+      playbackSeconds: url.searchParams.get("playbackSeconds"),
+      viewer: "shared",
+      revisionEvents: await echoReferenceMiningStore.cardHistory(cardId),
+      contributionEvents: await echoReferenceMiningStore.contributions(),
+    });
+    if (!inspector) {
+      sendJson(res, 404, { ok: false, error: "echo_reference_card_not_found" });
+      return;
+    }
+    sendJson(res, 200, inspector);
+    return;
+  }
+
+  if (pathname === "/api/echos/references/clues/preview" && req.method === "POST") {
+    const run = await echoReferenceMiningStore.currentRun();
+    const clue = createEchoReferenceClueEvent(await readBody(req));
+    if (!clue.ok) {
+      sendJson(res, 400, { ok: false, error: "invalid_echo_reference_clue", errors: clue.errors });
+      return;
+    }
+    sendJson(res, 200, previewEchoReferenceClueRerun(run, clue.event));
+    return;
+  }
+
+  if (pathname === "/api/echos/references/clues" && req.method === "POST") {
+    try {
+      const result = await echoReferenceMiningStore.appendClue(await readBody(req));
+      sendJson(res, result.idempotentReplay ? 200 : 201, {
+        ok: true,
+        ...result,
+        guardrail: "Clue recorded as a Human hint only; it is not evidence, approval, public data, or canon.",
+      });
+    } catch (error) {
+      sendJson(res, Number(error?.statusCode || 400), {
+        ok: false,
+        error: "invalid_echo_reference_clue",
+        message: error?.message || String(error),
+        errors: error?.errors || [],
+      });
+    }
+    return;
+  }
+
+  if (pathname === "/api/echos/references/metrics" && req.method === "GET") {
+    const run = await echoReferenceMiningStore.currentRun();
+    sendJson(res, 200, buildEchoReferenceObservability(run, {
+      contributionEvents: await echoReferenceMiningStore.contributions(),
+    }));
+    return;
+  }
+
+  if (pathname === "/api/echos/references/search" && req.method === "GET") {
+    const run = await echoReferenceMiningStore.currentRun();
+    sendJson(res, 200, {
+      query: url.searchParams.get("q") || "",
+      results: searchEchoReferenceGraph(run, url.searchParams.get("q") || ""),
+    });
+    return;
+  }
+
+  if (pathname === "/api/echos/references/downstream" && req.method === "GET") {
+    const run = await echoReferenceMiningStore.currentRun();
+    sendJson(res, 200, projectEchoReferenceDownstreamPackets(run, {
+      exploratoryDraft: url.searchParams.get("exploratory") === "1",
+      destinations: url.searchParams.getAll("destination"),
+    }));
+    return;
+  }
+
+  if (pathname === "/api/echos/references/batches/preview" && req.method === "GET") {
+    sendJson(res, 200, await echoReferenceBatchQueue.preview({
+      maxPairs: Number(url.searchParams.get("maxPairs") || 0) || undefined,
+    }));
+    return;
+  }
+
+  if (pathname === "/api/echos/references/batches" && req.method === "GET") {
+    try {
+      sendJson(res, 200, await echoReferenceBatchQueue.load(url.searchParams.get("queueId") || ""));
+    } catch (error) {
+      sendJson(res, Number(error?.statusCode || 404), {
+        ok: false,
+        error: "echo_reference_batch_not_found",
+        message: error?.message || String(error),
+      });
+    }
+    return;
+  }
+
+  if (pathname === "/api/echos/references/batches" && req.method === "POST") {
+    try {
+      const body = await readBody(req);
+      const action = String(body.action || "create");
+      if (body.apply === true && !requireAdmin(req, res)) return;
+      let result;
+      if (action === "create") {
+        result = await echoReferenceBatchQueue.create(body);
+      } else if (action === "run" || action === "resume") {
+        result = await echoReferenceBatchQueue.process(body.queueId, body);
+      } else if (action === "retry") {
+        result = await echoReferenceBatchQueue.retry(body.queueId, body);
+      } else {
+        sendJson(res, 400, { ok: false, error: "invalid_echo_reference_batch_action" });
+        return;
+      }
+      sendJson(res, result.idempotentReplay ? 200 : 202, {
+        ...result,
+        guardrail: "Local queue only. Paid external research, public activation, canon, mint, publication, and commerce remain disabled.",
+      });
+    } catch (error) {
+      sendJson(res, Number(error?.statusCode || 400), {
+        ok: false,
+        error: "echo_reference_batch_failed",
+        message: error?.message || String(error),
+      });
+    }
+    return;
+  }
+
+  if (pathname === "/api/echos/references/contributions" && req.method === "GET") {
+    const events = await echoReferenceMiningStore.contributions();
+    sendJson(res, 200, {
+      schemaVersion: "hapa.echo-reference-contribution-ledger.v1",
+      events,
+      count: events.length,
+      policy: {
+        roles: ["local-contributor", "invited-contributor", "local-reviewer", "human-canon-authority"],
+        defaultVisibility: "shared",
+        publicContribution: false,
+        directApprovedCardMutation: false,
+      },
+    });
+    return;
+  }
+
+  if (pathname === "/api/echos/references/contributions" && req.method === "POST") {
+    try {
+      const result = await echoReferenceMiningStore.appendContribution(await readBody(req));
+      sendJson(res, result.idempotentReplay ? 200 : 201, {
+        ok: true,
+        ...result,
+        guardrail: "Contribution recorded append-only for local review; no approved card, public projection, or canon state was changed.",
+      });
+    } catch (error) {
+      sendJson(res, Number(error?.statusCode || 400), {
+        ok: false,
+        error: "invalid_echo_reference_contribution",
+        message: error?.message || String(error),
+        errors: error?.errors || [],
+      });
+    }
+    return;
+  }
+
+  if (pathname === "/api/echos/references/moderation" && req.method === "GET") {
+    const moderatorView = url.searchParams.get("viewer") === "moderator";
+    if (moderatorView && !requireAdmin(req, res)) return;
+    const queue = await echoReferenceMiningStore.moderationQueue();
+    sendJson(res, 200, {
+      ...queue,
+      items: queue.items.map((item) => projectEchoReferenceModerationItem(item, {
+        viewer: moderatorView ? "moderator" : "public",
+      })),
+    });
+    return;
+  }
+
+  if (pathname === "/api/echos/references/moderation" && req.method === "POST") {
+    if (!requireAdmin(req, res)) return;
+    try {
+      const result = await echoReferenceMiningStore.appendModerationAction(await readBody(req));
+      sendJson(res, result.idempotentReplay ? 200 : 201, {
+        ok: true,
+        ...result,
+        guardrail: "Append-only moderation action recorded. Target content, approval, public activation, and canon authority were not inferred.",
+      });
+    } catch (error) {
+      sendJson(res, Number(error?.statusCode || 400), {
+        ok: false,
+        error: "invalid_echo_reference_moderation_action",
+        message: error?.message || String(error),
+        errors: error?.errors || [],
+      });
+    }
+    return;
+  }
+
+  if (pathname === "/api/echos/references/challenges/history" && req.method === "GET") {
+    const moderatorView = url.searchParams.get("viewer") === "moderator";
+    if (moderatorView && !requireAdmin(req, res)) return;
+    const challengeId = url.searchParams.get("challengeId") || "";
+    const events = (await echoReferenceMiningStore.contributions()).filter((event) => (
+      !challengeId
+      || event.id === challengeId
+      || event.challengeId === challengeId
+      || event.rootContributionId === challengeId
+    ));
+    sendJson(res, 200, {
+      schemaVersion: "hapa.echo-reference-challenge-history.v1",
+      challengeId,
+      events: projectEchoReferenceChallengeHistory(events, {
+        viewer: moderatorView ? "moderator" : "public",
+      }),
+    });
+    return;
+  }
+
+  if (pathname === "/api/echos/references/challenges/resolve" && req.method === "POST") {
+    if (!requireAdmin(req, res)) return;
+    try {
+      const result = await echoReferenceMiningStore.appendChallengeResolution(await readBody(req));
+      sendJson(res, result.idempotentReplay ? 200 : 201, {
+        ok: true,
+        ...result,
+        guardrail: "Reasoned resolution appended; application, public activation, and canon remain separate authority actions.",
+      });
+    } catch (error) {
+      sendJson(res, Number(error?.statusCode || 400), {
+        ok: false,
+        error: "invalid_echo_reference_challenge_resolution",
+        message: error?.message || String(error),
+        errors: error?.errors || [],
+      });
+    }
+    return;
+  }
+
+  if (pathname === "/api/echos/references/challenges/appeal" && req.method === "POST") {
+    try {
+      const result = await echoReferenceMiningStore.appendChallengeAppeal(await readBody(req));
+      sendJson(res, result.idempotentReplay ? 200 : 201, {
+        ok: true,
+        ...result,
+        guardrail: "Appeal appended without erasing the original challenge or resolution.",
+      });
+    } catch (error) {
+      sendJson(res, Number(error?.statusCode || 400), {
+        ok: false,
+        error: "invalid_echo_reference_challenge_appeal",
+        message: error?.message || String(error),
+        errors: error?.errors || [],
+      });
+    }
+    return;
+  }
+
+  if (pathname === "/api/echos/references/activity" && req.method === "GET") {
+    const reviewerView = url.searchParams.get("viewer") === "reviewer";
+    if (reviewerView && !requireAdmin(req, res)) return;
+    sendJson(res, 200, await echoReferenceMiningStore.activity({
+      viewer: reviewerView ? "reviewer" : "public",
+    }));
+    return;
+  }
+
+  if (pathname === "/api/echos/references/follows" && req.method === "POST") {
+    try {
+      const result = await echoReferenceMiningStore.appendFollowSubscription(await readBody(req));
+      sendJson(res, result.idempotentReplay ? 200 : 201, {
+        ok: true,
+        ...result,
+        guardrail: "Private opt-in follow recorded; no public follower identity or automatic publication was created.",
+      });
+    } catch (error) {
+      sendJson(res, Number(error?.statusCode || 400), {
+        ok: false,
+        error: "invalid_echo_reference_follow",
+        message: error?.message || String(error),
+        errors: error?.errors || [],
+      });
+    }
+    return;
+  }
+
+  if (pathname === "/api/echos/references/notifications" && req.method === "GET") {
+    if (!requireAdmin(req, res)) return;
+    const followerId = url.searchParams.get("followerId") || "";
+    const batch = await echoReferenceMiningStore.notifications();
+    sendJson(res, 200, {
+      ...batch,
+      notifications: batch.notifications
+        .filter((notification) => !followerId || notification.followerId === followerId)
+        .map(({ followerId: _followerId, ...notification }) => notification),
+    });
+    return;
+  }
+
+  if (pathname === "/api/echos/references/decisions" && req.method === "POST") {
+    if (!requireAdmin(req, res)) return;
+    try {
+      const result = await echoReferenceMiningStore.appendDecision(await readBody(req));
+      sendJson(res, result.idempotentReplay ? 200 : 201, {
+        ok: true,
+        ...result,
+        guardrail: "Local review decision appended. Canon and public activation require their own Human-authority action.",
+      });
+    } catch (error) {
+      sendJson(res, Number(error?.statusCode || 400), {
+        ok: false,
+        error: "invalid_echo_reference_decision",
+        message: error?.message || String(error),
+        errors: error?.errors || [],
+      });
+    }
+    return;
+  }
+
+  if (pathname === "/api/echos/references/review" && req.method === "POST") {
+    if (!requireAdmin(req, res)) return;
+    try {
+      const result = await echoReferenceMiningStore.appendReviewDecision(await readBody(req));
+      sendJson(res, result.idempotentReplay ? 200 : 201, {
+        ok: true,
+        ...result,
+        guardrail: "Reasoned local review decision appended. Bulk, public, and canon authority were not inferred.",
+      });
+    } catch (error) {
+      sendJson(res, Number(error?.statusCode || 400), {
+        ok: false,
+        error: "invalid_echo_reference_review",
+        message: error?.message || String(error),
+        errors: error?.errors || [],
+      });
+    }
     return;
   }
 

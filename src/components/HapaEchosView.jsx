@@ -56,6 +56,7 @@ import { appendShotPreferenceEvent } from "../domain/shot-decision-inspector.js"
 import TasteMemoryPanel from "./TasteMemoryPanel.jsx";
 import { appendTasteEvidence, createTasteMemory } from "../domain/human-taste-memory.js";
 import AlbumLiveSetPanel from "./AlbumLiveSetPanel.jsx";
+import EchoReferenceExplorer from "./EchoReferenceExplorer.jsx";
 import { generateEchoHyperframeScript } from "../domain/echo-hyperframe-script.js";
 import {
   ECHO_OUTPUT_PROFILES,
@@ -3915,6 +3916,17 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
     }
   };
 
+  const handleReferenceSongSelect = useCallback((songId) => {
+    if (typeof onSelectSong === "function") onSelectSong(songId);
+  }, [onSelectSong]);
+
+  const handleReferenceSeek = useCallback((seconds) => {
+    const next = Math.max(0, Number(seconds || 0));
+    currentTimeRef.current = next;
+    setCurrentTime(next);
+    if (audioRef.current) audioRef.current.currentTime = next;
+  }, []);
+
   if (loading) {
     return (
       <div className="empty-state">
@@ -3948,16 +3960,16 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
         </div>
       </header>
 
-      <div className="echos-workspace-grid" style={{ 
-        display: 'grid', 
-        gridTemplateColumns: activeDirectoryTab === "director" ? '1fr' : 'minmax(0, 1fr) minmax(0, 1.6fr)', 
-        gap: '20px', 
-        padding: '10px 0', 
+      <div className="echos-workspace-grid" style={{
+        display: 'grid',
+        gridTemplateColumns: ["director", "references"].includes(activeDirectoryTab) ? '1fr' : 'minmax(0, 1fr) minmax(0, 1.6fr)',
+        gap: '20px',
+        padding: '10px 0',
         height: 'calc(100vh - 220px)',
         minHeight: '750px',
         maxHeight: '950px' 
       }}>
-        {activeDirectoryTab !== "director" && (
+        {!["director", "references"].includes(activeDirectoryTab) && (
           <div className="echos-left-col" style={{ display: 'flex', flexDirection: 'column', gap: '15px', height: '100%', minHeight: 0, minWidth: 0 }}>
             <div className="panel hapa-panel board-wrap" data-variant="notch" style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0, overflow: 'hidden' }}>
               <div className="section-head hapa-panel-head" style={{ flexShrink: 0 }}>
@@ -4088,13 +4100,34 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
             >
               🎬 Media Explorer
             </button>
-            <button 
-              className={`hapa-btn ${activeDirectoryTab === "director" ? "active" : ""}`}
-              style={{ 
-                flex: 1, 
-                padding: '6px', 
+            <button
+              className={`hapa-btn ${activeDirectoryTab === "references" ? "active" : ""}`}
+              style={{
+                flex: 1,
+                padding: '6px',
                 fontSize: '11px',
-                background: activeDirectoryTab === "director" ? 'rgba(168, 85, 247, 0.15)' : 'rgba(0,0,0,0.2)', 
+                background: activeDirectoryTab === "references" ? 'rgba(69, 228, 255, 0.15)' : 'rgba(0,0,0,0.2)',
+                border: activeDirectoryTab === "references" ? '1px solid #45e4ff' : '1px solid rgba(255,255,255,0.08)',
+                color: activeDirectoryTab === "references" ? '#45e4ff' : '#ccc',
+                fontWeight: 'bold',
+                cursor: 'pointer',
+                borderRadius: '4px',
+                transition: 'all 0.15s ease'
+              }}
+              onClick={() => {
+                setActiveDirectoryTab("references");
+                setSearchQuery("");
+              }}
+            >
+              🕸️ Reference Atlas
+            </button>
+            <button
+              className={`hapa-btn ${activeDirectoryTab === "director" ? "active" : ""}`}
+              style={{
+                flex: 1,
+                padding: '6px',
+                fontSize: '11px',
+                background: activeDirectoryTab === "director" ? 'rgba(168, 85, 247, 0.15)' : 'rgba(0,0,0,0.2)',
                 border: activeDirectoryTab === "director" ? '1px solid var(--hapa-neon-violet)' : '1px solid rgba(255,255,255,0.08)',
                 color: activeDirectoryTab === "director" ? 'var(--hapa-neon-violet)' : '#ccc',
                 fontWeight: 'bold',
@@ -4520,6 +4553,15 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
 
               </div>
             </>
+          ) : activeDirectoryTab === "references" ? (
+            <EchoReferenceExplorer
+              apiBase={API_BASE}
+              initialSongId={selectedSongId || selectedProjectSongId || ""}
+              currentTime={currentTime}
+              onSelectSong={handleReferenceSongSelect}
+              onSeek={handleReferenceSeek}
+              onNotice={setEchoOperationNotice}
+            />
           ) : (
             <>
               {/* Director Workbench View */}
