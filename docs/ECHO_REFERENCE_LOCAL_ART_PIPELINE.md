@@ -4,6 +4,8 @@
 
 The Reference Atlas can now produce reviewable Reference Card imagery through the existing local Hapa Media Node.
 
+For the complementary Codex-built-in GPT Image quality-ceiling lane, see [GPT Image Reference Atlas Benchmarks](./ECHO_REFERENCE_GPT_IMAGE_BENCHMARKS.md).
+
 The pipeline deliberately separates two jobs:
 
 1. FLUX.2 Klein generates a full-bleed artistic scene with no names, lyrics, citations, borders, or Card chrome.

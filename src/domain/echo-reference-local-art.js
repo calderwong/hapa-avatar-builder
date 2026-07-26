@@ -1,8 +1,10 @@
 import { createHash } from "node:crypto";
 
 import {
+  echoReferenceArtEligibility,
   echoReferenceArtDigest,
   isEchoReferenceArtEligible,
+  summarizeEchoReferenceArtEligibility,
 } from "./echo-reference-card-art.js";
 
 export const ECHO_REFERENCE_LOCAL_ART_QUEUE_SCHEMA = "hapa.echo-reference-local-art-queue.v1";
@@ -174,9 +176,11 @@ export function compileEchoReferenceVisualScene(card = {}, run = {}) {
     throw new Error(`Reference Card ${card.id || "unknown"} is not eligible for local visual-scene compilation.`);
   }
   const occurrence = strongestOccurrence(card);
-  const recipe = PILOT_SCENE_RECIPES[card.id] || genericRecipe(card);
+  const pilotRecipe = PILOT_SCENE_RECIPES[card.id];
+  const recipe = pilotRecipe || genericRecipe(card);
   const sceneCore = {
     schemaVersion: ECHO_REFERENCE_SCENE_SCHEMA,
+    recipeSource: pilotRecipe ? "explicit-reference-recipe" : "generic-theme-recipe",
     thesis: recipe.thesis,
     subject: recipe.subject,
     action: recipe.action,
@@ -241,6 +245,7 @@ export function assertEchoReferenceScenePromptBoundary(scene = {}) {
 }
 
 export function buildEchoReferenceLocalArtQueue(run = {}, options = {}) {
+  const eligibility = summarizeEchoReferenceArtEligibility(run);
   const width = Math.max(512, Math.min(1536, Math.round(Number(options.width || 1152))));
   const height = Math.max(512, Math.min(2048, Math.round(Number(options.height || 1536))));
   const candidateCount = Math.max(1, Math.min(4, Math.round(Number(options.candidateCount || 3))));
@@ -344,9 +349,12 @@ export function buildEchoReferenceLocalArtQueue(run = {}, options = {}) {
       eligibleCards: list(run.cards).filter(isEchoReferenceArtEligible).length,
       plannedJobs: jobs.length,
       plannedCandidates: jobs.length * candidateCount,
+      eligibility,
     },
   };
 }
+
+export { echoReferenceArtEligibility, summarizeEchoReferenceArtEligibility };
 
 export function mergeEchoReferenceLocalArtQueue(previous = {}, next = {}) {
   const previousJobs = new Map(list(previous.jobs).map((job) => [job.jobHash, job]));

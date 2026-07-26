@@ -91,14 +91,53 @@ function constellationNeighbors(run = {}, cardId = "", limit = 4) {
     });
 }
 
+export function echoReferenceArtEligibility(card = {}) {
+  const reasons = [];
+  if (!String(card.id || "").startsWith("reference:")) reasons.push("not-source-reference");
+  if (!["direct", "source-backed-candidate"].includes(card.authority?.evidenceClass)) {
+    reasons.push(`unsupported-evidence:${text(card.authority?.evidenceClass, "missing")}`);
+  }
+  if (!text(card.publicContext || card.summary)) reasons.push("missing-public-context");
+  if (!list(card.occurrences).length) reasons.push("missing-occurrence");
+  if (card.rightsAndPrivacy?.containsPrivateClues === true) reasons.push("contains-private-clues");
+  if (card.rightsAndPrivacy?.visibility === "private") reasons.push("private-visibility");
+  return {
+    eligible: reasons.length === 0,
+    reasons,
+    sourceReference: String(card.id || "").startsWith("reference:"),
+  };
+}
+
 export function isEchoReferenceArtEligible(card = {}) {
-  if (!String(card.id || "").startsWith("reference:")) return false;
-  if (!["direct", "source-backed-candidate"].includes(card.authority?.evidenceClass)) return false;
-  if (!text(card.publicContext || card.summary)) return false;
-  if (!list(card.occurrences).length) return false;
-  if (card.rightsAndPrivacy?.containsPrivateClues === true) return false;
-  if (card.rightsAndPrivacy?.visibility === "private") return false;
-  return true;
+  return echoReferenceArtEligibility(card).eligible;
+}
+
+export function summarizeEchoReferenceArtEligibility(run = {}) {
+  const cards = list(run.cards);
+  const evaluations = cards.map((card) => ({ card, ...echoReferenceArtEligibility(card) }));
+  const sourceReferences = evaluations.filter((item) => item.sourceReference);
+  const excludedSourceReferences = sourceReferences.filter((item) => !item.eligible);
+  const reasonCounts = {};
+  for (const item of excludedSourceReferences) {
+    for (const reason of item.reasons) reasonCounts[reason] = (reasonCounts[reason] || 0) + 1;
+  }
+  return {
+    totalAtlasCards: cards.length,
+    sourceReferenceCards: sourceReferences.length,
+    expansionAndMotifCards: cards.length - sourceReferences.length,
+    eligibleSourceReferences: sourceReferences.filter((item) => item.eligible).length,
+    excludedSourceReferences: excludedSourceReferences.length,
+    excludedReasonCounts: reasonCounts,
+    excluded: excludedSourceReferences.map((item) => ({
+      cardId: item.card.id,
+      title: item.card.title,
+      reasons: item.reasons,
+      evidenceClass: text(item.card.authority?.evidenceClass, "missing"),
+      visibility: text(item.card.rightsAndPrivacy?.visibility, "unspecified"),
+      containsPrivateClues: item.card.rightsAndPrivacy?.containsPrivateClues === true,
+      occurrences: list(item.card.occurrences).length,
+    })),
+  };
 }
 
 export function buildEchoReferenceArtPrompt(card = {}, run = {}, options = {}) {
@@ -158,6 +197,7 @@ export function buildEchoReferenceArtPrompt(card = {}, run = {}, options = {}) {
 }
 
 export function buildEchoReferenceArtQueue(run = {}, options = {}) {
+  const eligibility = summarizeEchoReferenceArtEligibility(run);
   const model = ECHO_REFERENCE_ART_MODELS.includes(options.model)
     ? options.model
     : ECHO_REFERENCE_ART_DEFAULT_MODEL;
@@ -246,6 +286,7 @@ export function buildEchoReferenceArtQueue(run = {}, options = {}) {
       privateOrUnresolvedExcluded: list(run.cards).filter((card) => (
         card.id?.startsWith("reference:") && !isEchoReferenceArtEligible(card)
       )).length,
+      eligibility,
     },
   };
 }

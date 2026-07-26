@@ -4,9 +4,11 @@ import test from "node:test";
 import {
   buildEchoReferenceArtPrompt,
   buildEchoReferenceArtQueue,
+  echoReferenceArtEligibility,
   isEchoReferenceArtEligible,
   mergeEchoReferenceArtQueue,
   reviewEchoReferenceArtJob,
+  summarizeEchoReferenceArtEligibility,
 } from "../src/domain/echo-reference-card-art.js";
 
 function sourceCard(id = "winter") {
@@ -84,6 +86,30 @@ test("Reference art planning is deterministic and excludes private, unresolved, 
   assert.equal(first.jobs.every((job) => job.custody.humanReviewRequired), true);
   assert.equal(first.jobs.every((job) => job.status === "planned"), true);
   assert.equal(first.counts.privateOrUnresolvedExcluded, 2);
+  assert.equal(first.counts.eligibility.sourceReferenceCards, 4);
+  assert.equal(first.counts.eligibility.expansionAndMotifCards, 1);
+  assert.equal(first.counts.eligibility.excludedSourceReferences, 2);
+});
+
+test("eligibility diagnostics preserve overlapping exclusion reasons", () => {
+  const run = runFixture();
+  const privateCard = sourceCard("private");
+  privateCard.authority.evidenceClass = "unresolved";
+  privateCard.rightsAndPrivacy.containsPrivateClues = true;
+  privateCard.rightsAndPrivacy.visibility = "private";
+  run.cards.push(privateCard);
+  const evaluation = echoReferenceArtEligibility(privateCard);
+  assert.deepEqual(evaluation.reasons, [
+    "unsupported-evidence:unresolved",
+    "contains-private-clues",
+    "private-visibility",
+  ]);
+  const summary = summarizeEchoReferenceArtEligibility(run);
+  assert.equal(summary.eligibleSourceReferences, 2);
+  assert.equal(summary.excludedSourceReferences, 1);
+  assert.equal(summary.excludedReasonCounts["unsupported-evidence:unresolved"], 1);
+  assert.equal(summary.excludedReasonCounts["contains-private-clues"], 1);
+  assert.equal(summary.excludedReasonCounts["private-visibility"], 1);
 });
 
 test("queue merge preserves provider state while updating the deterministic prompt projection", () => {
