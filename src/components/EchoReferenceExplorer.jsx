@@ -12,7 +12,7 @@ import {
   History,
   Link2,
   ListTree,
-  Map,
+  Map as MapIcon,
   Network,
   Pin,
   PinOff,
@@ -378,7 +378,7 @@ function EchoReferenceAtlas({ atlas, connectionMatrix = [], selectedSongId, onSe
   return (
     <section className="echo-ref-atlas" aria-label="Echo Album reference atlas">
       <header>
-        <span><Map size={15} /> Album atlas</span>
+        <span><MapIcon size={15} /> Album atlas</span>
         <em>{rows.length} songs · gaps mean incomplete evidence, not absent meaning</em>
       </header>
       <div className="echo-ref-atlas-controls">

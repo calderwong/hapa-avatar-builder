@@ -21,6 +21,8 @@ test("Echos exposes the complete-album Reference Atlas as a first-class workspac
 
 test("reference visual shell includes playback cues, cards, graph, atlas, lenses, evidence, compare, and deep links", async () => {
   const component = await fs.readFile(componentUrl, "utf8");
+  assert.doesNotMatch(component, /^\s*Map,\s*$/m, "the lucide Map icon must not shadow JavaScript's Map constructor");
+  assert.match(component, /Map as MapIcon/);
   for (const signal of [
     "Lyric reference timeline",
     "Hapa Reference Cards",
