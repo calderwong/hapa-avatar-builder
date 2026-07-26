@@ -51,7 +51,7 @@ const report = {
     references: "Connector semantics remain reviewable interpretation and never become hard Avatar biography automatically.",
     additionalSongCount
   },
-  before: summarize(avatarStore.avatars || []),
+  before: summarize(avatarStore.avatars || [], graphHash),
   avatars: [],
   generatedAt: now
 };
@@ -216,7 +216,7 @@ const nextStore = {
   },
   updatedAt: now
 };
-report.after = summarize(nextAvatars);
+report.after = summarize(nextAvatars, graphHash);
 
 if (apply) {
   const stamp = now.replace(/[:.]/g, "-");
@@ -270,14 +270,18 @@ function mindFact(avatar, key, label, value, timestamp) {
   };
 }
 
-function summarize(avatars) {
+function summarize(avatars, currentGraphHash = "") {
   const choices = avatars.flatMap((avatar) => avatar.mind?.dearPapaSongContext?.selectedSongCards || []);
   return {
     avatars: avatars.length,
     selectedSongCards: choices.length,
     choicesWithReferenceConnectors: choices.filter((choice) => (choice.referenceConnectors || []).length > 0).length,
     connectorSnapshots: choices.reduce((sum, choice) => sum + (choice.referenceConnectors || []).length, 0),
-    avatarsWithEchoReferenceGraph: avatars.filter((avatar) => avatar.mind?.dearPapaSongContext?.echoReferenceGraph?.graphHash).length
+    avatarsWithEchoReferenceGraph: avatars.filter((avatar) => avatar.mind?.dearPapaSongContext?.echoReferenceGraph?.graphHash).length,
+    avatarsWithCurrentEchoReferenceGraph: avatars.filter((avatar) => (
+      currentGraphHash
+      && avatar.mind?.dearPapaSongContext?.echoReferenceGraph?.graphHash === currentGraphHash
+    )).length
   };
 }
 

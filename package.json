@@ -51,6 +51,7 @@
     "echo:repair-stem-bindings": "node scripts/preflight-echo-render-readiness.mjs --apply-stem-repairs",
     "audit:echo-renderability": "node scripts/preflight-echo-render-readiness.mjs",
     "ingest:folder-images": "node scripts/ingest-folder-images-and-visual-matches.mjs",
+    "comic:ingest": "node scripts/ingest-comic-song-package.mjs",
     "heal:dossier-avatars": "node scripts/heal-dossier-avatar-mismatches.mjs",
     "tarot:refresh-ocr": "node scripts/refresh-tarot-ocr-details.mjs",
     "tarot:audit-media": "node scripts/audit-tarot-media-pairs.mjs",

@@ -619,7 +619,9 @@ async function runWideCoverageCutPass({
     },
     validation: {
       allSongsHaveThreeNewCuts: variants.length === projectRows.length * WIDE_CUTS_CONFIG.length,
-      allCandidateMediaCovered: Object.values(finalUsageSummary).every((summary) => summary.unused === 0),
+      allCandidateMediaCovered: MISSING_ONLY
+        ? null
+        : Object.values(finalUsageSummary).every((summary) => summary.unused === 0),
       fullVisualizerCoverage: true,
       nestedDensityMasks: projectRows.every((row) => row.densityPlan.profiles.every((profile, index, profiles) => (
         index === 0 || profiles[index - 1].mediaShotIndices.every((shotIndex) => profile.mediaShotIndices.includes(shotIndex))
@@ -637,7 +639,7 @@ async function runWideCoverageCutPass({
     },
     generatedAt: RUN_STARTED_AT,
   };
-  if (!report.validation.allCandidateMediaCovered) {
+  if (!MISSING_ONLY && !report.validation.allCandidateMediaCovered) {
     throw new Error(`Wide-coverage pass left eligible media unused: ${JSON.stringify(finalUsageSummary)}.`);
   }
   if (!report.validation.nestedDensityMasks) throw new Error("Wide-coverage density masks are not nested.");

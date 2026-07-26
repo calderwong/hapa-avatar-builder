@@ -1,0 +1,74 @@
+{
+  "schemaVersion": "hapa.comic-song-ingest-manifest.v1",
+  "author": "Calder",
+  "album": {
+    "id": "dear-papa-album",
+    "title": "Dear Papa",
+    "aliases": ["Dear Papa", "Echo Album"],
+    "activeProjection": {
+      "id": "echo-album",
+      "title": "Echo Album"
+    }
+  },
+  "packages": [
+    {
+      "id": "replace-with-stable-comic-id",
+      "title": "Replace With Comic Title",
+      "subtitle": "Ten-page song comic",
+      "canonStatus": "soft_canon",
+      "source": {
+        "root": "/absolute/path/to/comic-folder",
+        "pdf": "/absolute/path/to/comic.pdf",
+        "contactSheet": "/absolute/path/to/contact-sheet.jpg",
+        "storyboard": "/absolute/path/to/storyboard.md",
+        "audio": "/absolute/path/to/song.mp3"
+      },
+      "song": {
+        "id": "replace-with-stable-song-id",
+        "title": "Replace With Song Title",
+        "author": "Calder",
+        "lyricsPath": "./replace-with-song-lyrics.txt",
+        "mood": "cinematic-storybook",
+        "summary": "What the song and comic are about.",
+        "learningThing": "What this story teaches or remembers.",
+        "broadGameMechanic": "How an agent should use the song and scenes.",
+        "tags": ["song-comic"]
+      },
+      "avatars": [
+        {
+          "id": "existing-avatar-id",
+          "name": "Avatar Name",
+          "role": "lead",
+          "performancePerspective": true,
+          "note": "How the Avatar appears in the comic."
+        }
+      ],
+      "pages": [
+        {
+          "pageNumber": 1,
+          "title": "Page Beat Title",
+          "summary": "What happens on this page.",
+          "caption": "Exact lyric excerpt shown on this page.",
+          "path": "/absolute/path/to/page-01.png",
+          "avatarIds": ["existing-avatar-id"],
+          "productionPrompt": "Optional prompt or visual-direction summary."
+        }
+      ],
+      "visualLanguage": {
+        "mood": "enchanted maritime",
+        "palette": "teal, navy, parchment gold",
+        "style": "cinematic painted graphic novel",
+        "generationWorkflow": "GPT Image plus deterministic lettering"
+      },
+      "rights": {
+        "author": "Calder",
+        "status": "operator-authored-local",
+        "notes": "Keep source attribution and human review boundary."
+      }
+    }
+  ],
+  "provenance": {
+    "createdBy": "Codex",
+    "notes": "Repeatable comic-song ingest manifest."
+  }
+}

@@ -978,14 +978,17 @@ test("graph diff reports reweighting, merges, and invalidation without treating 
   assert.deepEqual(diff.mergedNodeIds, ["card:a", "card:b"]);
 });
 
-test("the production 134-song corpus is fully traversed rather than reduced to the former pilot", async () => {
+test("the complete production song corpus is fully traversed rather than reduced to the former pilot", async () => {
   const store = JSON.parse(await fs.readFile(new URL("../data/hapa-songs-store.json", import.meta.url), "utf8"));
   const run = runEchoReferenceMining(store, { generatedAt: "2026-07-23T00:00:00.000Z" });
-  assert.equal(run.packet.album.songCount, 134);
-  assert.equal(run.audit.songsEligibleAsSources, 134);
-  assert.equal(run.audit.songsEligibleAsTargets, 134);
-  assert.equal(run.audit.possiblePairs, 8_911);
-  assert.equal(run.audit.pairsCompared, 8_911);
+  const songCount = store.songs.length;
+  const possiblePairs = songCount * (songCount - 1) / 2;
+  assert.ok(songCount >= 134);
+  assert.equal(run.packet.album.songCount, songCount);
+  assert.equal(run.audit.songsEligibleAsSources, songCount);
+  assert.equal(run.audit.songsEligibleAsTargets, songCount);
+  assert.equal(run.audit.possiblePairs, possiblePairs);
+  assert.equal(run.audit.pairsCompared, possiblePairs);
   assert.equal(run.audit.pairBudgetExhausted, false);
   assert.equal(run.audit.invalidCards.length, 0);
   assert.equal(run.audit.publicCards, 0);

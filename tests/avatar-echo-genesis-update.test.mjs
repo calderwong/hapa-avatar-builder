@@ -19,7 +19,7 @@ test("Echo Avatar Genesis dry run preserves choices and resolves the current son
   assert.ok(report.after.selectedSongCards >= report.before.selectedSongCards);
   assert.ok(report.after.connectorSnapshots > 0);
   assert.equal(report.avatars.flatMap((avatar) => avatar.unresolvedSelections).length, 0);
-  if (report.before.avatarsWithEchoReferenceGraph === report.before.avatars) {
+  if (report.before.avatarsWithCurrentEchoReferenceGraph === report.before.avatars) {
     assert.equal(report.after.selectedSongCards, report.before.selectedSongCards);
     assert.equal(report.avatars.flatMap((avatar) => avatar.newSelections).length, 0);
   }
