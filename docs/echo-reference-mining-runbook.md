@@ -54,6 +54,16 @@ The Expansion UI context pack is source code in `src/domain/echo-expansion-conte
 
 The deterministic miner imports that payload into plural proposed interpretations. It records what matched, what context becomes available, what story or mechanic may be imported, and what remains unproven. It never promotes authorial intent, public visibility, approval, or canon.
 
+After occurrence activation, the bounded constellation pass connects source-backed Reference Cards to one another. It does not lower the activation threshold. It requires shared-song evidence plus recurrence, lyric proximity with a shared theme, or a shared mechanic. Every edge retains:
+
+- shared song IDs;
+- closest lyric-line pairs and their distance;
+- shared themes and mechanics;
+- independent evidence-channel count;
+- detector reason codes.
+
+Each source Card keeps only its strongest bounded neighborhood. Connected groups of three or more are projected as proposed Reference Constellations for Expansion UI browsing.
+
 ## Preview and dry-run
 
 ```sh
@@ -88,6 +98,48 @@ Materialization:
 - writes observability and a materialization report.
 
 Rerun materialization once. A healthy replay reports zero new revisions and every existing revision as replayed.
+
+## Plan FLUX.2 Reference Card art
+
+Reference artwork is a separate proposal lane. It does not change the lyric, Reference Card, interpretation status, public visibility, canon, mint, or publication state.
+
+```sh
+npm run echo:reference-art:plan
+npm run echo:reference-art:plan -- --apply
+npm run echo:reference-art:status
+```
+
+Planning reads the latest Reference Atlas run and includes only source-backed, non-private `reference:*` Cards with lyric occurrences. It compiles:
+
+- the strongest lyric occurrence;
+- source context, themes, and mechanics;
+- up to four strongest Reference Constellation neighbors;
+- a deterministic Hapa NeoBlade palette;
+- transformative-use, typography, truth, and review constraints;
+- a fixed prompt hash and source run/graph hashes.
+
+The default is the fixed `flux-2-max` endpoint at 1536×2048. A plan performs zero provider calls.
+
+To dispatch a deliberately bounded paid batch:
+
+```sh
+BFL_API_KEY=... npm run echo:reference-art:run -- --limit 1 --apply --confirm-cost
+```
+
+Both flags are required. The key remains process-local. The adapter accepts only official BFL API hosts, follows the provider-returned polling URL, accepts signed `delivery.*.bfl.ai` image URLs, downloads them immediately, verifies the media boundary, hashes the bytes, and stores only local artifacts plus a provider receipt.
+
+Successful jobs stop at `review-required`. Accept or reject an exact artifact:
+
+```sh
+npm run echo:reference-art:review -- \
+  --job <job-id> \
+  --accept \
+  --reviewer <human-id> \
+  --rationale "Symbols and mechanics read clearly." \
+  --apply
+```
+
+Reject with `--reject`. Review never promotes canon or mints the image.
 
 ## Queue, pause, resume, and retry
 
@@ -156,7 +208,14 @@ Classify a match as same entity, related entity, homonym, adaptation, alias, tra
 Run the focused contracts and production build:
 
 ```sh
-node --test tests/echo-reference-mining.test.mjs tests/echo-reference-explorer-ui.test.mjs tests/hapa-reference-card.test.mjs
+node --test \
+  tests/echo-reference-mining.test.mjs \
+  tests/echo-reference-constellations.test.mjs \
+  tests/echo-reference-explorer-ui.test.mjs \
+  tests/echo-expansion-context-pack.test.mjs \
+  tests/echo-reference-card-art.test.mjs \
+  tests/flux2-reference-art-adapter.test.mjs \
+  tests/hapa-reference-card.test.mjs
 npm run build
 ```
 

@@ -10,7 +10,7 @@ export const ECHO_REFERENCE_MINING_RUN_SCHEMA = "hapa.echo-reference-mining-run.
 export const ECHO_REFERENCE_GRAPH_SCHEMA = "hapa.echo-reference-graph.v1";
 export const ECHO_REFERENCE_CONTRIBUTION_SCHEMA = "hapa.echo-reference-contribution.v1";
 export const ECHO_REFERENCE_VIEW_SCHEMA = "hapa.echo-reference-view.v1";
-export const ECHO_REFERENCE_MINER_VERSION = "echo-reference-miner.local-v3-context-activation";
+export const ECHO_REFERENCE_MINER_VERSION = "echo-reference-miner.local-v4-reference-constellations";
 export const ECHO_REFERENCE_CHALLENGE_TYPES = Object.freeze([
   "factual-correction",
   "missing-evidence",
@@ -1441,6 +1441,216 @@ function unresolvedForSong(song, cards) {
   }];
 }
 
+function intersectFacetValues(leftValues = [], rightValues = []) {
+  const right = new Map(unique(rightValues).map((value) => [value.toLowerCase(), value]));
+  return unique(leftValues).flatMap((value) => right.has(value.toLowerCase()) ? [right.get(value.toLowerCase())] : []);
+}
+
+function referenceCardSongOccurrences(card = {}) {
+  const bySong = new Map();
+  for (const occurrence of list(card.occurrences)) {
+    if (!occurrence.songId) continue;
+    if (!bySong.has(occurrence.songId)) bySong.set(occurrence.songId, []);
+    bySong.get(occurrence.songId).push(occurrence);
+  }
+  return bySong;
+}
+
+function closestReferenceOccurrencePair(leftRows = [], rightRows = []) {
+  let closest = null;
+  for (const left of leftRows) {
+    for (const right of rightRows) {
+      const leftLine = Number(left.lyricSpan?.lineStart || 1);
+      const rightLine = Number(right.lyricSpan?.lineStart || 1);
+      const distance = Math.abs(leftLine - rightLine);
+      if (!closest || distance < closest.distance) {
+        closest = {
+          songId: left.songId,
+          leftLine,
+          rightLine,
+          distance,
+        };
+      }
+    }
+  }
+  return closest;
+}
+
+export function buildEchoReferenceConstellationEdges(cards = [], options = {}) {
+  const maxConnectionsPerCard = Math.max(1, Number(options.maxConnectionsPerCard || 10));
+  const maxLineDistance = Math.max(0, Number(options.maxLineDistance ?? 4));
+  const sourceCards = list(cards)
+    .filter((card) => card.id.startsWith("reference:"))
+    .sort((left, right) => left.id.localeCompare(right.id));
+  const candidates = [];
+
+  for (let leftIndex = 0; leftIndex < sourceCards.length; leftIndex += 1) {
+    const left = sourceCards[leftIndex];
+    const leftBySong = referenceCardSongOccurrences(left);
+    for (let rightIndex = leftIndex + 1; rightIndex < sourceCards.length; rightIndex += 1) {
+      const right = sourceCards[rightIndex];
+      const rightBySong = referenceCardSongOccurrences(right);
+      const sharedSongIds = [...leftBySong.keys()].filter((songId) => rightBySong.has(songId)).sort();
+      if (!sharedSongIds.length) continue;
+
+      const sharedThemes = intersectFacetValues(left.themes, right.themes);
+      const sharedMechanics = intersectFacetValues(left.mechanics, right.mechanics);
+      const lineProximity = sharedSongIds
+        .map((songId) => closestReferenceOccurrencePair(leftBySong.get(songId), rightBySong.get(songId)))
+        .filter(Boolean);
+      const tightPairs = lineProximity.filter((row) => row.distance <= maxLineDistance);
+      const reasonCodes = [
+        ...(sharedSongIds.length > 1 ? ["recurs-across-multiple-songs"] : []),
+        ...(tightPairs.length ? ["tight-lyric-neighborhood"] : []),
+        ...(sharedThemes.length ? ["shared-theme"] : []),
+        ...(sharedMechanics.length ? ["shared-mechanic"] : []),
+      ];
+      const channelCount = [
+        sharedSongIds.length > 1,
+        tightPairs.length > 0,
+        sharedThemes.length > 0,
+        sharedMechanics.length > 0,
+      ].filter(Boolean).length;
+
+      // Density must remain explainable. A shared song alone is insufficient:
+      // either recurrence, proximity plus semantics, or an explicit mechanic is required.
+      if (
+        sharedSongIds.length < 2
+        && !sharedMechanics.length
+        && !(tightPairs.length && sharedThemes.length)
+      ) continue;
+
+      const score = bounded(
+        0.24
+        + Math.min(0.18, (sharedSongIds.length - 1) * 0.09)
+        + Math.min(0.2, tightPairs.length * 0.08)
+        + Math.min(0.22, sharedMechanics.length * 0.11)
+        + Math.min(0.16, sharedThemes.length * 0.05),
+        0.24
+      );
+      const confidence = bounded(score * 0.82, 0.3);
+      candidates.push(normalizeHapaReferenceEdge({
+        id: `reference-constellation:${slug(left.id)}:${slug(right.id)}`,
+        fromId: left.id,
+        fromType: "reference-card",
+        toId: right.id,
+        toType: "reference-card",
+        relationType: "co-activated-with",
+        direction: "bidirectional",
+        weight: score,
+        confidence,
+        evidenceClass: "comparative",
+        status: "proposed",
+        rationale: [
+          `${left.title} and ${right.title} activate in ${sharedSongIds.length} shared song${sharedSongIds.length === 1 ? "" : "s"}.`,
+          tightPairs.length ? `${tightPairs.length} activation${tightPairs.length === 1 ? " is" : "s are"} within ${maxLineDistance} lyric lines.` : "",
+          sharedMechanics.length ? `Shared mechanics: ${sharedMechanics.join(", ")}.` : "",
+          sharedThemes.length ? `Shared themes: ${sharedThemes.join(", ")}.` : "",
+        ].filter(Boolean).join(" "),
+        support: {
+          sharedSongIds,
+          sharedThemes,
+          sharedMechanics,
+          lineProximity,
+          reasonCodes,
+          channelCount,
+        },
+        derived: true,
+        humanApproved: false,
+        provenance: {
+          method: "bounded-reference-constellation-pass",
+          sourceRunId: text(options.runId),
+          sourcePacketHash: text(options.packetHash),
+          createdBy: "local-deterministic-miner",
+        },
+      }));
+    }
+  }
+
+  const rankedByCard = new Map(sourceCards.map((card) => [card.id, []]));
+  for (const edge of candidates) {
+    rankedByCard.get(edge.fromId)?.push(edge);
+    rankedByCard.get(edge.toId)?.push(edge);
+  }
+  const selectedIds = new Set();
+  for (const ranked of rankedByCard.values()) {
+    ranked
+      .sort((left, right) => right.weight - left.weight || left.id.localeCompare(right.id))
+      .slice(0, maxConnectionsPerCard)
+      .forEach((edge) => selectedIds.add(edge.id));
+  }
+  const edges = candidates
+    .filter((edge) => selectedIds.has(edge.id))
+    .sort((left, right) => right.weight - left.weight || left.id.localeCompare(right.id));
+
+  return {
+    edges,
+    audit: {
+      sourceCards: sourceCards.length,
+      candidateEdges: candidates.length,
+      selectedEdges: edges.length,
+      maxConnectionsPerCard,
+      maxLineDistance,
+      reasonCounts: Object.fromEntries(
+        unique(edges.flatMap((edge) => edge.support.reasonCodes))
+          .sort()
+          .map((reason) => [reason, edges.filter((edge) => edge.support.reasonCodes.includes(reason)).length])
+      ),
+    },
+  };
+}
+
+export function buildEchoReferenceConstellations(cards = [], edges = []) {
+  const cardById = new Map(list(cards).map((card) => [card.id, card]));
+  const constellationEdges = list(edges).filter((edge) => edge.relationType === "co-activated-with");
+  const adjacency = new Map();
+  for (const edge of constellationEdges) {
+    if (!adjacency.has(edge.fromId)) adjacency.set(edge.fromId, []);
+    if (!adjacency.has(edge.toId)) adjacency.set(edge.toId, []);
+    adjacency.get(edge.fromId).push({ cardId: edge.toId, edgeId: edge.id });
+    adjacency.get(edge.toId).push({ cardId: edge.fromId, edgeId: edge.id });
+  }
+  const visited = new Set();
+  const components = [];
+  for (const startId of [...adjacency.keys()].sort()) {
+    if (visited.has(startId)) continue;
+    const queue = [startId];
+    const cardIds = [];
+    const edgeIds = new Set();
+    visited.add(startId);
+    while (queue.length) {
+      const cardId = queue.shift();
+      cardIds.push(cardId);
+      for (const row of adjacency.get(cardId) || []) {
+        edgeIds.add(row.edgeId);
+        if (visited.has(row.cardId)) continue;
+        visited.add(row.cardId);
+        queue.push(row.cardId);
+      }
+    }
+    if (cardIds.length < 3) continue;
+    const memberCards = cardIds.map((cardId) => cardById.get(cardId)).filter(Boolean);
+    components.push({
+      schemaVersion: "hapa.echo-reference-constellation.v1",
+      id: `echo-reference-constellation:${echoReferenceDigest(cardIds.sort()).slice(-8)}`,
+      label: memberCards
+        .sort((left, right) => right.occurrences.length - left.occurrences.length || left.title.localeCompare(right.title))
+        .slice(0, 3)
+        .map((card) => card.title)
+        .join(" · "),
+      cardIds: cardIds.sort(),
+      edgeIds: [...edgeIds].sort(),
+      songIds: unique(memberCards.flatMap((card) => card.occurrences.map((occurrence) => occurrence.songId))).sort(),
+      themes: unique(memberCards.flatMap((card) => card.themes)).sort(),
+      mechanics: unique(memberCards.flatMap((card) => card.mechanics)).sort(),
+      status: "proposed",
+      humanApproved: false,
+      explanation: "A bounded connected component of source-backed Reference Cards. Membership is derived from explicit shared-song and semantic support and remains reviewable.",
+    });
+  }
+  return components.sort((left, right) => right.cardIds.length - left.cardIds.length || left.id.localeCompare(right.id));
+}
+
 export function compileEchoReferenceGraph(packet = {}, cards = [], options = {}) {
   const nodes = [
     ...list(packet.songs).map((song) => ({
@@ -1529,8 +1739,17 @@ export function compileEchoReferenceGraph(packet = {}, cards = [], options = {})
     }));
   }
 
+  const constellationPass = buildEchoReferenceConstellationEdges(cards, {
+    runId: options.runId,
+    packetHash: packet.packetHash,
+    maxConnectionsPerCard: options.maxConstellationConnectionsPerCard,
+    maxLineDistance: options.maxConstellationLineDistance,
+  });
+  edges.push(...constellationPass.edges);
+
   const dedupedNodes = [...new Map(nodes.map((node) => [node.id, node])).values()];
   const dedupedEdges = [...new Map(edges.map((edge) => [edge.id, edge])).values()];
+  const constellations = buildEchoReferenceConstellations(cards, dedupedEdges);
   const adjacency = Object.fromEntries(dedupedNodes.map((node) => [node.id, []]));
   for (const edge of dedupedEdges) {
     if (adjacency[edge.fromId]) adjacency[edge.fromId].push(edge.id);
@@ -1542,6 +1761,8 @@ export function compileEchoReferenceGraph(packet = {}, cards = [], options = {})
     nodes: dedupedNodes,
     edges: dedupedEdges,
     adjacency,
+    constellations,
+    constellationAudit: constellationPass.audit,
     omittedLegacyEdges,
   };
   return {
@@ -1554,6 +1775,8 @@ export function compileEchoReferenceGraph(packet = {}, cards = [], options = {})
       cards: dedupedNodes.filter((node) => node.type === "reference-card").length,
       proposedEdges: dedupedEdges.filter((edge) => edge.status === "proposed").length,
       approvedEdges: dedupedEdges.filter((edge) => edge.humanApproved).length,
+      constellationEdges: constellationPass.edges.length,
+      constellations: constellations.length,
       omittedLegacyEdges: omittedLegacyEdges.length,
     },
   };
@@ -1585,6 +1808,7 @@ function semanticEdge(edge = {}) {
     evidenceClass: edge.evidenceClass,
     status: edge.status,
     humanApproved: edge.humanApproved,
+    support: edge.support,
   };
 }
 

@@ -74,18 +74,27 @@ Confidence and review status belong to each interpretation. One approved reading
 
 ## Edge ontology
 
-Every edge declares endpoints and types, relation, direction, weight, confidence, evidence class, review status, rationale, claim/citation pointers, derivation, Human approval, and provenance.
+Every edge declares endpoints and types, relation, direction, weight, confidence, evidence class, review status, rationale, structured support, claim/citation pointers, derivation, Human approval, and provenance. Structured support keeps the shared songs, themes, mechanics, lyric-line distances, and detector reason codes that answer “why did these two references connect?”
 
 Relation families:
 
 - evidence: `supports`, `corroborates`, `challenges`;
 - identity: `same-entity-as`, `alias-of`, `adaptation-of`;
 - lyric/reference: `occurs-in`, `alludes-to`;
+- bounded source constellation: `co-activated-with`;
 - album recurrence: `recurs-with`, `contrasts-with`, `transforms`, `narrative-continuation`;
 - imported meaning: `imports-mechanic`, `imports-emotion`, `thematic-resonance`;
 - interpretation lifecycle: `alternative-to`, `supersedes`.
 
 Derived and Human-approved are separate booleans. An edge may be machine-derived and later Human-approved without losing how it was created.
+
+`co-activated-with` is deliberately stricter than a generic similarity edge. A shared song alone is insufficient. The current prototype requires at least one of:
+
+- recurrence in multiple shared songs;
+- a tight lyric neighborhood plus a shared semantic theme;
+- an explicitly shared imported mechanic.
+
+The pass is capped per source Card. Its connected components are projected as proposed Reference Constellations; neither membership nor generated artwork promotes a reading to approval, canon, or public truth.
 
 ## Example three-song subgraph
 

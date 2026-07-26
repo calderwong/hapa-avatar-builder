@@ -152,6 +152,7 @@
         "same-entity-as",
         "alias-of",
         "adaptation-of",
+        "co-activated-with",
         "recurs-with",
         "contrasts-with",
         "transforms",
@@ -288,7 +289,7 @@
     "edge": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["schemaVersion", "id", "fromId", "fromType", "toId", "toType", "relationType", "direction", "weight", "confidence", "evidenceClass", "status", "rationale", "claimIds", "citationIds", "derived", "humanApproved", "provenance"],
+      "required": ["schemaVersion", "id", "fromId", "fromType", "toId", "toType", "relationType", "direction", "weight", "confidence", "evidenceClass", "status", "rationale", "support", "claimIds", "citationIds", "derived", "humanApproved", "provenance"],
       "properties": {
         "schemaVersion": { "const": "hapa.reference-edge.v1" },
         "id": { "type": "string", "minLength": 1 },
@@ -303,6 +304,32 @@
         "evidenceClass": { "$ref": "#/$defs/evidenceClass" },
         "status": { "$ref": "#/$defs/reviewStatus" },
         "rationale": { "type": "string" },
+        "support": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["sharedSongIds", "sharedThemes", "sharedMechanics", "reasonCodes", "lineProximity", "channelCount"],
+          "properties": {
+            "sharedSongIds": { "$ref": "#/$defs/stringSet" },
+            "sharedThemes": { "$ref": "#/$defs/stringSet" },
+            "sharedMechanics": { "$ref": "#/$defs/stringSet" },
+            "reasonCodes": { "$ref": "#/$defs/stringSet" },
+            "lineProximity": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["songId", "leftLine", "rightLine", "distance"],
+                "properties": {
+                  "songId": { "type": "string", "minLength": 1 },
+                  "leftLine": { "type": "integer", "minimum": 1 },
+                  "rightLine": { "type": "integer", "minimum": 1 },
+                  "distance": { "type": "number", "minimum": 0 }
+                }
+              }
+            },
+            "channelCount": { "type": "number", "minimum": 0 }
+          }
+        },
         "claimIds": { "$ref": "#/$defs/stringSet" },
         "citationIds": { "$ref": "#/$defs/stringSet" },
         "derived": { "type": "boolean" },

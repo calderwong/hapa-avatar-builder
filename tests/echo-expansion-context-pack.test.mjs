@@ -18,8 +18,8 @@ import {
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
 test("Expansion UI context pack is source-labeled, unique, and mechanically useful", () => {
-  assert.equal(ECHO_EXPANSION_CONTEXT_PACK_VERSION, "echo-expansion-context-pack.v1");
-  assert.ok(ECHO_EXPANSION_CONTEXT_REFERENCES.length >= 20);
+  assert.equal(ECHO_EXPANSION_CONTEXT_PACK_VERSION, "echo-expansion-context-pack.v2");
+  assert.ok(ECHO_EXPANSION_CONTEXT_REFERENCES.length >= 30);
   assert.equal(
     new Set(ECHO_EXPANSION_CONTEXT_REFERENCES.map((reference) => reference.id)).size,
     ECHO_EXPANSION_CONTEXT_REFERENCES.length
@@ -55,6 +55,14 @@ test("Expansion UI context activates dense public clusters and the private playl
     "mortal-kombat-johnny-cage-goro",
     "system-of-a-down",
     "age-of-empires-ii-lan",
+    "faa-lazy-eight",
+    "cdc-rabies-hydrophobia",
+    "washington-cherry-tree-myth",
+    "chief-seattle-skykomish-shaman",
+    "tacoma-japantown-removal",
+    "kew-yew-symbolism",
+    "dalai-lama-secular-ethics",
+    "johnny-appleseed-nursery",
   ]) {
     assert.equal(ids.has(referenceId), true, referenceId);
   }

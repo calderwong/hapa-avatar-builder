@@ -75,6 +75,14 @@ test("graph ontology preserves direction, evidence, derivation, and human approv
     confidence: 0.68,
     evidenceClass: "comparative",
     status: "approved",
+    support: {
+      sharedSongIds: ["save-point"],
+      sharedThemes: ["memory"],
+      sharedMechanics: ["checkpoint"],
+      reasonCodes: ["shared-mechanic"],
+      lineProximity: [{ songId: "save-point", leftLine: 3, rightLine: 5, distance: 2 }],
+      channelCount: 2
+    },
     derived: true,
     humanApproved: true,
     provenance: { method: "human-reviewed-cross-corpus-comparison", decisionIds: ["decision-1"] }
@@ -85,6 +93,7 @@ test("graph ontology preserves direction, evidence, derivation, and human approv
   assert.equal(edge.relationType, "imports-mechanic");
   assert.equal(edge.derived, true);
   assert.equal(edge.humanApproved, true);
+  assert.deepEqual(edge.support.sharedMechanics, ["checkpoint"]);
   assert.ok(REFERENCE_NODE_TYPES.includes(edge.toType));
   assert.ok(REFERENCE_EDGE_TYPES.includes(edge.relationType));
 });
