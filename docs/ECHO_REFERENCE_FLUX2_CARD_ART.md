@@ -1,4 +1,6 @@
-# Echo Reference Card Art with FLUX.2
+# Hosted Echo Reference Card Art with FLUX.2
+
+> This document describes the paid Black Forest Labs fallback lane. The default local workflow now uses Hapa MLX Station, a semantic scene compiler, multiple candidates, deterministic Card assembly, and human selection. See [Local Reference Atlas Art Pipeline](./ECHO_REFERENCE_LOCAL_ART_PIPELINE.md).
 
 ## Outcome
 
