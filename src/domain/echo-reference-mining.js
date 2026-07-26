@@ -10,7 +10,7 @@ export const ECHO_REFERENCE_MINING_RUN_SCHEMA = "hapa.echo-reference-mining-run.
 export const ECHO_REFERENCE_GRAPH_SCHEMA = "hapa.echo-reference-graph.v1";
 export const ECHO_REFERENCE_CONTRIBUTION_SCHEMA = "hapa.echo-reference-contribution.v1";
 export const ECHO_REFERENCE_VIEW_SCHEMA = "hapa.echo-reference-view.v1";
-export const ECHO_REFERENCE_MINER_VERSION = "echo-reference-miner.local-v2-layered";
+export const ECHO_REFERENCE_MINER_VERSION = "echo-reference-miner.local-v3-context-activation";
 export const ECHO_REFERENCE_CHALLENGE_TYPES = Object.freeze([
   "factual-correction",
   "missing-evidence",
@@ -55,7 +55,33 @@ const STOP_TERMS = new Set([
   "such", "take", "than", "that", "their", "theirs", "them", "then", "there", "these",
   "they", "thing", "think", "this", "those", "through", "under", "very", "want",
   "were", "what", "when", "where", "which", "while", "will", "with", "would", "your",
-  "youre", "youve",
+  "whats", "youre", "youve",
+]);
+
+const SECTION_HEADING = /^\s*(?:\[[^\]]+\]|(?:verse|chorus|bridge|pre-chorus|post-chorus|hook|intro|outro|refrain|break|interlude)(?:\s+\d+)?:?)\s*$/i;
+
+const AMBIGUOUS_ENTITY_TERMS = new Set([
+  "bella", "black", "blue", "break", "bridge", "chorus", "dear", "death", "evil", "fall",
+  "family", "father", "free", "good", "green", "hero", "home", "hope", "intro",
+  "jane", "jungle", "left", "light", "love", "man", "mary", "mister", "missus",
+  "mother", "nature", "night", "one", "outro", "party", "red", "right", "sister",
+  "spring", "summer", "time", "verse", "war", "watch", "white", "wild", "winter",
+  "woman", "world",
+]);
+
+const GENERIC_CATALOG_SIGNALS = new Set([
+  ...AMBIGUOUS_ENTITY_TERMS,
+  "age", "archive", "bottom", "carry", "class", "crew", "door", "draw", "dream",
+  "fate", "field", "fight", "fighting", "flood", "fool", "freedom", "garden", "gold", "guardian", "hell",
+  "honor", "king", "lane", "level", "loot", "memory", "monkey", "monsters", "pack",
+  "party", "pull", "purple", "quest", "reach", "return", "ring", "road", "roll", "save",
+  "seed", "signs", "skill", "support", "system", "team", "turn", "water", "wisdom",
+  "seattle", "tacoma", "warrior", "wish",
+]);
+
+const GENERIC_CATALOG_PHRASES = new Set([
+  "good night",
+  "the way",
 ]);
 
 const MULTILINGUAL_CONCEPTS = Object.freeze({
@@ -96,6 +122,15 @@ const EMOTION_TERMS = Object.freeze({
 
 function text(value, fallback = "") {
   return typeof value === "string" ? value.trim() : fallback;
+}
+
+function normalizeReferencePhrase(value = "") {
+  return String(value || "")
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .match(/[a-z0-9]+/g)
+    ?.join(" ") || "";
 }
 
 function list(value) {
@@ -175,8 +210,9 @@ export function tokenizeEchoReferenceText(value = "") {
 function properNameTerms(value = "") {
   const terms = [];
   for (const line of String(value || "").split(/\r?\n/)) {
+    if (SECTION_HEADING.test(line)) continue;
     const matches = [...line.matchAll(/\b[A-Z][A-Za-z0-9'’_-]{3,}\b/g)].map((match) => match[0].toLowerCase());
-    terms.push(...matches.filter((term) => !STOP_TERMS.has(term)));
+    terms.push(...matches.filter((term) => !STOP_TERMS.has(term) && !AMBIGUOUS_ENTITY_TERMS.has(term)));
   }
   return unique(terms);
 }
@@ -231,10 +267,13 @@ function normalizeLyricLines(song = {}) {
     if (!normalized) return [];
     visibleLine += 1;
     const timing = timings[visibleLine - 1] || {};
+    const isSectionHeading = SECTION_HEADING.test(normalized);
     return [{
       lineNumber: visibleLine,
       text: normalized,
-      normalized: tokenizeEchoReferenceText(normalized).join(" "),
+      normalized: isSectionHeading ? "" : tokenizeEchoReferenceText(normalized).join(" "),
+      referenceNormalized: isSectionHeading ? "" : normalizeReferencePhrase(normalized),
+      isSectionHeading,
       startSeconds: Number.isFinite(Number(timing.start)) ? Number(timing.start) : null,
       endSeconds: Number.isFinite(Number(timing.end)) ? Number(timing.end) : null,
       timingConfidence: bounded(timing.confidence, timings.length ? 0.5 : 0),
@@ -247,7 +286,9 @@ function songPacket(song = {}, index = 0) {
   const lyricLines = normalizeLyricLines(song);
   const title = text(song.title || song.name, song.id || `Song ${index + 1}`);
   const titleTokens = tokenizeEchoReferenceText(title);
-  const lyricTokens = tokenizeEchoReferenceText(lyricLines.map((line) => line.text).join(" "));
+  const lyricTokens = tokenizeEchoReferenceText(
+    lyricLines.filter((line) => !line.isSectionHeading).map((line) => line.text).join(" ")
+  );
   const properTerms = properNameTerms(lyricText);
   return {
     id: text(song.id || song.songId, `echo-song-${index + 1}`),
@@ -360,6 +401,8 @@ function firstLineForTerms(song, terms = []) {
 function titleMatchCandidate(source, target) {
   const title = source.titleTokens.join(" ");
   if (!title || source.titleTokens.length === 0) return null;
+  if (source.titleTokens.length === 1
+    && (title.length < 6 || AMBIGUOUS_ENTITY_TERMS.has(title))) return null;
   const matches = phraseOccurrences(target, title);
   if (!matches.length) return null;
   return {
@@ -519,7 +562,12 @@ function keyedSignalCandidate(left, right, key, detectorId, namespace) {
   const distinct = values.find((value) => {
     const leftTerms = leftMap[value] || [];
     const rightTerms = rightMap[value] || [];
-    return leftTerms.some((term) => !rightTerms.includes(term)) || rightTerms.some((term) => !leftTerms.includes(term));
+    return leftTerms.some((leftTerm) => rightTerms.some((rightTerm) => (
+      leftTerm !== rightTerm
+      && !AMBIGUOUS_ENTITY_TERMS.has(leftTerm)
+      && !AMBIGUOUS_ENTITY_TERMS.has(rightTerm)
+      && (namespace !== "phonetic" || orthographicKey(leftTerm) !== orthographicKey(rightTerm))
+    )));
   });
   if (!distinct) return null;
   const sourceTerms = leftMap[distinct] || [];
@@ -543,6 +591,11 @@ function conceptCandidate(left, right, key, detectorId, namespace, relationType,
   if (!values.length) return null;
   const sourceTerms = signalSurfaceTerms(left, namespace, values);
   const targetTerms = signalSurfaceTerms(right, namespace, values);
+  if (namespace === "multilingual") {
+    const sourceSet = new Set(sourceTerms);
+    const hasCrossLanguageSurface = targetTerms.some((term) => !sourceSet.has(term));
+    if (!hasCrossLanguageSurface) return null;
+  }
   return namespaceCandidate(left, right, {
     detectorId,
     namespace,
@@ -727,16 +780,203 @@ function occurrenceFromConnector(song, connector, referenceId) {
   };
 }
 
+function containsNormalizedPhrase(line = {}, phrase = "") {
+  const normalizedPhrase = normalizeReferencePhrase(phrase);
+  if (!normalizedPhrase || !line.referenceNormalized) return false;
+  return ` ${line.referenceNormalized} `.includes(` ${normalizedPhrase} `);
+}
+
+function catalogSignalEntries(reference = {}) {
+  const candidates = [
+    { channel: "title", values: [reference.title], weight: 0.98 },
+    { channel: "literal", values: reference.aliases, weight: 0.94 },
+    { channel: "literal", values: reference.signalLexicon?.literal, weight: 0.92 },
+    { channel: "orthographic", values: reference.signalLexicon?.orthographic, weight: 0.82 },
+    { channel: "phonetic", values: reference.signalLexicon?.phonetic, weight: 0.76 },
+    { channel: "multilingual", values: reference.signalLexicon?.multilingual, weight: 0.64 },
+    { channel: "mechanical", values: reference.signalLexicon?.mechanical, weight: 0.5 },
+    { channel: "mechanical", values: reference.mechanics, weight: 0.46 },
+  ];
+  const byKey = new Map();
+  for (const candidate of candidates) {
+    for (const value of unique(candidate.values)) {
+      const normalized = normalizeReferencePhrase(value);
+      if (!normalized) continue;
+      const tokens = normalized.split(" ");
+      const distinctive = (tokens.length > 1 && !GENERIC_CATALOG_PHRASES.has(normalized))
+        || (tokens[0].length >= 4 && !GENERIC_CATALOG_SIGNALS.has(tokens[0]));
+      const key = `${candidate.channel}:${normalized}`;
+      const existing = byKey.get(key);
+      if (!existing || existing.weight < candidate.weight) {
+        byKey.set(key, {
+          channel: candidate.channel,
+          value,
+          normalized,
+          weight: candidate.weight,
+          distinctive,
+        });
+      }
+    }
+  }
+  return [...byKey.values()];
+}
+
+function activationOccurrence(song = {}, reference = {}, activation = {}, line = {}, index = 0) {
+  const lineMatches = activation.matches.filter((match) => match.lineNumber === line.lineNumber);
+  const matchedText = unique(lineMatches.map((match) => match.value)).join(", ");
+  return {
+    id: `${song.id}:${reference.id}:context-activation:${line.lineNumber}:${index + 1}`,
+    songId: song.id,
+    songTitle: song.title,
+    lyricSpan: {
+      lineStart: line.lineNumber,
+      lineEnd: line.lineNumber,
+      startSeconds: line.startSeconds,
+      endSeconds: line.endSeconds,
+      lyricText: line.text,
+      matchedText,
+    },
+    relationType: "alludes-to",
+    confidence: activation.confidence,
+    status: "proposed",
+    pointer: `hapa://echos/${encodeURIComponent(song.id)}?line=${line.lineNumber}&reference=${encodeURIComponent(reference.id)}`,
+  };
+}
+
+export function detectEchoCatalogActivations(packet = {}, options = {}) {
+  const selectedIds = new Set(unique(options.songIds || packet.targetSongIds));
+  const songs = list(packet.songs).filter((song) => !selectedIds.size || selectedIds.has(song.id));
+  const activations = [];
+  const referenceAudit = {};
+
+  for (const reference of list(packet.existingReferenceCatalog)) {
+    const signals = catalogSignalEntries(reference);
+    let referenceActivationCount = 0;
+    for (const song of songs) {
+      if (song.existingReferenceConnectors.some((connector) => connector.referenceId === reference.id)) continue;
+      const matches = song.lyrics.flatMap((line) => signals
+        .filter((signal) => containsNormalizedPhrase(line, signal.value))
+        .map((signal) => ({ ...signal, lineNumber: line.lineNumber, line })));
+      if (!matches.length) continue;
+
+      const strong = matches.filter((match) => (
+        match.distinctive
+        && ["title", "literal", "orthographic", "phonetic"].includes(match.channel)
+      ));
+      const titleMatches = strong.filter((match) => match.channel === "title");
+      const matchedChannels = new Set(matches.map((match) => match.channel));
+      const mechanicalDistinctive = matches.filter((match) => match.channel === "mechanical" && match.distinctive);
+      const corroborated = strong.length > 0 || mechanicalDistinctive.length >= 2;
+      if (!corroborated) continue;
+
+      const strongest = Math.max(...matches.map((match) => match.weight));
+      const confidence = bounded(
+        strongest
+        + Math.min(0.12, (new Set(matches.map((match) => match.normalized)).size - 1) * 0.03)
+        + Math.min(0.06, (matchedChannels.size - 1) * 0.02),
+        0.5
+      );
+      const evidenceClass = titleMatches.length ? "direct" : "source-backed-candidate";
+      const relevantLineNumbers = unique(
+        (strong.length ? strong : matches)
+          .sort((left, right) => right.weight - left.weight || left.lineNumber - right.lineNumber)
+          .map((match) => String(match.lineNumber))
+      ).slice(0, 6).map(Number);
+      const activation = {
+        id: `catalog-activation:${reference.id}:${song.id}`,
+        referenceId: reference.id,
+        songId: song.id,
+        evidenceClass,
+        confidence,
+        channels: [...matchedChannels].sort(),
+        matches,
+        rationale: `${reference.title} is activated by ${unique(matches.map((match) => `“${match.value}”`)).join(", ")} in "${song.title}". The source context is available for expansion, while authorial intent remains pending Human review.`,
+      };
+      activation.occurrences = relevantLineNumbers
+        .map((lineNumber) => song.lyrics.find((line) => line.lineNumber === lineNumber))
+        .filter(Boolean)
+        .map((line, index) => activationOccurrence(song, reference, activation, line, index));
+      activations.push(activation);
+      referenceActivationCount += 1;
+    }
+    referenceAudit[reference.id] = {
+      signalCount: signals.length,
+      automaticActivationCount: referenceActivationCount,
+    };
+  }
+
+  return {
+    activations,
+    audit: {
+      referencesScanned: list(packet.existingReferenceCatalog).length,
+      songsScanned: songs.length,
+      automaticActivations: activations.length,
+      automaticallyConnectedReferenceIds: unique(activations.map((activation) => activation.referenceId)).sort(),
+      referenceAudit,
+    },
+  };
+}
+
+function connectorExpansionInterpretations(reference = {}, connectors = [], claimId = "") {
+  return list(connectors).flatMap((connector, index) => {
+    const effect = connector.semanticEffect || {};
+    const hasExpansion = [
+      effect.withoutContext,
+      effect.withContext,
+      effect.thematicShift,
+      effect.expositionFunction,
+    ].some((value) => text(value));
+    if (!hasExpansion) return [];
+    return [{
+      id: `${reference.id}:connector-expansion:${slug(connector.id || index + 1)}`,
+      title: `Context expansion: ${text(connector.referenceTitle, reference.title)}`,
+      summary: [
+        text(effect.withoutContext),
+        text(effect.withContext),
+        text(effect.thematicShift),
+      ].filter(Boolean).join(" → "),
+      readingLayers: {
+        surface: text(effect.withoutContext),
+        contextual: text(effect.withContext),
+        thematic: text(effect.thematicShift),
+        narrative: text(effect.expositionFunction),
+        operationalMechanic: unique(reference.mechanics).length
+          ? `Imported mechanic candidates: ${unique(reference.mechanics).join(", ")}.`
+          : "",
+      },
+      confidence: bounded(connector.evidence?.score, 0.65),
+      status: "proposed",
+      claimIds: [claimId],
+      caveats: [
+        text(connector.evidence?.caveat, "Context expansion remains a reviewable interpretation."),
+        "The connector may expand the reading without proving exclusive or intended meaning.",
+      ],
+      proposedBy: text(connector.provenance?.method, "curated-context-expansion"),
+    }];
+  });
+}
+
 export function migrateEchoReferenceCatalog(packet = {}) {
   const songs = list(packet.songs);
   const references = list(packet.existingReferenceCatalog);
+  const catalogDetection = detectEchoCatalogActivations(packet);
+  const activationsByReference = new Map();
+  for (const activation of catalogDetection.activations) {
+    if (!activationsByReference.has(activation.referenceId)) activationsByReference.set(activation.referenceId, []);
+    activationsByReference.get(activation.referenceId).push(activation);
+  }
   const cards = [];
   const unmapped = [];
 
   for (const reference of references) {
-    const occurrences = songs.flatMap((song) => song.existingReferenceConnectors
+    const linkedConnectors = songs.flatMap((song) => song.existingReferenceConnectors
+      .filter((connector) => connector.referenceId === reference.id));
+    const manualOccurrences = songs.flatMap((song) => song.existingReferenceConnectors
       .filter((connector) => connector.referenceId === reference.id)
       .map((connector) => occurrenceFromConnector(song, connector, reference.id)));
+    const inferredActivations = activationsByReference.get(reference.id) || [];
+    const inferredOccurrences = inferredActivations.flatMap((activation) => activation.occurrences);
+    const occurrences = [...manualOccurrences, ...inferredOccurrences];
     if (!occurrences.length) {
       unmapped.push(reference.id);
       continue;
@@ -744,6 +984,10 @@ export function migrateEchoReferenceCatalog(packet = {}) {
     const citationId = `${reference.id}:source`;
     const claimId = `${reference.id}:legacy-source-fact`;
     const sourceUrl = text(reference.source?.url);
+    const containsPrivateClues = /personal|private|conversation-grounded/i.test([
+      reference.kind,
+      reference.source?.sourceKind,
+    ].filter(Boolean).join(" "));
     const card = normalizeHapaReferenceCard({
       id: `reference:${reference.id}`,
       revisionId: `reference:${reference.id}:r1`,
@@ -763,7 +1007,7 @@ export function migrateEchoReferenceCatalog(packet = {}) {
         retrievedAt: text(reference.source?.checkedAt),
         safeExcerpt: "",
         claimIds: [claimId],
-        visibility: "public",
+        visibility: containsPrivateClues ? "private" : "public",
         rights: {
           licenseStatus: "reference-only",
           quotationPolicy: "metadata-and-analysis-only",
@@ -784,14 +1028,25 @@ export function migrateEchoReferenceCatalog(packet = {}) {
         citationIds: sourceUrl ? [citationId] : [],
         occurrenceIds: occurrences.map((occurrence) => occurrence.id),
         caveat: "Migration preserves the legacy catalog assertion; it does not establish authorial intent.",
-      }],
+      }, ...inferredActivations.map((activation) => ({
+        id: `${reference.id}:${activation.songId}:context-activation-observation`,
+        kind: "lyric-observation",
+        text: activation.rationale,
+        evidenceClass: activation.evidenceClass,
+        confidence: activation.confidence,
+        citationIds: [],
+        occurrenceIds: activation.occurrences.map((occurrence) => occurrence.id),
+        caveat: "A catalog activation makes the source context traversable; it does not prove exclusive meaning or authorial intent.",
+      }))],
       interpretations: [{
         id: `${reference.id}:legacy-context-reading`,
         title: "Legacy contextual reading",
         summary: text(reference.publicContext, `${reference.title} is a reviewable contextual route for the linked lyric moments.`),
         readingLayers: {
+          surface: `The lyric contains one or more catalog signals associated with ${text(reference.title, reference.id)}.`,
           contextual: text(reference.publicContext),
           thematic: unique(reference.themes).join(", "),
+          narrative: "Loading the source makes its story structure and relationships available as a comparison lens for each linked lyric moment.",
           operationalMechanic: unique(reference.mechanics).join(", "),
         },
         confidence: sourceUrl ? 0.72 : 0.4,
@@ -799,7 +1054,33 @@ export function migrateEchoReferenceCatalog(packet = {}) {
         claimIds: [claimId],
         caveats: ["Migrated from the pre-Reference-Card graph and still subject to Human review."],
         proposedBy: "legacy-graph-migration",
-      }],
+      }, ...connectorExpansionInterpretations(reference, linkedConnectors, claimId), ...inferredActivations.map((activation) => ({
+        id: `${reference.id}:${activation.songId}:automatic-context-expansion`,
+        title: `Automatic context expansion in ${songs.find((song) => song.id === activation.songId)?.title || activation.songId}`,
+        summary: `${activation.rationale} Loading the reference adds: ${text(reference.publicContext, "source context pending")}`,
+        readingLayers: {
+          surface: `Matched signals: ${unique(activation.matches.map((match) => match.value)).join(", ")}.`,
+          contextual: text(reference.publicContext),
+          thematic: unique(reference.themes).length
+            ? `The activated source contributes ${unique(reference.themes).join(", ")}.`
+            : "",
+          emotional: unique(reference.themes).filter((theme) => (
+            ["grief", "love", "fear", "hope", "belonging", "freedom", "sacrifice"].includes(theme)
+          )).join(", "),
+          narrative: "The source's characters, conflicts, and outcomes become a reviewable way to re-read the local lyric without replacing its other meanings.",
+          operationalMechanic: unique(reference.mechanics).length
+            ? `Candidate imported mechanics: ${unique(reference.mechanics).join(", ")}.`
+            : "No operational mechanic is promoted automatically.",
+        },
+        confidence: bounded(activation.confidence * 0.86, 0.45),
+        status: "proposed",
+        claimIds: [`${reference.id}:${activation.songId}:context-activation-observation`],
+        caveats: [
+          "Exact or clustered signals activate a source namespace; Human review decides whether the contextual reading is useful.",
+          "Private intent and authorial intent remain unresolved unless separately supplied.",
+        ],
+        proposedBy: "catalog-context-activation",
+      }))],
       signalLexicon: reference.signalLexicon,
       themes: reference.themes,
       mechanics: reference.mechanics,
@@ -809,9 +1090,9 @@ export function migrateEchoReferenceCatalog(packet = {}) {
         canonStatus: "non-canon",
       },
       rightsAndPrivacy: {
-        visibility: "shared",
+        visibility: containsPrivateClues ? "private" : "shared",
         containsPersonalData: false,
-        containsPrivateClues: false,
+        containsPrivateClues,
         licenseStatus: "reference-only",
         quotationPolicy: "metadata-and-analysis-only",
         publicProjectionAllowed: false,
@@ -822,7 +1103,9 @@ export function migrateEchoReferenceCatalog(packet = {}) {
         custodyStatus: "locally-derived",
       },
       provenance: {
-        method: "loss-aware-legacy-reference-graph-migration",
+        method: inferredOccurrences.length
+          ? "loss-aware-reference-migration-plus-context-activation"
+          : "loss-aware-legacy-reference-graph-migration",
         sourceRunId: `migration:${packet.packetHash}`,
         sourcePacketHash: packet.packetHash,
         configurationVersion: ECHO_REFERENCE_MINER_VERSION,
@@ -831,7 +1114,11 @@ export function migrateEchoReferenceCatalog(packet = {}) {
     });
     cards.push(card);
   }
-  return { cards, unmappedReferenceIds: unmapped };
+  return {
+    cards,
+    unmappedReferenceIds: unmapped,
+    catalogActivationAudit: catalogDetection.audit,
+  };
 }
 
 function crossSongOccurrence(song, line, candidate, side) {
@@ -1795,6 +2082,8 @@ export function compileIncrementalEchoReferenceGraph(previousRun = {}, store = {
       retainedCards: retainedCards.length,
       regeneratedCards: regeneratedCrossSongCards.length,
       migratedLegacyCards: migrated.cards.length,
+      catalogContextActivations: migrated.catalogActivationAudit?.automaticActivations || 0,
+      automaticallyConnectedReferenceIds: migrated.catalogActivationAudit?.automaticallyConnectedReferenceIds || [],
       validCards: cards.length,
       externalLookups: 0,
       sourceResolution: sourceResolution.audit,
@@ -3734,6 +4023,8 @@ export function runEchoReferenceMining(store = {}, options = {}) {
       legacyCatalogEntries: packet.existingReferenceCatalog.length,
       migratedLegacyCards: migrated.cards.length,
       unmappedLegacyReferenceIds: migrated.unmappedReferenceIds,
+      catalogContextActivations: migrated.catalogActivationAudit?.automaticActivations || 0,
+      automaticallyConnectedReferenceIds: migrated.catalogActivationAudit?.automaticallyConnectedReferenceIds || [],
       crossSongCandidates: detected.candidates.length,
       crossSongCards: crossSongCards.length,
       validCards: validCards.length,

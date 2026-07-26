@@ -62,6 +62,8 @@
     "echo:references:apply": "node scripts/ingest-echo-reference-connectors.mjs --apply",
     "echo:references:hidden": "node scripts/enrich-echo-hidden-reference-graph.mjs",
     "echo:references:hidden:apply": "node scripts/enrich-echo-hidden-reference-graph.mjs --apply",
+    "echo:references:context": "node scripts/ingest-echo-expansion-context.mjs",
+    "echo:references:context:apply": "node scripts/ingest-echo-expansion-context.mjs --apply",
     "echo:references:mine": "node scripts/mine-echo-references.mjs",
     "echo:references:mine:apply": "node scripts/mine-echo-references.mjs --apply",
     "echo:references:batch": "node scripts/echo-reference-batch.mjs",

@@ -32,6 +32,7 @@ import {
   compileIncrementalEchoReferenceGraph,
   createEchoReferenceContributionEvent,
   createNextEchoReferenceCardRevision,
+  detectEchoCatalogActivations,
   detectEchoCrossSongCandidates,
   diffEchoReferenceGraphs,
   echoReferenceCuesAtPlaybackTime,
@@ -154,6 +155,67 @@ test("detector compares the full pair space and keeps title and lexical routes r
   assert.ok(result.candidates.every((candidate) => candidate.detectorId && candidate.matchedSpans && Number.isFinite(candidate.rawScore)));
   assert.ok(Object.keys(result.audit.detectorCounts).length >= 3);
   assert.ok(Array.isArray(result.unresolvedLeads));
+});
+
+test("catalog context activation requires distinctive aliases or corroborated signal clusters", () => {
+  const packet = buildEchoReferenceMiningPacket({
+    album: { id: "context-album", title: "Context Album" },
+    songs: [{
+      id: "song-crew",
+      title: "Crew Test",
+      lyrics: {
+        status: "matched_exact",
+        text: "[Chorus]\nGroot locked the door while Gamora guarded the galaxy\nThe crew came home",
+      },
+      referenceConnectors: [],
+    }, {
+      id: "song-generic",
+      title: "Generic Test",
+      lyrics: {
+        status: "matched_exact",
+        text: "[Verse 1]\nThe crew came home after a long fight",
+      },
+      referenceConnectors: [],
+    }],
+    referenceCatalog: [{
+      id: "guardians",
+      title: "Guardians of the Galaxy",
+      kind: "film-series",
+      publicContext: "A found-family space crew.",
+      themes: ["found-family", "grief"],
+      mechanics: ["crew"],
+      traversalTerms: ["Groot", "Gamora", "Guardians"],
+      signalLexicon: { literal: ["Groot", "Gamora"], mechanical: ["crew", "guarded the galaxy"] },
+      source: { label: "Official source", url: "https://www.marvel.com/gotgvol2" },
+    }],
+  });
+  const result = detectEchoCatalogActivations(packet);
+  assert.equal(result.activations.length, 1);
+  assert.equal(result.activations[0].songId, "song-crew");
+  assert.deepEqual(result.activations[0].channels, ["literal", "mechanical"]);
+  assert.match(result.activations[0].occurrences[0].lyricSpan.lyricText, /Groot/);
+  assert.equal(result.audit.automaticallyConnectedReferenceIds[0], "guardians");
+});
+
+test("section labels, generic capitalized motifs, same-language terms, and inflections do not become entity routes", () => {
+  const packet = buildEchoReferenceMiningPacket({
+    album: { id: "noise", title: "Noise" },
+    songs: [{
+      id: "noise-a",
+      title: "A",
+      lyrics: { status: "matched_exact", text: "[Break]\nMissus watches the Light at Night" },
+    }, {
+      id: "noise-b",
+      title: "B",
+      lyrics: { status: "matched_exact", text: "[Break]\nMissing light in the night" },
+    }],
+    referenceCatalog: [],
+  });
+  const result = detectEchoCrossSongCandidates(packet, { maxCandidatesPerSong: 16 });
+  assert.equal(result.candidates.some((candidate) => candidate.detectorId === "proper-name-recurrence"), false);
+  assert.equal(result.candidates.some((candidate) => candidate.detectorId === "multilingual-concept-bridge"), false);
+  assert.equal(result.unresolvedLeads.some((lead) => /Missus|Missing/.test(lead.label)), false);
+  assert.equal(result.candidates.some((candidate) => candidate.matchedTerms.includes("break")), false);
 });
 
 test("mining is deterministic, migrates legacy cards without canon elevation, and creates plural readings", () => {

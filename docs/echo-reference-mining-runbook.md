@@ -27,6 +27,33 @@ This runbook operates the local-first Echo Album reference system in Hapa Avatar
 4. Validate legacy connectors, contextual layers, catalog citations, and graph edges. Unmapped legacy IDs must remain explicit.
 5. Keep private clues out of the song source. Submit them through the clue/contribution flow with private visibility.
 
+## Refresh context packs
+
+Reference discovery has three evidence lanes. Do not collapse them:
+
+1. **Curated/source-backed reference activations** load a named work, person, place, history, or technical concept. A distinctive alias or a corroborated reference-specific signal cluster is required.
+2. **Album-internal motif routes** compare repeated lyric language across songs. They support navigation and contrast, not a claim that one song cites another.
+3. **Unresolved/private clues** retain phonetic, orthographic, personal, or ambiguous leads until better context arrives.
+
+Refresh the layers in this order:
+
+```sh
+npm run echo:references:apply
+npm run echo:references:hidden:apply
+npm run echo:references:context:apply
+```
+
+The base refresh preserves catalog entries, connectors, and contextual layers owned by later enrichment packs. The explicit order is still useful because it makes the run receipts and backups easy to audit.
+
+The Expansion UI context pack is source code in `src/domain/echo-expansion-context-pack.js`. Its entries carry:
+
+- distinctive lyric signals;
+- public/source context or an explicit conversation-grounded/private source label;
+- themes and operational mechanics;
+- provenance and source pointers.
+
+The deterministic miner imports that payload into plural proposed interpretations. It records what matched, what context becomes available, what story or mechanic may be imported, and what remains unproven. It never promotes authorial intent, public visibility, approval, or canon.
+
 ## Preview and dry-run
 
 ```sh
@@ -139,6 +166,15 @@ When adding a detector:
 2. Emit matched spans, raw/normalized score, rationale, evidence class, and provenance.
 3. Keep low-confidence output unresolved.
 4. Add a deterministic fixture, false-positive case, all-song/source-scope test, and no-authority assertion.
+
+Detector hygiene requirements:
+
+- Ignore `[Verse]`, `[Chorus]`, `[Break]`, and similar section labels as lyric evidence while retaining their source line numbers.
+- A short or common capitalized word is a motif candidate, not automatically a person, title, or franchise.
+- A multilingual route requires different surface-language terms; repeating `light` in two songs is not multilingual evidence.
+- Phonetic matching remains unresolved and must reject ordinary inflection/morphology.
+- Catalog activation uses the curated signal lexicon, not unrestricted fuzzy matching against every title or traversal term.
+- Store the context delta—surface reading, source context, thematic shift, narrative function, and candidate mechanic—not only the matched label.
 
 When adding a source adapter:
 

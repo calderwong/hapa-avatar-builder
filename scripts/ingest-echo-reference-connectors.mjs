@@ -28,6 +28,11 @@ const references = [
     publicContext: "A mixtape-shaped space story about grief, abusive inheritance, chosen family, and a crew that becomes home.",
     themes: ["found-family", "grief", "parentage", "music-as-memory", "crew"],
     traversalTerms: ["Guardians", "Star-Lord", "Gamora", "Rocket", "Groot", "Ego", "Awesome Mix"],
+    signalLexicon: {
+      literal: ["Star-Lord", "Gamora", "Rocket", "Groot", "Ego"],
+      orthographic: ["Gomara"],
+      mechanical: ["Guarding this itty-bitty Galaxy", "Galaxy Guardians", "Awesome Mix"]
+    },
     layer: "public-story-worlds",
     patterns: ["\\bGuardians(?: of the Galaxy)?\\b", "\\bStar[- ]?Lord\\b", "\\bGamora\\b", "\\bRocket Raccoon\\b", "\\bGroot\\b", "\\bEgo(?: the Living Planet)?\\b"],
     effect: {
@@ -378,6 +383,10 @@ const references = [
     publicContext: "An album-title phrase whose meaning depends on recognizing a deliberately abrasive turn-of-the-millennium music reference.",
     themes: ["sound-alike", "cultural-in-joke", "genre-memory"],
     traversalTerms: ["Chocolate Starfish", "Hot Dog Flavored Water", "Limp Bizkit"],
+    signalLexicon: {
+      orthographic: ["Hot Dog Flavors", "Watered Starfish"],
+      mechanical: ["Hot Dog Flavors", "Watered Starfish in the Sound"]
+    },
     layer: "public-music",
     patterns: ["Chocolate Starfish", "Hot Dog Flavor(?:ed)? Water", "Limp Bizkit"],
     effect: {
@@ -397,6 +406,7 @@ const references = [
     publicContext: "In the shared reading, Asante moved from a translation of 'thank you' to lived gratitude, tattoo, inheritance, and energy carried through contact.",
     themes: ["gratitude", "embodied-memory", "inheritance", "carrying-energy"],
     traversalTerms: ["Asante", "page 81", "gratitude", "tattoo"],
+    signalLexicon: { literal: ["Asante", "page 81"], mechanical: ["put it on my skin", "tattoo on my skin"] },
     layer: "personal-shared-context",
     patterns: ["\\bAsante\\b"],
     effect: {
@@ -416,6 +426,11 @@ const references = [
     publicContext: "Cryptographic hashes produce stable fingerprints for exact data while the album's reference graph supplies meaning-dependent routes between non-identical things.",
     themes: ["identity", "fingerprint", "integrity", "semantic-vs-exact"],
     traversalTerms: ["SHA-256", "SHA-512", "hash", "fingerprint"],
+    signalLexicon: {
+      literal: ["SHA-256", "SHA-512"],
+      phonetic: ["SHA-Five-Twelve"],
+      mechanical: ["lyrics SHA-256", "stable fingerprint"]
+    },
     layer: "systems-and-games",
     patterns: ["SHA[- ]?256", "SHA[- ]?512", "cryptographic hash"],
     effect: {
@@ -533,6 +548,21 @@ function layersForSong(connectors) {
   })));
 }
 
+function mergeById(existing = [], additions = []) {
+  const next = [...existing];
+  const index = new Map(next.map((item, itemIndex) => [item.id, itemIndex]));
+  for (const addition of additions) {
+    const currentIndex = index.get(addition.id);
+    if (currentIndex === undefined) {
+      index.set(addition.id, next.length);
+      next.push(addition);
+    } else {
+      next[currentIndex] = addition;
+    }
+  }
+  return next;
+}
+
 function semanticTraversal() {
   return normalizeEchoSemanticTraversal({
     title: "Echo Album contextual traversal notes",
@@ -602,18 +632,29 @@ function semanticTraversal() {
 
 if (!fs.existsSync(STORE_PATH)) throw new Error(`Missing song store: ${STORE_PATH}`);
 const store = JSON.parse(fs.readFileSync(STORE_PATH, "utf8"));
+const ownedReferenceIds = new Set(references.map((reference) => reference.id));
+const ownedLayerIds = new Set(Object.keys(layerDefinitions));
 const songs = (store.songs || []).map((song) => {
-  const referenceConnectors = connectorsForSong(song);
+  const generatedConnectors = connectorsForSong(song);
+  const referenceConnectors = normalizeSongReferenceConnectors([
+    ...(song.referenceConnectors || []).filter((connector) => !ownedReferenceIds.has(connector.referenceId)),
+    ...generatedConnectors,
+  ]);
+  const generatedLayers = layersForSong(generatedConnectors);
+  const contextualLayers = normalizeSongContextLayers([
+    ...(song.contextualLayers || []).filter((layer) => !ownedLayerIds.has(layer.id)),
+    ...generatedLayers,
+  ]);
   return {
     ...song,
     referenceConnectors,
-    contextualLayers: layersForSong(referenceConnectors),
+    contextualLayers,
     updatedAt: referenceConnectors.length ? GENERATED_AT : song.updatedAt
   };
 });
 const next = {
   ...store,
-  referenceCatalog: normalizeSongReferenceCatalog(references),
+  referenceCatalog: normalizeSongReferenceCatalog(mergeById(store.referenceCatalog, references)),
   semanticTraversal: semanticTraversal(),
   songs,
   audit: auditHapaSongStore(songs),
