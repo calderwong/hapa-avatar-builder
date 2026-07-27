@@ -91,10 +91,19 @@ function constellationNeighbors(run = {}, cardId = "", limit = 4) {
     });
 }
 
-export function echoReferenceArtEligibility(card = {}) {
+export function echoReferenceArtEligibility(card = {}, options = {}) {
   const reasons = [];
-  if (!String(card.id || "").startsWith("reference:")) reasons.push("not-source-reference");
-  if (!["direct", "source-backed-candidate"].includes(card.authority?.evidenceClass)) {
+  const approvedAtlas = options.approvedAtlas === true;
+  if (approvedAtlas) {
+    if (!text(card.id)) reasons.push("missing-card-id");
+    if (card.authority?.reviewStatus !== "approved") reasons.push("not-approved");
+  } else if (!String(card.id || "").startsWith("reference:")) {
+    reasons.push("not-source-reference");
+  }
+  const supportedEvidence = approvedAtlas
+    ? ["direct", "comparative", "source-backed-candidate"]
+    : ["direct", "source-backed-candidate"];
+  if (!supportedEvidence.includes(card.authority?.evidenceClass)) {
     reasons.push(`unsupported-evidence:${text(card.authority?.evidenceClass, "missing")}`);
   }
   if (!text(card.publicContext || card.summary)) reasons.push("missing-public-context");
@@ -112,9 +121,9 @@ export function isEchoReferenceArtEligible(card = {}) {
   return echoReferenceArtEligibility(card).eligible;
 }
 
-export function summarizeEchoReferenceArtEligibility(run = {}) {
+export function summarizeEchoReferenceArtEligibility(run = {}, options = {}) {
   const cards = list(run.cards);
-  const evaluations = cards.map((card) => ({ card, ...echoReferenceArtEligibility(card) }));
+  const evaluations = cards.map((card) => ({ card, ...echoReferenceArtEligibility(card, options) }));
   const sourceReferences = evaluations.filter((item) => item.sourceReference);
   const excludedSourceReferences = sourceReferences.filter((item) => !item.eligible);
   const reasonCounts = {};
@@ -137,6 +146,11 @@ export function summarizeEchoReferenceArtEligibility(run = {}) {
       containsPrivateClues: item.card.rightsAndPrivacy?.containsPrivateClues === true,
       occurrences: list(item.card.occurrences).length,
     })),
+    approvedAtlasMode: options.approvedAtlas === true,
+    approvedAtlasCards: evaluations.filter((item) => item.card.authority?.reviewStatus === "approved").length,
+    eligibleApprovedAtlasCards: evaluations.filter((item) => (
+      item.card.authority?.reviewStatus === "approved" && item.eligible
+    )).length,
   };
 }
 

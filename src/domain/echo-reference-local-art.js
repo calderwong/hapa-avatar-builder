@@ -130,7 +130,11 @@ function genericRecipe(card = {}) {
   const search = [
     ...unique(card.themes),
     ...unique(card.mechanics),
-    text(card.publicContext || card.summary),
+    ...unique(card.signalLexicon?.literal),
+    ...unique(card.signalLexicon?.phonetic),
+    ...unique(card.signalLexicon?.multilingual),
+    text(card.summary),
+    text(card.publicContext),
   ].join(" ").toLowerCase();
 
   if (/bridge|crossing|repair|reconciliation/.test(search)) {
@@ -206,8 +210,8 @@ function neighborSupport(run = {}, cardId = "", limit = 3) {
     });
 }
 
-export function compileEchoReferenceVisualScene(card = {}, run = {}) {
-  if (!isEchoReferenceArtEligible(card)) {
+export function compileEchoReferenceVisualScene(card = {}, run = {}, options = {}) {
+  if (!echoReferenceArtEligibility(card, options).eligible) {
     throw new Error(`Reference Card ${card.id || "unknown"} is not eligible for local visual-scene compilation.`);
   }
   const occurrence = strongestOccurrence(card);

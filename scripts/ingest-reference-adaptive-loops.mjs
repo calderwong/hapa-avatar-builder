@@ -184,6 +184,13 @@ async function main() {
     };
   }
 
+  const mergedRecords = new Map(list(currentCatalog.records).map((record) => [record.card?.id, record]));
+  for (const record of records) mergedRecords.set(record.card?.id, record);
+  const nextRecords = [...mergedRecords.values()].sort((left, right) => (
+    String(left.card?.title || "").localeCompare(String(right.card?.title || ""))
+    || String(left.card?.id || "").localeCompare(String(right.card?.id || ""))
+  ));
+  const allApproved = nextRecords.every((record) => record.custody?.reviewStatus === "approved");
   const nextCatalog = {
     schemaVersion: "hapa.echo-reference-animated-media-catalog.v1",
     sourceManifest: SOURCE_CATALOG,
@@ -191,7 +198,7 @@ async function main() {
     sourceReferenceRunId: referenceRun.runId || "",
     sourceReferenceRunHash: referenceRun.runHash || "",
     patternId: sourceCatalog.patternId || "",
-    records,
+    records: nextRecords,
     custody: {
       sourceCardsUnchanged: true,
       previewVisibility: "visible-before-review",
@@ -199,11 +206,12 @@ async function main() {
       publicActivation: false,
       canonPromotion: false,
       mint: false,
-      humanReviewRequired: true,
+      reviewStatus: allApproved ? "approved" : "mixed",
+      humanReviewRequired: !allApproved,
     },
     updatedAt: STARTED_AT,
   };
-  const availableMediaFiles = new Set(records.map((record) => (
+  const availableMediaFiles = new Set(nextRecords.map((record) => (
     record.artifacts.loopVideo.uri.replace(/^\/media\//, "")
   )));
   const candidates = buildReferenceDirectorCandidates(nextCatalog, {
@@ -213,15 +221,16 @@ async function main() {
     requireBrowserSafePixelFormat: true,
     availableMediaFiles,
   });
-  if (candidates.length !== records.length) {
-    throw new Error(`Director candidate loss: ${records.length} records produced ${candidates.length} candidates.`);
+  if (candidates.length !== nextRecords.length) {
+    throw new Error(`Director candidate loss: ${nextRecords.length} records produced ${candidates.length} candidates.`);
   }
   const report = {
     schemaVersion: "hapa.echo-reference-animated-media-ingest-report.v1",
     runId: RUN_ID,
     mode: APPLY ? "apply" : "dry-run",
     sourceCatalog: SOURCE_CATALOG,
-    records: records.length,
+    importedRecords: records.length,
+    records: nextRecords.length,
     directorCandidates: candidates.length,
     distinctCardIds: new Set(candidates.map((candidate) => candidate.cardId)).size,
     technical: {

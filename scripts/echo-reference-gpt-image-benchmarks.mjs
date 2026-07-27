@@ -7,7 +7,10 @@ import {
   buildEchoReferenceGptImageBenchmarkManifest,
   mergeEchoReferenceGptImageBenchmarkManifest,
 } from "../src/domain/echo-reference-gpt-image-benchmark.js";
+import { echoReferenceArtDigest } from "../src/domain/echo-reference-card-art.js";
 import { buildEchoReferenceCardSvg } from "../src/domain/echo-reference-local-art.js";
+import { createEchoReferenceMiningStore } from "../server/echo-reference-mining-store.mjs";
+import { ECHO_AVATAR_CAST_REGISTRY } from "../src/domain/echo-avatar-cast-registry.js";
 
 const root = process.cwd();
 const args = process.argv.slice(2);
@@ -79,6 +82,119 @@ async function exists(filePath) {
   }
 }
 
+const CANONICAL_AVATAR_SEEDS = Object.freeze({
+  "red-reaper": {
+    id: "red-reaper",
+    name: "Red",
+    path: path.join(root, "data", "media", "chatgpt-image-jun-10-2026-05-42-47-pm-1-source-88bbebd91cf51d88.png"),
+  },
+  "avatar-2": {
+    id: "avatar-2",
+    name: "Blue",
+    path: path.join(root, "data", "media", "chatgpt-image-may-24-2026-07-21-01-pm-1-1781221375816-2014333.png"),
+  },
+  "avatar-3": {
+    id: "avatar-3",
+    name: "Green",
+    path: path.join(root, "data", "media", "chatgpt-image-may-24-2026-10-26-52-pm-1-1781222050768-2735317.png"),
+  },
+});
+
+function referenceTerms(card = {}) {
+  return new Set([
+    card.title,
+    card.summary,
+    ...(card.aliases || []),
+    ...(card.themes || []),
+    ...(card.mechanics || []),
+    ...(card.signalLexicon?.literal || []),
+    ...(card.signalLexicon?.phonetic || []),
+    ...(card.signalLexicon?.orthographic || []),
+    ...(card.signalLexicon?.multilingual || []),
+  ].flatMap((value) => String(value || "").toLowerCase().split(/[^a-z0-9]+/)).filter((value) => value.length >= 4));
+}
+
+function overlapScore(left = new Set(), right = new Set()) {
+  let score = 0;
+  for (const value of left) if (right.has(value)) score += 1;
+  return score;
+}
+
+function deterministicIndex(value, length) {
+  if (!length) return -1;
+  const digest = createHash("sha256").update(String(value || "")).digest();
+  return digest.readUInt32BE(0) % length;
+}
+
+async function buildReferenceImagePacks(run = {}) {
+  const [songStore, animatedMedia] = await Promise.all([
+    readJson(path.join(root, "data", "hapa-songs-store.json"), { songs: [] }),
+    readJson(path.join(root, "data", "echo-reference-animated-media.json"), { records: [] }),
+  ]);
+  const songById = new Map((songStore.songs || []).map((song) => [song.id, song]));
+  const cardById = new Map((run.cards || []).map((card) => [card.id, card]));
+  const mediaByCardId = new Map((animatedMedia.records || []).map((record) => [record.card?.id, record]));
+  const mediaCardsBySongId = new Map();
+  for (const [cardId, record] of mediaByCardId) {
+    const card = cardById.get(cardId);
+    for (const occurrence of card?.occurrences || []) {
+      const pathValue = record.artifacts?.image?.sourcePath || record.artifacts?.image?.path;
+      if (!occurrence.songId || !pathValue) continue;
+      const rows = mediaCardsBySongId.get(occurrence.songId) || [];
+      rows.push({ card, record, path: pathValue });
+      mediaCardsBySongId.set(occurrence.songId, rows);
+    }
+  }
+  const evergreen = ECHO_AVATAR_CAST_REGISTRY.evergreen
+    .map((member) => ({ ...member, path: path.join(root, member.seedRelativePath) }));
+  const packs = {};
+  for (const card of run.cards || []) {
+    const songIds = [...new Set((card.occurrences || []).map((item) => item.songId).filter(Boolean))];
+    const sourceSong = songById.get(songIds[0]);
+    const primary = CANONICAL_AVATAR_SEEDS[sourceSong?.performancePerspective?.avatarId] || null;
+    const explicitCast = songIds.flatMap((songId) => ECHO_AVATAR_CAST_REGISTRY.songBindings?.[songId] || []);
+    const castPool = explicitCast.length
+      ? explicitCast.map((member) => ({ ...member, path: path.join(root, member.seedRelativePath) }))
+      : evergreen;
+    const castIndex = deterministicIndex(card.id, castPool.length);
+    const supporting = castIndex >= 0 ? [castPool[castIndex]] : [];
+    const terms = referenceTerms(card);
+    const imagery = songIds
+      .flatMap((songId) => mediaCardsBySongId.get(songId) || [])
+      .filter((item) => item.card?.id !== card.id)
+      .map((item) => ({
+        ...item,
+        score: overlapScore(terms, referenceTerms(item.card)),
+      }))
+      .sort((left, right) => right.score - left.score || left.card.title.localeCompare(right.card.title))
+      .filter((item, index, rows) => rows.findIndex((candidate) => candidate.card.id === item.card.id) === index)
+      .slice(0, 2)
+      .map((item) => ({
+        cardId: item.card.id,
+        title: item.card.title,
+        path: item.path,
+        relation: "same-song-reference-neighborhood",
+        overlapScore: item.score,
+      }));
+    const candidates = [
+      ...(primary ? [primary] : []),
+      ...supporting,
+      ...imagery,
+    ];
+    const valid = [];
+    for (const item of candidates) if (item.path && await exists(item.path)) valid.push(item);
+    packs[card.id] = {
+      schemaVersion: "hapa.echo-reference-image-pack.v1",
+      primaryAvatar: valid.find((item) => item.id === primary?.id) || null,
+      supportingAvatars: valid.filter((item) => supporting.some((member) => member.avatarId === item.avatarId)),
+      referenceImagery: valid.filter((item) => item.cardId),
+      paths: [...new Set(valid.map((item) => item.path))].slice(0, 5),
+      selectionPolicy: "source-song RGB anchor + lyric-backed/evergreen Hapa cast + same-song Reference Atlas visual neighborhood",
+    };
+  }
+  return packs;
+}
+
 function summary(manifest = {}) {
   const statuses = {};
   for (const job of manifest.jobs || []) statuses[job.status] = (statuses[job.status] || 0) + 1;
@@ -95,10 +211,28 @@ function summary(manifest = {}) {
 }
 
 async function plan() {
-  const run = await readJson(runPath);
+  const approvedRemainder = args.includes("--approved-remainder");
+  const run = approvedRemainder
+    ? await createEchoReferenceMiningStore().currentRun()
+    : await readJson(runPath);
   const previous = await readJson(manifestPath, { jobs: [] });
-  const planned = buildEchoReferenceGptImageBenchmarkManifest(run, { cardIds: options("--card") });
-  let manifest = mergeEchoReferenceGptImageBenchmarkManifest(previous, planned);
+  const alreadyMediaBacked = approvedRemainder
+    ? (run.cards || []).filter((card) => card.presentationMedia?.image?.uri).map((card) => card.id)
+    : [];
+  const referencePacks = approvedRemainder ? await buildReferenceImagePacks(run) : {};
+  const planned = buildEchoReferenceGptImageBenchmarkManifest(run, {
+    cardIds: options("--card"),
+    excludeCardIds: alreadyMediaBacked,
+    approvedAtlas: approvedRemainder,
+    assumeApproved: approvedRemainder,
+    approvedBy: option("--approved-by", "Calder Wong"),
+    approvedAt: option("--approved-at", ""),
+    authorityReceiptId: String(run.referenceRuntime?.authority?.receiptId || ""),
+    referencePacks,
+  });
+  let manifest = mergeEchoReferenceGptImageBenchmarkManifest(previous, planned, {
+    preserveExactCardRevision: approvedRemainder && !args.includes("--refresh-reference-packs"),
+  });
   for (const mergePath of options("--merge-manifest")) {
     const prior = await readJson(path.resolve(mergePath), { jobs: [] });
     manifest = mergeEchoReferenceGptImageBenchmarkManifest(prior, manifest);
@@ -119,6 +253,8 @@ async function next() {
       cardId: job.source.cardId,
       title: job.source.title,
       prompt: job.prompt,
+      referencedImagePaths: job.referencePack?.paths || [],
+      referencePack: job.referencePack || null,
     }));
   console.log(JSON.stringify({ ok: true, command: "next", providerCalls: 0, jobs }, null, 2));
 }
@@ -142,8 +278,9 @@ async function importImage() {
   const job = manifest.jobs[index];
   const directory = path.join(outputRoot, safeSegment(cardId));
   const extension = mediaType === "image/jpeg" ? "jpg" : mediaType === "image/webp" ? "webp" : "png";
-  const rawPath = path.join(directory, `gpt-image-raw.${extension}`);
-  const svgPath = path.join(directory, "gpt-image-reference-card.svg");
+  const version = job.promptHash.slice(-12);
+  const rawPath = path.join(directory, `gpt-image-raw-${version}.${extension}`);
+  const svgPath = path.join(directory, `gpt-image-reference-card-${version}.svg`);
   await mkdir(directory, { recursive: true });
   if (await exists(rawPath) && sha256(await readFile(rawPath)) !== sourceSha256) {
     throw new Error(`Refusing to overwrite a different GPT Image artifact for ${cardId}.`);
@@ -164,7 +301,7 @@ async function importImage() {
   await atomicWrite(svgPath, svgBytes);
   manifest.jobs[index] = {
     ...job,
-    status: "review-required",
+    status: job.custody?.reviewStatus === "approved" ? "accepted" : "review-required",
     rawArtifact: {
       localPath: rawPath,
       sha256: sourceSha256,
@@ -172,7 +309,10 @@ async function importImage() {
       generator: manifest.generator,
       generatedProposal: true,
       previewVisibility: "visible-before-review",
-      humanReviewRequired: true,
+      reviewStatus: job.custody?.reviewStatus || "not-reviewed",
+      humanReviewRequired: job.custody?.humanReviewRequired !== false,
+      approvedBy: job.custody?.approvedBy || "",
+      authorityReceiptId: job.custody?.authorityReceiptId || "",
     },
     assembledArtifact: {
       localPath: svgPath,
@@ -184,6 +324,79 @@ async function importImage() {
   };
   await atomicWriteJson(manifestPath, manifest);
   console.log(JSON.stringify({ ok: true, command: "import", providerCalls: 0, cardId, rawPath, svgPath, ...summary(manifest) }, null, 2));
+}
+
+async function recoverExactRevisionArtifacts() {
+  if (!args.includes("--apply")) throw new Error("Exact-revision artifact recovery requires --apply.");
+  const manifest = await readJson(manifestPath);
+  const requestedCards = new Set(options("--card"));
+  const recovered = [];
+  const skipped = [];
+  manifest.jobs = await Promise.all((manifest.jobs || []).map(async (job) => {
+    if (requestedCards.size && !requestedCards.has(job.source?.cardId)) return job;
+    if (job.rawArtifact?.localPath || !job.supersededArtifacts?.length) return job;
+    const candidates = [...job.supersededArtifacts].reverse();
+    const candidate = candidates.find((item) => item.rawArtifact?.localPath);
+    if (!candidate) return job;
+    if (!await exists(candidate.rawArtifact.localPath)) {
+      skipped.push({
+        cardId: job.source?.cardId,
+        reason: "superseded-raw-artifact-missing",
+        localPath: candidate.rawArtifact.localPath,
+      });
+      return job;
+    }
+    if (candidate.assembledArtifact?.localPath && !await exists(candidate.assembledArtifact.localPath)) {
+      skipped.push({
+        cardId: job.source?.cardId,
+        reason: "superseded-assembled-artifact-missing",
+        localPath: candidate.assembledArtifact.localPath,
+      });
+      return job;
+    }
+    recovered.push({
+      cardId: job.source.cardId,
+      cardRevisionId: job.source.cardRevisionId,
+      recoveredPromptHash: candidate.promptHash,
+      currentPromptHash: job.promptHash,
+      rawPath: candidate.rawArtifact.localPath,
+    });
+    return {
+      ...job,
+      status: job.custody?.reviewStatus === "approved" ? "accepted" : "review-required",
+      rawArtifact: {
+        ...candidate.rawArtifact,
+        recoveredFromSupersededPromptHash: candidate.promptHash,
+        recoveryReason: "exact-card-revision-queue-freeze",
+      },
+      assembledArtifact: candidate.assembledArtifact
+        ? {
+          ...candidate.assembledArtifact,
+          recoveredFromSupersededPromptHash: candidate.promptHash,
+          recoveryReason: "exact-card-revision-queue-freeze",
+        }
+        : null,
+      recovery: {
+        schemaVersion: "hapa.echo-reference-gpt-image-artifact-recovery.v1",
+        reason: "exact-card-revision-queue-freeze",
+        recoveredPromptHash: candidate.promptHash,
+        currentPromptHash: job.promptHash,
+        cardRevisionId: job.source.cardRevisionId,
+      },
+    };
+  }));
+  const { manifestHash: _discardedManifestHash, ...core } = manifest;
+  const recoveredManifest = { ...core, manifestHash: echoReferenceArtDigest(core) };
+  await atomicWriteJson(manifestPath, recoveredManifest);
+  console.log(JSON.stringify({
+    ok: true,
+    command: "recover-exact-revision",
+    providerCalls: 0,
+    recovered: recovered.length,
+    recoveredCards: recovered,
+    skipped,
+    ...summary(recoveredManifest),
+  }, null, 2));
 }
 
 async function status() {
@@ -260,9 +473,10 @@ try {
   if (command === "plan") await plan();
   else if (command === "next") await next();
   else if (command === "import") await importImage();
+  else if (command === "recover-exact-revision") await recoverExactRevisionArtifacts();
   else if (command === "status") await status();
   else if (command === "gallery") await gallery();
-  else throw new Error(`Unknown command ${command}. Expected plan, next, import, status, or gallery.`);
+  else throw new Error(`Unknown command ${command}. Expected plan, next, import, recover-exact-revision, status, or gallery.`);
 } catch (error) {
   console.error(JSON.stringify({
     ok: false,

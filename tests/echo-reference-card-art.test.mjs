@@ -112,6 +112,16 @@ test("eligibility diagnostics preserve overlapping exclusion reasons", () => {
   assert.equal(summary.excludedReasonCounts["private-visibility"], 1);
 });
 
+test("explicit approved-Atlas mode admits supported internal comparative Cards without weakening defaults", () => {
+  const motif = sourceCard("motif");
+  motif.id = "reference-card:motif";
+  motif.authority = { evidenceClass: "comparative", reviewStatus: "approved", canonStatus: "non-canon" };
+  assert.equal(isEchoReferenceArtEligible(motif), false);
+  assert.equal(echoReferenceArtEligibility(motif, { approvedAtlas: true }).eligible, true);
+  motif.authority.reviewStatus = "rejected";
+  assert.equal(echoReferenceArtEligibility(motif, { approvedAtlas: true }).eligible, false);
+});
+
 test("queue merge preserves provider state while updating the deterministic prompt projection", () => {
   const run = runFixture();
   const planned = buildEchoReferenceArtQueue(run);
