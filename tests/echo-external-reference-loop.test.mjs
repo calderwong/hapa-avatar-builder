@@ -4,13 +4,77 @@ import test from "node:test";
 import {
   ECHO_EXTERNAL_REFERENCE_RESEARCH_RESULT_SCHEMA,
   ECHO_EXTERNAL_REFERENCE_RESOLUTION_SCHEMA,
+  buildCodexExternalReferenceResearchArgs,
   buildEchoExternalReferenceCycle,
+  calibrateEchoExternalReferenceCandidate,
   claimEchoExternalReferenceJobs,
+  compactEchoExternalReferenceCycle,
+  enrichEchoExternalReferenceResolutionEvidence,
+  projectEchoExternalReferenceResults,
+  reclassifyIntegratedEchoExternalReferenceJob,
+  restrictIntegratedEchoExternalReferenceSignals,
   resolveEchoExternalReferenceJob,
   seedEchoExternalReferenceLoop,
   submitEchoExternalReferenceResult,
   validateEchoExternalReferenceResearchResult,
 } from "../src/domain/echo-external-reference-loop.js";
+
+test("places the global web-search flag before the Codex exec subcommand", () => {
+  const args = buildCodexExternalReferenceResearchArgs({
+    schemaPath: "/tmp/schema.json",
+    outputPath: "/tmp/output.json",
+    workingDirectory: "/tmp/research",
+  });
+  assert.deepEqual(args.slice(0, 8), [
+    "--search",
+    "--sandbox",
+    "read-only",
+    "--ask-for-approval",
+    "never",
+    "-C",
+    "/tmp/research",
+    "exec",
+  ]);
+  assert.equal(args[8], "--ephemeral");
+  assert.equal(args[args.length - 1], "-");
+});
+
+test("compacts a cycle into a receipt with externalized heavy artifacts", () => {
+  const receipt = compactEchoExternalReferenceCycle({
+    cycleId: "cycle-one",
+    projectedRun: { runHash: "run-hash", cards: [{ id: "large" }] },
+    sharpening: { sharpeningRunId: "sharpen-one", database: { large: true } },
+    artManifest: { manifestId: "manifest-one", jobs: [{ id: "art" }] },
+  }, {
+    projectedRun: "cycles/001-projected-run.json",
+    sharpening: "cycles/001-sharpening.json",
+    artManifest: "cycles/001-gpt-image-manifest.json",
+  });
+  assert.equal(receipt.cycleId, "cycle-one");
+  assert.equal(receipt.projectedRun, undefined);
+  assert.equal(receipt.sharpening, undefined);
+  assert.equal(receipt.artManifest, undefined);
+  assert.equal(receipt.artifacts.projectedRunHash, "run-hash");
+  assert.equal(receipt.artifacts.sharpeningRunId, "sharpen-one");
+  assert.equal(receipt.artifacts.artManifestId, "manifest-one");
+});
+
+test("demotes low-confidence external canon to evidence-backed ambiguity", () => {
+  const candidate = calibrateEchoExternalReferenceCandidate({
+    disposition: "external-reference",
+    reference: {
+      title: "Speculative Canon",
+      aliases: [],
+      referenceType: "motif",
+      publicContext: "A plausible but weakly selected motif.",
+    },
+    jobAnalyses: [{ confidence: 0.78 }],
+    researchNotes: "Sources establish the motif but not the lyric selection.",
+  });
+  assert.equal(candidate.disposition, "ambiguous");
+  assert.equal(candidate.reference.title, "");
+  assert.match(candidate.researchNotes, /Automatic confidence hold/);
+});
 
 function fixture() {
   const song = {
@@ -170,6 +234,99 @@ test("records an evidence-bearing no-reference resolution without fabricating a 
   assert.equal(resolved.valid, true);
   assert.equal(resolved.loop.jobs[0].status, "resolved-no-reference");
   assert.ok(resolved.resolution.resolutionHash);
+});
+
+test("enriches an ambiguous resolution with attributable alternative sources", () => {
+  const { run, sharpening } = fixture();
+  let loop = seedEchoExternalReferenceLoop(run, sharpening);
+  const claimed = claimEchoExternalReferenceJobs(loop, { runner: "codex", limit: 1 });
+  const resolved = resolveEchoExternalReferenceJob(claimed.loop, {
+    resolution: {
+      schemaVersion: ECHO_EXTERNAL_REFERENCE_RESOLUTION_SCHEMA,
+      jobId: claimed.claimed[0].id,
+      disposition: "ambiguous",
+      rationale: "Two public canons remain plausible.",
+      searchQueries: ["candidate phrase canon"],
+      caveat: "Do not select one canon without another clue.",
+    },
+  });
+  const enriched = enrichEchoExternalReferenceResolutionEvidence(resolved.loop, {
+    jobId: claimed.claimed[0].id,
+    sources: [{
+      id: "official-alternative",
+      label: "Official alternative",
+      url: "https://example.com/official-alternative",
+      sourceClass: "official-source",
+      supportsClaim: "Establishes one of the competing public canons.",
+    }],
+  }, () => "2026-07-26T03:00:00.000Z");
+  assert.equal(enriched.valid, true);
+  assert.equal(enriched.resolution.sources.length, 1);
+  assert.ok(enriched.loop.jobs[0].history.some((event) => event.event === "resolution-evidence-enriched"));
+});
+
+test("reclassifies an integrated result while preserving its audit evidence", () => {
+  const { run, sharpening } = fixture();
+  let loop = seedEchoExternalReferenceLoop(run, sharpening);
+  const claimed = claimEchoExternalReferenceJobs(loop, { runner: "codex", limit: 1 });
+  const submitted = submitEchoExternalReferenceResult(claimed.loop, run, {
+    result: result(claimed.claimed[0].id),
+  });
+  loop = {
+    ...submitted.loop,
+    jobs: submitted.loop.jobs.map((job) => job.id === claimed.claimed[0].id ? {
+      ...job,
+      status: "integrated",
+      resultHash: "prior-result-hash",
+    } : job),
+  };
+  const reclassified = reclassifyIntegratedEchoExternalReferenceJob(loop, {
+    resolution: {
+      jobId: claimed.claimed[0].id,
+      disposition: "ambiguous",
+      rationale: "The human audit found that two public canons remain equally plausible.",
+      searchQueries: ["candidate competing public canons"],
+      sources: result(claimed.claimed[0].id).sources,
+      caveat: "Keep both readings unresolved.",
+    },
+    reviewer: { id: "reviewer" },
+  }, () => "2026-07-26T04:00:00.000Z");
+  assert.equal(reclassified.valid, true);
+  assert.equal(reclassified.loop.jobs[0].status, "resolved-ambiguous");
+  assert.equal(reclassified.loop.jobs[0].rejectedResultHash, "prior-result-hash");
+  assert.ok(reclassified.loop.jobs[0].history.some((event) => event.event === "integrated-result-reclassified"));
+});
+
+test("keeps an integrated Card while restricting automatic propagation signals", () => {
+  const { run, sharpening } = fixture();
+  let loop = seedEchoExternalReferenceLoop(run, sharpening);
+  const claimed = claimEchoExternalReferenceJobs(loop, { runner: "codex", limit: 1 });
+  const submitted = submitEchoExternalReferenceResult(claimed.loop, run, {
+    result: result(claimed.claimed[0].id),
+  });
+  loop = {
+    ...submitted.loop,
+    jobs: submitted.loop.jobs.map((job) => job.id === claimed.claimed[0].id ? {
+      ...job,
+      status: "integrated",
+      resultHash: "prior-result-hash",
+    } : job),
+  };
+  const restricted = restrictIntegratedEchoExternalReferenceSignals(loop, run, {
+    jobId: claimed.claimed[0].id,
+    literalSignals: ["I am Carraway beside the light"],
+    reviewer: { id: "reviewer" },
+  }, () => "2026-07-26T05:00:00.000Z");
+  assert.equal(restricted.valid, true);
+  assert.deepEqual(restricted.loop.jobs[0].result.signals.literal, ["I am Carraway beside the light"]);
+  assert.deepEqual(restricted.loop.jobs[0].result.signals.phonetic, []);
+  assert.deepEqual(restricted.loop.jobs[0].result.propagationSignals, ["I am Carraway beside the light"]);
+  const projection = projectEchoExternalReferenceResults(run, [restricted.loop.jobs[0].result]);
+  assert.deepEqual(
+    projection.projectedRun.cards[0].occurrences.map((occurrence) => occurrence.lyricSpan.lineStart),
+    [1],
+  );
+  assert.ok(restricted.loop.jobs[0].history.some((event) => event.event === "integrated-result-signals-restricted"));
 });
 
 test("closes duplicate research work against an already attributable occurrence", () => {

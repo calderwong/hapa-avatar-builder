@@ -7,6 +7,75 @@ export const ECHO_EXTERNAL_REFERENCE_RESEARCH_RESULT_SCHEMA = "hapa.echo-externa
 export const ECHO_EXTERNAL_REFERENCE_RESOLUTION_SCHEMA = "hapa.echo-external-reference-resolution.v1";
 export const ECHO_EXTERNAL_REFERENCE_LOOP_VERSION = "echo-external-reference-loop.local-v1";
 
+export function compactEchoExternalReferenceCycle(cycle = {}, pointers = {}) {
+  const {
+    projectedRun,
+    sharpening,
+    artManifest,
+    ...receipt
+  } = cycle;
+  return {
+    ...receipt,
+    artifacts: {
+      projectedRun: text(pointers.projectedRun),
+      sharpening: text(pointers.sharpening),
+      artManifest: text(pointers.artManifest),
+      projectedRunHash: text(projectedRun?.runHash),
+      sharpeningRunId: text(sharpening?.sharpeningRunId),
+      artManifestId: text(artManifest?.manifestId),
+    },
+  };
+}
+
+export function calibrateEchoExternalReferenceCandidate(candidate = {}, options = {}) {
+  if (candidate.disposition !== "external-reference") return structuredClone(candidate);
+  const analyses = list(candidate.jobAnalyses);
+  const confidences = analyses.map((analysis) => Number(analysis.confidence || 0));
+  const average = confidences.reduce((sum, value) => sum + value, 0) / Math.max(1, confidences.length);
+  const minimum = confidences.length ? Math.min(...confidences) : 0;
+  const minimumAverage = Number(options.minimumAverageConfidence || 0.82);
+  const minimumOccurrence = Number(options.minimumOccurrenceConfidence || 0.75);
+  if (average >= minimumAverage && minimum >= minimumOccurrence) return structuredClone(candidate);
+  const consideredTitle = text(candidate.reference?.title, "unnamed candidate");
+  return {
+    ...structuredClone(candidate),
+    disposition: "ambiguous",
+    reference: {
+      title: "",
+      aliases: [],
+      referenceType: "",
+      publicContext: "",
+    },
+    researchNotes: `${text(candidate.researchNotes)} Automatic confidence hold: ${consideredTitle} averaged ${round(average, 3)} with a minimum occurrence confidence of ${round(minimum, 3)}; acceptance requires average ≥ ${minimumAverage} and every occurrence ≥ ${minimumOccurrence}.`,
+  };
+}
+
+export function buildCodexExternalReferenceResearchArgs({
+  schemaPath,
+  outputPath,
+  workingDirectory,
+} = {}) {
+  return [
+    "--search",
+    "--sandbox",
+    "read-only",
+    "--ask-for-approval",
+    "never",
+    "-C",
+    workingDirectory,
+    "exec",
+    "--ephemeral",
+    "--skip-git-repo-check",
+    "--output-schema",
+    schemaPath,
+    "--output-last-message",
+    outputPath,
+    "--color",
+    "never",
+    "-",
+  ];
+}
+
 const EFFECTS = new Set(["reinforces", "reframes", "complicates", "contradicts", "extends", "open-question"]);
 const SOURCE_CLASSES = new Set([
   "primary-source",
@@ -84,12 +153,13 @@ function occurrenceFromMatch(cardId, song, line, matchedText, confidence = 0.9) 
 }
 
 function matchSignals(run = {}, card = {}) {
-  const signals = unique([
+  const reviewedSignals = unique(card.propagationSignals);
+  const signals = (reviewedSignals.length ? reviewedSignals : unique([
     ...list(card.signalLexicon?.literal),
     ...list(card.signalLexicon?.orthographic),
     ...list(card.signalLexicon?.phonetic),
     ...list(card.signalLexicon?.multilingual),
-  ]).filter((signal) => signal.length >= 3);
+  ])).filter((signal) => signal.length >= 3);
   const accepted = [];
   const held = [];
   for (const song of list(run.packet?.songs)) {
@@ -256,6 +326,7 @@ function researchResultToCard(result = {}, run = {}) {
       multilingual: unique(result.signals?.multilingual),
       mechanical: unique(result.signals?.mechanical),
     },
+    propagationSignals: unique(result.propagationSignals),
     themes: unique(channels.themes),
     mechanics: unique(channels.mechanics),
     emotions: unique(channels.emotions),
@@ -661,8 +732,17 @@ export function resolveEchoExternalReferenceJob(loop = {}, input = {}, now = () 
   if (resolution.disposition === "existing-reference") {
     if (!text(resolution.targetCardId)) errors.push("missing-target-card");
     if (!text(resolution.occurrenceId)) errors.push("missing-occurrence");
-  } else if (!list(resolution.searchQueries).length && !list(resolution.evidencePointers).length) {
+  } else if (
+    !list(resolution.searchQueries).length
+    && !list(resolution.evidencePointers).length
+    && !list(resolution.sources).length
+  ) {
     errors.push("missing-research-evidence");
+  }
+  for (const source of list(resolution.sources)) {
+    if (!validateUrl(source.url)) errors.push(`invalid-resolution-source-url:${text(source.id, "missing")}`);
+    if (!SOURCE_CLASSES.has(text(source.sourceClass))) errors.push(`invalid-resolution-source-class:${text(source.id, "missing")}`);
+    if (!text(source.supportsClaim)) errors.push(`missing-resolution-source-claim:${text(source.id, "missing")}`);
   }
   if (!text(resolution.caveat)) errors.push("missing-caveat");
   if (errors.length) return {
@@ -696,5 +776,181 @@ export function resolveEchoExternalReferenceJob(loop = {}, input = {}, now = () 
     valid: true,
     errors: [],
     resolution: completed,
+  };
+}
+
+export function enrichEchoExternalReferenceResolutionEvidence(
+  loop = {},
+  input = {},
+  now = () => new Date().toISOString(),
+) {
+  const jobId = text(input.jobId);
+  const job = list(loop.jobs).find((candidate) => candidate.id === jobId);
+  if (!job) throw new Error(`Unknown research job ${jobId || "missing"}.`);
+  if (!["resolved-no-reference", "resolved-ambiguous"].includes(job.status) || !job.resolution) {
+    throw new Error(`Research job ${jobId} does not have an enrichable unresolved resolution.`);
+  }
+  const sources = list(input.sources);
+  const errors = [];
+  if (!sources.length) errors.push("missing-resolution-sources");
+  for (const source of sources) {
+    if (!validateUrl(source.url)) errors.push(`invalid-resolution-source-url:${text(source.id, "missing")}`);
+    if (!SOURCE_CLASSES.has(text(source.sourceClass))) errors.push(`invalid-resolution-source-class:${text(source.id, "missing")}`);
+    if (!text(source.supportsClaim)) errors.push(`missing-resolution-source-claim:${text(source.id, "missing")}`);
+  }
+  if (errors.length) return { loop, valid: false, errors };
+  const mergedSources = [...new Map(
+    [...list(job.resolution.sources), ...sources].map((source) => [text(source.url || source.id), structuredClone(source)]),
+  ).values()];
+  const { resolutionHash: priorResolutionHash, ...priorResolution } = job.resolution;
+  const resolutionCore = {
+    ...priorResolution,
+    sources: mergedSources,
+    evidenceEnrichedAt: nowValue(now),
+  };
+  const resolution = {
+    ...resolutionCore,
+    resolutionHash: echoReferenceDigest(resolutionCore),
+  };
+  const jobs = list(loop.jobs).map((candidate) => candidate.id === jobId ? {
+    ...candidate,
+    resolution,
+    history: [...list(candidate.history), {
+      event: "resolution-evidence-enriched",
+      at: nowValue(now),
+      priorResolutionHash,
+      resolutionHash: resolution.resolutionHash,
+      sourceCount: mergedSources.length,
+    }],
+  } : candidate);
+  return {
+    loop: { ...loop, jobs },
+    valid: true,
+    errors: [],
+    resolution,
+  };
+}
+
+export function reclassifyIntegratedEchoExternalReferenceJob(
+  loop = {},
+  input = {},
+  now = () => new Date().toISOString(),
+) {
+  const jobId = text(input.resolution?.jobId);
+  const job = list(loop.jobs).find((candidate) => candidate.id === jobId);
+  if (!job) throw new Error(`Unknown research job ${jobId || "missing"}.`);
+  if (job.status !== "integrated" || !job.result) {
+    throw new Error(`Research job ${jobId} is not an integrated result.`);
+  }
+  if (!["no-supported-reference", "ambiguous"].includes(input.resolution?.disposition)) {
+    throw new Error("Integrated research may only be reclassified as no-supported-reference or ambiguous.");
+  }
+  const auditAt = nowValue(now);
+  const stagedLoop = {
+    ...loop,
+    jobs: list(loop.jobs).map((candidate) => candidate.id === jobId ? {
+      ...candidate,
+      status: "claimed",
+      claim: {
+        runner: text(input.reviewer?.id, "human-quality-audit"),
+        claimedAt: auditAt,
+        leaseSeconds: 300,
+      },
+    } : candidate),
+  };
+  const resolved = resolveEchoExternalReferenceJob(stagedLoop, {
+    resolution: {
+      ...structuredClone(input.resolution),
+      schemaVersion: ECHO_EXTERNAL_REFERENCE_RESOLUTION_SCHEMA,
+      caveat: text(
+        input.resolution?.caveat,
+        "A prior source-backed proposal was retained as audit evidence but removed from the active Reference Atlas projection.",
+      ),
+      researcher: {
+        id: text(input.reviewer?.id, "human-quality-audit"),
+        model: text(input.reviewer?.model, "human-review"),
+      },
+      resolvedAt: auditAt,
+    },
+  }, () => auditAt);
+  if (!resolved.valid) return resolved;
+  const priorResultHash = text(job.resultHash || job.result?.validation?.resultHash || echoReferenceDigest(job.result));
+  const jobs = list(resolved.loop.jobs).map((candidate) => candidate.id === jobId ? {
+    ...candidate,
+    claim: null,
+    rejectedResultHash: priorResultHash,
+    history: [...list(candidate.history), {
+      event: "integrated-result-reclassified",
+      at: auditAt,
+      priorResultHash,
+      disposition: input.resolution.disposition,
+      reviewer: text(input.reviewer?.id, "human-quality-audit"),
+    }],
+  } : candidate);
+  return {
+    ...resolved,
+    loop: { ...resolved.loop, jobs },
+    priorResultHash,
+  };
+}
+
+export function restrictIntegratedEchoExternalReferenceSignals(
+  loop = {},
+  sourceRun = {},
+  input = {},
+  now = () => new Date().toISOString(),
+) {
+  const jobId = text(input.jobId);
+  const job = list(loop.jobs).find((candidate) => candidate.id === jobId);
+  if (!job) throw new Error(`Unknown research job ${jobId || "missing"}.`);
+  if (job.status !== "integrated" || !job.result) {
+    throw new Error(`Research job ${jobId} is not an integrated result.`);
+  }
+  const literal = unique(input.literalSignals);
+  if (!literal.length) throw new Error("Signal restriction requires at least one literal signal.");
+  const auditedAt = nowValue(now);
+  const result = {
+    ...structuredClone(job.result),
+    propagationSignals: literal,
+    signals: {
+      literal,
+      phonetic: [],
+      orthographic: [],
+      multilingual: [],
+      mechanical: [],
+    },
+    caveat: `${text(job.result.caveat)} Human propagation audit restricted automatic matching to exact reviewed signals: ${literal.join(", ")}.`,
+  };
+  delete result.validation;
+  const validation = validateEchoExternalReferenceResearchResult(result, sourceRun, job);
+  result.validation = validation;
+  if (!validation.valid) return {
+    loop,
+    valid: false,
+    errors: validation.errors,
+    validation,
+  };
+  const priorResultHash = text(job.resultHash || echoReferenceDigest(job.result));
+  const resultHash = echoReferenceDigest(result);
+  const jobs = list(loop.jobs).map((candidate) => candidate.id === jobId ? {
+    ...candidate,
+    result,
+    resultHash,
+    history: [...list(candidate.history), {
+      event: "integrated-result-signals-restricted",
+      at: auditedAt,
+      reviewer: text(input.reviewer?.id, "human-quality-audit"),
+      priorResultHash,
+      resultHash,
+      literalSignals: literal,
+    }],
+  } : candidate);
+  return {
+    loop: { ...loop, jobs },
+    valid: true,
+    errors: [],
+    validation,
+    priorResultHash,
+    resultHash,
   };
 }

@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import {
   buildEchoExternalReferenceCycle,
   claimEchoExternalReferenceJobs,
+  compactEchoExternalReferenceCycle,
   rebaseEchoExternalReferenceProjection,
   resolveEchoExternalReferenceJob,
   seedEchoExternalReferenceLoop,
@@ -74,7 +75,7 @@ function statusOf(loop = {}) {
   };
 }
 
-function dashboard(loop = {}) {
+function dashboard(loop = {}, latestArtManifest = {}) {
   const cycles = loop.cycles || [];
   const rows = cycles.map((cycle, index) => `
     <tr>
@@ -86,10 +87,10 @@ function dashboard(loop = {}) {
       <td>${cycle.metrics.externalInternalBridges}</td>
       <td>${cycle.quality.newOccurrencesFoundByRecheck}</td>
       <td>${cycle.quality.averageResearchQuality}</td>
-      <td>${cycle.artManifest.jobs.length}</td>
+      <td>${Number(cycle.metrics?.gptImageJobs || 0)}</td>
     </tr>`).join("");
   const latest = cycles.at(-1);
-  const art = latest?.artManifest?.jobs?.map((job) => `
+  const art = (latestArtManifest.jobs || []).map((job) => `
     <article>
       <p>${escapeHtml(job.status)}</p>
       <h2>${escapeHtml(job.source.title)}</h2>
@@ -116,6 +117,7 @@ main{width:min(1320px,calc(100% - 32px));margin:auto;padding:48px 0 80px}h1{font
 const apply = args.includes("--apply");
 const runtimeRoot = path.resolve(option("--runtime-root", path.join(repoRoot, "data", "echo-reference-research-loop")));
 const loopPath = path.resolve(option("--loop", path.join(runtimeRoot, "loop.json")));
+const projectedRunPath = path.join(runtimeRoot, "projected-run.json");
 const sourceRunOption = option("--source-run");
 const sourceRunPath = sourceRunOption
   ? path.resolve(sourceRunOption)
@@ -192,14 +194,20 @@ if (command === "seed") {
     .map((job) => job.result);
   if (!acceptedResults.length) throw new Error("No newly validated research results are ready.");
   const cycle = buildEchoExternalReferenceCycle({
-    sourceRun: prior?.projectedRun || sourceRun,
+    sourceRun: fs.existsSync(projectedRunPath) ? readJson(projectedRunPath) : sourceRun,
     previousCycle: prior,
     acceptedResults,
+  });
+  const sequence = String((loop.cycles || []).length + 1).padStart(3, "0");
+  const receipt = compactEchoExternalReferenceCycle(cycle, {
+    projectedRun: `cycles/${sequence}-projected-run.json`,
+    sharpening: `cycles/${sequence}-sharpening.json`,
+    artManifest: `cycles/${sequence}-gpt-image-manifest.json`,
   });
   const nextLoop = {
     ...loop,
     jobs: loop.jobs,
-    cycles: [...(loop.cycles || []), cycle],
+    cycles: [...(loop.cycles || []), receipt],
   };
   nextLoop.jobs = nextLoop.jobs.map((job) => {
     const resultIndex = acceptedResults.indexOf(job.result);
@@ -211,16 +219,19 @@ if (command === "seed") {
     } : job;
   });
   writeJson(loopPath, nextLoop);
-  writeJson(path.join(runtimeRoot, "cycles", `${String(nextLoop.cycles.length).padStart(3, "0")}.json`), cycle);
-  writeJson(path.join(runtimeRoot, "cycles", `${String(nextLoop.cycles.length).padStart(3, "0")}-gpt-image-manifest.json`), cycle.artManifest);
-  writeJson(path.join(runtimeRoot, "latest-cycle.json"), cycle);
+  writeJson(path.join(runtimeRoot, "cycles", `${sequence}.json`), receipt);
+  writeJson(path.join(runtimeRoot, "cycles", `${sequence}-projected-run.json`), cycle.projectedRun);
+  writeJson(path.join(runtimeRoot, "cycles", `${sequence}-sharpening.json`), cycle.sharpening);
+  writeJson(path.join(runtimeRoot, "cycles", `${sequence}-gpt-image-manifest.json`), cycle.artManifest);
+  writeJson(path.join(runtimeRoot, "latest-cycle.json"), receipt);
   writeJson(path.join(runtimeRoot, "projected-run.json"), cycle.projectedRun);
+  writeJson(path.join(runtimeRoot, "latest-sharpening.json"), cycle.sharpening);
   writeJson(path.join(runtimeRoot, "gpt-image-manifest.json"), cycle.artManifest);
-  writeText(path.join(runtimeRoot, "index.html"), dashboard(nextLoop));
+  writeText(path.join(runtimeRoot, "index.html"), dashboard(nextLoop, cycle.artManifest));
   console.log(JSON.stringify({ ok: true, command, cycleId: cycle.cycleId, metrics: cycle.metrics, delta: cycle.delta, quality: cycle.quality, changes: cycle.changes, artJobs: cycle.artManifest.jobs.length, ...statusOf(nextLoop) }, null, 2));
 } else if (command === "art-next") {
-  const loop = readJson(loopPath);
-  const jobs = (loop.cycles?.at(-1)?.artManifest?.jobs || [])
+  const manifest = readJson(path.join(runtimeRoot, "gpt-image-manifest.json"));
+  const jobs = (manifest.jobs || [])
     .filter((job) => job.status === "planned")
     .slice(0, numberOption("--limit", 4))
     .map((job) => ({ jobId: job.id, cardId: job.source.cardId, title: job.source.title, prompt: job.prompt }));

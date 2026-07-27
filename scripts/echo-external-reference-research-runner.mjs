@@ -9,8 +9,14 @@ import { fileURLToPath } from "node:url";
 import {
   ECHO_EXTERNAL_REFERENCE_RESEARCH_RESULT_SCHEMA,
   ECHO_EXTERNAL_REFERENCE_RESOLUTION_SCHEMA,
+  buildCodexExternalReferenceResearchArgs,
   buildEchoExternalReferenceCycle,
+  calibrateEchoExternalReferenceCandidate,
   claimEchoExternalReferenceJobs,
+  compactEchoExternalReferenceCycle,
+  enrichEchoExternalReferenceResolutionEvidence,
+  reclassifyIntegratedEchoExternalReferenceJob,
+  restrictIntegratedEchoExternalReferenceSignals,
   resolveEchoExternalReferenceJob,
   submitEchoExternalReferenceResult,
 } from "../src/domain/echo-external-reference-loop.js";
@@ -52,6 +58,11 @@ function atomicWriteJson(filePath, value) {
   const temporary = `${filePath}.${process.pid}.tmp`;
   fs.writeFileSync(temporary, `${JSON.stringify(value, null, 2)}\n`, { mode: 0o600 });
   fs.renameSync(temporary, filePath);
+}
+
+function copyLoopBackup(loopPath, backupPath) {
+  fs.mkdirSync(path.dirname(backupPath), { recursive: true });
+  fs.copyFileSync(loopPath, backupPath);
 }
 
 function slug(value = "") {
@@ -333,6 +344,7 @@ Rules:
 8. Explain how canon changes symbols, themes, characters, narrative beats, mechanics, emotions, or audio language. Fill at least three shared-language channels for an external reference.
 9. If a matching existing Reference Card is listed, normalize the reference title to that Card's title when it is the same canon.
 10. For a no-supported or ambiguous result, leave reference fields empty, sources may be empty, and give concrete search queries and a concise research record in researchNotes.
+11. Use ambiguous rather than external-reference when the average job confidence would be below 0.82 or any individual job confidence below 0.75.
 
 Research packet:
 ${JSON.stringify(packet, null, 2)}`;
@@ -344,32 +356,22 @@ function runCodexResearch(prompt, { timeoutMs = 600_000 } = {}) {
   const outputPath = path.join(temporaryRoot, "candidate.json");
   fs.writeFileSync(schemaPath, `${JSON.stringify(candidateSchema, null, 2)}\n`);
   return new Promise((resolve, reject) => {
-    const child = spawn("/Applications/Codex.app/Contents/Resources/codex", [
-      "exec",
-      "--ephemeral",
-      "--search",
-      "--sandbox",
-      "read-only",
-      "--ask-for-approval",
-      "never",
-      "--skip-git-repo-check",
-      "--output-schema",
-      schemaPath,
-      "--output-last-message",
-      outputPath,
-      "--color",
-      "never",
-      "-C",
-      temporaryRoot,
-      "-",
-    ], {
+    const child = spawn(
+      "/Applications/Codex.app/Contents/Resources/codex",
+      buildCodexExternalReferenceResearchArgs({
+        schemaPath,
+        outputPath,
+        workingDirectory: temporaryRoot,
+      }),
+      {
       cwd: temporaryRoot,
       env: {
         ...process.env,
         HAPA_ECHO_REFERENCE_RESEARCH_WORKER: "1",
       },
       stdio: ["pipe", "pipe", "pipe"],
-    });
+      },
+    );
     let stdout = "";
     let stderr = "";
     child.stdout.on("data", (chunk) => {
@@ -400,6 +402,35 @@ function runCodexResearch(prompt, { timeoutMs = 600_000 } = {}) {
     });
     child.stdin.end(prompt);
   });
+}
+
+async function runWithConcurrency(items, concurrency, worker) {
+  const results = new Array(items.length);
+  let nextIndex = 0;
+  async function consume() {
+    while (nextIndex < items.length) {
+      const index = nextIndex;
+      nextIndex += 1;
+      try {
+        results[index] = {
+          status: "fulfilled",
+          value: await worker(items[index], index),
+        };
+      } catch (error) {
+        results[index] = {
+          status: "rejected",
+          reason: error,
+        };
+      }
+    }
+  }
+  await Promise.all(
+    Array.from(
+      { length: Math.min(Math.max(1, concurrency), items.length) },
+      () => consume(),
+    ),
+  );
+  return results;
 }
 
 function validateCandidate(candidate, jobs) {
@@ -467,6 +498,7 @@ function jobResolution(candidate, job, researchedAt) {
     disposition: candidate.disposition,
     rationale: candidate.researchNotes,
     searchQueries: candidate.searchQueries,
+    sources: candidate.sources,
     caveat: candidate.disposition === "ambiguous"
       ? "A public reference remains plausible, but current evidence does not justify selecting one canon."
       : "No attributable external canon was established; this does not prove that no private or future-resolvable reference exists.",
@@ -666,6 +698,12 @@ function integrateValidated(loop, sourceRun, projectedRun, runtimeRoot, limit = 
     acceptedResults,
   });
   const accepted = new Map(acceptedJobs.map((job, index) => [job.id, cycle.acceptedResultHashes[index]]));
+  const sequence = String(list(loop.cycles).length + 1).padStart(3, "0");
+  const receipt = compactEchoExternalReferenceCycle(cycle, {
+    projectedRun: `cycles/${sequence}-projected-run.json`,
+    sharpening: `cycles/${sequence}-sharpening.json`,
+    artManifest: `cycles/${sequence}-gpt-image-manifest.json`,
+  });
   const nextLoop = {
     ...loop,
     jobs: list(loop.jobs).map((job) => accepted.has(job.id) ? {
@@ -678,13 +716,55 @@ function integrateValidated(loop, sourceRun, projectedRun, runtimeRoot, limit = 
         cycleId: cycle.cycleId,
       }],
     } : job),
-    cycles: [...list(loop.cycles), cycle],
+    cycles: [...list(loop.cycles), receipt],
   };
-  const sequence = String(nextLoop.cycles.length).padStart(3, "0");
-  atomicWriteJson(path.join(runtimeRoot, "cycles", `${sequence}.json`), cycle);
+  atomicWriteJson(path.join(runtimeRoot, "cycles", `${sequence}.json`), receipt);
+  atomicWriteJson(path.join(runtimeRoot, "cycles", `${sequence}-projected-run.json`), cycle.projectedRun);
+  atomicWriteJson(path.join(runtimeRoot, "cycles", `${sequence}-sharpening.json`), cycle.sharpening);
   atomicWriteJson(path.join(runtimeRoot, "cycles", `${sequence}-gpt-image-manifest.json`), cycle.artManifest);
-  atomicWriteJson(path.join(runtimeRoot, "latest-cycle.json"), cycle);
+  atomicWriteJson(path.join(runtimeRoot, "latest-cycle.json"), receipt);
   atomicWriteJson(path.join(runtimeRoot, "projected-run.json"), cycle.projectedRun);
+  atomicWriteJson(path.join(runtimeRoot, "latest-sharpening.json"), cycle.sharpening);
+  atomicWriteJson(path.join(runtimeRoot, "gpt-image-manifest.json"), cycle.artManifest);
+  return { loop: nextLoop, projectedRun: cycle.projectedRun, cycle };
+}
+
+function rebuildAcceptedProjection(loop, sourceRun, runtimeRoot, correction = {}) {
+  const previousCycle = list(loop.cycles).at(-1) || null;
+  const acceptedResults = list(loop.jobs)
+    .filter((job) => job.status === "integrated" && job.result)
+    .map((job) => job.result);
+  const built = buildEchoExternalReferenceCycle({
+    sourceRun,
+    previousCycle,
+    acceptedResults,
+  });
+  const cycle = {
+    ...built,
+    correction: {
+      type: "human-quality-reclassification",
+      ...correction,
+      acceptedResultCount: acceptedResults.length,
+      rebuiltAt: new Date().toISOString(),
+    },
+  };
+  const sequence = String(list(loop.cycles).length + 1).padStart(3, "0");
+  const receipt = compactEchoExternalReferenceCycle(cycle, {
+    projectedRun: `cycles/${sequence}-projected-run.json`,
+    sharpening: `cycles/${sequence}-sharpening.json`,
+    artManifest: `cycles/${sequence}-gpt-image-manifest.json`,
+  });
+  const nextLoop = {
+    ...loop,
+    cycles: [...list(loop.cycles), receipt],
+  };
+  atomicWriteJson(path.join(runtimeRoot, "cycles", `${sequence}.json`), receipt);
+  atomicWriteJson(path.join(runtimeRoot, "cycles", `${sequence}-projected-run.json`), cycle.projectedRun);
+  atomicWriteJson(path.join(runtimeRoot, "cycles", `${sequence}-sharpening.json`), cycle.sharpening);
+  atomicWriteJson(path.join(runtimeRoot, "cycles", `${sequence}-gpt-image-manifest.json`), cycle.artManifest);
+  atomicWriteJson(path.join(runtimeRoot, "latest-cycle.json"), receipt);
+  atomicWriteJson(path.join(runtimeRoot, "projected-run.json"), cycle.projectedRun);
+  atomicWriteJson(path.join(runtimeRoot, "latest-sharpening.json"), cycle.sharpening);
   atomicWriteJson(path.join(runtimeRoot, "gpt-image-manifest.json"), cycle.artManifest);
   return { loop: nextLoop, projectedRun: cycle.projectedRun, cycle };
 }
@@ -728,6 +808,208 @@ if (command === "status") {
       priority: Math.max(...jobs.map((job) => Number(job.priority || 0))),
     })),
   }, null, 2));
+} else if (command === "compact-loop") {
+  if (!apply) throw new Error("Loop compaction requires --apply.");
+  const backupPath = path.join(
+    ROOT,
+    "data",
+    "backups",
+    `echo-reference-loop-pre-compaction-${new Date().toISOString().replace(/[:.]/g, "-")}.json`,
+  );
+  copyLoopBackup(loopPath, backupPath);
+  const beforeBytes = fs.statSync(loopPath).size;
+  loop = {
+    ...loop,
+    cycles: list(loop.cycles).map((cycle, index) => {
+      const sequence = String(index + 1).padStart(3, "0");
+      return compactEchoExternalReferenceCycle(cycle, {
+        projectedRun: `cycles/${sequence}-projected-run.json`,
+        sharpening: `cycles/${sequence}-sharpening.json`,
+        artManifest: `cycles/${sequence}-gpt-image-manifest.json`,
+      });
+    }),
+  };
+  atomicWriteJson(loopPath, loop);
+  const afterBytes = fs.statSync(loopPath).size;
+  console.log(JSON.stringify({
+    ok: true,
+    command,
+    backupPath,
+    beforeBytes,
+    afterBytes,
+    bytesRemoved: beforeBytes - afterBytes,
+    ratio: Number((afterBytes / Math.max(1, beforeBytes)).toFixed(4)),
+    ...summarize(loop),
+  }, null, 2));
+} else if (command === "enrich-resolution-evidence") {
+  if (!apply) throw new Error("Resolution evidence enrichment requires --apply.");
+  const candidateRoot = path.join(runtimeRoot, "worker-candidates");
+  const candidates = fs.existsSync(candidateRoot)
+    ? fs.readdirSync(candidateRoot)
+      .filter((name) => name.endsWith(".json"))
+      .map((name) => readJson(path.join(candidateRoot, name)))
+    : [];
+  const byJobId = new Map();
+  for (const candidate of candidates) {
+    for (const analysis of list(candidate.jobAnalyses)) {
+      if (list(candidate.sources).length) byJobId.set(analysis.jobId, candidate);
+    }
+  }
+  const targets = list(loop.jobs).filter((job) => (
+    ["resolved-no-reference", "resolved-ambiguous"].includes(job.status)
+    && !list(job.resolution?.sources).length
+    && byJobId.has(job.id)
+  ));
+  if (!targets.length) {
+    console.log(JSON.stringify({
+      ok: true,
+      command,
+      message: "No unresolved research decisions need source-evidence enrichment.",
+      ...summarize(loop),
+    }, null, 2));
+    process.exit(0);
+  }
+  const backupPath = path.join(
+    ROOT,
+    "data",
+    "backups",
+    `echo-reference-resolution-evidence-${new Date().toISOString().replace(/[:.]/g, "-")}-loop.json`,
+  );
+  copyLoopBackup(loopPath, backupPath);
+  const receipts = [];
+  for (const job of targets) {
+    const candidate = byJobId.get(job.id);
+    const enriched = enrichEchoExternalReferenceResolutionEvidence(loop, {
+      jobId: job.id,
+      sources: candidate.sources,
+    });
+    if (!enriched.valid) {
+      throw new Error(`Resolution evidence enrichment failed for ${job.id}: ${enriched.errors.join(", ")}`);
+    }
+    loop = enriched.loop;
+    receipts.push({
+      jobId: job.id,
+      disposition: job.resolution.disposition,
+      sourceCount: list(enriched.resolution.sources).length,
+      resolutionHash: enriched.resolution.resolutionHash,
+    });
+  }
+  atomicWriteJson(loopPath, loop);
+  console.log(JSON.stringify({
+    ok: true,
+    command,
+    backupPath,
+    receipts,
+    ...summarize(loop),
+  }, null, 2));
+} else if (command === "audit-resolution") {
+  if (!apply) throw new Error("Audit reclassification requires --apply.");
+  const jobId = text(option("--job"));
+  const disposition = text(option("--disposition"));
+  const rationale = text(option("--reason"));
+  if (!jobId || !rationale) throw new Error("Audit reclassification requires --job and --reason.");
+  const candidateRoot = path.join(runtimeRoot, "worker-candidates");
+  const candidates = fs.existsSync(candidateRoot)
+    ? fs.readdirSync(candidateRoot)
+      .filter((name) => name.endsWith(".json"))
+      .map((name) => readJson(path.join(candidateRoot, name)))
+    : [];
+  const candidate = candidates.find((row) => list(row.jobAnalyses).some((analysis) => analysis.jobId === jobId));
+  const job = list(loop.jobs).find((row) => row.id === jobId);
+  if (!job) throw new Error(`Unknown research job ${jobId}.`);
+  const backupPath = path.join(
+    ROOT,
+    "data",
+    "backups",
+    `echo-reference-human-audit-${new Date().toISOString().replace(/[:.]/g, "-")}-loop.json`,
+  );
+  copyLoopBackup(loopPath, backupPath);
+  const reclassified = reclassifyIntegratedEchoExternalReferenceJob(loop, {
+    resolution: {
+      jobId,
+      disposition,
+      rationale,
+      searchQueries: list(candidate?.searchQueries),
+      sources: list(candidate?.sources),
+      caveat: `The prior ${text(job.result?.reference?.title, "Reference Card")} proposal remains in audit history but is removed from the active projection because the evidence does not justify selecting it over unresolved alternatives.`,
+    },
+    reviewer: {
+      id: "codex-human-quality-audit.v1",
+      model: "human-reviewed-source-and-connection-audit",
+    },
+  });
+  if (!reclassified.valid) {
+    throw new Error(`Audit reclassification failed: ${reclassified.errors.join(", ")}`);
+  }
+  loop = reclassified.loop;
+  const rebuilt = rebuildAcceptedProjection(loop, sourceRun, runtimeRoot, {
+    jobId,
+    priorReferenceTitle: text(job.result?.reference?.title),
+    disposition,
+    rationale,
+  });
+  loop = rebuilt.loop;
+  projectedRun = rebuilt.projectedRun;
+  atomicWriteJson(loopPath, loop);
+  console.log(JSON.stringify({
+    ok: true,
+    command,
+    backupPath,
+    jobId,
+    disposition,
+    priorReferenceTitle: text(job.result?.reference?.title),
+    priorResultHash: reclassified.priorResultHash,
+    correctionCycleId: rebuilt.cycle.cycleId,
+    correctionMetrics: rebuilt.cycle.metrics,
+    correctionDelta: rebuilt.cycle.delta,
+    ...summarize(loop),
+  }, null, 2));
+} else if (command === "audit-exact-signals") {
+  if (!apply) throw new Error("Signal restriction audit requires --apply.");
+  const jobId = text(option("--job"));
+  if (!jobId) throw new Error("Signal restriction audit requires --job.");
+  const job = list(loop.jobs).find((row) => row.id === jobId);
+  if (!job) throw new Error(`Unknown research job ${jobId}.`);
+  const signal = text(option("--signal"), clueOf(job).phrase);
+  const backupPath = path.join(
+    ROOT,
+    "data",
+    "backups",
+    `echo-reference-signal-audit-${new Date().toISOString().replace(/[:.]/g, "-")}-loop.json`,
+  );
+  copyLoopBackup(loopPath, backupPath);
+  const restricted = restrictIntegratedEchoExternalReferenceSignals(loop, sourceRun, {
+    jobId,
+    literalSignals: [signal],
+    reviewer: { id: "codex-human-quality-audit.v1" },
+  });
+  if (!restricted.valid) {
+    throw new Error(`Signal restriction failed: ${restricted.errors.join(", ")}`);
+  }
+  loop = restricted.loop;
+  const rebuilt = rebuildAcceptedProjection(loop, sourceRun, runtimeRoot, {
+    jobId,
+    priorReferenceTitle: text(job.result?.reference?.title),
+    action: "restrict-signals",
+    literalSignals: [signal],
+  });
+  loop = rebuilt.loop;
+  projectedRun = rebuilt.projectedRun;
+  atomicWriteJson(loopPath, loop);
+  console.log(JSON.stringify({
+    ok: true,
+    command,
+    backupPath,
+    jobId,
+    referenceTitle: text(job.result?.reference?.title),
+    priorResultHash: restricted.priorResultHash,
+    resultHash: restricted.resultHash,
+    literalSignals: [signal],
+    correctionCycleId: rebuilt.cycle.cycleId,
+    correctionMetrics: rebuilt.cycle.metrics,
+    correctionDelta: rebuilt.cycle.delta,
+    ...summarize(loop),
+  }, null, 2));
 } else if (command === "triage-local") {
   if (!apply) throw new Error("Local metadata triage requires --apply.");
   const limit = Math.max(1, numberOption("--limit", Number.MAX_SAFE_INTEGER));
@@ -749,7 +1031,7 @@ if (command === "status") {
     "backups",
     `echo-reference-local-triage-${new Date().toISOString().replace(/[:.]/g, "-")}-loop.json`,
   );
-  atomicWriteJson(backupPath, loop);
+  copyLoopBackup(loopPath, backupPath);
   const receipts = [];
   for (const candidate of candidates) {
     const claim = claimEchoExternalReferenceJobs(loop, {
@@ -817,7 +1099,7 @@ if (command === "status") {
     "backups",
     `echo-reference-local-reconcile-${new Date().toISOString().replace(/[:.]/g, "-")}-loop.json`,
   );
-  atomicWriteJson(backupPath, loop);
+  copyLoopBackup(loopPath, backupPath);
   const receipts = [];
   for (const candidate of candidates) {
     const claim = claimEchoExternalReferenceJobs(loop, {
@@ -897,6 +1179,7 @@ if (command === "status") {
 } else if (command === "run") {
   if (!apply) throw new Error("Research run requires --apply.");
   const limit = Math.max(1, numberOption("--limit", 1));
+  const concurrency = Math.min(4, Math.max(1, numberOption("--concurrency", 1)));
   const timeoutMs = Math.max(60_000, numberOption("--timeout-ms", 600_000));
   const onlyCluster = text(option("--cluster")).toLowerCase();
   const queued = list(loop.jobs).filter((job) => job.status === "queued");
@@ -915,8 +1198,9 @@ if (command === "status") {
     "backups",
     `echo-reference-research-runner-${new Date().toISOString().replace(/[:.]/g, "-")}-loop.json`,
   );
-  atomicWriteJson(backupPath, loop);
+  copyLoopBackup(loopPath, backupPath);
   const receipts = [];
+  const claimedGroups = [];
   for (const [key, jobs] of groups) {
     const claim = claimEchoExternalReferenceJobs(loop, {
       runner: runnerId,
@@ -926,14 +1210,29 @@ if (command === "status") {
     });
     loop = claim.loop;
     atomicWriteJson(loopPath, loop);
+    claimedGroups.push({ key, jobs: claim.claimed });
+  }
+  const outcomes = await runWithConcurrency(
+    claimedGroups,
+    concurrency,
+    async ({ key, jobs }) => ({
+      key,
+      jobs,
+      candidate: await runCodexResearch(buildPrompt(projectedRun, jobs), { timeoutMs }),
+    }),
+  );
+  for (let index = 0; index < claimedGroups.length; index += 1) {
+    const { key, jobs } = claimedGroups[index];
+    const outcome = outcomes[index];
     try {
-      const candidate = await runCodexResearch(buildPrompt(projectedRun, claim.claimed), { timeoutMs });
-      const candidateErrors = validateCandidate(candidate, claim.claimed);
+      if (outcome.status === "rejected") throw outcome.reason;
+      const candidate = calibrateEchoExternalReferenceCandidate(outcome.value.candidate);
+      const candidateErrors = validateCandidate(candidate, jobs);
       if (candidateErrors.length) throw new Error(`Worker candidate failed validation: ${candidateErrors.join(", ")}`);
       const researchedAt = new Date().toISOString();
       const validations = [];
       if (candidate.disposition === "external-reference") {
-        for (const job of claim.claimed) {
+        for (const job of jobs) {
           const submission = submitEchoExternalReferenceResult(loop, projectedRun, {
             result: researchResult(candidate, job, researchedAt),
           });
@@ -947,7 +1246,7 @@ if (command === "status") {
           });
         }
       } else {
-        for (const job of claim.claimed) {
+        for (const job of jobs) {
           const resolution = resolveEchoExternalReferenceJob(loop, {
             resolution: jobResolution(candidate, job, researchedAt),
           });
@@ -963,19 +1262,18 @@ if (command === "status") {
         clusterKey: key,
         disposition: candidate.disposition,
         referenceTitle: candidate.reference?.title || "",
-        jobs: claim.claimed.length,
+        jobs: jobs.length,
         validations,
         candidatePath,
       });
     } catch (error) {
-      loop = releaseFailedClaims(loop, claim.claimed, error);
+      loop = releaseFailedClaims(loop, jobs, error);
       atomicWriteJson(loopPath, loop);
       receipts.push({
         clusterKey: key,
         error: text(error.message || error),
-        jobs: claim.claimed.length,
+        jobs: jobs.length,
       });
-      break;
     }
   }
   const integrated = integrateValidated(loop, sourceRun, projectedRun, runtimeRoot);
@@ -985,6 +1283,7 @@ if (command === "status") {
   console.log(JSON.stringify({
     ok: receipts.every((receipt) => !receipt.error),
     command,
+    concurrency,
     backupPath,
     receipts,
     cycle: integrated.cycle ? {
@@ -996,5 +1295,5 @@ if (command === "status") {
     ...summarize(loop),
   }, null, 2));
 } else {
-  throw new Error(`Unknown command ${command}. Expected status, plan, triage-local, reconcile-local, or run.`);
+  throw new Error(`Unknown command ${command}. Expected status, plan, compact-loop, enrich-resolution-evidence, audit-resolution, audit-exact-signals, triage-local, reconcile-local, or run.`);
 }

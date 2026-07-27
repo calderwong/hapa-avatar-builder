@@ -56,9 +56,10 @@ media, credentials, or mutation authority. The worker runs in an empty
 temporary directory under a read-only sandbox and can only return the
 schema-bound research candidate.
 
-Running the live worker still transmits this minimized packet to an external
-Codex/web-search session. The operator must explicitly authorize that
-disclosure before the first live batch.
+Running the live worker transmits this minimized packet to an external
+Codex/web-search session. The operator explicitly authorized that disclosure
+for the 2026-07-26 research run. Future runs still require their own operator
+authorization unless a broader standing policy is adopted.
 
 ## Commands
 
@@ -145,3 +146,26 @@ The research goal completes when every lyric-eligible song either:
 
 Only after that coverage audit should the resulting new Cards be considered a
 complete research population for the image and Adaptive Loop pipelines.
+
+## Completed reference run
+
+The authorized 2026-07-26/27 run closed all **234** queued jobs:
+
+- **82** integrated, source-backed proposals;
+- **8** resolved against existing Reference Cards;
+- **97** evidence-bearing no-reference resolutions;
+- **47** evidence-bearing ambiguous resolutions;
+- **0** queued clusters remaining.
+
+The supported proposals contain **59** distinct public references and **202**
+distinct source URLs. Every integrated result has at least one source, and no
+resolution is missing its research query or local evidence pointer.
+
+The album-wide recheck leaves **47** songs meeting the three-external-reference
+target and an external-reference deficit of **151**. That deficit is preserved
+honestly: exhausted clues remain explicit no-reference or ambiguous results
+instead of being converted into invented references.
+
+The resulting media population contains **144** GPT Image-eligible Cards. Each
+has a Reference image and a `model-depth-vertical-combined-adaptive-v1` loop;
+all remain non-canon, inactive, unminted, and pending human review.
