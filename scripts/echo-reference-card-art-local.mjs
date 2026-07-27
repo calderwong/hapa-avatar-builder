@@ -143,6 +143,8 @@ async function plan() {
       exactReferenceNamesSentToGenerator: false,
       exactLyricsSentToGenerator: false,
       layoutGeneratedByModel: false,
+      previewVisibility: "visible-before-review",
+      approvalControlsAuthorityNotVisibility: true,
       humanReviewRequired: true,
     },
   }, null, 2));
@@ -282,6 +284,7 @@ async function runCandidates() {
             height: queue.jobs[jobIndex].generation.height,
             fullBleed: true,
             modelGeneratedLayout: false,
+            previewVisibility: "visible-before-review",
           },
           assembledArtifact: {
             localPath: svgPath,

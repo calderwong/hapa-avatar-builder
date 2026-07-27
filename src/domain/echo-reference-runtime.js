@@ -21,6 +21,259 @@ function mediaUri(record = {}, kind = "image") {
   return String(source.runtimeUri || source.uri || source.path || "").trim();
 }
 
+function authorityEntryKey(cardId = "", revisionId = "") {
+  return `${String(cardId || "").trim()}\u0000${String(revisionId || "").trim()}`;
+}
+
+function authorityEntries(receipt = {}, key = "") {
+  return new Map(asArray(receipt?.[key]).map((entry) => [
+    authorityEntryKey(entry.cardId, entry.revisionId),
+    entry,
+  ]));
+}
+
+function appendDecisionId(provenance = {}, decisionId = "") {
+  const decisionIds = [...new Set([
+    ...asArray(provenance?.decisionIds),
+    String(decisionId || "").trim(),
+  ].filter(Boolean))];
+  return { ...(provenance || {}), decisionIds };
+}
+
+export function applyEchoReferencePreviewFirstAuthority(run = {}, mediaCatalog = {}, receipt = {}) {
+  const sourceRunHash = String(receipt?.source?.runHash || "");
+  const activeRunHash = String(run?.runHash || "");
+  const receiptApplies = Boolean(
+    receipt?.schemaVersion === "hapa.echo-reference-preview-first-authority.v1"
+    && sourceRunHash
+    && sourceRunHash === activeRunHash
+  );
+  if (!receiptApplies) {
+    return {
+      run,
+      mediaCatalog,
+      authoritySummary: {
+        status: receipt?.schemaVersion ? "stale-or-inapplicable" : "not-recorded",
+        receiptId: String(receipt?.id || ""),
+        approvedCards: 0,
+        resolvedWithoutPromotion: 0,
+        resolvedUnresolvedNodes: 0,
+        approvedConnections: 0,
+        resolvedConnections: 0,
+        resolvedResearchUpdates: 0,
+        approvedMedia: 0,
+        previewPolicy: "visible-before-review",
+      },
+    };
+  }
+
+  const approvedCards = authorityEntries(receipt, "approvedCards");
+  const resolvedCards = authorityEntries(receipt, "resolvedWithoutPromotion");
+  const approvedMedia = authorityEntries(receipt, "approvedMedia");
+  const resolvedContributionIds = new Set(asArray(receipt.resolvedResearchUpdates).map((entry) => entry.id));
+  const approvedAt = String(receipt.approvedAt || receipt.createdAt || "");
+  const approvedBy = String(receipt.approvedBy || receipt.actor || "human-owner");
+  const decisionId = String(receipt.id || "");
+  const approvedCardIds = new Set(asArray(receipt.approvedCards).map((entry) => entry.cardId));
+  const resolvedCardIds = new Set(asArray(receipt.resolvedWithoutPromotion).map((entry) => entry.cardId));
+
+  const cards = asArray(run.cards).map((card) => {
+    const key = authorityEntryKey(card.id, cardRevisionId(card));
+    const approved = approvedCards.get(key);
+    const resolved = resolvedCards.get(key);
+    if (approved) {
+      return {
+        ...card,
+        occurrences: asArray(card.occurrences).map((occurrence) => ({
+          ...occurrence,
+          status: occurrence.status === "challenged" ? "challenged" : "approved",
+        })),
+        interpretations: asArray(card.interpretations).map((interpretation) => ({
+          ...interpretation,
+          status: interpretation.status === "challenged" ? "challenged" : "approved",
+          approvedBy,
+        })),
+        relationships: asArray(card.relationships).map((relationship) => (
+          relationship.evidenceClass === "unresolved"
+            ? {
+              ...relationship,
+              status: "rejected",
+              humanApproved: false,
+              provenance: appendDecisionId(relationship.provenance, decisionId),
+            }
+            : {
+              ...relationship,
+              status: relationship.status === "challenged" ? "challenged" : "approved",
+              humanApproved: true,
+              provenance: appendDecisionId(relationship.provenance, decisionId),
+            }
+        )),
+        authority: {
+          ...(card.authority || {}),
+          reviewStatus: "approved",
+          approvedBy,
+          approvedAt,
+        },
+        reviewResolution: {
+          status: "approved-for-local-interpretive-use",
+          scope: asArray(receipt.policy?.approvedUseScopes),
+          receiptId: decisionId,
+          canonPromotion: false,
+          publicActivation: false,
+        },
+      };
+    }
+    if (resolved) {
+      return {
+        ...card,
+        unresolved: asArray(card.unresolved).map((item) => ({
+          ...item,
+          status: "resolved-without-promotion",
+        })),
+        authority: {
+          ...(card.authority || {}),
+          reviewStatus: "rejected",
+        },
+        reviewResolution: {
+          status: "resolved-without-promotion",
+          reason: String(resolved.reason || "No supported reference was promoted in this review pass."),
+          receiptId: decisionId,
+          retriable: true,
+          canonPromotion: false,
+          publicActivation: false,
+        },
+      };
+    }
+    return card;
+  });
+
+  const graph = {
+    ...(run.graph || {}),
+    edges: asArray(run.graph?.edges).map((edge) => {
+      if (edge.evidenceClass === "unresolved"
+        || resolvedCardIds.has(edge.fromId)
+        || resolvedCardIds.has(edge.toId)) {
+        return {
+          ...edge,
+          status: "rejected",
+          humanApproved: false,
+          reviewResolution: "resolved-without-promotion",
+          provenance: appendDecisionId(edge.provenance, decisionId),
+        };
+      }
+      if (approvedCardIds.has(edge.fromId)
+        || approvedCardIds.has(edge.toId)
+        || edge.fromType === "song"
+        || edge.toType === "song") {
+        return {
+          ...edge,
+          status: edge.status === "challenged" ? "challenged" : "approved",
+          humanApproved: true,
+          provenance: appendDecisionId(edge.provenance, decisionId),
+        };
+      }
+      return edge;
+    }),
+  };
+
+  const governedRun = {
+    ...run,
+    cards,
+    graph,
+    unresolved: asArray(run.unresolved).map((item) => ({
+      ...item,
+      status: "resolved-without-promotion",
+      resolution: {
+        receiptId: decisionId,
+        retriable: true,
+        promotedReferenceCardId: null,
+      },
+    })),
+    contributions: asArray(run.contributions).map((entry) => (
+      resolvedContributionIds.has(entry.id)
+        ? {
+          ...entry,
+          status: "resolved-approved",
+          resolvedAt: approvedAt,
+          resolvedBy: approvedBy,
+          authorityReceiptId: decisionId,
+        }
+        : entry
+    )),
+    previewFirstAuthority: {
+      schemaVersion: receipt.schemaVersion,
+      receiptId: decisionId,
+      approvedAt,
+      approvedBy,
+      policy: receipt.policy,
+    },
+  };
+
+  const governedRecords = asArray(mediaCatalog?.records).map((record) => {
+    const key = authorityEntryKey(mediaCardId(record), mediaRevisionId(record));
+    if (!approvedMedia.has(key)) {
+      return {
+        ...record,
+        custody: {
+          ...(record.custody || {}),
+          previewVisibility: "visible-before-review",
+          reviewStatus: String(record.custody?.reviewStatus || "pending-review"),
+        },
+      };
+    }
+    return {
+      ...record,
+      custody: {
+        ...(record.custody || {}),
+        previewVisibility: "visible-before-review",
+        reviewStatus: "approved",
+        approvedBy,
+        approvedAt,
+        authorityReceiptId: decisionId,
+        humanReviewRequired: false,
+        publicActivation: false,
+        canonPromotion: false,
+        mint: false,
+      },
+    };
+  });
+  const governedMediaCatalog = {
+    ...mediaCatalog,
+    records: governedRecords,
+    custody: {
+      ...(mediaCatalog?.custody || {}),
+      previewVisibility: "visible-before-review",
+      reviewStatus: "approved",
+      approvedBy,
+      approvedAt,
+      authorityReceiptId: decisionId,
+      humanReviewRequired: false,
+      publicActivation: false,
+      canonPromotion: false,
+      mint: false,
+    },
+  };
+
+  return {
+    run: governedRun,
+    mediaCatalog: governedMediaCatalog,
+    authoritySummary: {
+      status: "applied",
+      receiptId: decisionId,
+      approvedCards: approvedCards.size,
+      resolvedWithoutPromotion: resolvedCards.size,
+      resolvedUnresolvedNodes: asArray(governedRun.unresolved).length,
+      approvedConnections: asArray(graph.edges).filter((edge) => edge.status === "approved").length,
+      resolvedConnections: asArray(graph.edges).filter((edge) => edge.reviewResolution === "resolved-without-promotion").length,
+      resolvedResearchUpdates: resolvedContributionIds.size,
+      approvedMedia: approvedMedia.size,
+      previewPolicy: "visible-before-review",
+      publicActivation: false,
+      canonPromotion: false,
+    },
+  };
+}
+
 export function selectEchoReferenceRuntimeRun({ localRun = null, researchRun = null } = {}) {
   const researchCards = asArray(researchRun?.cards);
   const localCards = asArray(localRun?.cards);
@@ -77,7 +330,11 @@ export function attachEchoReferenceMedia(run = {}, mediaCatalog = {}) {
         },
         pattern: String(record.pattern?.id || record.pattern || record.treatment || ""),
         technical: { ...(record.technical || {}) },
-        custody: { ...(record.custody || {}) },
+        custody: {
+          previewVisibility: "visible-before-review",
+          reviewStatus: String(record.custody?.reviewStatus || "pending-review"),
+          ...(record.custody || {}),
+        },
         createdAt: String(record.createdAt || mediaCatalog.updatedAt || mediaCatalog.generatedAt || ""),
       },
     };

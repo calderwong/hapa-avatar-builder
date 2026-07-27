@@ -2123,6 +2123,7 @@ async function route(req, res) {
       unresolved: projection.unresolved,
       graph: { counts: projection.graph?.counts || {} },
       runtime: projection.runtime,
+      mediaGallery: projection.mediaGallery,
     } : projection);
     return;
   }

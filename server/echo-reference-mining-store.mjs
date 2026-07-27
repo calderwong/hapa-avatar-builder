@@ -29,6 +29,7 @@ import {
   validateHapaReferenceCard,
 } from "../src/domain/hapa-reference-card.js";
 import {
+  applyEchoReferencePreviewFirstAuthority,
   attachEchoReferenceMedia,
   buildEchoReferenceTarotCards,
   selectEchoReferenceRuntimeRun,
@@ -72,6 +73,9 @@ export function createEchoReferenceMiningStore(options = {}) {
   const latestPath = path.join(root, "latest.json");
   const researchProjectionPath = path.resolve(options.researchProjectionPath || "data/echo-reference-research-loop/projected-run.json");
   const animatedMediaPath = path.resolve(options.animatedMediaPath || "data/echo-reference-animated-media.json");
+  const previewFirstAuthorityPath = path.resolve(
+    options.previewFirstAuthorityPath || "data/echo-reference-governance/preview-first-authority.json"
+  );
   const eventsPath = path.join(root, "events.ndjson");
   const revisionsPath = path.join(root, "card-revisions.ndjson");
   const auditPath = path.join(root, "audit.json");
@@ -282,10 +286,11 @@ export function createEchoReferenceMiningStore(options = {}) {
   }
 
   async function currentRun(runOptions = {}) {
-    const [latest, researchProjection, mediaCatalog, contributionEvents] = await Promise.all([
+    const [latest, researchProjection, mediaCatalog, previewFirstAuthority, contributionEvents] = await Promise.all([
       readJsonCached(latestPath),
       readJsonCached(researchProjectionPath),
       readJsonCached(animatedMediaPath, { records: [] }),
+      readJsonCached(previewFirstAuthorityPath, null),
       contributions(),
     ]);
     const selected = selectEchoReferenceRuntimeRun({
@@ -294,12 +299,13 @@ export function createEchoReferenceMiningStore(options = {}) {
     });
     if (selected.run) {
       const contributionProjection = foldEchoReferenceContributionEvents(contributionEvents);
-      const active = attachEchoReferenceMedia({
+      const governed = applyEchoReferencePreviewFirstAuthority({
         ...selected.run,
         contributions: selected.run.contributions?.length
           ? selected.run.contributions
           : contributionProjection,
-      }, mediaCatalog);
+      }, mediaCatalog, previewFirstAuthority || {});
+      const active = attachEchoReferenceMedia(governed.run, governed.mediaCatalog);
       return {
         ...active,
         referenceRuntime: {
@@ -307,6 +313,7 @@ export function createEchoReferenceMiningStore(options = {}) {
           source: selected.source,
           localRunHash: String(latest?.runHash || ""),
           researchRunHash: String(researchProjection?.runHash || ""),
+          authority: governed.authoritySummary,
         },
       };
     }
@@ -565,7 +572,26 @@ export function createEchoReferenceMiningStore(options = {}) {
       includeCards: projectionOptions.includeCards !== false,
       includeGraph: projectionOptions.includeGraph !== false,
     });
-    const withRuntime = { ...projected, runtime: active.referenceRuntime || null };
+    const mediaGallery = (active.cards || [])
+      .filter((card) => card.presentationMedia?.image?.uri)
+      .sort((left, right) => (
+        String(left.occurrences?.[0]?.songTitle || "").localeCompare(String(right.occurrences?.[0]?.songTitle || ""))
+        || String(left.title || "").localeCompare(String(right.title || ""))
+      ))
+      .slice(0, 24)
+      .map((card) => ({
+        id: card.id,
+        title: card.title,
+        revisionId: card.revisionId,
+        authority: card.authority,
+        presentationMedia: card.presentationMedia,
+        occurrence: card.occurrences?.[0] || null,
+      }));
+    const withRuntime = {
+      ...projected,
+      runtime: active.referenceRuntime || null,
+      mediaGallery,
+    };
     if (!projectionOptions.lens && !projectionOptions.query) return withRuntime;
     return {
       ...withRuntime,
@@ -602,6 +628,7 @@ export function createEchoReferenceMiningStore(options = {}) {
     latestPath,
     researchProjectionPath,
     animatedMediaPath,
+    previewFirstAuthorityPath,
     eventsPath,
     revisionsPath,
     auditPath,

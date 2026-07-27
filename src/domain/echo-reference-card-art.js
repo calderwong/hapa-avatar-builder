@@ -249,6 +249,8 @@ export function buildEchoReferenceArtQueue(run = {}, options = {}) {
         custody: {
           sourceCardUnchanged: true,
           generatedOutputIsIdentityTruth: false,
+          previewVisibility: "visible-before-review",
+          approvalControlsAuthorityNotVisibility: true,
           publicActivation: false,
           canonPromotion: false,
           mint: false,
@@ -315,6 +317,12 @@ export function reviewEchoReferenceArtJob(queue = {}, input = {}, now = () => ne
     return {
       ...job,
       status: decision,
+      custody: {
+        ...(job.custody || {}),
+        previewVisibility: "visible-before-review",
+        reviewStatus: decision,
+        humanReviewRequired: false,
+      },
       review: {
         status: "completed",
         decision,

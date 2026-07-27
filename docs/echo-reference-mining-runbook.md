@@ -7,7 +7,28 @@ This runbook operates the local-first Echo Album reference system in Hapa Avatar
 - Current production scope is the complete album: every current song is a mining target and a possible reference source.
 - The former 25-song pilot is retired by operator decision. Do not use it as a sampling boundary. A historical reproduction may be dry-run for regression only, but it must not replace the all-song result.
 - A one-song run means “recompute this target against every other current album source,” not “analyze this song in isolation.”
-- Contributions are local or invited, append-only, shared by default, non-canon, and Human-reviewed.
+- Contributions are local or invited, append-only, shared by default, non-canon, and visible for Human review before approval.
+
+## Preview-first authority rule
+
+Review must never hide the evidence needed to perform the review. Reference text, graph paths, still images, and looping videos are visible in Reference Atlas as soon as they have a valid local projection and exact Card-revision binding.
+
+Visibility answers **“what am I reviewing?”** Approval answers **“where may this exact revision be trusted and used?”** Canon, public activation, minting, publication, and commerce remain separate authorities.
+
+- Pending proposals render with a visible-before-review label.
+- Approval can enable local Reference Atlas, Tarot Draw, and Echo Director candidate use.
+- An unresolved lead may be closed as `resolved-without-promotion`; it remains inspectable and retriable.
+- A stale Card/media revision binding is not shown as current media.
+- Generated media is never identity truth merely because it can be previewed.
+
+To plan or apply an explicit Human-owner batch decision:
+
+```sh
+npm run echo:references:approve-preview-batch
+npm run echo:references:approve-preview-batch:apply
+```
+
+The command writes an exact-revision authority receipt under `data/echo-reference-governance/`. Repeating the same decision is idempotent. A changed source run or media catalog requires a new receipt. The receipt explicitly leaves public activation, canon, mint, and commerce false.
 
 ## Status vocabulary
 
@@ -16,6 +37,7 @@ This runbook operates the local-first Echo Album reference system in Hapa Avatar
 - `approved`: local Human approval for the exact revision only.
 - `challenged`, `rejected`, `superseded`, `withdrawn`: append-only lifecycle states.
 - `unresolved`: a preserved evidence gap, not a negative finding.
+- `resolved-without-promotion`: reviewed for the current pass, not promoted as a supported reference, and still retriable.
 - `exploratory-draft`: unapproved content explicitly enabled for private/local comparison.
 - `canon` and `public`: separate Human-authority gates; neither follows from approval.
 
@@ -128,7 +150,7 @@ BFL_API_KEY=... npm run echo:reference-art:run -- --limit 1 --apply --confirm-co
 
 Both flags are required. The key remains process-local. The adapter accepts only official BFL API hosts, follows the provider-returned polling URL, accepts signed `delivery.*.bfl.ai` image URLs, downloads them immediately, verifies the media boundary, hashes the bytes, and stores only local artifacts plus a provider receipt.
 
-Successful jobs stop at `review-required`. Accept or reject an exact artifact:
+Successful jobs stop at `review-required`, but their generated image is already visible in the local review surface. Accept or reject an exact artifact:
 
 ```sh
 npm run echo:reference-art:review -- \
@@ -184,8 +206,9 @@ Classify a match as same entity, related entity, homonym, adaptation, alias, tra
 
 ## Safe downstream use
 
-- Avatar Mind, screenplay, and director projections default to approved exact revisions.
-- Unapproved candidates enter only an explicitly labeled exploratory draft.
+- Reference Atlas always renders valid local proposals and their exact-revision media so review is informed.
+- Avatar Mind, screenplay, and authoritative director projections default to approved exact revisions.
+- Unapproved candidates enter only an explicitly labeled exploratory draft, even though their Atlas preview remains visible.
 - Private clues are excluded.
 - Packets carry evidence class, caveats, provenance, approval, and revision.
 - Director instructions may use thematic, mechanical, and emotional insight but may not claim authorial intent or unsupported canon.

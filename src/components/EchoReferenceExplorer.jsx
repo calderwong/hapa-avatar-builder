@@ -174,6 +174,37 @@ function EchoReferenceMedia({ card, motion = false, className = "" }) {
   return <div className={`${className} echo-ref-media-placeholder`} aria-hidden="true"><Network size={24} /></div>;
 }
 
+function EchoReferenceMediaGallery({ cards = [], onOpen = () => {} }) {
+  if (!cards.length) return null;
+  return (
+    <section className="echo-ref-media-gallery" aria-label="Approved Reference Card visual gallery">
+      <header>
+        <div>
+          <strong>Visual Reference Cards</strong>
+          <span>Images and animated loops stay visible while you inspect their meaning and connections.</span>
+        </div>
+        <em>{cards.length} of the approved visual set · select to explore</em>
+      </header>
+      <div>
+        {cards.map((card, index) => (
+          <button
+            key={card.id}
+            type="button"
+            onClick={() => onOpen(card)}
+            aria-label={`Explore ${card.title} in ${card.occurrence?.songTitle || "the Reference Atlas"}`}
+          >
+            <EchoReferenceMedia card={card} motion={index < 6} />
+            <span>
+              <b>{card.title}</b>
+              <small>{card.occurrence?.songTitle || "Album reference"}</small>
+            </span>
+          </button>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 function EchoReferenceMindMap({ graph, cards = [], focusedCardId, currentSongId, privacyProjection, onFocusCard }) {
   const [relationFilter, setRelationFilter] = useState("all");
   const [evidenceFilter, setEvidenceFilter] = useState("all");
@@ -705,6 +736,7 @@ function EchoReferenceInspector({ card, inspection, mode, onClose, onAdd, onChal
         <span>
           {referenceLoopUri(card) ? "Adaptive animated loop" : referenceImageUri(card) ? "Reference image" : "Media pending"}
           {card.presentationMedia?.pattern ? ` · ${card.presentationMedia.pattern}` : ""}
+          {" · "}{card.presentationMedia?.custody?.reviewStatus === "approved" ? "approved for local use" : "preview visible before approval"}
         </span>
       </div>
       <div className="echo-ref-authority-grid">
@@ -1595,7 +1627,7 @@ export default function EchoReferenceExplorer({
           <h3><Network size={20} /> Mine References across the complete album</h3>
           <span>
             Every one of {summary?.album?.songCount || 0} songs can be both a target and a reference source.
-            Suggestions remain reviewable; public and canon authority stay separate.
+            Every proposed connection and visual is visible before approval; public and canon authority stay separate.
           </span>
         </div>
         <div className="echo-ref-run-controls">
@@ -1603,7 +1635,8 @@ export default function EchoReferenceExplorer({
           <span><b>{summary?.runtime?.totalCards?.toLocaleString() || summary?.graph?.counts?.cards?.toLocaleString() || summary?.audit?.validCards?.toLocaleString() || "—"}</b> cards</span>
           <span><b>{summary?.runtime?.researchProposals?.toLocaleString() || 0}</b> research updates</span>
           <span><b>{summary?.runtime?.loops?.toLocaleString() || 0}</b> image + loop pairs</span>
-          <span><b>{summary?.unresolved?.length || 0}</b> unresolved</span>
+          <span><b>{summary?.runtime?.authority?.approvedCards?.toLocaleString() || 0}</b> approved locally</span>
+          <span><b>{summary?.runtime?.authority?.resolvedUnresolvedNodes?.toLocaleString() || 0}</b> resolved leads</span>
           <span><b>{batchPreview?.estimatedLocalWorkUnits?.toLocaleString() || "—"}</b> local work units · $0 paid</span>
           <button type="button" onClick={runSelectedSong} disabled={mining || !selectedSongId}>
             <Search size={14} /> Mine selected song
@@ -1613,6 +1646,31 @@ export default function EchoReferenceExplorer({
           </button>
         </div>
       </header>
+      <div className="echo-ref-preview-policy" role="note">
+        <ShieldCheck size={15} />
+        <div>
+          <strong>Preview first</strong>
+          <span>
+            Text, images, loops, and graph paths render before review so a person can inspect what they are deciding.
+            Approval controls trusted Atlas/Tarot/Director use—not whether the proposal can be seen.
+          </span>
+        </div>
+        <em>
+          {summary?.runtime?.authority?.status === "applied"
+            ? `${summary.runtime.authority.approvedMedia || 0} visuals approved`
+            : "review state does not hide previews"}
+        </em>
+      </div>
+      <EchoReferenceMediaGallery
+        cards={summary?.mediaGallery || []}
+        onOpen={(card) => {
+          const songId = String(card.occurrence?.songId || "");
+          if (songId) setSelectedSongId(songId);
+          setFocusedCardId(card.id);
+          setShowCandidates(true);
+          setMode("explore");
+        }}
+      />
 
       <nav className="echo-ref-mode-tabs" aria-label="Reference explorer mode">
         {MODES.map((item) => (
@@ -1663,12 +1721,13 @@ export default function EchoReferenceExplorer({
           aria-pressed={showCandidates}
           onClick={() => setShowCandidates((value) => !value)}
         >
-          {showCandidates ? "Hide review candidates" : "Show review candidates"}
+          {showCandidates ? "Focus approved only" : "Show all previews"}
         </button>
       </div>
       <p className="echo-ref-lens-legend">
         Legend: song ▭ · Reference Card ● · solid/dashed edge = approved/proposed · ✓/◌/!/? = approved/review/challenged/unresolved
         {" · "}confidence is numeric. Shift-click compatible lenses to combine.
+        {" · "}Preview visibility never implies canon or publication.
         {authorityCards.length > visibleCards.length ? ` ${authorityCards.length - visibleCards.length} cards hidden by the current lens or search.` : ""}
       </p>
       {searchResults.length > 0 && (

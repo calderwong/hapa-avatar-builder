@@ -256,6 +256,8 @@ export function compileEchoReferenceVisualScene(card = {}, run = {}) {
       exactLyricsSentToGenerator: false,
       cardLayoutSentToGenerator: false,
       sourceEvidenceRetainedLocally: true,
+      previewVisibility: "visible-before-review",
+      approvalControlsAuthorityNotVisibility: true,
       humanReviewRequired: true,
     },
   };
@@ -357,6 +359,8 @@ export function buildEchoReferenceLocalArtQueue(run = {}, options = {}) {
           localOnlyDefault: true,
           sourceCardUnchanged: true,
           generatedOutputIsIdentityTruth: false,
+          previewVisibility: "visible-before-review",
+          approvalControlsAuthorityNotVisibility: true,
           publicActivation: false,
           canonPromotion: false,
           mint: false,
@@ -477,6 +481,7 @@ export function buildEchoReferenceCardSvg({
     candidateId,
     imageSha256,
     generatedOutputIsIdentityTruth: false,
+    previewVisibility: "visible-before-review",
     humanReviewRequired: true,
   }));
   return [
@@ -566,6 +571,8 @@ export function buildEchoReferenceKreaFinishHandoff(queue = {}, input = {}, now 
     custody: {
       sourceArtifactUnchanged: true,
       generatedOutputIsIdentityTruth: false,
+      previewVisibility: "visible-before-review",
+      approvalControlsAuthorityNotVisibility: true,
       publicActivation: false,
       canonPromotion: false,
       mint: false,

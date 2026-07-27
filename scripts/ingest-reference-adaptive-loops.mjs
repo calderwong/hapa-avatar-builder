@@ -99,7 +99,12 @@ async function main() {
     if (sourceCard.revisionId !== record.card.revisionId) {
       throw new Error(`Reference Card revision mismatch for ${record.card.id}: ${record.card.revisionId} != ${sourceCard.revisionId}`);
     }
-    if (record.custody?.humanReviewRequired !== true || record.custody?.canonPromotion !== false) {
+    const previewVisible = record.custody?.previewVisibility === "visible-before-review"
+      || record.custody?.humanReviewRequired === true;
+    const reviewBoundaryValid = record.custody?.reviewStatus === "approved"
+      ? record.custody?.humanReviewRequired === false
+      : record.custody?.humanReviewRequired === true;
+    if (!previewVisible || !reviewBoundaryValid || record.custody?.canonPromotion !== false) {
       throw new Error(`Reference media custody boundary is missing for ${record.card.id}`);
     }
     if (record.technical?.directorEligible !== true
@@ -189,6 +194,8 @@ async function main() {
     records,
     custody: {
       sourceCardsUnchanged: true,
+      previewVisibility: "visible-before-review",
+      approvalControlsAuthorityNotVisibility: true,
       publicActivation: false,
       canonPromotion: false,
       mint: false,

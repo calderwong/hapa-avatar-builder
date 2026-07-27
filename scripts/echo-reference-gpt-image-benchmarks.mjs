@@ -171,6 +171,7 @@ async function importImage() {
       mediaType,
       generator: manifest.generator,
       generatedProposal: true,
+      previewVisibility: "visible-before-review",
       humanReviewRequired: true,
     },
     assembledArtifact: {
@@ -178,6 +179,7 @@ async function importImage() {
       sha256: sha256(svgBytes),
       mediaType: "image/svg+xml",
       deterministicAssembly: true,
+      previewVisibility: "visible-before-review",
     },
   };
   await atomicWriteJson(manifestPath, manifest);

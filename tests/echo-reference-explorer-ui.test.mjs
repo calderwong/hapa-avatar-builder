@@ -102,8 +102,8 @@ test("Echos mining entrypoint, clue expansion, and audit view expose scope while
 test("playback rail defaults safe, exposes candidate mode, supports jumps, and composer covers proposal types and duplicate routing", async () => {
   const source = await fs.readFile(componentUrl, "utf8");
   assert.match(source, /showCandidates \|\| card\.authority\?\.reviewStatus === "approved"/);
-  assert.match(source, /Show review candidates/);
-  assert.match(source, /Hide review candidates/);
+  assert.match(source, /Show all previews/);
+  assert.match(source, /Focus approved only/);
   assert.match(source, /Jump to related song moment/);
   assert.match(source, /onSeek\(occurrence\.lyricSpan\.startSeconds\)/);
   assert.match(source, /New Reference Card/);
@@ -114,6 +114,24 @@ test("playback rail defaults safe, exposes candidate mode, supports jumps, and c
   assert.match(source, /Lyric line start/);
   assert.match(source, /Possible duplicate routed to existing card/);
   assert.match(source, /setMode\("compare"\)/);
+});
+
+test("preview-first policy makes text and media inspectable before approval while keeping authority separate", async () => {
+  const [source, css] = await Promise.all([
+    fs.readFile(componentUrl, "utf8"),
+    fs.readFile(cssUrl, "utf8"),
+  ]);
+  assert.match(source, /Preview first/);
+  assert.match(source, /Every proposed connection and visual is visible before approval/);
+  assert.match(source, /Approval controls trusted Atlas\/Tarot\/Director use—not whether the proposal can be seen/);
+  assert.match(source, /preview visible before approval/);
+  assert.match(source, /Preview visibility never implies canon or publication/);
+  assert.match(source, /Visual Reference Cards/);
+  assert.match(source, /Images and animated loops stay visible while you inspect their meaning and connections/);
+  assert.match(source, /summary\?\.mediaGallery/);
+  assert.match(source, /setSelectedSongId\(songId\)/);
+  assert.match(css, /\.echo-ref-preview-policy/);
+  assert.match(css, /\.echo-ref-media-gallery/);
 });
 
 test("operator runbook replaces the former pilot with all-song procedure and documents recovery and safe extension", async () => {
