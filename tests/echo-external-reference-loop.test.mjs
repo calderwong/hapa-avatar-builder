@@ -172,6 +172,27 @@ test("records an evidence-bearing no-reference resolution without fabricating a 
   assert.ok(resolved.resolution.resolutionHash);
 });
 
+test("closes duplicate research work against an already attributable occurrence", () => {
+  const { run, sharpening } = fixture();
+  let loop = seedEchoExternalReferenceLoop(run, sharpening);
+  const claimed = claimEchoExternalReferenceJobs(loop, { runner: "local-reconciler", limit: 1 });
+  loop = claimed.loop;
+  const resolved = resolveEchoExternalReferenceJob(loop, {
+    resolution: {
+      schemaVersion: ECHO_EXTERNAL_REFERENCE_RESOLUTION_SCHEMA,
+      jobId: claimed.claimed[0].id,
+      disposition: "existing-reference",
+      targetCardId: "reference:the-great-gatsby",
+      occurrenceId: "song-one:the-great-gatsby:lines-1-1",
+      rationale: "The exact lyric target already has an attributable occurrence.",
+      searchQueries: [],
+      caveat: "Closing duplicate work does not promote canon.",
+    },
+  });
+  assert.equal(resolved.valid, true);
+  assert.equal(resolved.loop.jobs[0].status, "resolved-existing-reference");
+});
+
 test("reseed preserves terminal research decisions when the exact lyric target is unchanged", () => {
   const { run, sharpening } = fixture();
   let loop = seedEchoExternalReferenceLoop(run, sharpening, () => "2026-07-26T00:00:00.000Z");

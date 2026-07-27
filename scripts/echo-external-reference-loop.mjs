@@ -67,6 +67,7 @@ function statusOf(loop = {}) {
     latestCycle: loop.cycles?.at(-1)?.cycleId || "",
     terminalJobs: (loop.jobs || []).filter((job) => [
       "integrated",
+      "resolved-existing-reference",
       "resolved-no-reference",
       "resolved-ambiguous",
     ].includes(job.status)).length,

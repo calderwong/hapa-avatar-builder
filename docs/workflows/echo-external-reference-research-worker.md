@@ -74,6 +74,19 @@ Preview the next clusters without external calls:
 npm run echo:references:research:worker:plan -- --limit 10
 ```
 
+Reuse already attributable local Reference Cards before making external calls:
+
+```bash
+npm run echo:references:research:worker:reconcile-local -- --apply
+```
+
+This deterministic pass only accepts one unambiguous title, alias, or
+distinctive literal-signal match. If the exact occurrence already exists, it
+closes the duplicate queue job with a lineaged `existing-reference` receipt.
+If the occurrence is missing, it reuses the Card's citations, claims, context,
+themes, mechanics, and signal vocabulary to propose the exact lyric
+connection through the same validator and cycle path.
+
 Run one bounded live cluster after disclosure approval:
 
 ```bash

@@ -64,6 +64,15 @@ function slug(value = "") {
     .slice(0, 120);
 }
 
+function normalizedPhrase(value = "") {
+  return text(String(value || ""))
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
 function clueOf(job = {}) {
   return list(job.candidateClues)[0] || {};
 }
@@ -76,6 +85,7 @@ function clusterKey(job = {}) {
 function terminal(job = {}) {
   return [
     "integrated",
+    "resolved-existing-reference",
     "resolved-no-reference",
     "resolved-ambiguous",
   ].includes(job.status);
@@ -468,6 +478,142 @@ function jobResolution(candidate, job, researchedAt) {
   };
 }
 
+function publicCitation(citation = {}) {
+  try {
+    const url = new URL(citation.url);
+    return ["http:", "https:"].includes(url.protocol);
+  } catch {
+    return false;
+  }
+}
+
+function localSourceMatches(run = {}, job = {}) {
+  const query = normalizedPhrase(clueOf(job).phrase);
+  if (!query) return [];
+  return list(run.cards)
+    .filter((card) => card.id?.startsWith("reference:") && list(card.citations).some(publicCitation))
+    .flatMap((card) => {
+      const candidates = [
+        { type: "title", value: card.title },
+        ...list(card.aliases).map((value) => ({ type: "alias", value })),
+        ...list(card.signalLexicon?.literal).map((value) => ({ type: "literal", value })),
+      ];
+      const match = candidates.find(({ type, value }) => {
+        const signal = normalizedPhrase(value);
+        if (!signal) return false;
+        if (signal === query) return true;
+        const multiword = signal.includes(" ");
+        return query.includes(signal) && (["title", "alias"].includes(type) || multiword);
+      });
+      return match ? [{ card, match }] : [];
+    });
+}
+
+function occurrenceAtJob(card = {}, job = {}) {
+  const lineNumber = Number(clueOf(job).lineNumber || 0);
+  return list(card.occurrences).find((occurrence) => (
+    occurrence.songId === job.songId
+    && Number(occurrence.lyricSpan?.lineStart || 0) <= lineNumber
+    && Number(occurrence.lyricSpan?.lineEnd || 0) >= lineNumber
+  ));
+}
+
+function claimTextForCitation(card = {}, citation = {}) {
+  const claimIds = new Set(list(citation.claimIds));
+  const claim = list(card.claims).find((candidate) => (
+    claimIds.has(candidate.id)
+    || list(candidate.citationIds).includes(citation.id)
+  ));
+  return text(
+    claim?.text,
+    `${text(citation.label, card.title)} supplies attributable public context for ${card.title}.`,
+  );
+}
+
+function localReuseResult(card, job, researchedAt) {
+  const clue = clueOf(job);
+  const interpretation = list(card.interpretations)[0] || {};
+  const layers = interpretation.readingLayers || {};
+  const literalSignals = list(card.signalLexicon?.literal);
+  const symbols = list(card.research?.symbols).length
+    ? list(card.research.symbols)
+    : literalSignals.slice(0, 8);
+  return {
+    schemaVersion: ECHO_EXTERNAL_REFERENCE_RESEARCH_RESULT_SCHEMA,
+    jobId: job.id,
+    reference: {
+      title: card.title,
+      aliases: list(card.aliases),
+      referenceType: text(card.referenceType, "external-reference"),
+      publicContext: text(card.publicContext || card.summary),
+    },
+    sources: list(card.citations).filter(publicCitation).map((citation, index) => ({
+      id: text(citation.id, `${slug(card.title)}:local-source-${index + 1}`),
+      label: text(citation.label, card.title),
+      url: citation.url,
+      sourceClass: text(citation.sourceClass, "authoritative-reference"),
+      publisher: text(citation.publisher),
+      author: text(citation.author),
+      publishedAt: text(citation.publishedAt),
+      retrievedAt: text(citation.retrievedAt || citation.freshness?.checkedAt, researchedAt.slice(0, 10)),
+      supportsClaim: claimTextForCitation(card, citation),
+      confidence: 0.9,
+    })),
+    lyricEvidence: [{
+      songId: job.songId,
+      lineNumber: Number(clue.lineNumber),
+      lyricText: clue.lyricText,
+      matchedText: clue.phrase,
+      confidence: 0.9,
+    }],
+    reading: {
+      withoutContext: `Without loading ${card.title}, “${clue.phrase}” can be read as literal or album-internal language.`,
+      withContext: text(layers.contextual || interpretation.summary || card.publicContext || card.summary),
+      narrativeConsequence: text(
+        layers.narrative,
+        `The existing ${card.title} Card becomes a comparison lens for this exact lyric moment.`,
+      ),
+    },
+    themeDelta: {
+      effect: "extends",
+      takeaway: text(
+        layers.thematic,
+        list(card.themes).join(", "),
+      ),
+    },
+    alternativeReadings: [{
+      summary: "The matched phrase may also carry private, album-internal, literal, or other public meanings; source reuse does not prove exclusive authorial intent.",
+    }],
+    sharedLanguage: {
+      symbols,
+      themes: list(card.themes),
+      characters: list(card.research?.characters || card.mediaEntities),
+      narrativeBeats: [text(layers.narrative)].filter(Boolean),
+      mechanics: list(card.mechanics),
+      emotions: list(card.emotions),
+      audioMotifs: list(card.research?.audioMotifs),
+    },
+    signals: {
+      literal: list(card.signalLexicon?.literal),
+      phonetic: list(card.signalLexicon?.phonetic),
+      orthographic: list(card.signalLexicon?.orthographic),
+      multilingual: list(card.signalLexicon?.multilingual),
+      mechanical: list(card.signalLexicon?.mechanical),
+    },
+    confidence: 0.9,
+    caveat: "This result reuses an already attributable Reference Card and exact lyric match; it does not establish exclusive songwriter intent.",
+    authority: {
+      authorialIntentEstablished: false,
+      canonStatus: "non-canon",
+    },
+    researcher: {
+      id: "local-reference-card-reconciler.v1",
+      model: "deterministic-source-reuse",
+    },
+    researchedAt,
+  };
+}
+
 function releaseFailedClaims(loop, jobs, error) {
   const selected = new Set(jobs.map((job) => job.id));
   return {
@@ -559,6 +705,108 @@ if (command === "status") {
       songs: jobs.map((job) => job.songTitle),
       priority: Math.max(...jobs.map((job) => Number(job.priority || 0))),
     })),
+  }, null, 2));
+} else if (command === "reconcile-local") {
+  if (!apply) throw new Error("Local reconciliation requires --apply.");
+  const limit = Math.max(1, numberOption("--limit", Number.MAX_SAFE_INTEGER));
+  const candidates = list(loop.jobs)
+    .filter((job) => job.status === "queued")
+    .flatMap((job) => {
+      const matches = localSourceMatches(projectedRun, job);
+      return matches.length === 1 ? [{ job, ...matches[0] }] : [];
+    })
+    .slice(0, limit);
+  if (!candidates.length) {
+    console.log(JSON.stringify({
+      ok: true,
+      command,
+      message: "No unambiguous local source matches remain.",
+      ...summarize(loop),
+    }, null, 2));
+    process.exit(0);
+  }
+  const backupPath = path.join(
+    ROOT,
+    "data",
+    "backups",
+    `echo-reference-local-reconcile-${new Date().toISOString().replace(/[:.]/g, "-")}-loop.json`,
+  );
+  atomicWriteJson(backupPath, loop);
+  const receipts = [];
+  for (const candidate of candidates) {
+    const claim = claimEchoExternalReferenceJobs(loop, {
+      runner: "local-reference-card-reconciler.v1",
+      limit: 1,
+      jobIds: [candidate.job.id],
+    });
+    loop = claim.loop;
+    const job = claim.claimed[0];
+    const existing = occurrenceAtJob(candidate.card, job);
+    if (existing) {
+      const resolution = resolveEchoExternalReferenceJob(loop, {
+        resolution: {
+          schemaVersion: ECHO_EXTERNAL_REFERENCE_RESOLUTION_SCHEMA,
+          jobId: job.id,
+          disposition: "existing-reference",
+          targetCardId: candidate.card.id,
+          occurrenceId: existing.id,
+          rationale: `The exact lyric target is already connected to the attributable ${candidate.card.title} Reference Card.`,
+          searchQueries: [],
+          caveat: "This closes duplicate queue work; it does not promote the interpretation or Card to canon.",
+          researcher: {
+            id: "local-reference-card-reconciler.v1",
+            model: "deterministic-source-reuse",
+          },
+        },
+      });
+      if (!resolution.valid) throw new Error(`Local resolution failed: ${resolution.errors.join(", ")}`);
+      loop = resolution.loop;
+      receipts.push({
+        jobId: job.id,
+        action: "resolved-existing-occurrence",
+        cardId: candidate.card.id,
+        occurrenceId: existing.id,
+      });
+      continue;
+    }
+    const submission = submitEchoExternalReferenceResult(loop, projectedRun, {
+      result: localReuseResult(candidate.card, job, new Date().toISOString()),
+    });
+    if (!submission.validation.valid) {
+      loop = releaseFailedClaims(loop, [job], new Error(submission.validation.errors.join(", ")));
+      receipts.push({
+        jobId: job.id,
+        action: "held-local-reuse",
+        cardId: candidate.card.id,
+        validation: submission.validation,
+      });
+      continue;
+    }
+    loop = submission.loop;
+    receipts.push({
+      jobId: job.id,
+      action: "validated-local-reuse",
+      cardId: candidate.card.id,
+      qualityScore: submission.validation.qualityScore,
+      warnings: submission.validation.warnings,
+    });
+  }
+  const integrated = integrateValidated(loop, sourceRun, projectedRun, runtimeRoot);
+  loop = integrated.loop;
+  projectedRun = integrated.projectedRun;
+  atomicWriteJson(loopPath, loop);
+  console.log(JSON.stringify({
+    ok: receipts.every((receipt) => receipt.action !== "held-local-reuse"),
+    command,
+    backupPath,
+    receipts,
+    cycle: integrated.cycle ? {
+      cycleId: integrated.cycle.cycleId,
+      metrics: integrated.cycle.metrics,
+      delta: integrated.cycle.delta,
+      quality: integrated.cycle.quality,
+    } : null,
+    ...summarize(loop),
   }, null, 2));
 } else if (command === "run") {
   if (!apply) throw new Error("Research run requires --apply.");
@@ -662,5 +910,5 @@ if (command === "status") {
     ...summarize(loop),
   }, null, 2));
 } else {
-  throw new Error(`Unknown command ${command}. Expected status, plan, or run.`);
+  throw new Error(`Unknown command ${command}. Expected status, plan, reconcile-local, or run.`);
 }

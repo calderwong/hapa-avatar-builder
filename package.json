@@ -80,6 +80,7 @@
     "echo:references:research:art-next": "node scripts/echo-external-reference-loop.mjs art-next",
     "echo:references:research:worker:status": "node scripts/echo-external-reference-research-runner.mjs status",
     "echo:references:research:worker:plan": "node scripts/echo-external-reference-research-runner.mjs plan",
+    "echo:references:research:worker:reconcile-local": "node scripts/echo-external-reference-research-runner.mjs reconcile-local",
     "echo:references:research:worker:run": "node scripts/echo-external-reference-research-runner.mjs run",
     "echo:reference-art:plan": "node scripts/echo-reference-card-art.mjs plan",
     "echo:reference-art:status": "node scripts/echo-reference-card-art.mjs status",

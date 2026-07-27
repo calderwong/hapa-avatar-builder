@@ -521,6 +521,7 @@ export function buildEchoExternalReferenceCycle({
 const PRESERVED_RESEARCH_JOB_STATUSES = new Set([
   "validated",
   "integrated",
+  "resolved-existing-reference",
   "resolved-no-reference",
   "resolved-ambiguous",
 ]);
@@ -655,9 +656,12 @@ export function resolveEchoExternalReferenceJob(loop = {}, input = {}, now = () 
   }
   const errors = [];
   if (resolution.schemaVersion !== ECHO_EXTERNAL_REFERENCE_RESOLUTION_SCHEMA) errors.push("invalid-schema");
-  if (!["no-supported-reference", "ambiguous"].includes(resolution.disposition)) errors.push("invalid-disposition");
+  if (!["existing-reference", "no-supported-reference", "ambiguous"].includes(resolution.disposition)) errors.push("invalid-disposition");
   if (!text(resolution.rationale)) errors.push("missing-rationale");
-  if (!list(resolution.searchQueries).length) errors.push("missing-search-queries");
+  if (resolution.disposition === "existing-reference") {
+    if (!text(resolution.targetCardId)) errors.push("missing-target-card");
+    if (!text(resolution.occurrenceId)) errors.push("missing-occurrence");
+  } else if (!list(resolution.searchQueries).length) errors.push("missing-search-queries");
   if (!text(resolution.caveat)) errors.push("missing-caveat");
   if (errors.length) return {
     loop,
@@ -670,9 +674,11 @@ export function resolveEchoExternalReferenceJob(loop = {}, input = {}, now = () 
     resolvedAt: text(resolution.resolvedAt, nowValue(now)),
     resolutionHash: echoReferenceDigest(resolution),
   };
-  const status = resolution.disposition === "no-supported-reference"
-    ? "resolved-no-reference"
-    : "resolved-ambiguous";
+  const status = resolution.disposition === "existing-reference"
+    ? "resolved-existing-reference"
+    : resolution.disposition === "no-supported-reference"
+      ? "resolved-no-reference"
+      : "resolved-ambiguous";
   const jobs = list(loop.jobs).map((candidate) => candidate.id === jobId ? {
     ...candidate,
     status,
