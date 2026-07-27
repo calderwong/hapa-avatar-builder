@@ -14,6 +14,7 @@ import {
   detectEchoCatalogActivations,
   runEchoReferenceMining,
 } from "../src/domain/echo-reference-mining.js";
+import { normalizeSongReferenceCatalog } from "../src/domain/song-reference-graph.js";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -33,7 +34,15 @@ test("Expansion UI context pack is source-labeled, unique, and mechanically usef
   }
 });
 
-test("Expansion UI context activates dense public clusters and the private playlist clue without canon promotion", () => {
+test("creator public-release attestations survive catalog normalization", () => {
+  const playlistSource = ECHO_EXPANSION_CONTEXT_REFERENCES
+    .find((reference) => reference.id === "fray-i-found-you-playlist-origin");
+  const [normalized] = normalizeSongReferenceCatalog([playlistSource]);
+  assert.equal(normalized.source.publicRelease, true);
+  assert.equal(normalized.source.evidenceClass, "direct");
+});
+
+test("Expansion UI context activates dense public clusters and creator-released personal context without canon promotion", () => {
   const store = JSON.parse(fs.readFileSync(path.join(ROOT, "data/hapa-songs-store.json"), "utf8"));
   const byId = new Map((store.referenceCatalog || []).map((reference) => [reference.id, reference]));
   for (const reference of ECHO_EXPANSION_CONTEXT_REFERENCES) byId.set(reference.id, reference);
@@ -76,8 +85,10 @@ test("Expansion UI context activates dense public clusters and the private playl
     referenceCatalog: [...byId.values()],
   }, { generatedAt: "2026-07-25T00:00:00.000Z" });
   const playlist = run.cards.find((card) => card.id === "reference:fray-i-found-you-playlist-origin");
-  assert.equal(playlist.rightsAndPrivacy.visibility, "private");
-  assert.equal(playlist.rightsAndPrivacy.containsPrivateClues, true);
+  assert.equal(playlist.rightsAndPrivacy.visibility, "shared");
+  assert.equal(playlist.rightsAndPrivacy.containsPrivateClues, false);
+  assert.equal(playlist.rightsAndPrivacy.publicProjectionAllowed, true);
+  assert.equal(playlist.authority.evidenceClass, "direct");
   assert.equal(playlist.authority.canonStatus, "non-canon");
 });
 

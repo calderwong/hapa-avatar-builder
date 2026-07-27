@@ -984,7 +984,12 @@ export function migrateEchoReferenceCatalog(packet = {}) {
     const citationId = `${reference.id}:source`;
     const claimId = `${reference.id}:legacy-source-fact`;
     const sourceUrl = text(reference.source?.url);
-    const containsPrivateClues = /personal|private|conversation-grounded/i.test([
+    const explicitPublicRelease = reference.source?.publicRelease === true
+      || reference.disclosure?.visibility === "public";
+    const directPublicTestimony = explicitPublicRelease
+      && reference.source?.evidenceClass === "direct";
+    const sourceBacked = Boolean(sourceUrl) || directPublicTestimony;
+    const containsPrivateClues = !explicitPublicRelease && /personal|private|conversation-grounded/i.test([
       reference.kind,
       reference.source?.sourceKind,
     ].filter(Boolean).join(" "));
@@ -999,7 +1004,7 @@ export function migrateEchoReferenceCatalog(packet = {}) {
       summary: text(reference.publicContext),
       publicContext: text(reference.publicContext),
       occurrences,
-      citations: sourceUrl ? [{
+      citations: sourceBacked ? [{
         id: citationId,
         label: text(reference.source?.label, reference.title),
         url: sourceUrl,
@@ -1022,10 +1027,12 @@ export function migrateEchoReferenceCatalog(packet = {}) {
         kind: "source-fact",
         text: sourceUrl
           ? `The legacy reference catalog identifies ${text(reference.title, reference.id)} and provides a resolvable source pointer.`
-          : `The legacy reference catalog identifies ${text(reference.title, reference.id)} without a resolvable source pointer.`,
-        evidenceClass: sourceUrl ? "direct" : "unresolved",
-        confidence: sourceUrl ? 0.9 : 0.35,
-        citationIds: sourceUrl ? [citationId] : [],
+          : directPublicTestimony
+            ? `The creator publicly supplies ${text(reference.title, reference.id)} as first-party context for the linked lyric moments.`
+            : `The legacy reference catalog identifies ${text(reference.title, reference.id)} without a resolvable source pointer.`,
+        evidenceClass: sourceBacked ? "direct" : "unresolved",
+        confidence: sourceUrl ? 0.9 : directPublicTestimony ? 0.86 : 0.35,
+        citationIds: sourceBacked ? [citationId] : [],
         occurrenceIds: occurrences.map((occurrence) => occurrence.id),
         caveat: "Migration preserves the legacy catalog assertion; it does not establish authorial intent.",
       }, ...inferredActivations.map((activation) => ({
@@ -1085,7 +1092,7 @@ export function migrateEchoReferenceCatalog(packet = {}) {
       themes: reference.themes,
       mechanics: reference.mechanics,
       authority: {
-        evidenceClass: sourceUrl ? "direct" : "unresolved",
+        evidenceClass: sourceBacked ? "direct" : "unresolved",
         reviewStatus: "pending-review",
         canonStatus: "non-canon",
       },
@@ -1095,7 +1102,7 @@ export function migrateEchoReferenceCatalog(packet = {}) {
         containsPrivateClues,
         licenseStatus: "reference-only",
         quotationPolicy: "metadata-and-analysis-only",
-        publicProjectionAllowed: false,
+        publicProjectionAllowed: explicitPublicRelease,
       },
       custody: {
         originCoreKey: "local:hapa-avatar-builder",

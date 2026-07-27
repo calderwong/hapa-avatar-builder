@@ -1,10 +1,11 @@
 export const ECHO_EXPANSION_CONTEXT_PACK_VERSION = "echo-expansion-context-pack.v2";
 
-const source = (label, url, sourceKind = "official-or-authoritative-reference") => ({
+const source = (label, url, sourceKind = "official-or-authoritative-reference", options = {}) => ({
   label,
   url,
   sourceKind,
   checkedAt: "2026-07-26",
+  ...options,
 });
 
 export const ECHO_EXPANSION_CONTEXT_REFERENCES = Object.freeze([
@@ -30,7 +31,12 @@ export const ECHO_EXPANSION_CONTEXT_REFERENCES = Object.freeze([
     mechanics: ["first-track anchor", "ordered traversal", "song-to-song expansion"],
     traversalTerms: ["I Found You", "The Fray"],
     signalLexicon: { mechanical: ["started a list", "last cigarette", "before we met"] },
-    source: source("Human-supplied playlist-order clue", "", "conversation-grounded-private-context"),
+    source: source(
+      "Calder Wong — public playlist-order context",
+      "hapa://creator-context/fray-i-found-you-playlist-origin",
+      "conversation-grounded-public-context",
+      { publicRelease: true, evidenceClass: "direct" },
+    ),
   },
   {
     id: "hbo-game-of-thrones-watch",
@@ -366,7 +372,12 @@ export const ECHO_EXPANSION_CONTEXT_REFERENCES = Object.freeze([
     mechanics: ["biographical timestamp", "institution-versus-prior-promise"],
     traversalTerms: ["West-Co", "Wesco", "Snow-hoe", "Snohomish"],
     signalLexicon: { literal: ["West-Co", "Snow-hoe"], mechanical: ["even before West-Co", "promised a Snow-hoe"] },
-    source: source("Human-supplied regional and nickname context", "", "conversation-grounded-private-context"),
+    source: source(
+      "Calder Wong — public regional and nickname context",
+      "hapa://creator-context/westco-snohomish-origin",
+      "conversation-grounded-public-context",
+      { publicRelease: true, evidenceClass: "direct" },
+    ),
   },
   {
     id: "kew-yew-symbolism",

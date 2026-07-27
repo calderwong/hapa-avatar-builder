@@ -1,5 +1,9 @@
 # Reference Atlas Adaptive Default loops — 2026-07-26
 
+> Historical 82-Card benchmark. The completed 89-Card production pass, including
+> creator-released personal context, is recorded in
+> `2026-07-26-reference-atlas-gpt-image-production-completion.md`.
+
 ## Objective
 
 Give every currently eligible new Reference Card a repeatable still + looping

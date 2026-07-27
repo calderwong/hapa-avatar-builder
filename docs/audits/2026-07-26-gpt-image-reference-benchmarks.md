@@ -1,5 +1,9 @@
 # GPT Image Reference Atlas benchmark audit — 2026-07-26
 
+> Historical 82-Card benchmark. The completed 89-Card production pass, including
+> creator-released personal context, is recorded in
+> `2026-07-26-reference-atlas-gpt-image-production-completion.md`.
+
 ## Objective
 
 Generate a complete GPT Image high-water benchmark for the current eligible Reference Atlas and explain exactly why other Atlas Cards are not eligible.

@@ -60,6 +60,41 @@ const PILOT_SCENE_RECIPES = Object.freeze({
     environment: "an unfamiliar bioluminescent valley where several paths converge",
     symbols: ["interconnected capability threads", "paused fragments of time", "different bodies retaining distinct silhouettes"],
   },
+  "reference:fray-i-found-you-playlist-origin": {
+    thesis: "A personal playlist can preserve an ordered route through memory rather than merely collecting songs.",
+    subject: "an original adult archivist at a listening table before meeting the person the route will later address",
+    action: "anchors the first translucent music token, extinguishes a final cigarette in a glass dish, and threads the remaining tokens into one continuous luminous path",
+    environment: "a dark winter room opening toward a distant dawn, with the ordered path crossing the threshold",
+    symbols: ["the first token glowing brighter than the rest", "one extinguished cigarette", "an unbroken audio ribbon"],
+  },
+  "reference:asante-page-81": {
+    thesis: "A translated thank-you becomes inherited, embodied gratitude when a shared page is carried into living action.",
+    subject: "an original grandmother and adult grandchild sharing an open book",
+    action: "the grandmother touches one unmarked page while a warm red-gold current passes through their joined hands and settles into a delicate permanent mark on the grandchild's forearm",
+    environment: "a quiet reading room whose window opens toward a sunlit Kenyan landscape without treating it as exotic spectacle",
+    symbols: ["one open unmarked page", "joined hands", "a living red-gold skin mark"],
+  },
+  "reference:batman": {
+    thesis: "Detective skill and vigilance become restraint when the investigator stops at another person's consent boundary.",
+    subject: "an original non-superpowered night investigator in practical unmarked urban gear",
+    action: "uses compact optical tools to trace a pattern across rooftops, then deliberately lowers the tools at an illuminated threshold held closed by another person's raised hand",
+    environment: "a rain-dark modern city above a quiet protected apartment",
+    symbols: ["a precise evidence thread", "lowered tools", "a warm boundary light"],
+  },
+  "reference:marvel-s-thor": {
+    thesis: "Worthiness is expressed by using concentrated power to build, bless, and reconnect rather than merely strike.",
+    subject: "an original humble storm guardian carrying a plain short-handled forge hammer",
+    action: "channels lightning through the hammer to weld a broken sky bridge while a circular passage opens safely behind the repaired span",
+    environment: "a high storm-lit realm connecting a celestial settlement to the living earth below",
+    symbols: ["a returning hammer arc", "a repaired bridge joint", "a circular passage of rain and light"],
+  },
+  "reference:westco-snohomish-origin": {
+    thesis: "A private promise made before school uniforms and team identities can remain morally prior to the institutions that arrive later.",
+    subject: "two original Washington teenagers beside a cold Snohomish river before an athletic season begins",
+    action: "tie a simple promise knot around a weathered wooden marker while unmarked school uniforms wait untouched inside a field house behind them",
+    environment: "a misty Pacific Northwest school field meeting river, forest, and early snow",
+    symbols: ["the hand-tied knot", "unworn uniforms", "one snowy field tool resting beside the river"],
+  },
 });
 
 function text(value, fallback = "") {

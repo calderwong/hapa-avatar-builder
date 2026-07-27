@@ -98,7 +98,11 @@ async function plan() {
   const run = await readJson(runPath);
   const previous = await readJson(manifestPath, { jobs: [] });
   const planned = buildEchoReferenceGptImageBenchmarkManifest(run, { cardIds: options("--card") });
-  const manifest = mergeEchoReferenceGptImageBenchmarkManifest(previous, planned);
+  let manifest = mergeEchoReferenceGptImageBenchmarkManifest(previous, planned);
+  for (const mergePath of options("--merge-manifest")) {
+    const prior = await readJson(path.resolve(mergePath), { jobs: [] });
+    manifest = mergeEchoReferenceGptImageBenchmarkManifest(prior, manifest);
+  }
   const apply = args.includes("--apply");
   if (apply) await atomicWriteJson(manifestPath, manifest);
   console.log(JSON.stringify({ ok: true, command: "plan", applied: apply, providerCalls: 0, ...summary(manifest) }, null, 2));

@@ -11,13 +11,17 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const MEDIA_ROOT = path.join(ROOT, "data", "media", "echo-reference-animated-cards");
 const CATALOG_PATH = path.join(ROOT, "data", "echo-reference-animated-media.json");
 const TECHNICAL_CACHE_PATH = path.join(ROOT, "artifacts", "echo-media-affordances", "technical-cache-v2.json");
-const REFERENCE_RUN_PATH = path.join(ROOT, "data", "echo-reference-mining", "latest.json");
+const DEFAULT_REFERENCE_RUN_PATH = path.join(ROOT, "data", "echo-reference-mining", "latest.json");
 const REPORTS_DIR = path.join(ROOT, "data", "merge-reports");
 const BACKUPS_DIR = path.join(ROOT, "data", "backups");
 const args = process.argv.slice(2);
 const APPLY = args.includes("--apply");
 const catalogIndex = args.indexOf("--catalog");
 const SOURCE_CATALOG = catalogIndex >= 0 ? path.resolve(args[catalogIndex + 1] || "") : "";
+const referenceRunIndex = args.indexOf("--reference-run");
+const REFERENCE_RUN_PATH = referenceRunIndex >= 0
+  ? path.resolve(args[referenceRunIndex + 1] || "")
+  : DEFAULT_REFERENCE_RUN_PATH;
 const STARTED_AT = new Date().toISOString();
 const RUN_ID = `reference-adaptive-loop-ingest-${STARTED_AT.replace(/[:.]/g, "-")}`;
 
@@ -71,7 +75,9 @@ async function assertArtifact(record, key) {
 }
 
 async function main() {
-  if (!SOURCE_CATALOG) throw new Error("Usage: node scripts/ingest-reference-adaptive-loops.mjs --catalog <catalog.json> [--apply]");
+  if (!SOURCE_CATALOG) {
+    throw new Error("Usage: node scripts/ingest-reference-adaptive-loops.mjs --catalog <catalog.json> [--reference-run <run.json>] [--apply]");
+  }
   const [sourceCatalog, referenceRun, technicalCache, currentCatalog] = await Promise.all([
     readJson(SOURCE_CATALOG),
     readJson(REFERENCE_RUN_PATH),

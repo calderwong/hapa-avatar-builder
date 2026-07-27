@@ -390,6 +390,49 @@ export function projectEchoExternalReferenceResults(run = {}, acceptedResults = 
   return { projectedRun: projected, changes };
 }
 
+export function rebaseEchoExternalReferenceProjection(sourceRun = {}, priorProjectedRun = {}) {
+  const baseCards = list(sourceRun.cards).map((card) => structuredClone(card));
+  const baseIds = new Set(baseCards.map((card) => card.id));
+  const researchCards = list(priorProjectedRun.cards)
+    .filter((card) => card.research?.sourceResultHash)
+    .map((card) => structuredClone(card));
+  const appended = researchCards.filter((card) => !baseIds.has(card.id));
+  const refreshed = baseCards.map((card) => {
+    const prior = researchCards.find((candidate) => candidate.id === card.id);
+    return prior ? mergeCard(card, prior) : card;
+  });
+  const researchContributions = list(priorProjectedRun.contributions)
+    .filter((contribution) => contribution.type === "external-reference-research-proposal");
+  const contributions = [...new Map([
+    ...list(sourceRun.contributions),
+    ...researchContributions,
+  ].map((row) => [row.id, structuredClone(row)])).values()];
+  const cards = [...refreshed, ...appended];
+  const projectedRun = {
+    ...structuredClone(sourceRun),
+    cards,
+    contributions,
+  };
+  projectedRun.runHash = echoReferenceDigest({
+    sourceRunHash: sourceRun.runHash,
+    cards,
+    contributions,
+  });
+  return {
+    projectedRun,
+    receipt: {
+      sourceRunId: sourceRun.runId,
+      sourceRunHash: sourceRun.runHash,
+      priorProjectedRunId: priorProjectedRun.runId,
+      priorProjectedRunHash: priorProjectedRun.runHash,
+      researchCardsReplayed: researchCards.length,
+      researchCardsAppended: appended.length,
+      researchCardsRefreshed: researchCards.length - appended.length,
+      researchContributionsPreserved: researchContributions.length,
+    },
+  };
+}
+
 function snapshotMetrics(sharpening = {}, artManifest = {}) {
   const final = sharpening.benchmarkComparison?.at(-1)?.headline || {};
   return {
@@ -449,6 +492,7 @@ export function buildEchoExternalReferenceCycle({
     sourceRunHash: sourceRun.runHash,
     priorCycleId: previousCycle?.cycleId || "",
     acceptedResultHashes: validations.map((row) => row.resultHash),
+    researchResults: acceptedResults,
     changes: projection.changes,
     metrics,
     delta,

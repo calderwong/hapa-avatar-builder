@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import {
   buildEchoExternalReferenceCycle,
   claimEchoExternalReferenceJobs,
+  rebaseEchoExternalReferenceProjection,
   seedEchoExternalReferenceLoop,
   submitEchoExternalReferenceResult,
 } from "../src/domain/echo-external-reference-loop.js";
@@ -202,9 +203,23 @@ if (command === "seed") {
     .slice(0, numberOption("--limit", 4))
     .map((job) => ({ jobId: job.id, cardId: job.source.cardId, title: job.source.title, prompt: job.prompt }));
   console.log(JSON.stringify({ ok: true, command, jobs }, null, 2));
+} else if (command === "rebase") {
+  const priorPath = path.resolve(option("--prior-projected-run", path.join(runtimeRoot, "projected-run.json")));
+  const outputPath = path.resolve(option("--output", path.join(runtimeRoot, "projected-run.json")));
+  const priorProjectedRun = readJson(priorPath);
+  const rebased = rebaseEchoExternalReferenceProjection(sourceRun, priorProjectedRun);
+  if (apply) writeJson(outputPath, rebased.projectedRun);
+  console.log(JSON.stringify({
+    ok: true,
+    command,
+    applied: apply,
+    outputPath,
+    ...rebased.receipt,
+    cards: rebased.projectedRun.cards.length,
+  }, null, 2));
 } else if (command === "status") {
   const loop = readJson(loopPath);
   console.log(JSON.stringify({ ok: true, command, loopPath, runtimeRoot, ...statusOf(loop) }, null, 2));
 } else {
-  throw new Error(`Unknown command ${command}. Expected seed, claim, submit, cycle, art-next, or status.`);
+  throw new Error(`Unknown command ${command}. Expected seed, claim, submit, cycle, rebase, art-next, or status.`);
 }

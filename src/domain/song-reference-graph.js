@@ -50,7 +50,9 @@ export function normalizeSongReferenceCatalog(catalog = []) {
         label: text(reference.source?.label, reference.title || id),
         url: text(reference.source?.url),
         sourceKind: text(reference.source?.sourceKind, "authoritative-reference"),
-        checkedAt: text(reference.source?.checkedAt)
+        checkedAt: text(reference.source?.checkedAt),
+        publicRelease: reference.source?.publicRelease === true,
+        evidenceClass: text(reference.source?.evidenceClass)
       },
       canonStatus: text(reference.canonStatus, "external-reference"),
       reviewStatus: text(reference.reviewStatus, "source-backed")

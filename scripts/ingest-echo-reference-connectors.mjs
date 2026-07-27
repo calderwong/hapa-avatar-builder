@@ -416,7 +416,14 @@ const references = [
       expositionFunction: "Asante acts as a private key that reweights every later thank-you, skin, mark, energy, and carrying image.",
       traversalEdges: ["gratitude", "tattoo", "page-81", "grandmother", "embodied-memory"]
     },
-    source: { label: "Shared page 81 reading context", url: "", sourceKind: "conversation-grounded-personal-source", checkedAt: "2026-07-17" }
+    source: {
+      label: "Calder Wong — public page 81 reading context",
+      url: "hapa://creator-context/asante-page-81",
+      sourceKind: "conversation-grounded-public-context",
+      checkedAt: "2026-07-26",
+      publicRelease: true,
+      evidenceClass: "direct"
+    }
   },
   {
     id: "sha-cryptographic-hash",
