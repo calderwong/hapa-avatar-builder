@@ -193,6 +193,25 @@ test("closes duplicate research work against an already attributable occurrence"
   assert.equal(resolved.loop.jobs[0].status, "resolved-existing-reference");
 });
 
+test("accepts a local source-structure pointer instead of pretending a web search occurred", () => {
+  const { run, sharpening } = fixture();
+  const loop = seedEchoExternalReferenceLoop(run, sharpening);
+  const claimed = claimEchoExternalReferenceJobs(loop, { runner: "local-triage", limit: 1 });
+  const resolved = resolveEchoExternalReferenceJob(claimed.loop, {
+    resolution: {
+      schemaVersion: ECHO_EXTERNAL_REFERENCE_RESOLUTION_SCHEMA,
+      jobId: claimed.claimed[0].id,
+      disposition: "no-supported-reference",
+      rationale: "The exact source line is a structural section label.",
+      searchQueries: [],
+      evidencePointers: ["hapa://echos/song-one?line=1"],
+      caveat: "The decision is bound to the unchanged source line.",
+    },
+  });
+  assert.equal(resolved.valid, true);
+  assert.deepEqual(resolved.resolution.evidencePointers, ["hapa://echos/song-one?line=1"]);
+});
+
 test("reseed preserves terminal research decisions when the exact lyric target is unchanged", () => {
   const { run, sharpening } = fixture();
   let loop = seedEchoExternalReferenceLoop(run, sharpening, () => "2026-07-26T00:00:00.000Z");

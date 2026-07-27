@@ -661,7 +661,9 @@ export function resolveEchoExternalReferenceJob(loop = {}, input = {}, now = () 
   if (resolution.disposition === "existing-reference") {
     if (!text(resolution.targetCardId)) errors.push("missing-target-card");
     if (!text(resolution.occurrenceId)) errors.push("missing-occurrence");
-  } else if (!list(resolution.searchQueries).length) errors.push("missing-search-queries");
+  } else if (!list(resolution.searchQueries).length && !list(resolution.evidencePointers).length) {
+    errors.push("missing-research-evidence");
+  }
   if (!text(resolution.caveat)) errors.push("missing-caveat");
   if (errors.length) return {
     loop,

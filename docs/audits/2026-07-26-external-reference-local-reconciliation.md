@@ -63,7 +63,24 @@ signals must be a title, alias, or multiword literal phrase.
 
 ## Remaining work
 
-The remaining 171 clusters require actual external research or an
+After the source-reuse pass, a separate deterministic source-structure triage
+closed **10** imported generation annotations and section labels:
+
+- one `Multilingual Masterpiece Version Delivered` annotation;
+- three `Climactic Version` labels;
+- three `Third Verse` labels;
+- three `Final` tokens on those same structural lines.
+
+Each resolution is bound to its exact local lyric pointer; no web search is
+claimed. A second triage pass was idempotent.
+
+The final local-only checkpoint is:
+
+- Completed jobs: **24 / 234**
+- Remaining queued jobs: **210**
+- Remaining normalized research clusters: **167**
+
+Those 167 clusters require actual external research or an
 evidence-bearing ambiguous/no-reference resolution. The live worker is
 implemented but cannot transmit its minimized lyric packets to external
 Codex/web-search sessions until the operator explicitly authorizes that

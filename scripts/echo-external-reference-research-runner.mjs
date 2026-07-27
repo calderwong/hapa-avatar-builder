@@ -614,6 +614,28 @@ function localReuseResult(card, job, researchedAt) {
   };
 }
 
+function localMetadataNoiseReason(job = {}) {
+  const clue = clueOf(job);
+  const phrase = normalizedPhrase(clue.phrase);
+  const lyric = text(clue.lyricText);
+  if (
+    phrase === "multilingual masterpiece version delivered"
+    && /version delivered/i.test(lyric)
+  ) {
+    return "The candidate is a generation/delivery annotation embedded in the imported lyric source, not performed lyric canon.";
+  }
+  if (
+    ["climactic version", "third verse", "final"].includes(phrase)
+    && (
+      /final chorus\s*\(climactic version\)/i.test(lyric)
+      || /third verse\s*\(for reference\)/i.test(lyric)
+    )
+  ) {
+    return "The candidate is a structural section label in the imported lyric source, not an external-canon allusion.";
+  }
+  return "";
+}
+
 function releaseFailedClaims(loop, jobs, error) {
   const selected = new Set(jobs.map((job) => job.id));
   return {
@@ -705,6 +727,70 @@ if (command === "status") {
       songs: jobs.map((job) => job.songTitle),
       priority: Math.max(...jobs.map((job) => Number(job.priority || 0))),
     })),
+  }, null, 2));
+} else if (command === "triage-local") {
+  if (!apply) throw new Error("Local metadata triage requires --apply.");
+  const limit = Math.max(1, numberOption("--limit", Number.MAX_SAFE_INTEGER));
+  const candidates = list(loop.jobs)
+    .filter((job) => job.status === "queued" && localMetadataNoiseReason(job))
+    .slice(0, limit);
+  if (!candidates.length) {
+    console.log(JSON.stringify({
+      ok: true,
+      command,
+      message: "No deterministic metadata or section-label noise remains.",
+      ...summarize(loop),
+    }, null, 2));
+    process.exit(0);
+  }
+  const backupPath = path.join(
+    ROOT,
+    "data",
+    "backups",
+    `echo-reference-local-triage-${new Date().toISOString().replace(/[:.]/g, "-")}-loop.json`,
+  );
+  atomicWriteJson(backupPath, loop);
+  const receipts = [];
+  for (const candidate of candidates) {
+    const claim = claimEchoExternalReferenceJobs(loop, {
+      runner: "local-reference-metadata-triage.v1",
+      limit: 1,
+      jobIds: [candidate.id],
+    });
+    loop = claim.loop;
+    const job = claim.claimed[0];
+    const clue = clueOf(job);
+    const resolution = resolveEchoExternalReferenceJob(loop, {
+      resolution: {
+        schemaVersion: ECHO_EXTERNAL_REFERENCE_RESOLUTION_SCHEMA,
+        jobId: job.id,
+        disposition: "no-supported-reference",
+        rationale: localMetadataNoiseReason(job),
+        searchQueries: [],
+        evidencePointers: [text(clue.pointer, `hapa://echos/${encodeURIComponent(job.songId)}?line=${clue.lineNumber}`)],
+        caveat: "This deterministic resolution applies only to the exact unchanged source line and may reopen if the lyric source is corrected.",
+        researcher: {
+          id: "local-reference-metadata-triage.v1",
+          model: "deterministic-source-structure",
+        },
+      },
+    });
+    if (!resolution.valid) throw new Error(`Local triage failed: ${resolution.errors.join(", ")}`);
+    loop = resolution.loop;
+    receipts.push({
+      jobId: job.id,
+      action: "resolved-source-metadata",
+      lineNumber: clue.lineNumber,
+      phrase: clue.phrase,
+    });
+  }
+  atomicWriteJson(loopPath, loop);
+  console.log(JSON.stringify({
+    ok: true,
+    command,
+    backupPath,
+    receipts,
+    ...summarize(loop),
   }, null, 2));
 } else if (command === "reconcile-local") {
   if (!apply) throw new Error("Local reconciliation requires --apply.");
@@ -910,5 +996,5 @@ if (command === "status") {
     ...summarize(loop),
   }, null, 2));
 } else {
-  throw new Error(`Unknown command ${command}. Expected status, plan, reconcile-local, or run.`);
+  throw new Error(`Unknown command ${command}. Expected status, plan, triage-local, reconcile-local, or run.`);
 }

@@ -74,6 +74,17 @@ Preview the next clusters without external calls:
 npm run echo:references:research:worker:plan -- --limit 10
 ```
 
+Close only deterministic generation metadata and section-label noise:
+
+```bash
+npm run echo:references:research:worker:triage-local -- --apply
+```
+
+This pass is deliberately narrow. It recognizes exact delivery annotations and
+the imported `Final Chorus (Climactic Version)` /
+`Third Verse (for reference)` labels. It records the exact local lyric pointer
+as evidence and does not pretend that a web search occurred.
+
 Reuse already attributable local Reference Cards before making external calls:
 
 ```bash
