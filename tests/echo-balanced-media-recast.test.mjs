@@ -133,6 +133,27 @@ test("balanced recast accepts an explicit four-library Builder source policy", (
   assert.deepEqual(validateBalancedDirectorRevision(variant), { ok: true, timelineShots: 8, replacementShots: 8 });
 });
 
+test("balanced recast accepts the Reference Atlas as an explicit Director source family", () => {
+  const references = [31, 32].map((index) => ({
+    ...candidate("reference", "loop", index),
+    id: `reference-loop-${index}`,
+    cardId: `reference:example-${index}`,
+    cardKind: "reference",
+    cohort: "reference-atlas-adaptive",
+  }));
+  const variant = recastBalancedEchoDirectorProject(projectWithShots(2), references, {
+    variantId: "reference-atlas-adaptive-eligible-v1",
+    allowedSourceGroups: ["reference"],
+    sourcePattern: ["reference"],
+    createdAt: "2026-07-26T12:00:00.000Z",
+    seed: "reference-atlas-adaptive-fixture",
+  });
+
+  assert.deepEqual(variant.selectionEvidence.map((selection) => selection.sourceGroup), ["reference", "reference"]);
+  assert.deepEqual(variant.telemetry.sourceCandidatesByGroup, { reference: 2 });
+  assert.deepEqual(validateBalancedDirectorRevision(variant), { ok: true, timelineShots: 2, replacementShots: 2 });
+});
+
 test("balanced recast rotates all three sources, drains deterministic shuffle bags, and preserves direction", () => {
   const project = projectWithShots();
   const before = JSON.stringify(project);

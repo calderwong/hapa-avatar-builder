@@ -406,6 +406,75 @@ export function buildTarotDirectorCandidates(tarotStore = {}, options = {}) {
   return dedupeCandidates(candidates, options.usedIdentities || new Set());
 }
 
+export function buildReferenceDirectorCandidates(referenceCatalog = {}, options = {}) {
+  const rows = list(referenceCatalog.records)
+    .filter((record) => record?.card?.id && record?.artifacts?.loopVideo)
+    .map((record) => {
+      const loop = record.artifacts.loopVideo;
+      const technical = record.technical || {};
+      return {
+        record,
+        asset: {
+          id: `reference-loop:${record.card.id}`,
+          name: `${record.card.title || record.card.id} · Adaptive Default`,
+          type: "video",
+          uri: loop.uri,
+          runtimeUri: loop.runtimeUri || loop.uri,
+          sha256: loop.sha256,
+          width: technical.width,
+          height: technical.height,
+          duration: technical.durationSec,
+          fps: technical.fps,
+          tags: ["video", "loop", "reference-atlas", "adaptive-default", "director-eligible"],
+          metadata: {
+            width: technical.width,
+            height: technical.height,
+            duration: technical.durationSec,
+            fps: technical.fps,
+            thumbnailUri: record.artifacts.image?.uri || "",
+            motionRole: "loop",
+            echosTechnicalAffordance: {
+              status: technical.status,
+              width: technical.width,
+              height: technical.height,
+              durationSec: technical.durationSec,
+              fps: technical.fps,
+              codec: technical.codec,
+              pixelFormat: technical.pixelFormat,
+              contentHash: { algorithm: "sha256", value: loop.sha256 },
+            },
+          },
+        },
+      };
+    })
+    .filter(({ record, asset }) => isTechnicallyEligible(asset, record, options))
+    .sort((left, right) => String(left.record.card.title || "").localeCompare(String(right.record.card.title || ""))
+      || String(left.record.card.id).localeCompare(String(right.record.card.id)));
+  const candidates = rows.map(({ record, asset }, index) => commonCandidate(asset, record, {
+    id: `builder-reference:${record.card.id}:${asset.sha256 || index}`,
+    mediaLibraryId: `hapa-media:sha256:${asset.sha256}`,
+    cardId: record.card.id,
+    cardKind: "reference",
+    cardRef: `data/echo-reference-animated-media.json#records/${record.card.id}`,
+    cardTitle: record.card.title || record.card.id,
+    ownerId: record.card.id,
+    ownerTitle: record.card.title || record.card.id,
+    title: asset.name,
+    sourceGroup: "reference",
+    cohort: "reference-atlas-adaptive",
+    routeOrder: index,
+    origin: {
+      sourceSystem: "hapa-avatar-builder",
+      sourceStore: "data/echo-reference-animated-media.json",
+      sourceNode: "Reference Atlas",
+      recordId: record.card.id,
+      cardRevisionId: record.card.revisionId,
+      sourceManifestHash: referenceCatalog.sourceManifestHash || "",
+    },
+  }, options));
+  return dedupeCandidates(candidates, options.usedIdentities || new Set());
+}
+
 export function buildEligibleBuilderMediaDirectorCandidates(stores = {}, options = {}) {
   const usedIdentities = new Set();
   const shared = { ...options, usedIdentities, originPredicate: hasExcludedEchoDirectorOrigin };

@@ -86,12 +86,14 @@ function normalizeSourceGroup(candidate = {}) {
   if (source === "avatar" || source.includes("avatar")) return "avatar";
   if (source === "deevid" || source.includes("deevid")) return "deevid";
   if (source === "tarot" || source.includes("tarot")) return "tarot";
+  if (source === "reference" || source.includes("reference")) return "reference";
   const cohort = String(candidate.cohort || "").trim().toLowerCase();
   if (cohort === "root" || cohort.includes("fal") || cohort.includes("scroll")) return "scroll";
   if (cohort.includes("scene")) return "scene";
   if (cohort.includes("avatar")) return "avatar";
   if (cohort.includes("deevid")) return "deevid";
   if (cohort.includes("tarot")) return "tarot";
+  if (cohort.includes("reference")) return "reference";
   return "";
 }
 

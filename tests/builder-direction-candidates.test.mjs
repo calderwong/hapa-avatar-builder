@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   buildBuilderExpandedDirectorCandidates,
   buildEligibleBuilderMediaDirectorCandidates,
+  buildReferenceDirectorCandidates,
   hasExcludedEchoDirectorOrigin,
   hasHapaDevProtoOrigin,
   hasHellWeekOrigin,
@@ -166,4 +167,50 @@ test("eligible Builder media extraction exposes Avatar, Deevid, Tarot, and Scene
   });
   assert.equal(result.candidates.some((candidate) => candidate.id.includes("hell-week-video")), false);
   assert.equal(result.telemetry.excludedOrigin, "hapa-dev-proto-and-hell-week-explicit-provenance-only");
+});
+
+test("Reference Atlas adaptive loops become technically verified Director candidates", () => {
+  const digest = "f".repeat(64);
+  const catalog = {
+    sourceManifestHash: "manifest-hash",
+    records: [{
+      card: {
+        id: "reference:example",
+        revisionId: "reference:example:r1",
+        title: "Example Reference",
+      },
+      artifacts: {
+        image: { uri: "/media/echo-reference-animated-cards/reference-example-reference-image.png" },
+        loopVideo: {
+          uri: "/media/echo-reference-animated-cards/reference-example-adaptive-default-loop.mp4",
+          sha256: digest,
+        },
+      },
+      technical: {
+        status: "verified-source-file",
+        width: 540,
+        height: 720,
+        durationSec: 4.8,
+        fps: 20,
+        codec: "h264",
+        pixelFormat: "yuv420p",
+      },
+    }],
+  };
+  const candidates = buildReferenceDirectorCandidates(catalog, {
+    minShortEdge: 512,
+    minDurationSeconds: 2.5,
+    requireVerifiedTechnical: true,
+    requireBrowserSafePixelFormat: true,
+    availableMediaFiles: new Set([
+      "echo-reference-animated-cards/reference-example-adaptive-default-loop.mp4",
+    ]),
+  });
+
+  assert.equal(candidates.length, 1);
+  assert.equal(candidates[0].cardKind, "reference");
+  assert.equal(candidates[0].sourceGroup, "reference");
+  assert.equal(candidates[0].motionRole, "loop");
+  assert.equal(candidates[0].sha256, digest);
+  assert.equal(candidates[0].technical.pixelFormat, "yuv420p");
 });
