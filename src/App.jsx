@@ -628,6 +628,7 @@ export default function App({ overcardAdapter }) {
   const [sceneAttachPack, setSceneAttachPack] = useState(null);
   const [healingQueue, setHealingQueue] = useState(null);
   const [tarotDrawProjection, setTarotDrawProjection] = useState(() => publicStargateDemoRequested() ? publicStargateDemoProjection() : EMPTY_TAROT_DRAW_PROJECTION);
+  const [echoReferenceTarotProjection, setEchoReferenceTarotProjection] = useState({ cards: [], runHash: "", runtime: null });
   const [tarotDrawSceneArmed, setTarotDrawSceneArmed] = useState(publicStargateDemoRequested);
   const [tarotDrawHostAvatarId, setTarotDrawHostAvatarId] = useState(FALLBACK_AVATARS[0]?.id || null);
   const [queueJobs, setQueueJobs] = useState(createInitialQueueJobs);
@@ -679,6 +680,40 @@ export default function App({ overcardAdapter }) {
     }
     return null;
   }, []);
+
+  const resolveEchoReferenceCards = useCallback(async (songId = "") => {
+    const path = `/api/echos/references/tarot-cards${songId ? `?songId=${encodeURIComponent(songId)}` : ""}`;
+    const bases = [...new Set([
+      API_BASE,
+      "",
+      globalThis.location?.origin || "",
+      "http://127.0.0.1:8787"
+    ].filter((base) => typeof base === "string"))];
+    for (const base of bases) {
+      try {
+        const response = await fetch(`${base}${path}`);
+        if (!response.ok) continue;
+        return await response.json();
+      } catch {
+        // Electron shells may load UI and API from different loopback ports.
+      }
+    }
+    return { cards: [], runHash: "", runtime: null };
+  }, []);
+
+  useEffect(() => {
+    if (!tarotDrawSceneArmed) return undefined;
+    let active = true;
+    const refresh = () => resolveEchoReferenceCards().then((payload) => {
+      if (active && payload?.cards) setEchoReferenceTarotProjection(payload);
+    });
+    refresh();
+    const poll = globalThis.setInterval(refresh, 30000);
+    return () => {
+      active = false;
+      globalThis.clearInterval(poll);
+    };
+  }, [resolveEchoReferenceCards, tarotDrawSceneArmed]);
 
   useEffect(() => {
     const prewarmVideos = echoDirectorPrewarmVideosRef.current;
@@ -1093,7 +1128,7 @@ export default function App({ overcardAdapter }) {
       ensureTarotStoreLoaded();
       return undefined;
     }
-    if (tarotDrawProjection.cards.length) {
+    if (tarotDrawProjection.cards.length && tarotDrawProjection.referenceRunHash === echoReferenceTarotProjection.runHash) {
       return undefined;
     }
     if (avatarDataMode !== "full" && avatarDataMode !== "fallback") {
@@ -1128,7 +1163,8 @@ export default function App({ overcardAdapter }) {
       queuedNext: "Build playable card/song/avatar draw projection."
     });
     return scheduleDeferredLoad(() => {
-      setTarotDrawProjection(buildTarotDrawProjection(
+      setTarotDrawProjection({
+        ...buildTarotDrawProjection(
         normalizedItemManager.cards,
         tarotDrawHostInventory,
         avatars,
@@ -1136,11 +1172,14 @@ export default function App({ overcardAdapter }) {
         songLibrary,
         normalizedHapaSongStore,
         tarotAttachmentContext,
-        normalizedTarotStore.cards
-      ));
+        normalizedTarotStore.cards,
+        echoReferenceTarotProjection.cards
+        ),
+        referenceRunHash: echoReferenceTarotProjection.runHash,
+      });
       markQueueReady("derived-tarot-draw-projection", "Tarot Draw projection", "Drawable Tarot projection ready.");
     }, 900);
-  }, [tarotDrawSceneArmed, tarotDataMode, avatarDataMode, normalizedItemManager.cards, tarotDrawHostInventory, tarotDrawHostAvatar?.id, avatars, normalizedInventoryStore, songLibrary, normalizedHapaSongStore, tarotAttachmentContext, normalizedTarotStore.cards]);
+  }, [tarotDrawSceneArmed, tarotDataMode, avatarDataMode, normalizedItemManager.cards, tarotDrawHostInventory, tarotDrawHostAvatar?.id, avatars, normalizedInventoryStore, songLibrary, normalizedHapaSongStore, tarotAttachmentContext, normalizedTarotStore.cards, echoReferenceTarotProjection.cards, echoReferenceTarotProjection.runHash]);
 
   useEffect(() => {
     if (!isTarotDrawView || tarotDrawSceneArmed) {
@@ -3371,11 +3410,12 @@ export default function App({ overcardAdapter }) {
             playbackMode="active"
             avatarName={(tarotDrawHostAvatar || selectedAvatar || avatars[0] || FALLBACK_AVATARS[0]).primaryName}
             avatarId={(tarotDrawHostAvatar || selectedAvatar || avatars[0] || FALLBACK_AVATARS[0]).id}
-            cards={tarotStore.cards}
+            cards={tarotDrawCards.length ? tarotDrawCards : tarotStore.cards}
             productionAudit={tarotDrawProductionAudit}
             apiBase={API_BASE}
             soundEnabled={sound}
             onResolveEchoProject={resolveEchoDirectorProject}
+            onResolveEchoReferences={resolveEchoReferenceCards}
             prewarmedEchoVideos={echoDirectorPrewarmVideosRef.current}
             onTarotForgeCreated={(packet) => {}}
             onTarotSceneSaved={(packet) => {}}
@@ -3981,6 +4021,7 @@ export default function App({ overcardAdapter }) {
                   apiBase={API_BASE}
                   soundEnabled={sound}
                   onResolveEchoProject={resolveEchoDirectorProject}
+                  onResolveEchoReferences={resolveEchoReferenceCards}
                   prewarmedEchoVideos={echoDirectorPrewarmVideosRef.current}
                   onTarotForgeCreated={(packet) => {
                     if (!packet?.store) return;
@@ -6994,8 +7035,8 @@ const AVATAR_TAROT_MAJOR_ARCANA = [
 const TAROT_ITEM_AVATAR_LOOP_SOURCE_WINDOW = Math.max(3, Number(import.meta.env?.VITE_TAROT_ITEM_AVATAR_LOOP_SOURCE_WINDOW || 12));
 const TAROT_PROFILE_AVATAR_LOOP_TILE_LIMIT = Math.max(1, Number(import.meta.env?.VITE_TAROT_PROFILE_AVATAR_LOOP_TILE_LIMIT || 4));
 
-function buildTarotDrawProjection(cards = [], avatarInventory = null, avatars = [], inventoryStore = {}, songLibrary = FALLBACK_SONG_LIBRARY, hapaSongStore = null, attachmentContext = null, tarotLibraryCards = []) {
-  const candidates = buildTarotDrawCards(cards, avatarInventory, avatars, inventoryStore, songLibrary, hapaSongStore, tarotLibraryCards);
+function buildTarotDrawProjection(cards = [], avatarInventory = null, avatars = [], inventoryStore = {}, songLibrary = FALLBACK_SONG_LIBRARY, hapaSongStore = null, attachmentContext = null, tarotLibraryCards = [], referenceCards = []) {
+  const candidates = buildTarotDrawCards(cards, avatarInventory, avatars, inventoryStore, songLibrary, hapaSongStore, tarotLibraryCards, referenceCards);
   const requested = new Set(attachmentContext?.cardIds || []);
   const matching = requested.size ? candidates.filter((card) => requested.has(card.id)) : [];
   const scopedCandidates = requested.size && matching.length ? matching : candidates;
@@ -7015,7 +7056,7 @@ function getYoutubeThumbnailUrl(url) {
   return (match && match[2].length === 11) ? `https://img.youtube.com/vi/${match[2]}/mqdefault.jpg` : null;
 }
 
-function buildTarotDrawCards(cards = [], avatarInventory = null, avatars = [], inventoryStore = {}, songLibrary = FALLBACK_SONG_LIBRARY, hapaSongStore = null, tarotLibraryCards = []) {
+function buildTarotDrawCards(cards = [], avatarInventory = null, avatars = [], inventoryStore = {}, songLibrary = FALLBACK_SONG_LIBRARY, hapaSongStore = null, tarotLibraryCards = [], referenceCards = []) {
   const resolveAvatarContact = createTarotAvatarContactResolver(songLibrary, avatars, hapaSongStore);
   const priorityIds = new Set([
     ...(avatarInventory?.hardpoints || []).flatMap((hardpoint) => hardpoint.cardIds || []),
@@ -7215,7 +7256,7 @@ function buildTarotDrawCards(cards = [], avatarInventory = null, avatars = [], i
   const avatarDrawCards = buildAvatarThemeTarotCards(avatars, selectedAvatar, songLibrary, hapaSongStore, resolveAvatarContact);
   const songDrawCards = buildHapaSongTarotCards(hapaSongStore, avatars, songLibrary, resolveAvatarContact);
   const libraryDrawCards = buildTarotLibraryDrawCards(tarotLibraryCards);
-  return uniqueDrawCards([...libraryDrawCards, ...itemDrawCards, ...avatarDrawCards, ...songDrawCards]).sort((a, b) =>
+  return uniqueDrawCards([...referenceCards, ...libraryDrawCards, ...itemDrawCards, ...avatarDrawCards, ...songDrawCards]).sort((a, b) =>
     b.priority - a.priority ||
     b.videoScore - a.videoScore ||
     compareText(a.title, b.title)

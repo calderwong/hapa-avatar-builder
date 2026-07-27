@@ -29,3 +29,16 @@ test("Tarot only trusts hash-matched lyric timing and renders no lyrics outside 
   assert.doesNotMatch(source, /sourceLines\.findLast\?\./);
   assert.match(source, /if \(preserveTiming\) \{/);
 });
+
+test("Tarot loads, shows, explains, and deals live Reference Atlas Cards", () => {
+  assert.match(source, /onResolveEchoReferences/);
+  assert.match(source, /Reference Atlas live/);
+  assert.match(source, /echoReferenceProjection\.timeline/);
+  assert.match(source, /Line-timed fallback/);
+  assert.match(source, /spawnBrowserCard/);
+  assert.match(source, /Reference Atlas Context/);
+  assert.match(source, /Reference Readings/);
+  assert.match(source, /label: "References"/);
+  assert.match(source, /Open in Reference Atlas/);
+  assert.match(source, /echoPlayback: dropSong\.snapshot\(\)/);
+});

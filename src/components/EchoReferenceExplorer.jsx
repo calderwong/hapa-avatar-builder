@@ -73,10 +73,13 @@ function cardSearchText(card) {
   return [
     card.title,
     card.summary,
+    card.publicContext,
     ...(card.aliases || []),
     ...(card.themes || []),
     ...(card.mechanics || []),
     ...(card.emotions || []),
+    ...(card.claims || []).map((claim) => claim.text),
+    ...(card.interpretations || []).flatMap((interpretation) => [interpretation.title, interpretation.summary]),
     ...(card.occurrences || []).flatMap((occurrence) => [occurrence.songTitle, occurrence.lyricSpan?.lyricText]),
   ].filter(Boolean).join(" ").toLowerCase();
 }
@@ -142,7 +145,36 @@ function graphLayout(nodes = []) {
   }));
 }
 
-function EchoReferenceMindMap({ graph, focusedCardId, currentSongId, privacyProjection, onFocusCard }) {
+function referenceImageUri(card = {}) {
+  return String(card.presentationMedia?.image?.uri || "");
+}
+
+function referenceLoopUri(card = {}) {
+  return String(card.presentationMedia?.loopVideo?.uri || "");
+}
+
+function EchoReferenceMedia({ card, motion = false, className = "" }) {
+  const imageUri = referenceImageUri(card);
+  const loopUri = referenceLoopUri(card);
+  if (motion && loopUri) {
+    return (
+      <video
+        className={className}
+        src={loopUri}
+        poster={imageUri || undefined}
+        autoPlay
+        muted
+        loop
+        playsInline
+        aria-label={`${card.title} animated Reference Card`}
+      />
+    );
+  }
+  if (imageUri) return <img className={className} src={imageUri} alt={`${card.title} Reference Card`} loading="lazy" />;
+  return <div className={`${className} echo-ref-media-placeholder`} aria-hidden="true"><Network size={24} /></div>;
+}
+
+function EchoReferenceMindMap({ graph, cards = [], focusedCardId, currentSongId, privacyProjection, onFocusCard }) {
   const [relationFilter, setRelationFilter] = useState("all");
   const [evidenceFilter, setEvidenceFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
@@ -152,6 +184,7 @@ function EchoReferenceMindMap({ graph, focusedCardId, currentSongId, privacyProj
   const [zoom, setZoom] = useState(1);
   const [trail, setTrail] = useState([]);
   const [trailCursor, setTrailCursor] = useState(-1);
+  const cardsById = useMemo(() => new Map(cards.map((card) => [card.id, card])), [cards]);
   const focusCardWithTrail = useCallback((cardId, relationType = "focus") => {
     if (!cardId) return;
     const node = (graph?.nodes || []).find((item) => item.id === cardId);
@@ -313,6 +346,8 @@ function EchoReferenceMindMap({ graph, focusedCardId, currentSongId, privacyProj
                 const position = positions.get(node.id);
                 const focused = node.id === focusedCardId;
                 const isSong = node.type === "song";
+                const card = cardsById.get(node.id);
+                const imageUri = referenceImageUri(card);
                 return (
                   <g
                     key={node.id}
@@ -331,7 +366,22 @@ function EchoReferenceMindMap({ graph, focusedCardId, currentSongId, privacyProj
                       }
                     }}
                   >
-                    {isSong ? <rect x="-34" y="-18" width="68" height="36" rx="9" /> : <circle r={focused ? 13 : 9} />}
+                    {isSong ? <rect x="-34" y="-18" width="68" height="36" rx="9" /> : (
+                      <>
+                        <circle r={focused ? 18 : 14} />
+                        {imageUri && (
+                          <image
+                            href={imageUri}
+                            x={focused ? -15 : -11}
+                            y={focused ? -15 : -11}
+                            width={focused ? 30 : 22}
+                            height={focused ? 30 : 22}
+                            preserveAspectRatio="xMidYMid slice"
+                            clipPath="circle(48%)"
+                          />
+                        )}
+                      </>
+                    )}
                     <text y={isSong ? 4 : 23} textAnchor="middle">
                       {String(node.label || node.id).slice(0, isSong ? 24 : 18)}
                     </text>
@@ -606,6 +656,11 @@ function EchoReferenceCardRail({
               data-evidence={card.authority?.evidenceClass}
               data-status={card.authority?.reviewStatus}
             >
+              <EchoReferenceMedia
+                card={card}
+                motion={focused}
+                className="echo-ref-card-media"
+              />
               <button type="button" className="echo-ref-card-focus" onClick={() => onFocusCard(card.id)}>
                 <span className="echo-ref-card-status">
                   {statusSymbol(card.authority?.reviewStatus)} {evidenceLabel(card.authority?.reviewStatus)}
@@ -645,6 +700,13 @@ function EchoReferenceInspector({ card, inspection, mode, onClose, onAdd, onChal
         </div>
         <button type="button" onClick={onClose} aria-label="Close inspector"><X size={16} /></button>
       </header>
+      <div className="echo-ref-inspector-media">
+        <EchoReferenceMedia card={card} motion className="echo-ref-inspector-media-asset" />
+        <span>
+          {referenceLoopUri(card) ? "Adaptive animated loop" : referenceImageUri(card) ? "Reference image" : "Media pending"}
+          {card.presentationMedia?.pattern ? ` · ${card.presentationMedia.pattern}` : ""}
+        </span>
+      </div>
       <div className="echo-ref-authority-grid">
         <span><b>Evidence</b>{evidenceLabel(card.authority?.evidenceClass)}</span>
         <span><b>Review</b>{evidenceLabel(card.authority?.reviewStatus)}</span>
@@ -1100,7 +1162,7 @@ export default function EchoReferenceExplorer({
   const [batchPreview, setBatchPreview] = useState(null);
   const [cluePreview, setCluePreview] = useState(null);
   const [metrics, setMetrics] = useState(null);
-  const [showCandidates, setShowCandidates] = useState(false);
+  const [showCandidates, setShowCandidates] = useState(true);
   const [searchResults, setSearchResults] = useState([]);
   const [activity, setActivity] = useState(null);
   const projectionRequestRef = useRef(0);
@@ -1137,6 +1199,25 @@ export default function EchoReferenceExplorer({
       .finally(() => active && setLoading(false));
     return () => { active = false; };
   }, [loadSummary, onNotice]);
+
+  useEffect(() => {
+    let active = true;
+    const poll = globalThis.setInterval(async () => {
+      try {
+        const payload = await loadSummary();
+        if (!active) return;
+        if (selectedSongId && payload.runHash && payload.runHash !== projection?.runHash) {
+          await loadSong(selectedSongId);
+        }
+      } catch {
+        // Keep the last complete Atlas projection visible during a transient local refresh.
+      }
+    }, 15000);
+    return () => {
+      active = false;
+      globalThis.clearInterval(poll);
+    };
+  }, [loadSong, loadSummary, projection?.runHash, selectedSongId]);
 
   useEffect(() => {
     fetch(`${apiBase}/api/echos/references/batches/preview`)
@@ -1519,7 +1600,9 @@ export default function EchoReferenceExplorer({
         </div>
         <div className="echo-ref-run-controls">
           <span><b>{summary?.audit?.pairsCompared?.toLocaleString() || "8,911"}</b> song pairs</span>
-          <span><b>{summary?.graph?.counts?.cards?.toLocaleString() || summary?.audit?.validCards?.toLocaleString() || "—"}</b> cards</span>
+          <span><b>{summary?.runtime?.totalCards?.toLocaleString() || summary?.graph?.counts?.cards?.toLocaleString() || summary?.audit?.validCards?.toLocaleString() || "—"}</b> cards</span>
+          <span><b>{summary?.runtime?.researchProposals?.toLocaleString() || 0}</b> research updates</span>
+          <span><b>{summary?.runtime?.loops?.toLocaleString() || 0}</b> image + loop pairs</span>
           <span><b>{summary?.unresolved?.length || 0}</b> unresolved</span>
           <span><b>{batchPreview?.estimatedLocalWorkUnits?.toLocaleString() || "—"}</b> local work units · $0 paid</span>
           <button type="button" onClick={runSelectedSong} disabled={mining || !selectedSongId}>
@@ -1654,6 +1737,7 @@ export default function EchoReferenceExplorer({
       <div className="echo-ref-workspace">
         <EchoReferenceMindMap
           graph={visibleGraph}
+          cards={authorityCards}
           focusedCardId={focusedCardId}
           currentSongId={selectedSongId}
           privacyProjection={showCandidates ? "review candidates explicitly enabled" : "approved-safe projection"}
@@ -1666,6 +1750,10 @@ export default function EchoReferenceExplorer({
           onClose={() => setFocusedCardId("")}
           onAdd={(card) => openComposer("proposal", card)}
           onChallenge={(card) => openComposer("challenge", card)}
+          onJumpOccurrence={(occurrence) => {
+            setSelectedSongId(occurrence.songId);
+            if (occurrence.lyricSpan?.startSeconds !== null) onSeek(occurrence.lyricSpan.startSeconds);
+          }}
         />
       </div>
 

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import QRCode from "qrcode";
-import { BadgeCheck, BookOpenCheck, Camera, CircleDot, Film, Grid3X3, Images, Link2, ListChecks, Maximize2, Mic, Minimize2, Pause, Play, Plus, QrCode, RefreshCw, Route, Search, Shuffle, Sparkles, Smartphone, Upload, UserRound, Volume2, Waves, X } from "lucide-react";
+import { BadgeCheck, BookOpenCheck, Camera, CircleDot, Film, Grid3X3, Images, Link2, ListChecks, Maximize2, Mic, Minimize2, Network, Pause, Play, Plus, QrCode, RefreshCw, Route, Search, Shuffle, Sparkles, Smartphone, Upload, UserRound, Volume2, Waves, X } from "lucide-react";
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { queryValenTarotReading } from "../domain/valenTarotBridge.js";
@@ -126,6 +126,7 @@ const TAROT_CARD_BROWSER_TYPE_FILTERS = [
   { id: "capability", label: "Capabilities", pileIds: ["capability"], textHints: ["capability", "ability"], accent: "#45f2c8" },
   { id: "location", label: "Locations", pileIds: ["location"], textHints: ["location", "place"], accent: "#4facfe" },
   { id: "song", label: "Songs", pileIds: ["song"], textHints: ["song", "music"], accent: "#5ed7ff" },
+  { id: "reference", label: "References", pileIds: ["reference", "reference_card", "echo_reference"], textHints: ["echo-reference", "reference atlas"], accent: "#b88cff" },
   { id: "ship", label: "Ships", pileIds: ["ship"], textHints: ["ship"], accent: "#78e8ff" },
   { id: "void_shadow", label: "Void", pileIds: ["void_shadow"], textHints: ["void", "shadow"], accent: "#a472ff" },
   { id: "creator", label: "Creators", pileIds: ["creator", "creator_card"], textHints: ["creator", "profile", "klaize"], accent: "#ec4899" },
@@ -1616,6 +1617,22 @@ function buildSelectedCardTextSections(card = {}) {
   const mediaTelemetry = card.mediaTelemetry || card.captureTelemetry || {};
   const skillProfile = card.enrichment?.media?.codexBuildWeek?.skillProfile || {};
   const sections = [];
+  const referenceAtlas = card.referenceAtlas || {};
+  pushSelectedCardSection(sections, "Reference Atlas Context", referenceAtlas.publicContext);
+  pushSelectedCardSection(sections, "Lyric Connections", (referenceAtlas.occurrences || []).map((occurrence) => [
+    occurrence.songTitle || occurrence.songId,
+    occurrence.lyricSpan?.lineStart ? `line ${occurrence.lyricSpan.lineStart}` : "",
+    occurrence.lyricSpan?.lyricText ? `— ${occurrence.lyricSpan.lyricText}` : "",
+  ].filter(Boolean).join(" ")));
+  pushSelectedCardSection(sections, "Reference Readings", (referenceAtlas.interpretations || []).map((interpretation) => [
+    interpretation.title,
+    interpretation.summary ? `— ${interpretation.summary}` : "",
+    interpretation.confidence !== undefined ? `(${Math.round(Number(interpretation.confidence || 0) * 100)}%)` : "",
+  ].filter(Boolean).join(" ")));
+  pushSelectedCardSection(sections, "Reference Sources", (referenceAtlas.citations || []).map((citation) => `${citation.label || citation.url}${citation.url ? ` — ${citation.url}` : ""}`));
+  pushSelectedCardSection(sections, "Connected Themes", referenceAtlas.themes);
+  pushSelectedCardSection(sections, "Connected Mechanics", referenceAtlas.mechanics);
+  pushSelectedCardSection(sections, "Connected Emotions", referenceAtlas.emotions);
   pushSelectedCardSection(sections, "Summary", skillProfile.summary || card.summary || lore.summary);
   pushSelectedCardSection(sections, "Meaning", card.meaning);
   pushSelectedCardSection(sections, "Context", skillProfile.context);
@@ -1990,7 +2007,7 @@ function blueAvatarSurfaceLabel() {
   return `${shell} Tarot Draw${port ? `:${port}` : ""}`;
 }
 
-export default function TarotDraw3DView({ cards = [], avatarId = "local-operator", avatarName = "Hapa", apiBase = "", soundEnabled = false, playbackMode = "active", productionAudit = null, onResolveEchoProject, prewarmedEchoVideos = null, onSelectAvatarProfile, onTarotForgeCreated, onTarotSceneSaved }) {
+export default function TarotDraw3DView({ cards = [], avatarId = "local-operator", avatarName = "Hapa", apiBase = "", soundEnabled = false, playbackMode = "active", productionAudit = null, onResolveEchoProject, onResolveEchoReferences, prewarmedEchoVideos = null, onSelectAvatarProfile, onTarotForgeCreated, onTarotSceneSaved }) {
   const urlParams = useMemo(() => new URLSearchParams(window?.location?.search || ""), []);
   const isSubscriber = useMemo(() => {
     let sub = urlParams.get("role") === "subscriber";
@@ -2031,6 +2048,7 @@ export default function TarotDraw3DView({ cards = [], avatarId = "local-operator
   const [cardBrowserVisibleCount, setCardBrowserVisibleCount] = useState(TAROT_CARD_BROWSER_MAX_INITIAL);
   const [selectedBrowserItem, setSelectedBrowserItem] = useState(null);
   const [browserAddState, setBrowserAddState] = useState({ status: "idle", message: "", itemId: "" });
+  const [echoReferenceProjection, setEchoReferenceProjection] = useState({ cards: [], timeline: [], song: null, runHash: "", runtime: null });
   const [forgePanelOpen, setForgePanelOpen] = useState(false);
   const [forgeTitle, setForgeTitle] = useState("");
   const [forgeIntention, setForgeIntention] = useState("");
@@ -2277,6 +2295,18 @@ export default function TarotDraw3DView({ cards = [], avatarId = "local-operator
   const dropZoneEchoSongId = useMemo(() => echoDirectorSongIdForCard(dropZoneCard), [dropZoneCard]);
   const dropZoneContacts = dropZoneCard?.avatarContacts || [];
   const dropZoneEmbeddedEchoProject = useMemo(() => echoDirectorProjectForCard(dropZoneCard), [dropZoneCard]);
+  const activeEchoReferenceCards = useMemo(() => {
+    const referenceCards = echoReferenceProjection.cards || [];
+    if (!dropZoneEchoSongId || !referenceCards.length) return [];
+    const currentTime = Number(hud.echoPlayback?.currentTime || 0);
+    const timed = (echoReferenceProjection.timeline || []).filter((cue) => cue.startSeconds !== null);
+    const activeIds = new Set(timed.filter((cue) => (
+      currentTime >= Number(cue.startSeconds || 0)
+      && currentTime <= Number(cue.endSeconds ?? Number(cue.startSeconds || 0) + 5)
+    )).map((cue) => cue.cardId));
+    const live = referenceCards.filter((card) => activeIds.has(card.referenceCardId));
+    return (live.length ? live : referenceCards).slice(0, 3);
+  }, [dropZoneEchoSongId, echoReferenceProjection.cards, echoReferenceProjection.timeline, hud.echoPlayback?.currentTime]);
   const profileContacts = uniqueTarotProfileContacts([...selectedContacts, ...dropZoneContacts]);
   const profileContactIds = profileContacts.map((contact) => contact.id || contact.name).join("|");
   const dropZonePrimaryContact = dropZoneContacts[0] || null;
@@ -2742,6 +2772,22 @@ export default function TarotDraw3DView({ cards = [], avatarId = "local-operator
       cancelled = true;
     };
   }, [dropZoneEchoSongId, dropZoneEmbeddedEchoProject, onResolveEchoProject]);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!dropZoneEchoSongId || typeof onResolveEchoReferences !== "function") {
+      setEchoReferenceProjection({ cards: [], timeline: [], song: null, runHash: "", runtime: null });
+      return () => { cancelled = true; };
+    }
+    onResolveEchoReferences(dropZoneEchoSongId)
+      .then((payload) => {
+        if (!cancelled) setEchoReferenceProjection(payload || { cards: [], timeline: [], song: null, runHash: "", runtime: null });
+      })
+      .catch((error) => {
+        if (!cancelled) console.warn("Failed to load Echo Reference Cards for Tarot Draw playback", error);
+      });
+    return () => { cancelled = true; };
+  }, [dropZoneEchoSongId, onResolveEchoReferences]);
 
   useEffect(() => {
     if (!profileContact) return;
@@ -4251,6 +4297,41 @@ export default function TarotDraw3DView({ cards = [], avatarId = "local-operator
       onDrop={handleMediaDrop}
     >
       <canvas ref={canvasRef} aria-label="Interactive 3D tarot draw table" />
+      {activeEchoReferenceCards.length > 0 && (
+        <aside className="tarot-echo-reference-rail hapa-panel" data-variant="notch" aria-label="Reference Atlas live playback cards">
+          <header>
+            <span><Network size={13} /> Reference Atlas live</span>
+            <em>
+              {echoReferenceProjection.runtime?.source === "external-research-projection" ? "research projection" : "album graph"}
+              {" · "}{echoReferenceProjection.runtime?.loops || echoReferenceProjection.cards.length} loops
+            </em>
+          </header>
+          <div>
+            {activeEchoReferenceCards.map((card) => (
+              <article key={card.id} data-review={card.referenceAtlas?.authority?.reviewStatus || "pending-review"}>
+                {card.videoUri ? (
+                  <video src={card.videoUri} poster={card.imageUri} autoPlay muted loop playsInline />
+                ) : <img src={card.imageUri} alt="" />}
+                <span>
+                  <strong>{card.title}</strong>
+                  <small>
+                    {card.referenceAtlas?.authority?.reviewStatus || "pending review"}
+                    {" · "}{(card.referenceAtlas?.occurrences || []).length} lyric connection{(card.referenceAtlas?.occurrences || []).length === 1 ? "" : "s"}
+                  </small>
+                </span>
+                <button type="button" onClick={() => callGame("spawnBrowserCard", card, { zone: "field", statusText: `Reference dealt: ${card.title}` })}>
+                  Deal Card
+                </button>
+              </article>
+            ))}
+          </div>
+          <footer>
+            {((echoReferenceProjection.timeline || []).some((cue) => cue.startSeconds !== null))
+              ? "Cards follow lyric timing; fallback shows this Song’s reference deck between timed cues."
+              : "Line-timed fallback: timing is not yet precise enough to claim a live lyric match."}
+          </footer>
+        </aside>
+      )}
       {selectedCard && <BuilderOvercardPickupActions className="tarot-overcard-pickup" entity={{ id: selectedCard.id, entityType: "card", title: selectedCard.title || selectedCard.name || selectedCard.id, subtitle: "3D Tarot Draw card", thumbnail: selectedCard.imageUri || selectedCard.uri, updatedAt: selectedCard.updatedAt, uri: `/api/tarot/card/${encodeURIComponent(selectedCard.id)}` }} />}
       <iframe
         id="tarot-youtube-overlay"
@@ -5779,6 +5860,19 @@ export default function TarotDraw3DView({ cards = [], avatarId = "local-operator
                     </div>
                   ))}
                 </dl>
+              )}
+              {selectedCard.referenceAtlas?.cardId && (
+                <button className="hapa-btn tarot-reference-atlas-open" type="button" onClick={() => {
+                  const occurrence = selectedCard.referenceAtlas.occurrences?.[0];
+                  const url = new URL(globalThis.location.href);
+                  url.searchParams.set("view", "echos");
+                  url.searchParams.set("referenceMode", "explore");
+                  url.searchParams.set("referenceCard", selectedCard.referenceAtlas.cardId);
+                  if (occurrence?.songId) url.searchParams.set("referenceSong", occurrence.songId);
+                  globalThis.location.href = `${url.pathname}${url.search}${url.hash}`;
+                }}>
+                  <Network size={13} /> Open in Reference Atlas
+                </button>
               )}
               {(selectedKeywords.length > 0 || selectedStats.length > 0) && (
                 <div className="tarot-card-detail-chips" aria-label={`${selectedCard.title} keywords and stats`}>
@@ -17571,6 +17665,7 @@ function createTarotDrawGame({ canvas, cards, avatarId = "local-operator", avata
         timelineCount: Array.isArray(echoDirectorProject.timeline) ? echoDirectorProject.timeline.length : 0,
         visualizerCount: Array.isArray(echoDirectorProject.visualizer_timeline) ? echoDirectorProject.visualizer_timeline.length : 0
       } : null,
+      echoPlayback: dropSong.snapshot(),
       piles: buildTarotPileSummaries(deckCards, cards),
       spawnNetwork: spawnNetwork ? {
         kind: spawnNetwork.kind,

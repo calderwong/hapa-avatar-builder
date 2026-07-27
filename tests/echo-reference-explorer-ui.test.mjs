@@ -40,6 +40,11 @@ test("reference visual shell includes playback cues, cards, graph, atlas, lenses
   ]) {
     assert.match(component, new RegExp(signal.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
   }
+  assert.match(component, /presentationMedia/);
+  assert.match(component, /animated Reference Card/);
+  assert.match(component, /research updates/);
+  assert.match(component, /image \+ loop pairs/);
+  assert.match(component, /setInterval\(async \(\) =>/);
 });
 
 test("Add and Challenge remain append-only local review actions with visible authority wording", async () => {

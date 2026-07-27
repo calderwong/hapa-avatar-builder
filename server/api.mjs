@@ -2102,12 +2102,34 @@ async function route(req, res) {
   if (pathname === "/api/echos/references" && req.method === "GET") {
     const songId = String(url.searchParams.get("songId") || "").trim();
     const summaryOnly = url.searchParams.get("summary") === "1";
-    sendJson(res, 200, await echoReferenceMiningStore.projection({
+    const projection = await echoReferenceMiningStore.projection({
       songId,
       lens: url.searchParams.get("lens") || "",
       query: url.searchParams.get("query") || "",
       includeCards: !summaryOnly,
       includeGraph: !summaryOnly,
+    });
+    sendJson(res, 200, summaryOnly ? {
+      schemaVersion: projection.schemaVersion,
+      runId: projection.runId,
+      runHash: projection.runHash,
+      generatedAt: projection.generatedAt,
+      album: projection.album,
+      audit: projection.audit,
+      lenses: projection.lenses,
+      songs: projection.songs,
+      atlas: projection.atlas,
+      songConnectionMatrix: projection.songConnectionMatrix,
+      unresolved: projection.unresolved,
+      graph: { counts: projection.graph?.counts || {} },
+      runtime: projection.runtime,
+    } : projection);
+    return;
+  }
+
+  if (pathname === "/api/echos/references/tarot-cards" && req.method === "GET") {
+    sendJson(res, 200, await echoReferenceMiningStore.tarotCards({
+      songId: String(url.searchParams.get("songId") || "").trim(),
     }));
     return;
   }

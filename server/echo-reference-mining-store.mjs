@@ -1,4 +1,4 @@
-import { appendFile, mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { appendFile, mkdir, readFile, rename, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import {
@@ -28,6 +28,11 @@ import {
   projectPublicHapaReferenceCard,
   validateHapaReferenceCard,
 } from "../src/domain/hapa-reference-card.js";
+import {
+  attachEchoReferenceMedia,
+  buildEchoReferenceTarotCards,
+  selectEchoReferenceRuntimeRun,
+} from "../src/domain/echo-reference-runtime.js";
 
 async function readJson(filePath, fallback = null) {
   try {
@@ -65,10 +70,27 @@ export function createEchoReferenceMiningStore(options = {}) {
   const root = path.resolve(options.root || "data/echo-reference-mining");
   const songStorePath = path.resolve(options.songStorePath || "data/hapa-songs-store.json");
   const latestPath = path.join(root, "latest.json");
+  const researchProjectionPath = path.resolve(options.researchProjectionPath || "data/echo-reference-research-loop/projected-run.json");
+  const animatedMediaPath = path.resolve(options.animatedMediaPath || "data/echo-reference-animated-media.json");
   const eventsPath = path.join(root, "events.ndjson");
   const revisionsPath = path.join(root, "card-revisions.ndjson");
   const auditPath = path.join(root, "audit.json");
   let revisionCache = null;
+  const jsonCache = new Map();
+
+  async function readJsonCached(filePath, fallback = null) {
+    try {
+      const info = await stat(filePath);
+      const cached = jsonCache.get(filePath);
+      if (cached?.mtimeMs === info.mtimeMs && cached?.size === info.size) return cached.value;
+      const value = await readJson(filePath, fallback);
+      jsonCache.set(filePath, { mtimeMs: info.mtimeMs, size: info.size, value });
+      return value;
+    } catch (error) {
+      if (error?.code === "ENOENT") return fallback;
+      throw error;
+    }
+  }
 
   async function readSongStore() {
     const store = await readJson(songStorePath);
@@ -260,11 +282,32 @@ export function createEchoReferenceMiningStore(options = {}) {
   }
 
   async function currentRun(runOptions = {}) {
-    const latest = await readJson(latestPath);
-    if (latest) {
+    const [latest, researchProjection, mediaCatalog, contributionEvents] = await Promise.all([
+      readJsonCached(latestPath),
+      readJsonCached(researchProjectionPath),
+      readJsonCached(animatedMediaPath, { records: [] }),
+      contributions(),
+    ]);
+    const selected = selectEchoReferenceRuntimeRun({
+      localRun: latest,
+      researchRun: researchProjection,
+    });
+    if (selected.run) {
+      const contributionProjection = foldEchoReferenceContributionEvents(contributionEvents);
+      const active = attachEchoReferenceMedia({
+        ...selected.run,
+        contributions: selected.run.contributions?.length
+          ? selected.run.contributions
+          : contributionProjection,
+      }, mediaCatalog);
       return {
-        ...latest,
-        contributions: foldEchoReferenceContributionEvents(await contributions()),
+        ...active,
+        referenceRuntime: {
+          ...active.referenceRuntime,
+          source: selected.source,
+          localRunHash: String(latest?.runHash || ""),
+          researchRunHash: String(researchProjection?.runHash || ""),
+        },
       };
     }
     return runEchoReferenceMining(await readSongStore(), {
@@ -522,9 +565,10 @@ export function createEchoReferenceMiningStore(options = {}) {
       includeCards: projectionOptions.includeCards !== false,
       includeGraph: projectionOptions.includeGraph !== false,
     });
-    if (!projectionOptions.lens && !projectionOptions.query) return projected;
+    const withRuntime = { ...projected, runtime: active.referenceRuntime || null };
+    if (!projectionOptions.lens && !projectionOptions.query) return withRuntime;
     return {
-      ...projected,
+      ...withRuntime,
       filtered: filterEchoReferenceView(active, {
         songId: projectionOptions.songId,
         lens: projectionOptions.lens,
@@ -533,15 +577,38 @@ export function createEchoReferenceMiningStore(options = {}) {
     };
   }
 
+  async function tarotCards(tarotOptions = {}) {
+    const active = await currentRun();
+    const songId = String(tarotOptions.songId || "").trim();
+    const projected = projectEchoReferenceRun(active, {
+      songId,
+      includeCards: false,
+      includeGraph: false,
+    });
+    const cards = buildEchoReferenceTarotCards(active, { songId });
+    return {
+      schemaVersion: "hapa.echo-reference-tarot-runtime.v1",
+      runId: active.runId,
+      runHash: active.runHash,
+      runtime: active.referenceRuntime || null,
+      song: projected.song || null,
+      timeline: projected.song?.timeline || [],
+      cards,
+    };
+  }
+
   return {
     root,
     latestPath,
+    researchProjectionPath,
+    animatedMediaPath,
     eventsPath,
     revisionsPath,
     auditPath,
     currentRun,
     run,
     projection,
+    tarotCards,
     contributions,
     cardRevisionEvents,
     cardHistory,

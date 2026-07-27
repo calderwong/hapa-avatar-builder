@@ -481,6 +481,22 @@
   box-shadow: 0 0 16px rgba(246, 201, 109, 0.12);
 }
 
+.echo-ref-card-media {
+  width: 100%;
+  height: 112px;
+  border: 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px 8px 0 0;
+  background: radial-gradient(circle at center, rgba(69, 228, 255, 0.1), rgba(3, 10, 18, 0.9));
+  object-fit: cover;
+}
+
+.echo-ref-media-placeholder {
+  display: grid;
+  place-items: center;
+  color: rgba(69, 228, 255, 0.28);
+}
+
 .echo-ref-card-focus {
   display: flex;
   flex: 1;
@@ -683,6 +699,145 @@
 .echo-ref-inspector {
   min-width: 0;
   overflow: auto;
+}
+
+.echo-ref-inspector-media {
+  position: relative;
+  margin: 8px;
+  overflow: hidden;
+  border: 1px solid rgba(69, 228, 255, 0.18);
+  border-radius: 8px;
+  background: rgba(2, 8, 18, 0.88);
+}
+
+.echo-ref-inspector-media-asset {
+  display: block;
+  width: 100%;
+  height: 210px;
+  object-fit: cover;
+}
+
+.echo-ref-inspector-media > span {
+  position: absolute;
+  right: 6px;
+  bottom: 6px;
+  padding: 4px 6px;
+  border: 1px solid rgba(69, 228, 255, 0.18);
+  border-radius: 4px;
+  background: rgba(2, 8, 18, 0.84);
+  color: var(--echo-ref-cyan);
+  font: 700 7px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+  text-transform: uppercase;
+}
+
+.echo-ref-map-nodes image {
+  pointer-events: none;
+}
+
+.tarot-echo-reference-rail {
+  position: absolute;
+  z-index: 24;
+  right: 12px;
+  bottom: 14px;
+  width: min(660px, calc(100vw - 24px));
+  padding: 8px;
+  border: 1px solid rgba(69, 228, 255, 0.3);
+  background: linear-gradient(145deg, rgba(2, 11, 23, 0.95), rgba(17, 9, 37, 0.94));
+  box-shadow: 0 16px 42px rgba(0, 0, 0, 0.45), 0 0 24px rgba(69, 228, 255, 0.08);
+  pointer-events: auto;
+}
+
+.tarot-echo-reference-rail > header,
+.tarot-echo-reference-rail > footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: rgba(238, 250, 255, 0.5);
+  font: 700 7px/1.3 ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.tarot-echo-reference-rail > header span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: #45e4ff;
+  font-size: 9px;
+  text-transform: uppercase;
+}
+
+.tarot-echo-reference-rail > header em {
+  font-style: normal;
+}
+
+.tarot-echo-reference-rail > div {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+  margin: 7px 0;
+}
+
+.tarot-echo-reference-rail article {
+  display: grid;
+  grid-template-columns: 58px minmax(0, 1fr);
+  gap: 7px;
+  min-width: 0;
+  padding: 5px;
+  border: 1px solid rgba(184, 140, 255, 0.22);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.tarot-echo-reference-rail article video,
+.tarot-echo-reference-rail article img {
+  grid-row: span 2;
+  width: 58px;
+  height: 74px;
+  border-radius: 5px;
+  object-fit: cover;
+}
+
+.tarot-echo-reference-rail article span {
+  display: grid;
+  align-content: center;
+  min-width: 0;
+}
+
+.tarot-echo-reference-rail article strong,
+.tarot-echo-reference-rail article small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tarot-echo-reference-rail article strong {
+  color: #f5fbff;
+  font-size: 9px;
+  white-space: nowrap;
+}
+
+.tarot-echo-reference-rail article small {
+  color: rgba(238, 250, 255, 0.45);
+  font: 6px/1.3 ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.tarot-echo-reference-rail article button {
+  min-height: 22px;
+  border: 1px solid rgba(69, 228, 255, 0.25);
+  border-radius: 4px;
+  background: rgba(69, 228, 255, 0.07);
+  color: #45e4ff;
+  font: 700 7px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+  cursor: pointer;
+}
+
+@media (max-width: 780px) {
+  .tarot-echo-reference-rail > div {
+    grid-template-columns: 1fr;
+  }
+
+  .tarot-echo-reference-rail article:nth-child(n + 2) {
+    display: none;
+  }
 }
 
 .echo-ref-inspector > header {
