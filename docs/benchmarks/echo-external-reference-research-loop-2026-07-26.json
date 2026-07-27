@@ -1,0 +1,85 @@
+{
+  "schemaVersion": "hapa.echo-external-reference-loop-benchmark.v1",
+  "generatedAt": "2026-07-26",
+  "sourceRunId": "echo-reference-run:fnv1a-d07aeef1:echo-reference-miner-local-v4-reference-constellations",
+  "baseline": {
+    "eligibleSongs": 126,
+    "externalSongsMeetingThree": 21,
+    "externalReferenceDeficit": 257,
+    "themeDeltaRecords": 195,
+    "externalInternalBridges": 355,
+    "gptImageEligibleCards": 82
+  },
+  "cycles": [
+    {
+      "cycle": 1,
+      "references": [
+        "A Charlie Brown Christmas",
+        "The Great Gatsby"
+      ],
+      "sources": [
+        "https://www.peanuts.com/classic-holiday-specials",
+        "https://www.gutenberg.org/ebooks/64317"
+      ],
+      "metrics": {
+        "externalSongsMeetingThree": 21,
+        "externalReferenceDeficit": 251,
+        "themeDeltaRecords": 201,
+        "externalInternalBridges": 372,
+        "gptImageEligibleCards": 84,
+        "newGptImageJobs": 2
+      },
+      "quality": {
+        "averageResearchQuality": 4,
+        "qualityScale": "0-4 diagnostic",
+        "exactLineFailures": 0,
+        "authorityViolations": 0,
+        "newOccurrencesFoundByRecheck": 12,
+        "heldAmbiguousRechecks": 5,
+        "stopRecommended": false
+      }
+    },
+    {
+      "cycle": 2,
+      "references": [
+        "Batman",
+        "Marvel's Thor"
+      ],
+      "sources": [
+        "https://www.dc.com/blog/2024/09/16/batman-receives-hollywood-walk-of-fame-star-and-guinness-world-records-title",
+        "https://www.marvel.com/characters/thor-thor-odinson/in-comics",
+        "https://www.marvel.com/items/mjolnir"
+      ],
+      "metrics": {
+        "externalSongsMeetingThree": 21,
+        "externalReferenceDeficit": 249,
+        "themeDeltaRecords": 203,
+        "externalInternalBridges": 377,
+        "gptImageEligibleCards": 86,
+        "newGptImageJobs": 2
+      },
+      "quality": {
+        "averageResearchQuality": 4,
+        "qualityScale": "0-4 diagnostic",
+        "exactLineFailures": 0,
+        "authorityViolations": 0,
+        "newOccurrencesFoundByRecheck": 0,
+        "heldAmbiguousRechecks": 46,
+        "stopRecommended": false
+      }
+    }
+  ],
+  "gptImageBenchmarks": [
+    {
+      "cardId": "reference:the-great-gatsby",
+      "status": "review-required",
+      "visualThesis": "Accountable witness and steady presence contrasted with distant spectacle trying to force an idealized past to return."
+    },
+    {
+      "cardId": "reference:a-charlie-brown-christmas",
+      "status": "review-required",
+      "visualThesis": "Collective care reveals value in an overlooked living thing and turns rejection into a home node."
+    }
+  ],
+  "interpretation": "The first cycle demonstrated useful cross-song expansion. The second exposed namespace ambiguity: 45 Thor lexical matches were held instead of being allowed to inflate Marvel coverage. Generated art remained downstream of validated evidence and retained mandatory Human review."
+}

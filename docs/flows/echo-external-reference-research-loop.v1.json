@@ -1,0 +1,86 @@
+{
+  "schemaVersion": "hapa.process-flow-card.v1",
+  "id": "process-flow:echo-external-reference-research-loop",
+  "title": "Echo External Reference Research Loop",
+  "version": "1.0.0",
+  "objective": "Continuously research external canon, re-evaluate all lyrics and connections, measure quality, and plan Reference Card art without automatic canon promotion.",
+  "trigger": {
+    "type": "coverage-or-curiosity",
+    "inputs": [
+      "source Reference Atlas run",
+      "sharpening research queue",
+      "optional Human-selected clue"
+    ]
+  },
+  "steps": [
+    {
+      "id": "seed",
+      "action": "Split song-level deficits into clue-sized research jobs.",
+      "output": "queued jobs"
+    },
+    {
+      "id": "claim",
+      "action": "Claim a bounded batch with runner identity and lease.",
+      "output": "research packets"
+    },
+    {
+      "id": "research",
+      "action": "Retrieve primary or authoritative sources and separate source facts from lyric inference.",
+      "output": "research contribution"
+    },
+    {
+      "id": "validate",
+      "action": "Validate source URLs, exact lyric lines, plurality, shared-language channels, and authority boundaries.",
+      "output": "validated or held contribution"
+    },
+    {
+      "id": "project",
+      "action": "Create or enrich a non-canon Reference Card proposal.",
+      "output": "projected Reference Atlas"
+    },
+    {
+      "id": "recheck",
+      "action": "Scan every lyric and existing connection with new signals; hold ambiguous short-name matches.",
+      "output": "accepted and held recheck occurrences"
+    },
+    {
+      "id": "benchmark",
+      "action": "Re-run sharpening and compare coverage, deltas, bridges, ambiguity, provenance, and safety.",
+      "output": "cycle quality receipt"
+    },
+    {
+      "id": "art-plan",
+      "action": "Plan GPT Image jobs only for validated, public, nonprivate source references.",
+      "output": "review-required art queue"
+    },
+    {
+      "id": "repeat",
+      "action": "Use the projected run as the next cycle input.",
+      "output": "continuing semantic leverage"
+    }
+  ],
+  "gates": [
+    "exact lyric evidence",
+    "resolvable public source",
+    "alternative reading",
+    "three shared-language channels",
+    "no authorial-intent claim",
+    "no automatic canon promotion",
+    "human review before art acceptance"
+  ],
+  "stopConditions": [
+    "research quality below 3/4",
+    "authority violation",
+    "systematic false-positive expansion",
+    "privacy or rights conflict",
+    "human pause"
+  ],
+  "artifacts": [
+    "loop.json",
+    "cycles/NNN.json",
+    "cycles/NNN-gpt-image-manifest.json",
+    "projected-run.json",
+    "gpt-image-manifest.json",
+    "index.html"
+  ]
+}
