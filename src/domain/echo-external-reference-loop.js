@@ -4,6 +4,7 @@ import { buildEchoReferenceGptImageBenchmarkManifest } from "./echo-reference-gp
 
 export const ECHO_EXTERNAL_REFERENCE_LOOP_SCHEMA = "hapa.echo-external-reference-loop.v1";
 export const ECHO_EXTERNAL_REFERENCE_RESEARCH_RESULT_SCHEMA = "hapa.echo-external-reference-research-result.v1";
+export const ECHO_EXTERNAL_REFERENCE_RESOLUTION_SCHEMA = "hapa.echo-external-reference-resolution.v1";
 export const ECHO_EXTERNAL_REFERENCE_LOOP_VERSION = "echo-external-reference-loop.local-v1";
 
 const EFFECTS = new Set(["reinforces", "reframes", "complicates", "contradicts", "extends", "open-question"]);
@@ -517,31 +518,73 @@ export function buildEchoExternalReferenceCycle({
   };
 }
 
-export function seedEchoExternalReferenceLoop(sourceRun = {}, sharpening = {}, now = () => new Date().toISOString()) {
+const PRESERVED_RESEARCH_JOB_STATUSES = new Set([
+  "validated",
+  "integrated",
+  "resolved-no-reference",
+  "resolved-ambiguous",
+]);
+
+function sameResearchTarget(left = {}, right = {}) {
+  const leftClue = list(left.candidateClues)[0] || {};
+  const rightClue = list(right.candidateClues)[0] || {};
+  return left.id === right.id
+    && left.songId === right.songId
+    && Number(leftClue.lineNumber || 0) === Number(rightClue.lineNumber || 0)
+    && text(leftClue.lyricText) === text(rightClue.lyricText)
+    && text(leftClue.phrase) === text(rightClue.phrase);
+}
+
+export function seedEchoExternalReferenceLoop(
+  sourceRun = {},
+  sharpening = {},
+  now = () => new Date().toISOString(),
+  previousLoop = {},
+) {
+  const previousJobs = new Map(list(previousLoop.jobs).map((job) => [job.id, job]));
   const jobs = list(sharpening.database?.researchQueue)
     .filter((item) => item.status === "research-ready")
     .flatMap((item) => {
       const clues = list(item.candidateClues).slice(0, Math.max(1, Number(item.externalReferenceDeficit || 1)));
       const seeds = clues.length ? clues : [{ key: "whole-song-review", phrase: "Whole-song review", score: item.priority }];
-      return seeds.map((clue) => ({
-      schemaVersion: "hapa.echo-external-reference-research-job.v1",
-      id: `${item.id}:${slug(clue.key || clue.phrase)}`,
-      status: "queued",
-      priority: round(Math.min(1, Number(item.priority || 0) * 0.7 + Number(clue.score || 0.5) * 0.3)),
-      songId: item.songId,
-      songTitle: item.songTitle,
-      externalReferenceDeficit: item.externalReferenceDeficit,
-      candidateClues: [clue],
-      internalContext: item.internalContext,
-      researchQuestions: item.researchQuestions.filter((question) => (
-        clue.phrase === "Whole-song review" || question.includes(`“${clue.phrase}”`)
-      )).slice(0, 1),
-      requiredOutput: item.requiredOutput,
-      claim: null,
-      result: null,
-      validation: null,
-      history: [{ event: "seeded", at: nowValue(now) }],
-      }));
+      return seeds.map((clue) => {
+        const queued = {
+          schemaVersion: "hapa.echo-external-reference-research-job.v1",
+          id: `${item.id}:${slug(clue.key || clue.phrase)}`,
+          status: "queued",
+          priority: round(Math.min(1, Number(item.priority || 0) * 0.7 + Number(clue.score || 0.5) * 0.3)),
+          songId: item.songId,
+          songTitle: item.songTitle,
+          externalReferenceDeficit: item.externalReferenceDeficit,
+          candidateClues: [clue],
+          internalContext: item.internalContext,
+          researchQuestions: item.researchQuestions.filter((question) => (
+            clue.phrase === "Whole-song review" || question.includes(`“${clue.phrase}”`)
+          )).slice(0, 1),
+          requiredOutput: item.requiredOutput,
+          claim: null,
+          result: null,
+          validation: null,
+          history: [{ event: "seeded", at: nowValue(now) }],
+        };
+      const previous = previousJobs.get(queued.id);
+      return previous
+        && PRESERVED_RESEARCH_JOB_STATUSES.has(previous.status)
+        && sameResearchTarget(previous, queued)
+        ? {
+          ...queued,
+          status: previous.status,
+          result: previous.result || null,
+          validation: previous.validation || null,
+          resolution: previous.resolution || null,
+          history: [...list(previous.history), {
+            event: "reseed-preserved",
+            at: nowValue(now),
+            sourceRunId: sourceRun.runId,
+          }],
+        }
+        : queued;
+      });
     })
     .sort((left, right) => right.priority - left.priority || left.id.localeCompare(right.id));
   const core = {
@@ -552,7 +595,7 @@ export function seedEchoExternalReferenceLoop(sourceRun = {}, sharpening = {}, n
     sharpeningRunId: sharpening.sharpeningRunId,
     createdAt: nowValue(now),
     jobs,
-    cycles: [],
+    cycles: list(previousLoop.cycles),
   };
   return { ...core, loopId: `echo-external-reference-loop:${echoReferenceDigest(core).slice(-24)}` };
 }
@@ -600,4 +643,50 @@ export function submitEchoExternalReferenceResult(loop = {}, sourceRun = {}, inp
     }],
   } : candidate);
   return { loop: { ...loop, jobs }, validation, result };
+}
+
+export function resolveEchoExternalReferenceJob(loop = {}, input = {}, now = () => new Date().toISOString()) {
+  const resolution = structuredClone(input.resolution || {});
+  const jobId = text(resolution.jobId);
+  const job = list(loop.jobs).find((candidate) => candidate.id === jobId);
+  if (!job) throw new Error(`Unknown research job ${jobId || "missing"}.`);
+  if (!["claimed", "submitted", "held"].includes(job.status)) {
+    throw new Error(`Research job ${jobId} is not claimable for resolution.`);
+  }
+  const errors = [];
+  if (resolution.schemaVersion !== ECHO_EXTERNAL_REFERENCE_RESOLUTION_SCHEMA) errors.push("invalid-schema");
+  if (!["no-supported-reference", "ambiguous"].includes(resolution.disposition)) errors.push("invalid-disposition");
+  if (!text(resolution.rationale)) errors.push("missing-rationale");
+  if (!list(resolution.searchQueries).length) errors.push("missing-search-queries");
+  if (!text(resolution.caveat)) errors.push("missing-caveat");
+  if (errors.length) return {
+    loop,
+    valid: false,
+    errors,
+    resolution,
+  };
+  const completed = {
+    ...resolution,
+    resolvedAt: text(resolution.resolvedAt, nowValue(now)),
+    resolutionHash: echoReferenceDigest(resolution),
+  };
+  const status = resolution.disposition === "no-supported-reference"
+    ? "resolved-no-reference"
+    : "resolved-ambiguous";
+  const jobs = list(loop.jobs).map((candidate) => candidate.id === jobId ? {
+    ...candidate,
+    status,
+    resolution: completed,
+    history: [...list(candidate.history), {
+      event: status,
+      at: nowValue(now),
+      resolutionHash: completed.resolutionHash,
+    }],
+  } : candidate);
+  return {
+    loop: { ...loop, jobs },
+    valid: true,
+    errors: [],
+    resolution: completed,
+  };
 }

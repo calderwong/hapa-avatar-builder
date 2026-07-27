@@ -10,6 +10,11 @@ silently approving an interpretation or changing canon.
 
 ## Final result
 
+This is an art-pipeline completion record for the then-current Reference
+catalog. It is not a claim that the external-canon research queue completed.
+At this checkpoint only four sourced research overlays existed; the remaining
+research queue must continue to expand the source Reference population.
+
 - Atlas Cards: **1,048**
 - Source Reference Cards (`reference:*`): **89**
 - Expansion and motif Cards: **959**

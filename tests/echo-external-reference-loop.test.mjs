@@ -3,8 +3,10 @@ import test from "node:test";
 
 import {
   ECHO_EXTERNAL_REFERENCE_RESEARCH_RESULT_SCHEMA,
+  ECHO_EXTERNAL_REFERENCE_RESOLUTION_SCHEMA,
   buildEchoExternalReferenceCycle,
   claimEchoExternalReferenceJobs,
+  resolveEchoExternalReferenceJob,
   seedEchoExternalReferenceLoop,
   submitEchoExternalReferenceResult,
   validateEchoExternalReferenceResearchResult,
@@ -148,4 +150,48 @@ test("integrates validated research, rechecks all lyrics, and plans GPT Image ar
   assert.equal(cycle.quality.heldAmbiguousRechecks, 1);
   assert.equal(cycle.artManifest.jobs.length, 1);
   assert.equal(cycle.artManifest.jobs[0].status, "planned");
+});
+
+test("records an evidence-bearing no-reference resolution without fabricating a Card", () => {
+  const { run, sharpening } = fixture();
+  let loop = seedEchoExternalReferenceLoop(run, sharpening);
+  const claimed = claimEchoExternalReferenceJobs(loop, { runner: "codex", limit: 1 });
+  loop = claimed.loop;
+  const resolved = resolveEchoExternalReferenceJob(loop, {
+    resolution: {
+      schemaVersion: ECHO_EXTERNAL_REFERENCE_RESOLUTION_SCHEMA,
+      jobId: claimed.claimed[0].id,
+      disposition: "no-supported-reference",
+      rationale: "The phrase behaves as ordinary connective language in this lyric and no attributable public canon was established.",
+      searchQueries: ["exact lyric phrase external reference"],
+      caveat: "A future creator clue may reopen the candidate.",
+    },
+  });
+  assert.equal(resolved.valid, true);
+  assert.equal(resolved.loop.jobs[0].status, "resolved-no-reference");
+  assert.ok(resolved.resolution.resolutionHash);
+});
+
+test("reseed preserves terminal research decisions when the exact lyric target is unchanged", () => {
+  const { run, sharpening } = fixture();
+  let loop = seedEchoExternalReferenceLoop(run, sharpening, () => "2026-07-26T00:00:00.000Z");
+  const claimed = claimEchoExternalReferenceJobs(loop, { runner: "codex", limit: 1 });
+  const resolved = resolveEchoExternalReferenceJob(claimed.loop, {
+    resolution: {
+      schemaVersion: ECHO_EXTERNAL_REFERENCE_RESOLUTION_SCHEMA,
+      jobId: claimed.claimed[0].id,
+      disposition: "ambiguous",
+      rationale: "Two public canons remain plausible and the lyric does not disambiguate them.",
+      searchQueries: ["Carraway phrase public canon"],
+      caveat: "Do not select one canon without another clue.",
+    },
+  });
+  loop = seedEchoExternalReferenceLoop(
+    { ...run, runId: "run-two", runHash: "hash-two" },
+    sharpening,
+    () => "2026-07-26T01:00:00.000Z",
+    resolved.loop,
+  );
+  assert.equal(loop.jobs[0].status, "resolved-ambiguous");
+  assert.ok(loop.jobs[0].history.some((event) => event.event === "reseed-preserved"));
 });

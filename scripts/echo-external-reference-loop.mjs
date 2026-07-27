@@ -8,6 +8,7 @@ import {
   buildEchoExternalReferenceCycle,
   claimEchoExternalReferenceJobs,
   rebaseEchoExternalReferenceProjection,
+  resolveEchoExternalReferenceJob,
   seedEchoExternalReferenceLoop,
   submitEchoExternalReferenceResult,
 } from "../src/domain/echo-external-reference-loop.js";
@@ -64,6 +65,11 @@ function statusOf(loop = {}) {
     statuses,
     cycles: loop.cycles?.length || 0,
     latestCycle: loop.cycles?.at(-1)?.cycleId || "",
+    terminalJobs: (loop.jobs || []).filter((job) => [
+      "integrated",
+      "resolved-no-reference",
+      "resolved-ambiguous",
+    ].includes(job.status)).length,
   };
 }
 
@@ -124,7 +130,8 @@ if (command === "seed") {
   if (sharpening.source?.packetHash && sharpening.source.packetHash !== sourceRun.packetHash) {
     throw new Error("Sharpening queue and freshly mined source packet do not match. Refresh sharpening before seeding.");
   }
-  const loop = seedEchoExternalReferenceLoop(sourceRun, sharpening);
+  const previousLoop = fs.existsSync(loopPath) ? readJson(loopPath) : {};
+  const loop = seedEchoExternalReferenceLoop(sourceRun, sharpening, undefined, previousLoop);
   if (apply) {
     writeJson(sourceRunPath, sourceRun);
     writeJson(loopPath, loop);
@@ -160,6 +167,20 @@ if (command === "seed") {
   const result = submitEchoExternalReferenceResult(loop, sourceRun, { result: readJson(path.resolve(option("--result"))) });
   writeJson(loopPath, result.loop);
   console.log(JSON.stringify({ ok: result.validation.valid, command, validation: result.validation, ...statusOf(result.loop) }, null, 2));
+} else if (command === "resolve") {
+  if (!apply) throw new Error("Resolve requires --apply.");
+  const loop = readJson(loopPath);
+  const result = resolveEchoExternalReferenceJob(loop, {
+    resolution: readJson(path.resolve(option("--resolution"))),
+  });
+  if (result.valid) writeJson(loopPath, result.loop);
+  console.log(JSON.stringify({
+    ok: result.valid,
+    command,
+    errors: result.errors,
+    resolution: result.resolution,
+    ...statusOf(result.loop),
+  }, null, 2));
 } else if (command === "cycle") {
   if (!apply) throw new Error("Cycle requires --apply.");
   const loop = readJson(loopPath);
@@ -221,5 +242,5 @@ if (command === "seed") {
   const loop = readJson(loopPath);
   console.log(JSON.stringify({ ok: true, command, loopPath, runtimeRoot, ...statusOf(loop) }, null, 2));
 } else {
-  throw new Error(`Unknown command ${command}. Expected seed, claim, submit, cycle, rebase, art-next, or status.`);
+  throw new Error(`Unknown command ${command}. Expected seed, claim, submit, resolve, cycle, rebase, art-next, or status.`);
 }
