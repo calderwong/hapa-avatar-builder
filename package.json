@@ -70,6 +70,8 @@
     "echo:references:batch": "node scripts/echo-reference-batch.mjs",
     "echo:references:materialize": "node scripts/materialize-echo-reference-album.mjs",
     "echo:references:evaluate": "node scripts/evaluate-echo-reference-quality-security.mjs",
+    "echo:references:sharpen": "node scripts/sharpen-echo-reference-atlas.mjs",
+    "echo:references:sharpen:apply": "node scripts/sharpen-echo-reference-atlas.mjs --apply",
     "echo:reference-art:plan": "node scripts/echo-reference-card-art.mjs plan",
     "echo:reference-art:status": "node scripts/echo-reference-card-art.mjs status",
     "echo:reference-art:run": "node scripts/echo-reference-card-art.mjs run",

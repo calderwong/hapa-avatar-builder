@@ -203,6 +203,23 @@ Classify a match as same entity, related entity, homonym, adaptation, alias, tra
 - **Private-data mistake:** withdraw the contribution, preserve the audit event, and verify public/approved projections are empty.
 - **Run interrupted before apply:** repeat dry-run. Deterministic packet/config inputs should produce the same receipt.
 
+## Coverage sharpening overlay
+
+After the deterministic mining run, use the
+[Echo Reference Sharpening Protocol](./ECHO_REFERENCE_SHARPENING_PROTOCOL.md)
+to evaluate every lyric-bearing song against the three-external /
+three-internal coverage prior:
+
+```bash
+npm run echo:references:sharpen
+npm run echo:references:sharpen:apply
+```
+
+The overlay records honest deficits, context/theme deltas, bounded research
+packets, stricter internal routes, and proposed external-to-internal bridges.
+It does not alter the source run, force references, approve Cards, or promote
+canon.
+
 ## Contributor quickstart
 
 Run the focused contracts and production build:
