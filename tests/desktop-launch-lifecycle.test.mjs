@@ -7,9 +7,11 @@ import test from "node:test";
 const exec = promisify(execFile);
 const electronPath = new URL("../electron/main.cjs", import.meta.url);
 const launcherPath = new URL("../scripts/launch-desktop-dedicated.zsh", import.meta.url);
-const [electron, launcher] = await Promise.all([
+const apiPath = new URL("../server/api.mjs", import.meta.url);
+const [electron, launcher, api] = await Promise.all([
   readFile(electronPath, "utf8"),
   readFile(launcherPath, "utf8"),
+  readFile(apiPath, "utf8"),
 ]);
 
 test("desktop shell is single-instance and a repeat launch restores the Builder window", () => {
@@ -30,7 +32,14 @@ test("optional operator-console collisions cannot block the Builder UI", () => {
   assert.match(electron, /before-quit[\s\S]*closeOperatorConsoleServer\(\)/);
 });
 
-test("dedicated launcher serializes preparation, fast-opens healthy UI, and reserves port 8799", async () => {
+test("health probes recompute delivery freshness from the boot identity", () => {
+  assert.match(api, /const ECHO_SERVER_BOOT_IDENTITY = inspectEchoServerDeliveryBuildIdentity\(\{ root: ROOT \}\)/);
+  assert.match(api, /function currentEchoServerBootFreshness\(\)[\s\S]*inspectEchoServerBootFreshness\(ECHO_SERVER_BOOT_IDENTITY,[\s\S]*refresh: true/);
+  assert.match(api, /pathname === "\/api\/health"[\s\S]*const echoDeliveryFreshness = currentEchoServerBootFreshness\(\)/);
+  assert.doesNotMatch(api, /liveness-only-deep-verification-deferred/);
+});
+
+test("dedicated launcher serializes preparation, restarts app services, and reserves port 8799", async () => {
   const candidates = launcher.match(/port_candidates=\(([^)]+)\)/)?.[1] || "";
   assert.doesNotMatch(candidates, /\b8799\b/);
   assert.match(launcher, /LAUNCH_LOCK_DIR/);
@@ -38,6 +47,14 @@ test("dedicated launcher serializes preparation, fast-opens healthy UI, and rese
   assert.match(launcher, /Another Avatar Builder launch is preparing; waiting instead of starting a competing build/);
   assert.match(launcher, /Healthy canonical Hapa UI is already ready[\s\S]*skipping rebuild/);
   assert.match(launcher, /Canonical port \$CANONICAL_PORT is owned and listening but busy; preserving it and opening the Builder instead of rebuilding or restarting/);
+  assert.match(launcher, /is_hapa_api_restart_required\(\)/);
+  assert.match(launcher, /"echoDeliveryFreshness":\{"ok":false/);
+  assert.match(launcher, /Fresh Avatar Builder app launch detected; the canonical API will restart with the app/);
+  assert.match(launcher, /Canonical Avatar Builder API reports stale delivery code; scheduling a service restart/);
+  assert.match(launcher, /desktop_was_running/);
+  assert.match(launcher, /canonical_restart_required/);
+  assert.match(launcher, /canonical_launchd_pid\(\)[\s\S]*Restarting canonical launchd-owned Avatar Builder API[\s\S]*restarted_pid[\s\S]*restarted as process/);
+  assert.match(launcher, /if \[ "\$canonical_restart_required" = "1" \]; then\s+restart_canonical_launchd/);
   assert.ok(launcher.indexOf("wait_for_hapa_endpoint \"$CANONICAL_PORT\"") < launcher.indexOf("npm run build"));
   assert.match(launcher, /HAPA_AVATAR_FORCE_REBUILD/);
   assert.match(launcher, /HAPA_AVATAR_REPLACE_DESKTOP/);

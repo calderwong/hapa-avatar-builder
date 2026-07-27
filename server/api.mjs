@@ -184,21 +184,31 @@ import {
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, "..");
 const DEFAULT_HAPA_MUSIC_VIZ_ROOT = path.join(homedir(), "Desktop", "hapa-music-viz");
-let echoServerBootIdentityCache = null;
+const ECHO_SERVER_BOOT_IDENTITY = inspectEchoServerDeliveryBuildIdentity({ root: ROOT });
 function getEchoServerBootIdentity() {
-  if (!echoServerBootIdentityCache) {
-    echoServerBootIdentityCache = inspectEchoServerDeliveryBuildIdentity({ root: ROOT });
-  }
-  return echoServerBootIdentityCache;
+  return ECHO_SERVER_BOOT_IDENTITY;
 }
-const ECHO_SERVER_BOOT_FRESHNESS = Object.freeze({
-  ok: true,
-  reason: null,
-  verification: "liveness-only-deep-verification-deferred",
-  bootSha256: null,
-  bootSourceStatSignature: null,
-  currentSourceStatSignature: null,
-});
+function currentEchoServerBootFreshness() {
+  try {
+    return {
+      ...inspectEchoServerBootFreshness(ECHO_SERVER_BOOT_IDENTITY, {
+        root: ROOT,
+        refresh: true,
+      }),
+      verification: "current-source-stat-signature",
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      reason: "server_restart_required",
+      verification: "freshness-check-failed-closed",
+      message: error instanceof Error ? error.message : String(error),
+      bootSha256: ECHO_SERVER_BOOT_IDENTITY.sha256,
+      bootSourceStatSignature: ECHO_SERVER_BOOT_IDENTITY.sourceStatSignature,
+      currentSourceStatSignature: null,
+    };
+  }
+}
 const SERVER_STARTED_AT = new Date().toISOString();
 const SERVER_PROCESS_OWNER = process.env.HAPA_AVATAR_PROCESS_OWNER || "standalone-api";
 const SERVER_BUILD_SIGNATURE = process.env.HAPA_AVATAR_BUILD_SIGNATURE || createHash("sha256")
@@ -1619,6 +1629,7 @@ async function route(req, res) {
 
   if (pathname === "/api/health") {
     const memory = process.memoryUsage();
+    const echoDeliveryFreshness = currentEchoServerBootFreshness();
     sendJson(res, 200, {
       ok: true,
       service: "hapa-avatar-builder",
@@ -1627,7 +1638,7 @@ async function route(req, res) {
         pid: process.pid,
         processOwner: SERVER_PROCESS_OWNER,
         buildSignature: SERVER_BUILD_SIGNATURE,
-        echoDeliveryFreshness: ECHO_SERVER_BOOT_FRESHNESS,
+        echoDeliveryFreshness,
         startedAt: SERVER_STARTED_AT,
         uptimeSeconds: Math.round(process.uptime()),
         port,

@@ -97,6 +97,19 @@ is_hapa_api() {
   fi
 }
 
+is_hapa_api_restart_required() {
+  local port="$1"
+  local expected_owner="${2:-}"
+  local payload
+  payload="$(curl -fsS --connect-timeout 1 --max-time "$PROBE_TIMEOUT_SECONDS" "http://127.0.0.1:${port}/api/health" 2>/dev/null || true)"
+  [[ "$payload" == *'"service":"hapa-avatar-builder"'* ]] || return 1
+  [[ "$payload" == *'"echoDeliveryFreshness":{"ok":false'* ]] || return 1
+  [[ "$payload" == *'"reason":"server_restart_required"'* ]] || return 1
+  if [ -n "$expected_owner" ]; then
+    [[ "$payload" == *"\"processOwner\":\"${expected_owner}\""* ]] || return 1
+  fi
+}
+
 is_hapa_endpoint() {
   local port="$1"
   local expected_owner="${2:-}"
@@ -142,9 +155,31 @@ canonical_launchd_registered() {
   launchctl print "$(launchd_target)" >/dev/null 2>&1
 }
 
+canonical_launchd_pid() {
+  launchctl print "$(launchd_target)" 2>/dev/null | awk '
+    $1 == "pid" && $2 == "=" {
+      print $3
+      exit
+    }
+  '
+}
+
 restart_canonical_launchd() {
+  local previous_pid
+  local restarted_pid
+  previous_pid="$(canonical_launchd_pid || true)"
   echo "[$(timestamp)] Restarting canonical launchd-owned Avatar Builder API"
   launchctl kickstart -k "$(launchd_target)"
+  for _ in {1..120}; do
+    restarted_pid="$(canonical_launchd_pid || true)"
+    if [ -n "$restarted_pid" ] && [ "$restarted_pid" != "$previous_pid" ]; then
+      echo "[$(timestamp)] Canonical Avatar Builder API restarted as process $restarted_pid"
+      return 0
+    fi
+    sleep 0.1
+  done
+  echo "[$(timestamp)] ERROR: canonical Avatar Builder API did not acquire a new process after restart"
+  return 1
 }
 
 is_listening() {
@@ -267,14 +302,33 @@ fi
 selected_port=""
 reuse_existing="0"
 force_rebuild="${HAPA_AVATAR_FORCE_REBUILD:-0}"
+desktop_was_running="0"
+canonical_restart_required="0"
+existing_desktop_pids="$(desktop_process_pids || true)"
+if [ -n "$existing_desktop_pids" ]; then
+  desktop_was_running="1"
+fi
 
-if [ "$force_rebuild" != "1" ] && canonical_launchd_registered && wait_for_hapa_endpoint "$CANONICAL_PORT" "launchd-canonical" 3; then
+if canonical_launchd_registered; then
+  if [ "$desktop_was_running" != "1" ]; then
+    canonical_restart_required="1"
+    echo "[$(timestamp)] Fresh Avatar Builder app launch detected; the canonical API will restart with the app"
+  elif is_hapa_api_restart_required "$CANONICAL_PORT" "launchd-canonical"; then
+    canonical_restart_required="1"
+    echo "[$(timestamp)] Canonical Avatar Builder API reports stale delivery code; scheduling a service restart"
+  elif [ "$force_rebuild" = "1" ]; then
+    canonical_restart_required="1"
+    echo "[$(timestamp)] Forced rebuild requested; the canonical API will restart after the build"
+  fi
+fi
+
+if [ "$force_rebuild" != "1" ] && [ "$canonical_restart_required" != "1" ] && canonical_launchd_registered && wait_for_hapa_endpoint "$CANONICAL_PORT" "launchd-canonical" 3; then
   selected_port="$CANONICAL_PORT"
   reuse_existing="1"
   echo "[$(timestamp)] Healthy canonical Hapa UI is already ready on port $CANONICAL_PORT; skipping rebuild"
 fi
 
-if [ "$force_rebuild" != "1" ] && [ -z "$selected_port" ] && canonical_launchd_registered && is_listening "$CANONICAL_PORT"; then
+if [ "$force_rebuild" != "1" ] && [ "$canonical_restart_required" != "1" ] && [ -z "$selected_port" ] && canonical_launchd_registered && is_listening "$CANONICAL_PORT"; then
   selected_port="$CANONICAL_PORT"
   reuse_existing="1"
   echo "[$(timestamp)] Canonical port $CANONICAL_PORT is owned and listening but busy; preserving it and opening the Builder instead of rebuilding or restarting"
@@ -291,8 +345,12 @@ if [ -z "$selected_port" ]; then
 fi
 
 if [ -z "$selected_port" ] && canonical_launchd_registered; then
-  if ! wait_for_hapa_endpoint "$CANONICAL_PORT" "launchd-canonical" 2; then
+  if [ "$canonical_restart_required" = "1" ]; then
     restart_canonical_launchd
+  elif ! wait_for_hapa_endpoint "$CANONICAL_PORT" "launchd-canonical" 2; then
+    restart_canonical_launchd
+  fi
+  if [ "$canonical_restart_required" = "1" ] || ! is_hapa_endpoint "$CANONICAL_PORT" "launchd-canonical"; then
     for _ in {1..120}; do
       if is_hapa_endpoint "$CANONICAL_PORT" "launchd-canonical"; then
         break
