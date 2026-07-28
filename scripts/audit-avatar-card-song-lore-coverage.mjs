@@ -9,7 +9,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, "..");
 const DATA_DIR = path.join(ROOT, "data");
 const REPORT_DIR = path.join(DATA_DIR, "healing-reports");
-const PLAYLIST_ID = process.env.HAPA_DEAR_PAPA_PLAYLIST_ID || "369daf97-0e07-4c49-a7a2-2a6f0b18353b";
+const PLAYLIST_ID = process.env.HAPA_DEAR_PAPA_PLAYLIST_ID || "903148b6-5709-4511-9cfd-d34b23799da6";
 const SONG_REGISTRY_PATH = process.env.HAPA_SONG_REGISTRY_DATA || "/Users/calderwong/Desktop/hapa-song-registry/data/registry.json";
 
 const PATHS = {

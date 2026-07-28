@@ -12,7 +12,7 @@ const ROOT = path.resolve(__dirname, "..");
 const DATA_DIR = path.join(ROOT, "data");
 const BACKUP_DIR = path.join(DATA_DIR, "backups");
 const RUN_DIR = path.join(DATA_DIR, "avatar-agent-runs");
-const PLAYLIST_ID = process.env.HAPA_DEAR_PAPA_PLAYLIST_ID || "369daf97-0e07-4c49-a7a2-2a6f0b18353b";
+const PLAYLIST_ID = process.env.HAPA_DEAR_PAPA_PLAYLIST_ID || "903148b6-5709-4511-9cfd-d34b23799da6";
 
 const PATHS = {
   avatarStore: path.join(DATA_DIR, "avatar-store.json"),
@@ -480,7 +480,7 @@ function healAvatarMind(avatar, chosenSongs, chosenCards, runId, now) {
     ], (prompt) => prompt.id),
     sourceAnchors: unique([...(mind.dearPapaSongContext?.sourceAnchors || []), "data/dear-papa-songbook.json", "data/hapa-songs-store.json", `suno-playlist:${PLAYLIST_ID}`]),
     songCardIndexPath: "data/dear-papa-songbook.json",
-    rawCardManifestPath: "/Users/calderwong/Desktop/suno-library/playlists/369daf97-0e07-4c49-a7a2-2a6f0b18353b/manifest.json",
+    rawCardManifestPath: "/Users/calderwong/Desktop/suno-library/playlists/903148b6-5709-4511-9cfd-d34b23799da6/manifest.hapa-avatar-builder.json",
     genesisUse: unique([...(mind.dearPapaSongContext?.genesisUse || []), "Recovered-roster Genesis pass uses the 79-song Dear Papa playlist as soft-canon relationship fuel."]),
     status: "active",
     updatedAt: now

@@ -16,11 +16,11 @@ const AVATAR_STORE_PATH = path.join(DATA_DIR, "avatar-store.json");
 const REPORT_DIR = path.join(DATA_DIR, "song-sync-reports");
 const BACKUP_DIR = path.join(DATA_DIR, "backups");
 
-const PLAYLIST_ID = process.env.HAPA_DEAR_PAPA_PLAYLIST_ID || "369daf97-0e07-4c49-a7a2-2a6f0b18353b";
+const PLAYLIST_ID = process.env.HAPA_DEAR_PAPA_PLAYLIST_ID || "903148b6-5709-4511-9cfd-d34b23799da6";
 const SUNO_LIBRARY_ROOT = process.env.HAPA_SUNO_LIBRARY_ROOT || "/Users/calderwong/Desktop/suno-library";
 const SONG_REGISTRY_PATH = process.env.HAPA_SONG_REGISTRY_DATA || "/Users/calderwong/Desktop/hapa-song-registry/data/registry.json";
 const PLAYLIST_ROOT = process.env.HAPA_DEAR_PAPA_PLAYLIST_ROOT || path.join(SUNO_LIBRARY_ROOT, "playlists", PLAYLIST_ID);
-const MANIFEST_PATH = process.env.HAPA_DEAR_PAPA_MANIFEST || path.join(PLAYLIST_ROOT, "manifest.json");
+const MANIFEST_PATH = process.env.HAPA_DEAR_PAPA_MANIFEST || path.join(PLAYLIST_ROOT, "manifest.hapa-avatar-builder.json");
 
 await main();
 
