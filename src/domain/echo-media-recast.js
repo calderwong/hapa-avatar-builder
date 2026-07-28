@@ -81,6 +81,7 @@ export function buildScrollSiteDirectorCandidates(entries = [], policy = {}) {
 
 function normalizeSourceGroup(candidate = {}) {
   const source = String(candidate.sourceGroup || candidate.sourceFamily || "").trim().toLowerCase();
+  if (source === "ref-cards" || source.includes("ref-card")) return "ref-cards";
   if (source === "scroll" || source.includes("scroll") || source.includes("fal")) return "scroll";
   if (source === "scene" || source.includes("scene")) return "scene";
   if (source === "avatar" || source.includes("avatar")) return "avatar";
@@ -88,6 +89,7 @@ function normalizeSourceGroup(candidate = {}) {
   if (source === "tarot" || source.includes("tarot")) return "tarot";
   if (source === "reference" || source.includes("reference")) return "reference";
   const cohort = String(candidate.cohort || "").trim().toLowerCase();
+  if (cohort.includes("ref-card")) return "ref-cards";
   if (cohort === "root" || cohort.includes("fal") || cohort.includes("scroll")) return "scroll";
   if (cohort.includes("scene")) return "scene";
   if (cohort.includes("avatar")) return "avatar";

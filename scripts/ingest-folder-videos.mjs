@@ -56,7 +56,16 @@ const ROOT_ARGS = process.argv
   .filter((arg) => arg !== "true");
 const ROOTS = unique(ROOT_ARGS.length ? ROOT_ARGS : DEFAULT_ROOTS).map((item) => path.resolve(item));
 
-await main();
+export function folderVideoIngestPersistencePlan(noAttach = NO_ATTACH) {
+  return {
+    mediaLibrary: true,
+    avatarStore: !noAttach,
+    tarotStore: !noAttach,
+    sceneStore: !noAttach,
+  };
+}
+
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) await main();
 
 async function main() {
   await ensureVisionTool();
@@ -287,20 +296,26 @@ async function main() {
   report.generatedAt = new Date().toISOString();
 
   if (!DRY_RUN) {
-    await Promise.all([
-      backupFile(AVATAR_STORE_PATH, "folder-video-ingest"),
-      backupFile(TAROT_STORE_PATH, "folder-video-ingest"),
-      backupFile(SCENE_STORE_PATH, "folder-video-ingest"),
-      backupFile(MEDIA_LIBRARY_PATH, "folder-video-ingest").catch(() => {})
-    ]);
-    await writeFile(AVATAR_STORE_PATH, `${JSON.stringify({
-      ...avatarStore,
-      avatars: nextAvatars,
-      teams: normalizeAvatarTeams(avatarStore.teams || [], nextAvatars),
-      updatedAt: new Date().toISOString()
-    }, null, 2)}\n`, "utf8");
-    await writeFile(TAROT_STORE_PATH, `${JSON.stringify(nextTarotStore, null, 2)}\n`, "utf8");
-    await writeFile(SCENE_STORE_PATH, `${JSON.stringify(nextSceneGraph, null, 2)}\n`, "utf8");
+    const persistence = folderVideoIngestPersistencePlan();
+    const backupJobs = [backupFile(MEDIA_LIBRARY_PATH, "folder-video-ingest").catch(() => {})];
+    if (persistence.avatarStore) {
+      backupJobs.push(
+        backupFile(AVATAR_STORE_PATH, "folder-video-ingest"),
+        backupFile(TAROT_STORE_PATH, "folder-video-ingest"),
+        backupFile(SCENE_STORE_PATH, "folder-video-ingest")
+      );
+    }
+    await Promise.all(backupJobs);
+    if (persistence.avatarStore) {
+      await writeFile(AVATAR_STORE_PATH, `${JSON.stringify({
+        ...avatarStore,
+        avatars: nextAvatars,
+        teams: normalizeAvatarTeams(avatarStore.teams || [], nextAvatars),
+        updatedAt: new Date().toISOString()
+      }, null, 2)}\n`, "utf8");
+      await writeFile(TAROT_STORE_PATH, `${JSON.stringify(nextTarotStore, null, 2)}\n`, "utf8");
+      await writeFile(SCENE_STORE_PATH, `${JSON.stringify(nextSceneGraph, null, 2)}\n`, "utf8");
+    }
     await writeFile(MEDIA_LIBRARY_PATH, `${JSON.stringify(nextLibrary, null, 2)}\n`, "utf8");
   }
   await mkdir(path.dirname(REPORT_PATH), { recursive: true });

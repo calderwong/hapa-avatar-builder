@@ -154,6 +154,36 @@ test("balanced recast accepts the Reference Atlas as an explicit Director source
   assert.deepEqual(validateBalancedDirectorRevision(variant), { ok: true, timelineShots: 2, replacementShots: 2 });
 });
 
+test("balanced recast keeps Ref Cards distinct from the Reference Atlas", () => {
+  const sourceGroups = ["ref-cards", "reference"];
+  const candidates = sourceGroups.flatMap((sourceGroup, groupIndex) => [
+    {
+      ...candidate(sourceGroup, "loop", 40 + groupIndex * 2),
+      cardKind: sourceGroup === "ref-cards" ? "media" : "reference",
+      cohort: sourceGroup === "ref-cards" ? "ref-cards-run-1" : "reference-atlas-adaptive",
+    },
+    {
+      ...candidate(sourceGroup, "transition", 41 + groupIndex * 2),
+      cardKind: sourceGroup === "ref-cards" ? "media" : "reference",
+      cohort: sourceGroup === "ref-cards" ? "ref-cards-run-1" : "reference-atlas-adaptive",
+    },
+  ]);
+  const variant = recastBalancedEchoDirectorProject(projectWithShots(4), candidates, {
+    variantId: "ref-cards-reference-balanced-v1",
+    allowedSourceGroups: sourceGroups,
+    sourcePattern: sourceGroups,
+    rotateSourcePattern: false,
+    createdAt: "2026-07-27T12:00:00.000Z",
+    seed: "ref-cards-reference-fixture",
+  });
+
+  assert.deepEqual(
+    variant.selectionEvidence.map((selection) => selection.sourceGroup),
+    ["ref-cards", "reference", "ref-cards", "reference"],
+  );
+  assert.deepEqual(variant.telemetry.sourceCandidatesByGroup, { "ref-cards": 2, reference: 2 });
+});
+
 test("balanced recast rotates all three sources, drains deterministic shuffle bags, and preserves direction", () => {
   const project = projectWithShots();
   const before = JSON.stringify(project);
