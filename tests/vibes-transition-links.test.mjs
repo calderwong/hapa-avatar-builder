@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 
 import {
   buildVibesTransitionFrameCatalog,
+  createVibesReferenceTransitionRing,
   createVibesTransitionJob,
   createVibesTransitionMediaRecord,
   createVibesTransitionQueue,
@@ -10,6 +11,8 @@ import {
   fillVibesTransitionBuffer,
   markVibesTransitionFailed,
   markVibesTransitionReady,
+  summarizeVibesReferenceTransitionCoverage,
+  updateVibesTransitionSession,
 } from "../src/domain/vibes-transition-links.js";
 
 const now = "2026-07-28T18:00:00.000Z";
@@ -117,4 +120,62 @@ test("completed media record links both endpoint Cards and the transition link",
   ]);
   assert.equal(record.asset.metadata.vibesTransitionLink.from.assetId, transition.from.assetId);
   assert.equal(record.asset.metadata.vibesTransitionLink.to.assetId, transition.to.assetId);
+});
+
+test("reference ring creates one deterministic outbound transition per Reference image", () => {
+  const references = ["Gamma", "Alpha", "Beta"].map((title, index) => ({
+    ...frame("reference", `reference-${index}`, `reference-asset-${index}`),
+    cardTitle: title,
+    id: `transition-frame:reference:${title.toLowerCase()}`,
+  }));
+  const ring = createVibesReferenceTransitionRing({ frames: references }, {
+    projectUrl: "https://vibes.ai/projects/example",
+  }, now);
+  assert.equal(ring.referenceCount, 3);
+  assert.equal(ring.transitionCount, 3);
+  assert.deepEqual(ring.jobs.map((row) => row.from.cardTitle), ["Alpha", "Beta", "Gamma"]);
+  assert.deepEqual(ring.jobs.map((row) => row.to.cardTitle), ["Beta", "Gamma", "Alpha"]);
+  assert.equal(new Set(ring.jobs.map((row) => row.from.id)).size, 3);
+  assert.ok(ring.jobs.every((row) => row.provenance.coverageRole === "outbound-transition-per-reference-image"));
+});
+
+test("reference coverage distinguishes ready, active, queued, and missing outbound frames", () => {
+  const references = ["one", "two", "three", "four"].map((id) => ({
+    ...frame("reference", id, `${id}-asset`),
+    id: `transition-frame:reference:${id}`,
+  }));
+  const ring = createVibesReferenceTransitionRing({ frames: references.slice(0, 3) }, {}, now);
+  let queue = createVibesTransitionQueue({ jobs: ring.jobs }, now);
+  queue = fillVibesTransitionBuffer(queue, { maxConcurrent: 1, now }).queue;
+  queue = markVibesTransitionReady(queue, queue.jobs[0].id, {
+    uri: "/media/ready.mp4",
+    path: "/tmp/ready.mp4",
+    sha256: "c".repeat(64),
+  }, later);
+  const coverage = summarizeVibesReferenceTransitionCoverage({ frames: references }, queue);
+  assert.equal(coverage.referenceCount, 4);
+  assert.equal(coverage.satisfied, 1);
+  assert.equal(coverage.queued, 2);
+  assert.equal(coverage.missing, 1);
+});
+
+test("session recovery records safe re-entry and human-auth boundaries", () => {
+  const recovering = updateVibesTransitionSession({}, "recovering", {
+    observedUrl: "https://vibes.ai/",
+    resumeUrl: "https://vibes.ai/projects/example",
+    reason: "redirected-to-public-landing",
+  }, now);
+  assert.equal(recovering.recoveryAttempts, 1);
+  assert.equal(recovering.nextAction, "attempt-one-safe-login-reentry");
+
+  const required = updateVibesTransitionSession(recovering, "auth-required", {
+    reason: "credential-or-otp-required",
+  }, later);
+  assert.equal(required.nextAction, "pause-provider-submissions-and-request-human-sign-in");
+
+  const healthy = updateVibesTransitionSession(required, "healthy", {
+    observedUrl: "https://vibes.ai/projects/example",
+  }, "2026-07-28T18:10:00.000Z");
+  assert.equal(healthy.authRequiredAt, "");
+  assert.equal(healthy.nextAction, "resume-three-video-buffer");
 });

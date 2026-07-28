@@ -2,6 +2,7 @@ export const VIBES_TRANSITION_QUEUE_VERSION = "hapa.vibes-transition-link-queue.
 export const VIBES_TRANSITION_JOB_VERSION = "hapa.vibes-transition-link-job.v1";
 export const VIBES_TRANSITION_CATALOG_VERSION = "hapa.vibes-transition-frame-catalog.v1";
 export const VIBES_TRANSITION_MEDIA_VERSION = "hapa.vibes-transition-media.v1";
+export const VIBES_TRANSITION_SESSION_VERSION = "hapa.vibes-transition-session.v1";
 
 export const VIBES_TRANSITION_ACTIVE_STATUSES = Object.freeze([
   "claimed",
@@ -11,6 +12,7 @@ export const VIBES_TRANSITION_ACTIVE_STATUSES = Object.freeze([
 
 const FRAME_KINDS = new Set(["reference", "avatar", "scene"]);
 const ACTIVE_STATUSES = new Set(VIBES_TRANSITION_ACTIVE_STATUSES);
+const SESSION_STATES = new Set(["unknown", "healthy", "recovering", "auth-required"]);
 
 function list(value) {
   return Array.isArray(value) ? value.filter(Boolean) : [];
@@ -416,6 +418,131 @@ export function buildVibesTransitionFrameCatalog(input = {}, now = new Date().to
       scene: uniqueFrames.filter((frame) => frame.kind === "scene").length,
     },
     frames: uniqueFrames,
+  };
+}
+
+function referenceRingPrompt(from = {}, to = {}) {
+  return [
+    "Create a seamless cinematic transition from the first Reference Atlas frame into the last Reference Atlas frame.",
+    `Begin with “${from.cardTitle}” and resolve exactly into “${to.cardTitle}”.`,
+    "Preserve the principal character identities, composition, palette, and vertical framing.",
+    "Use one motivated visual bridge and natural camera motion.",
+    "No text, no cuts, no logos, no new characters, and no identity drift.",
+  ].join(" ");
+}
+
+export function createVibesReferenceTransitionRing(catalogInput = {}, options = {}, now = new Date().toISOString()) {
+  const frames = list(catalogInput.frames)
+    .filter((frame) => frame.kind === "reference")
+    .map((frame) => normalizeVibesTransitionFrame(frame))
+    .sort((left, right) => (
+      left.cardTitle.localeCompare(right.cardTitle)
+      || left.assetTitle.localeCompare(right.assetTitle)
+      || left.id.localeCompare(right.id)
+    ));
+  if (frames.length < 2) {
+    throw new Error("A Reference transition ring requires at least two valid Reference frames.");
+  }
+  const projectUrl = text(options.projectUrl);
+  const projectName = text(options.projectName);
+  const model = text(options.model || "vibes-video");
+  const resolution = text(options.resolution || "720p");
+  const priority = Number(options.priority || 200);
+  const jobs = frames.map((from, index) => {
+    const to = frames[(index + 1) % frames.length];
+    return createVibesTransitionJob({
+      from,
+      to,
+      title: `${from.cardTitle} → ${to.cardTitle}`,
+      prompt: referenceRingPrompt(from, to),
+      priority,
+      projectUrl,
+      projectName,
+      model,
+      resolution,
+      createdBy: "hapa-avatar-builder-reference-transition-ring",
+      provenance: {
+        campaign: "reference-transition-ring",
+        coverageRole: "outbound-transition-per-reference-image",
+        ringIndex: index,
+        ringSize: frames.length,
+      },
+    }, now);
+  });
+  return {
+    schemaVersion: "hapa.vibes-reference-transition-ring.v1",
+    generatedAt: now,
+    referenceCount: frames.length,
+    transitionCount: jobs.length,
+    frames,
+    jobs,
+  };
+}
+
+export function summarizeVibesReferenceTransitionCoverage(catalogInput = {}, queueInput = {}) {
+  const frames = list(catalogInput.frames)
+    .filter((frame) => frame.kind === "reference")
+    .map((frame) => normalizeVibesTransitionFrame(frame));
+  const jobs = list(queueInput.jobs);
+  const byFromFrame = new Map();
+  for (const job of jobs) {
+    const fromId = text(job.from?.id);
+    if (!fromId) continue;
+    if (!byFromFrame.has(fromId)) byFromFrame.set(fromId, []);
+    byFromFrame.get(fromId).push(job);
+  }
+  const rows = frames.map((frame) => {
+    const outgoing = byFromFrame.get(frame.id) || [];
+    return {
+      frameId: frame.id,
+      cardId: frame.cardId,
+      cardTitle: frame.cardTitle,
+      path: frame.path,
+      outgoingTotal: outgoing.length,
+      ready: outgoing.filter((job) => job.status === "ready").length,
+      active: outgoing.filter((job) => ACTIVE_STATUSES.has(job.status)).length,
+      queued: outgoing.filter((job) => job.status === "queued").length,
+      failed: outgoing.filter((job) => job.status === "failed").length,
+      satisfied: outgoing.some((job) => job.status === "ready"),
+    };
+  });
+  return {
+    schemaVersion: "hapa.vibes-reference-transition-coverage.v1",
+    referenceCount: rows.length,
+    satisfied: rows.filter((row) => row.satisfied).length,
+    active: rows.filter((row) => row.active > 0).length,
+    queued: rows.filter((row) => row.queued > 0).length,
+    failedOnly: rows.filter((row) => row.outgoingTotal > 0 && row.failed === row.outgoingTotal).length,
+    missing: rows.filter((row) => row.outgoingTotal === 0).length,
+    rows,
+  };
+}
+
+export function updateVibesTransitionSession(previousInput = {}, stateInput = "unknown", input = {}, now = new Date().toISOString()) {
+  const previous = clone(previousInput || {});
+  const state = text(stateInput).toLowerCase() || "unknown";
+  if (!SESSION_STATES.has(state)) {
+    throw new Error(`Vibes session state must be one of ${[...SESSION_STATES].join(", ")}; received "${state}".`);
+  }
+  const recoveryAttempts = Number(previous.recoveryAttempts || 0) + (state === "recovering" ? 1 : 0);
+  return {
+    schemaVersion: VIBES_TRANSITION_SESSION_VERSION,
+    provider: "vibes.ai",
+    state,
+    resumeUrl: text(input.resumeUrl || previous.resumeUrl),
+    observedUrl: text(input.observedUrl || previous.observedUrl),
+    reason: text(input.reason),
+    recoveryAttempts,
+    lastObservedAt: now,
+    lastHealthyAt: state === "healthy" ? now : text(previous.lastHealthyAt),
+    authRequiredAt: state === "auth-required" ? now : state === "healthy" ? "" : text(previous.authRequiredAt),
+    nextAction: state === "healthy"
+      ? "resume-three-video-buffer"
+      : state === "recovering"
+        ? "attempt-one-safe-login-reentry"
+        : state === "auth-required"
+          ? "pause-provider-submissions-and-request-human-sign-in"
+          : "inspect-visible-provider-state",
   };
 }
 

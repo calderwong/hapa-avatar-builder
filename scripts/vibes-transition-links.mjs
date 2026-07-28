@@ -17,6 +17,7 @@ import { normalizeSystemMediaLibrary } from "../src/domain/systemMedia.js";
 import {
   buildVibesTransitionFrameCatalog,
   countVibesTransitionJobs,
+  createVibesReferenceTransitionRing,
   createVibesTransitionJob,
   createVibesTransitionMediaRecord,
   createVibesTransitionQueue,
@@ -25,6 +26,8 @@ import {
   markVibesTransitionFailed,
   markVibesTransitionReady,
   markVibesTransitionSubmitted,
+  summarizeVibesReferenceTransitionCoverage,
+  updateVibesTransitionSession,
 } from "../src/domain/vibes-transition-links.js";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -34,6 +37,7 @@ const CLAIMS_DIR = path.join(STATE_DIR, "claims");
 const EVENTS_PATH = path.join(STATE_DIR, "events.ndjson");
 const QUEUE_PATH = path.join(STATE_DIR, "queue.json");
 const CATALOG_PATH = path.join(STATE_DIR, "frame-catalog.json");
+const SESSION_PATH = path.join(STATE_DIR, "session.json");
 const MEDIA_DIR = path.join(DATA_DIR, "media", "vibes-transition-links");
 const MEDIA_LIBRARY_PATH = path.join(DATA_DIR, "media-library.json");
 const AVATAR_STORE_PATH = path.join(DATA_DIR, "avatar-store.json");
@@ -47,7 +51,10 @@ async function main() {
   if (command === "catalog") return catalogCommand(flags);
   if (command === "enqueue") return enqueueCommand(flags);
   if (command === "seed") return seedCommand(flags);
+  if (command === "seed-reference-ring") return seedReferenceRingCommand(flags);
   if (command === "pump") return pumpCommand(flags);
+  if (command === "session") return sessionCommand(flags);
+  if (command === "coverage") return coverageCommand(flags);
   if (command === "submit") return submitCommand(flags, positionals);
   if (command === "complete") return completeCommand(flags, positionals);
   if (command === "fail") return failCommand(flags, positionals);
@@ -261,6 +268,48 @@ async function seedCommand(flags = {}) {
   }, null, 2));
 }
 
+async function seedReferenceRingCommand(flags = {}) {
+  await ensureStateDirs();
+  const now = new Date().toISOString();
+  const catalog = await currentCatalog();
+  const ring = createVibesReferenceTransitionRing(catalog, {
+    projectUrl: flags["project-url"] || "",
+    projectName: flags["project-name"] || "",
+    model: flags.model || "vibes-video",
+    resolution: flags.resolution || "720p",
+    priority: flags.priority || 200,
+  }, now);
+  const queue = await readQueue();
+  const result = enqueueVibesTransitionJobs(queue, ring.jobs, now);
+  await writeQueue(result.queue);
+  await appendEvent("reference-transition-ring.seeded", {
+    referenceCount: ring.referenceCount,
+    transitionCount: ring.transitionCount,
+    addedJobIds: result.added.map((job) => job.id),
+    ignoredDuplicateCount: ring.jobs.length - result.added.length,
+    projectUrl: flags["project-url"] || "",
+  }, now);
+  const coverage = summarizeVibesReferenceTransitionCoverage(catalog, result.queue);
+  console.log(JSON.stringify({
+    schemaVersion: ring.schemaVersion,
+    generatedAt: now,
+    referenceCount: ring.referenceCount,
+    requested: ring.jobs.length,
+    added: result.added.length,
+    ignoredDuplicates: ring.jobs.length - result.added.length,
+    counts: result.queue.counts,
+    coverage: {
+      referenceCount: coverage.referenceCount,
+      satisfied: coverage.satisfied,
+      active: coverage.active,
+      queued: coverage.queued,
+      failedOnly: coverage.failedOnly,
+      missing: coverage.missing,
+    },
+    next: "Run: npm run echo:transitions -- pump",
+  }, null, 2));
+}
+
 function projectJob(job) {
   return {
     id: job.id,
@@ -300,6 +349,8 @@ async function pump(queueInput, options = {}) {
       provider: "https://vibes.ai/",
       instructions: [
         "Open the Builder-owned Vibes project in the Codex in-app browser.",
+        "Before every submission, verify that the project Generate UI is visible. If Vibes redirects to a public landing or login page, record session recovering, attempt one safe Log In re-entry, and resume only if the existing account session restores without credentials.",
+        "If a password, passkey, CAPTCHA, OTP, or account choice is required, record session auth-required, pause provider submissions without releasing claims, keep the tab visible, and request human sign-in.",
         "For each job: upload from.path as Start frame and to.path as End frame.",
         "Paste prompt, keep the configured resolution, and submit one generation.",
         "Run submit immediately after Vibes accepts it, then use Copy link and Download when the output is ready.",
@@ -318,6 +369,71 @@ async function pump(queueInput, options = {}) {
     return { ...result, claimPacketPath: packetPath, packet };
   }
   return result;
+}
+
+async function sessionCommand(flags = {}) {
+  await ensureStateDirs();
+  const previous = await readJson(SESSION_PATH, {});
+  if (!flags.state) {
+    console.log(JSON.stringify({
+      sessionPath: SESSION_PATH,
+      session: previous,
+    }, null, 2));
+    return;
+  }
+  const now = new Date().toISOString();
+  const session = updateVibesTransitionSession(previous, flags.state, {
+    resumeUrl: flags["resume-url"],
+    observedUrl: flags.url || flags["observed-url"],
+    reason: flags.reason,
+  }, now);
+  await writeJsonAtomic(SESSION_PATH, session);
+  await appendEvent(`transition-session.${session.state}`, {
+    sessionPath: SESSION_PATH,
+    state: session.state,
+    observedUrl: session.observedUrl,
+    resumeUrl: session.resumeUrl,
+    reason: session.reason,
+    recoveryAttempts: session.recoveryAttempts,
+    nextAction: session.nextAction,
+  }, now);
+  console.log(JSON.stringify({
+    sessionPath: SESSION_PATH,
+    session,
+  }, null, 2));
+}
+
+async function coverageCommand(flags = {}) {
+  await ensureStateDirs();
+  const catalog = await currentCatalog();
+  const queue = await readQueue();
+  const coverage = summarizeVibesReferenceTransitionCoverage(catalog, queue);
+  const status = String(flags.status || "").trim().toLowerCase();
+  const rows = coverage.rows.filter((row) => {
+    if (!status) return true;
+    if (status === "satisfied") return row.satisfied;
+    if (status === "missing") return row.outgoingTotal === 0;
+    if (status === "active") return row.active > 0;
+    if (status === "queued") return row.queued > 0;
+    if (status === "failed") return row.failed > 0;
+    throw new Error(`Unknown coverage status "${status}".`);
+  });
+  const limit = Math.max(1, Number(flags.limit || 20));
+  console.log(JSON.stringify({
+    catalogPath: CATALOG_PATH,
+    queuePath: QUEUE_PATH,
+    counts: {
+      referenceCount: coverage.referenceCount,
+      satisfied: coverage.satisfied,
+      active: coverage.active,
+      queued: coverage.queued,
+      failedOnly: coverage.failedOnly,
+      missing: coverage.missing,
+    },
+    status: status || "all",
+    matches: rows.length,
+    rows: rows.slice(0, limit),
+  }, null, 2));
 }
 
 async function pumpCommand(flags = {}) {
@@ -498,7 +614,10 @@ Hapa Avatar Builder · Vibes Transition Links
   npm run echo:transitions -- catalog [--kind reference|avatar|scene] [--query words] [--limit 20]
   npm run echo:transitions -- enqueue --from <frame-id> --to <frame-id> --prompt <text>
   npm run echo:transitions -- seed --manifest <transition-pairs.json>
+  npm run echo:transitions -- seed-reference-ring --project-url <vibes-project-url>
   npm run echo:transitions -- pump
+  npm run echo:transitions -- session [--state healthy|recovering|auth-required|unknown] [--url <observed-url>] [--resume-url <project-url>] [--reason <text>]
+  npm run echo:transitions -- coverage [--status satisfied|missing|active|queued|failed] [--limit 20]
   npm run echo:transitions -- submit --job-id <id> [--project-url <url>] [--provider-job-id <id>]
   npm run echo:transitions -- complete --job-id <id> --video <downloaded-file> --vibes-link <url>
   npm run echo:transitions -- fail --job-id <id> --reason <text> [--retry]

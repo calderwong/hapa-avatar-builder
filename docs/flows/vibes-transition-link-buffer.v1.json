@@ -1,7 +1,7 @@
 {
   "id": "vibes-transition-link-buffer",
   "name": "Vibes Transition Link Buffer",
-  "summary": "Generate three first-frame-to-last-frame transition videos at a time, import each result into Builder, and link it to both endpoint Cards.",
+  "summary": "Generate three first-frame-to-last-frame transition videos at a time, safely recover an existing Vibes session, import each result into Builder, and link it to both endpoint Cards.",
   "color": 6212308,
   "steps": [
     {
@@ -25,7 +25,27 @@
       ]
     },
     {
+      "source": "hapa-avatar-builder-transition-catalog",
+      "target": "hapa-avatar-builder-reference-transition-ring",
+      "layer": "CLI",
+      "label": "Every valid Reference image receives one deterministic outbound transition job.",
+      "explanation": [
+        "Reference frames sort by stable Card and asset identity, then form a closed ring. Each Reference becomes one first frame and the final Reference links back to the first.",
+        "Coverage reports separate ready, active, queued, failed-only, and missing References. Re-seeding the same ring is idempotent."
+      ]
+    },
+    {
       "source": "hapa-avatar-builder-transition-buffer",
+      "target": "vibes-ai-session-health-gate",
+      "layer": "UI",
+      "label": "A visible session check runs before every provider submission.",
+      "explanation": [
+        "The browser requires the authenticated project Generate surface before transmitting frames or prompts. A public landing or login redirect records recovering and permits one visible Log In re-entry using only the existing account session.",
+        "Password, passkey, CAPTCHA, OTP, or account-choice prompts record auth-required and pause new submissions without releasing claims. The human account owner completes that boundary."
+      ]
+    },
+    {
+      "source": "vibes-ai-session-health-gate",
       "target": "vibes-ai",
       "layer": "UI",
       "label": "The Codex browser uploads both frames and submits three visible generations.",
@@ -74,6 +94,7 @@
   },
   "recordRule": {
     "runtimeState": "data/vibes-transition-links/queue.json",
+    "sessionState": "data/vibes-transition-links/session.json",
     "relationships": "data/media-library.json",
     "events": "data/vibes-transition-links/events.ndjson",
     "media": "data/media/vibes-transition-links",
