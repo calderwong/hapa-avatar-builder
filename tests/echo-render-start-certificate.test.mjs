@@ -119,7 +119,16 @@ test("publication identity rejects pointer/receipt drift instead of certifying a
 
 test("the local render-start API publishes and rechecks the immutable execution publication", () => {
   const source = fs.readFileSync(new URL("../server/api.mjs", import.meta.url), "utf8");
+  const certificateFunction = source.slice(
+    source.indexOf("async function certifySongCardLocalRenderStart"),
+    source.indexOf("async function hydrateEchoDirectorProjectPayload"),
+  );
   assert.match(source, /executionReceiptSha256: certified\.executionPublication\.receiptSha256/u);
   assert.match(source, /expectedExecutionPublicationSha256: certified\.executionPublicationSha256/u);
   assert.match(source, /certificateBinding\.publicationIdentitySha256 !== expectedExecutionPublicationSha256/u);
+  assert.match(
+    certificateFunction,
+    /serverDeliveryBuildSha256: serverBootIdentity\.sha256,[\s\S]*serverDeliveryBuildSha256: certified\.serverDeliveryBuildSha256/u,
+    "the nested certificate must carry the server build identity into the outer render-start summary",
+  );
 });
