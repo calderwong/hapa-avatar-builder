@@ -17,9 +17,10 @@ Vibes is the generation surface. Builder is the source of truth for frame identi
 3. `Transition Link Queue -> Three-slot Buffer [CLI/DATA]`: `pump` claims only enough queued links to maintain three active jobs. Claimed, submitted, and generating jobs all consume a slot.
 4. `Three-slot Buffer -> Session Health Gate [UI/EVENT]`: before each submission, the browser verifies that the authenticated Vibes project UI is present. A redirect to the public landing or login surface records `recovering` and permits one safe `Log In` re-entry attempt using the browser's existing account session.
 5. `Session Health Gate -> Vibes.ai Project [UI/HUMAN]`: if re-entry restores the project without requesting credentials, the session becomes `healthy` and the buffer resumes. Password, passkey, CAPTCHA, OTP, or account-choice prompts set `auth-required`, pause new provider submissions without releasing claims, keep the browser visible, and require the human account owner.
-6. `Vibes.ai Project -> Builder Completion [UI/CLI]`: the operator uses Vibes `Copy link` and `Download`, then completes the job with the downloaded file and provider link.
-7. `Builder Completion -> Media Library + Endpoint Cards [DATA/EVENT]`: Builder hashes and copies the video under `data/media/vibes-transition-links`, upserts a system-media record, writes relationships to the first-frame Card, last-frame Card, and Transition Link, emits an append-only event, and immediately claims the next queued job.
-8. `Media Library -> Echo Director / Scene / Avatar consumers [UI/API]`: consumers query the normal Builder media library. The Link is reusable without treating Vibes or its project grid as canonical state.
+6. `Vibes.ai Project -> Output Type Gate [UI]`: before every submission, the operator explicitly selects `Video` from the generation-type menu. When an output resolves, its detail surface must say `Edit video` and expose playback or duration controls. An `Edit image` result is rejected and retried without Builder writeback.
+7. `Output Type Gate -> Builder Completion [UI/CLI]`: the operator uses Vibes `Copy link` and `Download` only after the output passes the video-type gate, then completes the job with the downloaded file and provider link.
+8. `Builder Completion -> Media Library + Endpoint Cards [DATA/EVENT]`: Builder hashes and copies the video under `data/media/vibes-transition-links`, upserts a system-media record, writes relationships to the first-frame Card, last-frame Card, and Transition Link, emits an append-only event, and immediately claims the next queued job.
+9. `Media Library -> Echo Director / Scene / Avatar consumers [UI/API]`: consumers query the normal Builder media library. The Link is reusable without treating Vibes or its project grid as canonical state.
 
 ## Operator workflow
 
@@ -118,6 +119,10 @@ npm run echo:transitions -- complete \
 
 `complete` frees one active slot and calls the buffer pump. If work remains, its import report includes the newly claimed replacement job and claim packet.
 
+Before importing, open the selected result and verify that Vibes shows `Edit video`
+plus playback or duration controls. Never import an `Edit image` result as a
+transition video, even if its prompt and endpoint thumbnails are correct.
+
 ## Records
 
 - Queue: `data/vibes-transition-links/queue.json`
@@ -164,5 +169,6 @@ Endpoint images retain their existing custody, rights, review, and canon state. 
 - Adapted: the existing media-generation claim/complete protocol into a three-active-job video buffer.
 - Added: a Reference Atlas ring campaign that gives every valid Reference image one deterministic outbound transition and exposes truthful coverage counts.
 - Added: a session-health gate that can reuse an existing authenticated Vibes session but cannot impersonate the account owner or bypass credential, OTP, CAPTCHA, or account-selection gates.
+- Added: an explicit generation-type and output-type gate because Vibes can resolve the same prompt and endpoint pair as an image unless `Video` is actively selected.
 - Left alone: Reference Card revisions, Avatar/Scene identity records, Vibes project history, and existing generated outputs.
 - Guardrail: Vibes may generate the pixels, but only Builder completion creates the durable Link.

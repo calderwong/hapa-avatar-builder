@@ -50,6 +50,7 @@
       "layer": "UI",
       "label": "The Codex browser uploads both frames and submits three visible generations.",
       "explanation": [
+        "The operator explicitly selects Video from the generation-type menu before attaching frames; the visible Video button label alone is not treated as sufficient proof.",
         "Each claim packet names the exact start-frame path, end-frame path, prompt, resolution, and Builder Link ID. The browser remains human-visible because the signed-in Vibes account owns upload and generation effects.",
         "Claimed, submitted, and generating states consume the same three-slot budget. A page refresh cannot create an extra slot because Builder—not the Vibes grid—owns concurrency truth."
       ]
@@ -60,6 +61,7 @@
       "layer": "DATA",
       "label": "Copy link and Download return the provider output to local Builder custody.",
       "explanation": [
+        "The selected result must open on the Edit video surface with playback or duration controls. Edit image outputs are rejected and retried without Builder writeback.",
         "Completion hashes and copies the downloaded video into Builder media storage. The provider link, prompt, endpoint frames, and output digest travel together.",
         "The system-media record links the video to the first-frame Card, the last-frame Card, and the Transition Link without rewriting endpoint identity records."
       ]
