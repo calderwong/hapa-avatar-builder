@@ -1124,30 +1124,24 @@ export default function App({ overcardAdapter }) {
     if (!tarotDrawSceneArmed) {
       return undefined;
     }
+    const usingTarotFallback = tarotDataMode !== "full";
+    const usingCompactAvatars = avatarDataMode !== "full" && avatarDataMode !== "fallback";
     if (tarotDataMode !== "full") {
       ensureTarotStoreLoaded();
-      return undefined;
     }
     if (tarotDrawProjection.cards.length && tarotDrawProjection.referenceRunHash === echoReferenceTarotProjection.runHash) {
       return undefined;
     }
-    if (avatarDataMode !== "full" && avatarDataMode !== "fallback") {
+    if (usingCompactAvatars) {
       ensureFullAvatarStoreLoaded();
-      setTarotDrawProjection((current) => current.cards.length
-        ? { ...current, state: "refreshing" }
-        : {
-            ...EMPTY_TAROT_DRAW_PROJECTION,
-            state: "loading"
-          });
       updateQueueJob("full-avatar-store", "Full avatar store", {
         status: avatarDataMode === "loading-full" ? "loading" : "queued",
         kind: "store",
-        detail: "Tarot Draw needs full avatar loop assets before building song/video panels.",
-        available: "Tarot Draw route shell remains visible.",
-        queuedNext: "Build the playable draw projection after full avatar media hydrates.",
+        detail: "Full avatar loops are hydrating in the background; Tarot Draw is using the compact avatar and approved Reference Card media now.",
+        available: "Playable Tarot Draw, approved Reference Cards, and bundled song data remain usable.",
+        queuedNext: "Refresh avatar-rich draw cards when full avatar media arrives.",
         blocking: false
       });
-      return undefined;
     }
     setTarotDrawProjection((current) => current.cards.length
       ? { ...current, state: "refreshing" }
@@ -1158,9 +1152,13 @@ export default function App({ overcardAdapter }) {
     updateQueueJob("derived-tarot-draw-projection", "Tarot Draw projection", {
       status: "queued",
       kind: "derived-data",
-      detail: "3D table shell is visible; drawable card projection is queued.",
-      available: "Tarot Draw route shell and controls are usable.",
-      queuedNext: "Build playable card/song/avatar draw projection."
+      detail: usingTarotFallback || usingCompactAvatars
+        ? "Building a playable preview-first deck from approved Reference Cards and currently available local data."
+        : "3D table shell is visible; drawable card projection is queued.",
+      available: "Reference Card stills and loops do not wait for unrelated store hydration.",
+      queuedNext: usingTarotFallback || usingCompactAvatars
+        ? "Refresh the deck as richer Tarot and avatar stores finish hydrating."
+        : "Build playable card/song/avatar draw projection."
     });
     return scheduleDeferredLoad(() => {
       setTarotDrawProjection({
@@ -1178,7 +1176,7 @@ export default function App({ overcardAdapter }) {
         referenceRunHash: echoReferenceTarotProjection.runHash,
       });
       markQueueReady("derived-tarot-draw-projection", "Tarot Draw projection", "Drawable Tarot projection ready.");
-    }, 900);
+    }, usingTarotFallback || usingCompactAvatars ? 120 : 900);
   }, [tarotDrawSceneArmed, tarotDataMode, avatarDataMode, normalizedItemManager.cards, tarotDrawHostInventory, tarotDrawHostAvatar?.id, avatars, normalizedInventoryStore, songLibrary, normalizedHapaSongStore, tarotAttachmentContext, normalizedTarotStore.cards, echoReferenceTarotProjection.cards, echoReferenceTarotProjection.runHash]);
 
   useEffect(() => {
