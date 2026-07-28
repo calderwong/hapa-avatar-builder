@@ -115,6 +115,7 @@
     "echo:keyframes:screenplay:validate": "node scripts/echo-scene-keyframe-screenplay.mjs validate",
     "echo:keyframes:screenplay:import": "node scripts/echo-scene-keyframe-screenplay.mjs import-approved",
     "echo:keyframes:screenplay:activate-images": "node scripts/echo-scene-keyframe-screenplay.mjs activate-images",
+    "echo:transitions": "node scripts/vibes-transition-links.mjs",
     "echo:screenplay:packet": "node scripts/build-echo-screenplay-source-packet.mjs",
     "echo:screenplay:finalize": "node scripts/finalize-echo-visual-screenplay.mjs",
     "echo:screenplay:validate": "node scripts/validate-echo-visual-screenplay.mjs",

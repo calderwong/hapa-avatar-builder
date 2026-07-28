@@ -1,0 +1,82 @@
+{
+  "id": "vibes-transition-link-buffer",
+  "name": "Vibes Transition Link Buffer",
+  "summary": "Generate three first-frame-to-last-frame transition videos at a time, import each result into Builder, and link it to both endpoint Cards.",
+  "color": 6212308,
+  "steps": [
+    {
+      "source": "hapa-avatar-builder",
+      "target": "hapa-avatar-builder-transition-catalog",
+      "layer": "DATA",
+      "label": "Reference, Avatar, and Scene images become eligible endpoint frames.",
+      "explanation": [
+        "Builder projects image assets from its existing Reference Atlas, Avatar Store, and Scene Store into one transition-frame catalog. The projection preserves Card identity, asset identity, local path, runtime URI, and custody metadata.",
+        "Only locally readable files enter the browser claim packet. Stale paths remain provenance evidence but are not silently uploaded."
+      ]
+    },
+    {
+      "source": "hapa-avatar-builder-transition-catalog",
+      "target": "hapa-avatar-builder-transition-buffer",
+      "layer": "CLI",
+      "label": "Chosen frame pairs become deterministic queued Links.",
+      "explanation": [
+        "An operator pairs a first frame with a last frame and provides the motion prompt. The pair, prompt, and model form an idempotent Link identity.",
+        "The queue claims only enough work to keep three active slots, so repeated pumps do not create duplicate provider work."
+      ]
+    },
+    {
+      "source": "hapa-avatar-builder-transition-buffer",
+      "target": "vibes-ai",
+      "layer": "UI",
+      "label": "The Codex browser uploads both frames and submits three visible generations.",
+      "explanation": [
+        "Each claim packet names the exact start-frame path, end-frame path, prompt, resolution, and Builder Link ID. The browser remains human-visible because the signed-in Vibes account owns upload and generation effects.",
+        "Claimed, submitted, and generating states consume the same three-slot budget. A page refresh cannot create an extra slot because Builder—not the Vibes grid—owns concurrency truth."
+      ]
+    },
+    {
+      "source": "vibes-ai",
+      "target": "hapa-avatar-builder-media-library",
+      "layer": "DATA",
+      "label": "Copy link and Download return the provider output to local Builder custody.",
+      "explanation": [
+        "Completion hashes and copies the downloaded video into Builder media storage. The provider link, prompt, endpoint frames, and output digest travel together.",
+        "The system-media record links the video to the first-frame Card, the last-frame Card, and the Transition Link without rewriting endpoint identity records."
+      ]
+    },
+    {
+      "source": "hapa-avatar-builder-media-library",
+      "target": "hapa-avatar-builder-transition-buffer",
+      "layer": "EVENT",
+      "label": "Completion emits lineage and immediately replenishes the freed slot.",
+      "explanation": [
+        "An append-only completion event and merge report preserve what arrived, where it was saved, and which Cards it connects. Consumers can subscribe without treating provider history as canonical.",
+        "The completion path calls the queue pump after import. If queued work remains, exactly one replacement job is claimed, restoring the active buffer to three."
+      ]
+    }
+  ],
+  "card": {
+    "verb": "LINK",
+    "type": "Media Transition",
+    "rank": "Rare",
+    "grade": "A",
+    "description": "Connect two exact Hapa image Cards with a locally custodied transition video.",
+    "effect": "Maintains three provider jobs while preserving endpoint lineage and replenishing one slot per completion.",
+    "risk": "A provider output can become detached if the claim packet, copied link, or downloaded video is skipped.",
+    "stats": {
+      "impact": 8,
+      "reliability": 8,
+      "complexity": 6,
+      "cost": 5,
+      "speed": 7,
+      "teaching": 9
+    }
+  },
+  "recordRule": {
+    "runtimeState": "data/vibes-transition-links/queue.json",
+    "relationships": "data/media-library.json",
+    "events": "data/vibes-transition-links/events.ndjson",
+    "media": "data/media/vibes-transition-links",
+    "provider": "Vibes.ai remains a generation surface, not the source of truth."
+  }
+}
