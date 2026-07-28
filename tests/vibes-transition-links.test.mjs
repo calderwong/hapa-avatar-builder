@@ -70,6 +70,40 @@ test("enqueue is idempotent and failed jobs release capacity", () => {
   assert.equal(failed.counts.failed, 1);
 });
 
+test("retriable failures cool down without occupying the three-slot buffer", () => {
+  const jobs = [1, 2, 3, 4].map(job);
+  let queue = enqueueVibesTransitionJobs(createVibesTransitionQueue({}, now), jobs, now).queue;
+  queue = fillVibesTransitionBuffer(queue, { maxConcurrent: 3, now }).queue;
+  const failedId = queue.jobs.find((row) => row.status === "claimed").id;
+  queue = markVibesTransitionFailed(queue, failedId, "provider returned image instead of video", {
+    retry: true,
+    baseDelayMs: 60_000,
+  }, later);
+
+  const cooled = queue.jobs.find((row) => row.id === failedId);
+  assert.equal(cooled.status, "queued");
+  assert.equal(cooled.failure.retryDelayMs, 60_000);
+  assert.equal(cooled.nextEligibleAt, "2026-07-28T18:06:00.000Z");
+
+  const refill = fillVibesTransitionBuffer(queue, { maxConcurrent: 3, now: later });
+  assert.equal(refill.claimed.length, 1);
+  assert.notEqual(refill.claimed[0].id, failedId);
+  assert.equal(refill.queue.counts.active, 3);
+
+  const afterCooldown = markVibesTransitionFailed(
+    refill.queue,
+    refill.claimed[0].id,
+    "release test slot",
+    {},
+    "2026-07-28T18:06:01.000Z",
+  );
+  const reclaimed = fillVibesTransitionBuffer(afterCooldown, {
+    maxConcurrent: 3,
+    now: "2026-07-28T18:06:01.000Z",
+  });
+  assert.equal(reclaimed.claimed[0].id, failedId);
+});
+
 test("frame catalog includes Reference Atlas, Avatar, and Scene images", () => {
   const catalog = buildVibesTransitionFrameCatalog({
     referenceMedia: {

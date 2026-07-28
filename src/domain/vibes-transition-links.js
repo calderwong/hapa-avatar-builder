@@ -130,6 +130,7 @@ export function createVibesTransitionJob(input = {}, now = new Date().toISOStrin
     provider,
     claim: null,
     attempts: 0,
+    nextEligibleAt: "",
     output: null,
     failure: null,
     createdAt: now,
@@ -204,12 +205,19 @@ export function enqueueVibesTransitionJobs(queueInput = {}, incomingJobs = [], n
 
 export function fillVibesTransitionBuffer(queueInput = {}, options = {}) {
   const now = text(options.now) || new Date().toISOString();
+  const nowMs = Date.parse(now);
   const queue = createVibesTransitionQueue(queueInput, now);
   const maxConcurrent = Math.max(1, Number(options.maxConcurrent || queue.maxConcurrent || 3));
   const active = queue.jobs.filter((job) => ACTIVE_STATUSES.has(job.status));
   const available = Math.max(0, maxConcurrent - active.length);
   const candidates = queue.jobs
-    .filter((job) => job.status === "queued")
+    .filter((job) => {
+      if (job.status !== "queued") return false;
+      const nextEligibleAt = text(job.nextEligibleAt);
+      if (!nextEligibleAt) return true;
+      const nextEligibleMs = Date.parse(nextEligibleAt);
+      return !Number.isFinite(nextEligibleMs) || !Number.isFinite(nowMs) || nextEligibleMs <= nowMs;
+    })
     .slice(0, available);
   const claimedIds = new Set(candidates.map((job) => job.id));
   queue.jobs = queue.jobs.map((job) => {
@@ -225,6 +233,7 @@ export function fillVibesTransitionBuffer(queueInput = {}, options = {}) {
         expiresAt: text(options.expiresAt),
       },
       failure: null,
+      nextEligibleAt: "",
       updatedAt: now,
     };
   });
@@ -307,24 +316,41 @@ export function markVibesTransitionReady(queueInput = {}, jobId = "", output = {
       claim: null,
       completedAt: now,
       failure: null,
+      nextEligibleAt: "",
       updatedAt: now,
     };
   }, now);
 }
 
 export function markVibesTransitionFailed(queueInput = {}, jobId = "", reason = "", options = {}, now = new Date().toISOString()) {
-  return transitionJob(queueInput, jobId, (job) => ({
-    ...job,
-    status: options.retry === true ? "queued" : "failed",
-    claim: null,
-    failure: {
-      reason: text(reason || "unspecified-vibes-transition-failure"),
-      retriable: options.retry !== false,
-      at: now,
-    },
-    failedAt: now,
-    updatedAt: now,
-  }), now);
+  return transitionJob(queueInput, jobId, (job) => {
+    const retry = options.retry === true;
+    const attempts = Math.max(1, Number(job.attempts || 0));
+    const baseDelayMs = Math.max(1_000, Number(options.baseDelayMs || 5 * 60 * 1_000));
+    const maxDelayMs = Math.max(baseDelayMs, Number(options.maxDelayMs || 6 * 60 * 60 * 1_000));
+    const retryDelayMs = retry
+      ? Math.min(maxDelayMs, baseDelayMs * (2 ** Math.min(10, attempts - 1)))
+      : 0;
+    const nowMs = Date.parse(now);
+    const nextEligibleAt = retry && Number.isFinite(nowMs)
+      ? new Date(nowMs + retryDelayMs).toISOString()
+      : "";
+    return {
+      ...job,
+      status: retry ? "queued" : "failed",
+      claim: null,
+      nextEligibleAt,
+      failure: {
+        reason: text(reason || "unspecified-vibes-transition-failure"),
+        retriable: options.retry !== false,
+        at: now,
+        retryDelayMs,
+        nextEligibleAt,
+      },
+      failedAt: now,
+      updatedAt: now,
+    };
+  }, now);
 }
 
 function catalogFrame(input = {}) {
