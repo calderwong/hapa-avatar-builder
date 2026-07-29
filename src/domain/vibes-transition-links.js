@@ -218,6 +218,12 @@ export function fillVibesTransitionBuffer(queueInput = {}, options = {}) {
       const nextEligibleMs = Date.parse(nextEligibleAt);
       return !Number.isFinite(nextEligibleMs) || !Number.isFinite(nowMs) || nextEligibleMs <= nowMs;
     })
+    .sort((left, right) => (
+      Number(left.priority || 100) - Number(right.priority || 100)
+      || Number(left.attempts || 0) - Number(right.attempts || 0)
+      || String(left.createdAt || "").localeCompare(String(right.createdAt || ""))
+      || left.id.localeCompare(right.id)
+    ))
     .slice(0, available);
   const claimedIds = new Set(candidates.map((job) => job.id));
   queue.jobs = queue.jobs.map((job) => {

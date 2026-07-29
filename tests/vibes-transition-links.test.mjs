@@ -104,6 +104,37 @@ test("retriable failures cool down without occupying the three-slot buffer", () 
   assert.equal(reclaimed.claimed[0].id, failedId);
 });
 
+test("equal-priority buffer claims prefer untouched jobs over cooled retries", () => {
+  const retried = createVibesTransitionJob({
+    from: frame("reference", "retry-from", "retry-from-asset"),
+    to: frame("reference", "retry-to", "retry-to-asset"),
+    prompt: "Retry transition.",
+    priority: 200,
+  }, now);
+  const fresh = createVibesTransitionJob({
+    from: frame("reference", "fresh-from", "fresh-from-asset"),
+    to: frame("reference", "fresh-to", "fresh-to-asset"),
+    prompt: "Fresh transition.",
+    priority: 200,
+  }, now);
+  let queue = enqueueVibesTransitionJobs(
+    createVibesTransitionQueue({}, now),
+    [retried, fresh],
+    now,
+  ).queue;
+  queue = {
+    ...queue,
+    jobs: queue.jobs.map((row) => row.id === retried.id
+      ? { ...row, attempts: 4, nextEligibleAt: "" }
+      : row),
+  };
+
+  const claimed = fillVibesTransitionBuffer(queue, { maxConcurrent: 1, now });
+  assert.equal(claimed.claimed.length, 1);
+  assert.equal(claimed.claimed[0].id, fresh.id);
+  assert.equal(claimed.claimed[0].attempts, 1);
+});
+
 test("frame catalog includes Reference Atlas, Avatar, and Scene images", () => {
   const catalog = buildVibesTransitionFrameCatalog({
     referenceMedia: {
@@ -181,7 +212,8 @@ test("reference coverage distinguishes ready, active, queued, and missing outbou
   const ring = createVibesReferenceTransitionRing({ frames: references.slice(0, 3) }, {}, now);
   let queue = createVibesTransitionQueue({ jobs: ring.jobs }, now);
   queue = fillVibesTransitionBuffer(queue, { maxConcurrent: 1, now }).queue;
-  queue = markVibesTransitionReady(queue, queue.jobs[0].id, {
+  const claimedId = queue.jobs.find((row) => row.status === "claimed").id;
+  queue = markVibesTransitionReady(queue, claimedId, {
     uri: "/media/ready.mp4",
     path: "/tmp/ready.mp4",
     sha256: "c".repeat(64),
