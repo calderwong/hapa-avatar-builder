@@ -6,6 +6,7 @@ import path from "node:path";
 import {
   analyzeEchoLyricTiming,
   compareLyricText,
+  isSourceDeclaredInstrumental,
   lyricIssuePriority,
 } from "../src/domain/echo-lyric-quality.js";
 
@@ -51,6 +52,16 @@ function canonicalTextFor(song = {}, manifestSong = null) {
     : { text: "", path: "", kind: "missing" };
 }
 
+function sourceMetadataFor(manifestSong = null) {
+  const metadataPath = String(manifestSong?.metadataPath || "");
+  if (!metadataPath || !fs.existsSync(metadataPath)) return {};
+  try {
+    return readJson(metadataPath);
+  } catch {
+    return {};
+  }
+}
+
 const store = readJson(SONG_STORE_PATH);
 const manifest = fs.existsSync(PLAYLIST_MANIFEST_PATH) ? readJson(PLAYLIST_MANIFEST_PATH) : { songs: [] };
 const oldBaseline = fs.existsSync(OLD_BASELINE_PATH) ? readJson(OLD_BASELINE_PATH) : { projects: [] };
@@ -71,6 +82,8 @@ const projects = files.map((file) => {
   const song = songById.get(songId) || songById.get(registryTrackId) || {};
   const resolvedRegistryTrackId = registryIdForSong(song) || registryTrackId;
   const manifestSong = manifestById.get(resolvedRegistryTrackId) || null;
+  const sourceMetadata = sourceMetadataFor(manifestSong);
+  const sourceDeclaredInstrumental = isSourceDeclaredInstrumental(sourceMetadata);
   const canonical = canonicalTextFor(song, manifestSong);
   const lines = Array.isArray(project.timed_lyrics) ? project.timed_lyrics : [];
   const timing = analyzeEchoLyricTiming(lines, project.duration);
@@ -94,26 +107,36 @@ const projects = files.map((file) => {
   const activeTimingSha256 = sha256(lines);
   const declaredActiveHash = String(timingTruth.activeTimingSha256 || heal.activeTimingSha256 || "");
   const hasCanonicalText = Boolean(canonical.text.trim());
+  const lyricsEnabled = project.lyrics?.enabled !== false && project.lyrics_enabled !== false;
   const sourceKind = timingSource.includes("synthetic") ? "synthetic" : sourcePath ? "source-linked" : timingSource;
   const issues = [];
-  if (!hasCanonicalText) issues.push("canonical-text-missing");
-  if (hasCanonicalText && !timing.lineCount) issues.push("timed-lyrics-missing");
-  if (sourceKind === "synthetic") issues.push("synthetic-timing-active");
-  if (!sourcePath) issues.push("timing-source-path-missing");
-  if (!confidence) issues.push("timing-confidence-unmeasured");
-  else if (confidence < 0.6) issues.push("timing-confidence-low");
-  if (declaredActiveHash && declaredActiveHash !== activeTimingSha256) issues.push("active-timing-hash-mismatch");
-  if (timing.structuralIssueCount) issues.push("timing-structure-invalid");
-  if (timing.syntheticCadenceLikely) issues.push("uniform-word-cadence-likely-synthetic");
-  if (timing.metadataLines) issues.push("metadata-lines-active");
-  if (hasCanonicalText && text.similarity < 0.75) issues.push("canonical-text-mismatch");
-  else if (hasCanonicalText && text.similarity < 0.9) issues.push("canonical-text-review");
+  if (sourceDeclaredInstrumental) {
+    if (lyricsEnabled) issues.push("instrumental-lyrics-enabled");
+    if (timing.lineCount) issues.push("instrumental-has-active-lyric-timing");
+  } else {
+    if (!hasCanonicalText) issues.push("canonical-text-missing");
+    if (hasCanonicalText && !timing.lineCount) issues.push("timed-lyrics-missing");
+    if (sourceKind === "synthetic") issues.push("synthetic-timing-active");
+    if (!sourcePath) issues.push("timing-source-path-missing");
+    if (!confidence) issues.push("timing-confidence-unmeasured");
+    else if (confidence < 0.6) issues.push("timing-confidence-low");
+    if (declaredActiveHash && declaredActiveHash !== activeTimingSha256) issues.push("active-timing-hash-mismatch");
+    if (timing.structuralIssueCount) issues.push("timing-structure-invalid");
+    if (timing.syntheticCadenceLikely) issues.push("uniform-word-cadence-likely-synthetic");
+    if (timing.metadataLines) issues.push("metadata-lines-active");
+    if (hasCanonicalText && text.similarity < 0.75) issues.push("canonical-text-mismatch");
+    else if (hasCanonicalText && text.similarity < 0.9) issues.push("canonical-text-review");
+  }
   const vocalStem = manifestSong?.stems?.find((stem) => /^vocals?$/i.test(String(stem.stemType || ""))) || null;
   const masterPath = String(manifestSong?.songPath || song.audio?.localPath || "");
-  const alignmentSource = vocalStem?.localPath && fs.existsSync(vocalStem.localPath)
+  const alignmentSource = sourceDeclaredInstrumental
+    ? { kind: "not-applicable-instrumental", path: masterPath, exists: Boolean(masterPath && fs.existsSync(masterPath)) }
+    : vocalStem?.localPath && fs.existsSync(vocalStem.localPath)
     ? { kind: "lead-vocals", path: vocalStem.localPath, exists: true }
     : { kind: "master-mix-fallback", path: masterPath, exists: Boolean(masterPath && fs.existsSync(masterPath)) };
-  const priorityScore = lyricIssuePriority({ recent, timing, text, sourceKind, hasCanonicalText });
+  const priorityScore = sourceDeclaredInstrumental
+    ? (recent ? 30 : 0) + (lyricsEnabled ? 80 : 0) + (timing.lineCount ? 80 : 0)
+    : lyricIssuePriority({ recent, timing, text, sourceKind, hasCanonicalText });
   return {
     file,
     songId,
@@ -122,10 +145,14 @@ const projects = files.map((file) => {
     recent,
     durationSeconds: Number(project.duration || song.audio?.duration || 0),
     canonicalText: {
-      status: hasCanonicalText ? "available" : "missing",
+      status: sourceDeclaredInstrumental ? "not-applicable-instrumental" : hasCanonicalText ? "available" : "missing",
       kind: canonical.kind,
       path: canonical.path,
       sha256: hasCanonicalText ? sha256(canonical.text) : "",
+    },
+    sourceDeclaration: {
+      instrumental: sourceDeclaredInstrumental,
+      metadataPath: String(manifestSong?.metadataPath || ""),
     },
     activeLyrics: {
       sha256: activeTimingSha256,
@@ -135,7 +162,7 @@ const projects = files.map((file) => {
       confidence,
       sourceKind,
       variant: String(project.lyric_variant || "missing"),
-      enabled: project.lyrics?.enabled !== false && project.lyrics_enabled !== false,
+      enabled: lyricsEnabled,
     },
     alignmentSource,
     timing,
@@ -146,6 +173,8 @@ const projects = files.map((file) => {
       "timed-lyrics-missing",
       "synthetic-timing-active",
       "canonical-text-mismatch",
+      "instrumental-lyrics-enabled",
+      "instrumental-has-active-lyric-timing",
       "timing-structure-invalid",
       "active-timing-hash-mismatch",
     ].includes(issue)) ? "repair-required" : "review-required",
@@ -159,6 +188,8 @@ const summary = {
   statuses: countBy(projects.map((project) => project.status)),
   issueCounts: countBy(projects.flatMap((project) => project.issues)),
   projectsWithCanonicalText: projects.filter((project) => project.canonicalText.status === "available").length,
+  sourceDeclaredInstrumentals: projects.filter((project) => project.sourceDeclaration.instrumental).length,
+  instrumentalsWithLyricsDisabled: projects.filter((project) => project.sourceDeclaration.instrumental && !project.activeLyrics.enabled).length,
   projectsWithTimedLyrics: projects.filter((project) => project.timing.lineCount > 0).length,
   projectsWithSyntheticTiming: projects.filter((project) => project.activeLyrics.sourceKind === "synthetic").length,
   projectsWithLeadVocalAlignmentSource: projects.filter((project) => project.alignmentSource.kind === "lead-vocals" && project.alignmentSource.exists).length,
@@ -199,6 +230,8 @@ alignment quality.
 - Preserved older baseline: ${summary.oldBaselineProjects}
 - Recent projects: ${summary.recentProjects}
 - Canonical lyric text available: ${summary.projectsWithCanonicalText}
+- Source-declared instrumentals: ${summary.sourceDeclaredInstrumentals}
+- Instrumentals with Lyrics correctly disabled: ${summary.instrumentalsWithLyricsDisabled}
 - Timed lyric payloads present: ${summary.projectsWithTimedLyrics}
 
 ## Truth

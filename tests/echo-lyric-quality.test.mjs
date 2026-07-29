@@ -4,6 +4,7 @@ import {
   analyzeEchoLyricTiming,
   compareLyricText,
   isLikelyLyricMetadata,
+  isSourceDeclaredInstrumental,
   lyricIssuePriority,
 } from "../src/domain/echo-lyric-quality.js";
 
@@ -79,4 +80,11 @@ test("metadata rows and recent repair priority remain explicit", () => {
     hasCanonicalText: true,
   });
   assert.ok(recentMissing > oldReview);
+});
+
+test("source-declared instrumentals are explicit and never inferred from empty lyric text", () => {
+  assert.equal(isSourceDeclaredInstrumental({ metadata: { make_instrumental: true } }), true);
+  assert.equal(isSourceDeclaredInstrumental({ make_instrumental: true }), true);
+  assert.equal(isSourceDeclaredInstrumental({ metadata: { make_instrumental: false }, prompt: "" }), false);
+  assert.equal(isSourceDeclaredInstrumental({}), false);
 });

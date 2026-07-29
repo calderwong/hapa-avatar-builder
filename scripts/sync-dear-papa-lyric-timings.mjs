@@ -2,6 +2,10 @@
 import fs from "fs";
 import path from "path";
 import crypto from "node:crypto";
+import {
+  DEFAULT_ECHO_LYRIC_MIN_CONFIDENCE,
+  evaluateEchoLyricTimingPromotion,
+} from "../src/domain/echo-lyric-promotion.js";
 
 const ROOT = path.resolve(".");
 const DATA_DIR = path.join(ROOT, "data");
@@ -19,6 +23,10 @@ const args = new Set(process.argv.slice(2));
 const APPLY_MUTATIONS = args.has("--apply") || process.env.HAPA_DEAR_PAPA_TIMINGS_APPLY === "1";
 const RUN_ID = new Date().toISOString().replace(/[:.]/g, "-");
 const UPDATED_AT = new Date().toISOString();
+const MIN_CONFIDENCE = Number(
+  process.env.HAPA_DEAR_PAPA_TIMING_MIN_CONFIDENCE
+    || DEFAULT_ECHO_LYRIC_MIN_CONFIDENCE,
+);
 
 function readJson(filePath) {
   return JSON.parse(fs.readFileSync(filePath, "utf8"));
@@ -186,9 +194,30 @@ if (!fs.existsSync(HAPA_SONG_STORE_PATH) || !fs.existsSync(SONGBOOK_PATH)) {
 
 const manifest = readJson(MANIFEST_PATH);
 const timingByRegistryId = new Map();
+const timingRejections = [];
 for (const song of manifest.songs || []) {
   const timing = readTimingForManifestSong(song);
-  if (timing?.registryTrackId) timingByRegistryId.set(timing.registryTrackId, timing);
+  if (!timing?.registryTrackId) continue;
+  const promotion = evaluateEchoLyricTimingPromotion(
+    {
+      ...readJson(timing.path),
+      lines: timing.lines,
+      confidence: timing.confidence,
+    },
+    {
+      minimumConfidence: MIN_CONFIDENCE,
+      sourcePathExists: fs.existsSync(timing.path),
+      sttPathExists: fs.existsSync(timing.sttPath),
+    },
+  );
+  if (promotion.accepted) timingByRegistryId.set(timing.registryTrackId, { ...timing, promotion });
+  else timingRejections.push({
+    registryTrackId: timing.registryTrackId,
+    title: timing.title,
+    path: timing.path,
+    confidence: timing.confidence,
+    reasons: promotion.reasons,
+  });
 }
 
 const store = readJson(HAPA_SONG_STORE_PATH);
@@ -333,6 +362,9 @@ const report = {
   playlistId: PLAYLIST_ID,
   manifestPath: MANIFEST_PATH,
   timingFilesFound: timingByRegistryId.size,
+  minimumPromotionConfidence: MIN_CONFIDENCE,
+  timingFilesRejected: timingRejections.length,
+  timingRejections,
   storeSongsUpdated: storeUpdated,
   songbookCardsUpdated: songbookUpdated,
   projectsUpdated,

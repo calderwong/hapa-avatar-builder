@@ -27,6 +27,16 @@ export function isLikelyLyricMetadata(text = "") {
   return false;
 }
 
+export function isSourceDeclaredInstrumental(metadata = {}) {
+  const source = metadata && typeof metadata === "object" && !Array.isArray(metadata)
+    ? metadata
+    : {};
+  const nested = source.metadata && typeof source.metadata === "object" && !Array.isArray(source.metadata)
+    ? source.metadata
+    : {};
+  return source.make_instrumental === true || nested.make_instrumental === true;
+}
+
 export function lyricTextTokens(value = "") {
   const text = Array.isArray(value)
     ? value.map((line) => String(line?.text || "")).filter((line) => !isLikelyLyricMetadata(line)).join("\n")
