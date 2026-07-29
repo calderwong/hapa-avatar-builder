@@ -1081,7 +1081,12 @@ export function inspectHyperFramesShow(show) {
   const duration = Number(show.duration);
   if (!(Number.isFinite(duration) && duration > 0)) errors.push("invalid-show-duration");
   if (/Math\.random|Date\.now|AudioContext|getUserMedia|fetch\(|https?:\/\//.test(serialized)) errors.push("runtime-nondeterminism-or-network");
-  if (!show.stemFrames?.stems?.length) errors.push("missing-offline-stems");
+  const isolatedStemFrameCount = (show.stemFrames?.stems || [])
+    .reduce((sum, stem) => sum + (Array.isArray(stem?.frames) ? stem.frames.length : 0), 0);
+  const masterFrameCount = Array.isArray(show.stemFrames?.master?.frames)
+    ? show.stemFrames.master.frames.length
+    : 0;
+  if (isolatedStemFrameCount + masterFrameCount === 0) errors.push("missing-offline-audio-telemetry");
   if (!show.instances?.media?.length && !show.instances?.visualizers?.length) errors.push("missing-visual-layer");
   for (const issue of show.classificationErrors || []) {
     errors.push(`invalid-visualization-route:${String(issue?.cueId || "unknown")}`);
@@ -1148,6 +1153,11 @@ export function inspectHyperFramesShow(show) {
     visualizerCoverage: show.visualizerCoverage,
     visualCoverage,
     deduplication: { manifestBytes: Buffer.byteLength(serialized), expandedTemplateEstimateBytes: expandedEstimate, repeatedSceneStructuresTemplated: true },
-    offlineFrameCount: (show.stemFrames?.stems || []).reduce((sum, stem) => sum + stem.frames.length, 0),
+    offlineFrameCount: isolatedStemFrameCount + masterFrameCount,
+    offlineAudioTelemetry: {
+      isolatedStemFrameCount,
+      masterFrameCount,
+      mode: isolatedStemFrameCount > 0 ? "isolated-stems" : masterFrameCount > 0 ? "master-mix-only" : "missing",
+    },
   };
 }

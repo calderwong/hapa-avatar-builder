@@ -74,9 +74,13 @@ test("director parity repair fills only complete missing cut families", () => {
   const plans = fs.readFileSync(path.join(root, "scripts/generate-music-video-plans.mjs"), "utf8");
   const packageJson = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
   assert.match(balanced, /const MISSING_ONLY = args\.has\("--missing-only"\)/u);
+  assert.match(balanced, /const TARGET_SONG_ID = process\.argv\.find\(\(arg\) => arg\.startsWith\("--song-id="\)\)/u);
+  assert.match(balanced, /file === `\$\{TARGET_SONG_ID\}-video-project\.json`/u);
   assert.match(balanced, /Partial director-cut family found/u);
   assert.match(balanced, /if \(!MISSING_ONLY && !report\.validation\.allCandidateMediaCovered\)/u);
   assert.match(scroll, /const VARIANTS_ONLY = args\.has\("--variants-only"\)/u);
+  assert.match(scroll, /const TARGET_SONG_ID = process\.argv\.find\(\(arg\) => arg\.startsWith\("--song-id="\)\)/u);
+  assert.match(scroll, /file === `\$\{TARGET_SONG_ID\}-video-project\.json`/u);
   assert.match(plans, /const MISSING_ONLY = args\.has\("--missing-only"\)/u);
   assert.match(plans, /!fs\.existsSync\(path\.join\(PROJECTS_DIR/u);
   assert.match(plans, /--registry-track-ids=/u);

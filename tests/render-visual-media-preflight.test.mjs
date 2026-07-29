@@ -570,6 +570,27 @@ test("every declared video sampling policy gets alpha-aware non-flat evidence af
   assert.ok(result.entries[0].samplingPolicies.every((policy) => policy.visibleSampleCount > 0));
 });
 
+test("a short visible proxy samples its last decodable frame instead of synthetic end padding", async (t) => {
+  if (!ffmpegAvailable()) return t.skip("ffmpeg is not installed");
+  clearRenderVisualMediaProbeCache();
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "hapa-short-visible-proxy-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const videoPath = path.join(root, "visible.mp4");
+  const generated = generateMedia(
+    videoPath,
+    "testsrc2=size=64x64:rate=30:duration=0.2",
+    ["-c:v", "libx264", "-pix_fmt", "yuv420p", "-an"],
+  );
+  assert.equal(generated.status, 0, generated.stderr);
+
+  const result = await probeVisualMediaFile(videoPath, { kind: "video" });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.durationSeconds, 0.2);
+  assert.deepEqual(result.samplingPolicies[0].sampleTimes, [0, 0.1, 0.166]);
+  assert.equal(result.samplingPolicies[0].blankSampleCount, 0);
+});
+
 test("a brief authored black opening fade is accepted only with full-file proof and visible later samples", async (t) => {
   if (!ffmpegAvailable()) return t.skip("ffmpeg is not installed");
   clearRenderVisualMediaProbeCache();
@@ -595,6 +616,32 @@ test("a brief authored black opening fade is accepted only with full-file proof 
   assert.deepEqual(result.openingFade.laterVisibleSampleTimes, result.samplingPolicies[0].sampleTimes.slice(1));
   assert.deepEqual(result.evidence.visibilityTolerance.openingFade, result.openingFade);
   assert.equal(result.blankAllowed, false, "the measured fade receipt is distinct from an explicit allow-blank contract");
+});
+
+test("a bounded authored closing fade is accepted with full-file proof and visible earlier samples", async (t) => {
+  if (!ffmpegAvailable()) return t.skip("ffmpeg is not installed");
+  clearRenderVisualMediaProbeCache();
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "hapa-bounded-closing-fade-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const videoPath = path.join(root, "bounded-closing-fade.avi");
+  const generated = generateMedia(
+    videoPath,
+    "testsrc2=size=64x64:rate=24:duration=8,fade=t=out:st=6.4:d=0.4",
+    ["-c:v", "mpeg4", "-q:v", "3", "-an"],
+  );
+  assert.equal(generated.status, 0, generated.stderr);
+
+  const result = await probeVisualMediaFile(videoPath, { kind: "video" });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.samplingPolicies[0].blankSampleCount, 1);
+  assert.equal(result.samplingPolicies[0].closingFadeAccepted, true);
+  assert.equal(result.closingFade.status, "accepted");
+  assert.equal(result.closingFade.policyId, "verified-bounded-black-closing-v1");
+  assert.ok(result.closingFade.observed.durationSeconds <= result.closingFade.maxDurationSeconds);
+  assert.deepEqual(result.closingFade.earlierVisibleSampleTimes, result.samplingPolicies[0].sampleTimes.slice(0, -1));
+  assert.deepEqual(result.evidence.visibilityTolerance.closingFade, result.closingFade);
+  assert.equal(result.blankAllowed, false);
 });
 
 test("an opening black interval beyond the fade allowance still fails even when midpoint and end are visible", async (t) => {

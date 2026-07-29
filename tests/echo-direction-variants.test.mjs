@@ -74,6 +74,135 @@ test("selected cut derives its own timelines, density, and graph instead of the 
   assert.equal(base.director_show_graph.directorV2.variantId, "legacy");
 });
 
+test("saved cuts are non-destructively projected to the canonical song duration", () => {
+  const base = project();
+  const cut = variant("foreign-duration-cut", "Dense", 1);
+  cut.timeline = [
+    { start_sec: 0, end_sec: 8, media_id: "opening" },
+    { start_sec: 8, end_sec: 24, media_id: "clipped" },
+    { start_sec: 24, end_sec: 30, media_id: "dropped" },
+  ];
+  cut.visualizer_timeline = [
+    { start_sec: 0, end_sec: 25, visualizer_id: "clipped-viz" },
+    { start_sec: 21, end_sec: 25, visualizer_id: "dropped-viz" },
+  ];
+  cut.director_show_graph = {
+    ...structuredClone(base.director_show_graph),
+    tracks: [{
+      id: "foreign-duration",
+      role: "media",
+      cards: [{ id: "late", startSeconds: 24, endSeconds: 30, media: { id: "wrong-song-card" } }],
+    }],
+  };
+  const savedSource = structuredClone(cut);
+
+  const derived = deriveEchoDirectionVariantProject(base, cut);
+
+  assert.deepEqual(cut, savedSource, "the append-only source cut stays byte-for-byte unchanged");
+  assert.deepEqual(derived.timeline.map((row) => [row.media_id, row.start_sec, row.end_sec]), [
+    ["opening", 0, 8],
+    ["clipped", 8, 20],
+  ]);
+  assert.deepEqual(derived.visualizer_timeline.map((row) => [row.visualizer_id, row.start_sec, row.end_sec]), [
+    ["clipped-viz", 0, 20],
+  ]);
+  assert.equal(derived.hyperframe_script_stale, true);
+  assert.equal(derived.active_direction_script_variant.durationProjection.status, "applied");
+  assert.equal(derived.active_direction_script_variant.durationProjection.sourceVariantMutated, false);
+  assert.deepEqual(
+    derived.active_direction_script_variant.durationProjection.timelines.map((row) => [row.clippedRows, row.droppedRows]),
+    [[1, 1], [1, 1]],
+  );
+  assert.ok(derived.director_show_graph.tracks
+    .flatMap((track) => track.cards)
+    .every((card) => card.startSeconds < 20 && card.endSeconds <= 20));
+  assert.ok(!derived.director_show_graph.tracks
+    .flatMap((track) => track.cards)
+    .some((card) => card.media?.id === "wrong-song-card"));
+});
+
+test("legacy-parent cuts inherit the canonical tail when corrected audio is longer", () => {
+  const base = project();
+  base.duration = 24;
+  base.timeline = [
+    { start_sec: 0, end_sec: 20, media_id: "canonical-opening" },
+    { start_sec: 20, end_sec: 24, media_id: "canonical-tail" },
+  ];
+  base.visualizer_timeline = [
+    { start_sec: 0, end_sec: 20, visualizer_id: "canonical-viz-opening" },
+    { start_sec: 20, end_sec: 24, visualizer_id: "canonical-viz-tail" },
+  ];
+  base.director_show_graph.song.durationSeconds = 24;
+  base.director_show_graph.tracks[0].cards[0].endSeconds = 24;
+  const cut = variant("legacy-parent-cut", "Airy", 1);
+  cut.parent = { songId: "song-one", projectSha256: "old-parent", immutableLegacyProject: true };
+  cut.hyperframe_script = '<div data-duration="20"></div>';
+  const savedSource = structuredClone(cut);
+
+  const derived = deriveEchoDirectionVariantProject(base, cut);
+
+  assert.deepEqual(cut, savedSource, "the append-only source cut stays unchanged");
+  assert.deepEqual(derived.timeline.map((row) => [row.media_id, row.start_sec, row.end_sec]), [
+    ["legacy-parent-cut-media", 0, 20],
+    ["canonical-tail", 20, 24],
+  ]);
+  assert.deepEqual(derived.visualizer_timeline.map((row) => [row.visualizer_id, row.start_sec, row.end_sec]), [
+    ["legacy-parent-cut-viz", 0, 20],
+    ["canonical-viz-tail", 20, 24],
+  ]);
+  assert.equal(derived.hyperframe_script_stale, true);
+  assert.equal(derived.active_direction_script_variant.durationProjection.status, "applied");
+  assert.deepEqual(
+    derived.active_direction_script_variant.durationProjection.timelines.map((row) => [
+      row.extendedRows,
+      row.extensionStartSeconds,
+      row.extensionSource,
+    ]),
+    [
+      [1, 20, "canonical-base-tail"],
+      [1, 20, "canonical-base-tail"],
+    ],
+  );
+});
+
+test("duration projection retains an in-memory bounded runtime-hydrated graph", () => {
+  const base = project();
+  const cut = variant("bounded-runtime-cut", "Dense", 1);
+  cut.timeline.push({ start_sec: 20, end_sec: 30, media_id: "late-source-row" });
+  const exactPortableCard = {
+    id: "runtime-hydrated",
+    trackId: "ivf-stack",
+    startSeconds: 0,
+    endSeconds: 20,
+    media: { id: "exact-shader" },
+    visualization: {
+      sourceId: "exact-shader",
+      card: {
+        schemaVersion: "hapa.visualizer.portable-card.v1",
+        id: "exact-shader",
+        source: { uri: "/shader.fs", hash: `sha256:${"a".repeat(64)}` },
+      },
+    },
+  };
+  cut.director_show_graph = {
+    ...structuredClone(base.director_show_graph),
+    tracks: [{ id: "ivf-stack", role: "visualizer", cards: [exactPortableCard] }],
+  };
+  cut.runtime_shader_repair_receipt = {
+    status: "hydrated",
+    sourceVariantMutated: false,
+  };
+  const identity = structuredClone(cut);
+  delete identity.director_show_graph;
+  delete identity.runtime_shader_repair_receipt;
+
+  const derived = deriveEchoDirectionVariantProject(base, cut, { identityVariant: identity });
+
+  assert.equal(derived.active_direction_script_variant.durationProjection.status, "applied");
+  assert.equal(derived.director_show_graph.tracks[0].cards[0].id, "runtime-hydrated");
+  assert.equal(derived.director_show_graph.tracks[0].cards[0].visualization.card.source.hash, `sha256:${"a".repeat(64)}`);
+});
+
 test("a certified selected cut reuses the delivered top-level graph without a duplicate graph inside the variant", () => {
   const base = project();
   const cut = variant("certified-cut", "Dense", 2);

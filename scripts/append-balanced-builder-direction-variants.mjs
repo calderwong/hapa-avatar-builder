@@ -46,6 +46,12 @@ const args = new Set(process.argv.slice(2));
 const APPLY = args.has("--apply");
 const WIDE_CUTS = args.has("--wide-cuts");
 const MISSING_ONLY = args.has("--missing-only");
+const TARGET_SONG_ID = process.argv.find((arg) => arg.startsWith("--song-id="))
+  ?.slice("--song-id=".length)
+  .trim() || "";
+if (TARGET_SONG_ID && path.basename(TARGET_SONG_ID) !== TARGET_SONG_ID) {
+  throw new Error(`Unsafe target song ID: ${TARGET_SONG_ID}`);
+}
 const RUN_STARTED_AT = new Date().toISOString();
 const RUN_ID = `builder-expanded-direction-${RUN_STARTED_AT.replace(/[:.]/g, "-")}`;
 const VARIANT_TITLE = "Scroll + FAL + Builder Scenes/Avatars · Balanced Recast";
@@ -737,7 +743,10 @@ async function main() {
     throw new Error(`Content deduplication removed a required source family: ${JSON.stringify(candidatesByGroup)}.`);
   }
 
-  const allProjectFiles = (await readdir(PROJECTS_DIR)).filter((file) => file.endsWith("-video-project.json")).sort();
+  const allProjectFiles = (await readdir(PROJECTS_DIR))
+    .filter((file) => file.endsWith("-video-project.json"))
+    .filter((file) => !TARGET_SONG_ID || file === `${TARGET_SONG_ID}-video-project.json`)
+    .sort();
   const requestedVariantIds = WIDE_CUTS
     ? WIDE_CUTS_CONFIG.map((profile) => profile.variantId)
     : [SCROLL_SCENE_AVATAR_BALANCED_VARIANT_ID];

@@ -6,13 +6,15 @@ import { promisify } from "node:util";
 
 const execFile = promisify(execFileCallback);
 const IMAGE_PATTERN = /\.(?:png|jpe?g|webp|gif|avif|bmp|tiff?)(?:$|[?#])/iu;
-const CACHE_SCHEMA = "hapa.render-visual-media-probe-cache.v8";
-const EVIDENCE_SCHEMA = "hapa.render-visual-media-probe-evidence.v8";
+const CACHE_SCHEMA = "hapa.render-visual-media-probe-cache.v10";
+const EVIDENCE_SCHEMA = "hapa.render-visual-media-probe-evidence.v10";
 const DEFAULT_VIDEO_SAMPLING_POLICY = "boundary-midpoint-v1";
 const BLACK_LUMA_MAX = 24;
 const OPENING_FADE_POLICY = "verified-brief-black-opening-v1";
 const OPENING_BLACK_SCAN_MIN_SECONDS = 0.04;
 const OPENING_BLACK_FADE_MAX_SECONDS = 0.25;
+const CLOSING_FADE_POLICY = "verified-bounded-black-closing-v1";
+const CLOSING_BLACK_FADE_MAX_SECONDS = 1.25;
 const PROGRESS_SCHEMA = "hapa.render-visual-media-probe-progress.v1";
 const PROGRESS_STAGES = Object.freeze(["start", "metadata", "full-decode", "pixel-samples", "complete"]);
 const probeCache = new Map();
@@ -79,11 +81,19 @@ function visualDecoderToolchainIdentity() {
 }
 
 const VIDEO_SAMPLING_POLICIES = Object.freeze({
-  "boundary-midpoint-v1": (durationSeconds) => [
-    0,
-    durationSeconds / 2,
-    Math.max(0, durationSeconds - Math.min(0.25, durationSeconds / 10)),
-  ],
+  "boundary-midpoint-v1": (durationSeconds, frameRate = 0) => {
+    const nominalTailGuard = Math.min(0.25, durationSeconds / 10);
+    // Seeking after the final presentation timestamp can make ffmpeg emit a
+    // synthetic flat gray frame for very short clips. Keep the boundary
+    // sample inside the last decodable frame while retaining the same
+    // quarter-second guard on normal-duration media.
+    const finalFrameGuard = frameRate > 0 ? (1 / frameRate) + 0.001 : 0;
+    return [
+      0,
+      durationSeconds / 2,
+      Math.max(0, durationSeconds - Math.max(nominalTailGuard, finalFrameGuard)),
+    ];
+  },
   "interior-three-v1": (durationSeconds) => [
     durationSeconds * 0.1,
     durationSeconds * 0.5,
@@ -206,10 +216,10 @@ function roundedSampleTime(value, durationSeconds) {
   return Math.round(bounded * 1000) / 1000;
 }
 
-function policySampleTimes(policyId, durationSeconds) {
+function policySampleTimes(policyId, durationSeconds, frameRate = 0) {
   const factory = VIDEO_SAMPLING_POLICIES[policyId];
   if (!factory) return null;
-  return [...new Set(factory(durationSeconds).map((value) => roundedSampleTime(value, durationSeconds)))];
+  return [...new Set(factory(durationSeconds, frameRate).map((value) => roundedSampleTime(value, durationSeconds)))];
 }
 
 function positiveFrameRate(value = "") {
@@ -280,11 +290,49 @@ function verifiedOpeningFadeReceipt(samples = [], blackIntervalScan = {}, frameR
   };
 }
 
+function verifiedClosingFadeReceipt(samples = [], blackIntervalScan = {}, frameRate = 0, durationSeconds = 0) {
+  const blankSamples = samples.filter((sample) => !sample.visible);
+  const lastSample = samples.at(-1) || null;
+  const earlierSamples = samples.slice(0, -1);
+  const frameToleranceSeconds = frameRate > 0 ? Math.min(0.05, (1 / frameRate) + 0.005) : 0.05;
+  const closingSpan = list(blackIntervalScan?.blackSpans)
+    .filter((span) => Number(span.endSeconds) >= Number(durationSeconds) - frameToleranceSeconds)
+    .sort((left, right) => Number(right.endSeconds) - Number(left.endSeconds) || Number(left.startSeconds) - Number(right.startSeconds))[0] || null;
+  const accepted = blackIntervalScan?.complete === true
+    && blankSamples.length === 1
+    && lastSample === blankSamples[0]
+    && lastSample?.present === true
+    && lastSample?.black === true
+    && earlierSamples.length > 0
+    && earlierSamples.every((sample) => sample.visible === true)
+    && closingSpan !== null
+    && Number(closingSpan.durationSeconds) > 0
+    && Number(closingSpan.durationSeconds) <= CLOSING_BLACK_FADE_MAX_SECONDS
+    && Number(closingSpan.startSeconds) >= Number(durationSeconds) - CLOSING_BLACK_FADE_MAX_SECONDS - frameToleranceSeconds;
+  if (!accepted) return null;
+  return {
+    schemaVersion: "hapa.render-visual-closing-fade-receipt.v1",
+    status: "accepted",
+    policyId: CLOSING_FADE_POLICY,
+    maxDurationSeconds: CLOSING_BLACK_FADE_MAX_SECONDS,
+    frameToleranceSeconds,
+    observed: {
+      startSeconds: Number(closingSpan.startSeconds),
+      endSeconds: Number(closingSpan.endSeconds),
+      durationSeconds: Number(closingSpan.durationSeconds),
+    },
+    boundarySampleTime: Number(lastSample.sampleTime),
+    earlierVisibleSampleTimes: earlierSamples.map((sample) => Number(sample.sampleTime)),
+    evidence: ["full-file-blackdetect", "black-closing-sample", "all-earlier-samples-visible"],
+  };
+}
+
 function deterministicEvidence(file, {
   allowBlank = false,
   temporal = false,
   samplingPolicies = [],
   openingFade = null,
+  closingFade = null,
 } = {}) {
   return {
     schemaVersion: EVIDENCE_SCHEMA,
@@ -309,6 +357,11 @@ function deterministicEvidence(file, {
         status: "not-applied",
         policyId: OPENING_FADE_POLICY,
         maxDurationSeconds: OPENING_BLACK_FADE_MAX_SECONDS,
+      },
+      closingFade: closingFade ? structuredClone(closingFade) : {
+        status: "not-applied",
+        policyId: CLOSING_FADE_POLICY,
+        maxDurationSeconds: CLOSING_BLACK_FADE_MAX_SECONDS,
       },
     },
   };
@@ -656,7 +709,7 @@ async function executeProbe(file, declaredKind, {
     };
     const policyResults = [];
     for (const policyId of policies) {
-      const sampleTimes = policySampleTimes(policyId, durationSeconds);
+      const sampleTimes = policySampleTimes(policyId, durationSeconds, positiveFrameRate(frameRateText));
       const samples = await Promise.all(sampleTimes.map(sampleAt));
       const visibleSampleCount = samples.filter((sample) => sample.visible).length;
       const measurable = samples.every((sample) => sample.present);
@@ -664,9 +717,17 @@ async function executeProbe(file, declaredKind, {
       const openingFade = allowBlank === true || blankSampleCount === 0
         ? null
         : verifiedOpeningFadeReceipt(samples, common.blackIntervalScan, positiveFrameRate(frameRateText));
+      const closingFade = allowBlank === true || blankSampleCount === 0
+        ? null
+        : verifiedClosingFadeReceipt(
+          samples,
+          common.blackIntervalScan,
+          positiveFrameRate(frameRateText),
+          durationSeconds,
+        );
       policyResults.push({
         policyId,
-        ok: measurable && (blankSampleCount === 0 || allowBlank === true || openingFade !== null),
+        ok: measurable && (blankSampleCount === 0 || allowBlank === true || openingFade !== null || closingFade !== null),
         measurable,
         sampleTimes,
         visibleSampleCount,
@@ -674,6 +735,8 @@ async function executeProbe(file, declaredKind, {
         blankAllowed: blankSampleCount > 0 && allowBlank === true,
         openingFadeAccepted: openingFade !== null,
         openingFade,
+        closingFadeAccepted: closingFade !== null,
+        closingFade,
         samples,
       });
     }
@@ -700,6 +763,7 @@ async function executeProbe(file, declaredKind, {
       };
     }
     const openingFade = policyResults.find((policy) => policy.openingFadeAccepted)?.openingFade || null;
+    const closingFade = policyResults.find((policy) => policy.closingFadeAccepted)?.closingFade || null;
     return {
       ok: true,
       code: "video-samples-decoded",
@@ -709,7 +773,14 @@ async function executeProbe(file, declaredKind, {
       samplingPolicies: policyResults,
       blankAllowed: policyResults.some((policy) => policy.blankAllowed),
       openingFade,
-      evidence: deterministicEvidence(file, { allowBlank, temporal: true, samplingPolicies: policies, openingFade }),
+      closingFade,
+      evidence: deterministicEvidence(file, {
+        allowBlank,
+        temporal: true,
+        samplingPolicies: policies,
+        openingFade,
+        closingFade,
+      }),
     };
   } catch (error) {
     throwIfAborted(signal, error);

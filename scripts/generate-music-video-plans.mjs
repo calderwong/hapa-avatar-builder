@@ -64,7 +64,9 @@ if (fs.existsSync(songsStorePath)) {
         songId: s.songId,
         registryTrackId: s.audio?.registryTrackId || s.registryTrackId,
         duration: Number(s.audio?.duration || s.duration || 0),
-        audioUri: s.audio?.mp3Uri || (s.audio?.registryTrackId ? `/api/song-registry/audio/${encodeURIComponent(s.audio.registryTrackId)}` : ""),
+        audioUri: s.audio?.registryTrackId
+          ? `/api/song-registry/audio/${encodeURIComponent(s.audio.registryTrackId)}`
+          : s.audio?.mp3Uri || "",
         coverUri: s.audio?.coverUri || "",
         stems: Array.isArray(s.stems) ? s.stems : [],
         lyricTimings: Array.isArray(s.lyricTimings) ? s.lyricTimings : [],
@@ -83,11 +85,14 @@ if (fs.existsSync(songsStorePath)) {
 
 function findSongMetadata(song) {
   const expectedRegistryTrackId = song.registryTrackId || song.lineage?.registryTrackId || "";
+  // Prefer the song/card identities before the shared registry lookup. A stale
+  // duplicate card may claim another song's registryTrackId; accepting that
+  // collision first can bind the correct project to the wrong master/duration.
   const keys = [
-    expectedRegistryTrackId,
     song.id,
     song.cardId,
     song.songId,
+    expectedRegistryTrackId,
   ].filter(Boolean);
   for (const key of keys) {
     const metadata = songMetadataByKey[key];
@@ -1005,7 +1010,18 @@ songCards.forEach((song, idx) => {
   const songMetadata = findSongMetadata(song);
   const registryTrackId = songMetadata?.registryTrackId || song.registryTrackId || song.songId || songId;
   const audioId = registryTrackId || songId;
-  const stemsAvailable = (songMetadata?.stems || []).map((stem) => stem.kind || stem.title || stem.id).filter(Boolean);
+  const stemsAvailable = [...new Set((songMetadata?.stems || [])
+    .filter((stem) => {
+      const localPath = String(stem?.localPath || stem?.path || "").trim();
+      if (!localPath || !path.isAbsolute(localPath) || !fs.existsSync(localPath)) return false;
+      try {
+        return fs.statSync(localPath).isFile() && fs.statSync(localPath).size > 0;
+      } catch {
+        return false;
+      }
+    })
+    .map((stem) => stem.kind || stem.title || stem.id)
+    .filter(Boolean))];
   const perspective = song.performancePerspective?.team_color || "red";
   const duration = songMetadata?.duration || Number(song.duration || song.audio?.duration || 0) || 180.0;
   const hash = getSimpleHash(songId);

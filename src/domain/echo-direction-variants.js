@@ -84,6 +84,114 @@ function clone(value) {
     : JSON.parse(JSON.stringify(value));
 }
 
+function rowStartSeconds(row = {}) {
+  return number(row?.start_sec ?? row?.startSeconds, null);
+}
+
+function rowEndSeconds(row = {}) {
+  return number(row?.end_sec ?? row?.endSeconds, null);
+}
+
+function timelineEndSeconds(rows) {
+  return Array.isArray(rows)
+    ? rows.reduce((maximum, row) => Math.max(maximum, rowEndSeconds(row) ?? 0), 0)
+    : 0;
+}
+
+function setRowBounds(row, start, end) {
+  if (row?.start_sec !== undefined || row?.startSeconds === undefined) row.start_sec = start;
+  else row.startSeconds = start;
+  if (row?.end_sec !== undefined || row?.endSeconds === undefined) row.end_sec = end;
+  else row.endSeconds = end;
+  return row;
+}
+
+function variantScriptDurationSeconds(variant = {}) {
+  const script = text(variant.hyperframe_script || variant.hyperframeScript);
+  const match = script.match(/\bdata-duration=["']([0-9]+(?:\.[0-9]+)?)["']/i);
+  return number(match?.[1], null);
+}
+
+function projectTimelineToDuration(rows, durationSeconds, timelineName, options = {}) {
+  if (!Array.isArray(rows) || !Number.isFinite(durationSeconds) || durationSeconds <= 0) {
+    return {
+      rows: clone(rows),
+      receipt: {
+        timeline: timelineName,
+        inputRows: Array.isArray(rows) ? rows.length : 0,
+        outputRows: Array.isArray(rows) ? rows.length : 0,
+        clippedRows: 0,
+        droppedRows: 0,
+        extendedRows: 0,
+      },
+    };
+  }
+  let clippedRows = 0;
+  let droppedRows = 0;
+  const projectedRows = [];
+  for (const sourceRow of rows) {
+    const row = clone(sourceRow);
+    const start = rowStartSeconds(row);
+    const end = rowEndSeconds(row);
+    if (start === null || end === null) {
+      projectedRows.push(row);
+      continue;
+    }
+    const projectedStart = Math.max(0, start);
+    const projectedEnd = Math.min(durationSeconds, end);
+    if (projectedStart >= durationSeconds || projectedEnd <= projectedStart) {
+      droppedRows += 1;
+      continue;
+    }
+    if (projectedStart !== start || projectedEnd !== end) clippedRows += 1;
+    projectedRows.push(setRowBounds(row, projectedStart, projectedEnd));
+  }
+  let extendedRows = 0;
+  const extensionStartSeconds = number(options.extensionStartSeconds, null);
+  const extensionRows = Array.isArray(options.extensionRows) ? options.extensionRows : [];
+  if (
+    extensionStartSeconds !== null
+    && extensionStartSeconds < durationSeconds - 0.050001
+    && Math.abs(timelineEndSeconds(projectedRows) - extensionStartSeconds) <= 0.100001
+    && timelineEndSeconds(extensionRows) >= durationSeconds - 0.050001
+  ) {
+    for (const sourceRow of extensionRows) {
+      const start = rowStartSeconds(sourceRow);
+      const end = rowEndSeconds(sourceRow);
+      if (start === null || end === null || end <= extensionStartSeconds) continue;
+      const projectedStart = Math.max(extensionStartSeconds, start);
+      const projectedEnd = Math.min(durationSeconds, end);
+      if (projectedEnd <= projectedStart) continue;
+      projectedRows.push(setRowBounds(clone(sourceRow), projectedStart, projectedEnd));
+      extendedRows += 1;
+    }
+  }
+  return {
+    rows: projectedRows,
+    receipt: {
+      timeline: timelineName,
+      inputRows: rows.length,
+      outputRows: projectedRows.length,
+      clippedRows,
+      droppedRows,
+      extendedRows,
+      extensionStartSeconds: extendedRows > 0 ? extensionStartSeconds : null,
+      extensionSource: extendedRows > 0 ? "canonical-base-tail" : null,
+    },
+  };
+}
+
+function graphFitsDuration(graph, durationSeconds) {
+  if (!graph?.tracks || !Number.isFinite(durationSeconds) || durationSeconds <= 0) return false;
+  const graphDuration = number(graph?.song?.durationSeconds, null);
+  if (graphDuration === null || Math.abs(graphDuration - durationSeconds) > 0.050001) return false;
+  return graph.tracks.every((track) => (Array.isArray(track?.cards) ? track.cards : []).every((card) => {
+    const start = number(card?.startSeconds ?? card?.start_sec, null);
+    const end = number(card?.endSeconds ?? card?.end_sec, null);
+    return start !== null && end !== null && start >= 0 && end > start && end <= durationSeconds + 0.000001;
+  }));
+}
+
 function hydrateEchoVariantGraphOverlay(baseGraph, declaredGraph) {
   const declared = clone(declaredGraph);
   if (declared?.delivery?.schemaVersion !== ECHO_VARIANT_GRAPH_OVERLAY_SCHEMA) return declared;
@@ -318,12 +426,50 @@ export function deriveEchoDirectionVariantProject(baseProject = {}, variant = {}
     throw error;
   }
   const variantHash = echoDirectionVariantFingerprint(identityVariant);
-  const timeline = Array.isArray(variant.timeline) ? clone(variant.timeline) : baseProject.timeline;
-  const visualizerTimeline = Array.isArray(variant.visualizer_timeline)
+  const baseDurationSeconds = number(
+    baseProject.director_show_graph?.song?.durationSeconds ?? baseProject.duration,
+    null,
+  );
+  const declaredTimeline = Array.isArray(variant.timeline) ? variant.timeline : baseProject.timeline;
+  const declaredVisualizerTimeline = Array.isArray(variant.visualizer_timeline)
     ? clone(variant.visualizer_timeline)
     : Array.isArray(variant.visualizerTimeline)
       ? clone(variant.visualizerTimeline)
       : baseProject.visualizer_timeline;
+  const legacyParentDurationSeconds = variantScriptDurationSeconds(variant);
+  const legacyParentTailProjection = Boolean(
+    variant.parent?.immutableLegacyProject === true
+    && text(variant.parent?.songId) === text(baseProject.song_id)
+    && legacyParentDurationSeconds !== null
+    && baseDurationSeconds !== null
+    && baseDurationSeconds > legacyParentDurationSeconds + 0.050001
+    && Math.abs(timelineEndSeconds(declaredTimeline) - legacyParentDurationSeconds) <= 0.100001
+    && Math.abs(timelineEndSeconds(declaredVisualizerTimeline) - legacyParentDurationSeconds) <= 0.100001
+  );
+  const timelineProjection = projectTimelineToDuration(declaredTimeline, baseDurationSeconds, "timeline", {
+    extensionStartSeconds: legacyParentTailProjection ? legacyParentDurationSeconds : null,
+    extensionRows: legacyParentTailProjection ? baseProject.timeline : null,
+  });
+  const visualizerProjection = projectTimelineToDuration(
+    declaredVisualizerTimeline,
+    baseDurationSeconds,
+    "visualizer_timeline",
+    {
+      extensionStartSeconds: legacyParentTailProjection ? legacyParentDurationSeconds : null,
+      extensionRows: legacyParentTailProjection ? baseProject.visualizer_timeline : null,
+    },
+  );
+  const durationProjectionApplied = [timelineProjection.receipt, visualizerProjection.receipt]
+    .some((receipt) => receipt.clippedRows > 0 || receipt.droppedRows > 0 || receipt.extendedRows > 0);
+  const durationProjection = {
+    schemaVersion: "hapa.echo.direction-variant-duration-projection.v1",
+    status: durationProjectionApplied ? "applied" : "not-required",
+    baseDurationSeconds,
+    sourceVariantMutated: false,
+    timelines: [timelineProjection.receipt, visualizerProjection.receipt],
+  };
+  const timeline = timelineProjection.rows;
+  const visualizerTimeline = visualizerProjection.rows;
   const projectPatch = pickEchoDirectionVariantProjectPatch(object(variant.project_patch || variant.projectPatch));
   const explicitDensityTelemetry = variant.media_density_telemetry || variant.mediaDensityTelemetry;
   const densityTelemetry = explicitDensityTelemetry || (variant.densityProfile || variant.density_profile
@@ -346,7 +492,7 @@ export function deriveEchoDirectionVariantProject(baseProject = {}, variant = {}
       ...projected,
       director_show_graph: null,
       hyperframe_script: text(variant.hyperframe_script || variant.hyperframeScript),
-      hyperframe_script_stale: !text(variant.hyperframe_script || variant.hyperframeScript),
+      hyperframe_script_stale: durationProjectionApplied || !text(variant.hyperframe_script || variant.hyperframeScript),
       execution_preview: clone(executionPreview),
       active_direction_script_variant: {
         id,
@@ -356,6 +502,7 @@ export function deriveEchoDirectionVariantProject(baseProject = {}, variant = {}
         seed: variant.seed || null,
         parent: clone(variant.parent || variant.lineage || null),
         nonDestructive: true,
+        durationProjection,
         projectionValidation: {
           schemaVersion: "hapa.echo.direction-variant-projection-validation.v1",
           ok: false,
@@ -367,6 +514,12 @@ export function deriveEchoDirectionVariantProject(baseProject = {}, variant = {}
     };
   }
   const declaredGraph = variant.director_show_graph || variant.directorShowGraph;
+  const deliveredRuntimeGraph = Boolean(
+    durationProjectionApplied
+    && declaredGraph?.tracks
+    && variant.runtime_shader_repair_receipt?.sourceVariantMutated === false
+    && graphFitsDuration(declaredGraph, baseDurationSeconds)
+  );
   const certifiedReceipt = object(baseProject.director_show_graph_receipt);
   const certifiedSelectedGraph = Boolean(
     baseProject.director_show_graph?.tracks
@@ -376,9 +529,9 @@ export function deriveEchoDirectionVariantProject(baseProject = {}, variant = {}
     && text(certifiedReceipt.cutId) === id
     && text(certifiedReceipt.cutFingerprint) === variantHash
   );
-  const sourceGraph = declaredGraph?.tracks
+  const sourceGraph = (!durationProjectionApplied || deliveredRuntimeGraph) && declaredGraph?.tracks
     ? hydrateEchoVariantGraphOverlay(baseProject.director_show_graph, declaredGraph)
-    : certifiedSelectedGraph
+    : !durationProjectionApplied && certifiedSelectedGraph
       ? clone(baseProject.director_show_graph)
       : projectToEditorGraph({ ...projected, director_show_graph: baseProject.director_show_graph });
   const graph = reframeEchoShowGraphOutputProfile(sourceGraph, projected.output_profile);
@@ -399,7 +552,7 @@ export function deriveEchoDirectionVariantProject(baseProject = {}, variant = {}
     ...projected,
     director_show_graph: graph,
     hyperframe_script: text(variant.hyperframe_script || variant.hyperframeScript),
-    hyperframe_script_stale: !text(variant.hyperframe_script || variant.hyperframeScript),
+    hyperframe_script_stale: durationProjectionApplied || !text(variant.hyperframe_script || variant.hyperframeScript),
     active_direction_script_variant: {
       id,
       title: echoDirectionVariantTitle(variant),
@@ -408,6 +561,7 @@ export function deriveEchoDirectionVariantProject(baseProject = {}, variant = {}
       seed: variant.seed || null,
       parent: clone(variant.parent || variant.lineage || null),
       nonDestructive: true,
+      durationProjection,
       projectionValidation: validation,
     },
   };

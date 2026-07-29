@@ -69,6 +69,29 @@ test("HyperFrames compiler emits pinned templated executable shows", () => {
   assert.ok(inspectHyperFramesShow(a).ok);
 });
 
+test("HyperFrames inspection accepts deterministic master-mix telemetry when isolated stems are unavailable", () => {
+  const graph = nativeMediaGraph([mediaCard("media:master-only", {
+    id: "media:master-only",
+    title: "Master-only frame",
+    uri: "/tmp/master-only-frame.png",
+  }, { endSeconds: 12 })]);
+  const telemetry = {
+    fps: 10,
+    masterMix: {
+      frames: [
+        { t: 0, rms: 0.1, peak: 0.2, onset: 0, bands: { low: 0.1, mid: 0.1, high: 0.1 } },
+        { t: 0.1, rms: 0.2, peak: 0.3, onset: 1, bands: { low: 0.2, mid: 0.2, high: 0.2 } },
+      ],
+    },
+  };
+  const show = compileHyperFramesShow({ showGraph: graph, telemetry, project: {}, proxyRegistry: {} });
+  const inspection = inspectHyperFramesShow(show);
+  assert.equal(inspection.ok, true);
+  assert.equal(inspection.offlineAudioTelemetry.mode, "master-mix-only");
+  assert.equal(inspection.offlineAudioTelemetry.isolatedStemFrameCount, 0);
+  assert.equal(inspection.offlineAudioTelemetry.masterFrameCount, 2);
+});
+
 test("HyperFrames compiler never resolves a proxy for an invalid or mismatched portable attachment", () => {
   const sourceHash = `sha256:${"a".repeat(64)}`;
   const proxyRegistry = {
