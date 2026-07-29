@@ -9,6 +9,7 @@ import {
   isSourceDeclaredInstrumental,
   lyricIssuePriority,
 } from "../src/domain/echo-lyric-quality.js";
+import { evaluateEchoLyricTimingPromotion } from "../src/domain/echo-lyric-promotion.js";
 
 const ROOT = path.resolve(".");
 const PROJECTS_DIR = path.join(ROOT, "data/music-video-projects");
@@ -62,6 +63,35 @@ function sourceMetadataFor(manifestSong = null) {
   }
 }
 
+function measuredPerformanceCanonicalFor(timingPath = "") {
+  if (!timingPath || !fs.existsSync(timingPath)) return null;
+  try {
+    const timing = readJson(timingPath);
+    const promotion = evaluateEchoLyricTimingPromotion(timing, {
+      sourcePathExists: true,
+      sttPathExists: fs.existsSync(timingPath.replace(/\.json$/i, ".stt.json")),
+    });
+    if (!promotion.accepted) return null;
+    const text = (timing.lines || [])
+      .map((line) => String(line?.text || "").trim())
+      .filter(Boolean)
+      .join("\n");
+    if (!text) return null;
+    return {
+      text,
+      path: timingPath,
+      kind: "measured-performance-variant",
+      sourceReference: {
+        path: String(timing.provenance?.lyricsPath || ""),
+        sha256: String(timing.provenance?.lyricsSha256 || ""),
+      },
+      promotion,
+    };
+  } catch {
+    return null;
+  }
+}
+
 const store = readJson(SONG_STORE_PATH);
 const manifest = fs.existsSync(PLAYLIST_MANIFEST_PATH) ? readJson(PLAYLIST_MANIFEST_PATH) : { songs: [] };
 const oldBaseline = fs.existsSync(OLD_BASELINE_PATH) ? readJson(OLD_BASELINE_PATH) : { projects: [] };
@@ -84,10 +114,9 @@ const projects = files.map((file) => {
   const manifestSong = manifestById.get(resolvedRegistryTrackId) || null;
   const sourceMetadata = sourceMetadataFor(manifestSong);
   const sourceDeclaredInstrumental = isSourceDeclaredInstrumental(sourceMetadata);
-  const canonical = canonicalTextFor(song, manifestSong);
+  const sourceCanonical = canonicalTextFor(song, manifestSong);
   const lines = Array.isArray(project.timed_lyrics) ? project.timed_lyrics : [];
   const timing = analyzeEchoLyricTiming(lines, project.duration);
-  const text = compareLyricText(lines, canonical.text);
   const recent = oldSongIds.size > 0 ? !oldSongIds.has(songId) : String(song.createdAt || "") >= "2026-07-12";
   const timingTruth = project.lyric_timing_truth || {};
   const heal = project.lyric_timing_heal || {};
@@ -103,6 +132,9 @@ const projects = files.map((file) => {
       || heal.timingPath
       || "",
   );
+  const performanceCanonical = measuredPerformanceCanonicalFor(sourcePath);
+  const canonical = performanceCanonical || sourceCanonical;
+  const text = compareLyricText(lines, canonical.text);
   const confidence = Number(timingTruth.confidence ?? heal.timingConfidence ?? 0);
   const activeTimingSha256 = sha256(lines);
   const declaredActiveHash = String(timingTruth.activeTimingSha256 || heal.activeTimingSha256 || "");
@@ -149,6 +181,10 @@ const projects = files.map((file) => {
       kind: canonical.kind,
       path: canonical.path,
       sha256: hasCanonicalText ? sha256(canonical.text) : "",
+      sourceReference: performanceCanonical?.sourceReference || {
+        path: sourceCanonical.path,
+        sha256: sourceCanonical.text ? sha256(sourceCanonical.text) : "",
+      },
     },
     sourceDeclaration: {
       instrumental: sourceDeclaredInstrumental,
