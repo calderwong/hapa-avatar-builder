@@ -84,13 +84,18 @@ app.whenReady().then(async () => {
         const persistentShaderSelects = persistentShaderSlots
           ? [...persistentShaderSlots.querySelectorAll('select[aria-label^="Always-on shader slot"]')]
           : [];
+        const persistentShaderToggles = persistentShaderSlots
+          ? [...persistentShaderSlots.querySelectorAll('input[type="checkbox"][aria-label$="enabled"]')]
+          : [];
         return {
           shaderSearch: rectPayload(shaderSearch),
           shaderList: rectPayload(shaderList),
           shaderButtonCount: shaderButtons.length,
           shaderListOverflowY: shaderList ? getComputedStyle(shaderList).overflowY : "",
           persistentShaderSlots: rectPayload(persistentShaderSlots),
-          persistentShaderSelectCount: persistentShaderSelects.length
+          persistentShaderSelectCount: persistentShaderSelects.length,
+          persistentShaderToggleCount: persistentShaderToggles.length,
+          persistentShaderToggleStates: persistentShaderToggles.map((toggle) => toggle.checked)
         };
       })()
     `);
@@ -156,6 +161,9 @@ app.whenReady().then(async () => {
       ["auto", "scroll"].includes(shaderResult.shaderListOverflowY) &&
       shaderResult.persistentShaderSlots?.visible &&
       shaderResult.persistentShaderSelectCount === 3 &&
+      shaderResult.persistentShaderToggleCount === 3 &&
+      shaderResult.persistentShaderToggleStates[0] === true &&
+      shaderResult.persistentShaderToggleStates[1] === true &&
       controlsResult.cameraSelect?.visible &&
       controlsResult.cameraOptions.includes("pan-up") &&
       controlsResult.cameraOptions.includes("pan-down") &&

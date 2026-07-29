@@ -5,7 +5,7 @@
 Extend the existing Echo Album Director Workbench and HyperFrames scene compiler with three stable, per-song shader lanes that remain active for the full song when selected:
 
 1. UltimateFlame tracking the master mix.
-2. Waveform 2 (the verified Audio Wave Forms implementation) tracking Lead Vocals with a direct master-mix fallback.
+2. A simple multi-line waveform (manifest title `Untitled Shader`) tracking Lead Vocals with a direct master-mix fallback.
 3. An open operator-selectable lane.
 
 Raw request lineage: Codex task on 2026-07-29, “add Three additional Shader tracks/slots … intended to stay always on.”
@@ -31,7 +31,8 @@ The final gate covered 157 projects, 1,971 shader cues, 7,884 renderer receipts,
 ### What worked
 
 - Keeping each persistent slot on a stable track ID made save/fork, timeline projection, runtime selection, and final compilation share one identity.
-- Reusing the exact-proxy registry allowed UltimateFlame and Waveform 2 to remain exact across browser, native, and HyperFrames renderers.
+- Reusing the exact-proxy registry allowed UltimateFlame and the simple multi-line waveform to remain exact across browser, native, and HyperFrames renderers.
+- Keeping `enabled` independent from the configured shader lets an operator temporarily switch a lane off and later restore it without reselecting the shader.
 - A direct Lead Vocals-to-master policy prevented a missing vocal stem from silently selecting an unrelated isolated stem.
 
 ### Noise or rework

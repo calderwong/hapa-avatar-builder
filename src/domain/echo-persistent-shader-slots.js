@@ -7,6 +7,11 @@ export const ECHO_ULTIMATE_FLAME_SHADER = Object.freeze({
 });
 
 export const ECHO_AUDIO_WAVE_FORMS_SHADER = Object.freeze({
+  id: "isf:62919b67cbcd960019678792",
+  title: "Untitled Shader",
+});
+
+export const ECHO_PREVIOUS_AUDIO_WAVE_FORMS_SHADER = Object.freeze({
   id: "isf:66d31ee18d90c9001a4ac89d",
   title: "Waveform 2",
 });
@@ -29,7 +34,7 @@ const SLOT_DEFAULTS = Object.freeze([
   Object.freeze({
     id: "always-on-shader-2",
     track_id: "track-shader-always-on-2",
-    label: "Always On 2 · Audio Wave Forms",
+    label: "Always On 2 · Audio Wave Forms · Simple Lines",
     enabled: true,
     shader_id: ECHO_AUDIO_WAVE_FORMS_SHADER.id,
     shader_title: ECHO_AUDIO_WAVE_FORMS_SHADER.title,
@@ -90,21 +95,21 @@ export function normalizeEchoPersistentShaderSlots(value = {}, options = {}) {
     const source = byId.get(defaults.id) || input[index] || {};
     const shaderId = text(source.shader_id ?? source.shaderId ?? source.visualizer_id ?? source.visualizerId ?? defaults.shader_id) || "none";
     const sourceShaderTitle = text(source.shader_title ?? source.shaderTitle ?? source.visualizer_title ?? source.visualizerTitle);
-    const enabled = source.enabled === undefined
+    const configured = shaderId.toLowerCase() !== "none";
+    const enabled = configured && (source.enabled === undefined
       ? defaults.enabled
-      : source.enabled === true;
-    const active = enabled && shaderId.toLowerCase() !== "none";
+      : source.enabled === true);
     return {
       ...clone(defaults),
       ...clone(source),
       id: defaults.id,
       track_id: defaults.track_id,
       label: text(source.label) || defaults.label,
-      enabled: active,
+      enabled,
       always_on: true,
       selection_mode: "persistent-full-song",
-      shader_id: active ? shaderId : "none",
-      shader_title: active
+      shader_id: configured ? shaderId : "none",
+      shader_title: configured
         ? (sourceShaderTitle && !(shaderId === defaults.shader_id && sourceShaderTitle === shaderId))
           ? sourceShaderTitle
           : shaderId === defaults.shader_id ? defaults.shader_title : shaderId
@@ -123,7 +128,7 @@ export function normalizeEchoPersistentShaderSlots(value = {}, options = {}) {
 
 export function echoPersistentShaderSegments(project = {}) {
   return normalizeEchoPersistentShaderSlots(project)
-    .filter((slot) => slot.enabled)
+    .filter((slot) => slot.enabled && slot.shader_id !== "none")
     .map((slot) => ({
       start_sec: 0,
       end_sec: Math.max(0, finite(project.duration, slot.end_sec)),

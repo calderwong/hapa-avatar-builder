@@ -35,7 +35,7 @@ test("persistent segments include only selected slots and always span the song",
   ]);
 });
 
-test("an operator can fill or clear the open slot without changing its stable track identity", () => {
+test("an operator can switch a configured slot off without losing its shader choice", () => {
   const selected = normalizeEchoPersistentShaderSlots({
     duration: 12,
     persistent_shader_slots: [
@@ -49,11 +49,20 @@ test("an operator can fill or clear the open slot without changing its stable tr
   assert.equal(selected[2].shader_id, "isf:custom");
   assert.equal(selected[2].stem_focus, "drums");
 
-  const cleared = normalizeEchoPersistentShaderSlots({
+  const switchedOff = normalizeEchoPersistentShaderSlots({
     duration: 12,
     persistent_shader_slots: selected.map((slot, index) => index === 2 ? { ...slot, enabled: false } : slot),
   });
-  assert.equal(cleared[2].track_id, "track-shader-always-on-3");
-  assert.equal(cleared[2].enabled, false);
-  assert.equal(cleared[2].shader_id, "none");
+  assert.equal(switchedOff[2].track_id, "track-shader-always-on-3");
+  assert.equal(switchedOff[2].enabled, false);
+  assert.equal(switchedOff[2].shader_id, "isf:custom");
+  assert.equal(switchedOff[2].shader_title, "Custom Shader");
+  assert.equal(echoPersistentShaderSegments({ duration: 12, persistent_shader_slots: switchedOff }).length, 2);
+
+  const switchedBackOn = normalizeEchoPersistentShaderSlots({
+    duration: 12,
+    persistent_shader_slots: switchedOff.map((slot, index) => index === 2 ? { ...slot, enabled: true } : slot),
+  });
+  assert.equal(switchedBackOn[2].shader_id, "isf:custom");
+  assert.equal(switchedBackOn[2].enabled, true);
 });

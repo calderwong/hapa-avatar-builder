@@ -152,9 +152,9 @@ test("declared always-on shader slots compile as three additional full-song trac
     {
       id: ECHO_AUDIO_WAVE_FORMS_SHADER.id,
       title: ECHO_AUDIO_WAVE_FORMS_SHADER.title,
-      source: "/static/isf/waveform-2.fs",
-      inputs: [{ NAME: "baseHeight", TYPE: "float", DEFAULT: 4, MIN: 0, MAX: 10 }],
-      audioMap: { baseHeight: { signal: "rms", depth: 0.16 } },
+      source: "/static/isf/simple-wave-lines.fs",
+      inputs: [{ NAME: "intensity", TYPE: "float", DEFAULT: 0.5, MIN: 0, MAX: 1 }],
+      audioMap: { intensity: { signal: "rms", depth: 0.16 } },
     },
   );
 

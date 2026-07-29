@@ -3512,6 +3512,20 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
     });
   };
 
+  const handleTogglePersistentShaderSlot = (slotIndex, enabled) => {
+    if (directorEditingLocked || !activeProject) return;
+    const slots = normalizeEchoPersistentShaderSlots(activeProject);
+    const current = slots[slotIndex];
+    if (!current || current.shader_id === "none") return;
+    const nextSlots = slots.map((slot, index) => index === slotIndex
+      ? { ...slot, enabled: enabled === true }
+      : slot);
+    handleUpdateProjectSettings({
+      persistent_shader_slots_schema: ECHO_PERSISTENT_SHADER_SLOTS_SCHEMA,
+      persistent_shader_slots: nextSlots,
+    });
+  };
+
   const handleContinueFromDirectionCut = () => {
     if (directorEditingLocked || !activeDirectionVariant || !activeProject) return;
     setDirectorHasUnsavedChanges(false);
@@ -6353,15 +6367,23 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                                     <div key={slot.id} style={{ display: 'flex', flexDirection: 'column', gap: '5px', minWidth: 0, padding: '7px', border: slot.enabled ? '1px solid rgba(16,185,129,0.34)' : '1px dashed rgba(148,163,184,0.32)', borderRadius: '4px', background: slot.enabled ? 'rgba(16,185,129,0.06)' : 'rgba(15,23,42,0.48)' }}>
                                       <div style={{ display: 'flex', justifyContent: 'space-between', gap: '5px', alignItems: 'center' }}>
                                         <strong style={{ fontSize: '9px', color: slot.enabled ? '#a7f3d0' : '#cbd5e1', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                          {slotIndex + 1}. {slotIndex === 0 ? 'Ultimate Flame' : slotIndex === 1 ? 'Audio Wave Forms' : 'Open'}
+                                          {slotIndex + 1}. {slotIndex === 0 ? 'Ultimate Flame' : slotIndex === 1 ? 'Simple Wave Lines' : 'Open'}
                                         </strong>
-                                        <span style={{ fontSize: '7px', fontWeight: 'bold', color: slot.enabled ? '#86efac' : '#94a3b8', whiteSpace: 'nowrap' }}>
-                                          {slot.enabled ? 'ALWAYS ON' : 'OPEN'}
-                                        </span>
+                                        <label style={{ display: 'flex', alignItems: 'center', gap: '3px', fontSize: '7px', fontWeight: 'bold', color: slot.enabled ? '#86efac' : '#94a3b8', whiteSpace: 'nowrap', cursor: slot.shader_id === "none" ? 'not-allowed' : 'pointer' }}>
+                                          <input
+                                            type="checkbox"
+                                            aria-label={`Always-on shader slot ${slotIndex + 1} enabled`}
+                                            checked={slot.enabled}
+                                            disabled={slot.shader_id === "none"}
+                                            onChange={(event) => handleTogglePersistentShaderSlot(slotIndex, event.target.checked)}
+                                            style={{ width: '11px', height: '11px', accentColor: '#10b981' }}
+                                          />
+                                          {slot.enabled ? 'ON' : slot.shader_id === "none" ? 'OPEN' : 'OFF'}
+                                        </label>
                                       </div>
                                       <select
                                         aria-label={`Always-on shader slot ${slotIndex + 1}`}
-                                        value={slot.enabled ? slot.shader_id : "none"}
+                                        value={slot.shader_id}
                                         onChange={(event) => {
                                           const shaderId = event.target.value;
                                           handleUpdatePersistentShaderSlot(
@@ -6996,14 +7018,14 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                                   overflow: 'hidden',
                                   zIndex: 2,
                                 }}
-                                title={`${slot.label}: ${slot.enabled ? `${slot.shader_title} · full song · ${slot.stem_focus}` : 'Open slot'}`}
+                                title={`${slot.label}: ${slot.enabled ? `${slot.shader_title} · full song · ${slot.stem_focus}` : slot.shader_id !== "none" ? `${slot.shader_title} · switched off` : 'Open slot'}`}
                               >
                                 <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px', fontSize: '7.5px', fontWeight: 'bold' }}>
-                                  <span>A{slotIndex + 1}: {slot.enabled ? slot.shader_title : 'Open'}</span>
-                                  <span>{slot.enabled ? `${Number(activeProject.duration || 0).toFixed(1)}s · ALWAYS ON` : 'AVAILABLE'}</span>
+                                  <span>A{slotIndex + 1}: {slot.shader_id !== "none" ? slot.shader_title : 'Open'}</span>
+                                  <span>{slot.enabled ? `${Number(activeProject.duration || 0).toFixed(1)}s · ALWAYS ON` : slot.shader_id !== "none" ? 'OFF' : 'AVAILABLE'}</span>
                                 </div>
                                 <div style={{ fontSize: '7px', opacity: 0.76, marginTop: '2px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                  {slotIndex === 1 ? 'Lead Vocals → main mix fallback' : slot.enabled ? 'Main mix tracking' : 'Choose a shader per song'}
+                                  {slotIndex === 1 ? 'Lead Vocals → main mix fallback' : slot.shader_id !== "none" ? 'Main mix tracking' : 'Choose a shader per song'}
                                 </div>
                               </div>
                             ))}

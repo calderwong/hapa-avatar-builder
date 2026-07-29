@@ -2,7 +2,9 @@
 import fs from "node:fs";
 import path from "node:path";
 import {
+  ECHO_AUDIO_WAVE_FORMS_SHADER,
   ECHO_PERSISTENT_SHADER_SLOTS_SCHEMA,
+  ECHO_PREVIOUS_AUDIO_WAVE_FORMS_SHADER,
   normalizeEchoPersistentShaderSlots,
 } from "../src/domain/echo-persistent-shader-slots.js";
 import { generateEchoHyperframeScript } from "../src/domain/echo-hyperframe-script.js";
@@ -25,7 +27,26 @@ for (const name of files) {
   const filePath = path.join(projectsRoot, name);
   const payload = JSON.parse(fs.readFileSync(filePath, "utf8"));
   const project = payload.music_video_project || payload;
-  const persistentShaderSlots = normalizeEchoPersistentShaderSlots(project);
+  let upgradedWaveformDefault = false;
+  const sourceSlots = Array.isArray(project.persistent_shader_slots)
+    ? project.persistent_shader_slots.map((slot) => {
+      if (
+        slot?.id !== "always-on-shader-2"
+        || slot?.shader_id !== ECHO_PREVIOUS_AUDIO_WAVE_FORMS_SHADER.id
+      ) return slot;
+      upgradedWaveformDefault = true;
+      return {
+        ...slot,
+        label: "Always On 2 · Audio Wave Forms · Simple Lines",
+        shader_id: ECHO_AUDIO_WAVE_FORMS_SHADER.id,
+        shader_title: ECHO_AUDIO_WAVE_FORMS_SHADER.title,
+      };
+    })
+    : project.persistent_shader_slots;
+  const persistentShaderSlots = normalizeEchoPersistentShaderSlots({
+    ...project,
+    ...(Array.isArray(sourceSlots) ? { persistent_shader_slots: sourceSlots } : {}),
+  });
   const candidate = {
     ...project,
     persistent_shader_slots_schema: ECHO_PERSISTENT_SHADER_SLOTS_SCHEMA,
@@ -39,6 +60,7 @@ for (const name of files) {
     file: name,
     songId: String(project.song_id || ""),
     changed,
+    upgradedWaveformDefault,
     enabledSlots: persistentShaderSlots.filter((slot) => slot.enabled).length,
     slotIds: persistentShaderSlots.map((slot) => slot.id),
   });
