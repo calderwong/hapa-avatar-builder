@@ -92,6 +92,11 @@ import {
   ECHO_PERSISTENT_SHADER_SLOTS_SCHEMA,
   normalizeEchoPersistentShaderSlots,
 } from "../domain/echo-persistent-shader-slots.js";
+import {
+  attachEchoLyricContract,
+  echoLyricTemplateIdFromLegacyVariant,
+  normalizeEchoLyricContract,
+} from "../domain/echo-lyric-contract.js";
 
 const electronApiBase = globalThis.window?.hapaAvatarBuilder?.apiBase;
 const API_BASE = electronApiBase || (globalThis.location?.port === "5178" ? "http://127.0.0.1:8787" : "");
@@ -1586,12 +1591,13 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
         ? activeStoredProject
         : deriveEchoDirectionVariantProject(activeStoredProject, activeDirectionVariant);
     if (!selectedProject) return null;
-    const normalizedProject = attachEchoOutputProfile(selectedProject);
+    const normalizedProject = attachEchoLyricContract(attachEchoOutputProfile(selectedProject));
     return normalizedProject.hyperframe_script
       ? normalizedProject
       : { ...normalizedProject, hyperframe_script: generateEchoHyperframeScript(normalizedProject), hyperframe_script_stale: false };
   }, [activeDirectionVariant, activeStoredProject, directionWorkingForkActive, workingDirectionFork]);
   const activeOutputProfile = resolveEchoOutputProfile(activeProject);
+  const activeLyricContract = normalizeEchoLyricContract(activeProject);
   const activeShowGraph = useMemo(() => (
     activeProject?.director_show_graph?.tracks ? projectToEditorGraph(activeProject) : null
   ), [activeProject]);
@@ -3978,7 +3984,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
   const buildFreshProjectScript = (project) => generateEchoHyperframeScript(project);
 
   const withFreshHyperframeScript = (project) => {
-    const normalizedProject = attachEchoOutputProfile(project);
+    const normalizedProject = attachEchoLyricContract(attachEchoOutputProfile(project));
     return {
       ...normalizedProject,
       hyperframe_script: buildFreshProjectScript(normalizedProject),
@@ -4852,7 +4858,9 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                     const activeTimelineItem = activeProject.timeline?.[selectedShotIndex] || activeProject.timeline?.[0];
                     const activeVisualizerItem = activeProject.visualizer_timeline?.[selectedVisualizerIndex] || activeProject.visualizer_timeline?.[0];
                     const activePersistentShaderSlots = normalizeEchoPersistentShaderSlots(activeProject);
-                    const currentLine = activeProject.timed_lyrics?.find(l => currentTime >= l.start && currentTime < l.end);
+                    const currentLine = activeLyricContract.enabled
+                      ? activeProject.timed_lyrics?.find(l => currentTime >= l.start && currentTime < l.end)
+                      : null;
                     const pendingPreviewProxyCount = activeProject.timeline?.filter((item) => item.media_contract?.type === "video" && item.media_contract?.proxy?.status !== "ready").length || 0;
                     const isVerticalOutput = activeOutputProfile.id === "vertical";
                     const directorPreviewWidth = isVerticalOutput
@@ -5233,7 +5241,16 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                               value={activeProject.lyric_variant || "phrase-window"}
                               disabled={directorEditingLocked}
                               onChange={(e) => {
-                                handleUpdateProjectSettings({ lyric_variant: e.target.value });
+                                const lyricVariant = e.target.value;
+                                handleUpdateProjectSettings({
+                                  lyric_variant: lyricVariant,
+                                  lyric_template_id: echoLyricTemplateIdFromLegacyVariant(lyricVariant),
+                                  lyrics: {
+                                    ...activeLyricContract,
+                                    legacyVariant: lyricVariant,
+                                    templateId: echoLyricTemplateIdFromLegacyVariant(lyricVariant),
+                                  },
+                                });
                               }}
                               style={{
                                 background: '#090d16',
@@ -5254,11 +5271,50 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                               <option value="orbit-caption">🪐 Orbit Caption</option>
                               <option value="scanline-ribbon">📼 Scanline Ribbon</option>
                             </select>
+                            <label
+                              style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '5px',
+                                border: activeLyricContract.enabled ? '1px solid rgba(34,211,238,0.45)' : '1px solid rgba(148,163,184,0.3)',
+                                background: activeLyricContract.enabled ? 'rgba(6,182,212,0.12)' : 'rgba(15,23,42,0.7)',
+                                color: activeLyricContract.enabled ? '#a5f3fc' : '#94a3b8',
+                                padding: '4px 8px',
+                                borderRadius: '4px',
+                                fontSize: '9px',
+                                fontWeight: 'bold',
+                                cursor: directorEditingLocked ? 'not-allowed' : 'pointer',
+                                whiteSpace: 'nowrap',
+                              }}
+                            >
+                              <input
+                                type="checkbox"
+                                aria-label="Lyrics enabled"
+                                data-testid="echo-lyrics-enabled"
+                                checked={activeLyricContract.enabled}
+                                disabled={directorEditingLocked}
+                                onChange={(event) => {
+                                  const enabled = event.target.checked;
+                                  handleUpdateProjectSettings({
+                                    lyrics_enabled: enabled,
+                                    lyrics: { ...activeLyricContract, enabled },
+                                  });
+                                }}
+                                style={{ width: '12px', height: '12px', accentColor: '#06b6d4' }}
+                              />
+                              LYRICS {activeLyricContract.enabled ? 'ON' : 'OFF'}
+                            </label>
                             <select
                               aria-label="Lyric position"
                               value={activeProject.lyric_position || "bottom-center"}
                               disabled={directorEditingLocked}
-                              onChange={(event) => handleUpdateProjectSettings({ lyric_position: event.target.value })}
+                              onChange={(event) => {
+                                const position = event.target.value;
+                                handleUpdateProjectSettings({
+                                  lyric_position: position,
+                                  lyrics: { ...activeLyricContract, position },
+                                });
+                              }}
                               style={{
                                 background: '#090d16',
                                 border: '1px solid rgba(255,255,255,0.15)',
@@ -5280,7 +5336,13 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                               aria-label="Lyric style"
                               value={activeProject.lyric_style || "neon-cyan"}
                               disabled={directorEditingLocked}
-                              onChange={(event) => handleUpdateProjectSettings({ lyric_style: event.target.value })}
+                              onChange={(event) => {
+                                const style = event.target.value;
+                                handleUpdateProjectSettings({
+                                  lyric_style: style,
+                                  lyrics: { ...activeLyricContract, style },
+                                });
+                              }}
                               style={{
                                 background: '#090d16',
                                 border: '1px solid rgba(255,255,255,0.15)',
@@ -5380,7 +5442,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                                 DENSITY: <strong style={{ color: 'var(--hapa-neon-violet)' }}>{totalDensity}</strong>/s
                               </span>
                               <span>
-                                LYRIC STYLE: <strong style={{ color: 'var(--hapa-neon-magenta)' }}>{(activeProject.lyric_variant || 'phrase-window').toUpperCase()}</strong>
+                                LYRICS: <strong style={{ color: activeLyricContract.enabled ? 'var(--hapa-neon-magenta)' : '#94a3b8' }}>{activeLyricContract.enabled ? (activeProject.lyric_variant || 'phrase-window').toUpperCase() : 'OFF'}</strong>
                               </span>
                               <span>
                                 POSITION: <strong style={{ color: 'var(--hapa-neon-cyan)' }}>{(activeProject.lyric_position || 'bottom-center').toUpperCase()}</strong>

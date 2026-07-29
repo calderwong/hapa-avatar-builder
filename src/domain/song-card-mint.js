@@ -189,7 +189,7 @@ export function buildSongCardMintSnapshot({ song = {}, project = {}, showGraph =
     ivf: graphFamilyProjection(graph, "ivf"),
     stems: [graph.stems || null, graph.directorV2?.stemBuses || [], editor.stems_available || editor.stems || []],
     camera: [graph.directorV2?.cameraKeyframes || [], graphCards(graph).map(({ card }) => ({ id: card.id, cameraKeyframes: card.cameraKeyframes, motion: card.parameters?.motion, cameraIntensity: card.parameters?.cameraIntensity }))],
-    lyrics: [graph.song?.lyricOverlay || null, editor.timed_lyrics || editor.lyricTimings || [], editor.lyric_variant, editor.lyric_position, editor.lyric_style],
+    lyrics: [graph.song?.lyricOverlay || null, editor.lyrics || null, editor.lyrics_enabled, editor.lyric_template_id, editor.timed_lyrics || editor.lyricTimings || [], editor.lyric_variant, editor.lyric_position, editor.lyric_style],
     attribution: [song.authorship || song.attribution || null, rights],
     renderer: [render, rendererTruth, graph.directorV2?.rendererSupport || null, outputProfile],
     direction: [graph.directorV2?.visualTimeTrack || null, graph.directorV2?.accentTrack || null, graph.directorV2?.effects || [], graph.directorV2?.modulation || null],

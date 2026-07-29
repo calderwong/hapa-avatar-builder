@@ -135,6 +135,7 @@ app.whenReady().then(async () => {
           .filter((item) => /\\|\\s*(loop|progression|untyped)\\s*\\|/i.test(item.textContent || ""));
         const lyricPosition = document.querySelector('select[aria-label="Lyric position"]');
         const lyricStyle = document.querySelector('select[aria-label="Lyric style"]');
+        const lyricEnabled = document.querySelector('input[aria-label="Lyrics enabled"]');
         const cameraBadge = [...document.querySelectorAll("span")]
           .find((item) => /^CAM\\s/i.test(item.textContent || ""));
         return {
@@ -148,6 +149,8 @@ app.whenReady().then(async () => {
           videoButtonCount: videoButtons.length,
           lyricPosition: rectPayload(lyricPosition),
           lyricStyle: rectPayload(lyricStyle),
+          lyricEnabled: rectPayload(lyricEnabled?.closest("label")),
+          lyricEnabledChecked: lyricEnabled?.checked === true,
           cameraBadge: rectPayload(cameraBadge),
           consoleErrors: ${JSON.stringify(consoleErrors)}
         };
@@ -182,6 +185,8 @@ app.whenReady().then(async () => {
       controlsResult.videoButtonCount >= 4 &&
       controlsResult.lyricPosition?.visible &&
       controlsResult.lyricStyle?.visible &&
+      controlsResult.lyricEnabled?.visible &&
+      controlsResult.lyricEnabledChecked === true &&
       controlsResult.cameraBadge?.visible &&
       controlsResult.consoleErrors.length === 0
     );

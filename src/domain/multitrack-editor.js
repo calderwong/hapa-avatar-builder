@@ -3,6 +3,10 @@ import { contextHash } from "./song-context-packet.js";
 import { resolveEchoOutputProfile } from "./echo-output-profile.js";
 import { isPortableVisualizerAttachment } from "./portable-visualizer-card.js";
 import { normalizeEchoPersistentShaderSlots } from "./echo-persistent-shader-slots.js";
+import {
+  echoLyricOverlayLines,
+  normalizeEchoLyricContract,
+} from "./echo-lyric-contract.js";
 
 export const MULTITRACK_EDITOR_SCHEMA = "hapa.director.multitrack-editor.v1";
 
@@ -173,7 +177,7 @@ function legacyEditorGraph(project = {}) {
   return {
     schemaVersion: "hapa.music-viz.native-show-graph.v2",
     outputProfile,
-    song: { id: project.song_id, title: project.song_title, durationSeconds: duration, lyricOverlay: { lines: project.timed_lyrics || [] } },
+    song: { id: project.song_id, title: project.song_title, durationSeconds: duration, lyricOverlay: { ...normalizeEchoLyricContract(project), lines: echoLyricOverlayLines(project) } },
     stems: { items: (project.stems_available || []).map((title, index) => ({ id: `stem:${index}`, stemType: title, title })) },
     tracks: [
       { id: "media-a", label: "Media A", role: "media", cards: (project.timeline || []).map((shot, index) => ({ id: `legacy:media:${index}`, trackId: "media-a", startSeconds: Number(shot.start_sec), endSeconds: Number(shot.end_sec), media: projectedShotMedia(shot), parameters: { opacity: 1, blendMode: "normal", motion: shot.camera_motion, stemMap: shot.active_stems || [] }, buffer: { state: shot.media_contract?.proxy?.status === "ready" ? "ready" : "pending", readySeconds: shot.media_contract?.proxy?.status === "ready" ? Number(shot.end_sec) - Number(shot.start_sec) : 0 }, provenance: { rendererRoute: shot.media_contract?.type || "unknown" }, knockedOut: false })) },
@@ -417,7 +421,10 @@ export function projectToEditorGraph(project = {}) {
     durationSeconds: duration,
     lyricOverlay: {
       ...(graph.song?.lyricOverlay || {}),
-      lines: Array.isArray(project.timed_lyrics) ? clone(project.timed_lyrics) : graph.song?.lyricOverlay?.lines || [],
+      ...normalizeEchoLyricContract(project),
+      lines: echoLyricOverlayLines(project).length || normalizeEchoLyricContract(project).enabled === false
+        ? clone(echoLyricOverlayLines(project))
+        : graph.song?.lyricOverlay?.lines || [],
     },
   };
   if (declared) {

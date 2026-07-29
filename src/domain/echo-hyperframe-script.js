@@ -16,6 +16,10 @@ function finite(value, fallback = 0) {
 import { echoProjectAudioRoute } from "./echo-audio-route.js";
 import { resolveEchoOutputProfile } from "./echo-output-profile.js";
 import { normalizeEchoPersistentShaderSlots } from "./echo-persistent-shader-slots.js";
+import {
+  echoLyricOverlayLines,
+  normalizeEchoLyricContract,
+} from "./echo-lyric-contract.js";
 
 /**
  * Generate the portable HyperFrames representation used by Echo previews and
@@ -30,8 +34,9 @@ export function generateEchoHyperframeScript(project = {}) {
   const persistentShaderSlots = Array.isArray(project.persistent_shader_slots)
     ? normalizeEchoPersistentShaderSlots(project)
     : [];
-  const timedLyrics = Array.isArray(project.timed_lyrics) ? project.timed_lyrics : [];
-  const lyricVariant = project.lyric_variant || "phrase-window";
+  const lyricContract = normalizeEchoLyricContract(project);
+  const timedLyrics = echoLyricOverlayLines(project);
+  const lyricVariant = lyricContract.legacyVariant;
   const audioRoute = echoProjectAudioRoute(project);
   const lyricPosition = project.lyric_position || "bottom-center";
   const lyricStyle = project.lyric_style || "neon-cyan";
@@ -85,6 +90,7 @@ export function generateEchoHyperframeScript(project = {}) {
 
   html += `  <!-- Embed Lyric Timings -->\n`;
   html += `  <script>\n`;
+  html += `    window.HAPA_LYRIC_CONTRACT = ${JSON.stringify(lyricContract, null, 2).split("\n").join("\n    ")};\n`;
   html += `    window.HAPA_LYRIC_TIMING = ${JSON.stringify({ lines: timedLyrics }, null, 2).split("\n").join("\n    ")};\n`;
   html += `  </script>\n\n`;
 
@@ -137,16 +143,19 @@ export function generateEchoHyperframeScript(project = {}) {
     html += `       style="width: 100%; height: 100%; position: absolute; top: 0; left: 0; pointer-events: none; z-index: 2;"></div>\n`;
   });
 
-  html += `\n  <!-- Lyric Typography Layer -->\n`;
-  html += `  <div class="hapa-lyric-layer"\n`;
-  html += `       data-composition-id="hapa-lyric-layer"\n`;
-  html += `       data-start="0"\n`;
-  html += `       data-duration="${duration}"\n`;
-  html += `       data-variant="${lyricVariant}"\n`;
-  html += `       data-position="${lyricPosition}"\n`;
-  html += `       data-style="${lyricStyle}"\n`;
-  html += `       data-safe-bottom="${lyricBottom}"\n`;
-  html += `       style="position: absolute; bottom: ${lyricBottom}px; width: 100%; text-align: center; z-index: 10;"></div>\n`;
+  if (lyricContract.enabled) {
+    html += `\n  <!-- Lyric Typography Layer -->\n`;
+    html += `  <div class="hapa-lyric-layer"\n`;
+    html += `       data-composition-id="hapa-lyric-layer"\n`;
+    html += `       data-start="0"\n`;
+    html += `       data-duration="${duration}"\n`;
+    html += `       data-template-id="${lyricContract.templateId}"\n`;
+    html += `       data-variant="${lyricVariant}"\n`;
+    html += `       data-position="${lyricPosition}"\n`;
+    html += `       data-style="${lyricStyle}"\n`;
+    html += `       data-safe-bottom="${lyricBottom}"\n`;
+    html += `       style="position: absolute; bottom: ${lyricBottom}px; width: 100%; text-align: center; z-index: 10;"></div>\n`;
+  }
   html += `</div>\n`;
   return html;
 }

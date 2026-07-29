@@ -13,6 +13,7 @@ import {
 } from "../domain/echo-player-pool.js";
 import { normalizePlaybackPowerMode, playbackPowerPolicy } from "../domain/playback-power-mode.js";
 import { createEchoPlaybackEngine } from "../domain/echo-playback-engine.js";
+import { normalizeEchoLyricContract } from "../domain/echo-lyric-contract.js";
 import {
   createEchoIsfPlaybackPool,
   visualizerCardAtTime,
@@ -21785,6 +21786,7 @@ function drawEchoDirectorShaderOverlay(ctx, source = {}, project = null, bands =
 }
 
 function drawEchoDirectorLyricOverlay(ctx, source = {}, project = null, songSnapshot = {}, width = ECHO_DIRECTOR_OVERLAY_WIDTH, height = ECHO_DIRECTOR_OVERLAY_HEIGHT) {
+  if (project && !normalizeEchoLyricContract(project).enabled) return;
   const line = echoDirectorLyricLineForClock(project, songSnapshot, Number(source.echoProjectClock ?? songSnapshot.currentTime ?? 0));
   if (!line?.text) return;
   const theme = echoDirectorLyricTheme(project?.lyric_style || source.echoLyricStyle || "neon-cyan");

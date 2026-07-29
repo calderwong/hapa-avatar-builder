@@ -14,6 +14,10 @@ import {
   normalizeEchoPersistentShaderSlots,
 } from "./echo-persistent-shader-slots.js";
 import {
+  echoLyricOverlayLines,
+  normalizeEchoLyricContract,
+} from "./echo-lyric-contract.js";
+import {
   compactEchoStemBindingDecision,
   declaredEchoStemRolesForWindow,
   directorStemRole,
@@ -1317,8 +1321,11 @@ export function compileDirectorVariant({ treatment, cueGraph, recipe = "conserva
       durationSeconds: cueGraph.durationSeconds,
       audioPath: String(source.audio_path || source.audio_uri || ""),
       lyricOverlay: {
-        lineCount: cueGraph.lyricCues.length,
-        lines: cueGraph.lyricCues.map((cue) => ({ start: cue.startSeconds, end: cue.endSeconds, text: cue.text })),
+        ...normalizeEchoLyricContract(source),
+        lineCount: echoLyricOverlayLines(source).length,
+        lines: normalizeEchoLyricContract(source).enabled
+          ? cueGraph.lyricCues.map((cue) => ({ start: cue.startSeconds, end: cue.endSeconds, text: cue.text, words: cue.words }))
+          : [],
         confidence: cueGraph.lyricCues.length ? round(cueGraph.lyricCues.reduce((sum, cue) => sum + cue.confidence, 0) / cueGraph.lyricCues.length) : 0,
         source: cueGraph.timingTruth.lyricStatus,
       },

@@ -74,6 +74,32 @@ its source interval.
 - Prioritize recent songs, then drain the remaining album by worst measured
   confidence/drift.
 
+## 157-Project Baseline
+
+The read-only v4 audit replaced the older completion assumption with current
+evidence:
+
+- 157 live Director projects; 78 are absent from the preserved 79-project
+  baseline and therefore form the recent-song cohort.
+- 143 projects have timed lyrics, but all 143 currently cite synthetic weighted
+  timing rather than source-linked audible alignment.
+- 14 projects have neither active timings nor canonical lyric text in the local
+  store.
+- 52 projects include metadata/stage-direction rows in the active overlay.
+- One project has a measured canonical-text mismatch.
+- Zero projects meet the new verified source-linked timing standard yet.
+- Every project has local audio for repair: 82 have an isolated lead-vocal stem
+  and 75 have a verified master-mix fallback.
+
+Evidence:
+
+- `artifacts/echo-lyric-quality-v4/baseline.json`
+- `artifacts/echo-lyric-quality-v4/baseline.md`
+- `tests/echo-lyric-quality.test.mjs`
+
+This baseline is intentionally stricter than structural JSON validation.
+Synthetic timing can be monotonic and still be visibly or audibly wrong.
+
 ## Preview-To-Mint Rule
 
 Preview, HyperFrames export, and Song Card mint must evaluate one lyric overlay
