@@ -78,13 +78,19 @@ app.whenReady().then(async () => {
         };
         const shaderSearch = [...document.querySelectorAll("input")]
           .find((item) => /search shader/i.test(item.placeholder || ""));
-        const shaderList = shaderSearch?.nextElementSibling || null;
-        const shaderButtons = shaderList ? [...shaderList.querySelectorAll("button")] : [];
+        const shaderButtons = [...document.querySelectorAll("button[data-echo-shader-final-render-ready]")];
+        const shaderList = shaderButtons[0]?.parentElement || null;
+        const persistentShaderSlots = document.querySelector('[data-testid="echo-persistent-shader-slots"]');
+        const persistentShaderSelects = persistentShaderSlots
+          ? [...persistentShaderSlots.querySelectorAll('select[aria-label^="Always-on shader slot"]')]
+          : [];
         return {
           shaderSearch: rectPayload(shaderSearch),
           shaderList: rectPayload(shaderList),
           shaderButtonCount: shaderButtons.length,
-          shaderListOverflowY: shaderList ? getComputedStyle(shaderList).overflowY : ""
+          shaderListOverflowY: shaderList ? getComputedStyle(shaderList).overflowY : "",
+          persistentShaderSlots: rectPayload(persistentShaderSlots),
+          persistentShaderSelectCount: persistentShaderSelects.length
         };
       })()
     `);
@@ -148,6 +154,8 @@ app.whenReady().then(async () => {
       shaderResult.shaderList?.visible &&
       shaderResult.shaderButtonCount >= 2 &&
       ["auto", "scroll"].includes(shaderResult.shaderListOverflowY) &&
+      shaderResult.persistentShaderSlots?.visible &&
+      shaderResult.persistentShaderSelectCount === 3 &&
       controlsResult.cameraSelect?.visible &&
       controlsResult.cameraOptions.includes("pan-up") &&
       controlsResult.cameraOptions.includes("pan-down") &&

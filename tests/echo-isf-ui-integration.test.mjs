@@ -13,34 +13,35 @@ function between(source, start, end) {
   return source.slice(startIndex, endIndex);
 }
 
-test("Echo resolves graph-backed Track B cards through a bounded lookahead playback pool", () => {
+test("Echo resolves graph-backed shader layers through a bounded lookahead playback pool", () => {
   assert.match(echoSource, /from "\.\.\/domain\/echo-isf-browser-runtime\.js"/);
   assert.match(echoSource, /createEchoIsfPlaybackPool/);
   assert.match(echoSource, /visualizerLookaheadCards/);
   assert.match(echoSource, /activeProject\?\.director_show_graph/);
-  assert.match(echoSource, /visualizerLookaheadCards\(directorShowGraph, t, 3\)/);
+  assert.match(echoSource, /visualizerLookaheadCards\(directorShowGraph, t, 6\)/);
   assert.match(echoSource, /visualization\?\.sourceId/);
   assert.match(echoSource, /width: canvas\.width/);
   assert.match(echoSource, /height: canvas\.height/);
-  assert.match(echoSource, /const audioEnvelope = echoVisualizerAudioEnvelope\(selectedSignalFrame \|\| masterSignalFrame\)/);
-  assert.match(echoSource, /ctx\.drawImage\(presentationCanvas, -width \/ 2, -height \/ 2, width, height\)/);
+  assert.match(echoSource, /const audioEnvelope = echoVisualizerAudioEnvelope\(layerSignalFrame \|\| masterSignalFrame\)/);
+  assert.match(echoSource, /ctx\.drawImage\(presentation\.canvas, -width \/ 2, -height \/ 2, width, height\)/);
   assert.match(echoSource, /exactIsfPlaybackPoolRef\.current\?\.dispose\?\.\(\)/);
   assert.match(echoSource, /data-echo-exact-isf-status/);
   assert.match(echoSource, /EXACT ISF HOLD/);
 
   const exactBranch = between(echoSource, "if (hasDirectorShowGraph) {", "} else {\n      const legacyRenderer = legacyEchoRendererTruth");
-  assert.match(exactBranch, /pool\.present\(graphVisualizerCard/);
+  assert.match(exactBranch, /pool\.present\(card/);
+  assert.match(exactBranch, /const layeredCards = graphActiveVisualizerCards/);
   assert.doesNotMatch(exactBranch, /getRenderer\(|spectrum-nebula|visualizerTitle/);
 });
 
 test("Echo prewarms lookahead and invalidates only graph identity changes", () => {
   const poolPath = between(echoSource, "const createExactPlaybackPool", "const bandAvg");
-  assert.match(poolPath, /maxSurfaces: 3/);
+  assert.match(poolPath, /maxSurfaces: 6/);
   assert.match(poolPath, /previousIdentity\.variantKey !== nextIdentity\.variantKey/);
   assert.match(poolPath, /previousIdentity\.dirtyKey !== nextIdentity\.dirtyKey/);
   assert.match(echoSource, /pool\.prewarm\(/);
-  assert.match(echoSource, /graphVisualizerCards\.slice\(1\)/);
-  assert.match(echoSource, /presentation\.canvas \|\| exactIsfLastPresentedCanvasRef\.current/);
+  assert.match(echoSource, /graphVisualizerCards\.filter\(\(card\) => !activeCardIds\.has\(card\.id\)\)/);
+  assert.match(echoSource, /layerPresentations\.filter/);
   assert.match(echoSource, /heldPreviousFrame/);
   assert.match(echoSource, /preservePixels: true/);
   assert.match(echoSource, /data-echo-isf-handoff/);

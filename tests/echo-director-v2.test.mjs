@@ -14,6 +14,11 @@ import {
   stableStringify,
 } from "../src/domain/echo-director-v2.js";
 import { validateEchoCompiledShowGraph } from "../src/domain/echo-compiled-show-graph.js";
+import {
+  ECHO_AUDIO_WAVE_FORMS_SHADER,
+  ECHO_ULTIMATE_FLAME_SHADER,
+  withEchoPersistentShaderSlots,
+} from "../src/domain/echo-persistent-shader-slots.js";
 
 function fixture() {
   const project = {
@@ -133,6 +138,50 @@ test("same treatment, recipe, and seed compile byte-identically", () => {
   assert.deepEqual(one.showGraph.tracks.map((track) => track.id), ["track-a", "track-b", "track-c"]);
 });
 
+test("declared always-on shader slots compile as three additional full-song tracks", () => {
+  const inputs = fixture();
+  inputs.project.music_video_project = withEchoPersistentShaderSlots(inputs.project.music_video_project);
+  inputs.manifest.shaders.push(
+    {
+      id: ECHO_ULTIMATE_FLAME_SHADER.id,
+      title: ECHO_ULTIMATE_FLAME_SHADER.title,
+      source: "/static/isf/ultimateflame.fs",
+      inputs: [{ NAME: "intensity", TYPE: "float", DEFAULT: 0.15, MIN: 0, MAX: 1 }],
+      audioMap: { intensity: { signal: "rms", depth: 0.2 } },
+    },
+    {
+      id: ECHO_AUDIO_WAVE_FORMS_SHADER.id,
+      title: ECHO_AUDIO_WAVE_FORMS_SHADER.title,
+      source: "/static/isf/waveform-2.fs",
+      inputs: [{ NAME: "baseHeight", TYPE: "float", DEFAULT: 4, MIN: 0, MAX: 10 }],
+      audioMap: { baseHeight: { signal: "rms", depth: 0.16 } },
+    },
+  );
+
+  const result = buildDirectorV2Artifacts({ ...inputs, duration: 24, recipe: "conservative", seed: "persistent-slots" });
+  assert.deepEqual(result.showGraph.tracks.map((track) => track.id), [
+    "track-a",
+    "track-b",
+    "track-shader-always-on-1",
+    "track-shader-always-on-2",
+    "track-shader-always-on-3",
+    "track-c",
+  ]);
+  const [flame, waveform, open] = result.showGraph.tracks.slice(2, 5);
+  assert.deepEqual(flame.cards.map((card) => [card.startSeconds, card.endSeconds, card.visualization.sourceId]), [
+    [0, 24, ECHO_ULTIMATE_FLAME_SHADER.id],
+  ]);
+  assert.equal(flame.cards[0].visualization.stemBinding.requestedRole, "master");
+  assert.deepEqual(waveform.cards.map((card) => [card.startSeconds, card.endSeconds, card.visualization.sourceId]), [
+    [0, 24, ECHO_AUDIO_WAVE_FORMS_SHADER.id],
+  ]);
+  assert.equal(waveform.cards[0].visualization.stemBinding.requestedRole, "leadVocals");
+  assert.equal(open.enabled, false);
+  assert.deepEqual(open.cards, []);
+  assert.equal(result.showGraph.directorV2.visualizerLayerPolicy.maxConcurrentLayers, 4);
+  assert.equal(result.showGraph.directorV2.visualizerLayerPolicy.enabledPersistentSlotCount, 2);
+});
+
 test("fresh compilation binds sourceProjectHash to the raw persisted project", () => {
   const inputs = fixture();
   const rawProject = structuredClone(inputs.project);
@@ -208,7 +257,7 @@ test("recipe variants reuse treatment decisions and preserve hydrated visualizer
   assert.equal(contentHash(conservative.treatment), contentHash(kinetic.treatment));
   assert.ok(conservative.treatment.visualizers.every((visualizer) => visualizer.inputs.length > 0));
   assert.ok(conservative.treatment.visualizers.every((visualizer) => Object.keys(visualizer.audioMap).length > 0));
-  assert.deepEqual(Object.keys(conservative.treatment.inputHashes).sort(), ["canon", "lyrics", "mediaAffordances", "promptAgent", "song", "stemActivity", "stems", "telemetry", "visualizerCatalog"]);
+  assert.deepEqual(Object.keys(conservative.treatment.inputHashes).sort(), ["canon", "lyrics", "mediaAffordances", "persistentShaderSlots", "promptAgent", "song", "stemActivity", "stems", "telemetry", "visualizerCatalog"]);
   assert.ok(conservative.showGraph.directorV2.modulationBindings.some((binding) => binding.target.kind === "visualizer_uniform"));
   assert.ok(kinetic.showGraph.tracks[2].cards.length >= conservative.showGraph.tracks[2].cards.length);
   assert.equal(conservative.receipt.basePlanId, conservative.treatment.treatmentId);

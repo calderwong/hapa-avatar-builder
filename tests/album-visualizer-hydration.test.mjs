@@ -47,8 +47,8 @@ test("album Director v2 hydration covers every Echo project with executable visu
   assert.equal(report.titleFallbackCount, 0);
   assert.ok(report.sourceCueOverrideCount >= 0);
   assert.ok(report.sourceClippedDuration > 0);
-  assert.equal(report.compiledDuration, report.sourceClippedDuration);
-  assert.equal(report.maxConcurrentLayers, 1);
+  assert.ok(Math.abs(report.compiledDuration - report.sourceClippedDuration) < 0.001);
+  assert.equal(report.maxConcurrentLayers, 3);
   assert.equal(report.pureIVFSlots, report.knockedOutMediaCards);
   assert.equal(report.nativeShaderRoutes.schemaVersion, "hapa.echo.album-native-shader-route-report.v1");
   assert.equal(report.nativeShaderRoutes.ok, true);

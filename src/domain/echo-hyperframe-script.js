@@ -15,6 +15,7 @@ function finite(value, fallback = 0) {
 
 import { echoProjectAudioRoute } from "./echo-audio-route.js";
 import { resolveEchoOutputProfile } from "./echo-output-profile.js";
+import { normalizeEchoPersistentShaderSlots } from "./echo-persistent-shader-slots.js";
 
 /**
  * Generate the portable HyperFrames representation used by Echo previews and
@@ -26,6 +27,9 @@ export function generateEchoHyperframeScript(project = {}) {
   const duration = finite(project.duration, 0);
   const timeline = Array.isArray(project.timeline) ? project.timeline : [];
   const visualizerTimeline = Array.isArray(project.visualizer_timeline) ? project.visualizer_timeline : [];
+  const persistentShaderSlots = Array.isArray(project.persistent_shader_slots)
+    ? normalizeEchoPersistentShaderSlots(project)
+    : [];
   const timedLyrics = Array.isArray(project.timed_lyrics) ? project.timed_lyrics : [];
   const lyricVariant = project.lyric_variant || "phrase-window";
   const audioRoute = echoProjectAudioRoute(project);
@@ -53,6 +57,26 @@ export function generateEchoHyperframeScript(project = {}) {
   html += `  <script>\n`;
   html += `    window.HAPA_OUTPUT_PROFILE = ${JSON.stringify(outputProfile, null, 2).split("\n").join("\n    ")};\n`;
   html += `  </script>\n\n`;
+
+  html += `  <!-- Persistent full-song shader slots -->\n`;
+  html += `  <script>\n`;
+  html += `    window.HAPA_PERSISTENT_SHADER_SLOTS = ${JSON.stringify(persistentShaderSlots, null, 2).split("\n").join("\n    ")};\n`;
+  html += `  </script>\n`;
+  persistentShaderSlots.filter((slot) => slot.enabled).forEach((slot, idx) => {
+    html += `  <div id="${slot.id}"\n`;
+    html += `       data-composition-id="hapa-persistent-visualizer"\n`;
+    html += `       data-track-id="${slot.track_id}"\n`;
+    html += `       data-always-on="true"\n`;
+    html += `       data-start="0"\n`;
+    html += `       data-duration="${duration}"\n`;
+    html += `       data-shader-id="${slot.shader_id}"\n`;
+    html += `       data-stem-focus="${slot.stem_focus}"\n`;
+    html += `       data-stem-fallback="${slot.stem_fallback}"\n`;
+    html += `       data-opacity="${slot.opacity}"\n`;
+    html += `       data-blend-mode="${slot.blend_mode}"\n`;
+    html += `       style="width: 100%; height: 100%; position: absolute; inset: 0; pointer-events: none; z-index: ${3 + idx};"></div>\n`;
+  });
+  html += `\n`;
 
   html += `  <!-- Canonical Audio Track -->\n`;
   html += `  <audio src="${audioRoute.uri || ""}"\n`;

@@ -24,6 +24,7 @@ import { createEchoPlaybackEngine } from "../domain/echo-playback-engine.js";
 import {
   createEchoIsfSurface,
   createEchoIsfPlaybackPool,
+  visualizerCardsAtTime,
   visualizerLookaheadCards,
 } from "../domain/echo-isf-browser-runtime.js";
 import { echoIsfRequiredStemFocuses } from "../domain/echo-isf-frame-intent.js";
@@ -87,6 +88,10 @@ import {
   filterEchoDirectorProjectRows,
   inspectEchoDirectorProjectDetail,
 } from "../domain/echo-album-navigation.js";
+import {
+  ECHO_PERSISTENT_SHADER_SLOTS_SCHEMA,
+  normalizeEchoPersistentShaderSlots,
+} from "../domain/echo-persistent-shader-slots.js";
 
 const electronApiBase = globalThis.window?.hapaAvatarBuilder?.apiBase;
 const API_BASE = electronApiBase || (globalThis.location?.port === "5178" ? "http://127.0.0.1:8787" : "");
@@ -2196,7 +2201,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
           width: canvas.width,
           height: canvas.height,
           apiBase: API_BASE,
-          maxSurfaces: 3,
+          maxSurfaces: 6,
         });
       } catch (error) {
         publishExactStatus({ status: "error", sourceId: "", error: String(error?.message || error) });
@@ -2353,14 +2358,15 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
 
       const directorShowGraph = activeShowGraph;
       const hasDirectorShowGraph = Boolean(directorShowGraph?.tracks);
-      const graphVisualizerCards = hasDirectorShowGraph ? visualizerLookaheadCards(directorShowGraph, t, 3) : [];
-      const graphVisualizerCard = graphVisualizerCards[0] || null;
+      const graphActiveVisualizerCards = hasDirectorShowGraph ? visualizerCardsAtTime(directorShowGraph, t) : [];
+      const graphVisualizerCards = hasDirectorShowGraph ? visualizerLookaheadCards(directorShowGraph, t, 6) : [];
+      const graphVisualizerCard = graphActiveVisualizerCards[0] || graphVisualizerCards[0] || null;
 
       if (hasDirectorShowGraph) {
         const pool = ensureExactPlaybackPool(canvas, directorShowGraph);
         if (!graphVisualizerCard) {
           pauseEchoStemDecoderPool(stemDecoderPoolRef.current);
-          const missing = { status: "error", sourceId: "", error: "No executable Track B card at this graph time" };
+          const missing = { status: "error", sourceId: "", error: "No executable shader card at this graph time" };
           publishExactStatus(missing);
           const heldCanvas = exactIsfLastPresentedCanvasRef.current;
           if (heldCanvas) {
@@ -2387,15 +2393,28 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
               selectedSignalFrame = masterSignalFrame;
             }
             const defaultStemRole = String(graphVisualizerCard?.visualization?.card?.stemFocus || graphVisualizerCard?.visualization?.stemFocus || "master");
-            const currentStemRoles = echoIsfRequiredStemFocuses(graphVisualizerCard).slice(0, ECHO_STEM_DECODER_POOL_LIMIT);
-            const currentBindings = currentStemRoles.map((role) => ({
-              role,
-              resource: normalizedStemFocus(role) === "master" ? null : ensureActiveStemBinding(directorShowGraph, graphVisualizerCard, role),
-            }));
+            const activeCardsForStemBinding = graphActiveVisualizerCards.length ? graphActiveVisualizerCards : [graphVisualizerCard];
+            const currentStemRoles = [...new Set(activeCardsForStemBinding
+              .flatMap((card) => echoIsfRequiredStemFocuses(card))
+              .map((role) => String(role || ""))
+              .filter(Boolean))]
+              .slice(0, ECHO_STEM_DECODER_POOL_LIMIT);
+            const currentBindings = currentStemRoles.map((role) => {
+              const card = activeCardsForStemBinding.find((candidate) => (
+                echoIsfRequiredStemFocuses(candidate).some((candidateRole) => (
+                  normalizedStemFocus(candidateRole) === normalizedStemFocus(role)
+                ))
+              )) || graphVisualizerCard;
+              return {
+                role,
+                card,
+                resource: normalizedStemFocus(role) === "master" ? null : ensureActiveStemBinding(directorShowGraph, card, role),
+              };
+            });
             const currentResourceKeys = new Set(currentBindings.map((binding) => binding.resource?.key).filter((key) => key && !key.startsWith("master:")));
             const protectedResourceKeys = new Set(currentResourceKeys);
             let lookaheadSlots = Math.max(0, ECHO_STEM_DECODER_POOL_LIMIT - currentResourceKeys.size);
-            for (const lookaheadCard of graphVisualizerCards.slice(1, 3)) {
+            for (const lookaheadCard of graphVisualizerCards.filter((card) => !graphActiveVisualizerCards.some((active) => active.id === card.id)).slice(0, 3)) {
               if (lookaheadSlots <= 0) break;
               for (const role of echoIsfRequiredStemFocuses(lookaheadCard)) {
                 if (lookaheadSlots <= 0) break;
@@ -2491,7 +2510,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                 }, resource.signalTracker);
                 sampledFramesByResource.set(resource.key, stemFrame);
               }
-              const allowSilent = echoStemRoleAllowsSilence(graphVisualizerCard, binding.role);
+              const allowSilent = echoStemRoleAllowsSilence(binding.card || graphVisualizerCard, binding.role);
               const transport = echoStemTransportHealth(resource, shouldPlayStem, {
                 targetTimeSeconds: targetTime,
                 stemFrame,
@@ -2517,46 +2536,80 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
               presentedMediaRef.current
             );
             if (currentPresentedMedia?.recoveredFrom) presentedMediaRef.current = currentPresentedMedia;
-            const compositionInput = visualizerCompositionInput(graphVisualizerCard, t);
-            const presentation = pool.present(graphVisualizerCard, {
-              time: t,
-              fft: fftList,
-              wave: waveList,
-              audio: selectedSignalFrame,
-              signalFrames,
-              mediaElement: currentPresentedMedia?.element || null,
-              mediaIdentity: currentPresentedMedia ? {
-                id: currentPresentedMedia.mediaId,
-                uri: currentPresentedMedia.uri,
-                sourceHash: currentTimelineItem?.media_contract?.sourceHash || currentTimelineItem?.media_sha256 || ""
-              } : null,
-              composition: compositionInput,
-              cacheKey: echoIsfGraphRuntimeIdentity(directorShowGraph).variantKey,
-              width,
-              height,
-            }) || {};
             const graphIdentity = echoIsfGraphRuntimeIdentity(directorShowGraph);
-            const prewarmCards = graphVisualizerCards.slice(1);
+            const layeredCards = graphActiveVisualizerCards.length ? graphActiveVisualizerCards : [graphVisualizerCard];
+            const layerPresentations = layeredCards.map((card) => {
+              const stemRole = String(card?.visualization?.card?.stemFocus || card?.visualization?.stemFocus || "master");
+              const layerSignalFrame = signalFrames[stemRole]
+                || signalFrames[normalizedStemFocus(stemRole)]
+                || signalFrames.master
+                || selectedSignalFrame;
+              const compositionInput = visualizerCompositionInput(card, t);
+              const presentation = pool.present(card, {
+                time: t,
+                fft: fftList,
+                wave: waveList,
+                audio: layerSignalFrame,
+                signalFrames,
+                mediaElement: currentPresentedMedia?.element || null,
+                mediaIdentity: currentPresentedMedia ? {
+                  id: currentPresentedMedia.mediaId,
+                  uri: currentPresentedMedia.uri,
+                  sourceHash: currentTimelineItem?.media_contract?.sourceHash || currentTimelineItem?.media_sha256 || ""
+                } : null,
+                composition: compositionInput,
+                cacheKey: graphIdentity.variantKey,
+                width,
+                height,
+              }) || {};
+              const requestedShaderId = String(presentation.requestedShaderId || presentation.shaderId || exactVisualizerSourceId(card));
+              const presentedShaderId = String(presentation.presentedShaderId || "");
+              const heldPreviousFrame = presentation.heldPreviousFrame === true || presentation.heldPrevious === true;
+              const namedStatus = String(presentation.handoff || presentation.status || "loading");
+              const audioEnvelope = echoVisualizerAudioEnvelope(layerSignalFrame || masterSignalFrame);
+              const composition = { ...(presentation.composition || compositionInput), audioEnvelope };
+              return {
+                card,
+                presentation,
+                requestedShaderId,
+                presentedShaderId,
+                heldPreviousFrame,
+                namedStatus,
+                audioEnvelope,
+                composition,
+                rendererTruth: exactEchoRendererTruth(card, {
+                  ...presentation,
+                  status: presentation.status || namedStatus,
+                  requestedShaderId,
+                  presentedShaderId,
+                  heldPreviousFrame,
+                }, "echo-avatar-builder"),
+              };
+            });
+            const activeCardIds = new Set(layeredCards.map((card) => card.id));
+            const prewarmCards = graphVisualizerCards.filter((card) => !activeCardIds.has(card.id));
             const prewarmSignature = `${graphIdentity.variantKey}:${prewarmCards.map((card) => `${exactVisualizerSourceId(card)}:${card?.visualization?.card?.source?.hash || ""}`).join("|")}`;
             if (prewarmSignature !== exactIsfPrewarmSignatureRef.current) {
               exactIsfPrewarmSignatureRef.current = prewarmSignature;
               const prewarmResult = pool.prewarm({ cards: prewarmCards, cacheKey: graphIdentity.variantKey });
               if (prewarmResult && typeof prewarmResult.catch === "function") prewarmResult.catch(() => {});
             }
-            const requestedShaderId = String(presentation.requestedShaderId || presentation.shaderId || exactVisualizerSourceId(graphVisualizerCard));
-            const presentedShaderId = String(presentation.presentedShaderId || "");
-            const heldPreviousFrame = presentation.heldPreviousFrame === true || presentation.heldPrevious === true;
-            const namedStatus = String(presentation.handoff || presentation.status || "loading");
-            const audioEnvelope = echoVisualizerAudioEnvelope(selectedSignalFrame || masterSignalFrame);
-            const composition = { ...(presentation.composition || compositionInput), audioEnvelope };
-            const rendererTruth = exactEchoRendererTruth(graphVisualizerCard, {
-              ...presentation,
-              status: presentation.status || namedStatus,
-              requestedShaderId,
-              presentedShaderId,
-              heldPreviousFrame,
-            }, "echo-avatar-builder");
-            const poolDiagnostics = compactEchoIsfPlaybackDiagnostics(pool.getDiagnostics?.() || pool.getState?.() || {}, presentation, graphVisualizerCards);
+            const primaryLayer = layerPresentations[0];
+            const readyLayers = layerPresentations.filter(({ presentation, requestedShaderId, presentedShaderId }) => (
+              presentation.canvas
+              && presentation.status === "ready"
+              && presentedShaderId === requestedShaderId
+            ));
+            const namedStatus = readyLayers.length === layerPresentations.length
+              ? "ready"
+              : readyLayers.length
+                ? "partial"
+                : primaryLayer?.namedStatus || "loading";
+            const poolDiagnostics = compactEchoIsfPlaybackDiagnostics(
+              pool.getDiagnostics?.() || pool.getState?.() || {},
+              primaryLayer?.presentation || {},
+              graphVisualizerCards,
+            );
             const frameBucket = Math.floor(t * 4);
             if (exactIsfBindingDiagnosticsRef.current.frameBucket !== frameBucket) {
               exactIsfBindingDiagnosticsRef.current.frameBucket = frameBucket;
@@ -2564,44 +2617,59 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
               publishExactBindingDiagnostics({
                 media: currentPresentedMedia ? { status: "presented", kind: currentPresentedMedia.kind, mediaId: currentPresentedMedia.mediaId, sourceKey: currentPresentedMedia.sourceKey } : { status: "unavailable", kind: shotMediaType(currentTimelineItem), mediaId: expectedMediaId, sourceKey: "", reason: "no-current-presented-media" },
                 stem: compactStemSignalBinding(stemResource, stemTransport),
-                frameReceipt: compactFrameReceipt(presentation.frameReceipt),
-                composition,
+                frameReceipt: compactFrameReceipt(primaryLayer?.presentation?.frameReceipt),
+                composition: primaryLayer?.composition || null,
+                persistentShaderLayers: layerPresentations.map((layer) => ({
+                  cardId: layer.card.id,
+                  persistentSlotId: layer.card.persistentSlotId || null,
+                  requestedShaderId: layer.requestedShaderId,
+                  presentedShaderId: layer.presentedShaderId,
+                  status: layer.namedStatus,
+                })),
                 playbackPool: poolDiagnostics,
-                rendererTruth: rendererTruth?.truth || null,
-                rendererTruthReceipt: rendererTruth?.receipt || null,
+                rendererTruth: primaryLayer?.rendererTruth?.truth || null,
+                rendererTruthReceipt: primaryLayer?.rendererTruth?.receipt || null,
               });
             }
             publishExactStatus({
               status: namedStatus,
-              sourceId: requestedShaderId,
-              requestedShaderId,
-              presentedShaderId,
-              error: String(presentation.error?.message || presentation.error || ""),
+              sourceId: primaryLayer?.requestedShaderId || "",
+              requestedShaderId: layerPresentations.map((layer) => layer.requestedShaderId).join(","),
+              presentedShaderId: readyLayers.map((layer) => layer.presentedShaderId).join(","),
+              error: layerPresentations
+                .filter((layer) => layer.presentation?.error)
+                .map((layer) => String(layer.presentation.error?.message || layer.presentation.error || ""))
+                .join("; "),
             });
-            const presentationCanvas = presentation.canvas || exactIsfLastPresentedCanvasRef.current;
-            if (presentation.canvas) exactIsfLastPresentedCanvasRef.current = presentation.canvas;
-            if (presentationCanvas) {
-              ctx.save();
-              ctx.globalAlpha = Math.max(0, Math.min(1, Number(composition.effectiveAlpha ?? (composition.opacity * composition.mix * composition.transitionAlpha)) || 0));
-              ctx.globalCompositeOperation = composition.canvasComposite || "source-over";
-              ctx.filter = `brightness(${audioEnvelope.brightness.toFixed(3)}) saturate(${audioEnvelope.saturation.toFixed(3)}) contrast(${audioEnvelope.contrast.toFixed(3)})`;
-              ctx.translate(width / 2, height / 2);
-              ctx.scale(audioEnvelope.scale, audioEnvelope.scale);
-              ctx.drawImage(presentationCanvas, -width / 2, -height / 2, width, height);
-              ctx.restore();
-              if (!presentation.canvas || heldPreviousFrame || presentation.status !== "ready") {
+            if (readyLayers.length) {
+              exactIsfLastPresentedCanvasRef.current = readyLayers[0].presentation.canvas;
+              for (const layer of readyLayers) {
+                const { presentation, composition, audioEnvelope } = layer;
+                ctx.save();
+                ctx.globalAlpha = Math.max(0, Math.min(1, Number(composition.effectiveAlpha ?? (composition.opacity * composition.mix * composition.transitionAlpha)) || 0));
+                ctx.globalCompositeOperation = composition.canvasComposite || "source-over";
+                ctx.filter = `brightness(${audioEnvelope.brightness.toFixed(3)}) saturate(${audioEnvelope.saturation.toFixed(3)}) contrast(${audioEnvelope.contrast.toFixed(3)})`;
+                ctx.translate(width / 2, height / 2);
+                ctx.scale(audioEnvelope.scale, audioEnvelope.scale);
+                ctx.drawImage(presentation.canvas, -width / 2, -height / 2, width, height);
+                ctx.restore();
+              }
+              if (readyLayers.length !== layerPresentations.length) {
+                const pending = layerPresentations.filter((layer) => !readyLayers.includes(layer));
                 drawExactIsfDiagnostic(ctx, width, height, {
                   status: namedStatus,
-                  sourceId: `${presentedShaderId || "last-good"} → ${requestedShaderId}`,
-                  error: presentation.error,
+                  sourceId: pending.map((layer) => layer.requestedShaderId).join(", "),
+                  error: pending.map((layer) => layer.presentation?.error).filter(Boolean).join("; "),
                 }, { preservePixels: true });
               }
             } else {
+              const heldCanvas = exactIsfLastPresentedCanvasRef.current;
+              if (heldCanvas) ctx.drawImage(heldCanvas, 0, 0, width, height);
               drawExactIsfDiagnostic(ctx, width, height, {
                 status: namedStatus,
-                sourceId: requestedShaderId,
-                error: presentation.error,
-              });
+                sourceId: layerPresentations.map((layer) => layer.requestedShaderId).join(", "),
+                error: layerPresentations.map((layer) => layer.presentation?.error).filter(Boolean).join("; "),
+              }, { preservePixels: Boolean(heldCanvas) });
             }
           } catch (error) {
             const failed = { status: "error", sourceId: exactVisualizerSourceId(graphVisualizerCard), error: String(error?.message || error) };
@@ -3410,6 +3478,38 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
       });
     });
     setSaveSuccessMessage("");
+  };
+
+  const handleUpdatePersistentShaderSlot = (slotIndex, shader = null) => {
+    if (directorEditingLocked || !activeProject) return;
+    const slots = normalizeEchoPersistentShaderSlots(activeProject);
+    const current = slots[slotIndex];
+    if (!current) return;
+    const selection = shader
+      ? buildEchoShaderSelectionUpdate(shader, {
+        stem_focus: current.stem_focus,
+        layer_role: current.layer_role,
+        blend_mode: current.blend_mode,
+        opacity: current.opacity,
+        transition: "cut",
+        portable_visualizer_card: current.portable_visualizer_card || null,
+      })
+      : buildEchoShaderSelectionUpdate({ id: "none", title: "None" }, current);
+    const nextSlots = slots.map((slot, index) => index === slotIndex ? {
+      ...slot,
+      enabled: selection.visualizer_id !== "none",
+      shader_id: selection.visualizer_id,
+      shader_title: selection.visualizer_title,
+      native_status: selection.native_status,
+      final_render_ready: selection.final_render_ready,
+      final_render_reason: selection.final_render_reason,
+      final_render_truth: selection.final_render_truth,
+      portable_visualizer_card: selection.portable_visualizer_card,
+    } : slot);
+    handleUpdateProjectSettings({
+      persistent_shader_slots_schema: ECHO_PERSISTENT_SHADER_SLOTS_SCHEMA,
+      persistent_shader_slots: nextSlots,
+    });
   };
 
   const handleContinueFromDirectionCut = () => {
@@ -4737,6 +4837,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                     const lookaheadTimelineItems = activeProject.timeline?.slice(Math.max(0, playheadShotIndex) + 1, Math.max(0, playheadShotIndex) + 3) || [];
                     const activeTimelineItem = activeProject.timeline?.[selectedShotIndex] || activeProject.timeline?.[0];
                     const activeVisualizerItem = activeProject.visualizer_timeline?.[selectedVisualizerIndex] || activeProject.visualizer_timeline?.[0];
+                    const activePersistentShaderSlots = normalizeEchoPersistentShaderSlots(activeProject);
                     const currentLine = activeProject.timed_lyrics?.find(l => currentTime >= l.start && currentTime < l.end);
                     const pendingPreviewProxyCount = activeProject.timeline?.filter((item) => item.media_contract?.type === "video" && item.media_contract?.proxy?.status !== "ready").length || 0;
                     const isVerticalOutput = activeOutputProfile.id === "vertical";
@@ -6220,7 +6321,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                                   textAlign: 'center'
                                 }}
                               >
-                                🎛️ Shader Track
+                                🎛️ Shader Tracks · 3 Always On
                               </button>
                             </div>
 
@@ -6228,7 +6329,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                               <strong style={{ fontSize: '10.5px', color: activeTrackTab === "video" ? 'var(--hapa-neon-violet)' : 'var(--hapa-neon-green)', textTransform: 'uppercase' }}>
                                 {activeTrackTab === "video" 
                                   ? `🛠️ Edit Shot ${selectedShotIndex + 1} of ${activeProject.timeline?.length || 0}`
-                                  : `🛠️ Edit Shader Block ${selectedVisualizerIndex + 1} of ${activeProject.visualizer_timeline?.length || 0}`}
+                                  : `🛠️ Changing Shader + 3 Always-On Slots`}
                               </strong>
                               <span style={{ fontSize: '9px', opacity: 0.6, background: 'rgba(255,255,255,0.05)', padding: '1px 4px', borderRadius: '2px' }}>
                                 {activeTrackTab === "video" 
@@ -6236,6 +6337,60 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                                   : (activeVisualizerItem ? `${activeVisualizerItem.start_sec}s - ${activeVisualizerItem.end_sec}s` : "")}
                               </span>
                             </div>
+
+                            {activeTrackTab === "shader" && (
+                              <div
+                                data-testid="echo-persistent-shader-slots"
+                                style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: '7px', padding: '8px', border: '1px solid rgba(34,211,238,0.2)', background: 'rgba(6,182,212,0.05)', borderRadius: '5px' }}
+                              >
+                                {activePersistentShaderSlots.map((slot, slotIndex) => {
+                                  const selectedShader = availableShaders.find((shader) => shader.id === slot.shader_id) || null;
+                                  const readyShaders = availableShaders
+                                    .map((shader) => echoShaderPickerEntry(shader))
+                                    .filter((shader) => shader.finalRenderReady)
+                                    .sort((left, right) => String(left.title || left.id).localeCompare(String(right.title || right.id)));
+                                  return (
+                                    <div key={slot.id} style={{ display: 'flex', flexDirection: 'column', gap: '5px', minWidth: 0, padding: '7px', border: slot.enabled ? '1px solid rgba(16,185,129,0.34)' : '1px dashed rgba(148,163,184,0.32)', borderRadius: '4px', background: slot.enabled ? 'rgba(16,185,129,0.06)' : 'rgba(15,23,42,0.48)' }}>
+                                      <div style={{ display: 'flex', justifyContent: 'space-between', gap: '5px', alignItems: 'center' }}>
+                                        <strong style={{ fontSize: '9px', color: slot.enabled ? '#a7f3d0' : '#cbd5e1', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                          {slotIndex + 1}. {slotIndex === 0 ? 'Ultimate Flame' : slotIndex === 1 ? 'Audio Wave Forms' : 'Open'}
+                                        </strong>
+                                        <span style={{ fontSize: '7px', fontWeight: 'bold', color: slot.enabled ? '#86efac' : '#94a3b8', whiteSpace: 'nowrap' }}>
+                                          {slot.enabled ? 'ALWAYS ON' : 'OPEN'}
+                                        </span>
+                                      </div>
+                                      <select
+                                        aria-label={`Always-on shader slot ${slotIndex + 1}`}
+                                        value={slot.enabled ? slot.shader_id : "none"}
+                                        onChange={(event) => {
+                                          const shaderId = event.target.value;
+                                          handleUpdatePersistentShaderSlot(
+                                            slotIndex,
+                                            shaderId === "none" ? null : availableShaders.find((shader) => shader.id === shaderId) || null,
+                                          );
+                                        }}
+                                        style={{ width: '100%', minWidth: 0, background: '#050b14', border: '1px solid rgba(16,185,129,0.28)', color: '#f8fafc', padding: '6px', borderRadius: '3px', fontSize: '9px' }}
+                                      >
+                                        <option value="none">None / leave open</option>
+                                        {selectedShader && !echoShaderPickerEntry(selectedShader).finalRenderReady && (
+                                          <option value={selectedShader.id}>{selectedShader.title || selectedShader.id} · unavailable</option>
+                                        )}
+                                        {readyShaders.map((shader) => (
+                                          <option key={shader.id} value={shader.id}>{shader.title || shader.id}</option>
+                                        ))}
+                                      </select>
+                                      <span style={{ fontSize: '7.5px', color: '#94a3b8', lineHeight: 1.3 }}>
+                                        {slotIndex === 0
+                                          ? 'Full song · tracks the main mix'
+                                          : slotIndex === 1
+                                            ? 'Full song · Lead Vocals → main mix fallback'
+                                            : 'Full song when selected · main mix default'}
+                                      </span>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            )}
 
                             {activeTrackTab === "video" ? (
                               activeTimelineItem ? (
@@ -6609,7 +6764,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                           {/* Visual Track Container */}
                           <div 
                             id="timeline-track-container"
-                            style={{ position: 'relative', width: '100%', height: '110px', background: 'rgba(0,0,0,0.4)', borderRadius: '4px', overflow: 'hidden', border: '1px solid rgba(255,255,255,0.06)' }}
+                            style={{ position: 'relative', width: '100%', height: '242px', background: 'rgba(0,0,0,0.4)', borderRadius: '4px', overflow: 'hidden', border: '1px solid rgba(255,255,255,0.06)' }}
                             onClick={(e) => {
                               // If they clicked on a shot block, it propagates, but we can scrub if clicked on track
                               const track = document.getElementById("timeline-track-container");
@@ -6656,7 +6811,10 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
 
                             {/* Track Watermarks */}
                             <div style={{ position: 'absolute', left: '10px', top: '32px', fontSize: '9px', fontWeight: 'bold', color: '#fff', opacity: 0.12, zIndex: 0, pointerEvents: 'none', fontFamily: 'monospace' }}>📹 VIDEO TRACK</div>
-                            <div style={{ position: 'absolute', left: '10px', top: '76px', fontSize: '9px', fontWeight: 'bold', color: '#fff', opacity: 0.12, zIndex: 0, pointerEvents: 'none', fontFamily: 'monospace' }}>🎛️ SHADER TRACK</div>
+                            <div style={{ position: 'absolute', left: '10px', top: '76px', fontSize: '9px', fontWeight: 'bold', color: '#fff', opacity: 0.12, zIndex: 0, pointerEvents: 'none', fontFamily: 'monospace' }}>🎛️ CHANGING SHADER</div>
+                            <div style={{ position: 'absolute', left: '10px', top: '120px', fontSize: '9px', fontWeight: 'bold', color: '#fff', opacity: 0.12, zIndex: 0, pointerEvents: 'none', fontFamily: 'monospace' }}>🔥 ALWAYS ON 1</div>
+                            <div style={{ position: 'absolute', left: '10px', top: '164px', fontSize: '9px', fontWeight: 'bold', color: '#fff', opacity: 0.12, zIndex: 0, pointerEvents: 'none', fontFamily: 'monospace' }}>〰 ALWAYS ON 2</div>
+                            <div style={{ position: 'absolute', left: '10px', top: '208px', fontSize: '9px', fontWeight: 'bold', color: '#fff', opacity: 0.12, zIndex: 0, pointerEvents: 'none', fontFamily: 'monospace' }}>＋ ALWAYS ON 3</div>
 
                             {/* Playhead Vertical Line */}
                             <div 
@@ -6812,6 +6970,43 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                                 </div>
                               );
                             })}
+
+                            {/* Persistent full-song shader lanes */}
+                            {activePersistentShaderSlots.map((slot, slotIndex) => (
+                              <div
+                                key={`persistent-${slot.id}`}
+                                data-echo-persistent-shader-slot={slot.id}
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  setActiveTrackTab("shader");
+                                }}
+                                style={{
+                                  position: 'absolute',
+                                  left: 0,
+                                  width: '100%',
+                                  top: `${108 + slotIndex * 44}px`,
+                                  height: '35px',
+                                  boxSizing: 'border-box',
+                                  borderRadius: '2px',
+                                  border: slot.enabled ? '1px solid rgba(34,211,238,0.52)' : '1px dashed rgba(148,163,184,0.35)',
+                                  background: slot.enabled ? 'rgba(6,182,212,0.12)' : 'rgba(15,23,42,0.35)',
+                                  color: slot.enabled ? '#cffafe' : '#94a3b8',
+                                  padding: '3px 8px',
+                                  cursor: 'pointer',
+                                  overflow: 'hidden',
+                                  zIndex: 2,
+                                }}
+                                title={`${slot.label}: ${slot.enabled ? `${slot.shader_title} · full song · ${slot.stem_focus}` : 'Open slot'}`}
+                              >
+                                <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px', fontSize: '7.5px', fontWeight: 'bold' }}>
+                                  <span>A{slotIndex + 1}: {slot.enabled ? slot.shader_title : 'Open'}</span>
+                                  <span>{slot.enabled ? `${Number(activeProject.duration || 0).toFixed(1)}s · ALWAYS ON` : 'AVAILABLE'}</span>
+                                </div>
+                                <div style={{ fontSize: '7px', opacity: 0.76, marginTop: '2px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                  {slotIndex === 1 ? 'Lead Vocals → main mix fallback' : slot.enabled ? 'Main mix tracking' : 'Choose a shader per song'}
+                                </div>
+                              </div>
+                            ))}
                           </div>
                         </div>
 

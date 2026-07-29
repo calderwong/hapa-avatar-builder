@@ -8,6 +8,7 @@ import {
   resetEchoIsfBrowserRuntimeCaches,
   visualizerCardAtTime,
   visualizerCardsAtTime,
+  visualizerLookaheadCards,
 } from "../src/domain/echo-isf-browser-runtime.js";
 
 const sha256 = (value) => crypto.createHash("sha256").update(String(value)).digest("hex");
@@ -358,4 +359,35 @@ test("show-graph selectors use only executable Track B source IDs and exact time
   assert.equal(visualizerCardAtTime(graph, 2).id, "high");
   assert.equal(visualizerCardAtTime(graph, 5).id, "next", "cue ends are exclusive and starts are inclusive");
   assert.equal(visualizerCardAtTime(graph, 8), null);
+});
+
+test("show-graph selectors layer changing and persistent visualizer tracks together", () => {
+  const graph = {
+    tracks: [
+      {
+        id: "track-b",
+        role: "visualizer",
+        cards: [
+          { id: "changing-now", startSeconds: 0, endSeconds: 5, visualization: { sourceId: "isf:changing", layerIndex: 0 } },
+          { id: "changing-next", startSeconds: 5, endSeconds: 10, visualization: { sourceId: "isf:next", layerIndex: 0 } },
+        ],
+      },
+      {
+        id: "track-shader-always-on-1",
+        role: "visualizer",
+        persistent: true,
+        cards: [{ id: "flame", startSeconds: 0, endSeconds: 10, visualization: { sourceId: "isf:flame", layerIndex: 1 } }],
+      },
+      {
+        id: "track-shader-always-on-2",
+        role: "visualizer",
+        persistent: true,
+        cards: [{ id: "waveform", startSeconds: 0, endSeconds: 10, visualization: { sourceId: "isf:waveform", layerIndex: 2 } }],
+      },
+      { id: "track-shader-always-on-3", role: "visualizer", persistent: true, cards: [] },
+    ],
+  };
+  assert.deepEqual(visualizerCardsAtTime(graph, 2).map((card) => card.id), ["changing-now", "flame", "waveform"]);
+  assert.deepEqual(visualizerLookaheadCards(graph, 2, 2).map((card) => card.id), ["changing-now", "flame", "waveform"]);
+  assert.deepEqual(visualizerCardsAtTime(graph, 7).map((card) => card.id), ["changing-next", "flame", "waveform"]);
 });

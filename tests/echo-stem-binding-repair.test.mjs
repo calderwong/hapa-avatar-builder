@@ -174,6 +174,38 @@ test("a valid master-only graph retains its master binding without isolated-stem
   assert.equal(decision.selectedRole, "master");
 });
 
+test("an always-on vocal waveform uses lead vocals or falls directly back to the master", () => {
+  const missingVocals = telemetry([resource("drums", frames(0, 2, { rms: 0.12, peak: 0.3 }))]);
+  const fallback = selectEchoActiveStemBinding({
+    telemetry: missingVocals,
+    requestedRole: "leadVocals",
+    startSeconds: 0,
+    endSeconds: 2,
+    signals: ["rms", "mid"],
+    availableStemSources: sourcesFor(missingVocals),
+    allowAlternateIsolatedStems: false,
+  });
+  assert.equal(fallback.status, "fallback-master-after-requested-stem");
+  assert.equal(fallback.selectedRole, "master");
+  assert.equal(fallback.candidateScope, "requested-then-master");
+
+  const withVocals = telemetry([
+    resource("drums", frames(0, 2, { rms: 0.12, peak: 0.3 })),
+    resource("vocals", frames(0, 2, { rms: 0.08, peak: 0.2 })),
+  ]);
+  const retained = selectEchoActiveStemBinding({
+    telemetry: withVocals,
+    requestedRole: "leadVocals",
+    startSeconds: 0,
+    endSeconds: 2,
+    signals: ["rms", "mid"],
+    availableStemSources: sourcesFor(withVocals),
+    allowAlternateIsolatedStems: false,
+  });
+  assert.equal(retained.status, "retained-active");
+  assert.equal(retained.selectedRole, "leadVocals");
+});
+
 test("an explicit allow-silent contract retains intentional silent stems", () => {
   const synth = resource("synth", frames(0, 2, { rms: 0.00001, peak: 0.0001 }));
   synth.allowSilent = true;

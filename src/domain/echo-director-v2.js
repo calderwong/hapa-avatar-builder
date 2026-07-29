@@ -10,6 +10,10 @@ import { buildMediaDiversityReport } from "./media-diversity-budget.js";
 import { buildSafeCameraPath, classifyMediaRole } from "./media-role-camera.js";
 import { resolveEchoOutputProfile } from "./echo-output-profile.js";
 import {
+  echoPersistentShaderSegments,
+  normalizeEchoPersistentShaderSlots,
+} from "./echo-persistent-shader-slots.js";
+import {
   compactEchoStemBindingDecision,
   declaredEchoStemRolesForWindow,
   directorStemRole,
@@ -24,14 +28,14 @@ export const DIRECTOR_V2_SCHEMA = "hapa.echo.director-plan.v2";
 export const CUE_GRAPH_SCHEMA = "hapa.echo.cue-graph.v2";
 export const TREATMENT_SCHEMA = "hapa.echo.editorial-treatment.v2";
 export const NATIVE_SHOW_GRAPH_SCHEMA = "hapa.music-viz.native-show-graph.v2";
-export const DIRECTOR_V2_COMPILER_VERSION = "echo-director-v2.4.0";
+export const DIRECTOR_V2_COMPILER_VERSION = "echo-director-v2.5.0";
 
 export const DEFAULT_VARIANT_RECIPES = Object.freeze({
   conservative: Object.freeze({
     id: "conservative",
     cutScale: 1.18,
     visualizerMix: 0.28,
-    maxVisualizerLayers: 2,
+    maxVisualizerLayers: 4,
     cameraEnergy: 0.46,
     accentDensity: 0.28,
     temporalModulation: 0.12,
@@ -635,8 +639,25 @@ export function buildEditorialTreatment(projectInput, cueGraph, manifest, regist
       })),
     };
   });
-  const visualizerRows = (project.visualizer_timeline || [])
-    .map((segment, index) => {
+  const changingVisualizerSegments = (project.visualizer_timeline || []).map((segment, index) => ({
+    segment,
+    sourceCueIndex: index,
+    sourceKind: "changing-timeline",
+    persistentSlotId: null,
+    persistentTrackId: "track-b",
+  }));
+  const persistentShaderSlots = Array.isArray(project.persistent_shader_slots)
+    ? normalizeEchoPersistentShaderSlots(project)
+    : [];
+  const persistentVisualizerSegments = (persistentShaderSlots.length ? echoPersistentShaderSegments(project) : []).map((segment, index) => ({
+    segment,
+    sourceCueIndex: changingVisualizerSegments.length + index,
+    sourceKind: "persistent-full-song",
+    persistentSlotId: segment.persistent_slot_id,
+    persistentTrackId: segment.persistent_track_id,
+  }));
+  const visualizerRows = [...changingVisualizerSegments, ...persistentVisualizerSegments]
+    .map(({ segment, sourceCueIndex, sourceKind, persistentSlotId, persistentTrackId }, index) => {
       const window = clipWindow(segment.start_sec, segment.end_sec, duration);
       const requestedSourceId = String(segment.visualizer_id || "");
       const requestedTitle = String(segment.visualizer_title || "");
@@ -644,7 +665,10 @@ export function buildEditorialTreatment(projectInput, cueGraph, manifest, regist
         return {
           visualizer: null,
           receipt: {
-            sourceCueIndex: index,
+            sourceCueIndex,
+            sourceKind,
+            persistentSlotId,
+            persistentTrackId,
             requestedSourceId,
             requestedTitle,
             resolvedSourceId: "",
@@ -680,12 +704,17 @@ export function buildEditorialTreatment(projectInput, cueGraph, manifest, regist
         availableStemSources: stems,
         allowSilentRoles: explicitEchoAllowSilentRoles({ telemetry: stemTelemetry }),
         allowMasterFallback: true,
+        allowAlternateIsolatedStems: segment.allow_alternate_isolated_stems !== false,
       });
       const stemFocus = stemBinding.selectedRole;
-      const layerRole = index % 3 === 0 ? "atmosphere" : index % 3 === 1 ? "rhythm" : "accent";
+      const layerRole = String(segment.layer_role || segment.layerRole || (
+        index % 3 === 0 ? "atmosphere" : index % 3 === 1 ? "rhythm" : "accent"
+      ));
       const controls = numericDefaults(shader?.inputs || []);
-      const blendMode = index % 2 === 0 ? "screen" : "plus-lighter";
-      const opacity = index % 3 === 2 ? 0.34 : 0.48;
+      const blendMode = String(segment.blend_mode || segment.blendMode || (
+        index % 2 === 0 ? "screen" : "plus-lighter"
+      ));
+      const opacity = clamp(segment.opacity ?? (index % 3 === 2 ? 0.34 : 0.48));
       const sourceAvailable = Boolean(shader?.source);
       const sourceCueOverride = Boolean(shader && (shader.directorEligible === false || shader.enabled === false));
       const eligibility = sourceAvailable
@@ -728,8 +757,14 @@ export function buildEditorialTreatment(projectInput, cueGraph, manifest, regist
       };
       const runtimeShaderRepair = boundedRuntimeShaderRepairProvenance(segment, shader?.id);
       const visualizer = {
-        id: `visualizer:${index}:${slug(requestedSourceId || requestedTitle)}`,
-        sourceCueIndex: index,
+        id: persistentSlotId
+          ? `visualizer:persistent:${slug(persistentSlotId)}:${slug(requestedSourceId || requestedTitle)}`
+          : `visualizer:${sourceCueIndex}:${slug(requestedSourceId || requestedTitle)}`,
+        sourceCueIndex,
+        sourceKind,
+        persistentSlotId,
+        persistentTrackId,
+        alwaysOn: sourceKind === "persistent-full-song",
         requestedSourceId,
         requestedTitle,
         sourceId: String(shader?.id || shader?.shaderId || requestedSourceId),
@@ -743,6 +778,7 @@ export function buildEditorialTreatment(projectInput, cueGraph, manifest, regist
         transition: String(segment.transition || "crossfade"),
         layerRole,
         requestedStemFocus,
+        allowAlternateIsolatedStems: segment.allow_alternate_isolated_stems !== false,
         stemFocus,
         stemBinding,
         inputs: shader?.inputs || [],
@@ -760,7 +796,10 @@ export function buildEditorialTreatment(projectInput, cueGraph, manifest, regist
       return {
         visualizer,
         receipt: {
-          sourceCueIndex: index,
+          sourceCueIndex,
+          sourceKind,
+          persistentSlotId,
+          persistentTrackId,
           requestedSourceId,
           requestedTitle,
           resolvedSourceId: String(shader?.id || ""),
@@ -791,6 +830,7 @@ export function buildEditorialTreatment(projectInput, cueGraph, manifest, regist
     mediaSlots,
     visualizers,
     visualizerReceipts,
+    persistentShaderSlots,
     inputHashes: {
       song: contentHash({ songId: project.song_id, registryTrackId: project.registry_track_id || project.audio_id, duration: project.duration }),
       lyrics: contentHash(cueGraph.lyricCues),
@@ -805,6 +845,7 @@ export function buildEditorialTreatment(projectInput, cueGraph, manifest, regist
       }),
       mediaAffordances: contentHash(mediaSlots),
       visualizerCatalog: contentHash(visualizers),
+      persistentShaderSlots: contentHash(persistentShaderSlots),
       canon: contentHash(project.canon_affordance_graph || null),
       promptAgent: contentHash({ compilerVersion: DIRECTOR_V2_COMPILER_VERSION, recipeSchema: DEFAULT_VARIANT_RECIPES }),
     },
@@ -1033,11 +1074,14 @@ export function compileDirectorVariant({ treatment, cueGraph, recipe = "conserva
       knockedOut: slot.selectedMedia.sourceKind === "pure-visualizer",
     });
   });
-  const visualizerAdmission = admitVisualizerLayers(treatment.visualizers, normalizedRecipe.maxVisualizerLayers);
+  const visualizerAdmission = admitVisualizerLayers(
+    treatment.visualizers,
+    Math.max(4, normalizedRecipe.maxVisualizerLayers),
+  );
   const compiledVisualizers = visualizerAdmission.visualizers;
   const executableVisualizers = compiledVisualizers.filter((visualizer) => visualizer.layerAdmission.status === "admitted");
   const firstExecutableVisualizerId = executableVisualizers[0]?.id || "";
-  const trackB = compiledVisualizers.map((visualizer, index) => {
+  const compiledVisualizerCards = compiledVisualizers.map((visualizer, index) => {
     const media = mediaAt(slots, visualizer.startSeconds);
     const executionStatus = visualizer.layerAdmission.status === "rejected-concurrency-limit"
       ? "rejected-concurrency-limit"
@@ -1049,10 +1093,14 @@ export function compileDirectorVariant({ treatment, cueGraph, recipe = "conserva
             ? "executable-explicit-title-fallback"
             : "executable";
     const knockedOut = !executionStatus.startsWith("executable");
+    const trackId = visualizer.persistentTrackId || "track-b";
     return {
-      id: `card:b:${index}`,
-      trackId: "track-b",
+      id: visualizer.persistentSlotId ? `card:persistent:${visualizer.persistentSlotId}` : `card:b:${index}`,
+      trackId,
       sourceCueIndex: visualizer.sourceCueIndex,
+      sourceKind: visualizer.sourceKind,
+      persistentSlotId: visualizer.persistentSlotId,
+      alwaysOn: visualizer.alwaysOn === true,
       requestedSourceId: visualizer.requestedSourceId,
       resolutionStatus: visualizer.manifestResolution.status,
       eligibilityStatus: visualizer.eligibility.status,
@@ -1108,12 +1156,15 @@ export function compileDirectorVariant({ treatment, cueGraph, recipe = "conserva
           manifestSource: visualizer.source,
           stemFocus: visualizer.stemFocus,
           requestedStemFocus: visualizer.requestedStemFocus,
+          allowAlternateIsolatedStems: visualizer.allowAlternateIsolatedStems,
           stemBindingStatus: visualizer.stemBinding?.status,
           stemBindingReason: visualizer.stemBinding?.reason,
           stemBindingPolicy: visualizer.stemBinding?.policy,
           stemTelemetryAnalysisVersion: visualizer.stemBinding?.telemetry?.analysisVersion,
           stemTelemetrySelectedAudioHash: visualizer.stemBinding?.selectedEvidence?.audioHash,
           layerRole: visualizer.layerRole,
+          sourceKind: visualizer.sourceKind,
+          persistentSlotId: visualizer.persistentSlotId,
           fidelity: visualizer.fidelity,
           requestedSourceId: visualizer.requestedSourceId,
           resolutionStatus: visualizer.manifestResolution.status,
@@ -1124,6 +1175,9 @@ export function compileDirectorVariant({ treatment, cueGraph, recipe = "conserva
       },
       executionReceipt: {
         sourceCueIndex: visualizer.sourceCueIndex,
+        sourceKind: visualizer.sourceKind,
+        persistentSlotId: visualizer.persistentSlotId,
+        persistentTrackId: visualizer.persistentTrackId,
         requestedSourceId: visualizer.requestedSourceId,
         resolvedSourceId: visualizer.manifestResolution.resolvedSourceId,
         resolutionStatus: visualizer.manifestResolution.status,
@@ -1141,7 +1195,26 @@ export function compileDirectorVariant({ treatment, cueGraph, recipe = "conserva
       knockedOut,
     };
   });
-  const nativeShaderRoutes = nativeVisualizerRouteCounts(trackB);
+  const trackB = compiledVisualizerCards.filter((card) => !card.persistentSlotId);
+  const persistentShaderTracks = treatment.persistentShaderSlots.map((slot) => ({
+    id: slot.track_id,
+    label: slot.label,
+    role: "visualizer",
+    persistent: true,
+    alwaysOn: true,
+    slotId: slot.id,
+    enabled: slot.enabled,
+    buffer: {
+      id: `buffer-${slot.id}`,
+      targetSeconds: cueGraph.durationSeconds,
+      readySeconds: slot.enabled ? cueGraph.durationSeconds : 0,
+      state: slot.enabled ? "planned" : "open",
+      nativeStatus: slot.enabled ? "manifest-route-matrix" : "open-slot",
+      dirty: slot.enabled,
+    },
+    cards: compiledVisualizerCards.filter((card) => card.persistentSlotId === slot.id),
+  }));
+  const nativeShaderRoutes = nativeVisualizerRouteCounts(compiledVisualizerCards);
   const accentCandidates = cueGraph.editCues.filter((cue) => cue.strength >= 0.58);
   const accentCount = Math.min(accentCandidates.length, Math.max(1, Math.round(accentCandidates.length * normalizedRecipe.accentDensity)));
   const accentNativeRoute = resolveNativeVisualizerRoute({ id: "director:accent", title: "Director accent" });
@@ -1260,6 +1333,7 @@ export function compileDirectorVariant({ treatment, cueGraph, recipe = "conserva
     sourcePoolCounts: {
       media: treatment.mediaSlots.length,
       visualizers: treatment.visualizers.length,
+      persistentShaderSlots: treatment.persistentShaderSlots.length,
       stems: treatment.stems.length,
     },
     audioAnalysis: {
@@ -1290,9 +1364,10 @@ export function compileDirectorVariant({ treatment, cueGraph, recipe = "conserva
     tracks: [
       { id: "track-a", label: "Media foundation", role: "foundation", buffer: { id: "buffer-a", targetSeconds: 8, readySeconds: 0, state: "planned", nativeStatus: "requires-precompute", dirty: true }, cards: trackA },
       { id: "track-b", label: "IVF/ISF visualizer stack", role: "visualizer", buffer: { id: "buffer-b", targetSeconds: 8, readySeconds: 0, state: "planned", nativeStatus: "manifest-route-matrix", dirty: true }, cards: trackB },
+      ...persistentShaderTracks,
       { id: "track-c", label: "Stem/cue accents", role: "accent", buffer: { id: "buffer-c", targetSeconds: 4, readySeconds: 0, state: "planned", nativeStatus: "deterministic", dirty: true }, cards: trackC },
     ],
-    mixer: { activeTrackId: "track-a", mode: "director-v2-triple-deck", manualSwapEnabled: true, nativeStatus: "planned" },
+    mixer: { activeTrackId: "track-a", mode: "director-v2-six-deck", manualSwapEnabled: true, nativeStatus: "planned" },
     truth: {
       timing: cueGraph.timingTruth.lyricStatus,
       beats: cueGraph.timingTruth.beatStatus,
@@ -1335,6 +1410,7 @@ export function compileDirectorVariant({ treatment, cueGraph, recipe = "conserva
         candidates: (slot.candidateMedia || []).map((candidate, rank) => ({ ...candidate, rank })),
       })),
       visualizerLayers: compiledVisualizers,
+      persistentShaderSlots: treatment.persistentShaderSlots,
       stemBindingDecisions: compiledVisualizers.map((visualizer) => ({
         visualizerId: visualizer.id,
         sourceCueIndex: visualizer.sourceCueIndex,
@@ -1343,7 +1419,7 @@ export function compileDirectorVariant({ treatment, cueGraph, recipe = "conserva
         decision: compactEchoStemBindingDecision(visualizer.stemBinding),
       })),
       visualizerReceipts: treatment.visualizerReceipts.map((receipt) => {
-        const card = trackB.find((candidate) => candidate.executionReceipt.sourceCueIndex === receipt.sourceCueIndex);
+        const card = compiledVisualizerCards.find((candidate) => candidate.executionReceipt.sourceCueIndex === receipt.sourceCueIndex);
         return card ? card.executionReceipt : receipt;
       }),
       visualizerLayerPolicy: {
@@ -1351,8 +1427,10 @@ export function compileDirectorVariant({ treatment, cueGraph, recipe = "conserva
         maxConcurrentLayers: visualizerAdmission.maxLayers,
         sourceCueCount: treatment.visualizerReceipts.length,
         compiledCueCount: trackB.length,
-        executableCueCount: trackB.filter((card) => !card.knockedOut).length,
-        rejectedCueCount: trackB.filter((card) => card.knockedOut).length,
+        executableCueCount: compiledVisualizerCards.filter((card) => !card.knockedOut).length,
+        rejectedCueCount: compiledVisualizerCards.filter((card) => card.knockedOut).length,
+        persistentSlotCount: treatment.persistentShaderSlots.length,
+        enabledPersistentSlotCount: treatment.persistentShaderSlots.filter((slot) => slot.enabled).length,
       },
       nativeShaderRoutes,
       stemBuses: treatment.stems.map((stem) => ({

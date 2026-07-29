@@ -61,6 +61,8 @@ const VARIANT_PROJECT_PATCH_FIELDS = Object.freeze([
   "variation_lab_promotion",
   "director_patch_lineage",
   "human_taste_memory",
+  "persistent_shader_slots_schema",
+  "persistent_shader_slots",
 ]);
 
 function object(value) {
@@ -653,6 +655,7 @@ export function deriveEchoDirectionWorkingProject(workingFork = {}) {
     id: `working:${workingFork.sourceVariantId}`,
     timeline: project.timeline || [],
     visualizer_timeline: project.visualizer_timeline || [],
+    persistent_shader_slots: project.persistent_shader_slots || [],
   });
   const graph = projectToEditorGraph(project);
   graph.directorV2 = {

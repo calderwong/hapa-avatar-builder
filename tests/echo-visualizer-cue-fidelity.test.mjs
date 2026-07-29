@@ -6,6 +6,7 @@ import {
   buildDirectorV2Artifacts,
   DEFAULT_VARIANT_RECIPES,
 } from "../src/domain/echo-director-v2.js";
+import { echoPersistentShaderSegments } from "../src/domain/echo-persistent-shader-slots.js";
 
 const MUSIC_VIZ_MANIFEST = "/Users/calderwong/Desktop/hapa-music-viz/web/isf/manifest.json";
 const PROJECTS_DIR = new URL("../data/music-video-projects/", import.meta.url);
@@ -60,7 +61,9 @@ function compile({ visualizers, manifest, duration = 12, recipe = "visualizer-fo
 }
 
 function trackB(result) {
-  return result.showGraph.tracks.find((track) => track.id === "track-b").cards;
+  return result.showGraph.tracks
+    .filter((track) => track.role === "visualizer" || track.id === "track-b")
+    .flatMap((track) => track.cards || []);
 }
 
 function clippedWindow(segment, duration) {
@@ -237,7 +240,11 @@ test("all album projects preserve every exact-ID cue and clipped second", { time
     const payload = JSON.parse(fs.readFileSync(path.join(PROJECTS_DIR.pathname, file), "utf8"));
     const project = payload.music_video_project || payload.project || payload;
     const duration = Number(project.duration || 0);
-    const sourceCues = (project.visualizer_timeline || [])
+    const declaredSourceCues = [
+      ...(project.visualizer_timeline || []),
+      ...(Array.isArray(project.persistent_shader_slots) ? echoPersistentShaderSegments(project) : []),
+    ];
+    const sourceCues = declaredSourceCues
       .map((segment, sourceCueIndex) => ({ segment, sourceCueIndex, window: clippedWindow(segment, duration) }))
       .filter((entry) => entry.window);
     const result = buildDirectorV2Artifacts({
@@ -252,9 +259,9 @@ test("all album projects preserve every exact-ID cue and clipped second", { time
     const cards = trackB(result);
     const cardsByCue = new Map(cards.map((entry) => [entry.sourceCueIndex, entry]));
 
-    assert.equal(result.treatment.visualizerReceipts.length, (project.visualizer_timeline || []).length, `${file}: every source cue has a receipt`);
+    assert.equal(result.treatment.visualizerReceipts.length, declaredSourceCues.length, `${file}: every source cue has a receipt`);
     assert.equal(result.treatment.visualizers.length, sourceCues.length, `${file}: every clipped cue has a treatment row`);
-    assert.equal(cards.length, sourceCues.length, `${file}: every clipped cue has a track-B card`);
+    assert.equal(cards.length, sourceCues.length, `${file}: every clipped cue has a shader-track card`);
 
     for (const { segment, sourceCueIndex, window } of sourceCues) {
       const visualizer = visualizersByCue.get(sourceCueIndex);

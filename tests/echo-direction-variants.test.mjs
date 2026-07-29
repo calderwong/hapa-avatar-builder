@@ -501,3 +501,30 @@ test("variant and working cuts retain canonical stem paths and portable shader c
   assert.equal(continued.director_show_graph.stems.items[0].audioPath, "/stems/synth.wav");
   assert.equal(continuedVisualizer.visualization.card.source.hash, `sha256:${"a".repeat(64)}`);
 });
+
+test("saved and editable cuts retain the three persistent shader-slot settings", () => {
+  const base = project();
+  base.persistent_shader_slots_schema = "hapa.echo.persistent-shader-slots.v1";
+  base.persistent_shader_slots = [
+    { id: "always-on-shader-1", enabled: true, shader_id: "ultimate-flame" },
+    { id: "always-on-shader-2", enabled: true, shader_id: "audio-wave-forms" },
+    { id: "always-on-shader-3", enabled: false, shader_id: "none" },
+  ];
+  const cut = variant("persistent-slots", "Dense", 1);
+  cut.project_patch = {
+    persistent_shader_slots_schema: base.persistent_shader_slots_schema,
+    persistent_shader_slots: structuredClone(base.persistent_shader_slots),
+  };
+  cut.project_patch.persistent_shader_slots[2] = {
+    id: "always-on-shader-3",
+    enabled: true,
+    shader_id: "operator-selected-third-shader",
+  };
+
+  const selected = deriveEchoDirectionVariantProject(base, cut);
+  assert.equal(selected.persistent_shader_slots[2].shader_id, "operator-selected-third-shader");
+  const working = createEchoDirectionWorkingFork(selected, cut);
+  const request = buildEchoDirectionForkRequest(working, deriveEchoDirectionWorkingProject(working));
+  assert.equal(request.projectPatch.persistent_shader_slots_schema, "hapa.echo.persistent-shader-slots.v1");
+  assert.equal(request.projectPatch.persistent_shader_slots[2].shader_id, "operator-selected-third-shader");
+});

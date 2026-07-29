@@ -174,18 +174,23 @@ export function loadEchoIsfCatalog(options = {}) {
   });
 }
 
-function visualizerTrack(showGraph = {}) {
-  return (showGraph.tracks || []).find((track) => track?.id === "track-b")
-    || (showGraph.tracks || []).find((track) => track?.role === "visualizer")
-    || null;
+function visualizerTracks(showGraph = {}) {
+  return (showGraph.tracks || []).filter((track) => (
+    track?.role === "visualizer"
+    || ["track-b", "ivf-stack"].includes(track?.id)
+  ));
+}
+
+function visualizerCards(showGraph = {}) {
+  return visualizerTracks(showGraph).flatMap((track, trackIndex) => (
+    (track.cards || []).map((card, cardIndex) => ({ card, track, trackIndex, cardIndex }))
+  ));
 }
 
 export function visualizerCardsAtTime(showGraph, timeSeconds) {
   const time = Number(timeSeconds);
   if (!Number.isFinite(time)) return [];
-  const cards = visualizerTrack(showGraph)?.cards || [];
-  return cards
-    .map((card, index) => ({ card, index }))
+  return visualizerCards(showGraph)
     .filter(({ card }) => (
       exactSourceId(card)
       && card?.knockedOut !== true
@@ -194,7 +199,8 @@ export function visualizerCardsAtTime(showGraph, timeSeconds) {
     ))
     .sort((left, right) => (
       Number(left.card?.visualization?.layerIndex ?? 0) - Number(right.card?.visualization?.layerIndex ?? 0)
-      || left.index - right.index
+      || left.trackIndex - right.trackIndex
+      || left.cardIndex - right.cardIndex
     ))
     .map(({ card }) => card);
 }
@@ -208,20 +214,22 @@ export function visualizerLookaheadCards(showGraph, timeSeconds, count = 3) {
   const time = Number(timeSeconds);
   if (!Number.isFinite(time)) return [];
   const limit = Math.max(1, Math.floor(Number(count) || 3));
-  const ordered = (visualizerTrack(showGraph)?.cards || [])
-    .map((card, index) => ({ card, index }))
+  const ordered = visualizerCards(showGraph)
     .filter(({ card }) => exactSourceId(card) && card?.knockedOut !== true)
     .sort((left, right) => (
       Number(left.card.startSeconds) - Number(right.card.startSeconds)
       || Number(left.card.endSeconds) - Number(right.card.endSeconds)
-      || Number(left.card.sourceCueIndex ?? left.index) - Number(right.card.sourceCueIndex ?? right.index)
-      || left.index - right.index
+      || Number(left.card.visualization?.layerIndex ?? 0) - Number(right.card.visualization?.layerIndex ?? 0)
+      || Number(left.card.sourceCueIndex ?? left.cardIndex) - Number(right.card.sourceCueIndex ?? right.cardIndex)
+      || left.trackIndex - right.trackIndex
+      || left.cardIndex - right.cardIndex
     ));
-  const active = visualizerCardAtTime(showGraph, time);
-  let startIndex = active ? ordered.findIndex(({ card }) => card === active || card.id === active.id) : -1;
-  if (startIndex < 0) startIndex = ordered.findIndex(({ card }) => Number(card.startSeconds) >= time);
-  if (startIndex < 0) return [];
-  return ordered.slice(startIndex, startIndex + limit).map(({ card }) => card);
+  const active = visualizerCardsAtTime(showGraph, time);
+  const activeIds = new Set(active.map((card) => card.id));
+  const upcoming = ordered
+    .map(({ card }) => card)
+    .filter((card) => !activeIds.has(card.id) && Number(card.startSeconds) >= time);
+  return [...active, ...upcoming].slice(0, Math.max(limit, active.length));
 }
 
 function versionedRuntimeUrl(apiBase, shader) {
@@ -657,7 +665,7 @@ function poolCardContentKey(card = {}) {
 }
 
 export function createEchoIsfPlaybackPool(options = {}) {
-  const maxSurfaces = Math.max(2, Math.min(3, Math.floor(Number(options.maxSurfaces) || 3)));
+  const maxSurfaces = Math.max(2, Math.min(6, Math.floor(Number(options.maxSurfaces) || 3)));
   const requestedFailureCacheLimit = Number(options.failureCacheMaxEntries);
   const failureCacheLimit = Number.isFinite(requestedFailureCacheLimit) && requestedFailureCacheLimit > 0
     ? Math.max(1, Math.min(512, Math.floor(requestedFailureCacheLimit)))
@@ -989,6 +997,22 @@ export function createEchoIsfPlaybackPool(options = {}) {
     };
   };
 
+  const presentLayers = (cards = [], frameInput = {}) => {
+    const ordered = Array.isArray(cards) ? cards.filter(Boolean) : [];
+    const layers = ordered.map((card) => ({
+      card,
+      result: present(card, { ...frameInput, card }),
+    }));
+    const ready = layers.filter((layer) => layer.result?.status === "ready");
+    return {
+      status: ready.length === layers.length ? "ready" : ready.length ? "partial" : layers.length ? "loading" : "empty",
+      requested: layers.length,
+      ready: ready.length,
+      layers,
+      diagnostics: getDiagnostics(),
+    };
+  };
+
   const invalidate = (input = {}) => {
     const shaderIds = new Set((input.shaderIds || []).map(String));
     const cacheKey = String(input.cacheKey || "");
@@ -1100,5 +1124,5 @@ export function createEchoIsfPlaybackPool(options = {}) {
     emit("disposed");
   };
 
-  return { prewarm, present, invalidate, getDiagnostics, getState: getDiagnostics, dispose };
+  return { prewarm, present, presentLayers, invalidate, getDiagnostics, getState: getDiagnostics, dispose };
 }

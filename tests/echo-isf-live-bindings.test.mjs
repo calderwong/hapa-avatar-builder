@@ -119,7 +119,7 @@ test("Echo uses a bounded generation-bound verified stem decoder pool and never 
   assert.match(source, /const playGeneration = resource\.sourceGeneration/);
   assert.match(source, /resource\.sourceGeneration === playGeneration/);
   assert.match(source, /targetTimeSeconds: targetTime/);
-  assert.match(source, /echoIsfRequiredStemFocuses\(graphVisualizerCard\)\.slice\(0, ECHO_STEM_DECODER_POOL_LIMIT\)/);
+  assert.match(source, /\.flatMap\(\(card\) => echoIsfRequiredStemFocuses\(card\)\)/);
   assert.match(source, /protectedResourceKeys,\s+ECHO_STEM_DECODER_POOL_LIMIT,\s+currentResourceKeys,/);
   assert.match(source, /pauseEchoStemDecoderPool\(stemDecoderPoolRef\.current\)/);
   assert.doesNotMatch(source, /expectedActivity: !allowSilent/);
@@ -152,7 +152,7 @@ test("Echo live signal frames cover the complete album vocabulary without proced
   assert.match(source, /const signalFrames = \{\};/);
   assert.match(source, /if \(masterSignalFrame\.status === "live"\)/);
   assert.match(source, /signalFrames\[binding\.role\] = stemFrame/);
-  assert.match(source, /echoIsfRequiredStemFocuses\(graphVisualizerCard\)/);
+  assert.match(source, /echoIsfRequiredStemFocuses\(candidate\)/);
 });
 
 test("Echo applies returned blend, opacity, and only real fade-like transitions", () => {
@@ -174,15 +174,15 @@ test("Echo applies returned blend, opacity, and only real fade-like transitions"
   assert.equal(fadeMiddle.transitionAlpha, 1);
   assert.match(source, /ctx\.globalAlpha = Math\.max/);
   assert.match(source, /ctx\.globalCompositeOperation = composition\.canvasComposite/);
-  assert.match(source, /const audioEnvelope = echoVisualizerAudioEnvelope\(selectedSignalFrame \|\| masterSignalFrame\)/);
+  assert.match(source, /const audioEnvelope = echoVisualizerAudioEnvelope\(layerSignalFrame \|\| masterSignalFrame\)/);
   assert.match(source, /ctx\.filter = `brightness\(\$\{audioEnvelope\.brightness\.toFixed\(3\)\}\)/);
   assert.match(source, /ctx\.scale\(audioEnvelope\.scale, audioEnvelope\.scale\)/);
-  assert.match(source, /ctx\.drawImage\(presentationCanvas, -width \/ 2, -height \/ 2, width, height\)/);
+  assert.match(source, /ctx\.drawImage\(presentation\.canvas, -width \/ 2, -height \/ 2, width, height\)/);
 });
 
 test("Echo surfaces bounded frame, media, stem, and composition receipts", () => {
   assert.match(source, /Math\.floor\(t \* 4\)/);
-  assert.match(source, /compactFrameReceipt\(presentation\.frameReceipt\)/);
+  assert.match(source, /compactFrameReceipt\(primaryLayer\?\.presentation\?\.frameReceipt\)/);
   assert.match(source, /__HAPA_ECHO_ISF_BINDING_DIAGNOSTICS__/);
   assert.match(source, /data-echo-isf-media-binding/);
   assert.match(source, /data-echo-isf-stem-binding/);

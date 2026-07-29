@@ -2,6 +2,10 @@ import fs from "fs";
 import path from "path";
 import { loadGatedEchoIsfManifest } from "./echo-isf-gated-manifest.mjs";
 import { resolveEchoOutputProfile } from "../src/domain/echo-output-profile.js";
+import {
+  ECHO_PERSISTENT_SHADER_SLOTS_SCHEMA,
+  normalizeEchoPersistentShaderSlots,
+} from "../src/domain/echo-persistent-shader-slots.js";
 
 const DATA_DIR = "./data";
 const PROJECTS_DIR = path.join(DATA_DIR, "music-video-projects");
@@ -823,7 +827,7 @@ function buildCanonAffordanceGraph(song, songMetadata, songEditMap, candidateVid
   };
 }
 
-function generateHyperframesScript(songId, songTitle, duration, timeline, visualizerTimeline, timedLyrics, lyricVariant = "phrase-window", audioId = songId, lyricPosition = "bottom-center", lyricStyle = "neon-cyan", outputProfile = OUTPUT_PROFILE) {
+function generateHyperframesScript(songId, songTitle, duration, timeline, visualizerTimeline, persistentShaderSlots, timedLyrics, lyricVariant = "phrase-window", audioId = songId, lyricPosition = "bottom-center", lyricStyle = "neon-cyan", outputProfile = OUTPUT_PROFILE) {
   const profile = resolveEchoOutputProfile(outputProfile);
   const lyricBottom = Math.round(profile.height * profile.safeArea.lyricBottom);
   let html = `<!-- Hapa x HyperFrames Video Project Script -->\n`;
@@ -846,6 +850,20 @@ function generateHyperframesScript(songId, songTitle, duration, timeline, visual
   html += `  <script>\n`;
   html += `    window.HAPA_LYRIC_TIMING = ${JSON.stringify({ lines: timedLyrics }, null, 2).split("\n").join("\n    ")};\n`;
   html += `  </script>\n\n`;
+
+  html += `  <!-- Persistent full-song shader slots -->\n`;
+  html += `  <script>\n`;
+  html += `    window.HAPA_PERSISTENT_SHADER_SLOTS = ${JSON.stringify(persistentShaderSlots, null, 2).split("\n").join("\n    ")};\n`;
+  html += `  </script>\n`;
+  persistentShaderSlots.filter((slot) => slot.enabled).forEach((slot, idx) => {
+    html += `  <div id="${slot.id}" data-composition-id="hapa-persistent-visualizer"\n`;
+    html += `       data-track-id="${slot.track_id}" data-always-on="true"\n`;
+    html += `       data-start="0" data-duration="${duration}"\n`;
+    html += `       data-shader-id="${slot.shader_id}" data-stem-focus="${slot.stem_focus}" data-stem-fallback="${slot.stem_fallback}"\n`;
+    html += `       data-opacity="${slot.opacity}" data-blend-mode="${slot.blend_mode}"\n`;
+    html += `       style="width: 100%; height: 100%; position: absolute; inset: 0; pointer-events: none; z-index: ${3 + idx};"></div>\n`;
+  });
+  html += `\n`;
 
   html += `  <!-- Directed Shot Timeline -->\n`;
   timeline.forEach((shot, idx) => {
@@ -1269,6 +1287,7 @@ songCards.forEach((song, idx) => {
     videos_per_sec: Number(videosPerSec.toFixed(4)),
     visualizers_per_sec: Number(visualizersPerSec.toFixed(4))
   };
+  const persistentShaderSlots = normalizeEchoPersistentShaderSlots({ duration });
   const lyricTimingProvenance = songEditMap.provenance || {};
   const lyricTimingStrategy = lyricTimingProvenance.lyricTimingStrategy || "weighted-phrase-split-full-song-arc";
   const lyricTimingSource = lyricTimingProvenance.lyricTimingSource || "weighted-phrase-split-full-song-arc";
@@ -1307,6 +1326,8 @@ songCards.forEach((song, idx) => {
         lastLyricEnd: timedLyrics.length ? timedLyrics[timedLyrics.length - 1].end : 0
       },
       media_density_telemetry: mediaDensityTelemetry,
+      persistent_shader_slots_schema: ECHO_PERSISTENT_SHADER_SLOTS_SCHEMA,
+      persistent_shader_slots: persistentShaderSlots,
       timeline: timeline,
       visualizer_timeline: visualizerTimeline,
       timed_lyrics: timedLyrics,
@@ -1318,7 +1339,7 @@ songCards.forEach((song, idx) => {
         dimensions: Object.fromEntries(Object.keys(criticScores).map((dimension) => [dimension, { value: null, status: "unmeasured", basis: "no-measured-evidence" }]))
       },
       justification_log: journalLog,
-      hyperframe_script: generateHyperframesScript(songId, songTitle, duration, timeline, visualizerTimeline, timedLyrics, "phrase-window", audioId, "bottom-center", "neon-cyan", OUTPUT_PROFILE),
+      hyperframe_script: generateHyperframesScript(songId, songTitle, duration, timeline, visualizerTimeline, persistentShaderSlots, timedLyrics, "phrase-window", audioId, "bottom-center", "neon-cyan", OUTPUT_PROFILE),
       provenance: {
         status: "generated_placeholder",
         source: SCRIPT_NAME,

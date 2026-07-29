@@ -19,6 +19,7 @@ import {
   assertEchoMediaPreflight,
   preflightEchoAlbum,
 } from "./preflight-echo-director-media.mjs";
+import { echoPersistentShaderSegments } from "../src/domain/echo-persistent-shader-slots.js";
 
 const ROOT = path.resolve(import.meta.dirname, "..");
 const argument = (name, fallback) => {
@@ -77,8 +78,8 @@ function writeJson(filePath, value) {
 }
 
 function clippedWindow(cue, duration) {
-  const start = Math.max(0, Number(cue?.start_sec));
-  const end = Math.min(Number(duration || 0), Number(cue?.end_sec));
+  const start = Math.round(Math.max(0, Number(cue?.start_sec)) * 1_000) / 1_000;
+  const end = Math.round(Math.min(Number(duration || 0), Number(cue?.end_sec)) * 1_000) / 1_000;
   return Number.isFinite(start) && Number.isFinite(end) && end > start ? [start, end] : null;
 }
 
@@ -171,7 +172,9 @@ for (const file of files) {
   });
   const pureSlots = artifacts.treatment.mediaSlots.filter((slot) => slot.media.sourceKind === "pure-visualizer");
   const knockedOut = artifacts.showGraph.tracks[0].cards.filter((card) => card.knockedOut);
-  const graphVisualizerCards = artifacts.showGraph.tracks[1].cards;
+  const graphVisualizerCards = artifacts.showGraph.tracks
+    .filter((track) => track.role === "visualizer" || ["track-b", "ivf-stack"].includes(track.id))
+    .flatMap((track) => track.cards || []);
   const nativeRouteCounts = nativeVisualizerRouteCounts(graphVisualizerCards);
   const nativeRouteErrors = graphVisualizerCards.flatMap((card) => {
     const route = card.visualization?.nativeRoute;
@@ -204,7 +207,11 @@ for (const file of files) {
       return { route, nativeKey: nativeKey || null, count };
     }),
   }));
-  const sourceCues = Array.isArray(project.visualizer_timeline) ? project.visualizer_timeline : [];
+  const changingSourceCues = Array.isArray(project.visualizer_timeline) ? project.visualizer_timeline : [];
+  const sourceCues = [
+    ...changingSourceCues,
+    ...(Array.isArray(project.persistent_shader_slots) ? echoPersistentShaderSegments(project) : []),
+  ];
   const clippedSourceCues = sourceCues.flatMap((cue, sourceCueIndex) => {
     const window = clippedWindow(cue, project.duration);
     return window ? [{ sourceCueIndex, requestedSourceId: String(cue.visualizer_id || ""), startSeconds: window[0], endSeconds: window[1] }] : [];
@@ -230,7 +237,7 @@ for (const file of files) {
     const visualizer = treatmentByIndex.get(sourceCueIndex);
     const card = graphByIndex.get(sourceCueIndex);
     if (!visualizer || !card) {
-      missingAccounting.push({ sourceCueIndex, reason: !visualizer ? "missing-treatment-visualizer" : "missing-track-b-card" });
+      missingAccounting.push({ sourceCueIndex, reason: !visualizer ? "missing-treatment-visualizer" : "missing-shader-track-card" });
       continue;
     }
     if (Math.abs(card.startSeconds - window[0]) > 0.001 || Math.abs(card.endSeconds - window[1]) > 0.001) {
@@ -263,10 +270,10 @@ for (const file of files) {
   if (portableCards.length < 1) errors.push("no-portable-visualizer-cards");
   if (sourceCues.length !== receipts.length) errors.push("source-receipt-count-mismatch");
   if (clippedSourceCues.length !== artifacts.treatment.visualizers.length) errors.push("source-treatment-count-mismatch");
-  if (clippedSourceCues.length !== graphVisualizerCards.length) errors.push("source-track-b-count-mismatch");
+  if (clippedSourceCues.length !== graphVisualizerCards.length) errors.push("source-shader-track-count-mismatch");
   if (exactIdCount !== graphVisualizerCards.length || titleFallbackCount !== 0) errors.push("non-exact-album-shader-resolution");
-  if (Math.abs(sourceClippedDuration - compiledDuration) > 0.001) errors.push("source-track-b-duration-mismatch");
-  if (endpointMismatches.length) errors.push("source-track-b-endpoint-mismatch");
+  if (Math.abs(sourceClippedDuration - compiledDuration) > 0.001) errors.push("source-shader-track-duration-mismatch");
+  if (endpointMismatches.length) errors.push("source-shader-track-endpoint-mismatch");
   if (identityMismatches.length) errors.push("source-id-chain-mismatch");
   if (missingAccounting.length) errors.push("source-cue-accounting-mismatch");
   if (configuredMaxConcurrentLayers < 1 || configuredMaxConcurrentLayers > 6 || maxConcurrentLayers > configuredMaxConcurrentLayers) errors.push("simultaneous-layer-limit-violated");

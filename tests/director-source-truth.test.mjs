@@ -47,3 +47,12 @@ test("director plans expose only readable isolated stems and deduplicate their r
   assert.match(stemProjection, /fs\.statSync\(localPath\)\.isFile\(\)/);
   assert.match(stemProjection, /new Set/);
 });
+
+test("Echo Director exposes three editable always-on shader lanes", () => {
+  const source = fs.readFileSync("./src/components/HapaEchosView.jsx", "utf8");
+  assert.match(source, /Shader Tracks · 3 Always On/u);
+  assert.match(source, /data-testid="echo-persistent-shader-slots"/u);
+  assert.match(source, /data-echo-persistent-shader-slot/u);
+  assert.match(source, /Lead Vocals → main mix fallback/u);
+  assert.match(source, /ALWAYS ON 3/u);
+});

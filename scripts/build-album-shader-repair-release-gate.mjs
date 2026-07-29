@@ -12,6 +12,7 @@ import {
   validateNativeVisualizerRoute,
 } from "../src/domain/native-visualizer-route.js";
 import { validatePortableVisualizerCard } from "../src/domain/portable-visualizer-card.js";
+import { echoPersistentShaderSegments } from "../src/domain/echo-persistent-shader-slots.js";
 
 const ROOT = path.resolve(import.meta.dirname, "..");
 
@@ -105,8 +106,8 @@ function stableCounter(values = []) {
 }
 
 function clippedWindow(cue = {}, durationSeconds = 0) {
-  const startSeconds = Math.max(0, Number(cue.start_sec));
-  const endSeconds = Math.min(Number(durationSeconds), Number(cue.end_sec));
+  const startSeconds = Math.round(Math.max(0, Number(cue.start_sec)) * 1_000) / 1_000;
+  const endSeconds = Math.round(Math.min(Number(durationSeconds), Number(cue.end_sec)) * 1_000) / 1_000;
   return Number.isFinite(startSeconds) && Number.isFinite(endSeconds) && endSeconds > startSeconds
     ? { startSeconds, endSeconds }
     : null;
@@ -356,8 +357,13 @@ for (const projectEvidence of [...(hydration.projects || [])].sort((left, right)
   const sourcePayload = readJson(sourceProjectPath);
   const project = sourcePayload.music_video_project || sourcePayload;
   const graph = readJson(graphPath);
-  const sourceCues = Array.isArray(project.visualizer_timeline) ? project.visualizer_timeline : [];
-  const cards = (graph.tracks || []).find((track) => track.id === "track-b" || track.role === "visualizer")?.cards || [];
+  const sourceCues = [
+    ...(Array.isArray(project.visualizer_timeline) ? project.visualizer_timeline : []),
+    ...(Array.isArray(project.persistent_shader_slots) ? echoPersistentShaderSegments(project) : []),
+  ];
+  const cards = (graph.tracks || [])
+    .filter((track) => track.id === "track-b" || track.role === "visualizer")
+    .flatMap((track) => track.cards || []);
   const receipts = graph.directorV2?.visualizerReceipts || [];
   const validCues = sourceCues.flatMap((cue, sourceCueIndex) => {
     const window = clippedWindow(cue, project.duration);
@@ -383,14 +389,15 @@ for (const projectEvidence of [...(hydration.projects || [])].sort((left, right)
   }
   if (projectEvidence.shaderRepair) {
     const projectRepair = projectEvidence.shaderRepair;
+    const changingSourceCueCount = Array.isArray(project.visualizer_timeline) ? project.visualizer_timeline.length : 0;
     const runtimeReceiptCount = (projectRepair.timeline || []).filter((cue) => cue?.shader_repair != null).length;
     const repairErrors = [];
     if (projectRepair.schemaVersion !== "hapa.echo.pixel-gate-timeline-repair.v1") repairErrors.push("schema");
     if (projectRepair.ok !== true) repairErrors.push("not-ok");
-    if (!Array.isArray(projectRepair.timeline) || projectRepair.timeline.length !== sourceCues.length) repairErrors.push("timeline-count");
+    if (!Array.isArray(projectRepair.timeline) || projectRepair.timeline.length !== changingSourceCueCount) repairErrors.push("timeline-count");
     if (!Array.isArray(projectRepair.replacements) || projectRepair.replacements.length !== Number(projectRepair.replacementCount || 0)) repairErrors.push("aggregate-count");
     if (runtimeReceiptCount !== Number(projectRepair.replacementCount || 0)) repairErrors.push("runtime-receipt-count");
-    if ((projectRepair.replacements || []).some((repair) => !Number.isInteger(Number(repair?.cueIndex)) || Number(repair.cueIndex) < 0 || Number(repair.cueIndex) >= sourceCues.length)) repairErrors.push("cue-index-range");
+    if ((projectRepair.replacements || []).some((repair) => !Number.isInteger(Number(repair?.cueIndex)) || Number(repair.cueIndex) < 0 || Number(repair.cueIndex) >= changingSourceCueCount)) repairErrors.push("cue-index-range");
     if (repairErrors.length) violate("project-shader-repair-receipt-invalid", { songId: projectEvidence.songId, errors: repairErrors });
   }
 

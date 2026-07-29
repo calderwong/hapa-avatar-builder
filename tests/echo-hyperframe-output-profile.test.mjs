@@ -70,6 +70,21 @@ test("Echo HyperFrame scripts emit canonical profile metadata and profile-sized 
   assert.match(vertical, /width: 1080px; height: 1920px/u);
 });
 
+test("Echo HyperFrame scripts declare selected persistent shader slots as full-song layers", () => {
+  const project = profileProject().music_video_project;
+  project.persistent_shader_slots = [
+    { id: "always-on-shader-1", enabled: true, shader_id: "isf:5e7a7fc27c113618206de3e4", shader_title: "UltimateFlame" },
+    { id: "always-on-shader-2", enabled: true, shader_id: "isf:66d31ee18d90c9001a4ac89d", shader_title: "Waveform 2", stem_focus: "leadVocals" },
+    { id: "always-on-shader-3", enabled: false, shader_id: "none" },
+  ];
+  const script = generateEchoHyperframeScript(project);
+  assert.match(script, /window\.HAPA_PERSISTENT_SHADER_SLOTS/u);
+  assert.equal((script.match(/data-composition-id="hapa-persistent-visualizer"/gu) || []).length, 2);
+  assert.match(script, /data-track-id="track-shader-always-on-1"[\s\S]+data-duration="4"[\s\S]+data-shader-id="isf:5e7a7fc27c113618206de3e4"/u);
+  assert.match(script, /data-track-id="track-shader-always-on-2"[\s\S]+data-stem-focus="leadVocals"[\s\S]+data-stem-fallback="master"/u);
+  assert.doesNotMatch(script, /  <div id="always-on-shader-3"/u);
+});
+
 test("Director variants carry canonical output profiles and separate profile hashes", () => {
   const build = (outputProfile) => buildDirectorV2Artifacts({
     project: profileProject(outputProfile),

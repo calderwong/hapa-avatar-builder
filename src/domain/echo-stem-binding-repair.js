@@ -326,6 +326,7 @@ export function selectEchoActiveStemBinding({
   availableStemSources = [],
   allowSilentRoles = [],
   allowMasterFallback = true,
+  allowAlternateIsolatedStems = true,
 } = {}) {
   const base = decisionBase({ requestedRole, selectedRole: requestedRole, startSeconds, endSeconds, signals, telemetry });
   const validTelemetry = telemetry?.schemaVersion === "hapa.stem-telemetry-bundle.v1"
@@ -376,6 +377,18 @@ export function selectEchoActiveStemBinding({
     telemetryRoleCounts.set(role, Number(telemetryRoleCounts.get(role) || 0) + 1);
   }
   const duplicateTelemetryRoles = [...telemetryRoleCounts].filter(([, count]) => count > 1).map(([role]) => role).sort();
+  if (!sourceIndex.byRole.size && !sourceResources.length && allowMasterFallback && masterEvidence.sufficient) {
+    return {
+      ...decisionBase({ requestedRole, selectedRole: "master", startSeconds, endSeconds, signals, telemetry }),
+      status: "fallback-master-requested-stem-missing",
+      reason: "requested-isolated-stem-missing-master-proven-active-in-cue-window",
+      changed: true,
+      candidateScope: "requested-then-master",
+      selectedEvidence: masterEvidence,
+      requestedEvidence: null,
+      candidates: [],
+    };
+  }
   if (sourceIndex.duplicateRoles.length || duplicateTelemetryRoles.length || !sourceIndex.byRole.size) {
     return {
       ...base,
@@ -407,6 +420,21 @@ export function selectEchoActiveStemBinding({
       changed: false,
       candidateScope: "requested-role",
       selectedEvidence: requestedEvidence,
+      candidates: evidence,
+    };
+  }
+
+  if (!allowAlternateIsolatedStems && allowMasterFallback && masterEvidence.sufficient) {
+    return {
+      ...decisionBase({ requestedRole, selectedRole: "master", startSeconds, endSeconds, signals, telemetry }),
+      status: "fallback-master-after-requested-stem",
+      reason: requestedEvidence
+        ? "requested-stem-inactive-master-proven-active-in-cue-window"
+        : "requested-stem-missing-master-proven-active-in-cue-window",
+      changed: true,
+      candidateScope: "requested-then-master",
+      selectedEvidence: masterEvidence,
+      requestedEvidence: requestedEvidence || null,
       candidates: evidence,
     };
   }
@@ -594,6 +622,8 @@ function stemBindingRequestSnapshot(card = {}) {
   return {
     schemaVersion: STEM_BINDING_REQUEST_SCHEMA,
     defaultRole: directorStemRole(defaultRole) || "master",
+    allowAlternateIsolatedStems: card?.provenance?.allowAlternateIsolatedStems !== "false"
+      && card?.provenance?.allowAlternateIsolatedStems !== false,
     portableStemFocus: directorStemRole(defaultRole) || "master",
     hasVisualizationStemFocus: Object.hasOwn(card?.visualization || {}, "stemFocus"),
     visualizationStemFocus: directorStemRole(
@@ -682,14 +712,15 @@ export function repairEchoShowGraphStemBindings(showGraph = {}, {
   const timeline = project?.music_video_project?.timeline || project?.project?.timeline || project?.timeline || [];
   const allowSilentRoles = explicitEchoAllowSilentRoles({ telemetry, showGraph: graph });
   const availableRoles = list(graph?.stems?.items).map((stem) => stem?.stemType || stem?.role || stem?.title || stem?.id);
-  const visualizerTrack = list(graph.tracks).find((track) => track?.role === "visualizer" || ["track-b", "ivf-stack"].includes(track?.id));
-  if (!visualizerTrack) return { graph, changed: false, repairs: [], receipt: null };
+  const visualizerTracks = list(graph.tracks).filter((track) => track?.role === "visualizer" || ["track-b", "ivf-stack"].includes(track?.id));
+  if (!visualizerTracks.length) return { graph, changed: false, repairs: [], receipt: null };
+  const visualizerCards = visualizerTracks.flatMap((track) => list(track.cards));
   const layers = list(graph?.directorV2?.visualizerLayers);
   const layerBySourceCue = new Map(layers.map((layer) => [Number(layer?.sourceCueIndex), layer]));
   const repairs = [];
   const decisionRecords = [];
 
-  for (const card of list(visualizerTrack.cards)) {
+  for (const card of visualizerCards) {
     if (card?.knockedOut || !card?.visualization) continue;
     const startSeconds = finite(card.startSeconds, 0);
     const endSeconds = finite(card.endSeconds, startSeconds);
@@ -711,6 +742,7 @@ export function repairEchoShowGraphStemBindings(showGraph = {}, {
       availableStemSources: list(graph?.stems?.items),
       allowSilentRoles,
       allowMasterFallback: true,
+      allowAlternateIsolatedStems: request.allowAlternateIsolatedStems !== false,
     }));
     const decisionsByRole = new Map(decisions.map((decision) => [decision.requestedCanonicalRole, decision]));
     const selectedRoleFor = (value) => {
@@ -820,7 +852,7 @@ export function repairEchoShowGraphStemBindings(showGraph = {}, {
     decisions: decisionRecords,
     repairs,
   };
-  const cardsBySourceCue = new Map(list(visualizerTrack.cards).map((card) => [Number(card?.sourceCueIndex), card]));
+  const cardsBySourceCue = new Map(visualizerCards.map((card) => [Number(card?.sourceCueIndex), card]));
   graph.directorV2 = {
     ...(graph.directorV2 || {}),
     visualizerLayers: layers,

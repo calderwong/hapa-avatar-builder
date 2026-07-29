@@ -915,6 +915,9 @@ export function compileHyperFramesShow({ showGraph, telemetry, project, proxyReg
         const instance = {
           ...base,
           templateId: "visualizer-proxy-layer-v2",
+          sourceKind: card.sourceKind || card.executionReceipt?.sourceKind || "changing-timeline",
+          persistentSlotId: card.persistentSlotId || card.executionReceipt?.persistentSlotId || null,
+          alwaysOn: card.alwaysOn === true,
           visualizerId: proxyResolution.visualizerId,
           sourceHash: proxyResolution.sourceHash,
           declaredSourceHash: proxyResolution.declaredSourceHash,

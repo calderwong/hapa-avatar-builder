@@ -282,7 +282,10 @@ test("the complete catalog and album satisfy media/default/audio-map frame contr
     if (!fs.existsSync(graphPath)) continue;
     graphCount += 1;
     const graph = JSON.parse(fs.readFileSync(graphPath, "utf8"));
-    for (const card of graph.tracks?.find((track) => track.id === "track-b")?.cards || []) {
+    const shaderCards = (graph.tracks || [])
+      .filter((track) => track.role === "visualizer" || track.id === "track-b")
+      .flatMap((track) => track.cards || []);
+    for (const card of shaderCards) {
       cardCount += 1;
       const shader = byId.get(card.visualization?.sourceId);
       assert.ok(shader, `${directory} references unknown shader ${card.visualization?.sourceId}`);

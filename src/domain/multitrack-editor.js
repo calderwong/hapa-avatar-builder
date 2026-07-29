@@ -2,6 +2,7 @@ import { applyDirtyRangePatch } from "./dirty-range-rebuild.js";
 import { contextHash } from "./song-context-packet.js";
 import { resolveEchoOutputProfile } from "./echo-output-profile.js";
 import { isPortableVisualizerAttachment } from "./portable-visualizer-card.js";
+import { normalizeEchoPersistentShaderSlots } from "./echo-persistent-shader-slots.js";
 
 export const MULTITRACK_EDITOR_SCHEMA = "hapa.director.multitrack-editor.v1";
 
@@ -166,6 +167,9 @@ function trackByRole(graph, ids, roles) {
 function legacyEditorGraph(project = {}) {
   const duration = Number(project.duration || 60);
   const outputProfile = resolveEchoOutputProfile(project);
+  const persistentShaderSlots = Array.isArray(project.persistent_shader_slots)
+    ? normalizeEchoPersistentShaderSlots(project)
+    : [];
   return {
     schemaVersion: "hapa.music-viz.native-show-graph.v2",
     outputProfile,
@@ -174,8 +178,31 @@ function legacyEditorGraph(project = {}) {
     tracks: [
       { id: "media-a", label: "Media A", role: "media", cards: (project.timeline || []).map((shot, index) => ({ id: `legacy:media:${index}`, trackId: "media-a", startSeconds: Number(shot.start_sec), endSeconds: Number(shot.end_sec), media: projectedShotMedia(shot), parameters: { opacity: 1, blendMode: "normal", motion: shot.camera_motion, stemMap: shot.active_stems || [] }, buffer: { state: shot.media_contract?.proxy?.status === "ready" ? "ready" : "pending", readySeconds: shot.media_contract?.proxy?.status === "ready" ? Number(shot.end_sec) - Number(shot.start_sec) : 0 }, provenance: { rendererRoute: shot.media_contract?.type || "unknown" }, knockedOut: false })) },
       { id: "ivf-stack", label: "IVF / ISF", role: "visualizer", cards: (project.visualizer_timeline || []).map((row, index) => ({ id: `legacy:ivf:${index}`, trackId: "ivf-stack", startSeconds: Number(row.start_sec), endSeconds: Number(row.end_sec), media: { id: row.visualizer_id, title: row.visualizer_title }, visualization: { sourceId: row.visualizer_id, nativeKey: row.visualizer_title, status: row.native_status || "browser-proxy" }, parameters: { opacity: Number(row.opacity ?? 0.5), blendMode: row.blend_mode || "screen", stemMap: row.active_stems || [] }, buffer: { state: "ready", readySeconds: Number(row.end_sec) - Number(row.start_sec) }, provenance: { rendererRoute: row.native_status || "browser-proxy" }, knockedOut: false })) },
+      ...persistentShaderSlots.map((slot) => ({
+        id: slot.track_id,
+        label: slot.label,
+        role: "visualizer",
+        persistent: true,
+        alwaysOn: true,
+        slotId: slot.id,
+        enabled: slot.enabled,
+        cards: slot.enabled ? [{
+          id: `legacy:persistent:${slot.id}`,
+          trackId: slot.track_id,
+          startSeconds: 0,
+          endSeconds: duration,
+          media: { id: slot.shader_id, title: slot.shader_title },
+          visualization: { sourceId: slot.shader_id, requestedSourceId: slot.shader_id, nativeKey: slot.shader_title, status: "portable-card-missing" },
+          parameters: { opacity: slot.opacity, blendMode: slot.blend_mode, stemFocus: slot.stem_focus, stemMap: [slot.stem_focus] },
+          buffer: { state: "pending", readySeconds: 0 },
+          provenance: { rendererRoute: "portable-card-missing", persistentSlotId: slot.id },
+          persistentSlotId: slot.id,
+          alwaysOn: true,
+          knockedOut: false,
+        }] : [],
+      })),
     ],
-    directorV2: { stemBuses: [], cameraKeyframes: [], visualTimeTrack: { events: [] }, accentTrack: { events: [] }, patchLineage: { patches: [], dirtyRanges: [] }, rendererSupport: {} },
+    directorV2: { persistentShaderSlots, stemBuses: [], cameraKeyframes: [], visualTimeTrack: { events: [] }, accentTrack: { events: [] }, patchLineage: { patches: [], dirtyRanges: [] }, rendererSupport: {} },
   };
 }
 
@@ -213,9 +240,11 @@ function mergeMediaTimeline(graph, timeline = []) {
   });
 }
 
-function mergeVisualizerTimeline(graph, timeline = []) {
+function mergeVisualizerTimeline(graph, timeline = [], options = {}) {
   if (!Array.isArray(timeline)) return;
-  const track = trackByRole(graph, ["track-b", "ivf-stack"], ["visualizer"]);
+  const track = options.trackId
+    ? (graph.tracks || []).find((candidate) => candidate.id === options.trackId)
+    : trackByRole(graph, ["track-b", "ivf-stack"], ["visualizer"]);
   if (!track) return;
   const templates = Array.isArray(track.cards) ? track.cards : [];
   const bySourceId = new Map();
@@ -322,6 +351,59 @@ function mergeVisualizerTimeline(graph, timeline = []) {
   });
 }
 
+function mergePersistentShaderSlots(graph, project = {}) {
+  if (!Array.isArray(project.persistent_shader_slots)) return;
+  const slots = normalizeEchoPersistentShaderSlots(project);
+  for (const slot of slots) {
+    let track = (graph.tracks || []).find((candidate) => candidate.id === slot.track_id);
+    if (!track) {
+      track = { id: slot.track_id, label: slot.label, role: "visualizer", cards: [] };
+      graph.tracks = [...(graph.tracks || []), track];
+    }
+    Object.assign(track, {
+      label: slot.label,
+      role: "visualizer",
+      persistent: true,
+      alwaysOn: true,
+      slotId: slot.id,
+      enabled: slot.enabled,
+    });
+    if (!slot.enabled) {
+      track.cards = [];
+      continue;
+    }
+    mergeVisualizerTimeline(graph, [{
+      start_sec: 0,
+      end_sec: Number(project.duration ?? graph.song?.durationSeconds ?? slot.end_sec),
+      visualizer_id: slot.shader_id,
+      visualizer_title: slot.shader_title,
+      stem_focus: slot.stem_focus,
+      opacity: slot.opacity,
+      blend_mode: slot.blend_mode,
+      native_status: slot.native_status,
+      portable_visualizer_card: slot.portable_visualizer_card || slot.portableVisualizerCard || null,
+    }], { trackId: slot.track_id });
+    track.cards = (track.cards || []).map((card) => ({
+      ...card,
+      persistentSlotId: slot.id,
+      alwaysOn: true,
+      parameters: {
+        ...(card.parameters || {}),
+        stemFocus: slot.stem_focus,
+        stemMap: [slot.stem_focus],
+      },
+      provenance: {
+        ...(card.provenance || {}),
+        persistentSlotId: slot.id,
+      },
+    }));
+  }
+  graph.directorV2 = {
+    ...(graph.directorV2 || {}),
+    persistentShaderSlots: slots,
+  };
+}
+
 export function projectToEditorGraph(project = {}) {
   const declared = project.director_show_graph?.tracks ? clone(project.director_show_graph) : null;
   let graph = declared || legacyEditorGraph(project);
@@ -341,6 +423,7 @@ export function projectToEditorGraph(project = {}) {
   if (declared) {
     mergeMediaTimeline(graph, project.timeline);
     mergeVisualizerTimeline(graph, project.visualizer_timeline || project.visualizerTimeline);
+    mergePersistentShaderSlots(graph, project);
   }
   graph.directorV2 = {
     ...(graph.directorV2 || {}),
