@@ -18,6 +18,8 @@ const PLAYLIST_ID = process.env.HAPA_DEAR_PAPA_PLAYLIST_ID || "903148b6-5709-451
 const SUNO_LIBRARY_ROOT = process.env.HAPA_SUNO_LIBRARY_ROOT || "/Users/calderwong/Desktop/suno-library";
 const PLAYLIST_ROOT = process.env.HAPA_DEAR_PAPA_PLAYLIST_ROOT || path.join(SUNO_LIBRARY_ROOT, "playlists", PLAYLIST_ID);
 const MANIFEST_PATH = process.env.HAPA_DEAR_PAPA_MANIFEST || path.join(PLAYLIST_ROOT, "manifest.hapa-avatar-builder.json");
+const ECHO_ALIGNMENT_MANIFEST_PATH = process.env.HAPA_ECHO_LYRIC_ALIGNMENT_MANIFEST
+  || path.join(ROOT, "artifacts/echo-lyric-quality-v4/alignment-manifest.json");
 const SCRIPT_NAME = "scripts/sync-dear-papa-lyric-timings.mjs";
 const args = new Set(process.argv.slice(2));
 const APPLY_MUTATIONS = args.has("--apply") || process.env.HAPA_DEAR_PAPA_TIMINGS_APPLY === "1";
@@ -193,9 +195,16 @@ if (!fs.existsSync(HAPA_SONG_STORE_PATH) || !fs.existsSync(SONGBOOK_PATH)) {
 }
 
 const manifest = readJson(MANIFEST_PATH);
+const echoAlignmentManifest = fs.existsSync(ECHO_ALIGNMENT_MANIFEST_PATH)
+  ? readJson(ECHO_ALIGNMENT_MANIFEST_PATH)
+  : { songs: [] };
+const manifestSongs = [...new Map([
+  ...(manifest.songs || []),
+  ...(echoAlignmentManifest.songs || []),
+].map((song) => [String(song.id || ""), song])).values()];
 const timingByRegistryId = new Map();
 const timingRejections = [];
-for (const song of manifest.songs || []) {
+for (const song of manifestSongs) {
   const timing = readTimingForManifestSong(song);
   if (!timing?.registryTrackId) continue;
   const promotion = evaluateEchoLyricTimingPromotion(
@@ -210,7 +219,13 @@ for (const song of manifest.songs || []) {
       sttPathExists: fs.existsSync(timing.sttPath),
     },
   );
-  if (promotion.accepted) timingByRegistryId.set(timing.registryTrackId, { ...timing, promotion });
+  if (promotion.accepted) timingByRegistryId.set(timing.registryTrackId, {
+    ...timing,
+    promotion,
+    timingSourceLabel: timing.provenance?.sourceCollection === "echo-album-director-projects"
+      ? "echo-album-audio-derived-lyric-timing"
+      : "dear-papa-playlist-lyric-timing",
+  });
   else timingRejections.push({
     registryTrackId: timing.registryTrackId,
     title: timing.title,
@@ -237,7 +252,7 @@ for (const song of store.songs || []) {
   song.lyricTimingSource = {
     schemaVersion: "hapa.dear-papa.lyric-timing-source.v1",
     source: SCRIPT_NAME,
-    timingSource: "dear-papa-playlist-lyric-timing",
+    timingSource: timing.timingSourceLabel,
     registryTrackId,
     playlistId: PLAYLIST_ID,
     path: timing.path,
@@ -251,7 +266,7 @@ for (const song of store.songs || []) {
   song.enrichment = {
     ...(song.enrichment || {}),
     timingReviewed: false,
-    timingSource: "dear-papa-playlist-lyric-timing"
+    timingSource: timing.timingSourceLabel
   };
   song.lineage = {
     ...(song.lineage || {}),
@@ -283,7 +298,7 @@ for (const card of songbook.songCards || []) {
   card.lyrics = {
     ...(card.lyrics || {}),
     timingStatus: timing.quality.qualityStatus,
-    timingSource: "dear-papa-playlist-lyric-timing",
+    timingSource: timing.timingSourceLabel,
     timingPath: timing.path,
     timingLineCount: timing.lines.length,
     timingConfidence: timing.confidence,
@@ -304,13 +319,13 @@ for (const card of songbook.songCards || []) {
 store.audit = {
   ...(store.audit || {}),
   withTimings: (store.songs || []).filter((song) => (song.lyricTimings || []).length > 0).length,
-  lyricTimingSource: "dear-papa-playlist-lyric-timing",
+  lyricTimingSource: "audio-derived-registry-timing",
   lyricTimingSyncedAt: UPDATED_AT
 };
 store.updatedAt = UPDATED_AT;
 songbook.sync = {
   ...(songbook.sync || {}),
-  lyricTimingSource: "dear-papa-playlist-lyric-timing",
+  lyricTimingSource: "audio-derived-registry-timing",
   lyricTimingSyncedAt: UPDATED_AT,
   lyricTimingMatched: songbookUpdated
 };
@@ -334,22 +349,22 @@ if (fs.existsSync(PROJECTS_DIR)) for (const file of fs.readdirSync(PROJECTS_DIR)
     project.song_edit_map.timedLyrics = timing.lines;
     project.song_edit_map.editPulses = makeEditPulses(timing.lines);
     project.song_edit_map.sections = sections;
-    project.song_edit_map.vocalDensity = sections.map((section) => ({ start_sec: section.start, end_sec: section.end, vocal_density: section.vocalDensity, source: "dear-papa-playlist-lyric-timing" }));
-    project.song_edit_map.energyCurves = { source: "dear-papa-playlist-lyric-timing", points: sections.map((section) => ({ t: section.start, section_id: section.id, energy: section.energy })) };
+    project.song_edit_map.vocalDensity = sections.map((section) => ({ start_sec: section.start, end_sec: section.end, vocal_density: section.vocalDensity, source: timing.timingSourceLabel }));
+    project.song_edit_map.energyCurves = { source: timing.timingSourceLabel, points: sections.map((section) => ({ t: section.start, section_id: section.id, energy: section.energy })) };
     project.song_edit_map.audioTelemetry = {
       ...(project.song_edit_map.audioTelemetry || {}),
       lyricLineCount: timing.lines.length,
       lyricBlockCount: sections.filter((section) => section.lyricLineCount > 0).length,
       wordCount,
       wordsPerMinute: Number((wordCount / Math.max(1, duration / 60)).toFixed(1)),
-      lyricTimingSource: "dear-papa-playlist-lyric-timing",
+      lyricTimingSource: timing.timingSourceLabel,
       lyricTimingPath: timing.path,
       lyricTimingConfidence: timing.confidence
     };
-    project.song_edit_map.provenance = { ...(project.song_edit_map.provenance || {}), lyricSource: "dear-papa-playlist-lyric-timing", lyricTimingSource: "dear-papa-playlist-lyric-timing", lyricTimingStrategy: "source-sidecar-by-registry-track", lyricTimingPath: timing.path, lyricTimingRegistryTrackId: registryTrackId, timingSourceSha256: timing.timingSha256, activeTimingSha256: timing.timingSha256 };
+    project.song_edit_map.provenance = { ...(project.song_edit_map.provenance || {}), lyricSource: timing.timingSourceLabel, lyricTimingSource: timing.timingSourceLabel, lyricTimingStrategy: "source-sidecar-by-registry-track", lyricTimingPath: timing.path, lyricTimingRegistryTrackId: registryTrackId, timingSourceSha256: timing.timingSha256, activeTimingSha256: timing.timingSha256 };
   }
-  project.lyric_timing_truth = { schemaVersion: "hapa.echo.lyric-timing-truth.v2", source: "dear-papa-playlist-lyric-timing", sourcePath: timing.path, registryTrackId, timingSourceSha256: timing.timingSha256, activeTimingSha256: timing.timingSha256, sourceMatchesActive: true, ...timing.quality };
-  project.lyric_timing_heal = { ...(project.lyric_timing_heal || {}), source: SCRIPT_NAME, strategy: "source-sidecar-by-registry-track", timingSource: "dear-papa-playlist-lyric-timing", timingPath: timing.path, timingConfidence: timing.confidence, registryTrackId, timingSourceSha256: timing.timingSha256, activeTimingSha256: timing.timingSha256, generatedAt: UPDATED_AT, lineCount: timing.lines.length, lastLyricEnd: timing.lines.at(-1)?.end || 0 };
+  project.lyric_timing_truth = { schemaVersion: "hapa.echo.lyric-timing-truth.v2", source: timing.timingSourceLabel, sourcePath: timing.path, registryTrackId, timingSourceSha256: timing.timingSha256, activeTimingSha256: timing.timingSha256, sourceMatchesActive: true, ...timing.quality };
+  project.lyric_timing_heal = { ...(project.lyric_timing_heal || {}), source: SCRIPT_NAME, strategy: "source-sidecar-by-registry-track", timingSource: timing.timingSourceLabel, timingPath: timing.path, timingConfidence: timing.confidence, registryTrackId, timingSourceSha256: timing.timingSha256, activeTimingSha256: timing.timingSha256, generatedAt: UPDATED_AT, lineCount: timing.lines.length, lastLyricEnd: timing.lines.at(-1)?.end || 0 };
   project.hyperframe_script_stale = true; project.updated_at = UPDATED_AT;
   projectWrites.push({ filePath, payload, songId: project.song_id, previousHash, timingSha256: timing.timingSha256 }); projectsUpdated += 1;
 }

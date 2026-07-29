@@ -14,6 +14,8 @@ const PLAYLIST_ROOT = process.env.HAPA_DEAR_PAPA_PLAYLIST_ROOT
   || "/Users/calderwong/Desktop/suno-library/playlists/903148b6-5709-4511-9cfd-d34b23799da6";
 const MANIFEST_PATH = process.env.HAPA_DEAR_PAPA_MANIFEST
   || path.join(PLAYLIST_ROOT, "manifest.hapa-avatar-builder.json");
+const ALIGNMENT_MANIFEST_PATH = process.env.HAPA_ECHO_LYRIC_ALIGNMENT_MANIFEST
+  || path.join(ROOT, "artifacts/echo-lyric-quality-v4/alignment-manifest.json");
 
 function argument(name, fallback = "") {
   const token = `--${name}=`;
@@ -32,7 +34,13 @@ const baseline = JSON.parse(fs.readFileSync(BASELINE_PATH, "utf8"));
 const manifest = fs.existsSync(MANIFEST_PATH)
   ? JSON.parse(fs.readFileSync(MANIFEST_PATH, "utf8"))
   : { songs: [] };
-const manifestById = new Map((manifest.songs || []).map((song) => [String(song.id || ""), song]));
+const alignmentManifest = fs.existsSync(ALIGNMENT_MANIFEST_PATH)
+  ? JSON.parse(fs.readFileSync(ALIGNMENT_MANIFEST_PATH, "utf8"))
+  : { songs: [] };
+const manifestById = new Map([
+  ...(manifest.songs || []),
+  ...(alignmentManifest.songs || []),
+].map((song) => [String(song.id || ""), song]));
 const seen = new Set();
 const queue = (baseline.projects || [])
   .filter((project) => cohort === "all" || project.recent)
