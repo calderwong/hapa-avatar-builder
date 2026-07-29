@@ -12,6 +12,13 @@ const OUTPUT_PATH = process.env.HAPA_ECHO_LYRIC_DRAIN_PLAN
   || path.join(ROOT, "artifacts/echo-lyric-quality-v4/drain-plan.json");
 const PLAYLIST_ROOT = process.env.HAPA_DEAR_PAPA_PLAYLIST_ROOT
   || "/Users/calderwong/Desktop/suno-library/playlists/903148b6-5709-4511-9cfd-d34b23799da6";
+const TIMING_ROOTS = [...new Set([
+  PLAYLIST_ROOT,
+  ...(process.env.HAPA_ECHO_LYRIC_TIMING_ROOTS || "")
+    .split(path.delimiter)
+    .map((value) => value.trim())
+    .filter(Boolean),
+])];
 const MANIFEST_PATH = process.env.HAPA_DEAR_PAPA_MANIFEST
   || path.join(PLAYLIST_ROOT, "manifest.hapa-avatar-builder.json");
 const ALIGNMENT_MANIFEST_PATH = process.env.HAPA_ECHO_LYRIC_ALIGNMENT_MANIFEST
@@ -42,6 +49,50 @@ const manifestById = new Map([
   ...(alignmentManifest.songs || []),
 ].map((song) => [String(song.id || ""), song]));
 const seen = new Set();
+
+function inspectTimingEvidence(registryTrackId, manifestSong = null) {
+  const paths = [...new Set([
+    manifestSong?.lyricTimingPath || "",
+    ...TIMING_ROOTS.map((root) => path.join(root, "lyric_timings", `${registryTrackId}.json`)),
+  ].filter(Boolean))];
+  const candidates = paths
+    .filter((timingPath) => fs.existsSync(timingPath))
+    .map((timingPath) => {
+      const sttPath = timingPath.replace(/\.json$/i, ".stt.json");
+      try {
+        const timing = JSON.parse(fs.readFileSync(timingPath, "utf8"));
+        return {
+          timingPath,
+          sttPath,
+          timingParsed: true,
+          promotion: evaluateEchoLyricTimingPromotion(timing, {
+            sourcePathExists: true,
+            sttPathExists: fs.existsSync(sttPath),
+          }),
+        };
+      } catch {
+        return {
+          timingPath,
+          sttPath,
+          timingParsed: false,
+          promotion: null,
+        };
+      }
+    });
+  const selected = candidates.find((candidate) => candidate.promotion?.accepted)
+    || candidates.find((candidate) => candidate.timingParsed)
+    || candidates[0]
+    || null;
+  return {
+    timingFound: candidates.length > 0,
+    timingParsed: Boolean(selected?.timingParsed),
+    timingPath: selected?.timingPath || "",
+    sttPath: selected?.sttPath || "",
+    promotion: selected?.promotion || null,
+    evidencePaths: candidates.map((candidate) => candidate.timingPath),
+  };
+}
+
 const queue = (baseline.projects || [])
   .filter((project) => cohort === "all" || project.recent)
   .filter((project) => !project.sourceDeclaration?.instrumental)
@@ -54,27 +105,13 @@ const queue = (baseline.projects || [])
   })
   .map((project) => {
     const manifestSong = manifestById.get(project.registryTrackId) || null;
-    const timingPath = path.join(PLAYLIST_ROOT, "lyric_timings", `${project.registryTrackId}.json`);
-    const sttPath = path.join(PLAYLIST_ROOT, "lyric_timings", `${project.registryTrackId}.stt.json`);
-    const timingFound = fs.existsSync(timingPath);
-    let timingParsed = false;
-    let promotion = null;
-    if (timingFound) {
-      try {
-        const timing = JSON.parse(fs.readFileSync(timingPath, "utf8"));
-        timingParsed = true;
-        promotion = evaluateEchoLyricTimingPromotion(timing, {
-          sourcePathExists: true,
-          sttPathExists: fs.existsSync(sttPath),
-        });
-      } catch {}
-    }
+    const timingEvidence = inspectTimingEvidence(project.registryTrackId, manifestSong);
     const queueKind = classifyEchoLyricDrainQueue({
       manifestSongFound: Boolean(manifestSong),
       issues: project.issues,
-      timingFound,
-      timingParsed,
-      promotionAccepted: Boolean(promotion?.accepted),
+      timingFound: timingEvidence.timingFound,
+      timingParsed: timingEvidence.timingParsed,
+      promotionAccepted: Boolean(timingEvidence.promotion?.accepted),
     });
     return {
       registryTrackId: project.registryTrackId,
@@ -86,8 +123,9 @@ const queue = (baseline.projects || [])
       alignmentSource: project.alignmentSource,
       manifestSongFound: Boolean(manifestSong),
       queueKind,
-      timingPath: fs.existsSync(timingPath) ? timingPath : "",
-      promotion,
+      timingPath: timingEvidence.timingPath,
+      timingEvidencePaths: timingEvidence.evidencePaths,
+      promotion: timingEvidence.promotion,
     };
   });
 const actionable = action === "all" ? queue : queue.filter((row) => row.queueKind === action);
@@ -98,6 +136,7 @@ const plan = {
   generatedAt: new Date().toISOString(),
   cohort,
   action,
+  timingRoots: TIMING_ROOTS,
   pendingUniqueTracks: queue.length,
   queueCounts: Object.fromEntries(
     [...queue.reduce((counts, row) => counts.set(row.queueKind, (counts.get(row.queueKind) || 0) + 1), new Map())].sort(),
