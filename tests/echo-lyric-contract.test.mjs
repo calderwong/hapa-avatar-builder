@@ -112,6 +112,9 @@ test("Echo UI exposes an editable per-cut lyrics switch", () => {
   const source = fs.readFileSync("src/components/HapaEchosView.jsx", "utf8");
   assert.match(source, /aria-label="Lyrics enabled"/u);
   assert.match(source, /data-testid="echo-lyrics-enabled"/u);
+  assert.match(source, /aria-label="Lyric template"/u);
+  assert.match(source, /data-testid="echo-lyric-template"/u);
+  assert.match(source, /resolveEchoLyricTemplateFrame/u);
   assert.match(source, /lyrics_enabled: enabled/u);
   assert.match(source, /activeLyricContract\.enabled/u);
 });

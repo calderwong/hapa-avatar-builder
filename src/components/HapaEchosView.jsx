@@ -93,10 +93,12 @@ import {
   normalizeEchoPersistentShaderSlots,
 } from "../domain/echo-persistent-shader-slots.js";
 import {
+  ECHO_LYRIC_TEMPLATES,
   attachEchoLyricContract,
-  echoLyricTemplateIdFromLegacyVariant,
+  echoLyricTemplate,
   normalizeEchoLyricContract,
 } from "../domain/echo-lyric-contract.js";
+import { resolveEchoLyricTemplateFrame } from "../domain/echo-lyric-template-runtime.js";
 
 const electronApiBase = globalThis.window?.hapaAvatarBuilder?.apiBase;
 const API_BASE = electronApiBase || (globalThis.location?.port === "5178" ? "http://127.0.0.1:8787" : "");
@@ -5238,17 +5240,20 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                               </select>
                             </label>
                             <select
-                              value={activeProject.lyric_variant || "phrase-window"}
+                              aria-label="Lyric template"
+                              data-testid="echo-lyric-template"
+                              value={activeLyricContract.templateId}
                               disabled={directorEditingLocked}
                               onChange={(e) => {
-                                const lyricVariant = e.target.value;
+                                const template = echoLyricTemplate(e.target.value);
                                 handleUpdateProjectSettings({
-                                  lyric_variant: lyricVariant,
-                                  lyric_template_id: echoLyricTemplateIdFromLegacyVariant(lyricVariant),
+                                  lyric_variant: template.legacyVariant,
+                                  lyric_template_id: template.id,
                                   lyrics: {
                                     ...activeLyricContract,
-                                    legacyVariant: lyricVariant,
-                                    templateId: echoLyricTemplateIdFromLegacyVariant(lyricVariant),
+                                    legacyVariant: template.legacyVariant,
+                                    templateId: template.id,
+                                    templateLabel: template.label,
                                   },
                                 });
                               }}
@@ -5265,11 +5270,9 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                                 cursor: 'pointer'
                               }}
                             >
-                              <option value="phrase-window">🔤 Phrase Window</option>
-                              <option value="signal-karaoke">🎤 Signal Karaoke</option>
-                              <option value="stacked-echo">🔊 Stacked Echo</option>
-                              <option value="orbit-caption">🪐 Orbit Caption</option>
-                              <option value="scanline-ribbon">📼 Scanline Ribbon</option>
+                              {ECHO_LYRIC_TEMPLATES.map((template) => (
+                                <option key={template.id} value={template.id}>{template.label}</option>
+                              ))}
                             </select>
                             <label
                               style={{
@@ -5788,25 +5791,42 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
 
                                   {/* Timed Lyrics Overlay */}
                                   {currentLine && (() => {
-                                    const activeVariant = activeProject.lyric_variant || "phrase-window";
+                                    const activeTemplateId = activeLyricContract.templateId;
                                     const lyricPlacement = getLyricPlacementStyle(activeProject.lyric_position || "bottom-center", activeOutputProfile);
                                     const lyricTheme = getLyricTheme(activeProject.lyric_style || "neon-cyan");
+                                    const lyricTemplateFrame = resolveEchoLyricTemplateFrame({
+                                      contract: activeLyricContract,
+                                      line: currentLine,
+                                      timeSeconds: currentTime,
+                                      fps: activeOutputProfile.fps,
+                                    });
                                     
                                     const renderWords = (customWordStyle) => {
                                       return currentLine.words ? currentLine.words.map((w, wIdx) => {
-                                        const isWordActive = currentTime >= w.start && currentTime < w.end;
-                                        const isWordCompleted = currentTime >= w.end;
-                                        const wordStyle = customWordStyle(isWordActive, isWordCompleted, wIdx);
+                                        const frameWord = lyricTemplateFrame.words[wIdx] || {};
+                                        const wordStyle = customWordStyle(frameWord.active, frameWord.completed, wIdx, frameWord);
                                         return (
-                                          <span key={wIdx} style={{ display: 'inline-block', transition: 'all 0.15s ease', color: lyricTheme.inactiveColor, ...wordStyle }}>
+                                          <span
+                                            key={wIdx}
+                                            data-lyric-word-active={frameWord.active ? "true" : "false"}
+                                            data-lyric-word-progress={frameWord.progress ?? 0}
+                                            style={{
+                                              display: 'inline-block',
+                                              color: lyricTheme.inactiveColor,
+                                              opacity: frameWord.opacity ?? 1,
+                                              transform: `translate(${frameWord.translateX || 0}px, ${frameWord.translateY || 0}px) rotate(${frameWord.rotateDegrees || 0}deg) scale(${frameWord.scale || 1})`,
+                                              transformOrigin: 'center',
+                                              ...wordStyle,
+                                            }}
+                                          >
                                             {w.word}
                                           </span>
                                         );
                                       }) : currentLine.text;
                                     };
 
-                                    switch (activeVariant) {
-                                      case "signal-karaoke":
+                                    switch (activeTemplateId) {
+                                      case "kinetic-word-burst-v1":
                                         return (
                                           <div style={{
                                             position: 'absolute',
@@ -5838,16 +5858,18 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                                               gap: '5px',
                                               flexWrap: 'wrap'
                                             }}>
-                                              {renderWords((isActive, isCompleted) => ({
+                                              {renderWords((isActive, isCompleted, _wordIndex, frameWord) => ({
                                                 color: isActive ? lyricTheme.activeColor : isCompleted ? lyricTheme.textColor : lyricTheme.inactiveColor,
                                                 textShadow: isActive ? lyricTheme.textShadow : 'none',
-                                                transform: isActive ? 'scale(1.05)' : 'scale(1.0)'
+                                                fontWeight: isActive ? 900 : 700,
+                                                borderBottom: isActive ? `2px solid ${lyricTheme.activeColor}` : '2px solid transparent',
+                                                '--lyric-progress': frameWord.progress,
                                               }))}
                                             </div>
                                           </div>
                                         );
                                         
-                                      case "stacked-echo":
+                                      case "stacked-hook-echo-v1":
                                         return (
                                           <div style={{
                                             position: 'absolute',
@@ -5895,7 +5917,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                                           </div>
                                         );
 
-                                      case "orbit-caption":
+                                      case "orbit-caption-v1":
                                         return (
                                           <div style={{
                                             position: 'absolute',
@@ -5933,7 +5955,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                                           </div>
                                         );
 
-                                      case "scanline-ribbon":
+                                      case "scanline-phrase-ribbon-v1":
                                         return (
                                           <div style={{
                                             position: 'absolute',

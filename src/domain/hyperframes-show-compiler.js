@@ -976,7 +976,8 @@ export function compileHyperFramesShow({ showGraph, telemetry, project, proxyReg
   const compiledAccentTrack = showGraph.directorV2?.accentTrack
     ? structuredClone(showGraph.directorV2.accentTrack)
     : { schemaVersion: "hapa.director-v2.accent-track.v1", events: structuredClone(declaredAccentEvents), eventCount: declaredAccentEvents.length };
-  const lyrics = (showGraph.song?.lyricOverlay?.lines || []).map((line, index) => ({ index, start: finite(line.start), end: finite(line.end), text: line.text, words: line.words || [] }));
+  const lyricOverlay = showGraph.song?.lyricOverlay || {};
+  const lyrics = (lyricOverlay.lines || []).map((line, index) => ({ index, start: finite(line.start), end: finite(line.end), text: line.text, words: line.words || [] }));
   const stemFrames = normalizeTelemetry(telemetry, duration);
   const manifest = {
     schemaVersion: "hapa.hyperframes.executable-show.v2",
@@ -991,7 +992,13 @@ export function compileHyperFramesShow({ showGraph, telemetry, project, proxyReg
     instances: {
       media: mediaInstances,
       visualizers: visualizerInstances,
-      lyrics: [{ templateId: "lyric-phrase-window-v1", lines: lyrics }],
+      lyrics: lyricOverlay.enabled === false ? [] : [{
+        templateId: String(lyricOverlay.templateId || "scanline-phrase-ribbon-v1"),
+        runtimeSchema: "hapa.echo.lyric-template-runtime.v1",
+        frameQuantization: "floor-to-output-fps",
+        contract: structuredClone(lyricOverlay),
+        lines: lyrics,
+      }],
       accents: structuredClone(declaredAccentEvents),
     },
     automation: {

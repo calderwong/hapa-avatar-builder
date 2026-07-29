@@ -167,3 +167,36 @@ What changed:
 Reusable guardrail: playlist timing generation and Director promotion are
 separate steps. A generated sidecar is evidence to evaluate, never permission
 to replace the live cut.
+
+## 2026-07-29 Template-Runtime Checkpoint
+
+Objective: make the four lyric delivery choices deterministic and portable
+across Preview and HyperFrames.
+
+Evidence inspected: the existing five legacy preview variants, the normalized
+four-template contract, Native Show Graph lyric overlays, the executable
+HyperFrames compiler, and a real bounded offline package.
+
+What worked: the existing preview styles supplied useful visual direction, and
+the lyric contract already carried a stable template ID into the Show Graph.
+
+What was noise: five legacy dropdown entries implied five templates even though
+Phrase Window and Scanline Ribbon mapped to the same normalized choice.
+
+What changed:
+
+- the picker now exposes exactly Kinetic Word Burst, Scanline Phrase Ribbon,
+  Stacked Hook Echo, and Orbit Caption;
+- one frame-quantized, side-effect-free runtime computes visibility, active-word
+  state, progress, opacity, translation, rotation, scale, and underline state;
+- the browser-exported runtime is generated from the same functions and has a
+  fixed-time equality test against Preview;
+- HyperFrames preserves the selected contract instead of hardcoding Phrase
+  Window, emits no lyric instance when Lyrics is off, and burns deterministic
+  per-word spans into the offline composition;
+- a real 10-second HyperFrames package passed lint, inspection, media preflight,
+  and offline validation with zero network dependencies.
+
+Reusable guardrail: a template name in a manifest is not renderer parity.
+Preview and export must evaluate the same fixed-frame state and retain that
+state in the render receipt.

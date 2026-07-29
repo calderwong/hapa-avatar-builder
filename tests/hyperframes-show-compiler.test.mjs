@@ -69,6 +69,32 @@ test("HyperFrames compiler emits pinned templated executable shows", () => {
   assert.ok(inspectHyperFramesShow(a).ok);
 });
 
+test("HyperFrames preserves the selected deterministic lyric template contract", () => {
+  const graph = nativeMediaGraph([]);
+  graph.song.lyricOverlay = {
+    schemaVersion: "hapa.echo.lyric-overlay.v1",
+    enabled: true,
+    templateId: "orbit-caption-v1",
+    timingHash: "timing-hash",
+    lines: [{
+      text: "Orbit these words",
+      start: 1,
+      end: 2,
+      words: [{ word: "Orbit", start: 1, end: 1.4 }],
+    }],
+  };
+  const show = compileHyperFramesShow({ showGraph: graph, telemetry: {}, project: {}, proxyRegistry: {}, fps: 30 });
+  assert.equal(show.instances.lyrics.length, 1);
+  assert.equal(show.instances.lyrics[0].templateId, "orbit-caption-v1");
+  assert.equal(show.instances.lyrics[0].runtimeSchema, "hapa.echo.lyric-template-runtime.v1");
+  assert.equal(show.instances.lyrics[0].frameQuantization, "floor-to-output-fps");
+  assert.equal(show.instances.lyrics[0].contract.timingHash, "timing-hash");
+
+  graph.song.lyricOverlay.enabled = false;
+  const disabled = compileHyperFramesShow({ showGraph: graph, telemetry: {}, project: {}, proxyRegistry: {}, fps: 30 });
+  assert.deepEqual(disabled.instances.lyrics, []);
+});
+
 test("HyperFrames inspection accepts deterministic master-mix telemetry when isolated stems are unavailable", () => {
   const graph = nativeMediaGraph([mediaCard("media:master-only", {
     id: "media:master-only",

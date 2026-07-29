@@ -135,6 +135,7 @@ app.whenReady().then(async () => {
           .filter((item) => /\\|\\s*(loop|progression|untyped)\\s*\\|/i.test(item.textContent || ""));
         const lyricPosition = document.querySelector('select[aria-label="Lyric position"]');
         const lyricStyle = document.querySelector('select[aria-label="Lyric style"]');
+        const lyricTemplate = document.querySelector('select[aria-label="Lyric template"]');
         const lyricEnabled = document.querySelector('input[aria-label="Lyrics enabled"]');
         const cameraBadge = [...document.querySelectorAll("span")]
           .find((item) => /^CAM\\s/i.test(item.textContent || ""));
@@ -149,6 +150,8 @@ app.whenReady().then(async () => {
           videoButtonCount: videoButtons.length,
           lyricPosition: rectPayload(lyricPosition),
           lyricStyle: rectPayload(lyricStyle),
+          lyricTemplate: rectPayload(lyricTemplate),
+          lyricTemplateOptions: lyricTemplate ? [...lyricTemplate.options].map((option) => option.value) : [],
           lyricEnabled: rectPayload(lyricEnabled?.closest("label")),
           lyricEnabledChecked: lyricEnabled?.checked === true,
           cameraBadge: rectPayload(cameraBadge),
@@ -185,6 +188,12 @@ app.whenReady().then(async () => {
       controlsResult.videoButtonCount >= 4 &&
       controlsResult.lyricPosition?.visible &&
       controlsResult.lyricStyle?.visible &&
+      controlsResult.lyricTemplate?.visible &&
+      controlsResult.lyricTemplateOptions.length === 4 &&
+      controlsResult.lyricTemplateOptions.includes("kinetic-word-burst-v1") &&
+      controlsResult.lyricTemplateOptions.includes("scanline-phrase-ribbon-v1") &&
+      controlsResult.lyricTemplateOptions.includes("stacked-hook-echo-v1") &&
+      controlsResult.lyricTemplateOptions.includes("orbit-caption-v1") &&
       controlsResult.lyricEnabled?.visible &&
       controlsResult.lyricEnabledChecked === true &&
       controlsResult.cameraBadge?.visible &&
