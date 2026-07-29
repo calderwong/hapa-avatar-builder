@@ -28,6 +28,32 @@ const finite = (value, fallback = 0) => Number.isFinite(Number(value)) ? Number(
 const safe = (value) => String(value || "").replace(/[^a-zA-Z0-9._-]+/g, "-").replace(/^-+|-+$/g, "") || "asset";
 const normalizedId = (value) => String(value || "").replace(/^isf:/i, "").toLowerCase();
 
+export function echoLyricOverlayExecutionContract(overlay = {}) {
+  return {
+    enabled: overlay.enabled !== false,
+    templateId: String(overlay.templateId || "scanline-phrase-ribbon-v1"),
+    position: String(overlay.position || "bottom-center"),
+    style: String(overlay.style || "neon-cyan"),
+    timingSource: String(overlay.timingSource || ""),
+    timingHash: String(overlay.timingHash || ""),
+    audioHash: String(overlay.audioHash || ""),
+    lines: (overlay.lines || []).map((line) => ({
+      text: String(line.text || ""),
+      start: finite(line.start),
+      end: finite(line.end),
+      words: (line.words || []).map((word) => ({
+        word: String(word.word || word.text || ""),
+        start: finite(word.start),
+        end: finite(word.end),
+      })),
+    })),
+  };
+}
+
+export function hashEchoLyricOverlayExecutionContract(overlay = {}) {
+  return `sha256:${hash(echoLyricOverlayExecutionContract(overlay))}`;
+}
+
 function normalizeTelemetry(bundle, duration) {
   const fps = finite(bundle?.fps, 10);
   const limit = Math.max(1, Math.floor(duration * fps) + 1);
@@ -985,7 +1011,13 @@ export function compileHyperFramesShow({ showGraph, telemetry, project, proxyReg
     outputProfile,
     duration,
     fps,
-    source: { showGraphHash: hash(showGraph), telemetryHash: stemFrames.sourceHash, treatmentId: showGraph.directorV2?.treatmentId, variantHash: showGraph.directorV2?.variantHash },
+    source: {
+      showGraphHash: hash(showGraph),
+      telemetryHash: stemFrames.sourceHash,
+      lyricOverlayHash: hashEchoLyricOverlayExecutionContract(lyricOverlay),
+      treatmentId: showGraph.directorV2?.treatmentId,
+      variantHash: showGraph.directorV2?.variantHash,
+    },
     deterministicPolicy: { runtimeDecisionCalls: false, runtimeAudioAnalysis: false, randomCalls: false, wallClockCalls: false, networkCalls: false, creativeInputsPinned: true },
     adapterCapability: getShowGraphCapability("hyperframes"),
     templates,

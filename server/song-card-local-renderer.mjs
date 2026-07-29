@@ -7,7 +7,10 @@ import path from "node:path";
 import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
 import { evaluateHyperFramesPixelAcceptance } from "../scripts/hyperframes-pixel-acceptance.mjs";
-import { preflightHyperFramesMedia } from "../src/domain/hyperframes-show-compiler.js";
+import {
+  hashEchoLyricOverlayExecutionContract,
+  preflightHyperFramesMedia,
+} from "../src/domain/hyperframes-show-compiler.js";
 import { normalizeHyperFramesStemRole } from "../src/domain/hyperframes-visualizer-runtime.js";
 import { repairEchoShowGraphStemBindings } from "../src/domain/echo-stem-binding-repair.js";
 import { reidentifyEchoCompiledShowGraph, validateEchoCompiledShowGraph } from "../src/domain/echo-compiled-show-graph.js";
@@ -2020,7 +2023,7 @@ export function createSongCardPixelQaError(pixelReport = {}, { cause = null, rep
   );
 }
 
-function executedRendererTruth(showGraph, compilerReport, pixelReport) {
+export function inspectSongCardExecutedRendererTruth(showGraph, compilerReport, pixelReport) {
   const cues = visualizerCards(showGraph);
   const declared = Number(compilerReport?.visualizers?.declared || 0);
   const exact = Number(compilerReport?.visualizers?.exactProxy || 0);
@@ -2052,6 +2055,31 @@ function executedRendererTruth(showGraph, compilerReport, pixelReport) {
     allStatesVisible: true,
     silentDefaultCount: 0,
   }));
+  const lyricOverlay = showGraph?.song?.lyricOverlay || {};
+  const expectedLyricContractHash = hashEchoLyricOverlayExecutionContract(lyricOverlay);
+  const lyricReceiptAvailable = Boolean(compilerReport?.lyrics);
+  const expectedLyricEnabled = lyricOverlay.enabled !== false;
+  const lyricContractMatches = lyricReceiptAvailable
+    && compilerReport.lyrics.contractHash === expectedLyricContractHash
+    && Boolean(compilerReport.lyrics.enabled) === expectedLyricEnabled
+    && Number(compilerReport.lyrics.compiledInstanceCount || 0) === (expectedLyricEnabled ? 1 : 0)
+    && Number(compilerReport.lyrics.compiledLineCount || 0) === (expectedLyricEnabled ? Number(lyricOverlay.lines?.length || 0) : 0);
+  if (lyricReceiptAvailable && !lyricContractMatches) {
+    throw localRendererError(
+      "local_lyric_contract_truth_failed",
+      "The offline lyric layer no longer matches the saved Preview contract. The final MP4 did not start.",
+      409,
+      {
+        stage: "compile",
+        expectedLyricContractHash,
+        compiledLyricContractHash: text(compilerReport.lyrics.contractHash) || null,
+        expectedLyricEnabled,
+        compiledLyricEnabled: Boolean(compilerReport.lyrics.enabled),
+        expectedLineCount: Number(lyricOverlay.lines?.length || 0),
+        compiledLineCount: Number(compilerReport.lyrics.compiledLineCount || 0),
+      },
+    );
+  }
   return {
     schemaVersion: RELEASE_TRUTH_SCHEMA,
     executionStatus: "executed",
@@ -2063,6 +2091,18 @@ function executedRendererTruth(showGraph, compilerReport, pixelReport) {
     silentDefaultCount: 0,
     cueReceiptCount: receipts.length,
     unresolvedRendererIds: [],
+    lyrics: {
+      status: lyricReceiptAvailable
+        ? (lyricContractMatches ? "verified-exact-contract" : "mismatch")
+        : "not-reported-by-render-adapter",
+      ok: lyricReceiptAvailable ? lyricContractMatches : null,
+      enabled: expectedLyricEnabled,
+      templateId: text(lyricOverlay.templateId) || "scanline-phrase-ribbon-v1",
+      lineCount: Number(lyricOverlay.lines?.length || 0),
+      contractHash: expectedLyricContractHash,
+      runtimeSchema: text(compilerReport?.lyrics?.runtimeSchema) || null,
+      frameQuantization: text(compilerReport?.lyrics?.frameQuantization) || null,
+    },
     receipts,
   };
 }
@@ -3135,7 +3175,7 @@ async function defaultPipeline({
       );
     }
   }
-  const rendererTruth = executedRendererTruth(showGraph, compilerReport, pixelReport);
+  const rendererTruth = inspectSongCardExecutedRendererTruth(showGraph, compilerReport, pixelReport);
 
   const renderedMasterPath = path.join(renderDirectory, "master.mp4");
   report("render", 40, "Rendering the final MP4 locally. This is the long step.");
@@ -3529,7 +3569,7 @@ export function createSongCardLocalRenderBridge({
         if (!withinDirectory(outputDirectory, pipelineResult.masterPath) || !withinDirectory(outputDirectory, pipelineResult.posterPath)) {
           throw localRendererError("local_render_artifacts_unmanaged", "The local renderer produced artifacts outside its managed edition workspace.");
         }
-        artifacts.rendererTruth = pipelineResult.rendererTruth || executedRendererTruth(showGraph, pipelineResult.compilerReport || { ok: true, visualizers: { declared: 0, exactProxy: 0, unsupported: 0 } }, pipelineResult.pixelReport || { ok: visualizerCards(showGraph).length === 0, frames: [] });
+        artifacts.rendererTruth = pipelineResult.rendererTruth || inspectSongCardExecutedRendererTruth(showGraph, pipelineResult.compilerReport || { ok: true, visualizers: { declared: 0, exactProxy: 0, unsupported: 0 } }, pipelineResult.pixelReport || { ok: visualizerCards(showGraph).length === 0, frames: [] });
         const [master, poster] = await Promise.all([artifactProof(pipelineResult.masterPath), artifactProof(pipelineResult.posterPath)]);
         artifacts.pipeline = { ...pipelineResult, masterPath: master.path, posterPath: poster.path };
         artifacts.qa = null;

@@ -26,6 +26,7 @@ import {
   deriveSongCardReleaseCompositionContracts,
   describeSongCardCompilerFailure,
   inspectSongCardLocalRenderer,
+  inspectSongCardExecutedRendererTruth,
   inspectSongCardRendererBuildIdentity,
   inspectSongCardReleaseFrameCadence,
   inspectSongCardReleaseCompositionLog,
@@ -39,10 +40,57 @@ import {
   reevaluateSongCardPixelReport,
   resolveSongCardRenderOutputProfile,
 } from "../server/song-card-local-renderer.mjs";
+import { hashEchoLyricOverlayExecutionContract } from "../src/domain/hyperframes-show-compiler.js";
 
 const run = promisify(execFile);
 const HAS_FFMPEG = spawnSync("ffmpeg", ["-version"], { stdio: "ignore" }).status === 0
   && spawnSync("ffprobe", ["-version"], { stdio: "ignore" }).status === 0;
+
+test("mint renderer truth seals the exact Preview lyric contract into the HyperFrames master", () => {
+  const lyricOverlay = {
+    enabled: true,
+    templateId: "orbit-caption-v1",
+    position: "bottom-center",
+    style: "neon-cyan",
+    timingHash: "sha256:timing",
+    lines: [{
+      text: "Preview equals mint",
+      start: 1,
+      end: 2,
+      words: [{ word: "Preview", start: 1, end: 1.4 }],
+    }],
+  };
+  const compilerReport = {
+    ok: true,
+    visualizers: { declared: 0, exactProxy: 0, unsupported: 0 },
+    lyrics: {
+      enabled: true,
+      templateId: lyricOverlay.templateId,
+      declaredLineCount: 1,
+      compiledLineCount: 1,
+      compiledInstanceCount: 1,
+      contractHash: hashEchoLyricOverlayExecutionContract(lyricOverlay),
+      runtimeSchema: "hapa.echo.lyric-template-runtime.v1",
+      frameQuantization: "floor-to-output-fps",
+    },
+  };
+  const truth = inspectSongCardExecutedRendererTruth(
+    { song: { lyricOverlay }, tracks: [] },
+    compilerReport,
+    { ok: true, frames: [] },
+  );
+  assert.equal(truth.lyrics.status, "verified-exact-contract");
+  assert.equal(truth.lyrics.ok, true);
+  assert.equal(truth.lyrics.templateId, "orbit-caption-v1");
+  assert.throws(
+    () => inspectSongCardExecutedRendererTruth(
+      { song: { lyricOverlay: { ...lyricOverlay, templateId: "kinetic-word-burst-v1" } }, tracks: [] },
+      compilerReport,
+      { ok: true, frames: [] },
+    ),
+    /offline lyric layer no longer matches/u,
+  );
+});
 
 test("release stream inspection requires independent full-length audio and video streams", () => {
   const valid = inspectSongCardReleaseStreams({

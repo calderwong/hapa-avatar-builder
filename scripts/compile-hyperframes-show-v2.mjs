@@ -491,6 +491,7 @@ const visualizerOfflineMissing = visualizerPreflight.entries
   .map((row) => row.cueId);
 const sourceAudit = `${html}\n${JSON.stringify(show)}\n${pinnedTimelineSource}\n${fs.readFileSync(runtimeSourcePath, "utf8")}`;
 const networkReferences = sourceAudit.match(/https?:\/\//g) || [];
+const compiledLyricTrack = show.instances.lyrics[0] || null;
 const report = {
   schemaVersion: "hapa.hyperframes.compiler-report.v4",
   ok: lintOk && inspect.ok && offlineMissing.length === 0 && visualizerOfflineMissing.length === 0 && networkReferences.length === 0 && !/Math\.random|Date\.now|AudioContext|getUserMedia|fetch\(/.test(sourceAudit),
@@ -528,6 +529,16 @@ const report = {
     preflight: visualizerPreflight,
     packagingFailures: visualizerPackagingFailures,
     cueWindows: show.instances.visualizers.map((row) => ({ id: row.id, visualizerId: row.visualizerId, start: row.start, end: row.end, route: row.execution.route, pixelIdentitySeed: row.pixelIdentitySeed })),
+  },
+  lyrics: {
+    enabled: Boolean(compiledLyricTrack),
+    templateId: compiledLyricTrack?.templateId || null,
+    declaredLineCount: Number(showGraph.song?.lyricOverlay?.lines?.length || 0),
+    compiledLineCount: Number(compiledLyricTrack?.lines?.length || 0),
+    compiledInstanceCount: show.instances.lyrics.length,
+    contractHash: show.source.lyricOverlayHash,
+    runtimeSchema: compiledLyricTrack?.runtimeSchema || null,
+    frameQuantization: compiledLyricTrack?.frameQuantization || null,
   },
   runtime: { timeline: "local-hapa-pinned-timeline", visualizerScheduler: "hyperframes-visualizer-runtime", networkDependencies: networkReferences.length, lastRenderStateHook: "window.HAPA_LAST_RENDER_STATE" },
   lint: { reportPath: path.join(output, "lint-report.json"), ...lintEvidence },

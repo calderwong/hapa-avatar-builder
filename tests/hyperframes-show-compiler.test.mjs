@@ -8,6 +8,7 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import {
   compileHyperFramesShow,
+  hashEchoLyricOverlayExecutionContract,
   hyperFramesMediaSourceCandidates,
   hyperFramesMediaOpacityState,
   indexHyperFramesMediaContracts,
@@ -89,10 +90,18 @@ test("HyperFrames preserves the selected deterministic lyric template contract",
   assert.equal(show.instances.lyrics[0].runtimeSchema, "hapa.echo.lyric-template-runtime.v1");
   assert.equal(show.instances.lyrics[0].frameQuantization, "floor-to-output-fps");
   assert.equal(show.instances.lyrics[0].contract.timingHash, "timing-hash");
+  assert.equal(
+    show.source.lyricOverlayHash,
+    hashEchoLyricOverlayExecutionContract(graph.song.lyricOverlay),
+  );
 
   graph.song.lyricOverlay.enabled = false;
   const disabled = compileHyperFramesShow({ showGraph: graph, telemetry: {}, project: {}, proxyRegistry: {}, fps: 30 });
   assert.deepEqual(disabled.instances.lyrics, []);
+  assert.equal(
+    disabled.source.lyricOverlayHash,
+    hashEchoLyricOverlayExecutionContract(graph.song.lyricOverlay),
+  );
 });
 
 test("HyperFrames inspection accepts deterministic master-mix telemetry when isolated stems are unavailable", () => {
