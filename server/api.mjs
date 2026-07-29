@@ -180,6 +180,7 @@ import {
   projectEchoReferenceRunReceipt,
   searchEchoReferenceGraph,
 } from "../src/domain/echo-reference-mining.js";
+import { buildEchoAlbumMasterReference } from "../src/domain/echo-master-reference-export.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, "..");
@@ -2136,6 +2137,33 @@ async function route(req, res) {
       runtime: projection.runtime,
       mediaGallery: projection.mediaGallery,
     } : projection);
+    return;
+  }
+
+  if (pathname === "/api/echos/master-reference" && req.method === "GET") {
+    const [songbook, songStore, referenceRun, contributionEvents] = await Promise.all([
+      readDearPapaSongbook(),
+      readHapaSongStore(),
+      echoReferenceMiningStore.currentRun(),
+      echoReferenceMiningStore.contributions(),
+    ]);
+    const observability = buildEchoReferenceObservability(referenceRun, { contributionEvents });
+    const exported = buildEchoAlbumMasterReference({
+      songbook,
+      songStore,
+      referenceRun,
+      observability,
+    });
+    const payload = Buffer.from(exported.markdown, "utf8");
+    res.writeHead(200, {
+      "Content-Type": "text/markdown; charset=utf-8",
+      "Content-Length": payload.length,
+      "Content-Disposition": 'attachment; filename="echo-album-master-reference.md"',
+      "Cache-Control": "no-store",
+      "X-Hapa-Export-Schema": exported.schemaVersion,
+      "X-Hapa-Export-Id": exported.manifest.exportId,
+    });
+    res.end(payload);
     return;
   }
 

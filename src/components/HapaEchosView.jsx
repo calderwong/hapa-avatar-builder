@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
   Clapperboard,
+  Download,
   Film,
   KanbanSquare,
   Maximize2,
@@ -1368,6 +1369,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
   const [enriching, setEnriching] = useState(false);
   const [loading, setLoading] = useState(true);
   const [echoOperationNotice, setEchoOperationNotice] = useState("");
+  const [exportingMasterReference, setExportingMasterReference] = useState(false);
   const [expandedSongId, setExpandedSongId] = useState(null);
   const [expandedVideoId, setExpandedVideoId] = useState(null);
   const [activeDirectoryTab, setActiveDirectoryTab] = useState("director");
@@ -4049,6 +4051,32 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
     if (audioRef.current) audioRef.current.currentTime = next;
   }, []);
 
+  const handleExportMasterReference = useCallback(async () => {
+    setExportingMasterReference(true);
+    setEchoOperationNotice("Building the wiki-ready Echo Album Master Reference File…");
+    try {
+      const response = await fetch(`${API_BASE}/api/echos/master-reference`);
+      if (!response.ok) {
+        const payload = await response.json().catch(() => ({}));
+        throw new Error(payload.message || payload.error || `Export failed (${response.status}).`);
+      }
+      const blob = await response.blob();
+      const href = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = href;
+      link.download = "echo-album-master-reference.md";
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(href);
+      setEchoOperationNotice(`Master Reference File exported (${Math.max(1, Math.round(blob.size / 1024)).toLocaleString()} KiB). Source stores were not changed.`);
+    } catch (error) {
+      setEchoOperationNotice(`Master Reference export failed: ${error?.message || String(error)}`);
+    } finally {
+      setExportingMasterReference(false);
+    }
+  }, []);
+
   if (loading) {
     return (
       <div className="empty-state">
@@ -4079,6 +4107,18 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
           <StatusChip label="COMPLETENESS" value={`${overallScore}%`} tone={overallScore === 100 ? "green" : "rose"} />
           <StatusChip label="SONGS" value={gapsReport?.summary?.totalSongs || 0} tone="cyan" />
           <StatusChip label="VIDEOS" value={gapsReport?.summary?.totalVideos || 0} tone="fuchsia" />
+          <button
+            className="hapa-btn"
+            data-intent="primary"
+            data-testid="echo-master-reference-export"
+            type="button"
+            disabled={exportingMasterReference}
+            onClick={handleExportMasterReference}
+            title="Export every Echo Album track, lyric, reference association, metadata field, and telemetry record as one cross-linked Markdown file."
+          >
+            <Download size={14} />
+            {exportingMasterReference ? "Exporting…" : "Export Master Reference"}
+          </button>
         </div>
       </header>
 

@@ -276,6 +276,27 @@ The Shared Hand is docked inside the persistent Header. Use **Manage** for Hand/
 
 ## Echo Album timing and smooth preview
 
+### Master Reference File export
+
+The Echo workbench header includes **Export Master Reference**. It downloads one
+wiki-ready Markdown snapshot containing every track title and lyric, curated and
+Reference Atlas associations, complete song metadata, timed/audio telemetry,
+reference-card records, graph edges, observability, source receipts, and stable
+cross-links.
+
+The same read-only process is scriptable:
+
+```bash
+npm run echo:master-reference
+npm run echo:master-reference -- --out /path/to/echo-album-master-reference.md
+```
+
+The default command output is
+`data/exports/echo-album-master-reference.md`. Source stores are only read; the
+export does not publish, mint, approve, or canonize anything. See
+`docs/ECHO_MASTER_REFERENCE_EXPORT.md` for the source map, wiki-link contract,
+automation options, and publication boundary.
+
 The Echo workbench keeps lyric-source truth separate from derived director timing. Restore playlist-aligned timings in place without rebuilding media direction:
 
 ```bash

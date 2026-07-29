@@ -9,6 +9,22 @@ Verified 2026-07-11 for canonical node `hapa-avatar-builder`; aliases are `hapa-
 | UI | Header identifies Hapa Avatar Builder and consumes the same catalog, HostTargets, process adapters, Hand, and capability host | pointer, keyboard, touch, route and card actions; visible state/recovery feedback | Shared changes require an online canonical host; offline actions are visibly rejected rather than implied committed | `outputs/shared-hand-header-visual-qa/report.json` |
 | Desktop | Same UI and API with a scoped preload lifecycle bridge | status / ensure / reconnect only | context isolation, Node integration off, web security on, no credential exposure | `electron/main.cjs`, `electron/preload.cjs` |
 
+## Echo Album Master Reference export parity
+
+All three surfaces invoke the same pure Markdown compiler in
+`src/domain/echo-master-reference-export.js`. The operation is read-only and
+preserves source authority, review, rights, privacy, and lineage fields.
+
+| Surface | Export behavior |
+| --- | --- |
+| UI | **Export Master Reference** in the Echo workbench downloads `echo-album-master-reference.md`. |
+| API | `GET /api/echos/master-reference` returns the live snapshot as `text/markdown` with an attachment filename and no-store caching. |
+| CLI | `npm run echo:master-reference`; optional `--out`, `--stdout`, source-path overrides, and fixed `--generated-at` for fixtures. |
+
+The shared output schema is `hapa.echo-album-master-reference.v1`. See
+`docs/ECHO_MASTER_REFERENCE_EXPORT.md` and
+`tests/echo-master-reference-export.test.mjs`.
+
 ## Per-Card Hypercore custody parity
 
 Every durable Builder Card receives a real per-Card Hypercore when it first becomes durable. This root `card.created` event is separate from mint, Overwind acknowledgement, Catalog publication, commerce eligibility, and canon.
