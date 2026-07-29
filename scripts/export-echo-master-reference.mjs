@@ -5,6 +5,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { buildEchoAlbumMasterReference } from "../src/domain/echo-master-reference-export.js";
+import { buildEchoReferenceObservability } from "../src/domain/echo-reference-mining.js";
+import { createEchoReferenceMiningStore } from "../server/echo-reference-mining-store.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -61,12 +63,35 @@ export async function runEchoMasterReferenceExport(options = {}) {
     referenceRun: path.resolve(options["reference-run"] || path.join(ROOT, "data/echo-reference-mining/latest.json")),
     observability: path.resolve(options.observability || path.join(ROOT, "data/echo-reference-mining/artifacts/observability.json")),
   };
-  const [songbook, songStore, referenceRun, observability] = await Promise.all([
+  const [songbook, songStore] = await Promise.all([
     readJson(paths.songbook),
     readJson(paths.songStore),
-    readJson(paths.referenceRun, {}),
-    readJson(paths.observability, {}),
   ]);
+  let referenceRun;
+  let observability;
+  if (options["reference-run"]) {
+    [referenceRun, observability] = await Promise.all([
+      readJson(paths.referenceRun, {}),
+      readJson(paths.observability, {}),
+    ]);
+  } else {
+    const referenceRoot = path.join(ROOT, "data/echo-reference-mining");
+    const referenceStore = createEchoReferenceMiningStore({
+      root: referenceRoot,
+      songStorePath: paths.songStore,
+      researchProjectionPath: path.join(ROOT, "data/echo-reference-research-loop/projected-run.json"),
+      animatedMediaPath: path.join(ROOT, "data/echo-reference-animated-media.json"),
+      previewFirstAuthorityPath: path.join(ROOT, "data/echo-reference-governance/preview-first-authority.json"),
+    });
+    const [currentRun, contributionEvents] = await Promise.all([
+      referenceStore.currentRun(),
+      referenceStore.contributions(),
+    ]);
+    referenceRun = currentRun;
+    observability = options.observability
+      ? await readJson(paths.observability, {})
+      : buildEchoReferenceObservability(currentRun, { contributionEvents });
+  }
   const result = buildEchoAlbumMasterReference(
     { songbook, songStore, referenceRun, observability },
     { generatedAt: options["generated-at"] }

@@ -204,4 +204,7 @@ test("Echo workbench exposes the managed Markdown download route", async () => {
   assert.match(api, /Content-Type": "text\/markdown; charset=utf-8"/);
   assert.match(api, /buildEchoAlbumMasterReference/);
   assert.match(api, /"Cache-Control": "no-store"/);
+  const cli = await readFile(new URL("../scripts/export-echo-master-reference.mjs", import.meta.url), "utf8");
+  assert.match(cli, /referenceStore\.currentRun\(\)/);
+  assert.match(cli, /buildEchoReferenceObservability\(currentRun/);
 });

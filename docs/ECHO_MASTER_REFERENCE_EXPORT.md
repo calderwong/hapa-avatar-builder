@@ -24,9 +24,11 @@ The exporter reads four current sources:
 | `data/echo-reference-mining/latest.json` | current Reference Atlas cards, graph associations, run receipts, unresolved records, contribution state, authority, review, rights, privacy, and lineage |
 | live Reference Atlas observability | graph/card counts, queue state, citation status, privacy telemetry, receipt links, and downstream status |
 
-The app/API route calculates observability from the same live Reference Atlas
-run used by the export. The script reads the materialized observability artifact
-when available.
+The app/API route and the default script both resolve the same live Reference
+Atlas projection, including stored revisions, research overlays, media, and
+preview-first authority, then calculate observability from that exact run.
+Explicit `--reference-run` and `--observability` overrides remain available for
+fixed fixtures and recovery snapshots.
 
 ## Repeatable flow
 
