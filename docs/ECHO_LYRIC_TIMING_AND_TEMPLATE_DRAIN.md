@@ -200,3 +200,37 @@ What changed:
 Reusable guardrail: a template name in a manifest is not renderer parity.
 Preview and export must evaluate the same fixed-frame state and retain that
 state in the render receipt.
+
+## 2026-07-29 Recent-Song Drain And Mint Checkpoint
+
+Objective: finish the safe automatic pass for recent songs, cover preserved
+non-playlist Director sources, and make the mint renderer fail closed on lyric
+drift.
+
+What worked:
+
+- three bounded recent-song batches plus the preserved `Tide You Go Low` master
+  raised the verified project count from 25 to 71;
+- the remaining recent queue contains no missing automatic alignments: eight
+  low-confidence or source/performance disagreements are isolated for review;
+- a generated read-only alignment manifest resolves 139 unique vocal songs
+  across all 157 Director projects without claiming Suno playlist membership;
+- the production HyperFrames compiler records the enabled state, template,
+  line count, runtime schema, frame quantization, and canonical lyric contract
+  hash;
+- the Song Card renderer compares that receipt to the exact saved Preview
+  contract before MP4 work and refuses mismatched text, timing, template, or
+  Lyrics on/off state.
+
+Evidence:
+
+- `artifacts/echo-lyric-quality-v4/alignment-manifest.json`
+- `artifacts/echo-lyric-quality-v4/drain-plan.json`
+- `data/song-sync-reports/latest-dear-papa-lyric-timing-sync.json`
+- `/private/tmp/hapa-echo-lyric-parity-proof-20260729-1/compiler-report.json`
+- `tests/song-card-local-workflow.test.mjs`
+
+Reusable guardrail: external/local masters belong in an explicitly
+non-membership alignment projection. Never add them to a playlist merely to
+make a pipeline accept them, and never mint when the compiled lyric contract
+receipt differs from the saved Preview contract.
