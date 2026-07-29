@@ -81,15 +81,17 @@ evidence:
 
 - 157 live Director projects; 78 are absent from the preserved 79-project
   baseline and therefore form the recent-song cohort.
-- 143 projects have timed lyrics, but all 143 currently cite synthetic weighted
-  timing rather than source-linked audible alignment.
-- 14 projects have neither active timings nor canonical lyric text in the local
-  store.
+- 143 vocal projects began with synthetic weighted timing rather than
+  source-linked audible alignment.
+- The other 14 projects are source-declared Suno instrumentals, not missing
+  lyric records. Their intentionally empty lyric files are preserved and
+  Lyrics now defaults off for those Director cuts.
 - 52 projects include metadata/stage-direction rows in the active overlay.
 - One project has a measured canonical-text mismatch.
-- Zero projects meet the new verified source-linked timing standard yet.
-- Every project has local audio for repair: 82 have an isolated lead-vocal stem
-  and 75 have a verified master-mix fallback.
+- The first promotion pilot has verified two recent vocal projects plus all 14
+  intentional instrumentals. The remaining vocal projects stay in the drain.
+- Every vocal project has local audio for repair: 82 have an isolated
+  lead-vocal stem and 61 have a verified master-mix fallback.
 
 Evidence:
 
@@ -130,3 +132,38 @@ operator-review state, and Preview/MP4/mint pixel parity across the live
 Reusable guardrail: never mark a lyric pass complete from field presence or
 compiler success alone; require source hashes, timing metrics, visible fixed-time
 evidence, and mint artifact verification.
+
+## 2026-07-29 Measured-Alignment Checkpoint
+
+Objective: replace synthetic timings safely, recent songs first.
+
+Evidence inspected: the current Suno export, its enriched stem projection,
+canonical lyric files, Whisper word sidecars, the 157-project Director audit,
+and full-album compile output.
+
+What worked: the existing Music Viz Whisper/forced-alignment path produced
+0.871 confidence from an isolated vocal stem and 0.756 from a verified master
+mix. Both promoted cleanly after source hashing and structural validation.
+
+What was noise: empty lyric files initially appeared to be missing data, but
+their Suno metadata explicitly declares all 14 songs instrumental.
+
+What was misunderstood: a base playlist manifest can lag the enriched stem
+projection. Using only the base entry silently selected a full mix even when an
+isolated vocal stem already existed.
+
+What changed:
+
+- enriched stem paths are preferred without transferring canonical ownership;
+- exported title rows are excluded from sung-text alignment;
+- audio and lyric SHA-256 hashes travel with each timing sidecar;
+- every word is guaranteed a positive interval inside its line;
+- a 0.60 measured-timing promotion gate rejects weak, synthetic, unprovenanced,
+  overlapping, or duplicate-start results;
+- 14 instrumentals now default Lyrics off;
+- two recent vocal projects have measured timing, while the 0.586
+  source/performance-divergent pilot remains unpromoted.
+
+Reusable guardrail: playlist timing generation and Director promotion are
+separate steps. A generated sidecar is evidence to evaluate, never permission
+to replace the live cut.
