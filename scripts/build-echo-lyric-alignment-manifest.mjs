@@ -70,6 +70,10 @@ for (const project of baseline.projects || []) {
       localPath: String(stem.localPath || stem.path || ""),
     }))
     .filter((stem) => stem.stemType && stem.localPath && fs.existsSync(stem.localPath));
+  const playlistRootMatch = songPath.match(/^(.*\/playlists\/[^/]+)\//u);
+  const existingTimingPath = playlistRootMatch
+    ? path.join(playlistRootMatch[1], "lyric_timings", `${id}.json`)
+    : "";
   songs.push({
     id,
     index: songs.length + 1,
@@ -77,6 +81,7 @@ for (const project of baseline.projects || []) {
     duration: Number(project.durationSeconds || 0),
     lyricsPath,
     songPath,
+    lyricTimingPath: existingTimingPath && fs.existsSync(existingTimingPath) ? existingTimingPath : "",
     stems,
     localDir: "",
     sourceCollection: "echo-album-director-projects",

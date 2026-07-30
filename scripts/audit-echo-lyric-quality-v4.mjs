@@ -111,7 +111,7 @@ const projects = files.map((file) => {
   const songId = String(project.song_id || "");
   const registryTrackId = String(project.registry_track_id || project.audio_id || "");
   const song = songById.get(songId) || songById.get(registryTrackId) || {};
-  const resolvedRegistryTrackId = registryIdForSong(song) || registryTrackId;
+  const resolvedRegistryTrackId = registryTrackId || registryIdForSong(song);
   const manifestSong = manifestById.get(resolvedRegistryTrackId) || null;
   const sourceMetadata = sourceMetadataFor(manifestSong);
   const sourceDeclaredInstrumental = isSourceDeclaredInstrumental(sourceMetadata);

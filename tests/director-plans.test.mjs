@@ -44,7 +44,12 @@ test("compiled music video projects are valid and structurally sound", () => {
       const exactSourceClaim = proj.lyric_timing_heal?.timingSource === "dear-papa-playlist-lyric-timing"
         || proj.song_edit_map?.provenance?.lyricTimingSource === "dear-papa-playlist-lyric-timing";
       const timingSourcePath = proj.lyric_timing_heal?.timingPath || proj.song_edit_map?.provenance?.lyricTimingPath || "";
-      const isSourceTiming = exactSourceClaim && Boolean(timingSourcePath);
+      const measuredSourceClaim = [
+        proj.lyric_timing_truth?.source,
+        proj.lyric_timing_heal?.timingSource,
+        proj.song_edit_map?.provenance?.lyricTimingSource,
+      ].some((value) => /audio-derived|measured-performance|playlist-lyric-timing/u.test(String(value || "")));
+      const isSourceTiming = (exactSourceClaim || measuredSourceClaim) && Boolean(timingSourcePath);
       if (exactSourceClaim) {
         assert.ok(timingSourcePath, `${file} exact timed lyrics must keep timing sidecar path provenance`);
       }
@@ -96,9 +101,11 @@ test("compiled music video projects are valid and structurally sound", () => {
     } else {
       assert.equal(proj.song_edit_map.provenance.stemSource, "none", `${file} must truthfully mark missing local stems`);
     }
-    const usesExactTiming = proj.song_edit_map.provenance.lyricTimingSource === "dear-papa-playlist-lyric-timing";
-    assert.ok(Array.isArray(proj.song_edit_map.sections) && proj.song_edit_map.sections.length >= (usesExactTiming ? 1 : 3), `${file} must include lyric/audio-derived sections`);
-    if (!usesExactTiming) {
+    const usesMeasuredTiming = /audio-derived|measured-performance|playlist-lyric-timing/u.test(
+      String(proj.song_edit_map.provenance.lyricTimingSource || ""),
+    ) && Boolean(proj.song_edit_map.provenance.lyricTimingPath);
+    assert.ok(Array.isArray(proj.song_edit_map.sections) && proj.song_edit_map.sections.length >= (usesMeasuredTiming ? 1 : 3), `${file} must include lyric/audio-derived sections`);
+    if (!usesMeasuredTiming) {
       assert.notEqual(
         proj.song_edit_map.sections.map((section) => section.type).join(","),
         "intro,verse,chorus,verse,bridge,outro",

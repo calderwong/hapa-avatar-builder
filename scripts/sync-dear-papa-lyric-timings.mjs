@@ -178,9 +178,9 @@ function readTimingForManifestSong(song = {}) {
 }
 
 function registryIdForSong(song = {}) {
-  return song.audio?.registryTrackId
+  return song.lineage?.registryTrackId
+    || song.audio?.registryTrackId
     || song.registryTrackId
-    || song.lineage?.registryTrackId
     || song.attribution?.songRegistryTrackId
     || "";
 }
