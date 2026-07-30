@@ -52,6 +52,26 @@ test("weak or synthetic timing cannot replace live Director timing", () => {
   assert.ok(weak.reasons.includes("audio-source-hash-missing"));
 });
 
+test("automatic confidence never bypasses invalid line or word intervals", () => {
+  const timing = measuredTiming({
+    confidence: 0.9,
+    duration: 3,
+    lines: [{
+      text: "broken interval",
+      start: 1,
+      end: 4,
+      words: [{ text: "broken", start: 1, end: 1 }],
+    }],
+  });
+  const result = evaluateEchoLyricTimingPromotion(timing, {
+    sourcePathExists: true,
+    sttPathExists: true,
+  });
+  assert.equal(result.accepted, false);
+  assert.ok(result.reasons.includes("invalid-word-intervals"));
+  assert.ok(result.reasons.includes("invalid-line-intervals"));
+});
+
 test("a narrow clean near-threshold alignment can carry an evidence adjudication receipt", () => {
   const timing = measuredTiming({
     confidence: 0.586,
@@ -133,6 +153,29 @@ test("high word coverage can adjudicate a narrowly sparse line-anchor warning", 
   }).accepted, true);
 });
 
+test("high word coverage tolerates at most thirty percent sparse line anchors", () => {
+  const timing = measuredTiming({
+    confidence: 0.656,
+    warnings: ["many_unmatched_lines:13"],
+    stats: {
+      lineCount: 44,
+      unmatchedLineCount: 13,
+      matchedRatio: 0.811,
+      overlapCount: 0,
+      duplicateStartCount: 0,
+    },
+  });
+  assert.equal(inspectEchoLyricTimingAdjudication(timing).eligible, true);
+  const tooSparse = measuredTiming({
+    ...timing,
+    stats: {
+      ...timing.stats,
+      unmatchedLineCount: 14,
+    },
+  });
+  assert.equal(inspectEchoLyricTimingAdjudication(tooSparse).eligible, false);
+});
+
 test("multilingual display lyrics can use measured speech activity between lexical anchors", () => {
   const timing = measuredTiming({
     confidence: 0.562,
@@ -169,4 +212,30 @@ test("multilingual display lyrics can use measured speech activity between lexic
     },
   });
   assert.equal(inspectEchoLyricTimingAdjudication(sparseAnchors).eligible, false);
+});
+
+test("dense line anchors can adjudicate a narrowly sub-threshold word match", () => {
+  const timing = measuredTiming({
+    confidence: 0.513,
+    warnings: ["low_match_ratio: fewer than 60% of canonical words have STT anchors"],
+    stats: {
+      lineCount: 93,
+      unmatchedLineCount: 7,
+      matchedRatio: 0.591,
+      overlapCount: 0,
+      duplicateStartCount: 0,
+      alignableLineCount: 93,
+      anchoredLineCount: 86,
+      alignableAnchorCoverage: 0.925,
+      speechActivityInferredLineCount: 6,
+    },
+  });
+  const inspection = inspectEchoLyricTimingAdjudication(timing);
+  assert.equal(inspection.eligible, true);
+  assert.equal(inspection.policyId, "dense-line-coverage-phrase-alignment-v1");
+  timing.adjudication = createEchoLyricTimingAdjudication(timing);
+  assert.equal(evaluateEchoLyricTimingPromotion(timing, {
+    sourcePathExists: true,
+    sttPathExists: true,
+  }).accepted, true);
 });

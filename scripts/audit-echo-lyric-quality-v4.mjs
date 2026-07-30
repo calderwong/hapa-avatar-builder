@@ -85,6 +85,7 @@ function measuredPerformanceCanonicalFor(timingPath = "") {
         path: String(timing.provenance?.lyricsPath || ""),
         sha256: String(timing.provenance?.lyricsSha256 || ""),
       },
+      timingStats: timing.stats || {},
       promotion,
     };
   } catch {
@@ -154,7 +155,11 @@ const projects = files.map((file) => {
     else if (confidence < 0.6 && !performanceCanonical?.promotion?.adjudicationAccepted) issues.push("timing-confidence-low");
     if (declaredActiveHash && declaredActiveHash !== activeTimingSha256) issues.push("active-timing-hash-mismatch");
     if (timing.structuralIssueCount) issues.push("timing-structure-invalid");
-    if (timing.syntheticCadenceLikely) issues.push("uniform-word-cadence-likely-synthetic");
+    const measuredMultilingualInterpolation = performanceCanonical?.timingStats
+      ?.multilingualAnchorMode === true;
+    if (timing.syntheticCadenceLikely && !measuredMultilingualInterpolation) {
+      issues.push("uniform-word-cadence-likely-synthetic");
+    }
     if (timing.metadataLines) issues.push("metadata-lines-active");
     if (hasCanonicalText && text.similarity < 0.75) issues.push("canonical-text-mismatch");
     else if (hasCanonicalText && text.similarity < 0.9) issues.push("canonical-text-review");

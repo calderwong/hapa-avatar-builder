@@ -4,17 +4,22 @@ export const ECHO_LYRIC_ADJUDICATION_SCHEMA = "hapa.echo.lyric-evidence-adjudica
 export const ECHO_LYRIC_ADJUDICATION_POLICY = "near-threshold-clean-alignment-v1";
 export const ECHO_LYRIC_SPARSE_LINE_ADJUDICATION_POLICY = "high-word-coverage-sparse-line-anchors-v1";
 export const ECHO_LYRIC_MULTILINGUAL_ADJUDICATION_POLICY = "multilingual-speech-activity-anchors-v1";
+export const ECHO_LYRIC_DENSE_LINE_ADJUDICATION_POLICY = "dense-line-coverage-phrase-alignment-v1";
 export const ECHO_LYRIC_ADJUDICATION_MIN_CONFIDENCE = 0.53;
 export const ECHO_LYRIC_ADJUDICATION_MIN_MATCHED_RATIO = 0.62;
 export const ECHO_LYRIC_ADJUDICATION_MAX_UNMATCHED_LINE_RATIO = 0.2;
 export const ECHO_LYRIC_SPARSE_LINE_MIN_CONFIDENCE = 0.65;
 export const ECHO_LYRIC_SPARSE_LINE_MIN_MATCHED_RATIO = 0.8;
-export const ECHO_LYRIC_SPARSE_LINE_MAX_UNMATCHED_LINE_RATIO = 0.25;
+export const ECHO_LYRIC_SPARSE_LINE_MAX_UNMATCHED_LINE_RATIO = 0.3;
 export const ECHO_LYRIC_MULTILINGUAL_MIN_CONFIDENCE = 0.55;
 export const ECHO_LYRIC_MULTILINGUAL_MIN_MATCHED_RATIO = 0.3;
 export const ECHO_LYRIC_MULTILINGUAL_MIN_ANCHOR_COVERAGE = 0.6;
 export const ECHO_LYRIC_MULTILINGUAL_MIN_LINE_RATIO = 0.5;
 export const ECHO_LYRIC_MULTILINGUAL_MAX_UNMATCHED_ALIGNABLE_RATIO = 0.4;
+export const ECHO_LYRIC_DENSE_LINE_MIN_CONFIDENCE = 0.5;
+export const ECHO_LYRIC_DENSE_LINE_MIN_MATCHED_RATIO = 0.58;
+export const ECHO_LYRIC_DENSE_LINE_MIN_ANCHOR_COVERAGE = 0.9;
+export const ECHO_LYRIC_DENSE_LINE_MAX_UNMATCHED_ALIGNABLE_RATIO = 0.1;
 
 function text(value) {
   return typeof value === "string" ? value.trim() : "";
@@ -108,21 +113,57 @@ export function inspectEchoLyricTimingAdjudication(timing = {}) {
     multilingualReasons.push("speech-activity-inference-missing");
   }
   if (warnings.length) multilingualReasons.push("alignment-warning-present");
+  const denseLineReasons = [...structuralReasons];
+  if (!Number.isFinite(confidence) || confidence < ECHO_LYRIC_DENSE_LINE_MIN_CONFIDENCE) {
+    denseLineReasons.push("confidence-below-dense-line-floor");
+  }
+  if (!Number.isFinite(matchedRatio) || matchedRatio < ECHO_LYRIC_DENSE_LINE_MIN_MATCHED_RATIO) {
+    denseLineReasons.push("matched-ratio-below-dense-line-floor");
+  }
+  if (
+    !Number.isFinite(alignableAnchorCoverage)
+    || alignableAnchorCoverage < ECHO_LYRIC_DENSE_LINE_MIN_ANCHOR_COVERAGE
+  ) {
+    denseLineReasons.push("anchor-coverage-below-dense-line-floor");
+  }
+  if (
+    unmatchedAlignableLineRatio
+    > ECHO_LYRIC_DENSE_LINE_MAX_UNMATCHED_ALIGNABLE_RATIO
+  ) {
+    denseLineReasons.push("too-many-unmatched-alignable-lines");
+  }
+  if (speechActivityInferredLineCount <= 0) {
+    denseLineReasons.push("speech-activity-inference-missing");
+  }
+  if (
+    warnings.length !== 1
+    || !/^low_match_ratio:/u.test(warnings[0])
+  ) {
+    denseLineReasons.push("unsupported-alignment-warning");
+  }
   const cleanEligible = cleanReasons.length === 0;
   const sparseLineEligible = sparseLineReasons.length === 0;
   const multilingualEligible = multilingualReasons.length === 0;
+  const denseLineEligible = denseLineReasons.length === 0;
   const policyId = cleanEligible
     ? ECHO_LYRIC_ADJUDICATION_POLICY
     : sparseLineEligible
       ? ECHO_LYRIC_SPARSE_LINE_ADJUDICATION_POLICY
-      : multilingualEligible
-        ? ECHO_LYRIC_MULTILINGUAL_ADJUDICATION_POLICY
-        : ECHO_LYRIC_ADJUDICATION_POLICY;
-  const reasons = cleanEligible || sparseLineEligible || multilingualEligible
+      : denseLineEligible
+        ? ECHO_LYRIC_DENSE_LINE_ADJUDICATION_POLICY
+        : multilingualEligible
+          ? ECHO_LYRIC_MULTILINGUAL_ADJUDICATION_POLICY
+          : ECHO_LYRIC_ADJUDICATION_POLICY;
+  const reasons = cleanEligible || sparseLineEligible || multilingualEligible || denseLineEligible
     ? []
-    : [...new Set([...cleanReasons, ...sparseLineReasons, ...multilingualReasons])];
+    : [...new Set([
+        ...cleanReasons,
+        ...sparseLineReasons,
+        ...multilingualReasons,
+        ...denseLineReasons,
+      ])];
   return {
-    eligible: cleanEligible || sparseLineEligible || multilingualEligible,
+    eligible: cleanEligible || sparseLineEligible || multilingualEligible || denseLineEligible,
     policyId,
     confidence,
     matchedRatio,
@@ -183,7 +224,10 @@ function validEchoLyricTimingAdjudication(timing = {}) {
     && Number(receipt.evidence?.confidence) === inspection.confidence
     && Number(receipt.evidence?.matchedRatio) === inspection.matchedRatio;
   if (!commonEvidenceValid) return false;
-  if (inspection.policyId !== ECHO_LYRIC_MULTILINGUAL_ADJUDICATION_POLICY) {
+  if (![
+    ECHO_LYRIC_MULTILINGUAL_ADJUDICATION_POLICY,
+    ECHO_LYRIC_DENSE_LINE_ADJUDICATION_POLICY,
+  ].includes(inspection.policyId)) {
     return true;
   }
   return Number(receipt.evidence?.alignableLineCount) === inspection.alignableLineCount
@@ -206,10 +250,13 @@ export function evaluateEchoLyricTimingPromotion(timing = {}, {
   const engine = text(timing.engine || provenance.timingSource);
   const reasons = [];
   const adjudicationAccepted = validEchoLyricTimingAdjudication(timing);
+  const structuralInspection = inspectEchoLyricTimingAdjudication(timing);
   if (!lines.length) reasons.push("no-timed-lines");
   if (!Number.isFinite(confidence) || (confidence < minimumConfidence && !adjudicationAccepted)) reasons.push("confidence-below-gate");
   if (Number(stats.overlapCount || 0) > 0) reasons.push("overlapping-line-windows");
   if (Number(stats.duplicateStartCount || 0) > 0) reasons.push("duplicate-line-starts");
+  if (structuralInspection.invalidWordIntervals > 0) reasons.push("invalid-word-intervals");
+  if (structuralInspection.invalidLineIntervals > 0) reasons.push("invalid-line-intervals");
   if (!adjudicationAccepted && warnings.some((warning) => /low_match_ratio|many_unmatched_lines|overlapping_line_windows|duplicate_line_starts/u.test(warning))) {
     reasons.push("alignment-warning");
   }

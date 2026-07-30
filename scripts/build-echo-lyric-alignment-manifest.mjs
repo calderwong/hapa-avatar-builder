@@ -56,7 +56,13 @@ for (const project of baseline.projects || []) {
   }
   const masterPath = String(song.audio?.localPath || "");
   const fallbackPath = String(project.alignmentSource?.path || "");
-  const songPath = masterPath && fs.existsSync(masterPath) ? masterPath : fallbackPath;
+  const verifiedMasterFallback = project.alignmentSource?.kind === "master-mix-fallback"
+    && fallbackPath
+    && fs.existsSync(fallbackPath)
+    ? fallbackPath
+    : "";
+  const songPath = verifiedMasterFallback
+    || (masterPath && fs.existsSync(masterPath) ? masterPath : fallbackPath);
   if (!songPath || !fs.existsSync(songPath)) continue;
   const stems = (song.stems || [])
     .map((stem) => ({
