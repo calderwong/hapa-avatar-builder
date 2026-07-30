@@ -50,6 +50,7 @@
     "echo:director:plans:missing:apply": "node scripts/generate-music-video-plans.mjs --missing-only --apply",
     "echo:preflight-media": "node scripts/preflight-echo-director-media.mjs",
     "echo:preflight-render": "node scripts/preflight-echo-render-readiness.mjs",
+    "echo:preflight-loop-coverage": "node scripts/preflight-hyperframes-loop-coverage.mjs",
     "echo:repair-stem-bindings": "node scripts/preflight-echo-render-readiness.mjs --apply-stem-repairs",
     "audit:echo-renderability": "node scripts/preflight-echo-render-readiness.mjs",
     "ingest:folder-images": "node scripts/ingest-folder-images-and-visual-matches.mjs",

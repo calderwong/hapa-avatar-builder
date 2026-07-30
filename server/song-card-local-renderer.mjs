@@ -40,6 +40,7 @@ import {
   createStemRegistryLineageError,
   preflightStemRegistryLineage,
 } from "./stem-registry-lineage-preflight.mjs";
+import { ensureHyperFramesLoopCoverage } from "./hyperframes-loop-coverage.mjs";
 
 const execFile = promisify(execFileCallback);
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -59,6 +60,7 @@ const REQUIRED_SCRIPTS = [
   "scripts/compile-hyperframes-show-v2.mjs",
   "scripts/hyperframes-pixel-acceptance.mjs",
   "scripts/hyperframes-pixel-capture.cjs",
+  "scripts/preflight-hyperframes-loop-coverage.mjs",
   "scripts/run-local-hyperframes.mjs",
   "scripts/preflight-echo-render-readiness.mjs",
 ];
@@ -68,6 +70,7 @@ const RENDERER_BUILD_FILES = [
   "server/lyric-render-parity.mjs",
   "server/render-audio-input-preflight.mjs",
   "server/render-visual-media-preflight.mjs",
+  "server/hyperframes-loop-coverage.mjs",
   "server/stem-telemetry-preflight.mjs",
   "server/stem-registry-lineage-preflight.mjs",
   "server/echo-director-show-graph-loader.mjs",
@@ -1572,7 +1575,7 @@ function terminateProcessGroup(child, signal = "SIGTERM") {
   }
 }
 
-function summarizeHyperFramesFailure(error) {
+export function summarizeHyperFramesFailure(error) {
   const details = [error?.stderr, error?.stdout, error?.message].map((value) => String(value || "")).join("\n");
   const navigation = details.match(/Navigation timeout of ([0-9]+) ms exceeded/iu);
   if (navigation) {
@@ -1581,6 +1584,8 @@ function summarizeHyperFramesFailure(error) {
   if (/ENOSPC|No space left on device/iu.test(details)) return "The local render ran out of disk space before it could finish the MP4.";
   if (/ENOMEM|out of memory|heap limit/iu.test(details)) return "The local render ran out of memory before it could finish the MP4.";
   if (/killed|SIGKILL|SIGTERM/iu.test(details)) return "The local render process stopped before it could finish the MP4.";
+  const coverage = details.match(/Video "[^"]+" captured \d+ of expected \d+ frames \(coverage [\d.]+%, threshold [\d.]+%\)\.[^\n]*/iu);
+  if (coverage) return `A packaged loop was shorter than its assigned timeline window. ${coverage[0]}`.slice(0, 500);
   const finalLine = details.split(/\r?\n/u).map((line) => line.trim()).filter(Boolean).at(-1) || "HyperFrames could not finish the local MP4.";
   return finalLine.length <= 360 ? finalLine : "HyperFrames could not finish the local MP4. Retry to resume from the verified saved edit.";
 }
@@ -3142,6 +3147,27 @@ async function defaultPipeline({
     assertProxyRegistryIdentity(loadSongCardProxyRegistry(), expectedProxyRegistrySha256, "compile");
   }
 
+  throwIfAborted(signal);
+  report("loop-coverage", 32, "Filling packaged loop handles so every selected video covers its complete render window.");
+  const loopCoverage = await ensureHyperFramesLoopCoverage({
+    projectDirectory: packageDirectory,
+    fps: outputProfile.fps,
+    signal,
+  });
+  if (!loopCoverage.ok) {
+    throw localRendererError(
+      "local_loop_coverage_failed",
+      "One or more packaged video loops could not be extended through their full render windows. The final MP4 did not start.",
+      409,
+      {
+        stage: "loop-coverage",
+        reportPath: path.join(packageDirectory, "loop-coverage-preflight.json"),
+        gapCount: Number(loopCoverage?.after?.gapCount || 0),
+        blockers: loopCoverage.blockers,
+      },
+    );
+  }
+
   const requestedVisualizerCueCount = visualizerCards(showGraph).length;
   const lyricPixelVerificationRequired = Boolean(compilerReport?.lyrics);
   const pixelReportPath = path.join(qaDirectory, "pixel-capture-report.json");
@@ -3229,7 +3255,10 @@ async function defaultPipeline({
     ], { cwd: ROOT, report, signal, registerProcess });
   } catch (error) {
     if (signal?.aborted) throw abortError(signal);
-    throw localRendererError("local_hyperframes_render_failed", summarizeHyperFramesFailure(error), 500);
+    throw localRendererError("local_hyperframes_render_failed", summarizeHyperFramesFailure(error), 500, {
+      stage: "render",
+      exitCode: Number.isInteger(error?.code) ? error.code : null,
+    });
   }
 
   report("lyric-parity", 84, "Verifying the burned-in lyrics in the encoded MP4.");
