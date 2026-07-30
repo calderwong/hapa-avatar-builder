@@ -46,6 +46,7 @@
     { "processId": "loops", "adapterId": "builder-loop-router", "uri": "/api/overcard/process-adapters/builder-loop-router/run-context" },
     { "processId": "songs-director", "adapterId": "builder-songs-director", "uri": "/api/overcard/process-adapters/builder-songs-director/run-context" },
     { "processId": "echos-director", "adapterId": "builder-echos-director", "uri": "/api/overcard/process-adapters/builder-echos-director/run-context" },
+    { "processId": "echo-record-garden", "adapterId": "builder-echo-record-garden", "uri": "/api/overcard/process-adapters/builder-echo-record-garden/run-context" },
     { "processId": "tarot-draw", "adapterId": "builder-tarot-draw", "uri": "/api/overcard/process-adapters/builder-tarot-draw/run-context" },
     { "processId": "tarot-forge", "adapterId": "builder-tarot-forge", "uri": "/api/overcard/process-adapters/builder-tarot-forge/run-context" },
     { "processId": "creator-set-assembly", "adapterId": "builder-creator-set-assembly", "uri": "/api/overcard/process-adapters/builder-creator-set-assembly/run-context" },
@@ -73,7 +74,7 @@
     "schemas": ["hapa.overcard-capabilities.v1", "hapa.overcard-node-adapter.v1"],
     "renderers": ["avatar-builder-native-entity", "avatar-builder-avatar", "builder-item-card", "builder-tarot-card", "builder-tarot-deck", "builder-tarot-set", "builder-scene-card", "builder-song-card"],
     "hostTargets": [],
-    "processes": ["scenes", "items", "loops", "songs-director", "echos-director", "tarot-draw", "tarot-forge", "creator-set-assembly", "hell-week", "kanban-actions", "bank-context"],
+    "processes": ["scenes", "items", "loops", "songs-director", "echos-director", "echo-record-garden", "tarot-draw", "tarot-forge", "creator-set-assembly", "hell-week", "kanban-actions", "bank-context"],
     "reasons": ["Static adapter discovery grants neither trust nor authorization."]
   }
 }

@@ -22,6 +22,9 @@ export const BUILDER_PROCESS_ADAPTERS = Object.freeze([
     socket("director", "advisor", ["avatar"], "authority", ["echos.direct"], ["echos.preview"], "confirm"),
     socket("context", "context", ["card", "scene", "song"], "context", ["context.read"], ["echos.context"]),
   ], { containerHostId: "echos", bridge: "post-message" }),
+  adapter("builder-echo-record-garden", "echo-record-garden", "Echo Record Garden", "local", NODE_ID, "/?view=echo-records", "/api/echos/director-projects?summary=1", "album-summary-and-source-linked-media", [
+    socket("album-context", "context", ["avatar", "card", "scene", "song"], "context", ["context.read"], ["echo-record-garden.context"]),
+  ]),
   adapter("builder-tarot-draw", "tarot-draw", "Tarot Draw", "local", NODE_ID, "/?view=tarot", "/api/tarot", "local-deck", [
     socket("host-avatar", "operator", ["avatar"], "authority", ["tarot.host"], ["tarot.draw"], "confirm"),
     socket("draw-context", "context", ["card", "deck", "set", "song"], "context", ["context.read"], ["tarot.context"]),

@@ -6,11 +6,11 @@ The canonical Builder checkout is `/Users/calderwong/Desktop/hapa-avatar-builder
 
 ## Operator surface
 
-`src/main.jsx` mounts one shared provider; `src/App.jsx` keeps `BuilderHeaderHand` mounted inside the persistent 78px Header across all sixteen routes. The default dock is minified and in-flow, so it cannot cover Tarot preview, HUD, controls, card rail, sidebar, inspectors, or modals. Manage opens the canonical Hand/Deck/Set manager. Detach creates a movable always-on-top-in-app widget; Move supports pointer/touch and Arrow keys, Shift+Arrow moves farther, Reset restores reachable geometry, and Dock returns to the exact Header anchor without losing held state or collection state.
+`src/main.jsx` mounts one shared provider; `src/App.jsx` keeps `BuilderHeaderHand` mounted inside the persistent 78px Header across all seventeen routes. The default dock is minified and in-flow, so it cannot cover Tarot preview, HUD, controls, card rail, sidebar, inspectors, or modals. Manage opens the canonical Hand/Deck/Set manager. Detach creates a movable always-on-top-in-app widget; Move supports pointer/touch and Arrow keys, Shift+Arrow moves farther, Reset restores reachable geometry, and Dock returns to the exact Header anchor without losing held state or collection state.
 
 Hand stays in the canonical manager; Deck and Library route through HostTarget metadata to Tarot Library; Set routes to Creator Sets. Browser back restores the prior view while the provider remains mounted. At narrow widths the Header keeps a count/manage/detach ingress and compact connection trigger while hiding secondary telemetry.
 
-## Sixteen HostTargets
+## Seventeen HostTargets
 
 The registry in `src/overcard/hostTargets.js` is the sole menu/attachment truth:
 
@@ -23,13 +23,14 @@ The registry in `src/overcard/hostTargets.js` is the sole menu/attachment truth:
 7. Lore Reader
 8. Hapa Songs
 9. Echos Album
-10. Kanban
-11. Avatar Card
-12. Hapa Bank
-13. Tarot Library
-14. Hell Week
-15. Tarot Draw
-16. Creator Sets
+10. Echo Record Garden
+11. Kanban
+12. Avatar Card
+13. Hapa Bank
+14. Tarot Library
+15. Hell Week
+16. Tarot Draw
+17. Creator Sets
 
 Each declares aliases, accepted entity types, typed sockets, effect (`presentation`, `context`, `authority`, or `output`), process adapter, and deterministic fallback. URL aliases resolve through this registry; do not add hard-coded menu metadata elsewhere.
 
@@ -52,7 +53,7 @@ Hands are operator-personal, avatar-private, or workspace collections. `Inventor
 
 | Surface | Current truth |
 | --- | --- |
-| UI | Shared Hand, sixteen menu slots, inspectors/deep links/telemetry, Tarot 3D Formation, Hell Week controls are implemented. |
+| UI | Shared Hand, seventeen menu slots, inspectors/deep links/telemetry, Tarot 3D Formation, Echo Record Garden, and Hell Week controls are implemented. |
 | API | Catalog, HostTargets, process adapters, runtime preview, inventory collections, Hell Week proxy, capabilities/health are implemented in `server/api.mjs`. |
 | CLI | Existing avatar/card audit and attach-pack CLI remains source-domain CLI; universal Overcard install/verify CLI is package-owned, not duplicated here. |
 | DATA | Avatar/inventory sources remain Builder-owned; shared collection/placement/formation/binding records live in the canonical host; consumer release checksum lives in `overcard-release.lock.json`. |

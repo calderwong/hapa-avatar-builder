@@ -13,6 +13,7 @@ import {
   Clapperboard,
   Clipboard,
   CreditCard,
+  Disc3,
   Film,
   Flame,
   FileJson,
@@ -211,6 +212,7 @@ import { buildPublicDemoGateCards } from "./domain/tarot-stargate-derivation.js"
 const ThreeAvatarViewer = lazy(() => import("./components/ThreeAvatarViewer.jsx"));
 const TarotDraw3DView = lazy(() => import("./components/TarotDraw3DView.jsx"));
 const HapaEchosView = lazy(() => import("./components/HapaEchosView.jsx"));
+const EchoRecordGarden3DView = lazy(() => import("./components/EchoRecordGarden3DView.jsx"));
 const PhoneCardMobileView = lazy(() => import("./components/PhoneCardMobileView.jsx"));
 
 const EMPTY_TAROT_DRAW_PROJECTION = {
@@ -247,7 +249,7 @@ const electronApiBase = globalThis.window?.hapaAvatarBuilder?.apiBase;
 const BUILDER_HOST_ICONS = {
   grid: Grid3X3, brain: Brain, scenes: Clapperboard, items: Box, loops: Route, lookbook: BookOpen,
   lore: Archive, songs: Music, echos: Sparkles, kanban: KanbanSquare, "avatar-card": BadgeCheck,
-  bank: CreditCard, "tarot-library": Tags, "hell-week": Flame, "tarot-draw": Sparkles, "creator-sets": Users,
+  "record-player": Disc3, bank: CreditCard, "tarot-library": Tags, "hell-week": Flame, "tarot-draw": Sparkles, "creator-sets": Users,
 };
 const API_BASE = electronApiBase || (["5177", "5178"].includes(globalThis.location?.port) ? "http://127.0.0.1:8787" : "");
 const songRegistryApiBase = globalThis.window?.hapaAvatarBuilder?.songRegistryApiBase;
@@ -1438,7 +1440,7 @@ export default function App({ overcardAdapter }) {
   }, []);
 
   useEffect(() => {
-    if (activeView === "echos") return undefined;
+    if (activeView === "echos" || activeView === "echo-records") return undefined;
     if (!selectedAvatarId) return undefined;
     const currentAvatar = avatars.find((avatar) => avatar.id === selectedAvatarId);
     if (!currentAvatar || isCompactOverwindAvatar(currentAvatar)) {
@@ -3919,6 +3921,17 @@ export default function App({ overcardAdapter }) {
           <Suspense fallback={<div className="empty-state"><Loader2 size={22} /><span>Loading Echos Album</span></div>}>
             <HapaEchosView
               playbackMode="active"
+              selectedSongId={selectedHapaSongId}
+              onSelectSong={setSelectedHapaSongId}
+            />
+          </Suspense>
+        )}
+        {activeView === "echo-records" && (
+          <Suspense fallback={<div className="tarot-draw-view tarot-draw-loading"><Loader2 size={22} /><span>Setting the Record Garden table</span></div>}>
+            <EchoRecordGarden3DView
+              apiBase={API_BASE}
+              avatars={avatars}
+              sceneGraph={normalizedSceneGraph}
               selectedSongId={selectedHapaSongId}
               onSelectSong={setSelectedHapaSongId}
             />

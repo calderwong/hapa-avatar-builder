@@ -1,0 +1,77 @@
+{
+  "schema": "hapa.echo-record-garden.verification.v1",
+  "programId": "echo-record-garden-2026-07-30",
+  "verifiedAt": "2026-07-30",
+  "sourceRevision": "227a741062e040fdcfa83a1663e1f49765817a0e",
+  "focusedGate": {
+    "status": "passed",
+    "tests": 28,
+    "passed": 28,
+    "failed": 0,
+    "coverage": [
+      "record-garden-domain",
+      "record-garden-ui-contract",
+      "overcard-host-registry",
+      "overcard-menu-slots",
+      "overcard-docs-parity",
+      "overcard-process-adapters",
+      "echo-hydration-guard"
+    ]
+  },
+  "productionBuild": {
+    "status": "passed",
+    "deliveryReceiptSha256": "42fe91748f724c8fe8f7dcbc4217150cf50fdfe0df842e6700a084560ae5accc"
+  },
+  "fullSuite": {
+    "status": "passed",
+    "command": "node --test --test-concurrency=4 tests/*.test.mjs",
+    "tests": 1306,
+    "passed": 1306,
+    "failed": 0,
+    "durationMilliseconds": 67289.294208,
+    "defaultConcurrencyObservations": [
+      {
+        "passed": 1305,
+        "failed": 1,
+        "failure": "stargate-gate-pass-proof child cleanup EPIPE",
+        "isolatedRetry": "passed 3/3"
+      },
+      {
+        "passed": 1305,
+        "failed": 1,
+        "failure": "avatar-service-security startup timeout",
+        "isolatedRetry": "passed 1/1"
+      }
+    ],
+    "recordGardenRegressions": 0,
+    "echoRegressions": 0,
+    "tarotStructureOrLifecycleRegressions": 0,
+    "overcardParityRegressions": 0
+  },
+  "tarotSmoke": {
+    "status": "degraded_fixture",
+    "rendererMounted": true,
+    "canvasMounted": true,
+    "consoleErrors": 0,
+    "blockedBranch": "Music Zone lock",
+    "reason": "No eligible Song Card was available in the current smoke fixture."
+  },
+  "liveAcceptance": {
+    "catalogRecords": 157,
+    "activeCrateRecords": 6,
+    "visualSurfaces": 3,
+    "maximumActiveVideoDecoders": 3,
+    "audioPlayback": "passed",
+    "audioPause": "passed",
+    "sourceCardGeneration": "passed",
+    "localUnmintedCardProjection": "passed",
+    "desktopCanvas": "nonblank",
+    "compactCanvas": "nonblank",
+    "compactHorizontalOverflow": false,
+    "rendererState": "available"
+  },
+  "screenshots": [
+    "/Users/calderwong/Documents/Codex/2026-07-28/can/artifacts/echo-record-garden/record-garden-desktop.png",
+    "/Users/calderwong/Documents/Codex/2026-07-28/can/artifacts/echo-record-garden/record-garden-mobile.png"
+  ]
+}
