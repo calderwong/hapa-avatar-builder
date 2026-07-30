@@ -6,7 +6,10 @@ import os from "node:os";
 import path from "node:path";
 
 import {
+  ECHO_CONDENSED_REFERENCE_MAX_BYTES,
+  ECHO_CONDENSED_REFERENCE_SCHEMA,
   ECHO_MASTER_REFERENCE_SCHEMA,
+  buildEchoAlbumCondensedReference,
   buildEchoAlbumMasterReference,
 } from "../src/domain/echo-master-reference-export.js";
 import { runEchoMasterReferenceExport } from "../scripts/export-echo-master-reference.mjs";
@@ -158,6 +161,29 @@ test("Master Reference export is self-contained, cross-linked, complete, and det
   assert.notEqual(changed.manifest.inputDigest, first.manifest.inputDigest);
 });
 
+test("condensed profile keeps every title and lyric plus curated references under 3 MB", () => {
+  const result = buildEchoAlbumCondensedReference(fixture(), { generatedAt: FIXED_TIME });
+
+  assert.equal(result.schemaVersion, ECHO_CONDENSED_REFERENCE_SCHEMA);
+  assert.equal(result.manifest.counts.songs, 2);
+  assert.equal(result.manifest.counts.songsWithLyrics, 2);
+  assert.equal(result.manifest.counts.songReferenceConnectors, 1);
+  assert.equal(result.manifest.counts.curatedReferenceEdges, 1);
+  assert.ok(result.manifest.bytes < ECHO_CONDENSED_REFERENCE_MAX_BYTES);
+  assert.match(result.markdown, /# Echo Album — Lyrics & Main References/);
+  assert.match(result.markdown, /First line\nSecond line/);
+  assert.match(result.markdown, /Another lyric/);
+  assert.match(result.markdown, /\[Reference One\]\(#reference-reference-one\)/);
+  assert.match(result.markdown, /reference-two/);
+  assert.match(result.markdown, /Reference Atlas candidate cards and mined graph edges/);
+  assert.doesNotMatch(result.markdown, /\/private\/source\//);
+  assert.doesNotMatch(result.markdown, /"beats": \[/);
+  assert.throws(
+    () => buildEchoAlbumCondensedReference(fixture(), { generatedAt: FIXED_TIME, maxBytes: 100 }),
+    /above the 100-byte limit/
+  );
+});
+
 test("CLI writes one Markdown snapshot atomically without changing source stores", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "echo-master-reference-"));
   const input = fixture();
@@ -167,6 +193,7 @@ test("CLI writes one Markdown snapshot atomically without changing source stores
     referenceRun: path.join(root, "reference-run.json"),
     observability: path.join(root, "observability.json"),
     out: path.join(root, "exports", "master.md"),
+    condensedOut: path.join(root, "exports", "condensed.md"),
   };
   await Promise.all([
     writeFile(paths.songbook, JSON.stringify(input.songbook)),
@@ -191,6 +218,20 @@ test("CLI writes one Markdown snapshot atomically without changing source stores
   assert.equal(receipt.sha256, sha256(markdown));
   assert.equal(receipt.counts.songs, 2);
   assert.match(markdown, /End of export `echo-master-reference:/);
+
+  const condensedReceipt = await runEchoMasterReferenceExport({
+    songbook: paths.songbook,
+    "song-store": paths.songStore,
+    "reference-run": paths.referenceRun,
+    observability: paths.observability,
+    out: paths.condensedOut,
+    condensed: true,
+    "generated-at": FIXED_TIME,
+  });
+  const condensedMarkdown = await readFile(paths.condensedOut, "utf8");
+  assert.ok(condensedReceipt.bytes < ECHO_CONDENSED_REFERENCE_MAX_BYTES);
+  assert.match(condensedMarkdown, /Echo Album — Lyrics & Main References/);
+  assert.match(condensedMarkdown, /First line\nSecond line/);
 });
 
 test("Echo workbench exposes the managed Markdown download route", async () => {
@@ -199,11 +240,15 @@ test("Echo workbench exposes the managed Markdown download route", async () => {
     readFile(new URL("../server/api.mjs", import.meta.url), "utf8"),
   ]);
   assert.match(ui, /data-testid="echo-master-reference-export"/);
+  assert.match(ui, /data-testid="echo-condensed-reference-export"/);
+  assert.match(ui, /profile=condensed/);
   assert.match(ui, /\/api\/echos\/master-reference/);
   assert.match(ui, /echo-album-master-reference\.md/);
   assert.match(api, /Content-Type": "text\/markdown; charset=utf-8"/);
   assert.match(api, /buildEchoAlbumMasterReference/);
   assert.match(api, /"Cache-Control": "no-store"/);
+  assert.match(api, /buildEchoAlbumCondensedReference/);
+  assert.match(api, /"X-Hapa-Export-Profile"/);
   const cli = await readFile(new URL("../scripts/export-echo-master-reference.mjs", import.meta.url), "utf8");
   assert.match(cli, /referenceStore\.currentRun\(\)/);
   assert.match(cli, /buildEchoReferenceObservability\(currentRun/);

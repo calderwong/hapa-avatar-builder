@@ -11,6 +11,7 @@ Output schema:
 
 ```text
 hapa.echo-album-master-reference.v1
+hapa.echo-album-condensed-reference.v1
 ```
 
 ## Canonical inputs
@@ -72,6 +73,20 @@ GET /api/echos/master-reference
 
 The response is `text/markdown`, attachment-scoped, and marked `no-store`.
 
+Choose **Lyrics + Main References** for
+`echo-album-lyrics-and-main-references.md`. This compact profile has a hard
+3,000,000-byte ceiling and keeps:
+
+- every track title, stable ID, author/perspective summary, and available lyric;
+- lyric status and SHA-256;
+- every curated song-to-reference connector;
+- each linked curated reference record; and
+- the curated reference-to-reference graph.
+
+It omits the mined Reference Atlas candidate graph, telemetry arrays, media,
+local workstation paths, and complete metadata dumps. It fails instead of
+truncating lyrics if the source corpus ever exceeds the byte budget.
+
 ## Automated use
 
 Write the default runtime artifact:
@@ -84,6 +99,14 @@ Choose a destination:
 
 ```bash
 npm run echo:master-reference -- --out /path/to/echo-album-master-reference.md
+```
+
+Create the condensed profile:
+
+```bash
+npm run echo:master-reference -- \
+  --condensed \
+  --out /path/to/echo-album-lyrics-and-main-references.md
 ```
 
 Pipe Markdown to another local process:
@@ -141,4 +164,4 @@ npm run echo:master-reference -- --out /tmp/echo-album-master-reference.md
 
 The focused test proves deterministic output for fixed inputs/time, complete
 lyrics/metadata/telemetry/association inclusion, cross-links, atomic writing,
-source-store immutability, and UI/API wiring.
+source-store immutability, compact-profile byte enforcement, and UI/API wiring.

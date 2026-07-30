@@ -284,11 +284,18 @@ Reference Atlas associations, complete song metadata, timed/audio telemetry,
 reference-card records, graph edges, observability, source receipts, and stable
 cross-links.
 
+Use **Lyrics + Main References** for a compact Markdown profile capped at
+3,000,000 bytes. It retains every title and available lyric, the curated
+song-reference connectors, linked curated reference records, and the curated
+reference graph while omitting telemetry, media, local paths, full metadata
+dumps, and the large mined candidate graph.
+
 The same read-only process is scriptable:
 
 ```bash
 npm run echo:master-reference
 npm run echo:master-reference -- --out /path/to/echo-album-master-reference.md
+npm run echo:master-reference -- --condensed --out /path/to/echo-album-lyrics-and-main-references.md
 ```
 
 The default command output is

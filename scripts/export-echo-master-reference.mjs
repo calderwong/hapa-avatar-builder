@@ -4,7 +4,11 @@ import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { buildEchoAlbumMasterReference } from "../src/domain/echo-master-reference-export.js";
+import {
+  ECHO_CONDENSED_REFERENCE_MAX_BYTES,
+  buildEchoAlbumCondensedReference,
+  buildEchoAlbumMasterReference,
+} from "../src/domain/echo-master-reference-export.js";
 import { buildEchoReferenceObservability } from "../src/domain/echo-reference-mining.js";
 import { createEchoReferenceMiningStore } from "../server/echo-reference-mining-store.mjs";
 
@@ -43,11 +47,14 @@ function help() {
 Usage:
   npm run echo:master-reference
   npm run echo:master-reference -- --out /path/to/echo-album-master-reference.md
+  npm run echo:master-reference -- --condensed --out /path/to/echo-album-lyrics-and-main-references.md
   npm run echo:master-reference -- --stdout
 
 Options:
   --out <file>            Markdown destination.
   --stdout                Print Markdown instead of writing a file.
+  --condensed             Keep lyrics and curated/main references under 3 MB.
+  --max-bytes <n>         Condensed profile byte limit (default: 3000000).
   --songbook <file>       Dear Papa songbook JSON source.
   --song-store <file>     Builder Hapa song-store JSON source.
   --reference-run <file>  Reference Atlas run JSON source.
@@ -92,13 +99,22 @@ export async function runEchoMasterReferenceExport(options = {}) {
       ? await readJson(paths.observability, {})
       : buildEchoReferenceObservability(currentRun, { contributionEvents });
   }
-  const result = buildEchoAlbumMasterReference(
-    { songbook, songStore, referenceRun, observability },
-    { generatedAt: options["generated-at"] }
-  );
+  const condensed = options.condensed === true;
+  const exportInputs = { songbook, songStore, referenceRun, observability };
+  const result = condensed
+    ? buildEchoAlbumCondensedReference(exportInputs, {
+      generatedAt: options["generated-at"],
+      maxBytes: Number(options["max-bytes"] || ECHO_CONDENSED_REFERENCE_MAX_BYTES),
+    })
+    : buildEchoAlbumMasterReference(exportInputs, { generatedAt: options["generated-at"] });
   const bytes = Buffer.byteLength(result.markdown);
   const sha256 = createHash("sha256").update(result.markdown).digest("hex");
-  const destination = path.resolve(options.out || path.join(ROOT, "data/exports/echo-album-master-reference.md"));
+  const destination = path.resolve(options.out || path.join(
+    ROOT,
+    condensed
+      ? "data/exports/echo-album-lyrics-and-main-references.md"
+      : "data/exports/echo-album-master-reference.md"
+  ));
 
   if (options.stdout === true) {
     process.stdout.write(result.markdown);

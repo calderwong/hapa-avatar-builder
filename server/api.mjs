@@ -180,7 +180,11 @@ import {
   projectEchoReferenceRunReceipt,
   searchEchoReferenceGraph,
 } from "../src/domain/echo-reference-mining.js";
-import { buildEchoAlbumMasterReference } from "../src/domain/echo-master-reference-export.js";
+import {
+  ECHO_CONDENSED_REFERENCE_MAX_BYTES,
+  buildEchoAlbumCondensedReference,
+  buildEchoAlbumMasterReference,
+} from "../src/domain/echo-master-reference-export.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, "..");
@@ -2141,27 +2145,42 @@ async function route(req, res) {
   }
 
   if (pathname === "/api/echos/master-reference" && req.method === "GET") {
-    const [songbook, songStore, referenceRun, contributionEvents] = await Promise.all([
+    const condensed = url.searchParams.get("profile") === "condensed";
+    const [songbook, songStore] = await Promise.all([
       readDearPapaSongbook(),
       readHapaSongStore(),
-      echoReferenceMiningStore.currentRun(),
-      echoReferenceMiningStore.contributions(),
     ]);
-    const observability = buildEchoReferenceObservability(referenceRun, { contributionEvents });
-    const exported = buildEchoAlbumMasterReference({
-      songbook,
-      songStore,
-      referenceRun,
-      observability,
-    });
+    let exported;
+    if (condensed) {
+      exported = buildEchoAlbumCondensedReference(
+        { songbook, songStore },
+        { maxBytes: ECHO_CONDENSED_REFERENCE_MAX_BYTES }
+      );
+    } else {
+      const [referenceRun, contributionEvents] = await Promise.all([
+        echoReferenceMiningStore.currentRun(),
+        echoReferenceMiningStore.contributions(),
+      ]);
+      const observability = buildEchoReferenceObservability(referenceRun, { contributionEvents });
+      exported = buildEchoAlbumMasterReference({
+        songbook,
+        songStore,
+        referenceRun,
+        observability,
+      });
+    }
     const payload = Buffer.from(exported.markdown, "utf8");
+    const filename = condensed
+      ? "echo-album-lyrics-and-main-references.md"
+      : "echo-album-master-reference.md";
     res.writeHead(200, {
       "Content-Type": "text/markdown; charset=utf-8",
       "Content-Length": payload.length,
-      "Content-Disposition": 'attachment; filename="echo-album-master-reference.md"',
+      "Content-Disposition": `attachment; filename="${filename}"`,
       "Cache-Control": "no-store",
       "X-Hapa-Export-Schema": exported.schemaVersion,
       "X-Hapa-Export-Id": exported.manifest.exportId,
+      "X-Hapa-Export-Profile": condensed ? "condensed" : "full",
     });
     res.end(payload);
     return;

@@ -17,11 +17,12 @@ preserves source authority, review, rights, privacy, and lineage fields.
 
 | Surface | Export behavior |
 | --- | --- |
-| UI | **Export Master Reference** in the Echo workbench downloads `echo-album-master-reference.md`. |
-| API | `GET /api/echos/master-reference` returns the live snapshot as `text/markdown` with an attachment filename and no-store caching. |
-| CLI | `npm run echo:master-reference`; optional `--out`, `--stdout`, source-path overrides, and fixed `--generated-at` for fixtures. |
+| UI | **Export Master Reference** downloads the full snapshot; **Lyrics + Main References** downloads the under-3-MB curated profile. |
+| API | `GET /api/echos/master-reference` returns the full live snapshot; add `?profile=condensed` for the size-capped lyrics/main-reference profile. Both use `text/markdown`, attachment filenames, and no-store caching. |
+| CLI | `npm run echo:master-reference`; add `--condensed` for the 3,000,000-byte profile. Both accept `--out`, `--stdout`, source-path overrides, and fixed `--generated-at` for fixtures. |
 
-The shared output schema is `hapa.echo-album-master-reference.v1`. See
+The shared output schemas are `hapa.echo-album-master-reference.v1` and
+`hapa.echo-album-condensed-reference.v1`. See
 `docs/ECHO_MASTER_REFERENCE_EXPORT.md` and
 `tests/echo-master-reference-export.test.mjs`.
 

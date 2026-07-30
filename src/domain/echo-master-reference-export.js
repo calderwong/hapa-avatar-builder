@@ -1,4 +1,6 @@
 export const ECHO_MASTER_REFERENCE_SCHEMA = "hapa.echo-album-master-reference.v1";
+export const ECHO_CONDENSED_REFERENCE_SCHEMA = "hapa.echo-album-condensed-reference.v1";
+export const ECHO_CONDENSED_REFERENCE_MAX_BYTES = 3_000_000;
 
 function list(value) {
   return Array.isArray(value) ? value.filter(Boolean) : [];
@@ -72,6 +74,10 @@ function markdownCell(value) {
     .replace(/\|/gu, "\\|")
     .replace(/\r?\n/gu, " ")
     .trim();
+}
+
+function markdownLabel(value) {
+  return String(value ?? "").replace(/\\/gu, "\\\\").replace(/\[/gu, "\\[").replace(/\]/gu, "\\]");
 }
 
 function inlineCode(value) {
@@ -592,6 +598,250 @@ export function buildEchoAlbumMasterReference(inputs = {}, options = {}) {
   return {
     schemaVersion: ECHO_MASTER_REFERENCE_SCHEMA,
     markdown: lines.join("\n"),
+    manifest,
+  };
+}
+
+function compactReferenceRecord(reference = {}) {
+  return {
+    id: referenceIdentity(reference.id),
+    title: text(reference.title, referenceIdentity(reference.id)),
+    kind: text(reference.kind, "reference"),
+    creators: list(reference.creators).map(String),
+    franchise: text(reference.franchise),
+    publicContext: text(reference.publicContext),
+    themes: list(reference.themes).map(String),
+    mechanics: list(reference.mechanics).map(String),
+    source: {
+      label: text(reference.source?.label),
+      url: text(reference.source?.url),
+      evidenceClass: text(reference.source?.evidenceClass),
+    },
+    canonStatus: text(reference.canonStatus),
+    reviewStatus: text(reference.reviewStatus),
+  };
+}
+
+function compactConnector(connector = {}) {
+  return {
+    id: text(connector.id),
+    referenceId: referenceIdentity(connector.referenceId),
+    referenceTitle: text(connector.referenceTitle),
+    relationType: text(connector.relationType, "references"),
+    confidence: text(connector.confidence || connector.evidence?.classification),
+    score: connector.evidence?.score ?? null,
+    lineStart: connector.target?.lineStart ?? null,
+    lineEnd: connector.target?.lineEnd ?? null,
+    lyricText: text(connector.target?.lyricText),
+    matchedText: text(connector.target?.matchedText),
+    withContext: text(connector.semanticEffect?.withContext),
+    thematicShift: text(connector.semanticEffect?.thematicShift),
+    caveat: text(connector.evidence?.caveat),
+    reviewStatus: text(connector.provenance?.reviewStatus),
+  };
+}
+
+function encodedByteLength(value = "") {
+  return new TextEncoder().encode(String(value)).byteLength;
+}
+
+export function buildEchoAlbumCondensedReference(inputs = {}, options = {}) {
+  const normalizedInputs = {
+    songbook: object(inputs.songbook),
+    songStore: object(inputs.songStore),
+    referenceRun: object(inputs.referenceRun),
+    observability: object(inputs.observability),
+  };
+  const generatedAt = text(options.generatedAt, new Date().toISOString());
+  const maxBytes = Math.max(1, Number(options.maxBytes || ECHO_CONDENSED_REFERENCE_MAX_BYTES));
+  const inputDigest = echoMasterReferenceDigest(normalizedInputs);
+  const songs = mergeSongs(normalizedInputs.songbook, normalizedInputs.songStore);
+  const catalog = list(normalizedInputs.songStore.referenceCatalog).map(compactReferenceRecord);
+  const catalogById = new Map(catalog.map((reference) => [reference.id, reference]));
+  const connectorsBySong = new Map();
+  const linkedReferenceIds = new Set();
+
+  for (const song of list(normalizedInputs.songStore.songs)) {
+    const id = songIdentity(song);
+    const connectors = list(song.referenceConnectors).map(compactConnector);
+    connectorsBySong.set(id, connectors);
+    connectors.forEach((connector) => {
+      if (connector.referenceId) linkedReferenceIds.add(connector.referenceId);
+    });
+  }
+  for (const edge of list(normalizedInputs.songStore.referenceGraphEdges)) {
+    linkedReferenceIds.add(referenceIdentity(edge.fromReferenceId));
+    linkedReferenceIds.add(referenceIdentity(edge.toReferenceId));
+  }
+  const mainReferences = catalog
+    .filter((reference) => linkedReferenceIds.has(reference.id))
+    .sort((left, right) => left.title.localeCompare(right.title) || left.id.localeCompare(right.id));
+  const missingReferences = [...linkedReferenceIds]
+    .filter((id) => id && !catalogById.has(id))
+    .sort()
+    .map((id) => ({ id, title: id, kind: "unresolved-reference", creators: [], franchise: "", publicContext: "", themes: [], mechanics: [], source: {}, canonStatus: "", reviewStatus: "missing-catalog-record" }));
+  const references = [...mainReferences, ...missingReferences];
+  const referenceById = new Map(references.map((reference) => [reference.id, reference]));
+  const connectorCount = [...connectorsBySong.values()].reduce((total, rows) => total + rows.length, 0);
+  const lyricCharacters = songs.reduce((total, song) => total + String(lyricsRecord(song).text || "").length, 0);
+  const manifest = {
+    schemaVersion: ECHO_CONDENSED_REFERENCE_SCHEMA,
+    exportId: `echo-condensed-reference:${inputDigest.replace(":", "-")}`,
+    generatedAt,
+    sourceUpdatedAt: sourceUpdatedAt(normalizedInputs),
+    inputDigest,
+    byteLimit: maxBytes,
+    album: {
+      canonicalId: text(normalizedInputs.songStore.album?.id || normalizedInputs.songbook.album?.id, "dear-papa-album"),
+      canonicalTitle: text(normalizedInputs.songStore.album?.title || normalizedInputs.songbook.album?.title, "Dear Papa"),
+      projectionTitle: text(normalizedInputs.songStore.album?.activeProjection?.title, "Echo Album"),
+    },
+    counts: {
+      songs: songs.length,
+      songsWithLyrics: songs.filter((song) => text(lyricsRecord(song).text)).length,
+      lyricCharacters,
+      mainReferences: references.length,
+      songReferenceConnectors: connectorCount,
+      curatedReferenceEdges: list(normalizedInputs.songStore.referenceGraphEdges).length,
+    },
+    selectionPolicy: {
+      included: [
+        "all song titles and stable IDs",
+        "all available lyrics and lyric provenance digests",
+        "all curated song-to-reference connectors",
+        "curated reference records linked by connectors or curated graph edges",
+        "all curated reference-to-reference graph edges",
+      ],
+      omitted: [
+        "Reference Atlas candidate cards and mined graph edges",
+        "beat, stem, section, energy, and observability telemetry",
+        "media records and local workstation paths",
+        "complete metadata JSON dumps",
+      ],
+      authorityPreserved: true,
+      impliesPublication: false,
+      impliesCanon: false,
+    },
+  };
+  const lines = [
+    "---",
+    `schema_version: ${yamlString(ECHO_CONDENSED_REFERENCE_SCHEMA)}`,
+    `title: ${yamlString("Echo Album — Lyrics & Main References")}`,
+    `export_id: ${yamlString(manifest.exportId)}`,
+    `generated_at: ${yamlString(generatedAt)}`,
+    `input_digest: ${yamlString(inputDigest)}`,
+    `song_count: ${songs.length}`,
+    `main_reference_count: ${references.length}`,
+    `byte_limit: ${maxBytes}`,
+    "tags:",
+    "  - echo-album",
+    "  - lyrics",
+    "  - main-references",
+    "  - wiki-source",
+    "---",
+    "",
+    '<a id="echo-album-condensed-reference"></a>',
+    "# Echo Album — Lyrics & Main References",
+    "",
+    "> Compact, read-only Hapa Avatar Builder export. It keeps every title and available lyric plus the curated/main reference layer. It does not publish, approve, mint, or canonize any record.",
+    "",
+    "## Compact export manifest",
+    "",
+    fenced(manifest, "json"),
+    "",
+    '<a id="track-index"></a>',
+    "## Track index",
+    "",
+    "| # | Track | Stable ID | Main references |",
+    "| ---: | --- | --- | ---: |",
+  ];
+
+  songs.forEach((song, index) => {
+    lines.push(`| ${song.songbook?.trackNumber || song.builder?.trackNumber || index + 1} | [${markdownLabel(song.title)}](#${songAnchor(song.id)}) | ${inlineCode(song.id)} | ${connectorsBySong.get(song.id)?.length || 0} |`);
+  });
+
+  songs.forEach((song, index) => {
+    const lyrics = lyricsRecord(song);
+    const connectors = connectorsBySong.get(song.id) || [];
+    lines.push(
+      "",
+      `<a id="${songAnchor(song.id)}"></a>`,
+      `## ${index + 1}. ${song.title}`,
+      "",
+      `[Track index](#track-index) · ${inlineCode(song.id)} · ${markdownCell(song.songbook?.author || song.builder?.author || song.builder?.attribution?.author || "Author not recorded")} · ${markdownCell(song.songbook?.performancePerspective || song.builder?.performancePerspective || "Perspective not recorded")}`,
+      "",
+      `**Lyrics:** ${markdownCell(lyrics.status || "status not recorded")} · SHA-256 ${inlineCode(lyrics.sha256 || song.songbook?.lineage?.lyricsSha256 || "not recorded")}`,
+      "",
+      "### Lyrics",
+      "",
+      fenced(String(lyrics.text || ""), "text"),
+      "",
+      "### Main references",
+      ""
+    );
+    if (!connectors.length) {
+      lines.push("_No curated main references are recorded for this track._");
+    } else {
+      connectors.forEach((connector) => {
+        const reference = referenceById.get(connector.referenceId);
+        const label = reference?.title || connector.referenceTitle || connector.referenceId;
+        const location = connector.lineStart
+          ? `lines ${connector.lineStart}${connector.lineEnd && connector.lineEnd !== connector.lineStart ? `–${connector.lineEnd}` : ""}`
+          : "lyric location not recorded";
+        const evidence = [connector.confidence, connector.score !== null ? `score ${connector.score}` : "", connector.reviewStatus].filter(Boolean).join(" · ");
+        lines.push(`- [${markdownLabel(label)}](#${referenceAnchor(connector.referenceId)}) — **${markdownCell(connector.relationType)}**; ${location}${evidence ? `; ${markdownCell(evidence)}` : ""}${connector.withContext ? `. ${markdownCell(connector.withContext)}` : connector.thematicShift ? `. ${markdownCell(connector.thematicShift)}` : ""}${connector.caveat ? ` Caveat: ${markdownCell(connector.caveat)}` : ""}`);
+      });
+    }
+  });
+
+  lines.push(
+    "",
+    '<a id="main-reference-index"></a>',
+    "## Main reference index",
+    ""
+  );
+  references.forEach((reference) => {
+    lines.push(
+      `<a id="${referenceAnchor(reference.id)}"></a>`,
+      `### ${reference.title}`,
+      "",
+      `- **Stable ID:** ${inlineCode(reference.id)}`,
+      `- **Kind:** ${markdownCell(reference.kind || "not recorded")}`,
+      `- **Creators:** ${markdownCell(reference.creators.join(", ") || "not recorded")}`,
+      `- **Themes:** ${markdownCell(reference.themes.join(", ") || "not recorded")}`,
+      `- **Mechanics:** ${markdownCell(reference.mechanics.join(", ") || "not recorded")}`,
+      `- **Review / canon:** ${markdownCell([reference.reviewStatus, reference.canonStatus].filter(Boolean).join(" · ") || "not recorded")}`,
+      `- **Source:** ${reference.source.url ? `[${markdownLabel(reference.source.label || reference.source.url)}](${reference.source.url})` : markdownCell(reference.source.label || "not recorded")}`,
+      "",
+      reference.publicContext || "_No public-context summary recorded._",
+      ""
+    );
+  });
+
+  lines.push(
+    "## Curated reference relationships",
+    "",
+    "| From | Relation | To | Evidence |",
+    "| --- | --- | --- | --- |"
+  );
+  list(normalizedInputs.songStore.referenceGraphEdges).forEach((edge) => {
+    const fromId = referenceIdentity(edge.fromReferenceId);
+    const toId = referenceIdentity(edge.toReferenceId);
+    const from = referenceById.get(fromId);
+    const to = referenceById.get(toId);
+    lines.push(`| [${markdownLabel(from?.title || fromId)}](#${referenceAnchor(fromId)}) | ${markdownCell(edge.relationType || "related-to")} | [${markdownLabel(to?.title || toId)}](#${referenceAnchor(toId)}) | ${markdownCell([edge.evidenceClass, edge.score !== undefined ? `score ${edge.score}` : "", edge.provenance?.reviewStatus].filter(Boolean).join(" · ") || "not recorded")} |`);
+  });
+  lines.push("", `End of compact export ${inlineCode(manifest.exportId)}.`, "");
+
+  const markdown = lines.join("\n");
+  const bytes = encodedByteLength(markdown);
+  manifest.bytes = bytes;
+  if (bytes > maxBytes) {
+    throw new Error(`Condensed Echo reference export is ${bytes} bytes, above the ${maxBytes}-byte limit. Lyrics were not truncated.`);
+  }
+  return {
+    schemaVersion: ECHO_CONDENSED_REFERENCE_SCHEMA,
+    markdown,
     manifest,
   };
 }

@@ -1369,7 +1369,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
   const [enriching, setEnriching] = useState(false);
   const [loading, setLoading] = useState(true);
   const [echoOperationNotice, setEchoOperationNotice] = useState("");
-  const [exportingMasterReference, setExportingMasterReference] = useState(false);
+  const [exportingMasterReference, setExportingMasterReference] = useState("");
   const [expandedSongId, setExpandedSongId] = useState(null);
   const [expandedVideoId, setExpandedVideoId] = useState(null);
   const [activeDirectoryTab, setActiveDirectoryTab] = useState("director");
@@ -4051,11 +4051,18 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
     if (audioRef.current) audioRef.current.currentTime = next;
   }, []);
 
-  const handleExportMasterReference = useCallback(async () => {
-    setExportingMasterReference(true);
-    setEchoOperationNotice("Building the wiki-ready Echo Album Master Reference File…");
+  const handleExportMasterReference = useCallback(async (profile = "full") => {
+    const condensed = profile === "condensed";
+    const filename = condensed
+      ? "echo-album-lyrics-and-main-references.md"
+      : "echo-album-master-reference.md";
+    setExportingMasterReference(profile);
+    setEchoOperationNotice(condensed
+      ? "Building the under-3-MB lyrics and main references export…"
+      : "Building the wiki-ready Echo Album Master Reference File…");
     try {
-      const response = await fetch(`${API_BASE}/api/echos/master-reference`);
+      const suffix = condensed ? "?profile=condensed" : "";
+      const response = await fetch(`${API_BASE}/api/echos/master-reference${suffix}`);
       if (!response.ok) {
         const payload = await response.json().catch(() => ({}));
         throw new Error(payload.message || payload.error || `Export failed (${response.status}).`);
@@ -4064,16 +4071,16 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
       const href = URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = href;
-      link.download = "echo-album-master-reference.md";
+      link.download = filename;
       document.body.appendChild(link);
       link.click();
       link.remove();
       URL.revokeObjectURL(href);
-      setEchoOperationNotice(`Master Reference File exported (${Math.max(1, Math.round(blob.size / 1024)).toLocaleString()} KiB). Source stores were not changed.`);
+      setEchoOperationNotice(`${condensed ? "Lyrics and main references" : "Master Reference File"} exported (${Math.max(1, Math.round(blob.size / 1024)).toLocaleString()} KiB). Source stores were not changed.`);
     } catch (error) {
       setEchoOperationNotice(`Master Reference export failed: ${error?.message || String(error)}`);
     } finally {
-      setExportingMasterReference(false);
+      setExportingMasterReference("");
     }
   }, []);
 
@@ -4112,12 +4119,24 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
             data-intent="primary"
             data-testid="echo-master-reference-export"
             type="button"
-            disabled={exportingMasterReference}
-            onClick={handleExportMasterReference}
+            disabled={Boolean(exportingMasterReference)}
+            onClick={() => handleExportMasterReference("full")}
             title="Export every Echo Album track, lyric, reference association, metadata field, and telemetry record as one cross-linked Markdown file."
           >
             <Download size={14} />
-            {exportingMasterReference ? "Exporting…" : "Export Master Reference"}
+            {exportingMasterReference === "full" ? "Exporting…" : "Export Master Reference"}
+          </button>
+          <button
+            className="hapa-btn"
+            data-intent="primary"
+            data-testid="echo-condensed-reference-export"
+            type="button"
+            disabled={Boolean(exportingMasterReference)}
+            onClick={() => handleExportMasterReference("condensed")}
+            title="Export all Echo Album titles and available lyrics plus curated main references in a Markdown file capped at 3 MB."
+          >
+            <Download size={14} />
+            {exportingMasterReference === "condensed" ? "Exporting…" : "Lyrics + Main References"}
           </button>
         </div>
       </header>

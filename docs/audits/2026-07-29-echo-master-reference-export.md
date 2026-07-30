@@ -24,3 +24,17 @@
 - **New guardrail:** future export fields must be added to the shared compiler
   and verified across UI/API/CLI; no surface may silently promote review,
   publication, mint, or canon status.
+
+## Compact-profile checkpoint
+
+- **Objective:** preserve all titles and available lyrics plus the main
+  reference layer in a wiki-ready file below 3 MB.
+- **Evidence:** the full live snapshot is about 100 MB because it retains the
+  mined Atlas graph, telemetry, media, and complete metadata.
+- **Change:** the shared exporter now has a curated compact profile across
+  UI/API/CLI with a hard 3,000,000-byte gate.
+- **Reusable decision:** “main references” means curated song connectors,
+  their linked catalog records, and curated reference graph edges; mined
+  candidates remain available only in the full profile.
+- **Guardrail:** lyrics are never truncated to meet the budget; export fails
+  visibly if the complete lyric corpus and curated references outgrow it.
