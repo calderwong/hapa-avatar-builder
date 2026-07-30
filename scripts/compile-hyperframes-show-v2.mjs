@@ -22,6 +22,9 @@ import { packageHyperFramesAudio } from "./lib/hyperframes-audio-package.mjs";
 
 const ROOT = path.resolve(import.meta.dirname, "..");
 const DEFAULT_PROXY_REGISTRY = "/Users/calderwong/Desktop/hapa-music-viz/web/isf/proxies/native-exact-proxies.json";
+const DETERMINISTIC_ISF_RUNTIME = "/Users/calderwong/Desktop/hapa-music-viz/web/vendor/isf-renderer.js";
+const ULTIMATE_FLAME_SHADER_ID = "5e7a7fc27c113618206de3e4";
+const ULTIMATE_FLAME_SOURCE = "/Users/calderwong/Desktop/hapa-music-viz/web/isf/shaders/ultimateflame.6de3e4.fs";
 const VIDEO_BOOTSTRAP_BASE64 = "AAAAIGZ0eXBpc29tAAACAGlzb21pc28yYXZjMW1wNDEAAAMVbW9vdgAAAGxtdmhkAAAAAAAAAAAAAAAAAAAD6AAAA+gAAQAAAQAAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAgAAAj90cmFrAAAAXHRraGQAAAADAAAAAAAAAAAAAAABAAAAAAAAA+gAAAAAAAAAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAABAAAAAABAAAAAQAAAAAAAkZWR0cwAAABxlbHN0AAAAAAAAAAEAAAPoAAAAAAABAAAAAAG3bWRpYQAAACBtZGhkAAAAAAAAAAAAAAAAAABAAAAAQABVxAAAAAAALWhkbHIAAAAAAAAAAHZpZGUAAAAAAAAAAAAAAABWaWRlb0hhbmRsZXIAAAABYm1pbmYAAAAUdm1oZAAAAAEAAAAAAAAAAAAAACRkaW5mAAAAHGRyZWYAAAAAAAAAAQAAAAx1cmwgAAAAAQAAASJzdGJsAAAAvnN0c2QAAAAAAAAAAQAAAK5hdmMxAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAAAABAAEABIAAAASAAAAAAAAAABFUxhdmM2Mi4yOC4xMDEgbGlieDI2NAAAAAAAAAAAAAAAGP//AAAANGF2Y0MBZAAK/+EAF2dkAAqs2V7ARAAAAwAEAAADAAg8SJZYAQAGaOvjyyLA/fj4AAAAABBwYXNwAAAAAQAAAAEAAAAUYnRydAAAAAAAABYoAAAAAAAAABhzdHRzAAAAAAAAAAEAAAABAABAAAAAABxzdHNjAAAAAAAAAAEAAAABAAAAAQAAAAEAAAAUc3RzegAAAAAAAALFAAAAAQAAABRzdGNvAAAAAAAAAAEAAANFAAAAYnVkdGEAAABabWV0YQAAAAAAAAAhaGRscgAAAAAAAAAAbWRpcmFwcGwAAAAAAAAAAAAAAAAtaWxzdAAAACWpdG9vAAAAHWRhdGEAAAABAAAAAExhdmY2Mi4xMi4xMDEAAAAIZnJlZQAAAs1tZGF0AAACrQYF//+p3EXpvebZSLeWLNgg2SPu73gyNjQgLSBjb3JlIDE2NSByMzIyMiBiMzU2MDVhIC0gSC4yNjQvTVBFRy00IEFWQyBjb2RlYyAtIENvcHlsZWZ0IDIwMDMtMjAyNSAtIGh0dHA6Ly93d3cudmlkZW9sYW4ub3JnL3gyNjQuaHRtbCAtIG9wdGlvbnM6IGNhYmFjPTEgcmVmPTMgZGVibG9jaz0xOjA6MCBhbmFseXNlPTB4MzoweDExMyBtZT1oZXggc3VibWU9NyBwc3k9MSBwc3lfcmQ9MS4wMDowLjAwIG1peGVkX3JlZj0xIG1lX3JhbmdlPTE2IGNocm9tYV9tZT0xIHRyZWxsaXM9MSA4eDhkY3Q9MSBjcW09MCBkZWFkem9uZT0yMSwxMSBmYXN0X3Bza2lwPTEgY2hyb21hX3FwX29mZnNldD0tMiB0aHJlYWRzPTEgbG9va2FoZWFkX3RocmVhZHM9MSBzbGljZWRfdGhyZWFkcz0wIG5yPTAgZGVjaW1hdGU9MSBpbnRlcmxhY2VkPTAgYmx1cmF5X2NvbXBhdD0wIGNvbnN0cmFpbmVkX2ludHJhPTAgYmZyYW1lcz0zIGJfcHlyYW1pZD0yIGJfYWRhcHQ9MSBiX2JpYXM9MCBkaXJlY3Q9MSB3ZWlnaHRiPTEgb3Blbl9nb3A9MCB3ZWlnaHRwPTIga2V5aW50PTI1MCBrZXlpbnRfbWluPTEgc2NlbmVjdXQ9NDAgaW50cmFfcmVmcmVzaD0wIHJjX2xvb2thaGVhZD00MCByYz1jcmYgbWJ0cmVlPTEgY3JmPTIzLjAgcWNvbXA9MC42MCBxcG1pbj0wIHFwbWF4PTY5IHFwc3RlcD00IGlwX3JhdGlvPTEuNDAgYXE9MToxLjAwAIAAAAAQZYiEABX//vfJ78Cm69vfgQ==";
 const VIDEO_BOOTSTRAP_SHA256 = "sha256:5dffc88ba81965b14638a00608ec8a19d4dd78ec1883189721cae584d7e2f997";
 const value = (name, fallback = null) => {
@@ -101,6 +104,10 @@ function usableRegularFile(candidate) {
 
 function firstFile(candidates = []) {
   return candidates.filter(Boolean).find(usableRegularFile) || null;
+}
+
+function isUltimateFlame(instance = {}) {
+  return String(instance.visualizerId || "").replace(/^isf:/, "") === ULTIMATE_FLAME_SHADER_ID;
 }
 
 const musicVizRoot = path.resolve(path.dirname(proxyRegistryPath), "../../..");
@@ -341,6 +348,69 @@ for (const instance of show.instances.visualizers) {
   instance.proxy.compiledUri = compiledUri;
 }
 
+const deterministicIsfInstances = show.instances.visualizers.filter((instance) => instance.execution?.drawable && isUltimateFlame(instance));
+const deterministicIsfSources = {};
+let deterministicIsfRuntime = null;
+if (deterministicIsfInstances.length) {
+  if (!usableRegularFile(DETERMINISTIC_ISF_RUNTIME)) {
+    throw new Error(`The pinned browser ISF runtime is unavailable: ${DETERMINISTIC_ISF_RUNTIME}`);
+  }
+  if (!usableRegularFile(ULTIMATE_FLAME_SOURCE)) {
+    throw new Error(`The verified UltimateFlame source is unavailable: ${ULTIMATE_FLAME_SOURCE}`);
+  }
+  const runtimeSha256 = fileSha256(DETERMINISTIC_ISF_RUNTIME);
+  const shaderSha256 = fileSha256(ULTIMATE_FLAME_SOURCE);
+  const requestedHashes = [...new Set(deterministicIsfInstances.map((instance) => String(instance.sourceHash || "")))];
+  if (requestedHashes.some((requestedHash) => requestedHash !== shaderSha256)) {
+    throw new Error(`UltimateFlame source hash mismatch: requested=${requestedHashes.join(",")} observed=${shaderSha256}`);
+  }
+  const runtimeDestination = path.join(output, "assets/runtime/isf-renderer.js");
+  fs.copyFileSync(DETERMINISTIC_ISF_RUNTIME, runtimeDestination);
+  const shaderSource = fs.readFileSync(ULTIMATE_FLAME_SOURCE, "utf8");
+  deterministicIsfSources[shaderSha256] = shaderSource;
+  deterministicIsfRuntime = {
+    mode: "deterministic-browser-isf",
+    runtimeUri: "assets/runtime/isf-renderer.js",
+    runtimeSha256,
+    sourceCount: 1,
+  };
+  for (const instance of deterministicIsfInstances) {
+    instance.liveIsf = {
+      schemaVersion: "hapa.hyperframes.deterministic-browser-isf.v1",
+      shaderId: ULTIMATE_FLAME_SHADER_ID,
+      sourceHash: shaderSha256,
+      runtimeSha256,
+      clock: "pinned-show-time",
+      frameRate: show.fps,
+      width: outputWidth,
+      height: outputHeight,
+    };
+    instance.execution = {
+      ...instance.execution,
+      mode: "offline-browser-isf",
+      route: "deterministic-browser-isf",
+      reason: "hash-bound-isf-source-executed-on-pinned-timeline",
+    };
+    instance.nativeRoute = {
+      ...instance.nativeRoute,
+      route: "deterministic-browser-isf",
+      reason: "hash-bound-isf-source-executed-on-pinned-timeline",
+    };
+    instance.rendererTruth = {
+      ...instance.rendererTruth,
+      route: "deterministic-browser-isf",
+      reason: "hash-bound-isf-source-executed-on-pinned-timeline",
+      status: "exact",
+      readiness: "ready",
+      fidelityLoss: [],
+    };
+  }
+  fs.writeFileSync(
+    path.join(output, "assets/data/live-isf.js"),
+    `window.HAPA_LIVE_ISF_SOURCES=${JSON.stringify(deterministicIsfSources)};\n`,
+  );
+}
+
 const compiledAudio = packageHyperFramesAudio({
   sourcePath: audioPath,
   outputDirectory: path.join(output, "assets/audio"),
@@ -383,6 +453,7 @@ show.packaging = {
     operation: compiledAudio.operation,
   } : null,
   networkDependencies: 0,
+  deterministicIsf: deterministicIsfRuntime,
 };
 show.visualizerCoverage = {
   ...show.visualizerCoverage,
@@ -433,13 +504,16 @@ const staticMediaManifest = staticVideoManifestMarkup || staticAudioManifestMark
 
 const html = `<!doctype html>
 <html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'self' data: blob:; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' data: blob:; connect-src 'none'; object-src 'none'; frame-src 'none'; worker-src 'self' blob:;"><meta name="viewport" content="width=${outputWidth},height=${outputHeight}"><title>${escapeHtml(show.title)} · Executable HyperFrames</title>
-<script src="assets/data/show.js"></script><script src="assets/runtime/pinned-timeline.js"></script>
+<script src="assets/data/show.js"></script><script src="assets/runtime/pinned-timeline.js"></script>${deterministicIsfInstances.length ? '<script src="assets/data/live-isf.js"></script><script src="assets/runtime/isf-renderer.js"></script>' : ""}
 <style>:root{--hf-action-inset:${outputLayout.actionInset};--hf-title-inset:${outputLayout.titleInset};--hf-lyric-bottom:${outputLayout.lyricBottom}}html,body{margin:0;width:${outputWidth}px;height:${outputHeight}px;overflow:hidden;background:#02040a;color:#f8f3e7;font-family:system-ui,sans-serif}#root{position:relative;width:${outputWidth}px;height:${outputHeight}px;overflow:hidden;background:#02040a}.media,.viz{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}.media{opacity:0;transform:scale(1.08);will-change:opacity,transform}.viz{z-index:4}.proxy-asset{position:absolute;width:1px;height:1px;left:-10px;top:-10px;opacity:.001}.frame{position:absolute;inset:var(--hf-action-inset);border:1px solid #00f3ff66;z-index:8;clip-path:polygon(22px 0,100% 0,100% calc(100% - 22px),calc(100% - 22px) 100%,0 100%,0 22px)}.hud{position:absolute;z-index:10;left:var(--hf-title-inset);right:var(--hf-title-inset);top:var(--hf-title-inset);padding:18px 22px;background:#02040add;border-left:3px solid #00f3ff;font:${outputLayout.hudStatusSize}px ui-monospace,monospace;letter-spacing:.12em;text-transform:uppercase;text-shadow:0 2px 4px #000;overflow-wrap:anywhere}.hud h1{font:900 ${outputLayout.hudTitleSize}px/.98 system-ui,sans-serif;letter-spacing:0;margin:12px 0}.lyric{position:absolute;z-index:12;left:var(--hf-title-inset);right:var(--hf-title-inset);bottom:var(--hf-lyric-bottom);padding:18px 22px;background:#02040acc;font:800 ${outputLayout.lyricSize}px/1.12 system-ui,sans-serif;text-align:center;text-transform:uppercase;text-shadow:0 0 28px #00f3ff;overflow-wrap:anywhere;opacity:0}.lyric-word{display:inline-block;margin:0 .12em;transform-origin:center}.lyric-word.active{color:#70ff59;text-shadow:0 0 28px #00f3ff}.lyric--kinetic-word-burst-v1{left:auto;max-width:74%;border-left:5px solid #00f3ff;text-align:right}.lyric--scanline-phrase-ribbon-v1{border-top:2px solid #00f3ff;border-bottom:2px solid #00f3ff;background:repeating-linear-gradient(0deg,#02040add,#02040add 3px,#0b2237dd 4px)}.lyric--stacked-hook-echo-v1{text-shadow:3px 3px 0 #ff2d8399,-3px -3px 0 #00f3ff88,0 0 30px #00f3ff}.lyric--orbit-caption-v1{left:10%;right:10%;border:2px solid #00f3ff88;border-radius:999px;background:#02040ae8}.status{color:#70ff59}.diagnostics{position:absolute;z-index:18;right:var(--hf-action-inset);top:var(--hf-action-inset);max-width:72%;display:grid;gap:8px}.diagnostic{padding:10px 14px;background:#25050ee8;border:1px solid #ff3b6b;color:#ffd5df;font:${outputLayout.diagnosticSize}px ui-monospace,monospace}.scan{position:absolute;z-index:20;inset:0;pointer-events:none;background:repeating-linear-gradient(0deg,#ffffff08,#ffffff08 1px,transparent 1px,transparent 5px)}</style></head>
 <body>${staticMediaManifest}<div id="root" data-composition-id="main" data-output-profile="${outputProfile.id}" data-orientation="${outputProfile.orientation}" data-aspect-ratio="${outputProfile.aspectRatio}" data-width="${outputWidth}" data-height="${outputHeight}" data-start="0" data-duration="${show.duration}" data-bounded-demo="${boundedDemo}"><div id="audio-root"></div><canvas id="viz" class="viz" width="${outputWidth}" height="${outputHeight}"></canvas><div id="media-root">${liveMediaMarkup}</div><div id="proxy-root">${proxyMarkup}</div><div class="frame"></div><div class="hud"><div class="status">EXECUTABLE SHOW V2 // OFFLINE // ${boundedDemo ? "BOUNDED DEMO" : "FULL SHOW"}</div><h1>${escapeHtml(show.title)}</h1><div id="readout">PINNED VISUAL TIME · 0.00S</div></div><div id="lyric" class="lyric"></div><div id="diagnostics" class="diagnostics"></div><div class="scan"></div></div>
 <script>(function(){const manifest=document.getElementById('hf-static-media-manifest');if(!manifest)return;const describe=(declaration)=>({source:declaration.getAttribute('src'),attributes:[...declaration.attributes].filter(attribute=>attribute.name!=='src').map(attribute=>[attribute.name,attribute.value])}),videos=[...manifest.querySelectorAll('video[src]')].map(describe),audios=[...manifest.querySelectorAll('audio[id][src]')].map(describe);manifest.remove();const mount=()=>{const mediaRoot=document.getElementById('media-root'),audioRoot=document.getElementById('audio-root');for(const descriptor of videos){const video=document.createElement('video');for(const [name,value] of descriptor.attributes)video.setAttribute(name,value);video.dataset.mediaSrc=descriptor.source;video.preload='none';video.muted=true;video.playsInline=true;mediaRoot.appendChild(video)}for(const descriptor of audios){const audio=document.createElement('audio');for(const [name,value] of descriptor.attributes)audio.setAttribute(name,value);audio.dataset.audioSrc=descriptor.source;audio.preload='none';audioRoot.appendChild(audio)}window.dispatchEvent(new Event('hapa:media-mounted'));const hydrateAudio=()=>{for(const audio of audioRoot.querySelectorAll('audio[data-audio-src]')){audio.preload='metadata';audio.src=audio.dataset.audioSrc;audio.load()}};if(document.readyState==='complete')setTimeout(hydrateAudio,0);else window.addEventListener('load',hydrateAudio,{once:true})};const schedule=()=>setTimeout(mount,0);if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',schedule,{once:true});else schedule()})();</script>
 <script type="module">import{evaluateHyperFramesVisualizers}from'./assets/runtime/hyperframes-visualizer-runtime.js';
-const S=window.HAPA_EXECUTABLE_SHOW,C=document.getElementById('viz'),X=C.getContext('2d',{willReadFrequently:true}),L=document.getElementById('lyric'),Q=document.getElementById('readout'),D=document.getElementById('diagnostics'),proxyImages=new Map([...document.querySelectorAll('[data-proxy-uri]')].map(el=>[el.dataset.proxyUri,el]));let media=[...document.querySelectorAll('.media')],navigationReady=document.readyState==='complete';window.addEventListener('hapa:media-mounted',()=>{media=[...document.querySelectorAll('.media')]});
+const S=window.HAPA_EXECUTABLE_SHOW,C=document.getElementById('viz'),X=C.getContext('2d',{willReadFrequently:true}),L=document.getElementById('lyric'),Q=document.getElementById('readout'),D=document.getElementById('diagnostics'),R=document.getElementById('root'),proxyImages=new Map([...document.querySelectorAll('[data-proxy-uri]')].map(el=>[el.dataset.proxyUri,el])),liveIsfSurfaces=new Map;let media=[...document.querySelectorAll('.media')],navigationReady=document.readyState==='complete';window.addEventListener('hapa:media-mounted',()=>{media=[...document.querySelectorAll('.media')]});
 const clamp=(v,a=0,b=1)=>Math.max(a,Math.min(b,Number(v)||0));const finite=(value,fallback=0)=>Number.isFinite(Number(value))?Number(value):fallback;const composite=(v)=>({normal:'source-over','source-over':'source-over',screen:'screen',lighter:'lighter','plus-lighter':'lighter',overlay:'overlay',multiply:'multiply','soft-light':'soft-light'}[v]||'screen');${mediaTimingRuntimeSource}${mediaOpacityRuntimeSource}${cameraCropRuntimeSource}${lyricTemplateRuntimeSource}
+function enforceOutputSurface(){const w=${outputWidth},h=${outputHeight};document.documentElement.style.width=w+'px';document.documentElement.style.height=h+'px';document.body.style.width=w+'px';document.body.style.height=h+'px';R.style.width=w+'px';R.style.height=h+'px';if(C.width!==w)C.width=w;if(C.height!==h)C.height=h}
+function liveIsfSurface(layer){const contract=layer.liveIsf;if(!contract)return null;const key=String(contract.sourceHash||'');if(liveIsfSurfaces.has(key))return liveIsfSurfaces.get(key);const source=window.HAPA_LIVE_ISF_SOURCES?.[key],Library=window.interactiveShaderFormat;if(!source||!Library?.Renderer)throw new Error('Deterministic ISF source/runtime unavailable: '+key);const canvas=document.createElement('canvas');canvas.width=C.width;canvas.height=C.height;const gl=canvas.getContext('webgl',{alpha:true,antialias:false,premultipliedAlpha:false,preserveDrawingBuffer:true});if(!gl)throw new Error('WebGL is unavailable for deterministic ISF export');const renderer=new Library.Renderer(gl),surface={canvas,renderer,clock:{time:0,delta:0,index:0},lastTime:null};renderer.setDateUniforms=()=>{renderer.setValue('TIME',surface.clock.time);renderer.setValue('TIMEDELTA',surface.clock.delta);renderer.setValue('FRAMEINDEX',surface.clock.index);renderer.setValue('DATE',[1970,1,1,((surface.clock.time%86400)+86400)%86400])};renderer.loadSource(source);if(renderer.valid===false)throw new Error('Deterministic ISF compile failed: '+String(renderer.error?.message||renderer.error||key));liveIsfSurfaces.set(key,surface);return surface}
+function drawLiveIsf(layer,t){const surface=liveIsfSurface(layer);if(!surface)return null;if(surface.canvas.width!==C.width)surface.canvas.width=C.width;if(surface.canvas.height!==C.height)surface.canvas.height=C.height;const visualTime=finite(layer.visualTime?.visualTimeSeconds,t),expectedDelta=1/Math.max(1,finite(S.fps,30)),sequential=surface.lastTime!=null&&Math.abs((visualTime-surface.lastTime)-expectedDelta)<=expectedDelta*.25;surface.clock={time:visualTime,delta:sequential?expectedDelta:0,index:Math.max(0,Math.floor(visualTime*Math.max(1,finite(S.fps,30))+Number.EPSILON*8))};for(const[name,value]of Object.entries(layer.controlValues||layer.controls||{}))surface.renderer.setValue(name,value);surface.renderer.draw(surface.canvas);surface.lastTime=visualTime;return surface.canvas}
 function aspectCoverSourceRect(rect,targetWidth,targetHeight){const x=Number(rect[0])||0,y=Number(rect[1])||0,width=Number(rect[2])||0,height=Number(rect[3])||0,targetW=Number(targetWidth)||0,targetH=Number(targetHeight)||0;if(!(width>0&&height>0&&targetW>0&&targetH>0))return[x,y,width,height];const sourceAspect=width/height,targetAspect=targetW/targetH;if(sourceAspect>targetAspect){const coverWidth=height*targetAspect;return[x+(width-coverWidth)/2,y,coverWidth,height]}const coverHeight=width/targetAspect;return[x,y+(height-coverHeight)/2,width,coverHeight]}
 function lyricFrameAt(t){const track=S.instances.lyrics[0],lines=track?.lines||[],line=lines.find(row=>t>=row.start&&t<row.end)||null;if(!track||!line)return null;return{track,line,frame:echoLyricTemplateFrameState({templateId:track.templateId,enabled:true,line,timeSeconds:t,fps:S.fps})}}function cameraAt(t){return echoCameraKeyframeAt(S.automation.camera||[],t)}
 function escapeLyric(value){return String(value??'').replace(/[&<>"']/g,(character)=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[character]))}
@@ -447,17 +521,17 @@ function drawLyric(t){const state=lyricFrameAt(t);if(!state){L.textContent='';L.
 function mediaFrame(t){const camera=cameraAt(t),framing=echoCameraCropPresentation(camera?.crop),bootstrap=S.packaging?.mediaBufferPolicy?.bootstrapUri;media.forEach((el)=>{const index=Number(el.dataset.instanceIndex),m=S.instances.media[index];if(!m)return;const timing=hyperFramesMediaPresentationWindow(S.instances.media,index),opacity=hyperFramesMediaOpacityState(S.instances.media,index,t),local=opacity.localSeconds,alpha=opacity.alpha;el.style.opacity=String(alpha);const shouldBuffer=navigationReady&&timing&&t>=timing.presentationStart-8&&t<timing.presentationEnd+1;if(el.tagName==='VIDEO'&&shouldBuffer&&(el.getAttribute('src')!==el.dataset.mediaSrc||el.preload!=='auto')){el.preload='auto';el.src=el.dataset.mediaSrc;el.load()}else if(el.tagName==='VIDEO'&&navigationReady&&!shouldBuffer&&bootstrap&&el.getAttribute('src')!==bootstrap&&(t<timing.presentationStart-12||t>=timing.presentationEnd+3)){el.preload='metadata';el.src=bootstrap;el.load()}const intensity=Number(camera?.intensity||.3),phase=clamp(local/Math.max(.001,m.duration)),cropScale=framing?.scale||1;let x=0,y=0,r=0;if(camera?.motion==='pan-left')x=-intensity*3*phase;if(camera?.motion==='pan-right')x=intensity*3*phase;if(camera?.motion==='pan-up')y=-intensity*2*phase;if(camera?.motion==='pan-down')y=intensity*2*phase;if(camera?.motion==='orbit')r=intensity*1.8*phase;el.style.objectPosition=framing?.objectPosition||'50% 50%';el.style.transformOrigin=framing?.transformOrigin||'50% 50%';el.style.transform='scale('+((1.08-intensity*.025*phase)*cropScale)+') translate('+x+'%,'+y+'%) rotate('+r+'deg)'})}
 function sampleHash(){const data=X.getImageData(0,0,C.width,C.height).data;let h=2166136261;for(let i=0;i<data.length;i+=256){h^=data[i];h=Math.imul(h,16777619);h^=data[i+1]||0;h=Math.imul(h,16777619);h^=data[i+2]||0;h=Math.imul(h,16777619)}return(h>>>0).toString(16).padStart(8,'0')}
 function draw(t){
-  mediaFrame(t);const state=evaluateHyperFramesVisualizers(S,t);X.clearRect(0,0,C.width,C.height);let drawn=0;
+  enforceOutputSurface();mediaFrame(t);const state=evaluateHyperFramesVisualizers(S,t);X.clearRect(0,0,C.width,C.height);let drawn=0;
   for(const layer of state.layers||state.instances||[]){
     if(layer.execution?.drawable===false)continue;
-    const proxy=layer.proxy||{},img=proxyImages.get(proxy.compiledUri);if(!img||!img.complete||!img.naturalWidth)continue;
-    const frame=layer.proxyFrame||layer.frame||{},rect=Array.isArray(frame.sourceRect)?frame.sourceRect:frame.rect?[frame.rect.x,frame.rect.y,frame.rect.width,frame.rect.height]:[Number(frame.index||0)*proxy.frameWidth,0,proxy.frameWidth,proxy.frameHeight],coverRect=aspectCoverSourceRect(rect,C.width,C.height),alpha=clamp(layer.effectiveOpacity??layer.composite?.effectiveOpacity??0),signal=clamp(layer.signalValue??layer.stemSignal??layer.stemFrame?.frame?.rms??layer.stemFrame?.rms??0),control=clamp(layer.controlEnergy??0),modulation=layer.presentationModulation||{},brightness=Number.isFinite(Number(modulation.brightness))?Number(modulation.brightness):1+signal*.18,saturation=Number.isFinite(Number(modulation.saturation))?Number(modulation.saturation):1+control*.2,scale=Number.isFinite(Number(modulation.scale))?Number(modulation.scale):1+signal*.018+control*.01;
+    const proxy=layer.proxy||{},img=layer.liveIsf?drawLiveIsf(layer,t):proxyImages.get(proxy.compiledUri);if(!img||(layer.liveIsf?!(img.width&&img.height):(!img.complete||!img.naturalWidth)))continue;
+    const frame=layer.proxyFrame||layer.frame||{},rect=layer.liveIsf?[0,0,img.width,img.height]:Array.isArray(frame.sourceRect)?frame.sourceRect:frame.rect?[frame.rect.x,frame.rect.y,frame.rect.width,frame.rect.height]:[Number(frame.index||0)*proxy.frameWidth,0,proxy.frameWidth,proxy.frameHeight],coverRect=aspectCoverSourceRect(rect,C.width,C.height),alpha=clamp(layer.effectiveOpacity??layer.composite?.effectiveOpacity??0),signal=clamp(layer.signalValue??layer.stemSignal??layer.stemFrame?.frame?.rms??layer.stemFrame?.rms??0),control=clamp(layer.controlEnergy??0),modulation=layer.presentationModulation||{},brightness=Number.isFinite(Number(modulation.brightness))?Number(modulation.brightness):1+signal*.18,saturation=Number.isFinite(Number(modulation.saturation))?Number(modulation.saturation):1+control*.2,scale=Number.isFinite(Number(modulation.scale))?Number(modulation.scale):1+signal*.018+control*.01;
     X.save();X.globalAlpha=alpha;X.globalCompositeOperation=composite(layer.blendMode||layer.composite?.blendMode);X.filter='brightness('+brightness+') saturate('+saturation+')';X.translate(C.width/2,C.height/2);X.scale(scale,scale);X.translate(-C.width/2,-C.height/2);X.drawImage(img,coverRect[0],coverRect[1],coverRect[2],coverRect[3],0,0,C.width,C.height);X.restore();drawn++
   }
   for(const accent of state.accents||[]){X.save();X.globalCompositeOperation='screen';X.globalAlpha=clamp(accent.value??accent.intensity??0)*.25;X.fillStyle=accent.kind==='flicker'?'#fff':accent.kind==='glitch'?'#ff2d83':'#00f3ff';X.fillRect(0,0,C.width,C.height);X.restore()}
   const lyricState=drawLyric(t);const diagnostics=state.diagnostics||[];D.innerHTML=diagnostics.map(row=>'<div class="diagnostic">UNSUPPORTED · '+String(row.visualizerId||row.requestedId||'unknown')+' · '+String(row.reason||'no executable proxy')+'</div>').join('');Q.textContent='PINNED VISUAL TIME · '+t.toFixed(2)+'S · LAYERS '+drawn+' · DIAGNOSTICS '+diagnostics.length;window.HAPA_LAST_RENDER_STATE={...state,timeSeconds:t,drawnLayerCount:drawn,lyricTemplateId:lyricState?.track?.templateId||null,lyricFrame:lyricState?.frame||null,canvasSampleHash:sampleHash()};return window.HAPA_LAST_RENDER_STATE
 }
-const timeline=new window.HapaPinnedTimeline(S.duration,draw);window.__timelines=window.__timelines||{};window.__timelines.main=timeline;const primeMedia=()=>{navigationReady=true};if(document.readyState==='complete')primeMedia();else window.addEventListener('load',primeMedia,{once:true});window.HAPA_ASSETS_READY=Promise.all([...proxyImages.entries()].map(([uri,img])=>Promise.resolve(img.decode?img.decode():null).then(()=>{if(!img.complete||!img.naturalWidth)throw new Error('Shader atlas did not decode: '+uri);return uri}).catch(error=>{throw new Error('Shader atlas decode failed for '+uri+': '+String(error&&error.message||error))}))).then(()=>{const armed=navigationReady;navigationReady=false;timeline.seek(0).pause();timeline.flush();navigationReady=armed;return timeline});</script></body></html>`;
+const timeline=new window.HapaPinnedTimeline(S.duration,draw);window.__timelines=window.__timelines||{};window.__timelines.main=timeline;const primeMedia=()=>{navigationReady=true};if(document.readyState==='complete')primeMedia();else window.addEventListener('load',primeMedia,{once:true});window.HAPA_ASSETS_READY=Promise.all([...proxyImages.entries()].map(([uri,img])=>Promise.resolve(img.decode?img.decode():null).then(()=>{if(!img.complete||!img.naturalWidth)throw new Error('Shader atlas did not decode: '+uri);return uri}).catch(error=>{throw new Error('Shader atlas decode failed for '+uri+': '+String(error&&error.message||error))}))).then(()=>{enforceOutputSurface();for(const layer of S.instances.visualizers||[])if(layer.liveIsf)liveIsfSurface(layer);const armed=navigationReady;navigationReady=false;timeline.seek(0).pause();timeline.flush();navigationReady=armed;return timeline});</script></body></html>`;
 fs.writeFileSync(path.join(output, "index.html"), html);
 
 const lintProcess = spawnSync(process.execPath, [
@@ -522,6 +596,7 @@ const report = {
   visualizers: {
     declared: show.instances.visualizers.length,
     exactProxy: show.instances.visualizers.filter((row) => row.execution.drawable).length,
+    deterministicBrowserIsf: deterministicIsfInstances.length,
     unsupported: show.instances.visualizers.filter((row) => !row.execution.drawable).length,
     compiledAssets: packagedVisualizerCueIds.size,
     uniqueCompiledAssets: copiedProxyByHash.size,
@@ -540,7 +615,7 @@ const report = {
     runtimeSchema: compiledLyricTrack?.runtimeSchema || null,
     frameQuantization: compiledLyricTrack?.frameQuantization || null,
   },
-  runtime: { timeline: "local-hapa-pinned-timeline", visualizerScheduler: "hyperframes-visualizer-runtime", networkDependencies: networkReferences.length, lastRenderStateHook: "window.HAPA_LAST_RENDER_STATE" },
+  runtime: { timeline: "local-hapa-pinned-timeline", visualizerScheduler: "hyperframes-visualizer-runtime", deterministicIsf: deterministicIsfRuntime, networkDependencies: networkReferences.length, lastRenderStateHook: "window.HAPA_LAST_RENDER_STATE" },
   lint: { reportPath: path.join(output, "lint-report.json"), ...lintEvidence },
   validation: { lint: lintOk ? "pass" : "fail", inspect: inspect.ok ? "pass" : "fail", cueCoverage: "pass", mediaPreflight: mediaPreflight.ok ? "pass" : "fail", mediaOffline: offlineMissing.length ? "fail" : "pass", visualizerPreflight: visualizerPreflight.ok ? "pass" : "fail", visualizerOffline: visualizerOfflineMissing.length ? "fail" : "pass", showcaseReady: lintOk && inspect.ok && !offlineMissing.length && !visualizerOfflineMissing.length },
 };

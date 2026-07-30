@@ -214,7 +214,6 @@ async function waitFor(win, expression, timeoutMs = 20000) {
 
 app.setName("hapa-hyperframes-pixel-capture");
 app.setPath("userData", path.join("/tmp", `hapa-hyperframes-pixel-capture-${process.pid}`));
-app.disableHardwareAcceleration();
 app.commandLine.appendSwitch("disable-background-timer-throttling");
 app.commandLine.appendSwitch("disable-renderer-backgrounding");
 

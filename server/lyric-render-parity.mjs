@@ -77,7 +77,10 @@ export async function verifyEncodedLyricMaster({
     return { schemaVersion: ENCODED_LYRIC_PARITY_SCHEMA, ok: false, status: "active-preview-sample-missing", enabled: true, masterPath, samples: [] };
   }
   await fsp.mkdir(outputDirectory, { recursive: true });
-  const selected = activeSamples.slice(0, 3);
+  const ordered = [...activeSamples].sort((left, right) => finite(left.timestamp) - finite(right.timestamp));
+  const selected = ordered.length <= 5
+    ? ordered
+    : [0, .25, .5, .75, 1].map((fraction) => ordered[Math.round(fraction * (ordered.length - 1))]);
   const samples = [];
   for (let index = 0; index < selected.length; index += 1) {
     const sample = selected[index];
@@ -115,4 +118,3 @@ export async function verifyEncodedLyricMaster({
     samples,
   };
 }
-

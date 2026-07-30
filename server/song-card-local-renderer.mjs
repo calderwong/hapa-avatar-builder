@@ -17,6 +17,7 @@ import { reidentifyEchoCompiledShowGraph, validateEchoCompiledShowGraph } from "
 import { echoOutputProfileCacheKey, resolveEchoOutputProfile } from "../src/domain/echo-output-profile.js";
 import { preflightSongCardRenderReadiness } from "../src/domain/song-card-render-readiness.js";
 import { verifyEncodedLyricMaster } from "./lyric-render-parity.mjs";
+import { verifyEncodedFrameSpatialParity } from "./encoded-frame-spatial-parity.mjs";
 import { inspectPortableVisualizerAttachment } from "../src/domain/portable-visualizer-card.js";
 import {
   loadRenderAudioInputPreflightCache,
@@ -67,6 +68,7 @@ const REQUIRED_SCRIPTS = [
 const RENDERER_BUILD_FILES = [
   ...REQUIRED_SCRIPTS,
   "server/song-card-local-renderer.mjs",
+  "server/encoded-frame-spatial-parity.mjs",
   "server/lyric-render-parity.mjs",
   "server/render-audio-input-preflight.mjs",
   "server/render-visual-media-preflight.mjs",
@@ -3247,10 +3249,10 @@ async function defaultPipeline({
       "--quality=high",
       "--strict",
       "--workers=1",
-      "--low-memory-mode",
+      "--no-low-memory-mode",
       "--browser-timeout=180",
       "--protocol-timeout=600000",
-      "--player-ready-timeout=180000",
+      "--player-ready-timeout=30000",
       packageDirectory,
     ], { cwd: ROOT, report, signal, registerProcess });
   } catch (error) {
@@ -3261,7 +3263,24 @@ async function defaultPipeline({
     });
   }
 
-  report("lyric-parity", 84, "Verifying the burned-in lyrics in the encoded MP4.");
+  report("spatial-parity", 82, "Verifying full-frame Preview coverage across the encoded MP4.");
+  const encodedSpatialProof = await verifyEncodedFrameSpatialParity({
+    masterPath: renderedMasterPath,
+    pixelReport,
+    outputDirectory: path.join(qaDirectory, "encoded-frame-spatial-parity"),
+    execFile,
+  });
+  rendererTruth.encodedSpatialProof = encodedSpatialProof;
+  if (!encodedSpatialProof.ok) {
+    throw localRendererError(
+      "local_encoded_frame_spatial_parity_failed",
+      "The encoded MP4 lost one or more verified Preview regions. No edition was minted.",
+      409,
+      { stage: "encoded-frame-spatial-parity", proof: encodedSpatialProof },
+    );
+  }
+
+  report("lyric-parity", 85, "Verifying the burned-in lyrics in the encoded MP4.");
   const encodedLyricProof = await verifyEncodedLyricMaster({
     masterPath: renderedMasterPath,
     pixelReport,

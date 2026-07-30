@@ -680,14 +680,15 @@ function transitionEnvelope(instance, timeSeconds, window) {
 
 function proxyContract(instance = {}) {
   const declaredNativeRoute = instance.nativeRoute || instance.execution?.nativeRoute || null;
-  const executionExact = instance.execution?.route === "hash-bound-exact-proxy"
+  const exactRoutes = ["hash-bound-exact-proxy", "exact-native", "deterministic-browser-isf"];
+  const executionExact = exactRoutes.includes(instance.execution?.route)
     && instance.execution?.status === "exact"
     && instance.execution?.drawable === true
     && instance.execution?.silentDefault === false;
   const nativeRoute = declaredNativeRoute || (executionExact ? {
     schemaVersion: "hapa.music-viz.native-shader-route.v1",
     requested: { id: instance.visualizerId, title: instance.rendererTruth?.requested?.title || instance.visualizerId, sourceHash: instance.sourceHash },
-    route: "hash-bound-exact-proxy",
+    route: instance.execution?.route || "hash-bound-exact-proxy",
     status: "exact",
     nativeKey: null,
     proxy: instance.proxy || instance.execution?.proxy || null,
@@ -698,7 +699,7 @@ function proxyContract(instance = {}) {
   const proxy = { ...(nativeRoute?.proxy || {}), ...(instance.proxy || instance.execution?.proxy || {}) };
   const sourceHash = text(instance.sourceHash || nativeRoute?.requested?.sourceHash || proxy.sourceHash || instance.rendererTruth?.requested?.sourceHash);
   const issues = [];
-  const nativeRouteExact = nativeRoute?.status === "exact" && ["hash-bound-exact-proxy", "exact-native"].includes(nativeRoute?.route);
+  const nativeRouteExact = nativeRoute?.status === "exact" && exactRoutes.includes(nativeRoute?.route);
   if (!nativeRouteExact && !executionExact) issues.push("native-route-not-exact");
   if (!isSha256(sourceHash) || !isSha256(proxy.sourceHash) || canonicalHash(sourceHash) !== canonicalHash(proxy.sourceHash)) issues.push("proxy-source-hash-mismatch");
   if (!isSha256(proxy.assetSha256)) issues.push("proxy-asset-hash-missing");
@@ -771,9 +772,11 @@ function executionTruth(instance, contract) {
     requested,
     status: "exact",
     readiness: "ready",
-    route: "hash-bound-exact-proxy",
+    route: text(instance.execution?.route || contract.nativeRoute?.route || "hash-bound-exact-proxy"),
     substitute: null,
-    reason: "hash-bound-proxy-instance-scheduled",
+    reason: text(instance.execution?.reason || (instance.liveIsf
+      ? "hash-bound-isf-source-executed-on-pinned-timeline"
+      : "hash-bound-proxy-instance-scheduled")),
     fidelityLoss: [],
     visible: true,
     silentDefault: false,
@@ -958,6 +961,7 @@ export function evaluateHyperFramesVisualizers(show = {}, timeSeconds = 0) {
       canonicalAudioTimeSeconds: round(time),
       visualTime,
       proxy: contract.proxy,
+      liveIsf: instance.liveIsf || null,
       proxyFrame: resolvedProxyFrame,
       frame: { index: resolvedProxyFrame.frameIndex, rect: resolvedProxyFrame.sourceRect },
       pixelSignature,
@@ -990,7 +994,7 @@ export function evaluateHyperFramesVisualizers(show = {}, timeSeconds = 0) {
         ...(instance.execution || {}),
         mode: "executed-offline-instance",
         status: "exact",
-        route: "hash-bound-exact-proxy",
+        route: text(instance.execution?.route || contract.nativeRoute?.route || "hash-bound-exact-proxy"),
         drawable: true,
         silentDefault: false,
         proxyFrameReady: true,
