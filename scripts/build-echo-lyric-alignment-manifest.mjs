@@ -43,15 +43,27 @@ for (const project of baseline.projects || []) {
   if (!id || seen.has(id) || project.sourceDeclaration?.instrumental) continue;
   seen.add(id);
   const song = songById.get(project.songId) || songById.get(id) || {};
-  let lyricsPath = String(project.canonicalText?.path || "");
+  let lyricsPath = String(
+    project.canonicalText?.kind === "measured-performance-variant"
+      ? project.canonicalText?.sourceReference?.path || ""
+      : project.canonicalText?.path || "",
+  );
   if (!lyricsPath || !fs.existsSync(lyricsPath)) {
     const lyrics = embeddedLyrics(song).trim();
     if (!lyrics) continue;
     lyricsPath = path.join(SOURCE_DIR, `${id.replace(/[^A-Za-z0-9._-]+/gu, "-")}.txt`);
     fs.writeFileSync(lyricsPath, `${lyrics}\n`, "utf8");
   }
-  const songPath = String(project.alignmentSource?.path || "");
+  const masterPath = String(song.audio?.localPath || "");
+  const fallbackPath = String(project.alignmentSource?.path || "");
+  const songPath = masterPath && fs.existsSync(masterPath) ? masterPath : fallbackPath;
   if (!songPath || !fs.existsSync(songPath)) continue;
+  const stems = (song.stems || [])
+    .map((stem) => ({
+      stemType: String(stem.stemType || stem.kind || stem.type || stem.label || ""),
+      localPath: String(stem.localPath || stem.path || ""),
+    }))
+    .filter((stem) => stem.stemType && stem.localPath && fs.existsSync(stem.localPath));
   songs.push({
     id,
     index: songs.length + 1,
@@ -59,6 +71,7 @@ for (const project of baseline.projects || []) {
     duration: Number(project.durationSeconds || 0),
     lyricsPath,
     songPath,
+    stems,
     localDir: "",
     sourceCollection: "echo-album-director-projects",
     sourceProjectId: project.songId,

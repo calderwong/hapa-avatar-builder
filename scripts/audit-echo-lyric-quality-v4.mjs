@@ -151,7 +151,7 @@ const projects = files.map((file) => {
     if (sourceKind === "synthetic") issues.push("synthetic-timing-active");
     if (!sourcePath) issues.push("timing-source-path-missing");
     if (!confidence) issues.push("timing-confidence-unmeasured");
-    else if (confidence < 0.6) issues.push("timing-confidence-low");
+    else if (confidence < 0.6 && !performanceCanonical?.promotion?.adjudicationAccepted) issues.push("timing-confidence-low");
     if (declaredActiveHash && declaredActiveHash !== activeTimingSha256) issues.push("active-timing-hash-mismatch");
     if (timing.structuralIssueCount) issues.push("timing-structure-invalid");
     if (timing.syntheticCadenceLikely) issues.push("uniform-word-cadence-likely-synthetic");
@@ -197,6 +197,7 @@ const projects = files.map((file) => {
       timingSourcePath: sourcePath,
       confidence,
       sourceKind,
+      adjudicationAccepted: Boolean(performanceCanonical?.promotion?.adjudicationAccepted),
       variant: String(project.lyric_variant || "missing"),
       enabled: lyricsEnabled,
     },
