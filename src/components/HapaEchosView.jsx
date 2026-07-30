@@ -52,6 +52,7 @@ import {
 import VariationLabPanel from "./VariationLabPanel.jsx";
 import MultitrackDirectorEditor from "./MultitrackDirectorEditor.jsx";
 import SongCardMintPanel from "./SongCardMintPanel.jsx";
+import EchoLyricTimingEditor from "./EchoLyricTimingEditor.jsx";
 import PalmierRoundTripPanel from "./PalmierRoundTripPanel.jsx";
 import ShotDecisionInspectorPanel from "./ShotDecisionInspectorPanel.jsx";
 import { appendShotPreferenceEvent } from "../domain/shot-decision-inspector.js";
@@ -5530,7 +5531,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                             
                             {/* Tabs select */}
                             <div style={{ display: 'flex', gap: '6px', background: 'rgba(0,0,0,0.2)', padding: '3px', borderRadius: '4px', border: '1px solid rgba(255,255,255,0.04)' }}>
-                              {['preview', 'tracks', 'variation', 'live', 'palmier', 'script', 'edl', 'journal'].map(tab => (
+                              {['preview', 'lyrics', 'tracks', 'variation', 'live', 'palmier', 'script', 'edl', 'journal'].map(tab => (
                                 <button
                                   key={tab}
                                   type="button"
@@ -5548,6 +5549,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                                   }}
                                 >
                                   {tab === 'preview' && '📹 Preview'}
+                                  {tab === 'lyrics' && '🎤 Lyrics'}
                                   {tab === 'tracks' && '🎚 Tracks'}
                                   {tab === 'variation' && '🧬 Variations'}
                                   {tab === 'live' && '🎭 Live Set'}
@@ -6313,6 +6315,17 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                                     : activeProject.hyperframe_script)}
                                 </div>
                               </div>
+                            )}
+
+                            {activeWorkbenchTab === "lyrics" && (
+                              <EchoLyricTimingEditor
+                                project={activeProject}
+                                currentTime={currentTime}
+                                analyserNode={analyserNodeRef.current}
+                                disabled={directorEditingLocked || directionVariantReadOnly}
+                                onSeek={handleReferenceSeek}
+                                onPatch={handleUpdateProjectSettings}
+                              />
                             )}
 
                             {activeWorkbenchTab === "variation" && (
