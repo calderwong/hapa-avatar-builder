@@ -735,7 +735,7 @@ test("HyperFrames CLI writes an authoritative failed preflight report before ass
   assert.equal(report.media.preflight.unresolved[0].reason, "media-source-file-unavailable");
 });
 
-test("HyperFrames CLI fails closed before packaging when an exact visualizer proxy asset is unavailable", (t) => {
+test("HyperFrames CLI fails closed before packaging when the requested shader source is unavailable", (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "hapa-hyperframes-visualizer-preflight-"));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   const graphPath = path.join(root, "graph.json");
@@ -785,6 +785,8 @@ test("HyperFrames CLI fails closed before packaging when an exact visualizer pro
       height: 2,
       frameCount: 1,
       fps: 1,
+      verified: true,
+      browserAttempt: { compileSucceeded: true, drawSucceeded: true },
     }],
   }));
 
@@ -798,36 +800,39 @@ test("HyperFrames CLI fails closed before packaging when an exact visualizer pro
   ], { cwd: process.cwd(), encoding: "utf8" });
   assert.equal(result.status, 1);
   assert.match(result.stderr, /cue-missing-proxy/u);
-  assert.match(result.stderr, /exact-proxy-asset-unavailable/u);
+  assert.match(result.stderr, /shader-not-present-in-source-manifest/u);
   assert.equal(fs.existsSync(path.join(output, "assets")), false, "visualizer preflight must stop before any package asset directory is created");
   const report = JSON.parse(fs.readFileSync(path.join(output, "compiler-report.json"), "utf8"));
   assert.equal(report.ok, false);
   assert.equal(report.validation.mediaPreflight, "pass");
-  assert.equal(report.validation.visualizerPreflight, "fail");
-  assert.equal(report.validation.visualizerOffline, "fail");
+  assert.equal(report.validation.visualizerPreflight, "pass");
+  assert.equal(report.validation.shaderFidelity, "fail");
   assert.equal(report.validation.showcaseReady, false);
   assert.equal(report.visualizers.compiledAssets, 0);
   assert.equal(report.visualizers.uniqueCompiledAssets, 0);
-  assert.deepEqual(report.visualizers.offlineMissing, ["cue-missing-proxy"]);
-  assert.equal(report.visualizers.preflight.unresolved[0].cueId, "cue-missing-proxy");
-  assert.equal(report.visualizers.preflight.unresolved[0].reason, "exact-proxy-asset-unavailable");
-  assert.deepEqual(report.visualizers.preflight.unresolved[0].attemptedPaths, [missingAssetPath]);
+  assert.deepEqual(report.visualizers.offlineMissing, []);
+  assert.equal(report.visualizers.fidelityAudit.unresolved[0].cueId, "cue-missing-proxy");
+  assert.equal(report.visualizers.fidelityAudit.unresolved[0].reason, "shader-not-present-in-source-manifest");
 });
 
-test("HyperFrames visualizer preflight accepts a later hash-exact proxy candidate after a stale readable candidate", (t) => {
+test("HyperFrames packages the verified shader source and ignores stale proxy candidates", (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "hapa-hyperframes-proxy-candidate-order-"));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   const graphPath = path.join(root, "graph.json");
   const telemetryPath = path.join(root, "telemetry.json");
   const projectPath = path.join(root, "project.json");
   const proxyRegistryPath = path.join(root, "proxies.json");
+  const isfManifestPath = path.join(root, "web/isf/manifest.json");
+  const isfSourcePath = path.join(root, "web/isf/shaders/test-exact-proxy.fs");
+  const isfRuntimePath = path.join(root, "web/vendor/isf-renderer.js");
   const output = path.join(root, "output");
   const staleAssetPath = path.join(root, "stale-proxy.png");
   const exactAssetPath = path.join(root, "exact-proxy.png");
   const exactBytes = Buffer.from("hash-exact-proxy-candidate");
   fs.writeFileSync(staleAssetPath, "stale-proxy-candidate");
   fs.writeFileSync(exactAssetPath, exactBytes);
-  const sourceHash = `sha256:${"c".repeat(64)}`;
+  const isfSource = "/*{\"INPUTS\":[]}*/\nvoid main(){gl_FragColor=vec4(1.0);}\n";
+  const sourceHash = `sha256:${crypto.createHash("sha256").update(isfSource).digest("hex")}`;
   const assetSha256 = `sha256:${crypto.createHash("sha256").update(exactBytes).digest("hex")}`;
   const graph = nativeMediaGraph([
     mediaCard("cue-generated", { id: "none", title: "Generated IVF", localPath: "" }, { knockedOut: true }),
@@ -858,6 +863,23 @@ test("HyperFrames visualizer preflight accepts a later hash-exact proxy candidat
   fs.writeFileSync(graphPath, JSON.stringify(graph));
   fs.writeFileSync(telemetryPath, JSON.stringify({ fps: 10, stems: [{ id: "master", role: "master", frames: [{ t: 0, rms: 0, peak: 0, onset: 0 }] }] }));
   fs.writeFileSync(projectPath, JSON.stringify({ timeline: [] }));
+  fs.mkdirSync(path.dirname(isfSourcePath), { recursive: true });
+  fs.mkdirSync(path.dirname(isfRuntimePath), { recursive: true });
+  fs.writeFileSync(isfSourcePath, isfSource);
+  fs.writeFileSync(isfRuntimePath, "window.interactiveShaderFormat={};\n");
+  fs.writeFileSync(isfManifestPath, JSON.stringify({
+    shaders: [{
+      id: "isf:test-exact-proxy",
+      shaderId: "test-exact-proxy",
+      title: "Exact Proxy Candidate",
+      shaderType: "generator",
+      source: "/static/isf/shaders/test-exact-proxy.fs",
+      sourceHash,
+      enabled: true,
+      directorEligible: true,
+      inputs: [],
+    }],
+  }));
   fs.writeFileSync(proxyRegistryPath, JSON.stringify({
     proxies: [{
       id: "isf:test-exact-proxy",
@@ -869,6 +891,8 @@ test("HyperFrames visualizer preflight accepts a later hash-exact proxy candidat
       height: 2,
       frameCount: 1,
       fps: 1,
+      verified: true,
+      browserAttempt: { compileSucceeded: true, drawSucceeded: true },
     }],
   }));
 
@@ -878,6 +902,8 @@ test("HyperFrames visualizer preflight accepts a later hash-exact proxy candidat
     `--telemetry=${telemetryPath}`,
     `--project=${projectPath}`,
     `--proxy-registry=${proxyRegistryPath}`,
+    `--isf-manifest=${isfManifestPath}`,
+    `--isf-runtime=${isfRuntimePath}`,
     `--output=${output}`,
   ], { cwd: process.cwd(), encoding: "utf8" });
   assert.equal(result.status, 0, result.stderr);
@@ -885,10 +911,12 @@ test("HyperFrames visualizer preflight accepts a later hash-exact proxy candidat
   const proxyPreflight = report.visualizers.preflight.entries[0];
   assert.equal(report.ok, true);
   assert.equal(report.visualizers.compiledAssets, 1);
-  assert.equal(report.visualizers.uniqueCompiledAssets, 1);
-  assert.equal(proxyPreflight.firstReadablePath, staleAssetPath);
-  assert.equal(proxyPreflight.resolvedPath, exactAssetPath);
-  assert.equal(proxyPreflight.reason, "exact-proxy-asset-resolved");
+  assert.equal(report.visualizers.uniqueCompiledAssets, 0);
+  assert.equal(report.visualizers.deterministicBrowserIsf, 1);
+  assert.equal(proxyPreflight.firstReadablePath, "/static/isf/shaders/test-exact-proxy.fs");
+  assert.equal(proxyPreflight.resolvedPath, "/static/isf/shaders/test-exact-proxy.fs");
+  assert.equal(proxyPreflight.reason, "exact-isf-source-resolved");
+  assert.equal(report.visualizers.cueWindows[0].route, "deterministic-browser-isf");
 });
 
 test("HyperFrames inspection rejects invalid duration, cue windows, and duplicate cue identities", () => {

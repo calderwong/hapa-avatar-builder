@@ -303,6 +303,7 @@ app.whenReady().then(async () => {
       const captureState = await win.webContents.executeJavaScript(`(async () => {
         const timeline = window.__timelines.main;
         if (typeof timeline.pause === "function") timeline.pause();
+        if (typeof window.HAPA_PREPARE_MEDIA_AT === "function") await window.HAPA_PREPARE_MEDIA_AT(${JSON.stringify(timestamp)});
         timeline.seek(${JSON.stringify(timestamp)}, false);
         await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
         const canvas = document.getElementById("viz");

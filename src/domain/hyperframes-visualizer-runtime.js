@@ -701,6 +701,26 @@ function proxyContract(instance = {}) {
   const issues = [];
   const nativeRouteExact = nativeRoute?.status === "exact" && exactRoutes.includes(nativeRoute?.route);
   if (!nativeRouteExact && !executionExact) issues.push("native-route-not-exact");
+  const liveIsf = instance.liveIsf || null;
+  if (liveIsf) {
+    const liveSourceHash = text(liveIsf.sourceHash);
+    const shaderId = text(instance.visualizerId).replace(/^isf:/, "");
+    if (text(instance.execution?.route) !== "deterministic-browser-isf") issues.push("live-isf-route-invalid");
+    if (!isSha256(sourceHash) || !isSha256(liveSourceHash) || canonicalHash(sourceHash) !== canonicalHash(liveSourceHash)) issues.push("live-isf-source-hash-mismatch");
+    if (!text(liveIsf.shaderId) || text(liveIsf.shaderId).replace(/^isf:/, "") !== shaderId) issues.push("live-isf-shader-id-mismatch");
+    const frameWidth = Math.floor(finite(liveIsf.width));
+    const frameHeight = Math.floor(finite(liveIsf.height));
+    const fps = finite(liveIsf.frameRate);
+    if (frameWidth <= 0 || frameHeight <= 0 || fps <= 0) issues.push("live-isf-output-contract-invalid");
+    return {
+      ok: issues.length === 0,
+      issues,
+      nativeRoute,
+      proxy: { frameCount: 0, fps, frameWidth, frameHeight, atlasWidth: frameWidth, atlasHeight: frameHeight },
+      sourceHash,
+      liveIsf,
+    };
+  }
   if (!isSha256(sourceHash) || !isSha256(proxy.sourceHash) || canonicalHash(sourceHash) !== canonicalHash(proxy.sourceHash)) issues.push("proxy-source-hash-mismatch");
   if (!isSha256(proxy.assetSha256)) issues.push("proxy-asset-hash-missing");
   if (!text(proxy.compiledUri || proxy.assetPath || proxy.repositoryPath || proxy.assetName)) issues.push("proxy-asset-path-missing");
@@ -713,6 +733,29 @@ function proxyContract(instance = {}) {
   const atlasHeight = Math.floor(finite(proxy.atlasHeight, frameHeight));
   if (atlasWidth < frameWidth * frameCount || atlasHeight < frameHeight) issues.push("proxy-atlas-bounds-invalid");
   return { ok: issues.length === 0, issues, nativeRoute, proxy: { ...proxy, frameCount, fps, frameWidth, frameHeight, atlasWidth, atlasHeight }, sourceHash };
+}
+
+function liveIsfFrame(contract, visualTimeSeconds) {
+  const fps = Math.max(1, finite(contract.liveIsf?.frameRate, contract.proxy?.fps || 30));
+  const frameIndex = Math.max(0, Math.floor(finite(visualTimeSeconds) * fps + Number.EPSILON * 8));
+  const width = Math.max(1, Math.floor(finite(contract.liveIsf?.width, contract.proxy?.frameWidth || 1)));
+  const height = Math.max(1, Math.floor(finite(contract.liveIsf?.height, contract.proxy?.frameHeight || 1)));
+  return {
+    frameIndex,
+    baseFrameIndex: frameIndex,
+    audioFrameOffset: 0,
+    frameTimeSeconds: round(frameIndex / fps),
+    loopTimeSeconds: round(visualTimeSeconds),
+    frameSelectionPolicy: "continuous-pinned-isf-time",
+    sourceRect: [0, 0, width, height],
+    rect: { x: 0, y: 0, width, height },
+    assetPath: null,
+    repositoryPath: null,
+    compiledUri: null,
+    assetName: null,
+    assetSha256: null,
+    sourceHash: contract.sourceHash,
+  };
 }
 
 function proxyFrame(contract, visualTimeSeconds, modulation = null) {
@@ -940,13 +983,17 @@ export function evaluateHyperFramesVisualizers(show = {}, timeSeconds = 0) {
       ...controls.invalidAudioMapUniforms.map((uniform) => `audio-map-uniform-not-declared:${uniform}`),
       ...controls.bindings.filter((binding) => binding.status === "missing-signal").map((binding) => `signal-unavailable:${binding.signal}`),
     ];
-    const resolvedProxyFrame = proxyFrame(contract, visualTime.visualTimeSeconds, presentationModulation);
+    const resolvedProxyFrame = contract.liveIsf
+      ? liveIsfFrame(contract, visualTime.visualTimeSeconds)
+      : proxyFrame(contract, visualTime.visualTimeSeconds, presentationModulation);
     const declaredSignals = Array.isArray(instance.audioSignal) ? instance.audioSignal : [instance.audioSignal].filter(Boolean);
     const primarySignal = presentationModulation?.primaryValue
       ?? declaredSignals.map((signal) => signalValue(signals.stem?.frame, signal)).find((value) => value != null)
       ?? 0;
     const seed = canonicalHash(instance.pixelIdentitySeed);
-    const pixelSignature = /^[a-f0-9]{64}$/.test(seed) ? `sha256:${seed}` : text(contract.proxy.assetSha256);
+    const pixelSignature = contract.liveIsf
+      ? text(contract.sourceHash)
+      : /^[a-f0-9]{64}$/.test(seed) ? `sha256:${seed}` : text(contract.proxy.assetSha256);
     drawable.push({
       id: text(instance.id),
       cueId: text(instance.cueId || instance.id),

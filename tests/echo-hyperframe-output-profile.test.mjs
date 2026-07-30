@@ -148,16 +148,20 @@ test("HyperFrames executable manifests preserve the graph profile and default le
   );
 });
 
-test("HyperFrames phone packages use manifest dimensions, safe areas, portrait type, and cover-cropped shader proxies", (t) => {
+test("HyperFrames phone packages use manifest dimensions, safe areas, portrait type, and full-resolution shader sources", (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "hapa-echo-vertical-hyperframes-"));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   const graphPath = path.join(root, "graph.json");
   const telemetryPath = path.join(root, "telemetry.json");
   const projectPath = path.join(root, "project.json");
   const proxyRegistryPath = path.join(root, "proxies.json");
+  const isfManifestPath = path.join(root, "web/isf/manifest.json");
+  const isfSourcePath = path.join(root, "web/isf/shaders/vertical-profile-proxy.fs");
+  const isfRuntimePath = path.join(root, "web/vendor/isf-renderer.js");
   const proxyPath = path.join(root, "profile-proxy.png");
   const output = path.join(root, "output");
-  const sourceHash = `sha256:${"b".repeat(64)}`;
+  const isfSource = "/*{\"INPUTS\":[]}*/\nvoid main(){gl_FragColor=vec4(1.0);}\n";
+  const sourceHash = `sha256:${crypto.createHash("sha256").update(isfSource).digest("hex")}`;
   const proxyBytes = Buffer.from("vertical-profile-proxy-atlas");
   const assetSha256 = `sha256:${crypto.createHash("sha256").update(proxyBytes).digest("hex")}`;
   fs.writeFileSync(proxyPath, proxyBytes);
@@ -192,6 +196,23 @@ test("HyperFrames phone packages use manifest dimensions, safe areas, portrait t
     stems: [{ id: "master", role: "master", frames: [{ t: 0, rms: 0.2, peak: 0.3, onset: 0 }, { t: 4, rms: 0.2, peak: 0.3, onset: 0 }] }],
   }));
   fs.writeFileSync(projectPath, JSON.stringify({ output_profile: "vertical", timeline: [] }));
+  fs.mkdirSync(path.dirname(isfSourcePath), { recursive: true });
+  fs.mkdirSync(path.dirname(isfRuntimePath), { recursive: true });
+  fs.writeFileSync(isfSourcePath, isfSource);
+  fs.writeFileSync(isfRuntimePath, "window.interactiveShaderFormat={};\n");
+  fs.writeFileSync(isfManifestPath, JSON.stringify({
+    shaders: [{
+      id: "isf:vertical-profile-proxy",
+      shaderId: "vertical-profile-proxy",
+      title: "Vertical Profile Proxy",
+      shaderType: "generator",
+      source: "/static/isf/shaders/vertical-profile-proxy.fs",
+      sourceHash,
+      enabled: true,
+      directorEligible: true,
+      inputs: [],
+    }],
+  }));
   fs.writeFileSync(proxyRegistryPath, JSON.stringify({
     proxies: [{
       id: "isf:vertical-profile-proxy",
@@ -202,6 +223,8 @@ test("HyperFrames phone packages use manifest dimensions, safe areas, portrait t
       height: 9,
       frameCount: 1,
       fps: 1,
+      verified: true,
+      browserAttempt: { compileSucceeded: true, drawSucceeded: true },
     }],
   }));
 
@@ -211,6 +234,8 @@ test("HyperFrames phone packages use manifest dimensions, safe areas, portrait t
     `--telemetry=${telemetryPath}`,
     `--project=${projectPath}`,
     `--proxy-registry=${proxyRegistryPath}`,
+    `--isf-manifest=${isfManifestPath}`,
+    `--isf-runtime=${isfRuntimePath}`,
     `--output=${output}`,
   ], { cwd: process.cwd(), encoding: "utf8" });
   assert.equal(result.status, 0, result.stderr);
@@ -218,6 +243,10 @@ test("HyperFrames phone packages use manifest dimensions, safe areas, portrait t
   const manifest = JSON.parse(fs.readFileSync(path.join(output, "executable-show.json"), "utf8"));
   const html = fs.readFileSync(path.join(output, "index.html"), "utf8");
   assert.deepEqual(manifest.outputProfile, ECHO_VERTICAL_OUTPUT_PROFILE);
+  assert.equal(manifest.instances.visualizers[0].execution.route, "deterministic-browser-isf");
+  assert.equal(manifest.instances.visualizers[0].liveIsf.width, 1080);
+  assert.equal(manifest.instances.visualizers[0].liveIsf.height, 1920);
+  assert.equal(manifest.instances.visualizers[0].proxy, null);
   assert.match(html, /content="width=1080,height=1920"/u);
   assert.match(html, /html,body\{margin:0;width:1080px;height:1920px/u);
   assert.match(html, /data-output-profile="vertical"[^>]+data-width="1080" data-height="1920"/u);

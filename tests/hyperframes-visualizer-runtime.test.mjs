@@ -188,6 +188,43 @@ test("scheduler returns every drawable active cue in stable order and keeps unsu
   assert.deepEqual(show, before, "evaluation may not mutate the executable show");
 });
 
+test("deterministic browser ISF layers execute without a sampled proxy contract", () => {
+  const show = fixtureShow();
+  const layer = exactLayer({ id: "cue:live", visualizerId: "isf:fixture-live" });
+  layer.proxy = null;
+  layer.execution = {
+    mode: "offline-browser-isf",
+    route: "deterministic-browser-isf",
+    status: "exact",
+    drawable: true,
+    reason: "hash-bound-isf-source-executed-at-final-resolution-and-fps",
+    silentDefault: false,
+  };
+  layer.liveIsf = {
+    schemaVersion: "hapa.hyperframes.deterministic-browser-isf.v2",
+    shaderId: "fixture-live",
+    sourceHash,
+    runtimeSha256: assetHash,
+    imageInputs: ["inputImage"],
+    requiresMedia: true,
+    multipass: true,
+    persistent: true,
+    timelineRequirement: "sequential-from-cue-start",
+    frameRate: 30,
+    width: 1920,
+    height: 1080,
+  };
+  show.instances.visualizers = [layer];
+  const state = evaluateHyperFramesVisualizers(show, 0.25);
+  assert.equal(state.diagnostics.length, 0);
+  assert.equal(state.layers.length, 1);
+  assert.equal(state.layers[0].rendererTruth.route, "deterministic-browser-isf");
+  assert.equal(state.layers[0].proxyFrame.frameSelectionPolicy, "continuous-pinned-isf-time");
+  assert.deepEqual(state.layers[0].proxyFrame.sourceRect, [0, 0, 1920, 1080]);
+  assert.equal(state.layers[0].pixelSignature, sourceHash);
+  assert.equal(state.layers[0].liveIsf.persistent, true);
+});
+
 test("visual rate, hold, and repeat events select deterministic horizontal proxy frames", () => {
   const show = fixtureShow();
   const rate = evaluateHyperFramesVisualizers(show, 0.25).layers[0];

@@ -1069,6 +1069,7 @@ function visualizerCoverage(rows = []) {
   return {
     sourceCueCount: rows.length,
     exactProxyCount: rows.filter((layer) => layer.execution.route === "hash-bound-exact-proxy").length,
+    deterministicBrowserIsfCount: rows.filter((layer) => layer.execution.route === "deterministic-browser-isf").length,
     unsupportedCount: rows.filter((layer) => layer.execution.route === "unsupported").length,
     silentDefaultCount: rows.filter((layer) => layer.execution.silentDefault !== false).length,
     firstStart: rows[0]?.start ?? null,
@@ -1175,16 +1176,29 @@ export function inspectHyperFramesShow(show) {
     if (layer.rendererTruth?.visible !== true || layer.rendererTruth?.silentDefault !== false) errors.push(`renderer-truth-hidden:${layer.id}`);
     if (!layer.execution || layer.execution.silentDefault !== false) errors.push(`execution-truth-missing:${layer.id}`);
     if (layer.execution?.drawable) {
-      if (layer.execution.route !== "hash-bound-exact-proxy" || layer.rendererTruth.status !== "exact") errors.push(`drawable-route-mismatch:${layer.id}`);
-      if (!layer.proxy?.assetPath || !layer.proxy?.assetSha256 || layer.proxy?.sourceHash !== layer.sourceHash) errors.push(`proxy-truth-missing:${layer.id}`);
-      if (!(layer.proxy?.frameCount > 0 && layer.proxy?.fps > 0 && layer.proxy?.frameWidth > 0 && layer.proxy?.frameHeight > 0)) errors.push(`proxy-frames-invalid:${layer.id}`);
+      const liveIsf = layer.execution.route === "deterministic-browser-isf";
+      const proxy = layer.execution.route === "hash-bound-exact-proxy";
+      if ((!liveIsf && !proxy) || layer.rendererTruth.status !== "exact") errors.push(`drawable-route-mismatch:${layer.id}`);
+      if (liveIsf) {
+        if (!layer.liveIsf?.shaderId || layer.liveIsf?.sourceHash !== layer.sourceHash) errors.push(`live-isf-truth-missing:${layer.id}`);
+        if (!(layer.liveIsf?.frameRate > 0 && layer.liveIsf?.width > 0 && layer.liveIsf?.height > 0)) errors.push(`live-isf-output-invalid:${layer.id}`);
+        if (layer.proxy) errors.push(`live-isf-proxy-fallback-present:${layer.id}`);
+      } else {
+        if (!layer.proxy?.assetPath || !layer.proxy?.assetSha256 || layer.proxy?.sourceHash !== layer.sourceHash) errors.push(`proxy-truth-missing:${layer.id}`);
+        if (!(layer.proxy?.frameCount > 0 && layer.proxy?.fps > 0 && layer.proxy?.frameWidth > 0 && layer.proxy?.frameHeight > 0)) errors.push(`proxy-frames-invalid:${layer.id}`);
+      }
     } else if (layer.execution?.route !== "unsupported" || layer.rendererTruth.status !== "unsupported" || layer.proxy) {
       errors.push(`unsupported-not-visible:${layer.id}`);
     }
   }
   const visualizers = show.instances?.visualizers || [];
   if (show.visualizerCoverage?.sourceCueCount !== visualizers.length) errors.push("visualizer-cue-count-mismatch");
-  if (show.visualizerCoverage?.exactProxyCount + show.visualizerCoverage?.unsupportedCount !== visualizers.length) errors.push("visualizer-route-count-mismatch");
+  if (
+    Number(show.visualizerCoverage?.exactProxyCount || 0)
+    + Number(show.visualizerCoverage?.deterministicBrowserIsfCount || 0)
+    + Number(show.visualizerCoverage?.unsupportedCount || 0)
+    !== visualizers.length
+  ) errors.push("visualizer-route-count-mismatch");
   if (show.visualizerCoverage?.silentDefaultCount !== 0) errors.push("visualizer-silent-default");
   const expandedEstimate = ((show.instances?.media || []).length + visualizers.length) * JSON.stringify(show.templates || {}).length;
   return {

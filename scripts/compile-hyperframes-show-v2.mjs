@@ -19,12 +19,16 @@ import {
 } from "../src/domain/echo-camera-framing.js";
 import { echoLyricTemplateRuntimeBrowserSource } from "../src/domain/echo-lyric-template-runtime.js";
 import { packageHyperFramesAudio } from "./lib/hyperframes-audio-package.mjs";
+import {
+  auditHyperFramesShaderFidelity,
+  DEFAULT_ISF_MANIFEST,
+  DEFAULT_ISF_RUNTIME,
+  loadVerifiedIsfCatalog,
+  promoteVerifiedIsfInstances,
+} from "./lib/hyperframes-isf-fidelity.mjs";
 
 const ROOT = path.resolve(import.meta.dirname, "..");
 const DEFAULT_PROXY_REGISTRY = "/Users/calderwong/Desktop/hapa-music-viz/web/isf/proxies/native-exact-proxies.json";
-const DETERMINISTIC_ISF_RUNTIME = "/Users/calderwong/Desktop/hapa-music-viz/web/vendor/isf-renderer.js";
-const ULTIMATE_FLAME_SHADER_ID = "5e7a7fc27c113618206de3e4";
-const ULTIMATE_FLAME_SOURCE = "/Users/calderwong/Desktop/hapa-music-viz/web/isf/shaders/ultimateflame.6de3e4.fs";
 const VIDEO_BOOTSTRAP_BASE64 = "AAAAIGZ0eXBpc29tAAACAGlzb21pc28yYXZjMW1wNDEAAAMVbW9vdgAAAGxtdmhkAAAAAAAAAAAAAAAAAAAD6AAAA+gAAQAAAQAAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAgAAAj90cmFrAAAAXHRraGQAAAADAAAAAAAAAAAAAAABAAAAAAAAA+gAAAAAAAAAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAABAAAAAABAAAAAQAAAAAAAkZWR0cwAAABxlbHN0AAAAAAAAAAEAAAPoAAAAAAABAAAAAAG3bWRpYQAAACBtZGhkAAAAAAAAAAAAAAAAAABAAAAAQABVxAAAAAAALWhkbHIAAAAAAAAAAHZpZGUAAAAAAAAAAAAAAABWaWRlb0hhbmRsZXIAAAABYm1pbmYAAAAUdm1oZAAAAAEAAAAAAAAAAAAAACRkaW5mAAAAHGRyZWYAAAAAAAAAAQAAAAx1cmwgAAAAAQAAASJzdGJsAAAAvnN0c2QAAAAAAAAAAQAAAK5hdmMxAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAAAABAAEABIAAAASAAAAAAAAAABFUxhdmM2Mi4yOC4xMDEgbGlieDI2NAAAAAAAAAAAAAAAGP//AAAANGF2Y0MBZAAK/+EAF2dkAAqs2V7ARAAAAwAEAAADAAg8SJZYAQAGaOvjyyLA/fj4AAAAABBwYXNwAAAAAQAAAAEAAAAUYnRydAAAAAAAABYoAAAAAAAAABhzdHRzAAAAAAAAAAEAAAABAABAAAAAABxzdHNjAAAAAAAAAAEAAAABAAAAAQAAAAEAAAAUc3RzegAAAAAAAALFAAAAAQAAABRzdGNvAAAAAAAAAAEAAANFAAAAYnVkdGEAAABabWV0YQAAAAAAAAAhaGRscgAAAAAAAAAAbWRpcmFwcGwAAAAAAAAAAAAAAAAtaWxzdAAAACWpdG9vAAAAHWRhdGEAAAABAAAAAExhdmY2Mi4xMi4xMDEAAAAIZnJlZQAAAs1tZGF0AAACrQYF//+p3EXpvebZSLeWLNgg2SPu73gyNjQgLSBjb3JlIDE2NSByMzIyMiBiMzU2MDVhIC0gSC4yNjQvTVBFRy00IEFWQyBjb2RlYyAtIENvcHlsZWZ0IDIwMDMtMjAyNSAtIGh0dHA6Ly93d3cudmlkZW9sYW4ub3JnL3gyNjQuaHRtbCAtIG9wdGlvbnM6IGNhYmFjPTEgcmVmPTMgZGVibG9jaz0xOjA6MCBhbmFseXNlPTB4MzoweDExMyBtZT1oZXggc3VibWU9NyBwc3k9MSBwc3lfcmQ9MS4wMDowLjAwIG1peGVkX3JlZj0xIG1lX3JhbmdlPTE2IGNocm9tYV9tZT0xIHRyZWxsaXM9MSA4eDhkY3Q9MSBjcW09MCBkZWFkem9uZT0yMSwxMSBmYXN0X3Bza2lwPTEgY2hyb21hX3FwX29mZnNldD0tMiB0aHJlYWRzPTEgbG9va2FoZWFkX3RocmVhZHM9MSBzbGljZWRfdGhyZWFkcz0wIG5yPTAgZGVjaW1hdGU9MSBpbnRlcmxhY2VkPTAgYmx1cmF5X2NvbXBhdD0wIGNvbnN0cmFpbmVkX2ludHJhPTAgYmZyYW1lcz0zIGJfcHlyYW1pZD0yIGJfYWRhcHQ9MSBiX2JpYXM9MCBkaXJlY3Q9MSB3ZWlnaHRiPTEgb3Blbl9nb3A9MCB3ZWlnaHRwPTIga2V5aW50PTI1MCBrZXlpbnRfbWluPTEgc2NlbmVjdXQ9NDAgaW50cmFfcmVmcmVzaD0wIHJjX2xvb2thaGVhZD00MCByYz1jcmYgbWJ0cmVlPTEgY3JmPTIzLjAgcWNvbXA9MC42MCBxcG1pbj0wIHFwbWF4PTY5IHFwc3RlcD00IGlwX3JhdGlvPTEuNDAgYXE9MToxLjAwAIAAAAAQZYiEABX//vfJ78Cm69vfgQ==";
 const VIDEO_BOOTSTRAP_SHA256 = "sha256:5dffc88ba81965b14638a00608ec8a19d4dd78ec1883189721cae584d7e2f997";
 const value = (name, fallback = null) => {
@@ -43,6 +47,8 @@ const sourceProjectPath = value("source-project-path") ? path.resolve(value("sou
 const output = requiredPath("output");
 const audioPath = value("audio") ? path.resolve(value("audio")) : null;
 const proxyRegistryPath = path.resolve(value("proxy-registry", DEFAULT_PROXY_REGISTRY));
+const isfManifestPath = path.resolve(value("isf-manifest", DEFAULT_ISF_MANIFEST));
+const isfRuntimePath = path.resolve(value("isf-runtime", DEFAULT_ISF_RUNTIME));
 const requestedDuration = value("duration") == null ? null : Number(value("duration"));
 const read = (file) => JSON.parse(fs.readFileSync(file, "utf8"));
 const sha256 = (bytes) => `sha256:${crypto.createHash("sha256").update(bytes).digest("hex")}`;
@@ -82,6 +88,28 @@ const outputProfile = show.outputProfile;
 const outputWidth = Number(outputProfile.width);
 const outputHeight = Number(outputProfile.height);
 const portraitOutput = outputHeight > outputWidth;
+const isfCatalog = loadVerifiedIsfCatalog({
+  manifestPath: isfManifestPath,
+  runtimePath: isfRuntimePath,
+  proxyRegistryPath,
+});
+const shaderFidelityAudit = auditHyperFramesShaderFidelity(show.instances.visualizers, isfCatalog);
+const deterministicIsfPackage = promoteVerifiedIsfInstances(
+  show.instances.visualizers,
+  isfCatalog,
+  shaderFidelityAudit,
+  {
+    width: outputWidth,
+    height: outputHeight,
+    fps: show.fps,
+  },
+);
+show.visualizerCoverage = {
+  ...show.visualizerCoverage,
+  exactProxyCount: show.instances.visualizers.filter((layer) => layer.execution.route === "hash-bound-exact-proxy").length,
+  deterministicBrowserIsfCount: show.instances.visualizers.filter((layer) => layer.execution.route === "deterministic-browser-isf").length,
+  unsupportedCount: show.instances.visualizers.filter((layer) => layer.execution.route === "unsupported").length,
+};
 const cssPercent = (value) => `${Number((Number(value) * 100).toFixed(2))}%`;
 const outputLayout = {
   actionInset: cssPercent(outputProfile.safeArea.actionInset),
@@ -106,10 +134,6 @@ function firstFile(candidates = []) {
   return candidates.filter(Boolean).find(usableRegularFile) || null;
 }
 
-function isUltimateFlame(instance = {}) {
-  return String(instance.visualizerId || "").replace(/^isf:/, "") === ULTIMATE_FLAME_SHADER_ID;
-}
-
 const musicVizRoot = path.resolve(path.dirname(proxyRegistryPath), "../../..");
 function proxySourceCandidates(proxy = {}) {
   const assetPath = String(proxy.assetPath || "");
@@ -123,6 +147,26 @@ function proxySourceCandidates(proxy = {}) {
 function preflightVisualizerProxies(instances = []) {
   const entries = instances.map((instance) => {
     const required = Boolean(instance.execution?.drawable);
+    if (required && instance.liveIsf) {
+      const expectedSha256 = String(instance.sourceHash || "") || null;
+      const actualSha256 = String(instance.liveIsf.sourceHash || "") || null;
+      const ok = Boolean(expectedSha256 && actualSha256 && expectedSha256 === actualSha256);
+      return {
+        cueId: String(instance.cueId || instance.id || "") || null,
+        visualizerId: String(instance.visualizerId || "") || null,
+        start: Number(instance.start || 0),
+        end: Number(instance.end || 0),
+        required,
+        expectedSha256,
+        actualSha256,
+        attemptedPaths: [String(instance.liveIsf.sourceUri || "")].filter(Boolean),
+        firstReadablePath: instance.liveIsf.sourceUri || null,
+        resolvedPath: instance.liveIsf.sourceUri || null,
+        ok,
+        reason: ok ? "exact-isf-source-resolved" : "exact-isf-source-hash-mismatch",
+        route: "deterministic-browser-isf",
+      };
+    }
     const attemptedPaths = required && instance.proxy ? proxySourceCandidates(instance.proxy) : [];
     const expectedSha256 = required ? String(instance.proxy?.assetSha256 || "") || null : null;
     let resolvedPath = null;
@@ -165,6 +209,7 @@ function preflightVisualizerProxies(instances = []) {
       resolvedPath,
       ok,
       reason,
+      route: instance.execution?.route || "unsupported",
     };
   });
   const unresolved = entries.filter((row) => !row.ok);
@@ -193,10 +238,12 @@ const visualizerPreflightMissing = visualizerPreflight.unresolved.map((row) => r
 const manifestPath = path.join(output, "executable-show.json");
 const preflightPath = path.join(output, "compiler-preflight.json");
 const visualizerPreflightPath = path.join(output, "visualizer-preflight.json");
+const shaderFidelityAuditPath = path.join(output, "shader-fidelity-audit.json");
 fs.mkdirSync(output, { recursive: true });
 fs.writeFileSync(preflightPath, `${JSON.stringify(mediaPreflight, null, 2)}\n`);
 fs.writeFileSync(visualizerPreflightPath, `${JSON.stringify(visualizerPreflight, null, 2)}\n`);
-if (!mediaPreflight.ok || !visualizerPreflight.ok) {
+fs.writeFileSync(shaderFidelityAuditPath, `${JSON.stringify(shaderFidelityAudit, null, 2)}\n`);
+if (!mediaPreflight.ok || !visualizerPreflight.ok || !shaderFidelityAudit.ok) {
   if (!mediaPreflight.ok) {
     console.error(`HyperFrames media preflight found ${mediaPreflight.unresolvedCount} unresolved cue(s) before packaging:`);
     for (const issue of mediaPreflight.unresolved) {
@@ -225,6 +272,19 @@ if (!mediaPreflight.ok || !visualizerPreflight.ok) {
       }));
     }
   }
+  if (!shaderFidelityAudit.ok) {
+    console.error(`HyperFrames shader fidelity audit found ${shaderFidelityAudit.instances.unresolved} source-unverified cue(s):`);
+    for (const issue of shaderFidelityAudit.unresolved) {
+      console.error(JSON.stringify({
+        cueId: issue.cueId,
+        visualizerId: issue.visualizerId,
+        requestedSourceHash: issue.requestedSourceHash,
+        observedSourceHash: issue.observedSourceHash,
+        sourcePath: issue.sourcePath,
+        reason: issue.reason,
+      }));
+    }
+  }
   const report = {
     schemaVersion: "hapa.hyperframes.compiler-report.v4",
     ok: false,
@@ -233,6 +293,7 @@ if (!mediaPreflight.ok || !visualizerPreflight.ok) {
     manifestPath,
     preflightPath,
     visualizerPreflightPath,
+    shaderFidelityAuditPath,
     boundedDemo: { enabled: boundedDemo, sourceDurationSeconds: fullShow.duration, compiledDurationSeconds: show.duration },
     deterministicHash: stableHash({ show, mediaPreflight, visualizerPreflight }),
     inspect,
@@ -253,6 +314,7 @@ if (!mediaPreflight.ok || !visualizerPreflight.ok) {
       uniqueCompiledAssets: 0,
       offlineMissing: visualizerPreflightMissing,
       preflight: visualizerPreflight,
+      fidelityAudit: shaderFidelityAudit,
       packagingFailures: [],
       cueWindows: show.instances.visualizers.map((row) => ({ id: row.id, visualizerId: row.visualizerId, start: row.start, end: row.end, route: row.execution.route, pixelIdentitySeed: row.pixelIdentitySeed })),
     },
@@ -265,12 +327,13 @@ if (!mediaPreflight.ok || !visualizerPreflight.ok) {
       mediaOffline: mediaPreflight.ok ? "pass" : "fail",
       visualizerPreflight: visualizerPreflight.ok ? "pass" : "fail",
       visualizerOffline: visualizerPreflight.ok ? "not-run" : "fail",
+      shaderFidelity: shaderFidelityAudit.ok ? "pass" : "fail",
       showcaseReady: false,
     },
   };
   fs.writeFileSync(path.join(output, "compiler-report.json"), `${JSON.stringify(report, null, 2)}\n`);
   console.log(JSON.stringify(report, null, 2));
-  throw new Error(`HyperFrames asset preflight failed for cue(s): ${[...offlineMissing, ...visualizerPreflightMissing].join(", ")}`);
+  throw new Error(`HyperFrames asset/fidelity preflight failed for cue(s): ${[...offlineMissing, ...visualizerPreflightMissing, ...shaderFidelityAudit.unresolved.map((row) => row.cueId)].join(", ")}`);
 }
 
 for (const directory of ["assets/data", "assets/media", "assets/audio", "assets/visualizers", "assets/runtime"]) {
@@ -348,66 +411,31 @@ for (const instance of show.instances.visualizers) {
   instance.proxy.compiledUri = compiledUri;
 }
 
-const deterministicIsfInstances = show.instances.visualizers.filter((instance) => instance.execution?.drawable && isUltimateFlame(instance));
-const deterministicIsfSources = {};
+const deterministicIsfInstances = show.instances.visualizers.filter(
+  (instance) => instance.execution?.drawable && instance.liveIsf,
+);
 let deterministicIsfRuntime = null;
 if (deterministicIsfInstances.length) {
-  if (!usableRegularFile(DETERMINISTIC_ISF_RUNTIME)) {
-    throw new Error(`The pinned browser ISF runtime is unavailable: ${DETERMINISTIC_ISF_RUNTIME}`);
-  }
-  if (!usableRegularFile(ULTIMATE_FLAME_SOURCE)) {
-    throw new Error(`The verified UltimateFlame source is unavailable: ${ULTIMATE_FLAME_SOURCE}`);
-  }
-  const runtimeSha256 = fileSha256(DETERMINISTIC_ISF_RUNTIME);
-  const shaderSha256 = fileSha256(ULTIMATE_FLAME_SOURCE);
-  const requestedHashes = [...new Set(deterministicIsfInstances.map((instance) => String(instance.sourceHash || "")))];
-  if (requestedHashes.some((requestedHash) => requestedHash !== shaderSha256)) {
-    throw new Error(`UltimateFlame source hash mismatch: requested=${requestedHashes.join(",")} observed=${shaderSha256}`);
-  }
   const runtimeDestination = path.join(output, "assets/runtime/isf-renderer.js");
-  fs.copyFileSync(DETERMINISTIC_ISF_RUNTIME, runtimeDestination);
-  const shaderSource = fs.readFileSync(ULTIMATE_FLAME_SOURCE, "utf8");
-  deterministicIsfSources[shaderSha256] = shaderSource;
+  fs.copyFileSync(isfCatalog.runtimePath, runtimeDestination);
+  if (fileSha256(runtimeDestination) !== isfCatalog.runtimeSha256) {
+    throw new Error("Packaged browser ISF runtime hash mismatch");
+  }
   deterministicIsfRuntime = {
     mode: "deterministic-browser-isf",
     runtimeUri: "assets/runtime/isf-renderer.js",
-    runtimeSha256,
-    sourceCount: 1,
+    runtimeSha256: isfCatalog.runtimeSha256,
+    sourceCount: Object.keys(deterministicIsfPackage.sources).length,
+    instanceCount: deterministicIsfInstances.length,
+    outputWidth,
+    outputHeight,
+    fps: show.fps,
+    mediaInputPolicy: "same-current-presented-media-as-preview",
+    sampledAtlasFallback: false,
   };
-  for (const instance of deterministicIsfInstances) {
-    instance.liveIsf = {
-      schemaVersion: "hapa.hyperframes.deterministic-browser-isf.v1",
-      shaderId: ULTIMATE_FLAME_SHADER_ID,
-      sourceHash: shaderSha256,
-      runtimeSha256,
-      clock: "pinned-show-time",
-      frameRate: show.fps,
-      width: outputWidth,
-      height: outputHeight,
-    };
-    instance.execution = {
-      ...instance.execution,
-      mode: "offline-browser-isf",
-      route: "deterministic-browser-isf",
-      reason: "hash-bound-isf-source-executed-on-pinned-timeline",
-    };
-    instance.nativeRoute = {
-      ...instance.nativeRoute,
-      route: "deterministic-browser-isf",
-      reason: "hash-bound-isf-source-executed-on-pinned-timeline",
-    };
-    instance.rendererTruth = {
-      ...instance.rendererTruth,
-      route: "deterministic-browser-isf",
-      reason: "hash-bound-isf-source-executed-on-pinned-timeline",
-      status: "exact",
-      readiness: "ready",
-      fidelityLoss: [],
-    };
-  }
   fs.writeFileSync(
     path.join(output, "assets/data/live-isf.js"),
-    `window.HAPA_LIVE_ISF_SOURCES=${JSON.stringify(deterministicIsfSources)};\n`,
+    `window.HAPA_LIVE_ISF_SOURCES=${JSON.stringify(deterministicIsfPackage.sources)};\n`,
   );
 }
 
@@ -438,6 +466,8 @@ show.packaging = {
   compiledDurationSeconds: show.duration,
   proxyRegistryPath,
   proxyRegistrySha256: fileSha256(proxyRegistryPath),
+  shaderFidelityAuditUri: path.basename(shaderFidelityAuditPath),
+  shaderFidelityPolicy: shaderFidelityAudit.policy,
   mediaBufferPolicy: {
     mode: "post-navigation-rolling-window",
     lookAheadSeconds: 8,
@@ -457,7 +487,8 @@ show.packaging = {
 };
 show.visualizerCoverage = {
   ...show.visualizerCoverage,
-  exactProxyCount: show.instances.visualizers.filter((layer) => layer.execution.drawable).length,
+  exactProxyCount: show.instances.visualizers.filter((layer) => layer.execution.route === "hash-bound-exact-proxy").length,
+  deterministicBrowserIsfCount: deterministicIsfInstances.length,
   unsupportedCount: show.instances.visualizers.filter((layer) => !layer.execution.drawable).length,
 };
 show.showHash = stableHash({ ...show, showHash: undefined });
@@ -512,26 +543,30 @@ const html = `<!doctype html>
 const S=window.HAPA_EXECUTABLE_SHOW,C=document.getElementById('viz'),X=C.getContext('2d',{willReadFrequently:true}),L=document.getElementById('lyric'),Q=document.getElementById('readout'),D=document.getElementById('diagnostics'),R=document.getElementById('root'),proxyImages=new Map([...document.querySelectorAll('[data-proxy-uri]')].map(el=>[el.dataset.proxyUri,el])),liveIsfSurfaces=new Map;let media=[...document.querySelectorAll('.media')],navigationReady=document.readyState==='complete';window.addEventListener('hapa:media-mounted',()=>{media=[...document.querySelectorAll('.media')]});
 const clamp=(v,a=0,b=1)=>Math.max(a,Math.min(b,Number(v)||0));const finite=(value,fallback=0)=>Number.isFinite(Number(value))?Number(value):fallback;const composite=(v)=>({normal:'source-over','source-over':'source-over',screen:'screen',lighter:'lighter','plus-lighter':'lighter',overlay:'overlay',multiply:'multiply','soft-light':'soft-light'}[v]||'screen');${mediaTimingRuntimeSource}${mediaOpacityRuntimeSource}${cameraCropRuntimeSource}${lyricTemplateRuntimeSource}
 function enforceOutputSurface(){const w=${outputWidth},h=${outputHeight};document.documentElement.style.width=w+'px';document.documentElement.style.height=h+'px';document.body.style.width=w+'px';document.body.style.height=h+'px';R.style.width=w+'px';R.style.height=h+'px';if(C.width!==w)C.width=w;if(C.height!==h)C.height=h}
-function liveIsfSurface(layer){const contract=layer.liveIsf;if(!contract)return null;const key=String(contract.sourceHash||'');if(liveIsfSurfaces.has(key))return liveIsfSurfaces.get(key);const source=window.HAPA_LIVE_ISF_SOURCES?.[key],Library=window.interactiveShaderFormat;if(!source||!Library?.Renderer)throw new Error('Deterministic ISF source/runtime unavailable: '+key);const canvas=document.createElement('canvas');canvas.width=C.width;canvas.height=C.height;const gl=canvas.getContext('webgl',{alpha:true,antialias:false,premultipliedAlpha:false,preserveDrawingBuffer:true});if(!gl)throw new Error('WebGL is unavailable for deterministic ISF export');const renderer=new Library.Renderer(gl),surface={canvas,renderer,clock:{time:0,delta:0,index:0},lastTime:null};renderer.setDateUniforms=()=>{renderer.setValue('TIME',surface.clock.time);renderer.setValue('TIMEDELTA',surface.clock.delta);renderer.setValue('FRAMEINDEX',surface.clock.index);renderer.setValue('DATE',[1970,1,1,((surface.clock.time%86400)+86400)%86400])};renderer.loadSource(source);if(renderer.valid===false)throw new Error('Deterministic ISF compile failed: '+String(renderer.error?.message||renderer.error||key));liveIsfSurfaces.set(key,surface);return surface}
-function drawLiveIsf(layer,t){const surface=liveIsfSurface(layer);if(!surface)return null;if(surface.canvas.width!==C.width)surface.canvas.width=C.width;if(surface.canvas.height!==C.height)surface.canvas.height=C.height;const visualTime=finite(layer.visualTime?.visualTimeSeconds,t),expectedDelta=1/Math.max(1,finite(S.fps,30)),sequential=surface.lastTime!=null&&Math.abs((visualTime-surface.lastTime)-expectedDelta)<=expectedDelta*.25;surface.clock={time:visualTime,delta:sequential?expectedDelta:0,index:Math.max(0,Math.floor(visualTime*Math.max(1,finite(S.fps,30))+Number.EPSILON*8))};for(const[name,value]of Object.entries(layer.controlValues||layer.controls||{}))surface.renderer.setValue(name,value);surface.renderer.draw(surface.canvas);surface.lastTime=visualTime;return surface.canvas}
+function mediaReadyForShader(el){if(!el)return false;const width=finite(el.videoWidth||el.naturalWidth||el.width),height=finite(el.videoHeight||el.naturalHeight||el.height);if(typeof el.readyState==='number')return el.readyState>=2&&width>0&&height>0;if(typeof el.complete==='boolean')return el.complete&&width>0&&height>0;return width>0&&height>0}
+function activeMediaElement(t){const logical=media.find((el)=>{const instance=S.instances.media[Number(el.dataset.instanceIndex)];return instance&&mediaReadyForShader(el)&&t>=finite(instance.start)&&t<finite(instance.end,finite(instance.start)+finite(instance.duration))});if(logical)return logical;let selected=null,selectedAlpha=-1;for(const el of media){const index=Number(el.dataset.instanceIndex),instance=S.instances.media[index];if(!instance||!mediaReadyForShader(el))continue;const alpha=finite(hyperFramesMediaOpacityState(S.instances.media,index,t)?.alpha);if(alpha>selectedAlpha){selected=el;selectedAlpha=alpha}}return selected}
+function liveIsfSurface(layer){const contract=layer.liveIsf;if(!contract)return null;const sourceKey=String(contract.sourceHash||''),surfaceKey=String(layer.id||layer.cueId||'layer')+':'+sourceKey;if(liveIsfSurfaces.has(surfaceKey))return liveIsfSurfaces.get(surfaceKey);const source=window.HAPA_LIVE_ISF_SOURCES?.[sourceKey],Library=window.interactiveShaderFormat;if(!source||!Library?.Renderer)throw new Error('Deterministic ISF source/runtime unavailable: '+sourceKey);const canvas=document.createElement('canvas');canvas.width=C.width;canvas.height=C.height;const gl=canvas.getContext('webgl',{alpha:true,antialias:false,premultipliedAlpha:false,preserveDrawingBuffer:true});if(!gl)throw new Error('WebGL is unavailable for deterministic ISF export');const renderer=new Library.Renderer(gl),surface={canvas,renderer,clock:{time:0,delta:0,index:0},lastTime:null,key:surfaceKey};renderer.setDateUniforms=()=>{renderer.setValue('TIME',surface.clock.time);renderer.setValue('TIMEDELTA',surface.clock.delta);renderer.setValue('FRAMEINDEX',surface.clock.index);renderer.setValue('DATE',[1970,1,1,((surface.clock.time%86400)+86400)%86400])};renderer.loadSource(source);if(renderer.valid===false)throw new Error('Deterministic ISF compile failed: '+String(renderer.error?.message||renderer.error||sourceKey));liveIsfSurfaces.set(surfaceKey,surface);return surface}
+function drawLiveIsf(layer,t,mediaInput){const surface=liveIsfSurface(layer);if(!surface)return null;if(surface.canvas.width!==C.width||surface.canvas.height!==C.height)throw new Error('Deterministic ISF surface size changed after initialization');const visualTime=finite(layer.visualTime?.visualTimeSeconds,t),expectedDelta=1/Math.max(1,finite(S.fps,30)),sequential=surface.lastTime!=null&&Math.abs((visualTime-surface.lastTime)-expectedDelta)<=expectedDelta*.25;if(surface.lastTime!=null&&layer.liveIsf?.persistent&&!sequential)throw new Error('Persistent ISF timeline was not rendered sequentially: '+String(layer.visualizerId||layer.id));surface.clock={time:visualTime,delta:sequential?expectedDelta:0,index:Math.max(0,Math.floor(visualTime*Math.max(1,finite(S.fps,30))+Number.EPSILON*8))};for(const[name,value]of Object.entries(layer.controlValues||layer.controls||{}))surface.renderer.setValue(name,value);const imageInputs=Array.isArray(layer.liveIsf?.imageInputs)?layer.liveIsf.imageInputs:[];if(layer.liveIsf?.requiresMedia&&!mediaInput)throw new Error('Current media frame is required by shader '+String(layer.visualizerId||layer.id));for(const name of imageInputs)surface.renderer.setValue(name,mediaInput);surface.renderer.draw(surface.canvas);if(surface.renderer.valid===false)throw new Error('Deterministic ISF draw failed: '+String(layer.visualizerId||layer.id));surface.lastTime=visualTime;return surface.canvas}
 function aspectCoverSourceRect(rect,targetWidth,targetHeight){const x=Number(rect[0])||0,y=Number(rect[1])||0,width=Number(rect[2])||0,height=Number(rect[3])||0,targetW=Number(targetWidth)||0,targetH=Number(targetHeight)||0;if(!(width>0&&height>0&&targetW>0&&targetH>0))return[x,y,width,height];const sourceAspect=width/height,targetAspect=targetW/targetH;if(sourceAspect>targetAspect){const coverWidth=height*targetAspect;return[x+(width-coverWidth)/2,y,coverWidth,height]}const coverHeight=width/targetAspect;return[x,y+(height-coverHeight)/2,width,coverHeight]}
 function lyricFrameAt(t){const track=S.instances.lyrics[0],lines=track?.lines||[],line=lines.find(row=>t>=row.start&&t<row.end)||null;if(!track||!line)return null;return{track,line,frame:echoLyricTemplateFrameState({templateId:track.templateId,enabled:true,line,timeSeconds:t,fps:S.fps})}}function cameraAt(t){return echoCameraKeyframeAt(S.automation.camera||[],t)}
 function escapeLyric(value){return String(value??'').replace(/[&<>"']/g,(character)=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[character]))}
 function drawLyric(t){const state=lyricFrameAt(t);if(!state){L.textContent='';L.style.opacity='0';return null}const{track,line,frame}=state;L.className='lyric lyric--'+track.templateId;L.dataset.templateId=track.templateId;L.dataset.runtimeSchema=track.runtimeSchema||'';L.style.opacity=frame.visible?String(1-frame.exitProgress):'0';const words=Array.isArray(line.words)?line.words:[];L.innerHTML=words.length?words.map((word,index)=>{const motion=frame.words[index]||{};if(motion.display===false)return'';const active=motion.active?' active':'',style='opacity:'+finite(motion.opacity,1)+';transform:translate('+finite(motion.translateX)+'px,'+finite(motion.translateY)+'px) rotate('+finite(motion.rotateDegrees)+'deg) scale('+finite(motion.scale,1)+')';return'<span class="lyric-word'+active+'" data-word-index="'+index+'" data-word-active="'+String(Boolean(motion.active))+'" data-word-progress="'+finite(motion.progress)+'" style="'+style+'">'+escapeLyric(motion.displayText||word.word||word.text||'')+'</span>'}).join(' '):escapeLyric(frame.displayText||line.text);return state}
 function mediaFrame(t){const camera=cameraAt(t),framing=echoCameraCropPresentation(camera?.crop),bootstrap=S.packaging?.mediaBufferPolicy?.bootstrapUri;media.forEach((el)=>{const index=Number(el.dataset.instanceIndex),m=S.instances.media[index];if(!m)return;const timing=hyperFramesMediaPresentationWindow(S.instances.media,index),opacity=hyperFramesMediaOpacityState(S.instances.media,index,t),local=opacity.localSeconds,alpha=opacity.alpha;el.style.opacity=String(alpha);const shouldBuffer=navigationReady&&timing&&t>=timing.presentationStart-8&&t<timing.presentationEnd+1;if(el.tagName==='VIDEO'&&shouldBuffer&&(el.getAttribute('src')!==el.dataset.mediaSrc||el.preload!=='auto')){el.preload='auto';el.src=el.dataset.mediaSrc;el.load()}else if(el.tagName==='VIDEO'&&navigationReady&&!shouldBuffer&&bootstrap&&el.getAttribute('src')!==bootstrap&&(t<timing.presentationStart-12||t>=timing.presentationEnd+3)){el.preload='metadata';el.src=bootstrap;el.load()}const intensity=Number(camera?.intensity||.3),phase=clamp(local/Math.max(.001,m.duration)),cropScale=framing?.scale||1;let x=0,y=0,r=0;if(camera?.motion==='pan-left')x=-intensity*3*phase;if(camera?.motion==='pan-right')x=intensity*3*phase;if(camera?.motion==='pan-up')y=-intensity*2*phase;if(camera?.motion==='pan-down')y=intensity*2*phase;if(camera?.motion==='orbit')r=intensity*1.8*phase;el.style.objectPosition=framing?.objectPosition||'50% 50%';el.style.transformOrigin=framing?.transformOrigin||'50% 50%';el.style.transform='scale('+((1.08-intensity*.025*phase)*cropScale)+') translate('+x+'%,'+y+'%) rotate('+r+'deg)'})}
+async function prepareMediaAt(t){const expectedMediaCount=(S.instances.media||[]).filter((instance)=>instance.source?.compiledUri).length;if(media.length<expectedMediaCount)await new Promise((resolve,reject)=>{const timer=setTimeout(()=>{cleanup();reject(new Error('Timed out waiting for packaged media elements'))},5000),mounted=()=>{media=[...document.querySelectorAll('.media')];if(media.length<expectedMediaCount)return;cleanup();resolve()},cleanup=()=>{clearTimeout(timer);window.removeEventListener('hapa:media-mounted',mounted)};window.addEventListener('hapa:media-mounted',mounted)});const candidates=media.filter((el)=>{const index=Number(el.dataset.instanceIndex),timing=hyperFramesMediaPresentationWindow(S.instances.media,index);return timing&&t>=timing.presentationStart-8&&t<timing.presentationEnd+1});return Promise.all(candidates.map((el)=>{if(el.tagName!=='VIDEO')return Promise.resolve();if(el.getAttribute('src')!==el.dataset.mediaSrc||el.preload!=='auto'){el.preload='auto';el.src=el.dataset.mediaSrc;el.load()}if(mediaReadyForShader(el))return Promise.resolve();return new Promise((resolve,reject)=>{const timer=setTimeout(()=>{cleanup();reject(new Error('Timed out preparing shader media input: '+String(el.dataset.mediaSrc||el.id)))},30000),ready=()=>{if(!mediaReadyForShader(el))return;cleanup();resolve()},failed=()=>{cleanup();reject(new Error('Failed preparing shader media input: '+String(el.dataset.mediaSrc||el.id)))},cleanup=()=>{clearTimeout(timer);el.removeEventListener('loadeddata',ready);el.removeEventListener('canplay',ready);el.removeEventListener('error',failed)};el.addEventListener('loadeddata',ready);el.addEventListener('canplay',ready);el.addEventListener('error',failed)})}))}
+window.HAPA_PREPARE_MEDIA_AT=prepareMediaAt;
 function sampleHash(){const data=X.getImageData(0,0,C.width,C.height).data;let h=2166136261;for(let i=0;i<data.length;i+=256){h^=data[i];h=Math.imul(h,16777619);h^=data[i+1]||0;h=Math.imul(h,16777619);h^=data[i+2]||0;h=Math.imul(h,16777619)}return(h>>>0).toString(16).padStart(8,'0')}
 function draw(t){
-  enforceOutputSurface();mediaFrame(t);const state=evaluateHyperFramesVisualizers(S,t);X.clearRect(0,0,C.width,C.height);let drawn=0;
+  enforceOutputSurface();mediaFrame(t);const state=evaluateHyperFramesVisualizers(S,t),mediaInput=activeMediaElement(t);X.clearRect(0,0,C.width,C.height);let drawn=0;
   for(const layer of state.layers||state.instances||[]){
     if(layer.execution?.drawable===false)continue;
-    const proxy=layer.proxy||{},img=layer.liveIsf?drawLiveIsf(layer,t):proxyImages.get(proxy.compiledUri);if(!img||(layer.liveIsf?!(img.width&&img.height):(!img.complete||!img.naturalWidth)))continue;
+    const proxy=layer.proxy||{},img=layer.liveIsf?drawLiveIsf(layer,t,mediaInput):proxyImages.get(proxy.compiledUri);if(!img||(layer.liveIsf?!(img.width&&img.height):(!img.complete||!img.naturalWidth)))continue;
     const frame=layer.proxyFrame||layer.frame||{},rect=layer.liveIsf?[0,0,img.width,img.height]:Array.isArray(frame.sourceRect)?frame.sourceRect:frame.rect?[frame.rect.x,frame.rect.y,frame.rect.width,frame.rect.height]:[Number(frame.index||0)*proxy.frameWidth,0,proxy.frameWidth,proxy.frameHeight],coverRect=aspectCoverSourceRect(rect,C.width,C.height),alpha=clamp(layer.effectiveOpacity??layer.composite?.effectiveOpacity??0),signal=clamp(layer.signalValue??layer.stemSignal??layer.stemFrame?.frame?.rms??layer.stemFrame?.rms??0),control=clamp(layer.controlEnergy??0),modulation=layer.presentationModulation||{},brightness=Number.isFinite(Number(modulation.brightness))?Number(modulation.brightness):1+signal*.18,saturation=Number.isFinite(Number(modulation.saturation))?Number(modulation.saturation):1+control*.2,scale=Number.isFinite(Number(modulation.scale))?Number(modulation.scale):1+signal*.018+control*.01;
     X.save();X.globalAlpha=alpha;X.globalCompositeOperation=composite(layer.blendMode||layer.composite?.blendMode);X.filter='brightness('+brightness+') saturate('+saturation+')';X.translate(C.width/2,C.height/2);X.scale(scale,scale);X.translate(-C.width/2,-C.height/2);X.drawImage(img,coverRect[0],coverRect[1],coverRect[2],coverRect[3],0,0,C.width,C.height);X.restore();drawn++
   }
   for(const accent of state.accents||[]){X.save();X.globalCompositeOperation='screen';X.globalAlpha=clamp(accent.value??accent.intensity??0)*.25;X.fillStyle=accent.kind==='flicker'?'#fff':accent.kind==='glitch'?'#ff2d83':'#00f3ff';X.fillRect(0,0,C.width,C.height);X.restore()}
   const lyricState=drawLyric(t);const diagnostics=state.diagnostics||[];D.innerHTML=diagnostics.map(row=>'<div class="diagnostic">UNSUPPORTED · '+String(row.visualizerId||row.requestedId||'unknown')+' · '+String(row.reason||'no executable proxy')+'</div>').join('');Q.textContent='PINNED VISUAL TIME · '+t.toFixed(2)+'S · LAYERS '+drawn+' · DIAGNOSTICS '+diagnostics.length;window.HAPA_LAST_RENDER_STATE={...state,timeSeconds:t,drawnLayerCount:drawn,lyricTemplateId:lyricState?.track?.templateId||null,lyricFrame:lyricState?.frame||null,canvasSampleHash:sampleHash()};return window.HAPA_LAST_RENDER_STATE
 }
-const timeline=new window.HapaPinnedTimeline(S.duration,draw);window.__timelines=window.__timelines||{};window.__timelines.main=timeline;const primeMedia=()=>{navigationReady=true};if(document.readyState==='complete')primeMedia();else window.addEventListener('load',primeMedia,{once:true});window.HAPA_ASSETS_READY=Promise.all([...proxyImages.entries()].map(([uri,img])=>Promise.resolve(img.decode?img.decode():null).then(()=>{if(!img.complete||!img.naturalWidth)throw new Error('Shader atlas did not decode: '+uri);return uri}).catch(error=>{throw new Error('Shader atlas decode failed for '+uri+': '+String(error&&error.message||error))}))).then(()=>{enforceOutputSurface();for(const layer of S.instances.visualizers||[])if(layer.liveIsf)liveIsfSurface(layer);const armed=navigationReady;navigationReady=false;timeline.seek(0).pause();timeline.flush();navigationReady=armed;return timeline});</script></body></html>`;
+const timeline=new window.HapaPinnedTimeline(S.duration,draw);window.__timelines=window.__timelines||{};window.__timelines.main=timeline;const primeMedia=()=>{navigationReady=true};if(document.readyState==='complete')primeMedia();else window.addEventListener('load',primeMedia,{once:true});window.HAPA_ASSETS_READY=Promise.all([...proxyImages.entries()].map(([uri,img])=>Promise.resolve(img.decode?img.decode():null).then(()=>{if(!img.complete||!img.naturalWidth)throw new Error('Shader atlas did not decode: '+uri);return uri}).catch(error=>{throw new Error('Shader atlas decode failed for '+uri+': '+String(error&&error.message||error))}))).then(()=>prepareMediaAt(0)).then(()=>{enforceOutputSurface();for(const layer of S.instances.visualizers||[])if(layer.liveIsf)liveIsfSurface(layer);const armed=navigationReady;navigationReady=false;timeline.seek(0).pause();timeline.flush();navigationReady=armed;return timeline});</script></body></html>`;
 fs.writeFileSync(path.join(output, "index.html"), html);
 
 const lintProcess = spawnSync(process.execPath, [
@@ -559,7 +594,9 @@ const lintEvidence = lintReport || {
 };
 fs.writeFileSync(path.join(output, "lint-report.json"), `${JSON.stringify(lintEvidence, null, 2)}\n`);
 
-const packagedVisualizerCueIds = new Set(show.instances.visualizers.filter((row) => row.proxy?.compiledUri).map((row) => row.cueId || row.id));
+const packagedVisualizerCueIds = new Set(show.instances.visualizers
+  .filter((row) => row.proxy?.compiledUri || row.liveIsf)
+  .map((row) => row.cueId || row.id));
 const visualizerOfflineMissing = visualizerPreflight.entries
   .filter((row) => row.required && !packagedVisualizerCueIds.has(row.cueId))
   .map((row) => row.cueId);
@@ -569,11 +606,12 @@ const compiledLyricTrack = show.instances.lyrics[0] || null;
 const report = {
   schemaVersion: "hapa.hyperframes.compiler-report.v4",
   ok: lintOk && inspect.ok && offlineMissing.length === 0 && visualizerOfflineMissing.length === 0 && networkReferences.length === 0 && !/Math\.random|Date\.now|AudioContext|getUserMedia|fetch\(/.test(sourceAudit),
-  input: { graphPath, telemetryPath, projectPath, sourceProjectPath, audioPath, proxyRegistryPath, requestedDuration },
+  input: { graphPath, telemetryPath, projectPath, sourceProjectPath, audioPath, proxyRegistryPath, isfManifestPath, isfRuntimePath, requestedDuration },
   output,
   manifestPath,
   preflightPath,
   visualizerPreflightPath,
+  shaderFidelityAuditPath,
   boundedDemo: { enabled: boundedDemo, sourceDurationSeconds: fullShow.duration, compiledDurationSeconds: show.duration },
   deterministicHash: sha256(sourceAudit),
   inspect,
@@ -595,13 +633,14 @@ const report = {
   },
   visualizers: {
     declared: show.instances.visualizers.length,
-    exactProxy: show.instances.visualizers.filter((row) => row.execution.drawable).length,
+    exactProxy: show.instances.visualizers.filter((row) => row.execution.route === "hash-bound-exact-proxy").length,
     deterministicBrowserIsf: deterministicIsfInstances.length,
     unsupported: show.instances.visualizers.filter((row) => !row.execution.drawable).length,
     compiledAssets: packagedVisualizerCueIds.size,
     uniqueCompiledAssets: copiedProxyByHash.size,
     offlineMissing: visualizerOfflineMissing,
     preflight: visualizerPreflight,
+    fidelityAudit: shaderFidelityAudit,
     packagingFailures: visualizerPackagingFailures,
     cueWindows: show.instances.visualizers.map((row) => ({ id: row.id, visualizerId: row.visualizerId, start: row.start, end: row.end, route: row.execution.route, pixelIdentitySeed: row.pixelIdentitySeed })),
   },
@@ -617,7 +656,7 @@ const report = {
   },
   runtime: { timeline: "local-hapa-pinned-timeline", visualizerScheduler: "hyperframes-visualizer-runtime", deterministicIsf: deterministicIsfRuntime, networkDependencies: networkReferences.length, lastRenderStateHook: "window.HAPA_LAST_RENDER_STATE" },
   lint: { reportPath: path.join(output, "lint-report.json"), ...lintEvidence },
-  validation: { lint: lintOk ? "pass" : "fail", inspect: inspect.ok ? "pass" : "fail", cueCoverage: "pass", mediaPreflight: mediaPreflight.ok ? "pass" : "fail", mediaOffline: offlineMissing.length ? "fail" : "pass", visualizerPreflight: visualizerPreflight.ok ? "pass" : "fail", visualizerOffline: visualizerOfflineMissing.length ? "fail" : "pass", showcaseReady: lintOk && inspect.ok && !offlineMissing.length && !visualizerOfflineMissing.length },
+  validation: { lint: lintOk ? "pass" : "fail", inspect: inspect.ok ? "pass" : "fail", cueCoverage: "pass", mediaPreflight: mediaPreflight.ok ? "pass" : "fail", mediaOffline: offlineMissing.length ? "fail" : "pass", visualizerPreflight: visualizerPreflight.ok ? "pass" : "fail", visualizerOffline: visualizerOfflineMissing.length ? "fail" : "pass", shaderFidelity: shaderFidelityAudit.ok ? "pass" : "fail", showcaseReady: lintOk && inspect.ok && !offlineMissing.length && !visualizerOfflineMissing.length && shaderFidelityAudit.ok },
 };
 fs.writeFileSync(path.join(output, "compiler-report.json"), `${JSON.stringify(report, null, 2)}\n`);
 console.log(JSON.stringify(report, null, 2));
