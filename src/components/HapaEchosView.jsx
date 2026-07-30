@@ -5865,6 +5865,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                                     const renderWords = (customWordStyle) => {
                                       return currentLine.words ? currentLine.words.map((w, wIdx) => {
                                         const frameWord = lyricTemplateFrame.words[wIdx] || {};
+                                        if (frameWord.display === false) return null;
                                         const wordStyle = customWordStyle(frameWord.active, frameWord.completed, wIdx, frameWord);
                                         return (
                                           <span
@@ -5880,7 +5881,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                                               ...wordStyle,
                                             }}
                                           >
-                                            {w.word}
+                                            {frameWord.displayText || w.word}
                                           </span>
                                         );
                                       }) : currentLine.text;
@@ -5953,7 +5954,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                                               color: lyricTheme.activeColor,
                                               filter: 'blur(1px)'
                                             }}>
-                                              {currentLine.text}
+                                              {lyricTemplateFrame.displayText || currentLine.text}
                                             </div>
                                             <div style={{
                                               position: 'relative',

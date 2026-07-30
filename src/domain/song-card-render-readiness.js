@@ -12,6 +12,7 @@ import {
 } from "./hyperframes-visualizer-runtime.js";
 import { canonicalSha256 } from "./native-visualizer-route.js";
 import { inspectPortableVisualizerAttachment } from "./portable-visualizer-card.js";
+import { inspectEchoLyricRenderSafety } from "./echo-lyric-render-safety.js";
 
 export const SONG_CARD_RENDER_READINESS_SCHEMA = "hapa.song-card.render-readiness.v1";
 
@@ -603,6 +604,26 @@ export function preflightSongCardRenderReadiness({
     inputPreflightBlocker("signal-graph", effectiveSignalPreflight, addBlocker);
   }
 
+  const lyricSafety = inspectEchoLyricRenderSafety({
+    project,
+    lyricOverlay: showGraph?.song?.lyricOverlay || null,
+    outputProfile: showGraph?.outputProfile || project?.output_profile || project,
+  });
+  for (const issue of lyricSafety.issues || []) {
+    addBlocker({
+      code: issue.code,
+      stage: "lyric-safety",
+      message: issue.message,
+      ...(Number.isFinite(Number(issue.timestampSeconds)) ? { sampleTimeSeconds: Number(issue.timestampSeconds) } : {}),
+      details: {
+        lineIndex: Number.isInteger(issue.lineIndex) ? issue.lineIndex : null,
+        wordIndex: Number.isInteger(issue.wordIndex) ? issue.wordIndex : null,
+        profileId: lyricSafety.profileId,
+        templateId: lyricSafety.templateId,
+      },
+    });
+  }
+
   for (const { card } of graphVisualizerCards(showGraph)) {
     const attachment = inspectPortableVisualizerAttachment(card);
     if (attachment.ok) continue;
@@ -643,6 +664,7 @@ export function preflightSongCardRenderReadiness({
       compiler: { ok: false, showHash: null },
       inspection: { ok: false, rawOk: false, errors: ["show-not-compiled"], acceptedErrors: [] },
       signalGraph: compactPreflight(effectiveSignalPreflight, Boolean(effectiveSignalPreflight)),
+      lyrics: lyricSafety,
       media: compactPreflight(mediaPreflight, Boolean(mediaPreflight)),
       visualizers: { ok: false },
       proxyAssets: { ok: false, uniqueAssetCount: 0, resolvedAssetCount: 0, entries: [] },
@@ -761,6 +783,7 @@ export function preflightSongCardRenderReadiness({
     },
     proxyAssets,
     runtime,
+    lyrics: lyricSafety,
   };
   const ok = blockers.length === 0;
   const counts = {

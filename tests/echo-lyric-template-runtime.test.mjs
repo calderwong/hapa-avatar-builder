@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import vm from "node:vm";
 import {
+  echoLyricDisplayWindow,
   echoLyricFrameTime,
   echoLyricTemplateRuntimeBrowserSource,
   resolveEchoLyricTemplateFrame,
@@ -79,4 +80,21 @@ test("the exported HyperFrames browser runtime returns the same fixed-frame stat
     fps: 30,
   });
   assert.deepEqual(JSON.parse(JSON.stringify(context.sample)), preview);
+});
+
+test("long measured transcript spans page into deterministic readable word windows", () => {
+  const words = Array.from({ length: 23 }, (_, index) => ({
+    word: `word${index}`,
+    start: index,
+    end: index + 1,
+  }));
+  assert.deepEqual(
+    echoLyricDisplayWindow({ templateId: "kinetic-word-burst-v1", words, timeSeconds: 9.5, lineStart: 0, lineEnd: 23 }),
+    {
+      startIndex: 7,
+      endIndex: 14,
+      wordCount: 7,
+      text: "word7 word8 word9 word10 word11 word12 word13",
+    },
+  );
 });
