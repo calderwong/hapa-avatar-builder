@@ -16,6 +16,7 @@ import { repairEchoShowGraphStemBindings } from "../src/domain/echo-stem-binding
 import { reidentifyEchoCompiledShowGraph, validateEchoCompiledShowGraph } from "../src/domain/echo-compiled-show-graph.js";
 import { echoOutputProfileCacheKey, resolveEchoOutputProfile } from "../src/domain/echo-output-profile.js";
 import { preflightSongCardRenderReadiness } from "../src/domain/song-card-render-readiness.js";
+import { verifyEncodedLyricMaster } from "./lyric-render-parity.mjs";
 import { inspectPortableVisualizerAttachment } from "../src/domain/portable-visualizer-card.js";
 import {
   loadRenderAudioInputPreflightCache,
@@ -64,6 +65,7 @@ const REQUIRED_SCRIPTS = [
 const RENDERER_BUILD_FILES = [
   ...REQUIRED_SCRIPTS,
   "server/song-card-local-renderer.mjs",
+  "server/lyric-render-parity.mjs",
   "server/render-audio-input-preflight.mjs",
   "server/render-visual-media-preflight.mjs",
   "server/stem-telemetry-preflight.mjs",
@@ -2064,6 +2066,16 @@ export function inspectSongCardExecutedRendererTruth(showGraph, compilerReport, 
     && Boolean(compilerReport.lyrics.enabled) === expectedLyricEnabled
     && Number(compilerReport.lyrics.compiledInstanceCount || 0) === (expectedLyricEnabled ? 1 : 0)
     && Number(compilerReport.lyrics.compiledLineCount || 0) === (expectedLyricEnabled ? Number(lyricOverlay.lines?.length || 0) : 0);
+  const lyricPixelProof = verifiedPixelReport?.lyrics || null;
+  const lyricPixelsMatch = !lyricReceiptAvailable || Boolean(
+    lyricPixelProof?.ok === true
+      && Boolean(lyricPixelProof.enabled) === expectedLyricEnabled
+      && text(lyricPixelProof.contractHash) === expectedLyricContractHash
+      && (!expectedLyricEnabled || (
+        text(lyricPixelProof.templateId) === (text(lyricOverlay.templateId) || "scanline-phrase-ribbon-v1")
+        && Number(lyricPixelProof.activeSampleCount || 0) > 0
+      )),
+  );
   if (lyricReceiptAvailable && !lyricContractMatches) {
     throw localRendererError(
       "local_lyric_contract_truth_failed",
@@ -2077,6 +2089,21 @@ export function inspectSongCardExecutedRendererTruth(showGraph, compilerReport, 
         compiledLyricEnabled: Boolean(compilerReport.lyrics.enabled),
         expectedLineCount: Number(lyricOverlay.lines?.length || 0),
         compiledLineCount: Number(compilerReport.lyrics.compiledLineCount || 0),
+      },
+    );
+  }
+  if (lyricReceiptAvailable && !lyricPixelsMatch) {
+    throw localRendererError(
+      "local_lyric_pixel_truth_failed",
+      "The exported lyric pixels do not match the saved Preview contract. The final MP4 did not start.",
+      409,
+      {
+        stage: "pixel-qa",
+        expectedLyricContractHash,
+        pixelContractHash: text(lyricPixelProof?.contractHash) || null,
+        expectedLyricEnabled,
+        pixelLyricEnabled: lyricPixelProof?.enabled ?? null,
+        activeSampleCount: Number(lyricPixelProof?.activeSampleCount || 0),
       },
     );
   }
@@ -2100,6 +2127,8 @@ export function inspectSongCardExecutedRendererTruth(showGraph, compilerReport, 
       templateId: text(lyricOverlay.templateId) || "scanline-phrase-ribbon-v1",
       lineCount: Number(lyricOverlay.lines?.length || 0),
       contractHash: expectedLyricContractHash,
+      pixelProofStatus: lyricPixelProof?.ok === true ? "verified-boundary-frames" : "not-available",
+      pixelSampleCount: Number(lyricPixelProof?.sampleCount || 0),
       runtimeSchema: text(compilerReport?.lyrics?.runtimeSchema) || null,
       frameQuantization: text(compilerReport?.lyrics?.frameQuantization) || null,
     },
@@ -3114,10 +3143,11 @@ async function defaultPipeline({
   }
 
   const requestedVisualizerCueCount = visualizerCards(showGraph).length;
+  const lyricPixelVerificationRequired = Boolean(compilerReport?.lyrics);
   const pixelReportPath = path.join(qaDirectory, "pixel-capture-report.json");
   await fsp.rm(pixelReportPath, { force: true });
   let pixelReport;
-  if (requestedVisualizerCueCount === 0) {
+  if (requestedVisualizerCueCount === 0 && !lyricPixelVerificationRequired) {
     report("pixel-qa", 34, "No shader cues were requested; pixel verification is not applicable.");
     pixelReport = {
       schemaVersion: "hapa.hyperframes.pixel-capture.v2",
@@ -3132,7 +3162,9 @@ async function defaultPipeline({
     };
     await writeJson(pixelReportPath, pixelReport);
   } else {
-    report("pixel-qa", 34, "Sampling real rendered pixels for every shader cue.");
+    report("pixel-qa", 34, requestedVisualizerCueCount
+      ? "Sampling real rendered pixels for every shader cue and lyric boundary."
+      : "Sampling real rendered pixels at lyric boundaries.");
     const electronPath = path.join(ROOT, "node_modules/.bin/electron");
     let pixelProcessError = null;
     try {
@@ -3198,6 +3230,23 @@ async function defaultPipeline({
   } catch (error) {
     if (signal?.aborted) throw abortError(signal);
     throw localRendererError("local_hyperframes_render_failed", summarizeHyperFramesFailure(error), 500);
+  }
+
+  report("lyric-parity", 84, "Verifying the burned-in lyrics in the encoded MP4.");
+  const encodedLyricProof = await verifyEncodedLyricMaster({
+    masterPath: renderedMasterPath,
+    pixelReport,
+    outputDirectory: path.join(qaDirectory, "encoded-lyric-parity"),
+    execFile,
+  });
+  rendererTruth.lyrics.encodedMasterProof = encodedLyricProof;
+  if (!encodedLyricProof.ok) {
+    throw localRendererError(
+      "local_encoded_lyric_parity_failed",
+      "The encoded MP4 lyric pixels diverged from the verified Preview frames. No edition was minted.",
+      409,
+      { stage: "encoded-lyric-parity", proof: encodedLyricProof },
+    );
   }
 
   const posterPath = path.join(renderDirectory, "poster.jpg");

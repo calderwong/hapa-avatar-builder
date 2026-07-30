@@ -35,6 +35,23 @@ function manifestVisualizerInstances(manifest) {
   return [];
 }
 
+function manifestLyricTrack(manifest) {
+  return Array.isArray(manifest?.instances?.lyrics) ? manifest.instances.lyrics[0] || null : null;
+}
+
+function lyricSampleTimestamps(manifest) {
+  const track = manifestLyricTrack(manifest);
+  const lines = Array.isArray(track?.lines) ? track.lines : [];
+  if (!lines.length) return [0];
+  const selected = [...new Set([0, Math.floor(lines.length / 2), lines.length - 1])].map((index) => lines[index]).filter(Boolean);
+  const frame = 1 / Math.max(1, finite(manifest?.fps, 30));
+  return [...new Set(selected.flatMap((line) => {
+    const start = finite(line.start);
+    const end = finite(line.end, start);
+    return [Math.max(0, start - frame), start, start + ((end - start) / 2), Math.max(start, end - frame), end + frame];
+  }).map((timestamp) => Number(timestamp.toFixed(6))))];
+}
+
 function expectedLayer(instance) {
   return {
     cueId: instance.cueId || instance.id || null,
@@ -62,13 +79,14 @@ function derivedSamples(manifest, timestamps) {
 }
 
 function defaultTimestamps(manifest) {
-  return manifestVisualizerInstances(manifest)
+  const visualizerTimestamps = manifestVisualizerInstances(manifest)
     .map((instance) => {
       const start = finite(instance.start, 0);
       const end = finite(instance.end, start + finite(instance.duration, 0));
       return Number(((start + end) / 2).toFixed(6));
     })
     .filter((timestamp) => Number.isFinite(timestamp) && timestamp >= 0);
+  return [...new Set([...visualizerTimestamps, ...lyricSampleTimestamps(manifest)])].sort((left, right) => left - right);
 }
 
 function sha256(bytes) {
@@ -227,6 +245,7 @@ app.whenReady().then(async () => {
       .map(Number)
       .filter((row) => Number.isFinite(row) && row >= 0)
       .map((row) => Math.min(duration, row));
+    const lyricSamples = new Set(lyricSampleTimestamps(manifest).map((timestamp) => Math.min(duration, timestamp).toFixed(6)));
     if (timestamps.length === 0) {
       throw new Error("No visualizer cue timestamps were found; pass --at=<seconds> to select capture times");
     }
@@ -326,6 +345,25 @@ app.whenReady().then(async () => {
         return {
           renderState: JSON.parse(JSON.stringify(window.HAPA_LAST_RENDER_STATE || null)),
           canvasCapture,
+          lyricCapture: (() => {
+            const lyric = document.getElementById("lyric");
+            if (!lyric) return null;
+            const style = getComputedStyle(lyric);
+            const rect = lyric.getBoundingClientRect();
+            return {
+              text: String(lyric.textContent || "").replace(/\\s+/g, " ").trim(),
+              opacity: Number(style.opacity || 0),
+              visible: Number(style.opacity || 0) > .01 && rect.width > 0 && rect.height > 0 && String(lyric.textContent || "").trim().length > 0,
+              templateId: lyric.dataset.templateId || null,
+              runtimeSchema: lyric.dataset.runtimeSchema || null,
+              rect: { left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom, width: rect.width, height: rect.height },
+              words: [...lyric.querySelectorAll(".lyric-word")].map((word) => ({
+                text: String(word.textContent || ""),
+                active: word.dataset.wordActive === "true",
+                progress: Number(word.dataset.wordProgress || 0),
+              })),
+            };
+          })(),
         };
       })()`, true);
       const renderState = captureState?.renderState || null;
@@ -351,6 +389,22 @@ app.whenReady().then(async () => {
         canvasMetrics: captureState?.canvasCapture?.metrics || null,
         expected: expectationByTime.get(timestamp.toFixed(6)) || null,
         renderState,
+        lyric: {
+          isGoldenSample: lyricSamples.has(timestamp.toFixed(6)),
+          expected: (() => {
+            const track = manifestLyricTrack(manifest);
+            const line = (track?.lines || []).find((row) => timestamp >= finite(row.start) && timestamp < finite(row.end, finite(row.start)));
+            return {
+              enabled: Boolean(track),
+              active: Boolean(line),
+              templateId: track?.templateId || null,
+              runtimeSchema: track?.runtimeSchema || null,
+              lineText: line?.text || null,
+              lineIndex: Number.isInteger(line?.index) ? line.index : null,
+            };
+          })(),
+          observed: captureState?.lyricCapture || null,
+        },
       });
       process.stdout.write(`${JSON.stringify({
         type: "pixel-qa-progress",
@@ -371,6 +425,52 @@ app.whenReady().then(async () => {
       networkAttemptCount: networkAttempts.length,
       consoleErrorCount: consoleErrors.length,
     });
+    const lyricGoldenFrames = frames.filter((frame) => frame.lyric?.isGoldenSample);
+    const normalizeLyricText = (input) => String(input || "").replace(/\s+/g, " ").trim();
+    const lyricFrameChecks = lyricGoldenFrames.map((frame) => {
+      const expected = frame.lyric.expected || {};
+      const observed = frame.lyric.observed || {};
+      const expectedText = normalizeLyricText(expected.lineText);
+      const observedText = normalizeLyricText(observed.text);
+      const insideFrame = !observed.rect || (
+        observed.rect.left >= -1
+        && observed.rect.top >= -1
+        && observed.rect.right <= outputProfile.width + 1
+        && observed.rect.bottom <= outputProfile.height + 1
+      );
+      const textMatches = !expected.active || (observedText.length > 0 && expectedText.includes(observedText));
+      const visibleMatches = Boolean(observed.visible) === Boolean(expected.active);
+      const templateMatches = !expected.active || observed.templateId === expected.templateId;
+      const runtimeMatches = !expected.active || observed.runtimeSchema === expected.runtimeSchema;
+      return {
+        timestamp: frame.timestamp,
+        active: Boolean(expected.active),
+        ok: textMatches && visibleMatches && templateMatches && runtimeMatches && insideFrame,
+        textMatches,
+        visibleMatches,
+        templateMatches,
+        runtimeMatches,
+        insideFrame,
+        expected,
+        observed,
+        pngPath: frame.pngPath,
+        pngSha256: frame.pngSha256,
+      };
+    });
+    const lyricTrack = manifestLyricTrack(manifest);
+    const lyricProof = {
+      schemaVersion: "hapa.hyperframes.lyric-pixel-proof.v1",
+      enabled: Boolean(lyricTrack),
+      templateId: lyricTrack?.templateId || null,
+      contractHash: manifest?.source?.lyricOverlayHash || null,
+      sampleCount: lyricFrameChecks.length,
+      activeSampleCount: lyricFrameChecks.filter((sample) => sample.active).length,
+      inactiveSampleCount: lyricFrameChecks.filter((sample) => !sample.active).length,
+      samples: lyricFrameChecks,
+    };
+    lyricProof.ok = lyricProof.enabled
+      ? lyricProof.activeSampleCount > 0 && lyricFrameChecks.every((sample) => sample.ok)
+      : lyricFrameChecks.length > 0 && lyricFrameChecks.every((sample) => sample.ok && sample.observed?.visible !== true);
     const report = {
       schemaVersion: "hapa.hyperframes.pixel-capture.v2",
       project,
@@ -394,10 +494,11 @@ app.whenReady().then(async () => {
       },
       acceptance: evaluated.acceptance,
       acceptanceDiagnostics: evaluated.diagnostics,
+      lyrics: lyricProof,
       frames,
     };
     report.functionalOk = evaluated.functionalOk;
-    report.ok = evaluated.ok;
+    report.ok = evaluated.ok && lyricProof.ok;
     const reportPath = path.join(output, "pixel-capture-report.json");
     fs.writeFileSync(reportPath, `${JSON.stringify(report, null, 2)}\n`);
     process.stdout.write(`${JSON.stringify({

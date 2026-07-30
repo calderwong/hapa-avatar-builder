@@ -77,7 +77,18 @@ test("mint renderer truth seals the exact Preview lyric contract into the HyperF
   const truth = inspectSongCardExecutedRendererTruth(
     { song: { lyricOverlay }, tracks: [] },
     compilerReport,
-    { ok: true, frames: [] },
+    {
+      ok: true,
+      frames: [],
+      lyrics: {
+        ok: true,
+        enabled: true,
+        templateId: lyricOverlay.templateId,
+        contractHash: hashEchoLyricOverlayExecutionContract(lyricOverlay),
+        sampleCount: 5,
+        activeSampleCount: 3,
+      },
+    },
   );
   assert.equal(truth.lyrics.status, "verified-exact-contract");
   assert.equal(truth.lyrics.ok, true);
@@ -86,7 +97,18 @@ test("mint renderer truth seals the exact Preview lyric contract into the HyperF
     () => inspectSongCardExecutedRendererTruth(
       { song: { lyricOverlay: { ...lyricOverlay, templateId: "kinetic-word-burst-v1" } }, tracks: [] },
       compilerReport,
-      { ok: true, frames: [] },
+      {
+        ok: true,
+        frames: [],
+        lyrics: {
+          ok: true,
+          enabled: true,
+          templateId: lyricOverlay.templateId,
+          contractHash: hashEchoLyricOverlayExecutionContract(lyricOverlay),
+          sampleCount: 5,
+          activeSampleCount: 3,
+        },
+      },
     ),
     /offline lyric layer no longer matches/u,
   );
