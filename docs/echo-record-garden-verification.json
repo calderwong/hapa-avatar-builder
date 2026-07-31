@@ -1,9 +1,9 @@
 {
-  "schemaVersion": "hapa.echo-record-garden.verification.v3",
+  "schemaVersion": "hapa.echo-record-garden.verification.v4",
   "feature": {
     "id": "echo-record-garden",
     "programId": "echo-record-garden-2026-07-30",
-    "stage": "first-pass-prototype",
+    "stage": "first-pass-prototype-stabilized",
     "route": "/?view=echo-records",
     "boardCards": 14,
     "boardHistoricalState": "14-done-0-open",
@@ -11,7 +11,7 @@
     "acceptanceState": "implementation-build-offline-verified-browser-acceptance-blocked"
   },
   "source": {
-    "canonicalImplementationRevision": "705bab40da7c967fd31615e0d917c4b3ccee1432",
+    "canonicalImplementationRevision": "22fa2b6acc9b0c3fa1a8cc5ecd20828e399128cf",
     "canonicalCheckout": "/Users/calderwong/Documents/Codex/2026-06-10/files-mentioned-by-the-user-screenshot/outputs/hapa-avatar-builder",
     "canonicalIntegrated": true,
     "unrelatedWorkingTreeChangesPreserved": true
@@ -32,7 +32,44 @@
     "physicalScreens": 3,
     "surfaceCandidateLimit": 12,
     "warmMediaPoolLimit": 6,
+    "visibleMediaSlots": 3,
+    "upcomingDirectorVideoWarmSlots": 3,
+    "firstDecodedFrameReadiness": "HAVE_CURRENT_DATA",
+    "posterHeldUntilDecodedFrame": true,
+    "lastDecodedFrameHeldDuringBufferingAndTimelineGaps": true,
     "hardSeekCooldownSeconds": 0.8
+  },
+  "mediaStabilization": {
+    "reportedFailure": "Audio remained healthy while screen and disc media stayed blank for long intervals and then played sporadically.",
+    "rootCauses": [
+      "Transient readyState below HAVE_FUTURE_DATA was interpreted as an instruction to pause, creating a play-wait-pause loop.",
+      "The six-entry media pool was only a historical cache and did not explicitly warm three upcoming Director videos.",
+      "Video textures waited for HAVE_FUTURE_DATA and ignored their source poster before the first decoded frame.",
+      "URI-less visualizer intervals removed the active Director surface instead of retaining the last valid frame.",
+      "Director sourceInSeconds, sourceOutSeconds, and playbackMode were not projected into Record Garden playback."
+    ],
+    "directorAudit": {
+      "exactNewestCutsDelivered": 157,
+      "timedShots": 9527,
+      "videoShots": 7277,
+      "imageShots": 19,
+      "uriLessVisualizerShots": 2231,
+      "uriLessVisualizerSeconds": 8119.1,
+      "shortVideoSourceShots": 293,
+      "shortVideoSourceProjects": 110,
+      "sampledMediaRoutesPassed": 40,
+      "sampledMediaRoutesChecked": 40
+    },
+    "repairs": [
+      "Allow active playback from HAVE_CURRENT_DATA while retaining future-buffer diagnostics.",
+      "Promote a video texture only after a decoded frame callback and retain its last presented frame while buffering.",
+      "Use the source poster as the pre-decode and failure fallback.",
+      "Warm three unique upcoming routable Director videos in addition to the three visible media resources.",
+      "Prime visible and warm resources synchronously before record audio autoplay.",
+      "Hold the prior routable Director frame through URI-less visualizer and structural timeline gaps.",
+      "Honor bounded source-in, source-out, and loop playback metadata.",
+      "Refresh video textures deterministically when requestVideoFrameCallback is unavailable."
+    ]
   },
   "directorSelection": {
     "strategy": "most-recent-non-legacy",
@@ -71,11 +108,11 @@
   "focusedTests": {
     "status": "passed",
     "script": "npm run test:echo-record-garden",
-    "tests": 86,
-    "passed": 86,
+    "tests": 91,
+    "passed": 91,
     "failed": 0,
     "skipped": 0,
-    "observedDurationMs": 133.132916
+    "observedDurationMs": 132.142917
   },
   "summaryAndDetailApi": {
     "status": "passed",
@@ -104,21 +141,21 @@
       "npm run build:check"
     ],
     "recordGardenChunk": {
-      "file": "dist/assets/EchoRecordGarden3DView-CbXL3YAZ.js",
-      "bytes": 99585,
-      "viteSizeKb": 99.58,
-      "viteGzipKb": 31.64,
-      "sha256": "cf88435edb80eb7d311f1653325ea4c732c160407135354b177f80f5975d38ea"
+      "file": "dist/assets/EchoRecordGarden3DView-D1_nBAUd.js",
+      "bytes": 104887,
+      "viteSizeKb": 104.88,
+      "viteGzipKb": 33.30,
+      "sha256": "bab8a5f43af9999bd6a7e2fc1d245a242ac91731a55470393af21c1010da6928"
     },
     "deliveryReceipt": {
       "schemaVersion": "hapa.echo.delivery-build-receipt.v1",
       "contractVersion": "echo-delivery-static-import-graph-v3",
-      "sourceSha256": "sha256:73d4d6cb3e1a420a7a0233592fd1b6367e46e686a8144b8f1dff083647e421aa",
-      "servedBundleSha256": "sha256:e7383907b7e0a6a00ee0ebf9ada3cb68e76f7ebba1a22379f2f3ec1ea66790cf",
+      "sourceSha256": "sha256:73426f13363f2cc8b1b4eda25f6de93136b853ed0f890cb68ca584d229fd3b9c",
+      "servedBundleSha256": "sha256:b9c37746a423d4dea27e95835b678403993c316571a35f2f87cd93d80b9155c3",
       "buildToolSha256": "sha256:1458948a2f71573eebcfbe8a1273966282b40f20c765ead59e4799e83f300fe1",
-      "semanticSha256": "sha256:ffe814a992f88d80a62e3e9eb375133baa5fea71a4cc68d87cf9c803f16f0bc5",
-      "fileSha256": "52cb7eb18861f36c30ab0167d9b1f1bd73ecb4dba33c8e2dfda6fa56c6678ab0",
-      "generatedAt": "2026-07-31T03:18:56.731Z"
+      "semanticSha256": "sha256:8e59b0b27fe055bebb0e04f7e476d4a1bdfa94e678a1c45c842fe011106e7786",
+      "fileSha256": "0b97c41032a8daf329dd049afd75257dfcaecc8ef90621b6d30d49690a9e858c",
+      "generatedAt": "2026-07-31T04:14:09.672Z"
     },
     "warning": "Existing application chunks exceed 500 kB; Record Garden remains independently lazy-loaded."
   },
@@ -129,19 +166,19 @@
     "passed": 9,
     "failed": 0,
     "receiptPath": "/Users/calderwong/Documents/Codex/2026-06-10/files-mentioned-by-the-user-screenshot/outputs/hapa-avatar-builder/artifacts/echo-record-garden/e2e/offline-contract-receipt.json",
-    "receiptSha256": "4170fd703fd0fd8840f5fb0f5b7032f4517f96169988312ac78568126d8d0575",
+    "receiptSha256": "d62cc7290e56fa6da87edbb782d8da7f2ab97ed18b15249b2105a7fffaa4685e",
     "fixtureManifestSha256": "ff2f1a2a576ba1d1a559fd4b66d9b2d64a85190573da709b3c4f16fc679146f0",
-    "boundHead": "705bab40da7c967fd31615e0d917c4b3ccee1432"
+    "boundHead": "22fa2b6acc9b0c3fa1a8cc5ecd20828e399128cf"
   },
   "broadRepositorySuite": {
     "status": "passed",
     "currentRevisionRun": {
-      "tests": 1353,
-      "passed": 1353,
+      "tests": 1358,
+      "passed": 1358,
       "failed": 0,
       "skipped": 0,
       "cancelled": 0,
-      "observedDurationMs": 46130.079125
+      "observedDurationMs": 45833.974292
     },
     "historicalBaselineNote": "The earlier implementation baseline had one transient loopback ECONNRESET and then passed its isolated retry; the current exact revision is independently green.",
     "recordGardenFailures": 0,
@@ -150,7 +187,7 @@
   "liveService": {
     "status": "healthy-after-restart",
     "port": 8797,
-    "pid": 16144,
+    "pid": 55640,
     "processOwner": "launchd-canonical",
     "buildSignature": "23273d8891153d5c",
     "echoDeliveryFreshness": true,
@@ -190,5 +227,5 @@
     "mintAuthorityClaimed": false,
     "completeVisualFamilyCoverageEverySongClaimed": false
   },
-  "generatedAt": "2026-07-31T03:23:41.236Z"
+  "generatedAt": "2026-07-31T04:16:00.000Z"
 }
