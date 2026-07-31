@@ -101,6 +101,7 @@ import {
   normalizeEchoLyricContract,
 } from "../domain/echo-lyric-contract.js";
 import { resolveEchoLyricTemplateFrame } from "../domain/echo-lyric-template-runtime.js";
+import { planEchoKanbanManualStatusTransition } from "../domain/echo-kanban-status.js";
 
 const electronApiBase = globalThis.window?.hapaAvatarBuilder?.apiBase;
 const API_BASE = electronApiBase || (globalThis.location?.port === "5178" ? "http://127.0.0.1:8787" : "");
@@ -1366,6 +1367,8 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
   clockDiagnostics.topLevelRenders += 1;
   const powerMode = normalizePlaybackPowerMode(playbackMode);
   const [board, setBoard] = useState(null);
+  const boardMutationPendingRef = useRef(false);
+  const [boardMutationPending, setBoardMutationPending] = useState(false);
   const [gapsReport, setGapsReport] = useState(null);
   const [enriching, setEnriching] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -4000,28 +4003,60 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
 
   const handleCardClick = async (laneId, cardId) => {
     if (!board) return;
-    const nextBoard = { ...board };
-    const lane = nextBoard.lanes.find(l => l.id === laneId);
+    const lane = board.lanes.find(l => l.id === laneId);
     if (!lane) return;
     const card = lane.cards.find(c => c.id === cardId);
     if (!card) return;
 
-    const statusCycle = {
-      'todo': 'in_progress',
-      'in_progress': 'done',
-      'done': 'todo'
+    const transition = planEchoKanbanManualStatusTransition(card.status);
+    if (!transition.allowed) {
+      setEchoOperationNotice(
+        transition.reason === "explicit-unblock-required"
+          ? `${card.title} remains blocked. ${card.blockedReason || card.resumeWhen || "Use the append-only review path to unblock it."}`
+          : `${card.title} has an externally managed ${transition.currentStatus} state and was not changed.`
+      );
+      return;
+    }
+    if (boardMutationPendingRef.current) {
+      setEchoOperationNotice("Another board update is still saving. Wait for it to finish.");
+      return;
+    }
+
+    boardMutationPendingRef.current = true;
+    setBoardMutationPending(true);
+
+    const nextBoard = {
+      ...board,
+      updatedAt: new Date().toISOString(),
+      lanes: board.lanes.map(candidateLane => (
+        candidateLane.id === laneId
+          ? {
+              ...candidateLane,
+              cards: candidateLane.cards.map(candidateCard => (
+                candidateCard.id === cardId
+                  ? { ...candidateCard, status: transition.nextStatus }
+                  : candidateCard
+              ))
+            }
+          : candidateLane
+      ))
     };
-    card.status = statusCycle[card.status] || 'todo';
 
     try {
-      await fetch(`${API_BASE}/api/echos/kanban`, {
+      const response = await fetch(`${API_BASE}/api/echos/kanban`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(nextBoard)
       });
+      if (!response.ok) throw new Error(`Board save failed (${response.status})`);
       setBoard(nextBoard);
+      setEchoOperationNotice(`${card.title} moved to ${transition.nextStatus}.`);
     } catch (e) {
       console.error("Failed to save board status:", e);
+      setEchoOperationNotice(`${card.title} was not changed because the board save failed.`);
+    } finally {
+      boardMutationPendingRef.current = false;
+      setBoardMutationPending(false);
     }
   };
 
@@ -4165,24 +4200,49 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                       <strong style={{ fontSize: '10px', whiteSpace: 'nowrap' }}>{lane.title}</strong>
                     </header>
                     <div className="lane-cards" style={{ display: 'flex', flexDirection: 'column', gap: '8px', overflowY: 'auto', flex: 1 }}>
-                      {lane.cards.map(card => (
-                        <article
-                          className={`kanban-card hapa-card status-${card.status}`}
-                          data-card-type="quest"
-                          data-granularity="mini"
-                          data-state={card.status === 'done' ? 'active' : card.status === 'in_progress' ? 'loading' : 'idle'}
-                          key={card.id}
-                          onClick={() => handleCardClick(lane.id, card.id)}
-                          style={{ cursor: 'pointer', padding: '6px', borderRadius: '4px', border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.05)' }}
-                        >
-                          <h4 style={{ margin: '0 0 2px 0', fontSize: '11px', wordBreak: 'break-word', lineHeight: '1.2' }}>{card.title}</h4>
-                          <p style={{ margin: '0', fontSize: '9px', opacity: 0.7, wordBreak: 'break-word', lineHeight: '1.2' }}>{card.body}</p>
-                          <div style={{ marginTop: '4px', fontSize: '8px', display: 'flex', justifyContent: 'space-between', opacity: 0.6 }}>
-                            <span>{card.owner}</span>
-                            <span style={{ color: card.status === 'done' ? '#10b981' : card.status === 'in_progress' ? '#fbbf24' : '#ef4444' }}>{card.status}</span>
-                          </div>
-                        </article>
-                      ))}
+                      {lane.cards.map(card => {
+                        const transition = planEchoKanbanManualStatusTransition(card.status);
+                        const cardInteractionDisabled = boardMutationPending || !transition.allowed;
+                        const disabledReason = boardMutationPending
+                          ? "Another board update is saving."
+                          : transition.reason === "explicit-unblock-required"
+                            ? card.blockedReason || card.resumeWhen || "Explicit unblock review required."
+                            : transition.allowed
+                              ? ""
+                              : `Status ${transition.currentStatus} is externally managed.`;
+                        const interactionLabel = cardInteractionDisabled
+                          ? disabledReason
+                          : `Move ${card.title} to ${transition.nextStatus}`;
+
+                        return (
+                          <article
+                            className={`kanban-card hapa-card status-${card.status}`}
+                            data-card-type="quest"
+                            data-granularity="mini"
+                            data-state={card.status === 'done' ? 'active' : card.status === 'in_progress' ? 'loading' : card.status === 'blocked' ? 'error' : 'idle'}
+                            key={card.id}
+                            role="button"
+                            tabIndex={0}
+                            aria-disabled={cardInteractionDisabled}
+                            aria-label={`${card.title}. Status ${card.status}. ${interactionLabel}`}
+                            title={interactionLabel}
+                            onClick={() => handleCardClick(lane.id, card.id)}
+                            onKeyDown={(event) => {
+                              if (event.key !== "Enter" && event.key !== " ") return;
+                              event.preventDefault();
+                              handleCardClick(lane.id, card.id);
+                            }}
+                            style={{ cursor: cardInteractionDisabled ? 'not-allowed' : 'pointer', padding: '6px', borderRadius: '4px', border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.05)' }}
+                          >
+                            <h4 style={{ margin: '0 0 2px 0', fontSize: '11px', wordBreak: 'break-word', lineHeight: '1.2' }}>{card.title}</h4>
+                            <p style={{ margin: '0', fontSize: '9px', opacity: 0.7, wordBreak: 'break-word', lineHeight: '1.2' }}>{card.body}</p>
+                            <div style={{ marginTop: '4px', fontSize: '8px', display: 'flex', justifyContent: 'space-between', opacity: 0.6 }}>
+                              <span>{card.owner}</span>
+                              <span style={{ color: card.status === 'done' ? '#10b981' : card.status === 'in_progress' ? '#fbbf24' : '#ef4444' }}>{card.status}</span>
+                            </div>
+                          </article>
+                        );
+                      })}
                     </div>
                   </section>
                 ))}
@@ -4197,7 +4257,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                 Enrichment and director planning queue dry-runs by default. Apply mode is reserved for explicit write-capable maintenance passes with backups and provenance stamps.
               </p>
               {echoOperationNotice && (
-                <p style={{ fontSize: '10px', color: 'var(--hapa-neon-gold)', margin: '0 0 8px 0' }}>
+                <p role="status" aria-live="polite" aria-atomic="true" style={{ fontSize: '10px', color: 'var(--hapa-neon-gold)', margin: '0 0 8px 0' }}>
                   {echoOperationNotice}
                 </p>
               )}
