@@ -2898,8 +2898,9 @@ function createRecordPlayer(world) {
 }
 
 function screenMediaSourceIdentity(visual = {}) {
+  visual = visual && typeof visual === "object" ? visual : {};
   const videoUri = visual.videoUri || (/\.mp4(?:$|\?)/i.test(visual.mediaUri || "") ? visual.mediaUri : "");
-  const imageUri = visual.imageUri || visual.posterUri || (!videoUri ? visual.mediaUri : "");
+  const imageUri = visual.imageUri || visual.posterUri || (!videoUri ? visual.mediaUri : "") || "";
   const revision = visual.source?.revisionId
     || visual.provenance?.referenceRevisionId
     || visual.provenance?.revisionId
@@ -2942,6 +2943,19 @@ function assignMaterialTexture(material, texture) {
 }
 
 function setPlayerRecordVisual(player, visual, { mediaPool }) {
+  if (!visual || typeof visual !== "object") {
+    const previous = player.mediaResource;
+    player.visual = null;
+    player.mediaResource = null;
+    if (previous) mediaPool.release(previous);
+    const labelMaterial = player.recordMaterials?.[1];
+    if (labelMaterial?.map) {
+      labelMaterial.map = null;
+      labelMaterial.color?.setHex?.(0xf1d899);
+      labelMaterial.needsUpdate = true;
+    }
+    return null;
+  }
   const identity = screenMediaSourceIdentity(visual);
   if (player.mediaResource?.key === identity.key) {
     player.visual = visual || null;

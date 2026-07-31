@@ -8,6 +8,14 @@ const component = await readFile(
 );
 const threeRuntime = component.slice(component.indexOf("const ECHO_RECORD_GARDEN_POWER_PROFILES"));
 
+function runtimeFunctionBlock(startMarker, endMarker) {
+  const start = threeRuntime.indexOf(startMarker);
+  const end = threeRuntime.indexOf(endMarker, start + startMarker.length);
+  assert.ok(start >= 0, `missing runtime function: ${startMarker}`);
+  assert.ok(end > start, `missing runtime function boundary: ${endMarker}`);
+  return threeRuntime.slice(start, end);
+}
+
 test("screen media identity includes source URI and revision instead of trusting visual id alone", () => {
   const identity = threeRuntime.slice(
     threeRuntime.indexOf("function screenMediaSourceIdentity"),
@@ -24,6 +32,68 @@ test("screen media identity includes source URI and revision instead of trusting
   assert.match(threeRuntime, /const key = screenMediaSourceIdentity\(visual\)\.key/);
   assert.match(threeRuntime, /mediaPool\.acquire\(visual\)/);
   assert.doesNotMatch(threeRuntime, /screen\.visual\?\.id === visual\?\.id/);
+});
+
+test("empty startup media slots leave the player on standby without dereferencing null", () => {
+  const identityFunction = runtimeFunctionBlock(
+    "function screenMediaSourceIdentity",
+    "function assignMaterialTexture",
+  );
+  const playerBindingFunction = runtimeFunctionBlock(
+    "function setPlayerRecordVisual",
+    "function createAlbumScreens",
+  );
+  const createHarness = new Function(`
+    ${identityFunction}
+    ${playerBindingFunction}
+    return { screenMediaSourceIdentity, setPlayerRecordVisual };
+  `);
+  const { screenMediaSourceIdentity, setPlayerRecordVisual } = createHarness();
+  const player = {
+    visual: null,
+    mediaResource: null,
+    recordMaterials: [{}, {}],
+  };
+  let acquireCalls = 0;
+  let releaseCalls = 0;
+  const mediaPool = {
+    acquire() {
+      acquireCalls += 1;
+      throw new Error("a null startup slot must not acquire media");
+    },
+    release() {
+      releaseCalls += 1;
+    },
+  };
+
+  assert.doesNotThrow(
+    () => setPlayerRecordVisual(player, null, { mediaPool }),
+    "startup commonly has no Director visual while project media is loading",
+  );
+  const standbyIdentity = screenMediaSourceIdentity(null);
+  assert.equal(standbyIdentity.videoUri, "");
+  assert.equal(standbyIdentity.imageUri, "");
+  assert.equal(player.visual, null);
+  assert.equal(player.mediaResource, null);
+  assert.equal(acquireCalls, 0);
+  assert.equal(releaseCalls, 0);
+
+  const previousResource = { key: "previous-video" };
+  let restoredLabelColor = null;
+  player.visual = { id: "previous-visual" };
+  player.mediaResource = previousResource;
+  player.recordMaterials[1] = {
+    map: { id: "previous-texture" },
+    color: { setHex: (value) => { restoredLabelColor = value; } },
+    needsUpdate: false,
+  };
+  setPlayerRecordVisual(player, null, { mediaPool });
+  assert.equal(releaseCalls, 1, "clearing an active slot releases its pooled media exactly once");
+  assert.equal(player.visual, null);
+  assert.equal(player.mediaResource, null);
+  assert.equal(player.recordMaterials[1].map, null);
+  assert.equal(player.recordMaterials[1].needsUpdate, true);
+  assert.equal(restoredLabelColor, 0xf1d899);
 });
 
 test("late image callbacks dispose their result and never mutate a disposed fallback texture", () => {
