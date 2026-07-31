@@ -9191,11 +9191,23 @@ function summarizeEchoDirectionScriptVariant(variant = {}, fallbackTimelineCount
     ? Number.NaN
     : Number(declaredTimelineCount);
   const hasIndexedHyperframeFlag = typeof (variant.hasHyperframeScript ?? variant.has_hyperframe_script) === "boolean";
+  const createdAt = variant.createdAt || variant.created_at || null;
+  const updatedAt = variant.updatedAt || variant.updated_at || createdAt;
+  const status = String(
+    variant.status
+    || variant.state
+    || variant.readinessStatus
+    || variant.readiness_status
+    || ""
+  ).trim() || null;
   return {
     id: echoDirectionVariantId(variant),
     title: domainEchoDirectionVariantTitle(variant),
     schemaVersion: variant.schemaVersion || variant.schema_version || null,
-    createdAt: variant.createdAt || variant.created_at || null,
+    createdAt,
+    updatedAt,
+    status,
+    readinessDeclared: Boolean(status),
     timelineCount: Number.isFinite(indexedTimelineCount)
       ? Math.max(0, Math.round(indexedTimelineCount))
       : Array.isArray(variant.timeline) ? variant.timeline.length : Math.max(0, Math.round(Number(fallbackTimelineCount) || 0)),

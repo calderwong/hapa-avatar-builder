@@ -9,16 +9,24 @@ const RESOLVER_PATH = fileURLToPath(import.meta.url);
 const SCHEMA = "hapa.echo.delivery-runtime-build-identity.v1";
 const BUILD_RECEIPT_SCHEMA = "hapa.echo.delivery-build-receipt.v1";
 const BUILD_RECEIPT_RELATIVE_PATH = "dist/hapa-echo-delivery-build.json";
-const CONTRACT_VERSION = "echo-delivery-static-import-graph-v2";
+const CONTRACT_VERSION = "echo-delivery-static-import-graph-v3";
 const ENTRY_PATHS = Object.freeze([
   "src/components/HapaEchosView.jsx",
   "src/components/TarotDraw3DView.jsx",
+  "src/components/EchoRecordGarden3DView.jsx",
+  "src/components/EchoRecordGardenBoundary.jsx",
   "src/index.css",
 ]);
-const EXPLICIT_BUILD_INPUT_PATHS = Object.freeze(["index.html", "vite.config.js"]);
+const EXPLICIT_BUILD_INPUT_PATHS = Object.freeze([
+  "index.html",
+  "vite.config.js",
+  "src/App.jsx",
+]);
 const REQUIRED_REACHABLE_PATHS = Object.freeze([
   "src/components/HapaEchosView.jsx",
   "src/components/TarotDraw3DView.jsx",
+  "src/components/EchoRecordGarden3DView.jsx",
+  "src/components/EchoRecordGardenBoundary.jsx",
 ]);
 const SOURCE_EXTENSIONS = Object.freeze([".js", ".jsx", ".mjs", ".ts", ".tsx", ".json", ".css"]);
 const cache = new Map();

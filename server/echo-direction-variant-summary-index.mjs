@@ -58,6 +58,8 @@ export function normalizeEchoDirectionVariantIndexRow(row = {}, variantsRoot = "
     title: text(row.title) || variantId,
     schemaVersion: text(row.schemaVersion || row.schema_version) || ECHO_DIRECTION_VARIANT_SCHEMA,
     createdAt: row.createdAt || row.created_at || row.updatedAt || row.updated_at || null,
+    updatedAt: row.updatedAt || row.updated_at || row.createdAt || row.created_at || null,
+    status: text(row.status || row.state || row.readinessStatus || row.readiness_status) || null,
     timelineCount: timelineCount(row),
     hasHyperframeScript: row.hasHyperframeScript ?? row.has_hyperframe_script ?? true,
     variationSet: object(row.variationSet || row.variation_set),

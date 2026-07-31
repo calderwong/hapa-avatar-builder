@@ -20,6 +20,9 @@ function fixture(t) {
   }
   fs.writeFileSync(path.join(root, "src/components/HapaEchosView.jsx"), "export default function HapaEchosView(){return null}\n");
   fs.writeFileSync(path.join(root, "src/components/TarotDraw3DView.jsx"), "export default function TarotDraw3DView(){return null}\n");
+  fs.writeFileSync(path.join(root, "src/components/EchoRecordGarden3DView.jsx"), "export default function EchoRecordGarden3DView(){return null}\n");
+  fs.writeFileSync(path.join(root, "src/components/EchoRecordGardenBoundary.jsx"), "export default function EchoRecordGardenBoundary(){return null}\n");
+  fs.writeFileSync(path.join(root, "src/App.jsx"), "export default function App(){return null}\n");
   fs.writeFileSync(path.join(root, "src/index.css"), "body{color:#fff}\n");
   fs.writeFileSync(path.join(root, "index.html"), "<div id=\"root\"></div>\n");
   fs.writeFileSync(path.join(root, "vite.config.js"), "export default {}\n");
@@ -48,6 +51,9 @@ test("delivery identity binds source to executable assets and excludes runtime m
   const firstReceipt = stamp(root);
   const first = await inspectEchoDeliveryRuntimeBuildIdentity({ root, refresh: true });
   assert.equal(first.buildReceipt.semanticSha256, firstReceipt.semanticSha256);
+  assert.ok(first.sources.some((entry) => entry.path === "src/components/EchoRecordGarden3DView.jsx"));
+  assert.ok(first.sources.some((entry) => entry.path === "src/components/EchoRecordGardenBoundary.jsx"));
+  assert.ok(first.explicitBuildInputs.some((entry) => entry.path === "src/App.jsx"));
   assert.ok(first.servedBundle.files.some((entry) => entry.path === "dist/assets/app.js"));
   assert.ok(!first.servedBundle.files.some((entry) => entry.path === "dist/media/clip.bin"));
   assert.ok(!first.servedBundle.files.some((entry) => entry.path === "dist/sample/readme.txt"));
@@ -77,7 +83,7 @@ test("delivery cache invalidates on source, receipt, removal, and dist symlink d
   stamp(root);
   await inspectEchoDeliveryRuntimeBuildIdentity({ root, refresh: true });
 
-  fs.appendFileSync(path.join(root, "src/components/HapaEchosView.jsx"), "// changed\n");
+  fs.appendFileSync(path.join(root, "src/components/EchoRecordGarden3DView.jsx"), "// Record Garden changed\n");
   await assert.rejects(inspectEchoDeliveryRuntimeBuildIdentity({ root, refresh: true }), (error) => error?.code === "delivery_build_receipt_stale");
   stamp(root);
   await inspectEchoDeliveryRuntimeBuildIdentity({ root, refresh: true });

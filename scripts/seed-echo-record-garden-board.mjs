@@ -5,8 +5,10 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const APPLY = process.argv.includes("--apply");
-const BOARD_PATH = "/Users/calderwong/Desktop/Echos-of-Other-Eras-Album-App/kanban.json";
-const OVERWATCH_EVENTS_PATH = "/Users/calderwong/Documents/Codex/2026-05-27/can-you-generate-me-some-concept/hapa-overwatch-kanban/data/hapa-echo-music-video-direction/events.ndjson";
+const BOARD_PATH = process.env.ECHO_RECORD_GARDEN_BOARD_PATH
+  || "/Users/calderwong/Desktop/Echos-of-Other-Eras-Album-App/kanban.json";
+const OVERWATCH_EVENTS_PATH = process.env.ECHO_RECORD_GARDEN_EVENTS_PATH
+  || "/Users/calderwong/Documents/Codex/2026-05-27/can-you-generate-me-some-concept/hapa-overwatch-kanban/data/hapa-echo-music-video-direction/events.ndjson";
 const PROGRAM_ID = "echo-record-garden-2026-07-30";
 const REVIEW_PASS = PROGRAM_ID;
 const PROJECT_ID = "hapa-echo-music-video-direction";

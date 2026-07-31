@@ -3,19 +3,26 @@ import assert from "node:assert/strict";
 
 import {
   ECHO_RECORD_GARDEN_SCHEMA,
+  ECHO_RECORD_GARDEN_LEGACY_SNAPSHOT_SCHEMA,
   ECHO_RECORD_GARDEN_SNAPSHOT_SCHEMA,
   ECHO_RECORD_LOCAL_CARD_SCHEMA,
+  ECHO_RECORD_DISPLAY_RPM,
   ECHO_RECORD_RPM,
   ECHO_RECORD_VISUAL_SURFACE_SCHEMA,
   buildEchoRecordVisualSurfaces,
   buildLocalEchoRecordCardProjection,
   echoRecordPerspectiveToken,
+  echoRecordVideoPlaybackPlan,
   echoRecordVinylSpinRadians,
   inferEchoRecordMediaKind,
   normalizeEchoRecordProject,
   normalizeEchoRecordGardenSnapshot,
   normalizeEchoRecordSummaryRows,
+  projectEchoRecordSelectedDirectorCut,
+  reconcileEchoRecordGardenSnapshot,
+  resolveEchoRecordGardenTableDrop,
   resolveEchoRecordMediaUri,
+  selectLatestEchoDirectionScriptVariant,
   selectEchoRecordDirectorShots,
   unwrapEchoDirectorProject,
 } from "../src/domain/echo-record-garden.js";
@@ -37,6 +44,7 @@ function project(overrides = {}) {
         start_sec: 0,
         end_sec: 4,
         media_id: "shot-one",
+        media_card_id: "card-shot-one",
         media_title: "Garden opens",
         media_uri: "/media/original-one.mp4",
         runtime_media_uri: "/media/runtime-one.mp4",
@@ -116,6 +124,149 @@ test("summary rows become deduplicated truth-labelled record models", () => {
   assert.equal(rows[0].provenance.source, "fixture-director");
   assert.equal(rows[0].audio.availability, "routable");
   assert.equal(rows[1].cover.availability, "missing");
+});
+
+test("Record Garden chooses the most recent non-legacy Director cut", () => {
+  const variants = [
+    {
+      id: "legacy-baseline",
+      title: "Legacy Baseline",
+      createdAt: "2026-07-30T13:00:00.000Z",
+      timelineCount: 99,
+    },
+    {
+      id: "recent-balanced",
+      title: "Recent Balanced",
+      status: "ready",
+      createdAt: "2026-07-30T12:00:00.000Z",
+      timelineCount: 4,
+    },
+    {
+      id: "recent-rhythmic",
+      title: "Recent Rhythmic",
+      status: "ready",
+      updatedAt: "malformed-source-date",
+      createdAt: "2026-07-30T12:00:00.000Z",
+      timelineCount: 6,
+    },
+    {
+      id: "newer-failed-cut",
+      title: "Newer Failed Cut",
+      status: "failed",
+      createdAt: "2026-07-30T14:00:00.000Z",
+      timelineCount: 20,
+    },
+    {
+      id: "old-cut",
+      title: "Old Cut",
+      status: "ready",
+      createdAt: "2026-07-10T12:00:00.000Z",
+      timelineCount: 8,
+    },
+  ];
+  const latest = selectLatestEchoDirectionScriptVariant(project({
+    direction_script_variant_summaries: variants,
+  }));
+  assert.equal(latest.id, "recent-rhythmic");
+  assert.equal(latest.strategy, "most-recent-non-legacy");
+  assert.equal(latest.selectionBasis, "latest-ready-non-legacy");
+  assert.equal(latest.status, "ready");
+  assert.equal(latest.readinessDeclared, true);
+  assert.equal(latest.tieBreak, "stable-variant-id");
+  assert.equal(latest.candidateCount, 3);
+  assert.equal(latest.tiedLatestCount, 2);
+  assert.equal(latest.legacy, false);
+
+  const record = normalizeEchoRecordProject(project({
+    timeline: undefined,
+    timeline_count: 3,
+    direction_script_variant_summaries: variants,
+  }));
+  assert.equal(record.director.latestCut.id, "recent-rhythmic");
+  assert.equal(record.director.latestCut.timelineCount, 6);
+});
+
+test("the selected recent Director cut becomes the Record Garden playback timeline", () => {
+  const base = project({
+    selected_direction_script_variant_id: "recent-cut",
+    direction_script_variants: [
+      {
+        id: "legacy-baseline",
+        title: "Legacy Baseline",
+        createdAt: "2026-07-29T00:00:00.000Z",
+        timeline: [{ start_sec: 0, end_sec: 4, media_uri: "/media/legacy.mp4" }],
+      },
+      {
+        id: "recent-cut",
+        title: "Most Recent Cut",
+        createdAt: "2026-07-30T20:00:00.000Z",
+        fingerprint: "sha256:recent",
+        timeline: [{ start_sec: 0, end_sec: 4, media_uri: "/media/recent.mp4" }],
+      },
+    ],
+  });
+  const selected = projectEchoRecordSelectedDirectorCut({ music_video_project: base });
+  assert.equal(selected.timeline[0].media_uri, "/media/recent.mp4");
+  assert.equal(selected.echo_record_garden_director_cut.id, "recent-cut");
+  assert.equal(selected.echo_record_garden_director_cut.strategy, "most-recent-non-legacy");
+  assert.equal(selected.echo_record_garden_director_cut.selectionBasis, "exact-variant-id");
+  assert.match(selected.provenance.directorCutFingerprint, /^content-v2:/);
+  assert.equal(
+    selected.provenance.directorCutFingerprint,
+    selected.active_direction_script_variant.fingerprint,
+  );
+  assert.equal(
+    selected.echo_record_garden_director_cut.sourceDeclaredFingerprint,
+    "sha256:recent",
+  );
+  assert.equal(
+    selected.provenance.directorCutSourceDeclaredFingerprint,
+    "sha256:recent",
+  );
+  assert.equal(base.timeline[0].media_uri, "/media/original-one.mp4");
+});
+
+test("Director cut projection preserves patches, clips to song duration, and fails closed on invalid identity", () => {
+  const overlongTimeline = [{
+    start_sec: 0,
+    end_sec: 20,
+    media_uri: "/media/overlong.mp4",
+  }];
+  const projected = projectEchoRecordSelectedDirectorCut(project({
+    selected_direction_script_variant_id: "bounded-cut",
+    direction_script_variants: [{
+      id: "bounded-cut",
+      title: "Bounded Cut",
+      createdAt: "2026-07-30T21:00:00.000Z",
+      timeline: overlongTimeline,
+      project_patch: {
+        lyrics_enabled: false,
+        lyric_style: "quiet-sunday",
+      },
+    }],
+  }));
+  assert.equal(projected.timeline[0].end_sec, 12);
+  assert.equal(projected.lyrics_enabled, false);
+  assert.equal(projected.lyric_style, "quiet-sunday");
+  assert.equal(
+    projected.echo_record_garden_director_cut.durationProjection.status,
+    "applied",
+  );
+  assert.equal(overlongTimeline[0].end_sec, 20, "the stored source cut remains immutable");
+
+  assert.throws(
+    () => projectEchoRecordSelectedDirectorCut(project({
+      selected_direction_script_variant_id: "invalid-cut",
+      direction_script_variants: [{
+        id: "invalid-cut",
+        title: "Invalid Cut",
+        createdAt: "2026-07-30T22:00:00.000Z",
+        fingerprint: "content-v2:declared-but-wrong",
+        timeline: [{ start_sec: 0, end_sec: 4, media_uri: "/media/invalid.mp4" }],
+      }],
+    })),
+    /failed projection validation/,
+  );
 });
 
 test("perspective tokens and media helpers are deterministic and safe", () => {
@@ -229,19 +380,159 @@ test("visual surfaces combine timeline, references, character, and matching scen
   assert.equal(surfaces.some((surface) => surface.title === "Wrong song"), false);
   assert.equal(surfaces.find((surface) => surface.role === "character").truth.status, "inferred");
   assert.equal(surfaces.find((surface) => surface.role === "scene").truth.status, "generated-placeholder");
+  assert.equal(surfaces[0].attachment.cardId, "card-shot-one");
+  assert.equal(surfaces[0].attachment.lookupId, "card-shot-one");
+  const reference = surfaces.find((surface) => surface.role === "reference");
+  assert.equal(reference.attachment.cardId, "tarot-reference:one");
+  assert.equal(reference.attachment.card.id, "tarot-reference:one");
+  assert.equal(reference.sourceId, "reference:one", "source lineage remains distinct from the attached Tarot Card identity");
   assert.equal(buildEchoRecordVisualSurfaces({ project: project(), limit: 99 }).length, 2);
 });
 
-test("vinyl rotation is locked to the media clock at 33⅓ RPM", () => {
+test("vinyl rotation stays media-clock-locked at a calmer display speed", () => {
   assert.equal(ECHO_RECORD_RPM, 100 / 3);
+  assert.equal(ECHO_RECORD_DISPLAY_RPM, ECHO_RECORD_RPM / 4);
   assert.ok(Math.abs(echoRecordVinylSpinRadians(1) - (10 * Math.PI / 9)) < 1e-12);
   assert.ok(Math.abs(echoRecordVinylSpinRadians(3, { normalize: false }) - (10 * Math.PI / 3)) < 1e-12);
   assert.ok(Math.abs(echoRecordVinylSpinRadians(18)) < 1e-12);
   assert.equal(echoRecordVinylSpinRadians(0, { phaseRadians: 0.25 }), 0.25);
+  assert.ok(Math.abs(echoRecordVinylSpinRadians(1.8, { rpm: ECHO_RECORD_DISPLAY_RPM }) - (Math.PI / 2)) < 1e-12);
+  assert.ok(Math.abs(echoRecordVinylSpinRadians(7.2, { rpm: ECHO_RECORD_DISPLAY_RPM })) < 1e-12);
+});
+
+test("Director videos pre-cue future shots, follow active shots, and hold completed frames", () => {
+  const future = echoRecordVideoPlaybackPlan({
+    clockSeconds: 3,
+    startSeconds: 10,
+    durationSeconds: 5,
+    sourceStartSeconds: 1.25,
+    playbackPlaying: true,
+    videoCurrentTime: 1.25,
+    videoDuration: 8,
+    readyState: 4,
+  });
+  assert.equal(future.active, false);
+  assert.equal(future.phase, "future");
+  assert.equal(future.shouldPlay, false);
+  assert.equal(future.shouldSeek, false);
+  assert.equal(future.seekSeconds, 1.25);
+
+  const current = echoRecordVideoPlaybackPlan({
+    clockSeconds: 12,
+    startSeconds: 10,
+    durationSeconds: 5,
+    sourceStartSeconds: 1.25,
+    playbackPlaying: true,
+    videoCurrentTime: 3.25,
+    videoDuration: 8,
+    readyState: 4,
+  });
+  assert.equal(current.active, true);
+  assert.equal(current.phase, "active");
+  assert.equal(current.expectedSeconds, 3.25);
+  assert.equal(current.shouldPlay, true);
+  assert.equal(current.shouldSeek, false);
+
+  const past = echoRecordVideoPlaybackPlan({
+    clockSeconds: 16,
+    startSeconds: 10,
+    durationSeconds: 5,
+    sourceStartSeconds: 1.25,
+    playbackPlaying: true,
+    videoCurrentTime: 6.21,
+    videoDuration: 8,
+    readyState: 4,
+  });
+  assert.equal(past.active, false);
+  assert.equal(past.phase, "past");
+  assert.equal(past.past, true);
+  assert.equal(past.shouldPlay, false);
+  assert.ok(Math.abs(past.seekSeconds - 6.21) < 1e-12);
+  assert.equal(past.shouldSeek, false);
+
+  const overshotPast = echoRecordVideoPlaybackPlan({
+    clockSeconds: 16,
+    startSeconds: 10,
+    durationSeconds: 5,
+    sourceStartSeconds: 1.25,
+    playbackPlaying: true,
+    videoCurrentTime: 7.5,
+    videoDuration: 8,
+    readyState: 4,
+  });
+  assert.equal(overshotPast.phase, "past");
+  assert.equal(overshotPast.expectedSeconds, 7.5);
+  assert.equal(overshotPast.seekSeconds, 7.5);
+  assert.equal(overshotPast.shouldSeek, false);
+
+  const exactEnd = echoRecordVideoPlaybackPlan({
+    clockSeconds: 15,
+    startSeconds: 10,
+    durationSeconds: 5,
+    sourceStartSeconds: 1.25,
+    videoCurrentTime: 6.21,
+    videoDuration: 8,
+    readyState: 4,
+  });
+  assert.equal(exactEnd.phase, "past");
+
+  const boundedPast = echoRecordVideoPlaybackPlan({
+    clockSeconds: 16,
+    startSeconds: 10,
+    durationSeconds: 5,
+    sourceStartSeconds: 1.25,
+    videoCurrentTime: 3.97,
+    videoDuration: 4,
+    readyState: 4,
+  });
+  assert.equal(boundedPast.seekSeconds, 3.97);
+  assert.equal(boundedPast.shouldSeek, false);
+
+  const buffering = echoRecordVideoPlaybackPlan({
+    clockSeconds: 10.2,
+    startSeconds: 10,
+    durationSeconds: 5,
+    playbackPlaying: true,
+    videoCurrentTime: 0.18,
+    videoDuration: 5,
+    readyState: 2,
+  });
+  assert.equal(buffering.waitingForBuffer, true);
+  assert.equal(buffering.shouldPlay, false);
+
+  const reducedAmbient = echoRecordVideoPlaybackPlan({
+    clockSeconds: 9,
+    startSeconds: 0,
+    durationSeconds: 4,
+    clockLocked: false,
+    reducedMotion: true,
+    videoCurrentTime: 0,
+    videoDuration: 4,
+    readyState: 4,
+  });
+  assert.equal(reducedAmbient.phase, "ambient");
+  assert.equal(reducedAmbient.shouldPlay, false);
+  assert.equal(reducedAmbient.seekSeconds, 0);
+
+  const loopingAmbient = echoRecordVideoPlaybackPlan({
+    clockSeconds: 9,
+    startSeconds: 0,
+    durationSeconds: 4,
+    clockLocked: false,
+    reducedMotion: false,
+    videoCurrentTime: 1,
+    videoDuration: 4,
+    readyState: 4,
+  });
+  assert.equal(loopingAmbient.phase, "ambient");
+  assert.equal(loopingAmbient.expectedSeconds, 1);
+  assert.equal(loopingAmbient.shouldPlay, true);
+  assert.equal(loopingAmbient.shouldSeek, false);
 });
 
 test("scene snapshots migrate bounded state and reject malformed camera values", () => {
   const snapshot = normalizeEchoRecordGardenSnapshot({
+    schemaVersion: ECHO_RECORD_GARDEN_LEGACY_SNAPSHOT_SCHEMA,
     lastSongId: "echo-song-one",
     placedSongId: "echo-song-one",
     selectedVisualId: "echo-surface:one",
@@ -256,6 +547,7 @@ test("scene snapshots migrate bounded state and reject malformed camera values",
     },
   });
   assert.equal(snapshot.schemaVersion, ECHO_RECORD_GARDEN_SNAPSHOT_SCHEMA);
+  assert.equal(snapshot.migratedFrom, ECHO_RECORD_GARDEN_LEGACY_SNAPSHOT_SCHEMA);
   assert.equal(snapshot.selectedSongId, "echo-song-one");
   assert.equal(snapshot.placedSongId, "echo-song-one");
   assert.equal(snapshot.perspective, "green");
@@ -278,6 +570,144 @@ test("scene snapshots migrate bounded state and reject malformed camera values",
   assert.equal(malformed.playbackSeconds, 0);
   assert.equal(malformed.camera.position, null);
   assert.equal(malformed.camera.target, null);
+});
+
+test("v2 garden snapshots preserve full crate, surface, spatial, and interrupted Card state", () => {
+  const snapshot = normalizeEchoRecordGardenSnapshot({
+    schemaVersion: ECHO_RECORD_GARDEN_SNAPSHOT_SCHEMA,
+    selection: {
+      selectedSongId: "echo-song-two",
+      placedSongId: "echo-song-one",
+      selectedVisualId: "echo-surface:two",
+    },
+    catalog: {
+      query: "  porch light  ",
+      perspective: "blue",
+      cratePage: 2,
+      crateOrder: ["echo-song-two", "echo-song-one", "echo-song-two"],
+    },
+    playback: { seconds: 44.5, muted: false },
+    scene: {
+      surfacePage: 3,
+      surfaceSongId: "echo-song-one",
+      camera: {
+        position: [2, 4, 7],
+        target: [0, 0.8, -1],
+      },
+      recordTransforms: {
+        "echo-song-one": {
+          position: [1.234, 0.82, -0.765],
+          rotation: [0.1, -0.2, 0.3],
+          manipulated: true,
+        },
+        "malformed-song": {
+          position: ["bad", 0.8, 0],
+        },
+      },
+    },
+    cardJob: {
+      status: "resolving",
+      visualId: "echo-surface:two",
+      songId: "echo-song-two",
+      requestKey: "song|visual|44500",
+      startedAt: "2026-07-30T10:00:00.000Z",
+      error: "",
+    },
+  });
+
+  assert.equal(snapshot.schemaVersion, ECHO_RECORD_GARDEN_SNAPSHOT_SCHEMA);
+  assert.equal(snapshot.migratedFrom, null);
+  assert.equal(snapshot.query, "porch light");
+  assert.equal(snapshot.cratePage, 2);
+  assert.deepEqual(snapshot.crateOrder, ["echo-song-two", "echo-song-one"]);
+  assert.equal(snapshot.surfacePage, 3);
+  assert.equal(snapshot.surfaceSongId, "echo-song-one");
+  assert.deepEqual(snapshot.recordTransforms, {
+    "echo-song-one": {
+      position: [1.234, 0.82, -0.765],
+      rotation: [0.1, -0.2, 0.3],
+      manipulated: true,
+    },
+  });
+  assert.deepEqual(snapshot.cardJob, {
+    status: "interrupted",
+    visualId: "echo-surface:two",
+    songId: "echo-song-two",
+    requestKey: "song|visual|44500",
+    startedAt: "2026-07-30T10:00:00.000Z",
+    error: "The previous Card request was interrupted. Retry from the same visual.",
+    recoverable: true,
+  });
+});
+
+test("snapshot reconciliation removes stale IDs without reordering current records", () => {
+  const reconciled = reconcileEchoRecordGardenSnapshot({
+    schemaVersion: ECHO_RECORD_GARDEN_SNAPSHOT_SCHEMA,
+    selection: {
+      selectedSongId: "removed-song",
+      placedSongId: "echo-song-one",
+      selectedVisualId: "removed-visual",
+    },
+    catalog: {
+      crateOrder: ["removed-song", "echo-song-two", "echo-song-one"],
+    },
+    scene: {
+      recordTransforms: {
+        "removed-song": { position: [1, 0.8, 1] },
+        "echo-song-one": { position: [2, 0.8, 1] },
+      },
+    },
+    cardJob: {
+      status: "failed",
+      visualId: "removed-visual",
+      songId: "echo-song-one",
+      error: "Network interrupted",
+    },
+  }, {
+    recordIds: ["echo-song-one", "echo-song-two", "echo-song-three"],
+    visualIds: ["echo-surface:one"],
+  });
+
+  assert.equal(reconciled.selectedSongId, "echo-song-one");
+  assert.equal(reconciled.placedSongId, "echo-song-one");
+  assert.equal(reconciled.selectedVisualId, "echo-surface:one");
+  assert.deepEqual(reconciled.crateOrder, [
+    "echo-song-two",
+    "echo-song-one",
+    "echo-song-three",
+  ]);
+  assert.deepEqual(Object.keys(reconciled.recordTransforms), ["echo-song-one"]);
+  assert.equal(reconciled.cardJob.status, "unavailable");
+  assert.equal(reconciled.cardJob.recoverable, false);
+});
+
+test("table drops are bounded, quantized, and collision safe", () => {
+  assert.deepEqual(
+    resolveEchoRecordGardenTableDrop({
+      position: [5, 0.823, -3],
+      occupiedPositions: [],
+    }),
+    {
+      accepted: true,
+      reason: "accepted",
+      position: [4.25, 0.8, -2.2],
+    },
+  );
+  assert.deepEqual(
+    resolveEchoRecordGardenTableDrop({
+      position: [1.02, 0.82, 1.02],
+      occupiedPositions: [[1.8, 0.82, 1.1]],
+    }),
+    {
+      accepted: false,
+      reason: "record-collision",
+      position: null,
+    },
+  );
+  assert.equal(
+    resolveEchoRecordGardenTableDrop({ position: ["bad", 0.8, 0] }).reason,
+    "invalid-position",
+  );
 });
 
 test("clicked visuals produce deterministic local projections without persistence or mint claims", () => {

@@ -22713,6 +22713,17 @@ h1 {
 @media(prefers-reduced-motion:reduce){.tarot-mint-gate-cosmos i,.tarot-mint-authority-door i,.tarot-mint-custody-rail>i::before,.tarot-mint-custody-rail>i::after,.tarot-mint-gate-machine[data-crossing="true"] .tarot-mint-proposal-card,.tarot-mint-gate-machine[data-crossing="true"] .tarot-mint-custody-rail>i{animation:none!important}}
 
 /* Echo State Record Garden — Tarot-inherited interaction grammar with a warm outdoor listening room. */
+.echo-record-garden-boundary-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+}
+
+.echo-record-garden-boundary-actions .hapa-btn {
+  min-height: 44px;
+}
+
 .echo-record-garden {
   --record-cream: #f8f0d8;
   --record-gold: #f6c96d;
@@ -22753,6 +22764,8 @@ h1 {
 }
 
 .echo-record-garden-hud {
+  top: max(14px, env(safe-area-inset-top));
+  left: max(14px, env(safe-area-inset-left));
   width: min(490px, calc(100% - 28px));
 }
 
@@ -22796,6 +22809,10 @@ h1 {
     rgba(20, 33, 30, .75);
 }
 
+.echo-record-garden-readouts span:last-child {
+  grid-column: auto;
+}
+
 .echo-record-garden-readouts strong {
   color: var(--record-gold);
 }
@@ -22819,8 +22836,8 @@ h1 {
 }
 
 .echo-record-now-playing {
-  top: 14px;
-  right: 14px;
+  top: max(14px, env(safe-area-inset-top));
+  right: max(14px, env(safe-area-inset-right));
   width: min(330px, calc(100% - 535px));
   min-width: 240px;
   clip-path: polygon(12px 0, 100% 0, 100% calc(100% - 12px), calc(100% - 12px) 100%, 0 100%, 0 12px);
@@ -22860,7 +22877,7 @@ h1 {
 
 .echo-record-visual-inspector {
   top: 152px;
-  right: 14px;
+  right: max(14px, env(safe-area-inset-right));
   width: min(330px, calc(100% - 28px));
   clip-path: polygon(12px 0, 100% 0, 100% calc(100% - 12px), calc(100% - 12px) 100%, 0 100%, 0 12px);
 }
@@ -22878,6 +22895,52 @@ h1 {
 .echo-record-visual-inspector-head em {
   color: var(--record-gold);
   font-style: normal;
+}
+
+.echo-record-surface-pages {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.echo-record-surface-pages button {
+  width: 28px;
+  min-width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(246, 201, 109, .22);
+  background: rgba(10, 24, 22, .65);
+  color: var(--record-gold);
+  cursor: pointer;
+}
+
+.echo-record-surface-pages button:disabled {
+  opacity: .3;
+  cursor: not-allowed;
+}
+
+.echo-record-source-coverage {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.echo-record-source-coverage span {
+  border: 1px solid rgba(86, 240, 207, .28);
+  background: rgba(86, 240, 207, .08);
+  padding: 3px 5px;
+  color: var(--record-mint);
+  font-family: var(--hapa-mono);
+  font-size: 7px;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+
+.echo-record-source-coverage span[data-state="missing"] {
+  border-color: rgba(255, 176, 186, .3);
+  background: rgba(255, 80, 104, .08);
+  color: #ffb0ba;
 }
 
 .echo-record-visual-selector {
@@ -22914,11 +22977,54 @@ h1 {
   color: var(--record-cream) !important;
 }
 
+.echo-record-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.echo-record-card-actions .hapa-btn {
+  min-height: 44px;
+}
+
+.echo-record-cancel-card {
+  border-color: rgba(255, 176, 186, .38) !important;
+  color: #ffb0ba !important;
+}
+
+.echo-record-rights-status {
+  color: rgba(246, 201, 109, .82) !important;
+}
+
+.echo-record-empty-inspector {
+  display: grid;
+  gap: 8px;
+}
+
+.echo-record-empty-inspector p {
+  margin: 0;
+  color: rgba(248, 240, 216, .7);
+  font-size: 10px;
+  line-height: 1.45;
+}
+
+.echo-record-retry-scene,
+.echo-record-retry-audio,
+.echo-record-empty-inspector .hapa-btn {
+  min-height: 44px;
+  justify-self: start;
+}
+
+.echo-record-card-error {
+  display: block;
+  color: #ffb0ba !important;
+}
+
 .echo-record-printed-rail {
   position: absolute;
   z-index: 5;
   top: 390px;
-  right: 14px;
+  right: max(14px, env(safe-area-inset-right));
   width: min(330px, calc(100% - 28px));
   display: grid;
   gap: 5px;
@@ -22969,8 +23075,9 @@ h1 {
 }
 
 .echo-record-garden-controls {
-  left: 14px;
-  right: 14px;
+  left: max(14px, env(safe-area-inset-left));
+  right: max(14px, env(safe-area-inset-right));
+  bottom: max(24px, env(safe-area-inset-bottom));
   width: auto;
   gap: 8px;
   border-color: rgba(246, 201, 109, .35);
@@ -23068,6 +23175,32 @@ h1 {
   color: var(--record-cream);
   font-family: var(--hapa-mono);
   font-size: 9px;
+}
+
+.echo-record-result-count {
+  flex: 0 0 auto;
+  color: rgba(248, 240, 216, .62);
+  font-family: var(--hapa-mono);
+  font-size: 8px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.echo-record-clear-filters {
+  min-height: 38px;
+  border: 1px solid rgba(246, 201, 109, .22);
+  background: rgba(10, 24, 22, .64);
+  color: var(--record-gold);
+  padding: 0 10px;
+  font-family: var(--hapa-mono);
+  font-size: 8px;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.echo-record-clear-filters:disabled {
+  opacity: .34;
+  cursor: not-allowed;
 }
 
 .echo-record-page-button {
@@ -23194,6 +23327,10 @@ h1 {
   color: #ff94a2;
 }
 
+.echo-record-crate-empty .hapa-btn {
+  min-height: 34px;
+}
+
 .echo-record-garden-notice {
   position: absolute;
   z-index: 6;
@@ -23294,8 +23431,9 @@ h1 {
 
   .echo-record-garden-hud {
     top: max(10px, env(safe-area-inset-top));
-    left: 10px;
-    width: calc(100% - 20px);
+    left: max(10px, env(safe-area-inset-left));
+    right: max(10px, env(safe-area-inset-right));
+    width: auto;
   }
 
   .echo-record-garden-title {
@@ -23326,21 +23464,26 @@ h1 {
 
   .echo-record-now-playing {
     top: 168px;
-    left: 10px;
-    width: calc(100% - 20px);
+    left: max(10px, env(safe-area-inset-left));
+    right: max(10px, env(safe-area-inset-right));
+    width: auto;
     min-width: 0;
   }
 
   .echo-record-visual-inspector {
     top: 260px;
-    left: 10px;
-    right: auto;
-    width: calc(100% - 20px);
+    left: max(10px, env(safe-area-inset-left));
+    right: max(10px, env(safe-area-inset-right));
+    width: auto;
+  }
+
+  .echo-record-garden[data-player-error="true"] .echo-record-visual-inspector {
+    top: 330px;
   }
 
   .echo-record-garden-controls {
-    left: 10px;
-    right: 10px;
+    left: max(10px, env(safe-area-inset-left));
+    right: max(10px, env(safe-area-inset-right));
     bottom: max(10px, env(safe-area-inset-bottom));
     padding: 9px;
   }
@@ -23362,6 +23505,7 @@ h1 {
   .echo-record-scrubber {
     order: 4;
     flex-basis: calc(100% - 94px);
+    min-height: 44px;
   }
 
   .echo-record-search {
@@ -23372,6 +23516,19 @@ h1 {
   .echo-record-perspective {
     min-height: 44px;
     flex: 1 1 150px;
+  }
+
+  .echo-record-perspective select {
+    min-height: 44px;
+  }
+
+  .echo-record-result-count {
+    min-width: 54px;
+    text-align: center;
+  }
+
+  .echo-record-clear-filters {
+    min-height: 44px;
   }
 
   .echo-record-page-button {
@@ -23388,6 +23545,40 @@ h1 {
     min-height: 58px;
   }
 
+  .echo-record-crate-item strong {
+    font-size: 10px;
+  }
+
+  .echo-record-crate-item small,
+  .echo-record-crate-item em {
+    font-size: 8px;
+  }
+
+  .echo-record-surface-pages button {
+    width: 44px;
+    min-width: 44px;
+    height: 44px;
+  }
+
+  .echo-record-visual-selector button,
+  .echo-record-print-card,
+  .echo-record-crate-empty .hapa-btn {
+    min-height: 44px;
+  }
+
+  .echo-record-visual-selector button {
+    font-size: 9px;
+  }
+
+  .echo-record-now-playing small,
+  .echo-record-visual-inspector small,
+  .echo-record-source-coverage span,
+  .echo-record-perspective > span,
+  .echo-record-result-count,
+  .echo-record-page-readout {
+    font-size: 9px;
+  }
+
   .echo-record-place {
     grid-column: 1 / -1;
     grid-row: auto;
@@ -23396,7 +23587,10 @@ h1 {
 
   .echo-record-garden-notice {
     bottom: 410px;
-    width: calc(100% - 36px);
+    width: auto;
+    left: max(18px, env(safe-area-inset-left));
+    right: max(18px, env(safe-area-inset-right));
+    translate: 0 0;
   }
 }
 

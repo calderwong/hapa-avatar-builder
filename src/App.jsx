@@ -206,6 +206,7 @@ import TarotLibraryView, {
 } from "./components/TarotLibraryView.jsx";
 import HellWeekView from "./components/HellWeekView.jsx";
 import SongCardMintPanel from "./components/SongCardMintPanel.jsx";
+import EchoRecordGardenBoundary from "./components/EchoRecordGardenBoundary.jsx";
 import { localFileApiUri } from "./domain/local-media-uri.js";
 import { buildPublicDemoGateCards } from "./domain/tarot-stargate-derivation.js";
 
@@ -3927,15 +3928,17 @@ export default function App({ overcardAdapter }) {
           </Suspense>
         )}
         {activeView === "echo-records" && (
-          <Suspense fallback={<div className="tarot-draw-view tarot-draw-loading"><Loader2 size={22} /><span>Setting the Record Garden table</span></div>}>
-            <EchoRecordGarden3DView
-              apiBase={API_BASE}
-              avatars={avatars}
-              sceneGraph={normalizedSceneGraph}
-              selectedSongId={selectedHapaSongId}
-              onSelectSong={setSelectedHapaSongId}
-            />
-          </Suspense>
+          <EchoRecordGardenBoundary>
+            <Suspense fallback={<div className="tarot-draw-view tarot-draw-loading"><Loader2 size={22} /><span>Setting the Record Garden table</span></div>}>
+              <EchoRecordGarden3DView
+                apiBase={API_BASE}
+                avatars={avatars}
+                sceneGraph={normalizedSceneGraph}
+                selectedSongId={selectedHapaSongId}
+                onSelectSong={setSelectedHapaSongId}
+              />
+            </Suspense>
+          </EchoRecordGardenBoundary>
         )}
 
         {activeView === "kanban" && selectedAvatar && (

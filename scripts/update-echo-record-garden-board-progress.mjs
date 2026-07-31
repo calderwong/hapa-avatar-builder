@@ -4,8 +4,10 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 
-const BOARD_PATH = "/Users/calderwong/Desktop/Echos-of-Other-Eras-Album-App/kanban.json";
-const EVENTS_PATH = "/Users/calderwong/Documents/Codex/2026-05-27/can-you-generate-me-some-concept/hapa-overwatch-kanban/data/hapa-echo-music-video-direction/events.ndjson";
+const BOARD_PATH = process.env.ECHO_RECORD_GARDEN_BOARD_PATH
+  || "/Users/calderwong/Desktop/Echos-of-Other-Eras-Album-App/kanban.json";
+const EVENTS_PATH = process.env.ECHO_RECORD_GARDEN_EVENTS_PATH
+  || "/Users/calderwong/Documents/Codex/2026-05-27/can-you-generate-me-some-concept/hapa-overwatch-kanban/data/hapa-echo-music-video-direction/events.ndjson";
 const PROGRAM_ID = "echo-record-garden-2026-07-30";
 const REVIEW_PASS = PROGRAM_ID;
 const PROJECT_ID = "hapa-echo-music-video-direction";
@@ -61,6 +63,16 @@ if (!["todo", "in_progress", "done"].includes(status)) {
 if (!summary) throw new Error("Expected a non-empty --summary");
 if (status !== "todo" && evidence.length === 0) {
   throw new Error("Expected at least one pipe-separated --evidence item for in_progress or done");
+}
+if (status === "done" && evidence.length < 3) {
+  throw new Error("Completing a Record Garden task requires at least three evidence links");
+}
+const missingLocalEvidence = evidence.filter((item) => (
+  !/^(?:https?|git):/i.test(item)
+  && (!path.isAbsolute(item) || !fs.existsSync(item))
+));
+if (APPLY && missingLocalEvidence.length > 0) {
+  throw new Error(`Evidence must be an existing absolute path or a supported URL: ${missingLocalEvidence.join(", ")}`);
 }
 
 const board = JSON.parse(fs.readFileSync(BOARD_PATH, "utf8"));

@@ -2,8 +2,9 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
-const [component, app, hostTargets, adapters, css] = await Promise.all([
+const [component, resolver, app, hostTargets, adapters, css] = await Promise.all([
   readFile(new URL("../src/components/EchoRecordGarden3DView.jsx", import.meta.url), "utf8"),
+  readFile(new URL("../src/domain/echo-record-card-resolution.js", import.meta.url), "utf8"),
   readFile(new URL("../src/App.jsx", import.meta.url), "utf8"),
   readFile(new URL("../src/overcard/hostTargets.js", import.meta.url), "utf8"),
   readFile(new URL("../src/overcard/processAdapters.js", import.meta.url), "utf8"),
@@ -40,7 +41,13 @@ test("Record Garden exposes a stable, accessible smoke contract", () => {
 test("album data stays bounded and selected-record detail is race safe", () => {
   assert.match(component, /const SCREEN_COUNT = 3/);
   assert.match(component, /director-projects\?summary=1/);
-  assert.match(component, /director-project\?songId=/);
+  assert.match(component, /director-project\?\$\{projectQuery\.toString\(\)\}/);
+  assert.match(component, /projectQuery\.set\("variantId", latestCut\.id\)/);
+  assert.match(component, /const cutRevision = latestCut\?\.fingerprint/);
+  assert.match(component, /was not delivered exactly/);
+  assert.match(component, /projectEchoRecordSelectedDirectorCut/);
+  assert.match(component, /most recent Director cut/);
+  assert.match(component, /data-testid="echo-record-director-cut"/);
   assert.match(component, /references\/tarot-cards\?songId=/);
   assert.match(component, /requestControllerRef\.current\?\.abort\(\)/);
   assert.match(component, /signal: controller\.signal/);
@@ -51,29 +58,56 @@ test("the turntable and surfaces share the live audio clock", () => {
   assert.match(component, /getAudioClock: \(\) =>/);
   assert.match(component, /currentTime: Number\(audio\.currentTime\)/);
   assert.match(component, /echoRecordVinylSpinRadians\(framePlayback\.currentTime/);
+  assert.match(component, /rpm: ECHO_RECORD_DISPLAY_RPM/);
+  assert.doesNotMatch(component, /const RECORD_RPM/);
   assert.match(component, /updateAlbumScreen\(screen, \{\s*playback: framePlayback/s);
-  assert.match(component, /MEDIA_SYNC_TOLERANCE_SECONDS = 0\.24/);
+  assert.match(component, /echoRecordVideoPlaybackPlan/);
+  assert.match(component, /SCREEN_MEDIA_POOL_LIMIT = SCREEN_COUNT \* 2/);
+  assert.match(component, /setScreenVideoPlaying\(resource, plan\.shouldPlay\)/);
+  assert.match(component, /video\.addEventListener\("canplay", handleCanPlay\)/);
+  assert.match(component, /video\.addEventListener\("waiting", handleWaiting\)/);
+  assert.match(component, /mediaPool\.acquire\(visual\)/);
+  assert.match(component, /const clipIdentity = mode === "audio-clock"/);
   assert.match(component, /canvas\.dataset\.recordAngle/);
 });
 
 test("visual clicks generate explicit Cards without claiming a mint", () => {
-  assert.match(component, /buildLocalEchoRecordCardProjection/);
+  assert.match(component, /createEchoRecordVisualCardResolver/);
   assert.match(component, /Generated attached Card:/);
   assert.match(component, /local, unminted Card projection/);
-  assert.match(component, /truthStatus: card \? "source-card" : "local-unminted-projection"/);
+  assert.match(component, /truthStatus: resolution\.truthStatus/);
+  assert.match(component, /resolution\.mode === "authoritative-edition-print"/);
+  assert.match(resolver, /resolveAuthoritativeTarotSongCardPrint/);
+  assert.match(resolver, /cards-at-time\?timeMs=/);
+  assert.match(resolver, /surface: "echo-record-garden"/);
+  assert.match(resolver, /pending\.has\(requestKey\)/);
+  assert.match(resolver, /mode: "local-unminted-projection"/);
   assert.doesNotMatch(component, /fetch\([^)\n]*\/api\/[^)\n]*mint/i);
+  assert.doesNotMatch(resolver, /\/api\/tarot\/cards/);
   assert.doesNotMatch(component, /confirm mint/i);
 });
 
-test("versioned scene recovery restores a paused record and camera", () => {
-  assert.match(component, /hapa\.echo-record-garden\.snapshot\.v1/);
+test("versioned scene recovery restores the full paused garden state", () => {
+  assert.match(component, /ECHO_RECORD_GARDEN_SNAPSHOT_SCHEMA/);
+  assert.match(component, /schemaVersion: ECHO_RECORD_GARDEN_SNAPSHOT_SCHEMA/);
   assert.match(component, /normalizeEchoRecordGardenSnapshot/);
+  assert.match(component, /reconcileEchoRecordGardenSnapshot/);
   assert.match(component, /placedSongId: value\.placedSongId/);
   assert.match(component, /selectedVisualId: value\.selectedVisualId/);
+  assert.match(component, /crateOrder: Array\.isArray\(value\.crateOrder\)/);
+  assert.match(component, /recordTransforms: value\.recordTransforms/);
+  assert.match(component, /cardJob: value\.cardJob/);
   assert.match(component, /playbackSeconds: playback\.currentTime/);
-  assert.match(component, /game\.restoreSnapshot\(\{ camera: preferences\.camera \}\)/);
-  assert.match(component, /snapshot = \(\) => \(\{/);
+  assert.match(component, /recordTransforms: recordTransformsRef\.current/);
+  assert.match(component, /const snapshot = \(\) => \{/);
+  assert.match(component, /schemaVersion: "hapa\.echo-record-garden\.scene\.v2"/);
   assert.match(component, /restored on the turntable, paused/);
+  assert.match(component, /previous Card request was interrupted/);
+  assert.match(component, /const flushPendingGardenPreferences = useCallback/);
+  assert.match(component, /pendingPreferenceRef\.current = captureGardenPreferences\(\)/);
+  assert.match(component, /if \(persistenceTimerRef\.current\) return/);
+  assert.match(component, /addEventListener\?\.\("pagehide", flushPendingGardenPreferences\)/);
+  assert.match(component, /transform\?\.manipulated === true/);
 });
 
 test("the Three scene owns complete input and renderer lifecycle cleanup", () => {

@@ -1,10 +1,20 @@
+import {
+  deriveEchoDirectionVariantProject,
+  echoDirectionVariantDeclaredFingerprint,
+} from "./echo-direction-variants.js";
 import { localFileApiUri, localMediaPath } from "./local-media-uri.js";
 
 export const ECHO_RECORD_GARDEN_SCHEMA = "hapa.echo-record-garden.record.v1";
 export const ECHO_RECORD_VISUAL_SURFACE_SCHEMA = "hapa.echo-record-garden.visual-surface.v1";
 export const ECHO_RECORD_LOCAL_CARD_SCHEMA = "hapa.echo-record-garden.local-card-projection.v1";
-export const ECHO_RECORD_GARDEN_SNAPSHOT_SCHEMA = "hapa.echo-record-garden.snapshot.v1";
+export const ECHO_RECORD_GARDEN_SNAPSHOT_SCHEMA = "hapa.echo-record-garden.snapshot.v2";
+export const ECHO_RECORD_GARDEN_LEGACY_SNAPSHOT_SCHEMA = "hapa.echo-record-garden.snapshot.v1";
+export const ECHO_RECORD_SOURCE_COVERAGE_SCHEMA = "hapa.echo-record-garden.source-coverage.v1";
 export const ECHO_RECORD_RPM = 100 / 3;
+// A full-disc moving video makes literal 33⅓ RPM read much faster than a
+// mostly symmetric vinyl surface. Keep the display clock-derived, but slow the
+// presentation spin so it has the perceived weight of a record on a table.
+export const ECHO_RECORD_DISPLAY_RPM = ECHO_RECORD_RPM / 4;
 
 const TAU = Math.PI * 2;
 const MAX_VISUAL_SURFACES = 12;
@@ -108,6 +118,49 @@ function truthLabel(status = "unreviewed") {
   return "Unreviewed source projection";
 }
 
+function normalizeRightsBoundary(value = {}) {
+  const source = object(value?.rightsAndPrivacy || value?.rights || value);
+  const licenseStatus = text(source.licenseStatus || source.licensingStatus, "unknown");
+  const consentStatus = text(source.consentStatus, "unknown");
+  const visibility = text(source.visibility, "private");
+  const publicProjectionAllowed = source.publicProjectionAllowed === true;
+  const attribution = list(source.attribution || source.attributions)
+    .map((entry) => typeof entry === "string" ? text(entry) : text(entry?.label || entry?.name || entry?.url))
+    .filter(Boolean);
+  const declared = [
+    source.licenseStatus,
+    source.licensingStatus,
+    source.consentStatus,
+    source.visibility,
+    source.publicProjectionAllowed,
+  ].some((entry) => entry !== undefined);
+  return {
+    status: declared ? "source-declared" : "unknown",
+    licenseStatus,
+    consentStatus,
+    visibility,
+    publicProjectionAllowed,
+    attribution: uniqueText(attribution),
+    ownershipClaimed: false,
+  };
+}
+
+function explicitVocalMode(project = {}) {
+  const declared = slug(
+    project.vocal_mode
+    || project.vocalMode
+    || project.performance_mode
+    || project.performanceMode
+  );
+  if (project.instrumental === true || project.is_instrumental === true || declared === "instrumental") {
+    return { mode: "instrumental", truthStatus: "source-declared" };
+  }
+  if (project.instrumental === false || project.is_instrumental === false || ["vocal", "vocals", "sung", "spoken"].includes(declared)) {
+    return { mode: "vocal", truthStatus: "source-declared" };
+  }
+  return { mode: "unspecified", truthStatus: "missing" };
+}
+
 function projectSongId(project = {}) {
   return text(project.song_id || project.songId || project.id);
 }
@@ -150,6 +203,208 @@ function projectPerspectiveValue(input = {}) {
     || input.avatar_name
     || input.avatarName
   );
+}
+
+function directionVariantId(variant = {}) {
+  return text(
+    variant.id
+    || variant.variantId
+    || variant.variant_id
+    || variant.cutId
+    || variant.cut_id
+  );
+}
+
+function directionVariantTitle(variant = {}) {
+  return text(
+    variant.title
+    || variant.name
+    || variant.label
+    || variant.cutTitle
+    || variant.cut_title,
+    directionVariantId(variant) || "Director cut"
+  );
+}
+
+function directionVariantTimestamp(variant = {}) {
+  const sources = [
+    variant.updatedAt,
+    variant.updated_at,
+    variant.createdAt,
+    variant.created_at,
+    variant.lineage?.createdAt,
+    variant.lineage?.created_at,
+  ].map((value) => text(value)).filter(Boolean);
+  for (const source of sources) {
+    const timestamp = Date.parse(source);
+    if (Number.isFinite(timestamp)) {
+      return {
+        iso: new Date(timestamp).toISOString(),
+        milliseconds: timestamp,
+      };
+    }
+  }
+  return { iso: null, milliseconds: Number.NEGATIVE_INFINITY };
+}
+
+function isLegacyDirectionVariant(variant = {}) {
+  return /(?:^|[\s:_-])(legacy|baseline)(?:$|[\s:_-])/i.test([
+    directionVariantId(variant),
+    directionVariantTitle(variant),
+    variant.packageName,
+    variant.package_name,
+  ].filter(Boolean).join(" "));
+}
+
+const READY_DIRECTION_VARIANT_STATUSES = new Set([
+  "available",
+  "complete",
+  "completed",
+  "ready",
+  "rendered",
+  "saved",
+]);
+
+function directionVariantStatus(variant = {}) {
+  return slug(variant.status || variant.state || variant.readinessStatus || variant.readiness_status);
+}
+
+function directionVariants(project = {}) {
+  const candidates = list(
+    project.direction_script_variant_summaries
+    || project.directionScriptVariantSummaries
+    || project.direction_script_variants
+    || project.directionScriptVariants
+  );
+  return candidates.filter((variant) => (
+    variant
+    && typeof variant === "object"
+    && directionVariantId(variant)
+    && !["failed", "error", "blocked", "incomplete"].includes(directionVariantStatus(variant))
+    && Math.max(0, finite(
+      variant.timelineCount
+      ?? variant.timeline_count
+      ?? (Array.isArray(variant.timeline) ? variant.timeline.length : 0),
+      0
+    )) > 0
+  ));
+}
+
+export function selectLatestEchoDirectionScriptVariant(projectPayload = null) {
+  const project = unwrapEchoDirectorProject(projectPayload);
+  if (!project) return null;
+  const candidates = directionVariants(project);
+  const nonLegacy = candidates.filter((variant) => !isLegacyDirectionVariant(variant));
+  const ready = nonLegacy.filter((variant) => (
+    READY_DIRECTION_VARIANT_STATUSES.has(directionVariantStatus(variant))
+  ));
+  const eligible = ready.length ? ready : nonLegacy;
+  if (!eligible.length) return null;
+  const ranked = eligible.map((variant, index) => {
+    const timestamp = directionVariantTimestamp(variant);
+    return {
+      variant,
+      index,
+      timestamp,
+      id: directionVariantId(variant),
+    };
+  }).sort((left, right) => (
+    right.timestamp.milliseconds - left.timestamp.milliseconds
+    || right.id.localeCompare(left.id)
+    || right.index - left.index
+  ));
+  const selected = ranked[0];
+  const variant = selected.variant;
+  const status = directionVariantStatus(variant);
+  const tiedLatestCount = ranked.filter((candidate) => (
+    candidate.timestamp.milliseconds === selected.timestamp.milliseconds
+  )).length;
+  return {
+    id: selected.id,
+    title: directionVariantTitle(variant),
+    createdAt: directionVariantTimestamp({
+      createdAt: variant.createdAt || variant.created_at || variant.lineage?.createdAt || variant.lineage?.created_at,
+    }).iso,
+    updatedAt: selected.timestamp.iso,
+    timelineCount: Math.max(0, Math.round(finite(
+      variant.timelineCount
+      ?? variant.timeline_count
+      ?? (Array.isArray(variant.timeline) ? variant.timeline.length : 0),
+      0
+    ))),
+    fingerprint: text(variant.fingerprint || variant.contentHash || variant.content_hash) || null,
+    strategy: "most-recent-non-legacy",
+    selectionBasis: ready.length
+      ? "latest-ready-non-legacy"
+      : "latest-nonfailed-non-legacy",
+    status: status || null,
+    readinessDeclared: Boolean(status),
+    tieBreak: tiedLatestCount > 1
+      ? "stable-variant-id"
+      : selected.timestamp.iso
+        ? "effective-timestamp"
+        : "stable-variant-id-without-timestamp",
+    candidateCount: eligible.length,
+    tiedLatestCount,
+    legacy: false,
+  };
+}
+
+export function projectEchoRecordSelectedDirectorCut(projectPayload = null) {
+  const project = unwrapEchoDirectorProject(projectPayload);
+  if (!project) return null;
+  const selectedId = text(
+    project.selected_direction_script_variant_id
+    || project.selectedDirectionScriptVariantId
+  );
+  if (!selectedId) return project;
+  const selectedVariant = list(
+    project.direction_script_variants
+    || project.directionScriptVariants
+  ).find((variant) => directionVariantId(variant) === selectedId);
+  if (!selectedVariant || isLegacyDirectionVariant(selectedVariant) || !Array.isArray(selectedVariant.timeline) || !selectedVariant.timeline.length) {
+    return project;
+  }
+  const projected = deriveEchoDirectionVariantProject(project, selectedVariant);
+  const activeCut = object(projected.active_direction_script_variant);
+  if (text(activeCut.id) !== selectedId) return project;
+  const selectedTimestamp = directionVariantTimestamp(selectedVariant);
+  const selectedTitle = activeCut.title || directionVariantTitle(selectedVariant);
+  const selectedFingerprint = text(
+    activeCut.fingerprint
+    || selectedVariant.fingerprint
+    || selectedVariant.contentHash
+    || selectedVariant.content_hash
+  ) || null;
+  const sourceDeclaredFingerprint = text(
+    echoDirectionVariantDeclaredFingerprint(selectedVariant)
+  ) || null;
+  return {
+    ...projected,
+    selected_direction_script_variant_id: selectedId,
+    revision_id: selectedFingerprint || selectedId,
+    updated_at: selectedTimestamp.iso || project.updated_at || project.updatedAt || null,
+    echo_record_garden_director_cut: {
+      id: selectedId,
+      title: selectedTitle,
+      updatedAt: selectedTimestamp.iso,
+      fingerprint: selectedFingerprint,
+      sourceDeclaredFingerprint,
+      strategy: "most-recent-non-legacy",
+      selectionBasis: "exact-variant-id",
+      durationProjection: activeCut.durationProjection || null,
+      projectionValidation: activeCut.projectionValidation || null,
+      legacy: false,
+    },
+    provenance: {
+      ...object(projected.provenance),
+      directorCutId: selectedId,
+      directorCutTitle: selectedTitle,
+      directorCutFingerprint: selectedFingerprint,
+      directorCutSourceDeclaredFingerprint: sourceDeclaredFingerprint,
+      directorCutSelection: "most-recent-non-legacy",
+    },
+  };
 }
 
 export function unwrapEchoDirectorProject(payload = null) {
@@ -239,12 +494,52 @@ export function normalizeEchoRecordProject(payload = null) {
     || project.posterUri
   );
   const detailHydrated = Array.isArray(project.timeline);
+  const sourceKind = detailHydrated ? "echo-director-detail" : "echo-director-summary";
+  const timedLyricCueCount = Array.isArray(project.timed_lyrics)
+    ? project.timed_lyrics.length
+    : Math.max(0, finite(project.timed_lyric_count ?? project.timedLyricCount, 0));
+  const vocalProfile = explicitVocalMode(project);
+  const sourceRevisionId = text(
+    project.revision_id
+    || project.revisionId
+    || project.updated_at
+    || project.updatedAt
+    || project.provenance?.revisionId
+  ) || null;
+  const stableRecordId = `echo-record:${songId}`;
+  const latestCut = selectLatestEchoDirectionScriptVariant(project);
   return {
     schemaVersion: ECHO_RECORD_GARDEN_SCHEMA,
-    id: `echo-record:${songId}`,
+    id: stableRecordId,
     songId,
     title: projectSongTitle(project),
     durationSeconds,
+    identity: {
+      stableId: stableRecordId,
+      sourceId: songId,
+      sourceKind: "echo-song",
+      identityBasis: "source-song-id",
+      titleIsIdentity: false,
+      truthStatus: "source-declared",
+    },
+    source: {
+      id: songId,
+      kind: sourceKind,
+      revisionId: sourceRevisionId,
+      contentHash: text(project.content_hash || project.contentHash || project.provenance?.contentHash) || null,
+      truthStatus: projectTruth(project).status,
+    },
+    rights: normalizeRightsBoundary(project),
+    content: {
+      vocalMode: vocalProfile.mode,
+      vocalModeTruth: vocalProfile.truthStatus,
+      timedLyricCueCount,
+      lyricAvailability: vocalProfile.mode === "instrumental"
+        ? "not-applicable-instrumental"
+        : timedLyricCueCount > 0
+          ? "timed"
+          : "missing-or-undeclared",
+    },
     perspective: echoRecordPerspectiveToken(project),
     avatar: {
       id: text(project.avatar_id || project.avatarId) || null,
@@ -268,12 +563,13 @@ export function normalizeEchoRecordProject(payload = null) {
       directionCutCount: Array.isArray(project.direction_script_variants)
         ? project.direction_script_variants.length
         : Math.max(0, finite(project.direction_script_variant_count ?? project.directionScriptVariantCount, 0)),
+      latestCut,
       updatedAt: text(project.updated_at || project.updatedAt) || null,
     },
     truth: projectTruth(project),
     provenance: {
       ...object(project.provenance),
-      sourceKind: detailHydrated ? "echo-director-detail" : "echo-director-summary",
+      sourceKind,
       sourceSongId: songId,
     },
   };
@@ -331,6 +627,29 @@ function normalizedShot(shot = {}, index = 0, apiBase = "") {
     || shot.semanticCasting?.selected?.semanticTruth
   );
   const status = normalizedTruthStatus(sourceStatus);
+  const mediaCardId = text(shot.media_card_id || shot.mediaCardId);
+  const evidenceCard = object(
+    shot.decision_evidence?.sourceEvidence?.card
+    || shot.decisionEvidence?.sourceEvidence?.card
+    || shot.sourceEvidence?.card
+  );
+  const evidenceCardId = text(evidenceCard.id);
+  const explicitAttachmentStatus = slug(
+    shot.attachment_status
+    || shot.attachmentStatus
+    || shot.media_card_status
+    || shot.mediaCardStatus
+  );
+  const attachmentStale = explicitAttachmentStatus === "stale"
+    || status === "stale"
+    || Boolean(mediaCardId && evidenceCardId && mediaCardId !== evidenceCardId);
+  const attachmentFreshnessStatus = attachmentStale
+    ? "stale"
+    : mediaCardId && evidenceCardId === mediaCardId
+      ? "evidence-matched"
+      : mediaCardId
+        ? "source-declared"
+        : "missing";
   return {
     id: text(shot.id || shot.shot_id || shot.media_id || shot.mediaId, `director-shot-${index + 1}`),
     index,
@@ -360,11 +679,19 @@ function normalizedShot(shot = {}, index = 0, apiBase = "") {
       canonClaimed: false,
     },
     provenance: {
-      mediaCardId: text(shot.media_card_id || shot.mediaCardId) || null,
+      mediaCardId: mediaCardId || null,
       mediaCardKind: text(shot.media_card_kind || shot.mediaCardKind) || null,
       mediaCardRef: text(shot.media_card_ref || shot.mediaCardRef) || null,
+      attachmentEvidenceCardId: evidenceCardId || null,
+      attachmentFreshnessStatus,
       decisionEvidence: shot.decision_evidence || shot.decisionEvidence || null,
     },
+    rights: normalizeRightsBoundary(
+      shot.rightsAndPrivacy
+      || shot.rights
+      || mediaContract.rightsAndPrivacy
+      || mediaContract.rights
+    ),
   };
 }
 
@@ -420,10 +747,28 @@ function visualSurface({
   kind = "",
   truth = {},
   provenance = {},
+  rights = {},
+  attachedCard = null,
+  attachedCardId = "",
+  cardLookupId = "",
+  attachmentFreshnessStatus = "",
 }) {
   const normalizedUri = text(uri);
   const normalizedTruth = object(truth);
   const status = normalizedTruthStatus(normalizedTruth.status || normalizedTruth.sourceStatus);
+  const embeddedCard = attachedCard && typeof attachedCard === "object" && !Array.isArray(attachedCard)
+    ? attachedCard
+    : null;
+  const exactCardId = text(attachedCardId || embeddedCard?.id);
+  const lookupId = text(cardLookupId || exactCardId);
+  const normalizedAttachmentFreshness = slug(attachmentFreshnessStatus)
+    || (embeddedCard ? "source-projected" : exactCardId ? "source-declared" : "missing");
+  const attachmentIsStale = normalizedAttachmentFreshness === "stale";
+  const sourceRevisionId = text(
+    provenance?.referenceRevisionId
+    || provenance?.revisionId
+    || provenance?.contentHash
+  ) || null;
   return {
     schemaVersion: ECHO_RECORD_VISUAL_SURFACE_SCHEMA,
     id,
@@ -446,7 +791,31 @@ function visualSurface({
       label: normalizedTruth.label || truthLabel(status),
       canonClaimed: false,
     },
+    source: {
+      id: sourceId || null,
+      kind: sourceType,
+      revisionId: sourceRevisionId,
+      identityStatus: sourceId ? "source-declared" : "missing",
+      ownershipClaimed: false,
+    },
+    rights: normalizeRightsBoundary(rights),
     provenance: object(provenance),
+    attachment: {
+      cardId: exactCardId || null,
+      lookupId: lookupId || null,
+      card: embeddedCard,
+      identityStatus: attachmentIsStale
+        ? "stale-source-card-id"
+        : embeddedCard
+        ? "embedded-source-card"
+        : exactCardId
+          ? "source-declared-card-id"
+          : lookupId
+            ? "source-lookup-id"
+            : "unresolved",
+      freshnessStatus: normalizedAttachmentFreshness,
+      stale: attachmentIsStale,
+    },
   };
 }
 
@@ -472,6 +841,10 @@ function shotSurface(shot, role, project, apiBase = "") {
       endSeconds: shot.endSeconds,
       contentHash: shot.media.contentHash,
     },
+    rights: shot.rights,
+    attachedCardId: shot.provenance?.mediaCardId,
+    cardLookupId: shot.provenance?.mediaCardId || shot.media?.id,
+    attachmentFreshnessStatus: shot.provenance?.attachmentFreshnessStatus,
   });
 }
 
@@ -542,6 +915,10 @@ function referenceSurface(card = {}, project = {}, index = 0, apiBase = "") {
       sourceKind: text(card.sourceKind, "echo-reference-atlas"),
       citations: list(card.referenceAtlas?.citations),
     },
+    rights: card.rightsAndPrivacy || card.referenceAtlas?.rightsAndPrivacy,
+    attachedCard: card,
+    attachedCardId: card.id,
+    cardLookupId: card.id,
   });
 }
 
@@ -616,6 +993,9 @@ function avatarSurface(avatar = null, project = {}, apiBase = "") {
       assetId: asset.id || null,
       assetSource: asset.source || null,
     },
+    rights: avatar.rightsAndPrivacy || avatar.rights,
+    attachedCardId: avatar.id,
+    cardLookupId: avatar.id,
   });
 }
 
@@ -684,6 +1064,9 @@ function sceneSurface(scene = {}, project = {}, index = 0, apiBase = "") {
       placeId: scene.placeId || scene.place_id || null,
       assetId: selected.asset.id || null,
     },
+    rights: scene.rightsAndPrivacy || scene.rights,
+    attachedCardId: scene.id,
+    cardLookupId: scene.id,
   });
 }
 
@@ -730,12 +1113,172 @@ export function buildEchoRecordVisualSurfaces({
   }).slice(0, boundedLimit);
 }
 
+function boundedCoverageState(declaredCount = 0, routableCount = 0, missingLabel = "missing") {
+  if (!(declaredCount > 0)) return missingLabel;
+  if (!(routableCount > 0)) return "missing-media";
+  if (routableCount < declaredCount) return "partial";
+  return "routable";
+}
+
+export function normalizeEchoRecordSourceCoverage({
+  project: projectPayload,
+  referenceCards = [],
+  apiBase = "",
+} = {}) {
+  const project = unwrapEchoDirectorProject(projectPayload);
+  const record = normalizeEchoRecordProject(projectPayload);
+  if (!project || !record) return null;
+  const detailHydrated = Array.isArray(project.timeline);
+  const timelineInput = list(project.timeline);
+  const declaredVideoCount = detailHydrated ? timelineInput.length : record.director.timelineCount;
+  const shots = timelineInput
+    .map((shot, index) => normalizedShot(shot, index, apiBase))
+    .filter(Boolean);
+  const routableShots = shots.filter((shot) => shot.media.availability === "routable");
+  const references = referenceCardsFrom(referenceCards);
+  const matchingReferences = references.filter((card) => {
+    const explicitSongIds = referenceSongIds(card);
+    return !explicitSongIds.length || explicitSongIds.includes(record.songId);
+  });
+  const routableReferences = matchingReferences.filter((card, index) => (
+    Boolean(referenceSurface(card, project, index, apiBase))
+  ));
+  const declaredAttachments = shots.filter((shot) => Boolean(shot.provenance.mediaCardId));
+  const staleAttachments = declaredAttachments.filter((shot) => (
+    shot.provenance.attachmentFreshnessStatus === "stale"
+  ));
+  const attachmentState = staleAttachments.length
+    ? "stale"
+    : !detailHydrated && declaredVideoCount > 0
+      ? "unknown-summary-only"
+      : !shots.length || !declaredAttachments.length
+      ? "missing"
+      : declaredAttachments.length < shots.length
+        ? "partial"
+        : "source-declared";
+  return {
+    schemaVersion: ECHO_RECORD_SOURCE_COVERAGE_SCHEMA,
+    recordId: record.id,
+    songId: record.songId,
+    identity: { ...record.identity },
+    source: { ...record.source },
+    rights: { ...record.rights },
+    content: { ...record.content },
+    audio: {
+      id: record.audio.id,
+      availability: record.audio.availability,
+      state: record.audio.availability,
+    },
+    video: {
+      declaredCount: declaredVideoCount,
+      validTimingCount: shots.length,
+      routableCount: routableShots.length,
+      state: !detailHydrated && declaredVideoCount > 0
+        ? "summary-count-only"
+        : boundedCoverageState(declaredVideoCount, routableShots.length),
+    },
+    references: {
+      providedCount: references.length,
+      matchingCount: matchingReferences.length,
+      routableCount: routableReferences.length,
+      state: !references.length
+        ? "missing"
+        : !matchingReferences.length
+          ? "missing-for-song"
+          : boundedCoverageState(matchingReferences.length, routableReferences.length),
+    },
+    attachments: {
+      declaredCount: declaredAttachments.length,
+      staleCount: staleAttachments.length,
+      missingCount: Math.max(0, shots.length - declaredAttachments.length),
+      state: attachmentState,
+      identities: shots.map((shot) => ({
+        shotId: shot.id,
+        cardId: shot.provenance.mediaCardId,
+        lookupId: shot.provenance.mediaCardId || shot.media.id,
+        freshnessStatus: shot.provenance.attachmentFreshnessStatus,
+        evidenceCardId: shot.provenance.attachmentEvidenceCardId,
+      })),
+    },
+  };
+}
+
 export function echoRecordVinylSpinRadians(clockSeconds = 0, options = {}) {
   const rpm = finite(options.rpm, ECHO_RECORD_RPM);
   const phaseRadians = finite(options.phaseRadians, 0);
   const raw = finite(clockSeconds, 0) * (rpm / 60) * TAU + phaseRadians;
   if (options.normalize === false) return raw;
   return ((raw % TAU) + TAU) % TAU;
+}
+
+export function echoRecordVideoPlaybackPlan({
+  clockSeconds = 0,
+  startSeconds = 0,
+  durationSeconds = 0,
+  sourceStartSeconds = 0,
+  clockLocked = true,
+  playbackPlaying = false,
+  documentHidden = false,
+  reducedMotion = false,
+  videoCurrentTime = 0,
+  videoDuration = 0,
+  readyState = 0,
+  hardSeekToleranceSeconds = 0.75,
+} = {}) {
+  const clock = Math.max(0, finite(clockSeconds, 0));
+  const start = Math.max(0, finite(startSeconds, 0));
+  const duration = Math.max(0.1, finite(durationSeconds, finite(videoDuration, 4)));
+  const sourceStart = Math.max(0, finite(sourceStartSeconds, 0));
+  const currentVideoTime = Math.max(0, finite(videoCurrentTime, 0));
+  const end = start + duration;
+  const phase = !clockLocked
+    ? "ambient"
+    : clock < start
+      ? "future"
+      : clock >= end
+        ? "past"
+        : "active";
+  const active = phase === "active" || phase === "ambient";
+  const ambientElapsed = Math.max(0, clock - start);
+  const elapsedInShot = Math.max(0, Math.min(duration - 0.04, clock - start));
+  const expected = !clockLocked
+    ? sourceStart + (reducedMotion ? 0 : ambientElapsed % duration)
+    : phase === "future"
+      ? sourceStart
+      : phase === "past"
+        ? currentVideoTime
+        : sourceStart + elapsedInShot;
+  const boundedExpected = finite(videoDuration, 0) > 0
+    ? Math.min(Math.max(0, finite(videoDuration, 0) - 0.03), expected)
+    : Math.max(0, expected);
+  const effectiveExpected = phase === "past" ? currentVideoTime : boundedExpected;
+  const driftSeconds = effectiveExpected - currentVideoTime;
+  const buffered = finite(readyState, 0) >= 3;
+  const shouldPlay = !documentHidden
+    && buffered
+    && (clockLocked ? playbackPlaying && active : !reducedMotion);
+  const seekTarget = effectiveExpected;
+  const seekDrift = seekTarget - currentVideoTime;
+  const shouldSeek = phase !== "past"
+    && Math.abs(seekDrift) > Math.max(0.1, finite(hardSeekToleranceSeconds, 0.75));
+  const playbackRate = shouldPlay && !shouldSeek && Math.abs(driftSeconds) > 0.16
+    ? Math.max(0.97, Math.min(1.03, 1 + driftSeconds * 0.04))
+    : 1;
+  return {
+    active,
+    phase,
+    future: phase === "future",
+    past: phase === "past",
+    buffered,
+    waitingForBuffer: !buffered,
+    expectedSeconds: effectiveExpected,
+    shouldPlay,
+    shouldPause: !shouldPlay,
+    shouldSeek,
+    seekSeconds: Math.max(0, seekTarget),
+    driftSeconds,
+    playbackRate,
+  };
 }
 
 function finiteVector(value = null) {
@@ -748,25 +1291,195 @@ function finiteVector(value = null) {
   return source.map((entry) => Number(entry));
 }
 
+function boundedVector(value, bounds = []) {
+  const vector = finiteVector(value);
+  if (!vector) return null;
+  return vector.map((entry, index) => {
+    const [minimum, maximum] = bounds[index] || [-Number.MAX_SAFE_INTEGER, Number.MAX_SAFE_INTEGER];
+    return Math.max(minimum, Math.min(maximum, entry));
+  });
+}
+
+function normalizeSnapshotRecordTransforms(value = {}) {
+  const entries = Array.isArray(value)
+    ? value.map((entry) => [entry?.songId || entry?.id, entry])
+    : Object.entries(object(value));
+  const normalized = [];
+  const seen = new Set();
+  for (const [rawSongId, rawTransform] of entries) {
+    const songId = text(String(rawSongId || rawTransform?.songId || ""));
+    if (!songId || seen.has(songId)) continue;
+    const transform = object(rawTransform);
+    const position = boundedVector(transform.position, [
+      [-4.25, 4.25],
+      [0.55, 1.2],
+      [-2.2, 2.45],
+    ]);
+    if (!position) continue;
+    const rotation = boundedVector(transform.rotation, [
+      [-Math.PI * 2, Math.PI * 2],
+      [-Math.PI * 2, Math.PI * 2],
+      [-Math.PI * 2, Math.PI * 2],
+    ]) || [0, 0, 0];
+    seen.add(songId);
+    normalized.push([songId, {
+      position,
+      rotation,
+      manipulated: transform.manipulated !== false,
+    }]);
+  }
+  return Object.fromEntries(normalized.slice(0, 500));
+}
+
+export function resolveEchoRecordGardenTableDrop({
+  position,
+  occupiedPositions = [],
+  quantizeStep = 0.05,
+  recordDiameter = 1.25,
+} = {}) {
+  const bounded = boundedVector(position, [
+    [-4.25, 4.25],
+    [0.55, 1.2],
+    [-2.2, 2.45],
+  ]);
+  if (!bounded) return { accepted: false, reason: "invalid-position", position: null };
+  const step = Math.max(0.01, finite(quantizeStep, 0.05));
+  const quantized = bounded.map((entry) => Math.round(entry / step) * step);
+  const minimumDistance = Math.max(0.1, finite(recordDiameter, 1.25));
+  const collision = list(occupiedPositions)
+    .map(finiteVector)
+    .filter(Boolean)
+    .some((occupied) => Math.hypot(
+      quantized[0] - occupied[0],
+      quantized[2] - occupied[2],
+    ) < minimumDistance);
+  if (collision) return { accepted: false, reason: "record-collision", position: null };
+  return { accepted: true, reason: "accepted", position: quantized };
+}
+
+function normalizeSnapshotCardJob(value = {}) {
+  const job = object(value);
+  const visualId = text(job.visualId || job.sourceVisualId);
+  if (!visualId) return null;
+  const sourceStatus = slug(job.status);
+  if (!sourceStatus || ["idle", "complete", "completed", "cancelled", "canceled"].includes(sourceStatus)) {
+    return null;
+  }
+  const status = ["pending", "running", "resolving"].includes(sourceStatus)
+    ? "interrupted"
+    : ["interrupted", "failed", "blocked", "unavailable"].includes(sourceStatus)
+      ? sourceStatus
+      : "interrupted";
+  return {
+    status,
+    visualId,
+    songId: text(job.songId || job.sourceSongId),
+    requestKey: text(job.requestKey),
+    startedAt: text(job.startedAt) || null,
+    error: text(job.error) || (status === "interrupted"
+      ? "The previous Card request was interrupted. Retry from the same visual."
+      : ""),
+    recoverable: status !== "blocked" && status !== "unavailable",
+  };
+}
+
 export function normalizeEchoRecordGardenSnapshot(value = {}) {
   const source = object(value);
   const selection = object(source.selection);
   const playback = object(source.playback);
+  const catalog = object(source.catalog);
+  const scene = object(source.scene);
+  const layout = object(source.layout || scene.layout);
   const camera = object(source.camera || source.scene?.camera);
-  const perspective = text(selection.perspective || source.perspective, "all").toLowerCase();
+  const perspective = text(catalog.perspective || selection.perspective || source.perspective, "all").toLowerCase();
+  const rawQuery = text(catalog.query ?? source.query);
+  const crateOrder = uniqueText(catalog.crateOrder || source.crateOrder).slice(0, 500);
+  const recordTransforms = normalizeSnapshotRecordTransforms(
+    scene.recordTransforms || layout.recordTransforms || source.recordTransforms,
+  );
+  const sourceSchemaVersion = text(source.schemaVersion);
   return {
     schemaVersion: ECHO_RECORD_GARDEN_SNAPSHOT_SCHEMA,
+    migratedFrom: sourceSchemaVersion && sourceSchemaVersion !== ECHO_RECORD_GARDEN_SNAPSHOT_SCHEMA
+      ? sourceSchemaVersion
+      : null,
     selectedSongId: text(selection.selectedSongId || source.selectedSongId || source.lastSongId),
     placedSongId: text(selection.placedSongId || source.placedSongId),
     selectedVisualId: text(selection.selectedVisualId || source.selectedVisualId),
     perspective: ["all", "red", "blue", "green"].includes(perspective) ? perspective : "all",
+    query: rawQuery.slice(0, 180),
+    cratePage: clampInteger(catalog.cratePage ?? source.cratePage, 0, 0, 10_000),
+    crateOrder,
+    surfacePage: clampInteger(scene.surfacePage ?? layout.surfacePage ?? source.surfacePage, 0, 0, 100),
+    surfaceSongId: text(scene.surfaceSongId || layout.surfaceSongId || source.surfaceSongId),
+    recordTransforms,
     muted: playback.muted === undefined ? source.muted !== false : playback.muted !== false,
     playbackSeconds: Math.max(0, finite(playback.seconds ?? source.playbackSeconds, 0)),
     camera: {
       position: finiteVector(camera.position),
       target: finiteVector(camera.target),
     },
+    cardJob: normalizeSnapshotCardJob(source.cardJob || source.jobs?.card),
     persistedAt: text(source.persistedAt) || null,
+  };
+}
+
+export function reconcileEchoRecordGardenSnapshot(value = {}, {
+  recordIds,
+  visualIds,
+} = {}) {
+  const snapshot = normalizeEchoRecordGardenSnapshot(value);
+  const hasRecordInventory = Array.isArray(recordIds);
+  const hasVisualInventory = Array.isArray(visualIds);
+  const currentRecordIds = hasRecordInventory ? uniqueText(recordIds).slice(0, 500) : [];
+  const currentVisualIds = hasVisualInventory ? uniqueText(visualIds).slice(0, 500) : [];
+  const currentRecordSet = new Set(currentRecordIds);
+  const currentVisualSet = new Set(currentVisualIds);
+  const crateOrder = hasRecordInventory
+    ? [
+        ...snapshot.crateOrder.filter((songId) => currentRecordSet.has(songId)),
+        ...currentRecordIds.filter((songId) => !snapshot.crateOrder.includes(songId)),
+      ]
+    : snapshot.crateOrder;
+  const recordTransforms = hasRecordInventory
+    ? Object.fromEntries(Object.entries(snapshot.recordTransforms)
+        .filter(([songId]) => currentRecordSet.has(songId)))
+    : snapshot.recordTransforms;
+  const placedSongId = hasRecordInventory && !currentRecordSet.has(snapshot.placedSongId)
+    ? ""
+    : snapshot.placedSongId;
+  const selectedSongId = hasRecordInventory
+    ? currentRecordSet.has(snapshot.selectedSongId)
+      ? snapshot.selectedSongId
+      : currentRecordSet.has(placedSongId)
+        ? placedSongId
+        : currentRecordIds[0] || ""
+    : snapshot.selectedSongId;
+  const selectedVisualId = hasVisualInventory
+    ? currentVisualSet.has(snapshot.selectedVisualId)
+      ? snapshot.selectedVisualId
+      : currentVisualIds[0] || ""
+    : snapshot.selectedVisualId;
+  let cardJob = snapshot.cardJob;
+  if (cardJob && (
+    (hasRecordInventory && cardJob.songId && !currentRecordSet.has(cardJob.songId))
+    || (hasVisualInventory && !currentVisualSet.has(cardJob.visualId))
+  )) {
+    cardJob = {
+      ...cardJob,
+      status: "unavailable",
+      error: "The source visual for the interrupted Card request is no longer available.",
+      recoverable: false,
+    };
+  }
+  return {
+    ...snapshot,
+    selectedSongId,
+    placedSongId,
+    selectedVisualId,
+    crateOrder,
+    recordTransforms,
+    cardJob,
   };
 }
 

@@ -30,6 +30,7 @@ function indexRow(songId, variantId, overrides = {}) {
     videoEventsPerMinute: 8.5,
     videoCoverageSeconds: 61,
     updatedAt: "2026-07-13T06:53:36.178Z",
+    status: "ready",
     ...overrides,
   };
 }
@@ -73,6 +74,8 @@ test("395-row album summary uses the compact index with zero authoritative varia
     const sample = first.bySong.get(songIds[0])[0];
     assert.equal(sample.id, "cut-1");
     assert.equal(sample.timelineCount, 20);
+    assert.equal(sample.updatedAt, "2026-07-13T06:53:36.178Z");
+    assert.equal(sample.status, "ready");
     assert.equal(sample.variationSet.label, "Wide cuts");
     assert.equal(sample.cut.label, "Rhythmic");
     assert.equal(sample.densityProfile.label, "Rhythmic");
