@@ -27,15 +27,17 @@ test("screen media identity includes source URI and revision instead of trusting
 });
 
 test("late image callbacks dispose their result and never mutate a disposed fallback texture", () => {
-  assert.match(threeRuntime, /let disposed = false;\s*loader\.load\(/s);
+  assert.match(threeRuntime, /let disposed = false;[\s\S]*?loadedTexture = loader\.load\(/s);
   assert.match(
     threeRuntime,
     /\(loaded\) => \{\s*if \(disposed\) \{\s*loaded\.dispose\(\);\s*return;\s*\}/s,
   );
   assert.match(
     threeRuntime,
-    /dispose\(\) \{\s*if \(disposed\) return;\s*disposed = true;\s*loadedTexture\?\.dispose\?\.\(\);\s*texture\.dispose\(\);/s,
+    /dispose\(\) \{\s*if \(disposed\) return;\s*disposed = true;[\s\S]*?loadedTexture\?\.dispose\?\.\(\);\s*fallbackTexture\.dispose\(\);/s,
   );
+  assert.match(threeRuntime, /resource\.texture = loaded/);
+  assert.doesNotMatch(threeRuntime, /fallbackTexture\.image = loaded\.image/);
   assert.match(threeRuntime, /if \(disposed \|\| entry\.disposed \|\| entry\.textureUri !== uri\) \{\s*texture\.dispose\(\);/s);
   assert.match(threeRuntime, /function disposeRecordEntry\(entry\) \{\s*if \(entry\.disposed\) return;\s*entry\.disposed = true;\s*entry\.textureUri = "";/s);
 });
@@ -88,7 +90,8 @@ test("physical platter drops wait for audio preflight and failed videos keep the
     threeRuntime.indexOf("function createScreenMediaResource"),
     threeRuntime.indexOf("function disposeScreenMediaResource"),
   );
-  assert.match(mediaFactory, /const texture = fallbackTexture/);
+  assert.match(mediaFactory, /texture: fallbackTexture/);
+  assert.match(mediaFactory, /new THREE\.VideoTexture\(video\)/);
   assert.match(mediaFactory, /mediaState: "loading"/);
   assert.match(mediaFactory, /video\.addEventListener\("loadeddata", handleLoadedData\)/);
   assert.match(mediaFactory, /video\.addEventListener\("canplay", handleCanPlay\)/);
@@ -102,8 +105,23 @@ test("video textures wait for a decoded frame and preserve the last frame throug
     threeRuntime.indexOf("function createScreenMediaResource"),
     threeRuntime.indexOf("function disposeScreenMediaResource"),
   );
+  const videoFactoryEnd = mediaFactory.indexOf(
+    "\n  if (imageUri) {",
+    mediaFactory.indexOf("return resource;"),
+  );
+  const videoFactory = mediaFactory.slice(0, videoFactoryEnd);
   assert.match(mediaFactory, /hasPresentedFrame: false/);
   assert.match(mediaFactory, /lastPresentedVideoTime: Number\.NaN/);
+  assert.ok(
+    /new THREE\.VideoTexture\(video\)/.test(videoFactory)
+      || /drawImage\(\s*video\b/.test(videoFactory),
+    "decoded video must use a dedicated video upload path (VideoTexture or a stable frame canvas)",
+  );
+  assert.doesNotMatch(
+    videoFactory,
+    /const texture = fallbackTexture[\s\S]*?texture\.image = video/,
+    "an allocated fallback CanvasTexture cannot be promoted to a differently sized video source",
+  );
 
   const presenter = mediaFactory.slice(
     mediaFactory.indexOf("const presentVideoFrame"),
@@ -111,20 +129,20 @@ test("video textures wait for a decoded frame and preserve the last frame throug
   );
   assert.match(presenter, /video\.readyState < 2/);
   assert.match(presenter, /resource\.hasPresentedFrame = true/);
-  assert.match(presenter, /resource\.lastPresentedVideoTime = Number\(video\.currentTime\) \|\| 0/);
-  assert.match(presenter, /texture\.image = video/);
-  assert.match(presenter, /texture\.needsUpdate = true/);
+  assert.match(presenter, /resource\.lastPresentedVideoTime = mediaTime/);
+  assert.match(presenter, /resource\.texture = videoTexture/);
+  assert.match(presenter, /video\.seeking/);
 
   const frameLoop = mediaFactory.slice(
     mediaFactory.indexOf("const scheduleFrame"),
     mediaFactory.indexOf("const handleMetadata"),
   );
   assert.match(frameLoop, /video\.requestVideoFrameCallback/);
-  assert.match(frameLoop, /presentVideoFrame\(\)/);
+  assert.match(frameLoop, /presentVideoFrame\(\{ mediaTime: video\.currentTime \}\)/);
   assert.match(
     frameLoop,
-    /if \(video\.requestVideoFrameCallback\) scheduleFrame\(\);\s*else presentVideoFrame\(\);/s,
-    "browsers without requestVideoFrameCallback still promote a decoded current frame",
+    /presentVideoFrame\(\{ mediaTime: video\.currentTime \}\);\s*if \(video\.requestVideoFrameCallback\) scheduleFrame\(\);/s,
+    "an already decoded current frame must be promoted before waiting for another callback",
   );
 
   const waiting = mediaFactory.slice(
@@ -142,12 +160,64 @@ test("video textures wait for a decoded frame and preserve the last frame throug
   );
 
   assert.match(mediaFactory, /posterImage = document\.createElement\("img"\)/);
-  assert.match(mediaFactory, /fallbackImage = posterImage/);
-  assert.match(mediaFactory, /if \(resource\.hasPresentedFrame\) return;\s*texture\.image = fallbackImage/s);
-  assert.match(mediaFactory, /texture\.image = fallbackImage;\s*texture\.needsUpdate = true;/s);
+  assert.match(mediaFactory, /posterTexture = new THREE\.Texture\(posterImage\)/);
+  assert.match(mediaFactory, /if \(resource\.hasPresentedFrame\) return;/);
+  assert.match(mediaFactory, /resource\.texture = posterTexture/);
+  assert.doesNotMatch(mediaFactory, /texture\.image = (?:posterImage|video)/);
   assert.match(mediaFactory, /video\.cancelVideoFrameCallback\(resource\.frameCallback\)/);
   assert.match(mediaFactory, /posterImage\.onload = null/);
   assert.match(mediaFactory, /posterImage\.removeAttribute\("src"\)/);
+});
+
+test("Director surface identity advances from the same live audio frame used for video sync", () => {
+  const renderLoop = threeRuntime.slice(
+    threeRuntime.indexOf("const render ="),
+    threeRuntime.indexOf("\n  render();"),
+  );
+  const usesFrameClockForSurfaceSelection = (
+    /buildEchoRecordVisualSurfaces\(\{[\s\S]*?clockSeconds:\s*framePlayback\.currentTime/.test(renderLoop)
+    || /(?:sync|refresh|select|resolve)\w*Director\w*\(\s*framePlayback\.currentTime/.test(renderLoop)
+    || /(?:sync|refresh|select|resolve)\w*Visual\w*\(\s*framePlayback\.currentTime/.test(renderLoop)
+  );
+  assert.equal(
+    usesFrameClockForSurfaceSelection,
+    true,
+    "screen/disc identity must cross Director cue boundaries on the requestAnimationFrame audio clock, not wait for the coarse React audio timeupdate event",
+  );
+});
+
+test("the spinning record stays bound to the now-playing Director surface while context screens page", () => {
+  const setVisuals = threeRuntime.slice(
+    threeRuntime.indexOf("const setVisuals ="),
+    threeRuntime.indexOf("const setPlacedRecord ="),
+  );
+  const hasExplicitDirectorBinding = (
+    /state\.(?:directorVisual|nowPlayingVisual|primaryVisual)/.test(setVisuals)
+    || /(?:activeVisuals|visuals)\.find\([\s\S]*?now-playing/.test(setVisuals)
+  );
+  assert.equal(
+    hasExplicitDirectorBinding,
+    true,
+    "the disc needs an explicit current-Director resource; screen zero may be a Reference, character, or scene page",
+  );
+  assert.doesNotMatch(
+    setVisuals,
+    /player\.recordMaterials\[1\]\.map = screens\[0\]\.mediaResource\.texture/,
+    "paging the three screens must not silently replace the disc's current Director picture",
+  );
+});
+
+test("Director visualizer cues render an animated clock-bound texture instead of a blank fallback", () => {
+  const visualizer = threeRuntime.slice(
+    threeRuntime.indexOf("function createGeneratedDirectorVisualizerResource"),
+    threeRuntime.indexOf("function createScreenMediaResource"),
+  );
+  assert.match(visualizer, /new THREE\.CanvasTexture\(canvas\)/);
+  assert.match(visualizer, /const updateFrame = \(clockSeconds = 0/);
+  assert.match(visualizer, /texture\.needsUpdate = true/);
+  assert.match(visualizer, /DIRECTOR VISUALIZER/);
+  assert.match(visualizer, /firstFramePromise: Promise\.resolve\(\{ status: "generated-visualizer" \}\)/);
+  assert.match(threeRuntime, /if \(visual\.kind === "generated-visualizer"\)/);
 });
 
 test("the screen pool warms exactly three forward surfaces and refreshes videos without frame callbacks", () => {
@@ -190,8 +260,8 @@ test("the screen pool warms exactly three forward surfaces and refreshes videos 
   assert.match(gameSetVisuals, /mediaPool\.warm\(state\.warmVisuals \|\| \[\]\)/);
 
   const updater = threeRuntime.slice(
-    threeRuntime.indexOf("function updateAlbumScreen"),
-    threeRuntime.indexOf("function createScreenMediaResource"),
+    threeRuntime.indexOf("function updateMediaResourcePlayback"),
+    threeRuntime.indexOf("function createGeneratedDirectorVisualizerResource"),
   );
   assert.match(updater, /!video\.requestVideoFrameCallback/);
   assert.match(updater, /video\.readyState >= 2/);

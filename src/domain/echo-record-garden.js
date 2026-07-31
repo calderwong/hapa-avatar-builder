@@ -462,7 +462,9 @@ export function resolveEchoRecordMediaUri(value = "", apiBase = "") {
 
 export function inferEchoRecordMediaKind(value = "", declared = "") {
   const normalizedDeclared = slug(declared);
-  if (["video", "image", "audio", "model"].includes(normalizedDeclared)) return normalizedDeclared;
+  if (["video", "image", "audio", "model", "generated-visualizer"].includes(normalizedDeclared)) {
+    return normalizedDeclared;
+  }
   const uri = text(String(value || "")).split(/[?#]/)[0].toLowerCase();
   if (/\.(?:mp4|mov|m4v|webm|mkv|avi)$/.test(uri) || /^data:video\//.test(uri)) return "video";
   if (/\.(?:png|jpe?g|webp|gif|avif|heic|svg)$/.test(uri) || /^data:image\//.test(uri)) return "image";
@@ -789,6 +791,8 @@ function visualSurface({
 }) {
   const normalizedUri = text(uri);
   const normalizedTruth = object(truth);
+  const normalizedKind = inferEchoRecordMediaKind(normalizedUri, kind);
+  const generated = normalizedKind === "generated-visualizer";
   const status = normalizedTruthStatus(normalizedTruth.status || normalizedTruth.sourceStatus);
   const embeddedCard = attachedCard && typeof attachedCard === "object" && !Array.isArray(attachedCard)
     ? attachedCard
@@ -815,10 +819,10 @@ function visualSurface({
     media: {
       uri: normalizedUri,
       posterUri: text(posterUri),
-      kind: inferEchoRecordMediaKind(normalizedUri, kind),
-      availability: normalizedUri ? "routable" : "missing",
+      kind: normalizedKind,
+      availability: normalizedUri ? "routable" : generated ? "generated" : "missing",
     },
-    interactive: Boolean(normalizedUri),
+    interactive: Boolean(normalizedUri || generated),
     truth: {
       ...normalizedTruth,
       status,
@@ -856,7 +860,11 @@ function visualSurface({
 function shotSurface(shot, role, project, apiBase = "") {
   if (!shot) return null;
   const uri = resolveEchoRecordMediaUri(shot.media?.uri, apiBase);
-  if (!uri) return null;
+  const generatedVisualizer = shot.media?.kind === "generated-visualizer";
+  if (!uri && !generatedVisualizer) return null;
+  const nowPlaying = role === "now-playing" || role.startsWith("now-playing-");
+  const holdingLastFrame = role === "now-playing-hold"
+    || role.startsWith("now-playing-hold-");
   return visualSurface({
     id: `echo-surface:${projectSongId(project)}:${role}:${shot.index}`,
     role,
@@ -864,9 +872,9 @@ function shotSurface(shot, role, project, apiBase = "") {
     sourceId: shot.id,
     songId: projectSongId(project),
     title: shot.title,
-    subtitle: role === "now-playing"
+    subtitle: nowPlaying && !holdingLastFrame
       ? "Playing now"
-      : role === "now-playing-hold"
+      : holdingLastFrame
         ? "Holding the last decoded Director frame"
         : role === "buffered-upcoming"
           ? "Buffered upcoming Director shot"
@@ -883,6 +891,7 @@ function shotSurface(shot, role, project, apiBase = "") {
       sourceOutSeconds: shot.media.sourceOutSeconds,
       sourceDurationSeconds: shot.media.sourceDurationSeconds,
       playbackMode: shot.media.playbackMode,
+      holdLastFrame: holdingLastFrame,
       contentHash: shot.media.contentHash,
     },
     rights: shot.rights,
@@ -1195,6 +1204,22 @@ export function buildEchoRecordVisualSurfaces({
   }
   const timelineSurfaces = [
     currentSurface,
+    currentSurface && shotSurface(
+      currentShot || timeline[heldShotIndex],
+      currentSurface.role === "now-playing-hold"
+        ? "now-playing-hold-left"
+        : "now-playing-left",
+      project,
+      apiBase,
+    ),
+    currentSurface && shotSurface(
+      currentShot || timeline[heldShotIndex],
+      currentSurface.role === "now-playing-hold"
+        ? "now-playing-hold-right"
+        : "now-playing-right",
+      project,
+      apiBase,
+    ),
     nextSurface,
   ].filter(Boolean);
   const avatar = matchingAvatar(project, avatars);
@@ -1380,7 +1405,8 @@ export function echoRecordVideoPlaybackPlan({
   videoCurrentTime = 0,
   videoDuration = 0,
   readyState = 0,
-  hardSeekToleranceSeconds = 0.75,
+  hardSeekToleranceSeconds = 0.1,
+  holdLastFrame = false,
 } = {}) {
   const clock = Math.max(0, finite(clockSeconds, 0));
   const start = Math.max(0, finite(startSeconds, 0));
@@ -1391,7 +1417,9 @@ export function echoRecordVideoPlaybackPlan({
   const loopsSource = slug(playbackMode) === "loop" && sourceSpan > 0.04;
   const currentVideoTime = Math.max(0, finite(videoCurrentTime, 0));
   const end = start + duration;
-  const phase = !clockLocked
+  const phase = holdLastFrame
+    ? "hold"
+    : !clockLocked
     ? "ambient"
     : clock < start
       ? "future"
@@ -1407,7 +1435,12 @@ export function echoRecordVideoPlaybackPlan({
   const ambientSourceElapsed = loopsSource
     ? ambientElapsed % sourceSpan
     : ambientElapsed % duration;
-  const expected = !clockLocked
+  const holdSourceEnd = sourceEnd > sourceStart
+    ? sourceEnd
+    : sourceStart + duration;
+  const expected = phase === "hold"
+    ? Math.max(sourceStart, holdSourceEnd - 0.04)
+    : !clockLocked
     ? sourceStart + (reducedMotion ? 0 : ambientSourceElapsed)
     : phase === "future"
       ? sourceStart
@@ -1429,7 +1462,6 @@ export function echoRecordVideoPlaybackPlan({
   const presentable = finite(readyState, 0) >= 2;
   const buffered = finite(readyState, 0) >= 3;
   const shouldPlay = !documentHidden
-    && presentable
     && (clockLocked ? playbackPlaying && active : !reducedMotion);
   const seekTarget = effectiveExpected;
   const seekDrift = seekTarget - currentVideoTime;

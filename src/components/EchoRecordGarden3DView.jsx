@@ -33,6 +33,7 @@ import {
   reconcileEchoRecordGardenSnapshot,
   resolveEchoRecordGardenTableDrop,
   resolveEchoRecordMediaUri,
+  selectEchoRecordDirectorShots,
   selectEchoRecordMediaWindow,
   unwrapEchoDirectorProject,
 } from "../domain/echo-record-garden.js";
@@ -40,8 +41,9 @@ import { localFileApiUri } from "../domain/local-media-uri.js";
 
 const RECORDS_PER_CRATE = 6;
 const SCREEN_COUNT = 3;
-const SCREEN_MEDIA_POOL_LIMIT = SCREEN_COUNT * 2;
-const MEDIA_HARD_SEEK_COOLDOWN_SECONDS = 0.8;
+const SCREEN_MEDIA_POOL_LIMIT = SCREEN_COUNT * 2 + 1;
+const MEDIA_HARD_SEEK_COOLDOWN_SECONDS = 0.25;
+const PRIMARY_MEDIA_START_TIMEOUT_MS = 1_500;
 const RECORD_GARDEN_STORAGE_KEY = "hapa.echo-record-garden.v1";
 const RECORD_GARDEN_DIAGNOSTICS_KEY = "__HAPA_ECHO_RECORD_GARDEN_DIAGNOSTICS__";
 
@@ -65,6 +67,7 @@ function recordGardenDiagnostics() {
     bufferedVideos: 0,
     presentedVideos: 0,
     warmingVideos: 0,
+    warmReadyVideos: 0,
     waitingVideos: 0,
     mediaPoolSize: 0,
     mediaPlayRequests: 0,
@@ -200,6 +203,33 @@ function validateRecordAudioSource(audioUri, { signal, timeoutMs = 8_000 } = {})
   });
 }
 
+function waitForMediaPresentation(presentation, timeoutMs = PRIMARY_MEDIA_START_TIMEOUT_MS) {
+  if (!presentation || typeof presentation.then !== "function") {
+    return Promise.resolve({ status: "unavailable" });
+  }
+  return new Promise((resolve) => {
+    let settled = false;
+    const timeout = globalThis.setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      resolve({ status: "timeout" });
+    }, Math.max(0, Number(timeoutMs) || 0));
+    Promise.resolve(presentation)
+      .then((result) => {
+        if (settled) return;
+        settled = true;
+        globalThis.clearTimeout(timeout);
+        resolve(result || { status: "presented" });
+      })
+      .catch(() => {
+        if (settled) return;
+        settled = true;
+        globalThis.clearTimeout(timeout);
+        resolve({ status: "failed" });
+      });
+  });
+}
+
 function surfaceKindLabel(surface = {}) {
   return String(surface.role || surface.sourceType || "album visual")
     .replace(/[-_]+/g, " ")
@@ -245,6 +275,10 @@ function toGardenVisual(surface = {}) {
       surface?.provenance?.playbackMode
       || surface.playbackMode
       || "once",
+    ),
+    holdLastFrame: Boolean(
+      surface?.provenance?.holdLastFrame
+      ?? surface.holdLastFrame,
     ),
     durationSeconds: Math.max(0, endSeconds - startSeconds) || Number(surface.durationSeconds) || 0,
     clockLocked: surface.sourceType === "director-shot",
@@ -389,7 +423,9 @@ export default function EchoRecordGarden3DView({
   const cardRequestGenerationRef = useRef(0);
   const cardResolutionRef = useRef(null);
   const pendingCardRevealRef = useRef(false);
+  const directorBoundaryRef = useRef("");
   const actionsRef = useRef({});
+  const syncDirectorVisualClockRef = useRef(() => {});
   const crateButtonRefs = useRef(new Map());
   const initialSongIdRef = useRef(selectedSongId);
   const crateOrderRef = useRef(preferences.crateOrder);
@@ -417,6 +453,9 @@ export default function EchoRecordGarden3DView({
   const [printedCards, setPrintedCards] = useState([]);
   const [cardResolution, setCardResolution] = useState(() => initialCardResolution(preferences.cardJob));
   const [playback, setPlayback] = useState(() => initialPlaybackState(preferences.playbackSeconds));
+  const [directorVisualClock, setDirectorVisualClock] = useState(
+    Math.max(0, Number(preferences.playbackSeconds) || 0),
+  );
   const [muted, setMuted] = useState(preferences.muted);
   const [notice, setNotice] = useState(
     preferences.cardJob?.status === "interrupted"
@@ -447,6 +486,25 @@ export default function EchoRecordGarden3DView({
   const project = activeProjectPacket?.project || null;
   const referenceCards = activeProjectPacket?.references || [];
   const activeProjectSongId = placedRecordId || selectedRecordId;
+  const syncDirectorVisualClock = useCallback((seconds, { force = false } = {}) => {
+    if (!project) {
+      directorBoundaryRef.current = "";
+      return;
+    }
+    const clockSeconds = Math.max(0, Number(seconds) || 0);
+    const selection = selectEchoRecordDirectorShots(project, clockSeconds);
+    const signature = [
+      projectSongIdentity(project),
+      selection.currentIndex,
+      selection.nextIndex,
+      selection.current?.id || "gap",
+      selection.current?.media?.contentHash || selection.current?.media?.uri || "",
+    ].join("|");
+    if (!force && directorBoundaryRef.current === signature) return;
+    directorBoundaryRef.current = signature;
+    setDirectorVisualClock(clockSeconds);
+  }, [project]);
+  syncDirectorVisualClockRef.current = syncDirectorVisualClock;
 
   useEffect(() => () => {
     cardRequestGenerationRef.current += 1;
@@ -486,12 +544,12 @@ export default function EchoRecordGarden3DView({
     project
       ? buildEchoRecordDirectorWarmSurfaces({
         project,
-        clockSeconds: playback.currentTime,
+        clockSeconds: directorVisualClock,
         count: SCREEN_COUNT * 2,
         apiBase,
       }).map(toGardenVisual)
       : []
-  ), [apiBase, playback.currentTime, project]);
+  ), [apiBase, directorVisualClock, project]);
   const warmVisuals = useMemo(
     () => selectGardenWarmVisuals(visibleVisuals, directorWarmVisuals, mediaWindow.warm),
     [directorWarmVisuals, mediaWindow.warm, visibleVisuals],
@@ -499,6 +557,13 @@ export default function EchoRecordGarden3DView({
   const selectedVisual = useMemo(
     () => visibleVisuals.find((visual) => visual.id === selectedVisualId) || visibleVisuals[0] || null,
     [selectedVisualId, visibleVisuals],
+  );
+  const directorVisual = useMemo(
+    () => visuals.find((visual) => visual.role === "now-playing"
+      || visual.role === "now-playing-hold")
+      || visuals.find((visual) => visual.role?.startsWith("now-playing"))
+      || null,
+    [visuals],
   );
   const visualFamilyCoverage = useMemo(() => ([
     {
@@ -802,7 +867,7 @@ export default function EchoRecordGarden3DView({
       referenceCards,
       avatars,
       sceneGraph,
-      clockSeconds: playback.currentTime,
+      clockSeconds: directorVisualClock,
       limit: SCREEN_COUNT * 4,
       apiBase,
     }).map(toGardenVisual);
@@ -814,7 +879,7 @@ export default function EchoRecordGarden3DView({
   }, [
     apiBase,
     avatars,
-    playback.currentTime,
+    directorVisualClock,
     project,
     referenceCards,
     sceneGraph,
@@ -980,8 +1045,14 @@ export default function EchoRecordGarden3DView({
         count: SCREEN_COUNT * 2,
         apiBase,
       }).map(toGardenVisual);
-      gameRef.current?.setVisuals(immediateWindow.visible, {
+      const immediateDirectorVisual = immediateVisuals.find((visual) => (
+        visual.role === "now-playing"
+        || visual.role === "now-playing-hold"
+        || visual.role?.startsWith("now-playing")
+      )) || immediateWindow.visible[0] || null;
+      const primaryPresentation = gameRef.current?.setVisuals(immediateWindow.visible, {
         activeSongId: songId,
+        directorVisual: immediateDirectorVisual,
         warmVisuals: selectGardenWarmVisuals(
           immediateWindow.visible,
           immediateDirectorWarm,
@@ -1000,6 +1071,10 @@ export default function EchoRecordGarden3DView({
       gameRef.current?.setPlacedRecord(songId);
       setNotice(`${nextProject.song_title || "Record"} is on the turntable.`);
       if (autoplay) {
+        const presentation = await waitForMediaPresentation(primaryPresentation);
+        if (presentation?.status === "timeout") {
+          setNotice(`${nextProject.song_title || "Record"} is playing while its first Director frame finishes decoding.`);
+        }
         await audio.play().catch((error) => {
           setNotice(`Record placed; playback is waiting for permission: ${error?.message || "press Play again"}`);
         });
@@ -1312,6 +1387,7 @@ export default function EchoRecordGarden3DView({
             playing: !audio.paused && !audio.ended,
           } : null;
         },
+        syncDirectorVisuals: (seconds) => syncDirectorVisualClockRef.current?.(seconds),
         onSelectRecord: (songId) => actionsRef.current.selectRecord?.(songId, "Record selected. Drag it to the turntable or use Place on player."),
         onDropRecord: (songId) => void actionsRef.current.placeRecord?.(songId, { autoplay: true }),
         onSelectVisual: (visual) => void actionsRef.current.generateCardForVisual?.(visual),
@@ -1347,9 +1423,10 @@ export default function EchoRecordGarden3DView({
   useEffect(() => {
     gameRef.current?.setVisuals(visibleVisuals, {
       activeSongId: placedRecordId || selectedRecordId,
+      directorVisual,
       warmVisuals,
     });
-  }, [placedRecordId, selectedRecordId, visibleVisuals, warmVisuals]);
+  }, [directorVisual, placedRecordId, selectedRecordId, visibleVisuals, warmVisuals]);
 
   useEffect(() => {
     gameRef.current?.setPlayback({
@@ -1855,6 +1932,7 @@ function createEchoRecordGardenGame({
   canvas,
   apiBase = "",
   getAudioClock,
+  syncDirectorVisuals,
   onCameraChange,
   onRecordTransform,
   onSelectRecord,
@@ -2266,23 +2344,26 @@ function createEchoRecordGardenGame({
   const setVisuals = (visuals = [], state = {}) => {
     activeVisuals = visuals.slice(0, SCREEN_COUNT);
     assignAlbumScreenVisuals(screens, activeVisuals, mediaPool);
+    const directorVisual = state.directorVisual
+      || activeVisuals.find((visual) => visual?.role === "now-playing"
+        || visual?.role === "now-playing-hold"
+        || visual?.role?.startsWith("now-playing"))
+      || null;
+    const directorPresentation = setPlayerRecordVisual(player, directorVisual, { mediaPool });
     mediaPool.warm(state.warmVisuals || []);
     visualRecordId = state.activeSongId || visualRecordId;
     recordEntries.forEach((entry, songId) => {
-      if (songId === visualRecordId && screens[0]?.mediaResource?.texture) {
-        entry.faceMaterial.map = screens[0].mediaResource.texture;
-      } else {
-        entry.faceMaterial.map = entry.coverTexture || entry.labelTexture;
-      }
-      entry.faceMaterial.needsUpdate = true;
+      const texture = songId === visualRecordId && player.mediaResource?.texture
+        ? player.mediaResource.texture
+        : entry.coverTexture || entry.labelTexture;
+      assignMaterialTexture(entry.faceMaterial, texture);
     });
-    if (screens[0]?.mediaResource?.texture) {
-      player.recordMaterials[1].map = screens[0].mediaResource.texture;
-      player.recordMaterials[1].color.setHex(0xffffff);
-      player.recordMaterials[1].needsUpdate = true;
+    if (player.mediaResource?.texture) {
+      assignMaterialTexture(player.recordMaterials[1], player.mediaResource.texture);
     }
     diagnostics.visualSurfaceCount = activeVisuals.length;
     diagnostics.activeVideos = screens.filter((screen) => Boolean(screen.mediaResource?.video)).length;
+    return directorPresentation;
   };
 
   const setPlacedRecord = (songId) => {
@@ -2437,6 +2518,7 @@ function createEchoRecordGardenGame({
           playing: Boolean(liveAudioClock.playing),
         }
       : playback;
+    if (syncDirectorVisuals) syncDirectorVisuals(framePlayback.currentTime);
     const framePowerProfile = framePlayback.reducedMotion
       ? ECHO_RECORD_GARDEN_POWER_PROFILES.reduced
       : ECHO_RECORD_GARDEN_POWER_PROFILES.full;
@@ -2486,6 +2568,22 @@ function createEchoRecordGardenGame({
         focus: index === 0,
       });
     });
+    if (
+      player.mediaResource
+      && player.visual
+      && !screens.some((screen) => screen.mediaResource === player.mediaResource)
+    ) {
+      updateMediaResourcePlayback(player.mediaResource, player.visual, {
+        playback: framePlayback,
+        elapsed,
+        reducedMotion: playback.reducedMotion,
+      });
+    }
+    if (player.mediaResource?.texture) {
+      assignMaterialTexture(player.recordMaterials[1], player.mediaResource.texture);
+      const activeRecord = recordEntries.get(visualRecordId);
+      if (activeRecord) assignMaterialTexture(activeRecord.faceMaterial, player.mediaResource.texture);
+    }
     updateSundayScene(sceneResources, elapsed, playback.reducedMotion);
     renderer.render(scene, camera);
     renderedFrames += 1;
@@ -2517,6 +2615,7 @@ function createEchoRecordGardenGame({
       canvas.dataset.bufferedVideos = String(diagnostics.bufferedVideos);
       canvas.dataset.presentedVideos = String(diagnostics.presentedVideos);
       canvas.dataset.warmingVideos = String(diagnostics.warmingVideos);
+      canvas.dataset.warmReadyVideos = String(diagnostics.warmReadyVideos);
       canvas.dataset.waitingVideos = String(diagnostics.waitingVideos);
       canvas.dataset.mediaPoolSize = String(diagnostics.mediaPoolSize);
       canvas.dataset.mediaHardSeeks = String(diagnostics.mediaHardSeeks);
@@ -2558,6 +2657,10 @@ function createEchoRecordGardenGame({
         else disposeScreenMediaResource(screen.mediaResource);
         screen.mediaResource = null;
       });
+      if (player.mediaResource?.poolManaged) mediaPool.release(player.mediaResource);
+      else disposeScreenMediaResource(player.mediaResource);
+      player.mediaResource = null;
+      player.visual = null;
       mediaPool.dispose();
       screens.forEach(disposeAlbumScreen);
       player.dispose();
@@ -2570,6 +2673,7 @@ function createEchoRecordGardenGame({
       diagnostics.bufferedVideos = 0;
       diagnostics.presentedVideos = 0;
       diagnostics.warmingVideos = 0;
+      diagnostics.warmReadyVideos = 0;
       diagnostics.waitingVideos = 0;
       diagnostics.mediaPoolSize = 0;
       diagnostics.contextState = diagnostics.liveRenderers ? "available" : "disposed";
@@ -2780,9 +2884,10 @@ function createRecordPlayer(world) {
     toneArm: toneArmPivot,
     dropRing,
     platterWorld,
+    visual: null,
     mediaResource: null,
     dispose() {
-      disposeScreenMediaResource(this.mediaResource);
+      if (!this.mediaResource?.poolManaged) disposeScreenMediaResource(this.mediaResource);
       root.traverse((object) => {
         object.geometry?.dispose?.();
         if (Array.isArray(object.material)) object.material.forEach((material) => material.dispose?.());
@@ -2819,7 +2924,8 @@ function screenMediaSourceIdentity(visual = {}) {
     revision: String(revision),
     key: JSON.stringify([
       videoUri ? "video" : imageUri ? "image" : "fallback",
-      videoUri || imageUri || "",
+      videoUri || "",
+      imageUri || "",
       String(revision),
       mode,
       ...clipIdentity,
@@ -2827,25 +2933,34 @@ function screenMediaSourceIdentity(visual = {}) {
   };
 }
 
-function setPlayerRecordVisual(player, visual, { apiBase, renderer }) {
+function assignMaterialTexture(material, texture) {
+  if (!material || !texture || material.map === texture) return false;
+  material.map = texture;
+  material.color?.setHex?.(0xffffff);
+  material.needsUpdate = true;
+  return true;
+}
+
+function setPlayerRecordVisual(player, visual, { mediaPool }) {
   const identity = screenMediaSourceIdentity(visual);
-  if ((!identity.videoUri && !identity.imageUri) || player.mediaResource?.key === identity.key) return;
-  disposeScreenMediaResource(player.mediaResource);
-  const resource = createScreenMediaResource(visual, {
-    apiBase,
-    renderer,
-    fallbackTexture: createVisualTitleTexture(visual, { round: true }),
-  });
-  player.mediaResource = resource;
-  player.recordMaterials[1].map = resource.texture;
-  player.recordMaterials[1].color.setHex(0xffffff);
-  player.recordMaterials[1].needsUpdate = true;
+  if (player.mediaResource?.key === identity.key) {
+    player.visual = visual || null;
+    return player.mediaResource?.firstFramePromise || null;
+  }
+  const previous = player.mediaResource;
+  player.visual = visual || null;
+  player.mediaResource = visual ? mediaPool.acquire(visual) : null;
+  if (previous) mediaPool.release(previous);
+  if (player.mediaResource?.texture) {
+    assignMaterialTexture(player.recordMaterials[1], player.mediaResource.texture);
+  }
+  return player.mediaResource?.firstFramePromise || null;
 }
 
 function createAlbumScreens(world) {
   const specs = [
-    { x: -2.62, y: 2.1, z: -2.08, ry: 0.18, scale: 0.92 },
     { x: 0, y: 2.36, z: -2.42, ry: 0, scale: 1.15 },
+    { x: -2.62, y: 2.1, z: -2.08, ry: 0.18, scale: 0.92 },
     { x: 2.68, y: 2.04, z: -2.04, ry: -0.18, scale: 0.92 },
   ];
   return specs.map((spec, index) => {
@@ -2933,6 +3048,7 @@ function createScreenMediaPool({
 }) {
   const entries = new Map();
   let sequence = 0;
+  let warmSignature = "";
 
   const updateDiagnostics = () => {
     diagnostics.mediaPoolSize = entries.size;
@@ -2944,6 +3060,9 @@ function createScreenMediaPool({
     )).length;
     diagnostics.warmingVideos = [...entries.values()].filter(({ resource, warm }) => (
       warm && resource.video
+    )).length;
+    diagnostics.warmReadyVideos = [...entries.values()].filter(({ resource, warm }) => (
+      warm && resource.video && resource.hasPresentedFrame
     )).length;
     diagnostics.waitingVideos = [...entries.values()].filter(({ resource }) => (
       resource.video
@@ -3012,6 +3131,15 @@ function createScreenMediaPool({
       trim();
     },
     warm(visuals = []) {
+      const nextWarmSignature = visuals
+        .slice(0, SCREEN_COUNT)
+        .map((visual) => screenMediaSourceIdentity(visual).key)
+        .join("\n");
+      if (warmSignature === nextWarmSignature) {
+        updateDiagnostics();
+        return;
+      }
+      warmSignature = nextWarmSignature;
       entries.forEach((entry) => { entry.warm = false; });
       const warmKeys = new Set();
       visuals.slice(0, SCREEN_COUNT).forEach((visual) => {
@@ -3029,6 +3157,7 @@ function createScreenMediaPool({
     dispose() {
       entries.forEach(({ resource }) => resource.dispose());
       entries.clear();
+      warmSignature = "";
       updateDiagnostics();
     },
   };
@@ -3065,15 +3194,16 @@ function assignAlbumScreenVisuals(screens, visuals, mediaPool) {
     screen.mediaResource = assignment.resource;
     screen.hitTarget.userData.visual = assignment.visual;
     screen.root.userData.visual = assignment.visual;
-    screen.screenMaterial.map = assignment.resource.texture;
-    screen.screenMaterial.needsUpdate = true;
+    assignMaterialTexture(screen.screenMaterial, assignment.resource.texture);
   });
   mediaPool.trim();
 }
 
-function updateAlbumScreen(screen, { playback, elapsed, reducedMotion, focus }) {
-  const resource = screen.mediaResource;
-  const visual = screen.visual;
+function updateMediaResourcePlayback(resource, visual, { playback, elapsed, reducedMotion }) {
+  resource?.updateFrame?.(playback.currentTime, {
+    playing: playback.playing,
+    reducedMotion,
+  });
   if (resource?.video && visual && resource.mediaState !== "failed") {
     const video = resource.video;
     const plan = echoRecordVideoPlaybackPlan({
@@ -3083,6 +3213,7 @@ function updateAlbumScreen(screen, { playback, elapsed, reducedMotion, focus }) 
       sourceStartSeconds: visual.sourceStartSeconds,
       sourceEndSeconds: visual.sourceEndSeconds,
       playbackMode: visual.playbackMode,
+      holdLastFrame: visual.holdLastFrame,
       clockLocked: visual.clockLocked !== false,
       playbackPlaying: playback.playing,
       documentHidden: document.hidden,
@@ -3091,6 +3222,7 @@ function updateAlbumScreen(screen, { playback, elapsed, reducedMotion, focus }) 
       videoDuration: video.duration,
       readyState: video.readyState,
     });
+    resource.expectedMediaTime = plan.expectedSeconds;
     if (
       plan.shouldSeek
       && video.readyState >= 1
@@ -3115,9 +3247,110 @@ function updateAlbumScreen(screen, { playback, elapsed, reducedMotion, focus }) 
     video.playbackRate = plan.playbackRate;
     setScreenVideoPlaying(resource, plan.shouldPlay);
   }
+}
+
+function updateAlbumScreen(screen, { playback, elapsed, reducedMotion, focus }) {
+  const resource = screen.mediaResource;
+  const visual = screen.visual;
+  updateMediaResourcePlayback(resource, visual, { playback, elapsed, reducedMotion });
+  if (resource?.texture) assignMaterialTexture(screen.screenMaterial, resource.texture);
   screen.glow.material.opacity = focus
     ? 0.11 + (reducedMotion ? 0 : Math.sin(elapsed * 1.2) * 0.025)
     : 0.065;
+}
+
+function createGeneratedDirectorVisualizerResource(visual, { diagnostics, fallbackTexture }) {
+  const canvas = document.createElement("canvas");
+  canvas.width = 960;
+  canvas.height = 540;
+  const context = canvas.getContext("2d");
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.minFilter = THREE.LinearFilter;
+  texture.magFilter = THREE.LinearFilter;
+  texture.generateMipmaps = false;
+  let disposed = false;
+  let lastFrame = -1;
+
+  const updateFrame = (clockSeconds = 0, { reducedMotion = false } = {}) => {
+    if (disposed || !context) return;
+    const frame = reducedMotion ? 0 : Math.floor(Math.max(0, Number(clockSeconds) || 0) * 30);
+    if (frame === lastFrame) return;
+    lastFrame = frame;
+    const time = reducedMotion ? 0 : frame / 30;
+    const width = canvas.width;
+    const height = canvas.height;
+    const hue = (190 + time * 17) % 360;
+    const gradient = context.createLinearGradient(0, 0, width, height);
+    gradient.addColorStop(0, `hsl(${hue} 72% 10%)`);
+    gradient.addColorStop(0.5, `hsl(${(hue + 42) % 360} 78% 19%)`);
+    gradient.addColorStop(1, `hsl(${(hue + 105) % 360} 75% 8%)`);
+    context.fillStyle = gradient;
+    context.fillRect(0, 0, width, height);
+
+    context.globalAlpha = 0.2;
+    context.strokeStyle = "#8fffe8";
+    context.lineWidth = 1;
+    for (let x = 0; x <= width; x += 48) {
+      context.beginPath();
+      context.moveTo(x, 0);
+      context.lineTo(x, height);
+      context.stroke();
+    }
+    for (let y = 0; y <= height; y += 48) {
+      context.beginPath();
+      context.moveTo(0, y);
+      context.lineTo(width, y);
+      context.stroke();
+    }
+    context.globalAlpha = 1;
+
+    for (let band = 0; band < 3; band += 1) {
+      const centerY = height * (0.38 + band * 0.16);
+      context.beginPath();
+      for (let x = 0; x <= width; x += 5) {
+        const normalized = x / width;
+        const amplitude = 24 + band * 9;
+        const y = centerY
+          + Math.sin(normalized * Math.PI * (8 + band * 2) + time * (2.2 + band * 0.4)) * amplitude
+          + Math.sin(normalized * Math.PI * 22 - time * 1.3) * 8;
+        if (x === 0) context.moveTo(x, y);
+        else context.lineTo(x, y);
+      }
+      context.strokeStyle = band === 0 ? "#69ffe1" : band === 1 ? "#f7d777" : "#cb8bff";
+      context.lineWidth = 4 - band * 0.6;
+      context.shadowColor = context.strokeStyle;
+      context.shadowBlur = 16;
+      context.stroke();
+    }
+    context.shadowBlur = 0;
+    context.fillStyle = "rgba(6, 12, 18, 0.72)";
+    context.fillRect(36, 30, 465, 76);
+    context.fillStyle = "#7dffe6";
+    context.font = "700 21px ui-monospace, SFMono-Regular, Menlo, monospace";
+    context.fillText("DIRECTOR VISUALIZER", 58, 60);
+    context.fillStyle = "#f7f1db";
+    context.font = "600 25px system-ui, sans-serif";
+    context.fillText(String(visual.title || "Visualizer Only").slice(0, 34), 58, 91);
+    texture.needsUpdate = true;
+  };
+  updateFrame(visual.startSeconds || 0);
+  return {
+    key: screenMediaSourceIdentity(visual).key,
+    texture,
+    diagnostics,
+    mediaState: "ready",
+    generatedVisualizer: true,
+    hasPresentedFrame: true,
+    firstFramePromise: Promise.resolve({ status: "generated-visualizer" }),
+    updateFrame,
+    dispose() {
+      if (disposed) return;
+      disposed = true;
+      texture.dispose();
+      fallbackTexture?.dispose?.();
+    },
+  };
 }
 
 function createScreenMediaResource(visual, {
@@ -3129,36 +3362,55 @@ function createScreenMediaResource(visual, {
 }) {
   const identity = screenMediaSourceIdentity(visual);
   const { videoUri, imageUri } = identity;
+  if (visual.kind === "generated-visualizer") {
+    return createGeneratedDirectorVisualizerResource(visual, {
+      diagnostics,
+      fallbackTexture,
+    });
+  }
   if (videoUri) {
     const video = document.createElement("video");
     video.muted = true;
     video.playsInline = true;
-    video.loop = visual.clockLocked === false || visual.playbackMode === "loop";
+    video.loop = visual.clockLocked === false;
     video.preload = "auto";
     video.crossOrigin = "anonymous";
     video.src = resolveGardenMediaUri(videoUri, apiBase);
-    const texture = fallbackTexture;
-    texture.colorSpace = THREE.SRGBColorSpace;
-    texture.minFilter = THREE.LinearFilter;
-    texture.magFilter = THREE.LinearFilter;
-    texture.generateMipmaps = false;
-    let fallbackImage = texture.image;
+    const videoTexture = new THREE.VideoTexture(video);
+    videoTexture.colorSpace = THREE.SRGBColorSpace;
+    videoTexture.minFilter = THREE.LinearFilter;
+    videoTexture.magFilter = THREE.LinearFilter;
+    videoTexture.generateMipmaps = false;
     let posterImage = null;
+    let posterTexture = null;
+    let resolveFirstFrame;
+    let firstFrameSettled = false;
+    const firstFramePromise = new Promise((resolve) => {
+      resolveFirstFrame = resolve;
+    });
+    const settleFirstFrame = (status) => {
+      if (firstFrameSettled) return;
+      firstFrameSettled = true;
+      resolveFirstFrame?.({ status });
+    };
     const resource = {
       key: identity.key,
-      texture,
+      texture: fallbackTexture,
       video,
+      videoTexture,
       diagnostics,
       mediaState: "loading",
       hasPresentedFrame: false,
       lastPresentedVideoTime: Number.NaN,
+      expectedMediaTime: Math.max(0, Number(visual.sourceStartSeconds) || 0),
       desiredPlaying: false,
       playPending: null,
       nextPlayAttemptAt: 0,
       lastHardSeekAt: Number.NEGATIVE_INFINITY,
       frameCallback: 0,
       disposed: false,
-      presentVideoFrame: () => presentVideoFrame(),
+      firstFramePromise,
+      presentVideoFrame: (metadata) => presentVideoFrame(metadata),
       dispose() {
         if (resource.disposed) return;
         resource.disposed = true;
@@ -3170,6 +3422,7 @@ function createScreenMediaResource(visual, {
         video.removeEventListener("playing", handlePlaying);
         video.removeEventListener("waiting", handleWaiting);
         video.removeEventListener("stalled", handleWaiting);
+        video.removeEventListener("seeked", handleSeeked);
         video.removeEventListener("error", handleError);
         if (resource.frameCallback && video.cancelVideoFrameCallback) {
           video.cancelVideoFrameCallback(resource.frameCallback);
@@ -3182,37 +3435,55 @@ function createScreenMediaResource(visual, {
         video.pause();
         video.removeAttribute("src");
         video.load();
-        texture.dispose();
+        settleFirstFrame("disposed");
+        videoTexture.dispose();
+        posterTexture?.dispose?.();
+        fallbackTexture.dispose();
       },
     };
-    const presentVideoFrame = () => {
-      if (resource.disposed || video.readyState < 2) return false;
+    const presentVideoFrame = (metadata = null) => {
+      if (resource.disposed || video.readyState < 2 || video.seeking) return false;
+      const mediaTime = Math.max(0, Number(metadata?.mediaTime ?? video.currentTime) || 0);
+      const expected = Math.max(0, Number(resource.expectedMediaTime) || 0);
+      if (
+        visual.clockLocked !== false
+        && Math.abs(mediaTime - expected) > 0.12
+      ) return false;
       resource.hasPresentedFrame = true;
-      resource.lastPresentedVideoTime = Number(video.currentTime) || 0;
+      resource.lastPresentedVideoTime = mediaTime;
       resource.mediaState = video.readyState >= 3 ? "ready" : "buffering";
-      texture.image = video;
-      texture.needsUpdate = true;
+      resource.texture = videoTexture;
+      videoTexture.needsUpdate = true;
+      settleFirstFrame("presented");
       return true;
     };
     const scheduleFrame = () => {
       if (resource.disposed || !video.requestVideoFrameCallback || resource.frameCallback) return;
-      resource.frameCallback = video.requestVideoFrameCallback(() => {
+      resource.frameCallback = video.requestVideoFrameCallback((_now, metadata) => {
         resource.frameCallback = 0;
         if (resource.disposed) return;
-        presentVideoFrame();
+        presentVideoFrame(metadata);
         scheduleFrame();
       });
     };
     const prepareFirstFrame = () => {
       if (resource.disposed || video.readyState < 2) return;
       if (!resource.hasPresentedFrame) resource.mediaState = "first-frame-pending";
+      presentVideoFrame({ mediaTime: video.currentTime });
       if (video.requestVideoFrameCallback) scheduleFrame();
-      else presentVideoFrame();
     };
     const handleMetadata = () => {
       const sourceStart = Math.max(0, Number(visual.sourceStartSeconds) || 0);
-      if (sourceStart > 0 && Math.abs((Number(video.currentTime) || 0) - sourceStart) > 0.04) {
-        try { video.currentTime = sourceStart; } catch {}
+      const declaredEnd = Math.max(0, Number(visual.sourceEndSeconds) || 0);
+      const holdEnd = declaredEnd > sourceStart
+        ? declaredEnd
+        : sourceStart + Math.max(0.1, Number(visual.durationSeconds) || 0.1);
+      const initialTarget = visual.holdLastFrame
+        ? Math.max(sourceStart, holdEnd - 0.04)
+        : sourceStart;
+      resource.expectedMediaTime = initialTarget;
+      if (Math.abs((Number(video.currentTime) || 0) - initialTarget) > 0.04) {
+        try { video.currentTime = initialTarget; } catch {}
       }
     };
     const handleLoadedData = () => {
@@ -3224,6 +3495,7 @@ function createScreenMediaResource(visual, {
       prepareFirstFrame();
       scheduleFrame();
     };
+    const handleSeeked = () => prepareFirstFrame();
     const handleWaiting = () => {
       if (resource.disposed || resource.mediaState === "failed") return;
       if (resource.mediaState !== "buffering") diagnostics.mediaBufferingTransitions += 1;
@@ -3234,8 +3506,8 @@ function createScreenMediaResource(visual, {
       resource.mediaState = "failed";
       resource.desiredPlaying = false;
       if (!video.paused) video.pause();
-      texture.image = fallbackImage;
-      texture.needsUpdate = true;
+      resource.texture = posterTexture || fallbackTexture;
+      settleFirstFrame("failed");
       diagnostics.lastError = `Media unavailable: ${visual.title || "album visual"}`;
       onMediaError?.(visual);
     };
@@ -3245,10 +3517,20 @@ function createScreenMediaResource(visual, {
       posterImage.decoding = "async";
       posterImage.onload = () => {
         if (resource.disposed) return;
-        fallbackImage = posterImage;
+        posterTexture?.dispose?.();
+        posterTexture = new THREE.Texture(posterImage);
+        posterTexture.colorSpace = THREE.SRGBColorSpace;
+        posterTexture.minFilter = THREE.LinearFilter;
+        posterTexture.magFilter = THREE.LinearFilter;
+        posterTexture.generateMipmaps = false;
+        posterTexture.needsUpdate = true;
         if (resource.hasPresentedFrame) return;
-        texture.image = fallbackImage;
-        texture.needsUpdate = true;
+        const sourceStart = Math.max(0, Number(visual.sourceStartSeconds) || 0);
+        if (
+          visual.holdLastFrame
+          || Math.abs((Number(resource.expectedMediaTime) || 0) - sourceStart) > 0.12
+        ) return;
+        resource.texture = posterTexture;
       };
       posterImage.onerror = () => {};
       posterImage.src = resolveGardenMediaUri(imageUri, apiBase);
@@ -3259,17 +3541,34 @@ function createScreenMediaResource(visual, {
     video.addEventListener("playing", handlePlaying);
     video.addEventListener("waiting", handleWaiting);
     video.addEventListener("stalled", handleWaiting);
+    video.addEventListener("seeked", handleSeeked);
     video.addEventListener("error", handleError);
     video.load();
     return resource;
   }
   if (imageUri) {
-    const texture = fallbackTexture;
     const loader = new THREE.TextureLoader();
     loader.setCrossOrigin("anonymous");
     let loadedTexture = null;
     let disposed = false;
-    loader.load(
+    let resolveFirstFrame;
+    const firstFramePromise = new Promise((resolve) => {
+      resolveFirstFrame = resolve;
+    });
+    const resource = {
+      key: identity.key,
+      texture: fallbackTexture,
+      mediaState: "loading",
+      firstFramePromise,
+      dispose() {
+        if (disposed) return;
+        disposed = true;
+        resolveFirstFrame?.({ status: "disposed" });
+        loadedTexture?.dispose?.();
+        fallbackTexture.dispose();
+      },
+    };
+    loadedTexture = loader.load(
       resolveGardenMediaUri(imageUri, apiBase),
       (loaded) => {
         if (disposed) {
@@ -3279,26 +3578,23 @@ function createScreenMediaResource(visual, {
         loaded.colorSpace = THREE.SRGBColorSpace;
         loaded.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
         loadedTexture = loaded;
-        texture.image = loaded.image;
-        texture.needsUpdate = true;
+        resource.texture = loaded;
+        resource.mediaState = "ready";
+        resolveFirstFrame?.({ status: "image" });
       },
       undefined,
-      () => {},
-    );
-    return {
-      key: identity.key,
-      texture,
-      dispose() {
-        if (disposed) return;
-        disposed = true;
-        loadedTexture?.dispose?.();
-        texture.dispose();
+      () => {
+        resource.mediaState = "failed";
+        resolveFirstFrame?.({ status: "failed" });
       },
-    };
+    );
+    return resource;
   }
   return {
     key: identity.key,
     texture: fallbackTexture,
+    mediaState: "fallback",
+    firstFramePromise: Promise.resolve({ status: "fallback" }),
     dispose: () => fallbackTexture.dispose(),
   };
 }

@@ -370,14 +370,23 @@ test("visual surfaces combine timeline, references, character, and matching scen
     avatars,
     sceneGraph,
     clockSeconds: 2,
-    limit: 6,
+    limit: 8,
   });
 
-  assert.equal(surfaces.length, 6);
+  assert.equal(surfaces.length, 8);
   assert.ok(surfaces.every((surface) => surface.schemaVersion === ECHO_RECORD_VISUAL_SURFACE_SCHEMA));
   assert.deepEqual(
     surfaces.map((surface) => surface.role),
-    ["now-playing", "up-next", "character", "reference", "scene", "reference"],
+    [
+      "now-playing",
+      "now-playing-left",
+      "now-playing-right",
+      "up-next",
+      "character",
+      "reference",
+      "scene",
+      "reference",
+    ],
   );
   assert.equal(surfaces.some((surface) => surface.title === "Wrong song"), false);
   assert.equal(surfaces.find((surface) => surface.role === "character").truth.status, "inferred");
@@ -388,7 +397,7 @@ test("visual surfaces combine timeline, references, character, and matching scen
   assert.equal(reference.attachment.cardId, "tarot-reference:one");
   assert.equal(reference.attachment.card.id, "tarot-reference:one");
   assert.equal(reference.sourceId, "reference:one", "source lineage remains distinct from the attached Tarot Card identity");
-  assert.equal(buildEchoRecordVisualSurfaces({ project: project(), limit: 99 }).length, 2);
+  assert.equal(buildEchoRecordVisualSurfaces({ project: project(), limit: 99 }).length, 4);
 });
 
 test("Director warming skips unroutable and image shots while preserving clip playback bounds", () => {
@@ -512,6 +521,57 @@ test("visual surfaces hold the prior routable Director frame through a URI-less 
   assert.match(surfaces[0].subtitle, /Holding the last decoded Director frame/);
   assert.equal(surfaces[1].role, "up-next");
   assert.equal(surfaces[1].sourceId, "future-video");
+});
+
+test("declared generated visualizer cues remain the current Director surface", () => {
+  const visualizerProject = project({
+    duration: 8,
+    timeline: [{
+      id: "director-visualizer",
+      start_sec: 0,
+      end_sec: 8,
+      media_title: "Visualizer Only",
+      media_contract: {
+        type: "generated-visualizer",
+        runtimeUri: "",
+        playbackMode: "not-applicable",
+      },
+    }],
+  });
+  const surfaces = buildEchoRecordVisualSurfaces({
+    project: visualizerProject,
+    clockSeconds: 3,
+    limit: 3,
+  });
+  assert.deepEqual(
+    surfaces.map((surface) => surface.role),
+    ["now-playing", "now-playing-left", "now-playing-right"],
+  );
+  assert.ok(surfaces.every((surface) => surface.media.kind === "generated-visualizer"));
+  assert.ok(surfaces.every((surface) => surface.media.availability === "generated"));
+  assert.ok(surfaces.every((surface) => surface.sourceId === "director-visualizer"));
+});
+
+test("a freshly loaded hold surface seeks to the prior Director shot's final frame", () => {
+  const hold = echoRecordVideoPlaybackPlan({
+    clockSeconds: 6,
+    startSeconds: 0,
+    durationSeconds: 4,
+    sourceStartSeconds: 0,
+    holdLastFrame: true,
+    playbackPlaying: true,
+    videoCurrentTime: 0,
+    videoDuration: 8,
+    readyState: 2,
+  });
+
+  assert.equal(hold.phase, "hold");
+  assert.equal(hold.shouldPlay, false);
+  assert.equal(hold.shouldSeek, true);
+  assert.ok(
+    Math.abs(hold.seekSeconds - 3.96) < 1e-12,
+    "restoring inside a URI-less gap must decode the prior shot's end, not show frame zero",
+  );
 });
 
 test("vinyl rotation stays media-clock-locked at a calmer display speed", () => {
@@ -644,7 +704,11 @@ test("Director videos pre-cue future shots, follow active shots, and hold comple
   assert.equal(noDecodedFrame.presentable, false);
   assert.equal(noDecodedFrame.buffered, false);
   assert.equal(noDecodedFrame.waitingForFrame, true);
-  assert.equal(noDecodedFrame.shouldPlay, false);
+  assert.equal(
+    noDecodedFrame.shouldPlay,
+    true,
+    "active playback intent must survive a temporary loss of decoded-frame readiness",
+  );
 
   const reducedAmbient = echoRecordVideoPlaybackPlan({
     clockSeconds: 9,
