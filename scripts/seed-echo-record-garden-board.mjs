@@ -162,14 +162,14 @@ const tasks = [
   {
     lane: "lane-music-enrich",
     id: "task-record-garden-v1-07-record-player-audio-clock-spin",
-    title: "P0 Record Garden 7/14: Bind the player to audio and 33⅓ RPM",
+    title: "P0 Record Garden 7/14: Bind the player to audio and calm clock-derived spin",
     owner: "Audio Playback + 3D Runtime",
     priority: "P0",
     milestone: "M1 Playable Record Garden",
-    body: "Make platter placement select the canonical song, route its verified audio through the shared Echo playback authority, and derive vinyl rotation, play/pause, seek, resume, and end state from absolute media time at 33⅓ RPM.",
+    body: "Make platter placement select the canonical song, route its verified audio through the shared Echo playback authority, and derive vinyl rotation, play/pause, seek, resume, and end state from absolute media time. Retain 33⅓ RPM as the physical model while presenting the moving video-label disc at a calmer 8⅓ RPM so it reads like a normal record.",
     acceptance: [
       "The selected record and audio route share one stable song identity; missing or mismatched audio fails visibly and cannot play a different title.",
-      "At 33⅓ RPM one revolution is 1.8 seconds, and rotation is recomputed from media time after seek, pause, visibility throttling, recovery, and end-of-track without accumulated frame drift.",
+      "The physical 33⅓ RPM reference remains explicit, the selected moving-disc presentation uses 8⅓ RPM, and rotation is recomputed from media time after seek, pause, visibility throttling, recovery, and end-of-track without accumulated frame drift.",
       "Audio, record state, controls, and emitted playback time agree within the declared tolerance under normal, throttled, and low-power playback."
     ],
     evidence: [
@@ -182,7 +182,7 @@ const tasks = [
       "task-record-garden-v1-05-crate-browsing-search-manipulation"
     ],
     targets: ["hapa-avatar-builder", "hapa-song-registry", "hapa-music-viz"],
-    tags: ["record-garden", "audio-clock", "33rpm", "deterministic-spin", "playback"]
+    tags: ["record-garden", "audio-clock", "calm-display-rpm", "deterministic-spin", "playback"]
   },
   {
     lane: "lane-media-enrich",
@@ -324,7 +324,7 @@ const tasks = [
     milestone: "M3 Verification And Closeout",
     body: "Run the focused domain, component, integration, accessibility, lifecycle, and regression suites plus fixed-camera visual acceptance for the complete Record Garden journey and its truthful degraded states.",
     acceptance: [
-      "Automated coverage proves normalized identity, record geometry, browsing, 33⅓ rotation, playback/surface sync, Card idempotency, persistence, recovery, accessibility, lifecycle cleanup, and Tarot regression.",
+      "Automated coverage proves normalized identity, record geometry, browsing, physical and calm-display RPM models, playback/surface sync, Card idempotency, persistence, recovery, accessibility, lifecycle cleanup, and Tarot regression.",
       "Fixtures include complete and instrumental songs plus missing audio, Director video, reference, character, scene, Card attachment, stale ID, malformed snapshot, and media failure.",
       "Human-reviewed desktop and compact captures approve lazy-Sunday art direction, legibility, interaction feedback, and visual states; full repository tests and production build pass."
     ],

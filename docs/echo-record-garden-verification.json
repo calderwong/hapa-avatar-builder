@@ -1,77 +1,188 @@
 {
-  "schema": "hapa.echo-record-garden.verification.v1",
-  "programId": "echo-record-garden-2026-07-30",
-  "verifiedAt": "2026-07-30",
-  "sourceRevision": "227a741062e040fdcfa83a1663e1f49765817a0e",
-  "focusedGate": {
+  "schemaVersion": "hapa.echo-record-garden.verification.v3",
+  "feature": {
+    "id": "echo-record-garden",
+    "programId": "echo-record-garden-2026-07-30",
+    "stage": "first-pass-prototype",
+    "route": "/?view=echo-records",
+    "boardCards": 14,
+    "boardHistoricalState": "14-done-0-open",
+    "boardProjectedState": "12-done-2-blocked",
+    "acceptanceState": "implementation-build-offline-verified-browser-acceptance-blocked"
+  },
+  "source": {
+    "canonicalImplementationRevision": "f5d4f14e911c0e541f286f6f3c75e32017227c66",
+    "canonicalCheckout": "/Users/calderwong/Documents/Codex/2026-06-10/files-mentioned-by-the-user-screenshot/outputs/hapa-avatar-builder",
+    "canonicalIntegrated": true,
+    "unrelatedWorkingTreeChangesPreserved": true
+  },
+  "playback": {
+    "physicalReferenceRpm": 33.333333333333336,
+    "displayRpmNumerator": 25,
+    "displayRpmDenominator": 3,
+    "displayRpm": 8.333333333333334,
+    "revolutionSeconds": 7.2,
+    "clockAuthority": "HTMLAudioElement.currentTime",
+    "videoPhases": [
+      "future-pre-cue",
+      "active-clock-follow",
+      "past-hold-no-rewind",
+      "ambient-loop"
+    ],
+    "physicalScreens": 3,
+    "surfaceCandidateLimit": 12,
+    "warmMediaPoolLimit": 6,
+    "hardSeekCooldownSeconds": 0.8
+  },
+  "directorSelection": {
+    "strategy": "most-recent-non-legacy",
+    "preferredBasis": "latest-ready-non-legacy",
+    "compatibilityBasis": "latest-nonfailed-non-legacy-when-readiness-undeclared",
+    "exactVariantDetailRequest": true,
+    "cacheIdentity": [
+      "songId",
+      "variantId",
+      "cutRevision"
+    ],
+    "legacyFallbackOnMismatch": false,
+    "projectionHelper": "deriveEchoDirectionVariantProject",
+    "immutableProjection": true,
+    "canonicalAndDeclaredFingerprintsSeparated": true
+  },
+  "cardResolution": {
+    "resolver": "createEchoRecordVisualCardResolver",
+    "authoritativeTimedPrint": true,
+    "embeddedSourceCard": true,
+    "attachedSourceCardLookup": true,
+    "confirmedMissingLocalProjectionOnly": true,
+    "serviceFailureFailsClosed": true,
+    "idempotentPendingAndCompletedRequests": true,
+    "cancellable": true,
+    "mintClaimed": false
+  },
+  "persistence": {
+    "schemaVersion": "hapa.echo-record-garden.snapshot.v2",
+    "migratesLegacySnapshot": true,
+    "staleIdentityReconciliation": true,
+    "boundedCollisionSafeTransforms": true,
+    "restoresPausedOnly": true,
+    "replaysSideEffects": false
+  },
+  "focusedTests": {
     "status": "passed",
-    "tests": 28,
-    "passed": 28,
+    "script": "npm run test:echo-record-garden",
+    "tests": 83,
+    "passed": 83,
     "failed": 0,
-    "coverage": [
-      "record-garden-domain",
-      "record-garden-ui-contract",
-      "overcard-host-registry",
-      "overcard-menu-slots",
-      "overcard-docs-parity",
-      "overcard-process-adapters",
-      "echo-hydration-guard"
-    ]
+    "skipped": 0,
+    "observedDurationMs": 131.570584
+  },
+  "summaryAndDetailApi": {
+    "status": "passed",
+    "tests": 3,
+    "passed": 3,
+    "failed": 0,
+    "liveProjects": 157,
+    "liveNonLegacySelections": 157,
+    "liveDeclaredReadySelections": 9,
+    "sample": {
+      "songId": "dear-papa-song-wish-her-well",
+      "cutId": "vibes-reference-transitions-33beff74b1ea",
+      "cutTitle": "Vibes Reference Transitions · 3 Links",
+      "selectionBasis": "latest-nonfailed-non-legacy",
+      "effectiveTimestamp": "2026-07-29T03:06:30.125Z",
+      "exactDelivered": true,
+      "timelineRows": 51,
+      "executionGraphStatus": "preparing",
+      "executionGraphReason": "exact_cut_execution_graph_not_ready"
+    }
   },
   "productionBuild": {
     "status": "passed",
-    "deliveryReceiptSha256": "42fe91748f724c8fe8f7dcbc4217150cf50fdfe0df842e6700a084560ae5accc"
-  },
-  "fullSuite": {
-    "status": "passed",
-    "command": "node --test --test-concurrency=4 tests/*.test.mjs",
-    "tests": 1306,
-    "passed": 1306,
-    "failed": 0,
-    "durationMilliseconds": 67289.294208,
-    "defaultConcurrencyObservations": [
-      {
-        "passed": 1305,
-        "failed": 1,
-        "failure": "stargate-gate-pass-proof child cleanup EPIPE",
-        "isolatedRetry": "passed 3/3"
-      },
-      {
-        "passed": 1305,
-        "failed": 1,
-        "failure": "avatar-service-security startup timeout",
-        "isolatedRetry": "passed 1/1"
-      }
+    "commands": [
+      "npm run build",
+      "npm run build:check"
     ],
-    "recordGardenRegressions": 0,
-    "echoRegressions": 0,
-    "tarotStructureOrLifecycleRegressions": 0,
-    "overcardParityRegressions": 0
+    "recordGardenChunk": {
+      "file": "dist/assets/EchoRecordGarden3DView-B6rXq2a4.js",
+      "bytes": 99585,
+      "viteSizeKb": 99.58,
+      "viteGzipKb": 31.64,
+      "sha256": "08615b7168e746d1331b1352e04621a849624c30eb99389c16fa6c3baaa96b3a"
+    },
+    "deliveryReceipt": {
+      "schemaVersion": "hapa.echo.delivery-build-receipt.v1",
+      "contractVersion": "echo-delivery-static-import-graph-v3",
+      "sourceSha256": "sha256:8345c273622e74566cab9495c5ce7adb031c5f9a7826a8eb4b701fe056eb1e8a",
+      "servedBundleSha256": "sha256:f1eee5b4caac83e53c5a00782a0d41319314d7bbbb20fa7d9bd80328c8f30b89",
+      "buildToolSha256": "sha256:1458948a2f71573eebcfbe8a1273966282b40f20c765ead59e4799e83f300fe1",
+      "semanticSha256": "sha256:9120534e740464a0df9a9e2c61473e2ee603f38d55516f2346fd6c9a43ce6923",
+      "fileSha256": "f97539b93dd8d2a0772186b1c3cf5db31986134715e24d2a385faff057e4d2cd",
+      "generatedAt": "2026-07-31T02:29:58.358Z"
+    },
+    "warning": "Existing application chunks exceed 500 kB; Record Garden remains independently lazy-loaded."
   },
-  "tarotSmoke": {
-    "status": "degraded_fixture",
-    "rendererMounted": true,
-    "canvasMounted": true,
-    "consoleErrors": 0,
-    "blockedBranch": "Music Zone lock",
-    "reason": "No eligible Song Card was available in the current smoke fixture."
+  "offlineAcceptance": {
+    "status": "passed",
+    "scope": "pure-node-static-and-domain-runtime-contract",
+    "checks": 9,
+    "passed": 9,
+    "failed": 0,
+    "receiptPath": "/Users/calderwong/Documents/Codex/2026-06-10/files-mentioned-by-the-user-screenshot/outputs/hapa-avatar-builder/artifacts/echo-record-garden/e2e/offline-contract-receipt.json",
+    "receiptSha256": "4baafbb900659ba4e108006325cf140e3d23617d37dc2d08d9072ef13a94a635",
+    "fixtureManifestSha256": "ff2f1a2a576ba1d1a559fd4b66d9b2d64a85190573da709b3c4f16fc679146f0",
+    "boundHead": "f5d4f14e911c0e541f286f6f3c75e32017227c66"
   },
-  "liveAcceptance": {
-    "catalogRecords": 157,
-    "activeCrateRecords": 6,
-    "visualSurfaces": 3,
-    "maximumActiveVideoDecoders": 3,
-    "audioPlayback": "passed",
-    "audioPause": "passed",
-    "sourceCardGeneration": "passed",
-    "localUnmintedCardProjection": "passed",
-    "desktopCanvas": "nonblank",
-    "compactCanvas": "nonblank",
-    "compactHorizontalOverflow": false,
-    "rendererState": "available"
+  "broadRepositorySuite": {
+    "initialParallelRun": {
+      "tests": 1350,
+      "passed": 1349,
+      "failed": 1,
+      "failure": "transient loopback ECONNRESET in tarot-stargate-context-parity"
+    },
+    "isolatedRetry": {
+      "tests": 1,
+      "passed": 1,
+      "failed": 0
+    },
+    "recordGardenFailures": 0,
+    "blanketFirstRunGreenClaimed": false
   },
-  "screenshots": [
-    "/Users/calderwong/Documents/Codex/2026-07-28/can/artifacts/echo-record-garden/record-garden-desktop.png",
-    "/Users/calderwong/Documents/Codex/2026-07-28/can/artifacts/echo-record-garden/record-garden-mobile.png"
-  ]
+  "liveService": {
+    "status": "healthy-after-restart",
+    "port": 8797,
+    "processOwner": "launchd-canonical",
+    "echoDeliveryFreshness": true,
+    "sourceSignatureCurrent": true
+  },
+  "runtimeEvidence": {
+    "currentRevisionAutomation": "blocked-by-saved-execution-policy",
+    "manualAcceptance": "pending",
+    "notProven": [
+      "current-revision-live-webgl-pixels",
+      "desktop-pointer-and-keyboard-journey",
+      "phone-touch-journey-and-computed-target-geometry",
+      "live-audio-device-playback",
+      "live-vinyl-angle-and-seek-parity",
+      "runtime-video-decoder-fallback",
+      "runtime-card-click-and-receipt-rendering",
+      "current-revision-screenshots",
+      "long-duration-gpu-decoder-soak"
+    ]
+  },
+  "board": {
+    "historyPolicy": "append-only",
+    "currentSourceAndAutomatedEvidenceThroughTask": 12,
+    "manualVisualAcceptanceTask": 13,
+    "finalReleaseLedgerTask": 14,
+    "fullyDrained": false
+  },
+  "releaseBoundaries": {
+    "publicDeployment": "not-requested-and-not-performed",
+    "publicProductionReadiness": false,
+    "mediaRightsCleared": false,
+    "mintAuthorityClaimed": false,
+    "completeVisualFamilyCoverageEverySongClaimed": false
+  },
+  "generatedAt": "2026-07-31T02:37:09.990Z"
 }

@@ -1,178 +1,173 @@
 # Echo State Record Garden Implementation Program
 
-Status: board-ready First Pass / Prototype Stage implementation program  
-Created: 2026-07-30  
-Program ID / review pass: `echo-record-garden-2026-07-30`  
-Board project: `hapa-echo-music-video-direction`
-
-Implementation checkpoint: completed locally on 2026-07-30 against canonical
-Builder base revision `227a741062e040fdcfa83a1663e1f49765817a0e`. Release,
-lineage, resource-budget, operator, rollback, verification, and Turn-to-Lore
-evidence is recorded in `docs/ECHO_RECORD_GARDEN_RELEASE.md`.
+Status: canonical First Pass / Prototype Stage implemented; current-revision
+visual acceptance remains operator-confirmed  
+Program ID: `echo-record-garden-2026-07-30`  
+Board project: `hapa-echo-music-video-direction`  
+Canonical implementation revision:
+`f5d4f14e911c0e541f286f6f3c75e32017227c66`
 
 ## Objective
 
-Create a net-new Hapa Avatar Builder experience for exploring the Echo State
-album as a tactile 3D record garden. Songs become circular record objects that
-can be browsed, inspected, moved, and placed on a record player. A placed record
-plays the canonical song, spins from the same media clock at 33⅓ RPM, and
-activates multiple visual surfaces for the selected Director video, references,
-characters, and scenes. Selecting a visual resolves or generates its attached
-Hapa Card through the existing Tarot Draw Card path without inventing ownership,
-availability, or completed media.
+Echo Record Garden is a net-new Hapa Avatar Builder experience at
+`/?view=echo-records`. It adapts the spatial interaction language of Tarot Draw
+into a lazy-Sunday outdoor listening table:
 
-The experience should feel like a lazy Sunday afternoon around an outdoor table:
-warm daylight, a calm garden, tactile wood and vinyl, restrained ambient motion,
-and an inviting record-crate browsing rhythm. That identity is an adaptation of
-the existing Tarot Draw cockpit, not a replacement for it.
+- Echo songs are stable circular record objects.
+- Records can be browsed, searched, focused, arranged, and placed on a
+  turntable.
+- Placing a record plays its canonical song and shows the selected Director
+  cut, references, characters, and scenes across three physical surfaces.
+- Clicking a visual resolves the attached Hapa Card through the existing
+  authoritative Card paths, with an explicitly local and unminted projection
+  only after a confirmed missing source attachment.
+- Saved state restores the listening-table arrangement without copying media,
+  replaying a side effect, or auto-resuming playback.
 
-## Canonical Reuse Decision
+Tarot Draw remains the inheritance owner. Record Garden reuses its proven
+camera, raycasting, drag/place, media-clock, Card-resolution, snapshot, and
+lifecycle concepts without copying the Tarot game closure or changing Tarot
+behavior.
 
-The canonical inheritance owner is
-`src/components/TarotDraw3DView.jsx` in Hapa Avatar Builder. The implementation
-begins by auditing its running behavior and exact source revision, then reuses
-or extracts the smallest stable seams for:
+## Playback Contract
 
-- room/table composition, camera, raycasting, focus, drag/place, and touch
-  interaction;
-- HUD, control dock, Card-family browsing, truth labels, and loading/error
-  states;
-- pooled image/video textures, media surfaces, playback power policy, and
-  lifecycle cleanup;
-- scene snapshot persistence and recovery;
-- visual selection, attached Card resolution, Card creation/forge status, and
-  custody/lineage receipts.
+One HTML audio element is authoritative for the placed song. Play, pause, seek,
+Director surface selection, and record angle are derived from its absolute
+media time.
 
-The Record Garden gets its own route, scene composition, circular record
-geometry, crate, turntable, media constellation, and outdoor art direction.
-Tarot Draw remains intact. Shared behavior should be extracted only after the
-reuse audit proves the boundary; copying the 26,000-line owner component into a
-second divergent surface is not an acceptable implementation.
+The domain retains the physical reference:
 
-The data jump-off points are the current Echo Director project, Song Card/song
-registry, reference atlas, avatar, scene/world, and media projections. Presence
-in Hapa does not transfer rights or authorship. Missing or uncertain links stay
-explicitly unavailable or proposed.
+`ECHO_RECORD_RPM = 33⅓`
 
-## Experience Contract
+The moving video-label disc is intentionally presented at:
 
-### Record object
+`ECHO_RECORD_DISPLAY_RPM = 8⅓`
 
-Each record has a stable song identity, circular vinyl geometry, readable label,
-selection/focus state, and an optional pooled video-label surface. It carries
-source-labeled pointers to the canonical audio, active Director project/video,
-references, characters, scenes, and attached Card identities. A missing preview
-uses a truthful static label; it never borrows unrelated media.
+A full-disc moving image reads much faster than a mostly symmetric vinyl
+surface. The calmer display rate is still deterministic and audio-clock
+derived, but gives the record the perceived weight requested for this
+experience. Reduced motion can freeze the visible spin without changing audio
+or Director timing.
 
-### Crate and table
+`angleRadians = mediaTimeSeconds × 2π × ((25/3) / 60)`
 
-The user can browse, search, filter, focus, drag, and place records without
-losing their order or selection. Mouse, keyboard, and touch share one semantic
-interaction model. Layout and persistence use stable IDs rather than array
-positions or titles.
+One visible revolution therefore takes 7.2 seconds.
 
-### Record player
+Director videos use explicit future, active, past, and ambient phases:
 
-Dropping a record on the platter selects that song and gives one canonical media
-clock authority over audio, visuals, play/pause, and seek. The platter angle is
-derived from absolute media time:
+- future clips pause and pre-cue their exact source start;
+- active clips follow the audio clock with bounded drift correction;
+- completed clips hold their current frame and never seek backward;
+- ambient context loops from unclamped elapsed time and stops under reduced
+  motion.
 
-`angleRadians = mediaTimeSeconds × 2π × (33⅓ / 60)`
+## Director Cut Contract
 
-One revolution therefore takes 1.8 seconds. Rotation is recomputed after seek,
-pause, resume, visibility changes, and recovery; it is not accumulated per
-rendered frame. Reduced-motion mode may stop or soften the visible spin while
-leaving audio timing and visual selection correct.
+Record Garden never opens Legacy Baseline when a non-Legacy Director cut is
+available.
 
-### Visual constellation
+1. Album summaries expose effective `updatedAt`, declared status when present,
+   and a source-derived fingerprint when available.
+2. Selection prefers the newest declared-ready non-Legacy cut.
+3. Older summary rows without readiness metadata use a clearly labeled
+   `latest-nonfailed-non-legacy` compatibility path.
+4. Detail loading requests the exact `variantId`; the cache key includes cut
+   identity and revision.
+5. A mismatched response fails visibly instead of falling back to Legacy.
+6. Projection reuses `deriveEchoDirectionVariantProject`, preserving project
+   patches, duration clipping/tail extension, graph validation, and immutable
+   source data.
+7. Canonical computed and source-declared fingerprints remain separate lineage
+   fields.
 
-Multiple bounded surfaces show the selected song's active Director video and
-source-linked references, characters, and scenes. Surface timing follows the
-canonical media clock where timing exists. Untimed material is labeled as
-context, not presented as beat-synchronized truth. Decoder and texture pools
-stay bounded.
+An exact cut may expose a playable timeline while its certified execution graph
+is still preparing. The UI uses that exact timeline for listening-table video;
+it does not claim render or mint readiness from a preparing graph.
 
-### Visual-to-Card action
+## Media And Buffering Contract
 
-Selecting a visual first resolves a canonical attached Hapa Card. When the
-source projection authorizes creation, the action uses the existing Tarot
-Draw/Builder Card creation path and returns its real pending, generated,
-complete, failed, or unavailable state. The action must be idempotent for the
-same request, preserve origin custody and source attribution, and never label a
-proposal or placeholder as a completed Card.
+- Three physical screens page through at most twelve source-labeled surfaces.
+- A six-resource media pool covers the visible three plus a three-video warm
+  buffer.
+- Media identity includes URI, revision, source clip identity, timeline start,
+  source start, duration, and clock mode. Adjacent clips that share a file do
+  not share one mutable playback element.
+- Video elements use eager preload, metadata/source-start cueing,
+  `loadeddata`/`canplay`/`waiting` state, bounded play retries, and
+  `requestVideoFrameCallback` texture refresh where supported.
+- Hard seeks use a 0.8-second cooldown; ordinary drift uses bounded playback
+  rate correction.
+- A failed decoder retains its source-labeled fallback texture.
+- Pool trimming, page changes, visibility changes, WebGL loss, and unmount
+  pause and dispose resources deterministically.
+- The active surface texture is also shown on the placed record face; inactive
+  crate records retain bounded static labels.
 
-## Persistence And Recovery Boundary
+## Interaction, Card, And Recovery Contract
 
-The saved Record Garden snapshot may retain stable record IDs, crate order,
-placed record, transforms, selected visual, camera framing, surface layout, and
-user settings. It does not duplicate audio/video blobs or rewrite canonical
-Echo, Avatar, Scene, Reference, or Card records. Restored media remains paused
-until user intent permits playback.
-
-Snapshots are versioned and migratable. Missing sources, stale IDs, malformed
-snapshots, interrupted Card generation, decoder failures, and WebGL loss all
-have visible recovery states that preserve the last valid user arrangement.
+- Selected sleeve and placed/playing record are separate identities.
+- Placement validates project identity and detached audio before changing the
+  active player.
+- Search, filters, roving keyboard controls, touch targets, drag cancellation,
+  collision-safe table placement, and reset/return actions share stable song
+  IDs.
+- Timed Director visuals use the immutable Song Card print flow.
+- Embedded or attached source Cards retain their exact identity.
+- Source failures fail closed. Only a confirmed missing attachment can produce
+  a deterministic `LOCAL · UNMINTED` projection.
+- Snapshot schema v2 restores selection, placed record paused, visual/page,
+  filters, crate order, mute/playhead, camera, deliberate record transforms,
+  and an interrupted Card request as retryable state.
+- Stale IDs, malformed transforms, audio failure, media failure, WebGL loss,
+  and component exceptions remain visible and recoverable.
 
 ## Quality Gates
 
-- Tarot Draw has a regression gate and remains visually and behaviorally
-  available.
-- Record rotation, audio, Director video, and timed surfaces share one
-  deterministic clock and recover after seek or throttling.
-- The UI does not imply that context-only media is synchronized.
-- Active decoder, texture, animation-loop, and listener counts stay inside
-  declared budgets and return to baseline after leaving the feature.
-- Keyboard, screen-reader, reduced-motion, and touch paths cover the complete
-  browse → place → play → inspect → Card action journey.
-- Automated fixtures cover complete songs plus missing audio, video, reference,
-  character, scene, attachment, and corrupted snapshot states.
-- Visual acceptance captures the intended lazy-Sunday outdoor scene at desktop
-  and compact/touch layouts.
-- Release evidence preserves the Tarot source revision, adapted boundaries,
-  licenses, source lineage, board receipts, and a concise learning delta.
+The repeatable gate is:
 
-## Dependency-Ordered Board Program
+`npm run verify:echo-record-garden`
 
-| # | Lane | Task | Depends on |
-|---:|---|---|---|
-| 1 | Intake & Planning | Audit canonical Tarot Draw reuse seams | — |
-| 2 | Intake & Planning | Freeze the Record Garden data contract | 1 |
-| 3 | App Scaffolding & UI | Add the lazy-loaded host and navigation entry | 1, 2 |
-| 4 | Media Affordance Enrichment | Build circular records with truthful video labels | 2, 3 |
-| 5 | App Scaffolding & UI | Build crate browsing, search, focus, and manipulation | 4 |
-| 6 | App Scaffolding & UI | Compose the lazy-Sunday outdoor table | 3, 5 |
-| 7 | Music Enrichment | Bind the record player to the audio clock and 33⅓ RPM | 4, 5 |
-| 8 | Media Affordance Enrichment | Project Director/reference/character/scene visuals | 2, 6, 7 |
-| 9 | App Scaffolding & UI | Connect visual selection to attached Hapa Cards | 8 |
-| 10 | App Scaffolding & UI | Persist and recover the Record Garden scene | 5, 7, 8, 9 |
-| 11 | QA & Validation | Complete accessibility, reduced-motion, and touch paths | 5, 7, 8, 9 |
-| 12 | QA & Validation | Prove lifecycle, decoder, texture, and frame budgets | 6, 7, 8, 9, 10, 11 |
-| 13 | QA & Validation | Run automated, regression, and visual acceptance | 10, 11, 12 |
-| 14 | QA & Validation | Close release, lineage, and reusable learning evidence | 13 |
+It includes focused domain/UI/lifecycle/accessibility/Card tests, a production
+build, delivery-receipt validation, and a deterministic offline acceptance
+fixture. The release record also requires:
 
-The machine-readable cards, acceptance checks, proof requirements, and append
-events live in `scripts/seed-echo-record-garden-board.mjs`. Progress is recorded
-with `scripts/update-echo-record-garden-board-progress.mjs`; completion updates
-are dependency-gated and require evidence.
+- compact summary and exact-variant API tests;
+- broader Builder regression evidence;
+- source and rights boundaries;
+- append-only board receipts;
+- current-revision desktop and compact visual acceptance.
 
-## Closeout Reflection Template
+Automated browser, Electron, WebGL, audio-device, touch-layout, and screenshot
+evidence is unavailable under the saved execution policy. Those checks remain
+a short operator acceptance step and must not be inferred from source tests or
+older screenshots.
 
-At each meaningful checkpoint, preserve:
+## Board Program
 
-- objective and source revision inspected;
-- running interaction and data evidence;
-- what was reused, adapted, and deliberately left alone;
-- what worked;
-- what was noise or initially misunderstood;
-- what changed;
-- remaining reusable seams and limitations;
-- the new guardrail, plus any Skill, Lore, Lesson Card, Decision Card, or
-  Flow-explainer candidate derived from the attributed turn.
+The program remains the original dependency-ordered fourteen-card plan:
+
+1. audit Tarot reuse seams;
+2. freeze the Record Garden data contract;
+3. add host navigation and error boundary;
+4. build circular records and truthful labels;
+5. build crate browsing and manipulation;
+6. compose the lazy-Sunday outdoor table;
+7. bind audio and calm clock-derived spin;
+8. project Director/reference/character/scene surfaces;
+9. connect visuals to attached Cards;
+10. persist and recover the scene;
+11. complete accessibility, reduced-motion, and touch contracts;
+12. prove lifecycle and resource budgets;
+13. run automated, regression, and current-revision visual acceptance;
+14. close release, lineage, and reusable learning evidence.
+
+Board history is append-only. Earlier completion events are not rewritten.
+Where evidence was stale or overstated, correction events reopen the exact task;
+recompletion is appended only after its acceptance evidence exists.
 
 ## Claim Boundary
 
-This program defines and drains a First Pass / Prototype Stage capability. Board
-completion proves only the acceptance evidence recorded for this implementation;
-it does not imply general production readiness, third-party rights, publication,
-minting, endorsement, or compatibility beyond the verified local Builder
-surface.
+This is a local First Pass / Prototype Stage capability. It does not certify
+public deployment, complete media coverage for every song, rights clearance,
+durable Card creation, mint authority, third-party endorsement, or general
+production readiness.
