@@ -9,6 +9,7 @@ import {
   ECHO_RECORD_DISPLAY_RPM,
   ECHO_RECORD_RPM,
   ECHO_RECORD_VISUAL_SURFACE_SCHEMA,
+  buildEchoRecordDirectorWarmSurfaces,
   buildEchoRecordVisualSurfaces,
   buildLocalEchoRecordCardProjection,
   echoRecordPerspectiveToken,
@@ -22,6 +23,7 @@ import {
   reconcileEchoRecordGardenSnapshot,
   resolveEchoRecordGardenTableDrop,
   resolveEchoRecordMediaUri,
+  selectEchoRecordMediaWindow,
   selectLatestEchoDirectionScriptVariant,
   selectEchoRecordDirectorShots,
   unwrapEchoDirectorProject,
@@ -389,6 +391,129 @@ test("visual surfaces combine timeline, references, character, and matching scen
   assert.equal(buildEchoRecordVisualSurfaces({ project: project(), limit: 99 }).length, 2);
 });
 
+test("Director warming skips unroutable and image shots while preserving clip playback bounds", () => {
+  const warmProject = project({
+    duration: 28,
+    timeline: [
+      {
+        id: "current-video",
+        start_sec: 0,
+        end_sec: 4,
+        media_uri: "/media/current.mp4",
+      },
+      {
+        id: "uri-less-visualizer",
+        start_sec: 4,
+        end_sec: 8,
+        media_type: "visualizer",
+      },
+      {
+        id: "image-only",
+        start_sec: 8,
+        end_sec: 12,
+        media_uri: "/media/still.jpg",
+        media_type: "image",
+      },
+      {
+        id: "video-a",
+        start_sec: 12,
+        end_sec: 16,
+        media_contract: {
+          type: "video",
+          runtimeUri: "/media/a.mp4",
+          sourceInSeconds: 1.5,
+          sourceOutSeconds: 3.5,
+          playbackMode: "loop",
+        },
+      },
+      {
+        id: "video-a-duplicate",
+        start_sec: 12,
+        end_sec: 16,
+        media_contract: {
+          type: "video",
+          runtimeUri: "/media/a.mp4",
+          sourceInSeconds: 1.5,
+          sourceOutSeconds: 3.5,
+          playbackMode: "loop",
+        },
+      },
+      {
+        id: "video-b",
+        start_sec: 16,
+        end_sec: 20,
+        media_uri: "/media/b.webm",
+      },
+      {
+        id: "video-c",
+        start_sec: 20,
+        end_sec: 24,
+        media_uri: "/media/c.mov",
+      },
+    ],
+  });
+
+  const warm = buildEchoRecordDirectorWarmSurfaces({
+    project: warmProject,
+    clockSeconds: 1,
+    count: 3,
+  });
+
+  assert.equal(warm.length, 3);
+  assert.deepEqual(warm.map((surface) => surface.sourceId), [
+    "video-a",
+    "video-b",
+    "video-c",
+  ]);
+  assert.ok(warm.every((surface) => surface.role === "buffered-upcoming"));
+  assert.ok(warm.every((surface) => surface.media.kind === "video"));
+  assert.equal(warm.some((surface) => surface.sourceId === "uri-less-visualizer"), false);
+  assert.equal(warm.some((surface) => surface.sourceId === "image-only"), false);
+  assert.equal(warm[0].provenance.sourceInSeconds, 1.5);
+  assert.equal(warm[0].provenance.sourceOutSeconds, 3.5);
+  assert.equal(warm[0].provenance.sourceDurationSeconds, 2);
+  assert.equal(warm[0].provenance.playbackMode, "loop");
+});
+
+test("visual surfaces hold the prior routable Director frame through a URI-less gap", () => {
+  const gapProject = project({
+    duration: 16,
+    timeline: [
+      {
+        id: "decoded-prior",
+        start_sec: 0,
+        end_sec: 4,
+        media_uri: "/media/prior.mp4",
+      },
+      {
+        id: "visualizer-gap",
+        start_sec: 4,
+        end_sec: 10,
+        media_type: "visualizer",
+      },
+      {
+        id: "future-video",
+        start_sec: 10,
+        end_sec: 16,
+        media_uri: "/media/future.mp4",
+      },
+    ],
+  });
+
+  const surfaces = buildEchoRecordVisualSurfaces({
+    project: gapProject,
+    clockSeconds: 6,
+    limit: 3,
+  });
+
+  assert.equal(surfaces[0].role, "now-playing-hold");
+  assert.equal(surfaces[0].sourceId, "decoded-prior");
+  assert.equal(surfaces[0].media.uri, "/media/prior.mp4");
+  assert.match(surfaces[0].subtitle, /Holding the last decoded Director frame/);
+  assert.equal(surfaces[1].role, "up-next");
+  assert.equal(surfaces[1].sourceId, "future-video");
+});
+
 test("vinyl rotation stays media-clock-locked at a calmer display speed", () => {
   assert.equal(ECHO_RECORD_RPM, 100 / 3);
   assert.equal(ECHO_RECORD_DISPLAY_RPM, ECHO_RECORD_RPM / 4);
@@ -497,8 +622,29 @@ test("Director videos pre-cue future shots, follow active shots, and hold comple
     videoDuration: 5,
     readyState: 2,
   });
+  assert.equal(buffering.presentable, true);
+  assert.equal(buffering.buffered, false);
+  assert.equal(buffering.waitingForFrame, false);
   assert.equal(buffering.waitingForBuffer, true);
-  assert.equal(buffering.shouldPlay, false);
+  assert.equal(
+    buffering.shouldPlay,
+    true,
+    "a decoded current frame must be allowed to play so the browser can fill its future buffer",
+  );
+
+  const noDecodedFrame = echoRecordVideoPlaybackPlan({
+    clockSeconds: 10.2,
+    startSeconds: 10,
+    durationSeconds: 5,
+    playbackPlaying: true,
+    videoCurrentTime: 0,
+    videoDuration: 5,
+    readyState: 1,
+  });
+  assert.equal(noDecodedFrame.presentable, false);
+  assert.equal(noDecodedFrame.buffered, false);
+  assert.equal(noDecodedFrame.waitingForFrame, true);
+  assert.equal(noDecodedFrame.shouldPlay, false);
 
   const reducedAmbient = echoRecordVideoPlaybackPlan({
     clockSeconds: 9,
@@ -528,6 +674,62 @@ test("Director videos pre-cue future shots, follow active shots, and hold comple
   assert.equal(loopingAmbient.expectedSeconds, 1);
   assert.equal(loopingAmbient.shouldPlay, true);
   assert.equal(loopingAmbient.shouldSeek, false);
+});
+
+test("media windows keep three visible surfaces and deterministically warm the next three", () => {
+  const visuals = Array.from({ length: 7 }, (_, index) => ({
+    id: `surface-${index + 1}`,
+    mediaId: `media-${index + 1}`,
+  }));
+
+  const first = selectEchoRecordMediaWindow(visuals, 0, {
+    visibleCount: 3,
+    warmCount: 3,
+  });
+  assert.equal(first.page, 0);
+  assert.equal(first.pageCount, 3);
+  assert.deepEqual(first.visible.map((visual) => visual.id), [
+    "surface-1",
+    "surface-2",
+    "surface-3",
+  ]);
+  assert.deepEqual(first.warm.map((visual) => visual.id), [
+    "surface-4",
+    "surface-5",
+    "surface-6",
+  ]);
+
+  const middle = selectEchoRecordMediaWindow(visuals, 1, {
+    visibleCount: 3,
+    warmCount: 3,
+  });
+  assert.deepEqual(middle.visible.map((visual) => visual.id), [
+    "surface-4",
+    "surface-5",
+    "surface-6",
+  ]);
+  assert.deepEqual(
+    middle.warm.map((visual) => visual.id),
+    ["surface-7", "surface-1", "surface-2"],
+    "warming wraps across the end instead of leaving the pool empty",
+  );
+
+  const bounded = selectEchoRecordMediaWindow(visuals, 99, {
+    visibleCount: 3,
+    warmCount: 3,
+  });
+  assert.equal(bounded.page, 2);
+  assert.deepEqual(bounded.visible.map((visual) => visual.id), ["surface-7"]);
+  assert.deepEqual(bounded.warm.map((visual) => visual.id), [
+    "surface-1",
+    "surface-2",
+    "surface-3",
+  ]);
+  assert.equal(
+    new Set([...bounded.visible, ...bounded.warm].map((visual) => visual.id)).size,
+    4,
+    "the warm window never duplicates a currently visible resource",
+  );
 });
 
 test("scene snapshots migrate bounded state and reject malformed camera values", () => {

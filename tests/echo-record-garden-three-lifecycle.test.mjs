@@ -97,6 +97,116 @@ test("physical platter drops wait for audio preflight and failed videos keep the
   assert.match(mediaFactory, /onMediaError\?\.\(visual\)/);
 });
 
+test("video textures wait for a decoded frame and preserve the last frame through buffering", () => {
+  const mediaFactory = threeRuntime.slice(
+    threeRuntime.indexOf("function createScreenMediaResource"),
+    threeRuntime.indexOf("function disposeScreenMediaResource"),
+  );
+  assert.match(mediaFactory, /hasPresentedFrame: false/);
+  assert.match(mediaFactory, /lastPresentedVideoTime: Number\.NaN/);
+
+  const presenter = mediaFactory.slice(
+    mediaFactory.indexOf("const presentVideoFrame"),
+    mediaFactory.indexOf("const scheduleFrame"),
+  );
+  assert.match(presenter, /video\.readyState < 2/);
+  assert.match(presenter, /resource\.hasPresentedFrame = true/);
+  assert.match(presenter, /resource\.lastPresentedVideoTime = Number\(video\.currentTime\) \|\| 0/);
+  assert.match(presenter, /texture\.image = video/);
+  assert.match(presenter, /texture\.needsUpdate = true/);
+
+  const frameLoop = mediaFactory.slice(
+    mediaFactory.indexOf("const scheduleFrame"),
+    mediaFactory.indexOf("const handleMetadata"),
+  );
+  assert.match(frameLoop, /video\.requestVideoFrameCallback/);
+  assert.match(frameLoop, /presentVideoFrame\(\)/);
+  assert.match(
+    frameLoop,
+    /if \(video\.requestVideoFrameCallback\) scheduleFrame\(\);\s*else presentVideoFrame\(\);/s,
+    "browsers without requestVideoFrameCallback still promote a decoded current frame",
+  );
+
+  const waiting = mediaFactory.slice(
+    mediaFactory.indexOf("const handleWaiting"),
+    mediaFactory.indexOf("const handleError"),
+  );
+  assert.match(
+    waiting,
+    /resource\.mediaState = resource\.hasPresentedFrame \? "buffering" : "first-frame-pending"/,
+  );
+  assert.doesNotMatch(
+    waiting,
+    /texture\.image\s*=/,
+    "waiting after presentation must keep the last decoded frame on every screen and disc",
+  );
+
+  assert.match(mediaFactory, /posterImage = document\.createElement\("img"\)/);
+  assert.match(mediaFactory, /fallbackImage = posterImage/);
+  assert.match(mediaFactory, /if \(resource\.hasPresentedFrame\) return;\s*texture\.image = fallbackImage/s);
+  assert.match(mediaFactory, /texture\.image = fallbackImage;\s*texture\.needsUpdate = true;/s);
+  assert.match(mediaFactory, /video\.cancelVideoFrameCallback\(resource\.frameCallback\)/);
+  assert.match(mediaFactory, /posterImage\.onload = null/);
+  assert.match(mediaFactory, /posterImage\.removeAttribute\("src"\)/);
+});
+
+test("the screen pool warms exactly three forward surfaces and refreshes videos without frame callbacks", () => {
+  assert.match(component, /selectEchoRecordMediaWindow\(visuals, surfacePage, \{/);
+  assert.match(component, /visibleCount: SCREEN_COUNT,\s*warmCount: SCREEN_COUNT/s);
+  assert.match(component, /const directorWarmVisuals = useMemo/);
+  assert.match(component, /buildEchoRecordDirectorWarmSurfaces\(\{/);
+  assert.match(component, /count: SCREEN_COUNT \* 2/);
+  assert.match(component, /const warmVisuals = useMemo/);
+  assert.match(
+    component,
+    /selectGardenWarmVisuals\(visibleVisuals, directorWarmVisuals, mediaWindow\.warm\)/,
+  );
+  assert.match(component, /\[\.\.\.directorWarmVisuals, \.\.\.pageWarmVisuals\]/);
+  assert.match(component, /visibleKeys\.has\(key\) \|\| warmKeys\.has\(key\)/);
+  assert.match(component, /\.slice\(0, SCREEN_COUNT\)/);
+  assert.match(component, /setVisuals\(visibleVisuals, \{\s*activeSongId:[\s\S]*?warmVisuals,/);
+
+  const pool = threeRuntime.slice(
+    threeRuntime.indexOf("function createScreenMediaPool"),
+    threeRuntime.indexOf("function assignAlbumScreenVisuals"),
+  );
+  assert.match(pool, /warm\(visuals = \[\]\) \{/);
+  assert.match(pool, /visuals\.slice\(0, SCREEN_COUNT\)\.forEach/);
+  assert.match(pool, /const entry = ensureEntry\(visual\)/);
+  assert.match(pool, /entry\.warm = true/);
+  assert.match(pool, /entry\.references === 0 && !entry\.warm/);
+  assert.match(pool, /diagnostics\.warmingVideos/);
+  assert.match(pool, /resource\.video && resource\.mediaState === "ready"/);
+  assert.doesNotMatch(
+    pool,
+    /\["ready",\s*"buffering"\]\.includes/,
+    "transient buffering is not reported as fully buffered",
+  );
+
+  const gameSetVisuals = threeRuntime.slice(
+    threeRuntime.indexOf("const setVisuals ="),
+    threeRuntime.indexOf("const setPlacedRecord ="),
+  );
+  assert.match(gameSetVisuals, /mediaPool\.warm\(state\.warmVisuals \|\| \[\]\)/);
+
+  const updater = threeRuntime.slice(
+    threeRuntime.indexOf("function updateAlbumScreen"),
+    threeRuntime.indexOf("function createScreenMediaResource"),
+  );
+  assert.match(updater, /!video\.requestVideoFrameCallback/);
+  assert.match(updater, /video\.readyState >= 2/);
+  assert.match(updater, /!resource\.hasPresentedFrame/);
+  assert.match(
+    updater,
+    /Math\.abs\(\(Number\(video\.currentTime\) \|\| 0\) - resource\.lastPresentedVideoTime\) > 0\.001/,
+  );
+  assert.match(updater, /resource\.presentVideoFrame\?\.\(\)/);
+
+  assert.match(threeRuntime, /canvas\.dataset\.presentedVideos = String\(diagnostics\.presentedVideos\)/);
+  assert.match(threeRuntime, /canvas\.dataset\.warmingVideos = String\(diagnostics\.warmingVideos\)/);
+  assert.match(threeRuntime, /canvas\.dataset\.waitingVideos = String\(diagnostics\.waitingVideos\)/);
+});
+
 test("table arrangements persist stable transforms and reject colliding drops", () => {
   const pointerUp = threeRuntime.slice(
     threeRuntime.indexOf("const handlePointerUp"),

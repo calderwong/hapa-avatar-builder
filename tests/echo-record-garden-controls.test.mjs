@@ -18,9 +18,22 @@ test("the record crate exposes counts, clear, retry, and an explicit return jour
 
 test("three physical screens can page through the complete bounded surface constellation", () => {
   assert.match(source, /limit: SCREEN_COUNT \* 4/);
-  assert.match(source, /const visibleVisuals = useMemo/);
-  assert.match(source, /visuals\.slice\(surfacePage \* SCREEN_COUNT/);
-  assert.match(source, /setVisuals\(visibleVisuals/);
+  assert.match(source, /const mediaWindow = useMemo/);
+  assert.match(source, /selectEchoRecordMediaWindow\(visuals, surfacePage/);
+  assert.match(source, /visibleCount: SCREEN_COUNT/);
+  assert.match(source, /warmCount: SCREEN_COUNT/);
+  assert.match(source, /const visibleVisuals = mediaWindow\.visible/);
+  assert.match(source, /const directorWarmVisuals = useMemo/);
+  assert.match(source, /buildEchoRecordDirectorWarmSurfaces\(\{/);
+  assert.match(source, /const warmVisuals = useMemo/);
+  assert.match(
+    source,
+    /selectGardenWarmVisuals\(visibleVisuals, directorWarmVisuals, mediaWindow\.warm\)/,
+  );
+  assert.match(source, /\[\.\.\.directorWarmVisuals, \.\.\.pageWarmVisuals\]/);
+  assert.match(source, /\.slice\(0, SCREEN_COUNT\)/);
+  assert.match(source, /setVisuals\(visibleVisuals, \{/);
+  assert.match(source, /warmVisuals,/);
   assert.match(source, /Previous album visual surfaces/);
   assert.match(source, /Next album visual surfaces/);
   assert.match(source, /context only, not time-synchronized/);

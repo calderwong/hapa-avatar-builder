@@ -602,6 +602,30 @@ function normalizedShot(shot = {}, index = 0, apiBase = "") {
     return null;
   }
   const mediaContract = object(shot.media_contract || shot.mediaContract);
+  const sourceInSeconds = Math.max(0, finite(
+    mediaContract.sourceInSeconds
+    ?? mediaContract.source_in_seconds
+    ?? shot.source_in_seconds
+    ?? shot.sourceInSeconds,
+    0,
+  ));
+  const declaredSourceOutSeconds = finite(
+    mediaContract.sourceOutSeconds
+    ?? mediaContract.source_out_seconds
+    ?? shot.source_out_seconds
+    ?? shot.sourceOutSeconds,
+    0,
+  );
+  const sourceOutSeconds = declaredSourceOutSeconds > sourceInSeconds
+    ? declaredSourceOutSeconds
+    : 0;
+  const playbackMode = slug(
+    mediaContract.playbackMode
+    || mediaContract.playback_mode
+    || shot.playback_mode
+    || shot.playbackMode,
+    "once",
+  );
   const uri = resolveEchoRecordMediaUri(
     mediaContract.runtimeUri
     || mediaContract.runtime_uri
@@ -663,6 +687,12 @@ function normalizedShot(shot = {}, index = 0, apiBase = "") {
       uri,
       posterUri,
       kind: inferEchoRecordMediaKind(uri, mediaContract.type || shot.media_type || shot.mediaType),
+      sourceInSeconds,
+      sourceOutSeconds,
+      sourceDurationSeconds: sourceOutSeconds > sourceInSeconds
+        ? sourceOutSeconds - sourceInSeconds
+        : 0,
+      playbackMode,
       contentHash: text(
         mediaContract.contentHash
         || mediaContract.sourceHash
@@ -701,14 +731,18 @@ function clockWithinDuration(clockSeconds = 0, durationSeconds = 0) {
   return ((clock % durationSeconds) + durationSeconds) % durationSeconds;
 }
 
+function normalizedDirectorTimeline(project = {}, apiBase = "") {
+  return list(project?.timeline)
+    .map((shot, index) => normalizedShot(shot, index, apiBase))
+    .filter(Boolean)
+    .sort((left, right) => left.startSeconds - right.startSeconds || left.index - right.index);
+}
+
 export function selectEchoRecordDirectorShots(projectPayload = null, clockSeconds = 0) {
   const project = unwrapEchoDirectorProject(projectPayload);
   const durationSeconds = projectDuration(project || {});
   const clock = clockWithinDuration(clockSeconds, durationSeconds);
-  const timeline = list(project?.timeline)
-    .map((shot, index) => normalizedShot(shot, index))
-    .filter(Boolean)
-    .sort((left, right) => left.startSeconds - right.startSeconds || left.index - right.index);
+  const timeline = normalizedDirectorTimeline(project || {});
   const currentIndex = timeline.findIndex((shot) => clock >= shot.startSeconds && clock < shot.endSeconds);
   const current = currentIndex >= 0 ? timeline[currentIndex] : null;
   let nextIndex = -1;
@@ -830,7 +864,13 @@ function shotSurface(shot, role, project, apiBase = "") {
     sourceId: shot.id,
     songId: projectSongId(project),
     title: shot.title,
-    subtitle: role === "now-playing" ? "Playing now" : "Up next",
+    subtitle: role === "now-playing"
+      ? "Playing now"
+      : role === "now-playing-hold"
+        ? "Holding the last decoded Director frame"
+        : role === "buffered-upcoming"
+          ? "Buffered upcoming Director shot"
+          : "Up next",
     uri,
     posterUri: resolveEchoRecordMediaUri(shot.media.posterUri, apiBase),
     kind: shot.media.kind,
@@ -839,6 +879,10 @@ function shotSurface(shot, role, project, apiBase = "") {
       ...shot.provenance,
       startSeconds: shot.startSeconds,
       endSeconds: shot.endSeconds,
+      sourceInSeconds: shot.media.sourceInSeconds,
+      sourceOutSeconds: shot.media.sourceOutSeconds,
+      sourceDurationSeconds: shot.media.sourceDurationSeconds,
+      playbackMode: shot.media.playbackMode,
       contentHash: shot.media.contentHash,
     },
     rights: shot.rights,
@@ -846,6 +890,43 @@ function shotSurface(shot, role, project, apiBase = "") {
     cardLookupId: shot.provenance?.mediaCardId || shot.media?.id,
     attachmentFreshnessStatus: shot.provenance?.attachmentFreshnessStatus,
   });
+}
+
+export function buildEchoRecordDirectorWarmSurfaces({
+  project: projectPayload,
+  clockSeconds = 0,
+  count = 6,
+  apiBase = "",
+} = {}) {
+  const project = unwrapEchoDirectorProject(projectPayload);
+  if (!project) return [];
+  const timeline = normalizedDirectorTimeline(project);
+  if (!timeline.length) return [];
+  const selection = selectEchoRecordDirectorShots(project, clockSeconds);
+  const startIndex = selection.currentIndex >= 0
+    ? selection.currentIndex + 1
+    : selection.nextIndex >= 0
+      ? selection.nextIndex
+      : 0;
+  const boundedCount = clampInteger(count, 6, 0, MAX_VISUAL_SURFACES);
+  const surfaces = [];
+  const seen = new Set();
+  for (let offset = 0; offset < timeline.length && surfaces.length < boundedCount; offset += 1) {
+    const shot = timeline[(startIndex + offset) % timeline.length];
+    if (!shot?.media?.uri || shot.media.kind !== "video") continue;
+    const key = [
+      shot.media.uri,
+      shot.media.contentHash || "",
+      shot.media.sourceInSeconds || 0,
+      shot.media.sourceOutSeconds || 0,
+      shot.startSeconds,
+    ].join("|");
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const surface = shotSurface(shot, "buffered-upcoming", project, apiBase);
+    if (surface) surfaces.push(surface);
+  }
+  return surfaces;
 }
 
 function referenceCardsFrom(value = []) {
@@ -1083,9 +1164,38 @@ export function buildEchoRecordVisualSurfaces({
   if (!project) return [];
   const boundedLimit = clampInteger(limit, 8, 1, MAX_VISUAL_SURFACES);
   const selection = selectEchoRecordDirectorShots(project, clockSeconds);
+  const timeline = normalizedDirectorTimeline(project);
+  const currentShot = selection.currentIndex >= 0 ? timeline[selection.currentIndex] : null;
+  let currentSurface = shotSurface(currentShot, "now-playing", project, apiBase);
+  let heldShotIndex = -1;
+  if (!currentSurface) {
+    const priorIndex = selection.currentIndex >= 0
+      ? selection.currentIndex - 1
+      : timeline.reduce((latest, shot, index) => (
+        shot.endSeconds <= selection.clockSeconds ? index : latest
+      ), -1);
+    for (let index = priorIndex; index >= 0; index -= 1) {
+      if (!timeline[index]?.media?.uri) continue;
+      heldShotIndex = index;
+      currentSurface = shotSurface(timeline[index], "now-playing-hold", project, apiBase);
+      if (currentSurface) break;
+    }
+  }
+  const nextStartIndex = selection.currentIndex >= 0
+    ? selection.currentIndex + 1
+    : selection.nextIndex >= 0
+      ? selection.nextIndex
+      : 0;
+  let nextSurface = null;
+  for (let offset = 0; offset < timeline.length; offset += 1) {
+    const index = (nextStartIndex + offset) % timeline.length;
+    if (index === selection.currentIndex || index === heldShotIndex) continue;
+    nextSurface = shotSurface(timeline[index], "up-next", project, apiBase);
+    if (nextSurface) break;
+  }
   const timelineSurfaces = [
-    shotSurface(selection.current, "now-playing", project, apiBase),
-    shotSurface(selection.next, "up-next", project, apiBase),
+    currentSurface,
+    nextSurface,
   ].filter(Boolean);
   const avatar = matchingAvatar(project, avatars);
   const character = avatarSurface(avatar, project, apiBase);
@@ -1111,6 +1221,51 @@ export function buildEchoRecordVisualSurfaces({
     seen.add(key);
     return true;
   }).slice(0, boundedLimit);
+}
+
+export function selectEchoRecordMediaWindow(
+  visuals = [],
+  page = 0,
+  {
+    visibleCount = 3,
+    warmCount = 3,
+  } = {},
+) {
+  const source = list(visuals).filter(Boolean);
+  const boundedVisibleCount = clampInteger(visibleCount, 3, 1, MAX_VISUAL_SURFACES);
+  const boundedWarmCount = clampInteger(warmCount, 3, 0, MAX_VISUAL_SURFACES);
+  const pageCount = Math.max(1, Math.ceil(source.length / boundedVisibleCount));
+  const boundedPage = clampInteger(page, 0, 0, pageCount - 1);
+  const visibleStart = boundedPage * boundedVisibleCount;
+  const visible = source.slice(visibleStart, visibleStart + boundedVisibleCount);
+  const identity = (visual, index) => text(
+    visual?.id
+    || visual?.source?.id
+    || visual?.sourceId
+    || visual?.media?.uri
+    || visual?.mediaUri,
+    `echo-record-media-${index}`,
+  );
+  const selected = new Set(visible.map((visual, index) => identity(visual, visibleStart + index)));
+  const warm = [];
+  for (
+    let offset = visible.length;
+    source.length > 0 && offset < source.length + visible.length && warm.length < boundedWarmCount;
+    offset += 1
+  ) {
+    const index = (visibleStart + offset) % source.length;
+    const visual = source[index];
+    const key = identity(visual, index);
+    if (selected.has(key)) continue;
+    selected.add(key);
+    warm.push(visual);
+  }
+  return {
+    visible,
+    warm,
+    page: boundedPage,
+    pageCount,
+  };
 }
 
 function boundedCoverageState(declaredCount = 0, routableCount = 0, missingLabel = "missing") {
@@ -1216,6 +1371,8 @@ export function echoRecordVideoPlaybackPlan({
   startSeconds = 0,
   durationSeconds = 0,
   sourceStartSeconds = 0,
+  sourceEndSeconds = 0,
+  playbackMode = "once",
   clockLocked = true,
   playbackPlaying = false,
   documentHidden = false,
@@ -1229,6 +1386,9 @@ export function echoRecordVideoPlaybackPlan({
   const start = Math.max(0, finite(startSeconds, 0));
   const duration = Math.max(0.1, finite(durationSeconds, finite(videoDuration, 4)));
   const sourceStart = Math.max(0, finite(sourceStartSeconds, 0));
+  const sourceEnd = Math.max(0, finite(sourceEndSeconds, 0));
+  const sourceSpan = sourceEnd > sourceStart ? sourceEnd - sourceStart : 0;
+  const loopsSource = slug(playbackMode) === "loop" && sourceSpan > 0.04;
   const currentVideoTime = Math.max(0, finite(videoCurrentTime, 0));
   const end = start + duration;
   const phase = !clockLocked
@@ -1241,21 +1401,35 @@ export function echoRecordVideoPlaybackPlan({
   const active = phase === "active" || phase === "ambient";
   const ambientElapsed = Math.max(0, clock - start);
   const elapsedInShot = Math.max(0, Math.min(duration - 0.04, clock - start));
+  const activeSourceElapsed = loopsSource
+    ? elapsedInShot % sourceSpan
+    : elapsedInShot;
+  const ambientSourceElapsed = loopsSource
+    ? ambientElapsed % sourceSpan
+    : ambientElapsed % duration;
   const expected = !clockLocked
-    ? sourceStart + (reducedMotion ? 0 : ambientElapsed % duration)
+    ? sourceStart + (reducedMotion ? 0 : ambientSourceElapsed)
     : phase === "future"
       ? sourceStart
       : phase === "past"
         ? currentVideoTime
-        : sourceStart + elapsedInShot;
-  const boundedExpected = finite(videoDuration, 0) > 0
-    ? Math.min(Math.max(0, finite(videoDuration, 0) - 0.03), expected)
+        : sourceStart + activeSourceElapsed;
+  const declaredVideoEnd = finite(videoDuration, 0) > 0
+    ? Math.max(0, finite(videoDuration, 0) - 0.03)
+    : Number.POSITIVE_INFINITY;
+  const declaredSourceEnd = sourceEnd > sourceStart
+    ? Math.max(sourceStart, sourceEnd - 0.03)
+    : Number.POSITIVE_INFINITY;
+  const playableEnd = Math.min(declaredVideoEnd, declaredSourceEnd);
+  const boundedExpected = Number.isFinite(playableEnd)
+    ? Math.min(playableEnd, Math.max(0, expected))
     : Math.max(0, expected);
   const effectiveExpected = phase === "past" ? currentVideoTime : boundedExpected;
   const driftSeconds = effectiveExpected - currentVideoTime;
+  const presentable = finite(readyState, 0) >= 2;
   const buffered = finite(readyState, 0) >= 3;
   const shouldPlay = !documentHidden
-    && buffered
+    && presentable
     && (clockLocked ? playbackPlaying && active : !reducedMotion);
   const seekTarget = effectiveExpected;
   const seekDrift = seekTarget - currentVideoTime;
@@ -1269,8 +1443,11 @@ export function echoRecordVideoPlaybackPlan({
     phase,
     future: phase === "future",
     past: phase === "past",
+    presentable,
     buffered,
+    waitingForFrame: !presentable,
     waitingForBuffer: !buffered,
+    loopsSource,
     expectedSeconds: effectiveExpected,
     shouldPlay,
     shouldPause: !shouldPlay,

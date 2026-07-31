@@ -22,6 +22,7 @@ import { createEchoRecordVisualCardResolver } from "../domain/echo-record-card-r
 import {
   ECHO_RECORD_DISPLAY_RPM,
   ECHO_RECORD_GARDEN_SNAPSHOT_SCHEMA,
+  buildEchoRecordDirectorWarmSurfaces,
   buildEchoRecordVisualSurfaces,
   echoRecordPerspectiveToken,
   echoRecordVideoPlaybackPlan,
@@ -32,6 +33,7 @@ import {
   reconcileEchoRecordGardenSnapshot,
   resolveEchoRecordGardenTableDrop,
   resolveEchoRecordMediaUri,
+  selectEchoRecordMediaWindow,
   unwrapEchoDirectorProject,
 } from "../domain/echo-record-garden.js";
 import { localFileApiUri } from "../domain/local-media-uri.js";
@@ -61,6 +63,9 @@ function recordGardenDiagnostics() {
     activeVideos: 0,
     mediaFailures: 0,
     bufferedVideos: 0,
+    presentedVideos: 0,
+    warmingVideos: 0,
+    waitingVideos: 0,
     mediaPoolSize: 0,
     mediaPlayRequests: 0,
     mediaHardSeeks: 0,
@@ -224,10 +229,43 @@ function toGardenVisual(surface = {}) {
     videoUri: mediaKind === "video" ? mediaUri : "",
     imageUri: mediaKind === "image" ? mediaUri : posterUri,
     startSeconds,
-    sourceStartSeconds: Number(surface.sourceStartSeconds) || 0,
+    sourceStartSeconds: Number(
+      surface?.provenance?.sourceInSeconds
+      ?? surface.sourceStartSeconds,
+    ) || 0,
+    sourceEndSeconds: Number(
+      surface?.provenance?.sourceOutSeconds
+      ?? surface.sourceEndSeconds,
+    ) || 0,
+    sourceDurationSeconds: Number(
+      surface?.provenance?.sourceDurationSeconds
+      ?? surface.sourceDurationSeconds,
+    ) || 0,
+    playbackMode: String(
+      surface?.provenance?.playbackMode
+      || surface.playbackMode
+      || "once",
+    ),
     durationSeconds: Math.max(0, endSeconds - startSeconds) || Number(surface.durationSeconds) || 0,
-    clockLocked: ["now-playing", "up-next"].includes(surface.role),
+    clockLocked: surface.sourceType === "director-shot",
   };
+}
+
+function selectGardenWarmVisuals(
+  visibleVisuals = [],
+  directorWarmVisuals = [],
+  pageWarmVisuals = [],
+) {
+  const visibleKeys = new Set(visibleVisuals.map((visual) => screenMediaSourceIdentity(visual).key));
+  const warmKeys = new Set();
+  return [...directorWarmVisuals, ...pageWarmVisuals]
+    .filter((visual) => {
+      const key = screenMediaSourceIdentity(visual).key;
+      if (visibleKeys.has(key) || warmKeys.has(key)) return false;
+      warmKeys.add(key);
+      return true;
+    })
+    .slice(0, SCREEN_COUNT);
 }
 
 function recordMatchesQuery(record, query, perspective) {
@@ -435,10 +473,29 @@ export default function EchoRecordGarden3DView({
   const crateRecords = useMemo(() => (
     filteredRecords.slice(cratePage * RECORDS_PER_CRATE, (cratePage + 1) * RECORDS_PER_CRATE)
   ), [cratePage, filteredRecords]);
-  const surfacePageCount = Math.max(1, Math.ceil(visuals.length / SCREEN_COUNT));
-  const visibleVisuals = useMemo(() => (
-    visuals.slice(surfacePage * SCREEN_COUNT, (surfacePage + 1) * SCREEN_COUNT)
-  ), [surfacePage, visuals]);
+  const mediaWindow = useMemo(
+    () => selectEchoRecordMediaWindow(visuals, surfacePage, {
+      visibleCount: SCREEN_COUNT,
+      warmCount: SCREEN_COUNT,
+    }),
+    [surfacePage, visuals],
+  );
+  const surfacePageCount = mediaWindow.pageCount;
+  const visibleVisuals = mediaWindow.visible;
+  const directorWarmVisuals = useMemo(() => (
+    project
+      ? buildEchoRecordDirectorWarmSurfaces({
+        project,
+        clockSeconds: playback.currentTime,
+        count: SCREEN_COUNT * 2,
+        apiBase,
+      }).map(toGardenVisual)
+      : []
+  ), [apiBase, playback.currentTime, project]);
+  const warmVisuals = useMemo(
+    () => selectGardenWarmVisuals(visibleVisuals, directorWarmVisuals, mediaWindow.warm),
+    [directorWarmVisuals, mediaWindow.warm, visibleVisuals],
+  );
   const selectedVisual = useMemo(
     () => visibleVisuals.find((visual) => visual.id === selectedVisualId) || visibleVisuals[0] || null,
     [selectedVisualId, visibleVisuals],
@@ -904,6 +961,33 @@ export default function EchoRecordGarden3DView({
       audio.muted = muted;
       audio.load();
 
+      const immediateVisuals = buildEchoRecordVisualSurfaces({
+        project: nextProject,
+        referenceCards: packet?.references || [],
+        avatars,
+        sceneGraph,
+        clockSeconds: 0,
+        limit: SCREEN_COUNT * 4,
+        apiBase,
+      }).map(toGardenVisual);
+      const immediateWindow = selectEchoRecordMediaWindow(immediateVisuals, 0, {
+        visibleCount: SCREEN_COUNT,
+        warmCount: SCREEN_COUNT,
+      });
+      const immediateDirectorWarm = buildEchoRecordDirectorWarmSurfaces({
+        project: nextProject,
+        clockSeconds: 0,
+        count: SCREEN_COUNT * 2,
+        apiBase,
+      }).map(toGardenVisual);
+      gameRef.current?.setVisuals(immediateWindow.visible, {
+        activeSongId: songId,
+        warmVisuals: selectGardenWarmVisuals(
+          immediateWindow.visible,
+          immediateDirectorWarm,
+          immediateWindow.warm,
+        ),
+      });
       setActiveProjectPacket(packet);
       setSelectedRecordId(songId);
       setPlacedRecordId(songId);
@@ -928,7 +1012,15 @@ export default function EchoRecordGarden3DView({
         placementControllerRef.current = null;
       }
     }
-  }, [apiBase, loadRecordProject, muted, onSelectSong, selectedRecordId]);
+  }, [
+    apiBase,
+    avatars,
+    loadRecordProject,
+    muted,
+    onSelectSong,
+    sceneGraph,
+    selectedRecordId,
+  ]);
 
   const togglePlayback = useCallback(async () => {
     const audio = audioRef.current;
@@ -1255,8 +1347,9 @@ export default function EchoRecordGarden3DView({
   useEffect(() => {
     gameRef.current?.setVisuals(visibleVisuals, {
       activeSongId: placedRecordId || selectedRecordId,
+      warmVisuals,
     });
-  }, [placedRecordId, selectedRecordId, visibleVisuals]);
+  }, [placedRecordId, selectedRecordId, visibleVisuals, warmVisuals]);
 
   useEffect(() => {
     gameRef.current?.setPlayback({
@@ -2173,6 +2266,7 @@ function createEchoRecordGardenGame({
   const setVisuals = (visuals = [], state = {}) => {
     activeVisuals = visuals.slice(0, SCREEN_COUNT);
     assignAlbumScreenVisuals(screens, activeVisuals, mediaPool);
+    mediaPool.warm(state.warmVisuals || []);
     visualRecordId = state.activeSongId || visualRecordId;
     recordEntries.forEach((entry, songId) => {
       if (songId === visualRecordId && screens[0]?.mediaResource?.texture) {
@@ -2405,13 +2499,25 @@ function createEchoRecordGardenGame({
       diagnostics.activeVideos = screens.filter((screen) => Boolean(screen.mediaResource?.video)).length;
       diagnostics.bufferedVideos = screens.filter((screen) => (
         screen.mediaResource?.video
-        && ["ready", "buffering"].includes(screen.mediaResource.mediaState)
+        && screen.mediaResource.mediaState === "ready"
+      )).length;
+      diagnostics.presentedVideos = screens.filter((screen) => (
+        screen.mediaResource?.video
+        && screen.mediaResource.hasPresentedFrame
+      )).length;
+      diagnostics.waitingVideos = screens.filter((screen) => (
+        screen.mediaResource?.video
+        && !screen.mediaResource.hasPresentedFrame
+        && !["failed", "disposed"].includes(screen.mediaResource.mediaState)
       )).length;
       if (diagnostics.contextState === "restored") diagnostics.contextState = "available";
       canvas.dataset.recordAngle = diagnostics.recordAngle.toFixed(6);
       canvas.dataset.audioTime = diagnostics.audioTime.toFixed(3);
       canvas.dataset.activeVideos = String(diagnostics.activeVideos);
       canvas.dataset.bufferedVideos = String(diagnostics.bufferedVideos);
+      canvas.dataset.presentedVideos = String(diagnostics.presentedVideos);
+      canvas.dataset.warmingVideos = String(diagnostics.warmingVideos);
+      canvas.dataset.waitingVideos = String(diagnostics.waitingVideos);
       canvas.dataset.mediaPoolSize = String(diagnostics.mediaPoolSize);
       canvas.dataset.mediaHardSeeks = String(diagnostics.mediaHardSeeks);
       canvas.dataset.rendererMemory = `${diagnostics.rendererMemory.geometries}:${diagnostics.rendererMemory.textures}`;
@@ -2462,6 +2568,9 @@ function createEchoRecordGardenGame({
       diagnostics.liveRenderers = Math.max(0, diagnostics.liveRenderers - 1);
       diagnostics.activeVideos = 0;
       diagnostics.bufferedVideos = 0;
+      diagnostics.presentedVideos = 0;
+      diagnostics.warmingVideos = 0;
+      diagnostics.waitingVideos = 0;
       diagnostics.mediaPoolSize = 0;
       diagnostics.contextState = diagnostics.liveRenderers ? "available" : "disposed";
       canvas.dataset.rendererState = "disposed";
@@ -2699,7 +2808,9 @@ function screenMediaSourceIdentity(visual = {}) {
         visual.sourceId || visual.mediaId || "",
         Math.max(0, Number(visual.startSeconds) || 0),
         Math.max(0, Number(visual.sourceStartSeconds) || 0),
+        Math.max(0, Number(visual.sourceEndSeconds) || 0),
         Math.max(0, Number(visual.durationSeconds) || 0),
+        visual.playbackMode || "once",
       ]
     : [];
   return {
@@ -2826,7 +2937,18 @@ function createScreenMediaPool({
   const updateDiagnostics = () => {
     diagnostics.mediaPoolSize = entries.size;
     diagnostics.bufferedVideos = [...entries.values()].filter(({ resource }) => (
-      resource.video && ["ready", "buffering"].includes(resource.mediaState)
+      resource.video && resource.mediaState === "ready"
+    )).length;
+    diagnostics.presentedVideos = [...entries.values()].filter(({ resource }) => (
+      resource.video && resource.hasPresentedFrame
+    )).length;
+    diagnostics.warmingVideos = [...entries.values()].filter(({ resource, warm }) => (
+      warm && resource.video
+    )).length;
+    diagnostics.waitingVideos = [...entries.values()].filter(({ resource }) => (
+      resource.video
+      && !resource.hasPresentedFrame
+      && !["failed", "disposed"].includes(resource.mediaState)
     )).length;
   };
 
@@ -2836,7 +2958,7 @@ function createScreenMediaPool({
       return;
     }
     const removable = [...entries.values()]
-      .filter((entry) => entry.references === 0)
+      .filter((entry) => entry.references === 0 && !entry.warm)
       .sort((left, right) => left.lastUsed - right.lastUsed);
     while (entries.size > limit && removable.length) {
       const entry = removable.shift();
@@ -2846,27 +2968,33 @@ function createScreenMediaPool({
     updateDiagnostics();
   };
 
+  const ensureEntry = (visual) => {
+    const identity = screenMediaSourceIdentity(visual);
+    let entry = entries.get(identity.key);
+    if (!entry) {
+      const resource = createScreenMediaResource(visual, {
+        apiBase,
+        renderer,
+        diagnostics,
+        fallbackTexture: createVisualTitleTexture(visual),
+        onMediaError,
+      });
+      resource.poolManaged = true;
+      entry = {
+        key: identity.key,
+        resource,
+        references: 0,
+        warm: false,
+        lastUsed: ++sequence,
+      };
+      entries.set(identity.key, entry);
+    }
+    return entry;
+  };
+
   return {
     acquire(visual) {
-      const identity = screenMediaSourceIdentity(visual);
-      let entry = entries.get(identity.key);
-      if (!entry) {
-        const resource = createScreenMediaResource(visual, {
-          apiBase,
-          renderer,
-          diagnostics,
-          fallbackTexture: createVisualTitleTexture(visual),
-          onMediaError,
-        });
-        resource.poolManaged = true;
-        entry = {
-          key: identity.key,
-          resource,
-          references: 0,
-          lastUsed: ++sequence,
-        };
-        entries.set(identity.key, entry);
-      }
+      const entry = ensureEntry(visual);
       entry.references += 1;
       entry.lastUsed = ++sequence;
       updateDiagnostics();
@@ -2882,6 +3010,20 @@ function createScreenMediaPool({
       entry.lastUsed = ++sequence;
       if (entry.references === 0) setScreenVideoPlaying(entry.resource, false);
       trim();
+    },
+    warm(visuals = []) {
+      entries.forEach((entry) => { entry.warm = false; });
+      const warmKeys = new Set();
+      visuals.slice(0, SCREEN_COUNT).forEach((visual) => {
+        const entry = ensureEntry(visual);
+        if (warmKeys.has(entry.key) || entry.references > 0) return;
+        warmKeys.add(entry.key);
+        entry.warm = true;
+        entry.lastUsed = ++sequence;
+        setScreenVideoPlaying(entry.resource, false);
+      });
+      trim();
+      updateDiagnostics();
     },
     trim,
     dispose() {
@@ -2939,6 +3081,8 @@ function updateAlbumScreen(screen, { playback, elapsed, reducedMotion, focus }) 
       startSeconds: visual.startSeconds,
       durationSeconds: visual.durationSeconds || video.duration,
       sourceStartSeconds: visual.sourceStartSeconds,
+      sourceEndSeconds: visual.sourceEndSeconds,
+      playbackMode: visual.playbackMode,
       clockLocked: visual.clockLocked !== false,
       playbackPlaying: playback.playing,
       documentHidden: document.hidden,
@@ -2957,6 +3101,16 @@ function updateAlbumScreen(screen, { playback, elapsed, reducedMotion, focus }) 
         resource.lastHardSeekAt = elapsed;
         resource.diagnostics.mediaHardSeeks += 1;
       } catch {}
+    }
+    if (
+      !video.requestVideoFrameCallback
+      && video.readyState >= 2
+      && (
+        !resource.hasPresentedFrame
+        || Math.abs((Number(video.currentTime) || 0) - resource.lastPresentedVideoTime) > 0.001
+      )
+    ) {
+      resource.presentVideoFrame?.();
     }
     video.playbackRate = plan.playbackRate;
     setScreenVideoPlaying(resource, plan.shouldPlay);
@@ -2979,7 +3133,7 @@ function createScreenMediaResource(visual, {
     const video = document.createElement("video");
     video.muted = true;
     video.playsInline = true;
-    video.loop = visual.clockLocked === false;
+    video.loop = visual.clockLocked === false || visual.playbackMode === "loop";
     video.preload = "auto";
     video.crossOrigin = "anonymous";
     video.src = resolveGardenMediaUri(videoUri, apiBase);
@@ -2988,19 +3142,23 @@ function createScreenMediaResource(visual, {
     texture.minFilter = THREE.LinearFilter;
     texture.magFilter = THREE.LinearFilter;
     texture.generateMipmaps = false;
-    const fallbackImage = texture.image;
+    let fallbackImage = texture.image;
+    let posterImage = null;
     const resource = {
       key: identity.key,
       texture,
       video,
       diagnostics,
       mediaState: "loading",
+      hasPresentedFrame: false,
+      lastPresentedVideoTime: Number.NaN,
       desiredPlaying: false,
       playPending: null,
       nextPlayAttemptAt: 0,
       lastHardSeekAt: Number.NEGATIVE_INFINITY,
       frameCallback: 0,
       disposed: false,
+      presentVideoFrame: () => presentVideoFrame(),
       dispose() {
         if (resource.disposed) return;
         resource.disposed = true;
@@ -3016,27 +3174,40 @@ function createScreenMediaResource(visual, {
         if (resource.frameCallback && video.cancelVideoFrameCallback) {
           video.cancelVideoFrameCallback(resource.frameCallback);
         }
+        if (posterImage) {
+          posterImage.onload = null;
+          posterImage.onerror = null;
+          posterImage.removeAttribute("src");
+        }
         video.pause();
         video.removeAttribute("src");
         video.load();
         texture.dispose();
       },
     };
+    const presentVideoFrame = () => {
+      if (resource.disposed || video.readyState < 2) return false;
+      resource.hasPresentedFrame = true;
+      resource.lastPresentedVideoTime = Number(video.currentTime) || 0;
+      resource.mediaState = video.readyState >= 3 ? "ready" : "buffering";
+      texture.image = video;
+      texture.needsUpdate = true;
+      return true;
+    };
     const scheduleFrame = () => {
       if (resource.disposed || !video.requestVideoFrameCallback || resource.frameCallback) return;
       resource.frameCallback = video.requestVideoFrameCallback(() => {
         resource.frameCallback = 0;
         if (resource.disposed) return;
-        texture.needsUpdate = true;
+        presentVideoFrame();
         scheduleFrame();
       });
     };
-    const markReady = () => {
-      if (resource.disposed || video.readyState < 3) return;
-      resource.mediaState = "ready";
-      texture.image = video;
-      texture.needsUpdate = true;
-      scheduleFrame();
+    const prepareFirstFrame = () => {
+      if (resource.disposed || video.readyState < 2) return;
+      if (!resource.hasPresentedFrame) resource.mediaState = "first-frame-pending";
+      if (video.requestVideoFrameCallback) scheduleFrame();
+      else presentVideoFrame();
     };
     const handleMetadata = () => {
       const sourceStart = Math.max(0, Number(visual.sourceStartSeconds) || 0);
@@ -3046,15 +3217,17 @@ function createScreenMediaResource(visual, {
     };
     const handleLoadedData = () => {
       if (resource.disposed) return;
-      resource.mediaState = video.readyState >= 3 ? "ready" : "buffering";
-      if (video.readyState >= 3) markReady();
+      prepareFirstFrame();
     };
-    const handleCanPlay = () => markReady();
-    const handlePlaying = () => markReady();
+    const handleCanPlay = () => prepareFirstFrame();
+    const handlePlaying = () => {
+      prepareFirstFrame();
+      scheduleFrame();
+    };
     const handleWaiting = () => {
       if (resource.disposed || resource.mediaState === "failed") return;
       if (resource.mediaState !== "buffering") diagnostics.mediaBufferingTransitions += 1;
-      resource.mediaState = "buffering";
+      resource.mediaState = resource.hasPresentedFrame ? "buffering" : "first-frame-pending";
     };
     const handleError = () => {
       if (resource.disposed || resource.mediaState === "failed") return;
@@ -3066,6 +3239,20 @@ function createScreenMediaResource(visual, {
       diagnostics.lastError = `Media unavailable: ${visual.title || "album visual"}`;
       onMediaError?.(visual);
     };
+    if (imageUri) {
+      posterImage = document.createElement("img");
+      posterImage.crossOrigin = "anonymous";
+      posterImage.decoding = "async";
+      posterImage.onload = () => {
+        if (resource.disposed) return;
+        fallbackImage = posterImage;
+        if (resource.hasPresentedFrame) return;
+        texture.image = fallbackImage;
+        texture.needsUpdate = true;
+      };
+      posterImage.onerror = () => {};
+      posterImage.src = resolveGardenMediaUri(imageUri, apiBase);
+    }
     video.addEventListener("loadedmetadata", handleMetadata);
     video.addEventListener("loadeddata", handleLoadedData);
     video.addEventListener("canplay", handleCanPlay);
