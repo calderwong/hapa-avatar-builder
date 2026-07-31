@@ -5,7 +5,7 @@ acceptance pending
 Evidence date: 2026-07-30 / 2026-07-31  
 Program ID: `echo-record-garden-2026-07-30`  
 Implementation revision:
-`f5d4f14e911c0e541f286f6f3c75e32017227c66`
+`705bab40da7c967fd31615e0d917c4b3ccee1432`
 
 ## Delivered
 
@@ -34,7 +34,9 @@ The canonical Hapa Avatar Builder now serves Echo Record Garden at
 - snapshot v2 migration and recovery for paused playback, camera, surface page,
   crate state, transforms, and interrupted Card work;
 - isolated lazy loading, a component error boundary, WebGL recovery, and
-  deterministic resource cleanup.
+  deterministic resource cleanup;
+- a stable Echo board guard that preserves blocked/external states, serializes
+  whole-board writes, and exposes save outcomes to assistive technology.
 
 ## Canonical Verification
 
@@ -42,16 +44,16 @@ The canonical Hapa Avatar Builder now serves Echo Record Garden at
 
 `npm run test:echo-record-garden`
 
-- 83 tests passed
+- 86 tests passed
 - 0 failed
 - 0 skipped
-- observed duration: 131.57 ms
+- observed duration: 133.13 ms
 
 Coverage includes source truth, newest-cut selection, immutable duration
 projection, future/active/past/ambient video phases, calm RPM, surface paging,
 Card resolution, active-vs-selected identity, audio preflight, snapshot
 migration, accessibility, responsive contracts, media lifecycle, delivery
-receipts, and the offline fixture.
+receipts, the offline fixture, and board-status integrity.
 
 ### Summary and exact-cut API
 
@@ -80,12 +82,14 @@ exact playable timeline without claiming render or mint readiness.
 `npm run build` and `npm run build:check` passed.
 
 - Record Garden chunk:
-  `dist/assets/EchoRecordGarden3DView-B6rXq2a4.js`
+  `dist/assets/EchoRecordGarden3DView-CbXL3YAZ.js`
 - size: 99,585 bytes; Vite 99.58 kB / 31.64 kB gzip
+- chunk digest:
+  `cf88435edb80eb7d311f1653325ea4c732c160407135354b177f80f5975d38ea`
 - delivery semantic digest:
-  `sha256:9120534e740464a0df9a9e2c61473e2ee603f38d55516f2346fd6c9a43ce6923`
+  `sha256:ffe814a992f88d80a62e3e9eb375133baa5fea71a4cc68d87cf9c803f16f0bc5`
 - build receipt file digest:
-  `f97539b93dd8d2a0772186b1c3cf5db31986134715e24d2a385faff057e4d2cd`
+  `52cb7eb18861f36c30ab0167d9b1f1bd73ecb4dba33c8e2dfda6fa56c6678ab0`
 
 The existing application still emits a warning for unrelated chunks over
 500 kB. Record Garden remains independently lazy loaded.
@@ -93,12 +97,12 @@ The existing application still emits a warning for unrelated chunks over
 ### Offline acceptance
 
 The pure-Node verifier passed 9/9 checks and binds to implementation revision
-`f5d4f14e911c0e541f286f6f3c75e32017227c66`.
+`705bab40da7c967fd31615e0d917c4b3ccee1432`.
 
 - receipt:
   `artifacts/echo-record-garden/e2e/offline-contract-receipt.json`
 - receipt digest:
-  `4baafbb900659ba4e108006325cf140e3d23617d37dc2d08d9072ef13a94a635`
+  `4170fd703fd0fd8840f5fb0f5b7032f4517f96169988312ac78568126d8d0575`
 - fixture-manifest digest:
   `ff2f1a2a576ba1d1a559fd4b66d9b2d64a85190573da709b3c4f16fc679146f0`
 
@@ -109,18 +113,17 @@ WebGL, audio-device, touch, layout, or screenshot evidence.
 
 ### Broader Builder regression
 
-The parallel full repository run passed 1,349 of 1,350 tests. One Stargate
-parity test encountered a transient loopback `ECONNRESET`; the exact failed
-test then passed 1/1 in isolation. No Record Garden test failed.
-
-This is recorded as a passing isolated retry with a parallel-run transport
-flake, not rewritten as a pristine 1,350/1,350 first run.
+The current exact revision passed the full repository suite: 1,353 of 1,353
+tests, with zero failures, skips, or cancellations. The earlier implementation
+baseline's isolated loopback `ECONNRESET` remains historical evidence; it is
+not attributed to this clean current-revision run.
 
 ### Live service
 
 The canonical launchd-owned API was restarted after the build. The observed
-health response reported a current source signature, a fresh Echo delivery
-identity, and process owner `launchd-canonical` on port 8797.
+health response reported process `16144`, build signature `23273d8891153d5c`,
+a current source signature, a fresh Echo delivery identity, and process owner
+`launchd-canonical` on port 8797.
 
 ## Tarot Reuse And Boundaries
 
@@ -174,7 +177,7 @@ attachment.
 - Unmount cancels frames and callbacks, removes listeners, stops media, and
   disposes renderer resources.
 - Navigation to `/?view=echos` or `/?view=tarot` leaves source records unchanged.
-- Code rollback is the inverse of focused revision `f5d4f14`.
+- Code rollback is the inverse of focused revision `705bab4`.
 
 ## Current Manual Acceptance
 

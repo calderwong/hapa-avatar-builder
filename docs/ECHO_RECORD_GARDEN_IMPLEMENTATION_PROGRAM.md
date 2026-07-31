@@ -5,7 +5,7 @@ visual acceptance remains operator-confirmed
 Program ID: `echo-record-garden-2026-07-30`  
 Board project: `hapa-echo-music-video-direction`  
 Canonical implementation revision:
-`f5d4f14e911c0e541f286f6f3c75e32017227c66`
+`705bab40da7c967fd31615e0d917c4b3ccee1432`
 
 ## Objective
 
@@ -115,6 +115,8 @@ it does not claim render or mint readiness from a preparing graph.
 - Embedded or attached source Cards retain their exact identity.
 - Source failures fail closed. Only a confirmed missing attachment can produce
   a deterministic `LOCAL · UNMINTED` projection.
+- Manual board changes preserve blocked and externally managed states, serialize
+  whole-board saves, and announce saved or rejected outcomes accessibly.
 - Snapshot schema v2 restores selection, placed record paused, visual/page,
   filters, crate order, mute/playhead, camera, deliberate record transforms,
   and an interrupted Card request as retryable state.
