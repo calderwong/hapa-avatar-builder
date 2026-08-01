@@ -1,21 +1,23 @@
 {
-  "schemaVersion": "hapa.echo-record-garden.verification.v5",
+  "schemaVersion": "hapa.echo-record-garden.verification.v6",
   "feature": {
     "id": "echo-record-garden",
     "programId": "echo-record-garden-2026-07-30",
-    "stage": "first-pass-prototype-stabilized-guided-acceptance-ready",
+    "stage": "first-pass-implementation-complete-guided-acceptance-pending",
     "route": "/?view=echo-records",
     "guidedAcceptanceRoute": "/?view=echo-records&recordGardenReview=1",
-    "boardCards": 14,
-    "boardHistoricalState": "14-done-0-open",
-    "boardProjectedState": "12-done-2-blocked",
+    "implementationState": "complete-for-guided-testing",
     "acceptanceState": "exact-build-guided-human-acceptance-pending"
   },
   "source": {
-    "canonicalImplementationRevision": "71e2f31d24e9d5b4cb130c98b2ca82fd9ec783db",
+    "canonicalImplementationRevision": "e2a28e2fe51cd322e42dfdb0dcb6e5ebd80bcc85",
     "canonicalCheckout": "/Users/calderwong/Documents/Codex/2026-06-10/files-mentioned-by-the-user-screenshot/outputs/hapa-avatar-builder",
-    "canonicalIntegrated": true,
-    "unrelatedWorkingTreeChangesPreserved": true
+    "revisionAuthority": "git-rev-parse-HEAD",
+    "buildSourceAuthority": "dist/hapa-echo-delivery-build.json",
+    "workingTreeClean": false,
+    "workingTreeChangeCount": 6,
+    "unrelatedWorkingTreeChangesPreserved": true,
+    "truthBoundary": "The Git revision identifies committed implementation history; the delivery receipt independently binds the exact built source and served files."
   },
   "playback": {
     "physicalReferenceRpm": 33.333333333333336,
@@ -30,18 +32,23 @@
       "past-hold-no-rewind",
       "ambient-loop"
     ],
-    "physicalScreens": 3,
-    "surfaceCandidateLimit": 12,
-    "warmMediaPoolLimit": 7,
-    "visibleMediaSlots": 3,
-    "upcomingDirectorVideoWarmSlots": 3,
+    "physicalScreens": 1,
+    "surfaceCandidateLimit": 4,
+    "warmMediaPoolLimit": 14,
+    "visibleMediaSlots": 1,
+    "upcomingDirectorVideoWarmSlots": 1,
     "dedicatedRecordFaceMediaSlots": 1,
     "firstDecodedFrameReadiness": "HAVE_CURRENT_DATA",
     "posterHeldUntilDecodedFrame": true,
     "lastDecodedFrameHeldDuringBufferingAndTimelineGaps": true,
     "audioClockFrameToleranceSeconds": 0.12,
     "hardSeekThresholdSeconds": 0.1,
-    "hardSeekCooldownSeconds": 0.25
+    "hardSeekCooldownSeconds": 0.25,
+    "screenPresentation": "single-cinematic-horizontal-director-composite",
+    "presentationSurfaces": [
+      "screen-1",
+      "record-face"
+    ]
   },
   "mediaStabilization": {
     "reportedFailure": "Audio remained healthy while screen and disc media stayed blank for long intervals and then played sporadically.",
@@ -76,10 +83,19 @@
       "Honor bounded source-in, source-out, and loop playback metadata.",
       "Refresh video textures deterministically when requestVideoFrameCallback is unavailable.",
       "Give video and image sources dedicated GPU textures and promote an already-decoded frame immediately.",
-      "Project the current Director cue across the default display triptych and keep a dedicated current-cut resource on the record face.",
       "Render URI-less Director visualizer intervals as animated, audio-clock-bound visuals rather than blank output.",
-      "Treat an empty initial media plan as explicit standby and release the prior record-face resource exactly once."
-    ]
+      "Treat an empty initial media plan as explicit standby and release the prior record-face resource exactly once.",
+      "Project the exact current Director composite onto one large horizontal screen and the same physical record face.",
+      "Keep one visible Director composite plus one upcoming warm source inside a bounded fourteen-resource decoder and shader pool.",
+      "Project the exact current Director composite onto one large horizontal screen and the same physical record face.",
+      "Keep one visible Director composite plus one upcoming warm source inside a bounded fourteen-resource decoder and shader pool."
+    ],
+    "currentPresentation": {
+      "cinematicScreens": 1,
+      "recordFaces": 1,
+      "directorPreviewParityTarget": true,
+      "warmMediaPoolLimit": 14
+    }
   },
   "startupStabilization": {
     "emptyDirectorMediaState": "explicit-standby",
@@ -89,7 +105,7 @@
     "componentRecoveryBoundaryRetained": true
   },
   "guidedAcceptanceGate": {
-    "status": "implemented-and-automated-contract-verified-human-observation-pending",
+    "status": "implemented-current-build-human-observation-pending",
     "route": "/?view=echo-records&recordGardenReview=1",
     "manualOnly": true,
     "currentBuildRequired": true,
@@ -98,25 +114,17 @@
     "serverLedgerFailsClosedOnBuildDrift": true,
     "receiptStorage": "append-only-content-addressed-integrity-sealed",
     "boardMutation": false,
-    "automatedSignals": [
+    "contractSignals": [
       "exact-current-build",
       "same-build-start-and-finish",
       "browser-loaded-chunk-identity",
-      "bounded-review-timeline",
       "one-live-webgl-garden",
+      "one-cinematic-director-screen",
+      "one-current-record-face",
+      "bounded-fourteen-resource-media-pool",
       "recent-non-legacy-director-cut",
-      "bounded-seven-resource-media-pool",
-      "four-ready-source-bound-surfaces",
-      "two-minute-uninterrupted-playback",
-      "ten-record-change-soak",
-      "four-committed-cross-cue-seeks",
-      "surface-paging",
-      "exact-card-lineage-or-local-unminted-truth",
-      "desktop-and-compact-input-proof",
-      "nonblank-varied-canvas-samples",
-      "three-separated-director-checkpoints",
-      "run-scoped-media-webgl-frame-and-renderer-budgets",
-      "no-current-or-operator-observed-errors"
+      "exact-card-lineage-or-fail-closed",
+      "desktop-and-compact-input-proof"
     ],
     "privacy": {
       "queryAndFragmentStored": false,
@@ -193,11 +201,14 @@
     "authoritativeTimedPrint": true,
     "embeddedSourceCard": true,
     "attachedSourceCardLookup": true,
-    "confirmedMissingLocalProjectionOnly": true,
+    "confirmedMissingLocalProjectionOnly": false,
     "serviceFailureFailsClosed": true,
     "idempotentPendingAndCompletedRequests": true,
     "cancellable": true,
-    "mintClaimed": false
+    "mintClaimed": false,
+    "resolutionPolicy": "exact-id-or-fail",
+    "exactCardRevisionRequired": true,
+    "localSubstituteAllowed": false
   },
   "persistence": {
     "schemaVersion": "hapa.echo-record-garden.snapshot.v2",
@@ -208,114 +219,71 @@
     "replaysSideEffects": false
   },
   "focusedTests": {
-    "status": "passed",
+    "status": "current-implementation-revision-run-not-recorded",
     "script": "npm run test:echo-record-garden",
-    "tests": 139,
-    "passed": 139,
-    "failed": 0,
-    "skipped": 0,
-    "observedDurationMs": 2574.167875
+    "evidenceRecordedByRefresh": false,
+    "note": "This build-identity refresh never carries forward test totals from an earlier revision."
   },
   "summaryAndDetailApi": {
-    "status": "passed",
-    "tests": 3,
-    "passed": 3,
-    "failed": 0,
-    "liveProjects": 157,
-    "liveNonLegacySelections": 157,
-    "liveDeclaredReadySelections": 9,
-    "sample": {
-      "songId": "dear-papa-song-wish-her-well",
-      "cutId": "vibes-reference-transitions-33beff74b1ea",
-      "cutTitle": "Vibes Reference Transitions · 3 Links",
-      "selectionBasis": "latest-nonfailed-non-legacy",
-      "effectiveTimestamp": "2026-07-29T03:06:30.125Z",
-      "exactDelivered": true,
-      "timelineRows": 51,
-      "executionGraphStatus": "preparing",
-      "executionGraphReason": "exact_cut_execution_graph_not_ready"
-    }
+    "status": "current-service-run-not-recorded",
+    "evidenceRecordedByRefresh": false,
+    "note": "Live catalog and exact-cut counts must come from a separate current service probe."
   },
   "productionBuild": {
-    "status": "passed",
-    "commands": [
-      "npm run build",
-      "npm run build:check"
-    ],
+    "status": "current-delivery-identity-verified",
+    "verification": "strict-static-import-graph-and-served-bundle-identity",
     "recordGardenChunk": {
-      "file": "dist/assets/EchoRecordGarden3DView-D-d220Pc.js",
-      "bytes": 157092,
-      "viteSizeKb": 157.09,
-      "viteGzipKb": 49.18,
-      "sha256": "904cc55628dc93c997ad82ede82acdb75cc3b41cce6e895310d08eb5c0983148"
+      "file": "dist/assets/EchoRecordGarden3DView-BCDefDBv.js",
+      "bytes": 167540,
+      "viteSizeKb": 167.54,
+      "viteGzipKb": 51.77,
+      "sha256": "51a26d0aa312b9a877779fd8739e5c9ac5df256d6e98253606a96f3f27c349fe"
     },
     "deliveryReceipt": {
       "schemaVersion": "hapa.echo.delivery-build-receipt.v1",
       "contractVersion": "echo-delivery-static-import-graph-v3",
-      "sourceSha256": "sha256:fccc2a20670e8c72915ce5b63c625ac2086e0f88d185782307d4734961fa74a1",
-      "servedBundleSha256": "sha256:34f230cc13ef0a4b5f604660c580a70aee6aed59e8fcd7005c55b7e251df7b40",
+      "sourceSha256": "sha256:77df4b1410eff5789a3d3303da8a056e1627ab2edc0ac904804a989221e25943",
+      "servedBundleSha256": "sha256:27bf9e4a04e69a069a7c36cdc6c6071e3a2ba69e736dcefa60ebb1aeb2e4d6c1",
       "buildToolSha256": "sha256:1458948a2f71573eebcfbe8a1273966282b40f20c765ead59e4799e83f300fe1",
-      "semanticSha256": "sha256:a492e63b521a11022132722b6c7e311c9c72b091dce3a7b5974140825102adfb",
-      "fileSha256": "adee7c3ce040db1e6f5bf59477d68bca71b397485e750a1cefb1f47d983656e2",
-      "generatedAt": "2026-08-01T07:59:40.500Z"
+      "semanticSha256": "sha256:220aea923c371cad17d97c7eb96816d835d3308a28e8f4430aa5082ce599c788",
+      "fileSha256": "64bf9ea332778768350ca03467439ce89a694db6e8b53ba3286deafe92db7574",
+      "generatedAt": "2026-08-01T22:54:39.491Z"
     },
-    "warning": "Existing application chunks exceed 500 kB; Record Garden remains independently lazy-loaded."
+    "warning": "Record Garden remains independently lazy-loaded; this refresh makes no size claim about unrelated application chunks."
   },
   "offlineAcceptance": {
-    "status": "passed",
+    "status": "passed-current-implementation-revision",
     "scope": "pure-node-static-and-domain-runtime-contract",
+    "truthBoundary": "This receipt validates deterministic fixture media, API recovery contracts, domain composition/Card resolution, source contracts, and the built asset graph. It is not browser, Electron, WebGL, audio-device, touch, layout, or screenshot evidence.",
     "checks": 9,
     "passed": 9,
     "failed": 0,
-    "receiptPath": "/Users/calderwong/Documents/Codex/2026-06-10/files-mentioned-by-the-user-screenshot/outputs/hapa-avatar-builder/artifacts/echo-record-garden/e2e/offline-contract-receipt.json",
-    "receiptSha256": "eb6489988fd05edf79e535f017000f5f39d0d7389ae4bdb674c489050ee2588f",
+    "receiptPath": "artifacts/echo-record-garden/e2e/offline-contract-receipt.json",
+    "receiptSha256": "9e40739cb744b8dadd11c01079646e841070a2bed9d5a0921d29fba9e839dd35",
     "fixtureManifestSha256": "7adefdbb80adf3b357d0f35513fd91718f6840f229c6b29e53793db990d5c111",
-    "boundHead": "71e2f31d24e9d5b4cb130c98b2ca82fd9ec783db"
+    "boundHead": "e2a28e2fe51cd322e42dfdb0dcb6e5ebd80bcc85",
+    "generatedAt": "2026-08-01T23:03:21.748Z"
   },
   "broadRepositorySuite": {
-    "status": "passed",
-    "currentRevisionRun": {
-      "tests": 1398,
-      "passed": 1398,
-      "failed": 0,
-      "skipped": 0,
-      "cancelled": 0,
-      "observedDurationMs": 263642.192625
-    },
-    "historicalBaselineNote": "The earlier implementation baseline had one transient loopback ECONNRESET and then passed its isolated retry; the current exact revision is independently green.",
-    "recordGardenFailures": 0,
-    "blanketCurrentRevisionGreenClaimed": true
+    "status": "current-implementation-revision-run-not-recorded",
+    "evidenceRecordedByRefresh": false,
+    "blanketCurrentRevisionGreenClaimed": false,
+    "note": "This refresh intentionally removes broad-suite totals that are not bound to the current implementation revision."
   },
   "liveService": {
-    "status": "healthy-current-source",
-    "port": 8797,
-    "pid": 35888,
-    "processOwner": "launchd-canonical",
-    "buildSignature": "20ec57c1cdf7f0ae",
-    "echoDeliveryFreshness": true,
-    "sourceSignatureCurrent": true,
-    "bootSourceSha256": "sha256:f640c0d245ce09985a4f02b4ac1c9a2fc7c4b3b22284d754998498d7b4432a07",
-    "sourceStatSignature": "sha256:29a7716f4fc64067d09cf40531de88bd2dd5b20e36d43f3ec2207bd890c0fd92",
-    "observedAt": "2026-08-01T08:13:07.314Z",
-    "startedAt": "2026-08-01T08:10:39.341Z",
-    "uptimeSeconds": 148,
-    "rssBytes": 151355392,
-    "heapUsedBytes": 26095712,
-    "openFileCount": 25,
-    "rawJsonCacheEntries": 0,
-    "rawJsonCacheMaxBytes": 134217728,
-    "rawJsonCacheMaxEntries": 64,
-    "directorGraphCacheEntries": 0,
-    "directorGraphCacheMaxBytes": 100663296,
-    "directorGraphCacheMaxEntries": 32,
-    "normalizedJsonCacheEntries": 0,
-    "acceptanceContextStatus": 200,
-    "acceptanceContextSigned": true,
-    "acceptanceContextExactBuild": true,
-    "memoryReview": "passed-bounded-cache-soak-and-clean-service-restart"
+    "status": "not-observed-by-verification-refresh",
+    "configuredPort": 8797,
+    "pid": null,
+    "observedAt": null,
+    "startedAt": null,
+    "acceptanceContextStatus": null,
+    "acceptanceContextSigned": null,
+    "acceptanceContextExactBuild": null,
+    "restartRequiredAfterLedgerRefresh": true,
+    "note": "Restart and probe the canonical service separately; this script never carries forward a PID, health result, uptime, or acceptance-context status."
   },
   "runtimeEvidence": {
-    "currentRevisionAutomation": "source-build-api-offline-and-regression-verified-live-browser-observation-blocked-by-saved-browser-permission-policy",
+    "currentRevisionAutomation": "exact-production-build-identity-recorded; focused, broad, service, and browser evidence remain separate",
     "manualAcceptance": "pending",
     "guidedAcceptanceRoute": "http://127.0.0.1:8797/?view=echo-records&recordGardenReview=1",
     "receiptSchema": "hapa.echo-record-garden.operator-acceptance.v1",
@@ -334,15 +302,11 @@
   },
   "board": {
     "historyPolicy": "append-only",
-    "manualStatusGuard": {
-      "blockedAndExternalStatesStable": true,
-      "wholeBoardWritesSerialized": true,
-      "accessibleOutcomeAnnouncements": true
-    },
-    "currentSourceAndAutomatedEvidenceThroughTask": 12,
-    "manualVisualAcceptanceTask": 13,
-    "finalReleaseLedgerTask": 14,
-    "fullyDrained": false
+    "status": "not-observed-or-mutated-by-build-refresh",
+    "implementationState": "complete-for-guided-testing",
+    "humanBrowserAcceptance": "pending",
+    "fullyDrained": false,
+    "note": "Board completion evidence is owned by the append-only Kanban ledger, not inferred by this build refresh."
   },
   "releaseBoundaries": {
     "publicDeployment": "not-requested-and-not-performed",
@@ -351,5 +315,5 @@
     "mintAuthorityClaimed": false,
     "completeVisualFamilyCoverageEverySongClaimed": false
   },
-  "generatedAt": "2026-08-01T08:08:12.029Z"
+  "generatedAt": "2026-08-01T23:03:21.911Z"
 }
