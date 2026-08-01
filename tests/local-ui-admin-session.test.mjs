@@ -52,8 +52,11 @@ test("trusted loopback UI uses an opaque process session while external API auth
   child.stdout.on("data", (chunk) => output.push(String(chunk)));
   child.stderr.on("data", (chunk) => output.push(String(chunk)));
   t.after(async () => {
-    if (child.exitCode === null) child.kill("SIGTERM");
-    await once(child, "exit").catch(() => {});
+    if (child.exitCode === null) {
+      const exited = once(child, "exit").catch(() => {});
+      child.kill("SIGTERM");
+      await exited;
+    }
     await fsp.rm(root, { recursive: true, force: true });
   });
 
