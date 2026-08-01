@@ -114,8 +114,10 @@ test("trusted loopback UI uses an opaque process session while external API auth
     headers: { cookie: cookiePair, origin: api, "sec-fetch-site": "same-origin", "content-type": "application/json" },
     body: "{}",
   });
-  assert.equal(incompleteReceipt.status, 422);
-  assert.equal((await incompleteReceipt.json()).boardMutated, false);
+  assert.equal(incompleteReceipt.status, 409, "unsigned review evidence fails before receipt validation");
+  const incompleteReceiptPayload = await incompleteReceipt.json();
+  assert.equal(incompleteReceiptPayload.error, "record_garden_acceptance_context_invalid");
+  assert.equal(incompleteReceiptPayload.boardMutated, false);
 
   const { createServer: createViteServer } = await import("vite");
   const vite = await createViteServer({
