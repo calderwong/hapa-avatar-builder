@@ -3,6 +3,7 @@ import { createReadStream } from "node:fs";
 import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { validateEchoCompiledShowGraph } from "../src/domain/echo-compiled-show-graph.js";
+import { ByteBoundedLruCache } from "./byte-bounded-lru-cache.mjs";
 import { resolveEchoExecutionGraph } from "./echo-execution-graph-store.mjs";
 import { resolveEchoRuntimeMediaUri } from "./echo-runtime-media-route.mjs";
 
@@ -11,6 +12,36 @@ const SHA256 = /^sha256:[a-f0-9]{64}$/iu;
 const executionInputProofCache = new Map();
 const executionVisualInputProofCache = new Map();
 const EXECUTION_INPUT_PROOF_CACHE_LIMIT = 256;
+const MEBIBYTE = 1024 * 1024;
+
+function positiveInteger(value, fallback) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : fallback;
+}
+
+export const ECHO_DIRECTOR_SHOW_GRAPH_CACHE_DEFAULTS = Object.freeze({
+  maxBytes: positiveInteger(process.env.HAPA_ECHO_DIRECTOR_GRAPH_CACHE_MAX_BYTES, 96 * MEBIBYTE),
+  maxEntries: positiveInteger(process.env.HAPA_ECHO_DIRECTOR_GRAPH_CACHE_MAX_ENTRIES, 24),
+  maxEntryBytes: positiveInteger(process.env.HAPA_ECHO_DIRECTOR_GRAPH_CACHE_MAX_ENTRY_BYTES, 16 * MEBIBYTE),
+});
+
+/**
+ * Native Director graphs average multiple megabytes on disk and expand again
+ * when parsed. Keep their shared server cache explicitly bounded instead of
+ * allowing a full-album browse to retain every parsed graph for process life.
+ */
+export function createEchoDirectorShowGraphCache({
+  maxBytes = ECHO_DIRECTOR_SHOW_GRAPH_CACHE_DEFAULTS.maxBytes,
+  maxEntries = ECHO_DIRECTOR_SHOW_GRAPH_CACHE_DEFAULTS.maxEntries,
+  maxEntryBytes = Math.min(ECHO_DIRECTOR_SHOW_GRAPH_CACHE_DEFAULTS.maxEntryBytes, maxBytes),
+} = {}) {
+  return new ByteBoundedLruCache({
+    maxBytes,
+    maxEntries,
+    maxEntryBytes,
+    sizeOf: (entry) => entry?.sourceBytes,
+  });
+}
 
 function within(root, candidate) {
   return candidate === root || candidate.startsWith(`${root}${path.sep}`);

@@ -42,6 +42,7 @@ import { localFileApiUri } from "../domain/local-media-uri.js";
 const RECORDS_PER_CRATE = 6;
 const SCREEN_COUNT = 3;
 const SCREEN_MEDIA_POOL_LIMIT = SCREEN_COUNT * 2 + 1;
+const PROJECT_PACKET_CACHE_LIMIT = 12;
 const MEDIA_HARD_SEEK_COOLDOWN_SECONDS = 0.25;
 const PRIMARY_MEDIA_START_TIMEOUT_MS = 1_500;
 const RECORD_GARDEN_STORAGE_KEY = "hapa.echo-record-garden.v1";
@@ -70,6 +71,8 @@ function recordGardenDiagnostics() {
     warmReadyVideos: 0,
     waitingVideos: 0,
     mediaPoolSize: 0,
+    projectCacheEntries: 0,
+    projectCacheEvictions: 0,
     mediaPlayRequests: 0,
     mediaHardSeeks: 0,
     mediaBufferingTransitions: 0,
@@ -84,6 +87,28 @@ function recordGardenDiagnostics() {
 
 function browserApiBase(apiBase = "") {
   return String(apiBase || "").replace(/\/+$/, "");
+}
+
+function readCachedProjectPacket(cache, key, diagnostics) {
+  if (!cache.has(key)) return null;
+  const packet = cache.get(key);
+  cache.delete(key);
+  cache.set(key, packet);
+  diagnostics.projectCacheEntries = cache.size;
+  return packet;
+}
+
+function retainProjectPacket(cache, key, packet, diagnostics) {
+  cache.delete(key);
+  cache.set(key, packet);
+  while (cache.size > PROJECT_PACKET_CACHE_LIMIT) {
+    const oldestKey = cache.keys().next().value;
+    if (oldestKey === undefined) break;
+    cache.delete(oldestKey);
+    diagnostics.projectCacheEvictions = Number(diagnostics.projectCacheEvictions || 0) + 1;
+  }
+  diagnostics.projectCacheEntries = cache.size;
+  return packet;
 }
 
 function resolveGardenMediaUri(uri = "", apiBase = "") {
@@ -773,7 +798,8 @@ export default function EchoRecordGarden3DView({
       || latestCut?.timelineCount
       || "unversioned";
     const cacheKey = `${songId}:${latestCut?.id || "base"}:${cutRevision}`;
-    const cached = projectCacheRef.current.get(cacheKey);
+    const diagnostics = recordGardenDiagnostics();
+    const cached = readCachedProjectPacket(projectCacheRef.current, cacheKey, diagnostics);
     if (cached) return cached;
     const controller = new AbortController();
     requestControllerRef.current = controller;
@@ -803,7 +829,7 @@ export default function EchoRecordGarden3DView({
     }
     const nextReferences = Array.isArray(referencePayload?.cards) ? referencePayload.cards : [];
     const cachedPacket = { project: nextProject, references: nextReferences };
-    projectCacheRef.current.set(cacheKey, cachedPacket);
+    retainProjectPacket(projectCacheRef.current, cacheKey, cachedPacket, diagnostics);
     if (requestRef.current !== requestId) return cachedPacket;
     return cachedPacket;
   }, [apiBase, recordBySongId]);
@@ -817,6 +843,8 @@ export default function EchoRecordGarden3DView({
       audio.removeAttribute("src");
       audio.load();
     }
+    projectCacheRef.current.clear();
+    recordGardenDiagnostics().projectCacheEntries = 0;
   }, []);
 
   useEffect(() => {

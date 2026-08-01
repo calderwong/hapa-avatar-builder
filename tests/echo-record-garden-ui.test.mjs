@@ -40,6 +40,12 @@ test("Record Garden exposes a stable, accessible smoke contract", () => {
 
 test("album data stays bounded and selected-record detail is race safe", () => {
   assert.match(component, /const SCREEN_COUNT = 3/);
+  assert.match(component, /const PROJECT_PACKET_CACHE_LIMIT = 12/);
+  assert.match(component, /function readCachedProjectPacket/);
+  assert.match(component, /function retainProjectPacket/);
+  assert.match(component, /while \(cache\.size > PROJECT_PACKET_CACHE_LIMIT\)/);
+  assert.match(component, /projectCacheRef\.current\.clear\(\)/);
+  assert.match(component, /projectCacheEvictions/);
   assert.match(component, /director-projects\?summary=1/);
   assert.match(component, /director-project\?\$\{projectQuery\.toString\(\)\}/);
   assert.match(component, /projectQuery\.set\("variantId", latestCut\.id\)/);
@@ -52,6 +58,31 @@ test("album data stays bounded and selected-record detail is race safe", () => {
   assert.match(component, /requestControllerRef\.current\?\.abort\(\)/);
   assert.match(component, /signal: controller\.signal/);
   assert.doesNotMatch(component, /fetch\(`\$\{[^`]*\/api\/echos\/references`/);
+});
+
+test("project packets use a twelve-entry LRU and release on teardown", () => {
+  const helperSource = component.slice(
+    component.indexOf("function readCachedProjectPacket"),
+    component.indexOf("function resolveGardenMediaUri"),
+  );
+  const createHarness = new Function(`
+    const PROJECT_PACKET_CACHE_LIMIT = 12;
+    ${helperSource}
+    return { readCachedProjectPacket, retainProjectPacket };
+  `);
+  const { readCachedProjectPacket, retainProjectPacket } = createHarness();
+  const cache = new Map();
+  const diagnostics = { projectCacheEntries: 0, projectCacheEvictions: 0 };
+  for (let index = 0; index < 12; index += 1) {
+    retainProjectPacket(cache, `song-${index}`, { index }, diagnostics);
+  }
+  assert.equal(readCachedProjectPacket(cache, "song-0", diagnostics).index, 0);
+  retainProjectPacket(cache, "song-12", { index: 12 }, diagnostics);
+  assert.equal(cache.size, 12);
+  assert.equal(cache.has("song-0"), true, "a recent hit stays warm");
+  assert.equal(cache.has("song-1"), false, "the least recent packet is released");
+  assert.equal(diagnostics.projectCacheEntries, 12);
+  assert.equal(diagnostics.projectCacheEvictions, 1);
 });
 
 test("the turntable and surfaces share the live audio clock", () => {

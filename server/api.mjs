@@ -92,6 +92,7 @@ import {
   createRoomletTarotInvite
 } from "./roomletInvite.mjs";
 import { fileStreamTelemetry, streamFileToResponse } from "./file-serving.mjs";
+import { ByteBoundedLruCache } from "./byte-bounded-lru-cache.mjs";
 import {
   TAROT_KREA2_MAX_IMAGE_BYTES,
   adapterErrorPayload as tarotKrea2AdapterErrorPayload,
@@ -140,7 +141,11 @@ import {
   readFreshEchoPlanCertificationBlockers,
 } from "./echo-mint-plan-certification-queue.mjs";
 import { createEchoDirectionVariantSummaryIndex } from "./echo-direction-variant-summary-index.mjs";
-import { guardEchoCertifiedGraphDelivery, readEchoDirectorShowGraphArtifact } from "./echo-director-show-graph-loader.mjs";
+import {
+  createEchoDirectorShowGraphCache,
+  guardEchoCertifiedGraphDelivery,
+  readEchoDirectorShowGraphArtifact,
+} from "./echo-director-show-graph-loader.mjs";
 import {
   stableCertificationFileProof,
   stableCertificationFileSha256,
@@ -420,7 +425,7 @@ const echoDirectionVariantSummaryIndex = createEchoDirectionVariantSummaryIndex(
   variantsRoot: ECHO_DIRECTION_VARIANTS_DIR,
 });
 const echoIsfAssets = new EchoIsfAssetCatalog({ musicVizRoot: HAPA_MUSIC_VIZ_ROOT });
-const echoDirectorShowGraphCache = new Map();
+const echoDirectorShowGraphCache = createEchoDirectorShowGraphCache();
 const echoMintPlanCertificationQueue = createEchoMintPlanCertificationQueue();
 const echoDirectorProjectCompileJobs = new Map();
 const echoDirectorProjectWarmupJobs = new Map();
@@ -644,7 +649,6 @@ const OVERWIND_ENTITY_NAMES = [
   "tarot_card"
 ];
 
-const rawJsonCache = new Map();
 const normalizedJsonCache = new Map();
 const rawJsonInflight = new Map();
 const normalizedJsonInflight = new Map();
@@ -669,6 +673,19 @@ const BLUE_AVATAR_OWNER_PATH = process.env.HAPA_BLUE_AVATAR_OWNER_PATH || path.j
 const BLUE_AVATAR_OWNER_TTL_MS = Math.max(5000, Number(process.env.HAPA_BLUE_AVATAR_OWNER_TTL_MS || 16000) || 16000);
 const MAX_REQUEST_BYTES = Math.max(64 * 1024, Math.min(32 * 1024 * 1024, Number(process.env.HAPA_AVATAR_MAX_REQUEST_BYTES || 8 * 1024 * 1024)));
 const MAX_RETAINED_RAW_JSON_BYTES = Math.max(1024 * 1024, Math.min(64 * 1024 * 1024, Number(process.env.HAPA_AVATAR_RAW_JSON_CACHE_MAX_BYTES || 8 * 1024 * 1024)));
+const MAX_RETAINED_RAW_JSON_TOTAL_BYTES = Math.max(
+  MAX_RETAINED_RAW_JSON_BYTES,
+  Math.min(1024 * 1024 * 1024, Number(process.env.HAPA_AVATAR_RAW_JSON_CACHE_TOTAL_BYTES || 128 * 1024 * 1024)),
+);
+const MAX_RETAINED_RAW_JSON_ENTRIES = Math.max(
+  8,
+  Math.min(512, Number(process.env.HAPA_AVATAR_RAW_JSON_CACHE_MAX_ENTRIES || 64)),
+);
+const rawJsonCache = new ByteBoundedLruCache({
+  maxBytes: MAX_RETAINED_RAW_JSON_TOTAL_BYTES,
+  maxEntries: MAX_RETAINED_RAW_JSON_ENTRIES,
+  maxEntryBytes: MAX_RETAINED_RAW_JSON_BYTES,
+});
 const SONG_CARD_PLAN_TIMEOUT_MS = Math.max(1, Math.min(5 * 60 * 1000, Number(process.env.HAPA_SONG_CARD_PLAN_TIMEOUT_MS || 120_000) || 120_000));
 const SONG_CARD_MAX_CONSTITUENT_REFERENCES = Math.max(1, Math.min(4096, Number(process.env.HAPA_SONG_CARD_MAX_CONSTITUENT_REFERENCES || 512) || 512));
 const activeSongCardPlanRequests = new Map();
@@ -1655,7 +1672,19 @@ async function route(req, res) {
         jsonStores: {
           ...jsonStoreReadTelemetry,
           rawCacheEntries: rawJsonCache.size,
+          rawCacheBytes: rawJsonCache.bytes,
+          rawCacheMaxBytes: rawJsonCache.maxBytes,
+          rawCacheMaxEntries: rawJsonCache.maxEntries,
+          rawCacheEvictions: rawJsonCache.evictions,
+          rawCacheOversizeSkips: rawJsonCache.oversizeSkips,
           normalizedCacheEntries: normalizedJsonCache.size,
+          normalizedCacheSourceBytes: [...normalizedJsonCache.values()]
+            .reduce((total, entry) => total + Math.max(0, Number(entry?.size) || 0), 0),
+          directorGraphCacheEntries: echoDirectorShowGraphCache.size,
+          directorGraphCacheBytes: echoDirectorShowGraphCache.bytes,
+          directorGraphCacheMaxBytes: echoDirectorShowGraphCache.maxBytes,
+          directorGraphCacheMaxEntries: echoDirectorShowGraphCache.maxEntries,
+          directorGraphCacheEvictions: echoDirectorShowGraphCache.evictions,
           rawInflight: rawJsonInflight.size,
           normalizedInflight: normalizedJsonInflight.size
         }

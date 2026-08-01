@@ -5,6 +5,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import {
+  createEchoDirectorShowGraphCache,
   guardEchoCertifiedGraphDelivery,
   readEchoDirectorShowGraphArtifact as readEchoDirectorShowGraphArtifactRaw,
   verifyEchoExecutionInputEvidence,
@@ -163,6 +164,106 @@ function graph(marker, hashCharacter) {
     directorV2: { variantId: `variant:${hashCharacter.repeat(20)}`, variantHash: hashCharacter.repeat(64) },
   };
 }
+
+function cacheFixtureGraph(songId, marker, padding = "") {
+  return {
+    schemaVersion: "hapa.music-viz.native-show-graph.v2",
+    marker,
+    padding,
+    song: { id: songId },
+    stems: { items: [] },
+    tracks: [],
+    directorV2: { variantId: `variant:${marker}`, variantHash: marker.padEnd(64, "0").slice(0, 64) },
+  };
+}
+
+test("Director show-graph cache evicts least-recently-used parsed graphs at its entry bound", async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "echo-loader-cache-entry-bound-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const albumRoot = path.join(root, "album");
+  const cache = createEchoDirectorShowGraphCache({
+    maxBytes: 1024 * 1024,
+    maxEntries: 2,
+    maxEntryBytes: 1024 * 1024,
+  });
+  const readSong = async (songId) => {
+    const songRoot = path.join(albumRoot, songId);
+    fs.mkdirSync(songRoot, { recursive: true });
+    const graphPath = path.join(songRoot, "native-show-graph.json");
+    if (!fs.existsSync(graphPath)) fs.writeFileSync(graphPath, `${JSON.stringify(cacheFixtureGraph(songId, songId))}\n`);
+    return readEchoDirectorShowGraphArtifact({
+      albumRoot,
+      root,
+      project: { song_id: songId },
+      songId,
+      cache,
+      validateGraph: validate,
+    });
+  };
+
+  await readSong("song-a");
+  await readSong("song-b");
+  await readSong("song-a"); // Touch A so B becomes the least-recently-used entry.
+  const loaded = await readSong("song-c");
+
+  assert.equal(loaded.graph.marker, "song-c");
+  assert.equal(cache.has(path.join(albumRoot, "song-a", "native-show-graph.json")), true);
+  assert.equal(cache.has(path.join(albumRoot, "song-b", "native-show-graph.json")), false);
+  assert.equal(cache.has(path.join(albumRoot, "song-c", "native-show-graph.json")), true);
+  assert.deepEqual(cache.telemetry(), {
+    entries: 2,
+    bytes: cache.bytes,
+    maxBytes: 1024 * 1024,
+    maxEntries: 2,
+    maxEntryBytes: 1024 * 1024,
+    evictions: 1,
+    oversizeSkips: 0,
+  });
+  assert.ok(cache.bytes > 0 && cache.bytes <= cache.maxBytes);
+});
+
+test("Director show-graph cache enforces its aggregate byte budget and skips an oversized parsed graph", async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "echo-loader-cache-byte-bound-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const albumRoot = path.join(root, "album");
+  const paths = Object.fromEntries(["song-a", "song-b"].map((songId, index) => {
+    const songRoot = path.join(albumRoot, songId);
+    fs.mkdirSync(songRoot, { recursive: true });
+    const graphPath = path.join(songRoot, "native-show-graph.json");
+    fs.writeFileSync(graphPath, `${JSON.stringify(cacheFixtureGraph(songId, songId, String(index).repeat(2048)))}\n`);
+    return [songId, graphPath];
+  }));
+  const sizes = Object.fromEntries(Object.entries(paths).map(([songId, graphPath]) => [songId, fs.statSync(graphPath).size]));
+  const maxBytes = Math.max(sizes["song-a"], sizes["song-b"]) + 8;
+  const cache = createEchoDirectorShowGraphCache({ maxBytes, maxEntries: 10, maxEntryBytes: maxBytes });
+  const readSong = (songId, selectedCache = cache) => readEchoDirectorShowGraphArtifact({
+    albumRoot,
+    root,
+    project: { song_id: songId },
+    songId,
+    cache: selectedCache,
+    validateGraph: validate,
+  });
+
+  await readSong("song-a");
+  const loaded = await readSong("song-b");
+  assert.equal(loaded.graph.marker, "song-b");
+  assert.equal(cache.size, 1);
+  assert.equal(cache.has(paths["song-a"]), false);
+  assert.equal(cache.has(paths["song-b"]), true);
+  assert.equal(cache.bytes, sizes["song-b"]);
+  assert.equal(cache.evictions, 1);
+
+  const oversizeCache = createEchoDirectorShowGraphCache({
+    maxBytes: sizes["song-a"] - 1,
+    maxEntries: 10,
+    maxEntryBytes: sizes["song-a"] - 1,
+  });
+  const oversized = await readSong("song-a", oversizeCache);
+  assert.equal(oversized.graph.marker, "song-a", "an oversized graph remains usable for its current request");
+  assert.equal(oversizeCache.size, 0, "the oversized parsed tree must not be retained");
+  assert.equal(oversizeCache.oversizeSkips, 1);
+});
 
 function executionGraph(parent, parentGraphSha256, { marker, hashCharacter, cutId, cutKind, cutFingerprint }) {
   const result = graph(marker, hashCharacter);
