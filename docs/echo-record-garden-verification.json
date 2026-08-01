@@ -3,15 +3,16 @@
   "feature": {
     "id": "echo-record-garden",
     "programId": "echo-record-garden-2026-07-30",
-    "stage": "first-pass-prototype-stabilized",
+    "stage": "first-pass-prototype-stabilized-guided-acceptance-ready",
     "route": "/?view=echo-records",
+    "guidedAcceptanceRoute": "/?view=echo-records&recordGardenReview=1",
     "boardCards": 14,
     "boardHistoricalState": "14-done-0-open",
     "boardProjectedState": "12-done-2-blocked",
-    "acceptanceState": "implementation-build-offline-verified-browser-acceptance-blocked"
+    "acceptanceState": "exact-build-guided-human-acceptance-pending"
   },
   "source": {
-    "canonicalImplementationRevision": "c0e6ede51e541f012077d74843b18ea6152fc245",
+    "canonicalImplementationRevision": "71e2f31d24e9d5b4cb130c98b2ca82fd9ec783db",
     "canonicalCheckout": "/Users/calderwong/Documents/Codex/2026-06-10/files-mentioned-by-the-user-screenshot/outputs/hapa-avatar-builder",
     "canonicalIntegrated": true,
     "unrelatedWorkingTreeChangesPreserved": true
@@ -83,8 +84,46 @@
   "startupStabilization": {
     "emptyDirectorMediaState": "explicit-standby",
     "nullVideoUriDereferencePrevented": true,
+    "invalidReferenceRowsIgnoredBeforeSurfaceProjection": true,
     "previousRecordFaceResourceReleasedOnce": true,
     "componentRecoveryBoundaryRetained": true
+  },
+  "guidedAcceptanceGate": {
+    "status": "implemented-and-automated-contract-verified-human-observation-pending",
+    "route": "/?view=echo-records&recordGardenReview=1",
+    "manualOnly": true,
+    "currentBuildRequired": true,
+    "browserLoadedChunkHashedAtStartAndEnd": true,
+    "serverContextSigned": "HMAC-SHA256-process-scoped-12-hour-maximum",
+    "serverLedgerFailsClosedOnBuildDrift": true,
+    "receiptStorage": "append-only-content-addressed-integrity-sealed",
+    "boardMutation": false,
+    "automatedSignals": [
+      "exact-current-build",
+      "same-build-start-and-finish",
+      "browser-loaded-chunk-identity",
+      "bounded-review-timeline",
+      "one-live-webgl-garden",
+      "recent-non-legacy-director-cut",
+      "bounded-seven-resource-media-pool",
+      "four-ready-source-bound-surfaces",
+      "two-minute-uninterrupted-playback",
+      "ten-record-change-soak",
+      "four-committed-cross-cue-seeks",
+      "surface-paging",
+      "exact-card-lineage-or-local-unminted-truth",
+      "desktop-and-compact-input-proof",
+      "nonblank-varied-canvas-samples",
+      "three-separated-director-checkpoints",
+      "run-scoped-media-webgl-frame-and-renderer-budgets",
+      "no-current-or-operator-observed-errors"
+    ],
+    "privacy": {
+      "queryAndFragmentStored": false,
+      "browserUserAgentStoredByDefault": false,
+      "webglVendorAndRendererStored": false,
+      "localPathsAndSecretsRedacted": true
+    }
   },
   "memoryAndCacheStabilization": {
     "reportedFailure": "A 13-hour service run grew from about 208 MB to 1.13 GB of V8 heap while Director details and graphs were retained without aggregate limits.",
@@ -171,11 +210,11 @@
   "focusedTests": {
     "status": "passed",
     "script": "npm run test:echo-record-garden",
-    "tests": 111,
-    "passed": 111,
+    "tests": 139,
+    "passed": 139,
     "failed": 0,
     "skipped": 0,
-    "observedDurationMs": 186.44275
+    "observedDurationMs": 2574.167875
   },
   "summaryAndDetailApi": {
     "status": "passed",
@@ -204,21 +243,21 @@
       "npm run build:check"
     ],
     "recordGardenChunk": {
-      "file": "dist/assets/EchoRecordGarden3DView-Qj3OUmIr.js",
-      "bytes": 111810,
-      "viteSizeKb": 111.81,
-      "viteGzipKb": 35.40,
-      "sha256": "43c467148ece641f4523861d16f2ec129f48bbcbacf47f9296ec9337d0e12759"
+      "file": "dist/assets/EchoRecordGarden3DView-D-d220Pc.js",
+      "bytes": 157092,
+      "viteSizeKb": 157.09,
+      "viteGzipKb": 49.18,
+      "sha256": "904cc55628dc93c997ad82ede82acdb75cc3b41cce6e895310d08eb5c0983148"
     },
     "deliveryReceipt": {
       "schemaVersion": "hapa.echo.delivery-build-receipt.v1",
       "contractVersion": "echo-delivery-static-import-graph-v3",
-      "sourceSha256": "sha256:0e8c524e8179409d6b881ecafee3bde89b285782d4bd67d2f8ec430b6ac06656",
-      "servedBundleSha256": "sha256:594690d6895ebb1ea4850c6a6f33af8f213638e2eda03a395e051974cf8b8b0f",
+      "sourceSha256": "sha256:fccc2a20670e8c72915ce5b63c625ac2086e0f88d185782307d4734961fa74a1",
+      "servedBundleSha256": "sha256:34f230cc13ef0a4b5f604660c580a70aee6aed59e8fcd7005c55b7e251df7b40",
       "buildToolSha256": "sha256:1458948a2f71573eebcfbe8a1273966282b40f20c765ead59e4799e83f300fe1",
-      "semanticSha256": "sha256:a8f9b94f794533feae43e9f20e99bb9ef093e9a9a8ccdadf3c99714f3c6f9c83",
-      "fileSha256": "03d44403a813e8d270f7b5943e54d119581e52ee5d8883980cf57873894b230d",
-      "generatedAt": "2026-08-01T05:18:49.992Z"
+      "semanticSha256": "sha256:a492e63b521a11022132722b6c7e311c9c72b091dce3a7b5974140825102adfb",
+      "fileSha256": "adee7c3ce040db1e6f5bf59477d68bca71b397485e750a1cefb1f47d983656e2",
+      "generatedAt": "2026-08-01T07:59:40.500Z"
     },
     "warning": "Existing application chunks exceed 500 kB; Record Garden remains independently lazy-loaded."
   },
@@ -229,19 +268,19 @@
     "passed": 9,
     "failed": 0,
     "receiptPath": "/Users/calderwong/Documents/Codex/2026-06-10/files-mentioned-by-the-user-screenshot/outputs/hapa-avatar-builder/artifacts/echo-record-garden/e2e/offline-contract-receipt.json",
-    "receiptSha256": "2a11de5c431c563adf32a2ab52448fa7d3a22dd32ed75f098b90afe7cd385e1e",
-    "fixtureManifestSha256": "ff2f1a2a576ba1d1a559fd4b66d9b2d64a85190573da709b3c4f16fc679146f0",
-    "boundHead": "c0e6ede51e541f012077d74843b18ea6152fc245"
+    "receiptSha256": "eb6489988fd05edf79e535f017000f5f39d0d7389ae4bdb674c489050ee2588f",
+    "fixtureManifestSha256": "7adefdbb80adf3b357d0f35513fd91718f6840f229c6b29e53793db990d5c111",
+    "boundHead": "71e2f31d24e9d5b4cb130c98b2ca82fd9ec783db"
   },
   "broadRepositorySuite": {
     "status": "passed",
     "currentRevisionRun": {
-      "tests": 1371,
-      "passed": 1371,
+      "tests": 1398,
+      "passed": 1398,
       "failed": 0,
       "skipped": 0,
       "cancelled": 0,
-      "observedDurationMs": null
+      "observedDurationMs": 263642.192625
     },
     "historicalBaselineNote": "The earlier implementation baseline had one transient loopback ECONNRESET and then passed its isolated retry; the current exact revision is independently green.",
     "recordGardenFailures": 0,
@@ -250,15 +289,18 @@
   "liveService": {
     "status": "healthy-current-source",
     "port": 8797,
-    "pid": 83444,
+    "pid": 35888,
     "processOwner": "launchd-canonical",
-    "buildSignature": "86c81d2300f4812d",
+    "buildSignature": "20ec57c1cdf7f0ae",
     "echoDeliveryFreshness": true,
     "sourceSignatureCurrent": true,
-    "observedAt": "2026-08-01T05:26:46.360Z",
-    "uptimeSeconds": 10,
-    "rssBytes": 429719552,
-    "heapUsedBytes": 210652576,
+    "bootSourceSha256": "sha256:f640c0d245ce09985a4f02b4ac1c9a2fc7c4b3b22284d754998498d7b4432a07",
+    "sourceStatSignature": "sha256:29a7716f4fc64067d09cf40531de88bd2dd5b20e36d43f3ec2207bd890c0fd92",
+    "observedAt": "2026-08-01T08:13:07.314Z",
+    "startedAt": "2026-08-01T08:10:39.341Z",
+    "uptimeSeconds": 148,
+    "rssBytes": 151355392,
+    "heapUsedBytes": 26095712,
     "openFileCount": 25,
     "rawJsonCacheEntries": 0,
     "rawJsonCacheMaxBytes": 134217728,
@@ -267,11 +309,16 @@
     "directorGraphCacheMaxBytes": 100663296,
     "directorGraphCacheMaxEntries": 32,
     "normalizedJsonCacheEntries": 0,
+    "acceptanceContextStatus": 200,
+    "acceptanceContextSigned": true,
+    "acceptanceContextExactBuild": true,
     "memoryReview": "passed-bounded-cache-soak-and-clean-service-restart"
   },
   "runtimeEvidence": {
-    "currentRevisionAutomation": "blocked-by-saved-browser-permission-policy",
+    "currentRevisionAutomation": "source-build-api-offline-and-regression-verified-live-browser-observation-blocked-by-saved-browser-permission-policy",
     "manualAcceptance": "pending",
+    "guidedAcceptanceRoute": "http://127.0.0.1:8797/?view=echo-records&recordGardenReview=1",
+    "receiptSchema": "hapa.echo-record-garden.operator-acceptance.v1",
     "operatorChecklist": "docs/ECHO_RECORD_GARDEN_OPERATOR_ACCEPTANCE.md",
     "notProven": [
       "current-revision-live-webgl-pixels",
@@ -304,5 +351,5 @@
     "mintAuthorityClaimed": false,
     "completeVisualFamilyCoverageEverySongClaimed": false
   },
-  "generatedAt": "2026-08-01T05:26:46.360Z"
+  "generatedAt": "2026-08-01T08:08:12.029Z"
 }

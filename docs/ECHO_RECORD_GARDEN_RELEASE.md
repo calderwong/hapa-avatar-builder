@@ -5,7 +5,7 @@ acceptance pending
 Evidence date: 2026-07-30 / 2026-07-31  
 Program ID: `echo-record-garden-2026-07-30`  
 Implementation revision:
-`c0e6ede51e541f012077d74843b18ea6152fc245`
+`71e2f31d24e9d5b4cb130c98b2ca82fd9ec783db`
 
 ## Delivered
 
@@ -47,6 +47,14 @@ The canonical Hapa Avatar Builder now serves Echo Record Garden at
   deterministic resource cleanup;
 - a stable Echo board guard that preserves blocked/external states, serializes
   whole-board writes, and exposes save outcomes to assistive technology.
+- a guided, human-operated acceptance panel at
+  `/?view=echo-records&recordGardenReview=1` that hashes the browser-loaded
+  Record Garden chunk at review start and finish, collects run-scoped playback,
+  surface, Card, responsive-input, WebGL, and frame-budget evidence, and saves
+  an integrity-sealed append-only receipt without mutating the Kanban;
+- a signed server acceptance context that fails closed when the production
+  bundle, service boot, verification ledger, implementation revision, or
+  browser-loaded chunk is stale or mismatched.
 
 ## Canonical Verification
 
@@ -54,10 +62,10 @@ The canonical Hapa Avatar Builder now serves Echo Record Garden at
 
 `npm run test:echo-record-garden`
 
-- 111 tests passed
+- 139 tests passed
 - 0 failed
 - 0 skipped
-- observed duration: 186.44 ms
+- observed duration: 2,574.17 ms
 
 Coverage includes source truth, newest-cut selection, immutable duration
 projection, future/active/past/ambient video phases, calm RPM, surface paging,
@@ -92,14 +100,14 @@ exact playable timeline without claiming render or mint readiness.
 `npm run build` and `npm run build:check` passed.
 
 - Record Garden chunk:
-  `dist/assets/EchoRecordGarden3DView-Qj3OUmIr.js`
-- size: 111,810 bytes; Vite 111.81 kB / 35.40 kB gzip
+  `dist/assets/EchoRecordGarden3DView-D-d220Pc.js`
+- size: 157,092 bytes; Vite 157.09 kB / 49.18 kB gzip
 - chunk digest:
-  `43c467148ece641f4523861d16f2ec129f48bbcbacf47f9296ec9337d0e12759`
+  `904cc55628dc93c997ad82ede82acdb75cc3b41cce6e895310d08eb5c0983148`
 - delivery semantic digest:
-  `sha256:a8f9b94f794533feae43e9f20e99bb9ef093e9a9a8ccdadf3c99714f3c6f9c83`
+  `sha256:a492e63b521a11022132722b6c7e311c9c72b091dce3a7b5974140825102adfb`
 - build receipt file digest:
-  `03d44403a813e8d270f7b5943e54d119581e52ee5d8883980cf57873894b230d`
+  `adee7c3ce040db1e6f5bf59477d68bca71b397485e750a1cefb1f47d983656e2`
 
 The existing application still emits a warning for unrelated chunks over
 500 kB. Record Garden remains independently lazy loaded.
@@ -107,14 +115,14 @@ The existing application still emits a warning for unrelated chunks over
 ### Offline acceptance
 
 The pure-Node verifier passed 9/9 checks and binds to implementation revision
-`c0e6ede51e541f012077d74843b18ea6152fc245`.
+`71e2f31d24e9d5b4cb130c98b2ca82fd9ec783db`.
 
 - receipt:
   `artifacts/echo-record-garden/e2e/offline-contract-receipt.json`
 - receipt digest:
-  `2a11de5c431c563adf32a2ab52448fa7d3a22dd32ed75f098b90afe7cd385e1e`
+  `eb6489988fd05edf79e535f017000f5f39d0d7389ae4bdb674c489050ee2588f`
 - fixture-manifest digest:
-  `ff2f1a2a576ba1d1a559fd4b66d9b2d64a85190573da709b3c4f16fc679146f0`
+  `7adefdbb80adf3b357d0f35513fd91718f6840f229c6b29e53793db990d5c111`
 
 It proves deterministic audio/video/image fixtures, broken-media fallbacks,
 catalog and project retry, twelve-surface paging, authoritative and embedded
@@ -123,7 +131,7 @@ WebGL, audio-device, touch, layout, or screenshot evidence.
 
 ### Broader Builder regression
 
-The current exact revision passed the full repository suite: 1,371 of 1,371
+The current exact revision passed the full repository suite: 1,398 of 1,398
 tests, with zero failures, skips, or cancellations. The earlier implementation
 baseline's isolated loopback `ECONNRESET` remains historical evidence; it is
 not attributed to this clean current-revision run.
@@ -133,8 +141,8 @@ not attributed to this clean current-revision run.
 The explicit-GC, two-pass album soak parsed 157 base projects, 157
 representative current variants, and 157 native show graphs per pass. Raw JSON
 ended at 64 entries / 55,024,126 source bytes and graphs at 32 entries /
-77,655,736 source bytes. Heap after collection was 129,250,808 bytes after
-pass one and 129,280,760 after pass two. Every byte/count, eviction, and heap
+77,655,736 source bytes. Heap after collection was 129,250,704 bytes after
+pass one and 129,280,672 after pass two. Every byte/count, eviction, and heap
 plateau assertion passed. Receipt digest:
 `7a3789a916d21b473671b3b604b59eec91709d8658e26c43768ab10980dbdefe`.
 
@@ -197,8 +205,8 @@ attachment.
 - Navigation to `/?view=echos` or `/?view=tarot` leaves source records unchanged.
 - Empty Director media enters a safe standby state and releases any previous
   pooled record-face resource once.
-- Code rollback is the inverse of focused revisions `c0e6ede`, `b5ed112`,
-  `44e1833`, and `b946fec`.
+- Code rollback is the inverse of focused revisions `71e2f31`, `fbf547c`,
+  `24ebb94`, `4535188`, `c0e6ede`, `b5ed112`, `44e1833`, and `b946fec`.
 
 ## Current Manual Acceptance
 
@@ -206,11 +214,13 @@ Saved browser permissions prohibit automated DOM, console, network, screenshot,
 or alternate-browser execution for the current revision. Older screenshots are
 art-direction references only.
 
-The durable checklist and evidence template is
-`docs/ECHO_RECORD_GARDEN_OPERATOR_ACCEPTANCE.md`. In short, the remaining
-operator check is:
+The durable checklist and guided-receipt instructions are in
+`docs/ECHO_RECORD_GARDEN_OPERATOR_ACCEPTANCE.md`. Open
+`http://127.0.0.1:8797/?view=echo-records&recordGardenReview=1`, choose
+**Verify experience**, and start the current-build-bound review. In short, the
+remaining operator check is:
 
-1. reload `http://127.0.0.1:8797/?view=echo-records`;
+1. hard-reload the guided route and choose **Start review**;
 2. place a record and confirm the disc feels calm rather than fast;
 3. confirm the displayed cut is a recent non-Legacy cut;
 4. play and seek across several cuts, watching for black surfaces, backward
@@ -222,8 +232,12 @@ operator check is:
 7. exercise keyboard placement, pause/resume, reduced motion, and the visible
    recovery action;
 8. repeat at a compact window size and confirm controls remain reachable;
-9. keep one record playing for two minutes and change records repeatedly while
-   checking that audio, screens, and old media stop cleanly.
+9. keep one record playing for two minutes, capture three separated checkpoints,
+   and change records repeatedly while checking that audio, screens, and old
+   media stop cleanly;
+10. save a passing receipt only when every human row and automated supporting
+    signal is green; otherwise save an issue receipt with exact reproduction
+    steps.
 
 Until that check is recorded, current-revision live WebGL pixels, audio-device
 behavior, touch geometry, and screenshots remain not proven.
