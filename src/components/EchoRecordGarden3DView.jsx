@@ -3652,7 +3652,7 @@ function createEchoRecordGardenGame({
     recordEntries.forEach((entry, songId) => {
       const texture = songId === visualRecordId && player.mediaResource?.texture
         ? player.mediaResource.texture
-        : entry.coverTexture || entry.labelTexture;
+        : entry.mediaResource?.texture || entry.coverTexture || entry.labelTexture;
       assignMaterialTexture(entry.faceMaterial, texture);
     });
     diagnostics.visualSurfaceCount = activeVisuals.length;

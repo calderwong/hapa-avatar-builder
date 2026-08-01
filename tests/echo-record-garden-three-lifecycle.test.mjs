@@ -306,6 +306,11 @@ test("the one cinematic screen and spinning record share the exact Director comp
   assert.match(setVisuals, /activeVisuals = masterVisual \? \[masterVisual\] : \[\]/);
   assert.match(setVisuals, /assignAlbumScreenVisuals\(screens, activeVisuals, mediaPool\)/);
   assert.match(setVisuals, /setPlayerRecordVisual\(player, state\.compositeVisual \|\| directorVisual, \{ mediaPool \}\)/);
+  assert.match(
+    setVisuals,
+    /entry\.mediaResource\?\.texture \|\| entry\.coverTexture \|\| entry\.labelTexture/,
+    "visible records must retain their independent looping face videos while the placed record shows the Director composite",
+  );
   assert.doesNotMatch(
     setVisuals,
     /player\.recordMaterials\[1\]\.map = screens\[0\]\.mediaResource\.texture/,
