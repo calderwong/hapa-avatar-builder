@@ -21,7 +21,7 @@ function positiveInteger(value, fallback) {
 
 export const ECHO_DIRECTOR_SHOW_GRAPH_CACHE_DEFAULTS = Object.freeze({
   maxBytes: positiveInteger(process.env.HAPA_ECHO_DIRECTOR_GRAPH_CACHE_MAX_BYTES, 96 * MEBIBYTE),
-  maxEntries: positiveInteger(process.env.HAPA_ECHO_DIRECTOR_GRAPH_CACHE_MAX_ENTRIES, 24),
+  maxEntries: positiveInteger(process.env.HAPA_ECHO_DIRECTOR_GRAPH_CACHE_MAX_ENTRIES, 32),
   maxEntryBytes: positiveInteger(process.env.HAPA_ECHO_DIRECTOR_GRAPH_CACHE_MAX_ENTRY_BYTES, 16 * MEBIBYTE),
 });
 
