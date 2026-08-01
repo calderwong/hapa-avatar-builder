@@ -289,8 +289,11 @@ test("Echo summary endpoint stays compact and lazy-loads project detail", async 
     const videoDetail = await videoDetailResponse.json();
     assert.ok("narrativeSummary" in videoDetail, "video detail endpoint should hydrate long narrative text");
   } finally {
-    child.kill("SIGTERM");
-    await once(child, "exit").catch(() => {});
+    if (child.exitCode === null) {
+      const exited = once(child, "exit").catch(() => {});
+      child.kill("SIGTERM");
+      await exited;
+    }
     await fs.rm(variantsRoot, { recursive: true, force: true });
   }
 });
