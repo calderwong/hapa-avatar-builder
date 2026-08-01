@@ -5,7 +5,7 @@ acceptance pending
 Evidence date: 2026-07-30 / 2026-07-31  
 Program ID: `echo-record-garden-2026-07-30`  
 Implementation revision:
-`705bab40da7c967fd31615e0d917c4b3ccee1432`
+`c0e6ede51e541f012077d74843b18ea6152fc245`
 
 ## Delivered
 
@@ -23,10 +23,20 @@ The canonical Hapa Avatar Builder now serves Echo Record Garden at
   cache identity `(songId, variantId, cut revision)`, fail-visible mismatch
   handling, immutable projection, and separate canonical versus
   source-declared cut fingerprints;
-- a three-screen/twelve-surface constellation backed by a six-resource warm
-  media pool, eager buffering, frame callbacks, a 0.8-second hard-seek
-  cooldown, completed-shot no-rewind behavior, disposal guards, and truthful
-  media-error fallbacks;
+- a three-screen/twelve-surface constellation backed by seven bounded media
+  resources: three visible, three forward-warm, and one dedicated current-cut
+  resource for the record face;
+- dedicated video/image GPU textures, immediate promotion of an already
+  decoded frame, audio-clock frame validation within 0.12 seconds, a
+  0.1-second hard-seek threshold, a 0.25-second seek cooldown, completed-shot
+  no-rewind behavior, and truthful media-error fallbacks;
+- one current Director cue projected across the default display triptych and
+  record face, with clock-bound animated Director visualizers for declared
+  visualizer intervals rather than blank screens;
+- an explicit empty-media standby state that makes initial load, project clear,
+  and resource teardown null-safe;
+- a twelve-packet browser LRU plus service-side 128 MiB/64-entry parsed JSON
+  and 96 MiB/32-entry parsed show-graph LRUs, with eviction and byte telemetry;
 - active-record video texture, while inactive crate records remain bounded;
 - authoritative timed Song Card printing, exact embedded/attached Card
   resolution, cancellation and out-of-order guards, and honest local/unminted
@@ -44,10 +54,10 @@ The canonical Hapa Avatar Builder now serves Echo Record Garden at
 
 `npm run test:echo-record-garden`
 
-- 86 tests passed
+- 111 tests passed
 - 0 failed
 - 0 skipped
-- observed duration: 133.13 ms
+- observed duration: 186.44 ms
 
 Coverage includes source truth, newest-cut selection, immutable duration
 projection, future/active/past/ambient video phases, calm RPM, surface paging,
@@ -82,14 +92,14 @@ exact playable timeline without claiming render or mint readiness.
 `npm run build` and `npm run build:check` passed.
 
 - Record Garden chunk:
-  `dist/assets/EchoRecordGarden3DView-CbXL3YAZ.js`
-- size: 99,585 bytes; Vite 99.58 kB / 31.64 kB gzip
+  `dist/assets/EchoRecordGarden3DView-Qj3OUmIr.js`
+- size: 111,810 bytes; Vite 111.81 kB / 35.40 kB gzip
 - chunk digest:
-  `cf88435edb80eb7d311f1653325ea4c732c160407135354b177f80f5975d38ea`
+  `43c467148ece641f4523861d16f2ec129f48bbcbacf47f9296ec9337d0e12759`
 - delivery semantic digest:
-  `sha256:ffe814a992f88d80a62e3e9eb375133baa5fea71a4cc68d87cf9c803f16f0bc5`
+  `sha256:a8f9b94f794533feae43e9f20e99bb9ef093e9a9a8ccdadf3c99714f3c6f9c83`
 - build receipt file digest:
-  `52cb7eb18861f36c30ab0167d9b1f1bd73ecb4dba33c8e2dfda6fa56c6678ab0`
+  `03d44403a813e8d270f7b5943e54d119581e52ee5d8883980cf57873894b230d`
 
 The existing application still emits a warning for unrelated chunks over
 500 kB. Record Garden remains independently lazy loaded.
@@ -97,12 +107,12 @@ The existing application still emits a warning for unrelated chunks over
 ### Offline acceptance
 
 The pure-Node verifier passed 9/9 checks and binds to implementation revision
-`705bab40da7c967fd31615e0d917c4b3ccee1432`.
+`c0e6ede51e541f012077d74843b18ea6152fc245`.
 
 - receipt:
   `artifacts/echo-record-garden/e2e/offline-contract-receipt.json`
 - receipt digest:
-  `4170fd703fd0fd8840f5fb0f5b7032f4517f96169988312ac78568126d8d0575`
+  `2a11de5c431c563adf32a2ab52448fa7d3a22dd32ed75f098b90afe7cd385e1e`
 - fixture-manifest digest:
   `ff2f1a2a576ba1d1a559fd4b66d9b2d64a85190573da709b3c4f16fc679146f0`
 
@@ -113,17 +123,25 @@ WebGL, audio-device, touch, layout, or screenshot evidence.
 
 ### Broader Builder regression
 
-The current exact revision passed the full repository suite: 1,353 of 1,353
+The current exact revision passed the full repository suite: 1,371 of 1,371
 tests, with zero failures, skips, or cancellations. The earlier implementation
 baseline's isolated loopback `ECONNRESET` remains historical evidence; it is
 not attributed to this clean current-revision run.
 
-### Live service
+### Cache soak and live service
 
-The canonical launchd-owned API was restarted after the build. The observed
-health response reported process `16144`, build signature `23273d8891153d5c`,
-a current source signature, a fresh Echo delivery identity, and process owner
-`launchd-canonical` on port 8797.
+The explicit-GC, two-pass album soak parsed 157 base projects, 157
+representative current variants, and 157 native show graphs per pass. Raw JSON
+ended at 64 entries / 55,024,126 source bytes and graphs at 32 entries /
+77,655,736 source bytes. Heap after collection was 129,250,808 bytes after
+pass one and 129,280,760 after pass two. Every byte/count, eviction, and heap
+plateau assertion passed. Receipt digest:
+`7a3789a916d21b473671b3b604b59eec91709d8658e26c43768ab10980dbdefe`.
+
+The launchd-owned service was then restarted on port 8797 with current source
+freshness and cache ceilings visible in `/api/health`. A live 32-song exact-cut
+pass filled 64 raw entries and 32 graph entries without exceeding either byte
+limit; a repeated pass caused no additional raw reads or retained cache growth.
 
 ## Tarot Reuse And Boundaries
 
@@ -177,7 +195,10 @@ attachment.
 - Unmount cancels frames and callbacks, removes listeners, stops media, and
   disposes renderer resources.
 - Navigation to `/?view=echos` or `/?view=tarot` leaves source records unchanged.
-- Code rollback is the inverse of focused revision `705bab4`.
+- Empty Director media enters a safe standby state and releases any previous
+  pooled record-face resource once.
+- Code rollback is the inverse of focused revisions `c0e6ede`, `b5ed112`,
+  `44e1833`, and `b946fec`.
 
 ## Current Manual Acceptance
 
@@ -185,7 +206,9 @@ Saved browser permissions prohibit automated DOM, console, network, screenshot,
 or alternate-browser execution for the current revision. Older screenshots are
 art-direction references only.
 
-The remaining operator check is:
+The durable checklist and evidence template is
+`docs/ECHO_RECORD_GARDEN_OPERATOR_ACCEPTANCE.md`. In short, the remaining
+operator check is:
 
 1. reload `http://127.0.0.1:8797/?view=echo-records`;
 2. place a record and confirm the disc feels calm rather than fast;
@@ -193,7 +216,14 @@ The remaining operator check is:
 4. play and seek across several cuts, watching for black surfaces, backward
    rewinds, or twitching;
 5. page all surface groups and confirm fallbacks remain labeled;
-6. repeat at a compact window size and confirm controls remain reachable.
+6. click a Director, Reference, character, or scene visual and confirm the
+   attached Card result remains source-accurate and explicitly unminted when
+   local;
+7. exercise keyboard placement, pause/resume, reduced motion, and the visible
+   recovery action;
+8. repeat at a compact window size and confirm controls remain reachable;
+9. keep one record playing for two minutes and change records repeatedly while
+   checking that audio, screens, and old media stop cleanly.
 
 Until that check is recorded, current-revision live WebGL pixels, audio-device
 behavior, touch geometry, and screenshots remain not proven.

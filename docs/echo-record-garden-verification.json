@@ -1,5 +1,5 @@
 {
-  "schemaVersion": "hapa.echo-record-garden.verification.v4",
+  "schemaVersion": "hapa.echo-record-garden.verification.v5",
   "feature": {
     "id": "echo-record-garden",
     "programId": "echo-record-garden-2026-07-30",
@@ -11,7 +11,7 @@
     "acceptanceState": "implementation-build-offline-verified-browser-acceptance-blocked"
   },
   "source": {
-    "canonicalImplementationRevision": "22fa2b6acc9b0c3fa1a8cc5ecd20828e399128cf",
+    "canonicalImplementationRevision": "c0e6ede51e541f012077d74843b18ea6152fc245",
     "canonicalCheckout": "/Users/calderwong/Documents/Codex/2026-06-10/files-mentioned-by-the-user-screenshot/outputs/hapa-avatar-builder",
     "canonicalIntegrated": true,
     "unrelatedWorkingTreeChangesPreserved": true
@@ -31,13 +31,16 @@
     ],
     "physicalScreens": 3,
     "surfaceCandidateLimit": 12,
-    "warmMediaPoolLimit": 6,
+    "warmMediaPoolLimit": 7,
     "visibleMediaSlots": 3,
     "upcomingDirectorVideoWarmSlots": 3,
+    "dedicatedRecordFaceMediaSlots": 1,
     "firstDecodedFrameReadiness": "HAVE_CURRENT_DATA",
     "posterHeldUntilDecodedFrame": true,
     "lastDecodedFrameHeldDuringBufferingAndTimelineGaps": true,
-    "hardSeekCooldownSeconds": 0.8
+    "audioClockFrameToleranceSeconds": 0.12,
+    "hardSeekThresholdSeconds": 0.1,
+    "hardSeekCooldownSeconds": 0.25
   },
   "mediaStabilization": {
     "reportedFailure": "Audio remained healthy while screen and disc media stayed blank for long intervals and then played sporadically.",
@@ -46,7 +49,9 @@
       "The six-entry media pool was only a historical cache and did not explicitly warm three upcoming Director videos.",
       "Video textures waited for HAVE_FUTURE_DATA and ignored their source poster before the first decoded frame.",
       "URI-less visualizer intervals removed the active Director surface instead of retaining the last valid frame.",
-      "Director sourceInSeconds, sourceOutSeconds, and playbackMode were not projected into Record Garden playback."
+      "Director sourceInSeconds, sourceOutSeconds, and playbackMode were not projected into Record Garden playback.",
+      "Visible video and image sources could inherit the fallback canvas texture, preventing decoded media from replacing the placeholder reliably.",
+      "An empty initial Director-media plan dereferenced a missing video URI and could route the view to the recovery boundary."
     ],
     "directorAudit": {
       "exactNewestCutsDelivered": 157,
@@ -68,8 +73,66 @@
       "Prime visible and warm resources synchronously before record audio autoplay.",
       "Hold the prior routable Director frame through URI-less visualizer and structural timeline gaps.",
       "Honor bounded source-in, source-out, and loop playback metadata.",
-      "Refresh video textures deterministically when requestVideoFrameCallback is unavailable."
+      "Refresh video textures deterministically when requestVideoFrameCallback is unavailable.",
+      "Give video and image sources dedicated GPU textures and promote an already-decoded frame immediately.",
+      "Project the current Director cue across the default display triptych and keep a dedicated current-cut resource on the record face.",
+      "Render URI-less Director visualizer intervals as animated, audio-clock-bound visuals rather than blank output.",
+      "Treat an empty initial media plan as explicit standby and release the prior record-face resource exactly once."
     ]
+  },
+  "startupStabilization": {
+    "emptyDirectorMediaState": "explicit-standby",
+    "nullVideoUriDereferencePrevented": true,
+    "previousRecordFaceResourceReleasedOnce": true,
+    "componentRecoveryBoundaryRetained": true
+  },
+  "memoryAndCacheStabilization": {
+    "reportedFailure": "A 13-hour service run grew from about 208 MB to 1.13 GB of V8 heap while Director details and graphs were retained without aggregate limits.",
+    "rootCause": "Direct parsed JSON, parsed Director show graphs, and browser project packets used process-lifetime Maps without aggregate byte and entry ceilings.",
+    "browserProjectPacketCache": {
+      "maxEntries": 12,
+      "lru": true,
+      "clearedOnUnmount": true,
+      "diagnostics": true
+    },
+    "rawDirectorJsonCache": {
+      "maxBytes": 134217728,
+      "maxEntries": 64,
+      "maxEntryBytes": 8388608,
+      "lru": true,
+      "healthTelemetry": true
+    },
+    "directorShowGraphCache": {
+      "maxBytes": 100663296,
+      "maxEntries": 32,
+      "maxEntryBytes": 16777216,
+      "lru": true,
+      "healthTelemetry": true
+    },
+    "twoPassAllSongSoak": {
+      "status": "passed",
+      "projectsPerPass": 157,
+      "representativeCurrentVariantsPerPass": 157,
+      "showGraphsPerPass": 157,
+      "firstPassHeapUsedBytesAfterGc": 129250808,
+      "secondPassHeapUsedBytesAfterGc": 129280760,
+      "rawFinalEntries": 64,
+      "rawFinalBytes": 55024126,
+      "graphFinalEntries": 32,
+      "graphFinalBytes": 77655736,
+      "receiptPath": "/Users/calderwong/Documents/Codex/2026-07-28/can/artifacts/echo-record-garden/cache-soak-20260801.json",
+      "receiptSha256": "7a3789a916d21b473671b3b604b59eec91709d8658e26c43768ab10980dbdefe"
+    },
+    "liveExactDetailSmoke": {
+      "passes": 2,
+      "songsPerPass": 32,
+      "secondPassAdditionalRawDiskReads": 0,
+      "retainedRawEntries": 64,
+      "retainedRawBytes": 109321163,
+      "retainedGraphEntries": 32,
+      "retainedGraphBytes": 72527588,
+      "retainedCacheGrowthOnSecondPass": false
+    }
   },
   "directorSelection": {
     "strategy": "most-recent-non-legacy",
@@ -108,11 +171,11 @@
   "focusedTests": {
     "status": "passed",
     "script": "npm run test:echo-record-garden",
-    "tests": 91,
-    "passed": 91,
+    "tests": 111,
+    "passed": 111,
     "failed": 0,
     "skipped": 0,
-    "observedDurationMs": 132.142917
+    "observedDurationMs": 186.44275
   },
   "summaryAndDetailApi": {
     "status": "passed",
@@ -141,21 +204,21 @@
       "npm run build:check"
     ],
     "recordGardenChunk": {
-      "file": "dist/assets/EchoRecordGarden3DView-D1_nBAUd.js",
-      "bytes": 104887,
-      "viteSizeKb": 104.88,
-      "viteGzipKb": 33.30,
-      "sha256": "bab8a5f43af9999bd6a7e2fc1d245a242ac91731a55470393af21c1010da6928"
+      "file": "dist/assets/EchoRecordGarden3DView-Qj3OUmIr.js",
+      "bytes": 111810,
+      "viteSizeKb": 111.81,
+      "viteGzipKb": 35.40,
+      "sha256": "43c467148ece641f4523861d16f2ec129f48bbcbacf47f9296ec9337d0e12759"
     },
     "deliveryReceipt": {
       "schemaVersion": "hapa.echo.delivery-build-receipt.v1",
       "contractVersion": "echo-delivery-static-import-graph-v3",
-      "sourceSha256": "sha256:73426f13363f2cc8b1b4eda25f6de93136b853ed0f890cb68ca584d229fd3b9c",
-      "servedBundleSha256": "sha256:b9c37746a423d4dea27e95835b678403993c316571a35f2f87cd93d80b9155c3",
+      "sourceSha256": "sha256:0e8c524e8179409d6b881ecafee3bde89b285782d4bd67d2f8ec430b6ac06656",
+      "servedBundleSha256": "sha256:594690d6895ebb1ea4850c6a6f33af8f213638e2eda03a395e051974cf8b8b0f",
       "buildToolSha256": "sha256:1458948a2f71573eebcfbe8a1273966282b40f20c765ead59e4799e83f300fe1",
-      "semanticSha256": "sha256:8e59b0b27fe055bebb0e04f7e476d4a1bdfa94e678a1c45c842fe011106e7786",
-      "fileSha256": "0b97c41032a8daf329dd049afd75257dfcaecc8ef90621b6d30d49690a9e858c",
-      "generatedAt": "2026-07-31T04:14:09.672Z"
+      "semanticSha256": "sha256:a8f9b94f794533feae43e9f20e99bb9ef093e9a9a8ccdadf3c99714f3c6f9c83",
+      "fileSha256": "03d44403a813e8d270f7b5943e54d119581e52ee5d8883980cf57873894b230d",
+      "generatedAt": "2026-08-01T05:18:49.992Z"
     },
     "warning": "Existing application chunks exceed 500 kB; Record Garden remains independently lazy-loaded."
   },
@@ -166,36 +229,50 @@
     "passed": 9,
     "failed": 0,
     "receiptPath": "/Users/calderwong/Documents/Codex/2026-06-10/files-mentioned-by-the-user-screenshot/outputs/hapa-avatar-builder/artifacts/echo-record-garden/e2e/offline-contract-receipt.json",
-    "receiptSha256": "d62cc7290e56fa6da87edbb782d8da7f2ab97ed18b15249b2105a7fffaa4685e",
+    "receiptSha256": "2a11de5c431c563adf32a2ab52448fa7d3a22dd32ed75f098b90afe7cd385e1e",
     "fixtureManifestSha256": "ff2f1a2a576ba1d1a559fd4b66d9b2d64a85190573da709b3c4f16fc679146f0",
-    "boundHead": "22fa2b6acc9b0c3fa1a8cc5ecd20828e399128cf"
+    "boundHead": "c0e6ede51e541f012077d74843b18ea6152fc245"
   },
   "broadRepositorySuite": {
     "status": "passed",
     "currentRevisionRun": {
-      "tests": 1358,
-      "passed": 1358,
+      "tests": 1371,
+      "passed": 1371,
       "failed": 0,
       "skipped": 0,
       "cancelled": 0,
-      "observedDurationMs": 45833.974292
+      "observedDurationMs": null
     },
     "historicalBaselineNote": "The earlier implementation baseline had one transient loopback ECONNRESET and then passed its isolated retry; the current exact revision is independently green.",
     "recordGardenFailures": 0,
     "blanketCurrentRevisionGreenClaimed": true
   },
   "liveService": {
-    "status": "healthy-after-restart",
+    "status": "healthy-current-source",
     "port": 8797,
-    "pid": 55640,
+    "pid": 83444,
     "processOwner": "launchd-canonical",
-    "buildSignature": "23273d8891153d5c",
+    "buildSignature": "86c81d2300f4812d",
     "echoDeliveryFreshness": true,
-    "sourceSignatureCurrent": true
+    "sourceSignatureCurrent": true,
+    "observedAt": "2026-08-01T05:26:46.360Z",
+    "uptimeSeconds": 10,
+    "rssBytes": 429719552,
+    "heapUsedBytes": 210652576,
+    "openFileCount": 25,
+    "rawJsonCacheEntries": 0,
+    "rawJsonCacheMaxBytes": 134217728,
+    "rawJsonCacheMaxEntries": 64,
+    "directorGraphCacheEntries": 0,
+    "directorGraphCacheMaxBytes": 100663296,
+    "directorGraphCacheMaxEntries": 32,
+    "normalizedJsonCacheEntries": 0,
+    "memoryReview": "passed-bounded-cache-soak-and-clean-service-restart"
   },
   "runtimeEvidence": {
-    "currentRevisionAutomation": "blocked-by-saved-execution-policy",
+    "currentRevisionAutomation": "blocked-by-saved-browser-permission-policy",
     "manualAcceptance": "pending",
+    "operatorChecklist": "docs/ECHO_RECORD_GARDEN_OPERATOR_ACCEPTANCE.md",
     "notProven": [
       "current-revision-live-webgl-pixels",
       "desktop-pointer-and-keyboard-journey",
@@ -227,5 +304,5 @@
     "mintAuthorityClaimed": false,
     "completeVisualFamilyCoverageEverySongClaimed": false
   },
-  "generatedAt": "2026-07-31T04:16:00.000Z"
+  "generatedAt": "2026-08-01T05:26:46.360Z"
 }

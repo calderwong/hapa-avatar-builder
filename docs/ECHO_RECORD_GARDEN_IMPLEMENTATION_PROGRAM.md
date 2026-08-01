@@ -1,11 +1,11 @@
 # Echo State Record Garden Implementation Program
 
 Status: canonical First Pass / Prototype Stage implemented; current-revision
-visual acceptance remains operator-confirmed  
+visual acceptance remains operator-pending  
 Program ID: `echo-record-garden-2026-07-30`  
 Board project: `hapa-echo-music-video-direction`  
 Canonical implementation revision:
-`705bab40da7c967fd31615e0d917c4b3ccee1432`
+`c0e6ede51e541f012077d74843b18ea6152fc245`
 
 ## Objective
 
@@ -87,21 +87,49 @@ it does not claim render or mint readiness from a preparing graph.
 ## Media And Buffering Contract
 
 - Three physical screens page through at most twelve source-labeled surfaces.
-- A six-resource media pool covers the visible three plus a three-video warm
-  buffer.
+- A seven-resource media pool covers the visible three, a three-video forward
+  buffer, and one dedicated current-Director resource for the spinning record.
 - Media identity includes URI, revision, source clip identity, timeline start,
   source start, duration, and clock mode. Adjacent clips that share a file do
   not share one mutable playback element.
+- Videos and images use dedicated GPU textures; a fallback canvas is never
+  mutated into a differently sized media source after allocation.
 - Video elements use eager preload, metadata/source-start cueing,
   `loadeddata`/`canplay`/`waiting` state, bounded play retries, and
-  `requestVideoFrameCallback` texture refresh where supported.
-- Hard seeks use a 0.8-second cooldown; ordinary drift uses bounded playback
-  rate correction.
+  `requestVideoFrameCallback` texture refresh where supported. An already
+  decoded `HAVE_CURRENT_DATA` frame is promoted immediately.
+- Decoded frames are accepted only when they match the audio-clock target
+  within 0.12 seconds. Hard seeks use a 0.1-second drift threshold and a
+  0.25-second cooldown; ordinary drift uses bounded playback-rate correction.
+- The current Director cue drives all three default Director displays and the
+  record face from the same frame clock. Declared generated-visualizer cues
+  render a clock-bound animated texture instead of a blank surface.
+- `null` media is an explicit standby/clear command. Startup, project clearing,
+  and pre-cue gaps cannot dereference a missing `videoUri`, and clearing a
+  previous pooled resource releases it exactly once.
 - A failed decoder retains its source-labeled fallback texture.
 - Pool trimming, page changes, visibility changes, WebGL loss, and unmount
   pause and dispose resources deterministically.
 - The active surface texture is also shown on the placed record face; inactive
   crate records retain bounded static labels.
+
+## Memory And Cache Contract
+
+- The browser retains at most twelve recent `(song, cut revision)` project
+  packets, refreshes their LRU order on use, exposes entries/evictions in the
+  Record Garden diagnostics, and clears them on unmount.
+- The local service retains direct parsed Director JSON under both a 128 MiB
+  source-byte ceiling and a 64-entry ceiling; any single source above 8 MiB is
+  used for its request but not retained.
+- Parsed native Director show graphs use the same LRU discipline under a
+  96 MiB, 32-entry, 16 MiB-per-entry budget.
+- `/api/health` exposes entries, source bytes, limits, evictions, oversized
+  skips, in-flight reads, and normalized-store source bytes so future audits do
+  not infer safety from file-descriptor counts alone.
+- The reproducible cache soak parses 157 projects, 157 representative current
+  variants, and 157 show graphs twice under explicit garbage collection. Its
+  final two measured heaps were 129,250,808 and 129,280,760 bytes, with every
+  byte/count bound and second-pass plateau assertion passing.
 
 ## Interaction, Card, And Recovery Contract
 
@@ -125,24 +153,26 @@ it does not claim render or mint readiness from a preparing graph.
 
 ## Quality Gates
 
-The repeatable gate is:
+The repeatable gate at revision `c0e6ede` is:
 
 `npm run verify:echo-record-garden`
 
-It includes focused domain/UI/lifecycle/accessibility/Card tests, a production
-build, delivery-receipt validation, and a deterministic offline acceptance
-fixture. The release record also requires:
+It currently passes 111 focused domain/UI/lifecycle/accessibility/Card/cache checks,
+a production build, delivery-receipt validation, and a deterministic 9/9
+offline acceptance fixture. The exact revision also passes the three compact
+summary/detail API checks and all 1,371 repository tests. The release record
+still requires:
 
-- compact summary and exact-variant API tests;
-- broader Builder regression evidence;
 - source and rights boundaries;
 - append-only board receipts;
 - current-revision desktop and compact visual acceptance.
 
-Automated browser, Electron, WebGL, audio-device, touch-layout, and screenshot
-evidence is unavailable under the saved execution policy. Those checks remain
-a short operator acceptance step and must not be inferred from source tests or
-older screenshots.
+The current in-app browser connection was explicitly denied access to
+`http://127.0.0.1:8797` by the saved user permission setting. The denial also
+forbids alternate-browser or indirect workarounds. Browser, Electron, WebGL,
+audio-device, touch-layout, and screenshot evidence therefore remains a short
+operator acceptance step and must not be inferred from source tests or older
+screenshots.
 
 ## Board Program
 
@@ -166,6 +196,22 @@ The program remains the original dependency-ordered fourteen-card plan:
 Board history is append-only. Earlier completion events are not rewritten.
 Where evidence was stale or overstated, correction events reopen the exact task;
 recompletion is appended only after its acceptance evidence exists.
+
+## Current Closeout Checkpoint
+
+- Implementation revision: `c0e6ede51e541f012077d74843b18ea6152fc245`
+- Focused gate: 111/111
+- Full Builder suite: 1,371/1,371
+- Compact summary/detail API: 3/3
+- Offline contract: 9/9, bound to `c0e6ede`
+- Two-pass all-song cache soak: passed, receipt digest
+  `7a3789a916d21b473671b3b604b59eec91709d8658e26c43768ab10980dbdefe`
+- Delivery semantic digest:
+  `sha256:a8f9b94f794533feae43e9f20e99bb9ef093e9a9a8ccdadf3c99714f3c6f9c83`
+- Board projection: 12 done / 2 blocked
+- Resume condition: complete and record the current-revision operator journey
+  in `ECHO_RECORD_GARDEN_OPERATOR_ACCEPTANCE.md`, then append task 13 and task
+  14 closeout events without rewriting earlier history.
 
 ## Claim Boundary
 
