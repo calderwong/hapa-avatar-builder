@@ -147,6 +147,27 @@ test("full and reduced power profiles change pixel ratio and shadows with observ
   assert.match(threeRuntime, /applyPowerProfile\(playback\.reducedMotion\)/);
 });
 
+test("human acceptance telemetry is run-scoped and keeps uninterrupted playback identity", () => {
+  const renderLoop = threeRuntime.slice(
+    threeRuntime.indexOf("const render ="),
+    threeRuntime.indexOf("\n  render();"),
+  );
+  assert.match(renderLoop, /acceptanceRunId !== acceptanceRun\.startedAt/);
+  assert.match(renderLoop, /frameTimingSamples\.length = 0/);
+  assert.match(renderLoop, /acceptanceRun\.lastPlaybackSongId === placedRecordId/);
+  assert.match(renderLoop, /acceptanceRun\.lastPlaybackCutId === currentCutId/);
+  assert.match(renderLoop, /maxUninterruptedPlaybackSeconds/);
+  assert.match(renderLoop, /uninterruptedPlaybackSongId = String\(placedRecordId/);
+  assert.match(renderLoop, /uninterruptedPlaybackCutId = currentCutId/);
+  assert.match(threeRuntime, /acceptanceRun\.contextLosses = Number\(acceptanceRun\.contextLosses/);
+  assert.match(threeRuntime, /acceptanceRun\.mediaFailures = Number\(acceptanceRun\.mediaFailures/);
+  assert.match(threeRuntime, /acceptanceRun\.bufferingTransitions = Number\(acceptanceRun\.bufferingTransitions/);
+  assert.match(threeRuntime, /maxRendererGeometries/);
+  assert.match(threeRuntime, /maxRendererTextures/);
+  assert.match(threeRuntime, /acceptanceMetrics\.frameTiming = diagnostics\.frameTiming/);
+  assert.match(threeRuntime, /resource\.hasPresentedFrame && resource\.mediaState !== "buffering"/);
+});
+
 test("physical platter drops wait for audio preflight and failed videos keep their source-labelled fallback", () => {
   const pointerUp = threeRuntime.slice(
     threeRuntime.indexOf("const handlePointerUp"),

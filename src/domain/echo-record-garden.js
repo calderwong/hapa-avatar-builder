@@ -256,6 +256,10 @@ function isLegacyDirectionVariant(variant = {}) {
   ].filter(Boolean).join(" "));
 }
 
+export function isLegacyEchoRecordDirectionVariant(variant = {}) {
+  return isLegacyDirectionVariant(variant);
+}
+
 const READY_DIRECTION_VARIANT_STATUSES = new Set([
   "available",
   "complete",

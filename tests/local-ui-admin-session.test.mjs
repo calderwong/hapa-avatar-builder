@@ -42,6 +42,7 @@ test("trusted loopback UI uses an opaque process session while external API auth
       HAPA_SCENE_STORE: stores.scene,
       HAPA_ITEM_STORE: stores.item,
       HAPA_SONG_CARD_MINT_ROOT: path.join(root, "song-card-mints"),
+      HAPA_RECORD_GARDEN_ACCEPTANCE_ROOT: path.join(root, "record-garden-acceptance"),
       HAPA_AVATAR_OVERWIND_OUTBOX: path.join(root, "overwind", "outbox.sqlite3"),
       HAPA_OVERWIND_DIR: path.join(root, "overwind"),
       HAPA_AVATAR_OVERWIND_SUBSCRIBER_SYNC: "0",
@@ -93,6 +94,28 @@ test("trusted loopback UI uses an opaque process session while external API auth
   assert.equal((await fetch(protectedUrl, { headers: { cookie: cookiePair, origin: api, "sec-fetch-site": "cross-site" } })).status, 401, "cross-site fetch metadata invalidates the local UI session");
   assert.equal((await fetch(protectedUrl, { headers: { cookie: cookiePair, origin: "https://evil.example" } })).status, 403, "CORS still rejects a foreign origin before local session auth");
   assert.equal((await fetch(protectedUrl, { headers: { cookie: `hapa_avatar_local_session_${port}=wrong`, origin: api } })).status, 401);
+
+  const acceptanceContextUrl = `${api}/api/echos/record-garden/acceptance-context`;
+  const acceptanceReceiptUrl = `${api}/api/echos/record-garden/acceptance-receipts`;
+  assert.equal((await fetch(acceptanceContextUrl)).status, 401, "acceptance build identity is not public");
+  const acceptanceContext = await fetch(acceptanceContextUrl, {
+    headers: { cookie: cookiePair, origin: api, "sec-fetch-site": "same-origin" },
+  });
+  assert.equal(acceptanceContext.status, 200, await acceptanceContext.text().catch(() => ""));
+  assert.equal(acceptanceContext.headers.get("cache-control"), "no-store");
+  const invalidContentType = await fetch(acceptanceReceiptUrl, {
+    method: "POST",
+    headers: { cookie: cookiePair, origin: api, "sec-fetch-site": "same-origin", "content-type": "text/plain" },
+    body: "{}",
+  });
+  assert.equal(invalidContentType.status, 415);
+  const incompleteReceipt = await fetch(acceptanceReceiptUrl, {
+    method: "POST",
+    headers: { cookie: cookiePair, origin: api, "sec-fetch-site": "same-origin", "content-type": "application/json" },
+    body: "{}",
+  });
+  assert.equal(incompleteReceipt.status, 422);
+  assert.equal((await incompleteReceipt.json()).boardMutated, false);
 
   const { createServer: createViteServer } = await import("vite");
   const vite = await createViteServer({

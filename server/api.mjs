@@ -93,6 +93,7 @@ import {
 } from "./roomletInvite.mjs";
 import { fileStreamTelemetry, streamFileToResponse } from "./file-serving.mjs";
 import { ByteBoundedLruCache } from "./byte-bounded-lru-cache.mjs";
+import { saveEchoRecordGardenAcceptanceReceipt } from "./echo-record-garden-acceptance-store.mjs";
 import {
   TAROT_KREA2_MAX_IMAGE_BYTES,
   adapterErrorPayload as tarotKrea2AdapterErrorPayload,
@@ -226,8 +227,228 @@ const SERVER_BUILD_SIGNATURE = process.env.HAPA_AVATAR_BUILD_SIGNATURE || create
   .update(fs.readFileSync(path.join(__dirname, "file-serving.mjs")))
   .digest("hex")
   .slice(0, 16);
+const ECHO_RECORD_GARDEN_ACCEPTANCE_CONTEXT_SCHEMA = "hapa.echo-record-garden.acceptance-context.v1";
+const ECHO_RECORD_GARDEN_ACCEPTANCE_CONTEXT_PROOF_SCHEMA = "hapa.echo-record-garden.acceptance-context-proof.v1";
+const ECHO_RECORD_GARDEN_ACCEPTANCE_CONTEXT_MAX_AGE_MS = 12 * 60 * 60 * 1_000;
+const ECHO_RECORD_GARDEN_ACCEPTANCE_CONTEXT_CLOCK_SKEW_MS = 30_000;
+const ECHO_RECORD_GARDEN_ACCEPTANCE_CONTEXT_SIGNING_KEY = randomBytes(32);
+const ECHO_RECORD_GARDEN_ACCEPTANCE_ERROR_RESPONSES = Object.freeze({
+  record_garden_component_receipt_missing: Object.freeze({ statusCode: 503, message: "The current Record Garden delivery is incomplete." }),
+  record_garden_delivery_stale: Object.freeze({ statusCode: 409, message: "The Builder must be restarted on the current delivery before acceptance can be recorded." }),
+  record_garden_verification_revision_missing: Object.freeze({ statusCode: 503, message: "The Record Garden verification ledger is incomplete." }),
+  record_garden_verification_ledger_stale: Object.freeze({ statusCode: 409, message: "The Record Garden verification ledger does not match the delivery currently being served." }),
+  record_garden_acceptance_context_invalid: Object.freeze({ statusCode: 409, message: "The review-start context is invalid. Start a new acceptance review." }),
+  record_garden_acceptance_context_expired: Object.freeze({ statusCode: 409, message: "The review-start context expired. Start a new acceptance review." }),
+  acceptance_result_invalid: Object.freeze({ statusCode: 422, message: "Choose whether this review passed or found an issue." }),
+  acceptance_incomplete: Object.freeze({ statusCode: 422, message: "The passing review is incomplete." }),
+  acceptance_failure_incomplete: Object.freeze({ statusCode: 422, message: "The issue receipt is incomplete." }),
+  acceptance_path_invalid: Object.freeze({ statusCode: 500, message: "The acceptance receipt destination is unavailable." }),
+  acceptance_receipt_path_invalid: Object.freeze({ statusCode: 409, message: "The existing acceptance receipt path is unsafe." }),
+  acceptance_receipt_conflict: Object.freeze({ statusCode: 409, message: "A different receipt already exists for this observation." }),
+  acceptance_receipt_integrity_invalid: Object.freeze({ statusCode: 409, message: "The existing acceptance receipt failed its integrity check." }),
+});
+
+function stableEchoRecordGardenAcceptanceJson(value) {
+  if (Array.isArray(value)) {
+    return `[${value.map((item) => stableEchoRecordGardenAcceptanceJson(item) ?? "null").join(",")}]`;
+  }
+  if (value && typeof value === "object") {
+    const entries = [];
+    for (const key of Object.keys(value).sort()) {
+      const encoded = stableEchoRecordGardenAcceptanceJson(value[key]);
+      if (encoded !== undefined) entries.push(`${JSON.stringify(key)}:${encoded}`);
+    }
+    return `{${entries.join(",")}}`;
+  }
+  return JSON.stringify(value);
+}
+
+function echoRecordGardenAcceptanceContextSignaturePayload(context = {}) {
+  const payload = structuredClone(context);
+  if (payload.contextProof) delete payload.contextProof.hmacSha256;
+  return stableEchoRecordGardenAcceptanceJson(payload);
+}
+
+function signEchoRecordGardenAcceptanceContext(context) {
+  return createHmac("sha256", ECHO_RECORD_GARDEN_ACCEPTANCE_CONTEXT_SIGNING_KEY)
+    .update(echoRecordGardenAcceptanceContextSignaturePayload(context))
+    .digest("hex");
+}
+
+function issueEchoRecordGardenAcceptanceContext(context, now = Date.now()) {
+  const issuedAt = new Date(now).toISOString();
+  const unsigned = {
+    ...context,
+    capturedAt: issuedAt,
+    contextProof: {
+      schemaVersion: ECHO_RECORD_GARDEN_ACCEPTANCE_CONTEXT_PROOF_SCHEMA,
+      algorithm: "HMAC-SHA256",
+      issuedAt,
+      expiresAt: new Date(now + ECHO_RECORD_GARDEN_ACCEPTANCE_CONTEXT_MAX_AGE_MS).toISOString(),
+    },
+  };
+  return {
+    ...unsigned,
+    contextProof: {
+      ...unsigned.contextProof,
+      hmacSha256: signEchoRecordGardenAcceptanceContext(unsigned),
+    },
+  };
+}
+
+function echoRecordGardenAcceptanceContextError(code) {
+  const safe = ECHO_RECORD_GARDEN_ACCEPTANCE_ERROR_RESPONSES[code]
+    || ECHO_RECORD_GARDEN_ACCEPTANCE_ERROR_RESPONSES.record_garden_acceptance_context_invalid;
+  return Object.assign(new Error(safe.message), { code, statusCode: safe.statusCode });
+}
+
+function verifyEchoRecordGardenAcceptanceContext(context, now = Date.now()) {
+  if (!context || typeof context !== "object" || Array.isArray(context)) {
+    throw echoRecordGardenAcceptanceContextError("record_garden_acceptance_context_invalid");
+  }
+  const proof = context.contextProof;
+  const issuedAt = Date.parse(String(proof?.issuedAt || ""));
+  const expiresAt = Date.parse(String(proof?.expiresAt || ""));
+  const capturedAt = Date.parse(String(context.capturedAt || ""));
+  const signature = String(proof?.hmacSha256 || "");
+  if (
+    context.schemaVersion !== ECHO_RECORD_GARDEN_ACCEPTANCE_CONTEXT_SCHEMA
+    || proof?.schemaVersion !== ECHO_RECORD_GARDEN_ACCEPTANCE_CONTEXT_PROOF_SCHEMA
+    || proof?.algorithm !== "HMAC-SHA256"
+    || !Number.isFinite(issuedAt)
+    || !Number.isFinite(expiresAt)
+    || !Number.isFinite(capturedAt)
+    || issuedAt !== capturedAt
+    || expiresAt <= issuedAt
+    || expiresAt - issuedAt > ECHO_RECORD_GARDEN_ACCEPTANCE_CONTEXT_MAX_AGE_MS
+    || issuedAt > now + ECHO_RECORD_GARDEN_ACCEPTANCE_CONTEXT_CLOCK_SKEW_MS
+    || !/^[a-f0-9]{64}$/.test(signature)
+  ) {
+    throw echoRecordGardenAcceptanceContextError("record_garden_acceptance_context_invalid");
+  }
+  if (expiresAt < now || now - issuedAt > ECHO_RECORD_GARDEN_ACCEPTANCE_CONTEXT_MAX_AGE_MS) {
+    throw echoRecordGardenAcceptanceContextError("record_garden_acceptance_context_expired");
+  }
+  const expected = signEchoRecordGardenAcceptanceContext(context);
+  if (!timingSafeTextEqual(signature, expected)) {
+    throw echoRecordGardenAcceptanceContextError("record_garden_acceptance_context_invalid");
+  }
+  return structuredClone(context);
+}
+
+function recordGardenAcceptanceRouteError(error, fallbackCode, fallbackStatusCode) {
+  const requestedCode = String(error?.code || "");
+  const known = ECHO_RECORD_GARDEN_ACCEPTANCE_ERROR_RESPONSES[requestedCode];
+  const requestedStatusCode = Number(error?.statusCode);
+  const safeFallbackStatusCode = Number.isInteger(requestedStatusCode)
+    && requestedStatusCode >= 400
+    && requestedStatusCode <= 599
+    ? requestedStatusCode
+    : fallbackStatusCode;
+  const fallback = ECHO_RECORD_GARDEN_ACCEPTANCE_ERROR_RESPONSES[fallbackCode] || {
+    statusCode: safeFallbackStatusCode,
+    message: fallbackCode === "record_garden_acceptance_context_unavailable"
+      ? "The current Record Garden acceptance context is unavailable."
+      : "The Record Garden acceptance receipt could not be recorded.",
+  };
+  return {
+    statusCode: known?.statusCode || fallback.statusCode,
+    payload: {
+      ok: false,
+      error: known ? requestedCode : fallbackCode,
+      message: known?.message || fallback.message,
+    },
+  };
+}
+
+async function currentEchoRecordGardenAcceptanceContext() {
+  const verificationLedgerPath = path.join(ROOT, "docs", "echo-record-garden-verification.json");
+  const deliveryReceiptPath = path.join(ROOT, "dist", "hapa-echo-delivery-build.json");
+  const [verificationLedgerBytes, deliveryReceiptBytes] = await Promise.all([
+    readFile(verificationLedgerPath),
+    readFile(deliveryReceiptPath),
+  ]);
+  const verificationLedger = JSON.parse(verificationLedgerBytes.toString("utf8"));
+  const identity = await inspectEchoDeliveryRuntimeBuildIdentity({
+    root: ROOT,
+    strict: true,
+    refresh: true,
+  });
+  const freshness = currentEchoServerBootFreshness();
+  const component = (identity?.servedBundle?.files || []).find(({ path: assetPath = "" }) => (
+    /(?:^|\/)EchoRecordGarden3DView-[^/]+\.js$/.test(assetPath)
+  ));
+  if (!component?.path || !component?.sha256) {
+    throw Object.assign(new Error("The current Record Garden component chunk is missing from the delivery receipt."), {
+      code: "record_garden_component_receipt_missing",
+      statusCode: 503,
+    });
+  }
+  if (!freshness.ok) {
+    throw Object.assign(new Error("The Builder service must be restarted on the current delivery before acceptance can be recorded."), {
+      code: "record_garden_delivery_stale",
+      statusCode: 409,
+      details: freshness,
+    });
+  }
+  const implementationRevision = String(verificationLedger?.source?.canonicalImplementationRevision || "");
+  if (!/^[a-f0-9]{40}$/.test(implementationRevision)) {
+    throw Object.assign(new Error("The Record Garden verification ledger is not bound to a full implementation revision."), {
+      code: "record_garden_verification_revision_missing",
+      statusCode: 503,
+    });
+  }
+  const ledgerChunk = verificationLedger?.productionBuild?.recordGardenChunk || {};
+  const ledgerDelivery = verificationLedger?.productionBuild?.deliveryReceipt || {};
+  const normalizeSha256 = (value) => {
+    const normalized = String(value || "").toLowerCase();
+    return /^[a-f0-9]{64}$/.test(normalized) ? `sha256:${normalized}` : normalized;
+  };
+  const ledgerMismatches = [];
+  const requireExactLedgerValue = (field, ledgerValue, currentValue) => {
+    if (!ledgerValue || !currentValue || ledgerValue !== currentValue) ledgerMismatches.push(field);
+  };
+  requireExactLedgerValue("recordGardenChunk.file", String(ledgerChunk.file || ""), String(component.path || ""));
+  requireExactLedgerValue("recordGardenChunk.sha256", normalizeSha256(ledgerChunk.sha256), normalizeSha256(component.sha256));
+  requireExactLedgerValue("deliveryReceipt.sourceSha256", normalizeSha256(ledgerDelivery.sourceSha256), normalizeSha256(identity.buildReceipt?.sourceSha256));
+  requireExactLedgerValue("deliveryReceipt.servedBundleSha256", normalizeSha256(ledgerDelivery.servedBundleSha256), normalizeSha256(identity.buildReceipt?.servedBundleSha256));
+  requireExactLedgerValue("deliveryReceipt.semanticSha256", normalizeSha256(ledgerDelivery.semanticSha256), normalizeSha256(identity.buildReceipt?.semanticSha256));
+  if (ledgerMismatches.length) {
+    throw Object.assign(new Error("The Record Garden verification ledger does not match the current inspected delivery."), {
+      code: "record_garden_verification_ledger_stale",
+      statusCode: 409,
+      details: { mismatchedFields: ledgerMismatches },
+    });
+  }
+  return issueEchoRecordGardenAcceptanceContext({
+    schemaVersion: ECHO_RECORD_GARDEN_ACCEPTANCE_CONTEXT_SCHEMA,
+    service: "hapa-avatar-builder",
+    runtime: {
+      processOwner: SERVER_PROCESS_OWNER,
+      buildSignature: SERVER_BUILD_SIGNATURE,
+      startedAt: SERVER_STARTED_AT,
+      port,
+    },
+    deliveryFresh: true,
+    deliveryFreshnessReason: null,
+    bootSourceStatSignature: freshness.bootSourceStatSignature,
+    currentSourceStatSignature: freshness.currentSourceStatSignature,
+    bootSha256: freshness.bootSha256,
+    implementationRevision,
+    verificationLedgerSha256: `sha256:${createHash("sha256").update(verificationLedgerBytes).digest("hex")}`,
+    serverDeliveryBuildSha256: freshness.bootSha256,
+    deliveryReceiptFileSha256: `sha256:${createHash("sha256").update(deliveryReceiptBytes).digest("hex")}`,
+    delivery: {
+      sourceSha256: identity.buildReceipt?.sourceSha256,
+      servedBundleSha256: identity.buildReceipt?.servedBundleSha256,
+      semanticSha256: identity.buildReceipt?.semanticSha256,
+    },
+    component,
+  });
+}
 const execFileAsync = promisify(execFile);
 const DATA_DIR = path.join(ROOT, "data");
+const ECHO_RECORD_GARDEN_ACCEPTANCE_ROOT = path.resolve(process.env.HAPA_RECORD_GARDEN_ACCEPTANCE_ROOT || ROOT);
 const STORE_PATH = process.env.HAPA_AVATAR_STORE || path.join(ROOT, "data/avatar-store.json");
 const KANBAN_PATH = process.env.HAPA_KANBAN_STORE || path.join(ROOT, "data/kanban.json");
 const SCENE_STORE_PATH = process.env.HAPA_SCENE_STORE || path.join(ROOT, "data/scene-store.json");
@@ -2579,6 +2800,67 @@ async function route(req, res) {
         message: error?.message || String(error),
         errors: error?.errors || [],
       });
+    }
+    return;
+  }
+
+  if (pathname === "/api/echos/record-garden/acceptance-context" && req.method === "GET") {
+    if (!requireAdmin(req, res)) return;
+    res.setHeader("Cache-Control", "no-store");
+    try {
+      sendJson(res, 200, {
+        ok: true,
+        context: await currentEchoRecordGardenAcceptanceContext(),
+      });
+    } catch (error) {
+      const safeError = recordGardenAcceptanceRouteError(
+        error,
+        "record_garden_acceptance_context_unavailable",
+        503,
+      );
+      sendJson(res, safeError.statusCode, safeError.payload);
+    }
+    return;
+  }
+
+  if (pathname === "/api/echos/record-garden/acceptance-receipts" && req.method === "POST") {
+    if (!requireAdmin(req, res)) return;
+    res.setHeader("Cache-Control", "no-store");
+    try {
+      if (!/^application\/json(?:\s*;|$)/i.test(String(req.headers["content-type"] || ""))) {
+        sendJson(res, 415, {
+          ok: false,
+          error: "record_garden_acceptance_json_required",
+          message: "Record Garden acceptance receipts require application/json.",
+          boardMutated: false,
+        });
+        return;
+      }
+      const bodyBytes = await readRawBody(req, 64 * 1024);
+      const input = bodyBytes.length ? JSON.parse(bodyBytes.toString("utf8")) : {};
+      const contextStart = verifyEchoRecordGardenAcceptanceContext(input.contextStart);
+      const context = await currentEchoRecordGardenAcceptanceContext();
+      const result = await saveEchoRecordGardenAcceptanceReceipt({
+        root: ECHO_RECORD_GARDEN_ACCEPTANCE_ROOT,
+        input: { ...input, contextStart, contextEnd: context },
+        service: context,
+      });
+      sendJson(res, result.idempotentReplay ? 200 : 201, {
+        ok: true,
+        result: result.receipt.result,
+        truthStatus: result.receipt.truthStatus,
+        relativePath: result.relativePath,
+        sha256: result.sha256,
+        idempotentReplay: result.idempotentReplay,
+        boardMutated: false,
+      });
+    } catch (error) {
+      const safeError = recordGardenAcceptanceRouteError(
+        error,
+        "record_garden_acceptance_receipt_invalid",
+        422,
+      );
+      sendJson(res, safeError.statusCode, { ...safeError.payload, boardMutated: false });
     }
     return;
   }

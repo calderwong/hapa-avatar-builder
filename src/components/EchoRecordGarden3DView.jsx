@@ -19,6 +19,8 @@ import {
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { createEchoRecordVisualCardResolver } from "../domain/echo-record-card-resolution.js";
+import { createEchoRecordGardenAcceptanceRun } from "../domain/echo-record-garden-acceptance.js";
+import EchoRecordGardenAcceptancePanel from "./EchoRecordGardenAcceptancePanel.jsx";
 import {
   ECHO_RECORD_DISPLAY_RPM,
   ECHO_RECORD_GARDEN_SNAPSHOT_SCHEMA,
@@ -27,6 +29,7 @@ import {
   echoRecordPerspectiveToken,
   echoRecordVideoPlaybackPlan,
   echoRecordVinylSpinRadians,
+  isLegacyEchoRecordDirectionVariant,
   normalizeEchoRecordGardenSnapshot,
   normalizeEchoRecordSummaryRows,
   projectEchoRecordSelectedDirectorCut,
@@ -50,9 +53,17 @@ const RECORD_GARDEN_DIAGNOSTICS_KEY = "__HAPA_ECHO_RECORD_GARDEN_DIAGNOSTICS__";
 
 function recordGardenDiagnostics() {
   const existing = globalThis[RECORD_GARDEN_DIAGNOSTICS_KEY];
-  if (existing && typeof existing === "object") return existing;
+  if (existing && typeof existing === "object") {
+    existing.schemaVersion = "hapa.echo-record-garden.diagnostics.v2";
+    existing.acceptanceRun ||= { ...createEchoRecordGardenAcceptanceRun(), running: false };
+    existing.inputCounts ||= { keyboard: 0, mouse: 0, pen: 0, touch: 0 };
+    existing.frameTiming ||= { samples: 0, p50Ms: 0, p95Ms: 0, p99Ms: 0, maxMs: 0, longFrames: 0 };
+    existing.contextLosses ??= 0;
+    existing.lastPixelSample ||= null;
+    return existing;
+  }
   const diagnostics = {
-    schemaVersion: "hapa.echo-record-garden.diagnostics.v1",
+    schemaVersion: "hapa.echo-record-garden.diagnostics.v2",
     createdGames: 0,
     disposedGames: 0,
     liveGames: 0,
@@ -77,12 +88,76 @@ function recordGardenDiagnostics() {
     mediaHardSeeks: 0,
     mediaBufferingTransitions: 0,
     contextState: "uninitialized",
+    contextLosses: 0,
     visibilityState: globalThis.document?.visibilityState || "visible",
     rendererMemory: { geometries: 0, textures: 0 },
+    directorCutId: "",
+    directorCutTitle: "",
+    directorCutLegacy: false,
+    currentCueId: "",
+    inputCounts: { keyboard: 0, mouse: 0, pen: 0, touch: 0 },
+    frameTiming: { samples: 0, p50Ms: 0, p95Ms: 0, p99Ms: 0, maxMs: 0, longFrames: 0 },
+    lastPixelSample: null,
+    acceptanceRun: { ...createEchoRecordGardenAcceptanceRun(), running: false },
     lastError: "",
   };
   globalThis[RECORD_GARDEN_DIAGNOSTICS_KEY] = diagnostics;
   return diagnostics;
+}
+
+function activeAcceptanceRun() {
+  const diagnostics = recordGardenDiagnostics();
+  return diagnostics.acceptanceRun?.running ? diagnostics.acceptanceRun : null;
+}
+
+function noteAcceptanceAction(kind, payload = {}) {
+  const diagnostics = recordGardenDiagnostics();
+  const run = diagnostics.acceptanceRun?.running ? diagnostics.acceptanceRun : null;
+  if (!run) return;
+  if (kind === "placement") {
+    run.recordPlacements += 1;
+    if (run.lastPlacedSongId && run.lastPlacedSongId !== payload.songId) run.recordChanges += 1;
+    run.lastPlacedSongId = String(payload.songId || "");
+    if (run.lastPlacedSongId && !run.songsObserved.includes(run.lastPlacedSongId)) {
+      run.songsObserved = [...run.songsObserved, run.lastPlacedSongId].slice(-40);
+    }
+  } else if (kind === "seek") {
+    const fromCueId = String(payload.fromCueId || "");
+    const toCueId = String(payload.toCueId || "");
+    const fromSeconds = Math.max(0, Number(payload.fromSeconds) || 0);
+    const toSeconds = Math.max(0, Number(payload.toSeconds) || 0);
+    if (!fromCueId || !toCueId || fromCueId === toCueId || Math.abs(toSeconds - fromSeconds) < 0.25) return;
+    const transition = {
+      fromCueId,
+      toCueId,
+      fromSeconds,
+      toSeconds,
+      capturedAt: new Date().toISOString(),
+    };
+    const existing = Array.isArray(run.seekTransitions) ? run.seekTransitions : [];
+    const key = `${fromCueId}->${toCueId}`;
+    if (existing.some((item) => `${item?.fromCueId || ""}->${item?.toCueId || ""}` === key)) return;
+    run.seekTransitions = [...existing, transition].slice(-20);
+    run.seekGestures = run.seekTransitions.length;
+    run.lastSeekAtMs = Date.now();
+    run.lastSeekSeconds = toSeconds;
+  } else if (kind === "surface-page") {
+    run.surfacePageChanges += 1;
+  } else if (kind === "card-result") {
+    run.cardResults += 1;
+  } else if (kind === "keyboard") {
+    run.keyboardActions += 1;
+    diagnostics.inputCounts.keyboard += 1;
+  }
+  if ((globalThis.innerWidth || Infinity) <= 760) run.compactActions += 1;
+}
+
+function noteAcceptancePointer(pointerType = "mouse") {
+  const diagnostics = recordGardenDiagnostics();
+  const normalized = ["mouse", "pen", "touch"].includes(pointerType) ? pointerType : "mouse";
+  diagnostics.inputCounts[normalized] = Number(diagnostics.inputCounts[normalized] || 0) + 1;
+  const run = activeAcceptanceRun();
+  if (run && (globalThis.innerWidth || Infinity) <= 760) run.compactActions += 1;
 }
 
 function browserApiBase(apiBase = "") {
@@ -449,6 +524,7 @@ export default function EchoRecordGarden3DView({
   const cardResolutionRef = useRef(null);
   const pendingCardRevealRef = useRef(false);
   const directorBoundaryRef = useRef("");
+  const seekGestureRef = useRef(null);
   const actionsRef = useRef({});
   const syncDirectorVisualClockRef = useRef(() => {});
   const crateButtonRefs = useRef(new Map());
@@ -623,8 +699,13 @@ export default function EchoRecordGarden3DView({
 
   useEffect(() => {
     const diagnostics = recordGardenDiagnostics();
+    const cut = project?.echo_record_garden_director_cut || null;
     diagnostics.selectedSongId = selectedRecordId || "";
     diagnostics.placedSongId = placedRecordId || "";
+    diagnostics.directorCutId = String(cut?.id || "");
+    diagnostics.directorCutTitle = String(cut?.title || "");
+    diagnostics.directorCutLegacy = isLegacyEchoRecordDirectionVariant(cut || {});
+    diagnostics.currentCueId = String(directorVisual?.sourceId || directorVisual?.id || "");
     diagnostics.audioTime = playback.currentTime;
     diagnostics.audioState = playback.playing ? "playing" : placedRecordId ? "paused" : "idle";
     diagnostics.visualSurfaceCount = visuals.length;
@@ -634,10 +715,17 @@ export default function EchoRecordGarden3DView({
     playback.currentTime,
     playback.error,
     playback.playing,
+    directorVisual,
+    project,
     sceneError,
     selectedRecordId,
     visuals.length,
   ]);
+
+  useEffect(() => {
+    const run = activeAcceptanceRun();
+    if (run && reducedMotion) run.reducedMotionObserved = true;
+  }, [reducedMotion]);
 
   useEffect(() => {
     const handleVisibility = () => {
@@ -1010,6 +1098,7 @@ export default function EchoRecordGarden3DView({
   const handleCrateKeyDown = useCallback((event) => {
     if (!["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End"].includes(event.key)) return;
     if (!crateRecords.length) return;
+    noteAcceptanceAction("keyboard");
     const currentId = event.target?.closest?.("[data-song-id]")?.dataset?.songId || selectedRecordId;
     const currentIndex = Math.max(0, crateRecords.findIndex((record) => record.songId === currentId));
     let nextIndex = currentIndex;
@@ -1090,6 +1179,7 @@ export default function EchoRecordGarden3DView({
       setActiveProjectPacket(packet);
       setSelectedRecordId(songId);
       setPlacedRecordId(songId);
+      noteAcceptanceAction("placement", { songId });
       setPlayback({
         ...initialPlaybackState(),
         duration: validation.duration || projectDuration(nextProject),
@@ -1141,6 +1231,39 @@ export default function EchoRecordGarden3DView({
     }
   }, [placeRecord, placedRecordId, selectedRecordId]);
 
+  const directorCueIdAt = useCallback((seconds) => {
+    if (!project) return "";
+    const selection = selectEchoRecordDirectorShots(project, Math.max(0, Number(seconds) || 0));
+    return String(selection.current?.id || selection.next?.id || "");
+  }, [project]);
+
+  const beginSeekGesture = useCallback(() => {
+    const audio = audioRef.current;
+    if (!audio || seekGestureRef.current) return;
+    const fromSeconds = Math.max(0, Number(audio.currentTime) || 0);
+    seekGestureRef.current = {
+      fromSeconds,
+      fromCueId: directorCueIdAt(fromSeconds),
+    };
+  }, [directorCueIdAt]);
+
+  const commitSeekGesture = useCallback(() => {
+    const origin = seekGestureRef.current;
+    seekGestureRef.current = null;
+    const audio = audioRef.current;
+    if (!origin || !audio) return;
+    const toSeconds = Math.max(0, Number(audio.currentTime) || 0);
+    noteAcceptanceAction("seek", {
+      ...origin,
+      toSeconds,
+      toCueId: directorCueIdAt(toSeconds),
+    });
+  }, [directorCueIdAt]);
+
+  const cancelSeekGesture = useCallback(() => {
+    seekGestureRef.current = null;
+  }, []);
+
   const seekPlayback = useCallback((seconds) => {
     const audio = audioRef.current;
     if (!audio) return;
@@ -1182,11 +1305,12 @@ export default function EchoRecordGarden3DView({
     const bounded = Math.max(0, Math.min(surfacePageCount - 1, Number(nextPage) || 0));
     const nextVisible = visuals.slice(bounded * SCREEN_COUNT, (bounded + 1) * SCREEN_COUNT);
     setSurfacePage(bounded);
+    if (bounded !== surfacePage) noteAcceptanceAction("surface-page");
     setSelectedVisualId(nextVisible[0]?.id || "");
     if (nextVisible[0]) {
       setNotice(`Showing ${surfaceKindLabel(nextVisible[0])} and nearby album surfaces.`);
     }
-  }, [surfacePageCount, visuals]);
+  }, [surfacePage, surfacePageCount, visuals]);
 
   const openCardJobSource = useCallback(() => {
     const sourceSongId = cardResolution.songId;
@@ -1336,6 +1460,47 @@ export default function EchoRecordGarden3DView({
       };
       cardResolutionRef.current = completedResolution;
       setCardResolution(completedResolution);
+      const acceptanceRun = activeAcceptanceRun();
+      if (acceptanceRun) {
+        acceptanceRun.cardEvidence = [
+          ...acceptanceRun.cardEvidence,
+          {
+            cardId: String(attached.id || ""),
+            visualId: String(visual.id || ""),
+            sourceSongId: String(visualSongId || activeSongId || ""),
+            sourceCardId: String(
+              visual.attachment?.cardId
+              || visual.attachment?.lookupId
+              || visual.provenance?.mediaCardId
+              || visual.sourceId
+              || "",
+            ),
+            sourceRevisionId: String(
+              visual.source?.revisionId
+              || visual.provenance?.referenceRevisionId
+              || visual.provenance?.revisionId
+              || visual.attachment?.card?.revisionId
+              || "",
+            ),
+            cardRevisionId: String(
+              attached.revisionId
+              || attached.referenceAtlas?.revisionId
+              || resolution.receipt?.revisionId
+              || "",
+            ),
+            cardSchemaVersion: String(attached.schemaVersion || ""),
+            truthStatus: String(resolution.truthStatus || ""),
+            mode: String(resolution.mode || ""),
+            requestKey: String(resolution.requestKey || ""),
+            receiptEdition: Math.max(0, Number(resolution.receipt?.edition) || 0),
+            receiptAppearanceId: String(resolution.receipt?.appearanceId || ""),
+            receiptSongId: String(resolution.receipt?.songId || ""),
+            receiptTimestampMs: Math.max(0, Number(resolution.receipt?.timestampMs) || 0),
+            capturedAt: new Date().toISOString(),
+          },
+        ].slice(-10);
+        noteAcceptanceAction("card-result");
+      }
       if (resolution.mode === "local-unminted-projection") {
         setNotice(`Generated a local, unminted Card projection for ${attached.title || "this visual"}.`);
       } else if (resolution.mode === "authoritative-edition-print") {
@@ -1775,6 +1940,16 @@ export default function EchoRecordGarden3DView({
             max={Math.max(1, playback.duration || projectDuration(project) || 1)}
             step="0.05"
             value={Math.min(playback.currentTime, playback.duration || projectDuration(project) || 1)}
+            onPointerDown={beginSeekGesture}
+            onPointerUp={commitSeekGesture}
+            onPointerCancel={cancelSeekGesture}
+            onKeyDown={(event) => {
+              if (["ArrowLeft", "ArrowRight", "Home", "End", "PageUp", "PageDown"].includes(event.key)) beginSeekGesture();
+            }}
+            onKeyUp={(event) => {
+              if (["ArrowLeft", "ArrowRight", "Home", "End", "PageUp", "PageDown"].includes(event.key)) commitSeekGesture();
+            }}
+            onBlur={commitSeekGesture}
             onChange={(event) => seekPlayback(event.target.value)}
             aria-label="Record playback position"
             disabled={!placedRecord}
@@ -1933,6 +2108,10 @@ export default function EchoRecordGarden3DView({
         {sceneError ? <AlertTriangle size={14} /> : <CircleDot size={14} />}
         <span>{sceneError || playback.error || notice}</span>
       </div>
+      <EchoRecordGardenAcceptancePanel
+        apiBase={apiBase}
+        captureCheckpoint={() => gameRef.current?.acceptanceSnapshot?.() || null}
+      />
     </section>
   );
 }
@@ -2051,6 +2230,8 @@ function createEchoRecordGardenGame({
     diagnostics,
     onMediaError: (visual) => {
       diagnostics.mediaFailures += 1;
+      const acceptanceRun = activeAcceptanceRun();
+      if (acceptanceRun) acceptanceRun.mediaFailures = Number(acceptanceRun.mediaFailures || 0) + 1;
       diagnostics.lastError = `Media unavailable: ${visual?.title || "album visual"}`;
       onStatus?.(`${visual?.title || "Album visual"} could not be decoded; its source-labelled fallback remains visible.`);
     },
@@ -2066,6 +2247,8 @@ function createEchoRecordGardenGame({
   let animationFrame = 0;
   let renderedFrames = 0;
   let previousFrameSeconds = 0;
+  const frameTimingSamples = [];
+  let acceptanceRunId = "";
   let heldEntry = null;
   let hoveredEntry = null;
   let selectedRecordId = "";
@@ -2110,6 +2293,7 @@ function createEchoRecordGardenGame({
 
   const handlePointerDown = (event) => {
     if (disposed) return;
+    noteAcceptancePointer(event.pointerType);
     setPointer(event);
     const entry = recordHit();
     if (entry) {
@@ -2239,6 +2423,9 @@ function createEchoRecordGardenGame({
   const handleContextLost = (event) => {
     event.preventDefault();
     diagnostics.contextState = "lost";
+    diagnostics.contextLosses = Number(diagnostics.contextLosses || 0) + 1;
+    const acceptanceRun = activeAcceptanceRun();
+    if (acceptanceRun) acceptanceRun.contextLosses = Number(acceptanceRun.contextLosses || 0) + 1;
     diagnostics.lastError = "WebGL context lost";
     canvas.dataset.rendererState = "lost";
     onStatus?.("The 3D renderer paused after losing its graphics context.");
@@ -2529,14 +2716,154 @@ function createEchoRecordGardenGame({
     controls.update();
   };
 
+  const summarizeFrameTiming = () => {
+    if (!frameTimingSamples.length) {
+      return { samples: 0, p50Ms: 0, p95Ms: 0, p99Ms: 0, maxMs: 0, longFrames: 0 };
+    }
+    const sorted = [...frameTimingSamples].sort((left, right) => left - right);
+    const percentile = (ratio) => sorted[Math.min(sorted.length - 1, Math.floor((sorted.length - 1) * ratio))];
+    return {
+      samples: sorted.length,
+      p50Ms: percentile(0.5),
+      p95Ms: percentile(0.95),
+      p99Ms: percentile(0.99),
+      maxMs: sorted[sorted.length - 1],
+      longFrames: sorted.filter((milliseconds) => milliseconds > 50).length,
+    };
+  };
+
+  const sampleRenderedPixels = () => {
+    renderer.render(scene, camera);
+    const gl = renderer.getContext();
+    const width = Math.max(1, Number(gl.drawingBufferWidth) || 1);
+    const height = Math.max(1, Number(gl.drawingBufferHeight) || 1);
+    const patchSize = Math.max(4, Math.min(32, width, height));
+    const centers = [[0.2, 0.2], [0.8, 0.2], [0.5, 0.5], [0.2, 0.8], [0.8, 0.8]];
+    let sampledPixels = 0;
+    let nonBlackPixels = 0;
+    let luminanceSum = 0;
+    let luminanceSquaredSum = 0;
+    const buckets = new Set();
+    for (const [xRatio, yRatio] of centers) {
+      const x = Math.max(0, Math.min(width - patchSize, Math.round(width * xRatio - patchSize / 2)));
+      const y = Math.max(0, Math.min(height - patchSize, Math.round(height * yRatio - patchSize / 2)));
+      const pixels = new Uint8Array(patchSize * patchSize * 4);
+      gl.readPixels(x, y, patchSize, patchSize, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+      for (let index = 0; index < pixels.length; index += 4) {
+        const red = pixels[index];
+        const green = pixels[index + 1];
+        const blue = pixels[index + 2];
+        const luminance = red * 0.2126 + green * 0.7152 + blue * 0.0722;
+        sampledPixels += 1;
+        if (red + green + blue > 12) nonBlackPixels += 1;
+        luminanceSum += luminance;
+        luminanceSquaredSum += luminance * luminance;
+        buckets.add(`${red >> 4}:${green >> 4}:${blue >> 4}`);
+      }
+    }
+    const mean = sampledPixels ? luminanceSum / sampledPixels : 0;
+    const sample = {
+      capturedAt: new Date().toISOString(),
+      width,
+      height,
+      sampledPixels,
+      nonBlackRatio: sampledPixels ? nonBlackPixels / sampledPixels : 0,
+      uniqueBuckets: buckets.size,
+      luminanceVariance: sampledPixels ? Math.max(0, luminanceSquaredSum / sampledPixels - mean * mean) : 0,
+    };
+    diagnostics.lastPixelSample = sample;
+    return sample;
+  };
+
+  const acceptanceSurfaceSnapshot = (slot, visual, resource) => {
+    const currentMediaTime = Math.max(0, Number(resource?.video?.currentTime) || 0);
+    const expectedMediaTime = Math.max(0, Number(resource?.expectedMediaTime) || 0);
+    return {
+      slot,
+      visualId: String(visual?.id || ""),
+      sourceId: String(visual?.sourceId || visual?.source?.id || ""),
+      sourceRevisionId: String(visual?.source?.revisionId || visual?.provenance?.revisionId || ""),
+      songId: String(visual?.songId || ""),
+      role: String(visual?.role || visual?.kind || ""),
+      kind: String(visual?.kind || ""),
+      title: String(visual?.title || ""),
+      resourceKey: String(resource?.key || ""),
+      clockLocked: visual?.clockLocked === true,
+      generatedVisualizer: resource?.generatedVisualizer === true || visual?.kind === "generated-visualizer",
+      imageBacked: Boolean(resource?.texture && !resource?.video && visual),
+      mediaState: String(resource?.mediaState || (visual ? "static" : "empty")),
+      readyState: Number(resource?.video?.readyState) || 0,
+      hasPresentedFrame: resource?.hasPresentedFrame === true || Boolean(resource?.texture && !resource?.video),
+      currentMediaTime,
+      expectedMediaTime,
+      driftSeconds: Math.abs(currentMediaTime - expectedMediaTime),
+    };
+  };
+
+  const acceptanceSnapshot = () => {
+    const audioClock = getAudioClock?.() || playback;
+    const pixelSample = sampleRenderedPixels();
+    const gl = renderer.getContext();
+    const frameTiming = summarizeFrameTiming();
+    diagnostics.frameTiming = frameTiming;
+    const record = recordEntries.get(placedRecordId)?.record || null;
+    const surfaces = [
+      ...screens.map((screen, index) => acceptanceSurfaceSnapshot(`screen-${index + 1}`, screen.visual, screen.mediaResource)),
+      acceptanceSurfaceSnapshot("record-face", player.visual, player.mediaResource),
+    ];
+    return {
+      id: `record-garden-checkpoint-${Date.now()}`,
+      capturedAt: new Date().toISOString(),
+      songId: String(placedRecordId || ""),
+      songTitle: String(record?.title || ""),
+      directorCutId: String(diagnostics.directorCutId || ""),
+      directorCutTitle: String(diagnostics.directorCutTitle || ""),
+      cueId: String(player.visual?.sourceId || player.visual?.id || diagnostics.currentCueId || ""),
+      audioTime: Math.max(0, Number(audioClock?.currentTime) || 0),
+      recordAngle: Number(diagnostics.recordAngle) || 0,
+      expectedRecordAngle: echoRecordVinylSpinRadians(Number(audioClock?.currentTime) || 0, { rpm: ECHO_RECORD_DISPLAY_RPM }),
+      surfaces,
+      pixelSample,
+      renderer: {
+        calls: Number(renderer.info.render.calls) || 0,
+        triangles: Number(renderer.info.render.triangles) || 0,
+        geometries: Number(renderer.info.memory.geometries) || 0,
+        textures: Number(renderer.info.memory.textures) || 0,
+      },
+      frameTiming,
+      environment: {
+        viewport: {
+          width: Math.max(0, globalThis.innerWidth || 0),
+          height: Math.max(0, globalThis.innerHeight || 0),
+          drawingBufferWidth: Math.max(0, gl.drawingBufferWidth || 0),
+          drawingBufferHeight: Math.max(0, gl.drawingBufferHeight || 0),
+          devicePixelRatio: Math.max(0, globalThis.devicePixelRatio || 1),
+        },
+        prefersReducedMotion: playback.reducedMotion === true,
+        maxTouchPoints: Math.max(0, Number(globalThis.navigator?.maxTouchPoints) || 0),
+        coarsePointer: globalThis.matchMedia?.("(pointer: coarse)")?.matches === true,
+        pointerTypes: Object.entries(diagnostics.inputCounts)
+          .filter(([, count]) => Number(count) > 0)
+          .map(([type]) => type),
+        webgl: { version: String(gl.getParameter(gl.VERSION) || "") },
+      },
+    };
+  };
+
   const render = (frameTimestamp = 0) => {
     if (disposed) return;
     animationFrame = requestAnimationFrame(render);
     const elapsed = Math.max(0, Number(frameTimestamp) || 0) / 1000;
-    const delta = previousFrameSeconds
-      ? Math.min(0.05, Math.max(0, elapsed - previousFrameSeconds))
+    const rawDelta = previousFrameSeconds
+      ? Math.max(0, elapsed - previousFrameSeconds)
       : 0;
+    const delta = Math.min(0.05, rawDelta);
     previousFrameSeconds = elapsed;
+    if (rawDelta > 0) {
+      frameTimingSamples.push(rawDelta * 1000);
+      const frameSampleLimit = activeAcceptanceRun() ? 12_000 : 600;
+      if (frameTimingSamples.length > frameSampleLimit) frameTimingSamples.shift();
+    }
     const liveAudioClock = getAudioClock?.();
     const framePlayback = liveAudioClock
       ? {
@@ -2546,6 +2873,48 @@ function createEchoRecordGardenGame({
           playing: Boolean(liveAudioClock.playing),
         }
       : playback;
+    const acceptanceRun = activeAcceptanceRun();
+    if (acceptanceRun) {
+      if (acceptanceRunId !== acceptanceRun.startedAt) {
+        acceptanceRunId = String(acceptanceRun.startedAt || `acceptance-${Date.now()}`);
+        frameTimingSamples.length = 0;
+      }
+      if (framePlayback.reducedMotion) acceptanceRun.reducedMotionObserved = true;
+      const clockSeconds = Math.max(0, Number(framePlayback.currentTime) || 0);
+      const currentCutId = String(diagnostics.directorCutId || "");
+      const continuesSamePlayback = Boolean(
+        framePlayback.playing
+        && acceptanceRun.lastPlaybackSongId === placedRecordId
+        && acceptanceRun.lastPlaybackCutId === currentCutId
+        && clockSeconds >= Number(acceptanceRun.lastPlaybackClockSeconds || 0)
+      );
+      if (continuesSamePlayback) {
+        const progress = clockSeconds - Number(acceptanceRun.lastPlaybackClockSeconds || 0);
+        if (progress > 0 && progress <= 1) {
+          acceptanceRun.playbackSeconds = Number(acceptanceRun.playbackSeconds || 0) + progress;
+          acceptanceRun.currentUninterruptedPlaybackSeconds = Number(
+            acceptanceRun.currentUninterruptedPlaybackSeconds || 0,
+          ) + progress;
+          if (
+            acceptanceRun.currentUninterruptedPlaybackSeconds
+            > Number(acceptanceRun.maxUninterruptedPlaybackSeconds || 0)
+          ) {
+            acceptanceRun.maxUninterruptedPlaybackSeconds = acceptanceRun.currentUninterruptedPlaybackSeconds;
+            acceptanceRun.uninterruptedPlaybackSongId = String(placedRecordId || "");
+            acceptanceRun.uninterruptedPlaybackCutId = currentCutId;
+          }
+        } else if (progress > 1) {
+          acceptanceRun.currentUninterruptedPlaybackSeconds = 0;
+        }
+      } else {
+        acceptanceRun.currentUninterruptedPlaybackSeconds = 0;
+      }
+      acceptanceRun.lastPlaybackClockSeconds = clockSeconds;
+      acceptanceRun.lastPlaybackSongId = String(placedRecordId || "");
+      acceptanceRun.lastPlaybackCutId = currentCutId;
+    } else {
+      acceptanceRunId = "";
+    }
     if (syncDirectorVisuals) syncDirectorVisuals(framePlayback.currentTime);
     const framePowerProfile = framePlayback.reducedMotion
       ? ECHO_RECORD_GARDEN_POWER_PROFILES.reduced
@@ -2622,6 +2991,7 @@ function createEchoRecordGardenGame({
         geometries: Number(renderer.info.memory.geometries) || 0,
         textures: Number(renderer.info.memory.textures) || 0,
       };
+      diagnostics.frameTiming = summarizeFrameTiming();
       diagnostics.activeVideos = screens.filter((screen) => Boolean(screen.mediaResource?.video)).length;
       diagnostics.bufferedVideos = screens.filter((screen) => (
         screen.mediaResource?.video
@@ -2636,6 +3006,22 @@ function createEchoRecordGardenGame({
         && !screen.mediaResource.hasPresentedFrame
         && !["failed", "disposed"].includes(screen.mediaResource.mediaState)
       )).length;
+      const acceptanceMetrics = activeAcceptanceRun();
+      if (acceptanceMetrics) {
+        acceptanceMetrics.frameTiming = diagnostics.frameTiming;
+        acceptanceMetrics.maxWaitingVideos = Math.max(
+          Number(acceptanceMetrics.maxWaitingVideos || 0),
+          diagnostics.waitingVideos,
+        );
+        acceptanceMetrics.maxRendererGeometries = Math.max(
+          Number(acceptanceMetrics.maxRendererGeometries || 0),
+          diagnostics.rendererMemory.geometries,
+        );
+        acceptanceMetrics.maxRendererTextures = Math.max(
+          Number(acceptanceMetrics.maxRendererTextures || 0),
+          diagnostics.rendererMemory.textures,
+        );
+      }
       if (diagnostics.contextState === "restored") diagnostics.contextState = "available";
       canvas.dataset.recordAngle = diagnostics.recordAngle.toFixed(6);
       canvas.dataset.audioTime = diagnostics.audioTime.toFixed(3);
@@ -2663,6 +3049,7 @@ function createEchoRecordGardenGame({
     resetCamera,
     restoreSnapshot,
     snapshot,
+    acceptanceSnapshot,
     cancelInteraction: () => handlePointerCancel(),
     dispose() {
       if (disposed) return;
@@ -3540,7 +3927,13 @@ function createScreenMediaResource(visual, {
     const handleSeeked = () => prepareFirstFrame();
     const handleWaiting = () => {
       if (resource.disposed || resource.mediaState === "failed") return;
-      if (resource.mediaState !== "buffering") diagnostics.mediaBufferingTransitions += 1;
+      if (resource.hasPresentedFrame && resource.mediaState !== "buffering") {
+        diagnostics.mediaBufferingTransitions += 1;
+        const acceptanceRun = activeAcceptanceRun();
+        if (acceptanceRun) {
+          acceptanceRun.bufferingTransitions = Number(acceptanceRun.bufferingTransitions || 0) + 1;
+        }
+      }
       resource.mediaState = resource.hasPresentedFrame ? "buffering" : "first-frame-pending";
     };
     const handleError = () => {
@@ -3627,6 +4020,8 @@ function createScreenMediaResource(visual, {
       undefined,
       () => {
         resource.mediaState = "failed";
+        diagnostics.lastError = `Media unavailable: ${visual.title || "album visual"}`;
+        onMediaError?.(visual);
         resolveFirstFrame?.({ status: "failed" });
       },
     );

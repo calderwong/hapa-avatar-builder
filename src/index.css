@@ -23359,7 +23359,260 @@ h1 {
   color: var(--record-gold);
 }
 
-.echo-record-garden :is(button, input, select):focus-visible {
+.echo-record-review-launcher {
+  position: absolute;
+  z-index: 18;
+  right: 14px;
+  bottom: 227px;
+  min-height: 44px;
+  border-color: rgba(86, 240, 207, .56) !important;
+  background: rgba(13, 27, 24, .9) !important;
+}
+
+.echo-record-review-backdrop {
+  position: absolute;
+  z-index: 29;
+  inset: 0;
+  background: rgba(0, 0, 0, .5);
+}
+
+.echo-record-review-panel {
+  position: absolute;
+  z-index: 30;
+  top: 14px;
+  right: 14px;
+  bottom: 14px;
+  width: min(620px, calc(100% - 28px));
+  overflow: auto;
+  overscroll-behavior: contain;
+  scroll-padding-block: 14px;
+  padding: 14px;
+  border: 1px solid rgba(86, 240, 207, .48);
+  background: rgba(9, 20, 19, .97);
+  color: var(--record-cream);
+  box-shadow: 0 20px 70px rgba(0, 0, 0, .66);
+  backdrop-filter: blur(24px);
+}
+
+.echo-record-review-panel:focus {
+  outline: 2px solid var(--record-mint);
+  outline-offset: -3px;
+}
+
+.echo-record-review-panel > header,
+.echo-record-review-actions,
+.echo-record-review-save-actions,
+.echo-record-review-check,
+.echo-record-review-check > div {
+  display: flex;
+  align-items: center;
+}
+
+.echo-record-review-panel > header {
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.echo-record-review-panel > header span,
+.echo-record-review-panel > small {
+  color: rgba(248, 240, 216, .58);
+  font-family: var(--hapa-mono);
+  font-size: 11px;
+  line-height: 1.5;
+  letter-spacing: .08em;
+}
+
+.echo-record-review-panel > header h3 {
+  margin: 3px 0 0;
+  font-size: 18px;
+}
+
+.echo-record-review-panel > header button {
+  flex: 0 0 44px;
+  width: 44px;
+  height: 44px;
+  border: 1px solid rgba(246, 201, 109, .28);
+  background: rgba(255, 255, 255, .04);
+  color: var(--record-cream);
+}
+
+.echo-record-review-actions,
+.echo-record-review-save-actions {
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.echo-record-review-actions .hapa-btn,
+.echo-record-review-save-actions .hapa-btn {
+  min-height: 44px;
+  font-size: 12px;
+}
+
+.echo-record-review-progress {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 5px;
+  margin-bottom: 10px;
+}
+
+.echo-record-review-progress span {
+  min-height: 48px;
+  padding: 7px 5px;
+  border: 1px solid rgba(246, 201, 109, .15);
+  color: rgba(248, 240, 216, .52);
+  font-family: var(--hapa-mono);
+  font-size: 11px;
+  line-height: 1.35;
+  text-align: center;
+}
+
+.echo-record-review-progress strong {
+  display: block;
+  color: var(--record-mint);
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+}
+
+.echo-record-review-signals {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px;
+  margin-bottom: 12px;
+}
+
+.echo-record-review-signals > span {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 44px;
+  padding: 7px 9px;
+  border: 1px solid rgba(246, 201, 109, .13);
+  color: rgba(248, 240, 216, .55);
+  font-family: var(--hapa-mono);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.echo-record-review-signals > span[data-state="pass"] {
+  border-color: rgba(86, 240, 207, .32);
+  color: var(--record-mint);
+}
+
+.echo-record-review-signals svg {
+  flex: 0 0 auto;
+}
+
+.echo-record-review-signal-label {
+  min-width: 0;
+}
+
+.echo-record-review-signal-state {
+  flex: 0 0 auto;
+  margin-left: auto;
+  color: var(--record-gold);
+  font-size: 10px;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+
+.echo-record-review-signals > span[data-state="pass"] .echo-record-review-signal-state {
+  color: var(--record-mint);
+}
+
+.echo-record-review-checks {
+  display: grid;
+  gap: 5px;
+  margin-bottom: 12px;
+}
+
+.echo-record-review-check {
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 48px;
+  padding: 7px 9px;
+  border: 1px solid rgba(246, 201, 109, .14);
+  color: rgba(248, 240, 216, .75);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.echo-record-review-check > div {
+  flex: 0 0 auto;
+  gap: 4px;
+}
+
+.echo-record-review-check button {
+  min-height: 44px;
+  min-width: 64px;
+  border: 1px solid rgba(246, 201, 109, .2);
+  background: rgba(255, 255, 255, .03);
+  color: rgba(248, 240, 216, .58);
+  font-family: var(--hapa-mono);
+  font-size: 11px;
+}
+
+.echo-record-review-check button[data-state="active"]:first-child {
+  border-color: rgba(86, 240, 207, .56);
+  color: var(--record-mint);
+}
+
+.echo-record-review-check button[data-state="active"]:last-child {
+  border-color: rgba(255, 92, 112, .56);
+  color: #ff94a2;
+}
+
+.echo-record-review-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.echo-record-review-fields label {
+  display: grid;
+  gap: 4px;
+  color: rgba(248, 240, 216, .62);
+  font-family: var(--hapa-mono);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.echo-record-review-fields label:nth-child(n + 3) {
+  grid-column: 1 / -1;
+}
+
+.echo-record-review-fields :is(input, textarea) {
+  width: 100%;
+  border: 1px solid rgba(246, 201, 109, .22);
+  background: rgba(0, 0, 0, .25);
+  color: var(--record-cream);
+  min-height: 44px;
+  padding: 9px;
+  font: 13px/1.45 var(--hapa-mono);
+}
+
+.echo-record-review-fields textarea {
+  min-height: 76px;
+  resize: vertical;
+}
+
+.echo-record-review-message,
+.echo-record-review-receipt {
+  margin: 8px 0;
+  color: rgba(248, 240, 216, .7);
+  font-family: var(--hapa-mono);
+  font-size: 11px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.echo-record-review-receipt {
+  color: var(--record-mint);
+}
+
+.echo-record-garden :is(button, input, select, textarea):focus-visible {
   outline: 2px solid var(--record-cream);
   outline-offset: 2px;
 }
@@ -23379,6 +23632,10 @@ h1 {
   }
 
   .echo-record-garden-notice {
+    bottom: 287px;
+  }
+
+  .echo-record-review-launcher {
     bottom: 287px;
   }
 }
@@ -23419,6 +23676,10 @@ h1 {
   }
 
   .echo-record-garden-notice {
+    bottom: 335px;
+  }
+
+  .echo-record-review-launcher {
     bottom: 335px;
   }
 }
@@ -23591,6 +23852,49 @@ h1 {
     left: max(18px, env(safe-area-inset-left));
     right: max(18px, env(safe-area-inset-right));
     translate: 0 0;
+  }
+
+  .echo-record-review-launcher {
+    right: max(18px, env(safe-area-inset-right));
+    bottom: 468px;
+    min-height: 44px;
+  }
+
+  .echo-record-review-panel {
+    position: fixed;
+    top: max(8px, env(safe-area-inset-top));
+    right: max(8px, env(safe-area-inset-right));
+    bottom: max(8px, env(safe-area-inset-bottom));
+    left: max(8px, env(safe-area-inset-left));
+    width: auto;
+  }
+
+  .echo-record-review-backdrop {
+    position: fixed;
+  }
+
+  .echo-record-review-progress {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .echo-record-review-signals,
+  .echo-record-review-fields {
+    grid-template-columns: 1fr;
+  }
+
+  .echo-record-review-fields label {
+    grid-column: 1;
+  }
+
+  .echo-record-review-check {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .echo-record-review-check button,
+  .echo-record-review-save-actions .hapa-btn,
+  .echo-record-review-actions .hapa-btn {
+    min-height: 44px;
   }
 }
 

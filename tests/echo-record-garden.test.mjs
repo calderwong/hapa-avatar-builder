@@ -16,6 +16,7 @@ import {
   echoRecordVideoPlaybackPlan,
   echoRecordVinylSpinRadians,
   inferEchoRecordMediaKind,
+  isLegacyEchoRecordDirectionVariant,
   normalizeEchoRecordProject,
   normalizeEchoRecordGardenSnapshot,
   normalizeEchoRecordSummaryRows,
@@ -186,6 +187,12 @@ test("Record Garden chooses the most recent non-legacy Director cut", () => {
   }));
   assert.equal(record.director.latestCut.id, "recent-rhythmic");
   assert.equal(record.director.latestCut.timelineCount, 6);
+});
+
+test("Record Garden diagnostics classify both Legacy and Baseline cuts as legacy", () => {
+  assert.equal(isLegacyEchoRecordDirectionVariant({ id: "legacy-v1", title: "Director Legacy" }), true);
+  assert.equal(isLegacyEchoRecordDirectionVariant({ id: "edition-baseline", title: "Baseline Cut" }), true);
+  assert.equal(isLegacyEchoRecordDirectionVariant({ id: "recent-balanced", title: "Recent Balanced" }), false);
 });
 
 test("the selected recent Director cut becomes the Record Garden playback timeline", () => {

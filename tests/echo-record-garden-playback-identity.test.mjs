@@ -76,5 +76,25 @@ test("visual Card receipts remain bound to the active project's song identity", 
   assert.match(cardAction, /resolveVisualCard\.cancelVisual\?\.\(previousResolution\.visualId\)/);
   assert.match(cardAction, /requestGeneration !== cardRequestGenerationRef\.current/);
   assert.match(cardAction, /requestKey: error\?\.requestKey \|\| pendingRequestKey/);
+  assert.match(cardAction, /sourceCardId: String\(/);
+  assert.match(cardAction, /sourceRevisionId: String\(/);
+  assert.match(cardAction, /cardSchemaVersion: String\(attached\.schemaVersion/);
+  assert.match(cardAction, /receiptEdition: Math\.max\(0, Number\(resolution\.receipt\?\.edition\)/);
   assert.doesNotMatch(cardAction, /sourceSongId: placedRecord\?\.songId \|\| selectedRecord\?\.songId/);
+});
+
+test("acceptance seeks count committed Director-boundary gestures instead of slider input events", () => {
+  assert.match(component, /const seekGestureRef = useRef\(null\)/);
+  assert.match(component, /const beginSeekGesture = useCallback/);
+  assert.match(component, /const commitSeekGesture = useCallback/);
+  assert.match(component, /fromCueId: directorCueIdAt\(fromSeconds\)/);
+  assert.match(component, /toCueId: directorCueIdAt\(toSeconds\)/);
+  assert.match(component, /fromCueId === toCueId/);
+  assert.match(component, /run\.seekTransitions = \[\.\.\.existing, transition\]/);
+  assert.match(component, /onPointerDown=\{beginSeekGesture\}/);
+  assert.match(component, /onPointerUp=\{commitSeekGesture\}/);
+  assert.doesNotMatch(
+    component.slice(component.indexOf("const seekPlayback"), component.indexOf("const toggleMuted")),
+    /noteAcceptanceAction\("seek"/,
+  );
 });
