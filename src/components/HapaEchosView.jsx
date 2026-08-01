@@ -70,6 +70,7 @@ import {
   echoCameraCropPresentation,
   echoCameraKeyframeAt,
 } from "../domain/echo-camera-framing.js";
+import { echoDirectorPreviewMediaTransitionState } from "../domain/echo-director-preview-runtime.js";
 import { projectToEditorGraph } from "../domain/multitrack-editor.js";
 import { isPortableVisualizerAttachment } from "../domain/portable-visualizer-card.js";
 import {
@@ -5019,35 +5020,14 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                     const activeCameraKeyframe = echoCameraKeyframeAt(activeShowGraph?.directorV2?.cameraKeyframes, currentTime);
                     const cameraPreviewStyle = cameraMotionStyleForShot(currentTimelineItem, currentTime, isVerticalOutput, activeShotIndex, activeCameraKeyframe?.crop);
 
-                    let previewOpacity = 1.0;
-                    if (currentTimelineItem) {
-                      const elapsed = currentTime - currentTimelineItem.start_sec;
-                      const remaining = currentTimelineItem.end_sec - currentTime;
-                      const transition = currentTimelineItem.transition || "cut";
-                      
-                      if (transition === "fade-in") {
-                        if (elapsed < 0.5 && elapsed >= 0) {
-                          previewOpacity = elapsed / 0.5;
-                        }
-                      } else if (transition === "fade-out") {
-                        if (remaining < 0.5 && remaining >= 0) {
-                          previewOpacity = remaining / 0.5;
-                        }
-                      } else if (transition === "crossfade") {
-                        if (elapsed < 0.5 && elapsed >= 0) {
-                          previewOpacity = elapsed / 0.5;
-                        } else if (remaining < 0.5 && remaining >= 0) {
-                          previewOpacity = remaining / 0.5;
-                        }
-                      } else if (transition === "scanline-dissolve") {
-                        if (elapsed < 0.5 && elapsed >= 0) {
-                          previewOpacity = elapsed / 0.5;
-                        } else if (remaining < 0.5 && remaining >= 0) {
-                          previewOpacity = remaining / 0.5;
-                        }
-                      }
-                    }
-                    previewOpacity = Math.max(0, Math.min(1, previewOpacity));
+                    const previewTransitionState = currentTimelineItem
+                      ? echoDirectorPreviewMediaTransitionState(
+                        currentTimelineItem,
+                        currentTime,
+                        activeOutputProfile.fps,
+                      )
+                      : null;
+                    const previewOpacity = previewTransitionState?.opacity ?? 1;
 
                     const formatTime = (secs) => {
                       const m = Math.floor(secs / 60);

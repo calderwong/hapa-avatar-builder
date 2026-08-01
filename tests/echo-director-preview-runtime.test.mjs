@@ -1,0 +1,627 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+
+import {
+  ECHO_DIRECTOR_PREVIEW_CARD_PRINT_INTENT_SCHEMA,
+  ECHO_DIRECTOR_PREVIEW_CARD_PRINT_RECEIPT_SCHEMA,
+  ECHO_DIRECTOR_PREVIEW_FRAME_SCHEMA,
+  ECHO_DIRECTOR_PREVIEW_RUNTIME_SCHEMA,
+  ECHO_DIRECTOR_PREVIEW_SOURCE_SCHEMA,
+  createEchoDirectorPreviewCardPrintIntent,
+  createEchoDirectorPreviewRuntime,
+  echoDirectorPreviewMediaTransitionState,
+  projectEchoDirectorPreviewFrame,
+  readEchoDirectorPreviewClock,
+  resolveEchoDirectorPreviewCardPrintIntent,
+  selectEchoDirectorPreviewSource,
+} from "../src/domain/echo-director-preview-runtime.js";
+
+function latestCutProject() {
+  return {
+    song_id: "lazy-sunday",
+    song_title: "Lazy Sunday",
+    duration: 6,
+    output_profile: "landscape",
+    timeline: [{
+      start_sec: 0,
+      end_sec: 6,
+      media_id: "legacy-media",
+      media_uri: "/media/legacy.mp4",
+    }],
+    visualizer_timeline: [{
+      start_sec: 0,
+      end_sec: 6,
+      visualizer_id: "legacy-shader",
+      visualizer_title: "Legacy Shader",
+    }],
+    direction_script_variants: [
+      {
+        id: "legacy-baseline",
+        title: "Legacy Baseline",
+        status: "ready",
+        updatedAt: "2026-07-31T20:00:00.000Z",
+        timeline: [{ start_sec: 0, end_sec: 6, media_id: "legacy-cut-media" }],
+        visualizer_timeline: [{ start_sec: 0, end_sec: 6, visualizer_id: "legacy-cut-shader" }],
+      },
+      {
+        id: "director-cut-older",
+        title: "Porch Light Cut",
+        status: "ready",
+        updatedAt: "2026-07-30T20:00:00.000Z",
+        timeline: [{ start_sec: 0, end_sec: 6, media_id: "older-media" }],
+        visualizer_timeline: [{ start_sec: 0, end_sec: 6, visualizer_id: "older-shader" }],
+      },
+      {
+        id: "director-cut-newest",
+        title: "Garden Cut",
+        status: "ready",
+        updatedAt: "2026-07-31T19:00:00.000Z",
+        timeline: [{
+          start_sec: 0,
+          end_sec: 6,
+          media_id: "garden-media",
+          media_uri: "/media/garden.mp4",
+          media_card_id: "card:garden",
+        }],
+        visualizer_timeline: [{
+          start_sec: 0,
+          end_sec: 6,
+          visualizer_id: "ultimate-flame",
+          visualizer_title: "Ultimate Flame",
+        }],
+      },
+    ],
+  };
+}
+
+function paritySource() {
+  const project = {
+    song_id: "lazy-sunday",
+    song_title: "Lazy Sunday",
+    duration: 6,
+    lyrics: {
+      enabled: true,
+      templateId: "kinetic-word-burst-v1",
+      position: "bottom-center",
+      style: "neon-cyan",
+    },
+    timed_lyrics: [{
+      id: "line-one",
+      start: 0,
+      end: 2,
+      text: "Sunlight finds us",
+      words: [
+        { word: "Sunlight", start: 0, end: 0.8 },
+        { word: "finds", start: 0.8, end: 1.4 },
+        { word: "us", start: 1.4, end: 2 },
+      ],
+    }],
+    timeline: [
+      {
+        start_sec: 0,
+        end_sec: 3,
+        media_id: "garden-open",
+        media_uri: "/media/garden-open.mp4",
+        media_card_id: "card:garden-open",
+        media_card_kind: "scene-card",
+        media_card_ref: "hapa://card/garden-open",
+        media_card_title: "Garden Opens",
+        transition: "crossfade",
+      },
+      {
+        start_sec: 3,
+        end_sec: 6,
+        media_id: "tea-table",
+        media_uri: "/media/tea-table.mp4",
+        media_card_id: "card:tea-table",
+        media_card_kind: "scene-card",
+        media_card_title: "Tea Table",
+        transition: "scanline-dissolve",
+      },
+    ],
+  };
+  const showGraph = {
+    schemaVersion: "hapa.music-viz.native-show-graph.v2",
+    outputProfile: {
+      id: "landscape",
+      width: 1920,
+      height: 1080,
+      fps: 10,
+    },
+    song: {
+      id: project.song_id,
+      title: project.song_title,
+      durationSeconds: 6,
+      lyricOverlay: {
+        ...project.lyrics,
+        lines: project.timed_lyrics,
+      },
+    },
+    tracks: [
+      {
+        id: "media-a",
+        role: "media",
+        cards: [
+          {
+            id: "cue:garden-open",
+            trackId: "media-a",
+            startSeconds: 0,
+            endSeconds: 3,
+            sourceCueIndex: 0,
+            media: {
+              id: "garden-open",
+              title: "Garden Opens",
+              localPath: "/media/garden-open.mp4",
+              cardId: "card:garden-open",
+              cardKind: "scene-card",
+              cardRef: "hapa://card/garden-open",
+              cardTitle: "Garden Opens",
+            },
+            parameters: { motion: "slow-push", cameraIntensity: 0.7 },
+            transition: "crossfade",
+          },
+          {
+            id: "cue:tea-table",
+            trackId: "media-a",
+            startSeconds: 3,
+            endSeconds: 6,
+            sourceCueIndex: 1,
+            media: {
+              id: "tea-table",
+              title: "Tea Table",
+              localPath: "/media/tea-table.mp4",
+              cardId: "card:tea-table",
+              cardKind: "scene-card",
+              cardTitle: "Tea Table",
+            },
+            transition: "scanline-dissolve",
+          },
+        ],
+      },
+      {
+        id: "ivf-stack",
+        role: "visualizer",
+        cards: [{
+          id: "shader:changing",
+          trackId: "ivf-stack",
+          startSeconds: 0,
+          endSeconds: 3,
+          visualization: {
+            sourceId: "shader:aurora",
+            nativeKey: "Aurora",
+            status: "exact",
+            sourceHash: "sha256:aurora",
+          },
+          parameters: { opacity: 0.6, blendMode: "screen" },
+          transition: "fade-in",
+        }],
+      },
+      {
+        id: "always-on-ultimate-flame",
+        role: "visualizer",
+        persistent: true,
+        alwaysOn: true,
+        slotId: "always-on-1",
+        cards: [{
+          id: "shader:ultimate-flame",
+          trackId: "always-on-ultimate-flame",
+          startSeconds: 0,
+          endSeconds: 6,
+          alwaysOn: true,
+          persistentSlotId: "always-on-1",
+          visualization: {
+            sourceId: "shader:ultimate-flame",
+            nativeKey: "Ultimate Flame",
+            status: "exact-browser-isf",
+            sourceHash: "sha256:ultimate-flame",
+          },
+          parameters: {
+            opacity: 0.85,
+            blendMode: "screen",
+            stemMap: ["main"],
+          },
+        }],
+      },
+    ],
+    directorV2: {
+      variantId: "director-cut-newest",
+      variantHash: "sha256:newest",
+      cameraKeyframes: [
+        {
+          atSeconds: 0,
+          cameraPathId: "path:slow-push",
+          slotId: "slot:hero",
+          crop: { x: 0, y: 0, width: 1, height: 1 },
+        },
+        {
+          atSeconds: 2,
+          cameraPathId: "path:slow-push",
+          slotId: "slot:hero",
+          crop: { x: 0.1, y: 0.1, width: 0.8, height: 0.8 },
+        },
+      ],
+      visualTimeTrack: {
+        events: [{ id: "visual-time:one", kind: "hold", startSeconds: 1, endSeconds: 1.5 }],
+      },
+      accentTrack: {
+        events: [{ id: "accent:one", kind: "beat-pulse", atSeconds: 1.2, durationSeconds: 0.2 }],
+      },
+      effects: [{ id: "effect:one", kind: "bloom", startSeconds: 1, endSeconds: 1.4 }],
+    },
+  };
+  return {
+    schemaVersion: ECHO_DIRECTOR_PREVIEW_SOURCE_SCHEMA,
+    project,
+    showGraph,
+    song: { id: project.song_id, title: project.song_title, durationSeconds: 6 },
+    cut: {
+      id: "director-cut-newest",
+      title: "Garden Cut",
+      fingerprint: "sha256:newest",
+      strategy: "most-recent-non-legacy",
+      selectionBasis: "latest-ready-non-legacy",
+      legacy: false,
+    },
+    outputProfile: showGraph.outputProfile,
+    truth: {
+      selection: "latest-ready-non-legacy",
+      nonLegacy: true,
+      graphSchemaVersion: showGraph.schemaVersion,
+      graphVariantId: "director-cut-newest",
+      graphVariantHash: "sha256:newest",
+    },
+  };
+}
+
+function fakeCanvas() {
+  const context = {
+    clears: 0,
+    saves: 0,
+    restores: 0,
+    transforms: 0,
+    draws: 0,
+    clearRect() { this.clears += 1; },
+    save() { this.saves += 1; },
+    restore() { this.restores += 1; },
+    setTransform() { this.transforms += 1; },
+    drawImage() { this.draws += 1; },
+  };
+  return {
+    width: 1,
+    height: 1,
+    context,
+    getContext(kind) {
+      assert.equal(kind, "2d");
+      return context;
+    },
+    cloneNode() {
+      return fakeCanvas();
+    },
+  };
+}
+
+test("Preview source selects and projects the newest ready non-legacy cut without mutating the saved project", () => {
+  const project = latestCutProject();
+  const before = structuredClone(project);
+
+  const source = selectEchoDirectorPreviewSource(project);
+
+  assert.equal(source.schemaVersion, ECHO_DIRECTOR_PREVIEW_SOURCE_SCHEMA);
+  assert.equal(source.cut.id, "director-cut-newest");
+  assert.equal(source.cut.legacy, false);
+  assert.equal(source.cut.selectionBasis, "latest-ready-non-legacy");
+  assert.equal(source.showGraph.directorV2.variantId, "director-cut-newest");
+  assert.ok(source.showGraph.tracks.some((track) => (
+    track.cards.some((card) => card.media?.id === "garden-media")
+  )));
+  assert.deepEqual(project, before, "selection and projection must leave append-only source data untouched");
+});
+
+test("Preview source never silently labels Legacy Baseline as the latest cut", () => {
+  const project = latestCutProject();
+  project.direction_script_variants = project.direction_script_variants.filter((row) => row.id === "legacy-baseline");
+
+  assert.throws(
+    () => selectEchoDirectorPreviewSource(project),
+    { code: "echo_director_preview_modern_cut_missing" },
+  );
+  const explicitFallback = selectEchoDirectorPreviewSource(project, { allowLegacyFallback: true });
+  assert.equal(explicitFallback.cut.id, "legacy-baseline");
+  assert.equal(explicitFallback.cut.legacy, true);
+  assert.equal(explicitFallback.cut.selectionBasis, "explicit-legacy-fallback");
+});
+
+test("one external audio clock deterministically projects media, exact Card, shaders, camera, automation, transitions, and lyrics", () => {
+  const source = paritySource();
+  const clock = {
+    currentTime: 1.26,
+    duration: 6,
+    paused: false,
+    source: "master-audio-element",
+  };
+
+  const frame = projectEchoDirectorPreviewFrame({ source, clock });
+  const repeated = projectEchoDirectorPreviewFrame({ source, clock });
+
+  assert.equal(frame.schemaVersion, ECHO_DIRECTOR_PREVIEW_FRAME_SCHEMA);
+  assert.deepEqual(frame, repeated);
+  assert.match(frame.frameKey, /sha256:newest/);
+  assert.equal(frame.clock.source, "master-audio-element");
+  assert.equal(frame.clock.frame, 37);
+  assert.equal(frame.clock.seconds, 1.233333);
+  assert.equal(frame.cut.id, "director-cut-newest");
+  assert.equal(frame.primaryMediaCue.id, "cue:garden-open");
+  assert.equal(frame.currentCard.id, "card:garden-open");
+  assert.equal(frame.currentCard.ref, "hapa://card/garden-open");
+  assert.equal(frame.transition.kind, "crossfade");
+  assert.equal(frame.transition.opacity, 1);
+  assert.equal(frame.visualizers.length, 2);
+  assert.deepEqual(frame.visualizers.map((row) => row.sourceId), [
+    "shader:aurora",
+    "shader:ultimate-flame",
+  ]);
+  assert.equal(frame.visualizers[1].persistent, true);
+  assert.equal(frame.visualizers[1].persistentSlotId, "always-on-1");
+  assert.equal(frame.visualizers[1].composition.opacity, 0.85);
+  assert.equal(frame.camera.motion, "slow-push");
+  assert.deepEqual(frame.camera.keyframe.crop, {
+    x: 0.06166665,
+    y: 0.06166665,
+    width: 0.8766667,
+    height: 0.8766667,
+  });
+  assert.equal(frame.lyrics.line.id, "line-one");
+  assert.equal(frame.lyrics.templateFrame.templateId, "kinetic-word-burst-v1");
+  assert.equal(frame.lyrics.templateFrame.words[1].active, true);
+  assert.deepEqual(frame.automation.visualTime.map((row) => row.id), ["visual-time:one"]);
+  assert.deepEqual(frame.automation.accents.map((row) => row.id), ["accent:one"]);
+  assert.deepEqual(frame.automation.effects.map((row) => row.id), ["effect:one"]);
+});
+
+test("half-open cue seams select the next Director cue and use stable transition noise", () => {
+  const source = paritySource();
+  const before = projectEchoDirectorPreviewFrame({ source, timeSeconds: 2.9 });
+  const seam = projectEchoDirectorPreviewFrame({ source, timeSeconds: 3 });
+  const repeated = projectEchoDirectorPreviewFrame({ source, timeSeconds: 3 });
+
+  assert.equal(before.primaryMediaCue.id, "cue:garden-open");
+  assert.equal(seam.primaryMediaCue.id, "cue:tea-table");
+  assert.equal(seam.currentCard.id, "card:tea-table");
+  assert.equal(seam.transition.kind, "scanline-dissolve");
+  assert.equal(seam.transition.opacity, 0);
+  assert.equal(seam.transition.deterministicSeed, repeated.transition.deterministicSeed);
+});
+
+test("shared transition math preserves Hapa Preview's ordered half-second overlap behavior", () => {
+  const state = echoDirectorPreviewMediaTransitionState({
+    id: "short-crossfade",
+    startSeconds: 0,
+    endSeconds: 0.75,
+    transition: "crossfade",
+  }, 0.4, 30);
+
+  assert.equal(state.windowSeconds, 0.5);
+  assert.equal(state.entrance, 0.8);
+  assert.equal(state.exit, 0.7);
+  assert.equal(state.opacity, 0.8, "the historical entrance branch wins while both windows overlap");
+  assert.equal(state.phase, "entering");
+});
+
+test("clock projection clamps to duration while retaining the final half-open cue", () => {
+  assert.deepEqual(readEchoDirectorPreviewClock({
+    clock: { currentTime: 99, duration: 6, ended: true },
+    fps: 10,
+  }), {
+    source: "external-clock",
+    rawSeconds: 99,
+    seconds: 6,
+    selectionSeconds: 5.999999,
+    durationSeconds: 6,
+    frame: 60,
+    fps: 10,
+    playing: false,
+    ended: true,
+  });
+  const frame = projectEchoDirectorPreviewFrame({ source: paritySource(), timeSeconds: 99 });
+  assert.equal(frame.clock.ended, true);
+  assert.equal(frame.primaryMediaCue.id, "cue:tea-table");
+});
+
+test("single-canvas runtime renders every parity layer in canonical order from the external clock", async () => {
+  const canvas = fakeCanvas();
+  const calls = [];
+  const clock = { currentTime: 1.26, duration: 6, paused: false, source: "master-audio" };
+  const adapters = Object.fromEntries([
+    "media",
+    "visualizers",
+    "transition",
+    "automation",
+    "lyrics",
+  ].map((layer) => [layer, ({ frame }) => {
+    calls.push(`${layer}:${frame.clock.frame}`);
+    return { layer, frame: frame.clock.frame };
+  }]));
+  const runtime = createEchoDirectorPreviewRuntime({
+    canvas,
+    source: paritySource(),
+    clock,
+    adapters,
+  });
+
+  const snapshot = await runtime.render();
+
+  assert.equal(snapshot.schemaVersion, ECHO_DIRECTOR_PREVIEW_RUNTIME_SCHEMA);
+  assert.equal(snapshot.status, "rendered-parity-contract");
+  assert.deepEqual(calls, [
+    "media:37",
+    "visualizers:37",
+    "transition:37",
+    "automation:37",
+    "lyrics:37",
+  ]);
+  assert.equal(canvas.width, 1920);
+  assert.equal(canvas.height, 1080);
+  assert.equal(canvas.context.clears, 0, "the visible canvas is atomically replaced, never cleared first");
+  assert.equal(canvas.context.draws, 1);
+  assert.equal(canvas.context.saves, 1);
+  assert.equal(canvas.context.restores, 1);
+  assert.equal(runtime.inspect().outputCanvasCount, 1);
+  assert.equal(runtime.inspect().currentCardId, "card:garden-open");
+
+  clock.currentTime = 3.04;
+  await runtime.render();
+  assert.equal(runtime.snapshot().frame.currentCard.id, "card:tea-table");
+  assert.equal(canvas.context.draws, 2);
+});
+
+test("adapter failure preserves the last fully composed output frame", async () => {
+  const canvas = fakeCanvas();
+  let failTransition = false;
+  const runtime = createEchoDirectorPreviewRuntime({
+    canvas,
+    source: paritySource(),
+    clock: 1.2,
+    adapters: {
+      media() {},
+      visualizers() {},
+      transition() {
+        if (failTransition) throw new Error("transition decoder failed");
+      },
+      automation() {},
+      lyrics() {},
+    },
+  });
+
+  const valid = await runtime.render();
+  assert.equal(canvas.context.draws, 1);
+  failTransition = true;
+
+  await assert.rejects(runtime.render(), /transition decoder failed/);
+  assert.equal(canvas.context.draws, 1, "failed staging work is never published over the valid output");
+  assert.equal(canvas.context.clears, 0);
+  assert.deepEqual(runtime.snapshot(), valid, "the last successful receipt remains authoritative");
+});
+
+test("strict runtime fails visibly before clearing when a parity renderer is missing", async () => {
+  const canvas = fakeCanvas();
+  const runtime = createEchoDirectorPreviewRuntime({
+    canvas,
+    source: paritySource(),
+    clock: 1.2,
+    adapters: { media() {} },
+  });
+
+  await assert.rejects(
+    runtime.render(),
+    (error) => {
+      assert.equal(error.code, "echo_director_preview_renderer_incomplete");
+      assert.deepEqual(error.details.missingLayers, ["visualizers", "transition", "automation", "lyrics"]);
+      return true;
+    },
+  );
+  assert.equal(canvas.context.clears, 0, "an incomplete renderer must retain the last honest frame");
+});
+
+test("runtime owns one idempotent animation loop and cancels it on stop", async () => {
+  const canvas = fakeCanvas();
+  const queued = [];
+  const cancelled = [];
+  const adapters = {
+    media() {},
+    visualizers() {},
+    transition() {},
+    automation() {},
+    lyrics() {},
+  };
+  const runtime = createEchoDirectorPreviewRuntime({
+    canvas,
+    source: paritySource(),
+    clock: 1.2,
+    adapters,
+    requestFrame(callback) {
+      queued.push(callback);
+      return queued.length;
+    },
+    cancelFrame(handle) {
+      cancelled.push(handle);
+    },
+  });
+
+  assert.equal(runtime.start(), true);
+  assert.equal(runtime.start(), false);
+  assert.equal(queued.length, 1);
+  await queued[0]();
+  assert.equal(queued.length, 2);
+  assert.equal(runtime.stop(), true);
+  assert.deepEqual(cancelled, [2]);
+  assert.equal(runtime.inspect().running, false);
+  const { dispose } = runtime;
+  assert.equal(dispose(), true, "runtime lifecycle methods do not depend on a bound this value");
+});
+
+test("animation-loop renderer failures stop once and surface a bounded diagnostic", async () => {
+  const canvas = fakeCanvas();
+  const queued = [];
+  const reported = [];
+  const runtime = createEchoDirectorPreviewRuntime({
+    canvas,
+    source: paritySource(),
+    clock: 1.2,
+    adapters: { media() {} },
+    requestFrame(callback) {
+      queued.push(callback);
+      return queued.length;
+    },
+    cancelFrame() {},
+    onError(error, diagnostic) {
+      reported.push({ error, diagnostic });
+    },
+  });
+
+  runtime.start();
+  await queued[0]();
+
+  assert.equal(queued.length, 1, "a failed frame must not create a runaway render loop");
+  assert.equal(runtime.inspect().running, false);
+  assert.equal(runtime.inspect().lastError.code, "echo_director_preview_renderer_incomplete");
+  assert.equal(reported.length, 1);
+  assert.equal(reported[0].error.code, "echo_director_preview_renderer_incomplete");
+});
+
+test("exact Card print intent and resolver preserve the current cue attachment identity or fail closed", async () => {
+  const frame = projectEchoDirectorPreviewFrame({ source: paritySource(), timeSeconds: 1.2 });
+  const intent = createEchoDirectorPreviewCardPrintIntent(frame, { surface: "record-garden-screen-left" });
+
+  assert.equal(intent.schemaVersion, ECHO_DIRECTOR_PREVIEW_CARD_PRINT_INTENT_SCHEMA);
+  assert.equal(intent.resolutionPolicy, "exact-id-or-fail");
+  assert.equal(intent.song.id, "lazy-sunday");
+  assert.equal(intent.cut.id, "director-cut-newest");
+  assert.equal(intent.cue.id, "cue:garden-open");
+  assert.equal(intent.card.id, "card:garden-open");
+  assert.equal(intent.surface, "record-garden-screen-left");
+
+  const receipt = await resolveEchoDirectorPreviewCardPrintIntent(intent, {
+    resolveExactCard: async ({ cardId }) => ({
+      card: { id: cardId, title: "Garden Opens", cardType: "scene-card" },
+      receipt: { source: "tarot-library" },
+    }),
+  });
+  assert.equal(receipt.schemaVersion, ECHO_DIRECTOR_PREVIEW_CARD_PRINT_RECEIPT_SCHEMA);
+  assert.equal(receipt.status, "resolved-exact-attached-card");
+  assert.equal(receipt.card.id, "card:garden-open");
+  assert.equal(receipt.source.cueId, "cue:garden-open");
+
+  await assert.rejects(
+    resolveEchoDirectorPreviewCardPrintIntent(intent, {
+      resolveExactCard: async () => ({ id: "card:wrong" }),
+    }),
+    { code: "echo_director_preview_card_identity_mismatch" },
+  );
+
+  const missing = structuredClone(frame);
+  missing.primaryMediaCue.card.id = null;
+  assert.throws(
+    () => createEchoDirectorPreviewCardPrintIntent(missing),
+    { code: "echo_director_preview_card_attachment_missing" },
+  );
+});
