@@ -27,19 +27,25 @@ test("Record Garden exposes a stable, accessible smoke contract", () => {
     "echo-record-player-slot",
     "echo-record-play-toggle",
     "echo-record-visual",
-    "echo-record-generate-card",
     "echo-record-card-receipt",
   ]) {
     assert.match(component, new RegExp(`data-testid="${testId}"`));
   }
+  assert.doesNotMatch(component, /data-testid="echo-record-generate-card"/);
   assert.match(component, /aria-label="Echo State Record Garden 3D album explorer"/);
   assert.match(component, /aria-label="Record playback position"/);
   assert.match(component, /role="listbox"/);
   assert.match(component, /aria-live="polite"/);
 });
 
-test("album data stays bounded and selected-record detail is race safe", () => {
-  assert.match(component, /const SCREEN_COUNT = 3/);
+test("album data stays bounded, uses one cinematic preview, and keeps selected-record detail race safe", () => {
+  assert.match(component, /const SCREEN_COUNT = 1/);
+  assert.match(
+    component,
+    /function createAlbumScreens\(world\) \{\s*const specs = \[\s*\{ x: 0, y: 2\.72, z: -2\.68, ry: 0, scale: 1 \},\s*\];/s,
+  );
+  assert.match(component, /new THREE\.BoxGeometry\(7\.44, 4\.34, 0\.2\)/);
+  assert.match(component, /new THREE\.PlaneGeometry\(7\.08, 3\.98\)/);
   assert.match(component, /const PROJECT_PACKET_CACHE_LIMIT = 12/);
   assert.match(component, /function readCachedProjectPacket/);
   assert.match(component, /function retainProjectPacket/);
@@ -93,7 +99,8 @@ test("the turntable and surfaces share the live audio clock", () => {
   assert.doesNotMatch(component, /const RECORD_RPM/);
   assert.match(component, /updateAlbumScreen\(screen, \{\s*playback: framePlayback/s);
   assert.match(component, /echoRecordVideoPlaybackPlan/);
-  assert.match(component, /SCREEN_MEDIA_POOL_LIMIT = SCREEN_COUNT \* 2/);
+  assert.match(component, /const VISIBLE_RECORD_VIDEO_LIMIT = RECORDS_PER_CRATE/);
+  assert.match(component, /const SCREEN_MEDIA_POOL_LIMIT = VISIBLE_RECORD_VIDEO_LIMIT \+ 4/);
   assert.match(component, /setScreenVideoPlaying\(resource, plan\.shouldPlay\)/);
   assert.match(component, /video\.addEventListener\("canplay", handleCanPlay\)/);
   assert.match(component, /video\.addEventListener\("waiting", handleWaiting\)/);
@@ -102,7 +109,18 @@ test("the turntable and surfaces share the live audio clock", () => {
   assert.match(component, /canvas\.dataset\.recordAngle/);
 });
 
-test("visual clicks generate explicit Cards without claiming a mint", () => {
+test("the large preview prints its exact attached Card by pointer or keyboard without claiming a mint", () => {
+  assert.match(component, /runtime\.createCardPrintIntent\(\{ surface: "echo-record-garden-cinematic-preview" \}\)/);
+  assert.match(component, /resolutionPolicy: "exact-id-or-fail"/);
+  assert.match(component, /cardId: intent\.card\.id/);
+  assert.match(component, /lookupId: intent\.card\.id/);
+  assert.match(component, /onKeyDown=\{\(event\) => \{/);
+  assert.match(component, /if \(!\["Enter", " "\]\.includes\(event\.key\)\) return/);
+  assert.match(component, /const visual = directorCompositeVisual \|\| directorVisual \|\| selectedVisual/);
+  assert.match(component, /if \(visual\.directorPreview\) void generateCurrentDirectorPreviewCard\(\)/);
+  assert.match(component, /if \(visual\?\.directorPreview\) \{\s*void actionsRef\.current\.generateCurrentDirectorPreviewCard\?\.\(\);/s);
+  assert.match(component, /Exact Preview Card identity changed from/);
+  assert.doesNotMatch(component, /data-testid="echo-record-generate-card"/);
   assert.match(component, /createEchoRecordVisualCardResolver/);
   assert.match(component, /Generated attached Card:/);
   assert.match(component, /local, unminted Card projection/);

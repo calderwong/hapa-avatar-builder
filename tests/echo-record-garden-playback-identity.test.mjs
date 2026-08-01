@@ -31,35 +31,69 @@ test("the placed record owns the active project while another sleeve is merely s
   );
 });
 
-test("placement validates identity and detached audio before switching the player", () => {
-  const validator = sourceBlock(
-    "function validateRecordAudioSource",
-    "function surfaceKindLabel",
+test("placement immediately moves the same record object and warms the real audio element before playback", () => {
+  const audioPreparation = sourceBlock(
+    "function prepareRecordAudioElement",
+    "function waitForMediaPresentation",
   );
-  assert.match(validator, /document\.createElement\("audio"\)/);
-  assert.match(validator, /addEventListener\("loadedmetadata"/);
-  assert.match(validator, /addEventListener\("error"/);
-  assert.match(validator, /signal\?\.addEventListener\("abort"/);
-  assert.match(validator, /Audio validation timed out/);
+  assert.match(audioPreparation, /audio\.getAttribute\("src"\) === audioUri && audio\.readyState >= 1/);
+  assert.match(audioPreparation, /warmed: true/);
+  assert.match(audioPreparation, /audio\.addEventListener\("loadedmetadata"/);
+  assert.match(audioPreparation, /audio\.addEventListener\("error"/);
+  assert.match(audioPreparation, /signal\?\.addEventListener\("abort"/);
+  assert.match(audioPreparation, /audio\.src = audioUri/);
+  assert.match(audioPreparation, /audio\.preload = "auto"/);
+  assert.match(audioPreparation, /audio\.load\(\)/);
+  assert.doesNotMatch(audioPreparation, /document\.createElement\("audio"\)/);
 
   const placement = sourceBlock(
     "const placeRecord = useCallback",
     "const togglePlayback = useCallback",
   );
+  const projectLoad = placement.indexOf("const packet = await loadRecordProject(songId)");
   const identityCheck = placement.indexOf("projectSongIdentity(nextProject) !== songId");
   const routeCheck = placement.indexOf("if (!audioUri)");
-  const detachedValidation = placement.indexOf("await validateRecordAudioSource");
-  const mainAudioPause = placement.indexOf("audio.pause()");
+  const realAudioPreparation = placement.indexOf("await prepareRecordAudioElement(audio, audioUri");
   const activeProjectCommit = placement.indexOf("setActiveProjectPacket(packet)");
   const placedIdCommit = placement.indexOf("setPlacedRecordId(songId)");
+  const objectPlacementCommit = placement.indexOf("gameRef.current?.setPlacedRecord(songId)");
 
+  assert.ok(placedIdCommit >= 0);
+  assert.ok(objectPlacementCommit > placedIdCommit);
+  assert.ok(projectLoad > objectPlacementCommit, "the physical record is placed before network/media preparation");
   assert.ok(identityCheck >= 0);
   assert.ok(routeCheck > identityCheck);
-  assert.ok(detachedValidation > routeCheck);
-  assert.ok(mainAudioPause > detachedValidation);
-  assert.ok(activeProjectCommit > detachedValidation);
-  assert.ok(placedIdCommit > detachedValidation);
+  assert.ok(realAudioPreparation > routeCheck);
+  assert.ok(activeProjectCommit > realAudioPreparation);
+  assert.doesNotMatch(placement, /validateRecordAudioSource/);
   assert.match(placement, /if \(error\?\.name === "AbortError"\) return/);
+});
+
+test("Director shaders sample the same master audio element instead of a synthetic Preview pulse", () => {
+  const signalSource = sourceBlock(
+    "function createRecordGardenMasterSignalSource",
+    "function createRecordGardenDirectorPreviewAdapters",
+  );
+  assert.match(signalSource, /context\.createMediaElementSource\(audio\)/);
+  assert.match(signalSource, /source\.connect\(analyser\)/);
+  assert.match(signalSource, /analyser\.connect\(context\.destination\)/);
+  assert.match(signalSource, /sampleEchoLiveSignalFrame\(analyser, seconds/);
+  assert.match(signalSource, /source: "record-garden-master-audio-analyser"/);
+  assert.match(signalSource, /silentGain\.gain\.value = 0/);
+  assert.match(signalSource, /source: "verified-registry-stem"/);
+
+  const adapters = sourceBlock(
+    "function createRecordGardenDirectorPreviewAdapters",
+    "export default function EchoRecordGarden3DView",
+  );
+  assert.match(adapters, /signalSource\?\.sample\?\.\(frame\.clock\.seconds\)/);
+  assert.match(adapters, /resolveVerifiedEchoStemBinding\(showGraph/);
+  assert.match(adapters, /signalSource\?\.createStem\?\./);
+  assert.match(adapters, /frames\[binding\.requested\] = stemFrame/);
+  assert.match(adapters, /signalFrames: signalBinding\.frames/);
+  assert.match(adapters, /verified-stem-buffering-master-fallback/);
+  assert.doesNotMatch(adapters, /const pulse = 0\.5 \+ Math\.sin/);
+  assert.match(component, /await directorAudioSignalRef\.current\?\.resume\?\.\(\)\.catch\(\(\) => false\);[\s\S]*?await audio\.play\(\)/);
 });
 
 test("visual Card receipts remain bound to the active project's song identity", () => {
@@ -77,7 +111,9 @@ test("visual Card receipts remain bound to the active project's song identity", 
   assert.match(cardAction, /requestGeneration !== cardRequestGenerationRef\.current/);
   assert.match(cardAction, /requestKey: error\?\.requestKey \|\| pendingRequestKey/);
   assert.match(cardAction, /sourceCardId: String\(/);
-  assert.match(cardAction, /sourceRevisionId: String\(/);
+  assert.match(cardAction, /sourceRevisionId: printed\.revisionId/);
+  assert.match(cardAction, /directorRevisionId: visual\.source\?\.revisionId/);
+  assert.match(cardAction, /attached\.echoRecordAttachment\?\.sourceRevisionId/);
   assert.match(cardAction, /cardSchemaVersion: String\(attached\.schemaVersion/);
   assert.match(cardAction, /receiptEdition: Math\.max\(0, Number\(resolution\.receipt\?\.edition\)/);
   assert.doesNotMatch(cardAction, /sourceSongId: placedRecord\?\.songId \|\| selectedRecord\?\.songId/);

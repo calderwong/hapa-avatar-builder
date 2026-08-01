@@ -16,7 +16,11 @@ test("the record crate exposes counts, clear, retry, and an explicit return jour
   assert.match(source, /gameRef\.current\?\.setPlacedRecord\(""\)/);
 });
 
-test("three physical screens can page through the complete bounded surface constellation", () => {
+test("one large physical preview presents the exact composite while its bounded context stays pageable", () => {
+  assert.match(source, /const SCREEN_COUNT = 1/);
+  assert.doesNotMatch(source, /const SCREEN_COUNT = 3/);
+  assert.match(source, /new THREE\.BoxGeometry\(7\.44, 4\.34, 0\.2\)/);
+  assert.match(source, /new THREE\.PlaneGeometry\(7\.08, 3\.98\)/);
   assert.match(source, /limit: SCREEN_COUNT \* 4/);
   assert.match(source, /const mediaWindow = useMemo/);
   assert.match(source, /selectEchoRecordMediaWindow\(visuals, surfacePage/);
@@ -34,21 +38,25 @@ test("three physical screens can page through the complete bounded surface const
   assert.match(source, /\.slice\(0, SCREEN_COUNT\)/);
   assert.match(source, /setVisuals\(visibleVisuals, \{/);
   assert.match(source, /warmVisuals,/);
+  assert.match(source, /const masterVisual = state\.compositeVisual \|\| directorVisual \|\| visuals\[0\] \|\| null/);
+  assert.match(source, /activeVisuals = masterVisual \? \[masterVisual\] : \[\]/);
+  assert.match(source, /assignAlbumScreenVisuals\(screens, activeVisuals, mediaPool\)/);
   assert.match(source, /Previous album visual surfaces/);
   assert.match(source, /Next album visual surfaces/);
   assert.match(source, /context only, not time-synchronized/);
 });
 
-test("Card failures stay visible and offer a same-context retry", () => {
-  assert.match(source, /Retry attached Hapa Card/);
+test("Card failures stay visible at their source and the preview remains the retry affordance", () => {
   assert.match(source, /className="echo-record-card-error" role="alert"/);
-  assert.match(source, /data-state=\{cardResolution\.visualId === selectedVisual\.id/);
-  assert.match(source, /Cancel Card request/);
-  assert.match(source, /Card blocked by source policy/);
+  assert.match(source, /\["failed", "blocked", "interrupted", "unavailable"\]\.includes\(cardResolution\.status\)/);
+  assert.match(source, /cardResolution\.visualId === selectedVisual\.id/);
+  assert.doesNotMatch(source, /Retry attached Hapa Card/);
+  assert.doesNotMatch(source, /Cancel Card request/);
   assert.match(source, /const openCardJobSource = useCallback/);
   assert.match(source, /Open Card source/);
   assert.match(source, /pendingCardRevealRef\.current = true/);
   assert.match(source, /Math\.floor\(sourceIndex \/ SCREEN_COUNT\)/);
+  assert.match(source, /Click the large Director Preview to print the exact Hapa Card attached to the current visual/);
 });
 
 test("every requested source family has an explicit available-or-missing status", () => {

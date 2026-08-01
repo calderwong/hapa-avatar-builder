@@ -235,6 +235,48 @@ test("source Card lookup uses the exact attachment id and dedupes pending and co
   assert.equal(calls, 1);
 });
 
+test("exact Preview Card resolution returns the requested id or fails closed without a local substitute", async () => {
+  const visual = timedVisual({
+    id: "director-preview-card:exact-frame",
+    role: "director-preview-exact-card",
+    sourceType: "director-preview-exact-card",
+    sourceId: "preview-card-exact",
+    clockLocked: false,
+    resolutionPolicy: "exact-id-or-fail",
+    attachment: {
+      cardId: "preview-card-exact",
+      lookupId: "preview-card-exact",
+      card: null,
+    },
+  });
+
+  const resolvedCalls = [];
+  const resolveExact = createEchoRecordVisualCardResolver({
+    fetchImpl: async (url) => {
+      resolvedCalls.push(url);
+      return jsonResponse({ id: "preview-card-exact", title: "Exact preview frame" });
+    },
+  });
+  const result = await resolveExact({ visual, project: project(), clockSeconds: 2 });
+  assert.equal(result.mode, "attached-source-card");
+  assert.equal(result.card.id, "preview-card-exact");
+  assert.deepEqual(resolvedCalls, ["/api/tarot/card/preview-card-exact"]);
+
+  const missingCalls = [];
+  const resolveMissingExact = createEchoRecordVisualCardResolver({
+    fetchImpl: async (url) => {
+      missingCalls.push(url);
+      return jsonResponse({ error: "not_found" }, 404);
+    },
+  });
+  await assert.rejects(
+    resolveMissingExact({ visual, project: project(), clockSeconds: 2 }),
+    { code: "attached_card_exact_lookup_failed", status: 404 },
+  );
+  assert.deepEqual(missingCalls, ["/api/tarot/card/preview-card-exact"]);
+  assert.deepEqual(resolveMissingExact.inspect(), { completed: 0, pending: 0 });
+});
+
 test("only a confirmed missing source attachment falls back to a truth-labelled local projection", async () => {
   const calls = [];
   const resolve = createEchoRecordVisualCardResolver({

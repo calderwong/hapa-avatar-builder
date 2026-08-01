@@ -514,6 +514,7 @@ export function normalizeEchoRecordProject(payload = null) {
   ) || null;
   const stableRecordId = `echo-record:${songId}`;
   const latestCut = selectLatestEchoDirectionScriptVariant(project);
+  const recordPreview = object(project.record_preview || project.recordPreview);
   return {
     schemaVersion: ECHO_RECORD_GARDEN_SCHEMA,
     id: stableRecordId,
@@ -561,6 +562,24 @@ export function normalizeEchoRecordProject(payload = null) {
       uri: coverUri,
       kind: inferEchoRecordMediaKind(coverUri, "image"),
       availability: coverUri ? "routable" : "missing",
+    },
+    preview: {
+      schemaVersion: text(recordPreview.schemaVersion) || "hapa.echo-record-garden.catalog-preview.v1",
+      mediaId: text(recordPreview.mediaId || recordPreview.media_id) || null,
+      videoUri: resolveEchoRecordMediaUri(recordPreview.videoUri || recordPreview.video_uri || recordPreview.uri),
+      posterUri: resolveEchoRecordMediaUri(recordPreview.posterUri || recordPreview.poster_uri || coverUri),
+      sourceStartSeconds: Math.max(0, finite(recordPreview.sourceStartSeconds ?? recordPreview.source_in_seconds, 0)),
+      sourceEndSeconds: Math.max(0, finite(recordPreview.sourceEndSeconds ?? recordPreview.source_out_seconds, 0)),
+      durationSeconds: Math.max(0, finite(recordPreview.durationSeconds ?? recordPreview.duration_seconds, 0)),
+      playbackMode: "loop",
+      cutId: text(recordPreview.cutId || recordPreview.cut_id) || null,
+      cutFingerprint: text(recordPreview.cutFingerprint || recordPreview.cut_fingerprint) || null,
+      source: text(recordPreview.source) || (coverUri ? "cover-fallback" : "missing"),
+      latestCutId: text(recordPreview.latestCutId || recordPreview.latest_cut_id || latestCut?.id) || null,
+      latestCutHydrationRequired: Boolean(
+        recordPreview.latestCutHydrationRequired
+        ?? recordPreview.latest_cut_hydration_required
+      ),
     },
     director: {
       detailHydrated,
@@ -1547,6 +1566,102 @@ function normalizeSnapshotRecordTransforms(value = {}) {
   return Object.fromEntries(normalized.slice(0, 500));
 }
 
+function normalizeSnapshotPrintedCardTransform(value = {}) {
+  const transform = object(value);
+  const position = boundedVector(transform.position, [
+    [-4.35, 4.35],
+    [0.7, 1.4],
+    [-2.25, 2.45],
+  ]);
+  if (!position) return null;
+  return {
+    position,
+    rotation: boundedVector(transform.rotation, [
+      [-Math.PI * 2, Math.PI * 2],
+      [-Math.PI * 2, Math.PI * 2],
+      [-Math.PI * 2, Math.PI * 2],
+    ]) || [-0.24, 0, 0.08],
+    manipulated: transform.manipulated !== false,
+  };
+}
+
+function normalizeSnapshotPrintedCards(value = []) {
+  const cards = [];
+  const seen = new Set();
+  for (const candidate of list(value)) {
+    const source = object(candidate);
+    const id = text(source.id).slice(0, 240);
+    if (!id || seen.has(id)) continue;
+    const attachment = object(source.echoRecordAttachment);
+    const presentation = object(attachment.presentation);
+    const previewIntent = object(attachment.previewIntent);
+    const sceneTransform = normalizeSnapshotPrintedCardTransform(
+      source.sceneTransform || attachment.sceneTransform,
+    );
+    seen.add(id);
+    cards.push({
+      id,
+      schemaVersion: text(source.schemaVersion).slice(0, 120) || null,
+      cardType: text(source.cardType).slice(0, 80) || "reference_card",
+      title: text(source.title, "Hapa Card").slice(0, 180),
+      subtitle: text(source.subtitle).slice(0, 240) || null,
+      truthStatus: text(source.truthStatus || attachment.truthStatus).slice(0, 120) || null,
+      sceneTransform,
+      echoRecordAttachment: {
+        sourceVisualId: text(attachment.sourceVisualId).slice(0, 240) || null,
+        sourceSongId: text(attachment.sourceSongId).slice(0, 240) || null,
+        sourceCardId: text(attachment.sourceCardId).slice(0, 240) || null,
+        sourceRevisionId: text(attachment.sourceRevisionId).slice(0, 240) || null,
+        directorRevisionId: text(attachment.directorRevisionId).slice(0, 240) || null,
+        atSeconds: Math.max(0, finite(attachment.atSeconds, 0)),
+        surface: "echo-record-garden",
+        truthStatus: text(attachment.truthStatus).slice(0, 120) || null,
+        previewIntent: previewIntent.requestKey ? {
+          schemaVersion: text(previewIntent.schemaVersion).slice(0, 120) || null,
+          requestKey: text(previewIntent.requestKey).slice(0, 500),
+          resolutionPolicy: "exact-id-or-fail",
+          surface: "echo-record-garden-cinematic-preview",
+          song: {
+            id: text(previewIntent.song?.id).slice(0, 240) || null,
+            title: text(previewIntent.song?.title).slice(0, 180) || null,
+          },
+          cut: {
+            id: text(previewIntent.cut?.id).slice(0, 240) || null,
+            fingerprint: text(previewIntent.cut?.fingerprint).slice(0, 240) || null,
+          },
+          cue: {
+            id: text(previewIntent.cue?.id).slice(0, 240) || null,
+            frame: Math.max(0, Math.round(finite(previewIntent.cue?.frame, 0))),
+            timeSeconds: Math.max(0, finite(previewIntent.cue?.timeSeconds, 0)),
+          },
+          card: {
+            id: text(previewIntent.card?.id).slice(0, 240) || null,
+            title: text(previewIntent.card?.title).slice(0, 180) || null,
+          },
+        } : null,
+        presentation: presentation.id ? {
+          id: text(presentation.id).slice(0, 240),
+          sourceId: text(presentation.sourceId).slice(0, 240) || null,
+          songId: text(presentation.songId).slice(0, 240) || null,
+          title: text(presentation.title, source.title || "Album visual").slice(0, 180),
+          kind: text(presentation.kind).slice(0, 80) || "visual",
+          mediaUri: resolveEchoRecordMediaUri(presentation.mediaUri),
+          videoUri: resolveEchoRecordMediaUri(presentation.videoUri),
+          imageUri: resolveEchoRecordMediaUri(presentation.imageUri),
+          posterUri: resolveEchoRecordMediaUri(presentation.posterUri),
+          sourceStartSeconds: Math.max(0, finite(presentation.sourceStartSeconds, 0)),
+          sourceEndSeconds: Math.max(0, finite(presentation.sourceEndSeconds, 0)),
+          durationSeconds: Math.max(0, finite(presentation.durationSeconds, 0)),
+          playbackMode: "loop",
+          clockLocked: false,
+          source: object(presentation.source),
+        } : null,
+      },
+    });
+  }
+  return cards.slice(0, 5);
+}
+
 export function resolveEchoRecordGardenTableDrop({
   position,
   occupiedPositions = [],
@@ -1608,6 +1723,7 @@ export function normalizeEchoRecordGardenSnapshot(value = {}) {
   const layout = object(source.layout || scene.layout);
   const camera = object(source.camera || source.scene?.camera);
   const perspective = text(catalog.perspective || selection.perspective || source.perspective, "all").toLowerCase();
+  const sort = text(catalog.sort || source.sort, "album").toLowerCase();
   const rawQuery = text(catalog.query ?? source.query);
   const crateOrder = uniqueText(catalog.crateOrder || source.crateOrder).slice(0, 500);
   const recordTransforms = normalizeSnapshotRecordTransforms(
@@ -1623,12 +1739,14 @@ export function normalizeEchoRecordGardenSnapshot(value = {}) {
     placedSongId: text(selection.placedSongId || source.placedSongId),
     selectedVisualId: text(selection.selectedVisualId || source.selectedVisualId),
     perspective: ["all", "red", "blue", "green"].includes(perspective) ? perspective : "all",
+    sort: ["album", "newest-cut", "title", "perspective"].includes(sort) ? sort : "album",
     query: rawQuery.slice(0, 180),
     cratePage: clampInteger(catalog.cratePage ?? source.cratePage, 0, 0, 10_000),
     crateOrder,
     surfacePage: clampInteger(scene.surfacePage ?? layout.surfacePage ?? source.surfacePage, 0, 0, 100),
     surfaceSongId: text(scene.surfaceSongId || layout.surfaceSongId || source.surfaceSongId),
     recordTransforms,
+    printedCards: normalizeSnapshotPrintedCards(scene.printedCards || source.printedCards),
     muted: playback.muted === undefined ? source.muted !== false : playback.muted !== false,
     playbackSeconds: Math.max(0, finite(playback.seconds ?? source.playbackSeconds, 0)),
     camera: {
@@ -1661,6 +1779,12 @@ export function reconcileEchoRecordGardenSnapshot(value = {}, {
     ? Object.fromEntries(Object.entries(snapshot.recordTransforms)
         .filter(([songId]) => currentRecordSet.has(songId)))
     : snapshot.recordTransforms;
+  const printedCards = hasRecordInventory
+    ? snapshot.printedCards.filter((card) => {
+      const sourceSongId = text(card.echoRecordAttachment?.sourceSongId);
+      return !sourceSongId || currentRecordSet.has(sourceSongId);
+    })
+    : snapshot.printedCards;
   const placedSongId = hasRecordInventory && !currentRecordSet.has(snapshot.placedSongId)
     ? ""
     : snapshot.placedSongId;
@@ -1695,6 +1819,7 @@ export function reconcileEchoRecordGardenSnapshot(value = {}, {
     selectedVisualId,
     crateOrder,
     recordTransforms,
+    printedCards,
     cardJob,
   };
 }

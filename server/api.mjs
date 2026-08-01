@@ -153,6 +153,7 @@ import {
 } from "./stable-certification-file-proof.mjs";
 import { collectSongCardConstituentReferences, hydrateSongCardConstituentSnapshots } from "../src/domain/song-card-constituents.js";
 import { echoProjectAudioRoute } from "../src/domain/echo-audio-route.js";
+import { selectLatestEchoDirectionScriptVariant } from "../src/domain/echo-record-garden.js";
 import { attachEchoOutputProfile, resolveEchoOutputProfile } from "../src/domain/echo-output-profile.js";
 import {
   ECHO_DIRECTION_FORK_PAYLOAD_SCHEMA,
@@ -3002,6 +3003,7 @@ async function route(req, res) {
         res.setHeader("X-Hapa-Echo-Direction-Variant-Summary", sources.size === 1 ? [...sources][0] : "index+authoritative-fallback");
       }
       const projects = [];
+      let hydratedRecordPreviewCount = 0;
       for (const { file, payload } of projectFiles) {
         try {
           if (summaryOnly) {
@@ -3009,12 +3011,45 @@ async function route(req, res) {
             const songId = project.song_id || file.replace(/-video-project\.json$/u, "");
             const fileVariants = indexedVariants.bySong.get(songId) || [];
             const variants = mergeEchoDirectionScriptVariants(fileVariants, project.direction_script_variants);
+            const variantSummaries = variants.map((variant) => summarizeEchoDirectionScriptVariant(
+              variant,
+              Array.isArray(project.timeline) ? project.timeline.length : 0,
+            ));
+            const latestCut = selectLatestEchoDirectionScriptVariant({
+              ...project,
+              direction_script_variant_summaries: variantSummaries,
+            });
+            let latestVariant = variants.find((variant) => echoDirectionVariantId(variant) === latestCut?.id);
+            if (
+              latestCut?.id
+              && !latestVariant?.recordPreview
+              && !latestVariant?.record_preview
+              && !Array.isArray(latestVariant?.timeline)
+            ) {
+              try {
+                const authoritativeVariants = await readEchoDirectionScriptVariants(songId);
+                const authoritativeLatest = authoritativeVariants.find((variant) => (
+                  echoDirectionVariantId(variant) === latestCut.id
+                ));
+                if (Array.isArray(authoritativeLatest?.timeline) && authoritativeLatest.timeline.length) {
+                  latestVariant = authoritativeLatest;
+                  hydratedRecordPreviewCount += 1;
+                }
+              } catch {
+                // Truth-labelled base-timeline fallback below remains available.
+              }
+            }
+            const preview = echoRecordSummaryPreview(project, latestVariant, latestCut);
+            const audioRoute = echoProjectAudioRoute(project);
             projects.push({
               music_video_project: {
                 song_id: project.song_id,
                 song_title: project.song_title,
-                audio_id: echoProjectAudioRoute(project).id,
+                audio_id: audioRoute.id,
+                audio_uri: audioRoute.uri,
                 registry_track_id: project.registry_track_id || null,
+                cover_uri: project.cover_uri || project.coverUri || project.poster_uri || project.posterUri || preview?.posterUri || null,
+                record_preview: preview,
                 perspective: project.perspective,
                 avatar_name: project.avatar_name,
                 duration: project.duration,
@@ -3034,10 +3069,7 @@ async function route(req, res) {
                 visualizer_timeline_count: Array.isArray(project.visualizer_timeline) ? project.visualizer_timeline.length : 0,
                 timed_lyrics_count: Array.isArray(project.timed_lyrics) ? project.timed_lyrics.length : 0,
                 direction_script_variant_count: variants.length,
-                direction_script_variant_summaries: variants.map((variant) => summarizeEchoDirectionScriptVariant(
-                  variant,
-                  Array.isArray(project.timeline) ? project.timeline.length : 0,
-                )),
+                direction_script_variant_summaries: variantSummaries,
                 updated_at: project.updated_at || null,
                 provenance: project.provenance || null
               }
@@ -3051,6 +3083,12 @@ async function route(req, res) {
           console.error("Failed to summarize project file:", file, e);
         }
       }
+      res.setHeader(
+        "X-Hapa-Echo-Record-Preview",
+        hydratedRecordPreviewCount > 0
+          ? `compact-index+${hydratedRecordPreviewCount}-authoritative-fallbacks`
+          : "compact-index",
+      );
       sendJson(res, 200, projects);
     } catch (e) {
       console.error("Failed to load director projects:", e);
@@ -9527,6 +9565,92 @@ function summarizeEchoDirectionScriptVariant(variant = {}, fallbackTimelineCount
       : Boolean(variant.hyperframe_script || variant.hyperframeScript),
     nonDestructive: true,
     ...(hasCutMetadata ? metadata : {}),
+  };
+}
+
+function echoRecordSummaryPreview(project = {}, latestVariant = null, latestCut = null) {
+  const indexedPreview = latestVariant?.recordPreview || latestVariant?.record_preview;
+  if (indexedPreview?.videoUri || indexedPreview?.posterUri) {
+    return {
+      ...indexedPreview,
+      schemaVersion: "hapa.echo-record-garden.catalog-preview.v1",
+      cutId: latestCut?.id || echoDirectionVariantId(latestVariant),
+      cutFingerprint: latestCut?.fingerprint || latestVariant?.fingerprint || null,
+      source: "latest-non-legacy-director-cut-index",
+      latestCutId: latestCut?.id || echoDirectionVariantId(latestVariant),
+      latestCutHydrationRequired: false,
+    };
+  }
+  const variantTimeline = Array.isArray(latestVariant?.timeline) && latestVariant.timeline.length
+    ? latestVariant.timeline
+    : null;
+  const timeline = variantTimeline || (Array.isArray(project.timeline) ? project.timeline : []);
+  const shot = timeline.find((candidate) => {
+    const contract = candidate?.media_contract || candidate?.mediaContract || {};
+    return Boolean(
+      contract.runtimeUri
+      || contract.runtime_uri
+      || candidate?.runtime_media_uri
+      || candidate?.runtimeMediaUri
+      || candidate?.media_uri
+      || candidate?.mediaUri,
+    );
+  });
+  if (!shot) return null;
+  const contract = shot.media_contract || shot.mediaContract || {};
+  const videoUri = contract.runtimeUri
+    || contract.runtime_uri
+    || shot.runtime_media_uri
+    || shot.runtimeMediaUri
+    || shot.media_uri
+    || shot.mediaUri
+    || null;
+  const posterUri = contract.posterUri
+    || contract.poster_uri
+    || shot.media_thumbnail
+    || shot.mediaThumbnail
+    || shot.poster_uri
+    || shot.posterUri
+    || project.cover_uri
+    || project.coverUri
+    || null;
+  const sourceStartSeconds = Math.max(0, Number(
+    contract.sourceInSeconds
+    ?? contract.source_in_seconds
+    ?? shot.source_in_seconds
+    ?? shot.sourceInSeconds
+    ?? 0,
+  ) || 0);
+  const declaredSourceOutSeconds = Number(
+    contract.sourceOutSeconds
+    ?? contract.source_out_seconds
+    ?? shot.source_out_seconds
+    ?? shot.sourceOutSeconds,
+  );
+  const durationSeconds = Math.max(0.25, Number(
+    contract.actualDurationSeconds
+    ?? contract.actual_duration_seconds
+    ?? shot.end_sec - shot.start_sec
+    ?? 8,
+  ) || 8);
+  return {
+    schemaVersion: "hapa.echo-record-garden.catalog-preview.v1",
+    mediaId: shot.media_id || shot.mediaId || null,
+    videoUri,
+    posterUri,
+    sourceStartSeconds,
+    sourceEndSeconds: Number.isFinite(declaredSourceOutSeconds) && declaredSourceOutSeconds > sourceStartSeconds
+      ? declaredSourceOutSeconds
+      : sourceStartSeconds + durationSeconds,
+    durationSeconds,
+    playbackMode: "loop",
+    cutId: variantTimeline ? latestCut?.id || echoDirectionVariantId(latestVariant) : null,
+    cutFingerprint: variantTimeline
+      ? latestCut?.fingerprint || latestVariant?.fingerprint || latestVariant?.contentHash || latestVariant?.content_hash || null
+      : null,
+    source: variantTimeline ? "latest-non-legacy-director-cut" : "base-timeline-catalog-loop",
+    latestCutId: latestCut?.id || null,
+    latestCutHydrationRequired: Boolean(latestCut?.id && !variantTimeline),
   };
 }
 

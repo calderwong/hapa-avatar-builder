@@ -94,14 +94,14 @@ function diagnostics(overrides = {}) {
     audioTime: 124,
     audioState: "playing",
     recordAngle: 1.2,
-    visualSurfaceCount: 12,
-    activeVideos: 3,
-    bufferedVideos: 3,
-    presentedVideos: 3,
-    warmingVideos: 3,
-    warmReadyVideos: 3,
+    visualSurfaceCount: 1,
+    activeVideos: 2,
+    bufferedVideos: 2,
+    presentedVideos: 2,
+    warmingVideos: 2,
+    warmReadyVideos: 2,
     waitingVideos: 0,
-    mediaPoolSize: 7,
+    mediaPoolSize: 14,
     mediaFailures: 0,
     mediaHardSeeks: 4,
     contextState: "available",
@@ -171,7 +171,7 @@ function checkpoint(index, kind = "desktop") {
     audioTime: index * 40,
     recordAngle: index,
     expectedRecordAngle: index,
-    surfaces: ["screen-1", "screen-2", "screen-3", "record-face"].map((slot, slotIndex) => ({
+    surfaces: ["screen-1", "record-face"].map((slot, slotIndex) => ({
       slot,
       visualId: `visual-${index}-${slotIndex}`,
       sourceId: `cue-${index}`,
@@ -402,14 +402,14 @@ test("Card evidence accepts only exact resolver modes and revision truth or the 
   }
 });
 
-test("every checkpoint requires all four source-bound surfaces with media-aware readiness and clock drift", () => {
+test("every checkpoint requires the cinematic Preview and Record face with source-bound media readiness and clock drift", () => {
   const base = completeInput();
   const mutations = [
     (samples) => samples[0].surfaces.pop(),
     (samples) => { samples[0].surfaces[0].songId = "wrong-song"; },
     (samples) => { samples[0].surfaces[0].readyState = 1; },
     (samples) => { samples[0].surfaces[0].driftSeconds = 0.201; },
-    (samples) => { samples[0].surfaces[2].mediaState = "fallback"; },
+    (samples) => { samples[0].surfaces[1].mediaState = "fallback"; },
   ];
   for (const mutate of mutations) {
     const checkpoints = structuredClone(base.checkpoints);

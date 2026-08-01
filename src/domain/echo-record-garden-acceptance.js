@@ -21,7 +21,8 @@ const REVIEW_CLOCK_SKEW_MS = 30_000;
 const MAX_REVIEW_DURATION_MS = 12 * 60 * 60 * 1_000;
 const MIN_CHECKPOINT_SEPARATION_MS = 10_000;
 const MIN_CHECKPOINT_AUDIO_SPAN_SECONDS = 60;
-const REQUIRED_SURFACE_SLOTS = Object.freeze(["screen-1", "screen-2", "screen-3", "record-face"]);
+const REQUIRED_SURFACE_SLOTS = Object.freeze(["screen-1", "record-face"]);
+const MAX_MEDIA_POOL_SIZE = 14;
 const CARD_RESOLUTION_MODES = new Set([
   "authoritative-edition-print",
   "embedded-source-card",
@@ -690,8 +691,8 @@ export function evaluateEchoRecordGardenAcceptance({
     { id: "review-timeline", label: "Review evidence is ordered inside one bounded run", pass: evidenceTimeOrderValid },
     { id: "live-webgl", label: "One live WebGL garden", pass: runtime.contextState === "available" && runtime.liveGames === 1 && runtime.liveRenderers === 1 },
     { id: "exact-director", label: "Recent non-Legacy Director cut", pass: Boolean(runtime.directorCutId || runtime.directorCutTitle) && runtime.directorCutLegacy !== true },
-    { id: "bounded-media", label: "Bounded seven-resource media pool", pass: runtime.mediaPoolSize > 0 && runtime.mediaPoolSize <= 7 },
-    { id: "visible-surfaces", label: "All four media-aware surfaces are ready and source-bound", pass: runtime.visualSurfaceCount >= 4 && runtime.presentedVideos > 0 && surfacesProveCurrentMedia },
+    { id: "bounded-media", label: "Bounded fourteen-resource living-media pool", pass: runtime.mediaPoolSize > 0 && runtime.mediaPoolSize <= MAX_MEDIA_POOL_SIZE },
+    { id: "visible-surfaces", label: "Cinematic Preview and Record face are ready and source-bound", pass: runtime.visualSurfaceCount >= 1 && runtime.presentedVideos > 0 && surfacesProveCurrentMedia },
     { id: "two-minute-playback", label: "Uninterrupted two-minute playback on one song and cut", pass: uninterruptedPlayback && runtime.audioTime > 0 },
     { id: "record-change-soak", label: "Ten record changes", pass: run.recordChanges >= 10 },
     { id: "boundary-seeks", label: "Four committed cross-cue seek transitions", pass: committedSeekTransitions },

@@ -66,6 +66,17 @@ test("Echo summary endpoint stays compact and lazy-loads project detail", async 
       visualizerOnlyShots: 0,
       replacementShots: 1,
       uniqueMedia: 1,
+      recordPreview: {
+        schemaVersion: "hapa.echo-record-garden.catalog-preview.v1",
+        mediaId: "scroll-fixture",
+        videoUri: "/media/scroll-fixture.mp4",
+        posterUri: "/media/scroll-fixture.jpg",
+        sourceStartSeconds: 0,
+        sourceEndSeconds: 4,
+        durationSeconds: 4,
+        playbackMode: "loop",
+        mediaContentHash: "sha256:scroll-fixture",
+      },
     }],
   }), "utf8");
   const child = spawn(process.execPath, ["server/api.mjs", "--port", String(PORT), "--static", "dist"], {
@@ -80,22 +91,31 @@ test("Echo summary endpoint stays compact and lazy-loads project detail", async 
     const summaryResponse = await fetch(`${BASE}/api/echos/director-projects?summary=1`);
     assert.equal(summaryResponse.ok, true);
     assert.equal(summaryResponse.headers.get("x-hapa-echo-direction-variant-summary"), "index", "fresh album summaries should be served from the compact index");
+    assert.equal(summaryResponse.headers.get("x-hapa-echo-record-preview"), "compact-index", "fresh living-record loops should be served without full-cut hydration");
     const summaryText = await summaryResponse.text();
     const summaries = JSON.parse(summaryText);
     assert.ok(summaries.length > 0, "expected director project summaries");
-    assert.ok(summaryText.length < 250_000, `summary payload is too large: ${summaryText.length} bytes`);
+    assert.ok(summaryText.length < 350_000, `summary payload is too large: ${summaryText.length} bytes`);
 
     const firstProject = summaries[0].music_video_project;
     assert.ok(firstProject.song_id, "summary must include song_id");
     assert.equal(firstProject.hyperframe_script, undefined, "summary must not ship full HyperFrames script");
     assert.equal(firstProject.timeline, undefined, "summary must not ship full timeline");
     assert.equal(typeof firstProject.timeline_count, "number", "summary should include timeline count");
+    assert.ok(Object.hasOwn(firstProject, "audio_uri"), "summary should carry its compact, directly playable audio route");
+    assert.ok(Object.hasOwn(firstProject, "cover_uri"), "summary should carry a compact cover fallback");
+    assert.ok(Object.hasOwn(firstProject, "record_preview"), "summary should carry a compact living-record preview contract");
     assert.equal(firstProject.output_profile.id, "landscape", "legacy projects should summarize with the Landscape default");
     assert.equal(firstProject.output_profile.width, 1920);
     assert.equal(firstProject.output_profile.height, 1080);
 
     const targetSummary = summaries.find((row) => row.music_video_project.song_id === targetSongId).music_video_project;
     assert.equal(targetSummary.direction_script_variant_count, 1);
+    assert.equal(targetSummary.record_preview.videoUri, "/media/scroll-fixture.mp4");
+    assert.equal(targetSummary.record_preview.posterUri, "/media/scroll-fixture.jpg");
+    assert.equal(targetSummary.record_preview.cutId, "direction:scroll-fal");
+    assert.equal(targetSummary.record_preview.source, "latest-non-legacy-director-cut-index");
+    assert.equal(targetSummary.record_preview.latestCutHydrationRequired, false);
     assert.deepEqual(targetSummary.direction_script_variant_summaries, [{
       id: "direction:scroll-fal",
       title: "Scroll + FAL append-only",

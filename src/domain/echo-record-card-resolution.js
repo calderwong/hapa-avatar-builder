@@ -316,6 +316,13 @@ export function createEchoRecordVisualCardResolver({
             Number(response.status || 0),
           );
         }
+        if (visual.resolutionPolicy === "exact-id-or-fail") {
+          throw resolutionError(
+            "attached_card_exact_lookup_failed",
+            `Attached Hapa Card ${attachmentId} was not found; exact Preview printing will not substitute another Card.`,
+            404,
+          );
+        }
       }
 
       const localCard = buildLocalEchoRecordCardProjection({

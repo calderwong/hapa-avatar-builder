@@ -80,6 +80,10 @@ export function normalizeEchoDirectionVariantIndexRow(row = {}, variantsRoot = "
       videoCoverageSeconds,
     },
     ...(text(row.fingerprint) ? { fingerprint: text(row.fingerprint) } : {}),
+    ...(object(row.recordPreview || row.record_preview).videoUri
+      || object(row.recordPreview || row.record_preview).posterUri
+      ? { recordPreview: object(row.recordPreview || row.record_preview) }
+      : {}),
     variant_source: {
       kind: "append-only-project-variant-summary-index",
       path: relativePath,

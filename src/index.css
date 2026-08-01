@@ -22977,6 +22977,19 @@ h1 {
   color: var(--record-cream) !important;
 }
 
+.echo-record-preview-print-hint {
+  display: block;
+  margin-top: 4px;
+  border: 1px solid rgba(86, 240, 207, .34);
+  background: linear-gradient(135deg, rgba(86, 240, 207, .12), rgba(246, 201, 109, .07));
+  padding: 7px 9px;
+  color: var(--record-cream) !important;
+  font-family: var(--hapa-mono);
+  font-size: 8px;
+  line-height: 1.45;
+  letter-spacing: .035em;
+}
+
 .echo-record-card-actions {
   display: flex;
   flex-wrap: wrap;
@@ -23612,7 +23625,7 @@ h1 {
   color: var(--record-mint);
 }
 
-.echo-record-garden :is(button, input, select, textarea):focus-visible {
+.echo-record-garden :is(button, input, select, textarea, canvas):focus-visible {
   outline: 2px solid var(--record-cream);
   outline-offset: 2px;
 }

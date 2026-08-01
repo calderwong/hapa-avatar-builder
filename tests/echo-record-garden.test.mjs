@@ -129,6 +129,46 @@ test("summary rows become deduplicated truth-labelled record models", () => {
   assert.equal(rows[1].cover.availability, "missing");
 });
 
+test("compact catalog summaries preserve playable audio and exact newest-cut record loops", () => {
+  const record = normalizeEchoRecordProject({
+    music_video_project: {
+      song_id: "echo-song-compact",
+      song_title: "Compact Sunday",
+      audio_id: "audio-compact",
+      audio_uri: "/api/song-registry/audio/audio-compact",
+      cover_uri: "/media/compact-cover.png",
+      duration: 180,
+      timeline_count: 42,
+      record_preview: {
+        schemaVersion: "hapa.echo-record-garden.catalog-preview.v1",
+        mediaId: "media-loop",
+        videoUri: "/media/latest-cut-loop.mp4",
+        posterUri: "/media/latest-cut-loop.jpg",
+        sourceStartSeconds: 1.25,
+        sourceEndSeconds: 7.25,
+        durationSeconds: 6,
+        playbackMode: "loop",
+        cutId: "director-cut-newest",
+        cutFingerprint: "sha256:newest",
+        source: "latest-non-legacy-director-cut-index",
+        latestCutId: "director-cut-newest",
+        latestCutHydrationRequired: false,
+      },
+    },
+  });
+
+  assert.equal(record.audio.uri, "/api/song-registry/audio/audio-compact");
+  assert.equal(record.cover.uri, "/media/compact-cover.png");
+  assert.equal(record.preview.videoUri, "/media/latest-cut-loop.mp4");
+  assert.equal(record.preview.posterUri, "/media/latest-cut-loop.jpg");
+  assert.equal(record.preview.sourceStartSeconds, 1.25);
+  assert.equal(record.preview.sourceEndSeconds, 7.25);
+  assert.equal(record.preview.playbackMode, "loop");
+  assert.equal(record.preview.cutId, "director-cut-newest");
+  assert.equal(record.preview.cutFingerprint, "sha256:newest");
+  assert.equal(record.preview.latestCutHydrationRequired, false);
+});
+
 test("Record Garden chooses the most recent non-legacy Director cut", () => {
   const variants = [
     {
@@ -858,6 +898,7 @@ test("v2 garden snapshots preserve full crate, surface, spatial, and interrupted
     catalog: {
       query: "  porch light  ",
       perspective: "blue",
+      sort: "newest-cut",
       cratePage: 2,
       crateOrder: ["echo-song-two", "echo-song-one", "echo-song-two"],
     },
@@ -879,6 +920,42 @@ test("v2 garden snapshots preserve full crate, surface, spatial, and interrupted
           position: ["bad", 0.8, 0],
         },
       },
+      printedCards: [{
+        id: "card-exact-preview",
+        title: "Exact Preview Card",
+        sceneTransform: {
+          position: [2.2, 0.9, -0.4],
+          rotation: [-0.2, 0.1, 0.05],
+        },
+        echoRecordAttachment: {
+          sourceVisualId: "echo-director-frame:44",
+          sourceSongId: "echo-song-one",
+          sourceCardId: "source-card-44",
+          sourceRevisionId: "director-revision-9",
+          directorRevisionId: "director-cut-revision-9",
+          atSeconds: 44.5,
+          previewIntent: {
+            schemaVersion: "hapa.echo-director.preview-card-intent.v1",
+            requestKey: "echo-song-one|cut-9|44|source-card-44",
+            song: { id: "echo-song-one", title: "Sunday Signals" },
+            cut: { id: "cut-9", fingerprint: "sha256:cut-9" },
+            cue: { id: "cue-44", frame: 1335, timeSeconds: 44.5 },
+            card: { id: "source-card-44", title: "Current frame" },
+          },
+          presentation: {
+            id: "echo-director-frame:44",
+            sourceId: "source-card-44",
+            songId: "echo-song-one",
+            title: "Current frame",
+            kind: "video",
+            videoUri: "/media/exact-preview.mp4",
+            posterUri: "/media/exact-preview.jpg",
+            sourceStartSeconds: 40,
+            sourceEndSeconds: 48,
+            durationSeconds: 8,
+          },
+        },
+      }],
     },
     cardJob: {
       status: "resolving",
@@ -893,6 +970,7 @@ test("v2 garden snapshots preserve full crate, surface, spatial, and interrupted
   assert.equal(snapshot.schemaVersion, ECHO_RECORD_GARDEN_SNAPSHOT_SCHEMA);
   assert.equal(snapshot.migratedFrom, null);
   assert.equal(snapshot.query, "porch light");
+  assert.equal(snapshot.sort, "newest-cut");
   assert.equal(snapshot.cratePage, 2);
   assert.deepEqual(snapshot.crateOrder, ["echo-song-two", "echo-song-one"]);
   assert.equal(snapshot.surfacePage, 3);
@@ -904,6 +982,15 @@ test("v2 garden snapshots preserve full crate, surface, spatial, and interrupted
       manipulated: true,
     },
   });
+  assert.equal(snapshot.printedCards.length, 1);
+  assert.equal(snapshot.printedCards[0].id, "card-exact-preview");
+  assert.deepEqual(snapshot.printedCards[0].sceneTransform.position, [2.2, 0.9, -0.4]);
+  assert.equal(snapshot.printedCards[0].echoRecordAttachment.sourceCardId, "source-card-44");
+  assert.equal(snapshot.printedCards[0].echoRecordAttachment.sourceRevisionId, "director-revision-9");
+  assert.equal(snapshot.printedCards[0].echoRecordAttachment.directorRevisionId, "director-cut-revision-9");
+  assert.equal(snapshot.printedCards[0].echoRecordAttachment.previewIntent.resolutionPolicy, "exact-id-or-fail");
+  assert.equal(snapshot.printedCards[0].echoRecordAttachment.presentation.videoUri, "/media/exact-preview.mp4");
+  assert.equal(snapshot.printedCards[0].echoRecordAttachment.presentation.playbackMode, "loop");
   assert.deepEqual(snapshot.cardJob, {
     status: "interrupted",
     visualId: "echo-surface:two",

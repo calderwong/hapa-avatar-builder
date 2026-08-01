@@ -19,7 +19,25 @@ import {
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { createEchoRecordVisualCardResolver } from "../domain/echo-record-card-resolution.js";
+import {
+  createEchoDirectorPreviewRuntime,
+  selectEchoDirectorPreviewSource,
+} from "../domain/echo-director-preview-runtime.js";
+import { createEchoIsfSurface } from "../domain/echo-isf-browser-runtime.js";
+import {
+  createEchoLiveSignalTracker,
+  sampleEchoLiveSignalFrame,
+} from "../domain/echo-live-signal-transport.js";
+import {
+  normalizeEchoStemFocus,
+  resolveVerifiedEchoStemBinding,
+} from "../domain/echo-visualizer-audio-envelope.js";
 import { createEchoRecordGardenAcceptanceRun } from "../domain/echo-record-garden-acceptance.js";
+import {
+  attachEchoRecordObjectPreservingWorldTransform,
+  buildEchoRecordFaceContract,
+  createEchoRecordEntityRegistry,
+} from "../domain/echo-record-garden-runtime.js";
 import EchoRecordGardenAcceptancePanel from "./EchoRecordGardenAcceptancePanel.jsx";
 import {
   ECHO_RECORD_DISPLAY_RPM,
@@ -42,14 +60,21 @@ import {
 } from "../domain/echo-record-garden.js";
 import { localFileApiUri } from "../domain/local-media-uri.js";
 
-const RECORDS_PER_CRATE = 6;
-const SCREEN_COUNT = 3;
-const SCREEN_MEDIA_POOL_LIMIT = SCREEN_COUNT * 2 + 1;
+const RECORDS_PER_CRATE = 10;
+const SCREEN_COUNT = 1;
+const VISIBLE_RECORD_VIDEO_LIMIT = RECORDS_PER_CRATE;
+const SCREEN_MEDIA_POOL_LIMIT = VISIBLE_RECORD_VIDEO_LIMIT + 4;
 const PROJECT_PACKET_CACHE_LIMIT = 12;
 const MEDIA_HARD_SEEK_COOLDOWN_SECONDS = 0.25;
 const PRIMARY_MEDIA_START_TIMEOUT_MS = 1_500;
 const RECORD_GARDEN_STORAGE_KEY = "hapa.echo-record-garden.v1";
 const RECORD_GARDEN_DIAGNOSTICS_KEY = "__HAPA_ECHO_RECORD_GARDEN_DIAGNOSTICS__";
+const RECORD_CATALOG_SORTS = Object.freeze([
+  { id: "album", label: "Album order" },
+  { id: "newest-cut", label: "Newest Director cut" },
+  { id: "title", label: "Song title" },
+  { id: "perspective", label: "Character / perspective" },
+]);
 
 function recordGardenDiagnostics() {
   const existing = globalThis[RECORD_GARDEN_DIAGNOSTICS_KEY];
@@ -232,6 +257,54 @@ function recordCoverUri(record = {}) {
   return String(record?.cover?.uri || record?.coverUri || "");
 }
 
+function recordLoopVisual(record = {}) {
+  const preview = record?.preview || record?.director?.preview || record?.recordPreview || {};
+  const videoUri = String(preview.videoUri || preview.video_uri || preview.uri || "");
+  const posterUri = String(preview.posterUri || preview.poster_uri || recordCoverUri(record) || "");
+  if (!videoUri && !posterUri) return null;
+  const faceContract = buildEchoRecordFaceContract({
+    record,
+    media: {
+      uri: videoUri || posterUri,
+      posterUri,
+      kind: videoUri ? "video" : "image",
+      revisionId: preview.cutFingerprint
+        || preview.revisionId
+        || record?.director?.latestCut?.fingerprint
+        || record?.director?.latestCut?.id
+        || record?.source?.revisionId
+        || "",
+    },
+    visible: true,
+  });
+  return {
+    id: `record-loop:${record.songId}`,
+    sourceId: preview.cardId || preview.mediaId || `record:${record.songId}`,
+    songId: record.songId,
+    title: record.title,
+    kind: videoUri ? "video" : "image",
+    kindLabel: "Living Record",
+    mediaUri: videoUri || posterUri,
+    videoUri,
+    imageUri: posterUri,
+    posterUri,
+    sourceStartSeconds: Math.max(0, Number(preview.sourceStartSeconds ?? preview.source_in_seconds) || 0),
+    sourceEndSeconds: Math.max(0, Number(preview.sourceEndSeconds ?? preview.source_out_seconds) || 0),
+    durationSeconds: Math.max(0.25, Number(preview.durationSeconds) || 8),
+    playbackMode: "loop",
+    clockLocked: false,
+    source: {
+      revisionId: preview.cutFingerprint
+        || preview.revisionId
+        || record?.director?.latestCut?.fingerprint
+        || record?.director?.latestCut?.id
+        || record?.source?.revisionId
+        || "",
+    },
+    faceContract,
+  };
+}
+
 function projectAudioUri(project = {}, apiBase = "") {
   return resolveEchoRecordMediaUri(
     project?.audio_uri
@@ -256,50 +329,41 @@ function abortError(message = "Audio validation cancelled") {
   return error;
 }
 
-function validateRecordAudioSource(audioUri, { signal, timeoutMs = 8_000 } = {}) {
-  if (!audioUri) return Promise.reject(new Error("This record has no routable audio source"));
+function prepareRecordAudioElement(audio, audioUri, { signal, timeoutMs = 2_500 } = {}) {
+  if (!audio || !audioUri) return Promise.reject(new Error("This record has no routable audio source"));
   if (signal?.aborted) return Promise.reject(abortError());
-
+  if (audio.getAttribute("src") === audioUri && audio.readyState >= 1) {
+    return Promise.resolve({ duration: Math.max(0, Number(audio.duration) || 0), warmed: true });
+  }
   return new Promise((resolve, reject) => {
-    const probe = document.createElement("audio");
     let settled = false;
     let timeout = 0;
-
     const cleanup = () => {
       globalThis.clearTimeout(timeout);
       signal?.removeEventListener("abort", handleAbort);
-      probe.removeEventListener("loadedmetadata", handleReady);
-      probe.removeEventListener("error", handleError);
-      probe.removeEventListener("abort", handleError);
-      probe.pause();
-      probe.removeAttribute("src");
-      probe.load();
+      audio.removeEventListener("loadedmetadata", handleReady);
+      audio.removeEventListener("error", handleError);
     };
     const finish = (error = null) => {
       if (settled) return;
       settled = true;
-      const duration = Math.max(0, Number(probe.duration) || 0);
       cleanup();
       if (error) reject(error);
-      else resolve({ duration });
+      else resolve({ duration: Math.max(0, Number(audio.duration) || 0), warmed: false });
     };
     const handleReady = () => finish();
     const handleError = () => finish(new Error("This record's audio source could not be decoded"));
     const handleAbort = () => finish(abortError());
-
-    probe.preload = "metadata";
-    probe.muted = true;
-    probe.playsInline = true;
-    probe.addEventListener("loadedmetadata", handleReady, { once: true });
-    probe.addEventListener("error", handleError, { once: true });
-    probe.addEventListener("abort", handleError, { once: true });
+    audio.addEventListener("loadedmetadata", handleReady, { once: true });
+    audio.addEventListener("error", handleError, { once: true });
     signal?.addEventListener("abort", handleAbort, { once: true });
     timeout = globalThis.setTimeout(
-      () => finish(new Error("Audio validation timed out before the record could be placed")),
-      Math.max(1_000, Number(timeoutMs) || 8_000),
+      () => finish(new Error("Audio preparation timed out before the record could play")),
+      Math.max(800, Number(timeoutMs) || 2_500),
     );
-    probe.src = audioUri;
-    probe.load();
+    audio.src = audioUri;
+    audio.preload = "auto";
+    audio.load();
   });
 }
 
@@ -414,6 +478,35 @@ function recordMatchesQuery(record, query, perspective) {
   ].some((value) => String(value || "").toLowerCase().includes(needle));
 }
 
+function recordDirectorTimestamp(record = {}) {
+  const value = record?.director?.latestCut?.updatedAt
+    || record?.director?.latestCut?.createdAt
+    || record?.source?.updatedAt
+    || "";
+  const timestamp = Date.parse(value);
+  return Number.isFinite(timestamp) ? timestamp : Number.NEGATIVE_INFINITY;
+}
+
+function sortEchoRecordCatalog(records = [], sortId = "album") {
+  return records.map((record, index) => ({ record, index })).sort((left, right) => {
+    if (sortId === "newest-cut") {
+      return recordDirectorTimestamp(right.record) - recordDirectorTimestamp(left.record)
+        || left.index - right.index;
+    }
+    if (sortId === "title") {
+      return String(left.record?.title || "").localeCompare(String(right.record?.title || ""))
+        || left.index - right.index;
+    }
+    if (sortId === "perspective") {
+      return String(recordAvatarName(left.record) || recordPerspectiveId(left.record)).localeCompare(
+        String(recordAvatarName(right.record) || recordPerspectiveId(right.record)),
+      ) || String(left.record?.title || "").localeCompare(String(right.record?.title || ""))
+        || left.index - right.index;
+    }
+    return left.index - right.index;
+  }).map(({ record }) => record);
+}
+
 function readGardenPreferences() {
   try {
     return normalizeEchoRecordGardenSnapshot(
@@ -436,6 +529,7 @@ function writeGardenPreferences(value) {
       catalog: {
         query: String(value.query || "").slice(0, 180),
         perspective: value.perspective || "all",
+        sort: value.sort || "album",
         cratePage: Math.max(0, Number(value.cratePage) || 0),
         crateOrder: Array.isArray(value.crateOrder) ? value.crateOrder : [],
       },
@@ -447,6 +541,9 @@ function writeGardenPreferences(value) {
         surfacePage: Math.max(0, Number(value.surfacePage) || 0),
         surfaceSongId: value.surfaceSongId || "",
         recordTransforms: value.recordTransforms || {},
+        printedCards: normalizeEchoRecordGardenSnapshot({
+          scene: { printedCards: value.printedCards },
+        }).printedCards,
         camera: value.camera || null,
       },
       cardJob: value.cardJob || null,
@@ -502,6 +599,496 @@ function persistedCardJob(cardResolution = {}) {
   };
 }
 
+function previewCanvasBlendMode(value = "source-over") {
+  const normalized = String(value || "source-over").toLowerCase();
+  const aliases = {
+    add: "lighter",
+    additive: "lighter",
+    normal: "source-over",
+    screen: "screen",
+    multiply: "multiply",
+    overlay: "overlay",
+  };
+  return aliases[normalized] || "source-over";
+}
+
+function drawDirectorPreviewFallback(context, width, height, frame, label = "DIRECTOR MEDIA PREWARM") {
+  const gradient = context.createLinearGradient(0, 0, width, height);
+  gradient.addColorStop(0, "#07171a");
+  gradient.addColorStop(0.5, "#173c3c");
+  gradient.addColorStop(1, "#33253b");
+  context.fillStyle = gradient;
+  context.fillRect(0, 0, width, height);
+  context.strokeStyle = "rgba(86,240,207,.34)";
+  context.lineWidth = Math.max(2, width / 640);
+  for (let x = 0; x < width; x += Math.max(42, width / 22)) {
+    context.beginPath();
+    context.moveTo(x, 0);
+    context.lineTo(x, height);
+    context.stroke();
+  }
+  context.fillStyle = "rgba(4,12,14,.74)";
+  context.fillRect(width * 0.045, height * 0.07, width * 0.63, height * 0.2);
+  context.fillStyle = "#56f0cf";
+  context.font = `700 ${Math.max(14, Math.round(width * 0.018))}px ui-monospace, monospace`;
+  context.fillText(label, width * 0.07, height * 0.13);
+  context.fillStyle = "#f8f0d8";
+  context.font = `800 ${Math.max(22, Math.round(width * 0.032))}px system-ui, sans-serif`;
+  context.fillText(String(frame?.song?.title || "Echo State").slice(0, 42), width * 0.07, height * 0.21);
+}
+
+function drawDirectorPreviewMedia(context, element, frame) {
+  const width = context.canvas.width;
+  const height = context.canvas.height;
+  const sourceWidth = Number(element?.videoWidth || element?.naturalWidth || element?.width) || 0;
+  const sourceHeight = Number(element?.videoHeight || element?.naturalHeight || element?.height) || 0;
+  if (!sourceWidth || !sourceHeight) return false;
+  const crop = frame.camera?.presentation?.crop;
+  if (crop) {
+    context.drawImage(
+      element,
+      crop.x * sourceWidth,
+      crop.y * sourceHeight,
+      crop.width * sourceWidth,
+      crop.height * sourceHeight,
+      0,
+      0,
+      width,
+      height,
+    );
+    return true;
+  }
+  const scale = Math.max(width / sourceWidth, height / sourceHeight);
+  const drawWidth = sourceWidth * scale;
+  const drawHeight = sourceHeight * scale;
+  context.drawImage(element, (width - drawWidth) / 2, (height - drawHeight) / 2, drawWidth, drawHeight);
+  return true;
+}
+
+function createRecordGardenMasterSignalSource(audio) {
+  const tracker = createEchoLiveSignalTracker();
+  const AudioContextClass = globalThis.AudioContext || globalThis.webkitAudioContext;
+  if (!audio || !AudioContextClass) {
+    return {
+      sample: (seconds = 0) => sampleEchoLiveSignalFrame(null, seconds, {
+        id: "master",
+        label: "Main track",
+        source: "record-garden-master-audio",
+      }, tracker),
+      resume: async () => false,
+      createStem: () => null,
+      dispose() {},
+    };
+  }
+  try {
+    const context = new AudioContextClass();
+    const analyser = context.createAnalyser();
+    analyser.fftSize = 512;
+    analyser.smoothingTimeConstant = 0.68;
+    const source = context.createMediaElementSource(audio);
+    source.connect(analyser);
+    analyser.connect(context.destination);
+    const stemResources = new Set();
+    return {
+      sample(seconds = 0) {
+        return sampleEchoLiveSignalFrame(analyser, seconds, {
+          id: "master",
+          label: "Main track",
+          source: "record-garden-master-audio-analyser",
+          observedAtSeconds: Number(context.currentTime) || seconds,
+          sampleRate: context.sampleRate,
+          contextState: context.state,
+        }, tracker);
+      },
+      async resume() {
+        if (context.state === "suspended") await context.resume();
+        return context.state === "running";
+      },
+      createStem(uri, metadata = {}) {
+        if (!uri) return null;
+        const element = document.createElement("audio");
+        element.preload = "auto";
+        element.crossOrigin = "anonymous";
+        element.playsInline = true;
+        element.loop = false;
+        element.src = uri;
+        const stemAnalyser = context.createAnalyser();
+        stemAnalyser.fftSize = 512;
+        stemAnalyser.smoothingTimeConstant = 0.68;
+        const stemSource = context.createMediaElementSource(element);
+        const silentGain = context.createGain();
+        silentGain.gain.value = 0;
+        stemSource.connect(stemAnalyser);
+        stemAnalyser.connect(silentGain);
+        silentGain.connect(context.destination);
+        const stemTracker = createEchoLiveSignalTracker();
+        let status = "loading";
+        let disposed = false;
+        element.addEventListener("canplay", () => { status = "ready"; });
+        element.addEventListener("error", () => { status = "failed"; });
+        element.load();
+        const resource = {
+          uri,
+          get status() { return status; },
+          sample(seconds = 0, { playing = false } = {}) {
+            if (disposed) return null;
+            const target = Math.max(0, Number(seconds) || 0);
+            if (element.readyState >= 1 && !element.seeking && Math.abs((Number(element.currentTime) || 0) - target) > 0.12) {
+              try { element.currentTime = target; } catch {}
+            }
+            if (playing && status === "ready" && element.paused) element.play().catch(() => {});
+            else if (!playing && !element.paused) element.pause();
+            return sampleEchoLiveSignalFrame(stemAnalyser, target, {
+              id: metadata.id || "stem",
+              label: metadata.label || metadata.id || "Stem",
+              stemFocus: metadata.stemFocus || metadata.id || "",
+              source: "verified-registry-stem",
+              truthStatus: metadata.truthStatus || "verified_registry_path",
+              observedAtSeconds: Number(context.currentTime) || target,
+              sampleRate: context.sampleRate,
+              contextState: context.state,
+              decoderStatus: status,
+            }, stemTracker);
+          },
+          dispose() {
+            if (disposed) return;
+            disposed = true;
+            status = "disposed";
+            element.pause();
+            element.removeAttribute("src");
+            element.load();
+            stemTracker.reset();
+            try { stemSource.disconnect(); } catch {}
+            try { stemAnalyser.disconnect(); } catch {}
+            try { silentGain.disconnect(); } catch {}
+            stemResources.delete(resource);
+          },
+        };
+        stemResources.add(resource);
+        return resource;
+      },
+      dispose() {
+        [...stemResources].forEach((resource) => resource.dispose());
+        tracker.reset();
+        try { source.disconnect(); } catch {}
+        try { analyser.disconnect(); } catch {}
+        if (context.state !== "closed") context.close().catch(() => {});
+      },
+    };
+  } catch {
+    return {
+      sample: (seconds = 0) => sampleEchoLiveSignalFrame(null, seconds, {
+        id: "master",
+        label: "Main track",
+        source: "record-garden-master-audio",
+      }, tracker),
+      resume: async () => false,
+      createStem: () => null,
+      dispose() { tracker.reset(); },
+    };
+  }
+}
+
+function createRecordGardenDirectorPreviewAdapters({ apiBase = "", signalSource = null, showGraph = null, onStatus = null } = {}) {
+  const mediaEntries = new Map();
+  const isfEntries = new Map();
+  const stemEntries = new Map();
+  let sequence = 0;
+
+  const trimMedia = () => {
+    while (mediaEntries.size > 4) {
+      const [oldestKey, oldest] = [...mediaEntries.entries()]
+        .sort((left, right) => left[1].lastUsed - right[1].lastUsed)[0];
+      oldest.video?.pause?.();
+      oldest.video?.removeAttribute?.("src");
+      oldest.image?.removeAttribute?.("src");
+      mediaEntries.delete(oldestKey);
+    }
+  };
+
+  const mediaEntry = (cue) => {
+    const uri = resolveGardenMediaUri(cue?.media?.uri || "", apiBase);
+    const key = `${cue?.media?.kind || "unknown"}:${uri}`;
+    let entry = mediaEntries.get(key);
+    if (entry) {
+      entry.lastUsed = ++sequence;
+      return entry;
+    }
+    entry = { key, uri, lastUsed: ++sequence, video: null, image: null, status: "loading" };
+    if (cue?.media?.kind === "video" && uri) {
+      const video = document.createElement("video");
+      video.muted = true;
+      video.playsInline = true;
+      video.preload = "auto";
+      video.crossOrigin = "anonymous";
+      video.src = uri;
+      video.addEventListener("loadeddata", () => { entry.status = "ready"; });
+      video.addEventListener("error", () => { entry.status = "failed"; });
+      video.load();
+      entry.video = video;
+    } else if (uri) {
+      const image = document.createElement("img");
+      image.decoding = "async";
+      image.crossOrigin = "anonymous";
+      image.onload = () => { entry.status = "ready"; };
+      image.onerror = () => { entry.status = "failed"; };
+      image.src = uri;
+      entry.image = image;
+    } else {
+      entry.status = "failed";
+    }
+    mediaEntries.set(key, entry);
+    trimMedia();
+    return entry;
+  };
+
+  const media = async ({ context, frame }) => {
+    const cue = frame.primaryMediaCue;
+    const entry = mediaEntry(cue);
+    const video = entry.video;
+    if (video && video.readyState >= 1) {
+      const sourceStart = Math.max(0, Number(cue.media?.sourceInSeconds) || 0);
+      const cueElapsed = Math.max(0, frame.clock.seconds - Number(cue.startSeconds || 0));
+      const span = Math.max(0.04, Number(cue.durationSeconds) || 0.04);
+      const target = sourceStart + Math.min(span - 0.03, cueElapsed);
+      if (Math.abs((Number(video.currentTime) || 0) - target) > 0.18) {
+        try { video.currentTime = target; } catch {}
+      }
+      if (frame.clock.playing) video.play().catch(() => {});
+      else video.pause();
+    }
+    const element = video?.readyState >= 2 ? video : entry.image?.complete ? entry.image : null;
+    if (!element || !drawDirectorPreviewMedia(context, element, frame)) {
+      drawDirectorPreviewFallback(context, context.canvas.width, context.canvas.height, frame);
+    }
+    return {
+      cueId: cue.id,
+      mediaId: cue.media?.id || null,
+      sourceHash: cue.media?.sourceHash || null,
+      status: element ? "presented" : entry.status,
+      clockSeconds: frame.clock.seconds,
+    };
+  };
+
+  const visualizerSignalFrames = (visualizer, frame, masterSignalFrame) => {
+    const portableCard = visualizer.portableCard || {};
+    const mappedStem = visualizer.stemMap?.find?.((entry) => entry?.role || entry?.stemFocus || entry?.stem)
+      || visualizer.stemMap?.[0]
+      || null;
+    const stemFocus = portableCard.stemFocus
+      || mappedStem?.role
+      || mappedStem?.stemFocus
+      || mappedStem?.stem
+      || (typeof mappedStem === "string" ? mappedStem : "")
+      || "master";
+    const binding = resolveVerifiedEchoStemBinding(showGraph, {
+      visualization: { card: { ...portableCard, stemFocus } },
+      provenance: { stemFocus },
+    });
+    const frames = { master: masterSignalFrame };
+    if (binding.status !== "verified-stem" || !binding.bus?.audioPath) {
+      return {
+        frames,
+        requestedStem: binding.requested || stemFocus,
+        signalStatus: binding.status || "master-fallback",
+        fallbackReason: binding.fallbackReason || "",
+      };
+    }
+    const requestedKey = normalizeEchoStemFocus(binding.requestedKey || binding.requested || stemFocus);
+    const uri = resolveGardenMediaUri(binding.bus.audioPath, apiBase);
+    const key = `${requestedKey}:${uri}`;
+    let entry = stemEntries.get(key);
+    if (!entry) {
+      const resource = signalSource?.createStem?.(uri, {
+        id: binding.bus.stemId || binding.requested,
+        label: binding.bus.stemType || binding.requested,
+        stemFocus: binding.requested,
+        truthStatus: binding.bus.truthStatus,
+      });
+      entry = { resource, lastUsed: ++sequence };
+      stemEntries.set(key, entry);
+      while (stemEntries.size > 4) {
+        const [oldestKey, oldest] = [...stemEntries.entries()]
+          .sort((left, right) => left[1].lastUsed - right[1].lastUsed)[0];
+        oldest.resource?.dispose?.();
+        stemEntries.delete(oldestKey);
+      }
+    }
+    entry.lastUsed = ++sequence;
+    const stemFrame = entry.resource?.sample?.(frame.clock.seconds, { playing: frame.clock.playing });
+    const stemReady = entry.resource?.status === "ready" && stemFrame?.status === "live";
+    if (stemReady) {
+      frames[binding.requested] = stemFrame;
+      frames[requestedKey] = stemFrame;
+    }
+    return {
+      frames,
+      requestedStem: binding.requested,
+      signalStatus: stemReady ? "verified-stem" : "verified-stem-buffering-master-fallback",
+      fallbackReason: stemReady ? "" : entry.resource?.status || "stem-decoder-unavailable",
+    };
+  };
+
+  const visualizers = async ({ context, frame }) => {
+    const receipts = [];
+    const masterSignalFrame = signalSource?.sample?.(frame.clock.seconds)
+      || sampleEchoLiveSignalFrame(null, frame.clock.seconds, {
+        id: "master",
+        label: "Main track",
+        source: "record-garden-master-audio",
+      });
+    for (const visualizer of frame.visualizers) {
+      const signalBinding = visualizerSignalFrames(visualizer, frame, masterSignalFrame);
+      const sourceId = String(visualizer.sourceId || visualizer.portableCard?.id || "");
+      if (!sourceId) throw new Error(`Director visualizer ${visualizer.id || "unknown"} has no exact source ID.`);
+      let entry = isfEntries.get(sourceId);
+      const card = visualizer.portableCard || {
+        id: visualizer.id,
+        sourceId,
+        shaderId: sourceId,
+        parameters: { stemMap: visualizer.stemMap || [] },
+      };
+      if (!entry) {
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.min(960, context.canvas.width);
+        canvas.height = Math.round(canvas.width * context.canvas.height / context.canvas.width);
+        const surface = createEchoIsfSurface({ canvas, width: canvas.width, height: canvas.height, apiBase });
+        entry = { canvas, surface, prepared: surface.prepare(card), lastUsed: ++sequence };
+        isfEntries.set(sourceId, entry);
+        while (isfEntries.size > 4) {
+          const [oldestId, oldest] = [...isfEntries.entries()]
+            .sort((left, right) => left[1].lastUsed - right[1].lastUsed)[0];
+          oldest.surface.dispose();
+          isfEntries.delete(oldestId);
+        }
+      }
+      entry.lastUsed = ++sequence;
+      const prepared = await entry.prepared;
+      if (prepared?.status !== "ready") {
+        throw new Error(`Exact ISF ${sourceId} is ${prepared?.status || "unavailable"}: ${prepared?.error || "prepare failed"}`);
+      }
+      const result = entry.surface.draw({
+        card,
+        time: frame.clock.seconds,
+        mediaElement: context.canvas,
+        mediaIdentity: {
+          id: frame.primaryMediaCue?.media?.id || "director-program",
+          sourceHash: frame.primaryMediaCue?.media?.sourceHash || frame.primaryMediaCue?.media?.uri || "director-program",
+        },
+        signalFrames: signalBinding.frames,
+        composition: visualizer.composition,
+        width: entry.canvas.width,
+        height: entry.canvas.height,
+      });
+      if (result?.status !== "ready") {
+        throw new Error(`Exact ISF ${sourceId} draw failed: ${result?.error || result?.status || "unknown"}`);
+      }
+      context.save();
+      context.globalAlpha = Math.max(0, Math.min(1,
+        Number(visualizer.composition?.opacity ?? 1)
+        * Number(visualizer.composition?.mix ?? 1)
+        * Number(visualizer.composition?.transitionAlpha ?? 1),
+      ));
+      context.globalCompositeOperation = previewCanvasBlendMode(visualizer.composition?.blend);
+      context.drawImage(entry.canvas, 0, 0, context.canvas.width, context.canvas.height);
+      context.restore();
+      receipts.push({
+        id: visualizer.id,
+        sourceId,
+        sourceHash: result.sourceHash,
+        status: result.status,
+        signalStatus: masterSignalFrame.status,
+        signalTruthStatus: masterSignalFrame.truthStatus,
+        requestedStem: signalBinding.requestedStem,
+        stemSignalStatus: signalBinding.signalStatus,
+        stemFallbackReason: signalBinding.fallbackReason,
+      });
+    }
+    return receipts;
+  };
+
+  const transition = ({ context, frame }) => {
+    const opacity = Math.max(0, Math.min(1, Number(frame.transition?.opacity ?? 1)));
+    if (opacity < 1) {
+      context.save();
+      context.globalCompositeOperation = "destination-in";
+      context.fillStyle = `rgba(255,255,255,${opacity})`;
+      context.fillRect(0, 0, context.canvas.width, context.canvas.height);
+      context.restore();
+    }
+    if (frame.transition?.kind === "scanline-dissolve") {
+      context.save();
+      context.globalAlpha = 0.13 * (1 - opacity);
+      context.strokeStyle = "#8fffe8";
+      for (let y = 0; y < context.canvas.height; y += 8) {
+        context.beginPath();
+        context.moveTo(0, y);
+        context.lineTo(context.canvas.width, y);
+        context.stroke();
+      }
+      context.restore();
+    }
+    return { ...frame.transition };
+  };
+
+  const automation = ({ context, frame }) => {
+    const accent = frame.automation?.accents?.at(-1);
+    if (accent) {
+      context.save();
+      context.globalCompositeOperation = "screen";
+      context.globalAlpha = Math.max(0, (1 - Number(accent.progress || 0)) * 0.18);
+      context.fillStyle = "#f6c96d";
+      context.fillRect(0, 0, context.canvas.width, context.canvas.height);
+      context.restore();
+    }
+    return {
+      visualTime: frame.automation?.visualTime?.map((event) => event.id) || [],
+      accents: frame.automation?.accents?.map((event) => event.id) || [],
+      effects: frame.automation?.effects?.map((event) => event.id) || [],
+    };
+  };
+
+  const lyrics = ({ context, frame }) => {
+    const template = frame.lyrics?.templateFrame;
+    if (!template?.visible) return { visible: false };
+    const text = String(template.displayText || frame.lyrics?.line?.text || "").trim();
+    if (!text) return { visible: false };
+    const width = context.canvas.width;
+    const height = context.canvas.height;
+    context.save();
+    context.textAlign = "center";
+    context.textBaseline = "middle";
+    context.font = `800 ${Math.max(26, Math.round(width * 0.038))}px system-ui, sans-serif`;
+    const metrics = context.measureText(text);
+    const panelWidth = Math.min(width * 0.9, metrics.width + width * 0.08);
+    context.fillStyle = "rgba(4,10,14,.72)";
+    context.fillRect((width - panelWidth) / 2, height * 0.77, panelWidth, height * 0.13);
+    context.fillStyle = "#f8f0d8";
+    context.shadowColor = "#56f0cf";
+    context.shadowBlur = 14;
+    context.fillText(text, width / 2, height * 0.835, panelWidth - width * 0.04);
+    context.restore();
+    return { visible: true, lineId: frame.lyrics?.line?.id || null, templateId: template.templateId || null };
+  };
+
+  return {
+    adapters: { media, visualizers, transition, automation, lyrics },
+    dispose() {
+      mediaEntries.forEach((entry) => {
+        entry.video?.pause?.();
+        entry.video?.removeAttribute?.("src");
+        entry.image?.removeAttribute?.("src");
+      });
+      mediaEntries.clear();
+      isfEntries.forEach((entry) => entry.surface.dispose());
+      isfEntries.clear();
+      stemEntries.forEach((entry) => entry.resource?.dispose?.());
+      stemEntries.clear();
+      onStatus?.({ status: "disposed" });
+    },
+  };
+}
+
 export default function EchoRecordGarden3DView({
   apiBase = "",
   avatars = [],
@@ -514,10 +1101,15 @@ export default function EchoRecordGarden3DView({
   const audioRef = useRef(null);
   const visualInspectorRef = useRef(null);
   const gameRef = useRef(null);
+  const directorPreviewRuntimeRef = useRef(null);
+  const directorAudioSignalRef = useRef(null);
   const projectCacheRef = useRef(new Map());
+  const projectPendingRef = useRef(new Map());
   const requestRef = useRef(0);
   const requestControllerRef = useRef(null);
   const placementControllerRef = useRef(null);
+  const hoverPreviewTimerRef = useRef(0);
+  const hoverPreviewSongRef = useRef("");
   const persistenceTimerRef = useRef(0);
   const pendingPreferenceRef = useRef(null);
   const cardRequestGenerationRef = useRef(0);
@@ -530,6 +1122,7 @@ export default function EchoRecordGarden3DView({
   const crateButtonRefs = useRef(new Map());
   const initialSongIdRef = useRef(selectedSongId);
   const crateOrderRef = useRef(preferences.crateOrder);
+  const cratePageCountRef = useRef(1);
   const recordTransformsRef = useRef(preferences.recordTransforms);
   const restoredSurfacePageRef = useRef({
     songId: preferences.surfaceSongId || preferences.placedSongId || preferences.selectedSongId,
@@ -540,6 +1133,7 @@ export default function EchoRecordGarden3DView({
   const [records, setRecords] = useState([]);
   const [query, setQuery] = useState(preferences.query);
   const [perspective, setPerspective] = useState(preferences.perspective);
+  const [catalogSort, setCatalogSort] = useState(preferences.sort || "album");
   const [cratePage, setCratePage] = useState(preferences.cratePage);
   const [selectedRecordId, setSelectedRecordId] = useState(selectedSongId || preferences.selectedSongId);
   const [placedRecordId, setPlacedRecordId] = useState(preferences.placedSongId);
@@ -547,11 +1141,12 @@ export default function EchoRecordGarden3DView({
   const [projectRevision, setProjectRevision] = useState(0);
   const [projectLoadError, setProjectLoadError] = useState("");
   const [visuals, setVisuals] = useState([]);
+  const [directorCompositeVisual, setDirectorCompositeVisual] = useState(null);
   const [visualsSongId, setVisualsSongId] = useState("");
   const [surfacePage, setSurfacePage] = useState(preferences.surfacePage);
   const [selectedVisualId, setSelectedVisualId] = useState(preferences.selectedVisualId);
   const [recordTransforms, setRecordTransforms] = useState(preferences.recordTransforms);
-  const [printedCards, setPrintedCards] = useState([]);
+  const [printedCards, setPrintedCards] = useState(preferences.printedCards || []);
   const [cardResolution, setCardResolution] = useState(() => initialCardResolution(preferences.cardJob));
   const [playback, setPlayback] = useState(() => initialPlaybackState(preferences.playbackSeconds));
   const [directorVisualClock, setDirectorVisualClock] = useState(
@@ -575,6 +1170,15 @@ export default function EchoRecordGarden3DView({
     [apiBase],
   );
   cardResolutionRef.current = cardResolution;
+
+  useEffect(() => {
+    const signalSource = createRecordGardenMasterSignalSource(audioRef.current);
+    directorAudioSignalRef.current = signalSource;
+    return () => {
+      if (directorAudioSignalRef.current === signalSource) directorAudioSignalRef.current = null;
+      signalSource.dispose();
+    };
+  }, []);
   const flushPendingGardenPreferences = useCallback(() => {
     if (persistenceTimerRef.current) {
       globalThis.clearTimeout(persistenceTimerRef.current);
@@ -624,11 +1228,26 @@ export default function EchoRecordGarden3DView({
     () => new Map(records.map((record) => [record.songId, record])),
     [records],
   );
+  useEffect(() => {
+    if (placedRecordId || hoverPreviewSongRef.current) return;
+    const audio = audioRef.current;
+    const record = records.find((candidate) => candidate.songId === selectedRecordId);
+    const audioUri = resolveGardenMediaUri(record?.audio?.uri || "", apiBase);
+    if (!audio || !audioUri || audio.getAttribute("src") === audioUri) return;
+    audio.pause();
+    audio.preload = "auto";
+    audio.src = audioUri;
+    audio.load();
+  }, [apiBase, placedRecordId, records, selectedRecordId]);
   const filteredRecords = useMemo(
-    () => records.filter((record) => recordMatchesQuery(record, query, perspective)),
-    [perspective, query, records],
+    () => sortEchoRecordCatalog(
+      records.filter((record) => recordMatchesQuery(record, query, perspective)),
+      catalogSort,
+    ),
+    [catalogSort, perspective, query, records],
   );
   const cratePageCount = Math.max(1, Math.ceil(filteredRecords.length / RECORDS_PER_CRATE));
+  cratePageCountRef.current = cratePageCount;
   const crateRecords = useMemo(() => (
     filteredRecords.slice(cratePage * RECORDS_PER_CRATE, (cratePage + 1) * RECORDS_PER_CRATE)
   ), [cratePage, filteredRecords]);
@@ -773,6 +1392,7 @@ export default function EchoRecordGarden3DView({
       muted,
       query,
       perspective,
+      sort: catalogSort,
       cratePage,
       crateOrder,
       selectedSongId: selectedRecordId,
@@ -782,6 +1402,12 @@ export default function EchoRecordGarden3DView({
       surfaceSongId: activeProjectSongId,
       playbackSeconds: playback.currentTime,
       recordTransforms: savedRecordTransforms,
+      printedCards: printedCards.map((card) => ({
+        ...card,
+        sceneTransform: sceneSnapshot.printedCardTransforms?.[card.id]
+          || card.sceneTransform
+          || null,
+      })),
       camera: sceneSnapshot.camera || preferences.camera,
       cardJob: persistedCardJob(cardResolution),
     };
@@ -789,12 +1415,14 @@ export default function EchoRecordGarden3DView({
     activeProjectSongId,
     cameraRevision,
     cardResolution,
+    catalogSort,
     cratePage,
     muted,
     perspective,
     placedRecordId,
     playback.currentTime,
     preferences.camera,
+    printedCards,
     query,
     recordTransforms,
     records,
@@ -845,6 +1473,7 @@ export default function EchoRecordGarden3DView({
         recordTransformsRef.current = recovered.recordTransforms;
         setRecords(nextRecords);
         setRecordTransforms(recovered.recordTransforms);
+        setPrintedCards(recovered.printedCards || []);
         setCratePage(recovered.cratePage);
         if (recovered.cardJob) setCardResolution(initialCardResolution(recovered.cardJob));
         setLoadState({ status: "ready", error: "" });
@@ -877,8 +1506,6 @@ export default function EchoRecordGarden3DView({
 
   const loadRecordProject = useCallback(async (songId) => {
     if (!songId) return null;
-    requestControllerRef.current?.abort();
-    const requestId = ++requestRef.current;
     const latestCut = recordBySongId.get(songId)?.director?.latestCut || null;
     const cutRevision = latestCut?.fingerprint
       || latestCut?.updatedAt
@@ -889,37 +1516,51 @@ export default function EchoRecordGarden3DView({
     const diagnostics = recordGardenDiagnostics();
     const cached = readCachedProjectPacket(projectCacheRef.current, cacheKey, diagnostics);
     if (cached) return cached;
+    const pending = projectPendingRef.current.get(cacheKey);
+    if (pending) return pending;
+    requestControllerRef.current?.abort();
+    const requestId = ++requestRef.current;
     const controller = new AbortController();
     requestControllerRef.current = controller;
     setNotice("Opening the sleeve and cueing its visual constellation…");
     const base = browserApiBase(apiBase);
     const projectQuery = new URLSearchParams({ songId });
     if (latestCut?.id) projectQuery.set("variantId", latestCut.id);
-    const [projectResponse, referenceResponse] = await Promise.all([
+    const request = Promise.all([
       fetch(`${base}/api/echos/director-project?${projectQuery.toString()}`, {
         signal: controller.signal,
       }),
       fetch(`${base}/api/echos/references/tarot-cards?songId=${encodeURIComponent(songId)}`, {
         signal: controller.signal,
       }),
-    ]);
-    if (!projectResponse.ok) throw new Error(`Director project failed (${projectResponse.status})`);
-    const projectPayload = await projectResponse.json();
-    const referencePayload = referenceResponse.ok ? await referenceResponse.json() : { cards: [] };
-    const nextProject = projectEchoRecordSelectedDirectorCut(projectPayload)
-      || unwrapEchoDirectorProject(projectPayload);
-    if (!nextProject) throw new Error("Director project payload did not include a song");
-    if (
-      latestCut?.id
-      && nextProject.echo_record_garden_director_cut?.id !== latestCut.id
-    ) {
-      throw new Error(`The most recent Director cut (${latestCut.title || latestCut.id}) was not delivered exactly`);
+    ]).then(async ([projectResponse, referenceResponse]) => {
+      if (!projectResponse.ok) throw new Error(`Director project failed (${projectResponse.status})`);
+      const projectPayload = await projectResponse.json();
+      const referencePayload = referenceResponse.ok ? await referenceResponse.json() : { cards: [] };
+      const nextProject = projectEchoRecordSelectedDirectorCut(projectPayload)
+        || unwrapEchoDirectorProject(projectPayload);
+      if (!nextProject) throw new Error("Director project payload did not include a song");
+      if (
+        latestCut?.id
+        && nextProject.echo_record_garden_director_cut?.id !== latestCut.id
+      ) {
+        throw new Error(`The most recent Director cut (${latestCut.title || latestCut.id}) was not delivered exactly`);
+      }
+      const nextReferences = Array.isArray(referencePayload?.cards) ? referencePayload.cards : [];
+      const cachedPacket = { project: nextProject, references: nextReferences };
+      retainProjectPacket(projectCacheRef.current, cacheKey, cachedPacket, diagnostics);
+      return cachedPacket;
+    });
+    projectPendingRef.current.set(cacheKey, request);
+    try {
+      const packet = await request;
+      if (requestRef.current !== requestId) return packet;
+      return packet;
+    } finally {
+      if (projectPendingRef.current.get(cacheKey) === request) {
+        projectPendingRef.current.delete(cacheKey);
+      }
     }
-    const nextReferences = Array.isArray(referencePayload?.cards) ? referencePayload.cards : [];
-    const cachedPacket = { project: nextProject, references: nextReferences };
-    retainProjectPacket(projectCacheRef.current, cacheKey, cachedPacket, diagnostics);
-    if (requestRef.current !== requestId) return cachedPacket;
-    return cachedPacket;
   }, [apiBase, recordBySongId]);
 
   useEffect(() => () => {
@@ -932,6 +1573,7 @@ export default function EchoRecordGarden3DView({
       audio.load();
     }
     projectCacheRef.current.clear();
+    projectPendingRef.current.clear();
     recordGardenDiagnostics().projectCacheEntries = 0;
   }, []);
 
@@ -971,6 +1613,98 @@ export default function EchoRecordGarden3DView({
       active = false;
     };
   }, [activeProjectSongId, loadRecordProject, projectRevision]);
+
+  useEffect(() => {
+    const activeSongId = projectSongIdentity(project);
+    if (!project || !placedRecordId || activeSongId !== placedRecordId) {
+      directorPreviewRuntimeRef.current?.runtime?.dispose?.();
+      directorPreviewRuntimeRef.current?.adapterBundle?.dispose?.();
+      directorPreviewRuntimeRef.current = null;
+      setDirectorCompositeVisual(null);
+      return undefined;
+    }
+    let source;
+    try {
+      source = selectEchoDirectorPreviewSource(project);
+    } catch (error) {
+      setDirectorCompositeVisual(null);
+      setNotice(`Director Preview parity is unavailable: ${error?.message || "the current cut is not hydrated"}`);
+      return undefined;
+    }
+    const outputWidth = Math.min(1280, Math.max(640, Number(source.outputProfile?.width) || 1280));
+    const declaredWidth = Math.max(1, Number(source.outputProfile?.width) || 1920);
+    const declaredHeight = Math.max(1, Number(source.outputProfile?.height) || 1080);
+    const outputHeight = Math.max(360, Math.round(outputWidth * declaredHeight / declaredWidth));
+    const outputCanvas = document.createElement("canvas");
+    outputCanvas.width = outputWidth;
+    outputCanvas.height = outputHeight;
+    const initialContext = outputCanvas.getContext("2d");
+    if (initialContext) {
+      drawDirectorPreviewFallback(initialContext, outputWidth, outputHeight, {
+        song: source.song,
+      }, "PREPARING EXACT DIRECTOR PREVIEW");
+    }
+    const adapterBundle = createRecordGardenDirectorPreviewAdapters({
+      apiBase,
+      signalSource: directorAudioSignalRef.current,
+      showGraph: source.showGraph,
+      onStatus: (status) => {
+        if (status?.status && status.status !== "disposed") {
+          recordGardenDiagnostics().directorPreviewAdapterStatus = status.status;
+        }
+      },
+    });
+    const runtime = createEchoDirectorPreviewRuntime({
+      canvas: outputCanvas,
+      source,
+      clock: () => {
+        const audio = audioRef.current;
+        return {
+          currentTime: Number(audio?.currentTime) || 0,
+          duration: Number(audio?.duration) || projectDuration(project),
+          playing: Boolean(audio && !audio.paused && !audio.ended),
+          source: "record-garden-master-audio",
+        };
+      },
+      adapters: adapterBundle.adapters,
+      strictParity: true,
+      manageCanvasSize: false,
+      onError: (error, diagnostic) => {
+        recordGardenDiagnostics().directorPreviewError = diagnostic;
+        setNotice(`Director Preview held its last complete frame: ${error?.message || "parity renderer error"}`);
+      },
+    });
+    const runtimeBinding = { runtime, adapterBundle, canvas: outputCanvas, source };
+    directorPreviewRuntimeRef.current = runtimeBinding;
+    setDirectorCompositeVisual({
+      id: `director-composite:${source.song.id}:${source.cut.id}`,
+      canvas: outputCanvas,
+      canvasKey: `${source.song.id}:${source.cut.id}:${source.cut.fingerprint || "unfingerprinted"}`,
+      songId: source.song.id,
+      title: `${source.song.title} · ${source.cut.title}`,
+      kind: "director-composite",
+      kindLabel: "Exact Director Preview",
+      role: "director-composite",
+      clockLocked: true,
+      sourceType: "director-preview-runtime",
+      sourceId: source.cut.id,
+      source: {
+        revisionId: source.cut.fingerprint || source.cut.id,
+        cutId: source.cut.id,
+        cutTitle: source.cut.title,
+      },
+      rights: project.rights || null,
+      directorPreview: true,
+    });
+    runtime.start();
+    return () => {
+      if (directorPreviewRuntimeRef.current === runtimeBinding) {
+        directorPreviewRuntimeRef.current = null;
+      }
+      runtime.dispose();
+      adapterBundle.dispose();
+    };
+  }, [apiBase, placedRecordId, project]);
 
   useEffect(() => {
     if (!project) {
@@ -1118,9 +1852,20 @@ export default function EchoRecordGarden3DView({
 
   const placeRecord = useCallback(async (songId = selectedRecordId, { autoplay = true } = {}) => {
     if (!songId) return;
+    if (hoverPreviewTimerRef.current) {
+      globalThis.clearTimeout(hoverPreviewTimerRef.current);
+      hoverPreviewTimerRef.current = 0;
+    }
+    hoverPreviewSongRef.current = "";
     placementControllerRef.current?.abort();
     const placementController = new AbortController();
     placementControllerRef.current = placementController;
+    audioRef.current?.pause();
+    setSelectedRecordId(songId);
+    setPlacedRecordId(songId);
+    setPlayback(initialPlaybackState());
+    gameRef.current?.setPlacedRecord(songId);
+    setNotice(`${recordBySongId.get(songId)?.title || "Record"} is on the platter; its warmed Director package is cueing.`);
     try {
       const packet = await loadRecordProject(songId);
       const nextProject = packet?.project;
@@ -1130,18 +1875,15 @@ export default function EchoRecordGarden3DView({
       }
       const audioUri = projectAudioUri(nextProject, apiBase);
       if (!audioUri) throw new Error("This record has no routable audio source");
-      const validation = await validateRecordAudioSource(audioUri, {
-        signal: placementController.signal,
-      });
-      if (placementController.signal.aborted) throw abortError();
-
       const audio = audioRef.current;
       if (!audio) throw new Error("The Record Garden audio player is unavailable");
       audio.pause();
-      audio.src = audioUri;
+      const validation = await prepareRecordAudioElement(audio, audioUri, {
+        signal: placementController.signal,
+      });
+      if (placementController.signal.aborted) throw abortError();
       audio.currentTime = 0;
       audio.muted = muted;
-      audio.load();
 
       const immediateVisuals = buildEchoRecordVisualSurfaces({
         project: nextProject,
@@ -1177,8 +1919,6 @@ export default function EchoRecordGarden3DView({
         ),
       });
       setActiveProjectPacket(packet);
-      setSelectedRecordId(songId);
-      setPlacedRecordId(songId);
       noteAcceptanceAction("placement", { songId });
       setPlayback({
         ...initialPlaybackState(),
@@ -1186,13 +1926,13 @@ export default function EchoRecordGarden3DView({
         ready: validation.duration > 0,
       });
       onSelectSong?.(songId);
-      gameRef.current?.setPlacedRecord(songId);
       setNotice(`${nextProject.song_title || "Record"} is on the turntable.`);
       if (autoplay) {
         const presentation = await waitForMediaPresentation(primaryPresentation);
         if (presentation?.status === "timeout") {
           setNotice(`${nextProject.song_title || "Record"} is playing while its first Director frame finishes decoding.`);
         }
+        await directorAudioSignalRef.current?.resume?.().catch(() => false);
         await audio.play().catch((error) => {
           setNotice(`Record placed; playback is waiting for permission: ${error?.message || "press Play again"}`);
         });
@@ -1211,6 +1951,7 @@ export default function EchoRecordGarden3DView({
     loadRecordProject,
     muted,
     onSelectSong,
+    recordBySongId,
     sceneGraph,
     selectedRecordId,
   ]);
@@ -1223,6 +1964,7 @@ export default function EchoRecordGarden3DView({
       return;
     }
     if (audio.paused) {
+      await directorAudioSignalRef.current?.resume?.().catch(() => false);
       await audio.play().catch((error) => {
         setNotice(`Playback is waiting for permission: ${error?.message || "press Play again"}`);
       });
@@ -1432,6 +2174,13 @@ export default function EchoRecordGarden3DView({
         clockSeconds: cardClockSeconds,
       });
       if (requestGeneration !== cardRequestGenerationRef.current) return;
+      if (
+        visual.resolutionPolicy === "exact-id-or-fail"
+        && visual.previewIntent?.card?.id
+        && resolution.card?.id !== visual.previewIntent.card.id
+      ) {
+        throw new Error(`Exact Preview Card identity changed from ${visual.previewIntent.card.id} to ${resolution.card?.id || "missing"}`);
+      }
       const printed = resolution.card;
       const attached = {
         ...printed,
@@ -1439,12 +2188,49 @@ export default function EchoRecordGarden3DView({
           ...(printed.echoRecordAttachment || {}),
           sourceVisualId: visual.id,
           sourceSongId: visualSongId || activeSongId,
+          sourceCardId: visual.attachment?.cardId
+            || visual.attachment?.lookupId
+            || visual.provenance?.mediaCardId
+            || visual.sourceId
+            || null,
+          sourceRevisionId: printed.revisionId
+            || printed.referenceAtlas?.revisionId
+            || printed.contentHash
+            || printed.content_hash
+            || printed.updatedAt
+            || printed.updated_at
+            || resolution.receipt?.revisionId
+            || resolution.receipt?.appearanceId
+            || visual.attachment?.card?.revisionId
+            || null,
+          directorRevisionId: visual.source?.revisionId
+            || visual.provenance?.referenceRevisionId
+            || visual.provenance?.revisionId
+            || null,
           atSeconds: resolution.timestampMs / 1000 || cardClockSeconds,
           surface: "echo-record-garden",
           truthStatus: resolution.truthStatus,
           resolutionSchema: resolution.schemaVersion,
           requestKey: resolution.requestKey,
           printReceipt: resolution.receipt || null,
+          previewIntent: visual.previewIntent || null,
+          presentation: {
+            id: visual.id,
+            sourceId: visual.sourceId || visual.mediaId || visual.id,
+            songId: visualSongId || activeSongId,
+            title: visual.title,
+            kind: visual.kind,
+            mediaUri: visual.mediaUri,
+            videoUri: visual.videoUri,
+            imageUri: visual.imageUri,
+            posterUri: visual.posterUri,
+            sourceStartSeconds: visual.sourceStartSeconds,
+            sourceEndSeconds: visual.sourceEndSeconds,
+            durationSeconds: visual.durationSeconds,
+            playbackMode: "loop",
+            clockLocked: false,
+            source: visual.source || null,
+          },
         },
       };
       setPrintedCards((current) => [attached, ...current.filter((item) => item.id !== attached.id)].slice(0, 5));
@@ -1476,16 +2262,11 @@ export default function EchoRecordGarden3DView({
               || "",
             ),
             sourceRevisionId: String(
-              visual.source?.revisionId
-              || visual.provenance?.referenceRevisionId
-              || visual.provenance?.revisionId
-              || visual.attachment?.card?.revisionId
+              attached.echoRecordAttachment?.sourceRevisionId
               || "",
             ),
             cardRevisionId: String(
-              attached.revisionId
-              || attached.referenceAtlas?.revisionId
-              || resolution.receipt?.revisionId
+              attached.echoRecordAttachment?.sourceRevisionId
               || "",
             ),
             cardSchemaVersion: String(attached.schemaVersion || ""),
@@ -1534,6 +2315,60 @@ export default function EchoRecordGarden3DView({
     }
   }, [playback.currentTime, project, resolveVisualCard, selectedVisual]);
 
+  const generateCurrentDirectorPreviewCard = useCallback(async () => {
+    const runtime = directorPreviewRuntimeRef.current?.runtime;
+    if (!runtime) {
+      setNotice("The exact Director Preview is still preparing; click the screen again when its first complete frame appears.");
+      return;
+    }
+    let intent;
+    try {
+      intent = runtime.createCardPrintIntent({ surface: "echo-record-garden-cinematic-preview" });
+    } catch (error) {
+      setNotice(`This Director frame cannot print a Card: ${error?.message || "no exact Card is attached"}`);
+      return;
+    }
+    const frame = runtime.snapshot()?.frame || runtime.frame();
+    const cue = frame.primaryMediaCue;
+    await generateCardForVisual({
+      id: `director-preview-card:${intent.requestKey}`,
+      songId: intent.song.id,
+      title: intent.card.title || cue?.media?.title || `${intent.song.title} Director frame`,
+      kind: cue?.media?.kind || "director-preview",
+      kindLabel: "Exact Director Preview Card",
+      role: "director-preview-exact-card",
+      sourceType: "director-preview-exact-card",
+      sourceId: intent.card.id,
+      mediaId: cue?.media?.id || null,
+      mediaUri: cue?.media?.uri || null,
+      videoUri: cue?.media?.kind === "video" ? cue.media.uri : null,
+      imageUri: cue?.media?.kind === "image" ? cue.media.uri : null,
+      sourceStartSeconds: cue?.media?.sourceInSeconds || 0,
+      sourceEndSeconds: (cue?.media?.sourceInSeconds || 0) + (cue?.durationSeconds || 0),
+      durationSeconds: cue?.durationSeconds || 0,
+      playbackMode: "loop",
+      clockLocked: false,
+      resolutionPolicy: "exact-id-or-fail",
+      attachment: {
+        cardId: intent.card.id,
+        lookupId: intent.card.id,
+        freshnessStatus: "current-preview-frame",
+      },
+      source: {
+        revisionId: intent.cut.fingerprint || intent.cut.id,
+        cutId: intent.cut.id,
+        cueId: intent.cue.id,
+      },
+      provenance: {
+        mediaCardId: intent.card.id,
+        revisionId: intent.cut.fingerprint || intent.cut.id,
+        frameKey: frame.frameKey,
+      },
+      previewIntent: intent,
+      rights: project?.rights || {},
+    });
+  }, [generateCardForVisual, project]);
+
   const cancelCardResolution = useCallback((visual = selectedVisual) => {
     if (!visual?.id) return;
     cardRequestGenerationRef.current += 1;
@@ -1548,9 +2383,79 @@ export default function EchoRecordGarden3DView({
     );
   }, [resolveVisualCard, selectedVisual]);
 
+  const stopHoverPreview = useCallback(({ preserveSource = false } = {}) => {
+    if (hoverPreviewTimerRef.current) {
+      globalThis.clearTimeout(hoverPreviewTimerRef.current);
+      hoverPreviewTimerRef.current = 0;
+    }
+    if (!hoverPreviewSongRef.current) return;
+    hoverPreviewSongRef.current = "";
+    const audio = audioRef.current;
+    if (!audio || placedRecordId) return;
+    audio.pause();
+    if (!preserveSource) {
+      audio.removeAttribute("src");
+      audio.load();
+    }
+    setPlayback(initialPlaybackState());
+  }, [placedRecordId]);
+
+  const previewRecordOnHover = useCallback((songId = "") => {
+    if (!songId || placedRecordId) {
+      stopHoverPreview();
+      return;
+    }
+    if (hoverPreviewTimerRef.current) globalThis.clearTimeout(hoverPreviewTimerRef.current);
+    hoverPreviewTimerRef.current = globalThis.setTimeout(async () => {
+      hoverPreviewTimerRef.current = 0;
+      if (placedRecordId) return;
+      const record = recordBySongId.get(songId);
+      const audioUri = resolveGardenMediaUri(record?.audio?.uri || "", apiBase);
+      const audio = audioRef.current;
+      if (!record || !audioUri || !audio) return;
+      if (hoverPreviewSongRef.current && hoverPreviewSongRef.current !== songId) audio.pause();
+      hoverPreviewSongRef.current = songId;
+      if (audio.getAttribute("src") !== audioUri) {
+        audio.src = audioUri;
+        audio.currentTime = 0;
+        audio.load();
+      }
+      audio.muted = muted;
+      await directorAudioSignalRef.current?.resume?.().catch(() => false);
+      await audio.play().then(() => {
+        if (hoverPreviewSongRef.current !== songId || placedRecordId) {
+          audio.pause();
+          return;
+        }
+        setNotice(`Previewing ${record.title}. Move away to stop, or place it on the player.`);
+      }).catch(() => {
+        if (hoverPreviewSongRef.current === songId) {
+          setNotice(`${record.title} is ready to preview after the next click or key press.`);
+        }
+      });
+    }, 260);
+  }, [apiBase, muted, placedRecordId, recordBySongId, stopHoverPreview]);
+
+  const ejectPlacedRecord = useCallback((songId = placedRecordId) => {
+    if (!songId || songId !== placedRecordId) return;
+    stopHoverPreview({ preserveSource: true });
+    const audio = audioRef.current;
+    audio?.pause();
+    setPlacedRecordId("");
+    setPlayback(initialPlaybackState());
+    setNotice(`${recordBySongId.get(songId)?.title || "Record"} lifted from the player; playback stopped.`);
+  }, [placedRecordId, recordBySongId, stopHoverPreview]);
+
+  useEffect(() => () => {
+    if (hoverPreviewTimerRef.current) globalThis.clearTimeout(hoverPreviewTimerRef.current);
+  }, []);
+
   actionsRef.current = {
     generateCardForVisual,
+    generateCurrentDirectorPreviewCard,
     placeRecord,
+    ejectPlacedRecord,
+    previewRecordOnHover,
     selectRecord,
   };
 
@@ -1583,7 +2488,26 @@ export default function EchoRecordGarden3DView({
         syncDirectorVisuals: (seconds) => syncDirectorVisualClockRef.current?.(seconds),
         onSelectRecord: (songId) => actionsRef.current.selectRecord?.(songId, "Record selected. Drag it to the turntable or use Place on player."),
         onDropRecord: (songId) => void actionsRef.current.placeRecord?.(songId, { autoplay: true }),
-        onSelectVisual: (visual) => void actionsRef.current.generateCardForVisual?.(visual),
+        onEjectRecord: (songId) => actionsRef.current.ejectPlacedRecord?.(songId),
+        onHoverRecord: (songId) => actionsRef.current.previewRecordOnHover?.(songId),
+        onBrowsePrevious: () => setCratePage((page) => Math.max(0, page - 1)),
+        onBrowseNext: () => setCratePage((page) => Math.min(cratePageCountRef.current - 1, page + 1)),
+        onCycleSort: () => setCatalogSort((current) => {
+          const index = Math.max(0, RECORD_CATALOG_SORTS.findIndex((option) => option.id === current));
+          return RECORD_CATALOG_SORTS[(index + 1) % RECORD_CATALOG_SORTS.length].id;
+        }),
+        onSelectVisual: (visual) => {
+          if (visual?.directorPreview) {
+            void actionsRef.current.generateCurrentDirectorPreviewCard?.();
+          } else {
+            void actionsRef.current.generateCardForVisual?.(visual);
+          }
+        },
+        onPrintedCardTransform: (cardId, transform) => {
+          setPrintedCards((current) => current.map((card) => (
+            card.id === cardId ? { ...card, sceneTransform: transform } : card
+          )));
+        },
         onStatus: setNotice,
       });
       game.restoreSnapshot({
@@ -1605,21 +2529,32 @@ export default function EchoRecordGarden3DView({
   }, [apiBase, preferences.camera, sceneRevision]);
 
   useEffect(() => {
-    gameRef.current?.setRecords(crateRecords, {
+    gameRef.current?.setRecords(records, {
       selectedRecordId,
       placedRecordId,
       recordTransforms,
       recordInventoryIds: records.map((record) => record.songId),
+      visibleRecordIds: crateRecords.map((record) => record.songId),
+      catalogPage: cratePage,
+      catalogPageCount: cratePageCount,
+      catalogSort,
     });
-  }, [crateRecords, placedRecordId, recordTransforms, records, selectedRecordId]);
+  }, [catalogSort, cratePage, cratePageCount, crateRecords, placedRecordId, recordTransforms, records, selectedRecordId]);
 
   useEffect(() => {
     gameRef.current?.setVisuals(visibleVisuals, {
       activeSongId: placedRecordId || selectedRecordId,
       directorVisual,
+      compositeVisual: directorCompositeVisual,
       warmVisuals,
     });
-  }, [directorVisual, placedRecordId, selectedRecordId, visibleVisuals, warmVisuals]);
+  }, [directorCompositeVisual, directorVisual, placedRecordId, selectedRecordId, visibleVisuals, warmVisuals]);
+
+  useEffect(() => {
+    const game = gameRef.current;
+    if (!game) return;
+    printedCards.forEach((card) => game.spawnPrintedCard(card));
+  }, [printedCards, sceneReady]);
 
   useEffect(() => {
     gameRef.current?.setPlayback({
@@ -1664,10 +2599,19 @@ export default function EchoRecordGarden3DView({
         ref={canvasRef}
         data-testid="echo-record-garden-canvas"
         aria-label="Interactive 3D outdoor record table"
+        tabIndex={0}
+        onKeyDown={(event) => {
+          if (!["Enter", " "].includes(event.key)) return;
+          const visual = directorCompositeVisual || directorVisual || selectedVisual;
+          if (!visual) return;
+          event.preventDefault();
+          if (visual.directorPreview) void generateCurrentDirectorPreviewCard();
+          else void generateCardForVisual(visual);
+        }}
       />
       <audio
         ref={audioRef}
-        preload="metadata"
+        preload="auto"
         onLoadedMetadata={(event) => {
           const duration = Number(event.currentTarget.duration) || projectDuration(project);
           setPlayback((current) => ({ ...current, duration, ready: true, error: "" }));
@@ -1680,7 +2624,10 @@ export default function EchoRecordGarden3DView({
             duration: Number(audio.duration) || current.duration,
           }));
         }}
-        onPlay={() => setPlayback((current) => ({ ...current, playing: true, error: "" }))}
+        onPlay={() => {
+          directorAudioSignalRef.current?.resume?.().catch(() => false);
+          setPlayback((current) => ({ ...current, playing: true, error: "" }));
+        }}
         onPause={() => setPlayback((current) => ({ ...current, playing: false }))}
         onEnded={() => setPlayback((current) => ({ ...current, playing: false }))}
         onError={() => setPlayback((current) => ({
@@ -1827,42 +2774,9 @@ export default function EchoRecordGarden3DView({
                 </button>
               ))}
             </div>
-            <div className="echo-record-card-actions">
-              <button
-                className="hapa-btn echo-record-print-card"
-                data-intent="primary"
-                data-state={cardResolution.visualId === selectedVisual.id ? cardResolution.status : "idle"}
-                data-testid="echo-record-generate-card"
-                type="button"
-                aria-busy={cardResolution.status === "resolving" && cardResolution.visualId === selectedVisual.id}
-                disabled={["resolving", "blocked", "unavailable"].includes(cardResolution.status) && cardResolution.visualId === selectedVisual.id}
-                onClick={() => void generateCardForVisual(selectedVisual)}
-              >
-                {cardResolution.status === "resolving" && cardResolution.visualId === selectedVisual.id
-                  ? <Loader2 size={14} className="spin" />
-                  : <Sparkles size={14} />}
-                {cardResolution.status === "resolving" && cardResolution.visualId === selectedVisual.id
-                  ? "Resolving attached Card"
-                  : cardResolution.status === "blocked" && cardResolution.visualId === selectedVisual.id
-                    ? "Card blocked by source policy"
-                    : ["failed", "interrupted"].includes(cardResolution.status) && cardResolution.visualId === selectedVisual.id
-                      ? cardResolution.status === "interrupted"
-                        ? "Retry interrupted Hapa Card"
-                        : "Retry attached Hapa Card"
-                      : cardResolution.status === "unavailable" && cardResolution.visualId === selectedVisual.id
-                        ? "Card source no longer available"
-                      : "Generate attached Hapa Card"}
-              </button>
-              {cardResolution.status === "resolving" && cardResolution.visualId === selectedVisual.id && (
-                <button
-                  className="hapa-btn echo-record-cancel-card"
-                  type="button"
-                  onClick={() => cancelCardResolution(selectedVisual)}
-                >
-                  Cancel Card request
-                </button>
-              )}
-            </div>
+            <small className="echo-record-preview-print-hint">
+              Click the large Director Preview to print the exact Hapa Card attached to the current visual.
+            </small>
             {["failed", "blocked", "interrupted", "unavailable"].includes(cardResolution.status) && cardResolution.visualId === selectedVisual.id && (
               <small className="echo-record-card-error" role="alert">{cardResolution.error}</small>
             )}
@@ -2004,6 +2918,21 @@ export default function EchoRecordGarden3DView({
               <option value="green">Green</option>
             </select>
           </label>
+          <label className="echo-record-perspective echo-record-sort">
+            <span>Arrange</span>
+            <select
+              value={catalogSort}
+              onChange={(event) => {
+                setCatalogSort(event.target.value);
+                setCratePage(0);
+              }}
+              aria-label="Arrange records in the garden"
+            >
+              {RECORD_CATALOG_SORTS.map((option) => (
+                <option key={option.id} value={option.id}>{option.label}</option>
+              ))}
+            </select>
+          </label>
           <span className="echo-record-result-count" aria-live="polite">
             {filteredRecords.length} of {records.length}
           </span>
@@ -2081,6 +3010,10 @@ export default function EchoRecordGarden3DView({
                 style={{ "--record-accent": theme.accent }}
                 onClick={() => selectRecord(record.songId, `${record.title} selected.`)}
                 onDoubleClick={() => void placeRecord(record.songId, { autoplay: true })}
+                onMouseEnter={() => previewRecordOnHover(record.songId)}
+                onMouseLeave={() => previewRecordOnHover("")}
+                onFocus={() => previewRecordOnHover(record.songId)}
+                onBlur={() => previewRecordOnHover("")}
               >
                 <Disc3 size={22} />
                 <span>
@@ -2144,7 +3077,13 @@ function createEchoRecordGardenGame({
   onRecordTransform,
   onSelectRecord,
   onDropRecord,
+  onEjectRecord,
+  onHoverRecord,
+  onBrowsePrevious,
+  onBrowseNext,
+  onCycleSort,
   onSelectVisual,
+  onPrintedCardTransform,
   onStatus,
 }) {
   const diagnostics = recordGardenDiagnostics();
@@ -2189,9 +3128,9 @@ function createEchoRecordGardenGame({
   scene.background = new THREE.Color(0xa8c9c3);
   scene.fog = new THREE.FogExp2(0x9ab7a9, 0.024);
 
-  const camera = new THREE.PerspectiveCamera(45, 1, 0.05, 80);
-  const defaultCameraPosition = new THREE.Vector3(0, 5.6, 8.9);
-  const defaultCameraTarget = new THREE.Vector3(0, 0.7, 0);
+  const camera = new THREE.PerspectiveCamera(47, 1, 0.05, 100);
+  const defaultCameraPosition = new THREE.Vector3(0, 6.25, 11.4);
+  const defaultCameraTarget = new THREE.Vector3(0, 1.05, -0.35);
   camera.position.copy(defaultCameraPosition);
   camera.lookAt(defaultCameraTarget);
 
@@ -2224,6 +3163,7 @@ function createEchoRecordGardenGame({
   const sceneResources = createLazySundayScene(world);
   const player = createRecordPlayer(world);
   const screens = createAlbumScreens(world);
+  const catalogConsole = createRecordCatalogConsole(world);
   const mediaPool = createScreenMediaPool({
     apiBase,
     renderer,
@@ -2241,6 +3181,7 @@ function createEchoRecordGardenGame({
   const dragPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -0.88);
   const dragPoint = new THREE.Vector3();
   const recordEntries = new Map();
+  const recordEntityRegistry = createEchoRecordEntityRegistry();
   const printedEntries = new Map();
   let restoredRecordTransforms = {};
   let disposed = false;
@@ -2250,6 +3191,7 @@ function createEchoRecordGardenGame({
   const frameTimingSamples = [];
   let acceptanceRunId = "";
   let heldEntry = null;
+  let heldPrintedEntry = null;
   let hoveredEntry = null;
   let selectedRecordId = "";
   let placedRecordId = "";
@@ -2285,6 +3227,23 @@ function createEchoRecordGardenGame({
     return hits[0]?.object?.userData?.visual || hits[0]?.object?.parent?.userData?.visual || null;
   };
 
+  const printedCardHit = () => {
+    raycaster.setFromCamera(pointer, camera);
+    const hits = raycaster.intersectObjects([...printedEntries.values()].map((entry) => entry.root), true);
+    for (const hit of hits) {
+      let object = hit.object;
+      while (object && !object.userData?.printedCardId) object = object.parent;
+      if (object?.userData?.printedCardId) return printedEntries.get(object.userData.printedCardId) || null;
+    }
+    return null;
+  };
+
+  const catalogControlHit = () => {
+    raycaster.setFromCamera(pointer, camera);
+    const hits = raycaster.intersectObjects(catalogConsole.hitTargets, true);
+    return hits[0]?.object?.userData?.catalogAction || "";
+  };
+
   const playerDropReady = (position) => {
     const dx = position.x - player.platterWorld.x;
     const dz = position.z - player.platterWorld.z;
@@ -2295,8 +3254,45 @@ function createEchoRecordGardenGame({
     if (disposed) return;
     noteAcceptancePointer(event.pointerType);
     setPointer(event);
+    const catalogAction = catalogControlHit();
+    if (catalogAction) {
+      if (catalogAction === "previous") onBrowsePrevious?.();
+      else if (catalogAction === "next") onBrowseNext?.();
+      else if (catalogAction === "sort") onCycleSort?.();
+      onStatus?.(
+        catalogAction === "sort"
+          ? "Rearranging the Record collection in 3D."
+          : "Moving through the Record collection in 3D.",
+      );
+      event.preventDefault();
+      return;
+    }
+    const printedEntry = printedCardHit();
+    if (printedEntry) {
+      heldPrintedEntry = printedEntry;
+      printedEntry.dragStart.copy(printedEntry.root.position);
+      printedEntry.root.position.y = 1.28;
+      printedEntry.root.scale.setScalar(1.06);
+      controls.enabled = false;
+      renderer.domElement.setPointerCapture?.(event.pointerId);
+      onStatus?.(`Holding ${printedEntry.card.title || "the printed Hapa Card"}.`);
+      event.preventDefault();
+      return;
+    }
     const entry = recordHit();
     if (entry) {
+      if (entry.placed) {
+        onEjectRecord?.(entry.record.songId);
+        placedRecordId = "";
+        entry.placed = false;
+        attachEchoRecordObjectPreservingWorldTransform(entry.root, recordsRoot);
+        recordEntityRegistry.transition(entry.record.id, "remove", { eventId: `lift:${entry.record.songId}:${Date.now()}` });
+        player.record.visible = false;
+      } else {
+        recordEntityRegistry.transition(entry.record.id, "pickup", {
+          eventId: `pickup:${entry.record.songId}:${Date.now()}`,
+        });
+      }
       heldEntry = entry;
       selectedRecordId = entry.record.songId;
       entry.dragStart.copy(entry.root.position);
@@ -2320,6 +3316,18 @@ function createEchoRecordGardenGame({
   const handlePointerMove = (event) => {
     if (disposed) return;
     setPointer(event);
+    if (heldPrintedEntry) {
+      raycaster.setFromCamera(pointer, camera);
+      if (raycaster.ray.intersectPlane(dragPlane, dragPoint)) {
+        heldPrintedEntry.root.position.set(
+          THREE.MathUtils.clamp(dragPoint.x, -4.35, 4.35),
+          1.28,
+          THREE.MathUtils.clamp(dragPoint.z, -2.25, 2.45),
+        );
+        renderer.domElement.style.cursor = "grabbing";
+      }
+      return;
+    }
     if (heldEntry) {
       raycaster.setFromCamera(pointer, camera);
       if (raycaster.ray.intersectPlane(dragPlane, dragPoint)) {
@@ -2340,12 +3348,31 @@ function createEchoRecordGardenGame({
       if (hoveredEntry) hoveredEntry.hovered = false;
       hoveredEntry = nextHovered;
       if (hoveredEntry) hoveredEntry.hovered = true;
+      onHoverRecord?.(hoveredEntry?.record?.songId || "");
     }
     const visual = visualHit();
-    renderer.domElement.style.cursor = nextHovered ? "grab" : visual ? "copy" : "default";
+    const catalogAction = catalogControlHit();
+    const printedEntry = printedCardHit();
+    renderer.domElement.style.cursor = printedEntry ? "grab" : nextHovered ? "grab" : visual ? "copy" : catalogAction ? "pointer" : "default";
   };
 
   const handlePointerUp = (event) => {
+    if (heldPrintedEntry) {
+      const entry = heldPrintedEntry;
+      heldPrintedEntry = null;
+      entry.home.copy(entry.root.position);
+      entry.root.scale.setScalar(1);
+      controls.enabled = true;
+      renderer.domElement.releasePointerCapture?.(event.pointerId);
+      renderer.domElement.style.cursor = "default";
+      onPrintedCardTransform?.(entry.card.id, {
+        position: entry.root.position.toArray(),
+        rotation: entry.root.rotation.toArray().slice(0, 3),
+        manipulated: true,
+      });
+      onStatus?.(`${entry.card.title || "Hapa Card"} placed in the garden.`);
+      return;
+    }
     if (!heldEntry) return;
     const entry = heldEntry;
     const droppedPosition = entry.root.position.clone();
@@ -2361,9 +3388,16 @@ function createEchoRecordGardenGame({
     player.dropRing.scale.setScalar(1);
     entry.root.scale.setScalar(1);
     if (playerDropReady(droppedPosition)) {
-      entry.root.position.copy(entry.home);
+      attachEchoRecordObjectPreservingWorldTransform(entry.root, player.recordAnchor);
+      recordEntityRegistry.transition(entry.record.id, "place", { eventId: `place:${entry.record.songId}:${Date.now()}` });
+      entry.root.position.set(0, 0, 0);
+      entry.root.rotation.set(0, 0, 0);
+      entry.root.scale.setScalar(1.48);
+      entry.placed = true;
+      placedRecordId = entry.record.songId;
+      player.record.visible = true;
       onDropRecord?.(entry.record.songId);
-      onStatus?.(`Cueing ${entry.record.title}; the platter will switch after its audio is verified.`);
+      onStatus?.(`${entry.record.title} is on the platter while its warmed media becomes audible.`);
       return;
     }
     if (movedDistance < 0.16) {
@@ -2403,6 +3437,15 @@ function createEchoRecordGardenGame({
   };
 
   const handlePointerCancel = (event = null) => {
+    if (heldPrintedEntry) {
+      heldPrintedEntry.root.position.copy(heldPrintedEntry.home);
+      heldPrintedEntry.root.scale.setScalar(1);
+      heldPrintedEntry = null;
+      controls.enabled = true;
+      if (event?.pointerId != null) renderer.domElement.releasePointerCapture?.(event.pointerId);
+      renderer.domElement.style.cursor = "default";
+      return;
+    }
     if (!heldEntry) return;
     heldEntry.root.position.copy(heldEntry.home);
     heldEntry.root.scale.setScalar(1);
@@ -2467,7 +3510,7 @@ function createEchoRecordGardenGame({
         entry.labelTexture?.dispose?.();
         entry.labelTexture = null;
         entry.coverTexture = texture;
-        if (entry.record.songId !== visualRecordId) entry.faceMaterial.map = texture;
+        if (entry.record.songId !== visualRecordId && !entry.mediaResource) entry.faceMaterial.map = texture;
         entry.faceMaterial.color.setHex(0xffffff);
         entry.faceMaterial.needsUpdate = true;
       },
@@ -2502,13 +3545,20 @@ function createEchoRecordGardenGame({
     diagnostics.selectedSongId = selectedRecordId;
     diagnostics.placedSongId = placedRecordId;
     const nextIds = new Set(records.map((record) => record.songId));
+    const visibleIds = new Set(
+      Array.isArray(state.visibleRecordIds)
+        ? state.visibleRecordIds
+        : records.map((record) => record.songId),
+    );
     for (const [songId, entry] of recordEntries) {
       if (nextIds.has(songId)) continue;
       recordsRoot.remove(entry.root);
       disposeRecordEntry(entry);
       recordEntries.delete(songId);
     }
-    records.forEach((record, index) => {
+    const visibleRecords = records.filter((record) => visibleIds.has(record.songId));
+    const visibleIndex = new Map(visibleRecords.map((record, index) => [record.songId, index]));
+    records.forEach((record) => {
       let entry = recordEntries.get(record.songId);
       if (!entry) {
         entry = createRecordEntry(record);
@@ -2516,10 +3566,14 @@ function createEchoRecordGardenGame({
         entry.root.traverse((object) => { object.userData.recordId = record.songId; });
         recordsRoot.add(entry.root);
         recordEntries.set(record.songId, entry);
+        recordEntityRegistry.ensure(record, { object3d: entry.root });
+      } else {
+        recordEntityRegistry.ensure(record);
       }
       entry.record = record;
-      const span = Math.max(1, records.length - 1);
-      const normalized = records.length === 1 ? 0 : (index / span) * 2 - 1;
+      const index = visibleIndex.get(record.songId) ?? 0;
+      const span = Math.max(1, visibleRecords.length - 1);
+      const normalized = visibleRecords.length === 1 ? 0 : (index / span) * 2 - 1;
       const restoredTransform = restoredRecordTransforms[record.songId];
       const restoredPosition = Array.isArray(restoredTransform?.position)
         && restoredTransform.position.length === 3
@@ -2544,27 +3598,55 @@ function createEchoRecordGardenGame({
         );
         entry.homeRotation.set(0, normalized * -0.12, normalized * -0.05);
       }
-      if (entry !== heldEntry) entry.root.position.copy(entry.home);
-      entry.root.rotation.set(
-        entry.homeRotation.x,
-        entry.homeRotation.y,
-        entry.homeRotation.z,
-      );
+      if (!entry.placed && entry.root.parent !== recordsRoot) {
+        attachEchoRecordObjectPreservingWorldTransform(entry.root, recordsRoot);
+      }
+      if (entry !== heldEntry && !entry.placed) entry.root.position.copy(entry.home);
+      if (!entry.placed) {
+        entry.root.rotation.set(
+          entry.homeRotation.x,
+          entry.homeRotation.y,
+          entry.homeRotation.z,
+        );
+      }
       entry.selected = record.songId === selectedRecordId;
       entry.placed = record.songId === placedRecordId;
+      entry.root.visible = entry.placed || visibleIds.has(record.songId);
       setRecordTexture(entry, recordCoverUri(record));
+      const loopVisual = visibleIds.has(record.songId) ? recordLoopVisual(record) : null;
+      const loopKey = loopVisual ? screenMediaSourceIdentity(loopVisual).key : "";
+      if (!loopVisual || entry.mediaResource?.key !== loopKey) {
+        if (entry.mediaResource) mediaPool.release(entry.mediaResource);
+        entry.mediaResource = loopVisual ? mediaPool.acquire(loopVisual) : null;
+        entry.mediaPool = mediaPool;
+        entry.loopVisual = loopVisual;
+      }
+      if (entry.mediaResource?.texture && record.songId !== visualRecordId) {
+        assignMaterialTexture(entry.faceMaterial, entry.mediaResource.texture);
+      } else if (!entry.mediaResource && record.songId !== visualRecordId) {
+        assignMaterialTexture(entry.faceMaterial, entry.coverTexture || entry.labelTexture);
+      }
     });
+    player.record.visible = Boolean(placedRecordId);
+    if (state.catalogPageCount) {
+      catalogConsole.setState?.({
+        page: state.catalogPage || 0,
+        pageCount: state.catalogPageCount,
+        sort: state.catalogSort || "album",
+      });
+    }
   };
 
   const setVisuals = (visuals = [], state = {}) => {
-    activeVisuals = visuals.slice(0, SCREEN_COUNT);
-    assignAlbumScreenVisuals(screens, activeVisuals, mediaPool);
     const directorVisual = state.directorVisual
-      || activeVisuals.find((visual) => visual?.role === "now-playing"
+      || visuals.find((visual) => visual?.role === "now-playing"
         || visual?.role === "now-playing-hold"
         || visual?.role?.startsWith("now-playing"))
       || null;
-    const directorPresentation = setPlayerRecordVisual(player, directorVisual, { mediaPool });
+    const masterVisual = state.compositeVisual || directorVisual || visuals[0] || null;
+    activeVisuals = masterVisual ? [masterVisual] : [];
+    assignAlbumScreenVisuals(screens, activeVisuals, mediaPool);
+    const directorPresentation = setPlayerRecordVisual(player, state.compositeVisual || directorVisual, { mediaPool });
     mediaPool.warm(state.warmVisuals || []);
     visualRecordId = state.activeSongId || visualRecordId;
     recordEntries.forEach((entry, songId) => {
@@ -2573,16 +3655,60 @@ function createEchoRecordGardenGame({
         : entry.coverTexture || entry.labelTexture;
       assignMaterialTexture(entry.faceMaterial, texture);
     });
-    if (player.mediaResource?.texture) {
-      assignMaterialTexture(player.recordMaterials[1], player.mediaResource.texture);
-    }
     diagnostics.visualSurfaceCount = activeVisuals.length;
     diagnostics.activeVideos = screens.filter((screen) => Boolean(screen.mediaResource?.video)).length;
     return directorPresentation;
   };
 
   const setPlacedRecord = (songId) => {
-    placedRecordId = songId || "";
+    const previousId = placedRecordId;
+    const previousEntry = recordEntries.get(previousId);
+    const nextId = songId || "";
+    if (previousEntry && previousId !== nextId) {
+      const previousEntity = recordEntityRegistry.get(previousEntry.record.id)?.state;
+      if (["platter", "playing"].includes(previousEntity?.state)) {
+        recordEntityRegistry.transition(previousEntry.record.id, "remove", {
+          eventId: `eject:${previousEntry.record.songId}:${Date.now()}`,
+        });
+      }
+      recordEntityRegistry.transition(previousEntry.record.id, "return", {
+        eventId: `return:${previousEntry.record.songId}:${Date.now()}`,
+      });
+      recordEntityRegistry.transition(previousEntry.record.id, "settle", {
+        eventId: `settle:${previousEntry.record.songId}:${Date.now()}`,
+      });
+      if (previousEntry.root.parent !== recordsRoot) {
+        attachEchoRecordObjectPreservingWorldTransform(previousEntry.root, recordsRoot);
+      }
+      previousEntry.placed = false;
+      previousEntry.root.position.copy(previousEntry.home);
+      previousEntry.root.rotation.set(
+        previousEntry.homeRotation.x,
+        previousEntry.homeRotation.y,
+        previousEntry.homeRotation.z,
+      );
+    }
+    placedRecordId = nextId;
+    const nextEntry = recordEntries.get(nextId);
+    if (nextEntry) {
+      const entityEntry = recordEntityRegistry.get(nextEntry.record.id);
+      if (entityEntry?.state?.state === "crate" || entityEntry?.state?.state === "restored" || entityEntry?.state?.state === "returned") {
+        recordEntityRegistry.transition(nextEntry.record.id, "pickup", {
+          eventId: `button-pickup:${nextEntry.record.songId}:${Date.now()}`,
+        });
+      }
+      recordEntityRegistry.transition(nextEntry.record.id, "place", {
+        eventId: `button-place:${nextEntry.record.songId}:${Date.now()}`,
+      });
+      if (nextEntry.root.parent !== player.recordAnchor) {
+        attachEchoRecordObjectPreservingWorldTransform(nextEntry.root, player.recordAnchor);
+      }
+      nextEntry.root.position.set(0, 0, 0);
+      nextEntry.root.rotation.set(0, 0, 0);
+      nextEntry.root.scale.setScalar(1.48);
+      nextEntry.root.visible = true;
+      nextEntry.placed = true;
+    }
     diagnostics.placedSongId = placedRecordId;
     player.record.visible = Boolean(placedRecordId);
   };
@@ -2602,13 +3728,31 @@ function createEchoRecordGardenGame({
   const spawnPrintedCard = (card = {}) => {
     if (!card.id) return;
     if (printedEntries.has(card.id)) {
-      focusPrintedCard(card.id);
+      const existing = printedEntries.get(card.id);
+      const transform = card.sceneTransform;
+      if (Array.isArray(transform?.position) && transform.position.length === 3) {
+        existing.root.position.fromArray(transform.position.map(Number));
+        existing.home.copy(existing.root.position);
+      }
+      if (Array.isArray(transform?.rotation) && transform.rotation.length === 3) {
+        existing.root.rotation.fromArray(transform.rotation.map(Number));
+      }
       return;
     }
-    const entry = createPrintedCardEntry(card);
+    const entry = createPrintedCardEntry(card, mediaPool);
     const index = printedEntries.size;
-    entry.root.position.set(3.35 - index * 0.38, 1.2 + index * 0.045, -0.58 + index * 0.16);
-    entry.root.rotation.set(-0.24, -0.38 + index * 0.05, 0.08);
+    const transform = card.sceneTransform;
+    if (Array.isArray(transform?.position) && transform.position.length === 3) {
+      entry.root.position.fromArray(transform.position.map(Number));
+    } else {
+      entry.root.position.set(3.35 - index * 0.38, 1.2 + index * 0.045, -0.58 + index * 0.16);
+    }
+    if (Array.isArray(transform?.rotation) && transform.rotation.length === 3) {
+      entry.root.rotation.fromArray(transform.rotation.map(Number));
+    } else {
+      entry.root.rotation.set(-0.24, -0.38 + index * 0.05, 0.08);
+    }
+    entry.home.copy(entry.root.position);
     printedCardsRoot.add(entry.root);
     printedEntries.set(card.id, entry);
     if (printedEntries.size > 5) {
@@ -2664,6 +3808,13 @@ function createEchoRecordGardenGame({
         delete recordTransforms[songId];
       }
     });
+    const printedCardTransforms = Object.fromEntries(
+      [...printedEntries.entries()].map(([cardId, entry]) => [cardId, {
+        position: entry.root.position.toArray(),
+        rotation: entry.root.rotation.toArray().slice(0, 3),
+        manipulated: true,
+      }]),
+    );
     return {
       schemaVersion: "hapa.echo-record-garden.scene.v2",
       camera: {
@@ -2671,6 +3822,7 @@ function createEchoRecordGardenGame({
         target: controls.target.toArray(),
       },
       recordTransforms,
+      printedCardTransforms,
     };
   };
 
@@ -2941,6 +4093,12 @@ function createEchoRecordGardenGame({
         : 0.26;
     recordEntries.forEach((entry, songId) => {
       if (entry === heldEntry) return;
+      if (entry.placed) {
+        entry.root.position.set(0, 0, 0);
+        entry.root.rotation.set(0, 0, 0);
+        entry.root.scale.setScalar(1.48);
+        return;
+      }
       const selected = songId === selectedRecordId;
       const targetY = entry.home.y + (selected ? 0.22 : entry.hovered ? 0.12 : 0);
       const scale = selected ? 1.08 : entry.hovered ? 1.035 : 1;
@@ -2956,6 +4114,25 @@ function createEchoRecordGardenGame({
         ? Math.sin(elapsed * 0.8) * 0.04
         : 0;
       entry.root.rotation.y = entry.homeRotation.y + decorativeYaw;
+      if (entry.mediaResource && entry.loopVisual && entry.root.visible) {
+        updateMediaResourcePlayback(entry.mediaResource, entry.loopVisual, {
+          playback: { ...framePlayback, currentTime: elapsed, playing: true },
+          elapsed,
+          reducedMotion: playback.reducedMotion,
+        });
+        if (entry.mediaResource.texture && songId !== visualRecordId) {
+          assignMaterialTexture(entry.faceMaterial, entry.mediaResource.texture);
+        }
+      }
+    });
+    printedEntries.forEach((entry) => {
+      if (!entry.mediaResource || !entry.presentation) return;
+      updateMediaResourcePlayback(entry.mediaResource, entry.presentation, {
+        playback: { ...framePlayback, currentTime: elapsed, playing: true },
+        elapsed,
+        reducedMotion: playback.reducedMotion,
+      });
+      if (entry.mediaResource.texture) assignMaterialTexture(entry.videoMaterial, entry.mediaResource.texture);
     });
     screens.forEach((screen, index) => {
       updateAlbumScreen(screen, {
@@ -2977,7 +4154,6 @@ function createEchoRecordGardenGame({
       });
     }
     if (player.mediaResource?.texture) {
-      assignMaterialTexture(player.recordMaterials[1], player.mediaResource.texture);
       const activeRecord = recordEntries.get(visualRecordId);
       if (activeRecord) assignMaterialTexture(activeRecord.faceMaterial, player.mediaResource.texture);
     }
@@ -2992,17 +4168,19 @@ function createEchoRecordGardenGame({
         textures: Number(renderer.info.memory.textures) || 0,
       };
       diagnostics.frameTiming = summarizeFrameTiming();
-      diagnostics.activeVideos = screens.filter((screen) => Boolean(screen.mediaResource?.video)).length;
-      diagnostics.bufferedVideos = screens.filter((screen) => (
+      diagnostics.activeVideos = screens.filter((screen) => Boolean(
         screen.mediaResource?.video
-        && screen.mediaResource.mediaState === "ready"
+        || screen.mediaResource?.canvasBacked
+        || screen.mediaResource?.generatedVisualizer,
+      )).length;
+      diagnostics.bufferedVideos = screens.filter((screen) => (
+        screen.mediaResource?.mediaState === "ready"
       )).length;
       diagnostics.presentedVideos = screens.filter((screen) => (
-        screen.mediaResource?.video
-        && screen.mediaResource.hasPresentedFrame
+        screen.mediaResource?.hasPresentedFrame
       )).length;
       diagnostics.waitingVideos = screens.filter((screen) => (
-        screen.mediaResource?.video
+        screen.mediaResource
         && !screen.mediaResource.hasPresentedFrame
         && !["failed", "disposed"].includes(screen.mediaResource.mediaState)
       )).length;
@@ -3078,6 +4256,7 @@ function createEchoRecordGardenGame({
       player.visual = null;
       mediaPool.dispose();
       screens.forEach(disposeAlbumScreen);
+      catalogConsole.dispose();
       player.dispose();
       sceneResources.dispose();
       renderer.dispose();
@@ -3098,115 +4277,204 @@ function createEchoRecordGardenGame({
 }
 
 function createLazySundayScene(world) {
-  const grassMaterial = new THREE.MeshStandardMaterial({ color: 0x6f9367, roughness: 0.98 });
-  const grass = new THREE.Mesh(new THREE.PlaneGeometry(42, 42), grassMaterial);
-  grass.rotation.x = -Math.PI / 2;
-  grass.position.y = -0.58;
-  grass.receiveShadow = true;
-  world.add(grass);
+  const environment = new THREE.Group();
+  environment.name = "LazySundayGardenEnvironment";
+  world.add(environment);
 
-  const woodMaterial = new THREE.MeshStandardMaterial({ color: 0x9d6740, roughness: 0.72, metalness: 0.02 });
+  const grassMaterial = new THREE.MeshStandardMaterial({ color: 0x678b5d, roughness: 0.97 });
+  const grass = new THREE.Mesh(new THREE.CircleGeometry(25, 64), grassMaterial);
+  grass.rotation.x = -Math.PI / 2;
+  grass.position.y = -0.6;
+  grass.receiveShadow = true;
+  environment.add(grass);
+
+  const pathMaterial = new THREE.MeshStandardMaterial({ color: 0xb89d74, roughness: 0.92 });
+  const path = new THREE.Mesh(new THREE.RingGeometry(8.8, 13.5, 64, 1, 0.42, 2.3), pathMaterial);
+  path.rotation.x = -Math.PI / 2;
+  path.position.y = -0.575;
+  environment.add(path);
+
+  const woodMaterial = new THREE.MeshStandardMaterial({ color: 0x875936, roughness: 0.68, metalness: 0.02 });
+  const edgeMaterial = new THREE.MeshStandardMaterial({ color: 0x4b2f22, roughness: 0.82 });
   const table = new THREE.Mesh(new THREE.BoxGeometry(9.4, 0.34, 5.9), woodMaterial);
   table.position.y = -0.22;
   table.receiveShadow = true;
   table.castShadow = true;
-  world.add(table);
-
-  const edgeMaterial = new THREE.MeshStandardMaterial({ color: 0x5b3928, roughness: 0.8 });
+  environment.add(table);
   const apron = new THREE.Mesh(new THREE.BoxGeometry(9.2, 0.38, 5.66), edgeMaterial);
   apron.position.y = -0.47;
-  world.add(apron);
+  environment.add(apron);
+  const legGeometry = new THREE.BoxGeometry(0.46, 2.3, 0.46);
+  for (const [x, z] of [[-4.1, -2.35], [4.1, -2.35], [-4.1, 2.35], [4.1, 2.35]]) {
+    const leg = new THREE.Mesh(legGeometry, edgeMaterial);
+    leg.position.set(x, -1.55, z);
+    leg.castShadow = true;
+    environment.add(leg);
+  }
 
   const clothTexture = createPicnicClothTexture();
   clothTexture.wrapS = THREE.RepeatWrapping;
   clothTexture.wrapT = THREE.RepeatWrapping;
   clothTexture.repeat.set(3.4, 2.2);
   const cloth = new THREE.Mesh(
-    new THREE.PlaneGeometry(4.4, 3.5),
+    new THREE.PlaneGeometry(4.4, 3.5, 8, 6),
     new THREE.MeshStandardMaterial({ map: clothTexture, roughness: 0.93, side: THREE.DoubleSide }),
   );
   cloth.rotation.x = -Math.PI / 2;
+  cloth.rotation.z = -0.04;
   cloth.position.set(-2.2, -0.035, 0.05);
   cloth.receiveShadow = true;
-  world.add(cloth);
+  environment.add(cloth);
 
-  const sun = new THREE.DirectionalLight(0xffe2a9, 4.4);
-  sun.position.set(-5, 9, 5);
+  const parasolRoot = new THREE.Group();
+  parasolRoot.position.set(-5.35, 1.7, -2.8);
+  parasolRoot.rotation.z = -0.06;
+  environment.add(parasolRoot);
+  const parasolPole = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.075, 0.09, 6.2, 12),
+    new THREE.MeshStandardMaterial({ color: 0xe7d3a3, roughness: 0.62, metalness: 0.12 }),
+  );
+  parasolRoot.add(parasolPole);
+  const canopyMaterial = new THREE.MeshStandardMaterial({
+    color: 0xe9b76c,
+    roughness: 0.82,
+    side: THREE.DoubleSide,
+  });
+  const canopy = new THREE.Mesh(new THREE.ConeGeometry(3.5, 1.05, 16, 1, true), canopyMaterial);
+  canopy.position.y = 3.08;
+  canopy.rotation.y = Math.PI / 16;
+  canopy.castShadow = true;
+  parasolRoot.add(canopy);
+
+  const trunkGeometry = new THREE.CylinderGeometry(0.22, 0.34, 4.6, 9);
+  const crownGeometry = new THREE.IcosahedronGeometry(1.55, 1);
+  const trunkMaterial = new THREE.MeshStandardMaterial({ color: 0x5d3f2d, roughness: 0.95 });
+  const crownMaterial = new THREE.MeshStandardMaterial({ color: 0x47794d, roughness: 0.88 });
+  const treePositions = [[-11, -7], [-7, -11], [8, -10], [12, -4], [-13, 2], [13, 5], [-8, 10], [7, 11]];
+  const trunks = new THREE.InstancedMesh(trunkGeometry, trunkMaterial, treePositions.length);
+  const crowns = new THREE.InstancedMesh(crownGeometry, crownMaterial, treePositions.length * 2);
+  const matrix = new THREE.Matrix4();
+  treePositions.forEach(([x, z], index) => {
+    matrix.makeTranslation(x, 1.55, z);
+    trunks.setMatrixAt(index, matrix);
+    matrix.compose(
+      new THREE.Vector3(x, 4.15, z),
+      new THREE.Quaternion().setFromEuler(new THREE.Euler(0, index * 0.63, 0)),
+      new THREE.Vector3(1 + (index % 3) * 0.13, 1, 1.05),
+    );
+    crowns.setMatrixAt(index * 2, matrix);
+    matrix.compose(
+      new THREE.Vector3(x + (index % 2 ? 0.85 : -0.8), 4.55, z + 0.34),
+      new THREE.Quaternion().setFromEuler(new THREE.Euler(0, index * 0.37, 0)),
+      new THREE.Vector3(0.72, 0.78, 0.72),
+    );
+    crowns.setMatrixAt(index * 2 + 1, matrix);
+  });
+  trunks.castShadow = true;
+  crowns.castShadow = true;
+  environment.add(trunks, crowns);
+
+  const flowerGeometry = new THREE.IcosahedronGeometry(0.09, 0);
+  const flowerMaterial = new THREE.MeshStandardMaterial({ color: 0xf29ab2, roughness: 0.7 });
+  const flowers = new THREE.InstancedMesh(flowerGeometry, flowerMaterial, 72);
+  for (let index = 0; index < 72; index += 1) {
+    const angle = index * 2.399;
+    const radius = 6.8 + (index % 7) * 0.62;
+    matrix.makeTranslation(Math.cos(angle) * radius, -0.42 + (index % 3) * 0.035, Math.sin(angle) * radius);
+    flowers.setMatrixAt(index, matrix);
+  }
+  environment.add(flowers);
+
+  const teaTray = new THREE.Group();
+  teaTray.position.set(3.65, 0.05, 1.55);
+  environment.add(teaTray);
+  const ceramic = new THREE.MeshStandardMaterial({ color: 0xe9e0cb, roughness: 0.34, metalness: 0.02 });
+  const tray = new THREE.Mesh(new THREE.CylinderGeometry(0.72, 0.72, 0.06, 32), new THREE.MeshStandardMaterial({ color: 0x9f713f, roughness: 0.54 }));
+  teaTray.add(tray);
+  const teapot = new THREE.Mesh(new THREE.SphereGeometry(0.3, 20, 12), ceramic);
+  teapot.position.set(0, 0.25, 0);
+  teaTray.add(teapot);
+  for (const x of [-0.46, 0.46]) {
+    const cup = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.11, 0.22, 18), ceramic);
+    cup.position.set(x, 0.16, 0.12);
+    teaTray.add(cup);
+  }
+
+  const crateMaterial = new THREE.MeshStandardMaterial({ color: 0x6b432c, roughness: 0.8 });
+  for (const [x, z, rotation] of [[-5.4, 3.25, -0.24], [5.55, 3.05, 0.31]]) {
+    const crate = new THREE.Group();
+    crate.position.set(x, -0.1, z);
+    crate.rotation.y = rotation;
+    environment.add(crate);
+    for (let index = -1; index <= 1; index += 1) {
+      const slat = new THREE.Mesh(new THREE.BoxGeometry(1.65, 0.12, 0.23), crateMaterial);
+      slat.position.set(0, index * 0.42, index === 0 ? 0 : 0.02);
+      crate.add(slat);
+    }
+  }
+
+  const sun = new THREE.DirectionalLight(0xffdda1, 4.1);
+  sun.position.set(-6, 10, 6);
   sun.castShadow = true;
   sun.shadow.mapSize.set(1024, 1024);
-  sun.shadow.camera.left = -8;
-  sun.shadow.camera.right = 8;
-  sun.shadow.camera.top = 8;
-  sun.shadow.camera.bottom = -8;
-  world.add(sun);
+  sun.shadow.camera.left = -11;
+  sun.shadow.camera.right = 11;
+  sun.shadow.camera.top = 11;
+  sun.shadow.camera.bottom = -11;
+  environment.add(sun);
+  environment.add(new THREE.HemisphereLight(0xe9f7ff, 0x657151, 2.35));
+  const rim = new THREE.PointLight(0xf6c96d, 15, 12, 2);
+  rim.position.set(3.2, 3.8, -2.5);
+  environment.add(rim);
 
-  const sky = new THREE.HemisphereLight(0xe5f6ff, 0x6f7652, 2.3);
-  world.add(sky);
-
-  const rim = new THREE.PointLight(0xf6c96d, 18, 10, 2);
-  rim.position.set(3.2, 3.2, -2.1);
-  world.add(rim);
-
-  const bokeh = new THREE.Group();
-  const bokehGeometry = new THREE.SphereGeometry(0.035, 8, 8);
-  for (let index = 0; index < 38; index += 1) {
-    const baseOpacity = 0.2 + (index % 5) * 0.045;
-    const material = new THREE.MeshBasicMaterial({
-      color: index % 3 === 0 ? 0xffedaa : 0xd7f6d0,
-      transparent: true,
-      opacity: baseOpacity,
-    });
-    const mote = new THREE.Mesh(bokehGeometry, material);
-    mote.position.set(
-      -6 + ((index * 2.37) % 12),
-      0.4 + ((index * 1.73) % 5),
-      -5 + ((index * 2.11) % 9),
-    );
-    mote.userData.phase = index * 0.47;
-    mote.userData.baseOpacity = baseOpacity;
-    bokeh.add(mote);
+  const motePositions = new Float32Array(84 * 3);
+  for (let index = 0; index < 84; index += 1) {
+    motePositions[index * 3] = -9 + ((index * 2.37) % 18);
+    motePositions[index * 3 + 1] = 0.2 + ((index * 1.73) % 6);
+    motePositions[index * 3 + 2] = -7 + ((index * 2.11) % 14);
   }
-  world.add(bokeh);
-
-  const parasol = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.08, 0.09, 6, 10),
-    new THREE.MeshStandardMaterial({ color: 0xe7d3a3, roughness: 0.72 }),
-  );
-  parasol.position.set(-5.2, 2.35, -3.1);
-  parasol.rotation.z = -0.08;
-  world.add(parasol);
+  const moteGeometry = new THREE.BufferGeometry();
+  moteGeometry.setAttribute("position", new THREE.BufferAttribute(motePositions, 3));
+  const moteMaterial = new THREE.PointsMaterial({
+    color: 0xffedaa,
+    size: 0.07,
+    transparent: true,
+    opacity: 0.34,
+    depthWrite: false,
+  });
+  const bokeh = new THREE.Points(moteGeometry, moteMaterial);
+  bokeh.name = "GardenSunMotes";
+  environment.add(bokeh);
 
   return {
+    environment,
     bokeh,
+    parasolRoot,
+    crowns,
+    cloth,
     dispose() {
       clothTexture.dispose();
-      grass.geometry.dispose();
-      grassMaterial.dispose();
-      table.geometry.dispose();
-      woodMaterial.dispose();
-      apron.geometry.dispose();
-      edgeMaterial.dispose();
-      cloth.geometry.dispose();
-      cloth.material.dispose();
-      parasol.geometry.dispose();
-      parasol.material.dispose();
-      bokehGeometry.dispose();
-      bokeh.children.forEach((mote) => mote.material.dispose());
+      environment.traverse((object) => {
+        object.geometry?.dispose?.();
+        if (Array.isArray(object.material)) object.material.forEach((material) => material.dispose?.());
+        else object.material?.dispose?.();
+      });
     },
   };
 }
 
 function updateSundayScene(resources, elapsed, reducedMotion) {
-  resources.bokeh.children.forEach((mote, index) => {
-    const phase = mote.userData.phase || index;
-    if (reducedMotion) {
-      mote.material.opacity = mote.userData.baseOpacity ?? 0.2;
-      return;
-    }
-    mote.position.y += Math.sin(elapsed * 0.48 + phase) * 0.0007;
-    mote.position.x += Math.cos(elapsed * 0.21 + phase) * 0.0004;
-    mote.material.opacity = 0.16 + Math.sin(elapsed * 0.7 + phase) * 0.055;
-  });
+  if (reducedMotion) {
+    resources.bokeh.rotation.y = 0;
+    resources.parasolRoot.rotation.y = 0;
+    resources.cloth.rotation.z = -0.04;
+    return;
+  }
+  resources.bokeh.rotation.y = elapsed * 0.018;
+  resources.bokeh.position.y = Math.sin(elapsed * 0.38) * 0.05;
+  resources.bokeh.material.opacity = 0.28 + Math.sin(elapsed * 0.7) * 0.07;
+  resources.parasolRoot.rotation.y = Math.sin(elapsed * 0.16) * 0.018;
+  resources.cloth.rotation.z = -0.04 + Math.sin(elapsed * 0.31) * 0.006;
 }
 
 function createRecordPlayer(world) {
@@ -3239,15 +4507,14 @@ function createRecordPlayer(world) {
   platter.castShadow = true;
   root.add(platter);
 
-  const recordMaterials = [
-    new THREE.MeshStandardMaterial({ color: 0x09090b, roughness: 0.45, metalness: 0.18 }),
-    new THREE.MeshStandardMaterial({ color: 0xf1d899, roughness: 0.5 }),
-    new THREE.MeshStandardMaterial({ color: 0x111113, roughness: 0.5 }),
-  ];
-  const record = new THREE.Mesh(new THREE.CylinderGeometry(1.01, 1.01, 0.045, 72), recordMaterials);
-  record.position.set(-0.38, 0.59, 0);
-  record.visible = false;
-  root.add(record);
+  // The platter owns an anchor, not a duplicate vinyl mesh. The selected
+  // Record Object3D is reparented here so pickup -> placement -> playback ->
+  // eject remains one physical object with one stable identity.
+  const recordAnchor = new THREE.Group();
+  recordAnchor.name = "EchoRecordPlayerRecordAnchor";
+  recordAnchor.position.set(-0.38, 0.61, 0);
+  recordAnchor.visible = false;
+  root.add(recordAnchor);
 
   const labelRing = new THREE.Mesh(
     new THREE.TorusGeometry(0.37, 0.017, 8, 56),
@@ -3293,8 +4560,9 @@ function createRecordPlayer(world) {
   platter.getWorldPosition(platterWorld);
   return {
     root,
-    record,
-    recordMaterials,
+    record: recordAnchor,
+    recordAnchor,
+    recordMaterials: [],
     labelRing,
     toneArm: toneArmPivot,
     dropRing,
@@ -3312,8 +4580,124 @@ function createRecordPlayer(world) {
   };
 }
 
+function createRecordCatalogConsole(world) {
+  const root = new THREE.Group();
+  root.name = "EchoRecordSpatialCatalogConsole";
+  root.position.set(-4.05, 0.38, 0.15);
+  root.rotation.y = 0.22;
+  world.add(root);
+
+  const panel = new THREE.Mesh(
+    new THREE.BoxGeometry(1.55, 0.18, 2.42),
+    new THREE.MeshStandardMaterial({ color: 0x34251f, roughness: 0.62, metalness: 0.08 }),
+  );
+  panel.castShadow = true;
+  root.add(panel);
+
+  const titleTexture = createCatalogConsoleTexture({ page: 0, pageCount: 1, sort: "album" });
+  const titleMaterial = new THREE.MeshBasicMaterial({ map: titleTexture, toneMapped: false });
+  const title = new THREE.Mesh(new THREE.PlaneGeometry(1.28, 0.72), titleMaterial);
+  title.rotation.x = -Math.PI / 2;
+  title.position.set(0, 0.105, -0.52);
+  root.add(title);
+
+  const specs = [
+    { action: "previous", label: "◀", x: -0.46, z: 0.56, color: 0x56f0cf },
+    { action: "sort", label: "SORT", x: 0, z: 0.56, color: 0xf6c96d },
+    { action: "next", label: "▶", x: 0.46, z: 0.56, color: 0x56f0cf },
+  ];
+  const hitTargets = specs.map((spec) => {
+    const texture = createCatalogButtonTexture(spec.label, spec.color);
+    const material = new THREE.MeshBasicMaterial({ map: texture, toneMapped: false });
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.11, 0.5), [
+      new THREE.MeshStandardMaterial({ color: 0x182324, roughness: 0.5 }),
+      new THREE.MeshStandardMaterial({ color: 0x182324, roughness: 0.5 }),
+      material,
+      new THREE.MeshStandardMaterial({ color: 0x182324, roughness: 0.5 }),
+      new THREE.MeshStandardMaterial({ color: 0x182324, roughness: 0.5 }),
+      new THREE.MeshStandardMaterial({ color: 0x182324, roughness: 0.5 }),
+    ]);
+    mesh.position.set(spec.x, 0.13, spec.z);
+    mesh.userData.catalogAction = spec.action;
+    mesh.userData.catalogTexture = texture;
+    root.add(mesh);
+    return mesh;
+  });
+
+  return {
+    root,
+    hitTargets,
+    setState(state = {}) {
+      const next = createCatalogConsoleTexture(state);
+      const previous = titleMaterial.map;
+      titleMaterial.map = next;
+      titleMaterial.needsUpdate = true;
+      previous?.dispose?.();
+    },
+    dispose() {
+      root.traverse((object) => {
+        object.userData?.catalogTexture?.dispose?.();
+        object.geometry?.dispose?.();
+        if (Array.isArray(object.material)) object.material.forEach((material) => material.dispose?.());
+        else object.material?.dispose?.();
+      });
+      titleMaterial.map?.dispose?.();
+    },
+  };
+}
+
+function createCatalogConsoleTexture({ page = 0, pageCount = 1, sort = "album" } = {}) {
+  const canvas = document.createElement("canvas");
+  canvas.width = 512;
+  canvas.height = 288;
+  const context = canvas.getContext("2d");
+  context.fillStyle = "#071519";
+  context.fillRect(0, 0, canvas.width, canvas.height);
+  context.strokeStyle = "#56f0cf";
+  context.lineWidth = 8;
+  context.strokeRect(10, 10, canvas.width - 20, canvas.height - 20);
+  context.fillStyle = "#56f0cf";
+  context.font = "700 24px ui-monospace, monospace";
+  context.fillText("3D RECORD LIBRARY", 34, 58);
+  context.fillStyle = "#f8f3e7";
+  context.font = "800 54px system-ui";
+  context.fillText(`${Math.max(1, Number(page) + 1)} / ${Math.max(1, Number(pageCount) || 1)}`, 34, 138);
+  context.fillStyle = "#f6c96d";
+  context.font = "700 22px ui-monospace, monospace";
+  context.fillText(String(sort || "album").replace(/-/g, " ").toUpperCase(), 34, 206);
+  context.fillStyle = "rgba(248,243,231,.68)";
+  context.font = "600 17px system-ui";
+  context.fillText("Browse and sort inside the garden", 34, 250);
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  return texture;
+}
+
+function createCatalogButtonTexture(label = "", color = 0x56f0cf) {
+  const canvas = document.createElement("canvas");
+  canvas.width = 256;
+  canvas.height = 128;
+  const context = canvas.getContext("2d");
+  context.fillStyle = "#0a171a";
+  context.fillRect(0, 0, canvas.width, canvas.height);
+  context.strokeStyle = `#${Number(color).toString(16).padStart(6, "0")}`;
+  context.lineWidth = 8;
+  context.strokeRect(5, 5, canvas.width - 10, canvas.height - 10);
+  context.fillStyle = "#f8f3e7";
+  context.textAlign = "center";
+  context.textBaseline = "middle";
+  context.font = label.length > 2 ? "800 34px system-ui" : "800 58px system-ui";
+  context.fillText(label, canvas.width / 2, canvas.height / 2);
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  return texture;
+}
+
 function screenMediaSourceIdentity(visual = {}) {
   visual = visual && typeof visual === "object" ? visual : {};
+  const canvasKey = visual.canvas && typeof visual.canvas.getContext === "function"
+    ? String(visual.canvasKey || visual.id || "director-canvas")
+    : "";
   const videoUri = visual.videoUri || (/\.mp4(?:$|\?)/i.test(visual.mediaUri || "") ? visual.mediaUri : "");
   const imageUri = visual.imageUri || visual.posterUri || (!videoUri ? visual.mediaUri : "") || "";
   const revision = visual.source?.revisionId
@@ -3335,11 +4719,13 @@ function screenMediaSourceIdentity(visual = {}) {
       ]
     : [];
   return {
+    canvasKey,
     videoUri,
     imageUri,
     revision: String(revision),
     key: JSON.stringify([
-      videoUri ? "video" : imageUri ? "image" : "fallback",
+      canvasKey ? "canvas" : videoUri ? "video" : imageUri ? "image" : "fallback",
+      canvasKey,
       videoUri || "",
       imageUri || "",
       String(revision),
@@ -3363,12 +4749,6 @@ function setPlayerRecordVisual(player, visual, { mediaPool }) {
     player.visual = null;
     player.mediaResource = null;
     if (previous) mediaPool.release(previous);
-    const labelMaterial = player.recordMaterials?.[1];
-    if (labelMaterial?.map) {
-      labelMaterial.map = null;
-      labelMaterial.color?.setHex?.(0xf1d899);
-      labelMaterial.needsUpdate = true;
-    }
     return null;
   }
   const identity = screenMediaSourceIdentity(visual);
@@ -3380,17 +4760,12 @@ function setPlayerRecordVisual(player, visual, { mediaPool }) {
   player.visual = visual || null;
   player.mediaResource = visual ? mediaPool.acquire(visual) : null;
   if (previous) mediaPool.release(previous);
-  if (player.mediaResource?.texture) {
-    assignMaterialTexture(player.recordMaterials[1], player.mediaResource.texture);
-  }
   return player.mediaResource?.firstFramePromise || null;
 }
 
 function createAlbumScreens(world) {
   const specs = [
-    { x: 0, y: 2.36, z: -2.42, ry: 0, scale: 1.15 },
-    { x: -2.62, y: 2.1, z: -2.08, ry: 0.18, scale: 0.92 },
-    { x: 2.68, y: 2.04, z: -2.04, ry: -0.18, scale: 0.92 },
+    { x: 0, y: 2.72, z: -2.68, ry: 0, scale: 1 },
   ];
   return specs.map((spec, index) => {
     const root = new THREE.Group();
@@ -3401,7 +4776,7 @@ function createAlbumScreens(world) {
     world.add(root);
 
     const frame = new THREE.Mesh(
-      new THREE.BoxGeometry(2.72, 1.72, 0.14),
+      new THREE.BoxGeometry(7.44, 4.34, 0.2),
       new THREE.MeshStandardMaterial({ color: 0x3c2b24, roughness: 0.48, metalness: 0.08 }),
     );
     frame.castShadow = true;
@@ -3413,14 +4788,14 @@ function createAlbumScreens(world) {
       color: 0xffffff,
       toneMapped: false,
     });
-    const hitTarget = new THREE.Mesh(new THREE.PlaneGeometry(2.5, 1.48), screenMaterial);
-    hitTarget.position.z = 0.076;
+    const hitTarget = new THREE.Mesh(new THREE.PlaneGeometry(7.08, 3.98), screenMaterial);
+    hitTarget.position.z = 0.106;
     root.add(hitTarget);
 
     const glow = new THREE.Mesh(
-      new THREE.PlaneGeometry(2.82, 1.82),
+      new THREE.PlaneGeometry(7.66, 4.56),
       new THREE.MeshBasicMaterial({
-        color: index === 1 ? 0xf6c96d : 0x72d9cf,
+        color: 0x72d9cf,
         transparent: true,
         opacity: 0.09,
         blending: THREE.AdditiveBlending,
@@ -3482,16 +4857,16 @@ function createScreenMediaPool({
   const updateDiagnostics = () => {
     diagnostics.mediaPoolSize = entries.size;
     diagnostics.bufferedVideos = [...entries.values()].filter(({ resource }) => (
-      resource.video && resource.mediaState === "ready"
+      resource.mediaState === "ready"
     )).length;
     diagnostics.presentedVideos = [...entries.values()].filter(({ resource }) => (
-      resource.video && resource.hasPresentedFrame
+      resource.hasPresentedFrame
     )).length;
     diagnostics.warmingVideos = [...entries.values()].filter(({ resource, warm }) => (
-      warm && resource.video
+      warm && resource
     )).length;
     diagnostics.warmReadyVideos = [...entries.values()].filter(({ resource, warm }) => (
-      warm && resource.video && resource.hasPresentedFrame
+      warm && resource.hasPresentedFrame
     )).length;
     diagnostics.waitingVideos = [...entries.values()].filter(({ resource }) => (
       resource.video
@@ -3791,6 +5166,33 @@ function createScreenMediaResource(visual, {
 }) {
   const identity = screenMediaSourceIdentity(visual);
   const { videoUri, imageUri } = identity;
+  if (identity.canvasKey && visual.canvas) {
+    const texture = new THREE.CanvasTexture(visual.canvas);
+    texture.colorSpace = THREE.SRGBColorSpace;
+    texture.minFilter = THREE.LinearFilter;
+    texture.magFilter = THREE.LinearFilter;
+    texture.generateMipmaps = false;
+    texture.needsUpdate = true;
+    let disposed = false;
+    return {
+      key: identity.key,
+      texture,
+      diagnostics,
+      mediaState: "ready",
+      hasPresentedFrame: true,
+      canvasBacked: true,
+      firstFramePromise: Promise.resolve({ status: "director-composite-canvas" }),
+      updateFrame() {
+        if (!disposed) texture.needsUpdate = true;
+      },
+      dispose() {
+        if (disposed) return;
+        disposed = true;
+        texture.dispose();
+        fallbackTexture?.dispose?.();
+      },
+    };
+  }
   if (visual.kind === "generated-visualizer") {
     return createGeneratedDirectorVisualizerResource(visual, {
       diagnostics,
@@ -4053,6 +5455,7 @@ function createRecordEntry(record) {
   const root = new THREE.Group();
   root.name = `EchoRecord:${record.songId}`;
   const labelTexture = createRecordLabelTexture(record);
+  const titleTexture = createRecordTitleTexture(record);
   const edgeMaterial = new THREE.MeshStandardMaterial({
     color: 0x111217,
     roughness: 0.34,
@@ -4083,6 +5486,18 @@ function createRecordEntry(record) {
   groove.position.y = 0.034;
   root.add(groove);
 
+  const titleMaterial = new THREE.MeshBasicMaterial({
+    map: titleTexture,
+    transparent: true,
+    toneMapped: false,
+    depthWrite: false,
+  });
+  const titleLabel = new THREE.Mesh(new THREE.CircleGeometry(0.255, 48), titleMaterial);
+  titleLabel.rotation.x = -Math.PI / 2;
+  titleLabel.position.y = 0.064;
+  titleLabel.renderOrder = 4;
+  root.add(titleLabel);
+
   const center = new THREE.Mesh(
     new THREE.CylinderGeometry(0.035, 0.035, 0.075, 16),
     new THREE.MeshStandardMaterial({ color: 0xf6e6bd, metalness: 0.72, roughness: 0.24 }),
@@ -4099,6 +5514,8 @@ function createRecordEntry(record) {
     backMaterial,
     groove,
     center,
+    titleLabel,
+    titleMaterial,
     home: new THREE.Vector3(),
     homeRotation: new THREE.Vector3(),
     dragStart: new THREE.Vector3(),
@@ -4107,7 +5524,9 @@ function createRecordEntry(record) {
     selected: false,
     placed: false,
     labelTexture,
+    titleTexture,
     coverTexture: null,
+    mediaResource: null,
     textureUri: "",
     disposed: false,
   };
@@ -4118,7 +5537,10 @@ function disposeRecordEntry(entry) {
   entry.disposed = true;
   entry.textureUri = "";
   entry.labelTexture?.dispose?.();
+  entry.titleTexture?.dispose?.();
   entry.coverTexture?.dispose?.();
+  if (entry.mediaResource?.poolManaged) entry.mediaPool?.release?.(entry.mediaResource);
+  else disposeScreenMediaResource(entry.mediaResource);
   entry.root.traverse((object) => {
     object.geometry?.dispose?.();
     if (Array.isArray(object.material)) object.material.forEach((material) => material.dispose?.());
@@ -4126,7 +5548,7 @@ function disposeRecordEntry(entry) {
   });
 }
 
-function createPrintedCardEntry(card) {
+function createPrintedCardEntry(card, mediaPool = null) {
   const root = new THREE.Group();
   root.name = `EchoPrintedCard:${card.id}`;
   const texture = createPrintedCardTexture(card);
@@ -4155,10 +5577,38 @@ function createPrintedCardEntry(card) {
   );
   halo.position.y = -0.05;
   root.add(halo);
-  return { card, root, cardMesh, texture };
+  const presentation = card?.echoRecordAttachment?.presentation || null;
+  const mediaResource = presentation && mediaPool ? mediaPool.acquire(presentation) : null;
+  const videoMaterial = new THREE.MeshBasicMaterial({
+    map: mediaResource?.texture || texture,
+    color: 0xffffff,
+    toneMapped: false,
+  });
+  const videoFace = new THREE.Mesh(new THREE.PlaneGeometry(0.72, 0.48), videoMaterial);
+  videoFace.rotation.x = -Math.PI / 2;
+  videoFace.position.set(0, 0.035, -0.17);
+  videoFace.renderOrder = 3;
+  root.add(videoFace);
+  root.userData.printedCardId = card.id;
+  root.traverse((object) => { object.userData.printedCardId = card.id; });
+  return {
+    card,
+    root,
+    cardMesh,
+    texture,
+    videoFace,
+    videoMaterial,
+    mediaResource,
+    mediaPool,
+    presentation,
+    home: root.position.clone(),
+    dragStart: new THREE.Vector3(),
+  };
 }
 
 function disposePrintedCardEntry(entry) {
+  if (entry.mediaResource?.poolManaged) entry.mediaPool?.release?.(entry.mediaResource);
+  else disposeScreenMediaResource(entry.mediaResource);
   entry.texture?.dispose?.();
   entry.root.traverse((object) => {
     object.geometry?.dispose?.();
@@ -4207,6 +5657,39 @@ function createRecordLabelTexture(record = {}) {
   ctx.beginPath();
   ctx.arc(256, 256, 20, 0, Math.PI * 2);
   ctx.fill();
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  return texture;
+}
+
+function createRecordTitleTexture(record = {}) {
+  const canvas = document.createElement("canvas");
+  canvas.width = 512;
+  canvas.height = 512;
+  const context = canvas.getContext("2d");
+  const theme = recordTheme(record);
+  context.clearRect(0, 0, canvas.width, canvas.height);
+  context.fillStyle = "rgba(4,9,13,.88)";
+  context.beginPath();
+  context.arc(256, 256, 246, 0, Math.PI * 2);
+  context.fill();
+  context.strokeStyle = theme.accent;
+  context.lineWidth = 15;
+  context.beginPath();
+  context.arc(256, 256, 232, 0, Math.PI * 2);
+  context.stroke();
+  context.fillStyle = "#f8f3e7";
+  context.textAlign = "center";
+  context.textBaseline = "middle";
+  context.font = "800 40px system-ui";
+  wrapCanvasText(context, record.title || "Echo State", 256, 190, 360, 50, 3);
+  context.fillStyle = "#f6c96d";
+  context.font = "700 24px ui-monospace, monospace";
+  context.fillText(String(recordAvatarName(record) || "ECHO STATE").toUpperCase(), 256, 340);
+  context.fillStyle = "#05070a";
+  context.beginPath();
+  context.arc(256, 256, 34, 0, Math.PI * 2);
+  context.fill();
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
   return texture;

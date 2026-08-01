@@ -1,0 +1,618 @@
+{
+  "schemaVersion": "hapa.echo-record-garden.asset-ledger.v1",
+  "programId": "echo-record-garden-v2-2026-08-01",
+  "status": "implementation-planning-only",
+  "experienceStage": "first-pass-prototype",
+  "updatedOn": "2026-08-01",
+  "claimBoundary": {
+    "externalAssetGenerationClaimed": false,
+    "externalProviderTasksClaimed": false,
+    "downloadedProviderOutputsClaimed": false,
+    "premiumVisualCompletionClaimed": false,
+    "publicReleaseClaimed": false,
+    "statement": "This ledger records current project-authored procedural surfaces, existing source-bound Echo media, and future sourcing candidates. It is not generation, import, license, public-rights, or release evidence."
+  },
+  "credentialProbe": {
+    "performed": false,
+    "performedAt": "",
+    "command": "",
+    "statusMeaning": "Blank status means unresolved and not probed; it does not mean SET or MISSING.",
+    "credentials": [
+      {
+        "name": "TRIPO_API_KEY",
+        "provider": "Tripo",
+        "status": "",
+        "secretRecorded": false
+      },
+      {
+        "name": "GEMINI_API_KEY",
+        "provider": "Google Gemini image API",
+        "status": "",
+        "secretRecorded": false
+      },
+      {
+        "name": "ELEVENLABS_API_KEY",
+        "provider": "ElevenLabs",
+        "status": "",
+        "secretRecorded": false
+      }
+    ]
+  },
+  "externalGeneration": {
+    "status": "planned-no-output",
+    "taskIds": [],
+    "temporaryDownloadUrls": [],
+    "downloadedFiles": [],
+    "generatedHashes": [],
+    "statement": "No external asset-generation command or provider task was run for this ledger."
+  },
+  "publicRightsReview": {
+    "required": true,
+    "complete": false,
+    "status": "rights-review-required",
+    "reviewedAt": "",
+    "reviewer": "",
+    "scope": [
+      "songs and master audio",
+      "Director video and shader source media",
+      "Reference images and videos",
+      "Avatar and Scene likeness/media",
+      "attached Hapa Cards and embedded media",
+      "future generated or imported models, textures, backdrops, decals, and audio"
+    ],
+    "statement": "Hapa display or attachment does not transfer authorship, copyright, likeness, consent, publication, or reuse rights."
+  },
+  "sourceContracts": [
+    {
+      "id": "echo-record-source-contract",
+      "schema": "hapa.echo-record-garden.record.v1",
+      "owner": "src/domain/echo-record-garden.js",
+      "identityFields": [
+        "record.id",
+        "record.songId",
+        "record.identity.stableId",
+        "record.source.revisionId",
+        "record.source.contentHash"
+      ],
+      "truthRule": "Record title, media, and Director revision may change without changing the stable source-song Record identity."
+    },
+    {
+      "id": "echo-director-preview-source-contract",
+      "schema": "hapa.echo.director-preview-source.v1",
+      "owner": "src/domain/echo-director-preview-runtime.js",
+      "identityFields": [
+        "song.id",
+        "cut.id",
+        "cut.fingerprint",
+        "cut.legacy",
+        "graphSchemaVersion"
+      ],
+      "truthRule": "Select the requested or newest eligible non-Legacy cut; exact mismatches fail visibly and do not silently become Legacy Baseline."
+    },
+    {
+      "id": "echo-director-preview-frame-contract",
+      "schema": "hapa.echo.director-preview-frame.v1",
+      "owner": "src/domain/echo-director-preview-runtime.js",
+      "identityFields": [
+        "clock.seconds",
+        "clock.frame",
+        "primaryMediaCue.id",
+        "primaryMediaCue.trackId",
+        "primaryMediaCue.media.id",
+        "primaryMediaCue.media.sourceHash",
+        "visualizers[].sourceId",
+        "visualizers[].persistent",
+        "camera",
+        "transition",
+        "lyrics.templateId"
+      ],
+      "truthRule": "One external audio clock deterministically composes media, visualizers/shaders, transitions, automation/camera, and lyrics."
+    },
+    {
+      "id": "echo-record-card-resolution-contract",
+      "schema": "hapa.echo-record-garden.card-resolution.v1",
+      "owner": "src/domain/echo-record-card-resolution.js",
+      "identityFields": [
+        "songId",
+        "cutId",
+        "cutFingerprint",
+        "cueId",
+        "frame",
+        "timeSeconds",
+        "sourceCardId",
+        "sourceRevisionId"
+      ],
+      "truthRule": "Resolve the exact attached Card or fail truthfully. A confirmed missing attachment may create a local-unminted projection only."
+    }
+  ],
+  "assets": [
+    {
+      "id": "lazy-sunday-procedural-environment",
+      "category": "world-environment",
+      "visualPriority": "supporting-world",
+      "currentSource": "procedural-threejs",
+      "currentStatus": "implemented-prototype",
+      "implementationPaths": [
+        "src/components/EchoRecordGarden3DView.jsx#createLazySundayScene",
+        "src/components/EchoRecordGarden3DView.jsx#updateSundayScene"
+      ],
+      "contents": [
+        "grass and garden path",
+        "wood table and picnic cloth",
+        "parasol",
+        "instanced trees and flowers",
+        "tea tray",
+        "record crates",
+        "sun motes"
+      ],
+      "sourcingDecision": "procedural",
+      "decisionStatus": "current-project-authored-source",
+      "credentialDependencies": [],
+      "providerTaskIds": [],
+      "outputPaths": [],
+      "lineage": {
+        "creator": "Hapa Avatar Builder project code",
+        "externalBinary": false,
+        "sourceHash": "",
+        "licenseOrCustody": "project-authored code; scene-wide public rights review still required"
+      },
+      "runtimeBudget": {
+        "instancingRequiredFor": [
+          "trees",
+          "flowers",
+          "future repeated foliage"
+        ],
+        "uniqueTextureBudget": 2,
+        "shadowCasterRule": "major anchors only"
+      },
+      "lifecycle": {
+        "owner": "sceneResources",
+        "disposal": "Dispose the cloth canvas texture, then traverse and dispose owned geometry and materials exactly once.",
+        "lateAsyncGuardRequired": true
+      },
+      "publicRightsStatus": "rights-review-required"
+    },
+    {
+      "id": "signature-record-player",
+      "category": "signature-prop",
+      "visualPriority": "hero-interaction",
+      "currentSource": "procedural-threejs",
+      "currentStatus": "implemented-prototype",
+      "implementationPaths": [
+        "src/components/EchoRecordGarden3DView.jsx#createRecordPlayer"
+      ],
+      "sourcingDecision": "hybrid-candidate",
+      "decisionStatus": "planned-no-output",
+      "candidatePipeline": [
+        "threejs-image-generator reference candidate",
+        "threejs-3d-generator image-to-model candidate",
+        "local GLB/PBR download and validation",
+        "procedural interaction proxy and platter anchor"
+      ],
+      "credentialDependencies": [
+        "GEMINI_API_KEY",
+        "TRIPO_API_KEY"
+      ],
+      "providerTaskIds": [],
+      "outputPaths": [],
+      "lineage": {
+        "creator": "current form is project-authored procedural code",
+        "externalBinary": false,
+        "sourceHash": "",
+        "licenseOrCustody": "future provider output unresolved until task, download, hash, terms, and custody are recorded"
+      },
+      "runtimeBudget": {
+        "futureGlbBytesMax": 4194304,
+        "futureVisibleTrianglesMax": 120000,
+        "futureTextureDimensionMax": 2048,
+        "lodRequired": true,
+        "collisionProxy": "procedural simple proxy separate from visual mesh"
+      },
+      "lifecycle": {
+        "owner": "player",
+        "disposal": "Release pooled media, then dispose imported or procedural geometries, materials, textures, and loader-owned resources once.",
+        "lateAsyncGuardRequired": true
+      },
+      "publicRightsStatus": "rights-review-required"
+    },
+    {
+      "id": "garden-hero-prop-family",
+      "category": "environment-props",
+      "visualPriority": "foreground-midground-depth",
+      "currentSource": "procedural-threejs",
+      "currentStatus": "partial-prototype",
+      "implementationPaths": [
+        "src/components/EchoRecordGarden3DView.jsx#createLazySundayScene"
+      ],
+      "sourcingDecision": "hybrid-candidate",
+      "decisionStatus": "planned-no-output",
+      "candidateContents": [
+        "authored parasol",
+        "record crate and sleeve family",
+        "garden chair or bench",
+        "tea setting",
+        "planter and foliage anchor"
+      ],
+      "credentialDependencies": [
+        "GEMINI_API_KEY",
+        "TRIPO_API_KEY"
+      ],
+      "providerTaskIds": [],
+      "outputPaths": [],
+      "lineage": {
+        "creator": "current forms are project-authored procedural code",
+        "externalBinary": false,
+        "sourceHash": "",
+        "licenseOrCustody": "future provider output unresolved"
+      },
+      "runtimeBudget": {
+        "familyGlbBytesMax": 6291456,
+        "familyVisibleTrianglesMax": 140000,
+        "textureDimensionMax": 2048,
+        "sharedMaterialsRequired": true,
+        "distanceCullingOrLodRequired": true
+      },
+      "lifecycle": {
+        "owner": "sceneResources or future ImportedAssetRegistry",
+        "disposal": "Registry owns imported scene clones, shared textures, materials, and loader caches; release only after the final scene lease.",
+        "lateAsyncGuardRequired": true
+      },
+      "publicRightsStatus": "rights-review-required"
+    },
+    {
+      "id": "garden-sky-horizon-and-background",
+      "category": "background-image",
+      "visualPriority": "far-depth",
+      "currentSource": "procedural-color-and-fog",
+      "currentStatus": "implemented-prototype",
+      "implementationPaths": [
+        "src/components/EchoRecordGarden3DView.jsx#createEchoRecordGardenGame"
+      ],
+      "sourcingDecision": "threejs-image-generator-candidate",
+      "decisionStatus": "planned-no-output",
+      "credentialDependencies": [
+        "GEMINI_API_KEY"
+      ],
+      "providerTaskIds": [],
+      "outputPaths": [],
+      "lineage": {
+        "creator": "current background is project-authored renderer configuration",
+        "externalBinary": false,
+        "sourceHash": "",
+        "licenseOrCustody": "future image output unresolved"
+      },
+      "runtimeBudget": {
+        "opaqueRuntimeFormat": "WebP or KTX2 when supported",
+        "sourceResolutionMax": "4096x2048",
+        "runtimeBytesMax": 2097152,
+        "parallaxLayersMax": 3
+      },
+      "lifecycle": {
+        "owner": "sceneResources or future background registry",
+        "disposal": "Dispose background textures and parallax materials on scene teardown or replacement.",
+        "lateAsyncGuardRequired": true
+      },
+      "publicRightsStatus": "rights-review-required"
+    },
+    {
+      "id": "garden-material-texture-and-decal-kit",
+      "category": "materials-textures-decals",
+      "visualPriority": "cross-scene-material-language",
+      "currentSource": "procedural-materials-and-canvas-texture",
+      "currentStatus": "implemented-prototype",
+      "implementationPaths": [
+        "src/components/EchoRecordGarden3DView.jsx#createPicnicClothTexture",
+        "src/components/EchoRecordGarden3DView.jsx#createRecordLabelTexture",
+        "src/components/EchoRecordGarden3DView.jsx#createRecordTitleTexture"
+      ],
+      "sourcingDecision": "procedural-plus-image-candidate",
+      "decisionStatus": "planned-no-output",
+      "candidateContents": [
+        "wood variation reference",
+        "cloth weave/check reference",
+        "record sleeve trim and catalog glyphs",
+        "garden sign and small decals"
+      ],
+      "credentialDependencies": [
+        "GEMINI_API_KEY"
+      ],
+      "providerTaskIds": [],
+      "outputPaths": [],
+      "lineage": {
+        "creator": "current textures are project-authored canvas output",
+        "externalBinary": false,
+        "sourceHash": "",
+        "licenseOrCustody": "future image output unresolved"
+      },
+      "runtimeBudget": {
+        "atlasPreferred": true,
+        "textureDimensionMax": 2048,
+        "uniqueRuntimeTexturesMax": 12,
+        "mipmapsRequired": true,
+        "anisotropyMustBeCapped": true
+      },
+      "lifecycle": {
+        "owner": "creating factory or future material registry",
+        "disposal": "Dispose replaced canvas or imported textures after rebinding; shared atlases release after the final lease.",
+        "lateAsyncGuardRequired": true
+      },
+      "publicRightsStatus": "rights-review-required"
+    },
+    {
+      "id": "large-echo-director-preview",
+      "category": "runtime-media-compositor",
+      "visualPriority": "primary-hero-surface",
+      "currentSource": "exact-echo-director-runtime-projection",
+      "currentStatus": "implementation-in-progress",
+      "implementationPaths": [
+        "src/domain/echo-director-preview-runtime.js",
+        "src/components/EchoRecordGarden3DView.jsx#createAlbumScreens"
+      ],
+      "sourcingDecision": "canonical-runtime-media-only",
+      "decisionStatus": "external-generation-not-a-source-substitute",
+      "credentialDependencies": [],
+      "providerTaskIds": [],
+      "outputPaths": [],
+      "lineage": {
+        "creator": "retained from each Echo Director source and attached media record",
+        "externalBinary": true,
+        "sourceHash": "declared per cue when available",
+        "licenseOrCustody": "inherited per source; public rights review required"
+      },
+      "requiredIdentity": [
+        "song ID",
+        "cut ID and fingerprint",
+        "cue and track ID",
+        "media/Card source ID",
+        "source hash and in/out",
+        "persistent layer IDs",
+        "camera, transition, automation, and lyrics frame state"
+      ],
+      "runtimeBudget": {
+        "primaryDisplays": 1,
+        "aspectRatio": "16:9",
+        "blackLoadingFramesAllowed": 0,
+        "clockDriftP95SecondsMax": 0.12,
+        "clockDriftAbsoluteSecondsMax": 0.2
+      },
+      "lifecycle": {
+        "owner": "EchoDirectorPreviewRuntime and screen media pool",
+        "disposal": "Stop the renderer loop, release media leases, cancel frame callbacks, remove listeners, and dispose staging/output resources.",
+        "lateAsyncGuardRequired": true
+      },
+      "publicRightsStatus": "source-by-source-rights-review-required"
+    },
+    {
+      "id": "living-record-objects",
+      "category": "interactive-record-media",
+      "visualPriority": "primary-interactable-family",
+      "currentSource": "procedural-object-plus-canonical-echo-media",
+      "currentStatus": "implementation-in-progress",
+      "implementationPaths": [
+        "src/domain/echo-record-garden-runtime.js",
+        "src/components/EchoRecordGarden3DView.jsx#createRecordEntry"
+      ],
+      "sourcingDecision": "canonical-runtime-media-only",
+      "decisionStatus": "external-generation-not-a-source-substitute",
+      "credentialDependencies": [],
+      "providerTaskIds": [],
+      "outputPaths": [],
+      "lineage": {
+        "creator": "physical shell is project-authored; face media inherits exact Echo source",
+        "externalBinary": true,
+        "sourceHash": "record source revision or Director cut fingerprint",
+        "licenseOrCustody": "inherited per source; public rights review required"
+      },
+      "runtimeBudget": {
+        "recordsPerSpatialPage": 10,
+        "titleAndMediaSurfacesMustBeSeparate": true,
+        "offscreenVideoAllocationAllowed": false,
+        "loopingVideo": "muted-plays-inline-visible-only"
+      },
+      "lifecycle": {
+        "owner": "stable Record entity registry and Record entry",
+        "disposal": "Preserve identity across reparenting; release media lease and dispose label, title, cover, geometry, and materials idempotently when the entity leaves the runtime.",
+        "lateAsyncGuardRequired": true
+      },
+      "publicRightsStatus": "source-by-source-rights-review-required"
+    },
+    {
+      "id": "living-printed-hapa-cards",
+      "category": "interactive-card-media",
+      "visualPriority": "secondary-interactable-family",
+      "currentSource": "exact-card-resolution-plus-procedural-shell",
+      "currentStatus": "implementation-in-progress",
+      "implementationPaths": [
+        "src/domain/echo-record-card-resolution.js",
+        "src/components/EchoRecordGarden3DView.jsx#createPrintedCardEntry"
+      ],
+      "sourcingDecision": "canonical-card-media-only",
+      "decisionStatus": "external-generation-not-a-source-substitute",
+      "credentialDependencies": [],
+      "providerTaskIds": [],
+      "outputPaths": [],
+      "lineage": {
+        "creator": "physical shell is project-authored; media and details inherit the resolved Card/source receipt",
+        "externalBinary": true,
+        "sourceHash": "declared per source Card or resolver receipt",
+        "licenseOrCustody": "inherited per Card/source; public rights review required"
+      },
+      "runtimeBudget": {
+        "videoLeasePolicy": "same bounded visible-media pool as Records",
+        "titleAndMediaSurfacesMustBeSeparate": true,
+        "idempotentPrintRequired": true
+      },
+      "lifecycle": {
+        "owner": "printed Card entry and Card resolver",
+        "disposal": "Release media lease and dispose print texture, geometry, and materials without changing Card identity or receipt truth.",
+        "lateAsyncGuardRequired": true
+      },
+      "publicRightsStatus": "source-by-source-rights-review-required"
+    },
+    {
+      "id": "in-world-record-catalog-console",
+      "category": "diegetic-ui",
+      "visualPriority": "supporting-interaction",
+      "currentSource": "procedural-threejs-and-canvas-ui",
+      "currentStatus": "implementation-in-progress",
+      "implementationPaths": [
+        "src/components/EchoRecordGarden3DView.jsx#createRecordCatalogConsole"
+      ],
+      "sourcingDecision": "procedural-plus-image-candidate",
+      "decisionStatus": "current-project-authored-source",
+      "credentialDependencies": [
+        "GEMINI_API_KEY"
+      ],
+      "providerTaskIds": [],
+      "outputPaths": [],
+      "lineage": {
+        "creator": "current console and textures are project-authored",
+        "externalBinary": false,
+        "sourceHash": "",
+        "licenseOrCustody": "future icons unresolved; current code is project-authored"
+      },
+      "runtimeBudget": {
+        "controls": 3,
+        "recordsPerPage": 10,
+        "minimumTouchTargetCssPixels": 44,
+        "dynamicTextureReplacementMustDisposePrevious": true
+      },
+      "lifecycle": {
+        "owner": "catalogConsole",
+        "disposal": "Dispose replaced title texture immediately and all button textures, geometry, and materials on teardown.",
+        "lateAsyncGuardRequired": false
+      },
+      "publicRightsStatus": "rights-review-required-if-external-icons-are-added"
+    },
+    {
+      "id": "garden-ambience-and-interaction-audio",
+      "category": "audio",
+      "visualPriority": "supporting-atmosphere",
+      "currentSource": "none",
+      "currentStatus": "not-implemented",
+      "implementationPaths": [],
+      "sourcingDecision": "existing-or-elevenlabs-candidate",
+      "decisionStatus": "planned-no-output",
+      "candidateContents": [
+        "one subtle seamless garden ambience loop",
+        "record pickup/place cue",
+        "turntable start/stop cue",
+        "Card print cue"
+      ],
+      "credentialDependencies": [
+        "ELEVENLABS_API_KEY"
+      ],
+      "providerTaskIds": [],
+      "outputPaths": [],
+      "lineage": {
+        "creator": "",
+        "externalBinary": false,
+        "sourceHash": "",
+        "licenseOrCustody": "unresolved; no audio asset exists"
+      },
+      "runtimeBudget": {
+        "ambienceLoopsMax": 1,
+        "interactionCuesTarget": 3,
+        "mustDuckBelowSongMaster": true,
+        "mustNotAlterSongMaster": true,
+        "userGestureUnlockRequired": true,
+        "duplicateLoopsAllowed": 0
+      },
+      "lifecycle": {
+        "owner": "future bounded audio manager",
+        "disposal": "Stop sources on pause, visibility change, restart, or teardown; disconnect nodes and prevent stacked ambience loops.",
+        "lateAsyncGuardRequired": true
+      },
+      "publicRightsStatus": "rights-and-provider-terms-review-required"
+    }
+  ],
+  "performanceBudgets": {
+    "status": "target-not-measured-by-this-ledger",
+    "desktop": {
+      "viewport": "1440x900",
+      "dprMax": 1.65,
+      "drawCallsMax": 140,
+      "visibleTrianglesMax": 350000,
+      "frameTimeMs": {
+        "p50Max": 18,
+        "p95Max": 33,
+        "p99Max": 50
+      },
+      "longFrameRatioMax": 0.05
+    },
+    "compact": {
+      "viewport": "390x844",
+      "dprMax": 1.25,
+      "drawCallsMax": 100,
+      "visibleTrianglesMax": 220000,
+      "frameTimeMs": {
+        "p50Max": 25,
+        "p95Max": 50,
+        "p99Max": 80
+      },
+      "longFrameRatioMax": 0.1
+    },
+    "renderer": {
+      "geometriesMax": 220,
+      "texturesMax": 48,
+      "materialsMax": 96,
+      "activeLightsMax": 3,
+      "shadowCastingLightsMax": 1,
+      "primaryShadowMapPixelsMax": 1024,
+      "contextLossesAllowed": 0,
+      "postProcessingPassesMax": 1,
+      "postProcessingFrameCostMsMax": 2.5
+    },
+    "media": {
+      "combinedResidentCandidateMax": 14,
+      "visibleRecordFaceCandidateMax": 10,
+      "previewCurrentAndPrewarmCandidateMax": 4,
+      "validMediaBlankFramesAllowed": 0,
+      "clockDriftP95SecondsMax": 0.12,
+      "clockDriftAbsoluteSecondsMax": 0.2,
+      "mustNotScaleWithAlbumSize": true
+    },
+    "memoryAndPayload": {
+      "firstInteraction3dAndTextureBytesMax": 12582912,
+      "postTenSwapHeapGrowthBytesMax": 26214400,
+      "teardownGeometryDeltaMax": 2,
+      "teardownTextureDeltaMax": 2,
+      "recordGardenChunkRawBytesMax": 215040,
+      "recordGardenChunkGzipBytesMax": 66560
+    }
+  },
+  "visualScorecardGate": {
+    "status": "unscored-current-build-evidence-required",
+    "categories": [
+      "art direction",
+      "hero/player or signature interaction",
+      "obstacles/enemies or non-applicable documented interaction family",
+      "rewards/interactables",
+      "world/environment",
+      "materials/textures",
+      "lighting/render",
+      "VFX/motion",
+      "UI/HUD",
+      "performance evidence"
+    ],
+    "minimumCategoryScore": 2,
+    "minimumAverageScore": 2.3,
+    "automaticFailuresAllowed": 0,
+    "requiredEvidence": [
+      "current production-build desktop active-use screenshot",
+      "current production-build compact active-use screenshot",
+      "renderer diagnostics",
+      "nonblank canvas and console/network audit",
+      "real pointer, keyboard, and touch journeys",
+      "asset lineage and rights disposition"
+    ]
+  },
+  "verification": {
+    "jsonValidated": true,
+    "credentialProbeRequiredBeforeExternalSourcing": true,
+    "providerOutputsMustBeDownloadedImmediately": true,
+    "providerOutputsMustRecordTaskIdPathHashAndTerms": true,
+    "currentBuildVisualAcceptanceRequired": true,
+    "publicRightsReviewRequired": true
+  }
+}
