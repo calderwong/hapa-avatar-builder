@@ -939,8 +939,10 @@ export function buildEchoRecordDirectorWarmSurfaces({
 }
 
 function referenceCardsFrom(value = []) {
-  if (Array.isArray(value)) return value;
-  return list(value?.cards || value?.referenceCards);
+  const cards = Array.isArray(value)
+    ? value
+    : list(value?.cards || value?.referenceCards);
+  return cards.filter((card) => card && typeof card === "object");
 }
 
 function referenceSongIds(card = {}) {
@@ -954,6 +956,7 @@ function referenceSongIds(card = {}) {
 }
 
 function referenceSurface(card = {}, project = {}, index = 0, apiBase = "") {
+  if (!card || typeof card !== "object") return null;
   const songId = projectSongId(project);
   const explicitSongIds = referenceSongIds(card);
   if (explicitSongIds.length && !explicitSongIds.includes(songId)) return null;

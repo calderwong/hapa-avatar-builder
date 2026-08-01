@@ -312,6 +312,8 @@ test("director shot selection is clock-bound, gap-honest, and wrap-aware", () =>
 test("visual surfaces combine timeline, references, character, and matching scenes within a hard bound", () => {
   const referenceCards = {
     cards: [
+      null,
+      "stale-reference-placeholder",
       {
         id: "tarot-reference:one",
         referenceCardId: "reference:one",
