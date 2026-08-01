@@ -295,7 +295,8 @@ async function verify() {
       projectRetry: /Retry record sleeve/.test(component),
       sceneRetry: /Retry 3D scene/.test(component),
       audioRetry: /Retry record audio/.test(component),
-      cardCancel: /Cancel Card request/.test(component) && /cancelVisual/.test(resolver),
+      cardCancel: /previousResolution\?\.status === "resolving"[\s\S]{0,300}cancelVisual/.test(component)
+        && /cancelVisual/.test(resolver),
       pointerBlurCancel: /addEventListener\?\.\("blur"/.test(component) && /cancelInteraction/.test(component),
       visibilityCancel: /document\.hidden[\s\S]{0,300}cancelInteraction/.test(component),
       keyboardRoving: /handleCrateKeyDown/.test(component) && /ArrowRight/.test(component) && /tabIndex=/.test(component),
