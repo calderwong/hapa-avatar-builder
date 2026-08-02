@@ -247,22 +247,23 @@ test("a verified recording becomes one durable-local Card truth copy without min
   assert.match(recordingRoute, /Public mint, canon, publication, and commerce remain separate explicit authority actions/);
 });
 
-test("the mouse wheel re-orients only a held or hit printed Card and persists its transform", () => {
+test("the mouse wheel faces a held or hit Card or Record toward the camera and persists its transform", () => {
   const wheel = sourceBlock(component, "const handleWheel = (event) => {", "const handleContextLost =");
-  assert.match(wheel, /const entry = heldPrintedEntry \|\| printedCardHit\(\)/);
-  assert.match(wheel, /if \(!entry\) return/);
-  assert.match(wheel, /event\.deltaMode === 2/);
-  assert.match(wheel, /event\.deltaMode === 1/);
-  assert.match(wheel, /THREE\.MathUtils\.clamp\(Number\(event\.deltaY\) \* pageScale \* 0\.0015, -0\.32, 0\.32\)/);
-  assert.match(wheel, /if \(event\.shiftKey \|\| event\.altKey\)/);
-  assert.match(wheel, /entry\.root\.rotation\.x = THREE\.MathUtils\.clamp/);
-  assert.match(wheel, /entry\.root\.rotation\.y = THREE\.MathUtils\.euclideanModulo/);
+  assert.match(wheel, /const printedEntry = heldPrintedEntry \|\| \(heldEntry \? null : printedCardHit\(\)\)/);
+  assert.match(wheel, /const recordEntry = heldEntry \|\| \(printedEntry \? null : recordHit\(\)\)/);
+  assert.match(wheel, /if \(!printedEntry && !recordEntry\) return/);
+  assert.match(wheel, /if \(recordEntry\?\.placed\)/);
+  assert.match(wheel, /orientEchoGardenSurfaceTowardCamera\(entry\.root, camera\)/);
   assert.match(wheel, /entry\.home\.copy\(entry\.root\.position\)/);
   assert.match(wheel, /onPrintedCardTransform\?\.\(entry\.card\.id, \{/);
-  assert.match(wheel, /rotation: entry\.root\.rotation\.toArray\(\)\.slice\(0, 3\)/);
+  assert.match(wheel, /entry\.homeRotation\.set\(entry\.root\.rotation\.x/);
+  assert.match(wheel, /entry\.cameraFacing = true/);
+  assert.match(wheel, /orientationMode: "camera-facing"/);
+  assert.match(wheel, /onRecordTransform\?\.\(entry\.record\.songId, transform\)/);
   assert.match(wheel, /manipulated: true/);
   assert.match(wheel, /event\.preventDefault\(\)/);
   assert.match(wheel, /event\.stopImmediatePropagation\(\)/);
+  assert.doesNotMatch(wheel, /rotationDelta|euclideanModulo|event\.shiftKey|event\.altKey/);
   assert.match(component, /addEventListener\("wheel", handleWheel, \{ passive: false, capture: true \}\)/);
   assert.match(component, /removeEventListener\("wheel", handleWheel, \{ capture: true \}\)/);
 });
@@ -302,7 +303,7 @@ test("Record Mode locks source-record identity across React controls and Three i
 test("the live audio visualizer is updated inside the frame loop and follows the playing record", () => {
   assert.match(component, /import \{ createEchoRecordGardenAudioVisualizer \} from "\.\/echo-record-garden-audio-visualizer\.js"/);
   assert.match(component, /getAudioSignal: \(seconds\) => directorAudioSignalRef\.current\?\.latest\?\.\(seconds, \{/);
-  assert.match(component, /const audioVisualizer = createEchoRecordGardenAudioVisualizer\(\{ world \}\)/);
+  assert.match(component, /const audioVisualizer = createEchoRecordGardenAudioVisualizer\(\{ world: tableInteractionRoot \}\)/);
   assert.match(component, /audioVisualizer\.setDetailTier\?\.\(nextTier\)/);
   assert.match(component, /audioVisualizer\.dispose\(\)/);
 

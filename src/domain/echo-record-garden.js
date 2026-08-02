@@ -1557,11 +1557,15 @@ function normalizeSnapshotRecordTransforms(value = {}) {
       [-Math.PI * 2, Math.PI * 2],
     ]) || [0, 0, 0];
     seen.add(songId);
-    normalized.push([songId, {
+    const normalizedTransform = {
       position,
       rotation,
       manipulated: transform.manipulated !== false,
-    }]);
+    };
+    if (text(transform.orientationMode).toLowerCase() === "camera-facing") {
+      normalizedTransform.orientationMode = "camera-facing";
+    }
+    normalized.push([songId, normalizedTransform]);
   }
   return Object.fromEntries(normalized.slice(0, 500));
 }

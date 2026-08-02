@@ -914,6 +914,7 @@ test("v2 garden snapshots preserve full crate, surface, spatial, and interrupted
         "echo-song-one": {
           position: [1.234, 0.82, -0.765],
           rotation: [0.1, -0.2, 0.3],
+          orientationMode: "camera-facing",
           manipulated: true,
         },
         "malformed-song": {
@@ -979,6 +980,7 @@ test("v2 garden snapshots preserve full crate, surface, spatial, and interrupted
     "echo-song-one": {
       position: [1.234, 0.82, -0.765],
       rotation: [0.1, -0.2, 0.3],
+      orientationMode: "camera-facing",
       manipulated: true,
     },
   });

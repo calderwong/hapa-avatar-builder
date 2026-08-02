@@ -547,3 +547,25 @@ score the same build → complete human visual and public-rights acceptance.
   Lesson Card for Three.js diorama composition. This checkpoint remains linked
   to the originating Codex Turn and is code-verified pending a live fixed-shot
   review.
+
+### Camera-facing object-orientation checkpoint
+
+- **Objective:** make the scroll-wheel reorientation gesture present a printed
+  Card or loose Record directly to the current camera instead of accumulating
+  rotations around the object's existing local axes.
+- **Evidence inspected:** Card and Record hit resolution, wheel capture, authored
+  surface normals, camera/world transforms, rotated stage parents, saved scene
+  transforms, platter playback, and decorative Record motion.
+- **What was misunderstood:** the earlier Card-only control treated
+  “re-orient” as incremental Euler rotation; that could expose an edge or back
+  rather than the requested media face.
+- **Changed:** Cards and loose Records now share one parent-aware camera-facing
+  quaternion operation. Both persistence paths retain the resulting transform;
+  a Record on the player remains physically flat and must be lifted first.
+- **Left alone:** dragging, collision bounds, player spin, audio/video clocks,
+  Card custody, mint authority, and camera orbit controls.
+- **New guardrail:** presentation gestures align the authored +Y media face and
+  -Z top edge in world space, then convert back to parent space; never compose
+  camera-facing behavior by incrementing local Euler axes.
+- **Reuse candidate:** the parent-aware surface-facing helper is a compact
+  Three.js spatial-interaction Lesson Card candidate linked to this Codex Turn.

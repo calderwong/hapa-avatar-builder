@@ -75,6 +75,7 @@ import {
   updateEchoRecordGardenVisualSystem,
 } from "./echo-record-garden-visual-system.js";
 import { createEchoRecordGardenAudioVisualizer } from "./echo-record-garden-audio-visualizer.js";
+import { orientEchoGardenSurfaceTowardCamera } from "./echo-record-garden-facing.js";
 
 const RECORDS_PER_CRATE = 10;
 const SCREEN_COUNT = 1;
@@ -4122,6 +4123,7 @@ function createEchoRecordGardenGame({
     const transform = {
       position: entry.home.toArray(),
       rotation: entry.homeRotation.toArray(),
+      ...(entry.cameraFacing ? { orientationMode: "camera-facing" } : {}),
       manipulated: true,
     };
     restoredRecordTransforms = {
@@ -4156,35 +4158,45 @@ function createEchoRecordGardenGame({
   const handleWheel = (event) => {
     if (disposed) return;
     setPointer(event);
-    const entry = heldPrintedEntry || printedCardHit();
-    if (!entry) return;
+    const printedEntry = heldPrintedEntry || (heldEntry ? null : printedCardHit());
+    const recordEntry = heldEntry || (printedEntry ? null : recordHit());
+    if (!printedEntry && !recordEntry) return;
     event.preventDefault();
     event.stopImmediatePropagation();
-    const pageScale = event.deltaMode === 2
-      ? Math.max(320, renderer.domElement.clientHeight || 720)
-      : event.deltaMode === 1
-        ? 16
-        : 1;
-    const rotationDelta = THREE.MathUtils.clamp(Number(event.deltaY) * pageScale * 0.0015, -0.32, 0.32);
-    if (event.shiftKey || event.altKey) {
-      entry.root.rotation.x = THREE.MathUtils.clamp(
-        entry.root.rotation.x + rotationDelta,
-        -Math.PI * 0.49,
-        Math.PI * 0.49,
-      );
-    } else {
-      entry.root.rotation.y = THREE.MathUtils.euclideanModulo(
-        entry.root.rotation.y + rotationDelta + Math.PI,
-        Math.PI * 2,
-      ) - Math.PI;
+    if (recordEntry?.placed) {
+      onStatus?.("Lift the Record from the player before facing it toward the camera.");
+      return;
     }
+    const entry = printedEntry || recordEntry;
+    if (!orientEchoGardenSurfaceTowardCamera(entry.root, camera)) return;
+
+    if (printedEntry) {
+      entry.home.copy(entry.root.position);
+      onPrintedCardTransform?.(entry.card.id, {
+        position: entry.root.position.toArray(),
+        rotation: entry.root.rotation.toArray().slice(0, 3),
+        manipulated: true,
+      });
+      onStatus?.(`${entry.card.title || "The Hapa Card"} now faces the camera.`);
+      return;
+    }
+
     entry.home.copy(entry.root.position);
-    onPrintedCardTransform?.(entry.card.id, {
-      position: entry.root.position.toArray(),
-      rotation: entry.root.rotation.toArray().slice(0, 3),
+    entry.homeRotation.set(entry.root.rotation.x, entry.root.rotation.y, entry.root.rotation.z);
+    entry.manipulated = true;
+    entry.cameraFacing = true;
+    const transform = {
+      position: entry.home.toArray(),
+      rotation: entry.homeRotation.toArray(),
+      orientationMode: "camera-facing",
       manipulated: true,
-    });
-    onStatus?.(`Re-oriented ${entry.card.title || "the Hapa Card"} with the scroll wheel.`);
+    };
+    restoredRecordTransforms = {
+      ...restoredRecordTransforms,
+      [entry.record.songId]: transform,
+    };
+    onRecordTransform?.(entry.record.songId, transform);
+    onStatus?.(`${entry.record.title || "The Record"} now faces the camera.`);
   };
 
   renderer.domElement.addEventListener("pointerdown", handlePointerDown);
@@ -4330,8 +4342,10 @@ function createEchoRecordGardenGame({
         entry.home.fromArray(restoredPosition);
         entry.homeRotation.fromArray(restoredRotation || [0, normalized * -0.12, normalized * -0.05]);
         entry.manipulated = true;
+        entry.cameraFacing = restoredTransform?.orientationMode === "camera-facing";
       } else {
         entry.manipulated = false;
+        entry.cameraFacing = false;
         entry.home.set(
           normalized * 3.75,
           0.82 + Math.cos(normalized * 1.4) * 0.12,
@@ -4563,6 +4577,7 @@ function createEchoRecordGardenGame({
         recordTransforms[songId] = {
           position: entry.home.toArray(),
           rotation: entry.homeRotation.toArray(),
+          ...(entry.cameraFacing ? { orientationMode: "camera-facing" } : {}),
           manipulated: true,
         };
       } else {
@@ -4618,6 +4633,7 @@ function createEchoRecordGardenGame({
         entry.home.fromArray(restoredPosition);
         entry.homeRotation.fromArray(restoredRotation || [0, 0, 0]);
         entry.manipulated = transform.manipulated !== false;
+        entry.cameraFacing = transform.orientationMode === "camera-facing";
         if (entry !== heldEntry) entry.root.position.copy(entry.home);
         entry.root.rotation.set(
           entry.homeRotation.x,
@@ -4885,7 +4901,7 @@ function createEchoRecordGardenGame({
         entry.root.scale.lerp(new THREE.Vector3(scale, scale, scale), Math.min(1, delta * 9));
       }
       entry.edgeMaterial.emissiveIntensity = selected ? 0.66 : entry.hovered ? 0.42 : 0.18;
-      const decorativeYaw = !framePlayback.reducedMotion && selected
+      const decorativeYaw = !entry.cameraFacing && !framePlayback.reducedMotion && selected
         ? Math.sin(elapsed * 0.8) * 0.04
         : 0;
       entry.root.rotation.y = entry.homeRotation.y + decorativeYaw;
@@ -6192,6 +6208,7 @@ function createRecordEntry(record) {
     homeRotation: new THREE.Vector3(),
     dragStart: new THREE.Vector3(),
     manipulated: false,
+    cameraFacing: false,
     hovered: false,
     selected: false,
     placed: false,
