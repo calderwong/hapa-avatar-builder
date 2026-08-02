@@ -1,7 +1,7 @@
 {
   "schemaVersion": "hapa.echo-record-garden.asset-ledger.v1",
   "programId": "echo-record-garden-v2-2026-08-01",
-  "status": "implementation-planning-only",
+  "status": "implemented-prototype-visual-acceptance-pending",
   "experienceStage": "first-pass-prototype",
   "updatedOn": "2026-08-01",
   "claimBoundary": {
@@ -10,41 +10,62 @@
     "downloadedProviderOutputsClaimed": false,
     "premiumVisualCompletionClaimed": false,
     "publicReleaseClaimed": false,
-    "statement": "This ledger records current project-authored procedural surfaces, existing source-bound Echo media, and future sourcing candidates. It is not generation, import, license, public-rights, or release evidence."
+    "statement": "This ledger records an implemented project-authored procedural visual system, existing source-bound Echo media, and future sourcing candidates. It is not external-generation, import, public-rights, premium-completion, or release evidence."
+  },
+  "designLineage": {
+    "reference": "local pallet-town-3d reference application",
+    "referenceLicense": "MIT License",
+    "referenceCopyright": "Copyright 2026 Paulius",
+    "inspectedOn": "2026-08-01",
+    "transferredSystems": [
+      "bounded art-direction roles",
+      "deterministic related surface maps",
+      "compact key-fill-bounce-environment lighting",
+      "horizon-matched fog",
+      "rounded silhouettes and contact detail",
+      "foreground-midground-background scene layering",
+      "ground-level instanced density",
+      "shared-clock ambient motion",
+      "fixed-shot visual review"
+    ],
+    "sourceCodeCopied": false,
+    "sourceAssetsCopied": false,
+    "franchiseContentCopied": false,
+    "statement": "Only abstract design and engineering methods were transferred. The Record Garden implementation is newly authored and franchise-neutral; no reference code, textures, characters, names, icons, trademarked designs, audio, or signature content were copied."
   },
   "credentialProbe": {
-    "performed": false,
-    "performedAt": "",
-    "command": "",
-    "statusMeaning": "Blank status means unresolved and not probed; it does not mean SET or MISSING.",
+    "performed": true,
+    "performedAt": "2026-08-01",
+    "command": "non-secret environment presence probe for TRIPO_API_KEY, GEMINI_API_KEY, and ELEVENLABS_API_KEY; values were not recorded",
+    "statusMeaning": "blank-or-unset means the presence probe returned no value. It does not prove provider unavailability and does not authorize external generation.",
     "credentials": [
       {
         "name": "TRIPO_API_KEY",
         "provider": "Tripo",
-        "status": "",
+        "status": "blank-or-unset",
         "secretRecorded": false
       },
       {
         "name": "GEMINI_API_KEY",
         "provider": "Google Gemini image API",
-        "status": "",
+        "status": "blank-or-unset",
         "secretRecorded": false
       },
       {
         "name": "ELEVENLABS_API_KEY",
         "provider": "ElevenLabs",
-        "status": "",
+        "status": "blank-or-unset",
         "secretRecorded": false
       }
     ]
   },
   "externalGeneration": {
-    "status": "planned-no-output",
+    "status": "not-run-no-output",
     "taskIds": [],
     "temporaryDownloadUrls": [],
     "downloadedFiles": [],
     "generatedHashes": [],
-    "statement": "No external asset-generation command or provider task was run for this ledger."
+    "statement": "The credential-presence probe returned blank/unset for every candidate provider. No external asset-generation command, provider task, generated file, download, or provider hash exists."
   },
   "publicRightsReview": {
     "required": true,
@@ -131,43 +152,54 @@
       "category": "world-environment",
       "visualPriority": "supporting-world",
       "currentSource": "procedural-threejs",
-      "currentStatus": "implemented-prototype",
+      "currentStatus": "implemented-expanded-prototype",
       "implementationPaths": [
+        "src/components/echo-record-garden-visual-system.js#createEchoRecordGardenVisualSystem",
+        "src/components/echo-record-garden-visual-system.js#updateEchoRecordGardenVisualSystem",
         "src/components/EchoRecordGarden3DView.jsx#createLazySundayScene",
         "src/components/EchoRecordGarden3DView.jsx#updateSundayScene"
       ],
       "contents": [
-        "grass and garden path",
-        "wood table and picnic cloth",
-        "parasol",
-        "instanced trees and flowers",
-        "tea tray",
+        "textured lawn and compacted garden path",
+        "rounded timber picnic table and woven cloth",
+        "textured parasol with trim and wind chime",
+        "instanced hills, trees, hedges, grass blades, flowers, pebbles, and fence posts",
+        "two franchise-neutral garden pavilions",
+        "tea setting and table contact rings",
         "record crates",
-        "sun motes"
+        "gradient sky, PMREM environment response, and horizon-matched fog",
+        "clouds, leaf drift, and sun motes"
       ],
-      "sourcingDecision": "procedural",
-      "decisionStatus": "current-project-authored-source",
+      "sourcingDecision": "project-authored-procedural-with-reference-system-lineage",
+      "decisionStatus": "implemented-no-external-assets",
       "credentialDependencies": [],
       "providerTaskIds": [],
       "outputPaths": [],
       "lineage": {
-        "creator": "Hapa Avatar Builder project code",
+        "creator": "Hapa Avatar Builder project code; abstract design systems informed by the local MIT-licensed pallet-town-3d reference",
         "externalBinary": false,
         "sourceHash": "",
-        "licenseOrCustody": "project-authored code; scene-wide public rights review still required"
+        "licenseOrCustody": "newly authored franchise-neutral code; no reference code or assets copied; scene-wide public rights review still required"
       },
       "runtimeBudget": {
         "instancingRequiredFor": [
+          "far hills",
           "trees",
+          "hedges",
+          "grass blades",
           "flowers",
-          "future repeated foliage"
+          "pebbles",
+          "fence posts"
         ],
-        "uniqueTextureBudget": 2,
-        "shadowCasterRule": "major anchors only"
+        "ownedRuntimeTextures": 12,
+        "activeLights": 3,
+        "shadowCastingLights": 1,
+        "postProcessingPasses": 0,
+        "shadowCasterRule": "the warm directional sun is the only shadow-casting light"
       },
       "lifecycle": {
         "owner": "sceneResources",
-        "disposal": "Dispose the cloth canvas texture, then traverse and dispose owned geometry and materials exactly once.",
+        "disposal": "Collect and dispose owned geometry and material identities once; dispose ten surface textures plus sky and cloud textures, dispose the PMREM target, restore prior background/environment/fog, and remove the environment idempotently.",
         "lateAsyncGuardRequired": true
       },
       "publicRightsStatus": "rights-review-required"
@@ -177,9 +209,10 @@
       "category": "signature-prop",
       "visualPriority": "hero-interaction",
       "currentSource": "procedural-threejs",
-      "currentStatus": "implemented-prototype",
+      "currentStatus": "implemented-expanded-prototype",
       "implementationPaths": [
-        "src/components/EchoRecordGarden3DView.jsx#createRecordPlayer"
+        "src/components/EchoRecordGarden3DView.jsx#createRecordPlayer",
+        "src/components/echo-record-garden-visual-system.js#createEchoGardenRoundedBoxGeometry"
       ],
       "sourcingDecision": "hybrid-candidate",
       "decisionStatus": "planned-no-output",
@@ -196,7 +229,7 @@
       "providerTaskIds": [],
       "outputPaths": [],
       "lineage": {
-        "creator": "current form is project-authored procedural code",
+        "creator": "current rounded, shared-material form is project-authored procedural code",
         "externalBinary": false,
         "sourceHash": "",
         "licenseOrCustody": "future provider output unresolved until task, download, hash, terms, and custody are recorded"
@@ -220,18 +253,16 @@
       "category": "environment-props",
       "visualPriority": "foreground-midground-depth",
       "currentSource": "procedural-threejs",
-      "currentStatus": "partial-prototype",
+      "currentStatus": "implemented-expanded-prototype",
       "implementationPaths": [
-        "src/components/EchoRecordGarden3DView.jsx#createLazySundayScene"
+        "src/components/echo-record-garden-visual-system.js#createEchoRecordGardenVisualSystem"
       ],
-      "sourcingDecision": "hybrid-candidate",
-      "decisionStatus": "planned-no-output",
+      "sourcingDecision": "procedural-current-with-future-hybrid-candidate",
+      "decisionStatus": "implemented-no-external-assets",
       "candidateContents": [
-        "authored parasol",
-        "record crate and sleeve family",
-        "garden chair or bench",
-        "tea setting",
-        "planter and foliage anchor"
+        "additional authored seating",
+        "expanded record sleeve family",
+        "planter and foliage anchor variants"
       ],
       "credentialDependencies": [
         "GEMINI_API_KEY",
@@ -240,7 +271,7 @@
       "providerTaskIds": [],
       "outputPaths": [],
       "lineage": {
-        "creator": "current forms are project-authored procedural code",
+        "creator": "current parasol, pavilions, fence, crates, tea setting, and contact details are project-authored procedural code",
         "externalBinary": false,
         "sourceHash": "",
         "licenseOrCustody": "future provider output unresolved"
@@ -261,30 +292,30 @@
     },
     {
       "id": "garden-sky-horizon-and-background",
-      "category": "background-image",
+      "category": "procedural-sky-environment",
       "visualPriority": "far-depth",
-      "currentSource": "procedural-color-and-fog",
-      "currentStatus": "implemented-prototype",
+      "currentSource": "deterministic-gradient-texture-pmrem-and-fog",
+      "currentStatus": "implemented-expanded-prototype",
       "implementationPaths": [
-        "src/components/EchoRecordGarden3DView.jsx#createEchoRecordGardenGame"
+        "src/components/echo-record-garden-visual-system.js#createSkyTexture",
+        "src/components/echo-record-garden-visual-system.js#createEchoRecordGardenVisualSystem"
       ],
-      "sourcingDecision": "threejs-image-generator-candidate",
-      "decisionStatus": "planned-no-output",
-      "credentialDependencies": [
-        "GEMINI_API_KEY"
-      ],
+      "sourcingDecision": "project-authored-procedural",
+      "decisionStatus": "implemented-no-external-assets",
+      "credentialDependencies": [],
       "providerTaskIds": [],
       "outputPaths": [],
       "lineage": {
-        "creator": "current background is project-authored renderer configuration",
+        "creator": "current 512x256 sRGB gradient/halo sky, PMREM response, cloud silhouettes, and haze are project-authored procedural output",
         "externalBinary": false,
         "sourceHash": "",
-        "licenseOrCustody": "future image output unresolved"
+        "licenseOrCustody": "project-authored code and deterministic runtime textures; no provider output"
       },
       "runtimeBudget": {
-        "opaqueRuntimeFormat": "WebP or KTX2 when supported",
-        "sourceResolutionMax": "4096x2048",
-        "runtimeBytesMax": 2097152,
+        "skyTexturePixels": "512x256",
+        "cloudTexturePixels": "128x128",
+        "environmentResponse": "PMREM derived from the visible sky",
+        "fog": "FogExp2 #BCD9D7 at density 0.0165",
         "parallaxLayersMax": 3
       },
       "lifecycle": {
@@ -298,38 +329,41 @@
       "id": "garden-material-texture-and-decal-kit",
       "category": "materials-textures-decals",
       "visualPriority": "cross-scene-material-language",
-      "currentSource": "procedural-materials-and-canvas-texture",
-      "currentStatus": "implemented-prototype",
+      "currentSource": "deterministic-related-albedo-normal-data-textures-plus-canvas-labels",
+      "currentStatus": "implemented-expanded-prototype",
       "implementationPaths": [
-        "src/components/EchoRecordGarden3DView.jsx#createPicnicClothTexture",
+        "src/components/echo-record-garden-visual-system.js#sampleEchoGardenSurface",
+        "src/components/echo-record-garden-visual-system.js#createSurfaceMaps",
+        "src/components/echo-record-garden-visual-system.js#createMaterialKit",
         "src/components/EchoRecordGarden3DView.jsx#createRecordLabelTexture",
         "src/components/EchoRecordGarden3DView.jsx#createRecordTitleTexture"
       ],
-      "sourcingDecision": "procedural-plus-image-candidate",
-      "decisionStatus": "planned-no-output",
+      "sourcingDecision": "project-authored-deterministic-procedural",
+      "decisionStatus": "implemented-no-external-assets",
       "candidateContents": [
-        "wood variation reference",
-        "cloth weave/check reference",
         "record sleeve trim and catalog glyphs",
-        "garden sign and small decals"
+        "garden sign and small decals if future sourcing is separately cleared"
       ],
-      "credentialDependencies": [
-        "GEMINI_API_KEY"
-      ],
+      "credentialDependencies": [],
       "providerTaskIds": [],
       "outputPaths": [],
       "lineage": {
-        "creator": "current textures are project-authored canvas output",
+        "creator": "five project-authored deterministic tileable surface fields emit ten runtime albedo/normal DataTextures; Record identity labels remain project-authored canvas output",
         "externalBinary": false,
         "sourceHash": "",
-        "licenseOrCustody": "future image output unresolved"
+        "licenseOrCustody": "project-authored code and runtime output; no external image or reference texture copied"
       },
       "runtimeBudget": {
-        "atlasPreferred": true,
-        "textureDimensionMax": 2048,
+        "surfaceFamilies": 5,
+        "texturePixelsPerMap": "128x128",
+        "emittedSurfaceTextures": 10,
         "uniqueRuntimeTexturesMax": 12,
         "mipmapsRequired": true,
-        "anisotropyMustBeCapped": true
+        "anisotropyCap": 8,
+        "repeatWrapping": true,
+        "albedoColorSpace": "sRGB",
+        "normalColorSpace": "no-color",
+        "roughnessMode": "substance-specific scalar; no roughness bitmap emitted"
       },
       "lifecycle": {
         "owner": "creating factory or future material registry",
@@ -371,6 +405,9 @@
       "runtimeBudget": {
         "primaryDisplays": 1,
         "aspectRatio": "16:9",
+        "mediaPlane": "7.08x3.98 inside a 7.44x4.34 rounded frame",
+        "mediaMaterial": "MeshBasicMaterial with toneMapped false and fog false",
+        "postProcessingPasses": 0,
         "blackLoadingFramesAllowed": 0,
         "clockDriftP95SecondsMax": 0.12,
         "clockDriftAbsoluteSecondsMax": 0.2
@@ -454,9 +491,10 @@
       "category": "diegetic-ui",
       "visualPriority": "supporting-interaction",
       "currentSource": "procedural-threejs-and-canvas-ui",
-      "currentStatus": "implementation-in-progress",
+      "currentStatus": "implemented-expanded-prototype",
       "implementationPaths": [
-        "src/components/EchoRecordGarden3DView.jsx#createRecordCatalogConsole"
+        "src/components/EchoRecordGarden3DView.jsx#createRecordCatalogConsole",
+        "src/components/echo-record-garden-visual-system.js#createEchoGardenRoundedBoxGeometry"
       ],
       "sourcingDecision": "procedural-plus-image-candidate",
       "decisionStatus": "current-project-authored-source",
@@ -527,7 +565,7 @@
     }
   ],
   "performanceBudgets": {
-    "status": "target-not-measured-by-this-ledger",
+    "status": "implemented-profile-declared-runtime-measurement-pending",
     "desktop": {
       "viewport": "1440x900",
       "dprMax": 1.65,
@@ -562,6 +600,16 @@
       "contextLossesAllowed": 0,
       "postProcessingPassesMax": 1,
       "postProcessingFrameCostMsMax": 2.5
+    },
+    "implementedVisualProfile": {
+      "id": "echo-record-garden-sunwashed-diorama-v1",
+      "activeLights": 3,
+      "shadowCastingLights": 1,
+      "ownedEnvironmentTextures": 12,
+      "materialRoles": 12,
+      "instancedDetailCount": 420,
+      "postProcessingPasses": 0,
+      "measurementNote": "These are deterministic construction-profile counts exposed by the scene, not warmed frame-time or draw-call acceptance evidence."
     },
     "media": {
       "combinedResidentCandidateMax": 14,
@@ -609,7 +657,10 @@
   },
   "verification": {
     "jsonValidated": true,
+    "credentialProbeCompleted": true,
+    "credentialProbeResult": "blank-or-unset",
     "credentialProbeRequiredBeforeExternalSourcing": true,
+    "externalSourcingReady": false,
     "providerOutputsMustBeDownloadedImmediately": true,
     "providerOutputsMustRecordTaskIdPathHashAndTerms": true,
     "currentBuildVisualAcceptanceRequired": true,

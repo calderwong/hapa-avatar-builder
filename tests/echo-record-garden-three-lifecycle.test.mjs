@@ -120,7 +120,7 @@ test("reduced motion freezes garden décor and uses immediate, non-animated stat
   );
   assert.match(
     sundayUpdate,
-    /if \(reducedMotion\) \{\s*resources\.bokeh\.rotation\.y = 0;\s*resources\.parasolRoot\.rotation\.y = 0;\s*resources\.cloth\.rotation\.z = -0\.04;\s*return;/s,
+    /if \(reducedMotion\) \{\s*resources\.bokeh\.rotation\.y = 0;\s*resources\.parasolRoot\.rotation\.y = 0;\s*resources\.cloth\.rotation\.z = -0\.04;\s*updateEchoRecordGardenVisualSystem\(resources, 0, true\);\s*return;/s,
   );
   assert.ok(
     sundayUpdate.indexOf("return;") < sundayUpdate.indexOf("Math.sin(elapsed * 0.7"),
@@ -150,6 +150,12 @@ test("full and reduced power profiles change pixel ratio and shadows with observ
   assert.match(threeRuntime, /const initialReducedMotion = globalThis\.matchMedia\?\.\("\(prefers-reduced-motion: reduce\)"\)\?\.matches === true/);
   assert.match(threeRuntime, /applyPowerProfile\(initialReducedMotion\)/);
   assert.match(threeRuntime, /applyPowerProfile\(playback\.reducedMotion\)/);
+});
+
+test("context recovery rebuilds the sky-derived environment instead of claiming stale reflections", () => {
+  assert.match(threeRuntime, /const handleContextRestored = \(\) => \{\s*try \{\s*sceneResources\.rebuildEnvironmentResponse\?\.\(\)/s);
+  assert.match(threeRuntime, /diagnostics\.contextState = "degraded"/);
+  assert.match(threeRuntime, /garden lighting needs a scene retry/);
 });
 
 test("human acceptance telemetry is run-scoped and keeps uninterrupted playback identity", () => {

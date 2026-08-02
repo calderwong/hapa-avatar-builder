@@ -59,6 +59,11 @@ import {
   unwrapEchoDirectorProject,
 } from "../domain/echo-record-garden.js";
 import { localFileApiUri } from "../domain/local-media-uri.js";
+import {
+  createEchoGardenRoundedBoxGeometry,
+  createEchoRecordGardenVisualSystem,
+  updateEchoRecordGardenVisualSystem,
+} from "./echo-record-garden-visual-system.js";
 
 const RECORDS_PER_CRATE = 10;
 const SCREEN_COUNT = 1;
@@ -3096,7 +3101,7 @@ function createEchoRecordGardenGame({
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 1.08;
-  renderer.shadowMap.type = THREE.PCFShadowMap;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   diagnostics.createdGames += 1;
   diagnostics.liveGames += 1;
   diagnostics.liveRenderers += 1;
@@ -3125,8 +3130,8 @@ function createEchoRecordGardenGame({
   applyPowerProfile(initialReducedMotion);
 
   const scene = new THREE.Scene();
-  scene.background = new THREE.Color(0xa8c9c3);
-  scene.fog = new THREE.FogExp2(0x9ab7a9, 0.024);
+  scene.background = new THREE.Color(0xc8e5ed);
+  scene.fog = new THREE.FogExp2(0xbcd9d7, 0.0165);
 
   const camera = new THREE.PerspectiveCamera(47, 1, 0.05, 100);
   const defaultCameraPosition = new THREE.Vector3(0, 6.25, 11.4);
@@ -3160,10 +3165,13 @@ function createEchoRecordGardenGame({
   printedCardsRoot.name = "EchoRecordPrintedCards";
   world.add(printedCardsRoot);
 
-  const sceneResources = createLazySundayScene(world);
-  const player = createRecordPlayer(world);
-  const screens = createAlbumScreens(world);
-  const catalogConsole = createRecordCatalogConsole(world);
+  const sceneResources = createLazySundayScene(world, { scene, renderer });
+  diagnostics.visualProfile = sceneResources.metrics;
+  canvas.dataset.visualProfile = sceneResources.metrics.profileId;
+  canvas.dataset.environmentDetailInstances = String(sceneResources.metrics.instancedDetailCount);
+  const player = createRecordPlayer(world, sceneResources.materialKit);
+  const screens = createAlbumScreens(world, sceneResources.materialKit);
+  const catalogConsole = createRecordCatalogConsole(world, sceneResources.materialKit);
   const mediaPool = createScreenMediaPool({
     apiBase,
     renderer,
@@ -3474,10 +3482,18 @@ function createEchoRecordGardenGame({
     onStatus?.("The 3D renderer paused after losing its graphics context.");
   };
   const handleContextRestored = () => {
-    diagnostics.contextState = "restored";
-    diagnostics.lastError = "";
-    canvas.dataset.rendererState = "available";
-    onStatus?.("The 3D renderer recovered its graphics context.");
+    try {
+      sceneResources.rebuildEnvironmentResponse?.();
+      diagnostics.contextState = "restored";
+      diagnostics.lastError = "";
+      canvas.dataset.rendererState = "available";
+      onStatus?.("The 3D renderer recovered its graphics context and garden lighting.");
+    } catch (error) {
+      diagnostics.contextState = "degraded";
+      diagnostics.lastError = error?.message || "Environment lighting recovery failed";
+      canvas.dataset.rendererState = "degraded";
+      onStatus?.("The 3D renderer recovered, but its garden lighting needs a scene retry.");
+    }
   };
   renderer.domElement.addEventListener("webglcontextlost", handleContextLost, false);
   renderer.domElement.addEventListener("webglcontextrestored", handleContextRestored, false);
@@ -3984,6 +4000,7 @@ function createEchoRecordGardenGame({
       },
       frameTiming,
       environment: {
+        visualProfile: sceneResources.metrics,
         viewport: {
           width: Math.max(0, globalThis.innerWidth || 0),
           height: Math.max(0, globalThis.innerHeight || 0),
@@ -4167,6 +4184,7 @@ function createEchoRecordGardenGame({
         geometries: Number(renderer.info.memory.geometries) || 0,
         textures: Number(renderer.info.memory.textures) || 0,
       };
+      diagnostics.visualProfile = sceneResources.metrics;
       diagnostics.frameTiming = summarizeFrameTiming();
       diagnostics.activeVideos = screens.filter((screen) => Boolean(
         screen.mediaResource?.video
@@ -4276,191 +4294,9 @@ function createEchoRecordGardenGame({
   };
 }
 
-function createLazySundayScene(world) {
-  const environment = new THREE.Group();
-  environment.name = "LazySundayGardenEnvironment";
-  world.add(environment);
-
-  const grassMaterial = new THREE.MeshStandardMaterial({ color: 0x678b5d, roughness: 0.97 });
-  const grass = new THREE.Mesh(new THREE.CircleGeometry(25, 64), grassMaterial);
-  grass.rotation.x = -Math.PI / 2;
-  grass.position.y = -0.6;
-  grass.receiveShadow = true;
-  environment.add(grass);
-
-  const pathMaterial = new THREE.MeshStandardMaterial({ color: 0xb89d74, roughness: 0.92 });
-  const path = new THREE.Mesh(new THREE.RingGeometry(8.8, 13.5, 64, 1, 0.42, 2.3), pathMaterial);
-  path.rotation.x = -Math.PI / 2;
-  path.position.y = -0.575;
-  environment.add(path);
-
-  const woodMaterial = new THREE.MeshStandardMaterial({ color: 0x875936, roughness: 0.68, metalness: 0.02 });
-  const edgeMaterial = new THREE.MeshStandardMaterial({ color: 0x4b2f22, roughness: 0.82 });
-  const table = new THREE.Mesh(new THREE.BoxGeometry(9.4, 0.34, 5.9), woodMaterial);
-  table.position.y = -0.22;
-  table.receiveShadow = true;
-  table.castShadow = true;
-  environment.add(table);
-  const apron = new THREE.Mesh(new THREE.BoxGeometry(9.2, 0.38, 5.66), edgeMaterial);
-  apron.position.y = -0.47;
-  environment.add(apron);
-  const legGeometry = new THREE.BoxGeometry(0.46, 2.3, 0.46);
-  for (const [x, z] of [[-4.1, -2.35], [4.1, -2.35], [-4.1, 2.35], [4.1, 2.35]]) {
-    const leg = new THREE.Mesh(legGeometry, edgeMaterial);
-    leg.position.set(x, -1.55, z);
-    leg.castShadow = true;
-    environment.add(leg);
-  }
-
-  const clothTexture = createPicnicClothTexture();
-  clothTexture.wrapS = THREE.RepeatWrapping;
-  clothTexture.wrapT = THREE.RepeatWrapping;
-  clothTexture.repeat.set(3.4, 2.2);
-  const cloth = new THREE.Mesh(
-    new THREE.PlaneGeometry(4.4, 3.5, 8, 6),
-    new THREE.MeshStandardMaterial({ map: clothTexture, roughness: 0.93, side: THREE.DoubleSide }),
-  );
-  cloth.rotation.x = -Math.PI / 2;
-  cloth.rotation.z = -0.04;
-  cloth.position.set(-2.2, -0.035, 0.05);
-  cloth.receiveShadow = true;
-  environment.add(cloth);
-
-  const parasolRoot = new THREE.Group();
-  parasolRoot.position.set(-5.35, 1.7, -2.8);
-  parasolRoot.rotation.z = -0.06;
-  environment.add(parasolRoot);
-  const parasolPole = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.075, 0.09, 6.2, 12),
-    new THREE.MeshStandardMaterial({ color: 0xe7d3a3, roughness: 0.62, metalness: 0.12 }),
-  );
-  parasolRoot.add(parasolPole);
-  const canopyMaterial = new THREE.MeshStandardMaterial({
-    color: 0xe9b76c,
-    roughness: 0.82,
-    side: THREE.DoubleSide,
-  });
-  const canopy = new THREE.Mesh(new THREE.ConeGeometry(3.5, 1.05, 16, 1, true), canopyMaterial);
-  canopy.position.y = 3.08;
-  canopy.rotation.y = Math.PI / 16;
-  canopy.castShadow = true;
-  parasolRoot.add(canopy);
-
-  const trunkGeometry = new THREE.CylinderGeometry(0.22, 0.34, 4.6, 9);
-  const crownGeometry = new THREE.IcosahedronGeometry(1.55, 1);
-  const trunkMaterial = new THREE.MeshStandardMaterial({ color: 0x5d3f2d, roughness: 0.95 });
-  const crownMaterial = new THREE.MeshStandardMaterial({ color: 0x47794d, roughness: 0.88 });
-  const treePositions = [[-11, -7], [-7, -11], [8, -10], [12, -4], [-13, 2], [13, 5], [-8, 10], [7, 11]];
-  const trunks = new THREE.InstancedMesh(trunkGeometry, trunkMaterial, treePositions.length);
-  const crowns = new THREE.InstancedMesh(crownGeometry, crownMaterial, treePositions.length * 2);
-  const matrix = new THREE.Matrix4();
-  treePositions.forEach(([x, z], index) => {
-    matrix.makeTranslation(x, 1.55, z);
-    trunks.setMatrixAt(index, matrix);
-    matrix.compose(
-      new THREE.Vector3(x, 4.15, z),
-      new THREE.Quaternion().setFromEuler(new THREE.Euler(0, index * 0.63, 0)),
-      new THREE.Vector3(1 + (index % 3) * 0.13, 1, 1.05),
-    );
-    crowns.setMatrixAt(index * 2, matrix);
-    matrix.compose(
-      new THREE.Vector3(x + (index % 2 ? 0.85 : -0.8), 4.55, z + 0.34),
-      new THREE.Quaternion().setFromEuler(new THREE.Euler(0, index * 0.37, 0)),
-      new THREE.Vector3(0.72, 0.78, 0.72),
-    );
-    crowns.setMatrixAt(index * 2 + 1, matrix);
-  });
-  trunks.castShadow = true;
-  crowns.castShadow = true;
-  environment.add(trunks, crowns);
-
-  const flowerGeometry = new THREE.IcosahedronGeometry(0.09, 0);
-  const flowerMaterial = new THREE.MeshStandardMaterial({ color: 0xf29ab2, roughness: 0.7 });
-  const flowers = new THREE.InstancedMesh(flowerGeometry, flowerMaterial, 72);
-  for (let index = 0; index < 72; index += 1) {
-    const angle = index * 2.399;
-    const radius = 6.8 + (index % 7) * 0.62;
-    matrix.makeTranslation(Math.cos(angle) * radius, -0.42 + (index % 3) * 0.035, Math.sin(angle) * radius);
-    flowers.setMatrixAt(index, matrix);
-  }
-  environment.add(flowers);
-
-  const teaTray = new THREE.Group();
-  teaTray.position.set(3.65, 0.05, 1.55);
-  environment.add(teaTray);
-  const ceramic = new THREE.MeshStandardMaterial({ color: 0xe9e0cb, roughness: 0.34, metalness: 0.02 });
-  const tray = new THREE.Mesh(new THREE.CylinderGeometry(0.72, 0.72, 0.06, 32), new THREE.MeshStandardMaterial({ color: 0x9f713f, roughness: 0.54 }));
-  teaTray.add(tray);
-  const teapot = new THREE.Mesh(new THREE.SphereGeometry(0.3, 20, 12), ceramic);
-  teapot.position.set(0, 0.25, 0);
-  teaTray.add(teapot);
-  for (const x of [-0.46, 0.46]) {
-    const cup = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.11, 0.22, 18), ceramic);
-    cup.position.set(x, 0.16, 0.12);
-    teaTray.add(cup);
-  }
-
-  const crateMaterial = new THREE.MeshStandardMaterial({ color: 0x6b432c, roughness: 0.8 });
-  for (const [x, z, rotation] of [[-5.4, 3.25, -0.24], [5.55, 3.05, 0.31]]) {
-    const crate = new THREE.Group();
-    crate.position.set(x, -0.1, z);
-    crate.rotation.y = rotation;
-    environment.add(crate);
-    for (let index = -1; index <= 1; index += 1) {
-      const slat = new THREE.Mesh(new THREE.BoxGeometry(1.65, 0.12, 0.23), crateMaterial);
-      slat.position.set(0, index * 0.42, index === 0 ? 0 : 0.02);
-      crate.add(slat);
-    }
-  }
-
-  const sun = new THREE.DirectionalLight(0xffdda1, 4.1);
-  sun.position.set(-6, 10, 6);
-  sun.castShadow = true;
-  sun.shadow.mapSize.set(1024, 1024);
-  sun.shadow.camera.left = -11;
-  sun.shadow.camera.right = 11;
-  sun.shadow.camera.top = 11;
-  sun.shadow.camera.bottom = -11;
-  environment.add(sun);
-  environment.add(new THREE.HemisphereLight(0xe9f7ff, 0x657151, 2.35));
-  const rim = new THREE.PointLight(0xf6c96d, 15, 12, 2);
-  rim.position.set(3.2, 3.8, -2.5);
-  environment.add(rim);
-
-  const motePositions = new Float32Array(84 * 3);
-  for (let index = 0; index < 84; index += 1) {
-    motePositions[index * 3] = -9 + ((index * 2.37) % 18);
-    motePositions[index * 3 + 1] = 0.2 + ((index * 1.73) % 6);
-    motePositions[index * 3 + 2] = -7 + ((index * 2.11) % 14);
-  }
-  const moteGeometry = new THREE.BufferGeometry();
-  moteGeometry.setAttribute("position", new THREE.BufferAttribute(motePositions, 3));
-  const moteMaterial = new THREE.PointsMaterial({
-    color: 0xffedaa,
-    size: 0.07,
-    transparent: true,
-    opacity: 0.34,
-    depthWrite: false,
-  });
-  const bokeh = new THREE.Points(moteGeometry, moteMaterial);
-  bokeh.name = "GardenSunMotes";
-  environment.add(bokeh);
-
-  return {
-    environment,
-    bokeh,
-    parasolRoot,
-    crowns,
-    cloth,
-    dispose() {
-      clothTexture.dispose();
-      environment.traverse((object) => {
-        object.geometry?.dispose?.();
-        if (Array.isArray(object.material)) object.material.forEach((material) => material.dispose?.());
-        else object.material?.dispose?.();
-      });
-    },
-  };
+function createLazySundayScene(world, { scene = world?.parent, renderer = null } = {}) {
+  if (!world || !scene) throw new Error("Record Garden visual system requires a world and scene");
+  return createEchoRecordGardenVisualSystem({ world, scene, renderer });
 }
 
 function updateSundayScene(resources, elapsed, reducedMotion) {
@@ -4468,6 +4304,7 @@ function updateSundayScene(resources, elapsed, reducedMotion) {
     resources.bokeh.rotation.y = 0;
     resources.parasolRoot.rotation.y = 0;
     resources.cloth.rotation.z = -0.04;
+    updateEchoRecordGardenVisualSystem(resources, 0, true);
     return;
   }
   resources.bokeh.rotation.y = elapsed * 0.018;
@@ -4475,17 +4312,19 @@ function updateSundayScene(resources, elapsed, reducedMotion) {
   resources.bokeh.material.opacity = 0.28 + Math.sin(elapsed * 0.7) * 0.07;
   resources.parasolRoot.rotation.y = Math.sin(elapsed * 0.16) * 0.018;
   resources.cloth.rotation.z = -0.04 + Math.sin(elapsed * 0.31) * 0.006;
+  updateEchoRecordGardenVisualSystem(resources, elapsed, false);
 }
 
-function createRecordPlayer(world) {
+function createRecordPlayer(world, materialKit = null) {
   const root = new THREE.Group();
   root.name = "EchoRecordPlayer";
   root.position.set(1.8, 0.05, 0.22);
   world.add(root);
 
   const base = new THREE.Mesh(
-    new THREE.BoxGeometry(3.25, 0.34, 2.55),
-    new THREE.MeshStandardMaterial({ color: 0x3d2f28, roughness: 0.58, metalness: 0.06 }),
+    createEchoGardenRoundedBoxGeometry(3.25, 0.34, 2.55, 0.12, 4),
+    materialKit?.clone?.("deepWood", { color: 0x6d4935, roughness: 0.6 })
+      || new THREE.MeshStandardMaterial({ color: 0x3d2f28, roughness: 0.58, metalness: 0.06 }),
   );
   base.position.y = 0.17;
   base.castShadow = true;
@@ -4493,15 +4332,17 @@ function createRecordPlayer(world) {
   root.add(base);
 
   const inset = new THREE.Mesh(
-    new THREE.BoxGeometry(3.02, 0.08, 2.32),
-    new THREE.MeshStandardMaterial({ color: 0xcda96b, roughness: 0.62 }),
+    createEchoGardenRoundedBoxGeometry(3.02, 0.08, 2.32, 0.035, 3),
+    materialKit?.clone?.("wood", { color: 0xd9bd8b, roughness: 0.62 })
+      || new THREE.MeshStandardMaterial({ color: 0xcda96b, roughness: 0.62 }),
   );
   inset.position.y = 0.38;
   root.add(inset);
 
   const platter = new THREE.Mesh(
     new THREE.CylinderGeometry(1.08, 1.08, 0.12, 64),
-    new THREE.MeshStandardMaterial({ color: 0x16181b, roughness: 0.32, metalness: 0.7 }),
+    materialKit?.clone?.("charcoal", { roughness: 0.3, metalness: 0.72 })
+      || new THREE.MeshStandardMaterial({ color: 0x16181b, roughness: 0.32, metalness: 0.7 }),
   );
   platter.position.set(-0.38, 0.5, 0);
   platter.castShadow = true;
@@ -4526,7 +4367,8 @@ function createRecordPlayer(world) {
 
   const spindle = new THREE.Mesh(
     new THREE.CylinderGeometry(0.035, 0.035, 0.2, 16),
-    new THREE.MeshStandardMaterial({ color: 0xe9d6a8, metalness: 0.9, roughness: 0.2 }),
+    materialKit?.clone?.("brass", { roughness: 0.2, metalness: 0.9 })
+      || new THREE.MeshStandardMaterial({ color: 0xe9d6a8, metalness: 0.9, roughness: 0.2 }),
   );
   spindle.position.set(-0.38, 0.69, 0);
   root.add(spindle);
@@ -4536,14 +4378,16 @@ function createRecordPlayer(world) {
   root.add(toneArmPivot);
   const toneArm = new THREE.Mesh(
     new THREE.CylinderGeometry(0.035, 0.045, 1.78, 12),
-    new THREE.MeshStandardMaterial({ color: 0xe7d8b7, roughness: 0.28, metalness: 0.72 }),
+    materialKit?.clone?.("brass", { color: 0xe7d8b7, roughness: 0.28, metalness: 0.72 })
+      || new THREE.MeshStandardMaterial({ color: 0xe7d8b7, roughness: 0.28, metalness: 0.72 }),
   );
   toneArm.position.set(-0.62, 0, 0.25);
   toneArm.rotation.z = Math.PI / 2.7;
   toneArmPivot.add(toneArm);
   const needle = new THREE.Mesh(
-    new THREE.BoxGeometry(0.16, 0.09, 0.22),
-    new THREE.MeshStandardMaterial({ color: 0x31241f, roughness: 0.5 }),
+    createEchoGardenRoundedBoxGeometry(0.16, 0.09, 0.22, 0.025, 3),
+    materialKit?.clone?.("deepWood", { color: 0x4a342b, roughness: 0.5 })
+      || new THREE.MeshStandardMaterial({ color: 0x31241f, roughness: 0.5 }),
   );
   needle.position.set(-1.05, -0.5, 0.42);
   toneArmPivot.add(needle);
@@ -4580,7 +4424,7 @@ function createRecordPlayer(world) {
   };
 }
 
-function createRecordCatalogConsole(world) {
+function createRecordCatalogConsole(world, materialKit = null) {
   const root = new THREE.Group();
   root.name = "EchoRecordSpatialCatalogConsole";
   root.position.set(-4.05, 0.38, 0.15);
@@ -4588,8 +4432,9 @@ function createRecordCatalogConsole(world) {
   world.add(root);
 
   const panel = new THREE.Mesh(
-    new THREE.BoxGeometry(1.55, 0.18, 2.42),
-    new THREE.MeshStandardMaterial({ color: 0x34251f, roughness: 0.62, metalness: 0.08 }),
+    createEchoGardenRoundedBoxGeometry(1.55, 0.18, 2.42, 0.075, 4),
+    materialKit?.clone?.("deepWood", { color: 0x563d31, roughness: 0.65, metalness: 0.04 })
+      || new THREE.MeshStandardMaterial({ color: 0x34251f, roughness: 0.62, metalness: 0.08 }),
   );
   panel.castShadow = true;
   root.add(panel);
@@ -4609,7 +4454,7 @@ function createRecordCatalogConsole(world) {
   const hitTargets = specs.map((spec) => {
     const texture = createCatalogButtonTexture(spec.label, spec.color);
     const material = new THREE.MeshBasicMaterial({ map: texture, toneMapped: false });
-    const mesh = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.11, 0.5), [
+    const mesh = new THREE.Mesh(createEchoGardenRoundedBoxGeometry(0.38, 0.11, 0.5, 0.035, 3), [
       new THREE.MeshStandardMaterial({ color: 0x182324, roughness: 0.5 }),
       new THREE.MeshStandardMaterial({ color: 0x182324, roughness: 0.5 }),
       material,
@@ -4763,7 +4608,7 @@ function setPlayerRecordVisual(player, visual, { mediaPool }) {
   return player.mediaResource?.firstFramePromise || null;
 }
 
-function createAlbumScreens(world) {
+function createAlbumScreens(world, materialKit = null) {
   const specs = [
     { x: 0, y: 2.72, z: -2.68, ry: 0, scale: 1 },
   ];
@@ -4776,8 +4621,9 @@ function createAlbumScreens(world) {
     world.add(root);
 
     const frame = new THREE.Mesh(
-      new THREE.BoxGeometry(7.44, 4.34, 0.2),
-      new THREE.MeshStandardMaterial({ color: 0x3c2b24, roughness: 0.48, metalness: 0.08 }),
+      createEchoGardenRoundedBoxGeometry(7.44, 4.34, 0.2, 0.085, 4),
+      materialKit?.clone?.("deepWood", { color: 0x604337, roughness: 0.52, metalness: 0.05 })
+        || new THREE.MeshStandardMaterial({ color: 0x3c2b24, roughness: 0.48, metalness: 0.08 }),
     );
     frame.castShadow = true;
     root.add(frame);
@@ -4787,6 +4633,7 @@ function createAlbumScreens(world) {
       map: standbyTexture,
       color: 0xffffff,
       toneMapped: false,
+      fog: false,
     });
     const hitTarget = new THREE.Mesh(new THREE.PlaneGeometry(7.08, 3.98), screenMaterial);
     hitTarget.position.z = 0.106;
@@ -5773,25 +5620,6 @@ function createPrintedCardTexture(card = {}) {
     74,
     784,
   );
-  const texture = new THREE.CanvasTexture(canvas);
-  texture.colorSpace = THREE.SRGBColorSpace;
-  return texture;
-}
-
-function createPicnicClothTexture() {
-  const canvas = document.createElement("canvas");
-  canvas.width = 256;
-  canvas.height = 256;
-  const ctx = canvas.getContext("2d");
-  ctx.fillStyle = "#f1dec4";
-  ctx.fillRect(0, 0, 256, 256);
-  ctx.fillStyle = "rgba(191,82,67,.72)";
-  for (let x = 0; x < 256; x += 64) ctx.fillRect(x, 0, 27, 256);
-  for (let y = 0; y < 256; y += 64) ctx.fillRect(0, y, 256, 27);
-  ctx.fillStyle = "rgba(130,43,38,.32)";
-  for (let x = 0; x < 256; x += 64) {
-    for (let y = 0; y < 256; y += 64) ctx.fillRect(x, y, 27, 27);
-  }
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
   return texture;

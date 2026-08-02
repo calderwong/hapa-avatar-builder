@@ -1,0 +1,182 @@
+{
+  "version": 1,
+  "recipeVersion": "echo-record-garden-surface-bakery-v1",
+  "seed": "echo-garden-surface-set-v1",
+  "implementation": {
+    "path": "src/components/echo-record-garden-visual-system.js",
+    "textureType": "THREE.DataTexture RGBA",
+    "heightBake": "one immutable 128x128 height grid per family",
+    "derivative": "wrapped central difference",
+    "albedoColorSpace": "srgb",
+    "normalColorSpace": "none",
+    "roughnessOutput": "substance-specific material scalar; no roughness bitmap emitted",
+    "filters": "LinearMipmapLinear minification and Linear magnification",
+    "visualAcceptance": "pending in-scene seam, grazing-angle, mip, and fixed-shot review"
+  },
+  "materials": [
+    {
+      "id": "echo-garden-grass",
+      "surfaceModel": "echo-garden-organic-periodic-field-v1",
+      "textureSize": 128,
+      "tileable": true,
+      "cacheKey": "grass|echo-record-garden-surface-bakery-v1|echo-garden-surface-set-v1|seed-91|128|365f42-7cad56",
+      "repeat": [8, 8],
+      "anisotropy": 8,
+      "anisotropyMode": "runtime cap; min(8, renderer maximum)",
+      "normalStrength": 1.35,
+      "roughnessRange": [0.82, 0.94],
+      "maps": {
+        "albedo": {
+          "heightField": "echo-garden-organic-periodic-field-v1",
+          "colorSpace": "srgb",
+          "emitted": true
+        },
+        "normal": {
+          "heightField": "echo-garden-organic-periodic-field-v1",
+          "colorSpace": "none",
+          "wrappedDerivative": true,
+          "emitted": true
+        },
+        "roughness": {
+          "heightField": "echo-garden-organic-periodic-field-v1",
+          "colorSpace": "none",
+          "emitted": false,
+          "implementation": "bounded scalar by consuming material role"
+        }
+      }
+    },
+    {
+      "id": "echo-garden-soil",
+      "surfaceModel": "echo-garden-soil-grit-periodic-field-v1",
+      "textureSize": 128,
+      "tileable": true,
+      "cacheKey": "soil|echo-record-garden-surface-bakery-v1|echo-garden-surface-set-v1|seed-211|128|8e6848-c9aa7d",
+      "repeat": [6, 6],
+      "anisotropy": 8,
+      "anisotropyMode": "runtime cap; min(8, renderer maximum)",
+      "normalStrength": 1.7,
+      "roughnessRange": [0.86, 0.9],
+      "maps": {
+        "albedo": {
+          "heightField": "echo-garden-soil-grit-periodic-field-v1",
+          "colorSpace": "srgb",
+          "emitted": true
+        },
+        "normal": {
+          "heightField": "echo-garden-soil-grit-periodic-field-v1",
+          "colorSpace": "none",
+          "wrappedDerivative": true,
+          "emitted": true
+        },
+        "roughness": {
+          "heightField": "echo-garden-soil-grit-periodic-field-v1",
+          "colorSpace": "none",
+          "emitted": false,
+          "implementation": "bounded scalar by consuming material role"
+        }
+      }
+    },
+    {
+      "id": "echo-garden-wood",
+      "surfaceModel": "echo-garden-wood-grain-periodic-field-v1",
+      "textureSize": 128,
+      "tileable": true,
+      "cacheKey": "wood|echo-record-garden-surface-bakery-v1|echo-garden-surface-set-v1|seed-307|128|3f2a22-a87545",
+      "repeat": [2.4, 2.4],
+      "anisotropy": 8,
+      "anisotropyMode": "runtime cap; min(8, renderer maximum)",
+      "normalStrength": 1.2,
+      "roughnessRange": [0.54, 0.82],
+      "maps": {
+        "albedo": {
+          "heightField": "echo-garden-wood-grain-periodic-field-v1",
+          "colorSpace": "srgb",
+          "emitted": true
+        },
+        "normal": {
+          "heightField": "echo-garden-wood-grain-periodic-field-v1",
+          "colorSpace": "none",
+          "wrappedDerivative": true,
+          "emitted": true
+        },
+        "roughness": {
+          "heightField": "echo-garden-wood-grain-periodic-field-v1",
+          "colorSpace": "none",
+          "emitted": false,
+          "implementation": "bounded scalar by consuming material role"
+        }
+      }
+    },
+    {
+      "id": "echo-garden-bark",
+      "surfaceModel": "echo-garden-bark-ridge-periodic-field-v1",
+      "textureSize": 128,
+      "tileable": true,
+      "cacheKey": "bark|echo-record-garden-surface-bakery-v1|echo-garden-surface-set-v1|seed-421|128|30251f-886342",
+      "repeat": [3.5, 3.5],
+      "anisotropy": 8,
+      "anisotropyMode": "runtime cap; min(8, renderer maximum)",
+      "normalStrength": 2.1,
+      "roughnessRange": [0.9, 0.96],
+      "maps": {
+        "albedo": {
+          "heightField": "echo-garden-bark-ridge-periodic-field-v1",
+          "colorSpace": "srgb",
+          "emitted": true
+        },
+        "normal": {
+          "heightField": "echo-garden-bark-ridge-periodic-field-v1",
+          "colorSpace": "none",
+          "wrappedDerivative": true,
+          "emitted": true
+        },
+        "roughness": {
+          "heightField": "echo-garden-bark-ridge-periodic-field-v1",
+          "colorSpace": "none",
+          "emitted": false,
+          "implementation": "bounded scalar by consuming material role"
+        }
+      }
+    },
+    {
+      "id": "echo-garden-textile",
+      "surfaceModel": "echo-garden-woven-periodic-field-v1",
+      "textureSize": 128,
+      "tileable": true,
+      "cacheKey": "textile|echo-record-garden-surface-bakery-v1|echo-garden-surface-set-v1|seed-617|128|a66f48-f0d4a0",
+      "repeat": [7, 7],
+      "anisotropy": 8,
+      "anisotropyMode": "runtime cap; min(8, renderer maximum)",
+      "normalStrength": 0.95,
+      "roughnessRange": [0.7, 0.9],
+      "maps": {
+        "albedo": {
+          "heightField": "echo-garden-woven-periodic-field-v1",
+          "colorSpace": "srgb",
+          "emitted": true
+        },
+        "normal": {
+          "heightField": "echo-garden-woven-periodic-field-v1",
+          "colorSpace": "none",
+          "wrappedDerivative": true,
+          "emitted": true
+        },
+        "roughness": {
+          "heightField": "echo-garden-woven-periodic-field-v1",
+          "colorSpace": "none",
+          "emitted": false,
+          "implementation": "bounded scalar by consuming material role"
+        }
+      }
+    }
+  ],
+  "sourceLineage": {
+    "reference": "local pallet-town-3d reference application",
+    "license": "MIT License; copyright 2026 Paulius",
+    "transferredMethod": "periodic deterministic surface fields and related PBR-channel workflow",
+    "implementation": "newly authored franchise-neutral code",
+    "sourceCodeCopied": false,
+    "sourceTexturesCopied": false,
+    "franchiseContentCopied": false
+  }
+}

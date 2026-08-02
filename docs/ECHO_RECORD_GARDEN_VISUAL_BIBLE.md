@@ -1,6 +1,6 @@
 # Echo Record Garden Visual Bible
 
-Status: implementation contract; visual acceptance and external sourcing remain pending  
+Status: implemented prototype contract; fixed-shot visual acceptance and any external sourcing remain pending  
 Program ID: `echo-record-garden-v2-2026-08-01`  
 Experience stage: First Pass / Prototype Stage  
 Primary route: `/?view=echo-records`
@@ -10,12 +10,16 @@ Primary route: `/?view=echo-records`
 This document directs implementation; it is not evidence that the finished
 scene is premium, publicly cleared, or release-ready.
 
-- The current garden environment is project-authored procedural Three.js.
+- The current garden environment is project-authored procedural Three.js. Its
+  visual-system design applies franchise-neutral methods distilled from the
+  local MIT-licensed `pallet-town-3d` reference application; no reference code,
+  textures, characters, names, iconography, or franchise assets were copied.
 - No external model, generated texture, generated backdrop, generated sound,
   provider task, or downloaded provider output is claimed by this document.
-- The credential fields in `ECHO_RECORD_GARDEN_ASSET_LEDGER.json` are blank and
-  unresolved because no credential probe was authorized for this documentation
-  pass. Blank does not mean `SET` or `MISSING`.
+- A non-secret credential-presence probe was performed on 2026-08-01 for
+  Tripo, Gemini, and ElevenLabs. Each probe result was blank/unset. No secret
+  value was recorded, no provider availability is claimed, and no external
+  generation was attempted.
 - Echo songs, Director media, Reference images, Avatar/Scene images, and attached
   Cards retain their source ownership, provenance, consent, and rights state.
   Display inside Hapa does not grant Hapa publication or reuse rights.
@@ -34,7 +38,7 @@ Truth labels used in-world and in evidence:
 | `SOURCE UNAVAILABLE` | The source or attachment is explicitly missing or inaccessible. |
 | `LOCAL · UNMINTED` | Deterministic local Card projection; not persisted, minted, canonized, or published. |
 | `PLANNED · NO OUTPUT` | An external or hybrid asset route is proposed, but no provider task or file exists. |
-| `CREDENTIAL UNRESOLVED` | Credential state was not probed; no availability claim is made. |
+| `CREDENTIAL BLANK/UNSET` | A presence probe returned no value; no provider availability claim is made. |
 | `RIGHTS REVIEW REQUIRED` | Public use has not been cleared. |
 
 ## Experience Sentence
@@ -102,20 +106,27 @@ depth, but the default camera must communicate that loop without exploration.
 
 | Role | Name | Hex | Use |
 | --- | --- | --- | --- |
-| atmosphere | garden sky mist | `#A8C9C3` | clear background and cool distance |
-| atmosphere | fog sage | `#9AB7A9` | depth separation, never concealment |
-| ground | lawn sage | `#678B5D` | matte grass base |
-| foliage | leaf green | `#47794D` | tree crowns and midground foliage |
-| path | sunlit sand | `#B89D74` | garden path and warm neutral scale cue |
-| wood | table walnut | `#875936` | primary table surface |
-| wood | deep edge | `#4B2F22` | apron, legs, frames, contact structure |
-| ceramic | tea cream | `#E9E0CB` | cups, pot, paper-like highlights |
-| light | late-afternoon sun | `#FFDDA1` | directional key and warm highlights |
-| signal | Hapa amber | `#F6C96D` | current/important secondary signal |
+| atmosphere | sky zenith | `#5595D6` | clear upper sky and cool distance |
+| atmosphere | sun-washed horizon | `#C8E5ED` | bright horizon and environment response |
+| atmosphere | blue-green haze | `#BCD9D7` | depth separation, never concealment |
+| ground | lawn light | `#7CAD56` | sun-facing grass and clustered blades |
+| ground | lawn middle | `#5F8D50` | matte grass base |
+| ground | lawn shadow | `#365F42` | cool contact and groundcover depth |
+| foliage | foliage light | `#82B85A` | sun-facing crown variation |
+| foliage | foliage middle | `#4D7D4D` | tree crowns and hedges |
+| foliage | foliage shadow | `#2F583C` | cool crown undersides and depth |
+| path | sunlit soil | `#C9AA7D` | garden path and warm neutral scale cue |
+| path | compacted soil | `#8E6848` | path breakup and recessed grit |
+| wood | table sun face | `#A87545` | primary table and crate highlights |
+| wood | table middle | `#7F5435` | primary timber body |
+| wood | deep edge | `#3F2A22` | apron, legs, frames, contact structure |
+| ceramic | tea cream | `#F1EAD9` | cups, pot, paper-like highlights |
+| light | late-afternoon sun | `#FFF0CF` | directional key and warm highlights |
+| signal | Hapa amber | `#F4C86A` | current/important secondary signal |
 | signal | Hapa cyan | `#56F0CF` | actionable, ready, focus, drop target |
-| vinyl | charcoal black | `#111217` | record body and strong media surround |
+| vinyl | charcoal black | `#17181C` | record body and strong media surround |
 | text | warm paper | `#F8F3E7` | high-priority readable type |
-| accent | flower rose | `#F29AB2` | small environmental accent only |
+| accent | flower rose | `#EF8FA8` | small environmental accent only |
 
 Song perspective accents remain source-derived and may vary per Record. Color
 never substitutes for title, state text, attachment identity, or truth label.
@@ -129,21 +140,27 @@ Baseline renderer intent:
 - exposure baseline: `1.08`;
 - full-quality DPR cap: `1.65`;
 - reduced-motion DPR cap: `1.0`;
-- fog baseline: `FogExp2(#9AB7A9, 0.024)`.
+- shadow filtering: `THREE.PCFSoftShadowMap`;
+- fog baseline: `FogExp2(#BCD9D7, 0.0165)`;
+- visible sky: deterministic `512 × 256` sRGB gradient/halo texture on a
+  back-facing dome;
+- environment response: PMREM derived from that same visible sky, intensity
+  `0.72`.
 
 Lighting stack:
 
-- one warm directional sun, `#FFDDA1`, from `(-6, 10, 6)`;
-- one cool-sky/warm-ground hemisphere fill;
-- one contained amber rim/practical near the Preview and player;
+- one warm directional sun, `#FFF0CF`, intensity `3.25`, from `(-8, 12, 7)`;
+- one cool-sky/green-ground hemisphere fill, intensity `0.92`;
+- one restrained warm directional ground bounce, `#FFD9A8`, intensity `0.28`;
 - only the directional sun casts a real shadow;
-- primary shadow map is at most `1024 × 1024` with bounds limited to the table
-  and immediate interaction area.
+- the sun uses a `1024 × 1024` soft shadow map with a `28 × 28` fitted stage
+  footprint and normalized bias.
 
-Lighting must reveal authored form through value, roughness, and contact before
-emissive accents are added. Whole objects do not glow. Bloom or another post
-pass may be introduced only after an enabled/disabled screenshot comparison
-and measured frame-cost evidence; no post-processing pass is claimed here.
+Lighting reveals authored form through value, roughness, environment response,
+and contact before emissive accents are added. Whole objects do not glow. The
+current system uses zero post-processing passes. The large Director media plane
+remains `MeshBasicMaterial` with tone mapping disabled, so environmental color
+and future post work cannot downgrade or recolor the source pixels.
 
 Reduced-motion mode disables real-time shadows in the current power profile.
 Compact quality may reduce shadow casters or use contact blobs before reducing
@@ -166,7 +183,21 @@ Physical materials use shared named roles:
 | media surfaces | `MeshBasicMaterial`, tone mapping disabled, exact source color |
 | signal trim | small cyan/amber emissive or unlit elements tied to state |
 
-`MeshStandardMaterial` is the default physical surface.
+The implemented material bakery produces five deterministic, tileable
+`128 × 128` albedo/normal pairs for grass, soil, wood, bark, and textile. Each
+pair comes from one periodic four-octave surface field, and normal derivatives
+wrap across texture edges. Albedo is sRGB; normal data remains in no-color
+space. Mipmaps, trilinear minification, linear magnification, repeat wrapping,
+and renderer-capped anisotropy are configured consistently. Roughness is
+currently a substance-specific scalar per material role rather than a generated
+roughness bitmap; the scalar ranges and causal surface lineage are recorded in
+`echo-record-garden-material-manifest.json` without claiming an emitted map.
+
+`MeshStandardMaterial` is the default physical surface. Shared material roles
+cover grass, soil, timber, deep timber, bark, foliage, textile, stone, ceramic,
+brass, charcoal, and paper. Rounded boxes and layered trim replace exposed
+sharp box silhouettes on the table, player, screen frame, catalog, pavilion,
+fence, and crate families.
 `MeshPhysicalMaterial` is reserved for a visibly valuable clearcoat, glass, or
 premium hero detail and must be profiled. Canvas textures need deliberate color
 space, mipmap/filter behavior, and disposal. Repeated flowers, trunks, crowns,
@@ -191,6 +222,9 @@ poster to video may never erase the title, identity, or truth state.
 ### Ambient motion
 
 - Sun motes rotate very slowly and breathe within a narrow opacity range.
+- Four staged cloud sprites drift from stable home positions, eighteen leaf
+  points orbit and lift slowly, and a three-tube wind chime uses low-amplitude
+  shared-clock motion.
 - Cloth and parasol sway by small angles; neither may read as wind-whipped.
 - Foliage motion, if expanded, uses shared low-frequency phase offsets rather
   than one animation allocation per leaf.
@@ -216,7 +250,7 @@ the same rule.
 
 | Runtime owner | Resources | Required cleanup |
 | --- | --- | --- |
-| `createLazySundayScene` | grass/path/table geometry, cloth canvas texture, parasol, instanced trees/flowers, tea set, crates, lights, mote geometry/material | dispose cloth texture; traverse once and dispose geometry/materials; remove no shared resource twice |
+| `createEchoRecordGardenVisualSystem` via `createLazySundayScene` | gradient sky/PMREM/fog, five deterministic albedo/normal pairs, lawn/path/table, cloth/parasol, wind chime, pavilions, fences, instanced hills/trees/hedges/grass/flowers/pebbles, tea set, crates, clouds, leaf drift, motes, three lights | rebuild the PMREM target after WebGL context restoration; collect geometry/material identities once; dispose all base and attached materials, the twelve owned textures, and the PMREM target; restore prior scene background/environment/fog; remove environment idempotently |
 | `createRecordPlayer` | chassis, platter, tonearm, spindle, drop ring, Record anchor | release pooled media; traverse and dispose owned geometry/materials |
 | `createRecordCatalogConsole` | panel geometry, dynamic title texture, button textures/materials | dispose replaced title texture immediately; dispose button textures and owned geometry/materials on teardown |
 | `createAlbumScreens` | frame, hit plane, standby canvas texture, glow | release pool-managed media; dispose standby/fallback and screen geometry/materials |
@@ -301,7 +335,7 @@ is allowed only after a confirmed missing attachment and remains
   states are source-labelled. Black is never the loading design.
 - Screen activation prints the exact current attached Card and is available by
   pointer, keyboard, and touch.
-- Environment lighting must not tone-map or recolor the media pixels.
+- Environment lighting and fog must not tone-map, haze, or recolor the media pixels.
 
 ## Living Records And Cards
 
@@ -372,8 +406,11 @@ video residents, decoder readiness, frame histogram, heap, and bundle size.
 The machine-readable sourcing decisions live in
 `ECHO_RECORD_GARDEN_ASSET_LEDGER.json`.
 
-- Keep repeated grass, flowers, motes, simple collision proxies, and low-value
-  modular detail procedural and instanced.
+- Keep repeated grass, flowers, motes, hills, trees, hedges, pebbles, fence
+  posts, simple collision proxies, and low-value modular detail procedural and
+  instanced. This route is now implemented for the prototype.
+- Keep the five related surface-map pairs, gradient sky, clouds, and current
+  prop family project-authored and deterministic. They are not provider output.
 - Treat the turntable and one high-value garden setting/prop family as future
   hybrid candidates: image reference → generated/imported 3D → local GLB/PBR
   validation → procedural interaction proxy and effects.
@@ -385,9 +422,11 @@ The machine-readable sourcing decisions live in
   they must duck beneath the song master, unlock from a user gesture, respect
   mute/visibility, and stop without stacking.
 
-All external/hybrid entries remain `PLANNED · NO OUTPUT` until the credential
-probe, provider task, immediate local download, hash, source chain, import
-diagnostics, and rights/custody fields are complete.
+All external/hybrid entries remain `PLANNED · NO OUTPUT`. The 2026-08-01
+credential-presence probe returned blank/unset for every candidate provider,
+and no provider task, output, download, or hash exists. Any future external
+route still requires a fresh readiness check, provider task, immediate local
+download, hash, source chain, import diagnostics, and rights/custody fields.
 
 ## Visual Acceptance Gate
 
@@ -416,15 +455,22 @@ experience is not labelled premium or complete.
    face, bounded media, and placement-latency contracts.
 3. `src/domain/echo-director-preview-runtime.js` owns exact frame projection and
    one-clock compositor semantics.
-4. `src/components/EchoRecordGarden3DView.jsx` owns Three.js objects, transforms,
-   interaction, material factories, environment, media leases, and disposal.
-5. Exact Card resolution remains in `src/domain/echo-record-card-resolution.js`.
+4. `src/components/echo-record-garden-visual-system.js` owns the environment
+   palette, procedural surface bakery, physical material kit, atmosphere,
+   supporting scene layers, ambient updates, metrics, and environment cleanup.
+5. `src/components/EchoRecordGarden3DView.jsx` owns the Three.js game, hero
+   objects, transforms, interaction, media leases, visual-system integration,
+   and game-level disposal.
+6. Exact Card resolution remains in `src/domain/echo-record-card-resolution.js`.
 
-Implementation sequence: freeze this bible and ledger → baseline current
-screenshots/metrics → resolve sourcing credentials and rights boundaries →
-author/import the signature surfaces → integrate with named owners and disposal
-→ tune materials/lighting → verify motion/reduced motion → profile → capture
-desktop/compact evidence → score → human acceptance.
+Implemented sequence: inspect the local reference and current owner → extract
+franchise-neutral systems → author the deterministic visual module → integrate
+shared materials with the environment and hero surrounds → preserve media and
+interaction contracts → document ownership, sourcing, lineage, and manifests.
+
+Remaining acceptance sequence: pass focused and broad verification → capture
+current desktop/compact fixed shots → measure renderer/media/runtime budgets →
+score the same build → complete human visual and public-rights acceptance.
 
 ## Reuse And Learning Checkpoint
 
@@ -438,3 +484,15 @@ desktop/compact evidence → score → human acceptance.
 - **Guardrail:** no visual polish, external asset, or generated output can
   replace exact media lineage, hide a missing state, create a second clock, or
   bypass lifecycle disposal and measured budgets.
+- **Reference lineage:** the local MIT-licensed `pallet-town-3d` reference
+  informed abstract systems: bounded palette roles, related procedural surface
+  maps, key/fill/bounce/environment lighting, horizon-matched fog, softened
+  forms, layered scenery, ground-level density, shared ambient motion,
+  instancing, and deterministic screenshot review. The implementation is newly
+  authored and franchise-neutral; no reference code, assets, characters,
+  trademarked designs, or signature content were copied.
+- **Reusable outcomes:** `stylized-diorama-environment-design` and
+  `threejs-procedural-material-lab` are explicit Skill candidates authored from
+  this transfer. Their manifests describe workflow compliance only; visual
+  acceptance remains pending until current fixed-shot evidence is captured and
+  scored.

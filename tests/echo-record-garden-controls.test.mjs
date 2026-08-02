@@ -19,7 +19,7 @@ test("the record crate exposes counts, clear, retry, and an explicit return jour
 test("one large physical preview presents the exact composite while its bounded context stays pageable", () => {
   assert.match(source, /const SCREEN_COUNT = 1/);
   assert.doesNotMatch(source, /const SCREEN_COUNT = 3/);
-  assert.match(source, /new THREE\.BoxGeometry\(7\.44, 4\.34, 0\.2\)/);
+  assert.match(source, /createEchoGardenRoundedBoxGeometry\(7\.44, 4\.34, 0\.2, 0\.085, 4\)/);
   assert.match(source, /new THREE\.PlaneGeometry\(7\.08, 3\.98\)/);
   assert.match(source, /limit: SCREEN_COUNT \* 4/);
   assert.match(source, /const mediaWindow = useMemo/);

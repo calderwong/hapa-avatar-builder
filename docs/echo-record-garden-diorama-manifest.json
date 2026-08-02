@@ -1,0 +1,132 @@
+{
+  "version": 1,
+  "programId": "echo-record-garden-v2-2026-08-01",
+  "profileId": "echo-record-garden-sunwashed-diorama-v1",
+  "experienceStage": "first-pass-prototype",
+  "visualAcceptance": "pending-fixed-shot-review",
+  "styleContract": {
+    "target": [
+      "sun-washed",
+      "hand-shaped",
+      "lazy-Sunday",
+      "garden-scale"
+    ],
+    "noGo": [
+      "franchise imitation",
+      "razor-edged hero primitives",
+      "neon-dominant atmosphere",
+      "effects that outrank Director media"
+    ]
+  },
+  "determinism": {
+    "seed": "echo-record-garden-sunwashed-diorama-v1",
+    "sharedClock": true,
+    "fixedShots": [
+      "desktop-arrival-1440x900",
+      "desktop-record-on-player-1440x900",
+      "compact-active-use-390x844"
+    ],
+    "evidenceStatus": "captures-pending-current-build"
+  },
+  "ownership": {
+    "lighting": "src/components/echo-record-garden-visual-system.js#createEchoRecordGardenVisualSystem",
+    "materials": "src/components/echo-record-garden-visual-system.js#createMaterialKit",
+    "post": "none; primary media remains unlit and toneMapped false"
+  },
+  "palette": {
+    "ground": "#5f8d50",
+    "foliageLight": "#82b85a",
+    "foliageShadow": "#2f583c",
+    "warmNeutral": "#f1ead9",
+    "coolAnchor": "#5595d6",
+    "accent": "#ef8fa8",
+    "highlight": "#fff0cf",
+    "darkNeutral": "#17181c"
+  },
+  "materials": [
+    {
+      "name": "garden groundcover",
+      "substance": "short-groundcover",
+      "albedoVariation": true,
+      "normalResponse": true,
+      "roughnessRange": [0.82, 0.94]
+    },
+    {
+      "name": "garden path and stone",
+      "substance": "compacted-soil-and-mineral",
+      "albedoVariation": true,
+      "normalResponse": true,
+      "roughnessRange": [0.86, 0.9]
+    },
+    {
+      "name": "sun-worn timber",
+      "substance": "directional-wood-grain",
+      "albedoVariation": true,
+      "normalResponse": true,
+      "roughnessRange": [0.54, 0.82]
+    },
+    {
+      "name": "tree bark",
+      "substance": "directional-bark-ridges",
+      "albedoVariation": true,
+      "normalResponse": true,
+      "roughnessRange": [0.9, 0.96]
+    },
+    {
+      "name": "picnic textile and paper",
+      "substance": "woven-fiber",
+      "albedoVariation": true,
+      "normalResponse": true,
+      "roughnessRange": [0.7, 0.9]
+    }
+  ],
+  "composition": {
+    "foreground": [
+      "rounded picnic-table edge",
+      "woven cloth",
+      "nearby Records and printed Cards"
+    ],
+    "midground": [
+      "stable physical Record and player",
+      "one large Director Preview",
+      "in-world catalog console",
+      "tea setting and contact rings"
+    ],
+    "background": [
+      "parasol canopy and wind chime",
+      "layered trees and hedges",
+      "garden pavilions, fence, path, hills, clouds, and sky horizon"
+    ]
+  },
+  "lighting": {
+    "key": true,
+    "hemisphereFill": true,
+    "warmBounce": true,
+    "environmentResponse": true,
+    "fogMatchesHorizon": true,
+    "activeLights": 3,
+    "shadowCastingLights": 1,
+    "postProcessingPasses": 0
+  },
+  "accessibility": {
+    "reducedMotion": true,
+    "nonMotionStateCues": true,
+    "mediaColorProtected": true
+  },
+  "performance": {
+    "budget": {
+      "targetFps": 60,
+      "drawCalls": 140,
+      "triangles": 350000
+    },
+    "measurementStatus": "pending-current-build-fixed-camera-capture"
+  },
+  "sourceLineage": {
+    "reference": "local pallet-town-3d reference application",
+    "license": "MIT License; copyright 2026 Paulius",
+    "transfer": "abstract visual and engineering systems only",
+    "sourceCodeCopied": false,
+    "sourceAssetsCopied": false,
+    "franchiseContentCopied": false
+  }
+}

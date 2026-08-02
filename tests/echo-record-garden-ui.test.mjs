@@ -42,10 +42,11 @@ test("album data stays bounded, uses one cinematic preview, and keeps selected-r
   assert.match(component, /const SCREEN_COUNT = 1/);
   assert.match(
     component,
-    /function createAlbumScreens\(world\) \{\s*const specs = \[\s*\{ x: 0, y: 2\.72, z: -2\.68, ry: 0, scale: 1 \},\s*\];/s,
+    /function createAlbumScreens\(world, materialKit = null\) \{\s*const specs = \[\s*\{ x: 0, y: 2\.72, z: -2\.68, ry: 0, scale: 1 \},\s*\];/s,
   );
-  assert.match(component, /new THREE\.BoxGeometry\(7\.44, 4\.34, 0\.2\)/);
+  assert.match(component, /createEchoGardenRoundedBoxGeometry\(7\.44, 4\.34, 0\.2, 0\.085, 4\)/);
   assert.match(component, /new THREE\.PlaneGeometry\(7\.08, 3\.98\)/);
+  assert.match(component, /const screenMaterial = new THREE\.MeshBasicMaterial\(\{[\s\S]*?toneMapped: false,[\s\S]*?fog: false/);
   assert.match(component, /const PROJECT_PACKET_CACHE_LIMIT = 12/);
   assert.match(component, /function readCachedProjectPacket/);
   assert.match(component, /function retainProjectPacket/);
