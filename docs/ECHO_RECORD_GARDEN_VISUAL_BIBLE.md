@@ -526,3 +526,23 @@ score the same build → complete human visual and public-rights acceptance.
   this transfer. Their manifests describe workflow compliance only; visual
   acceptance remains pending until current fixed-shot evidence is captured and
   scored.
+
+### Enlarged-screen clearance checkpoint
+
+- **Objective:** keep the doubled Director surface visually unobstructed while
+  moving the picnic-table composition slightly deeper into the garden.
+- **Evidence inspected:** the authored screen, timber frame, planters, parasol,
+  table props, Record/Card roots, drag plane, player drop target, and saved local
+  transforms.
+- **Changed:** the table and all table-bound interactions now share one offset
+  coordinate frame; the screen has a separate depth gap; frame posts, planters,
+  and parasol sit outside the screen footprint.
+- **Left alone:** Director playback, media clocks, lighting, materials, weather,
+  source records, Card custody, and mint authority.
+- **New guardrail:** move spatial ensembles through shared parent transforms and
+  test screen clearance numerically; never repair a sightline by desynchronizing
+  visible props from their hit, drag, or persistence coordinates.
+- **Reuse candidate:** a protected-hero-plane layout check is a useful future
+  Lesson Card for Three.js diorama composition. This checkpoint remains linked
+  to the originating Codex Turn and is code-verified pending a live fixed-shot
+  review.

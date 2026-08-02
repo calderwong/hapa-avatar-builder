@@ -42,6 +42,7 @@ import {
   resolveVerifiedEchoStemBinding,
 } from "../domain/echo-visualizer-audio-envelope.js";
 import { createEchoRecordGardenAcceptanceRun } from "../domain/echo-record-garden-acceptance.js";
+import { ECHO_RECORD_GARDEN_SPATIAL_LAYOUT } from "../domain/echo-record-garden-spatial-layout.js";
 import {
   attachEchoRecordObjectPreservingWorldTransform,
   buildEchoRecordFaceContract,
@@ -3794,23 +3795,32 @@ function createEchoRecordGardenGame({
   world.name = "EchoRecordGardenWorld";
   scene.add(world);
 
+  const tableInteractionRoot = new THREE.Group();
+  tableInteractionRoot.name = "EchoRecordGardenTableInteractionRoot";
+  tableInteractionRoot.position.set(
+    ECHO_RECORD_GARDEN_SPATIAL_LAYOUT.tableStage.x,
+    ECHO_RECORD_GARDEN_SPATIAL_LAYOUT.tableStage.y,
+    ECHO_RECORD_GARDEN_SPATIAL_LAYOUT.tableStage.z,
+  );
+  world.add(tableInteractionRoot);
+
   const textureLoader = new THREE.TextureLoader();
   textureLoader.setCrossOrigin("anonymous");
   const recordsRoot = new THREE.Group();
   recordsRoot.name = "EchoRecordCrate";
-  world.add(recordsRoot);
+  tableInteractionRoot.add(recordsRoot);
   const printedCardsRoot = new THREE.Group();
   printedCardsRoot.name = "EchoRecordPrintedCards";
-  world.add(printedCardsRoot);
+  tableInteractionRoot.add(printedCardsRoot);
 
   const sceneResources = createLazySundayScene(world, { scene, renderer });
   diagnostics.visualProfile = sceneResources.metrics;
   canvas.dataset.visualProfile = sceneResources.metrics.profileId;
   canvas.dataset.environmentDetailInstances = String(sceneResources.metrics.instancedDetailCount);
-  const player = createRecordPlayer(world, sceneResources.materialKit);
+  const player = createRecordPlayer(tableInteractionRoot, sceneResources.materialKit);
   const screens = createAlbumScreens(world, sceneResources.materialKit);
-  const catalogConsole = createRecordCatalogConsole(world, sceneResources.materialKit);
-  const audioVisualizer = createEchoRecordGardenAudioVisualizer({ world });
+  const catalogConsole = createRecordCatalogConsole(tableInteractionRoot, sceneResources.materialKit);
+  const audioVisualizer = createEchoRecordGardenAudioVisualizer({ world: tableInteractionRoot });
   diagnostics.visualizerProfile = audioVisualizer.metrics;
   const mediaPool = createScreenMediaPool({
     apiBase,
@@ -3828,6 +3838,7 @@ function createEchoRecordGardenGame({
   const pointer = new THREE.Vector2();
   const dragPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -0.88);
   const dragPoint = new THREE.Vector3();
+  const tableDragPoint = new THREE.Vector3();
   const recordEntries = new Map();
   const recordEntityRegistry = createEchoRecordEntityRegistry();
   const printedEntries = new Map();
@@ -3921,8 +3932,8 @@ function createEchoRecordGardenGame({
   };
 
   const playerDropReady = (position) => {
-    const dx = position.x - player.platterWorld.x;
-    const dz = position.z - player.platterWorld.z;
+    const dx = position.x - player.platterTablePosition.x;
+    const dz = position.z - player.platterTablePosition.z;
     return Math.hypot(dx, dz) <= 1.2;
   };
 
@@ -4000,10 +4011,12 @@ function createEchoRecordGardenGame({
     if (heldPrintedEntry) {
       raycaster.setFromCamera(pointer, camera);
       if (raycaster.ray.intersectPlane(dragPlane, dragPoint)) {
+        tableDragPoint.copy(dragPoint);
+        tableInteractionRoot.worldToLocal(tableDragPoint);
         heldPrintedEntry.root.position.set(
-          THREE.MathUtils.clamp(dragPoint.x, -4.35, 4.35),
+          THREE.MathUtils.clamp(tableDragPoint.x, -4.35, 4.35),
           1.28,
-          THREE.MathUtils.clamp(dragPoint.z, -2.25, 2.45),
+          THREE.MathUtils.clamp(tableDragPoint.z, -2.25, 2.45),
         );
         renderer.domElement.style.cursor = "grabbing";
       }
@@ -4012,10 +4025,12 @@ function createEchoRecordGardenGame({
     if (heldEntry) {
       raycaster.setFromCamera(pointer, camera);
       if (raycaster.ray.intersectPlane(dragPlane, dragPoint)) {
+        tableDragPoint.copy(dragPoint);
+        tableInteractionRoot.worldToLocal(tableDragPoint);
         heldEntry.root.position.set(
-          THREE.MathUtils.clamp(dragPoint.x, -4.25, 4.25),
+          THREE.MathUtils.clamp(tableDragPoint.x, -4.25, 4.25),
           1.12,
-          THREE.MathUtils.clamp(dragPoint.z, -2.2, 2.45),
+          THREE.MathUtils.clamp(tableDragPoint.z, -2.2, 2.45),
         );
         const ready = playerDropReady(heldEntry.root.position);
         player.dropRing.material.opacity = ready ? 0.95 : 0.38;
@@ -4514,7 +4529,8 @@ function createEchoRecordGardenGame({
     const nextPosition = new THREE.Vector3(4.5, 3.1, 4.6);
     if (playback.reducedMotion) camera.position.copy(nextPosition);
     else camera.position.lerp(nextPosition, 0.7);
-    controls.target.copy(entry.root.position);
+    entry.root.getWorldPosition(tableDragPoint);
+    controls.target.copy(tableDragPoint);
     controls.update();
     onCameraChange?.();
   };
@@ -5201,8 +5217,11 @@ function createRecordPlayer(world, materialKit = null) {
   dropRing.position.set(-0.38, 0.72, 0);
   root.add(dropRing);
 
-  const platterWorld = new THREE.Vector3();
-  platter.getWorldPosition(platterWorld);
+  const platterTablePosition = new THREE.Vector3(
+    root.position.x + platter.position.x,
+    root.position.y + platter.position.y,
+    root.position.z + platter.position.z,
+  );
   return {
     root,
     record: recordAnchor,
@@ -5211,7 +5230,7 @@ function createRecordPlayer(world, materialKit = null) {
     labelRing,
     toneArm: toneArmPivot,
     dropRing,
-    platterWorld,
+    platterTablePosition,
     visual: null,
     mediaResource: null,
     dispose() {
@@ -5415,7 +5434,7 @@ function setPlayerRecordVisual(player, visual, { mediaPool }) {
 
 function createAlbumScreens(world, materialKit = null) {
   const specs = [
-    { x: 0, y: 2.72, z: -2.68, ry: 0, scale: 2 },
+    ECHO_RECORD_GARDEN_SPATIAL_LAYOUT.screen,
   ];
   return specs.map((spec, index) => {
     const root = new THREE.Group();

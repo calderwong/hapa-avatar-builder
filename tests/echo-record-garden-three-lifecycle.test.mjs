@@ -444,3 +444,14 @@ test("table arrangements persist stable transforms and reject colliding drops", 
     "decorative motion must not corrupt the persisted base rotation",
   );
 });
+
+test("table scenery and manipulable objects share one translated coordinate frame", () => {
+  assert.match(threeRuntime, /tableInteractionRoot\.name = "EchoRecordGardenTableInteractionRoot"/);
+  assert.match(threeRuntime, /ECHO_RECORD_GARDEN_SPATIAL_LAYOUT\.tableStage\.z/);
+  assert.match(threeRuntime, /tableInteractionRoot\.add\(recordsRoot\)/);
+  assert.match(threeRuntime, /tableInteractionRoot\.add\(printedCardsRoot\)/);
+  assert.match(threeRuntime, /createRecordPlayer\(tableInteractionRoot/);
+  assert.match(threeRuntime, /createRecordCatalogConsole\(tableInteractionRoot/);
+  assert.match(threeRuntime, /tableInteractionRoot\.worldToLocal\(tableDragPoint\)/);
+  assert.match(threeRuntime, /player\.platterTablePosition/);
+});

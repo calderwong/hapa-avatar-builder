@@ -16,6 +16,7 @@ import {
   resolveEchoRecordGardenAtmosphere,
   resolveEchoRecordGardenAtmosphereProgress,
 } from "../domain/echo-record-garden-atmosphere.js";
+import { ECHO_RECORD_GARDEN_SPATIAL_LAYOUT } from "../domain/echo-record-garden-spatial-layout.js";
 
 export const ECHO_RECORD_GARDEN_VISUAL_PROFILE = Object.freeze({
   id: "echo-record-garden-sunwashed-diorama-v2",
@@ -985,7 +986,16 @@ function createGardenPavilion(materialKit, x, z, accent, mirrored = false) {
 function createDirectorGardenFrame(materialKit) {
   const group = new THREE.Group();
   group.name = "EchoGardenDirectorScreenStructure";
-  group.position.z = -2.82;
+  group.position.set(
+    ECHO_RECORD_GARDEN_SPATIAL_LAYOUT.directorFrame.position.x,
+    ECHO_RECORD_GARDEN_SPATIAL_LAYOUT.directorFrame.position.y,
+    ECHO_RECORD_GARDEN_SPATIAL_LAYOUT.directorFrame.position.z,
+  );
+  group.scale.set(
+    ECHO_RECORD_GARDEN_SPATIAL_LAYOUT.directorFrame.scale.x,
+    ECHO_RECORD_GARDEN_SPATIAL_LAYOUT.directorFrame.scale.y,
+    ECHO_RECORD_GARDEN_SPATIAL_LAYOUT.directorFrame.scale.z,
+  );
   const timber = materialKit.clone("deepWood", { color: 0x684737, roughness: 0.7 });
   for (const x of [-4.04, 4.04]) {
     const post = new THREE.Mesh(rounded(0.22, 5.15, 0.25, 0.055, 4), timber);
@@ -1080,7 +1090,9 @@ function createDirectorGardenPlanters(materialKit) {
   const group = new THREE.Group();
   group.name = "EchoGardenDirectorPlanters";
   const potColors = [0xc66d55, 0x658fab];
-  for (const [index, x] of [-4.72, 4.72].entries()) {
+  const planterZ = ECHO_RECORD_GARDEN_SPATIAL_LAYOUT.directorPlanters.z;
+  const planterX = ECHO_RECORD_GARDEN_SPATIAL_LAYOUT.directorPlanters.x;
+  for (const [index, x] of [-planterX, planterX].entries()) {
     const pot = new THREE.Mesh(
       new THREE.CylinderGeometry(0.38, 0.29, 0.62, 18),
       materialKit.clone(index === 0 ? "roofRed" : "roofBlue", {
@@ -1088,7 +1100,7 @@ function createDirectorGardenPlanters(materialKit) {
         roughness: 0.72,
       }),
     );
-    pot.position.set(x, -0.26, -3.18);
+    pot.position.set(x, -0.26, planterZ);
     pot.castShadow = true;
     pot.receiveShadow = true;
     group.add(pot);
@@ -1099,14 +1111,14 @@ function createDirectorGardenPlanters(materialKit) {
         roughness: 0.72,
       }),
     );
-    lip.position.set(x, 0.045, -3.18);
+    lip.position.set(x, 0.045, planterZ);
     lip.rotation.x = Math.PI / 2;
     group.add(lip);
     const soil = new THREE.Mesh(
       new THREE.CircleGeometry(0.32, 24),
       materialKit.clone("soil", { color: 0x5e4738, roughness: 0.96 }),
     );
-    soil.position.set(x, 0.055, -3.18);
+    soil.position.set(x, 0.055, planterZ);
     soil.rotation.x = -Math.PI / 2;
     group.add(soil);
   }
@@ -1125,7 +1137,7 @@ function createDirectorGardenPlanters(materialKit) {
     placeInstanced(
       leaves,
       index,
-      new THREE.Vector3(side * 4.72, 0.02, -3.18),
+      new THREE.Vector3(side * planterX, 0.02, planterZ),
       new THREE.Quaternion().setFromEuler(new THREE.Euler(0, angle, (local - 3.5) * 0.09)),
       new THREE.Vector3(0.82 + (local % 3) * 0.14, 0.78 + (local % 4) * 0.09, 1),
       leafMatrix,
@@ -1326,16 +1338,25 @@ export function createEchoRecordGardenVisualSystem({ world, scene, renderer }) {
   farHills.receiveShadow = false;
   environment.add(farHills);
 
+  const tableStage = new THREE.Group();
+  tableStage.name = "EchoGardenTableStage";
+  tableStage.position.set(
+    ECHO_RECORD_GARDEN_SPATIAL_LAYOUT.tableStage.x,
+    ECHO_RECORD_GARDEN_SPATIAL_LAYOUT.tableStage.y,
+    ECHO_RECORD_GARDEN_SPATIAL_LAYOUT.tableStage.z,
+  );
+  environment.add(tableStage);
+
   const table = new THREE.Mesh(rounded(9.4, 0.34, 5.9, 0.13, 5), materialKit.materials.wood);
   table.name = "EchoGardenSunWornTable";
   table.position.y = -0.22;
   table.receiveShadow = true;
   table.castShadow = true;
-  environment.add(table);
+  tableStage.add(table);
   const apron = new THREE.Mesh(rounded(9.2, 0.38, 5.66, 0.1, 4), materialKit.materials.deepWood);
   apron.position.y = -0.47;
   apron.castShadow = true;
-  environment.add(apron);
+  tableStage.add(apron);
 
   for (let index = -2; index <= 2; index += 1) {
     const plank = new THREE.Mesh(
@@ -1349,7 +1370,7 @@ export function createEchoRecordGardenVisualSystem({ world, scene, renderer }) {
     plank.position.set(0, -0.032, index * 1.08);
     plank.rotation.y = index * 0.0018;
     plank.receiveShadow = true;
-    environment.add(plank);
+    tableStage.add(plank);
   }
 
   const legGeometry = rounded(0.48, 0.32, 0.48, 0.08, 4);
@@ -1358,7 +1379,7 @@ export function createEchoRecordGardenVisualSystem({ world, scene, renderer }) {
     leg.position.set(x, -0.44, z);
     leg.castShadow = true;
     leg.receiveShadow = true;
-    environment.add(leg);
+    tableStage.add(leg);
   }
 
   const directorGardenFrame = createDirectorGardenFrame(materialKit);
@@ -1378,11 +1399,15 @@ export function createEchoRecordGardenVisualSystem({ world, scene, renderer }) {
   cloth.rotation.z = -0.04;
   cloth.position.set(-2.2, -0.006, 0.05);
   cloth.receiveShadow = true;
-  environment.add(cloth);
+  tableStage.add(cloth);
 
   const parasolRoot = new THREE.Group();
   parasolRoot.name = "EchoGardenParasol";
-  parasolRoot.position.set(-5.35, 1.7, -2.8);
+  parasolRoot.position.set(
+    ECHO_RECORD_GARDEN_SPATIAL_LAYOUT.parasol.x,
+    ECHO_RECORD_GARDEN_SPATIAL_LAYOUT.parasol.y,
+    ECHO_RECORD_GARDEN_SPATIAL_LAYOUT.parasol.z,
+  );
   parasolRoot.rotation.z = -0.06;
   environment.add(parasolRoot);
   const parasolPole = new THREE.Mesh(
@@ -1714,7 +1739,7 @@ export function createEchoRecordGardenVisualSystem({ world, scene, renderer }) {
   const teaTray = new THREE.Group();
   teaTray.name = "EchoGardenTeaSetting";
   teaTray.position.set(3.65, 0.05, 1.55);
-  environment.add(teaTray);
+  tableStage.add(teaTray);
   const tray = new THREE.Mesh(
     new THREE.CylinderGeometry(0.72, 0.72, 0.06, 32),
     materialKit.clone("wood", { roughness: 0.54 }),
@@ -1749,7 +1774,7 @@ export function createEchoRecordGardenVisualSystem({ world, scene, renderer }) {
     ring.rotation.x = Math.PI / 2;
     ring.position.set(x, -0.006, z);
     ring.scale.setScalar(scale);
-    environment.add(ring);
+    tableStage.add(ring);
   }
 
   const crateMaterial = materialKit.clone("deepWood", { roughness: 0.82 });
@@ -1757,7 +1782,7 @@ export function createEchoRecordGardenVisualSystem({ world, scene, renderer }) {
     const crate = new THREE.Group();
     crate.position.set(x, -0.1, z);
     crate.rotation.y = rotation;
-    environment.add(crate);
+    tableStage.add(crate);
     for (let index = -1; index <= 1; index += 1) {
       const slat = new THREE.Mesh(rounded(1.65, 0.12, 0.23, 0.035, 3), crateMaterial);
       slat.position.set(0, index * 0.42, index === 0 ? 0 : 0.02);
@@ -1964,6 +1989,7 @@ export function createEchoRecordGardenVisualSystem({ world, scene, renderer }) {
 
   return {
     environment,
+    tableStage,
     bokeh,
     parasolRoot,
     crowns,

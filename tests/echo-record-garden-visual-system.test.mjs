@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 import * as THREE from "three";
+import { ECHO_RECORD_GARDEN_SPATIAL_LAYOUT } from "../src/domain/echo-record-garden-spatial-layout.js";
 
 import {
   ECHO_RECORD_GARDEN_VISUAL_PROFILE,
@@ -126,6 +127,38 @@ test("authored scatter stays deterministic, clustered, and outside the interacti
   for (const flower of first.flowers) {
     if (!colorByCluster.has(flower.clusterIndex)) colorByCluster.set(flower.clusterIndex, flower.color);
     assert.equal(flower.color, colorByCluster.get(flower.clusterIndex));
+  }
+});
+
+test("the enlarged Director screen keeps physical scenery outside its protected volume", () => {
+  const { resources } = createVisualSystemHarness();
+  try {
+    const layout = ECHO_RECORD_GARDEN_SPATIAL_LAYOUT;
+    const frame = resources.environment.getObjectByName("EchoGardenDirectorScreenStructure");
+    const planters = resources.environment.getObjectByName("EchoGardenDirectorPlanters");
+    const parasol = resources.environment.getObjectByName("EchoGardenParasol");
+    assert.deepEqual(resources.tableStage.position.toArray(), [0, 0, layout.tableStage.z]);
+    assert.deepEqual(frame.position.toArray(), Object.values(layout.directorFrame.position));
+    assert.deepEqual(frame.scale.toArray(), Object.values(layout.directorFrame.scale));
+    assert.deepEqual(parasol.position.toArray(), Object.values(layout.parasol));
+
+    const tableRearEdge = layout.tableStage.z - 5.9 / 2;
+    const screenFront = layout.screen.z + layout.screenHalfDepth;
+    assert.ok(tableRearEdge > screenFront + 0.25, "table and screen need a visible depth gap");
+    const screenBack = layout.screen.z - layout.screenHalfDepth;
+    const shadeForwardEdge = layout.directorFrame.position.z + 0.24 + 1.2 / 2 + 0.02;
+    assert.ok(shadeForwardEdge < screenBack - 0.1, "screen structure must remain behind the screen face");
+
+    const innerFrameEdge = 4.04 * layout.directorFrame.scale.x
+      - (0.22 * layout.directorFrame.scale.x) / 2;
+    assert.ok(innerFrameEdge > layout.screenHalfWidth, "frame posts must sit outside the screen face");
+    const nearestPlanterEdge = layout.directorPlanters.x - 0.38;
+    assert.ok(nearestPlanterEdge > layout.screenHalfWidth, "planters must clear the screen sides");
+    const parasolNearestEdge = Math.abs(layout.parasol.x) - 3.5;
+    assert.ok(parasolNearestEdge > layout.screenHalfWidth, "parasol canopy must clear the screen sides");
+    assert.equal(planters.children.length > 0, true);
+  } finally {
+    resources.dispose();
   }
 });
 

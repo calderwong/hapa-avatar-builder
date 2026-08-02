@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
+import { ECHO_RECORD_GARDEN_SPATIAL_LAYOUT } from "../src/domain/echo-record-garden-spatial-layout.js";
 
 const [component, resolver, app, hostTargets, adapters, css] = await Promise.all([
   readFile(new URL("../src/components/EchoRecordGarden3DView.jsx", import.meta.url), "utf8"),
@@ -42,8 +43,9 @@ test("album data stays bounded, uses one cinematic preview, and keeps selected-r
   assert.match(component, /const SCREEN_COUNT = 1/);
   assert.match(
     component,
-    /function createAlbumScreens\(world, materialKit = null\) \{\s*const specs = \[\s*\{ x: 0, y: 2\.72, z: -2\.68, ry: 0, scale: 2 \},\s*\];/s,
+    /function createAlbumScreens\(world, materialKit = null\) \{\s*const specs = \[\s*ECHO_RECORD_GARDEN_SPATIAL_LAYOUT\.screen,\s*\];/s,
   );
+  assert.equal(ECHO_RECORD_GARDEN_SPATIAL_LAYOUT.screen.scale, 2);
   assert.match(component, /createEchoGardenRoundedBoxGeometry\(7\.44, 4\.34, 0\.2, 0\.085, 4\)/);
   assert.match(component, /new THREE\.PlaneGeometry\(7\.08, 3\.98\)/);
   assert.match(component, /const screenMaterial = new THREE\.MeshBasicMaterial\(\{[\s\S]*?toneMapped: false,[\s\S]*?fog: false/);
