@@ -142,18 +142,19 @@ test("full and reduced power profiles change pixel ratio and shadows with observ
   assert.match(profiles, /full:[\s\S]*?pixelRatioCap: 1\.65,[\s\S]*?shadows: true/);
   assert.match(profiles, /reduced:[\s\S]*?pixelRatioCap: 1,[\s\S]*?shadows: false/);
   assert.match(threeRuntime, /renderer\.setPixelRatio\(pixelRatio\)/);
-  assert.match(threeRuntime, /renderer\.shadowMap\.enabled = profile\.shadows/);
+  assert.match(threeRuntime, /const shadowsEnabled = profile\.shadows && adaptiveDetailTier !== "reduced"/);
+  assert.match(threeRuntime, /renderer\.shadowMap\.enabled = shadowsEnabled/);
   assert.match(threeRuntime, /diagnostics\.powerProfile = profile\.id/);
   assert.match(threeRuntime, /canvas\.dataset\.powerProfile = profile\.id/);
   assert.match(threeRuntime, /canvas\.dataset\.renderPixelRatio = pixelRatio\.toFixed\(2\)/);
-  assert.match(threeRuntime, /canvas\.dataset\.shadows = profile\.shadows \? "enabled" : "disabled"/);
+  assert.match(threeRuntime, /canvas\.dataset\.shadows = shadowsEnabled \? "enabled" : "disabled"/);
   assert.match(threeRuntime, /const initialReducedMotion = globalThis\.matchMedia\?\.\("\(prefers-reduced-motion: reduce\)"\)\?\.matches === true/);
   assert.match(threeRuntime, /applyPowerProfile\(initialReducedMotion\)/);
   assert.match(threeRuntime, /applyPowerProfile\(playback\.reducedMotion\)/);
 });
 
 test("context recovery rebuilds the sky-derived environment instead of claiming stale reflections", () => {
-  assert.match(threeRuntime, /const handleContextRestored = \(\) => \{\s*try \{\s*sceneResources\.rebuildEnvironmentResponse\?\.\(\)/s);
+  assert.match(threeRuntime, /const handleContextRestored = \(\) => \{\s*try \{\s*resetAdaptiveTiming\(\);\s*sceneResources\.rebuildEnvironmentResponse\?\.\(\)/s);
   assert.match(threeRuntime, /diagnostics\.contextState = "degraded"/);
   assert.match(threeRuntime, /garden lighting needs a scene retry/);
 });
