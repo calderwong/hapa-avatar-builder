@@ -2,6 +2,26 @@ import * as THREE from "three";
 
 const ORIENTATION_EPSILON = 1e-10;
 
+function normalizedSurfaceHit(kind, hit) {
+  if (!hit?.entry || !Number.isFinite(Number(hit.distance)) || Number(hit.distance) < 0) return null;
+  return { kind, entry: hit.entry, distance: Number(hit.distance) };
+}
+
+export function resolveEchoGardenSurfaceWheelTarget({
+  heldPrintedEntry = null,
+  heldRecordEntry = null,
+  printedHit = null,
+  recordHit = null,
+} = {}) {
+  if (heldPrintedEntry) return { kind: "printed", entry: heldPrintedEntry, distance: 0 };
+  if (heldRecordEntry) return { kind: "record", entry: heldRecordEntry, distance: 0 };
+  const printed = normalizedSurfaceHit("printed", printedHit);
+  const record = normalizedSurfaceHit("record", recordHit);
+  if (!printed) return record;
+  if (!record) return printed;
+  return printed.distance <= record.distance ? printed : record;
+}
+
 /**
  * Rotates a flat Record Garden surface so its authored +Y face points toward
  * the camera and its authored -Z top edge stays aligned with camera-up.

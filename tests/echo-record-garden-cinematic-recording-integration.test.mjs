@@ -249,13 +249,17 @@ test("a verified recording becomes one durable-local Card truth copy without min
 
 test("the mouse wheel faces a held or hit Card or Record toward the camera and persists its transform", () => {
   const wheel = sourceBlock(component, "const handleWheel = (event) => {", "const handleContextLost =");
-  assert.match(wheel, /const printedEntry = heldPrintedEntry \|\| \(heldEntry \? null : printedCardHit\(\)\)/);
-  assert.match(wheel, /const recordEntry = heldEntry \|\| \(printedEntry \? null : recordHit\(\)\)/);
+  assert.match(wheel, /resolveEchoGardenSurfaceWheelTarget\(\{/);
+  assert.match(wheel, /heldRecordEntry: heldEntry/);
+  assert.match(wheel, /printedHit: \(heldPrintedEntry \|\| heldEntry\) \? null : printedCardIntersection\(\)/);
+  assert.match(wheel, /recordHit: \(heldPrintedEntry \|\| heldEntry\) \? null : recordIntersection\(\)/);
+  assert.match(wheel, /target\?\.kind === "printed"/);
+  assert.match(wheel, /target\?\.kind === "record"/);
   assert.match(wheel, /if \(!printedEntry && !recordEntry\) return/);
   assert.match(wheel, /if \(recordEntry\?\.placed\)/);
   assert.match(wheel, /orientEchoGardenSurfaceTowardCamera\(entry\.root, camera\)/);
-  assert.match(wheel, /entry\.home\.copy\(entry\.root\.position\)/);
   assert.match(wheel, /onPrintedCardTransform\?\.\(entry\.card\.id, \{/);
+  assert.match(wheel, /position: entry\.home\.toArray\(\)/);
   assert.match(wheel, /entry\.homeRotation\.set\(entry\.root\.rotation\.x/);
   assert.match(wheel, /entry\.cameraFacing = true/);
   assert.match(wheel, /orientationMode: "camera-facing"/);
@@ -263,7 +267,10 @@ test("the mouse wheel faces a held or hit Card or Record toward the camera and p
   assert.match(wheel, /manipulated: true/);
   assert.match(wheel, /event\.preventDefault\(\)/);
   assert.match(wheel, /event\.stopImmediatePropagation\(\)/);
+  assert.doesNotMatch(wheel, /entry\.home\.copy/);
   assert.doesNotMatch(wheel, /rotationDelta|euclideanModulo|event\.shiftKey|event\.altKey/);
+  assert.match(component, /\[\.\.\.recordEntries\.values\(\)\]\.filter\(\(entry\) => entry\.root\.visible\)/);
+  assert.match(component, /\[\.\.\.printedEntries\.values\(\)\]\.filter\(\(entry\) => entry\.root\.visible\)/);
   assert.match(component, /addEventListener\("wheel", handleWheel, \{ passive: false, capture: true \}\)/);
   assert.match(component, /removeEventListener\("wheel", handleWheel, \{ capture: true \}\)/);
 });
@@ -291,6 +298,11 @@ test("Record Mode locks source-record identity across React controls and Three i
   assert.ok(printedCardIndex >= 0 && recordIndex > printedCardIndex && lockIndex > recordIndex);
   assert.match(pointerDown, /Stop Record Mode before moving the source record/);
   assert.match(pointerDown, /event\.preventDefault\(\);\s*return;/s);
+  assert.match(
+    pointerDown,
+    /attachEchoRecordObjectPreservingWorldTransform\(entry\.root, recordsRoot\);\s*entry\.root\.rotation\.set\(\s*entry\.homeRotation\.x,\s*entry\.homeRotation\.y,\s*entry\.homeRotation\.z,/s,
+    "lifting a platter Record restores its saved table-facing orientation",
+  );
 
   const lockSetter = sourceBlock(component, "const setCaptureLocked", "const setWeatherPhase");
   assert.match(lockSetter, /captureLocked = Boolean\(nextLocked\)/);

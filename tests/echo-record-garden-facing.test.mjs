@@ -2,7 +2,31 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import * as THREE from "three";
 
-import { orientEchoGardenSurfaceTowardCamera } from "../src/components/echo-record-garden-facing.js";
+import {
+  orientEchoGardenSurfaceTowardCamera,
+  resolveEchoGardenSurfaceWheelTarget,
+} from "../src/components/echo-record-garden-facing.js";
+
+test("wheel targeting honors held identity and otherwise chooses the nearest visible hit", () => {
+  const heldRecord = { id: "held-record" };
+  const nearRecord = { id: "near-record" };
+  const farCard = { id: "far-card" };
+  assert.deepEqual(
+    resolveEchoGardenSurfaceWheelTarget({
+      heldRecordEntry: heldRecord,
+      printedHit: { entry: farCard, distance: 0.1 },
+    }),
+    { kind: "record", entry: heldRecord, distance: 0 },
+  );
+  assert.deepEqual(
+    resolveEchoGardenSurfaceWheelTarget({
+      printedHit: { entry: farCard, distance: 5 },
+      recordHit: { entry: nearRecord, distance: 2 },
+    }),
+    { kind: "record", entry: nearRecord, distance: 2 },
+  );
+  assert.equal(resolveEchoGardenSurfaceWheelTarget({ printedHit: { entry: farCard, distance: -1 } }), null);
+});
 
 test("flat Record Garden surfaces face the camera in world space under a rotated parent", () => {
   const scene = new THREE.Scene();

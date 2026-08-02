@@ -75,7 +75,10 @@ import {
   updateEchoRecordGardenVisualSystem,
 } from "./echo-record-garden-visual-system.js";
 import { createEchoRecordGardenAudioVisualizer } from "./echo-record-garden-audio-visualizer.js";
-import { orientEchoGardenSurfaceTowardCamera } from "./echo-record-garden-facing.js";
+import {
+  orientEchoGardenSurfaceTowardCamera,
+  resolveEchoGardenSurfaceWheelTarget,
+} from "./echo-record-garden-facing.js";
 
 const RECORDS_PER_CRATE = 10;
 const SCREEN_COUNT = 1;
@@ -3898,16 +3901,21 @@ function createEchoRecordGardenGame({
     pointer.y = -((event.clientY - bounds.top) / Math.max(1, bounds.height)) * 2 + 1;
   };
 
-  const recordHit = () => {
+  const recordIntersection = () => {
     raycaster.setFromCamera(pointer, camera);
-    const hits = raycaster.intersectObjects([...recordEntries.values()].map((entry) => entry.root), true);
+    const hits = raycaster.intersectObjects(
+      [...recordEntries.values()].filter((entry) => entry.root.visible).map((entry) => entry.root),
+      true,
+    );
     for (const hit of hits) {
       let object = hit.object;
       while (object && !object.userData?.recordId) object = object.parent;
-      if (object?.userData?.recordId) return recordEntries.get(object.userData.recordId) || null;
+      const entry = object?.userData?.recordId ? recordEntries.get(object.userData.recordId) : null;
+      if (entry?.root.visible) return { entry, distance: hit.distance };
     }
     return null;
   };
+  const recordHit = () => recordIntersection()?.entry || null;
 
   const visualHit = () => {
     raycaster.setFromCamera(pointer, camera);
@@ -3915,16 +3923,23 @@ function createEchoRecordGardenGame({
     return hits[0]?.object?.userData?.visual || hits[0]?.object?.parent?.userData?.visual || null;
   };
 
-  const printedCardHit = () => {
+  const printedCardIntersection = () => {
     raycaster.setFromCamera(pointer, camera);
-    const hits = raycaster.intersectObjects([...printedEntries.values()].map((entry) => entry.root), true);
+    const hits = raycaster.intersectObjects(
+      [...printedEntries.values()].filter((entry) => entry.root.visible).map((entry) => entry.root),
+      true,
+    );
     for (const hit of hits) {
       let object = hit.object;
       while (object && !object.userData?.printedCardId) object = object.parent;
-      if (object?.userData?.printedCardId) return printedEntries.get(object.userData.printedCardId) || null;
+      const entry = object?.userData?.printedCardId
+        ? printedEntries.get(object.userData.printedCardId)
+        : null;
+      if (entry?.root.visible) return { entry, distance: hit.distance };
     }
     return null;
   };
+  const printedCardHit = () => printedCardIntersection()?.entry || null;
 
   const catalogControlHit = () => {
     raycaster.setFromCamera(pointer, camera);
@@ -3979,6 +3994,11 @@ function createEchoRecordGardenGame({
         placedRecordId = "";
         entry.placed = false;
         attachEchoRecordObjectPreservingWorldTransform(entry.root, recordsRoot);
+        entry.root.rotation.set(
+          entry.homeRotation.x,
+          entry.homeRotation.y,
+          entry.homeRotation.z,
+        );
         recordEntityRegistry.transition(entry.record.id, "remove", { eventId: `lift:${entry.record.songId}:${Date.now()}` });
         player.record.visible = false;
       } else {
@@ -4158,8 +4178,14 @@ function createEchoRecordGardenGame({
   const handleWheel = (event) => {
     if (disposed) return;
     setPointer(event);
-    const printedEntry = heldPrintedEntry || (heldEntry ? null : printedCardHit());
-    const recordEntry = heldEntry || (printedEntry ? null : recordHit());
+    const target = resolveEchoGardenSurfaceWheelTarget({
+      heldPrintedEntry,
+      heldRecordEntry: heldEntry,
+      printedHit: (heldPrintedEntry || heldEntry) ? null : printedCardIntersection(),
+      recordHit: (heldPrintedEntry || heldEntry) ? null : recordIntersection(),
+    });
+    const printedEntry = target?.kind === "printed" ? target.entry : null;
+    const recordEntry = target?.kind === "record" ? target.entry : null;
     if (!printedEntry && !recordEntry) return;
     event.preventDefault();
     event.stopImmediatePropagation();
@@ -4171,9 +4197,8 @@ function createEchoRecordGardenGame({
     if (!orientEchoGardenSurfaceTowardCamera(entry.root, camera)) return;
 
     if (printedEntry) {
-      entry.home.copy(entry.root.position);
       onPrintedCardTransform?.(entry.card.id, {
-        position: entry.root.position.toArray(),
+        position: entry.home.toArray(),
         rotation: entry.root.rotation.toArray().slice(0, 3),
         manipulated: true,
       });
@@ -4181,7 +4206,6 @@ function createEchoRecordGardenGame({
       return;
     }
 
-    entry.home.copy(entry.root.position);
     entry.homeRotation.set(entry.root.rotation.x, entry.root.rotation.y, entry.root.rotation.z);
     entry.manipulated = true;
     entry.cameraFacing = true;
