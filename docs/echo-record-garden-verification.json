@@ -10,7 +10,7 @@
     "acceptanceState": "exact-build-guided-human-acceptance-pending"
   },
   "source": {
-    "canonicalImplementationRevision": "c75a54db245b63e9a5fc34764d3d2e4f9137838a",
+    "canonicalImplementationRevision": "fd82218758058b82ffd467eea80b80647c74e439",
     "canonicalCheckout": "/Users/calderwong/Documents/Codex/2026-06-10/files-mentioned-by-the-user-screenshot/outputs/hapa-avatar-builder",
     "revisionAuthority": "git-rev-parse-HEAD",
     "buildSourceAuthority": "dist/hapa-echo-delivery-build.json",
@@ -217,39 +217,35 @@
     "replaysSideEffects": false
   },
   "focusedTests": {
-    "status": "passed-current-implementation-revision",
+    "status": "current-implementation-revision-run-not-recorded",
     "script": "npm run test:echo-record-garden",
-    "implementationRevision": "c75a54db245b63e9a5fc34764d3d2e4f9137838a",
-    "tests": 167,
-    "passed": 167,
-    "failed": 0,
-    "ranAt": "2026-08-02T01:50:05.000Z",
-    "executionBoundary": "Temporary loopback listeners required the approved unsandboxed test profile; no external service was mutated."
+    "evidenceRecordedByRefresh": false,
+    "note": "This build-identity refresh never carries forward test totals from an earlier revision."
   },
   "summaryAndDetailApi": {
-    "status": "passed-current-implementation-temporary-loopback",
-    "script": "npm run test:echo-record-garden",
-    "note": "The compact summary and exact detail route passed inside the current-revision focused suite; this is not a catalog-count claim for the long-running service."
+    "status": "current-service-run-not-recorded",
+    "evidenceRecordedByRefresh": false,
+    "note": "Live catalog and exact-cut counts must come from a separate current service probe."
   },
   "productionBuild": {
     "status": "current-delivery-identity-verified",
     "verification": "strict-static-import-graph-and-served-bundle-identity",
     "recordGardenChunk": {
-      "file": "dist/assets/EchoRecordGarden3DView-6CcdHRo9.js",
-      "bytes": 204458,
-      "viteSizeKb": 204.46,
-      "viteGzipKb": 65.25,
-      "sha256": "eeb6515bd7b0ab481ace9f5349194afedcc1303446c7db485bae2ba1c5cfe804"
+      "file": "dist/assets/EchoRecordGarden3DView-TUIy222_.js",
+      "bytes": 205049,
+      "viteSizeKb": 205.05,
+      "viteGzipKb": 65.63,
+      "sha256": "91bb2e1b87c71a526737782f43be49e7d683d3860c50d0aa77e7bd2ac82828f1"
     },
     "deliveryReceipt": {
       "schemaVersion": "hapa.echo.delivery-build-receipt.v1",
       "contractVersion": "echo-delivery-static-import-graph-v3",
-      "sourceSha256": "sha256:4e8a2c8fc21befaea1bb908a17cffc48c31d341c27651815cae2da7948501cba",
-      "servedBundleSha256": "sha256:4a6590d5beecf949693c25fd2ae4c25fd4c350f32af164b609171d6c804f8c27",
+      "sourceSha256": "sha256:68ae1e3343f396af0e918dde211c6088ab6ec0cdc3b9428d626b6ff6bd95c98d",
+      "servedBundleSha256": "sha256:9f59ee25f7a209666cee6be91454338893a9113cea482b3e92014a3114c9f757",
       "buildToolSha256": "sha256:1458948a2f71573eebcfbe8a1273966282b40f20c765ead59e4799e83f300fe1",
-      "semanticSha256": "sha256:3f81f1ad6f7625cfa690e5374a31563e0fce33507bcc55a5fdff5896331db341",
-      "fileSha256": "3b24bbc15b06e83f5ff9b3bdd2ed11f5b951786b452ea0b471bcb9ccbccd3bfe",
-      "generatedAt": "2026-08-02T01:47:09.527Z"
+      "semanticSha256": "sha256:a04a11b5e067e5238c4cf6990ef3d8faf4035ef64273065d7af7164303365d0d",
+      "fileSha256": "17c5e3d062dbd9e2c11d3806185a14bf654a99ea0ffdc52b600119d2c213ce45",
+      "generatedAt": "2026-08-02T06:54:51.676Z"
     },
     "warning": "Record Garden remains independently lazy-loaded; this refresh makes no size claim about unrelated application chunks."
   },
@@ -261,10 +257,10 @@
     "passed": 9,
     "failed": 0,
     "receiptPath": "artifacts/echo-record-garden/e2e/offline-contract-receipt.json",
-    "receiptSha256": "a39607fd7654be6edabada4a6422598f1a77c6afce64ef6fbaafee4d597a2be6",
+    "receiptSha256": "e02ca4a7bd8ff6b37b86e23d573c5b50619f00dd624aed6d2a91c2bafdedda3d",
     "fixtureManifestSha256": "7adefdbb80adf3b357d0f35513fd91718f6840f229c6b29e53793db990d5c111",
-    "boundHead": "c75a54db245b63e9a5fc34764d3d2e4f9137838a",
-    "generatedAt": "2026-08-02T01:48:05.367Z"
+    "boundHead": "fd82218758058b82ffd467eea80b80647c74e439",
+    "generatedAt": "2026-08-02T06:54:52.301Z"
   },
   "broadRepositorySuite": {
     "status": "current-implementation-revision-run-not-recorded",
@@ -273,22 +269,19 @@
     "note": "This refresh intentionally removes broad-suite totals that are not bound to the current implementation revision."
   },
   "liveService": {
-    "status": "healthy-current-source-and-delivery",
+    "status": "not-observed-by-verification-refresh",
     "configuredPort": 8797,
-    "pid": 52046,
-    "observedAt": "2026-08-02T01:50:05.814Z",
-    "startedAt": "2026-08-02T01:49:45.861Z",
-    "healthStatus": 200,
-    "currentSourceFresh": true,
-    "servedDeliverySemanticSha256": "sha256:3f81f1ad6f7625cfa690e5374a31563e0fce33507bcc55a5fdff5896331db341",
+    "pid": null,
+    "observedAt": null,
+    "startedAt": null,
     "acceptanceContextStatus": null,
     "acceptanceContextSigned": null,
     "acceptanceContextExactBuild": null,
-    "restartRequiredAfterLedgerRefresh": false,
-    "note": "The canonical launchd-owned service was restarted and its health freshness plus served delivery receipt were probed separately; guided browser acceptance remains pending."
+    "restartRequiredAfterLedgerRefresh": true,
+    "note": "Restart and probe the canonical service separately; this script never carries forward a PID, health result, uptime, or acceptance-context status."
   },
   "runtimeEvidence": {
-    "currentRevisionAutomation": "exact-production-build identity, nine offline checks, 167 focused tests, and canonical service freshness recorded; broad repository and browser evidence remain separate",
+    "currentRevisionAutomation": "exact-production-build-identity-recorded; focused, broad, service, and browser evidence remain separate",
     "manualAcceptance": "pending",
     "guidedAcceptanceRoute": "http://127.0.0.1:8797/?view=echo-records&recordGardenReview=1",
     "receiptSchema": "hapa.echo-record-garden.operator-acceptance.v1",
@@ -320,5 +313,5 @@
     "mintAuthorityClaimed": false,
     "completeVisualFamilyCoverageEverySongClaimed": false
   },
-  "generatedAt": "2026-08-02T01:50:29.000Z"
+  "generatedAt": "2026-08-02T06:55:01.438Z"
 }
