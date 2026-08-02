@@ -29,6 +29,15 @@ test("mobile record selection reveals its inspector and the crate has a roving a
   assert.match(component, /role="group" aria-label="Visible album surfaces"/);
 });
 
+test("touch and keyboard selection can start the same no-player preview without relying on hover", () => {
+  assert.match(component, /const startRecordPreview = useCallback/);
+  assert.match(component, /const previewRecordOnDemand = useCallback/);
+  assert.match(component, /selectRecord\(record\.songId,[\s\S]*?previewRecordOnDemand\(record\.songId\)/);
+  assert.match(component, /onSelectRecord: \(songId\) => \{[\s\S]*?previewRecordOnDemand\?\.\(songId\)/);
+  assert.match(component, /if \(!songId \|\| placedRecordId\) \{\s*stopHoverPreview\(\);/);
+  assert.match(component, /await audio\.play\(\)/);
+});
+
 test("recoverable scene, sleeve, and audio failures expose explicit retry actions", () => {
   assert.match(component, /Retry 3D scene/);
   assert.match(component, /Retry record sleeve/);

@@ -451,6 +451,7 @@ function normalizeMediaCue(entry, timelineRows, timeSeconds, fps) {
   const startSeconds = intervalStart(card);
   const endSeconds = intervalEnd(card, fps);
   const media = object(card.media);
+  const mediaContract = object(matchingTimeline.media_contract || matchingTimeline.mediaContract);
   const parameters = clone(object(card.parameters));
   const timelineCamera = object(matchingTimeline.camera);
   const cardCamera = echoCameraKeyframeAt(card.cameraKeyframes, timeSeconds);
@@ -480,6 +481,34 @@ function normalizeMediaCue(entry, timelineRows, timeSeconds, fps) {
       cardCamera?.speed,
     ),
   };
+  const sourceInSeconds = Math.max(0, optionalFinite(
+    media.sourceInSeconds,
+    media.source_in_seconds,
+    mediaContract.sourceInSeconds,
+    mediaContract.source_in_seconds,
+    matchingTimeline.source_in_seconds,
+    matchingTimeline.sourceInSeconds,
+  ) ?? 0);
+  const declaredSourceOutSeconds = optionalFinite(
+    media.sourceOutSeconds,
+    media.source_out_seconds,
+    mediaContract.sourceOutSeconds,
+    mediaContract.source_out_seconds,
+    matchingTimeline.source_out_seconds,
+    matchingTimeline.sourceOutSeconds,
+  );
+  const sourceOutSeconds = declaredSourceOutSeconds !== null && declaredSourceOutSeconds > sourceInSeconds
+    ? declaredSourceOutSeconds
+    : null;
+  const playbackMode = text(
+    media.playbackMode
+      || media.playback_mode
+      || mediaContract.playbackMode
+      || mediaContract.playback_mode
+      || matchingTimeline.playback_mode
+      || matchingTimeline.playbackMode,
+    "once",
+  ).toLowerCase();
   const cue = {
     id: text(card.id, `media:${trackIndex}:${cardIndex}`),
     cueId: text(card.id, `media:${trackIndex}:${cardIndex}`),
@@ -500,8 +529,18 @@ function normalizeMediaCue(entry, timelineRows, timeSeconds, fps) {
       title: text(media.title || matchingTimeline.media_title || matchingTimeline.mediaTitle) || null,
       uri: mediaUri(card, matchingTimeline) || null,
       kind: mediaKind(card, matchingTimeline),
-      sourceHash: text(media.sourceHash || media.source_hash || media.hash || card.provenance?.sourceHash) || null,
-      sourceInSeconds: round(finite(media.sourceInSeconds ?? matchingTimeline.source_in_seconds ?? matchingTimeline.sourceInSeconds, 0)),
+      sourceHash: text(
+        media.sourceHash
+          || media.source_hash
+          || media.hash
+          || mediaContract.sourceHash
+          || mediaContract.source_hash
+          || card.provenance?.sourceHash,
+      ) || null,
+      sourceInSeconds: round(sourceInSeconds),
+      sourceOutSeconds: sourceOutSeconds === null ? null : round(sourceOutSeconds),
+      sourceDurationSeconds: sourceOutSeconds === null ? null : round(sourceOutSeconds - sourceInSeconds),
+      playbackMode,
     },
     card: mediaCardIdentity(card, matchingTimeline),
     parameters,

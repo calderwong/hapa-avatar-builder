@@ -15,7 +15,7 @@ import {
 } from "lucide-react";
 import { normalizePlaybackPowerMode } from "../domain/playback-power-mode.js";
 import { echoProjectAudioRoute } from "../domain/echo-audio-route.js";
-import { mapEchoSourceTime, planEchoPlaybackCorrection } from "../domain/echo-playback-sync.js";
+import { mapEchoSourceWindowTime, planEchoPlaybackCorrection } from "../domain/echo-playback-sync.js";
 import {
   echoVisualizerAudioEnvelope,
   normalizeEchoStemFocus,
@@ -70,7 +70,11 @@ import {
   echoCameraKeyframeAt,
   echoCameraMotionPresentation,
 } from "../domain/echo-camera-framing.js";
-import { echoDirectorPreviewMediaTransitionState } from "../domain/echo-director-preview-runtime.js";
+import {
+  echoDirectorPreviewMediaTransitionState,
+  projectEchoDirectorPreviewFrame,
+  selectEchoDirectorPreviewSource,
+} from "../domain/echo-director-preview-runtime.js";
 import { projectToEditorGraph } from "../domain/multitrack-editor.js";
 import { isPortableVisualizerAttachment } from "../domain/portable-visualizer-card.js";
 import {
@@ -108,6 +112,16 @@ const electronApiBase = globalThis.window?.hapaAvatarBuilder?.apiBase;
 const API_BASE = electronApiBase || (globalThis.location?.port === "5178" ? "http://127.0.0.1:8787" : "");
 const songRegistryApiBase = globalThis.window?.hapaAvatarBuilder?.songRegistryApiBase;
 const SONG_REGISTRY_API_BASE = songRegistryApiBase || "http://127.0.0.1:8798";
+
+function echoDirectorPreviewNoise(seed = 0, index = 0) {
+  let value = (Number(seed) >>> 0) ^ Math.imul(Number(index) + 1, 0x9e3779b1);
+  value ^= value >>> 16;
+  value = Math.imul(value, 0x21f0aaad);
+  value ^= value >>> 15;
+  value = Math.imul(value, 0x735a2d97);
+  value ^= value >>> 15;
+  return (value >>> 0) / 0x100000000;
+}
 const ECHO_SAVE_TIMEOUT_MS = 30_000;
 const ECHO_PROJECT_DETAIL_TIMEOUT_MS = 15_000;
 const ECHO_PROJECT_GRAPH_WARMUP_TIMEOUT_MS = 10 * 60_000;
@@ -541,8 +555,15 @@ function PersistentEchoABPlayers({ shot, lookaheadShots = [], playing, songTime,
     if (video.readyState < 1) await waitFor(video, "loadedmetadata", 5000, generation);
     if (video.readyState < 2) await waitFor(video, "loadeddata", 5000, generation);
     if (slot.generation !== generation || slot.key !== key) throw new Error("stale-prepare");
-    const playbackMode = targetShot.media_contract?.playbackMode || "loop";
-    const target = mapEchoSourceTime({ elapsedSeconds: offsetSeconds + Number(targetShot.media_contract?.sourceInSeconds || 0), durationSeconds: video.duration, loop: playbackMode === "loop" });
+    const mediaContract = targetShot.media_contract || targetShot.mediaContract || {};
+    const playbackMode = mediaContract.playbackMode || mediaContract.playback_mode || "loop";
+    const target = mapEchoSourceWindowTime({
+      elapsedSeconds: offsetSeconds,
+      durationSeconds: video.duration,
+      sourceInSeconds: mediaContract.sourceInSeconds ?? mediaContract.source_in_seconds,
+      sourceOutSeconds: mediaContract.sourceOutSeconds ?? mediaContract.source_out_seconds,
+      loop: playbackMode === "loop",
+    });
     if (!video.seeking && Math.abs(video.currentTime - target) > 0.08) {
       video.currentTime = target;
       await waitFor(video, "seeked", 3000, generation);
@@ -602,7 +623,14 @@ function PersistentEchoABPlayers({ shot, lookaheadShots = [], playing, songTime,
   useEffect(() => {
     const video = playerRefs[activeIndex].current;
     if (!video || shotMediaType(shot) !== "video" || video.seeking) return;
-    const expected = mapEchoSourceTime({ elapsedSeconds: Math.max(0, songTime - Number(shot.start_sec || 0)) + Number(shot.media_contract?.sourceInSeconds || 0), durationSeconds: video.duration, loop: (shot.media_contract?.playbackMode || "loop") === "loop" });
+    const mediaContract = shot.media_contract || shot.mediaContract || {};
+    const expected = mapEchoSourceWindowTime({
+      elapsedSeconds: Math.max(0, songTime - Number(shot.start_sec || 0)),
+      durationSeconds: video.duration,
+      sourceInSeconds: mediaContract.sourceInSeconds ?? mediaContract.source_in_seconds,
+      sourceOutSeconds: mediaContract.sourceOutSeconds ?? mediaContract.source_out_seconds,
+      loop: (mediaContract.playbackMode || mediaContract.playback_mode || "loop") === "loop",
+    });
     const correction = planEchoPlaybackCorrection({ expectedSeconds: expected, currentSeconds: video.currentTime, seeking: video.seeking });
     if (correction.action === "seek") video.currentTime = Math.min(Number(video.duration || expected), correction.targetSeconds);
     else video.playbackRate = correction.playbackRate;
@@ -1545,6 +1573,24 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
   const activeShowGraph = useMemo(() => (
     activeProject?.director_show_graph?.tracks ? projectToEditorGraph(activeProject) : null
   ), [activeProject]);
+  const activeShowGraphVisualizerCardsById = useMemo(() => new Map(
+    activeShowGraph?.tracks
+      ? activeShowGraph.tracks.flatMap((track) => track.cards || []).map((card) => [card.id, card])
+      : [],
+  ), [activeShowGraph]);
+  const activeDirectorPreviewSource = useMemo(() => {
+    if (!activeProject?.timeline) return null;
+    const activeCutId = activeProject.active_direction_script_variant?.id
+      || activeProject.activeDirectionScriptVariant?.id
+      || "";
+    try {
+      return selectEchoDirectorPreviewSource(activeProject, activeCutId
+        ? { variantId: activeCutId }
+        : { variantId: "legacy-baseline", allowLegacyFallback: true });
+    } catch {
+      return null;
+    }
+  }, [activeProject]);
   const activeIsolatedStems = Array.from(new Set((activeProject?.stems_available || []).map((stem) => String(stem || "").trim()).filter(Boolean)));
   const activeUsesAudioFallback = Boolean(activeProject && activeIsolatedStems.length === 0);
   const activeProjectHasDetail = Boolean(activeProject?.timeline);
@@ -2237,7 +2283,17 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
         ? Number(masterClock.currentTime || currentTimeRef.current)
         : currentTimeRef.current;
       currentTimeRef.current = t;
-      const playheadShotIndex = activeProject?.timeline?.findIndex(item => t >= item.start_sec && t < item.end_sec);
+      const directorPreviewFrame = activeDirectorPreviewSource
+        ? projectEchoDirectorPreviewFrame({
+          source: activeDirectorPreviewSource,
+          timeSeconds: t,
+          playing: Boolean(masterClock && !masterClock.paused && !masterClock.ended),
+        })
+        : null;
+      const projectedCueIndex = directorPreviewFrame?.primaryMediaCue?.sourceCueIndex;
+      const playheadShotIndex = Number.isInteger(projectedCueIndex)
+        ? projectedCueIndex
+        : activeProject?.timeline?.findIndex(item => t >= item.start_sec && t < item.end_sec);
       const currentTimelineItem = playheadShotIndex !== -1 && playheadShotIndex !== undefined ? activeProject.timeline[playheadShotIndex] : activeProject?.timeline?.[0];
       
       const playheadVisIndex = activeProject?.visualizer_timeline?.findIndex(item => t >= item.start_sec && t < item.end_sec);
@@ -2308,7 +2364,11 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
 
       const directorShowGraph = activeShowGraph;
       const hasDirectorShowGraph = Boolean(directorShowGraph?.tracks);
-      const graphActiveVisualizerCards = hasDirectorShowGraph ? visualizerCardsAtTime(directorShowGraph, t) : [];
+      const graphActiveVisualizerCards = hasDirectorShowGraph
+        ? directorPreviewFrame
+          ? directorPreviewFrame.visualizers.map((visualizer) => activeShowGraphVisualizerCardsById.get(visualizer.id)).filter(Boolean)
+          : visualizerCardsAtTime(directorShowGraph, t)
+        : [];
       const graphVisualizerCards = hasDirectorShowGraph ? visualizerLookaheadCards(directorShowGraph, t, 6) : [];
       const graphVisualizerCard = graphActiveVisualizerCards[0] || graphVisualizerCards[0] || null;
 
@@ -3016,17 +3076,19 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
       }
       
       // Glitch / Scanline Dissolve transition effect
-      if (currentTimelineItem && currentTimelineItem.transition === "scanline-dissolve") {
+      const previewTransition = directorPreviewFrame?.transition;
+      if (currentTimelineItem && (previewTransition?.kind || currentTimelineItem.transition) === "scanline-dissolve") {
         const elapsed = t - currentTimelineItem.start_sec;
         if (elapsed < 0.5 && elapsed >= 0) {
           const progress = elapsed / 0.5; // 0 to 1
           const glitchLines = Math.floor((1 - progress) * 15);
+          const deterministicSeed = previewTransition?.deterministicSeed || 0;
           ctx.fillStyle = activeProject?.perspective === 'red' ? 'rgba(239, 68, 68, 0.4)' : activeProject?.perspective === 'green' ? 'rgba(16, 185, 129, 0.4)' : 'rgba(6, 182, 212, 0.4)';
           for (let i = 0; i < glitchLines; i++) {
-            const y2 = Math.random() * height;
-            const h = 2 + Math.random() * 8;
-            const w = width * (0.3 + Math.random() * 0.5);
-            const x = Math.random() * (width - w);
+            const y2 = echoDirectorPreviewNoise(deterministicSeed, i * 4) * height;
+            const h = 2 + echoDirectorPreviewNoise(deterministicSeed, i * 4 + 1) * 8;
+            const w = width * (0.3 + echoDirectorPreviewNoise(deterministicSeed, i * 4 + 2) * 0.5);
+            const x = echoDirectorPreviewNoise(deterministicSeed, i * 4 + 3) * (width - w);
             ctx.fillRect(x, y2, w, h);
           }
           
@@ -3034,7 +3096,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
           ctx.strokeStyle = activeProject?.perspective === 'red' ? 'rgba(239, 68, 68, 0.3)' : activeProject?.perspective === 'green' ? 'rgba(16, 185, 129, 0.3)' : 'rgba(6, 182, 212, 0.3)';
           ctx.lineWidth = 1;
           for (let y2 = 0; y2 < height; y2 += 4) {
-            if (Math.random() < 0.3 * (1 - progress)) {
+            if (echoDirectorPreviewNoise(deterministicSeed, 1_000 + y2 / 4) < 0.3 * (1 - progress)) {
               ctx.beginPath();
               ctx.moveTo(0, y2);
               ctx.lineTo(width, y2);
@@ -3042,6 +3104,16 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
             }
           }
         }
+      }
+
+      const previewAccent = directorPreviewFrame?.automation?.accents?.at(-1);
+      if (previewAccent) {
+        ctx.save();
+        ctx.globalCompositeOperation = "screen";
+        ctx.globalAlpha = Math.max(0, (1 - Number(previewAccent.progress || 0)) * 0.18);
+        ctx.fillStyle = "#f6c96d";
+        ctx.fillRect(0, 0, width, height);
+        ctx.restore();
       }
       
       if (powerMode === "docked") cadenceTimer = window.setTimeout(() => { animFrame = requestAnimationFrame(render); }, 1000 / 12);
@@ -3054,7 +3126,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
       window.clearTimeout(cadenceTimer);
       pauseEchoStemDecoderPool(stemDecoderPoolRef.current);
     };
-  }, [activeWorkbenchTab, activeProject, powerMode]);
+  }, [activeDirectorPreviewSource, activeShowGraphVisualizerCardsById, activeWorkbenchTab, activeProject, powerMode]);
 
   const uniqueTags = useMemo(() => {
     if (!gapsReport?.videos) return [];
@@ -4907,18 +4979,28 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                     }
 
                     // Synced current timeline items
+                    const directorPreviewFrame = activeDirectorPreviewSource
+                      ? projectEchoDirectorPreviewFrame({
+                        source: activeDirectorPreviewSource,
+                        timeSeconds: currentTime,
+                        playing: isPlaying,
+                      })
+                      : null;
+                    const projectedCueIndex = directorPreviewFrame?.primaryMediaCue?.sourceCueIndex;
                     const engineOwnsProject = echoPlaybackSnapshot?.projectKey === String(activeProject.song_id || activeProject.id || activeProject.song_title || "");
-                    const playheadShotIndex = engineOwnsProject && echoPlaybackSnapshot.targetShotIndex >= 0
-                      ? echoPlaybackSnapshot.targetShotIndex
-                      : activeProject.timeline?.findIndex(item => currentTime >= item.start_sec && currentTime < item.end_sec);
+                    const playheadShotIndex = Number.isInteger(projectedCueIndex)
+                      ? projectedCueIndex
+                      : engineOwnsProject && echoPlaybackSnapshot.targetShotIndex >= 0
+                        ? echoPlaybackSnapshot.targetShotIndex
+                        : activeProject.timeline?.findIndex(item => currentTime >= item.start_sec && currentTime < item.end_sec);
                     const currentTimelineItem = playheadShotIndex !== -1 && playheadShotIndex !== undefined ? activeProject.timeline[playheadShotIndex] : activeProject.timeline?.[0];
                     const lookaheadTimelineItems = activeProject.timeline?.slice(Math.max(0, playheadShotIndex) + 1, Math.max(0, playheadShotIndex) + 3) || [];
                     const activeTimelineItem = activeProject.timeline?.[selectedShotIndex] || activeProject.timeline?.[0];
                     const activeVisualizerItem = activeProject.visualizer_timeline?.[selectedVisualizerIndex] || activeProject.visualizer_timeline?.[0];
                     const activePersistentShaderSlots = normalizeEchoPersistentShaderSlots(activeProject);
-                    const currentLine = activeLyricContract.enabled
+                    const currentLine = directorPreviewFrame?.lyrics?.line || (activeLyricContract.enabled
                       ? activeProject.timed_lyrics?.find(l => currentTime >= l.start && currentTime < l.end)
-                      : null;
+                      : null);
                     const pendingPreviewProxyCount = activeProject.timeline?.filter((item) => item.media_contract?.type === "video" && item.media_contract?.proxy?.status !== "ready").length || 0;
                     const isVerticalOutput = activeOutputProfile.id === "vertical";
                     const directorPreviewWidth = isVerticalOutput
@@ -4927,16 +5009,25 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                     const compactPreviewWidth = isVerticalOutput ? "min(100%, 315px, 31.5vh)" : "100%";
 
                     const activeShotIndex = playheadShotIndex !== -1 && playheadShotIndex !== undefined ? playheadShotIndex : 0;
-                    const activeCameraKeyframe = echoCameraKeyframeAt(activeShowGraph?.directorV2?.cameraKeyframes, currentTime);
-                    const cameraPreviewStyle = cameraMotionStyleForShot(currentTimelineItem, currentTime, isVerticalOutput, activeShotIndex, activeCameraKeyframe?.crop);
+                    const activeCameraKeyframe = directorPreviewFrame?.camera?.keyframe
+                      || echoCameraKeyframeAt(activeShowGraph?.directorV2?.cameraKeyframes, currentTime);
+                    const sharedCameraShot = currentTimelineItem && directorPreviewFrame?.camera
+                      ? {
+                        ...currentTimelineItem,
+                        camera_motion: directorPreviewFrame.camera.motion,
+                        camera_intensity: directorPreviewFrame.camera.intensity,
+                        ...(directorPreviewFrame.camera.speed === null ? {} : { camera_speed: directorPreviewFrame.camera.speed }),
+                      }
+                      : currentTimelineItem;
+                    const cameraPreviewStyle = cameraMotionStyleForShot(sharedCameraShot, currentTime, isVerticalOutput, activeShotIndex, activeCameraKeyframe?.crop);
 
-                    const previewTransitionState = currentTimelineItem
+                    const previewTransitionState = directorPreviewFrame?.transition || (currentTimelineItem
                       ? echoDirectorPreviewMediaTransitionState(
                         currentTimelineItem,
                         currentTime,
                         activeOutputProfile.fps,
                       )
-                      : null;
+                      : null);
                     const previewOpacity = previewTransitionState?.opacity ?? 1;
 
                     const formatTime = (secs) => {
@@ -5638,6 +5729,16 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                                 <div
                                   className="media-preview-container"
                                   data-testid="echo-director-preview-frame"
+                                  data-echo-preview-contract={directorPreviewFrame?.schemaVersion || "legacy-local-projection"}
+                                  data-echo-preview-frame-key={directorPreviewFrame?.frameKey || ""}
+                                  data-echo-preview-media-layers={directorPreviewFrame?.media?.layerCount ?? (currentTimelineItem ? 1 : 0)}
+                                  data-echo-preview-shaders={directorPreviewFrame?.visualizers?.length ?? 0}
+                                  data-echo-preview-always-ons={directorPreviewFrame?.visualizers?.filter((visualizer) => visualizer.persistent).length ?? activePersistentShaderSlots.filter((slot) => slot.enabled).length}
+                                  data-echo-preview-automation={directorPreviewFrame ? JSON.stringify({
+                                    visualTime: directorPreviewFrame.automation.visualTime.map((event) => event.id),
+                                    accents: directorPreviewFrame.automation.accents.map((event) => event.id),
+                                    effects: directorPreviewFrame.automation.effects.map((event) => event.id),
+                                  }) : "{}"}
                                   data-export-aspect={`${activeOutputProfile.width}x${activeOutputProfile.height}`}
                                   data-output-profile={activeOutputProfile.id}
                                   style={{ position: 'relative', width: directorPreviewExpanded ? directorPreviewWidth : compactPreviewWidth, height: 'auto', boxSizing: 'border-box', alignSelf: directorPreviewExpanded || isVerticalOutput ? 'center' : 'stretch', aspectRatio: `${activeOutputProfile.width} / ${activeOutputProfile.height}`, minHeight: directorPreviewExpanded || isVerticalOutput ? 0 : '280px', maxWidth: '100%', maxHeight: directorPreviewExpanded ? ECHO_EXPANDED_PREVIEW_MAX_HEIGHT : 'min(56vh, 560px)', flexShrink: 0, borderRadius: '6px', overflow: 'hidden', border: '1px solid rgba(255,255,255,0.12)', background: '#020617', boxShadow: '0 4px 20px rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
@@ -5717,7 +5818,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                                     )}
                                     {currentTimelineItem && (
                                       <span style={{ fontSize: '8px', fontWeight: 'bold', padding: '2.5px 6px', background: 'rgba(6, 182, 212, 0.14)', borderRadius: '3px', color: 'var(--hapa-neon-cyan)', border: '1px solid rgba(6, 182, 212, 0.28)' }}>
-                                        CAM {currentTimelineItem.camera_motion || "auto"} @{Number(currentTimelineItem.camera_speed ?? 1.35).toFixed(1)}x
+                                        CAM {directorPreviewFrame?.camera?.motion || currentTimelineItem.camera_motion || "auto"} @{Number(directorPreviewFrame?.camera?.speed ?? currentTimelineItem.camera_speed ?? 1.35).toFixed(1)}x
                                       </span>
                                     )}
                                     {exactIsfBindingDiagnostics.rendererTruth && (() => {
@@ -5805,7 +5906,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                                     const activeTemplateId = activeLyricContract.templateId;
                                     const lyricPlacement = getLyricPlacementStyle(activeProject.lyric_position || "bottom-center", activeOutputProfile);
                                     const lyricTheme = getLyricTheme(activeProject.lyric_style || "neon-cyan");
-                                    const lyricTemplateFrame = resolveEchoLyricTemplateFrame({
+                                    const lyricTemplateFrame = directorPreviewFrame?.lyrics?.templateFrame || resolveEchoLyricTemplateFrame({
                                       contract: activeLyricContract,
                                       line: currentLine,
                                       timeSeconds: currentTime,

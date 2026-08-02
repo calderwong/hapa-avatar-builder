@@ -270,9 +270,9 @@ the same rule.
 | --- | --- | --- |
 | `createEchoRecordGardenVisualSystem` via `createLazySundayScene` | gradient sky/PMREM/fog, ten cached albedo/normal/roughness families, contact-shadow texture, lawn/path/table, screen timber/vines/shade, planters, bird bath, cloth/parasol, wind chime, distinct landmarks, fences, instanced hills/trees/hedges/grass/flowers/clover/pebbles/leaves, tea set, crates, clouds, leaf drift, motes, shared wind states, three lights | rebuild the PMREM target after WebGL context restoration; collect geometry/material identities once; dispose all base and attached materials, all 33 owned textures, and the PMREM target; restore prior scene background/environment/fog; remove environment idempotently |
 | `createRecordPlayer` | chassis, platter, tonearm, spindle, drop ring, Record anchor | release pooled media; traverse and dispose owned geometry/materials |
-| `createRecordCatalogConsole` | panel geometry, dynamic title texture, button textures/materials | dispose replaced title texture immediately; dispose button textures and owned geometry/materials on teardown |
+| `createRecordCatalogConsole` | panel geometry, dynamic title texture, one shared three-button atlas/material set | dispose replaced title texture immediately; dispose the button atlas and owned geometry/materials on teardown |
 | `createAlbumScreens` | frame, hit plane, standby canvas texture, glow | release pool-managed media; dispose standby/fallback and screen geometry/materials |
-| `createRecordEntry` | disc/groove/title geometry, label/title/cover textures, optional pooled media | idempotent `disposed` guard; release pool lease; dispose late async texture loads instead of mutating a dead entry |
+| `createRecordEntry` | disc/groove/title geometry, one shared resident-title atlas, per-resident label/cover texture, optional pooled media | virtualize to the visible page plus physical exceptions; idempotent `disposed` guard; release pool lease; dispose late async texture loads instead of mutating a dead entry |
 | `createPrintedCardEntry` | Card geometry, print texture, video plane, optional pooled media | release pool lease; dispose print texture and all owned geometry/materials |
 | media pool | HTML video/image resources, video/poster/fallback textures, frame callbacks, event listeners | bounded eviction; pause; cancel callbacks; remove listeners; clear sources; dispose every texture exactly once |
 | game closure | RAF, observers, pointer/WebGL/control listeners, renderer | cancel/disconnect/remove; dispose entries, screens, player, catalog, environment, pool, controls, renderer; reset diagnostics |
@@ -398,7 +398,7 @@ These are implementation gates, not measured completion evidence.
 
 Additional ceilings:
 
-- geometries `≤ 220`, textures `≤ 48`, materials `≤ 96` at the declared
+- geometries `≤ 220`, textures `≤ 64`, materials `≤ 96` at the declared
   worst-case view;
 - one shadow-casting light and at most three active scene lights;
 - sustained non-acceptance p95 frame pressure above `28 ms` for two 120-frame
@@ -424,6 +424,31 @@ Additional ceilings:
 Measure production mode after warmup at the same camera, content, viewport, DPR,
 and interaction state. Record calls, triangles, geometries, textures, materials,
 video residents, decoder readiness, frame histogram, heap, and bundle size.
+
+### Decision Card — bounded renderer texture ceiling
+
+Decision ID: `echo-record-garden-v2-texture-ceiling-2026-08-02`  
+Decision: revise the declared worst-case renderer texture ceiling from `48` to
+`64` while retaining the album-independent fourteen-resident media cap.
+
+The earlier 48-texture estimate predated the required living Record faces,
+full-bleed movable printed Cards, exact single-canvas Director composite, and
+the final 33-texture authored environment. The implemented ceiling is a bounded
+ownership model: 33 environment textures, one environment response, up to 14
+resident Record faces, one shared Record-title atlas, two catalog atlases, ten
+printed-Card base/overlay textures, one Director composite, and two transient
+media-handoff slots. All 157 songs remain plain catalog data; only the visible
+page plus placed, held, or deliberately arranged exceptions own Three/media
+resources.
+
+This is not permission for unbounded growth. Record titles and diegetic catalog
+buttons were consolidated into shared atlases, off-page entries are disposed,
+optional live Card media yields when the fourteen-entry pool is full, and
+post-decode poster/fallback textures are released. A stabilized count above 64,
+album-size growth, or teardown outside the `+2` delta remains a release failure
+and requires a new Decision Card. Current-build live visual acceptance remains
+pending; automated residency and ownership tests prove the ceiling model, not
+the operator-observed WebGL count.
 
 ## Asset Sourcing Direction
 

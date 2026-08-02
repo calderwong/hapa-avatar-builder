@@ -14,6 +14,18 @@ async function waitFor(url, child, output) {
   throw new Error(`API did not start: ${output.join("").slice(-3000)}`);
 }
 
+async function fetchStableAcceptanceContext(url, options) {
+  let last = null;
+  for (let attempt = 0; attempt < 50; attempt += 1) {
+    const response = await fetch(url, options);
+    const body = await response.text();
+    last = { response, body };
+    if (response.status === 200 || ![409, 503].includes(response.status)) return last;
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  return last;
+}
+
 test("trusted loopback UI uses an opaque process session while external API auth remains bearer-only", async (t) => {
   const root = await fsp.mkdtemp(path.join(os.tmpdir(), "avatar-local-ui-session-"));
   const port = 19700 + Math.floor(Math.random() * 200);
@@ -101,10 +113,10 @@ test("trusted loopback UI uses an opaque process session while external API auth
   const acceptanceContextUrl = `${api}/api/echos/record-garden/acceptance-context`;
   const acceptanceReceiptUrl = `${api}/api/echos/record-garden/acceptance-receipts`;
   assert.equal((await fetch(acceptanceContextUrl)).status, 401, "acceptance build identity is not public");
-  const acceptanceContext = await fetch(acceptanceContextUrl, {
+  const { response: acceptanceContext, body: acceptanceContextBody } = await fetchStableAcceptanceContext(acceptanceContextUrl, {
     headers: { cookie: cookiePair, origin: api, "sec-fetch-site": "same-origin" },
   });
-  assert.equal(acceptanceContext.status, 200, await acceptanceContext.text().catch(() => ""));
+  assert.equal(acceptanceContext.status, 200, acceptanceContextBody);
   assert.equal(acceptanceContext.headers.get("cache-control"), "no-store");
   const invalidContentType = await fetch(acceptanceReceiptUrl, {
     method: "POST",

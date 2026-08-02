@@ -1,10 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
+import { ECHO_RECORD_GARDEN_ACCEPTANCE_BUDGETS } from "../src/domain/echo-record-garden-acceptance.js";
+
 import {
   ECHO_RECORD_ENTITY_STATE_SCHEMA,
   ECHO_RECORD_FACE_CONTRACT_SCHEMA,
   ECHO_RECORD_PLACEMENT_BUDGETS_MS,
+  ECHO_RECORD_RESIDENCY_PLAN_SCHEMA,
   ECHO_RECORD_VIDEO_COORDINATOR_SCHEMA,
   attachEchoRecordObjectPreservingWorldTransform,
   buildEchoRecordFaceContract,
@@ -14,6 +17,7 @@ import {
   createEchoRecordVideoCoordinator,
   echoRecordEntityIdentity,
   markEchoRecordPlacementMilestone,
+  planEchoRecordGardenRecordResidency,
   restoreEchoRecordEntityState,
   snapshotEchoRecordEntityState,
   summarizeEchoRecordPlacementLatencies,
@@ -161,6 +165,63 @@ test("runtime registry rejects clone proxies and keeps its bound object through 
   assert.equal(registry.diagnostics().entities, 1);
   assert.equal(registry.diagnostics().boundObjects, 1);
   assert.equal(registry.diagnostics().duplicateObjectRejections, 1);
+});
+
+test("157-song crate swaps virtualize Record objects under the renderer and media ceilings", () => {
+  const catalogSongIds = Array.from({ length: 157 }, (_, index) => `song-${index + 1}`);
+  const residentResources = new Map();
+  let createdResources = 0;
+  let disposedResources = 0;
+  let residentSongIds = [];
+  let maximumResidents = 0;
+
+  for (let page = 0; page < Math.ceil(catalogSongIds.length / 10); page += 1) {
+    const visibleSongIds = catalogSongIds.slice(page * 10, page * 10 + 10);
+    const plan = planEchoRecordGardenRecordResidency({
+      catalogSongIds,
+      residentSongIds,
+      visibleSongIds,
+      placedSongId: "song-151",
+      heldSongId: "song-152",
+      manipulatedSongIds: ["song-153", "song-154"],
+      visibleLimit: 10,
+    });
+    assert.equal(plan.schemaVersion, ECHO_RECORD_RESIDENCY_PLAN_SCHEMA);
+    plan.evictSongIds.forEach((songId) => {
+      if (residentResources.delete(songId)) disposedResources += 1;
+    });
+    plan.createSongIds.forEach((songId) => {
+      residentResources.set(songId, { faceTextureOwners: 1 });
+      createdResources += 1;
+    });
+    residentSongIds = plan.residentSongIds;
+    maximumResidents = Math.max(maximumResidents, residentResources.size);
+    assert.equal(residentResources.size, plan.residentCount);
+    assert.ok(plan.visibleSongIds.length <= 10);
+    assert.ok(plan.residentCount <= 14, "ten crate Records plus four physical exceptions is the supported worst case");
+  }
+
+  const declaredWorstCaseTextureOwners = {
+    environmentSurfaceAndAtmosphere: 33,
+    environmentResponse: 1,
+    residentRecordFaces: maximumResidents,
+    sharedRecordTitleAtlas: 1,
+    catalogConsoleTitleAndButtonAtlas: 2,
+    fivePrintedCardBaseAndOverlayPairs: 10,
+    cinematicDirectorComposite: 1,
+    mediaHandoffHeadroom: 2,
+  };
+  const rendererTextureCeiling = Object.values(declaredWorstCaseTextureOwners)
+    .reduce((total, count) => total + count, 0);
+  assert.equal(maximumResidents, 14);
+  assert.equal(rendererTextureCeiling, 64);
+  assert.ok(rendererTextureCeiling <= ECHO_RECORD_GARDEN_ACCEPTANCE_BUDGETS.maxRendererTextures);
+  assert.equal(10 + 1 + 3, 14, "ten Record loops, one shared composite, and three optional/warm residents fill the pool exactly");
+
+  residentResources.forEach(() => { disposedResources += 1; });
+  residentResources.clear();
+  assert.equal(residentResources.size, 0);
+  assert.equal(disposedResources, createdResources, "teardown releases every page-created Record resource exactly once");
 });
 
 test("Object3D reparenting uses attach and verifies the world matrix is retained", () => {

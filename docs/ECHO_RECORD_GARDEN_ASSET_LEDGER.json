@@ -546,7 +546,7 @@
       },
       "lifecycle": {
         "owner": "catalogConsole",
-        "disposal": "Dispose replaced title texture immediately and all button textures, geometry, and materials on teardown.",
+        "disposal": "Dispose replaced title texture immediately and the shared three-button atlas, geometry, and materials on teardown.",
         "lateAsyncGuardRequired": false
       },
       "publicRightsStatus": "rights-review-required-if-external-icons-are-added"
@@ -595,6 +595,18 @@
   ],
   "performanceBudgets": {
     "status": "implemented-profile-declared-runtime-measurement-pending",
+    "decisionCards": [
+      {
+        "id": "echo-record-garden-v2-texture-ceiling-2026-08-02",
+        "kind": "bounded-renderer-budget-revision",
+        "previousTexturesMax": 48,
+        "texturesMax": 64,
+        "reason": "The original estimate predated living Record faces, five movable full-bleed printed Cards, the exact Director composite, and the final 33-texture authored environment. Resident Records are now virtualized, titles and catalog buttons use shared atlases, optional media remains inside the fourteen-entry pool, and superseded textures are disposed.",
+        "albumSizeScalingAllowed": false,
+        "stabilizedRuntimeAboveCeilingAllowed": false,
+        "liveCurrentBuildObservation": "pending-saved-in-app-browser-permission-blocked-local-route"
+      }
+    ],
     "desktop": {
       "viewport": "1440x900",
       "dprMax": 1.65,
@@ -621,7 +633,7 @@
     },
     "renderer": {
       "geometriesMax": 220,
-      "texturesMax": 48,
+      "texturesMax": 64,
       "materialsMax": 96,
       "activeLightsMax": 3,
       "shadowCastingLightsMax": 1,

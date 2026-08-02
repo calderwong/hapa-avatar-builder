@@ -133,20 +133,53 @@ owners.
   The verified topology is analyser to monitor gain for listening and analyser
   to capture destination for recording, preserving one authoritative audio
   source while allowing capture-safe mute.
+- Ambient Record-face loops initially inherited the mastered-audio correction
+  clock. That made a healthy loop repeatedly hard-seek while no song was
+  playing. Ambient media now advances on its own decoded clock and seeks only
+  at an explicit source-window boundary; placed Director media remains locked
+  to the authoritative mastered-audio clock.
+- Keeping all 157 Record meshes and video surfaces resident was catalog data
+  disguised as scene state. The catalog remains complete, while GPU residency
+  is now bounded to the visible page plus placed, held, and manipulated
+  exceptions. Eviction unbinds media and disposes owned Three resources.
+- Placement originally serialized Director hydration behind audio discovery.
+  The same Record now seats synchronously, audio prewarm and AudioContext resume
+  begin immediately, and Director/compositor hydration proceeds concurrently
+  behind exact song and audio identity checks.
+- Preview parity was split across consumer-specific timing logic. Echo Album
+  and Record Garden now share source selection, source-window mapping, camera,
+  transition, shader, Always-On, lyric, and automation projection. Their final
+  presentation adapters remain intentionally different and are not claimed as
+  pixel-identical.
+- Per-Record title textures and per-button catalog textures scaled with the
+  album. Shared title and control atlases restored the production chunk and GPU
+  texture ceilings without removing detail. Raising the mature texture ceiling
+  from 48 to 64 is recorded as an explicit Decision Card with teardown and
+  non-scaling guardrails.
+- Parallel tests could briefly observe a fail-closed acceptance context while
+  another test atomically replaced the production artifact set. The local
+  session check now retries only that bounded 409/503 publication window and
+  still requires the exact current context to become available.
 
 ## Verification
 
-- 115 focused Director, Garden, recording, visualizer, weather, identity, and
-  lifecycle tests pass.
-- The broader isolated Record Garden suite passes 165 of 167 checks. Its two
-  remaining checks require the ignored production `data/music-video-projects`
-  store and permission to open a loopback test listener; neither is present in
-  the clean sandbox clone.
+- The complete repository suite passes 1,498 of 1,498 checks.
+- The serial Record Garden gate passes 228 of 228 Director, Garden, recording,
+  visualizer, weather, identity, lifecycle, accessibility, acceptance, offline,
+  delivery, and host-integration checks.
 - Production build and delivery-receipt validation pass with semantic receipt
-  `sha256:a77d0a315aa1eff01a9c57ed5c2892a25a07f3ea7201c8f54d0b14ff217b6e51`.
-- Source whitespace validation passes.
-- Live service health and current-build identity are verified after canonical
-  integration; direct visual interaction remains an operator acceptance step.
+  `sha256:a04a11b5e067e5238c4cf6990ef3d8faf4035ef64273065d7af7164303365d0d`.
+  The lazy Record Garden chunk is 205,049 bytes raw and below the original
+  65 KiB gzip ceiling.
+- The live compact service index reports 157 projects, all 157 with audio, all
+  157 with current non-legacy Record previews, and 1,905 Director variants.
+- A two-pass representative all-song cache soak passes every assertion: raw and
+  show-graph entries and bytes remain bounded, both tiers evict under pressure,
+  and the second-pass heap stays below the declared plateau limit.
+- Source whitespace and machine-readable JSON validation pass.
+- Direct visual, mobile-device, assistive-technology, and subjective fidelity
+  acceptance remain operator steps. Browser control is denied by the saved
+  Codex permission and was not bypassed or represented as human evidence.
 
 ## Reusable outcomes
 

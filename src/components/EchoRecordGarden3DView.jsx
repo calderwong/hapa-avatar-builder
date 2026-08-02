@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
   ChevronLeft,
@@ -23,7 +23,6 @@ import {
 } from "lucide-react";
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
-import { createEchoRecordVisualCardResolver } from "../domain/echo-record-card-resolution.js";
 import {
   echoCameraCoverSourceRect,
   echoCameraMotionPresentation,
@@ -41,14 +40,17 @@ import {
   normalizeEchoStemFocus,
   resolveVerifiedEchoStemBinding,
 } from "../domain/echo-visualizer-audio-envelope.js";
-import { createEchoRecordGardenAcceptanceRun } from "../domain/echo-record-garden-acceptance.js";
+import { createEchoRecordGardenAcceptanceRun } from "../domain/echo-record-garden-acceptance-run.js";
 import { ECHO_RECORD_GARDEN_SPATIAL_LAYOUT } from "../domain/echo-record-garden-spatial-layout.js";
 import {
   attachEchoRecordObjectPreservingWorldTransform,
   buildEchoRecordFaceContract,
   createEchoRecordEntityRegistry,
+  createEchoRecordPlacementLatencyState,
+  markEchoRecordPlacementMilestone,
+  planEchoRecordGardenRecordResidency,
+  summarizeEchoRecordPlacementLatencies,
 } from "../domain/echo-record-garden-runtime.js";
-import EchoRecordGardenAcceptancePanel from "./EchoRecordGardenAcceptancePanel.jsx";
 import {
   ECHO_RECORD_DISPLAY_RPM,
   ECHO_RECORD_GARDEN_SNAPSHOT_SCHEMA,
@@ -80,11 +82,15 @@ import {
   resolveEchoGardenSurfaceWheelTarget,
 } from "./echo-record-garden-facing.js";
 
+const EchoRecordGardenAcceptancePanel = lazy(() => import("./EchoRecordGardenAcceptancePanel.jsx"));
+
 const RECORDS_PER_CRATE = 10;
 const SCREEN_COUNT = 1;
 const VISIBLE_RECORD_VIDEO_LIMIT = RECORDS_PER_CRATE;
 const SCREEN_MEDIA_POOL_LIMIT = VISIBLE_RECORD_VIDEO_LIMIT + 4;
+const PRINTED_CARD_VIDEO_LIMIT = 3;
 const PROJECT_PACKET_CACHE_LIMIT = 12;
+const PLACEMENT_LATENCY_SAMPLE_LIMIT = 100;
 const MEDIA_HARD_SEEK_COOLDOWN_SECONDS = 0.25;
 const PRIMARY_MEDIA_START_TIMEOUT_MS = 1_500;
 const RECORD_GARDEN_STORAGE_KEY = "hapa.echo-record-garden.v1";
@@ -115,6 +121,15 @@ function recordGardenDiagnostics() {
     existing.captureAudioTracks ??= 0;
     existing.weatherPhase ||= "high-noon";
     existing.visualizerStatus ||= "idle";
+    existing.placementLatency ||= {
+      latest: null,
+      samples: [],
+      summary: summarizeEchoRecordPlacementLatencies([]),
+    };
+    existing.recordCatalogSize ??= 0;
+    existing.residentRecordObjects ??= 0;
+    existing.residentRecordMedia ??= 0;
+    existing.recordObjectEvictions ??= 0;
     return existing;
   }
   const diagnostics = {
@@ -149,6 +164,15 @@ function recordGardenDiagnostics() {
     captureAudioTracks: 0,
     weatherPhase: "high-noon",
     visualizerStatus: "idle",
+    placementLatency: {
+      latest: null,
+      samples: [],
+      summary: summarizeEchoRecordPlacementLatencies([]),
+    },
+    recordCatalogSize: 0,
+    residentRecordObjects: 0,
+    residentRecordMedia: 0,
+    recordObjectEvictions: 0,
     visibilityState: globalThis.document?.visibilityState || "visible",
     rendererMemory: { geometries: 0, textures: 0 },
     directorCutId: "",
@@ -163,6 +187,25 @@ function recordGardenDiagnostics() {
   };
   globalThis[RECORD_GARDEN_DIAGNOSTICS_KEY] = diagnostics;
   return diagnostics;
+}
+
+function recordGardenMonotonicNow() {
+  const monotonic = globalThis.performance?.now?.();
+  return Number.isFinite(monotonic) ? monotonic : Date.now();
+}
+
+function publishRecordGardenPlacementLatency(samples = [], trace = null) {
+  if (!trace?.attemptId) return Array.isArray(samples) ? samples : [];
+  const retained = (Array.isArray(samples) ? samples : [])
+    .filter((sample) => sample?.attemptId !== trace.attemptId);
+  const next = [...retained, trace].slice(-PLACEMENT_LATENCY_SAMPLE_LIMIT);
+  const diagnostics = recordGardenDiagnostics();
+  diagnostics.placementLatency = {
+    latest: trace,
+    samples: next,
+    summary: summarizeEchoRecordPlacementLatencies(next),
+  };
+  return next;
 }
 
 function activeAcceptanceRun() {
@@ -254,6 +297,16 @@ function resolveGardenMediaUri(uri = "", apiBase = "") {
   const base = browserApiBase(apiBase);
   if (uri.startsWith("/")) return `${base}${uri}`;
   return uri;
+}
+
+function comparableGardenMediaUri(uri = "") {
+  const source = String(uri || "");
+  if (!source) return "";
+  try {
+    return new URL(source, globalThis.location?.origin || "http://hapa.local").href;
+  } catch {
+    return source;
+  }
 }
 
 function compactTime(seconds = 0) {
@@ -391,6 +444,31 @@ function projectDuration(project = {}) {
 
 function projectSongIdentity(project = {}) {
   return String(project?.song_id || project?.songId || "");
+}
+
+function assertRecordGardenProjectIdentity(record = {}, project = {}, apiBase = "") {
+  const songId = String(record?.songId || "");
+  if (!songId || projectSongIdentity(project) !== songId) {
+    throw new Error("The Director project did not match the record selected for placement");
+  }
+  const summaryAudioUri = resolveGardenMediaUri(record?.audio?.uri || "", apiBase);
+  const exactAudioUri = projectAudioUri(project, apiBase);
+  if (!exactAudioUri) throw new Error("The exact Director project has no routable audio source");
+  if (comparableGardenMediaUri(exactAudioUri) !== comparableGardenMediaUri(summaryAudioUri)) {
+    throw new Error("The Director project audio route did not match the placed Record summary");
+  }
+  const expectedAudioId = String(record.audio?.id || "");
+  const exactAudioId = String(
+    project.registry_track_id
+    || project.registryTrackId
+    || project.audio_id
+    || project.audioId
+    || "",
+  );
+  if (expectedAudioId && exactAudioId && expectedAudioId !== exactAudioId) {
+    throw new Error("The Director project audio identity did not match the placed Record summary");
+  }
+  return exactAudioUri;
 }
 
 function abortError(message = "Audio validation cancelled") {
@@ -1042,8 +1120,15 @@ function createRecordGardenDirectorPreviewAdapters({ apiBase = "", signalSource 
     if (video && video.readyState >= 1) {
       const sourceStart = Math.max(0, Number(cue.media?.sourceInSeconds) || 0);
       const cueElapsed = Math.max(0, frame.clock.seconds - Number(cue.startSeconds || 0));
-      const span = Math.max(0.04, Number(cue.durationSeconds) || 0.04);
-      const target = sourceStart + Math.min(span - 0.03, cueElapsed);
+      const declaredSourceEnd = Number(cue.media?.sourceOutSeconds);
+      const sourceEnd = Number.isFinite(declaredSourceEnd) && declaredSourceEnd > sourceStart
+        ? declaredSourceEnd
+        : sourceStart + Math.max(0.04, Number(cue.durationSeconds) || 0.04);
+      const sourceSpan = Math.max(0.04, sourceEnd - sourceStart);
+      const sourceElapsed = cue.media?.playbackMode === "loop"
+        ? cueElapsed % sourceSpan
+        : Math.min(sourceSpan - 0.03, cueElapsed);
+      const target = sourceStart + sourceElapsed;
       if (Math.abs((Number(video.currentTime) || 0) - target) > 0.18) {
         try { video.currentTime = target; } catch {}
       }
@@ -1282,6 +1367,51 @@ function createRecordGardenDirectorPreviewAdapters({ apiBase = "", signalSource 
   };
 }
 
+function recordGardenAcceptanceReviewEnabled() {
+  try {
+    return new URLSearchParams(globalThis.location?.search || "").get("recordGardenReview") === "1";
+  } catch {
+    return false;
+  }
+}
+
+function createLazyEchoRecordVisualCardResolver(options = {}) {
+  let resolver = null;
+  let resolverPromise = null;
+  let generation = 0;
+  const cancelledVisualIds = new Set();
+  const ensureResolver = async () => {
+    if (resolver) return resolver;
+    resolverPromise ||= import("../domain/echo-record-card-resolution.js")
+      .then(({ createEchoRecordVisualCardResolver }) => {
+        resolver = createEchoRecordVisualCardResolver(options);
+        return resolver;
+      });
+    return resolverPromise;
+  };
+  const resolve = async (input = {}) => {
+    const visualId = String(input?.visual?.id || "");
+    const requestGeneration = generation;
+    cancelledVisualIds.delete(visualId);
+    const activeResolver = await ensureResolver();
+    if (requestGeneration !== generation || cancelledVisualIds.has(visualId)) {
+      throw abortError("Card resolution cancelled");
+    }
+    return activeResolver(input);
+  };
+  resolve.cancelVisual = (visualId = "") => {
+    const id = String(visualId || "");
+    if (id) cancelledVisualIds.add(id);
+    return resolver?.cancelVisual?.(id) ?? Boolean(id);
+  };
+  resolve.clear = () => {
+    generation += 1;
+    cancelledVisualIds.clear();
+    resolver?.clear?.();
+  };
+  return resolve;
+}
+
 export default function EchoRecordGarden3DView({
   apiBase = "",
   avatars = [],
@@ -1292,6 +1422,7 @@ export default function EchoRecordGarden3DView({
   onCinematicModeChange,
 }) {
   const preferences = useMemo(readGardenPreferences, []);
+  const acceptanceReviewEnabled = useMemo(recordGardenAcceptanceReviewEnabled, []);
   const canvasRef = useRef(null);
   const audioRef = useRef(null);
   const visualInspectorRef = useRef(null);
@@ -1305,6 +1436,10 @@ export default function EchoRecordGarden3DView({
   const requestRef = useRef(0);
   const requestControllerRef = useRef(null);
   const placementControllerRef = useRef(null);
+  const placementAttemptRef = useRef(0);
+  const placementLatencySamplesRef = useRef(
+    recordGardenDiagnostics().placementLatency?.samples || [],
+  );
   const hoverPreviewTimerRef = useRef(0);
   const hoverPreviewSongRef = useRef("");
   const persistenceTimerRef = useRef(0);
@@ -1380,7 +1515,7 @@ export default function EchoRecordGarden3DView({
     onCinematicModeChange?.(Boolean(next));
   }, [cinematicMode, onCinematicModeChange]);
   const resolveVisualCard = useMemo(
-    () => createEchoRecordVisualCardResolver({ apiBase }),
+    () => createLazyEchoRecordVisualCardResolver({ apiBase }),
     [apiBase],
   );
   cardResolutionRef.current = cardResolution;
@@ -1868,8 +2003,13 @@ export default function EchoRecordGarden3DView({
     loadRecordProject(activeProjectSongId)
       .then((packet) => {
         if (!active) return;
+        const activeRecord = recordBySongId.get(activeProjectSongId);
+        if (!activeRecord) throw new Error("The active Record is no longer present in the Echo catalog");
         if (projectSongIdentity(packet?.project) !== activeProjectSongId) {
           throw new Error("Director project identity did not match the active record");
+        }
+        if (placedRecordId === activeProjectSongId) {
+          assertRecordGardenProjectIdentity(activeRecord, packet?.project, apiBase);
         }
         setActiveProjectPacket(packet);
         setProjectLoadError("");
@@ -1889,7 +2029,7 @@ export default function EchoRecordGarden3DView({
     return () => {
       active = false;
     };
-  }, [activeProjectSongId, loadRecordProject, projectRevision]);
+  }, [activeProjectSongId, apiBase, loadRecordProject, placedRecordId, projectRevision, recordBySongId]);
 
   useEffect(() => {
     const activeSongId = projectSongIdentity(project);
@@ -2075,7 +2215,11 @@ export default function EchoRecordGarden3DView({
     if (!projectSongId || projectSongId !== placedRecordId) return undefined;
     const audio = audioRef.current;
     const audioUri = projectAudioUri(project, apiBase);
-    if (!audio || !audioUri || audio.getAttribute("src") === audioUri) return undefined;
+    if (
+      !audio
+      || !audioUri
+      || comparableGardenMediaUri(audio.getAttribute("src")) === comparableGardenMediaUri(audioUri)
+    ) return undefined;
     const restoredTime = Math.max(0, Number(playback.currentTime) || 0);
     const restoreTime = () => {
       const duration = Number(audio.duration) || projectDuration(project);
@@ -2142,87 +2286,189 @@ export default function EchoRecordGarden3DView({
     placementControllerRef.current?.abort();
     const placementController = new AbortController();
     placementControllerRef.current = placementController;
-    audioRef.current?.pause();
+    const record = recordBySongId.get(songId);
+    const audio = audioRef.current;
+    const audioUri = resolveGardenMediaUri(record?.audio?.uri || "", apiBase);
+    const intentAtMs = recordGardenMonotonicNow();
+    const warmed = Boolean(
+      audio
+      && audioUri
+      && comparableGardenMediaUri(audio.getAttribute("src")) === comparableGardenMediaUri(audioUri)
+      && audio.readyState >= 1
+    );
+    let placementTrace = {
+      ...createEchoRecordPlacementLatencyState({
+        recordId: record?.id || `echo-record:${songId}`,
+        songId,
+        mediaIdentity: [
+          record?.audio?.id || "route-only",
+          audioUri,
+          record?.source?.revisionId || "unversioned",
+          record?.director?.latestCut?.fingerprint || record?.director?.latestCut?.id || "base",
+        ].join("|"),
+        warmed,
+        intentAtMs,
+        retainedVisual: record?.preview?.posterUri || record?.cover?.uri
+          ? "poster"
+          : "labelled-fallback",
+      }),
+      attemptId: `${songId}:${++placementAttemptRef.current}:${Math.round(intentAtMs * 1_000)}`,
+    };
+    const publishPlacementTrace = () => {
+      placementLatencySamplesRef.current = publishRecordGardenPlacementLatency(
+        placementLatencySamplesRef.current,
+        placementTrace,
+      );
+    };
+    const markPlacement = (milestone, options = {}) => {
+      placementTrace = markEchoRecordPlacementMilestone(placementTrace, milestone, {
+        atMs: Math.max(intentAtMs, recordGardenMonotonicNow()),
+        ...options,
+      });
+      publishPlacementTrace();
+      return placementTrace;
+    };
+    publishPlacementTrace();
+
+    audio?.pause();
     setSelectedRecordId(songId);
     setPlacedRecordId(songId);
     setPlayback(initialPlaybackState());
     gameRef.current?.setPlacedRecord(songId);
-    setNotice(`${recordBySongId.get(songId)?.title || "Record"} is on the platter; its warmed Director package is cueing.`);
+    markPlacement("seated");
+    setNotice(`${record?.title || "Record"} is on the platter; audio is cueing while its Director package opens.`);
     try {
-      const packet = await loadRecordProject(songId);
-      const nextProject = packet?.project;
-      if (!nextProject) throw new Error("The Director project is empty");
-      if (projectSongIdentity(nextProject) !== songId) {
-        throw new Error("The Director project did not match the record selected for placement");
-      }
-      const audioUri = projectAudioUri(nextProject, apiBase);
+      if (!record) throw new Error("The selected Record is no longer present in the Echo catalog");
       if (!audioUri) throw new Error("This record has no routable audio source");
-      const audio = audioRef.current;
       if (!audio) throw new Error("The Record Garden audio player is unavailable");
-      audio.pause();
-      const validation = await prepareRecordAudioElement(audio, audioUri, {
+
+      const audioUnlockPromise = autoplay
+        ? (() => {
+          markPlacement("audio-unlock-start");
+          return Promise.resolve(directorAudioSignalRef.current?.resume?.())
+          .then((result) => {
+            if (placementController.signal.aborted) throw abortError();
+            markPlacement("audio-unlocked");
+            return result;
+          });
+        })()
+        : Promise.resolve(false);
+      const audioPreparationPromise = prepareRecordAudioElement(audio, audioUri, {
         signal: placementController.signal,
       });
-      if (placementController.signal.aborted) throw abortError();
-      audio.currentTime = 0;
-      audio.muted = false;
-      directorAudioSignalRef.current?.setMonitorMuted?.(muted);
+      markPlacement("fetch-start");
+      const directorPacketPromise = loadRecordProject(songId);
+      setNotice(`${record.title || "Record"} is seated; its audio has priority while the latest Director cut hydrates.`);
 
-      const immediateVisuals = buildEchoRecordVisualSurfaces({
-        project: nextProject,
-        referenceCards: packet?.references || [],
-        avatars,
-        sceneGraph,
-        clockSeconds: 0,
-        limit: SCREEN_COUNT * 4,
-        apiBase,
-      }).map(toGardenVisual);
-      const immediateWindow = selectEchoRecordMediaWindow(immediateVisuals, 0, {
-        visibleCount: SCREEN_COUNT,
-        warmCount: SCREEN_COUNT,
-      });
-      const immediateDirectorWarm = buildEchoRecordDirectorWarmSurfaces({
-        project: nextProject,
-        clockSeconds: 0,
-        count: SCREEN_COUNT * 2,
-        apiBase,
-      }).map(toGardenVisual);
-      const immediateDirectorVisual = immediateVisuals.find((visual) => (
-        visual.role === "now-playing"
-        || visual.role === "now-playing-hold"
-        || visual.role?.startsWith("now-playing")
-      )) || immediateWindow.visible[0] || null;
-      const primaryPresentation = gameRef.current?.setVisuals(immediateWindow.visible, {
-        activeSongId: songId,
-        directorVisual: immediateDirectorVisual,
-        warmVisuals: selectGardenWarmVisuals(
-          immediateWindow.visible,
-          immediateDirectorWarm,
-          immediateWindow.warm,
-        ),
-      });
-      setActiveProjectPacket(packet);
-      noteAcceptanceAction("placement", { songId });
-      setPlayback({
-        ...initialPlaybackState(),
-        duration: validation.duration || projectDuration(nextProject),
-        ready: validation.duration > 0,
-      });
-      onSelectSong?.(songId);
-      setNotice(`${nextProject.song_title || "Record"} is on the turntable.`);
-      if (autoplay) {
+      const audioPipeline = (async () => {
+        const [validation] = await Promise.all([
+          audioPreparationPromise,
+          audioUnlockPromise,
+        ]);
+        if (placementController.signal.aborted) throw abortError();
+        markPlacement("metadata");
+        audio.currentTime = 0;
+        audio.muted = false;
+        directorAudioSignalRef.current?.setMonitorMuted?.(muted);
+        setPlayback({
+          ...initialPlaybackState(),
+          duration: validation.duration || recordDuration(record),
+          ready: validation.duration > 0,
+        });
+        if (!autoplay) return validation;
+        try {
+          await audio.play();
+        } catch (error) {
+          throw new Error(`Playback is waiting for permission: ${error?.message || "press Play again"}`);
+        }
+        if (placementController.signal.aborted) {
+          audio.pause();
+          throw abortError();
+        }
+        markPlacement("decoded");
+        markPlacement("audio-start");
+        setNotice(`${record.title || "Record"} is playing while its Director visuals finish opening.`);
+        return validation;
+      })();
+
+      const directorPipeline = (async () => {
+        const packet = await directorPacketPromise;
+        if (placementController.signal.aborted) throw abortError();
+        markPlacement("fetch-complete");
+        const nextProject = packet?.project;
+        if (!nextProject) throw new Error("The Director project is empty");
+        assertRecordGardenProjectIdentity(record, nextProject, apiBase);
+
+        const immediateVisuals = buildEchoRecordVisualSurfaces({
+          project: nextProject,
+          referenceCards: packet?.references || [],
+          avatars,
+          sceneGraph,
+          clockSeconds: 0,
+          limit: SCREEN_COUNT * 4,
+          apiBase,
+        }).map(toGardenVisual);
+        const immediateWindow = selectEchoRecordMediaWindow(immediateVisuals, 0, {
+          visibleCount: SCREEN_COUNT,
+          warmCount: SCREEN_COUNT,
+        });
+        const immediateDirectorWarm = buildEchoRecordDirectorWarmSurfaces({
+          project: nextProject,
+          clockSeconds: 0,
+          count: SCREEN_COUNT * 2,
+          apiBase,
+        }).map(toGardenVisual);
+        const immediateDirectorVisual = immediateVisuals.find((visual) => (
+          visual.role === "now-playing"
+          || visual.role === "now-playing-hold"
+          || visual.role?.startsWith("now-playing")
+        )) || immediateWindow.visible[0] || null;
+        const primaryPresentation = gameRef.current?.setVisuals(immediateWindow.visible, {
+          activeSongId: songId,
+          directorVisual: immediateDirectorVisual,
+          warmVisuals: selectGardenWarmVisuals(
+            immediateWindow.visible,
+            immediateDirectorWarm,
+            immediateWindow.warm,
+          ),
+        });
+        markPlacement("director-graph-ready");
+        setActiveProjectPacket(packet);
+        noteAcceptanceAction("placement", { songId });
+        onSelectSong?.(songId);
         const presentation = await waitForMediaPresentation(primaryPresentation);
+        if (placementController.signal.aborted) throw abortError();
+        if (["presented", "already-presented"].includes(presentation?.status)) {
+          markPlacement("first-frame", { retainedVisual: "retained-frame" });
+        }
         if (presentation?.status === "timeout") {
           setNotice(`${nextProject.song_title || "Record"} is playing while its first Director frame finishes decoding.`);
+        } else if (presentation?.status === "failed") {
+          setNotice(`${nextProject.song_title || "Record"} is playing with its retained visual; the first Director frame could not be presented.`);
+        } else {
+          setNotice(`${nextProject.song_title || "Record"} is on the turntable with the latest Director cut.`);
         }
-        await directorAudioSignalRef.current?.resume?.().catch(() => false);
-        await audio.play().catch((error) => {
-          setNotice(`Record placed; playback is waiting for permission: ${error?.message || "press Play again"}`);
-        });
-      }
+        return packet;
+      })();
+
+      await Promise.all([audioPipeline, directorPipeline]);
     } catch (error) {
-      if (error?.name === "AbortError") return;
-      setNotice(`Player could not cue the record: ${error?.message || "unknown error"}`);
+      if (error?.name === "AbortError") {
+        markPlacement("cancelled");
+        return;
+      }
+      placementController.abort();
+      markPlacement("failed", { error: error?.message || "Record placement failed." });
+      if (placementControllerRef.current === placementController) {
+        audio?.pause();
+        setPlayback((current) => ({
+          ...current,
+          playing: false,
+          error: error?.message || "The record could not be cued.",
+        }));
+        setProjectLoadError(error?.message || "The record could not be cued.");
+        setNotice(`Player could not cue the record: ${error?.message || "unknown error"}`);
+      }
     } finally {
       if (placementControllerRef.current === placementController) {
         placementControllerRef.current = null;
@@ -2632,9 +2878,10 @@ export default function EchoRecordGarden3DView({
       videoUri: cue?.media?.kind === "video" ? cue.media.uri : null,
       imageUri: cue?.media?.kind === "image" ? cue.media.uri : null,
       sourceStartSeconds: cue?.media?.sourceInSeconds || 0,
-      sourceEndSeconds: (cue?.media?.sourceInSeconds || 0) + (cue?.durationSeconds || 0),
+      sourceEndSeconds: cue?.media?.sourceOutSeconds
+        || (cue?.media?.sourceInSeconds || 0) + (cue?.durationSeconds || 0),
       durationSeconds: cue?.durationSeconds || 0,
-      playbackMode: "loop",
+      playbackMode: cue?.media?.playbackMode || "once",
       clockLocked: false,
       resolutionPolicy: "exact-id-or-fail",
       attachment: {
@@ -2953,46 +3200,64 @@ export default function EchoRecordGarden3DView({
     setPlayback(initialPlaybackState());
   }, [placedRecordId]);
 
+  const startRecordPreview = useCallback(async (songId = "") => {
+    if (!songId || placedRecordId) {
+      stopHoverPreview();
+      return false;
+    }
+    const record = recordBySongId.get(songId);
+    const audioUri = resolveGardenMediaUri(record?.audio?.uri || "", apiBase);
+    const audio = audioRef.current;
+    if (!record || !audioUri || !audio) return false;
+    if (hoverPreviewSongRef.current && hoverPreviewSongRef.current !== songId) audio.pause();
+    hoverPreviewSongRef.current = songId;
+    if (comparableGardenMediaUri(audio.getAttribute("src")) !== comparableGardenMediaUri(audioUri)) {
+      audio.src = audioUri;
+      audio.currentTime = 0;
+      audio.load();
+    }
+    audio.muted = false;
+    directorAudioSignalRef.current?.setMonitorMuted?.(muted);
+    await directorAudioSignalRef.current?.resume?.().catch(() => false);
+    try {
+      await audio.play();
+      if (hoverPreviewSongRef.current !== songId || placedRecordId) {
+        audio.pause();
+        return false;
+      }
+      setHoverPreviewRecordId(songId);
+      gameRef.current?.setPreviewRecord?.(songId);
+      setNotice(`Previewing ${record.title}. Move away to stop, or place it on the player.`);
+      return true;
+    } catch {
+      setHoverPreviewRecordId("");
+      gameRef.current?.setPreviewRecord?.("");
+      if (hoverPreviewSongRef.current === songId) {
+        setNotice(`${record.title} is ready to preview after the next click or key press.`);
+      }
+      return false;
+    }
+  }, [apiBase, muted, placedRecordId, recordBySongId, stopHoverPreview]);
+
   const previewRecordOnHover = useCallback((songId = "") => {
     if (!songId || placedRecordId) {
       stopHoverPreview();
       return;
     }
     if (hoverPreviewTimerRef.current) globalThis.clearTimeout(hoverPreviewTimerRef.current);
-    hoverPreviewTimerRef.current = globalThis.setTimeout(async () => {
+    hoverPreviewTimerRef.current = globalThis.setTimeout(() => {
       hoverPreviewTimerRef.current = 0;
-      if (placedRecordId) return;
-      const record = recordBySongId.get(songId);
-      const audioUri = resolveGardenMediaUri(record?.audio?.uri || "", apiBase);
-      const audio = audioRef.current;
-      if (!record || !audioUri || !audio) return;
-      if (hoverPreviewSongRef.current && hoverPreviewSongRef.current !== songId) audio.pause();
-      hoverPreviewSongRef.current = songId;
-      if (audio.getAttribute("src") !== audioUri) {
-        audio.src = audioUri;
-        audio.currentTime = 0;
-        audio.load();
-      }
-      audio.muted = false;
-      directorAudioSignalRef.current?.setMonitorMuted?.(muted);
-      await directorAudioSignalRef.current?.resume?.().catch(() => false);
-      await audio.play().then(() => {
-        if (hoverPreviewSongRef.current !== songId || placedRecordId) {
-          audio.pause();
-          return;
-        }
-        setHoverPreviewRecordId(songId);
-        gameRef.current?.setPreviewRecord?.(songId);
-        setNotice(`Previewing ${record.title}. Move away to stop, or place it on the player.`);
-      }).catch(() => {
-        setHoverPreviewRecordId("");
-        gameRef.current?.setPreviewRecord?.("");
-        if (hoverPreviewSongRef.current === songId) {
-          setNotice(`${record.title} is ready to preview after the next click or key press.`);
-        }
-      });
+      void startRecordPreview(songId);
     }, 260);
-  }, [apiBase, muted, placedRecordId, recordBySongId, stopHoverPreview]);
+  }, [placedRecordId, startRecordPreview, stopHoverPreview]);
+
+  const previewRecordOnDemand = useCallback((songId = "") => {
+    if (hoverPreviewTimerRef.current) {
+      globalThis.clearTimeout(hoverPreviewTimerRef.current);
+      hoverPreviewTimerRef.current = 0;
+    }
+    void startRecordPreview(songId);
+  }, [startRecordPreview]);
 
   const ejectPlacedRecord = useCallback((songId = placedRecordId) => {
     if (!songId || songId !== placedRecordId) return;
@@ -3018,6 +3283,7 @@ export default function EchoRecordGarden3DView({
     placeRecord,
     ejectPlacedRecord,
     previewRecordOnHover,
+    previewRecordOnDemand,
     selectRecord,
   };
 
@@ -3051,7 +3317,10 @@ export default function EchoRecordGarden3DView({
           } : null;
         },
         syncDirectorVisuals: (seconds) => syncDirectorVisualClockRef.current?.(seconds),
-        onSelectRecord: (songId) => actionsRef.current.selectRecord?.(songId, "Record selected. Drag it to the turntable or use Place on player."),
+        onSelectRecord: (songId) => {
+          actionsRef.current.selectRecord?.(songId, "Record selected. Drag it to the turntable or use Place on player.");
+          actionsRef.current.previewRecordOnDemand?.(songId);
+        },
         onDropRecord: (songId) => void actionsRef.current.placeRecord?.(songId, { autoplay: true }),
         onEjectRecord: (songId) => actionsRef.current.ejectPlacedRecord?.(songId),
         onHoverRecord: (songId) => actionsRef.current.previewRecordOnHover?.(songId),
@@ -3646,7 +3915,10 @@ export default function EchoRecordGarden3DView({
                 }}
                 className={`echo-record-crate-item${selected ? " selected" : ""}${placed ? " placed" : ""}`}
                 style={{ "--record-accent": theme.accent }}
-                onClick={() => selectRecord(record.songId, `${record.title} selected.`)}
+                onClick={() => {
+                  selectRecord(record.songId, `${record.title} selected.`);
+                  previewRecordOnDemand(record.songId);
+                }}
                 onDoubleClick={() => void placeRecord(record.songId, { autoplay: true })}
                 onMouseEnter={() => previewRecordOnHover(record.songId)}
                 onMouseLeave={() => previewRecordOnHover("")}
@@ -3679,10 +3951,14 @@ export default function EchoRecordGarden3DView({
         {sceneError ? <AlertTriangle size={14} /> : <CircleDot size={14} />}
         <span>{sceneError || playback.error || notice}</span>
       </div>
-      <EchoRecordGardenAcceptancePanel
-        apiBase={apiBase}
-        captureCheckpoint={() => gameRef.current?.acceptanceSnapshot?.() || null}
-      />
+      {acceptanceReviewEnabled && (
+        <Suspense fallback={null}>
+          <EchoRecordGardenAcceptancePanel
+            apiBase={apiBase}
+            captureCheckpoint={() => gameRef.current?.acceptanceSnapshot?.() || null}
+          />
+        </Suspense>
+      )}
       </div>
     </section>
   );
@@ -3843,9 +4119,13 @@ function createEchoRecordGardenGame({
   const dragPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -0.88);
   const dragPoint = new THREE.Vector3();
   const tableDragPoint = new THREE.Vector3();
+  const recordCatalog = new Map();
   const recordEntries = new Map();
   const recordEntityRegistry = createEchoRecordEntityRegistry();
   const printedEntries = new Map();
+  let visibleResidentRecordIds = new Set();
+  let recordTitleAtlas = null;
+  let recordTitleAtlasSignature = "";
   let restoredRecordTransforms = {};
   let disposed = false;
   let animationFrame = 0;
@@ -4301,6 +4581,34 @@ function createEchoRecordGardenGame({
     );
   };
 
+  const updateRecordTitleAtlas = (residentRecords = []) => {
+    const signature = residentRecords.map((record) => [
+      record.songId,
+      record.title,
+      recordAvatarName(record),
+      recordTheme(record).accent,
+    ].join(":" )).join("\n");
+    if (recordTitleAtlas && recordTitleAtlasSignature === signature) return;
+    const nextAtlas = residentRecords.length
+      ? createRecordTitleAtlas(residentRecords, {
+          maxTextureSize: renderer.capabilities.maxTextureSize,
+        })
+      : null;
+    residentRecords.forEach((record) => {
+      const entry = recordEntries.get(record.songId);
+      const slot = nextAtlas?.slots.get(record.songId);
+      if (!entry || !slot) return;
+      applyRecordTitleAtlasUv(entry.titleLabel.geometry, slot);
+      entry.titleMaterial.map = nextAtlas.texture;
+      entry.titleMaterial.opacity = 1;
+      entry.titleMaterial.needsUpdate = true;
+    });
+    const previousAtlas = recordTitleAtlas;
+    recordTitleAtlas = nextAtlas;
+    recordTitleAtlasSignature = signature;
+    previousAtlas?.texture?.dispose?.();
+  };
+
   const setRecords = (records = [], state = {}) => {
     if (Object.hasOwn(state, "selectedRecordId")) {
       selectedRecordId = state.selectedRecordId || "";
@@ -4321,21 +4629,49 @@ function createEchoRecordGardenGame({
     }
     diagnostics.selectedSongId = selectedRecordId;
     diagnostics.placedSongId = placedRecordId;
-    const nextIds = new Set(records.map((record) => record.songId));
-    const visibleIds = new Set(
-      Array.isArray(state.visibleRecordIds)
+    recordCatalog.clear();
+    records.forEach((record) => {
+      if (!record?.songId) return;
+      recordCatalog.set(record.songId, record);
+      recordEntityRegistry.ensure(record);
+    });
+    const residency = planEchoRecordGardenRecordResidency({
+      catalogSongIds: [...recordCatalog.keys()],
+      residentSongIds: [...recordEntries.keys()],
+      visibleSongIds: Array.isArray(state.visibleRecordIds)
         ? state.visibleRecordIds
-        : records.map((record) => record.songId),
-    );
-    for (const [songId, entry] of recordEntries) {
-      if (nextIds.has(songId)) continue;
-      recordsRoot.remove(entry.root);
+        : [...recordCatalog.keys()],
+      placedSongId: placedRecordId,
+      heldSongId: heldEntry?.record?.songId || "",
+      manipulatedSongIds: Object.keys(restoredRecordTransforms),
+      visibleLimit: RECORDS_PER_CRATE,
+    });
+    visibleResidentRecordIds = new Set(residency.visibleSongIds);
+    residency.evictSongIds.forEach((songId) => {
+      const entry = recordEntries.get(songId);
+      if (!entry || entry === heldEntry) return;
+      if (hoveredEntry === entry) {
+        hoveredEntry = null;
+        onHoverRecord?.("");
+      }
+      entry.root.removeFromParent();
+      recordEntityRegistry.unbind(entry.record.id, entry.root);
       disposeRecordEntry(entry);
       recordEntries.delete(songId);
-    }
-    const visibleRecords = records.filter((record) => visibleIds.has(record.songId));
+      diagnostics.recordObjectEvictions += 1;
+    });
+    const visibleRecords = residency.visibleSongIds
+      .map((songId) => recordCatalog.get(songId))
+      .filter(Boolean);
     const visibleIndex = new Map(visibleRecords.map((record, index) => [record.songId, index]));
-    records.forEach((record) => {
+    const loopEligibleIds = new Set(
+      residency.residentSongIds
+        .filter((songId) => songId !== placedRecordId)
+        .slice(0, VISIBLE_RECORD_VIDEO_LIMIT),
+    );
+    residency.residentSongIds.forEach((songId) => {
+      const record = recordCatalog.get(songId);
+      if (!record) return;
       let entry = recordEntries.get(record.songId);
       if (!entry) {
         entry = createRecordEntry(record);
@@ -4348,9 +4684,9 @@ function createEchoRecordGardenGame({
         recordEntityRegistry.ensure(record);
       }
       entry.record = record;
-      const index = visibleIndex.get(record.songId) ?? 0;
+      const index = visibleIndex.get(record.songId);
       const span = Math.max(1, visibleRecords.length - 1);
-      const normalized = visibleRecords.length === 1 ? 0 : (index / span) * 2 - 1;
+      const normalized = index == null || visibleRecords.length === 1 ? 0 : (index / span) * 2 - 1;
       const restoredTransform = restoredRecordTransforms[record.songId];
       const restoredPosition = Array.isArray(restoredTransform?.position)
         && restoredTransform.position.length === 3
@@ -4390,9 +4726,8 @@ function createEchoRecordGardenGame({
       }
       entry.selected = record.songId === selectedRecordId;
       entry.placed = record.songId === placedRecordId;
-      entry.root.visible = entry.placed || visibleIds.has(record.songId);
-      setRecordTexture(entry, recordCoverUri(record));
-      const loopVisual = visibleIds.has(record.songId) ? recordLoopVisual(record) : null;
+      entry.root.visible = true;
+      const loopVisual = loopEligibleIds.has(record.songId) ? recordLoopVisual(record) : null;
       const loopKey = loopVisual ? screenMediaSourceIdentity(loopVisual).key : "";
       if (!loopVisual || entry.mediaResource?.key !== loopKey) {
         if (entry.mediaResource) mediaPool.release(entry.mediaResource);
@@ -4400,12 +4735,34 @@ function createEchoRecordGardenGame({
         entry.mediaPool = mediaPool;
         entry.loopVisual = loopVisual;
       }
+      if (loopVisual) {
+        entry.textureUri = "";
+        entry.coverTexture?.dispose?.();
+        entry.coverTexture = null;
+      } else {
+        if (!entry.coverTexture && !entry.labelTexture) {
+          entry.labelTexture = createRecordLabelTexture(record);
+        }
+        setRecordTexture(entry, recordCoverUri(record));
+      }
       if (entry.mediaResource?.texture && record.songId !== visualRecordId) {
         assignMaterialTexture(entry.faceMaterial, entry.mediaResource.texture);
       } else if (!entry.mediaResource && record.songId !== visualRecordId) {
         assignMaterialTexture(entry.faceMaterial, entry.coverTexture || entry.labelTexture);
       }
     });
+    updateRecordTitleAtlas(
+      residency.residentSongIds.map((songId) => recordCatalog.get(songId)).filter(Boolean),
+    );
+    mediaPool.trim();
+    diagnostics.recordCatalogSize = recordCatalog.size;
+    diagnostics.residentRecordObjects = recordEntries.size;
+    diagnostics.residentRecordMedia = [...recordEntries.values()]
+      .filter((entry) => Boolean(entry.mediaResource)).length;
+    canvas.dataset.recordCatalogSize = String(diagnostics.recordCatalogSize);
+    canvas.dataset.residentRecordObjects = String(diagnostics.residentRecordObjects);
+    canvas.dataset.residentRecordMedia = String(diagnostics.residentRecordMedia);
+    canvas.dataset.recordObjectEvictions = String(diagnostics.recordObjectEvictions);
     player.record.visible = Boolean(placedRecordId);
     if (state.catalogPageCount) {
       catalogConsole.setState?.({
@@ -4460,6 +4817,7 @@ function createEchoRecordGardenGame({
         attachEchoRecordObjectPreservingWorldTransform(previousEntry.root, recordsRoot);
       }
       previousEntry.placed = false;
+      previousEntry.root.visible = visibleResidentRecordIds.has(previousId) || previousEntry.manipulated;
       previousEntry.root.position.copy(previousEntry.home);
       previousEntry.root.rotation.set(
         previousEntry.homeRotation.x,
@@ -4537,7 +4895,12 @@ function createEchoRecordGardenGame({
       }
       return;
     }
-    const entry = createPrintedCardEntry(card, mediaPool);
+    const printedVideoCount = [...printedEntries.values()]
+      .filter((candidate) => Boolean(candidate.mediaResource)).length;
+    const entry = createPrintedCardEntry(
+      card,
+      printedVideoCount < PRINTED_CARD_VIDEO_LIMIT ? mediaPool : null,
+    );
     const index = printedEntries.size;
     const transform = card.sceneTransform;
     if (Array.isArray(transform?.position) && transform.position.length === 3) {
@@ -5105,7 +5468,16 @@ function createEchoRecordGardenGame({
       renderer.domElement.removeEventListener("webglcontextrestored", handleContextRestored, false);
       controls.removeEventListener("end", handleControlsEnd);
       controls.dispose();
-      recordEntries.forEach(disposeRecordEntry);
+      recordEntries.forEach((entry) => {
+        recordEntityRegistry.unbind(entry.record.id, entry.root);
+        disposeRecordEntry(entry);
+      });
+      recordEntries.clear();
+      recordCatalog.clear();
+      visibleResidentRecordIds = new Set();
+      recordTitleAtlas?.texture?.dispose?.();
+      recordTitleAtlas = null;
+      recordTitleAtlasSignature = "";
       printedEntries.forEach(disposePrintedCardEntry);
       screens.forEach((screen) => {
         if (screen.mediaResource?.poolManaged) mediaPool.release(screen.mediaResource);
@@ -5133,8 +5505,14 @@ function createEchoRecordGardenGame({
       diagnostics.warmReadyVideos = 0;
       diagnostics.waitingVideos = 0;
       diagnostics.mediaPoolSize = 0;
+      diagnostics.recordCatalogSize = 0;
+      diagnostics.residentRecordObjects = 0;
+      diagnostics.residentRecordMedia = 0;
       diagnostics.contextState = diagnostics.liveRenderers ? "available" : "disposed";
       canvas.dataset.rendererState = "disposed";
+      canvas.dataset.recordCatalogSize = "0";
+      canvas.dataset.residentRecordObjects = "0";
+      canvas.dataset.residentRecordMedia = "0";
     },
   };
 }
@@ -5315,10 +5693,17 @@ function createRecordCatalogConsole(world, materialKit = null) {
     { action: "sort", label: "SORT", x: 0, z: 0.56, color: 0xf6c96d },
     { action: "next", label: "▶", x: 0.46, z: 0.56, color: 0x56f0cf },
   ];
-  const hitTargets = specs.map((spec) => {
-    const texture = createCatalogButtonTexture(spec.label, spec.color);
-    const material = new THREE.MeshBasicMaterial({ map: texture, toneMapped: false });
-    const mesh = new THREE.Mesh(createEchoGardenRoundedBoxGeometry(0.38, 0.11, 0.5, 0.035, 3), [
+  const buttonAtlasTexture = createCatalogButtonAtlasTexture(specs);
+  const hitTargets = specs.map((spec, index) => {
+    const material = new THREE.MeshBasicMaterial({ map: buttonAtlasTexture, toneMapped: false });
+    const geometry = createEchoGardenRoundedBoxGeometry(0.38, 0.11, 0.5, 0.035, 3);
+    applyRecordTitleAtlasUv(geometry, {
+      column: index,
+      row: 0,
+      columns: specs.length,
+      rows: 1,
+    });
+    const mesh = new THREE.Mesh(geometry, [
       new THREE.MeshStandardMaterial({ color: 0x182324, roughness: 0.5 }),
       new THREE.MeshStandardMaterial({ color: 0x182324, roughness: 0.5 }),
       material,
@@ -5328,7 +5713,6 @@ function createRecordCatalogConsole(world, materialKit = null) {
     ]);
     mesh.position.set(spec.x, 0.13, spec.z);
     mesh.userData.catalogAction = spec.action;
-    mesh.userData.catalogTexture = texture;
     root.add(mesh);
     return mesh;
   });
@@ -5345,12 +5729,12 @@ function createRecordCatalogConsole(world, materialKit = null) {
     },
     dispose() {
       root.traverse((object) => {
-        object.userData?.catalogTexture?.dispose?.();
         object.geometry?.dispose?.();
         if (Array.isArray(object.material)) object.material.forEach((material) => material.dispose?.());
         else object.material?.dispose?.();
       });
       titleMaterial.map?.dispose?.();
+      buttonAtlasTexture.dispose();
     },
   };
 }
@@ -5382,21 +5766,25 @@ function createCatalogConsoleTexture({ page = 0, pageCount = 1, sort = "album" }
   return texture;
 }
 
-function createCatalogButtonTexture(label = "", color = 0x56f0cf) {
+function createCatalogButtonAtlasTexture(specs = []) {
+  const source = specs.length ? specs : [{ label: "•", color: 0x56f0cf }];
   const canvas = document.createElement("canvas");
-  canvas.width = 256;
+  canvas.width = 256 * source.length;
   canvas.height = 128;
   const context = canvas.getContext("2d");
-  context.fillStyle = "#0a171a";
-  context.fillRect(0, 0, canvas.width, canvas.height);
-  context.strokeStyle = `#${Number(color).toString(16).padStart(6, "0")}`;
-  context.lineWidth = 8;
-  context.strokeRect(5, 5, canvas.width - 10, canvas.height - 10);
-  context.fillStyle = "#f8f3e7";
-  context.textAlign = "center";
-  context.textBaseline = "middle";
-  context.font = label.length > 2 ? "800 34px system-ui" : "800 58px system-ui";
-  context.fillText(label, canvas.width / 2, canvas.height / 2);
+  source.forEach(({ label = "", color = 0x56f0cf }, index) => {
+    const x = index * 256;
+    context.fillStyle = "#0a171a";
+    context.fillRect(x, 0, 256, 128);
+    context.strokeStyle = `#${Number(color).toString(16).padStart(6, "0")}`;
+    context.lineWidth = 8;
+    context.strokeRect(x + 5, 5, 246, 118);
+    context.fillStyle = "#f8f3e7";
+    context.textAlign = "center";
+    context.textBaseline = "middle";
+    context.font = label.length > 2 ? "800 34px system-ui" : "800 58px system-ui";
+    context.fillText(label, x + 128, 64);
+  });
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
   return texture;
@@ -5602,10 +5990,26 @@ function createScreenMediaPool({
     updateDiagnostics();
   };
 
-  const ensureEntry = (visual) => {
+  const makeRoomForOptionalEntry = () => {
+    if (entries.size < limit) return true;
+    const removable = [...entries.values()]
+      .filter((entry) => entry.references === 0)
+      .sort((left, right) => left.lastUsed - right.lastUsed);
+    while (entries.size >= limit && removable.length) {
+      const entry = removable.shift();
+      entries.delete(entry.key);
+      entry.resource.dispose();
+    }
+    updateDiagnostics();
+    return entries.size < limit;
+  };
+
+  const ensureEntry = (visual, { optional = false } = {}) => {
     const identity = screenMediaSourceIdentity(visual);
     let entry = entries.get(identity.key);
     if (!entry) {
+      const hasRoom = makeRoomForOptionalEntry();
+      if (optional && !hasRoom) return null;
       const resource = createScreenMediaResource(visual, {
         apiBase,
         renderer,
@@ -5629,6 +6033,14 @@ function createScreenMediaPool({
   return {
     acquire(visual) {
       const entry = ensureEntry(visual);
+      entry.references += 1;
+      entry.lastUsed = ++sequence;
+      updateDiagnostics();
+      return entry.resource;
+    },
+    tryAcquire(visual) {
+      const entry = ensureEntry(visual, { optional: true });
+      if (!entry) return null;
       entry.references += 1;
       entry.lastUsed = ++sequence;
       updateDiagnostics();
@@ -5658,7 +6070,11 @@ function createScreenMediaPool({
       entries.forEach((entry) => { entry.warm = false; });
       const warmKeys = new Set();
       visuals.slice(0, SCREEN_COUNT).forEach((visual) => {
-        const entry = ensureEntry(visual);
+        const entry = ensureEntry(visual, { optional: true });
+        if (!entry) {
+          warmSignature = "";
+          return;
+        }
         if (warmKeys.has(entry.key) || entry.references > 0) return;
         warmKeys.add(entry.key);
         entry.warm = true;
@@ -5719,6 +6135,7 @@ function updateMediaResourcePlayback(resource, visual, { playback, elapsed, redu
     playing: playback.playing,
     reducedMotion,
   });
+  resource?.releaseSupersededTextures?.();
   if (resource?.video && visual && resource.mediaState !== "failed") {
     const video = resource.video;
     const plan = echoRecordVideoPlaybackPlan({
@@ -5926,6 +6343,7 @@ function createScreenMediaResource(visual, {
     videoTexture.generateMipmaps = false;
     let posterImage = null;
     let posterTexture = null;
+    let fallbackTextureOwned = true;
     let resolveFirstFrame;
     let firstFrameSettled = false;
     const firstFramePromise = new Promise((resolve) => {
@@ -5935,6 +6353,20 @@ function createScreenMediaResource(visual, {
       if (firstFrameSettled) return;
       firstFrameSettled = true;
       resolveFirstFrame?.({ status });
+    };
+    const disposeFallbackTexture = () => {
+      if (!fallbackTextureOwned) return;
+      fallbackTextureOwned = false;
+      fallbackTexture.dispose();
+    };
+    const disposePosterTexture = () => {
+      posterTexture?.dispose?.();
+      posterTexture = null;
+      if (!posterImage) return;
+      posterImage.onload = null;
+      posterImage.onerror = null;
+      posterImage.removeAttribute("src");
+      posterImage = null;
     };
     const resource = {
       key: identity.key,
@@ -5954,6 +6386,15 @@ function createScreenMediaResource(visual, {
       disposed: false,
       firstFramePromise,
       presentVideoFrame: (metadata) => presentVideoFrame(metadata),
+      releaseSupersededTextures() {
+        if (resource.texture === posterTexture && posterTexture) {
+          disposeFallbackTexture();
+        }
+        if (resource.hasPresentedFrame && resource.texture === videoTexture) {
+          disposePosterTexture();
+          disposeFallbackTexture();
+        }
+      },
       dispose() {
         if (resource.disposed) return;
         resource.disposed = true;
@@ -5970,18 +6411,13 @@ function createScreenMediaResource(visual, {
         if (resource.frameCallback && video.cancelVideoFrameCallback) {
           video.cancelVideoFrameCallback(resource.frameCallback);
         }
-        if (posterImage) {
-          posterImage.onload = null;
-          posterImage.onerror = null;
-          posterImage.removeAttribute("src");
-        }
+        disposePosterTexture();
         video.pause();
         video.removeAttribute("src");
         video.load();
         settleFirstFrame("disposed");
         videoTexture.dispose();
-        posterTexture?.dispose?.();
-        fallbackTexture.dispose();
+        disposeFallbackTexture();
       },
     };
     const presentVideoFrame = (metadata = null) => {
@@ -6055,7 +6491,9 @@ function createScreenMediaResource(visual, {
       resource.mediaState = "failed";
       resource.desiredPlaying = false;
       if (!video.paused) video.pause();
-      resource.texture = posterTexture || fallbackTexture;
+      resource.texture = resource.hasPresentedFrame
+        ? videoTexture
+        : posterTexture || fallbackTexture;
       settleFirstFrame("failed");
       diagnostics.lastError = `Media unavailable: ${visual.title || "album visual"}`;
       onMediaError?.(visual);
@@ -6100,6 +6538,7 @@ function createScreenMediaResource(visual, {
     loader.setCrossOrigin("anonymous");
     let loadedTexture = null;
     let disposed = false;
+    let fallbackTextureOwned = true;
     let resolveFirstFrame;
     const firstFramePromise = new Promise((resolve) => {
       resolveFirstFrame = resolve;
@@ -6109,12 +6548,21 @@ function createScreenMediaResource(visual, {
       texture: fallbackTexture,
       mediaState: "loading",
       firstFramePromise,
+      releaseSupersededTextures() {
+        if (fallbackTextureOwned && resource.texture === loadedTexture && loadedTexture) {
+          fallbackTextureOwned = false;
+          fallbackTexture.dispose();
+        }
+      },
       dispose() {
         if (disposed) return;
         disposed = true;
         resolveFirstFrame?.({ status: "disposed" });
         loadedTexture?.dispose?.();
-        fallbackTexture.dispose();
+        if (fallbackTextureOwned) {
+          fallbackTextureOwned = false;
+          fallbackTexture.dispose();
+        }
       },
     };
     loadedTexture = loader.load(
@@ -6167,7 +6615,6 @@ function createRecordEntry(record) {
   const root = new THREE.Group();
   root.name = `EchoRecord:${record.songId}`;
   const labelTexture = createRecordLabelTexture(record);
-  const titleTexture = createRecordTitleTexture(record);
   const edgeMaterial = new THREE.MeshStandardMaterial({
     color: 0x111217,
     roughness: 0.34,
@@ -6199,8 +6646,8 @@ function createRecordEntry(record) {
   root.add(groove);
 
   const titleMaterial = new THREE.MeshBasicMaterial({
-    map: titleTexture,
     transparent: true,
+    opacity: 0,
     toneMapped: false,
     depthWrite: false,
   });
@@ -6237,7 +6684,6 @@ function createRecordEntry(record) {
     selected: false,
     placed: false,
     labelTexture,
-    titleTexture,
     coverTexture: null,
     mediaResource: null,
     textureUri: "",
@@ -6250,7 +6696,6 @@ function disposeRecordEntry(entry) {
   entry.disposed = true;
   entry.textureUri = "";
   entry.labelTexture?.dispose?.();
-  entry.titleTexture?.dispose?.();
   entry.coverTexture?.dispose?.();
   if (entry.mediaResource?.poolManaged) entry.mediaPool?.release?.(entry.mediaResource);
   else disposeScreenMediaResource(entry.mediaResource);
@@ -6287,7 +6732,7 @@ function createPrintedCardEntry(card, mediaPool = null) {
   halo.position.y = -0.05;
   root.add(halo);
   const presentation = card?.echoRecordAttachment?.presentation || null;
-  const mediaResource = presentation && mediaPool ? mediaPool.acquire(presentation) : null;
+  const mediaResource = presentation && mediaPool ? mediaPool.tryAcquire(presentation) : null;
   const videoMaterial = new THREE.MeshBasicMaterial({
     map: mediaResource?.texture || texture,
     color: 0xffffff,
@@ -6434,13 +6879,15 @@ function createRecordLabelTexture(record = {}) {
   return texture;
 }
 
-function createRecordTitleTexture(record = {}) {
-  const canvas = document.createElement("canvas");
-  canvas.width = 512;
-  canvas.height = 512;
-  const context = canvas.getContext("2d");
+function drawRecordTitleLabel(context, record = {}, {
+  x = 0,
+  y = 0,
+  size = 512,
+} = {}) {
   const theme = recordTheme(record);
-  context.clearRect(0, 0, canvas.width, canvas.height);
+  context.save();
+  context.translate(x, y);
+  context.scale(size / 512, size / 512);
   context.fillStyle = "rgba(4,9,13,.88)";
   context.beginPath();
   context.arc(256, 256, 246, 0, Math.PI * 2);
@@ -6462,9 +6909,61 @@ function createRecordTitleTexture(record = {}) {
   context.beginPath();
   context.arc(256, 256, 34, 0, Math.PI * 2);
   context.fill();
+  context.restore();
+}
+
+function createRecordTitleAtlas(records = [], { maxTextureSize = 4096 } = {}) {
+  const source = records.filter((record) => record?.songId);
+  const columns = Math.max(1, Math.ceil(Math.sqrt(source.length || 1)));
+  const rows = Math.max(1, Math.ceil(source.length / columns));
+  const textureLimit = Math.max(512, Math.floor(Number(maxTextureSize) || 4096));
+  const cellSize = Math.max(96, Math.min(256, Math.floor(textureLimit / Math.max(columns, rows))));
+  const canvas = document.createElement("canvas");
+  canvas.width = columns * cellSize;
+  canvas.height = rows * cellSize;
+  const context = canvas.getContext("2d");
+  context.clearRect(0, 0, canvas.width, canvas.height);
+  const slots = new Map();
+  source.forEach((record, index) => {
+    const column = index % columns;
+    const row = Math.floor(index / columns);
+    drawRecordTitleLabel(context, record, {
+      x: column * cellSize,
+      y: row * cellSize,
+      size: cellSize,
+    });
+    slots.set(record.songId, { column, row, columns, rows });
+  });
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
-  return texture;
+  texture.minFilter = THREE.LinearFilter;
+  texture.magFilter = THREE.LinearFilter;
+  texture.generateMipmaps = false;
+  return { texture, slots, columns, rows, cellSize };
+}
+
+function applyRecordTitleAtlasUv(geometry, {
+  column = 0,
+  row = 0,
+  columns = 1,
+  rows = 1,
+} = {}) {
+  const uv = geometry?.getAttribute?.("uv");
+  if (!uv) return false;
+  const baseUv = geometry.userData.recordTitleBaseUv
+    || Float32Array.from(uv.array);
+  geometry.userData.recordTitleBaseUv = baseUv;
+  for (let index = 0; index < uv.count; index += 1) {
+    const sourceU = baseUv[index * 2];
+    const sourceV = baseUv[index * 2 + 1];
+    uv.setXY(
+      index,
+      (column + sourceU) / Math.max(1, columns),
+      (rows - row - 1 + sourceV) / Math.max(1, rows),
+    );
+  }
+  uv.needsUpdate = true;
+  return true;
 }
 
 function createVisualTitleTexture(visual = {}, { round = false } = {}) {

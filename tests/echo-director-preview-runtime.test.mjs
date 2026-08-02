@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 
 import {
@@ -380,6 +381,152 @@ test("one external audio clock deterministically projects media, exact Card, sha
   assert.deepEqual(frame.automation.visualTime.map((row) => row.id), ["visual-time:one"]);
   assert.deepEqual(frame.automation.accents.map((row) => row.id), ["accent:one"]);
   assert.deepEqual(frame.automation.effects.map((row) => row.id), ["effect:one"]);
+});
+
+test("fixed-time Preview parity preserves layered media bounds, camera, changing and Always-On shaders, lyrics, transitions, and automation", () => {
+  const source = paritySource();
+  source.project.timeline[0].media_contract = {
+    type: "video",
+    runtimeUri: "/media/garden-open.mp4",
+    sourceHash: "sha256:garden-open-bounded",
+    sourceInSeconds: 4,
+    sourceOutSeconds: 5.5,
+    playbackMode: "loop",
+  };
+  source.showGraph.tracks.push(
+    {
+      id: "media-overlay",
+      label: "Media overlay",
+      role: "media",
+      cards: [{
+        id: "cue:garden-overlay",
+        trackId: "media-overlay",
+        startSeconds: 1,
+        endSeconds: 2,
+        sourceCueIndex: 0,
+        media: {
+          id: "garden-overlay",
+          title: "Garden Light Overlay",
+          localPath: "/media/garden-overlay.mp4",
+          sourceHash: "sha256:garden-overlay",
+          sourceInSeconds: 8,
+          sourceOutSeconds: 9,
+          playbackMode: "once",
+          cardId: "card:garden-overlay",
+          cardKind: "scene-card",
+          cardRef: "hapa://card/garden-overlay",
+          cardTitle: "Garden Light Overlay",
+        },
+        parameters: {
+          layerIndex: 3,
+          opacity: 0.72,
+          blendMode: "screen",
+          motion: "slow-push",
+          cameraIntensity: 0.7,
+        },
+        transition: "fade-in",
+      }],
+    },
+    {
+      id: "always-on-simple-waveform",
+      label: "Always On 2 · Simple Waveform",
+      role: "visualizer",
+      persistent: true,
+      alwaysOn: true,
+      slotId: "always-on-2",
+      cards: [{
+        id: "shader:simple-waveform",
+        trackId: "always-on-simple-waveform",
+        startSeconds: 0,
+        endSeconds: 6,
+        alwaysOn: true,
+        persistentSlotId: "always-on-2",
+        visualization: {
+          sourceId: "shader:simple-waveform",
+          nativeKey: "Simple Waveform",
+          status: "exact-browser-isf",
+          sourceHash: "sha256:simple-waveform",
+        },
+        parameters: {
+          opacity: 0.55,
+          blendMode: "screen",
+          stemMap: ["lead-vocals"],
+        },
+      }],
+    },
+  );
+
+  const fixedTimeSeconds = 1.26;
+  const frame = projectEchoDirectorPreviewFrame({ source, timeSeconds: fixedTimeSeconds });
+  const repeated = projectEchoDirectorPreviewFrame({ source, timeSeconds: fixedTimeSeconds });
+
+  assert.deepEqual(frame, repeated, "one source plus one fixed time must yield one complete parity frame");
+  assert.equal(frame.clock.frame, 37);
+  assert.equal(frame.media.layerCount, 2);
+  assert.deepEqual(frame.media.layers.map((cue) => cue.id), [
+    "cue:garden-open",
+    "cue:garden-overlay",
+  ]);
+  assert.deepEqual(frame.media.layers[0].media, {
+    id: "garden-open",
+    title: "Garden Opens",
+    uri: "/media/garden-open.mp4",
+    kind: "video",
+    sourceHash: "sha256:garden-open-bounded",
+    sourceInSeconds: 4,
+    sourceOutSeconds: 5.5,
+    sourceDurationSeconds: 1.5,
+    playbackMode: "loop",
+  });
+  assert.deepEqual(frame.primaryMediaCue.media, {
+    id: "garden-overlay",
+    title: "Garden Light Overlay",
+    uri: "/media/garden-overlay.mp4",
+    kind: "video",
+    sourceHash: "sha256:garden-overlay",
+    sourceInSeconds: 8,
+    sourceOutSeconds: 9,
+    sourceDurationSeconds: 1,
+    playbackMode: "once",
+  });
+  assert.equal(frame.currentCard.id, "card:garden-overlay");
+  assert.equal(frame.camera.motion, "slow-push");
+  assert.equal(frame.camera.sourceCueIndex, 0);
+  assert.equal(frame.transition.kind, "fade-in");
+  assert.equal(frame.transition.phase, "entering");
+  assert.equal(frame.transition.opacity, 0.466666);
+  assert.deepEqual(frame.shaders, frame.visualizers);
+  assert.deepEqual(frame.visualizers.map((row) => row.sourceId), [
+    "shader:aurora",
+    "shader:ultimate-flame",
+    "shader:simple-waveform",
+  ]);
+  assert.deepEqual(frame.visualizers.filter((row) => row.persistent).map((row) => row.persistentSlotId), [
+    "always-on-1",
+    "always-on-2",
+  ]);
+  assert.equal(frame.visualizers[2].stemMap[0], "lead-vocals");
+  assert.equal(frame.lyrics.line.id, "line-one");
+  assert.equal(frame.lyrics.templateFrame.templateId, "kinetic-word-burst-v1");
+  assert.equal(frame.lyrics.templateFrame.words[1].active, true);
+  assert.deepEqual(frame.automation.visualTime.map((row) => row.id), ["visual-time:one"]);
+  assert.deepEqual(frame.automation.accents.map((row) => row.id), ["accent:one"]);
+  assert.deepEqual(frame.automation.effects.map((row) => row.id), ["effect:one"]);
+});
+
+test("Echo Album and Record Garden both consume the shared fixed-time Preview contract", () => {
+  const albumSource = readFileSync(new URL("../src/components/HapaEchosView.jsx", import.meta.url), "utf8");
+  const gardenSource = readFileSync(new URL("../src/components/EchoRecordGarden3DView.jsx", import.meta.url), "utf8");
+
+  assert.match(albumSource, /selectEchoDirectorPreviewSource\(activeProject,/);
+  assert.match(albumSource, /projectEchoDirectorPreviewFrame\(\{/);
+  assert.match(albumSource, /directorPreviewFrame\.visualizers\.map/);
+  assert.match(albumSource, /directorPreviewFrame\?\.lyrics\?\.templateFrame/);
+  assert.match(albumSource, /data-echo-preview-automation=/);
+  assert.match(gardenSource, /createEchoDirectorPreviewRuntime\(\{/);
+  assert.match(gardenSource, /strictParity: true/);
+  assert.match(gardenSource, /cue\.media\?\.sourceOutSeconds/);
+  assert.match(gardenSource, /cue\.media\?\.playbackMode === "loop"/);
 });
 
 test("camera projection preserves current timeline motion, intensity, speed, and deterministic cue index", () => {

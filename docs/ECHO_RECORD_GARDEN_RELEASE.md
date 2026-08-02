@@ -1,255 +1,223 @@
-# Echo State Record Garden Release Evidence
+# Echo Record Garden Release Evidence
 
-Status: canonical First Pass / Prototype Stage implemented; manual visual
-acceptance pending  
-Evidence date: 2026-07-30 / 2026-07-31  
-Program ID: `echo-record-garden-2026-07-30`  
-Implementation revision:
-`71e2f31d24e9d5b4cb130c98b2ca82fd9ec783db`
+Status: canonical First Pass / Prototype Stage implementation integrated;
+current-build human visual, audio-device, touch, and accessibility acceptance
+pending  
+Evidence date: 2026-08-01  
+Programs: `echo-record-garden-2026-07-30` and
+`echo-record-garden-v2-2026-08-01`  
+Implementation revision: bind the exact focused commit, production chunk, and
+receipt during the final evidence refresh; do not reuse an earlier revision
 
-## Delivered
+## Current Experience
 
-The canonical Hapa Avatar Builder now serves Echo Record Garden at
-`/?view=echo-records` with:
+The canonical Hapa Avatar Builder serves Echo Record Garden at
+`/?view=echo-records`. The current architecture is one physical listening world,
+not a collection of independent media controls.
 
-- stable song records, six-record crate pages, search, perspective filters,
-  keyboard/touch controls, drag placement, table arrangement, and return/reset
-  recovery;
-- a procedural warm outdoor table, record player, garden lighting, three media
-  surfaces, and full/reduced power profiles;
-- a calm 8⅓ RPM moving-disc presentation derived from the canonical audio
-  clock, while preserving 33⅓ RPM as the explicit physical reference;
-- exact newest non-Legacy Director selection, exact `variantId` detail loading,
-  cache identity `(songId, variantId, cut revision)`, fail-visible mismatch
-  handling, immutable projection, and separate canonical versus
-  source-declared cut fingerprints;
-- a three-screen/twelve-surface constellation backed by seven bounded media
-  resources: three visible, three forward-warm, and one dedicated current-cut
-  resource for the record face;
-- dedicated video/image GPU textures, immediate promotion of an already
-  decoded frame, audio-clock frame validation within 0.12 seconds, a
-  0.1-second hard-seek threshold, a 0.25-second seek cooldown, completed-shot
-  no-rewind behavior, and truthful media-error fallbacks;
-- one current Director cue projected across the default display triptych and
-  record face, with clock-bound animated Director visualizers for declared
-  visualizer intervals rather than blank screens;
-- an explicit empty-media standby state that makes initial load, project clear,
-  and resource teardown null-safe;
-- a twelve-packet browser LRU plus service-side 128 MiB/64-entry parsed JSON
-  and 96 MiB/32-entry parsed show-graph LRUs, with eviction and byte telemetry;
-- active-record video texture, while inactive crate records remain bounded;
-- authoritative timed Song Card printing, exact embedded/attached Card
-  resolution, cancellation and out-of-order guards, and honest local/unminted
-  fallback;
-- snapshot v2 migration and recovery for paused playback, camera, surface page,
-  crate state, transforms, and interrupted Card work;
-- isolated lazy loading, a component error boundary, WebGL recovery, and
-  deterministic resource cleanup;
-- a stable Echo board guard that preserves blocked/external states, serializes
-  whole-board writes, and exposes save outcomes to assistive technology.
-- a guided, human-operated acceptance panel at
-  `/?view=echo-records&recordGardenReview=1` that hashes the browser-loaded
-  Record Garden chunk at review start and finish, collects run-scoped playback,
-  surface, Card, responsive-input, WebGL, and frame-budget evidence, and saves
-  an integrity-sealed append-only receipt without mutating the Kanban;
-- a signed server acceptance context that fails closed when the production
-  bundle, service boot, verification ledger, implementation revision, or
-  browser-loaded chunk is stale or mismatched.
+- A Record has one stable identity and one Three.js object across crate display,
+  pickup, platter placement, playback, lift, return, and snapshot recovery.
+  Placing or removing it changes that object's state and transform; it does not
+  swap in a platter clone. Removing the placed Record is also the physical stop
+  gesture for its song and Director clock.
+- Every resident crate Record with usable media presents a muted looping face
+  and a separate readable song-title surface before it reaches the player.
+  Nonresident collection entries remain plain catalog data and are materialized
+  only inside the bounded visible window or while held/placed.
+- The turntable drives one large horizontal **Director Preview** plus the face of
+  the same placed Record. The older three-small-screen triptych is no longer the
+  current design.
+- The large Preview consumes the normalized Echo Director runtime with one
+  external audio clock. It retains exact cut/revision, shot, source bounds,
+  camera framing and movement, transitions, shaders, Always-On layers,
+  visualizers, automation, and enabled lyric state. A preparing or unsupported
+  operation remains labeled or retains the last complete frame instead of
+  silently becoming Legacy Baseline or black.
+- The current non-Legacy Director selection is loaded by exact variant identity.
+  Source, cut, and graph cache keys retain revision identity so a recent cut
+  cannot resolve to a stale package with the same song ID.
+- The spatial catalog provides in-world page and sort controls while the 2D
+  catalog retains search, perspective, sort, paging, recovery, keyboard, and
+  touch-equivalent controls. Platter playback always has priority over idle
+  Record preview audio.
+- Hover or keyboard focus may preview one Record only while the turntable is
+  idle. The 3D audio visualizer follows the placed or previewed Record and uses
+  the same mastered analyser rather than a second music clock.
+- Activating the large Preview prints the Hapa Card attached to that exact
+  Director frame. Printed Cards are persistent 3D objects with a full-bleed
+  looping media face, details, source/cut/shot lineage, a saved transform, and
+  explicit custody/mint truth. A held or pointed Card or Record can be
+  reoriented with the wheel and faces toward the camera instead of spinning
+  around an already tilted local axis.
+- **Cinematic Mode** hides the ordinary Builder and Garden chrome without
+  unmounting the scene. A small exit/recording dock remains available; Escape
+  restores the normal interface and prior focus.
+- **Record Mode** captures the live Garden canvas and the existing mastered
+  song-audio branch. Stopping the recording creates one content-addressed,
+  idempotent, durable local Hapa Card after media validation and local custody.
+  It pins the source Record, song, cut, weather, and rights lineage at start and
+  does not claim public mint, canon, publication, or commerce authority.
+- Sunrise, high noon, sunset, and night reuse the same authored environment,
+  sky, fog, materials, and bounded light rig. New placed Records advance the
+  phase gradually; reduced motion presents the target state without decorative
+  easing.
+- Scene scenery, the table/stage, and the enlarged Preview preserve the current
+  sightline: environment meshes support the cinema rather than intersecting or
+  obscuring it.
 
-## Canonical Verification
+## Current Catalog Fact
 
-### Feature gate
+A compact read of the canonical loopback Director index on 2026-08-01 reported:
 
-`npm run test:echo-record-garden`
+- **157 Director projects**;
+- **1,905 total Director variants** across those projects;
+- all 157 compact rows with audio, a Preview source, and a modern/non-Legacy
+  selection.
 
-- 139 tests passed
-- 0 failed
-- 0 skipped
-- observed duration: 2,574.17 ms
+These are registry/index facts, not a claim that a human has watched every
+variant or that every source is publicly cleared. Final evidence should preserve
+the compact endpoint response or its digest alongside the exact focused commit.
 
-Coverage includes source truth, newest-cut selection, immutable duration
-projection, future/active/past/ambient video phases, calm RPM, surface paging,
-Card resolution, active-vs-selected identity, audio preflight, snapshot
-migration, accessibility, responsive contracts, media lifecycle, delivery
-receipts, the offline fixture, and board-status integrity.
+## Echo Preview Parity Boundary
 
-### Summary and exact-cut API
+`EchoDirectorPreviewRuntime` is the renderer-only boundary shared with the Echo
+Album Director semantics. Record Garden supplies one audio-clock sample and one
+output canvas; it does not embed the Workbench authoring UI or create a second
+audible player.
 
-The compact-index and live payload suites passed 3/3. The live canonical API
-then reported:
+At a fixed song, cut, and time, the parity contract covers:
 
-- 157 Director projects;
-- 157 projects with a non-Legacy selection;
-- nine selections with explicit ready metadata;
-- the remaining legacy index rows using the labeled nonfailed compatibility
-  path rather than pretending readiness.
+- exact Director variant and revision;
+- current shot and source in/out/loop bounds;
+- output orientation and cover/crop transform;
+- camera direction, intensity, speed, transform origin, and cue index;
+- active shader and Always-On layers;
+- visualizer, lyric, transition, and automation state;
+- exact current visual and attached-Card identity.
 
-For `dear-papa-song-wish-her-well`, the live selection was:
+The Preview publishes one complete composited frame atomically. It may retain a
+last valid frame or show a source-labeled fallback while media prepares, but it
+must not expose a partially drawn quadrant, rewind completed shots, or downgrade
+the render path relative to the Echo Album Preview.
 
-- cut `vibes-reference-transitions-33beff74b1ea`;
-- title `Vibes Reference Transitions · 3 Links`;
-- effective timestamp `2026-07-29T03:06:30.125Z`;
-- exact delivered selection and 51 timeline rows.
+## Verification State
 
-Its certified execution graph was still preparing
-(`exact_cut_execution_graph_not_ready`), so Record Garden truthfully uses the
-exact playable timeline without claiming render or mint readiness.
+Earlier release numbers and hashes belonged to older three-screen revisions and
+are intentionally not carried forward. The current working tree is still being
+closed out, so the final evidence refresh must bind the exact focused commit and
+production assets after all implementation changes settle.
 
-### Production build
+Required automated refresh:
 
-`npm run build` and `npm run build:check` passed.
+1. run the expanded Record Garden gate, including atmosphere, visualizer,
+   Cinematic/Record integration, recording Card, recording transaction,
+   Preview-parity, media lifecycle, virtualization, accessibility, and delivery
+   receipt suites;
+2. run the full Builder test suite;
+3. run the production build and build receipt check;
+4. run the offline Record Garden verifier against the built assets;
+5. repeat the compact 157-project/1,905-variant API census;
+6. run catalog paging/swap and current-cut playback soaks, recording resource
+   counts, renderer texture/geometry ceilings, media hard seeks, cache bytes,
+   heap delta, and teardown state;
+7. refresh the verification ledger with the exact commit, bundle path/digests,
+   commands, results, and timestamps.
 
-- Record Garden chunk:
-  `dist/assets/EchoRecordGarden3DView-D-d220Pc.js`
-- size: 157,092 bytes; Vite 157.09 kB / 49.18 kB gzip
-- chunk digest:
-  `904cc55628dc93c997ad82ede82acdb75cc3b41cce6e895310d08eb5c0983148`
-- delivery semantic digest:
-  `sha256:a492e63b521a11022132722b6c7e311c9c72b091dce3a7b5974140825102adfb`
-- build receipt file digest:
-  `adee7c3ce040db1e6f5bf59477d68bca71b397485e750a1cefb1f47d983656e2`
+Passing automated checks prove deterministic contracts and resource bounds.
+They do not prove live WebGL pixels, audio-device behavior, touch geometry,
+perceived camera motion, screen-reader output, or the quality of the weather and
+garden composition.
 
-The existing application still emits a warning for unrelated chunks over
-500 kB. Record Garden remains independently lazy loaded.
+## Human Acceptance Is Still Pending
 
-### Offline acceptance
+The saved Codex in-app-browser policy denies control of the loopback Record
+Garden route. That restriction has not been bypassed with another browser,
+hidden protocol, or alternate transport. Therefore no current-build human
+visual, audio, touch, screenshot, or assistive-technology acceptance is claimed
+here.
 
-The pure-Node verifier passed 9/9 checks and binds to implementation revision
-`71e2f31d24e9d5b4cb130c98b2ca82fd9ec783db`.
+The operator gate is
+`docs/ECHO_RECORD_GARDEN_OPERATOR_ACCEPTANCE.md` at
+`http://127.0.0.1:8797/?view=echo-records&recordGardenReview=1`. It covers the
+same-object Record lifecycle, two-minute Director playback, repeated placement
+and seeking, Preview parity, Card printing and manipulation, Cinematic Mode,
+Record Mode, catalog traversal, hover/touch preview, visualizer/weather,
+responsive layout, reduced motion, and accessibility.
 
-- receipt:
-  `artifacts/echo-record-garden/e2e/offline-contract-receipt.json`
-- receipt digest:
-  `eb6489988fd05edf79e535f017000f5f39d0d7389ae4bdb674c489050ee2588f`
-- fixture-manifest digest:
-  `7adefdbb80adf3b357d0f35513fd91718f6840f229c6b29e53793db990d5c111`
+Older screenshots remain art-direction references only. They cannot close the
+current-build operator gate.
 
-It proves deterministic audio/video/image fixtures, broken-media fallbacks,
-catalog and project retry, twelve-surface paging, authoritative and embedded
-Card paths, recovery contracts, and built-asset presence. It is not browser,
-WebGL, audio-device, touch, layout, or screenshot evidence.
-
-### Broader Builder regression
-
-The current exact revision passed the full repository suite: 1,398 of 1,398
-tests, with zero failures, skips, or cancellations. The earlier implementation
-baseline's isolated loopback `ECONNRESET` remains historical evidence; it is
-not attributed to this clean current-revision run.
-
-### Cache soak and live service
-
-The explicit-GC, two-pass album soak parsed 157 base projects, 157
-representative current variants, and 157 native show graphs per pass. Raw JSON
-ended at 64 entries / 55,024,126 source bytes and graphs at 32 entries /
-77,655,736 source bytes. Heap after collection was 129,250,704 bytes after
-pass one and 129,280,672 after pass two. Every byte/count, eviction, and heap
-plateau assertion passed. Receipt digest:
-`7a3789a916d21b473671b3b604b59eec91709d8658e26c43768ab10980dbdefe`.
-
-The launchd-owned service was then restarted on port 8797 with current source
-freshness and cache ceilings visible in `/api/health`. A live 32-song exact-cut
-pass filled 64 raw entries and 32 graph entries without exceeding either byte
-limit; a repeated pass caused no additional raw reads or retained cache growth.
-
-## Tarot Reuse And Boundaries
+## Tarot Reuse And Ownership
 
 Tarot Draw remains the owner of the original spatial/Card interaction language.
-Record Garden adapts:
+Record Garden adapts its perspective camera, table-plane projection, stable
+object reconciliation, drag/place language, physical Card handling, media
+texture pooling, recovery, and lifecycle cleanup. It does not move Tarot,
+subscriber synchronization, Stargate, Forge, Council, or public mint workflows
+into the Record Garden.
 
-- perspective camera and OrbitControls;
-- pointer projection and table-plane drag;
-- stable-identity object reconciliation;
-- absolute media-clock synchronization;
-- pooled media texture and fallback patterns;
-- attached Card resolution and immutable Song Card print;
-- versioned scene recovery and complete lifecycle disposal.
+Record Garden owns its turntable, stable Record registry, in-world catalog,
+large Director display, garden environment, local session recording adapter,
+weather presentation, and 3D audio visualizer. Echo Album remains the Director
+authoring and Preview-semantics owner.
 
-It deliberately does not inherit Tarot subscriber synchronization, remote
-camera state, global input interception, multiple audio players, Stargate,
-Forge, Council, or mint workflows.
+The procedural environment and adapted design methods retain their attribution
+in `THIRD_PARTY_NOTICES.md`. No Hapa integration transfers ownership of upstream
+methods or source media.
 
-The outdoor scene is procedural Three.js authored in the Record Garden
-component. No new downloaded model, texture, font, or third-party scene asset
-was introduced.
-
-## Rights And Card Truth
+## Rights, Custody, And Card Truth
 
 Runtime visuals remain projections from existing Echo Director, Reference,
-Avatar, Scene, Song Registry, and Card sources. Presence in Hapa does not
-transfer copyright, likeness, authorship, publication rights, or mint
-authority.
+Avatar, Scene, Song Registry, and Card sources. Their presence in Hapa does not
+transfer copyright, likeness, authorship, consent, publication rights, or reuse
+rights.
 
-- Existing Cards retain their exact IDs and receipts.
-- Timed Director Cards require an edition-pinned authoritative print.
-- Service or identity mismatch fails closed.
-- `LOCAL · UNMINTED` is a deterministic preview, never a persisted or minted
-  Card.
-- Public release still requires source-by-source rights and consent review.
-
-`createEchoRecordVisualCardResolver` owns this decision path. It deduplicates
-pending requests, caches completed resolutions, supports cancellation, validates
-authoritative edition-print receipts, preserves embedded and attached source
-Cards, and permits a local projection only after a confirmed missing source
-attachment.
+- Existing Cards retain exact source IDs, receipts, and lineage.
+- An exact Director-frame print must retain song, cut, revision, shot, layer,
+  visual source, time, and attachment identity.
+- `LOCAL · UNMINTED` is a deterministic local projection, never a persisted or
+  minted Card.
+- A successful Record Mode stop may create a **durable local Card with verified
+  custody**. That is still unminted and unpublished; public mint, canon,
+  publication, catalog availability, and commerce require separate authority.
+- Service, edition, identity, media-validation, or rights ambiguity fails
+  visibly instead of being rewritten as success.
+- Public distribution still requires source-by-source rights and consent
+  review.
 
 ## Recovery And Rollback
 
-- Detail and reference requests abort on rapid song changes.
-- Platter identity changes only after project and audio preflight.
-- Future clips pre-cue; completed clips never seek backward.
-- Hidden-page, blur, pointer-cancel, and reduced-motion paths stop unsafe work.
-- Media failure retains a source-labeled fallback.
-- Snapshot recovery removes stale IDs and restores paused state only.
-- Unmount cancels frames and callbacks, removes listeners, stops media, and
-  disposes renderer resources.
-- Navigation to `/?view=echos` or `/?view=tarot` leaves source records unchanged.
-- Empty Director media enters a safe standby state and releases any previous
-  pooled record-face resource once.
-- Code rollback is the inverse of focused revisions `71e2f31`, `fbf547c`,
-  `24ebb94`, `4535188`, `c0e6ede`, `b5ed112`, `44e1833`, and `b946fec`.
+- Rapid song/cut changes abort obsolete detail, reference, and Card work.
+- Platter placement keeps the physical Record responsive while audio, first
+  frame, and full Director preparation advance through separately bounded
+  stages.
+- The Preview retains a valid poster/frame through initial decode or a
+  source-labeled fallback through failure; black is not the loading state.
+- Removing the placed Record stops its audio and Director state exactly once
+  while keeping that same object available to move or return.
+- Record Mode locks its source Record and lineage until stop/finalize; an exact
+  retry resumes the same idempotent transaction.
+- Snapshot migration restores paused playback, camera, catalog state, stable
+  Record transforms, weather, and printed Card transforms without autoplay or
+  duplicate objects.
+- Blur, hidden-page, pointer cancellation, lost capture, reduced motion, WebGL
+  loss, and unmount have bounded recovery and deterministic cleanup paths.
+- Navigation to Echo Album or Tarot leaves the source records and Cards
+  unchanged.
 
-## Current Manual Acceptance
-
-Saved browser permissions prohibit automated DOM, console, network, screenshot,
-or alternate-browser execution for the current revision. Older screenshots are
-art-direction references only.
-
-The durable checklist and guided-receipt instructions are in
-`docs/ECHO_RECORD_GARDEN_OPERATOR_ACCEPTANCE.md`. Open
-`http://127.0.0.1:8797/?view=echo-records&recordGardenReview=1`, choose
-**Verify experience**, and start the current-build-bound review. In short, the
-remaining operator check is:
-
-1. hard-reload the guided route and choose **Start review**;
-2. place a record and confirm the disc feels calm rather than fast;
-3. confirm the displayed cut is a recent non-Legacy cut;
-4. play and seek across several cuts, watching for black surfaces, backward
-   rewinds, or twitching;
-5. page all surface groups and confirm fallbacks remain labeled;
-6. click a Director, Reference, character, or scene visual and confirm the
-   attached Card result remains source-accurate and explicitly unminted when
-   local;
-7. exercise keyboard placement, pause/resume, reduced motion, and the visible
-   recovery action;
-8. repeat at a compact window size and confirm controls remain reachable;
-9. keep one record playing for two minutes, capture three separated checkpoints,
-   and change records repeatedly while checking that audio, screens, and old
-   media stop cleanly;
-10. save a passing receipt only when every human row and automated supporting
-    signal is green; otherwise save an issue receipt with exact reproduction
-    steps.
-
-Until that check is recorded, current-revision live WebGL pixels, audio-device
-behavior, touch geometry, and screenshots remain not proven.
+Code rollback must name the final focused Record Garden commit and any dependent
+schema/receipt revision after the evidence refresh. Do not use the obsolete
+three-screen revision list as the current rollback recipe.
 
 ## Board And Release Boundary
 
-Board history is append-only. Historical done events that referred to an older
-prototype are preserved, then corrected with new events. Tasks 1–12 have
-current source/automated evidence. Task 13 remains open for the manual visual
-acceptance above; task 14 closes only after task 13 and the final append-only
-ledger receipt.
+Kanban and Overwatch history is append-only. Implementation evidence may move a
+technical card only through a new evidence event; it does not manufacture a
+human decision. The remaining current-build browser/visual acceptance and
+release-closeout cards stay pending until an operator records an exact-build
+passing or issue receipt.
 
-This release does not claim public deployment, full media coverage for every
-song, production readiness, rights clearance, durable Card creation, mint
-authority, or third-party endorsement.
+This First Pass / Prototype Stage release does not claim public deployment,
+production readiness, universal hardware support, rights clearance for every
+source, public mint authority, publication, commerce, or third-party
+endorsement.

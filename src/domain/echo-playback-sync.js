@@ -20,3 +20,27 @@ export function mapEchoSourceTime({ elapsedSeconds = 0, durationSeconds = 0, loo
   if (elapsed < playableEnd) return elapsed;
   return playableEnd > 0 ? elapsed % playableEnd : 0;
 }
+
+export function mapEchoSourceWindowTime({
+  elapsedSeconds = 0,
+  durationSeconds = 0,
+  sourceInSeconds = 0,
+  sourceOutSeconds = null,
+  loop = true,
+  endGuardSeconds = 0.06,
+} = {}) {
+  const mediaDuration = Math.max(0, Number(durationSeconds) || 0);
+  const sourceStart = Math.min(mediaDuration || Infinity, Math.max(0, Number(sourceInSeconds) || 0));
+  const declaredSourceEnd = Number(sourceOutSeconds);
+  const sourceEnd = Number.isFinite(declaredSourceEnd) && declaredSourceEnd > sourceStart
+    ? Math.min(mediaDuration || declaredSourceEnd, declaredSourceEnd)
+    : mediaDuration;
+  const sourceDuration = Math.max(0, sourceEnd - sourceStart);
+  if (!sourceDuration) return sourceStart;
+  return sourceStart + mapEchoSourceTime({
+    elapsedSeconds,
+    durationSeconds: sourceDuration,
+    loop,
+    endGuardSeconds,
+  });
+}

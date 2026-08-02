@@ -1,5 +1,13 @@
+import {
+  ECHO_RECORD_GARDEN_ACCEPTANCE_RUN_SCHEMA,
+  createEchoRecordGardenAcceptanceRun,
+} from "./echo-record-garden-acceptance-run.js";
+
 export const ECHO_RECORD_GARDEN_ACCEPTANCE_SCHEMA = "hapa.echo-record-garden.operator-acceptance.v1";
-export const ECHO_RECORD_GARDEN_ACCEPTANCE_RUN_SCHEMA = "hapa.echo-record-garden.acceptance-run.v1";
+export {
+  ECHO_RECORD_GARDEN_ACCEPTANCE_RUN_SCHEMA,
+  createEchoRecordGardenAcceptanceRun,
+};
 
 export const ECHO_RECORD_GARDEN_ACCEPTANCE_CHECKS = Object.freeze([
   Object.freeze({ id: "desktop-layout", label: "Desktop garden, controls, and record manipulation" }),
@@ -96,38 +104,6 @@ function cleanCheckResults(value = {}) {
     checks[id] = CHECK_RESULTS.has(result) ? result : "pending";
   }
   return checks;
-}
-
-export function createEchoRecordGardenAcceptanceRun(now = new Date().toISOString()) {
-  return {
-    schemaVersion: ECHO_RECORD_GARDEN_ACCEPTANCE_RUN_SCHEMA,
-    startedAt: text(now, 100),
-    running: true,
-    playbackSeconds: 0,
-    maxUninterruptedPlaybackSeconds: 0,
-    uninterruptedPlaybackSongId: "",
-    uninterruptedPlaybackCutId: "",
-    recordPlacements: 0,
-    recordChanges: 0,
-    seekGestures: 0,
-    seekTransitions: [],
-    surfacePageChanges: 0,
-    cardResults: 0,
-    keyboardActions: 0,
-    compactActions: 0,
-    reducedMotionObserved: false,
-    mediaFailures: 0,
-    bufferingTransitions: 0,
-    contextLosses: 0,
-    maxRendererGeometries: 0,
-    maxRendererTextures: 0,
-    frameTiming: normalizeFrameTiming(),
-    songsObserved: [],
-    cardEvidence: [],
-    lastPlacedSongId: "",
-    lastSeekAtMs: 0,
-    lastSeekSeconds: 0,
-  };
 }
 
 export function normalizeEchoRecordGardenAcceptanceRun(value = {}) {

@@ -103,8 +103,9 @@ test("late image callbacks dispose their result and never mutate a disposed fall
   );
   assert.match(
     threeRuntime,
-    /dispose\(\) \{\s*if \(disposed\) return;\s*disposed = true;[\s\S]*?loadedTexture\?\.dispose\?\.\(\);\s*fallbackTexture\.dispose\(\);/s,
+    /dispose\(\) \{\s*if \(disposed\) return;\s*disposed = true;[\s\S]*?loadedTexture\?\.dispose\?\.\(\);[\s\S]*?if \(fallbackTextureOwned\)[\s\S]*?fallbackTexture\.dispose\(\);/s,
   );
+  assert.match(threeRuntime, /releaseSupersededTextures\(\)[\s\S]*?resource\.texture === loadedTexture/s);
   assert.match(threeRuntime, /resource\.texture = loaded/);
   assert.doesNotMatch(threeRuntime, /fallbackTexture\.image = loaded\.image/);
   assert.match(threeRuntime, /if \(disposed \|\| entry\.disposed \|\| entry\.textureUri !== uri\) \{\s*texture\.dispose\(\);/s);
@@ -454,4 +455,68 @@ test("table scenery and manipulable objects share one translated coordinate fram
   assert.match(threeRuntime, /createRecordCatalogConsole\(tableInteractionRoot/);
   assert.match(threeRuntime, /tableInteractionRoot\.worldToLocal\(tableDragPoint\)/);
   assert.match(threeRuntime, /player\.platterTablePosition/);
+});
+
+test("Three Record residency follows the crate page and disposes evicted GPU/media ownership", () => {
+  const setRecords = threeRuntime.slice(
+    threeRuntime.indexOf("const setRecords ="),
+    threeRuntime.indexOf("const setVisuals ="),
+  );
+  assert.match(setRecords, /recordCatalog\.clear\(\)/);
+  assert.match(setRecords, /planEchoRecordGardenRecordResidency\(\{/);
+  assert.match(setRecords, /visibleLimit: RECORDS_PER_CRATE/);
+  assert.match(setRecords, /heldSongId: heldEntry\?\.record\?\.songId/);
+  assert.match(setRecords, /manipulatedSongIds: Object\.keys\(restoredRecordTransforms\)/);
+  assert.match(setRecords, /residency\.evictSongIds\.forEach/);
+  assert.match(setRecords, /recordEntityRegistry\.unbind\(entry\.record\.id, entry\.root\)/);
+  assert.match(setRecords, /disposeRecordEntry\(entry\)/);
+  assert.match(setRecords, /recordEntries\.delete\(songId\)/);
+  assert.match(setRecords, /residency\.residentSongIds\.forEach/);
+  const catalogSync = setRecords.slice(
+    setRecords.indexOf("records.forEach((record) =>"),
+    setRecords.indexOf("const residency ="),
+  );
+  assert.doesNotMatch(
+    catalogSync,
+    /createRecordEntry\(record\)/,
+    "plain catalog iteration must not instantiate one Three object per album song",
+  );
+  assert.match(setRecords, /\.slice\(0, VISIBLE_RECORD_VIDEO_LIMIT\)/);
+  assert.match(setRecords, /updateRecordTitleAtlas/);
+  assert.match(threeRuntime, /function createRecordTitleAtlas/);
+  assert.match(threeRuntime, /function applyRecordTitleAtlasUv/);
+  assert.doesNotMatch(threeRuntime, /function createRecordTitleTexture/);
+  assert.match(threeRuntime, /const buttonAtlasTexture = createCatalogButtonAtlasTexture\(specs\)/);
+  assert.match(threeRuntime, /applyRecordTitleAtlasUv\(geometry, \{/);
+  assert.match(threeRuntime, /buttonAtlasTexture\.dispose\(\)/);
+  assert.doesNotMatch(threeRuntime, /function createCatalogButtonTexture/);
+
+  const mediaPool = threeRuntime.slice(
+    threeRuntime.indexOf("function createScreenMediaPool"),
+    threeRuntime.indexOf("function assignAlbumScreenVisuals"),
+  );
+  assert.match(mediaPool, /tryAcquire\(visual\)/);
+  assert.match(mediaPool, /makeRoomForOptionalEntry/);
+  assert.match(mediaPool, /const hasRoom = makeRoomForOptionalEntry\(\)/);
+  assert.match(mediaPool, /if \(optional && !hasRoom\) return null/);
+  assert.match(threeRuntime, /mediaPool\.tryAcquire\(presentation\)/);
+  assert.match(threeRuntime, /printedVideoCount < PRINTED_CARD_VIDEO_LIMIT \? mediaPool : null/);
+
+  const mediaFactory = threeRuntime.slice(
+    threeRuntime.indexOf("function createScreenMediaResource"),
+    threeRuntime.indexOf("function disposeScreenMediaResource"),
+  );
+  assert.match(mediaFactory, /releaseSupersededTextures\(\)/);
+  assert.match(mediaFactory, /disposeFallbackTexture\(\)/);
+  assert.match(mediaFactory, /resource\.hasPresentedFrame && resource\.texture === videoTexture/);
+  assert.match(mediaFactory, /resource\.hasPresentedFrame\s*\? videoTexture\s*:\s*posterTexture \|\| fallbackTexture/);
+
+  const teardown = threeRuntime.slice(
+    threeRuntime.indexOf("dispose() {", threeRuntime.indexOf("return {\n    setRecords")),
+    threeRuntime.indexOf("function createLazySundayScene"),
+  );
+  assert.match(teardown, /recordEntries\.clear\(\)/);
+  assert.match(teardown, /recordCatalog\.clear\(\)/);
+  assert.match(teardown, /recordTitleAtlas\?\.texture\?\.dispose/);
+  assert.match(teardown, /canvas\.dataset\.residentRecordObjects = "0"/);
 });

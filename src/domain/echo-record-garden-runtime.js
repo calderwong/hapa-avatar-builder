@@ -7,6 +7,7 @@ export const ECHO_RECORD_ENTITY_STATE_SCHEMA = "hapa.echo-record-garden.entity-s
 export const ECHO_RECORD_FACE_CONTRACT_SCHEMA = "hapa.echo-record-garden.record-face.v1";
 export const ECHO_RECORD_VIDEO_COORDINATOR_SCHEMA = "hapa.echo-record-garden.video-coordinator.v1";
 export const ECHO_RECORD_PLACEMENT_LATENCY_SCHEMA = "hapa.echo-record-garden.placement-latency.v1";
+export const ECHO_RECORD_RESIDENCY_PLAN_SCHEMA = "hapa.echo-record-garden.record-residency-plan.v1";
 
 export const ECHO_RECORD_LIFECYCLE_STATES = Object.freeze([
   "crate",
@@ -70,6 +71,60 @@ const STATE_PARENT = Object.freeze({
   returned: "record-crate",
   restored: "record-garden-world",
 });
+
+function uniqueSongIds(values = []) {
+  const ids = [];
+  const seen = new Set();
+  for (const value of list(values)) {
+    const songId = text(value);
+    if (!songId || seen.has(songId)) continue;
+    seen.add(songId);
+    ids.push(songId);
+  }
+  return ids;
+}
+
+export function planEchoRecordGardenRecordResidency({
+  catalogSongIds = [],
+  residentSongIds = [],
+  visibleSongIds = [],
+  placedSongId = "",
+  heldSongId = "",
+  manipulatedSongIds = [],
+  visibleLimit = 10,
+} = {}) {
+  const catalog = uniqueSongIds(catalogSongIds);
+  const catalogSet = new Set(catalog);
+  const boundedVisibleLimit = Math.max(0, Math.floor(finite(visibleLimit, 10)));
+  const visible = uniqueSongIds(visibleSongIds)
+    .filter((songId) => catalogSet.has(songId))
+    .slice(0, boundedVisibleLimit);
+  const exceptions = uniqueSongIds([
+    placedSongId,
+    heldSongId,
+    ...uniqueSongIds(manipulatedSongIds),
+  ]).filter((songId) => catalogSet.has(songId) && !visible.includes(songId));
+  const target = [...visible, ...exceptions];
+  const targetSet = new Set(target);
+  const resident = uniqueSongIds(residentSongIds);
+  const residentSet = new Set(resident);
+  return {
+    schemaVersion: ECHO_RECORD_RESIDENCY_PLAN_SCHEMA,
+    catalogCount: catalog.length,
+    visibleSongIds: visible,
+    exceptionSongIds: exceptions,
+    residentSongIds: target,
+    residentCount: target.length,
+    createSongIds: target.filter((songId) => !residentSet.has(songId)),
+    retainSongIds: target.filter((songId) => residentSet.has(songId)),
+    evictSongIds: resident.filter((songId) => !targetSet.has(songId)),
+    limits: {
+      visible: boundedVisibleLimit,
+      exceptions: exceptions.length,
+      maximumForThisState: boundedVisibleLimit + exceptions.length,
+    },
+  };
+}
 
 function text(value, fallback = "") {
   return typeof value === "string" ? value.trim() || fallback : fallback;

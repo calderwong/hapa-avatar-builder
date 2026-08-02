@@ -18,7 +18,7 @@ function sourceBlock(start, end) {
 test("the placed record owns the active project while another sleeve is merely selected", () => {
   assert.match(component, /const activeProjectSongId = placedRecordId \|\| selectedRecordId;/);
   assert.match(component, /loadRecordProject\(activeProjectSongId\)/);
-  assert.match(component, /projectSongIdentity\(packet\?\.project\) !== activeProjectSongId/);
+  assert.match(component, /assertRecordGardenProjectIdentity\(activeRecord, packet\?\.project, apiBase\)/);
 
   const loader = sourceBlock(
     "const loadRecordProject = useCallback",
@@ -31,7 +31,7 @@ test("the placed record owns the active project while another sleeve is merely s
   );
 });
 
-test("placement immediately moves the same record object and warms the real audio element before playback", () => {
+test("placement seats the same Record and starts the real audio lane before Director hydration", () => {
   const audioPreparation = sourceBlock(
     "function prepareRecordAudioElement",
     "function waitForMediaPresentation",
@@ -50,23 +50,78 @@ test("placement immediately moves the same record object and warms the real audi
     "const placeRecord = useCallback",
     "const togglePlayback = useCallback",
   );
-  const projectLoad = placement.indexOf("const packet = await loadRecordProject(songId)");
-  const identityCheck = placement.indexOf("projectSongIdentity(nextProject) !== songId");
-  const routeCheck = placement.indexOf("if (!audioUri)");
-  const realAudioPreparation = placement.indexOf("await prepareRecordAudioElement(audio, audioUri");
+  const audioPreparationStart = placement.indexOf("const audioPreparationPromise = prepareRecordAudioElement(audio, audioUri");
+  const projectLoadStart = placement.indexOf("const directorPacketPromise = loadRecordProject(songId)");
+  const audioPipelineStart = placement.indexOf("const audioPipeline = (async () =>");
+  const directorPipelineStart = placement.indexOf("const directorPipeline = (async () =>");
+  const projectAwait = placement.indexOf("const packet = await directorPacketPromise");
+  const audioPlay = placement.indexOf("await audio.play()");
+  const presentationWait = placement.indexOf("await waitForMediaPresentation(primaryPresentation)");
+  const identityCheck = placement.indexOf("assertRecordGardenProjectIdentity(record, nextProject, apiBase)");
   const activeProjectCommit = placement.indexOf("setActiveProjectPacket(packet)");
   const placedIdCommit = placement.indexOf("setPlacedRecordId(songId)");
   const objectPlacementCommit = placement.indexOf("gameRef.current?.setPlacedRecord(songId)");
+  const seatingMilestone = placement.indexOf('markPlacement("seated")');
 
   assert.ok(placedIdCommit >= 0);
   assert.ok(objectPlacementCommit > placedIdCommit);
-  assert.ok(projectLoad > objectPlacementCommit, "the physical record is placed before network/media preparation");
-  assert.ok(identityCheck >= 0);
-  assert.ok(routeCheck > identityCheck);
-  assert.ok(realAudioPreparation > routeCheck);
-  assert.ok(activeProjectCommit > realAudioPreparation);
+  assert.ok(seatingMilestone > objectPlacementCommit, "same-frame physical seating owns the first milestone");
+  assert.ok(audioPreparationStart > seatingMilestone, "the real audio element starts prewarming immediately after seating");
+  assert.ok(projectLoadStart > audioPreparationStart, "Director detail fetch cannot delay starting the audio request");
+  assert.ok(audioPipelineStart > projectLoadStart);
+  assert.ok(directorPipelineStart > audioPipelineStart);
+  assert.ok(audioPlay > audioPipelineStart && audioPlay < directorPipelineStart);
+  assert.ok(projectAwait > directorPipelineStart, "Director hydration has its own concurrent await lane");
+  assert.ok(identityCheck > projectAwait);
+  assert.ok(activeProjectCommit > identityCheck, "hydrated state commits only after exact audio identity validation");
+  assert.ok(presentationWait > activeProjectCommit, "first-frame presentation remains visual-lane work");
+  assert.match(placement, /await Promise\.all\(\[audioPipeline, directorPipeline\]\)/);
+  assert.doesNotMatch(
+    placement.slice(audioPipelineStart, directorPipelineStart),
+    /directorPacketPromise|waitForMediaPresentation/,
+    "audio playback must not await Director detail or compositor presentation",
+  );
   assert.doesNotMatch(placement, /validateRecordAudioSource/);
-  assert.match(placement, /if \(error\?\.name === "AbortError"\) return/);
+  assert.match(placement, /if \(error\?\.name === "AbortError"\)/);
+});
+
+test("placement publishes bounded warm/cold latency traces with fail-visible identity errors", () => {
+  assert.match(component, /createEchoRecordPlacementLatencyState/);
+  assert.match(component, /markEchoRecordPlacementMilestone/);
+  assert.match(component, /summarizeEchoRecordPlacementLatencies/);
+  assert.match(component, /const warmed = Boolean\([\s\S]*?audio\.readyState >= 1/);
+  assert.match(component, /placementLatencySamplesRef\.current = publishRecordGardenPlacementLatency/);
+  assert.match(component, /summary: summarizeEchoRecordPlacementLatencies\(next\)/);
+
+  const placement = sourceBlock(
+    "const placeRecord = useCallback",
+    "const togglePlayback = useCallback",
+  );
+  for (const milestone of [
+    "seated",
+    "audio-unlock-start",
+    "audio-unlocked",
+    "metadata",
+    "decoded",
+    "audio-start",
+    "fetch-start",
+    "fetch-complete",
+    "director-graph-ready",
+    "first-frame",
+    "failed",
+    "cancelled",
+  ]) {
+    assert.match(placement, new RegExp(`markPlacement\\("${milestone}"`));
+  }
+  const identityGate = sourceBlock(
+    "function assertRecordGardenProjectIdentity",
+    "function abortError",
+  );
+  assert.match(identityGate, /projectSongIdentity\(project\) !== songId/);
+  assert.match(identityGate, /Director project audio route did not match the placed Record summary/);
+  assert.match(identityGate, /Director project audio identity did not match the placed Record summary/);
+  assert.match(placement, /setProjectLoadError\(error\?\.message/);
+  assert.match(placement, /setPlayback\(\(current\) => \(\{[\s\S]*?error: error\?\.message/);
 });
 
 test("Director shaders sample the same master audio element instead of a synthetic Preview pulse", () => {
@@ -96,7 +151,8 @@ test("Director shaders sample the same master audio element instead of a synthet
   assert.match(adapters, /signalFrames: signalBinding\.frames/);
   assert.match(adapters, /verified-stem-buffering-master-fallback/);
   assert.doesNotMatch(adapters, /const pulse = 0\.5 \+ Math\.sin/);
-  assert.match(component, /await directorAudioSignalRef\.current\?\.resume\?\.\(\)\.catch\(\(\) => false\);[\s\S]*?await audio\.play\(\)/);
+  assert.match(component, /Promise\.resolve\(directorAudioSignalRef\.current\?\.resume\?\.\(\)\)/);
+  assert.match(component, /const audioPipeline = \(async \(\) => \{[\s\S]*?await audio\.play\(\)/);
 });
 
 test("visual Card receipts remain bound to the active project's song identity", () => {

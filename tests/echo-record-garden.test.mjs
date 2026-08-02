@@ -774,7 +774,7 @@ test("Director videos pre-cue future shots, follow active shots, and hold comple
   assert.equal(reducedAmbient.seekSeconds, 0);
 
   const loopingAmbient = echoRecordVideoPlaybackPlan({
-    clockSeconds: 9,
+    clockSeconds: 0,
     startSeconds: 0,
     durationSeconds: 4,
     clockLocked: false,
@@ -787,6 +787,35 @@ test("Director videos pre-cue future shots, follow active shots, and hold comple
   assert.equal(loopingAmbient.expectedSeconds, 1);
   assert.equal(loopingAmbient.shouldPlay, true);
   assert.equal(loopingAmbient.shouldSeek, false);
+
+  const advancedAmbient = echoRecordVideoPlaybackPlan({
+    clockSeconds: 0,
+    startSeconds: 0,
+    durationSeconds: 4,
+    clockLocked: false,
+    reducedMotion: false,
+    videoCurrentTime: 2.4,
+    videoDuration: 4,
+    readyState: 4,
+  });
+  assert.equal(advancedAmbient.expectedSeconds, 2.4);
+  assert.equal(advancedAmbient.shouldSeek, false);
+  assert.equal(advancedAmbient.playbackRate, 1);
+
+  const boundedAmbient = echoRecordVideoPlaybackPlan({
+    clockSeconds: 0,
+    sourceStartSeconds: 1,
+    sourceEndSeconds: 3,
+    durationSeconds: 2,
+    playbackMode: "loop",
+    clockLocked: false,
+    reducedMotion: false,
+    videoCurrentTime: 2.98,
+    videoDuration: 6,
+    readyState: 4,
+  });
+  assert.equal(boundedAmbient.shouldSeek, true);
+  assert.equal(boundedAmbient.seekSeconds, 1);
 });
 
 test("media windows keep three visible surfaces and deterministically warm the next three", () => {

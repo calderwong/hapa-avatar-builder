@@ -1453,21 +1453,29 @@ export function echoRecordVideoPlaybackPlan({
         ? "past"
         : "active";
   const active = phase === "active" || phase === "ambient";
-  const ambientElapsed = Math.max(0, clock - start);
   const elapsedInShot = Math.max(0, Math.min(duration - 0.04, clock - start));
   const activeSourceElapsed = loopsSource
     ? elapsedInShot % sourceSpan
     : elapsedInShot;
-  const ambientSourceElapsed = loopsSource
-    ? ambientElapsed % sourceSpan
-    : ambientElapsed % duration;
   const holdSourceEnd = sourceEnd > sourceStart
     ? sourceEnd
     : sourceStart + duration;
+  const seekTolerance = Math.max(0.1, finite(hardSeekToleranceSeconds, 0.75));
+  const ambientBeforeSource = !clockLocked
+    && currentVideoTime < Math.max(0, sourceStart - seekTolerance);
+  const ambientAfterSource = !clockLocked
+    && sourceEnd > sourceStart
+    && currentVideoTime >= Math.max(sourceStart, sourceEnd - 0.03);
+  const ambientReducedMotionReset = !clockLocked
+    && reducedMotion
+    && Math.abs(currentVideoTime - sourceStart) > seekTolerance;
+  const ambientNeedsBoundarySeek = ambientBeforeSource
+    || ambientAfterSource
+    || ambientReducedMotionReset;
   const expected = phase === "hold"
     ? Math.max(sourceStart, holdSourceEnd - 0.04)
     : !clockLocked
-    ? sourceStart + (reducedMotion ? 0 : ambientSourceElapsed)
+    ? ambientNeedsBoundarySeek ? sourceStart : currentVideoTime
     : phase === "future"
       ? sourceStart
       : phase === "past"
@@ -1492,7 +1500,7 @@ export function echoRecordVideoPlaybackPlan({
   const seekTarget = effectiveExpected;
   const seekDrift = seekTarget - currentVideoTime;
   const shouldSeek = phase !== "past"
-    && Math.abs(seekDrift) > Math.max(0.1, finite(hardSeekToleranceSeconds, 0.75));
+    && (clockLocked ? Math.abs(seekDrift) > seekTolerance : ambientNeedsBoundarySeek);
   const playbackRate = shouldPlay && !shouldSeek && Math.abs(driftSeconds) > 0.16
     ? Math.max(0.97, Math.min(1.03, 1 + driftSeconds * 0.04))
     : 1;

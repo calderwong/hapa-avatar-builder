@@ -1,7 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import { mapEchoSourceTime, planEchoPlaybackCorrection } from "../src/domain/echo-playback-sync.js";
+import {
+  mapEchoSourceTime,
+  mapEchoSourceWindowTime,
+  planEchoPlaybackCorrection,
+} from "../src/domain/echo-playback-sync.js";
 
 test("Echo sync rate-corrects small drift and seeks only at cue entry or large drift", () => {
   assert.deepEqual(planEchoPlaybackCorrection({ expectedSeconds: 2, currentSeconds: 1, seeking: true }).action, "none");
@@ -17,6 +21,30 @@ test("source time loops before the undecodable end boundary", () => {
   assert.ok(Math.abs(mapEchoSourceTime({ elapsedSeconds: 4.5, durationSeconds: 4 }) - 0.56) < 1e-9);
   assert.equal(mapEchoSourceTime({ elapsedSeconds: 4.5, durationSeconds: 4, loop: false }), 3.94);
   assert.equal(mapEchoSourceTime({ elapsedSeconds: 2, durationSeconds: 0 }), 2);
+});
+
+test("source window time never escapes an explicit Director clip bound", () => {
+  assert.equal(mapEchoSourceWindowTime({
+    elapsedSeconds: 0,
+    durationSeconds: 20,
+    sourceInSeconds: 4,
+    sourceOutSeconds: 5.5,
+    loop: true,
+  }), 4);
+  assert.ok(Math.abs(mapEchoSourceWindowTime({
+    elapsedSeconds: 2,
+    durationSeconds: 20,
+    sourceInSeconds: 4,
+    sourceOutSeconds: 5.5,
+    loop: true,
+  }) - 4.56) < 1e-9);
+  assert.ok(Math.abs(mapEchoSourceWindowTime({
+    elapsedSeconds: 99,
+    durationSeconds: 20,
+    sourceInSeconds: 4,
+    sourceOutSeconds: 5.5,
+    loop: false,
+  }) - 5.44) < 1e-9);
 });
 
 test("Echo preview keeps three persistent players, gates handoff, and never lacks a fallback", () => {
