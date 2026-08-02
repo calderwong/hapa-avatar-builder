@@ -10,6 +10,7 @@ const hash = (value) => {
   }
   return `${a.toString(16).padStart(8, "0")}${b.toString(16).padStart(8, "0")}`.repeat(4);
 };
+export const dirtyRangeArtifactHash = hash;
 const overlaps = (card, start, end) => Number(card.startSeconds) < end && Number(card.endSeconds) > start;
 
 export function planDirtyRange(graph, edit = {}) {

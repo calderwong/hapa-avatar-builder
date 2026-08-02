@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import { applyMultitrackOperation, buildMultitrackProjection, editorGraphMintFingerprint, projectToEditorGraph, replayMultitrackPatches } from "../src/domain/multitrack-editor.js";
+import { applyMultitrackOperation, buildMultitrackProjection, editorGraphMintFingerprint, projectToEditorGraph, replayMultitrackPatches, validateEditorGraphCameraBindings } from "../src/domain/multitrack-editor.js";
 import { buildEchoShaderSelectionUpdate } from "../src/domain/echo-shader-picker.js";
 import { compileHyperFramesShow, preflightHyperFramesMedia } from "../src/domain/hyperframes-show-compiler.js";
 import { buildFoundationTimeline } from "../src/domain/hyperframes-foundation-reel.js";
@@ -185,6 +185,270 @@ test("editor projection preserves runtime-contract media and explicit visualizer
   assert.equal(generated.media.id, "none");
   assert.equal(generated.media.localPath, "");
   assert.equal(generated.provenance.rendererRoute, "generated-visualizer");
+});
+
+test("timeline merge carries source geometry and rebinds reordered camera paths to selected media", () => {
+  const projected = projectToEditorGraph({
+    song_id: "camera-rebind-song",
+    duration: 8,
+    output_profile: "landscape",
+    timeline: [{
+      shot_index: 0,
+      section_id: "verse-a",
+      start_sec: 0,
+      end_sec: 4,
+      media_id: "selected-portrait",
+      media_title: "Selected Portrait",
+      media_uri: "/media/selected-portrait.mp4",
+      camera_motion: "pan-down",
+      camera_intensity: 1.24,
+      camera_speed: 1.08,
+      camera_focus: "center",
+      media_contract: { type: "video", runtimeUri: "/media/selected-portrait.mp4", dimensions: { width: 720, height: 1280 } },
+    }, {
+      shot_index: 1,
+      section_id: "verse-b",
+      start_sec: 4,
+      end_sec: 8,
+      media_id: "selected-landscape",
+      media_title: "Selected Landscape",
+      media_uri: "/media/selected-landscape.mp4",
+      camera_motion: "slow-push-in",
+      camera_intensity: 0.95,
+      camera_speed: 1.02,
+      camera_focus: "center",
+      media_contract: { type: "video", runtimeUri: "/media/selected-landscape.mp4", dimensions: { width: 1920, height: 1080 } },
+    }],
+    director_show_graph: {
+      song: { id: "camera-rebind-song", durationSeconds: 8 },
+      tracks: [{
+        id: "track-a",
+        role: "foundation",
+        cards: [
+          { id: "card:a:1", startSeconds: 4, endSeconds: 8, media: { id: "old-one" }, provenance: { sourceSlotId: "slot:1" }, parameters: {} },
+          { id: "card:a:0", startSeconds: 0, endSeconds: 4, media: { id: "old-zero" }, provenance: { sourceSlotId: "slot:0" }, parameters: {} },
+        ],
+      }],
+      directorV2: {
+        mediaRoleCamera: [{ id: "stale-path", mediaId: "old-one", mediaCardId: "card:a:1", corridors: [] }],
+        cameraKeyframes: [{ atSeconds: 0, cameraPathId: "stale-path" }],
+        patchLineage: { patches: [], dirtyRanges: [] },
+      },
+    },
+  });
+  const cards = projected.tracks[0].cards;
+  assert.deepEqual(cards.map((card) => card.id), ["card:a:0", "card:a:1"]);
+  assert.deepEqual(cards[0].media.dimensions, { width: 720, height: 1280, maxDimension: 1280 });
+  assert.equal(cards[0].media.sourceOrientation, "portrait");
+  assert.equal(cards[0].media.aspectRatio, 720 / 1280);
+  assert.equal(cards[0].parameters.cameraIntensity, 1.24);
+  assert.equal(cards[0].parameters.cameraSpeed, 1.08);
+  assert.equal(projected.directorV2.mediaRoleCamera.length, 2);
+  for (const [index, path] of projected.directorV2.mediaRoleCamera.entries()) {
+    assert.equal(path.mediaCardId, cards[index].id);
+    assert.equal(path.mediaId, cards[index].media.id);
+    for (const row of projected.directorV2.cameraKeyframes.filter((frame) => frame.cameraPathId === path.id)) {
+      assert.equal(row.mediaCardId, cards[index].id);
+      assert.equal(row.mediaId, cards[index].media.id);
+    }
+  }
+  assert.deepEqual(validateEditorGraphCameraBindings(projected), {
+    ok: true,
+    errors: [],
+    mediaCards: 2,
+    cameraPaths: 2,
+    cameraKeyframes: 4,
+  });
+  const corrupted = JSON.parse(JSON.stringify(projected));
+  corrupted.directorV2.mediaRoleCamera[0].mediaId = "wrong-media";
+  assert.equal(validateEditorGraphCameraBindings(corrupted).ok, false);
+  assert.ok(validateEditorGraphCameraBindings(corrupted).errors.some((error) => error.startsWith("camera-path-media-mismatch")));
+});
+
+test("repeated media shots receive unique camera paths with per-card keyframe bindings", () => {
+  const repeatedShot = {
+    section_id: "shared-section",
+    media_id: "repeated-portrait",
+    media_title: "Repeated Portrait",
+    media_uri: "/media/repeated-portrait.mp4",
+    camera_motion: "pan-down",
+    camera_intensity: 1.1,
+    camera_speed: 1.05,
+    camera_focus: "center",
+    media_contract: {
+      type: "video",
+      runtimeUri: "/media/repeated-portrait.mp4",
+      dimensions: { width: 720, height: 1280 },
+    },
+    camera_framing_contract: {
+      shotRole: "portrait-anchor",
+      path: {
+        phraseCue: { id: "shared-phrase", atSeconds: 0, source: "test" },
+      },
+    },
+  };
+  const projected = projectToEditorGraph({
+    song_id: "repeated-media-song",
+    duration: 8,
+    output_profile: "landscape",
+    timeline: [
+      { ...repeatedShot, shot_index: 0, start_sec: 0, end_sec: 4 },
+      { ...repeatedShot, shot_index: 1, start_sec: 4, end_sec: 8 },
+    ],
+    director_show_graph: {
+      song: { id: "repeated-media-song", durationSeconds: 8 },
+      tracks: [{
+        id: "track-a",
+        role: "foundation",
+        cards: [
+          { id: "card:repeat:0", startSeconds: 0, endSeconds: 4, media: { id: "old-zero" }, provenance: { sourceSlotId: "slot:0" }, parameters: {} },
+          { id: "card:repeat:1", startSeconds: 4, endSeconds: 8, media: { id: "old-one" }, provenance: { sourceSlotId: "slot:1" }, parameters: {} },
+        ],
+      }],
+      directorV2: {
+        mediaRoleCamera: [],
+        cameraKeyframes: [],
+        patchLineage: { patches: [], dirtyRanges: [] },
+      },
+    },
+  });
+
+  const cards = projected.tracks[0].cards;
+  const paths = projected.directorV2.mediaRoleCamera;
+  assert.equal(paths.length, 2);
+  assert.equal(new Set(paths.map((path) => path.id)).size, 2);
+  assert.deepEqual(paths.map((path) => path.mediaId), ["repeated-portrait", "repeated-portrait"]);
+
+  for (const [index, path] of paths.entries()) {
+    const frames = projected.directorV2.cameraKeyframes.filter((frame) => frame.cameraPathId === path.id);
+    assert.equal(path.mediaCardId, cards[index].id);
+    assert.equal(frames.length, 2);
+    assert.ok(frames.every((frame) => frame.mediaCardId === cards[index].id));
+    assert.ok(frames.every((frame) => frame.mediaId === "repeated-portrait"));
+    assert.deepEqual(cards[index].cameraKeyframes, frames);
+  }
+
+  assert.deepEqual(validateEditorGraphCameraBindings(projected), {
+    ok: true,
+    errors: [],
+    mediaCards: 2,
+    cameraPaths: 2,
+    cameraKeyframes: 4,
+  });
+});
+
+test("saved media and camera patches replay before final camera bindings are certified", () => {
+  const cardId = "card:patched:0";
+  const projected = projectToEditorGraph({
+    song_id: "patched-camera-song",
+    duration: 4,
+    output_profile: "landscape",
+    timeline: [{
+      shot_index: 0,
+      section_id: "verse",
+      start_sec: 0,
+      end_sec: 4,
+      media_id: "source-portrait",
+      media_title: "Source Portrait",
+      media_uri: "/media/source-portrait.mp4",
+      camera_motion: "pan-down",
+      camera_intensity: 0.9,
+      camera_framing_contract: {
+        schemaVersion: "hapa.echo.asset-camera-framing.v2",
+        derived: true,
+        subjectROI: { x: 0.1, y: 0.04, width: 0.3, height: 0.22 },
+        path: {
+          subjectROI: {
+            x: 0.1,
+            y: 0.04,
+            width: 0.3,
+            height: 0.22,
+            status: "measured-subject-roi",
+            evidence: "old-media-only-analysis",
+          },
+        },
+      },
+      media_contract: {
+        type: "video",
+        runtimeUri: "/media/source-portrait.mp4",
+        dimensions: { width: 720, height: 1280 },
+      },
+    }],
+    director_show_graph: {
+      song: { id: "patched-camera-song", durationSeconds: 4 },
+      tracks: [{
+        id: "track-a",
+        role: "foundation",
+        cards: [{
+          id: cardId,
+          startSeconds: 0,
+          endSeconds: 4,
+          media: { id: "stale-media" },
+          provenance: { sourceSlotId: "slot:0" },
+          parameters: {},
+        }],
+      }],
+      directorV2: {
+        mediaRoleCamera: [],
+        cameraKeyframes: [],
+        patchLineage: { patches: [], dirtyRanges: [] },
+      },
+    },
+    director_show_graph_patches: [{
+      operation: {
+        id: "saved:replace",
+        kind: "replace-card",
+        cardId,
+        media: {
+          id: "patched-landscape",
+          title: "Patched Landscape",
+          localPath: "/media/patched-landscape.mp4",
+          dimensions: { width: 1920, height: 1080, maxDimension: 1920 },
+          mediaContract: {
+            type: "video",
+            runtimeUri: "/media/patched-landscape.mp4",
+            dimensions: { width: 1920, height: 1080 },
+          },
+        },
+      },
+    }, {
+      operation: {
+        id: "saved:camera",
+        kind: "set-camera",
+        cardId,
+        motion: "roi-push",
+        intensity: 1.15,
+      },
+    }],
+  });
+
+  const card = projected.tracks[0].cards[0];
+  const path = projected.directorV2.mediaRoleCamera[0];
+  assert.equal(card.media.id, "patched-landscape");
+  assert.equal(card.parameters.motion, "roi-push");
+  assert.equal(card.parameters.cameraIntensity, 1.15);
+  assert.equal(path.mediaId, "patched-landscape");
+  assert.equal(path.mediaCardId, cardId);
+  assert.equal(path.sourceOrientation, "landscape");
+  assert.deepEqual(path.subjectROI, {
+    x: 0.25,
+    y: 0.2,
+    width: 0.5,
+    height: 0.6,
+    status: "center-safe-fallback",
+    evidence: "replacement-media-center-safe-fallback",
+    faceCount: 0,
+  });
+  assert.equal(path.framingContractSchema, null);
+  assert.equal(card.provenance.cameraBinding, "selected-media-rebound");
+  assert.ok(projected.directorV2.cameraKeyframes.every((frame) => (
+    frame.mediaId === "patched-landscape"
+    && frame.mediaCardId === cardId
+    && frame.motion === "roi-push"
+    && frame.intensity === 1.15
+  )));
+  assert.equal(projected.directorV2.variantHash, editorGraphMintFingerprint(projected));
+  assert.equal(validateEditorGraphCameraBindings(projected).ok, true);
 });
 
 test("timeline projection preserves verified stems and portable visualizer truth", () => {

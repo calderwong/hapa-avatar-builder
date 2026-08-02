@@ -346,3 +346,50 @@ that field. Existing base projects and saved cuts are immutable.
 - **Candidate:** this workflow is a Flow-explainer and Lesson Card source for
   later Turn Miner extraction; this document links the reusable decision back
   to the attributed implementation turn rather than replacing it.
+
+## Portrait-framing repair pass — 2026-08-02
+
+The enrichment catalog was normalized again after source dimensions and
+orientation became part of the selected-media contract. The repair appended a
+new 157-cut set, `echo-video-enrichment-e9ef7e04563b36a5-camera-v2`, tied to catalog
+fingerprint
+`sha256:e9ef7e04563b36a5f7f7bf42a2a999ced218ed6c2726a2fa683a125b9e125f56`.
+All 9,565 media references resolve in render preflight. The set contains 6,797
+portrait, 2,658 landscape, and 110 square shots with zero unknown dimensions.
+No portrait shot keeps a static or automatic legacy camera: 5,891 selections
+carry an explicit asset-aware reframe, including 3,623 orientation changes and
+2,268 replacements of no-media or generated-visualizer cues.
+
+Camera V2 also makes the subject ROI coordinate convention explicit: Y is
+top-origin from recognition through Preview, Canvas, shaders, and export. Its
+timestamp deterministically supersedes Camera V1 by one millisecond, while the
+prior 157 files remain byte-immutable. The Direction variant index grew from
+2,219 to 2,376 rows and exact-media preflight again resolved 9,565 of 9,565
+references.
+
+Preview, Record Garden, exact browser shader input, and HyperFrames export now
+share the same source-orientation and camera-crop contract. The editor rebuilds
+camera paths after a selected media identity changes, and repeated use of the
+same media receives per-card path identities so keyframes cannot collide.
+
+### Turn-to-Lore reflection
+
+- **Objective:** preserve vertical-video reality in every horizontal Director
+  surface without black bars, stretching, or losing the intended pan.
+- **Evidence inspected:** source dimensions, saved shot contracts, decoded
+  fallback dimensions, multitrack cards and camera keyframes, Preview/Garden
+  frame resolution, exact shader inputs, and HyperFrames export composition.
+- **Reusable work:** the shared `echo-camera-framing` crop resolver, saved-cut
+  hydration, and existing media-role camera planner were extended rather than
+  replaced.
+- **What worked:** classifying orientation from source media, rebinding camera
+  paths after media replacement, and presenting the camera-framed frame to
+  downstream shaders made Preview and render follow one visual contract.
+- **Noise corrected:** output-canvas aspect is not source orientation; CSS
+  sizing cannot repair a wrong source crop; and an inherited camera path is not
+  valid merely because its time window still matches.
+- **New guardrail:** any media identity or source-aspect change must rebuild and
+  validate its camera corridor, card binding, and keyframes before a cut is
+  considered render-ready.
+- **Candidate:** extract a reusable Lesson/Flow named “Media Replacement
+  Requires Framing Rebinding” for other card-to-video compilation paths.

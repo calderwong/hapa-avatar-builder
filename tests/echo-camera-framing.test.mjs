@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   echoCameraCoverSourceRect,
   echoCameraCropPresentation,
+  echoCameraFramingRuntimeBrowserSource,
   echoCameraKeyframeAt,
   echoCameraMotionPresentation,
 } from "../src/domain/echo-camera-framing.js";
@@ -188,4 +189,40 @@ test("Canvas framing samples the same bounds as CSS cover for landscape media in
   assert.ok(Math.abs(actual.y - expected.y) < 0.00001);
   assert.ok(Math.abs(actual.width - expected.width) < 0.00001);
   assert.ok(Math.abs(actual.height - expected.height) < 0.00001);
+});
+
+test("packaged browser camera runtime preserves the live portrait cover contract", () => {
+  const source = echoCameraFramingRuntimeBrowserSource("PackagedEchoCamera");
+  const runtime = Function(`${source}\nreturn PackagedEchoCamera;`)();
+  const input = {
+    startSeconds: 0,
+    endSeconds: 8,
+    timeSeconds: 4,
+    motion: "pan-down",
+    intensity: 1.1,
+    speed: 1.8,
+    shotIndex: 2,
+    sourceId: "portrait-export",
+    isPortrait: true,
+    crop: { x: 0.2, y: 0.05, width: 0.6, height: 0.9 },
+  };
+  const livePresentation = echoCameraMotionPresentation(input);
+  const packagedPresentation = runtime.echoCameraMotionPresentation(input);
+  assert.deepEqual(packagedPresentation, livePresentation);
+  assert.deepEqual(
+    runtime.echoCameraCoverSourceRect({
+      sourceWidth: 720,
+      sourceHeight: 1280,
+      outputWidth: 1920,
+      outputHeight: 1080,
+      presentation: packagedPresentation,
+    }),
+    echoCameraCoverSourceRect({
+      sourceWidth: 720,
+      sourceHeight: 1280,
+      outputWidth: 1920,
+      outputHeight: 1080,
+      presentation: livePresentation,
+    }),
+  );
 });

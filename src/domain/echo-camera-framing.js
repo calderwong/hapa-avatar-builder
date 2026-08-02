@@ -277,3 +277,29 @@ export function echoCameraKeyframeAt(keyframes = [], timeSeconds = 0) {
     },
   };
 }
+
+/**
+ * Emits the exact camera-framing implementation for deterministic browser
+ * render packages. Keeping the helpers inside one namespace avoids colliding
+ * with a host renderer's utility names while preserving the same crop and
+ * motion math used by the live Echo preview.
+ */
+export function echoCameraFramingRuntimeBrowserSource(namespace = "HapaEchoCameraFraming") {
+  const safeNamespace = String(namespace || "HapaEchoCameraFraming")
+    .replace(/[^A-Za-z0-9_$]/g, "") || "HapaEchoCameraFraming";
+  return [
+    `const ${safeNamespace}=(()=>{`,
+    `const finite=${finite.toString()};`,
+    `const clamp=${clamp.toString()};`,
+    `const round=${round.toString()};`,
+    `const PORTRAIT_AUTO_MOTIONS=Object.freeze(${JSON.stringify(PORTRAIT_AUTO_MOTIONS)});`,
+    `const LANDSCAPE_AUTO_MOTIONS=Object.freeze(${JSON.stringify(LANDSCAPE_AUTO_MOTIONS)});`,
+    normalizeEchoCameraCrop.toString(),
+    echoCameraCropPresentation.toString(),
+    echoCameraMotionPresentation.toString(),
+    echoCameraCoverSourceRect.toString(),
+    echoCameraKeyframeAt.toString(),
+    "return {normalizeEchoCameraCrop,echoCameraCropPresentation,echoCameraMotionPresentation,echoCameraCoverSourceRect,echoCameraKeyframeAt};",
+    "})();",
+  ].join("\n");
+}

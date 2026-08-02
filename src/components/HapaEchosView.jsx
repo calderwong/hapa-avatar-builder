@@ -67,6 +67,7 @@ import {
   resolveEchoOutputProfile,
 } from "../domain/echo-output-profile.js";
 import {
+  echoCameraCoverSourceRect,
   echoCameraKeyframeAt,
   echoCameraMotionPresentation,
 } from "../domain/echo-camera-framing.js";
@@ -127,8 +128,8 @@ const ECHO_PROJECT_DETAIL_TIMEOUT_MS = 15_000;
 const ECHO_PROJECT_GRAPH_WARMUP_TIMEOUT_MS = 10 * 60_000;
 const ECHO_EXPANDED_PREVIEW_WIDTH = "min(calc(100vw - 32px), calc(177.7778vh - 384px))";
 const ECHO_VERTICAL_EXPANDED_PREVIEW_WIDTH = "min(calc(100vw - 32px), calc(56.25vh - 121.5px))";
-const ECHO_EXPANDED_PREVIEW_MAX_HEIGHT = "calc(100vh - 216px)";
 const ECHO_STEM_DECODER_POOL_LIMIT = 6;
+const EMPTY_ECHO_CAMERA_KEYFRAMES = Object.freeze([]);
 
 function directorPreviewIsFullscreen(documentRef, previewSurface) {
   const fullscreenElement = documentRef?.fullscreenElement || documentRef?.webkitFullscreenElement || null;
@@ -515,7 +516,7 @@ function DeferredRationaleTextarea({ value = "", onCommit }) {
   );
 }
 
-function PersistentEchoABPlayers({ shot, lookaheadShots = [], playing, songTime, style, onBufferState, onPresentedMediaChange, clockRef, vertical = false, shotIndex = 0 }) {
+function PersistentEchoABPlayers({ shot, lookaheadShots = [], playing, songTime, style, onBufferState, onPresentedMediaChange, clockRef, sourceIsPortrait = false, cameraKeyframes = EMPTY_ECHO_CAMERA_KEYFRAMES, shotIndex = 0 }) {
   const playerRefs = [useRef(null), useRef(null), useRef(null)];
   const activeIndexRef = useRef(0);
   const [activeIndex, setActiveIndex] = useState(0);
@@ -677,7 +678,17 @@ function PersistentEchoABPlayers({ shot, lookaheadShots = [], playing, songTime,
     const animateCamera = (now) => {
       if (now - previousMs >= 1000 / 30) {
         previousMs = now;
-        const camera = cameraMotionStyleForShot(shot, Number(clockRef?.current ?? songTime), vertical, shotIndex);
+        const cameraTime = Number(clockRef?.current ?? songTime);
+        const activeVideo = playerRefs[activeIndexRef.current]?.current || null;
+        const sourceDimensions = resolveEchoShotSourceDimensions(shot, activeVideo);
+        const cameraKeyframe = echoCameraKeyframeAt(cameraKeyframes, cameraTime);
+        const camera = cameraMotionStyleForShot(
+          shot,
+          cameraTime,
+          sourceDimensions.known ? sourceDimensions.isPortrait : sourceIsPortrait,
+          shotIndex,
+          cameraKeyframe?.crop || null,
+        );
         for (const ref of playerRefs) if (ref.current) { ref.current.style.transform = camera.transform; ref.current.style.transformOrigin = camera.transformOrigin; ref.current.style.objectPosition = camera.objectPosition; }
         if (fallbackRef.current) { fallbackRef.current.style.transform = camera.transform; fallbackRef.current.style.transformOrigin = camera.transformOrigin; }
       }
@@ -685,7 +696,7 @@ function PersistentEchoABPlayers({ shot, lookaheadShots = [], playing, songTime,
     };
     frame = window.requestAnimationFrame(animateCamera);
     return () => window.cancelAnimationFrame(frame);
-  }, [playing, shot?.media_id, shot?.start_sec, vertical, shotIndex, clockRef]);
+  }, [playing, shot?.media_id, shot?.start_sec, sourceIsPortrait, cameraKeyframes, shotIndex, clockRef]);
 
   useEffect(() => () => {
     for (const ref of playerRefs) {
@@ -855,16 +866,58 @@ function getLyricTheme(style = "neon-cyan") {
   return themes[style] || themes["neon-cyan"];
 }
 
-function cameraMotionStyleForShot(item, currentTime, isVertical, shotIndex = 0, cameraCrop = null) {
+function positiveEchoMediaDimension(...values) {
+  for (const value of values) {
+    const candidate = Number(value);
+    if (Number.isFinite(candidate) && candidate > 0) return candidate;
+  }
+  return 0;
+}
+
+function resolveEchoShotSourceDimensions(item = null, mediaElement = null) {
+  const mediaContract = item?.media_contract || item?.mediaContract || {};
+  const dimensions = mediaContract.dimensions || {};
+  const proxy = mediaContract.proxy || {};
+  const declaredWidth = positiveEchoMediaDimension(dimensions.width, mediaContract.width);
+  const declaredHeight = positiveEchoMediaDimension(dimensions.height, mediaContract.height);
+  const decodedWidth = positiveEchoMediaDimension(
+    mediaElement?.videoWidth,
+    mediaElement?.naturalWidth,
+    mediaElement?.width,
+  );
+  const decodedHeight = positiveEchoMediaDimension(
+    mediaElement?.videoHeight,
+    mediaElement?.naturalHeight,
+    mediaElement?.height,
+  );
+  const proxyWidth = positiveEchoMediaDimension(proxy.width);
+  const proxyHeight = positiveEchoMediaDimension(proxy.height);
+  const declaredKnown = declaredWidth > 0 && declaredHeight > 0;
+  const decodedKnown = decodedWidth > 0 && decodedHeight > 0;
+  const proxyKnown = proxyWidth > 0 && proxyHeight > 0;
+  const width = declaredKnown ? declaredWidth : decodedKnown ? decodedWidth : proxyKnown ? proxyWidth : 0;
+  const height = declaredKnown ? declaredHeight : decodedKnown ? decodedHeight : proxyKnown ? proxyHeight : 0;
+  return {
+    width,
+    height,
+    decodedWidth,
+    decodedHeight,
+    known: width > 0 && height > 0,
+    isPortrait: width > 0 && height > width,
+    source: declaredKnown ? "media-contract-dimensions" : decodedKnown ? "decoded-media" : proxyKnown ? "media-contract-proxy" : "unknown",
+  };
+}
+
+function cameraPresentationForShot(item, currentTime, sourceIsPortrait, shotIndex = 0, cameraCrop = null) {
   if (!item) {
-    return {
-      transform: "scale(1)",
-      transformOrigin: "center center",
-      objectPosition: "center center"
-    };
+    return echoCameraMotionPresentation({
+      timeSeconds: currentTime,
+      isPortrait: Boolean(sourceIsPortrait),
+      crop: cameraCrop,
+    });
   }
   const start = Number(item.start_sec || 0);
-  const presentation = echoCameraMotionPresentation({
+  return echoCameraMotionPresentation({
     startSeconds: start,
     endSeconds: Number(item.end_sec || start + 1),
     timeSeconds: currentTime,
@@ -873,17 +926,93 @@ function cameraMotionStyleForShot(item, currentTime, isVertical, shotIndex = 0, 
     speed: item.camera_speed ?? item.camera?.speed,
     shotIndex,
     sourceId: item.section_id || item.media_id || "",
-    isPortrait: isVertical,
+    isPortrait: Boolean(sourceIsPortrait),
     crop: cameraCrop,
   });
+}
+
+function cameraMotionStyleForShot(item, currentTime, sourceIsPortrait, shotIndex = 0, cameraCrop = null) {
+  if (!item) {
+    return {
+      transform: "scale(1)",
+      transformOrigin: "center center",
+      objectPosition: "center center",
+      presentation: null,
+    };
+  }
+  const presentation = cameraPresentationForShot(
+    item,
+    currentTime,
+    sourceIsPortrait,
+    shotIndex,
+    cameraCrop,
+  );
 
   return {
     transform: `scale(${presentation.scale.toFixed(3)}) translate3d(${presentation.translateXPercent.toFixed(2)}%, ${presentation.translateYPercent.toFixed(2)}%, 0)`,
     transformOrigin: presentation.crop
       ? `${presentation.transformOriginXPercent.toFixed(3)}% ${presentation.transformOriginYPercent.toFixed(3)}%`
       : "center center",
-    objectPosition: `${presentation.objectPositionXPercent.toFixed(1)}% ${presentation.objectPositionYPercent.toFixed(1)}%`
+    objectPosition: `${presentation.objectPositionXPercent.toFixed(1)}% ${presentation.objectPositionYPercent.toFixed(1)}%`,
+    presentation,
   };
+}
+
+function drawEchoCameraFramedMediaInput({
+  canvas,
+  mediaElement,
+  shot,
+  timeSeconds = 0,
+  shotIndex = 0,
+  cameraCrop = null,
+  outputWidth,
+  outputHeight,
+} = {}) {
+  if (!canvas || !mediaElement) return null;
+  const dimensions = resolveEchoShotSourceDimensions(shot, mediaElement);
+  const sourceWidth = positiveEchoMediaDimension(dimensions.decodedWidth, dimensions.width);
+  const sourceHeight = positiveEchoMediaDimension(dimensions.decodedHeight, dimensions.height);
+  const width = Math.max(1, Math.round(Number(outputWidth) || 0));
+  const height = Math.max(1, Math.round(Number(outputHeight) || 0));
+  if (!(sourceWidth > 0 && sourceHeight > 0 && width > 0 && height > 0)) return null;
+  const presentation = cameraPresentationForShot(
+    shot,
+    timeSeconds,
+    dimensions.isPortrait,
+    shotIndex,
+    cameraCrop,
+  );
+  const sourceRect = echoCameraCoverSourceRect({
+    sourceWidth,
+    sourceHeight,
+    outputWidth: width,
+    outputHeight: height,
+    presentation,
+  });
+  if (canvas.width !== width) canvas.width = width;
+  if (canvas.height !== height) canvas.height = height;
+  const context = canvas.getContext("2d", { alpha: true });
+  if (!context) return null;
+  context.clearRect(0, 0, width, height);
+  try {
+    context.drawImage(
+      mediaElement,
+      sourceRect.x,
+      sourceRect.y,
+      sourceRect.width,
+      sourceRect.height,
+      0,
+      0,
+      width,
+      height,
+    );
+  } catch {
+    context.clearRect(0, 0, width, height);
+    return null;
+  }
+  canvas.dataset.echoMediaInput = "camera-framed";
+  canvas.dataset.echoSourceOrientation = dimensions.isPortrait ? "portrait" : "landscape";
+  return { canvas, presentation, sourceRect, dimensions };
 }
 
 function EchoPlaybackClockBoundary({ clockRef, initialTime = 0, active = false, powerMode = "active", project = null, children }) {
@@ -1386,6 +1515,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
   const exactIsfPrewarmSignatureRef = useRef("");
   const exactIsfPresentationRef = useRef({ status: "idle", sourceId: "", error: "" });
   const exactIsfLastPresentedCanvasRef = useRef(null);
+  const exactIsfMediaInputCanvasRef = useRef(null);
   const [exactIsfStatus, setExactIsfStatus] = useState({ status: "idle", sourceId: "", error: "" });
   const presentedMediaRef = useRef(null);
   const stemDecoderPoolRef = useRef(new Map());
@@ -2155,6 +2285,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
       exactIsfPlaybackPoolIdentityRef.current = { variantKey: "", dirtyKey: "", dirtyRangeCount: 0, shaderIds: [] };
       exactIsfPrewarmSignatureRef.current = "";
       exactIsfLastPresentedCanvasRef.current = null;
+      exactIsfMediaInputCanvasRef.current = null;
       disposeEchoStemDecoderPool(stemDecoderPoolRef.current);
       if (audioContextRef.current && audioContextRef.current.state !== "closed") {
         audioContextRef.current.close().catch(() => {});
@@ -2546,6 +2677,31 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
               presentedMediaRef.current
             );
             if (currentPresentedMedia?.recoveredFrom) presentedMediaRef.current = currentPresentedMedia;
+            const currentCameraKeyframe = directorPreviewFrame?.camera?.keyframe
+              || echoCameraKeyframeAt(directorShowGraph?.directorV2?.cameraKeyframes, t);
+            const cameraDirectedTimelineItem = currentTimelineItem && directorPreviewFrame?.camera
+              ? {
+                ...currentTimelineItem,
+                camera_motion: directorPreviewFrame.camera.motion,
+                camera_intensity: directorPreviewFrame.camera.intensity,
+                ...(directorPreviewFrame.camera.speed === null ? {} : { camera_speed: directorPreviewFrame.camera.speed }),
+              }
+              : currentTimelineItem;
+            if (!exactIsfMediaInputCanvasRef.current && currentPresentedMedia?.element) {
+              exactIsfMediaInputCanvasRef.current = globalThis.document?.createElement?.("canvas") || null;
+            }
+            const framedMediaInput = currentPresentedMedia?.element
+              ? drawEchoCameraFramedMediaInput({
+                canvas: exactIsfMediaInputCanvasRef.current,
+                mediaElement: currentPresentedMedia.element,
+                shot: cameraDirectedTimelineItem,
+                timeSeconds: t,
+                shotIndex: Number.isInteger(playheadShotIndex) ? playheadShotIndex : 0,
+                cameraCrop: currentCameraKeyframe?.crop || null,
+                outputWidth: width,
+                outputHeight: height,
+              })
+              : null;
             const graphIdentity = echoIsfGraphRuntimeIdentity(directorShowGraph);
             const layeredCards = graphActiveVisualizerCards.length ? graphActiveVisualizerCards : [graphVisualizerCard];
             const layerPresentations = layeredCards.map((card) => {
@@ -2561,7 +2717,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                 wave: waveList,
                 audio: layerSignalFrame,
                 signalFrames,
-                mediaElement: currentPresentedMedia?.element || null,
+                mediaElement: framedMediaInput?.canvas || null,
                 mediaIdentity: currentPresentedMedia ? {
                   id: currentPresentedMedia.mediaId,
                   uri: currentPresentedMedia.uri,
@@ -2625,7 +2781,15 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
               exactIsfBindingDiagnosticsRef.current.frameBucket = frameBucket;
               globalThis.__HAPA_ECHO_ISF_PLAYBACK_DIAGNOSTICS__ = poolDiagnostics;
               publishExactBindingDiagnostics({
-                media: currentPresentedMedia ? { status: "presented", kind: currentPresentedMedia.kind, mediaId: currentPresentedMedia.mediaId, sourceKey: currentPresentedMedia.sourceKey } : { status: "unavailable", kind: shotMediaType(currentTimelineItem), mediaId: expectedMediaId, sourceKey: "", reason: "no-current-presented-media" },
+                media: currentPresentedMedia ? {
+                  status: framedMediaInput ? "camera-framed" : "presented-unframed",
+                  kind: currentPresentedMedia.kind,
+                  mediaId: currentPresentedMedia.mediaId,
+                  sourceKey: currentPresentedMedia.sourceKey,
+                  sourceOrientation: framedMediaInput
+                    ? framedMediaInput.dimensions.isPortrait ? "portrait" : "landscape"
+                    : "unknown",
+                } : { status: "unavailable", kind: shotMediaType(currentTimelineItem), mediaId: expectedMediaId, sourceKey: "", reason: "no-current-presented-media" },
                 stem: compactStemSignalBinding(stemResource, stemTransport),
                 frameReceipt: compactFrameReceipt(primaryLayer?.presentation?.frameReceipt),
                 composition: primaryLayer?.composition || null,
@@ -5019,7 +5183,17 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                         ...(directorPreviewFrame.camera.speed === null ? {} : { camera_speed: directorPreviewFrame.camera.speed }),
                       }
                       : currentTimelineItem;
-                    const cameraPreviewStyle = cameraMotionStyleForShot(sharedCameraShot, currentTime, isVerticalOutput, activeShotIndex, activeCameraKeyframe?.crop);
+                    const presentedElementForCurrentShot = presentedMediaRef.current?.mediaId === String(currentTimelineItem?.media_id || "")
+                      ? presentedMediaRef.current.element
+                      : null;
+                    const activeShotSourceDimensions = resolveEchoShotSourceDimensions(currentTimelineItem, presentedElementForCurrentShot);
+                    const cameraPreviewStyle = cameraMotionStyleForShot(
+                      sharedCameraShot,
+                      currentTime,
+                      activeShotSourceDimensions.isPortrait,
+                      activeShotIndex,
+                      activeCameraKeyframe?.crop,
+                    );
 
                     const previewTransitionState = directorPreviewFrame?.transition || (currentTimelineItem
                       ? echoDirectorPreviewMediaTransitionState(
@@ -5741,7 +5915,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                                   }) : "{}"}
                                   data-export-aspect={`${activeOutputProfile.width}x${activeOutputProfile.height}`}
                                   data-output-profile={activeOutputProfile.id}
-                                  style={{ position: 'relative', width: directorPreviewExpanded ? directorPreviewWidth : compactPreviewWidth, height: 'auto', boxSizing: 'border-box', alignSelf: directorPreviewExpanded || isVerticalOutput ? 'center' : 'stretch', aspectRatio: `${activeOutputProfile.width} / ${activeOutputProfile.height}`, minHeight: directorPreviewExpanded || isVerticalOutput ? 0 : '280px', maxWidth: '100%', maxHeight: directorPreviewExpanded ? ECHO_EXPANDED_PREVIEW_MAX_HEIGHT : 'min(56vh, 560px)', flexShrink: 0, borderRadius: '6px', overflow: 'hidden', border: '1px solid rgba(255,255,255,0.12)', background: '#020617', boxShadow: '0 4px 20px rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                                  style={{ position: 'relative', width: directorPreviewExpanded ? directorPreviewWidth : compactPreviewWidth, height: 'auto', boxSizing: 'border-box', alignSelf: directorPreviewExpanded || isVerticalOutput ? 'center' : 'stretch', aspectRatio: `${activeOutputProfile.width} / ${activeOutputProfile.height}`, maxWidth: '100%', flexShrink: 0, borderRadius: '6px', overflow: 'hidden', border: '1px solid rgba(255,255,255,0.12)', background: '#020617', boxShadow: '0 4px 20px rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
                                 >
                                   
                                   {currentTimelineItem && shotMediaType(currentTimelineItem) === "video" && (
@@ -5753,7 +5927,8 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                                       onBufferState={setPreviewBufferState}
                                       onPresentedMediaChange={handlePresentedMediaChange}
                                       clockRef={currentTimeRef}
-                                      vertical={isVerticalOutput}
+                                      sourceIsPortrait={activeShotSourceDimensions.isPortrait}
+                                      cameraKeyframes={activeShowGraph?.directorV2?.cameraKeyframes}
                                       shotIndex={activeShotIndex}
                                       style={{
                                         width: '100%',

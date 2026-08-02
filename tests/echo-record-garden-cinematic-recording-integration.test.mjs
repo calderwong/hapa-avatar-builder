@@ -7,10 +7,9 @@ import {
   finalizeEchoRecordGardenRecordingCard,
 } from "../server/echo-record-garden-recording-card.mjs";
 
-const [app, component, echoAlbum, css, server] = await Promise.all([
+const [app, component, css, server] = await Promise.all([
   readFile(new URL("../src/App.jsx", import.meta.url), "utf8"),
   readFile(new URL("../src/components/EchoRecordGarden3DView.jsx", import.meta.url), "utf8"),
-  readFile(new URL("../src/components/HapaEchosView.jsx", import.meta.url), "utf8"),
   readFile(new URL("../src/index.css", import.meta.url), "utf8"),
   readFile(new URL("../server/api.mjs", import.meta.url), "utf8"),
 ]);
@@ -335,34 +334,21 @@ test("the live audio visualizer is updated inside the frame loop and follows the
   );
 });
 
-test("Garden camera framing follows the Director output contract instead of guessing from decoded source orientation", () => {
+test("Garden camera framing delegates to the shared Preview source-geometry contract", () => {
   const sourceRect = sourceBlock(
     component,
     "export function resolveRecordGardenDirectorSourceRect",
     "function drawDirectorPreviewMedia",
   );
-  assert.match(sourceRect, /frame\?\.outputProfile\?\.width/);
-  assert.match(sourceRect, /frame\?\.outputProfile\?\.height/);
-  assert.match(sourceRect, /declaredOutputHeight > declaredOutputWidth/);
-  assert.match(sourceRect, /: sourceAspect < 1/);
-  assert.match(sourceRect, /cue\.camera\?\.motion/);
-  assert.match(sourceRect, /motion: declaredCameraMotion \|\| camera\.motion \|\| "auto"/);
-  assert.match(sourceRect, /intensity: camera\.intensity/);
-  assert.match(sourceRect, /speed: camera\.speed/);
-  assert.match(sourceRect, /sourceCueIndex \?\? cue\.sourceCueIndex/);
-  assert.match(sourceRect, /sourceId: cue\.cameraSeedId \|\| ""/);
-  assert.match(sourceRect, /echoCameraCoverSourceRect\(\{/);
-
-  const echoAlbumCamera = sourceBlock(
-    echoAlbum,
-    "function cameraMotionStyleForShot",
-    "function EchoPlaybackClockBoundary",
-  );
-  assert.match(echoAlbumCamera, /echoCameraMotionPresentation\(\{/);
-  assert.match(echoAlbumCamera, /sourceId: item\.section_id \|\| item\.media_id \|\| ""/);
-  assert.match(echoAlbumCamera, /speed: item\.camera_speed \?\? item\.camera\?\.speed/);
-  assert.match(echoAlbum, /vertical=\{isVerticalOutput\}/);
-  assert.doesNotMatch(echoAlbum, /vertical=\{isVerticalSource\}/);
+  assert.match(component, /resolveEchoDirectorPreviewSourceRect/);
+  assert.match(sourceRect, /return resolveEchoDirectorPreviewSourceRect\(\{/);
+  assert.match(sourceRect, /sourceWidth,/);
+  assert.match(sourceRect, /sourceHeight,/);
+  assert.match(sourceRect, /outputWidth,/);
+  assert.match(sourceRect, /outputHeight,/);
+  assert.match(sourceRect, /frame,/);
+  assert.doesNotMatch(sourceRect, /declaredOutputHeight > declaredOutputWidth/);
+  assert.doesNotMatch(sourceRect, /isPortrait/);
 });
 
 test("weather selection flows from placed records through the scene and into recording truth", () => {

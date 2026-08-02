@@ -14,8 +14,33 @@ import {
   projectEchoDirectorPreviewFrame,
   readEchoDirectorPreviewClock,
   resolveEchoDirectorPreviewCardPrintIntent,
+  resolveEchoDirectorPreviewCameraPresentation,
+  resolveEchoDirectorPreviewSourceGeometry,
+  resolveEchoDirectorPreviewSourceRect,
   selectEchoDirectorPreviewSource,
 } from "../src/domain/echo-director-preview-runtime.js";
+
+function cssPreviewVisibleSourceRect({ sourceWidth, sourceHeight, outputWidth, outputHeight, presentation }) {
+  const coverScale = Math.max(outputWidth / sourceWidth, outputHeight / sourceHeight);
+  const renderedWidth = sourceWidth * coverScale;
+  const renderedHeight = sourceHeight * coverScale;
+  const objectLeft = (outputWidth - renderedWidth) * (presentation.objectPositionXPercent / 100);
+  const objectTop = (outputHeight - renderedHeight) * (presentation.objectPositionYPercent / 100);
+  const originX = outputWidth * (presentation.transformOriginXPercent / 100);
+  const originY = outputHeight * (presentation.transformOriginYPercent / 100);
+  const translateX = outputWidth * (presentation.translateXPercent / 100);
+  const translateY = outputHeight * (presentation.translateYPercent / 100);
+  const left = originX + ((0 - originX) / presentation.scale) - translateX;
+  const top = originY + ((0 - originY) / presentation.scale) - translateY;
+  const width = Math.min(sourceWidth, outputWidth / (coverScale * presentation.scale));
+  const height = Math.min(sourceHeight, outputHeight / (coverScale * presentation.scale));
+  return {
+    x: Math.max(0, Math.min(sourceWidth - width, (left - objectLeft) / coverScale)),
+    y: Math.max(0, Math.min(sourceHeight - height, (top - objectTop) / coverScale)),
+    width,
+    height,
+  };
+}
 
 function latestCutProject() {
   return {
@@ -392,6 +417,7 @@ test("fixed-time Preview parity preserves layered media bounds, camera, changing
     sourceInSeconds: 4,
     sourceOutSeconds: 5.5,
     playbackMode: "loop",
+    dimensions: { width: 720, height: 1280, maxDimension: 1280 },
   };
   source.showGraph.tracks.push(
     {
@@ -412,6 +438,7 @@ test("fixed-time Preview parity preserves layered media bounds, camera, changing
           sourceInSeconds: 8,
           sourceOutSeconds: 9,
           playbackMode: "once",
+          dimensions: { width: 1920, height: 1080, maxDimension: 1920 },
           cardId: "card:garden-overlay",
           cardKind: "scene-card",
           cardRef: "hapa://card/garden-overlay",
@@ -477,6 +504,10 @@ test("fixed-time Preview parity preserves layered media bounds, camera, changing
     sourceOutSeconds: 5.5,
     sourceDurationSeconds: 1.5,
     playbackMode: "loop",
+    dimensions: { width: 720, height: 1280, maxDimension: 1280 },
+    aspectRatio: 0.5625,
+    sourceAspectRatio: 0.5625,
+    sourceOrientation: "portrait",
   });
   assert.deepEqual(frame.primaryMediaCue.media, {
     id: "garden-overlay",
@@ -488,6 +519,10 @@ test("fixed-time Preview parity preserves layered media bounds, camera, changing
     sourceOutSeconds: 9,
     sourceDurationSeconds: 1,
     playbackMode: "once",
+    dimensions: { width: 1920, height: 1080, maxDimension: 1920 },
+    aspectRatio: 1.777778,
+    sourceAspectRatio: 1.777778,
+    sourceOrientation: "landscape",
   });
   assert.equal(frame.currentCard.id, "card:garden-overlay");
   assert.equal(frame.camera.motion, "slow-push");
@@ -553,6 +588,151 @@ test("camera projection preserves current timeline motion, intensity, speed, and
     intensity: 1.4,
     speed: 1.85,
   });
+});
+
+test("fixed-time frames preserve portrait source geometry separately from horizontal output framing", () => {
+  const source = paritySource();
+  source.showGraph.directorV2.cameraKeyframes = [];
+  Object.assign(source.project.timeline[0], {
+    camera_motion: "pan-down",
+    camera_intensity: 1.1,
+    camera_speed: 1.8,
+    media_contract: {
+      type: "video",
+      runtimeUri: "/media/garden-open.mp4",
+      dimensions: { width: 720, height: 1280, maxDimension: 1280 },
+    },
+  });
+
+  const frames = [0, 1.5, 2.9].map((timeSeconds) => (
+    projectEchoDirectorPreviewFrame({ source, timeSeconds })
+  ));
+  const middle = frames[1];
+  assert.deepEqual(middle.primaryMediaCue.media.dimensions, {
+    width: 720,
+    height: 1280,
+    maxDimension: 1280,
+  });
+  assert.equal(middle.primaryMediaCue.media.aspectRatio, 0.5625);
+  assert.equal(middle.primaryMediaCue.media.sourceOrientation, "portrait");
+  assert.equal(middle.outputProfile.width, 1920);
+  assert.equal(middle.outputProfile.height, 1080);
+  assert.equal(middle.camera.motion, "pan-down");
+  assert.equal(middle.camera.intensity, 1.1);
+  assert.equal(middle.camera.speed, 1.8);
+  assert.equal(middle.camera.motionPresentation.isPortrait, true);
+
+  const sharedPresentation = resolveEchoDirectorPreviewCameraPresentation({ frame: middle });
+  assert.deepEqual(sharedPresentation.presentation, middle.camera.motionPresentation);
+  assert.equal(sharedPresentation.sourceGeometry.source, "preview-contract");
+  assert.equal(sharedPresentation.sourceGeometry.sourceOrientation, "portrait");
+  assert.deepEqual(sharedPresentation.outputDimensions, {
+    width: 1920,
+    height: 1080,
+    maxDimension: 1920,
+  });
+
+  const rects = frames.map((frame) => resolveEchoDirectorPreviewSourceRect({ frame }));
+  assert.ok(rects[0].y < rects[1].y && rects[1].y < rects[2].y, "pan-down must reveal progressively lower portrait source rows");
+  for (const rect of rects) {
+    assert.ok(rect.x >= 0 && rect.y >= 0);
+    assert.ok(rect.x + rect.width <= 720.000001);
+    assert.ok(rect.y + rect.height <= 1280.000001);
+    assert.equal(rect.presentation.isPortrait, true);
+  }
+
+  const expectedCssRect = cssPreviewVisibleSourceRect({
+    sourceWidth: 720,
+    sourceHeight: 1280,
+    outputWidth: 1920,
+    outputHeight: 1080,
+    presentation: middle.camera.motionPresentation,
+  });
+  const actualCanvasRect = rects[1];
+  for (const key of ["x", "y", "width", "height"]) {
+    assert.ok(Math.abs(actualCanvasRect[key] - expectedCssRect[key]) < 0.00001, `${key} must match the CSS Preview sample`);
+  }
+
+  const proxyRect = resolveEchoDirectorPreviewSourceRect({
+    frame: middle,
+    sourceWidth: 360,
+    sourceHeight: 640,
+    outputWidth: 1920,
+    outputHeight: 1080,
+  });
+  assert.deepEqual(proxyRect.sourceGeometry.dimensions, { width: 720, height: 1280, maxDimension: 1280 });
+  assert.deepEqual(proxyRect.samplingDimensions, { width: 360, height: 640, maxDimension: 640 });
+  assert.equal(proxyRect.samplingSource, "decoded-media");
+  assert.equal(proxyRect.presentation.isPortrait, true);
+  assert.ok(proxyRect.x + proxyRect.width <= 360.000001);
+  assert.ok(proxyRect.y + proxyRect.height <= 640.000001);
+});
+
+test("decoded media dimensions recover portrait framing when an older Preview contract has no geometry", () => {
+  const frame = projectEchoDirectorPreviewFrame({ source: paritySource(), timeSeconds: 1 });
+  assert.equal(frame.primaryMediaCue.media.dimensions, null);
+  assert.equal(frame.primaryMediaCue.media.sourceOrientation, "unknown");
+
+  const recovered = resolveEchoDirectorPreviewSourceGeometry({
+    frame,
+    sourceWidth: 720,
+    sourceHeight: 1280,
+  });
+  assert.deepEqual(recovered.dimensions, { width: 720, height: 1280, maxDimension: 1280 });
+  assert.equal(recovered.sourceOrientation, "portrait");
+  assert.equal(recovered.source, "decoded-media");
+
+  const rect = resolveEchoDirectorPreviewSourceRect({
+    frame,
+    sourceWidth: 720,
+    sourceHeight: 1280,
+    outputWidth: 1920,
+    outputHeight: 1080,
+  });
+  assert.equal(rect.presentation.isPortrait, true);
+  assert.equal(rect.sourceGeometry.source, "decoded-media");
+  assert.deepEqual(rect.outputDimensions, { width: 1920, height: 1080, maxDimension: 1920 });
+
+  const unavailable = resolveEchoDirectorPreviewSourceGeometry({ frame });
+  assert.equal(unavailable.dimensions, null);
+  assert.equal(unavailable.sourceOrientation, "unknown");
+  assert.equal(unavailable.source, "unavailable");
+});
+
+test("reordered graph cards match timeline camera and dimensions by active media identity", () => {
+  const source = paritySource();
+  Object.assign(source.project.timeline[0], {
+    camera_motion: "static",
+    camera_intensity: 0,
+    camera_speed: 1,
+    media_contract: { dimensions: { width: 1920, height: 1080 } },
+  });
+  Object.assign(source.project.timeline[1], {
+    camera_motion: "pan-up",
+    camera_intensity: 1.6,
+    camera_speed: 2.2,
+    camera: { crop: { x: 0.2, y: 0.1, width: 0.6, height: 0.8 } },
+    media_contract: { dimensions: { width: 720, height: 1280 } },
+  });
+  const mediaCards = source.showGraph.tracks[0].cards;
+  mediaCards.reverse();
+  mediaCards[0].sourceCueIndex = 0;
+
+  const frame = projectEchoDirectorPreviewFrame({ source, timeSeconds: 3.5 });
+  assert.equal(frame.primaryMediaCue.media.id, "tea-table");
+  assert.equal(frame.primaryMediaCue.sourceCueIndex, 1);
+  assert.equal(frame.primaryMediaCue.timelineMatchBasis, "active-media-identity");
+  assert.deepEqual(frame.primaryMediaCue.media.dimensions, { width: 720, height: 1280, maxDimension: 1280 });
+  assert.equal(frame.primaryMediaCue.media.sourceOrientation, "portrait");
+  assert.deepEqual(frame.primaryMediaCue.camera, {
+    motion: "pan-up",
+    intensity: 1.6,
+    speed: 2.2,
+    crop: { x: 0.2, y: 0.1, width: 0.6, height: 0.8 },
+  });
+  assert.equal(frame.camera.sourceCueIndex, 1);
+  assert.equal(frame.camera.motionPresentation.isPortrait, true);
+  assert.deepEqual(frame.camera.motionPresentation.crop, { x: 0.2, y: 0.1, width: 0.6, height: 0.8 });
 });
 
 test("camera projection preserves Director auto motion and fallback speed semantics when metadata is unset", () => {

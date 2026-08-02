@@ -4,6 +4,12 @@ import {
   pickEchoDirectionVariantProjectPatch,
 } from "./echo-direction-variants.js";
 import { generateEchoHyperframeScript } from "./echo-hyperframe-script.js";
+import { resolveEchoOutputProfile } from "./echo-output-profile.js";
+import {
+  buildSafeCameraPath,
+  classifyMediaRole,
+  validateSafeCameraPath,
+} from "./media-role-camera.js";
 import {
   classifySourcePrior,
   scoreDirectorCandidate,
@@ -13,6 +19,8 @@ export const ECHO_VIDEO_ENRICHMENT_ROW_SCHEMA = "hapa.echo.video-enrichment.v1";
 export const ECHO_VIDEO_ENRICHMENT_CATALOG_SCHEMA = "hapa.echo.video-enrichment-catalog.v1";
 export const ECHO_ENRICHMENT_DIRECTOR_VARIANT_SCHEMA = "hapa.echo.direction-script-variant.v1";
 export const ECHO_ENRICHMENT_SHOT_EVIDENCE_SCHEMA = "hapa.echo.shot-decision-evidence.v4";
+export const ECHO_ASSET_CAMERA_FRAMING_SCHEMA = "hapa.echo.asset-camera-framing.v2";
+const ECHO_ENRICHMENT_CAMERA_COMPILER = "echo-intentional-enrichment-v3-top-origin-asset-camera";
 export const ECHO_SOURCE_BIAS_COUNTERFACTUAL_SCHEMA = "hapa.echo.source-bias-counterfactual.v1";
 export const ECHO_ENRICHMENT_DIRECTOR_REPORT_SCHEMA = "hapa.echo.enrichment-director-variant-report.v1";
 export const ECHO_CANONICAL_STORY_AFFINITY_MINIMUM = 0.1;
@@ -43,10 +51,15 @@ const READY_STATUSES = new Set(["available", "complete", "completed", "ready", "
 const MEDIA_FIELDS = Object.freeze([
   "media_id", "media_title", "media_uri", "media_thumbnail", "runtime_media_uri",
   "media_contract", "media_card_id", "media_card_kind", "media_card_ref", "media_card_title",
-  "media_source_group", "media_technical_identity", "semantic_casting",
+  "media_source_group", "media_technical_identity", "media_dimensions", "media_width", "media_height",
+  "media_aspect_ratio", "media_orientation", "semantic_casting",
+]);
+const CAMERA_REFRAME_FIELDS = Object.freeze([
+  "camera_motion", "camera_intensity", "camera_speed", "camera_focus", "camera_framing_contract",
 ]);
 const DIRECTION_EVIDENCE_FIELDS = new Set([
   ...MEDIA_FIELDS,
+  ...CAMERA_REFRAME_FIELDS,
   "decision_evidence",
   "edit_reason",
 ]);
@@ -74,6 +87,55 @@ function text(value, fallback = "") {
 function finite(value, fallback = 0) {
   const number = Number(value);
   return Number.isFinite(number) ? number : fallback;
+}
+
+function positiveFinite(value) {
+  const number = Number(value);
+  return Number.isFinite(number) && number > 0 ? number : 0;
+}
+
+function mediaDimensions(...values) {
+  for (const value of values) {
+    const row = object(value);
+    const dimensions = object(row.dimensions || row.mediaDimensions || row.media_dimensions);
+    const technical = object(row.technical);
+    const width = positiveFinite(
+      dimensions.width ?? row.width ?? row.media_width ?? row.video_width ?? technical.width,
+    );
+    const height = positiveFinite(
+      dimensions.height ?? row.height ?? row.media_height ?? row.video_height ?? technical.height,
+    );
+    if (width && height) return {
+      width,
+      height,
+      maxDimension: Math.max(width, height),
+    };
+  }
+  return null;
+}
+
+function mediaOrientation(value) {
+  const dimensions = mediaDimensions(value);
+  if (!dimensions) return "unknown";
+  const aspect = dimensions.width / dimensions.height;
+  if (Math.abs(aspect - 1) <= 0.02) return "square";
+  return aspect > 1 ? "landscape" : "portrait";
+}
+
+function normalizedSubjectROI(...values) {
+  for (const value of values) {
+    const roi = object(value?.subjectROI || value?.subjectRoi || value?.subject_roi || value);
+    const x = Number(roi.x);
+    const y = Number(roi.y);
+    const width = Number(roi.width);
+    const height = Number(roi.height);
+    if ([x, y, width, height].every(Number.isFinite)
+      && x >= 0 && y >= 0 && width > 0 && height > 0
+      && x + width <= 1.000001 && y + height <= 1.000001) {
+      return { x, y, width, height };
+    }
+  }
+  return null;
 }
 
 function clamp(value, minimum = 0, maximum = 1) {
@@ -218,7 +280,11 @@ function normalizeMediaContract(row, uri) {
     row.mediaContract || row.media_contract || row.playbackContract || row.playback_contract
     || media.mediaContract || media.media_contract || media.playbackContract || media.playback_contract,
   );
-  if (Object.keys(declared).length) return clone(declared);
+  const dimensions = mediaDimensions(declared, row, media, row.technical, media.technical);
+  if (Object.keys(declared).length) return {
+    ...clone(declared),
+    ...(dimensions ? { dimensions } : {}),
+  };
   if (!uri) return null;
   const technical = object(row.technical);
   const hash = object(row.contentHash || row.content_hash);
@@ -232,13 +298,7 @@ function normalizeMediaContract(row, uri) {
     ...(finite(technical.durationSec ?? technical.durationSeconds, 0) > 0 ? {
       actualDurationSeconds: finite(technical.durationSec ?? technical.durationSeconds, 0),
     } : {}),
-    ...(finite(technical.width, 0) > 0 && finite(technical.height, 0) > 0 ? {
-      dimensions: {
-        width: finite(technical.width, 0),
-        height: finite(technical.height, 0),
-        maxDimension: Math.max(finite(technical.width, 0), finite(technical.height, 0)),
-      },
-    } : {}),
+    ...(dimensions ? { dimensions } : {}),
     ...(firstText(hash.value, row.sha256) ? { contentHash: firstText(hash.value, row.sha256).replace(/^sha256:/iu, "") } : {}),
     provenance: "synthesized-from-enrichment-uri",
   };
@@ -330,6 +390,15 @@ export function normalizeEchoVideoEnrichmentRow(row = {}, index = 0) {
       : sourceClassification.sourceClass,
     prior: sourcePrior,
   };
+  const mediaContract = normalizeMediaContract(row, uri);
+  const dimensions = mediaDimensions(mediaContract, row, media);
+  const subjectROI = normalizedSubjectROI(
+    row.subjectROI,
+    row.analysis,
+    semantic.subjectROI,
+    recognition.subjectROI,
+    list(recognition.frames).find((frame) => normalizedSubjectROI(frame?.subjectROI))?.subjectROI,
+  );
   const normalized = {
     schemaVersion: ECHO_VIDEO_ENRICHMENT_ROW_SCHEMA,
     enrichmentId,
@@ -348,7 +417,15 @@ export function normalizeEchoVideoEnrichmentRow(row = {}, index = 0) {
       media.thumbnailUri, media.thumbnail_uri, media.posterUri, media.poster_uri,
     ),
     technicalIdentity: identity,
-    mediaContract: normalizeMediaContract(row, uri),
+    mediaContract,
+    dimensions,
+    orientation: mediaOrientation(dimensions),
+    framingAnalysis: {
+      subjectROI: subjectROI || { x: 0.25, y: 0.2, width: 0.5, height: 0.6 },
+      status: subjectROI ? "measured-subject-roi" : "center-safe-fallback",
+      evidence: subjectROI ? "enrichment-subject-roi" : "selected-media-dimensions-with-center-safe-fallback",
+      faceCount: Math.max(0, finite(recognition.faceCount ?? semantic.faceCount, 0)),
+    },
     card: clone(row.card || media.card || null),
     sourceGroup,
     sourcePrior,
@@ -584,6 +661,9 @@ function candidateFromRow(row = {}) {
     thumbnailUri: row.thumbnailUri,
     technicalIdentity: row.technicalIdentity || `uri:${row.uri.toLowerCase()}`,
     mediaContract: clone(row.mediaContract),
+    dimensions: clone(row.dimensions),
+    orientation: row.orientation,
+    framingAnalysis: clone(row.framingAnalysis),
     card: clone(row.card),
     sourceGroup: row.sourceGroup,
     sourcePrior: row.sourcePrior,
@@ -920,9 +1000,248 @@ export function echoShotDirectionContractSnapshot(shot = {}) {
   return directionContract(shot);
 }
 
+function shotMediaDimensions(shot = {}) {
+  return mediaDimensions(
+    shot.media_contract,
+    shot.media_dimensions,
+    {
+      width: shot.media_width ?? shot.video_width,
+      height: shot.media_height ?? shot.video_height,
+    },
+  );
+}
+
+function shotMediaOrientation(shot = {}) {
+  return firstText(shot.media_orientation, mediaOrientation(shotMediaDimensions(shot)), "unknown");
+}
+
+function shotHasPlayableMedia(shot = {}) {
+  const kind = firstText(shot.media_contract?.type).toLowerCase();
+  const mediaId = firstText(shot.media_id).toLowerCase();
+  const uri = firstText(shot.runtime_media_uri, shot.media_contract?.runtimeUri, shot.media_uri);
+  return Boolean(uri)
+    && !["generated-visualizer", "visualizer", "none", "no-media"].includes(kind)
+    && !["", "none", "no-media", "visualizer-only"].includes(mediaId);
+}
+
+function cameraState(shot = {}) {
+  return {
+    motion: firstText(shot.camera_motion, "auto"),
+    intensity: finite(shot.camera_intensity, 1),
+    speed: finite(shot.camera_speed, 1),
+    focus: firstText(shot.camera_focus, "center"),
+  };
+}
+
+function cameraFocusForROI(roi = {}) {
+  const centerX = finite(roi.x, 0.25) + finite(roi.width, 0.5) / 2;
+  const centerY = finite(roi.y, 0.2) + finite(roi.height, 0.6) / 2;
+  const horizontal = centerX < 0.38 ? "left" : centerX > 0.62 ? "right" : "center";
+  const vertical = centerY < 0.38 ? "top" : centerY > 0.62 ? "bottom" : "center";
+  if (vertical === "center") return horizontal;
+  if (horizontal === "center") return `${vertical}-center`;
+  return `${vertical}-${horizontal}`;
+}
+
+function cameraMotionForReplacement({ sourceOrientation, targetOrientation, index, isFinal }) {
+  if (isFinal) return "slow-pull-out";
+  if (sourceOrientation === "portrait" && targetOrientation === "landscape") {
+    return index % 2 === 0 ? "pan-down" : "pan-up";
+  }
+  if (sourceOrientation === "landscape" && targetOrientation === "portrait") {
+    return index % 2 === 0 ? "pan-right" : "pan-left";
+  }
+  if (sourceOrientation === "portrait") return index % 2 === 0 ? "pan-down" : "pan-up";
+  return "slow-push-in";
+}
+
+function cropIsAspectSafe(crop, sourceAspect, targetAspect) {
+  const row = object(crop);
+  const x = Number(row.x);
+  const y = Number(row.y);
+  const width = Number(row.width);
+  const height = Number(row.height);
+  if (![x, y, width, height].every(Number.isFinite)
+    || x < 0 || y < 0 || width <= 0 || height <= 0
+    || x + width > 1.000001 || y + height > 1.000001) return false;
+  const framedAspect = sourceAspect * width / height;
+  return Math.abs(framedAspect - targetAspect) <= 0.00001;
+}
+
+function validateAssetCameraFramingContract(contract = {}, shot = {}) {
+  const reasons = [];
+  const dimensions = mediaDimensions(contract.sourceDimensions, shotMediaDimensions(shot));
+  const sourceAspect = dimensions ? dimensions.width / dimensions.height : 0;
+  const path = object(contract.path);
+  if (contract.schemaVersion !== ECHO_ASSET_CAMERA_FRAMING_SCHEMA) reasons.push("schema");
+  if (!firstText(contract.reason)) reasons.push("reason");
+  if (!dimensions || !sourceAspect) reasons.push("source-dimensions");
+  if (firstText(contract.mediaId) !== firstText(shot.media_id)) reasons.push("media-id");
+  if (firstText(path.mediaId) !== firstText(shot.media_id)) reasons.push("path-media-id");
+  if (stableEchoEnrichmentStringify(cameraState(shot)) !== stableEchoEnrichmentStringify({
+    motion: firstText(contract.motion, "auto"),
+    intensity: finite(contract.intensity, 1),
+    speed: finite(contract.speed, 1),
+    focus: firstText(contract.focus, "center"),
+  })) reasons.push("camera-state");
+  for (const error of validateSafeCameraPath(path).errors) reasons.push(`path-${error}`);
+  for (const corridor of list(path.corridors)) {
+    const targetAspect = positiveFinite(corridor.targetAspect);
+    if (!targetAspect) reasons.push("corridor-target-aspect");
+    for (const crop of [corridor.startCrop, corridor.endCrop]) {
+      if (!targetAspect || !sourceAspect || !cropIsAspectSafe(crop, sourceAspect, targetAspect)) {
+        reasons.push("corridor-aspect-safety");
+      }
+    }
+  }
+  return { ok: reasons.length === 0, reasons: uniqueStrings(reasons) };
+}
+
+function cameraReframeRequirement(parentShot = {}, nextShot = {}) {
+  const replacement = firstText(parentShot.media_technical_identity, parentShot.media_id, parentShot.media_uri)
+    !== firstText(nextShot.media_technical_identity, nextShot.media_id, nextShot.media_uri);
+  const parentOrientation = shotMediaOrientation(parentShot);
+  const selectedOrientation = shotMediaOrientation(nextShot);
+  const replacesNonMedia = replacement && !shotHasPlayableMedia(parentShot);
+  const orientationChanged = replacement
+    && parentOrientation !== "unknown"
+    && selectedOrientation !== "unknown"
+    && parentOrientation !== selectedOrientation;
+  return {
+    required: orientationChanged || replacesNonMedia,
+    replacement,
+    replacesNonMedia,
+    orientationChanged,
+    parentOrientation,
+    selectedOrientation,
+    reason: replacesNonMedia
+      ? "replaces-generated-visualizer-or-no-media"
+      : orientationChanged
+        ? "selected-media-orientation-changed"
+        : "parent-camera-compatible",
+  };
+}
+
+function deriveAssetCameraFraming({
+  parentShot,
+  nextShot,
+  candidate,
+  index,
+  shotCount,
+  outputProfile,
+} = {}) {
+  const requirement = cameraReframeRequirement(parentShot, nextShot);
+  if (!requirement.required) return { shot: nextShot, reframed: false, requirement, contract: null };
+  const measuredDimensions = shotMediaDimensions(nextShot);
+  const sourceDimensions = measuredDimensions || {
+    width: outputProfile.width,
+    height: outputProfile.height,
+    maxDimension: Math.max(outputProfile.width, outputProfile.height),
+  };
+  const sourceOrientation = mediaOrientation(sourceDimensions);
+  const targetOrientation = outputProfile.orientation;
+  const targetAspect = outputProfile.width / outputProfile.height;
+  const sourceAspect = sourceDimensions.width / sourceDimensions.height;
+  const analysis = clone(candidate.framingAnalysis) || {
+    subjectROI: { x: 0.25, y: 0.2, width: 0.5, height: 0.6 },
+    status: "center-safe-fallback",
+    evidence: "selected-media-dimensions-with-center-safe-fallback",
+    faceCount: 0,
+  };
+  analysis.subjectROI = normalizedSubjectROI(analysis.subjectROI)
+    || { x: 0.25, y: 0.2, width: 0.5, height: 0.6 };
+  const startSeconds = finite(parentShot.start_sec, 0);
+  const endSeconds = finite(parentShot.end_sec, startSeconds);
+  const technical = {
+    ...sourceDimensions,
+    durationSec: Math.max(0, endSeconds - startSeconds),
+    fps: positiveFinite(nextShot.media_contract?.fps) || 24,
+    codec: firstText(nextShot.media_contract?.type, "video"),
+  };
+  const role = classifyMediaRole({
+    technical,
+    subjectROI: analysis.subjectROI,
+    atSectionStart: index === 0,
+    isFinal: index === shotCount - 1,
+  });
+  const phraseCue = {
+    id: firstText(parentShot.section_id, `shot-${index}`),
+    atSeconds: startSeconds,
+    source: "intentional-enrichment-selected-media",
+  };
+  const path = buildSafeCameraPath({
+    mediaId: nextShot.media_id,
+    technical,
+    analysis,
+    role,
+    phraseCue,
+    targetAspects: [...new Set([targetAspect, 16 / 9, 9 / 16, 1])],
+  });
+  const cropRetention = sourceAspect >= targetAspect
+    ? targetAspect / sourceAspect
+    : sourceAspect / targetAspect;
+  const motion = cameraMotionForReplacement({
+    sourceOrientation,
+    targetOrientation,
+    index,
+    isFinal: index === shotCount - 1,
+  });
+  const intensity = Number((0.9 + Math.min(0.45, (1 - cropRetention) * 0.7)).toFixed(2));
+  const speed = Number((Math.max(0.9, Math.min(1.2, 1.08 + (6 - Math.max(1, endSeconds - startSeconds)) * 0.015))).toFixed(2));
+  const focus = cameraFocusForROI(analysis.subjectROI);
+  const contract = {
+    schemaVersion: ECHO_ASSET_CAMERA_FRAMING_SCHEMA,
+    mediaId: nextShot.media_id,
+    mediaTechnicalIdentity: nextShot.media_technical_identity,
+    reason: requirement.reason,
+    derived: true,
+    parentMediaId: parentShot.media_id || null,
+    parentOrientation: requirement.parentOrientation,
+    sourceDimensions: { ...sourceDimensions, measured: Boolean(measuredDimensions) },
+    sourceAspect,
+    sourceOrientation,
+    outputProfile: {
+      id: outputProfile.id,
+      width: outputProfile.width,
+      height: outputProfile.height,
+      aspect: targetAspect,
+      orientation: targetOrientation,
+    },
+    cropPolicy: "aspect-cover-full-bleed",
+    motion,
+    intensity,
+    speed,
+    focus,
+    shotRole: role,
+    subjectROI: clone(analysis.subjectROI),
+    path: {
+      ...path,
+      sourceDimensions: clone(sourceDimensions),
+      sourceAspect,
+      sourceOrientation,
+      activeTargetAspect: targetAspect,
+      activeOutputProfileId: outputProfile.id,
+    },
+  };
+  const reframed = {
+    ...nextShot,
+    camera_motion: motion,
+    camera_intensity: intensity,
+    camera_speed: speed,
+    camera_focus: focus,
+    camera_framing_contract: contract,
+  };
+  const validation = validateAssetCameraFramingContract(contract, reframed);
+  if (!validation.ok) {
+    throw new Error(`Shot ${index} selected-media camera framing is unsafe: ${validation.reasons.join(", ")}`);
+  }
+  return { shot: reframed, reframed: true, requirement, contract };
+}
+
 function applyCandidateMedia(shot, candidate) {
   const next = clone(shot);
   const card = object(candidate.card);
+  const dimensions = mediaDimensions(candidate.dimensions, candidate.mediaContract);
   next.media_id = candidate.mediaId;
   next.media_title = candidate.title;
   next.media_uri = candidate.uri;
@@ -935,6 +1254,19 @@ function applyCandidateMedia(shot, candidate) {
   next.media_card_title = firstText(card.title, candidate.title, next.media_card_title);
   next.media_source_group = candidate.sourceGroup;
   next.media_technical_identity = candidate.technicalIdentity;
+  if (dimensions) {
+    next.media_dimensions = clone(dimensions);
+    next.media_width = dimensions.width;
+    next.media_height = dimensions.height;
+    next.media_aspect_ratio = dimensions.width / dimensions.height;
+    next.media_orientation = mediaOrientation(dimensions);
+  } else {
+    delete next.media_dimensions;
+    delete next.media_width;
+    delete next.media_height;
+    delete next.media_aspect_ratio;
+    delete next.media_orientation;
+  }
   return next;
 }
 
@@ -974,7 +1306,9 @@ function deterministicTimestamp(catalog, parentVariant) {
     Number.isFinite(parentMilliseconds) ? parentMilliseconds + 1 : Date.parse("2026-01-01T00:00:00.000Z"),
     Number.isFinite(catalogMilliseconds) ? catalogMilliseconds : Number.NEGATIVE_INFINITY,
   );
-  return new Date(effective).toISOString();
+  // The top-origin framing generation supersedes the earlier asset-camera
+  // generation while remaining deterministic for the same catalog and parent.
+  return new Date(effective + 1).toISOString();
 }
 
 function topLevelSelectionEvidence(timeline) {
@@ -1003,6 +1337,24 @@ export function validateEchoEnrichmentDirectorVariant({ parentProject = {}, pare
     if (nextTimeline[index]?.decision_evidence?.schemaVersion !== ECHO_ENRICHMENT_SHOT_EVIDENCE_SCHEMA) reasons.push(`shot-${index}-evidence-schema`);
     if (!nextTimeline[index]?.decision_evidence?.lyrics?.citation && nextTimeline[index]?.decision_evidence?.lyrics?.explicitLyricsUnavailable !== true) {
       reasons.push(`shot-${index}-lyric-truth`);
+    }
+    const cameraRequirement = cameraReframeRequirement(sourceTimeline[index], nextTimeline[index]);
+    const cameraChanged = stableEchoEnrichmentStringify(cameraState(sourceTimeline[index]))
+      !== stableEchoEnrichmentStringify(cameraState(nextTimeline[index]));
+    const framingContract = nextTimeline[index]?.camera_framing_contract;
+    if (cameraRequirement.required) {
+      if (!cameraChanged) reasons.push(`shot-${index}-camera-not-rederived`);
+      const framingValidation = validateAssetCameraFramingContract(framingContract, nextTimeline[index]);
+      for (const reason of framingValidation.reasons) reasons.push(`shot-${index}-camera-${reason}`);
+      if (nextTimeline[index]?.decision_evidence?.preservedDirection?.camera !== false) {
+        reasons.push(`shot-${index}-camera-falsely-preserved`);
+      }
+    } else {
+      if (cameraChanged) reasons.push(`shot-${index}-camera-unjustified-change`);
+      if (framingContract) reasons.push(`shot-${index}-camera-unnecessary-contract`);
+      if (nextTimeline[index]?.decision_evidence?.preservedDirection?.camera !== true) {
+        reasons.push(`shot-${index}-camera-preservation-evidence`);
+      }
     }
   }
   if (stableEchoEnrichmentStringify(parentProject.visualizer_timeline || []) !== stableEchoEnrichmentStringify(variant.visualizer_timeline || [])) reasons.push("visualizer-contract");
@@ -1035,6 +1387,9 @@ export function compileEchoEnrichmentDirectorVariant({
   const candidates = candidatePool(parentProject, catalog, songId);
   if (!candidates.length) throw new Error(`${songId} has no playable parent or enrichment media candidates.`);
   const candidateSearch = buildCandidateSearchIndex(candidates);
+  const outputProfile = resolveEchoOutputProfile(
+    parentProject.output_profile || parentProject.outputProfile || baseProject.output_profile || baseProject.outputProfile,
+  );
   const lyrics = lyricRows(parentProject, song);
   const lore = loreEvidence(song);
   const songMotifs = uniqueStrings([
@@ -1084,7 +1439,16 @@ export function compileEchoEnrichmentDirectorVariant({
       || !["direct-enrichment-row", "matched-parent-media"].includes(selected.candidate.enrichmentCoverage)) {
       throw new Error(`${songId} shot ${index} did not resolve to a playable enrichment-backed catalog candidate.`);
     }
-    const nextShot = applyCandidateMedia(shot, selected.candidate);
+    const selectedMediaShot = applyCandidateMedia(shot, selected.candidate);
+    const cameraDecision = deriveAssetCameraFraming({
+      parentShot: shot,
+      nextShot: selectedMediaShot,
+      candidate: selected.candidate,
+      index,
+      shotCount: list(parentProject.timeline).length,
+      outputProfile,
+    });
+    const nextShot = cameraDecision.shot;
     const motifs = uniqueStrings([
       ...selected.candidate.motifs,
       ...songMotifs.filter((motif) => tokenAffinity(motif, selected.candidate.semanticText) > 0),
@@ -1178,11 +1542,25 @@ export function compileEchoEnrichmentDirectorVariant({
         sections: true,
         stems: true,
         audioBindings: true,
-        camera: true,
+        camera: !cameraDecision.reframed,
         transitions: true,
         visualizerTimeline: true,
         persistentShaders: true,
         runtimeMediaContract: true,
+      },
+      cameraFraming: cameraDecision.reframed ? {
+        status: "rederived-for-selected-media",
+        reason: cameraDecision.requirement.reason,
+        contractSchema: ECHO_ASSET_CAMERA_FRAMING_SCHEMA,
+        parentOrientation: cameraDecision.requirement.parentOrientation,
+        selectedOrientation: cameraDecision.requirement.selectedOrientation,
+        mediaId: selected.candidate.mediaId,
+      } : {
+        status: "parent-camera-compatible",
+        reason: cameraDecision.requirement.reason,
+        parentOrientation: cameraDecision.requirement.parentOrientation,
+        selectedOrientation: cameraDecision.requirement.selectedOrientation,
+        mediaId: selected.candidate.mediaId,
       },
       rationale: rationaleParts.join("; "),
     };
@@ -1208,7 +1586,7 @@ export function compileEchoEnrichmentDirectorVariant({
   const persistentShaderSlots = clone(parentProject.persistent_shader_slots || []);
   const parentFingerprint = firstText(parentVariant.fingerprint, parentVariant.contentSha256, echoDirectionVariantFingerprint(parentVariant));
   const semanticPayload = {
-    compiler: "echo-intentional-enrichment-v1",
+    compiler: ECHO_ENRICHMENT_CAMERA_COMPILER,
     songId,
     parentProjectSha256,
     parentVariantId: variantId(parentVariant),
@@ -1235,7 +1613,7 @@ export function compileEchoEnrichmentDirectorVariant({
   const variant = {
     schemaVersion: ECHO_ENRICHMENT_DIRECTOR_VARIANT_SCHEMA,
     id,
-    title: `${firstText(baseProject.song_title, song.title, songId)} · Intentional Enrichment Cut`,
+    title: `${firstText(baseProject.song_title, song.title, songId)} · Intentional Enrichment · Asset-Aware Camera`,
     status: "ready",
     createdAt,
     updatedAt: createdAt,
@@ -1261,19 +1639,22 @@ export function compileEchoEnrichmentDirectorVariant({
       appendOnly: true,
     },
     variationSet: {
-      id: `echo-video-enrichment-${catalog.batchFingerprint.slice(0, 16)}`,
-      label: "Echo Video Enrichment · Intentional Cuts",
+      id: `echo-video-enrichment-${catalog.batchFingerprint.slice(0, 16)}-camera-v2`,
+      label: "Echo Video Enrichment · Intentional Cuts · Camera V2",
       batchFingerprint: `sha256:${catalog.batchFingerprint}`,
       appendOnly: true,
     },
-    cut: { ordinal: 1, label: "Intentional Enrichment" },
+    cut: { ordinal: 2, label: "Intentional Enrichment · Asset-Aware Camera" },
     sourcePolicy: {
       mode: "semantic-quality-continuity-weighted",
       lowPriorSourcesEligible: true,
       lowPriorSources: ["LTX", "hapa-dev-proto", "Hell Week"],
       lowPriorTreatment: "eligible-but-downweighted",
       deterministicTieBreak: "technical-identity-ascending",
-      exactParentDirectionContract: true,
+      exactParentDirectionContract: false,
+      exactParentNonCameraDirectionContract: true,
+      assetAwareCameraReframing: true,
+      cameraReframeTriggers: ["selected-media-orientation-changed", "replaces-generated-visualizer-or-no-media"],
     },
     timeline,
     visualizer_timeline: visualizerTimeline,
@@ -1288,6 +1669,7 @@ export function compileEchoEnrichmentDirectorVariant({
       enrichmentRowsMissingSemanticText: catalog.rows.filter((row) => row.missing.includes("semantic-text")).length,
       replacementShots: timeline.filter((shot, index) => shot.media_technical_identity !== parentProject.timeline[index]?.media_technical_identity).length,
       mediaBearingShots: timeline.filter((shot) => shot.media_uri).length,
+      assetReframedShots: timeline.filter((shot) => shot.camera_framing_contract?.derived === true).length,
       uniqueMedia: selectedIdentities.size,
       selectionsBySource: sourceSelections,
       lowPriorSelections: timeline.filter((shot) => shot.decision_evidence?.enrichment?.lowPriorEligible).length,

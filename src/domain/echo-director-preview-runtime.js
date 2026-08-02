@@ -12,8 +12,10 @@ import {
 import { projectToEditorGraph } from "./multitrack-editor.js";
 import { resolveEchoOutputProfile } from "./echo-output-profile.js";
 import {
+  echoCameraCoverSourceRect,
   echoCameraCropPresentation,
   echoCameraKeyframeAt,
+  echoCameraMotionPresentation,
 } from "./echo-camera-framing.js";
 import { visualizerCardsAtTime } from "./echo-isf-browser-runtime.js";
 import {
@@ -397,6 +399,140 @@ function mediaCardIdentity(card = {}, timelineRow = {}) {
   };
 }
 
+function positiveFinite(value) {
+  const number = Number(value);
+  return Number.isFinite(number) && number > 0 ? number : null;
+}
+
+function normalizedDimensions(...candidates) {
+  for (const candidate of candidates) {
+    const source = object(candidate);
+    const width = positiveFinite(source.width ?? source.videoWidth ?? source.naturalWidth);
+    const height = positiveFinite(source.height ?? source.videoHeight ?? source.naturalHeight);
+    if (width === null || height === null) continue;
+    return {
+      width: round(width),
+      height: round(height),
+      maxDimension: round(positiveFinite(source.maxDimension) ?? Math.max(width, height)),
+    };
+  }
+  return null;
+}
+
+function normalizedSourceOrientation(value = "") {
+  const orientation = text(value).toLowerCase();
+  if (["portrait", "landscape", "square"].includes(orientation)) return orientation;
+  return "unknown";
+}
+
+function sourceOrientationForDimensions(dimensions = null, fallback = "") {
+  if (dimensions?.width > 0 && dimensions?.height > 0) {
+    if (dimensions.height > dimensions.width) return "portrait";
+    if (dimensions.width > dimensions.height) return "landscape";
+    return "square";
+  }
+  return normalizedSourceOrientation(fallback);
+}
+
+function mediaGeometry(card = {}, timelineRow = {}) {
+  const media = object(card.media);
+  const contract = object(timelineRow.media_contract || timelineRow.mediaContract);
+  const dimensions = normalizedDimensions(
+    media.dimensions,
+    media.technical,
+    media,
+    contract.dimensions,
+    contract.proxy,
+    contract.technical,
+    timelineRow.media_dimensions,
+    timelineRow.mediaDimensions,
+    timelineRow.dimensions,
+    timelineRow.technical,
+    timelineRow,
+  );
+  const sourceOrientation = sourceOrientationForDimensions(
+    dimensions,
+    media.sourceOrientation
+      || media.source_orientation
+      || contract.sourceOrientation
+      || contract.source_orientation
+      || timelineRow.source_orientation
+      || timelineRow.sourceOrientation,
+  );
+  const aspectRatio = dimensions
+    ? round(dimensions.width / dimensions.height)
+    : null;
+  return {
+    dimensions,
+    aspectRatio,
+    sourceAspectRatio: aspectRatio,
+    sourceOrientation,
+  };
+}
+
+function mediaIdentityTokens(card = {}, timelineRow = {}) {
+  const media = object(card.media);
+  const contract = object(timelineRow.media_contract || timelineRow.mediaContract);
+  const uri = mediaUri(card, timelineRow);
+  return new Set([
+    media.id,
+    media.mediaId,
+    media.media_id,
+    media.cardId,
+    media.card_id,
+    media.sourceHash,
+    media.source_hash,
+    media.contentHash,
+    media.hash,
+    timelineRow.media_id,
+    timelineRow.mediaId,
+    timelineRow.media_card_id,
+    timelineRow.mediaCardId,
+    contract.contentHash,
+    contract.sourceHash,
+    uri,
+    uri ? uri.split(/[?#]/)[0] : "",
+  ].map((value) => text(value)).filter(Boolean));
+}
+
+function mediaIdentityMatches(card, timelineRow) {
+  const cardTokens = mediaIdentityTokens(card, {});
+  const rowTokens = mediaIdentityTokens({}, timelineRow);
+  if (!cardTokens.size || !rowTokens.size) return false;
+  return [...cardTokens].some((token) => rowTokens.has(token));
+}
+
+function resolveMediaTimelineMatch(card, timelineRows, timeSeconds, fps, cardIndex) {
+  const rows = list(timelineRows);
+  const explicitIndex = Number.isInteger(card.sourceCueIndex) ? card.sourceCueIndex : null;
+  const explicitRow = explicitIndex === null ? null : rows[explicitIndex];
+  const cardTokens = mediaIdentityTokens(card, {});
+  const explicitHasComparableIdentity = explicitRow
+    ? cardTokens.size > 0 && mediaIdentityTokens({}, explicitRow).size > 0
+    : false;
+  if (explicitRow && (!explicitHasComparableIdentity || mediaIdentityMatches(card, explicitRow))) {
+    return { row: explicitRow, index: explicitIndex, basis: "explicit-source-cue-index" };
+  }
+
+  const active = activeIntervalRows(rows, timeSeconds, fps);
+  const activeIdentityMatch = active.find(({ row }) => mediaIdentityMatches(card, row));
+  if (activeIdentityMatch) return { ...activeIdentityMatch, basis: "active-media-identity" };
+
+  const intervalStartSeconds = intervalStart(card);
+  const intervalEndSeconds = intervalEnd(card, fps);
+  const intervalIdentityMatch = rows.map((row, index) => ({ row, index })).find(({ row }) => (
+    mediaIdentityMatches(card, row)
+      && Math.abs(intervalStart(row) - intervalStartSeconds) < 0.000001
+      && Math.abs(intervalEnd(row, fps) - intervalEndSeconds) < 0.000001
+  ));
+  if (intervalIdentityMatch) return { ...intervalIdentityMatch, basis: "interval-media-identity" };
+
+  if (explicitRow) return { row: explicitRow, index: explicitIndex, basis: "explicit-overlay-fallback" };
+  if (active.length) return { ...active.at(-1), basis: "active-interval-fallback" };
+  if (rows[cardIndex]) return { row: rows[cardIndex], index: cardIndex, basis: "card-index-fallback" };
+  return { row: {}, index: -1, basis: "missing" };
+}
+
 export function echoDirectorPreviewMediaTransitionState(cue = {}, timeSeconds = 0, fps = 30) {
   const start = intervalStart(cue);
   const end = intervalEnd(cue, fps);
@@ -444,17 +580,24 @@ export function echoDirectorPreviewMediaTransitionState(cue = {}, timeSeconds = 
 
 function normalizeMediaCue(entry, timelineRows, timeSeconds, fps) {
   const { card, track, trackIndex, cardIndex } = entry;
-  const sourceCueIndex = Number.isInteger(card.sourceCueIndex) ? card.sourceCueIndex : cardIndex;
-  const matchingTimeline = list(timelineRows)[sourceCueIndex]
-    || activeIntervalRows(timelineRows, timeSeconds, fps).at(-1)?.row
-    || {};
+  const timelineMatch = resolveMediaTimelineMatch(card, timelineRows, timeSeconds, fps, cardIndex);
+  const sourceCueIndex = timelineMatch.index >= 0
+    ? timelineMatch.index
+    : Number.isInteger(card.sourceCueIndex) ? card.sourceCueIndex : cardIndex;
+  const matchingTimeline = timelineMatch.row;
   const startSeconds = intervalStart(card);
   const endSeconds = intervalEnd(card, fps);
   const media = object(card.media);
   const mediaContract = object(matchingTimeline.media_contract || matchingTimeline.mediaContract);
+  const geometry = mediaGeometry(card, matchingTimeline);
   const parameters = clone(object(card.parameters));
   const timelineCamera = object(matchingTimeline.camera);
   const cardCamera = echoCameraKeyframeAt(card.cameraKeyframes, timeSeconds);
+  const cameraCrop = matchingTimeline.camera_crop
+    || matchingTimeline.cameraCrop
+    || timelineCamera.crop
+    || cardCamera?.crop
+    || null;
   const camera = {
     motion: text(
       matchingTimeline.camera_motion
@@ -480,6 +623,7 @@ function normalizeMediaCue(entry, timelineRows, timeSeconds, fps) {
       parameters.camera_speed,
       cardCamera?.speed,
     ),
+    ...(cameraCrop ? { crop: clone(cameraCrop) } : {}),
   };
   const sourceInSeconds = Math.max(0, optionalFinite(
     media.sourceInSeconds,
@@ -515,6 +659,7 @@ function normalizeMediaCue(entry, timelineRows, timeSeconds, fps) {
     trackId: text(card.trackId || track.id),
     trackRole: text(track.role, "media"),
     sourceCueIndex,
+    timelineMatchBasis: timelineMatch.basis,
     cameraSeedId: text(
       matchingTimeline.section_id
         || matchingTimeline.sectionId
@@ -541,6 +686,7 @@ function normalizeMediaCue(entry, timelineRows, timeSeconds, fps) {
       sourceOutSeconds: sourceOutSeconds === null ? null : round(sourceOutSeconds),
       sourceDurationSeconds: sourceOutSeconds === null ? null : round(sourceOutSeconds - sourceInSeconds),
       playbackMode,
+      ...geometry,
     },
     card: mediaCardIdentity(card, matchingTimeline),
     parameters,
@@ -653,6 +799,109 @@ function normalizePreviewSource(value, options = {}) {
 }
 
 /**
+ * Resolves source-media geometry independently from the Director output size.
+ * The immutable Preview contract wins; decoded element dimensions are a
+ * defensive fallback for older projects whose media contract is incomplete.
+ */
+export function resolveEchoDirectorPreviewSourceGeometry({
+  frame = null,
+  sourceWidth,
+  sourceHeight,
+} = {}) {
+  const cue = object(frame?.primaryMediaCue || frame?.media?.primary);
+  const media = object(cue.media);
+  const contractDimensions = normalizedDimensions(media.dimensions, media);
+  const decodedDimensions = normalizedDimensions({ width: sourceWidth, height: sourceHeight });
+  const dimensions = contractDimensions || decodedDimensions;
+  const sourceOrientation = sourceOrientationForDimensions(dimensions, media.sourceOrientation);
+  const aspectRatio = dimensions
+    ? round(dimensions.width / dimensions.height)
+    : positiveFinite(media.sourceAspectRatio ?? media.aspectRatio);
+  return {
+    dimensions,
+    width: dimensions?.width ?? null,
+    height: dimensions?.height ?? null,
+    aspectRatio: aspectRatio === null ? null : round(aspectRatio),
+    sourceAspectRatio: aspectRatio === null ? null : round(aspectRatio),
+    sourceOrientation,
+    source: contractDimensions
+      ? "preview-contract"
+      : decodedDimensions ? "decoded-media" : sourceOrientation !== "unknown" ? "preview-orientation" : "unavailable",
+  };
+}
+
+/**
+ * Projects one fixed Preview frame into renderer-neutral camera numbers. Both
+ * DOM/CSS and Canvas consumers can use this presentation without conflating a
+ * portrait source with a portrait output canvas.
+ */
+export function resolveEchoDirectorPreviewCameraPresentation({
+  frame = null,
+  sourceWidth,
+  sourceHeight,
+  outputWidth,
+  outputHeight,
+} = {}) {
+  const cue = object(frame?.primaryMediaCue || frame?.media?.primary);
+  const cueCamera = object(cue.camera);
+  const camera = object(frame?.camera);
+  const outputProfile = object(frame?.outputProfile);
+  const sourceGeometry = resolveEchoDirectorPreviewSourceGeometry({ frame, sourceWidth, sourceHeight });
+  const outputDimensions = normalizedDimensions({
+    width: positiveFinite(outputWidth) ?? outputProfile.width,
+    height: positiveFinite(outputHeight) ?? outputProfile.height,
+  }) || { width: 1, height: 1, maxDimension: 1 };
+  const speed = optionalFinite(cueCamera.speed, camera.speed, camera.keyframe?.speed);
+  const crop = cueCamera.crop
+    || camera.keyframe?.crop
+    || camera.presentation?.crop
+    || null;
+  const presentation = echoCameraMotionPresentation({
+    startSeconds: cue.startSeconds,
+    endSeconds: cue.endSeconds,
+    timeSeconds: frame?.clock?.selectionSeconds ?? frame?.clock?.seconds,
+    motion: text(cueCamera.motion || camera.motion || camera.keyframe?.motion || camera.keyframe?.shotRole, "auto"),
+    intensity: optionalFinite(cueCamera.intensity, camera.intensity, camera.keyframe?.intensity) ?? 1,
+    ...(speed === null ? {} : { speed }),
+    shotIndex: camera.sourceCueIndex ?? cue.sourceCueIndex ?? 0,
+    sourceId: cue.cameraSeedId || cue.media?.id || "",
+    isPortrait: sourceGeometry.sourceOrientation === "portrait",
+    crop,
+  });
+  return {
+    presentation,
+    sourceGeometry,
+    outputDimensions,
+  };
+}
+
+/** Returns the exact Canvas2D source rectangle for a fixed Preview frame. */
+export function resolveEchoDirectorPreviewSourceRect(options = {}) {
+  const framing = resolveEchoDirectorPreviewCameraPresentation(options);
+  const decodedDimensions = normalizedDimensions({
+    width: options.sourceWidth,
+    height: options.sourceHeight,
+  });
+  const samplingDimensions = decodedDimensions
+    || framing.sourceGeometry.dimensions
+    || { width: 1, height: 1, maxDimension: 1 };
+  return {
+    ...echoCameraCoverSourceRect({
+      sourceWidth: samplingDimensions.width,
+      sourceHeight: samplingDimensions.height,
+      outputWidth: framing.outputDimensions.width,
+      outputHeight: framing.outputDimensions.height,
+      presentation: framing.presentation,
+    }),
+    presentation: framing.presentation,
+    sourceGeometry: framing.sourceGeometry,
+    samplingDimensions,
+    samplingSource: decodedDimensions ? "decoded-media" : framing.sourceGeometry.source,
+    outputDimensions: framing.outputDimensions,
+  };
+}
+
+/**
  * Pure projection from a single clock sample to one serializable Preview frame.
  * The same source and clock sample always produce the same state.
  */
@@ -707,6 +956,16 @@ export function projectEchoDirectorPreviewFrame({
     speed: cameraSpeed == null ? null : round(finite(cameraSpeed, 1)),
     sourceCueIndex,
   };
+  const cameraFraming = resolveEchoDirectorPreviewCameraPresentation({
+    frame: {
+      primaryMediaCue,
+      camera,
+      clock: clockState,
+      outputProfile,
+    },
+  });
+  camera.motionPresentation = cameraFraming.presentation;
+  camera.sourceGeometry = cameraFraming.sourceGeometry;
 
   const graphLyrics = list(graph.song?.lyricOverlay?.lines);
   const lyricLines = (graphLyrics.length ? graphLyrics : list(project.timed_lyrics))

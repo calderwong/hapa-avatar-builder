@@ -12,6 +12,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import {
+  ECHO_ASSET_CAMERA_FRAMING_SCHEMA,
   ECHO_ENRICHMENT_SHOT_EVIDENCE_SCHEMA,
   buildEchoVideoEnrichmentCatalog,
   compileEchoEnrichmentDirectorVariant,
@@ -553,6 +554,92 @@ test("canonicalizes legacy aliases that point at the same runtime video", () => 
   assert.deepEqual(new Set(variant.timeline.map((shot) => shot.media_id)), new Set([canonicalId]));
   assert.deepEqual(new Set(variant.timeline.map((shot) => shot.media_technical_identity)), new Set([`sha256:${"4".repeat(64)}`]));
   assert.deepEqual(new Set(variant.timeline.map((shot) => shot.decision_evidence.enrichmentId)), new Set([canonicalId]));
+});
+
+test("replacements that change source orientation receive a selected-media camera contract", () => {
+  const project = baseProject("song-camera-reframe");
+  project.duration = 4;
+  project.timeline = project.timeline.slice(0, 1);
+  project.timed_lyrics = project.timed_lyrics.slice(0, 1);
+  project.timeline[0].media_contract.dimensions = { width: 1920, height: 1080 };
+  project.timeline[0].camera_motion = "static";
+  const mediaId = `hapa-media:sha256:${"7".repeat(64)}`;
+  const variant = compileEchoEnrichmentDirectorVariant({
+    song: songCard("song-camera-reframe"),
+    baseProject: project,
+    parentVariant: parentVariant(project),
+    parentProjectSha256: "7".repeat(64),
+    enrichments: [{
+      schemaVersion: "hapa.echo.video-enrichment.v1",
+      mediaId,
+      contentHash: { algorithm: "sha256", value: "7".repeat(64) },
+      title: "Portrait Moon Door",
+      runtimeUri: "/media/portrait-moon-door.mp4",
+      technical: { width: 720, height: 1280 },
+      recognition: { synopsis: "A hand carries a family letter through a luminous moon door." },
+      quality: { score: 95 },
+      provenance: [{ source: "verified-source-file", verifiedSource: true }],
+    }],
+    report: { generatedAt: "2026-08-01T00:00:00.000Z" },
+  });
+  const shot = variant.timeline[0];
+  const framing = shot.camera_framing_contract;
+  assert.equal(shot.media_orientation, "portrait");
+  assert.deepEqual(shot.media_dimensions, { width: 720, height: 1280, maxDimension: 1280 });
+  assert.equal(framing.schemaVersion, ECHO_ASSET_CAMERA_FRAMING_SCHEMA);
+  assert.equal(framing.reason, "selected-media-orientation-changed");
+  assert.equal(framing.mediaId, mediaId);
+  assert.equal(framing.path.mediaId, mediaId);
+  assert.equal(shot.decision_evidence.preservedDirection.camera, false);
+  assert.equal(shot.decision_evidence.cameraFraming.status, "rederived-for-selected-media");
+  assert.notEqual(shot.camera_motion, "static");
+  assert.equal(variant.validation.ok, true);
+  for (const corridor of framing.path.corridors) {
+    for (const crop of [corridor.startCrop, corridor.endCrop]) {
+      assert.ok(crop.x >= 0 && crop.y >= 0 && crop.x + crop.width <= 1.000001 && crop.y + crop.height <= 1.000001);
+      assert.ok(Math.abs((framing.sourceAspect * crop.width / crop.height) - corridor.targetAspect) <= 0.00001);
+    }
+  }
+});
+
+test("real media replacing a generated-visualizer cue cannot claim the parent camera was preserved", () => {
+  const project = baseProject("song-generated-gap");
+  project.duration = 4;
+  project.timeline = project.timeline.slice(0, 1);
+  project.timed_lyrics = project.timed_lyrics.slice(0, 1);
+  Object.assign(project.timeline[0], {
+    media_id: "none",
+    media_uri: "",
+    runtime_media_uri: "",
+    media_technical_identity: "",
+    camera_motion: "static",
+    media_contract: { type: "generated-visualizer", runtimeUri: "", originalUri: "" },
+  });
+  const mediaId = `hapa-media:sha256:${"8".repeat(64)}`;
+  const variant = compileEchoEnrichmentDirectorVariant({
+    song: songCard("song-generated-gap"),
+    baseProject: project,
+    parentVariant: parentVariant(project),
+    parentProjectSha256: "8".repeat(64),
+    enrichments: [{
+      schemaVersion: "hapa.echo.video-enrichment.v1",
+      mediaId,
+      contentHash: { algorithm: "sha256", value: "8".repeat(64) },
+      title: "Restored Foundation",
+      runtimeUri: "/media/restored-foundation.mp4",
+      technical: { width: 1920, height: 1080 },
+      recognition: { synopsis: "A moonlit family letter crosses the river toward home." },
+      quality: { score: 90 },
+      provenance: [{ source: "verified-source-file", verifiedSource: true }],
+    }],
+    report: { generatedAt: "2026-08-01T00:00:00.000Z" },
+  });
+  const shot = variant.timeline[0];
+  assert.equal(shot.camera_framing_contract.reason, "replaces-generated-visualizer-or-no-media");
+  assert.equal(shot.camera_framing_contract.path.mediaId, mediaId);
+  assert.equal(shot.decision_evidence.preservedDirection.camera, false);
+  assert.equal(variant.telemetry.assetReframedShots, 1);
+  assert.equal(variant.validation.ok, true);
 });
 
 async function writeJson(filePath, value) {

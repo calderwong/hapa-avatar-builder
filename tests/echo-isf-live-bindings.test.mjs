@@ -64,7 +64,10 @@ test("Echo binds only the currently presented media frame, never a standby decod
   assert.match(exactDraw, /resolvePresentedEchoMediaBinding\(/);
   assert.match(exactDraw, /directorPreviewFullscreenRef\.current/);
   assert.match(exactDraw, /presentedMediaRef\.current/);
-  assert.match(source, /mediaElement: currentPresentedMedia\?\.element \|\| null/);
+  assert.match(exactDraw, /drawEchoCameraFramedMediaInput\(/);
+  assert.match(exactDraw, /mediaElement: currentPresentedMedia\.element/);
+  assert.match(source, /mediaElement: framedMediaInput\?\.canvas \|\| null/);
+  assert.doesNotMatch(source, /mediaElement: currentPresentedMedia\?\.element \|\| null/);
   assert.match(source, /mediaIdentity: currentPresentedMedia \?/);
 });
 

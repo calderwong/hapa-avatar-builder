@@ -24,7 +24,12 @@ function evidenceHash(report) {
 }
 
 function compileAlbum(output) {
-  const result = spawnSync(process.execPath, [COMPILE_SCRIPT, "--output", output], {
+  // This gate verifies the canonical project shader lineage. Keep its media
+  // preflight scoped to that corpus so append-only Director Cut growth cannot
+  // turn an unrelated variant-library scan into a test timeout.
+  const variants = path.join(output, "isolated-variants");
+  fs.mkdirSync(variants, { recursive: true });
+  const result = spawnSync(process.execPath, [COMPILE_SCRIPT, "--output", output, "--variants", variants], {
     cwd: ROOT,
     encoding: "utf8",
     timeout: 60_000,

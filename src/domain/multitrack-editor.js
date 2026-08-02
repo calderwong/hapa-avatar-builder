@@ -1,6 +1,11 @@
-import { applyDirtyRangePatch } from "./dirty-range-rebuild.js";
+import { applyDirtyRangePatch, dirtyRangeArtifactHash } from "./dirty-range-rebuild.js";
 import { contextHash } from "./song-context-packet.js";
 import { resolveEchoOutputProfile } from "./echo-output-profile.js";
+import {
+  buildSafeCameraPath,
+  classifyMediaRole,
+  validateSafeCameraPath,
+} from "./media-role-camera.js";
 import { isPortableVisualizerAttachment } from "./portable-visualizer-card.js";
 import { normalizeEchoPersistentShaderSlots } from "./echo-persistent-shader-slots.js";
 import {
@@ -9,6 +14,26 @@ import {
 } from "./echo-lyric-contract.js";
 
 export const MULTITRACK_EDITOR_SCHEMA = "hapa.director.multitrack-editor.v1";
+
+const positiveFinite = (value) => {
+  const number = Number(value);
+  return Number.isFinite(number) && number > 0 ? number : 0;
+};
+
+function projectedMediaDimensions(value = {}) {
+  const contract = value.media_contract || value.mediaContract || {};
+  const dimensions = contract.dimensions || value.media_dimensions || value.dimensions || {};
+  const width = positiveFinite(dimensions.width ?? value.media_width ?? value.video_width ?? value.width);
+  const height = positiveFinite(dimensions.height ?? value.media_height ?? value.video_height ?? value.height);
+  return width && height ? { width, height, maxDimension: Math.max(width, height) } : null;
+}
+
+function projectedMediaOrientation(dimensions) {
+  if (!dimensions) return "unknown";
+  const aspect = dimensions.width / dimensions.height;
+  if (Math.abs(aspect - 1) <= 0.02) return "square";
+  return aspect > 1 ? "landscape" : "portrait";
+}
 
 export function editorGraphMintProjection(graph = {}, renderSpec = {}) {
   const outputProfile = resolveEchoOutputProfile(
@@ -55,6 +80,9 @@ function projectedShotMedia(shot = {}) {
     || shot.decisionEvidence?.sourceEvidence?.card
     || {};
   const cardId = shot.media_card_id || shot.mediaCardId || sourceCard.id || "";
+  const mediaContract = clone(shot.media_contract || shot.mediaContract || null);
+  const dimensions = projectedMediaDimensions(shot);
+  const sourceOrientation = projectedMediaOrientation(dimensions);
   const media = {
     id: shot.media_id,
     title: shot.media_title,
@@ -63,6 +91,15 @@ function projectedShotMedia(shot = {}) {
       || shot.media_contract?.originalUri
       || shot.media_uri
       || "",
+    ...(mediaContract ? { mediaContract } : {}),
+    ...(dimensions ? {
+      dimensions,
+      width: dimensions.width,
+      height: dimensions.height,
+      aspectRatio: dimensions.width / dimensions.height,
+      orientation: sourceOrientation,
+      sourceOrientation,
+    } : {}),
   };
   if (!cardId) return media;
   return {
@@ -210,13 +247,246 @@ function legacyEditorGraph(project = {}) {
   };
 }
 
-function mergeMediaTimeline(graph, timeline = []) {
+function explicitSubjectROI(value = {}) {
+  const input = value && typeof value === "object" ? value : {};
+  const source = input.subjectROI || input.subjectRoi || input.subject_roi || input;
+  const x = Number(source?.x);
+  const y = Number(source?.y);
+  const width = Number(source?.width);
+  const height = Number(source?.height);
+  if ([x, y, width, height].every(Number.isFinite)
+    && x >= 0 && y >= 0 && width > 0 && height > 0
+    && x + width <= 1.000001 && y + height <= 1.000001) {
+    return { x, y, width, height };
+  }
+  return null;
+}
+
+function normalizedSubjectROI(value = {}) {
+  return explicitSubjectROI(value) || { x: 0.25, y: 0.2, width: 0.5, height: 0.6 };
+}
+
+function cameraTemplateForShot(templates, shot, index, claimed) {
+  const shotIndex = Number.isFinite(Number(shot.shot_index)) ? Number(shot.shot_index) : index;
+  const slotId = `slot:${shotIndex}`;
+  const available = templates.map((card, templateIndex) => ({ card, templateIndex }))
+    .filter(({ templateIndex }) => !claimed.has(templateIndex));
+  const exactSlot = available.find(({ card }) => card?.provenance?.sourceSlotId === slotId);
+  const exactId = available.find(({ card }) => new RegExp(`(?:^|:)${shotIndex}$`, "u").test(String(card?.id || "")));
+  const start = Number(shot.start_sec ?? shot.startSeconds ?? 0);
+  const end = Number(shot.end_sec ?? shot.endSeconds ?? start);
+  const exactTime = available.find(({ card }) => (
+    Math.abs(Number(card?.startSeconds) - start) <= 0.000001
+    && Math.abs(Number(card?.endSeconds) - end) <= 0.000001
+  ));
+  const indexed = !claimed.has(index) && templates[index] ? { card: templates[index], templateIndex: index } : null;
+  const selected = exactSlot || exactId || exactTime || indexed || available[0] || { card: {}, templateIndex: -1 };
+  if (selected.templateIndex >= 0) claimed.add(selected.templateIndex);
+  return { template: selected.card || {}, slotId };
+}
+
+function cropIsAspectSafe(crop, sourceAspect, targetAspect) {
+  const x = Number(crop?.x);
+  const y = Number(crop?.y);
+  const width = Number(crop?.width);
+  const height = Number(crop?.height);
+  if (![x, y, width, height].every(Number.isFinite)
+    || x < 0 || y < 0 || width <= 0 || height <= 0
+    || x + width > 1.000001 || y + height > 1.000001) return false;
+  return Math.abs((sourceAspect * width / height) - targetAspect) <= 0.00001;
+}
+
+export function validateEditorGraphCameraBindings(graph = {}) {
+  const errors = [];
+  const track = trackByRole(graph, ["track-a", "media-a"], ["foundation", "media"]);
+  const cards = Array.isArray(track?.cards) ? track.cards : [];
+  const paths = Array.isArray(graph.directorV2?.mediaRoleCamera) ? graph.directorV2.mediaRoleCamera : [];
+  const keyframes = Array.isArray(graph.directorV2?.cameraKeyframes) ? graph.directorV2.cameraKeyframes : [];
+  const cardById = new Map(cards.map((card) => [String(card.id || ""), card]));
+  const pathById = new Map(paths.map((path) => [String(path.id || ""), path]));
+  if (cards.length && paths.length !== cards.length) errors.push("camera-path-card-count");
+  for (const path of paths) {
+    const card = cardById.get(String(path.mediaCardId || ""));
+    if (!card) {
+      errors.push(`camera-path-card-missing:${path.id || "unknown"}`);
+      continue;
+    }
+    if (String(path.mediaId || "") !== String(card.media?.id || "")) {
+      errors.push(`camera-path-media-mismatch:${path.id || "unknown"}`);
+    }
+    const dimensions = projectedMediaDimensions(card.media || path.sourceDimensions || {});
+    const sourceAspect = dimensions ? dimensions.width / dimensions.height : positiveFinite(path.sourceAspect);
+    if (!sourceAspect) errors.push(`camera-path-source-dimensions:${path.id || "unknown"}`);
+    for (const reason of validateSafeCameraPath(path).errors) {
+      errors.push(`camera-path-${reason}:${path.id || "unknown"}`);
+    }
+    for (const corridor of path.corridors || []) {
+      const targetAspect = positiveFinite(corridor.targetAspect);
+      if (!targetAspect) errors.push(`camera-corridor-target-aspect:${path.id || "unknown"}`);
+      for (const crop of [corridor.startCrop, corridor.endCrop]) {
+        if (!sourceAspect || !targetAspect || !cropIsAspectSafe(crop, sourceAspect, targetAspect)) {
+          errors.push(`camera-corridor-aspect-unsafe:${path.id || "unknown"}`);
+        }
+      }
+    }
+  }
+  for (const row of keyframes) {
+    const path = pathById.get(String(row.cameraPathId || ""));
+    if (!path) {
+      errors.push(`camera-keyframe-path-missing:${row.cameraPathId || "unknown"}`);
+      continue;
+    }
+    if (String(row.mediaId || "") !== String(path.mediaId || "")
+      || String(row.mediaCardId || "") !== String(path.mediaCardId || "")) {
+      errors.push(`camera-keyframe-media-mismatch:${row.cameraPathId || "unknown"}`);
+    }
+    const dimensions = projectedMediaDimensions(path.sourceDimensions || {});
+    const sourceAspect = dimensions ? dimensions.width / dimensions.height : positiveFinite(path.sourceAspect);
+    const targetAspect = positiveFinite(path.activeTargetAspect || path.corridors?.[0]?.targetAspect);
+    if (!sourceAspect || !targetAspect || !cropIsAspectSafe(row.crop, sourceAspect, targetAspect)) {
+      errors.push(`camera-keyframe-aspect-unsafe:${row.cameraPathId || "unknown"}`);
+    }
+  }
+  return {
+    ok: errors.length === 0,
+    errors: [...new Set(errors)],
+    mediaCards: cards.length,
+    cameraPaths: paths.length,
+    cameraKeyframes: keyframes.length,
+  };
+}
+
+function rebuildMediaCameraBindings(graph, timeline, outputProfile, track) {
+  if (!track || !Array.isArray(timeline)) return;
+  const targetAspect = outputProfile.width / outputProfile.height;
+  const targetAspects = [...new Set([targetAspect, 16 / 9, 9 / 16, 1])];
+  const paths = [];
+  const keyframes = [];
+  track.cards = track.cards.map((card, index) => {
+    const shot = timeline[index] || {};
+    const framing = shot.camera_framing_contract || shot.cameraFramingContract || {};
+    const dimensions = projectedMediaDimensions(card.media || shot) || {
+      width: outputProfile.width,
+      height: outputProfile.height,
+      maxDimension: Math.max(outputProfile.width, outputProfile.height),
+    };
+    const sourceAspect = dimensions.width / dimensions.height;
+    const sourceOrientation = projectedMediaOrientation(dimensions);
+    const startSeconds = Number(card.startSeconds || 0);
+    const endSeconds = Number(card.endSeconds || startSeconds);
+    const slotId = card.provenance?.sourceSlotId || `slot:${Number.isFinite(Number(shot.shot_index)) ? Number(shot.shot_index) : index}`;
+    const analysis = {
+      subjectROI: normalizedSubjectROI(framing.subjectROI || framing.path?.subjectROI),
+      status: framing.path?.subjectROI?.status || (framing.derived ? "asset-aware-reframe" : "center-safe-fallback"),
+      evidence: framing.path?.subjectROI?.evidence || framing.reason || "selected-media-dimensions-with-center-safe-fallback",
+      faceCount: Number(framing.path?.subjectROI?.faceCount || 0),
+    };
+    const technical = {
+      ...dimensions,
+      durationSec: Math.max(0, endSeconds - startSeconds),
+      fps: positiveFinite(card.media?.mediaContract?.fps) || 24,
+      codec: card.media?.mediaContract?.type === "image" ? "image" : "video",
+    };
+    const atSectionStart = index === 0
+      || String(timeline[index - 1]?.section_id || "") !== String(shot.section_id || "");
+    const role = framing.shotRole || classifyMediaRole({
+      technical,
+      subjectROI: analysis.subjectROI,
+      atSectionStart,
+      isFinal: index === track.cards.length - 1,
+    });
+    const phraseCue = framing.path?.phraseCue || {
+      id: shot.section_id || slotId,
+      atSeconds: startSeconds,
+      source: "multitrack-selected-media-rebind",
+    };
+    const plannedPath = buildSafeCameraPath({
+      mediaId: card.media?.id,
+      technical,
+      analysis,
+      role,
+      phraseCue,
+      targetAspects,
+    });
+    const path = {
+      ...plannedPath,
+      id: `${plannedPath.id}:${contextHash({
+        cardId: card.id,
+        slotId,
+        startSeconds,
+        endSeconds,
+      }).slice(0, 12)}`,
+      plannerPathId: plannedPath.id,
+      mediaCardId: card.id,
+      slotId,
+      sourceDimensions: clone(dimensions),
+      sourceAspect,
+      sourceOrientation,
+      activeTargetAspect: targetAspect,
+      activeOutputProfileId: outputProfile.id,
+      framingContractSchema: framing.schemaVersion || null,
+    };
+    const camera = {
+      motion: card.parameters?.motion || shot.camera_motion || framing.motion || "auto",
+      intensity: Number(card.parameters?.cameraIntensity ?? shot.camera_intensity ?? framing.intensity ?? 1),
+      speed: Number(card.parameters?.cameraSpeed ?? shot.camera_speed ?? framing.speed ?? 1),
+      focus: card.parameters?.cameraFocus || shot.camera_focus || framing.focus || "center",
+    };
+    const startFrame = {
+      atSeconds: startSeconds,
+      slotId,
+      mediaCardId: card.id,
+      mediaId: card.media?.id,
+      cameraPathId: path.id,
+      subjectROI: clone(path.subjectROI),
+      shotRole: path.shotRole,
+      phraseCue: clone(path.phraseCue),
+      easing: path.easing,
+      safeZoomLimits: clone(path.zoomLimits),
+      crop: clone(path.corridors[0].startCrop),
+      ...camera,
+    };
+    const endFrame = {
+      ...clone(startFrame),
+      atSeconds: endSeconds,
+      crop: clone(path.corridors[0].endCrop),
+    };
+    paths.push(path);
+    keyframes.push(startFrame, endFrame);
+    return {
+      ...card,
+      cameraKeyframes: [clone(startFrame), clone(endFrame)],
+      parameters: {
+        ...(card.parameters || {}),
+        motion: camera.motion,
+        cameraIntensity: camera.intensity,
+        cameraSpeed: camera.speed,
+        cameraFocus: camera.focus,
+      },
+      provenance: {
+        ...(card.provenance || {}),
+        sourceSlotId: slotId,
+        cameraBinding: framing.derived ? "asset-aware-rederived" : "selected-media-rebound",
+      },
+    };
+  });
+  graph.directorV2 = {
+    ...(graph.directorV2 || {}),
+    mediaRoleCamera: paths,
+    cameraKeyframes: keyframes,
+  };
+  const validation = validateEditorGraphCameraBindings(graph);
+  if (!validation.ok) throw new Error(`Selected-media camera graph is unsafe: ${validation.errors.join(", ")}`);
+}
+
+function mergeMediaTimeline(graph, timeline, outputProfile) {
   if (!Array.isArray(timeline)) return;
   const track = trackByRole(graph, ["track-a", "media-a"], ["foundation", "media"]);
   if (!track) return;
   const templates = Array.isArray(track.cards) ? track.cards : [];
+  const claimedTemplates = new Set();
   track.cards = timeline.map((shot, index) => {
-    const template = templates[index] || {};
+    const { template, slotId } = cameraTemplateForShot(templates, shot, index, claimedTemplates);
     const startSeconds = Number(shot.start_sec ?? shot.startSeconds ?? template.startSeconds ?? 0);
     const endSeconds = Number(shot.end_sec ?? shot.endSeconds ?? template.endSeconds ?? startSeconds);
     const proxyReady = shot.media_contract?.proxy?.status === "ready";
@@ -230,6 +500,9 @@ function mergeMediaTimeline(graph, timeline = []) {
       parameters: {
         ...(clone(template.parameters) || {}),
         ...(shot.camera_motion ? { motion: shot.camera_motion } : {}),
+        ...(Number.isFinite(Number(shot.camera_intensity)) ? { cameraIntensity: Number(shot.camera_intensity) } : {}),
+        ...(Number.isFinite(Number(shot.camera_speed)) ? { cameraSpeed: Number(shot.camera_speed) } : {}),
+        ...(shot.camera_focus ? { cameraFocus: shot.camera_focus } : {}),
         ...(Array.isArray(shot.active_stems) ? { stemMap: clone(shot.active_stems) } : {}),
       },
       buffer: shot.media_contract?.proxy
@@ -237,11 +510,90 @@ function mergeMediaTimeline(graph, timeline = []) {
         : clone(template.buffer),
       provenance: {
         ...(clone(template.provenance) || {}),
+        sourceSlotId: template.provenance?.sourceSlotId || slotId,
         ...(shot.media_contract?.type ? { rendererRoute: shot.media_contract.type } : {}),
       },
       knockedOut: false,
     };
   });
+  rebuildMediaCameraBindings(graph, timeline, outputProfile || resolveEchoOutputProfile(graph.outputProfile), track);
+}
+
+function cameraTimelineFromGraph(graph, track) {
+  const paths = Array.isArray(graph.directorV2?.mediaRoleCamera) ? graph.directorV2.mediaRoleCamera : [];
+  const pathByCardId = new Map(paths.map((path) => [String(path.mediaCardId || ""), path]));
+  return (track.cards || []).map((card, index) => {
+    const path = pathByCardId.get(String(card.id || "")) || {};
+    const mediaIdChanged = Boolean(path.mediaId)
+      && String(path.mediaId) !== String(card.media?.id || "");
+    const replacementFraming = card.media?.cameraFramingContract
+      || card.media?.camera_framing_contract
+      || card.media?.framingAnalysis
+      || card.media?.framing_analysis
+      || {};
+    const replacementROI = explicitSubjectROI(
+      replacementFraming.subjectROI
+      || replacementFraming.subject_roi
+      || replacementFraming.path?.subjectROI
+      || replacementFraming.path?.subject_roi
+      || card.media?.subjectROI
+      || card.media?.subject_roi,
+    );
+    const reusablePriorROI = mediaIdChanged ? null : explicitSubjectROI(path.subjectROI);
+    const subjectROI = replacementROI
+      ? {
+          ...replacementROI,
+          status: replacementFraming.status
+            || replacementFraming.path?.subjectROI?.status
+            || "replacement-media-subject-roi",
+          evidence: replacementFraming.evidence
+            || replacementFraming.path?.subjectROI?.evidence
+            || "replacement-media-framing-analysis",
+          faceCount: Number(
+            replacementFraming.faceCount
+            ?? replacementFraming.path?.subjectROI?.faceCount
+            ?? 0,
+          ),
+        }
+      : reusablePriorROI
+        ? clone(path.subjectROI)
+        : null;
+    const derived = Boolean(replacementROI)
+      || (!mediaIdChanged && card.provenance?.cameraBinding === "asset-aware-rederived");
+    return {
+      shot_index: index,
+      section_id: path.phraseCue?.id || card.provenance?.sourceSlotId || `slot:${index}`,
+      start_sec: Number(card.startSeconds || 0),
+      end_sec: Number(card.endSeconds || card.startSeconds || 0),
+      camera_motion: card.parameters?.motion || "auto",
+      camera_intensity: Number(card.parameters?.cameraIntensity ?? 1),
+      camera_speed: Number(card.parameters?.cameraSpeed ?? 1),
+      camera_focus: card.parameters?.cameraFocus || "center",
+      camera_framing_contract: {
+        schemaVersion: replacementROI
+          ? replacementFraming.schemaVersion || null
+          : mediaIdChanged ? null : path.framingContractSchema || null,
+        derived,
+        reason: mediaIdChanged && !replacementROI
+          ? "replacement-media-center-safe-fallback"
+          : replacementFraming.reason || null,
+        shotRole: replacementFraming.shotRole || (mediaIdChanged ? null : path.shotRole) || null,
+        subjectROI: clone(subjectROI),
+        path: {
+          subjectROI: clone(subjectROI),
+          phraseCue: clone(path.phraseCue),
+        },
+      },
+    };
+  });
+}
+
+function rebuildGraphCameraBindings(graph, cardId) {
+  const track = trackByRole(graph, ["track-a", "media-a"], ["foundation", "media"]);
+  if (!track || !Array.isArray(track.cards) || !track.cards.some((card) => card.id === cardId)) return null;
+  const outputProfile = resolveEchoOutputProfile(graph.directorV2?.outputProfile || graph.outputProfile);
+  rebuildMediaCameraBindings(graph, cameraTimelineFromGraph(graph, track), outputProfile, track);
+  return track;
 }
 
 function mergeVisualizerTimeline(graph, timeline = [], options = {}) {
@@ -428,9 +780,12 @@ export function projectToEditorGraph(project = {}) {
     },
   };
   if (declared) {
-    mergeMediaTimeline(graph, project.timeline);
+    mergeMediaTimeline(graph, project.timeline, outputProfile);
     mergeVisualizerTimeline(graph, project.visualizer_timeline || project.visualizerTimeline);
     mergePersistentShaderSlots(graph, project);
+  } else if (Array.isArray(project.timeline)) {
+    const mediaTrack = trackByRole(graph, ["track-a", "media-a"], ["foundation", "media"]);
+    rebuildMediaCameraBindings(graph, project.timeline, outputProfile, mediaTrack);
   }
   graph.directorV2 = {
     ...(graph.directorV2 || {}),
@@ -478,6 +833,12 @@ export function applyMultitrackOperation(graph, operation) {
     if (operation.kind === "set-camera") return { ...card, parameters: { ...(card.parameters || {}), motion: operation.motion, cameraIntensity: Number(operation.intensity) } };
     return card;
   });
+  if (["replace-card", "trim-card", "set-camera"].includes(operation.kind)) {
+    const rebuiltTrack = rebuildGraphCameraBindings(result.graph, operation.cardId);
+    if (rebuiltTrack && result.receipt.affectedTrackIds.includes(rebuiltTrack.id)) {
+      result.receipt.rebuiltArtifactHashes[rebuiltTrack.id] = dirtyRangeArtifactHash(rebuiltTrack);
+    }
+  }
   const graphVariantHashBefore = graph.directorV2?.variantHash || editorGraphMintFingerprint(graph);
   const graphVariantHashAfter = editorGraphMintFingerprint(result.graph);
   result.graph.directorV2 = {

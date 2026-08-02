@@ -258,7 +258,14 @@ test("HyperFrames phone packages use manifest dimensions, safe areas, portrait t
   assert.match(html, /function aspectCoverSourceRect/u);
   assert.match(html, /coverRect=aspectCoverSourceRect\(rect,C\.width,C\.height\)/u);
   assert.match(html, /drawImage\(img,coverRect\[0\],coverRect\[1\],coverRect\[2\],coverRect\[3\],0,0,C\.width,C\.height\)/u);
-  assert.match(html, /echoCameraCropPresentation\(camera\?\.crop\)/u);
-  assert.match(html, /el\.style\.objectPosition=framing\?\.objectPosition/u);
+  assert.match(html, /echoCameraMotionPresentation/u);
+  assert.match(html, /function cameraPresentationForMedia/u);
+  assert.match(html, /isPortrait:dimensions\.isPortrait/u);
+  assert.match(html, /function cameraFramedMediaElement/u);
+  assert.match(html, /echoCameraCoverSourceRect\(\{sourceWidth:dimensions\.width,sourceHeight:dimensions\.height/u);
+  assert.match(html, /shaderMediaContext\.drawImage\(mediaInput,rect\.x,rect\.y,rect\.width,rect\.height,0,0,shaderMediaCanvas\.width,shaderMediaCanvas\.height\)/u);
+  assert.match(html, /rawMediaInput=activeMediaElement\(t\),mediaInput=cameraFramedMediaElement\(t,rawMediaInput\)/u);
+  assert.match(html, /el\.style\.objectPosition=presentation\.objectPositionXPercent/u);
+  assert.doesNotMatch(html, /drawLiveIsf\(layer,t,rawMediaInput\)/u);
   assert.doesNotMatch(html, /drawImage\(img,rect\[0\],rect\[1\],rect\[2\],rect\[3\],0,0,C\.width,C\.height\)/u);
 });

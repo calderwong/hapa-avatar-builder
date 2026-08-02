@@ -24,11 +24,8 @@ import {
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import {
-  echoCameraCoverSourceRect,
-  echoCameraMotionPresentation,
-} from "../domain/echo-camera-framing.js";
-import {
   createEchoDirectorPreviewRuntime,
+  resolveEchoDirectorPreviewSourceRect,
   selectEchoDirectorPreviewSource,
 } from "../domain/echo-director-preview-runtime.js";
 import { createEchoIsfSurface } from "../domain/echo-isf-browser-runtime.js";
@@ -792,44 +789,13 @@ export function resolveRecordGardenDirectorSourceRect({
   outputHeight,
   frame,
 } = {}) {
-  const safeSourceWidth = Math.max(1, Number(sourceWidth) || 1);
-  const safeSourceHeight = Math.max(1, Number(sourceHeight) || 1);
-  const safeOutputWidth = Math.max(1, Number(outputWidth) || 1);
-  const safeOutputHeight = Math.max(1, Number(outputHeight) || 1);
-  const sourceAspect = safeSourceWidth / safeSourceHeight;
-  const cue = frame?.primaryMediaCue || {};
-  const camera = frame?.camera || {};
-  const declaredOutputWidth = Math.max(0, Number(frame?.outputProfile?.width) || 0);
-  const declaredOutputHeight = Math.max(0, Number(frame?.outputProfile?.height) || 0);
-  const isPortrait = declaredOutputWidth > 0 && declaredOutputHeight > 0
-    ? declaredOutputHeight > declaredOutputWidth
-    : sourceAspect < 1;
-  const declaredCameraMotion = cue.camera?.motion
-    || camera.keyframe?.motion
-    || camera.keyframe?.shotRole
-    || "";
-  const presentation = echoCameraMotionPresentation({
-    startSeconds: cue.startSeconds,
-    endSeconds: cue.endSeconds,
-    timeSeconds: frame?.clock?.seconds,
-    motion: declaredCameraMotion || camera.motion || "auto",
-    intensity: camera.intensity,
-    speed: camera.speed,
-    shotIndex: camera.sourceCueIndex ?? cue.sourceCueIndex ?? 0,
-    sourceId: cue.cameraSeedId || "",
-    isPortrait,
-    crop: camera.presentation?.crop || camera.keyframe?.crop || null,
+  return resolveEchoDirectorPreviewSourceRect({
+    sourceWidth,
+    sourceHeight,
+    outputWidth,
+    outputHeight,
+    frame,
   });
-  return {
-    ...echoCameraCoverSourceRect({
-      sourceWidth: safeSourceWidth,
-      sourceHeight: safeSourceHeight,
-      outputWidth: safeOutputWidth,
-      outputHeight: safeOutputHeight,
-      presentation,
-    }),
-    presentation,
-  };
 }
 
 function drawDirectorPreviewMedia(context, element, frame) {

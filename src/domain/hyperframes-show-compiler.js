@@ -147,9 +147,13 @@ function mediaContractDescriptor(contract, shot, shotIndex) {
   const visualContract = contract.visualContract || contract.visual_contract || {};
   const allowBlank = contract.allowBlank === true || contract.allow_blank === true || visualContract.allowBlank === true || visualContract.allow_blank === true;
   const samplingPolicy = text(contract.videoSamplingPolicy || contract.video_sampling_policy || contract.samplingPolicy || contract.sampling_policy || visualContract.samplingPolicy || visualContract.sampling_policy) || null;
+  const rawDimensions = contract.dimensions || contract.sourceDimensions || contract.source_dimensions || {};
+  const dimensions = finite(rawDimensions.width) > 0 && finite(rawDimensions.height) > 0
+    ? { width: finite(rawDimensions.width), height: finite(rawDimensions.height) }
+    : null;
   return {
     contract,
-    identity: hash({ type, originalUri, runtimeUri, contentHash, mimeType: contract.mimeType || contract.mime_type || null, allowBlank, samplingPolicy }),
+    identity: hash({ type, originalUri, runtimeUri, contentHash, mimeType: contract.mimeType || contract.mime_type || null, allowBlank, samplingPolicy, dimensions }),
     summary: {
       shotIndex,
       mediaId: text(shot.media_id || shot.mediaId || contract.mediaId || contract.media_id) || null,
@@ -160,6 +164,7 @@ function mediaContractDescriptor(contract, shot, shotIndex) {
       contentHash,
       allowBlank,
       samplingPolicy,
+      dimensions,
     },
   };
 }
@@ -288,6 +293,16 @@ export function resolveHyperFramesMediaSource(card, contractIndex) {
   const runtimeUri = text(contract?.runtimeUri || contract?.runtime_uri) || null;
   const contractVisual = contract?.visualContract || contract?.visual_contract || {};
   const cardVisual = card.media?.visualContract || card.media?.visual_contract || {};
+  const rawDimensions = contract?.dimensions
+    || contract?.sourceDimensions
+    || contract?.source_dimensions
+    || card.media?.dimensions
+    || card.media?.sourceDimensions
+    || card.media?.source_dimensions
+    || {};
+  const dimensions = finite(rawDimensions.width) > 0 && finite(rawDimensions.height) > 0
+    ? { width: finite(rawDimensions.width), height: finite(rawDimensions.height) }
+    : null;
   const allowBlank = contract?.allowBlank === true
     || contract?.allow_blank === true
     || contractVisual.allowBlank === true
@@ -321,6 +336,10 @@ export function resolveHyperFramesMediaSource(card, contractIndex) {
     classificationReason,
     allowBlank,
     samplingPolicy,
+    dimensions,
+    sourceOrientation: dimensions
+      ? dimensions.height > dimensions.width ? "portrait" : dimensions.width > dimensions.height ? "landscape" : "square"
+      : null,
     visualContract: { allowBlank, samplingPolicy },
     contractResolution: {
       status: contractResolution.status,
@@ -974,7 +993,20 @@ export function compileHyperFramesShow({ showGraph, telemetry, project, proxyReg
         visualizerInstances.push(instance);
         layerOrder += 1;
       } else if (!card.visualization) {
-        mediaInstances.push({ ...base, templateId: "media-window-v1", mediaId: card.media?.id, title: card.media?.title, source: resolveHyperFramesMediaSource(card, mediaContractIndex), transition: card.transition || "crossfade", cameraKeyframes: card.cameraKeyframes || [] });
+        mediaInstances.push({
+          ...base,
+          templateId: "media-window-v1",
+          mediaId: card.media?.id,
+          title: card.media?.title,
+          source: resolveHyperFramesMediaSource(card, mediaContractIndex),
+          transition: card.transition || "crossfade",
+          camera: {
+            motion: String(card.parameters?.motion || card.parameters?.cameraMotion || "auto"),
+            intensity: finite(card.parameters?.cameraIntensity ?? card.parameters?.camera_intensity, 1),
+            speed: finite(card.parameters?.cameraSpeed ?? card.parameters?.camera_speed, 1),
+          },
+          cameraKeyframes: card.cameraKeyframes || [],
+        });
       } else {
         classificationErrors.push({
           cueId: text(card.id) || null,

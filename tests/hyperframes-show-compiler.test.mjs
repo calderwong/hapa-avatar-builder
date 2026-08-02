@@ -351,7 +351,7 @@ test("HyperFrames matches source/runtime aliases and preserves explicit pure-IVF
         media_id: "source-card-id",
         media_uri: sourceUri,
         runtime_media_uri: runtimeUri,
-        media_contract: { type: "video", originalUri: sourceUri, runtimeUri, contentHash },
+        media_contract: { type: "video", originalUri: sourceUri, runtimeUri, contentHash, dimensions: { width: 720, height: 1280 } },
       },
       { media_id: "none", media_uri: "", runtime_media_uri: "", media_contract: { type: "generated-visualizer", originalUri: "", runtimeUri: "" } },
     ],
@@ -368,6 +368,8 @@ test("HyperFrames matches source/runtime aliases and preserves explicit pure-IVF
   assert.equal(show.instances.media[0].source.runtimeUri, runtimeUri);
   assert.equal(show.instances.media[0].source.originalUri, sourceUri);
   assert.equal(show.instances.media[0].source.contentHash, contentHash);
+  assert.deepEqual(show.instances.media[0].source.dimensions, { width: 720, height: 1280 });
+  assert.equal(show.instances.media[0].source.sourceOrientation, "portrait");
   assert.equal(show.instances.media[1].source.type, "generated-visualizer");
   assert.equal(show.instances.media[1].source.assetName, null);
   assert.equal(show.instances.media[1].source.classificationReason, "legacy-none-media-sentinel");

@@ -98,7 +98,7 @@ test("Escape closes only the in-app overlay while the browser owns native Fullsc
 test("large Preview fits both Landscape and Vertical frames with wrapping controls", () => {
   assert.match(source, /ECHO_EXPANDED_PREVIEW_WIDTH = "min\(calc\(100vw - 32px\), calc\(177\.7778vh - 384px\)\)"/);
   assert.match(source, /ECHO_VERTICAL_EXPANDED_PREVIEW_WIDTH = "min\(calc\(100vw - 32px\), calc\(56\.25vh - 121\.5px\)\)"/);
-  assert.match(source, /ECHO_EXPANDED_PREVIEW_MAX_HEIGHT = "calc\(100vh - 216px\)"/);
+  assert.doesNotMatch(source, /ECHO_EXPANDED_PREVIEW_MAX_HEIGHT/);
   assert.match(source, /data-testid="echo-output-orientation"/);
   assert.match(source, /aria-label="Video orientation"/);
   assert.match(source, /output_profile: resolveEchoOutputProfile\(event\.target\.value\)/);
@@ -107,7 +107,12 @@ test("large Preview fits both Landscape and Vertical frames with wrapping contro
   assert.match(source, /data-output-profile=\{activeOutputProfile\.id\}/);
   assert.match(source, /aspectRatio: `\$\{activeOutputProfile\.width\} \/ \$\{activeOutputProfile\.height\}`/);
   assert.match(source, /compactPreviewWidth = isVerticalOutput \? "min\(100%, 315px, 31\.5vh\)" : "100%"/);
-  assert.match(source, /maxHeight: directorPreviewExpanded \? ECHO_EXPANDED_PREVIEW_MAX_HEIGHT/);
+  const previewFrame = source.slice(
+    source.indexOf('data-testid="echo-director-preview-frame"'),
+    source.indexOf("{/* Neon HUD Overlay */"),
+  );
+  assert.doesNotMatch(previewFrame, /minHeight:/);
+  assert.doesNotMatch(previewFrame, /maxHeight:/);
   assert.match(source, /flexShrink: 0/);
   assert.match(source, /justifyContent: 'flex-start'/);
   assert.match(source, /data-testid="echo-director-preview-controls"/);
