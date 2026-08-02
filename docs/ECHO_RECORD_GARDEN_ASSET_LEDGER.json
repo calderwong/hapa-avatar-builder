@@ -16,6 +16,7 @@
     "reference": "local pallet-town-3d reference application",
     "referenceLicense": "MIT License",
     "referenceCopyright": "Copyright 2026 Paulius",
+    "referenceRevision": "d49e0c0de836892133b3b21f50c9d29749879db5",
     "inspectedOn": "2026-08-01",
     "transferredSystems": [
       "bounded art-direction roles",
@@ -28,10 +29,15 @@
       "shared-clock ambient motion",
       "fixed-shot visual review"
     ],
-    "sourceCodeCopied": false,
+    "mitAdaptedCodeIncluded": true,
+    "adaptedLocalFiles": [
+      "src/components/echo-record-garden-noise.js",
+      "src/components/echo-record-garden-visual-system.js"
+    ],
+    "licenseNotice": "THIRD_PARTY_NOTICES.md",
     "sourceAssetsCopied": false,
     "franchiseContentCopied": false,
-    "statement": "Only abstract design and engineering methods were transferred. The Record Garden implementation is newly authored and franchise-neutral; no reference code, textures, characters, names, icons, trademarked designs, audio, or signature content were copied."
+    "statement": "General-purpose procedural-noise, texture-baking, material-family, foliage-layout, atmosphere, and scene-dressing techniques were adapted under the upstream MIT License, with exact revision, files, copyright, and license retained in THIRD_PARTY_NOTICES.md. No upstream binary texture, model, character, creature, dialogue, logo, franchise name, recognizable town layout, audio, or other franchise content is included."
   },
   "credentialProbe": {
     "performed": true,
@@ -154,6 +160,7 @@
       "currentSource": "procedural-threejs",
       "currentStatus": "implemented-expanded-prototype",
       "implementationPaths": [
+        "src/components/echo-record-garden-noise.js",
         "src/components/echo-record-garden-visual-system.js#createEchoRecordGardenVisualSystem",
         "src/components/echo-record-garden-visual-system.js#updateEchoRecordGardenVisualSystem",
         "src/components/EchoRecordGarden3DView.jsx#createLazySundayScene",
@@ -163,8 +170,11 @@
         "textured lawn and compacted garden path",
         "rounded timber picnic table and woven cloth",
         "textured parasol with trim and wind chime",
-        "instanced hills, trees, hedges, grass blades, flowers, pebbles, and fence posts",
-        "two franchise-neutral garden pavilions",
+        "clustered instanced layout: 360 grass tufts, 160 flower heads plus 160 stems, 144 clover patches, 54 pebbles, and 72 fallen leaves",
+        "instanced hills, trees, layered crowns, hedges, contact shadows, and fence posts",
+        "timber Director screen structure with woven shade, fasteners, bulbs, and 28 vine leaves",
+        "two distinct franchise-neutral landmarks: an open trellis/daybed and a roofed listening canopy/bench with record shelf",
+        "paired Director planters and a bird bath with water and bird",
         "tea setting and table contact rings",
         "record crates",
         "gradient sky, PMREM environment response, and horizon-matched fog",
@@ -176,10 +186,10 @@
       "providerTaskIds": [],
       "outputPaths": [],
       "lineage": {
-        "creator": "Hapa Avatar Builder project code; abstract design systems informed by the local MIT-licensed pallet-town-3d reference",
+        "creator": "Hapa Avatar Builder destination scene using documented MIT-adapted general-purpose pallet-town-3d techniques",
         "externalBinary": false,
         "sourceHash": "",
-        "licenseOrCustody": "newly authored franchise-neutral code; no reference code or assets copied; scene-wide public rights review still required"
+        "licenseOrCustody": "MIT adaptation is attributed in THIRD_PARTY_NOTICES.md; no upstream binary asset or franchise content included; scene-wide public rights review still required"
       },
       "runtimeBudget": {
         "instancingRequiredFor": [
@@ -187,19 +197,34 @@
           "trees",
           "hedges",
           "grass blades",
-          "flowers",
+          "flower heads and stems",
+          "clover",
           "pebbles",
+          "fallen leaves",
+          "screen vines",
           "fence posts"
         ],
-        "ownedRuntimeTextures": 12,
+        "ownedRuntimeTextures": 33,
+        "surfaceFamilies": 10,
+        "clusteredDetailCounts": {
+          "grass": 360,
+          "flowerHeads": 160,
+          "flowerStems": 160,
+          "clover": 144,
+          "pebbles": 54,
+          "fallenLeaves": 72
+        },
+        "sharedWindUniforms": true,
         "activeLights": 3,
         "shadowCastingLights": 1,
+        "primaryShadowMapPixels": 1024,
+        "primaryShadowFrustum": "-9.5..9.5 on X and Y; 19x19 fitted hero footprint",
         "postProcessingPasses": 0,
         "shadowCasterRule": "the warm directional sun is the only shadow-casting light"
       },
       "lifecycle": {
         "owner": "sceneResources",
-        "disposal": "Collect and dispose owned geometry and material identities once; dispose ten surface textures plus sky and cloud textures, dispose the PMREM target, restore prior background/environment/fog, and remove the environment idempotently.",
+        "disposal": "Collect and dispose owned geometry and material identities once; dispose 30 family textures plus the sky, cloud, and contact-shadow textures, dispose the PMREM target, restore prior background/environment/fog, and remove the environment idempotently.",
         "lateAsyncGuardRequired": true
       },
       "publicRightsStatus": "rights-review-required"
@@ -271,7 +296,7 @@
       "providerTaskIds": [],
       "outputPaths": [],
       "lineage": {
-        "creator": "current parasol, pavilions, fence, crates, tea setting, and contact details are project-authored procedural code",
+        "creator": "current parasol, differentiated landmarks, Director screen timber/vine/shade structure, paired planters, bird bath, fence, crates, tea setting, and contact details are destination procedural code with MIT-attributed technique lineage",
         "externalBinary": false,
         "sourceHash": "",
         "licenseOrCustody": "future provider output unresolved"
@@ -329,9 +354,10 @@
       "id": "garden-material-texture-and-decal-kit",
       "category": "materials-textures-decals",
       "visualPriority": "cross-scene-material-language",
-      "currentSource": "deterministic-related-albedo-normal-data-textures-plus-canvas-labels",
+      "currentSource": "deterministic-cached-related-albedo-normal-roughness-data-textures-plus-canvas-labels",
       "currentStatus": "implemented-expanded-prototype",
       "implementationPaths": [
+        "src/components/echo-record-garden-noise.js",
         "src/components/echo-record-garden-visual-system.js#sampleEchoGardenSurface",
         "src/components/echo-record-garden-visual-system.js#createSurfaceMaps",
         "src/components/echo-record-garden-visual-system.js#createMaterialKit",
@@ -348,22 +374,24 @@
       "providerTaskIds": [],
       "outputPaths": [],
       "lineage": {
-        "creator": "five project-authored deterministic tileable surface fields emit ten runtime albedo/normal DataTextures; Record identity labels remain project-authored canvas output",
+        "creator": "ten deterministic tileable surface families emit 30 related runtime albedo/normal/roughness DataTextures; Record identity labels remain project-authored canvas output",
         "externalBinary": false,
         "sourceHash": "",
-        "licenseOrCustody": "project-authored code and runtime output; no external image or reference texture copied"
+        "licenseOrCustody": "MIT-adapted general-purpose noise and texture methods are attributed in THIRD_PARTY_NOTICES.md; runtime output is deterministic and no upstream or provider image texture is included"
       },
       "runtimeBudget": {
-        "surfaceFamilies": 5,
-        "texturePixelsPerMap": "128x128",
-        "emittedSurfaceTextures": 10,
-        "uniqueRuntimeTexturesMax": 12,
+        "surfaceFamilies": 10,
+        "texturePixelsPerMap": "256x256 for hero grass/soil/wood/textile/leaf; 128x128 for secondary bark/stone/plaster/roof-red/roof-blue",
+        "maximumTexturePixelsPerMap": "256x256",
+        "emittedSurfaceTextures": 30,
+        "uniqueRuntimeTexturesMax": 33,
         "mipmapsRequired": true,
         "anisotropyCap": 8,
         "repeatWrapping": true,
         "albedoColorSpace": "sRGB",
         "normalColorSpace": "no-color",
-        "roughnessMode": "substance-specific scalar; no roughness bitmap emitted"
+        "roughnessColorSpace": "no-color",
+        "roughnessMode": "related emitted bitmap derived from each family height field and bounded by its substance range"
       },
       "lifecycle": {
         "owner": "creating factory or future material registry",
@@ -406,6 +434,7 @@
         "primaryDisplays": 1,
         "aspectRatio": "16:9",
         "mediaPlane": "7.08x3.98 inside a 7.44x4.34 rounded frame",
+        "physicalSurround": "timber posts/crossbar, woven shade, brass fasteners, bulbs, vine growth, paired planters, and nearby bird bath",
         "mediaMaterial": "MeshBasicMaterial with toneMapped false and fog false",
         "postProcessingPasses": 0,
         "blackLoadingFramesAllowed": 0,
@@ -596,18 +625,32 @@
       "materialsMax": 96,
       "activeLightsMax": 3,
       "shadowCastingLightsMax": 1,
-      "primaryShadowMapPixelsMax": 1024,
+      "primaryShadowMapPixelsMax": 2048,
       "contextLossesAllowed": 0,
       "postProcessingPassesMax": 1,
       "postProcessingFrameCostMsMax": 2.5
     },
     "implementedVisualProfile": {
-      "id": "echo-record-garden-sunwashed-diorama-v1",
+      "id": "echo-record-garden-sunwashed-diorama-v2",
       "activeLights": 3,
       "shadowCastingLights": 1,
-      "ownedEnvironmentTextures": 12,
-      "materialRoles": 12,
-      "instancedDetailCount": 420,
+      "primaryShadowMapPixels": 1024,
+      "primaryShadowFrustum": "19x19 fitted hero footprint",
+      "surfaceFamilies": 10,
+      "ownedEnvironmentTextures": 33,
+      "materialRoles": 19,
+      "instancedDetailCount": 1140,
+      "authoredSetPieceCount": 15,
+      "sharedWindUniforms": true,
+      "adaptiveDetail": {
+        "tiers": ["full", "reduced"],
+        "pressureP95Ms": 28,
+        "pressureWindows": 2,
+        "recoveryP95Ms": 19,
+        "recoveryWindows": 4,
+        "reducedDprFactor": 0.82,
+        "protectedDuringAcceptanceCapture": true
+      },
       "postProcessingPasses": 0,
       "measurementNote": "These are deterministic construction-profile counts exposed by the scene, not warmed frame-time or draw-call acceptance evidence."
     },
@@ -630,7 +673,7 @@
     }
   },
   "visualScorecardGate": {
-    "status": "unscored-current-build-evidence-required",
+    "status": "unscored-live-fixed-shots-blocked-by-saved-in-app-browser-permission",
     "categories": [
       "art direction",
       "hero/player or signature interaction",
@@ -664,6 +707,7 @@
     "providerOutputsMustBeDownloadedImmediately": true,
     "providerOutputsMustRecordTaskIdPathHashAndTerms": true,
     "currentBuildVisualAcceptanceRequired": true,
+    "liveFixedShotVisualAcceptance": "pending-saved-in-app-browser-permission-blocked-local-route",
     "publicRightsReviewRequired": true
   }
 }

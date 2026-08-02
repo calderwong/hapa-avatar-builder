@@ -67,6 +67,41 @@ test("album data stays bounded, uses one cinematic preview, and keeps selected-r
   assert.doesNotMatch(component, /fetch\(`\$\{[^`]*\/api\/echos\/references`/);
 });
 
+test("the cinematic preview preserves source color and exposes renderer budget evidence", () => {
+  const screenFactory = component.slice(
+    component.indexOf("function createAlbumScreens"),
+    component.indexOf("function setScreenVideoPlaying"),
+  );
+  assert.match(screenFactory, /new THREE\.PlaneGeometry\(7\.08, 3\.98\)/);
+  assert.match(
+    screenFactory,
+    /const screenMaterial = new THREE\.MeshBasicMaterial\(\{[\s\S]*?color: 0xffffff,[\s\S]*?toneMapped: false,[\s\S]*?fog: false/s,
+  );
+
+  const textureAssignment = component.slice(
+    component.indexOf("function assignMaterialTexture"),
+    component.indexOf("function setPlayerRecordVisual"),
+  );
+  assert.match(textureAssignment, /material\.color\?\.setHex\?\.\(0xffffff\)/);
+  assert.match(component, /renderer\.outputColorSpace = THREE\.SRGBColorSpace/);
+  assert.match(component, /calls: Number\(renderer\.info\.render\.calls\) \|\| 0/);
+  assert.match(component, /triangles: Number\(renderer\.info\.render\.triangles\) \|\| 0/);
+  assert.match(component, /diagnostics\.visualProfile = sceneResources\.metrics/);
+});
+
+test("the garden sheds only secondary detail after sustained frame pressure and recovers with hysteresis", () => {
+  assert.match(component, /let adaptiveDetailTier = "full"/);
+  assert.match(component, /profile\.pixelRatioCap \* adaptivePixelRatioFactor/);
+  assert.match(component, /const p95FrameMs = recentFrameTimes\[/);
+  assert.match(component, /p95FrameMs > 28/);
+  assert.match(component, /pressureWindows >= 2/);
+  assert.match(component, /p95FrameMs < 19/);
+  assert.match(component, /recoveryWindows >= 4/);
+  assert.match(component, /sceneResources\.setDetailTier\?\.\(nextTier\)/);
+  assert.match(component, /!activeAcceptanceRun\(\)/);
+  assert.match(component, /canvas\.dataset\.adaptiveDetailTier = nextTier/);
+});
+
 test("project packets use a twelve-entry LRU and release on teardown", () => {
   const helperSource = component.slice(
     component.indexOf("function readCachedProjectPacket"),

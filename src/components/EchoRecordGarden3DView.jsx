@@ -3109,19 +3109,27 @@ function createEchoRecordGardenGame({
   diagnostics.lastError = "";
   canvas.dataset.rendererState = "available";
   let activePowerProfileId = "";
+  let adaptiveDetailTier = "full";
   const applyPowerProfile = (reducedMotion = false) => {
     const profile = reducedMotion
       ? ECHO_RECORD_GARDEN_POWER_PROFILES.reduced
       : ECHO_RECORD_GARDEN_POWER_PROFILES.full;
-    if (activePowerProfileId === profile.id) return profile;
-    const pixelRatio = Math.min(globalThis.devicePixelRatio || 1, profile.pixelRatioCap);
+    const profileKey = `${profile.id}:${adaptiveDetailTier}`;
+    if (activePowerProfileId === profileKey) return profile;
+    const adaptivePixelRatioFactor = adaptiveDetailTier === "reduced" ? 0.82 : 1;
+    const pixelRatio = Math.min(
+      globalThis.devicePixelRatio || 1,
+      profile.pixelRatioCap * adaptivePixelRatioFactor,
+    );
     renderer.setPixelRatio(pixelRatio);
     renderer.shadowMap.enabled = profile.shadows;
-    activePowerProfileId = profile.id;
+    activePowerProfileId = profileKey;
     diagnostics.powerProfile = profile.id;
+    diagnostics.adaptiveDetailTier = adaptiveDetailTier;
     diagnostics.renderPixelRatio = pixelRatio;
     diagnostics.shadowsEnabled = profile.shadows;
     canvas.dataset.powerProfile = profile.id;
+    canvas.dataset.adaptiveDetailTier = adaptiveDetailTier;
     canvas.dataset.renderPixelRatio = pixelRatio.toFixed(2);
     canvas.dataset.shadows = profile.shadows ? "enabled" : "disabled";
     return profile;
@@ -3211,6 +3219,23 @@ function createEchoRecordGardenGame({
     reducedMotion: initialReducedMotion,
   };
   let activeVisuals = [];
+  let pressureWindows = 0;
+  let recoveryWindows = 0;
+
+  const setAdaptiveDetailTier = (tier = "full") => {
+    const nextTier = tier === "reduced" ? "reduced" : "full";
+    if (adaptiveDetailTier === nextTier) return adaptiveDetailTier;
+    adaptiveDetailTier = nextTier;
+    sceneResources.setDetailTier?.(nextTier);
+    activePowerProfileId = "";
+    applyPowerProfile(playback.reducedMotion);
+    diagnostics.adaptiveDetailTier = nextTier;
+    canvas.dataset.adaptiveDetailTier = nextTier;
+    return adaptiveDetailTier;
+  };
+  sceneResources.setDetailTier?.(adaptiveDetailTier);
+  diagnostics.adaptiveDetailTier = adaptiveDetailTier;
+  canvas.dataset.adaptiveDetailTier = adaptiveDetailTier;
 
   const setPointer = (event) => {
     const bounds = renderer.domElement.getBoundingClientRect();
@@ -4177,6 +4202,28 @@ function createEchoRecordGardenGame({
     updateSundayScene(sceneResources, elapsed, playback.reducedMotion);
     renderer.render(scene, camera);
     renderedFrames += 1;
+    if (!activeAcceptanceRun() && renderedFrames % 120 === 0 && frameTimingSamples.length >= 120) {
+      const recentFrameTimes = frameTimingSamples.slice(-120).sort((left, right) => left - right);
+      const p95FrameMs = recentFrameTimes[Math.floor((recentFrameTimes.length - 1) * 0.95)] || 0;
+      diagnostics.adaptiveP95FrameMs = p95FrameMs;
+      if (p95FrameMs > 28) {
+        pressureWindows += 1;
+        recoveryWindows = 0;
+      } else if (p95FrameMs < 19) {
+        recoveryWindows += 1;
+        pressureWindows = 0;
+      } else {
+        pressureWindows = 0;
+        recoveryWindows = 0;
+      }
+      if (adaptiveDetailTier === "full" && pressureWindows >= 2) {
+        setAdaptiveDetailTier("reduced");
+        pressureWindows = 0;
+      } else if (adaptiveDetailTier === "reduced" && recoveryWindows >= 4) {
+        setAdaptiveDetailTier("full");
+        recoveryWindows = 0;
+      }
+    }
     if (renderedFrames % 30 === 0) {
       diagnostics.audioTime = framePlayback.currentTime;
       diagnostics.audioState = framePlayback.playing ? "playing" : placedRecordId ? "paused" : "idle";
@@ -4331,6 +4378,18 @@ function createRecordPlayer(world, materialKit = null) {
   base.receiveShadow = true;
   root.add(base);
 
+  const footMaterial = materialKit?.clone?.("charcoal", { color: 0x35322f, roughness: 0.82, metalness: 0.02 })
+    || new THREE.MeshStandardMaterial({ color: 0x35322f, roughness: 0.82, metalness: 0.02 });
+  for (const [x, z] of [[-1.32, -0.98], [1.32, -0.98], [-1.32, 0.98], [1.32, 0.98]]) {
+    const foot = new THREE.Mesh(
+      createEchoGardenRoundedBoxGeometry(0.24, 0.07, 0.24, 0.03, 3),
+      footMaterial,
+    );
+    foot.position.set(x, -0.035, z);
+    foot.receiveShadow = true;
+    root.add(foot);
+  }
+
   const inset = new THREE.Mesh(
     createEchoGardenRoundedBoxGeometry(3.02, 0.08, 2.32, 0.035, 3),
     materialKit?.clone?.("wood", { color: 0xd9bd8b, roughness: 0.62 })
@@ -4415,11 +4474,15 @@ function createRecordPlayer(world, materialKit = null) {
     mediaResource: null,
     dispose() {
       if (!this.mediaResource?.poolManaged) disposeScreenMediaResource(this.mediaResource);
+      const geometries = new Set();
+      const materials = new Set();
       root.traverse((object) => {
-        object.geometry?.dispose?.();
-        if (Array.isArray(object.material)) object.material.forEach((material) => material.dispose?.());
-        else object.material?.dispose?.();
+        if (object.geometry) geometries.add(object.geometry);
+        if (Array.isArray(object.material)) object.material.forEach((material) => materials.add(material));
+        else if (object.material) materials.add(object.material);
       });
+      geometries.forEach((geometry) => geometry.dispose?.());
+      materials.forEach((material) => material.dispose?.());
     },
   };
 }
@@ -4427,7 +4490,7 @@ function createRecordPlayer(world, materialKit = null) {
 function createRecordCatalogConsole(world, materialKit = null) {
   const root = new THREE.Group();
   root.name = "EchoRecordSpatialCatalogConsole";
-  root.position.set(-4.05, 0.38, 0.15);
+  root.position.set(-4.05, 0.07, 0.15);
   root.rotation.y = 0.22;
   world.add(root);
 
@@ -4642,9 +4705,9 @@ function createAlbumScreens(world, materialKit = null) {
     const glow = new THREE.Mesh(
       new THREE.PlaneGeometry(7.66, 4.56),
       new THREE.MeshBasicMaterial({
-        color: 0x72d9cf,
+        color: 0xf0c98b,
         transparent: true,
-        opacity: 0.09,
+        opacity: 0.055,
         blending: THREE.AdditiveBlending,
         depthWrite: false,
       }),
@@ -4905,6 +4968,7 @@ function updateAlbumScreen(screen, { playback, elapsed, reducedMotion, focus }) 
   const visual = screen.visual;
   updateMediaResourcePlayback(resource, visual, { playback, elapsed, reducedMotion });
   if (resource?.texture) assignMaterialTexture(screen.screenMaterial, resource.texture);
+  screen.glow.material.color.setHex(focus ? 0x72d9cf : 0xf0c98b);
   screen.glow.material.opacity = focus
     ? 0.11 + (reducedMotion ? 0 : Math.sin(elapsed * 1.2) * 0.025)
     : 0.065;

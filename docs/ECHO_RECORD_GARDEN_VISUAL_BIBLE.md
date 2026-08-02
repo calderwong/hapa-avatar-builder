@@ -11,9 +11,11 @@ This document directs implementation; it is not evidence that the finished
 scene is premium, publicly cleared, or release-ready.
 
 - The current garden environment is project-authored procedural Three.js. Its
-  visual-system design applies franchise-neutral methods distilled from the
-  local MIT-licensed `pallet-town-3d` reference application; no reference code,
-  textures, characters, names, iconography, or franchise assets were copied.
+  visual system includes a franchise-neutral MIT adaptation of general-purpose
+  procedural-noise and scene-design methods from `pallet-town-3d`. The exact
+  upstream revision and adapted local files are retained in
+  `THIRD_PARTY_NOTICES.md`. No upstream binary texture, model, character, name,
+  iconography, recognizable town layout, or other franchise content is used.
 - No external model, generated texture, generated backdrop, generated sound,
   provider task, or downloaded provider output is claimed by this document.
 - A non-secret credential-presence probe was performed on 2026-08-01 for
@@ -86,6 +88,15 @@ hide empty geometry, or obscure a selectable object.
 - Background: parasol canopy, trees, path, sky/fog separation, and quiet scale
   cues. Background values remain lower contrast than the Preview.
 
+The v2 environment preserves that hero plane while increasing authored context:
+its timber screen structure adds a woven shade, vine growth, fasteners, and nine
+small bulbs; paired planters and a bird bath anchor the midground; and the two
+far landmarks are deliberately different—a daybed under an open trellis and a
+roofed listening canopy with a bench and record shelf. Ground detail is
+deterministically clustered outside the interaction quiet zone: 360 grass
+tufts, 160 flower heads with 160 stems, 144 clover patches, 54 pebbles, and 72
+fallen leaves.
+
 The turntable sits right of center and the in-world catalog sits left of center,
 creating a browse → pick up → place → watch reading path. Orbiting may reveal
 depth, but the default camera must communicate that loop without exploration.
@@ -153,8 +164,8 @@ Lighting stack:
 - one cool-sky/green-ground hemisphere fill, intensity `0.92`;
 - one restrained warm directional ground bounce, `#FFD9A8`, intensity `0.28`;
 - only the directional sun casts a real shadow;
-- the sun uses a `1024 × 1024` soft shadow map with a `28 × 28` fitted stage
-  footprint and normalized bias.
+- the sun uses a `1024 × 1024` soft shadow map with a tightly fitted `19 × 19` hero
+  frustum (`-9.5…9.5` on both axes), near/far `0.5…42`, and normalized bias.
 
 Lighting reveals authored form through value, roughness, environment response,
 and contact before emissive accents are added. Whole objects do not glow. The
@@ -183,19 +194,24 @@ Physical materials use shared named roles:
 | media surfaces | `MeshBasicMaterial`, tone mapping disabled, exact source color |
 | signal trim | small cyan/amber emissive or unlit elements tied to state |
 
-The implemented material bakery produces five deterministic, tileable
-`128 × 128` albedo/normal pairs for grass, soil, wood, bark, and textile. Each
-pair comes from one periodic four-octave surface field, and normal derivatives
-wrap across texture edges. Albedo is sRGB; normal data remains in no-color
-space. Mipmaps, trilinear minification, linear magnification, repeat wrapping,
-and renderer-capped anisotropy are configured consistently. Roughness is
-currently a substance-specific scalar per material role rather than a generated
-roughness bitmap; the scalar ranges and causal surface lineage are recorded in
-`echo-record-garden-material-manifest.json` without claiming an emitted map.
+The implemented v2 material bakery caches ten deterministic, tileable surface
+families: grass, soil, wood, bark, stone, textile, plaster, red roof tile, blue
+roof tile, and leaf. Hero/large-area grass, soil, wood, textile, and leaf bake
+at `256 × 256`; secondary bark, stone, plaster, and both roof tiles bake at
+`128 × 128`. Every family emits a related albedo, wrapped-derivative normal,
+and roughness texture from the same height field.
+That yields 30 shared material textures; the sky, cloud silhouette, and contact
+shadow bring the visual-system total to 33 owned shared textures. Albedo is
+sRGB; normal and roughness data remain in no-color space. Mipmaps, trilinear
+minification, linear magnification, repeat wrapping, and renderer-capped
+anisotropy are configured consistently. Exact recipes, ranges, seeds, repeats,
+and cache identity are recorded in
+`echo-record-garden-material-manifest.json`.
 
-`MeshStandardMaterial` is the default physical surface. Shared material roles
-cover grass, soil, timber, deep timber, bark, foliage, textile, stone, ceramic,
-brass, charcoal, and paper. Rounded boxes and layered trim replace exposed
+`MeshStandardMaterial` is the default physical surface. Nineteen shared material
+roles cover grass, soil, timber, deep timber, bark, foliage, textile, stone,
+cobble, ceramic, brass, charcoal, paper, plaster, two roof tiles, leaf, rattan,
+and glass. Rounded boxes and layered trim replace exposed
 sharp box silhouettes on the table, player, screen frame, catalog, pavilion,
 fence, and crate families.
 `MeshPhysicalMaterial` is reserved for a visibly valuable clearcoat, glass, or
@@ -222,12 +238,14 @@ poster to video may never erase the title, identity, or truth state.
 ### Ambient motion
 
 - Sun motes rotate very slowly and breathe within a narrow opacity range.
-- Four staged cloud sprites drift from stable home positions, eighteen leaf
-  points orbit and lift slowly, and a three-tube wind chime uses low-amplitude
-  shared-clock motion.
+- Eight staged cloud sprites drift from stable home positions, eighteen ambient
+  leaf points orbit and lift slowly, and a three-tube wind chime uses
+  low-amplitude shared-clock motion.
 - Cloth and parasol sway by small angles; neither may read as wind-whipped.
-- Foliage motion, if expanded, uses shared low-frequency phase offsets rather
-  than one animation allocation per leaf.
+- Screen vines, planter leaves, tree crowns, grass, flower heads, and flower
+  stems receive one shared elapsed-time sample through material wind uniforms;
+  per-instance position supplies phase instead of one animation allocation per
+  leaf. Reduced motion zeros both wind time and strength.
 - Living Record and Card videos are muted, looping, and plays-inline while
   visible. Offscreen entries are virtualized.
 
@@ -250,7 +268,7 @@ the same rule.
 
 | Runtime owner | Resources | Required cleanup |
 | --- | --- | --- |
-| `createEchoRecordGardenVisualSystem` via `createLazySundayScene` | gradient sky/PMREM/fog, five deterministic albedo/normal pairs, lawn/path/table, cloth/parasol, wind chime, pavilions, fences, instanced hills/trees/hedges/grass/flowers/pebbles, tea set, crates, clouds, leaf drift, motes, three lights | rebuild the PMREM target after WebGL context restoration; collect geometry/material identities once; dispose all base and attached materials, the twelve owned textures, and the PMREM target; restore prior scene background/environment/fog; remove environment idempotently |
+| `createEchoRecordGardenVisualSystem` via `createLazySundayScene` | gradient sky/PMREM/fog, ten cached albedo/normal/roughness families, contact-shadow texture, lawn/path/table, screen timber/vines/shade, planters, bird bath, cloth/parasol, wind chime, distinct landmarks, fences, instanced hills/trees/hedges/grass/flowers/clover/pebbles/leaves, tea set, crates, clouds, leaf drift, motes, shared wind states, three lights | rebuild the PMREM target after WebGL context restoration; collect geometry/material identities once; dispose all base and attached materials, all 33 owned textures, and the PMREM target; restore prior scene background/environment/fog; remove environment idempotently |
 | `createRecordPlayer` | chassis, platter, tonearm, spindle, drop ring, Record anchor | release pooled media; traverse and dispose owned geometry/materials |
 | `createRecordCatalogConsole` | panel geometry, dynamic title texture, button textures/materials | dispose replaced title texture immediately; dispose button textures and owned geometry/materials on teardown |
 | `createAlbumScreens` | frame, hit plane, standby canvas texture, glow | release pool-managed media; dispose standby/fallback and screen geometry/materials |
@@ -375,7 +393,7 @@ These are implementation gates, not measured completion evidence.
 | visible triangles | `≤ 350,000` | `≤ 220,000` |
 | warmed frame p50 / p95 / p99 | `≤ 18 / 33 / 50 ms` | `≤ 25 / 50 / 80 ms` |
 | long-frame ratio | `≤ 5%` | `≤ 10%` |
-| primary shadow map | `≤ 1024 px` | `≤ 1024 px` or disabled |
+| primary shadow map | `≤ 2048 px`, fitted to hero | `≤ 1024 px` or disabled |
 | WebGL context losses | `0` | `0` |
 
 Additional ceilings:
@@ -383,6 +401,9 @@ Additional ceilings:
 - geometries `≤ 220`, textures `≤ 48`, materials `≤ 96` at the declared
   worst-case view;
 - one shadow-casting light and at most three active scene lights;
+- sustained non-acceptance p95 frame pressure above `28 ms` for two 120-frame
+  windows switches only secondary ambience to the reduced tier and applies a
+  `0.82` DPR factor; four windows below `19 ms` restore the full tier;
 - first-interaction 3D/texture payload `≤ 12 MiB`;
 - any future signature-prop GLB `≤ 4 MiB`, `≤ 120k` visible triangles, and
   textures `≤ 2K` before integration;
@@ -406,11 +427,13 @@ video residents, decoder readiness, frame histogram, heap, and bundle size.
 The machine-readable sourcing decisions live in
 `ECHO_RECORD_GARDEN_ASSET_LEDGER.json`.
 
-- Keep repeated grass, flowers, motes, hills, trees, hedges, pebbles, fence
-  posts, simple collision proxies, and low-value modular detail procedural and
-  instanced. This route is now implemented for the prototype.
-- Keep the five related surface-map pairs, gradient sky, clouds, and current
-  prop family project-authored and deterministic. They are not provider output.
+- Keep repeated grass, flower heads/stems, clover, fallen leaves, motes, hills,
+  trees, hedges, pebbles, fence posts, screen vines, simple collision proxies,
+  and low-value modular detail procedural and instanced. This route is now
+  implemented for the prototype.
+- Keep the ten related albedo/normal/roughness families, contact shadow,
+  gradient sky, clouds, and current prop family deterministic and runtime-owned.
+  They are not provider output.
 - Treat the turntable and one high-value garden setting/prop family as future
   hybrid candidates: image reference → generated/imported 3D → local GLB/PBR
   validation → procedural interaction proxy and effects.
@@ -431,7 +454,9 @@ download, hash, source chain, import diagnostics, and rights/custody fields.
 ## Visual Acceptance Gate
 
 Current visuals remain unscored until active desktop and compact screenshots
-are captured from the exact build.
+are captured from the exact build. The available in-app browser could not open
+the local route because of its saved browser permission, so no live fixed-shot
+visual acceptance is claimed by this documentation pass.
 
 Premium acceptance requires:
 
@@ -485,12 +510,14 @@ score the same build → complete human visual and public-rights acceptance.
   replace exact media lineage, hide a missing state, create a second clock, or
   bypass lifecycle disposal and measured budgets.
 - **Reference lineage:** the local MIT-licensed `pallet-town-3d` reference
-  informed abstract systems: bounded palette roles, related procedural surface
-  maps, key/fill/bounce/environment lighting, horizon-matched fog, softened
-  forms, layered scenery, ground-level density, shared ambient motion,
-  instancing, and deterministic screenshot review. The implementation is newly
-  authored and franchise-neutral; no reference code, assets, characters,
-  trademarked designs, or signature content were copied.
+  informed bounded palette roles, related procedural surface maps,
+  key/fill/bounce/environment lighting, horizon-matched fog, softened forms,
+  layered scenery, ground-level density, shared ambient motion, instancing, and
+  deterministic screenshot review. General-purpose code was adapted under MIT
+  into `src/components/echo-record-garden-noise.js` and the destination visual
+  system, with the upstream revision and full license retained in
+  `THIRD_PARTY_NOTICES.md`. No upstream binary asset, franchise character,
+  recognizable layout, trademarked design, or signature content was copied.
 - **Reusable outcomes:** `stylized-diorama-environment-design` and
   `threejs-procedural-material-lab` are explicit Skill candidates authored from
   this transfer. Their manifests describe workflow compliance only; visual

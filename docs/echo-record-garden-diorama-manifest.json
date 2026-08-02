@@ -1,7 +1,7 @@
 {
   "version": 1,
   "programId": "echo-record-garden-v2-2026-08-01",
-  "profileId": "echo-record-garden-sunwashed-diorama-v1",
+  "profileId": "echo-record-garden-sunwashed-diorama-v2",
   "experienceStage": "first-pass-prototype",
   "visualAcceptance": "pending-fixed-shot-review",
   "styleContract": {
@@ -19,14 +19,14 @@
     ]
   },
   "determinism": {
-    "seed": "echo-record-garden-sunwashed-diorama-v1",
+    "seed": "echo-record-garden-sunwashed-diorama-v2",
     "sharedClock": true,
     "fixedShots": [
       "desktop-arrival-1440x900",
       "desktop-record-on-player-1440x900",
       "compact-active-use-390x844"
     ],
-    "evidenceStatus": "captures-pending-current-build"
+    "evidenceStatus": "live-captures-pending-saved-in-app-browser-permission-blocked-local-route"
   },
   "ownership": {
     "lighting": "src/components/echo-record-garden-visual-system.js#createEchoRecordGardenVisualSystem",
@@ -49,53 +49,90 @@
       "substance": "short-groundcover",
       "albedoVariation": true,
       "normalResponse": true,
-      "roughnessRange": [0.82, 0.94]
+      "roughnessRange": [0.78, 0.97]
     },
     {
       "name": "garden path and stone",
-      "substance": "compacted-soil-and-mineral",
+      "substance": "compacted-soil-grit",
       "albedoVariation": true,
       "normalResponse": true,
-      "roughnessRange": [0.86, 0.9]
+      "roughnessRange": [0.7, 0.96]
     },
     {
       "name": "sun-worn timber",
       "substance": "directional-wood-grain",
       "albedoVariation": true,
       "normalResponse": true,
-      "roughnessRange": [0.54, 0.82]
+      "roughnessRange": [0.48, 0.82]
     },
     {
       "name": "tree bark",
       "substance": "directional-bark-ridges",
       "albedoVariation": true,
       "normalResponse": true,
-      "roughnessRange": [0.9, 0.96]
+      "roughnessRange": [0.78, 0.98]
+    },
+    {
+      "name": "garden stone and cobble",
+      "substance": "cellular-mineral-masonry",
+      "albedoVariation": true,
+      "normalResponse": true,
+      "roughnessRange": [0.58, 0.91]
     },
     {
       "name": "picnic textile and paper",
       "substance": "woven-fiber",
       "albedoVariation": true,
       "normalResponse": true,
-      "roughnessRange": [0.7, 0.9]
+      "roughnessRange": [0.7, 0.96]
+    },
+    {
+      "name": "garden plaster and ceramic base",
+      "substance": "pitted-plaster",
+      "albedoVariation": true,
+      "normalResponse": true,
+      "roughnessRange": [0.7, 0.94]
+    },
+    {
+      "name": "warm roof tile",
+      "substance": "staggered-arched-tile",
+      "albedoVariation": true,
+      "normalResponse": true,
+      "roughnessRange": [0.48, 0.79]
+    },
+    {
+      "name": "cool roof tile",
+      "substance": "staggered-arched-tile",
+      "albedoVariation": true,
+      "normalResponse": true,
+      "roughnessRange": [0.48, 0.79]
+    },
+    {
+      "name": "leaf surface",
+      "substance": "cellular-veined-leaf",
+      "albedoVariation": true,
+      "normalResponse": true,
+      "roughnessRange": [0.68, 0.91]
     }
   ],
   "composition": {
     "foreground": [
       "rounded picnic-table edge",
       "woven cloth",
-      "nearby Records and printed Cards"
+      "nearby Records and printed Cards",
+      "clustered grass, flowers, clover, pebbles, and fallen leaves outside the interaction quiet zone"
     ],
     "midground": [
       "stable physical Record and player",
-      "one large Director Preview",
+      "one large Director Preview in a timber, shade, bulb, fastener, and vine structure",
       "in-world catalog console",
-      "tea setting and contact rings"
+      "paired planters, bird bath, tea setting, and contact rings"
     ],
     "background": [
       "parasol canopy and wind chime",
       "layered trees and hedges",
-      "garden pavilions, fence, path, hills, clouds, and sky horizon"
+      "distinct open-trellis daybed and roofed listening-canopy landmarks",
+      "fence, path, hills, clouds, and sky horizon"
     ]
   },
   "lighting": {
@@ -106,7 +143,21 @@
     "fogMatchesHorizon": true,
     "activeLights": 3,
     "shadowCastingLights": 1,
+    "primaryShadowMapPixels": 1024,
+    "primaryShadowFrustum": "-9.5..9.5 on X and Y; 19x19 fitted hero footprint",
     "postProcessingPasses": 0
+  },
+  "motion": {
+    "sharedWindUniforms": true,
+    "windSubjects": [
+      "Director-screen vines",
+      "planter leaves",
+      "tree crowns",
+      "grass tufts",
+      "flower heads",
+      "flower stems"
+    ],
+    "reducedMotionZerosWindTimeAndStrength": true
   },
   "accessibility": {
     "reducedMotion": true,
@@ -117,15 +168,32 @@
     "budget": {
       "targetFps": 60,
       "drawCalls": 140,
-      "triangles": 350000
+      "triangles": 350000,
+      "ownedRuntimeTextures": 33,
+      "instancedDetailCount": 1140
+    },
+    "adaptiveDetail": {
+      "tiers": ["full", "reduced"],
+      "pressureP95Ms": 28,
+      "pressureWindows": 2,
+      "recoveryP95Ms": 19,
+      "recoveryWindows": 4,
+      "reducedDprFactor": 0.82,
+      "protectedDuringAcceptanceCapture": true
     },
     "measurementStatus": "pending-current-build-fixed-camera-capture"
   },
   "sourceLineage": {
     "reference": "local pallet-town-3d reference application",
     "license": "MIT License; copyright 2026 Paulius",
-    "transfer": "abstract visual and engineering systems only",
-    "sourceCodeCopied": false,
+    "referenceRevision": "d49e0c0de836892133b3b21f50c9d29749879db5",
+    "transfer": "franchise-neutral general-purpose procedural methods adapted under MIT",
+    "mitAdaptedCodeIncluded": true,
+    "adaptedLocalFiles": [
+      "src/components/echo-record-garden-noise.js",
+      "src/components/echo-record-garden-visual-system.js"
+    ],
+    "licenseNotice": "THIRD_PARTY_NOTICES.md",
     "sourceAssetsCopied": false,
     "franchiseContentCopied": false
   }

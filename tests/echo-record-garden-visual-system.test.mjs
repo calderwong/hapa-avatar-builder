@@ -1,16 +1,28 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
+import * as THREE from "three";
 
 import {
   ECHO_RECORD_GARDEN_VISUAL_PROFILE,
+  createEchoGardenLayout,
+  createEchoRecordGardenVisualSystem,
   sampleEchoGardenSurface,
+  updateEchoRecordGardenVisualSystem,
 } from "../src/components/echo-record-garden-visual-system.js";
 
 const source = await readFile(
   new URL("../src/components/echo-record-garden-visual-system.js", import.meta.url),
   "utf8",
 );
+
+function createVisualSystemHarness() {
+  const scene = new THREE.Scene();
+  const world = new THREE.Group();
+  scene.add(world);
+  const resources = createEchoRecordGardenVisualSystem({ world, scene, renderer: null });
+  return { resources, scene, world };
+}
 
 test("procedural surface fields are deterministic and tile seamlessly", () => {
   for (const kind of ["organic", "soil", "wood", "bark", "weave"]) {
@@ -24,16 +36,129 @@ test("procedural surface fields are deterministic and tile seamlessly", () => {
   assert.doesNotMatch(source, /Math\.random/);
 });
 
+test("the v2 profile declares adapted lineage and cached material families", () => {
+  assert.match(ECHO_RECORD_GARDEN_VISUAL_PROFILE.id, /-v2$/);
+  assert.equal(
+    ECHO_RECORD_GARDEN_VISUAL_PROFILE.sourcePattern,
+    "pallet-town-3d-mit-adapted-system-transfer-v2",
+  );
+  assert.match(
+    ECHO_RECORD_GARDEN_VISUAL_PROFILE.textureStrategy,
+    /deterministic.*cached.*material.?famil/i,
+  );
+});
+
+test("surface families expose deterministic albedo, normal, and roughness maps", () => {
+  const first = createVisualSystemHarness();
+  const second = createVisualSystemHarness();
+  try {
+    for (const role of ["grass", "soil", "wood", "bark", "textile"]) {
+      const firstMaterial = first.resources.materialKit.materials[role];
+      const secondMaterial = second.resources.materialKit.materials[role];
+      assert.ok(firstMaterial.map, `${role} must expose an albedo map`);
+      assert.ok(firstMaterial.normalMap, `${role} must expose a normal map`);
+      assert.ok(firstMaterial.roughnessMap, `${role} must expose a roughness map`);
+      assert.equal(firstMaterial.map.colorSpace, THREE.SRGBColorSpace);
+      assert.equal(firstMaterial.normalMap.colorSpace, THREE.NoColorSpace);
+      assert.equal(firstMaterial.roughnessMap.colorSpace, THREE.NoColorSpace);
+      assert.equal(firstMaterial.map.wrapS, THREE.RepeatWrapping);
+      assert.equal(firstMaterial.normalMap.wrapT, THREE.RepeatWrapping);
+      assert.equal(firstMaterial.roughnessMap.wrapS, THREE.RepeatWrapping);
+      assert.deepEqual(
+        firstMaterial.roughnessMap.image.data,
+        secondMaterial.roughnessMap.image.data,
+        `${role} roughness pixels must be stable across identical bakes`,
+      );
+      assert.ok(
+        new Set(firstMaterial.roughnessMap.image.data).size > 1,
+        `${role} roughness must carry surface variation rather than a flat scalar`,
+      );
+    }
+
+    for (const [primary, related] of [
+      ["grass", "foliage"],
+      ["soil", "stone"],
+      ["textile", "paper"],
+    ]) {
+      const primaryMaterial = first.resources.materialKit.materials[primary];
+      const relatedMaterial = first.resources.materialKit.materials[related];
+      assert.equal(relatedMaterial.map, primaryMaterial.map);
+      assert.equal(relatedMaterial.normalMap, primaryMaterial.normalMap);
+      assert.equal(relatedMaterial.roughnessMap, primaryMaterial.roughnessMap);
+    }
+  } finally {
+    first.resources.dispose();
+    second.resources.dispose();
+  }
+});
+
+test("runtime metrics keep the authored world dense while exposing adaptive quality", () => {
+  const { resources } = createVisualSystemHarness();
+  try {
+    const { metrics } = resources;
+    assert.ok(metrics.authoredSetPieceCount >= 8);
+    assert.ok(metrics.instancedDetailCount >= 600);
+    assert.ok(metrics.sharedSurfaceTextures >= 18);
+    assert.ok(metrics.sharedSurfaceTextures <= 48, "surface textures must remain inside the declared budget");
+    assert.ok(metrics.materialRoles >= 14);
+    assert.deepEqual(metrics.qualityTiers, ["reduced", "full"]);
+    assert.equal(metrics.adaptiveDetail, true);
+    assert.equal(metrics.activeLights, ECHO_RECORD_GARDEN_VISUAL_PROFILE.activeLights);
+    assert.equal(metrics.shadowCastingLights, ECHO_RECORD_GARDEN_VISUAL_PROFILE.shadowCastingLights);
+    assert.ok(metrics.postProcessingPasses <= 1);
+  } finally {
+    resources.dispose();
+  }
+});
+
+test("authored scatter stays deterministic, clustered, and outside the interaction quiet zones", () => {
+  const first = createEchoGardenLayout(9127);
+  const second = createEchoGardenLayout(9127);
+  assert.deepEqual(first, second);
+  const allPoints = Object.values(first).flat();
+  assert.ok(allPoints.length >= 700);
+  for (const point of allPoints) {
+    assert.ok(Math.hypot(point.x, point.z) <= 16.2);
+    assert.equal(Math.abs(point.x) < 6.2 && point.z > -4.1 && point.z < 4, false);
+    assert.equal(Math.abs(point.x) < 4.7 && point.z > -7.2 && point.z <= -4.1, false);
+  }
+  const colorByCluster = new Map();
+  for (const flower of first.flowers) {
+    if (!colorByCluster.has(flower.clusterIndex)) colorByCluster.set(flower.clusterIndex, flower.color);
+    assert.equal(flower.color, colorByCluster.get(flower.clusterIndex));
+  }
+});
+
+test("one shared wind clock moves foliage and resolves to a stable reduced-motion state", () => {
+  const { resources } = createVisualSystemHarness();
+  try {
+    assert.ok(resources.windStates.length >= 4);
+    updateEchoRecordGardenVisualSystem(resources, 2.5, false);
+    for (const state of resources.windStates) {
+      assert.equal(state.uniforms.uEchoGardenWindTime.value, 2.5);
+      assert.equal(state.uniforms.uEchoGardenWindStrength.value, state.amplitude);
+    }
+    updateEchoRecordGardenVisualSystem(resources, 8.2, true);
+    for (const state of resources.windStates) {
+      assert.equal(state.uniforms.uEchoGardenWindTime.value, 0);
+      assert.equal(state.uniforms.uEchoGardenWindStrength.value, 0);
+    }
+  } finally {
+    resources.dispose();
+  }
+});
+
 test("material maps share a height field and are configured for stable distance viewing", () => {
   assert.match(source, /const heights = new Float32Array/);
   assert.match(source, /const height = heights\[pixel\]/);
-  assert.match(source, /const dx = \(sample\(x \+ 1, y\) - sample\(x - 1, y\)\)/);
-  assert.match(source, /new THREE\.DataTexture\(albedo/);
-  assert.match(source, /new THREE\.DataTexture\(normals/);
+  assert.match(source, /const dx = \(topLeft \+ left \* 2 \+ bottomLeft - topRight - right \* 2 - bottomRight\)/);
+  assert.match(source, /new THREE\.DataTexture\(baked\.albedo/);
+  assert.match(source, /new THREE\.DataTexture\(baked\.normals/);
+  assert.match(source, /new THREE\.DataTexture\(baked\.roughness/);
   assert.match(source, /texture\.wrapS = THREE\.RepeatWrapping/);
   assert.match(source, /texture\.wrapT = THREE\.RepeatWrapping/);
   assert.match(source, /texture\.minFilter = THREE\.LinearMipmapLinearFilter/);
-  assert.match(source, /if \(color\) texture\.colorSpace = THREE\.SRGBColorSpace/);
+  assert.match(source, /texture\.colorSpace = color \? THREE\.SRGBColorSpace : THREE\.NoColorSpace/);
   assert.match(source, /texture\.anisotropy = Math\.min\(8/);
 });
 
@@ -55,7 +180,9 @@ test("the atmosphere uses the bounded three-light rig and one shadow caster", ()
 test("scene dressing is instanced, rounded, disposable, and reduced-motion safe", () => {
   assert.match(source, /new RoundedBoxGeometry/);
   assert.match(source, /new THREE\.InstancedMesh/);
-  assert.match(source, /new THREE\.Vector3\(Math\.cos\(angle\) \* radius, 0\.02 \+ \(index % 3\) \* 0\.04, Math\.sin\(angle\) \* radius\)/);
+  assert.match(source, /export function createEchoGardenLayout/);
+  assert.match(source, /const hedgeRng = makeGardenRng/);
+  assert.match(source, /sampleClusteredGardenPoints/);
   assert.match(source, /const geometries = new Set\(\)/);
   assert.match(source, /const materials = new Set\(\)/);
   assert.match(source, /Object\.values\(materialKit\.materials\)\.forEach\(\(material\) => materials\.add\(material\)\)/);
@@ -63,6 +190,7 @@ test("scene dressing is instanced, rounded, disposable, and reduced-motion safe"
   assert.match(source, /if \(reducedMotion\) \{[\s\S]*?resources\.clouds\.position\.set\(0, 0, 0\)/);
   assert.match(source, /resources\.windChime\.rotation\.set\(0, 0, 0\)/);
   assert.match(source, /resources\.leafDrift\.rotation\.set\(0, 0, 0\)/);
+  assert.match(source, /state\.uniforms\.uEchoGardenWindStrength\.value = 0/);
 });
 
 test("the sky-derived environment response can be rebuilt after context restoration", () => {

@@ -1,171 +1,324 @@
 {
   "version": 1,
-  "recipeVersion": "echo-record-garden-surface-bakery-v1",
-  "seed": "echo-garden-surface-set-v1",
+  "recipeVersion": "echo-record-garden-surface-bakery-v2",
+  "seed": "echo-garden-surface-set-v2",
   "implementation": {
     "path": "src/components/echo-record-garden-visual-system.js",
+    "noiseHelper": "src/components/echo-record-garden-noise.js",
     "textureType": "THREE.DataTexture RGBA",
-    "heightBake": "one immutable 128x128 height grid per family",
-    "derivative": "wrapped central difference",
+    "heightBake": "one immutable power-of-two height grid per cached family; 256x256 for hero/large-area families and 128x128 for secondary families",
+    "resolutionTiers": {
+      "hero256": ["grass", "soil", "wood", "textile", "leaf"],
+      "secondary128": ["bark", "stone", "plaster", "roof-red", "roof-blue"]
+    },
+    "derivative": "wrapped 3x3 Sobel derivative",
     "albedoColorSpace": "srgb",
     "normalColorSpace": "none",
-    "roughnessOutput": "substance-specific material scalar; no roughness bitmap emitted",
+    "roughnessColorSpace": "none",
+    "roughnessOutput": "one emitted related bitmap per family, derived from the same height grid and bounded by the family roughness range",
     "filters": "LinearMipmapLinear minification and Linear magnification",
-    "visualAcceptance": "pending in-scene seam, grazing-angle, mip, and fixed-shot review"
+    "ownedTextureCount": 33,
+    "ownedTextureBreakdown": "30 material-family textures plus sky, cloud, and contact-shadow textures",
+    "visualAcceptance": "pending live desktop and compact fixed shots because saved in-app browser permission blocked the local route"
   },
   "materials": [
     {
       "id": "echo-garden-grass",
-      "surfaceModel": "echo-garden-organic-periodic-field-v1",
-      "textureSize": 128,
+      "surfaceModel": "echo-garden-grass-directional-fbm-v2",
+      "textureSize": 256,
       "tileable": true,
-      "cacheKey": "grass|echo-record-garden-surface-bakery-v1|echo-garden-surface-set-v1|seed-91|128|365f42-7cad56",
+      "cacheKey": "grass|echo-record-garden-surface-bakery-v2|echo-garden-surface-set-v2|seed-91|256|365f42-7cad56",
       "repeat": [8, 8],
       "anisotropy": 8,
       "anisotropyMode": "runtime cap; min(8, renderer maximum)",
       "normalStrength": 1.35,
-      "roughnessRange": [0.82, 0.94],
+      "roughnessRange": [0.78, 0.97],
       "maps": {
         "albedo": {
-          "heightField": "echo-garden-organic-periodic-field-v1",
+          "heightField": "echo-garden-grass-directional-fbm-v2",
           "colorSpace": "srgb",
           "emitted": true
         },
         "normal": {
-          "heightField": "echo-garden-organic-periodic-field-v1",
+          "heightField": "echo-garden-grass-directional-fbm-v2",
           "colorSpace": "none",
           "wrappedDerivative": true,
           "emitted": true
         },
         "roughness": {
-          "heightField": "echo-garden-organic-periodic-field-v1",
+          "heightField": "echo-garden-grass-directional-fbm-v2",
           "colorSpace": "none",
-          "emitted": false,
-          "implementation": "bounded scalar by consuming material role"
+          "emitted": true
         }
       }
     },
     {
       "id": "echo-garden-soil",
-      "surfaceModel": "echo-garden-soil-grit-periodic-field-v1",
-      "textureSize": 128,
+      "surfaceModel": "echo-garden-soil-worley-fbm-v2",
+      "textureSize": 256,
       "tileable": true,
-      "cacheKey": "soil|echo-record-garden-surface-bakery-v1|echo-garden-surface-set-v1|seed-211|128|8e6848-c9aa7d",
+      "cacheKey": "soil|echo-record-garden-surface-bakery-v2|echo-garden-surface-set-v2|seed-211|256|8e6848-c9aa7d",
       "repeat": [6, 6],
       "anisotropy": 8,
       "anisotropyMode": "runtime cap; min(8, renderer maximum)",
       "normalStrength": 1.7,
-      "roughnessRange": [0.86, 0.9],
+      "roughnessRange": [0.7, 0.96],
       "maps": {
         "albedo": {
-          "heightField": "echo-garden-soil-grit-periodic-field-v1",
+          "heightField": "echo-garden-soil-worley-fbm-v2",
           "colorSpace": "srgb",
           "emitted": true
         },
         "normal": {
-          "heightField": "echo-garden-soil-grit-periodic-field-v1",
+          "heightField": "echo-garden-soil-worley-fbm-v2",
           "colorSpace": "none",
           "wrappedDerivative": true,
           "emitted": true
         },
         "roughness": {
-          "heightField": "echo-garden-soil-grit-periodic-field-v1",
+          "heightField": "echo-garden-soil-worley-fbm-v2",
           "colorSpace": "none",
-          "emitted": false,
-          "implementation": "bounded scalar by consuming material role"
+          "emitted": true
         }
       }
     },
     {
       "id": "echo-garden-wood",
-      "surfaceModel": "echo-garden-wood-grain-periodic-field-v1",
-      "textureSize": 128,
+      "surfaceModel": "echo-garden-wood-warped-grain-v2",
+      "textureSize": 256,
       "tileable": true,
-      "cacheKey": "wood|echo-record-garden-surface-bakery-v1|echo-garden-surface-set-v1|seed-307|128|3f2a22-a87545",
+      "cacheKey": "wood|echo-record-garden-surface-bakery-v2|echo-garden-surface-set-v2|seed-307|256|3f2a22-a87545",
       "repeat": [2.4, 2.4],
       "anisotropy": 8,
       "anisotropyMode": "runtime cap; min(8, renderer maximum)",
       "normalStrength": 1.2,
-      "roughnessRange": [0.54, 0.82],
+      "roughnessRange": [0.48, 0.82],
       "maps": {
         "albedo": {
-          "heightField": "echo-garden-wood-grain-periodic-field-v1",
+          "heightField": "echo-garden-wood-warped-grain-v2",
           "colorSpace": "srgb",
           "emitted": true
         },
         "normal": {
-          "heightField": "echo-garden-wood-grain-periodic-field-v1",
+          "heightField": "echo-garden-wood-warped-grain-v2",
           "colorSpace": "none",
           "wrappedDerivative": true,
           "emitted": true
         },
         "roughness": {
-          "heightField": "echo-garden-wood-grain-periodic-field-v1",
+          "heightField": "echo-garden-wood-warped-grain-v2",
           "colorSpace": "none",
-          "emitted": false,
-          "implementation": "bounded scalar by consuming material role"
+          "emitted": true
         }
       }
     },
     {
       "id": "echo-garden-bark",
-      "surfaceModel": "echo-garden-bark-ridge-periodic-field-v1",
+      "surfaceModel": "echo-garden-bark-ridge-fbm-v2",
       "textureSize": 128,
       "tileable": true,
-      "cacheKey": "bark|echo-record-garden-surface-bakery-v1|echo-garden-surface-set-v1|seed-421|128|30251f-886342",
+      "cacheKey": "bark|echo-record-garden-surface-bakery-v2|echo-garden-surface-set-v2|seed-421|128|30251f-886342",
       "repeat": [3.5, 3.5],
       "anisotropy": 8,
       "anisotropyMode": "runtime cap; min(8, renderer maximum)",
       "normalStrength": 2.1,
-      "roughnessRange": [0.9, 0.96],
+      "roughnessRange": [0.78, 0.98],
       "maps": {
         "albedo": {
-          "heightField": "echo-garden-bark-ridge-periodic-field-v1",
+          "heightField": "echo-garden-bark-ridge-fbm-v2",
           "colorSpace": "srgb",
           "emitted": true
         },
         "normal": {
-          "heightField": "echo-garden-bark-ridge-periodic-field-v1",
+          "heightField": "echo-garden-bark-ridge-fbm-v2",
           "colorSpace": "none",
           "wrappedDerivative": true,
           "emitted": true
         },
         "roughness": {
-          "heightField": "echo-garden-bark-ridge-periodic-field-v1",
+          "heightField": "echo-garden-bark-ridge-fbm-v2",
           "colorSpace": "none",
-          "emitted": false,
-          "implementation": "bounded scalar by consuming material role"
+          "emitted": true
+        }
+      }
+    },
+    {
+      "id": "echo-garden-stone",
+      "surfaceModel": "echo-garden-stone-worley-masonry-v2",
+      "textureSize": 128,
+      "tileable": true,
+      "cacheKey": "stone|echo-record-garden-surface-bakery-v2|echo-garden-surface-set-v2|seed-503|128|777b70-c2beb0",
+      "repeat": [4.2, 4.2],
+      "anisotropy": 8,
+      "anisotropyMode": "runtime cap; min(8, renderer maximum)",
+      "normalStrength": 2.05,
+      "roughnessRange": [0.58, 0.91],
+      "maps": {
+        "albedo": {
+          "heightField": "echo-garden-stone-worley-masonry-v2",
+          "colorSpace": "srgb",
+          "emitted": true
+        },
+        "normal": {
+          "heightField": "echo-garden-stone-worley-masonry-v2",
+          "colorSpace": "none",
+          "wrappedDerivative": true,
+          "emitted": true
+        },
+        "roughness": {
+          "heightField": "echo-garden-stone-worley-masonry-v2",
+          "colorSpace": "none",
+          "emitted": true
         }
       }
     },
     {
       "id": "echo-garden-textile",
-      "surfaceModel": "echo-garden-woven-periodic-field-v1",
-      "textureSize": 128,
+      "surfaceModel": "echo-garden-woven-periodic-field-v2",
+      "textureSize": 256,
       "tileable": true,
-      "cacheKey": "textile|echo-record-garden-surface-bakery-v1|echo-garden-surface-set-v1|seed-617|128|a66f48-f0d4a0",
+      "cacheKey": "textile|echo-record-garden-surface-bakery-v2|echo-garden-surface-set-v2|seed-617|256|a66f48-f0d4a0",
       "repeat": [7, 7],
       "anisotropy": 8,
       "anisotropyMode": "runtime cap; min(8, renderer maximum)",
       "normalStrength": 0.95,
-      "roughnessRange": [0.7, 0.9],
+      "roughnessRange": [0.7, 0.96],
       "maps": {
         "albedo": {
-          "heightField": "echo-garden-woven-periodic-field-v1",
+          "heightField": "echo-garden-woven-periodic-field-v2",
           "colorSpace": "srgb",
           "emitted": true
         },
         "normal": {
-          "heightField": "echo-garden-woven-periodic-field-v1",
+          "heightField": "echo-garden-woven-periodic-field-v2",
           "colorSpace": "none",
           "wrappedDerivative": true,
           "emitted": true
         },
         "roughness": {
-          "heightField": "echo-garden-woven-periodic-field-v1",
+          "heightField": "echo-garden-woven-periodic-field-v2",
           "colorSpace": "none",
-          "emitted": false,
-          "implementation": "bounded scalar by consuming material role"
+          "emitted": true
+        }
+      }
+    },
+    {
+      "id": "echo-garden-plaster",
+      "surfaceModel": "echo-garden-plaster-pitted-fbm-v2",
+      "textureSize": 128,
+      "tileable": true,
+      "cacheKey": "plaster|echo-record-garden-surface-bakery-v2|echo-garden-surface-set-v2|seed-733|128|cabda9-f4ecdc",
+      "repeat": [3.2, 3.2],
+      "anisotropy": 8,
+      "anisotropyMode": "runtime cap; min(8, renderer maximum)",
+      "normalStrength": 0.72,
+      "roughnessRange": [0.7, 0.94],
+      "maps": {
+        "albedo": {
+          "heightField": "echo-garden-plaster-pitted-fbm-v2",
+          "colorSpace": "srgb",
+          "emitted": true
+        },
+        "normal": {
+          "heightField": "echo-garden-plaster-pitted-fbm-v2",
+          "colorSpace": "none",
+          "wrappedDerivative": true,
+          "emitted": true
+        },
+        "roughness": {
+          "heightField": "echo-garden-plaster-pitted-fbm-v2",
+          "colorSpace": "none",
+          "emitted": true
+        }
+      }
+    },
+    {
+      "id": "echo-garden-roof-red",
+      "surfaceModel": "echo-garden-staggered-tile-periodic-field-v2",
+      "textureSize": 128,
+      "tileable": true,
+      "cacheKey": "roof-red|echo-record-garden-surface-bakery-v2|echo-garden-surface-set-v2|seed-811|128|71382f-c9654e",
+      "repeat": [2.2, 2.2],
+      "anisotropy": 8,
+      "anisotropyMode": "runtime cap; min(8, renderer maximum)",
+      "normalStrength": 2.35,
+      "roughnessRange": [0.48, 0.79],
+      "maps": {
+        "albedo": {
+          "heightField": "echo-garden-staggered-tile-periodic-field-v2",
+          "colorSpace": "srgb",
+          "emitted": true
+        },
+        "normal": {
+          "heightField": "echo-garden-staggered-tile-periodic-field-v2",
+          "colorSpace": "none",
+          "wrappedDerivative": true,
+          "emitted": true
+        },
+        "roughness": {
+          "heightField": "echo-garden-staggered-tile-periodic-field-v2",
+          "colorSpace": "none",
+          "emitted": true
+        }
+      }
+    },
+    {
+      "id": "echo-garden-roof-blue",
+      "surfaceModel": "echo-garden-staggered-tile-periodic-field-v2",
+      "textureSize": 128,
+      "tileable": true,
+      "cacheKey": "roof-blue|echo-record-garden-surface-bakery-v2|echo-garden-surface-set-v2|seed-823|128|34536f-5e8fb7",
+      "repeat": [2.2, 2.2],
+      "anisotropy": 8,
+      "anisotropyMode": "runtime cap; min(8, renderer maximum)",
+      "normalStrength": 2.35,
+      "roughnessRange": [0.48, 0.79],
+      "maps": {
+        "albedo": {
+          "heightField": "echo-garden-staggered-tile-periodic-field-v2",
+          "colorSpace": "srgb",
+          "emitted": true
+        },
+        "normal": {
+          "heightField": "echo-garden-staggered-tile-periodic-field-v2",
+          "colorSpace": "none",
+          "wrappedDerivative": true,
+          "emitted": true
+        },
+        "roughness": {
+          "heightField": "echo-garden-staggered-tile-periodic-field-v2",
+          "colorSpace": "none",
+          "emitted": true
+        }
+      }
+    },
+    {
+      "id": "echo-garden-leaf",
+      "surfaceModel": "echo-garden-leaf-worley-vein-field-v2",
+      "textureSize": 256,
+      "tileable": true,
+      "cacheKey": "leaf|echo-record-garden-surface-bakery-v2|echo-garden-surface-set-v2|seed-947|256|2f583c-82b85a",
+      "repeat": [5, 5],
+      "anisotropy": 8,
+      "anisotropyMode": "runtime cap; min(8, renderer maximum)",
+      "normalStrength": 1.15,
+      "roughnessRange": [0.68, 0.91],
+      "maps": {
+        "albedo": {
+          "heightField": "echo-garden-leaf-worley-vein-field-v2",
+          "colorSpace": "srgb",
+          "emitted": true
+        },
+        "normal": {
+          "heightField": "echo-garden-leaf-worley-vein-field-v2",
+          "colorSpace": "none",
+          "wrappedDerivative": true,
+          "emitted": true
+        },
+        "roughness": {
+          "heightField": "echo-garden-leaf-worley-vein-field-v2",
+          "colorSpace": "none",
+          "emitted": true
         }
       }
     }
@@ -173,9 +326,13 @@
   "sourceLineage": {
     "reference": "local pallet-town-3d reference application",
     "license": "MIT License; copyright 2026 Paulius",
-    "transferredMethod": "periodic deterministic surface fields and related PBR-channel workflow",
-    "implementation": "newly authored franchise-neutral code",
-    "sourceCodeCopied": false,
+    "referenceRevision": "d49e0c0de836892133b3b21f50c9d29749879db5",
+    "transferredMethod": "MIT-adapted general-purpose simplex/fBM/Worley noise, deterministic surface baking, material-family caching, and related PBR-channel workflow",
+    "adaptedLocalFiles": [
+      "src/components/echo-record-garden-noise.js",
+      "src/components/echo-record-garden-visual-system.js"
+    ],
+    "licenseNotice": "THIRD_PARTY_NOTICES.md",
     "sourceTexturesCopied": false,
     "franchiseContentCopied": false
   }
