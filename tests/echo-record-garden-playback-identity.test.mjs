@@ -76,8 +76,11 @@ test("Director shaders sample the same master audio element instead of a synthet
   );
   assert.match(signalSource, /context\.createMediaElementSource\(audio\)/);
   assert.match(signalSource, /source\.connect\(analyser\)/);
-  assert.match(signalSource, /analyser\.connect\(context\.destination\)/);
-  assert.match(signalSource, /sampleEchoLiveSignalFrame\(analyser, seconds/);
+  assert.match(signalSource, /analyser\.connect\(monitorGain\)/);
+  assert.match(signalSource, /monitorGain\.connect\(context\.destination\)/);
+  assert.match(signalSource, /analyser\.connect\(captureDestination\)/);
+  assert.match(signalSource, /captureStream\(\) \{\s*return captureDestination\.stream;/s);
+  assert.match(signalSource, /sampleEchoLiveSignalFrame\(analyser, lastMasterSeconds/);
   assert.match(signalSource, /source: "record-garden-master-audio-analyser"/);
   assert.match(signalSource, /silentGain\.gain\.value = 0/);
   assert.match(signalSource, /source: "verified-registry-stem"/);

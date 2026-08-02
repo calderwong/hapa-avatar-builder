@@ -1585,6 +1585,38 @@ function normalizeSnapshotPrintedCardTransform(value = {}) {
   };
 }
 
+function normalizeSnapshotPrintedCardCustody(value = {}) {
+  const custody = object(value);
+  const digest = /^[a-f0-9]{64}$/u;
+  const cardCoreKey = text(custody.cardCoreKey).toLowerCase();
+  const cardRecordDigest = text(custody.cardRecordDigest || custody.recordDigest).toLowerCase();
+  if (!digest.test(cardCoreKey) || !digest.test(cardRecordDigest)) return null;
+  return {
+    schemaVersion: text(custody.schemaVersion).slice(0, 120) || "hapa.card-custody-receipt.v1",
+    cardId: text(custody.cardId).slice(0, 240) || null,
+    cardCoreKey,
+    cardRevisionId: text(custody.cardRevisionId).slice(0, 240) || null,
+    cardRecordDigest,
+    recordDigest: cardRecordDigest,
+    originPublicKey: text(custody.originPublicKey).slice(0, 240) || null,
+    originNodeId: text(custody.originNodeId).slice(0, 240) || null,
+    createdAt: text(custody.createdAt).slice(0, 80) || null,
+    headEventDigest: text(custody.headEventDigest).toLowerCase().slice(0, 64) || null,
+    historyLength: Math.max(1, Math.round(finite(custody.historyLength, 1))),
+    lifecycleStatus: text(custody.lifecycleStatus).slice(0, 80) || "draft",
+    custodyState: text(custody.custodyState).slice(0, 80) || "origin_appended",
+    replicationState: text(custody.replicationState).slice(0, 80) || "origin_only",
+    identityBasis: text(custody.identityBasis).slice(0, 80) || "hypercore_origin_event",
+    durableReceipt: custody.durableReceipt === true,
+    hypercoreAppended: custody.hypercoreAppended === true,
+    portableCustody: custody.portableCustody === true,
+    minted: false,
+    catalogPublished: false,
+    commerceEligible: false,
+    canonical: false,
+  };
+}
+
 function normalizeSnapshotPrintedCards(value = []) {
   const cards = [];
   const seen = new Set();
@@ -1598,14 +1630,22 @@ function normalizeSnapshotPrintedCards(value = []) {
     const sceneTransform = normalizeSnapshotPrintedCardTransform(
       source.sceneTransform || attachment.sceneTransform,
     );
+    const custody = normalizeSnapshotPrintedCardCustody(source.custody);
     seen.add(id);
     cards.push({
       id,
+      cardId: text(source.cardId || id).slice(0, 240),
       schemaVersion: text(source.schemaVersion).slice(0, 120) || null,
       cardType: text(source.cardType).slice(0, 80) || "reference_card",
       title: text(source.title, "Hapa Card").slice(0, 180),
       subtitle: text(source.subtitle).slice(0, 240) || null,
       truthStatus: text(source.truthStatus || attachment.truthStatus).slice(0, 120) || null,
+      cardCoreKey: custody?.cardCoreKey || null,
+      cardRevisionId: custody?.cardRevisionId || null,
+      cardRecordDigest: custody?.cardRecordDigest || null,
+      recordDigest: custody?.cardRecordDigest || null,
+      originPublicKey: custody?.originPublicKey || null,
+      custody,
       sceneTransform,
       echoRecordAttachment: {
         sourceVisualId: text(attachment.sourceVisualId).slice(0, 240) || null,

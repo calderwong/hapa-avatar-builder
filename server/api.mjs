@@ -3,7 +3,7 @@ import { createServer as createHttpServer } from "node:http";
 import { createServer as createHttpsServer } from "node:https";
 import { execFile, execFileSync, spawn, execSync, exec } from "node:child_process";
 import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
-import { appendFile, mkdir, readFile, writeFile, stat, readdir, access, rm } from "node:fs/promises";
+import { appendFile, mkdir, readFile, writeFile, stat, readdir, access, rm, rename } from "node:fs/promises";
 import fs from "node:fs";
 import { homedir, networkInterfaces, tmpdir } from "node:os";
 import path from "node:path";
@@ -94,6 +94,18 @@ import {
 import { fileStreamTelemetry, streamFileToResponse } from "./file-serving.mjs";
 import { ByteBoundedLruCache } from "./byte-bounded-lru-cache.mjs";
 import { saveEchoRecordGardenAcceptanceReceipt } from "./echo-record-garden-acceptance-store.mjs";
+import {
+  ECHO_RECORD_GARDEN_RECORDING_MAX_BYTES,
+  ECHO_RECORD_GARDEN_RECORDING_RESULT_SCHEMA,
+  buildEchoRecordGardenRecordingCard,
+  echoRecordGardenRecordingBytesMatch,
+  echoRecordGardenRecordingFileName,
+  finalizeEchoRecordGardenRecordingCard,
+  normalizeEchoRecordGardenRecordingRequest,
+  runEchoRecordGardenRecordingTransaction,
+  validateEchoRecordGardenRecordingIdempotencyKey,
+} from "./echo-record-garden-recording-card.mjs";
+import { openEchoRecordGardenRecordingTransactionLedger } from "./echo-record-garden-recording-transaction.mjs";
 import {
   TAROT_KREA2_MAX_IMAGE_BYTES,
   adapterErrorPayload as tarotKrea2AdapterErrorPayload,
@@ -449,6 +461,11 @@ async function currentEchoRecordGardenAcceptanceContext() {
 }
 const execFileAsync = promisify(execFile);
 const DATA_DIR = path.join(ROOT, "data");
+const ECHO_RECORD_GARDEN_RECORDING_TRANSACTION_ROOT = process.env.HAPA_ECHO_RECORD_GARDEN_RECORDING_TRANSACTION_ROOT
+  || path.join(DATA_DIR, "echo-record-garden-recording-transactions");
+const echoRecordGardenRecordingTransactionLedger = openEchoRecordGardenRecordingTransactionLedger({
+  root: ECHO_RECORD_GARDEN_RECORDING_TRANSACTION_ROOT,
+});
 const ECHO_RECORD_GARDEN_ACCEPTANCE_ROOT = path.resolve(process.env.HAPA_RECORD_GARDEN_ACCEPTANCE_ROOT || ROOT);
 const STORE_PATH = process.env.HAPA_AVATAR_STORE || path.join(ROOT, "data/avatar-store.json");
 const KANBAN_PATH = process.env.HAPA_KANBAN_STORE || path.join(ROOT, "data/kanban.json");
@@ -3990,6 +4007,220 @@ async function route(req, res) {
     return;
   }
 
+  if (pathname === "/api/echo-record-garden/recordings" && req.method === "POST") {
+    if (!requireAdmin(req, res)) return;
+    let stagedPath = "";
+    let recordingTransaction = null;
+    try {
+      const bytes = await readRawBody(req, ECHO_RECORD_GARDEN_RECORDING_MAX_BYTES);
+      const recording = normalizeEchoRecordGardenRecordingRequest({ headers: req.headers, bytes });
+      validateEchoRecordGardenRecordingIdempotencyKey(req.headers["idempotency-key"], recording.sessionId);
+      const result = await runEchoRecordGardenRecordingTransaction(async () => {
+        const fileName = echoRecordGardenRecordingFileName(recording);
+        const filePath = path.join(MEDIA_DIR, fileName);
+        const mediaUri = `/media/${fileName}`;
+        const actorId = String(req.headers["x-hapa-actor-id"] || "local-record-garden-operator").trim().slice(0, 120);
+        const identityCard = buildEchoRecordGardenRecordingCard({
+          recording,
+          mediaUri,
+          actorId,
+        });
+        const currentStore = await readTarotStore();
+        const sessionCard = (currentStore.cards || []).find((candidate) => (
+          candidate?.enrichment?.media?.recordGarden?.sessionId === recording.sessionId
+        )) || null;
+        if (sessionCard && sessionCard.id !== identityCard.id) {
+          throw Object.assign(new Error("This Record Garden capture session is already bound to different media or lineage."), {
+            code: "record_garden_recording_idempotency_conflict",
+            statusCode: 409,
+          });
+        }
+        const existingCard = (currentStore.cards || []).find((candidate) => candidate.id === identityCard.id) || null;
+        const openedTransaction = await echoRecordGardenRecordingTransactionLedger.begin({
+          recording,
+          actorId,
+          cardId: identityCard.id,
+          mediaUri,
+        });
+        recordingTransaction = openedTransaction.transaction;
+        const proposedCard = buildEchoRecordGardenRecordingCard({
+          recording,
+          mediaUri,
+          createdAt: recordingTransaction.cardCreatedAt,
+          actorId,
+        });
+        if (proposedCard.id !== recordingTransaction.cardId) {
+          throw Object.assign(new Error("The durable Record Garden transaction resolved a different Card identity."), {
+            code: "record_garden_recording_transaction_corrupt",
+            statusCode: 500,
+          });
+        }
+        if (!recordingTransaction.steps.prepared) {
+          recordingTransaction = await echoRecordGardenRecordingTransactionLedger.checkpoint({
+            sessionId: recording.sessionId,
+            requestFingerprint: recordingTransaction.requestFingerprint,
+            step: "prepared",
+            details: {
+              cardPreexisting: Boolean(existingCard),
+              subscriberAction: existingCard ? "tarot.card-updated" : "tarot.card-created",
+            },
+          });
+        }
+
+        // The complete request fingerprint is durable before creating even a recoverable media artifact.
+        await mkdir(MEDIA_DIR, { recursive: true });
+        let mediaAlreadyPresent = false;
+        try {
+          const existingBytes = await readFile(filePath);
+          mediaAlreadyPresent = echoRecordGardenRecordingBytesMatch(existingBytes, recording);
+          if (!mediaAlreadyPresent) {
+            throw Object.assign(new Error("A content-addressed Garden recording path has conflicting bytes."), {
+              code: "record_garden_recording_content_conflict",
+              statusCode: 409,
+            });
+          }
+        } catch (error) {
+          if (error?.code !== "ENOENT") throw error;
+          stagedPath = `${filePath}.staging-${process.pid}-${randomBytes(6).toString("hex")}`;
+          await writeFile(stagedPath, bytes, { flag: "wx" });
+          await rename(stagedPath, filePath);
+          stagedPath = "";
+        }
+        recordingTransaction = await echoRecordGardenRecordingTransactionLedger.checkpoint({
+          sessionId: recording.sessionId,
+          requestFingerprint: recordingTransaction.requestFingerprint,
+          step: "media",
+          details: {
+            mediaUri,
+            sha256: recording.contentHash,
+            sizeBytes: recording.sizeBytes,
+          },
+        });
+
+        // Custody must succeed before the mutable Tarot projection can claim a durable Card.
+        const custody = await avatarCardCustodyService.ensure({
+          card: proposedCard,
+          actorId,
+          evidenceRef: `ui:echo-record-garden-record-mode:${recording.sessionId}`,
+        });
+        recordingTransaction = await echoRecordGardenRecordingTransactionLedger.checkpoint({
+          sessionId: recording.sessionId,
+          requestFingerprint: recordingTransaction.requestFingerprint,
+          step: "custody",
+          details: {
+            cardId: custody.receipt.cardId,
+            cardCoreKey: custody.receipt.cardCoreKey,
+            cardRecordDigest: custody.receipt.cardRecordDigest,
+          },
+        });
+        const finalizedCard = finalizeEchoRecordGardenRecordingCard({ card: custody.card, receipt: custody.receipt });
+        const latestStore = await readTarotStore();
+        const latestCard = (latestStore.cards || []).find((candidate) => candidate.id === proposedCard.id) || null;
+        const existingCustodyMatches = latestCard
+          && latestCard.cardCoreKey === custody.receipt.cardCoreKey
+          && latestCard.cardRecordDigest === custody.receipt.cardRecordDigest;
+        let store = latestStore;
+        let persistedCard = latestCard;
+        if (!existingCustodyMatches) {
+          store = addTarotCard(latestStore, finalizedCard);
+          await writeTarotStore(store);
+          persistedCard = (store.cards || []).find((candidate) => candidate.id === finalizedCard.id) || null;
+        }
+        recordingTransaction = await echoRecordGardenRecordingTransactionLedger.checkpoint({
+          sessionId: recording.sessionId,
+          requestFingerprint: recordingTransaction.requestFingerprint,
+          step: "tarot",
+          details: {
+            cardId: finalizedCard.id,
+            cardCoreKey: custody.receipt.cardCoreKey,
+            cardRecordDigest: custody.receipt.cardRecordDigest,
+          },
+        });
+        if (!recordingTransaction.steps.subscriber) {
+          const subscriberEvent = await appendSubscriberRegistration(
+            recordingTransaction.steps.prepared.subscriberAction,
+            {
+              tarot: store,
+              cardId: finalizedCard.id,
+              source: "echo-record-garden-record-mode",
+              media: { id: `${finalizedCard.id}-loop-video`, uri: mediaUri, sha256: recording.contentHash },
+              eventId: recordingTransaction.subscriberEventId,
+              occurredAt: recordingTransaction.subscriberOccurredAt,
+            },
+          );
+          recordingTransaction = await echoRecordGardenRecordingTransactionLedger.checkpoint({
+            sessionId: recording.sessionId,
+            requestFingerprint: recordingTransaction.requestFingerprint,
+            step: "subscriber",
+            details: {
+              action: recordingTransaction.steps.prepared.subscriberAction,
+              eventId: subscriberEvent.id,
+            },
+          });
+        }
+        const card = finalizeEchoRecordGardenRecordingCard({
+          card: persistedCard || finalizedCard,
+          receipt: custody.receipt,
+        });
+        recordingTransaction = await echoRecordGardenRecordingTransactionLedger.checkpoint({
+          sessionId: recording.sessionId,
+          requestFingerprint: recordingTransaction.requestFingerprint,
+          step: "complete",
+          details: {
+            cardId: card.id,
+            cardCoreKey: custody.receipt.cardCoreKey,
+            cardRecordDigest: custody.receipt.cardRecordDigest,
+          },
+        });
+        return {
+          statusCode: openedTransaction.created && !existingCard ? 201 : 200,
+          payload: {
+            schemaVersion: ECHO_RECORD_GARDEN_RECORDING_RESULT_SCHEMA,
+            ok: true,
+            replay: Boolean(!openedTransaction.created || existingCard || !custody.created || mediaAlreadyPresent),
+            persisted: true,
+            card,
+            receipt: custody.receipt,
+            media: {
+              uri: mediaUri,
+              mimeType: recording.mimeType,
+              sizeBytes: recording.sizeBytes,
+              sha256: recording.contentHash,
+            },
+            transaction: {
+              id: recordingTransaction.transactionId,
+              requestFingerprint: recordingTransaction.requestFingerprint,
+              state: "complete",
+              subscriberEventId: recordingTransaction.subscriberEventId,
+            },
+            minted: false,
+            authorityBoundary: "Created one durable local Hapa Card and custody record. Public mint, canon, publication, and commerce remain separate explicit authority actions.",
+          },
+        };
+      });
+      sendJson(res, result.statusCode, result.payload);
+    } catch (error) {
+      if (stagedPath) await rm(stagedPath, { force: true }).catch(() => {});
+      sendJson(res, Number(error?.statusCode || 422), {
+        schemaVersion: ECHO_RECORD_GARDEN_RECORDING_RESULT_SCHEMA,
+        ok: false,
+        error: error?.code || "record_garden_recording_failed",
+        message: error?.message || String(error),
+        minted: false,
+        failClosed: true,
+        retrySafe: Boolean(recordingTransaction?.requestFingerprint),
+        durability: {
+          transactionRecorded: Boolean(recordingTransaction?.steps?.accepted),
+          mediaCommitted: Boolean(recordingTransaction?.steps?.media),
+          custodyCommitted: Boolean(recordingTransaction?.steps?.custody),
+          tarotCommitted: Boolean(recordingTransaction?.steps?.tarot),
+          subscriberCommitted: Boolean(recordingTransaction?.steps?.subscriber),
+        },
+      });
+    }
+    return;
+  }
+
   if (pathname === "/api/media" && req.method === "POST") {
     const body = await readBody(req);
     const savedInput = await persistMedia(body);
@@ -7042,15 +7273,50 @@ function dearPapaSongbookOrder(songbook = {}) {
   return order;
 }
 
-async function appendSubscriberRegistration(action, { avatar = null, media = null, sceneGraph = null, itemStore = null, inventoryStore = null, songStore = null, tarot = null } = {}) {
+async function findSubscriberRegistration(eventId) {
+  if (!eventId) return null;
+  try {
+    const lines = (await readFile(path.join(SUBSCRIBER_DIR, "events.ndjson"), "utf8")).trim().split(/\r?\n/u);
+    for (let index = lines.length - 1; index >= 0; index -= 1) {
+      if (!lines[index]) continue;
+      try {
+        const event = JSON.parse(lines[index]);
+        if (event?.id === eventId) return event;
+      } catch {}
+    }
+    return null;
+  } catch (error) {
+    if (error?.code === "ENOENT") return null;
+    throw error;
+  }
+}
+
+async function appendSubscriberRegistration(action, {
+  avatar = null,
+  media = null,
+  sceneGraph = null,
+  itemStore = null,
+  inventoryStore = null,
+  songStore = null,
+  tarot = null,
+  eventId = "",
+  occurredAt = "",
+} = {}) {
   await mkdir(SUBSCRIBER_DIR, { recursive: true });
-  const occurredAt = new Date().toISOString();
-  const baseEvent = {
+  const durableEventId = String(eventId || "").trim();
+  const existingEvent = durableEventId ? await findSubscriberRegistration(durableEventId) : null;
+  if (existingEvent && existingEvent.action !== action) {
+    throw Object.assign(new Error("A deterministic subscriber event ID is already bound to a different action."), {
+      code: "subscriber_registration_idempotency_conflict",
+      statusCode: 409,
+    });
+  }
+  const baseEvent = existingEvent || {
     schemaVersion: "hapa.subscriber-registration.v1",
-    id: `subscriber-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
+    id: durableEventId || `subscriber-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
     source: "hapa-avatar-builder",
     action,
-    occurredAt,
+    occurredAt: String(occurredAt || "").trim() || new Date().toISOString(),
     subscribers: SUBSCRIBERS,
     avatar: avatar ? compactAvatarRegistration(avatar) : null,
     media: media ? compactMediaRegistration(media) : null,
@@ -7061,12 +7327,15 @@ async function appendSubscriberRegistration(action, { avatar = null, media = nul
     tarot: tarot ? compactTarotRegistration(tarot) : null
   };
 
-  await appendFile(path.join(SUBSCRIBER_DIR, "events.ndjson"), `${JSON.stringify(baseEvent)}\n`, "utf8");
+  if (!existingEvent) {
+    await appendFile(path.join(SUBSCRIBER_DIR, "events.ndjson"), `${JSON.stringify(baseEvent)}\n`, "utf8");
+  }
   // Legacy per-subscriber NDJSON fan-out is retired. Canonical Card events use
   // the acknowledged Overwind origin outbox; this central file remains only as
   // migration/audit input for older aggregate registration events.
   await writeFile(path.join(SUBSCRIBER_DIR, "latest.json"), `${JSON.stringify(baseEvent, null, 2)}\n`, "utf8");
   await writeFile(path.join(SUBSCRIBER_DIR, "latest-summary.json"), `${JSON.stringify(summarizeSubscriberEvent(baseEvent), null, 2)}\n`, "utf8");
+  return baseEvent;
 }
 
 function compactSceneGraphRegistration(graph) {

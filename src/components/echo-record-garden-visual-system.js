@@ -9,6 +9,13 @@ import {
   gardenRange,
   makeGardenRng,
 } from "./echo-record-garden-noise.js";
+import {
+  ECHO_RECORD_GARDEN_DEFAULT_ATMOSPHERE_PHASE,
+  getNextEchoRecordGardenAtmospherePhase,
+  interpolateEchoRecordGardenAtmospheres,
+  resolveEchoRecordGardenAtmosphere,
+  resolveEchoRecordGardenAtmosphereProgress,
+} from "../domain/echo-record-garden-atmosphere.js";
 
 export const ECHO_RECORD_GARDEN_VISUAL_PROFILE = Object.freeze({
   id: "echo-record-garden-sunwashed-diorama-v2",
@@ -1024,6 +1031,7 @@ function createDirectorGardenFrame(materialKit) {
     bulb.position.set(-3.45 + index * 0.86, 5.02 + Math.sin((index / 8) * Math.PI) * 0.08, 0.08);
     group.add(bulb);
   }
+  group.userData.bulbMaterial = bulbMaterial;
   const vineMaterial = materialKit.clone("leaf", { color: 0x5d8f50, roughness: 0.86 });
   vineMaterial.vertexColors = true;
   vineMaterial.needsUpdate = true;
@@ -1806,6 +1814,112 @@ export function createEchoRecordGardenVisualSystem({ world, scene, renderer }) {
   bokeh.name = "GardenSunMotes";
   environment.add(bokeh);
 
+  const atmosphereState = {
+    currentProgress: resolveEchoRecordGardenAtmosphereProgress(
+      ECHO_RECORD_GARDEN_DEFAULT_ATMOSPHERE_PHASE,
+    ),
+    targetProgress: resolveEchoRecordGardenAtmosphereProgress(
+      ECHO_RECORD_GARDEN_DEFAULT_ATMOSPHERE_PHASE,
+    ),
+    lastElapsed: null,
+    easingRate: 0.7,
+    frame: {},
+    wrapTransition: null,
+  };
+  const cloudMaterial = clouds.children[0]?.material || null;
+  const bulbMaterial = directorGardenFrame.userData.bulbMaterial || null;
+  const applyAtmosphereFrame = (frame) => {
+    skyMaterial.color.set(frame.skyTint);
+    if (scene.background?.isColor) scene.background.set(frame.backgroundColor);
+    if (scene.fog?.isFogExp2) {
+      scene.fog.color.set(frame.fogColor);
+      scene.fog.density = frame.fogDensity;
+    }
+    scene.environmentIntensity = frame.environmentIntensity;
+    sun.color.set(frame.sunColor);
+    sun.intensity = frame.sunIntensity;
+    sun.position.set(frame.sunX, frame.sunY, frame.sunZ);
+    fill.color.set(frame.fillSkyColor);
+    fill.groundColor.set(frame.fillGroundColor);
+    fill.intensity = frame.fillIntensity;
+    bounce.color.set(frame.bounceColor);
+    bounce.intensity = frame.bounceIntensity;
+    if (cloudMaterial) {
+      cloudMaterial.color.set(frame.cloudColor);
+      cloudMaterial.opacity = frame.cloudOpacity;
+    }
+    moteMaterial.color.set(frame.moteColor);
+    moteMaterial.opacity = frame.moteOpacity;
+    moteMaterial.size = frame.moteSize;
+    if (bulbMaterial) bulbMaterial.emissiveIntensity = frame.bulbEmissiveIntensity;
+  };
+  const setWeatherPhase = (phase = "next") => {
+    if (disposed) return atmosphereState.targetProgress;
+    const previousTarget = atmosphereState.targetProgress;
+    const nextProgress = phase == null || phase === "next"
+      ? getNextEchoRecordGardenAtmospherePhase(atmosphereState.targetProgress).progress
+      : resolveEchoRecordGardenAtmosphereProgress(phase, atmosphereState.targetProgress);
+    atmosphereState.wrapTransition = previousTarget >= 1 - 1e-6 && nextProgress <= 1e-6
+      ? {
+          fromProgress: atmosphereState.currentProgress,
+          toProgress: nextProgress,
+          blend: 0,
+        }
+      : null;
+    atmosphereState.targetProgress = nextProgress;
+    return nextProgress;
+  };
+  const updateWeather = (elapsed, immediate = false) => {
+    if (disposed) return atmosphereState.currentProgress;
+    const currentElapsed = Number.isFinite(Number(elapsed)) ? Number(elapsed) : 0;
+    if (immediate) {
+      atmosphereState.lastElapsed = currentElapsed;
+      atmosphereState.currentProgress = atmosphereState.targetProgress;
+      atmosphereState.wrapTransition = null;
+      resolveEchoRecordGardenAtmosphere(atmosphereState.currentProgress, atmosphereState.frame);
+      applyAtmosphereFrame(atmosphereState.frame);
+      return atmosphereState.currentProgress;
+    }
+    const elapsedDelta = atmosphereState.lastElapsed == null
+      ? 1 / 60
+      : currentElapsed >= atmosphereState.lastElapsed
+        ? Math.min(0.1, currentElapsed - atmosphereState.lastElapsed)
+        : 1 / 60;
+    atmosphereState.lastElapsed = currentElapsed;
+    if (atmosphereState.wrapTransition) {
+      const transition = atmosphereState.wrapTransition;
+      const blendStep = 1 - Math.exp(-Math.max(0, elapsedDelta) * atmosphereState.easingRate);
+      transition.blend += (1 - transition.blend) * blendStep;
+      atmosphereState.currentProgress = transition.fromProgress
+        + ((transition.toProgress - transition.fromProgress) * transition.blend);
+      interpolateEchoRecordGardenAtmospheres(
+        transition.fromProgress,
+        transition.toProgress,
+        transition.blend,
+        atmosphereState.frame,
+      );
+      if (transition.blend >= 0.9995) {
+        atmosphereState.currentProgress = atmosphereState.targetProgress;
+        atmosphereState.wrapTransition = null;
+        resolveEchoRecordGardenAtmosphere(atmosphereState.currentProgress, atmosphereState.frame);
+      }
+      applyAtmosphereFrame(atmosphereState.frame);
+      return atmosphereState.currentProgress;
+    }
+    const distance = atmosphereState.targetProgress - atmosphereState.currentProgress;
+    if (Math.abs(distance) <= 1e-5) {
+      atmosphereState.currentProgress = atmosphereState.targetProgress;
+    } else {
+      const blend = 1 - Math.exp(-Math.max(0, elapsedDelta) * atmosphereState.easingRate);
+      atmosphereState.currentProgress += distance * blend;
+    }
+    resolveEchoRecordGardenAtmosphere(atmosphereState.currentProgress, atmosphereState.frame);
+    applyAtmosphereFrame(atmosphereState.frame);
+    return atmosphereState.currentProgress;
+  };
+  resolveEchoRecordGardenAtmosphere(atmosphereState.currentProgress, atmosphereState.frame);
+  applyAtmosphereFrame(atmosphereState.frame);
+
   let activeDetailTier = "full";
   const setDetailTier = (tier = "full") => {
     activeDetailTier = tier === "reduced" ? "reduced" : "full";
@@ -1863,6 +1977,16 @@ export function createEchoRecordGardenVisualSystem({ world, scene, renderer }) {
     metrics,
     setDetailTier,
     getDetailTier: () => activeDetailTier,
+    atmosphereState,
+    setWeatherPhase,
+    getWeatherState: () => ({
+      currentProgress: atmosphereState.currentProgress,
+      targetProgress: atmosphereState.targetProgress,
+      fromPhase: atmosphereState.frame.fromPhase,
+      toPhase: atmosphereState.frame.toPhase,
+      blend: atmosphereState.frame.blend,
+    }),
+    updateWeather,
     rebuildEnvironmentResponse,
     dispose() {
       if (disposed) return;
@@ -1890,6 +2014,7 @@ export function createEchoRecordGardenVisualSystem({ world, scene, renderer }) {
 
 export function updateEchoRecordGardenVisualSystem(resources, elapsed, reducedMotion) {
   if (!resources) return;
+  resources.updateWeather?.(elapsed, reducedMotion);
   if (reducedMotion) {
     resources.windStates?.forEach((state) => {
       state.uniforms.uEchoGardenWindTime.value = 0;
@@ -1907,12 +2032,14 @@ export function updateEchoRecordGardenVisualSystem(resources, elapsed, reducedMo
   }
   resources.windStates?.forEach((state) => {
     state.uniforms.uEchoGardenWindTime.value = elapsed;
-    state.uniforms.uEchoGardenWindStrength.value = state.amplitude;
+    state.uniforms.uEchoGardenWindStrength.value = state.amplitude
+      * (resources.atmosphereState?.frame?.windScale ?? 1);
   });
   resources.clouds.children.forEach((cloud) => {
     const phase = Number(cloud.userData.phase) || 0;
-    cloud.position.x = cloud.userData.homeX + Math.sin(elapsed * 0.035 + phase) * 0.55;
-    cloud.position.y = cloud.userData.homeY + Math.sin(elapsed * 0.09 + phase) * 0.08;
+    const windScale = resources.atmosphereState?.frame?.windScale ?? 1;
+    cloud.position.x = cloud.userData.homeX + Math.sin(elapsed * 0.035 + phase) * 0.55 * windScale;
+    cloud.position.y = cloud.userData.homeY + Math.sin(elapsed * 0.09 + phase) * 0.08 * windScale;
   });
   resources.windChime.rotation.z = Math.sin(elapsed * 0.72) * 0.045;
   resources.windChime.rotation.x = Math.sin(elapsed * 0.39 + 1.4) * 0.018;

@@ -4,21 +4,30 @@ import {
   ChevronLeft,
   ChevronRight,
   CircleDot,
+  CloudSun,
   Disc3,
   Hand,
   Layers3,
   Loader2,
+  Maximize2,
+  Minimize2,
   Pause,
   Play,
+  Radio,
   RotateCcw,
   Search,
   Sparkles,
+  Square,
   Volume2,
   VolumeX,
 } from "lucide-react";
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { createEchoRecordVisualCardResolver } from "../domain/echo-record-card-resolution.js";
+import {
+  echoCameraCoverSourceRect,
+  echoCameraMotionPresentation,
+} from "../domain/echo-camera-framing.js";
 import {
   createEchoDirectorPreviewRuntime,
   selectEchoDirectorPreviewSource,
@@ -64,6 +73,7 @@ import {
   createEchoRecordGardenVisualSystem,
   updateEchoRecordGardenVisualSystem,
 } from "./echo-record-garden-visual-system.js";
+import { createEchoRecordGardenAudioVisualizer } from "./echo-record-garden-audio-visualizer.js";
 
 const RECORDS_PER_CRATE = 10;
 const SCREEN_COUNT = 1;
@@ -74,6 +84,11 @@ const MEDIA_HARD_SEEK_COOLDOWN_SECONDS = 0.25;
 const PRIMARY_MEDIA_START_TIMEOUT_MS = 1_500;
 const RECORD_GARDEN_STORAGE_KEY = "hapa.echo-record-garden.v1";
 const RECORD_GARDEN_DIAGNOSTICS_KEY = "__HAPA_ECHO_RECORD_GARDEN_DIAGNOSTICS__";
+const RECORD_GARDEN_CAPTURE_FPS = 30;
+const RECORD_GARDEN_CAPTURE_MAX_SECONDS = 180;
+const RECORD_GARDEN_CAPTURE_VIDEO_BITS_PER_SECOND = 3_000_000;
+const RECORD_GARDEN_WEATHER_PHASES = Object.freeze(["high-noon", "sunset", "night", "sunrise"]);
+const RECORD_GARDEN_MASTER_SIGNAL_SOURCE_LEASES = new WeakMap();
 const RECORD_CATALOG_SORTS = Object.freeze([
   { id: "album", label: "Album order" },
   { id: "newest-cut", label: "Newest Director cut" },
@@ -90,6 +105,11 @@ function recordGardenDiagnostics() {
     existing.frameTiming ||= { samples: 0, p50Ms: 0, p95Ms: 0, p99Ms: 0, maxMs: 0, longFrames: 0 };
     existing.contextLosses ??= 0;
     existing.lastPixelSample ||= null;
+    existing.cinematicMode ??= false;
+    existing.captureStatus ||= "idle";
+    existing.captureAudioTracks ??= 0;
+    existing.weatherPhase ||= "high-noon";
+    existing.visualizerStatus ||= "idle";
     return existing;
   }
   const diagnostics = {
@@ -119,6 +139,11 @@ function recordGardenDiagnostics() {
     mediaBufferingTransitions: 0,
     contextState: "uninitialized",
     contextLosses: 0,
+    cinematicMode: false,
+    captureStatus: "idle",
+    captureAudioTracks: 0,
+    weatherPhase: "high-noon",
+    visualizerStatus: "idle",
     visibilityState: globalThis.document?.visibilityState || "visible",
     rendererMemory: { geometries: 0, textures: 0 },
     directorCutId: "",
@@ -231,6 +256,41 @@ function compactTime(seconds = 0) {
   const minutes = Math.floor(safe / 60);
   const remainder = Math.floor(safe % 60);
   return `${minutes}:${String(remainder).padStart(2, "0")}`;
+}
+
+function preferredRecordGardenCaptureMimeType() {
+  if (typeof MediaRecorder === "undefined") return "";
+  return [
+    "video/webm;codecs=vp9,opus",
+    "video/webm;codecs=vp8,opus",
+    "video/webm;codecs=vp9",
+    "video/webm;codecs=vp8",
+    "video/webm",
+  ].find((candidate) => MediaRecorder.isTypeSupported?.(candidate)) || "";
+}
+
+function initialRecordGardenCaptureState() {
+  return {
+    status: "idle",
+    startedAt: "",
+    elapsedSeconds: 0,
+    durationSeconds: 0,
+    cardId: "",
+    cardTitle: "",
+    error: "",
+  };
+}
+
+function recordGardenRecordingId() {
+  return `record-garden-session-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`;
+}
+
+function normalizeWeatherPhase(value = "high-noon") {
+  return RECORD_GARDEN_WEATHER_PHASES.includes(value) ? value : "high-noon";
+}
+
+function weatherPhaseLabel(value = "high-noon") {
+  return normalizeWeatherPhase(value).replace(/-/g, " ");
 }
 
 function recordPerspectiveId(record = {}) {
@@ -642,31 +702,78 @@ function drawDirectorPreviewFallback(context, width, height, frame, label = "DIR
   context.fillText(String(frame?.song?.title || "Echo State").slice(0, 42), width * 0.07, height * 0.21);
 }
 
+export function resolveRecordGardenDirectorSourceRect({
+  sourceWidth,
+  sourceHeight,
+  outputWidth,
+  outputHeight,
+  frame,
+} = {}) {
+  const safeSourceWidth = Math.max(1, Number(sourceWidth) || 1);
+  const safeSourceHeight = Math.max(1, Number(sourceHeight) || 1);
+  const safeOutputWidth = Math.max(1, Number(outputWidth) || 1);
+  const safeOutputHeight = Math.max(1, Number(outputHeight) || 1);
+  const sourceAspect = safeSourceWidth / safeSourceHeight;
+  const cue = frame?.primaryMediaCue || {};
+  const camera = frame?.camera || {};
+  const declaredOutputWidth = Math.max(0, Number(frame?.outputProfile?.width) || 0);
+  const declaredOutputHeight = Math.max(0, Number(frame?.outputProfile?.height) || 0);
+  const isPortrait = declaredOutputWidth > 0 && declaredOutputHeight > 0
+    ? declaredOutputHeight > declaredOutputWidth
+    : sourceAspect < 1;
+  const declaredCameraMotion = cue.camera?.motion
+    || camera.keyframe?.motion
+    || camera.keyframe?.shotRole
+    || "";
+  const presentation = echoCameraMotionPresentation({
+    startSeconds: cue.startSeconds,
+    endSeconds: cue.endSeconds,
+    timeSeconds: frame?.clock?.seconds,
+    motion: declaredCameraMotion || camera.motion || "auto",
+    intensity: camera.intensity,
+    speed: camera.speed,
+    shotIndex: camera.sourceCueIndex ?? cue.sourceCueIndex ?? 0,
+    sourceId: cue.cameraSeedId || "",
+    isPortrait,
+    crop: camera.presentation?.crop || camera.keyframe?.crop || null,
+  });
+  return {
+    ...echoCameraCoverSourceRect({
+      sourceWidth: safeSourceWidth,
+      sourceHeight: safeSourceHeight,
+      outputWidth: safeOutputWidth,
+      outputHeight: safeOutputHeight,
+      presentation,
+    }),
+    presentation,
+  };
+}
+
 function drawDirectorPreviewMedia(context, element, frame) {
   const width = context.canvas.width;
   const height = context.canvas.height;
   const sourceWidth = Number(element?.videoWidth || element?.naturalWidth || element?.width) || 0;
   const sourceHeight = Number(element?.videoHeight || element?.naturalHeight || element?.height) || 0;
   if (!sourceWidth || !sourceHeight) return false;
-  const crop = frame.camera?.presentation?.crop;
-  if (crop) {
-    context.drawImage(
-      element,
-      crop.x * sourceWidth,
-      crop.y * sourceHeight,
-      crop.width * sourceWidth,
-      crop.height * sourceHeight,
-      0,
-      0,
-      width,
-      height,
-    );
-    return true;
-  }
-  const scale = Math.max(width / sourceWidth, height / sourceHeight);
-  const drawWidth = sourceWidth * scale;
-  const drawHeight = sourceHeight * scale;
-  context.drawImage(element, (width - drawWidth) / 2, (height - drawHeight) / 2, drawWidth, drawHeight);
+  const sourceRect = resolveRecordGardenDirectorSourceRect({
+    sourceWidth,
+    sourceHeight,
+    outputWidth: width,
+    outputHeight: height,
+    frame,
+  });
+  context.drawImage(
+    element,
+    sourceRect.x,
+    sourceRect.y,
+    sourceRect.width,
+    sourceRect.height,
+    0,
+    0,
+    width,
+    height,
+  );
+  recordGardenDiagnostics().directorCameraPresentation = sourceRect.presentation;
   return true;
 }
 
@@ -674,40 +781,69 @@ function createRecordGardenMasterSignalSource(audio) {
   const tracker = createEchoLiveSignalTracker();
   const AudioContextClass = globalThis.AudioContext || globalThis.webkitAudioContext;
   if (!audio || !AudioContextClass) {
+    const sample = (seconds = 0) => sampleEchoLiveSignalFrame(null, seconds, {
+      id: "master",
+      label: "Main track",
+      source: "record-garden-master-audio",
+    }, tracker);
     return {
-      sample: (seconds = 0) => sampleEchoLiveSignalFrame(null, seconds, {
-        id: "master",
-        label: "Main track",
-        source: "record-garden-master-audio",
-      }, tracker),
+      sample,
+      latest: sample,
       resume: async () => false,
+      captureStream: () => null,
+      setMonitorMuted(value) { if (audio) audio.muted = Boolean(value); },
       createStem: () => null,
       dispose() {},
     };
   }
+  let contextForFailure = null;
   try {
     const context = new AudioContextClass();
+    contextForFailure = context;
     const analyser = context.createAnalyser();
     analyser.fftSize = 512;
     analyser.smoothingTimeConstant = 0.68;
     const source = context.createMediaElementSource(audio);
+    const captureDestination = context.createMediaStreamDestination();
+    const monitorGain = context.createGain();
     source.connect(analyser);
-    analyser.connect(context.destination);
+    analyser.connect(monitorGain);
+    monitorGain.connect(context.destination);
+    analyser.connect(captureDestination);
     const stemResources = new Set();
+    let lastMasterFrame = null;
+    let lastMasterSeconds = Number.NEGATIVE_INFINITY;
+    const sampleMaster = (seconds = 0) => {
+      lastMasterSeconds = Math.max(0, Number(seconds) || 0);
+      lastMasterFrame = sampleEchoLiveSignalFrame(analyser, lastMasterSeconds, {
+        id: "master",
+        label: "Main track",
+        source: "record-garden-master-audio-analyser",
+        observedAtSeconds: Number(context.currentTime) || lastMasterSeconds,
+        sampleRate: context.sampleRate,
+        contextState: context.state,
+      }, tracker);
+      return lastMasterFrame;
+    };
     return {
-      sample(seconds = 0) {
-        return sampleEchoLiveSignalFrame(analyser, seconds, {
-          id: "master",
-          label: "Main track",
-          source: "record-garden-master-audio-analyser",
-          observedAtSeconds: Number(context.currentTime) || seconds,
-          sampleRate: context.sampleRate,
-          contextState: context.state,
-        }, tracker);
+      sample: sampleMaster,
+      latest(seconds = 0, { maxAgeSeconds = 1 / 30 } = {}) {
+        const clockSeconds = Math.max(0, Number(seconds) || 0);
+        if (!lastMasterFrame || Math.abs(clockSeconds - lastMasterSeconds) >= maxAgeSeconds) {
+          return sampleMaster(clockSeconds);
+        }
+        return lastMasterFrame;
       },
       async resume() {
         if (context.state === "suspended") await context.resume();
         return context.state === "running";
+      },
+      captureStream() {
+        return captureDestination.stream;
+      },
+      setMonitorMuted(value) {
+        audio.muted = false;
+        monitorGain.gain.setTargetAtTime(value ? 0 : 1, context.currentTime, 0.012);
       },
       createStem(uri, metadata = {}) {
         if (!uri) return null;
@@ -775,23 +911,70 @@ function createRecordGardenMasterSignalSource(audio) {
       dispose() {
         [...stemResources].forEach((resource) => resource.dispose());
         tracker.reset();
+        captureDestination.stream?.getTracks?.().forEach((track) => {
+          try { track.stop(); } catch {}
+        });
         try { source.disconnect(); } catch {}
         try { analyser.disconnect(); } catch {}
+        try { monitorGain.disconnect(); } catch {}
+        try { captureDestination.disconnect(); } catch {}
         if (context.state !== "closed") context.close().catch(() => {});
       },
     };
   } catch {
+    if (contextForFailure?.state !== "closed") contextForFailure?.close?.().catch(() => {});
+    const sample = (seconds = 0) => sampleEchoLiveSignalFrame(null, seconds, {
+      id: "master",
+      label: "Main track",
+      source: "record-garden-master-audio",
+    }, tracker);
     return {
-      sample: (seconds = 0) => sampleEchoLiveSignalFrame(null, seconds, {
-        id: "master",
-        label: "Main track",
-        source: "record-garden-master-audio",
-      }, tracker),
+      sample,
+      latest: sample,
       resume: async () => false,
+      captureStream: () => null,
+      setMonitorMuted(value) { if (audio) audio.muted = Boolean(value); },
       createStem: () => null,
       dispose() { tracker.reset(); },
     };
   }
+}
+
+function acquireRecordGardenMasterSignalSource(audio) {
+  if (!audio || (typeof audio !== "object" && typeof audio !== "function")) {
+    const source = createRecordGardenMasterSignalSource(audio);
+    return { source, release: () => source.dispose() };
+  }
+  let entry = RECORD_GARDEN_MASTER_SIGNAL_SOURCE_LEASES.get(audio);
+  if (!entry) {
+    entry = {
+      source: createRecordGardenMasterSignalSource(audio),
+      references: 0,
+      disposalTimer: 0,
+    };
+    RECORD_GARDEN_MASTER_SIGNAL_SOURCE_LEASES.set(audio, entry);
+  }
+  if (entry.disposalTimer) {
+    globalThis.clearTimeout(entry.disposalTimer);
+    entry.disposalTimer = 0;
+  }
+  entry.references += 1;
+  let released = false;
+  return {
+    source: entry.source,
+    release() {
+      if (released) return;
+      released = true;
+      entry.references = Math.max(0, entry.references - 1);
+      if (entry.references) return;
+      entry.disposalTimer = globalThis.setTimeout(() => {
+        entry.disposalTimer = 0;
+        if (entry.references || RECORD_GARDEN_MASTER_SIGNAL_SOURCE_LEASES.get(audio) !== entry) return;
+        RECORD_GARDEN_MASTER_SIGNAL_SOURCE_LEASES.delete(audio);
+        entry.source.dispose();
+      }, 0);
+    },
+  };
 }
 
 function createRecordGardenDirectorPreviewAdapters({ apiBase = "", signalSource = null, showGraph = null, onStatus = null } = {}) {
@@ -1100,11 +1283,15 @@ export default function EchoRecordGarden3DView({
   sceneGraph = null,
   selectedSongId = "",
   onSelectSong,
+  cinematicMode: controlledCinematicMode,
+  onCinematicModeChange,
 }) {
   const preferences = useMemo(readGardenPreferences, []);
   const canvasRef = useRef(null);
   const audioRef = useRef(null);
   const visualInspectorRef = useRef(null);
+  const cinematicToggleRef = useRef(null);
+  const cinematicReturnFocusRef = useRef(null);
   const gameRef = useRef(null);
   const directorPreviewRuntimeRef = useRef(null);
   const directorAudioSignalRef = useRef(null);
@@ -1122,6 +1309,10 @@ export default function EchoRecordGarden3DView({
   const pendingCardRevealRef = useRef(false);
   const directorBoundaryRef = useRef("");
   const seekGestureRef = useRef(null);
+  const recordingSessionRef = useRef(null);
+  const failedCaptureRef = useRef(null);
+  const weatherRecordRef = useRef("");
+  const weatherCycleRef = useRef(-1);
   const actionsRef = useRef({});
   const syncDirectorVisualClockRef = useRef(() => {});
   const crateButtonRefs = useRef(new Map());
@@ -1167,9 +1358,22 @@ export default function EchoRecordGarden3DView({
   const [sceneError, setSceneError] = useState("");
   const [sceneRevision, setSceneRevision] = useState(0);
   const [cameraRevision, setCameraRevision] = useState(0);
+  const [localCinematicMode, setLocalCinematicMode] = useState(false);
+  const [hoverPreviewRecordId, setHoverPreviewRecordId] = useState("");
+  const [weatherPhase, setWeatherPhase] = useState("high-noon");
+  const [captureState, setCaptureState] = useState(initialRecordGardenCaptureState);
   const [reducedMotion, setReducedMotion] = useState(() => (
     globalThis.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches === true
   ));
+  const cinematicMode = typeof controlledCinematicMode === "boolean"
+    ? controlledCinematicMode
+    : localCinematicMode;
+  const captureLocked = ["preparing", "recording", "finalizing", "saving"].includes(captureState.status);
+  const setCinematicMode = useCallback((nextValue) => {
+    const next = typeof nextValue === "function" ? nextValue(cinematicMode) : nextValue;
+    setLocalCinematicMode(Boolean(next));
+    onCinematicModeChange?.(Boolean(next));
+  }, [cinematicMode, onCinematicModeChange]);
   const resolveVisualCard = useMemo(
     () => createEchoRecordVisualCardResolver({ apiBase }),
     [apiBase],
@@ -1177,12 +1381,61 @@ export default function EchoRecordGarden3DView({
   cardResolutionRef.current = cardResolution;
 
   useEffect(() => {
-    const signalSource = createRecordGardenMasterSignalSource(audioRef.current);
+    const lease = acquireRecordGardenMasterSignalSource(audioRef.current);
+    const signalSource = lease.source;
     directorAudioSignalRef.current = signalSource;
     return () => {
       if (directorAudioSignalRef.current === signalSource) directorAudioSignalRef.current = null;
-      signalSource.dispose();
+      lease.release();
     };
+  }, []);
+
+  useEffect(() => {
+    directorAudioSignalRef.current?.setMonitorMuted?.(muted);
+  }, [muted]);
+
+  const enterCinematicMode = useCallback(() => {
+    cinematicReturnFocusRef.current = document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : cinematicToggleRef.current;
+    setCinematicMode(true);
+    globalThis.requestAnimationFrame?.(() => canvasRef.current?.focus?.());
+  }, [setCinematicMode]);
+
+  const exitCinematicMode = useCallback(() => {
+    setCinematicMode(false);
+    globalThis.requestAnimationFrame?.(() => {
+      const target = cinematicReturnFocusRef.current || cinematicToggleRef.current;
+      target?.focus?.();
+    });
+  }, [setCinematicMode]);
+
+  useEffect(() => {
+    if (!cinematicMode) return undefined;
+    const handleKeyDown = (event) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      exitCinematicMode();
+    };
+    globalThis.addEventListener?.("keydown", handleKeyDown);
+    return () => globalThis.removeEventListener?.("keydown", handleKeyDown);
+  }, [cinematicMode, exitCinematicMode]);
+
+  useEffect(() => {
+    if (cinematicMode && sceneError) exitCinematicMode();
+  }, [cinematicMode, exitCinematicMode, sceneError]);
+
+  useEffect(() => () => {
+    const session = recordingSessionRef.current;
+    if (!session) return;
+    session.cancelled = true;
+    if (session.interval) globalThis.clearInterval(session.interval);
+    if (session.timeout) globalThis.clearTimeout(session.timeout);
+    if (session.recorder?.state !== "inactive") {
+      try { session.recorder.stop(); } catch {}
+    }
+    session.stream?.getTracks?.().forEach((track) => track.stop());
+    recordingSessionRef.current = null;
   }, []);
   const flushPendingGardenPreferences = useCallback(() => {
     if (persistenceTimerRef.current) {
@@ -1229,6 +1482,14 @@ export default function EchoRecordGarden3DView({
     () => records.find((record) => record.songId === placedRecordId) || null,
     [records, placedRecordId],
   );
+  useEffect(() => {
+    if (!placedRecordId || weatherRecordRef.current === placedRecordId) return;
+    weatherRecordRef.current = placedRecordId;
+    weatherCycleRef.current = (weatherCycleRef.current + 1) % RECORD_GARDEN_WEATHER_PHASES.length;
+    const nextPhase = RECORD_GARDEN_WEATHER_PHASES[weatherCycleRef.current];
+    setWeatherPhase(nextPhase);
+    gameRef.current?.setWeatherPhase?.(nextPhase);
+  }, [placedRecordId]);
   const recordBySongId = useMemo(
     () => new Map(records.map((record) => [record.songId, record])),
     [records],
@@ -1333,8 +1594,13 @@ export default function EchoRecordGarden3DView({
     diagnostics.audioTime = playback.currentTime;
     diagnostics.audioState = playback.playing ? "playing" : placedRecordId ? "paused" : "idle";
     diagnostics.visualSurfaceCount = visuals.length;
+    diagnostics.cinematicMode = cinematicMode;
+    diagnostics.captureStatus = captureState.status;
+    diagnostics.weatherPhase = weatherPhase;
     diagnostics.lastError = sceneError || playback.error || "";
   }, [
+    captureState.status,
+    cinematicMode,
     placedRecordId,
     playback.currentTime,
     playback.error,
@@ -1344,6 +1610,7 @@ export default function EchoRecordGarden3DView({
     sceneError,
     selectedRecordId,
     visuals.length,
+    weatherPhase,
   ]);
 
   useEffect(() => {
@@ -1811,7 +2078,8 @@ export default function EchoRecordGarden3DView({
     };
     audio.pause();
     audio.src = audioUri;
-    audio.muted = muted;
+    audio.muted = false;
+    directorAudioSignalRef.current?.setMonitorMuted?.(muted);
     audio.addEventListener("loadedmetadata", restoreTime, { once: true });
     audio.load();
     gameRef.current?.setPlacedRecord(placedRecordId);
@@ -1857,6 +2125,10 @@ export default function EchoRecordGarden3DView({
 
   const placeRecord = useCallback(async (songId = selectedRecordId, { autoplay = true } = {}) => {
     if (!songId) return;
+    if (captureLocked) {
+      setNotice("Stop Record Mode before changing the record; the captured Card keeps one exact song and cut lineage.");
+      return;
+    }
     if (hoverPreviewTimerRef.current) {
       globalThis.clearTimeout(hoverPreviewTimerRef.current);
       hoverPreviewTimerRef.current = 0;
@@ -1888,7 +2160,8 @@ export default function EchoRecordGarden3DView({
       });
       if (placementController.signal.aborted) throw abortError();
       audio.currentTime = 0;
-      audio.muted = muted;
+      audio.muted = false;
+      directorAudioSignalRef.current?.setMonitorMuted?.(muted);
 
       const immediateVisuals = buildEchoRecordVisualSurfaces({
         project: nextProject,
@@ -1959,6 +2232,7 @@ export default function EchoRecordGarden3DView({
     recordBySongId,
     sceneGraph,
     selectedRecordId,
+    captureLocked,
   ]);
 
   const togglePlayback = useCallback(async () => {
@@ -2021,13 +2295,17 @@ export default function EchoRecordGarden3DView({
   const toggleMuted = useCallback(() => {
     setMuted((current) => {
       const next = !current;
-      if (audioRef.current) audioRef.current.muted = next;
+      directorAudioSignalRef.current?.setMonitorMuted?.(next);
       setNotice(next ? "Record player muted." : "Record player sound on.");
       return next;
     });
   }, []);
 
   const ejectRecord = useCallback(() => {
+    if (captureLocked) {
+      setNotice("Stop Record Mode before returning the source record to the crate.");
+      return;
+    }
     placementControllerRef.current?.abort();
     const audio = audioRef.current;
     if (audio) {
@@ -2039,7 +2317,7 @@ export default function EchoRecordGarden3DView({
     setPlayback(initialPlaybackState());
     gameRef.current?.setPlacedRecord("");
     setNotice("Record returned to the crate. Choose another sleeve when you are ready.");
-  }, []);
+  }, [captureLocked]);
 
   const clearCrateFilters = useCallback(() => {
     setQuery("");
@@ -2374,6 +2652,269 @@ export default function EchoRecordGarden3DView({
     });
   }, [generateCardForVisual, project]);
 
+  const finalizeRecordGardenCapture = useCallback(async (session) => {
+    if (!session || session.cancelled) return;
+    if (session.interval) globalThis.clearInterval(session.interval);
+    if (session.timeout) globalThis.clearTimeout(session.timeout);
+    const durationSeconds = session.durationSeconds
+      || Math.max(0.01, (performance.now() - session.startedAtMs) / 1000);
+    session.durationSeconds = durationSeconds;
+    const blob = session.blob || new Blob(session.chunks, { type: session.mimeType || "video/webm" });
+    session.blob = blob;
+    session.stream?.getTracks?.().forEach((track) => track.stop());
+    if (recordingSessionRef.current === session) recordingSessionRef.current = null;
+    if (!blob.size) {
+      setCaptureState((current) => ({
+        ...current,
+        status: "failed",
+        durationSeconds,
+        error: "The browser did not produce a playable Garden recording.",
+      }));
+      setNotice("Record Mode stopped, but no media frames were captured.");
+      return;
+    }
+    setCaptureState((current) => ({
+      ...current,
+      status: "saving",
+      elapsedSeconds: durationSeconds,
+      durationSeconds,
+      error: "",
+    }));
+    try {
+      const base = browserApiBase(apiBase);
+      const sessionResponse = await fetch(`${base}/api/local-ui-session`, {
+        method: "POST",
+        headers: { Accept: "application/json" },
+        credentials: "same-origin",
+      });
+      if (!sessionResponse.ok) {
+        const failure = await sessionResponse.json().catch(() => ({}));
+        throw new Error(failure.message || "The local Builder session could not authorize Card creation.");
+      }
+      const lineage = session.lineage || {};
+      const title = lineage.title || "Echo State · Record Garden Session";
+      const response = await fetch(`${base}/api/echo-record-garden/recordings`, {
+        method: "POST",
+        credentials: "same-origin",
+        headers: {
+          "Content-Type": session.mimeType || blob.type || "video/webm",
+          "Idempotency-Key": `record-garden:${session.id}`,
+          "x-hapa-recording-id": session.id,
+          "x-hapa-recording-title": encodeURIComponent(title).slice(0, 600),
+          "x-hapa-recording-duration": durationSeconds.toFixed(3),
+          "x-hapa-recording-width": String(session.width),
+          "x-hapa-recording-height": String(session.height),
+          "x-hapa-recording-fps": String(RECORD_GARDEN_CAPTURE_FPS),
+          "x-hapa-recording-song-id": String(lineage.songId || "").slice(0, 240),
+          "x-hapa-recording-song-title": encodeURIComponent(lineage.songTitle || "").slice(0, 600),
+          "x-hapa-recording-cut-id": String(lineage.cutId || "").slice(0, 240),
+          "x-hapa-recording-cut-title": encodeURIComponent(lineage.cutTitle || "").slice(0, 600),
+          "x-hapa-recording-weather": normalizeWeatherPhase(lineage.weatherPhase),
+          "x-hapa-recording-rights": String(lineage.rightsStatus || "review-required-before-public-release").slice(0, 80),
+          "x-hapa-recording-audio-tracks": String(session.audioTrackCount),
+          "x-hapa-actor-id": "local-record-garden-operator",
+        },
+        body: blob,
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || !payload.card?.id) {
+        const saveError = new Error(payload.message || payload.error || `Garden recording save failed (${response.status}).`);
+        saveError.recordGardenFailure = payload;
+        saveError.statusCode = response.status;
+        throw saveError;
+      }
+      const card = payload.card;
+      failedCaptureRef.current = null;
+      setPrintedCards((current) => [card, ...current.filter((item) => item.id !== card.id)].slice(0, 5));
+      gameRef.current?.spawnPrintedCard(card);
+      setCaptureState({
+        status: "complete",
+        startedAt: session.startedAt,
+        elapsedSeconds: durationSeconds,
+        durationSeconds,
+        cardId: card.id,
+        cardTitle: card.title || title,
+        error: "",
+      });
+      setNotice(`${card.title || "Record Garden session"} is now a durable local Hapa Card with verified custody.`);
+    } catch (error) {
+      const failurePayload = error?.recordGardenFailure && typeof error.recordGardenFailure === "object"
+        ? error.recordGardenFailure
+        : null;
+      const durability = failurePayload?.durability && typeof failurePayload.durability === "object"
+        ? failurePayload.durability
+        : {};
+      const durableTransactionRecorded = Boolean(
+        failurePayload?.retrySafe
+        && Object.values(durability).some(Boolean),
+      );
+      session.lastSaveFailure = failurePayload;
+      failedCaptureRef.current = session;
+      setCaptureState((current) => ({
+        ...current,
+        status: "failed",
+        durationSeconds,
+        error: error?.message || "The Garden recording could not become a Hapa Card.",
+      }));
+      setNotice(durableTransactionRecorded
+        ? `Record Mode Card save is incomplete; Retry will safely resume its durable transaction: ${error?.message || "Card creation failed"}`
+        : `Record Mode capture is preserved in this tab only; Retry will attempt Card creation again: ${error?.message || "Card creation failed"}`);
+    }
+  }, [apiBase]);
+
+  const stopRecordMode = useCallback(() => {
+    const session = recordingSessionRef.current;
+    if (!session || session.recorder?.state === "inactive") return false;
+    setCaptureState((current) => ({ ...current, status: "finalizing", error: "" }));
+    try { session.recorder.requestData?.(); } catch {}
+    session.recorder.stop();
+    return true;
+  }, []);
+
+  const startRecordMode = useCallback(async () => {
+    if (["preparing", "recording", "finalizing", "saving"].includes(captureState.status)) return false;
+    const canvas = canvasRef.current;
+    const mimeType = preferredRecordGardenCaptureMimeType();
+    if (!placedRecordId || !playback.playing) {
+      const error = "Place and play a record before starting Record Mode so the Card has exact song and cut lineage.";
+      setCaptureState({ ...initialRecordGardenCaptureState(), status: "failed", error });
+      setNotice(error);
+      return false;
+    }
+    if (!sceneReady || !canvas || typeof canvas.captureStream !== "function" || !mimeType) {
+      const error = "This browser cannot capture the live 3D Garden with MediaRecorder.";
+      setCaptureState({ ...initialRecordGardenCaptureState(), status: "failed", error });
+      setNotice(error);
+      return false;
+    }
+    const activeRecord = recordBySongId.get(placedRecordId);
+    const cut = project?.echo_record_garden_director_cut || null;
+    if (!activeRecord?.songId || !cut?.id) {
+      const error = "Record Mode is waiting for the placed record's exact song and Director cut identity.";
+      setCaptureState({ ...initialRecordGardenCaptureState(), status: "failed", error });
+      setNotice(error);
+      return false;
+    }
+    setCaptureState({ ...initialRecordGardenCaptureState(), status: "preparing" });
+    let provisionalTracks = [];
+    let session = null;
+    try {
+      failedCaptureRef.current = null;
+      await directorAudioSignalRef.current?.resume?.();
+      const canvasStream = canvas.captureStream(RECORD_GARDEN_CAPTURE_FPS);
+      const audioStream = directorAudioSignalRef.current?.captureStream?.();
+      const videoTracks = canvasStream?.getVideoTracks?.() || [];
+      const audioTracks = (audioStream?.getAudioTracks?.() || []).map((track) => track.clone());
+      provisionalTracks = [...videoTracks, ...audioTracks];
+      if (!videoTracks.length) throw new Error("The 3D Garden did not expose a captureable video track.");
+      if (!audioTracks.length) throw new Error("The mastered Record Garden audio track is unavailable for capture.");
+      const stream = new MediaStream([...videoTracks, ...audioTracks]);
+      const startedAt = new Date().toISOString();
+      const songTitle = activeRecord?.title || project?.song_title || "Echo State";
+      session = {
+        id: recordGardenRecordingId(),
+        startedAt,
+        startedAtMs: performance.now(),
+        width: Math.max(1, canvas.width || canvas.clientWidth || 1280),
+        height: Math.max(1, canvas.height || canvas.clientHeight || 720),
+        mimeType,
+        stream,
+        audioTrackCount: audioTracks.length,
+        chunks: [],
+        recorder: null,
+        interval: 0,
+        timeout: 0,
+        cancelled: false,
+        lineage: {
+          title: `${songTitle} · Record Garden Session`,
+          songId: activeRecord.songId,
+          songTitle,
+          cutId: cut.id,
+          cutTitle: cut.title || "",
+          weatherPhase: normalizeWeatherPhase(weatherPhase),
+          rightsStatus: project?.rights?.status
+            || project?.rights?.licenseStatus
+            || "review-required-before-public-release",
+        },
+      };
+      const recorder = new MediaRecorder(stream, {
+        mimeType,
+        videoBitsPerSecond: RECORD_GARDEN_CAPTURE_VIDEO_BITS_PER_SECOND,
+        audioBitsPerSecond: 160_000,
+      });
+      session.recorder = recorder;
+      recorder.addEventListener("dataavailable", (event) => {
+        if (!session.cancelled && event.data?.size) session.chunks.push(event.data);
+      });
+      recorder.addEventListener("stop", () => void finalizeRecordGardenCapture(session), { once: true });
+      recorder.addEventListener("error", (event) => {
+        const message = event?.error?.message || "The browser interrupted Record Mode.";
+        session.cancelled = true;
+        if (session.interval) globalThis.clearInterval(session.interval);
+        if (session.timeout) globalThis.clearTimeout(session.timeout);
+        session.stream?.getTracks?.().forEach((track) => {
+          try { track.stop(); } catch {}
+        });
+        if (recordingSessionRef.current === session) recordingSessionRef.current = null;
+        setCaptureState((current) => ({ ...current, status: "failed", error: message }));
+        setNotice(message);
+      });
+      recordingSessionRef.current = session;
+      recorder.start(1_000);
+      session.interval = globalThis.setInterval(() => {
+        const elapsedSeconds = Math.max(0, (performance.now() - session.startedAtMs) / 1000);
+        setCaptureState((current) => current.status === "recording"
+          ? { ...current, elapsedSeconds }
+          : current);
+      }, 250);
+      session.timeout = globalThis.setTimeout(() => {
+        if (recordingSessionRef.current === session && recorder.state !== "inactive") stopRecordMode();
+      }, RECORD_GARDEN_CAPTURE_MAX_SECONDS * 1000);
+      setCaptureState({
+        status: "recording",
+        startedAt,
+        elapsedSeconds: 0,
+        durationSeconds: 0,
+        cardId: "",
+        cardTitle: "",
+        error: "",
+      });
+      setNotice("Record Mode is capturing the 3D session and mastered song audio.");
+      return true;
+    } catch (error) {
+      if (session?.interval) globalThis.clearInterval(session.interval);
+      if (session?.timeout) globalThis.clearTimeout(session.timeout);
+      if (session) session.cancelled = true;
+      if (session?.recorder?.state && session.recorder.state !== "inactive") {
+        try { session.recorder.stop(); } catch {}
+      }
+      if (recordingSessionRef.current === session) recordingSessionRef.current = null;
+      provisionalTracks.forEach((track) => {
+        try { track.stop(); } catch {}
+      });
+      setCaptureState({
+        ...initialRecordGardenCaptureState(),
+        status: "failed",
+        error: error?.message || "Record Mode could not start.",
+      });
+      setNotice(error?.message || "Record Mode could not start.");
+      return false;
+    }
+  }, [captureState.status, finalizeRecordGardenCapture, placedRecordId, playback.playing, project, recordBySongId, sceneReady, stopRecordMode, weatherPhase]);
+
+  const retryRecordGardenCaptureSave = useCallback(() => {
+    const session = failedCaptureRef.current;
+    if (!session || !session.blob) return false;
+    void finalizeRecordGardenCapture(session);
+    return true;
+  }, [finalizeRecordGardenCapture]);
+
+  const toggleRecordMode = useCallback(() => {
+    if (captureState.status === "recording") return stopRecordMode();
+    void startRecordMode();
+    return true;
+  }, [captureState.status, startRecordMode, stopRecordMode]);
+
   const cancelCardResolution = useCallback((visual = selectedVisual) => {
     if (!visual?.id) return;
     cardRequestGenerationRef.current += 1;
@@ -2393,6 +2934,8 @@ export default function EchoRecordGarden3DView({
       globalThis.clearTimeout(hoverPreviewTimerRef.current);
       hoverPreviewTimerRef.current = 0;
     }
+    setHoverPreviewRecordId("");
+    gameRef.current?.setPreviewRecord?.("");
     if (!hoverPreviewSongRef.current) return;
     hoverPreviewSongRef.current = "";
     const audio = audioRef.current;
@@ -2425,15 +2968,20 @@ export default function EchoRecordGarden3DView({
         audio.currentTime = 0;
         audio.load();
       }
-      audio.muted = muted;
+      audio.muted = false;
+      directorAudioSignalRef.current?.setMonitorMuted?.(muted);
       await directorAudioSignalRef.current?.resume?.().catch(() => false);
       await audio.play().then(() => {
         if (hoverPreviewSongRef.current !== songId || placedRecordId) {
           audio.pause();
           return;
         }
+        setHoverPreviewRecordId(songId);
+        gameRef.current?.setPreviewRecord?.(songId);
         setNotice(`Previewing ${record.title}. Move away to stop, or place it on the player.`);
       }).catch(() => {
+        setHoverPreviewRecordId("");
+        gameRef.current?.setPreviewRecord?.("");
         if (hoverPreviewSongRef.current === songId) {
           setNotice(`${record.title} is ready to preview after the next click or key press.`);
         }
@@ -2443,13 +2991,17 @@ export default function EchoRecordGarden3DView({
 
   const ejectPlacedRecord = useCallback((songId = placedRecordId) => {
     if (!songId || songId !== placedRecordId) return;
+    if (captureLocked) {
+      setNotice("Stop Record Mode before lifting the source record from the player.");
+      return;
+    }
     stopHoverPreview({ preserveSource: true });
     const audio = audioRef.current;
     audio?.pause();
     setPlacedRecordId("");
     setPlayback(initialPlaybackState());
     setNotice(`${recordBySongId.get(songId)?.title || "Record"} lifted from the player; playback stopped.`);
-  }, [placedRecordId, recordBySongId, stopHoverPreview]);
+  }, [captureLocked, placedRecordId, recordBySongId, stopHoverPreview]);
 
   useEffect(() => () => {
     if (hoverPreviewTimerRef.current) globalThis.clearTimeout(hoverPreviewTimerRef.current);
@@ -2474,6 +3026,9 @@ export default function EchoRecordGarden3DView({
       game = createEchoRecordGardenGame({
         canvas,
         apiBase,
+        getAudioSignal: (seconds) => directorAudioSignalRef.current?.latest?.(seconds, {
+          maxAgeSeconds: 1 / 30,
+        }) || null,
         onCameraChange: () => setCameraRevision((revision) => revision + 1),
         onRecordTransform: (songId, transform) => {
           setRecordTransforms((current) => {
@@ -2534,6 +3089,14 @@ export default function EchoRecordGarden3DView({
   }, [apiBase, preferences.camera, sceneRevision]);
 
   useEffect(() => {
+    gameRef.current?.setCaptureLocked?.(captureLocked);
+  }, [captureLocked, sceneReady]);
+
+  useEffect(() => {
+    gameRef.current?.setWeatherPhase?.(weatherPhase);
+  }, [sceneReady, weatherPhase]);
+
+  useEffect(() => {
     gameRef.current?.setRecords(records, {
       selectedRecordId,
       placedRecordId,
@@ -2588,6 +3151,15 @@ export default function EchoRecordGarden3DView({
         ? playback.playing ? "Now spinning" : "Record paused"
         : "Table ready"
       : "Setting the table";
+  const captureBusy = captureLocked && captureState.status !== "recording";
+  const captureRecording = captureState.status === "recording";
+  const captureLabel = captureRecording
+    ? `Stop + create Card · ${compactTime(captureState.elapsedSeconds)}`
+    : captureBusy
+      ? captureState.status === "saving" ? "Creating Hapa Card…" : "Finishing recording…"
+      : captureState.status === "complete"
+        ? "Record another session"
+        : "Record Mode";
 
   return (
     <section
@@ -2598,6 +3170,9 @@ export default function EchoRecordGarden3DView({
       data-reduced-motion={reducedMotion ? "true" : "false"}
       data-scene-error={sceneError ? "true" : "false"}
       data-player-error={sceneError || playback.error ? "true" : "false"}
+      data-cinematic={cinematicMode ? "true" : "false"}
+      data-capture-status={captureState.status}
+      data-weather-phase={weatherPhase}
       aria-label="Echo State Record Garden 3D album explorer"
     >
       <canvas
@@ -2641,6 +3216,59 @@ export default function EchoRecordGarden3DView({
           error: "Audio source could not be decoded.",
         }))}
       />
+
+      <div className="echo-record-garden-mode-dock" aria-label="Record Garden experience modes">
+        <button
+          ref={cinematicToggleRef}
+          className="hapa-btn echo-record-cinematic-toggle"
+          data-intent={cinematicMode ? "warning" : "secondary"}
+          type="button"
+          aria-pressed={cinematicMode}
+          aria-label={cinematicMode ? "Exit cinematic mode" : "Enter cinematic mode"}
+          onClick={cinematicMode ? exitCinematicMode : enterCinematicMode}
+        >
+          {cinematicMode ? <Minimize2 size={15} /> : <Maximize2 size={15} />}
+          {cinematicMode ? "Exit · Esc" : "Cinematic Mode"}
+        </button>
+        <button
+          className="hapa-btn echo-record-capture-toggle"
+          data-intent={captureRecording ? "danger" : "primary"}
+          type="button"
+          aria-pressed={captureRecording}
+          disabled={captureBusy || !sceneReady}
+          onClick={toggleRecordMode}
+        >
+          {captureRecording ? <Square size={13} fill="currentColor" /> : <Radio size={15} />}
+          {captureLabel}
+        </button>
+        {captureState.status === "failed" && failedCaptureRef.current?.blob && (
+          <button
+            className="hapa-btn echo-record-capture-retry"
+            type="button"
+            onClick={retryRecordGardenCaptureSave}
+          >
+            Retry Card save
+          </button>
+        )}
+        <span className="echo-record-weather-readout" aria-live="polite">
+          <CloudSun size={14} />
+          {weatherPhaseLabel(weatherPhase)}
+        </span>
+        <span className="echo-record-capture-status" role="status" aria-live="polite">
+          {captureState.error || (captureState.status === "complete"
+            ? `Card ready · ${captureState.cardTitle}`
+            : captureRecording
+              ? "Scene + mastered audio"
+              : "")}
+        </span>
+      </div>
+
+      <div
+        className="echo-record-garden-chrome"
+        hidden={cinematicMode}
+        aria-hidden={cinematicMode ? "true" : undefined}
+        inert={cinematicMode ? "" : undefined}
+      >
 
       <header className="echo-record-garden-hud tarot-draw-hud">
         <div className="echo-record-garden-title tarot-draw-title">
@@ -2818,7 +3446,7 @@ export default function EchoRecordGarden3DView({
               title={card.echoRecordAttachment?.truthStatus || card.truthStatus || "attached card"}
             >
               <strong>{card.title || "Hapa Card"}</strong>
-              <small>{card.echoRecordAttachment?.truthStatus === "local-unminted-projection" ? "LOCAL · UNMINTED" : "SOURCE CARD"}</small>
+              <small>{printedCardCustodyLabel(card)}</small>
             </button>
           ))}
         </aside>
@@ -2832,7 +3460,7 @@ export default function EchoRecordGarden3DView({
             data-testid="echo-record-play-toggle"
             type="button"
             onClick={() => void togglePlayback()}
-            disabled={!selectedRecord}
+            disabled={!selectedRecord || (captureLocked && !placedRecord)}
             aria-label={playback.playing
               ? `Pause ${placedRecord?.title || "record"}`
               : placedRecord
@@ -2887,7 +3515,7 @@ export default function EchoRecordGarden3DView({
             className="hapa-btn echo-record-eject"
             type="button"
             onClick={ejectRecord}
-            disabled={!placedRecord}
+            disabled={!placedRecord || captureLocked}
             aria-label="Return the playing record to the crate"
           >
             <Disc3 size={14} />
@@ -3033,7 +3661,7 @@ export default function EchoRecordGarden3DView({
             type="button"
             className="hapa-btn echo-record-place"
             data-intent="primary"
-            disabled={!selectedRecord}
+            disabled={!selectedRecord || captureLocked}
             onClick={() => void placeRecord(selectedRecordId, { autoplay: true })}
           >
             <Hand size={14} />
@@ -3050,6 +3678,7 @@ export default function EchoRecordGarden3DView({
         apiBase={apiBase}
         captureCheckpoint={() => gameRef.current?.acceptanceSnapshot?.() || null}
       />
+      </div>
     </section>
   );
 }
@@ -3077,6 +3706,7 @@ function createEchoRecordGardenGame({
   canvas,
   apiBase = "",
   getAudioClock,
+  getAudioSignal,
   syncDirectorVisuals,
   onCameraChange,
   onRecordTransform,
@@ -3180,6 +3810,8 @@ function createEchoRecordGardenGame({
   const player = createRecordPlayer(world, sceneResources.materialKit);
   const screens = createAlbumScreens(world, sceneResources.materialKit);
   const catalogConsole = createRecordCatalogConsole(world, sceneResources.materialKit);
+  const audioVisualizer = createEchoRecordGardenAudioVisualizer({ world });
+  diagnostics.visualizerProfile = audioVisualizer.metrics;
   const mediaPool = createScreenMediaPool({
     apiBase,
     renderer,
@@ -3212,7 +3844,9 @@ function createEchoRecordGardenGame({
   let hoveredEntry = null;
   let selectedRecordId = "";
   let placedRecordId = "";
+  let previewRecordId = "";
   let visualRecordId = "";
+  let captureLocked = false;
   let playback = {
     currentTime: 0,
     duration: 0,
@@ -3228,6 +3862,7 @@ function createEchoRecordGardenGame({
     if (adaptiveDetailTier === nextTier) return adaptiveDetailTier;
     adaptiveDetailTier = nextTier;
     sceneResources.setDetailTier?.(nextTier);
+    audioVisualizer.setDetailTier?.(nextTier);
     activePowerProfileId = "";
     applyPowerProfile(playback.reducedMotion);
     diagnostics.adaptiveDetailTier = nextTier;
@@ -3322,6 +3957,11 @@ function createEchoRecordGardenGame({
     }
     const entry = recordHit();
     if (entry) {
+      if (captureLocked) {
+        onStatus?.("Stop Record Mode before moving the source record; this capture keeps one exact song and cut lineage.");
+        event.preventDefault();
+        return;
+      }
       if (entry.placed) {
         onEjectRecord?.(entry.record.songId);
         placedRecordId = "";
@@ -3498,11 +4138,46 @@ function createEchoRecordGardenGame({
     player.dropRing.scale.setScalar(1);
   };
 
+  const handleWheel = (event) => {
+    if (disposed) return;
+    setPointer(event);
+    const entry = heldPrintedEntry || printedCardHit();
+    if (!entry) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    const pageScale = event.deltaMode === 2
+      ? Math.max(320, renderer.domElement.clientHeight || 720)
+      : event.deltaMode === 1
+        ? 16
+        : 1;
+    const rotationDelta = THREE.MathUtils.clamp(Number(event.deltaY) * pageScale * 0.0015, -0.32, 0.32);
+    if (event.shiftKey || event.altKey) {
+      entry.root.rotation.x = THREE.MathUtils.clamp(
+        entry.root.rotation.x + rotationDelta,
+        -Math.PI * 0.49,
+        Math.PI * 0.49,
+      );
+    } else {
+      entry.root.rotation.y = THREE.MathUtils.euclideanModulo(
+        entry.root.rotation.y + rotationDelta + Math.PI,
+        Math.PI * 2,
+      ) - Math.PI;
+    }
+    entry.home.copy(entry.root.position);
+    onPrintedCardTransform?.(entry.card.id, {
+      position: entry.root.position.toArray(),
+      rotation: entry.root.rotation.toArray().slice(0, 3),
+      manipulated: true,
+    });
+    onStatus?.(`Re-oriented ${entry.card.title || "the Hapa Card"} with the scroll wheel.`);
+  };
+
   renderer.domElement.addEventListener("pointerdown", handlePointerDown);
   renderer.domElement.addEventListener("pointermove", handlePointerMove);
   renderer.domElement.addEventListener("pointerup", handlePointerUp);
   renderer.domElement.addEventListener("pointercancel", handlePointerCancel);
   renderer.domElement.addEventListener("lostpointercapture", handlePointerCancel);
+  renderer.domElement.addEventListener("wheel", handleWheel, { passive: false, capture: true });
 
   const handleContextLost = (event) => {
     event.preventDefault();
@@ -3774,6 +4449,25 @@ function createEchoRecordGardenGame({
     controls.enableDamping = !playback.reducedMotion;
     diagnostics.audioTime = playback.currentTime;
     diagnostics.audioState = playback.playing ? "playing" : placedRecordId ? "paused" : "idle";
+  };
+
+  const setPreviewRecord = (songId = "") => {
+    previewRecordId = String(songId || "");
+    return previewRecordId;
+  };
+
+  const setCaptureLocked = (nextLocked = false) => {
+    captureLocked = Boolean(nextLocked);
+    if (captureLocked && heldEntry) handlePointerCancel();
+    canvas.dataset.captureLocked = captureLocked ? "true" : "false";
+    return captureLocked;
+  };
+
+  const setWeatherPhase = (phase = "next") => {
+    const progress = sceneResources.setWeatherPhase?.(phase);
+    diagnostics.weatherPhase = String(phase || "next");
+    canvas.dataset.weatherPhase = diagnostics.weatherPhase;
+    return progress;
   };
 
   const spawnPrintedCard = (card = {}) => {
@@ -4190,6 +4884,25 @@ function createEchoRecordGardenGame({
         }
       }
     });
+    const visualizerRecordId = placedRecordId || previewRecordId;
+    const visualizerEntry = recordEntries.get(visualizerRecordId) || null;
+    const signalFrame = framePlayback.playing && visualizerEntry
+      ? getAudioSignal?.(framePlayback.currentTime)
+      : null;
+    audioVisualizer.setTarget(visualizerEntry?.root || null);
+    audioVisualizer.update({
+      fft: signalFrame?.fft,
+      active: Boolean(visualizerEntry && framePlayback.playing),
+      elapsed,
+      delta,
+      reducedMotion: framePlayback.reducedMotion,
+      heightOffset: visualizerEntry?.placed ? 0.22 : 0.16,
+      radius: visualizerEntry?.placed ? 0.92 : 0.76,
+      accent: visualizerEntry?.edgeMaterial?.emissive?.getHex?.() || 0x56f0cf,
+    });
+    diagnostics.visualizerStatus = visualizerEntry && framePlayback.playing
+      ? signalFrame?.status === "live" ? "live" : "warming"
+      : "idle";
     printedEntries.forEach((entry) => {
       if (!entry.mediaResource || !entry.presentation) return;
       updateMediaResourcePlayback(entry.mediaResource, entry.presentation, {
@@ -4197,7 +4910,7 @@ function createEchoRecordGardenGame({
         elapsed,
         reducedMotion: playback.reducedMotion,
       });
-      if (entry.mediaResource.texture) assignMaterialTexture(entry.videoMaterial, entry.mediaResource.texture);
+      if (entry.mediaResource.texture) applyPrintedCardMediaCover(entry, entry.mediaResource.texture);
     });
     screens.forEach((screen, index) => {
       updateAlbumScreen(screen, {
@@ -4299,6 +5012,7 @@ function createEchoRecordGardenGame({
       canvas.dataset.waitingVideos = String(diagnostics.waitingVideos);
       canvas.dataset.mediaPoolSize = String(diagnostics.mediaPoolSize);
       canvas.dataset.mediaHardSeeks = String(diagnostics.mediaHardSeeks);
+      canvas.dataset.visualizerStatus = diagnostics.visualizerStatus;
       canvas.dataset.rendererMemory = `${diagnostics.rendererMemory.geometries}:${diagnostics.rendererMemory.textures}`;
     }
   };
@@ -4309,6 +5023,9 @@ function createEchoRecordGardenGame({
     setVisuals,
     setPlacedRecord,
     setPlayback,
+    setPreviewRecord,
+    setCaptureLocked,
+    setWeatherPhase,
     spawnPrintedCard,
     focusPrintedCard,
     focusVisual,
@@ -4327,6 +5044,7 @@ function createEchoRecordGardenGame({
       renderer.domElement.removeEventListener("pointerup", handlePointerUp);
       renderer.domElement.removeEventListener("pointercancel", handlePointerCancel);
       renderer.domElement.removeEventListener("lostpointercapture", handlePointerCancel);
+      renderer.domElement.removeEventListener("wheel", handleWheel, { capture: true });
       renderer.domElement.removeEventListener("webglcontextlost", handleContextLost, false);
       renderer.domElement.removeEventListener("webglcontextrestored", handleContextRestored, false);
       controls.removeEventListener("end", handleControlsEnd);
@@ -4345,6 +5063,7 @@ function createEchoRecordGardenGame({
       mediaPool.dispose();
       screens.forEach(disposeAlbumScreen);
       catalogConsole.dispose();
+      audioVisualizer.dispose();
       player.dispose();
       sceneResources.dispose();
       renderer.dispose();
@@ -5486,27 +6205,23 @@ function createPrintedCardEntry(card, mediaPool = null) {
   const root = new THREE.Group();
   root.name = `EchoPrintedCard:${card.id}`;
   const texture = createPrintedCardTexture(card);
-  const faceMaterial = new THREE.MeshStandardMaterial({
-    map: texture,
-    color: 0xffffff,
-    roughness: 0.5,
-    metalness: 0.04,
+  const overlayTexture = createPrintedCardOverlayTexture(card);
+  const edgeMaterial = new THREE.MeshStandardMaterial({
+    color: 0x10252a,
+    roughness: 0.34,
+    metalness: 0.22,
+    emissive: new THREE.Color(0x56f0cf),
+    emissiveIntensity: 0.12,
   });
   const cardMesh = new THREE.Mesh(
-    new THREE.BoxGeometry(0.86, 0.055, 1.18),
-    [
-      new THREE.MeshStandardMaterial({ color: 0x1d1513 }),
-      new THREE.MeshStandardMaterial({ color: 0x1d1513 }),
-      new THREE.MeshStandardMaterial({ color: 0x1d1513 }),
-      new THREE.MeshStandardMaterial({ color: 0x1d1513 }),
-      faceMaterial,
-      new THREE.MeshStandardMaterial({ color: 0x08212b }),
-    ],
+    createEchoGardenRoundedBoxGeometry(1.04, 0.06, 1.48, 0.055, 4),
+    edgeMaterial,
   );
   cardMesh.castShadow = true;
+  cardMesh.receiveShadow = true;
   root.add(cardMesh);
   const halo = new THREE.Mesh(
-    new THREE.BoxGeometry(0.94, 0.018, 1.26),
+    createEchoGardenRoundedBoxGeometry(1.11, 0.018, 1.55, 0.065, 4),
     new THREE.MeshBasicMaterial({ color: 0x56f0cf, transparent: true, opacity: 0.16 }),
   );
   halo.position.y = -0.05;
@@ -5518,18 +6233,33 @@ function createPrintedCardEntry(card, mediaPool = null) {
     color: 0xffffff,
     toneMapped: false,
   });
-  const videoFace = new THREE.Mesh(new THREE.PlaneGeometry(0.72, 0.48), videoMaterial);
+  const videoFace = new THREE.Mesh(new THREE.PlaneGeometry(0.99, 1.43), videoMaterial);
   videoFace.rotation.x = -Math.PI / 2;
-  videoFace.position.set(0, 0.035, -0.17);
+  videoFace.position.set(0, 0.036, 0);
   videoFace.renderOrder = 3;
   root.add(videoFace);
+  const overlayMaterial = new THREE.MeshBasicMaterial({
+    map: overlayTexture,
+    color: 0xffffff,
+    transparent: true,
+    depthWrite: false,
+    toneMapped: false,
+  });
+  const overlayFace = new THREE.Mesh(new THREE.PlaneGeometry(1, 1.44), overlayMaterial);
+  overlayFace.rotation.x = -Math.PI / 2;
+  overlayFace.position.set(0, 0.039, 0);
+  overlayFace.renderOrder = 4;
+  root.add(overlayFace);
   root.userData.printedCardId = card.id;
   root.traverse((object) => { object.userData.printedCardId = card.id; });
-  return {
+  const entry = {
     card,
     root,
     cardMesh,
     texture,
+    overlayTexture,
+    overlayFace,
+    overlayMaterial,
     videoFace,
     videoMaterial,
     mediaResource,
@@ -5537,18 +6267,66 @@ function createPrintedCardEntry(card, mediaPool = null) {
     presentation,
     home: root.position.clone(),
     dragStart: new THREE.Vector3(),
+    videoUvKey: "",
   };
+  applyPrintedCardMediaCover(entry, mediaResource?.texture || texture);
+  return entry;
 }
 
 function disposePrintedCardEntry(entry) {
   if (entry.mediaResource?.poolManaged) entry.mediaPool?.release?.(entry.mediaResource);
   else disposeScreenMediaResource(entry.mediaResource);
   entry.texture?.dispose?.();
+  entry.overlayTexture?.dispose?.();
   entry.root.traverse((object) => {
     object.geometry?.dispose?.();
     if (Array.isArray(object.material)) object.material.forEach((material) => material.dispose?.());
     else object.material?.dispose?.();
   });
+}
+
+function printedCardMediaDimensions(texture) {
+  const image = texture?.image || texture?.source?.data || null;
+  return {
+    width: Math.max(0, Number(image?.videoWidth || image?.naturalWidth || image?.width) || 0),
+    height: Math.max(0, Number(image?.videoHeight || image?.naturalHeight || image?.height) || 0),
+  };
+}
+
+function applyPrintedCardMediaCover(entry, texture) {
+  if (!entry?.videoFace?.geometry || !texture) return false;
+  assignMaterialTexture(entry.videoMaterial, texture);
+  const { width, height } = printedCardMediaDimensions(texture);
+  const key = `${texture.uuid || "texture"}:${width}x${height}`;
+  if (entry.videoUvKey === key) return false;
+  entry.videoUvKey = key;
+  const targetAspect = 0.99 / 1.43;
+  const sourceAspect = width > 0 && height > 0 ? width / height : targetAspect;
+  let uMinimum = 0;
+  let uMaximum = 1;
+  let vMinimum = 0;
+  let vMaximum = 1;
+  if (sourceAspect > targetAspect) {
+    const visibleWidth = targetAspect / sourceAspect;
+    uMinimum = (1 - visibleWidth) / 2;
+    uMaximum = 1 - uMinimum;
+  } else if (sourceAspect < targetAspect) {
+    const visibleHeight = sourceAspect / targetAspect;
+    vMinimum = (1 - visibleHeight) / 2;
+    vMaximum = 1 - vMinimum;
+  }
+  const uv = entry.videoFace.geometry.getAttribute("uv");
+  for (let index = 0; index < uv.count; index += 1) {
+    const sourceU = uv.getX(index) >= 0.5 ? 1 : 0;
+    const sourceV = uv.getY(index) >= 0.5 ? 1 : 0;
+    uv.setXY(
+      index,
+      sourceU ? uMaximum : uMinimum,
+      sourceV ? vMaximum : vMinimum,
+    );
+  }
+  uv.needsUpdate = true;
+  return true;
 }
 
 function createRecordLabelTexture(record = {}) {
@@ -5707,6 +6485,63 @@ function createPrintedCardTexture(card = {}) {
     74,
     784,
   );
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  return texture;
+}
+
+function printedCardCustodyLabel(card = {}) {
+  if (card?.custody?.durableReceipt === true || card?.truthStatus === "durable-local-card") {
+    return "DURABLE LOCAL HAPA CARD";
+  }
+  if (card?.echoRecordAttachment?.truthStatus === "local-unminted-projection") {
+    return "LOCAL PROJECTION · NOT PUBLICLY MINTED";
+  }
+  return "SOURCE-LINKED HAPA CARD";
+}
+
+function createPrintedCardOverlayTexture(card = {}) {
+  const canvas = document.createElement("canvas");
+  canvas.width = 640;
+  canvas.height = 920;
+  const context = canvas.getContext("2d");
+  context.clearRect(0, 0, canvas.width, canvas.height);
+
+  const topShade = context.createLinearGradient(0, 0, 0, 240);
+  topShade.addColorStop(0, "rgba(3,12,16,.9)");
+  topShade.addColorStop(0.7, "rgba(3,12,16,.48)");
+  topShade.addColorStop(1, "rgba(3,12,16,0)");
+  context.fillStyle = topShade;
+  context.fillRect(0, 0, canvas.width, 260);
+
+  const bottomShade = context.createLinearGradient(0, 650, 0, 920);
+  bottomShade.addColorStop(0, "rgba(3,12,16,0)");
+  bottomShade.addColorStop(0.42, "rgba(3,12,16,.68)");
+  bottomShade.addColorStop(1, "rgba(3,12,16,.94)");
+  context.fillStyle = bottomShade;
+  context.fillRect(0, 620, canvas.width, 300);
+
+  context.strokeStyle = "rgba(86,240,207,.95)";
+  context.lineWidth = 9;
+  context.strokeRect(18, 18, canvas.width - 36, canvas.height - 36);
+  context.strokeStyle = "rgba(246,201,109,.82)";
+  context.lineWidth = 2;
+  context.strokeRect(34, 34, canvas.width - 68, canvas.height - 68);
+
+  context.fillStyle = "#56f0cf";
+  context.font = "700 18px ui-monospace, monospace";
+  context.fillText("ECHO RECORD GARDEN // HAPA CARD", 58, 76);
+  context.fillStyle = "#f8f3e7";
+  context.font = "800 39px system-ui";
+  wrapCanvasText(context, card.title || "Attached Visual Card", 58, 126, 524, 45, 3, "left");
+
+  context.fillStyle = "#f6c96d";
+  context.font = "700 17px ui-monospace, monospace";
+  context.fillText(printedCardCustodyLabel(card), 58, 830);
+  context.fillStyle = "rgba(248,243,231,.82)";
+  context.font = "600 17px system-ui";
+  context.fillText("Looping source media · hover + drag · scroll to orient", 58, 865);
+
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
   return texture;

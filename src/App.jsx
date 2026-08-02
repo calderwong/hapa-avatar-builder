@@ -606,6 +606,7 @@ export default function App({ overcardAdapter }) {
   const [selectedSceneAssetId, setSelectedSceneAssetId] = useState(null);
   const [intake, setIntake] = useState(INTAKE_SEED);
   const [activeView, setActiveView] = useState(initialAvatarBuilderView);
+  const [echoRecordGardenCinematic, setEchoRecordGardenCinematic] = useState(false);
   const [bankViewMode, setBankViewMode] = useState("individual"); // "individual" or "guild"
   const [search, setSearch] = useState("");
   const [sound, setSound] = useState(() => localStorage.getItem("hapa-avatar-sound") === "on");
@@ -926,6 +927,7 @@ export default function App({ overcardAdapter }) {
   const appShellClasses = [
     "app-shell",
     activeView === "lookbook" && lookBookReader ? "reader-mode-active" : "",
+    activeView === "echo-records" && echoRecordGardenCinematic ? "record-garden-cinematic-active" : "",
     isProtocolView ? "avatar-card-route" : "",
     avatarCardFocusActive ? "avatar-card-focus" : "",
     tarotDrawStageDocked ? "tarot-scene-docked-active" : ""
@@ -936,6 +938,11 @@ export default function App({ overcardAdapter }) {
       || null,
     [normalizedHapaSongStore.songs, selectedHapaSongId]
   );
+  useEffect(() => {
+    if (activeView !== "echo-records" && echoRecordGardenCinematic) {
+      setEchoRecordGardenCinematic(false);
+    }
+  }, [activeView, echoRecordGardenCinematic]);
   const selectedPlace = useMemo(
     () => normalizedSceneGraph.places.find((place) => place.id === selectedPlaceId) || normalizedSceneGraph.places[0] || null,
     [normalizedSceneGraph, selectedPlaceId]
@@ -3936,6 +3943,8 @@ export default function App({ overcardAdapter }) {
                 sceneGraph={normalizedSceneGraph}
                 selectedSongId={selectedHapaSongId}
                 onSelectSong={setSelectedHapaSongId}
+                cinematicMode={echoRecordGardenCinematic}
+                onCinematicModeChange={setEchoRecordGardenCinematic}
               />
             </Suspense>
           </EchoRecordGardenBoundary>

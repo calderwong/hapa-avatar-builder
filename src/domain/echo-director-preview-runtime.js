@@ -51,6 +51,15 @@ function finite(value, fallback = 0) {
   return Number.isFinite(number) ? number : fallback;
 }
 
+function optionalFinite(...values) {
+  for (const value of values) {
+    if (value === null || value === undefined || value === "") continue;
+    const number = Number(value);
+    if (Number.isFinite(number)) return number;
+  }
+  return null;
+}
+
 function clamp(value, minimum = 0, maximum = 1) {
   return Math.max(minimum, Math.min(maximum, finite(value)));
 }
@@ -442,12 +451,47 @@ function normalizeMediaCue(entry, timelineRows, timeSeconds, fps) {
   const startSeconds = intervalStart(card);
   const endSeconds = intervalEnd(card, fps);
   const media = object(card.media);
+  const parameters = clone(object(card.parameters));
+  const timelineCamera = object(matchingTimeline.camera);
+  const cardCamera = echoCameraKeyframeAt(card.cameraKeyframes, timeSeconds);
+  const camera = {
+    motion: text(
+      matchingTimeline.camera_motion
+        || matchingTimeline.cameraMotion
+        || timelineCamera.motion
+        || parameters.motion
+        || parameters.cameraMotion
+        || cardCamera?.motion,
+    ) || null,
+    intensity: optionalFinite(
+      matchingTimeline.camera_intensity,
+      matchingTimeline.cameraIntensity,
+      timelineCamera.intensity,
+      parameters.cameraIntensity,
+      parameters.camera_intensity,
+      cardCamera?.intensity,
+    ),
+    speed: optionalFinite(
+      matchingTimeline.camera_speed,
+      matchingTimeline.cameraSpeed,
+      timelineCamera.speed,
+      parameters.cameraSpeed,
+      parameters.camera_speed,
+      cardCamera?.speed,
+    ),
+  };
   const cue = {
     id: text(card.id, `media:${trackIndex}:${cardIndex}`),
     cueId: text(card.id, `media:${trackIndex}:${cardIndex}`),
     trackId: text(card.trackId || track.id),
     trackRole: text(track.role, "media"),
     sourceCueIndex,
+    cameraSeedId: text(
+      matchingTimeline.section_id
+        || matchingTimeline.sectionId
+        || matchingTimeline.media_id
+        || matchingTimeline.mediaId,
+    ),
     startSeconds: round(startSeconds),
     endSeconds: round(endSeconds),
     durationSeconds: round(endSeconds - startSeconds),
@@ -460,7 +504,8 @@ function normalizeMediaCue(entry, timelineRows, timeSeconds, fps) {
       sourceInSeconds: round(finite(media.sourceInSeconds ?? matchingTimeline.source_in_seconds ?? matchingTimeline.sourceInSeconds, 0)),
     },
     card: mediaCardIdentity(card, matchingTimeline),
-    parameters: clone(object(card.parameters)),
+    parameters,
+    camera,
     transition: text(card.transition || matchingTimeline.transition, "cut").toLowerCase(),
     provenance: clone(object(card.provenance)),
     sourceTimelineRow: matchingTimeline,
@@ -604,16 +649,24 @@ export function projectEchoDirectorPreviewFrame({
   const visualizers = visualizerCardsAtTime(graph, time)
     .map((card) => normalizeVisualizer(card, graph, time, clockState.fps));
   const globalCamera = echoCameraKeyframeAt(graph.directorV2?.cameraKeyframes, time);
+  const sourceCueIndex = Number.isInteger(primaryMediaCue?.sourceCueIndex)
+    ? primaryMediaCue.sourceCueIndex
+    : null;
+  const cameraSpeed = primaryMediaCue?.camera?.speed ?? globalCamera?.speed;
   const camera = globalCamera ? {
     keyframe: clone(globalCamera),
     presentation: echoCameraCropPresentation(globalCamera.crop),
-    motion: text(primaryMediaCue?.parameters?.motion || globalCamera.motion || globalCamera.shotRole, "static"),
-    intensity: round(finite(primaryMediaCue?.parameters?.cameraIntensity ?? globalCamera.intensity, 1)),
+    motion: text(primaryMediaCue?.camera?.motion || globalCamera.motion || globalCamera.shotRole, "auto"),
+    intensity: round(finite(primaryMediaCue?.camera?.intensity ?? globalCamera.intensity, 1)),
+    speed: cameraSpeed == null ? null : round(finite(cameraSpeed, 1)),
+    sourceCueIndex,
   } : {
     keyframe: null,
     presentation: null,
-    motion: text(primaryMediaCue?.parameters?.motion, "static"),
-    intensity: round(finite(primaryMediaCue?.parameters?.cameraIntensity, 1)),
+    motion: text(primaryMediaCue?.camera?.motion, "auto"),
+    intensity: round(finite(primaryMediaCue?.camera?.intensity, 1)),
+    speed: cameraSpeed == null ? null : round(finite(cameraSpeed, 1)),
+    sourceCueIndex,
   };
 
   const graphLyrics = list(graph.song?.lyricOverlay?.lines);
@@ -924,6 +977,7 @@ export function createEchoDirectorPreviewRuntime({
 
     const receipts = {};
     for (const layer of ECHO_DIRECTOR_PREVIEW_RENDER_ORDER) {
+      if (!requiredLayers.includes(layer)) continue;
       const renderer = rendererFunction(renderAdapters, layer);
       if (typeof renderer !== "function") continue;
       if (typeof staging.context.save === "function") staging.context.save();

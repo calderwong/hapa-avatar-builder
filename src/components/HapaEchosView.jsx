@@ -67,8 +67,8 @@ import {
   resolveEchoOutputProfile,
 } from "../domain/echo-output-profile.js";
 import {
-  echoCameraCropPresentation,
   echoCameraKeyframeAt,
+  echoCameraMotionPresentation,
 } from "../domain/echo-camera-framing.js";
 import { echoDirectorPreviewMediaTransitionState } from "../domain/echo-director-preview-runtime.js";
 import { projectToEditorGraph } from "../domain/multitrack-editor.js";
@@ -836,90 +836,25 @@ function cameraMotionStyleForShot(item, currentTime, isVertical, shotIndex = 0, 
     };
   }
   const start = Number(item.start_sec || 0);
-  const end = Number(item.end_sec || start + 1);
-  const duration = Math.max(0.1, end - start);
-  const rawProgress = Math.max(0, Math.min(1, (currentTime - start) / duration));
-  const fallbackSpeed = 1.15 + ((shotIndex * 17 + String(item.section_id || item.media_id || "").length) % 7) * 0.13;
-  const speed = Math.max(0.75, Math.min(2.4, Number(item.camera_speed ?? item.camera?.speed ?? fallbackSpeed)));
-  const pacedProgress = Math.max(0, Math.min(1, Math.pow(rawProgress, 1 / speed)));
-  const progress = pacedProgress * pacedProgress * (3 - 2 * pacedProgress);
-  const intensity = Math.max(0, Math.min(2, Number(item.camera_intensity ?? item.camera?.intensity ?? 1)));
-  const declaredMotion = item.camera_motion || item.camera?.motion || "auto";
-  const normalizedMotion = declaredMotion === "tilt-up"
-    ? "pan-up"
-    : declaredMotion === "tilt-down"
-      ? "pan-down"
-      : declaredMotion;
-  const autoMotion = isVertical
-    ? ["pan-down", "pan-up", "pan-down-left", "pan-up-right", "pan-down", "pan-up-left"][shotIndex % 6]
-    : ["pan-down", "pan-up", "pan-up-left", "pan-down-right", "slow-push-in", "pan-up-right", "pan-down-left", "drift-diagonal"][shotIndex % 8];
-  const motion = normalizedMotion === "auto" ? autoMotion : normalizedMotion;
-  const baseScale = isVertical ? 1.34 : 1.18;
-  const translateSpan = 4.8 * intensity * speed;
-  const positionSpan = Math.min(42, (isVertical ? 30 : 22) * intensity * Math.min(1.35, speed));
-  let scale = baseScale;
-  let x = 0;
-  let y = 0;
-  let objectX = 50;
-  let objectY = 50;
-
-  const setDirectionalPan = (xDirection, yDirection) => {
-    const phase = (progress * 2) - 1;
-    if (xDirection) {
-      x = xDirection * translateSpan * phase;
-      objectX = 50 + xDirection * positionSpan * phase;
-    }
-    if (yDirection) {
-      y = yDirection * translateSpan * phase;
-      objectY = 50 + yDirection * positionSpan * phase;
-    }
-    const diagonalLift = xDirection && yDirection ? 0.05 : 0;
-    scale = baseScale + diagonalLift + (0.04 * intensity);
-  };
-
-  if (motion === "static") {
-    scale = isVertical ? 1.18 : 1;
-  } else if (motion === "slow-push-in") {
-    scale = baseScale + (0.16 * intensity * progress * speed);
-  } else if (motion === "slow-pull-out") {
-    scale = baseScale + (0.16 * intensity * (1 - progress) * speed);
-  } else if (motion === "pan-left") {
-    setDirectionalPan(-1, 0);
-  } else if (motion === "pan-right") {
-    setDirectionalPan(1, 0);
-  } else if (motion === "pan-up") {
-    setDirectionalPan(0, -1);
-  } else if (motion === "pan-down") {
-    setDirectionalPan(0, 1);
-  } else if (motion === "pan-up-left") {
-    setDirectionalPan(-1, -1);
-  } else if (motion === "pan-up-right") {
-    setDirectionalPan(1, -1);
-  } else if (motion === "pan-down-left") {
-    setDirectionalPan(-1, 1);
-  } else if (motion === "pan-down-right") {
-    setDirectionalPan(1, 1);
-  } else if (motion === "drift-diagonal") {
-    setDirectionalPan(1, -1);
-    scale = baseScale + 0.07 * intensity;
-  } else if (motion === "handheld-float") {
-    const wobble = Math.sin(rawProgress * Math.PI * 4);
-    x = wobble * 3.4 * intensity * speed;
-    y = Math.cos(rawProgress * Math.PI * 3) * 2.8 * intensity * speed;
-    scale = baseScale + 0.025 * intensity;
-  }
-
-  const cropPresentation = echoCameraCropPresentation(cameraCrop);
-  if (cropPresentation) {
-    scale *= cropPresentation.scale;
-    objectX = cropPresentation.centerX;
-    objectY = cropPresentation.centerY;
-  }
+  const presentation = echoCameraMotionPresentation({
+    startSeconds: start,
+    endSeconds: Number(item.end_sec || start + 1),
+    timeSeconds: currentTime,
+    motion: item.camera_motion || item.camera?.motion || "auto",
+    intensity: item.camera_intensity ?? item.camera?.intensity ?? 1,
+    speed: item.camera_speed ?? item.camera?.speed,
+    shotIndex,
+    sourceId: item.section_id || item.media_id || "",
+    isPortrait: isVertical,
+    crop: cameraCrop,
+  });
 
   return {
-    transform: `scale(${scale.toFixed(3)}) translate3d(${x.toFixed(2)}%, ${y.toFixed(2)}%, 0)`,
-    transformOrigin: cropPresentation?.transformOrigin || "center center",
-    objectPosition: `${Math.max(0, Math.min(100, objectX)).toFixed(1)}% ${Math.max(0, Math.min(100, objectY)).toFixed(1)}%`
+    transform: `scale(${presentation.scale.toFixed(3)}) translate3d(${presentation.translateXPercent.toFixed(2)}%, ${presentation.translateYPercent.toFixed(2)}%, 0)`,
+    transformOrigin: presentation.crop
+      ? `${presentation.transformOriginXPercent.toFixed(3)}% ${presentation.transformOriginYPercent.toFixed(3)}%`
+      : "center center",
+    objectPosition: `${presentation.objectPositionXPercent.toFixed(1)}% ${presentation.objectPositionYPercent.toFixed(1)}%`
   };
 }
 
@@ -4991,31 +4926,6 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                       : ECHO_EXPANDED_PREVIEW_WIDTH;
                     const compactPreviewWidth = isVerticalOutput ? "min(100%, 315px, 31.5vh)" : "100%";
 
-                    const isVerticalVideo = (item) => {
-                      if (!item) return false;
-                      if (item.media_id && (item.media_id.includes("tarot") || item.media_id.includes("vertical"))) {
-                        return true;
-                      }
-                      const videoObj = videosById.get(item.media_id);
-                      if (videoObj) {
-                        const videoText = [
-                          videoObj.id,
-                          videoObj.title,
-                          videoObj.flowType,
-                          videoObj.objectiveSummary,
-                          videoObj.narrativeSummary,
-                          ...(videoObj.tags || []),
-                          ...(videoObj.actions || []),
-                          ...(videoObj.objects || [])
-                        ].filter(Boolean).join(" ").toLowerCase();
-                        if (/vertical|portrait|portrait-framing|tarot|768\s*x\s*1168|9:16|9x16/.test(videoText)) {
-                          return true;
-                        }
-                      }
-                      return false;
-                    };
-
-                    const isVerticalSource = isVerticalVideo(currentTimelineItem);
                     const activeShotIndex = playheadShotIndex !== -1 && playheadShotIndex !== undefined ? playheadShotIndex : 0;
                     const activeCameraKeyframe = echoCameraKeyframeAt(activeShowGraph?.directorV2?.cameraKeyframes, currentTime);
                     const cameraPreviewStyle = cameraMotionStyleForShot(currentTimelineItem, currentTime, isVerticalOutput, activeShotIndex, activeCameraKeyframe?.crop);
@@ -5742,7 +5652,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                                       onBufferState={setPreviewBufferState}
                                       onPresentedMediaChange={handlePresentedMediaChange}
                                       clockRef={currentTimeRef}
-                                      vertical={isVerticalSource}
+                                      vertical={isVerticalOutput}
                                       shotIndex={activeShotIndex}
                                       style={{
                                         width: '100%',

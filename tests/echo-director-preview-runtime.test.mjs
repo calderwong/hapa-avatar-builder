@@ -351,6 +351,7 @@ test("one external audio clock deterministically projects media, exact Card, sha
   assert.equal(frame.clock.seconds, 1.233333);
   assert.equal(frame.cut.id, "director-cut-newest");
   assert.equal(frame.primaryMediaCue.id, "cue:garden-open");
+  assert.equal(frame.primaryMediaCue.cameraSeedId, "garden-open");
   assert.equal(frame.currentCard.id, "card:garden-open");
   assert.equal(frame.currentCard.ref, "hapa://card/garden-open");
   assert.equal(frame.transition.kind, "crossfade");
@@ -364,6 +365,9 @@ test("one external audio clock deterministically projects media, exact Card, sha
   assert.equal(frame.visualizers[1].persistentSlotId, "always-on-1");
   assert.equal(frame.visualizers[1].composition.opacity, 0.85);
   assert.equal(frame.camera.motion, "slow-push");
+  assert.equal(frame.camera.intensity, 0.7);
+  assert.equal(frame.camera.speed, null, "an omitted speed stays unset so every renderer uses the shared deterministic fallback");
+  assert.equal(frame.camera.sourceCueIndex, 0);
   assert.deepEqual(frame.camera.keyframe.crop, {
     x: 0.06166665,
     y: 0.06166665,
@@ -376,6 +380,43 @@ test("one external audio clock deterministically projects media, exact Card, sha
   assert.deepEqual(frame.automation.visualTime.map((row) => row.id), ["visual-time:one"]);
   assert.deepEqual(frame.automation.accents.map((row) => row.id), ["accent:one"]);
   assert.deepEqual(frame.automation.effects.map((row) => row.id), ["effect:one"]);
+});
+
+test("camera projection preserves current timeline motion, intensity, speed, and deterministic cue index", () => {
+  const source = paritySource();
+  Object.assign(source.project.timeline[0], {
+    camera_motion: "pan-up-right",
+    camera_intensity: 1.4,
+    camera_speed: 1.85,
+  });
+  Object.assign(source.showGraph.tracks[0].cards[0].parameters, {
+    motion: "stale-card-motion",
+    cameraIntensity: 0.2,
+    cameraSpeed: 0.4,
+  });
+
+  const frame = projectEchoDirectorPreviewFrame({ source, timeSeconds: 1.25 });
+
+  assert.equal(frame.camera.motion, "pan-up-right");
+  assert.equal(frame.camera.intensity, 1.4);
+  assert.equal(frame.camera.speed, 1.85);
+  assert.equal(frame.camera.sourceCueIndex, 0);
+  assert.deepEqual(frame.primaryMediaCue.camera, {
+    motion: "pan-up-right",
+    intensity: 1.4,
+    speed: 1.85,
+  });
+});
+
+test("camera projection preserves Director auto motion and fallback speed semantics when metadata is unset", () => {
+  const frame = projectEchoDirectorPreviewFrame({ source: paritySource(), timeSeconds: 3.5 });
+
+  assert.equal(frame.primaryMediaCue.id, "cue:tea-table");
+  assert.equal(frame.camera.motion, "auto");
+  assert.equal(frame.camera.speed, null);
+  assert.equal(frame.camera.intensity, 1);
+  assert.equal(frame.camera.sourceCueIndex, 1);
+  assert.equal(frame.primaryMediaCue.cameraSeedId, "tea-table");
 });
 
 test("half-open cue seams select the next Director cue and use stable transition noise", () => {
@@ -472,6 +513,48 @@ test("single-canvas runtime renders every parity layer in canonical order from t
   await runtime.render();
   assert.equal(runtime.snapshot().frame.currentCard.id, "card:tea-table");
   assert.equal(canvas.context.draws, 2);
+});
+
+test("layer-only Director gaps render their active shader and lyrics without invoking a stale media adapter", async () => {
+  const source = paritySource();
+  source.project.timeline = source.project.timeline.slice(0, 1);
+  source.showGraph.tracks[0].cards = source.showGraph.tracks[0].cards.slice(0, 1);
+  const gapLyric = {
+    id: "line-in-gap",
+    start: 4,
+    end: 5,
+    text: "The garden keeps glowing",
+    words: [{ word: "glowing", start: 4, end: 5 }],
+  };
+  source.project.timed_lyrics.push(gapLyric);
+  source.showGraph.song.lyricOverlay.lines.push(gapLyric);
+
+  const canvas = fakeCanvas();
+  const calls = [];
+  const runtime = createEchoDirectorPreviewRuntime({
+    canvas,
+    source,
+    clock: 4.2,
+    adapters: {
+      media() {
+        throw new Error("a media adapter must not run when no media cue is active");
+      },
+      visualizers() {
+        calls.push("visualizers");
+      },
+      lyrics() {
+        calls.push("lyrics");
+      },
+    },
+  });
+
+  const snapshot = await runtime.render();
+
+  assert.equal(snapshot.status, "rendered-parity-contract");
+  assert.equal(snapshot.frame.primaryMediaCue, null);
+  assert.deepEqual(calls, ["visualizers", "lyrics"]);
+  assert.deepEqual(Object.keys(snapshot.receipts), ["visualizers", "lyrics"]);
+  assert.equal(canvas.context.draws, 1, "the composed layer-only frame is published atomically");
 });
 
 test("adapter failure preserves the last fully composed output frame", async () => {
