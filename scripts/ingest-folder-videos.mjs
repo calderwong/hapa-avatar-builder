@@ -65,6 +65,17 @@ export function folderVideoIngestPersistencePlan(noAttach = NO_ATTACH) {
   };
 }
 
+export function folderVideoFrameIdentity(contentFingerprint = "", marker = "") {
+  const fingerprintShort = String(contentFingerprint).trim().toLowerCase().replace(/^sha256:/, "").slice(0, 16);
+  if (!/^[a-f0-9]{16}$/.test(fingerprintShort)) throw new Error("A hexadecimal folder-video fingerprint is required.");
+  if (!["first", "mid", "last"].includes(marker)) throw new Error(`Unsupported folder-video frame marker: ${marker}`);
+  const id = `folder-video-${fingerprintShort}-frame-${marker}`;
+  return {
+    id,
+    fileName: `${id}.jpg`
+  };
+}
+
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) await main();
 
 async function main() {
@@ -453,7 +464,7 @@ async function createFolderVideoAsset(entry, existingRecord = null) {
   const mediaPath = path.join(MEDIA_DIR, mediaName);
   await ensureSymlink(entry.path, mediaPath);
   const metadata = await probeVideo(entry.path);
-  const frames = await extractFrameSet(entry, metadata, base, fingerprintShort);
+  const frames = await extractFrameSet(entry, metadata, fingerprintShort);
   const asset = createMediaAsset({
     id: existingRecord?.asset?.id || `folder-video-${fingerprintShort}`,
     name: entry.name,
@@ -567,7 +578,7 @@ async function probeVideo(filePath) {
   }
 }
 
-async function extractFrameSet(entry, metadata, base, fingerprintShort) {
+async function extractFrameSet(entry, metadata, fingerprintShort) {
   const duration = Number(metadata.duration || 0);
   const times = {
     first: duration > 0.05 ? 0.02 : 0,
@@ -581,7 +592,8 @@ async function extractFrameSet(entry, metadata, base, fingerprintShort) {
   };
   const frames = [];
   for (const marker of ["first", "mid", "last"]) {
-    const frameName = `${base}-${fingerprintShort}-${marker}-frame.jpg`;
+    const frameIdentity = folderVideoFrameIdentity(fingerprintShort, marker);
+    const frameName = frameIdentity.fileName;
     const framePath = path.join(MEDIA_DIR, frameName);
     try {
       await extractFrame(entry.path, times[marker], framePath);
@@ -590,7 +602,7 @@ async function extractFrameSet(entry, metadata, base, fingerprintShort) {
     }
     const frameStat = await stat(framePath).catch(() => null);
     frames.push({
-      id: `folder-video-${fingerprintShort}-frame-${marker}`,
+      id: frameIdentity.id,
       marker,
       label: marker === "mid" ? "Mid frame" : `${marker[0].toUpperCase()}${marker.slice(1)} frame`,
       role: roles[marker],
