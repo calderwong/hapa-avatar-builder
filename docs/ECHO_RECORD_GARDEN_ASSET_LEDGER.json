@@ -649,7 +649,10 @@
         "recoveryP95Ms": 19,
         "recoveryWindows": 4,
         "reducedDprFactor": 0.82,
-        "protectedDuringAcceptanceCapture": true
+        "reducedDprFloor": 0.72,
+        "reducedShadows": false,
+        "discontinuitySamplesDiscarded": true,
+        "protectedDuringAcceptanceCapture": "force-full-and-restore-prior-tier"
       },
       "postProcessingPasses": 0,
       "measurementNote": "These are deterministic construction-profile counts exposed by the scene, not warmed frame-time or draw-call acceptance evidence."

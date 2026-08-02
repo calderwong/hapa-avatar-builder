@@ -3116,22 +3116,22 @@ function createEchoRecordGardenGame({
       : ECHO_RECORD_GARDEN_POWER_PROFILES.full;
     const profileKey = `${profile.id}:${adaptiveDetailTier}`;
     if (activePowerProfileId === profileKey) return profile;
-    const adaptivePixelRatioFactor = adaptiveDetailTier === "reduced" ? 0.82 : 1;
-    const pixelRatio = Math.min(
-      globalThis.devicePixelRatio || 1,
-      profile.pixelRatioCap * adaptivePixelRatioFactor,
-    );
+    const basePixelRatio = Math.min(globalThis.devicePixelRatio || 1, profile.pixelRatioCap);
+    const pixelRatio = adaptiveDetailTier === "reduced"
+      ? Math.max(0.72, basePixelRatio * 0.82)
+      : basePixelRatio;
     renderer.setPixelRatio(pixelRatio);
-    renderer.shadowMap.enabled = profile.shadows;
+    const shadowsEnabled = profile.shadows && adaptiveDetailTier !== "reduced";
+    renderer.shadowMap.enabled = shadowsEnabled;
     activePowerProfileId = profileKey;
     diagnostics.powerProfile = profile.id;
     diagnostics.adaptiveDetailTier = adaptiveDetailTier;
     diagnostics.renderPixelRatio = pixelRatio;
-    diagnostics.shadowsEnabled = profile.shadows;
+    diagnostics.shadowsEnabled = shadowsEnabled;
     canvas.dataset.powerProfile = profile.id;
     canvas.dataset.adaptiveDetailTier = adaptiveDetailTier;
     canvas.dataset.renderPixelRatio = pixelRatio.toFixed(2);
-    canvas.dataset.shadows = profile.shadows ? "enabled" : "disabled";
+    canvas.dataset.shadows = shadowsEnabled ? "enabled" : "disabled";
     return profile;
   };
   const initialReducedMotion = globalThis.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches === true;
@@ -3206,6 +3206,7 @@ function createEchoRecordGardenGame({
   let previousFrameSeconds = 0;
   const frameTimingSamples = [];
   let acceptanceRunId = "";
+  let acceptanceDetailTierBeforeRun = null;
   let heldEntry = null;
   let heldPrintedEntry = null;
   let hoveredEntry = null;
@@ -3236,6 +3237,13 @@ function createEchoRecordGardenGame({
   sceneResources.setDetailTier?.(adaptiveDetailTier);
   diagnostics.adaptiveDetailTier = adaptiveDetailTier;
   canvas.dataset.adaptiveDetailTier = adaptiveDetailTier;
+
+  const resetAdaptiveTiming = () => {
+    frameTimingSamples.length = 0;
+    previousFrameSeconds = 0;
+    pressureWindows = 0;
+    recoveryWindows = 0;
+  };
 
   const setPointer = (event) => {
     const bounds = renderer.domElement.getBoundingClientRect();
@@ -3508,6 +3516,7 @@ function createEchoRecordGardenGame({
   };
   const handleContextRestored = () => {
     try {
+      resetAdaptiveTiming();
       sceneResources.rebuildEnvironmentResponse?.();
       diagnostics.contextState = "restored";
       diagnostics.lastError = "";
@@ -3524,6 +3533,7 @@ function createEchoRecordGardenGame({
   renderer.domElement.addEventListener("webglcontextrestored", handleContextRestored, false);
 
   const resize = () => {
+    resetAdaptiveTiming();
     const bounds = canvas.parentElement?.getBoundingClientRect() || canvas.getBoundingClientRect();
     const width = Math.max(1, Math.round(bounds.width));
     const height = Math.max(1, Math.round(bounds.height));
@@ -4053,7 +4063,12 @@ function createEchoRecordGardenGame({
       : 0;
     const delta = Math.min(0.05, rawDelta);
     previousFrameSeconds = elapsed;
-    if (rawDelta > 0) {
+    const timingDiscontinuity = document.hidden || rawDelta > 0.25;
+    if (timingDiscontinuity) {
+      frameTimingSamples.length = 0;
+      pressureWindows = 0;
+      recoveryWindows = 0;
+    } else if (rawDelta > 0) {
       frameTimingSamples.push(rawDelta * 1000);
       const frameSampleLimit = activeAcceptanceRun() ? 12_000 : 600;
       if (frameTimingSamples.length > frameSampleLimit) frameTimingSamples.shift();
@@ -4070,6 +4085,10 @@ function createEchoRecordGardenGame({
     const acceptanceRun = activeAcceptanceRun();
     if (acceptanceRun) {
       if (acceptanceRunId !== acceptanceRun.startedAt) {
+        if (acceptanceDetailTierBeforeRun == null) {
+          acceptanceDetailTierBeforeRun = adaptiveDetailTier;
+        }
+        setAdaptiveDetailTier("full");
         acceptanceRunId = String(acceptanceRun.startedAt || `acceptance-${Date.now()}`);
         frameTimingSamples.length = 0;
       }
@@ -4107,7 +4126,11 @@ function createEchoRecordGardenGame({
       acceptanceRun.lastPlaybackSongId = String(placedRecordId || "");
       acceptanceRun.lastPlaybackCutId = currentCutId;
     } else {
+      if (acceptanceRunId && acceptanceDetailTierBeforeRun) {
+        setAdaptiveDetailTier(acceptanceDetailTierBeforeRun);
+      }
       acceptanceRunId = "";
+      acceptanceDetailTierBeforeRun = null;
     }
     if (syncDirectorVisuals) syncDirectorVisuals(framePlayback.currentTime);
     const framePowerProfile = framePlayback.reducedMotion

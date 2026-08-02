@@ -179,7 +179,10 @@
       "recoveryP95Ms": 19,
       "recoveryWindows": 4,
       "reducedDprFactor": 0.82,
-      "protectedDuringAcceptanceCapture": true
+      "reducedDprFloor": 0.72,
+      "reducedShadows": false,
+      "discontinuitySamplesDiscarded": true,
+      "protectedDuringAcceptanceCapture": "force-full-and-restore-prior-tier"
     },
     "measurementStatus": "pending-current-build-fixed-camera-capture"
   },

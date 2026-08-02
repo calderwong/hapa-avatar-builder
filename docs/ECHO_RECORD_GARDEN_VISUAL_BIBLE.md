@@ -402,8 +402,11 @@ Additional ceilings:
   worst-case view;
 - one shadow-casting light and at most three active scene lights;
 - sustained non-acceptance p95 frame pressure above `28 ms` for two 120-frame
-  windows switches only secondary ambience to the reduced tier and applies a
-  `0.82` DPR factor; four windows below `19 ms` restore the full tier;
+  windows switches secondary ambience to the reduced tier, disables real-time
+  shadows, and applies a `0.82` DPR factor with a `0.72` floor; four windows
+  below `19 ms` restore the full tier. Hidden-tab, resize, context-recovery,
+  and long-discontinuity samples are discarded, and guided acceptance forces
+  the full tier for the run before restoring the prior tier;
 - first-interaction 3D/texture payload `≤ 12 MiB`;
 - any future signature-prop GLB `≤ 4 MiB`, `≤ 120k` visible triangles, and
   textures `≤ 2K` before integration;

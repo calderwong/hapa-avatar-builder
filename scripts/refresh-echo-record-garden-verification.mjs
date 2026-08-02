@@ -37,6 +37,16 @@ function round(value, places = 2) {
   return Math.round(Number(value) * scale) / scale;
 }
 
+function uniqueStrings(values = []) {
+  const seen = new Set();
+  return values.filter((entry) => {
+    const value = String(entry);
+    if (seen.has(value)) return false;
+    seen.add(value);
+    return true;
+  });
+}
+
 function withinRoot(root, candidate) {
   return candidate === root || candidate.startsWith(`${root}${path.sep}`);
 }
@@ -127,7 +137,7 @@ export function createEchoRecordGardenVerificationLedger({
 
   const existingPlayback = previous.playback || {};
   const existingRepairs = Array.isArray(previous?.mediaStabilization?.repairs)
-    ? previous.mediaStabilization.repairs.filter((entry) => !/display triptych/iu.test(String(entry)))
+    ? uniqueStrings(previous.mediaStabilization.repairs.filter((entry) => !/display triptych/iu.test(String(entry))))
     : [];
   const humanEvidenceNotProven = [
     "current-revision-live-webgl-pixels",
@@ -180,11 +190,11 @@ export function createEchoRecordGardenVerificationLedger({
     },
     mediaStabilization: {
       ...(previous.mediaStabilization || {}),
-      repairs: [
+      repairs: uniqueStrings([
         ...existingRepairs,
         "Project the exact current Director composite onto one large horizontal screen and the same physical record face.",
         "Keep one visible Director composite plus one upcoming warm source inside a bounded fourteen-resource decoder and shader pool.",
-      ],
+      ]),
       currentPresentation: {
         cinematicScreens: 1,
         recordFaces: 1,

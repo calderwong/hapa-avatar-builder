@@ -91,7 +91,8 @@ test("the cinematic preview preserves source color and exposes renderer budget e
 
 test("the garden sheds only secondary detail after sustained frame pressure and recovers with hysteresis", () => {
   assert.match(component, /let adaptiveDetailTier = "full"/);
-  assert.match(component, /profile\.pixelRatioCap \* adaptivePixelRatioFactor/);
+  assert.match(component, /basePixelRatio \* 0\.82/);
+  assert.match(component, /profile\.shadows && adaptiveDetailTier !== "reduced"/);
   assert.match(component, /const p95FrameMs = recentFrameTimes\[/);
   assert.match(component, /p95FrameMs > 28/);
   assert.match(component, /pressureWindows >= 2/);
@@ -99,6 +100,11 @@ test("the garden sheds only secondary detail after sustained frame pressure and 
   assert.match(component, /recoveryWindows >= 4/);
   assert.match(component, /sceneResources\.setDetailTier\?\.\(nextTier\)/);
   assert.match(component, /!activeAcceptanceRun\(\)/);
+  assert.match(component, /const timingDiscontinuity = document\.hidden \|\| rawDelta > 0\.25/);
+  assert.match(component, /resetAdaptiveTiming\(\)/);
+  assert.match(component, /acceptanceDetailTierBeforeRun = adaptiveDetailTier/);
+  assert.match(component, /setAdaptiveDetailTier\("full"\)/);
+  assert.match(component, /setAdaptiveDetailTier\(acceptanceDetailTierBeforeRun\)/);
   assert.match(component, /canvas\.dataset\.adaptiveDetailTier = nextTier/);
 });
 

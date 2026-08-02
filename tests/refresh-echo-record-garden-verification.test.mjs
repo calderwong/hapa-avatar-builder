@@ -54,7 +54,11 @@ test("refresh binds one cinematic screen and the record face to the exact delive
       focusedTests: { status: "passed", tests: 139, passed: 139 },
       broadRepositorySuite: { status: "passed", blanketCurrentRevisionGreenClaimed: true },
       liveService: { status: "healthy-current-source", pid: 35888, acceptanceContextStatus: 200 },
-      mediaStabilization: { repairs: ["Project the current cue across the default display triptych."] },
+      mediaStabilization: { repairs: [
+        "Project the current cue across the default display triptych.",
+        "Project the exact current Director composite onto one large horizontal screen and the same physical record face.",
+        "Project the exact current Director composite onto one large horizontal screen and the same physical record face.",
+      ] },
     },
     root: "/fixture/hapa-avatar-builder",
     implementationRevision: REVISION,
@@ -85,6 +89,10 @@ test("refresh binds one cinematic screen and the record face to the exact delive
   assert.equal(ledger.offlineAcceptance.status, "current-implementation-revision-run-not-recorded");
   assert.equal(ledger.board.fullyDrained, false);
   assert.ok(ledger.mediaStabilization.repairs.every((entry) => !/triptych/iu.test(entry)));
+  assert.equal(
+    ledger.mediaStabilization.repairs.filter((entry) => /exact current Director composite/iu.test(entry)).length,
+    1,
+  );
 });
 
 test("refresh accepts an offline receipt only when it is bound to the exact implementation revision", () => {
