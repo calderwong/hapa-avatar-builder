@@ -1,0 +1,103 @@
+{
+  "schemaVersion": "hapa.echo.video-source-prior-overrides.v1",
+  "authority": "operator-confirmed-card-lineage",
+  "policy": "Content-addressed provenance overlay only. Review titles are descriptive and never used for classification.",
+  "evidenceSources": [
+    "/Users/calderwong/Library/Application Support/hapa-ag/persistence.db#cards",
+    "artifacts/echo-playback-media-v2/cache.json"
+  ],
+  "overrides": [
+    {
+      "mediaId": "hapa-media:sha256:0adb2dcbb46f3818fc0570b152db73a7bdd50fde64d9d2346af4ae230772a063",
+      "reviewTitle": "Hell Week Data Weave - Loop #1",
+      "sourceClass": "hell-week",
+      "prior": 0.1,
+      "sourceCatalog": "hell-week",
+      "rootCardId": "card-1767694834564-u8xte1",
+      "coreId": "hell-week-card-card-1767694834564-u8xte1",
+      "sourceReferenceRunId": "run-1767694724230-6s0b4i",
+      "sourcePath": "/Users/calderwong/Library/Application Support/hapa-ag/wormhole/card-videos/loop-video-1783308952398-uoqxyv.mp4"
+    },
+    {
+      "mediaId": "hapa-media:sha256:14e5698b244398883e5ff9119ff200fef44d7be62f3161a500b631d63ed1785b",
+      "reviewTitle": "The Hell Week Pipeline - Image #1",
+      "sourceClass": "hell-week",
+      "prior": 0.1,
+      "sourceCatalog": "hell-week",
+      "rootCardId": "card-1767694873732-g0vju0",
+      "coreId": "hell-week-card-card-1767694873732-g0vju0",
+      "sourceReferenceRunId": "run-1767694724230-6s0b4i",
+      "sourcePath": "/Users/calderwong/Library/Application Support/hapa-ag/wormhole/card-videos/loop-video-1779539145088-93j3a5.mp4"
+    },
+    {
+      "mediaId": "hapa-media:sha256:3918cdb53e49dcb993a87509a911746b272184a4785dcb6ac0cdb0fb6b674e2f",
+      "reviewTitle": "Hell Week Protocol - Image #1 - Loop #1",
+      "sourceClass": "hell-week",
+      "prior": 0.1,
+      "sourceCatalog": "hell-week",
+      "rootCardId": "card-1767694865391-jcyvpy",
+      "coreId": "hell-week-card-card-1767694865391-jcyvpy",
+      "sourceReferenceRunId": "run-1767694724230-6s0b4i",
+      "sourcePath": "data/media/echo-proxies-v2/171bbefa0274bdfad2182ce4.mp4",
+      "derivedFromMediaId": "hapa-media:sha256:b41b16c245a7feead54170483ba2f9df745aa5f30fd3b4cc5406fa6ba9efeec1"
+    },
+    {
+      "mediaId": "hapa-media:sha256:622da3cc610366bdc06fa09324bb436854ac8bd102df832424508f1104948fc7",
+      "reviewTitle": "Hell Week Data Weave - Loop #1",
+      "sourceClass": "hell-week",
+      "prior": 0.1,
+      "sourceCatalog": "hell-week",
+      "rootCardId": "card-1767694834564-u8xte1",
+      "coreId": "hell-week-card-card-1767694834564-u8xte1",
+      "sourceReferenceRunId": "run-1767694724230-6s0b4i",
+      "sourcePath": "data/media/echo-proxies-v2/4239a2558fbee95380fe00a5.mp4",
+      "derivedFromMediaId": "hapa-media:sha256:0adb2dcbb46f3818fc0570b152db73a7bdd50fde64d9d2346af4ae230772a063"
+    },
+    {
+      "mediaId": "hapa-media:sha256:9a9b61e043dc266a021348d6a088bec01a05b407456f5b68b9f04226328e4a47",
+      "reviewTitle": "The Hell Week Pipeline - Image #1",
+      "sourceClass": "hell-week",
+      "prior": 0.1,
+      "sourceCatalog": "hell-week",
+      "rootCardId": "card-1767694873732-g0vju0",
+      "coreId": "hell-week-card-card-1767694873732-g0vju0",
+      "sourceReferenceRunId": "run-1767694724230-6s0b4i",
+      "sourcePath": "data/media/echo-proxies-v2/c7234685a0edb9b2e7697b42.mp4",
+      "derivedFromMediaId": "hapa-media:sha256:14e5698b244398883e5ff9119ff200fef44d7be62f3161a500b631d63ed1785b"
+    },
+    {
+      "mediaId": "hapa-media:sha256:9c0c330e43231aca83225128efb318e26d8b7e5e4315d5a292b48e6bcf874da5",
+      "reviewTitle": "Hell Week Data Weave - Image #1 - Loop #1",
+      "sourceClass": "hell-week",
+      "prior": 0.1,
+      "sourceCatalog": "hell-week",
+      "rootCardId": "card-1767694834564-u8xte1",
+      "coreId": "hell-week-card-card-1767694834564-u8xte1",
+      "sourceReferenceRunId": "run-1767694724230-6s0b4i",
+      "sourcePath": "data/media/echo-proxies-v2/34c39090bfcb2a941b9b9da0.mp4",
+      "derivedFromMediaId": "hapa-media:sha256:c5fd9b227bc1ca7319bc7fd95b2ab2d7950b59f6ca5bf6a3fa71c7a83e70b998"
+    },
+    {
+      "mediaId": "hapa-media:sha256:b41b16c245a7feead54170483ba2f9df745aa5f30fd3b4cc5406fa6ba9efeec1",
+      "reviewTitle": "Hell Week Protocol - Image #1 - Loop #1",
+      "sourceClass": "hell-week",
+      "prior": 0.1,
+      "sourceCatalog": "hell-week",
+      "rootCardId": "card-1767694865391-jcyvpy",
+      "coreId": "hell-week-card-card-1767694865391-jcyvpy",
+      "sourceReferenceRunId": "run-1767694724230-6s0b4i",
+      "sourcePath": "/Users/calderwong/Library/Application Support/hapa-ag/wormhole/card-videos/loop-video-1779477781436.mp4"
+    },
+    {
+      "mediaId": "hapa-media:sha256:c5fd9b227bc1ca7319bc7fd95b2ab2d7950b59f6ca5bf6a3fa71c7a83e70b998",
+      "reviewTitle": "Hell Week Data Weave - Image #1 - Loop #1",
+      "sourceClass": "hell-week",
+      "prior": 0.1,
+      "sourceCatalog": "hell-week",
+      "rootCardId": "card-1767694834564-u8xte1",
+      "coreId": "hell-week-card-card-1767694834564-u8xte1",
+      "sourceReferenceRunId": "run-1767694724230-6s0b4i",
+      "sourcePath": "/Users/calderwong/Library/Application Support/hapa-ag/wormhole/card-videos/loop-video-1783126123189-enga1w.mp4"
+    }
+  ]
+}
