@@ -10,12 +10,12 @@
     "acceptanceState": "exact-build-guided-human-acceptance-pending"
   },
   "source": {
-    "canonicalImplementationRevision": "b0472b647061d6debf87f0523a762b3811b54a14",
+    "canonicalImplementationRevision": "917cdc83cdff94a723b200aa75dce8cb429dde37",
     "canonicalCheckout": "/Users/calderwong/Documents/Codex/2026-06-10/files-mentioned-by-the-user-screenshot/outputs/hapa-avatar-builder",
     "revisionAuthority": "git-rev-parse-HEAD",
     "buildSourceAuthority": "dist/hapa-echo-delivery-build.json",
     "workingTreeClean": false,
-    "workingTreeChangeCount": 8,
+    "workingTreeChangeCount": 5,
     "unrelatedWorkingTreeChangesPreserved": true,
     "truthBoundary": "The Git revision identifies committed implementation history; the delivery receipt independently binds the exact built source and served files."
   },
@@ -254,7 +254,7 @@
     "scope": "pure-node-static-and-domain-runtime-contract",
     "evidenceRecordedByRefresh": false,
     "staleReceiptIgnored": true,
-    "observedReceiptHead": "a20ee95aed858736cd4e5135582f5716ebd2f54e",
+    "observedReceiptHead": "b0472b647061d6debf87f0523a762b3811b54a14",
     "requiredCommand": "node scripts/verify-record-garden-offline-contract.mjs",
     "note": "Run the offline verifier on the current implementation revision, then refresh this ledger again."
   },
@@ -309,5 +309,5 @@
     "mintAuthorityClaimed": false,
     "completeVisualFamilyCoverageEverySongClaimed": false
   },
-  "generatedAt": "2026-08-02T23:26:18.822Z"
+  "generatedAt": "2026-08-02T23:34:14.397Z"
 }
