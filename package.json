@@ -41,6 +41,8 @@
     "echo:variants:builder-balanced:apply": "node scripts/append-balanced-builder-direction-variants.mjs --apply",
     "echo:variants:builder-media-eligible": "node scripts/append-eligible-builder-media-direction-variants.mjs",
     "echo:variants:builder-media-eligible:apply": "node scripts/append-eligible-builder-media-direction-variants.mjs --apply",
+    "echo:variants:ref-cards-expanded": "node scripts/append-ref-cards-expanded-direction-variants.mjs",
+    "echo:variants:ref-cards-expanded:apply": "node scripts/append-ref-cards-expanded-direction-variants.mjs --apply",
     "echo:variants:wide-cuts": "node scripts/append-balanced-builder-direction-variants.mjs --wide-cuts",
     "echo:variants:wide-cuts:apply": "node scripts/append-balanced-builder-direction-variants.mjs --wide-cuts --apply",
     "echo:variants:parity:missing": "node scripts/ingest-scroll-site-media.mjs --missing-only --variants-only && node scripts/append-balanced-builder-direction-variants.mjs --missing-only && node scripts/append-balanced-builder-direction-variants.mjs --wide-cuts --missing-only",
