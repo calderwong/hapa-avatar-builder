@@ -10,7 +10,7 @@
     "acceptanceState": "exact-build-guided-human-acceptance-pending"
   },
   "source": {
-    "canonicalImplementationRevision": "61ab2c5403a02f72b15e592e64008b05865d73ae",
+    "canonicalImplementationRevision": "c75a54db245b63e9a5fc34764d3d2e4f9137838a",
     "canonicalCheckout": "/Users/calderwong/Documents/Codex/2026-06-10/files-mentioned-by-the-user-screenshot/outputs/hapa-avatar-builder",
     "revisionAuthority": "git-rev-parse-HEAD",
     "buildSourceAuthority": "dist/hapa-echo-delivery-build.json",
@@ -85,14 +85,6 @@
       "Give video and image sources dedicated GPU textures and promote an already-decoded frame immediately.",
       "Render URI-less Director visualizer intervals as animated, audio-clock-bound visuals rather than blank output.",
       "Treat an empty initial media plan as explicit standby and release the prior record-face resource exactly once.",
-      "Project the exact current Director composite onto one large horizontal screen and the same physical record face.",
-      "Keep one visible Director composite plus one upcoming warm source inside a bounded fourteen-resource decoder and shader pool.",
-      "Project the exact current Director composite onto one large horizontal screen and the same physical record face.",
-      "Keep one visible Director composite plus one upcoming warm source inside a bounded fourteen-resource decoder and shader pool.",
-      "Project the exact current Director composite onto one large horizontal screen and the same physical record face.",
-      "Keep one visible Director composite plus one upcoming warm source inside a bounded fourteen-resource decoder and shader pool.",
-      "Project the exact current Director composite onto one large horizontal screen and the same physical record face.",
-      "Keep one visible Director composite plus one upcoming warm source inside a bounded fourteen-resource decoder and shader pool.",
       "Project the exact current Director composite onto one large horizontal screen and the same physical record face.",
       "Keep one visible Director composite plus one upcoming warm source inside a bounded fourteen-resource decoder and shader pool."
     ],
@@ -225,35 +217,39 @@
     "replaysSideEffects": false
   },
   "focusedTests": {
-    "status": "current-implementation-revision-run-not-recorded",
+    "status": "passed-current-implementation-revision",
     "script": "npm run test:echo-record-garden",
-    "evidenceRecordedByRefresh": false,
-    "note": "This build-identity refresh never carries forward test totals from an earlier revision."
+    "implementationRevision": "c75a54db245b63e9a5fc34764d3d2e4f9137838a",
+    "tests": 167,
+    "passed": 167,
+    "failed": 0,
+    "ranAt": "2026-08-02T01:50:05.000Z",
+    "executionBoundary": "Temporary loopback listeners required the approved unsandboxed test profile; no external service was mutated."
   },
   "summaryAndDetailApi": {
-    "status": "current-service-run-not-recorded",
-    "evidenceRecordedByRefresh": false,
-    "note": "Live catalog and exact-cut counts must come from a separate current service probe."
+    "status": "passed-current-implementation-temporary-loopback",
+    "script": "npm run test:echo-record-garden",
+    "note": "The compact summary and exact detail route passed inside the current-revision focused suite; this is not a catalog-count claim for the long-running service."
   },
   "productionBuild": {
     "status": "current-delivery-identity-verified",
     "verification": "strict-static-import-graph-and-served-bundle-identity",
     "recordGardenChunk": {
-      "file": "dist/assets/EchoRecordGarden3DView-DUzqboKC.js",
-      "bytes": 183725,
-      "viteSizeKb": 183.73,
-      "viteGzipKb": 58.3,
-      "sha256": "90f3e5ce079bfd7ce241500f131f2181312c7a7288d00054001c3d353f71f700"
+      "file": "dist/assets/EchoRecordGarden3DView-6CcdHRo9.js",
+      "bytes": 204458,
+      "viteSizeKb": 204.46,
+      "viteGzipKb": 65.25,
+      "sha256": "eeb6515bd7b0ab481ace9f5349194afedcc1303446c7db485bae2ba1c5cfe804"
     },
     "deliveryReceipt": {
       "schemaVersion": "hapa.echo.delivery-build-receipt.v1",
       "contractVersion": "echo-delivery-static-import-graph-v3",
-      "sourceSha256": "sha256:77b46982049b7306a9d74db1adb3a32a83dac2db8f71365e1839eaeb086b2984",
-      "servedBundleSha256": "sha256:33999a938242c0ebafebaf39cb7ca6c06733c03b8f732fb631a8e2c4eef8fc58",
+      "sourceSha256": "sha256:4e8a2c8fc21befaea1bb908a17cffc48c31d341c27651815cae2da7948501cba",
+      "servedBundleSha256": "sha256:4a6590d5beecf949693c25fd2ae4c25fd4c350f32af164b609171d6c804f8c27",
       "buildToolSha256": "sha256:1458948a2f71573eebcfbe8a1273966282b40f20c765ead59e4799e83f300fe1",
-      "semanticSha256": "sha256:fad52674b08460df4ef4f0e120251c0d85a8a3ec90337707c9ee04a1581ee72a",
-      "fileSha256": "8b5684a5b0776add18e7e5504a2f7c2eb2ca16213869fdecb2c18b0cf395b616",
-      "generatedAt": "2026-08-02T00:02:50.251Z"
+      "semanticSha256": "sha256:3f81f1ad6f7625cfa690e5374a31563e0fce33507bcc55a5fdff5896331db341",
+      "fileSha256": "3b24bbc15b06e83f5ff9b3bdd2ed11f5b951786b452ea0b471bcb9ccbccd3bfe",
+      "generatedAt": "2026-08-02T01:47:09.527Z"
     },
     "warning": "Record Garden remains independently lazy-loaded; this refresh makes no size claim about unrelated application chunks."
   },
@@ -265,10 +261,10 @@
     "passed": 9,
     "failed": 0,
     "receiptPath": "artifacts/echo-record-garden/e2e/offline-contract-receipt.json",
-    "receiptSha256": "3c344b16132014cd517ae30bc961a1696f8cd05bbc241fab606f38df773999b4",
+    "receiptSha256": "a39607fd7654be6edabada4a6422598f1a77c6afce64ef6fbaafee4d597a2be6",
     "fixtureManifestSha256": "7adefdbb80adf3b357d0f35513fd91718f6840f229c6b29e53793db990d5c111",
-    "boundHead": "61ab2c5403a02f72b15e592e64008b05865d73ae",
-    "generatedAt": "2026-08-02T00:06:07.349Z"
+    "boundHead": "c75a54db245b63e9a5fc34764d3d2e4f9137838a",
+    "generatedAt": "2026-08-02T01:48:05.367Z"
   },
   "broadRepositorySuite": {
     "status": "current-implementation-revision-run-not-recorded",
@@ -277,19 +273,22 @@
     "note": "This refresh intentionally removes broad-suite totals that are not bound to the current implementation revision."
   },
   "liveService": {
-    "status": "not-observed-by-verification-refresh",
+    "status": "healthy-current-source-and-delivery",
     "configuredPort": 8797,
-    "pid": null,
-    "observedAt": null,
-    "startedAt": null,
+    "pid": 52046,
+    "observedAt": "2026-08-02T01:50:05.814Z",
+    "startedAt": "2026-08-02T01:49:45.861Z",
+    "healthStatus": 200,
+    "currentSourceFresh": true,
+    "servedDeliverySemanticSha256": "sha256:3f81f1ad6f7625cfa690e5374a31563e0fce33507bcc55a5fdff5896331db341",
     "acceptanceContextStatus": null,
     "acceptanceContextSigned": null,
     "acceptanceContextExactBuild": null,
-    "restartRequiredAfterLedgerRefresh": true,
-    "note": "Restart and probe the canonical service separately; this script never carries forward a PID, health result, uptime, or acceptance-context status."
+    "restartRequiredAfterLedgerRefresh": false,
+    "note": "The canonical launchd-owned service was restarted and its health freshness plus served delivery receipt were probed separately; guided browser acceptance remains pending."
   },
   "runtimeEvidence": {
-    "currentRevisionAutomation": "exact-production-build-identity-recorded; focused, broad, service, and browser evidence remain separate",
+    "currentRevisionAutomation": "exact-production-build identity, nine offline checks, 167 focused tests, and canonical service freshness recorded; broad repository and browser evidence remain separate",
     "manualAcceptance": "pending",
     "guidedAcceptanceRoute": "http://127.0.0.1:8797/?view=echo-records&recordGardenReview=1",
     "receiptSchema": "hapa.echo-record-garden.operator-acceptance.v1",
@@ -321,5 +320,5 @@
     "mintAuthorityClaimed": false,
     "completeVisualFamilyCoverageEverySongClaimed": false
   },
-  "generatedAt": "2026-08-02T00:06:17.762Z"
+  "generatedAt": "2026-08-02T01:50:29.000Z"
 }
