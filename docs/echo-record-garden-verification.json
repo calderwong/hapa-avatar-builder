@@ -10,7 +10,7 @@
     "acceptanceState": "exact-build-guided-human-acceptance-pending"
   },
   "source": {
-    "canonicalImplementationRevision": "e2a28e2fe51cd322e42dfdb0dcb6e5ebd80bcc85",
+    "canonicalImplementationRevision": "61ab2c5403a02f72b15e592e64008b05865d73ae",
     "canonicalCheckout": "/Users/calderwong/Documents/Codex/2026-06-10/files-mentioned-by-the-user-screenshot/outputs/hapa-avatar-builder",
     "revisionAuthority": "git-rev-parse-HEAD",
     "buildSourceAuthority": "dist/hapa-echo-delivery-build.json",
@@ -85,6 +85,12 @@
       "Give video and image sources dedicated GPU textures and promote an already-decoded frame immediately.",
       "Render URI-less Director visualizer intervals as animated, audio-clock-bound visuals rather than blank output.",
       "Treat an empty initial media plan as explicit standby and release the prior record-face resource exactly once.",
+      "Project the exact current Director composite onto one large horizontal screen and the same physical record face.",
+      "Keep one visible Director composite plus one upcoming warm source inside a bounded fourteen-resource decoder and shader pool.",
+      "Project the exact current Director composite onto one large horizontal screen and the same physical record face.",
+      "Keep one visible Director composite plus one upcoming warm source inside a bounded fourteen-resource decoder and shader pool.",
+      "Project the exact current Director composite onto one large horizontal screen and the same physical record face.",
+      "Keep one visible Director composite plus one upcoming warm source inside a bounded fourteen-resource decoder and shader pool.",
       "Project the exact current Director composite onto one large horizontal screen and the same physical record face.",
       "Keep one visible Director composite plus one upcoming warm source inside a bounded fourteen-resource decoder and shader pool.",
       "Project the exact current Director composite onto one large horizontal screen and the same physical record face.",
@@ -233,21 +239,21 @@
     "status": "current-delivery-identity-verified",
     "verification": "strict-static-import-graph-and-served-bundle-identity",
     "recordGardenChunk": {
-      "file": "dist/assets/EchoRecordGarden3DView-BCDefDBv.js",
-      "bytes": 167540,
-      "viteSizeKb": 167.54,
-      "viteGzipKb": 51.77,
-      "sha256": "51a26d0aa312b9a877779fd8739e5c9ac5df256d6e98253606a96f3f27c349fe"
+      "file": "dist/assets/EchoRecordGarden3DView-DUzqboKC.js",
+      "bytes": 183725,
+      "viteSizeKb": 183.73,
+      "viteGzipKb": 58.3,
+      "sha256": "90f3e5ce079bfd7ce241500f131f2181312c7a7288d00054001c3d353f71f700"
     },
     "deliveryReceipt": {
       "schemaVersion": "hapa.echo.delivery-build-receipt.v1",
       "contractVersion": "echo-delivery-static-import-graph-v3",
-      "sourceSha256": "sha256:77df4b1410eff5789a3d3303da8a056e1627ab2edc0ac904804a989221e25943",
-      "servedBundleSha256": "sha256:27bf9e4a04e69a069a7c36cdc6c6071e3a2ba69e736dcefa60ebb1aeb2e4d6c1",
+      "sourceSha256": "sha256:77b46982049b7306a9d74db1adb3a32a83dac2db8f71365e1839eaeb086b2984",
+      "servedBundleSha256": "sha256:33999a938242c0ebafebaf39cb7ca6c06733c03b8f732fb631a8e2c4eef8fc58",
       "buildToolSha256": "sha256:1458948a2f71573eebcfbe8a1273966282b40f20c765ead59e4799e83f300fe1",
-      "semanticSha256": "sha256:220aea923c371cad17d97c7eb96816d835d3308a28e8f4430aa5082ce599c788",
-      "fileSha256": "64bf9ea332778768350ca03467439ce89a694db6e8b53ba3286deafe92db7574",
-      "generatedAt": "2026-08-01T22:54:39.491Z"
+      "semanticSha256": "sha256:fad52674b08460df4ef4f0e120251c0d85a8a3ec90337707c9ee04a1581ee72a",
+      "fileSha256": "8b5684a5b0776add18e7e5504a2f7c2eb2ca16213869fdecb2c18b0cf395b616",
+      "generatedAt": "2026-08-02T00:02:50.251Z"
     },
     "warning": "Record Garden remains independently lazy-loaded; this refresh makes no size claim about unrelated application chunks."
   },
@@ -259,10 +265,10 @@
     "passed": 9,
     "failed": 0,
     "receiptPath": "artifacts/echo-record-garden/e2e/offline-contract-receipt.json",
-    "receiptSha256": "9e40739cb744b8dadd11c01079646e841070a2bed9d5a0921d29fba9e839dd35",
+    "receiptSha256": "3c344b16132014cd517ae30bc961a1696f8cd05bbc241fab606f38df773999b4",
     "fixtureManifestSha256": "7adefdbb80adf3b357d0f35513fd91718f6840f229c6b29e53793db990d5c111",
-    "boundHead": "e2a28e2fe51cd322e42dfdb0dcb6e5ebd80bcc85",
-    "generatedAt": "2026-08-01T23:03:21.748Z"
+    "boundHead": "61ab2c5403a02f72b15e592e64008b05865d73ae",
+    "generatedAt": "2026-08-02T00:06:07.349Z"
   },
   "broadRepositorySuite": {
     "status": "current-implementation-revision-run-not-recorded",
@@ -315,5 +321,5 @@
     "mintAuthorityClaimed": false,
     "completeVisualFamilyCoverageEverySongClaimed": false
   },
-  "generatedAt": "2026-08-01T23:03:21.911Z"
+  "generatedAt": "2026-08-02T00:06:17.762Z"
 }
