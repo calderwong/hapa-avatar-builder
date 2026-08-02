@@ -10,12 +10,12 @@
     "acceptanceState": "exact-build-guided-human-acceptance-pending"
   },
   "source": {
-    "canonicalImplementationRevision": "a20ee95aed858736cd4e5135582f5716ebd2f54e",
+    "canonicalImplementationRevision": "b0472b647061d6debf87f0523a762b3811b54a14",
     "canonicalCheckout": "/Users/calderwong/Documents/Codex/2026-06-10/files-mentioned-by-the-user-screenshot/outputs/hapa-avatar-builder",
     "revisionAuthority": "git-rev-parse-HEAD",
     "buildSourceAuthority": "dist/hapa-echo-delivery-build.json",
     "workingTreeClean": false,
-    "workingTreeChangeCount": 6,
+    "workingTreeChangeCount": 8,
     "unrelatedWorkingTreeChangesPreserved": true,
     "truthBoundary": "The Git revision identifies committed implementation history; the delivery receipt independently binds the exact built source and served files."
   },
@@ -231,36 +231,32 @@
     "status": "current-delivery-identity-verified",
     "verification": "strict-static-import-graph-and-served-bundle-identity",
     "recordGardenChunk": {
-      "file": "dist/assets/EchoRecordGarden3DView-yfvt2c8E.js",
-      "bytes": 204389,
-      "viteSizeKb": 204.39,
-      "viteGzipKb": 65.4,
-      "sha256": "1384b402f2664183a2e14463ca675ce7ef9b275d7d5c8e4c56a6f80fd3751390"
+      "file": "dist/assets/EchoRecordGarden3DView-0Pg1vtv7.js",
+      "bytes": 204420,
+      "viteSizeKb": 204.42,
+      "viteGzipKb": 65.42,
+      "sha256": "29189e1b2e81bdd4a9b2f2906cf8eaae4db4c7b0013a023fee4bd46f2c67f0b0"
     },
     "deliveryReceipt": {
       "schemaVersion": "hapa.echo.delivery-build-receipt.v1",
       "contractVersion": "echo-delivery-static-import-graph-v3",
-      "sourceSha256": "sha256:9809e8583edb936f9fd020562454775ade0e66ddd270f6b119b51076a78aac6e",
-      "servedBundleSha256": "sha256:52d6ea9a8c0473972449159bcdbc69a57011312eff61bdc6579c2b035743d44e",
+      "sourceSha256": "sha256:4820ef17019bd5f5d73db4fa4f44f0115c65f55911516ee2bad9e732e8318bcc",
+      "servedBundleSha256": "sha256:f277ba7a6b0bde8339fb94e85a2c759bcef484ecf1076c2757968cbf07a64c5c",
       "buildToolSha256": "sha256:1458948a2f71573eebcfbe8a1273966282b40f20c765ead59e4799e83f300fe1",
-      "semanticSha256": "sha256:3faa2781095778c6f5743947e2ef2eeac5ca330d2e31ebb311f5b5453ec0bc50",
-      "fileSha256": "580c906a2a612cefeb5d1559d8c39bf85be75f599a64af5be22073eb85136a86",
-      "generatedAt": "2026-08-02T22:35:08.008Z"
+      "semanticSha256": "sha256:42eab268aef7186f1a1ae3d06f2f1897531b3faa39bba6950e37c5f2bc8e7f40",
+      "fileSha256": "c3a938c02bbeb8d452b76e5903fb877da91b1da97799c639f61fce6231cb9643",
+      "generatedAt": "2026-08-02T23:26:01.782Z"
     },
     "warning": "Record Garden remains independently lazy-loaded; this refresh makes no size claim about unrelated application chunks."
   },
   "offlineAcceptance": {
-    "status": "passed-current-implementation-revision",
+    "status": "current-implementation-revision-run-not-recorded",
     "scope": "pure-node-static-and-domain-runtime-contract",
-    "truthBoundary": "This receipt validates deterministic fixture media, API recovery contracts, domain composition/Card resolution, source contracts, and the built asset graph. It is not browser, Electron, WebGL, audio-device, touch, layout, or screenshot evidence.",
-    "checks": 9,
-    "passed": 9,
-    "failed": 0,
-    "receiptPath": "artifacts/echo-record-garden/e2e/offline-contract-receipt.json",
-    "receiptSha256": "90b2e0936f0a47e8f528fe6633d1f4d224cd0a3f0148e19d1950921380470af5",
-    "fixtureManifestSha256": "7adefdbb80adf3b357d0f35513fd91718f6840f229c6b29e53793db990d5c111",
-    "boundHead": "a20ee95aed858736cd4e5135582f5716ebd2f54e",
-    "generatedAt": "2026-08-02T22:40:09.060Z"
+    "evidenceRecordedByRefresh": false,
+    "staleReceiptIgnored": true,
+    "observedReceiptHead": "a20ee95aed858736cd4e5135582f5716ebd2f54e",
+    "requiredCommand": "node scripts/verify-record-garden-offline-contract.mjs",
+    "note": "Run the offline verifier on the current implementation revision, then refresh this ledger again."
   },
   "broadRepositorySuite": {
     "status": "current-implementation-revision-run-not-recorded",
@@ -313,5 +309,5 @@
     "mintAuthorityClaimed": false,
     "completeVisualFamilyCoverageEverySongClaimed": false
   },
-  "generatedAt": "2026-08-02T22:40:14.317Z"
+  "generatedAt": "2026-08-02T23:26:18.822Z"
 }

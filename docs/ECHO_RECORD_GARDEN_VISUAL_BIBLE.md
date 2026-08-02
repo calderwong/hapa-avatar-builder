@@ -594,3 +594,23 @@ score the same build → complete human visual and public-rights acceptance.
   camera-facing behavior by incrementing local Euler axes.
 - **Reuse candidate:** the parent-aware surface-facing helper is a compact
   Three.js spatial-interaction Lesson Card candidate linked to this Codex Turn.
+
+### Foreground table / lyric-safe clearance checkpoint
+
+- **Objective:** keep the record player, table, Records, and printed Cards in a
+  distinct foreground depth band so they do not cover the enlarged Director
+  screen or its lower lyric region in the default composition.
+- **Evidence inspected:** the live Record Garden frame, default camera, doubled
+  Director screen bounds, table dimensions, player height, and the shared
+  table interaction/scenery transform.
+- **What was misunderstood:** the earlier 1.1-unit minimum protected physical
+  collision depth but was not enough visual separation for the doubled screen.
+- **Changed:** the complete table ensemble moved forward together and now has a
+  tested minimum 3.75-unit gap from the screen face.
+- **Left alone:** local object transforms, pickup/drop behavior, saved Card and
+  Record poses, Director playback, lyrics, media clocks, and camera controls.
+- **New guardrail:** screen-to-table clearance is a named spatial contract; a
+  future scenery adjustment cannot silently return the table to the lyric-safe
+  region by weakening a magic-number assertion.
+- **Reuse candidate:** combine world-depth clearance with the canonical camera
+  composition when protecting hero UI surfaces in interactive 3D dioramas.
