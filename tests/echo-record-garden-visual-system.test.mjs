@@ -144,7 +144,7 @@ test("the enlarged Director screen keeps physical scenery outside its protected 
 
     const tableRearEdge = layout.tableStage.z - 5.9 / 2;
     const screenFront = layout.screen.z + layout.screenHalfDepth;
-    assert.ok(tableRearEdge > screenFront + 0.25, "table and screen need a visible depth gap");
+    assert.ok(tableRearEdge > screenFront + 1.1, "table and screen need a generous depth gap");
     const screenBack = layout.screen.z - layout.screenHalfDepth;
     const shadeForwardEdge = layout.directorFrame.position.z + 0.24 + 1.2 / 2 + 0.02;
     assert.ok(shadeForwardEdge < screenBack - 0.1, "screen structure must remain behind the screen face");

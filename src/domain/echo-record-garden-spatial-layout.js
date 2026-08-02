@@ -9,7 +9,7 @@ const freezePoint = (point) => Object.freeze({ ...point });
  * surface unobstructed after the screen was enlarged.
  */
 export const ECHO_RECORD_GARDEN_SPATIAL_LAYOUT = Object.freeze({
-  tableStage: freezePoint({ x: 0, y: 0, z: -0.65 }),
+  tableStage: freezePoint({ x: 0, y: 0, z: 0.25 }),
   screen: freezePoint({ x: 0, y: 2.72, z: -4.1, ry: 0, scale: 2 }),
   screenHalfWidth: 7.44,
   screenHalfDepth: 0.2,

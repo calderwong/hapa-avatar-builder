@@ -530,13 +530,14 @@ score the same build → complete human visual and public-rights acceptance.
 ### Enlarged-screen clearance checkpoint
 
 - **Objective:** keep the doubled Director surface visually unobstructed while
-  moving the picnic-table composition slightly deeper into the garden.
+  giving the picnic-table stage a clearly separated foreground depth band.
 - **Evidence inspected:** the authored screen, timber frame, planters, parasol,
   table props, Record/Card roots, drag plane, player drop target, and saved local
   transforms.
 - **Changed:** the table and all table-bound interactions now share one offset
-  coordinate frame; the screen has a separate depth gap; frame posts, planters,
-  and parasol sit outside the screen footprint.
+  coordinate frame; the stage maintains at least 1.1 scene units of tested
+  clearance from the screen; frame posts, planters, and parasol sit outside the
+  screen footprint.
 - **Left alone:** Director playback, media clocks, lighting, materials, weather,
   source records, Card custody, and mint authority.
 - **New guardrail:** move spatial ensembles through shared parent transforms and
