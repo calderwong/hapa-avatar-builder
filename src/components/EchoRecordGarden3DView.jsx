@@ -5415,7 +5415,7 @@ function setPlayerRecordVisual(player, visual, { mediaPool }) {
 
 function createAlbumScreens(world, materialKit = null) {
   const specs = [
-    { x: 0, y: 2.72, z: -2.68, ry: 0, scale: 1 },
+    { x: 0, y: 2.72, z: -2.68, ry: 0, scale: 2 },
   ];
   return specs.map((spec, index) => {
     const root = new THREE.Group();
