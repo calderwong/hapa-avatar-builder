@@ -419,6 +419,15 @@ function usageCount(state, candidate = {}) {
     : 0;
 }
 
+export function balancedCandidateEditorialWeight(candidate = {}) {
+  const requested = finite(candidate.editorialMotionWeight, 1);
+  return Math.max(0.25, Math.min(4, requested || 1));
+}
+
+function normalizedUsageLoad(state, candidate = {}) {
+  return usageCount(state, candidate) / balancedCandidateEditorialWeight(candidate);
+}
+
 function candidateCardKey(candidate = {}) {
   return String(candidate.cardId || `${normalizeSourceGroup(candidate)}:${candidate.ownerId || candidate.id || "unknown"}`);
 }
@@ -436,7 +445,7 @@ function refillBalancedBag(state, sourceGroup) {
   const shuffled = deterministicShuffle(bag.candidates, `${state.seed}:${sourceGroup}:bag:${bag.pass}`);
   const shuffleRank = new Map(shuffled.map((candidate, index) => [technicalIdentity(candidate), index]));
   bag.remaining = state.sharedUsageCounts instanceof Map
-    ? shuffled.sort((a, b) => usageCount(state, a) - usageCount(state, b)
+    ? shuffled.sort((a, b) => normalizedUsageLoad(state, a) - normalizedUsageLoad(state, b)
       || finite(shuffleRank.get(technicalIdentity(a)), 0) - finite(shuffleRank.get(technicalIdentity(b)), 0))
     : shuffled;
   bag.currentPassUsed = false;
@@ -464,12 +473,12 @@ function chooseBalancedCandidate(state, shot = {}) {
   const nonRepeating = bag.remaining.filter((candidate) => technicalIdentity(candidate) !== state.lastTechnicalIdentity);
   const eligible = nonRepeating.length ? nonRepeating : bag.remaining;
   const preference = preferredRoleForShot(shot);
-  const leastUsage = state.sharedUsageCounts instanceof Map
-    ? Math.min(...eligible.map((candidate) => usageCount(state, candidate)))
+  const leastUsageLoad = state.sharedUsageCounts instanceof Map
+    ? Math.min(...eligible.map((candidate) => normalizedUsageLoad(state, candidate)))
     : null;
-  const coveragePool = leastUsage === null
+  const coveragePool = leastUsageLoad === null
     ? eligible
-    : eligible.filter((candidate) => usageCount(state, candidate) === leastUsage);
+    : eligible.filter((candidate) => Math.abs(normalizedUsageLoad(state, candidate) - leastUsageLoad) < 1e-9);
   const roleMatches = coveragePool.filter((candidate) => candidate.motionRole === preference.role);
   let candidate;
   if (state.sharedUsageCounts instanceof Map) {
@@ -506,6 +515,8 @@ function chooseBalancedCandidate(state, shot = {}) {
 
   const rolePreferenceHit = candidate.motionRole === preference.role;
   const priorAlbumUsage = usageCount(state, candidate);
+  const editorialMotionWeight = balancedCandidateEditorialWeight(candidate);
+  const priorAlbumUsageLoad = priorAlbumUsage / editorialMotionWeight;
   const cardKey = candidateCardKey(candidate);
   const priorAlbumCardUsage = cardUsageCount(state, candidate);
   if (state.sharedUsageCounts instanceof Map) {
@@ -526,7 +537,10 @@ function chooseBalancedCandidate(state, shot = {}) {
     albumUsageAfter: priorAlbumUsage + 1,
     priorAlbumCardUsage,
     albumCardUsageAfter: priorAlbumCardUsage + 1,
-    coveragePriorityHit: leastUsage === null || priorAlbumUsage === leastUsage,
+    editorialMotionWeight,
+    priorAlbumUsageLoad,
+    albumUsageLoadAfter: (priorAlbumUsage + 1) / editorialMotionWeight,
+    coveragePriorityHit: leastUsageLoad === null || Math.abs(priorAlbumUsageLoad - leastUsageLoad) < 1e-9,
     coverageLedgerActive: state.sharedUsageCounts instanceof Map,
     shuffleBagPass: bag.pass + 1,
     strategy: rolePreferenceHit
@@ -702,6 +716,9 @@ function recastBalancedShot(shot = {}, candidate = {}, evidence = {}) {
           technicalIdentity: technicalIdentity(candidate),
           priorAlbumUses: evidence.priorAlbumUsage,
           albumUsesAfterSelection: evidence.albumUsageAfter,
+          editorialMotionWeight: evidence.editorialMotionWeight,
+          priorAlbumUsageLoad: evidence.priorAlbumUsageLoad,
+          albumUsageLoadAfterSelection: evidence.albumUsageLoadAfter,
           priorAlbumCardUses: evidence.priorAlbumCardUsage,
           albumCardUsesAfterSelection: evidence.albumCardUsageAfter,
           leastUsedPrioritySatisfied: evidence.coveragePriorityHit === true,

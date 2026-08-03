@@ -56,6 +56,9 @@ const ROOT_ARGS = process.argv
   .filter((arg) => arg !== "true");
 const ROOTS = unique(ROOT_ARGS.length ? ROOT_ARGS : DEFAULT_ROOTS).map((item) => path.resolve(item));
 
+export const FOLDER_VIDEO_SOURCE_MANIFEST_SCHEMA = "hapa.folder-video-source-library-manifest.v1";
+const FOLDER_VIDEO_FRAME_MARKERS = Object.freeze(["first", "mid", "last"]);
+
 export function folderVideoIngestPersistencePlan(noAttach = NO_ATTACH) {
   return {
     mediaLibrary: true,
@@ -68,11 +71,154 @@ export function folderVideoIngestPersistencePlan(noAttach = NO_ATTACH) {
 export function folderVideoFrameIdentity(contentFingerprint = "", marker = "") {
   const fingerprintShort = String(contentFingerprint).trim().toLowerCase().replace(/^sha256:/, "").slice(0, 16);
   if (!/^[a-f0-9]{16}$/.test(fingerprintShort)) throw new Error("A hexadecimal folder-video fingerprint is required.");
-  if (!["first", "mid", "last"].includes(marker)) throw new Error(`Unsupported folder-video frame marker: ${marker}`);
+  if (!FOLDER_VIDEO_FRAME_MARKERS.includes(marker)) throw new Error(`Unsupported folder-video frame marker: ${marker}`);
   const id = `folder-video-${fingerprintShort}-frame-${marker}`;
   return {
     id,
     fileName: `${id}.jpg`
+  };
+}
+
+export function folderVideoHasCompleteFrameSet(frames = [], contentFingerprint = "") {
+  if (!Array.isArray(frames) || frames.length !== FOLDER_VIDEO_FRAME_MARKERS.length) return false;
+  const fingerprint = String(contentFingerprint || "").trim();
+  const byMarker = new Map();
+  for (const frame of frames) {
+    const marker = String(frame?.marker || "").trim();
+    if (!FOLDER_VIDEO_FRAME_MARKERS.includes(marker) || byMarker.has(marker)) return false;
+    if (!String(frame?.id || "").trim() || !String(frame?.uri || "").trim()) return false;
+    if (fingerprint && frame.id !== folderVideoFrameIdentity(fingerprint, marker).id) return false;
+    byMarker.set(marker, frame);
+  }
+  return FOLDER_VIDEO_FRAME_MARKERS.every((marker) => byMarker.has(marker));
+}
+
+export async function folderVideoHasReadableCompleteFrameSet(
+  frames = [],
+  contentFingerprint = "",
+  { mediaDirectory = MEDIA_DIR } = {},
+) {
+  if (!folderVideoHasCompleteFrameSet(frames, contentFingerprint)) return false;
+  for (const frame of frames) {
+    const filePath = frame.uri.startsWith("/media/")
+      ? path.join(mediaDirectory, frame.uri.slice("/media/".length))
+      : mediaPathForUri(frame.uri);
+    if (!filePath) return false;
+    const info = await stat(filePath).catch(() => null);
+    if (!info?.isFile() || info.size <= 0) return false;
+  }
+  return true;
+}
+
+function normalizedSourceRelativePaths(value = {}) {
+  return Object.fromEntries(Object.entries(value || {})
+    .map(([root, relativePath]) => [String(root), String(relativePath).replaceAll("\\", "/")])
+    .sort(([left], [right]) => left.localeCompare(right)));
+}
+
+function canonicalFolderVideoSourceEntry(entry = {}, includeLibraryRecordId = false) {
+  const rawSourcePath = String(entry.sourcePath || entry.path || "").trim();
+  if (!rawSourcePath || !path.isAbsolute(rawSourcePath)) {
+    throw new Error("Folder-video source manifest requires an absolute source path.");
+  }
+  const sourcePath = path.resolve(rawSourcePath);
+  const contentFingerprint = String(entry.contentFingerprint || "").trim().toLowerCase().replace(/^sha256:/, "");
+  const sizeBytes = Number(entry.sizeBytes ?? entry.stat?.size);
+  const mtimeMs = Number(entry.mtimeMs ?? entry.stat?.mtimeMs);
+  const sourceRoots = unique(entry.sourceRoots || entry.coverage?.sourceRoots || []).sort();
+  const sourceRelativePaths = normalizedSourceRelativePaths(
+    entry.sourceRelativePaths || entry.coverage?.sourceRelativePaths || {},
+  );
+  if (!Number.isFinite(sizeBytes) || sizeBytes <= 0) throw new Error(`Folder-video source manifest has an invalid size: ${sourcePath}`);
+  if (!Number.isFinite(mtimeMs) || mtimeMs <= 0) throw new Error(`Folder-video source manifest has an invalid mtime: ${sourcePath}`);
+  if (!/^[a-f0-9]{64}$/u.test(contentFingerprint)) throw new Error(`Folder-video source manifest has an invalid fingerprint: ${sourcePath}`);
+  if (!sourceRoots.length
+    || Object.keys(sourceRelativePaths).length !== sourceRoots.length
+    || !sourceRoots.every((root) => Object.hasOwn(sourceRelativePaths, root))) {
+    throw new Error(`Folder-video source manifest has incomplete root coverage: ${sourcePath}`);
+  }
+  const normalized = {
+    sourcePath,
+    sourceRoots,
+    sourceRelativePaths,
+    sizeBytes,
+    mtimeMs,
+    contentFingerprint,
+  };
+  if (includeLibraryRecordId) {
+    const mediaLibraryRecordId = String(entry.mediaLibraryRecordId || "").trim();
+    if (!mediaLibraryRecordId) throw new Error(`Folder-video source manifest has no media-library record: ${sourcePath}`);
+    normalized.mediaLibraryRecordId = mediaLibraryRecordId;
+  }
+  return normalized;
+}
+
+function folderVideoManifestDigest(entries = [], includeLibraryRecordId = false) {
+  const canonical = entries
+    .map((entry) => canonicalFolderVideoSourceEntry(entry, includeLibraryRecordId))
+    .sort((left, right) => left.sourcePath.localeCompare(right.sourcePath));
+  if (new Set(canonical.map((entry) => entry.sourcePath)).size !== canonical.length) {
+    throw new Error("Folder-video source manifest contains duplicate source paths.");
+  }
+  return createHash("sha256").update(JSON.stringify(canonical)).digest("hex");
+}
+
+export function folderVideoSourceStateDigest(entries = []) {
+  return folderVideoManifestDigest(entries, false);
+}
+
+export function folderVideoSourceLibraryDigest(entries = []) {
+  return folderVideoManifestDigest(entries, true);
+}
+
+export function createFolderVideoSourceManifestReceipt(entries = [], options = {}) {
+  const canonicalEntries = entries
+    .map((entry) => canonicalFolderVideoSourceEntry(entry, true))
+    .sort((left, right) => left.sourcePath.localeCompare(right.sourcePath));
+  return {
+    schemaVersion: FOLDER_VIDEO_SOURCE_MANIFEST_SCHEMA,
+    persisted: options.persisted === true,
+    roots: unique(options.roots || []).map((root) => path.resolve(root)).sort(),
+    entryCount: canonicalEntries.length,
+    digestAlgorithm: "sha256",
+    sourceFingerprintAlgorithm: "hapa-partial-video-v1",
+    sourceFingerprintCoverage: "size-plus-up-to-1MiB-first-middle-last-chunks-and-mtime",
+    sourceStateDigest: folderVideoSourceStateDigest(canonicalEntries),
+    sourceLibraryDigest: folderVideoSourceLibraryDigest(canonicalEntries),
+    entries: canonicalEntries,
+    generatedAt: String(options.generatedAt || new Date().toISOString()),
+  };
+}
+
+export function validateFolderVideoSourceManifestReceipt(receipt = {}, mediaLibrary = {}) {
+  if (receipt.schemaVersion !== FOLDER_VIDEO_SOURCE_MANIFEST_SCHEMA) {
+    throw new Error("Unsupported folder-video source/library manifest receipt.");
+  }
+  if (Number(receipt.entryCount) !== (Array.isArray(receipt.entries) ? receipt.entries.length : -1)) {
+    throw new Error("Folder-video source/library manifest entry count is inconsistent.");
+  }
+  if (receipt.sourceStateDigest !== folderVideoSourceStateDigest(receipt.entries)
+    || receipt.sourceLibraryDigest !== folderVideoSourceLibraryDigest(receipt.entries)) {
+    throw new Error("Folder-video source/library manifest digest is inconsistent.");
+  }
+  const recordsById = new Map((Array.isArray(mediaLibrary.records) ? mediaLibrary.records : [])
+    .map((record) => [String(record.id || ""), record]));
+  const invalid = receipt.entries.filter((entry) => {
+    const record = recordsById.get(entry.mediaLibraryRecordId);
+    return !record
+      || record.sourceKind !== "folder-video"
+      || String(record.contentFingerprint || "").toLowerCase() !== entry.contentFingerprint
+      || !record.asset?.uri;
+  });
+  if (invalid.length) {
+    throw new Error(`Folder-video source/library manifest has ${invalid.length} unresolved source mapping(s).`);
+  }
+  return {
+    verified: true,
+    sourcePaths: receipt.entryCount,
+    uniqueMediaLibraryRecords: new Set(receipt.entries.map((entry) => entry.mediaLibraryRecordId)).size,
+    sourceStateDigest: receipt.sourceStateDigest,
+    sourceLibraryDigest: receipt.sourceLibraryDigest,
   };
 }
 
@@ -106,7 +252,7 @@ async function main() {
   const concurrency = Number(process.env.HAPA_VIDEO_INGEST_CONCURRENCY || 4);
 
   await mapLimit(scan.files, concurrency, async (file, index) => {
-    const fingerprint = await partialFileFingerprint(file.path, file.stat);
+    const fingerprint = await folderVideoPartialFileFingerprint(file.path, file.stat);
     const known = existing.bySourcePath.get(file.path)
       || existing.byFingerprint.get(fingerprint)
       || existing.byNameSize.get(nameSizeKey(file.name, file.stat.size))
@@ -133,7 +279,10 @@ async function main() {
     }
 
     const libraryRecord = known?.libraryRecord || libraryByFingerprint.get(fingerprint) || null;
-    const needsFrames = !libraryRecord?.asset?.metadata?.frames?.length && !libraryRecord?.frames?.length;
+    const existingFrames = libraryRecord?.asset?.metadata?.frames?.length
+      ? libraryRecord.asset.metadata.frames
+      : libraryRecord?.frames;
+    const needsFrames = !(await folderVideoHasReadableCompleteFrameSet(existingFrames, fingerprint));
     const needsIntelligence = !libraryRecord?.intelligence && !libraryRecord?.asset?.metadata?.intelligence;
     if (!known || needsFrames || needsIntelligence) {
       let asset;
@@ -149,6 +298,7 @@ async function main() {
       const record = createLibraryRecord(entry, asset, libraryRecord);
       upsertLibraryRecord(nextLibrary, record);
       libraryByFingerprint.set(fingerprint, record);
+      entry.mediaLibraryRecordId = record.id;
       recordsToVision.push(record);
       recordsToAttach.push(record);
       report.indexed += 1;
@@ -159,6 +309,7 @@ async function main() {
     } else {
       const merged = mergeLibraryCoverage(libraryRecord, entry);
       upsertLibraryRecord(nextLibrary, merged);
+      entry.mediaLibraryRecordId = merged.id;
       recordsToAttach.push(merged);
     }
   });
@@ -305,6 +456,15 @@ async function main() {
   report.uniqueVideos = scan.files.length;
   report.libraryRecords = nextLibrary.records.length;
   report.generatedAt = new Date().toISOString();
+  report.sourceLibraryManifest = createFolderVideoSourceManifestReceipt(allEntries, {
+    persisted: !DRY_RUN,
+    roots: ROOTS,
+    generatedAt: report.generatedAt,
+  });
+  report.sourceLibraryManifestValidation = validateFolderVideoSourceManifestReceipt(
+    report.sourceLibraryManifest,
+    nextLibrary,
+  );
 
   if (!DRY_RUN) {
     const persistence = folderVideoIngestPersistencePlan();
@@ -893,7 +1053,7 @@ function rootLabel(root) {
   return path.basename(root);
 }
 
-async function partialFileFingerprint(filePath, info) {
+export async function folderVideoPartialFileFingerprint(filePath, info) {
   const hash = createHash("sha256");
   hash.update(`hapa-partial-video-v1:${info.size}:`);
   const chunkSize = Math.min(1024 * 1024, Math.max(1, info.size));
@@ -914,6 +1074,7 @@ async function partialFileFingerprint(filePath, info) {
   }
   return hash.digest("hex");
 }
+
 
 function mediaPathForUri(uri) {
   if (!uri) return null;

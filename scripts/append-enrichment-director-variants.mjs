@@ -54,7 +54,15 @@ const DEFAULT_TRANSITION_VISUAL_VALIDATION = path.join(
   DEFAULT_ARTIFACTS,
   "transition-endpoint-visual-validation.json",
 );
-const TRANSITION_ASSIGNMENT_REPORT_SCHEMA = "hapa.vibes-transition-director-script-report.v1";
+const TRANSITION_ASSIGNMENT_REPORT_SCHEMA = "hapa.echo.transition-director-script-report.v1";
+const LEGACY_TRANSITION_ASSIGNMENT_REPORT_SCHEMA = "hapa.vibes-transition-director-script-report.v1";
+const TRANSITION_ASSIGNMENT_REPORT_SCHEMAS = new Set([
+  TRANSITION_ASSIGNMENT_REPORT_SCHEMA,
+  LEGACY_TRANSITION_ASSIGNMENT_REPORT_SCHEMA,
+]);
+const TRANSITION_ASSIGNMENT_SOURCE = "echo-transition-director-script-report";
+const LEGACY_TRANSITION_ASSIGNMENT_SOURCE = "vibes-transition-director-script-report";
+const TRANSITION_ASSIGNMENT_SOURCE_PATTERN = /^[a-z0-9](?:[a-z0-9._:+/-]{0,126}[a-z0-9])?$/u;
 const REFERENCE_ANIMATION_CATALOG_SCHEMA = "hapa.echo-reference-animated-media-catalog.v1";
 const TRANSITION_ENDPOINT_VISUAL_VALIDATION_SCHEMA = "hapa.echo.transition-endpoint-visual-validation.v1";
 const TRANSITION_ENDPOINT_VISUAL_VALIDATION_RECEIPT_SCHEMA = "hapa.echo.transition-endpoint-visual-validation-receipt.v1";
@@ -72,6 +80,26 @@ function list(value) {
 
 function text(value, fallback = "") {
   return typeof value === "string" && value.trim() ? value.trim() : fallback;
+}
+
+function transitionAssignmentReportSource(report = {}) {
+  const schemaVersion = text(report.schemaVersion || report.schema_version);
+  const declaredSource = text(
+    report.assignment?.source
+    || report.assignment?.assignmentSource
+    || report.assignment?.assignment_source
+    || report.assignmentSource
+    || report.assignment_source
+    || (typeof report.source === "string" ? report.source : report.source?.id),
+  );
+  const fallback = schemaVersion === TRANSITION_ASSIGNMENT_REPORT_SCHEMA
+    ? TRANSITION_ASSIGNMENT_SOURCE
+    : LEGACY_TRANSITION_ASSIGNMENT_SOURCE;
+  const source = declaredSource || fallback;
+  if (!TRANSITION_ASSIGNMENT_SOURCE_PATTERN.test(source)) {
+    throw new Error("Transition assignment report source must be a lowercase provider-neutral provenance identifier.");
+  }
+  return source;
 }
 
 function json(value) {
@@ -417,12 +445,14 @@ export function validateTransitionEndpointVisualValidation({
     }
   }
   const declarationsByJobId = new Map();
+  const declarationJobIdByMediaId = new Map();
   for (const declaration of list(chainGraph.declaredTransitions || chainGraph.declared_transitions)) {
     const jobId = text(declaration.transitionLink?.id || declaration.transition_link?.id);
     const mediaId = text(declaration.transitionMediaId || declaration.transition_media_id);
-    if (!jobId || !mediaId || declarationsByJobId.has(jobId)) {
+    if (!jobId || !mediaId || declarationsByJobId.has(jobId) || declarationJobIdByMediaId.has(mediaId)) {
       throw new Error("Transition visual validation requires unique declared job/media identities.");
     }
+    declarationJobIdByMediaId.set(mediaId, jobId);
     declarationsByJobId.set(jobId, {
       mediaId,
       endpoints: {
@@ -437,13 +467,21 @@ export function validateTransitionEndpointVisualValidation({
   }
   const enrichmentMediaByJobId = new Map();
   for (const row of list(rawEnrichments)) {
-    const jobId = transitionJobId(row);
-    if (!jobId) continue;
-    if (enrichmentMediaByJobId.has(jobId)) {
-      throw new Error(`Transition visual validation job ${jobId} resolves to multiple enrichment rows.`);
+    const mediaId = text(row.mediaId || row.media_id || row.id);
+    const expectedJobId = declarationJobIdByMediaId.get(mediaId);
+    // The current chain graph is authoritative for the transition family being
+    // certified. A full merged enrichment catalog can legitimately retain
+    // transition semantics from older providers; those rows are out of scope.
+    if (!expectedJobId) continue;
+    const embeddedJobId = transitionJobId(row);
+    if (embeddedJobId !== expectedJobId) {
+      throw new Error(`Transition enrichment media ${mediaId} binds job ${embeddedJobId || "<missing>"}; expected graph job ${expectedJobId}.`);
     }
-    enrichmentMediaByJobId.set(jobId, {
-      mediaId: text(row.mediaId || row.media_id || row.id),
+    if (enrichmentMediaByJobId.has(expectedJobId)) {
+      throw new Error(`Transition visual validation job ${expectedJobId} resolves to multiple enrichment rows.`);
+    }
+    enrichmentMediaByJobId.set(expectedJobId, {
+      mediaId,
       runtimeUri: text(
         row.mediaContract?.runtimeUri
         || row.media_contract?.runtime_uri
@@ -652,13 +690,19 @@ export function applyTransitionEndpointVisualValidation(enrichments = [], valida
     throw new Error("A verified transition endpoint visual-validation receipt is required.");
   }
   const jobsById = new Map(list(validationReceipt.jobs).map((job) => [job.jobId, job]));
+  const jobsByMediaId = new Map(list(validationReceipt.jobs).map((job) => [job.mediaId, job]));
   let certifiedRows = 0;
   let quarantinedRows = 0;
   const rows = list(enrichments).map((row) => {
+    const mediaId = text(row.mediaId || row.media_id || row.id);
+    const job = jobsByMediaId.get(mediaId);
+    // Preserve unrelated transition families in the merged catalog. Exact
+    // coverage of every receipt job is still enforced by the row counts below.
+    if (!job) return row;
     const jobId = transitionJobId(row);
-    if (!jobId) return row;
-    const job = jobsById.get(jobId);
-    if (!job) throw new Error(`Transition enrichment job ${jobId} has no visual-validation result.`);
+    if (jobId !== job.jobId || jobsById.get(jobId)?.mediaId !== mediaId) {
+      throw new Error(`Transition enrichment media ${mediaId} does not bind visual-validation job ${job.jobId}.`);
+    }
     const next = structuredClone(row);
     const flowKey = Object.keys(next.flow || {}).length ? "flow" : "continuity";
     next[flowKey] = next[flowKey] || {};
@@ -714,6 +758,7 @@ export function applyTransitionEndpointVisualValidation(enrichments = [], valida
 export function applyExplicitTransitionSongAssignments(enrichments = [], assignmentReport = {}, {
   eligibleJobIds = null,
 } = {}) {
+  const assignmentSource = transitionAssignmentReportSource(assignmentReport);
   const eligibleJobs = eligibleJobIds === null
     ? null
     : new Set(list(eligibleJobIds).map(String));
@@ -758,7 +803,7 @@ export function applyExplicitTransitionSongAssignments(enrichments = [], assignm
           jobId,
           songIds: quarantinedSongIds,
           status: "visual-endpoint-quarantined",
-          source: "vibes-transition-director-script-report+endpoint-visual-validation",
+          source: `${assignmentSource}+endpoint-visual-validation`,
         },
       };
     }
@@ -772,7 +817,7 @@ export function applyExplicitTransitionSongAssignments(enrichments = [], assignm
         schemaVersion: "hapa.echo.transition-song-assignment.v1",
         jobId,
         songIds: assignedSongIds,
-        source: "vibes-transition-director-script-report",
+        source: assignmentSource,
       },
     };
   });
@@ -792,9 +837,10 @@ export function validateExplicitTransitionSongAssignments({
   assignmentReport = {},
   projectSongIds = [],
 } = {}) {
-  if (assignmentReport.schemaVersion !== TRANSITION_ASSIGNMENT_REPORT_SCHEMA) {
-    throw new Error(`Transition assignment report must use ${TRANSITION_ASSIGNMENT_REPORT_SCHEMA}.`);
+  if (!TRANSITION_ASSIGNMENT_REPORT_SCHEMAS.has(assignmentReport.schemaVersion)) {
+    throw new Error(`Transition assignment report must use ${TRANSITION_ASSIGNMENT_REPORT_SCHEMA} or ${LEGACY_TRANSITION_ASSIGNMENT_REPORT_SCHEMA}.`);
   }
+  transitionAssignmentReportSource(assignmentReport);
   const canonicalSongs = new Set(list(projectSongIds).map(String));
   if (!canonicalSongs.size) throw new Error("Transition assignment validation requires canonical project song IDs.");
   const declaredJobs = new Map();

@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   BALANCED_RECAST_SELECTION_MODE,
   SCROLL_SCENE_AVATAR_BALANCED_VARIANT_ID,
+  balancedCandidateEditorialWeight,
   buildBalancedDirectorCandidates,
   isBalancedDirectorMediaAllowed,
   recastBalancedEchoDirectorProject,
@@ -256,4 +257,47 @@ test("balanced validation rejects provenance tampering and selection refuses imm
     requireAllSourceGroups: false,
     seed: "impossible-single-candidate",
   }), /no-immediate-repeat contract/);
+});
+
+test("shared album coverage honors bounded editorial motion weights", () => {
+  const weighted = [
+    { role: "transition", index: 80, weight: 2 },
+    { role: "transition", index: 81, weight: 2 },
+    { role: "loop", index: 82, weight: 1 },
+    { role: "loop", index: 83, weight: 1 },
+  ].map(({ role, index, weight }) => ({
+    ...candidate("ref-cards", role, index),
+    id: `ref-cards-${role}-${index}`,
+    cardId: `ref-cards-card-${role}-${index}`,
+    uri: `/media/ref-cards-${role}-${index}.mp4`,
+    runtimeUri: `/media/ref-cards-${role}-${index}.mp4`,
+    technicalIdentity: `sha256:${String(index).repeat(64).slice(0, 64)}`,
+    sha256: String(index).repeat(64).slice(0, 64),
+    editorialMotionWeight: weight,
+  }));
+  const sharedUsageCounts = new Map();
+  for (let pass = 0; pass < 18; pass += 1) {
+    const project = projectWithShots(2);
+    project.timeline.forEach((shot) => {
+      shot.section_id = "chorus";
+      shot.section_type = "chorus";
+      shot.active_stems = ["Drums", "Bass"];
+    });
+    recastBalancedEchoDirectorProject(project, weighted, {
+      variantId: `weighted-${pass}`,
+      allowedSourceGroups: ["ref-cards"],
+      sourcePattern: ["ref-cards"],
+      rotateSourcePattern: false,
+      sharedUsageCounts,
+      seed: `weighted-${pass}`,
+    });
+  }
+
+  const transitionMean = weighted.filter((row) => row.motionRole === "transition")
+    .reduce((sum, row) => sum + sharedUsageCounts.get(row.technicalIdentity), 0) / 2;
+  const loopMean = weighted.filter((row) => row.motionRole === "loop")
+    .reduce((sum, row) => sum + sharedUsageCounts.get(row.technicalIdentity), 0) / 2;
+  assert.equal(balancedCandidateEditorialWeight({ editorialMotionWeight: 99 }), 4);
+  assert.equal(balancedCandidateEditorialWeight({ editorialMotionWeight: 0.01 }), 0.25);
+  assert.ok(transitionMean >= loopMean * 1.5, `${transitionMean} transition uses vs ${loopMean} loop uses`);
 });

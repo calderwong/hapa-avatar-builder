@@ -1203,12 +1203,65 @@ test("assignment overlay joins transition jobs to songs without mutating source 
   assert.equal(overlay.rows[2], enrichments[2], "an unrelated row was unnecessarily replaced");
 });
 
+test("provider-neutral assignment reports derive or preserve neutral provenance", () => {
+  const songId = "song-provider-neutral-assignment";
+  const fixture = bridgeFixture(songId);
+  const baseReport = {
+    schemaVersion: "hapa.echo.transition-director-script-report.v1",
+    assignment: {
+      songs: [{ songId, jobIds: ["vibes-job-a-to-b"] }],
+      unassignedJobIds: [],
+    },
+  };
+
+  assert.equal(validateExplicitTransitionSongAssignments({
+    enrichments: fixture.rows,
+    chainGraph: fixture.graph,
+    assignmentReport: baseReport,
+    projectSongIds: [songId],
+  }).verified, true);
+  assert.equal(
+    applyExplicitTransitionSongAssignments(fixture.rows, baseReport).rows[1]
+      .transitionAssignment.source,
+    "echo-transition-director-script-report",
+  );
+
+  const declaredSourceReport = clone(baseReport);
+  declaredSourceReport.assignment.source = "ref-cards-certified-transition-family";
+  assert.equal(
+    applyExplicitTransitionSongAssignments(fixture.rows, declaredSourceReport).rows[1]
+      .transitionAssignment.source,
+    "ref-cards-certified-transition-family",
+  );
+  assert.throws(
+    () => validateExplicitTransitionSongAssignments({
+      enrichments: fixture.rows,
+      chainGraph: fixture.graph,
+      assignmentReport: {
+        ...baseReport,
+        assignment: { ...baseReport.assignment, source: "Ref Cards (unsafe)" },
+      },
+      projectSongIds: [songId],
+    }),
+    /lowercase provider-neutral provenance identifier/iu,
+  );
+});
+
 test("visual endpoint validation binds its exact schema, thresholds, inputs, job/media set, counts, and stable result digest", () => {
   const fixture = visualValidationFixture();
+  const unrelatedLegacy = authoredTransitionRow({
+    hex: "e",
+    jobId: "legacy-provider-job-outside-current-graph",
+    first: fixture.first,
+    last: fixture.last,
+    songIds: ["legacy-song"],
+  });
+  unrelatedLegacy.quality = { score: 0.91, label: "preserve-provider-semantics" };
+  const rawEnrichments = [...fixture.rawEnrichments, unrelatedLegacy];
   const receipt = validateTransitionEndpointVisualValidation({
     validationReport: fixture.validationReport,
     chainGraph: fixture.graph,
-    rawEnrichments: fixture.rawEnrichments,
+    rawEnrichments,
     ...fixture.digests,
   });
 
@@ -1266,6 +1319,12 @@ test("visual endpoint validation binds its exact schema, thresholds, inputs, job
     }).resultDigestSha256,
     receipt.resultDigestSha256,
     "validation depended on JSON object insertion order instead of the declared stable canonicalization",
+  );
+  const applied = applyTransitionEndpointVisualValidation(rawEnrichments, receipt);
+  assert.deepEqual(
+    applied.rows.find((row) => transitionJobIdForTest(row) === "legacy-provider-job-outside-current-graph"),
+    unrelatedLegacy,
+    "an unrelated provider's preserved transition row was mutated or rejected",
   );
 });
 
@@ -1408,6 +1467,36 @@ test("visual endpoint validation fails closed for stale identity, altered policy
       `${name} drift did not fail closed`,
     );
   }
+  assert.throws(
+    () => validateTransitionEndpointVisualValidation({
+      validationReport: fixture.validationReport,
+      ...input,
+      rawEnrichments: fixture.rawEnrichments.filter((row) => transitionJobIdForTest(row) !== "vibes-job-a-to-b"),
+    }),
+    /covers|expected|job/iu,
+    "a missing enrichment for a current graph declaration did not fail closed",
+  );
+  assert.throws(
+    () => validateTransitionEndpointVisualValidation({
+      validationReport: fixture.validationReport,
+      ...input,
+      rawEnrichments: [...fixture.rawEnrichments, clone(fixture.transition)],
+    }),
+    /multiple enrichment rows|duplicate|job/iu,
+    "duplicate enrichment rows for a current graph declaration did not fail closed",
+  );
+  const wrongJobBinding = clone(fixture.rawEnrichments);
+  const declaredRow = wrongJobBinding.find((row) => transitionJobIdForTest(row) === "vibes-job-a-to-b");
+  declaredRow.flow.transition.declaredEndpoints.link.id = "legacy-provider-wrong-job";
+  assert.throws(
+    () => validateTransitionEndpointVisualValidation({
+      validationReport: fixture.validationReport,
+      ...input,
+      rawEnrichments: wrongJobBinding,
+    }),
+    /binds job|expected graph job|identity/iu,
+    "a graph-declared media row with the wrong embedded job ID did not fail closed",
+  );
 });
 
 test("shipped transition visual-validation artifact satisfies the compiler's exact physical-endpoint contract", async () => {
@@ -1490,7 +1579,9 @@ test("assignment overlay preserves certified jobs and cannot restore a visually 
     validationReceipt,
   );
   const overlay = applyExplicitTransitionSongAssignments(applied.rows, {
+    schemaVersion: "hapa.echo.transition-director-script-report.v1",
     assignment: {
+      source: "ref-cards-certified-transition-family",
       songs: [{
         songId,
         jobIds: ["vibes-job-a-to-b", "vibes-job-quarantined"],
@@ -1513,7 +1604,7 @@ test("assignment overlay preserves certified jobs and cannot restore a visually 
     jobId: "vibes-job-quarantined",
     songIds: [songId],
     status: "visual-endpoint-quarantined",
-    source: "vibes-transition-director-script-report+endpoint-visual-validation",
+    source: "ref-cards-certified-transition-family+endpoint-visual-validation",
   });
   assert.equal(quarantined.flow.transition.visualValidationDecision, "quarantined");
   assert.equal(quarantined.flow.transition.eligible, false);
@@ -1546,7 +1637,7 @@ test("production transition assignments fail closed when missing, stale, ambiguo
   });
   assert.throws(
     () => validateExplicitTransitionSongAssignments({ ...input, assignmentReport: {} }),
-    /must use hapa\.vibes-transition-director-script-report\.v1/iu,
+    /must use hapa\.echo\.transition-director-script-report\.v1 or hapa\.vibes-transition-director-script-report\.v1/iu,
   );
   assert.throws(
     () => validateExplicitTransitionSongAssignments({

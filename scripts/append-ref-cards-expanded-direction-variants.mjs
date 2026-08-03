@@ -33,6 +33,13 @@ import {
   loadGatedEchoIsfManifest,
   repairEchoProjectShaders,
 } from "./echo-isf-gated-manifest.mjs";
+import {
+  FOLDER_VIDEO_SOURCE_MANIFEST_SCHEMA,
+  folderVideoHasReadableCompleteFrameSet,
+  folderVideoPartialFileFingerprint,
+  folderVideoSourceLibraryDigest,
+  folderVideoSourceStateDigest,
+} from "./ingest-folder-videos.mjs";
 
 const execFile = promisify(execFileCallback);
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -49,11 +56,53 @@ const HASH_CACHE_PATH = path.join(OUTPUT, "hash-cache-v1.json");
 const MEDIA_LIBRARY_PATH = path.join(DATA, "media-library.json");
 const INGEST_REPORT_PATH = path.join(ROOT, "artifacts/enrichment/folder-video-ingest-report.json");
 const SOURCE_ROOT = "ref-cards-run-1";
+const SOURCE_FOLDER = "/Users/calderwong/Downloads/ref-cards-run-1";
+const SOURCE_VIDEO_EXTENSIONS = new Set([".mp4", ".mov", ".m4v", ".webm", ".avi", ".mkv"]);
 const APPLY = process.argv.includes("--apply");
 const TARGET_SONG_ID = process.argv.find((argument) => argument.startsWith("--song-id="))
   ?.slice("--song-id=".length).trim() || "";
 const RUN_AT = new Date().toISOString();
 const RUN_ID = `ref-cards-expanded-${RUN_AT.replace(/[:.]/g, "-")}`;
+
+export const REF_CARDS_ACTION_TRANSITION_PATTERN = /(?:transition|morph|transform|becomes|turns[\s._-]*into|flows[\s._-]*into|moves[\s._-]*into|unlocks|opens[\s._-]*to|from[\s._-]*first[\s._-]*frame|into[\s._-]*(?:second|last|end)[\s._-]*frame|key[\s._-]*unlocks|fire[\s._-]*breeds|heart[\s._-]*morphs|energy[\s._-]*from[\s._-]*first|graph[\s._-]*forms|boat[\s._-]*leaves|card[\s._-]*joins)/iu;
+
+export const REF_CARDS_DIRECTION_POLICY = Object.freeze({
+  schemaVersion: "hapa.echo.ref-cards-transition-recovery-policy.v2",
+  classifier: "explicit-action-name-provisional-scene-motion-v1",
+  classifierPattern: REF_CARDS_ACTION_TRANSITION_PATTERN.source,
+  transitionEditorialMotionWeight: 2,
+  holdEditorialMotionWeight: 1,
+  endpointTruthBoundary: "filename-never-certifies-transition-endpoints",
+  coverageStrategy: "album-normalized-usage-load-then-card-fairness-v1",
+});
+
+export function classifyRefCardsMotionRole(relativePath = "") {
+  const actionTransition = REF_CARDS_ACTION_TRANSITION_PATTERN.test(String(relativePath || ""));
+  return actionTransition ? {
+    analyzerRole: "transition",
+    motionRole: "transition",
+    authoredUse: "scene-motion",
+    authoredRoles: ["action-transition-candidate", "endpoint-certification-required-for-atomic-bridge"],
+    editorialMotionWeight: REF_CARDS_DIRECTION_POLICY.transitionEditorialMotionWeight,
+    endpointStatus: "unverified-by-filename; eligible as scene motion only",
+    roleBasis: "explicit action-transition source name",
+  } : {
+    analyzerRole: "loop",
+    motionRole: "loop",
+    authoredUse: "hold",
+    authoredRoles: ["reference-or-scene-hold"],
+    editorialMotionWeight: REF_CARDS_DIRECTION_POLICY.holdEditorialMotionWeight,
+    endpointStatus: "not-applicable",
+    roleBasis: "no explicit action-transition source name",
+  };
+}
+
+export function refCardsSourceCohort(relativePath = "") {
+  const normalized = String(relativePath || "").replaceAll("\\", "/");
+  if (normalized.startsWith("run2/run3/")) return "ref-cards-run-1/run2/run3";
+  if (normalized.startsWith("run2/")) return "ref-cards-run-1/run2";
+  return "ref-cards-run-1/root";
+}
 
 if (TARGET_SONG_ID && path.basename(TARGET_SONG_ID) !== TARGET_SONG_ID) {
   throw new Error(`Unsafe target song ID: ${TARGET_SONG_ID}`);
@@ -120,6 +169,109 @@ async function atomicWrite(filePath, payload) {
   await rename(temporary, filePath);
 }
 
+async function discoverSourceVideoSnapshot(directory = SOURCE_FOLDER) {
+  const paths = [];
+  async function walk(current) {
+    for (const entry of await readdir(current, { withFileTypes: true })) {
+      if (entry.name === ".DS_Store") continue;
+      const absolute = path.join(current, entry.name);
+      if (entry.isDirectory()) {
+        await walk(absolute);
+      } else if (entry.isFile() && SOURCE_VIDEO_EXTENSIONS.has(path.extname(entry.name).toLowerCase())) {
+        paths.push(absolute);
+      }
+    }
+  }
+  await walk(directory);
+  paths.sort((left, right) => left.localeCompare(right));
+  const entries = await mapLimit(paths, 4, async (absolute) => {
+    const before = await stat(absolute);
+    const contentFingerprint = await folderVideoPartialFileFingerprint(absolute, before);
+    const after = await stat(absolute);
+    if (before.size !== after.size || Math.abs(before.mtimeMs - after.mtimeMs) >= 1) {
+      throw new Error(`Ref Cards source changed while its snapshot was being read: ${absolute}`);
+    }
+    const relativePath = path.relative(directory, absolute).replaceAll("\\", "/");
+    return {
+      sourcePath: absolute,
+      sourceRoots: [SOURCE_ROOT],
+      sourceRelativePaths: { [SOURCE_ROOT]: relativePath },
+      sizeBytes: after.size,
+      mtimeMs: after.mtimeMs,
+      contentFingerprint,
+    };
+  });
+  const latestModifiedMs = entries.reduce((latest, entry) => Math.max(latest, entry.mtimeMs), 0);
+  return {
+    directory,
+    videoPaths: entries.length,
+    latestModifiedAt: latestModifiedMs ? new Date(latestModifiedMs).toISOString() : null,
+    sourceStateDigest: folderVideoSourceStateDigest(entries),
+    entries,
+  };
+}
+
+export function validateRefCardsIngestReceipt({
+  ingestReport = {},
+  sourceSnapshot = {},
+  mediaLibrary = {},
+  sourceFolder = SOURCE_FOLDER,
+} = {}) {
+  if (ingestReport.dryRun === true) throw new Error("Ref Cards compilation requires a persisted non-dry-run ingest report.");
+  if (list(ingestReport.errors).length) throw new Error("Ref Cards compilation rejects ingest reports with errors.");
+  const receipt = ingestReport.sourceLibraryManifest;
+  if (!receipt || receipt.schemaVersion !== FOLDER_VIDEO_SOURCE_MANIFEST_SCHEMA || receipt.persisted !== true) {
+    throw new Error("Ref Cards compilation requires a persisted complete source/library manifest receipt.");
+  }
+  const expectedRoot = path.resolve(sourceFolder);
+  const receiptRoots = list(receipt.roots).map((root) => path.resolve(String(root))).sort();
+  if (receiptRoots.length !== 1 || receiptRoots[0] !== expectedRoot) {
+    throw new Error(`Ref Cards ingest receipt roots do not match ${expectedRoot}.`);
+  }
+  if (!Number.isFinite(Date.parse(String(ingestReport.generatedAt || "")))
+    || String(receipt.generatedAt || "") !== String(ingestReport.generatedAt || "")) {
+    throw new Error("Ref Cards ingest receipt timestamp does not match its report.");
+  }
+  if (receipt.digestAlgorithm !== "sha256") throw new Error("Ref Cards ingest receipt requires SHA-256 digests.");
+  if (receipt.sourceFingerprintAlgorithm !== "hapa-partial-video-v1") {
+    throw new Error("Ref Cards ingest receipt requires the declared partial-video source fingerprint contract.");
+  }
+  if (Number(receipt.entryCount) !== list(receipt.entries).length
+    || Number(receipt.entryCount) !== Number(ingestReport.sourceVideos)
+    || Number(receipt.entryCount) !== Number(sourceSnapshot.videoPaths)) {
+    throw new Error("Ref Cards ingest receipt count does not match the report and current source snapshot.");
+  }
+  const receiptStateDigest = folderVideoSourceStateDigest(receipt.entries);
+  const receiptLibraryDigest = folderVideoSourceLibraryDigest(receipt.entries);
+  if (receipt.sourceStateDigest !== receiptStateDigest
+    || receipt.sourceLibraryDigest !== receiptLibraryDigest
+    || sourceSnapshot.sourceStateDigest !== receiptStateDigest) {
+    throw new Error("Ref Cards ingest receipt digest does not match the current complete source snapshot.");
+  }
+  const recordsById = new Map(list(mediaLibrary.records).map((record) => [String(record.id || ""), record]));
+  const missingOrMismatched = [];
+  for (const entry of receipt.entries) {
+    const record = recordsById.get(String(entry.mediaLibraryRecordId || ""));
+    if (!record
+      || record.sourceKind !== "folder-video"
+      || String(record.contentFingerprint || "").toLowerCase() !== entry.contentFingerprint
+      || !list(record.sourceRoots).includes(SOURCE_ROOT)
+      || !record.asset?.uri) {
+      missingOrMismatched.push(entry.sourcePath);
+    }
+  }
+  if (missingOrMismatched.length) {
+    throw new Error(`Ref Cards ingest receipt does not resolve to matching media-library records: ${missingOrMismatched.slice(0, 5).join(", ")}`);
+  }
+  return {
+    verified: true,
+    sourcePaths: receipt.entryCount,
+    uniqueMediaLibraryRecords: new Set(receipt.entries.map((entry) => entry.mediaLibraryRecordId)).size,
+    sourceStateDigest: receiptStateDigest,
+    sourceLibraryDigest: receiptLibraryDigest,
+  };
+}
+
 async function exclusiveWriteJson(filePath, payload) {
   await mkdir(path.dirname(filePath), { recursive: true });
   const handle = await open(filePath, "wx");
@@ -134,6 +286,18 @@ async function exclusiveWriteJson(filePath, payload) {
 function sha256Bytes(value) {
   return createHash("sha256").update(value).digest("hex");
 }
+
+function stablePolicyValue(value) {
+  if (Array.isArray(value)) return value.map(stablePolicyValue);
+  if (!value || typeof value !== "object") return value;
+  return Object.fromEntries(Object.keys(value).sort().map((key) => [key, stablePolicyValue(value[key])]));
+}
+
+export function computeRefCardsDirectionPolicyDigest(policy = REF_CARDS_DIRECTION_POLICY) {
+  return sha256Bytes(Buffer.from(JSON.stringify(stablePolicyValue(policy))));
+}
+
+export const REF_CARDS_DIRECTION_POLICY_DIGEST = computeRefCardsDirectionPolicyDigest();
 
 export async function sha256File(filePath) {
   return await new Promise((resolve, reject) => {
@@ -157,21 +321,29 @@ export function computeRefCardsBatchFingerprint(rows = []) {
   return sha256Bytes(Buffer.from(tuples.join("\n")));
 }
 
-export function buildRefCardsCutConfigurations(batchFingerprint) {
+export function buildRefCardsCutConfigurations(
+  batchFingerprint,
+  policyDigest = REF_CARDS_DIRECTION_POLICY_DIGEST,
+) {
   const digest = String(batchFingerprint || "").toLowerCase();
+  const normalizedPolicyDigest = String(policyDigest || "").toLowerCase();
   if (!/^[a-f0-9]{64}$/u.test(digest)) throw new Error("A full Ref Cards batch fingerprint is required.");
-  const familyId = `ref-cards-expanded-${digest.slice(0, 12)}`;
+  if (!/^[a-f0-9]{64}$/u.test(normalizedPolicyDigest)) throw new Error("A full Ref Cards directing-policy digest is required.");
+  const familyDigest = sha256Bytes(Buffer.from(`${digest}\u0000${normalizedPolicyDigest}`));
+  const familyId = `ref-cards-expanded-${familyDigest.slice(0, 12)}`;
   const variationSet = Object.freeze({
     id: familyId,
-    label: "Ref Cards Run 1 · Expanded",
+    label: "Ref Cards Run 1 · Transition Recovery",
     batchFingerprint: `sha256:${digest}`,
+    directingPolicyDigest: `sha256:${normalizedPolicyDigest}`,
+    directingPolicyVersion: REF_CARDS_DIRECTION_POLICY.schemaVersion,
     sourceRoot: SOURCE_ROOT,
     appendOnly: true,
   });
   return REF_CARDS_CUT_BLUEPRINTS.map((blueprint) => ({
     ...blueprint,
     id: `${familyId}-${blueprint.key}-v1`,
-    title: `Ref Cards Expanded · ${blueprint.label}`,
+    title: `Ref Cards Transition Recovery · ${blueprint.label}`,
     variationSet,
     cut: { ordinal: blueprint.ordinal, label: blueprint.label },
   }));
@@ -314,11 +486,9 @@ async function buildRefCardCandidates(mediaLibrary, mediaFiles, hashCache) {
     }
 
     const tags = [...new Set([...list(record.tags), ...list(asset.tags)])];
-    const loop = tags.some((tag) => /loop|idle|ambient|calm/iu.test(String(tag)));
     const relativePath = sourceRelativePath(record);
-    const cohort = relativePath.startsWith("run2/")
-      ? "ref-cards-run-1/run2"
-      : "ref-cards-run-1/root";
+    const cohort = refCardsSourceCohort(relativePath);
+    const motionClassification = classifyRefCardsMotionRole(relativePath);
     const origin = {
       sourceSystem: "folder-video-ingest",
       sourceStore: "data/media-library.json",
@@ -351,9 +521,7 @@ async function buildRefCardCandidates(mediaLibrary, mediaFiles, hashCache) {
       height: technical.height,
       sourceGroup: "ref-cards",
       cohort,
-      analyzerRole: loop ? "loop" : "transition",
-      motionRole: loop ? "loop" : "transition",
-      authoredUse: loop ? "hold" : "connector",
+      ...motionClassification,
       semanticTags: tags,
       tags,
       routeOrder: index,
@@ -512,6 +680,7 @@ async function main() {
     existingIndex,
     existingHashCache,
     mediaFiles,
+    sourceSnapshot,
   ] = await Promise.all([
     readJson(MEDIA_LIBRARY_PATH),
     readJson(path.join(DATA, "item-manager-store.json")),
@@ -525,13 +694,31 @@ async function main() {
     readJson(INDEX_PATH, { schemaVersion: "hapa.echo.direction-script-variant-index.v1", variants: [] }),
     readJson(HASH_CACHE_PATH, { schemaVersion: "hapa.ref-cards-expanded-direction-hash-cache.v1", entries: {} }),
     discoverMediaFiles(),
+    discoverSourceVideoSnapshot(),
   ]);
+  const ingestReceiptValidation = validateRefCardsIngestReceipt({
+    ingestReport,
+    sourceSnapshot,
+    mediaLibrary,
+  });
   const hashCache = {
     schemaVersion: "hapa.ref-cards-expanded-direction-hash-cache.v1",
     entries: { ...(existingHashCache.entries || {}) },
     updatedAt: RUN_AT,
   };
   const refExtraction = await buildRefCardCandidates(mediaLibrary, mediaFiles, hashCache);
+  const refFrameValidation = await mapLimit(refExtraction.records, 8, async (record) => ({
+    recordId: record.id,
+    complete: await folderVideoHasReadableCompleteFrameSet(
+      record.asset?.metadata?.frames,
+      record.contentFingerprint,
+      { mediaDirectory: MEDIA },
+    ),
+  }));
+  const refFrameGaps = refFrameValidation.filter((row) => !row.complete);
+  if (refFrameGaps.length) {
+    throw new Error(`Ref Cards compilation requires readable content-bound first/mid/last frames; ${refFrameGaps.length} record(s) failed: ${refFrameGaps.slice(0, 8).map((row) => row.recordId).join(", ")}`);
+  }
   const refByHash = new Map();
   for (const candidate of refExtraction.candidates) {
     if (!refByHash.has(candidate.technicalIdentity)) refByHash.set(candidate.technicalIdentity, candidate);
@@ -600,6 +787,13 @@ async function main() {
   const selectedRefCandidates = candidates.filter((candidate) => candidate.sourceGroup === "ref-cards");
   if (selectedRefCandidates.length !== refCandidates.length) {
     throw new Error(`Ref Cards content dedupe unexpectedly removed ${refCandidates.length - selectedRefCandidates.length} media record(s).`);
+  }
+  const refMotionRoleCounts = Object.fromEntries(["transition", "loop"].map((motionRole) => [
+    motionRole,
+    selectedRefCandidates.filter((candidate) => candidate.motionRole === motionRole).length,
+  ]));
+  if (!refMotionRoleCounts.transition || !refMotionRoleCounts.loop) {
+    throw new Error(`Ref Cards transition recovery requires both action-transition and hold candidates: ${JSON.stringify(refMotionRoleCounts)}`);
   }
 
   const diskIndexRows = discoverDirectionVariantIndexRows({ variantsDirectory: VARIANTS });
@@ -673,20 +867,37 @@ async function main() {
   }
 
   const refUsage = usageSummary(selectedRefCandidates, usageCounts);
+  const refUsageByMotionRole = Object.fromEntries(["transition", "loop"].map((motionRole) => [
+    motionRole,
+    usageSummary(selectedRefCandidates.filter((candidate) => candidate.motionRole === motionRole), usageCounts),
+  ]));
+  const transitionMeanUses = refUsageByMotionRole.transition.eligible
+    ? refUsageByMotionRole.transition.totalUses / refUsageByMotionRole.transition.eligible
+    : 0;
+  const loopMeanUses = refUsageByMotionRole.loop.eligible
+    ? refUsageByMotionRole.loop.totalUses / refUsageByMotionRole.loop.eligible
+    : 0;
   if (!TARGET_SONG_ID && refUsage.unused) {
     throw new Error(`Expanded cut family left ${refUsage.unused} Ref Cards media record(s) unused.`);
+  }
+  if (!TARGET_SONG_ID && transitionMeanUses < loopMeanUses * 1.5) {
+    throw new Error(`Action-transition candidates were not weighted materially above holds (${transitionMeanUses.toFixed(3)} vs ${loopMeanUses.toFixed(3)} mean uses).`);
   }
   const incomingRows = generated.map((row) => indexRow(row.songId, row.variant));
   const nextIndexRows = mergeDirectionVariantIndexRows(existingIndex.variants, diskIndexRows, incomingRows);
   const stableBatchMetadata = {
     variationSetId: cuts[0].variationSet.id,
     batchFingerprint: `sha256:${batchFingerprint}`,
+    directingPolicyDigest: `sha256:${REF_CARDS_DIRECTION_POLICY_DIGEST}`,
+    directingPolicyVersion: REF_CARDS_DIRECTION_POLICY.schemaVersion,
     cutIds: cuts.map((cut) => cut.id),
     sourceRoot: SOURCE_ROOT,
   };
   const currentStableBatchMetadata = existingIndex.refCardsExpandedBatch ? {
     variationSetId: existingIndex.refCardsExpandedBatch.variationSetId,
     batchFingerprint: existingIndex.refCardsExpandedBatch.batchFingerprint,
+    directingPolicyDigest: existingIndex.refCardsExpandedBatch.directingPolicyDigest,
+    directingPolicyVersion: existingIndex.refCardsExpandedBatch.directingPolicyVersion,
     cutIds: existingIndex.refCardsExpandedBatch.cutIds,
     sourceRoot: existingIndex.refCardsExpandedBatch.sourceRoot,
   } : null;
@@ -706,14 +917,11 @@ async function main() {
   const forbidden = candidates.filter((candidate) => (
     hasExcludedEchoDirectorOrigin(candidate.origin, candidate.provenance, candidate.sourceProvenance)
   ));
-  const refFrameGaps = refExtraction.records.filter((record) => (
-    !list(record.asset?.metadata?.frames).length
-  ));
   const report = {
     schemaVersion: "hapa.ref-cards-expanded-direction-report.v1",
     runId: RUN_ID,
     mode: APPLY ? "apply" : "dry-run",
-    sourceFolder: "/Users/calderwong/Downloads/ref-cards-run-1",
+    sourceFolder: SOURCE_FOLDER,
     sourceRoot: SOURCE_ROOT,
     variationSet: cuts[0].variationSet,
     policy: {
@@ -724,10 +932,20 @@ async function main() {
       browserSafety: "every Ref Cards source is ffprobe-verified H.264/yuv420p with >=360px short edge",
       sourceAudio: "muted by the Echo playback/render contract; the album track remains audio master",
       cameraTransitionsLyricsStems: "inherited unchanged from each immutable base project",
+      refCardsMotionRoles: "explicit transition-like source names are high-motion scene candidates, never endpoint certification; ordinary holds remain 1x and action-transition candidates receive a 2x editorial-motion coverage weight",
+      directingPolicy: REF_CARDS_DIRECTION_POLICY,
+      directingPolicyDigest: `sha256:${REF_CARDS_DIRECTION_POLICY_DIGEST}`,
       shaderSafety: "pixel-gate quarantine repaired before each append-only cut is generated",
       appendOnly: true,
     },
     ingest: {
+      freshSourceSnapshot: {
+        directory: sourceSnapshot.directory,
+        videoPaths: sourceSnapshot.videoPaths,
+        latestModifiedAt: sourceSnapshot.latestModifiedAt,
+        sourceStateDigest: sourceSnapshot.sourceStateDigest,
+      },
+      receiptValidation: ingestReceiptValidation,
       sourceVideoPaths: Number(ingestReport.sourceVideos || 0),
       uniqueHapaMediaRecords: refExtraction.records.length,
       contentAliasPaths: Math.max(0, Number(ingestReport.sourceVideos || 0) - refExtraction.records.length),
@@ -740,15 +958,21 @@ async function main() {
       total: candidates.length,
       refCardRecords: refExtraction.records.length,
       refCardsAfterFullHashDeduplication: refCandidates.length,
+      refCardsByMotionRole: refMotionRoleCounts,
       duplicateRefRecords,
       fullHashesReadFromCache: refExtraction.cacheHits,
       fullHashesReadFromDisk: refExtraction.diskHashes,
       forbiddenSurviving: forbidden.length,
-      refCardsByCohort: Object.fromEntries(["ref-cards-run-1/root", "ref-cards-run-1/run2"].map((cohort) => [
+      refCardsByCohort: Object.fromEntries(["ref-cards-run-1/root", "ref-cards-run-1/run2", "ref-cards-run-1/run2/run3"].map((cohort) => [
         cohort,
         selectedRefCandidates.filter((candidate) => candidate.cohort === cohort).length,
       ])),
       refCardUsage: refUsage,
+      refCardUsageByMotionRole: refUsageByMotionRole,
+      refCardMeanUsesByMotionRole: {
+        transition: Number(transitionMeanUses.toFixed(6)),
+        loop: Number(loopMeanUses.toFixed(6)),
+      },
     },
     variants: {
       projects: projectFiles.length,
@@ -795,6 +1019,12 @@ async function main() {
       )),
       mediaRoutesReadable: selectedRefCandidates.every((candidate) => mediaFiles.has(mediaName(candidate.uri))),
       frameSetsComplete: refFrameGaps.length === 0,
+      freshSourceRescanMatchesIngest: sourceSnapshot.videoPaths === Number(ingestReport.sourceVideos || 0)
+        && sourceSnapshot.sourceStateDigest === ingestReceiptValidation.sourceStateDigest,
+      actionTransitionsReceiveHigherEditorialWeight: selectedRefCandidates
+        .filter((candidate) => candidate.motionRole === "transition")
+        .every((candidate) => candidate.editorialMotionWeight > 1),
+      actionTransitionsMateriallyOutrankHolds: TARGET_SONG_ID ? null : transitionMeanUses >= loopMeanUses * 1.5,
       originalProjectsMutated: 0,
       existingVariantFilesMutated: 0,
       indexMatchesDiskAfterApply: APPLY ? null : "pending-apply",
@@ -809,6 +1039,22 @@ async function main() {
 
   let backupDirectory = "";
   if (APPLY) {
+    const preApplySourceSnapshot = await discoverSourceVideoSnapshot();
+    const preApplyReceiptValidation = validateRefCardsIngestReceipt({
+      ingestReport,
+      sourceSnapshot: preApplySourceSnapshot,
+      mediaLibrary,
+    });
+    if (preApplySourceSnapshot.sourceStateDigest !== sourceSnapshot.sourceStateDigest) {
+      throw new Error("Ref Cards source changed during Director compilation; rerun ingest before applying.");
+    }
+    report.ingest.preApplySourceSnapshot = {
+      directory: preApplySourceSnapshot.directory,
+      videoPaths: preApplySourceSnapshot.videoPaths,
+      latestModifiedAt: preApplySourceSnapshot.latestModifiedAt,
+      sourceStateDigest: preApplySourceSnapshot.sourceStateDigest,
+    };
+    report.ingest.preApplyReceiptValidation = preApplyReceiptValidation;
     backupDirectory = path.join(BACKUPS, RUN_ID);
     await mkdir(backupDirectory, { recursive: true });
     if (await stat(INDEX_PATH).catch(() => null)) {
