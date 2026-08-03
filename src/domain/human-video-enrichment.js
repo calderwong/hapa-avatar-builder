@@ -70,6 +70,35 @@ export function matchesHumanVideoReviewFilter(video = {}, filter = "all") {
   return true;
 }
 
+export function createHumanVideoQualityCalibration(videos = []) {
+  const pairs = (Array.isArray(videos) ? videos : []).flatMap((video) => {
+    const agentQuality = Number(video.agentReview?.proposal?.quality?.value || 0);
+    const humanQuality = Number(video.humanEnrichment?.quality?.value || 0);
+    return agentQuality && humanQuality ? [{ videoKey: video.humanVideoKey, agentQuality, humanQuality, delta: humanQuality - agentQuality }] : [];
+  });
+  const sampleSize = pairs.length;
+  const gradeBands = [1, 2, 3, 4, 5].map((agentQuality) => {
+    const matches = pairs.filter((pair) => pair.agentQuality === agentQuality);
+    return {
+      agentQuality,
+      sampleSize: matches.length,
+      humanAverage: matches.length ? round(matches.reduce((sum, pair) => sum + pair.humanQuality, 0) / matches.length, 3) : null,
+      meanDelta: matches.length ? round(matches.reduce((sum, pair) => sum + pair.delta, 0) / matches.length, 3) : null,
+    };
+  });
+  return {
+    schemaVersion: "hapa.human-video-quality-calibration.v1",
+    sampleSize,
+    exactMatches: pairs.filter((pair) => pair.delta === 0).length,
+    exactMatchRate: sampleSize ? round(pairs.filter((pair) => pair.delta === 0).length / sampleSize, 4) : null,
+    withinOneRate: sampleSize ? round(pairs.filter((pair) => Math.abs(pair.delta) <= 1).length / sampleSize, 4) : null,
+    meanError: sampleSize ? round(pairs.reduce((sum, pair) => sum + pair.delta, 0) / sampleSize, 3) : null,
+    meanAbsoluteError: sampleSize ? round(pairs.reduce((sum, pair) => sum + Math.abs(pair.delta), 0) / sampleSize, 3) : null,
+    gradeBands,
+    guidance: "Use the observed human corrections as a bounded prior, not an automatic replacement. Preserve the independent optical judgment and explain departures, especially where a grade band has fewer than five human examples.",
+  };
+}
+
 export function normalizeHumanVideoEnrichment(input = {}, fallback = {}) {
   const videoIdentity = humanVideoIdentity(input.videoIdentity || input.video || fallback.videoIdentity || fallback.video || {});
   const key = clean(input.key || fallback.key || humanVideoKey(videoIdentity), 4_500);
@@ -148,6 +177,7 @@ export function createHumanVideoEnricherDashboard({ mediaDashboard = {}, enrichm
       || String(a.name || a.id).localeCompare(String(b.name || b.id)));
   const enriched = videos.filter((video) => video.humanEnrichment);
   const agentReviewed = videos.filter((video) => video.agentReview);
+  const qualityCalibration = createHumanVideoQualityCalibration(videos);
   return {
     schemaVersion: HUMAN_VIDEO_ENRICHER_DASHBOARD_SCHEMA,
     generatedAt: new Date().toISOString(),
@@ -171,7 +201,10 @@ export function createHumanVideoEnricherDashboard({ mediaDashboard = {}, enrichm
       pendingHumanValidation: agentReviewed.filter((video) => video.agentReview.status === "pending-human").length,
       humanValidatedAgentReviews: agentReviewed.filter((video) => ["accepted", "accepted-edited", "rejected"].includes(video.agentReview.status)).length,
       remainingOpticalReviews: Math.max(0, videos.length - agentReviewed.length),
+      calibrationPairs: qualityCalibration.sampleSize,
+      agentQualityExactMatchRate: qualityCalibration.exactMatchRate,
     },
+    qualityCalibration,
     facets: mediaDashboard.facets || {},
     avatarOptions: (avatars || []).map((avatar) => ({
       id: clean(avatar.id, 360),
@@ -458,6 +491,11 @@ function cleanMultiline(value, max) {
 function number(value, fallback) {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function round(value, places) {
+  const scale = 10 ** places;
+  return Math.round((Number(value) + Number.EPSILON) * scale) / scale;
 }
 
 function humanEnrichmentError(code, message, statusCode = 400, details = {}) {

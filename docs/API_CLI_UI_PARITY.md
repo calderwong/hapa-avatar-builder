@@ -102,7 +102,7 @@ The canonical overlay schema is `hapa.human-video-enrichment-store.v1` in `src/d
 
 | Surface | Human Enricher behavior |
 | --- | --- |
-| UI | **Human Enricher** lists all videos collected from System Media, Avatar, Tarot, scene, and read-only Hell Week sources; it edits Quality 1–5, `@Avatar` links, Director Notes, and typed references. |
+| UI | **Human Enricher** lists all videos collected from System Media, Avatar, Tarot, scene, and read-only Hell Week sources; it edits Quality 1–5, `@Avatar` links, Director Notes, and typed references. Edits autosave after 350 ms, navigation flushes a pending edit, and Quality begins at the agent proposal when no human grade exists. |
 | API | `GET /api/human-enricher/videos` returns video metadata, relationships, options, and current overlays. `PUT /api/human-enricher/records` performs an optimistic-revision save. `GET /api/echos/director-project` includes matching `human_enrichment` fields on timeline shots. |
 | CLI | `human-enricher-list` exposes the same read model; `human-enricher-save --file ... --actor ...` uses the same revisioned write endpoint. |
 | Data | Current overlays are in ignored `data/human-video-enrichments.json`; append-only update receipts are in `data/human-video-enrichment-events.ndjson`. |
@@ -111,8 +111,8 @@ The canonical overlay schema is `hapa.human-video-enrichment-store.v1` in `src/d
 
 | Surface | Optical review behavior |
 | --- | --- |
-| UI | Provides full-catalog review-set views for Optically reviewed, Needs human validation, Human validated, and Not optically reviewed records. It shows the exact inspected filmstrip, per-frame observations, optical attestation, proposal confidence/uncertainty, suggested relationships/references, Hapa source citations, and Use/Edit/Append/Reject human controls. |
-| API | `GET /api/human-enricher/videos?review=agent-reviewed` returns the complete reviewed set with filtering applied before pagination. `GET /api/human-enricher/agent-reviews` exposes a resumable evidence queue. `PUT` accepts only hash-bound, optically attested proposals. `POST /api/human-enricher/agent-reviews/:id/decision` records explicit human outcomes. |
+| UI | Provides full-catalog review-set views for Optically reviewed, Needs human validation, Human validated, and Not optically reviewed records. It shows the exact inspected filmstrip, per-frame observations, optical attestation, proposal confidence/uncertainty, a dedicated visual Hapa/Echo reference analysis, suggested relationships/references, Hapa source citations, and Use/Edit/Append/Reject human controls. It also exposes the live human-versus-agent quality calibration summary. |
+| API | `GET /api/human-enricher/videos?review=agent-reviewed` returns the complete reviewed set with filtering applied before pagination plus aggregate human quality calibration. `GET /api/human-enricher/agent-reviews` exposes the same calibration and a resumable evidence queue whose instructions require explicit visual-reference analysis. `PUT` accepts only hash-bound, optically attested proposals with a completed visual-reference pass. `POST /api/human-enricher/agent-reviews/:id/decision` records explicit human outcomes. |
 | CLI | `human-enricher-agent-queue`, `human-enricher-agent-submit`, and `human-enricher-agent-decision` consume the same routes. |
 | Data | Pending proposals and append-only events are separate from human enrichment in `data/human-video-agent-reviews.json` and `data/human-video-agent-review-events.ndjson`. |
 

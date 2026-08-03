@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   AtSign,
   BadgeCheck,
@@ -11,7 +11,6 @@ import {
   Link2,
   Loader2,
   RefreshCw,
-  Save,
   Search,
   Sparkles,
   Star,
@@ -42,6 +41,7 @@ export default function HumanEnricherView({ apiBase = "", onNotify = () => {} })
   const [referenceDraft, setReferenceDraft] = useState(EMPTY_REFERENCE);
   const [saving, setSaving] = useState(false);
   const [saveState, setSaveState] = useState("idle");
+  const editSerialRef = useRef(0);
 
   async function load({ preserveSelection = true, append = false, offset = 0 } = {}) {
     setLoading(true);
@@ -104,21 +104,39 @@ export default function HumanEnricherView({ apiBase = "", onNotify = () => {} })
   useEffect(() => {
     if (!selectedVideo) return;
     if (selectedVideo.humanVideoKey !== selectedKey) setSelectedKey(selectedVideo.humanVideoKey);
+    editSerialRef.current = 0;
     setDraft(draftForVideo(selectedVideo));
     setAvatarChoice("");
     setReferenceDraft(EMPTY_REFERENCE);
     setSaveState("idle");
   }, [selectedVideo?.humanVideoKey, selectedVideo?.humanEnrichment?.revision]);
 
+  useEffect(() => {
+    if (saveState !== "dirty" || saving || !selectedVideo) return undefined;
+    const timer = globalThis.setTimeout(() => save(), 350);
+    return () => globalThis.clearTimeout(timer);
+  }, [draft, saveState, saving, selectedVideo?.humanVideoKey]);
+
+  function editDraft(updater) {
+    editSerialRef.current += 1;
+    setDraft(updater);
+    setSaveState("dirty");
+  }
+
+  async function selectVideo(nextKey) {
+    if (!nextKey || nextKey === selectedVideo?.humanVideoKey || saving) return;
+    if (saveState === "dirty" && !(await save())) return;
+    setSelectedKey(nextKey);
+  }
+
   function addAvatarMention() {
     const avatar = dashboard?.avatarOptions?.find((item) => item.id === avatarChoice);
     if (!avatar || draft.avatarMentions.some((mention) => mention.avatarId === avatar.id)) return;
-    setDraft((current) => ({
+    editDraft((current) => ({
       ...current,
       avatarMentions: [...current.avatarMentions, { avatarId: avatar.id, avatarName: avatar.name, mention: avatar.mention }],
     }));
     setAvatarChoice("");
-    setSaveState("dirty");
   }
 
   function addReference() {
@@ -130,9 +148,8 @@ export default function HumanEnricherView({ apiBase = "", onNotify = () => {} })
       notes: referenceDraft.notes.trim(),
     };
     if (!reference.id && !reference.label && !reference.uri) return;
-    setDraft((current) => ({ ...current, references: [...current.references, reference] }));
+    editDraft((current) => ({ ...current, references: [...current.references, reference] }));
     setReferenceDraft(EMPTY_REFERENCE);
-    setSaveState("dirty");
   }
 
   function chooseEchoSong(songId) {
@@ -161,7 +178,7 @@ export default function HumanEnricherView({ apiBase = "", onNotify = () => {} })
       uri: reference.uri || "",
       notes: reference.explanation || "",
     }));
-    setDraft((current) => ({
+    editDraft((current) => ({
       ...current,
       quality: Number(proposal.quality?.value || current.quality),
       description: mode === "append" ? appendText(current.description, proposal.description) : proposal.description || current.description,
@@ -172,7 +189,6 @@ export default function HumanEnricherView({ apiBase = "", onNotify = () => {} })
       references: uniqueBy([...(mode === "append" ? current.references : []), ...proposedReferences], (item) => `${item.type}:${item.id || item.uri || item.label}`),
       sourceAgentReviewId: review.id,
     }));
-    setSaveState("dirty");
   }
 
   async function rejectAgentReview() {
@@ -198,7 +214,9 @@ export default function HumanEnricherView({ apiBase = "", onNotify = () => {} })
   }
 
   async function save() {
-    if (!selectedVideo || saving) return;
+    if (!selectedVideo || saving) return false;
+    const snapshot = draft;
+    const saveSerial = editSerialRef.current;
     setSaving(true);
     setSaveState("saving");
     setError("");
@@ -209,15 +227,15 @@ export default function HumanEnricherView({ apiBase = "", onNotify = () => {} })
         body: JSON.stringify({
           key: selectedVideo.humanVideoKey,
           videoId: selectedVideo.id,
-          expectedRevision: draft.expectedRevision,
-          quality: draft.quality,
-          description: draft.description,
-          categories: draft.categories,
-          tags: draft.tags,
-          avatarMentions: draft.avatarMentions,
-          directorNotes: draft.directorNotes,
-          references: draft.references,
-          sourceAgentReviewId: draft.sourceAgentReviewId || undefined,
+          expectedRevision: snapshot.expectedRevision,
+          quality: snapshot.quality,
+          description: snapshot.description,
+          categories: snapshot.categories,
+          tags: snapshot.tags,
+          avatarMentions: snapshot.avatarMentions,
+          directorNotes: snapshot.directorNotes,
+          references: snapshot.references,
+          sourceAgentReviewId: snapshot.sourceAgentReviewId || undefined,
         }),
       });
       const payload = await response.json();
@@ -230,11 +248,12 @@ export default function HumanEnricherView({ apiBase = "", onNotify = () => {} })
           : video),
       }));
       setDraft((current) => ({ ...current, expectedRevision: payload.record.revision, sourceAgentReviewId: "" }));
-      setSaveState("saved");
-      onNotify(`Human direction saved for ${selectedVideo.name}`);
+      setSaveState(editSerialRef.current === saveSerial ? "saved" : "dirty");
+      return true;
     } catch (saveError) {
       setSaveState("error");
       setError(saveError instanceof Error ? saveError.message : String(saveError));
+      return false;
     } finally {
       setSaving(false);
     }
@@ -269,7 +288,16 @@ export default function HumanEnricherView({ apiBase = "", onNotify = () => {} })
         <Metric label="Agent reviewed" value={dashboard?.summary?.agentReviewed || 0} icon={<Bot size={16} />} />
         <Metric label="Needs human" value={dashboard?.summary?.pendingHumanValidation || 0} icon={<Eye size={16} />} />
         <Metric label="Optical queue" value={dashboard?.summary?.remainingOpticalReviews || 0} icon={<RefreshCw size={16} />} />
+        <Metric label="Calibration pairs" value={dashboard?.summary?.calibrationPairs || 0} icon={<BadgeCheck size={16} />} />
       </div>
+
+      {dashboard?.qualityCalibration?.sampleSize > 0 && (
+        <aside className="human-calibration-strip hapa-panel" aria-label="Agent quality calibration">
+          <strong>Human-calibrated agent prior</strong>
+          <span>{Math.round(dashboard.qualityCalibration.exactMatchRate * 100)}% exact · {dashboard.qualityCalibration.meanAbsoluteError} mean absolute error · {dashboard.qualityCalibration.sampleSize} paired grades</span>
+          <span>{dashboard.qualityCalibration.gradeBands.filter((band) => band.sampleSize).map((band) => `Q${band.agentQuality} → human ${band.humanAverage} (n${band.sampleSize})`).join(" · ")}</span>
+        </aside>
+      )}
 
       <nav className="human-review-view-tabs hapa-panel" aria-label="Choose video review set">
         {HUMAN_VIDEO_REVIEW_FILTERS.map((filter) => (
@@ -312,7 +340,7 @@ export default function HumanEnricherView({ apiBase = "", onNotify = () => {} })
                 data-card-type="media"
                 type="button"
                 key={video.humanVideoKey}
-                onClick={() => setSelectedKey(video.humanVideoKey)}
+                onClick={() => selectVideo(video.humanVideoKey)}
               >
                 <VideoPoster video={video} apiBase={apiBase} />
                 <span className="human-video-row-copy">
@@ -380,10 +408,27 @@ export default function HumanEnricherView({ apiBase = "", onNotify = () => {} })
                     <div><span>Categories</span><p>{(selectedVideo.agentReview.proposal?.categories || []).join(" · ") || "None proposed"}</p></div>
                     <div><span>Uncertainty</span><p>{selectedVideo.agentReview.proposal?.uncertainty || "No uncertainty statement."}</p></div>
                   </div>
+                  <section className="human-visual-reference-analysis" data-status={selectedVideo.agentReview.proposal?.visualReferenceAnalysis?.status || "not-run"}>
+                    <div className="human-enrichment-section-head">
+                      <div><p className="eyebrow"><Link2 size={13} /> VISUAL HAPA / ECHO REFERENCES</p><h4>Symbols, markings, palette, geometry, costume, objects, text & motifs</h4></div>
+                      <span>{selectedVideo.agentReview.proposal?.visualReferenceAnalysis?.status || "earlier pass"}</span>
+                    </div>
+                    {selectedVideo.agentReview.proposal?.visualReferenceAnalysis?.completed ? (
+                      <>
+                        <p>{(selectedVideo.agentReview.proposal.visualReferenceAnalysis.observedSignals || []).join(" · ") || "No distinctive visual signals recorded."}</p>
+                        <div className="human-relationship-list">
+                          {(selectedVideo.agentReview.proposal.visualReferenceAnalysis.matches || []).map((match, index) => <span key={`${match.sourcePath}:${match.entityId}:${index}`}><strong>{match.entityLabel || match.entityId}</strong><small>{match.matchType} · {Math.round((match.confidence || 0) * 100)}%</small><small>Seen: {match.observedEvidence}</small><small>{match.explanation}</small><small>{match.sourcePath}</small></span>)}
+                        </div>
+                        {(selectedVideo.agentReview.proposal.visualReferenceAnalysis.negativeFindings || []).length > 0 && <p className="human-reference-negative">No-match notes: {selectedVideo.agentReview.proposal.visualReferenceAnalysis.negativeFindings.join(" · ")}</p>}
+                      </>
+                    ) : <p>This earlier pass did not record a dedicated visual-symbol comparison. Its existing reference candidates are shown below but should be rechecked under the expanded protocol.</p>}
+                    <div className="human-relationship-list">
+                      {(selectedVideo.agentReview.proposal?.references || []).map((reference, index) => <span key={`${reference.type}:${reference.id}:${index}`}><strong>{reference.label || reference.id}</strong><small>{reference.type} · {reference.evidenceType} · {Math.round((reference.confidence || 0) * 100)}%</small><small>{reference.explanation}</small></span>)}
+                    </div>
+                  </section>
                   <details className="human-agent-sources"><summary>Suggested relationships, references & Hapa evidence</summary>
                     <div className="human-relationship-list">
                       {(selectedVideo.agentReview.proposal?.avatarRelationships || []).map((relationship, index) => <span key={`${relationship.entityId}:${index}`}><strong>{avatarMentionLabel(relationship.label || relationship.entityId)}</strong><small>{relationship.evidenceType} · {Math.round((relationship.confidence || 0) * 100)}%</small><small>{relationship.explanation}</small></span>)}
-                      {(selectedVideo.agentReview.proposal?.references || []).map((reference, index) => <span key={`${reference.type}:${reference.id}:${index}`}><strong>{reference.label || reference.id}</strong><small>{reference.type} · {reference.evidenceType} · {Math.round((reference.confidence || 0) * 100)}%</small><small>{reference.explanation}</small></span>)}
                       {(selectedVideo.agentReview.knowledgeComparisons || []).map((source, index) => <span key={`${source.sourcePath}:${index}`}><strong>{source.entityLabel || source.entityId || "Hapa source"}</strong><small>{source.relationship} · {Math.round((source.confidence || 0) * 100)}%</small><small>{source.sourcePath}</small><small>{source.explanation}</small></span>)}
                     </div>
                   </details>
@@ -398,12 +443,12 @@ export default function HumanEnricherView({ apiBase = "", onNotify = () => {} })
 
               <section className="human-enrichment-editor">
                 <div className="human-enrichment-section-head">
-                  <div><p className="eyebrow">01 · HUMAN QUALITY</p><h4>Grade this file</h4></div>
-                  <span>Revision {draft.expectedRevision || "new"}</span>
+                  <div><p className="eyebrow">01 · HUMAN QUALITY</p><h4>Move the agent’s starting grade only when needed</h4></div>
+                  <span>{selectedVideo.humanEnrichment ? `Human revision ${draft.expectedRevision}` : selectedVideo.agentReview?.proposal?.quality?.value ? `Agent start · Q${selectedVideo.agentReview.proposal.quality.value}` : "No agent grade yet"}</span>
                 </div>
                 <div className="human-quality-scale" role="radiogroup" aria-label="Video quality">
                   {HUMAN_VIDEO_QUALITY_GRADES.map((grade) => (
-                    <button key={grade.value} type="button" role="radio" aria-checked={draft.quality === grade.value} className={draft.quality === grade.value ? "active" : ""} data-grade={grade.value} onClick={() => { setDraft((current) => ({ ...current, quality: grade.value })); setSaveState("dirty"); }}>
+                    <button key={grade.value} type="button" role="radio" aria-checked={draft.quality === grade.value} className={draft.quality === grade.value ? "active" : ""} data-grade={grade.value} onClick={() => editDraft((current) => ({ ...current, quality: grade.value }))}>
                       <span>{grade.shortLabel}</span><strong>{grade.label}</strong>
                     </button>
                   ))}
@@ -412,10 +457,10 @@ export default function HumanEnricherView({ apiBase = "", onNotify = () => {} })
 
               <section className="human-enrichment-editor">
                 <div className="human-enrichment-section-head"><div><p className="eyebrow">DESCRIPTION & CATEGORIES</p><h4>Human-readable media understanding</h4></div><span>{draft.description.length}/12000</span></div>
-                <textarea value={draft.description} maxLength={12000} onChange={(event) => { setDraft((current) => ({ ...current, description: event.target.value })); setSaveState("dirty"); }} placeholder="Describe what is visibly happening, the setting, subjects, composition, and likely editorial use." />
+                <textarea value={draft.description} maxLength={12000} onChange={(event) => editDraft((current) => ({ ...current, description: event.target.value }))} placeholder="Describe what is visibly happening, the setting, subjects, composition, and likely editorial use." />
                 <div className="human-taxonomy-fields">
-                  <label><Tags size={13} /> Categories<input value={draft.categories.join(", ")} onChange={(event) => { setDraft((current) => ({ ...current, categories: parseTextList(event.target.value) })); setSaveState("dirty"); }} placeholder="performance, environment, transition…" /></label>
-                  <label><Tags size={13} /> Tags<input value={draft.tags.join(", ")} onChange={(event) => { setDraft((current) => ({ ...current, tags: parseTextList(event.target.value) })); setSaveState("dirty"); }} placeholder="close-up, neon, handheld…" /></label>
+                  <label><Tags size={13} /> Categories<input value={draft.categories.join(", ")} onChange={(event) => editDraft((current) => ({ ...current, categories: parseTextList(event.target.value) }))} placeholder="performance, environment, transition…" /></label>
+                  <label><Tags size={13} /> Tags<input value={draft.tags.join(", ")} onChange={(event) => editDraft((current) => ({ ...current, tags: parseTextList(event.target.value) }))} placeholder="close-up, neon, handheld…" /></label>
                 </div>
               </section>
 
@@ -429,14 +474,14 @@ export default function HumanEnricherView({ apiBase = "", onNotify = () => {} })
                   <button className="hapa-btn" type="button" onClick={addAvatarMention} disabled={!avatarChoice}><AtSign size={14} /> Tag Avatar</button>
                 </div>
                 <div className="human-mention-chips">
-                  {draft.avatarMentions.map((mention) => <span key={mention.avatarId}>{mention.mention}<button type="button" aria-label={`Remove ${mention.mention}`} onClick={() => { setDraft((current) => ({ ...current, avatarMentions: current.avatarMentions.filter((item) => item.avatarId !== mention.avatarId) })); setSaveState("dirty"); }}>×</button></span>)}
+                  {draft.avatarMentions.map((mention) => <span key={mention.avatarId}>{mention.mention}<button type="button" aria-label={`Remove ${mention.mention}`} onClick={() => editDraft((current) => ({ ...current, avatarMentions: current.avatarMentions.filter((item) => item.avatarId !== mention.avatarId) }))}>×</button></span>)}
                   {!draft.avatarMentions.length && <em>No human Avatar tags yet.</em>}
                 </div>
               </section>
 
               <section className="human-enrichment-editor">
                 <div className="human-enrichment-section-head"><div><p className="eyebrow">03 · DIRECTOR NOTES</p><h4>What should Echo State understand?</h4></div><span>{draft.directorNotes.length}/12000</span></div>
-                <textarea value={draft.directorNotes} maxLength={12000} onChange={(event) => { setDraft((current) => ({ ...current, directorNotes: event.target.value })); setSaveState("dirty"); }} placeholder="Example: Hold on the eye contact. Use this after the second chorus, not as an opener. The handheld shake is emotionally right; preserve it." />
+                <textarea value={draft.directorNotes} maxLength={12000} onChange={(event) => editDraft((current) => ({ ...current, directorNotes: event.target.value }))} placeholder="Example: Hold on the eye contact. Use this after the second chorus, not as an opener. The handheld shake is emotionally right; preserve it." />
                 <p className="human-editor-hint"><Clapperboard size={13} /> Delivered to matching Echo State timeline shots as <code>human_enrichment.directorNotes</code>.</p>
               </section>
 
@@ -458,7 +503,7 @@ export default function HumanEnricherView({ apiBase = "", onNotify = () => {} })
                   {draft.references.map((reference, index) => (
                     <article key={`${reference.type}:${reference.id || reference.uri || reference.label}:${index}`}>
                       <span>{reference.type}</span><strong>{reference.label || reference.id || reference.uri}</strong>{reference.notes && <p>{reference.notes}</p>}
-                      <button type="button" aria-label={`Remove ${reference.label || "reference"}`} onClick={() => { setDraft((current) => ({ ...current, references: current.references.filter((_, itemIndex) => itemIndex !== index) })); setSaveState("dirty"); }}><Trash2 size={13} /></button>
+                      <button type="button" aria-label={`Remove ${reference.label || "reference"}`} onClick={() => editDraft((current) => ({ ...current, references: current.references.filter((_, itemIndex) => itemIndex !== index) }))}><Trash2 size={13} /></button>
                     </article>
                   ))}
                 </div>
@@ -485,10 +530,8 @@ export default function HumanEnricherView({ apiBase = "", onNotify = () => {} })
               </section>
 
               <footer className="human-enricher-savebar hapa-panel" data-state={saveState}>
-                <div><BadgeCheck size={16} /><span>{saveState === "saved" ? "Human direction saved and director-readable." : saveState === "error" ? "Save failed—review the message above." : saveState === "dirty" ? "Unsaved human direction." : "Source remains unchanged until you save this overlay."}</span></div>
-                <button className="hapa-btn" data-intent="primary" type="button" onClick={save} disabled={saving || saveState === "saved"}>
-                  {saving ? <Loader2 size={15} className="spin" /> : <Save size={15} />} Save human enrichment
-                </button>
+                <div>{saving ? <Loader2 size={16} className="spin" /> : <BadgeCheck size={16} />}<span>{saveState === "saved" ? "Human direction saved and director-readable." : saveState === "error" ? "Autosave failed—review the message above." : saveState === "dirty" ? "Saving your change automatically…" : "Agent values are the starting point. Move only what needs human correction."}</span></div>
+                <span className="human-autosave-badge">Autosave on</span>
               </footer>
             </>
           ) : <div className="human-video-empty">No known video is available for enrichment.</div>}
@@ -521,7 +564,7 @@ function draftForVideo(video) {
     references: enrichment.references || [],
     expectedRevision: Number(enrichment.revision || 0),
     sourceAgentReviewId: "",
-  } : emptyDraft();
+  } : { ...emptyDraft(), quality: Number(video.agentReview?.proposal?.quality?.value || 0) };
 }
 function mediaUri(uri, apiBase) {
   if (!uri) return "";

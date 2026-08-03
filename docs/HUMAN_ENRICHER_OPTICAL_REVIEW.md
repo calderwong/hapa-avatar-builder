@@ -18,6 +18,7 @@ A completed proposal must include:
 - a named sub-agent, task, vision-capable model, and explicit optical-inspection attestation;
 - an explained quality grade, visual description, categories/tags, Director Notes, uncertainty, and confidence;
 - relationship and reference suggestions that distinguish `visual-observation`, `source-relationship`, and `knowledge-base-inference`;
+- a completed visual-reference analysis covering visible text, symbols, markings, palette, geometry, costume, objects, composition, and motifs, with cited Hapa/Echo concepts or explicit negative findings;
 - exact Hapa source paths for knowledge comparisons.
 
 Automation may enumerate records, extract frames, calculate timestamps, hash files, validate schemas, and persist proposals. It may not assign quality, describe images, identify Avatars, categorize content, or infer references. Existing OCR, filename matches, similarity scores, and semantic rankers are excluded as judgment substitutes.
@@ -46,11 +47,15 @@ The import command is dry-run unless `--apply` is explicit and backs up an exist
 
 ## Human validation
 
-The Human Enricher shows the inspected filmstrip, observation for every frame, reviewer receipt, proposed grade/description/categories, uncertainty, relationships, references, and cited Hapa sources. The human can:
+The Human Enricher shows the inspected filmstrip, observation for every frame, reviewer receipt, proposed grade/description/categories, uncertainty, relationships, a dedicated visual-reference analysis, references, and cited Hapa sources. A missing dedicated reference pass on a legacy proposal is shown as unfinished rather than silently treated as “no matches.”
+
+Quality begins at the agent proposal when no human record exists. Human grades are compared with their originating agent grades to produce a bounded calibration prior (sample size, exact-match rate, within-one rate, error, and per-grade human averages). That prior guides later agents but never overwrites their direct visual judgment. Simply opening a proposal does not create a human record.
+
+The human can:
 
 - use the proposal as an editable draft;
 - append suggestions to existing human work;
-- edit or add any field before saving;
+- edit or add any field; changes autosave after 350 ms and a pending edit is flushed before navigating to another video;
 - reject the proposal without changing human truth.
 
 Saving an agent-derived draft creates a normal optimistic human enrichment revision with exact proposal lineage and marks the proposal `accepted-edited`. Pending proposals remain structurally and visually separate.
@@ -62,3 +67,9 @@ Two sub-agents completed four bounded waves covering 16 videos and 48 beginning/
 Runtime proposal state lives in ignored `data/human-video-agent-reviews.json`; append-only receipts live in `data/human-video-agent-review-events.ndjson`. Raw screenshots and agent packets remain in ignored `work/human-enricher-optical/`.
 
 The catalog currently contains 10,884 logical video records. The initial delivery contains 16 pending-human optical proposals and 10,868 explicitly unreviewed records. This is a resumable campaign: progress is reported as reviewed, pending-human, human-decided, blocked, and remaining. Never convert queue coverage into a false claim that unreviewed videos were seen.
+
+## Measured campaign estimate
+
+Two vision-capable agents each performed a fresh three-keyframe review while timing the complete reasoning and structured-packet pass. The measured runs took 302.000 and 214.738 seconds, an average of 258.369 seconds (4 minutes 18 seconds) per video. At that rate, 10,884 logical videos require about 781.1 serial agent-hours (32.5 agent-days), or 260.4 wall-clock hours (10.85 days) with three agents continuously occupied. A 20% allowance for frame preparation, retries, and blocked media raises the three-agent planning estimate to about 13.0 days.
+
+Exact per-run token telemetry was unavailable. The two structured outputs averaged 17,368 characters, approximately 4,342 output tokens per video, or 47.3 million output tokens for the catalog. A planning envelope of 12,000–25,000 total tokens per video (18,000 midpoint, including prompt/context, images, reasoning, and output) yields 130.6–272.1 million total tokens, with a 195.9 million midpoint. These are capacity estimates, not a claim about an actual Codex subscription bill. More than three frames, inaccessible files, retries, or deeper knowledge retrieval will increase both time and token use.

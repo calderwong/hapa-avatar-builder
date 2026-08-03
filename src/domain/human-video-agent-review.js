@@ -5,6 +5,8 @@ export const HUMAN_VIDEO_AGENT_REVIEW_EVENT_SCHEMA = "hapa.human-video-agent-rev
 const REVIEW_STATUSES = new Set(["pending-human", "accepted", "accepted-edited", "rejected", "blocked"]);
 const EVIDENCE_TYPES = new Set(["visual-observation", "knowledge-base-inference", "source-relationship"]);
 const REFERENCE_TYPES = new Set(["echo-song", "song", "card", "scene", "avatar", "url", "other"]);
+const VISUAL_REFERENCE_STATUSES = new Set(["matched", "none-observed", "uncertain", "not-run"]);
+const VISUAL_MATCH_TYPES = new Set(["direct-marking", "text", "symbol", "palette", "geometry", "costume", "object", "composition", "visual-motif", "thematic-inference"]);
 
 export function createHumanVideoAgentReviewStore(input = {}) {
   return normalizeHumanVideoAgentReviewStore({
@@ -101,6 +103,9 @@ export function upsertHumanVideoAgentReview(storeInput = {}, input = {}, options
     createdAt: current?.createdAt || now,
     updatedAt: now,
   });
+  if (review.status !== "blocked" && review.proposal.visualReferenceAnalysis.completed !== true) {
+    throw reviewError("visual_reference_analysis_required", "A new optical review must explicitly compare visible symbols, markings, text, palette, geometry, costume, objects, composition, and motifs against source-cited Hapa and Echo concepts—even when it finds no match.");
+  }
   return {
     store: normalizeHumanVideoAgentReviewStore({ ...store, reviews: [...store.reviews.filter((item) => item.videoKey !== videoKey), review], updatedAt: now }),
     review,
@@ -183,12 +188,62 @@ function normalizeProposal(input = {}) {
     tags: uniqueStrings(input.tags, 160, 180),
     avatarRelationships: (Array.isArray(input.avatarRelationships) ? input.avatarRelationships : []).slice(0, 80).map((item) => normalizeRelationship(item, "avatar")),
     references: (Array.isArray(input.references) ? input.references : []).slice(0, 120).map(normalizeReference).filter(Boolean),
+    visualReferenceAnalysis: normalizeVisualReferenceAnalysis(input.visualReferenceAnalysis),
     directorNotes: cleanMultiline(input.directorNotes, 12_000),
     strengths: uniqueStrings(input.strengths, 60, 1_000),
     issues: uniqueStrings(input.issues, 60, 1_000),
     uncertainty: cleanMultiline(input.uncertainty, 4_000),
     confidence: score(input.confidence),
   };
+}
+
+function normalizeVisualReferenceAnalysis(input = {}) {
+  const completed = input.completed === true;
+  const matches = (Array.isArray(input.matches) ? input.matches : []).slice(0, 120).map((match) => ({
+    sourcePath: clean(match.sourcePath || match.source, 4_500),
+    entityId: clean(match.entityId || match.sourceId || match.id, 360),
+    entityLabel: clean(match.entityLabel || match.title || match.label, 800),
+    matchType: visualMatchType(match.matchType || match.evidenceClass || match.classification),
+    observedEvidence: cleanMultiline(match.observedEvidence || match.visualEvidence || match.result || match.reason, 3_000),
+    explanation: cleanMultiline(match.explanation || match.relationship || match.reason || match.result, 3_000),
+    confidence: score(match.confidence),
+  })).filter((match) => match.sourcePath && match.observedEvidence && match.explanation);
+  const status = VISUAL_REFERENCE_STATUSES.has(input.status) ? input.status : completed ? matches.length ? "matched" : "none-observed" : "not-run";
+  return {
+    completed,
+    status: completed && status === "matched" && !matches.length ? "uncertain" : status,
+    observedSignals: flattenReferenceText(input.observedSignals, 120),
+    matches,
+    negativeFindings: flattenReferenceText(input.negativeFindings, 120),
+  };
+}
+
+function visualMatchType(value) {
+  const normalized = clean(value, 180).toLowerCase().replace(/[_\s]+/g, "-");
+  if (VISUAL_MATCH_TYPES.has(normalized)) return normalized;
+  for (const type of ["direct-marking", "text", "symbol", "palette", "geometry", "costume", "object", "composition", "visual-motif", "thematic-inference"]) {
+    if (normalized.includes(type.replace("visual-", ""))) return type;
+  }
+  return "visual-motif";
+}
+
+function flattenReferenceText(input, limit) {
+  const values = [];
+  const visit = (value) => {
+    if (values.length >= limit || value == null) return;
+    if (typeof value === "string" || typeof value === "number") {
+      const text = clean(value, 1_000);
+      if (text) values.push(text);
+      return;
+    }
+    if (Array.isArray(value)) return value.forEach(visit);
+    if (typeof value === "object") {
+      if (value.finding) return visit(value.finding);
+      Object.values(value).forEach(visit);
+    }
+  };
+  visit(input);
+  return [...new Set(values)].slice(0, limit);
 }
 
 function normalizeRelationship(input = {}, defaultType = "other") {

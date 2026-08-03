@@ -1728,6 +1728,8 @@
 .human-review-view-tabs button:hover { border-color: rgba(69, 228, 255, .42); color: var(--human-cyan); }
 .human-review-view-tabs button[aria-pressed="true"] { border-color: var(--human-cyan); color: #03101a; background: var(--human-cyan); box-shadow: 0 0 18px rgba(69, 228, 255, .22); }
 .human-review-view-tabs strong { min-width: 18px; text-align: right; font-size: 11px; }
+.human-calibration-strip { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; padding: 10px 12px; border-color: rgba(60, 255, 168, .28); color: rgba(238, 250, 255, .64); font: 9px/1.4 var(--hapa-mono); }
+.human-calibration-strip strong { color: var(--human-green); text-transform: uppercase; }
 .human-enricher-metric { display: grid; gap: 4px; min-width: 0; padding: 9px 11px; border-color: rgba(184, 140, 255, .2); background: linear-gradient(145deg, rgba(184, 140, 255, .07), rgba(2, 6, 23, .76)); }
 .human-enricher-metric span { display: flex; align-items: center; gap: 6px; overflow: hidden; color: rgba(238, 250, 255, .46); font: 800 8px/1.2 var(--hapa-mono); text-overflow: ellipsis; text-transform: uppercase; white-space: nowrap; }
 .human-enricher-metric strong { color: #fff; font: 800 22px/1 var(--hapa-mono); }
@@ -1811,6 +1813,7 @@
 .human-raw-meta pre { max-height: 340px; margin: 0; overflow: auto; padding: 10px; border-top: 1px solid rgba(139, 166, 214, .12); color: #b8d9e9; font: 8px/1.45 var(--hapa-mono); white-space: pre-wrap; }
 .human-enricher-savebar { position: sticky; z-index: 3; bottom: -12px; display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 10px -12px -12px; padding: 11px 13px; border-color: rgba(69, 228, 255, .32); background: rgba(3, 10, 21, .96); backdrop-filter: blur(14px); }
 .human-enricher-savebar > div, .human-enricher-savebar .hapa-btn { display: flex; align-items: center; gap: 7px; }
+.human-autosave-badge { padding: 5px 8px; border: 1px solid rgba(60, 255, 168, .34); border-radius: 999px; color: var(--human-green); font: 8px/1 var(--hapa-mono); text-transform: uppercase; white-space: nowrap; }
 .human-enricher-savebar > div { color: rgba(238, 250, 255, .56); font: 8px/1.3 var(--hapa-mono); }
 .human-enricher-savebar[data-state="dirty"] > div { color: var(--human-gold); }
 .human-enricher-savebar[data-state="saved"] > div { color: var(--human-green); }
@@ -1832,6 +1835,10 @@
 .human-agent-sources summary { cursor: pointer; color: var(--human-cyan); font: 9px/1.4 var(--hapa-mono); }
 .human-agent-sources .human-relationship-list span { align-items: flex-start; }
 .human-agent-actions { padding-top: 2px; }
+.human-visual-reference-analysis { display: grid; gap: 10px; padding: 13px; border: 1px solid rgba(184, 140, 255, .3); border-radius: 11px; background: rgba(184, 140, 255, .05); }
+.human-visual-reference-analysis[data-status="matched"] { border-color: rgba(60, 255, 168, .38); }
+.human-visual-reference-analysis > p { margin: 0; color: rgba(238, 250, 255, .62); font-size: 10px; line-height: 1.55; }
+.human-reference-negative { color: rgba(255, 190, 92, .72) !important; }
 .human-taxonomy-fields { align-items: stretch; }
 .human-taxonomy-fields label { flex: 1 1 260px; display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 7px; color: rgba(238, 250, 255, .52); font: 9px/1.4 var(--hapa-mono); }
 .human-taxonomy-fields input { grid-column: 1 / -1; width: 100%; }

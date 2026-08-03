@@ -6813,12 +6813,18 @@ function paginateHumanVideoAgentReviewQueue(dashboard, searchParams) {
     explicitRelationships: video.relationships || [],
     owner: { type: video.ownerType, id: video.ownerId, name: video.ownerName, role: video.role },
     agentReview: video.agentReview || null,
+    qualityCalibration: dashboard.qualityCalibration,
     instructions: {
       requiredCapability: "optical-image-input",
       minimumFrameCount: 3,
       inspectEveryRegisteredFrame: true,
       semanticAutomationAllowed: false,
       knowledgeInferenceMustBeSourceCited: true,
+      applyHumanQualityCalibrationAsBoundedPrior: true,
+      visualReferenceAnalysisRequired: true,
+      visualReferenceSignals: ["symbols", "markings", "visible text", "palette", "geometry", "costume", "objects", "composition", "recurring motifs"],
+      visualReferenceSources: ["Avatars", "Hapa Cards", "Tarot", "scenes", "Echo songs", "Echo album concepts"],
+      recordNegativeReferenceFindings: true,
     },
   }));
   return {
@@ -6826,6 +6832,7 @@ function paginateHumanVideoAgentReviewQueue(dashboard, searchParams) {
     generatedAt: new Date().toISOString(),
     status,
     summary: dashboard.summary,
+    qualityCalibration: dashboard.qualityCalibration,
     pagination: { offset, limit, returned: items.length, total: candidates.length, hasMore: offset + items.length < candidates.length, nextOffset: offset + items.length },
     items,
     truthBoundary: "Queue automation may enumerate, extract, and hash frames only. A vision-capable sub-agent must inspect every required keyframe and author all semantic judgments.",
