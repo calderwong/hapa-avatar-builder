@@ -9,6 +9,8 @@ import { pathToFileURL } from "node:url";
 import {
   compileHyperFramesShow,
   hashEchoLyricOverlayExecutionContract,
+  hyperFramesMediaElementTiming,
+  hyperFramesMediaPresentationWindow,
   hyperFramesMediaSourceCandidates,
   hyperFramesMediaOpacityState,
   indexHyperFramesMediaContracts,
@@ -389,6 +391,285 @@ test("HyperFrames matches source/runtime aliases and preserves explicit pure-IVF
   assert.equal(preflight.resolvedCount, 1);
   assert.equal(preflight.generatedCount, 2);
   assert.equal(preflight.unresolvedCount, 0);
+});
+
+test("HyperFrames binds each authored transition to its positional full-source time map", () => {
+  const runtimeUri = "/media/authored-reference-transition.mp4";
+  const contentHash = "8".repeat(64);
+  const timeMap = (cueDurationSeconds) => ({
+    schemaVersion: "hapa.echo.transition-time-map.v1",
+    mode: "fit-source-once-to-cue",
+    valid: true,
+    sourceInSeconds: 0,
+    sourceOutSeconds: 4.958333,
+    sourceDurationSeconds: 4.958333,
+    cueDurationSeconds,
+    cueSampleSpanSeconds: cueDurationSeconds - (1 / 30),
+    outputFps: 30,
+    playbackRate: 4.958333 / (cueDurationSeconds - (1 / 30)),
+    sourceTimeOrigin: "logical-cue-start",
+    playbackMode: "once",
+    reachesDeclaredLastFrame: true,
+  });
+  const project = {
+    timeline: [
+      {
+        media_id: "authored-transition",
+        runtime_media_uri: runtimeUri,
+        media_contract: {
+          type: "video",
+          runtimeUri,
+          contentHash,
+          playbackMode: "once",
+          timeMapping: timeMap(2),
+        },
+      },
+      {
+        media_id: "authored-transition",
+        runtime_media_uri: runtimeUri,
+        media_contract: {
+          type: "video",
+          runtimeUri,
+          contentHash,
+          playbackMode: "once",
+          timeMapping: timeMap(3),
+        },
+      },
+    ],
+  };
+  const index = indexHyperFramesMediaContracts(project);
+  const card = mediaCard("transition-cue", {
+    id: "authored-transition",
+    title: "Authored Reference Transition",
+    localPath: runtimeUri,
+  });
+  const ambiguous = resolveHyperFramesMediaSource(card, index);
+  const resolved = resolveHyperFramesMediaSource(card, index, { shotIndex: 1 });
+
+  assert.equal(ambiguous.contractResolution.status, "ambiguous", "a repeated source with different cue maps must not silently inherit the first map");
+  assert.equal(resolved.contractResolution.status, "matched");
+  assert.equal(resolved.contractResolution.resolutionBasis, "matching-shot-index");
+  assert.equal(resolved.timeMappingStatus.valid, true);
+  assert.equal(resolved.timeMapping.cueDurationSeconds, 3);
+  assert.equal(resolved.timeMapping.playbackRate, 4.958333 / (3 - (1 / 30)));
+
+  const instances = [
+    { id: "entry", trackId: "media-a", start: 0, end: 4, source: { type: "video" } },
+    { id: "transition", trackId: "media-a", start: 4, end: 7, source: resolved },
+  ];
+  const presentation = hyperFramesMediaPresentationWindow(instances, 1);
+  const playback = hyperFramesMediaElementTiming(instances[1], presentation);
+  assert.equal(presentation.presentationStart, 3.55, "the visual dissolve may begin before the logical transition cue");
+  assert.equal(playback.activationStart, 4, "source motion must begin at the logical cue, not during the incoming dissolve");
+  assert.equal(playback.activationDuration, 3);
+  assert.equal(playback.mediaStart, 0);
+  assert.equal(playback.mediaEnd, 4.958333);
+  assert.equal(playback.playbackRate, 4.958333 / (3 - (1 / 30)));
+  assert.equal(playback.playbackMode, "once");
+  assert.equal(playback.loop, false);
+  assert.equal(playback.holdBefore, true);
+  assert.equal(playback.holdAfter, true);
+});
+
+test("HyperFrames exports exact Reference images as bounded holds around the authored transition", () => {
+  const entrySha256 = "1".repeat(64);
+  const transitionSha256 = "c".repeat(64);
+  const exitSha256 = "2".repeat(64);
+  const entryUri = "/reference-frames/moon-door-a.png";
+  const transitionUri = "/media/certified-a-to-b.mp4";
+  const exitUri = "/reference-frames/river-home-b.png";
+  const timeMapping = {
+    schemaVersion: "hapa.echo.transition-time-map.v1",
+    mode: "fit-source-once-to-cue",
+    valid: true,
+    sourceInSeconds: 0,
+    sourceOutSeconds: 5.041667,
+    sourceDurationSeconds: 5.041667,
+    cueDurationSeconds: 2,
+    cueSampleSpanSeconds: 2 - (1 / 30),
+    outputFps: 30,
+    playbackRate: 5.041667 / (2 - (1 / 30)),
+    sourceTimeOrigin: "logical-cue-start",
+    playbackMode: "once",
+    reachesDeclaredLastFrame: true,
+  };
+  const project = {
+    timeline: [
+      {
+        media_id: `hapa-media:sha256:${entrySha256}`,
+        media_uri: entryUri,
+        runtime_media_uri: entryUri,
+        media_contract: {
+          type: "image",
+          originalUri: entryUri,
+          runtimeUri: entryUri,
+          contentHash: entrySha256,
+          playbackMode: "hold",
+          dimensions: { width: 720, height: 1280 },
+        },
+      },
+      {
+        media_id: `hapa-media:sha256:${transitionSha256}`,
+        media_uri: transitionUri,
+        runtime_media_uri: transitionUri,
+        media_contract: {
+          type: "video",
+          originalUri: transitionUri,
+          runtimeUri: transitionUri,
+          contentHash: transitionSha256,
+          playbackMode: "once",
+          timeMapping,
+          dimensions: { width: 1080, height: 1080 },
+        },
+      },
+      {
+        media_id: `hapa-media:sha256:${exitSha256}`,
+        media_uri: exitUri,
+        runtime_media_uri: exitUri,
+        media_contract: {
+          type: "image",
+          originalUri: exitUri,
+          runtimeUri: exitUri,
+          contentHash: exitSha256,
+          playbackMode: "hold",
+          dimensions: { width: 720, height: 1280 },
+        },
+      },
+    ],
+  };
+  const graph = nativeMediaGraph([
+    mediaCard("entry-reference-still", {
+      id: `hapa-media:sha256:${entrySha256}`,
+      title: "Moon Door A Reference still",
+      localPath: entryUri,
+    }, { startSeconds: 0, endSeconds: 2, provenance: { rendererRoute: "image" } }),
+    mediaCard("authored-transition", {
+      id: `hapa-media:sha256:${transitionSha256}`,
+      title: "Moon Door A to River Home B",
+      localPath: transitionUri,
+    }, { startSeconds: 2, endSeconds: 4, provenance: { rendererRoute: "video" } }),
+    mediaCard("exit-reference-still", {
+      id: `hapa-media:sha256:${exitSha256}`,
+      title: "River Home B Reference still",
+      localPath: exitUri,
+    }, { startSeconds: 4, endSeconds: 6, provenance: { rendererRoute: "image" } }),
+  ]);
+  graph.song.durationSeconds = 6;
+  const certifiedPortraitCrop = { x: 0, y: 0.341796875, width: 1, height: 0.31640625 };
+  for (const card of graph.tracks[0].cards) {
+    card.parameters = { ...(card.parameters || {}), motion: "static", cameraIntensity: 0, cameraSpeed: 1, cameraFocus: "center" };
+    card.cameraKeyframes = [
+      { atSeconds: card.startSeconds, crop: certifiedPortraitCrop, motion: "static", intensity: 0, speed: 1, focus: "center" },
+      { atSeconds: card.endSeconds, crop: certifiedPortraitCrop, motion: "static", intensity: 0, speed: 1, focus: "center" },
+    ];
+  }
+  graph.directorV2.cameraKeyframes = graph.tracks[0].cards.flatMap((card) => structuredClone(card.cameraKeyframes));
+  const show = compileHyperFramesShow({
+    showGraph: graph,
+    project,
+    telemetry: { masterMix: { frames: [{ t: 0, rms: 0.1 }, { t: 6, rms: 0.1 }] } },
+    fps: 30,
+  });
+
+  assert.deepEqual(show.instances.media.map((instance) => ({
+    type: instance.source.type,
+    contentHash: instance.source.contentHash,
+    playbackMode: instance.source.playbackMode,
+    orientation: instance.source.sourceOrientation,
+  })), [
+    { type: "image", contentHash: entrySha256, playbackMode: "hold", orientation: "portrait" },
+    { type: "video", contentHash: transitionSha256, playbackMode: "once", orientation: "square" },
+    { type: "image", contentHash: exitSha256, playbackMode: "hold", orientation: "portrait" },
+  ]);
+  const timing = show.instances.media.map((instance, index) => hyperFramesMediaElementTiming(
+    instance,
+    hyperFramesMediaPresentationWindow(show.instances.media, index),
+  ));
+  assert.deepEqual(timing.map((row) => ({
+    mappedTransition: row.mappedTransition,
+    playbackMode: row.playbackMode,
+    loop: row.loop,
+    holdBefore: row.holdBefore,
+    holdAfter: row.holdAfter,
+  })), [
+    { mappedTransition: false, playbackMode: "hold", loop: false, holdBefore: true, holdAfter: true },
+    { mappedTransition: true, playbackMode: "once", loop: false, holdBefore: true, holdAfter: true },
+    { mappedTransition: false, playbackMode: "hold", loop: false, holdBefore: true, holdAfter: true },
+  ]);
+  assert.equal(timing[0].activationStart, 0);
+  assert.equal(timing[0].activationDuration, 2);
+  assert.equal(timing[1].activationStart, 2, "authored source motion started during the incoming still dissolve");
+  assert.equal(timing[1].activationDuration, 2);
+  assert.equal(timing[2].activationStart, 3.55, "exit Reference still did not cover the outgoing transition dissolve");
+  assert.equal(timing[2].activationDuration, 2.45);
+  for (const instance of show.instances.media) {
+    assert.deepEqual(instance.cameraKeyframes.map((keyframe) => keyframe.crop), [
+      certifiedPortraitCrop,
+      certifiedPortraitCrop,
+    ]);
+    assert.ok(instance.cameraKeyframes.every((keyframe) => (
+      keyframe.motion === "static" && keyframe.intensity === 0 && keyframe.speed === 1
+    )));
+  }
+});
+
+test("HyperFrames rejects malformed transition maps instead of exporting them as ordinary loops", () => {
+  const runtimeUri = "/media/invalid-transition.mp4";
+  const graph = nativeMediaGraph([mediaCard("invalid-transition-cue", {
+    id: "invalid-transition",
+    title: "Invalid Transition",
+    localPath: runtimeUri,
+  }, { endSeconds: 12 })]);
+  const project = {
+    timeline: [{
+      media_id: "invalid-transition",
+      runtime_media_uri: runtimeUri,
+      media_contract: {
+        type: "video",
+        runtimeUri,
+        playbackMode: "once",
+        timeMapping: {
+          schemaVersion: "hapa.echo.transition-time-map.v1",
+          mode: "fit-source-once-to-cue",
+          sourceInSeconds: 0,
+          sourceOutSeconds: 4.958333,
+          sourceDurationSeconds: 4.958333,
+          cueDurationSeconds: 12,
+          cueSampleSpanSeconds: 12 - (1 / 30),
+          outputFps: 30,
+          playbackRate: 0.42,
+          valid: false,
+          sourceTimeOrigin: "logical-cue-start",
+          playbackMode: "once",
+          reachesDeclaredLastFrame: false,
+        },
+      },
+    }],
+  };
+  const show = compileHyperFramesShow({
+    showGraph: graph,
+    project,
+    telemetry: { masterMix: { frames: [{ t: 0, rms: 0.1 }, { t: 12, rms: 0.2 }] } },
+    fps: 30,
+  });
+  assert.equal(show.instances.media[0].source.timeMappingStatus.declared, true);
+  assert.equal(show.instances.media[0].source.timeMappingStatus.valid, false);
+  assert.ok(inspectHyperFramesShow(show).errors.includes("invalid-transition-time-map:invalid-transition-cue"));
+  assert.throws(
+    () => hyperFramesMediaElementTiming(show.instances.media[0]),
+    /Invalid full-source transition time map for invalid-transition-cue/u,
+  );
+});
+
+test("HyperFrames export markup activates mapped transitions on logical cue time and initializes source rate before discovery", () => {
+  const source = fs.readFileSync("scripts/compile-hyperframes-show-v2.mjs", "utf8");
+  assert.match(source, /instance\.source\.type === "image"[\s\S]+<img \$\{attrs\} src=/u, "certified Reference stills must export as image elements");
+  assert.match(source, /data-start="\$\{playback\.activationStart\}" data-duration="\$\{playback\.activationDuration\}"/u);
+  assert.match(source, /data-media-start="\$\{playback\.mediaStart\}" data-media-end="\$\{playback\.mediaEnd\}" data-playback-rate="\$\{playback\.playbackRate\}"/u);
+  assert.match(source, /playsinline\$\{playback\.loop \? " loop" : ""\}/u, "only ordinary media should retain the historical loop attribute");
+  assert.match(source, /video\.defaultPlaybackRate=playbackRate;video\.playbackRate=playbackRate[\s\S]+mediaRoot\.appendChild\(video\)/u);
+  assert.match(source, /function holdMappedTransitionEndpoint[\s\S]+mapping\.sourceInSeconds:mapping\.sourceOutSeconds[\s\S]+el\.currentTime=target/u);
+  assert.match(source, /holdMappedTransitionEndpoint\(t,el,m,timing\)/u);
 });
 
 test("HyperFrames contract aliases use exact URI, then stable media identity, then fail closed on ambiguous basenames", () => {

@@ -66,3 +66,21 @@ authority. Any append-only rebuild must discover the authoritative files first,
 then merge compact metadata over that complete inventory. These rules now live
 in the repeatable Ref Cards generator and the shared Direction Variant index
 helper rather than in a one-off batch script.
+
+## Motion-role correction — 2026-08-02
+
+The content-addressed ingest, media custody, index reconstruction, and 429-video
+coverage above remain valid. The correction is editorial: the importer's broad
+`loop_video` tag was mistakenly reused as `loop/hold` intent for the entire
+collection. That erased the distinction between near-static holds and
+action-oriented footage when the Director ranked candidates.
+
+At least 258 filenames explicitly describe a transition. Those names identify
+transition review candidates; they do not prove first/last frames or Reference
+card endpoints. All 258 currently normalize as scene motion—not as loops or
+authored transitions—and cannot become authored bridges until exact from/to
+card, frame, asset, and image identity is recovered or approved. The 41 Vibes
+transitions that already carry declared endpoint lineage remain the
+authoritative bridge set. The complete scoring, sequencing, v5 truth-boundary,
+and verification record is in
+[the transition-weighting correction](./2026-08-02-echo-transition-weighting-correction.md).

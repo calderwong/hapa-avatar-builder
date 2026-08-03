@@ -150,6 +150,37 @@ test("legacy director shots retain constituent Card identity in the editor graph
   });
 });
 
+test("historical authored transitions do not inherit the V6 physical-seam certificate", () => {
+  const projected = projectToEditorGraph({
+    song_id: "historical-motion-bridge",
+    song_title: "Historical Motion Bridge",
+    duration: 4,
+    timeline: [{
+      start_sec: 0,
+      end_sec: 4,
+      media_id: "historical-transition",
+      media_title: "Historical transition",
+      media_uri: "/media/historical-transition.mp4",
+      camera_motion: "pan-left",
+      camera_intensity: 1,
+      camera_speed: 1,
+      decision_evidence: {
+        atomicTransition: {
+          role: "authored-transition",
+          endpointIdentityEvidence: "declared-card-lineage+poster-uri-match",
+        },
+      },
+      camera_framing_contract: {
+        schemaVersion: "hapa.echo.asset-camera-framing.v2",
+        cropPolicy: "aspect-cover-full-bleed",
+      },
+    }],
+  });
+  const mediaCard = projected.tracks.find((track) => ["foundation", "media"].includes(track.role)).cards[0];
+  assert.notEqual(mediaCard.provenance.cameraBinding, "certified-atomic-contract-preserved");
+  assert.equal(mediaCard.parameters.motion, "pan-left");
+});
+
 test("editor projection preserves runtime-contract media and explicit visualizer-only blanks", () => {
   const projected = projectToEditorGraph({
     song_id: "runtime-contract-song",

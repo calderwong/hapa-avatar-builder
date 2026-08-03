@@ -1,5 +1,37 @@
+import {
+  ECHO_ENRICHMENT_SHOT_EVIDENCE_SCHEMA,
+  ECHO_TRANSITION_ENDPOINT_IDENTITY_EVIDENCE,
+  ECHO_TRANSITION_MAX_PLAYBACK_RATE,
+  ECHO_TRANSITION_TIME_MAP_SCHEMA,
+  echoEnrichmentSha256,
+  stableEchoEnrichmentStringify,
+} from "./echo-enrichment-director-variant.js";
+
 export const ECHO_ENRICHMENT_AUDIT_SCHEMA = "hapa.echo.video-enrichment-audit.v1";
+export const ECHO_ENRICHMENT_SUPPORTED_SHOT_EVIDENCE_SCHEMAS = Object.freeze([
+  "hapa.echo.shot-decision-evidence.v4",
+  "hapa.echo.shot-decision-evidence.v5",
+  ECHO_ENRICHMENT_SHOT_EVIDENCE_SCHEMA,
+]);
+
 const CANONICAL_STORY_AFFINITY_MINIMUM = 0.1;
+const SUPPORTED_SHOT_EVIDENCE_SCHEMAS = new Set(ECHO_ENRICHMENT_SUPPORTED_SHOT_EVIDENCE_SCHEMAS);
+const ATOMIC_TRANSITION_ROLES = new Set([
+  "entry-reference-loop",
+  "entry-reference-still",
+  "authored-transition",
+  "exit-reference-loop",
+  "exit-reference-still",
+]);
+const ECHO_ENRICHMENT_ATOMIC_SHOT_EVIDENCE_SCHEMAS = new Set([
+  "hapa.echo.shot-decision-evidence.v5",
+  ECHO_ENRICHMENT_SHOT_EVIDENCE_SCHEMA,
+]);
+const ATOMIC_ENDPOINT_IDENTITY_EVIDENCE_BY_SCHEMA = Object.freeze({
+  "hapa.echo.shot-decision-evidence.v5": "declared-card-lineage+poster-uri-match",
+  [ECHO_ENRICHMENT_SHOT_EVIDENCE_SCHEMA]: ECHO_TRANSITION_ENDPOINT_IDENTITY_EVIDENCE,
+});
+const SHA256_PATTERN = /^[a-f0-9]{64}$/u;
 
 function list(value) {
   return Array.isArray(value) ? value : [];
@@ -7,6 +39,10 @@ function list(value) {
 
 function text(value) {
   return typeof value === "string" ? value.trim() : "";
+}
+
+function object(value) {
+  return value && typeof value === "object" && !Array.isArray(value) ? value : {};
 }
 
 function number(value, fallback = null) {
@@ -268,6 +304,402 @@ export function buildSourceBiasFeedback({ enrichments = [], selections = [] } = 
   };
 }
 
+function shotDecisionEvidence(shot = {}) {
+  return shot.decision_evidence || shot.decisionEvidence || shot.enrichmentDecision || shot.hapa?.shotDecisionEvidence || null;
+}
+
+function normalizedAtomicEndpoint(value = {}) {
+  const row = object(value);
+  return {
+    role: text(row.role).toLowerCase(),
+    cardId: text(row.cardId || row.card_id),
+    cardRevisionId: text(row.cardRevisionId || row.card_revision_id),
+    cardTitle: text(row.cardTitle || row.card_title),
+    assetId: text(row.assetId || row.asset_id),
+    frameId: text(row.frameId || row.frame_id),
+    sha256: text(row.sha256 || row.contentHash || row.content_hash).replace(/^sha256:/u, "").toLowerCase(),
+    uri: text(row.uri || row.mediaUri || row.media_uri),
+    reviewStatus: text(row.reviewStatus || row.review_status),
+    sourceCardUnchanged: row.sourceCardUnchanged === true || row.source_card_unchanged === true,
+  };
+}
+
+function completeAtomicEndpoint(endpoint = {}, expectedRole = "") {
+  return endpoint.role === expectedRole
+    && Boolean(endpoint.cardId)
+    && SHA256_PATTERN.test(endpoint.sha256)
+    && Boolean(endpoint.uri)
+    && endpoint.sourceCardUnchanged === true;
+}
+
+function atomicEndpointIdentity(endpoint = {}) {
+  return JSON.stringify(endpoint);
+}
+
+function auditCurrentAtomicTransitions({ timeline = [], songId = "", variantId = "", variant = {} } = {}) {
+  const blockers = [];
+  const push = (code, shotIndex, details = {}) => blockers.push({
+    code,
+    songId,
+    variantId,
+    shotIndex,
+    ...details,
+  });
+  const rows = list(timeline).map((shot, shotIndex) => {
+    const evidence = shotDecisionEvidence(shot);
+    const evidenceSchemaVersion = text(evidence?.schemaVersion);
+    const atomicSchema = ECHO_ENRICHMENT_ATOMIC_SHOT_EVIDENCE_SCHEMAS.has(evidenceSchemaVersion);
+    const currentSchema = evidenceSchemaVersion === ECHO_ENRICHMENT_SHOT_EVIDENCE_SCHEMA;
+    const atomicValue = atomicSchema ? evidence?.atomicTransition : null;
+    const validAtomicShape = atomicValue === null || atomicValue === undefined
+      || (typeof atomicValue === "object" && !Array.isArray(atomicValue));
+    const atomic = validAtomicShape ? object(atomicValue) : {};
+    return {
+      shot,
+      shotIndex,
+      evidence,
+      evidenceSchemaVersion,
+      atomicSchema,
+      currentSchema,
+      atomicValue,
+      validAtomicShape,
+      atomic,
+      role: text(atomic.role),
+      transitionMediaId: text(atomic.transitionMediaId || atomic.transition_media_id),
+      transitionJobId: text(atomic.transitionJobId || atomic.transition_job_id || atomic.jobId || atomic.job_id),
+      selectedCandidateMotionKind: text(evidence?.selectedCandidate?.motionRole?.kind).toLowerCase(),
+      selectedCandidateReferenceAnchorIds: list(evidence?.selectedCandidate?.referenceAnchorIds)
+        .map((value) => text(value).toLowerCase()).filter(Boolean),
+      firstReference: normalizedAtomicEndpoint(atomic.firstReference || atomic.first_reference),
+      lastReference: normalizedAtomicEndpoint(atomic.lastReference || atomic.last_reference),
+      endpointIdentityEvidence: text(atomic.endpointIdentityEvidence || atomic.endpoint_identity_evidence),
+    };
+  });
+  const endpointCertification = object(variant.lineage?.transitionEndpointCertification);
+  const visualResultDigestSha256 = text(endpointCertification.resultDigestSha256);
+  const certifiedJobIds = new Set(list(endpointCertification.certifiedJobIds).map(text).filter(Boolean));
+  const certifiedJobs = new Map(list(endpointCertification.certifiedJobs).map((job) => (
+    [text(job.jobId || job.job_id), job]
+  )));
+
+  for (const row of rows) {
+    if (!row.atomicSchema) continue;
+    if (row.selectedCandidateMotionKind === "transition" && row.role !== "authored-transition") {
+      push("transition-candidate-missing-authored-atomic-role", row.shotIndex, {
+        atomicRole: row.role || null,
+      });
+    }
+    if (row.atomicValue === null || row.atomicValue === undefined) continue;
+    if (!row.validAtomicShape) {
+      push("invalid-atomic-transition-evidence", row.shotIndex);
+      continue;
+    }
+    if (!ATOMIC_TRANSITION_ROLES.has(row.role)) {
+      push("invalid-atomic-transition-role", row.shotIndex, { role: row.role || null });
+      continue;
+    }
+    if (!completeAtomicEndpoint(row.firstReference, "first")) {
+      push("atomic-transition-first-reference-incomplete", row.shotIndex);
+    }
+    if (!completeAtomicEndpoint(row.lastReference, "last")) {
+      push("atomic-transition-last-reference-incomplete", row.shotIndex);
+    }
+    const expectedEndpointIdentityEvidence = ATOMIC_ENDPOINT_IDENTITY_EVIDENCE_BY_SCHEMA[row.evidenceSchemaVersion];
+    if (row.endpointIdentityEvidence !== expectedEndpointIdentityEvidence) {
+      push("atomic-transition-endpoint-identity-evidence-invalid", row.shotIndex, {
+        endpointIdentityEvidence: row.endpointIdentityEvidence || null,
+      });
+    }
+    if (!row.transitionMediaId) push("atomic-transition-media-id-missing", row.shotIndex, { role: row.role });
+    if (!row.transitionJobId) push("atomic-transition-job-id-missing", row.shotIndex, { role: row.role });
+    if (row.currentSchema) {
+      const framing = object(row.shot.camera_framing_contract || row.shot.cameraFramingContract);
+      if (text(row.shot.camera_motion || row.shot.cameraMotion).toLowerCase() !== "static"
+        || number(row.shot.camera_intensity ?? row.shot.cameraIntensity, null) !== 0
+        || number(row.shot.camera_speed ?? row.shot.cameraSpeed, null) !== 1
+        || text(row.shot.camera_focus || row.shot.cameraFocus).toLowerCase() !== "center"
+        || framing.schemaVersion !== "hapa.echo.asset-camera-framing.v2"
+        || text(framing.cropPolicy) !== "certified-centered-cover-no-motion"
+        || text(framing.mediaId) !== text(row.shot.media_id || row.shot.mediaId)
+        || text(framing.path?.mediaId) !== text(row.shot.media_id || row.shot.mediaId)
+        || list(framing.path?.corridors).some((corridor) => (
+          stableEchoEnrichmentStringify(corridor.startCrop)
+            !== stableEchoEnrichmentStringify(corridor.endCrop)
+          || (() => {
+            const sourceAspect = number(framing.sourceAspect, null);
+            const targetAspect = number(corridor.targetAspect, null);
+            const crop = object(corridor.startCrop);
+            if (!(sourceAspect > 0) || !(targetAspect > 0)) return true;
+            const expectedWidth = sourceAspect >= targetAspect ? targetAspect / sourceAspect : 1;
+            const expectedHeight = sourceAspect >= targetAspect ? 1 : sourceAspect / targetAspect;
+            return Math.abs(number(crop.width, -1) - expectedWidth) > 0.000001
+              || Math.abs(number(crop.height, -1) - expectedHeight) > 0.000001
+              || Math.abs(number(crop.x, -1) - ((1 - expectedWidth) / 2)) > 0.000001
+              || Math.abs(number(crop.y, -1) - ((1 - expectedHeight) / 2)) > 0.000001;
+          })()
+        ))) {
+        push("atomic-transition-framing-drift", row.shotIndex);
+      }
+    }
+
+    const previous = rows[row.shotIndex - 1] || null;
+    const next = rows[row.shotIndex + 1] || null;
+    if (["entry-reference-loop", "entry-reference-still"].includes(row.role)) {
+      if (next?.role !== "authored-transition") {
+        push("orphan-atomic-transition-entry", row.shotIndex);
+      }
+      if (!row.selectedCandidateReferenceAnchorIds.includes(row.firstReference.cardId.toLowerCase())) {
+        push("atomic-transition-entry-reference-anchor-mismatch", row.shotIndex, {
+          expectedReferenceCardId: row.firstReference.cardId || null,
+        });
+      }
+      if (row.currentSchema) {
+        const certification = object(row.evidence?.selectedCandidate?.referenceStillCertification);
+        const imageSha256 = text(row.firstReference.sha256).replace(/^sha256:/u, "").toLowerCase();
+        const mediaContract = object(row.shot.media_contract || row.shot.mediaContract);
+        if (row.role !== "entry-reference-still"
+          || row.selectedCandidateMotionKind !== "reference-still-hold"
+          || text(row.shot.media_id || row.shot.mediaId) !== `hapa-media:sha256:${imageSha256}`
+          || text(row.shot.media_uri || row.shot.mediaUri) !== row.firstReference.uri
+          || text(row.shot.runtime_media_uri || row.shot.runtimeMediaUri) !== row.firstReference.uri
+          || text(mediaContract.type).toLowerCase() !== "image"
+          || text(mediaContract.playbackMode || mediaContract.playback_mode).toLowerCase() !== "hold"
+          || text(mediaContract.contentHash || mediaContract.content_hash).toLowerCase() !== imageSha256
+          || certification.schemaVersion !== "hapa.echo.transition-reference-still-hold.v1"
+          || text(certification.cardId) !== row.firstReference.cardId
+          || text(certification.imageSha256).toLowerCase() !== imageSha256
+          || text(certification.imageUri) !== row.firstReference.uri) {
+          push("atomic-transition-entry-reference-still-binding-invalid", row.shotIndex);
+        }
+      }
+      continue;
+    }
+    if (["exit-reference-loop", "exit-reference-still"].includes(row.role)) {
+      if (previous?.role !== "authored-transition") {
+        push("orphan-atomic-transition-exit", row.shotIndex);
+      }
+      if (!row.selectedCandidateReferenceAnchorIds.includes(row.lastReference.cardId.toLowerCase())) {
+        push("atomic-transition-exit-reference-anchor-mismatch", row.shotIndex, {
+          expectedReferenceCardId: row.lastReference.cardId || null,
+        });
+      }
+      if (row.currentSchema) {
+        const certification = object(row.evidence?.selectedCandidate?.referenceStillCertification);
+        const imageSha256 = text(row.lastReference.sha256).replace(/^sha256:/u, "").toLowerCase();
+        const mediaContract = object(row.shot.media_contract || row.shot.mediaContract);
+        if (row.role !== "exit-reference-still"
+          || row.selectedCandidateMotionKind !== "reference-still-hold"
+          || text(row.shot.media_id || row.shot.mediaId) !== `hapa-media:sha256:${imageSha256}`
+          || text(row.shot.media_uri || row.shot.mediaUri) !== row.lastReference.uri
+          || text(row.shot.runtime_media_uri || row.shot.runtimeMediaUri) !== row.lastReference.uri
+          || text(mediaContract.type).toLowerCase() !== "image"
+          || text(mediaContract.playbackMode || mediaContract.playback_mode).toLowerCase() !== "hold"
+          || text(mediaContract.contentHash || mediaContract.content_hash).toLowerCase() !== imageSha256
+          || certification.schemaVersion !== "hapa.echo.transition-reference-still-hold.v1"
+          || text(certification.cardId) !== row.lastReference.cardId
+          || text(certification.imageSha256).toLowerCase() !== imageSha256
+          || text(certification.imageUri) !== row.lastReference.uri) {
+          push("atomic-transition-exit-reference-still-binding-invalid", row.shotIndex);
+        }
+      }
+      continue;
+    }
+
+    if (row.shotIndex === 0 || row.shotIndex === rows.length - 1) {
+      push("atomic-transition-boundary", row.shotIndex);
+    }
+    if (next?.role === "authored-transition") {
+      push("adjacent-atomic-transitions", row.shotIndex, { adjacentShotIndex: next.shotIndex });
+    }
+    const expectedEntryRole = row.currentSchema ? "entry-reference-still" : "entry-reference-loop";
+    const expectedExitRole = row.currentSchema ? "exit-reference-still" : "exit-reference-loop";
+    if (previous?.role !== expectedEntryRole) {
+      push("atomic-transition-entry-anchor-missing", row.shotIndex);
+    }
+    if (next?.role !== expectedExitRole) {
+      push("atomic-transition-exit-anchor-missing", row.shotIndex);
+    }
+
+    for (const neighbor of [previous, next].filter(Boolean)) {
+      if (atomicEndpointIdentity(neighbor.firstReference) !== atomicEndpointIdentity(row.firstReference)) {
+        push("atomic-transition-first-reference-mismatch", row.shotIndex, {
+          neighborShotIndex: neighbor.shotIndex,
+        });
+      }
+      if (atomicEndpointIdentity(neighbor.lastReference) !== atomicEndpointIdentity(row.lastReference)) {
+        push("atomic-transition-last-reference-mismatch", row.shotIndex, {
+          neighborShotIndex: neighbor.shotIndex,
+        });
+      }
+      if (neighbor.endpointIdentityEvidence !== row.endpointIdentityEvidence) {
+        push("atomic-transition-endpoint-identity-evidence-mismatch", row.shotIndex, {
+          neighborShotIndex: neighbor.shotIndex,
+        });
+      }
+    }
+
+    for (const neighbor of [previous, next].filter(Boolean)) {
+      if (neighbor.transitionMediaId !== row.transitionMediaId) {
+        push("atomic-transition-media-id-mismatch", row.shotIndex, {
+          neighborShotIndex: neighbor.shotIndex,
+          expectedTransitionMediaId: row.transitionMediaId || null,
+          actualTransitionMediaId: neighbor.transitionMediaId || null,
+        });
+      }
+      if (neighbor.transitionJobId !== row.transitionJobId) {
+        push("atomic-transition-job-id-mismatch", row.shotIndex, {
+          neighborShotIndex: neighbor.shotIndex,
+          expectedTransitionJobId: row.transitionJobId || null,
+          actualTransitionJobId: neighbor.transitionJobId || null,
+        });
+      }
+    }
+
+    const selectedMediaId = text(row.evidence?.selectedMediaId || row.evidence?.mediaId);
+    if (!selectedMediaId || selectedMediaId !== row.transitionMediaId) {
+      push("atomic-transition-selected-media-mismatch", row.shotIndex, {
+        selectedMediaId: selectedMediaId || null,
+        transitionMediaId: row.transitionMediaId || null,
+      });
+    }
+    const shotMediaId = text(row.shot.media_id || row.shot.mediaId);
+    if (!shotMediaId || shotMediaId !== row.transitionMediaId || shotMediaId !== selectedMediaId) {
+      push("atomic-transition-shot-media-mismatch", row.shotIndex, {
+        shotMediaId: shotMediaId || null,
+        selectedMediaId: selectedMediaId || null,
+        transitionMediaId: row.transitionMediaId || null,
+      });
+    }
+    const mediaContract = object(row.shot.media_contract || row.shot.mediaContract);
+    if (text(mediaContract.playbackMode || mediaContract.playback_mode).toLowerCase() !== "once") {
+      push("atomic-transition-playback-not-once", row.shotIndex);
+    }
+    const transitionLink = object(row.shot.transition_link || row.shot.transitionLink);
+    if (!Object.keys(transitionLink).length) {
+      push("atomic-transition-link-missing", row.shotIndex);
+    } else {
+      const linkJobId = text(transitionLink.id || transitionLink.jobId || transitionLink.job_id);
+      const linkMediaId = text(transitionLink.mediaId || transitionLink.media_id);
+      if (linkJobId !== row.transitionJobId || linkMediaId !== row.transitionMediaId) {
+        push("atomic-transition-link-identity-mismatch", row.shotIndex, {
+          linkJobId: linkJobId || null,
+          linkMediaId: linkMediaId || null,
+        });
+      }
+      if (text(transitionLink.playbackMode || transitionLink.playback_mode).toLowerCase() !== "once") {
+        push("atomic-transition-link-playback-not-once", row.shotIndex);
+      }
+    }
+
+    if (row.currentSchema) {
+      const atomicVisual = object(row.atomic.visualValidation || row.atomic.visual_validation);
+      const transitionLink = object(row.shot.transition_link || row.shot.transitionLink);
+      const linkVisual = object(transitionLink.visualValidation || transitionLink.visual_validation);
+      const certifiedJob = object(certifiedJobs.get(row.transitionJobId));
+      if (endpointCertification.schemaVersion !== "hapa.echo.transition-endpoint-certification-lineage.v1"
+        || endpointCertification.verified !== true
+        || !SHA256_PATTERN.test(visualResultDigestSha256)
+        || text(endpointCertification.certifiedJobLedgerDigestSha256)
+          !== echoEnrichmentSha256(list(endpointCertification.certifiedJobs))) {
+        push("atomic-transition-visual-certification-lineage-invalid", row.shotIndex);
+      }
+      if (!certifiedJobIds.has(row.transitionJobId)
+        || text(certifiedJob.mediaId || certifiedJob.media_id) !== row.transitionMediaId) {
+        push("atomic-transition-job-not-visually-certified", row.shotIndex, {
+          transitionJobId: row.transitionJobId || null,
+        });
+      }
+      for (const [location, visual] of [["atomic", atomicVisual], ["link", linkVisual]]) {
+        if (visual.schemaVersion !== "hapa.echo.transition-shot-visual-certification.v1"
+          || text(visual.decision) !== "certified"
+          || text(visual.jobId || visual.job_id) !== row.transitionJobId
+          || text(visual.mediaId || visual.media_id) !== row.transitionMediaId
+          || !SHA256_PATTERN.test(text(visual.videoSha256 || visual.video_sha256))
+          || text(visual.videoSha256 || visual.video_sha256) !== text(certifiedJob.videoSha256)
+          || stableEchoEnrichmentStringify(visual.endpoints)
+            !== stableEchoEnrichmentStringify(certifiedJob.endpoints)
+          || text(visual.resultDigestSha256 || visual.result_digest_sha256) !== visualResultDigestSha256) {
+          push("atomic-transition-visual-certification-mismatch", row.shotIndex, { location });
+        }
+      }
+      const mediaTimeMapping = object(mediaContract.timeMapping || mediaContract.time_mapping);
+      const linkTimeMapping = object(transitionLink.timeMapping || transitionLink.time_mapping);
+      const atomicTimeMapping = object(row.atomic.timeMapping || row.atomic.time_mapping);
+      const cueDurationSeconds = number(row.shot.end_sec ?? row.shot.endSeconds, 0)
+        - number(row.shot.start_sec ?? row.shot.startSeconds, 0);
+      const sourceInSeconds = number(mediaTimeMapping.sourceInSeconds ?? mediaTimeMapping.source_in_seconds, null);
+      const sourceOutSeconds = number(mediaTimeMapping.sourceOutSeconds ?? mediaTimeMapping.source_out_seconds, null);
+      const sourceDurationSeconds = sourceOutSeconds !== null && sourceInSeconds !== null
+        ? sourceOutSeconds - sourceInSeconds
+        : null;
+      const outputFps = number(mediaTimeMapping.outputFps ?? mediaTimeMapping.output_fps, null);
+      const cueSampleSpanSeconds = number(
+        mediaTimeMapping.cueSampleSpanSeconds ?? mediaTimeMapping.cue_sample_span_seconds,
+        null,
+      );
+      const playbackRate = number(mediaTimeMapping.playbackRate ?? mediaTimeMapping.playback_rate, null);
+      const expectedCueSampleSpanSeconds = outputFps > 0 && cueDurationSeconds > 0
+        ? cueDurationSeconds - (1 / outputFps)
+        : null;
+      const expectedPlaybackRate = sourceDurationSeconds > 0 && cueSampleSpanSeconds > 0
+        ? sourceDurationSeconds / cueSampleSpanSeconds
+        : null;
+      const certifiedFirstSeconds = number(certifiedJob.endpoints?.first?.sourceTimeSeconds, null);
+      const certifiedLastSeconds = number(certifiedJob.endpoints?.last?.sourceTimeSeconds, null);
+      if (mediaTimeMapping.schemaVersion !== ECHO_TRANSITION_TIME_MAP_SCHEMA
+        || mediaTimeMapping.mode !== "fit-source-once-to-cue"
+        || mediaTimeMapping.valid !== true
+        || mediaTimeMapping.reachesDeclaredLastFrame !== true) {
+        push("atomic-transition-time-mapping-invalid", row.shotIndex);
+      }
+      if (!(sourceDurationSeconds > 0)
+        || !(cueDurationSeconds > 0)
+        || Math.abs(number(mediaTimeMapping.sourceDurationSeconds, 0) - sourceDurationSeconds) > 0.001
+        || Math.abs(number(mediaTimeMapping.cueDurationSeconds, 0) - cueDurationSeconds) > 0.001
+        || expectedCueSampleSpanSeconds === null
+        || Math.abs(cueSampleSpanSeconds - expectedCueSampleSpanSeconds) > 0.001
+        || expectedPlaybackRate === null
+        || playbackRate === null
+        || Math.abs(playbackRate - expectedPlaybackRate) > 0.001
+        || playbackRate > ECHO_TRANSITION_MAX_PLAYBACK_RATE) {
+        push("atomic-transition-time-mapping-bounds-invalid", row.shotIndex, {
+          sourceDurationSeconds,
+          cueDurationSeconds,
+          playbackRate,
+        });
+      }
+      if (number(mediaContract.sourceInSeconds ?? mediaContract.source_in_seconds, null) !== sourceInSeconds
+        || number(mediaContract.sourceOutSeconds ?? mediaContract.source_out_seconds, null) !== sourceOutSeconds) {
+        push("atomic-transition-time-mapping-source-window-mismatch", row.shotIndex);
+      }
+      if (certifiedFirstSeconds === null
+        || certifiedLastSeconds === null
+        || sourceInSeconds !== certifiedFirstSeconds
+        || sourceOutSeconds !== certifiedLastSeconds) {
+        push("atomic-transition-time-mapping-visual-endpoint-mismatch", row.shotIndex);
+      }
+      if (stableEchoEnrichmentStringify(linkTimeMapping) !== stableEchoEnrichmentStringify(mediaTimeMapping)
+        || stableEchoEnrichmentStringify(atomicTimeMapping) !== stableEchoEnrichmentStringify(mediaTimeMapping)) {
+        push("atomic-transition-time-mapping-evidence-mismatch", row.shotIndex);
+      }
+    }
+
+    const entryContinuityKind = text(previous?.evidence?.neighborContinuity?.next?.kind);
+    const transitionEntryContinuityKind = text(row.evidence?.neighborContinuity?.previous?.kind);
+    if (entryContinuityKind !== "declared-transition-entry-anchor"
+      || transitionEntryContinuityKind !== "declared-transition-entry-anchor") {
+      push("atomic-transition-entry-continuity-missing", row.shotIndex);
+    }
+    const transitionExitContinuityKind = text(row.evidence?.neighborContinuity?.next?.kind);
+    const exitContinuityKind = text(next?.evidence?.neighborContinuity?.previous?.kind);
+    if (transitionExitContinuityKind !== "declared-transition-exit-anchor"
+      || exitContinuityKind !== "declared-transition-exit-anchor") {
+      push("atomic-transition-exit-continuity-missing", row.shotIndex);
+    }
+  }
+  return blockers;
+}
+
 export function auditIntentionalDirectorVariants(input = {}) {
   input = input && typeof input === "object" && !Array.isArray(input) ? input : {};
   const {
@@ -295,16 +727,29 @@ export function auditIntentionalDirectorVariants(input = {}) {
     const timeline = list(variant.timeline);
     if (!timeline.length) blockers.push({ code: "empty-intentional-timeline", songId, variantId: text(variant.id) });
     for (const [index, shot] of timeline.entries()) {
-      const evidence = shot.decision_evidence || shot.decisionEvidence || shot.enrichmentDecision || shot.hapa?.shotDecisionEvidence;
-      if (evidence?.schemaVersion !== "hapa.echo.shot-decision-evidence.v4") {
-        blockers.push({ code: "missing-v4-shot-evidence", songId, variantId: text(variant.id), shotIndex: index });
+      const evidence = shotDecisionEvidence(shot);
+      const evidenceSchemaVersion = text(evidence?.schemaVersion);
+      if (!SUPPORTED_SHOT_EVIDENCE_SCHEMAS.has(evidenceSchemaVersion)) {
+        blockers.push({
+          code: "unsupported-shot-evidence-schema",
+          songId,
+          variantId: text(variant.id),
+          shotIndex: index,
+          schemaVersion: evidenceSchemaVersion || null,
+          supportedSchemaVersions: ECHO_ENRICHMENT_SUPPORTED_SHOT_EVIDENCE_SCHEMAS,
+        });
         continue;
       }
       const selectedMediaId = text(evidence.selectedMediaId || evidence.mediaId);
       const selectedEnrichmentId = text(evidence.enrichmentId || evidence.enrichment?.id || selectedMediaId);
+      const atomicRole = text(evidence.atomicTransition?.role || evidence.atomic_transition?.role);
+      const certifiedReferenceStill = evidenceSchemaVersion === ECHO_ENRICHMENT_SHOT_EVIDENCE_SCHEMA
+        && ["entry-reference-still", "exit-reference-still"].includes(atomicRole)
+        && /^certified-reference-still:[a-f0-9]{64}$/u.test(selectedEnrichmentId)
+        && /^hapa-media:sha256:[a-f0-9]{64}$/u.test(selectedMediaId);
       if (!selectedMediaId && !selectedEnrichmentId) blockers.push({ code: "shot-evidence-missing-media-id", songId, variantId: text(variant.id), shotIndex: index });
-      else if (allowedEnrichments.size && !allowedEnrichments.has(selectedEnrichmentId)) blockers.push({ code: "shot-media-not-enriched", songId, variantId: text(variant.id), shotIndex: index, mediaId: selectedMediaId || selectedEnrichmentId, enrichmentId: selectedEnrichmentId });
-      else if (playabilityUniverseSupplied && !playableEnrichments.has(selectedEnrichmentId)) blockers.push({ code: "shot-media-not-playable", songId, variantId: text(variant.id), shotIndex: index, mediaId: selectedMediaId || selectedEnrichmentId, enrichmentId: selectedEnrichmentId });
+      else if (!certifiedReferenceStill && allowedEnrichments.size && !allowedEnrichments.has(selectedEnrichmentId)) blockers.push({ code: "shot-media-not-enriched", songId, variantId: text(variant.id), shotIndex: index, mediaId: selectedMediaId || selectedEnrichmentId, enrichmentId: selectedEnrichmentId });
+      else if (!certifiedReferenceStill && playabilityUniverseSupplied && !playableEnrichments.has(selectedEnrichmentId)) blockers.push({ code: "shot-media-not-playable", songId, variantId: text(variant.id), shotIndex: index, mediaId: selectedMediaId || selectedEnrichmentId, enrichmentId: selectedEnrichmentId });
       if (!text(evidence.rationale || evidence.directorRationale)) blockers.push({ code: "shot-evidence-missing-rationale", songId, variantId: text(variant.id), shotIndex: index });
       const lyric = evidence.lyrics || evidence.lyricCitation || evidence.lyric;
       const hasLyricStatus = Boolean(text(lyric?.status) || text(lyric?.text) || text(lyric?.citation?.text));
@@ -366,6 +811,12 @@ export function auditIntentionalDirectorVariants(input = {}) {
         }
       }
     }
+    blockers.push(...auditCurrentAtomicTransitions({
+      timeline,
+      songId,
+      variantId: text(variant.id),
+      variant,
+    }));
   }
   for (const songId of songIds) {
     const count = variantsBySong.get(songId)?.length || 0;

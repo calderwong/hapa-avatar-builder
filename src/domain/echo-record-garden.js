@@ -3,6 +3,11 @@ import {
   echoDirectionVariantDeclaredFingerprint,
 } from "./echo-direction-variants.js";
 import { localFileApiUri, localMediaPath } from "./local-media-uri.js";
+import {
+  echoSourceWindowPlaybackRate,
+  mapEchoSourceWindowTime,
+  normalizeEchoTransitionTimeMapping,
+} from "./echo-playback-sync.js";
 
 export const ECHO_RECORD_GARDEN_SCHEMA = "hapa.echo-record-garden.record.v1";
 export const ECHO_RECORD_VISUAL_SURFACE_SCHEMA = "hapa.echo-record-garden.visual-surface.v1";
@@ -651,6 +656,18 @@ function normalizedShot(shot = {}, index = 0, apiBase = "") {
     || shot.playbackMode,
     "once",
   );
+  const durationSeconds = endSeconds - startSeconds;
+  const timeMapping = normalizeEchoTransitionTimeMapping(
+    mediaContract.timeMapping
+      || mediaContract.time_mapping
+      || shot.timeMapping
+      || shot.time_mapping,
+    {
+      sourceInSeconds,
+      sourceOutSeconds: sourceOutSeconds || null,
+      cueDurationSeconds: durationSeconds,
+    },
+  );
   const uri = resolveEchoRecordMediaUri(
     mediaContract.runtimeUri
     || mediaContract.runtime_uri
@@ -704,7 +721,7 @@ function normalizedShot(shot = {}, index = 0, apiBase = "") {
     index,
     startSeconds,
     endSeconds,
-    durationSeconds: endSeconds - startSeconds,
+    durationSeconds,
     title: text(shot.media_title || shot.mediaTitle || shot.section_label || shot.sectionLabel, `Shot ${index + 1}`),
     section: text(shot.section_label || shot.sectionLabel || shot.section_id || shot.sectionId) || null,
     media: {
@@ -718,6 +735,7 @@ function normalizedShot(shot = {}, index = 0, apiBase = "") {
         ? sourceOutSeconds - sourceInSeconds
         : 0,
       playbackMode,
+      ...(timeMapping ? { timeMapping } : {}),
       contentHash: text(
         mediaContract.contentHash
         || mediaContract.sourceHash
@@ -914,6 +932,7 @@ function shotSurface(shot, role, project, apiBase = "") {
       sourceOutSeconds: shot.media.sourceOutSeconds,
       sourceDurationSeconds: shot.media.sourceDurationSeconds,
       playbackMode: shot.media.playbackMode,
+      ...(shot.media.timeMapping ? { timeMapping: { ...shot.media.timeMapping } } : {}),
       holdLastFrame: holdingLastFrame,
       contentHash: shot.media.contentHash,
     },
@@ -1424,6 +1443,7 @@ export function echoRecordVideoPlaybackPlan({
   sourceStartSeconds = 0,
   sourceEndSeconds = 0,
   playbackMode = "once",
+  timeMapping = null,
   clockLocked = true,
   playbackPlaying = false,
   documentHidden = false,
@@ -1441,6 +1461,21 @@ export function echoRecordVideoPlaybackPlan({
   const sourceEnd = Math.max(0, finite(sourceEndSeconds, 0));
   const sourceSpan = sourceEnd > sourceStart ? sourceEnd - sourceStart : 0;
   const loopsSource = slug(playbackMode) === "loop" && sourceSpan > 0.04;
+  const normalizedTimeMapping = clockLocked
+    ? normalizeEchoTransitionTimeMapping(timeMapping, {
+      sourceInSeconds: sourceStart,
+      sourceOutSeconds: sourceEnd || null,
+      cueDurationSeconds: duration,
+    })
+    : null;
+  const targetPlaybackRate = normalizedTimeMapping
+    ? echoSourceWindowPlaybackRate({
+      timeMapping: normalizedTimeMapping,
+      sourceInSeconds: sourceStart,
+      sourceOutSeconds: sourceEnd,
+      cueDurationSeconds: duration,
+    })
+    : 1;
   const currentVideoTime = Math.max(0, finite(videoCurrentTime, 0));
   const end = start + duration;
   const phase = holdLastFrame
@@ -1453,10 +1488,25 @@ export function echoRecordVideoPlaybackPlan({
         ? "past"
         : "active";
   const active = phase === "active" || phase === "ambient";
-  const elapsedInShot = Math.max(0, Math.min(duration - 0.04, clock - start));
+  const elapsedInShot = Math.max(0, Math.min(
+    normalizedTimeMapping ? duration : duration - 0.04,
+    clock - start,
+  ));
   const activeSourceElapsed = loopsSource
     ? elapsedInShot % sourceSpan
     : elapsedInShot;
+  const mappedActiveSourceTime = normalizedTimeMapping
+    ? mapEchoSourceWindowTime({
+      elapsedSeconds: elapsedInShot,
+      durationSeconds: finite(videoDuration, 0),
+      sourceInSeconds: sourceStart,
+      sourceOutSeconds: sourceEnd,
+      loop: false,
+      endGuardSeconds: 0.03,
+      cueDurationSeconds: duration,
+      timeMapping: normalizedTimeMapping,
+    })
+    : sourceStart + activeSourceElapsed;
   const holdSourceEnd = sourceEnd > sourceStart
     ? sourceEnd
     : sourceStart + duration;
@@ -1480,12 +1530,12 @@ export function echoRecordVideoPlaybackPlan({
       ? sourceStart
       : phase === "past"
         ? currentVideoTime
-        : sourceStart + activeSourceElapsed;
+        : mappedActiveSourceTime;
   const declaredVideoEnd = finite(videoDuration, 0) > 0
-    ? Math.max(0, finite(videoDuration, 0) - 0.03)
+    ? Math.max(0, finite(videoDuration, 0) - (normalizedTimeMapping ? 0 : 0.03))
     : Number.POSITIVE_INFINITY;
   const declaredSourceEnd = sourceEnd > sourceStart
-    ? Math.max(sourceStart, sourceEnd - 0.03)
+    ? Math.max(sourceStart, sourceEnd - (normalizedTimeMapping ? 0 : 0.03))
     : Number.POSITIVE_INFINITY;
   const playableEnd = Math.min(declaredVideoEnd, declaredSourceEnd);
   const boundedExpected = Number.isFinite(playableEnd)
@@ -1501,8 +1551,12 @@ export function echoRecordVideoPlaybackPlan({
   const seekDrift = seekTarget - currentVideoTime;
   const shouldSeek = phase !== "past"
     && (clockLocked ? Math.abs(seekDrift) > seekTolerance : ambientNeedsBoundarySeek);
-  const playbackRate = shouldPlay && !shouldSeek && Math.abs(driftSeconds) > 0.16
-    ? Math.max(0.97, Math.min(1.03, 1 + driftSeconds * 0.04))
+  const playbackRate = shouldPlay
+    ? targetPlaybackRate * (
+      !shouldSeek && Math.abs(driftSeconds) > 0.16
+        ? Math.max(0.97, Math.min(1.03, 1 + driftSeconds * 0.04))
+        : 1
+    )
     : 1;
   return {
     active,
@@ -1514,6 +1568,7 @@ export function echoRecordVideoPlaybackPlan({
     waitingForFrame: !presentable,
     waitingForBuffer: !buffered,
     loopsSource,
+    timeMapping: normalizedTimeMapping,
     expectedSeconds: effectiveExpected,
     shouldPlay,
     shouldPause: !shouldPlay,

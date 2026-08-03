@@ -22,8 +22,10 @@ test("Echo direction variants derive a read-only exact project without spreading
   assert.doesNotMatch(source, /function generateHyperframesScriptClient/);
 });
 
-test("Echo exposes Legacy as the default and makes every newer cut an editable copy", () => {
+test("Echo keeps Legacy as an explicit fallback while auto-opening the newest exact saved cut", () => {
   assert.match(source, /useState\("legacy"\)/);
+  assert.match(source, /selectLatestEchoDirectionScriptVariant\(activeStoredProject\)/);
+  assert.match(source, /directionSelectionPreferenceRef = useRef\("auto-latest"\)/);
   assert.match(source, /aria-label="Direction script version"/);
   assert.match(source, /Legacy baseline/);
   assert.match(source, /groupEchoDirectionVariants/);
@@ -35,6 +37,26 @@ test("Echo exposes Legacy as the default and makes every newer cut an editable c
   const orientation = between('aria-label="Video orientation"', 'aria-label="Lyric position"');
   assert.doesNotMatch(orientation, /disabled=\{directionVariantReadOnly\}/);
   assert.match(source, /disabled=\{directorEditingLocked \|\| directionVariantReadOnly\}/);
+});
+
+test("song changes hydrate the exact newest cut before selection and manual choices stay sticky", () => {
+  const songChange = between("directionSelectionPreferenceRef.current = \"auto-latest\"", "const buildFreshProjectScript");
+  const selector = between('aria-label="Direction script version"', 'aria-label="Video orientation"');
+  assert.match(songChange, /latestDirectionHydrationKeyRef\.current = ""/);
+  assert.match(songChange, /fetchPreparedProjectDetail\(selectedProjectSongId, latestVariantId\)/);
+  assert.match(songChange, /echoDirectionVariantId\(variant\) === latestVariantId && Array\.isArray\(variant\.timeline\)/);
+  assert.match(songChange, /hydratedSelectionId !== latestVariantId/);
+  assert.match(songChange, /editableSelection\?\.savedProject\?\.director_show_graph\?\.tracks/);
+  assert.ok(
+    songChange.indexOf("hydratedSelectionId !== latestVariantId")
+      < songChange.indexOf("setSelectedDirectionVariantId(latestVariantId)"),
+    "the newest exact projection must be certified before selection changes",
+  );
+  assert.match(songChange, /setWorkingDirectionFork\(null\)/);
+  assert.doesNotMatch(songChange, /directorEditingLocked/);
+  assert.match(songChange, /savingProject[\s\S]*directionForkTransitionPending[\s\S]*pendingSavedDirectionCut[\s\S]*pendingLegacyProjectSave/);
+  assert.match(selector, /directionSelectionPreferenceRef\.current = "manual"/);
+  assert.match(selector, /latestDirectionHydrationKeyRef\.current = ""/);
 });
 
 test("Echo automatically opens a chosen cut and only saves it as a new append-only child", () => {

@@ -623,6 +623,81 @@ test("a freshly loaded hold surface seeks to the prior Director shot's final fra
   );
 });
 
+test("Record Garden preserves and executes the same full-source authored-transition time map", () => {
+  const timeMapping = {
+    schemaVersion: "hapa.echo.transition-time-map.v1",
+    mode: "fit-source-once-to-cue",
+    sourceInSeconds: 0,
+    sourceOutSeconds: 5,
+    sourceDurationSeconds: 5,
+    cueDurationSeconds: 2,
+    cueSampleSpanSeconds: 2 - (1 / 30),
+    outputFps: 30,
+    playbackRate: 5 / (2 - (1 / 30)),
+    valid: true,
+    reachesDeclaredLastFrame: true,
+  };
+  const transitionProject = project({
+    duration: 2,
+    timeline: [{
+      id: "authored-transition",
+      start_sec: 0,
+      end_sec: 2,
+      media_id: "authored-transition-media",
+      media_card_id: "card:authored-transition-media",
+      media_title: "First frame to last frame",
+      media_contract: {
+        type: "video",
+        runtimeUri: "/media/authored-transition.mp4",
+        sourceInSeconds: 0,
+        sourceOutSeconds: 5,
+        playbackMode: "once",
+        timeMapping,
+      },
+      decision_evidence: { truthStatus: "verified" },
+    }],
+  });
+  const [surface] = buildEchoRecordVisualSurfaces({
+    project: transitionProject,
+    clockSeconds: 1,
+    limit: 1,
+  });
+  assert.deepEqual(surface.provenance.timeMapping, timeMapping);
+
+  const middle = echoRecordVideoPlaybackPlan({
+    clockSeconds: 1,
+    startSeconds: 0,
+    durationSeconds: 2,
+    sourceStartSeconds: 0,
+    sourceEndSeconds: 5,
+    playbackMode: "once",
+    timeMapping,
+    playbackPlaying: true,
+    videoCurrentTime: 5 / (2 - (1 / 30)),
+    videoDuration: 5,
+    readyState: 4,
+  });
+  assert.ok(Math.abs(middle.expectedSeconds - 2.542372) < 0.000001);
+  assert.ok(Math.abs(middle.playbackRate - 2.542372881355932) < 0.000001);
+  assert.equal(middle.shouldSeek, false);
+
+  const nearExit = echoRecordVideoPlaybackPlan({
+    clockSeconds: 1.966667,
+    startSeconds: 0,
+    durationSeconds: 2,
+    sourceStartSeconds: 0,
+    sourceEndSeconds: 5,
+    playbackMode: "once",
+    timeMapping,
+    playbackPlaying: true,
+    videoCurrentTime: 5,
+    videoDuration: 5,
+    readyState: 4,
+  });
+  assert.equal(nearExit.expectedSeconds, 5);
+  assert.ok(Math.abs(nearExit.playbackRate - 2.542372881355932) < 0.000001);
+});
+
 test("vinyl rotation stays media-clock-locked at a calmer display speed", () => {
   assert.equal(ECHO_RECORD_RPM, 100 / 3);
   assert.equal(ECHO_RECORD_DISPLAY_RPM, ECHO_RECORD_RPM / 4);

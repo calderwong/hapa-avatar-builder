@@ -2,8 +2,12 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import {
+  ECHO_TRANSITION_TIME_MAPPING_MODE,
+  ECHO_TRANSITION_TIME_MAPPING_SCHEMA,
+  echoSourceWindowPlaybackRate,
   mapEchoSourceTime,
   mapEchoSourceWindowTime,
+  normalizeEchoTransitionTimeMapping,
   planEchoPlaybackCorrection,
 } from "../src/domain/echo-playback-sync.js";
 
@@ -47,6 +51,99 @@ test("source window time never escapes an explicit Director clip bound", () => {
   }) - 5.44) < 1e-9);
 });
 
+test("an explicit authored-transition map fits the full source exactly once across a shorter cue", () => {
+  const declared = {
+    schemaVersion: ECHO_TRANSITION_TIME_MAPPING_SCHEMA,
+    mode: ECHO_TRANSITION_TIME_MAPPING_MODE,
+    sourceInSeconds: 0,
+    sourceOutSeconds: 5,
+    sourceDurationSeconds: 5,
+    cueDurationSeconds: 2,
+    cueSampleSpanSeconds: 2 - (1 / 30),
+    outputFps: 30,
+    playbackRate: 5 / (2 - (1 / 30)),
+    valid: true,
+    reachesDeclaredLastFrame: true,
+  };
+  const normalized = normalizeEchoTransitionTimeMapping(declared, {
+    sourceInSeconds: 0,
+    sourceOutSeconds: 5,
+    cueDurationSeconds: 2,
+  });
+  assert.deepEqual(normalized, declared);
+  assert.equal(echoSourceWindowPlaybackRate({
+    timeMapping: declared,
+    sourceInSeconds: 0,
+    sourceOutSeconds: 5,
+    cueDurationSeconds: 2,
+  }), 5 / (2 - (1 / 30)));
+  assert.equal(mapEchoSourceWindowTime({
+    elapsedSeconds: 0,
+    durationSeconds: 8,
+    sourceInSeconds: 0,
+    sourceOutSeconds: 5,
+    loop: false,
+    cueDurationSeconds: 2,
+    timeMapping: declared,
+  }), 0);
+  assert.ok(Math.abs(mapEchoSourceWindowTime({
+    elapsedSeconds: 1,
+    durationSeconds: 8,
+    sourceInSeconds: 0,
+    sourceOutSeconds: 5,
+    loop: false,
+    cueDurationSeconds: 2,
+    timeMapping: declared,
+  }) - (5 / (2 - (1 / 30)))) < 0.000001);
+  assert.equal(mapEchoSourceWindowTime({
+    elapsedSeconds: 1.966667,
+    durationSeconds: 8,
+    sourceInSeconds: 0,
+    sourceOutSeconds: 5,
+    loop: false,
+    endGuardSeconds: 0.03,
+    cueDurationSeconds: 2,
+    timeMapping: declared,
+  }), 5);
+
+  const correction = planEchoPlaybackCorrection({
+    expectedSeconds: 5 / (2 - (1 / 30)),
+    currentSeconds: 5 / (2 - (1 / 30)),
+    targetPlaybackRate: 5 / (2 - (1 / 30)),
+  });
+  assert.equal(correction.action, "none");
+  assert.equal(correction.playbackRate, 5 / (2 - (1 / 30)));
+});
+
+test("ordinary loop and once playback ignore absent or inconsistent transition maps", () => {
+  const stale = {
+    mode: ECHO_TRANSITION_TIME_MAPPING_MODE,
+    sourceInSeconds: 0,
+    sourceOutSeconds: 5,
+    cueDurationSeconds: 1,
+    playbackRate: 5,
+  };
+  assert.equal(normalizeEchoTransitionTimeMapping(stale, {
+    sourceInSeconds: 0,
+    sourceOutSeconds: 5,
+    cueDurationSeconds: 2,
+  }), null);
+  assert.equal(mapEchoSourceWindowTime({
+    elapsedSeconds: 2,
+    durationSeconds: 8,
+    sourceInSeconds: 0,
+    sourceOutSeconds: 5,
+    loop: false,
+    cueDurationSeconds: 2,
+    timeMapping: stale,
+  }), 2);
+  assert.equal(echoSourceWindowPlaybackRate({
+    sourceInSeconds: 0,
+    sourceOutSeconds: 5,
+    cueDurationSeconds: 2,
+  }), 1);
+});
+
 test("Echo preview keeps three persistent players, gates handoff, and never lacks a fallback", () => {
   const source = fs.readFileSync("src/components/HapaEchosView.jsx", "utf8");
   assert.match(source, /persistent-echo-player-/);
@@ -55,7 +152,7 @@ test("Echo preview keeps three persistent players, gates handoff, and never lack
   assert.match(source, /\[0, 1, 2\]\.map/);
   assert.match(source, /data-echo-fallback/);
   assert.match(source, /Echo player first-frame timeout/);
-  assert.match(source, /<video[\s\S]{0,260}\sloop/);
+  assert.match(source, /video\.loop = playbackMode === "loop" && !timeMapping/);
   assert.match(source, /1000 \/ 30/);
   assert.match(source, /const cameraTime = Number\(clockRef\?\.current \?\? songTime\)/);
   assert.match(source, /const cameraKeyframe = echoCameraKeyframeAt\(cameraKeyframes, cameraTime\)/);

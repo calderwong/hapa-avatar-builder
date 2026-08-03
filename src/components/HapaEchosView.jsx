@@ -15,7 +15,12 @@ import {
 } from "lucide-react";
 import { normalizePlaybackPowerMode } from "../domain/playback-power-mode.js";
 import { echoProjectAudioRoute } from "../domain/echo-audio-route.js";
-import { mapEchoSourceWindowTime, planEchoPlaybackCorrection } from "../domain/echo-playback-sync.js";
+import {
+  echoSourceWindowPlaybackRate,
+  mapEchoSourceWindowTime,
+  normalizeEchoTransitionTimeMapping,
+  planEchoPlaybackCorrection,
+} from "../domain/echo-playback-sync.js";
 import {
   echoVisualizerAudioEnvelope,
   normalizeEchoStemFocus,
@@ -76,6 +81,7 @@ import {
   projectEchoDirectorPreviewFrame,
   selectEchoDirectorPreviewSource,
 } from "../domain/echo-director-preview-runtime.js";
+import { selectLatestEchoDirectionScriptVariant } from "../domain/echo-record-garden.js";
 import { projectToEditorGraph } from "../domain/multitrack-editor.js";
 import { isPortableVisualizerAttachment } from "../domain/portable-visualizer-card.js";
 import {
@@ -525,7 +531,18 @@ function PersistentEchoABPlayers({ shot, lookaheadShots = [], playing, songTime,
   const fallbackRef = useRef(null);
   const slotStateRef = useRef(Array.from({ length: 3 }, () => ({ key: "", status: "idle", frameReady: false, generation: 0, error: "" })));
 
-  const shotKey = (targetShot) => `${targetShot?.media_id || "none"}:${resolveMediaUri(shotRuntimeUri(targetShot))}`;
+  const shotKey = (targetShot) => {
+    const contract = targetShot?.media_contract || targetShot?.mediaContract || {};
+    return JSON.stringify([
+      targetShot?.media_id || "none",
+      resolveMediaUri(shotRuntimeUri(targetShot)),
+      Number(targetShot?.start_sec ?? targetShot?.startSeconds) || 0,
+      Number(targetShot?.end_sec ?? targetShot?.endSeconds) || 0,
+      Number(contract.sourceInSeconds ?? contract.source_in_seconds) || 0,
+      Number(contract.sourceOutSeconds ?? contract.source_out_seconds) || 0,
+      contract.timeMapping || contract.time_mapping || null,
+    ]);
+  };
 
   const waitFor = (video, eventName, timeoutMs, generation) => new Promise((resolve, reject) => {
     if (generation !== generationRef.current && eventName !== "lookahead") { reject(new Error("stale-prepare")); return; }
@@ -558,12 +575,31 @@ function PersistentEchoABPlayers({ shot, lookaheadShots = [], playing, songTime,
     if (slot.generation !== generation || slot.key !== key) throw new Error("stale-prepare");
     const mediaContract = targetShot.media_contract || targetShot.mediaContract || {};
     const playbackMode = mediaContract.playbackMode || mediaContract.playback_mode || "loop";
+    const sourceInSeconds = mediaContract.sourceInSeconds ?? mediaContract.source_in_seconds;
+    const sourceOutSeconds = mediaContract.sourceOutSeconds ?? mediaContract.source_out_seconds;
+    const cueDurationSeconds = Math.max(0, Number(
+      (targetShot.end_sec ?? targetShot.endSeconds) - (targetShot.start_sec ?? targetShot.startSeconds),
+    ) || 0);
+    const timeMapping = normalizeEchoTransitionTimeMapping(
+      mediaContract.timeMapping || mediaContract.time_mapping,
+      { sourceInSeconds, sourceOutSeconds, cueDurationSeconds },
+    );
+    const targetPlaybackRate = echoSourceWindowPlaybackRate({
+      timeMapping,
+      sourceInSeconds,
+      sourceOutSeconds,
+      cueDurationSeconds,
+    });
+    video.loop = playbackMode === "loop" && !timeMapping;
+    video.playbackRate = targetPlaybackRate;
     const target = mapEchoSourceWindowTime({
       elapsedSeconds: offsetSeconds,
       durationSeconds: video.duration,
-      sourceInSeconds: mediaContract.sourceInSeconds ?? mediaContract.source_in_seconds,
-      sourceOutSeconds: mediaContract.sourceOutSeconds ?? mediaContract.source_out_seconds,
+      sourceInSeconds,
+      sourceOutSeconds,
       loop: playbackMode === "loop",
+      cueDurationSeconds,
+      timeMapping,
     });
     if (!video.seeking && Math.abs(video.currentTime - target) > 0.08) {
       video.currentTime = target;
@@ -625,16 +661,39 @@ function PersistentEchoABPlayers({ shot, lookaheadShots = [], playing, songTime,
     const video = playerRefs[activeIndex].current;
     if (!video || shotMediaType(shot) !== "video" || video.seeking) return;
     const mediaContract = shot.media_contract || shot.mediaContract || {};
+    const sourceInSeconds = mediaContract.sourceInSeconds ?? mediaContract.source_in_seconds;
+    const sourceOutSeconds = mediaContract.sourceOutSeconds ?? mediaContract.source_out_seconds;
+    const cueDurationSeconds = Math.max(0, Number(
+      (shot.end_sec ?? shot.endSeconds) - (shot.start_sec ?? shot.startSeconds),
+    ) || 0);
+    const timeMapping = normalizeEchoTransitionTimeMapping(
+      mediaContract.timeMapping || mediaContract.time_mapping,
+      { sourceInSeconds, sourceOutSeconds, cueDurationSeconds },
+    );
+    const targetPlaybackRate = echoSourceWindowPlaybackRate({
+      timeMapping,
+      sourceInSeconds,
+      sourceOutSeconds,
+      cueDurationSeconds,
+    });
     const expected = mapEchoSourceWindowTime({
       elapsedSeconds: Math.max(0, songTime - Number(shot.start_sec || 0)),
       durationSeconds: video.duration,
-      sourceInSeconds: mediaContract.sourceInSeconds ?? mediaContract.source_in_seconds,
-      sourceOutSeconds: mediaContract.sourceOutSeconds ?? mediaContract.source_out_seconds,
+      sourceInSeconds,
+      sourceOutSeconds,
       loop: (mediaContract.playbackMode || mediaContract.playback_mode || "loop") === "loop",
+      cueDurationSeconds,
+      timeMapping,
     });
-    const correction = planEchoPlaybackCorrection({ expectedSeconds: expected, currentSeconds: video.currentTime, seeking: video.seeking });
+    const correction = planEchoPlaybackCorrection({
+      expectedSeconds: expected,
+      currentSeconds: video.currentTime,
+      seeking: video.seeking,
+      cueEntry: !playing,
+      targetPlaybackRate,
+    });
     if (correction.action === "seek") video.currentTime = Math.min(Number(video.duration || expected), correction.targetSeconds);
-    else video.playbackRate = correction.playbackRate;
+    video.playbackRate = correction.playbackRate;
     if (playing && video.paused) video.play().catch(() => {});
     if (!playing && !video.paused) video.pause();
   }, [activeIndex, playing, shot?.media_id, songTime]);
@@ -717,7 +776,6 @@ function PersistentEchoABPlayers({ shot, lookaheadShots = [], playing, songTime,
           ref={playerRefs[index]}
           muted
           crossOrigin="anonymous"
-          loop
           playsInline
           preload="auto"
           data-echo-player={index === activeIndex ? "current" : "standby"}
@@ -1483,6 +1541,8 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
   const [directorProjects, setDirectorProjects] = useState([]);
   const [selectedProjectSongId, setSelectedProjectSongId] = useState(null);
   const [selectedDirectionVariantId, setSelectedDirectionVariantId] = useState("legacy");
+  const directionSelectionPreferenceRef = useRef("auto-latest");
+  const latestDirectionHydrationKeyRef = useRef("");
   const [workingDirectionFork, setWorkingDirectionFork] = useState(null);
   const [directionForkTransitionPending, setDirectionForkTransitionPending] = useState(false);
   const [directionCutSelectionPending, setDirectionCutSelectionPending] = useState(false);
@@ -1675,6 +1735,10 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
   const activeDirectionVariantGroups = useMemo(
     () => groupEchoDirectionVariants(activeDirectionVariants),
     [activeDirectionVariants],
+  );
+  const latestDirectionVariantSummary = useMemo(
+    () => selectLatestEchoDirectionScriptVariant(activeStoredProject),
+    [activeStoredProject],
   );
   const activeDirectionVariant = selectedDirectionVariantId === "legacy"
     ? null
@@ -3421,9 +3485,12 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
     }
     setDirectorHasUnsavedChanges(false);
     setSelectedProjectSongId(songId);
-    setEchoOperationNotice(selection.hasEditorGraph
-      ? `${detailProject.song_title || "Song"} opened from its saved Legacy graph.`
-      : `${detailProject.song_title || "Song"} opened. Its preview is ready while the editing graph prepares.`);
+    const latestSavedCut = selectLatestEchoDirectionScriptVariant(detailProject);
+    setEchoOperationNotice(latestSavedCut
+      ? `${detailProject.song_title || "Song"} opened. Loading its newest saved Director cut…`
+      : selection.hasEditorGraph
+        ? `${detailProject.song_title || "Song"} opened from its saved Legacy graph.`
+        : `${detailProject.song_title || "Song"} opened. Its preview is ready while the editing graph prepares.`);
   };
 
   const editableDirectionForkFromDetail = (detail, variantId, options = {}) => {
@@ -3828,6 +3895,8 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
         throw new Error("a newer detail refresh superseded this response");
       }
       setWorkingDirectionFork(editableSelection.workingFork);
+      directionSelectionPreferenceRef.current = "manual";
+      latestDirectionHydrationKeyRef.current = "";
       setSelectedDirectionVariantId(variantId);
       setDirectorHasUnsavedChanges(false);
       if (editableSelection.savedProject?.director_show_graph?.tracks) {
@@ -4151,10 +4220,83 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
   }, []);
 
   useEffect(() => {
+    directionSelectionPreferenceRef.current = "auto-latest";
+    latestDirectionHydrationKeyRef.current = "";
     setSelectedDirectionVariantId("legacy");
     setWorkingDirectionFork(null);
     setDirectionForkTransitionPending(false);
   }, [selectedProjectSongId]);
+
+  useEffect(() => {
+    const latestVariantId = latestDirectionVariantSummary?.id || "";
+    if (!selectedProjectSongId
+      || !latestVariantId
+      || directionSelectionPreferenceRef.current !== "auto-latest"
+      || savingProject
+      || directionForkTransitionPending
+      || Boolean(pendingSavedDirectionCut)
+      || Boolean(pendingLegacyProjectSave)
+      || directorHasUnsavedChanges) return undefined;
+    if (selectedDirectionVariantId === latestVariantId && activeDirectionVariant) return undefined;
+    const hydrationKey = `${selectedProjectSongId}:${latestVariantId}`;
+    if (latestDirectionHydrationKeyRef.current === hydrationKey) return undefined;
+    latestDirectionHydrationKeyRef.current = hydrationKey;
+    let cancelled = false;
+    setDirectionCutSelectionPending(true);
+    setEchoOperationNotice(`Opening the newest saved Director cut, ${latestDirectionVariantSummary.title || latestVariantId}…`);
+    void (async () => {
+      try {
+        const detailResult = await fetchPreparedProjectDetail(selectedProjectSongId, latestVariantId);
+        if (cancelled) return;
+        const detail = detailResult?.detail;
+        const detailProject = detail?.music_video_project;
+        const hydratedVariant = detail?.music_video_project?.direction_script_variants?.find((variant) => (
+          echoDirectionVariantId(variant) === latestVariantId && Array.isArray(variant.timeline)
+        ));
+        if (!hydratedVariant) throw new Error("the newest saved script detail could not be loaded");
+        const hydratedSelectionId = detailProject?.selected_direction_script_variant_id
+          || detailProject?.active_direction_script_variant?.id
+          || "";
+        if (hydratedSelectionId !== latestVariantId) {
+          throw new Error("the server did not certify the requested newest cut as the active projection");
+        }
+        const editableSelection = editableDirectionForkFromDetail(detail, latestVariantId);
+        if (!editableSelection?.savedProject?.director_show_graph?.tracks) {
+          throw new Error("its certified preview graph is still preparing");
+        }
+        const savedShowGraph = projectToEditorGraph(editableSelection.savedProject);
+        if (!commitDirectorProjectDetail(detail, detailResult.requestGeneration)) {
+          throw new Error("a newer project refresh superseded this response");
+        }
+        queueSongCardPlanForSavedRevision(selectedProjectSongId, latestVariantId, {
+          cutId: latestVariantId,
+          project: editableSelection.savedProject,
+          showGraph: savedShowGraph,
+        });
+        setWorkingDirectionFork(null);
+        setDirectorHasUnsavedChanges(false);
+        setSelectedDirectionVariantId(latestVariantId);
+        setEchoOperationNotice(`${echoDirectionVariantTitle(hydratedVariant)} opened as the newest saved Director cut.`);
+      } catch (error) {
+        latestDirectionHydrationKeyRef.current = "";
+        setEchoOperationNotice(`Could not open the newest saved Director cut: ${error.message || String(error)}. Legacy remains available; retry the song to try again.`);
+      } finally {
+        if (!cancelled) setDirectionCutSelectionPending(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [
+    activeDirectionVariant,
+    directorHasUnsavedChanges,
+    directionForkTransitionPending,
+    latestDirectionVariantSummary?.id,
+    latestDirectionVariantSummary?.title,
+    pendingLegacyProjectSave,
+    pendingSavedDirectionCut,
+    savingProject,
+    selectedDirectionVariantId,
+    selectedProjectSongId,
+  ]);
 
   useEffect(() => {
     if (!selectedProjectSongId || activeProjectHasDetail || loadingProjectDetail) return;
@@ -5334,6 +5476,8 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                                 onChange={async (event) => {
                                   if (directorEditingLocked || directorHasUnsavedChanges) return;
                                   const nextVariantId = event.target.value;
+                                  directionSelectionPreferenceRef.current = "manual";
+                                  latestDirectionHydrationKeyRef.current = "";
                                   setDirectionCutSelectionPending(true);
                                   setCurrentTime(0);
                                   currentTimeRef.current = 0;

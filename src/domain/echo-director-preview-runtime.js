@@ -17,6 +17,7 @@ import {
   echoCameraKeyframeAt,
   echoCameraMotionPresentation,
 } from "./echo-camera-framing.js";
+import { normalizeEchoTransitionTimeMapping } from "./echo-playback-sync.js";
 import { visualizerCardsAtTime } from "./echo-isf-browser-runtime.js";
 import {
   normalizeEchoLyricContract,
@@ -653,6 +654,20 @@ function normalizeMediaCue(entry, timelineRows, timeSeconds, fps) {
       || matchingTimeline.playbackMode,
     "once",
   ).toLowerCase();
+  const durationSeconds = round(endSeconds - startSeconds);
+  const timeMapping = normalizeEchoTransitionTimeMapping(
+    media.timeMapping
+      || media.time_mapping
+      || mediaContract.timeMapping
+      || mediaContract.time_mapping
+      || matchingTimeline.time_mapping
+      || matchingTimeline.timeMapping,
+    {
+      sourceInSeconds,
+      sourceOutSeconds,
+      cueDurationSeconds: durationSeconds,
+    },
+  );
   const cue = {
     id: text(card.id, `media:${trackIndex}:${cardIndex}`),
     cueId: text(card.id, `media:${trackIndex}:${cardIndex}`),
@@ -668,7 +683,7 @@ function normalizeMediaCue(entry, timelineRows, timeSeconds, fps) {
     ),
     startSeconds: round(startSeconds),
     endSeconds: round(endSeconds),
-    durationSeconds: round(endSeconds - startSeconds),
+    durationSeconds,
     media: {
       id: text(media.id || matchingTimeline.media_id || matchingTimeline.mediaId) || null,
       title: text(media.title || matchingTimeline.media_title || matchingTimeline.mediaTitle) || null,
@@ -686,6 +701,7 @@ function normalizeMediaCue(entry, timelineRows, timeSeconds, fps) {
       sourceOutSeconds: sourceOutSeconds === null ? null : round(sourceOutSeconds),
       sourceDurationSeconds: sourceOutSeconds === null ? null : round(sourceOutSeconds - sourceInSeconds),
       playbackMode,
+      ...(timeMapping ? { timeMapping } : {}),
       ...geometry,
     },
     card: mediaCardIdentity(card, matchingTimeline),

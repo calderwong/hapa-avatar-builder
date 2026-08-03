@@ -4,7 +4,10 @@ import test from "node:test";
 import {
   buildIntegrityCheckedEchoVideoEnrichmentAudit,
 } from "../scripts/audit-echo-video-enrichment.mjs";
-import { buildEchoVideoEnrichmentCatalog } from "../src/domain/echo-enrichment-director-variant.js";
+import {
+  ECHO_ENRICHMENT_SHOT_EVIDENCE_SCHEMA,
+  buildEchoVideoEnrichmentCatalog,
+} from "../src/domain/echo-enrichment-director-variant.js";
 
 const hash = "a".repeat(64);
 const mediaId = `hapa-media:sha256:${hash}`;
@@ -51,7 +54,7 @@ function fixture() {
     lineage: { kind: "append-only-intentional-enrichment" },
     timeline: [{
       decision_evidence: {
-        schemaVersion: "hapa.echo.shot-decision-evidence.v4",
+        schemaVersion: ECHO_ENRICHMENT_SHOT_EVIDENCE_SCHEMA,
         selectedMediaId: mediaId,
         enrichmentId: mediaId,
         lyrics: { status: "lyrics-unavailable", explicitLyricsUnavailable: true },

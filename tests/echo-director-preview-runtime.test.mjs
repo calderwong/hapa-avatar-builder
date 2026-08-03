@@ -549,6 +549,88 @@ test("fixed-time Preview parity preserves layered media bounds, camera, changing
   assert.deepEqual(frame.automation.effects.map((row) => row.id), ["effect:one"]);
 });
 
+test("Preview projects an explicit full-source authored-transition time map without changing ordinary cues", () => {
+  const source = paritySource();
+  source.project.timeline[0].end_sec = 2;
+  source.project.timeline[0].media_contract = {
+    type: "video",
+    runtimeUri: "/media/garden-open.mp4",
+    sourceInSeconds: 0,
+    sourceOutSeconds: 5,
+    playbackMode: "once",
+    timeMapping: {
+      schemaVersion: "hapa.echo.transition-time-map.v1",
+      mode: "fit-source-once-to-cue",
+      sourceInSeconds: 0,
+      sourceOutSeconds: 5,
+      sourceDurationSeconds: 5,
+      cueDurationSeconds: 2,
+      cueSampleSpanSeconds: 2 - (1 / 30),
+      outputFps: 30,
+      playbackRate: 5 / (2 - (1 / 30)),
+      valid: true,
+      reachesDeclaredLastFrame: true,
+    },
+  };
+  source.showGraph.tracks[0].cards[0].endSeconds = 2;
+
+  const frame = projectEchoDirectorPreviewFrame({ source, timeSeconds: 1 });
+  assert.equal(frame.primaryMediaCue.media.playbackMode, "once");
+  assert.deepEqual(frame.primaryMediaCue.media.timeMapping, {
+    schemaVersion: "hapa.echo.transition-time-map.v1",
+    mode: "fit-source-once-to-cue",
+    sourceInSeconds: 0,
+    sourceOutSeconds: 5,
+    sourceDurationSeconds: 5,
+    cueDurationSeconds: 2,
+    cueSampleSpanSeconds: 2 - (1 / 30),
+    outputFps: 30,
+    playbackRate: 5 / (2 - (1 / 30)),
+    valid: true,
+    reachesDeclaredLastFrame: true,
+  });
+  const ordinaryFrame = projectEchoDirectorPreviewFrame({ source, timeSeconds: 3.25 });
+  assert.equal(ordinaryFrame.primaryMediaCue.media.timeMapping, undefined);
+});
+
+test("Preview preserves a certified static portrait crop at unity scale for the full cue", () => {
+  const source = paritySource();
+  const crop = { x: 0, y: 0.341796875, width: 1, height: 0.31640625 };
+  Object.assign(source.project.timeline[0], {
+    camera_motion: "static",
+    camera_intensity: 0,
+    camera_speed: 1,
+    camera_focus: "center",
+    media_contract: {
+      type: "image",
+      playbackMode: "hold",
+      runtimeUri: "/reference-frames/moon-door-a.png",
+      dimensions: { width: 720, height: 1280, maxDimension: 1280 },
+    },
+  });
+  const card = source.showGraph.tracks[0].cards[0];
+  card.media = {
+    ...card.media,
+    dimensions: { width: 720, height: 1280, maxDimension: 1280 },
+    mediaContract: structuredClone(source.project.timeline[0].media_contract),
+  };
+  card.parameters = { ...card.parameters, motion: "static", cameraIntensity: 0, cameraSpeed: 1, cameraFocus: "center" };
+  card.cameraKeyframes = [
+    { atSeconds: 0, cameraPathId: "certified:path", mediaCardId: card.id, mediaId: card.media.id, crop, motion: "static", intensity: 0, speed: 1, focus: "center" },
+    { atSeconds: 3, cameraPathId: "certified:path", mediaCardId: card.id, mediaId: card.media.id, crop, motion: "static", intensity: 0, speed: 1, focus: "center" },
+  ];
+  source.showGraph.directorV2.cameraKeyframes = structuredClone(card.cameraKeyframes);
+
+  for (const timeSeconds of [0, 1.5, 2.9]) {
+    const frame = projectEchoDirectorPreviewFrame({ source, timeSeconds });
+    assert.deepEqual(frame.primaryMediaCue.camera.crop, crop);
+    assert.deepEqual(frame.camera.motionPresentation.crop, crop);
+    assert.equal(frame.camera.motionPresentation.scale, 1);
+    assert.equal(frame.camera.motionPresentation.translateXPercent, 0);
+    assert.equal(frame.camera.motionPresentation.translateYPercent, 0);
+  }
+});
+
 test("Echo Album and Record Garden both consume the shared fixed-time Preview contract", () => {
   const albumSource = readFileSync(new URL("../src/components/HapaEchosView.jsx", import.meta.url), "utf8");
   const gardenSource = readFileSync(new URL("../src/components/EchoRecordGarden3DView.jsx", import.meta.url), "utf8");

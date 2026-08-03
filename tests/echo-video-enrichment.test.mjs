@@ -279,7 +279,7 @@ test("Director eligibility is a hard gate and missing data is deterministic", ()
     sourcePrior: 1.1,
     hardFilters: ["missing-runtime-uri"],
   });
-  assert.equal(blocked.baseScore, 0.22);
+  assert.equal(blocked.baseScore, 0.19);
   assert.equal(blocked.eligibilityGate, 0);
   assert.equal(blocked.finalScore, 0);
 
@@ -296,5 +296,5 @@ test("Director eligibility is a hard gate and missing data is deterministic", ()
     sourceClassification: { sourceClass: "missing-prior" },
   });
   assert.equal(malformedClassification.sourcePrior, 0.7);
-  assert.equal(malformedClassification.finalScore, 0.154);
+  assert.equal(malformedClassification.finalScore, 0.133);
 });

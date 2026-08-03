@@ -400,14 +400,89 @@ function rebuildMediaCameraBindings(graph, timeline, outputProfile, track) {
       atSeconds: startSeconds,
       source: "multitrack-selected-media-rebind",
     };
-    const plannedPath = buildSafeCameraPath({
-      mediaId: card.media?.id,
-      technical,
-      analysis,
-      role,
-      phraseCue,
-      targetAspects,
-    });
+    const camera = {
+      motion: card.parameters?.motion || shot.camera_motion || framing.motion || "auto",
+      intensity: Number(card.parameters?.cameraIntensity ?? shot.camera_intensity ?? framing.intensity ?? 1),
+      speed: Number(card.parameters?.cameraSpeed ?? shot.camera_speed ?? framing.speed ?? 1),
+      focus: card.parameters?.cameraFocus || shot.camera_focus || framing.focus || "center",
+    };
+    const atomicTransition = shot.decision_evidence?.atomicTransition
+      || shot.decisionEvidence?.atomicTransition
+      || null;
+    const atomicRole = atomicTransition?.role || "";
+    const certifiedAtomicRole = [
+      "entry-reference-still",
+      "authored-transition",
+      "exit-reference-still",
+    ].includes(atomicRole);
+    // Historical V4/V5 bridges also used `authored-transition`, but did not
+    // claim the V6 physical-terminal/still-seam certificate. Treat a shot as
+    // certified only when either side of the V6 contract is present; once it
+    // is claimed, the complete receipt and framing contract must validate.
+    const certifiedAtomic = certifiedAtomicRole && Boolean(
+      framing.cropPolicy === "certified-centered-cover-no-motion"
+      || atomicTransition?.visualValidation,
+    );
+    let plannedPath;
+    if (certifiedAtomic) {
+      const declaredPath = clone(framing.path) || {};
+      const declaredValidation = validateSafeCameraPath(declaredPath);
+      const selectedCorridorIndex = (declaredPath.corridors || []).findIndex((corridor) => (
+        aspectMatches(corridor?.targetAspect, targetAspect)
+      ));
+      const selectedCorridor = selectedCorridorIndex >= 0
+        ? declaredPath.corridors[selectedCorridorIndex]
+        : null;
+      const cropIsStatic = selectedCorridor
+        && JSON.stringify(selectedCorridor.startCrop) === JSON.stringify(selectedCorridor.endCrop);
+      const declaredDimensions = projectedMediaDimensions({
+        media_contract: { dimensions: declaredPath.sourceDimensions },
+      });
+      const errors = [
+        atomicTransition?.visualValidation?.schemaVersion
+          === "hapa.echo.transition-shot-visual-certification.v1" ? null : "visual-certification-schema",
+        atomicTransition?.visualValidation?.decision === "certified" ? null : "visual-certification-decision",
+        framing.schemaVersion === "hapa.echo.asset-camera-framing.v2" ? null : "schema",
+        framing.cropPolicy === "certified-centered-cover-no-motion" ? null : "crop-policy",
+        String(framing.mediaId || "") === String(card.media?.id || "") ? null : "framing-media",
+        String(declaredPath.mediaId || "") === String(card.media?.id || "") ? null : "path-media",
+        declaredDimensions
+          && declaredDimensions.width === dimensions.width
+          && declaredDimensions.height === dimensions.height ? null : "source-dimensions",
+        declaredValidation.ok ? null : `path:${declaredValidation.errors.join("+")}`,
+        selectedCorridor ? null : "active-output-corridor",
+        cropIsStatic ? null : "moving-certified-crop",
+        camera.motion === "static" ? null : "motion",
+        camera.intensity === 0 ? null : "intensity",
+        camera.speed === 1 ? null : "speed",
+        camera.focus === "center" ? null : "focus",
+      ].filter(Boolean);
+      if (errors.length) {
+        throw new Error(`Certified atomic camera contract is unsafe for ${card.id}: ${errors.join(", ")}`);
+      }
+      plannedPath = {
+        ...declaredPath,
+        corridors: [
+          clone(selectedCorridor),
+          ...(declaredPath.corridors || [])
+            .filter((_, corridorIndex) => corridorIndex !== selectedCorridorIndex)
+            .map((corridor) => clone(corridor)),
+        ],
+        keyframes: [
+          { ...(declaredPath.keyframes?.[0] || {}), offset: 0, crop: clone(selectedCorridor.startCrop), zoom: 1 },
+          { ...(declaredPath.keyframes?.[1] || {}), offset: 1, crop: clone(selectedCorridor.endCrop), zoom: 1 },
+        ],
+      };
+    } else {
+      plannedPath = buildSafeCameraPath({
+        mediaId: card.media?.id,
+        technical,
+        analysis,
+        role,
+        phraseCue,
+        targetAspects,
+      });
+    }
     const path = {
       ...plannedPath,
       id: `${plannedPath.id}:${contextHash({
@@ -425,12 +500,6 @@ function rebuildMediaCameraBindings(graph, timeline, outputProfile, track) {
       activeTargetAspect: targetAspect,
       activeOutputProfileId: outputProfile.id,
       framingContractSchema: framing.schemaVersion || null,
-    };
-    const camera = {
-      motion: card.parameters?.motion || shot.camera_motion || framing.motion || "auto",
-      intensity: Number(card.parameters?.cameraIntensity ?? shot.camera_intensity ?? framing.intensity ?? 1),
-      speed: Number(card.parameters?.cameraSpeed ?? shot.camera_speed ?? framing.speed ?? 1),
-      focus: card.parameters?.cameraFocus || shot.camera_focus || framing.focus || "center",
     };
     const startFrame = {
       atSeconds: startSeconds,
@@ -466,7 +535,16 @@ function rebuildMediaCameraBindings(graph, timeline, outputProfile, track) {
       provenance: {
         ...(card.provenance || {}),
         sourceSlotId: slotId,
-        cameraBinding: framing.derived ? "asset-aware-rederived" : "selected-media-rebound",
+        cameraBinding: certifiedAtomic
+          ? "certified-atomic-contract-preserved"
+          : framing.derived ? "asset-aware-rederived" : "selected-media-rebound",
+        ...(certifiedAtomic ? {
+          cameraFramingContract: clone(framing),
+          atomicTransition: clone(
+            shot.decision_evidence?.atomicTransition
+              || shot.decisionEvidence?.atomicTransition,
+          ),
+        } : {}),
       },
     };
   });
@@ -526,6 +604,27 @@ function cameraTimelineFromGraph(graph, track) {
     const path = pathByCardId.get(String(card.id || "")) || {};
     const mediaIdChanged = Boolean(path.mediaId)
       && String(path.mediaId) !== String(card.media?.id || "");
+    const preservedCertifiedFraming = card.provenance?.cameraBinding === "certified-atomic-contract-preserved"
+      ? card.provenance?.cameraFramingContract
+      : null;
+    const preservedAtomicTransition = card.provenance?.atomicTransition || null;
+    if (preservedCertifiedFraming && preservedAtomicTransition && !mediaIdChanged) {
+      return {
+        shot_index: index,
+        section_id: preservedCertifiedFraming.path?.phraseCue?.id
+          || path.phraseCue?.id
+          || card.provenance?.sourceSlotId
+          || `slot:${index}`,
+        start_sec: Number(card.startSeconds || 0),
+        end_sec: Number(card.endSeconds || card.startSeconds || 0),
+        camera_motion: card.parameters?.motion || preservedCertifiedFraming.motion || "static",
+        camera_intensity: Number(card.parameters?.cameraIntensity ?? preservedCertifiedFraming.intensity ?? 0),
+        camera_speed: Number(card.parameters?.cameraSpeed ?? preservedCertifiedFraming.speed ?? 1),
+        camera_focus: card.parameters?.cameraFocus || preservedCertifiedFraming.focus || "center",
+        decision_evidence: { atomicTransition: clone(preservedAtomicTransition) },
+        camera_framing_contract: clone(preservedCertifiedFraming),
+      };
+    }
     const replacementFraming = card.media?.cameraFramingContract
       || card.media?.camera_framing_contract
       || card.media?.framingAnalysis
@@ -821,16 +920,47 @@ export function buildMultitrackProjection(graph) {
 export function applyMultitrackOperation(graph, operation) {
   const cardOperations = new Set(["replace-card", "knock-card", "trim-card", "set-blend", "set-opacity", "set-stem-map", "set-camera"]);
   if (!cardOperations.has(operation.kind)) throw new Error(`Unsupported multitrack operation ${operation.kind}`);
+  const targetCard = (graph.tracks || []).flatMap((track) => track.cards || [])
+    .find((card) => card.id === operation.cardId);
+  const changesCertifiedAtomicVisual = new Set([
+    "replace-card",
+    "knock-card",
+    "trim-card",
+    "set-blend",
+    "set-opacity",
+    "set-camera",
+  ]);
+  if (changesCertifiedAtomicVisual.has(operation.kind)
+    && targetCard?.provenance?.cameraBinding === "certified-atomic-contract-preserved"
+    && targetCard?.provenance?.atomicTransition?.role) {
+    throw new Error("A certified Reference A/transition/Reference B member cannot be visually or temporally changed without recompiling the complete atomic bridge.");
+  }
   const edit = { id: operation.id, kind: operation.kind === "trim-card" ? "timing-edit" : operation.kind === "set-stem-map" ? "stem-map-change" : "card-replacement", cardId: operation.cardId, atSeconds: operation.startSeconds, endSeconds: operation.endSeconds, reason: operation.kind };
+  const operatorOverrideProvenance = (card) => {
+    if (card.provenance?.cameraBinding !== "certified-atomic-contract-preserved") return card.provenance;
+    const provenance = clone(card.provenance) || {};
+    delete provenance.cameraFramingContract;
+    delete provenance.atomicTransition;
+    provenance.cameraBinding = "operator-overrode-certified-atomic-contract";
+    return provenance;
+  };
   const result = applyDirtyRangePatch(graph, edit, (card) => {
     if (card.id !== operation.cardId && operation.kind !== "set-stem-map") return card;
-    if (operation.kind === "replace-card") return { ...card, media: { ...card.media, ...operation.media } };
+    if (operation.kind === "replace-card") return {
+      ...card,
+      media: { ...card.media, ...operation.media },
+      provenance: operatorOverrideProvenance(card),
+    };
     if (operation.kind === "knock-card") return { ...card, knockedOut: operation.knockedOut !== false };
     if (operation.kind === "trim-card") return { ...card, startSeconds: Number(operation.startSeconds ?? card.startSeconds), endSeconds: Number(operation.endSeconds ?? card.endSeconds) };
     if (operation.kind === "set-blend") return { ...card, parameters: { ...(card.parameters || {}), blendMode: operation.blendMode } };
     if (operation.kind === "set-opacity") return { ...card, parameters: { ...(card.parameters || {}), opacity: Number(operation.opacity) } };
     if (operation.kind === "set-stem-map") return { ...card, parameters: { ...(card.parameters || {}), stemMap: operation.stemMap } };
-    if (operation.kind === "set-camera") return { ...card, parameters: { ...(card.parameters || {}), motion: operation.motion, cameraIntensity: Number(operation.intensity) } };
+    if (operation.kind === "set-camera") return {
+      ...card,
+      parameters: { ...(card.parameters || {}), motion: operation.motion, cameraIntensity: Number(operation.intensity) },
+      provenance: operatorOverrideProvenance(card),
+    };
     return card;
   });
   if (["replace-card", "trim-card", "set-camera"].includes(operation.kind)) {

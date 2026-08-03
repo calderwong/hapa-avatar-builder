@@ -151,6 +151,29 @@ A clip may be both a useful loop and a transition over different ranges.
 Static single-frame holds are neither temporal loops nor transitions and are
 excluded from the playable Director and chain candidate sets.
 
+The Director keeps five editorial presentation roles distinct:
+
+- `reference-still-hold` is the exact content-addressed Reference image used
+  only at a certified authored-transition seam;
+- `subtle-reference-loop` is a near-static adaptive derivative. It remains
+  searchable lineage evidence but is excluded from ordinary V6 selection;
+- `loop` is a repeatable temporal visual;
+- `motion-clip` is action-oriented scene coverage without authoritative
+  first/last Reference endpoints; and
+- `transition` is a one-way transition candidate. Only the authored subset with
+  declared, resolved endpoint lineage is eligible to become a Director bridge.
+
+Intrinsic quality does not imply motion intensity. An authored transition is
+selected only inside one non-overlapping, interior
+`exact Reference still A → full transition once → exact Reference still B`
+reservation. Both endpoint cards must resolve to independent Reference-catalog
+images by card ID, exact image SHA-256, and URI. A strict local receipt compares
+the transition's physical first and last presentation frames with those
+declared images and quarantines any job that misses the similarity contract.
+Certification proves the bounded visual match; it does not claim that decoded
+video pixels are byte-identical to the still. A filename or tag may make an
+ambiguous clip reviewable scene motion, but it cannot create endpoint truth.
+
 Authored first-frame → last-frame transition lineage is preserved independently
 from the visual classifier. A Vibes transition can therefore be a
 `declared-transition` awaiting visual validation, or a visually validated
@@ -198,10 +221,25 @@ change any of the seven intrinsic-quality dimensions.
 
 ## Intentional cut evidence
 
-Candidate base utility weights are lyric/moment/section/stem fit (22%),
-character/canon/reference fit (18%), object/action specificity (15%), emotional
-arc (12%), intrinsic quality (13%), chain continuity (8%), camera/aspect (5%),
-technical truth (4%), and novelty/repetition control (3%).
+Candidate base utility weights are lyric/moment/section/stem fit (19%),
+character/canon/reference fit (16%), object/action specificity (13%), emotional
+arc (10%), intrinsic quality (12%), chain continuity (9%), editorial transition
+bridge utility (15%), camera/aspect (2.5%), technical truth (2.5%), and
+novelty/repetition control (1%).
+
+Editorial role multipliers are applied after the base utility: `1.30` for a
+resolved authored transition in its atomic reservation, `1.08` for scene
+motion, `1.00` for an ordinary loop, and `0.92` as counterfactual evidence for
+a near-static adaptive Reference loop. V6 excludes that last role from ordinary
+selection. These multipliers do not rewrite the intrinsic quality score.
+
+Explicit song assignments are preserved first. Each remaining eligible song
+may receive semantic supplements from the independently certified transition
+pool. Selection stays inside that song's minimum-affinity and relative semantic
+cohort, then uses an album-wide least-used prior that is pre-seeded with all
+explicit assignments. This exhausts relevant alternatives before repetition;
+the per-song balance digest is part of the deterministic compiler input and
+append-only replay identity.
 
 The Director score is:
 
@@ -234,7 +272,7 @@ Only the narrative body is compared—IDs, authors, timestamps, and protocol
 metadata are excluded. Unmatched story context contributes no story summary to
 candidate scoring.
 
-Every selected shot carries `hapa.echo.shot-decision-evidence.v4` with:
+Every newly selected shot carries `hapa.echo.shot-decision-evidence.v6` with:
 
 - exact time window and lyric citation, or an explicit lyrics-unavailable
   status without claiming the song is instrumental;
@@ -266,8 +304,17 @@ that field. Existing base projects and saved cuts are immutable.
 - The chain graph only references manifest identities and records confidence.
 - Declared transition records retain exact first/last Reference frame lineage
   and distinguish provider intent from three-frame visual validation.
+- Every selected authored transition has exact Reference-image entry and exit
+  holds, uses `playbackMode: once` plus an explicit physical-frame time map,
+  occupies an interior atomic three-shot reservation, and is never first,
+  last, adjacent to another transition, or emitted as an unpaired dead end.
+- Every assigned authored transition is either placed or carries an explicit
+  rejection reason; a ready production batch has zero rejections.
 - Exactly one new deterministic cut exists for each of 157 canonical songs.
-- Every shot has valid v4 evidence and references an enriched media identity.
+- Every new shot has valid v6 evidence and references either an enriched video
+  identity or a certified exact Reference-still identity; the audit remains
+  compatible with immutable historical v4/v5 cuts and rejects unknown evidence
+  versions.
 - The fourteen songs with unavailable lyrics make no invented lyric or
   instrumental claim.
 - Existing project and variant byte hashes remain unchanged.
@@ -278,6 +325,8 @@ that field. Existing base projects and saved cuts are immutable.
 - Every project-derived song identity is validated as one path segment and
   every variant path is lexically contained beneath the configured root.
 - Exact-cut media and render-readiness preflights pass.
+- Exact-media preflight resolves all 9,565 cues across all 157 cuts, and an
+  unchanged append-only replay is byte-identical.
 - The feedback report compares each source group's median percentile,
   top-decile rate, pre/post selection share, and quality `>=85` rescue cases.
 
@@ -393,3 +442,119 @@ same media receives per-card path identities so keyframes cannot collide.
   considered render-ready.
 - **Candidate:** extract a reusable Lesson/Flow named “Media Replacement
   Requires Framing Rebinding” for other card-to-video compilation paths.
+
+## Transition-weighting correction — 2026-08-02
+
+The current motion-aware append-only set is
+`echo-video-enrichment-1f33c9825439717f-motion-bridge-v5`, tied to catalog
+fingerprint
+`sha256:1f33c9825439717faf38823c2f2083f3964c3580ee4131932e3bc61d933c3c03`.
+The 157-cut dry run produced 9,565 ready shot decisions: 9,138 scene-motion
+selections, 83 placements of the 41 unique authored transition jobs across 54
+assigned songs, 188 subtle Reference holds, and 156 ordinary loops. Every
+assigned placement resolved an interior Reference-loop → transition-once →
+Reference-loop triplet; none was rejected.
+
+The persisted apply and full deterministic replay passed: the replay proposed
+zero new files and matched all 157 content hashes, with exact 2,690-row
+disk/index parity. Exact-media preflight resolved 9,565/9,565 cues, the
+catalog/Director audit reported zero blockers, 104 focused checks and 1,599
+repository tests passed, and the production build receipt passed. After the
+launchd-owned port-8797 service restart, health reported current delivery
+freshness and the live compact summary selected Motion Bridge v5 for all
+157/157 songs with zero mismatches.
+
+This corrects the Camera V2 selection mix, which contained 6,390 loop-eligible
+shots, only 29 transition-classified shots from two unique clips, and zero of
+the 41 authored Vibes transitions. The correction is append-only and leaves the
+historical Completed Pass and Portrait Repair artifacts intact.
+
+### Turn-to-Lore reflection
+
+- **Objective:** restore action and authored transition intent without
+  downgrading truthful intrinsic-quality evidence.
+- **Evidence inspected:** all 157 Camera V2 cuts, 9,565 shot decisions, 11,551
+  enrichment rows, 3,179 chain edges, 41 declared Vibes transitions and their
+  82 endpoint records, the Ref Cards ingest, and the runtime latest-cut path.
+- **What worked:** reusing the existing enrichment catalog, Reference anchors,
+  append-only compiler, and exact-media preflight while adding an atomic
+  bridge planner and a separate editorial-motion score.
+- **Noise:** frame-to-frame coherence is useful quality evidence, but it is not
+  evidence that a clip contains meaningful action.
+- **Misunderstanding preserved:** the broad Ref Cards `loop_video` tag was
+  previously promoted into Director intent, causing motion clips to be treated
+  as holds. Filename language also cannot safely recover endpoint truth.
+- **Change:** assigned, lineage-resolved transitions receive first-class
+  interior A→transition→B reservations; scene motion is favored over subtle
+  holds; name/tag-only ambiguous clips remain scene motion, while
+  transition-classified clips without resolved endpoints fail closed.
+- **Reusable remainder:** the scoring rubric, endpoint resolver, atomic planner,
+  immutable assignment overlay, audit compatibility, and runtime selection
+  path apply to future transition batches.
+- **Guardrail:** intrinsic quality and editorial motion utility remain separate;
+  assignment input is mandatory and exhaustively reconciled; persisted v5 cuts
+  are re-audited for atomic triplet identity and continuity; and no transition
+  can be first, last, adjacent, looped, or emitted without both playable
+  endpoint anchors.
+- **Promotion candidates:** Decision Card “Quality Is Not Editorial Motion
+  Utility,” Lesson Card “A Loop Tag Cannot Erase Authored Transition Intent,”
+  and Flow-explainer “Reference Loop A → Authored Transition → Reference Loop
+  B.” Raw attributed source: Codex Turn
+  `019fc51e-90c2-7320-8269-57c3f91d7299`.
+
+The first append-only correction family, Motion Bridge v4, remains immutable.
+Final truth-boundary review found that its endpoint-evidence label overstated an
+image-SHA comparison the resolver did not perform, and that missing assignment
+inputs and malformed persisted triplets needed stronger fail-closed checks.
+Motion Bridge v5 supersedes it without rewriting that history: the resolution
+label now claims only exact card lineage plus poster-URI match, assignment
+coverage must reconcile all 41 declared jobs before compilation, and the audit
+independently verifies every persisted authored transition's surrounding
+entry/exit structure, job/media identity, once playback, and continuity links.
+
+## Full-source exact-Reference correction — 2026-08-02
+
+Motion Bridge V6 supersedes V5 append-only. It independently validates physical
+transition terminals, quarantines 11 mismatches, and admits the remaining 30
+certified jobs. Every admitted bridge is emitted as an exact content-addressed
+Reference image hold, the complete transition video played once, and the exact
+target Reference image hold. Adaptive Reference loops remain semantic-lineage
+evidence but are excluded from ordinary V6 selection.
+
+The 157-song pass contains 262 certified transition placements (62 explicit and
+200 semantic supplements), 524 exact still holds, 8,674 scene-motion shots, 105
+ordinary loops, and zero subtle adaptive-loop selections. All 30 certified jobs
+appear; reuse is balanced to 5–15 placements per job under a cap of 18. The
+result is 93.4239% action-oriented. Of 157 songs, 116 receive two transitions,
+20 receive one, two receive three, one receives four, and 18 remain without one
+because their semantic or three-shot gate fails closed.
+
+The EditorGraph, Preview, Record Garden, and HyperFrames paths preserve the same
+physical-frame time map and static centered crop. Exact seam crops survive
+camera binding and patch replay. Visual or timing edits to any member of a
+certified triplet fail closed until the whole bridge is recompiled, preventing
+an isolated edit from retaining a false certification. Echo Album hydrates the
+exact newest saved cut before selecting it, while an explicit Legacy choice
+remains sticky until the song changes.
+
+The production V6 apply added 157 immutable cuts and grew the Director index
+from 2,690 to 2,847 rows. Its deterministic replay matched all 157 files and
+added none; base projects and prior variants remained byte-immutable. Render
+preflight resolves all 9,565 declared references, and the production latest-cut
+selector chooses V6 for every one of the 157 songs.
+
+### Turn-to-Lore reflection
+
+- **Objective:** make action transitions more useful than near-still derivatives
+  while honoring their authored first and last Reference frames.
+- **What worked:** strict physical-terminal receipts, independent catalog-image
+  identity, atomic reservations, and album-wide usage ledgers.
+- **Noise:** adaptive-loop similarity is semantic evidence, not a clean seam;
+  local song/job hashing is diversity, not global balance.
+- **Change:** V6 uses exact still A → full transition → exact still B, supplements
+  sparse assignments semantically, and picks the least-used certified job within
+  each song's relevance cohort.
+- **Guardrail:** the batch fails before writes on certified-set drift, transition
+  rejection, subtle-loop leakage, broken A/T/B accounting, or excess job reuse.
+- **Reusable remainder:** transition-terminal validation, deterministic balance
+  state, content-addressed still holds, and Preview/export camera parity.

@@ -34,6 +34,11 @@ import {
   sampleEchoLiveSignalFrame,
 } from "../domain/echo-live-signal-transport.js";
 import {
+  echoSourceWindowPlaybackRate,
+  mapEchoSourceWindowTime,
+  normalizeEchoTransitionTimeMapping,
+} from "../domain/echo-playback-sync.js";
+import {
   normalizeEchoStemFocus,
   resolveVerifiedEchoStemBinding,
 } from "../domain/echo-visualizer-audio-envelope.js";
@@ -585,6 +590,9 @@ function toGardenVisual(surface = {}) {
       || surface.playbackMode
       || "once",
     ),
+    timeMapping: surface?.provenance?.timeMapping
+      || surface.timeMapping
+      || null,
     holdLastFrame: Boolean(
       surface?.provenance?.holdLastFrame
       ?? surface.holdLastFrame,
@@ -1090,11 +1098,29 @@ function createRecordGardenDirectorPreviewAdapters({ apiBase = "", signalSource 
       const sourceEnd = Number.isFinite(declaredSourceEnd) && declaredSourceEnd > sourceStart
         ? declaredSourceEnd
         : sourceStart + Math.max(0.04, Number(cue.durationSeconds) || 0.04);
-      const sourceSpan = Math.max(0.04, sourceEnd - sourceStart);
-      const sourceElapsed = cue.media?.playbackMode === "loop"
-        ? cueElapsed % sourceSpan
-        : Math.min(sourceSpan - 0.03, cueElapsed);
-      const target = sourceStart + sourceElapsed;
+      const cueDurationSeconds = Math.max(0.04, Number(cue.durationSeconds) || 0.04);
+      const timeMapping = normalizeEchoTransitionTimeMapping(cue.media?.timeMapping, {
+        sourceInSeconds: sourceStart,
+        sourceOutSeconds: sourceEnd,
+        cueDurationSeconds,
+      });
+      const target = mapEchoSourceWindowTime({
+        elapsedSeconds: cueElapsed,
+        durationSeconds: video.duration,
+        sourceInSeconds: sourceStart,
+        sourceOutSeconds: sourceEnd,
+        loop: cue.media?.playbackMode === "loop",
+        endGuardSeconds: 0.03,
+        cueDurationSeconds,
+        timeMapping,
+      });
+      video.loop = cue.media?.playbackMode === "loop" && !timeMapping;
+      video.playbackRate = echoSourceWindowPlaybackRate({
+        timeMapping,
+        sourceInSeconds: sourceStart,
+        sourceOutSeconds: sourceEnd,
+        cueDurationSeconds,
+      });
       if (Math.abs((Number(video.currentTime) || 0) - target) > 0.18) {
         try { video.currentTime = target; } catch {}
       }
@@ -2848,6 +2874,7 @@ export default function EchoRecordGarden3DView({
         || (cue?.media?.sourceInSeconds || 0) + (cue?.durationSeconds || 0),
       durationSeconds: cue?.durationSeconds || 0,
       playbackMode: cue?.media?.playbackMode || "once",
+      timeMapping: cue?.media?.timeMapping || null,
       clockLocked: false,
       resolutionPolicy: "exact-id-or-fail",
       attachment: {
@@ -5779,6 +5806,7 @@ function screenMediaSourceIdentity(visual = {}) {
         Math.max(0, Number(visual.sourceEndSeconds) || 0),
         Math.max(0, Number(visual.durationSeconds) || 0),
         visual.playbackMode || "once",
+        visual.timeMapping || null,
       ]
     : [];
   return {
@@ -6111,6 +6139,7 @@ function updateMediaResourcePlayback(resource, visual, { playback, elapsed, redu
       sourceStartSeconds: visual.sourceStartSeconds,
       sourceEndSeconds: visual.sourceEndSeconds,
       playbackMode: visual.playbackMode,
+      timeMapping: visual.timeMapping,
       holdLastFrame: visual.holdLastFrame,
       clockLocked: visual.clockLocked !== false,
       playbackPlaying: playback.playing,

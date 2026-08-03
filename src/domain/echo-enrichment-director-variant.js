@@ -14,13 +14,24 @@ import {
   classifySourcePrior,
   scoreDirectorCandidate,
 } from "./echo-video-enrichment.js";
+import {
+  ECHO_TRANSITION_TIME_MAPPING_MAX_PLAYBACK_RATE as ECHO_TRANSITION_MAX_PLAYBACK_RATE,
+  ECHO_TRANSITION_TIME_MAPPING_SCHEMA as ECHO_TRANSITION_TIME_MAP_SCHEMA,
+} from "./echo-playback-sync.js";
+
+export { ECHO_TRANSITION_MAX_PLAYBACK_RATE, ECHO_TRANSITION_TIME_MAP_SCHEMA };
 
 export const ECHO_VIDEO_ENRICHMENT_ROW_SCHEMA = "hapa.echo.video-enrichment.v1";
 export const ECHO_VIDEO_ENRICHMENT_CATALOG_SCHEMA = "hapa.echo.video-enrichment-catalog.v1";
 export const ECHO_ENRICHMENT_DIRECTOR_VARIANT_SCHEMA = "hapa.echo.direction-script-variant.v1";
-export const ECHO_ENRICHMENT_SHOT_EVIDENCE_SCHEMA = "hapa.echo.shot-decision-evidence.v4";
+export const ECHO_ENRICHMENT_SHOT_EVIDENCE_SCHEMA = "hapa.echo.shot-decision-evidence.v6";
 export const ECHO_ASSET_CAMERA_FRAMING_SCHEMA = "hapa.echo.asset-camera-framing.v2";
-const ECHO_ENRICHMENT_CAMERA_COMPILER = "echo-intentional-enrichment-v3-top-origin-asset-camera";
+export const ECHO_ENRICHMENT_DIRECTOR_COMPILER = "echo-intentional-enrichment-v6-full-source-motion-bridges";
+export const ECHO_TRANSITION_ENDPOINT_IDENTITY_EVIDENCE = "declared-card-lineage+reference-image-sha256+poster-uri";
+export const ECHO_TRANSITION_FIRST_FRAME_SAMPLE_SECONDS = 0;
+export const ECHO_TRANSITION_LAST_FRAME_END_GUARD_SECONDS = 1 / 24;
+export const ECHO_INFERRED_TRANSITION_MIN_CONTEXT_AFFINITY = 0.025;
+export const ECHO_TARGET_TRANSITIONS_PER_SONG = 2;
 export const ECHO_SOURCE_BIAS_COUNTERFACTUAL_SCHEMA = "hapa.echo.source-bias-counterfactual.v1";
 export const ECHO_ENRICHMENT_DIRECTOR_REPORT_SCHEMA = "hapa.echo.enrichment-director-variant-report.v1";
 export const ECHO_CANONICAL_STORY_AFFINITY_MINIMUM = 0.1;
@@ -34,12 +45,14 @@ export const ECHO_VIDEO_ENRICHMENT_EXPECTED_SCHEMA = Object.freeze({
       "title", "thumbnailUri", "mediaContract", "technicalIdentity|sha256|contentHash",
       "sourceGroup|source.group", "sourcePrior", "qualityScore|quality.overall",
       "summary|caption|description", "tags|keywords|motifs", "story", "lore", "songIds",
+      "flow", "semantic.references", "transitionAssignment",
     ],
     tolerance: "Missing optional fields receive explicit neutral or unavailable evidence; rows without a playable URI can annotate matching parent media but are not added as standalone media candidates.",
   },
   chainGraphJson: {
     accepted: ["{edges:[{from,to,weight?,relation?}]} ", "{adjacency:{id:[id|{id,weight}]}}", "{nodes:[{id,neighbors:[]}]}"],
-    tolerance: "Missing or unresolved edges contribute zero continuity weight and never make a media candidate ineligible.",
+    declaredTransitions: "{declaredTransitions:[{transitionMediaId,sourceFrame,targetFrame,transitionLink}]}",
+    tolerance: "Missing or unresolved generic edges contribute zero affinity. Declared transitions remain ineligible until both directed Reference endpoints resolve.",
   },
   reportJson: {
     optional: ["schemaVersion", "generatedAt|createdAt", "batchFingerprint|contentSha256|corpusSha256", "counts", "quality"],
@@ -57,11 +70,15 @@ const MEDIA_FIELDS = Object.freeze([
 const CAMERA_REFRAME_FIELDS = Object.freeze([
   "camera_motion", "camera_intensity", "camera_speed", "camera_focus", "camera_framing_contract",
 ]);
+const CATALOG_BASE_CANDIDATE_CACHE = new WeakMap();
+const CATALOG_GLOBAL_SEARCH_CACHE = new WeakMap();
+const CATALOG_CERTIFIED_TRANSITION_CANDIDATE_CACHE = new WeakMap();
 const DIRECTION_EVIDENCE_FIELDS = new Set([
   ...MEDIA_FIELDS,
   ...CAMERA_REFRAME_FIELDS,
   "decision_evidence",
   "edit_reason",
+  "transition_link",
 ]);
 const STOP_WORDS = new Set([
   "a", "an", "and", "are", "as", "at", "be", "but", "by", "for", "from", "had", "has",
@@ -281,12 +298,19 @@ function normalizeMediaContract(row, uri) {
     || media.mediaContract || media.media_contract || media.playbackContract || media.playback_contract,
   );
   const dimensions = mediaDimensions(declared, row, media, row.technical, media.technical);
+  const technical = object(row.technical || media.technical);
+  const actualDurationSeconds = positiveFinite(
+    declared.actualDurationSeconds ?? declared.actual_duration_seconds
+    ?? technical.durationSec ?? technical.durationSeconds,
+  );
+  const fps = positiveFinite(declared.fps ?? technical.fps);
   if (Object.keys(declared).length) return {
     ...clone(declared),
+    ...(actualDurationSeconds ? { actualDurationSeconds } : {}),
+    ...(fps ? { fps } : {}),
     ...(dimensions ? { dimensions } : {}),
   };
   if (!uri) return null;
-  const technical = object(row.technical);
   const hash = object(row.contentHash || row.content_hash);
   const type = /\.(?:png|jpe?g|webp|gif|avif)(?:$|[?#])/iu.test(uri) ? "image" : "video";
   return {
@@ -295,12 +319,109 @@ function normalizeMediaContract(row, uri) {
     originalUri: uri,
     runtimeUri: uri,
     playbackMode: type === "video" ? "loop" : "hold",
-    ...(finite(technical.durationSec ?? technical.durationSeconds, 0) > 0 ? {
-      actualDurationSeconds: finite(technical.durationSec ?? technical.durationSeconds, 0),
-    } : {}),
+    ...(actualDurationSeconds ? { actualDurationSeconds } : {}),
+    ...(fps ? { fps } : {}),
     ...(dimensions ? { dimensions } : {}),
     ...(firstText(hash.value, row.sha256) ? { contentHash: firstText(hash.value, row.sha256).replace(/^sha256:/iu, "") } : {}),
     provenance: "synthesized-from-enrichment-uri",
+  };
+}
+
+function normalizedReferenceAnchorId(value = {}) {
+  const row = object(value);
+  return firstText(
+    row.cardId,
+    row.card_id,
+    row.referenceCardId,
+    row.reference_card_id,
+    String(row.ownerType || row.owner_type || "").toLowerCase() === "reference"
+      ? firstText(row.ownerId, row.owner_id)
+      : "",
+    /^(?:reference|reference-card):/iu.test(firstText(row.id)) ? row.id : "",
+  );
+}
+
+function normalizedTransitionEndpoint(value, role) {
+  const row = object(value);
+  const cardId = normalizedReferenceAnchorId(row);
+  if (!cardId) return null;
+  return {
+    role,
+    cardId,
+    cardRevisionId: firstText(row.cardRevisionId, row.card_revision_id, row.revisionId, row.revision_id),
+    cardTitle: firstText(row.cardTitle, row.card_title, row.ownerName, row.owner_name, row.title),
+    assetId: firstText(row.assetId, row.asset_id),
+    frameId: firstText(row.frameId, row.frame_id),
+    sha256: firstText(row.sha256, row.contentHash, row.content_hash).replace(/^sha256:/iu, "").toLowerCase(),
+    uri: firstText(row.uri, row.mediaUri, row.media_uri),
+    reviewStatus: firstText(row.reviewStatus, row.review_status),
+    sourceCardUnchanged: row.sourceCardUnchanged === true || row.source_card_unchanged === true,
+  };
+}
+
+function normalizedMotionRole(row = {}, semantic = {}) {
+  const flow = object(Object.keys(object(row.flow)).length ? row.flow : row.continuity);
+  const loop = object(flow.loop || row.loop);
+  const transition = object(flow.transition || row.transition);
+  const endpoints = object(transition.declaredEndpoints || transition.declared_endpoints);
+  const transitionLink = object(endpoints.link || transition.link || row.transitionAssignment || row.transition_assignment);
+  const firstEndpoint = normalizedTransitionEndpoint(
+    endpoints.first || endpoints.source || endpoints.entry || row.firstFrame || row.first_frame,
+    "first",
+  );
+  const lastEndpoint = normalizedTransitionEndpoint(
+    endpoints.last || endpoints.target || endpoints.exit || row.lastFrame || row.last_frame,
+    "last",
+  );
+  const referenceAnchorIds = uniqueStrings([
+    ...list(semantic.references).map(normalizedReferenceAnchorId),
+    normalizedReferenceAnchorId(row.reference),
+    normalizedReferenceAnchorId(row.card),
+  ]);
+  const transitionComponents = object(transition.components);
+  const directedStateChange = normalizedScore(
+    transitionComponents.directedStateChange?.score ?? transition.directedStateChange,
+    0,
+  );
+  const endpointDistinctness = normalizedScore(
+    transitionComponents.endpointDistinctness?.score ?? transition.endpointDistinctness,
+    0,
+  );
+  const loopEligible = loop.eligible === true
+    || ["loop", "loop-candidate"].includes(firstText(loop.classification).toLowerCase());
+  const transitionEligible = transition.eligible === true
+    || ["transition", "declared-transition"].includes(firstText(transition.classification).toLowerCase());
+  const subtleReferenceLoop = loopEligible
+    && !transitionEligible
+    && referenceAnchorIds.length > 0
+    && directedStateChange <= 0.15
+    && endpointDistinctness <= 0.15;
+  return {
+    kind: transitionEligible
+      ? "transition"
+      : subtleReferenceLoop ? "subtle-reference-loop" : loopEligible ? "loop" : "motion-clip",
+    referenceAnchorIds,
+    loop: {
+      eligible: loopEligible,
+      classification: firstText(loop.classification, loopEligible ? "loop-candidate" : "not-loop"),
+      score: normalizedScore(loop.score, 0),
+    },
+    transition: {
+      eligible: transitionEligible,
+      classification: firstText(transition.classification, transitionEligible ? "transition" : "not-transition"),
+      declaredTransition: transition.declaredTransition === true || transition.declared_transition === true,
+      visuallyValidated: transition.visuallyValidated === true || transition.visually_validated === true,
+      score: normalizedScore(transition.score, 0),
+      directedStateChange,
+      endpointDistinctness,
+      endpoints: { first: firstEndpoint, last: lastEndpoint },
+      jobId: firstText(transitionLink.id, transitionLink.jobId, transitionLink.job_id),
+      truthBoundary: firstText(transition.truthBoundary, transition.truth_boundary),
+      ...(firstText(transition.visualValidationDecision, transition.visual_validation_decision)
+        ? { visualValidationDecision: firstText(transition.visualValidationDecision, transition.visual_validation_decision) }
+        : {}),
+    },
+    subtleReferenceLoop,
   };
 }
 
@@ -310,6 +431,11 @@ export function normalizeEchoVideoEnrichmentRow(row = {}, index = 0) {
   const semantic = object(row.semantic || row.semantics || row.analysis || row.enrichment);
   const recognition = object(row.recognition);
   const quality = object(row.quality || row.scores || row.score);
+  const motionRole = normalizedMotionRole(row, semantic);
+  const transitionEndpointText = uniqueStrings([
+    motionRole.transition.endpoints.first?.cardTitle,
+    motionRole.transition.endpoints.last?.cardTitle,
+  ]);
   const uri = firstText(
     row.runtimeUri, row.runtime_uri, row.runtimeMediaUri, row.runtime_media_uri, row.mediaUri, row.media_uri, row.uri,
     row.original?.uri,
@@ -359,6 +485,7 @@ export function normalizeEchoVideoEnrichmentRow(row = {}, index = 0) {
   const canonContextText = uniqueStrings([
     ...flattenText(semantic.characters),
     ...flattenText(semantic.references),
+    ...transitionEndpointText,
     ...flattenText(story),
     ...flattenText(lore),
   ]);
@@ -378,6 +505,7 @@ export function normalizeEchoVideoEnrichmentRow(row = {}, index = 0) {
     ...flattenText(recognition.tags),
     ...flattenText(semantic.confidentLabels), ...flattenText(semantic.characters), ...flattenText(semantic.scenes),
     ...flattenText(semantic.references), ...flattenText(semantic.songContexts), ...flattenText(row.continuity),
+    ...transitionEndpointText,
     ...motifs, ...flattenText(story), ...flattenText(lore),
   ]);
   const sourcePolicyInput = { ...row, sourceGroup, source };
@@ -390,7 +518,10 @@ export function normalizeEchoVideoEnrichmentRow(row = {}, index = 0) {
       : sourceClassification.sourceClass,
     prior: sourcePrior,
   };
-  const mediaContract = normalizeMediaContract(row, uri);
+  const normalizedMediaContract = normalizeMediaContract(row, uri);
+  const mediaContract = motionRole.kind === "transition" && normalizedMediaContract
+    ? { ...normalizedMediaContract, playbackMode: "once" }
+    : normalizedMediaContract;
   const dimensions = mediaDimensions(mediaContract, row, media);
   const subjectROI = normalizedSubjectROI(
     row.subjectROI,
@@ -414,6 +545,7 @@ export function normalizeEchoVideoEnrichmentRow(row = {}, index = 0) {
       ).toLowerCase()),
     thumbnailUri: firstText(
       row.thumbnailUri, row.thumbnail_uri, row.posterUri, row.poster_uri,
+      row.technical?.posterUri, row.technical?.poster_uri,
       media.thumbnailUri, media.thumbnail_uri, media.posterUri, media.poster_uri,
     ),
     technicalIdentity: identity,
@@ -439,6 +571,8 @@ export function normalizeEchoVideoEnrichmentRow(row = {}, index = 0) {
     observedVisualText,
     observedSynopsis: firstText(recognition.synopsis, recognition.arcSynopsis, recognition.arc_synopsis),
     canonContextText,
+    referenceAnchorIds: motionRole.referenceAnchorIds,
+    motionRole,
     declaredSongContextIds,
     motifs,
     story,
@@ -447,6 +581,10 @@ export function normalizeEchoVideoEnrichmentRow(row = {}, index = 0) {
       ...list(row.songIds), ...list(row.song_ids), ...list(semantic.songIds),
       row.songId, row.song_id,
     ]),
+    sourceKinds: uniqueStrings([
+      ...list(row.sourceKinds), ...list(row.source_kinds), sourceGroup,
+    ]),
+    transitionAssignment: clone(row.transitionAssignment || row.transition_assignment || null),
     source: clone(source),
     rawSchemaVersion: firstText(row.schemaVersion, row.schema_version) || null,
     missing: [],
@@ -511,10 +649,273 @@ function normalizedChainEdges(chainGraph = {}) {
   ));
 }
 
+function normalizedDeclaredTransitions(chainGraph = {}) {
+  const output = list(chainGraph.declaredTransitions || chainGraph.declared_transitions).map((entry) => {
+    const row = object(entry);
+    const first = normalizedTransitionEndpoint(
+      row.sourceFrame || row.source_frame || row.firstFrame || row.first_frame || row.entry,
+      "first",
+    );
+    const last = normalizedTransitionEndpoint(
+      row.targetFrame || row.target_frame || row.lastFrame || row.last_frame || row.exit,
+      "last",
+    );
+    return {
+      transitionMediaId: firstText(
+        row.transitionMediaId,
+        row.transition_media_id,
+        row.mediaId,
+        row.media_id,
+        row.transitionLink?.mediaId,
+      ),
+      classification: firstText(row.classification, "declared-transition"),
+      visuallyValidated: row.visuallyValidated === true || row.visually_validated === true,
+      truthBoundary: firstText(row.truthBoundary, row.truth_boundary),
+      first,
+      last,
+      link: clone(row.transitionLink || row.transition_link || null),
+    };
+  }).filter((entry) => entry.transitionMediaId && entry.first?.cardId && entry.last?.cardId);
+  const seen = new Set();
+  return output.filter((entry) => {
+    const key = [entry.transitionMediaId, entry.first.cardId, entry.last.cardId].join("\u0000").toLowerCase();
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  }).sort((left, right) => (
+    left.transitionMediaId.localeCompare(right.transitionMediaId)
+    || left.first.cardId.localeCompare(right.first.cardId)
+    || left.last.cardId.localeCompare(right.last.cardId)
+  ));
+}
+
+export function echoDeclaredTransitionEndpointContractDigest(chainGraph = {}) {
+  const contract = normalizedDeclaredTransitions(chainGraph).map((entry) => ({
+    transitionMediaId: entry.transitionMediaId,
+    transitionJobId: firstText(entry.link?.id, entry.link?.jobId, entry.link?.job_id),
+    linkedMediaId: firstText(entry.link?.mediaId, entry.link?.media_id),
+    first: clone(entry.first),
+    last: clone(entry.last),
+  }));
+  return echoEnrichmentSha256(contract);
+}
+
+export function echoReferenceAnimationCatalogContractDigest(catalog = {}) {
+  const records = list(catalog.records).map((record) => ({
+    cardId: firstText(record?.card?.id, record?.cardId, record?.card_id),
+    cardRevisionId: firstText(record?.card?.revisionId, record?.cardRevisionId, record?.card_revision_id),
+    imageUri: firstText(record?.artifacts?.image?.uri),
+    imageSha256: firstText(record?.artifacts?.image?.sha256).replace(/^sha256:/iu, "").toLowerCase(),
+  })).filter((record) => record.cardId && record.imageUri && /^[a-f0-9]{64}$/u.test(record.imageSha256))
+    .sort((left, right) => left.cardId.localeCompare(right.cardId));
+  return echoEnrichmentSha256({
+    schemaVersion: firstText(catalog.schemaVersion, catalog.schema_version),
+    sourceManifestHash: firstText(catalog.sourceManifestHash, catalog.source_manifest_hash),
+    records,
+  });
+}
+
+export function echoEnrichmentCompilerInputFingerprint({
+  songId = "",
+  parentProjectSha256 = "",
+  parentVariantId = "",
+  parentVariantFingerprint = "",
+  enrichmentBatchFingerprint = "",
+  songDecisionInputDigest = "",
+  assignedTransitionJobIds = [],
+  transitionSelectionBalanceDigest = "",
+  transitionEndpointValidation = null,
+} = {}) {
+  return echoEnrichmentSha256({
+    compiler: ECHO_ENRICHMENT_DIRECTOR_COMPILER,
+    songId: firstText(songId),
+    parentProjectSha256: firstText(parentProjectSha256).replace(/^sha256:/iu, "").toLowerCase(),
+    parentVariantId: firstText(parentVariantId),
+    parentVariantFingerprint: firstText(parentVariantFingerprint).replace(/^sha256:/iu, "").toLowerCase(),
+    enrichmentBatchFingerprint: firstText(enrichmentBatchFingerprint).replace(/^sha256:/iu, "").toLowerCase(),
+    songDecisionInputDigest: firstText(songDecisionInputDigest).replace(/^sha256:/iu, "").toLowerCase(),
+    assignedTransitionJobIds: uniqueStrings(assignedTransitionJobIds).sort(),
+    transitionSelectionBalanceDigest: firstText(transitionSelectionBalanceDigest).replace(/^sha256:/iu, "").toLowerCase(),
+    transitionEndpointValidation: clone(transitionEndpointValidation),
+  });
+}
+
+function transitionUsageEntries(usageCounts = new Map()) {
+  const entries = usageCounts instanceof Map
+    ? [...usageCounts.entries()]
+    : Array.isArray(usageCounts)
+      ? usageCounts
+      : Object.entries(object(usageCounts));
+  return entries.map(([jobId, count]) => ({
+    jobId: firstText(jobId),
+    count: Math.max(0, Math.trunc(finite(count, 0))),
+  })).filter((row) => row.jobId && row.count > 0)
+    .sort((left, right) => left.jobId.localeCompare(right.jobId));
+}
+
+export function echoTransitionSelectionBalanceDigest(usageCounts = new Map()) {
+  return echoEnrichmentSha256({
+    schemaVersion: "hapa.echo.transition-selection-balance.v1",
+    usage: transitionUsageEntries(usageCounts),
+  });
+}
+
+function transitionUsageCount(usageCounts, jobId) {
+  if (!jobId) return 0;
+  if (usageCounts instanceof Map) return Math.max(0, Math.trunc(finite(usageCounts.get(jobId), 0)));
+  return Math.max(0, Math.trunc(finite(object(usageCounts)[jobId], 0)));
+}
+
+function mergeDeclaredTransition(row, declared) {
+  if (!declared) return row;
+  const existing = object(row.motionRole?.transition);
+  const visualValidationDecision = firstText(existing.visualValidationDecision).toLowerCase();
+  const visuallyQuarantined = ["quarantine", "quarantined"].includes(visualValidationDecision);
+  const visuallyValidated = existing.visuallyValidated === true || declared.visuallyValidated === true;
+  const endpoints = object(existing.endpoints);
+  const authoritativeEndpoint = (inlineEndpoint, declaredEndpoint) => {
+    const next = clone(inlineEndpoint || {});
+    for (const [key, value] of Object.entries(object(declaredEndpoint))) {
+      if (key === "sourceCardUnchanged") {
+        if (value === true) next[key] = true;
+      } else if (text(value)) {
+        next[key] = clone(value);
+      }
+    }
+    return next;
+  };
+  const nextMotionRole = {
+    ...clone(row.motionRole),
+    kind: visuallyQuarantined ? "motion-clip" : "transition",
+    transition: {
+      ...clone(existing),
+      eligible: !visuallyQuarantined,
+      classification: visuallyQuarantined
+        ? "endpoint-mismatch-quarantined"
+        : firstText(existing.classification, declared.classification, "declared-transition"),
+      declaredTransition: true,
+      visuallyValidated,
+      endpoints: {
+        first: authoritativeEndpoint(endpoints.first, declared.first),
+        last: authoritativeEndpoint(endpoints.last, declared.last),
+      },
+      jobId: firstText(declared.link?.id, existing.jobId),
+      truthBoundary: firstText(declared.truthBoundary, existing.truthBoundary),
+    },
+  };
+  const endpointText = uniqueStrings([
+    nextMotionRole.transition.endpoints.first?.cardTitle,
+    nextMotionRole.transition.endpoints.last?.cardTitle,
+  ]);
+  return {
+    ...row,
+    motionRole: nextMotionRole,
+    semanticText: uniqueStrings([...row.semanticText, ...endpointText]),
+    canonContextText: uniqueStrings([...row.canonContextText, ...endpointText]),
+  };
+}
+
 function declaredFingerprint(report = {}) {
   const candidate = firstText(report.batchFingerprint, report.batch_fingerprint, report.contentSha256, report.content_sha256, report.corpusSha256, report.corpus_sha256)
     .replace(/^sha256:/iu, "").toLowerCase();
   return /^[a-f0-9]{64}$/u.test(candidate) ? candidate : "";
+}
+
+function referenceStillHoldCandidate({ endpoint = {}, record = {}, transition = {}, role = "first" } = {}) {
+  endpoint = object(endpoint);
+  record = object(record);
+  transition = object(transition);
+  const image = object(record.artifacts?.image);
+  const imageSha256 = firstText(image.sha256, endpoint.sha256).replace(/^sha256:/iu, "").toLowerCase();
+  const imageUri = firstText(image.uri, endpoint.uri);
+  if (!endpoint.cardId
+    || endpoint.sourceCardUnchanged !== true
+    || imageUri !== endpoint.uri
+    || imageSha256 !== endpoint.sha256
+    || !/^[a-f0-9]{64}$/u.test(imageSha256)) return null;
+  // The animation and its source still share an authored aspect. Dimensions
+  // are used only to derive a truthful centered cover crop; the selected media
+  // remains the content-addressed still, never the adaptive loop.
+  const dimensions = mediaDimensions(image.dimensions, record.technical);
+  const mediaId = `hapa-media:sha256:${imageSha256}`;
+  const title = firstText(endpoint.cardTitle, record.card?.title, `${role} Reference hold`);
+  const endpointText = uniqueStrings([
+    endpoint.cardTitle,
+    record.card?.title,
+    ...transition.semanticText,
+    ...transition.canonContextText,
+  ]);
+  return {
+    enrichmentId: `certified-reference-still:${imageSha256}`,
+    mediaId,
+    title,
+    uri: imageUri,
+    thumbnailUri: imageUri,
+    technicalIdentity: `sha256:${imageSha256}`,
+    mediaContract: {
+      schemaVersion: "hapa.echo.playback-media.v2",
+      type: "image",
+      originalUri: imageUri,
+      runtimeUri: imageUri,
+      playbackMode: "hold",
+      contentHash: imageSha256,
+      ...(dimensions ? { dimensions: clone(dimensions) } : {}),
+      provenance: "certified-transition-reference-still",
+    },
+    dimensions: clone(dimensions),
+    orientation: mediaOrientation(dimensions),
+    framingAnalysis: {
+      subjectROI: { x: 0.25, y: 0.2, width: 0.5, height: 0.6 },
+      status: "certified-center-crop",
+      evidence: "same-reference-image-used-by-transition-endpoint-visual-certification",
+      faceCount: 0,
+    },
+    card: {
+      id: endpoint.cardId,
+      revisionId: endpoint.cardRevisionId || firstText(record.card?.revisionId),
+      kind: "reference-card",
+      title,
+    },
+    sourceGroup: "reference-atlas",
+    sourcePrior: 1.1,
+    sourceClassification: {
+      sourceClass: "approved-reference",
+      prior: 1.1,
+      flags: { approvedReference: true },
+    },
+    lowPrior: false,
+    qualityScore: 1,
+    semanticText: endpointText,
+    observedVisualText: uniqueStrings([endpoint.cardTitle, record.card?.title]),
+    observedSynopsis: `Exact certified ${role} Reference still for ${title}.`,
+    canonContextText: endpointText,
+    referenceAnchorIds: [endpoint.cardId],
+    motionRole: {
+      kind: "reference-still-hold",
+      referenceAnchorIds: [endpoint.cardId],
+      referenceStillHold: true,
+      endpointRole: role,
+      loop: { eligible: false, classification: "not-a-loop", score: 0 },
+      transition: { eligible: false, classification: "not-a-transition", score: 0 },
+      subtleReferenceLoop: false,
+    },
+    declaredSongContextIds: clone(transition.declaredSongContextIds),
+    motifs: clone(transition.motifs),
+    story: clone(transition.story),
+    lore: clone(transition.lore),
+    songIds: clone(transition.songIds),
+    sourceKinds: ["reference-atlas", "certified-transition-reference-still"],
+    playable: true,
+    enrichmentCoverage: "certified-transition-reference-still",
+    referenceStillCertification: {
+      schemaVersion: "hapa.echo.transition-reference-still-hold.v1",
+      role,
+      cardId: endpoint.cardId,
+      imageSha256,
+      imageUri,
+      sourceCardUnchanged: true,
+    },
+  };
 }
 
 function validTimestamp(...values) {
@@ -525,11 +926,56 @@ function validTimestamp(...values) {
   return null;
 }
 
-export function buildEchoVideoEnrichmentCatalog({ enrichments = [], chainGraph = {}, report = {} } = {}) {
+export function buildEchoVideoEnrichmentCatalog({
+  enrichments = [],
+  chainGraph = {},
+  report = {},
+  transitionEndpointValidation = null,
+  referenceAnimationCatalog = null,
+} = {}) {
+  const declaredTransitions = normalizedDeclaredTransitions(chainGraph);
+  const declaredEndpointContractDigest = echoDeclaredTransitionEndpointContractDigest(chainGraph);
+  const referenceCatalogContractDigest = referenceAnimationCatalog
+    ? echoReferenceAnimationCatalogContractDigest(referenceAnimationCatalog)
+    : "";
+  const endpointFilesVerified = transitionEndpointValidation?.verified === true
+    && transitionEndpointValidation?.schemaVersion === "hapa.echo.transition-endpoint-file-validation.v1"
+    && finite(transitionEndpointValidation?.endpointRecords, 0) === declaredTransitions.length * 2
+    && transitionEndpointValidation?.declaredEndpointContractDigest === declaredEndpointContractDigest
+    && Boolean(referenceCatalogContractDigest)
+    && transitionEndpointValidation?.referenceCatalogContractDigest === referenceCatalogContractDigest;
+  const declaredJobIds = declaredTransitions.map((entry) => firstText(
+    entry.link?.id,
+    entry.link?.jobId,
+    entry.link?.job_id,
+  )).filter(Boolean).sort();
+  const visualValidation = object(transitionEndpointValidation?.visualValidation);
+  const visualJobs = list(visualValidation.jobs);
+  const visualJobsById = new Map(visualJobs.map((job) => [firstText(job.jobId, job.job_id), job]));
+  const visualJobIds = visualJobs.map((job) => firstText(job.jobId, job.job_id)).filter(Boolean).sort();
+  const certifiedTransitionJobIds = new Set(list(
+    visualValidation.certifiedJobIds || visualValidation.certified_job_ids,
+  ).map(String));
+  const visualMediaFiles = object(transitionEndpointValidation?.visualMediaFiles);
+  const visualEndpointsVerified = endpointFilesVerified
+    && visualValidation.schemaVersion === "hapa.echo.transition-endpoint-visual-validation-receipt.v1"
+    && visualValidation.verified === true
+    && finite(visualValidation.totalJobs, -1) === declaredTransitions.length
+    && stableEchoEnrichmentStringify(visualJobIds) === stableEchoEnrichmentStringify(declaredJobIds)
+    && certifiedTransitionJobIds.size === finite(visualValidation.certifiedJobs, -1)
+    && certifiedTransitionJobIds.size + finite(visualValidation.quarantinedJobs, -1) === declaredTransitions.length
+    && visualMediaFiles.schemaVersion === "hapa.echo.transition-visual-media-file-validation.v1"
+    && visualMediaFiles.verified === true
+    && finite(visualMediaFiles.files, -1) === declaredTransitions.length;
+  const declaredByMediaId = new Map(declaredTransitions.map((entry) => [entry.transitionMediaId.toLowerCase(), entry]));
+  const referenceRecordsByCardId = new Map(list(referenceAnimationCatalog?.records).map((record) => (
+    [firstText(record?.card?.id, record?.cardId, record?.card_id), record]
+  )).filter(([cardId]) => Boolean(cardId)));
   const rows = list(enrichments).map(normalizeEchoVideoEnrichmentRow)
+    .map((row) => mergeDeclaredTransition(row, declaredByMediaId.get(String(row.mediaId || "").toLowerCase())))
     .sort((left, right) => left.enrichmentId.localeCompare(right.enrichmentId));
   const edges = normalizedChainEdges(chainGraph);
-  const computedFingerprint = echoEnrichmentSha256({ rows, edges });
+  const computedFingerprint = echoEnrichmentSha256({ rows, edges, declaredTransitions });
   const batchFingerprint = declaredFingerprint(report) || computedFingerprint;
   const byKey = new Map();
   for (const row of rows) {
@@ -541,14 +987,159 @@ export function buildEchoVideoEnrichmentCatalog({ enrichments = [], chainGraph =
   }
   const adjacency = new Map();
   for (const edge of edges) {
-    const forward = adjacency.get(edge.from) || new Map();
-    forward.set(edge.to, Math.max(finite(forward.get(edge.to), 0), edge.weight));
-    adjacency.set(edge.from, forward);
+    const from = edge.from.toLowerCase();
+    const to = edge.to.toLowerCase();
+    const forward = adjacency.get(from) || new Map();
+    forward.set(to, Math.max(finite(forward.get(to), 0), edge.weight));
+    adjacency.set(from, forward);
   }
+  const referenceRowsByAnchor = new Map();
+  for (const row of rows) {
+    if (!row.motionRole?.loop?.eligible || !row.playable) continue;
+    for (const anchorId of row.referenceAnchorIds || []) {
+      const key = anchorId.toLowerCase();
+      const matches = referenceRowsByAnchor.get(key) || [];
+      matches.push(row);
+      referenceRowsByAnchor.set(key, matches);
+    }
+  }
+  for (const matches of referenceRowsByAnchor.values()) matches.sort((left, right) => (
+    right.qualityScore - left.qualityScore || left.technicalIdentity.localeCompare(right.technicalIdentity)
+  ));
+  const referenceRowsForEndpoint = (endpoint) => {
+    if (!endpoint?.cardId || !endpoint?.sha256 || endpoint.sourceCardUnchanged !== true) return [];
+    return (referenceRowsByAnchor.get(endpoint.cardId.toLowerCase()) || []).filter((row) => (
+      endpoint.uri && row.thumbnailUri
+        ? endpoint.uri.toLowerCase() === row.thumbnailUri.toLowerCase()
+        : false
+    ));
+  };
+  const resolutionByKey = new Map();
+  const transitionsByFirstAnchor = new Map();
+  for (const row of rows) {
+    if (!row.motionRole?.transition?.eligible) continue;
+    const transitionJobId = firstText(row.motionRole.transition.jobId);
+    const visualJob = object(visualJobsById.get(transitionJobId));
+    const visuallyCertified = visualEndpointsVerified
+      && row.motionRole.transition.visuallyValidated === true
+      && firstText(row.motionRole.transition.visualValidationDecision).toLowerCase() === "certified"
+      && certifiedTransitionJobIds.has(transitionJobId)
+      && firstText(visualJob.decision).toLowerCase() === "certified"
+      && firstText(visualJob.mediaId, visualJob.media_id) === row.mediaId;
+    const first = row.motionRole.transition.endpoints?.first || null;
+    const last = row.motionRole.transition.endpoints?.last || null;
+    const entryRows = referenceRowsForEndpoint(first);
+    const exitRows = referenceRowsForEndpoint(last);
+    const entryReferenceStill = referenceStillHoldCandidate({
+      endpoint: first,
+      record: referenceRecordsByCardId.get(first?.cardId),
+      transition: row,
+      role: "first",
+    });
+    const exitReferenceStill = referenceStillHoldCandidate({
+      endpoint: last,
+      record: referenceRecordsByCardId.get(last?.cardId),
+      transition: row,
+      role: "last",
+    });
+    const resolution = {
+      eligible: Boolean(
+        visuallyCertified
+        && first?.cardId
+        && last?.cardId
+        && entryReferenceStill
+        && exitReferenceStill
+      ),
+      transitionMediaId: row.mediaId,
+      transitionEnrichmentId: row.enrichmentId,
+      first: clone(first),
+      last: clone(last),
+      entryMediaIds: entryRows.map((entry) => entry.mediaId),
+      exitMediaIds: exitRows.map((entry) => entry.mediaId),
+      entryTechnicalIdentities: entryRows.map((entry) => entry.technicalIdentity),
+      exitTechnicalIdentities: exitRows.map((entry) => entry.technicalIdentity),
+      entryReferenceStill: clone(entryReferenceStill),
+      exitReferenceStill: clone(exitReferenceStill),
+      endpointFilesVerified,
+      visualEndpointsVerified,
+      visualValidationDecision: visuallyCertified ? "certified" : "uncertified",
+      visualValidationResultDigestSha256: visuallyCertified
+        ? firstText(visualValidation.resultDigestSha256, visualValidation.result_digest_sha256)
+        : "",
+      visualValidation: visuallyCertified ? {
+        jobId: transitionJobId,
+        mediaId: row.mediaId,
+        videoSha256: firstText(visualJob.video?.actualSha256, visualJob.video?.actual_sha256),
+        first: {
+          frameIndex: finite(visualJob.endpoints?.first?.frameIndex, -1),
+          sourceTimeSeconds: finite(visualJob.endpoints?.first?.sourceTimeSeconds, -1),
+        },
+        last: {
+          frameIndex: finite(visualJob.endpoints?.last?.frameIndex, -1),
+          sourceTimeSeconds: finite(visualJob.endpoints?.last?.sourceTimeSeconds, -1),
+        },
+      } : null,
+      endpointIdentityEvidence: entryReferenceStill && exitReferenceStill
+        ? endpointFilesVerified
+          ? ECHO_TRANSITION_ENDPOINT_IDENTITY_EVIDENCE
+          : "declared-card-lineage+poster-uri-match"
+        : "unresolved",
+      reason: !first?.cardId || !last?.cardId
+        ? "declared-transition-endpoint-missing"
+        : !visuallyCertified
+          ? "decoded-transition-endpoints-not-certified"
+        : !entryReferenceStill || !exitReferenceStill
+          ? "declared-transition-reference-still-unresolved"
+          : "resolved-certified-reference-still-bridge",
+    };
+    for (const key of [row.enrichmentId, row.mediaId, row.technicalIdentity, row.uri].filter(Boolean)) {
+      resolutionByKey.set(String(key).toLowerCase(), resolution);
+    }
+    if (resolution.eligible) {
+      const anchorKey = first.cardId.toLowerCase();
+      const matches = transitionsByFirstAnchor.get(anchorKey) || [];
+      matches.push(row);
+      transitionsByFirstAnchor.set(anchorKey, matches);
+    }
+  }
+  const findRow = (value = {}) => {
+    for (const key of [
+      value.enrichmentId, value.enrichment_id, value.mediaId, value.media_id,
+      value.technicalIdentity, value.media_technical_identity,
+      value.uri, value.media_uri, value.runtime_media_uri,
+    ].filter(Boolean)) {
+      const match = byKey.get(String(key).toLowerCase());
+      if (match) return match;
+    }
+    return null;
+  };
+  const findResolution = (value = {}) => {
+    for (const key of [
+      value.enrichmentId, value.enrichment_id, value.mediaId, value.media_id,
+      value.technicalIdentity, value.media_technical_identity,
+      value.uri, value.media_uri, value.runtime_media_uri,
+    ].filter(Boolean)) {
+      const match = resolutionByKey.get(String(key).toLowerCase());
+      if (match) return match;
+    }
+    return null;
+  };
+  const genericAffinity = (leftKeys = [], rightKeys = []) => {
+    let maximum = 0;
+    for (const left of list(leftKeys).filter(Boolean)) {
+      const neighbors = adjacency.get(String(left).toLowerCase());
+      if (!neighbors) continue;
+      for (const right of list(rightKeys).filter(Boolean)) {
+        maximum = Math.max(maximum, finite(neighbors.get(String(right).toLowerCase()), 0));
+      }
+    }
+    return clamp(maximum);
+  };
   return {
     schemaVersion: ECHO_VIDEO_ENRICHMENT_CATALOG_SCHEMA,
     rows,
     edges,
+    declaredTransitions,
     batchFingerprint,
     computedFingerprint,
     declaredFingerprint: declaredFingerprint(report) || null,
@@ -559,31 +1150,78 @@ export function buildEchoVideoEnrichmentCatalog({ enrichments = [], chainGraph =
       quality: clone(report.quality || report.summary?.quality || null),
     },
     expectedSchema: ECHO_VIDEO_ENRICHMENT_EXPECTED_SCHEMA,
+    transitionEndpointValidation: endpointFilesVerified
+      ? clone(transitionEndpointValidation)
+      : null,
     find(value = {}) {
-      for (const key of [
-        value.enrichmentId, value.enrichment_id, value.mediaId, value.media_id,
-        value.technicalIdentity, value.media_technical_identity,
-        value.uri, value.media_uri, value.runtime_media_uri,
-      ].filter(Boolean)) {
-        const match = byKey.get(String(key).toLowerCase());
-        if (match) return match;
-      }
-      return null;
+      return findRow(value);
     },
     affinity(leftKeys = [], rightKeys = []) {
-      let maximum = 0;
-      for (const left of list(leftKeys).filter(Boolean)) {
-        const neighbors = adjacency.get(String(left));
-        if (!neighbors) continue;
-        for (const right of list(rightKeys).filter(Boolean)) maximum = Math.max(maximum, finite(neighbors.get(String(right)), 0));
+      return genericAffinity(leftKeys, rightKeys);
+    },
+    transitionResolution(value = {}) {
+      return clone(findResolution(value));
+    },
+    continuityEvidence(left = {}, right = {}) {
+      const leftRow = findRow(left) || left;
+      const rightRow = findRow(right) || right;
+      const leftAnchors = new Set(list(leftRow.referenceAnchorIds).map((id) => String(id).toLowerCase()));
+      const rightAnchors = new Set(list(rightRow.referenceAnchorIds).map((id) => String(id).toLowerCase()));
+      const rightResolution = findResolution(rightRow);
+      if (rightResolution?.eligible && leftRow.motionRole?.kind !== "transition"
+        && leftAnchors.has(String(rightResolution.first.cardId).toLowerCase())) {
+        return {
+          score: 1,
+          kind: "declared-transition-entry-anchor",
+          referenceId: rightResolution.first.cardId,
+          transitionMediaId: rightResolution.transitionMediaId,
+        };
       }
-      return clamp(maximum);
+      const leftResolution = findResolution(leftRow);
+      if (leftResolution?.eligible && rightRow.motionRole?.kind !== "transition"
+        && rightAnchors.has(String(leftResolution.last.cardId).toLowerCase())) {
+        return {
+          score: 1,
+          kind: "declared-transition-exit-anchor",
+          referenceId: leftResolution.last.cardId,
+          transitionMediaId: leftResolution.transitionMediaId,
+        };
+      }
+      const score = genericAffinity(candidateKeys(leftRow), candidateKeys(rightRow));
+      return {
+        score,
+        kind: score > 0 ? "measured-last-to-first-chain" : "none",
+        referenceId: null,
+        transitionMediaId: null,
+      };
+    },
+    outboundTransitionCount(value = {}) {
+      const row = findRow(value) || value;
+      const ids = new Set();
+      for (const anchorId of list(row.referenceAnchorIds)) {
+        for (const transition of transitionsByFirstAnchor.get(String(anchorId).toLowerCase()) || []) {
+          ids.add(transition.technicalIdentity);
+        }
+      }
+      return ids.size;
     },
     neighborKeys(leftKeys = [], limit = 96) {
       const weighted = new Map();
       for (const left of list(leftKeys).filter(Boolean)) {
-        for (const [target, weight] of adjacency.get(String(left)) || []) {
+        for (const [target, weight] of adjacency.get(String(left).toLowerCase()) || []) {
           weighted.set(target, Math.max(finite(weighted.get(target), 0), finite(weight, 0)));
+        }
+        const row = byKey.get(String(left).toLowerCase());
+        if (!row) continue;
+        const resolution = findResolution(row);
+        if (resolution?.eligible) {
+          for (const target of resolution.exitMediaIds) weighted.set(target.toLowerCase(), 1);
+        } else {
+          for (const anchorId of row.referenceAnchorIds || []) {
+            for (const transition of transitionsByFirstAnchor.get(anchorId.toLowerCase()) || []) {
+              weighted.set(String(transition.mediaId).toLowerCase(), 1);
+            }
+          }
         }
       }
       return [...weighted.entries()].sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))
@@ -674,11 +1312,14 @@ function candidateFromRow(row = {}) {
     observedVisualText: row.observedVisualText,
     observedSynopsis: row.observedSynopsis,
     canonContextText: row.canonContextText,
+    referenceAnchorIds: clone(row.referenceAnchorIds),
+    motionRole: clone(row.motionRole),
     declaredSongContextIds: row.declaredSongContextIds,
     motifs: row.motifs,
     story: clone(row.story),
     lore: clone(row.lore),
     songIds: row.songIds,
+    sourceKinds: clone(row.sourceKinds),
     playable: true,
     enrichmentCoverage: "direct-enrichment-row",
   };
@@ -734,20 +1375,41 @@ function candidatePool(parentProject, catalog, songId) {
         && candidate.technicalIdentity.localeCompare(current.technicalIdentity) < 0)
     ) byIdentity.set(identity, candidate);
   };
-  for (const row of catalog.rows) insert(candidateFromRow(row));
+  let baseCandidates = CATALOG_BASE_CANDIDATE_CACHE.get(catalog);
+  if (!baseCandidates) {
+    baseCandidates = catalog.rows.map(candidateFromRow).filter(Boolean);
+    CATALOG_BASE_CANDIDATE_CACHE.set(catalog, baseCandidates);
+  }
+  for (const candidate of baseCandidates) insert(candidate);
   for (const shot of list(parentProject.timeline)) insert(candidateFromShot(shot, catalog));
   return [...byIdentity.values()].sort((left, right) => (
     left.technicalIdentity.localeCompare(right.technicalIdentity)
   ));
 }
 
-function buildCandidateSearchIndex(candidates) {
+function certifiedTransitionCandidates(catalog) {
+  let candidates = CATALOG_CERTIFIED_TRANSITION_CANDIDATE_CACHE.get(catalog);
+  if (candidates) return candidates;
+  candidates = catalog.rows.map(candidateFromRow).filter((candidate) => (
+    candidate?.motionRole?.kind === "transition"
+    && candidate.motionRole?.transition?.visuallyValidated === true
+    && firstText(candidate.motionRole?.transition?.visualValidationDecision).toLowerCase() === "certified"
+    && catalog.transitionResolution(candidate)?.eligible === true
+  )).sort((left, right) => (
+    firstText(left.motionRole?.transition?.jobId, left.mediaId)
+      .localeCompare(firstText(right.motionRole?.transition?.jobId, right.mediaId))
+  ));
+  CATALOG_CERTIFIED_TRANSITION_CANDIDATE_CACHE.set(catalog, candidates);
+  return candidates;
+}
+
+function buildRawCandidateSearchIndex(candidates, catalog) {
   const byToken = new Map();
   const byKey = new Map();
   for (const candidate of candidates) {
-    candidate.observedVisualTokenSet = tokens(candidate.observedVisualText);
-    candidate.canonContextTokenSet = tokens(candidate.canonContextText);
-    candidate.searchTokenSet = tokens([candidate.observedVisualText, candidate.canonContextText, candidate.motifs]);
+    candidate.observedVisualTokenSet ||= tokens(candidate.observedVisualText);
+    candidate.canonContextTokenSet ||= tokens(candidate.canonContextText);
+    candidate.searchTokenSet ||= tokens([candidate.observedVisualText, candidate.canonContextText, candidate.motifs]);
     for (const token of candidate.searchTokenSet) {
       const rows = byToken.get(token) || [];
       rows.push(candidate);
@@ -763,17 +1425,92 @@ function buildCandidateSearchIndex(candidates) {
     right.qualityScore - left.qualityScore
     || left.technicalIdentity.localeCompare(right.technicalIdentity)
   )).slice(0, 64);
-  return { byToken, byKey, fallback, intrinsicFallback };
+  const resolvedTransitionFallback = candidates.filter((candidate) => (
+    candidate.motionRole?.kind === "transition"
+    && catalog.transitionResolution(candidate)?.eligible === true
+  )).sort((left, right) => (
+    right.qualityScore - left.qualityScore
+    || left.technicalIdentity.localeCompare(right.technicalIdentity)
+  ));
+  const bridgeSeedFallback = candidates.filter((candidate) => (
+    candidate.motionRole?.kind !== "transition"
+    && catalog.outboundTransitionCount(candidate) > 0
+  )).sort((left, right) => (
+    right.qualityScore - left.qualityScore
+    || left.technicalIdentity.localeCompare(right.technicalIdentity)
+  ));
+  return {
+    byToken,
+    byTokenMaps: [byToken],
+    byKey,
+    fallback,
+    intrinsicFallback,
+    resolvedTransitionFallback,
+    bridgeSeedFallback,
+  };
+}
+
+function buildCandidateSearchIndex(candidates, catalog) {
+  let globalSearch = CATALOG_GLOBAL_SEARCH_CACHE.get(catalog);
+  if (!globalSearch) {
+    const baseCandidates = CATALOG_BASE_CANDIDATE_CACHE.get(catalog) || [];
+    globalSearch = buildRawCandidateSearchIndex(
+      baseCandidates.filter((candidate) => !candidate.songIds?.length),
+      catalog,
+    );
+    CATALOG_GLOBAL_SEARCH_CACHE.set(catalog, globalSearch);
+  }
+  const localCandidates = candidates.filter((candidate) => candidate.songIds?.length);
+  if (!localCandidates.length) return globalSearch;
+  const localSearch = buildRawCandidateSearchIndex(localCandidates, catalog);
+  const combine = (left, right, compare, limit = Number.POSITIVE_INFINITY) => {
+    const byIdentity = new Map();
+    for (const candidate of [...left, ...right]) {
+      if (!byIdentity.has(candidate.technicalIdentity)) byIdentity.set(candidate.technicalIdentity, candidate);
+    }
+    return [...byIdentity.values()].sort(compare).slice(0, limit);
+  };
+  return {
+    byToken: globalSearch.byToken,
+    byTokenMaps: [globalSearch.byToken, localSearch.byToken],
+    byKey: {
+      get(key) {
+        return localSearch.byKey.get(key) || globalSearch.byKey.get(key);
+      },
+    },
+    fallback: combine(globalSearch.fallback, localSearch.fallback, (left, right) => (
+      (right.qualityScore * right.sourcePrior) - (left.qualityScore * left.sourcePrior)
+      || left.technicalIdentity.localeCompare(right.technicalIdentity)
+    ), 64),
+    intrinsicFallback: combine(globalSearch.intrinsicFallback, localSearch.intrinsicFallback, (left, right) => (
+      right.qualityScore - left.qualityScore
+      || left.technicalIdentity.localeCompare(right.technicalIdentity)
+    ), 64),
+    resolvedTransitionFallback: combine(
+      globalSearch.resolvedTransitionFallback,
+      localSearch.resolvedTransitionFallback,
+      (left, right) => right.qualityScore - left.qualityScore
+        || left.technicalIdentity.localeCompare(right.technicalIdentity),
+    ),
+    bridgeSeedFallback: combine(
+      globalSearch.bridgeSeedFallback,
+      localSearch.bridgeSeedFallback,
+      (left, right) => right.qualityScore - left.qualityScore
+        || left.technicalIdentity.localeCompare(right.technicalIdentity),
+    ),
+  };
 }
 
 function shortlistCandidates(search, targetContext, previous, neighborKeys = [], limit = 384) {
   const wanted = tokens(targetContext);
   const matches = new Map();
   for (const token of wanted) {
-    for (const candidate of search.byToken.get(token) || []) {
-      const row = matches.get(candidate.technicalIdentity) || { candidate, tokenMatches: 0 };
-      row.tokenMatches += 1;
-      matches.set(candidate.technicalIdentity, row);
+    for (const tokenMap of search.byTokenMaps || [search.byToken]) {
+      for (const candidate of tokenMap.get(token) || []) {
+        const row = matches.get(candidate.technicalIdentity) || { candidate, tokenMatches: 0 };
+        row.tokenMatches += 1;
+        matches.set(candidate.technicalIdentity, row);
+      }
     }
   }
   const ranked = [...matches.values()].sort((left, right) => (
@@ -792,10 +1529,438 @@ function shortlistCandidates(search, targetContext, previous, neighborKeys = [],
     const candidate = search.byKey.get(String(key).toLowerCase());
     add(candidate);
   }
+  for (const candidate of search.bridgeSeedFallback) add(candidate);
+  for (const candidate of search.resolvedTransitionFallback) add(candidate);
   for (const candidate of search.intrinsicFallback) add(candidate);
   for (const candidate of search.fallback) add(candidate);
   for (const candidate of ranked) add(candidate);
   return [...byIdentity.values()];
+}
+
+function planningSemanticAffinity(candidate, targetContext) {
+  const visual = candidate.observedVisualTokenSet || candidate.observedVisualText;
+  const canon = new Set([
+    ...tokens(candidate.observedVisualTokenSet || candidate.observedVisualText),
+    ...tokens(candidate.canonContextTokenSet || candidate.canonContextText),
+  ]);
+  return Number((
+    tokenAffinity(targetContext.lyric, visual) * 0.25
+    + tokenAffinity(targetContext.canon, canon) * 0.2
+    + tokenAffinity(targetContext.objectAction, visual) * 0.2
+    + tokenAffinity(targetContext.emotion, [candidate.observedVisualText, candidate.motifs]) * 0.15
+  ).toFixed(6));
+}
+
+function planningContextScore(candidate, targetContext) {
+  const score = (
+    planningSemanticAffinity(candidate, targetContext)
+    + candidate.qualityScore * 0.2
+  ) * candidate.sourcePrior;
+  return Number(score.toFixed(6));
+}
+
+export function buildEchoAuthoredTransitionTimeMap({
+  mediaContract = {},
+  cueStartSeconds = 0,
+  cueEndSeconds = 0,
+  outputFps = 30,
+} = {}) {
+  const actualDurationSeconds = positiveFinite(
+    mediaContract.actualDurationSeconds ?? mediaContract.actual_duration_seconds,
+  );
+  const sourceFps = positiveFinite(mediaContract.fps) || 24;
+  const frameCount = Math.max(0, Math.trunc(finite(
+    mediaContract.frameCount ?? mediaContract.frame_count,
+  )));
+  const declaredSourceInSeconds = Number(
+    mediaContract.sourceInSeconds ?? mediaContract.source_in_seconds,
+  );
+  const sourceInSeconds = Math.max(0, Number.isFinite(declaredSourceInSeconds)
+    ? declaredSourceInSeconds
+    : ECHO_TRANSITION_FIRST_FRAME_SAMPLE_SECONDS);
+  const declaredSourceBoundarySeconds = positiveFinite(
+    mediaContract.sourceOutSeconds ?? mediaContract.source_out_seconds,
+  );
+  const sourceBoundarySeconds = declaredSourceBoundarySeconds > sourceInSeconds
+    ? Math.min(actualDurationSeconds || declaredSourceBoundarySeconds, declaredSourceBoundarySeconds)
+    : Math.max(
+      sourceInSeconds,
+      frameCount > 1
+        ? (frameCount - 1) / sourceFps
+        : actualDurationSeconds - (1 / sourceFps),
+    );
+  const resolvedOutputFps = positiveFinite(outputFps) || 30;
+  const sourceOutSeconds = sourceBoundarySeconds > sourceInSeconds ? sourceBoundarySeconds : 0;
+  const sourceDurationSeconds = Math.max(0, sourceOutSeconds - sourceInSeconds);
+  const cueDurationSeconds = Math.max(0, finite(cueEndSeconds) - finite(cueStartSeconds));
+  const cueSampleSpanSeconds = Math.max(0, cueDurationSeconds - (1 / resolvedOutputFps));
+  const playbackRate = cueSampleSpanSeconds > 0
+    ? sourceDurationSeconds / cueSampleSpanSeconds
+    : Number.POSITIVE_INFINITY;
+  const valid = sourceDurationSeconds > 0
+    && cueSampleSpanSeconds > 0
+    && playbackRate > 0
+    && playbackRate <= ECHO_TRANSITION_MAX_PLAYBACK_RATE;
+  return {
+    schemaVersion: ECHO_TRANSITION_TIME_MAP_SCHEMA,
+    mode: "fit-source-once-to-cue",
+    valid,
+    reason: valid
+      ? "full-source-transition-fits-bounded-playback-rate"
+      : !sourceBoundarySeconds
+        ? "transition-source-duration-unavailable"
+        : playbackRate > ECHO_TRANSITION_MAX_PLAYBACK_RATE
+          ? "transition-cue-requires-unsupported-playback-rate"
+          : "transition-cue-or-source-window-invalid",
+    sourceInSeconds: Number(sourceInSeconds.toFixed(6)),
+    sourceOutSeconds: Number(sourceOutSeconds.toFixed(6)),
+    sourceBoundarySeconds: Number(sourceBoundarySeconds.toFixed(6)),
+    sourceDurationSeconds: Number(sourceDurationSeconds.toFixed(6)),
+    cueStartSeconds: Number(finite(cueStartSeconds).toFixed(6)),
+    cueEndSeconds: Number(finite(cueEndSeconds).toFixed(6)),
+    cueDurationSeconds: Number(cueDurationSeconds.toFixed(6)),
+    cueSampleSpanSeconds: Number(cueSampleSpanSeconds.toFixed(6)),
+    sourceFps,
+    outputFps: resolvedOutputFps,
+    playbackRate: Number.isFinite(playbackRate) ? Number(playbackRate.toFixed(6)) : null,
+    maximumPlaybackRate: ECHO_TRANSITION_MAX_PLAYBACK_RATE,
+    endpointFrameSampling: {
+      firstSeconds: Number(sourceInSeconds.toFixed(6)),
+      lastSeconds: Number(sourceOutSeconds.toFixed(6)),
+      policy: "physical-terminal-frame-presentation-pts-v1",
+    },
+    sourceTimeOrigin: "logical-cue-start",
+    preRoll: "hold-first-frame",
+    postRoll: "hold-last-frame",
+    playbackMode: "once",
+    reachesDeclaredLastFrame: valid,
+  };
+}
+
+function planAssignedTransitionTriplets({
+  songId,
+  timeline,
+  contexts,
+  candidates,
+  certifiedTransitions = [],
+  transitionUsageCounts = new Map(),
+  catalog,
+  outputFps = 30,
+} = {}) {
+  const reservations = new Map();
+  const placed = [];
+  const rejected = [];
+  const assignedTransitions = candidates.filter((candidate) => (
+    candidate.motionRole?.kind === "transition"
+    && candidate.songIds?.includes(songId)
+  ));
+  const explicitTransitions = assignedTransitions.filter((candidate) => (
+    candidate.motionRole?.transition?.visuallyValidated === true
+    && firstText(candidate.motionRole?.transition?.visualValidationDecision).toLowerCase() === "certified"
+    && catalog.transitionResolution(candidate)?.eligible === true
+  )).map((candidate) => ({
+    ...candidate,
+    transitionSelection: {
+      kind: "explicit-assignment",
+      songId,
+      contextAffinity: null,
+    },
+  })).sort((left, right) => (
+    firstText(left.motionRole?.transition?.jobId, left.mediaId)
+      .localeCompare(firstText(right.motionRole?.transition?.jobId, right.mediaId))
+  ));
+  if (explicitTransitions.length && catalog.transitionEndpointValidation?.verified !== true) {
+    throw new Error(`${songId} assigned transitions require independently verified Reference endpoint files.`);
+  }
+  for (const transition of assignedTransitions) {
+    if (explicitTransitions.some((candidate) => candidate.mediaId === transition.mediaId)) continue;
+    rejected.push({
+      mediaId: transition.mediaId,
+      jobId: transition.motionRole?.transition?.jobId || null,
+      reason: "decoded-transition-endpoints-not-certified",
+    });
+  }
+  if (rejected.length) {
+    return {
+      reservations,
+      placed,
+      rejected,
+      assignedTransitions: assignedTransitions.length,
+      inferredTransitions: 0,
+      plannedTransitions: explicitTransitions.length,
+    };
+  }
+  const targetCount = Math.min(
+    ECHO_TARGET_TRANSITIONS_PER_SONG,
+    Math.floor(list(timeline).length / 3),
+    list(certifiedTransitions).length,
+  );
+  const explicitMediaIds = new Set(explicitTransitions.map((candidate) => candidate.mediaId));
+  const scoredInferenceCandidates = list(certifiedTransitions).filter((candidate) => (
+    !explicitMediaIds.has(candidate.mediaId)
+  )).map((candidate) => {
+    const affinities = list(contexts).map((context, index) => ({
+      index,
+      affinity: planningSemanticAffinity(candidate, context.targetContext),
+    })).sort((left, right) => right.affinity - left.affinity || left.index - right.index);
+    const contextAffinity = finite(affinities[0]?.affinity, 0);
+    const jobId = firstText(candidate.motionRole?.transition?.jobId, candidate.mediaId);
+    const albumPriorUsageCount = transitionUsageCount(transitionUsageCounts, jobId);
+    const diversity = Number.parseInt(echoEnrichmentSha256(`${songId}\u0000${jobId}`).slice(0, 8), 16) / 0xffffffff;
+    return {
+      candidate,
+      contextAffinity,
+      bestContextIndex: affinities[0]?.index ?? null,
+      albumPriorUsageCount,
+      diversity,
+      inferenceScore: Number((contextAffinity * 0.5 + candidate.qualityScore * 0.1 + diversity * 0.4).toFixed(6)),
+    };
+  });
+  const bestInferenceAffinity = Math.max(0, ...scoredInferenceCandidates.map((row) => row.contextAffinity));
+  const inferenceCohortFloor = Math.max(
+    ECHO_INFERRED_TRANSITION_MIN_CONTEXT_AFFINITY,
+    bestInferenceAffinity * 0.7,
+  );
+  const inferredCandidates = scoredInferenceCandidates
+    .filter((row) => row.contextAffinity >= inferenceCohortFloor)
+    .sort((left, right) => (
+      left.albumPriorUsageCount - right.albumPriorUsageCount
+      || right.inferenceScore - left.inferenceScore
+      || right.contextAffinity - left.contextAffinity
+      || right.candidate.qualityScore - left.candidate.qualityScore
+      || firstText(left.candidate.motionRole?.transition?.jobId, left.candidate.mediaId)
+        .localeCompare(firstText(right.candidate.motionRole?.transition?.jobId, right.candidate.mediaId))
+    ));
+  const inferredTransitions = inferredCandidates
+    .slice(0, Math.max(0, targetCount - explicitTransitions.length))
+    .map((row) => ({
+      ...row.candidate,
+      transitionSelection: {
+        kind: "semantic-supplement",
+        songId,
+        contextAffinity: row.contextAffinity,
+        bestContextIndex: row.bestContextIndex,
+        minimumContextAffinity: ECHO_INFERRED_TRANSITION_MIN_CONTEXT_AFFINITY,
+        songRelativeContextAffinityFloor: Number(inferenceCohortFloor.toFixed(6)),
+        albumPriorUsageCount: row.albumPriorUsageCount,
+        diversityPrior: Number(row.diversity.toFixed(6)),
+        inferenceScore: row.inferenceScore,
+      },
+    }));
+  const transitions = [...explicitTransitions, ...inferredTransitions];
+  const optionSets = transitions.map((transition, transitionIndex) => {
+    const resolution = catalog.transitionResolution(transition);
+    const entry = resolution.entryReferenceStill;
+    const exit = resolution.exitReferenceStill;
+    if (!entry || !exit) {
+      rejected.push({
+        mediaId: transition.mediaId,
+        jobId: transition.motionRole?.transition?.jobId || null,
+        reason: "certified-transition-reference-still-missing",
+      });
+      return [];
+    }
+    const windows = [];
+    let timingRejectedWindows = 0;
+    for (let center = 1; center < list(timeline).length - 1; center += 1) {
+      const transitionTimeMap = buildEchoAuthoredTransitionTimeMap({
+        mediaContract: transition.mediaContract,
+        cueStartSeconds: timeline[center]?.start_sec,
+        cueEndSeconds: timeline[center]?.end_sec,
+        outputFps,
+      });
+      if (!transitionTimeMap.valid) {
+        timingRejectedWindows += 1;
+        continue;
+      }
+      const contextualScore = planningContextScore(entry, contexts[center - 1].targetContext)
+        + planningContextScore(transition, contexts[center].targetContext)
+        + planningContextScore(exit, contexts[center + 1].targetContext);
+      const distributionTarget = ((transitionIndex + 1) / (transitions.length + 1)) * (list(timeline).length - 1);
+      const distributionScore = 1 - Math.min(1, Math.abs(center - distributionTarget) / Math.max(1, list(timeline).length));
+      const timingFidelityScore = 1 - Math.min(
+        1,
+        Math.abs(Math.log(transitionTimeMap.playbackRate)) / Math.log(ECHO_TRANSITION_MAX_PLAYBACK_RATE),
+      );
+      const entryDurationSeconds = Math.max(0, finite(timeline[center - 1]?.end_sec) - finite(timeline[center - 1]?.start_sec));
+      const transitionDurationSeconds = Math.max(0, finite(timeline[center]?.end_sec) - finite(timeline[center]?.start_sec));
+      const exitDurationSeconds = Math.max(0, finite(timeline[center + 1]?.end_sec) - finite(timeline[center + 1]?.start_sec));
+      const anchorHoldSeconds = entryDurationSeconds + exitDurationSeconds;
+      const tripletDurationSeconds = anchorHoldSeconds + transitionDurationSeconds;
+      const motionShareScore = tripletDurationSeconds > 0 ? transitionDurationSeconds / tripletDurationSeconds : 0;
+      const contextualDistributionScore = contextualScore + distributionScore * 0.2;
+      windows.push({
+        transitionIndex,
+        center,
+        entry,
+        transition,
+        exit,
+        // Motion share and timing are optimized lexicographically by the global solver. This
+        // scalar remains only as human-readable aggregate evidence.
+        score: Number((contextualDistributionScore + timingFidelityScore).toFixed(6)),
+        timingFidelityScore: Number(timingFidelityScore.toFixed(6)),
+        motionShareScore: Number(motionShareScore.toFixed(6)),
+        anchorHoldSeconds: Number(anchorHoldSeconds.toFixed(6)),
+        transitionDurationSeconds: Number(transitionDurationSeconds.toFixed(6)),
+        contextualDistributionScore: Number(contextualDistributionScore.toFixed(6)),
+        scoreBreakdown: {
+          contextualScore: Number(contextualScore.toFixed(6)),
+          distributionScore: Number(distributionScore.toFixed(6)),
+          timingFidelityScore: Number(timingFidelityScore.toFixed(6)),
+          motionShareScore: Number(motionShareScore.toFixed(6)),
+          anchorHoldSeconds: Number(anchorHoldSeconds.toFixed(6)),
+          transitionDurationSeconds: Number(transitionDurationSeconds.toFixed(6)),
+          selection: clone(transition.transitionSelection),
+        },
+        resolution,
+        transitionTimeMap,
+      });
+    }
+    if (!windows.length) {
+      rejected.push({
+        mediaId: transition.mediaId,
+        jobId: transition.motionRole?.transition?.jobId || null,
+        reason: timingRejectedWindows > 0
+          ? "no-time-map-compatible-interior-three-shot-window"
+          : "no-non-overlapping-interior-three-shot-window",
+      });
+    }
+    return windows;
+  });
+  if (rejected.length) {
+    return {
+      reservations,
+      placed,
+      rejected,
+      assignedTransitions: assignedTransitions.length,
+      inferredTransitions: inferredTransitions.length,
+      plannedTransitions: transitions.length,
+    };
+  }
+
+  const windowsByCenter = new Map();
+  for (const windows of optionSets) {
+    for (const window of windows) {
+      const rows = windowsByCenter.get(window.center) || [];
+      rows.push(window);
+      windowsByCenter.set(window.center, rows);
+    }
+  }
+  for (const windows of windowsByCenter.values()) windows.sort((left, right) => (
+    left.transitionIndex - right.transitionIndex
+    || right.score - left.score
+    || left.center - right.center
+  ));
+  const completeMask = (1 << transitions.length) - 1;
+  const memo = new Map();
+  const better = (left, right) => {
+    if (!left) return right;
+    if (!right) return left;
+    if (Math.abs(left.motionShareScore - right.motionShareScore) > 0.000001) {
+      return left.motionShareScore > right.motionShareScore ? left : right;
+    }
+    if (Math.abs(left.timingFidelityScore - right.timingFidelityScore) > 0.000001) {
+      return left.timingFidelityScore > right.timingFidelityScore ? left : right;
+    }
+    if (Math.abs(left.contextualDistributionScore - right.contextualDistributionScore) > 0.000001) {
+      return left.contextualDistributionScore > right.contextualDistributionScore ? left : right;
+    }
+    return left.signature.localeCompare(right.signature) <= 0 ? left : right;
+  };
+  const solve = (center, mask) => {
+    const key = `${center}:${mask}`;
+    if (memo.has(key)) return memo.get(key);
+    if (center >= list(timeline).length - 1) {
+      const result = mask === completeMask ? {
+        timingFidelityScore: 0,
+        motionShareScore: 0,
+        contextualDistributionScore: 0,
+        selections: [],
+        signature: "",
+      } : null;
+      memo.set(key, result);
+      return result;
+    }
+    let best = solve(center + 1, mask);
+    for (const window of windowsByCenter.get(center) || []) {
+      const bit = 1 << window.transitionIndex;
+      if (mask & bit) continue;
+      const suffix = solve(center + 3, mask | bit);
+      if (!suffix) continue;
+      const selections = [window, ...suffix.selections];
+      const signature = selections.map((selection) => (
+        `${String(selection.transitionIndex).padStart(2, "0")}@${String(selection.center).padStart(4, "0")}`
+      )).sort().join("|");
+      best = better(best, {
+        timingFidelityScore: Number((
+          window.timingFidelityScore + suffix.timingFidelityScore
+        ).toFixed(6)),
+        motionShareScore: Number((
+          window.motionShareScore + suffix.motionShareScore
+        ).toFixed(6)),
+        contextualDistributionScore: Number((
+          window.contextualDistributionScore + suffix.contextualDistributionScore
+        ).toFixed(6)),
+        selections,
+        signature,
+      });
+    }
+    memo.set(key, best);
+    return best;
+  };
+  const globalPlan = solve(1, 0);
+  if (!globalPlan) {
+    for (const transition of transitions) rejected.push({
+      mediaId: transition.mediaId,
+      jobId: transition.motionRole?.transition?.jobId || null,
+      reason: "no-global-non-overlapping-interior-three-shot-plan",
+    });
+    return {
+      reservations,
+      placed,
+      rejected,
+      assignedTransitions: assignedTransitions.length,
+      inferredTransitions: inferredTransitions.length,
+      plannedTransitions: transitions.length,
+    };
+  }
+
+  for (const selected of globalPlan.selections.sort((left, right) => left.center - right.center)) {
+    const triplet = [selected.entry, selected.transition, selected.exit];
+    for (const [offset, candidate] of triplet.entries()) {
+      const index = selected.center + offset - 1;
+      reservations.set(index, {
+        candidate,
+        role: ["entry-reference-still", "authored-transition", "exit-reference-still"][offset],
+        center: selected.center,
+        transitionMediaId: selected.transition.mediaId,
+        transitionJobId: selected.transition.motionRole?.transition?.jobId || null,
+        resolution: clone(selected.resolution),
+        transitionTimeMap: clone(selected.transitionTimeMap),
+      });
+    }
+    placed.push({
+      center: selected.center,
+      mediaId: selected.transition.mediaId,
+      jobId: selected.transition.motionRole?.transition?.jobId || null,
+      firstReferenceId: selected.resolution.first.cardId,
+      lastReferenceId: selected.resolution.last.cardId,
+      entryMediaId: selected.entry.mediaId,
+      exitMediaId: selected.exit.mediaId,
+      endpointIdentityEvidence: selected.resolution.endpointIdentityEvidence,
+      selection: clone(selected.transition.transitionSelection),
+      transitionTimeMap: clone(selected.transitionTimeMap),
+      scoreBreakdown: clone(selected.scoreBreakdown),
+    });
+  }
+  return {
+    reservations,
+    placed,
+    rejected,
+    assignedTransitions: assignedTransitions.length,
+    inferredTransitions: inferredTransitions.length,
+    plannedTransitions: transitions.length,
+  };
 }
 
 function lyricRows(parentProject = {}, song = {}) {
@@ -943,7 +2108,7 @@ function loreEvidence(song = {}) {
   };
 }
 
-function sourceScore(candidate, targetContext, previous, catalog, priorUses = 0) {
+function sourceScore(candidate, targetContext, previous, catalog, priorUses = 0, options = {}) {
   const visualContext = candidate.observedVisualTokenSet || candidate.observedVisualText;
   const canonContext = new Set([
     ...tokens(candidate.observedVisualTokenSet || candidate.observedVisualText),
@@ -954,7 +2119,56 @@ function sourceScore(candidate, targetContext, previous, catalog, priorUses = 0)
   const canonAffinity = tokenAffinity(targetContext.canon, canonContext);
   const objectActionAffinity = tokenAffinity(targetContext.objectAction, visualContext);
   const emotionAffinity = tokenAffinity(targetContext.emotion, emotionVisualContext);
-  const chainContinuity = previous ? catalog.affinity(candidateKeys(previous), candidateKeys(candidate)) : 0;
+  const continuity = previous
+    ? catalog.continuityEvidence(previous, candidate)
+    : { score: 0, kind: "none", referenceId: null, transitionMediaId: null };
+  const chainContinuity = continuity.score;
+  const transitionResolution = catalog.transitionResolution(candidate);
+  const motionKind = firstText(candidate.motionRole?.kind, "motion-clip");
+  const reservationRole = firstText(options.reservation?.role);
+  const hardFilters = [];
+  if (motionKind === "transition" && reservationRole !== "authored-transition") {
+    hardFilters.push("transition-requires-atomic-three-shot-reservation");
+  }
+  if (candidate.motionRole?.subtleReferenceLoop && !reservationRole) {
+    hardFilters.push("adaptive-reference-loop-reservation-only");
+  }
+  if (motionKind === "reference-still-hold"
+    && !["entry-reference-still", "exit-reference-still"].includes(reservationRole)) {
+    hardFilters.push("reference-still-requires-atomic-transition-reservation");
+  }
+  if (motionKind === "transition" && transitionResolution?.eligible !== true) {
+    hardFilters.push("transition-endpoints-unresolved");
+  }
+  if (motionKind === "transition"
+    && (finite(options.index, -1) <= 0 || finite(options.index, -1) >= finite(options.shotCount, 0) - 1)) {
+    hardFilters.push("transition-cannot-be-first-or-last");
+  }
+  if (reservationRole === "authored-transition" && continuity.kind !== "declared-transition-entry-anchor") {
+    hardFilters.push("transition-entry-reference-mismatch");
+  }
+  if (previous?.motionRole?.kind === "transition"
+    && continuity.kind !== "declared-transition-exit-anchor") {
+    hardFilters.push("transition-exit-reference-mismatch");
+  }
+  let transitionBridgeUtility = 0.5;
+  if (motionKind === "transition") {
+    transitionBridgeUtility = reservationRole === "authored-transition" && transitionResolution?.eligible
+      ? 1
+      : transitionResolution?.eligible ? 0.75 : 0;
+  } else if (reservationRole === "entry-reference-still" || reservationRole === "exit-reference-still") {
+    transitionBridgeUtility = 0.65;
+  } else if (candidate.motionRole?.subtleReferenceLoop) {
+    transitionBridgeUtility = catalog.outboundTransitionCount(candidate) > 0 ? 0.22 : 0.04;
+  } else if (candidate.motionRole?.loop?.eligible) {
+    transitionBridgeUtility = 0.24;
+  } else {
+    transitionBridgeUtility = Math.max(
+      0.5,
+      normalizedScore(candidate.motionRole?.transition?.directedStateChange, 0),
+      normalizedScore(candidate.motionRole?.transition?.endpointDistinctness, 0),
+    );
+  }
   const sameAsPrevious = previous && previous.technicalIdentity === candidate.technicalIdentity;
   const fatigueMultiplier = sameAsPrevious
     ? 0.55
@@ -966,16 +2180,22 @@ function sourceScore(candidate, targetContext, previous, catalog, priorUses = 0)
     emotionalArcContribution: emotionAffinity,
     intrinsicQuality: candidate.qualityScore,
     chainContinuity,
+    transitionBridgeUtility,
     cameraAspectSuitability: candidate.mediaContract ? 1 : 0.5,
     technicalTruth: candidate.technicalIdentity ? 1 : 0,
     noveltyRepetitionControl: priorUses > 0 ? 0 : 1,
     sourceClassification: candidate.sourceClassification,
     sourcePrior: { prior: candidate.sourcePrior },
     fatigueMultiplier,
-    eligible: true,
+    hardFilters,
+    eligible: hardFilters.length === 0,
   });
+  const motionRoleMultiplier = motionKind === "transition" && reservationRole === "authored-transition"
+    ? 1.3
+    : candidate.motionRole?.subtleReferenceLoop ? 0.92 : motionKind === "motion-clip" ? 1.08 : 1;
+  const total = Number((scored.finalScore * motionRoleMultiplier).toFixed(6));
   return {
-    total: scored.finalScore,
+    total,
     lyricAffinity: Number(lyricAffinity.toFixed(6)),
     canonAffinity: Number(canonAffinity.toFixed(6)),
     objectActionAffinity: Number(objectActionAffinity.toFixed(6)),
@@ -984,9 +2204,15 @@ function sourceScore(candidate, targetContext, previous, catalog, priorUses = 0)
     sourcePrior: scored.sourcePrior,
     sourceClass: scored.sourceClass,
     chainContinuity: Number(chainContinuity.toFixed(6)),
+    chainContinuityKind: continuity.kind,
+    chainReferenceId: continuity.referenceId,
+    transitionBridgeUtility: Number(transitionBridgeUtility.toFixed(6)),
+    motionKind,
+    motionRoleMultiplier,
+    hardFilters,
     fatigueMultiplier: scored.fatigueMultiplier,
     baseScore: scored.baseScore,
-    formula: scored.formula,
+    formula: `${scored.formula} * motionRoleMultiplier`,
   };
 }
 
@@ -1129,8 +2355,14 @@ function deriveAssetCameraFraming({
   index,
   shotCount,
   outputProfile,
+  forceStaticAtomicTransition = false,
 } = {}) {
-  const requirement = cameraReframeRequirement(parentShot, nextShot);
+  const derivedRequirement = cameraReframeRequirement(parentShot, nextShot);
+  const requirement = forceStaticAtomicTransition ? {
+    ...derivedRequirement,
+    required: true,
+    reason: "certified-atomic-transition-centered-framing",
+  } : derivedRequirement;
   if (!requirement.required) return { shot: nextShot, reframed: false, requirement, contract: null };
   const measuredDimensions = shotMediaDimensions(nextShot);
   const sourceDimensions = measuredDimensions || {
@@ -1158,7 +2390,7 @@ function deriveAssetCameraFraming({
     fps: positiveFinite(nextShot.media_contract?.fps) || 24,
     codec: firstText(nextShot.media_contract?.type, "video"),
   };
-  const role = classifyMediaRole({
+  const role = forceStaticAtomicTransition ? "certified-atomic-transition" : classifyMediaRole({
     technical,
     subjectROI: analysis.subjectROI,
     atSectionStart: index === 0,
@@ -1177,18 +2409,43 @@ function deriveAssetCameraFraming({
     phraseCue,
     targetAspects: [...new Set([targetAspect, 16 / 9, 9 / 16, 1])],
   });
+  if (forceStaticAtomicTransition) {
+    path.easing = "linear";
+    path.zoomLimits = { min: 1, max: 1, startCloseCrop: true };
+    for (const corridor of path.corridors) {
+      const corridorAspect = positiveFinite(corridor.targetAspect) || targetAspect;
+      const width = sourceAspect >= corridorAspect ? corridorAspect / sourceAspect : 1;
+      const height = sourceAspect >= corridorAspect ? 1 : sourceAspect / corridorAspect;
+      const crop = {
+        x: (1 - width) / 2,
+        y: (1 - height) / 2,
+        width,
+        height,
+      };
+      corridor.startCrop = clone(crop);
+      corridor.endCrop = clone(crop);
+    }
+    path.keyframes = [
+      { offset: 0, crop: clone(path.corridors[0].startCrop), zoom: 1 },
+      { offset: 1, crop: clone(path.corridors[0].startCrop), zoom: 1 },
+    ];
+  }
   const cropRetention = sourceAspect >= targetAspect
     ? targetAspect / sourceAspect
     : sourceAspect / targetAspect;
-  const motion = cameraMotionForReplacement({
+  const motion = forceStaticAtomicTransition ? "static" : cameraMotionForReplacement({
     sourceOrientation,
     targetOrientation,
     index,
     isFinal: index === shotCount - 1,
   });
-  const intensity = Number((0.9 + Math.min(0.45, (1 - cropRetention) * 0.7)).toFixed(2));
-  const speed = Number((Math.max(0.9, Math.min(1.2, 1.08 + (6 - Math.max(1, endSeconds - startSeconds)) * 0.015))).toFixed(2));
-  const focus = cameraFocusForROI(analysis.subjectROI);
+  const intensity = forceStaticAtomicTransition
+    ? 0
+    : Number((0.9 + Math.min(0.45, (1 - cropRetention) * 0.7)).toFixed(2));
+  const speed = forceStaticAtomicTransition
+    ? 1
+    : Number((Math.max(0.9, Math.min(1.2, 1.08 + (6 - Math.max(1, endSeconds - startSeconds)) * 0.015))).toFixed(2));
+  const focus = forceStaticAtomicTransition ? "center" : cameraFocusForROI(analysis.subjectROI);
   const contract = {
     schemaVersion: ECHO_ASSET_CAMERA_FRAMING_SCHEMA,
     mediaId: nextShot.media_id,
@@ -1207,7 +2464,9 @@ function deriveAssetCameraFraming({
       aspect: targetAspect,
       orientation: targetOrientation,
     },
-    cropPolicy: "aspect-cover-full-bleed",
+    cropPolicy: forceStaticAtomicTransition
+      ? "certified-centered-cover-no-motion"
+      : "aspect-cover-full-bleed",
     motion,
     intensity,
     speed,
@@ -1238,7 +2497,7 @@ function deriveAssetCameraFraming({
   return { shot: reframed, reframed: true, requirement, contract };
 }
 
-function applyCandidateMedia(shot, candidate) {
+function applyCandidateMedia(shot, candidate, reservation = null) {
   const next = clone(shot);
   const card = object(candidate.card);
   const dimensions = mediaDimensions(candidate.dimensions, candidate.mediaContract);
@@ -1254,6 +2513,48 @@ function applyCandidateMedia(shot, candidate) {
   next.media_card_title = firstText(card.title, candidate.title, next.media_card_title);
   next.media_source_group = candidate.sourceGroup;
   next.media_technical_identity = candidate.technicalIdentity;
+  if (candidate.motionRole?.kind === "transition") {
+    const transitionTimeMap = object(reservation?.transitionTimeMap);
+    if (transitionTimeMap.schemaVersion !== ECHO_TRANSITION_TIME_MAP_SCHEMA
+      || transitionTimeMap.valid !== true
+      || transitionTimeMap.reachesDeclaredLastFrame !== true) {
+      throw new Error(`Transition ${candidate.mediaId} has no valid full-source cue time map.`);
+    }
+    next.media_contract = {
+      ...clone(candidate.mediaContract),
+      playbackMode: "once",
+      sourceInSeconds: transitionTimeMap.sourceInSeconds,
+      sourceOutSeconds: transitionTimeMap.sourceOutSeconds,
+      timeMapping: clone(transitionTimeMap),
+    };
+    next.transition_link = {
+      schemaVersion: "hapa.echo.resolved-transition-link-cue.v1",
+      id: candidate.motionRole.transition.jobId || candidate.mediaId,
+      mediaId: candidate.mediaId,
+      from: clone(candidate.motionRole.transition.endpoints?.first),
+      to: clone(candidate.motionRole.transition.endpoints?.last),
+      endpointIdentityEvidence: reservation?.resolution?.endpointIdentityEvidence
+        || ECHO_TRANSITION_ENDPOINT_IDENTITY_EVIDENCE,
+      playbackMode: "once",
+      timeMapping: clone(transitionTimeMap),
+      visualValidation: {
+        schemaVersion: "hapa.echo.transition-shot-visual-certification.v1",
+        decision: "certified",
+        jobId: candidate.motionRole.transition.jobId || candidate.mediaId,
+        mediaId: candidate.mediaId,
+        videoSha256: firstText(reservation?.resolution?.visualValidation?.videoSha256),
+        endpoints: {
+          first: clone(reservation?.resolution?.visualValidation?.first),
+          last: clone(reservation?.resolution?.visualValidation?.last),
+        },
+        resultDigestSha256: firstText(
+          reservation?.resolution?.visualValidationResultDigestSha256,
+        ),
+      },
+    };
+  } else {
+    delete next.transition_link;
+  }
   if (dimensions) {
     next.media_dimensions = clone(dimensions);
     next.media_width = dimensions.width;
@@ -1284,30 +2585,48 @@ function compactCandidate(candidate, score) {
     observedSynopsis: candidate.observedSynopsis,
     observedVisualEvidence: list(candidate.observedVisualText).slice(0, 3),
     declaredSongContextIds: candidate.declaredSongContextIds,
+    assignedSongIds: clone(candidate.songIds),
+    referenceAnchorIds: clone(candidate.referenceAnchorIds),
+    motionRole: clone(candidate.motionRole),
+    referenceStillCertification: clone(candidate.referenceStillCertification || null),
+    transitionSelection: clone(candidate.transitionSelection || null),
     score,
   };
 }
 
 function alternativeRejectionReason(alternative, selected) {
-  const fields = ["lyricAffinity", "canonAffinity", "objectActionAffinity", "emotionAffinity", "quality", "chainContinuity"];
+  const fields = [
+    "lyricAffinity",
+    "canonAffinity",
+    "objectActionAffinity",
+    "emotionAffinity",
+    "quality",
+    "chainContinuity",
+    "transitionBridgeUtility",
+    "motionRoleMultiplier",
+  ];
   const leading = fields.map((field) => ({ field, delta: finite(selected.score[field]) - finite(alternative.score[field]) }))
     .sort((left, right) => Math.abs(right.delta) - Math.abs(left.delta) || left.field.localeCompare(right.field))[0];
   return `lower intentional-fit score ${alternative.score.total.toFixed(4)} vs ${selected.score.total.toFixed(4)} (delta ${(selected.score.total - alternative.score.total).toFixed(4)}; largest component delta ${leading.field} ${leading.delta.toFixed(4)})`;
 }
 
 function sourceNeutralCounterfactualScore(score = {}) {
-  return Number((finite(score.baseScore, 0) * finite(score.fatigueMultiplier, 1)).toFixed(6));
+  return Number((
+    finite(score.baseScore, 0)
+    * finite(score.fatigueMultiplier, 1)
+    * finite(score.motionRoleMultiplier, 1)
+  ).toFixed(6));
 }
 
-function deterministicTimestamp(catalog, parentVariant) {
+function deterministicTimestamp(catalog, parentVariant, supersedesCreatedAt = "") {
   const parentMilliseconds = variantTimestamp(parentVariant);
   const catalogMilliseconds = Date.parse(catalog.generatedAt || "");
+  const supersedesMilliseconds = Date.parse(supersedesCreatedAt || "");
   const effective = Math.max(
-    Number.isFinite(parentMilliseconds) ? parentMilliseconds + 1 : Date.parse("2026-01-01T00:00:00.000Z"),
+    Number.isFinite(parentMilliseconds) ? parentMilliseconds : Date.parse("2026-01-01T00:00:00.000Z"),
     Number.isFinite(catalogMilliseconds) ? catalogMilliseconds : Number.NEGATIVE_INFINITY,
+    Number.isFinite(supersedesMilliseconds) ? supersedesMilliseconds : Number.NEGATIVE_INFINITY,
   );
-  // The top-origin framing generation supersedes the earlier asset-camera
-  // generation while remaining deterministic for the same catalog and parent.
   return new Date(effective + 1).toISOString();
 }
 
@@ -1327,7 +2646,24 @@ export function validateEchoEnrichmentDirectorVariant({ parentProject = {}, pare
   const reasons = [];
   const sourceTimeline = list(parentProject.timeline);
   const nextTimeline = list(variant.timeline);
+  const requiresVisualCertification = variant.lineage?.compiler === ECHO_ENRICHMENT_DIRECTOR_COMPILER
+    && nextTimeline.some((shot) => (
+      shot?.decision_evidence?.atomicTransition?.role === "authored-transition"
+    ));
+  const endpointCertification = object(variant.lineage?.transitionEndpointCertification);
+  const certifiedTransitionJobs = new Set(list(endpointCertification.certifiedJobIds).map(String));
+  const certifiedTransitionJobEvidence = new Map(list(endpointCertification.certifiedJobs).map((job) => (
+    [firstText(job.jobId, job.job_id), job]
+  )));
+  const visualResultDigestSha256 = firstText(endpointCertification.resultDigestSha256);
   if (variant.schemaVersion !== ECHO_ENRICHMENT_DIRECTOR_VARIANT_SCHEMA) reasons.push("variant-schema");
+  if (requiresVisualCertification && (
+    endpointCertification.schemaVersion !== "hapa.echo.transition-endpoint-certification-lineage.v1"
+    || endpointCertification.verified !== true
+    || !/^[a-f0-9]{64}$/u.test(visualResultDigestSha256)
+    || endpointCertification.certifiedJobLedgerDigestSha256
+      !== echoEnrichmentSha256(list(endpointCertification.certifiedJobs))
+  )) reasons.push("transition-endpoint-certification-lineage");
   if (!variantId(parentVariant) || variant.parent?.variantId !== variantId(parentVariant)) reasons.push("parent-variant-identity");
   if (sourceTimeline.length !== nextTimeline.length) reasons.push("timeline-length");
   for (let index = 0; index < Math.min(sourceTimeline.length, nextTimeline.length); index += 1) {
@@ -1338,23 +2674,173 @@ export function validateEchoEnrichmentDirectorVariant({ parentProject = {}, pare
     if (!nextTimeline[index]?.decision_evidence?.lyrics?.citation && nextTimeline[index]?.decision_evidence?.lyrics?.explicitLyricsUnavailable !== true) {
       reasons.push(`shot-${index}-lyric-truth`);
     }
-    const cameraRequirement = cameraReframeRequirement(sourceTimeline[index], nextTimeline[index]);
+    const atomic = nextTimeline[index]?.decision_evidence?.atomicTransition || null;
+    const cameraRequirement = atomic ? {
+      ...cameraReframeRequirement(sourceTimeline[index], nextTimeline[index]),
+      required: true,
+      reason: "certified-atomic-transition-centered-framing",
+    } : cameraReframeRequirement(sourceTimeline[index], nextTimeline[index]);
     const cameraChanged = stableEchoEnrichmentStringify(cameraState(sourceTimeline[index]))
       !== stableEchoEnrichmentStringify(cameraState(nextTimeline[index]));
     const framingContract = nextTimeline[index]?.camera_framing_contract;
     if (cameraRequirement.required) {
-      if (!cameraChanged) reasons.push(`shot-${index}-camera-not-rederived`);
+      if (!cameraChanged && !atomic) reasons.push(`shot-${index}-camera-not-rederived`);
       const framingValidation = validateAssetCameraFramingContract(framingContract, nextTimeline[index]);
       for (const reason of framingValidation.reasons) reasons.push(`shot-${index}-camera-${reason}`);
       if (nextTimeline[index]?.decision_evidence?.preservedDirection?.camera !== false) {
         reasons.push(`shot-${index}-camera-falsely-preserved`);
       }
+      if (atomic && (
+        firstText(nextTimeline[index]?.camera_motion).toLowerCase() !== "static"
+        || finite(nextTimeline[index]?.camera_intensity, Number.NaN) !== 0
+        || finite(nextTimeline[index]?.camera_speed, Number.NaN) !== 1
+        || firstText(nextTimeline[index]?.camera_focus).toLowerCase() !== "center"
+        || firstText(framingContract?.cropPolicy) !== "certified-centered-cover-no-motion"
+        || firstText(framingContract?.mediaId) !== firstText(nextTimeline[index]?.media_id)
+        || firstText(framingContract?.path?.mediaId) !== firstText(nextTimeline[index]?.media_id)
+        || list(framingContract?.path?.corridors).some((corridor) => (
+          stableEchoEnrichmentStringify(corridor.startCrop)
+            !== stableEchoEnrichmentStringify(corridor.endCrop)
+          || (() => {
+            const sourceAspect = positiveFinite(framingContract?.sourceAspect);
+            const targetAspect = positiveFinite(corridor.targetAspect);
+            const crop = object(corridor.startCrop);
+            if (!sourceAspect || !targetAspect) return true;
+            const expectedWidth = sourceAspect >= targetAspect ? targetAspect / sourceAspect : 1;
+            const expectedHeight = sourceAspect >= targetAspect ? 1 : sourceAspect / targetAspect;
+            return Math.abs(finite(crop.width, -1) - expectedWidth) > 0.000001
+              || Math.abs(finite(crop.height, -1) - expectedHeight) > 0.000001
+              || Math.abs(finite(crop.x, -1) - ((1 - expectedWidth) / 2)) > 0.000001
+              || Math.abs(finite(crop.y, -1) - ((1 - expectedHeight) / 2)) > 0.000001;
+          })()
+        ))
+      )) reasons.push(`shot-${index}-atomic-transition-framing-drift`);
     } else {
       if (cameraChanged) reasons.push(`shot-${index}-camera-unjustified-change`);
       if (framingContract) reasons.push(`shot-${index}-camera-unnecessary-contract`);
       if (nextTimeline[index]?.decision_evidence?.preservedDirection?.camera !== true) {
         reasons.push(`shot-${index}-camera-preservation-evidence`);
       }
+    }
+    const selectedMotionRole = nextTimeline[index]?.decision_evidence?.selectedCandidate?.motionRole?.kind;
+    if (selectedMotionRole === "transition" && atomic?.role !== "authored-transition") {
+      reasons.push(`shot-${index}-unreserved-transition`);
+    }
+    if (["entry-reference-still", "exit-reference-still"].includes(atomic?.role)) {
+      const endpoint = atomic.role === "entry-reference-still"
+        ? object(atomic.firstReference)
+        : object(atomic.lastReference);
+      const expectedImageSha256 = firstText(endpoint.sha256).replace(/^sha256:/iu, "").toLowerCase();
+      const expectedMediaId = expectedImageSha256 ? `hapa-media:sha256:${expectedImageSha256}` : "";
+      const selectedStillCertification = object(
+        nextTimeline[index]?.decision_evidence?.selectedCandidate?.referenceStillCertification,
+      );
+      const mediaContract = object(nextTimeline[index]?.media_contract);
+      if (selectedMotionRole !== "reference-still-hold"
+        || !expectedMediaId
+        || firstText(nextTimeline[index]?.media_id) !== expectedMediaId
+        || firstText(nextTimeline[index]?.media_uri) !== firstText(endpoint.uri)
+        || firstText(nextTimeline[index]?.runtime_media_uri) !== firstText(endpoint.uri)
+        || firstText(mediaContract.type).toLowerCase() !== "image"
+        || firstText(mediaContract.playbackMode).toLowerCase() !== "hold"
+        || firstText(mediaContract.contentHash).toLowerCase() !== expectedImageSha256
+        || selectedStillCertification.schemaVersion !== "hapa.echo.transition-reference-still-hold.v1"
+        || selectedStillCertification.cardId !== endpoint.cardId
+        || selectedStillCertification.imageSha256 !== expectedImageSha256
+        || selectedStillCertification.imageUri !== endpoint.uri) {
+        reasons.push(`shot-${index}-certified-reference-still-binding`);
+      }
+    }
+    if (atomic?.role === "authored-transition") {
+      if (index === 0 || index === nextTimeline.length - 1) reasons.push(`shot-${index}-transition-boundary`);
+      if (nextTimeline[index]?.media_contract?.playbackMode !== "once") reasons.push(`shot-${index}-transition-playback-mode`);
+      const mediaTimeMap = object(nextTimeline[index]?.media_contract?.timeMapping);
+      const linkTimeMap = object(nextTimeline[index]?.transition_link?.timeMapping);
+      const atomicTimeMap = object(atomic.timeMapping);
+      const cueDuration = finite(nextTimeline[index]?.end_sec) - finite(nextTimeline[index]?.start_sec);
+      const sourceSpan = finite(mediaTimeMap.sourceOutSeconds) - finite(mediaTimeMap.sourceInSeconds);
+      const cueSampleSpan = finite(mediaTimeMap.cueSampleSpanSeconds);
+      const expectedPlaybackRate = cueSampleSpan > 0 ? sourceSpan / cueSampleSpan : 0;
+      const certifiedJob = object(certifiedTransitionJobEvidence.get(firstText(atomic.transitionJobId)));
+      const certifiedFirstSeconds = finite(certifiedJob.endpoints?.first?.sourceTimeSeconds, Number.NaN);
+      const certifiedLastSeconds = finite(certifiedJob.endpoints?.last?.sourceTimeSeconds, Number.NaN);
+      if (mediaTimeMap.schemaVersion !== ECHO_TRANSITION_TIME_MAP_SCHEMA
+        || mediaTimeMap.valid !== true
+        || mediaTimeMap.reachesDeclaredLastFrame !== true
+        || mediaTimeMap.mode !== "fit-source-once-to-cue") {
+        reasons.push(`shot-${index}-transition-time-map`);
+      }
+      if (Math.abs(finite(mediaTimeMap.cueDurationSeconds) - cueDuration) > 0.00001
+        || sourceSpan <= 0
+        || cueSampleSpan <= 0
+        || Math.abs(finite(mediaTimeMap.playbackRate) - expectedPlaybackRate) > 0.00001
+        || finite(mediaTimeMap.playbackRate) > ECHO_TRANSITION_MAX_PLAYBACK_RATE) {
+        reasons.push(`shot-${index}-transition-time-map-bounds`);
+      }
+      if (finite(nextTimeline[index]?.media_contract?.sourceInSeconds) !== finite(mediaTimeMap.sourceInSeconds)
+        || finite(nextTimeline[index]?.media_contract?.sourceOutSeconds) !== finite(mediaTimeMap.sourceOutSeconds)) {
+        reasons.push(`shot-${index}-transition-time-map-source-window`);
+      }
+      if (requiresVisualCertification && (
+        !Number.isFinite(certifiedFirstSeconds)
+        || !Number.isFinite(certifiedLastSeconds)
+        || Math.abs(finite(mediaTimeMap.sourceInSeconds, Number.NaN) - certifiedFirstSeconds) > 0.000001
+        || Math.abs(finite(mediaTimeMap.sourceOutSeconds, Number.NaN) - certifiedLastSeconds) > 0.000001
+      )) reasons.push(`shot-${index}-transition-time-map-visual-endpoint-mismatch`);
+      if (stableEchoEnrichmentStringify(linkTimeMap) !== stableEchoEnrichmentStringify(mediaTimeMap)
+        || stableEchoEnrichmentStringify(atomicTimeMap) !== stableEchoEnrichmentStringify(mediaTimeMap)) {
+        reasons.push(`shot-${index}-transition-time-map-evidence`);
+      }
+      if (nextTimeline[index]?.transition_link?.endpointIdentityEvidence !== ECHO_TRANSITION_ENDPOINT_IDENTITY_EVIDENCE
+        || atomic.endpointIdentityEvidence !== ECHO_TRANSITION_ENDPOINT_IDENTITY_EVIDENCE) {
+        reasons.push(`shot-${index}-transition-endpoint-evidence`);
+      }
+      if (requiresVisualCertification) {
+        const jobId = firstText(atomic.transitionJobId);
+        const linkVisual = object(nextTimeline[index]?.transition_link?.visualValidation);
+        const atomicVisual = object(atomic.visualValidation);
+        if (!jobId || !certifiedTransitionJobs.has(jobId)
+          || firstText(certifiedJob.mediaId, certifiedJob.media_id) !== atomic.transitionMediaId) {
+          reasons.push(`shot-${index}-transition-job-not-visually-certified`);
+        }
+        for (const [label, visual] of [["link", linkVisual], ["atomic", atomicVisual]]) {
+          if (visual.schemaVersion !== "hapa.echo.transition-shot-visual-certification.v1"
+            || visual.decision !== "certified"
+            || visual.jobId !== jobId
+            || visual.mediaId !== atomic.transitionMediaId
+            || !/^[a-f0-9]{64}$/u.test(firstText(visual.videoSha256))
+            || visual.videoSha256 !== firstText(certifiedJob.videoSha256)
+            || stableEchoEnrichmentStringify(visual.endpoints)
+              !== stableEchoEnrichmentStringify(certifiedJob.endpoints)
+            || visual.resultDigestSha256 !== visualResultDigestSha256) {
+            reasons.push(`shot-${index}-transition-${label}-visual-certification`);
+          }
+        }
+      }
+      const previousAtomic = nextTimeline[index - 1]?.decision_evidence?.atomicTransition;
+      const nextAtomic = nextTimeline[index + 1]?.decision_evidence?.atomicTransition;
+      if (previousAtomic?.role !== "entry-reference-still"
+        || previousAtomic.transitionMediaId !== atomic.transitionMediaId) {
+        reasons.push(`shot-${index}-transition-entry-anchor`);
+      }
+      if (nextAtomic?.role !== "exit-reference-still"
+        || nextAtomic.transitionMediaId !== atomic.transitionMediaId) {
+        reasons.push(`shot-${index}-transition-exit-anchor`);
+      }
+      if (nextTimeline[index - 1]?.decision_evidence?.neighborContinuity?.next?.kind !== "declared-transition-entry-anchor") {
+        reasons.push(`shot-${index}-transition-entry-continuity`);
+      }
+      if (nextTimeline[index]?.decision_evidence?.neighborContinuity?.next?.kind !== "declared-transition-exit-anchor") {
+        reasons.push(`shot-${index}-transition-exit-continuity`);
+      }
+    }
+    if (atomic?.role === "entry-reference-still"
+      && nextTimeline[index + 1]?.decision_evidence?.atomicTransition?.role !== "authored-transition") {
+      reasons.push(`shot-${index}-orphan-transition-entry`);
+    }
+    if (atomic?.role === "exit-reference-still"
+      && nextTimeline[index - 1]?.decision_evidence?.atomicTransition?.role !== "authored-transition") {
+      reasons.push(`shot-${index}-orphan-transition-exit`);
     }
   }
   if (stableEchoEnrichmentStringify(parentProject.visualizer_timeline || []) !== stableEchoEnrichmentStringify(variant.visualizer_timeline || [])) reasons.push("visualizer-contract");
@@ -1373,9 +2859,12 @@ export function compileEchoEnrichmentDirectorVariant({
   baseProject = {},
   parentVariant = {},
   parentProjectSha256 = "",
+  supersedesCreatedAt = "",
   enrichments = [],
   chainGraph = {},
   report = {},
+  transitionEndpointValidation = null,
+  transitionUsageCounts = new Map(),
   catalog: suppliedCatalog = null,
 } = {}) {
   const songId = firstText(baseProject.song_id, baseProject.songId, song.id, song.cardId);
@@ -1383,10 +2872,15 @@ export function compileEchoEnrichmentDirectorVariant({
   if (!variantId(parentVariant)) throw new Error(`${songId} requires a latest non-legacy parent Director cut.`);
   const parentProject = deriveEchoEnrichmentParentProject(baseProject, parentVariant);
   if (!list(parentProject.timeline).length) throw new Error(`${songId} parent Director cut has no shots.`);
-  const catalog = suppliedCatalog || buildEchoVideoEnrichmentCatalog({ enrichments, chainGraph, report });
+  const catalog = suppliedCatalog || buildEchoVideoEnrichmentCatalog({
+    enrichments,
+    chainGraph,
+    report,
+    transitionEndpointValidation,
+  });
   const candidates = candidatePool(parentProject, catalog, songId);
   if (!candidates.length) throw new Error(`${songId} has no playable parent or enrichment media candidates.`);
-  const candidateSearch = buildCandidateSearchIndex(candidates);
+  const candidateSearch = buildCandidateSearchIndex(candidates, catalog);
   const outputProfile = resolveEchoOutputProfile(
     parentProject.output_profile || parentProject.outputProfile || baseProject.output_profile || baseProject.outputProfile,
   );
@@ -1396,26 +2890,55 @@ export function compileEchoEnrichmentDirectorVariant({
     ...list(song.motifs), ...list(song.tags), ...list(song.enrichment?.motifs),
     lore.mood, ...flattenText(song.contextualLayers),
   ]);
-  const selections = [];
-  const usageCounts = new Map();
-  let previous = null;
-  for (const [index, shot] of list(parentProject.timeline).entries()) {
+  const sourceTimeline = list(parentProject.timeline);
+  const assignedTransitionJobIds = uniqueStrings(candidates.filter((candidate) => (
+    candidate.motionRole?.kind === "transition"
+    && candidate.songIds?.includes(songId)
+  )).map((candidate) => candidate.motionRole?.transition?.jobId)).sort();
+  const transitionSelectionBalanceDigest = echoTransitionSelectionBalanceDigest(transitionUsageCounts);
+  const shotContexts = sourceTimeline.map((shot) => {
     const lyric = lyricEvidence(lyrics, shot);
     const story = storyBeatEvidence(song, shot, lyric);
     const matchedCanonicalStory = story.status === "canonical-story-beat-match" ? story.summary : "";
-    const targetContext = {
-      lyric: [lyric.citation?.text, shot.section_label, shot.section_type],
-      canon: [matchedCanonicalStory, lore.summary, songMotifs],
-      objectAction: [lyric.citation?.text, shot.section_label, shot.section_type],
-      emotion: [lyric.citation?.text, lore.mood, songMotifs, shot.section_type],
+    return {
+      lyric,
+      story,
+      targetContext: {
+        lyric: [lyric.citation?.text, shot.section_label, shot.section_type],
+        canon: [matchedCanonicalStory, lore.summary, songMotifs],
+        objectAction: [lyric.citation?.text, shot.section_label, shot.section_type],
+        emotion: [lyric.citation?.text, lore.mood, songMotifs, shot.section_type],
+      },
     };
+  });
+  const transitionPlan = planAssignedTransitionTriplets({
+    songId,
+    timeline: sourceTimeline,
+    contexts: shotContexts,
+    candidates,
+    certifiedTransitions: certifiedTransitionCandidates(catalog),
+    transitionUsageCounts,
+    catalog,
+    outputFps: outputProfile.fps,
+  });
+  if (transitionPlan.rejected.length) {
+    throw new Error(`${songId} could not place every assigned transition bridge: ${transitionPlan.rejected.map((row) => `${row.jobId || row.mediaId}:${row.reason}`).join(", ")}.`);
+  }
+  const selections = [];
+  const usageCounts = new Map();
+  let previous = null;
+  for (const [index, shot] of sourceTimeline.entries()) {
+    const { lyric, story, targetContext } = shotContexts[index];
+    const reservation = transitionPlan.reservations.get(index) || null;
     const targetTokenSet = tokens(Object.values(targetContext));
-    const shotCandidates = shortlistCandidates(
-      candidateSearch,
-      targetTokenSet,
-      previous,
-      previous ? catalog.neighborKeys(candidateKeys(previous)) : [],
-    );
+    const shotCandidates = reservation
+      ? [reservation.candidate]
+      : shortlistCandidates(
+        candidateSearch,
+        targetTokenSet,
+        previous,
+        previous ? catalog.neighborKeys(candidateKeys(previous)) : [],
+      );
     const scoredCandidates = shotCandidates.map((candidate) => ({
       candidate,
       score: sourceScore(
@@ -1424,22 +2947,34 @@ export function compileEchoEnrichmentDirectorVariant({
         previous,
         catalog,
         usageCounts.get(candidate.technicalIdentity) || 0,
+        { index, shotCount: sourceTimeline.length, reservation },
       ),
     }));
-    const ranked = [...scoredCandidates].sort((left, right) => (
+    const eligibleCandidates = scoredCandidates.filter((entry) => entry.score.hardFilters.length === 0);
+    const ranked = [...eligibleCandidates].sort((left, right) => (
       right.score.total - left.score.total
       || left.candidate.technicalIdentity.localeCompare(right.candidate.technicalIdentity)
     ));
-    const sourceNeutralWinner = [...scoredCandidates].sort((left, right) => (
+    const sourceNeutralWinner = [...eligibleCandidates].sort((left, right) => (
       sourceNeutralCounterfactualScore(right.score) - sourceNeutralCounterfactualScore(left.score)
       || left.candidate.technicalIdentity.localeCompare(right.candidate.technicalIdentity)
     ))[0];
     const selected = ranked[0];
+    if (!selected) {
+      throw new Error(`${songId} shot ${index} has no eligible intentional-enrichment candidate.`);
+    }
+    if (reservation && (selected?.score?.hardFilters?.length || selected?.score?.total <= 0)) {
+      throw new Error(`${songId} shot ${index} invalid atomic transition reservation: ${selected?.score?.hardFilters?.join(", ") || "zero-score"}.`);
+    }
     if (!selected?.candidate?.playable
-      || !["direct-enrichment-row", "matched-parent-media"].includes(selected.candidate.enrichmentCoverage)) {
+      || ![
+        "direct-enrichment-row",
+        "matched-parent-media",
+        "certified-transition-reference-still",
+      ].includes(selected.candidate.enrichmentCoverage)) {
       throw new Error(`${songId} shot ${index} did not resolve to a playable enrichment-backed catalog candidate.`);
     }
-    const selectedMediaShot = applyCandidateMedia(shot, selected.candidate);
+    const selectedMediaShot = applyCandidateMedia(shot, selected.candidate, reservation);
     const cameraDecision = deriveAssetCameraFraming({
       parentShot: shot,
       nextShot: selectedMediaShot,
@@ -1447,6 +2982,7 @@ export function compileEchoEnrichmentDirectorVariant({
       index,
       shotCount: list(parentProject.timeline).length,
       outputProfile,
+      forceStaticAtomicTransition: Boolean(reservation),
     });
     const nextShot = cameraDecision.shot;
     const motifs = uniqueStrings([
@@ -1464,12 +3000,25 @@ export function compileEchoEnrichmentDirectorVariant({
       : story.status === "soft-canon-association-match"
         ? `records soft-canon association ${story.ids.join(", ")} without treating it as canonical story direction`
         : "uses section and canonical song lore; no story-beat match is claimed";
+    const continuityReason = selected.score.chainContinuityKind === "declared-transition-entry-anchor"
+      ? `enters an authored transition from exact Reference Card ${selected.score.chainReferenceId}`
+      : selected.score.chainContinuityKind === "declared-transition-exit-anchor"
+        ? `lands on exact transition exit Reference Card ${selected.score.chainReferenceId}`
+        : selected.score.chainContinuity > 0
+          ? `measured last-to-first neighbor affinity ${selected.score.chainContinuity.toFixed(2)}`
+          : "no measured chain edge; preserves the inherited cut boundary without claiming continuity";
+    const motionReason = reservation
+      ? `atomic ${reservation.role} for ${reservation.transitionJobId || reservation.transitionMediaId}; endpoint identity ${reservation.resolution.endpointIdentityEvidence}`
+      : selected.candidate.motionRole?.subtleReferenceLoop
+        ? "near-static Reference loop receives the lower hold utility outside a resolved bridge"
+        : `motion/editorial utility ${selected.score.transitionBridgeUtility.toFixed(2)}`;
     const rationaleParts = [
       `selects “${selected.candidate.title}” for observed visual evidence “${visibleEvidence.slice(0, 120)}”`,
       lyricReason,
       storyReason,
       `quality ${selected.candidate.qualityScore.toFixed(2)} / source prior ${selected.candidate.sourcePrior.toFixed(2)}`,
-      selected.score.chainContinuity > 0 ? `measured neighbor affinity ${selected.score.chainContinuity.toFixed(2)}` : "no measured chain edge; preserves the inherited cut boundary without claiming continuity",
+      continuityReason,
+      motionReason,
     ];
     nextShot.edit_reason = `Intentional enrichment selection: ${rationaleParts.join("; ")}.`;
     nextShot.decision_evidence = {
@@ -1499,7 +3048,30 @@ export function compileEchoEnrichmentDirectorVariant({
         sourcePrior: selected.candidate.sourcePrior,
         sourceGroup: selected.candidate.sourceGroup,
         lowPriorEligible: selected.candidate.lowPrior,
+        motionRole: selected.candidate.motionRole?.kind || "motion-clip",
       },
+      atomicTransition: reservation ? {
+        role: reservation.role,
+        centerShotIndex: reservation.center,
+        transitionMediaId: reservation.transitionMediaId,
+        transitionJobId: reservation.transitionJobId,
+        firstReference: clone(reservation.resolution.first),
+        lastReference: clone(reservation.resolution.last),
+        endpointIdentityEvidence: reservation.resolution.endpointIdentityEvidence,
+        visualValidation: {
+          schemaVersion: "hapa.echo.transition-shot-visual-certification.v1",
+          decision: reservation.resolution.visualValidationDecision,
+          jobId: reservation.transitionJobId,
+          mediaId: reservation.transitionMediaId,
+          videoSha256: reservation.resolution.visualValidation?.videoSha256,
+          endpoints: {
+            first: clone(reservation.resolution.visualValidation?.first),
+            last: clone(reservation.resolution.visualValidation?.last),
+          },
+          resultDigestSha256: reservation.resolution.visualValidationResultDigestSha256,
+        },
+        timeMapping: clone(reservation.transitionTimeMap),
+      } : null,
       selectedCandidate: compactCandidate(selected.candidate, selected.score),
       sourceBiasCounterfactual: {
         schemaVersion: ECHO_SOURCE_BIAS_COUNTERFACTUAL_SCHEMA,
@@ -1534,6 +3106,8 @@ export function compileEchoEnrichmentDirectorVariant({
           enrichmentId: previous.enrichmentId,
           technicalIdentity: previous.technicalIdentity,
           chainAffinity: selected.score.chainContinuity,
+          kind: selected.score.chainContinuityKind,
+          referenceId: selected.score.chainReferenceId,
         } : null,
         next: null,
       },
@@ -1574,10 +3148,13 @@ export function compileEchoEnrichmentDirectorVariant({
   for (let index = 0; index < selections.length; index += 1) {
     const next = selections[index + 1]?.candidate || null;
     const current = selections[index].candidate;
+    const continuity = next ? catalog.continuityEvidence(current, next) : null;
     selections[index].shot.decision_evidence.neighborContinuity.next = next ? {
       enrichmentId: next.enrichmentId,
       technicalIdentity: next.technicalIdentity,
-      chainAffinity: catalog.affinity(candidateKeys(current), candidateKeys(next)),
+      chainAffinity: continuity.score,
+      kind: continuity.kind,
+      referenceId: continuity.referenceId,
     } : null;
   }
   const timeline = selections.map((selection) => selection.shot);
@@ -1585,13 +3162,61 @@ export function compileEchoEnrichmentDirectorVariant({
   const visualizerTimeline = clone(parentProject.visualizer_timeline || []);
   const persistentShaderSlots = clone(parentProject.persistent_shader_slots || []);
   const parentFingerprint = firstText(parentVariant.fingerprint, parentVariant.contentSha256, echoDirectionVariantFingerprint(parentVariant));
-  const semanticPayload = {
-    compiler: ECHO_ENRICHMENT_CAMERA_COMPILER,
+  const compilerInputFingerprint = echoEnrichmentCompilerInputFingerprint({
     songId,
     parentProjectSha256,
     parentVariantId: variantId(parentVariant),
     parentVariantFingerprint: parentFingerprint,
     enrichmentBatchFingerprint: catalog.batchFingerprint,
+    songDecisionInputDigest: echoEnrichmentSha256(song),
+    assignedTransitionJobIds,
+    transitionSelectionBalanceDigest,
+    transitionEndpointValidation: catalog.transitionEndpointValidation,
+  });
+  const visualValidationReceipt = object(catalog.transitionEndpointValidation?.visualValidation);
+  const compactCertifiedJobs = list(visualValidationReceipt.jobs).filter((job) => (
+    firstText(job.decision).toLowerCase() === "certified"
+  )).map((job) => ({
+    jobId: firstText(job.jobId, job.job_id),
+    mediaId: firstText(job.mediaId, job.media_id),
+    videoSha256: firstText(job.video?.actualSha256, job.video?.actual_sha256),
+    endpoints: {
+      first: {
+        frameIndex: finite(job.endpoints?.first?.frameIndex, -1),
+        sourceTimeSeconds: finite(job.endpoints?.first?.sourceTimeSeconds, -1),
+      },
+      last: {
+        frameIndex: finite(job.endpoints?.last?.frameIndex, -1),
+        sourceTimeSeconds: finite(job.endpoints?.last?.sourceTimeSeconds, -1),
+      },
+    },
+  })).sort((left, right) => left.jobId.localeCompare(right.jobId));
+  const transitionEndpointCertification = {
+    schemaVersion: "hapa.echo.transition-endpoint-certification-lineage.v1",
+    verified: visualValidationReceipt.verified === true,
+    sourceSchemaVersion: firstText(
+      visualValidationReceipt.sourceSchemaVersion,
+      visualValidationReceipt.reportSchemaVersion,
+    ),
+    resultDigestSha256: firstText(visualValidationReceipt.resultDigestSha256),
+    certifiedJobIds: uniqueStrings(visualValidationReceipt.certifiedJobIds).sort(),
+    quarantinedJobIds: uniqueStrings(visualValidationReceipt.quarantinedJobIds).sort(),
+    certifiedJobs: compactCertifiedJobs,
+    certifiedJobLedgerDigestSha256: echoEnrichmentSha256(compactCertifiedJobs),
+    mediaLedgerDigestSha256: firstText(
+      catalog.transitionEndpointValidation?.visualMediaFiles?.ledgerDigestSha256,
+    ),
+  };
+  const semanticPayload = {
+    compiler: ECHO_ENRICHMENT_DIRECTOR_COMPILER,
+    compilerInputFingerprint,
+    songId,
+    parentProjectSha256,
+    parentVariantId: variantId(parentVariant),
+    parentVariantFingerprint: parentFingerprint,
+    supersedesCreatedAt,
+    enrichmentBatchFingerprint: catalog.batchFingerprint,
+    transitionEndpointValidation: clone(catalog.transitionEndpointValidation),
     timeline,
     visualizerTimeline,
     persistentShaderSlots,
@@ -1599,7 +3224,7 @@ export function compileEchoEnrichmentDirectorVariant({
   };
   const contentSha256 = echoEnrichmentSha256(semanticPayload);
   const id = `intentional-enrichment-${catalog.batchFingerprint.slice(0, 12)}-${contentSha256.slice(0, 16)}`;
-  const createdAt = deterministicTimestamp(catalog, parentVariant);
+  const createdAt = deterministicTimestamp(catalog, parentVariant, supersedesCreatedAt);
   const projectedProject = {
     ...clone(parentProject),
     ...clone(projectPatch),
@@ -1608,12 +3233,30 @@ export function compileEchoEnrichmentDirectorVariant({
     persistent_shader_slots: persistentShaderSlots,
   };
   const selectedIdentities = new Set(timeline.map((shot) => shot.media_technical_identity).filter(Boolean));
+  const transitionPlaybackRates = transitionPlan.placed
+    .map((row) => finite(row.transitionTimeMap?.playbackRate, Number.NaN))
+    .filter(Number.isFinite)
+    .sort((left, right) => left - right);
+  const transitionPlaybackRateMedian = transitionPlaybackRates.length
+    ? transitionPlaybackRates.length % 2
+      ? transitionPlaybackRates[Math.floor(transitionPlaybackRates.length / 2)]
+      : (transitionPlaybackRates[(transitionPlaybackRates.length / 2) - 1]
+        + transitionPlaybackRates[transitionPlaybackRates.length / 2]) / 2
+    : null;
+  const transitionSeconds = timeline.filter((shot) => (
+    shot.decision_evidence?.atomicTransition?.role === "authored-transition"
+  )).reduce((sum, shot) => sum + Math.max(0, finite(shot.end_sec) - finite(shot.start_sec)), 0);
+  const referenceStillHoldSeconds = timeline.filter((shot) => (
+    ["entry-reference-still", "exit-reference-still"].includes(
+      shot.decision_evidence?.atomicTransition?.role,
+    )
+  )).reduce((sum, shot) => sum + Math.max(0, finite(shot.end_sec) - finite(shot.start_sec)), 0);
   const sourceSelections = {};
   for (const shot of timeline) sourceSelections[shot.media_source_group || "unknown"] = (sourceSelections[shot.media_source_group || "unknown"] || 0) + 1;
   const variant = {
     schemaVersion: ECHO_ENRICHMENT_DIRECTOR_VARIANT_SCHEMA,
     id,
-    title: `${firstText(baseProject.song_title, song.title, songId)} · Intentional Enrichment · Asset-Aware Camera`,
+    title: `${firstText(baseProject.song_title, song.title, songId)} · Intentional Enrichment · Motion Bridges`,
     status: "ready",
     createdAt,
     updatedAt: createdAt,
@@ -1629,24 +3272,32 @@ export function compileEchoEnrichmentDirectorVariant({
     },
     lineage: {
       kind: "append-only-intentional-enrichment",
+      compiler: ECHO_ENRICHMENT_DIRECTOR_COMPILER,
+      compilerInputFingerprint,
+      transitionSelectionBalanceDigest,
       parentVariantId: variantId(parentVariant),
       parentVariantFingerprint: parentFingerprint,
       sourceArtifactSchemas: {
         enrichments: ECHO_VIDEO_ENRICHMENT_ROW_SCHEMA,
         chainGraph: firstText(chainGraph.schemaVersion, chainGraph.schema_version) || null,
         report: firstText(report.schemaVersion, report.schema_version) || null,
+        transitionEndpointVisualValidation: firstText(
+          visualValidationReceipt.sourceSchemaVersion,
+          visualValidationReceipt.reportSchemaVersion,
+        ) || null,
       },
+      transitionEndpointCertification,
       appendOnly: true,
     },
     variationSet: {
-      id: `echo-video-enrichment-${catalog.batchFingerprint.slice(0, 16)}-camera-v2`,
-      label: "Echo Video Enrichment · Intentional Cuts · Camera V2",
+      id: `echo-video-enrichment-${catalog.batchFingerprint.slice(0, 16)}-motion-bridge-v6`,
+      label: "Echo Video Enrichment · Intentional Cuts · Full-Source Motion Bridge V6",
       batchFingerprint: `sha256:${catalog.batchFingerprint}`,
       appendOnly: true,
     },
-    cut: { ordinal: 2, label: "Intentional Enrichment · Asset-Aware Camera" },
+    cut: { ordinal: 5, label: "Intentional Enrichment · Full-Source Motion Bridges" },
     sourcePolicy: {
-      mode: "semantic-quality-continuity-weighted",
+      mode: "semantic-quality-resolved-motion-bridge-weighted",
       lowPriorSourcesEligible: true,
       lowPriorSources: ["LTX", "hapa-dev-proto", "Hell Week"],
       lowPriorTreatment: "eligible-but-downweighted",
@@ -1655,6 +3306,31 @@ export function compileEchoEnrichmentDirectorVariant({
       exactParentNonCameraDirectionContract: true,
       assetAwareCameraReframing: true,
       cameraReframeTriggers: ["selected-media-orientation-changed", "replaces-generated-visualizer-or-no-media"],
+      transitionPolicy: {
+        placement: "atomic-interior-certified-reference-still-transition-still-triplets",
+        endpointIdentity: ECHO_TRANSITION_ENDPOINT_IDENTITY_EVIDENCE,
+        assignedSongsPreferred: true,
+        semanticSupplement: {
+          enabled: true,
+          targetTransitionsPerSong: ECHO_TARGET_TRANSITIONS_PER_SONG,
+          minimumContextAffinity: ECHO_INFERRED_TRANSITION_MIN_CONTEXT_AFFINITY,
+          songRelativeSemanticCohort: "at-least-70%-of-best-affinity",
+          albumBalance: "least-used-certified-job-within-semantic-cohort",
+          explicitAssignmentsPreseeded: true,
+          deterministicDiversityPrior: "song+job-hash-after-album-usage-count",
+        },
+        adaptiveReferenceLoopsReservationOnly: true,
+        transitionRoleMultiplier: 1.3,
+        subtleReferenceLoopRoleMultiplier: 0.92,
+        sceneMotionRoleMultiplier: 1.08,
+        firstOrLastAllowed: false,
+        adjacentTransitionsAllowed: false,
+        timeMapSchema: ECHO_TRANSITION_TIME_MAP_SCHEMA,
+        timeMapMode: "fit-source-once-to-cue",
+        maximumPlaybackRate: ECHO_TRANSITION_MAX_PLAYBACK_RATE,
+        sourceTimeOrigin: "logical-cue-start",
+        timingPreference: "global-non-overlapping-plan-maximizes-transition-motion-share-before-near-native-playback-and-contextual-ties",
+      },
     },
     timeline,
     visualizer_timeline: visualizerTimeline,
@@ -1674,6 +3350,43 @@ export function compileEchoEnrichmentDirectorVariant({
       selectionsBySource: sourceSelections,
       lowPriorSelections: timeline.filter((shot) => shot.decision_evidence?.enrichment?.lowPriorEligible).length,
       lyricsUnavailableShots: timeline.filter((shot) => shot.decision_evidence?.lyrics?.explicitLyricsUnavailable).length,
+      assignedTransitions: transitionPlan.assignedTransitions,
+      inferredTransitions: transitionPlan.inferredTransitions,
+      plannedTransitions: transitionPlan.plannedTransitions,
+      explicitTransitionPlacements: transitionPlan.placed.filter((row) => row.selection?.kind === "explicit-assignment").length,
+      inferredTransitionPlacements: transitionPlan.placed.filter((row) => row.selection?.kind === "semantic-supplement").length,
+      placedTransitions: transitionPlan.placed.length,
+      rejectedTransitions: transitionPlan.rejected.length,
+      transitionPlan: clone(transitionPlan.placed),
+      transitionSelectionBalanceDigest,
+      transitionRejections: clone(transitionPlan.rejected),
+      selectedTransitionShots: timeline.filter((shot) => shot.decision_evidence?.atomicTransition?.role === "authored-transition").length,
+      selectedUniqueTransitionJobs: [...new Set(transitionPlan.placed
+        .map((row) => row.jobId)
+        .filter(Boolean))].sort(),
+      transitionSeconds: Number(transitionSeconds.toFixed(3)),
+      referenceStillHoldShots: timeline.filter((shot) => (
+        ["entry-reference-still", "exit-reference-still"].includes(
+          shot.decision_evidence?.atomicTransition?.role,
+        )
+      )).length,
+      referenceStillHoldSeconds: Number(referenceStillHoldSeconds.toFixed(3)),
+      transitionMotionShare: transitionSeconds + referenceStillHoldSeconds > 0
+        ? Number((transitionSeconds / (transitionSeconds + referenceStillHoldSeconds)).toFixed(6))
+        : null,
+      transitionPlaybackRate: {
+        count: transitionPlaybackRates.length,
+        minimum: transitionPlaybackRates[0] ?? null,
+        median: transitionPlaybackRateMedian === null ? null : Number(transitionPlaybackRateMedian.toFixed(6)),
+        maximum: transitionPlaybackRates.at(-1) ?? null,
+      },
+      selectedSceneMotionShots: timeline.filter((shot) => (
+        shot.decision_evidence?.selectedCandidate?.motionRole?.kind === "motion-clip"
+      )).length,
+      selectedLoopShots: timeline.filter((shot) => (
+        shot.decision_evidence?.selectedCandidate?.motionRole?.kind === "loop"
+      )).length,
+      selectedSubtleReferenceLoops: timeline.filter((shot) => shot.decision_evidence?.selectedCandidate?.motionRole?.subtleReferenceLoop).length,
     },
     hyperframe_script: generateEchoHyperframeScript(projectedProject),
   };

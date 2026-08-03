@@ -102,16 +102,37 @@ export function generateEchoHyperframeScript(project = {}) {
     const shotDuration = Math.max(0, end - start).toFixed(1);
     html += `  <!-- Section: ${shot.section_label || shot.section_id || "Unlabeled"} (Shot ${finite(shot.shot_index, idx) + 1}) -->\n`;
     if (mediaType === "video") {
+      const mediaContract = shot.media_contract || shot.mediaContract || {};
+      const playbackMode = mediaContract.playbackMode || mediaContract.playback_mode || "loop";
+      const timeMap = mediaContract.timeMapping
+        || mediaContract.time_mapping
+        || mediaContract.transitionTimeMap
+        || mediaContract.transition_time_map
+        || {};
+      const sourceInSeconds = finite(
+        timeMap.sourceInSeconds
+          ?? mediaContract.sourceInSeconds
+          ?? mediaContract.source_in_seconds,
+        0,
+      );
       html += `  <video id="shot-${idx + 1}"\n`;
       html += `         src="${shotRuntimeUri(shot)}"\n`;
       html += `         data-start="${start}"\n`;
       html += `         data-duration="${shotDuration}"\n`;
+      html += `         data-media-start="${sourceInSeconds}"\n`;
+      html += `         data-playback-mode="${playbackMode}"\n`;
+      if (timeMap.schemaVersion) {
+        html += `         data-time-map-schema="${timeMap.schemaVersion}"\n`;
+        html += `         data-source-out="${finite(timeMap.sourceOutSeconds, sourceInSeconds)}"\n`;
+        html += `         data-playback-rate="${finite(timeMap.playbackRate, 1)}"\n`;
+        html += `         data-source-time-origin="${timeMap.sourceTimeOrigin || "logical-cue-start"}"\n`;
+      }
       html += `         data-transition="${shot.transition || "cut"}"\n`;
       html += `         data-stems="${(shot.active_stems || []).join(",")}"\n`;
       html += `         data-camera-motion="${shot.camera_motion || "auto"}"\n`;
       html += `         data-camera-intensity="${finite(shot.camera_intensity, 1).toFixed(1)}"\n`;
       html += `         data-camera-speed="${finite(shot.camera_speed, 1.35).toFixed(2)}"\n`;
-      html += `         muted playsinline style="width: 100%; height: 100%; object-fit: cover; position: absolute; top: 0; left: 0;"></video>\n`;
+      html += `         muted playsinline${playbackMode === "loop" ? " loop" : ""} style="width: 100%; height: 100%; object-fit: cover; position: absolute; top: 0; left: 0;"></video>\n`;
     } else if (mediaType === "image") {
       html += `  <img id="shot-${idx + 1}"\n`;
       html += `       src="${shotRuntimeUri(shot)}"\n`;

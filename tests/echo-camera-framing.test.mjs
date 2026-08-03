@@ -133,6 +133,26 @@ test("tilt aliases and landscape auto choices resolve to canonical motions", () 
   assert.equal(fallback.speed, 1.67);
 });
 
+test("a zero-intensity static portrait crop is not zoomed beyond its certified framing", () => {
+  const crop = { x: 0, y: 0.341796875, width: 1, height: 0.31640625 };
+  for (const timeSeconds of [0, 2, 4]) {
+    const presentation = echoCameraMotionPresentation({
+      startSeconds: 0,
+      endSeconds: 4,
+      timeSeconds,
+      motion: "static",
+      intensity: 0,
+      speed: 1,
+      isPortrait: true,
+      crop,
+    });
+    assert.deepEqual(presentation.crop, crop);
+    assert.equal(presentation.scale, 1);
+    assert.equal(presentation.translateXPercent, 0);
+    assert.equal(presentation.translateYPercent, 0);
+  }
+});
+
 test("Canvas framing samples the same bounds as CSS cover for portrait media in landscape output", () => {
   const presentation = echoCameraMotionPresentation({
     startSeconds: 0,

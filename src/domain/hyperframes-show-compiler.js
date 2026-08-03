@@ -16,6 +16,12 @@ import {
 } from "./hyperframes-visualizer-runtime.js";
 import { resolveEchoOutputProfile } from "./echo-output-profile.js";
 import { inspectPortableVisualizerAttachment } from "./portable-visualizer-card.js";
+import {
+  ECHO_TRANSITION_TIME_MAPPING_MAX_PLAYBACK_RATE,
+  ECHO_TRANSITION_TIME_MAPPING_MODE,
+  ECHO_TRANSITION_TIME_MAPPING_SCHEMA,
+  normalizeEchoTransitionTimeMapping,
+} from "./echo-playback-sync.js";
 export { evaluateHyperFramesVisualizers } from "./hyperframes-visualizer-runtime.js";
 
 const stable = (value) => {
@@ -27,6 +33,10 @@ const hash = (value) => crypto.createHash("sha256").update(JSON.stringify(stable
 const finite = (value, fallback = 0) => Number.isFinite(Number(value)) ? Number(value) : fallback;
 const safe = (value) => String(value || "").replace(/[^a-zA-Z0-9._-]+/g, "-").replace(/^-+|-+$/g, "") || "asset";
 const normalizedId = (value) => String(value || "").replace(/^isf:/i, "").toLowerCase();
+
+export const HYPERFRAMES_TRANSITION_TIME_MAP_SCHEMA = ECHO_TRANSITION_TIME_MAPPING_SCHEMA;
+export const HYPERFRAMES_TRANSITION_TIME_MAP_MODE = ECHO_TRANSITION_TIME_MAPPING_MODE;
+const HYPERFRAMES_MAX_MEDIA_PLAYBACK_RATE = ECHO_TRANSITION_TIME_MAPPING_MAX_PLAYBACK_RATE;
 
 export function echoLyricOverlayExecutionContract(overlay = {}) {
   return {
@@ -139,6 +149,40 @@ function mediaIdentityKeys({ mediaId = null, contentHash = null } = {}) {
   ].filter(Boolean);
 }
 
+function transitionTimeMappingContract(contract = {}) {
+  const raw = contract.timeMapping
+    || contract.time_mapping
+    || contract.transitionTimeMap
+    || contract.transition_time_map;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    return { declared: false, valid: false, reason: "not-declared", mapping: null };
+  }
+  const sourceTimeOrigin = text(raw.sourceTimeOrigin || raw.source_time_origin || "logical-cue-start");
+  const playbackMode = text(raw.playbackMode || raw.playback_mode || contract.playbackMode || contract.playback_mode || "once").toLowerCase();
+  const normalized = normalizeEchoTransitionTimeMapping(raw, {
+    sourceInSeconds: contract.sourceInSeconds ?? contract.source_in_seconds,
+    sourceOutSeconds: contract.sourceOutSeconds ?? contract.source_out_seconds,
+    cueDurationSeconds: raw.cueDurationSeconds ?? raw.cue_duration_seconds,
+  });
+  const valid = Boolean(normalized)
+    && normalized.playbackRate >= 0.1
+    && normalized.playbackRate <= HYPERFRAMES_MAX_MEDIA_PLAYBACK_RATE
+    && sourceTimeOrigin === "logical-cue-start"
+    && playbackMode === "once";
+  const mapping = normalized ? {
+    ...structuredClone(raw),
+    ...normalized,
+    sourceTimeOrigin,
+    playbackMode,
+  } : null;
+  return {
+    declared: true,
+    valid,
+    reason: valid ? "full-source-once-map-ready" : "invalid-full-source-once-map",
+    mapping,
+  };
+}
+
 function mediaContractDescriptor(contract, shot, shotIndex) {
   const originalUri = text(contract.originalUri || contract.original_uri || shot.media_uri || shot.mediaUri);
   const runtimeUri = text(contract.runtimeUri || contract.runtime_uri || shot.runtime_media_uri || shot.runtimeMediaUri);
@@ -151,9 +195,20 @@ function mediaContractDescriptor(contract, shot, shotIndex) {
   const dimensions = finite(rawDimensions.width) > 0 && finite(rawDimensions.height) > 0
     ? { width: finite(rawDimensions.width), height: finite(rawDimensions.height) }
     : null;
+  const timeMapping = transitionTimeMappingContract(contract);
+  const playbackMode = text(contract.playbackMode || contract.playback_mode || timeMapping.mapping?.playbackMode).toLowerCase() || null;
+  const aliases = [...new Set([
+    ...mediaIdentityKeys({
+      mediaId: shot.media_id || shot.mediaId || contract.mediaId || contract.media_id,
+      contentHash,
+    }),
+    ...[originalUri, runtimeUri, shot.media_uri, shot.mediaUri, shot.runtime_media_uri, shot.runtimeMediaUri]
+      .flatMap(mediaReferenceKeys),
+  ])];
   return {
     contract,
-    identity: hash({ type, originalUri, runtimeUri, contentHash, mimeType: contract.mimeType || contract.mime_type || null, allowBlank, samplingPolicy, dimensions }),
+    aliases,
+    identity: hash({ type, originalUri, runtimeUri, contentHash, mimeType: contract.mimeType || contract.mime_type || null, allowBlank, samplingPolicy, dimensions, playbackMode, timeMapping: timeMapping.mapping }),
     summary: {
       shotIndex,
       mediaId: text(shot.media_id || shot.mediaId || contract.mediaId || contract.media_id) || null,
@@ -165,6 +220,8 @@ function mediaContractDescriptor(contract, shot, shotIndex) {
       allowBlank,
       samplingPolicy,
       dimensions,
+      playbackMode,
+      timeMappingStatus: { declared: timeMapping.declared, valid: timeMapping.valid, reason: timeMapping.reason },
     },
   };
 }
@@ -178,6 +235,7 @@ export function indexHyperFramesMediaContracts(project) {
       ? body.mediaManifest.items
       : [];
   const byAlias = new Map();
+  const byShotIndex = new Map();
   const conflictsByAlias = new Map();
   const recordCount = Math.max(timeline.length, mediaManifest.length);
   for (let shotIndex = 0; shotIndex < recordCount; shotIndex += 1) {
@@ -186,6 +244,7 @@ export function indexHyperFramesMediaContracts(project) {
     const inlineContract = shot.media_contract || shot.mediaContract || {};
     const contract = Object.keys(inlineContract).length ? inlineContract : manifestContract;
     const descriptor = mediaContractDescriptor(contract, shot, shotIndex);
+    byShotIndex.set(shotIndex, descriptor);
     const references = [
       contract.originalUri,
       contract.original_uri,
@@ -215,12 +274,13 @@ export function indexHyperFramesMediaContracts(project) {
   return {
     schemaVersion: "hapa.hyperframes.media-contract-index.v1",
     byAlias,
+    byShotIndex,
     ambiguousAliases: new Set(conflictsByAlias.keys()),
     conflictsByAlias,
   };
 }
 
-function resolveIndexedMediaContract(card, contractIndex) {
+function resolveIndexedMediaContract(card, contractIndex, { shotIndex = null } = {}) {
   const localPath = text(card.media?.localPath || card.media?.local_path);
   const referenceAliases = mediaReferenceKeys(localPath);
   const aliases = [
@@ -231,6 +291,25 @@ function resolveIndexedMediaContract(card, contractIndex) {
     }),
     ...referenceAliases.filter((alias) => alias.startsWith("basename:")),
   ];
+  if (Number.isInteger(shotIndex) && shotIndex >= 0) {
+    const positional = contractIndex?.byShotIndex?.get(shotIndex);
+    const positionalAlias = positional
+      ? aliases.find((alias) => (
+          !alias.startsWith("basename:")
+          && positional.aliases.includes(alias)
+        ))
+      : null;
+    if (positional && positionalAlias) {
+      return {
+        status: "matched",
+        alias: positionalAlias,
+        contract: positional.contract,
+        shotIndex,
+        resolutionBasis: "matching-shot-index",
+        conflicts: [],
+      };
+    }
+  }
   for (const alias of aliases) {
     const conflicts = contractIndex?.conflictsByAlias?.get(alias) || [];
     if (conflicts.length) {
@@ -241,9 +320,9 @@ function resolveIndexedMediaContract(card, contractIndex) {
       };
     }
     const match = contractIndex?.byAlias?.get(alias);
-    if (match) return { status: "matched", alias, contract: match.contract, shotIndex: match.summary.shotIndex, conflicts: [] };
+    if (match) return { status: "matched", alias, contract: match.contract, shotIndex: match.summary.shotIndex, resolutionBasis: "unique-alias", conflicts: [] };
   }
-  return { status: "unmatched", alias: null, contract: null, shotIndex: null, conflicts: [] };
+  return { status: "unmatched", alias: null, contract: null, shotIndex: null, resolutionBasis: "none", conflicts: [] };
 }
 
 function pathExtension(localPath, type) {
@@ -251,9 +330,9 @@ function pathExtension(localPath, type) {
   return match ? match[0].toLowerCase() : type === "image" ? ".jpg" : ".mp4";
 }
 
-export function resolveHyperFramesMediaSource(card, contractIndex) {
+export function resolveHyperFramesMediaSource(card, contractIndex, options = {}) {
   const localPath = text(card.media?.localPath || card.media?.local_path);
-  const contractResolution = resolveIndexedMediaContract(card, contractIndex);
+  const contractResolution = resolveIndexedMediaContract(card, contractIndex, options);
   const contract = contractResolution.status === "matched" ? contractResolution.contract : null;
   const mediaId = text(card.media?.id).toLowerCase();
   const declaredTypes = [
@@ -325,6 +404,12 @@ export function resolveHyperFramesMediaSource(card, contractIndex) {
     || cardVisual.samplingPolicy
     || cardVisual.sampling_policy,
   ) || null;
+  const timeMappingContract = transitionTimeMappingContract(contract || {});
+  const playbackMode = text(
+    contract?.playbackMode
+      || contract?.playback_mode
+      || timeMappingContract.mapping?.playbackMode,
+  ).toLowerCase() || (timeMappingContract.valid ? "once" : "loop");
   return {
     type,
     originalPath: localPath || null,
@@ -341,10 +426,20 @@ export function resolveHyperFramesMediaSource(card, contractIndex) {
       ? dimensions.height > dimensions.width ? "portrait" : dimensions.width > dimensions.height ? "landscape" : "square"
       : null,
     visualContract: { allowBlank, samplingPolicy },
+    playbackMode,
+    ...(timeMappingContract.declared ? {
+      timeMapping: timeMappingContract.mapping,
+      timeMappingStatus: {
+        declared: true,
+        valid: timeMappingContract.valid,
+        reason: timeMappingContract.reason,
+      },
+    } : {}),
     contractResolution: {
       status: contractResolution.status,
       alias: contractResolution.alias,
       shotIndex: contractResolution.shotIndex,
+      resolutionBasis: contractResolution.resolutionBasis || null,
       conflicts: contractResolution.conflicts,
     },
   };
@@ -397,7 +492,7 @@ function mediaPreflightRows(showOrGraph, project) {
   const contractIndex = indexHyperFramesMediaContracts(project);
   return (showOrGraph.tracks || []).flatMap((track) => (track.cards || [])
     .filter((card) => !card.visualization && !isVisualizerTrack(track))
-    .map((card) => ({
+    .map((card, cardIndex) => ({
       id: card.id,
       cueId: card.id,
       mediaId: card.media?.id || null,
@@ -405,7 +500,9 @@ function mediaPreflightRows(showOrGraph, project) {
       trackId: track.id,
       start: finite(card.startSeconds),
       end: finite(card.endSeconds),
-      source: resolveHyperFramesMediaSource(card, contractIndex),
+      source: resolveHyperFramesMediaSource(card, contractIndex, {
+        shotIndex: Number.isInteger(card.sourceCueIndex) ? card.sourceCueIndex : cardIndex,
+      }),
     })));
 }
 
@@ -827,6 +924,72 @@ export function hyperFramesMediaPresentationWindow(instances = [], instanceIndex
   };
 }
 
+export function hyperFramesMediaElementTiming(instance = {}, presentationWindow = null) {
+  const window = presentationWindow || {
+    logicalStart: finite(instance.start),
+    logicalEnd: finite(instance.end, finite(instance.start)),
+    logicalDuration: Math.max(0, finite(instance.end) - finite(instance.start)),
+    presentationStart: finite(instance.start),
+    presentationEnd: finite(instance.end, finite(instance.start)),
+    presentationDuration: Math.max(0, finite(instance.end) - finite(instance.start)),
+  };
+  const declared = transitionTimeMappingContract({
+    playbackMode: instance.source?.playbackMode,
+    timeMapping: instance.source?.timeMapping,
+  });
+  if ((instance.source?.timeMappingStatus?.declared === true || declared.declared) && !declared.valid) {
+    throw new Error(`Invalid full-source transition time map for ${text(instance.id || instance.cueId) || "unknown-media-cue"}`);
+  }
+  const stillHold = instance.source?.type === "image"
+    || String(instance.source?.playbackMode || "").toLowerCase() === "hold";
+  if (stillHold) {
+    return {
+      mappedTransition: false,
+      activationStart: window.presentationStart,
+      activationDuration: window.presentationDuration,
+      mediaStart: null,
+      mediaEnd: null,
+      playbackRate: 1,
+      playbackMode: "hold",
+      loop: false,
+      holdBefore: true,
+      holdAfter: true,
+      timeMapping: null,
+    };
+  }
+  const mappedTransition = instance.source?.type === "video"
+    && instance.source?.timeMappingStatus?.valid !== false
+    && declared.valid;
+  if (!mappedTransition) {
+    return {
+      mappedTransition: false,
+      activationStart: window.presentationStart,
+      activationDuration: window.presentationDuration,
+      mediaStart: null,
+      mediaEnd: null,
+      playbackRate: 1,
+      playbackMode: "loop",
+      loop: true,
+      holdBefore: false,
+      holdAfter: false,
+      timeMapping: null,
+    };
+  }
+  return {
+    mappedTransition: true,
+    activationStart: window.logicalStart,
+    activationDuration: window.logicalDuration,
+    mediaStart: declared.mapping.sourceInSeconds,
+    mediaEnd: declared.mapping.sourceOutSeconds,
+    playbackRate: declared.mapping.playbackRate,
+    playbackMode: "once",
+    loop: false,
+    holdBefore: true,
+    holdAfter: true,
+    timeMapping: declared.mapping,
+  };
+}
+
 export function hyperFramesMediaOpacityState(instances = [], instanceIndex = 0, timeSeconds = 0, options = {}) {
   const media = Array.isArray(instances) ? instances : [];
   const current = media[Number(instanceIndex)];
@@ -993,12 +1156,15 @@ export function compileHyperFramesShow({ showGraph, telemetry, project, proxyReg
         visualizerInstances.push(instance);
         layerOrder += 1;
       } else if (!card.visualization) {
+        const mediaShotIndex = Number.isInteger(card.sourceCueIndex)
+          ? card.sourceCueIndex
+          : mediaInstances.length;
         mediaInstances.push({
           ...base,
           templateId: "media-window-v1",
           mediaId: card.media?.id,
           title: card.media?.title,
-          source: resolveHyperFramesMediaSource(card, mediaContractIndex),
+          source: resolveHyperFramesMediaSource(card, mediaContractIndex, { shotIndex: mediaShotIndex }),
           transition: card.transition || "crossfade",
           camera: {
             motion: String(card.parameters?.motion || card.parameters?.cameraMotion || "auto"),
@@ -1183,7 +1349,20 @@ export function inspectHyperFramesShow(show) {
       errors.push(`window-outside-show:${id || kind}`);
     }
   };
-  for (const layer of show.instances?.media || []) inspectWindow(layer, "media");
+  for (const layer of show.instances?.media || []) {
+    inspectWindow(layer, "media");
+    const mappingStatus = layer.source?.timeMappingStatus;
+    if (mappingStatus?.declared === true && mappingStatus.valid !== true) {
+      errors.push(`invalid-transition-time-map:${layer.id}`);
+    } else if (mappingStatus?.valid === true) {
+      const mapping = layer.source?.timeMapping || {};
+      if (layer.source?.type !== "video") errors.push(`transition-time-map-requires-video:${layer.id}`);
+      if (layer.source?.playbackMode !== "once") errors.push(`transition-time-map-requires-once:${layer.id}`);
+      if (Math.abs(finite(mapping.cueDurationSeconds) - (finite(layer.end) - finite(layer.start))) > windowTolerance) {
+        errors.push(`transition-time-map-cue-duration-mismatch:${layer.id}`);
+      }
+    }
+  }
   let previous = null;
   for (const layer of show.instances?.visualizers || []) {
     inspectWindow(layer, "visualizer");

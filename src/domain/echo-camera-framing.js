@@ -110,6 +110,7 @@ export function echoCameraMotionPresentation({
   let translateYPercent = 0;
   let objectPositionXPercent = 50;
   let objectPositionYPercent = 50;
+  const cropPresentation = echoCameraCropPresentation(crop);
 
   const setDirectionalPan = (xDirection, yDirection) => {
     const phase = (progress * 2) - 1;
@@ -125,7 +126,10 @@ export function echoCameraMotionPresentation({
   };
 
   if (resolvedMotion === "static") {
-    scale = isPortrait ? 1.18 : 1;
+    // A certified static crop already defines the complete cover framing. Applying the
+    // legacy portrait emphasis on top of it would silently zoom Preview/export away from
+    // the exact Reference seam even at zero intensity.
+    scale = cropPresentation && resolvedIntensity === 0 ? 1 : isPortrait ? 1.18 : 1;
   } else if (resolvedMotion === "slow-push-in") {
     scale = baseScale + (0.16 * resolvedIntensity * progress * resolvedSpeed);
   } else if (resolvedMotion === "slow-pull-out") {
@@ -155,7 +159,6 @@ export function echoCameraMotionPresentation({
     scale = baseScale + (0.025 * resolvedIntensity);
   }
 
-  const cropPresentation = echoCameraCropPresentation(crop);
   if (cropPresentation) {
     scale *= cropPresentation.scale;
     objectPositionXPercent = cropPresentation.centerX;

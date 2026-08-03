@@ -56,15 +56,16 @@ export const CHAIN_EDGE_WEIGHTS = Object.freeze({
 });
 
 export const DIRECTOR_CANDIDATE_WEIGHTS = Object.freeze({
-  lyricMomentSectionStemFit: 0.22,
-  characterCanonReferenceFit: 0.18,
-  objectActionSpecificity: 0.15,
-  emotionalArcContribution: 0.12,
-  intrinsicQuality: 0.13,
-  chainContinuity: 0.08,
-  cameraAspectSuitability: 0.05,
-  technicalTruth: 0.04,
-  noveltyRepetitionControl: 0.03,
+  lyricMomentSectionStemFit: 0.19,
+  characterCanonReferenceFit: 0.16,
+  objectActionSpecificity: 0.13,
+  emotionalArcContribution: 0.1,
+  intrinsicQuality: 0.12,
+  chainContinuity: 0.09,
+  transitionBridgeUtility: 0.15,
+  cameraAspectSuitability: 0.025,
+  technicalTruth: 0.025,
+  noveltyRepetitionControl: 0.01,
 });
 
 const TAG_NAMESPACE_ALIASES = Object.freeze({
@@ -159,6 +160,7 @@ const DIRECTOR_ALIASES = Object.freeze({
   emotionalArcContribution: ["emotion", "emotionalArc", "arcContribution"],
   intrinsicQuality: ["quality", "qualityScore", "intrinsicQualityScore"],
   chainContinuity: ["chain", "chainScore", "continuity"],
+  transitionBridgeUtility: ["transitionUtility", "motionEditorialUtility", "resolvedBridgeUtility"],
   cameraAspectSuitability: ["cameraAspect", "aspectSuitability", "cameraSuitability"],
   technicalTruth: ["technical", "technicalVerification"],
   noveltyRepetitionControl: ["novelty", "repetitionControl", "fatigueControl"],
