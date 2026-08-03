@@ -7022,8 +7022,9 @@ function paginateHumanVideoAgentReviewQueue(dashboard, searchParams) {
       inspectEveryRegisteredFrame: true,
       semanticAutomationAllowed: false,
       applyHumanQualityCalibrationAsBoundedPrior: true,
-      passBoundary: "Optical only: literal observations, quality, description, categories, tags, director-use notes, and visible reference signals.",
+      passBoundary: "Optical only: literal observations, quality, description, categories, tags, visually estimated dominant palette hex values, director-use notes, and visible reference signals.",
       forbiddenInputs: ["raw Hapa knowledge stores", "song catalog search", "scene search", "Avatar identity search", "worker-invented reference candidates"],
+      paletteRequirement: { minimumColors: 3, maximumColors: 8, format: "#RRGGBB", method: "vision-agent-estimate", requireFrameEvidence: true },
       referenceSignalsToRecordForLaterWorker: ["symbols", "markings", "visible text", "palette", "geometry", "costume", "objects", "composition", "recurring motifs"],
     },
   }));

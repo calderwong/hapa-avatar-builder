@@ -83,3 +83,16 @@
 - **New guardrail:** packet breadth is not authority. Comparative and unresolved Cards remain labeled; inclusion cannot establish canon, identity, intent, rights clearance, publication approval, or human validation.
 
 **Candidate:** Decision Card / Flow explainer — “Legacy catalog to bounded Reference Atlas profiles without authority inflation.” The originating Codex turn and local Reference Atlas run receipts remain the attributed evidence.
+
+## Checkpoint 8 — Terra-medium stage parallelism and palette hex values
+
+- **Objective:** measure real Terra-medium throughput for the separated optical/reference stages, determine practical concurrency, and add most-used palette hex values to future optical proposals.
+- **Evidence inspected:** three videos with nine SHA-256-bound first/middle/last frames; three `gpt-5.6-terra` medium workers; the canonical 258-Card `echo-reference-cards` packet at Reference Atlas run `fnv1a:13ae2982`; all six worker timing receipts; the optical proposal normalizer, queue instructions, UI, and focused tests.
+- **What worked:** all optical workers used three direct image calls and produced per-frame observations plus 3–8 visually estimated palette colors. The reference stage kept image calls at zero, used only the supplied packet, preserved negative findings, and reached three-way overlap for 53 seconds.
+- **What was noise:** claiming three-way optical throughput merely because three child tasks were requested. Their recorded image-inspection intervals were serialized. Pixel histograms and automated color extraction were also excluded because the requested palette belongs to the human-facing visual judgment, not a colorimetric measurement.
+- **Measured result:** optical agent times were 10, 9, and 11 seconds, but the batch took 38 seconds and had peak overlap one. Reference times were 72, 122, and 96 seconds; the batch took 131 seconds, reached peak overlap three, and achieved 2.21× effective speedup over its 290 seconds of represented serial work. In this runtime, capacity planning should use one effective optical lane feeding three reference lanes.
+- **Projection:** for 10,884 videos, the narrow observed-batch estimates are 38.3 hours for optical and 132.0 hours for references. A continuously filled three-worker reference queue projects to 97.4 hours. Pipelining is therefore reference-bound at roughly 4.1–5.5 days before frame preparation, failures, persistence, and human review; separate full-catalog stages total about 7.1 days under observed batch behavior.
+- **What changed:** new optical submissions require 3–8 uppercase `#RRGGBB` colors with a label, prevalence, explanation, and exact frame hashes. The Human Enricher renders labeled swatches and uncertainty. Queue/API/docs distinguish visual estimates from automated or colorimetric truth. Full methodology is in `docs/HUMAN_ENRICHER_TERRA_MEDIUM_BENCHMARK.md`.
+- **New guardrail:** requested agent slots are not evidence of effective parallelism. Report peak observed overlap, batch wall time, and effective concurrency separately for every stage.
+
+**Candidate:** Lesson Card — “One vision feeder, three bounded-reference workers: measure stage concurrency instead of assuming it.” The originating Codex turn and six Terra-medium worker receipts remain the attributed evidence.

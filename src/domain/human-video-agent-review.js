@@ -7,6 +7,7 @@ const EVIDENCE_TYPES = new Set(["visual-observation", "knowledge-base-inference"
 const REFERENCE_TYPES = new Set(["echo-song", "song", "card", "scene", "avatar", "url", "other"]);
 const VISUAL_REFERENCE_STATUSES = new Set(["matched", "none-observed", "uncertain", "not-run"]);
 const VISUAL_MATCH_TYPES = new Set(["direct-marking", "text", "symbol", "palette", "geometry", "costume", "object", "composition", "visual-motif", "thematic-inference"]);
+const PALETTE_PREVALENCE = new Set(["dominant", "supporting", "accent"]);
 
 export function createHumanVideoAgentReviewStore(input = {}) {
   return normalizeHumanVideoAgentReviewStore({
@@ -112,6 +113,12 @@ export function upsertHumanVideoAgentReview(storeInput = {}, input = {}, options
   )) {
     throw reviewError("reference_fields_require_reference_pass", "Optical workers may record visible signals, but Card, Avatar, song, scene, and lore matches must be submitted through the bounded reference-worker pass.");
   }
+  if (review.status !== "blocked" && (
+    review.proposal.palette.colors.length < 3
+    || review.proposal.palette.colors.some((color) => !color.label || !color.explanation || !color.evidenceFrameHashes.length)
+  )) {
+    throw reviewError("optical_palette_required", "New optical reviews require at least three visually estimated palette colors with #RRGGBB values, labels, explanations, and frame evidence.");
+  }
   return {
     store: normalizeHumanVideoAgentReviewStore({ ...store, reviews: [...store.reviews.filter((item) => item.videoKey !== videoKey), review], updatedAt: now }),
     review,
@@ -192,6 +199,7 @@ function normalizeProposal(input = {}) {
     },
     categories: uniqueStrings(input.categories, 80, 180),
     tags: uniqueStrings(input.tags, 160, 180),
+    palette: normalizePalette(input.palette || input.dominantPalette || input.paletteHexValues),
     referenceSignals: uniqueStrings(input.referenceSignals || input.visualSignals || input.visualReferenceAnalysis?.observedSignals, 120, 1_000),
     avatarRelationships: (Array.isArray(input.avatarRelationships) ? input.avatarRelationships : []).slice(0, 80).map((item) => normalizeRelationship(item, "avatar")),
     references: (Array.isArray(input.references) ? input.references : []).slice(0, 120).map(normalizeReference).filter(Boolean),
@@ -201,6 +209,29 @@ function normalizeProposal(input = {}) {
     issues: uniqueStrings(input.issues, 60, 1_000),
     uncertainty: cleanMultiline(input.uncertainty, 4_000),
     confidence: score(input.confidence),
+  };
+}
+
+function normalizePalette(input = {}) {
+  const source = Array.isArray(input) ? { colors: input } : input && typeof input === "object" ? input : {};
+  const normalizedColors = (Array.isArray(source.colors) ? source.colors : []).slice(0, 8).map((color) => {
+    const normalizedHex = String(color?.hex || color?.value || "").trim().toUpperCase();
+    if (!/^#[A-F0-9]{6}$/.test(normalizedHex)) return null;
+    const prevalence = clean(color.prevalence || color.role, 80).toLowerCase();
+    return {
+      hex: normalizedHex,
+      label: clean(color.label || color.name, 180),
+      prevalence: PALETTE_PREVALENCE.has(prevalence) ? prevalence : "supporting",
+      explanation: cleanMultiline(color.explanation || color.evidence || color.whereSeen, 2_000),
+      evidenceFrameHashes: uniqueStrings(color.evidenceFrameHashes || color.frameHashes, 24, 100).map(normalizeSha256).filter(Boolean),
+    };
+  }).filter(Boolean);
+  const colors = [...new Map(normalizedColors.map((color) => [color.hex, color])).values()];
+  return {
+    method: "vision-agent-estimate",
+    semanticJudgmentAutomation: false,
+    colors,
+    uncertainty: cleanMultiline(source.uncertainty, 2_000),
   };
 }
 
