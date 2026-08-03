@@ -4,7 +4,7 @@ export const HUMAN_VIDEO_REFERENCE_REVIEW_EVENT_SCHEMA = "hapa.human-video-refer
 export const HUMAN_VIDEO_REFERENCE_CARD_PACKET_SCHEMA = "hapa.human-video-reference-card-packet.v1";
 
 const REVIEW_STATUSES = new Set(["pending-human", "accepted", "accepted-edited", "rejected", "blocked"]);
-const PACKET_PROFILES = new Set(["echo-reference-cards", "echo-core-cards", "hapa-card-library", "explicit-card-ids"]);
+const PACKET_PROFILES = new Set(["echo-reference-cards", "echo-reference-wide", "echo-reference-exploratory", "echo-core-cards", "hapa-card-library", "explicit-card-ids"]);
 const MATCH_TYPES = new Set(["direct-marking", "text", "symbol", "palette", "geometry", "costume", "object", "composition", "visual-motif", "thematic-inference"]);
 
 export function createHumanVideoReferenceReviewStore(input = {}) {
@@ -34,20 +34,40 @@ export function normalizeHumanVideoReferenceReviewStore(input = {}) {
 export function buildHumanVideoReferenceCardPacket(input = {}, options = {}) {
   const profile = PACKET_PROFILES.has(options.profile) ? options.profile : "echo-reference-cards";
   const explicitIds = new Set(list(options.cardIds).map((value) => clean(value, 500)).filter(Boolean));
-  const include = (kind, id) => {
+  const minedReferenceCards = list(input.referenceCards);
+  const include = (card) => {
+    const { kind, id } = card;
     if (explicitIds.size) return explicitIds.has(id);
-    if (profile === "echo-reference-cards") return kind === "echo-reference";
-    if (profile === "echo-core-cards") return new Set(["echo-reference", "song", "avatar"]).has(kind);
+    if (kind === "echo-reference") {
+      if (profile === "echo-reference-exploratory") return true;
+      if (profile === "echo-reference-wide") return card.evidenceClass !== "unresolved";
+      if (new Set(["echo-reference-cards", "echo-core-cards"]).has(profile)) return new Set(["direct", "source-backed-candidate"]).has(card.evidenceClass);
+    }
+    if (profile === "echo-core-cards") return new Set(["song", "avatar"]).has(kind);
     return profile === "hapa-card-library" ? kind === "hapa-card" : false;
   };
-  const cards = [
-    ...list(input.referenceCatalog).map((record, index) => projectCard(record, "echo-reference", "data/hapa-songs-store.json", `/referenceCatalog/${index}`)),
+  const referenceSourcePath = input.referenceRun?.referenceRuntime?.source === "external-research-projection"
+    ? "data/echo-reference-research-loop/projected-run.json"
+    : minedReferenceCards.length
+      ? "data/echo-reference-mining/latest.json"
+      : "data/hapa-songs-store.json";
+  const projected = [
+    ...(minedReferenceCards.length
+      ? minedReferenceCards.map((record, index) => projectCard(record, "echo-reference", referenceSourcePath, `/cards/${index}`))
+      : list(input.referenceCatalog).map((record, index) => projectCard(record, "echo-reference", "data/hapa-songs-store.json", `/referenceCatalog/${index}`))),
     ...list(input.songs).map((record, index) => projectCard(record, "song", "data/hapa-songs-store.json", `/songs/${index}`)),
     ...list(input.avatars).map((record, index) => projectCard(record, "avatar", "data/avatar-store.json", `/avatars/${index}`)),
     ...list(input.itemCards).map((record, index) => projectCard(record, "hapa-card", "data/item-manager-store.json", `/cards/${index}`)),
-  ].filter((card) => card.id && include(card.kind, card.id));
-  const maxCards = Math.max(1, Math.min(2_500, Math.trunc(number(options.maxCards, profile === "hapa-card-library" ? 400 : 400))));
-  const selected = cards.sort((a, b) => a.kind.localeCompare(b.kind) || a.title.localeCompare(b.title) || a.id.localeCompare(b.id)).slice(0, maxCards);
+  ];
+  const cardsById = new Map();
+  for (const card of projected) if (card.id && include(card) && !cardsById.has(card.id)) cardsById.set(card.id, card);
+  const defaultLimits = { "echo-reference-cards": 400, "echo-reference-wide": 900, "echo-reference-exploratory": 1_200, "echo-core-cards": 600, "hapa-card-library": 400, "explicit-card-ids": 2_500 };
+  const maxCards = Math.max(1, Math.min(2_500, Math.trunc(number(options.maxCards, defaultLimits[profile] || 400))));
+  const selected = [...cardsById.values()].sort((a, b) => a.kind.localeCompare(b.kind) || a.title.localeCompare(b.title) || a.id.localeCompare(b.id)).slice(0, maxCards);
+  const authorityCounts = selected.reduce((counts, card) => ({ ...counts, [card.evidenceClass || "unclassified"]: Number(counts[card.evidenceClass || "unclassified"] || 0) + 1 }), {});
+  const reviewStatusCounts = selected.reduce((counts, card) => ({ ...counts, [card.reviewStatus || "unclassified"]: Number(counts[card.reviewStatus || "unclassified"] || 0) + 1 }), {});
+  const canonStatusCounts = selected.reduce((counts, card) => ({ ...counts, [card.canonStatus || "unclassified"]: Number(counts[card.canonStatus || "unclassified"] || 0) + 1 }), {});
+  const runtimeAuthority = input.referenceRun?.referenceRuntime?.authority || {};
   return {
     schemaVersion: HUMAN_VIDEO_REFERENCE_CARD_PACKET_SCHEMA,
     id: clean(options.id, 500) || `reference-card-packet:${profile}`,
@@ -55,8 +75,26 @@ export function buildHumanVideoReferenceCardPacket(input = {}, options = {}) {
     digest: clean(options.digest, 100),
     createdAt: clean(options.createdAt, 80) || null,
     cardCount: selected.length,
+    authorityCounts,
+    reviewStatusCounts,
+    canonStatusCounts,
+    referenceAtlas: {
+      runId: clean(input.referenceRun?.runId, 500),
+      runHash: clean(input.referenceRun?.runHash, 240),
+      source: clean(input.referenceRun?.referenceRuntime?.source || input.referenceRun?.source, 240),
+      availableCards: minedReferenceCards.length,
+      authority: {
+        status: clean(runtimeAuthority.status, 180),
+        receiptId: clean(runtimeAuthority.receiptId, 500),
+        approvedCards: Math.max(0, Math.trunc(number(runtimeAuthority.approvedCards, 0))),
+        resolvedWithoutPromotion: Math.max(0, Math.trunc(number(runtimeAuthority.resolvedWithoutPromotion, 0))),
+        previewPolicy: clean(runtimeAuthority.previewPolicy, 180),
+        publicActivation: runtimeAuthority.publicActivation === true,
+        canonPromotion: runtimeAuthority.canonPromotion === true,
+      },
+    },
     cards: selected,
-    sourcePolicy: "Existing Hapa Card records and source-backed Echo reference records only. No worker-authored candidate IDs are permitted.",
+    sourcePolicy: "Existing Reference Atlas and Hapa Card records only. Default packets exclude unresolved Cards; every Card preserves its evidence, review, canon, rights, and provenance labels. No worker-authored candidate IDs are permitted.",
   };
 }
 
@@ -121,24 +159,60 @@ export function upsertHumanVideoReferenceReview(storeInput = {}, input = {}, opt
 
 function projectCard(record = {}, kind, sourcePath, sourcePointer) {
   const id = clean(record.id || record.cardId || record.songId || record.registryId, 500);
+  const authority = record.authority && typeof record.authority === "object" ? record.authority : {};
+  const rightsAndPrivacy = record.rightsAndPrivacy && typeof record.rightsAndPrivacy === "object" ? record.rightsAndPrivacy : {};
+  const provenance = record.provenance && typeof record.provenance === "object" ? record.provenance : {};
+  const evidenceClass = clean(authority.evidenceClass || record.evidenceClass || (kind === "echo-reference" ? "direct" : ""), 180);
+  const citations = list(record.citations);
+  const occurrences = list(record.occurrences);
   return {
     id,
     kind,
     schemaVersion: clean(record.schemaVersion, 240),
     cardType: clean(record.cardType || `${kind}-card`, 240),
+    revisionId: clean(record.revisionId, 500),
     title: clean(record.title || record.primaryName || record.name || id, 800),
     summary: cleanMultiline(record.summary || record.publicContext || record.description || record.lore, 2_400),
     themes: unique([...list(record.themes), ...list(record.tags)], 80, 180),
     signals: unique([
       ...list(record.traversalTerms),
       ...list(record.signalLexicon?.literal),
+      ...list(record.signalLexicon?.phonetic),
+      ...list(record.signalLexicon?.orthographic),
+      ...list(record.signalLexicon?.multilingual),
       ...list(record.signalLexicon?.mechanical),
       ...list(record.visualIdentity?.markers),
       ...list(record.visualIdentity?.motifs),
+      ...occurrences.map((occurrence) => occurrence?.lyricSpan?.matchedText),
     ], 120, 240),
-    canonStatus: clean(record.canonStatus, 180),
-    reviewStatus: clean(record.reviewStatus || record.status, 180),
-    source: normalizeSource(record.source || list(record.sourceRefs)[0]),
+    evidenceClass,
+    canonStatus: clean(authority.canonStatus || record.canonStatus, 180),
+    reviewStatus: clean(authority.reviewStatus || record.reviewStatus || record.status, 180),
+    authority: {
+      evidenceClass,
+      reviewStatus: clean(authority.reviewStatus || record.reviewStatus || record.status, 180),
+      canonStatus: clean(authority.canonStatus || record.canonStatus, 180),
+      approvedBy: clean(authority.approvedBy, 240),
+      approvedAt: clean(authority.approvedAt, 80),
+    },
+    rightsAndPrivacy: {
+      visibility: clean(rightsAndPrivacy.visibility, 80),
+      containsPrivateClues: rightsAndPrivacy.containsPrivateClues === true,
+      licenseStatus: clean(rightsAndPrivacy.licenseStatus, 240),
+      publicProjectionAllowed: rightsAndPrivacy.publicProjectionAllowed === true,
+    },
+    provenance: {
+      method: clean(provenance.method, 360),
+      sourceRunId: clean(provenance.sourceRunId, 500),
+      sourcePacketHash: clean(provenance.sourcePacketHash, 240),
+      configurationVersion: clean(provenance.configurationVersion, 360),
+      model: clean(provenance.model, 240),
+      createdBy: clean(provenance.createdBy, 240),
+    },
+    source: normalizeSource(record.source || citations[0] || list(record.sourceRefs)[0]),
+    citationCount: citations.length,
+    occurrenceCount: occurrences.length,
+    claimCount: list(record.claims).length,
     sourcePath,
     sourcePointer,
   };
@@ -171,11 +245,38 @@ function normalizeMatch(input = {}) {
 }
 
 function normalizePacketReceipt(input = {}) {
-  return { id: clean(input.id, 500), profile: PACKET_PROFILES.has(input.profile) ? input.profile : "echo-reference-cards", digest: clean(input.digest, 100), cardCount: Math.max(0, Math.trunc(number(input.cardCount, 0))) };
+  const authorityCounts = normalizeCounts(input.authorityCounts);
+  const reviewStatusCounts = normalizeCounts(input.reviewStatusCounts);
+  const canonStatusCounts = normalizeCounts(input.canonStatusCounts);
+  return {
+    id: clean(input.id, 500),
+    profile: PACKET_PROFILES.has(input.profile) ? input.profile : "echo-reference-cards",
+    digest: clean(input.digest, 100),
+    cardCount: Math.max(0, Math.trunc(number(input.cardCount, 0))),
+    authorityCounts,
+    reviewStatusCounts,
+    canonStatusCounts,
+    referenceAtlas: {
+      runId: clean(input.referenceAtlas?.runId, 500),
+      runHash: clean(input.referenceAtlas?.runHash, 240),
+      source: clean(input.referenceAtlas?.source, 240),
+      availableCards: Math.max(0, Math.trunc(number(input.referenceAtlas?.availableCards, 0))),
+      authority: {
+        status: clean(input.referenceAtlas?.authority?.status, 180),
+        receiptId: clean(input.referenceAtlas?.authority?.receiptId, 500),
+        approvedCards: Math.max(0, Math.trunc(number(input.referenceAtlas?.authority?.approvedCards, 0))),
+        resolvedWithoutPromotion: Math.max(0, Math.trunc(number(input.referenceAtlas?.authority?.resolvedWithoutPromotion, 0))),
+        previewPolicy: clean(input.referenceAtlas?.authority?.previewPolicy, 180),
+        publicActivation: input.referenceAtlas?.authority?.publicActivation === true,
+        canonPromotion: input.referenceAtlas?.authority?.canonPromotion === true,
+      },
+    },
+  };
 }
 function normalizeOpticalReceipt(input = {}) { return { id: clean(input.id, 5_000), revision: Math.max(0, Math.trunc(number(input.revision, 0))), frameDigest: clean(input.frameDigest, 100) }; }
 function normalizeReviewer(input = {}) { return { agentId: clean(input.agentId, 240), taskId: clean(input.taskId, 500), model: clean(input.model, 240), reasoningEffort: clean(input.reasoningEffort, 80), parameters: input.parameters && typeof input.parameters === "object" ? structuredClone(input.parameters) : {}, reviewMode: "reference-worker-card-packet", referenceInspectionConfirmed: input.referenceInspectionConfirmed === true, attestation: cleanMultiline(input.attestation, 2_000) }; }
-function normalizeSource(input = {}) { return { label: clean(input.label || input.title, 800), uri: clean(input.uri || input.url, 2_000), sourceKind: clean(input.sourceKind, 240), checkedAt: clean(input.checkedAt, 80) }; }
+function normalizeSource(input = {}) { return { label: clean(input.label || input.title, 800), uri: clean(input.uri || input.url, 2_000), sourceKind: clean(input.sourceKind || input.sourceClass, 240), checkedAt: clean(input.checkedAt || input.retrievedAt, 80) }; }
+function normalizeCounts(input = {}) { return input && typeof input === "object" ? Object.fromEntries(Object.entries(input).map(([key, value]) => [clean(key, 180), Math.max(0, Math.trunc(number(value, 0)))]).filter(([key]) => key)) : {}; }
 function list(value) { return Array.isArray(value) ? value : []; }
 function unique(input, limit, max) { return [...new Set(list(input).map((value) => clean(value, max)).filter(Boolean))].slice(0, limit); }
 function number(value, fallback) { const parsed = Number(value); return Number.isFinite(parsed) ? parsed : fallback; }

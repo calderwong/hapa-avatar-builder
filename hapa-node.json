@@ -78,7 +78,9 @@
     "wisdomCouncils": "http://127.0.0.1:8787/api/wisdom-councils",
     "humanEnricherVideos": "http://127.0.0.1:8787/api/human-enricher/videos",
     "humanEnricherRecords": "http://127.0.0.1:8787/api/human-enricher/records",
-    "humanEnricherAgentReviews": "http://127.0.0.1:8787/api/human-enricher/agent-reviews"
+    "humanEnricherAgentReviews": "http://127.0.0.1:8787/api/human-enricher/agent-reviews",
+    "humanEnricherReferenceCards": "http://127.0.0.1:8787/api/human-enricher/reference-card-packets",
+    "humanEnricherReferenceReviews": "http://127.0.0.1:8787/api/human-enricher/reference-reviews"
   },
   "requiredNodes": [
     "hapa-overcard",
@@ -98,6 +100,9 @@
     "humanVideoEnrichmentEvents": "data/human-video-enrichment-events.ndjson",
     "humanVideoAgentReviews": "data/human-video-agent-reviews.json",
     "humanVideoAgentReviewEvents": "data/human-video-agent-review-events.ndjson",
+    "humanVideoReferenceReviews": "data/human-video-reference-reviews.json",
+    "humanVideoReferenceReviewEvents": "data/human-video-reference-review-events.ndjson",
+    "echoReferenceResearchProjection": "data/echo-reference-research-loop/projected-run.json",
     "mediaDir": "data/media",
     "cardOriginOutbox": "data/overwind/origin-outbox.sqlite3",
     "cardCustodyCores": "data/card-custody/cores",

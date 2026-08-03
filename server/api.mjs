@@ -4000,13 +4000,36 @@ async function route(req, res) {
         videoId: video.id,
         videoName: video.name,
         opticalReview: { id: video.agentReview.id, revision: video.agentReview.revision, frameDigest: body.opticalReview?.frameDigest || "" },
-        packet: { id: packet.id, profile: packet.profile, digest: packet.digest, cardCount: packet.cardCount },
+        packet: {
+          id: packet.id,
+          profile: packet.profile,
+          digest: packet.digest,
+          cardCount: packet.cardCount,
+          authorityCounts: packet.authorityCounts,
+          reviewStatusCounts: packet.reviewStatusCounts,
+          canonStatusCounts: packet.canonStatusCounts,
+          referenceAtlas: packet.referenceAtlas,
+        },
       }, {
         agentId: String(req.headers["x-hapa-agent-id"] || body.reviewer?.agentId || "reference-worker").trim().slice(0, 240),
         allowedCardIds: packet.cards.map((card) => card.id),
       });
       res.setHeader("Cache-Control", "no-store");
-      sendJson(res, 200, { ok: true, review: result.review, authority: "pending-human", packet: { id: packet.id, digest: packet.digest, cardCount: packet.cardCount } });
+      sendJson(res, 200, {
+        ok: true,
+        review: result.review,
+        authority: "pending-human",
+        packet: {
+          id: packet.id,
+          profile: packet.profile,
+          digest: packet.digest,
+          cardCount: packet.cardCount,
+          authorityCounts: packet.authorityCounts,
+          reviewStatusCounts: packet.reviewStatusCounts,
+          canonStatusCounts: packet.canonStatusCounts,
+          referenceAtlas: packet.referenceAtlas,
+        },
+      });
     } catch (error) {
       sendJson(res, Number(error?.statusCode || 400), { ok: false, error: error?.code || "reference_review_submit_failed", message: error?.message || String(error), details: error?.details || null });
     }
@@ -6890,11 +6913,18 @@ async function buildHumanVideoEnricherDashboard() {
 }
 
 async function buildHumanVideoReferenceCardPacketSnapshot(options = {}) {
-  const [avatarStore, songStore, itemStore] = await Promise.all([readStore(), readHapaSongStore(), readItemStore()]);
+  const [avatarStore, songStore, itemStore, referenceRun] = await Promise.all([
+    readStore(),
+    readHapaSongStore(),
+    readItemStore(),
+    echoReferenceMiningStore.currentRun(),
+  ]);
   const base = buildHumanVideoReferenceCardPacket({
     avatars: avatarStore.avatars || [],
     songs: songStore.songs || [],
     referenceCatalog: songStore.referenceCatalog || [],
+    referenceCards: referenceRun.cards || [],
+    referenceRun,
     itemCards: itemStore.cards || [],
   }, {
     profile: options.profile,
@@ -6931,7 +6961,16 @@ function paginateHumanVideoReferenceReviewQueue(dashboard, cardPacket, searchPar
       referenceSignals: video.agentReview.proposal?.referenceSignals || video.agentReview.proposal?.visualReferenceAnalysis?.observedSignals || [],
     },
     referenceReview: video.referenceReview || null,
-    packetReceipt: { id: cardPacket.id, profile: cardPacket.profile, digest: cardPacket.digest, cardCount: cardPacket.cardCount },
+    packetReceipt: {
+      id: cardPacket.id,
+      profile: cardPacket.profile,
+      digest: cardPacket.digest,
+      cardCount: cardPacket.cardCount,
+      authorityCounts: cardPacket.authorityCounts,
+      reviewStatusCounts: cardPacket.reviewStatusCounts,
+      canonStatusCounts: cardPacket.canonStatusCounts,
+      referenceAtlas: cardPacket.referenceAtlas,
+    },
   }));
   return {
     schemaVersion: "hapa.human-video-reference-review-queue.v1",

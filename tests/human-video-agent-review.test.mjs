@@ -98,6 +98,39 @@ test("reference workers are independently configured and may select only supplie
   assert.equal(submitted.review.revision, 1);
 });
 
+test("Reference Atlas packet profiles widen deliberately without erasing authority or provenance", () => {
+  const referenceCards = [
+    { id: "reference:direct", title: "Direct", revisionId: "reference:direct:r1", authority: { evidenceClass: "direct", reviewStatus: "pending-review", canonStatus: "non-canon" }, rightsAndPrivacy: { visibility: "shared", containsPrivateClues: false, licenseStatus: "reference-only" }, provenance: { method: "legacy-migration", sourceRunId: "run:atlas", sourcePacketHash: "fnv1a:packet" }, citations: [{ label: "Direct source", url: "https://example.test/direct", sourceClass: "official-source", retrievedAt: "2026-08-03" }], signalLexicon: { orthographic: ["DIRECT"] } },
+    { id: "reference:sourced", title: "Sourced", authority: { evidenceClass: "source-backed-candidate", reviewStatus: "proposed", canonStatus: "non-canon" }, provenance: { method: "research-loop" } },
+    { id: "reference:comparative", title: "Comparative", authority: { evidenceClass: "comparative", reviewStatus: "proposed", canonStatus: "non-canon" }, provenance: { method: "proper-name-recurrence" } },
+    { id: "reference:unresolved", title: "Unresolved", authority: { evidenceClass: "unresolved", reviewStatus: "proposed", canonStatus: "non-canon" }, provenance: { method: "phonetic-near-match" } },
+  ];
+  const input = {
+    referenceCards,
+    referenceRun: { runId: "run:atlas", runHash: "fnv1a:atlas", referenceRuntime: { source: "external-research-projection", authority: { status: "applied", receiptId: "authority:one", approvedCards: 3, resolvedWithoutPromotion: 1, previewPolicy: "visible-before-review", publicActivation: false, canonPromotion: false } } },
+    songs: [{ id: "song:one", title: "Song One" }],
+    avatars: [{ id: "avatar:one", primaryName: "Avatar One" }],
+  };
+  const standard = buildHumanVideoReferenceCardPacket(input, { profile: "echo-reference-cards" });
+  const wide = buildHumanVideoReferenceCardPacket(input, { profile: "echo-reference-wide" });
+  const exploratory = buildHumanVideoReferenceCardPacket(input, { profile: "echo-reference-exploratory" });
+  const core = buildHumanVideoReferenceCardPacket(input, { profile: "echo-core-cards" });
+  assert.equal(standard.cardCount, 2);
+  assert.equal(wide.cardCount, 3);
+  assert.equal(exploratory.cardCount, 4);
+  assert.equal(core.cardCount, 4);
+  assert.deepEqual(standard.authorityCounts, { direct: 1, "source-backed-candidate": 1 });
+  assert.deepEqual(standard.reviewStatusCounts, { "pending-review": 1, proposed: 1 });
+  assert.deepEqual(standard.canonStatusCounts, { "non-canon": 2 });
+  assert.equal(standard.referenceAtlas.availableCards, 4);
+  assert.equal(standard.referenceAtlas.source, "external-research-projection");
+  assert.equal(standard.referenceAtlas.authority.receiptId, "authority:one");
+  assert.equal(standard.cards[0].source.sourceKind, "official-source");
+  assert.equal(standard.cards[0].signals.includes("DIRECT"), true);
+  assert.equal(standard.cards[0].provenance.sourceRunId, "run:atlas");
+  assert.equal(standard.cards[0].sourcePath, "data/echo-reference-research-loop/projected-run.json");
+});
+
 test("human quality corrections form a bounded calibration profile", () => {
   const calibration = createHumanVideoQualityCalibration([
     { humanVideoKey: "a", agentReview: { proposal: { quality: { value: 4 } } }, humanEnrichment: { quality: { value: 4 } } },
@@ -158,11 +191,12 @@ test("agent review service writes current proposals and append-only receipts", a
   assert.equal(firstEvent.semanticJudgmentAutomation, false);
 });
 
-test("UI, API, and CLI expose optical proposals and explicit human decisions", async () => {
-  const [ui, api, cli] = await Promise.all([
+test("UI, API, CLI, and node discovery expose optical and bounded Reference Atlas passes", async () => {
+  const [ui, api, cli, nodeManifest] = await Promise.all([
     readFile(new URL("../src/components/HumanEnricherView.jsx", import.meta.url), "utf8"),
     readFile(new URL("../server/api.mjs", import.meta.url), "utf8"),
     readFile(new URL("../cli/avatar-builder.mjs", import.meta.url), "utf8"),
+    readFile(new URL("../hapa-node.json", import.meta.url), "utf8"),
   ]);
   assert.match(ui, /OPTICAL PASS · NO KNOWLEDGE SEARCH/);
   assert.match(ui, /Use as editable draft/);
@@ -179,10 +213,15 @@ test("UI, API, and CLI expose optical proposals and explicit human decisions", a
   assert.match(api, /\/api\/human-enricher\/agent-reviews/);
   assert.match(api, /matchesHumanVideoReviewFilter\(video, review\)/);
   assert.match(api, /reference-card-packets/);
+  assert.match(api, /echoReferenceMiningStore\.currentRun\(\)/);
   assert.match(api, /forbiddenInputs/);
   assert.match(cli, /human-enricher-agent-queue/);
   assert.match(cli, /human-enricher-agent-submit/);
   assert.match(cli, /human-enricher-agent-decision/);
   assert.match(cli, /human-enricher-reference-queue/);
   assert.match(cli, /human-enricher-reference-submit/);
+  assert.match(cli, /echo-reference-wide/);
+  assert.match(cli, /echo-reference-exploratory/);
+  assert.match(nodeManifest, /humanEnricherReferenceCards/);
+  assert.match(nodeManifest, /humanEnricherReferenceReviews/);
 });

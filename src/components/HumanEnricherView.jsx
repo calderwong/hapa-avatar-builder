@@ -440,6 +440,11 @@ export default function HumanEnricherView({ apiBase = "", onNotify = () => {} })
                     <span>{selectedVideo.referenceReview.reviewer?.model || "model not recorded"}</span>
                     <span>{selectedVideo.referenceReview.reviewer?.reasoningEffort || "reasoning not recorded"}</span>
                     <span>{selectedVideo.referenceReview.packet?.profile}</span>
+                    <span>{selectedVideo.referenceReview.packet?.referenceAtlas?.source || "Reference Atlas source not recorded"}</span>
+                    <span>{selectedVideo.referenceReview.packet?.referenceAtlas?.runHash || "Atlas run not recorded"}</span>
+                    <span>{Object.entries(selectedVideo.referenceReview.packet?.authorityCounts || {}).map(([key, value]) => `${key} ${value}`).join(" · ") || "Authority mix not recorded"}</span>
+                    <span>{Object.entries(selectedVideo.referenceReview.packet?.reviewStatusCounts || {}).map(([key, value]) => `${key} ${value}`).join(" · ") || "Review status mix not recorded"}</span>
+                    <span>{Object.entries(selectedVideo.referenceReview.packet?.canonStatusCounts || {}).map(([key, value]) => `${key} ${value}`).join(" · ") || "Canon status mix not recorded"}</span>
                     <span>{selectedVideo.referenceReview.packet?.digest}</span>
                   </div>
                   <p>{(selectedVideo.referenceReview.proposal?.observedSignals || []).join(" · ") || "No reference signals repeated."}</p>
@@ -448,7 +453,7 @@ export default function HumanEnricherView({ apiBase = "", onNotify = () => {} })
                     {(selectedVideo.referenceReview.proposal?.avatarRelationships || []).map((match, index) => <span key={`avatar:${match.cardId}:${index}`}><strong>{avatarMentionLabel(match.cardTitle || match.cardId)}</strong><small>{match.relationship || "visible-subject"} · {Math.round((match.confidence || 0) * 100)}%</small><small>Seen: {match.observedEvidence}</small><small>{match.explanation}</small></span>)}
                   </div>
                   {(selectedVideo.referenceReview.proposal?.negativeFindings || []).length > 0 && <p className="human-reference-negative">No-match notes: {selectedVideo.referenceReview.proposal.negativeFindings.join(" · ")}</p>}
-                  <p className="human-editor-hint">The worker could rank or reject supplied Cards only. Different models and parameters can rerun this pass without repeating optical inspection.</p>
+                  <p className="human-editor-hint">The worker could rank or reject supplied Cards only. The packet records the exact Reference Atlas run and authority mix; different models and parameters can rerun this pass without repeating optical inspection.</p>
                 </section>
               ) : selectedVideo.agentReview ? (
                 <section className="human-agent-proposal" data-status="needs-reference">

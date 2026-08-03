@@ -21,13 +21,21 @@ The exporter reads four current sources:
 | Source | Contribution |
 | --- | --- |
 | `data/dear-papa-songbook.json` | source track identity, titles, full lyrics, lyric provenance, sections, beat grids, vocal density, energy curves, sync state, lore, authorship, and source anchors |
-| `data/hapa-songs-store.json` | Builder-normalized song metadata, lyric timings, audio and stems, story/context records, curated reference catalog, song connectors, and curated reference graph edges |
-| `data/echo-reference-mining/latest.json` | current Reference Atlas cards, graph associations, run receipts, unresolved records, contribution state, authority, review, rights, privacy, and lineage |
+| `data/hapa-songs-store.json` | Builder-normalized song metadata, lyric timings, audio and stems, story/context records, the original 85-entry curated reference catalog, song connectors, and curated reference graph edges |
+| `data/echo-reference-mining/latest.json` | 1,044-Card local Reference Atlas mining run, graph associations, run receipts, unresolved records, contribution state, authority, review, rights, privacy, and lineage |
+| `data/echo-reference-research-loop/projected-run.json` | richer 1,103-Card research projection, including 59 additional source-backed candidates and their citations/provenance; selected by the runtime while it remains the richer valid projection |
 | live Reference Atlas observability | graph/card counts, queue state, citation status, privacy telemetry, receipt links, and downstream status |
 
 The app/API route and the default script both resolve the same live Reference
-Atlas projection, including stored revisions, research overlays, media, and
-preview-first authority, then calculate observability from that exact run.
+Atlas projection through `echoReferenceMiningStore.currentRun()`. The runtime
+chooses the richer valid research projection over the local mining run, then
+attaches stored revisions, research overlays, media, and preview-first authority
+before calculating observability from that exact run. On 2026-08-03 this means
+1,103 available Cards: 199 direct, 59 source-backed candidates, 595 comparative,
+and 250 unresolved. The active preview-first receipt approves the 853 resolved
+Cards for bounded local interpretive use and resolves the 250 unresolved Cards
+without promotion; every Card remains non-canon and public activation remains
+false. These are review and discovery classes, not canon promotion.
 Explicit `--reference-run` and `--observability` overrides remain available for
 fixed fixtures and recovery snapshots.
 
