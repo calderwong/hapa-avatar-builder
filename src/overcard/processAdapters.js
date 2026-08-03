@@ -4,6 +4,9 @@ import { resolveBuilderRuntimeContext } from "./runtimeContext.js";
 const NODE_ID = "hapa-avatar-builder";
 
 export const BUILDER_PROCESS_ADAPTERS = Object.freeze([
+  adapter("builder-human-video-enricher", "human-video-enrichment", "Human Video Enrichment", "local", NODE_ID, "/?view=human-enricher", "/api/human-enricher/videos", "source-media-read-only", [
+    socket("human-direction", "context", ["avatar", "card", "media", "song"], "context", ["context.read"], ["human-enricher.context"]),
+  ]),
   adapter("builder-scenes-author", "scenes", "Scene Authoring", "local", NODE_ID, "/?view=scenes", "/api/world", "process-default", [
     socket("context", "context", ["avatar", "card", "set", "scene"], "context", ["context.read"], ["scenes.context"]),
     socket("author", "operator", ["avatar"], "authority", ["scene.author"], ["scenes.write"], "human-gate"),

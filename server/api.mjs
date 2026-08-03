@@ -57,9 +57,14 @@ import {
   restoreStargateContextCard
 } from "../src/domain/tarot-stargate-context-card.js";
 import {
+  createSystemMediaDashboard,
   createSystemMediaLibrary,
   normalizeSystemMediaLibrary
 } from "../src/domain/systemMedia.js";
+import {
+  createHumanVideoEnricherDashboard,
+  humanVideoKey,
+} from "../src/domain/human-video-enrichment.js";
 import {
   upsertMediaAttachmentRecord,
   withMediaAttachmentRelationship
@@ -135,6 +140,7 @@ import { openAvatarContextGenerationService } from "./avatar-context-generation-
 import { openAvatarWisdomCouncilService } from "./avatar-wisdom-council-service.mjs";
 import { openAvatarProposalReviewService } from "./avatar-proposal-review-service.mjs";
 import { openAvatarCardCustodyService } from "./card-custody-service.mjs";
+import { openHumanVideoEnrichmentStore } from "./human-video-enrichment-store.mjs";
 import { MintLedgerError, createSongCardMintController } from "./song-card-mint-controller.mjs";
 import { createSongCardRemintStore } from "./song-card-remint-store.mjs";
 import { createSongCardLocalRenderBridge, inspectSongCardRendererBuildIdentity } from "./song-card-local-renderer.mjs";
@@ -473,11 +479,17 @@ const SCENE_STORE_PATH = process.env.HAPA_SCENE_STORE || path.join(ROOT, "data/s
 const TAROT_STORE_PATH = process.env.HAPA_TAROT_STORE || path.join(ROOT, "data/tarot-store.json");
 const TAROT_DRAW_FORGE_RUN_DIR = process.env.HAPA_TAROT_DRAW_FORGE_RUN_DIR || path.join(ROOT, "data/tarot-draw-forge-runs");
 const SYSTEM_MEDIA_PATH = process.env.HAPA_MEDIA_LIBRARY || path.join(ROOT, "data/media-library.json");
+const HUMAN_VIDEO_ENRICHMENT_PATH = process.env.HAPA_HUMAN_VIDEO_ENRICHMENT_STORE || path.join(ROOT, "data/human-video-enrichments.json");
+const HUMAN_VIDEO_ENRICHMENT_EVENT_PATH = process.env.HAPA_HUMAN_VIDEO_ENRICHMENT_EVENTS || path.join(ROOT, "data/human-video-enrichment-events.ndjson");
 const ITEM_STORE_PATH = process.env.HAPA_ITEM_STORE || path.join(ROOT, "data/item-manager-store.json");
 const INVENTORY_STORE_PATH = process.env.HAPA_INVENTORY_STORE || path.join(ROOT, "data/inventory-store.json");
 const HAPA_DEV_PROTO_DB_PATH = process.env.HAPA_DEV_PROTO_DB || path.join(process.env.HOME || "/Users/calderwong", "Library", "Application Support", "hapa-ag", "persistence.db");
 const HAPA_DEV_PROTO_HYPERCORE_DIR = process.env.HAPA_DEV_PROTO_HYPERCORE_DIR || path.join(process.env.HOME || "/Users/calderwong", "Library", "Application Support", "hapa-ag", "storage");
 const SQLITE_BIN = process.env.HAPA_SQLITE_BIN || "/usr/bin/sqlite3";
+const humanVideoEnrichmentStore = openHumanVideoEnrichmentStore({
+  filePath: HUMAN_VIDEO_ENRICHMENT_PATH,
+  eventPath: HUMAN_VIDEO_ENRICHMENT_EVENT_PATH,
+});
 
 let latestTarotFrame = null;
 let frameCounter = 0;
@@ -3881,6 +3893,71 @@ async function route(req, res) {
     return;
   }
 
+  if (pathname === "/api/human-enricher/videos" && req.method === "GET") {
+    try {
+      res.setHeader("Cache-Control", "no-store");
+      sendJson(res, 200, paginateHumanVideoEnricherDashboard(await buildHumanVideoEnricherDashboard(), url.searchParams));
+    } catch (error) {
+      sendJson(res, Number(error?.statusCode || 500), {
+        ok: false,
+        error: error?.code || "human_enricher_load_failed",
+        message: error?.message || String(error),
+      });
+    }
+    return;
+  }
+
+  if (pathname === "/api/human-enricher/records" && req.method === "PUT") {
+    try {
+      const body = await readBody(req);
+      const dashboard = await buildHumanVideoEnricherDashboard();
+      const requestedKey = String(body.key || humanVideoKey(body.videoIdentity || body.video || {})).trim();
+      const video = dashboard.videos.find((candidate) => candidate.humanVideoKey === requestedKey || candidate.id === body.videoId);
+      if (!video) {
+        sendJson(res, 404, {
+          ok: false,
+          error: "human_enricher_video_not_found",
+          message: "The selected video is no longer present in the Builder's known media stores. Reindex or reload before saving.",
+        });
+        return;
+      }
+      const result = await humanVideoEnrichmentStore.update({
+        ...body,
+        key: video.humanVideoKey,
+        videoId: video.id,
+        videoName: video.name,
+        videoIdentity: {
+          recordId: video.id,
+          assetId: video.assetId || video.asset?.id || "",
+          contentFingerprint: video.contentFingerprint || "",
+          uri: video.uri || "",
+          sourcePath: video.sourcePath || "",
+        },
+      }, {
+        actorId: String(req.headers["x-hapa-actor-id"] || body.updatedBy || "local-human-operator").trim().slice(0, 180),
+      });
+      await appendSubscriberRegistration("human-video-enrichment.updated", {
+        humanVideoEnrichment: result.record,
+      });
+      res.setHeader("Cache-Control", "no-store");
+      sendJson(res, 200, {
+        ok: true,
+        record: result.record,
+        summary: (await buildHumanVideoEnricherDashboard()).summary,
+        directorReadable: true,
+        directorField: "human_enrichment",
+      });
+    } catch (error) {
+      sendJson(res, Number(error?.statusCode || 400), {
+        ok: false,
+        error: error?.code || "human_enrichment_update_failed",
+        message: error?.message || String(error),
+        details: error?.details || null,
+      });
+    }
+    return;
+  }
+
   const systemMediaRecordMatch = pathname.match(/^\/api\/system-media\/records\/([^/]+)$/);
   if (systemMediaRecordMatch && req.method === "PATCH") {
     const library = await patchSystemMediaRecord(systemMediaRecordMatch[1], await readBody(req));
@@ -6564,6 +6641,76 @@ async function readSystemMediaLibrary() {
   } catch {
     return createSystemMediaLibrary();
   }
+}
+
+async function buildHumanVideoEnricherDashboard() {
+  const [avatarStore, canonicalAvatarStore, tarotStore, sceneGraph, mediaLibrary, enrichmentStore, songStore, itemStore] = await Promise.all([
+    readStore({ includeProjections: true }),
+    readStore(),
+    readTarotStore(),
+    readSceneStore(),
+    readSystemMediaLibrary(),
+    humanVideoEnrichmentStore.read(),
+    readHapaSongStore(),
+    readItemStore(),
+  ]);
+  const mediaDashboard = createSystemMediaDashboard({
+    avatars: avatarStore.avatars || [],
+    tarotStore,
+    sceneGraph,
+    mediaLibrary,
+    itemStore,
+    songStore,
+  });
+  return createHumanVideoEnricherDashboard({
+    mediaDashboard,
+    enrichmentStore,
+    avatars: canonicalAvatarStore.avatars || [],
+    songs: songStore.songs || [],
+  });
+}
+
+function paginateHumanVideoEnricherDashboard(dashboard, searchParams) {
+  const query = String(searchParams.get("q") || "").trim().toLowerCase();
+  const quality = String(searchParams.get("quality") || "all").trim().toLowerCase();
+  const offset = Math.max(0, Number(searchParams.get("offset") || 0) || 0);
+  const requestedLimit = String(searchParams.get("limit") || "120").trim().toLowerCase();
+  const limit = requestedLimit === "all" ? 50_000 : Math.max(1, Math.min(500, Number(requestedLimit) || 120));
+  const videos = dashboard.videos.filter((video) => {
+    const grade = Number(video.humanEnrichment?.quality?.value || 0);
+    if (quality === "enriched" && !video.humanEnrichment) return false;
+    if (quality === "ungraded" && grade > 0) return false;
+    if (/^[1-5]$/.test(quality) && grade !== Number(quality)) return false;
+    if (!query) return true;
+    return [
+      video.name,
+      video.id,
+      video.sourcePath,
+      video.ownerName,
+      video.role,
+      video.documentKind,
+      ...(video.tags || []),
+      ...(video.relationships || []).flatMap((relationship) => [relationship.ownerName, relationship.ownerType, relationship.role]),
+      ...(video.humanEnrichment?.avatarMentions || []).map((mention) => mention.mention),
+      video.humanEnrichment?.directorNotes,
+      ...(video.humanEnrichment?.references || []).flatMap((reference) => [reference.label, reference.id, reference.notes]),
+    ].join(" ").toLowerCase().includes(query);
+  });
+  const page = videos.slice(offset, offset + limit);
+  return {
+    ...dashboard,
+    videos: page,
+    query: query || null,
+    qualityFilter: quality,
+    pagination: {
+      offset,
+      limit,
+      returned: page.length,
+      total: videos.length,
+      hasMore: offset + page.length < videos.length,
+      nextOffset: offset + page.length,
+    },
+  };
 }
 
 async function writeSystemMediaLibrary(library) {
@@ -9767,9 +9914,10 @@ async function hydrateEchoDirectorProjectPayload(payload, safeSongId, options = 
     director_show_graph_receipt: graphReceipt,
     runtime_shader_repair_receipt: runtimeShaderRepairReceipt,
   };
+  const humanEnrichedProject = await humanVideoEnrichmentStore.attachToDirectorProject(hydratedProject);
   return payload?.music_video_project
-    ? { ...payload, music_video_project: hydratedProject }
-    : hydratedProject;
+    ? { ...payload, music_video_project: humanEnrichedProject }
+    : humanEnrichedProject;
 }
 
 function echoDirectionVariantRows(payload) {

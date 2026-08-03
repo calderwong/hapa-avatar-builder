@@ -3,11 +3,11 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { BUILDER_HOST_TARGETS, builderHostTargetRegistrations, getBuilderHostTarget, resolveBuilderHostAlias } from "../src/overcard/hostTargets.js";
 
-const expected = ["builder", "mind", "scenes", "items", "loops", "lookbook", "lore", "songs", "echos", "echo-records", "kanban", "protocol", "bank", "tarot-library", "hell-week", "tarot", "creator-sets"];
+const expected = ["builder", "human-enricher", "mind", "scenes", "items", "loops", "lookbook", "lore", "songs", "echos", "echo-records", "kanban", "protocol", "bank", "tarot-library", "hell-week", "tarot", "creator-sets"];
 
-test("one registry completely describes all seventeen menu hosts and typed slots", () => {
+test("one registry completely describes all eighteen menu hosts and typed slots", () => {
   assert.deepEqual(BUILDER_HOST_TARGETS.map((target) => target.route), expected);
-  assert.equal(new Set(BUILDER_HOST_TARGETS.map((target) => target.id)).size, 17);
+  assert.equal(new Set(BUILDER_HOST_TARGETS.map((target) => target.id)).size, 18);
   for (const target of BUILDER_HOST_TARGETS) {
     assert.ok(target.aliases.includes(target.route));
     assert.equal(target.launchAction.view, target.route);
@@ -41,7 +41,7 @@ test("every URL alias resolves to a live registry host", () => {
 
 test("navigation, lazy loading, capability projection, and attachment registration consume the registry", async () => {
   const registrations = builderHostTargetRegistrations();
-  assert.equal(registrations.length, 17);
+  assert.equal(registrations.length, 18);
   assert.ok(registrations.every((target) => target.slots?.[0]?.role && target.contextMode && target.effectExplanation));
   const [app, api, adapter, main, manifest] = await Promise.all([
     readFile(new URL("../src/App.jsx", import.meta.url), "utf8"), readFile(new URL("../server/api.mjs", import.meta.url), "utf8"),

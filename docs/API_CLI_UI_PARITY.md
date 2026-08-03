@@ -95,3 +95,16 @@ Registry resolution is verified as follows:
 - Second Brain/Worldbuilding retrieval uses the node record linked from the canonical manifest and the same aliases; the parity evidence bundle records the resolved paths.
 
 `hapa-avatar-dashboard` is a different node and is never an alias of this app.
+
+## Human Enricher parity
+
+The canonical overlay schema is `hapa.human-video-enrichment-store.v1` in `src/domain/human-video-enrichment.js`. It preserves source media and projects matching human direction into Echo State director timeline responses by content fingerprint, media/asset ID, source path, or URI.
+
+| Surface | Human Enricher behavior |
+| --- | --- |
+| UI | **Human Enricher** lists all videos collected from System Media, Avatar, Tarot, scene, and read-only Hell Week sources; it edits Quality 1–5, `@Avatar` links, Director Notes, and typed references. |
+| API | `GET /api/human-enricher/videos` returns video metadata, relationships, options, and current overlays. `PUT /api/human-enricher/records` performs an optimistic-revision save. `GET /api/echos/director-project` includes matching `human_enrichment` fields on timeline shots. |
+| CLI | `human-enricher-list` exposes the same read model; `human-enricher-save --file ... --actor ...` uses the same revisioned write endpoint. |
+| Data | Current overlays are in ignored `data/human-video-enrichments.json`; append-only update receipts are in `data/human-video-enrichment-events.ndjson`. |
+
+These records are human direction only. They do not establish canon, ownership, rights clearance, publication approval, or render authority.

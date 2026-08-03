@@ -10,6 +10,8 @@ Important local files:
 - `scene-store.json` - world, places, scenes, episodes, and timelines.
 - `tarot-store.json` - tarot decks, sets, cards, spreads, and avatar/card links.
 - `media-library.json` - imported local media records and review metadata.
+- `human-video-enrichments.json` - revisioned human Quality grades, `@Avatar` links, Echo State director notes, and manual references keyed to known videos.
+- `human-video-enrichment-events.ndjson` - append-only local receipts for human enrichment revisions.
 - `kanban.json` - local builder board.
 - `media/` - generated or imported media assets.
 - `backups/` - pre-merge and pre-heal store snapshots.

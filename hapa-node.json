@@ -39,6 +39,7 @@
     "Agents / Phamiliars",
     "Cards / Standards / Forging",
     "Media / Embodiment",
+    "Human Video Quality / Avatar Mentions / Echo State Director Notes / References",
     "Memory / Lore / Provenance",
     "Name / Identity",
     "Songs / Tarot / Scene Attach Packs",
@@ -74,7 +75,9 @@
     "stargateContextSyncStatus": "http://127.0.0.1:8787/api/tarot/stargate/context-card/status",
     "stargateContextCli": "npm run cli -- stargate-context-card --help",
     "contextGeneration": "http://127.0.0.1:8787/api/context-generation",
-    "wisdomCouncils": "http://127.0.0.1:8787/api/wisdom-councils"
+    "wisdomCouncils": "http://127.0.0.1:8787/api/wisdom-councils",
+    "humanEnricherVideos": "http://127.0.0.1:8787/api/human-enricher/videos",
+    "humanEnricherRecords": "http://127.0.0.1:8787/api/human-enricher/records"
   },
   "requiredNodes": [
     "hapa-overcard",
@@ -90,6 +93,8 @@
     "sceneStore": "data/scene-store.json",
     "tarotStore": "data/tarot-store.json",
     "mediaLibrary": "data/media-library.json",
+    "humanVideoEnrichments": "data/human-video-enrichments.json",
+    "humanVideoEnrichmentEvents": "data/human-video-enrichment-events.ndjson",
     "mediaDir": "data/media",
     "cardOriginOutbox": "data/overwind/origin-outbox.sqlite3",
     "cardCustodyCores": "data/card-custody/cores",

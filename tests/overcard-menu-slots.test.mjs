@@ -9,7 +9,7 @@ test("every generated menu host mounts an exact attachment toggle and shared slo
     readFile(new URL("../src/overcard/BuilderMenuHostTab.jsx", import.meta.url), "utf8"),
     readFile(new URL("../src/index.css", import.meta.url), "utf8"),
   ]);
-  assert.equal(BUILDER_HOST_TARGETS.length, 17);
+  assert.equal(BUILDER_HOST_TARGETS.length, 18);
   assert.match(app, /<BuilderMenuHostTab/);
   assert.match(tab, /<OvercardHostSlots/);
   assert.match(tab, /builder-menu-host__slot-toggle/);

@@ -59,6 +59,26 @@ async function main(cmd, opts) {
     return;
   }
 
+  if (cmd === "human-enricher-list") {
+    const query = String(opts.query || "").trim();
+    const params = new URLSearchParams({ limit: "all" });
+    if (query) params.set("q", query);
+    print(await contextGenerationApiRequest(opts, `/api/human-enricher/videos?${params}`), { ...opts, json: true });
+    return;
+  }
+
+  if (cmd === "human-enricher-save") {
+    const inputFile = option(opts, "file", "record-file");
+    const actorId = String(opts.actor || "").trim();
+    if (!inputFile || !actorId) throw new Error("human-enricher-save requires --file <human-video-enrichment.json> --actor <human-id>.");
+    const input = await readJsonInput(inputFile);
+    print(await contextGenerationApiRequest(opts, "/api/human-enricher/records", {
+      method: "PUT",
+      body: { ...input, updatedBy: actorId },
+    }), { ...opts, json: true });
+    return;
+  }
+
   if (cmd === "stargate-context-card") {
     const sceneFile = option(opts, "scene-file", "scene");
     const stargateFile = option(opts, "stargate-file", "gate");
@@ -1420,6 +1440,8 @@ function printHelp() {
 
 Commands:
   list [--json]
+  human-enricher-list [--query "Bella"] [--api-url http://127.0.0.1:8787] [--json]
+  human-enricher-save --file ./human-video-enrichment.json --actor <human-id> [--api-url http://127.0.0.1:8787] [--json]
   card-custody-status [--card-id <id>] [--api-url http://127.0.0.1:8787] [--json]
   card-custody-ensure --file ./card.json --actor <human-or-local-operator-id> [--evidence <ref>] [--api-url http://127.0.0.1:8787] [--json]
   stargate-context-card --scene-file ./scene-card.json --stargate-file ./derived-gate.json [--actor local-operator] [--json]

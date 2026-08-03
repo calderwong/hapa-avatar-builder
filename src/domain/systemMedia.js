@@ -31,9 +31,9 @@ export function normalizeSystemMediaLibrary(input = {}) {
   };
 }
 
-export function createSystemMediaDashboard({ avatars = [], tarotStore = {}, sceneGraph = {}, mediaLibrary = {} } = {}) {
+export function createSystemMediaDashboard({ avatars = [], tarotStore = {}, sceneGraph = {}, mediaLibrary = {}, itemStore = {}, songStore = {} } = {}) {
   const library = normalizeSystemMediaLibrary(mediaLibrary);
-  const records = collectSystemMediaRecords({ avatars, tarotStore, sceneGraph, mediaLibrary: library });
+  const records = collectSystemMediaRecords({ avatars, tarotStore, sceneGraph, mediaLibrary: library, itemStore, songStore });
   const videos = records.filter((record) => record.mediaType === "video");
   const images = records.filter((record) => record.mediaType === "image");
   const enriched = records.filter((record) => record.enrichment?.status === "enriched" || record.enrichment?.ocr?.lineCount > 0 || record.enrichment?.vision?.labels?.length);
@@ -53,6 +53,8 @@ export function createSystemMediaDashboard({ avatars = [], tarotStore = {}, scen
       tarotSets: Array.isArray(tarotStore.sets) ? tarotStore.sets.length : 0,
       scenes: sceneList.length,
       places: placeList.length,
+      itemCards: Array.isArray(itemStore.cards) ? itemStore.cards.length : 0,
+      songs: Array.isArray(songStore.songs) ? songStore.songs.length : 0,
       media: records.length,
       videos: videos.length,
       images: images.length,
@@ -112,7 +114,7 @@ export function filterSystemMediaRecords(records = [], filters = {}) {
   });
 }
 
-export function collectSystemMediaRecords({ avatars = [], tarotStore = {}, sceneGraph = {}, mediaLibrary = {} } = {}) {
+export function collectSystemMediaRecords({ avatars = [], tarotStore = {}, sceneGraph = {}, mediaLibrary = {}, itemStore = {}, songStore = {} } = {}) {
   const merged = new Map();
   const add = (record) => {
     const normalized = normalizeDashboardRecord(record);
@@ -158,6 +160,28 @@ export function collectSystemMediaRecords({ avatars = [], tarotStore = {}, scene
         ownerId: scene.id,
         ownerName: scene.title || scene.id,
         role: asset.requirementId || asset.metadata?.sceneRequirementId || "scene-media"
+      }));
+    }
+  }
+
+  for (const card of itemStore.cards || []) {
+    for (const asset of card.mediaAssets || card.assets || []) {
+      add(assetToDashboardRecord(asset, {
+        ownerType: "item",
+        ownerId: card.id,
+        ownerName: card.title || card.name || card.id,
+        role: asset.role || asset.requirementId || "item-media",
+      }));
+    }
+  }
+
+  for (const song of songStore.songs || []) {
+    for (const asset of song.media || song.mediaAssets || song.assets || []) {
+      add(assetToDashboardRecord(asset, {
+        ownerType: "song",
+        ownerId: song.id || song.songId,
+        ownerName: song.title || song.name || song.id || song.songId,
+        role: asset.role || asset.requirementId || "song-media",
       }));
     }
   }
@@ -244,8 +268,8 @@ function assetToDashboardRecord(asset = {}, owner) {
   return {
     id: `${owner.ownerType}:${owner.ownerId}:${asset.id}`,
     assetId: asset.id,
-    name: asset.name || asset.id,
-    mediaType: asset.type || "unknown",
+    name: asset.name || asset.title || asset.id,
+    mediaType: asset.type || asset.mediaType || "unknown",
     uri: asset.uri || "",
     thumbnailUri: thumbnailUriForAsset(asset),
     ownerType: owner.ownerType,
@@ -253,12 +277,12 @@ function assetToDashboardRecord(asset = {}, owner) {
     ownerName: owner.ownerName,
     role: owner.role,
     sourceRoots,
-    sourcePath: asset.metadata?.folderIngest?.sourcePath || asset.metadata?.sourcePath || asset.metadata?.storage?.path || asset.storage?.path || null,
-    contentFingerprint: asset.metadata?.folderIngest?.contentFingerprint || asset.metadata?.contentFingerprint || null,
+    sourcePath: asset.metadata?.folderIngest?.sourcePath || asset.metadata?.sourcePath || asset.sourcePath || asset.metadata?.storage?.path || asset.storage?.path || null,
+    contentFingerprint: asset.metadata?.folderIngest?.contentFingerprint || asset.metadata?.contentFingerprint || asset.contentFingerprint || null,
     sizeBytes: Number(asset.metadata?.sizeBytes || asset.sizeBytes || 0),
-    width: numberOrNull(asset.metadata?.width),
-    height: numberOrNull(asset.metadata?.height),
-    duration: numberOrNull(asset.metadata?.duration),
+    width: numberOrNull(asset.metadata?.width ?? asset.width),
+    height: numberOrNull(asset.metadata?.height ?? asset.height),
+    duration: numberOrNull(asset.metadata?.duration ?? asset.duration),
     documentKind: classifications.documentKind || asset.metadata?.tarotMediaRole || asset.metadata?.sceneRequirementId || asset.requirementId || "unknown",
     reviewPriority: classifications.reviewPriority || ((asset.tags || []).includes("needs-review") ? "high" : "none"),
     reviewStatus: asset.metadata?.systemMedia?.reviewStatus || "assigned",
@@ -371,6 +395,7 @@ function mergeReviewStatus(a = "new", b = "new") {
 
 function thumbnailUriForAsset(asset = {}) {
   if (!asset) return null;
+  if (asset.thumbnailUri || asset.posterUri) return asset.thumbnailUri || asset.posterUri;
   if (asset.metadata?.thumbnailUri) return asset.metadata.thumbnailUri;
   if (asset.metadata?.thumbnail?.uri) return asset.metadata.thumbnail.uri;
   const frames = asset.metadata?.frames || asset.state?.keyframes || [];

@@ -207,6 +207,7 @@ import TarotLibraryView, {
 import HellWeekView from "./components/HellWeekView.jsx";
 import SongCardMintPanel from "./components/SongCardMintPanel.jsx";
 import EchoRecordGardenBoundary from "./components/EchoRecordGardenBoundary.jsx";
+import HumanEnricherView from "./components/HumanEnricherView.jsx";
 import { localFileApiUri } from "./domain/local-media-uri.js";
 import { buildPublicDemoGateCards } from "./domain/tarot-stargate-derivation.js";
 
@@ -250,7 +251,7 @@ const electronApiBase = globalThis.window?.hapaAvatarBuilder?.apiBase;
 const BUILDER_HOST_ICONS = {
   grid: Grid3X3, brain: Brain, scenes: Clapperboard, items: Box, loops: Route, lookbook: BookOpen,
   lore: Archive, songs: Music, echos: Sparkles, kanban: KanbanSquare, "avatar-card": BadgeCheck,
-  "record-player": Disc3, bank: CreditCard, "tarot-library": Tags, "hell-week": Flame, "tarot-draw": Sparkles, "creator-sets": Users,
+  "record-player": Disc3, bank: CreditCard, "tarot-library": Tags, "hell-week": Flame, "tarot-draw": Sparkles, "creator-sets": Users, "human-enricher": ListChecks,
 };
 const API_BASE = electronApiBase || (["5177", "5178"].includes(globalThis.location?.port) ? "http://127.0.0.1:8787" : "");
 const songRegistryApiBase = globalThis.window?.hapaAvatarBuilder?.songRegistryApiBase;
@@ -3773,6 +3774,10 @@ export default function App({ overcardAdapter }) {
               </div>
             </aside>
           </section>
+        )}
+
+        {activeView === "human-enricher" && (
+          <HumanEnricherView apiBase={API_BASE} onNotify={notify} />
         )}
 
         {activeView === "mind" && selectedAvatar && mindPack && (

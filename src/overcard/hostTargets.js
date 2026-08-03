@@ -3,6 +3,7 @@ const COMMON_CONTEXT = ["avatar", "card", "deck", "set"];
 
 export const BUILDER_HOST_TARGETS = Object.freeze([
   host("builder", "Builder", "grid", ["builder", "build", "media"], "view-context", "filters the media intake and assembly view", COMMON_CONTEXT, [{ store: "avatars", delay: 900 }]),
+  host("human-enricher", "Human Enricher", "human-enricher", ["human-enricher", "human-enrichment", "video-review"], "process-context", "contributes explicit human quality, Avatar, director-note, and reference context without rewriting source media", ["avatar", "card", "media", "song"], [{ store: "avatars", delay: 400 }, { store: "songs", delay: 520 }], { processId: "human-video-enrichment", adapterId: "builder-human-video-enricher", fallback: "source-media-read-only" }),
   host("mind", "Mind", "brain", ["mind", "avatar-mind"], "view-context", "filters the selected Avatar Mind and loadout", ["avatar", "card", "deck"]),
   host("scenes", "Scenes", "scenes", ["scenes", "scene", "world"], "process-context", "contributes bounded avatar, card, and set context to scene authoring", ["avatar", "card", "set", "scene"], [{ store: "world", delay: 800 }], { processId: "scenes", adapterId: "builder-scenes-author" }),
   host("items", "Items", "items", ["items", "item-manager", "inventory"], "process-context", "contributes context to Item Manager inventory operations", ["avatar", "card", "deck", "set", "node", "tool"], [{ store: "items", delay: 800 }], { processId: "items", adapterId: "builder-item-manager", fallback: "inventory-defaults" }),

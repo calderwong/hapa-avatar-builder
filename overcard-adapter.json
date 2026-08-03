@@ -41,6 +41,7 @@
   ],
   "hostTargets": [],
   "processAdapters": [
+    { "processId": "human-video-enrichment", "adapterId": "builder-human-video-enricher", "uri": "/api/overcard/process-adapters/builder-human-video-enricher/run-context" },
     { "processId": "scenes", "adapterId": "builder-scenes-author", "uri": "/api/overcard/process-adapters/builder-scenes-author/run-context" },
     { "processId": "items", "adapterId": "builder-item-manager", "uri": "/api/overcard/process-adapters/builder-item-manager/run-context" },
     { "processId": "loops", "adapterId": "builder-loop-router", "uri": "/api/overcard/process-adapters/builder-loop-router/run-context" },
@@ -74,7 +75,7 @@
     "schemas": ["hapa.overcard-capabilities.v1", "hapa.overcard-node-adapter.v1"],
     "renderers": ["avatar-builder-native-entity", "avatar-builder-avatar", "builder-item-card", "builder-tarot-card", "builder-tarot-deck", "builder-tarot-set", "builder-scene-card", "builder-song-card"],
     "hostTargets": [],
-    "processes": ["scenes", "items", "loops", "songs-director", "echos-director", "echo-record-garden", "tarot-draw", "tarot-forge", "creator-set-assembly", "hell-week", "kanban-actions", "bank-context"],
+    "processes": ["human-video-enrichment", "scenes", "items", "loops", "songs-director", "echos-director", "echo-record-garden", "tarot-draw", "tarot-forge", "creator-set-assembly", "hell-week", "kanban-actions", "bank-context"],
     "reasons": ["Static adapter discovery grants neither trust nor authorization."]
   }
 }

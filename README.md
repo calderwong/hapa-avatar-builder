@@ -185,6 +185,17 @@ Double-click launcher:
 launch-avatar-builder.command
 ```
 
+## Human Enricher
+
+Open **Human Enricher** from the Builder's top-level work surfaces to review every video registered across the System Media Library, Avatar Cards, Tarot Cards, scenes, and read-only Hell Week projections. The workbench shows each video's known technical metadata, source identity, tags, and relationships alongside four human-authored fields:
+
+- **Quality** — a 1–5 grade from Reject through Hero.
+- **@Avatars** — explicit Avatar relationships chosen from the Builder roster.
+- **Director Notes** — freeform human direction delivered to matching Echo State timeline shots as `human_enrichment.directorNotes`.
+- **References** — links to Echo State songs, other songs, Hapa Cards, URLs, or manual anchors.
+
+Human enrichment is a non-destructive overlay stored in ignored local runtime files at `data/human-video-enrichments.json`, with append-only change receipts in `data/human-video-enrichment-events.ndjson`. It does not rewrite source media, grant rights, establish canon, approve publication, or authorize a render.
+
 ## Canonical Hapa Node
 
 This checkout is registered as `hapa-avatar-builder`, the canonical local Avatar Builder app node. The Desktop route is:
@@ -220,6 +231,8 @@ npm run cli -- heal-plan red-reaper --json
 npm run cli -- export-card red-reaper --out ./Red.avatar-card.json
 npm run cli -- scaffold Red Reaper --id red-reaper-v2 --primary Red
 npm run cli -- capabilities --json
+npm run cli -- human-enricher-list --json
+npm run cli -- human-enricher-save --file ./human-video-enrichment.json --actor calder --json
 ```
 
 ## API
@@ -242,6 +255,8 @@ curl http://127.0.0.1:8787/api/avatars/red-reaper/kanban
 curl http://127.0.0.1:8787/api/overwind/card-origin/status
 curl -X POST http://127.0.0.1:8787/api/overwind/card-origin/sync
 curl http://127.0.0.1:8787/api/tarot/krea2
+curl http://127.0.0.1:8787/api/human-enricher/videos
+curl -X PUT -H 'content-type: application/json' --data @human-video-enrichment.json http://127.0.0.1:8787/api/human-enricher/records
 ```
 
 `/api/tarot/krea2` reports truthful node and preset availability. The adjacent protected Builder routes upload source images, submit and poll edit tasks, cancel work, and stream result artifacts. The Builder server is the credential boundary; the browser never receives the Krea node token or direct protected node URLs.
