@@ -46,6 +46,14 @@ function opticalReview(overrides = {}) {
         imagePath: `/tmp/frame-${index}.jpg`,
         sha256,
         observation: `Frame ${index + 1} has a distinct literal visual observation authored after optical inspection.`,
+        palette: {
+          colors: [
+            { hex: "#123ABC", label: "celestial blue", prevalence: "dominant", explanation: `Blue light fills frame ${index + 1}.` },
+            { hex: "#D4A63A", label: "brass gold", prevalence: "supporting", explanation: `Warm brass appears in frame ${index + 1}.` },
+            { hex: "#101820", label: "shadow navy", prevalence: "supporting", explanation: `Deep shadows frame image ${index + 1}.` },
+          ],
+          uncertainty: `Frame ${index + 1} hex values are visually estimated.`,
+        },
       })),
     },
     proposal: {
@@ -53,14 +61,6 @@ function opticalReview(overrides = {}) {
       quality: { value: 4, explanation: "Strong composition and identity continuity, with visible midpoint morphing." },
       categories: ["character-transition", "fantasy-tech"],
       tags: ["blue-light", "cat", "astrolabe"],
-      palette: {
-        colors: [
-          { hex: "#123ABC", label: "celestial blue", prevalence: "dominant", explanation: "Blue light fills the chamber.", evidenceFrameHashes: hashes },
-          { hex: "#D4A63A", label: "brass gold", prevalence: "supporting", explanation: "The circular instrument is warm brass.", evidenceFrameHashes: [hashes[1], hashes[2]] },
-          { hex: "#101820", label: "shadow navy", prevalence: "supporting", explanation: "Deep shadows frame the figure.", evidenceFrameHashes: hashes },
-        ],
-        uncertainty: "Hex values are visually estimated from the delivered stills.",
-      },
       referenceSignals: ["blue coat", "brass circular instrument", "cat silhouette"],
       directorNotes: "Hold the final astrolabe composition; treat the midpoint as dream logic.",
       uncertainty: "Audio was not reviewed.",
@@ -75,8 +75,11 @@ test("completed proposals require optical attestation and three distinct hash-bo
   assert.equal(review.evidence.inspectedFrameCount, 3);
   assert.equal(review.evidence.semanticJudgmentAutomation, false);
   assert.equal(review.proposal.quality.value, 4);
-  assert.equal(review.proposal.palette.colors[0].hex, "#123ABC");
-  assert.equal(review.proposal.palette.method, "vision-agent-estimate");
+  assert.equal(review.evidence.frames[0].palette.colors[0].hex, "#123ABC");
+  assert.deepEqual(review.evidence.frames.map((frame) => frame.role), ["first", "mid", "last"]);
+  assert.equal(review.evidence.frames[1].palette.frameSha256, hashes[1]);
+  assert.deepEqual(review.evidence.frames[2].palette.colors[0].evidenceFrameHashes, [hashes[2]]);
+  assert.equal(Object.hasOwn(review.proposal, "palette"), false);
   assert.deepEqual(review.proposal.referenceSignals, ["blue coat", "brass circular instrument", "cat silhouette"]);
 
   assert.throws(() => normalizeHumanVideoAgentReview(opticalReview({ reviewer: { opticalInspectionConfirmed: false } })), (error) => error.code === "optical_inspection_attestation_required");
@@ -84,7 +87,7 @@ test("completed proposals require optical attestation and three distinct hash-bo
   assert.throws(() => normalizeHumanVideoAgentReview(opticalReview({ evidence: { frames: opticalReview().evidence.frames.map((frame) => ({ ...frame, sha256: hashes[0] })) } })), (error) => error.code === "optical_frame_evidence_not_distinct");
   assert.throws(() => normalizeHumanVideoAgentReview(opticalReview({ evidence: { requiredFrameCount: 4, frames: opticalReview().evidence.frames } })), (error) => error.code === "registered_frame_coverage_incomplete");
   assert.throws(() => upsertHumanVideoAgentReview(createHumanVideoAgentReviewStore(), opticalReview({ proposal: { ...opticalReview().proposal, references: [{ id: "same-sky" }] } })), (error) => error.code === "reference_fields_require_reference_pass");
-  assert.throws(() => upsertHumanVideoAgentReview(createHumanVideoAgentReviewStore(), opticalReview({ proposal: { ...opticalReview().proposal, palette: { colors: [] } } })), (error) => error.code === "optical_palette_required");
+  assert.throws(() => upsertHumanVideoAgentReview(createHumanVideoAgentReviewStore(), opticalReview({ evidence: { frames: opticalReview().evidence.frames.map((frame, index) => index === 1 ? { ...frame, palette: { colors: [] } } : frame) } })), (error) => error.code === "optical_frame_palette_required");
 });
 
 test("reference workers are independently configured and may select only supplied Hapa Cards", () => {
@@ -214,7 +217,8 @@ test("UI, API, CLI, and node discovery expose optical and bounded Reference Atla
   assert.match(ui, /Append suggestions/);
   assert.match(ui, /Reject proposal/);
   assert.match(ui, /REFERENCE PASS · BOUNDED HAPA CARDS/);
-  assert.match(ui, /Most-used colors · vision estimate/);
+  assert.match(ui, /frame\.role/);
+  assert.match(ui, /human-frame-palette/);
   assert.match(ui, /no Cards assigned here/);
   assert.match(ui, /setTimeout\(\(\) => save\(\), 350\)/);
   assert.match(ui, /if \(saveState === "dirty" && !\(await save\(\)\)\) return/);
@@ -227,7 +231,7 @@ test("UI, API, CLI, and node discovery expose optical and bounded Reference Atla
   assert.match(api, /reference-card-packets/);
   assert.match(api, /echoReferenceMiningStore\.currentRun\(\)/);
   assert.match(api, /forbiddenInputs/);
-  assert.match(api, /paletteRequirement/);
+  assert.match(api, /wholeVideoPaletteForbidden/);
   assert.match(cli, /human-enricher-agent-queue/);
   assert.match(cli, /human-enricher-agent-submit/);
   assert.match(cli, /human-enricher-agent-decision/);

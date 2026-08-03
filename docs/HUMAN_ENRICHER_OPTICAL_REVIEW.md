@@ -17,10 +17,10 @@ A completed proposal must include:
 - a SHA-256 digest and timestamp-specific literal observation for every frame;
 - a named sub-agent, task, vision-capable model, and explicit optical-inspection attestation;
 - an explained quality grade, visual description, categories/tags, Director Notes, uncertainty, and confidence;
-- three to eight visually estimated recurring/dominant colors, each with an uppercase `#RRGGBB` value, label, `dominant`/`supporting`/`accent` prevalence, explanation, and exact supporting frame hashes;
+- a separate three-to-eight-color visual estimate on every inspected First, Mid, and Last frame, with uppercase `#RRGGBB` values, labels, `dominant`/`supporting`/`accent` prevalence, explanations, and per-frame uncertainty;
 - a visible-signal handoff covering distinctive text, symbols, markings, palette, geometry, costume, objects, composition, and motifs without assigning Hapa Cards.
 
-Automation may enumerate records, extract frames, calculate timestamps, hash files, validate schemas, and persist proposals. It may not assign quality, describe images, identify Avatars, categorize content, select the dominant palette, or infer references. Existing OCR, pixel histograms, filename matches, similarity scores, and semantic rankers are excluded as judgment substitutes. Palette hex values are visually estimated editorial metadata rather than colorimetric measurements. Optical workers do not traverse Hapa knowledge stores; reference lookup is a separate pass.
+Automation may enumerate records, extract frames, calculate timestamps, hash files, validate schemas, and persist proposals. It may not assign quality, describe images, identify Avatars, categorize content, select frame palettes, combine them into a video-wide palette, or infer references. Existing OCR, pixel histograms, filename matches, similarity scores, and semantic rankers are excluded as judgment substitutes. Palette hex values are visually estimated editorial metadata rather than colorimetric measurements. Optical workers do not traverse Hapa knowledge stores; reference lookup is a separate pass.
 
 The receipt proves that exact frames were delivered and addressed; it cannot cryptographically prove cognition. Human playback and review remain the final attention check.
 
@@ -69,7 +69,7 @@ The active preview-first authority receipt currently marks the 853 resolved Card
 
 ## Human validation
 
-The Human Enricher shows the inspected filmstrip, observation for every frame, reviewer receipt, proposed grade/description/categories, visually estimated hex palette and swatches, uncertainty, and optical signal handoff. The separate reference panel shows Card matches, visible evidence, explanation, negative findings, reviewer/model parameters, and the exact Atlas packet receipt. A missing reference pass on a legacy optical proposal is shown as unfinished rather than silently treated as “no matches.”
+The Human Enricher shows the inspected filmstrip, observation and independent hex-palette swatches directly beneath every First/Mid/Last frame, reviewer receipt, proposed grade/description/categories, uncertainty, and optical signal handoff. It does not show or derive a whole-video palette. The separate reference panel shows Card matches, visible evidence, explanation, negative findings, reviewer/model parameters, and the exact Atlas packet receipt. A missing reference pass on a legacy optical proposal is shown as unfinished rather than silently treated as “no matches.”
 
 Quality begins at the agent proposal when no human record exists. Human grades are compared with their originating agent grades to produce a bounded calibration prior (sample size, exact-match rate, within-one rate, error, and per-grade human averages). That prior guides later agents but never overwrites their direct visual judgment. Simply opening a proposal does not create a human record.
 

@@ -113,11 +113,11 @@ export function upsertHumanVideoAgentReview(storeInput = {}, input = {}, options
   )) {
     throw reviewError("reference_fields_require_reference_pass", "Optical workers may record visible signals, but Card, Avatar, song, scene, and lore matches must be submitted through the bounded reference-worker pass.");
   }
-  if (review.status !== "blocked" && (
-    review.proposal.palette.colors.length < 3
-    || review.proposal.palette.colors.some((color) => !color.label || !color.explanation || !color.evidenceFrameHashes.length)
-  )) {
-    throw reviewError("optical_palette_required", "New optical reviews require at least three visually estimated palette colors with #RRGGBB values, labels, explanations, and frame evidence.");
+  if (review.status !== "blocked" && review.evidence.frames.some((frame) => (
+    frame.palette.colors.length < 3
+    || frame.palette.colors.some((color) => !color.label || !color.explanation || color.evidenceFrameHashes[0] !== frame.sha256)
+  ))) {
+    throw reviewError("optical_frame_palette_required", "New optical reviews require a separate palette of at least three visually estimated #RRGGBB colors on every inspected First, Mid, and Last frame.");
   }
   return {
     store: normalizeHumanVideoAgentReviewStore({ ...store, reviews: [...store.reviews.filter((item) => item.videoKey !== videoKey), review], updatedAt: now }),
@@ -169,19 +169,23 @@ function normalizeReviewer(input = {}) {
 }
 
 function normalizeFrames(input = []) {
-  return (Array.isArray(input) ? input : []).slice(0, 24).map((frame, index) => {
+  const sourceFrames = (Array.isArray(input) ? input : []).slice(0, 24);
+  const midIndex = Math.floor((sourceFrames.length - 1) / 2);
+  return sourceFrames.map((frame, index) => {
     const sha256 = normalizeSha256(frame.sha256 || frame.imageSha256);
     const observation = cleanMultiline(frame.observation || frame.visualObservation, 4_000);
     if (!sha256) throw reviewError("optical_frame_hash_required", `Inspected frame ${index + 1} is missing a SHA-256 digest.`);
     if (!observation) throw reviewError("optical_frame_observation_required", `Inspected frame ${index + 1} is missing its own visual observation.`);
     return {
       ordinal: index + 1,
+      role: index === 0 ? "first" : index === sourceFrames.length - 1 ? "last" : index === midIndex ? "mid" : "intermediate",
       timestampSeconds: Math.max(0, number(frame.timestampSeconds ?? frame.timestamp, 0)),
-      normalizedPosition: Math.max(0, Math.min(1, number(frame.normalizedPosition, index / Math.max(1, input.length - 1)))),
+      normalizedPosition: Math.max(0, Math.min(1, number(frame.normalizedPosition, index / Math.max(1, sourceFrames.length - 1)))),
       imagePath: clean(frame.imagePath || frame.path, 4_500),
       imageUri: clean(frame.imageUri || frame.uri, 4_500),
       sha256,
       observation,
+      palette: normalizeFramePalette(frame.palette || frame.framePalette, sha256),
     };
   });
 }
@@ -199,7 +203,6 @@ function normalizeProposal(input = {}) {
     },
     categories: uniqueStrings(input.categories, 80, 180),
     tags: uniqueStrings(input.tags, 160, 180),
-    palette: normalizePalette(input.palette || input.dominantPalette || input.paletteHexValues),
     referenceSignals: uniqueStrings(input.referenceSignals || input.visualSignals || input.visualReferenceAnalysis?.observedSignals, 120, 1_000),
     avatarRelationships: (Array.isArray(input.avatarRelationships) ? input.avatarRelationships : []).slice(0, 80).map((item) => normalizeRelationship(item, "avatar")),
     references: (Array.isArray(input.references) ? input.references : []).slice(0, 120).map(normalizeReference).filter(Boolean),
@@ -212,7 +215,7 @@ function normalizeProposal(input = {}) {
   };
 }
 
-function normalizePalette(input = {}) {
+function normalizeFramePalette(input = {}, frameSha256 = "") {
   const source = Array.isArray(input) ? { colors: input } : input && typeof input === "object" ? input : {};
   const normalizedColors = (Array.isArray(source.colors) ? source.colors : []).slice(0, 8).map((color) => {
     const normalizedHex = String(color?.hex || color?.value || "").trim().toUpperCase();
@@ -223,13 +226,14 @@ function normalizePalette(input = {}) {
       label: clean(color.label || color.name, 180),
       prevalence: PALETTE_PREVALENCE.has(prevalence) ? prevalence : "supporting",
       explanation: cleanMultiline(color.explanation || color.evidence || color.whereSeen, 2_000),
-      evidenceFrameHashes: uniqueStrings(color.evidenceFrameHashes || color.frameHashes, 24, 100).map(normalizeSha256).filter(Boolean),
+      evidenceFrameHashes: frameSha256 ? [frameSha256] : [],
     };
   }).filter(Boolean);
   const colors = [...new Map(normalizedColors.map((color) => [color.hex, color])).values()];
   return {
     method: "vision-agent-estimate",
     semanticJudgmentAutomation: false,
+    frameSha256,
     colors,
     uncertainty: cleanMultiline(source.uncertainty, 2_000),
   };

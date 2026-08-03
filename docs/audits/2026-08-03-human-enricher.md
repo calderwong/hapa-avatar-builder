@@ -96,3 +96,13 @@
 - **New guardrail:** requested agent slots are not evidence of effective parallelism. Report peak observed overlap, batch wall time, and effective concurrency separately for every stage.
 
 **Candidate:** Lesson Card — “One vision feeder, three bounded-reference workers: measure stage concurrency instead of assuming it.” The originating Codex turn and six Terra-medium worker receipts remain the attributed evidence.
+
+## Checkpoint 9 — move palette authority from video to frame
+
+- **Objective:** correct the optical palette boundary so First, Mid, and Last frames are described independently instead of flattening their colors into one video-wide palette.
+- **What was misunderstood:** the Terra-medium benchmark prompt asked for recurring/dominant colors “across the frames.” That can erase deliberate palette transitions and produce colors that never coexist in any single image.
+- **What changed:** every normalized optical frame now owns its own palette receipt, exact parent frame hash, 3–8 distinct uppercase `#RRGGBB` colors, labels, prevalence, explanations, and uncertainty. New submissions fail if any inspected First/Mid/Last frame lacks its own complete palette. Aggregate proposal palettes are no longer normalized. The UI renders swatches and values inside each frame caption, while queue instructions explicitly set `scope: per-inspected-frame` and `wholeVideoPaletteForbidden: true`.
+- **Compatibility:** all 16 legacy optical records remain readable with empty per-frame palettes. They require a fresh optical revision before palette data can be claimed; the system does not fabricate or migrate a whole-video estimate into frame evidence.
+- **New guardrail:** colors from different timestamps may be compared by a later human or reference worker, but the optical pass never merges them into one authoritative video palette.
+
+**Candidate:** Correction Card — “The palette belongs to the frame that visibly contains it.” The Human correction and originating Codex turn remain the attributed source.

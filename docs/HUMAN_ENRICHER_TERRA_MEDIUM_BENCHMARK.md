@@ -8,6 +8,10 @@ Measure how `gpt-5.6-terra` at medium reasoning behaves when Human Enricher keep
 
 This is a three-video pilot, not a production SLA. It excludes frame extraction, inaccessible media, retries, API persistence, human review, and audio playback. Exact token telemetry was unavailable.
 
+## Palette protocol correction
+
+The timed optical workers returned one synthesized palette across each video's three frames. Human review identified that as the wrong data boundary. The active protocol now requires an independent palette on each First, Mid, and Last frame and explicitly forbids whole-video palette synthesis. The timing data below remains valid for Terra-medium scheduling research, but its palette payloads are historical benchmark evidence and must not be imported as current optical reviews.
+
 ## Method
 
 Three child-agent lanes each received one video with three exact first/middle/last JPEG paths and SHA-256 hashes. Optical workers were forbidden from reading Hapa knowledge stores and personally opened all three images through the vision tool. They returned literal observations, quality, description, categorization, visible signals, and a visually estimated 3–8 color palette with uppercase `#RRGGBB` values and frame evidence.

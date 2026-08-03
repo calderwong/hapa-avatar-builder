@@ -403,7 +403,17 @@ export default function HumanEnricherView({ apiBase = "", onNotify = () => {} })
                     {(selectedVideo.agentReview.evidence?.frames || []).map((frame) => (
                       <figure key={frame.sha256}>
                         {(frame.imageUri || frame.imagePath) && <img src={mediaUri(frame.imageUri || frame.imagePath, apiBase)} alt={`Inspected frame at ${frame.timestampSeconds}s`} />}
-                        <figcaption><strong>{frame.timestampSeconds.toFixed?.(2) ?? frame.timestampSeconds}s</strong><span>{frame.observation}</span></figcaption>
+                        <figcaption>
+                          <strong>{frame.timestampSeconds.toFixed?.(2) ?? frame.timestampSeconds}s · {(frame.role || "frame").toUpperCase()}</strong>
+                          <span>{frame.observation}</span>
+                          {(frame.palette?.colors || []).length > 0 && (
+                            <div className="human-frame-palette">
+                              {frame.palette.colors.map((color) => <i key={`${frame.sha256}:${color.hex}`} style={{ backgroundColor: color.hex }} title={`${color.hex} · ${color.label} · ${color.prevalence}`} aria-label={`${color.hex} ${color.label}`} />)}
+                              <small>{frame.palette.colors.map((color) => color.hex).join(" · ")}</small>
+                            </div>
+                          )}
+                          {frame.palette?.uncertainty && <small>{frame.palette.uncertainty}</small>}
+                        </figcaption>
                       </figure>
                     ))}
                   </div>
@@ -413,22 +423,6 @@ export default function HumanEnricherView({ apiBase = "", onNotify = () => {} })
                     <div><span>Categories</span><p>{(selectedVideo.agentReview.proposal?.categories || []).join(" · ") || "None proposed"}</p></div>
                     <div><span>Uncertainty</span><p>{selectedVideo.agentReview.proposal?.uncertainty || "No uncertainty statement."}</p></div>
                   </div>
-                  {(selectedVideo.agentReview.proposal?.palette?.colors || []).length > 0 && (
-                    <section className="human-agent-palette">
-                      <div className="human-enrichment-section-head"><div><p className="eyebrow">VISUAL PALETTE</p><h4>Most-used colors · vision estimate</h4></div><span>{selectedVideo.agentReview.proposal.palette.colors.length} colors</span></div>
-                      <div className="human-agent-palette-grid">
-                        {selectedVideo.agentReview.proposal.palette.colors.map((color) => (
-                          <div key={`${color.hex}:${color.label}`}>
-                            <i style={{ backgroundColor: color.hex }} aria-label={`${color.label} ${color.hex}`} />
-                            <strong>{color.hex}</strong>
-                            <span>{color.label} · {color.prevalence}</span>
-                            <small>{color.explanation}</small>
-                          </div>
-                        ))}
-                      </div>
-                      {selectedVideo.agentReview.proposal.palette.uncertainty && <p className="human-editor-hint">{selectedVideo.agentReview.proposal.palette.uncertainty}</p>}
-                    </section>
-                  )}
                   <section className="human-visual-reference-analysis" data-status="signals-only">
                     <div className="human-enrichment-section-head">
                       <div><p className="eyebrow"><Eye size={13} /> OPTICAL SIGNAL HANDOFF</p><h4>Visible clues for a later reference worker</h4></div>
