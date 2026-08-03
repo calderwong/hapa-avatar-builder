@@ -9,7 +9,12 @@ import {
   normalizeHumanVideoAgentReview,
   upsertHumanVideoAgentReview,
 } from "../src/domain/human-video-agent-review.js";
-import { createHumanVideoEnricherDashboard, createHumanVideoEnrichmentStore } from "../src/domain/human-video-enrichment.js";
+import {
+  createHumanVideoEnricherDashboard,
+  createHumanVideoEnrichmentStore,
+  HUMAN_VIDEO_REVIEW_FILTERS,
+  matchesHumanVideoReviewFilter,
+} from "../src/domain/human-video-enrichment.js";
 import { openHumanVideoAgentReviewStore } from "../server/human-video-agent-review-store.mjs";
 
 const hashes = ["a", "b", "c"].map((letter) => `sha256:${letter.repeat(64)}`);
@@ -89,6 +94,19 @@ test("agent proposals rank and describe videos without becoming human enrichment
   assert.equal(dashboard.videos[0].humanEnrichment, null);
 });
 
+test("optical review views isolate reviewed, pending-human, validated, and untouched videos", () => {
+  const pending = { agentReview: { status: "pending-human" } };
+  const accepted = { agentReview: { status: "accepted-edited" } };
+  const untouched = { agentReview: null };
+  assert.equal(matchesHumanVideoReviewFilter(pending, "agent-reviewed"), true);
+  assert.equal(matchesHumanVideoReviewFilter(pending, "pending-human"), true);
+  assert.equal(matchesHumanVideoReviewFilter(pending, "human-validated"), false);
+  assert.equal(matchesHumanVideoReviewFilter(accepted, "human-validated"), true);
+  assert.equal(matchesHumanVideoReviewFilter(untouched, "not-reviewed"), true);
+  assert.equal(matchesHumanVideoReviewFilter(untouched, "agent-reviewed"), false);
+  assert.equal(HUMAN_VIDEO_REVIEW_FILTERS.find((filter) => filter.value === "agent-reviewed")?.label, "Optically reviewed");
+});
+
 test("agent review service writes current proposals and append-only receipts", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "hapa-optical-review-"));
   const service = openHumanVideoAgentReviewStore({ filePath: path.join(root, "reviews.json"), eventPath: path.join(root, "events.ndjson"), clock: () => "2026-08-03T20:00:00.000Z" });
@@ -110,7 +128,9 @@ test("UI, API, and CLI expose optical proposals and explicit human decisions", a
   assert.match(ui, /Use as editable draft/);
   assert.match(ui, /Append suggestions/);
   assert.match(ui, /Reject proposal/);
+  assert.match(ui, /review: reviewFilter/);
   assert.match(api, /\/api\/human-enricher\/agent-reviews/);
+  assert.match(api, /matchesHumanVideoReviewFilter\(video, review\)/);
   assert.match(cli, /human-enricher-agent-queue/);
   assert.match(cli, /human-enricher-agent-submit/);
   assert.match(cli, /human-enricher-agent-decision/);

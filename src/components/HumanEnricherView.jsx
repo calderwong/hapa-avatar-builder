@@ -20,7 +20,11 @@ import {
   UserRoundCheck,
   XCircle,
 } from "lucide-react";
-import { HUMAN_VIDEO_QUALITY_GRADES } from "../domain/human-video-enrichment.js";
+import {
+  HUMAN_VIDEO_QUALITY_GRADES,
+  HUMAN_VIDEO_REVIEW_FILTERS,
+  matchesHumanVideoReviewFilter,
+} from "../domain/human-video-enrichment.js";
 
 const EMPTY_REFERENCE = { type: "echo-song", id: "", label: "", uri: "", notes: "" };
 
@@ -30,6 +34,7 @@ export default function HumanEnricherView({ apiBase = "", onNotify = () => {} })
   const [error, setError] = useState("");
   const [query, setQuery] = useState("");
   const [qualityFilter, setQualityFilter] = useState("all");
+  const [reviewFilter, setReviewFilter] = useState("all");
   const [sort, setSort] = useState("quality-desc");
   const [selectedKey, setSelectedKey] = useState("");
   const [draft, setDraft] = useState(emptyDraft());
@@ -42,7 +47,7 @@ export default function HumanEnricherView({ apiBase = "", onNotify = () => {} })
     setLoading(true);
     setError("");
     try {
-      const params = new URLSearchParams({ offset: String(offset), limit: "120", quality: qualityFilter, sort });
+      const params = new URLSearchParams({ offset: String(offset), limit: "120", quality: qualityFilter, review: reviewFilter, sort });
       if (query.trim()) params.set("q", query.trim());
       const response = await fetch(`${apiBase}/api/human-enricher/videos?${params}`, { headers: { accept: "application/json" } });
       const payload = await response.json();
@@ -63,12 +68,13 @@ export default function HumanEnricherView({ apiBase = "", onNotify = () => {} })
   useEffect(() => {
     const timer = globalThis.setTimeout(() => load({ preserveSelection: false }), query.trim() ? 240 : 0);
     return () => globalThis.clearTimeout(timer);
-  }, [apiBase, query, qualityFilter, sort]);
+  }, [apiBase, query, qualityFilter, reviewFilter, sort]);
 
   const filteredVideos = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
     return (dashboard?.videos || []).filter((video) => {
       const grade = Number(video.humanEnrichment?.quality?.value ?? video.agentReview?.proposal?.quality?.value ?? 0);
+      if (!matchesHumanVideoReviewFilter(video, reviewFilter)) return false;
       if (qualityFilter === "enriched" && !video.humanEnrichment) return false;
       if (qualityFilter === "ungraded" && grade > 0) return false;
       if (/^[1-5]$/.test(qualityFilter) && grade !== Number(qualityFilter)) return false;
@@ -88,7 +94,7 @@ export default function HumanEnricherView({ apiBase = "", onNotify = () => {} })
       ].join(" ").toLowerCase();
       return haystack.includes(normalizedQuery);
     });
-  }, [dashboard, qualityFilter, query]);
+  }, [dashboard, qualityFilter, query, reviewFilter]);
 
   const selectedVideo = useMemo(
     () => (dashboard?.videos || []).find((video) => video.humanVideoKey === selectedKey) || filteredVideos[0] || null,
@@ -265,6 +271,20 @@ export default function HumanEnricherView({ apiBase = "", onNotify = () => {} })
         <Metric label="Optical queue" value={dashboard?.summary?.remainingOpticalReviews || 0} icon={<RefreshCw size={16} />} />
       </div>
 
+      <nav className="human-review-view-tabs hapa-panel" aria-label="Choose video review set">
+        {HUMAN_VIDEO_REVIEW_FILTERS.map((filter) => (
+          <button
+            type="button"
+            key={filter.value}
+            aria-pressed={reviewFilter === filter.value}
+            onClick={() => setReviewFilter(filter.value)}
+          >
+            <span>{filter.label}</span>
+            <strong>{reviewFilterCount(filter.value, dashboard?.summary)}</strong>
+          </button>
+        ))}
+      </nav>
+
       <div className="human-enricher-layout">
         <aside className="human-video-library hapa-panel" data-variant="notch">
           <div className="human-video-toolbar">
@@ -274,6 +294,9 @@ export default function HumanEnricherView({ apiBase = "", onNotify = () => {} })
               <option value="enriched">Human enriched</option>
               <option value="ungraded">Ungraded</option>
               {HUMAN_VIDEO_QUALITY_GRADES.filter((grade) => grade.value).map((grade) => <option key={grade.value} value={grade.value}>Quality {grade.value} · {grade.label}</option>)}
+            </select>
+            <select value={reviewFilter} onChange={(event) => setReviewFilter(event.target.value)} aria-label="Filter by optical review status">
+              {HUMAN_VIDEO_REVIEW_FILTERS.map((filter) => <option key={filter.value} value={filter.value}>{filter.label} · {reviewFilterCount(filter.value, dashboard?.summary)}</option>)}
             </select>
             <select value={sort} onChange={(event) => setSort(event.target.value)} aria-label="Sort videos">
               <option value="quality-desc">Best quality first</option>
@@ -505,6 +528,13 @@ function parseTextList(value) { return uniqueText(String(value || "").split(/[,\
 function uniqueText(values) { return [...new Set((values || []).map((value) => String(value || "").trim()).filter(Boolean))]; }
 function uniqueBy(values, keyFor) { return [...new Map((values || []).filter(Boolean).map((value) => [keyFor(value), value])).values()]; }
 function appendText(current, addition) { return [String(current || "").trim(), String(addition || "").trim()].filter(Boolean).join("\n\n"); }
+function reviewFilterCount(filter, summary = {}) {
+  if (filter === "agent-reviewed") return Number(summary?.agentReviewed || 0);
+  if (filter === "pending-human") return Number(summary?.pendingHumanValidation || 0);
+  if (filter === "human-validated") return Number(summary?.humanValidatedAgentReviews || 0);
+  if (filter === "not-reviewed") return Number(summary?.remainingOpticalReviews || 0);
+  return Number(summary?.videos || 0);
+}
 function formatBytes(value) {
   const bytes = Number(value || 0);
   if (!bytes) return "size unknown";

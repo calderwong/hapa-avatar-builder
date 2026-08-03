@@ -1723,6 +1723,11 @@
 .human-enricher-loading { min-height: 300px; display: flex; align-items: center; justify-content: center; gap: 10px; color: var(--human-cyan); }
 
 .human-enricher-stats { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 8px; }
+.human-review-view-tabs { display: flex; flex-wrap: wrap; gap: 7px; padding: 8px; }
+.human-review-view-tabs button { display: flex; align-items: center; gap: 7px; min-height: 34px; padding: 7px 10px; border: 1px solid rgba(69, 228, 255, .16); border-radius: 9px; color: rgba(238, 250, 255, .62); background: rgba(2, 8, 18, .72); cursor: pointer; font: 9px/1.2 var(--hapa-mono); }
+.human-review-view-tabs button:hover { border-color: rgba(69, 228, 255, .42); color: var(--human-cyan); }
+.human-review-view-tabs button[aria-pressed="true"] { border-color: var(--human-cyan); color: #03101a; background: var(--human-cyan); box-shadow: 0 0 18px rgba(69, 228, 255, .22); }
+.human-review-view-tabs strong { min-width: 18px; text-align: right; font-size: 11px; }
 .human-enricher-metric { display: grid; gap: 4px; min-width: 0; padding: 9px 11px; border-color: rgba(184, 140, 255, .2); background: linear-gradient(145deg, rgba(184, 140, 255, .07), rgba(2, 6, 23, .76)); }
 .human-enricher-metric span { display: flex; align-items: center; gap: 6px; overflow: hidden; color: rgba(238, 250, 255, .46); font: 800 8px/1.2 var(--hapa-mono); text-overflow: ellipsis; text-transform: uppercase; white-space: nowrap; }
 .human-enricher-metric strong { color: #fff; font: 800 22px/1 var(--hapa-mono); }

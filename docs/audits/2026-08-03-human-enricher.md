@@ -35,3 +35,11 @@
 - **New guardrail:** automation may prepare evidence but never make semantic judgments. Report exact reviewed/pending/blocked/remaining counts and never imply the full catalog was seen from queue enumeration.
 
 **Candidate:** Flow explainer / Lesson Card — “Frames delivered and addressed: optical agent proposal to human-authored direction.” The originating Codex turn and sub-agent task receipts remain the attributed evidence.
+
+## Checkpoint 4 — reviewed-set visibility
+
+- **Objective:** make the 16 genuinely inspected videos directly viewable instead of merely ranking them near the top of a much larger paginated catalog.
+- **Evidence inspected:** the current Human Enricher client filters, server pagination order, optical-review summary counts, and the separate agent-review authority boundary.
+- **What changed:** added server-backed All, Optically reviewed, Needs human validation, Human validated, and Not optically reviewed views with exact catalog counts. The Optically reviewed view filters before pagination, so it returns the complete reviewed set rather than only matches from the current 120 loaded rows.
+- **What remains reusable:** the existing review records, evidence filmstrip, grade sort, and human editing controls are unchanged; the Builder remains the owning review surface and Echo remains a downstream consumer of saved human direction only.
+- **New guardrail:** catalog-status views must filter before pagination whenever their counts describe the full catalog.

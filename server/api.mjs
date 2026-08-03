@@ -64,6 +64,7 @@ import {
 import {
   createHumanVideoEnricherDashboard,
   humanVideoKey,
+  matchesHumanVideoReviewFilter,
 } from "../src/domain/human-video-enrichment.js";
 import {
   upsertMediaAttachmentRecord,
@@ -6834,12 +6835,14 @@ function paginateHumanVideoAgentReviewQueue(dashboard, searchParams) {
 function paginateHumanVideoEnricherDashboard(dashboard, searchParams) {
   const query = String(searchParams.get("q") || "").trim().toLowerCase();
   const quality = String(searchParams.get("quality") || "all").trim().toLowerCase();
+  const review = String(searchParams.get("review") || "all").trim().toLowerCase();
   const offset = Math.max(0, Number(searchParams.get("offset") || 0) || 0);
   const requestedLimit = String(searchParams.get("limit") || "120").trim().toLowerCase();
   const limit = requestedLimit === "all" ? 50_000 : Math.max(1, Math.min(500, Number(requestedLimit) || 120));
   const sort = String(searchParams.get("sort") || "quality-desc").trim().toLowerCase();
   const videos = dashboard.videos.filter((video) => {
     const grade = Number(video.humanEnrichment?.quality?.value ?? video.agentReview?.proposal?.quality?.value ?? 0);
+    if (!matchesHumanVideoReviewFilter(video, review)) return false;
     if (quality === "enriched" && !video.humanEnrichment) return false;
     if (quality === "ungraded" && grade > 0) return false;
     if (/^[1-5]$/.test(quality) && grade !== Number(quality)) return false;
@@ -6875,6 +6878,7 @@ function paginateHumanVideoEnricherDashboard(dashboard, searchParams) {
     videos: page,
     query: query || null,
     qualityFilter: quality,
+    reviewFilter: review,
     sort,
     pagination: {
       offset,

@@ -111,8 +111,8 @@ The canonical overlay schema is `hapa.human-video-enrichment-store.v1` in `src/d
 
 | Surface | Optical review behavior |
 | --- | --- |
-| UI | Shows the exact inspected filmstrip, per-frame observations, optical attestation, proposal confidence/uncertainty, suggested relationships/references, Hapa source citations, and Use/Edit/Append/Reject human controls. |
-| API | `GET /api/human-enricher/agent-reviews` exposes a resumable evidence queue. `PUT` accepts only hash-bound, optically attested proposals. `POST /api/human-enricher/agent-reviews/:id/decision` records explicit human outcomes. |
+| UI | Provides full-catalog review-set views for Optically reviewed, Needs human validation, Human validated, and Not optically reviewed records. It shows the exact inspected filmstrip, per-frame observations, optical attestation, proposal confidence/uncertainty, suggested relationships/references, Hapa source citations, and Use/Edit/Append/Reject human controls. |
+| API | `GET /api/human-enricher/videos?review=agent-reviewed` returns the complete reviewed set with filtering applied before pagination. `GET /api/human-enricher/agent-reviews` exposes a resumable evidence queue. `PUT` accepts only hash-bound, optically attested proposals. `POST /api/human-enricher/agent-reviews/:id/decision` records explicit human outcomes. |
 | CLI | `human-enricher-agent-queue`, `human-enricher-agent-submit`, and `human-enricher-agent-decision` consume the same routes. |
 | Data | Pending proposals and append-only events are separate from human enrichment in `data/human-video-agent-reviews.json` and `data/human-video-agent-review-events.ndjson`. |
 

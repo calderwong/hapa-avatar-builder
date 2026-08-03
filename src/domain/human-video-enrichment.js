@@ -11,6 +11,14 @@ export const HUMAN_VIDEO_QUALITY_GRADES = Object.freeze([
   { value: 5, label: "Hero", shortLabel: "5" },
 ]);
 
+export const HUMAN_VIDEO_REVIEW_FILTERS = Object.freeze([
+  { value: "all", label: "All videos" },
+  { value: "agent-reviewed", label: "Optically reviewed" },
+  { value: "pending-human", label: "Needs human validation" },
+  { value: "human-validated", label: "Human validated" },
+  { value: "not-reviewed", label: "Not optically reviewed" },
+]);
+
 const REFERENCE_TYPES = new Set(["echo-song", "song", "card", "url", "other"]);
 
 export function createHumanVideoEnrichmentStore(input = {}) {
@@ -50,6 +58,16 @@ export function humanVideoKey(video = {}) {
   if (identity.uri) return `uri:${identity.uri}`;
   if (identity.assetId) return `asset:${identity.assetId}`;
   return "";
+}
+
+export function matchesHumanVideoReviewFilter(video = {}, filter = "all") {
+  const normalized = String(filter || "all").trim().toLowerCase();
+  const review = video.agentReview || null;
+  if (normalized === "agent-reviewed") return Boolean(review);
+  if (normalized === "pending-human") return review?.status === "pending-human";
+  if (normalized === "human-validated") return ["accepted", "accepted-edited", "rejected"].includes(review?.status);
+  if (normalized === "not-reviewed") return !review;
+  return true;
 }
 
 export function normalizeHumanVideoEnrichment(input = {}, fallback = {}) {
