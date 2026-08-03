@@ -58,3 +58,16 @@
 - **New guardrail:** human calibration is a bounded prior, not a score rewrite. Sample counts travel with every aggregate, direct frame inspection remains mandatory, and no dedicated reference scan is represented as “no match.”
 
 **Candidate:** Lesson Card — “Agent-default, human-delta media review with explicit visual-reference evidence.” The originating Codex turn and timed sub-agent receipts remain the attributed evidence.
+
+## Checkpoint 6 — split optical and bounded-Card reference workers
+
+- **Objective:** prevent optical workers from repeatedly searching the full Hapa knowledge base, make reference models/setups independently replaceable, and restrict reference claims to existing Hapa/Echo Card material.
+- **Evidence inspected:** the combined optical proposal contract; its queue instructions; the Human Enricher proposal UI; the 2,391-record item/Card store; the 74 Avatar Cards; the 157 Song Cards; and the 85 source-backed Echo reference catalog records.
+- **What worked:** frame inspection, quality, description, categories, tags, and visible-signal capture are reusable without any lore lookup. The 85-reference catalog is a stable bounded corpus; the optional Echo-core packet contains exactly 316 records (85 references, 157 songs, 74 Avatars).
+- **What was noise:** having each optical worker traverse Avatar, song, scene, item, and Tarot stores. A two-video Terra Max benchmark consumed 2,097,910 input tokens largely because of repeated raw-store traversal.
+- **What was misunderstood:** the 85 Echo reference records are source-backed `hapa.song-reference-catalog.v1` entries in `hapa-songs-store.json`; they are not durable Universal Card-plane records in `item-manager-store.json`. The new packet is an attributable Reference Card projection and does not pretend Card custody was already minted.
+- **What changed:** new optical submissions reject Card/Avatar/song/scene/lore matches and emit only visible reference signals. A separate reference-review store depends on an exact optical revision and hash-bound Card packet, records model/reasoning/parameters independently, and rejects any Card ID outside the packet. The UI, API, and CLI show and operate the two passes separately; accepted human enrichment preserves both lineages.
+- **Verification:** 13 focused Human Enricher tests pass; the production build passes; live loopback probes returned 85 default packet Cards, 316 Echo-core Cards, and all 16 completed optical records in the new needs-reference queue.
+- **New guardrail:** reference workers may rank or reject supplied Cards only. They may not invent candidates, search raw knowledge stores, or represent projected reference records as durable Card-plane custody.
+
+**Candidate:** Decision Card / Flow explainer — “Optical signal handoff to bounded Hapa Card reference workers.” The originating Codex turn remains the attributed source.

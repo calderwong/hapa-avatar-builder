@@ -17,6 +17,12 @@ import {
   matchesHumanVideoReviewFilter,
 } from "../src/domain/human-video-enrichment.js";
 import { openHumanVideoAgentReviewStore } from "../server/human-video-agent-review-store.mjs";
+import {
+  buildHumanVideoReferenceCardPacket,
+  createHumanVideoReferenceReviewStore,
+  normalizeHumanVideoReferenceReview,
+  upsertHumanVideoReferenceReview,
+} from "../src/domain/human-video-reference-review.js";
 
 const hashes = ["a", "b", "c"].map((letter) => `sha256:${letter.repeat(64)}`);
 
@@ -47,20 +53,11 @@ function opticalReview(overrides = {}) {
       quality: { value: 4, explanation: "Strong composition and identity continuity, with visible midpoint morphing." },
       categories: ["character-transition", "fantasy-tech"],
       tags: ["blue-light", "cat", "astrolabe"],
-      avatarRelationships: [{ avatarId: "avatar-2", avatarName: "Blue", evidenceType: "visual-observation", explanation: "Face and costume match the inspected dossier reference.", confidence: 0.97 }],
-      references: [{ type: "echo-song", id: "same-sky", label: "Same Sky", evidenceType: "knowledge-base-inference", explanation: "Optional thematic connection to celestial routes.", confidence: 0.62 }],
-      visualReferenceAnalysis: {
-        completed: true,
-        status: "matched",
-        observedSignals: ["blue coat", "brass circular instrument", "cat silhouette"],
-        matches: [{ sourcePath: "data/avatar-store.json#avatar-2", entityId: "avatar-2", entityLabel: "Blue", matchType: "costume", observedEvidence: "The inspected frames show a saturated blue long coat.", explanation: "Blue's source record uses the same signature color and coat silhouette.", confidence: 0.81 }],
-        negativeFindings: ["No readable Hapa sigil or logo is visible."],
-      },
+      referenceSignals: ["blue coat", "brass circular instrument", "cat silhouette"],
       directorNotes: "Hold the final astrolabe composition; treat the midpoint as dream logic.",
       uncertainty: "Audio was not reviewed.",
       confidence: 0.82,
     },
-    knowledgeComparisons: [{ sourcePath: "data/avatar-store.json", entityId: "avatar-2", entityLabel: "Blue", relationship: "identity-candidate", explanation: "Compared only after optical review.", confidence: 0.97 }],
     ...overrides,
   };
 }
@@ -70,14 +67,35 @@ test("completed proposals require optical attestation and three distinct hash-bo
   assert.equal(review.evidence.inspectedFrameCount, 3);
   assert.equal(review.evidence.semanticJudgmentAutomation, false);
   assert.equal(review.proposal.quality.value, 4);
-  assert.equal(review.proposal.avatarRelationships[0].evidenceType, "visual-observation");
-  assert.equal(review.proposal.visualReferenceAnalysis.matches[0].matchType, "costume");
+  assert.deepEqual(review.proposal.referenceSignals, ["blue coat", "brass circular instrument", "cat silhouette"]);
 
   assert.throws(() => normalizeHumanVideoAgentReview(opticalReview({ reviewer: { opticalInspectionConfirmed: false } })), (error) => error.code === "optical_inspection_attestation_required");
   assert.throws(() => normalizeHumanVideoAgentReview(opticalReview({ evidence: { frames: opticalReview().evidence.frames.slice(0, 2) } })), (error) => error.code === "optical_frame_evidence_insufficient");
   assert.throws(() => normalizeHumanVideoAgentReview(opticalReview({ evidence: { frames: opticalReview().evidence.frames.map((frame) => ({ ...frame, sha256: hashes[0] })) } })), (error) => error.code === "optical_frame_evidence_not_distinct");
   assert.throws(() => normalizeHumanVideoAgentReview(opticalReview({ evidence: { requiredFrameCount: 4, frames: opticalReview().evidence.frames } })), (error) => error.code === "registered_frame_coverage_incomplete");
-  assert.throws(() => upsertHumanVideoAgentReview(createHumanVideoAgentReviewStore(), opticalReview({ proposal: { ...opticalReview().proposal, visualReferenceAnalysis: undefined } })), (error) => error.code === "visual_reference_analysis_required");
+  assert.throws(() => upsertHumanVideoAgentReview(createHumanVideoAgentReviewStore(), opticalReview({ proposal: { ...opticalReview().proposal, references: [{ id: "same-sky" }] } })), (error) => error.code === "reference_fields_require_reference_pass");
+});
+
+test("reference workers are independently configured and may select only supplied Hapa Cards", () => {
+  const packet = buildHumanVideoReferenceCardPacket({
+    referenceCatalog: [{ id: "reference:blue-sky", schemaVersion: "hapa.reference-card.v1", title: "Blue Sky", publicContext: "A source-backed sky reference." }],
+    songs: [{ id: "song:same-sky", title: "Same Sky" }],
+  }, { profile: "echo-reference-cards", digest: "sha256:packet", createdAt: "2026-08-03T22:00:00.000Z" });
+  assert.equal(packet.cardCount, 1);
+  assert.equal(packet.cards[0].id, "reference:blue-sky");
+  const input = {
+    videoKey: "record:video-1",
+    opticalReview: { id: "record:video-1:optical:r1", revision: 1 },
+    packet: { id: packet.id, profile: packet.profile, digest: packet.digest, cardCount: packet.cardCount },
+    reviewer: { agentId: "reference-terra", model: "gpt-5.6-terra", reasoningEffort: "high", parameters: { temperature: 0.2 }, referenceInspectionConfirmed: true },
+    proposal: { status: "matched", matches: [{ cardId: "reference:blue-sky", cardTitle: "Blue Sky", matchType: "palette", observedEvidence: "The frame is dominated by cyan sky.", explanation: "The supplied Card explicitly names the same visual signal.", confidence: 0.74 }] },
+  };
+  const review = normalizeHumanVideoReferenceReview(input, {}, { allowedCardIds: packet.cards.map((card) => card.id) });
+  assert.equal(review.reviewer.model, "gpt-5.6-terra");
+  assert.equal(review.reviewer.parameters.temperature, 0.2);
+  assert.throws(() => normalizeHumanVideoReferenceReview({ ...input, proposal: { ...input.proposal, matches: [{ ...input.proposal.matches[0], cardId: "invented-card" }] } }, {}, { allowedCardIds: packet.cards.map((card) => card.id) }), (error) => error.code === "reference_card_outside_packet");
+  const submitted = upsertHumanVideoReferenceReview(createHumanVideoReferenceReviewStore(), input, { now: "2026-08-03T22:00:00.000Z", allowedCardIds: packet.cards.map((card) => card.id) });
+  assert.equal(submitted.review.revision, 1);
 });
 
 test("human quality corrections form a bounded calibration profile", () => {
@@ -146,11 +164,12 @@ test("UI, API, and CLI expose optical proposals and explicit human decisions", a
     readFile(new URL("../server/api.mjs", import.meta.url), "utf8"),
     readFile(new URL("../cli/avatar-builder.mjs", import.meta.url), "utf8"),
   ]);
-  assert.match(ui, /OPTICAL SUB-AGENT PASS/);
+  assert.match(ui, /OPTICAL PASS · NO KNOWLEDGE SEARCH/);
   assert.match(ui, /Use as editable draft/);
   assert.match(ui, /Append suggestions/);
   assert.match(ui, /Reject proposal/);
-  assert.match(ui, /VISUAL HAPA \/ ECHO REFERENCES/);
+  assert.match(ui, /REFERENCE PASS · BOUNDED HAPA CARDS/);
+  assert.match(ui, /no Cards assigned here/);
   assert.match(ui, /setTimeout\(\(\) => save\(\), 350\)/);
   assert.match(ui, /if \(saveState === "dirty" && !\(await save\(\)\)\) return/);
   assert.doesNotMatch(ui, /Save human enrichment/);
@@ -159,8 +178,11 @@ test("UI, API, and CLI expose optical proposals and explicit human decisions", a
   assert.match(ui, /get\("review"\)/);
   assert.match(api, /\/api\/human-enricher\/agent-reviews/);
   assert.match(api, /matchesHumanVideoReviewFilter\(video, review\)/);
-  assert.match(api, /visualReferenceAnalysisRequired: true/);
+  assert.match(api, /reference-card-packets/);
+  assert.match(api, /forbiddenInputs/);
   assert.match(cli, /human-enricher-agent-queue/);
   assert.match(cli, /human-enricher-agent-submit/);
   assert.match(cli, /human-enricher-agent-decision/);
+  assert.match(cli, /human-enricher-reference-queue/);
+  assert.match(cli, /human-enricher-reference-submit/);
 });

@@ -121,6 +121,7 @@ export function normalizeHumanVideoEnrichment(input = {}, fallback = {}) {
     directorNotes: cleanMultiline(input.directorNotes ?? fallback.directorNotes, 12_000),
     references: normalizeReferences(input.references ?? fallback.references),
     agentReviewLineage: normalizeAgentReviewLineage(input.agentReviewLineage ?? fallback.agentReviewLineage),
+    referenceReviewLineage: normalizeAgentReviewLineage(input.referenceReviewLineage ?? fallback.referenceReviewLineage),
     humanAuthored: true,
     updatedBy: clean(input.updatedBy || fallback.updatedBy || "local-human-operator", 180),
     revision,
@@ -163,20 +164,22 @@ export function upsertHumanVideoEnrichment(storeInput = {}, input = {}, options 
   };
 }
 
-export function createHumanVideoEnricherDashboard({ mediaDashboard = {}, enrichmentStore = {}, agentReviewStore = {}, avatars = [], songs = [] } = {}) {
+export function createHumanVideoEnricherDashboard({ mediaDashboard = {}, enrichmentStore = {}, agentReviewStore = {}, referenceReviewStore = {}, avatars = [], songs = [] } = {}) {
   const store = normalizeHumanVideoEnrichmentStore(enrichmentStore);
   const agentReviews = new Map((agentReviewStore.reviews || []).map((review) => [review.videoKey, review]));
+  const referenceReviews = new Map((referenceReviewStore.reviews || []).map((review) => [review.videoKey, review]));
   const videos = (mediaDashboard.records || [])
     .filter((record) => record.mediaType === "video")
     .map((video) => {
       const enriched = attachEnrichment(video, store);
-      return compactHumanEnricherVideo({ ...enriched, agentReview: agentReviews.get(enriched.humanVideoKey) || null });
+      return compactHumanEnricherVideo({ ...enriched, agentReview: agentReviews.get(enriched.humanVideoKey) || null, referenceReview: referenceReviews.get(enriched.humanVideoKey) || null });
     })
     .sort((a, b) => Number(Boolean(b.humanEnrichment)) - Number(Boolean(a.humanEnrichment))
       || effectiveQuality(b) - effectiveQuality(a)
       || String(a.name || a.id).localeCompare(String(b.name || b.id)));
   const enriched = videos.filter((video) => video.humanEnrichment);
   const agentReviewed = videos.filter((video) => video.agentReview);
+  const referenceReviewed = videos.filter((video) => video.referenceReview);
   const qualityCalibration = createHumanVideoQualityCalibration(videos);
   return {
     schemaVersion: HUMAN_VIDEO_ENRICHER_DASHBOARD_SCHEMA,
@@ -201,6 +204,8 @@ export function createHumanVideoEnricherDashboard({ mediaDashboard = {}, enrichm
       pendingHumanValidation: agentReviewed.filter((video) => video.agentReview.status === "pending-human").length,
       humanValidatedAgentReviews: agentReviewed.filter((video) => ["accepted", "accepted-edited", "rejected"].includes(video.agentReview.status)).length,
       remainingOpticalReviews: Math.max(0, videos.length - agentReviewed.length),
+      referenceReviewed: referenceReviewed.length,
+      remainingReferenceReviews: Math.max(0, agentReviewed.length - referenceReviewed.length),
       calibrationPairs: qualityCalibration.sampleSize,
       agentQualityExactMatchRate: qualityCalibration.exactMatchRate,
     },
@@ -281,6 +286,7 @@ function compactHumanEnricherVideo(video = {}) {
     humanVideoKey: video.humanVideoKey,
     humanEnrichment: video.humanEnrichment,
     agentReview: video.agentReview || null,
+    referenceReview: video.referenceReview || null,
   };
 }
 
@@ -383,6 +389,7 @@ function directorEnrichmentProjection(record) {
     directorNotes: record.directorNotes,
     references: record.references,
     agentReviewLineage: record.agentReviewLineage,
+    referenceReviewLineage: record.referenceReviewLineage,
     revision: record.revision,
     updatedAt: record.updatedAt,
     updatedBy: record.updatedBy,

@@ -102,6 +102,39 @@ async function main(cmd, opts) {
     return;
   }
 
+  if (cmd === "human-enricher-reference-packet") {
+    const params = new URLSearchParams({ profile: String(opts.profile || "echo-reference-cards") });
+    if (opts["max-cards"]) params.set("maxCards", String(opts["max-cards"]));
+    if (opts.cards) params.set("cardIds", String(opts.cards));
+    print(await contextGenerationApiRequest(opts, `/api/human-enricher/reference-card-packets?${params}`), { ...opts, json: true });
+    return;
+  }
+
+  if (cmd === "human-enricher-reference-queue") {
+    const params = new URLSearchParams({
+      status: String(opts.status || "needs-reference"),
+      profile: String(opts.profile || "echo-reference-cards"),
+      offset: String(opts.offset || 0),
+      limit: String(opts.limit || 12),
+    });
+    if (opts["max-cards"]) params.set("maxCards", String(opts["max-cards"]));
+    print(await contextGenerationApiRequest(opts, `/api/human-enricher/reference-reviews?${params}`), { ...opts, json: true });
+    return;
+  }
+
+  if (cmd === "human-enricher-reference-submit") {
+    const inputFile = option(opts, "file", "review-file");
+    const agentId = String(opts.agent || "").trim();
+    if (!inputFile || !agentId) throw new Error("human-enricher-reference-submit requires --file <reference-review.json> --agent <reference-worker-id>.");
+    const input = await readJsonInput(inputFile);
+    print(await contextGenerationApiRequest(opts, "/api/human-enricher/reference-reviews", {
+      method: "PUT",
+      headers: { "x-hapa-agent-id": agentId },
+      body: input,
+    }), { ...opts, json: true });
+    return;
+  }
+
   if (cmd === "human-enricher-agent-decision") {
     const reviewId = option(opts, "review-id", "review");
     const action = String(opts.action || "").trim();
@@ -1479,6 +1512,9 @@ Commands:
   human-enricher-save --file ./human-video-enrichment.json --actor <human-id> [--api-url http://127.0.0.1:8787] [--json]
   human-enricher-agent-queue [--status needs-agent|needs-human|blocked|all] [--offset 0] [--limit 12] [--api-url http://127.0.0.1:8787] [--json]
   human-enricher-agent-submit --file ./optical-review.json --agent <sub-agent-id> [--api-url http://127.0.0.1:8787] [--json]
+  human-enricher-reference-packet [--profile echo-reference-cards|echo-core-cards|hapa-card-library] [--max-cards 400] [--cards id-1,id-2] [--api-url http://127.0.0.1:8787] [--json]
+  human-enricher-reference-queue [--status needs-reference|reviewed|blocked|all] [--profile echo-reference-cards|echo-core-cards|hapa-card-library] [--offset 0] [--limit 12] [--api-url http://127.0.0.1:8787] [--json]
+  human-enricher-reference-submit --file ./reference-review.json --agent <reference-worker-id> [--api-url http://127.0.0.1:8787] [--json]
   human-enricher-agent-decision --review-id <id> --action accepted|accepted-edited|rejected --actor <human-id> [--notes "..."] [--api-url http://127.0.0.1:8787] [--json]
   card-custody-status [--card-id <id>] [--api-url http://127.0.0.1:8787] [--json]
   card-custody-ensure --file ./card.json --actor <human-or-local-operator-id> [--evidence <ref>] [--api-url http://127.0.0.1:8787] [--json]

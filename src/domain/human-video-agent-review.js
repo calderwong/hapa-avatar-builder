@@ -32,7 +32,7 @@ export function normalizeHumanVideoAgentReviewStore(input = {}) {
     schemaVersion: HUMAN_VIDEO_AGENT_REVIEW_STORE_SCHEMA,
     reviews,
     updatedAt: clean(input.updatedAt, 80) || reviews.map((review) => review.updatedAt).filter(Boolean).sort().at(-1) || null,
-    truthBoundary: "Vision-sub-agent proposals are evidence-backed drafts, not human validation, identity truth, canon, rights clearance, publication approval, or render authority.",
+    truthBoundary: "Optical-worker proposals describe and grade delivered frames only. Card, Avatar, song, scene, and lore matching belongs to the separate bounded reference pass.",
   };
 }
 
@@ -103,8 +103,14 @@ export function upsertHumanVideoAgentReview(storeInput = {}, input = {}, options
     createdAt: current?.createdAt || now,
     updatedAt: now,
   });
-  if (review.status !== "blocked" && review.proposal.visualReferenceAnalysis.completed !== true) {
-    throw reviewError("visual_reference_analysis_required", "A new optical review must explicitly compare visible symbols, markings, text, palette, geometry, costume, objects, composition, and motifs against source-cited Hapa and Echo concepts—even when it finds no match.");
+  const incomingProposal = input.proposal || {};
+  if (review.status !== "blocked" && (
+    (Array.isArray(incomingProposal.references) && incomingProposal.references.length)
+    || (Array.isArray(incomingProposal.avatarRelationships) && incomingProposal.avatarRelationships.length)
+    || (Array.isArray(input.knowledgeComparisons) && input.knowledgeComparisons.length)
+    || (Array.isArray(incomingProposal.visualReferenceAnalysis?.matches) && incomingProposal.visualReferenceAnalysis.matches.length)
+  )) {
+    throw reviewError("reference_fields_require_reference_pass", "Optical workers may record visible signals, but Card, Avatar, song, scene, and lore matches must be submitted through the bounded reference-worker pass.");
   }
   return {
     store: normalizeHumanVideoAgentReviewStore({ ...store, reviews: [...store.reviews.filter((item) => item.videoKey !== videoKey), review], updatedAt: now }),
@@ -149,7 +155,7 @@ function normalizeReviewer(input = {}) {
     agentId: clean(input.agentId, 240),
     taskId: clean(input.taskId, 500),
     model: clean(input.model, 240),
-    reviewMode: "vision-subagent-optical",
+    reviewMode: "vision-subagent-optical-only",
     opticalInspectionConfirmed: input.opticalInspectionConfirmed === true,
     attestation: cleanMultiline(input.attestation, 2_000),
   };
@@ -186,6 +192,7 @@ function normalizeProposal(input = {}) {
     },
     categories: uniqueStrings(input.categories, 80, 180),
     tags: uniqueStrings(input.tags, 160, 180),
+    referenceSignals: uniqueStrings(input.referenceSignals || input.visualSignals || input.visualReferenceAnalysis?.observedSignals, 120, 1_000),
     avatarRelationships: (Array.isArray(input.avatarRelationships) ? input.avatarRelationships : []).slice(0, 80).map((item) => normalizeRelationship(item, "avatar")),
     references: (Array.isArray(input.references) ? input.references : []).slice(0, 120).map(normalizeReference).filter(Boolean),
     visualReferenceAnalysis: normalizeVisualReferenceAnalysis(input.visualReferenceAnalysis),

@@ -143,6 +143,8 @@ import { openAvatarProposalReviewService } from "./avatar-proposal-review-servic
 import { openAvatarCardCustodyService } from "./card-custody-service.mjs";
 import { openHumanVideoEnrichmentStore } from "./human-video-enrichment-store.mjs";
 import { openHumanVideoAgentReviewStore } from "./human-video-agent-review-store.mjs";
+import { openHumanVideoReferenceReviewStore } from "./human-video-reference-review-store.mjs";
+import { buildHumanVideoReferenceCardPacket } from "../src/domain/human-video-reference-review.js";
 import { MintLedgerError, createSongCardMintController } from "./song-card-mint-controller.mjs";
 import { createSongCardRemintStore } from "./song-card-remint-store.mjs";
 import { createSongCardLocalRenderBridge, inspectSongCardRendererBuildIdentity } from "./song-card-local-renderer.mjs";
@@ -489,6 +491,8 @@ const HUMAN_VIDEO_ENRICHMENT_PATH = process.env.HAPA_HUMAN_VIDEO_ENRICHMENT_STOR
 const HUMAN_VIDEO_ENRICHMENT_EVENT_PATH = process.env.HAPA_HUMAN_VIDEO_ENRICHMENT_EVENTS || path.join(ROOT, "data/human-video-enrichment-events.ndjson");
 const HUMAN_VIDEO_AGENT_REVIEW_PATH = process.env.HAPA_HUMAN_VIDEO_AGENT_REVIEW_STORE || path.join(ROOT, "data/human-video-agent-reviews.json");
 const HUMAN_VIDEO_AGENT_REVIEW_EVENT_PATH = process.env.HAPA_HUMAN_VIDEO_AGENT_REVIEW_EVENTS || path.join(ROOT, "data/human-video-agent-review-events.ndjson");
+const HUMAN_VIDEO_REFERENCE_REVIEW_PATH = process.env.HAPA_HUMAN_VIDEO_REFERENCE_REVIEW_STORE || path.join(ROOT, "data/human-video-reference-reviews.json");
+const HUMAN_VIDEO_REFERENCE_REVIEW_EVENT_PATH = process.env.HAPA_HUMAN_VIDEO_REFERENCE_REVIEW_EVENTS || path.join(ROOT, "data/human-video-reference-review-events.ndjson");
 const ITEM_STORE_PATH = process.env.HAPA_ITEM_STORE || path.join(ROOT, "data/item-manager-store.json");
 const INVENTORY_STORE_PATH = process.env.HAPA_INVENTORY_STORE || path.join(ROOT, "data/inventory-store.json");
 const HAPA_DEV_PROTO_DB_PATH = process.env.HAPA_DEV_PROTO_DB || path.join(process.env.HOME || "/Users/calderwong", "Library", "Application Support", "hapa-ag", "persistence.db");
@@ -501,6 +505,10 @@ const humanVideoEnrichmentStore = openHumanVideoEnrichmentStore({
 const humanVideoAgentReviewStore = openHumanVideoAgentReviewStore({
   filePath: HUMAN_VIDEO_AGENT_REVIEW_PATH,
   eventPath: HUMAN_VIDEO_AGENT_REVIEW_EVENT_PATH,
+});
+const humanVideoReferenceReviewStore = openHumanVideoReferenceReviewStore({
+  filePath: HUMAN_VIDEO_REFERENCE_REVIEW_PATH,
+  eventPath: HUMAN_VIDEO_REFERENCE_REVIEW_EVENT_PATH,
 });
 
 let latestTarotFrame = null;
@@ -3929,6 +3937,82 @@ async function route(req, res) {
     return;
   }
 
+  if (pathname === "/api/human-enricher/reference-card-packets" && req.method === "GET") {
+    try {
+      res.setHeader("Cache-Control", "no-store");
+      sendJson(res, 200, await buildHumanVideoReferenceCardPacketSnapshot({
+        profile: url.searchParams.get("profile") || "echo-reference-cards",
+        maxCards: url.searchParams.get("maxCards") || undefined,
+        cardIds: String(url.searchParams.get("cardIds") || "").split(",").map((value) => value.trim()).filter(Boolean),
+      }));
+    } catch (error) {
+      sendJson(res, Number(error?.statusCode || 400), { ok: false, error: error?.code || "reference_card_packet_failed", message: error?.message || String(error) });
+    }
+    return;
+  }
+
+  if (pathname === "/api/human-enricher/reference-reviews" && req.method === "GET") {
+    try {
+      res.setHeader("Cache-Control", "no-store");
+      const dashboard = await buildHumanVideoEnricherDashboard();
+      const packet = await buildHumanVideoReferenceCardPacketSnapshot({
+        profile: url.searchParams.get("profile") || "echo-reference-cards",
+        maxCards: url.searchParams.get("maxCards") || undefined,
+      });
+      sendJson(res, 200, paginateHumanVideoReferenceReviewQueue(dashboard, packet, url.searchParams));
+    } catch (error) {
+      sendJson(res, Number(error?.statusCode || 400), { ok: false, error: error?.code || "reference_review_queue_failed", message: error?.message || String(error) });
+    }
+    return;
+  }
+
+  if (pathname === "/api/human-enricher/reference-reviews" && req.method === "PUT") {
+    try {
+      const body = await readBody(req);
+      const dashboard = await buildHumanVideoEnricherDashboard();
+      const video = dashboard.videos.find((candidate) => candidate.humanVideoKey === body.videoKey || candidate.id === body.videoId);
+      if (!video) {
+        const error = new Error(`Unknown Human Enricher video: ${body.videoKey || body.videoId || "missing"}.`);
+        error.code = "reference_review_video_not_found";
+        error.statusCode = 404;
+        throw error;
+      }
+      if (!video.agentReview || video.agentReview.status === "blocked") {
+        const error = new Error("A completed optical pass is required before a reference worker may run.");
+        error.code = "reference_review_optical_dependency_required";
+        error.statusCode = 409;
+        throw error;
+      }
+      const packet = await buildHumanVideoReferenceCardPacketSnapshot({
+        profile: body.packet?.profile || "echo-reference-cards",
+        maxCards: body.packet?.maxCards || undefined,
+        cardIds: body.packetCardIds || [],
+      });
+      if (body.packet?.digest !== packet.digest) {
+        const error = new Error("The supplied Hapa Card packet is stale or does not match the current bounded packet.");
+        error.code = "reference_card_packet_digest_mismatch";
+        error.statusCode = 409;
+        throw error;
+      }
+      const result = await humanVideoReferenceReviewStore.submit({
+        ...body,
+        videoKey: video.humanVideoKey,
+        videoId: video.id,
+        videoName: video.name,
+        opticalReview: { id: video.agentReview.id, revision: video.agentReview.revision, frameDigest: body.opticalReview?.frameDigest || "" },
+        packet: { id: packet.id, profile: packet.profile, digest: packet.digest, cardCount: packet.cardCount },
+      }, {
+        agentId: String(req.headers["x-hapa-agent-id"] || body.reviewer?.agentId || "reference-worker").trim().slice(0, 240),
+        allowedCardIds: packet.cards.map((card) => card.id),
+      });
+      res.setHeader("Cache-Control", "no-store");
+      sendJson(res, 200, { ok: true, review: result.review, authority: "pending-human", packet: { id: packet.id, digest: packet.digest, cardCount: packet.cardCount } });
+    } catch (error) {
+      sendJson(res, Number(error?.statusCode || 400), { ok: false, error: error?.code || "reference_review_submit_failed", message: error?.message || String(error), details: error?.details || null });
+    }
+    return;
+  }
+
   if (pathname === "/api/human-enricher/agent-reviews" && req.method === "PUT") {
     try {
       const body = await readBody(req);
@@ -4007,6 +4091,13 @@ async function route(req, res) {
         sendJson(res, 409, { ok: false, error: "agent_review_lineage_mismatch", message: "The selected optical proposal does not belong to this video." });
         return;
       }
+      const referenceReview = body.sourceReferenceReviewId
+        ? (await humanVideoReferenceReviewStore.read()).reviews.find((review) => review.id === body.sourceReferenceReviewId)
+        : null;
+      if (body.sourceReferenceReviewId && (!referenceReview || referenceReview.videoKey !== video.humanVideoKey)) {
+        sendJson(res, 409, { ok: false, error: "reference_review_lineage_mismatch", message: "The selected bounded-Card reference proposal does not belong to this video." });
+        return;
+      }
       const result = await humanVideoEnrichmentStore.update({
         ...body,
         key: video.humanVideoKey,
@@ -4026,6 +4117,16 @@ async function route(req, res) {
             decision: "accepted-edited",
             agentId: agentReview.reviewer.agentId,
             taskId: agentReview.reviewer.taskId,
+            incorporatedAt: new Date().toISOString(),
+          },
+        } : {}),
+        ...(referenceReview ? {
+          referenceReviewLineage: {
+            reviewId: referenceReview.id,
+            reviewRevision: referenceReview.revision,
+            decision: "accepted-edited",
+            agentId: referenceReview.reviewer.agentId,
+            taskId: referenceReview.reviewer.taskId,
             incorporatedAt: new Date().toISOString(),
           },
         } : {}),
@@ -6758,7 +6859,7 @@ async function readSystemMediaLibrary() {
 }
 
 async function buildHumanVideoEnricherDashboard() {
-  const [avatarStore, canonicalAvatarStore, tarotStore, sceneGraph, mediaLibrary, enrichmentStore, agentReviewStore, songStore, itemStore] = await Promise.all([
+  const [avatarStore, canonicalAvatarStore, tarotStore, sceneGraph, mediaLibrary, enrichmentStore, agentReviewStore, referenceReviewStore, songStore, itemStore] = await Promise.all([
     readStore({ includeProjections: true }),
     readStore(),
     readTarotStore(),
@@ -6766,6 +6867,7 @@ async function buildHumanVideoEnricherDashboard() {
     readSystemMediaLibrary(),
     humanVideoEnrichmentStore.read(),
     humanVideoAgentReviewStore.read(),
+    humanVideoReferenceReviewStore.read(),
     readHapaSongStore(),
     readItemStore(),
   ]);
@@ -6781,9 +6883,70 @@ async function buildHumanVideoEnricherDashboard() {
     mediaDashboard,
     enrichmentStore,
     agentReviewStore,
+    referenceReviewStore,
     avatars: canonicalAvatarStore.avatars || [],
     songs: songStore.songs || [],
   });
+}
+
+async function buildHumanVideoReferenceCardPacketSnapshot(options = {}) {
+  const [avatarStore, songStore, itemStore] = await Promise.all([readStore(), readHapaSongStore(), readItemStore()]);
+  const base = buildHumanVideoReferenceCardPacket({
+    avatars: avatarStore.avatars || [],
+    songs: songStore.songs || [],
+    referenceCatalog: songStore.referenceCatalog || [],
+    itemCards: itemStore.cards || [],
+  }, {
+    profile: options.profile,
+    maxCards: options.maxCards,
+    cardIds: options.cardIds,
+    createdAt: new Date().toISOString(),
+  });
+  const digest = `sha256:${createHash("sha256").update(JSON.stringify(base.cards)).digest("hex")}`;
+  return { ...base, id: `${base.id}:${digest.slice(-16)}`, digest };
+}
+
+function paginateHumanVideoReferenceReviewQueue(dashboard, cardPacket, searchParams) {
+  const status = String(searchParams.get("status") || "needs-reference").trim().toLowerCase();
+  const offset = Math.max(0, Number(searchParams.get("offset") || 0) || 0);
+  const limit = Math.max(1, Math.min(100, Number(searchParams.get("limit") || 12) || 12));
+  const candidates = dashboard.videos.filter((video) => {
+    if (status === "all") return Boolean(video.agentReview);
+    if (status === "needs-reference") return Boolean(video.agentReview) && !video.referenceReview && video.agentReview.status !== "blocked";
+    if (status === "reviewed") return Boolean(video.referenceReview);
+    if (status === "blocked") return video.referenceReview?.status === "blocked";
+    return video.referenceReview?.status === status;
+  });
+  const items = candidates.slice(offset, offset + limit).map((video) => ({
+    videoKey: video.humanVideoKey,
+    videoId: video.id,
+    videoName: video.name,
+    opticalReview: {
+      id: video.agentReview.id,
+      revision: video.agentReview.revision,
+      frames: video.agentReview.evidence?.frames || [],
+      description: video.agentReview.proposal?.description || "",
+      categories: video.agentReview.proposal?.categories || [],
+      tags: video.agentReview.proposal?.tags || [],
+      referenceSignals: video.agentReview.proposal?.referenceSignals || video.agentReview.proposal?.visualReferenceAnalysis?.observedSignals || [],
+    },
+    referenceReview: video.referenceReview || null,
+    packetReceipt: { id: cardPacket.id, profile: cardPacket.profile, digest: cardPacket.digest, cardCount: cardPacket.cardCount },
+  }));
+  return {
+    schemaVersion: "hapa.human-video-reference-review-queue.v1",
+    generatedAt: new Date().toISOString(),
+    status,
+    workerBoundary: "Reference workers receive completed optical observations plus one bounded Hapa Card packet. They may rank or reject packet Cards only.",
+    workerSetup: {
+      independentlyConfigurable: true,
+      recordedFields: ["model", "reasoningEffort", "parameters"],
+      opticalModelIndependent: true,
+    },
+    cardPacket,
+    pagination: { offset, limit, returned: items.length, total: candidates.length, hasMore: offset + items.length < candidates.length, nextOffset: offset + items.length },
+    items,
+  };
 }
 
 function paginateHumanVideoAgentReviewQueue(dashboard, searchParams) {
@@ -6819,12 +6982,10 @@ function paginateHumanVideoAgentReviewQueue(dashboard, searchParams) {
       minimumFrameCount: 3,
       inspectEveryRegisteredFrame: true,
       semanticAutomationAllowed: false,
-      knowledgeInferenceMustBeSourceCited: true,
       applyHumanQualityCalibrationAsBoundedPrior: true,
-      visualReferenceAnalysisRequired: true,
-      visualReferenceSignals: ["symbols", "markings", "visible text", "palette", "geometry", "costume", "objects", "composition", "recurring motifs"],
-      visualReferenceSources: ["Avatars", "Hapa Cards", "Tarot", "scenes", "Echo songs", "Echo album concepts"],
-      recordNegativeReferenceFindings: true,
+      passBoundary: "Optical only: literal observations, quality, description, categories, tags, director-use notes, and visible reference signals.",
+      forbiddenInputs: ["raw Hapa knowledge stores", "song catalog search", "scene search", "Avatar identity search", "worker-invented reference candidates"],
+      referenceSignalsToRecordForLaterWorker: ["symbols", "markings", "visible text", "palette", "geometry", "costume", "objects", "composition", "recurring motifs"],
     },
   }));
   return {
@@ -6835,7 +6996,7 @@ function paginateHumanVideoAgentReviewQueue(dashboard, searchParams) {
     qualityCalibration: dashboard.qualityCalibration,
     pagination: { offset, limit, returned: items.length, total: candidates.length, hasMore: offset + items.length < candidates.length, nextOffset: offset + items.length },
     items,
-    truthBoundary: "Queue automation may enumerate, extract, and hash frames only. A vision-capable sub-agent must inspect every required keyframe and author all semantic judgments.",
+    truthBoundary: "Queue automation may enumerate, extract, and hash frames only. Optical workers inspect frames but do not search or assign Hapa references; the separate reference queue receives bounded Card packets.",
   };
 }
 

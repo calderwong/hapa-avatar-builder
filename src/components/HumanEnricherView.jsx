@@ -166,16 +166,17 @@ export default function HumanEnricherView({ apiBase = "", onNotify = () => {} })
     const review = selectedVideo?.agentReview;
     if (!review?.proposal) return;
     const proposal = review.proposal;
-    const proposedMentions = (proposal.avatarRelationships || []).map((relationship) => {
-      const relationshipLabel = String(relationship.label || "").replace(/^@+/, "");
-      const avatar = dashboard?.avatarOptions?.find((option) => option.id === relationship.entityId || option.name === relationshipLabel);
+    const referenceProposal = selectedVideo?.referenceReview?.proposal || {};
+    const proposedMentions = (referenceProposal.avatarRelationships || []).map((relationship) => {
+      const relationshipLabel = String(relationship.cardTitle || "").replace(/^@+/, "");
+      const avatar = dashboard?.avatarOptions?.find((option) => option.id === relationship.cardId || option.name === relationshipLabel);
       return avatar ? { avatarId: avatar.id, avatarName: avatar.name, mention: avatar.mention } : null;
     }).filter(Boolean);
-    const proposedReferences = (proposal.references || []).map((reference) => ({
-      id: reference.id || "",
-      type: reference.type === "scene" || reference.type === "avatar" ? "other" : reference.type,
-      label: reference.label || reference.id || "",
-      uri: reference.uri || "",
+    const proposedReferences = (referenceProposal.matches || []).map((reference) => ({
+      id: reference.cardId || "",
+      type: "card",
+      label: reference.cardTitle || reference.cardId || "",
+      uri: "",
       notes: reference.explanation || "",
     }));
     editDraft((current) => ({
@@ -185,9 +186,12 @@ export default function HumanEnricherView({ apiBase = "", onNotify = () => {} })
       categories: uniqueText([...(mode === "append" ? current.categories : []), ...(proposal.categories || [])]),
       tags: uniqueText([...(mode === "append" ? current.tags : []), ...(proposal.tags || [])]),
       avatarMentions: uniqueBy([...(mode === "append" ? current.avatarMentions : []), ...proposedMentions], (item) => item.avatarId),
-      directorNotes: mode === "append" ? appendText(current.directorNotes, proposal.directorNotes) : proposal.directorNotes || current.directorNotes,
+      directorNotes: mode === "append"
+        ? appendText(appendText(current.directorNotes, proposal.directorNotes), referenceProposal.directorNotes)
+        : appendText(proposal.directorNotes, referenceProposal.directorNotes) || current.directorNotes,
       references: uniqueBy([...(mode === "append" ? current.references : []), ...proposedReferences], (item) => `${item.type}:${item.id || item.uri || item.label}`),
       sourceAgentReviewId: review.id,
+      sourceReferenceReviewId: selectedVideo?.referenceReview?.id || "",
     }));
   }
 
@@ -236,6 +240,7 @@ export default function HumanEnricherView({ apiBase = "", onNotify = () => {} })
           directorNotes: snapshot.directorNotes,
           references: snapshot.references,
           sourceAgentReviewId: snapshot.sourceAgentReviewId || undefined,
+          sourceReferenceReviewId: snapshot.sourceReferenceReviewId || undefined,
         }),
       });
       const payload = await response.json();
@@ -247,7 +252,7 @@ export default function HumanEnricherView({ apiBase = "", onNotify = () => {} })
           ? { ...video, humanEnrichment: payload.record, agentReview: payload.reviewDecision || video.agentReview }
           : video),
       }));
-      setDraft((current) => ({ ...current, expectedRevision: payload.record.revision, sourceAgentReviewId: "" }));
+      setDraft((current) => ({ ...current, expectedRevision: payload.record.revision, sourceAgentReviewId: "", sourceReferenceReviewId: "" }));
       setSaveState(editSerialRef.current === saveSerial ? "saved" : "dirty");
       return true;
     } catch (saveError) {
@@ -385,7 +390,7 @@ export default function HumanEnricherView({ apiBase = "", onNotify = () => {} })
               {selectedVideo.agentReview && (
                 <section className="human-agent-proposal" data-status={selectedVideo.agentReview.status}>
                   <div className="human-enrichment-section-head">
-                    <div><p className="eyebrow"><Bot size={13} /> OPTICAL SUB-AGENT PASS</p><h4>Evidence-backed proposal · {selectedVideo.agentReview.status}</h4></div>
+                    <div><p className="eyebrow"><Bot size={13} /> OPTICAL PASS · NO KNOWLEDGE SEARCH</p><h4>Frame diagnosis · {selectedVideo.agentReview.status}</h4></div>
                     <span>{selectedVideo.agentReview.evidence?.inspectedFrameCount || 0} frames addressed</span>
                   </div>
                   <div className="human-agent-receipt">
@@ -408,30 +413,13 @@ export default function HumanEnricherView({ apiBase = "", onNotify = () => {} })
                     <div><span>Categories</span><p>{(selectedVideo.agentReview.proposal?.categories || []).join(" · ") || "None proposed"}</p></div>
                     <div><span>Uncertainty</span><p>{selectedVideo.agentReview.proposal?.uncertainty || "No uncertainty statement."}</p></div>
                   </div>
-                  <section className="human-visual-reference-analysis" data-status={selectedVideo.agentReview.proposal?.visualReferenceAnalysis?.status || "not-run"}>
+                  <section className="human-visual-reference-analysis" data-status="signals-only">
                     <div className="human-enrichment-section-head">
-                      <div><p className="eyebrow"><Link2 size={13} /> VISUAL HAPA / ECHO REFERENCES</p><h4>Symbols, markings, palette, geometry, costume, objects, text & motifs</h4></div>
-                      <span>{selectedVideo.agentReview.proposal?.visualReferenceAnalysis?.status || "earlier pass"}</span>
+                      <div><p className="eyebrow"><Eye size={13} /> OPTICAL SIGNAL HANDOFF</p><h4>Visible clues for a later reference worker</h4></div>
+                      <span>no Cards assigned here</span>
                     </div>
-                    {selectedVideo.agentReview.proposal?.visualReferenceAnalysis?.completed ? (
-                      <>
-                        <p>{(selectedVideo.agentReview.proposal.visualReferenceAnalysis.observedSignals || []).join(" · ") || "No distinctive visual signals recorded."}</p>
-                        <div className="human-relationship-list">
-                          {(selectedVideo.agentReview.proposal.visualReferenceAnalysis.matches || []).map((match, index) => <span key={`${match.sourcePath}:${match.entityId}:${index}`}><strong>{match.entityLabel || match.entityId}</strong><small>{match.matchType} · {Math.round((match.confidence || 0) * 100)}%</small><small>Seen: {match.observedEvidence}</small><small>{match.explanation}</small><small>{match.sourcePath}</small></span>)}
-                        </div>
-                        {(selectedVideo.agentReview.proposal.visualReferenceAnalysis.negativeFindings || []).length > 0 && <p className="human-reference-negative">No-match notes: {selectedVideo.agentReview.proposal.visualReferenceAnalysis.negativeFindings.join(" · ")}</p>}
-                      </>
-                    ) : <p>This earlier pass did not record a dedicated visual-symbol comparison. Its existing reference candidates are shown below but should be rechecked under the expanded protocol.</p>}
-                    <div className="human-relationship-list">
-                      {(selectedVideo.agentReview.proposal?.references || []).map((reference, index) => <span key={`${reference.type}:${reference.id}:${index}`}><strong>{reference.label || reference.id}</strong><small>{reference.type} · {reference.evidenceType} · {Math.round((reference.confidence || 0) * 100)}%</small><small>{reference.explanation}</small></span>)}
-                    </div>
+                    <p>{(selectedVideo.agentReview.proposal?.referenceSignals || selectedVideo.agentReview.proposal?.visualReferenceAnalysis?.observedSignals || []).join(" · ") || "No distinctive symbols, markings, text, palette, geometry, costume, objects, composition, or motifs were recorded."}</p>
                   </section>
-                  <details className="human-agent-sources"><summary>Suggested relationships, references & Hapa evidence</summary>
-                    <div className="human-relationship-list">
-                      {(selectedVideo.agentReview.proposal?.avatarRelationships || []).map((relationship, index) => <span key={`${relationship.entityId}:${index}`}><strong>{avatarMentionLabel(relationship.label || relationship.entityId)}</strong><small>{relationship.evidenceType} · {Math.round((relationship.confidence || 0) * 100)}%</small><small>{relationship.explanation}</small></span>)}
-                      {(selectedVideo.agentReview.knowledgeComparisons || []).map((source, index) => <span key={`${source.sourcePath}:${index}`}><strong>{source.entityLabel || source.entityId || "Hapa source"}</strong><small>{source.relationship} · {Math.round((source.confidence || 0) * 100)}%</small><small>{source.sourcePath}</small><small>{source.explanation}</small></span>)}
-                    </div>
-                  </details>
                   {selectedVideo.agentReview.status === "pending-human" && <div className="human-agent-actions">
                     <button className="hapa-btn" data-intent="primary" type="button" onClick={() => applyAgentProposal("replace")}><CheckCircle2 size={14} /> Use as editable draft</button>
                     <button className="hapa-btn" type="button" onClick={() => applyAgentProposal("append")}><Sparkles size={14} /> Append suggestions</button>
@@ -440,6 +428,34 @@ export default function HumanEnricherView({ apiBase = "", onNotify = () => {} })
                   <p className="human-editor-hint"><Eye size={13} /> Frames were delivered and addressed; this is not proof of identity or canon. Playback and human judgment remain required.</p>
                 </section>
               )}
+
+              {selectedVideo.referenceReview ? (
+                <section className="human-agent-proposal" data-status={selectedVideo.referenceReview.status}>
+                  <div className="human-enrichment-section-head">
+                    <div><p className="eyebrow"><Link2 size={13} /> REFERENCE PASS · BOUNDED HAPA CARDS</p><h4>Card comparison · {selectedVideo.referenceReview.status}</h4></div>
+                    <span>{selectedVideo.referenceReview.packet?.cardCount || 0} supplied Cards</span>
+                  </div>
+                  <div className="human-agent-receipt">
+                    <strong>{selectedVideo.referenceReview.reviewer?.agentId || "reference-worker"}</strong>
+                    <span>{selectedVideo.referenceReview.reviewer?.model || "model not recorded"}</span>
+                    <span>{selectedVideo.referenceReview.reviewer?.reasoningEffort || "reasoning not recorded"}</span>
+                    <span>{selectedVideo.referenceReview.packet?.profile}</span>
+                    <span>{selectedVideo.referenceReview.packet?.digest}</span>
+                  </div>
+                  <p>{(selectedVideo.referenceReview.proposal?.observedSignals || []).join(" · ") || "No reference signals repeated."}</p>
+                  <div className="human-relationship-list">
+                    {(selectedVideo.referenceReview.proposal?.matches || []).map((match, index) => <span key={`${match.cardId}:${index}`}><strong>{match.cardTitle || match.cardId}</strong><small>{match.matchType} · {Math.round((match.confidence || 0) * 100)}%</small><small>Seen: {match.observedEvidence}</small><small>{match.explanation}</small><small>Packet Card: {match.cardId}</small></span>)}
+                    {(selectedVideo.referenceReview.proposal?.avatarRelationships || []).map((match, index) => <span key={`avatar:${match.cardId}:${index}`}><strong>{avatarMentionLabel(match.cardTitle || match.cardId)}</strong><small>{match.relationship || "visible-subject"} · {Math.round((match.confidence || 0) * 100)}%</small><small>Seen: {match.observedEvidence}</small><small>{match.explanation}</small></span>)}
+                  </div>
+                  {(selectedVideo.referenceReview.proposal?.negativeFindings || []).length > 0 && <p className="human-reference-negative">No-match notes: {selectedVideo.referenceReview.proposal.negativeFindings.join(" · ")}</p>}
+                  <p className="human-editor-hint">The worker could rank or reject supplied Cards only. Different models and parameters can rerun this pass without repeating optical inspection.</p>
+                </section>
+              ) : selectedVideo.agentReview ? (
+                <section className="human-agent-proposal" data-status="needs-reference">
+                  <div className="human-enrichment-section-head"><div><p className="eyebrow"><Link2 size={13} /> REFERENCE PASS</p><h4>Waiting for a bounded Hapa Card worker</h4></div><span>not run</span></div>
+                  <p>No reference proposal exists yet. Historical reference guesses embedded in earlier optical records are not treated as this pass.</p>
+                </section>
+              ) : null}
 
               <section className="human-enrichment-editor">
                 <div className="human-enrichment-section-head">
@@ -541,7 +557,7 @@ export default function HumanEnricherView({ apiBase = "", onNotify = () => {} })
   );
 }
 
-function emptyDraft() { return { quality: 0, description: "", categories: [], tags: [], avatarMentions: [], directorNotes: "", references: [], expectedRevision: 0, sourceAgentReviewId: "" }; }
+function emptyDraft() { return { quality: 0, description: "", categories: [], tags: [], avatarMentions: [], directorNotes: "", references: [], expectedRevision: 0, sourceAgentReviewId: "", sourceReferenceReviewId: "" }; }
 
 function initialReviewFilter() {
   const requested = new URLSearchParams(globalThis.location?.search || "").get("review") || "all";
@@ -564,6 +580,7 @@ function draftForVideo(video) {
     references: enrichment.references || [],
     expectedRevision: Number(enrichment.revision || 0),
     sourceAgentReviewId: "",
+    sourceReferenceReviewId: "",
   } : { ...emptyDraft(), quality: Number(video.agentReview?.proposal?.quality?.value || 0) };
 }
 function mediaUri(uri, apiBase) {
