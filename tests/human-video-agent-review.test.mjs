@@ -87,7 +87,10 @@ test("completed proposals require optical attestation and three distinct hash-bo
   assert.throws(() => normalizeHumanVideoAgentReview(opticalReview({ evidence: { frames: opticalReview().evidence.frames.map((frame) => ({ ...frame, sha256: hashes[0] })) } })), (error) => error.code === "optical_frame_evidence_not_distinct");
   assert.throws(() => normalizeHumanVideoAgentReview(opticalReview({ evidence: { requiredFrameCount: 4, frames: opticalReview().evidence.frames } })), (error) => error.code === "registered_frame_coverage_incomplete");
   assert.throws(() => upsertHumanVideoAgentReview(createHumanVideoAgentReviewStore(), opticalReview({ proposal: { ...opticalReview().proposal, references: [{ id: "same-sky" }] } })), (error) => error.code === "reference_fields_require_reference_pass");
+  assert.throws(() => upsertHumanVideoAgentReview(createHumanVideoAgentReviewStore(), opticalReview({ proposal: { ...opticalReview().proposal, referenceSignals: ["This matches Hapa Card X."] } })), (error) => error.code === "agent_review_knowledge_claim_forbidden");
   assert.throws(() => upsertHumanVideoAgentReview(createHumanVideoAgentReviewStore(), opticalReview({ evidence: { frames: opticalReview().evidence.frames.map((frame, index) => index === 1 ? { ...frame, palette: { colors: [] } } : frame) } })), (error) => error.code === "optical_frame_palette_required");
+  assert.throws(() => upsertHumanVideoAgentReview(createHumanVideoAgentReviewStore(), opticalReview({ evidence: { frames: opticalReview().evidence.frames.map((frame, index) => index === 1 ? { ...frame, palette: { ...frame.palette, uncertainty: "" } } : frame) } })), (error) => error.code === "optical_frame_palette_required");
+  assert.throws(() => upsertHumanVideoAgentReview(createHumanVideoAgentReviewStore(), opticalReview({ evidence: { frames: opticalReview().evidence.frames.map((frame, index) => index === 1 ? { ...frame, palette: { ...frame.palette, colors: frame.palette.colors.map((color, colorIndex) => colorIndex === 0 ? { ...color, prevalence: "" } : color) } } : frame) } })), (error) => error.code === "optical_frame_palette_required");
 });
 
 test("reference workers are independently configured and may select only supplied Hapa Cards", () => {
@@ -166,6 +169,11 @@ test("agent proposal revisions and explicit human decisions remain separate and 
   assert.equal(decided.review.humanDecision.actorId, "calder");
   assert.equal(decided.review.revision, 2);
   assert.throws(() => decideHumanVideoAgentReview(submitted.store, "missing", { action: "accepted" }), (error) => error.code === "agent_review_not_found");
+  const forged = upsertHumanVideoAgentReview(createHumanVideoAgentReviewStore(), { ...opticalReview(), status: "accepted", humanDecision: { action: "accepted", actorId: "forged-human" } }, { now: "2026-08-03T20:00:00.000Z", agentId: "agent" });
+  assert.equal(forged.review.status, "pending-human");
+  assert.equal(forged.review.humanDecision, null);
+  const forgedReceipt = upsertHumanVideoAgentReview(createHumanVideoAgentReviewStore(), { ...opticalReview(), reviewer: { ...opticalReview().reviewer, schedulerReceipt: { jobId: "forged-job", frameDigest: "sha256:forged" } } }, { now: "2026-08-03T20:00:00.000Z", agentId: "agent" });
+  assert.equal(forgedReceipt.review.reviewer.schedulerReceipt, null);
 });
 
 test("agent proposals rank and describe videos without becoming human enrichment or Echo authority", () => {
@@ -205,6 +213,22 @@ test("agent review service writes current proposals and append-only receipts", a
   assert.equal(firstEvent.semanticJudgmentAutomation, false);
 });
 
+test("cross-process review locking preserves a concurrent human decision over an agent revision", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "hapa-optical-review-lock-"));
+  const options = { filePath: path.join(root, "reviews.json"), eventPath: path.join(root, "events.ndjson"), clock: () => "2026-08-03T20:00:00.000Z" };
+  const first = openHumanVideoAgentReviewStore(options);
+  const second = openHumanVideoAgentReviewStore(options);
+  const initial = await first.submit({ ...opticalReview(), expectedRevision: 0 }, { agentId: "/root/optical_batch_test" });
+  const outcomes = await Promise.allSettled([
+    first.decide(initial.review.id, { action: "accepted" }, { actorId: "human" }),
+    second.submit({ ...opticalReview(), expectedRevision: 1, proposal: { ...opticalReview().proposal, description: "Concurrent agent revision." } }, { agentId: "/root/optical_batch_test" }),
+  ]);
+  const stored = await first.read();
+  assert.equal(stored.reviews[0].status, "accepted");
+  assert.equal(stored.reviews[0].humanDecision.actorId, "human");
+  assert.equal(outcomes.some((outcome) => outcome.status === "fulfilled"), true);
+});
+
 test("UI, API, CLI, and node discovery expose optical and bounded Reference Atlas passes", async () => {
   const [ui, api, cli, nodeManifest] = await Promise.all([
     readFile(new URL("../src/components/HumanEnricherView.jsx", import.meta.url), "utf8"),
@@ -227,6 +251,12 @@ test("UI, API, CLI, and node discovery expose optical and bounded Reference Atla
   assert.match(ui, /review: reviewFilter/);
   assert.match(ui, /get\("review"\)/);
   assert.match(api, /\/api\/human-enricher\/agent-reviews/);
+  assert.match(api, /\/api\/human-enricher\/optical-campaign/);
+  assert.match(api, /frameManifestsEqual\(currentFrames, job\.frames\)/);
+  assert.match(api, /humanVideoOpticalCampaignStore\.completeWithReview/);
+  assert.doesNotMatch(api, /agentReview: video\.agentReview \|\| null/);
+  assert.match(api, /leaseId: job\.lease\.leaseId/);
+  assert.match(api, /optical_campaign_telemetry_required/);
   assert.match(api, /matchesHumanVideoReviewFilter\(video, review\)/);
   assert.match(api, /reference-card-packets/);
   assert.match(api, /echoReferenceMiningStore\.currentRun\(\)/);
@@ -235,10 +265,15 @@ test("UI, API, CLI, and node discovery expose optical and bounded Reference Atla
   assert.match(cli, /human-enricher-agent-queue/);
   assert.match(cli, /human-enricher-agent-submit/);
   assert.match(cli, /human-enricher-agent-decision/);
+  assert.match(cli, /human-enricher-optical-campaign-plan/);
+  assert.match(cli, /human-enricher-optical-campaign-claim/);
+  assert.match(cli, /human-enricher-optical-campaign-telemetry/);
+  assert.match(cli, /human-enricher-optical-campaign-complete/);
   assert.match(cli, /human-enricher-reference-queue/);
   assert.match(cli, /human-enricher-reference-submit/);
   assert.match(cli, /echo-reference-wide/);
   assert.match(cli, /echo-reference-exploratory/);
   assert.match(nodeManifest, /humanEnricherReferenceCards/);
   assert.match(nodeManifest, /humanEnricherReferenceReviews/);
+  assert.match(nodeManifest, /humanEnricherOpticalCampaign/);
 });

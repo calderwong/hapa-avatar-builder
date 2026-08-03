@@ -196,11 +196,11 @@ Open **Human Enricher** from the Builder's top-level work surfaces to review eve
 
 Human enrichment is a non-destructive overlay stored in ignored local runtime files at `data/human-video-enrichments.json`, with append-only change receipts in `data/human-video-enrichment-events.ndjson`. Changes autosave after a short pause. When an agent proposal exists, Quality begins at the agent grade so a person only needs to move it when they disagree; merely viewing a proposal does not create a human revision. It does not rewrite source media, grant rights, establish canon, approve publication, or authorize a render.
 
-Vision-capable sub-agents can add a separate pending optical proposal after personally inspecting every registered keyframe (minimum First, Mid, and Last). Each inspected frame owns an independent visually estimated 3–8 color palette with uppercase `#RRGGBB` values, labels, prevalence, explanation, and uncertainty; whole-video palette synthesis is forbidden. The optical pass also records literal frame observations, quality, description, categories/tags, Director Notes, uncertainty, and visible signals; it performs no knowledge search and assigns no Hapa Cards. The UI renders each palette directly beneath its First/Mid/Last frame, keeps the proposal distinct from human truth, and lets a human use it as an editable draft, append selected suggestions, or reject it. Frame extraction and hashing may be automated; visual judgments and per-frame color selection may not be replaced by heuristics.
+Vision-capable sub-agents can add a separate pending optical proposal after personally inspecting every registered keyframe (minimum First, Mid, and Last). Each inspected frame owns an independent visually estimated 3–8 color palette with uppercase `#RRGGBB` values, labels, prevalence, explanation, and uncertainty; whole-video palette synthesis is forbidden. The optical pass also records literal frame observations, quality, description, categories/tags, Director Notes, uncertainty, and visible signals; it performs no knowledge search and assigns no Hapa Cards. A durable three-worker queue binds opaque leases, frame manifests, claim configuration, normalized-result completion receipts, and immutable job/attempt/frame/lease telemetry under cross-process locks. Agent writes can create only pending/blocked proposals; the human decision path alone can accept, edit-accept, or reject them. The UI renders each palette directly beneath its First/Mid/Last frame, keeps the proposal distinct from human truth, and lets a human use it as an editable draft, append selected suggestions, or reject it. Frame extraction and hashing may be automated; visual judgments and per-frame color selection may not be replaced by heuristics.
 
 A separately configurable reference worker compares those visible signals with one digest-bound Reference Atlas packet. The canonical runtime currently selects a 1,103-Card research projection rather than rebuilding candidates from the original 85-entry legacy catalog. Packet profiles keep the search bounded: `echo-reference-cards` supplies 258 direct or source-backed Cards; `echo-reference-wide` supplies 853 resolved direct, source-backed, and comparative Cards; `echo-reference-exploratory` supplies all 1,103 including 250 explicitly unresolved leads; and `echo-core-cards` adds 157 Song Cards and 74 Avatar Cards to the default 258, for 489 Cards. Counts are snapshot facts and may grow; every packet records its Atlas run hash, digest, evidence mix, review/canon status, rights labels, and provenance. Workers may rank or reject supplied Cards only. See `docs/HUMAN_ENRICHER_OPTICAL_REVIEW.md`.
 
-The initial Terra-medium concurrency pilot found one effective optical vision lane and three genuinely overlapping reference lanes. Its raw timing receipts, full-catalog projections, limits, and non-SLA caveats are documented in `docs/HUMAN_ENRICHER_TERRA_MEDIUM_BENCHMARK.md`.
+An early Terra-medium two-stage pilot found one effective optical lane and three overlapping reference lanes. The later vision-only recheck demonstrated three genuinely overlapping optical workers, empirically rejected a fourth live child in this session, and launched a durable three-worker campaign. Its compact and richer-production timing/token receipts, current 55–70-hour frame-ready forecast, limits, and non-SLA caveats are documented in `docs/HUMAN_ENRICHER_TERRA_MEDIUM_BENCHMARK.md`.
 
 ## Canonical Hapa Node
 
@@ -241,6 +241,9 @@ npm run cli -- human-enricher-list --json
 npm run cli -- human-enricher-save --file ./human-video-enrichment.json --actor calder --json
 npm run cli -- human-enricher-agent-queue --status needs-agent --limit 12 --json
 npm run cli -- human-enricher-agent-submit --file ./optical-review.json --agent /root/optical-batch-a --json
+npm run cli -- human-enricher-optical-campaign-plan --limit 100 --model gpt-5.6-terra --effort medium --max-workers 3 --json
+npm run cli -- human-enricher-optical-campaign-status --json
+npm run cli -- human-enricher-optical-campaign-claim --worker /root/terra-vision-01 --lease-seconds 900 --json
 npm run cli -- human-enricher-reference-packet --profile echo-reference-cards --json
 npm run cli -- human-enricher-reference-queue --profile echo-reference-wide --status needs-reference --limit 12 --json
 npm run cli -- human-enricher-reference-submit --file ./reference-review.json --agent /root/reference-batch-a --json
@@ -269,6 +272,7 @@ curl http://127.0.0.1:8787/api/tarot/krea2
 curl http://127.0.0.1:8787/api/human-enricher/videos
 curl -X PUT -H 'content-type: application/json' --data @human-video-enrichment.json http://127.0.0.1:8787/api/human-enricher/records
 curl 'http://127.0.0.1:8787/api/human-enricher/agent-reviews?status=needs-agent&limit=12'
+curl 'http://127.0.0.1:8787/api/human-enricher/optical-campaign'
 curl 'http://127.0.0.1:8787/api/human-enricher/reference-card-packets?profile=echo-reference-wide'
 curl 'http://127.0.0.1:8787/api/human-enricher/reference-reviews?status=needs-reference&profile=echo-reference-cards&limit=12'
 ```

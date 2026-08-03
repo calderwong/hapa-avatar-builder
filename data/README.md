@@ -12,8 +12,10 @@ Important local files:
 - `media-library.json` - imported local media records and review metadata.
 - `human-video-enrichments.json` - revisioned human Quality grades, `@Avatar` links, Echo State director notes, and manual references keyed to known videos.
 - `human-video-enrichment-events.ndjson` - append-only local receipts for human enrichment revisions.
-- `human-video-agent-reviews.json` - evidence-bound optical sub-agent proposals pending explicit human validation.
+- `human-video-agent-reviews.json` - evidence-bound optical sub-agent proposals pending explicit human validation; owner-token/PID-checked locking prevents an agent revision from racing over a human decision.
 - `human-video-agent-review-events.ndjson` - append-only proposal submission and human decision receipts.
+- `human-video-optical-campaign.json` - resumable vision-only job claims, immutable canonical First/Mid/Last SHA-256 manifests, opaque worker leases, frozen claim configuration, normalized-result completion receipts, scheduler timing, and immutable job/attempt/frame/lease-bound token telemetry receipts for new attempts. Initial kickoff jobs retain legacy digests but are also checked against their complete manifests; their first three captured telemetry receipts predate local receipt binding and remain explicitly classified as legacy-unbound.
+- `human-video-optical-campaign-events.ndjson` - append-only plan, claim, recovery, completion, failure, and telemetry events; it contains no media judgments or Reference Pass output.
 - `kanban.json` - local builder board.
 - `media/` - generated or imported media assets.
 - `backups/` - pre-merge and pre-heal store snapshots.

@@ -1,83 +1,110 @@
-# Human Enricher Terra-medium two-pass benchmark
+# Human Enricher Terra-medium vision benchmark
 
 Date: 2026-08-03
 
-## Question
+## Current question
 
-Measure how `gpt-5.6-terra` at medium reasoning behaves when Human Enricher keeps optical inspection and Reference Atlas comparison as separate stages, and determine how much parallelism this runtime actually delivers.
+Measure `gpt-5.6-terra` at medium reasoning on the vision-only Human Enricher pass, verify the live collaboration ceiling after the coordinator changed to Sol/Ultra and Fast, capture exact scheduler timing and token receipts, and forecast the 10,868 unreviewed videos. Reference Atlas work is deliberately excluded.
 
-This is a three-video pilot, not a production SLA. It excludes frame extraction, inaccessible media, retries, API persistence, human review, and audio playback. Exact token telemetry was unavailable.
+## Assumption corrections
 
-## Palette protocol correction
-
-The timed optical workers returned one synthesized palette across each video's three frames. Human review identified that as the wrong data boundary. The active protocol now requires an independent palette on each First, Mid, and Last frame and explicitly forbids whole-video palette synthesis. The timing data below remains valid for Terra-medium scheduling research, but its palette payloads are historical benchmark evidence and must not be imported as current optical reviews.
+- The live root session receipt changed from Sol/high to Sol/ultra. The Fast label was not exposed as a telemetry field, so its internal service tier was not inferred.
+- Three Terra child workers were accepted simultaneously. A fourth live child was rejected with `agent thread limit reached`. Twenty jobs can be completed in rolling waves, but this runtime does not provide twenty simultaneous workers.
+- Agent-authored clocks were unreliable in several packets. All results below use Codex rollout session timestamps and token counters.
+- The 10,884-video dashboard is an aggregate of several Hapa stores, not just `data/media-library.json`. The live Human Enricher summary is the count authority.
+- Not every logical video is frame-ready. A record without accessible registered First/Mid/Last images must be deferred for frame preparation and cannot be treated as reviewed.
 
 ## Method
 
-Three child-agent lanes each received one video with three exact first/middle/last JPEG paths and SHA-256 hashes. Optical workers were forbidden from reading Hapa knowledge stores and personally opened all three images through the vision tool. They returned literal observations, quality, description, categorization, visible signals, and a visually estimated 3–8 color palette with uppercase `#RRGGBB` values and frame evidence.
+Twenty distinct videos received one Terra-medium worker each. Every worker was instructed to personally open exactly three First/Mid/Last images, author literal observations, provide one independent 3–8-color uppercase `#RRGGBB` palette per frame, and return visual description, Quality, categories, tags, Director Notes, strengths, issues, uncertainty, and visible reference signals.
 
-After each optical receipt completed, the same lane ran a knowledge-free reference stage over only the canonical `echo-reference-cards` packet:
+Rollout inspection verified:
 
-- Card count: 258
-- Reference Atlas run hash: `fnv1a:13ae2982`
-- Packet digest: `sha256:499541d5f086a467b7afed7df2d87f94b8b9e442032d748ce8aae34792c4c2d4`
+- 20 worker sessions;
+- 60 direct `view_image` calls, exactly three per worker;
+- no Reference Atlas, Hapa knowledge store, web, OCR, or semantic automation calls;
+- optional shell calls were UTC clock reads only;
+- no benchmark output was imported into Human Enricher.
 
-Lexical queries were allowed for candidate retrieval inside the packet, but workers had to read and reason about every proposed Card. They could not use raw Hapa stores, web search, image reopening, automated semantic scoring, or invented Card IDs.
+The sample used the existing 16 reviewed video identities plus four additional frame-ready catalog videos. It is sufficient for scheduler/token capacity planning, but it is not a random quality sample of all 10,884 records.
 
-## Optical stage
+## Timing and parallelism
 
-| Lane | Video fingerprint prefix | Image calls | Started UTC | Completed UTC | Agent seconds |
-| --- | --- | ---: | --- | --- | ---: |
-| 1 | `5179da65` | 3 | 21:30:50 | 21:31:00 | 10 |
-| 2 | `c14cc9aa` | 3 | 21:31:03 | 21:31:12 | 9 |
-| 3 | `67e65bf6` | 3 | 21:31:17 | 21:31:28 | 11 |
+| Measurement | Result |
+| --- | ---: |
+| Jobs | 20 |
+| Frames personally inspected | 60 |
+| Peak live Terra workers | 3 |
+| Mean scheduler time/video | 25.256 s |
+| Median | 25.039 s |
+| 95th percentile | 29.218 s |
+| Minimum / maximum | 19.832 / 33.600 s |
+| Represented worker time | 505.121 agent-seconds |
+| Entire interactive audit wall | 314.820 s |
+| Average active workers during the interactive audit | 1.604 |
+| Time at the three-worker peak | 77.191 s |
+| Observed interrupted throughput | 3.812 videos/minute |
+| Continuously filled three-worker throughput | 7.127 videos/minute |
 
-- Mean agent time: 10 seconds per video.
-- Requested child lanes: 3.
-- Observed peak optical overlap: 1.
-- Three-video batch wall time: 38 seconds.
-- Effective concurrency (`sum(agent seconds) / batch wall`): 0.79, operationally one vision lane.
+The interactive wall includes pauses to verify the scheduler, inspect receipts, and dispatch subsequent waves. It is an upper-bound operational cadence, not the capacity of a dedicated rolling dispatcher.
 
-The workers were launched concurrently, but the recorded vision intervals did not overlap. This runtime therefore serialized the optical calls during the pilot. Three lanes remain a theoretical scheduling ceiling, not demonstrated optical throughput.
+## Exact token telemetry
 
-For 10,884 logical videos, the narrow benchmark implies:
+| Token class | 20 jobs | Mean/video | Forecast for 10,868 |
+| --- | ---: | ---: | ---: |
+| Cached input | 2,600,448 | 130,022 | 1,413,083,443 |
+| Uncached input | 154,030 | 7,702 | 83,699,902 |
+| All input | 2,754,478 | 137,724 | 1,496,783,345 |
+| Output | 25,600 | 1,280 | 13,911,040 |
+| Gross total | 2,780,078 | 139,004 | 1,510,694,385 |
 
-- 30.2 hours from the 10-second mean with one continuously occupied vision lane;
-- 38.3 hours if repeated in isolated three-item batches with the observed scheduling gaps; or
-- 10.1 hours only if a future runtime proves three genuinely overlapping vision lanes.
+Reasoning output was 4,333 tokens in the sample and projects to 2,354,552; it is already included within output. Cached input represented 94.408% of input traffic. Gross tokens are not billable-equivalent tokens: exact dollars require separate Terra cached-input, uncached-input, and output prices.
 
-These figures are much faster than the earlier Terra-Max optical pilot because the Terra-medium packets were intentionally concise and performed no knowledge traversal. Do not combine the two experiments as though they used the same prompt or workload.
+## Remaining-run forecast
 
-## Reference stage
+The live dashboard reported 10,884 logical videos, 16 optical proposals, and 10,868 remaining before campaign launch.
 
-| Lane | Card matches proposed | Started UTC | Completed UTC | Agent seconds |
-| --- | ---: | --- | --- | ---: |
-| 1 | 2 | 21:34:19 | 21:35:31 | 72 |
-| 2 | 1 | 21:34:28 | 21:36:30 | 122 |
-| 3 | 1 | 21:34:38 | 21:36:14 | 96 |
+- One continuously occupied Terra worker: 76.25 hours.
+- Three continuously occupied Terra workers: 25.42 hours.
+- If every job takes the sample 95th-percentile duration: 29.40 hours.
+- If the manually interrupted benchmark cadence is repeated: 47.52 hours.
 
-- Mean agent time: 96.7 seconds per video.
-- Serial work represented: 290 seconds.
-- Observed peak overlap: 3 lanes for 53 seconds.
-- Three-video batch wall time: 131 seconds.
-- Effective concurrency: 2.21.
-- Speedup over the represented serial work: 2.21×.
+Use 25–30 hours only as the compact benchmark-packet lower range. The richer production packet below took materially longer and is the safer current planning signal for canonical accepted proposals. Frame extraction, inaccessible files, retryable worker errors, service throttling, and human validation are outside both ranges.
 
-All three workers independently found the literal campfire Card. One cautiously added an eye-motif Card; another explicitly rejected that weaker link. This disagreement is useful evidence for the human-review layer and demonstrates that term retrieval did not force uniform semantic output.
+## Production guardrails derived from the benchmark
 
-For 10,884 videos:
+1. Plan only frame-ready jobs and retain deferred counts separately.
+2. Bind each job to stable video identity plus the exact canonical SHA-256 First/Mid/Last frame manifest; compare the complete normalized manifest again at completion.
+3. Keep at most three active leases; total queued work may be much larger.
+4. Re-hash the registered frame set before accepting a result.
+5. Normalize known field aliases, then validate the canonical optical schema.
+6. Reject whole-video palettes and any Card, Avatar, song, scene, relationship, or knowledge match in the optical payload.
+7. Record timing and tokens from coordinator-observed rollout receipts, bind each local receipt to its job, attempt, frame digest, and hashed lease, and never use model prose as telemetry.
+8. Reserve completion with a server token and normalized-result digest, reconcile partial writes, and persist accepted worker output only as `pending-human`; human and Echo authority remain unchanged.
 
-- one reference lane at the 96.7-second mean: 292.3 hours / 12.2 days;
-- three continuously occupied lanes: 97.4 hours / 4.1 days; or
-- repeated isolated three-item batches using the observed 131-second batch wall: 132.0 hours / 5.5 days.
+## Production kickoff receipt
 
-## Practical lane plan
+The first durable production wave queued 100 verified frame-ready jobs and ran three concurrent Terra-medium workers. All three passed canonical validation and were stored as `pending-human`; 97 jobs remain queued. The Human Enricher dashboard moved from 16 to 19 agent-reviewed/pending-human videos and from 10,868 to 10,865 remaining optical reviews. No Reference Pass ran.
 
-This Codex runtime provides three child-agent slots in addition to the coordinator. The benchmark supports:
+Those three receipts preserve the exact coordinator-observed timing/token values used below, but they were written before receipt ID, job, attempt, frame-digest, and hashed-lease binding landed. Campaign status therefore classifies them as three captured legacy-unbound receipts and zero bound receipts; the implementation does not rewrite history to imply a stronger receipt. New attempts receive the complete local binding. In both cases, token/timing values are coordinator-attested rollout observations, not provider-signed billing records.
 
-- Optical pass: request up to three jobs, but plan capacity as one effective vision lane until overlapping image intervals are demonstrated.
-- Reference pass: three parallel Terra-medium workers are supported and were observed concurrently; use bounded 258-Card packets and retain per-worker model/parameter receipts.
-- Pipelined campaign: one optical producer feeding a three-worker reference queue. Reference comparison is the measured bottleneck, so the narrow steady-state projection is about 4.1–5.5 days for 10,884 videos, plus frame preparation, failures, persistence, and human review.
-- If the two stages are run as separate full-catalog campaigns rather than pipelined, the observed batch estimates total about 170.3 hours / 7.1 days.
+Unlike the compact benchmark artifacts, these workers authored the full production payload: detailed literal observations, 3–8 explained colors on each frame, scoring subdimensions, visible reference signals, Director Notes, strengths, issues, uncertainty, and attestation. That additional output changed the operating profile:
 
-No benchmark proposal was imported into the Human Enricher stores. The timings and payloads remain non-canon evaluation evidence.
+| Measurement | Production wave 1 |
+| --- | ---: |
+| Jobs / direct image views | 3 / 9 |
+| Mean / median rollout time | 54.964 / 50.606 s |
+| Minimum / maximum | 44.942 / 69.343 s |
+| Represented worker time | 164.891 agent-seconds |
+| Staggered three-worker wall | 85.335 s |
+| Cached / uncached input | 373,760 / 49,198 tokens |
+| Output / reasoning subset | 10,200 / 363 tokens |
+| Gross total / mean per video | 433,158 / 144,386 tokens |
+
+Applying this three-video mean to the now-remaining 10,865 records projects 1,353,634,133 cached-input, 178,178,757 uncached-input, 36,941,000 output, and 1,568,753,890 gross tokens. Continuously filled three-worker capacity projects 55.29 hours; treating the slowest observed production job as every job projects 69.76 hours. Repeating the staggered kickoff cadence would project 85.85 hours.
+
+This is a three-video production sample, so it does not replace the broader 20-video scheduler benchmark. It does show that the compact 25–30-hour forecast is optimistic for the accepted rich schema. Until more production receipts accumulate, use roughly 55–70 hours as the frame-ready three-worker range and keep the token-class forecast—not gross tokens—as the basis for any later dollar estimate.
+
+## Historical note
+
+An earlier three-video two-pass pilot observed serialized optical intervals and exact token telemetry was not captured. It also timed a separate bounded Reference Pass. Those results remain useful historical evidence for the older prompt/runtime, but the 20-video vision-only measurement above supersedes them for current optical scheduling and token forecasts.

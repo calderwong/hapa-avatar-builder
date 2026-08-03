@@ -79,6 +79,7 @@
     "humanEnricherVideos": "http://127.0.0.1:8787/api/human-enricher/videos",
     "humanEnricherRecords": "http://127.0.0.1:8787/api/human-enricher/records",
     "humanEnricherAgentReviews": "http://127.0.0.1:8787/api/human-enricher/agent-reviews",
+    "humanEnricherOpticalCampaign": "http://127.0.0.1:8787/api/human-enricher/optical-campaign",
     "humanEnricherReferenceCards": "http://127.0.0.1:8787/api/human-enricher/reference-card-packets",
     "humanEnricherReferenceReviews": "http://127.0.0.1:8787/api/human-enricher/reference-reviews"
   },

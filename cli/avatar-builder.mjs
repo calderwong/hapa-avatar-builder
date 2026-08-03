@@ -147,6 +147,87 @@ async function main(cmd, opts) {
     return;
   }
 
+  if (cmd === "human-enricher-optical-campaign-status") {
+    print(await contextGenerationApiRequest(opts, "/api/human-enricher/optical-campaign"), { ...opts, json: true });
+    return;
+  }
+
+  if (cmd === "human-enricher-optical-campaign-plan") {
+    const limit = Math.max(1, Number(opts.limit || 12) || 12);
+    const model = String(opts.model || "gpt-5.6-terra").trim();
+    const effort = String(opts.effort || "medium").trim();
+    const maxWorkers = Math.max(1, Number(option(opts, "max-workers", "maxWorkers") || 3) || 3);
+    print(await contextGenerationApiRequest(opts, "/api/human-enricher/optical-campaign/plan", {
+      method: "POST",
+      body: { limit, model, effort, maxWorkers },
+    }), { ...opts, json: true });
+    return;
+  }
+
+  if (cmd === "human-enricher-optical-campaign-claim") {
+    const worker = String(opts.worker || "").trim();
+    if (!worker) throw new Error("human-enricher-optical-campaign-claim requires --worker <worker-id>.");
+    const leaseSeconds = option(opts, "lease-seconds", "leaseSeconds");
+    print(await contextGenerationApiRequest(opts, "/api/human-enricher/optical-campaign/claim", {
+      method: "POST",
+      body: { worker, ...(leaseSeconds === "" ? {} : { leaseSeconds: Number(leaseSeconds) }) },
+    }), { ...opts, json: true });
+    return;
+  }
+
+  if (cmd === "human-enricher-optical-campaign-complete") {
+    const jobId = String(option(opts, "job-id", "job") || "").trim();
+    const worker = String(opts.worker || "").trim();
+    const attempt = Number(opts.attempt);
+    const leaseId = String(option(opts, "lease-id", "leaseId") || "").trim();
+    const inputFile = option(opts, "file", "result-file");
+    if (!jobId || !worker || !leaseId || !inputFile || !Number.isInteger(attempt) || attempt < 1) {
+      throw new Error("human-enricher-optical-campaign-complete requires --job-id <id> --file <worker-result.json> --worker <worker-id> --attempt <n> --lease-id <lease-id>.");
+    }
+    print(await contextGenerationApiRequest(opts, `/api/human-enricher/optical-campaign/jobs/${encodeURIComponent(jobId)}/complete`, {
+      method: "POST",
+      body: { worker, attempt, leaseId, rawWorkerResult: await readJsonInput(inputFile) },
+    }), { ...opts, json: true });
+    return;
+  }
+
+  if (cmd === "human-enricher-optical-campaign-fail") {
+    const jobId = String(option(opts, "job-id", "job") || "").trim();
+    const worker = String(opts.worker || "").trim();
+    const attempt = Number(option(opts, "attempt"));
+    const leaseId = String(option(opts, "lease-id", "leaseId") || "").trim();
+    if (!jobId || !worker || !leaseId || !Number.isInteger(attempt) || attempt < 1) throw new Error("human-enricher-optical-campaign-fail requires --job-id <id> --worker <worker-id> --attempt <n> --lease-id <lease-id>.");
+    print(await contextGenerationApiRequest(opts, `/api/human-enricher/optical-campaign/jobs/${encodeURIComponent(jobId)}/fail`, {
+      method: "POST",
+      body: {
+        worker,
+        attempt,
+        leaseId,
+        ...(opts.reason ? { reason: String(opts.reason) } : {}),
+      },
+    }), { ...opts, json: true });
+    return;
+  }
+
+  if (cmd === "human-enricher-optical-campaign-telemetry") {
+    const jobId = String(option(opts, "job-id", "job") || "").trim();
+    const inputFile = option(opts, "file", "telemetry-file");
+    const worker = String(opts.worker || "").trim();
+    const attempt = Number(option(opts, "attempt"));
+    const leaseId = String(option(opts, "lease-id", "leaseId") || "").trim();
+    if (!jobId || !inputFile || !worker || !leaseId || !Number.isInteger(attempt) || attempt < 1) throw new Error("human-enricher-optical-campaign-telemetry requires --job-id <id> --file <telemetry.json> --worker <worker-id> --attempt <n> --lease-id <lease-id>.");
+    print(await contextGenerationApiRequest(opts, `/api/human-enricher/optical-campaign/jobs/${encodeURIComponent(jobId)}/telemetry`, {
+      method: "POST",
+      body: {
+        worker,
+        attempt,
+        leaseId,
+        telemetry: await readJsonInput(inputFile),
+      },
+    }), { ...opts, json: true });
+    return;
+  }
+
   if (cmd === "stargate-context-card") {
     const sceneFile = option(opts, "scene-file", "scene");
     const stargateFile = option(opts, "stargate-file", "gate");
@@ -1516,6 +1597,12 @@ Commands:
   human-enricher-reference-queue [--status needs-reference|reviewed|blocked|all] [--profile echo-reference-cards|echo-reference-wide|echo-reference-exploratory|echo-core-cards|hapa-card-library] [--offset 0] [--limit 12] [--api-url http://127.0.0.1:8787] [--json]
   human-enricher-reference-submit --file ./reference-review.json --agent <reference-worker-id> [--api-url http://127.0.0.1:8787] [--json]
   human-enricher-agent-decision --review-id <id> --action accepted|accepted-edited|rejected --actor <human-id> [--notes "..."] [--api-url http://127.0.0.1:8787] [--json]
+  human-enricher-optical-campaign-status [--api-url http://127.0.0.1:8787] [--json]
+  human-enricher-optical-campaign-plan [--limit 12] [--model gpt-5.6-terra] [--effort medium] [--max-workers 3] [--api-url http://127.0.0.1:8787] [--json]
+  human-enricher-optical-campaign-claim --worker <worker-id> [--lease-seconds 1800] [--api-url http://127.0.0.1:8787] [--json]
+  human-enricher-optical-campaign-complete --job-id <id> --file ./worker-result.json --worker <worker-id> --attempt <n> --lease-id <lease-id> [--api-url http://127.0.0.1:8787] [--json]
+  human-enricher-optical-campaign-fail --job-id <id> --worker <worker-id> --attempt <n> --lease-id <lease-id> [--reason "..."] [--api-url http://127.0.0.1:8787] [--json]
+  human-enricher-optical-campaign-telemetry --job-id <id> --file ./telemetry.json --worker <worker-id> --attempt <n> --lease-id <lease-id> [--api-url http://127.0.0.1:8787] [--json]
   card-custody-status [--card-id <id>] [--api-url http://127.0.0.1:8787] [--json]
   card-custody-ensure --file ./card.json --actor <human-or-local-operator-id> [--evidence <ref>] [--api-url http://127.0.0.1:8787] [--json]
   stargate-context-card --scene-file ./scene-card.json --stargate-file ./derived-gate.json [--actor local-operator] [--json]

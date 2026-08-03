@@ -143,7 +143,14 @@ import { openAvatarProposalReviewService } from "./avatar-proposal-review-servic
 import { openAvatarCardCustodyService } from "./card-custody-service.mjs";
 import { openHumanVideoEnrichmentStore } from "./human-video-enrichment-store.mjs";
 import { openHumanVideoAgentReviewStore } from "./human-video-agent-review-store.mjs";
+import { openHumanVideoOpticalCampaignStore } from "./human-video-optical-campaign-store.mjs";
 import { openHumanVideoReferenceReviewStore } from "./human-video-reference-review-store.mjs";
+import {
+  frameManifestsEqual,
+  summarizeHumanVideoOpticalCampaign,
+} from "../src/domain/human-video-optical-campaign.js";
+import { createHumanVideoOpticalReviewFromClaim } from "../src/domain/human-video-optical-worker.js";
+import { normalizeHumanVideoAgentReview } from "../src/domain/human-video-agent-review.js";
 import { buildHumanVideoReferenceCardPacket } from "../src/domain/human-video-reference-review.js";
 import { MintLedgerError, createSongCardMintController } from "./song-card-mint-controller.mjs";
 import { createSongCardRemintStore } from "./song-card-remint-store.mjs";
@@ -491,6 +498,8 @@ const HUMAN_VIDEO_ENRICHMENT_PATH = process.env.HAPA_HUMAN_VIDEO_ENRICHMENT_STOR
 const HUMAN_VIDEO_ENRICHMENT_EVENT_PATH = process.env.HAPA_HUMAN_VIDEO_ENRICHMENT_EVENTS || path.join(ROOT, "data/human-video-enrichment-events.ndjson");
 const HUMAN_VIDEO_AGENT_REVIEW_PATH = process.env.HAPA_HUMAN_VIDEO_AGENT_REVIEW_STORE || path.join(ROOT, "data/human-video-agent-reviews.json");
 const HUMAN_VIDEO_AGENT_REVIEW_EVENT_PATH = process.env.HAPA_HUMAN_VIDEO_AGENT_REVIEW_EVENTS || path.join(ROOT, "data/human-video-agent-review-events.ndjson");
+const HUMAN_VIDEO_OPTICAL_CAMPAIGN_PATH = process.env.HAPA_HUMAN_VIDEO_OPTICAL_CAMPAIGN_STORE || path.join(ROOT, "data/human-video-optical-campaign.json");
+const HUMAN_VIDEO_OPTICAL_CAMPAIGN_EVENT_PATH = process.env.HAPA_HUMAN_VIDEO_OPTICAL_CAMPAIGN_EVENTS || path.join(ROOT, "data/human-video-optical-campaign-events.ndjson");
 const HUMAN_VIDEO_REFERENCE_REVIEW_PATH = process.env.HAPA_HUMAN_VIDEO_REFERENCE_REVIEW_STORE || path.join(ROOT, "data/human-video-reference-reviews.json");
 const HUMAN_VIDEO_REFERENCE_REVIEW_EVENT_PATH = process.env.HAPA_HUMAN_VIDEO_REFERENCE_REVIEW_EVENTS || path.join(ROOT, "data/human-video-reference-review-events.ndjson");
 const ITEM_STORE_PATH = process.env.HAPA_ITEM_STORE || path.join(ROOT, "data/item-manager-store.json");
@@ -505,6 +514,10 @@ const humanVideoEnrichmentStore = openHumanVideoEnrichmentStore({
 const humanVideoAgentReviewStore = openHumanVideoAgentReviewStore({
   filePath: HUMAN_VIDEO_AGENT_REVIEW_PATH,
   eventPath: HUMAN_VIDEO_AGENT_REVIEW_EVENT_PATH,
+});
+const humanVideoOpticalCampaignStore = openHumanVideoOpticalCampaignStore({
+  filePath: HUMAN_VIDEO_OPTICAL_CAMPAIGN_PATH,
+  eventPath: HUMAN_VIDEO_OPTICAL_CAMPAIGN_EVENT_PATH,
 });
 const humanVideoReferenceReviewStore = openHumanVideoReferenceReviewStore({
   filePath: HUMAN_VIDEO_REFERENCE_REVIEW_PATH,
@@ -3937,6 +3950,261 @@ async function route(req, res) {
     return;
   }
 
+  if (pathname === "/api/human-enricher/optical-campaign" && req.method === "GET") {
+    try {
+      res.setHeader("Cache-Control", "no-store");
+      sendJson(res, 200, summarizeHumanVideoOpticalCampaign(await reconcileHumanVideoOpticalCampaignCompletions()));
+    } catch (error) {
+      sendJson(res, Number(error?.statusCode || 500), { ok: false, error: error?.code || "optical_campaign_load_failed", message: error?.message || String(error) });
+    }
+    return;
+  }
+
+  if (pathname === "/api/human-enricher/optical-campaign/plan" && req.method === "POST") {
+    try {
+      const body = await readBody(req);
+      const limit = Math.max(1, Math.min(2_000, Math.trunc(Number(body.limit || 100) || 100)));
+      const dashboard = await buildHumanVideoEnricherDashboard();
+      const currentStore = await humanVideoOpticalCampaignStore.read();
+      const prepared = await prepareHumanVideoOpticalCampaignPlan(dashboard, currentStore, { limit });
+      await humanVideoOpticalCampaignStore.plan({
+        configuration: {
+          campaignId: String(body.campaignId || currentStore.configuration.campaignId || "human-enricher-optical-terra-medium"),
+          model: String(body.model || currentStore.configuration.model || "gpt-5.6-terra"),
+          reasoningEffort: String(body.effort || body.reasoningEffort || currentStore.configuration.reasoningEffort || "medium"),
+          maxActiveWorkers: Math.max(1, Math.min(3, Math.trunc(Number(body.maxWorkers || body.maxActiveWorkers || 3) || 3))),
+          leaseMs: Math.max(60_000, Math.min(3_600_000, Math.trunc(Number(body.leaseMs || currentStore.configuration.leaseMs || 900_000) || 900_000))),
+          promptVersion: "human-enricher-optical-v2",
+        },
+        planning: {
+          knownVideos: dashboard.summary.videos,
+          remainingOpticalReviews: dashboard.summary.remainingOpticalReviews,
+          scanned: prepared.scanned,
+          frameReadyPlanned: currentStore.planning.frameReadyPlanned + prepared.jobs.length,
+          deferredMissingFrames: currentStore.planning.deferredMissingFrames + prepared.deferredMissingFrames,
+          deferredMissingFiles: currentStore.planning.deferredMissingFiles + prepared.deferredMissingFiles,
+        },
+      });
+      const enqueued = [];
+      for (const job of prepared.jobs) {
+        const result = await humanVideoOpticalCampaignStore.enqueueIf(job, async () => {
+          const reviewStore = await humanVideoAgentReviewStore.read();
+          return !reviewStore.reviews.some((review) => review.videoKey === job.videoKey);
+        });
+        if (result.created) enqueued.push(result.job);
+      }
+      const store = await humanVideoOpticalCampaignStore.read();
+      res.setHeader("Cache-Control", "no-store");
+      sendJson(res, 200, { ok: true, ...summarizeHumanVideoOpticalCampaign(store), plan: { requested: limit, scanned: prepared.scanned, enqueued: enqueued.length, deferredMissingFrames: prepared.deferredMissingFrames, deferredMissingFiles: prepared.deferredMissingFiles } });
+    } catch (error) {
+      sendJson(res, Number(error?.statusCode || 400), { ok: false, error: error?.code || "optical_campaign_plan_failed", message: error?.message || String(error), details: error?.details || null });
+    }
+    return;
+  }
+
+  if (pathname === "/api/human-enricher/optical-campaign/claim" && req.method === "POST") {
+    try {
+      const body = await readBody(req);
+      const workerId = String(body.worker || body.workerId || "").trim().slice(0, 240);
+      await reconcileHumanVideoOpticalCampaignCompletions();
+      const result = await humanVideoOpticalCampaignStore.claim({ workerId }, { leaseMs: Math.max(60_000, Math.min(3_600_000, Math.trunc(Number(body.leaseSeconds || 900) * 1_000))) });
+      res.setHeader("Cache-Control", "no-store");
+      sendJson(res, 200, {
+        ok: true,
+        claimed: Boolean(result.job),
+        reason: result.reason,
+        recovered: result.recovered,
+        job: result.job ? opticalCampaignWorkerPacket(result.job) : null,
+        campaign: summarizeHumanVideoOpticalCampaign(result.store),
+      });
+    } catch (error) {
+      sendJson(res, Number(error?.statusCode || 400), { ok: false, error: error?.code || "optical_campaign_claim_failed", message: error?.message || String(error) });
+    }
+    return;
+  }
+
+  const opticalCampaignJobRoute = pathname.match(/^\/api\/human-enricher\/optical-campaign\/jobs\/([^/]+)\/(complete|fail|telemetry)$/);
+  if (opticalCampaignJobRoute && req.method === "POST") {
+    try {
+      const jobId = decodeURIComponent(opticalCampaignJobRoute[1]);
+      const action = opticalCampaignJobRoute[2];
+      const body = await readBody(req);
+      const store = await humanVideoOpticalCampaignStore.read();
+      const job = store.jobs.find((candidate) => candidate.id === jobId);
+      if (!job) {
+        const error = new Error("The optical campaign job no longer exists.");
+        error.code = "optical_campaign_job_not_found";
+        error.statusCode = 404;
+        throw error;
+      }
+      const leaseInput = {
+        jobId,
+        workerId: String(body.worker || body.workerId || "").trim().slice(0, 240),
+        attempt: Number(body.attempt),
+        leaseId: String(body.leaseId || body.lease || "").trim().slice(0, 360),
+      };
+      if (!leaseInput.workerId || !Number.isInteger(leaseInput.attempt) || leaseInput.attempt < 1 || !leaseInput.leaseId) {
+        const error = new Error("Worker ID, attempt, and the client-held lease ID are required for every optical job update.");
+        error.code = "optical_campaign_lease_identity_required";
+        error.statusCode = 400;
+        throw error;
+      }
+      if (action === "telemetry") {
+        const suppliedTelemetry = body.telemetry || body.schedulerTelemetry || {};
+        const schedulerTelemetry = {
+          ...suppliedTelemetry,
+          receiptId: `optical-telemetry:${randomBytes(18).toString("hex")}`,
+          jobId: job.id,
+          attempt: job.attempt,
+          frameDigest: job.frameDigest,
+          leaseIdDigest: `sha256:${createHash("sha256").update(job.lease.leaseId).digest("hex")}`,
+        };
+        const result = await humanVideoOpticalCampaignStore.telemetry({ ...leaseInput, schedulerTelemetry });
+        sendJson(res, 200, { ok: true, job: result.job, campaign: summarizeHumanVideoOpticalCampaign(result.store) });
+        return;
+      }
+      if (action === "fail") {
+        const result = await humanVideoOpticalCampaignStore.fail({ ...leaseInput, failure: { code: "scheduler_worker_failed", message: String(body.reason || "Worker failed before a valid optical proposal was stored."), retryable: body.retryable !== false } });
+        sendJson(res, 200, { ok: true, job: result.job, campaign: summarizeHumanVideoOpticalCampaign(result.store) });
+        return;
+      }
+      if (!job.schedulerTelemetry.status) {
+        const error = new Error("Record scheduler telemetry before completing an optical campaign job.");
+        error.code = "optical_campaign_telemetry_required";
+        error.statusCode = 409;
+        throw error;
+      }
+      const dashboard = await buildHumanVideoEnricherDashboard();
+      const video = dashboard.videos.find((candidate) => candidate.humanVideoKey === job.videoKey);
+      if (!video) {
+        const error = new Error("The claimed video is no longer present in Human Enricher.");
+        error.code = "optical_campaign_video_stale";
+        error.statusCode = 409;
+        throw error;
+      }
+      const currentFrames = await prepareHumanVideoOpticalFrameSet(video);
+      if (!currentFrames || !frameManifestsEqual(currentFrames, job.frames)) {
+        const error = new Error("The registered First/Mid/Last frame set changed after this worker claimed it.");
+        error.code = "optical_campaign_frame_set_stale";
+        error.statusCode = 409;
+        throw error;
+      }
+      if (job.status === "submitted") {
+        const workerConfiguration = job.workerConfiguration;
+        const retryReviewInput = createHumanVideoOpticalReviewFromClaim(job, body.rawWorkerResult || body.result || body, {
+          campaignId: workerConfiguration.campaignId,
+          workerId: leaseInput.workerId,
+          taskId: leaseInput.workerId,
+          model: workerConfiguration.model,
+          reasoningEffort: workerConfiguration.reasoningEffort,
+          parameters: { promptVersion: workerConfiguration.promptVersion, pass: "vision-only" },
+          submittedAt: job.schedulerTiming.completedAt || new Date().toISOString(),
+          telemetryStatus: job.schedulerTelemetry.status,
+          telemetrySource: job.schedulerTelemetry.source,
+          sessionId: job.schedulerTelemetry.sessionId,
+        });
+        const retryResultDigest = humanVideoOpticalResultDigest({ ...retryReviewInput, videoIdentity: job.videoIdentity });
+        if (matchesSubmittedHumanVideoOpticalReview(video.agentReview, job, { ...leaseInput, resultDigest: retryResultDigest })) {
+          res.setHeader("Cache-Control", "no-store");
+          sendJson(res, 200, { ok: true, review: video.agentReview, job, campaign: summarizeHumanVideoOpticalCampaign(store), authority: video.agentReview.status, reconciled: true, idempotent: true });
+          return;
+        }
+        const error = new Error("This completed optical job does not match the submitted attempt, lease, or normalized result.");
+        error.code = "optical_campaign_submitted_result_mismatch";
+        error.statusCode = 409;
+        throw error;
+      }
+      const matchingPreparedReview = matchesPreparedHumanVideoOpticalReview(video.agentReview, job) ? video.agentReview : null;
+      if (video.agentReview && !matchingPreparedReview) {
+        const error = new Error("This video already has a different optical review.");
+        error.code = "optical_campaign_review_already_exists";
+        error.statusCode = 409;
+        throw error;
+      }
+      if (matchingPreparedReview && job.status === "completing") {
+        const campaignResult = await humanVideoOpticalCampaignStore.submit({
+          ...leaseInput,
+          completionToken: job.completion.token,
+          resultDigest: job.completion.resultDigest,
+          schedulerTelemetry: job.schedulerTelemetry,
+          reviewId: matchingPreparedReview.id,
+        });
+        res.setHeader("Cache-Control", "no-store");
+        sendJson(res, 200, { ok: true, review: matchingPreparedReview, job: campaignResult.job, campaign: summarizeHumanVideoOpticalCampaign(campaignResult.store), authority: matchingPreparedReview.status, reconciled: true });
+        return;
+      }
+      const now = new Date().toISOString();
+      const workerConfiguration = job.workerConfiguration;
+      const baseReviewInput = createHumanVideoOpticalReviewFromClaim(job, body.rawWorkerResult || body.result || body, {
+        campaignId: workerConfiguration.campaignId,
+        workerId: leaseInput.workerId,
+        taskId: leaseInput.workerId,
+        model: workerConfiguration.model,
+        reasoningEffort: workerConfiguration.reasoningEffort,
+        parameters: { promptVersion: workerConfiguration.promptVersion, pass: "vision-only" },
+        submittedAt: now,
+        telemetryStatus: job.schedulerTelemetry.status,
+        telemetrySource: job.schedulerTelemetry.source,
+        sessionId: job.schedulerTelemetry.sessionId,
+      });
+      const resultDigest = humanVideoOpticalResultDigest({ ...baseReviewInput, videoIdentity: job.videoIdentity });
+      let preparedJob = null;
+      let reviewResult = null;
+      try {
+        const campaignResult = await humanVideoOpticalCampaignStore.completeWithReview({ ...leaseInput, resultDigest }, async (currentPreparedJob) => {
+          preparedJob = currentPreparedJob;
+          const reviewInput = {
+            ...baseReviewInput,
+            videoIdentity: job.videoIdentity,
+            reviewer: {
+              ...baseReviewInput.reviewer,
+              schedulerReceipt: {
+                ...baseReviewInput.reviewer.schedulerReceipt,
+                completionToken: preparedJob.completion.token,
+                resultDigest: preparedJob.completion.resultDigest,
+              },
+            },
+          };
+          reviewResult = await humanVideoAgentReviewStore.submit(reviewInput, { agentId: leaseInput.workerId, schedulerAuthority: true });
+          return reviewResult;
+        });
+        res.setHeader("Cache-Control", "no-store");
+        sendJson(res, 200, { ok: true, review: campaignResult.review, job: campaignResult.job, campaign: summarizeHumanVideoOpticalCampaign(campaignResult.store), authority: "pending-human" });
+        return;
+      } catch (completionError) {
+        preparedJob ||= completionError?.preparedJob || null;
+        if (preparedJob) {
+          const reviewStore = await humanVideoAgentReviewStore.read().catch(() => null);
+          const reconciledReview = reviewResult?.review && matchesPreparedHumanVideoOpticalReview(reviewResult.review, preparedJob)
+            ? reviewResult.review
+            : reviewStore?.reviews?.find((candidate) => matchesPreparedHumanVideoOpticalReview(candidate, preparedJob)) || null;
+          const currentCampaign = await humanVideoOpticalCampaignStore.read().catch(() => null);
+          const currentJob = currentCampaign?.jobs?.find((candidate) => candidate.id === job.id) || null;
+          let campaignResult = null;
+          if (reconciledReview && currentJob?.status === "submitted" && currentJob.reviewId === reconciledReview.id) campaignResult = { store: currentCampaign, job: currentJob };
+          else if (reconciledReview && currentJob?.status === "completing") {
+            campaignResult = await humanVideoOpticalCampaignStore.submit({
+              ...leaseInput,
+              completionToken: currentJob.completion.token,
+              resultDigest: currentJob.completion.resultDigest,
+              schedulerTelemetry: currentJob.schedulerTelemetry,
+              reviewId: reconciledReview.id,
+            }).catch(() => null);
+          }
+          if (campaignResult) {
+            res.setHeader("Cache-Control", "no-store");
+            sendJson(res, 200, { ok: true, review: reconciledReview, job: campaignResult.job, campaign: summarizeHumanVideoOpticalCampaign(campaignResult.store), authority: reconciledReview.status, reconciled: true });
+            return;
+          }
+        }
+        throw completionError;
+      }
+    } catch (error) {
+      sendJson(res, Number(error?.statusCode || 400), { ok: false, error: error?.code || "optical_campaign_job_update_failed", message: error?.message || String(error), details: error?.details || null });
+    }
+    return;
+  }
+
   if (pathname === "/api/human-enricher/reference-card-packets" && req.method === "GET") {
     try {
       res.setHeader("Cache-Control", "no-store");
@@ -4050,25 +4318,35 @@ async function route(req, res) {
           error.statusCode = 404;
           throw error;
         }
-        results.push((await humanVideoAgentReviewStore.submit({
-          ...submission,
-          videoKey: video.humanVideoKey,
-          videoId: video.id,
-          videoName: video.name,
-          videoIdentity: {
-            recordId: video.id,
-            assetId: video.assetId || "",
-            contentFingerprint: video.contentFingerprint || "",
-            uri: video.uri || "",
-            sourcePath: video.sourcePath || "",
-          },
-          evidence: {
-            ...(submission.evidence || {}),
-            requiredFrameCount: Math.max(3, video.sourceMetadata?.registeredFrames?.length || 0),
-          },
-        }, {
-          agentId: String(req.headers["x-hapa-agent-id"] || submission.reviewer?.agentId || "vision-subagent").trim().slice(0, 240),
-        })).review);
+        if (submission.status !== "blocked") {
+          const currentFrames = await prepareHumanVideoOpticalFrameSet(video);
+          if (!currentFrames || !frameManifestsEqual(currentFrames, submission.evidence?.frames || submission.frames || [])) {
+            const error = new Error("Direct optical submissions must contain the exact currently registered First/Mid/Last frame manifest. Use the resumable campaign claim when frames are not prepared.");
+            error.code = "agent_review_frame_set_stale";
+            error.statusCode = 409;
+            throw error;
+          }
+        }
+        const reviewResult = await humanVideoOpticalCampaignStore.withVideoAvailable(video.humanVideoKey, () => humanVideoAgentReviewStore.submit({
+            ...submission,
+            videoKey: video.humanVideoKey,
+            videoId: video.id,
+            videoName: video.name,
+            videoIdentity: {
+              recordId: video.id,
+              assetId: video.assetId || "",
+              contentFingerprint: video.contentFingerprint || "",
+              uri: video.uri || "",
+              sourcePath: video.sourcePath || "",
+            },
+            evidence: {
+              ...(submission.evidence || {}),
+              requiredFrameCount: Math.max(3, video.sourceMetadata?.registeredFrames?.length || 0),
+            },
+          }, {
+            agentId: String(req.headers["x-hapa-agent-id"] || submission.reviewer?.agentId || "vision-subagent").trim().slice(0, 240),
+          }));
+        results.push(reviewResult.review);
       }
       res.setHeader("Cache-Control", "no-store");
       sendJson(res, 200, { ok: true, reviews: results, submitted: results.length, authority: "pending-human" });
@@ -7012,9 +7290,6 @@ function paginateHumanVideoAgentReviewQueue(dashboard, searchParams) {
     },
     duration: video.duration,
     registeredFrames: video.sourceMetadata?.registeredFrames || [],
-    explicitRelationships: video.relationships || [],
-    owner: { type: video.ownerType, id: video.ownerId, name: video.ownerName, role: video.role },
-    agentReview: video.agentReview || null,
     qualityCalibration: dashboard.qualityCalibration,
     instructions: {
       requiredCapability: "optical-image-input",
@@ -7038,6 +7313,234 @@ function paginateHumanVideoAgentReviewQueue(dashboard, searchParams) {
     items,
     truthBoundary: "Queue automation may enumerate, extract, and hash frames only. Optical workers inspect frames but do not search or assign Hapa references; the separate reference queue receives bounded Card packets.",
   };
+}
+
+async function prepareHumanVideoOpticalCampaignPlan(dashboard, campaignStore, options = {}) {
+  const limit = Math.max(1, Math.min(2_000, Math.trunc(Number(options.limit || 100) || 100)));
+  const existingVideoKeys = new Set((campaignStore.jobs || []).map((job) => job.videoKey));
+  const candidates = dashboard.videos.filter((video) => !video.agentReview && !existingVideoKeys.has(video.humanVideoKey));
+  const jobs = [];
+  let scanned = 0;
+  let deferredMissingFrames = 0;
+  let deferredMissingFiles = 0;
+  for (const video of candidates) {
+    if (jobs.length >= limit) break;
+    scanned += 1;
+    const registeredFrames = video.sourceMetadata?.registeredFrames || [];
+    if (!requiredOpticalFrames(registeredFrames)) {
+      deferredMissingFrames += 1;
+      continue;
+    }
+    const frames = await prepareHumanVideoOpticalFrameSet(video);
+    if (!frames) {
+      deferredMissingFiles += 1;
+      continue;
+    }
+    jobs.push({
+      videoKey: video.humanVideoKey,
+      videoId: video.id,
+      videoName: video.name,
+      videoIdentity: {
+        recordId: video.id,
+        assetId: video.assetId || "",
+        contentFingerprint: video.contentFingerprint || "",
+        uri: video.uri || "",
+        sourcePath: video.sourcePath || "",
+      },
+      frames,
+      qualityCalibration: dashboard.qualityCalibration,
+    });
+  }
+  return { jobs, scanned, deferredMissingFrames, deferredMissingFiles };
+}
+
+async function prepareHumanVideoOpticalFrameSet(video = {}) {
+  const selected = requiredOpticalFrames(video.sourceMetadata?.registeredFrames || []);
+  if (!selected) return null;
+  try {
+    return await Promise.all(selected.map(async ({ role, frame }, index) => {
+      const imageUri = String(frame.uri || "").trim();
+      const imagePath = resolveHumanVideoOpticalFramePath(imageUri);
+      if (!imagePath) throw new Error("unsupported optical frame URI");
+      await access(imagePath);
+      const sha256 = `sha256:${createHash("sha256").update(await readFile(imagePath)).digest("hex")}`;
+      return {
+        role,
+        timestampSeconds: Math.max(0, Number(frame.timestampSeconds || 0)),
+        normalizedPosition: index / Math.max(1, selected.length - 1),
+        imagePath,
+        imageUri,
+        sha256,
+      };
+    }));
+  } catch {
+    return null;
+  }
+}
+
+function requiredOpticalFrames(framesInput = []) {
+  const frames = Array.isArray(framesInput) ? framesInput : [];
+  const find = (values) => frames.find((frame) => values.some((value) => String(frame.marker || frame.role || frame.label || "").toLowerCase().includes(value)));
+  const first = find(["first", "start"]);
+  const mid = find(["mid", "middle"]);
+  const last = find(["last", "end"]);
+  return first && mid && last && new Set([first.uri, mid.uri, last.uri].filter(Boolean)).size === 3
+    ? [{ role: "first", frame: first }, { role: "mid", frame: mid }, { role: "last", frame: last }]
+    : null;
+}
+
+function resolveHumanVideoOpticalFramePath(uri = "") {
+  const value = String(uri || "").trim();
+  if (!value.startsWith("/media/") || value.includes("..")) return "";
+  return path.join(ROOT, "data", value.replace(/^\/+/, ""));
+}
+
+function opticalCampaignWorkerPacket(job) {
+  const configuration = job.workerConfiguration;
+  return {
+    schemaVersion: "hapa.human-video-optical-worker-packet.v1",
+    jobId: job.id,
+    attempt: job.attempt,
+    workerId: job.lease.workerId,
+    leaseId: job.lease.leaseId,
+    leaseExpiresAt: job.lease.expiresAt,
+    videoKey: job.videoKey,
+    videoId: job.videoId,
+    videoName: job.videoName,
+    frameDigest: job.frameDigest,
+    frames: job.frames,
+    qualityCalibration: job.qualityCalibration,
+    requestedModel: configuration.model,
+    reasoningEffort: configuration.reasoningEffort,
+    promptVersion: configuration.promptVersion,
+    instructions: {
+      pass: "vision-only",
+      inspectEveryFrameWithOpticalVisibility: true,
+      noReferencePass: true,
+      forbiddenInputs: ["Hapa knowledge stores", "Reference Atlas", "songs", "scenes", "Avatar identity search", "web search", "OCR", "automated semantic heuristics"],
+      output: {
+        frames: "Return First/Mid/Last literal observations and an independent 3–8 color palette on each frame.",
+        paletteColor: "Each color requires uppercase #RRGGBB, label, dominant|supporting|accent prevalence, and a visible-evidence explanation.",
+        proposal: "Return description, Quality 1–5 with explanation, categories, tags, director notes, strengths, issues, uncertainty, confidence, and visible referenceSignals only.",
+        attestation: "Attest that you personally opened and inspected all three claimed images.",
+      },
+    },
+  };
+}
+
+function humanVideoOpticalResultDigest(reviewInput = {}) {
+  const review = normalizeHumanVideoAgentReview(reviewInput);
+  const canonical = {
+    videoKey: review.videoKey,
+    videoId: review.videoId,
+    videoName: review.videoName,
+    videoIdentity: review.videoIdentity,
+    reviewer: {
+      agentId: review.reviewer.agentId,
+      taskId: review.reviewer.taskId,
+      model: review.reviewer.model,
+      reasoningEffort: review.reviewer.reasoningEffort,
+      parameters: review.reviewer.parameters,
+      reviewMode: review.reviewer.reviewMode,
+      opticalInspectionConfirmed: review.reviewer.opticalInspectionConfirmed,
+      attestation: review.reviewer.attestation,
+      fieldNormalization: review.reviewer.fieldNormalization,
+    },
+    evidence: review.evidence,
+    proposal: review.proposal,
+    knowledgeComparisons: review.knowledgeComparisons,
+  };
+  return `sha256:${createHash("sha256").update(JSON.stringify(canonical)).digest("hex")}`;
+}
+
+function matchesPreparedHumanVideoOpticalReview(review, job) {
+  if (!review || !job?.completion?.token || !job.completion.resultDigest) return false;
+  const receipt = review.reviewer?.schedulerReceipt;
+  if (!receipt) return false;
+  try {
+    return review.videoKey === job.videoKey
+      && receipt.jobId === job.id
+      && Number(receipt.attempt) === Number(job.attempt)
+      && receipt.campaignId === job.workerConfiguration.campaignId
+      && receipt.frameDigest === job.frameDigest
+      && receipt.completionToken === job.completion.token
+      && receipt.resultDigest === job.completion.resultDigest
+      && review.reviewer.agentId === job.lease.workerId
+      && review.reviewer.model === job.workerConfiguration.model
+      && review.reviewer.reasoningEffort === job.workerConfiguration.reasoningEffort
+      && frameManifestsEqual(review.evidence?.frames || [], job.frames)
+      && humanVideoOpticalResultDigest(review) === job.completion.resultDigest;
+  } catch {
+    return false;
+  }
+}
+
+function matchesSubmittedHumanVideoOpticalReview(review, job, request = null) {
+  if (!review || job?.status !== "submitted" || !job.reviewId || review.id !== job.reviewId || !job.completion?.resultDigest) return false;
+  const receipt = review.reviewer?.schedulerReceipt;
+  if (!receipt) return false;
+  try {
+    const requestMatches = !request || (
+      request.jobId === job.id
+      && Number(request.attempt) === Number(job.attempt)
+      && request.workerId === job.lastWorkerId
+      && request.resultDigest === job.completion.resultDigest
+      && job.schedulerTelemetry.leaseIdDigest === `sha256:${createHash("sha256").update(request.leaseId).digest("hex")}`
+    );
+    return requestMatches
+      && review.videoKey === job.videoKey
+      && receipt.jobId === job.id
+      && Number(receipt.attempt) === Number(job.attempt)
+      && receipt.campaignId === job.workerConfiguration.campaignId
+      && receipt.frameDigest === job.frameDigest
+      && receipt.resultDigest === job.completion.resultDigest
+      && job.schedulerTelemetry.jobId === job.id
+      && Number(job.schedulerTelemetry.attempt) === Number(job.attempt)
+      && job.schedulerTelemetry.frameDigest === job.frameDigest
+      && review.reviewer.agentId === job.lastWorkerId
+      && review.reviewer.model === job.workerConfiguration.model
+      && review.reviewer.reasoningEffort === job.workerConfiguration.reasoningEffort
+      && frameManifestsEqual(review.evidence?.frames || [], job.frames)
+      && humanVideoOpticalResultDigest(review) === job.completion.resultDigest;
+  } catch {
+    return false;
+  }
+}
+
+async function reconcileHumanVideoOpticalCampaignCompletions() {
+  let campaignStore = await humanVideoOpticalCampaignStore.read();
+  const completing = campaignStore.jobs.filter((job) => job.status === "completing");
+  if (!completing.length) return campaignStore;
+  const reviewStore = await humanVideoAgentReviewStore.read();
+  for (const job of completing) {
+    const leaseInput = {
+      jobId: job.id,
+      workerId: job.lease.workerId,
+      attempt: job.attempt,
+      leaseId: job.lease.leaseId,
+      completionToken: job.completion.token,
+      resultDigest: job.completion.resultDigest,
+    };
+    const review = reviewStore.reviews.find((candidate) => matchesPreparedHumanVideoOpticalReview(candidate, job));
+    if (review || Date.parse(job.lease.expiresAt) <= Date.now()) {
+      let recoveredReview = review || null;
+      try {
+        await humanVideoOpticalCampaignStore.recoverCompletion(leaseInput, async (currentJob) => {
+          const freshReviewStore = await humanVideoAgentReviewStore.read();
+          recoveredReview = freshReviewStore.reviews.find((candidate) => matchesPreparedHumanVideoOpticalReview(candidate, currentJob)) || null;
+          return recoveredReview;
+        });
+      } catch (error) {
+        const currentStore = await humanVideoOpticalCampaignStore.read();
+        const currentJob = currentStore.jobs.find((candidate) => candidate.id === job.id);
+        const freshReviewStore = await humanVideoAgentReviewStore.read();
+        const submittedReview = recoveredReview || freshReviewStore.reviews.find((candidate) => candidate.id === currentJob?.reviewId) || null;
+        if (!matchesSubmittedHumanVideoOpticalReview(submittedReview, currentJob)) throw error;
+      }
+    }
+  }
+  campaignStore = await humanVideoOpticalCampaignStore.read();
+  return campaignStore;
 }
 
 function paginateHumanVideoEnricherDashboard(dashboard, searchParams) {

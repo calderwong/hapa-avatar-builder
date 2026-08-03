@@ -1,3 +1,5 @@
+import { assertHumanVideoOpticalTextBoundary } from "./human-video-optical-boundary.js";
+
 export const HUMAN_VIDEO_AGENT_REVIEW_STORE_SCHEMA = "hapa.human-video-agent-review-store.v1";
 export const HUMAN_VIDEO_AGENT_REVIEW_SCHEMA = "hapa.human-video-agent-review.v1";
 export const HUMAN_VIDEO_AGENT_REVIEW_EVENT_SCHEMA = "hapa.human-video-agent-review-event.v1";
@@ -8,25 +10,55 @@ const REFERENCE_TYPES = new Set(["echo-song", "song", "card", "scene", "avatar",
 const VISUAL_REFERENCE_STATUSES = new Set(["matched", "none-observed", "uncertain", "not-run"]);
 const VISUAL_MATCH_TYPES = new Set(["direct-marking", "text", "symbol", "palette", "geometry", "costume", "object", "composition", "visual-motif", "thematic-inference"]);
 const PALETTE_PREVALENCE = new Set(["dominant", "supporting", "accent"]);
+const FINAL_HUMAN_REVIEW_STATUSES = new Set(["accepted", "accepted-edited", "rejected"]);
 
 export function createHumanVideoAgentReviewStore(input = {}) {
   return normalizeHumanVideoAgentReviewStore({
     schemaVersion: HUMAN_VIDEO_AGENT_REVIEW_STORE_SCHEMA,
-    reviews: input.reviews || [],
+    reviews: Object.prototype.hasOwnProperty.call(input, "reviews") ? input.reviews : [],
     updatedAt: input.updatedAt || null,
   });
 }
 
 export function normalizeHumanVideoAgentReviewStore(input = {}) {
+  if (!input || typeof input !== "object" || Array.isArray(input)) {
+    throw reviewError("agent_review_store_root_invalid", "The optical review store root must be its schema-bound object; refusing to reinterpret another JSON shape as empty review state.", 500);
+  }
+  if (input.schemaVersion !== HUMAN_VIDEO_AGENT_REVIEW_STORE_SCHEMA) {
+    throw reviewError("agent_review_store_schema_invalid", `The optical review store must declare ${HUMAN_VIDEO_AGENT_REVIEW_STORE_SCHEMA}; refusing an unknown review custody schema.`, 500);
+  }
+  if (!Object.prototype.hasOwnProperty.call(input, "reviews")) {
+    throw reviewError("agent_review_store_reviews_missing", "The optical review store is missing its reviews ledger; refusing to reinterpret incomplete persisted custody as empty.", 500);
+  }
+  if (!Array.isArray(input.reviews)) {
+    throw reviewError("agent_review_store_reviews_invalid", "The optical review store's reviews collection must be an array; refusing to discard malformed persisted review state.", 500);
+  }
   const byVideo = new Map();
-  for (const candidate of Array.isArray(input.reviews) ? input.reviews : []) {
+  for (const [index, candidate] of input.reviews.entries()) {
+    let review;
     try {
-      const review = normalizeHumanVideoAgentReview(candidate);
-      const current = byVideo.get(review.videoKey);
-      if (!current || review.revision > current.revision || String(review.updatedAt || "") > String(current.updatedAt || "")) byVideo.set(review.videoKey, review);
-    } catch {
-      // Invalid local proposals never enter the human review surface.
+      if (!candidate || typeof candidate !== "object" || Array.isArray(candidate) || candidate.schemaVersion !== HUMAN_VIDEO_AGENT_REVIEW_SCHEMA) {
+        throw reviewError("agent_review_schema_invalid", `Persisted optical reviews must declare ${HUMAN_VIDEO_AGENT_REVIEW_SCHEMA}.`);
+      }
+      if (!Object.prototype.hasOwnProperty.call(candidate, "status")) {
+        throw reviewError("agent_review_status_missing", "A persisted optical review must explicitly retain its human-authority status.");
+      }
+      review = normalizeHumanVideoAgentReview(candidate);
+    } catch (error) {
+      throw reviewError("agent_review_store_entry_invalid", `Optical review store entry ${index + 1} is invalid; refusing to rewrite a store that could contain human decisions.`, 500, {
+        index,
+        cause: error?.code || error?.message || String(error),
+      });
     }
+    const current = byVideo.get(review.videoKey);
+    if (current) {
+      throw reviewError("agent_review_store_duplicate_video_identity", `Optical review store entries ${index} and ${index + 1} both identify ${review.videoKey}; refusing to choose one and discard the other.`, 500, {
+        videoKey: review.videoKey,
+        firstReviewId: current.id,
+        duplicateReviewId: review.id,
+      });
+    }
+    byVideo.set(review.videoKey, review);
   }
   const reviews = [...byVideo.values()].sort((a, b) => String(b.updatedAt || "").localeCompare(String(a.updatedAt || "")) || a.videoKey.localeCompare(b.videoKey));
   return {
@@ -40,7 +72,11 @@ export function normalizeHumanVideoAgentReviewStore(input = {}) {
 export function normalizeHumanVideoAgentReview(input = {}, fallback = {}) {
   const videoKey = clean(input.videoKey || input.key || fallback.videoKey, 4_500);
   if (!videoKey) throw reviewError("agent_review_video_key_required", "An optical review must name one stable Human Enricher video key.");
-  const status = REVIEW_STATUSES.has(input.status) ? input.status : REVIEW_STATUSES.has(fallback.status) ? fallback.status : "pending-human";
+  const suppliedStatus = Object.prototype.hasOwnProperty.call(input, "status") ? input.status : fallback.status;
+  if (suppliedStatus !== undefined && !REVIEW_STATUSES.has(suppliedStatus)) {
+    throw reviewError("agent_review_status_invalid", `Unknown optical review status: ${clean(suppliedStatus, 120) || "empty"}.`);
+  }
+  const status = suppliedStatus || "pending-human";
   const revision = Math.max(1, Math.trunc(number(input.revision ?? fallback.revision, 1)));
   const reviewer = normalizeReviewer(input.reviewer || fallback.reviewer);
   const frames = normalizeFrames(input.evidence?.frames || input.frames || fallback.evidence?.frames || fallback.frames);
@@ -88,6 +124,22 @@ export function upsertHumanVideoAgentReview(storeInput = {}, input = {}, options
   const videoKey = clean(input.videoKey || input.key, 4_500);
   if (!videoKey) throw reviewError("agent_review_video_key_required", "Select one known video before submitting an optical review.");
   const current = store.reviews.find((review) => review.videoKey === videoKey) || null;
+  if (current?.reviewer?.schedulerReceipt?.jobId) {
+    throw reviewError("agent_review_campaign_managed", "This optical proposal is owned by a campaign job and cannot be revised through the ordinary agent submission path. A human may still decide it through the separate decision route.", 409, {
+      videoKey,
+      currentReviewId: current.id,
+      campaignJobId: current.reviewer.schedulerReceipt.jobId,
+      currentRevision: current.revision,
+    });
+  }
+  if (current && FINAL_HUMAN_REVIEW_STATUSES.has(current.status)) {
+    throw reviewError("agent_review_human_decision_final", "This optical proposal already has a human decision. A new campaign must explicitly create a superseding lineage instead of overwriting it.", 409, {
+      videoKey,
+      currentReviewId: current.id,
+      currentStatus: current.status,
+      currentRevision: current.revision,
+    });
+  }
   if (input.expectedRevision !== undefined && Number(input.expectedRevision) !== Number(current?.revision || 0)) {
     throw reviewError("agent_review_revision_conflict", "This optical review changed while the agent was working. Reclaim and inspect the current frames.", 409, {
       expectedRevision: Number(input.expectedRevision),
@@ -95,29 +147,43 @@ export function upsertHumanVideoAgentReview(storeInput = {}, input = {}, options
     });
   }
   const now = options.now || new Date().toISOString();
+  const agentInput = {
+    ...input,
+    status: input.status === "blocked" ? "blocked" : "pending-human",
+    humanDecision: null,
+    reviewer: {
+      ...(input.reviewer || {}),
+      schedulerReceipt: options.schedulerAuthority === true ? input.reviewer?.schedulerReceipt : null,
+    },
+  };
+  assertHumanVideoOpticalTextBoundary({
+    proposal: agentInput.proposal || {},
+    frames: (Array.isArray(agentInput.evidence?.frames) ? agentInput.evidence.frames : []).map((frame) => ({ observation: frame?.observation || frame?.visualObservation, palette: frame?.palette || frame?.framePalette })),
+  }, { code: "agent_review_knowledge_claim_forbidden" });
   const review = normalizeHumanVideoAgentReview({
     ...(current || {}),
-    ...input,
+    ...agentInput,
     videoKey,
-    reviewer: { ...(current?.reviewer || {}), ...(input.reviewer || {}), agentId: options.agentId || input.reviewer?.agentId || current?.reviewer?.agentId },
+    reviewer: { ...(current?.reviewer || {}), ...(agentInput.reviewer || {}), agentId: options.agentId || agentInput.reviewer?.agentId || current?.reviewer?.agentId },
     revision: Number(current?.revision || 0) + 1,
     createdAt: current?.createdAt || now,
     updatedAt: now,
   });
-  const incomingProposal = input.proposal || {};
-  if (review.status !== "blocked" && (
+  const incomingProposal = agentInput.proposal || {};
+  if (
     (Array.isArray(incomingProposal.references) && incomingProposal.references.length)
     || (Array.isArray(incomingProposal.avatarRelationships) && incomingProposal.avatarRelationships.length)
     || (Array.isArray(input.knowledgeComparisons) && input.knowledgeComparisons.length)
     || (Array.isArray(incomingProposal.visualReferenceAnalysis?.matches) && incomingProposal.visualReferenceAnalysis.matches.length)
-  )) {
+  ) {
     throw reviewError("reference_fields_require_reference_pass", "Optical workers may record visible signals, but Card, Avatar, song, scene, and lore matches must be submitted through the bounded reference-worker pass.");
   }
   if (review.status !== "blocked" && review.evidence.frames.some((frame) => (
     frame.palette.colors.length < 3
-    || frame.palette.colors.some((color) => !color.label || !color.explanation || color.evidenceFrameHashes[0] !== frame.sha256)
+    || !frame.palette.uncertainty
+    || frame.palette.colors.some((color) => !color.label || !PALETTE_PREVALENCE.has(color.prevalence) || !color.explanation || color.evidenceFrameHashes[0] !== frame.sha256)
   ))) {
-    throw reviewError("optical_frame_palette_required", "New optical reviews require a separate palette of at least three visually estimated #RRGGBB colors on every inspected First, Mid, and Last frame.");
+    throw reviewError("optical_frame_palette_required", "New optical reviews require a separate palette of at least three worker-authored #RRGGBB colors, prevalence labels, explanations, and uncertainty on every inspected First, Mid, and Last frame.");
   }
   return {
     store: normalizeHumanVideoAgentReviewStore({ ...store, reviews: [...store.reviews.filter((item) => item.videoKey !== videoKey), review], updatedAt: now }),
@@ -162,9 +228,38 @@ function normalizeReviewer(input = {}) {
     agentId: clean(input.agentId, 240),
     taskId: clean(input.taskId, 500),
     model: clean(input.model, 240),
+    reasoningEffort: clean(input.reasoningEffort || input.effort || input.reasoning, 80),
+    parameters: normalizeReviewerParameters(input.parameters),
     reviewMode: "vision-subagent-optical-only",
     opticalInspectionConfirmed: input.opticalInspectionConfirmed === true,
     attestation: cleanMultiline(input.attestation, 2_000),
+    fieldNormalization: uniqueStrings(input.fieldNormalization, 120, 500),
+    schedulerReceipt: normalizeSchedulerReceipt(input.schedulerReceipt),
+  };
+}
+
+function normalizeReviewerParameters(input = {}) {
+  if (!input || typeof input !== "object" || Array.isArray(input)) return {};
+  return Object.fromEntries(Object.entries(input).slice(0, 40).map(([key, value]) => [clean(key, 120), typeof value === "number" || typeof value === "boolean" ? value : clean(value, 500)]).filter(([key]) => key));
+}
+
+function normalizeSchedulerReceipt(input = {}) {
+  if (!input || typeof input !== "object" || Array.isArray(input)) return null;
+  const jobId = clean(input.jobId, 600);
+  const frameDigest = clean(input.frameDigest, 240);
+  if (!jobId && !frameDigest) return null;
+  return {
+    campaignId: clean(input.campaignId, 500),
+    jobId,
+    attempt: Math.max(0, Math.trunc(number(input.attempt, 0))),
+    frameDigest,
+    claimedAt: clean(input.claimedAt, 80) || null,
+    submittedAt: clean(input.submittedAt, 80) || null,
+    telemetryStatus: clean(input.telemetryStatus, 80),
+    telemetrySource: clean(input.telemetrySource, 360),
+    sessionId: clean(input.sessionId, 500),
+    completionToken: clean(input.completionToken, 500),
+    resultDigest: clean(input.resultDigest, 240),
   };
 }
 
@@ -224,7 +319,7 @@ function normalizeFramePalette(input = {}, frameSha256 = "") {
     return {
       hex: normalizedHex,
       label: clean(color.label || color.name, 180),
-      prevalence: PALETTE_PREVALENCE.has(prevalence) ? prevalence : "supporting",
+      prevalence: PALETTE_PREVALENCE.has(prevalence) ? prevalence : "",
       explanation: cleanMultiline(color.explanation || color.evidence || color.whereSeen, 2_000),
       evidenceFrameHashes: frameSha256 ? [frameSha256] : [],
     };

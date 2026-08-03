@@ -29,6 +29,7 @@ const EMPTY_REFERENCE = { type: "echo-song", id: "", label: "", uri: "", notes: 
 
 export default function HumanEnricherView({ apiBase = "", onNotify = () => {} }) {
   const [dashboard, setDashboard] = useState(null);
+  const [opticalCampaign, setOpticalCampaign] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [query, setQuery] = useState("");
@@ -49,9 +50,15 @@ export default function HumanEnricherView({ apiBase = "", onNotify = () => {} })
     try {
       const params = new URLSearchParams({ offset: String(offset), limit: "120", quality: qualityFilter, review: reviewFilter, sort });
       if (query.trim()) params.set("q", query.trim());
-      const response = await fetch(`${apiBase}/api/human-enricher/videos?${params}`, { headers: { accept: "application/json" } });
+      const [response, campaignResult] = await Promise.all([
+        fetch(`${apiBase}/api/human-enricher/videos?${params}`, { headers: { accept: "application/json" } }),
+        fetch(`${apiBase}/api/human-enricher/optical-campaign`, { headers: { accept: "application/json" } })
+          .then(async (campaignResponse) => campaignResponse.ok ? await campaignResponse.json() : null)
+          .catch(() => null),
+      ]);
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.message || payload.error || `Human Enricher failed to load (${response.status})`);
+      setOpticalCampaign(campaignResult);
       const nextPayload = append && dashboard
         ? { ...payload, videos: [...dashboard.videos, ...(payload.videos || [])] }
         : payload;
@@ -295,6 +302,8 @@ export default function HumanEnricherView({ apiBase = "", onNotify = () => {} })
         <Metric label="Optical queue" value={dashboard?.summary?.remainingOpticalReviews || 0} icon={<RefreshCw size={16} />} />
         <Metric label="Calibration pairs" value={dashboard?.summary?.calibrationPairs || 0} icon={<BadgeCheck size={16} />} />
       </div>
+
+      {opticalCampaign && <OpticalCampaignStatus campaign={opticalCampaign} />}
 
       {dashboard?.qualityCalibration?.sampleSize > 0 && (
         <aside className="human-calibration-strip hapa-panel" aria-label="Agent quality calibration">
@@ -630,6 +639,32 @@ function formatDuration(value) {
 }
 function formatDimensions(video) { return video.width && video.height ? `${video.width} × ${video.height}` : "dimensions unknown"; }
 function Metric({ label, value, icon }) { return <div className="human-enricher-metric hapa-panel"><span>{icon}{label}</span><strong>{value}</strong></div>; }
+function OpticalCampaignStatus({ campaign = {} }) {
+  const summary = campaign.summary || campaign.progress || campaign;
+  const workers = campaign.workers || campaign.workerPool || {};
+  const model = campaign.model || campaign.workerModel || workers.model || "Vision workers";
+  const effort = campaign.reasoningEffort || campaign.effort || workers.reasoningEffort || workers.effort || "";
+  const queued = Number(summary.queued ?? summary.queueDepth ?? 0);
+  const active = Number(summary.active ?? summary.activeWorkers ?? workers.active ?? 0);
+  const capacity = Number(summary.capacity ?? summary.maxWorkers ?? workers.capacity ?? 3) || 3;
+  const submitted = Number(summary.submitted ?? summary.completed ?? 0);
+  const failed = Number(summary.failed ?? 0);
+  const completing = Number(summary.completing ?? 0);
+  const expired = Number(summary.expiredLeases ?? 0);
+  const frameReady = Number(summary.frameReadyPlanned ?? summary.frameReady ?? summary.planned ?? 0);
+  const deferred = Number(summary.deferredMissingFrames ?? summary.deferred ?? 0);
+  const telemetry = Number(summary.tokenTelemetryCaptured ?? summary.tokenTelemetryCapturedCount ?? summary.telemetryCaptured ?? 0);
+  const boundTelemetry = Number(summary.tokenTelemetryBound ?? 0);
+  const legacyTelemetry = Number(summary.legacyUnboundTelemetryCaptured ?? 0);
+  return (
+    <aside className="human-calibration-strip hapa-panel" aria-label="Optical review campaign status">
+      <strong>Optical review campaign</strong>
+      <span>{model}{effort ? ` · ${effort}` : ""}</span>
+      <span>{queued} queued · {active} active of {capacity} · {completing} finalizing · {submitted} submitted · {failed} failed{expired ? ` · ${expired} expired` : ""}</span>
+      <span>{frameReady} frame-ready planned · {deferred} deferred for missing frames · {telemetry} token telemetry receipts{telemetry ? ` (${boundTelemetry} bound${legacyTelemetry ? ` · ${legacyTelemetry} legacy-unbound` : ""})` : ""}</span>
+    </aside>
+  );
+}
 function Meta({ label, value }) { return <div><dt>{label}</dt><dd>{value || "Not recorded"}</dd></div>; }
 function VideoPoster({ video, apiBase }) {
   const poster = mediaUri(video.thumbnailUri, apiBase);
