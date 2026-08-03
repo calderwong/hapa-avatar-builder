@@ -129,6 +129,7 @@ test("UI, API, and CLI expose optical proposals and explicit human decisions", a
   assert.match(ui, /Append suggestions/);
   assert.match(ui, /Reject proposal/);
   assert.match(ui, /review: reviewFilter/);
+  assert.match(ui, /get\("review"\)/);
   assert.match(api, /\/api\/human-enricher\/agent-reviews/);
   assert.match(api, /matchesHumanVideoReviewFilter\(video, review\)/);
   assert.match(cli, /human-enricher-agent-queue/);

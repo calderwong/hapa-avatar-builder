@@ -34,7 +34,7 @@ export default function HumanEnricherView({ apiBase = "", onNotify = () => {} })
   const [error, setError] = useState("");
   const [query, setQuery] = useState("");
   const [qualityFilter, setQualityFilter] = useState("all");
-  const [reviewFilter, setReviewFilter] = useState("all");
+  const [reviewFilter, setReviewFilter] = useState(initialReviewFilter);
   const [sort, setSort] = useState("quality-desc");
   const [selectedKey, setSelectedKey] = useState("");
   const [draft, setDraft] = useState(emptyDraft());
@@ -499,6 +499,11 @@ export default function HumanEnricherView({ apiBase = "", onNotify = () => {} })
 }
 
 function emptyDraft() { return { quality: 0, description: "", categories: [], tags: [], avatarMentions: [], directorNotes: "", references: [], expectedRevision: 0, sourceAgentReviewId: "" }; }
+
+function initialReviewFilter() {
+  const requested = new URLSearchParams(globalThis.location?.search || "").get("review") || "all";
+  return HUMAN_VIDEO_REVIEW_FILTERS.some((filter) => filter.value === requested) ? requested : "all";
+}
 
 function avatarMentionLabel(value) {
   const label = String(value || "unknown").replace(/^@+/, "");
