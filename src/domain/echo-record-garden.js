@@ -54,6 +54,49 @@ function object(value) {
   return value && typeof value === "object" && !Array.isArray(value) ? value : {};
 }
 
+function echoRecordSummaryShotRuntimeUri(shot = {}) {
+  const mediaContract = object(shot.media_contract || shot.mediaContract);
+  return text(
+    mediaContract.runtimeUri
+    || mediaContract.runtime_uri
+    || shot.runtime_media_uri
+    || shot.runtimeMediaUri
+    || shot.media_uri
+    || shot.mediaUri,
+  );
+}
+
+export function isEchoRecordCertifiedTransitionPreviewShot(shot = {}) {
+  if (!echoRecordSummaryShotRuntimeUri(shot)) return false;
+  const evidence = object(shot.decision_evidence || shot.decisionEvidence);
+  const atomicTransition = object(evidence.atomicTransition || evidence.atomic_transition);
+  const visualValidation = object(
+    atomicTransition.visualValidation
+    || atomicTransition.visual_validation
+    || object(shot.transition_link || shot.transitionLink).visualValidation
+    || object(shot.transition_link || shot.transitionLink).visual_validation,
+  );
+  const mediaContract = object(shot.media_contract || shot.mediaContract);
+  const timeMapping = object(
+    atomicTransition.timeMapping
+    || atomicTransition.time_mapping
+    || mediaContract.timeMapping
+    || mediaContract.time_mapping,
+  );
+  return text(atomicTransition.role).toLowerCase() === "authored-transition"
+    && text(visualValidation.decision).toLowerCase() === "certified"
+    && text(mediaContract.playbackMode || mediaContract.playback_mode).toLowerCase() === "once"
+    && timeMapping.valid === true
+    && timeMapping.reachesDeclaredLastFrame === true;
+}
+
+export function selectEchoRecordSummaryPreviewShot(timeline = []) {
+  const playableShots = list(timeline).filter((shot) => echoRecordSummaryShotRuntimeUri(shot));
+  return playableShots.find((shot) => isEchoRecordCertifiedTransitionPreviewShot(shot))
+    || playableShots[0]
+    || null;
+}
+
 function finite(value, fallback = 0) {
   const number = Number(value);
   return Number.isFinite(number) ? number : fallback;

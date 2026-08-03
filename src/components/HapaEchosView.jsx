@@ -172,7 +172,7 @@ async function saveEchoProjectRequest(url, options = {}, recovery = {}) {
   }
 }
 
-async function warmEchoProjectGraphsRequest(url, songId) {
+async function warmEchoProjectGraphsRequest(url, songId, variantId = "") {
   const controller = new AbortController();
   let timedOut = false;
   const timeout = globalThis.setTimeout(() => {
@@ -183,7 +183,10 @@ async function warmEchoProjectGraphsRequest(url, songId) {
     const response = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ songId }),
+      body: JSON.stringify({
+        songId,
+        ...(variantId && variantId !== "legacy" ? { variantId } : {}),
+      }),
       signal: controller.signal,
     });
     const payload = await response.json().catch(() => ({}));
@@ -1742,7 +1745,10 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
   );
   const activeDirectionVariant = selectedDirectionVariantId === "legacy"
     ? null
-    : activeDirectionVariants.find((variant) => echoDirectionVariantId(variant) === selectedDirectionVariantId) || null;
+    : activeDirectionVariants.find((variant) => (
+      echoDirectionVariantId(variant) === selectedDirectionVariantId
+      && Array.isArray(variant.timeline)
+    )) || null;
   const activeDirectionVariantSelection = activeDirectionVariant ? selectedDirectionVariantId : "legacy";
   const directionWorkingForkActive = Boolean(
     workingDirectionFork
@@ -3447,7 +3453,11 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
     }
 
     setEchoOperationNotice("Preparing this song’s saved preview graphs once. Its scripts and cuts remain unchanged…");
-    await warmEchoProjectGraphsRequest(`${API_BASE}/api/echos/director-project/compile`, songId);
+    await warmEchoProjectGraphsRequest(
+      `${API_BASE}/api/echos/director-project/compile`,
+      songId,
+      variantId,
+    );
     detailResult = await fetchProjectDetail(
       songId,
       variantId,
@@ -3581,14 +3591,18 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
         }
       }
 
-      const projectsRes = await fetch(`${API_BASE}/api/echos/director-projects?summary=1`);
+      const projectsRes = await fetch(`${API_BASE}/api/echos/director-projects?summary=1`, { cache: "no-store" });
       if (projectsRes.ok) {
         const projectsData = await projectsRes.json();
         setDirectorProjects(projectsData);
         if (projectsData.length > 0) {
           const nextSongId = selectedProjectSongId || projectsData[0].music_video_project.song_id;
           setSelectedProjectSongId(nextSongId);
-          fetchProjectDetail(nextSongId);
+          const selectedVariantId = directionSelectionPreferenceRef.current === "manual"
+            && selectedDirectionVariantId !== "legacy"
+            ? selectedDirectionVariantId
+            : "";
+          fetchProjectDetail(nextSongId, selectedVariantId);
         }
       }
 

@@ -2195,7 +2195,7 @@ async function run(options = {}) {
       graphProof: compiledGraphProof,
       parentIdentity: canonicalParentIdentity,
     });
-    const descriptors = [{
+    const descriptors = options.variant ? [] : [{
       songId,
       songTitle,
       cutId: "base",

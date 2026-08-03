@@ -3,6 +3,10 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 
 const source = fs.readFileSync(new URL("../server/api.mjs", import.meta.url), "utf8");
+const readinessSource = fs.readFileSync(
+  new URL("../scripts/preflight-echo-render-readiness.mjs", import.meta.url),
+  "utf8",
+);
 
 function between(start, end) {
   const startIndex = source.indexOf(start);
@@ -27,6 +31,11 @@ test("saved Echo projects warm a certified execution graph after canonical compi
   assert.match(warmup, /echoDirectorShowGraphCache\.clear\(\)/);
   assert.match(compileRoute, /warmEchoDirectorProject\(body\.songId \|\| body\.song_id/);
   assert.doesNotMatch(compileRoute, /await compileEchoDirectorProject\(body\.songId/);
+  assert.match(
+    readinessSource,
+    /const descriptors = options\.variant \? \[\] : \[\{/,
+    "a targeted saved-cut warm-up must not fail because the unrelated base cut has blockers",
+  );
 });
 
 test("new and idempotently replayed direction cuts finish the same graph warm-up", () => {

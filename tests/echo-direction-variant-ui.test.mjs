@@ -15,6 +15,7 @@ function between(start, end) {
 
 test("Echo direction variants derive a read-only exact project without spreading variant payloads", () => {
   const derivation = between("const activeStoredProject", "const activeIsolatedStems");
+  assert.match(derivation, /echoDirectionVariantId\(variant\) === selectedDirectionVariantId[\s\S]*Array\.isArray\(variant\.timeline\)/);
   assert.match(derivation, /deriveEchoDirectionVariantProject\(activeStoredProject, activeDirectionVariant\)/);
   assert.match(derivation, /deriveEchoDirectionWorkingProject\(workingDirectionFork\)/);
   assert.doesNotMatch(derivation, /\.\.\.activeDirectionVariant/);
@@ -57,6 +58,8 @@ test("song changes hydrate the exact newest cut before selection and manual choi
   assert.match(songChange, /savingProject[\s\S]*directionForkTransitionPending[\s\S]*pendingSavedDirectionCut[\s\S]*pendingLegacyProjectSave/);
   assert.match(selector, /directionSelectionPreferenceRef\.current = "manual"/);
   assert.match(selector, /latestDirectionHydrationKeyRef\.current = ""/);
+  assert.match(source, /directionSelectionPreferenceRef\.current === "manual"[\s\S]*selectedDirectionVariantId !== "legacy"[\s\S]*fetchProjectDetail\(nextSongId, selectedVariantId\)/);
+  assert.match(source, /director-projects\?summary=1`, \{ cache: "no-store" \}/);
 });
 
 test("Echo automatically opens a chosen cut and only saves it as a new append-only child", () => {
@@ -136,7 +139,7 @@ test("Echo lazily hydrates one selected cut while retaining the metadata catalog
   const selector = between('aria-label="Direction script version"', 'aria-label="Video orientation"');
   assert.match(source, /params\.set\("variantId", variantId\)/);
   assert.equal((preparation.match(/fetchProjectDetail\(/g) || []).length, 2, "preparation should retry the exact selected cut after warm-up");
-  assert.match(preparation, /warmEchoProjectGraphsRequest\(`\$\{API_BASE\}\/api\/echos\/director-project\/compile`, songId\)/);
+  assert.match(preparation, /warmEchoProjectGraphsRequest\([\s\S]*?songId,[\s\S]*?variantId,[\s\S]*?\)/);
   assert.match(selector, /fetchPreparedProjectDetail\(selectedProjectSongId, nextVariantId\)/);
   assert.match(source, /echoDirectionVariantId\(variant\) === nextVariantId && Array\.isArray\(variant\.timeline\)/);
   assert.match(source, /editableDirectionForkFromDetail\(detail, nextVariantId\)/);
@@ -146,14 +149,15 @@ test("Echo lazily hydrates one selected cut while retaining the metadata catalog
   assert.match(source, /disabled=\{loadingProjectDetail \|\| directorEditingLocked \|\| directorHasUnsavedChanges\}/);
 });
 
-test("a stale cut selection prepares every saved graph for that song without changing a script", () => {
+test("a stale cut selection prepares the exact requested saved graph without changing a script", () => {
   const warmupRequest = between("async function warmEchoProjectGraphsRequest", "function resolveMediaUri");
   const preparation = between("const fetchPreparedProjectDetail", "const handleSelectDirectorProjectSong");
   const selector = between('aria-label="Direction script version"', 'aria-label="Video orientation"');
 
   assert.match(source, /const ECHO_PROJECT_GRAPH_WARMUP_TIMEOUT_MS = 10 \* 60_000/);
-  assert.match(warmupRequest, /body: JSON\.stringify\(\{ songId \}\)/);
-  assert.doesNotMatch(warmupRequest, /variantId/);
+  assert.match(warmupRequest, /async function warmEchoProjectGraphsRequest\(url, songId, variantId = ""\)/);
+  assert.match(warmupRequest, /variantId && variantId !== "legacy" \? \{ variantId \} : \{\}/);
+  assert.match(preparation, /warmEchoProjectGraphsRequest\([\s\S]*?songId,[\s\S]*?variantId,[\s\S]*?\)/);
   assert.match(preparation, /if \(project\?\.director_show_graph\?\.tracks\) return detailResult/);
   assert.match(preparation, /readinessReason === "server_restart_required"/);
   assert.match(preparation, /Preparing this song’s saved preview graphs once/);

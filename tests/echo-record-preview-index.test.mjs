@@ -16,20 +16,37 @@ test("the compact Record preview index is rebuilt atomically from exact Director
   await mkdir(path.join(variantsRoot, "song-one"), { recursive: true });
   await writeFile(path.join(variantsRoot, "song-one", "cut-one.json"), JSON.stringify({
     id: "cut-one",
-    timeline: [{
-      shot_index: 0,
-      start_sec: 2,
-      end_sec: 8,
-      media_id: "media-one",
-      media_contract: {
-        runtimeUri: "/media/exact-one.mp4",
-        posterUri: "/media/exact-one.jpg",
-        sourceInSeconds: 1.5,
-        sourceOutSeconds: 7.5,
-        actualDurationSeconds: 6,
-        contentHash: "sha256:exact-one",
+    timeline: [
+      {
+        shot_index: 0,
+        start_sec: 2,
+        end_sec: 8,
+        media_id: "older-loop",
+        media_contract: { runtimeUri: "/media/older-loop.mp4", playbackMode: "loop" },
       },
-    }],
+      {
+        shot_index: 1,
+        start_sec: 8,
+        end_sec: 14,
+        media_id: "media-one",
+        media_contract: {
+          runtimeUri: "/media/exact-one.mp4",
+          posterUri: "/media/exact-one.jpg",
+          sourceInSeconds: 1.5,
+          sourceOutSeconds: 7.5,
+          actualDurationSeconds: 6,
+          playbackMode: "once",
+          contentHash: "sha256:exact-one",
+          timeMapping: { valid: true, reachesDeclaredLastFrame: true },
+        },
+        decision_evidence: {
+          atomicTransition: {
+            role: "authored-transition",
+            visualValidation: { decision: "certified" },
+          },
+        },
+      },
+    ],
   }));
   await writeFile(path.join(variantsRoot, "index.json"), JSON.stringify({
     schemaVersion: "hapa.echo.direction-script-variant-index.v1",
@@ -69,6 +86,7 @@ test("the compact Record preview index is rebuilt atomically from exact Director
     durationSeconds: 6,
     playbackMode: "loop",
     mediaContentHash: "sha256:exact-one",
+    selectionRole: "certified-authored-transition",
   });
   assert.equal(index.variants[1].recordPreview, undefined, "path traversal rows must never be hydrated");
   assert.deepEqual(

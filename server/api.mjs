@@ -171,7 +171,11 @@ import {
 } from "./stable-certification-file-proof.mjs";
 import { collectSongCardConstituentReferences, hydrateSongCardConstituentSnapshots } from "../src/domain/song-card-constituents.js";
 import { echoProjectAudioRoute } from "../src/domain/echo-audio-route.js";
-import { selectLatestEchoDirectionScriptVariant } from "../src/domain/echo-record-garden.js";
+import {
+  isEchoRecordCertifiedTransitionPreviewShot,
+  selectEchoRecordSummaryPreviewShot,
+  selectLatestEchoDirectionScriptVariant,
+} from "../src/domain/echo-record-garden.js";
 import { attachEchoOutputProfile, resolveEchoOutputProfile } from "../src/domain/echo-output-profile.js";
 import {
   ECHO_DIRECTION_FORK_PAYLOAD_SCHEMA,
@@ -10002,17 +10006,7 @@ function echoRecordSummaryPreview(project = {}, latestVariant = null, latestCut 
     ? latestVariant.timeline
     : null;
   const timeline = variantTimeline || (Array.isArray(project.timeline) ? project.timeline : []);
-  const shot = timeline.find((candidate) => {
-    const contract = candidate?.media_contract || candidate?.mediaContract || {};
-    return Boolean(
-      contract.runtimeUri
-      || contract.runtime_uri
-      || candidate?.runtime_media_uri
-      || candidate?.runtimeMediaUri
-      || candidate?.media_uri
-      || candidate?.mediaUri,
-    );
-  });
+  const shot = selectEchoRecordSummaryPreviewShot(timeline);
   if (!shot) return null;
   const contract = shot.media_contract || shot.mediaContract || {};
   const videoUri = contract.runtimeUri
@@ -10065,7 +10059,11 @@ function echoRecordSummaryPreview(project = {}, latestVariant = null, latestCut 
     cutFingerprint: variantTimeline
       ? latestCut?.fingerprint || latestVariant?.fingerprint || latestVariant?.contentHash || latestVariant?.content_hash || null
       : null,
-    source: variantTimeline ? "latest-non-legacy-director-cut" : "base-timeline-catalog-loop",
+    source: variantTimeline
+      ? isEchoRecordCertifiedTransitionPreviewShot(shot)
+        ? "latest-non-legacy-director-cut-certified-transition"
+        : "latest-non-legacy-director-cut"
+      : "base-timeline-catalog-loop",
     latestCutId: latestCut?.id || null,
     latestCutHydrationRequired: Boolean(latestCut?.id && !variantTimeline),
   };

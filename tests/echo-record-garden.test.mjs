@@ -16,6 +16,7 @@ import {
   echoRecordVideoPlaybackPlan,
   echoRecordVinylSpinRadians,
   inferEchoRecordMediaKind,
+  isEchoRecordCertifiedTransitionPreviewShot,
   isLegacyEchoRecordDirectionVariant,
   normalizeEchoRecordProject,
   normalizeEchoRecordGardenSnapshot,
@@ -25,10 +26,54 @@ import {
   resolveEchoRecordGardenTableDrop,
   resolveEchoRecordMediaUri,
   selectEchoRecordMediaWindow,
+  selectEchoRecordSummaryPreviewShot,
   selectLatestEchoDirectionScriptVariant,
   selectEchoRecordDirectorShots,
   unwrapEchoDirectorProject,
 } from "../src/domain/echo-record-garden.js";
+
+test("living-record catalog previews prefer a physically certified authored transition", () => {
+  const ordinaryLoop = {
+    media_id: "ordinary-loop",
+    media_uri: "/media/ordinary-loop.mp4",
+    media_contract: { playbackMode: "loop" },
+  };
+  const transition = {
+    media_id: "new-transition",
+    media_uri: "/media/new-transition.mp4",
+    media_contract: {
+      playbackMode: "once",
+      timeMapping: { valid: true, reachesDeclaredLastFrame: true },
+    },
+    decision_evidence: {
+      atomicTransition: {
+        role: "authored-transition",
+        visualValidation: { decision: "certified" },
+      },
+    },
+  };
+  assert.equal(isEchoRecordCertifiedTransitionPreviewShot(transition), true);
+  assert.equal(selectEchoRecordSummaryPreviewShot([ordinaryLoop, transition]), transition);
+});
+
+test("living-record catalog previews never promote an uncertified transition", () => {
+  const ordinaryLoop = { media_uri: "/media/ordinary-loop.mp4" };
+  const quarantinedTransition = {
+    media_uri: "/media/quarantined.mp4",
+    media_contract: {
+      playbackMode: "once",
+      timeMapping: { valid: true, reachesDeclaredLastFrame: true },
+    },
+    decision_evidence: {
+      atomicTransition: {
+        role: "authored-transition",
+        visualValidation: { decision: "quarantine" },
+      },
+    },
+  };
+  assert.equal(isEchoRecordCertifiedTransitionPreviewShot(quarantinedTransition), false);
+  assert.equal(selectEchoRecordSummaryPreviewShot([ordinaryLoop, quarantinedTransition]), ordinaryLoop);
+});
 
 function project(overrides = {}) {
   return {

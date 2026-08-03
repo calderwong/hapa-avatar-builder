@@ -56,6 +56,10 @@ test("album data stays bounded, uses one cinematic preview, and keeps selected-r
   assert.match(component, /projectCacheRef\.current\.clear\(\)/);
   assert.match(component, /projectCacheEvictions/);
   assert.match(component, /director-projects\?summary=1/);
+  assert.match(component, /director-projects\?summary=1`, \{[\s\S]*?cache: "no-store"/);
+  assert.match(component, /addEventListener\?\.\("focus", refreshLatestCuts\)/);
+  assert.match(component, /addEventListener\?\.\("visibilitychange", refreshWhenVisible\)/);
+  assert.match(component, /now - catalogRevalidationAtRef\.current < 750/);
   assert.match(component, /director-project\?\$\{projectQuery\.toString\(\)\}/);
   assert.match(component, /projectQuery\.set\("variantId", latestCut\.id\)/);
   assert.match(component, /const cutRevision = latestCut\?\.fingerprint/);

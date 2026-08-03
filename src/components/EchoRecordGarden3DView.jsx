@@ -1445,6 +1445,7 @@ export default function EchoRecordGarden3DView({
   const failedCaptureRef = useRef(null);
   const weatherRecordRef = useRef("");
   const weatherCycleRef = useRef(-1);
+  const catalogRevalidationAtRef = useRef(0);
   const actionsRef = useRef({});
   const syncDirectorVisualClockRef = useRef(() => {});
   const crateButtonRefs = useRef(new Map());
@@ -1854,6 +1855,7 @@ export default function EchoRecordGarden3DView({
     setLoadState({ status: "loading", error: "" });
     fetch(`${browserApiBase(apiBase)}/api/echos/director-projects?summary=1`, {
       signal: controller.signal,
+      cache: "no-store",
     })
       .then(async (response) => {
         if (!response.ok) throw new Error(`Album index failed (${response.status})`);
@@ -1908,6 +1910,25 @@ export default function EchoRecordGarden3DView({
     preferences,
   ]);
 
+  useEffect(() => {
+    const refreshLatestCuts = () => {
+      if (globalThis.document?.visibilityState === "hidden") return;
+      const now = Date.now();
+      if (now - catalogRevalidationAtRef.current < 750) return;
+      catalogRevalidationAtRef.current = now;
+      setCatalogRevision((revision) => revision + 1);
+    };
+    const refreshWhenVisible = () => {
+      if (globalThis.document?.visibilityState === "visible") refreshLatestCuts();
+    };
+    globalThis.addEventListener?.("focus", refreshLatestCuts);
+    globalThis.document?.addEventListener?.("visibilitychange", refreshWhenVisible);
+    return () => {
+      globalThis.removeEventListener?.("focus", refreshLatestCuts);
+      globalThis.document?.removeEventListener?.("visibilitychange", refreshWhenVisible);
+    };
+  }, []);
+
   const loadRecordProject = useCallback(async (songId) => {
     if (!songId) return null;
     const latestCut = recordBySongId.get(songId)?.director?.latestCut || null;
@@ -1933,9 +1954,11 @@ export default function EchoRecordGarden3DView({
     const request = Promise.all([
       fetch(`${base}/api/echos/director-project?${projectQuery.toString()}`, {
         signal: controller.signal,
+        cache: "no-store",
       }),
       fetch(`${base}/api/echos/references/tarot-cards?songId=${encodeURIComponent(songId)}`, {
         signal: controller.signal,
+        cache: "no-store",
       }),
     ]).then(async ([projectResponse, referenceResponse]) => {
       if (!projectResponse.ok) throw new Error(`Director project failed (${projectResponse.status})`);

@@ -2,6 +2,10 @@
 import { readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import {
+  isEchoRecordCertifiedTransitionPreviewShot,
+  selectEchoRecordSummaryPreviewShot,
+} from "../src/domain/echo-record-garden.js";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const VARIANTS_ROOT = path.resolve(
@@ -18,17 +22,7 @@ function withinRoot(candidate) {
 
 function previewFromVariant(variant = {}) {
   const timeline = Array.isArray(variant.timeline) ? variant.timeline : [];
-  const shot = timeline.find((candidate) => {
-    const contract = candidate?.media_contract || candidate?.mediaContract || {};
-    return Boolean(
-      contract.runtimeUri
-      || contract.runtime_uri
-      || candidate?.runtime_media_uri
-      || candidate?.runtimeMediaUri
-      || candidate?.media_uri
-      || candidate?.mediaUri,
-    );
-  });
+  const shot = selectEchoRecordSummaryPreviewShot(timeline);
   if (!shot) return null;
   const contract = shot.media_contract || shot.mediaContract || {};
   const videoUri = contract.runtimeUri
@@ -76,6 +70,9 @@ function previewFromVariant(variant = {}) {
     durationSeconds,
     playbackMode: "loop",
     mediaContentHash: contract.contentHash || contract.content_hash || null,
+    selectionRole: isEchoRecordCertifiedTransitionPreviewShot(shot)
+      ? "certified-authored-transition"
+      : "first-playable-shot",
   };
 }
 
