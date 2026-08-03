@@ -141,6 +141,7 @@ import { openAvatarWisdomCouncilService } from "./avatar-wisdom-council-service.
 import { openAvatarProposalReviewService } from "./avatar-proposal-review-service.mjs";
 import { openAvatarCardCustodyService } from "./card-custody-service.mjs";
 import { openHumanVideoEnrichmentStore } from "./human-video-enrichment-store.mjs";
+import { openHumanVideoAgentReviewStore } from "./human-video-agent-review-store.mjs";
 import { MintLedgerError, createSongCardMintController } from "./song-card-mint-controller.mjs";
 import { createSongCardRemintStore } from "./song-card-remint-store.mjs";
 import { createSongCardLocalRenderBridge, inspectSongCardRendererBuildIdentity } from "./song-card-local-renderer.mjs";
@@ -485,6 +486,8 @@ const TAROT_DRAW_FORGE_RUN_DIR = process.env.HAPA_TAROT_DRAW_FORGE_RUN_DIR || pa
 const SYSTEM_MEDIA_PATH = process.env.HAPA_MEDIA_LIBRARY || path.join(ROOT, "data/media-library.json");
 const HUMAN_VIDEO_ENRICHMENT_PATH = process.env.HAPA_HUMAN_VIDEO_ENRICHMENT_STORE || path.join(ROOT, "data/human-video-enrichments.json");
 const HUMAN_VIDEO_ENRICHMENT_EVENT_PATH = process.env.HAPA_HUMAN_VIDEO_ENRICHMENT_EVENTS || path.join(ROOT, "data/human-video-enrichment-events.ndjson");
+const HUMAN_VIDEO_AGENT_REVIEW_PATH = process.env.HAPA_HUMAN_VIDEO_AGENT_REVIEW_STORE || path.join(ROOT, "data/human-video-agent-reviews.json");
+const HUMAN_VIDEO_AGENT_REVIEW_EVENT_PATH = process.env.HAPA_HUMAN_VIDEO_AGENT_REVIEW_EVENTS || path.join(ROOT, "data/human-video-agent-review-events.ndjson");
 const ITEM_STORE_PATH = process.env.HAPA_ITEM_STORE || path.join(ROOT, "data/item-manager-store.json");
 const INVENTORY_STORE_PATH = process.env.HAPA_INVENTORY_STORE || path.join(ROOT, "data/inventory-store.json");
 const HAPA_DEV_PROTO_DB_PATH = process.env.HAPA_DEV_PROTO_DB || path.join(process.env.HOME || "/Users/calderwong", "Library", "Application Support", "hapa-ag", "persistence.db");
@@ -493,6 +496,10 @@ const SQLITE_BIN = process.env.HAPA_SQLITE_BIN || "/usr/bin/sqlite3";
 const humanVideoEnrichmentStore = openHumanVideoEnrichmentStore({
   filePath: HUMAN_VIDEO_ENRICHMENT_PATH,
   eventPath: HUMAN_VIDEO_ENRICHMENT_EVENT_PATH,
+});
+const humanVideoAgentReviewStore = openHumanVideoAgentReviewStore({
+  filePath: HUMAN_VIDEO_AGENT_REVIEW_PATH,
+  eventPath: HUMAN_VIDEO_AGENT_REVIEW_EVENT_PATH,
 });
 
 let latestTarotFrame = null;
@@ -3911,6 +3918,73 @@ async function route(req, res) {
     return;
   }
 
+  if (pathname === "/api/human-enricher/agent-reviews" && req.method === "GET") {
+    try {
+      res.setHeader("Cache-Control", "no-store");
+      sendJson(res, 200, paginateHumanVideoAgentReviewQueue(await buildHumanVideoEnricherDashboard(), url.searchParams));
+    } catch (error) {
+      sendJson(res, Number(error?.statusCode || 500), { ok: false, error: error?.code || "agent_review_queue_load_failed", message: error?.message || String(error) });
+    }
+    return;
+  }
+
+  if (pathname === "/api/human-enricher/agent-reviews" && req.method === "PUT") {
+    try {
+      const body = await readBody(req);
+      const dashboard = await buildHumanVideoEnricherDashboard();
+      const submissions = Array.isArray(body.reviews) ? body.reviews : [body.review || body];
+      const results = [];
+      for (const submission of submissions) {
+        const video = dashboard.videos.find((candidate) => candidate.humanVideoKey === submission.videoKey || candidate.id === submission.videoId);
+        if (!video) {
+          const error = new Error(`Unknown Human Enricher video: ${submission.videoKey || submission.videoId || "missing"}.`);
+          error.code = "agent_review_video_not_found";
+          error.statusCode = 404;
+          throw error;
+        }
+        results.push((await humanVideoAgentReviewStore.submit({
+          ...submission,
+          videoKey: video.humanVideoKey,
+          videoId: video.id,
+          videoName: video.name,
+          videoIdentity: {
+            recordId: video.id,
+            assetId: video.assetId || "",
+            contentFingerprint: video.contentFingerprint || "",
+            uri: video.uri || "",
+            sourcePath: video.sourcePath || "",
+          },
+          evidence: {
+            ...(submission.evidence || {}),
+            requiredFrameCount: Math.max(3, video.sourceMetadata?.registeredFrames?.length || 0),
+          },
+        }, {
+          agentId: String(req.headers["x-hapa-agent-id"] || submission.reviewer?.agentId || "vision-subagent").trim().slice(0, 240),
+        })).review);
+      }
+      res.setHeader("Cache-Control", "no-store");
+      sendJson(res, 200, { ok: true, reviews: results, submitted: results.length, authority: "pending-human" });
+    } catch (error) {
+      sendJson(res, Number(error?.statusCode || 400), { ok: false, error: error?.code || "agent_review_submit_failed", message: error?.message || String(error), details: error?.details || null });
+    }
+    return;
+  }
+
+  const agentReviewDecisionMatch = pathname.match(/^\/api\/human-enricher\/agent-reviews\/([^/]+)\/decision$/);
+  if (agentReviewDecisionMatch && req.method === "POST") {
+    try {
+      const body = await readBody(req);
+      const result = await humanVideoAgentReviewStore.decide(decodeURIComponent(agentReviewDecisionMatch[1]), body, {
+        actorId: String(req.headers["x-hapa-actor-id"] || body.actorId || "local-human-operator").trim().slice(0, 180),
+      });
+      res.setHeader("Cache-Control", "no-store");
+      sendJson(res, 200, { ok: true, review: result.review });
+    } catch (error) {
+      sendJson(res, Number(error?.statusCode || 400), { ok: false, error: error?.code || "agent_review_decision_failed", message: error?.message || String(error), details: error?.details || null });
+    }
+    return;
+  }
+
   if (pathname === "/api/human-enricher/records" && req.method === "PUT") {
     try {
       const body = await readBody(req);
@@ -3925,6 +3999,13 @@ async function route(req, res) {
         });
         return;
       }
+      const agentReview = body.sourceAgentReviewId
+        ? (await humanVideoAgentReviewStore.read()).reviews.find((review) => review.id === body.sourceAgentReviewId)
+        : null;
+      if (body.sourceAgentReviewId && (!agentReview || agentReview.videoKey !== video.humanVideoKey)) {
+        sendJson(res, 409, { ok: false, error: "agent_review_lineage_mismatch", message: "The selected optical proposal does not belong to this video." });
+        return;
+      }
       const result = await humanVideoEnrichmentStore.update({
         ...body,
         key: video.humanVideoKey,
@@ -3937,12 +4018,38 @@ async function route(req, res) {
           uri: video.uri || "",
           sourcePath: video.sourcePath || "",
         },
+        ...(agentReview ? {
+          agentReviewLineage: {
+            reviewId: agentReview.id,
+            reviewRevision: agentReview.revision,
+            decision: "accepted-edited",
+            agentId: agentReview.reviewer.agentId,
+            taskId: agentReview.reviewer.taskId,
+            incorporatedAt: new Date().toISOString(),
+          },
+        } : {}),
       }, {
         actorId: String(req.headers["x-hapa-actor-id"] || body.updatedBy || "local-human-operator").trim().slice(0, 180),
       });
       await appendSubscriberRegistration("human-video-enrichment.updated", {
         humanVideoEnrichment: result.record,
       });
+      let reviewDecision = null;
+      let reviewDecisionError = null;
+      if (agentReview) {
+        try {
+          reviewDecision = (await humanVideoAgentReviewStore.decide(agentReview.id, {
+            action: "accepted-edited",
+            notes: body.agentReviewDecisionNotes || "Optical proposal incorporated through the editable Human Enricher form.",
+            resultingEnrichmentRevision: result.record.revision,
+          }, { actorId: result.record.updatedBy })).review;
+        } catch (error) {
+          reviewDecisionError = {
+            error: error?.code || "agent_review_decision_failed",
+            message: error?.message || String(error),
+          };
+        }
+      }
       res.setHeader("Cache-Control", "no-store");
       sendJson(res, 200, {
         ok: true,
@@ -3950,6 +4057,8 @@ async function route(req, res) {
         summary: (await buildHumanVideoEnricherDashboard()).summary,
         directorReadable: true,
         directorField: "human_enrichment",
+        reviewDecision,
+        reviewDecisionError,
       });
     } catch (error) {
       sendJson(res, Number(error?.statusCode || 400), {
@@ -6648,13 +6757,14 @@ async function readSystemMediaLibrary() {
 }
 
 async function buildHumanVideoEnricherDashboard() {
-  const [avatarStore, canonicalAvatarStore, tarotStore, sceneGraph, mediaLibrary, enrichmentStore, songStore, itemStore] = await Promise.all([
+  const [avatarStore, canonicalAvatarStore, tarotStore, sceneGraph, mediaLibrary, enrichmentStore, agentReviewStore, songStore, itemStore] = await Promise.all([
     readStore({ includeProjections: true }),
     readStore(),
     readTarotStore(),
     readSceneStore(),
     readSystemMediaLibrary(),
     humanVideoEnrichmentStore.read(),
+    humanVideoAgentReviewStore.read(),
     readHapaSongStore(),
     readItemStore(),
   ]);
@@ -6669,9 +6779,56 @@ async function buildHumanVideoEnricherDashboard() {
   return createHumanVideoEnricherDashboard({
     mediaDashboard,
     enrichmentStore,
+    agentReviewStore,
     avatars: canonicalAvatarStore.avatars || [],
     songs: songStore.songs || [],
   });
+}
+
+function paginateHumanVideoAgentReviewQueue(dashboard, searchParams) {
+  const status = String(searchParams.get("status") || "needs-agent").trim().toLowerCase();
+  const offset = Math.max(0, Number(searchParams.get("offset") || 0) || 0);
+  const limit = Math.max(1, Math.min(100, Number(searchParams.get("limit") || 12) || 12));
+  const candidates = dashboard.videos.filter((video) => {
+    if (status === "all") return true;
+    if (status === "needs-agent") return !video.agentReview;
+    if (status === "needs-human") return video.agentReview?.status === "pending-human";
+    if (status === "blocked") return video.agentReview?.status === "blocked";
+    return video.agentReview?.status === status;
+  });
+  const items = candidates.slice(offset, offset + limit).map((video) => ({
+    videoKey: video.humanVideoKey,
+    videoId: video.id,
+    videoName: video.name,
+    videoIdentity: {
+      recordId: video.id,
+      assetId: video.assetId || "",
+      contentFingerprint: video.contentFingerprint || "",
+      uri: video.uri || "",
+      sourcePath: video.sourcePath || "",
+    },
+    duration: video.duration,
+    registeredFrames: video.sourceMetadata?.registeredFrames || [],
+    explicitRelationships: video.relationships || [],
+    owner: { type: video.ownerType, id: video.ownerId, name: video.ownerName, role: video.role },
+    agentReview: video.agentReview || null,
+    instructions: {
+      requiredCapability: "optical-image-input",
+      minimumFrameCount: 3,
+      inspectEveryRegisteredFrame: true,
+      semanticAutomationAllowed: false,
+      knowledgeInferenceMustBeSourceCited: true,
+    },
+  }));
+  return {
+    schemaVersion: "hapa.human-video-agent-review-queue.v1",
+    generatedAt: new Date().toISOString(),
+    status,
+    summary: dashboard.summary,
+    pagination: { offset, limit, returned: items.length, total: candidates.length, hasMore: offset + items.length < candidates.length, nextOffset: offset + items.length },
+    items,
+    truthBoundary: "Queue automation may enumerate, extract, and hash frames only. A vision-capable sub-agent must inspect every required keyframe and author all semantic judgments.",
+  };
 }
 
 function paginateHumanVideoEnricherDashboard(dashboard, searchParams) {
@@ -6680,8 +6837,9 @@ function paginateHumanVideoEnricherDashboard(dashboard, searchParams) {
   const offset = Math.max(0, Number(searchParams.get("offset") || 0) || 0);
   const requestedLimit = String(searchParams.get("limit") || "120").trim().toLowerCase();
   const limit = requestedLimit === "all" ? 50_000 : Math.max(1, Math.min(500, Number(requestedLimit) || 120));
+  const sort = String(searchParams.get("sort") || "quality-desc").trim().toLowerCase();
   const videos = dashboard.videos.filter((video) => {
-    const grade = Number(video.humanEnrichment?.quality?.value || 0);
+    const grade = Number(video.humanEnrichment?.quality?.value ?? video.agentReview?.proposal?.quality?.value ?? 0);
     if (quality === "enriched" && !video.humanEnrichment) return false;
     if (quality === "ungraded" && grade > 0) return false;
     if (/^[1-5]$/.test(quality) && grade !== Number(quality)) return false;
@@ -6697,8 +6855,19 @@ function paginateHumanVideoEnricherDashboard(dashboard, searchParams) {
       ...(video.relationships || []).flatMap((relationship) => [relationship.ownerName, relationship.ownerType, relationship.role]),
       ...(video.humanEnrichment?.avatarMentions || []).map((mention) => mention.mention),
       video.humanEnrichment?.directorNotes,
+      video.humanEnrichment?.description,
+      ...(video.humanEnrichment?.categories || []),
+      video.agentReview?.proposal?.description,
+      ...(video.agentReview?.proposal?.categories || []),
+      ...(video.agentReview?.proposal?.tags || []),
       ...(video.humanEnrichment?.references || []).flatMap((reference) => [reference.label, reference.id, reference.notes]),
     ].join(" ").toLowerCase().includes(query);
+  }).sort((a, b) => {
+    if (sort === "name") return String(a.name || a.id).localeCompare(String(b.name || b.id));
+    if (sort === "needs-human") return Number(b.agentReview?.status === "pending-human") - Number(a.agentReview?.status === "pending-human") || String(a.name || a.id).localeCompare(String(b.name || b.id));
+    const aQuality = Number(a.humanEnrichment?.quality?.value ?? a.agentReview?.proposal?.quality?.value ?? 0);
+    const bQuality = Number(b.humanEnrichment?.quality?.value ?? b.agentReview?.proposal?.quality?.value ?? 0);
+    return bQuality - aQuality || String(a.name || a.id).localeCompare(String(b.name || b.id));
   });
   const page = videos.slice(offset, offset + limit);
   return {
@@ -6706,6 +6875,7 @@ function paginateHumanVideoEnricherDashboard(dashboard, searchParams) {
     videos: page,
     query: query || null,
     qualityFilter: quality,
+    sort,
     pagination: {
       offset,
       limit,

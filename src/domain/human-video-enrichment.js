@@ -67,9 +67,13 @@ export function normalizeHumanVideoEnrichment(input = {}, fallback = {}) {
     videoName: clean(input.videoName || fallback.videoName, 800),
     videoIdentity,
     quality,
+    description: cleanMultiline(input.description ?? fallback.description, 12_000),
+    categories: normalizeTextTags(input.categories ?? fallback.categories, 80),
+    tags: normalizeTextTags(input.tags ?? fallback.tags, 160),
     avatarMentions: normalizeAvatarMentions(input.avatarMentions ?? fallback.avatarMentions),
     directorNotes: cleanMultiline(input.directorNotes ?? fallback.directorNotes, 12_000),
     references: normalizeReferences(input.references ?? fallback.references),
+    agentReviewLineage: normalizeAgentReviewLineage(input.agentReviewLineage ?? fallback.agentReviewLineage),
     humanAuthored: true,
     updatedBy: clean(input.updatedBy || fallback.updatedBy || "local-human-operator", 180),
     revision,
@@ -112,15 +116,20 @@ export function upsertHumanVideoEnrichment(storeInput = {}, input = {}, options 
   };
 }
 
-export function createHumanVideoEnricherDashboard({ mediaDashboard = {}, enrichmentStore = {}, avatars = [], songs = [] } = {}) {
+export function createHumanVideoEnricherDashboard({ mediaDashboard = {}, enrichmentStore = {}, agentReviewStore = {}, avatars = [], songs = [] } = {}) {
   const store = normalizeHumanVideoEnrichmentStore(enrichmentStore);
+  const agentReviews = new Map((agentReviewStore.reviews || []).map((review) => [review.videoKey, review]));
   const videos = (mediaDashboard.records || [])
     .filter((record) => record.mediaType === "video")
-    .map((video) => compactHumanEnricherVideo(attachEnrichment(video, store)))
+    .map((video) => {
+      const enriched = attachEnrichment(video, store);
+      return compactHumanEnricherVideo({ ...enriched, agentReview: agentReviews.get(enriched.humanVideoKey) || null });
+    })
     .sort((a, b) => Number(Boolean(b.humanEnrichment)) - Number(Boolean(a.humanEnrichment))
-      || Number(b.humanEnrichment?.quality?.value || 0) - Number(a.humanEnrichment?.quality?.value || 0)
+      || effectiveQuality(b) - effectiveQuality(a)
       || String(a.name || a.id).localeCompare(String(b.name || b.id)));
   const enriched = videos.filter((video) => video.humanEnrichment);
+  const agentReviewed = videos.filter((video) => video.agentReview);
   return {
     schemaVersion: HUMAN_VIDEO_ENRICHER_DASHBOARD_SCHEMA,
     generatedAt: new Date().toISOString(),
@@ -140,6 +149,10 @@ export function createHumanVideoEnricherDashboard({ mediaDashboard = {}, enrichm
       withDirectorNotes: enriched.filter((video) => video.humanEnrichment.directorNotes).length,
       withAvatarMentions: enriched.filter((video) => video.humanEnrichment.avatarMentions.length).length,
       withReferences: enriched.filter((video) => video.humanEnrichment.references.length).length,
+      agentReviewed: agentReviewed.length,
+      pendingHumanValidation: agentReviewed.filter((video) => video.agentReview.status === "pending-human").length,
+      humanValidatedAgentReviews: agentReviewed.filter((video) => ["accepted", "accepted-edited", "rejected"].includes(video.agentReview.status)).length,
+      remainingOpticalReviews: Math.max(0, videos.length - agentReviewed.length),
     },
     facets: mediaDashboard.facets || {},
     avatarOptions: (avatars || []).map((avatar) => ({
@@ -158,6 +171,8 @@ export function createHumanVideoEnricherDashboard({ mediaDashboard = {}, enrichm
 
 function compactHumanEnricherVideo(video = {}) {
   const intelligence = video.enrichment || video.intelligence || null;
+  const rawRegisteredFrames = video.asset?.metadata?.frames || video.asset?.state?.keyframes || [];
+  const registeredFrames = Array.isArray(rawRegisteredFrames) ? rawRegisteredFrames : Object.values(rawRegisteredFrames || {}).filter((frame) => frame && typeof frame === "object");
   return {
     id: video.id,
     assetId: video.assetId || video.asset?.id || null,
@@ -196,6 +211,13 @@ function compactHumanEnricherVideo(video = {}) {
       technicalStatus: video.asset.metadata?.echosTechnicalAffordance?.status || null,
       codec: video.asset.metadata?.echosTechnicalAffordance?.codec || null,
       fps: video.asset.metadata?.echosTechnicalAffordance?.fps || null,
+      registeredFrames: registeredFrames.map((frame, index) => ({
+        id: frame.id || `frame-${index + 1}`,
+        marker: frame.marker || frame.role || frame.label || null,
+        timestampSeconds: Number(frame.time ?? frame.timestampSeconds ?? frame.timestamp ?? 0),
+        uri: frame.uri || frame.thumbnailUri || frame.thumbnail?.uri || null,
+        fingerprint: frame.fingerprint || frame.sha256 || null,
+      })),
     } : null,
     enrichmentSummary: intelligence ? {
       status: intelligence.status || null,
@@ -207,6 +229,7 @@ function compactHumanEnricherVideo(video = {}) {
     updatedAt: video.updatedAt,
     humanVideoKey: video.humanVideoKey,
     humanEnrichment: video.humanEnrichment,
+    agentReview: video.agentReview || null,
   };
 }
 
@@ -302,9 +325,13 @@ function directorEnrichmentProjection(record) {
     schemaVersion: HUMAN_VIDEO_ENRICHMENT_RECORD_SCHEMA,
     humanAuthored: true,
     quality: record.quality,
+    description: record.description,
+    categories: record.categories,
+    tags: record.tags,
     avatarMentions: record.avatarMentions,
     directorNotes: record.directorNotes,
     references: record.references,
+    agentReviewLineage: record.agentReviewLineage,
     revision: record.revision,
     updatedAt: record.updatedAt,
     updatedBy: record.updatedBy,
@@ -351,6 +378,27 @@ function normalizeReferences(value) {
     byKey.set(key, reference);
   }
   return [...byKey.values()];
+}
+
+function normalizeTextTags(value, limit) {
+  const values = Array.isArray(value) ? value : String(value || "").split(/[,\n]+/);
+  return [...new Set(values.map((item) => clean(item, 180)).filter(Boolean))].slice(0, limit);
+}
+
+function normalizeAgentReviewLineage(value) {
+  if (!value || typeof value !== "object") return null;
+  return {
+    reviewId: clean(value.reviewId, 5_000),
+    reviewRevision: Math.max(1, Math.trunc(number(value.reviewRevision, 1))),
+    decision: clean(value.decision || "accepted-edited", 80),
+    agentId: clean(value.agentId, 240),
+    taskId: clean(value.taskId, 500),
+    incorporatedAt: clean(value.incorporatedAt, 80) || null,
+  };
+}
+
+function effectiveQuality(video) {
+  return Number(video.humanEnrichment?.quality?.value ?? video.agentReview?.proposal?.quality?.value ?? 0);
 }
 
 function uniqueRecords(records) {

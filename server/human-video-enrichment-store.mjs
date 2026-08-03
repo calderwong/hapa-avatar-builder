@@ -42,9 +42,13 @@ export function openHumanVideoEnrichmentStore({ filePath, eventPath, clock = () 
         videoKey: result.record.key,
         revision: result.record.revision,
         quality: result.record.quality,
+        hasDescription: Boolean(result.record.description),
+        categoryCount: result.record.categories.length,
+        tagCount: result.record.tags.length,
         avatarMentionCount: result.record.avatarMentions.length,
         referenceCount: result.record.references.length,
         hasDirectorNotes: Boolean(result.record.directorNotes),
+        agentReviewId: result.record.agentReviewLineage?.reviewId || null,
         authority: "human-direction-only",
       });
       return result;

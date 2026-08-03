@@ -12,6 +12,8 @@ Important local files:
 - `media-library.json` - imported local media records and review metadata.
 - `human-video-enrichments.json` - revisioned human Quality grades, `@Avatar` links, Echo State director notes, and manual references keyed to known videos.
 - `human-video-enrichment-events.ndjson` - append-only local receipts for human enrichment revisions.
+- `human-video-agent-reviews.json` - evidence-bound optical sub-agent proposals pending explicit human validation.
+- `human-video-agent-review-events.ndjson` - append-only proposal submission and human decision receipts.
 - `kanban.json` - local builder board.
 - `media/` - generated or imported media assets.
 - `backups/` - pre-merge and pre-heal store snapshots.

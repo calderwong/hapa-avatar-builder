@@ -250,6 +250,7 @@ function libraryRecordToDashboardRecord(record) {
     tags: record.tags,
     match: record.match,
     relationships: record.relationships,
+    asset: record.asset || null,
     enrichment: record.intelligence,
     notes: record.notes,
     createdAt: record.createdAt,
@@ -294,6 +295,7 @@ function assetToDashboardRecord(asset = {}, owner) {
       ownerName: owner.ownerName,
       role: owner.role
     }],
+    asset,
     enrichment: intelligence,
     notes: asset.notes || "",
     createdAt: asset.createdAt || null,
@@ -353,6 +355,7 @@ function mergeDashboardRecord(a, b) {
     height: a.height || b.height,
     duration: a.duration || b.duration,
     enrichment: a.enrichment || b.enrichment,
+    asset: a.asset || b.asset || null,
     documentKind: a.documentKind !== "unknown" ? a.documentKind : b.documentKind,
     reviewPriority: reviewWeight(a.reviewPriority) >= reviewWeight(b.reviewPriority) ? a.reviewPriority : b.reviewPriority,
     reviewStatus: mergeReviewStatus(a.reviewStatus, b.reviewStatus),

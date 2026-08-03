@@ -77,7 +77,8 @@
     "contextGeneration": "http://127.0.0.1:8787/api/context-generation",
     "wisdomCouncils": "http://127.0.0.1:8787/api/wisdom-councils",
     "humanEnricherVideos": "http://127.0.0.1:8787/api/human-enricher/videos",
-    "humanEnricherRecords": "http://127.0.0.1:8787/api/human-enricher/records"
+    "humanEnricherRecords": "http://127.0.0.1:8787/api/human-enricher/records",
+    "humanEnricherAgentReviews": "http://127.0.0.1:8787/api/human-enricher/agent-reviews"
   },
   "requiredNodes": [
     "hapa-overcard",
@@ -95,6 +96,8 @@
     "mediaLibrary": "data/media-library.json",
     "humanVideoEnrichments": "data/human-video-enrichments.json",
     "humanVideoEnrichmentEvents": "data/human-video-enrichment-events.ndjson",
+    "humanVideoAgentReviews": "data/human-video-agent-reviews.json",
+    "humanVideoAgentReviewEvents": "data/human-video-agent-review-events.ndjson",
     "mediaDir": "data/media",
     "cardOriginOutbox": "data/overwind/origin-outbox.sqlite3",
     "cardCustodyCores": "data/card-custody/cores",

@@ -107,4 +107,15 @@ The canonical overlay schema is `hapa.human-video-enrichment-store.v1` in `src/d
 | CLI | `human-enricher-list` exposes the same read model; `human-enricher-save --file ... --actor ...` uses the same revisioned write endpoint. |
 | Data | Current overlays are in ignored `data/human-video-enrichments.json`; append-only update receipts are in `data/human-video-enrichment-events.ndjson`. |
 
+### Optical proposal parity
+
+| Surface | Optical review behavior |
+| --- | --- |
+| UI | Shows the exact inspected filmstrip, per-frame observations, optical attestation, proposal confidence/uncertainty, suggested relationships/references, Hapa source citations, and Use/Edit/Append/Reject human controls. |
+| API | `GET /api/human-enricher/agent-reviews` exposes a resumable evidence queue. `PUT` accepts only hash-bound, optically attested proposals. `POST /api/human-enricher/agent-reviews/:id/decision` records explicit human outcomes. |
+| CLI | `human-enricher-agent-queue`, `human-enricher-agent-submit`, and `human-enricher-agent-decision` consume the same routes. |
+| Data | Pending proposals and append-only events are separate from human enrichment in `data/human-video-agent-reviews.json` and `data/human-video-agent-review-events.ndjson`. |
+
+Queue and import automation may extract/hash frames and validate receipts only. It cannot make semantic or quality judgments. Pending proposals never project into Echo State.
+
 These records are human direction only. They do not establish canon, ownership, rights clearance, publication approval, or render authority.

@@ -2,7 +2,10 @@ import { useEffect, useMemo, useState } from "react";
 import {
   AtSign,
   BadgeCheck,
+  Bot,
+  CheckCircle2,
   Clapperboard,
+  Eye,
   ExternalLink,
   FileVideo2,
   Link2,
@@ -12,8 +15,10 @@ import {
   Search,
   Sparkles,
   Star,
+  Tags,
   Trash2,
   UserRoundCheck,
+  XCircle,
 } from "lucide-react";
 import { HUMAN_VIDEO_QUALITY_GRADES } from "../domain/human-video-enrichment.js";
 
@@ -25,6 +30,7 @@ export default function HumanEnricherView({ apiBase = "", onNotify = () => {} })
   const [error, setError] = useState("");
   const [query, setQuery] = useState("");
   const [qualityFilter, setQualityFilter] = useState("all");
+  const [sort, setSort] = useState("quality-desc");
   const [selectedKey, setSelectedKey] = useState("");
   const [draft, setDraft] = useState(emptyDraft());
   const [avatarChoice, setAvatarChoice] = useState("");
@@ -36,7 +42,7 @@ export default function HumanEnricherView({ apiBase = "", onNotify = () => {} })
     setLoading(true);
     setError("");
     try {
-      const params = new URLSearchParams({ offset: String(offset), limit: "120", quality: qualityFilter });
+      const params = new URLSearchParams({ offset: String(offset), limit: "120", quality: qualityFilter, sort });
       if (query.trim()) params.set("q", query.trim());
       const response = await fetch(`${apiBase}/api/human-enricher/videos?${params}`, { headers: { accept: "application/json" } });
       const payload = await response.json();
@@ -57,12 +63,12 @@ export default function HumanEnricherView({ apiBase = "", onNotify = () => {} })
   useEffect(() => {
     const timer = globalThis.setTimeout(() => load({ preserveSelection: false }), query.trim() ? 240 : 0);
     return () => globalThis.clearTimeout(timer);
-  }, [apiBase, query, qualityFilter]);
+  }, [apiBase, query, qualityFilter, sort]);
 
   const filteredVideos = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
     return (dashboard?.videos || []).filter((video) => {
-      const grade = Number(video.humanEnrichment?.quality?.value || 0);
+      const grade = Number(video.humanEnrichment?.quality?.value ?? video.agentReview?.proposal?.quality?.value ?? 0);
       if (qualityFilter === "enriched" && !video.humanEnrichment) return false;
       if (qualityFilter === "ungraded" && grade > 0) return false;
       if (/^[1-5]$/.test(qualityFilter) && grade !== Number(qualityFilter)) return false;
@@ -133,6 +139,58 @@ export default function HumanEnricherView({ apiBase = "", onNotify = () => {} })
     }));
   }
 
+  function applyAgentProposal(mode = "replace") {
+    const review = selectedVideo?.agentReview;
+    if (!review?.proposal) return;
+    const proposal = review.proposal;
+    const proposedMentions = (proposal.avatarRelationships || []).map((relationship) => {
+      const relationshipLabel = String(relationship.label || "").replace(/^@+/, "");
+      const avatar = dashboard?.avatarOptions?.find((option) => option.id === relationship.entityId || option.name === relationshipLabel);
+      return avatar ? { avatarId: avatar.id, avatarName: avatar.name, mention: avatar.mention } : null;
+    }).filter(Boolean);
+    const proposedReferences = (proposal.references || []).map((reference) => ({
+      id: reference.id || "",
+      type: reference.type === "scene" || reference.type === "avatar" ? "other" : reference.type,
+      label: reference.label || reference.id || "",
+      uri: reference.uri || "",
+      notes: reference.explanation || "",
+    }));
+    setDraft((current) => ({
+      ...current,
+      quality: Number(proposal.quality?.value || current.quality),
+      description: mode === "append" ? appendText(current.description, proposal.description) : proposal.description || current.description,
+      categories: uniqueText([...(mode === "append" ? current.categories : []), ...(proposal.categories || [])]),
+      tags: uniqueText([...(mode === "append" ? current.tags : []), ...(proposal.tags || [])]),
+      avatarMentions: uniqueBy([...(mode === "append" ? current.avatarMentions : []), ...proposedMentions], (item) => item.avatarId),
+      directorNotes: mode === "append" ? appendText(current.directorNotes, proposal.directorNotes) : proposal.directorNotes || current.directorNotes,
+      references: uniqueBy([...(mode === "append" ? current.references : []), ...proposedReferences], (item) => `${item.type}:${item.id || item.uri || item.label}`),
+      sourceAgentReviewId: review.id,
+    }));
+    setSaveState("dirty");
+  }
+
+  async function rejectAgentReview() {
+    const review = selectedVideo?.agentReview;
+    if (!review || saving) return;
+    setSaving(true);
+    setError("");
+    try {
+      const response = await fetch(`${apiBase}/api/human-enricher/agent-reviews/${encodeURIComponent(review.id)}/decision`, {
+        method: "POST",
+        headers: { accept: "application/json", "content-type": "application/json", "x-hapa-actor-id": "human-enricher-ui" },
+        body: JSON.stringify({ action: "rejected", notes: "Rejected from the Human Enricher validation surface." }),
+      });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.message || payload.error || `Review decision failed (${response.status})`);
+      setDashboard((current) => ({ ...current, videos: current.videos.map((video) => video.humanVideoKey === selectedVideo.humanVideoKey ? { ...video, agentReview: payload.review } : video) }));
+      onNotify(`Agent proposal rejected for ${selectedVideo.name}`);
+    } catch (decisionError) {
+      setError(decisionError instanceof Error ? decisionError.message : String(decisionError));
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function save() {
     if (!selectedVideo || saving) return;
     setSaving(true);
@@ -147,9 +205,13 @@ export default function HumanEnricherView({ apiBase = "", onNotify = () => {} })
           videoId: selectedVideo.id,
           expectedRevision: draft.expectedRevision,
           quality: draft.quality,
+          description: draft.description,
+          categories: draft.categories,
+          tags: draft.tags,
           avatarMentions: draft.avatarMentions,
           directorNotes: draft.directorNotes,
           references: draft.references,
+          sourceAgentReviewId: draft.sourceAgentReviewId || undefined,
         }),
       });
       const payload = await response.json();
@@ -158,10 +220,10 @@ export default function HumanEnricherView({ apiBase = "", onNotify = () => {} })
         ...current,
         summary: payload.summary || current.summary,
         videos: current.videos.map((video) => video.humanVideoKey === selectedVideo.humanVideoKey
-          ? { ...video, humanEnrichment: payload.record }
+          ? { ...video, humanEnrichment: payload.record, agentReview: payload.reviewDecision || video.agentReview }
           : video),
       }));
-      setDraft((current) => ({ ...current, expectedRevision: payload.record.revision }));
+      setDraft((current) => ({ ...current, expectedRevision: payload.record.revision, sourceAgentReviewId: "" }));
       setSaveState("saved");
       onNotify(`Human direction saved for ${selectedVideo.name}`);
     } catch (saveError) {
@@ -198,6 +260,9 @@ export default function HumanEnricherView({ apiBase = "", onNotify = () => {} })
         <Metric label="Director notes" value={dashboard?.summary?.withDirectorNotes || 0} icon={<Clapperboard size={16} />} />
         <Metric label="@Avatar links" value={dashboard?.summary?.withAvatarMentions || 0} icon={<AtSign size={16} />} />
         <Metric label="References" value={dashboard?.summary?.withReferences || 0} icon={<Link2 size={16} />} />
+        <Metric label="Agent reviewed" value={dashboard?.summary?.agentReviewed || 0} icon={<Bot size={16} />} />
+        <Metric label="Needs human" value={dashboard?.summary?.pendingHumanValidation || 0} icon={<Eye size={16} />} />
+        <Metric label="Optical queue" value={dashboard?.summary?.remainingOpticalReviews || 0} icon={<RefreshCw size={16} />} />
       </div>
 
       <div className="human-enricher-layout">
@@ -209,6 +274,11 @@ export default function HumanEnricherView({ apiBase = "", onNotify = () => {} })
               <option value="enriched">Human enriched</option>
               <option value="ungraded">Ungraded</option>
               {HUMAN_VIDEO_QUALITY_GRADES.filter((grade) => grade.value).map((grade) => <option key={grade.value} value={grade.value}>Quality {grade.value} · {grade.label}</option>)}
+            </select>
+            <select value={sort} onChange={(event) => setSort(event.target.value)} aria-label="Sort videos">
+              <option value="quality-desc">Best quality first</option>
+              <option value="needs-human">Needs human first</option>
+              <option value="name">Name A–Z</option>
             </select>
           </div>
           <div className="human-video-library-count"><strong>{dashboard?.pagination?.total ?? filteredVideos.length}</strong><span>matching videos · {filteredVideos.length} loaded</span></div>
@@ -226,9 +296,10 @@ export default function HumanEnricherView({ apiBase = "", onNotify = () => {} })
                   <strong>{video.name || video.id}</strong>
                   <small>{video.ownerName || "System Media Library"} · {video.role || "video"}</small>
                   <span className="human-video-row-meta">
-                    <i data-quality={video.humanEnrichment?.quality?.value || 0}>Q{video.humanEnrichment?.quality?.value || "—"}</i>
+                    <i data-quality={video.humanEnrichment?.quality?.value ?? video.agentReview?.proposal?.quality?.value ?? 0}>Q{video.humanEnrichment?.quality?.value ?? video.agentReview?.proposal?.quality?.value ?? "—"}</i>
                     <i>{video.relationships?.length || 0} links</i>
                     {video.humanEnrichment?.directorNotes && <i>notes</i>}
+                    {video.agentReview?.status === "pending-human" && <i>agent → human</i>}
                   </span>
                 </span>
               </button>
@@ -260,6 +331,48 @@ export default function HumanEnricherView({ apiBase = "", onNotify = () => {} })
                 </div>
               </div>
 
+              {selectedVideo.agentReview && (
+                <section className="human-agent-proposal" data-status={selectedVideo.agentReview.status}>
+                  <div className="human-enrichment-section-head">
+                    <div><p className="eyebrow"><Bot size={13} /> OPTICAL SUB-AGENT PASS</p><h4>Evidence-backed proposal · {selectedVideo.agentReview.status}</h4></div>
+                    <span>{selectedVideo.agentReview.evidence?.inspectedFrameCount || 0} frames addressed</span>
+                  </div>
+                  <div className="human-agent-receipt">
+                    <strong>{selectedVideo.agentReview.reviewer?.agentId || "vision-subagent"}</strong>
+                    <span>{selectedVideo.agentReview.reviewer?.model || "vision model"}</span>
+                    <span>{selectedVideo.agentReview.reviewer?.taskId || "task not recorded"}</span>
+                    <span>Optical inspection {selectedVideo.agentReview.reviewer?.opticalInspectionConfirmed ? "attested" : "not attested"}</span>
+                  </div>
+                  <div className="human-agent-filmstrip">
+                    {(selectedVideo.agentReview.evidence?.frames || []).map((frame) => (
+                      <figure key={frame.sha256}>
+                        {(frame.imageUri || frame.imagePath) && <img src={mediaUri(frame.imageUri || frame.imagePath, apiBase)} alt={`Inspected frame at ${frame.timestampSeconds}s`} />}
+                        <figcaption><strong>{frame.timestampSeconds.toFixed?.(2) ?? frame.timestampSeconds}s</strong><span>{frame.observation}</span></figcaption>
+                      </figure>
+                    ))}
+                  </div>
+                  <div className="human-agent-diagnosis">
+                    <div><span>Proposed quality</span><strong>{selectedVideo.agentReview.proposal?.quality?.value ?? "—"}/5</strong><p>{selectedVideo.agentReview.proposal?.quality?.explanation}</p></div>
+                    <div><span>Description</span><p>{selectedVideo.agentReview.proposal?.description}</p></div>
+                    <div><span>Categories</span><p>{(selectedVideo.agentReview.proposal?.categories || []).join(" · ") || "None proposed"}</p></div>
+                    <div><span>Uncertainty</span><p>{selectedVideo.agentReview.proposal?.uncertainty || "No uncertainty statement."}</p></div>
+                  </div>
+                  <details className="human-agent-sources"><summary>Suggested relationships, references & Hapa evidence</summary>
+                    <div className="human-relationship-list">
+                      {(selectedVideo.agentReview.proposal?.avatarRelationships || []).map((relationship, index) => <span key={`${relationship.entityId}:${index}`}><strong>{avatarMentionLabel(relationship.label || relationship.entityId)}</strong><small>{relationship.evidenceType} · {Math.round((relationship.confidence || 0) * 100)}%</small><small>{relationship.explanation}</small></span>)}
+                      {(selectedVideo.agentReview.proposal?.references || []).map((reference, index) => <span key={`${reference.type}:${reference.id}:${index}`}><strong>{reference.label || reference.id}</strong><small>{reference.type} · {reference.evidenceType} · {Math.round((reference.confidence || 0) * 100)}%</small><small>{reference.explanation}</small></span>)}
+                      {(selectedVideo.agentReview.knowledgeComparisons || []).map((source, index) => <span key={`${source.sourcePath}:${index}`}><strong>{source.entityLabel || source.entityId || "Hapa source"}</strong><small>{source.relationship} · {Math.round((source.confidence || 0) * 100)}%</small><small>{source.sourcePath}</small><small>{source.explanation}</small></span>)}
+                    </div>
+                  </details>
+                  {selectedVideo.agentReview.status === "pending-human" && <div className="human-agent-actions">
+                    <button className="hapa-btn" data-intent="primary" type="button" onClick={() => applyAgentProposal("replace")}><CheckCircle2 size={14} /> Use as editable draft</button>
+                    <button className="hapa-btn" type="button" onClick={() => applyAgentProposal("append")}><Sparkles size={14} /> Append suggestions</button>
+                    <button className="hapa-btn" type="button" onClick={rejectAgentReview}><XCircle size={14} /> Reject proposal</button>
+                  </div>}
+                  <p className="human-editor-hint"><Eye size={13} /> Frames were delivered and addressed; this is not proof of identity or canon. Playback and human judgment remain required.</p>
+                </section>
+              )}
+
               <section className="human-enrichment-editor">
                 <div className="human-enrichment-section-head">
                   <div><p className="eyebrow">01 · HUMAN QUALITY</p><h4>Grade this file</h4></div>
@@ -271,6 +384,15 @@ export default function HumanEnricherView({ apiBase = "", onNotify = () => {} })
                       <span>{grade.shortLabel}</span><strong>{grade.label}</strong>
                     </button>
                   ))}
+                </div>
+              </section>
+
+              <section className="human-enrichment-editor">
+                <div className="human-enrichment-section-head"><div><p className="eyebrow">DESCRIPTION & CATEGORIES</p><h4>Human-readable media understanding</h4></div><span>{draft.description.length}/12000</span></div>
+                <textarea value={draft.description} maxLength={12000} onChange={(event) => { setDraft((current) => ({ ...current, description: event.target.value })); setSaveState("dirty"); }} placeholder="Describe what is visibly happening, the setting, subjects, composition, and likely editorial use." />
+                <div className="human-taxonomy-fields">
+                  <label><Tags size={13} /> Categories<input value={draft.categories.join(", ")} onChange={(event) => { setDraft((current) => ({ ...current, categories: parseTextList(event.target.value) })); setSaveState("dirty"); }} placeholder="performance, environment, transition…" /></label>
+                  <label><Tags size={13} /> Tags<input value={draft.tags.join(", ")} onChange={(event) => { setDraft((current) => ({ ...current, tags: parseTextList(event.target.value) })); setSaveState("dirty"); }} placeholder="close-up, neon, handheld…" /></label>
                 </div>
               </section>
 
@@ -353,22 +475,36 @@ export default function HumanEnricherView({ apiBase = "", onNotify = () => {} })
   );
 }
 
-function emptyDraft() { return { quality: 0, avatarMentions: [], directorNotes: "", references: [], expectedRevision: 0 }; }
+function emptyDraft() { return { quality: 0, description: "", categories: [], tags: [], avatarMentions: [], directorNotes: "", references: [], expectedRevision: 0, sourceAgentReviewId: "" }; }
+
+function avatarMentionLabel(value) {
+  const label = String(value || "unknown").replace(/^@+/, "");
+  return `@${label}`;
+}
 function draftForVideo(video) {
   const enrichment = video.humanEnrichment;
   return enrichment ? {
     quality: Number(enrichment.quality?.value || 0),
+    description: enrichment.description || "",
+    categories: enrichment.categories || [],
+    tags: enrichment.tags || [],
     avatarMentions: enrichment.avatarMentions || [],
     directorNotes: enrichment.directorNotes || "",
     references: enrichment.references || [],
     expectedRevision: Number(enrichment.revision || 0),
+    sourceAgentReviewId: "",
   } : emptyDraft();
 }
 function mediaUri(uri, apiBase) {
   if (!uri) return "";
   if (/^(https?:|data:|blob:|file:)/i.test(uri)) return uri;
+  if (/^\/(Users|private|tmp)\//.test(uri)) return `${apiBase}/api/local-file?path=${encodeURIComponent(uri)}`;
   return `${apiBase}${uri.startsWith("/") ? "" : "/"}${uri}`;
 }
+function parseTextList(value) { return uniqueText(String(value || "").split(/[,\n]+/)); }
+function uniqueText(values) { return [...new Set((values || []).map((value) => String(value || "").trim()).filter(Boolean))]; }
+function uniqueBy(values, keyFor) { return [...new Map((values || []).filter(Boolean).map((value) => [keyFor(value), value])).values()]; }
+function appendText(current, addition) { return [String(current || "").trim(), String(addition || "").trim()].filter(Boolean).join("\n\n"); }
 function formatBytes(value) {
   const bytes = Number(value || 0);
   if (!bytes) return "size unknown";

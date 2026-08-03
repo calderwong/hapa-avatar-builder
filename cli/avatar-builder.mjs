@@ -79,6 +79,41 @@ async function main(cmd, opts) {
     return;
   }
 
+  if (cmd === "human-enricher-agent-queue") {
+    const params = new URLSearchParams({
+      status: String(opts.status || "needs-agent"),
+      offset: String(opts.offset || 0),
+      limit: String(opts.limit || 12),
+    });
+    print(await contextGenerationApiRequest(opts, `/api/human-enricher/agent-reviews?${params}`), { ...opts, json: true });
+    return;
+  }
+
+  if (cmd === "human-enricher-agent-submit") {
+    const inputFile = option(opts, "file", "review-file");
+    const agentId = String(opts.agent || "").trim();
+    if (!inputFile || !agentId) throw new Error("human-enricher-agent-submit requires --file <optical-review.json> --agent <sub-agent-id>.");
+    const input = await readJsonInput(inputFile);
+    print(await contextGenerationApiRequest(opts, "/api/human-enricher/agent-reviews", {
+      method: "PUT",
+      headers: { "x-hapa-agent-id": agentId },
+      body: input,
+    }), { ...opts, json: true });
+    return;
+  }
+
+  if (cmd === "human-enricher-agent-decision") {
+    const reviewId = option(opts, "review-id", "review");
+    const action = String(opts.action || "").trim();
+    const actorId = String(opts.actor || "").trim();
+    if (!reviewId || !actorId || !["accepted", "accepted-edited", "rejected"].includes(action)) throw new Error("human-enricher-agent-decision requires --review-id <id> --action accepted|accepted-edited|rejected --actor <human-id>.");
+    print(await contextGenerationApiRequest(opts, `/api/human-enricher/agent-reviews/${encodeURIComponent(reviewId)}/decision`, {
+      method: "POST",
+      body: { action, actorId, notes: String(opts.notes || "") },
+    }), { ...opts, json: true });
+    return;
+  }
+
   if (cmd === "stargate-context-card") {
     const sceneFile = option(opts, "scene-file", "scene");
     const stargateFile = option(opts, "stargate-file", "gate");
@@ -1423,11 +1458,11 @@ async function mediaCommentApiRequest(opts, pathname, { method = "GET", body, bi
   return payload;
 }
 
-async function contextGenerationApiRequest(opts, pathname, { method = "GET", body } = {}) {
+async function contextGenerationApiRequest(opts, pathname, { method = "GET", body, headers = {} } = {}) {
   const baseUrl = String(option(opts, "api-url", "api") || process.env.HAPA_AVATAR_URL || "http://127.0.0.1:8787").replace(/\/$/, "");
   const response = await fetch(`${baseUrl}${pathname}`, {
     method,
-    headers: { accept: "application/json", ...(body === undefined ? {} : { "content-type": "application/json" }) },
+    headers: { accept: "application/json", ...(body === undefined ? {} : { "content-type": "application/json" }), ...headers },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   const payload = await response.json().catch(() => ({}));
@@ -1442,6 +1477,9 @@ Commands:
   list [--json]
   human-enricher-list [--query "Bella"] [--api-url http://127.0.0.1:8787] [--json]
   human-enricher-save --file ./human-video-enrichment.json --actor <human-id> [--api-url http://127.0.0.1:8787] [--json]
+  human-enricher-agent-queue [--status needs-agent|needs-human|blocked|all] [--offset 0] [--limit 12] [--api-url http://127.0.0.1:8787] [--json]
+  human-enricher-agent-submit --file ./optical-review.json --agent <sub-agent-id> [--api-url http://127.0.0.1:8787] [--json]
+  human-enricher-agent-decision --review-id <id> --action accepted|accepted-edited|rejected --actor <human-id> [--notes "..."] [--api-url http://127.0.0.1:8787] [--json]
   card-custody-status [--card-id <id>] [--api-url http://127.0.0.1:8787] [--json]
   card-custody-ensure --file ./card.json --actor <human-or-local-operator-id> [--evidence <ref>] [--api-url http://127.0.0.1:8787] [--json]
   stargate-context-card --scene-file ./scene-card.json --stargate-file ./derived-gate.json [--actor local-operator] [--json]
