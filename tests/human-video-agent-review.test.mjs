@@ -225,6 +225,27 @@ test("agent proposals rank and describe videos without becoming human enrichment
   assert.equal(dashboard.videos[0].humanEnrichment, null);
 });
 
+test("terminal invalid-media receipts remain distinct from optical reviews", () => {
+  const blocked = normalizeHumanVideoAgentReview({
+    videoKey: "record:invalid-video",
+    videoId: "invalid-video",
+    videoName: "Not actually an MP4",
+    status: "blocked",
+    reviewer: { agentId: "frame-preparation-audit", opticalInspectionConfirmed: false },
+    blockedReason: "terminal-invalid-media: zero-byte registered source; First/Mid/Last inspection is unavailable.",
+    evidence: { frames: [] },
+  });
+  const dashboard = createHumanVideoEnricherDashboard({
+    mediaDashboard: { records: [{ id: "invalid-video", name: "Not actually an MP4", mediaType: "video", uri: "/invalid.mp4", relationships: [] }] },
+    enrichmentStore: createHumanVideoEnrichmentStore(),
+    agentReviewStore: createHumanVideoAgentReviewStore({ reviews: [blocked] }),
+  });
+  assert.equal(dashboard.summary.agentReviewed, 1);
+  assert.equal(dashboard.summary.terminalInvalidMedia, 1);
+  assert.equal(dashboard.summary.pendingHumanValidation, 0);
+  assert.equal(dashboard.videos[0].agentReview.status, "blocked");
+});
+
 test("optical review views isolate reviewed, pending-human, validated, and untouched videos", () => {
   const pending = { agentReview: { status: "pending-human" } };
   const accepted = { agentReview: { status: "accepted-edited" } };
@@ -294,6 +315,10 @@ test("UI, API, CLI, and node discovery expose optical and bounded Reference Atla
   assert.match(api, /isRepairableLegacyOpticalReview/);
   assert.match(api, /matchesLegacyOpticalRepairTarget/);
   assert.match(api, /expectedRevision: matchingRepairTarget \? job\.repair\.priorRevision : 0/);
+  assert.match(api, /agent_review_terminal_invalid_media_unverified/);
+  assert.match(api, /isTerminalInvalidMediaReview/);
+  assert.match(ui, /Full catalog resolved/);
+  assert.match(ui, /invalid-media terminals/);
   assert.match(api, /humanVideoFrameCatalog\.attachMediaDashboard/);
   assert.match(api, /resolveTrustedHumanVideoCatalogFrameUri/);
   assert.doesNotMatch(api, /agentReview: video\.agentReview \|\| null/);

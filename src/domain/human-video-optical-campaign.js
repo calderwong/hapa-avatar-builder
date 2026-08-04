@@ -603,6 +603,8 @@ export function summarizeHumanVideoOpticalCampaign(storeInput = {}, options = {}
       opticalComplete: reviewCoverage.opticalComplete,
       compliantOpticalReviews: reviewCoverage.opticalComplete,
       paletteComplete: reviewCoverage.opticalComplete,
+      terminalInvalidMedia: reviewCoverage.terminalInvalidMedia,
+      catalogResolved: reviewCoverage.resolved,
       legacyIncompleteOptical: reviewCoverage.legacyIncomplete,
       legacyPaletteRepairs: reviewCoverage.legacyIncomplete,
       remainingOpticalReviews: reviewCoverage.remaining,
@@ -732,18 +734,23 @@ function normalizeOpticalReviewCoverage(input = {}, knownVideos = 0) {
   const opticalComplete = nonNegative(input?.opticalComplete);
   const legacyIncomplete = nonNegative(input?.legacyIncomplete);
   const blocked = nonNegative(input?.blocked);
+  const terminalInvalidMedia = Math.min(blocked, nonNegative(input?.terminalInvalidMedia));
   const known = Math.max(nonNegative(knownVideos), nonNegative(input?.knownVideos));
+  const resolved = Math.min(known, opticalComplete + terminalInvalidMedia);
   return {
     knownVideos: known,
     totalReviews,
     opticalComplete,
     compliantOpticalReviews: opticalComplete,
     paletteComplete: opticalComplete,
+    terminalInvalidMedia,
+    resolved,
     legacyIncomplete,
     legacyPaletteRepairs: legacyIncomplete,
     blocked,
-    remaining: Math.max(0, known - opticalComplete),
-    completionRule: "attested optical inspection + at least three distinct registered frames including First/Mid/Last + an evidence-bound 3–8 color palette per frame",
+    remaining: Math.max(0, known - resolved),
+    directVisionRemaining: Math.max(0, known - opticalComplete - terminalInvalidMedia),
+    completionRule: "Each decodable video requires attested First/Mid/Last inspection and an evidence-bound 3–8 color palette per frame. A technically verified empty or non-video placeholder may close only with a distinct terminal invalid-media receipt and never counts as optical or palette complete.",
   };
 }
 

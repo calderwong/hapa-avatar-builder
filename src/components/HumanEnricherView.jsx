@@ -709,8 +709,11 @@ function OpticalCampaignStatus({ campaign = null, dashboardSummary = {}, error =
     dashboardSummary?.compliantOpticalReviews,
     dashboardSummary?.paletteComplete,
   );
+  const terminalInvalidMedia = finiteMetric(summary.terminalInvalidMedia, campaign?.terminalInvalidMedia, planning.terminalInvalidMedia, dashboardSummary?.terminalInvalidMedia) ?? 0;
+  const resolved = finiteMetric(summary.catalogResolved, campaign?.catalogResolved) ?? (compliant == null ? null : compliant + terminalInvalidMedia);
   const planned = finiteMetric(summary.total, summary.totalJobs, planning.frameReadyPlanned, frameReady);
   const catalogPercent = percentage(compliant, known);
+  const resolvedPercent = percentage(resolved, known);
   const plannedPercent = percentage(planned, known);
   const campaignPercent = percentage(submitted, planned);
 
@@ -729,7 +732,8 @@ function OpticalCampaignStatus({ campaign = null, dashboardSummary = {}, error =
       </header>
 
       <div className="human-agent-campaign-progress">
-        <CampaignProgress label="Full catalog palette-complete" value={compliant} total={known} percent={catalogPercent} unavailableLabel="Compliant optical total unavailable" />
+        <CampaignProgress label="Full catalog resolved" value={resolved} total={known} percent={resolvedPercent} unavailableLabel="Resolved catalog total unavailable" />
+        <CampaignProgress label="Direct optical + palette complete" value={compliant} total={known} percent={catalogPercent} unavailableLabel="Compliant optical total unavailable" />
         <CampaignProgress label="Campaign planned" value={planned} total={known} percent={plannedPercent} unavailableLabel="Planning coverage unavailable" />
         <CampaignProgress label="Planned work submitted" value={submitted} total={planned} percent={campaignPercent} unavailableLabel="Campaign completion unavailable" />
       </div>
@@ -743,6 +747,7 @@ function OpticalCampaignStatus({ campaign = null, dashboardSummary = {}, error =
         <span data-state={expired ? "failed" : "idle"}><strong>{expired}</strong> expired</span>
         <span><strong>{legacyPaletteRepairs ?? "—"}</strong> legacy palette repairs</span>
         <span><strong>{missingFrameDeferrals ?? "—"}</strong> missing-frame deferrals</span>
+        <span data-state={terminalInvalidMedia ? "failed" : "idle"}><strong>{terminalInvalidMedia}</strong> invalid-media terminals</span>
         <span><strong>{telemetry}</strong> telemetry receipts</span>
         <span><strong>{capacity ?? "—"}</strong> worker capacity</span>
       </div>

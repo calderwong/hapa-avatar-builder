@@ -203,6 +203,7 @@ export function createHumanVideoEnricherDashboard({ mediaDashboard = {}, enrichm
       agentReviewed: agentReviewed.length,
       pendingHumanValidation: agentReviewed.filter((video) => video.agentReview.status === "pending-human").length,
       humanValidatedAgentReviews: agentReviewed.filter((video) => ["accepted", "accepted-edited", "rejected"].includes(video.agentReview.status)).length,
+      terminalInvalidMedia: agentReviewed.filter((video) => video.agentReview.status === "blocked" && String(video.agentReview.blockedReason || "").startsWith("terminal-invalid-media:")).length,
       remainingOpticalReviews: Math.max(0, videos.length - agentReviewed.length),
       referenceReviewed: referenceReviewed.length,
       remainingReferenceReviews: Math.max(0, agentReviewed.length - referenceReviewed.length),

@@ -4383,6 +4383,11 @@ async function route(req, res) {
             error.statusCode = 409;
             throw error;
           }
+        } else if (String(submission.blockedReason || "").startsWith("terminal-invalid-media:") && !(await isTerminalInvalidMediaVideo(video))) {
+          const error = new Error("A terminal invalid-media receipt requires a registered source with no frames, no decodable dimensions or duration, and an undersized placeholder payload.");
+          error.code = "agent_review_terminal_invalid_media_unverified";
+          error.statusCode = 409;
+          throw error;
         }
         const reviewResult = await humanVideoOpticalCampaignStore.withVideoAvailable(video.humanVideoKey, () => humanVideoAgentReviewStore.submit({
             ...submission,
@@ -7463,13 +7468,45 @@ function summarizeHumanVideoOpticalReviewCoverage(reviewsInput = [], knownVideos
   const reviews = Array.isArray(reviewsInput) ? reviewsInput : [];
   const opticalComplete = reviews.filter(isPerFramePaletteCompliantOpticalReview).length;
   const blocked = reviews.filter((review) => review?.status === "blocked").length;
+  const terminalInvalidMedia = reviews.filter(isTerminalInvalidMediaReview).length;
   return {
     knownVideos: Math.max(0, Math.trunc(Number(knownVideos) || 0)),
     totalReviews: reviews.length,
     opticalComplete,
     legacyIncomplete: Math.max(0, reviews.length - opticalComplete - blocked),
     blocked,
+    terminalInvalidMedia,
   };
+}
+
+function isTerminalInvalidMediaReview(review = null) {
+  return Boolean(
+    review?.status === "blocked"
+    && !review.humanDecision
+    && review.reviewer?.opticalInspectionConfirmed !== true
+    && (review.evidence?.frames || []).length === 0
+    && String(review.blockedReason || "").startsWith("terminal-invalid-media:")
+  );
+}
+
+async function isTerminalInvalidMediaVideo(video = null) {
+  const frames = Array.isArray(video?.sourceMetadata?.registeredFrames) ? video.sourceMetadata.registeredFrames : [];
+  const sizeBytes = Number(video?.sizeBytes);
+  const sourcePath = String(video?.sourceMetadata?.storage?.path || video?.sourcePath || "").trim();
+  if (!sourcePath) return false;
+  const sourceStat = await stat(path.resolve(sourcePath)).catch(() => null);
+  return Boolean(
+    video
+    && frames.length === 0
+    && Number.isFinite(sizeBytes)
+    && sizeBytes >= 0
+    && sizeBytes < 1_024
+    && sourceStat?.isFile()
+    && sourceStat.size === sizeBytes
+    && !(Number(video.duration) > 0)
+    && !(Number(video.width) > 0)
+    && !(Number(video.height) > 0)
+  );
 }
 
 function isPerFramePaletteCompliantOpticalReview(review = {}) {

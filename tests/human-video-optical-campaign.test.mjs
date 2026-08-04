@@ -179,6 +179,17 @@ test("campaign summaries distinguish bound receipts from legacy captured telemet
   assert.equal(legacySummary.legacyUnboundTelemetryCaptured, 1);
 });
 
+test("catalog completion separates direct optical reviews from verified invalid-media terminals", () => {
+  const summary = summarizeHumanVideoOpticalCampaign(createHumanVideoOpticalCampaignStore({ planning: { knownVideos: 10 } }), {
+    reviewCoverage: { knownVideos: 10, totalReviews: 4, opticalComplete: 3, terminalInvalidMedia: 1, blocked: 1 },
+  });
+  assert.equal(summary.summary.opticalComplete, 3);
+  assert.equal(summary.summary.terminalInvalidMedia, 1);
+  assert.equal(summary.summary.catalogResolved, 4);
+  assert.equal(summary.summary.remainingOpticalReviews, 6);
+  assert.equal(summary.reviewCoverage.directVisionRemaining, 6);
+});
+
 test("claim configuration and telemetry are immutable while completion owns the lease", () => {
   let store = createHumanVideoOpticalCampaignStore({ configuration: { model: "gpt-5.6-terra", reasoningEffort: "medium" } });
   ({ store } = enqueueHumanVideoOpticalCampaignJob(store, jobInput, { now: "2026-08-03T00:00:00.000Z" }));
