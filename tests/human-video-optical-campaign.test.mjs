@@ -13,6 +13,8 @@ import {
   failHumanVideoOpticalCampaignJob,
   frameManifestDigest,
   frameManifestsEqual,
+  projectHumanVideoOpticalFrameProgress,
+  recordHumanVideoOpticalCampaignProgress,
   recordHumanVideoOpticalCampaignTelemetry,
   recoverStaleHumanVideoOpticalCampaignLeases,
   summarizeHumanVideoOpticalCampaign,
@@ -256,4 +258,94 @@ test("atomic campaign store emits append-only scheduling receipts", async () => 
   assert.equal(retried.job.schedulerTelemetry.status, "");
   const events = (await readFile(service.eventPath, "utf8")).trim().split("\n").map(JSON.parse);
   assert.deepEqual(events.map((event) => event.action), ["human-video-optical-campaign.enqueued", "human-video-optical-campaign.claimed", "human-video-optical-campaign.failed", "human-video-optical-campaign.claimed"]);
+});
+
+test("lease-bound First/Mid/Last progress is monotonic, manifest-bound, and visible without exposing the lease secret", () => {
+  let store = createHumanVideoOpticalCampaignStore({ configuration: { leaseMs: 600_000 } });
+  ({ store } = enqueueHumanVideoOpticalCampaignJob(store, jobInput, { now: "2026-08-03T00:00:00.000Z" }));
+  const claimed = claimHumanVideoOpticalCampaignJob(store, { workerId: "terra-visible" }, { now: "2026-08-03T00:00:00.000Z", leaseId: "lease-secret", leaseMs: 600_000 });
+  const leaseInput = { jobId: claimed.job.id, attempt: 1, workerId: "terra-visible", leaseId: "lease-secret" };
+  const viewing = recordHumanVideoOpticalCampaignProgress(claimed.store, {
+    ...leaseInput,
+    phase: "inspecting",
+    currentFrameOrdinal: 1,
+    completedFrameOrdinals: [],
+  }, { now: "2026-08-03T00:00:10.000Z" });
+  const advanced = recordHumanVideoOpticalCampaignProgress(viewing.store, {
+    ...leaseInput,
+    phase: "inspecting",
+    currentFrameOrdinal: 2,
+    completedFrameOrdinals: [1],
+  }, { now: "2026-08-03T00:00:20.000Z" });
+
+  const summary = summarizeHumanVideoOpticalCampaign(advanced.store, {
+    now: "2026-08-03T00:00:30.000Z",
+    reviewCoverage: { knownVideos: 10_884, totalReviews: 19, opticalComplete: 3, legacyIncomplete: 16 },
+  });
+  assert.equal(summary.summary.compliantOpticalReviews, 3);
+  assert.equal(summary.summary.legacyPaletteRepairs, 16);
+  assert.equal(summary.summary.remainingOpticalReviews, 10_881);
+  assert.equal(summary.planning.remainingOpticalReviews, 10_881);
+  assert.equal(summary.planning.plannerSnapshotRemainingOpticalReviews, 0);
+  assert.equal(summary.workers.length, 1);
+  assert.equal(summary.workers[0].lifecycleState, "inspecting-frames");
+  assert.equal(summary.workers[0].leaseHealth, "fresh");
+  assert.equal(summary.workers[0].frameProgress.percent, 33);
+  assert.deepEqual(summary.workers[0].frameProgress.frames.map((frame) => [frame.role, frame.status]), [["first", "inspected"], ["mid", "viewing"], ["last", "pending"]]);
+  assert.equal(JSON.stringify(summary.workers).includes("lease-secret"), false);
+
+  assert.throws(() => recordHumanVideoOpticalCampaignProgress(advanced.store, { ...leaseInput, phase: "inspecting", completedFrameOrdinals: [] }, { now: "2026-08-03T00:00:21.000Z" }), (error) => error.code === "optical_campaign_progress_frames_regressed");
+  assert.throws(() => recordHumanVideoOpticalCampaignProgress(advanced.store, { ...leaseInput, phase: "inspecting", currentFrameOrdinal: 99, completedFrameOrdinals: [1] }, { now: "2026-08-03T00:00:21.000Z" }), (error) => error.code === "optical_campaign_progress_current_frame_not_registered");
+  assert.throws(() => recordHumanVideoOpticalCampaignProgress(advanced.store, { ...leaseInput, leaseId: "wrong", phase: "drafting", completedFrameOrdinals: [1] }, { now: "2026-08-03T00:00:21.000Z" }), (error) => error.code === "optical_campaign_lease_mismatch");
+
+  const malformedFrames = structuredClone(advanced.store);
+  malformedFrames.jobs[0].workerProgress.completedFrameOrdinals = "1";
+  assert.throws(() => summarizeHumanVideoOpticalCampaign(malformedFrames), (error) => error.code === "optical_campaign_store_entry_invalid" && error.details?.cause === "optical_campaign_progress_frames_invalid");
+  const detachedAttempt = structuredClone(advanced.store);
+  detachedAttempt.jobs[0].workerProgress.attempt = 0;
+  assert.throws(() => summarizeHumanVideoOpticalCampaign(detachedAttempt), (error) => error.code === "optical_campaign_store_entry_invalid" && error.details?.cause === "optical_campaign_progress_attempt_mismatch");
+});
+
+test("captured scheduler telemetry truthfully confirms every registered frame and recent activity comes from the append-only ledger", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "hapa-optical-campaign-progress-"));
+  let now = "2026-08-03T00:00:00.000Z";
+  const service = openHumanVideoOpticalCampaignStore({ filePath: path.join(root, "campaign.json"), eventPath: path.join(root, "campaign.ndjson"), clock: () => now });
+  await service.enqueue(jobInput);
+  const claimed = await service.claim({ workerId: "terra-receipt" }, { leaseId: "lease-receipt", leaseMs: 600_000 });
+  const leaseInput = { jobId: claimed.job.id, attempt: 1, workerId: "terra-receipt", leaseId: "lease-receipt" };
+  now = "2026-08-03T00:00:01.000Z";
+  await service.progress({ ...leaseInput, phase: "inspecting", currentFrameOrdinal: 2, completedFrameOrdinals: [1] });
+  now = "2026-08-03T00:00:02.000Z";
+  const telemetry = boundTelemetry(claimed.job, {
+    status: "captured", source: "codex-rollout", sessionId: "session-progress", model: "gpt-5.6-terra", reasoningEffort: "medium", agentPath: "/root/terra-receipt",
+    startedAt: "2026-08-03T00:00:01.000Z", completedAt: "2026-08-03T00:00:02.000Z", wallClockMs: 1_000, directImageViewCalls: 3,
+    inputTokens: 10, cachedInputTokens: 4, outputTokens: 2, reasoningTokens: 1, totalTokens: 12,
+  });
+  const recorded = await service.telemetry({ ...leaseInput, schedulerTelemetry: telemetry });
+  assert.deepEqual(recorded.job.workerProgress.completedFrameOrdinals, [1, 2, 3]);
+  assert.deepEqual(projectHumanVideoOpticalFrameProgress(recorded.job).frames.map((frame) => frame.status), ["receipt-confirmed", "receipt-confirmed", "receipt-confirmed"]);
+
+  const recentEvents = await service.recentEvents({ limit: 8 });
+  assert.deepEqual(recentEvents.map((event) => event.action), [
+    "human-video-optical-campaign.enqueued",
+    "human-video-optical-campaign.claimed",
+    "human-video-optical-campaign.progress-recorded",
+    "human-video-optical-campaign.telemetry-recorded",
+  ]);
+  const summary = summarizeHumanVideoOpticalCampaign(recorded.store, { now, recentEvents });
+  assert.equal(summary.recentActivity[0].lifecycleState, "telemetry-recorded");
+  assert.equal(summary.recentActivity[0].frameProgress.completed, 3);
+  assert.equal(summary.recentActivity.some((event) => event.lifecycleState === "inspecting"), true);
+
+  const prepared = beginHumanVideoOpticalCampaignCompletion(recorded.store, { ...leaseInput, resultDigest }, { now: "2026-08-03T00:00:03.000Z" });
+  const submitted = submitHumanVideoOpticalCampaignJob(prepared.store, {
+    ...leaseInput,
+    completionToken: prepared.job.completion.token,
+    resultDigest,
+    reviewId: "review:one",
+    schedulerTelemetry: prepared.job.schedulerTelemetry,
+  }, { now: "2026-08-03T00:00:04.000Z" });
+  const submittedSummary = summarizeHumanVideoOpticalCampaign(submitted.store, { now, recentEvents });
+  assert.equal(submittedSummary.summary.submitted, 1);
+  assert.equal(submittedSummary.recentActivity.some((event) => event.lifecycleState === "inspecting"), true);
 });

@@ -30,6 +30,9 @@ const EMPTY_REFERENCE = { type: "echo-song", id: "", label: "", uri: "", notes: 
 export default function HumanEnricherView({ apiBase = "", onNotify = () => {} }) {
   const [dashboard, setDashboard] = useState(null);
   const [opticalCampaign, setOpticalCampaign] = useState(null);
+  const [opticalCampaignError, setOpticalCampaignError] = useState("");
+  const [opticalCampaignLoading, setOpticalCampaignLoading] = useState(true);
+  const [opticalCampaignRefreshedAt, setOpticalCampaignRefreshedAt] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [query, setQuery] = useState("");
@@ -50,15 +53,9 @@ export default function HumanEnricherView({ apiBase = "", onNotify = () => {} })
     try {
       const params = new URLSearchParams({ offset: String(offset), limit: "120", quality: qualityFilter, review: reviewFilter, sort });
       if (query.trim()) params.set("q", query.trim());
-      const [response, campaignResult] = await Promise.all([
-        fetch(`${apiBase}/api/human-enricher/videos?${params}`, { headers: { accept: "application/json" } }),
-        fetch(`${apiBase}/api/human-enricher/optical-campaign`, { headers: { accept: "application/json" } })
-          .then(async (campaignResponse) => campaignResponse.ok ? await campaignResponse.json() : null)
-          .catch(() => null),
-      ]);
+      const response = await fetch(`${apiBase}/api/human-enricher/videos?${params}`, { headers: { accept: "application/json" } });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.message || payload.error || `Human Enricher failed to load (${response.status})`);
-      setOpticalCampaign(campaignResult);
       const nextPayload = append && dashboard
         ? { ...payload, videos: [...dashboard.videos, ...(payload.videos || [])] }
         : payload;
@@ -76,6 +73,38 @@ export default function HumanEnricherView({ apiBase = "", onNotify = () => {} })
     const timer = globalThis.setTimeout(() => load({ preserveSelection: false }), query.trim() ? 240 : 0);
     return () => globalThis.clearTimeout(timer);
   }, [apiBase, query, qualityFilter, reviewFilter, sort]);
+
+  useEffect(() => {
+    let cancelled = false;
+    let inFlight = false;
+
+    async function refreshOpticalCampaign() {
+      if (inFlight) return;
+      inFlight = true;
+      try {
+        const response = await fetch(`${apiBase}/api/human-enricher/optical-campaign`, { headers: { accept: "application/json" } });
+        const payload = await response.json();
+        if (!response.ok) throw new Error(payload.message || payload.error || `Agent telemetry failed to load (${response.status})`);
+        if (!cancelled) {
+          setOpticalCampaign(payload);
+          setOpticalCampaignError("");
+          setOpticalCampaignRefreshedAt(new Date());
+        }
+      } catch (campaignError) {
+        if (!cancelled) setOpticalCampaignError(campaignError instanceof Error ? campaignError.message : String(campaignError));
+      } finally {
+        inFlight = false;
+        if (!cancelled) setOpticalCampaignLoading(false);
+      }
+    }
+
+    refreshOpticalCampaign();
+    const timer = globalThis.setInterval(refreshOpticalCampaign, 4_000);
+    return () => {
+      cancelled = true;
+      globalThis.clearInterval(timer);
+    };
+  }, [apiBase]);
 
   const filteredVideos = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
@@ -303,7 +332,13 @@ export default function HumanEnricherView({ apiBase = "", onNotify = () => {} })
         <Metric label="Calibration pairs" value={dashboard?.summary?.calibrationPairs || 0} icon={<BadgeCheck size={16} />} />
       </div>
 
-      {opticalCampaign && <OpticalCampaignStatus campaign={opticalCampaign} />}
+      <OpticalCampaignStatus
+        campaign={opticalCampaign}
+        dashboardSummary={dashboard?.summary}
+        error={opticalCampaignError}
+        loading={opticalCampaignLoading}
+        refreshedAt={opticalCampaignRefreshedAt}
+      />
 
       {dashboard?.qualityCalibration?.sampleSize > 0 && (
         <aside className="human-calibration-strip hapa-panel" aria-label="Agent quality calibration">
@@ -639,31 +674,266 @@ function formatDuration(value) {
 }
 function formatDimensions(video) { return video.width && video.height ? `${video.width} × ${video.height}` : "dimensions unknown"; }
 function Metric({ label, value, icon }) { return <div className="human-enricher-metric hapa-panel"><span>{icon}{label}</span><strong>{value}</strong></div>; }
-function OpticalCampaignStatus({ campaign = {} }) {
-  const summary = campaign.summary || campaign.progress || campaign;
-  const workers = campaign.workers || campaign.workerPool || {};
-  const model = campaign.model || campaign.workerModel || workers.model || "Vision workers";
-  const effort = campaign.reasoningEffort || campaign.effort || workers.reasoningEffort || workers.effort || "";
-  const queued = Number(summary.queued ?? summary.queueDepth ?? 0);
-  const active = Number(summary.active ?? summary.activeWorkers ?? workers.active ?? 0);
-  const capacity = Number(summary.capacity ?? summary.maxWorkers ?? workers.capacity ?? 3) || 3;
-  const submitted = Number(summary.submitted ?? summary.completed ?? 0);
-  const failed = Number(summary.failed ?? 0);
-  const completing = Number(summary.completing ?? 0);
-  const expired = Number(summary.expiredLeases ?? 0);
-  const frameReady = Number(summary.frameReadyPlanned ?? summary.frameReady ?? summary.planned ?? 0);
-  const deferred = Number(summary.deferredMissingFrames ?? summary.deferred ?? 0);
-  const telemetry = Number(summary.tokenTelemetryCaptured ?? summary.tokenTelemetryCapturedCount ?? summary.telemetryCaptured ?? 0);
-  const boundTelemetry = Number(summary.tokenTelemetryBound ?? 0);
-  const legacyTelemetry = Number(summary.legacyUnboundTelemetryCaptured ?? 0);
+function OpticalCampaignStatus({ campaign = null, dashboardSummary = {}, error = "", loading = false, refreshedAt = null }) {
+  const summary = campaign?.summary || campaign?.progress || {};
+  const planning = campaign?.planning || {};
+  const workers = Array.isArray(campaign?.workers) ? campaign.workers.map(normalizeCampaignWorker) : [];
+  const model = campaign?.model || campaign?.workerModel || "Model unavailable";
+  const effort = campaign?.reasoningEffort || campaign?.effort || "effort unavailable";
+  const queued = finiteMetric(summary.queued, summary.queueDepth) ?? 0;
+  const active = finiteMetric(summary.active, summary.activeWorkers) ?? 0;
+  const capacity = finiteMetric(summary.capacity, summary.maxWorkers);
+  const submitted = finiteMetric(summary.submitted, summary.completed) ?? 0;
+  const failed = finiteMetric(summary.failed) ?? 0;
+  const completing = finiteMetric(summary.completing) ?? 0;
+  const expired = finiteMetric(summary.expiredLeases) ?? 0;
+  const frameReady = finiteMetric(summary.frameReadyPlanned, summary.frameReady, summary.planned, planning.frameReadyPlanned);
+  const missingFrameDeferrals = finiteMetric(summary.deferredMissingFrames, summary.deferred, planning.deferredMissingFrames);
+  const legacyPaletteRepairs = finiteMetric(
+    summary.legacyPaletteRepairs,
+    summary.legacyRepairsRequired,
+    summary.legacyProposalsNeedingPalette,
+    planning.legacyPaletteRepairs,
+    planning.legacyRepairsRequired,
+    dashboardSummary?.legacyPaletteRepairs,
+  );
+  const telemetry = finiteMetric(summary.tokenTelemetryCaptured, summary.tokenTelemetryCapturedCount, summary.telemetryCaptured) ?? 0;
+  const known = finiteMetric(dashboardSummary?.videos, planning.knownVideos);
+  const compliant = finiteMetric(
+    summary.compliantOpticalReviews,
+    summary.paletteComplete,
+    campaign?.compliantOpticalReviews,
+    campaign?.paletteComplete,
+    planning.compliantOpticalReviews,
+    planning.paletteComplete,
+    dashboardSummary?.compliantOpticalReviews,
+    dashboardSummary?.paletteComplete,
+  );
+  const planned = finiteMetric(summary.total, summary.totalJobs, planning.frameReadyPlanned, frameReady);
+  const catalogPercent = percentage(compliant, known);
+  const plannedPercent = percentage(planned, known);
+  const campaignPercent = percentage(submitted, planned);
+
   return (
-    <aside className="human-calibration-strip hapa-panel" aria-label="Optical review campaign status">
-      <strong>Optical review campaign</strong>
-      <span>{model}{effort ? ` · ${effort}` : ""}</span>
-      <span>{queued} queued · {active} active of {capacity} · {completing} finalizing · {submitted} submitted · {failed} failed{expired ? ` · ${expired} expired` : ""}</span>
-      <span>{frameReady} frame-ready planned · {deferred} deferred for missing frames · {telemetry} token telemetry receipts{telemetry ? ` (${boundTelemetry} bound${legacyTelemetry ? ` · ${legacyTelemetry} legacy-unbound` : ""})` : ""}</span>
+    <aside className="human-agent-telemetry hapa-panel" aria-label="Optical agent work telemetry">
+      <header className="human-agent-telemetry-head">
+        <div>
+          <p className="eyebrow"><Bot size={14} /> AGENT WORK TELEMETRY</p>
+          <h3>First · Mid · Last optical + palette campaign</h3>
+          <p>{campaign?.campaignId || "Campaign identity unavailable"} · {model} · {effort}</p>
+        </div>
+        <span className="human-agent-telemetry-live" data-state={error ? "error" : loading && !campaign ? "loading" : active > 0 ? "active" : "idle"} aria-live="polite" aria-atomic="true">
+          {loading && !campaign ? <Loader2 size={13} className="spin" /> : <i aria-hidden="true" />}
+          {error ? "Telemetry unavailable" : active > 0 ? `${active} agent${active === 1 ? "" : "s"} active` : "No active agents"}
+        </span>
+      </header>
+
+      <div className="human-agent-campaign-progress">
+        <CampaignProgress label="Full catalog palette-complete" value={compliant} total={known} percent={catalogPercent} unavailableLabel="Compliant optical total unavailable" />
+        <CampaignProgress label="Campaign planned" value={planned} total={known} percent={plannedPercent} unavailableLabel="Planning coverage unavailable" />
+        <CampaignProgress label="Planned work submitted" value={submitted} total={planned} percent={campaignPercent} unavailableLabel="Campaign completion unavailable" />
+      </div>
+
+      <div className="human-agent-campaign-counts" aria-label="Campaign work states">
+        <span data-state="queued"><strong>{queued}</strong> queued</span>
+        <span data-state="inspecting"><strong>{active}</strong> leased</span>
+        <span data-state="finalizing"><strong>{completing}</strong> finalizing</span>
+        <span data-state="submitted"><strong>{submitted}</strong> submitted</span>
+        <span data-state="failed"><strong>{failed}</strong> failed</span>
+        <span data-state={expired ? "failed" : "idle"}><strong>{expired}</strong> expired</span>
+        <span><strong>{legacyPaletteRepairs ?? "—"}</strong> legacy palette repairs</span>
+        <span><strong>{missingFrameDeferrals ?? "—"}</strong> missing-frame deferrals</span>
+        <span><strong>{telemetry}</strong> telemetry receipts</span>
+        <span><strong>{capacity ?? "—"}</strong> worker capacity</span>
+      </div>
+
+      {error && <p className="human-agent-telemetry-error" role="status">{error}. The last successfully received campaign state remains visible where available.</p>}
+
+      <section className="human-agent-worker-section" aria-label="Active and recent optical agents">
+        <div className="human-agent-worker-title">
+          <div><strong>Active & recent agents</strong><span>Named scheduler work receipts</span></div>
+          <small>{refreshedAt ? `Updated ${formatRelativeTime(refreshedAt)}` : "Update time unavailable"}</small>
+        </div>
+        {workers.length > 0 ? (
+          <div className="human-agent-worker-grid">
+            {workers.map((worker, index) => <CampaignWorker key={worker.key || `${worker.name}:${index}`} worker={worker} />)}
+          </div>
+        ) : (
+          <div className="human-agent-worker-empty">
+            <Bot size={18} />
+            <span>{campaign ? "No per-agent work rows were reported by this campaign response." : "Waiting for the campaign telemetry response."}</span>
+          </div>
+        )}
+      </section>
     </aside>
   );
+}
+
+function CampaignProgress({ label, value, total, percent, unavailableLabel }) {
+  const available = value != null && total != null && total > 0 && percent != null;
+  return (
+    <div>
+      <span><strong>{label}</strong><small>{available ? `${value.toLocaleString()} / ${total.toLocaleString()} · ${percent}%` : unavailableLabel}</small></span>
+      <progress max="100" value={available ? percent : 0} aria-label={label} aria-valuetext={available ? `${value} of ${total}, ${percent} percent` : unavailableLabel} />
+    </div>
+  );
+}
+
+function CampaignWorker({ worker }) {
+  const knownProgress = worker.progressPercent != null;
+  return (
+    <article className="human-agent-worker-card" data-state={worker.state}>
+      <header>
+        <span className="human-agent-worker-identity"><Bot size={14} /><strong>{worker.name}</strong></span>
+        <i>{worker.stateLabel}</i>
+      </header>
+      <div className="human-agent-worker-assignment">
+        <span>Current / recent assignment</span>
+        <strong title={worker.assignment}>{worker.assignment}</strong>
+        <small>{worker.assignmentId}</small>
+      </div>
+      <div className="human-agent-frame-progress" aria-label={`${worker.name} frame inspection progress`}>
+        {worker.frames.map((frame) => (
+          <span key={frame.role} data-state={frame.state} title={`${frame.label}: ${frame.labelState}`}>
+            <i>{frame.label.slice(0, 1)}</i><strong>{frame.label}</strong><small>{frame.labelState}</small>
+          </span>
+        ))}
+      </div>
+      <div className="human-agent-worker-progress">
+        <span>{knownProgress ? `${worker.progressLabel} · ${worker.progressPercent}%` : worker.progressLabel}</span>
+        {knownProgress ? <progress max="100" value={worker.progressPercent} aria-label={`${worker.name} progress`} /> : <i aria-hidden="true" />}
+      </div>
+      <footer>
+        <span>{worker.attemptLabel}</span>
+        <span data-freshness={worker.leaseState}>{worker.leaseLabel}</span>
+        <span>{worker.pathLabel}</span>
+        <span>{worker.telemetryLabel}</span>
+        <span>{worker.updatedLabel}</span>
+      </footer>
+    </article>
+  );
+}
+
+function normalizeCampaignWorker(input = {}, index = 0) {
+  const rawState = String(input.lifecycleState || input.workState || input.state || input.phase || input.status || "").trim().toLowerCase();
+  const state = normalizeWorkerState(rawState);
+  const assignment = input.assignment && typeof input.assignment === "object" ? input.assignment : {};
+  const lease = input.lease && typeof input.lease === "object" ? input.lease : {};
+  const name = String(input.agentName || input.agentId || input.workerId || input.name || input.agentPath || "").trim() || "Agent identity unavailable";
+  const videoName = String(input.videoName || assignment.videoName || assignment.name || assignment.label || "").trim();
+  const videoId = String(input.videoId || input.videoKey || assignment.videoId || assignment.videoKey || assignment.id || "").trim();
+  const frames = ["first", "mid", "last"].map((role) => normalizeWorkerFrame(input, role, state));
+  const explicitPercent = finiteMetric(input.progressPercent, input.frameProgress?.percent, input.progress?.percent, input.progress?.percentage);
+  const explicitCompleted = finiteMetric(input.completedFrames, input.frameProgress?.completed, input.progress?.completedFrames, input.progress?.completed);
+  const reportedFrames = frames.filter((frame) => frame.state === "inspected" || frame.state === "complete").length;
+  const allFramesReported = frames.every((frame) => frame.state !== "unreported" && frame.state !== "unavailable");
+  const progressPercent = explicitPercent != null
+    ? Math.max(0, Math.min(100, Math.round(explicitPercent)))
+    : allFramesReported ? Math.round((reportedFrames / frames.length) * 100) : null;
+  const completedFrames = explicitCompleted ?? (allFramesReported ? reportedFrames : null);
+  const attempt = finiteMetric(input.attempt, input.progress?.attempt);
+  const expiresAt = input.leaseExpiresAt || input.expiresAt || lease.expiresAt || null;
+  const updatedAt = input.updatedAt || input.lastUpdatedAt || input.observedAt || null;
+  const leaseFreshness = formatLeaseFreshness(expiresAt, state, input.leaseHealth || input.leaseFreshness, input.leaseRemainingMs);
+  const telemetryStatus = String(input.telemetry?.status || input.schedulerTelemetry?.status || "").trim();
+  return {
+    key: String(input.id || input.workerId || input.agentId || input.agentPath || `${name}:${index}`),
+    name,
+    state,
+    stateLabel: workerStateLabel(state, rawState),
+    assignment: videoName || "Assignment unavailable",
+    assignmentId: videoId || "Video identity unavailable",
+    frames,
+    progressPercent,
+    progressLabel: completedFrames != null ? `${completedFrames}/${frames.length} frames reported` : "Progress unavailable",
+    attemptLabel: attempt != null ? (attempt === 0 ? "Not attempted" : `Attempt ${attempt}`) : "Attempt unavailable",
+    leaseLabel: leaseFreshness.label,
+    leaseState: leaseFreshness.state,
+    pathLabel: input.agentPath ? `Path ${input.agentPath}` : "Agent path unavailable",
+    telemetryLabel: telemetryStatus ? `Receipt ${telemetryStatus}` : "Receipt status unavailable",
+    updatedLabel: updatedAt && Number.isFinite(Date.parse(updatedAt)) ? `Updated ${formatRelativeTime(new Date(updatedAt))}` : "Update time unavailable",
+  };
+}
+
+function normalizeWorkerFrame(worker, role, workerState) {
+  const label = role === "mid" ? "Mid" : role[0].toUpperCase() + role.slice(1);
+  const frameProgress = worker.frameProgress;
+  let raw = frameProgress && !Array.isArray(frameProgress) ? frameProgress[role] : null;
+  if (Array.isArray(frameProgress)) raw = frameProgress.find((frame) => String(frame?.role || "").toLowerCase() === role);
+  if (raw == null && Array.isArray(frameProgress?.frames)) raw = frameProgress.frames.find((frame) => String(frame?.role || "").toLowerCase() === role);
+  if (raw == null && Array.isArray(worker.frames)) raw = worker.frames.find((frame) => String(frame?.role || "").toLowerCase() === role);
+  const rawState = typeof raw === "string" ? raw : raw?.state || raw?.status || raw?.inspectionStatus || (raw?.inspected === true ? "inspected" : "");
+  const normalized = String(rawState || "").trim().toLowerCase();
+  const inspected = ["inspected", "viewed", "complete", "completed", "done", "submitted", "receipt-confirmed"].includes(normalized);
+  const queued = ["queued", "pending", "waiting", "not-started"].includes(normalized);
+  const inspecting = ["inspecting", "in-progress", "current", "active", "viewing"].includes(normalized);
+  const failed = ["failed", "error"].includes(normalized);
+  const unavailable = ["unavailable", "missing"].includes(normalized);
+  const state = inspected ? "inspected" : queued ? "queued" : inspecting ? "inspecting" : failed ? "failed" : unavailable ? "unavailable" : normalized ? "unreported" : workerState === "queued" ? "queued" : "unreported";
+  return { role, label, state, labelState: state === "inspected" ? "inspected" : state === "inspecting" ? "in progress" : state === "queued" ? "waiting" : state === "failed" ? "failed" : state === "unavailable" ? "unavailable" : "unreported" };
+}
+
+function normalizeWorkerState(value) {
+  if (["claimed", "inspecting-frames"].includes(value)) return "inspecting";
+  if (["drafting", "submitting", "completing"].includes(value)) return "finalizing";
+  if (value === "completed") return "submitted";
+  if (["retryable-failed", "lease-expired"].includes(value)) return "failed";
+  if (value === "requeued") return "queued";
+  if (["queued", "claiming", "inspecting", "finalizing", "submitted", "failed", "idle"].includes(value)) return value;
+  return "unknown";
+}
+
+function workerStateLabel(state, rawState) {
+  if (state === "unknown") return rawState ? `Unknown · ${rawState}` : "State unavailable";
+  if (rawState === "retryable-failed") return "Failed · retryable";
+  if (rawState === "lease-expired") return "Lease expired";
+  if (rawState === "requeued") return "Queued · retry";
+  return state[0].toUpperCase() + state.slice(1);
+}
+
+function formatLeaseFreshness(expiresAt, state, supplied, suppliedRemainingMs) {
+  if (supplied && typeof supplied === "string") {
+    const suppliedState = String(supplied).trim().toLowerCase();
+    const remaining = finiteMetric(suppliedRemainingMs);
+    const suffix = remaining != null && suppliedState !== "expired" ? ` · ${formatRelativeDuration(remaining)} left` : "";
+    return { state: suppliedState || "reported", label: `Lease ${suppliedState || "reported"}${suffix}` };
+  }
+  if (expiresAt && Number.isFinite(Date.parse(expiresAt))) {
+    const remainingMs = Date.parse(expiresAt) - Date.now();
+    if (remainingMs <= 0) return { state: "expired", label: `Lease expired ${formatRelativeDuration(Math.abs(remainingMs))} ago` };
+    return { state: "fresh", label: `Lease fresh · ${formatRelativeDuration(remainingMs)} left` };
+  }
+  if (["queued", "submitted", "failed", "idle"].includes(state)) return { state: "inactive", label: "No active lease" };
+  return { state: "unknown", label: "Lease freshness unavailable" };
+}
+
+function finiteMetric(...values) {
+  for (const value of values) {
+    if (value == null || value === "") continue;
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) return Math.max(0, parsed);
+  }
+  return null;
+}
+
+function percentage(value, total) {
+  if (value == null || total == null || total <= 0) return null;
+  return Math.max(0, Math.min(100, Math.round((value / total) * 1_000) / 10));
+}
+
+function formatRelativeTime(value) {
+  const timestamp = value instanceof Date ? value.getTime() : Date.parse(value);
+  if (!Number.isFinite(timestamp)) return "at an unknown time";
+  const elapsed = Math.max(0, Date.now() - timestamp);
+  return elapsed < 5_000 ? "just now" : `${formatRelativeDuration(elapsed)} ago`;
+}
+
+function formatRelativeDuration(milliseconds) {
+  const seconds = Math.max(0, Math.round(milliseconds / 1_000));
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 60) return `${minutes}m`;
+  return `${Math.round(minutes / 60)}h`;
 }
 function Meta({ label, value }) { return <div><dt>{label}</dt><dd>{value || "Not recorded"}</dd></div>; }
 function VideoPoster({ video, apiBase }) {

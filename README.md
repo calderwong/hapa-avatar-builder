@@ -244,6 +244,7 @@ npm run cli -- human-enricher-agent-submit --file ./optical-review.json --agent 
 npm run cli -- human-enricher-optical-campaign-plan --limit 100 --model gpt-5.6-terra --effort medium --max-workers 3 --json
 npm run cli -- human-enricher-optical-campaign-status --json
 npm run cli -- human-enricher-optical-campaign-claim --worker /root/terra-vision-01 --lease-seconds 900 --json
+npm run cli -- human-enricher-optical-campaign-progress --job-id '<job-id>' --worker /root/terra-vision-01 --attempt 1 --lease-id '<lease-id-from-claim>' --phase inspecting --current-frame 2 --completed-frames 1 --json
 npm run cli -- human-enricher-reference-packet --profile echo-reference-cards --json
 npm run cli -- human-enricher-reference-queue --profile echo-reference-wide --status needs-reference --limit 12 --json
 npm run cli -- human-enricher-reference-submit --file ./reference-review.json --agent /root/reference-batch-a --json

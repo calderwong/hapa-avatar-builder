@@ -32,6 +32,7 @@ The receipt proves that exact frames were delivered and addressed; it cannot cry
 npm run cli -- human-enricher-optical-campaign-plan --limit 100 --model gpt-5.6-terra --effort medium --max-workers 3 --json
 npm run cli -- human-enricher-optical-campaign-status --json
 npm run cli -- human-enricher-optical-campaign-claim --worker /root/terra-vision-01 --lease-seconds 900 --json
+npm run cli -- human-enricher-optical-campaign-progress --job-id '<job-id>' --worker /root/terra-vision-01 --attempt 1 --lease-id '<lease-id-from-claim>' --phase inspecting --current-frame 2 --completed-frames 1 --json
 npm run cli -- human-enricher-optical-campaign-telemetry --job-id '<job-id>' --file ./scheduler-telemetry.json --worker /root/terra-vision-01 --attempt 1 --lease-id '<lease-id-from-claim>' --json
 npm run cli -- human-enricher-optical-campaign-complete --job-id '<job-id>' --file ./worker-result.json --worker /root/terra-vision-01 --attempt 1 --lease-id '<lease-id-from-claim>' --json
 npm run cli -- human-enricher-agent-decision --review-id '<review-id>' --action rejected --actor calder --json
@@ -99,7 +100,9 @@ Two sub-agents completed four bounded waves covering 16 videos and 48 beginning/
 
 Runtime proposal state lives in ignored `data/human-video-agent-reviews.json`; append-only receipts live in `data/human-video-agent-review-events.ndjson`. Raw screenshots and agent packets remain in ignored `work/human-enricher-optical/`.
 
-The catalog currently contains 10,884 logical video records. The original delivery contained 16 pending-human optical proposals. The first durable production wave added three independently inspected proposals, bringing the live state to 19 pending-human records and 10,865 explicitly unreviewed records; 97 of the first 100 planned frame-ready jobs remain queued. This is a resumable campaign: progress is reported as queued, active, finalizing, submitted, retryable/terminal failure, pending-human, human-decided, deferred for frame preparation, and remaining. Never convert queue coverage into a false claim that unreviewed videos were seen.
+The catalog currently contains 10,884 logical video records. The original delivery contained 16 pending-human optical proposals whose per-frame palettes are empty; they remain readable but do not satisfy the current palette-complete contract. The first durable production wave added three independently inspected, per-frame-palette-compliant proposals. Truthful full-catalog optical completion is therefore 3 of 10,884, with 16 legacy palette repairs and 10,881 remaining; 97 of the first 100 planned frame-ready jobs remain queued. This is a resumable campaign: progress is reported as queued, active, inspecting First/Mid/Last, drafting, finalizing, submitted, retryable/terminal failure, deferred for frame preparation, and remaining. Never convert proposal presence or queue coverage into a false claim that a palette-complete optical pass occurred.
+
+The campaign status projection reads worker identity, video assignment, attempt, lease freshness, per-frame progress, and recent activity from the durable campaign ledger and append-only event log. A matching live lease may append completed frame ordinals and advance its phase through the `progress` command; completed ordinals cannot regress or leave the registered manifest. The public status projection never returns the opaque lease ID.
 
 ## Measured campaign estimate
 

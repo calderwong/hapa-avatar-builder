@@ -254,6 +254,7 @@ test("UI, API, CLI, and node discovery expose optical and bounded Reference Atla
   assert.match(api, /\/api\/human-enricher\/optical-campaign/);
   assert.match(api, /frameManifestsEqual\(currentFrames, job\.frames\)/);
   assert.match(api, /humanVideoOpticalCampaignStore\.completeWithReview/);
+  assert.match(api, /humanVideoOpticalCampaignStore\.progress/);
   assert.doesNotMatch(api, /agentReview: video\.agentReview \|\| null/);
   assert.match(api, /leaseId: job\.lease\.leaseId/);
   assert.match(api, /optical_campaign_telemetry_required/);
@@ -268,6 +269,7 @@ test("UI, API, CLI, and node discovery expose optical and bounded Reference Atla
   assert.match(cli, /human-enricher-optical-campaign-plan/);
   assert.match(cli, /human-enricher-optical-campaign-claim/);
   assert.match(cli, /human-enricher-optical-campaign-telemetry/);
+  assert.match(cli, /human-enricher-optical-campaign-progress/);
   assert.match(cli, /human-enricher-optical-campaign-complete/);
   assert.match(cli, /human-enricher-reference-queue/);
   assert.match(cli, /human-enricher-reference-submit/);

@@ -228,6 +228,39 @@ async function main(cmd, opts) {
     return;
   }
 
+  if (cmd === "human-enricher-optical-campaign-progress") {
+    const jobId = String(option(opts, "job-id", "job") || "").trim();
+    const worker = String(opts.worker || "").trim();
+    const attempt = Number(option(opts, "attempt"));
+    const leaseId = String(option(opts, "lease-id", "leaseId") || "").trim();
+    const phase = String(opts.phase || "").trim();
+    const currentFrameInput = String(option(opts, "current-frame", "currentFrame") || "").trim();
+    const completedFramesInput = String(option(opts, "completed-frames", "completedFrames") || "").trim();
+    if (!jobId || !worker || !leaseId || !Number.isInteger(attempt) || attempt < 1 || (!phase && !currentFrameInput && !completedFramesInput)) {
+      throw new Error("human-enricher-optical-campaign-progress requires lease identity plus --phase claimed|inspecting|drafting|submitting and/or --current-frame/--completed-frames.");
+    }
+    const completedFrameOrdinals = completedFramesInput
+      ? completedFramesInput.split(",").map((value) => Number(value.trim()))
+      : null;
+    if (completedFrameOrdinals?.some((value) => !Number.isInteger(value) || value < 1)) throw new Error("--completed-frames must be a comma-separated list of registered positive frame ordinals.");
+    const currentFrameOrdinal = !currentFrameInput || new Set(["none", "clear", "null"]).has(currentFrameInput.toLowerCase())
+      ? null
+      : Number(currentFrameInput);
+    if (currentFrameInput && currentFrameOrdinal != null && (!Number.isInteger(currentFrameOrdinal) || currentFrameOrdinal < 1)) throw new Error("--current-frame must be one registered positive ordinal or 'none'.");
+    print(await contextGenerationApiRequest(opts, `/api/human-enricher/optical-campaign/jobs/${encodeURIComponent(jobId)}/progress`, {
+      method: "POST",
+      body: {
+        worker,
+        attempt,
+        leaseId,
+        ...(phase ? { phase } : {}),
+        ...(currentFrameInput ? { currentFrameOrdinal } : {}),
+        ...(completedFramesInput ? { completedFrameOrdinals } : {}),
+      },
+    }), { ...opts, json: true });
+    return;
+  }
+
   if (cmd === "stargate-context-card") {
     const sceneFile = option(opts, "scene-file", "scene");
     const stargateFile = option(opts, "stargate-file", "gate");
@@ -1603,6 +1636,7 @@ Commands:
   human-enricher-optical-campaign-complete --job-id <id> --file ./worker-result.json --worker <worker-id> --attempt <n> --lease-id <lease-id> [--api-url http://127.0.0.1:8787] [--json]
   human-enricher-optical-campaign-fail --job-id <id> --worker <worker-id> --attempt <n> --lease-id <lease-id> [--reason "..."] [--api-url http://127.0.0.1:8787] [--json]
   human-enricher-optical-campaign-telemetry --job-id <id> --file ./telemetry.json --worker <worker-id> --attempt <n> --lease-id <lease-id> [--api-url http://127.0.0.1:8787] [--json]
+  human-enricher-optical-campaign-progress --job-id <id> --worker <worker-id> --attempt <n> --lease-id <lease-id> --phase claimed|inspecting|drafting|submitting [--current-frame 1|none] [--completed-frames 1,2,3] [--api-url http://127.0.0.1:8787] [--json]
   card-custody-status [--card-id <id>] [--api-url http://127.0.0.1:8787] [--json]
   card-custody-ensure --file ./card.json --actor <human-or-local-operator-id> [--evidence <ref>] [--api-url http://127.0.0.1:8787] [--json]
   stargate-context-card --scene-file ./scene-card.json --stargate-file ./derived-gate.json [--actor local-operator] [--json]

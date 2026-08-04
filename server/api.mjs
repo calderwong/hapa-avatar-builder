@@ -3953,7 +3953,18 @@ async function route(req, res) {
   if (pathname === "/api/human-enricher/optical-campaign" && req.method === "GET") {
     try {
       res.setHeader("Cache-Control", "no-store");
-      sendJson(res, 200, summarizeHumanVideoOpticalCampaign(await reconcileHumanVideoOpticalCampaignCompletions()));
+      const store = await reconcileHumanVideoOpticalCampaignCompletions();
+      const [recentEvents, reviewStore] = await Promise.all([
+        humanVideoOpticalCampaignStore.recentEvents({ limit: 48 }),
+        humanVideoAgentReviewStore.read(),
+      ]);
+      sendJson(res, 200, summarizeHumanVideoOpticalCampaign(store, {
+        now: new Date().toISOString(),
+        recentEvents,
+        activityLimit: 24,
+        recentWorkerLimit: 12,
+        reviewCoverage: summarizeHumanVideoOpticalReviewCoverage(reviewStore.reviews, store.planning.knownVideos),
+      }));
     } catch (error) {
       sendJson(res, Number(error?.statusCode || 500), { ok: false, error: error?.code || "optical_campaign_load_failed", message: error?.message || String(error) });
     }
@@ -3966,6 +3977,8 @@ async function route(req, res) {
       const limit = Math.max(1, Math.min(2_000, Math.trunc(Number(body.limit || 100) || 100)));
       const dashboard = await buildHumanVideoEnricherDashboard();
       const currentStore = await humanVideoOpticalCampaignStore.read();
+      const currentReviewStore = await humanVideoAgentReviewStore.read();
+      const currentReviewCoverage = summarizeHumanVideoOpticalReviewCoverage(currentReviewStore.reviews, dashboard.summary.videos);
       const prepared = await prepareHumanVideoOpticalCampaignPlan(dashboard, currentStore, { limit });
       await humanVideoOpticalCampaignStore.plan({
         configuration: {
@@ -3978,8 +3991,9 @@ async function route(req, res) {
         },
         planning: {
           knownVideos: dashboard.summary.videos,
-          remainingOpticalReviews: dashboard.summary.remainingOpticalReviews,
-          scanned: prepared.scanned,
+          remainingOpticalReviews: currentReviewCoverage.knownVideos - currentReviewCoverage.opticalComplete,
+          scanned: currentStore.planning.scanned + prepared.scanned,
+          lastBatchScanned: prepared.scanned,
           frameReadyPlanned: currentStore.planning.frameReadyPlanned + prepared.jobs.length,
           deferredMissingFrames: currentStore.planning.deferredMissingFrames + prepared.deferredMissingFrames,
           deferredMissingFiles: currentStore.planning.deferredMissingFiles + prepared.deferredMissingFiles,
@@ -3994,8 +4008,9 @@ async function route(req, res) {
         if (result.created) enqueued.push(result.job);
       }
       const store = await humanVideoOpticalCampaignStore.read();
+      const reviewStore = await humanVideoAgentReviewStore.read();
       res.setHeader("Cache-Control", "no-store");
-      sendJson(res, 200, { ok: true, ...summarizeHumanVideoOpticalCampaign(store), plan: { requested: limit, scanned: prepared.scanned, enqueued: enqueued.length, deferredMissingFrames: prepared.deferredMissingFrames, deferredMissingFiles: prepared.deferredMissingFiles } });
+      sendJson(res, 200, { ok: true, ...summarizeHumanVideoOpticalCampaign(store, { reviewCoverage: summarizeHumanVideoOpticalReviewCoverage(reviewStore.reviews, store.planning.knownVideos) }), plan: { requested: limit, scanned: prepared.scanned, enqueued: enqueued.length, deferredMissingFrames: prepared.deferredMissingFrames, deferredMissingFiles: prepared.deferredMissingFiles } });
     } catch (error) {
       sendJson(res, Number(error?.statusCode || 400), { ok: false, error: error?.code || "optical_campaign_plan_failed", message: error?.message || String(error), details: error?.details || null });
     }
@@ -4023,7 +4038,7 @@ async function route(req, res) {
     return;
   }
 
-  const opticalCampaignJobRoute = pathname.match(/^\/api\/human-enricher\/optical-campaign\/jobs\/([^/]+)\/(complete|fail|telemetry)$/);
+  const opticalCampaignJobRoute = pathname.match(/^\/api\/human-enricher\/optical-campaign\/jobs\/([^/]+)\/(complete|fail|progress|telemetry)$/);
   if (opticalCampaignJobRoute && req.method === "POST") {
     try {
       const jobId = decodeURIComponent(opticalCampaignJobRoute[1]);
@@ -4060,6 +4075,16 @@ async function route(req, res) {
           leaseIdDigest: `sha256:${createHash("sha256").update(job.lease.leaseId).digest("hex")}`,
         };
         const result = await humanVideoOpticalCampaignStore.telemetry({ ...leaseInput, schedulerTelemetry });
+        sendJson(res, 200, { ok: true, job: result.job, campaign: summarizeHumanVideoOpticalCampaign(result.store) });
+        return;
+      }
+      if (action === "progress") {
+        const result = await humanVideoOpticalCampaignStore.progress({
+          ...leaseInput,
+          phase: body.phase,
+          ...(Object.prototype.hasOwnProperty.call(body, "currentFrameOrdinal") ? { currentFrameOrdinal: body.currentFrameOrdinal } : {}),
+          ...(Object.prototype.hasOwnProperty.call(body, "completedFrameOrdinals") ? { completedFrameOrdinals: body.completedFrameOrdinals } : {}),
+        });
         sendJson(res, 200, { ok: true, job: result.job, campaign: summarizeHumanVideoOpticalCampaign(result.store) });
         return;
       }
@@ -7393,6 +7418,39 @@ function resolveHumanVideoOpticalFramePath(uri = "") {
   const value = String(uri || "").trim();
   if (!value.startsWith("/media/") || value.includes("..")) return "";
   return path.join(ROOT, "data", value.replace(/^\/+/, ""));
+}
+
+function summarizeHumanVideoOpticalReviewCoverage(reviewsInput = [], knownVideos = 0) {
+  const reviews = Array.isArray(reviewsInput) ? reviewsInput : [];
+  const opticalComplete = reviews.filter(isPerFramePaletteCompliantOpticalReview).length;
+  const blocked = reviews.filter((review) => review?.status === "blocked").length;
+  return {
+    knownVideos: Math.max(0, Math.trunc(Number(knownVideos) || 0)),
+    totalReviews: reviews.length,
+    opticalComplete,
+    legacyIncomplete: Math.max(0, reviews.length - opticalComplete - blocked),
+    blocked,
+  };
+}
+
+function isPerFramePaletteCompliantOpticalReview(review = {}) {
+  if (review.status === "blocked" || review.reviewer?.opticalInspectionConfirmed !== true) return false;
+  const frames = Array.isArray(review.evidence?.frames) ? review.evidence.frames : [];
+  if (frames.length < 3 || new Set(frames.map((frame) => frame.sha256).filter(Boolean)).size < 3) return false;
+  const roles = new Set(frames.map((frame) => String(frame.role || "").toLowerCase()));
+  if (!["first", "mid", "last"].every((role) => roles.has(role))) return false;
+  if (Number(review.evidence?.requiredFrameCount || 3) > frames.length || review.evidence?.allRequiredFramesAddressed === false) return false;
+  return frames.every((frame) => {
+    const colors = Array.isArray(frame.palette?.colors) ? frame.palette.colors : [];
+    return colors.length >= 3
+      && colors.length <= 8
+      && Boolean(frame.palette?.uncertainty)
+      && colors.every((color) => /^#[A-F0-9]{6}$/.test(String(color?.hex || ""))
+        && Boolean(color?.label)
+        && new Set(["dominant", "supporting", "accent"]).has(color?.prevalence)
+        && Boolean(color?.explanation)
+        && color?.evidenceFrameHashes?.[0] === frame.sha256);
+  });
 }
 
 function opticalCampaignWorkerPacket(job) {

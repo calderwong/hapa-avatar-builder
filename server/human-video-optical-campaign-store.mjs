@@ -1,4 +1,4 @@
-import { appendFile, mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { appendFile, mkdir, open, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { withLocalJsonFileLock } from "./local-json-file-lock.mjs";
 import {
@@ -10,6 +10,7 @@ import {
   failHumanVideoOpticalCampaignJob,
   HUMAN_VIDEO_OPTICAL_CAMPAIGN_EVENT_SCHEMA,
   normalizeHumanVideoOpticalCampaignStore,
+  recordHumanVideoOpticalCampaignProgress,
   recordHumanVideoOpticalCampaignTelemetry,
   requeueExpiredHumanVideoOpticalCampaignCompletion,
   recoverStaleHumanVideoOpticalCampaignLeases,
@@ -91,6 +92,9 @@ export function openHumanVideoOpticalCampaignStore({ filePath, eventPath, clock 
   async function telemetry(input = {}) {
     return mutate("telemetry-recorded", async (store, now) => recordHumanVideoOpticalCampaignTelemetry(store, input, { now }));
   }
+  async function progress(input = {}) {
+    return mutate("progress-recorded", async (store, now) => recordHumanVideoOpticalCampaignProgress(store, input, { now }));
+  }
   async function recover() {
     return mutate("stale-lease-recovered", async (store, now) => recoverStaleHumanVideoOpticalCampaignLeases(store, { now }));
   }
@@ -153,10 +157,21 @@ export function openHumanVideoOpticalCampaignStore({ filePath, eventPath, clock 
         occurredAt: now,
         jobId: job?.id || null,
         videoKey: job?.videoKey || null,
+        videoName: job?.videoName || null,
         attempt: job?.attempt || null,
         workerId: job?.lease?.workerId || job?.lastWorkerId || null,
+        status: job?.status || null,
         workerConfiguration: job?.workerConfiguration || null,
         schedulerTiming: job?.schedulerTiming || null,
+        progress: job?.workerProgress?.attempt ? {
+          attempt: job.workerProgress.attempt,
+          phase: job.workerProgress.phase,
+          currentFrameOrdinal: job.workerProgress.currentFrameOrdinal,
+          completedFrameOrdinals: job.workerProgress.completedFrameOrdinals,
+          completionSource: job.workerProgress.completionSource,
+          startedAt: job.workerProgress.startedAt,
+          updatedAt: job.workerProgress.updatedAt,
+        } : null,
         completion: job?.completion?.resultDigest ? { resultDigest: job.completion.resultDigest, preparedAt: job.completion.preparedAt } : null,
         reviewId: job?.reviewId || null,
         telemetry: job?.schedulerTelemetry?.status ? {
@@ -191,7 +206,11 @@ export function openHumanVideoOpticalCampaignStore({ filePath, eventPath, clock 
     return result;
   }
 
-  return { filePath: resolvedFilePath, eventPath: resolvedEventPath, read, plan, enqueue, enqueueIf, withVideoAvailable, claim, beginCompletion, completeWithReview, recoverCompletion, submit, fail, abortCompletion, telemetry, recover };
+  async function recentEvents(options = {}) {
+    return readRecentCampaignEvents(resolvedEventPath, options);
+  }
+
+  return { filePath: resolvedFilePath, eventPath: resolvedEventPath, read, plan, enqueue, enqueueIf, withVideoAvailable, claim, beginCompletion, completeWithReview, recoverCompletion, submit, fail, abortCompletion, telemetry, progress, recover, recentEvents };
 }
 
 function storeError(code, message, statusCode = 400, details = null) {
@@ -212,4 +231,36 @@ async function writeAtomic(filePath, payload) {
 async function appendEvent(filePath, event) {
   await mkdir(path.dirname(filePath), { recursive: true });
   await appendFile(filePath, `${JSON.stringify(event)}\n`, "utf8");
+}
+
+async function readRecentCampaignEvents(filePath, options = {}) {
+  const limit = Math.max(0, Math.min(100, Math.trunc(Number(options.limit ?? 24) || 0)));
+  if (!limit) return [];
+  let handle;
+  try {
+    handle = await open(filePath, "r");
+    const { size } = await handle.stat();
+    if (!size) return [];
+    let byteCount = Math.min(size, Math.max(128 * 1024, limit * 8 * 1024));
+    let events = [];
+    while (byteCount <= size) {
+      const offset = size - byteCount;
+      const buffer = Buffer.alloc(byteCount);
+      await handle.read(buffer, 0, byteCount, offset);
+      let text = buffer.toString("utf8");
+      if (offset > 0) text = text.slice(Math.max(0, text.indexOf("\n") + 1));
+      events = text.split("\n").filter(Boolean).flatMap((line) => {
+        try { return [JSON.parse(line)]; }
+        catch { return []; }
+      });
+      if (events.length >= limit || offset === 0) break;
+      byteCount = Math.min(size, byteCount * 2);
+    }
+    return events.slice(-limit);
+  } catch (error) {
+    if (error?.code === "ENOENT") return [];
+    throw error;
+  } finally {
+    await handle?.close().catch(() => {});
+  }
 }

@@ -7,6 +7,8 @@ export const HUMAN_VIDEO_OPTICAL_CAMPAIGN_EVENT_SCHEMA = "hapa.human-video-optic
 
 const JOB_STATUSES = new Set(["queued", "claimed", "completing", "submitted", "failed"]);
 const TELEMETRY_STATUSES = new Set(["captured", "unavailable"]);
+const WORK_PHASES = new Set(["claimed", "inspecting", "drafting", "submitting"]);
+const WORK_PHASE_ORDER = new Map([["", -1], ["claimed", 0], ["inspecting", 1], ["drafting", 2], ["submitting", 3]]);
 
 export function createHumanVideoOpticalCampaignStore(input = {}) {
   return normalizeHumanVideoOpticalCampaignStore({
@@ -125,6 +127,7 @@ export function normalizeHumanVideoOpticalCampaignJob(input = {}) {
     lease,
     schedulerTelemetry: telemetry,
     schedulerTiming: normalizeSchedulerTiming(input.schedulerTiming),
+    workerProgress: normalizeWorkerProgress(input.workerProgress, { frames, attempt }),
     completion,
     lastWorkerId: clean(input.lastWorkerId, 240),
     reviewId: clean(input.reviewId, 5_000),
@@ -163,7 +166,20 @@ export function recoverStaleHumanVideoOpticalCampaignLeases(storeInput = {}, opt
   const store = normalizeHumanVideoOpticalCampaignStore(storeInput);
   const now = options.now || new Date().toISOString();
   const jobs = store.jobs.map((job) => job.status === "claimed" && Date.parse(job.lease.expiresAt) <= Date.parse(now)
-    ? { ...job, status: "queued", lease: emptyLease(), completion: emptyCompletion(), recoveryCount: job.recoveryCount + 1, updatedAt: now }
+    ? {
+        ...job,
+        status: "queued",
+        lease: emptyLease(),
+        completion: emptyCompletion(),
+        lastWorkerId: job.lease.workerId,
+        schedulerTiming: {
+          startedAt: job.schedulerTiming.startedAt || job.lease.claimedAt,
+          completedAt: now,
+          wallClockMs: Math.max(0, Date.parse(now) - Date.parse(job.schedulerTiming.startedAt || job.lease.claimedAt || now)),
+        },
+        recoveryCount: job.recoveryCount + 1,
+        updatedAt: now,
+      }
     : job);
   return { store: normalizeHumanVideoOpticalCampaignStore({ ...store, jobs, updatedAt: now }), recovered: jobs.filter((job, index) => job !== store.jobs[index]).map((job) => job.id) };
 }
@@ -192,6 +208,7 @@ export function claimHumanVideoOpticalCampaignJob(storeInput = {}, workerInput =
     lease: { workerId, leaseId, claimedAt: now, expiresAt: new Date(Date.parse(now) + leaseMs).toISOString() },
     schedulerTelemetry: emptySchedulerTelemetry(),
     completion: emptyCompletion(),
+    workerProgress: createWorkerProgress(candidate.frames, candidate.attempt + 1, now),
     workerConfiguration: normalizeWorkerConfiguration(store.configuration),
     schedulerTiming: { startedAt: now, completedAt: null, wallClockMs: null },
     lastWorkerId: workerId,
@@ -298,7 +315,77 @@ export function recordHumanVideoOpticalCampaignTelemetry(storeInput = {}, input 
     || schedulerTelemetry.leaseIdDigest !== sha256Digest(current.lease.leaseId)) {
     throw campaignError("optical_campaign_telemetry_binding_mismatch", "Scheduler telemetry must carry the server-issued receipt binding for this exact job, attempt, frame manifest, and lease.", 409);
   }
-  const job = { ...current, schedulerTelemetry, updatedAt: now };
+  const receiptConfirmsEveryFrame = schedulerTelemetry.status === "captured"
+    && schedulerTelemetry.directImageViewCalls === current.frames.length;
+  const job = {
+    ...current,
+    schedulerTelemetry,
+    workerProgress: receiptConfirmsEveryFrame
+      ? {
+          ...current.workerProgress,
+          attempt: current.attempt,
+          phase: "submitting",
+          currentFrameOrdinal: null,
+          completedFrameOrdinals: current.frames.map((frame) => frame.ordinal),
+          completionSource: "scheduler-receipt",
+          startedAt: current.workerProgress.startedAt || current.lease.claimedAt,
+          updatedAt: now,
+        }
+      : current.workerProgress,
+    updatedAt: now,
+  };
+  return { store: replaceJob(store, job, now), job };
+}
+
+export function recordHumanVideoOpticalCampaignProgress(storeInput = {}, input = {}, options = {}) {
+  const store = normalizeHumanVideoOpticalCampaignStore(storeInput);
+  const now = options.now || new Date().toISOString();
+  const id = clean(input.jobId || input.id, 600);
+  const current = store.jobs.find((job) => job.id === id);
+  if (!current) throw campaignError("optical_campaign_job_not_found", "The optical campaign job no longer exists.", 404);
+  assertLease(current, input, now, ["claimed"]);
+
+  const prior = current.workerProgress;
+  const phase = clean(input.phase || prior.phase || "claimed", 80).toLowerCase();
+  if (!WORK_PHASES.has(phase)) throw campaignError("optical_campaign_progress_phase_invalid", `Unknown optical worker phase: ${phase || "empty"}.`);
+  if ((WORK_PHASE_ORDER.get(phase) ?? -1) < (WORK_PHASE_ORDER.get(prior.phase) ?? -1)) {
+    throw campaignError("optical_campaign_progress_phase_regressed", "Optical worker phase updates must move forward within one leased attempt.", 409);
+  }
+
+  const manifestOrdinals = new Set(current.frames.map((frame) => frame.ordinal));
+  const suppliedCompleted = Object.prototype.hasOwnProperty.call(input, "completedFrameOrdinals")
+    ? input.completedFrameOrdinals
+    : Object.prototype.hasOwnProperty.call(input, "completedFrames")
+      ? input.completedFrames
+      : prior.completedFrameOrdinals;
+  if (!Array.isArray(suppliedCompleted)) throw campaignError("optical_campaign_progress_frames_invalid", "Completed frame ordinals must be an array bound to the registered frame manifest.");
+  const completedFrameOrdinals = [...new Set(suppliedCompleted.map((value) => Math.trunc(number(value?.ordinal ?? value, -1))))].sort((a, b) => a - b);
+  if (completedFrameOrdinals.some((ordinal) => !manifestOrdinals.has(ordinal))) {
+    throw campaignError("optical_campaign_progress_frame_not_registered", "Optical progress may only complete ordinals from this job's registered frame manifest.", 409);
+  }
+  if (prior.completedFrameOrdinals.some((ordinal) => !completedFrameOrdinals.includes(ordinal))) {
+    throw campaignError("optical_campaign_progress_frames_regressed", "Completed First/Mid/Last frame progress is append-only within one leased attempt.", 409);
+  }
+
+  let currentFrameOrdinal = prior.currentFrameOrdinal;
+  if (Object.prototype.hasOwnProperty.call(input, "currentFrameOrdinal")) {
+    currentFrameOrdinal = input.currentFrameOrdinal == null ? null : Math.trunc(number(input.currentFrameOrdinal, -1));
+  }
+  if (currentFrameOrdinal != null && !manifestOrdinals.has(currentFrameOrdinal)) {
+    throw campaignError("optical_campaign_progress_current_frame_not_registered", "The current optical frame must belong to this job's registered frame manifest.", 409);
+  }
+  if (phase !== "inspecting") currentFrameOrdinal = null;
+
+  const workerProgress = {
+    attempt: current.attempt,
+    phase,
+    currentFrameOrdinal,
+    completedFrameOrdinals,
+    completionSource: "worker-progress",
+    startedAt: prior.startedAt || current.lease.claimedAt || now,
+    updatedAt: now,
+  };
+  const job = { ...current, workerProgress, updatedAt: now };
   return { store: replaceJob(store, job, now), job };
 }
 
@@ -377,6 +464,7 @@ function normalizePlanning(input = {}) {
     knownVideos: nonNegative(input.knownVideos),
     remainingOpticalReviews: nonNegative(input.remainingOpticalReviews),
     scanned: nonNegative(input.scanned),
+    lastBatchScanned: nonNegative(input.lastBatchScanned),
     frameReadyPlanned: nonNegative(input.frameReadyPlanned),
     deferredMissingFrames: nonNegative(input.deferredMissingFrames),
     deferredMissingFiles: nonNegative(input.deferredMissingFiles),
@@ -438,11 +526,13 @@ function normalizeQualityCalibration(input = {}) {
   };
 }
 
-export function summarizeHumanVideoOpticalCampaign(storeInput = {}) {
+export function summarizeHumanVideoOpticalCampaign(storeInput = {}, options = {}) {
   const store = normalizeHumanVideoOpticalCampaignStore(storeInput);
+  const now = clean(options.now, 80) || new Date().toISOString();
+  const nowMs = Number.isFinite(Date.parse(now)) ? Date.parse(now) : Date.now();
   const count = (status) => store.jobs.filter((job) => job.status === status).length;
-  const liveLeased = store.jobs.filter((job) => (job.status === "claimed" || job.status === "completing") && Date.parse(job.lease.expiresAt) > Date.now()).length;
-  const expiredLeases = store.jobs.filter((job) => (job.status === "claimed" || job.status === "completing") && Date.parse(job.lease.expiresAt) <= Date.now()).length;
+  const liveLeased = store.jobs.filter((job) => (job.status === "claimed" || job.status === "completing") && Date.parse(job.lease.expiresAt) > nowMs).length;
+  const expiredLeases = store.jobs.filter((job) => (job.status === "claimed" || job.status === "completing") && Date.parse(job.lease.expiresAt) <= nowMs).length;
   const capturedTelemetry = store.jobs.filter((job) => job.schedulerTelemetry.status === "captured");
   const boundTelemetry = capturedTelemetry.filter((job) => {
     const receipt = job.schedulerTelemetry;
@@ -452,12 +542,33 @@ export function summarizeHumanVideoOpticalCampaign(storeInput = {}) {
       && receipt.frameDigest === job.frameDigest
       && /^sha256:[a-f0-9]{64}$/.test(receipt.leaseIdDigest));
   });
+  const frameProgressByJobId = new Map(store.jobs.map((job) => [job.id, projectHumanVideoOpticalFrameProgress(job)]));
+  const totalFrames = [...frameProgressByJobId.values()].reduce((total, progress) => total + progress.total, 0);
+  const inspectedFrames = [...frameProgressByJobId.values()].reduce((total, progress) => total + progress.completed, 0);
+  const reviewCoverage = normalizeOpticalReviewCoverage(options.reviewCoverage, store.planning.knownVideos);
+  const workerRows = store.jobs
+    .map((job) => projectHumanVideoOpticalWorker(job, frameProgressByJobId.get(job.id), nowMs))
+    .filter((worker) => worker.workerId)
+    .sort(compareHumanVideoOpticalWorkers);
+  const activeWorkers = workerRows.filter((worker) => worker.status === "claimed" || worker.status === "completing");
+  const activeWorkerIds = new Set(activeWorkers.map((worker) => worker.workerId));
+  const recentWorkerLimit = Math.max(0, Math.min(50, Math.trunc(number(options.recentWorkerLimit, 12))));
+  const recentWorkers = [];
+  const recentWorkerIds = new Set(activeWorkerIds);
+  for (const worker of workerRows) {
+    if (worker.status === "claimed" || worker.status === "completing" || recentWorkerIds.has(worker.workerId)) continue;
+    recentWorkers.push(worker);
+    recentWorkerIds.add(worker.workerId);
+    if (recentWorkers.length >= recentWorkerLimit) break;
+  }
+  const recentActivity = projectHumanVideoOpticalActivity(store, options.recentEvents, { limit: options.activityLimit });
   return {
     schemaVersion: "hapa.human-video-optical-campaign-summary.v1",
     campaignId: store.configuration.campaignId,
     model: store.configuration.model,
     reasoningEffort: store.configuration.reasoningEffort,
     summary: {
+      total: store.jobs.length,
       queued: count("queued"),
       active: liveLeased,
       completing: count("completing"),
@@ -465,14 +576,267 @@ export function summarizeHumanVideoOpticalCampaign(storeInput = {}) {
       capacity: store.configuration.maxActiveWorkers,
       submitted: count("submitted"),
       failed: count("failed"),
+      attempts: store.jobs.reduce((total, job) => total + job.attempt, 0),
+      recoveries: store.jobs.reduce((total, job) => total + job.recoveryCount, 0),
+      totalFrames,
+      inspectedFrames,
+      frameInspectionPercent: totalFrames ? Math.round((inspectedFrames / totalFrames) * 100) : 0,
+      opticalComplete: reviewCoverage.opticalComplete,
+      compliantOpticalReviews: reviewCoverage.opticalComplete,
+      paletteComplete: reviewCoverage.opticalComplete,
+      legacyIncompleteOptical: reviewCoverage.legacyIncomplete,
+      legacyPaletteRepairs: reviewCoverage.legacyIncomplete,
+      remainingOpticalReviews: reviewCoverage.remaining,
       frameReadyPlanned: store.planning.frameReadyPlanned,
       deferredMissingFrames: store.planning.deferredMissingFrames + store.planning.deferredMissingFiles,
       tokenTelemetryCaptured: capturedTelemetry.length,
       tokenTelemetryBound: boundTelemetry.length,
       legacyUnboundTelemetryCaptured: capturedTelemetry.length - boundTelemetry.length,
     },
-    planning: store.planning,
+    planning: {
+      ...store.planning,
+      plannerSnapshotRemainingOpticalReviews: store.planning.remainingOpticalReviews,
+      remainingOpticalReviews: reviewCoverage.remaining,
+    },
+    reviewCoverage,
+    workers: [...activeWorkers, ...recentWorkers],
+    recentActivity,
     updatedAt: store.updatedAt,
+    generatedAt: now,
+    truthBoundary: "Worker rows and activity are read projections of the durable optical campaign ledger and its append-only event log. A frame is marked inspected only by monotonic lease-bound progress or a captured scheduler receipt attesting one direct image view per registered frame; missing progress remains visibly unknown or pending.",
+  };
+}
+
+export function projectHumanVideoOpticalFrameProgress(jobInput = {}) {
+  const job = normalizeHumanVideoOpticalCampaignJob(jobInput);
+  const receiptComplete = job.schedulerTelemetry.status === "captured"
+    && job.schedulerTelemetry.directImageViewCalls === job.frames.length;
+  const completed = new Set(receiptComplete
+    ? job.frames.map((frame) => frame.ordinal)
+    : job.workerProgress.completedFrameOrdinals);
+  const source = receiptComplete || job.workerProgress.completionSource === "scheduler-receipt"
+    ? "scheduler-receipt"
+    : job.workerProgress.completedFrameOrdinals.length
+      ? "worker-progress"
+      : "none";
+  const frames = job.frames.map((frame) => ({
+    ordinal: frame.ordinal,
+    role: frame.role,
+    status: completed.has(frame.ordinal)
+      ? source === "scheduler-receipt" ? "receipt-confirmed" : "inspected"
+      : job.status === "claimed" && job.workerProgress.currentFrameOrdinal === frame.ordinal
+        ? "viewing"
+        : "pending",
+    timestampSeconds: frame.timestampSeconds,
+  }));
+  const completedCount = frames.filter((frame) => frame.status === "inspected" || frame.status === "receipt-confirmed").length;
+  return {
+    completed: completedCount,
+    total: frames.length,
+    percent: frames.length ? Math.round((completedCount / frames.length) * 100) : 0,
+    currentOrdinal: job.status === "claimed" ? job.workerProgress.currentFrameOrdinal : null,
+    source,
+    frames,
+  };
+}
+
+function projectHumanVideoOpticalWorker(job, frameProgress, nowMs) {
+  const workerId = job.lease.workerId || job.lastWorkerId || "";
+  const expiresAtMs = job.lease.expiresAt ? Date.parse(job.lease.expiresAt) : NaN;
+  const claimedAtMs = job.lease.claimedAt ? Date.parse(job.lease.claimedAt) : NaN;
+  const leaseRemainingMs = Number.isFinite(expiresAtMs) ? Math.max(0, expiresAtMs - nowMs) : null;
+  const leaseDurationMs = Number.isFinite(expiresAtMs) && Number.isFinite(claimedAtMs) ? Math.max(0, expiresAtMs - claimedAtMs) : 0;
+  const leaseHealth = job.status !== "claimed" && job.status !== "completing"
+    ? job.attempt > 0 ? "released" : "none"
+    : leaseRemainingMs === 0
+      ? "expired"
+      : leaseRemainingMs <= Math.max(30_000, Math.trunc(leaseDurationMs * 0.2))
+        ? "expiring"
+        : "fresh";
+  return {
+    workerId,
+    agentPath: job.schedulerTelemetry.agentPath || "",
+    jobId: job.id,
+    lifecycleState: humanVideoOpticalLifecycleState(job, leaseHealth),
+    status: job.status,
+    videoKey: job.videoKey,
+    videoId: job.videoId,
+    videoName: job.videoName,
+    attempt: job.attempt,
+    claimedAt: job.schedulerTiming.startedAt || job.lease.claimedAt || null,
+    updatedAt: job.updatedAt,
+    expiresAt: job.lease.expiresAt,
+    leaseHealth,
+    leaseRemainingMs,
+    phase: job.workerProgress.phase || lifecyclePhaseForStatus(job.status),
+    frameProgress,
+    telemetry: {
+      status: job.schedulerTelemetry.status || "pending",
+      model: job.schedulerTelemetry.model || job.workerConfiguration.model,
+      reasoningEffort: job.schedulerTelemetry.reasoningEffort || job.workerConfiguration.reasoningEffort,
+      startedAt: job.schedulerTelemetry.startedAt,
+      completedAt: job.schedulerTelemetry.completedAt,
+      wallClockMs: job.schedulerTelemetry.wallClockMs,
+      directImageViewCalls: job.schedulerTelemetry.directImageViewCalls,
+      totalTokens: job.schedulerTelemetry.totalTokens,
+    },
+    failure: job.failure,
+  };
+}
+
+function compareHumanVideoOpticalWorkers(left, right) {
+  const leftActive = left.status === "claimed" || left.status === "completing";
+  const rightActive = right.status === "claimed" || right.status === "completing";
+  if (leftActive !== rightActive) return leftActive ? -1 : 1;
+  return String(right.updatedAt || "").localeCompare(String(left.updatedAt || "")) || left.workerId.localeCompare(right.workerId);
+}
+
+function humanVideoOpticalLifecycleState(job, leaseHealth) {
+  if ((job.status === "claimed" || job.status === "completing") && leaseHealth === "expired") return "lease-expired";
+  if (job.status === "completing") return "finalizing";
+  if (job.status === "submitted") return "completed";
+  if (job.status === "failed") return job.failure?.retryable ? "retryable-failed" : "failed";
+  if (job.status === "queued") return job.attempt > 0 ? "requeued" : "queued";
+  if (job.workerProgress.phase === "inspecting") return "inspecting-frames";
+  return job.workerProgress.phase || "claimed";
+}
+
+function lifecyclePhaseForStatus(status) {
+  if (status === "completing") return "submitting";
+  if (status === "submitted") return "completed";
+  if (status === "failed") return "failed";
+  return status;
+}
+
+function normalizeOpticalReviewCoverage(input = {}, knownVideos = 0) {
+  const totalReviews = nonNegative(input?.totalReviews);
+  const opticalComplete = nonNegative(input?.opticalComplete);
+  const legacyIncomplete = nonNegative(input?.legacyIncomplete);
+  const blocked = nonNegative(input?.blocked);
+  const known = Math.max(nonNegative(knownVideos), nonNegative(input?.knownVideos));
+  return {
+    knownVideos: known,
+    totalReviews,
+    opticalComplete,
+    compliantOpticalReviews: opticalComplete,
+    paletteComplete: opticalComplete,
+    legacyIncomplete,
+    legacyPaletteRepairs: legacyIncomplete,
+    blocked,
+    remaining: Math.max(0, known - opticalComplete),
+    completionRule: "attested optical inspection + at least three distinct registered frames including First/Mid/Last + an evidence-bound 3–8 color palette per frame",
+  };
+}
+
+function projectHumanVideoOpticalActivity(store, eventsInput, options = {}) {
+  const source = Array.isArray(eventsInput) ? eventsInput : [];
+  const limit = Math.max(0, Math.min(100, Math.trunc(number(options.limit, 24))));
+  const jobsById = new Map(store.jobs.map((job) => [job.id, job]));
+  return source
+    .filter((event) => event && typeof event === "object" && event.schemaVersion === HUMAN_VIDEO_OPTICAL_CAMPAIGN_EVENT_SCHEMA)
+    .sort((left, right) => String(right.occurredAt || "").localeCompare(String(left.occurredAt || "")))
+    .slice(0, limit)
+    .map((event) => {
+      const job = jobsById.get(clean(event.jobId, 600));
+      const eventProgress = job && event.progress
+        ? projectHumanVideoOpticalFrameProgress({
+            ...job,
+            status: "queued",
+            attempt: nonNegative(event.attempt) || job.attempt,
+            lease: emptyLease(),
+            completion: emptyCompletion(),
+            workerProgress: event.progress,
+            schedulerTelemetry: event.telemetry || emptySchedulerTelemetry(),
+          })
+        : job && event.telemetry?.status === "captured" && Number(event.telemetry.directImageViewCalls) === job.frames.length
+          ? projectHumanVideoOpticalFrameProgress({ ...job, status: "queued", lease: emptyLease(), completion: emptyCompletion(), schedulerTelemetry: event.telemetry })
+          : null;
+      return {
+        action: clean(event.action, 240),
+        occurredAt: clean(event.occurredAt, 80) || null,
+        jobId: clean(event.jobId, 600),
+        workerId: clean(event.workerId, 240),
+        videoKey: clean(event.videoKey, 4_500),
+        videoName: clean(event.videoName || job?.videoName, 800),
+        attempt: nonNegative(event.attempt),
+        lifecycleState: lifecycleStateForEvent(event),
+        phase: clean(event.progress?.phase, 80) || lifecyclePhaseForStatus(clean(event.status, 80)),
+        frameProgress: eventProgress,
+      };
+    });
+}
+
+function lifecycleStateForEvent(event) {
+  const action = clean(event.action, 240).replace(/^human-video-optical-campaign\./, "");
+  if (action === "claimed") return "claimed";
+  if (action === "progress-recorded") return clean(event.progress?.phase, 80) || "working";
+  if (action === "telemetry-recorded") return "telemetry-recorded";
+  if (action === "completion-prepared") return "finalizing";
+  if (action === "submitted") return "completed";
+  if (action === "failed" || action === "completion-aborted") return "failed";
+  if (action === "stale-lease-recovered" || action === "completion-requeued") return "requeued";
+  return action || "activity";
+}
+
+function normalizeWorkerProgress(input = null, context = {}) {
+  if (!input || typeof input !== "object" || Array.isArray(input)) return emptyWorkerProgress();
+  const attempt = nonNegative(input.attempt);
+  const phase = clean(input.phase, 80).toLowerCase();
+  if (phase && !WORK_PHASES.has(phase)) throw campaignError("optical_campaign_progress_phase_invalid", `Unknown optical worker phase: ${phase}.`);
+  const hasCompletedFrameOrdinals = Object.prototype.hasOwnProperty.call(input, "completedFrameOrdinals");
+  if (hasCompletedFrameOrdinals && !Array.isArray(input.completedFrameOrdinals)) {
+    throw campaignError("optical_campaign_progress_frames_invalid", "Persisted optical worker progress must store completed frame ordinals as an array.");
+  }
+  const manifestOrdinals = new Set((context.frames || []).map((frame) => frame.ordinal));
+  const completedFrameOrdinals = [...new Set((input.completedFrameOrdinals || [])
+    .map((value) => Math.trunc(number(value?.ordinal ?? value, -1))))].sort((left, right) => left - right);
+  if (completedFrameOrdinals.some((ordinal) => !manifestOrdinals.has(ordinal))) {
+    throw campaignError("optical_campaign_progress_frame_not_registered", "Persisted optical progress references a frame outside its registered manifest.");
+  }
+  const currentFrameOrdinal = input.currentFrameOrdinal == null ? null : Math.trunc(number(input.currentFrameOrdinal, -1));
+  if (currentFrameOrdinal != null && !manifestOrdinals.has(currentFrameOrdinal)) {
+    throw campaignError("optical_campaign_progress_current_frame_not_registered", "Persisted optical progress names a current frame outside its registered manifest.");
+  }
+  const completionSource = new Set(["worker-progress", "scheduler-receipt"]).has(input.completionSource) ? input.completionSource : "";
+  const hasProgressContent = attempt > 0
+    || Boolean(phase || completionSource || input.startedAt || input.updatedAt)
+    || currentFrameOrdinal != null
+    || completedFrameOrdinals.length > 0;
+  if (hasProgressContent && (attempt < 1 || attempt !== context.attempt)) {
+    throw campaignError("optical_campaign_progress_attempt_mismatch", "Persisted optical worker progress must carry the job's positive current attempt.");
+  }
+  return {
+    attempt,
+    phase,
+    currentFrameOrdinal: phase === "inspecting" ? currentFrameOrdinal : null,
+    completedFrameOrdinals,
+    completionSource,
+    startedAt: clean(input.startedAt, 80) || null,
+    updatedAt: clean(input.updatedAt, 80) || null,
+  };
+}
+
+function createWorkerProgress(frames, attempt, now) {
+  return {
+    attempt,
+    phase: "claimed",
+    currentFrameOrdinal: null,
+    completedFrameOrdinals: [],
+    completionSource: "",
+    startedAt: now,
+    updatedAt: now,
+  };
+}
+
+function emptyWorkerProgress() {
+  return {
+    attempt: 0,
+    phase: "",
+    currentFrameOrdinal: null,
+    completedFrameOrdinals: [],
+    completionSource: "",
+    startedAt: null,
+    updatedAt: null,
   };
 }
 
