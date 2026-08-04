@@ -75,6 +75,7 @@ export function parseArgs(argv = process.argv.slice(2)) {
     maxBucketSize: 96,
     limit: null,
     mediaIds: [],
+    candidateManifest: null,
     force: false,
     repoRoot: DEFAULT_REPO_ROOT,
     outputRoot: null,
@@ -107,6 +108,7 @@ export function parseArgs(argv = process.argv.slice(2)) {
       const rawId = requiredArg(argv[++index], value).replace(/^sha256:/u, "");
       options.mediaIds.push(/^[a-f0-9]{64}$/iu.test(rawId) ? canonicalMediaId(rawId) : rawId);
     }
+    else if (value === "--candidate-manifest") options.candidateManifest = path.resolve(requiredArg(argv[++index], value));
     else if (value === "--repo-root") options.repoRoot = path.resolve(requiredArg(argv[++index], value));
     else if (value === "--output") options.outputRoot = path.resolve(requiredArg(argv[++index], value));
     else throw new Error(`Unknown argument: ${value}`);
@@ -134,7 +136,7 @@ function numberArg(value, flag, { minimum = -Infinity, maximum = Infinity, integ
 }
 
 function usage() {
-  return `Echo video catalog enrichment\n\nUsage:\n  node scripts/enrich-echo-video-catalog.mjs [--prepare|--recognize|--repair-frames|--finalize|--all] [--apply]\n\nModes:\n  --prepare       Discover, resolve, hash, deduplicate, probe, and materialize first/mid/last frames.\n  --recognize     Run bounded local image recognition and frame fingerprints.\n  --repair-frames Re-extract only missing/failed frame records, preserving healthy catalog rows.\n  --finalize      Build scored enrichments, bucketed chain edges, NDJSON exports, and the report.\n  --all           Run prepare, recognize, and finalize (default).\n\nSafety and batching:\n  Without --apply the command is read-only and prints a plan.\n  --batch-index N --batch-count M deterministically shards work.\n  --media-id ID may repeat to recompute a bounded set of content-addressed rows.\n  --vision-provider auto|ollama|apple selects local recognition; auto prefers the installed Ollama vision model.\n  --ollama-model NAME defaults to qwen3.5:2b; frames remain local.\n  --repo-root PATH and --output PATH support isolated fixtures.\n  --limit N bounds a local proof; --force recomputes completed stage work.\n`;
+  return `Echo video catalog enrichment\n\nUsage:\n  node scripts/enrich-echo-video-catalog.mjs [--prepare|--recognize|--repair-frames|--finalize|--all] [--apply]\n\nModes:\n  --prepare       Discover, resolve, hash, deduplicate, probe, and materialize first/mid/last frames.\n  --recognize     Run bounded local image recognition and frame fingerprints.\n  --repair-frames Re-extract only missing/failed frame records, preserving healthy catalog rows.\n  --finalize      Build scored enrichments, bucketed chain edges, NDJSON exports, and the report.\n  --all           Run prepare, recognize, and finalize (default).\n\nSafety and batching:\n  Without --apply the command is read-only and prints a plan.\n  --batch-index N --batch-count M deterministically shards work.\n  --candidate-manifest PATH restricts prepare discovery to a schema-bound exact-source manifest.\n  --media-id ID may repeat to recompute a bounded set of content-addressed rows.\n  --vision-provider auto|ollama|apple selects local recognition; auto prefers the installed Ollama vision model.\n  --ollama-model NAME defaults to qwen3.5:2b; frames remain local.\n  --repo-root PATH and --output PATH support isolated fixtures.\n  --limit N bounds a local proof; --force recomputes completed stage work.\n`;
 }
 
 export function normalizeMarker(value) {
@@ -417,6 +419,7 @@ function beginRun(db, options) {
       edgeThreshold: options.edgeThreshold,
       maxBucketSize: options.maxBucketSize,
       limit: options.limit,
+      candidateManifest: options.candidateManifest ? path.basename(options.candidateManifest) : null,
       force: options.force,
     }),
   );
@@ -683,6 +686,53 @@ async function collectSourceCatalog(options) {
   await collectAnimatedReferences(path.join(dataRoot, "echo-reference-animated-media.json"), state);
   await collectVibesTransitions(path.join(dataRoot, "vibes-transition-links/queue.json"), state);
   return state;
+}
+
+async function collectCandidateManifest(options) {
+  const state = createState(options);
+  const manifest = JSON.parse(await readFile(options.candidateManifest, "utf8"));
+  if (manifest?.schemaVersion !== "hapa.human-video-optical-frame-candidates.v1" || !Array.isArray(manifest.candidates)) {
+    throw new Error("Candidate manifest must declare hapa.human-video-optical-frame-candidates.v1 with a candidates array.");
+  }
+  state.filesRead += 1;
+  for (const candidate of manifest.candidates) {
+    if (!candidate || typeof candidate !== "object") continue;
+    addCandidate(state, {
+      title: candidate.videoName || candidate.name || candidate.videoId || candidate.videoKey,
+      rawRefs: [candidate.sourcePath],
+      aliases: [{
+        id: candidate.videoId || candidate.assetId || candidate.videoKey || "",
+        uri: candidate.uri || "",
+        path: candidate.sourcePath || "",
+        fingerprint: candidate.contentFingerprint || "",
+      }],
+      sourceKind: "human-enricher-optical-frame-gap",
+      provenance: [{
+        source: "human-enricher-optical-frame-gap-manifest",
+        videoKey: candidate.videoKey || "",
+        recordId: candidate.videoId || "",
+        assetId: candidate.assetId || "",
+        sourcePath: candidate.sourcePath || "",
+        sourceUri: candidate.uri || "",
+        identityAuthority: "exact-dashboard-record-source",
+      }],
+      relationships: candidate.ownerType || candidate.ownerId ? [{
+        ownerType: candidate.ownerType || "unknown",
+        ownerId: candidate.ownerId || "",
+        ownerName: candidate.ownerName || "",
+        role: candidate.role || "video-attachment",
+      }] : [],
+      technical: candidate.technical || {},
+      frames: [],
+      recognition: [],
+      referencePolicy: {},
+    });
+  }
+  return state;
+}
+
+async function collectPreparationSources(options) {
+  return options.candidateManifest ? collectCandidateManifest(options) : collectSourceCatalog(options);
 }
 
 async function collectAttachmentStore(filePath, parentKey, assetKey, sourceKind, storeName, state) {
@@ -3350,7 +3400,7 @@ function dryRunPlan(options, sourceState = null) {
 
 export async function runEchoVideoEnrichment(options = parseArgs()) {
   if (!options.apply) {
-    const sourceState = ["prepare", "all"].includes(options.mode) ? await collectSourceCatalog(options) : null;
+    const sourceState = ["prepare", "all"].includes(options.mode) ? await collectPreparationSources(options) : null;
     return dryRunPlan(options, sourceState);
   }
   await mkdir(options.outputRoot, { recursive: true });
@@ -3363,7 +3413,7 @@ export async function runEchoVideoEnrichment(options = parseArgs()) {
   const report = { schemaVersion: REPORT_SCHEMA_VERSION, mode: options.mode, shard: { index: options.batchIndex, count: options.batchCount }, stages: {} };
   try {
     if (["prepare", "all"].includes(options.mode)) {
-      const sourceState = await collectSourceCatalog(options);
+      const sourceState = await collectPreparationSources(options);
       report.sources = { candidates: sourceState.candidates.length, counts: sourceState.sourceCounts, warnings: sourceState.warnings };
       report.stages.prepare = await prepareCatalog(db, sourceState, options);
     }
