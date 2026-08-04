@@ -61,6 +61,24 @@ test("campaign jobs use deterministic frame manifests, cap active work at three,
   assert.equal(claims[0].attempt, 1);
 });
 
+test("campaign jobs retain an exact legacy-review repair target", () => {
+  const repair = {
+    priorReviewId: "fingerprint:video-one:optical:r1",
+    priorRevision: 1,
+    reason: "legacy-noncompliant-optical-review",
+  };
+  let store = createHumanVideoOpticalCampaignStore();
+  const enqueued = enqueueHumanVideoOpticalCampaignJob(store, { ...jobInput, repair }, { now: "2026-08-03T00:00:00.000Z" });
+  store = enqueued.store;
+  assert.deepEqual(enqueued.job.repair, repair);
+  const claimed = claimHumanVideoOpticalCampaignJob(store, { workerId: "terra-repair" }, { now: "2026-08-03T00:00:00.100Z", leaseMs: 900_000 });
+  assert.deepEqual(claimed.job.repair, repair);
+  assert.throws(
+    () => enqueueHumanVideoOpticalCampaignJob(createHumanVideoOpticalCampaignStore(), { ...jobInput, repair: { priorReviewId: repair.priorReviewId } }),
+    (error) => error.code === "optical_campaign_repair_target_invalid",
+  );
+});
+
 test("only a matching lease can settle a job and submitted work retains scheduler telemetry", () => {
   let store = createHumanVideoOpticalCampaignStore();
   ({ store } = enqueueHumanVideoOpticalCampaignJob(store, jobInput, { now: "2026-08-03T00:00:00.000Z" }));

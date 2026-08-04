@@ -176,6 +176,42 @@ test("agent proposal revisions and explicit human decisions remain separate and 
   assert.equal(forgedReceipt.review.reviewer.schedulerReceipt, null);
 });
 
+test("scheduler authority may repair only the exact pending-human legacy revision", () => {
+  const legacy = normalizeHumanVideoAgentReview({
+    ...opticalReview(),
+    evidence: {
+      frames: opticalReview().evidence.frames.map((frame) => ({
+        ...frame,
+        palette: { colors: [], uncertainty: "" },
+      })),
+    },
+    revision: 1,
+  });
+  const legacyStore = createHumanVideoAgentReviewStore({ reviews: [legacy] });
+  const schedulerReceipt = {
+    campaignId: "human-enricher-optical-v1",
+    jobId: "optical:repair-one",
+    attempt: 1,
+    frameDigest: `sha256:${"d".repeat(64)}`,
+    telemetryStatus: "unavailable",
+    telemetrySource: "test-scheduler",
+  };
+  const repaired = upsertHumanVideoAgentReview(legacyStore, {
+    ...opticalReview(),
+    expectedRevision: 1,
+    reviewer: { ...opticalReview().reviewer, schedulerReceipt },
+  }, { now: "2026-08-03T20:05:00.000Z", agentId: "/root/optical-repair", schedulerAuthority: true });
+  assert.equal(repaired.review.id, legacy.id);
+  assert.equal(repaired.review.revision, 2);
+  assert.equal(repaired.review.status, "pending-human");
+  assert.equal(repaired.review.humanDecision, null);
+  assert.equal(repaired.review.reviewer.schedulerReceipt.jobId, schedulerReceipt.jobId);
+  assert.throws(
+    () => upsertHumanVideoAgentReview(legacyStore, { ...opticalReview(), expectedRevision: 0, reviewer: { ...opticalReview().reviewer, schedulerReceipt } }, { agentId: "/root/optical-repair", schedulerAuthority: true }),
+    (error) => error.code === "agent_review_revision_conflict",
+  );
+});
+
 test("agent proposals rank and describe videos without becoming human enrichment or Echo authority", () => {
   const { store: reviewStore } = upsertHumanVideoAgentReview(createHumanVideoAgentReviewStore(), opticalReview(), { now: "2026-08-03T20:00:00.000Z" });
   const dashboard = createHumanVideoEnricherDashboard({
@@ -255,6 +291,9 @@ test("UI, API, CLI, and node discovery expose optical and bounded Reference Atla
   assert.match(api, /frameManifestsEqual\(currentFrames, job\.frames\)/);
   assert.match(api, /humanVideoOpticalCampaignStore\.completeWithReview/);
   assert.match(api, /humanVideoOpticalCampaignStore\.progress/);
+  assert.match(api, /isRepairableLegacyOpticalReview/);
+  assert.match(api, /matchesLegacyOpticalRepairTarget/);
+  assert.match(api, /expectedRevision: matchingRepairTarget \? job\.repair\.priorRevision : 0/);
   assert.match(api, /humanVideoFrameCatalog\.attachMediaDashboard/);
   assert.match(api, /resolveTrustedHumanVideoCatalogFrameUri/);
   assert.doesNotMatch(api, /agentReview: video\.agentReview \|\| null/);

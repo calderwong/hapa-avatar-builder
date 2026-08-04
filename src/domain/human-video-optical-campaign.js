@@ -118,6 +118,7 @@ export function normalizeHumanVideoOpticalCampaignJob(input = {}) {
     videoId: clean(input.videoId, 360),
     videoName: clean(input.videoName, 800),
     videoIdentity: normalizeVideoIdentity(input.videoIdentity),
+    repair: normalizeRepair(input.repair),
     qualityCalibration: normalizeQualityCalibration(input.qualityCalibration),
     workerConfiguration: normalizeWorkerConfiguration(input.workerConfiguration),
     frameDigest,
@@ -511,6 +512,20 @@ function normalizeVideoIdentity(input = {}) {
     uri: clean(input.uri, 2_000),
     sourcePath: clean(input.sourcePath, 4_500),
   };
+}
+
+function normalizeRepair(input = null) {
+  if (!input || typeof input !== "object" || Array.isArray(input)) return { priorReviewId: "", priorRevision: 0, reason: "" };
+  const repair = {
+    priorReviewId: clean(input.priorReviewId, 5_000),
+    priorRevision: nonNegative(input.priorRevision),
+    reason: clean(input.reason, 240),
+  };
+  if (!repair.priorReviewId && !repair.priorRevision && !repair.reason) return repair;
+  if (!repair.priorReviewId || repair.priorRevision < 1) {
+    throw campaignError("optical_campaign_repair_target_invalid", "A repair job requires one prior optical review ID and positive revision.");
+  }
+  return repair;
 }
 
 function normalizeQualityCalibration(input = {}) {

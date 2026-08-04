@@ -3990,6 +3990,7 @@ async function route(req, res) {
       const limit = Math.max(1, Math.min(2_000, Math.trunc(Number(body.limit || 100) || 100)));
       const scanLimit = Math.max(limit, Math.min(10_000, Math.trunc(Number(body.scanLimit || Math.max(limit, Math.min(2_000, limit * 10))) || limit)));
       const rescan = body.rescan === true;
+      const repairOnly = body.repairOnly === true;
       const dashboard = await buildHumanVideoEnricherDashboard();
       const currentStore = await humanVideoOpticalCampaignStore.read();
       const currentReviewStore = await humanVideoAgentReviewStore.read();
@@ -4006,12 +4007,14 @@ async function route(req, res) {
         limit,
         scanLimit,
         afterVideoKey: rescan ? "" : currentStore.planning.lastScannedVideoKey,
+        repairOnly,
       });
       const enqueued = [];
       for (const job of prepared.jobs) {
         const result = await humanVideoOpticalCampaignStore.enqueueIf({ ...job, workerConfiguration: configuration }, async () => {
           const reviewStore = await humanVideoAgentReviewStore.read();
-          return !reviewStore.reviews.some((review) => review.videoKey === job.videoKey);
+          const currentReview = reviewStore.reviews.find((review) => review.videoKey === job.videoKey) || null;
+          return !currentReview || isRepairableLegacyOpticalReview(currentReview);
         });
         if (result.created) enqueued.push(result.job);
       }
@@ -4035,7 +4038,7 @@ async function route(req, res) {
       const store = await humanVideoOpticalCampaignStore.read();
       const reviewStore = await humanVideoAgentReviewStore.read();
       res.setHeader("Cache-Control", "no-store");
-      sendJson(res, 200, { ok: true, ...summarizeHumanVideoOpticalCampaign(store, { reviewCoverage: summarizeHumanVideoOpticalReviewCoverage(reviewStore.reviews, store.planning.knownVideos) }), plan: { requested: limit, scanLimit, rescan, scanned: prepared.scanned, enqueued: enqueued.length, deferredMissingFrames: prepared.deferredMissingFrames, deferredMissingFiles: prepared.deferredMissingFiles, lastScannedVideoKey: prepared.lastScannedVideoKey, scanExhausted: prepared.scanExhausted, eligibleCandidates: prepared.eligibleCandidates } });
+      sendJson(res, 200, { ok: true, ...summarizeHumanVideoOpticalCampaign(store, { reviewCoverage: summarizeHumanVideoOpticalReviewCoverage(reviewStore.reviews, store.planning.knownVideos) }), plan: { requested: limit, scanLimit, rescan, repairOnly, scanned: prepared.scanned, enqueued: enqueued.length, deferredMissingFrames: prepared.deferredMissingFrames, deferredMissingFiles: prepared.deferredMissingFiles, lastScannedVideoKey: prepared.lastScannedVideoKey, scanExhausted: prepared.scanExhausted, eligibleCandidates: prepared.eligibleCandidates } });
     } catch (error) {
       sendJson(res, Number(error?.statusCode || 400), { ok: false, error: error?.code || "optical_campaign_plan_failed", message: error?.message || String(error), details: error?.details || null });
     }
@@ -4165,7 +4168,8 @@ async function route(req, res) {
         throw error;
       }
       const matchingPreparedReview = matchesPreparedHumanVideoOpticalReview(video.agentReview, job) ? video.agentReview : null;
-      if (video.agentReview && !matchingPreparedReview) {
+      const matchingRepairTarget = matchesLegacyOpticalRepairTarget(video.agentReview, job) ? video.agentReview : null;
+      if (video.agentReview && !matchingPreparedReview && !matchingRepairTarget) {
         const error = new Error("This video already has a different optical review.");
         error.code = "optical_campaign_review_already_exists";
         error.statusCode = 409;
@@ -4185,18 +4189,21 @@ async function route(req, res) {
       }
       const now = new Date().toISOString();
       const workerConfiguration = job.workerConfiguration;
-      const baseReviewInput = createHumanVideoOpticalReviewFromClaim(job, body.rawWorkerResult || body.result || body, {
-        campaignId: workerConfiguration.campaignId,
-        workerId: leaseInput.workerId,
-        taskId: leaseInput.workerId,
-        model: workerConfiguration.model,
-        reasoningEffort: workerConfiguration.reasoningEffort,
-        parameters: { promptVersion: workerConfiguration.promptVersion, pass: "vision-only" },
-        submittedAt: now,
-        telemetryStatus: job.schedulerTelemetry.status,
-        telemetrySource: job.schedulerTelemetry.source,
-        sessionId: job.schedulerTelemetry.sessionId,
-      });
+      const baseReviewInput = {
+        ...createHumanVideoOpticalReviewFromClaim(job, body.rawWorkerResult || body.result || body, {
+          campaignId: workerConfiguration.campaignId,
+          workerId: leaseInput.workerId,
+          taskId: leaseInput.workerId,
+          model: workerConfiguration.model,
+          reasoningEffort: workerConfiguration.reasoningEffort,
+          parameters: { promptVersion: workerConfiguration.promptVersion, pass: "vision-only" },
+          submittedAt: now,
+          telemetryStatus: job.schedulerTelemetry.status,
+          telemetrySource: job.schedulerTelemetry.source,
+          sessionId: job.schedulerTelemetry.sessionId,
+        }),
+        expectedRevision: matchingRepairTarget ? job.repair.priorRevision : 0,
+      };
       const resultDigest = humanVideoOpticalResultDigest({ ...baseReviewInput, videoIdentity: job.videoIdentity });
       let preparedJob = null;
       let reviewResult = null;
@@ -7376,6 +7383,9 @@ async function prepareHumanVideoOpticalCampaignPlan(dashboard, campaignStore, op
     afterVideoKey: options.afterVideoKey,
     jobLimit: limit,
     scanLimit: options.scanLimit,
+    needsReview: (video) => options.repairOnly
+      ? isRepairableLegacyOpticalReview(video.agentReview)
+      : !video.agentReview || isRepairableLegacyOpticalReview(video.agentReview),
     prepare: async (video) => {
       const registeredFrames = video.sourceMetadata?.registeredFrames || [];
       if (!requiredOpticalFrames(registeredFrames)) return { deferred: "missing-frames" };
@@ -7395,6 +7405,11 @@ async function prepareHumanVideoOpticalCampaignPlan(dashboard, campaignStore, op
           },
           frames,
           qualityCalibration: dashboard.qualityCalibration,
+          repair: isRepairableLegacyOpticalReview(video.agentReview) ? {
+            priorReviewId: video.agentReview.id,
+            priorRevision: video.agentReview.revision,
+            reason: "legacy-noncompliant-optical-review",
+          } : null,
         },
       };
     },
@@ -7477,6 +7492,25 @@ function isPerFramePaletteCompliantOpticalReview(review = {}) {
   });
 }
 
+function isRepairableLegacyOpticalReview(review = null) {
+  return Boolean(
+    review
+    && review.status === "pending-human"
+    && !review.humanDecision
+    && !review.reviewer?.schedulerReceipt?.jobId
+    && !isPerFramePaletteCompliantOpticalReview(review)
+  );
+}
+
+function matchesLegacyOpticalRepairTarget(review, job) {
+  return Boolean(
+    isRepairableLegacyOpticalReview(review)
+    && job?.repair?.priorReviewId
+    && review.id === job.repair.priorReviewId
+    && Number(review.revision) === Number(job.repair.priorRevision)
+  );
+}
+
 function opticalCampaignWorkerPacket(job) {
   const configuration = job.workerConfiguration;
   return {
@@ -7492,6 +7526,12 @@ function opticalCampaignWorkerPacket(job) {
     frameDigest: job.frameDigest,
     frames: job.frames,
     qualityCalibration: job.qualityCalibration,
+    repair: job.repair?.priorReviewId ? {
+      required: true,
+      priorReviewId: job.repair.priorReviewId,
+      priorRevision: job.repair.priorRevision,
+      reason: job.repair.reason,
+    } : null,
     requestedModel: configuration.model,
     reasoningEffort: configuration.reasoningEffort,
     promptVersion: configuration.promptVersion,
