@@ -12,6 +12,7 @@ import {
   buildEchoRecordDirectorWarmSurfaces,
   buildEchoRecordVisualSurfaces,
   buildLocalEchoRecordCardProjection,
+  clearEchoRecordGardenPersistedItems,
   echoRecordPerspectiveToken,
   echoRecordVideoPlaybackPlan,
   echoRecordVinylSpinRadians,
@@ -1151,6 +1152,62 @@ test("v2 garden snapshots preserve full crate, surface, spatial, and interrupted
     error: "The previous Card request was interrupted. Retry from the same visual.",
     recoverable: true,
   });
+});
+
+test("clearing persisted scene items keeps browsing preferences and source selections", () => {
+  const cleared = clearEchoRecordGardenPersistedItems({
+    schemaVersion: ECHO_RECORD_GARDEN_SNAPSHOT_SCHEMA,
+    selection: {
+      selectedSongId: "echo-song-two",
+      placedSongId: "echo-song-one",
+      selectedVisualId: "echo-surface:two",
+    },
+    catalog: {
+      query: "porch light",
+      perspective: "blue",
+      sort: "title",
+      cratePage: 2,
+      crateOrder: ["echo-song-two", "echo-song-one"],
+    },
+    playback: { seconds: 31.5, muted: false },
+    scene: {
+      surfacePage: 3,
+      surfaceSongId: "echo-song-one",
+      camera: {
+        position: [2, 4, 7],
+        target: [0, 0.8, -1],
+      },
+      recordTransforms: {
+        "echo-song-one": {
+          position: [1.2, 0.82, -0.7],
+          rotation: [0, 0.2, 0],
+          manipulated: true,
+        },
+      },
+      printedCards: [{ id: "card-scene-print", title: "Scene print" }],
+    },
+    cardJob: {
+      status: "resolving",
+      visualId: "echo-surface:two",
+      songId: "echo-song-two",
+    },
+  });
+
+  assert.equal(cleared.selectedSongId, "echo-song-two");
+  assert.equal(cleared.selectedVisualId, "echo-surface:two");
+  assert.equal(cleared.query, "porch light");
+  assert.equal(cleared.perspective, "blue");
+  assert.equal(cleared.sort, "title");
+  assert.equal(cleared.cratePage, 2);
+  assert.deepEqual(cleared.crateOrder, ["echo-song-two", "echo-song-one"]);
+  assert.equal(cleared.surfacePage, 3);
+  assert.deepEqual(cleared.camera.position, [2, 4, 7]);
+  assert.equal(cleared.muted, false);
+  assert.equal(cleared.placedSongId, "");
+  assert.equal(cleared.playbackSeconds, 0);
+  assert.deepEqual(cleared.recordTransforms, {});
+  assert.deepEqual(cleared.printedCards, []);
+  assert.equal(cleared.cardJob, null);
 });
 
 test("snapshot reconciliation removes stale IDs without reordering current records", () => {

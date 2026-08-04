@@ -1908,6 +1908,18 @@ export function normalizeEchoRecordGardenSnapshot(value = {}) {
   };
 }
 
+export function clearEchoRecordGardenPersistedItems(value = {}) {
+  const snapshot = normalizeEchoRecordGardenSnapshot(value);
+  return {
+    ...snapshot,
+    placedSongId: "",
+    playbackSeconds: 0,
+    recordTransforms: {},
+    printedCards: [],
+    cardJob: null,
+  };
+}
+
 export function reconcileEchoRecordGardenSnapshot(value = {}, {
   recordIds,
   visualIds,

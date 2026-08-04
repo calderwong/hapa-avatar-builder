@@ -39,6 +39,19 @@ test("Record Garden exposes a stable, accessible smoke contract", () => {
   assert.match(component, /aria-live="polite"/);
 });
 
+test("Record Garden visibly clears persisted 3D items without deleting source records", () => {
+  assert.match(component, /data-testid="echo-record-clear-items"/);
+  assert.match(component, /Clear 3D items/);
+  assert.match(component, /disabled=\{!persistedSceneItemCount \|\| captureLocked\}/);
+  assert.match(component, /clearEchoRecordGardenPersistedItems\(captureGardenPreferences\(\)\)/);
+  assert.match(component, /writeGardenPreferences\(clearedPreferences\)/);
+  assert.match(component, /recordTransformsRef\.current = \{\}/);
+  assert.match(component, /setPrintedCards\(\[\]\)/);
+  assert.match(component, /setSceneRevision\(\(revision\) => revision \+ 1\)/);
+  assert.match(component, /Source records and cards stay in their libraries/);
+  assert.match(component, /Clear filters/);
+});
+
 test("album data stays bounded, uses one cinematic preview, and keeps selected-record detail race safe", () => {
   assert.match(component, /const SCREEN_COUNT = 1/);
   assert.match(

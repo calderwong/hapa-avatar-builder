@@ -23398,6 +23398,16 @@ h1 {
   min-width: 98px !important;
 }
 
+.echo-record-clear-items {
+  border-color: rgba(255, 176, 186, .34) !important;
+  color: #ffb0ba !important;
+}
+
+.echo-record-clear-items:not(:disabled):is(:hover, :focus-visible) {
+  border-color: rgba(255, 176, 186, .74) !important;
+  box-shadow: 0 0 18px rgba(255, 105, 135, .16);
+}
+
 .echo-record-scrubber {
   flex: 1 1 240px;
   min-width: 90px;
@@ -24110,6 +24120,12 @@ h1 {
   .echo-record-transport .hapa-btn svg {
     width: 17px;
     height: 17px;
+  }
+
+  .echo-record-transport .hapa-btn.echo-record-clear-items {
+    min-width: 108px;
+    padding-inline: 10px;
+    font-size: 8px;
   }
 
   .echo-record-scrubber {

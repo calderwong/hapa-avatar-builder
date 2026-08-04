@@ -18,6 +18,7 @@ import {
   Search,
   Sparkles,
   Square,
+  Trash2,
   Volume2,
   VolumeX,
 } from "lucide-react";
@@ -58,6 +59,7 @@ import {
   ECHO_RECORD_GARDEN_SNAPSHOT_SCHEMA,
   buildEchoRecordDirectorWarmSurfaces,
   buildEchoRecordVisualSurfaces,
+  clearEchoRecordGardenPersistedItems,
   echoRecordPerspectiveToken,
   echoRecordVideoPlaybackPlan,
   echoRecordVinylSpinRadians,
@@ -3289,6 +3291,59 @@ export default function EchoRecordGarden3DView({
     setNotice(`${recordBySongId.get(songId)?.title || "Record"} lifted from the player; playback stopped.`);
   }, [captureLocked, placedRecordId, recordBySongId, stopHoverPreview]);
 
+  const persistedRecordItemCount = new Set([
+    ...Object.keys(recordTransforms),
+    ...(placedRecordId ? [placedRecordId] : []),
+  ]).size;
+  const persistedSceneItemCount = persistedRecordItemCount + printedCards.length;
+  const clearPersistedSceneItems = useCallback(() => {
+    const recordItemCount = new Set([
+      ...Object.keys(recordTransformsRef.current),
+      ...(placedRecordId ? [placedRecordId] : []),
+    ]).size;
+    const printedCardCount = printedCards.length;
+    const itemCount = recordItemCount + printedCardCount;
+    if (!itemCount) {
+      setNotice("The saved 3D scene is already clear.");
+      return;
+    }
+    const confirmed = globalThis.confirm?.(
+      `Clear ${itemCount} saved 3D item${itemCount === 1 ? "" : "s"}? Moved records will return to their starting positions and printed cards will leave the scene. Source records and cards stay in their libraries.`,
+    );
+    if (confirmed === false) return;
+
+    stopHoverPreview();
+    placementControllerRef.current?.abort();
+    placementControllerRef.current = null;
+    cardRequestGenerationRef.current += 1;
+    if (cardResolutionRef.current?.visualId) {
+      resolveVisualCard.cancelVisual?.(cardResolutionRef.current.visualId);
+    }
+    const idleCardResolution = initialCardResolution();
+    cardResolutionRef.current = idleCardResolution;
+
+    const audio = audioRef.current;
+    audio?.pause();
+    if (audio) audio.currentTime = 0;
+    setPlacedRecordId("");
+    setPlayback(initialPlaybackState());
+    setDirectorVisualClock(0);
+    recordTransformsRef.current = {};
+    setRecordTransforms({});
+    setPrintedCards([]);
+    setCardResolution(idleCardResolution);
+
+    if (persistenceTimerRef.current) {
+      globalThis.clearTimeout(persistenceTimerRef.current);
+      persistenceTimerRef.current = 0;
+    }
+    pendingPreferenceRef.current = null;
+    const clearedPreferences = clearEchoRecordGardenPersistedItems(captureGardenPreferences());
+    writeGardenPreferences(clearedPreferences);
+    setSceneRevision((revision) => revision + 1);
+    setNotice(`Cleared ${itemCount} saved 3D item${itemCount === 1 ? "" : "s"}. Source records and cards were not deleted.`);
+  }, [captureGardenPreferences, placedRecordId, printedCards, resolveVisualCard, stopHoverPreview]);
+
   useEffect(() => () => {
     if (hoverPreviewTimerRef.current) globalThis.clearTimeout(hoverPreviewTimerRef.current);
   }, []);
@@ -3802,6 +3857,18 @@ export default function EchoRecordGarden3DView({
             Reset view
           </button>
           <button
+            className="hapa-btn echo-record-clear-items"
+            data-testid="echo-record-clear-items"
+            type="button"
+            onClick={clearPersistedSceneItems}
+            disabled={!persistedSceneItemCount || captureLocked}
+            aria-label={`Clear ${persistedSceneItemCount} saved 3D item${persistedSceneItemCount === 1 ? "" : "s"} from the Echo Garden scene`}
+            title="Remove moved records and printed cards from the saved 3D scene"
+          >
+            <Trash2 size={14} />
+            Clear 3D items
+          </button>
+          <button
             className="hapa-btn echo-record-eject"
             type="button"
             onClick={ejectRecord}
@@ -3865,7 +3932,7 @@ export default function EchoRecordGarden3DView({
             onClick={clearCrateFilters}
             disabled={!query && perspective === "all"}
           >
-            Clear
+            Clear filters
           </button>
           <button
             type="button"
