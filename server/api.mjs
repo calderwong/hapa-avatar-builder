@@ -102,6 +102,7 @@ import {
   openHumanVideoFrameCatalog,
   resolveTrustedHumanVideoCatalogFrameUri,
 } from "./human-video-frame-catalog.mjs";
+import { scanHumanVideoOpticalCandidates } from "./human-video-optical-planner.mjs";
 import { ByteBoundedLruCache } from "./byte-bounded-lru-cache.mjs";
 import { saveEchoRecordGardenAcceptanceReceipt } from "./echo-record-garden-acceptance-store.mjs";
 import {
@@ -3987,42 +3988,54 @@ async function route(req, res) {
     try {
       const body = await readBody(req);
       const limit = Math.max(1, Math.min(2_000, Math.trunc(Number(body.limit || 100) || 100)));
+      const scanLimit = Math.max(limit, Math.min(10_000, Math.trunc(Number(body.scanLimit || Math.max(limit, Math.min(2_000, limit * 10))) || limit)));
+      const rescan = body.rescan === true;
       const dashboard = await buildHumanVideoEnricherDashboard();
       const currentStore = await humanVideoOpticalCampaignStore.read();
       const currentReviewStore = await humanVideoAgentReviewStore.read();
       const currentReviewCoverage = summarizeHumanVideoOpticalReviewCoverage(currentReviewStore.reviews, dashboard.summary.videos);
-      const prepared = await prepareHumanVideoOpticalCampaignPlan(dashboard, currentStore, { limit });
-      await humanVideoOpticalCampaignStore.plan({
-        configuration: {
-          campaignId: String(body.campaignId || currentStore.configuration.campaignId || "human-enricher-optical-terra-medium"),
-          model: String(body.model || currentStore.configuration.model || "gpt-5.6-terra"),
-          reasoningEffort: String(body.effort || body.reasoningEffort || currentStore.configuration.reasoningEffort || "medium"),
-          maxActiveWorkers: Math.max(1, Math.min(3, Math.trunc(Number(body.maxWorkers || body.maxActiveWorkers || 3) || 3))),
-          leaseMs: Math.max(60_000, Math.min(3_600_000, Math.trunc(Number(body.leaseMs || currentStore.configuration.leaseMs || 900_000) || 900_000))),
-          promptVersion: "human-enricher-optical-v2",
-        },
-        planning: {
-          knownVideos: dashboard.summary.videos,
-          remainingOpticalReviews: currentReviewCoverage.knownVideos - currentReviewCoverage.opticalComplete,
-          scanned: currentStore.planning.scanned + prepared.scanned,
-          lastBatchScanned: prepared.scanned,
-          frameReadyPlanned: currentStore.planning.frameReadyPlanned + prepared.jobs.length,
-          deferredMissingFrames: currentStore.planning.deferredMissingFrames + prepared.deferredMissingFrames,
-          deferredMissingFiles: currentStore.planning.deferredMissingFiles + prepared.deferredMissingFiles,
-        },
+      const configuration = {
+        campaignId: String(body.campaignId || currentStore.configuration.campaignId || "human-enricher-optical-terra-medium"),
+        model: String(body.model || currentStore.configuration.model || "gpt-5.6-terra"),
+        reasoningEffort: String(body.effort || body.reasoningEffort || currentStore.configuration.reasoningEffort || "medium"),
+        maxActiveWorkers: Math.max(1, Math.min(3, Math.trunc(Number(body.maxWorkers || body.maxActiveWorkers || 3) || 3))),
+        leaseMs: Math.max(60_000, Math.min(3_600_000, Math.trunc(Number(body.leaseMs || currentStore.configuration.leaseMs || 900_000) || 900_000))),
+        promptVersion: "human-enricher-optical-v2",
+      };
+      const prepared = await prepareHumanVideoOpticalCampaignPlan(dashboard, currentStore, {
+        limit,
+        scanLimit,
+        afterVideoKey: rescan ? "" : currentStore.planning.lastScannedVideoKey,
       });
       const enqueued = [];
       for (const job of prepared.jobs) {
-        const result = await humanVideoOpticalCampaignStore.enqueueIf(job, async () => {
+        const result = await humanVideoOpticalCampaignStore.enqueueIf({ ...job, workerConfiguration: configuration }, async () => {
           const reviewStore = await humanVideoAgentReviewStore.read();
           return !reviewStore.reviews.some((review) => review.videoKey === job.videoKey);
         });
         if (result.created) enqueued.push(result.job);
       }
+      const postEnqueueStore = await humanVideoOpticalCampaignStore.read();
+      await humanVideoOpticalCampaignStore.plan({
+        configuration,
+        planning: {
+          knownVideos: dashboard.summary.videos,
+          remainingOpticalReviews: currentReviewCoverage.knownVideos - currentReviewCoverage.opticalComplete,
+          scanned: (rescan ? 0 : currentStore.planning.scanned) + prepared.scanned,
+          lastBatchScanned: prepared.scanned,
+          scanGeneration: Math.max(1, currentStore.planning.scanGeneration + (rescan ? 1 : 0)),
+          lastScannedVideoKey: prepared.lastScannedVideoKey,
+          scanExhausted: prepared.scanExhausted,
+          eligibleCandidates: prepared.eligibleCandidates,
+          frameReadyPlanned: postEnqueueStore.jobs.length,
+          deferredMissingFrames: (rescan ? 0 : currentStore.planning.deferredMissingFrames) + prepared.deferredMissingFrames,
+          deferredMissingFiles: (rescan ? 0 : currentStore.planning.deferredMissingFiles) + prepared.deferredMissingFiles,
+        },
+      });
       const store = await humanVideoOpticalCampaignStore.read();
       const reviewStore = await humanVideoAgentReviewStore.read();
       res.setHeader("Cache-Control", "no-store");
-      sendJson(res, 200, { ok: true, ...summarizeHumanVideoOpticalCampaign(store, { reviewCoverage: summarizeHumanVideoOpticalReviewCoverage(reviewStore.reviews, store.planning.knownVideos) }), plan: { requested: limit, scanned: prepared.scanned, enqueued: enqueued.length, deferredMissingFrames: prepared.deferredMissingFrames, deferredMissingFiles: prepared.deferredMissingFiles } });
+      sendJson(res, 200, { ok: true, ...summarizeHumanVideoOpticalCampaign(store, { reviewCoverage: summarizeHumanVideoOpticalReviewCoverage(reviewStore.reviews, store.planning.knownVideos) }), plan: { requested: limit, scanLimit, rescan, scanned: prepared.scanned, enqueued: enqueued.length, deferredMissingFrames: prepared.deferredMissingFrames, deferredMissingFiles: prepared.deferredMissingFiles, lastScannedVideoKey: prepared.lastScannedVideoKey, scanExhausted: prepared.scanExhausted, eligibleCandidates: prepared.eligibleCandidates } });
     } catch (error) {
       sendJson(res, Number(error?.statusCode || 400), { ok: false, error: error?.code || "optical_campaign_plan_failed", message: error?.message || String(error), details: error?.details || null });
     }
@@ -7357,40 +7370,35 @@ function paginateHumanVideoAgentReviewQueue(dashboard, searchParams) {
 async function prepareHumanVideoOpticalCampaignPlan(dashboard, campaignStore, options = {}) {
   const limit = Math.max(1, Math.min(2_000, Math.trunc(Number(options.limit || 100) || 100)));
   const existingVideoKeys = new Set((campaignStore.jobs || []).map((job) => job.videoKey));
-  const candidates = dashboard.videos.filter((video) => !video.agentReview && !existingVideoKeys.has(video.humanVideoKey));
-  const jobs = [];
-  let scanned = 0;
-  let deferredMissingFrames = 0;
-  let deferredMissingFiles = 0;
-  for (const video of candidates) {
-    if (jobs.length >= limit) break;
-    scanned += 1;
-    const registeredFrames = video.sourceMetadata?.registeredFrames || [];
-    if (!requiredOpticalFrames(registeredFrames)) {
-      deferredMissingFrames += 1;
-      continue;
-    }
-    const frames = await prepareHumanVideoOpticalFrameSet(video);
-    if (!frames) {
-      deferredMissingFiles += 1;
-      continue;
-    }
-    jobs.push({
-      videoKey: video.humanVideoKey,
-      videoId: video.id,
-      videoName: video.name,
-      videoIdentity: {
-        recordId: video.id,
-        assetId: video.assetId || "",
-        contentFingerprint: video.contentFingerprint || "",
-        uri: video.uri || "",
-        sourcePath: video.sourcePath || "",
-      },
-      frames,
-      qualityCalibration: dashboard.qualityCalibration,
-    });
-  }
-  return { jobs, scanned, deferredMissingFrames, deferredMissingFiles };
+  return scanHumanVideoOpticalCandidates({
+    videos: dashboard.videos,
+    existingVideoKeys,
+    afterVideoKey: options.afterVideoKey,
+    jobLimit: limit,
+    scanLimit: options.scanLimit,
+    prepare: async (video) => {
+      const registeredFrames = video.sourceMetadata?.registeredFrames || [];
+      if (!requiredOpticalFrames(registeredFrames)) return { deferred: "missing-frames" };
+      const frames = await prepareHumanVideoOpticalFrameSet(video);
+      if (!frames) return { deferred: "missing-files" };
+      return {
+        job: {
+          videoKey: video.humanVideoKey,
+          videoId: video.id,
+          videoName: video.name,
+          videoIdentity: {
+            recordId: video.id,
+            assetId: video.assetId || "",
+            contentFingerprint: video.contentFingerprint || "",
+            uri: video.uri || "",
+            sourcePath: video.sourcePath || "",
+          },
+          frames,
+          qualityCalibration: dashboard.qualityCalibration,
+        },
+      };
+    },
+  });
 }
 
 async function prepareHumanVideoOpticalFrameSet(video = {}) {
