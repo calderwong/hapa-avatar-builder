@@ -7492,6 +7492,7 @@ function isTerminalInvalidMediaReview(review = null) {
 async function isTerminalInvalidMediaVideo(video = null) {
   const frames = Array.isArray(video?.sourceMetadata?.registeredFrames) ? video.sourceMetadata.registeredFrames : [];
   const sizeBytes = Number(video?.sizeBytes);
+  const declaredUnreadable = String(video?.sourceMetadata?.technicalStatus || "").toLowerCase() === "unreadable";
   const sourcePath = String(video?.sourceMetadata?.storage?.path || video?.sourcePath || "").trim();
   if (!sourcePath) return false;
   const sourceStat = await stat(path.resolve(sourcePath)).catch(() => null);
@@ -7503,7 +7504,7 @@ async function isTerminalInvalidMediaVideo(video = null) {
     && sizeBytes < 1_024
     && sourceStat?.isFile()
     && sourceStat.size === sizeBytes
-    && !(Number(video.duration) > 0)
+    && (!(Number(video.duration) > 0) || declaredUnreadable)
     && !(Number(video.width) > 0)
     && !(Number(video.height) > 0)
   );
