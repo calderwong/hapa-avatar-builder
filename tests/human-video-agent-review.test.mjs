@@ -255,6 +255,8 @@ test("UI, API, CLI, and node discovery expose optical and bounded Reference Atla
   assert.match(api, /frameManifestsEqual\(currentFrames, job\.frames\)/);
   assert.match(api, /humanVideoOpticalCampaignStore\.completeWithReview/);
   assert.match(api, /humanVideoOpticalCampaignStore\.progress/);
+  assert.match(api, /humanVideoFrameCatalog\.attachMediaDashboard/);
+  assert.match(api, /resolveTrustedHumanVideoCatalogFrameUri/);
   assert.doesNotMatch(api, /agentReview: video\.agentReview \|\| null/);
   assert.match(api, /leaseId: job\.lease\.leaseId/);
   assert.match(api, /optical_campaign_telemetry_required/);

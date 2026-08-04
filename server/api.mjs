@@ -98,6 +98,10 @@ import {
   createRoomletTarotInvite
 } from "./roomletInvite.mjs";
 import { fileStreamTelemetry, streamFileToResponse } from "./file-serving.mjs";
+import {
+  openHumanVideoFrameCatalog,
+  resolveTrustedHumanVideoCatalogFrameUri,
+} from "./human-video-frame-catalog.mjs";
 import { ByteBoundedLruCache } from "./byte-bounded-lru-cache.mjs";
 import { saveEchoRecordGardenAcceptanceReceipt } from "./echo-record-garden-acceptance-store.mjs";
 import {
@@ -502,6 +506,10 @@ const HUMAN_VIDEO_OPTICAL_CAMPAIGN_PATH = process.env.HAPA_HUMAN_VIDEO_OPTICAL_C
 const HUMAN_VIDEO_OPTICAL_CAMPAIGN_EVENT_PATH = process.env.HAPA_HUMAN_VIDEO_OPTICAL_CAMPAIGN_EVENTS || path.join(ROOT, "data/human-video-optical-campaign-events.ndjson");
 const HUMAN_VIDEO_REFERENCE_REVIEW_PATH = process.env.HAPA_HUMAN_VIDEO_REFERENCE_REVIEW_STORE || path.join(ROOT, "data/human-video-reference-reviews.json");
 const HUMAN_VIDEO_REFERENCE_REVIEW_EVENT_PATH = process.env.HAPA_HUMAN_VIDEO_REFERENCE_REVIEW_EVENTS || path.join(ROOT, "data/human-video-reference-review-events.ndjson");
+const HUMAN_VIDEO_FRAME_CATALOG_PATH = process.env.HAPA_HUMAN_VIDEO_FRAME_CATALOG
+  || path.join(ROOT, "artifacts/echo-video-enrichment-v1/catalog.sqlite3");
+const HUMAN_VIDEO_FRAME_ROOT = process.env.HAPA_HUMAN_VIDEO_FRAME_ROOT
+  || path.join(ROOT, "artifacts/echo-video-enrichment-v1/frames");
 const ITEM_STORE_PATH = process.env.HAPA_ITEM_STORE || path.join(ROOT, "data/item-manager-store.json");
 const INVENTORY_STORE_PATH = process.env.HAPA_INVENTORY_STORE || path.join(ROOT, "data/inventory-store.json");
 const HAPA_DEV_PROTO_DB_PATH = process.env.HAPA_DEV_PROTO_DB || path.join(process.env.HOME || "/Users/calderwong", "Library", "Application Support", "hapa-ag", "persistence.db");
@@ -522,6 +530,10 @@ const humanVideoOpticalCampaignStore = openHumanVideoOpticalCampaignStore({
 const humanVideoReferenceReviewStore = openHumanVideoReferenceReviewStore({
   filePath: HUMAN_VIDEO_REFERENCE_REVIEW_PATH,
   eventPath: HUMAN_VIDEO_REFERENCE_REVIEW_EVENT_PATH,
+});
+const humanVideoFrameCatalog = openHumanVideoFrameCatalog({
+  databasePath: HUMAN_VIDEO_FRAME_CATALOG_PATH,
+  frameRoot: HUMAN_VIDEO_FRAME_ROOT,
 });
 
 let latestTarotFrame = null;
@@ -7197,7 +7209,7 @@ async function buildHumanVideoEnricherDashboard() {
     readHapaSongStore(),
     readItemStore(),
   ]);
-  const mediaDashboard = createSystemMediaDashboard({
+  const sourceMediaDashboard = createSystemMediaDashboard({
     avatars: avatarStore.avatars || [],
     tarotStore,
     sceneGraph,
@@ -7205,14 +7217,16 @@ async function buildHumanVideoEnricherDashboard() {
     itemStore,
     songStore,
   });
-  return createHumanVideoEnricherDashboard({
-    mediaDashboard,
+  const frameCatalogProjection = humanVideoFrameCatalog.attachMediaDashboard(sourceMediaDashboard);
+  const dashboard = createHumanVideoEnricherDashboard({
+    mediaDashboard: frameCatalogProjection.dashboard,
     enrichmentStore,
     agentReviewStore,
     referenceReviewStore,
     avatars: canonicalAvatarStore.avatars || [],
     songs: songStore.songs || [],
   });
+  return { ...dashboard, frameCatalog: frameCatalogProjection.receipt };
 }
 
 async function buildHumanVideoReferenceCardPacketSnapshot(options = {}) {
@@ -7416,8 +7430,10 @@ function requiredOpticalFrames(framesInput = []) {
 
 function resolveHumanVideoOpticalFramePath(uri = "") {
   const value = String(uri || "").trim();
-  if (!value.startsWith("/media/") || value.includes("..")) return "";
-  return path.join(ROOT, "data", value.replace(/^\/+/, ""));
+  if (value.startsWith("/media/") && !value.includes("..")) {
+    return path.join(ROOT, "data", value.replace(/^\/+/, ""));
+  }
+  return resolveTrustedHumanVideoCatalogFrameUri(value, HUMAN_VIDEO_FRAME_ROOT);
 }
 
 function summarizeHumanVideoOpticalReviewCoverage(reviewsInput = [], knownVideos = 0) {
