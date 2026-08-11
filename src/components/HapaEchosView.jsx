@@ -1543,6 +1543,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
 
   const [directorProjects, setDirectorProjects] = useState([]);
   const [selectedProjectSongId, setSelectedProjectSongId] = useState(null);
+  const selectedProjectSongIdRef = useRef("");
   const [selectedDirectionVariantId, setSelectedDirectionVariantId] = useState("legacy");
   const directionSelectionPreferenceRef = useRef("auto-latest");
   const latestDirectionHydrationKeyRef = useRef("");
@@ -3395,6 +3396,12 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
     return true;
   };
 
+  const commitSelectedProjectSongId = (songId) => {
+    const nextSongId = String(songId || "").trim();
+    selectedProjectSongIdRef.current = nextSongId;
+    setSelectedProjectSongId(nextSongId || null);
+  };
+
   const fetchProjectDetail = async (songId, variantId = "", options = {}) => {
     if (!songId) return;
     const requestPriority = options.priority === "foreground" ? 1 : 0;
@@ -3473,12 +3480,14 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
   const handleSelectDirectorProjectSong = async (songId) => {
     if (!songId || directorEditingLocked || directorHasUnsavedChanges) return;
     if (songId === selectedProjectSongId && activeProjectHasDetail) return;
-    setEchoOperationNotice("Loading that song's timeline and saved editing graph…");
+    commitSelectedProjectSongId(songId);
+    setEchoOperationNotice("Track selected. Loading its timeline and saved editing graph…");
     const detailResult = await fetchProjectDetail(songId, "", { commit: false, priority: "foreground" });
+    if (selectedProjectSongIdRef.current !== songId) return;
     const selection = inspectEchoDirectorProjectDetail(detailResult?.detail);
     const detailProject = selection.project;
     if (!selection.canOpen) {
-      setEchoOperationNotice("Could not load that song's timeline. The current song remains open.");
+      setEchoOperationNotice("That track remains selected, but its timeline did not finish loading. Choose it again to retry.");
       return;
     }
     if (!commitDirectorProjectDetail(detailResult.detail, detailResult.requestGeneration)) {
@@ -3494,7 +3503,6 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
       );
     }
     setDirectorHasUnsavedChanges(false);
-    setSelectedProjectSongId(songId);
     const latestSavedCut = selectLatestEchoDirectionScriptVariant(detailProject);
     setEchoOperationNotice(latestSavedCut
       ? `${detailProject.song_title || "Song"} opened. Loading its newest saved Director cut…`
@@ -3596,8 +3604,14 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
         const projectsData = await projectsRes.json();
         setDirectorProjects(projectsData);
         if (projectsData.length > 0) {
-          const nextSongId = selectedProjectSongId || projectsData[0].music_video_project.song_id;
-          setSelectedProjectSongId(nextSongId);
+          const projectSongIds = new Set(projectsData.map((row) => row.music_video_project.song_id));
+          const currentSongId = selectedProjectSongIdRef.current;
+          const nextSongId = projectSongIds.has(currentSongId)
+            ? currentSongId
+            : projectSongIds.has(selectedSongId)
+              ? selectedSongId
+              : projectsData[0].music_video_project.song_id;
+          commitSelectedProjectSongId(nextSongId);
           const selectedVariantId = directionSelectionPreferenceRef.current === "manual"
             && selectedDirectionVariantId !== "legacy"
             ? selectedDirectionVariantId
@@ -4244,6 +4258,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
   useEffect(() => {
     const latestVariantId = latestDirectionVariantSummary?.id || "";
     if (!selectedProjectSongId
+      || !activeProjectHasDetail
       || !latestVariantId
       || directionSelectionPreferenceRef.current !== "auto-latest"
       || savingProject
@@ -4301,6 +4316,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
     return () => { cancelled = true; };
   }, [
     activeDirectionVariant,
+    activeProjectHasDetail,
     directorHasUnsavedChanges,
     directionForkTransitionPending,
     latestDirectionVariantSummary?.id,
@@ -4709,7 +4725,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                 setActiveDirectoryTab("director");
                 setSearchQuery("");
                 if (directorProjects.length > 0 && !selectedProjectSongId) {
-                  setSelectedProjectSongId(directorProjects[0].music_video_project.song_id);
+                  commitSelectedProjectSongId(directorProjects[0].music_video_project.song_id);
                 }
               }}
             >

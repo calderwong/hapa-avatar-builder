@@ -61,6 +61,27 @@ test("the checked-in Director UI renders the complete filtered roster without a 
   assert.match(source, /inspectEchoDirectorProjectDetail\(detailResult\?\.detail\)/u);
 });
 
+test("track selection commits before Director detail hydration and survives a failed load", () => {
+  const source = fs.readFileSync(path.join(root, "src/components/HapaEchosView.jsx"), "utf8");
+  const handlerStart = source.indexOf("const handleSelectDirectorProjectSong = async (songId) => {");
+  const handlerEnd = source.indexOf("\n  const editableDirectionForkFromDetail", handlerStart);
+  const handler = source.slice(handlerStart, handlerEnd);
+
+  assert.ok(handlerStart >= 0 && handlerEnd > handlerStart);
+  assert.ok(
+    handler.indexOf("commitSelectedProjectSongId(songId)")
+      < handler.indexOf("await fetchProjectDetail(songId"),
+    "the clicked track must become authoritative before its heavy detail request",
+  );
+  assert.match(handler, /selectedProjectSongIdRef\.current !== songId/u);
+  assert.match(handler, /That track remains selected, but its timeline did not finish loading/u);
+  assert.doesNotMatch(handler, /setSelectedProjectSongId\(songId\)/u);
+
+  assert.match(source, /const currentSongId = selectedProjectSongIdRef\.current/u);
+  assert.match(source, /projectSongIds\.has\(currentSongId\)[\s\S]*\? currentSongId/u);
+  assert.match(source, /if \(!selectedProjectSongId\s*\|\| !activeProjectHasDetail\s*\|\| !latestVariantId/u);
+});
+
 test("a persisted timeline remains a successful save while its render graph prepares", () => {
   const source = fs.readFileSync(path.join(root, "src/components/HapaEchosView.jsx"), "utf8");
   assert.match(source, /const refreshedInspection = inspectEchoDirectorProjectDetail/u);
