@@ -139,6 +139,31 @@ function mediaOrientation(value) {
   return aspect > 1 ? "landscape" : "portrait";
 }
 
+function normalizeOpticalProposal(value = {}) {
+  const proposal = object(value);
+  const description = firstText(proposal.description);
+  const normalizedFrames = list(proposal.frames).map((frame) => {
+    const role = firstText(frame?.role).toLowerCase();
+    const colors = uniqueStrings(list(frame?.palette).map((color) => String(color || "").trim().toUpperCase()))
+      .filter((color) => /^#[A-F0-9]{6}$/u.test(color))
+      .slice(0, 5);
+    return {
+      role: role === "middle" ? "mid" : role,
+      sha256: firstText(frame?.sha256),
+      palette: colors,
+    };
+  }).filter((frame) => ["first", "mid", "last"].includes(frame.role) && frame.palette.length >= 3);
+  const byRole = new Map(normalizedFrames.map((frame) => [frame.role, frame]));
+  if (!description || !["first", "mid", "last"].every((role) => byRole.has(role))) return null;
+  return {
+    authority: firstText(proposal.authority, "pending-human optical proposal"),
+    reviewId: firstText(proposal.reviewId),
+    reviewStatus: firstText(proposal.reviewStatus, "pending-human"),
+    description,
+    frames: ["first", "mid", "last"].map((role) => byRole.get(role)),
+  };
+}
+
 function normalizedSubjectROI(...values) {
   for (const value of values) {
     const roi = object(value?.subjectROI || value?.subjectRoi || value?.subject_roi || value);
@@ -462,6 +487,7 @@ export function normalizeEchoVideoEnrichmentRow(row = {}, index = 0) {
     || row.sourcePrior?.sourceClass || row.source_prior?.sourceClass,
   );
   const title = firstText(row.title, row.name, media.title, media.name, mediaId, enrichmentId);
+  const opticalProposal = normalizeOpticalProposal(row.opticalProposal || row.optical_proposal);
   const motifs = uniqueStrings([
     ...list(row.motifs), ...list(semantic.motifs), ...list(row.tags), ...list(semantic.tags),
     ...list(recognition.tags), ...list(semantic.confidentLabels),
@@ -507,6 +533,7 @@ export function normalizeEchoVideoEnrichmentRow(row = {}, index = 0) {
     ...flattenText(semantic.references), ...flattenText(semantic.songContexts), ...flattenText(row.continuity),
     ...transitionEndpointText,
     ...motifs, ...flattenText(story), ...flattenText(lore),
+    opticalProposal?.description,
   ]);
   const sourcePolicyInput = { ...row, sourceGroup, source };
   const sourceClassification = classifySourcePrior(row, media, source, row.sourcePrior, row.provenance);
@@ -570,6 +597,7 @@ export function normalizeEchoVideoEnrichmentRow(row = {}, index = 0) {
     semanticText,
     observedVisualText,
     observedSynopsis: firstText(recognition.synopsis, recognition.arcSynopsis, recognition.arc_synopsis),
+    opticalProposal,
     canonContextText,
     referenceAnchorIds: motionRole.referenceAnchorIds,
     motionRole,
@@ -1311,6 +1339,7 @@ function candidateFromRow(row = {}) {
     semanticText: row.semanticText,
     observedVisualText: row.observedVisualText,
     observedSynopsis: row.observedSynopsis,
+    opticalProposal: clone(row.opticalProposal),
     canonContextText: row.canonContextText,
     referenceAnchorIds: clone(row.referenceAnchorIds),
     motionRole: clone(row.motionRole),
@@ -2584,6 +2613,7 @@ function compactCandidate(candidate, score) {
     enrichmentCoverage: candidate.enrichmentCoverage,
     observedSynopsis: candidate.observedSynopsis,
     observedVisualEvidence: list(candidate.observedVisualText).slice(0, 3),
+    opticalProposal: clone(candidate.opticalProposal),
     declaredSongContextIds: candidate.declaredSongContextIds,
     assignedSongIds: clone(candidate.songIds),
     referenceAnchorIds: clone(candidate.referenceAnchorIds),
@@ -2990,6 +3020,7 @@ export function compileEchoEnrichmentDirectorVariant({
       ...songMotifs.filter((motif) => tokenAffinity(motif, selected.candidate.semanticText) > 0),
     ]).slice(0, 12);
     const visibleEvidence = firstText(selected.candidate.observedSynopsis, selected.candidate.observedVisualText?.[0], selected.candidate.title);
+    const opticalPaletteDirection = clone(selected.candidate.opticalProposal || null);
     const lyricReason = lyric.status === "time-overlap"
       ? `aligns with timed lyric “${lyric.citation.text.slice(0, 72)}”`
       : lyric.citation
@@ -3014,6 +3045,7 @@ export function compileEchoEnrichmentDirectorVariant({
         : `motion/editorial utility ${selected.score.transitionBridgeUtility.toFixed(2)}`;
     const rationaleParts = [
       `selects “${selected.candidate.title}” for observed visual evidence “${visibleEvidence.slice(0, 120)}”`,
+      ...(opticalPaletteDirection ? [`uses its pending-human optical description and registered First/Mid/Last palette sequence ${opticalPaletteDirection.frames.map((frame) => `${frame.role}:${frame.palette.join("/")}`).join("; ")}`] : []),
       lyricReason,
       storyReason,
       `quality ${selected.candidate.qualityScore.toFixed(2)} / source prior ${selected.candidate.sourcePrior.toFixed(2)}`,
@@ -3049,6 +3081,7 @@ export function compileEchoEnrichmentDirectorVariant({
         sourceGroup: selected.candidate.sourceGroup,
         lowPriorEligible: selected.candidate.lowPrior,
         motionRole: selected.candidate.motionRole?.kind || "motion-clip",
+        opticalProposal: opticalPaletteDirection,
       },
       atomicTransition: reservation ? {
         role: reservation.role,
