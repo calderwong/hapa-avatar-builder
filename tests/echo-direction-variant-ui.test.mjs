@@ -53,7 +53,8 @@ test("song changes hydrate the exact newest cut before selection and manual choi
       < songChange.indexOf("setSelectedDirectionVariantId(latestVariantId)"),
     "the newest exact projection must be certified before selection changes",
   );
-  assert.match(songChange, /setWorkingDirectionFork\(editableSelection\.savedProject\?\.editor_graph_fallback/);
+  assert.match(songChange, /const usingEditorFallback = editableSelection\.savedProject\?\.editor_graph_fallback/);
+  assert.match(songChange, /setWorkingDirectionFork\(usingEditorFallback/);
   assert.doesNotMatch(songChange, /directorEditingLocked/);
   assert.match(songChange, /savingProject[\s\S]*directionForkTransitionPending[\s\S]*pendingSavedDirectionCut[\s\S]*pendingLegacyProjectSave/);
   assert.match(selector, /directionSelectionPreferenceRef\.current = "manual"/);
@@ -174,9 +175,27 @@ test("cut selection opens a safe editable fallback while exact certification is 
   assert.match(preparation, /final-render graph certifies in the background/);
   assert.match(selector, /fetchPreparedProjectDetail\(selectedProjectSongId, nextVariantId, \{[\s\S]*allowEditorFallback: true/);
   assert.match(selector, /fallbackProject: activeProject/);
+  assert.match(selector, /holdSongCardPlanForExactCutCertificate\(selectedProjectSongId, nextVariantId\)/);
   assert.match(selector, /exact final-render graph is still certifying/);
   assert.match(songChange, /fetchPreparedProjectDetail\(selectedProjectSongId, latestVariantId, \{[\s\S]*allowEditorFallback: true/);
   assert.match(songChange, /fallbackProject: activeProject/);
+  assert.match(songChange, /holdSongCardPlanForExactCutCertificate\(selectedProjectSongId, latestVariantId\)/);
+});
+
+test("saved cuts always have a deterministic editor fallback, but never use it as a render certificate", () => {
+  const helper = between("const editableDirectionForkFromDetail", "const prepareSmoothPreview");
+  const selector = between('aria-label="Direction script version"', 'aria-label="Video orientation"');
+  assert.match(helper, /director_show_graph: projectToEditorGraph\(projectedProject\)/);
+  assert.match(helper, /A cut's certificate proves that this exact graph may be rendered/);
+  assert.match(source, /const holdSongCardPlanForExactCutCertificate/);
+  assert.match(selector, /if \(usingEditorFallback\) \{[\s\S]*holdSongCardPlanForExactCutCertificate/);
+});
+
+test("the Director labels missing source lyrics instead of implying an empty overlay is available", () => {
+  assert.match(source, /const activeLyricTimingMissing = activeLyricContract\.enabled/);
+  assert.match(source, /data-testid="echo-lyrics-source-missing"/);
+  assert.match(source, /SOURCE LYRICS MISSING/);
+  assert.match(source, /will not invent lyrics/);
 });
 
 test("a freshly saved cut stays pinned to its high-quality graph while certification catches up", () => {

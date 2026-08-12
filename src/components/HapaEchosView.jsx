@@ -1771,6 +1771,8 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
   }, [activeDirectionVariant, activeStoredProject, directionWorkingForkActive, workingDirectionFork]);
   const activeOutputProfile = resolveEchoOutputProfile(activeProject);
   const activeLyricContract = normalizeEchoLyricContract(activeProject);
+  const activeLyricTimingMissing = activeLyricContract.enabled
+    && !(Array.isArray(activeProject?.timed_lyrics) && activeProject.timed_lyrics.length);
   const activeShowGraph = useMemo(() => (
     activeProject?.director_show_graph?.tracks ? projectToEditorGraph(activeProject) : null
   ), [activeProject]);
@@ -3536,7 +3538,18 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
     ));
     if (!project || !variant) return null;
     const projectedProject = attachEchoOutputProfile(deriveEchoDirectionVariantProject(project, variant));
-    const fallbackProject = options.fallbackProject;
+    // A cut's certificate proves that this exact graph may be rendered; it is
+    // not a prerequisite for opening the already-persisted script as a new
+    // editable copy. Prefer the currently verified Legacy graph, but create a
+    // deterministic local editor graph if a song was opened straight into a
+    // child cut. The caller leaves Song Card rendering in its waiting state
+    // until the exact certificate arrives.
+    const fallbackProject = options.fallbackProject?.director_show_graph?.tracks
+      ? options.fallbackProject
+      : {
+        ...projectedProject,
+        director_show_graph: projectToEditorGraph(projectedProject),
+      };
     const savedProjection = deriveEchoSavedDirectionPlanningProject(project, variant, { fallbackProject });
     const savedProject = savedProjection ? attachEchoOutputProfile(savedProjection) : null;
     const selectedProject = savedProject || (fallbackProject?.director_show_graph?.tracks
@@ -3911,6 +3924,16 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
       ...current,
       [songId]: savedRevision,
     }));
+  };
+
+  const holdSongCardPlanForExactCutCertificate = (songId, cutId) => {
+    if (!songId || !cutId) return;
+    setSongCardPlanSnapshotBySong((current) => beginEchoSongCardPlanWait(
+      current,
+      songId,
+      `certifying:${cutId}`,
+      cutId,
+    ));
   };
 
   const reopenSavedDirectionCut = async (pending, suppliedDetailResult = null) => {
@@ -4316,15 +4339,20 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
           throw new Error("a verified editor graph is unavailable while its exact preview graph prepares");
         }
         const savedShowGraph = projectToEditorGraph(editableSelection.savedProject);
+        const usingEditorFallback = editableSelection.savedProject?.editor_graph_fallback?.pinnedSavedCut === true;
         if (!commitDirectorProjectDetail(detail, detailResult.requestGeneration)) {
           throw new Error("a newer project refresh superseded this response");
         }
-        queueSongCardPlanForSavedRevision(selectedProjectSongId, latestVariantId, {
-          cutId: latestVariantId,
-          project: editableSelection.savedProject,
-          showGraph: savedShowGraph,
-        });
-        setWorkingDirectionFork(editableSelection.savedProject?.editor_graph_fallback?.pinnedSavedCut === true
+        if (usingEditorFallback) {
+          holdSongCardPlanForExactCutCertificate(selectedProjectSongId, latestVariantId);
+        } else {
+          queueSongCardPlanForSavedRevision(selectedProjectSongId, latestVariantId, {
+            cutId: latestVariantId,
+            project: editableSelection.savedProject,
+            showGraph: savedShowGraph,
+          });
+        }
+        setWorkingDirectionFork(usingEditorFallback
           ? editableSelection.workingFork
           : null);
         setDirectorHasUnsavedChanges(false);
@@ -5590,23 +5618,27 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                                       throw new Error("a verified editor graph is unavailable while its exact render graph prepares");
                                     }
                                     const savedShowGraph = projectToEditorGraph(editableSelection.savedProject);
+                                    const usingEditorFallback = editableSelection.savedProject?.editor_graph_fallback?.pinnedSavedCut === true;
                                     if (!commitDirectorProjectDetail(detail, detailResult.requestGeneration)) {
                                       throw new Error("a newer detail refresh superseded this response");
                                     }
-                                    queueSongCardPlanForSavedRevision(
-                                      selectedProjectSongId,
-                                      nextVariantId,
-                                      {
-                                        cutId: nextVariantId,
-                                        project: editableSelection.savedProject,
-                                        showGraph: savedShowGraph,
-                                      },
-                                    );
+                                    if (usingEditorFallback) {
+                                      holdSongCardPlanForExactCutCertificate(selectedProjectSongId, nextVariantId);
+                                    } else {
+                                      queueSongCardPlanForSavedRevision(
+                                        selectedProjectSongId,
+                                        nextVariantId,
+                                        {
+                                          cutId: nextVariantId,
+                                          project: editableSelection.savedProject,
+                                          showGraph: savedShowGraph,
+                                        },
+                                      );
+                                    }
                                     setWorkingDirectionFork(editableSelection.workingFork);
                                     setDirectorHasUnsavedChanges(false);
                                     setSelectedDirectionVariantId(nextVariantId);
                                     setSaveFeedbackTone("success");
-                                    const usingEditorFallback = editableSelection.savedProject?.editor_graph_fallback?.pinnedSavedCut === true;
                                     setSaveSuccessMessage(usingEditorFallback
                                       ? "Editable copy opened from the selected cut. Its exact final-render graph is still certifying, so Render stays unavailable until that receipt arrives; saving still creates a new cut."
                                       : "Editable copy opened from the selected cut. Its higher-quality cards and source lineage are preserved; saving creates a new cut.");
@@ -5789,6 +5821,15 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                               />
                               LYRICS {activeLyricContract.enabled ? 'ON' : 'OFF'}
                             </label>
+                            {activeLyricTimingMissing && (
+                              <span
+                                data-testid="echo-lyrics-source-missing"
+                                title="No source-backed lyric text or timing was imported for this non-instrumental track. The Builder will not invent lyrics; import the source lyrics and timing to enable the overlay."
+                                style={{ color: '#fbbf24', fontSize: '8px', fontWeight: 'bold', whiteSpace: 'nowrap' }}
+                              >
+                                SOURCE LYRICS MISSING
+                              </span>
+                            )}
                             <select
                               aria-label="Lyric position"
                               value={activeProject.lyric_position || "bottom-center"}
