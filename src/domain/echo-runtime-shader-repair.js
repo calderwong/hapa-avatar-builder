@@ -6,6 +6,7 @@ import {
   deriveEchoDirectionVariantProject,
   echoDirectionVariantId,
 } from "./echo-direction-variants.js";
+import { echoShaderFinalRenderReadiness } from "./echo-shader-picker.js";
 
 function text(value) {
   return String(value ?? "").trim();
@@ -30,29 +31,18 @@ function shaderDefaults(inputs = []) {
 }
 
 function needsReplacement(shader) {
-  return Boolean(shader && (
-    shader.directorEligible === false
-    || shader.enabled === false
-    || shader.runtimeEligibility === "unsupported-quarantine"
-  ));
+  return !echoShaderFinalRenderReadiness(shader).finalRenderReady;
 }
 
 function repairReason(shader) {
-  return shader?.runtimeEligibilityReason
+  return echoShaderFinalRenderReadiness(shader).reason
+    || shader?.runtimeEligibilityReason
     || shader?.pixelGate?.reason
     || "source-hash-verified-pixel-gate-quarantine";
 }
 
 function replacementFor(shader, catalog = []) {
-  const eligible = catalog.filter((candidate) => (
-    candidate?.directorEligible !== false
-    && candidate?.enabled !== false
-    && candidate?.runtimeEligibility !== "unsupported-quarantine"
-    && candidate?.pixelGate?.classification === "hash-bound-exact-proxy"
-    && candidate?.pixelGate?.status === "source-hash-verified"
-    && candidate?.id
-    && candidate?.source
-  ));
+  const eligible = catalog.filter((candidate) => echoShaderFinalRenderReadiness(candidate).finalRenderReady);
   const sameRole = eligible.filter((candidate) => text(candidate.hmvRole) === text(shader?.hmvRole));
   const sameType = eligible.filter((candidate) => text(candidate.shaderType) === text(shader?.shaderType));
   const mediaIndependentSameRole = sameRole.filter((candidate) => text(candidate.shaderType).toLowerCase() !== "filter");
@@ -102,9 +92,9 @@ function hydrateShaderCard(card, shader, options = {}) {
     target: card.parameters?.target || previousLayer.target || "program",
     mix: Number(card.parameters?.mix ?? previousLayer.mix ?? 1),
     transition: String(card.transition || previousLayer.transition || "crossfade"),
-    nativeProxyAvailable: Boolean(shader.nativeRoute?.proxy && shader.pixelGate?.playableFrameIndices?.length),
+    nativeProxyAvailable: Boolean(shader.nativeRoute?.proxy && echoShaderFinalRenderReadiness(shader).finalRenderReady),
     hyperframesProxy: shader.hyperframesProxy || null,
-    hyperframesProxyAvailable: Boolean(shader.hyperframesProxy && shader.pixelGate?.playableFrameIndices?.length),
+    hyperframesProxyAvailable: Boolean(shader.hyperframesProxy && echoShaderFinalRenderReadiness(shader).finalRenderReady),
     provenanceSource: options.replacement ? "runtime-pixel-gate-repair" : "runtime-catalog-hydration",
   });
   const visualizerMappings = Object.fromEntries((portable.automation || []).map((binding) => [
@@ -220,21 +210,21 @@ export function repairEchoRuntimeVisualizerTimeline(rows = [], catalog = [], sco
   const timeline = (Array.isArray(rows) ? rows : []).map((row, index) => {
     const originalId = text(row?.visualizer_id || row?.visualizerId);
     const original = catalogById.get(originalId);
-    if (!needsReplacement(original)) return row;
+    if (original && !needsReplacement(original)) return row;
     let replacement = replacementById.get(originalId);
     if (!replacement) {
-      replacement = replacementFor(original, catalog);
+      replacement = replacementFor(original || { id: originalId }, catalog);
       if (!replacement) return row;
       replacementById.set(originalId, replacement);
     }
-    const reason = repairReason(original);
+    const reason = original ? repairReason(original) : "shader-not-in-current-final-render-catalog";
     replacements.push({
       scope,
       rowIndex: index,
       startSeconds: Number(row?.start_sec ?? row?.startSeconds ?? 0),
       endSeconds: Number(row?.end_sec ?? row?.endSeconds ?? 0),
       originalId,
-      originalTitle: text(row?.visualizer_title || row?.visualizerTitle || original?.title),
+      originalTitle: text(row?.visualizer_title || row?.visualizerTitle || original?.title || originalId),
       replacementId: replacement.id,
       replacementTitle: replacement.title,
       reason,
@@ -249,7 +239,7 @@ export function repairEchoRuntimeVisualizerTimeline(rows = [], catalog = [], sco
         schemaVersion: "hapa.echo.runtime-shader-repair.v1",
         reason,
         originalId,
-        originalTitle: text(row?.visualizer_title || row?.visualizerTitle || original?.title),
+        originalTitle: text(row?.visualizer_title || row?.visualizerTitle || original?.title || originalId),
         replacementId: replacement.id,
         replacementTitle: replacement.title,
         nonDestructive: true,
@@ -272,20 +262,21 @@ export function repairEchoRuntimeShaderGraph(graph, catalog = [], scope = "direc
       const card = track.cards[cardIndex];
       const originalId = text(card?.visualization?.sourceId || card?.visualization?.requestedSourceId || card?.visualization?.card?.id);
       const original = catalogById.get(originalId);
-      if (!original) continue;
       let target = original;
       let replacement = null;
-      if (needsReplacement(original)) {
+      if (!original || needsReplacement(original)) {
         replacement = replacementById.get(originalId);
         if (!replacement) {
-          replacement = replacementFor(original, catalog);
+          replacement = replacementFor(original || { id: originalId }, catalog);
           if (!replacement) continue;
           replacementById.set(originalId, replacement);
         }
         target = replacement;
       }
       if (!replacement && portableCardIsExact(card, target)) continue;
-      const reason = replacement ? repairReason(original) : "portable-card-missing-or-stale";
+      const reason = replacement
+        ? original ? repairReason(original) : "shader-not-in-current-final-render-catalog"
+        : "portable-card-missing-or-stale";
       track.cards[cardIndex] = hydrateShaderCard(card, target, { replacement: Boolean(replacement), original, reason });
       const evidence = {
         scope,
@@ -302,7 +293,7 @@ export function repairEchoRuntimeShaderGraph(graph, catalog = [], scope = "direc
       if (replacement) replacements.push({
         ...evidence,
         originalId,
-        originalTitle: original.title,
+        originalTitle: original?.title || originalId,
         replacementId: replacement.id,
         replacementTitle: replacement.title,
       });

@@ -114,6 +114,45 @@ test("mint renderer truth seals the exact Preview lyric contract into the HyperF
   );
 });
 
+test("renderer truth accepts deterministic browser-ISF cues only when pixel QA proves every cue", () => {
+  const showGraph = {
+    song: { lyricOverlay: { enabled: false, lines: [] } },
+    tracks: [{
+      id: "track-b",
+      role: "visualizer",
+      cards: [{
+        id: "card:b:browser-isf",
+        visualization: { sourceId: "isf:browser-isf" },
+      }],
+    }],
+  };
+  const report = {
+    ok: true,
+    visualizers: { declared: 1, exactProxy: 0, deterministicBrowserIsf: 1, unsupported: 0 },
+  };
+  const pixels = {
+    ok: true,
+    offline: { networkAttemptCount: 0 },
+    consoleSummary: { errorCount: 0 },
+    acceptance: { timelineReady: true },
+    frames: [{
+      timestamp: 1,
+      pngSha256: "sha256:frame",
+      canvasPngSha256: "sha256:canvas",
+      metrics: { nonBlank: true, nonFlat: true },
+      canvasMetrics: { nonBlank: true, nonFlat: true },
+      expected: { layers: [{ cueId: "card:b:browser-isf", visualizerId: "isf:browser-isf", stemFocus: "master" }] },
+      renderState: {
+        layers: [{ cueId: "card:b:browser-isf", visualizerId: "isf:browser-isf", stemFocus: "master", effectiveOpacity: 0.5 }],
+        drawnLayerCount: 1,
+        canvasSampleHash: "sha256:canvas-sample",
+      },
+    }],
+  };
+  const truth = inspectSongCardExecutedRendererTruth(showGraph, report, pixels);
+  assert.equal(truth.receipts[0].status, "verified-deterministic-browser-isf");
+});
+
 test("release stream inspection requires independent full-length audio and video streams", () => {
   const valid = inspectSongCardReleaseStreams({
     format: { duration: "2.0" },

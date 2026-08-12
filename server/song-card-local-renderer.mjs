@@ -2036,6 +2036,11 @@ export function inspectSongCardExecutedRendererTruth(showGraph, compilerReport, 
   const cues = visualizerCards(showGraph);
   const declared = Number(compilerReport?.visualizers?.declared || 0);
   const exact = Number(compilerReport?.visualizers?.exactProxy || 0);
+  const deterministicBrowserIsf = Number(compilerReport?.visualizers?.deterministicBrowserIsf || 0);
+  // HyperFrames can execute a source-verified cue either through its local
+  // exact proxy or its deterministic browser-ISF route. Both are proven by
+  // the pixel capture below; neither is a silent/default fallback.
+  const executed = exact + deterministicBrowserIsf;
   const unsupported = Number(compilerReport?.visualizers?.unsupported || 0);
   const verifiedPixelReport = reevaluateSongCardPixelReport(pixelReport);
   const pixelFrames = Array.isArray(verifiedPixelReport?.frames) ? verifiedPixelReport.frames : [];
@@ -2043,23 +2048,30 @@ export function inspectSongCardExecutedRendererTruth(showGraph, compilerReport, 
     && pixelFrames.length > 0
     && pixelFrames.every((frame) => frame?.metrics?.nonBlank === true && frame?.metrics?.nonFlat === true));
   if (cues.length && !pixelsPass) throw createSongCardPixelQaError(verifiedPixelReport);
-  if (cues.length && (compilerReport?.ok !== true || declared !== cues.length || exact !== cues.length || unsupported !== 0)) {
+  if (cues.length && (compilerReport?.ok !== true || declared !== cues.length || executed !== cues.length || unsupported !== 0)) {
     throw localRendererError("local_renderer_truth_failed", "The local render did not execute every requested shader cue with verified visible pixels.", 409, {
       stage: "compile",
       requestedCueCount: cues.length,
       declared,
-      exact,
+      exactProxy: exact,
+      deterministicBrowserIsf,
+      executed,
       unsupported,
       pixelReportOk: verifiedPixelReport?.ok === true,
       pixelFrameCount: pixelFrames.length,
     });
   }
+  const executionRoute = deterministicBrowserIsf > 0
+    ? exact > 0
+      ? "verified-mixed-routes"
+      : "verified-deterministic-browser-isf"
+    : "verified-exact-proxy";
   const receipts = cues.map(({ card, track }) => ({
     cueId: text(card.id),
     trackId: text(track.id),
     requestedId: text(card.visualization?.sourceId || card.visualization?.card?.id),
     executionStatus: "executed",
-    status: "exact",
+    status: executionRoute,
     ok: true,
     allStatesVisible: true,
     silentDefaultCount: 0,
