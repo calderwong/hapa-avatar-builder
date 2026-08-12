@@ -44,7 +44,7 @@ test("song changes hydrate the exact newest cut before selection and manual choi
   const songChange = between("directionSelectionPreferenceRef.current = \"auto-latest\"", "const buildFreshProjectScript");
   const selector = between('aria-label="Direction script version"', 'aria-label="Video orientation"');
   assert.match(songChange, /latestDirectionHydrationKeyRef\.current = ""/);
-  assert.match(songChange, /fetchPreparedProjectDetail\(selectedProjectSongId, latestVariantId\)/);
+  assert.match(songChange, /fetchPreparedProjectDetail\(selectedProjectSongId, latestVariantId(?:, \{)?/);
   assert.match(songChange, /echoDirectionVariantId\(variant\) === latestVariantId && Array\.isArray\(variant\.timeline\)/);
   assert.match(songChange, /hydratedSelectionId !== latestVariantId/);
   assert.match(songChange, /editableSelection\?\.savedProject\?\.director_show_graph\?\.tracks/);
@@ -53,7 +53,7 @@ test("song changes hydrate the exact newest cut before selection and manual choi
       < songChange.indexOf("setSelectedDirectionVariantId(latestVariantId)"),
     "the newest exact projection must be certified before selection changes",
   );
-  assert.match(songChange, /setWorkingDirectionFork\(null\)/);
+  assert.match(songChange, /setWorkingDirectionFork\(editableSelection\.savedProject\?\.editor_graph_fallback/);
   assert.doesNotMatch(songChange, /directorEditingLocked/);
   assert.match(songChange, /savingProject[\s\S]*directionForkTransitionPending[\s\S]*pendingSavedDirectionCut[\s\S]*pendingLegacyProjectSave/);
   assert.match(selector, /directionSelectionPreferenceRef\.current = "manual"/);
@@ -64,7 +64,7 @@ test("song changes hydrate the exact newest cut before selection and manual choi
 
 test("Echo automatically opens a chosen cut and only saves it as a new append-only child", () => {
   const selector = between('aria-label="Direction script version"', 'aria-label="Video orientation"');
-  assert.match(selector, /editableDirectionForkFromDetail\(detail, nextVariantId\)/);
+  assert.match(selector, /editableDirectionForkFromDetail\(detail, nextVariantId(?:, \{)?/);
   assert.match(selector, /setWorkingDirectionFork\(editableSelection\.workingFork\)/);
   assert.match(selector, /setSelectedDirectionVariantId\(nextVariantId\)/);
   assert.match(source, /data-testid="echo-continue-direction-cut"/);
@@ -140,9 +140,9 @@ test("Echo lazily hydrates one selected cut while retaining the metadata catalog
   assert.match(source, /params\.set\("variantId", variantId\)/);
   assert.equal((preparation.match(/fetchProjectDetail\(/g) || []).length, 2, "preparation should retry the exact selected cut after warm-up");
   assert.match(preparation, /warmEchoProjectGraphsRequest\([\s\S]*?songId,[\s\S]*?variantId,[\s\S]*?\)/);
-  assert.match(selector, /fetchPreparedProjectDetail\(selectedProjectSongId, nextVariantId\)/);
+  assert.match(selector, /fetchPreparedProjectDetail\(selectedProjectSongId, nextVariantId(?:, \{)?/);
   assert.match(source, /echoDirectionVariantId\(variant\) === nextVariantId && Array\.isArray\(variant\.timeline\)/);
-  assert.match(source, /editableDirectionForkFromDetail\(detail, nextVariantId\)/);
+  assert.match(source, /editableDirectionForkFromDetail\(detail, nextVariantId(?:, \{)?/);
   assert.match(source, /commitDirectorProjectDetail\(detail, detailResult\.requestGeneration\)/);
   assert.match(source, /setWorkingDirectionFork\(editableSelection\.workingFork\)/);
   assert.match(source, /setSelectedDirectionVariantId\(nextVariantId\)/);
@@ -164,6 +164,19 @@ test("a stale cut selection prepares the exact requested saved graph without cha
   assert.match(selector, /setDirectionCutSelectionPending\(true\)/);
   assert.equal((selector.match(/setDirectionCutSelectionPending\(false\)/g) || []).length, 2);
   assert.match(source, /\|\| directionCutSelectionPending[\s\S]*\|\| Boolean\(pendingSavedDirectionCut\)/);
+});
+
+test("cut selection opens a safe editable fallback while exact certification is busy", () => {
+  const preparation = between("const fetchPreparedProjectDetail", "const handleSelectDirectorProjectSong");
+  const selector = between('aria-label="Direction script version"', 'aria-label="Video orientation"');
+  const songChange = between("directionSelectionPreferenceRef.current = \"auto-latest\"", "const buildFreshProjectScript");
+  assert.match(preparation, /options\.allowEditorFallback === true[\s\S]*void warmEchoProjectGraphsRequest/);
+  assert.match(preparation, /final-render graph certifies in the background/);
+  assert.match(selector, /fetchPreparedProjectDetail\(selectedProjectSongId, nextVariantId, \{[\s\S]*allowEditorFallback: true/);
+  assert.match(selector, /fallbackProject: activeProject/);
+  assert.match(selector, /exact final-render graph is still certifying/);
+  assert.match(songChange, /fetchPreparedProjectDetail\(selectedProjectSongId, latestVariantId, \{[\s\S]*allowEditorFallback: true/);
+  assert.match(songChange, /fallbackProject: activeProject/);
 });
 
 test("a freshly saved cut stays pinned to its high-quality graph while certification catches up", () => {

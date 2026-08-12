@@ -3444,7 +3444,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
     }
   };
 
-  const fetchPreparedProjectDetail = async (songId, variantId = "") => {
+  const fetchPreparedProjectDetail = async (songId, variantId = "", options = {}) => {
     let detailResult = await fetchProjectDetail(
       songId,
       variantId,
@@ -3457,6 +3457,24 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
     const readinessReason = project.director_show_graph_receipt?.reason || "saved preview graph unavailable";
     if (readinessReason === "server_restart_required") {
       throw new Error("the Builder service was updated and needs one restart before saved cuts can reopen");
+    }
+
+    // A saved cut's script is already immutable and safe to open as an
+    // editable copy.  Its final-render graph may still be waiting behind a
+    // different album-wide certification run, so do not strand the operator
+    // on Legacy while that independent work completes. The caller supplies
+    // the current verified graph solely as a local editor template; final
+    // rendering remains blocked until the exact child certificate exists.
+    if (options.allowEditorFallback === true && variantId && variantId !== "legacy") {
+      setEchoOperationNotice("Opening this saved cut as an editable copy while its exact final-render graph certifies in the background…");
+      void warmEchoProjectGraphsRequest(
+        `${API_BASE}/api/echos/director-project/compile`,
+        songId,
+        variantId,
+      ).catch((error) => {
+        console.warn(`Saved Director cut ${variantId} is still awaiting exact render certification:`, error);
+      });
+      return detailResult;
     }
 
     setEchoOperationNotice("Preparing this song’s saved preview graphs once. Its scripts and cuts remain unchanged…");
@@ -4275,7 +4293,9 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
     setEchoOperationNotice(`Opening the newest saved Director cut, ${latestDirectionVariantSummary.title || latestVariantId}…`);
     void (async () => {
       try {
-        const detailResult = await fetchPreparedProjectDetail(selectedProjectSongId, latestVariantId);
+        const detailResult = await fetchPreparedProjectDetail(selectedProjectSongId, latestVariantId, {
+          allowEditorFallback: true,
+        });
         if (cancelled) return;
         const detail = detailResult?.detail;
         const detailProject = detail?.music_video_project;
@@ -4289,9 +4309,11 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
         if (hydratedSelectionId !== latestVariantId) {
           throw new Error("the server did not certify the requested newest cut as the active projection");
         }
-        const editableSelection = editableDirectionForkFromDetail(detail, latestVariantId);
+        const editableSelection = editableDirectionForkFromDetail(detail, latestVariantId, {
+          fallbackProject: activeProject,
+        });
         if (!editableSelection?.savedProject?.director_show_graph?.tracks) {
-          throw new Error("its certified preview graph is still preparing");
+          throw new Error("a verified editor graph is unavailable while its exact preview graph prepares");
         }
         const savedShowGraph = projectToEditorGraph(editableSelection.savedProject);
         if (!commitDirectorProjectDetail(detail, detailResult.requestGeneration)) {
@@ -4302,7 +4324,9 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
           project: editableSelection.savedProject,
           showGraph: savedShowGraph,
         });
-        setWorkingDirectionFork(null);
+        setWorkingDirectionFork(editableSelection.savedProject?.editor_graph_fallback?.pinnedSavedCut === true
+          ? editableSelection.workingFork
+          : null);
         setDirectorHasUnsavedChanges(false);
         setSelectedDirectionVariantId(latestVariantId);
         setEchoOperationNotice(`${echoDirectionVariantTitle(hydratedVariant)} opened as the newest saved Director cut.`);
@@ -5550,16 +5574,20 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                                   ));
                                   setEchoOperationNotice(`Loading ${nextVariantId}…`);
                                   try {
-                                    const detailResult = await fetchPreparedProjectDetail(selectedProjectSongId, nextVariantId);
+                                    const detailResult = await fetchPreparedProjectDetail(selectedProjectSongId, nextVariantId, {
+                                      allowEditorFallback: true,
+                                    });
                                     const detail = detailResult?.detail;
                                     const hydratedVariant = detail?.music_video_project?.direction_script_variants?.find((variant) => (
                                       echoDirectionVariantId(variant) === nextVariantId && Array.isArray(variant.timeline)
                                     ));
                                     if (!hydratedVariant) throw new Error("its saved script detail could not be loaded");
-                                    const editableSelection = editableDirectionForkFromDetail(detail, nextVariantId);
+                                    const editableSelection = editableDirectionForkFromDetail(detail, nextVariantId, {
+                                      fallbackProject: activeProject,
+                                    });
                                     if (!editableSelection) throw new Error("its certified card graph is still preparing");
                                     if (!editableSelection.savedProject?.director_show_graph?.tracks) {
-                                      throw new Error("its saved render graph is still preparing");
+                                      throw new Error("a verified editor graph is unavailable while its exact render graph prepares");
                                     }
                                     const savedShowGraph = projectToEditorGraph(editableSelection.savedProject);
                                     if (!commitDirectorProjectDetail(detail, detailResult.requestGeneration)) {
@@ -5578,8 +5606,13 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                                     setDirectorHasUnsavedChanges(false);
                                     setSelectedDirectionVariantId(nextVariantId);
                                     setSaveFeedbackTone("success");
-                                    setSaveSuccessMessage("Editable copy opened from the selected cut. Its higher-quality cards and source lineage are preserved; saving creates a new cut.");
-                                    setEchoOperationNotice(`${echoDirectionVariantTitle(hydratedVariant)} opened for editing.`);
+                                    const usingEditorFallback = editableSelection.savedProject?.editor_graph_fallback?.pinnedSavedCut === true;
+                                    setSaveSuccessMessage(usingEditorFallback
+                                      ? "Editable copy opened from the selected cut. Its exact final-render graph is still certifying, so Render stays unavailable until that receipt arrives; saving still creates a new cut."
+                                      : "Editable copy opened from the selected cut. Its higher-quality cards and source lineage are preserved; saving creates a new cut.");
+                                    setEchoOperationNotice(usingEditorFallback
+                                      ? `${echoDirectionVariantTitle(hydratedVariant)} opened for editing while final-render certification continues.`
+                                      : `${echoDirectionVariantTitle(hydratedVariant)} opened for editing.`);
                                   } catch (error) {
                                     setSongCardPlanSnapshotBySong((current) => restoreEchoSongCardPlanSnapshot(
                                       current,
