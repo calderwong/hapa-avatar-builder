@@ -9,6 +9,7 @@ import {
   deriveEchoDirectionWorkingProject,
   echoDirectionVariantOptionLabel,
   echoDirectionVariantFingerprint,
+  echoDirectionVariantSourceFingerprint,
   groupEchoDirectionVariants,
   pinEchoSongCardPlanSnapshot,
   restoreEchoSongCardPlanSnapshot,
@@ -343,6 +344,20 @@ test("working continuation stays separate and serializes only an append-only chi
   assert.equal(request.direction_script_variants, undefined);
   assert.equal(request.director_show_graph, undefined);
   assert.equal(selected.timeline[0].media_id, "airy-a-media");
+});
+
+test("working forks retain the canonical source fingerprint when the delivered cut is runtime-repaired", () => {
+  const source = variant("runtime-repaired-fork", "Dense", 1);
+  source.fingerprint = echoDirectionVariantFingerprint(source);
+  const delivered = structuredClone(source);
+  delivered.visualizer_timeline[0].visualizer_id = "runtime-safe-replacement";
+  delivered.source_fingerprint = source.fingerprint;
+
+  assert.notEqual(echoDirectionVariantFingerprint(delivered), source.fingerprint);
+  assert.equal(echoDirectionVariantSourceFingerprint(delivered), source.fingerprint);
+  const working = createEchoDirectionWorkingFork(project(), delivered);
+  const request = buildEchoDirectionForkRequest(working);
+  assert.equal(request.expectedParentFingerprint, source.fingerprint);
 });
 
 test("Song Card planning pins a preparing saved child instead of the reopened working alias", () => {

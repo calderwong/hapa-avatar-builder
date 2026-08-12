@@ -169,6 +169,7 @@ test("Echo summary endpoint stays compact and lazy-loads project detail", async 
     const selectedCutDetail = (await selectedCutResponse.json()).music_video_project;
     assert.equal(selectedCutDetail.direction_script_variants[0].timeline[0].media_id, "scroll-fixture");
     assert.match(selectedCutDetail.direction_script_variants[0].hyperframe_script, /data-direction-variant/);
+    assert.match(selectedCutDetail.direction_script_variants[0].source_fingerprint, /^content-v2:[a-f0-9]{64}$/);
     assert.equal(selectedCutDetail.selected_direction_script_variant_id, "direction:scroll-fal");
 
     const sourceProfileResponse = await fetch(`${BASE}/api/echos/director-project?songId=${encodeURIComponent(targetSongId)}&profile=source`);
@@ -184,6 +185,7 @@ test("Echo summary endpoint stays compact and lazy-loads project detail", async 
       schemaVersion: "hapa.echo.direction-variant-fork-request.v1",
       songId: targetSongId,
       parentVariantId: "direction:scroll-fal",
+      expectedParentFingerprint: selectedCutDetail.direction_script_variants[0].source_fingerprint,
       requestedId: "edited-fixture-cut",
       title: "Fixture · Edited cut",
       timeline: [{

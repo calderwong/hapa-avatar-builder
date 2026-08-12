@@ -10903,6 +10903,10 @@ async function hydrateEchoDirectorProjectPayload(payload, safeSongId, options = 
   const variantRepairScopes = [];
   directionVariants = directionVariants.map((variant) => {
     const selected = Boolean(deliveredVariantId && echoDirectionVariantId(variant) === deliveredVariantId);
+    // Runtime shader repair changes the delivered editing projection, but this
+    // canonical fingerprint remains the identity of the immutable file that a
+    // human working fork is based on.
+    const sourceFingerprint = echoDirectionVariantFingerprint(variant);
     const result = repairEchoRuntimeDirectionVariant(variant, {
       catalog: shaderCatalog,
       sourceProfile,
@@ -10915,15 +10919,16 @@ async function hydrateEchoDirectorProjectPayload(payload, safeSongId, options = 
       compactDerivedGraph: compactEchoDerivedVariantShowGraph,
     });
     variantRepairScopes.push(...result.scopes);
-    if (!selected) return result.variant;
+    const repairedVariant = { ...result.variant, source_fingerprint: sourceFingerprint };
+    if (!selected) return repairedVariant;
     if (!graphResult.graph) {
-      const blocked = { ...result.variant };
+      const blocked = { ...repairedVariant };
       delete blocked.director_show_graph;
       delete blocked.directorShowGraph;
       blocked.execution_preview = { status: "preparing", reason: graphResult.receipt?.reason || "certified-execution-graph-unavailable" };
       return blocked;
     }
-    const delivered = { ...result.variant };
+    const delivered = { ...repairedVariant };
     delete delivered.director_show_graph;
     delete delivered.directorShowGraph;
     return {
@@ -11143,6 +11148,28 @@ function echoDirectionForkTelemetry(timeline = [], parentTelemetry = {}) {
   };
 }
 
+async function echoDirectionForkAcceptedParentFingerprints(parentVariant = {}) {
+  const fingerprints = new Set([echoDirectionVariantFingerprint(parentVariant)]);
+  try {
+    const catalog = await echoIsfAssets.load();
+    // Compatibility for an already-open Editor tab that began its fork from a
+    // runtime-repaired delivery before `source_fingerprint` was available.
+    // This derives the same non-persistent projection; the canonical on-disk
+    // fingerprint remains the identity stored on the child lineage.
+    const repaired = repairEchoRuntimeDirectionVariant(parentVariant, {
+      catalog: catalog.shaders,
+      sourceProfile: false,
+      selected: false,
+      compactGraph: compactEchoDirectorShowGraph,
+      compactDerivedGraph: compactEchoDerivedVariantShowGraph,
+    }).variant;
+    fingerprints.add(echoDirectionVariantFingerprint(repaired));
+  } catch (error) {
+    console.warn("Could not derive a runtime-repaired Echo cut fingerprint for fork compatibility:", error);
+  }
+  return fingerprints;
+}
+
 async function createEchoDirectionVariantFork(body = {}) {
   if (body.schemaVersion && body.schemaVersion !== ECHO_DIRECTION_FORK_PAYLOAD_SCHEMA) {
     throw echoDirectionForkError("invalid_fork_schema", "Unsupported direction cut fork request schema.", 400);
@@ -11163,7 +11190,8 @@ async function createEchoDirectionVariantFork(body = {}) {
   ));
   if (!parentVariant) throw echoDirectionForkError("parent_variant_not_found", "The append-only source cut was not found.", 404);
   const parentFingerprint = echoDirectionVariantFingerprint(parentVariant);
-  if (body.expectedParentFingerprint && String(body.expectedParentFingerprint) !== parentFingerprint) {
+  const acceptedParentFingerprints = await echoDirectionForkAcceptedParentFingerprints(parentVariant);
+  if (body.expectedParentFingerprint && !acceptedParentFingerprints.has(String(body.expectedParentFingerprint))) {
     throw echoDirectionForkError("parent_variant_changed", "The source cut changed after this working fork began.", 409);
   }
 

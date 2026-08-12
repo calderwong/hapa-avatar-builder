@@ -258,6 +258,7 @@ function echoDirectionVariantContentPayload(variant = {}) {
   const payload = clone(object(variant));
   for (const field of [
     "fingerprint", "variantFingerprint", "variant_fingerprint", "receiptHash", "receipt_hash",
+    "sourceFingerprint", "source_fingerprint",
     "variant_source", "projectionValidation", "runtime_shader_repair_receipt", "runtimeShaderRepairReceipt",
     "delivery_receipt", "deliveryReceipt", "execution_preview", "executionPreview",
   ]) {
@@ -273,6 +274,18 @@ function echoDirectionVariantContentPayload(variant = {}) {
 
 export function echoDirectionVariantFingerprint(variant = {}) {
   return `content-v2:${compactHash(echoDirectionVariantContentPayload(variant))}`;
+}
+
+/**
+ * The Editor can receive a runtime-repaired projection of a saved cut (for
+ * example, when an unavailable shader is hydrated for playback).  That
+ * projection must not become the optimistic-concurrency identity of the
+ * immutable source file being forked.
+ */
+export function echoDirectionVariantSourceFingerprint(variant = {}) {
+  const sourceFingerprint = text(variant.source_fingerprint || variant.sourceFingerprint);
+  if (/^content-v2:[a-f0-9]{64}$/iu.test(sourceFingerprint)) return sourceFingerprint;
+  return echoDirectionVariantFingerprint(variant);
 }
 
 export function validateEchoDirectionVariantProjection({ baseProject = {}, variant = {}, graph = {} } = {}) {
@@ -621,7 +634,7 @@ export function deriveEchoSavedDirectionPlanningProject(baseProject = {}, varian
 export function createEchoDirectionWorkingFork(project = {}, sourceVariant = {}) {
   const sourceVariantId = echoDirectionVariantId(sourceVariant);
   if (!sourceVariantId) throw new Error("A source direction cut is required.");
-  const sourceVariantFingerprint = echoDirectionVariantFingerprint(sourceVariant);
+  const sourceVariantFingerprint = echoDirectionVariantSourceFingerprint(sourceVariant);
   const startedAt = new Date().toISOString();
   const sourceSlug = sourceVariantId.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 72) || "direction-cut";
   const requestedChildId = `${sourceSlug}-edit-${compactHash({
