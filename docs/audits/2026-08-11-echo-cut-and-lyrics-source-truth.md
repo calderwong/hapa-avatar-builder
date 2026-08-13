@@ -48,3 +48,9 @@ The nearest reusable surface was the append-only enrichment Director compiler. I
 The full 173-song compiler exceeded the interactive execution window during its global selection stage. Rather than bypassing the immutable-parent or index-parity guards, the compiler now accepts an exact `--song-ids` allowlist. Nine serialized batches (20/20/20/20/20/20/20/20/13) created or replay-verified a palette-aware Direction cut for every song: 156 new append-only cuts and 17 already-identical replays, covering 10,480 shots. Every batch passed exact song coverage, unique-cut, ready-status, immutable-base, immutable-existing-variant, and persisted-index parity checks.
 
 `LitRPG Life` was the only newly imported project without a parent cut; a standard balanced append-only parent was created before its enrichment cut. Guardrail: never force an enrichment cut onto a project with no ready non-legacy parent. Seed a normal append-only parent first, then compile the proposal cut. The large Ref Cards family audit exhausted Node's default memory limit on the enlarged index, so per-batch parity receipts are the current verification evidence; rerun that audit with an explicitly increased Node heap before using it as a final family-wide certificate.
+
+## 2026-08-13 visible run identity correction
+
+The newly generated album cuts deliberately reused the existing Intentional Enrichment family label, but that made multiple separate runs indistinguishable in the Director selector. The selector now appends a stable UTC creation timestamp whenever the saved cut provides one (for example, `Run 2026-08-13 19:55 UTC`). This is presentation-only: it does not alter immutable cut IDs, hashes, parentage, or execution identity.
+
+Guardrail: a Director run name alone is not a unique user-facing identity. Every generated run must expose a visible creation timestamp (or an equally clear immutable run marker) in the selector.

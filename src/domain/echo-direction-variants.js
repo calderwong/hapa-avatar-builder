@@ -384,6 +384,13 @@ export function echoDirectionVariantOptionLabel(variant = {}) {
   if (metadata.coveragePassLabel) parts.push(metadata.coveragePassLabel);
   else if (metadata.coveragePass !== null && metadata.coveragePass > 0) parts.push(`Library pass ${metadata.coveragePass}`);
   if (metadata.telemetry.uniqueMedia !== null) parts.push(`${metadata.telemetry.uniqueMedia} unique`);
+  const createdAt = text(variant.createdAt || variant.created_at || variant.updatedAt || variant.updated_at);
+  const createdDate = createdAt ? new Date(createdAt) : null;
+  if (createdDate && Number.isFinite(createdDate.getTime())) {
+    const date = `${createdDate.getUTCFullYear()}-${String(createdDate.getUTCMonth() + 1).padStart(2, "0")}-${String(createdDate.getUTCDate()).padStart(2, "0")}`;
+    const time = `${String(createdDate.getUTCHours()).padStart(2, "0")}:${String(createdDate.getUTCMinutes()).padStart(2, "0")} UTC`;
+    parts.push(`Run ${date} ${time}`);
+  }
   return parts.length ? parts.join(" · ") : echoDirectionVariantTitle(variant);
 }
 

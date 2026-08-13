@@ -61,6 +61,16 @@ test("metadata groups generated cuts and gives density, pass, and breadth useful
   assert.equal(echoDirectionVariantOptionLabel(legacy), "Older balanced recast");
 });
 
+test("selector labels expose a stable visible timestamp for identically named runs", () => {
+  const cut = variant("repeatable-run", "Dense", 5);
+  cut.cut.label = "Intentional Enrichment · Motion Bridges";
+  cut.createdAt = "2026-08-13T19:55:58.977Z";
+  assert.equal(
+    echoDirectionVariantOptionLabel(cut),
+    "Dense · Intentional Enrichment · Motion Bridges · Library pass 5 · 22 unique · Run 2026-08-13 19:55 UTC",
+  );
+});
+
 test("selected cut derives its own timelines, density, and graph instead of the stale Legacy graph", () => {
   const base = project();
   const cut = variant("airy-a", "Airy", 1);
