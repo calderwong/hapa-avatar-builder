@@ -23,6 +23,13 @@ const ECHO_ALIGNMENT_MANIFEST_PATH = process.env.HAPA_ECHO_LYRIC_ALIGNMENT_MANIF
 const SCRIPT_NAME = "scripts/sync-dear-papa-lyric-timings.mjs";
 const args = new Set(process.argv.slice(2));
 const APPLY_MUTATIONS = args.has("--apply") || process.env.HAPA_DEAR_PAPA_TIMINGS_APPLY === "1";
+const REQUESTED_REGISTRY_TRACK_IDS = new Set(
+  [...args]
+    .filter((arg) => arg.startsWith("--registry-track-ids="))
+    .flatMap((arg) => arg.slice("--registry-track-ids=".length).split(","))
+    .map((id) => id.trim())
+    .filter(Boolean),
+);
 const RUN_ID = new Date().toISOString().replace(/[:.]/g, "-");
 const UPDATED_AT = new Date().toISOString();
 const MIN_CONFIDENCE = Number(
@@ -205,6 +212,7 @@ const manifestSongs = [...new Map([
 const timingByRegistryId = new Map();
 const timingRejections = [];
 for (const song of manifestSongs) {
+  if (REQUESTED_REGISTRY_TRACK_IDS.size && !REQUESTED_REGISTRY_TRACK_IDS.has(String(song.id || ""))) continue;
   const timing = readTimingForManifestSong(song);
   if (!timing?.registryTrackId) continue;
   const promotion = evaluateEchoLyricTimingPromotion(
@@ -375,6 +383,7 @@ const report = {
   mode: APPLY_MUTATIONS ? "apply" : "dry-run",
   updatedAt: UPDATED_AT,
   playlistId: PLAYLIST_ID,
+  requestedRegistryTrackIds: [...REQUESTED_REGISTRY_TRACK_IDS],
   manifestPath: MANIFEST_PATH,
   timingFilesFound: timingByRegistryId.size,
   minimumPromotionConfidence: MIN_CONFIDENCE,

@@ -32,3 +32,11 @@ The lyric audit also reads Director-level source text, so imported lyrics are re
 The live Echoes From The Other Eras playlist exposed one new track not yet present in the Builder: `LitRPG Life` (`4b9f48b5-3ca9-416e-b88e-75fd223a1dca`). The operator downloaded its MP3 locally; the import preserved the Suno source URL, duration, MP3 custody path, and visible lyric-source SHA without claiming WAV or stems. The generic Director planner initially created uniform, synthetic cue times, so those cues were removed. The source lyrics remain available for inspection and await measured audio alignment before any lyric overlay is rendered.
 
 Guardrail: a recovered lyric source authorizes readable source text, not timed captions. Every newly imported Song must clear generated cue timing unless the timing derives from an approved exact-audio alignment source.
+
+## 2026-08-13 measured timing synchronization checkpoint
+
+The recovered lyric sources for sixteen non-instrumental tracks were aligned against their local full-mix audio with Whisper large-v3-turbo. Thirteen timing sidecars cleared the automatic promotion gate (confidence at least 0.60, non-overlapping timed lines, source/STT sidecars, and audio/lyric provenance hashes) and were copied into the local Suno playlist backup before being synchronized into the matching Song Registry cards and Director projects.
+
+`Clouds Carry` (0.204), `Oie-Oie-Oie` (0.000), and `Tired Eyes` (0.468) did not clear that gate. They remain readable source lyrics with no timed overlay; they are not silently approximated or rendered as captions. The post-sync audit reports 170 verified projects and 3 repair-required projects, with zero synthetic timing projects.
+
+The reusable publisher now evaluates generated timing artifacts before copying them to the playlist’s `lyric_timings` folder, backs up any replaced sidecars, and emits a report. The timing synchronizer accepts an optional exact registry-track allowlist, so a repair run cannot rewrite unrelated Echo songs.
