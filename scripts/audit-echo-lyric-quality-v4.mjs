@@ -39,15 +39,25 @@ function countBy(values = []) {
   return Object.fromEntries([...values.reduce((map, value) => map.set(value, (map.get(value) || 0) + 1), new Map())].sort());
 }
 
-function canonicalTextFor(song = {}, manifestSong = null) {
+function canonicalTextFor(song = {}, manifestSong = null, project = {}) {
   const candidates = [
-    manifestSong?.lyricsPath,
+    project.lyrics?.sourcePath,
+    project.lyric_source?.sourcePath,
     song.lyrics?.sourcePath,
+    manifestSong?.lyricsPath,
   ].filter(Boolean);
   for (const candidate of candidates) {
-    if (fs.existsSync(candidate)) return { text: fs.readFileSync(candidate, "utf8"), path: candidate, kind: "source-file" };
+    if (!fs.existsSync(candidate)) continue;
+    const text = fs.readFileSync(candidate, "utf8").trim();
+    if (text) return { text, path: candidate, kind: "source-file" };
   }
-  const embedded = typeof song.lyrics === "string" ? song.lyrics : song.lyrics?.text || song.lyricText || "";
+  const embedded = typeof song.lyrics === "string"
+    ? song.lyrics
+    : song.lyrics?.text
+      || song.lyricText
+      || project.lyrics?.text
+      || project.lyric_source?.text
+      || "";
   return embedded
     ? { text: embedded, path: "", kind: String(song.lyrics?.sourceKind || "song-store-embedded") }
     : { text: "", path: "", kind: "missing" };
@@ -115,7 +125,7 @@ const projects = files.map((file) => {
   const manifestSong = manifestById.get(resolvedRegistryTrackId) || null;
   const sourceMetadata = sourceMetadataFor(manifestSong);
   const sourceDeclaredInstrumental = isSourceDeclaredInstrumental(sourceMetadata);
-  const sourceCanonical = canonicalTextFor(song, manifestSong);
+  const sourceCanonical = canonicalTextFor(song, manifestSong, project);
   const lines = Array.isArray(project.timed_lyrics) ? project.timed_lyrics : [];
   const timing = analyzeEchoLyricTiming(lines, project.duration);
   const recent = oldSongIds.size > 0 ? !oldSongIds.has(songId) : String(song.createdAt || "") >= "2026-07-12";

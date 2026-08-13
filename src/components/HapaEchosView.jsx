@@ -1771,7 +1771,17 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
   }, [activeDirectionVariant, activeStoredProject, directionWorkingForkActive, workingDirectionFork]);
   const activeOutputProfile = resolveEchoOutputProfile(activeProject);
   const activeLyricContract = normalizeEchoLyricContract(activeProject);
+  const activeLyricSourceText = String(
+    activeProject?.lyrics?.text
+      || activeProject?.lyrics?.sourceText
+      || activeProject?.lyric_source?.text
+      || "",
+  ).trim();
   const activeLyricTimingMissing = activeLyricContract.enabled
+    && !activeLyricSourceText
+    && !(Array.isArray(activeProject?.timed_lyrics) && activeProject.timed_lyrics.length);
+  const activeLyricTimingPending = activeLyricContract.enabled
+    && Boolean(activeLyricSourceText)
     && !(Array.isArray(activeProject?.timed_lyrics) && activeProject.timed_lyrics.length);
   const activeShowGraph = useMemo(() => (
     activeProject?.director_show_graph?.tracks ? projectToEditorGraph(activeProject) : null
@@ -5830,6 +5840,15 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                                 SOURCE LYRICS MISSING
                               </span>
                             )}
+                            {activeLyricTimingPending && (
+                              <span
+                                data-testid="echo-lyrics-timing-pending"
+                                title="Source lyrics are captured. The overlay waits for measured alignment against this exact song audio."
+                                style={{ color: '#a5f3fc', fontSize: '8px', fontWeight: 'bold', whiteSpace: 'nowrap' }}
+                              >
+                                LYRICS CAPTURED · TIMING PENDING
+                              </span>
+                            )}
                             <select
                               aria-label="Lyric position"
                               value={activeProject.lyric_position || "bottom-center"}
@@ -6793,14 +6812,29 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                             )}
 
                             {activeWorkbenchTab === "lyrics" && (
-                              <EchoLyricTimingEditor
-                                project={activeProject}
-                                currentTime={currentTime}
-                                analyserNode={analyserNodeRef.current}
-                                disabled={directorEditingLocked || directionVariantReadOnly}
-                                onSeek={handleReferenceSeek}
-                                onPatch={handleUpdateProjectSettings}
-                              />
+                              activeLyricTimingPending ? (
+                                <section
+                                  data-testid="echo-lyric-source-awaiting-alignment"
+                                  style={{ display: "flex", flexDirection: "column", gap: 8, minHeight: 300, padding: 12, border: "1px solid rgba(34,211,238,.32)", borderRadius: 6, background: "rgba(2,6,23,.72)", color: "#e2e8f0" }}
+                                >
+                                  <strong style={{ color: "#67e8f9", fontSize: 11 }}>SOURCE LYRICS CAPTURED</strong>
+                                  <div style={{ color: "#bae6fd", fontSize: 10, lineHeight: 1.45 }}>
+                                    These are source-backed lyrics for this exact Suno song. The visual overlay will remain off until measured audio alignment supplies trustworthy cue times.
+                                  </div>
+                                  <pre style={{ margin: 0, whiteSpace: "pre-wrap", overflow: "auto", maxHeight: 330, padding: 10, borderRadius: 4, background: "rgba(15,23,42,.86)", color: "#f8fafc", fontSize: 11, lineHeight: 1.5 }}>
+                                    {activeLyricSourceText}
+                                  </pre>
+                                </section>
+                              ) : (
+                                <EchoLyricTimingEditor
+                                  project={activeProject}
+                                  currentTime={currentTime}
+                                  analyserNode={analyserNodeRef.current}
+                                  disabled={directorEditingLocked || directionVariantReadOnly}
+                                  onSeek={handleReferenceSeek}
+                                  onPatch={handleUpdateProjectSettings}
+                                />
+                              )
                             )}
 
                             {activeWorkbenchTab === "variation" && (

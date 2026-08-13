@@ -20,3 +20,9 @@ Make every saved Echo Director cut open as an editable copy even while its exact
 ## Guardrail and reuse
 
 Use the local editor fallback for authoring only. The exact saved-cut certificate remains the sole authority for final rendering. Do not generate lyric text or timing from title/audio metadata; repair the 15 tracks only from a captured Suno lyric source or an approved source file, then run the existing lyric-timing sync.
+
+## 2026-08-11 source recovery checkpoint
+
+The initially discovered `lyrics.txt` files for the fifteen tracks were all zero-byte placeholders, so they were not a recoverable source. The signed-in Suno Lyrics tabs did expose lyric text for every exact Song ID. The importer records that visible source text with Suno URL, stable ID, SHA-256, and local source file; it deliberately leaves timed overlays pending measured alignment.
+
+The lyric audit also reads Director-level source text, so imported lyrics are reported as `timed-lyrics-missing` rather than incorrectly labelled as absent source text.

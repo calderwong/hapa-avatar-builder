@@ -191,10 +191,14 @@ test("saved cuts always have a deterministic editor fallback, but never use it a
   assert.match(selector, /if \(usingEditorFallback\) \{[\s\S]*holdSongCardPlanForExactCutCertificate/);
 });
 
-test("the Director labels missing source lyrics instead of implying an empty overlay is available", () => {
+test("the Director distinguishes missing source lyrics from captured lyrics awaiting alignment", () => {
   assert.match(source, /const activeLyricTimingMissing = activeLyricContract\.enabled/);
+  assert.match(source, /const activeLyricTimingPending = activeLyricContract\.enabled/);
   assert.match(source, /data-testid="echo-lyrics-source-missing"/);
+  assert.match(source, /data-testid="echo-lyrics-timing-pending"/);
+  assert.match(source, /data-testid="echo-lyric-source-awaiting-alignment"/);
   assert.match(source, /SOURCE LYRICS MISSING/);
+  assert.match(source, /LYRICS CAPTURED · TIMING PENDING/);
   assert.match(source, /will not invent lyrics/);
 });
 
