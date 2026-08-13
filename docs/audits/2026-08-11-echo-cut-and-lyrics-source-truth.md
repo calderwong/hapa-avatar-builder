@@ -40,3 +40,11 @@ The recovered lyric sources for sixteen non-instrumental tracks were aligned aga
 `Clouds Carry` (0.204), `Oie-Oie-Oie` (0.000), and `Tired Eyes` (0.468) did not clear that gate. They remain readable source lyrics with no timed overlay; they are not silently approximated or rendered as captions. The post-sync audit reports 170 verified projects and 3 repair-required projects, with zero synthetic timing projects.
 
 The reusable publisher now evaluates generated timing artifacts before copying them to the playlist’s `lyric_timings` folder, backs up any replaced sidecars, and emits a report. The timing synchronizer accepts an optional exact registry-track allowlist, so a repair run cannot rewrite unrelated Echo songs.
+
+## 2026-08-13 descriptions-and-palettes Director pass
+
+The nearest reusable surface was the append-only enrichment Director compiler. Its derived optical overlay carries the existing agent/human proposal descriptions and frame palettes as proposal evidence; it does not promote that evidence to human-approved direction. A stale overlay fingerprint initially stopped the run before any cut write. Rebuilding the overlay from the current review store restored its integrity receipt.
+
+The full 173-song compiler exceeded the interactive execution window during its global selection stage. Rather than bypassing the immutable-parent or index-parity guards, the compiler now accepts an exact `--song-ids` allowlist. Nine serialized batches (20/20/20/20/20/20/20/20/13) created or replay-verified a palette-aware Direction cut for every song: 156 new append-only cuts and 17 already-identical replays, covering 10,480 shots. Every batch passed exact song coverage, unique-cut, ready-status, immutable-base, immutable-existing-variant, and persisted-index parity checks.
+
+`LitRPG Life` was the only newly imported project without a parent cut; a standard balanced append-only parent was created before its enrichment cut. Guardrail: never force an enrichment cut onto a project with no ready non-legacy parent. Seed a normal append-only parent first, then compile the proposal cut. The large Ref Cards family audit exhausted Node's default memory limit on the enlarged index, so per-batch parity receipts are the current verification evidence; rerun that audit with an explicitly increased Node heap before using it as a final family-wide certificate.

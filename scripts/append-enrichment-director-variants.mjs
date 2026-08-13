@@ -132,13 +132,18 @@ export function parseEnrichmentDirectorArguments(argv = process.argv.slice(2)) {
   const apply = hasFlag(argv, "--apply");
   const songId = text(option(argv, ["--song-id"], ""));
   if (songId) validateEchoEnrichmentSongId(songId);
-  const expectedDefault = songId ? 1 : 157;
+  const songIds = [...new Set(text(option(argv, ["--song-ids"], ""))
+    .split(",").map((value) => value.trim()).filter(Boolean))];
+  for (const id of songIds) validateEchoEnrichmentSongId(id);
+  if (songId && songIds.length) throw new Error("Use either --song-id or --song-ids, not both.");
+  const expectedDefault = songId ? 1 : songIds.length || 157;
   const expectedSongCount = Number(option(argv, ["--expected-song-count"], String(expectedDefault)));
   if (!Number.isInteger(expectedSongCount) || expectedSongCount < 1) throw new Error("--expected-song-count must be a positive integer.");
   const variantsDirectory = resolveOption(argv, ["--variants", "--variants-dir"], path.join(ROOT, "data/music-video-project-variants"));
   return {
     apply,
     songId,
+    songIds,
     expectedSongCount,
     enrichmentsPath: resolveOption(argv, ["--enrichments"], path.join(DEFAULT_ARTIFACTS, "enrichments.ndjson")),
     chainGraphPath: resolveOption(argv, ["--chain-graph"], path.join(DEFAULT_ARTIFACTS, "chain-graph.json")),
@@ -1171,14 +1176,17 @@ export async function runEnrichmentDirectorVariantPass(options = parseEnrichment
       mediaRoot: options.mediaRoot,
     })
     : null;
-  if (projects.length !== options.expectedSongCount) {
-    throw new Error(`Expected exactly ${options.expectedSongCount} Echo projects; found ${projects.length}.`);
-  }
-  const uniqueProjectIds = new Set(projects.map((row) => row.songId));
-  if (uniqueProjectIds.size !== projects.length) throw new Error("Echo project directory contains duplicate song IDs.");
-  const canonicalAssignmentProjects = options.songId
-    ? await discoverProjects(options.projectsDirectory)
+  const selectedProjects = options.songIds.length
+    ? projects.filter((project) => options.songIds.includes(project.songId))
     : projects;
+  if (selectedProjects.length !== options.expectedSongCount) {
+    throw new Error(`Expected exactly ${options.expectedSongCount} Echo projects; found ${selectedProjects.length}.`);
+  }
+  const uniqueProjectIds = new Set(selectedProjects.map((row) => row.songId));
+  if (uniqueProjectIds.size !== selectedProjects.length) throw new Error("Echo project directory contains duplicate song IDs.");
+  const canonicalAssignmentProjects = options.songId || options.songIds.length
+    ? await discoverProjects(options.projectsDirectory)
+    : selectedProjects;
   const canonicalAssignmentSongIds = new Set(canonicalAssignmentProjects.map((row) => row.songId));
   const transitionAssignmentValidation = declaredTransitionCount > 0
     ? validateExplicitTransitionSongAssignments({
@@ -1243,7 +1251,7 @@ export async function runEnrichmentDirectorVariantPass(options = parseEnrichment
     })
     : sourceCatalog;
   const songs = songLookup(songsPayload);
-  const projectSnapshots = new Map(projects.map((project) => [project.filePath, sha256Bytes(project.bytes)]));
+  const projectSnapshots = new Map(selectedProjects.map((project) => [project.filePath, sha256Bytes(project.bytes)]));
   const variantSnapshots = await snapshotExistingVariants(options.variantsDirectory);
   const existingIndex = await readJson(options.indexPath, {
     schemaVersion: "hapa.echo.direction-script-variant-index.v1",
@@ -1261,7 +1269,7 @@ export async function runEnrichmentDirectorVariantPass(options = parseEnrichment
       transitionUsageCounts.set(jobId, (transitionUsageCounts.get(jobId) || 0) + 1);
     }
   }
-  for (const projectRow of projects) {
+  for (const projectRow of selectedProjects) {
     const song = songs.get(projectRow.songId);
     if (!song) throw new Error(`Canonical Hapa song card missing for ${projectRow.songId}.`);
     const variantRows = await readSongVariants(options.variantsDirectory, projectRow.songId);
