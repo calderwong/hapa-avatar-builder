@@ -1132,6 +1132,7 @@ function assertIndexParity(index, diskRows) {
 }
 
 export async function runEnrichmentDirectorVariantPass(options = parseEnrichmentDirectorArguments()) {
+  const requestedSongIds = Array.isArray(options.songIds) ? options.songIds : [];
   const [
     rawEnrichments,
     chainGraph,
@@ -1176,15 +1177,15 @@ export async function runEnrichmentDirectorVariantPass(options = parseEnrichment
       mediaRoot: options.mediaRoot,
     })
     : null;
-  const selectedProjects = options.songIds.length
-    ? projects.filter((project) => options.songIds.includes(project.songId))
+  const selectedProjects = requestedSongIds.length
+    ? projects.filter((project) => requestedSongIds.includes(project.songId))
     : projects;
   if (selectedProjects.length !== options.expectedSongCount) {
     throw new Error(`Expected exactly ${options.expectedSongCount} Echo projects; found ${selectedProjects.length}.`);
   }
   const uniqueProjectIds = new Set(selectedProjects.map((row) => row.songId));
   if (uniqueProjectIds.size !== selectedProjects.length) throw new Error("Echo project directory contains duplicate song IDs.");
-  const canonicalAssignmentProjects = options.songId || options.songIds.length
+  const canonicalAssignmentProjects = options.songId || requestedSongIds.length
     ? await discoverProjects(options.projectsDirectory)
     : selectedProjects;
   const canonicalAssignmentSongIds = new Set(canonicalAssignmentProjects.map((row) => row.songId));
