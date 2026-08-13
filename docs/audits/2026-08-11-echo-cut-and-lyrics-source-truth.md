@@ -26,3 +26,9 @@ Use the local editor fallback for authoring only. The exact saved-cut certificat
 The initially discovered `lyrics.txt` files for the fifteen tracks were all zero-byte placeholders, so they were not a recoverable source. The signed-in Suno Lyrics tabs did expose lyric text for every exact Song ID. The importer records that visible source text with Suno URL, stable ID, SHA-256, and local source file; it deliberately leaves timed overlays pending measured alignment.
 
 The lyric audit also reads Director-level source text, so imported lyrics are reported as `timed-lyrics-missing` rather than incorrectly labelled as absent source text.
+
+## 2026-08-13 LitRPG Life playlist delta
+
+The live Echoes From The Other Eras playlist exposed one new track not yet present in the Builder: `LitRPG Life` (`4b9f48b5-3ca9-416e-b88e-75fd223a1dca`). The operator downloaded its MP3 locally; the import preserved the Suno source URL, duration, MP3 custody path, and visible lyric-source SHA without claiming WAV or stems. The generic Director planner initially created uniform, synthetic cue times, so those cues were removed. The source lyrics remain available for inspection and await measured audio alignment before any lyric overlay is rendered.
+
+Guardrail: a recovered lyric source authorizes readable source text, not timed captions. Every newly imported Song must clear generated cue timing unless the timing derives from an approved exact-audio alignment source.
