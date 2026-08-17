@@ -9,12 +9,16 @@ import {
   ExternalLink,
   FileVideo2,
   Link2,
+  LayoutGrid,
+  ListVideo,
   Loader2,
   RefreshCw,
   Search,
   Sparkles,
   Star,
   Tags,
+  ThumbsDown,
+  ThumbsUp,
   Trash2,
   UserRoundCheck,
   XCircle,
@@ -39,6 +43,8 @@ export default function HumanEnricherView({ apiBase = "", onNotify = () => {} })
   const [qualityFilter, setQualityFilter] = useState("all");
   const [reviewFilter, setReviewFilter] = useState(initialReviewFilter);
   const [sort, setSort] = useState("quality-desc");
+  const [layout, setLayout] = useState(initialLayout);
+  const [decidingKeys, setDecidingKeys] = useState(() => new Set());
   const [selectedKey, setSelectedKey] = useState("");
   const [draft, setDraft] = useState(emptyDraft());
   const [avatarChoice, setAvatarChoice] = useState("");
@@ -52,6 +58,11 @@ export default function HumanEnricherView({ apiBase = "", onNotify = () => {} })
     setError("");
     try {
       const params = new URLSearchParams({ offset: String(offset), limit: "120", quality: qualityFilter, review: reviewFilter, sort });
+      if (layout === "tiles") {
+        params.set("limit", "240");
+        params.set("review", "agent-reviewed");
+        params.set("sort", "needs-human");
+      }
       if (query.trim()) params.set("q", query.trim());
       const response = await fetch(`${apiBase}/api/human-enricher/videos?${params}`, { headers: { accept: "application/json" } });
       const payload = await response.json();
@@ -72,7 +83,7 @@ export default function HumanEnricherView({ apiBase = "", onNotify = () => {} })
   useEffect(() => {
     const timer = globalThis.setTimeout(() => load({ preserveSelection: false }), query.trim() ? 240 : 0);
     return () => globalThis.clearTimeout(timer);
-  }, [apiBase, query, qualityFilter, reviewFilter, sort]);
+  }, [apiBase, layout, query, qualityFilter, reviewFilter, sort]);
 
   useEffect(() => {
     let cancelled = false;
@@ -137,6 +148,22 @@ export default function HumanEnricherView({ apiBase = "", onNotify = () => {} })
     [dashboard, filteredVideos, selectedKey],
   );
 
+  const quickSortVideos = useMemo(() => (dashboard?.videos || []).filter((video) => {
+    if (!video.agentReview || ["rejected", "blocked"].includes(video.agentReview.status)) return false;
+    if (qualityFilter === "enriched" && !video.humanEnrichment) return false;
+    const grade = Number(video.humanEnrichment?.quality?.value ?? video.agentReview?.proposal?.quality?.value ?? 0);
+    if (qualityFilter === "ungraded" && grade > 0) return false;
+    if (/^[1-5]$/.test(qualityFilter) && grade !== Number(qualityFilter)) return false;
+    const normalizedQuery = query.trim().toLowerCase();
+    if (!normalizedQuery) return true;
+    return [video.name, video.id, video.ownerName, video.role, video.agentReview?.proposal?.description].join(" ").toLowerCase().includes(normalizedQuery);
+  }), [dashboard, qualityFilter, query]);
+
+  const quickSortCounts = useMemo(() => ({
+    pending: quickSortVideos.filter((video) => video.agentReview?.status === "pending-human").length,
+    accepted: quickSortVideos.filter((video) => ["accepted", "accepted-edited"].includes(video.agentReview?.status)).length,
+  }), [quickSortVideos]);
+
   useEffect(() => {
     if (!selectedVideo) return;
     if (selectedVideo.humanVideoKey !== selectedKey) setSelectedKey(selectedVideo.humanVideoKey);
@@ -163,6 +190,18 @@ export default function HumanEnricherView({ apiBase = "", onNotify = () => {} })
     if (!nextKey || nextKey === selectedVideo?.humanVideoKey || saving) return;
     if (saveState === "dirty" && !(await save())) return;
     setSelectedKey(nextKey);
+  }
+
+  function switchLayout(nextLayout) {
+    setLayout(nextLayout);
+    try {
+      const url = new URL(globalThis.location.href);
+      if (nextLayout === "tiles") url.searchParams.set("layout", "tiles");
+      else url.searchParams.delete("layout");
+      globalThis.history?.replaceState({}, "", url);
+    } catch {
+      // Layout switching still works in test and embedded contexts without a complete URL.
+    }
   }
 
   function addAvatarMention() {
@@ -253,6 +292,39 @@ export default function HumanEnricherView({ apiBase = "", onNotify = () => {} })
     }
   }
 
+  async function decideQuickSortVideo(video, action) {
+    const review = video?.agentReview;
+    if (!review || review.status !== "pending-human" || decidingKeys.has(video.humanVideoKey)) return;
+    setDecidingKeys((current) => new Set(current).add(video.humanVideoKey));
+    setError("");
+    try {
+      const response = await fetch(`${apiBase}/api/human-enricher/agent-reviews/${encodeURIComponent(review.id)}/decision`, {
+        method: "POST",
+        headers: { accept: "application/json", "content-type": "application/json", "x-hapa-actor-id": "human-enricher-quick-sort" },
+        body: JSON.stringify({
+          action,
+          notes: action === "accepted" ? "Accepted during the Human Enricher quick-sort first pass." : "Rejected during the Human Enricher quick-sort first pass.",
+        }),
+      });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.message || payload.error || `Quick-sort decision failed (${response.status})`);
+      setDashboard((current) => ({
+        ...current,
+        summary: applyQuickDecisionSummary(current.summary, action),
+        videos: current.videos.map((candidate) => candidate.humanVideoKey === video.humanVideoKey ? { ...candidate, agentReview: payload.review } : candidate),
+      }));
+      onNotify(`${action === "accepted" ? "Accepted" : "Rejected"} ${video.name || video.id}`);
+    } catch (decisionError) {
+      setError(decisionError instanceof Error ? decisionError.message : String(decisionError));
+    } finally {
+      setDecidingKeys((current) => {
+        const next = new Set(current);
+        next.delete(video.humanVideoKey);
+        return next;
+      });
+    }
+  }
+
   async function save() {
     if (!selectedVideo || saving) return false;
     const snapshot = draft;
@@ -312,13 +384,20 @@ export default function HumanEnricherView({ apiBase = "", onNotify = () => {} })
           <h2>Put human taste back in the loop.</h2>
           <p>Grade known video files, name the Avatars on screen, and leave direction that Echo State can read without changing source media or canon.</p>
         </div>
-        <button className="hapa-btn" type="button" onClick={() => load()} disabled={loading}>
-          <RefreshCw size={15} className={loading ? "spin" : ""} /> Refresh videos
-        </button>
+        <div className="human-enricher-hero-actions">
+          <div className="human-enricher-layout-toggle" role="group" aria-label="Human Enricher layout">
+            <button type="button" aria-pressed={layout === "detail"} onClick={() => switchLayout("detail")}><ListVideo size={15} /> Detail</button>
+            <button type="button" aria-pressed={layout === "tiles"} onClick={() => switchLayout("tiles")}><LayoutGrid size={15} /> Quick Sort</button>
+          </div>
+          <button className="hapa-btn" type="button" onClick={() => load()} disabled={loading}>
+            <RefreshCw size={15} className={loading ? "spin" : ""} /> Refresh videos
+          </button>
+        </div>
       </header>
 
       {error && <div className="human-enricher-error hapa-panel" role="alert">{error}</div>}
 
+      {layout === "detail" ? <>
       <div className="human-enricher-stats" aria-label="Human enrichment status">
         <Metric label="Known videos" value={dashboard?.summary?.videos || 0} icon={<FileVideo2 size={16} />} />
         <Metric label="Human enriched" value={dashboard?.summary?.enriched || 0} icon={<Sparkles size={16} />} />
@@ -612,6 +691,41 @@ export default function HumanEnricherView({ apiBase = "", onNotify = () => {} })
           ) : <div className="human-video-empty">No known video is available for enrichment.</div>}
         </main>
       </div>
+      </> : (
+        <main className="human-quick-sort" aria-label="Quick-sort video tiles">
+          <header className="human-quick-sort-toolbar hapa-panel">
+            <div>
+              <p className="eyebrow"><LayoutGrid size={13} /> FIRST-PASS VIDEO SORT</p>
+              <h3>Hover to preview. Keep or reject in one click.</h3>
+              <p>Thumbs up validates the current optical proposal. Thumbs down records a rejection and removes the tile from this view.</p>
+            </div>
+            <label className="search-box hapa-field"><Search size={15} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Find a video…" /></label>
+            <div className="human-quick-sort-counts" aria-live="polite">
+              <span><strong>{quickSortCounts.pending}</strong> awaiting</span>
+              <span data-state="accepted"><strong>{quickSortCounts.accepted}</strong> accepted</span>
+            </div>
+          </header>
+
+          <div className="human-video-tile-grid">
+            {quickSortVideos.map((video) => (
+              <QuickSortVideoTile
+                key={video.humanVideoKey}
+                video={video}
+                apiBase={apiBase}
+                deciding={decidingKeys.has(video.humanVideoKey)}
+                onDecide={decideQuickSortVideo}
+              />
+            ))}
+          </div>
+
+          {dashboard?.pagination?.hasMore && (
+            <button className="human-video-load-more hapa-btn" type="button" disabled={loading} onClick={() => load({ append: true, offset: dashboard.pagination.nextOffset })}>
+              {loading ? <Loader2 size={14} className="spin" /> : <RefreshCw size={14} />} Load 240 more candidates
+            </button>
+          )}
+          {!quickSortVideos.length && <div className="human-video-empty hapa-panel">No optical-review candidates are waiting in this view.</div>}
+        </main>
+      )}
     </section>
   );
 }
@@ -621,6 +735,20 @@ function emptyDraft() { return { quality: 0, description: "", categories: [], ta
 function initialReviewFilter() {
   const requested = new URLSearchParams(globalThis.location?.search || "").get("review") || "all";
   return HUMAN_VIDEO_REVIEW_FILTERS.some((filter) => filter.value === requested) ? requested : "all";
+}
+
+function initialLayout() {
+  return new URLSearchParams(globalThis.location?.search || "").get("layout") === "tiles" ? "tiles" : "detail";
+}
+
+function applyQuickDecisionSummary(summary = {}, action) {
+  return {
+    ...summary,
+    pendingHumanValidation: Math.max(0, Number(summary?.pendingHumanValidation || 0) - 1),
+    humanValidatedAgentReviews: Number(summary?.humanValidatedAgentReviews || 0) + 1,
+    quickSortAccepted: Number(summary?.quickSortAccepted || 0) + Number(action === "accepted"),
+    quickSortRejected: Number(summary?.quickSortRejected || 0) + Number(action === "rejected"),
+  };
 }
 
 function avatarMentionLabel(value) {
@@ -941,6 +1069,55 @@ function formatRelativeDuration(milliseconds) {
   return `${Math.round(minutes / 60)}h`;
 }
 function Meta({ label, value }) { return <div><dt>{label}</dt><dd>{value || "Not recorded"}</dd></div>; }
+function QuickSortVideoTile({ video, apiBase, deciding = false, onDecide }) {
+  const previewRef = useRef(null);
+  const reviewStatus = video.agentReview?.status || "unreviewed";
+  const accepted = ["accepted", "accepted-edited"].includes(reviewStatus);
+  const pending = reviewStatus === "pending-human";
+  const title = video.name || video.id || "Untitled video";
+  const previewUri = mediaUri(video.uri, apiBase);
+  const posterUri = mediaUri(video.thumbnailUri, apiBase);
+
+  function startPreview() {
+    const preview = previewRef.current;
+    if (!preview || !previewUri) return;
+    const playback = preview.play();
+    if (playback?.catch) playback.catch(() => {});
+  }
+
+  function stopPreview() {
+    const preview = previewRef.current;
+    if (!preview) return;
+    preview.pause();
+    try { preview.currentTime = 0; } catch { /* Some streams are not seekable before metadata loads. */ }
+  }
+
+  return (
+    <article className="human-video-tile hapa-card" data-card-type="media" data-state={accepted ? "accepted" : "pending"} onMouseEnter={startPreview} onMouseLeave={stopPreview}>
+      <div className="human-video-tile-preview">
+        {previewUri ? (
+          <video ref={previewRef} src={previewUri} poster={posterUri} muted loop playsInline preload="none" tabIndex={0} aria-label={`Preview ${title}`} onFocus={startPreview} onBlur={stopPreview} />
+        ) : posterUri ? <img src={posterUri} alt="" loading="lazy" /> : <FileVideo2 size={36} />}
+        <span className="human-video-tile-status" data-state={accepted ? "accepted" : "pending"}>
+          {accepted ? <><BadgeCheck size={14} /> Accepted</> : <><Eye size={14} /> Awaiting first pass</>}
+        </span>
+        {deciding && <span className="human-video-tile-busy"><Loader2 size={22} className="spin" /> Saving decision…</span>}
+      </div>
+      <div className="human-video-tile-copy">
+        <strong title={title}>{title}</strong>
+        <small>{video.ownerName || "System Media Library"} · {formatDuration(video.duration)}</small>
+      </div>
+      <div className="human-video-tile-actions">
+        <button type="button" data-action="reject" aria-label={`Reject ${title}`} disabled={!pending || deciding} onClick={() => onDecide(video, "rejected")}>
+          <ThumbsDown size={19} /><span>Reject</span>
+        </button>
+        <button type="button" data-action="accept" aria-label={`Accept ${title}`} aria-pressed={accepted} disabled={!pending || deciding} onClick={() => onDecide(video, "accepted")}>
+          <ThumbsUp size={19} /><span>{accepted ? "Accepted" : "Accept"}</span>
+        </button>
+      </div>
+    </article>
+  );
+}
 function VideoPoster({ video, apiBase }) {
   const poster = mediaUri(video.thumbnailUri, apiBase);
   return <span className="human-video-poster">{poster ? <img src={poster} alt="" loading="lazy" /> : <FileVideo2 size={24} />}</span>;
