@@ -122,6 +122,7 @@ import {
   SCENE_MEDIA_REQUIREMENTS,
   addPlaylistTrack,
   attachSceneMedia,
+  attachSceneMediaBatch,
   auditSceneGraph,
   createPlace,
   createScene,
@@ -2056,7 +2057,48 @@ export default function App({ overcardAdapter }) {
     }, options.immediate ? 0 : 140);
   }
 
-  function replaceSceneGraph(nextGraph, message) {
+  async function persistSceneAssetBatch(sceneId, assets, options = {}) {
+    setWorldSyncState("syncing");
+    updateQueueJob("world-save", "World save queue", {
+      status: "loading",
+      kind: "write",
+      detail: `Persisting ${assets.length} Scene asset${assets.length === 1 ? "" : "s"} without resending the full world graph.`,
+      available: "Uploaded media remains visible in the current Scene.",
+      queuedNext: "Commit the Scene attachment batch to the local API.",
+      blocking: false
+    });
+    try {
+      const response = await fetch(`${API_BASE}/api/world/scenes/${encodeURIComponent(sceneId)}/assets`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ assets, slotId: options.slotId || null })
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload.message || payload.error || `Scene attachment save failed: ${response.status}`);
+      clearWorldDraft();
+      setApiState("api");
+      setWorldSyncState("saved");
+      refreshSubscriberStatus();
+      markQueueReady("world-save", "World save queue", `${payload.attached || assets.length} Scene assets saved to API.`);
+      return true;
+    } catch (error) {
+      setApiState("local");
+      setWorldSyncState("draft");
+      notify(`Scene uploads are safe, but the Scene link did not save: ${error?.message || "unknown error"}`);
+      updateQueueJob("world-save", "World save queue", {
+        status: "failed",
+        kind: "write",
+        detail: "Scene assets remain in the current local view but are not yet linked in the persisted world store.",
+        available: "Uploaded files remain in local media storage.",
+        queuedNext: "Retry the Scene attachment batch before closing the Builder.",
+        blocking: false,
+        error: error?.message || "Scene attachment save failed"
+      });
+      return false;
+    }
+  }
+
+  function replaceSceneGraph(nextGraph, message, options = {}) {
     const graph = normalizeSceneGraph(nextGraph);
     saveWorldDraft(graph);
     setSceneGraph(graph);
@@ -2067,6 +2109,7 @@ export default function App({ overcardAdapter }) {
       setSelectedSceneId(graph.scenes[0]?.id || null);
     }
     if (message) notify(message);
+    if (options.persist === false) return;
     queueSceneGraphPersist(graph, {
       failMessage: apiState === "api" ? "World saved locally; API retry available" : ""
     });
@@ -3006,14 +3049,13 @@ export default function App({ overcardAdapter }) {
       : await assetsFromDrop(event, requirementId, [...intake, ...(selectedScene.assets || [])]);
     if (!assets.length) return;
 
-    let nextGraph = normalizedSceneGraph;
-    for (const asset of assets) {
-      nextGraph = attachSceneMedia(nextGraph, selectedScene.id, { ...asset, requirementId }, slotId);
-    }
-    replaceSceneGraph(nextGraph, `Attached ${assets.length} scene asset${assets.length === 1 ? "" : "s"}`);
+    const sceneAssets = assets.map((asset) => ({ ...asset, requirementId }));
+    const nextGraph = attachSceneMediaBatch(normalizedSceneGraph, selectedScene.id, sceneAssets, { slotId });
+    replaceSceneGraph(nextGraph, `Attached ${assets.length} scene asset${assets.length === 1 ? "" : "s"}`, { persist: false });
     setSelectedSceneAssetId(assets.at(-1).id);
     setSelectedAssetId(null);
     setIntake((current) => current.filter((asset) => !assets.some((dropped) => dropped.id === asset.id)));
+    await persistSceneAssetBatch(selectedScene.id, sceneAssets, { slotId });
     cue("drop");
   }
 

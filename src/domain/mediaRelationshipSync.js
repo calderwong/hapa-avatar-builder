@@ -142,7 +142,18 @@ function findExistingRecordId(records = [], asset = {}) {
 }
 
 function mediaRecordId(asset = {}) {
-  return `attached-${slugify(contentFingerprintForAsset(asset) || sourcePathForAsset(asset) || asset.uri || asset.id || asset.name || Date.now())}`;
+  const identity = contentFingerprintForAsset(asset) || sourcePathForAsset(asset) || asset.uri || asset.id || asset.name || String(Date.now());
+  const label = asset.name || asset.id || identity.split(/[\\/]/).at(-1) || "media";
+  return `attached-${slugify(label).slice(0, 64)}-${stableIdentityHash(identity)}`;
+}
+
+function stableIdentityHash(value = "") {
+  let hash = 0xcbf29ce484222325n;
+  for (const character of String(value || "")) {
+    hash ^= BigInt(character.codePointAt(0));
+    hash = BigInt.asUintN(64, hash * 0x100000001b3n);
+  }
+  return hash.toString(16).padStart(16, "0");
 }
 
 function mediaTypeForAsset(asset = {}) {

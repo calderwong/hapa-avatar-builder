@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   addPlaylistTrack,
   attachSceneMedia,
+  attachSceneMediaBatch,
   auditSceneGraph,
   createPlace,
   createScene,
@@ -103,6 +104,26 @@ test("scene media attaches to standard slots, overfills when full, and cleans up
   const cleanedScene = cleaned.scenes[0];
   assert.equal(cleanedScene.mediaSlots.some((slot) => slot.required === false && !slot.assetId), false);
   assert.equal(auditSceneGraph(cleaned).byScene[0].overfill, 0);
+});
+
+test("scene media batches normalize once and persist every uploaded video", () => {
+  const graph = createSceneGraphScaffold();
+  const sceneId = graph.scenes[0].id;
+  const assets = Array.from({ length: 220 }, (_, index) => ({
+    id: `scene-video-${index + 1}`,
+    name: `scene-video-${index + 1}.mp4`,
+    uri: `/media/scene-video-${index + 1}.mp4`,
+    type: "video",
+    requirementId: "scene_videos",
+  }));
+
+  const next = attachSceneMediaBatch(graph, sceneId, assets, { now: "2026-08-20T20:00:00.000Z" });
+  const scene = next.scenes.find((entry) => entry.id === sceneId);
+
+  assert.equal(scene.assets.filter((asset) => asset.type === "video").length, 220);
+  assert.equal(scene.mediaSlots.filter((slot) => slot.requirementId === "scene_videos" && slot.assetId).length, 220);
+  assert.equal(scene.updatedAt, "2026-08-20T20:00:00.000Z");
+  assert.equal(new Set(scene.assets.map((asset) => asset.processing.slotId)).size, 220);
 });
 
 test("normalization re-slots orphaned scene image assets after a partial UI attach", () => {

@@ -718,6 +718,7 @@ export default function HumanEnricherView({ apiBase = "", onNotify = () => {} })
               <span><strong>{dashboard?.summary?.quickSortKnown || 0}</strong> known</span>
               <span data-state="seen"><strong>{dashboard?.summary?.quickSortSeen || 0}</strong> seen</span>
               <span data-state="unseen"><strong>{dashboard?.summary?.quickSortNotSeen || 0}</strong> not seen</span>
+              <span><strong>{dashboard?.summary?.remainingOpticalReviews || 0}</strong> awaiting optical</span>
               <span data-state="accepted"><strong>{dashboard?.summary?.quickSortAccepted || 0}</strong> accepted</span>
               <span data-state="rejected"><strong>{dashboard?.summary?.quickSortRejected || 0}</strong> rejected</span>
             </div>
@@ -740,7 +741,9 @@ export default function HumanEnricherView({ apiBase = "", onNotify = () => {} })
               {loading ? <Loader2 size={14} className="spin" /> : <RefreshCw size={14} />} Load 240 more candidates
             </button>
           )}
-          {!quickSortVideos.length && <div className="human-video-empty hapa-panel">{quickSortSeenFilter === "unseen" ? "No unseen optical-review candidates match these filters." : "No optical-review candidates match these filters."}</div>}
+          {!quickSortVideos.length && <div className="human-video-empty hapa-panel">{dashboard?.summary?.remainingOpticalReviews
+            ? `No sortable optical proposals match these filters. ${dashboard.summary.remainingOpticalReviews} known video${dashboard.summary.remainingOpticalReviews === 1 ? " is" : "s are"} still awaiting optical review.`
+            : quickSortSeenFilter === "unseen" ? "No unseen optical-review candidates match these filters." : "No optical-review candidates match these filters."}</div>}
         </main>
       )}
     </section>

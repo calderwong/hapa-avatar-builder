@@ -292,70 +292,80 @@ export function setSceneTimeline(graph, sceneId, timelinePatch = {}) {
 }
 
 export function attachSceneMedia(graph, sceneId, assetInput, slotId = null) {
+  return attachSceneMediaBatch(graph, sceneId, [assetInput], { slotId });
+}
+
+export function attachSceneMediaBatch(graph, sceneId, assetInputs = [], options = {}) {
   const next = normalizeSceneGraph(graph);
   const sceneIndex = next.scenes.findIndex((scene) => scene.id === sceneId);
   if (sceneIndex < 0) return next;
 
   const scene = clone(next.scenes[sceneIndex]);
-  const asset = createMediaAsset({
-    ...assetInput,
-    requirementId: assetInput.requirementId || inferSceneRequirement(assetInput),
-    type: assetInput.type || inferAssetKind(assetInput.name || assetInput.uri || "")
-  });
-  const requirement = sceneRequirementById(asset.requirementId);
-  if (!requirement) return next;
-
-  asset.processing = {
-    ...(asset.processing || {}),
-    status: "attached",
-    attachedToScene: true,
-    sceneId,
-    attachedAt: new Date().toISOString(),
-    slotId
-  };
-  asset.metadata = {
-    ...(asset.metadata || {}),
-    sceneId,
-    sceneTitle: scene.title,
-    sceneRequirementId: requirement.id,
-    sceneRequirementName: requirement.label
-  };
-
-  const existingIndex = scene.assets.findIndex((item) => item.id === asset.id);
-  if (existingIndex >= 0) scene.assets[existingIndex] = asset;
-  else scene.assets.push(asset);
-
-  scene.mediaSlots = scene.mediaSlots.map((slot) =>
-    slot.assetId === asset.id && slot.id !== slotId ? { ...slot, assetId: null } : slot
-  );
-
-  let slotIndex = slotId
-    ? scene.mediaSlots.findIndex((slot) => slot.id === slotId)
-    : scene.mediaSlots.findIndex((slot) => slot.requirementId === requirement.id && slot.required !== false && !slot.assetId);
-
-  if (!slotId && slotIndex < 0) {
-    const overfillCount = scene.mediaSlots.filter((slot) => slot.requirementId === requirement.id && slot.required === false).length;
-    scene.mediaSlots.push({
-      id: `${scene.id}-${requirement.id}-overfill-${Date.now()}-${overfillCount + 1}`,
-      requirementId: requirement.id,
-      label: `${requirement.shortLabel} overfill ${overfillCount + 1}`,
-      required: false,
-      overfill: true,
-      assetId: null,
-      preferredTags: requirement.defaultTags || []
+  const now = options.now || new Date().toISOString();
+  const inputs = Array.isArray(assetInputs) ? assetInputs.filter(Boolean) : [];
+  for (let assetIndex = 0; assetIndex < inputs.length; assetIndex += 1) {
+    const assetInput = inputs[assetIndex];
+    const requestedSlotId = assetIndex === 0 ? options.slotId || null : null;
+    const asset = createMediaAsset({
+      ...assetInput,
+      requirementId: assetInput.requirementId || inferSceneRequirement(assetInput),
+      type: assetInput.type || inferAssetKind(assetInput.name || assetInput.uri || "")
     });
-    slotIndex = scene.mediaSlots.length - 1;
-  }
+    const requirement = sceneRequirementById(asset.requirementId);
+    if (!requirement) continue;
 
-  if (slotIndex >= 0) {
-    scene.mediaSlots[slotIndex] = { ...scene.mediaSlots[slotIndex], assetId: asset.id };
-    asset.processing.slotId = scene.mediaSlots[slotIndex].id;
-    scene.assets[scene.assets.findIndex((item) => item.id === asset.id)] = asset;
+    asset.processing = {
+      ...(asset.processing || {}),
+      status: "attached",
+      attachedToScene: true,
+      sceneId,
+      attachedAt: now,
+      slotId: requestedSlotId
+    };
+    asset.metadata = {
+      ...(asset.metadata || {}),
+      sceneId,
+      sceneTitle: scene.title,
+      sceneRequirementId: requirement.id,
+      sceneRequirementName: requirement.label
+    };
+
+    const existingIndex = scene.assets.findIndex((item) => item.id === asset.id);
+    if (existingIndex >= 0) scene.assets[existingIndex] = asset;
+    else scene.assets.push(asset);
+
+    scene.mediaSlots = scene.mediaSlots.map((slot) =>
+      slot.assetId === asset.id && slot.id !== requestedSlotId ? { ...slot, assetId: null } : slot
+    );
+
+    let slotIndex = requestedSlotId
+      ? scene.mediaSlots.findIndex((slot) => slot.id === requestedSlotId)
+      : scene.mediaSlots.findIndex((slot) => slot.requirementId === requirement.id && slot.required !== false && !slot.assetId);
+
+    if (!requestedSlotId && slotIndex < 0) {
+      const overfillCount = scene.mediaSlots.filter((slot) => slot.requirementId === requirement.id && slot.required === false).length;
+      scene.mediaSlots.push({
+        id: `${scene.id}-${requirement.id}-overfill-${Date.parse(now) || Date.now()}-${overfillCount + 1}`,
+        requirementId: requirement.id,
+        label: `${requirement.shortLabel} overfill ${overfillCount + 1}`,
+        required: false,
+        overfill: true,
+        assetId: null,
+        preferredTags: requirement.defaultTags || []
+      });
+      slotIndex = scene.mediaSlots.length - 1;
+    }
+
+    if (slotIndex >= 0) {
+      scene.mediaSlots[slotIndex] = { ...scene.mediaSlots[slotIndex], assetId: asset.id };
+      asset.processing.slotId = scene.mediaSlots[slotIndex].id;
+      scene.assets[scene.assets.findIndex((item) => item.id === asset.id)] = asset;
+    }
   }
 
   reconcileSceneMediaSlots(scene);
   applySceneAssetLabels(scene);
-  scene.updatedAt = new Date().toISOString();
+  scene.updatedAt = now;
   next.scenes[sceneIndex] = scene;
   next.updatedAt = scene.updatedAt;
   return next;

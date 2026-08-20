@@ -23,6 +23,8 @@ test("Human Enricher quick sort exposes dense hover-preview tiles and durable fi
   assert.match(source, /summary\?\.quickSortKnown/);
   assert.match(source, /summary\?\.quickSortAccepted/);
   assert.match(source, /summary\?\.quickSortRejected/);
+  assert.match(source, /summary\?\.remainingOpticalReviews/);
+  assert.match(source, /still awaiting optical review/);
   assert.doesNotMatch(source, /quickSortVideos\.filter\(\(video\) => \["accepted", "accepted-edited"\]/);
   assert.match(source, /data-state=\{accepted \? "accepted" : "pending"\}/);
   assert.match(source, /aria-pressed=\{accepted\}/);

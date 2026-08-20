@@ -29,6 +29,7 @@ import {
 } from "../src/domain/avatar.js";
 import {
   attachSceneMedia,
+  attachSceneMediaBatch,
   createPlace,
   createScene,
   createSceneAttachPack,
@@ -971,6 +972,7 @@ const DEFAULT_WEBRTC_ICE_SERVERS = [
 const BLUE_AVATAR_OWNER_PATH = process.env.HAPA_BLUE_AVATAR_OWNER_PATH || path.join(DATA_DIR, "blue-avatar-owner.json");
 const BLUE_AVATAR_OWNER_TTL_MS = Math.max(5000, Number(process.env.HAPA_BLUE_AVATAR_OWNER_TTL_MS || 16000) || 16000);
 const MAX_REQUEST_BYTES = Math.max(64 * 1024, Math.min(32 * 1024 * 1024, Number(process.env.HAPA_AVATAR_MAX_REQUEST_BYTES || 8 * 1024 * 1024)));
+const MAX_SCENE_ASSET_BATCH_BYTES = Math.max(MAX_REQUEST_BYTES, Math.min(64 * 1024 * 1024, Number(process.env.HAPA_SCENE_ASSET_BATCH_MAX_REQUEST_BYTES || 32 * 1024 * 1024)));
 const MAX_RETAINED_RAW_JSON_BYTES = Math.max(1024 * 1024, Math.min(64 * 1024 * 1024, Number(process.env.HAPA_AVATAR_RAW_JSON_CACHE_MAX_BYTES || 8 * 1024 * 1024)));
 const MAX_RETAINED_RAW_JSON_TOTAL_BYTES = Math.max(
   MAX_RETAINED_RAW_JSON_BYTES,
@@ -4568,6 +4570,51 @@ async function route(req, res) {
     await writeSceneStore(graph);
     await appendSubscriberRegistration("world.scene-created", { sceneGraph: graph });
     sendJson(res, 201, graph);
+    return;
+  }
+
+  const sceneAssetBatchMatch = pathname.match(/^\/api\/world\/scenes\/([^/]+)\/assets$/);
+  if (sceneAssetBatchMatch && req.method === "POST") {
+    try {
+      const sceneId = decodeURIComponent(sceneAssetBatchMatch[1]);
+      const body = await readBody(req, MAX_SCENE_ASSET_BATCH_BYTES);
+      const assets = Array.isArray(body.assets) ? body.assets.filter(Boolean) : [];
+      if (!assets.length) {
+        sendJson(res, 400, { ok: false, error: "scene_asset_batch_empty", message: "Attach at least one Scene asset." });
+        return;
+      }
+      if (assets.length > 1_000) {
+        sendJson(res, 413, { ok: false, error: "scene_asset_batch_too_large", message: "A Scene asset batch may contain at most 1,000 assets." });
+        return;
+      }
+      const currentGraph = await readSceneStore();
+      const currentScene = (currentGraph.scenes || []).find((scene) => scene.id === sceneId);
+      if (!currentScene) {
+        sendJson(res, 404, { ok: false, error: "scene_not_found", sceneId });
+        return;
+      }
+      const graph = attachSceneMediaBatch(currentGraph, sceneId, assets, { slotId: body.slotId || null });
+      await writeSceneStore(graph);
+      const scene = graph.scenes.find((entry) => entry.id === sceneId);
+      await appendSubscriberRegistration("world.scene-media-attached", {
+        sceneId,
+        assetIds: assets.map((asset) => asset.id).filter(Boolean),
+        attached: assets.length,
+      });
+      sendJson(res, 201, {
+        ok: true,
+        sceneId,
+        attached: assets.length,
+        totalAssets: scene?.assets?.length || 0,
+        updatedAt: scene?.updatedAt || graph.updatedAt || null,
+      });
+    } catch (error) {
+      sendJson(res, Number(error?.statusCode || 422), {
+        ok: false,
+        error: error?.code || "scene_asset_batch_failed",
+        message: error?.message || String(error),
+      });
+    }
     return;
   }
 
@@ -10154,16 +10201,17 @@ function cleanBlueAvatarOwnerText(value = "") {
   return String(value || "").replace(/\s+/g, " ").trim().slice(0, 500);
 }
 
-async function readBody(req) {
+async function readBody(req, limitBytes = MAX_REQUEST_BYTES) {
+  const limit = Math.max(1, Number(limitBytes) || MAX_REQUEST_BYTES);
   const declared = Number(req.headers["content-length"] || 0);
-  if (declared > MAX_REQUEST_BYTES) {
-    const error = new Error(`request_body_too_large: limit=${MAX_REQUEST_BYTES}`); error.statusCode = 413; throw error;
+  if (declared > limit) {
+    const error = new Error(`request_body_too_large: limit=${limit}`); error.statusCode = 413; throw error;
   }
   const chunks = [];
   let total = 0;
   for await (const chunk of req) {
     total += chunk.length;
-    if (total > MAX_REQUEST_BYTES) { const error = new Error(`request_body_too_large: limit=${MAX_REQUEST_BYTES}`); error.statusCode = 413; throw error; }
+    if (total > limit) { const error = new Error(`request_body_too_large: limit=${limit}`); error.statusCode = 413; throw error; }
     chunks.push(chunk);
   }
   if (!chunks.length) return {};
