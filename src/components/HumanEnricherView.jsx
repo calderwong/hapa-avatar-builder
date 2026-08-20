@@ -26,7 +26,9 @@ import {
 import {
   HUMAN_VIDEO_QUALITY_GRADES,
   HUMAN_VIDEO_REVIEW_FILTERS,
+  matchesHumanVideoQuickSortSeenFilter,
   matchesHumanVideoReviewFilter,
+  matchesHumanVideoSourceFilter,
 } from "../domain/human-video-enrichment.js";
 
 const EMPTY_REFERENCE = { type: "echo-song", id: "", label: "", uri: "", notes: "" };
@@ -44,6 +46,8 @@ export default function HumanEnricherView({ apiBase = "", onNotify = () => {} })
   const [reviewFilter, setReviewFilter] = useState(initialReviewFilter);
   const [sort, setSort] = useState("quality-desc");
   const [layout, setLayout] = useState(initialLayout);
+  const [quickSortSeenFilter, setQuickSortSeenFilter] = useState(initialQuickSortSeenFilter);
+  const [quickSortSourceFilter, setQuickSortSourceFilter] = useState(initialQuickSortSourceFilter);
   const [decidingKeys, setDecidingKeys] = useState(() => new Set());
   const [selectedKey, setSelectedKey] = useState("");
   const [draft, setDraft] = useState(emptyDraft());
@@ -62,6 +66,8 @@ export default function HumanEnricherView({ apiBase = "", onNotify = () => {} })
         params.set("limit", "240");
         params.set("review", "agent-reviewed");
         params.set("sort", "needs-human");
+        params.set("seen", quickSortSeenFilter);
+        params.set("source", quickSortSourceFilter);
       }
       if (query.trim()) params.set("q", query.trim());
       const response = await fetch(`${apiBase}/api/human-enricher/videos?${params}`, { headers: { accept: "application/json" } });
@@ -83,7 +89,7 @@ export default function HumanEnricherView({ apiBase = "", onNotify = () => {} })
   useEffect(() => {
     const timer = globalThis.setTimeout(() => load({ preserveSelection: false }), query.trim() ? 240 : 0);
     return () => globalThis.clearTimeout(timer);
-  }, [apiBase, layout, query, qualityFilter, reviewFilter, sort]);
+  }, [apiBase, layout, query, qualityFilter, reviewFilter, sort, quickSortSeenFilter, quickSortSourceFilter]);
 
   useEffect(() => {
     let cancelled = false;
@@ -150,6 +156,8 @@ export default function HumanEnricherView({ apiBase = "", onNotify = () => {} })
 
   const quickSortVideos = useMemo(() => (dashboard?.videos || []).filter((video) => {
     if (!video.agentReview || ["rejected", "blocked"].includes(video.agentReview.status)) return false;
+    if (!matchesHumanVideoQuickSortSeenFilter(video, quickSortSeenFilter)) return false;
+    if (!matchesHumanVideoSourceFilter(video, quickSortSourceFilter)) return false;
     if (qualityFilter === "enriched" && !video.humanEnrichment) return false;
     const grade = Number(video.humanEnrichment?.quality?.value ?? video.agentReview?.proposal?.quality?.value ?? 0);
     if (qualityFilter === "ungraded" && grade > 0) return false;
@@ -157,7 +165,7 @@ export default function HumanEnricherView({ apiBase = "", onNotify = () => {} })
     const normalizedQuery = query.trim().toLowerCase();
     if (!normalizedQuery) return true;
     return [video.name, video.id, video.ownerName, video.role, video.agentReview?.proposal?.description].join(" ").toLowerCase().includes(normalizedQuery);
-  }), [dashboard, qualityFilter, query]);
+  }), [dashboard, qualityFilter, query, quickSortSeenFilter, quickSortSourceFilter]);
 
   useEffect(() => {
     if (!selectedVideo) return;
@@ -307,6 +315,7 @@ export default function HumanEnricherView({ apiBase = "", onNotify = () => {} })
         ...current,
         summary: applyQuickDecisionSummary(current.summary, action),
         videos: current.videos.map((candidate) => candidate.humanVideoKey === video.humanVideoKey ? { ...candidate, agentReview: payload.review } : candidate),
+        pagination: quickSortSeenFilter === "unseen" ? removeOneFromPagination(current.pagination) : current.pagination,
       }));
       onNotify(`${action === "accepted" ? "Accepted" : "Rejected"} ${video.name || video.id}`);
     } catch (decisionError) {
@@ -694,9 +703,21 @@ export default function HumanEnricherView({ apiBase = "", onNotify = () => {} })
               <h3>Hover to preview. Keep or reject in one click.</h3>
               <p>Thumbs up validates the current optical proposal. Thumbs down records a rejection and removes the tile from this view.</p>
             </div>
-            <label className="search-box hapa-field"><Search size={15} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Find a video…" /></label>
+            <div className="human-quick-sort-filters">
+              <label className="search-box hapa-field"><Search size={15} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Find a video…" /></label>
+              <select value={quickSortSeenFilter} onChange={(event) => setQuickSortSeenFilter(event.target.value)} aria-label="Filter Quick Sort by seen state">
+                <option value="unseen">Not seen yet</option>
+                <option value="all">All eligible</option>
+              </select>
+              <select value={quickSortSourceFilter} onChange={(event) => setQuickSortSourceFilter(event.target.value)} aria-label="Filter Quick Sort by source">
+                <option value="all">All sources</option>
+                {(dashboard?.quickSortSourceOptions || []).map((source) => <option key={source.value} value={source.value}>{source.label} · {source.count}</option>)}
+              </select>
+            </div>
             <div className="human-quick-sort-counts" aria-label="Quick Sort telemetry" aria-live="polite">
               <span><strong>{dashboard?.summary?.quickSortKnown || 0}</strong> known</span>
+              <span data-state="seen"><strong>{dashboard?.summary?.quickSortSeen || 0}</strong> seen</span>
+              <span data-state="unseen"><strong>{dashboard?.summary?.quickSortNotSeen || 0}</strong> not seen</span>
               <span data-state="accepted"><strong>{dashboard?.summary?.quickSortAccepted || 0}</strong> accepted</span>
               <span data-state="rejected"><strong>{dashboard?.summary?.quickSortRejected || 0}</strong> rejected</span>
             </div>
@@ -719,7 +740,7 @@ export default function HumanEnricherView({ apiBase = "", onNotify = () => {} })
               {loading ? <Loader2 size={14} className="spin" /> : <RefreshCw size={14} />} Load 240 more candidates
             </button>
           )}
-          {!quickSortVideos.length && <div className="human-video-empty hapa-panel">No optical-review candidates are waiting in this view.</div>}
+          {!quickSortVideos.length && <div className="human-video-empty hapa-panel">{quickSortSeenFilter === "unseen" ? "No unseen optical-review candidates match these filters." : "No optical-review candidates match these filters."}</div>}
         </main>
       )}
     </section>
@@ -737,14 +758,33 @@ function initialLayout() {
   return new URLSearchParams(globalThis.location?.search || "").get("layout") === "tiles" ? "tiles" : "detail";
 }
 
+function initialQuickSortSeenFilter() {
+  return new URLSearchParams(globalThis.location?.search || "").get("seen") === "all" ? "all" : "unseen";
+}
+
+function initialQuickSortSourceFilter() {
+  return new URLSearchParams(globalThis.location?.search || "").get("source") || "all";
+}
+
 function applyQuickDecisionSummary(summary = {}, action) {
   return {
     ...summary,
     pendingHumanValidation: Math.max(0, Number(summary?.pendingHumanValidation || 0) - 1),
     humanValidatedAgentReviews: Number(summary?.humanValidatedAgentReviews || 0) + 1,
+    acceptedAgentReviews: Number(summary?.acceptedAgentReviews || 0) + Number(action === "accepted"),
     quickSortAccepted: Number(summary?.quickSortAccepted || 0) + Number(action === "accepted"),
     quickSortRejected: Number(summary?.quickSortRejected || 0) + Number(action === "rejected"),
+    quickSortSeen: Number(summary?.quickSortSeen || 0) + 1,
+    quickSortNotSeen: Math.max(0, Number(summary?.quickSortNotSeen || 0) - 1),
   };
+}
+
+function removeOneFromPagination(pagination = null) {
+  if (!pagination) return pagination;
+  const total = Math.max(0, Number(pagination.total || 0) - 1);
+  const returned = Math.max(0, Number(pagination.returned || 0) - 1);
+  const nextOffset = Math.max(0, Number(pagination.nextOffset || 0) - 1);
+  return { ...pagination, total, returned, nextOffset, hasMore: nextOffset < total };
 }
 
 function avatarMentionLabel(value) {
@@ -779,6 +819,7 @@ function appendText(current, addition) { return [String(current || "").trim(), S
 function reviewFilterCount(filter, summary = {}) {
   if (filter === "agent-reviewed") return Number(summary?.agentReviewed || 0);
   if (filter === "pending-human") return Number(summary?.pendingHumanValidation || 0);
+  if (filter === "accepted") return Number(summary?.acceptedAgentReviews || 0);
   if (filter === "human-validated") return Number(summary?.humanValidatedAgentReviews || 0);
   if (filter === "not-reviewed") return Number(summary?.remainingOpticalReviews || 0);
   return Number(summary?.videos || 0);

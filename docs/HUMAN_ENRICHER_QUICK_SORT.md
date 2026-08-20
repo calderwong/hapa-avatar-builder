@@ -9,7 +9,9 @@ The Human Enricher now offers two layouts on the same local-first review route:
 
 Quick Sort reuses the existing append-only optical-review decision endpoint. A thumbs-up records `accepted` and leaves the tile visible with a green accepted state. A thumbs-down records `rejected`; rejected and blocked candidates are omitted from the tile view. The decision is not canon, publication approval, rights clearance, or source-media mutation.
 
-The toolbar telemetry reports three full-catalog totals: known videos, Quick Sort accepts, and Quick Sort rejects. These counts are rebuilt by the API from the canonical media projection and durable review ledger on every load; they are not inferred from the current 240-video page or browser session. Accept/reject totals include only decisions attributed to `human-enricher-quick-sort`, so decisions made in the detailed review surface remain separately attributable.
+The toolbar telemetry reports five full-catalog totals: known videos, seen, not seen, Quick Sort accepts, and Quick Sort rejects. These counts are rebuilt by the API from the canonical media projection and durable review ledger on every load; they are not inferred from the current 240-video page or browser session. A video is **seen** after any final human decision (`accepted`, `accepted-edited`, or `rejected`) and **not seen** while its eligible proposal remains `pending-human`. Accept/reject totals remain scoped to decisions attributed to `human-enricher-quick-sort`, so decisions made in the detailed review surface stay separately attributable.
+
+Quick Sort defaults to **Not seen yet** and filters that state on the server before pagination. A completed decision disappears from this view and advances the next-page offset without skipping newly shifted candidates. Operators may switch to all eligible candidates or filter by the media's existing source ownership and attachment types, such as System Media, Avatar Cards, Tarot Cards, or Scenes. The Detail layout adds a separate **Accepted** review filter, which includes `accepted` and `accepted-edited` proposals but excludes rejected proposals.
 
 The view can be deep-linked with `?view=human-enricher&layout=tiles`. Video bodies use `preload="none"` so a large page does not eagerly load every clip before the operator hovers it.
 
@@ -33,3 +35,12 @@ The view can be deep-linked with `?view=human-enricher&layout=tiles`. Video bodi
 - What was misleading: the toolbar counted only records in the loaded page, and rejected records were intentionally absent from that page.
 - Changed: the dashboard now reconstructs full-catalog known/accepted/rejected telemetry from canonical stores, and the toolbar renders those server totals.
 - Guardrail: Quick Sort totals are actor-scoped and never use page length as historical telemetry.
+
+## Seen/source filtering checkpoint
+
+- Objective: stop recycling already decided tiles, expose seen/not-seen progress, filter Quick Sort by source, and isolate accepted videos for detailed enrichment.
+- Evidence inspected: durable review statuses, the 240-record pagination boundary, System Media owner/relationship facets, Detail review filters, and the optimistic decision update.
+- Reused: the canonical review status, owner/relationship source vocabulary, dashboard summary, and server pagination route.
+- Changed: unseen filtering now runs before pagination and defaults on; source filtering is server-backed; decision updates correct the shrinking unseen-page offset; Detail exposes accepted-only filtering.
+- Guardrail: seen state is derived from durable final decisions, never from hover events or browser-local history.
+- Reusable candidate: a `decision-derived-unseen-queue` pattern for paginated human-review surfaces whose membership changes as decisions are recorded.
