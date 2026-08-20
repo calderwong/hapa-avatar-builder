@@ -159,11 +159,6 @@ export default function HumanEnricherView({ apiBase = "", onNotify = () => {} })
     return [video.name, video.id, video.ownerName, video.role, video.agentReview?.proposal?.description].join(" ").toLowerCase().includes(normalizedQuery);
   }), [dashboard, qualityFilter, query]);
 
-  const quickSortCounts = useMemo(() => ({
-    pending: quickSortVideos.filter((video) => video.agentReview?.status === "pending-human").length,
-    accepted: quickSortVideos.filter((video) => ["accepted", "accepted-edited"].includes(video.agentReview?.status)).length,
-  }), [quickSortVideos]);
-
   useEffect(() => {
     if (!selectedVideo) return;
     if (selectedVideo.humanVideoKey !== selectedKey) setSelectedKey(selectedVideo.humanVideoKey);
@@ -700,9 +695,10 @@ export default function HumanEnricherView({ apiBase = "", onNotify = () => {} })
               <p>Thumbs up validates the current optical proposal. Thumbs down records a rejection and removes the tile from this view.</p>
             </div>
             <label className="search-box hapa-field"><Search size={15} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Find a video…" /></label>
-            <div className="human-quick-sort-counts" aria-live="polite">
-              <span><strong>{quickSortCounts.pending}</strong> awaiting</span>
-              <span data-state="accepted"><strong>{quickSortCounts.accepted}</strong> accepted</span>
+            <div className="human-quick-sort-counts" aria-label="Quick Sort telemetry" aria-live="polite">
+              <span><strong>{dashboard?.summary?.quickSortKnown || 0}</strong> known</span>
+              <span data-state="accepted"><strong>{dashboard?.summary?.quickSortAccepted || 0}</strong> accepted</span>
+              <span data-state="rejected"><strong>{dashboard?.summary?.quickSortRejected || 0}</strong> rejected</span>
             </div>
           </header>
 

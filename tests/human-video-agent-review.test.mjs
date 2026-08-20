@@ -225,6 +225,49 @@ test("agent proposals rank and describe videos without becoming human enrichment
   assert.equal(dashboard.videos[0].humanEnrichment, null);
 });
 
+test("Quick Sort telemetry is reconstructed from durable attributed decisions", () => {
+  const accepted = normalizeHumanVideoAgentReview({
+    ...opticalReview(),
+    videoKey: "record:accepted-video",
+    videoId: "accepted-video",
+    id: "record:accepted-video:optical:r2",
+    status: "accepted",
+    humanDecision: { action: "accepted", actorId: "human-enricher-quick-sort", decidedAt: "2026-08-20T18:00:00.000Z" },
+  });
+  const rejected = normalizeHumanVideoAgentReview({
+    ...opticalReview(),
+    videoKey: "record:rejected-video",
+    videoId: "rejected-video",
+    id: "record:rejected-video:optical:r2",
+    status: "rejected",
+    humanDecision: { action: "rejected", actorId: "human-enricher-quick-sort", decidedAt: "2026-08-20T18:01:00.000Z" },
+  });
+  const detailAccepted = normalizeHumanVideoAgentReview({
+    ...opticalReview(),
+    videoKey: "record:detail-video",
+    videoId: "detail-video",
+    id: "record:detail-video:optical:r2",
+    status: "accepted",
+    humanDecision: { action: "accepted", actorId: "human-enricher-ui", decidedAt: "2026-08-20T18:02:00.000Z" },
+  });
+  const records = ["accepted-video", "rejected-video", "detail-video", "untouched-video"].map((id) => ({
+    id,
+    name: id,
+    mediaType: "video",
+    uri: `/${id}.mp4`,
+    relationships: [],
+  }));
+  const dashboard = createHumanVideoEnricherDashboard({
+    mediaDashboard: { records },
+    enrichmentStore: createHumanVideoEnrichmentStore(),
+    agentReviewStore: createHumanVideoAgentReviewStore({ reviews: [accepted, rejected, detailAccepted] }),
+  });
+
+  assert.equal(dashboard.summary.quickSortKnown, 4);
+  assert.equal(dashboard.summary.quickSortAccepted, 1);
+  assert.equal(dashboard.summary.quickSortRejected, 1);
+});
+
 test("terminal invalid-media receipts remain distinct from optical reviews", () => {
   const blocked = normalizeHumanVideoAgentReview({
     videoKey: "record:invalid-video",

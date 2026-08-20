@@ -19,10 +19,16 @@ test("Human Enricher quick sort exposes dense hover-preview tiles and durable fi
   assert.match(source, /onDecide\(video, "rejected"\)/);
   assert.match(source, /onDecide\(video, "accepted"\)/);
   assert.match(source, /\["rejected", "blocked"\]\.includes\(video\.agentReview\.status\)/);
+  assert.match(source, /aria-label="Quick Sort telemetry"/);
+  assert.match(source, /summary\?\.quickSortKnown/);
+  assert.match(source, /summary\?\.quickSortAccepted/);
+  assert.match(source, /summary\?\.quickSortRejected/);
+  assert.doesNotMatch(source, /quickSortVideos\.filter\(\(video\) => \["accepted", "accepted-edited"\]/);
   assert.match(source, /data-state=\{accepted \? "accepted" : "pending"\}/);
   assert.match(source, /aria-pressed=\{accepted\}/);
   assert.match(css, /\.human-video-tile-grid \{[^}]*repeat\(auto-fill, minmax\(220px, 1fr\)\)/);
   assert.match(css, /\.human-video-tile\[data-state="accepted"\]/);
+  assert.match(css, /\.human-quick-sort-counts \[data-state="rejected"\] strong/);
   assert.match(css, /button\[data-action="reject"\]/);
   assert.match(css, /button\[data-action="accept"\]/);
 });

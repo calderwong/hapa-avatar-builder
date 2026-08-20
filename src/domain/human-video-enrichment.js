@@ -180,6 +180,7 @@ export function createHumanVideoEnricherDashboard({ mediaDashboard = {}, enrichm
   const enriched = videos.filter((video) => video.humanEnrichment);
   const agentReviewed = videos.filter((video) => video.agentReview);
   const referenceReviewed = videos.filter((video) => video.referenceReview);
+  const quickSortDecisions = agentReviewed.filter((video) => video.agentReview.humanDecision?.actorId === "human-enricher-quick-sort");
   const qualityCalibration = createHumanVideoQualityCalibration(videos);
   return {
     schemaVersion: HUMAN_VIDEO_ENRICHER_DASHBOARD_SCHEMA,
@@ -203,6 +204,9 @@ export function createHumanVideoEnricherDashboard({ mediaDashboard = {}, enrichm
       agentReviewed: agentReviewed.length,
       pendingHumanValidation: agentReviewed.filter((video) => video.agentReview.status === "pending-human").length,
       humanValidatedAgentReviews: agentReviewed.filter((video) => ["accepted", "accepted-edited", "rejected"].includes(video.agentReview.status)).length,
+      quickSortKnown: videos.length,
+      quickSortAccepted: quickSortDecisions.filter((video) => ["accepted", "accepted-edited"].includes(video.agentReview.status)).length,
+      quickSortRejected: quickSortDecisions.filter((video) => video.agentReview.status === "rejected").length,
       terminalInvalidMedia: agentReviewed.filter((video) => video.agentReview.status === "blocked" && String(video.agentReview.blockedReason || "").startsWith("terminal-invalid-media:")).length,
       remainingOpticalReviews: Math.max(0, videos.length - agentReviewed.length),
       referenceReviewed: referenceReviewed.length,

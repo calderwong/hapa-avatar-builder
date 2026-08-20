@@ -9,6 +9,8 @@ The Human Enricher now offers two layouts on the same local-first review route:
 
 Quick Sort reuses the existing append-only optical-review decision endpoint. A thumbs-up records `accepted` and leaves the tile visible with a green accepted state. A thumbs-down records `rejected`; rejected and blocked candidates are omitted from the tile view. The decision is not canon, publication approval, rights clearance, or source-media mutation.
 
+The toolbar telemetry reports three full-catalog totals: known videos, Quick Sort accepts, and Quick Sort rejects. These counts are rebuilt by the API from the canonical media projection and durable review ledger on every load; they are not inferred from the current 240-video page or browser session. Accept/reject totals include only decisions attributed to `human-enricher-quick-sort`, so decisions made in the detailed review surface remain separately attributable.
+
 The view can be deep-linked with `?view=human-enricher&layout=tiles`. Video bodies use `preload="none"` so a large page does not eagerly load every clip before the operator hovers it.
 
 ## Turn-to-Lore checkpoint
@@ -22,3 +24,12 @@ The view can be deep-linked with `?view=human-enricher&layout=tiles`. Video bodi
 - Learning delta: the durable review status already contained the exact first-pass semantics; the missing capability was a high-density interaction layer, not a new backend.
 - Guardrail: tile actions are enabled only for `pending-human` proposals and update the UI only after the local API confirms the append-only decision.
 - Reusable candidate: a `rapid-human-triage` interaction pattern for other Hapa pending-human queues—poster-first tiles, hover preview, existing-ledger decisions, asymmetric accepted/rejected presentation.
+
+## Telemetry correction checkpoint
+
+- Objective: make completed Quick Sort work countable after refresh and across paginated batches.
+- Evidence inspected: the Quick Sort request limit, rejected-tile filtering, decision endpoint, persisted `humanDecision.actorId`, current review ledger, and dashboard summary construction.
+- What worked: all inspected Quick Sort decisions were already durably recorded with accepted/rejected status and actor attribution.
+- What was misleading: the toolbar counted only records in the loaded page, and rejected records were intentionally absent from that page.
+- Changed: the dashboard now reconstructs full-catalog known/accepted/rejected telemetry from canonical stores, and the toolbar renders those server totals.
+- Guardrail: Quick Sort totals are actor-scoped and never use page length as historical telemetry.
