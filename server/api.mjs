@@ -64,6 +64,7 @@ import {
 } from "../src/domain/systemMedia.js";
 import {
   createHumanVideoEnricherDashboard,
+  humanVideoAliasKeys,
   humanVideoKey,
   matchesHumanVideoQuickSortSeenFilter,
   matchesHumanVideoReviewFilter,
@@ -534,6 +535,7 @@ const humanVideoQuickSortStore = openHumanVideoQuickSortStore({
   filePath: HUMAN_VIDEO_QUICK_SORT_PATH,
   eventPath: HUMAN_VIDEO_QUICK_SORT_EVENT_PATH,
 });
+let humanVideoQuickSortVideoIndex = new Map();
 const humanVideoOpticalCampaignStore = openHumanVideoOpticalCampaignStore({
   filePath: HUMAN_VIDEO_OPTICAL_CAMPAIGN_PATH,
   eventPath: HUMAN_VIDEO_OPTICAL_CAMPAIGN_EVENT_PATH,
@@ -4432,9 +4434,12 @@ async function route(req, res) {
   if (pathname === "/api/human-enricher/quick-sort/decisions" && req.method === "POST") {
     try {
       const body = await readBody(req);
-      const dashboard = await buildHumanVideoEnricherDashboard();
       const requestedKey = String(body.videoKey || body.key || "").trim();
-      const video = dashboard.videos.find((candidate) => candidate.humanVideoKey === requestedKey || candidate.id === body.videoId);
+      let video = humanVideoQuickSortVideoIndex.get(requestedKey) || humanVideoQuickSortVideoIndex.get(`id:${body.videoId || ""}`) || null;
+      if (!video) {
+        const dashboard = await buildHumanVideoEnricherDashboard();
+        video = dashboard.videos.find((candidate) => candidate.humanVideoKey === requestedKey || candidate.humanVideoAliases?.includes(requestedKey) || candidate.id === body.videoId);
+      }
       if (!video) {
         sendJson(res, 404, { ok: false, error: "quick_sort_video_not_found", message: "The selected video is no longer present in the Builder's known media stores." });
         return;
@@ -4448,11 +4453,12 @@ async function route(req, res) {
         videoKey: video.humanVideoKey,
         videoId: video.id,
         videoName: video.name,
+        aliases: video.humanVideoAliases,
       }, {
         actorId: String(req.headers["x-hapa-actor-id"] || body.actorId || "human-enricher-quick-sort").trim().slice(0, 180),
       });
       res.setHeader("Cache-Control", "no-store");
-      sendJson(res, 200, { ok: true, decision: result.decision });
+      sendJson(res, 200, { ok: true, decision: result.decision, changed: result.changed });
     } catch (error) {
       sendJson(res, Number(error?.statusCode || 400), { ok: false, error: error?.code || "quick_sort_decision_failed", message: error?.message || String(error), details: error?.details || null });
     }
@@ -7339,7 +7345,24 @@ async function buildHumanVideoEnricherDashboard() {
     avatars: canonicalAvatarStore.avatars || [],
     songs: songStore.songs || [],
   });
+  indexHumanVideoQuickSortVideos(dashboard.videos);
   return { ...dashboard, frameCatalog: frameCatalogProjection.receipt };
+}
+
+function indexHumanVideoQuickSortVideos(videos = []) {
+  const next = new Map();
+  for (const video of videos) {
+    const compact = {
+      id: video.id,
+      name: video.name,
+      humanVideoKey: video.humanVideoKey,
+      humanVideoAliases: humanVideoAliasKeys(video),
+      agentReview: video.agentReview ? { status: video.agentReview.status } : null,
+    };
+    for (const alias of [compact.humanVideoKey, ...compact.humanVideoAliases]) next.set(alias, compact);
+    next.set(`id:${compact.id}`, compact);
+  }
+  humanVideoQuickSortVideoIndex = next;
 }
 
 async function buildHumanVideoReferenceCardPacketSnapshot(options = {}) {

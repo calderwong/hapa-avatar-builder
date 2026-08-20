@@ -29,6 +29,7 @@ export function openHumanVideoQuickSortStore({ filePath, eventPath, clock = () =
     return enqueue(() => withLocalJsonFileLock(`${resolvedFilePath}.lock`, async () => {
       const now = clock();
       const result = upsertHumanVideoQuickSortDecision(await read(), input, { now, actorId: options.actorId });
+      if (!result.changed) return result;
       await writeAtomic(resolvedFilePath, result.store);
       await appendEvent(resolvedEventPath, {
         schemaVersion: HUMAN_VIDEO_QUICK_SORT_EVENT_SCHEMA,

@@ -96,5 +96,7 @@ test("UI and API apply unseen/source filtering before paginated Quick Sort rende
   assert.match(ui, /removeOneFromPagination/);
   assert.match(api, /matchesHumanVideoQuickSortSeenFilter\(video, seen\)/);
   assert.match(api, /matchesHumanVideoSourceFilter\(video, source\)/);
+  assert.match(api, /humanVideoQuickSortVideoIndex\.get\(requestedKey\)/);
+  assert.match(api, /indexHumanVideoQuickSortVideos\(dashboard\.videos\)/);
   assert.ok(api.indexOf("matchesHumanVideoSourceFilter(video, source)") < api.indexOf("videos.slice(offset, offset + limit)"));
 });

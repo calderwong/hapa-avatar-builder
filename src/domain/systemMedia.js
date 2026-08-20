@@ -186,7 +186,7 @@ export function collectSystemMediaRecords({ avatars = [], tarotStore = {}, scene
     }
   }
 
-  return [...merged.values()].sort((a, b) => {
+  return mergePhysicalMediaAliases([...merged.values()]).sort((a, b) => {
     const reviewDelta = reviewWeight(b.reviewPriority) - reviewWeight(a.reviewPriority);
     if (reviewDelta) return reviewDelta;
     return String(b.updatedAt || b.createdAt || "").localeCompare(String(a.updatedAt || a.createdAt || ""));
@@ -309,7 +309,7 @@ function normalizeDashboardRecord(record = {}) {
   const enrichment = record.enrichment || null;
   const classifications = enrichment?.classifications || {};
   const ocrLines = enrichment?.ocr?.lines || [];
-  return {
+  const normalized = {
     ...record,
     mediaType: record.mediaType || "unknown",
     sourceRoots: unique(record.sourceRoots || []),
@@ -330,8 +330,9 @@ function normalizeDashboardRecord(record = {}) {
     isKit: Boolean(classifications.isKit || record.documentKind === "kit_sheet"),
     needsReview: record.reviewPriority === "high" || (record.tags || []).includes("needs-review"),
     ocrSnippets: Array.isArray(ocrLines) ? ocrLines.map((line) => line.text || line).filter(Boolean).slice(0, 6) : [],
-    fingerprintKey: record.contentFingerprint || record.sourcePath || record.uri || record.assetId || record.id
+    fingerprintKey: record.contentFingerprint || record.sourcePath || record.uri || record.assetId || record.id,
   };
+  return { ...normalized, identityAliases: unique([...(record.identityAliases || []), ...physicalMediaAliasKeys(normalized)]) };
 }
 
 function mergeDashboardRecord(a, b) {
@@ -356,11 +357,57 @@ function mergeDashboardRecord(a, b) {
     duration: a.duration || b.duration,
     enrichment: a.enrichment || b.enrichment,
     asset: a.asset || b.asset || null,
+    assetId: a.assetId || b.assetId || null,
+    contentFingerprint: a.contentFingerprint || b.contentFingerprint || null,
+    sourcePath: a.sourcePath || b.sourcePath || null,
+    uri: a.uri || b.uri || "",
+    identityAliases: unique([...(a.identityAliases || []), ...(b.identityAliases || []), ...physicalMediaAliasKeys(a), ...physicalMediaAliasKeys(b)]),
     documentKind: a.documentKind !== "unknown" ? a.documentKind : b.documentKind,
     reviewPriority: reviewWeight(a.reviewPriority) >= reviewWeight(b.reviewPriority) ? a.reviewPriority : b.reviewPriority,
     reviewStatus: mergeReviewStatus(a.reviewStatus, b.reviewStatus),
     updatedAt: latestTimestamp([a.updatedAt, b.updatedAt])
   });
+}
+
+function mergePhysicalMediaAliases(records = []) {
+  const active = new Set();
+  const byAlias = new Map();
+  for (const record of records) {
+    const aliases = physicalMediaAliasKeys(record);
+    const matches = [...new Set(aliases.map((alias) => byAlias.get(alias)).filter(Boolean))]
+      .filter((match) => mediaIdentityCompatible(match, record));
+    let combined = matches.shift() || record;
+    active.delete(combined);
+    for (const match of matches) {
+      active.delete(match);
+      combined = mergeDashboardRecord(combined, match);
+    }
+    if (combined !== record) combined = mergeDashboardRecord(combined, record);
+    combined = normalizeDashboardRecord({ ...combined, identityAliases: unique([...(combined.identityAliases || []), ...aliases]) });
+    active.add(combined);
+    for (const alias of combined.identityAliases) byAlias.set(alias, combined);
+  }
+  return [...active];
+}
+
+function mediaIdentityCompatible(a = {}, b = {}) {
+  const aFingerprint = String(a.contentFingerprint || "").trim();
+  const bFingerprint = String(b.contentFingerprint || "").trim();
+  return !(aFingerprint && bFingerprint && aFingerprint !== bFingerprint);
+}
+
+function physicalMediaAliasKeys(record = {}) {
+  const fingerprint = String(record.contentFingerprint || "").trim();
+  const sourcePath = String(record.sourcePath || "").trim().replace(/^file:\/\//, "");
+  const uri = String(record.uri || "").trim();
+  const assetId = String(record.assetId || record.asset?.id || "").trim();
+  return unique([
+    fingerprint && `fingerprint:${fingerprint}`,
+    uri && `uri:${uri}`,
+    sourcePath && `path:${sourcePath}`,
+    assetId.length >= 24 && `asset:${assetId}`,
+    ...(record.identityAliases || []),
+  ].filter(Boolean));
 }
 
 function normalizeVisualMatch(match = null) {

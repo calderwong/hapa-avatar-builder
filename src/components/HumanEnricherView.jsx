@@ -49,6 +49,7 @@ export default function HumanEnricherView({ apiBase = "", onNotify = () => {} })
   const [quickSortSeenFilter, setQuickSortSeenFilter] = useState(initialQuickSortSeenFilter);
   const [quickSortSourceFilter, setQuickSortSourceFilter] = useState(initialQuickSortSourceFilter);
   const [decidingKeys, setDecidingKeys] = useState(() => new Set());
+  const decidingKeysRef = useRef(new Set());
   const [selectedKey, setSelectedKey] = useState("");
   const [draft, setDraft] = useState(emptyDraft());
   const [avatarChoice, setAvatarChoice] = useState("");
@@ -296,9 +297,17 @@ export default function HumanEnricherView({ apiBase = "", onNotify = () => {} })
   }
 
   async function decideQuickSortVideo(video, action) {
-    if (!video || video.quickSortDecision || decidingKeys.has(video.humanVideoKey)) return;
+    if (!video || video.quickSortDecision || decidingKeysRef.current.has(video.humanVideoKey)) return;
+    decidingKeysRef.current.add(video.humanVideoKey);
     setDecidingKeys((current) => new Set(current).add(video.humanVideoKey));
     setError("");
+    const optimisticDecision = { videoKey: video.humanVideoKey, state: action, pending: true };
+    setDashboard((current) => ({
+      ...current,
+      summary: applyQuickDecisionSummary(current.summary, action),
+      videos: current.videos.map((candidate) => candidate.humanVideoKey === video.humanVideoKey ? { ...candidate, quickSortDecision: optimisticDecision } : candidate),
+      pagination: quickSortSeenFilter === "unseen" ? removeOneFromPagination(current.pagination) : current.pagination,
+    }));
     try {
       const response = await fetch(`${apiBase}/api/human-enricher/quick-sort/decisions`, {
         method: "POST",
@@ -306,6 +315,8 @@ export default function HumanEnricherView({ apiBase = "", onNotify = () => {} })
         body: JSON.stringify({
           videoKey: video.humanVideoKey,
           videoId: video.id,
+          videoName: video.name,
+          aliases: video.humanVideoAliases,
           action,
           notes: action === "accepted" ? "Accepted during the Human Enricher Quick Sort first pass." : "Rejected during the Human Enricher Quick Sort first pass.",
         }),
@@ -314,14 +325,19 @@ export default function HumanEnricherView({ apiBase = "", onNotify = () => {} })
       if (!response.ok) throw new Error(payload.message || payload.error || `Quick-sort decision failed (${response.status})`);
       setDashboard((current) => ({
         ...current,
-        summary: applyQuickDecisionSummary(current.summary, action),
         videos: current.videos.map((candidate) => candidate.humanVideoKey === video.humanVideoKey ? { ...candidate, quickSortDecision: payload.decision } : candidate),
-        pagination: quickSortSeenFilter === "unseen" ? removeOneFromPagination(current.pagination) : current.pagination,
       }));
       onNotify(`${action === "accepted" ? "Accepted" : "Rejected"} ${video.name || video.id}`);
     } catch (decisionError) {
+      setDashboard((current) => ({
+        ...current,
+        summary: revertQuickDecisionSummary(current.summary, action),
+        videos: current.videos.map((candidate) => candidate.humanVideoKey === video.humanVideoKey ? { ...candidate, quickSortDecision: null } : candidate),
+        pagination: quickSortSeenFilter === "unseen" ? addOneToPagination(current.pagination) : current.pagination,
+      }));
       setError(decisionError instanceof Error ? decisionError.message : String(decisionError));
     } finally {
+      decidingKeysRef.current.delete(video.humanVideoKey);
       setDecidingKeys((current) => {
         const next = new Set(current);
         next.delete(video.humanVideoKey);
@@ -779,6 +795,24 @@ function applyQuickDecisionSummary(summary = {}, action) {
     quickSortSeen: Number(summary?.quickSortSeen || 0) + 1,
     quickSortNotSeen: Math.max(0, Number(summary?.quickSortNotSeen || 0) - 1),
   };
+}
+
+function revertQuickDecisionSummary(summary = {}, action) {
+  return {
+    ...summary,
+    quickSortAccepted: Math.max(0, Number(summary?.quickSortAccepted || 0) - Number(action === "accepted")),
+    quickSortRejected: Math.max(0, Number(summary?.quickSortRejected || 0) - Number(action === "rejected")),
+    quickSortSeen: Math.max(0, Number(summary?.quickSortSeen || 0) - 1),
+    quickSortNotSeen: Number(summary?.quickSortNotSeen || 0) + 1,
+  };
+}
+
+function addOneToPagination(pagination = null) {
+  if (!pagination) return pagination;
+  const total = Number(pagination.total || 0) + 1;
+  const returned = Number(pagination.returned || 0) + 1;
+  const nextOffset = Number(pagination.nextOffset || 0) + 1;
+  return { ...pagination, total, returned, nextOffset, hasMore: nextOffset < total };
 }
 
 function removeOneFromPagination(pagination = null) {

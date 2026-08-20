@@ -53,13 +53,20 @@ export function humanVideoIdentity(video = {}) {
 }
 
 export function humanVideoKey(video = {}) {
+  return humanVideoAliasKeys(video)[0] || "";
+}
+
+export function humanVideoAliasKeys(video = {}) {
   const identity = humanVideoIdentity(video);
-  if (identity.contentFingerprint) return `fingerprint:${identity.contentFingerprint}`;
-  if (identity.recordId) return `record:${identity.recordId}`;
-  if (identity.sourcePath) return `path:${identity.sourcePath}`;
-  if (identity.uri) return `uri:${identity.uri}`;
-  if (identity.assetId) return `asset:${identity.assetId}`;
-  return "";
+  const aliases = [
+    identity.contentFingerprint && `fingerprint:${identity.contentFingerprint}`,
+    identity.uri && `uri:${identity.uri}`,
+    identity.sourcePath && `path:${identity.sourcePath}`,
+    identity.assetId && `asset:${identity.assetId}`,
+    identity.recordId && `record:${identity.recordId}`,
+    ...(video.identityAliases || video.humanVideoAliases || []),
+  ].map((value) => clean(value, 5_000)).filter(Boolean);
+  return [...new Set(aliases)];
 }
 
 export function matchesHumanVideoReviewFilter(video = {}, filter = "all") {
@@ -161,27 +168,31 @@ export function upsertHumanVideoEnrichment(storeInput = {}, input = {}, options 
   const incomingIdentity = humanVideoIdentity(input.videoIdentity || input.video || {});
   const key = clean(input.key || humanVideoKey(incomingIdentity), 4_500);
   if (!key) throw humanEnrichmentError("missing_video_key", "Select a known video before saving human enrichment.");
-  const current = store.records.find((record) => record.key === key) || null;
+  const incomingAliases = new Set([key, ...identityAliases(incomingIdentity)].flatMap(aliasVariants));
+  const current = store.records.find((record) => [record.key, record.videoId, ...identityAliases(record.videoIdentity)]
+    .flatMap(aliasVariants)
+    .some((alias) => incomingAliases.has(alias))) || null;
+  const persistedKey = current?.key || key;
   const expectedRevision = input.expectedRevision;
   if (expectedRevision !== undefined && expectedRevision !== null && Number(expectedRevision) !== Number(current?.revision || 0)) {
     throw humanEnrichmentError("human_enrichment_revision_conflict", "This video was enriched by another view. Reload its latest revision before saving.", 409, {
       expectedRevision: Number(expectedRevision),
       currentRevision: Number(current?.revision || 0),
-      key,
+      key: persistedKey,
     });
   }
   const now = options.now || new Date().toISOString();
   const record = normalizeHumanVideoEnrichment({
     ...(current || {}),
     ...input,
-    key,
+    key: persistedKey,
     videoIdentity: mergeIdentity(current?.videoIdentity, incomingIdentity),
     updatedBy: options.actorId || input.updatedBy || current?.updatedBy || "local-human-operator",
     revision: Number(current?.revision || 0) + 1,
     createdAt: current?.createdAt || now,
     updatedAt: now,
   });
-  const records = store.records.filter((item) => item.key !== key);
+  const records = store.records.filter((item) => item.key !== persistedKey);
   records.push(record);
   records.sort((a, b) => String(b.updatedAt || "").localeCompare(String(a.updatedAt || "")) || a.key.localeCompare(b.key));
   return {
@@ -192,19 +203,21 @@ export function upsertHumanVideoEnrichment(storeInput = {}, input = {}, options 
 
 export function createHumanVideoEnricherDashboard({ mediaDashboard = {}, enrichmentStore = {}, agentReviewStore = {}, quickSortStore = {}, referenceReviewStore = {}, avatars = [], songs = [] } = {}) {
   const store = normalizeHumanVideoEnrichmentStore(enrichmentStore);
-  const agentReviews = new Map((agentReviewStore.reviews || []).map((review) => [review.videoKey, review]));
-  const quickSortDecisions = new Map((quickSortStore.decisions || []).map((decision) => [decision.videoKey, decision]));
-  const referenceReviews = new Map((referenceReviewStore.reviews || []).map((review) => [review.videoKey, review]));
+  const agentReviews = recordsByVideoAlias(agentReviewStore.reviews || []);
+  const quickSortDecisions = recordsByVideoAlias(quickSortStore.decisions || []);
+  const referenceReviews = recordsByVideoAlias(referenceReviewStore.reviews || []);
   const videos = (mediaDashboard.records || [])
     .filter((record) => record.mediaType === "video")
     .map((video) => {
       const enriched = attachEnrichment(video, store);
-      const agentReview = agentReviews.get(enriched.humanVideoKey) || null;
+      const aliases = humanVideoAliasKeys(enriched);
+      const agentReview = findRecordByAliases(agentReviews, aliases);
       return compactHumanEnricherVideo({
         ...enriched,
         agentReview,
-        quickSortDecision: quickSortDecisions.get(enriched.humanVideoKey) || legacyQuickSortDecision(agentReview),
-        referenceReview: referenceReviews.get(enriched.humanVideoKey) || null,
+        humanVideoAliases: aliases,
+        quickSortDecision: findRecordByAliases(quickSortDecisions, aliases) || legacyQuickSortDecision(agentReview),
+        referenceReview: findRecordByAliases(referenceReviews, aliases),
       });
     })
     .sort((a, b) => Number(Boolean(b.humanEnrichment)) - Number(Boolean(a.humanEnrichment))
@@ -353,11 +366,31 @@ function compactHumanEnricherVideo(video = {}) {
     createdAt: video.createdAt,
     updatedAt: video.updatedAt,
     humanVideoKey: video.humanVideoKey,
+    humanVideoAliases: video.humanVideoAliases || humanVideoAliasKeys(video),
     humanEnrichment: video.humanEnrichment,
     agentReview: video.agentReview || null,
     quickSortDecision: video.quickSortDecision || null,
     referenceReview: video.referenceReview || null,
   };
+}
+
+function recordsByVideoAlias(records = []) {
+  const byAlias = new Map();
+  for (const record of records) {
+    for (const alias of [record.videoKey, ...(record.aliases || [])].filter(Boolean)) {
+      const current = byAlias.get(alias);
+      if (!current || String(record.updatedAt || "").localeCompare(String(current.updatedAt || "")) > 0) byAlias.set(alias, record);
+    }
+  }
+  return byAlias;
+}
+
+function findRecordByAliases(index, aliases = []) {
+  for (const alias of aliases) {
+    const record = index.get(alias);
+    if (record) return record;
+  }
+  return null;
 }
 
 function legacyQuickSortDecision(agentReview = null) {
@@ -412,7 +445,7 @@ function attachEnrichment(video, store) {
   const enrichment = aliases.map((alias) => lookup.get(alias)).find(Boolean) || null;
   return {
     ...video,
-    humanVideoKey: enrichment?.key || humanVideoKey(video),
+    humanVideoKey: humanVideoKey(video),
     humanEnrichment: enrichment,
   };
 }

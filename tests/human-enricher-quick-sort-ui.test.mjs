@@ -20,6 +20,9 @@ test("Human Enricher quick sort exposes dense hover-preview tiles and durable fi
   assert.match(source, /onDecide\(video, "accepted"\)/);
   assert.match(source, /video\.agentReview\?\.status === "blocked"/);
   assert.match(source, /\/api\/human-enricher\/quick-sort\/decisions/);
+  assert.match(source, /decidingKeysRef\.current\.has\(video\.humanVideoKey\)/);
+  assert.match(source, /const optimisticDecision/);
+  assert.match(source, /revertQuickDecisionSummary/);
   assert.match(source, /aria-label="Quick Sort telemetry"/);
   assert.match(source, /summary\?\.quickSortKnown/);
   assert.match(source, /summary\?\.quickSortAccepted/);

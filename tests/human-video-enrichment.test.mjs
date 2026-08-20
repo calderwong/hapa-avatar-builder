@@ -7,6 +7,7 @@ import {
   attachHumanEnrichmentToDirectorProject,
   createHumanVideoEnricherDashboard,
   createHumanVideoEnrichmentStore,
+  humanVideoAliasKeys,
   humanVideoKey,
   upsertHumanVideoEnrichment,
 } from "../src/domain/human-video-enrichment.js";
@@ -66,6 +67,52 @@ test("Human Enricher aggregates every known system, Avatar, Tarot, scene, item, 
   assert.deepEqual(dashboard.songOptions[0], { id: "echo-1", title: "Catch the Rabbit", referenceType: "echo-song" });
   assert.ok(dashboard.videos.every((video) => video.humanVideoKey));
   assert.equal(dashboard.videos.find((video) => video.id === "library-video-1").relationships[0].ownerType, "song");
+});
+
+test("system media merges physical-video aliases across library and Scene records", () => {
+  const dashboard = createSystemMediaDashboard({
+    mediaLibrary: { records: [{
+      id: "library-copy",
+      name: "Library copy",
+      mediaType: "video",
+      uri: "/media/shared.mp4",
+      contentFingerprint: "sha256:shared",
+      relationships: [{ ownerType: "library", ownerId: "system-media" }],
+    }] },
+    sceneGraph: { scenes: [{
+      id: "scene-1",
+      title: "Scene One",
+      assets: [{ id: "scene-copy", name: "Scene copy", type: "video", uri: "/media/shared.mp4" }],
+    }] },
+  });
+
+  assert.equal(dashboard.records.length, 1);
+  assert.equal(dashboard.records[0].contentFingerprint, "sha256:shared");
+  assert.equal(dashboard.records[0].relationships.some(({ ownerType }) => ownerType === "scene"), true);
+  assert.ok(dashboard.records[0].identityAliases.includes("uri:/media/shared.mp4"));
+  assert.equal(humanVideoKey(dashboard.records[0]), "fingerprint:sha256:shared");
+  assert.ok(humanVideoAliasKeys(dashboard.records[0]).includes("uri:/media/shared.mp4"));
+});
+
+test("system media merges long canonical asset IDs but refuses contradictory fingerprints", () => {
+  const assetId = "asset-identity-12345678901234567890";
+  const merged = createSystemMediaDashboard({
+    avatars: [{ id: "avatar-1", assets: [{ id: assetId, type: "video", uri: "/media/avatar-copy.mp4" }] }],
+    sceneGraph: { scenes: [{ id: "scene-1", assets: [{ id: assetId, type: "video", uri: "/media/scene-copy.mp4" }] }] },
+  });
+  assert.equal(merged.records.length, 1);
+  assert.equal(merged.records[0].relationships.some(({ ownerType }) => ownerType === "avatar"), true);
+  assert.equal(merged.records[0].relationships.some(({ ownerType }) => ownerType === "scene"), true);
+
+  const conflicting = createSystemMediaDashboard({ mediaLibrary: { records: [
+    { id: "one", mediaType: "video", uri: "/media/collision.mp4", contentFingerprint: "sha256:one" },
+    { id: "two", mediaType: "video", uri: "/media/collision.mp4", contentFingerprint: "sha256:two" },
+  ] } });
+  assert.equal(conflicting.records.length, 2);
+});
+
+test("physical URI outranks a transient record ID when no fingerprint exists", () => {
+  assert.equal(humanVideoKey({ id: "record-one", uri: "/media/same.mp4" }), "uri:/media/same.mp4");
 });
 
 test("human enrichment revisions Quality, @Avatar mentions, Director Notes, and references without mutating the source video", () => {

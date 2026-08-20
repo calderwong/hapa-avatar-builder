@@ -44,6 +44,7 @@ export function normalizeHumanVideoQuickSortDecision(input = {}, fallback = {}) 
     videoKey,
     videoId: clean(input.videoId || fallback.videoId, 360),
     videoName: clean(input.videoName || fallback.videoName, 800),
+    aliases: uniqueAliases([videoKey, ...(input.aliases || fallback.aliases || [])]),
     state,
     notes: clean(input.notes || fallback.notes, 2_000),
     actorId: clean(input.actorId || fallback.actorId || "local-human-operator", 180),
@@ -62,6 +63,8 @@ export function upsertHumanVideoQuickSortDecision(storeInput = {}, input = {}, o
   if (input.expectedRevision !== undefined && Number(input.expectedRevision) !== Number(current?.revision || 0)) {
     throw quickSortError("quick_sort_revision_conflict", "This Quick Sort decision changed in another view. Reload before deciding again.", 409, { currentRevision: Number(current?.revision || 0) });
   }
+  const requestedState = clean(input.state || input.action, 80).toLowerCase();
+  if (current && current.state === requestedState) return { store, decision: current, changed: false };
   const now = options.now || new Date().toISOString();
   const decision = normalizeHumanVideoQuickSortDecision({
     ...(current || {}),
@@ -75,6 +78,64 @@ export function upsertHumanVideoQuickSortDecision(storeInput = {}, input = {}, o
   return {
     store: normalizeHumanVideoQuickSortStore({ ...store, decisions: [...store.decisions.filter((item) => item.videoKey !== videoKey), decision], updatedAt: now }),
     decision,
+    changed: true,
+  };
+}
+
+export function migrateHumanVideoQuickSortStoreToVideos(storeInput = {}, videos = [], options = {}) {
+  const store = normalizeHumanVideoQuickSortStore(storeInput);
+  const byAlias = new Map();
+  for (const video of videos) {
+    for (const alias of [video.humanVideoKey, ...(video.humanVideoAliases || [])].filter(Boolean)) byAlias.set(alias, video);
+  }
+  const grouped = new Map();
+  const unresolved = [];
+  let remapped = 0;
+  for (const decision of store.decisions) {
+    const video = [decision.videoKey, ...(decision.aliases || [])].map((alias) => byAlias.get(alias)).find(Boolean) || null;
+    const canonicalKey = video?.humanVideoKey || decision.videoKey;
+    if (!video) unresolved.push(decision.videoKey);
+    if (canonicalKey !== decision.videoKey) remapped += 1;
+    const candidate = normalizeHumanVideoQuickSortDecision({
+      ...decision,
+      id: `${canonicalKey}:quick-sort`,
+      videoKey: canonicalKey,
+      videoId: video?.id || decision.videoId,
+      videoName: video?.name || decision.videoName,
+      aliases: [decision.videoKey, ...(decision.aliases || []), ...(video?.humanVideoAliases || [])],
+    });
+    const bucket = grouped.get(canonicalKey) || [];
+    bucket.push(candidate);
+    grouped.set(canonicalKey, bucket);
+  }
+  const conflicts = [];
+  const decisions = [...grouped.entries()].map(([videoKey, candidates]) => {
+    const ordered = [...candidates].sort((a, b) => String(b.updatedAt || "").localeCompare(String(a.updatedAt || "")) || b.revision - a.revision);
+    const selected = ordered[0];
+    const states = [...new Set(candidates.map((candidate) => candidate.state))];
+    if (states.length > 1) conflicts.push({ videoKey, states, selectedState: selected.state, decisionIds: candidates.map((candidate) => candidate.id) });
+    return normalizeHumanVideoQuickSortDecision({
+      ...selected,
+      id: `${videoKey}:quick-sort`,
+      videoKey,
+      aliases: candidates.flatMap((candidate) => [candidate.videoKey, ...(candidate.aliases || [])]),
+      revision: Math.max(...candidates.map((candidate) => candidate.revision)),
+      createdAt: candidates.map((candidate) => candidate.createdAt).filter(Boolean).sort()[0] || selected.createdAt,
+    });
+  });
+  const now = options.now || new Date().toISOString();
+  return {
+    store: normalizeHumanVideoQuickSortStore({ ...store, decisions, updatedAt: remapped || decisions.length !== store.decisions.length ? now : store.updatedAt }),
+    report: {
+      schemaVersion: "hapa.human-video-quick-sort-identity-migration.v1",
+      generatedAt: now,
+      beforeDecisions: store.decisions.length,
+      afterDecisions: decisions.length,
+      remapped,
+      collapsed: store.decisions.length - decisions.length,
+      conflicts,
+      unresolved,
+    },
   };
 }
 
@@ -88,3 +149,4 @@ function quickSortError(code, message, statusCode = 400, details = null) {
 
 function clean(value, limit = 1_000) { return String(value || "").trim().slice(0, limit); }
 function number(value, fallback = 0) { const parsed = Number(value); return Number.isFinite(parsed) ? parsed : fallback; }
+function uniqueAliases(values = []) { return [...new Set(values.map((value) => clean(value, 5_000)).filter(Boolean))].slice(0, 64); }
