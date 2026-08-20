@@ -37,9 +37,9 @@ test("seen, unseen, accepted, and source filters derive from durable review and 
   assert.equal(HUMAN_VIDEO_REVIEW_FILTERS.some((filter) => filter.value === "accepted"), true);
 
   const sourced = { ownerType: "library", ownerId: "system-media", relationships: [{ ownerType: "avatar", ownerId: "avatar-1" }, { ownerType: "scene", ownerId: "scene-1" }] };
-  assert.deepEqual(humanVideoSourceKeys(sourced), ["library", "library:system-media", "avatar", "avatar:avatar-1", "scene", "scene:scene-1"]);
+  assert.deepEqual(humanVideoSourceKeys(sourced), ["library", "avatar", "scene"]);
   assert.equal(matchesHumanVideoSourceFilter(sourced, "avatar"), true);
-  assert.equal(matchesHumanVideoSourceFilter(sourced, "scene:scene-1"), true);
+  assert.equal(matchesHumanVideoSourceFilter(sourced, "scene:scene-1"), false);
   assert.equal(matchesHumanVideoSourceFilter(sourced, "tarot"), false);
 });
 
@@ -77,6 +77,8 @@ test("dashboard exposes seen/not-seen telemetry, accepted totals, and eligible s
   assert.equal(dashboard.summary.acceptedAgentReviews, 2);
   assert.equal(dashboard.quickSortSourceOptions.some(({ value }) => value === "song"), true);
   assert.equal(dashboard.quickSortSourceOptions.some(({ value }) => value === "scene"), true);
+  assert.equal(dashboard.quickSortSourceOptions.some(({ value }) => value.includes(":")), false);
+  assert.equal(dashboard.quickSortSourceOptions.find(({ value }) => value === "scene")?.label, "Scenes");
 });
 
 test("UI and API apply unseen/source filtering before paginated Quick Sort rendering", async () => {

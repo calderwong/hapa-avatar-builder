@@ -85,15 +85,9 @@ export function matchesHumanVideoQuickSortSeenFilter(video = {}, filter = "all")
 }
 
 export function humanVideoSourceKeys(video = {}) {
-  const sources = [
-    { ownerType: video.ownerType, ownerId: video.ownerId },
-    ...(video.relationships || []),
-  ];
-  const keys = sources.flatMap((source) => {
-    const ownerType = clean(source?.ownerType, 120).toLowerCase();
-    const ownerId = clean(source?.ownerId, 360).toLowerCase();
-    return ownerType ? [ownerType, ...(ownerId ? [`${ownerType}:${ownerId}`] : [])] : [];
-  });
+  const keys = [video.ownerType, ...(video.relationships || []).map((relationship) => relationship?.ownerType)]
+    .map((value) => clean(value, 120).toLowerCase())
+    .filter(Boolean);
   return [...new Set(keys.length ? keys : ["library"])];
 }
 
@@ -277,36 +271,25 @@ export function createHumanVideoEnricherDashboard({ mediaDashboard = {}, enrichm
 
 function createHumanVideoSourceOptions(videos = []) {
   const counts = new Map();
-  const labels = new Map();
   for (const video of videos) {
-    const sources = [
-      { ownerType: video.ownerType, ownerId: video.ownerId, ownerName: video.ownerName },
-      ...(video.relationships || []),
-    ];
-    const videoKeys = new Set();
-    for (const source of sources) {
-      const ownerType = clean(source?.ownerType, 120).toLowerCase();
-      const ownerId = clean(source?.ownerId, 360).toLowerCase();
-      if (!ownerType) continue;
-      for (const key of [ownerType, ...(ownerId ? [`${ownerType}:${ownerId}`] : [])]) videoKeys.add(key);
-      if (ownerId) labels.set(`${ownerType}:${ownerId}`, `${humanVideoSourceLabel(ownerType)} · ${clean(source?.ownerName || source?.ownerId, 800)}`);
-    }
-    if (!videoKeys.size) videoKeys.add("library");
-    for (const key of videoKeys) counts.set(key, Number(counts.get(key) || 0) + 1);
+    for (const key of humanVideoSourceKeys(video)) counts.set(key, Number(counts.get(key) || 0) + 1);
   }
   return [...counts.entries()]
-    .map(([value, count]) => ({ value, label: labels.get(value) || humanVideoSourceLabel(value), count }))
+    .map(([value, count]) => ({ value, label: humanVideoSourceLabel(value), count }))
     .sort((a, b) => a.label.localeCompare(b.label) || a.value.localeCompare(b.value));
 }
 
 function humanVideoSourceLabel(value) {
   const known = {
     library: "System Media",
-    avatar: "Avatar Cards",
-    tarot: "Tarot Cards",
+    avatar: "Avatars",
+    tarot: "Tarot",
     scene: "Scenes",
-    item: "Item Cards",
+    item: "Items",
     song: "Songs",
+    card: "Cards",
+    reference: "References",
+    "transition-link": "Transitions",
   };
   return known[value] || String(value || "unknown").split(/[-_]+/).map((part) => `${part.charAt(0).toUpperCase()}${part.slice(1)}`).join(" ");
 }
