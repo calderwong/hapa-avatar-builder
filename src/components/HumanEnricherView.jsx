@@ -64,8 +64,8 @@ export default function HumanEnricherView({ apiBase = "", onNotify = () => {} })
       const params = new URLSearchParams({ offset: String(offset), limit: "120", quality: qualityFilter, review: reviewFilter, sort });
       if (layout === "tiles") {
         params.set("limit", "240");
-        params.set("review", "agent-reviewed");
-        params.set("sort", "needs-human");
+        params.set("review", "all");
+        params.set("sort", "name");
         params.set("seen", quickSortSeenFilter);
         params.set("source", quickSortSourceFilter);
       }
@@ -155,7 +155,7 @@ export default function HumanEnricherView({ apiBase = "", onNotify = () => {} })
   );
 
   const quickSortVideos = useMemo(() => (dashboard?.videos || []).filter((video) => {
-    if (!video.agentReview || ["rejected", "blocked"].includes(video.agentReview.status)) return false;
+    if (video.agentReview?.status === "blocked") return false;
     if (!matchesHumanVideoQuickSortSeenFilter(video, quickSortSeenFilter)) return false;
     if (!matchesHumanVideoSourceFilter(video, quickSortSourceFilter)) return false;
     if (qualityFilter === "enriched" && !video.humanEnrichment) return false;
@@ -164,7 +164,7 @@ export default function HumanEnricherView({ apiBase = "", onNotify = () => {} })
     if (/^[1-5]$/.test(qualityFilter) && grade !== Number(qualityFilter)) return false;
     const normalizedQuery = query.trim().toLowerCase();
     if (!normalizedQuery) return true;
-    return [video.name, video.id, video.ownerName, video.role, video.agentReview?.proposal?.description].join(" ").toLowerCase().includes(normalizedQuery);
+    return [video.name, video.id, video.ownerName, video.role, ...(video.relationships || []).map((relationship) => relationship.ownerName), video.agentReview?.proposal?.description].join(" ").toLowerCase().includes(normalizedQuery);
   }), [dashboard, qualityFilter, query, quickSortSeenFilter, quickSortSourceFilter]);
 
   useEffect(() => {
@@ -296,17 +296,18 @@ export default function HumanEnricherView({ apiBase = "", onNotify = () => {} })
   }
 
   async function decideQuickSortVideo(video, action) {
-    const review = video?.agentReview;
-    if (!review || review.status !== "pending-human" || decidingKeys.has(video.humanVideoKey)) return;
+    if (!video || video.quickSortDecision || decidingKeys.has(video.humanVideoKey)) return;
     setDecidingKeys((current) => new Set(current).add(video.humanVideoKey));
     setError("");
     try {
-      const response = await fetch(`${apiBase}/api/human-enricher/agent-reviews/${encodeURIComponent(review.id)}/decision`, {
+      const response = await fetch(`${apiBase}/api/human-enricher/quick-sort/decisions`, {
         method: "POST",
         headers: { accept: "application/json", "content-type": "application/json", "x-hapa-actor-id": "human-enricher-quick-sort" },
         body: JSON.stringify({
+          videoKey: video.humanVideoKey,
+          videoId: video.id,
           action,
-          notes: action === "accepted" ? "Accepted during the Human Enricher quick-sort first pass." : "Rejected during the Human Enricher quick-sort first pass.",
+          notes: action === "accepted" ? "Accepted during the Human Enricher Quick Sort first pass." : "Rejected during the Human Enricher Quick Sort first pass.",
         }),
       });
       const payload = await response.json();
@@ -314,7 +315,7 @@ export default function HumanEnricherView({ apiBase = "", onNotify = () => {} })
       setDashboard((current) => ({
         ...current,
         summary: applyQuickDecisionSummary(current.summary, action),
-        videos: current.videos.map((candidate) => candidate.humanVideoKey === video.humanVideoKey ? { ...candidate, agentReview: payload.review } : candidate),
+        videos: current.videos.map((candidate) => candidate.humanVideoKey === video.humanVideoKey ? { ...candidate, quickSortDecision: payload.decision } : candidate),
         pagination: quickSortSeenFilter === "unseen" ? removeOneFromPagination(current.pagination) : current.pagination,
       }));
       onNotify(`${action === "accepted" ? "Accepted" : "Rejected"} ${video.name || video.id}`);
@@ -701,12 +702,13 @@ export default function HumanEnricherView({ apiBase = "", onNotify = () => {} })
             <div>
               <p className="eyebrow"><LayoutGrid size={13} /> FIRST-PASS VIDEO SORT</p>
               <h3>Hover to preview. Keep or reject in one click.</h3>
-              <p>Thumbs up validates the current optical proposal. Thumbs down records a rejection and removes the tile from this view.</p>
+              <p>Thumbs up keeps the video for detailed enrichment. Thumbs down records a media-triage rejection. Optical review is tracked separately.</p>
             </div>
             <div className="human-quick-sort-filters">
               <label className="search-box hapa-field"><Search size={15} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Find a video…" /></label>
               <select value={quickSortSeenFilter} onChange={(event) => setQuickSortSeenFilter(event.target.value)} aria-label="Filter Quick Sort by seen state">
                 <option value="unseen">Not seen yet</option>
+                <option value="seen">Seen</option>
                 <option value="all">All eligible</option>
               </select>
               <select value={quickSortSourceFilter} onChange={(event) => setQuickSortSourceFilter(event.target.value)} aria-label="Filter Quick Sort by source">
@@ -741,9 +743,9 @@ export default function HumanEnricherView({ apiBase = "", onNotify = () => {} })
               {loading ? <Loader2 size={14} className="spin" /> : <RefreshCw size={14} />} Load 240 more candidates
             </button>
           )}
-          {!quickSortVideos.length && <div className="human-video-empty hapa-panel">{dashboard?.summary?.remainingOpticalReviews
-            ? `No sortable optical proposals match these filters. ${dashboard.summary.remainingOpticalReviews} known video${dashboard.summary.remainingOpticalReviews === 1 ? " is" : "s are"} still awaiting optical review.`
-            : quickSortSeenFilter === "unseen" ? "No unseen optical-review candidates match these filters." : "No optical-review candidates match these filters."}</div>}
+          {!quickSortVideos.length && <div className="human-video-empty hapa-panel">{quickSortSeenFilter === "unseen"
+            ? "No unseen videos match these filters."
+            : "No Quick Sort videos match these filters."}</div>}
         </main>
       )}
     </section>
@@ -772,9 +774,6 @@ function initialQuickSortSourceFilter() {
 function applyQuickDecisionSummary(summary = {}, action) {
   return {
     ...summary,
-    pendingHumanValidation: Math.max(0, Number(summary?.pendingHumanValidation || 0) - 1),
-    humanValidatedAgentReviews: Number(summary?.humanValidatedAgentReviews || 0) + 1,
-    acceptedAgentReviews: Number(summary?.acceptedAgentReviews || 0) + Number(action === "accepted"),
     quickSortAccepted: Number(summary?.quickSortAccepted || 0) + Number(action === "accepted"),
     quickSortRejected: Number(summary?.quickSortRejected || 0) + Number(action === "rejected"),
     quickSortSeen: Number(summary?.quickSortSeen || 0) + 1,
@@ -822,7 +821,7 @@ function appendText(current, addition) { return [String(current || "").trim(), S
 function reviewFilterCount(filter, summary = {}) {
   if (filter === "agent-reviewed") return Number(summary?.agentReviewed || 0);
   if (filter === "pending-human") return Number(summary?.pendingHumanValidation || 0);
-  if (filter === "accepted") return Number(summary?.acceptedAgentReviews || 0);
+  if (filter === "accepted") return Number(summary?.quickSortAccepted || 0);
   if (filter === "human-validated") return Number(summary?.humanValidatedAgentReviews || 0);
   if (filter === "not-reviewed") return Number(summary?.remainingOpticalReviews || 0);
   return Number(summary?.videos || 0);
@@ -1111,9 +1110,10 @@ function formatRelativeDuration(milliseconds) {
 function Meta({ label, value }) { return <div><dt>{label}</dt><dd>{value || "Not recorded"}</dd></div>; }
 function QuickSortVideoTile({ video, apiBase, deciding = false, onDecide }) {
   const previewRef = useRef(null);
-  const reviewStatus = video.agentReview?.status || "unreviewed";
-  const accepted = ["accepted", "accepted-edited"].includes(reviewStatus);
-  const pending = reviewStatus === "pending-human";
+  const decisionState = video.quickSortDecision?.state || "unseen";
+  const accepted = decisionState === "accepted";
+  const rejected = decisionState === "rejected";
+  const unseen = decisionState === "unseen";
   const title = video.name || video.id || "Untitled video";
   const previewUri = mediaUri(video.uri, apiBase);
   const posterUri = mediaUri(video.thumbnailUri, apiBase);
@@ -1133,13 +1133,13 @@ function QuickSortVideoTile({ video, apiBase, deciding = false, onDecide }) {
   }
 
   return (
-    <article className="human-video-tile hapa-card" data-card-type="media" data-state={accepted ? "accepted" : "pending"} onMouseEnter={startPreview} onMouseLeave={stopPreview}>
+    <article className="human-video-tile hapa-card" data-card-type="media" data-state={accepted ? "accepted" : rejected ? "rejected" : "pending"} onMouseEnter={startPreview} onMouseLeave={stopPreview}>
       <div className="human-video-tile-preview">
         {previewUri ? (
           <video ref={previewRef} src={previewUri} poster={posterUri} muted loop playsInline preload="none" tabIndex={0} aria-label={`Preview ${title}`} onFocus={startPreview} onBlur={stopPreview} />
         ) : posterUri ? <img src={posterUri} alt="" loading="lazy" /> : <FileVideo2 size={36} />}
-        <span className="human-video-tile-status" data-state={accepted ? "accepted" : "pending"}>
-          {accepted ? <><BadgeCheck size={14} /> Accepted</> : <><Eye size={14} /> Awaiting first pass</>}
+        <span className="human-video-tile-status" data-state={accepted ? "accepted" : rejected ? "rejected" : "pending"}>
+          {accepted ? <><BadgeCheck size={14} /> Accepted</> : rejected ? <><ThumbsDown size={14} /> Rejected</> : <><Eye size={14} /> Not seen</>}
         </span>
         {deciding && <span className="human-video-tile-busy"><Loader2 size={22} className="spin" /> Saving decision…</span>}
       </div>
@@ -1148,10 +1148,10 @@ function QuickSortVideoTile({ video, apiBase, deciding = false, onDecide }) {
         <small>{video.ownerName || "System Media Library"} · {formatDuration(video.duration)}</small>
       </div>
       <div className="human-video-tile-actions">
-        <button type="button" data-action="reject" aria-label={`Reject ${title}`} disabled={!pending || deciding} onClick={() => onDecide(video, "rejected")}>
+        <button type="button" data-action="reject" aria-label={`Reject ${title}`} aria-pressed={rejected} disabled={!unseen || deciding} onClick={() => onDecide(video, "rejected")}>
           <ThumbsDown size={19} /><span>Reject</span>
         </button>
-        <button type="button" data-action="accept" aria-label={`Accept ${title}`} aria-pressed={accepted} disabled={!pending || deciding} onClick={() => onDecide(video, "accepted")}>
+        <button type="button" data-action="accept" aria-label={`Accept ${title}`} aria-pressed={accepted} disabled={!unseen || deciding} onClick={() => onDecide(video, "accepted")}>
           <ThumbsUp size={19} /><span>{accepted ? "Accepted" : "Accept"}</span>
         </button>
       </div>

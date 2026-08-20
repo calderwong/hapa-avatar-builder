@@ -15,7 +15,7 @@ export const HUMAN_VIDEO_REVIEW_FILTERS = Object.freeze([
   { value: "all", label: "All videos" },
   { value: "agent-reviewed", label: "Optically reviewed" },
   { value: "pending-human", label: "Needs human validation" },
-  { value: "accepted", label: "Accepted" },
+  { value: "accepted", label: "Quick Sort accepted" },
   { value: "human-validated", label: "Human validated" },
   { value: "not-reviewed", label: "Not optically reviewed" },
 ]);
@@ -67,32 +67,38 @@ export function matchesHumanVideoReviewFilter(video = {}, filter = "all") {
   const review = video.agentReview || null;
   if (normalized === "agent-reviewed") return Boolean(review);
   if (normalized === "pending-human") return review?.status === "pending-human";
-  if (normalized === "accepted") return ["accepted", "accepted-edited"].includes(review?.status);
+  if (normalized === "accepted") return video.quickSortDecision?.state === "accepted";
   if (normalized === "human-validated") return FINAL_HUMAN_VIDEO_REVIEW_STATUSES.has(review?.status);
   if (normalized === "not-reviewed") return !review;
   return true;
 }
 
 export function isHumanVideoQuickSortSeen(video = {}) {
-  return FINAL_HUMAN_VIDEO_REVIEW_STATUSES.has(video.agentReview?.status);
+  return ["accepted", "rejected"].includes(video.quickSortDecision?.state);
 }
 
 export function matchesHumanVideoQuickSortSeenFilter(video = {}, filter = "all") {
   const normalized = String(filter || "all").trim().toLowerCase();
-  if (normalized === "unseen") return video.agentReview?.status === "pending-human";
+  if (normalized === "unseen") return !isHumanVideoQuickSortSeen(video);
   if (normalized === "seen") return isHumanVideoQuickSortSeen(video);
   return true;
 }
 
 export function humanVideoSourceKeys(video = {}) {
-  const keys = [video.ownerType, ...(video.relationships || []).map((relationship) => relationship?.ownerType)]
-    .map((value) => clean(value, 120).toLowerCase())
-    .filter(Boolean);
+  const sources = [
+    { ownerType: video.ownerType, ownerId: video.ownerId },
+    ...(video.relationships || []),
+  ];
+  const keys = sources.flatMap((source) => {
+    const ownerType = clean(source?.ownerType, 120).toLowerCase();
+    const ownerId = clean(source?.ownerId, 360).toLowerCase();
+    return ownerType ? [ownerType, ...(ownerId ? [`${ownerType}:${ownerId}`] : [])] : [];
+  });
   return [...new Set(keys.length ? keys : ["library"])];
 }
 
 export function matchesHumanVideoSourceFilter(video = {}, filter = "all") {
-  const normalized = clean(filter, 120).toLowerCase() || "all";
+  const normalized = clean(filter, 500).toLowerCase() || "all";
   return normalized === "all" || humanVideoSourceKeys(video).includes(normalized);
 }
 
@@ -190,15 +196,22 @@ export function upsertHumanVideoEnrichment(storeInput = {}, input = {}, options 
   };
 }
 
-export function createHumanVideoEnricherDashboard({ mediaDashboard = {}, enrichmentStore = {}, agentReviewStore = {}, referenceReviewStore = {}, avatars = [], songs = [] } = {}) {
+export function createHumanVideoEnricherDashboard({ mediaDashboard = {}, enrichmentStore = {}, agentReviewStore = {}, quickSortStore = {}, referenceReviewStore = {}, avatars = [], songs = [] } = {}) {
   const store = normalizeHumanVideoEnrichmentStore(enrichmentStore);
   const agentReviews = new Map((agentReviewStore.reviews || []).map((review) => [review.videoKey, review]));
+  const quickSortDecisions = new Map((quickSortStore.decisions || []).map((decision) => [decision.videoKey, decision]));
   const referenceReviews = new Map((referenceReviewStore.reviews || []).map((review) => [review.videoKey, review]));
   const videos = (mediaDashboard.records || [])
     .filter((record) => record.mediaType === "video")
     .map((video) => {
       const enriched = attachEnrichment(video, store);
-      return compactHumanEnricherVideo({ ...enriched, agentReview: agentReviews.get(enriched.humanVideoKey) || null, referenceReview: referenceReviews.get(enriched.humanVideoKey) || null });
+      const agentReview = agentReviews.get(enriched.humanVideoKey) || null;
+      return compactHumanEnricherVideo({
+        ...enriched,
+        agentReview,
+        quickSortDecision: quickSortDecisions.get(enriched.humanVideoKey) || legacyQuickSortDecision(agentReview),
+        referenceReview: referenceReviews.get(enriched.humanVideoKey) || null,
+      });
     })
     .sort((a, b) => Number(Boolean(b.humanEnrichment)) - Number(Boolean(a.humanEnrichment))
       || effectiveQuality(b) - effectiveQuality(a)
@@ -206,10 +219,9 @@ export function createHumanVideoEnricherDashboard({ mediaDashboard = {}, enrichm
   const enriched = videos.filter((video) => video.humanEnrichment);
   const agentReviewed = videos.filter((video) => video.agentReview);
   const referenceReviewed = videos.filter((video) => video.referenceReview);
-  const quickSortDecisions = agentReviewed.filter((video) => video.agentReview.humanDecision?.actorId === "human-enricher-quick-sort");
-  const quickSortEligible = agentReviewed.filter((video) => video.agentReview.status !== "blocked");
-  const quickSortSeen = quickSortEligible.filter(isHumanVideoQuickSortSeen);
-  const quickSortNotSeen = quickSortEligible.filter((video) => video.agentReview.status === "pending-human");
+  const quickSortEligible = videos.filter((video) => video.agentReview?.status !== "blocked");
+  const quickSortSeen = videos.filter(isHumanVideoQuickSortSeen);
+  const quickSortNotSeen = videos.filter((video) => !isHumanVideoQuickSortSeen(video));
   const qualityCalibration = createHumanVideoQualityCalibration(videos);
   return {
     schemaVersion: HUMAN_VIDEO_ENRICHER_DASHBOARD_SCHEMA,
@@ -235,8 +247,8 @@ export function createHumanVideoEnricherDashboard({ mediaDashboard = {}, enrichm
       humanValidatedAgentReviews: agentReviewed.filter((video) => ["accepted", "accepted-edited", "rejected"].includes(video.agentReview.status)).length,
       acceptedAgentReviews: agentReviewed.filter((video) => ["accepted", "accepted-edited"].includes(video.agentReview.status)).length,
       quickSortKnown: videos.length,
-      quickSortAccepted: quickSortDecisions.filter((video) => ["accepted", "accepted-edited"].includes(video.agentReview.status)).length,
-      quickSortRejected: quickSortDecisions.filter((video) => video.agentReview.status === "rejected").length,
+      quickSortAccepted: quickSortSeen.filter((video) => video.quickSortDecision.state === "accepted").length,
+      quickSortRejected: quickSortSeen.filter((video) => video.quickSortDecision.state === "rejected").length,
       quickSortSeen: quickSortSeen.length,
       quickSortNotSeen: quickSortNotSeen.length,
       terminalInvalidMedia: agentReviewed.filter((video) => video.agentReview.status === "blocked" && String(video.agentReview.blockedReason || "").startsWith("terminal-invalid-media:")).length,
@@ -265,11 +277,25 @@ export function createHumanVideoEnricherDashboard({ mediaDashboard = {}, enrichm
 
 function createHumanVideoSourceOptions(videos = []) {
   const counts = new Map();
+  const labels = new Map();
   for (const video of videos) {
-    for (const key of humanVideoSourceKeys(video)) counts.set(key, Number(counts.get(key) || 0) + 1);
+    const sources = [
+      { ownerType: video.ownerType, ownerId: video.ownerId, ownerName: video.ownerName },
+      ...(video.relationships || []),
+    ];
+    const videoKeys = new Set();
+    for (const source of sources) {
+      const ownerType = clean(source?.ownerType, 120).toLowerCase();
+      const ownerId = clean(source?.ownerId, 360).toLowerCase();
+      if (!ownerType) continue;
+      for (const key of [ownerType, ...(ownerId ? [`${ownerType}:${ownerId}`] : [])]) videoKeys.add(key);
+      if (ownerId) labels.set(`${ownerType}:${ownerId}`, `${humanVideoSourceLabel(ownerType)} · ${clean(source?.ownerName || source?.ownerId, 800)}`);
+    }
+    if (!videoKeys.size) videoKeys.add("library");
+    for (const key of videoKeys) counts.set(key, Number(counts.get(key) || 0) + 1);
   }
   return [...counts.entries()]
-    .map(([value, count]) => ({ value, label: humanVideoSourceLabel(value), count }))
+    .map(([value, count]) => ({ value, label: labels.get(value) || humanVideoSourceLabel(value), count }))
     .sort((a, b) => a.label.localeCompare(b.label) || a.value.localeCompare(b.value));
 }
 
@@ -346,7 +372,27 @@ function compactHumanEnricherVideo(video = {}) {
     humanVideoKey: video.humanVideoKey,
     humanEnrichment: video.humanEnrichment,
     agentReview: video.agentReview || null,
+    quickSortDecision: video.quickSortDecision || null,
     referenceReview: video.referenceReview || null,
+  };
+}
+
+function legacyQuickSortDecision(agentReview = null) {
+  const humanDecision = agentReview?.humanDecision;
+  if (humanDecision?.actorId !== "human-enricher-quick-sort" || !["accepted", "rejected"].includes(humanDecision.action)) return null;
+  return {
+    schemaVersion: "hapa.human-video-quick-sort-decision.v1",
+    id: `${agentReview.videoKey}:quick-sort:legacy`,
+    videoKey: agentReview.videoKey,
+    videoId: agentReview.videoId || "",
+    videoName: agentReview.videoName || "",
+    state: humanDecision.action,
+    notes: humanDecision.notes || "",
+    actorId: humanDecision.actorId,
+    origin: "legacy-agent-review-projection",
+    revision: 1,
+    createdAt: humanDecision.decidedAt || agentReview.updatedAt || null,
+    updatedAt: humanDecision.decidedAt || agentReview.updatedAt || null,
   };
 }
 

@@ -22,10 +22,10 @@ const review = (id, status, actorId = "") => ({
 });
 
 test("seen, unseen, accepted, and source filters derive from durable review and media state", () => {
-  const pending = { agentReview: review("pending", "pending-human") };
-  const accepted = { agentReview: review("accepted", "accepted") };
-  const acceptedEdited = { agentReview: review("edited", "accepted-edited") };
-  const rejected = { agentReview: review("rejected", "rejected") };
+  const pending = { agentReview: review("pending", "pending-human"), quickSortDecision: null };
+  const accepted = { agentReview: null, quickSortDecision: { state: "accepted" } };
+  const acceptedEdited = { agentReview: review("edited", "accepted-edited"), quickSortDecision: { state: "accepted" } };
+  const rejected = { agentReview: null, quickSortDecision: { state: "rejected" } };
 
   assert.equal(matchesHumanVideoQuickSortSeenFilter(pending, "unseen"), true);
   assert.equal(matchesHumanVideoQuickSortSeenFilter(accepted, "unseen"), false);
@@ -36,9 +36,10 @@ test("seen, unseen, accepted, and source filters derive from durable review and 
   assert.equal(matchesHumanVideoReviewFilter(rejected, "accepted"), false);
   assert.equal(HUMAN_VIDEO_REVIEW_FILTERS.some((filter) => filter.value === "accepted"), true);
 
-  const sourced = { ownerType: "library", relationships: [{ ownerType: "avatar" }, { ownerType: "scene" }] };
-  assert.deepEqual(humanVideoSourceKeys(sourced), ["library", "avatar", "scene"]);
+  const sourced = { ownerType: "library", ownerId: "system-media", relationships: [{ ownerType: "avatar", ownerId: "avatar-1" }, { ownerType: "scene", ownerId: "scene-1" }] };
+  assert.deepEqual(humanVideoSourceKeys(sourced), ["library", "library:system-media", "avatar", "avatar:avatar-1", "scene", "scene:scene-1"]);
   assert.equal(matchesHumanVideoSourceFilter(sourced, "avatar"), true);
+  assert.equal(matchesHumanVideoSourceFilter(sourced, "scene:scene-1"), true);
   assert.equal(matchesHumanVideoSourceFilter(sourced, "tarot"), false);
 });
 
@@ -62,15 +63,20 @@ test("dashboard exposes seen/not-seen telemetry, accepted totals, and eligible s
     mediaDashboard: { records },
     enrichmentStore: createHumanVideoEnrichmentStore(),
     agentReviewStore: { reviews },
+    quickSortStore: { decisions: [
+      { videoKey: "record:quick-accepted", state: "accepted" },
+      { videoKey: "record:quick-rejected", state: "rejected" },
+    ] },
   });
 
   assert.equal(dashboard.summary.quickSortKnown, 6);
-  assert.equal(dashboard.summary.quickSortSeen, 3);
-  assert.equal(dashboard.summary.quickSortNotSeen, 1);
+  assert.equal(dashboard.summary.quickSortSeen, 2);
+  assert.equal(dashboard.summary.quickSortNotSeen, 4);
   assert.equal(dashboard.summary.quickSortAccepted, 1);
   assert.equal(dashboard.summary.quickSortRejected, 1);
   assert.equal(dashboard.summary.acceptedAgentReviews, 2);
-  assert.deepEqual(dashboard.quickSortSourceOptions.map(({ value }) => value), ["avatar", "scene", "library", "tarot"]);
+  assert.equal(dashboard.quickSortSourceOptions.some(({ value }) => value === "song"), true);
+  assert.equal(dashboard.quickSortSourceOptions.some(({ value }) => value === "scene"), true);
 });
 
 test("UI and API apply unseen/source filtering before paginated Quick Sort rendering", async () => {

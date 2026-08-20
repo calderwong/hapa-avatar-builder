@@ -151,6 +151,7 @@ import { openAvatarProposalReviewService } from "./avatar-proposal-review-servic
 import { openAvatarCardCustodyService } from "./card-custody-service.mjs";
 import { openHumanVideoEnrichmentStore } from "./human-video-enrichment-store.mjs";
 import { openHumanVideoAgentReviewStore } from "./human-video-agent-review-store.mjs";
+import { openHumanVideoQuickSortStore } from "./human-video-quick-sort-store.mjs";
 import { openHumanVideoOpticalCampaignStore } from "./human-video-optical-campaign-store.mjs";
 import { openHumanVideoReferenceReviewStore } from "./human-video-reference-review-store.mjs";
 import {
@@ -506,6 +507,8 @@ const HUMAN_VIDEO_ENRICHMENT_PATH = process.env.HAPA_HUMAN_VIDEO_ENRICHMENT_STOR
 const HUMAN_VIDEO_ENRICHMENT_EVENT_PATH = process.env.HAPA_HUMAN_VIDEO_ENRICHMENT_EVENTS || path.join(ROOT, "data/human-video-enrichment-events.ndjson");
 const HUMAN_VIDEO_AGENT_REVIEW_PATH = process.env.HAPA_HUMAN_VIDEO_AGENT_REVIEW_STORE || path.join(ROOT, "data/human-video-agent-reviews.json");
 const HUMAN_VIDEO_AGENT_REVIEW_EVENT_PATH = process.env.HAPA_HUMAN_VIDEO_AGENT_REVIEW_EVENTS || path.join(ROOT, "data/human-video-agent-review-events.ndjson");
+const HUMAN_VIDEO_QUICK_SORT_PATH = process.env.HAPA_HUMAN_VIDEO_QUICK_SORT_STORE || path.join(ROOT, "data/human-video-quick-sort-decisions.json");
+const HUMAN_VIDEO_QUICK_SORT_EVENT_PATH = process.env.HAPA_HUMAN_VIDEO_QUICK_SORT_EVENTS || path.join(ROOT, "data/human-video-quick-sort-events.ndjson");
 const HUMAN_VIDEO_OPTICAL_CAMPAIGN_PATH = process.env.HAPA_HUMAN_VIDEO_OPTICAL_CAMPAIGN_STORE || path.join(ROOT, "data/human-video-optical-campaign.json");
 const HUMAN_VIDEO_OPTICAL_CAMPAIGN_EVENT_PATH = process.env.HAPA_HUMAN_VIDEO_OPTICAL_CAMPAIGN_EVENTS || path.join(ROOT, "data/human-video-optical-campaign-events.ndjson");
 const HUMAN_VIDEO_REFERENCE_REVIEW_PATH = process.env.HAPA_HUMAN_VIDEO_REFERENCE_REVIEW_STORE || path.join(ROOT, "data/human-video-reference-reviews.json");
@@ -526,6 +529,10 @@ const humanVideoEnrichmentStore = openHumanVideoEnrichmentStore({
 const humanVideoAgentReviewStore = openHumanVideoAgentReviewStore({
   filePath: HUMAN_VIDEO_AGENT_REVIEW_PATH,
   eventPath: HUMAN_VIDEO_AGENT_REVIEW_EVENT_PATH,
+});
+const humanVideoQuickSortStore = openHumanVideoQuickSortStore({
+  filePath: HUMAN_VIDEO_QUICK_SORT_PATH,
+  eventPath: HUMAN_VIDEO_QUICK_SORT_EVENT_PATH,
 });
 const humanVideoOpticalCampaignStore = openHumanVideoOpticalCampaignStore({
   filePath: HUMAN_VIDEO_OPTICAL_CAMPAIGN_PATH,
@@ -4422,6 +4429,36 @@ async function route(req, res) {
     return;
   }
 
+  if (pathname === "/api/human-enricher/quick-sort/decisions" && req.method === "POST") {
+    try {
+      const body = await readBody(req);
+      const dashboard = await buildHumanVideoEnricherDashboard();
+      const requestedKey = String(body.videoKey || body.key || "").trim();
+      const video = dashboard.videos.find((candidate) => candidate.humanVideoKey === requestedKey || candidate.id === body.videoId);
+      if (!video) {
+        sendJson(res, 404, { ok: false, error: "quick_sort_video_not_found", message: "The selected video is no longer present in the Builder's known media stores." });
+        return;
+      }
+      if (video.agentReview?.status === "blocked") {
+        sendJson(res, 409, { ok: false, error: "quick_sort_video_blocked", message: "This video has a terminal invalid-media receipt and cannot be Quick Sorted." });
+        return;
+      }
+      const result = await humanVideoQuickSortStore.decide({
+        ...body,
+        videoKey: video.humanVideoKey,
+        videoId: video.id,
+        videoName: video.name,
+      }, {
+        actorId: String(req.headers["x-hapa-actor-id"] || body.actorId || "human-enricher-quick-sort").trim().slice(0, 180),
+      });
+      res.setHeader("Cache-Control", "no-store");
+      sendJson(res, 200, { ok: true, decision: result.decision });
+    } catch (error) {
+      sendJson(res, Number(error?.statusCode || 400), { ok: false, error: error?.code || "quick_sort_decision_failed", message: error?.message || String(error), details: error?.details || null });
+    }
+    return;
+  }
+
   const agentReviewDecisionMatch = pathname.match(/^\/api\/human-enricher\/agent-reviews\/([^/]+)\/decision$/);
   if (agentReviewDecisionMatch && req.method === "POST") {
     try {
@@ -7271,7 +7308,7 @@ async function readSystemMediaLibrary() {
 }
 
 async function buildHumanVideoEnricherDashboard() {
-  const [avatarStore, canonicalAvatarStore, tarotStore, sceneGraph, mediaLibrary, enrichmentStore, agentReviewStore, referenceReviewStore, songStore, itemStore] = await Promise.all([
+  const [avatarStore, canonicalAvatarStore, tarotStore, sceneGraph, mediaLibrary, enrichmentStore, agentReviewStore, quickSortStore, referenceReviewStore, songStore, itemStore] = await Promise.all([
     readStore({ includeProjections: true }),
     readStore(),
     readTarotStore(),
@@ -7279,6 +7316,7 @@ async function buildHumanVideoEnricherDashboard() {
     readSystemMediaLibrary(),
     humanVideoEnrichmentStore.read(),
     humanVideoAgentReviewStore.read(),
+    humanVideoQuickSortStore.read(),
     humanVideoReferenceReviewStore.read(),
     readHapaSongStore(),
     readItemStore(),
@@ -7296,6 +7334,7 @@ async function buildHumanVideoEnricherDashboard() {
     mediaDashboard: frameCatalogProjection.dashboard,
     enrichmentStore,
     agentReviewStore,
+    quickSortStore,
     referenceReviewStore,
     avatars: canonicalAvatarStore.avatars || [],
     songs: songStore.songs || [],

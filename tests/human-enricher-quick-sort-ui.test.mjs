@@ -9,7 +9,7 @@ test("Human Enricher quick sort exposes dense hover-preview tiles and durable fi
   ]);
 
   assert.match(source, /params\.set\("limit", "240"\)/);
-  assert.match(source, /params\.set\("review", "agent-reviewed"\)/);
+  assert.match(source, /params\.set\("review", "all"\)/);
   assert.match(source, /> Quick Sort</);
   assert.match(source, /aria-label="Quick-sort video tiles"/);
   assert.match(source, /onMouseEnter=\{startPreview\}/);
@@ -18,15 +18,16 @@ test("Human Enricher quick sort exposes dense hover-preview tiles and durable fi
   assert.match(source, /action === "accepted"/);
   assert.match(source, /onDecide\(video, "rejected"\)/);
   assert.match(source, /onDecide\(video, "accepted"\)/);
-  assert.match(source, /\["rejected", "blocked"\]\.includes\(video\.agentReview\.status\)/);
+  assert.match(source, /video\.agentReview\?\.status === "blocked"/);
+  assert.match(source, /\/api\/human-enricher\/quick-sort\/decisions/);
   assert.match(source, /aria-label="Quick Sort telemetry"/);
   assert.match(source, /summary\?\.quickSortKnown/);
   assert.match(source, /summary\?\.quickSortAccepted/);
   assert.match(source, /summary\?\.quickSortRejected/);
   assert.match(source, /summary\?\.remainingOpticalReviews/);
-  assert.match(source, /still awaiting optical review/);
+  assert.match(source, /Optical review is tracked separately/);
   assert.doesNotMatch(source, /quickSortVideos\.filter\(\(video\) => \["accepted", "accepted-edited"\]/);
-  assert.match(source, /data-state=\{accepted \? "accepted" : "pending"\}/);
+  assert.match(source, /data-state=\{accepted \? "accepted" : rejected \? "rejected" : "pending"\}/);
   assert.match(source, /aria-pressed=\{accepted\}/);
   assert.match(css, /\.human-video-tile-grid \{[^}]*repeat\(auto-fill, minmax\(220px, 1fr\)\)/);
   assert.match(css, /\.human-video-tile\[data-state="accepted"\]/);
