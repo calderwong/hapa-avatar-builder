@@ -81,6 +81,7 @@ export function buildScrollSiteDirectorCandidates(entries = [], policy = {}) {
 
 function normalizeSourceGroup(candidate = {}) {
   const source = String(candidate.sourceGroup || candidate.sourceFamily || "").trim().toLowerCase();
+  if (source === "human-accepted" || source.includes("human-accepted")) return "human-accepted";
   if (source === "ref-cards" || source.includes("ref-card")) return "ref-cards";
   if (source === "scroll" || source.includes("scroll") || source.includes("fal")) return "scroll";
   if (source === "scene" || source.includes("scene")) return "scene";
@@ -698,6 +699,9 @@ function recastBalancedShot(shot = {}, candidate = {}, evidence = {}) {
         checked: true,
         references: provenanceReferences(candidate),
       },
+      ...(candidate.humanAcceptedIdentity ? {
+        humanAcceptedIdentity: structuredClone(candidate.humanAcceptedIdentity),
+      } : {}),
       shuffleBag: {
         sourceGroup,
         pass: evidence.shuffleBagPass,
