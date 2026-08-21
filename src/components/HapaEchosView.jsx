@@ -534,6 +534,13 @@ function PersistentEchoABPlayers({ shot, lookaheadShots = [], playing, songTime,
   const fallbackRef = useRef(null);
   const slotStateRef = useRef(Array.from({ length: 3 }, () => ({ key: "", status: "idle", frameReady: false, generation: 0, error: "" })));
 
+  // The 30fps camera loop must always compute from the latest shot settings.
+  // Camera edits (intensity/speed/motion) do not change media_id or start_sec,
+  // so the animation effect cannot rely on its render closure; keep the inputs
+  // in a ref that updates every render.
+  const cameraInputsRef = useRef({ shot, sourceIsPortrait, cameraKeyframes, shotIndex, songTime });
+  cameraInputsRef.current = { shot, sourceIsPortrait, cameraKeyframes, shotIndex, songTime };
+
   const shotKey = (targetShot) => {
     const contract = targetShot?.media_contract || targetShot?.mediaContract || {};
     return JSON.stringify([
@@ -740,15 +747,16 @@ function PersistentEchoABPlayers({ shot, lookaheadShots = [], playing, songTime,
     const animateCamera = (now) => {
       if (now - previousMs >= 1000 / 30) {
         previousMs = now;
-        const cameraTime = Number(clockRef?.current ?? songTime);
+        const { shot: latestShot, sourceIsPortrait: latestSourceIsPortrait, cameraKeyframes: latestCameraKeyframes, shotIndex: latestShotIndex, songTime: latestSongTime } = cameraInputsRef.current;
+        const cameraTime = Number(clockRef?.current ?? latestSongTime);
         const activeVideo = playerRefs[activeIndexRef.current]?.current || null;
-        const sourceDimensions = resolveEchoShotSourceDimensions(shot, activeVideo);
-        const cameraKeyframe = echoCameraKeyframeAt(cameraKeyframes, cameraTime);
+        const sourceDimensions = resolveEchoShotSourceDimensions(latestShot, activeVideo);
+        const cameraKeyframe = echoCameraKeyframeAt(latestCameraKeyframes, cameraTime);
         const camera = cameraMotionStyleForShot(
-          shot,
+          latestShot,
           cameraTime,
-          sourceDimensions.known ? sourceDimensions.isPortrait : sourceIsPortrait,
-          shotIndex,
+          sourceDimensions.known ? sourceDimensions.isPortrait : latestSourceIsPortrait,
+          latestShotIndex,
           cameraKeyframe?.crop || null,
         );
         for (const ref of playerRefs) if (ref.current) { ref.current.style.transform = camera.transform; ref.current.style.transformOrigin = camera.transformOrigin; ref.current.style.objectPosition = camera.objectPosition; }
@@ -2312,6 +2320,15 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
     exactIsfBindingDiagnosticsRef.current.frameBucket = -1;
     publishExactBindingDiagnostics({ media: null, stem: null, frameReceipt: null, composition: null, playbackPool: null, rendererTruth: null, rendererTruthReceipt: null });
   }, [selectedProjectSongId]);
+
+  // The camera panel edits the selected shot; keep the selection following the
+  // playhead so Intensity/Speed changes always target the shot the preview is
+  // showing instead of an unselected earlier shot.
+  useEffect(() => {
+    if (!activeProject?.timeline?.length) return;
+    const index = activeProject.timeline.findIndex((item) => currentTime >= item.start_sec && currentTime < item.end_sec);
+    if (index !== -1 && index !== selectedShotIndex) setSelectedShotIndex(index);
+  }, [currentTime, selectedShotIndex, activeProject]);
 
   // Playback timer ticker fallback
   useEffect(() => {

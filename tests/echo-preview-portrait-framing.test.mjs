@@ -179,7 +179,7 @@ test("Echo Preview integration preserves crop at 30fps and cannot CSS-squish its
     source.indexOf("function PresentedEchoImage"),
   );
   assert.match(players, /1000 \/ 30/);
-  assert.match(players, /echoCameraKeyframeAt\(cameraKeyframes, cameraTime\)/);
+  assert.match(players, /echoCameraKeyframeAt\(latestCameraKeyframes, cameraTime\)/);
   assert.match(players, /cameraKeyframe\?\.crop \|\| null/);
   assert.match(source, /mediaElement: framedMediaInput\?\.canvas \|\| null/);
   assert.doesNotMatch(source, /mediaElement: currentPresentedMedia\?\.element \|\| null/);

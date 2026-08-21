@@ -154,8 +154,8 @@ test("Echo preview keeps three persistent players, gates handoff, and never lack
   assert.match(source, /Echo player first-frame timeout/);
   assert.match(source, /video\.loop = playbackMode === "loop" && !timeMapping/);
   assert.match(source, /1000 \/ 30/);
-  assert.match(source, /const cameraTime = Number\(clockRef\?\.current \?\? songTime\)/);
-  assert.match(source, /const cameraKeyframe = echoCameraKeyframeAt\(cameraKeyframes, cameraTime\)/);
+  assert.match(source, /const cameraTime = Number\(clockRef\?\.current \?\? latestSongTime\)/);
+  assert.match(source, /const cameraKeyframe = echoCameraKeyframeAt\(latestCameraKeyframes, cameraTime\)/);
   assert.match(source, /cameraKeyframe\?\.crop \|\| null/);
   assert.match(source, /echoPlaybackEngineRef\.current\?\.seek\(newTime\)/);
   assert.match(source, /decodeURIComponent\(value\)/);
