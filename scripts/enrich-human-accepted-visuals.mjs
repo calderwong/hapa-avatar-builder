@@ -455,9 +455,14 @@ async function main() {
     }
     await atomicWrite(storePath, nextBytes);
     if (events.length) {
-      const existing = await readFile(eventsPath, "utf8").catch(() => "");
-      const prefix = existing && !existing.endsWith("\n") ? "\n" : "";
-      await writeFile(eventsPath, `${existing}${prefix}${events.map((event) => json(event)).join("")}`, "utf8");
+      // NDJSON: one compact object per line (journal convention). Existing
+      // lines are re-serialized through the parser so the file stays
+      // machine-readable line-by-line.
+      const existingLines = (await readFile(eventsPath, "utf8").catch(() => ""))
+        .split("\n").filter((line) => line.trim())
+        .map((line) => JSON.stringify(JSON.parse(line)));
+      const lines = [...existingLines, ...events.map((event) => JSON.stringify(event))];
+      await writeFile(eventsPath, `${lines.join("\n")}\n`, "utf8");
     }
     console.log(`[write] store=${store.records.length} records changed=${changedRecords.size} events=${events.length} backup=${storeFile !== null ? runId : "first-write"}`);
   }
