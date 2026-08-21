@@ -716,7 +716,7 @@ function normalizeMediaCue(entry, timelineRows, timeSeconds, fps) {
   return { ...cue, transitionState };
 }
 
-export function echoDirectorPreviewVisualizerComposition(card = null, timeSeconds = 0, fps = 30) {
+export function echoDirectorPreviewVisualizerComposition(card = null, timeSeconds = 0, fps = 30, shader = null) {
   const layer = object(card?.visualization?.card?.layer);
   const parameters = object(card?.parameters);
   const start = intervalStart(card);
@@ -730,10 +730,17 @@ export function echoDirectorPreviewVisualizerComposition(card = null, timeSecond
   const transitionAlpha = /(fade|cross|dissolve)/.test(transition)
     ? clamp(Math.min((timeSeconds - start) / transitionSeconds, (end - timeSeconds) / transitionSeconds))
     : 1;
+  // Generators paint their own content, so a layer without opacity or blend
+  // becomes a semi-transparent screen veil that keeps the media underneath
+  // visible. Filters transform the current frame, so they stay fully opaque
+  // with a normal composite. Explicit parameters/layer values always win.
+  const isFilter = String(shader?.shaderType || "").toLowerCase() === "filter";
+  const defaultOpacity = isFilter ? 1 : 0.42;
+  const defaultBlend = isFilter ? "normal" : "screen";
   return {
-    opacity: round(finite(parameters.opacity ?? layer.opacity, 1)),
+    opacity: round(finite(parameters.opacity ?? layer.opacity, defaultOpacity)),
     mix: round(finite(parameters.mix ?? layer.mix, 1)),
-    blend: text(parameters.blendMode || layer.blend, "source-over"),
+    blend: text(parameters.blendMode || layer.blend, defaultBlend),
     target: text(parameters.target || layer.target, "program"),
     transition,
     transitionAlpha: round(transitionAlpha),
@@ -741,17 +748,19 @@ export function echoDirectorPreviewVisualizerComposition(card = null, timeSecond
   };
 }
 
-function normalizeVisualizer(card, graph = {}, timeSeconds = 0, fps = 30) {
+function normalizeVisualizer(card, graph = {}, timeSeconds = 0, fps = 30, shaderTypeResolver = null) {
   const track = list(graph.tracks).find((candidate) => list(candidate.cards).some((row) => row === card || row.id === card.id));
   const visualization = object(card.visualization);
   const portable = object(visualization.card);
+  const sourceId = text(visualization.requestedSourceId || visualization.sourceId || portable.id || card.media?.id) || null;
+  const resolvedShaderType = typeof shaderTypeResolver === "function" ? shaderTypeResolver(sourceId || "") : null;
   return {
     id: text(card.id),
     trackId: text(card.trackId || track?.id),
     trackLabel: text(track?.label),
     startSeconds: round(intervalStart(card)),
     endSeconds: round(intervalEnd(card, fps)),
-    sourceId: text(visualization.requestedSourceId || visualization.sourceId || portable.id || card.media?.id) || null,
+    sourceId,
     title: text(visualization.nativeKey || portable.title || card.media?.title) || null,
     status: text(visualization.status || card.provenance?.rendererRoute, "unknown"),
     sourceHash: text(visualization.sourceHash || portable.source?.hash) || null,
@@ -759,7 +768,7 @@ function normalizeVisualizer(card, graph = {}, timeSeconds = 0, fps = 30) {
     persistentSlotId: text(card.persistentSlotId || track?.slotId || card.provenance?.persistentSlotId) || null,
     stemMap: clone(list(card.parameters?.stemMap)),
     portableCard: Object.keys(portable).length ? clone(portable) : null,
-    composition: echoDirectorPreviewVisualizerComposition(card, timeSeconds, fps),
+    composition: echoDirectorPreviewVisualizerComposition(card, timeSeconds, fps, { shaderType: resolvedShaderType || null }),
   };
 }
 
@@ -929,6 +938,7 @@ export function projectEchoDirectorPreviewFrame({
   playing,
   fps,
   selectionOptions = {},
+  shaderTypeResolver = null,
 } = {}) {
   const source = normalizePreviewSource(sourceInput || projectInput, selectionOptions);
   const project = source.project;
@@ -951,7 +961,7 @@ export function projectEchoDirectorPreviewFrame({
   ));
   const primaryMediaCue = mediaLayers.at(-1) || null;
   const visualizers = visualizerCardsAtTime(graph, time)
-    .map((card) => normalizeVisualizer(card, graph, time, clockState.fps));
+    .map((card) => normalizeVisualizer(card, graph, time, clockState.fps, shaderTypeResolver));
   const globalCamera = echoCameraKeyframeAt(graph.directorV2?.cameraKeyframes, time);
   const sourceCueIndex = Number.isInteger(primaryMediaCue?.sourceCueIndex)
     ? primaryMediaCue.sourceCueIndex
@@ -1218,6 +1228,7 @@ export function createEchoDirectorPreviewRuntime({
   onError = null,
   strictParity = true,
   manageCanvasSize = true,
+  shaderTypeResolver = null,
 } = {}) {
   if (!canvas || typeof canvas.getContext !== "function") {
     throw previewError(
@@ -1270,6 +1281,7 @@ export function createEchoDirectorPreviewRuntime({
       ...(timeSeconds === undefined ? {} : { timeSeconds }),
       playing: overrides.playing,
       fps: overrides.fps,
+      shaderTypeResolver,
     });
     const requiredLayers = requiredRendererLayers(frame);
     const missingLayers = requiredLayers.filter((layer) => typeof rendererFunction(renderAdapters, layer) !== "function");

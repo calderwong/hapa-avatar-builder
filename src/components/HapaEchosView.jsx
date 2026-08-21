@@ -1336,7 +1336,7 @@ function liveSignalFrame(analyser, timeSeconds = 0, metadata = {}, tracker = nul
   return sampleEchoLiveSignalFrame(analyser, timeSeconds, metadata, tracker);
 }
 
-function visualizerCompositionInput(card = null, timeSeconds = 0) {
+function visualizerCompositionInput(card = null, timeSeconds = 0, shader = null) {
   const layer = card?.visualization?.card?.layer || {};
   const parameters = card?.parameters || {};
   const start = Number(card?.startSeconds || 0);
@@ -1347,10 +1347,17 @@ function visualizerCompositionInput(card = null, timeSeconds = 0) {
   const transitionAlpha = /(fade|cross|dissolve)/.test(transition)
     ? Math.max(0, Math.min(1, (Number(timeSeconds) - start) / transitionSeconds, (end - Number(timeSeconds)) / transitionSeconds))
     : 1;
+  // Type-aware defaults: an unset layer on a generator is a semi-transparent
+  // screen veil so the media underneath stays visible; a filter transforms the
+  // frame, so it remains fully opaque with a normal composite. Explicit
+  // parameters/layer values always win.
+  const isFilter = String(shader?.shaderType || "").toLowerCase() === "filter";
+  const defaultOpacity = isFilter ? 1 : 0.42;
+  const defaultBlend = isFilter ? "normal" : "screen";
   return {
-    opacity: Number(parameters.opacity ?? layer.opacity ?? 1),
+    opacity: Number(parameters.opacity ?? layer.opacity ?? defaultOpacity),
     mix: Number(parameters.mix ?? layer.mix ?? 1),
-    blend: String(parameters.blendMode || layer.blend || "source-over"),
+    blend: String(parameters.blendMode || layer.blend || defaultBlend),
     target: String(parameters.target || layer.target || "program"),
     transitionAlpha
   };
@@ -2215,6 +2222,21 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
     { id: "isf:5fb697e9df59c70014cdc486", title: "RGB Halftone Twisted Tools", shaderType: "filter" },
     { id: "isf:66cd92f36049470019626844", title: "Extrude 2", shaderType: "filter" }
   ]);
+  const availableShaderById = useMemo(
+    () => new Map(availableShaders.map((shader) => [String(shader.id || ""), shader])),
+    [availableShaders],
+  );
+  const availableShaderByIdRef = useRef(null);
+  useEffect(() => {
+    availableShaderByIdRef.current = availableShaderById;
+  }, [availableShaderById]);
+  const shaderTypeResolver = useMemo(
+    () => (sourceId) => {
+      const shader = availableShaderByIdRef.current?.get(String(sourceId || "")) || null;
+      return String(shader?.shaderType || "") || null;
+    },
+    [],
+  );
   const shaderPickerCategories = useMemo(
     () => echoShaderPickerCategories(availableShaders),
     [availableShaders],
@@ -2519,6 +2541,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
           source: activeDirectorPreviewSource,
           timeSeconds: t,
           playing: Boolean(masterClock && !masterClock.paused && !masterClock.ended),
+          shaderTypeResolver,
         })
         : null;
       const projectedCueIndex = directorPreviewFrame?.primaryMediaCue?.sourceCueIndex;
@@ -2810,7 +2833,13 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                 || signalFrames[normalizedStemFocus(stemRole)]
                 || signalFrames.master
                 || selectedSignalFrame;
-              const compositionInput = visualizerCompositionInput(card, t);
+              const compositionInput = visualizerCompositionInput(
+                card,
+                t,
+                availableShaderByIdRef.current?.get(
+                  String(card?.visualization?.requestedSourceId || card?.visualization?.sourceId || card?.visualization?.card?.id || ""),
+                ) || null,
+              );
               const presentation = pool.present(card, {
                 time: t,
                 fft: fftList,
@@ -5399,6 +5428,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                         source: activeDirectorPreviewSource,
                         timeSeconds: currentTime,
                         playing: isPlaying,
+                        shaderTypeResolver,
                       })
                       : null;
                     const projectedCueIndex = directorPreviewFrame?.primaryMediaCue?.sourceCueIndex;

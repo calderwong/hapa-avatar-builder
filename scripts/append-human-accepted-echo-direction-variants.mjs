@@ -23,13 +23,30 @@ const PLAYLIST_ROOT = process.env.HAPA_DEAR_PAPA_PLAYLIST_ROOT
   || `/Users/calderwong/Desktop/suno-library/playlists/${PLAYLIST_ID}`;
 const PLAYLIST_MANIFEST = process.env.HAPA_DEAR_PAPA_MANIFEST
   || path.join(PLAYLIST_ROOT, "manifest.hapa-avatar-builder.json");
-const VARIANT_ID = "human-accepted-diversity-dense-v1";
-const VARIANT_TITLE = "Human Enricher Accepted · Album Diversity Dense Pass";
+function flagValue(name, fallback = "") {
+  const index = process.argv.indexOf(name);
+  return index !== -1 && process.argv[index + 1] !== undefined ? process.argv[index + 1] : fallback;
+}
+const VARIANT_ID = flagValue("--variant-id", "human-accepted-diversity-dense-v1");
+const VARIANT_TITLE = flagValue("--title", "Human Enricher Accepted · Album Diversity Dense Pass");
 const APPLY = process.argv.includes("--apply");
 const RESUME = process.argv.includes("--resume");
 const STARTED_AT = new Date().toISOString();
 const RUN_ID = `human-accepted-echo-direction-${STARTED_AT.replace(/[:.]/g, "-")}`;
-const DENSITY = Object.freeze({ id: "human-accepted-dense", label: "Human Accepted Dense", targetVideoRatio: 0.92, ordinal: 1 });
+const DENSITY_TARGET_VIDEO_RATIO = Number(flagValue("--video-ratio", "0.92"));
+const DENSITY_ORDINAL = Number(flagValue("--ordinal", "1"));
+if (!Number.isFinite(DENSITY_TARGET_VIDEO_RATIO) || DENSITY_TARGET_VIDEO_RATIO < 0 || DENSITY_TARGET_VIDEO_RATIO > 1) {
+  throw new Error("--video-ratio must be a number between 0 and 1.");
+}
+if (!Number.isInteger(DENSITY_ORDINAL) || DENSITY_ORDINAL < 1) {
+  throw new Error("--ordinal must be a positive integer.");
+}
+const DENSITY = Object.freeze({
+  id: flagValue("--density-id", "human-accepted-dense"),
+  label: flagValue("--density-label", "Human Accepted Dense"),
+  targetVideoRatio: DENSITY_TARGET_VIDEO_RATIO,
+  ordinal: DENSITY_ORDINAL,
+});
 
 const json = (value) => `${JSON.stringify(value, null, 2)}\n`;
 const sha256 = (value) => createHash("sha256").update(value).digest("hex");

@@ -232,12 +232,18 @@ function transitionAlpha(card, timestampSeconds, override) {
   return round(Math.min(clamp((timestampSeconds - start) / duration), clamp((end - timestampSeconds) / duration)));
 }
 
-export function normalizeEchoIsfComposition(card = {}, timestampSeconds = 0, overrides = {}) {
+export function normalizeEchoIsfComposition(card = {}, timestampSeconds = 0, overrides = {}, shader = null) {
   const layer = portableCard(card).layer || {};
   const parameters = card.parameters || {};
-  const opacity = round(clamp(overrides.opacity ?? parameters.opacity ?? layer.opacity ?? 1));
+  // Generators paint their own content, so an unset layer defaults to a semi
+  // transparent screen veil that lets the media underneath show through. Filters
+  // transform the current frame and stay fully opaque with a normal composite.
+  const isFilter = String(shader?.shaderType || "").toLowerCase() === "filter";
+  const defaultOpacity = isFilter ? 1 : 0.42;
+  const defaultBlend = isFilter ? "normal" : "screen";
+  const opacity = round(clamp(overrides.opacity ?? parameters.opacity ?? layer.opacity ?? defaultOpacity));
   const mix = round(clamp(overrides.mix ?? parameters.mix ?? layer.mix ?? 1));
-  const blend = String(overrides.blend || overrides.blendMode || parameters.blendMode || layer.blend || "normal").toLowerCase();
+  const blend = String(overrides.blend || overrides.blendMode || parameters.blendMode || layer.blend || defaultBlend).toLowerCase();
   const normalized = {
     opacity,
     mix,
@@ -366,7 +372,7 @@ export function buildEchoIsfFrameIntent({
   const mediaSatisfied = !filterRequiresMedia || (declaredImages.length > 0 && imageBindings.every((binding) => binding.ready));
   const errors = [...validation.errors];
   if (!mediaSatisfied) errors.push("filter-media-input-not-ready");
-  const composition = normalizeEchoIsfComposition(card, timestamp, compositionOverrides);
+  const composition = normalizeEchoIsfComposition(card, timestamp, compositionOverrides, shader);
 
   const cardReceipt = {
     id: String(card.id || ""),
