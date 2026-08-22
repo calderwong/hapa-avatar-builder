@@ -459,6 +459,92 @@ function preferredRoleForShot(shot = {}) {
     : { energyBand: "high", role: "transition" };
 }
 
+/**
+ * Machine-derived visual telemetry (palette + description) is a SOFT selection
+ * signal: it only reorders candidates that are otherwise equivalent under the
+ * coverage ledger, card fairness, and motion role. When candidates carry no
+ * visual data the signal is exactly zero and selection is byte-identical to
+ * the pre-telemetry behavior.
+ */
+const VISUAL_STOPWORDS = new Set([
+  "the", "a", "an", "and", "or", "but", "in", "on", "at", "to", "of", "for",
+  "with", "from", "by", "as", "is", "are", "was", "were", "be", "been", "it",
+  "its", "that", "this", "which", "while", "across", "into", "onto", "upon",
+  "over", "under", "through", "against", "between", "out", "up", "down", "off",
+  "one", "two", "three", "four", "five", "each", "every", "any", "some", "then",
+  "than", "so", "if", "when", "where", "what", "who", "how", "very", "more",
+  "most", "less", "least", "not", "no", "yes", "into", "s", "t", "all",
+  "also", "only", "can", "will", "would", "could", "should", "has", "have",
+  "had", "do", "does", "did", "very", "being", "per", "via", "vs",
+]);
+
+function visualTokenSet(value = "") {
+  return new Set(String(value).toLowerCase().split(/[^a-z0-9]+/)
+    .filter((token) => token.length >= 3 && !VISUAL_STOPWORDS.has(token)));
+}
+
+function shotVisualContextTokens(shot = {}) {
+  return visualTokenSet([
+    shot.section_type, shot.section_label, shot.section_id,
+    shot.camera_motion, shot.camera_focus, shot.transition,
+    ...list(shot.active_stems),
+  ].join(" "));
+}
+
+/**
+ * Fraction of the shot's musical/camera context tokens that appear in the
+ * candidate's machine-derived description. 0 when either side has no text.
+ * `state.visualDescriptionTokens` caches the description token set per
+ * candidate so a large pool costs one tokenization per shot.
+ */
+export function visualDescriptionAffinity(candidate = {}, shot = {}, state = {}) {
+  const text = String(candidate.visualDescription?.text || "");
+  if (!text) return 0;
+  let descriptionTokens = state?.visualDescriptionTokens instanceof Map
+    ? state.visualDescriptionTokens.get(candidate)
+    : undefined;
+  if (!(descriptionTokens instanceof Set)) {
+    descriptionTokens = visualTokenSet(text);
+    if (state?.visualDescriptionTokens instanceof Map) state.visualDescriptionTokens.set(candidate, descriptionTokens);
+  }
+  const context = shotVisualContextTokens(shot);
+  if (!descriptionTokens.size || !context.size) return 0;
+  let hits = 0;
+  for (const token of context) if (descriptionTokens.has(token)) hits += 1;
+  return hits / context.size;
+}
+
+function hueHistogramDistance(a = [], b = []) {
+  const sumOfSquares = (bins) => bins.reduce((sum, bin) => sum + (Number(bin) || 0) ** 2, 0);
+  const magnitudeA = Math.sqrt(sumOfSquares(a));
+  const magnitudeB = Math.sqrt(sumOfSquares(b));
+  if (!magnitudeA || !magnitudeB) return 0;
+  const dot = a.reduce((sum, bin, index) => sum + (Number(bin) || 0) * (Number(b[index]) || 0), 0);
+  return (1 - dot / (magnitudeA * magnitudeB)) / 2;
+}
+
+/**
+ * 0..1 dissimilarity between a candidate palette and the previously selected
+ * clip's palette: warmth (normalized to its -1..1 range), luminance, and hue
+ * histogram distance. 0 when either clip has no palette.
+ */
+export function visualPaletteContrast(candidate = {}, previous = null) {
+  const a = candidate.visualPalette;
+  const b = previous?.visualPalette;
+  if (!a || !b) return 0;
+  const warmth = Math.min(1, Math.abs((Number(a.warmth) || 0) - (Number(b.warmth) || 0)) / 2);
+  const luminance = Math.abs((Number(a.luminance) || 0) - (Number(b.luminance) || 0));
+  const hue = hueHistogramDistance(a.hueHistogram || [], b.hueHistogram || []);
+  return Math.min(1, 0.45 * warmth + 0.35 * luminance + 0.2 * hue);
+}
+
+/** Combined visual signal; quantized to 4% so near-ties keep the bag order. */
+function visualSelectionScore(candidate = {}, shot = {}, state = {}) {
+  const score = 0.55 * visualDescriptionAffinity(candidate, shot, state)
+    + 0.45 * visualPaletteContrast(candidate, state?.lastCandidate || null);
+  return Math.round(score * 25) / 25;
+}
+
 function chooseBalancedCandidate(state, shot = {}) {
   const preferredSource = state.sourcePattern[state.sourceCursor % state.sourcePattern.length];
   state.sourceCursor += 1;
@@ -481,6 +567,9 @@ function chooseBalancedCandidate(state, shot = {}) {
     ? eligible
     : eligible.filter((candidate) => Math.abs(normalizedUsageLoad(state, candidate) - leastUsageLoad) < 1e-9);
   const roleMatches = coveragePool.filter((candidate) => candidate.motionRole === preference.role);
+  const visualScores = new Map();
+  for (const poolCandidate of coveragePool) visualScores.set(poolCandidate, visualSelectionScore(poolCandidate, shot, state));
+  const visualSignalActive = [...visualScores.values()].some((score) => score > 0);
   let candidate;
   if (state.sharedUsageCounts instanceof Map) {
     candidate = [...coveragePool].sort((a, b) => {
@@ -498,10 +587,12 @@ function chooseBalancedCandidate(state, shot = {}) {
         || aCurrent - bCurrent
         || aGlobal - bGlobal
         || aRolePenalty - bRolePenalty
+        || (visualSignalActive ? visualScores.get(b) - visualScores.get(a) : 0)
         || bag.remaining.indexOf(a) - bag.remaining.indexOf(b);
     })[0];
   } else {
-    candidate = roleMatches[0] || coveragePool[0] || eligible[0];
+    const pool = roleMatches.length ? roleMatches : coveragePool.length ? coveragePool : eligible;
+    candidate = pool.slice().sort((a, b) => visualScores.get(b) - visualScores.get(a))[0];
   }
   if (!candidate) throw new Error(`No balanced director candidate remained for ${sourceGroup}.`);
   if (technicalIdentity(candidate) === state.lastTechnicalIdentity) {
@@ -544,6 +635,9 @@ function chooseBalancedCandidate(state, shot = {}) {
     coveragePriorityHit: leastUsageLoad === null || Math.abs(priorAlbumUsageLoad - leastUsageLoad) < 1e-9,
     coverageLedgerActive: state.sharedUsageCounts instanceof Map,
     shuffleBagPass: bag.pass + 1,
+    visualAffinity: visualDescriptionAffinity(candidate, shot, state),
+    paletteContrast: visualPaletteContrast(candidate, state.lastCandidate || null),
+    visualContextAvailable: Boolean(candidate.visualDescription || candidate.visualPalette),
     strategy: rolePreferenceHit
       ? `${state.sharedUsageCounts instanceof Map ? "least-used-" : ""}balanced-${sourceGroup}-${preference.role}-shuffle-bag`
       : `${state.sharedUsageCounts instanceof Map ? "least-used-" : ""}balanced-${sourceGroup}-coverage-shuffle-bag`,
@@ -551,6 +645,7 @@ function chooseBalancedCandidate(state, shot = {}) {
   state.lastTechnicalIdentity = technicalIdentity(candidate);
   state.lastSourceGroup = sourceGroup;
   state.lastCardId = cardKey;
+  state.lastCandidate = candidate;
   state.recentCardIds = [...state.recentCardIds.filter((value) => value !== cardKey), cardKey].slice(-6);
   return selection;
 }
@@ -701,6 +796,25 @@ function recastBalancedShot(shot = {}, candidate = {}, evidence = {}) {
       },
       ...(candidate.humanAcceptedIdentity ? {
         humanAcceptedIdentity: structuredClone(candidate.humanAcceptedIdentity),
+      } : {}),
+      ...(candidate.visualDescription || candidate.visualPalette ? {
+        visualContext: {
+          basis: "machine-derived palette + description telemetry (human-accepted visual enrichment store) informed the selection weighting; no semantic claim",
+          palette: candidate.visualPalette ? {
+            warmth: candidate.visualPalette.warmth,
+            luminance: candidate.visualPalette.luminance,
+            saturation: candidate.visualPalette.saturation,
+            chromaShare: candidate.visualPalette.chromaShare,
+            frameSource: candidate.visualPalette.frameSource,
+            swatches: candidate.visualPalette.swatches.slice(0, 3).map((swatch) => swatch.hex),
+          } : null,
+          description: candidate.visualDescription ? {
+            sourceClass: candidate.visualDescription.sourceClass,
+            excerpt: candidate.visualDescription.text.slice(0, 160),
+          } : null,
+          descriptionAffinity: Number((evidence.visualAffinity || 0).toFixed(4)),
+          paletteContrast: Number((evidence.paletteContrast || 0).toFixed(4)),
+        },
       } : {}),
       shuffleBag: {
         sourceGroup,
@@ -993,7 +1107,9 @@ export function recastBalancedEchoDirectorProject(project = {}, candidateEntries
     lastTechnicalIdentity: "",
     lastSourceGroup: "",
     lastCardId: "",
+    lastCandidate: null,
     recentCardIds: [],
+    visualDescriptionTokens: new Map(),
     sharedUsageCounts: options.sharedUsageCounts instanceof Map ? options.sharedUsageCounts : null,
     sharedCardUsageCounts: options.sharedCardUsageCounts instanceof Map ? options.sharedCardUsageCounts : null,
     currentCardUsage: new Map(),
@@ -1055,6 +1171,9 @@ export function recastBalancedEchoDirectorProject(project = {}, candidateEntries
       originalMediaPresent: hasMedia,
       shuffleBagPass: selected.shuffleBagPass,
       strategy: selected.strategy,
+      visualAffinity: selected.visualAffinity || 0,
+      paletteContrast: selected.paletteContrast || 0,
+      visualContextAvailable: selected.visualContextAvailable === true,
     });
     return recastBalancedShot(shot, selected.candidate, selected);
   });
@@ -1161,6 +1280,8 @@ export function recastBalancedEchoDirectorProject(project = {}, candidateEntries
       coveragePriorityHits: selections.filter((selection) => (
         selection.coverageLedgerActive && selection.coveragePriorityHit
       )).length,
+      visualEnrichedCandidates: candidates.filter((candidate) => candidate.visualDescription || candidate.visualPalette).length,
+      visualContextSelections: selections.filter((selection) => selection.visualContextAvailable === true).length,
       originalMediaShots,
       totalShots: timeline.length,
       mediaBearingShots,

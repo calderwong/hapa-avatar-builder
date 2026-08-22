@@ -220,14 +220,55 @@ node scripts/enrich-human-accepted-visuals.mjs [--stage palette|description|all]
   per-stage processed/skipped/kept/failed, failures, store hash, and
   coverage counts.
 
+## Director integration (Phase 3)
+
+The Echo album director (Human Enricher accepted path) consumes the machine
+derived telemetry:
+
+- **Candidate join** —
+  `scripts/append-human-accepted-echo-direction-variants.mjs` loads
+  `data/human-video-visual-enrichments.json` and builds a one-time
+  `buildVisualEnrichmentAliasIndex` (key/videoId/aliases, lowercased).
+  `buildHumanAcceptedDirectorCandidates` attaches `visualPalette` (color
+  profile + swatches, no extraction provenance) and `visualDescription`
+  (`text` + `sourceClass`) to every accepted candidate it can resolve.
+- **Soft selection signal** — in `recastBalancedEchoDirectorProject`, the
+  combined score is `0.55·descriptionAffinity + 0.45·paletteContrast`,
+  quantized to 4%. Description affinity = fraction of the shot's
+  musical/camera context tokens (section, stems, camera motion, transition)
+  present in the candidate's description; palette contrast = warmth +
+  luminance + hue-histogram distance from the previously selected clip.
+  The signal is a **tie-breaker after** the coverage ledger, card fairness,
+  and motion-role fit: it only reorders candidates that are otherwise
+  equivalent, so it can never break coverage, no-immediate-repeat, or the
+  density contract. When candidates carry no telemetry the signal is
+  exactly zero and selection is byte-identical to the pre-telemetry
+  behavior (tested).
+- **Evidence + telemetry** — every media shot records
+  `decision_evidence.visualContext` (top-3 swatches, warmth/luminance,
+  description excerpt + sourceClass, the two scores, and an explicit
+  "no semantic claim" basis), `selectionEvidence` carries
+  `visualAffinity`/`paletteContrast`/`visualContextAvailable`, the variant
+  `telemetry` counts enriched candidates and visual selections, and
+  `sourcePolicy.visualEnrichment` records the store + pool coverage at run
+  time.
+- **New cut** — the pass
+  `human-accepted-visual-director-v1` ("Human Enricher Accepted · Visual
+  Palette + Description Director Pass") appends a visual-aware variant for
+  every current playlist song; the earlier
+  `human-accepted-diversity-dense-v1` cuts are untouched (append-only
+  index). The v6 full enrichment compiler
+  (`echo-enrichment-director-variant.js`) is a separate path and was left
+  alone here.
+
 ## Phases and status log
 
 - **Phase 1 — Palette extraction.** Status: *complete* — see below.
 - **Phase 2a/b — Description joins** (agent optical + Echo catalog reuse).
   Status: *complete* — see below.
-- **Phase 3 — Director candidate extension.** Later, separate change:
-  extend `buildHumanAcceptedDirectorCandidates` with palette/description
-  fields and optional palette-aware recast scoring. Not in this commit.
+- **Phase 3 — Director integration.** Candidate join + soft
+  palette/description selection signal + `human-accepted-visual-director-v1`
+  pass. Status: *complete* — see below.
 - **Phase 4 — Verification.** Double-run determinism, 10-sample spot check,
   coverage report, focused tests, full suite, build. Status: *complete*.
 - **Phase 5 — Gap closure.** Thumbnail-surrogate palettes for the 134
@@ -285,6 +326,21 @@ node scripts/enrich-human-accepted-visuals.mjs [--stage palette|description|all]
   echo-enrichment). Five-paragraph spot check of random local-vision
   descriptions shows coherent content + palette + mood prose at the Echo
   director's synopsis quality bar or better.
+- 2026-08-22 — Phase 3 landed: alias index, candidate `visualPalette`/
+  `visualDescription` join, the 4%-quantized soft selection signal in the
+  balanced recast, per-shot `visualContext` evidence, and telemetry.
+  Focused tests 34/34 (5 new); full `npm test` 1753/1761 with the same 8
+  documented pre-existing failures; `npm run build` receipt sha256:112e48ef
+  unchanged (the recast domain is server-side, not in the app bundle).
+- 2026-08-22 — `human-accepted-visual-director-v1` run (apply): 175/175
+  current playlist songs received a new visual-aware cut — 9,677 replacement
+  shots over 3,133 readable accepted candidates (100% with palette +
+  description), every candidate used 3–4 times (std 0.28), 0 immediate
+  media repeats, original projects unmutated, index append-only (175 dense
+  rows preserved, 175 visual rows added) with backup-before-write. Spot
+  check of the first 10 songs: 548/548 media shots carry `visualContext`,
+  538 with positive palette contrast (the color zigzag is working), 174
+  with positive description affinity.
 
 ## Follow-ups (not in this task)
 
@@ -297,8 +353,11 @@ node scripts/enrich-human-accepted-visuals.mjs [--stage palette|description|all]
 - **UI parity**: surfacing palettes/descriptions in `HumanEnricherView`
   (that file is dirty in the other session and was deliberately left
   untouched here).
-- **Phase 3**: feed palette/description into director candidates and recast
-  scoring (e.g., prefer palette-contrast across consecutive shots).
+- **Phase 3 remainder** — the v6 full enrichment compiler
+  (`echo-enrichment-director-variant.js`; a different path from the
+  human-accepted balanced recast) does not yet consume palette/description
+  telemetry. Extending its `sourceScore` with the same soft signals belongs
+  with the in-flight album-diversity work in the Human Enricher session.
 - Images: 0 accepted today; the extractor's single-frame image path is
   ready for when images are accepted, but the dashboard video list is
   video-only, so image acceptance needs a dashboard change first.

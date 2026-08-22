@@ -456,6 +456,24 @@ export function createHumanVideoVisualEnrichmentStore(input = {}) {
   return normalizeHumanVideoVisualEnrichmentStore(input);
 }
 
+/**
+ * Build a one-time alias → record index so other systems (for example the Echo
+ * director candidate builder) can join visual telemetry without re-scanning the
+ * store per video. Aliases are lowercased; the record key wins over a colliding
+ * alias because records are key-sorted newest-first in the normalized store.
+ */
+export function buildVisualEnrichmentAliasIndex(store = {}) {
+  const index = new Map();
+  for (const record of store.records || []) {
+    if (!record || typeof record !== "object") continue;
+    const aliases = [record.key, record.videoId, ...(record.aliases || [])]
+      .map((alias) => cleanText(alias, 4_500))
+      .filter(Boolean);
+    for (const alias of aliases) index.set(String(alias).toLowerCase(), record);
+  }
+  return index;
+}
+
 /** Find a stored record by any of the incoming aliases (key, uri:, path:, ...). */
 export function findHumanVideoVisualEnrichmentRecord(store = {}, match = {}) {
   const aliases = new Set([match.key, ...(match.aliases || [])].map((alias) => cleanText(alias, 4_500)).filter(Boolean));

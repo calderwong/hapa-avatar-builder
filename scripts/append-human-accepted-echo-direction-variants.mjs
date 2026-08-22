@@ -9,6 +9,7 @@ import {
   buildHumanAcceptedDirectorCandidates,
   summarizeHumanAcceptedDirectorCandidates,
 } from "../src/domain/human-accepted-director-candidates.js";
+import { buildVisualEnrichmentAliasIndex } from "../src/domain/human-video-visual-enrichment.js";
 import { recastBalancedEchoDirectorProject } from "../src/domain/echo-media-recast.js";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -117,7 +118,7 @@ function usageStatistics(candidates, usageCounts) {
 }
 
 async function main() {
-  const [avatarStore, tarotStore, sceneStore, mediaLibrary, itemStore, songStore, enrichmentStore, agentReviewStore, quickSortStore, referenceReviewStore, playlistManifest, songbook, existingIndex] = await Promise.all([
+  const [avatarStore, tarotStore, sceneStore, mediaLibrary, itemStore, songStore, enrichmentStore, agentReviewStore, quickSortStore, referenceReviewStore, visualEnrichmentStore, playlistManifest, songbook, existingIndex] = await Promise.all([
     readJson(path.join(DATA, "avatar-store.json"), { avatars: [] }),
     readJson(path.join(DATA, "tarot-store.json"), { cards: [] }),
     readJson(path.join(DATA, "scene-store.json"), { scenes: [] }),
@@ -128,6 +129,7 @@ async function main() {
     readJson(path.join(DATA, "human-video-agent-reviews.json"), { reviews: [] }),
     readJson(path.join(DATA, "human-video-quick-sort-decisions.json"), { decisions: [] }),
     readJson(path.join(DATA, "human-video-reference-reviews.json"), { reviews: [] }),
+    readJson(path.join(DATA, "human-video-visual-enrichments.json"), { records: [] }),
     readJson(PLAYLIST_MANIFEST),
     readJson(path.join(DATA, "dear-papa-songbook.json")),
     readJson(INDEX_PATH, { schemaVersion: "hapa.echo.direction-script-variant-index.v1", variants: [] }),
@@ -142,9 +144,13 @@ async function main() {
   });
   const acceptedVideos = humanDashboard.videos.filter((video) => video.quickSortDecision?.state === "accepted");
   const readableKeys = await readableVideoKeys(acceptedVideos);
+  const visualEnrichmentIndex = buildVisualEnrichmentAliasIndex(visualEnrichmentStore);
   const candidates = buildHumanAcceptedDirectorCandidates(acceptedVideos, {
     isReadable: (video) => readableKeys.has(video.humanVideoKey),
+    visualEnrichmentIndex,
   });
+  const candidatesWithPalette = candidates.filter((candidate) => candidate.visualPalette).length;
+  const candidatesWithDescription = candidates.filter((candidate) => candidate.visualDescription).length;
   if (!candidates.length) throw new Error("No locally readable Human Enricher accepted videos were available.");
   if (candidates.some((candidate) => candidate.humanAcceptedIdentity?.decisionState !== "accepted")) {
     throw new Error("A non-accepted video crossed the Human Enricher Director boundary.");
@@ -229,6 +235,13 @@ async function main() {
         candidateLedger: "data/human-video-quick-sort-decisions.json",
         candidatePoolAtRun: candidates.length,
         playlistId: PLAYLIST_ID,
+        visualEnrichment: {
+          store: "data/human-video-visual-enrichments.json",
+          recordsAtRun: visualEnrichmentStore.records?.length || 0,
+          candidatesWithPalette,
+          candidatesWithDescription,
+          role: "soft-selection-weight",
+        },
       };
       if ((variant.timeline || []).some((shot) => shot.media_source_group === "human-accepted" && shot.decision_evidence?.humanAcceptedIdentity?.decisionState !== "accepted")) {
         throw new Error(`Variant lost accepted-decision evidence: ${project.song_id}`);
@@ -278,6 +291,11 @@ async function main() {
       acceptedVideos: acceptedVideos.length,
       acceptedReadableCandidates: candidates.length,
       acceptedUnavailable: acceptedVideos.length - candidates.length,
+      visualEnrichment: {
+        records: visualEnrichmentStore.records?.length || 0,
+        candidatesWithPalette,
+        candidatesWithDescription,
+      },
       candidateSummary: summarizeHumanAcceptedDirectorCandidates(candidates),
     },
     diversity: usage,

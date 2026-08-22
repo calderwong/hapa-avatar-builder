@@ -58,6 +58,52 @@ function cardRefFor(relationship = {}) {
   return root && relationship.ownerId ? `${root}/${relationship.ownerId}` : "data/media-library.json#records";
 }
 
+/**
+ * Join machine-derived visual telemetry (palette + description) from the
+ * human-accepted visual enrichment store onto a video. `index` is the
+ * alias → record map from `buildVisualEnrichmentAliasIndex`; the video's own
+ * key is tried first, then each of its aliases. Returns `null` when the video
+ * has no stored visual enrichment.
+ */
+export function visualEnrichmentForVideo(index, video = {}) {
+  if (!(index instanceof Map) || index.size === 0) return null;
+  const aliases = [
+    text(video.humanVideoKey),
+    ...list(video.humanVideoAliases),
+    ...list(video.identityAliases),
+    video.contentFingerprint && `fingerprint:${text(video.contentFingerprint)}`,
+    video.uri && `uri:${text(video.uri)}`,
+    video.sourcePath && `path:${text(video.sourcePath)}`,
+    video.id,
+  ].filter(Boolean);
+  for (const alias of aliases) {
+    const record = index.get(String(alias).toLowerCase());
+    if (record && (record.palette || record.description)) return record;
+  }
+  return null;
+}
+
+/**
+ * Compact director-facing copy of a stored palette: the color profile plus the
+ * top swatches, without the extraction provenance block (the director only
+ * consumes color, not ffmpeg bookkeeping).
+ */
+function directorPalette(palette = null) {
+  if (!palette || !Array.isArray(palette.swatches) || !palette.swatches.length) return null;
+  return {
+    methodVersion: text(palette.methodVersion) || "local-median-cut-v1",
+    swatches: palette.swatches.map((swatch) => ({ hex: text(swatch.hex), share: Number(swatch.share) || 0 })),
+    luminance: Number(palette.luminance) || 0,
+    saturation: Number(palette.saturation) || 0,
+    hueHistogram: Array.isArray(palette.hueHistogram) && palette.hueHistogram.length === 12
+      ? palette.hueHistogram.map((bin) => Number(bin) || 0)
+      : new Array(12).fill(0),
+    warmth: Number(palette.warmth) || 0,
+    chromaShare: Number(palette.chromaShare) || 0,
+    frameSource: text(palette.source?.frameSource) || "video-file",
+  };
+}
+
 export function buildHumanAcceptedDirectorCandidates(videos = [], options = {}) {
   const byIdentity = new Map();
   for (const video of list(videos)) {
@@ -125,6 +171,12 @@ export function buildHumanAcceptedDirectorCandidates(videos = [], options = {}) 
         identityBasis: sha256 ? "sha256" : identity.split(":", 1)[0],
       },
     };
+    const enrichment = visualEnrichmentForVideo(options.visualEnrichmentIndex, video);
+    if (enrichment?.palette) candidate.visualPalette = directorPalette(enrichment.palette);
+    if (enrichment?.description?.text) candidate.visualDescription = {
+      text: enrichment.description.text,
+      sourceClass: text(enrichment.description.sourceClass) || "unknown",
+    };
     if (!byIdentity.has(identity)) byIdentity.set(identity, candidate);
   }
   return [...byIdentity.values()];
@@ -136,6 +188,8 @@ export function summarizeHumanAcceptedDirectorCandidates(candidates = []) {
     candidates: rows.length,
     withFingerprint: rows.filter((row) => Boolean(row.sha256)).length,
     withHumanEnrichmentRevision: rows.filter((row) => row.humanAcceptedIdentity?.humanEnrichmentRevision > 0).length,
+    withPalette: rows.filter((row) => Boolean(row.visualPalette)).length,
+    withDescription: rows.filter((row) => Boolean(row.visualDescription)).length,
     byOwnerKind: Object.fromEntries([...new Set(rows.map((row) => row.cardKind))].sort().map((kind) => [kind, rows.filter((row) => row.cardKind === kind).length])),
     byMotionRole: Object.fromEntries(["loop", "transition", "neutral"].map((role) => [role, rows.filter((row) => row.motionRole === role).length])),
   };

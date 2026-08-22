@@ -9,6 +9,8 @@ import {
   recastBalancedEchoDirectorProject,
   recastEchoDirectorProject,
   validateBalancedDirectorRevision,
+  visualDescriptionAffinity,
+  visualPaletteContrast,
 } from "../src/domain/echo-media-recast.js";
 
 const GROUPS = ["scroll", "scene", "avatar"];
@@ -300,4 +302,137 @@ test("shared album coverage honors bounded editorial motion weights", () => {
   assert.equal(balancedCandidateEditorialWeight({ editorialMotionWeight: 99 }), 4);
   assert.equal(balancedCandidateEditorialWeight({ editorialMotionWeight: 0.01 }), 0.25);
   assert.ok(transitionMean >= loopMean * 1.5, `${transitionMean} transition uses vs ${loopMean} loop uses`);
+});
+
+const hueBin = (bin, weight = 1) => new Array(12).fill(0).map((value, index) => (index === bin ? weight : value));
+
+const visualCandidate = (tag, index, warmth, luminance, hue, descriptionText) => {
+  const digest = String(index % 10).repeat(64);
+  return {
+    ...candidate("scene", "transition", index),
+    id: `scene-${tag}`,
+    mediaLibraryId: `scene-${tag}`,
+    cardId: `scene-card-${tag}`,
+    cardRef: `data/scene-store.json#scene-card-${tag}`,
+    cardTitle: `Scene ${tag}`,
+    ownerId: `scene-card-${tag}`,
+    ownerTitle: `Scene ${tag}`,
+    title: `Scene ${tag}`,
+    uri: `/media/scene-${tag}.mp4`,
+    runtimeUri: `/media/scene-${tag}.mp4`,
+    posterUri: "",
+    sha256: digest,
+    technicalIdentity: `sha256:${digest}`,
+    visualPalette: {
+      methodVersion: "local-median-cut-v1",
+      swatches: [{ hex: "#c64322", share: 1 }],
+      luminance,
+      saturation: 0.5,
+      hueHistogram: hue,
+      warmth,
+      chromaShare: 0.5,
+      frameSource: "video-file",
+    },
+    visualDescription: { text: descriptionText, sourceClass: "local-vision" },
+  };
+};
+
+test("visual telemetry computes description affinity and palette contrast", () => {
+  const shot = {
+    section_id: "chorus-1",
+    section_type: "chorus",
+    section_label: "Chorus 1",
+    camera_motion: "pan-up",
+    camera_focus: "center",
+    transition: "cut",
+    active_stems: ["Drums", "Bass"],
+  };
+  const warm = visualCandidate("warm", 61, 0.9, 0.3, hueBin(0), "A static portrait of a snowy mountain at night.");
+  const cool = visualCandidate("cool", 62, -0.9, 0.7, hueBin(6), "A chorus of golden lights with a hard cut over the drums.");
+
+  assert.equal(visualDescriptionAffinity({ title: "plain" }, shot), 0);
+  // Context is {chorus, pan, center, cut, drums, bass} ("up" is a stopword);
+  // the cool description hits chorus + cut + drums = 3/6.
+  assert.equal(visualDescriptionAffinity(cool, shot), 0.5);
+  assert.equal(visualDescriptionAffinity(warm, shot), 0);
+  assert.equal(visualPaletteContrast(warm, null), 0);
+  assert.equal(visualPaletteContrast(warm, warm), 0);
+  const contrast = visualPaletteContrast(warm, cool);
+  assert.ok(contrast > 0.5, `warm vs cool palette contrast should be strong, got ${contrast}`);
+  assert.ok(contrast <= 1);
+});
+
+test("visual telemetry steers the balanced selection and records its evidence", () => {
+  const warm = visualCandidate("warm", 61, 0.9, 0.3, hueBin(0), "A static portrait of a snowy mountain at night.");
+  const cool = visualCandidate("cool", 62, -0.9, 0.7, hueBin(6), "A chorus of golden lights with a hard cut over the drums.");
+  const project = {
+    song_id: "visual-song",
+    song_title: "Visual Song",
+    duration: 8,
+    timeline: [
+      { shot_index: 0, section_id: "chorus-1", section_type: "chorus", section_label: "Chorus 1", start_sec: 0, end_sec: 4, media_id: "legacy-0", media_uri: "/media/legacy-0.mp4", transition: "cut", camera_motion: "pan-up", camera_focus: "center", active_stems: ["Drums", "Bass"] },
+      { shot_index: 1, section_id: "chorus-2", section_type: "chorus", section_label: "Chorus 2", start_sec: 4, end_sec: 8, media_id: "legacy-1", media_uri: "/media/legacy-1.mp4", transition: "fade", camera_motion: "orbit", camera_focus: "center", active_stems: ["Drums", "Bass"] },
+    ],
+  };
+  const options = {
+    variantId: "visual-telemetry-test",
+    allowedSourceGroups: ["scene"],
+    sourcePattern: ["scene"],
+    rotateSourcePattern: false,
+    requireAllSourceGroups: true,
+    sharedUsageCounts: new Map(),
+    seed: "visual-telemetry-fixture",
+    createdAt: "2026-08-22T12:00:00.000Z",
+    parentProjectHash: "e".repeat(64),
+  };
+  const variant = recastBalancedEchoDirectorProject(project, [warm, cool], options);
+
+  assert.equal(variant.selectionEvidence[0].mediaId, "scene-cool", "the description matching the chorus context must win the tied pool");
+  assert.equal(variant.selectionEvidence[0].visualAffinity, 0.5);
+  assert.equal(variant.selectionEvidence[0].paletteContrast, 0, "first shot has no previous palette");
+  assert.equal(variant.selectionEvidence[1].mediaId, "scene-warm", "coverage ledger still rotates to the unused clip");
+  assert.ok(variant.selectionEvidence[1].paletteContrast > 0.5, "warm follows cool with strong palette contrast");
+
+  const evidence = variant.timeline[0].decision_evidence;
+  assert.equal(evidence.visualContext.description.sourceClass, "local-vision");
+  assert.equal(evidence.visualContext.descriptionAffinity, 0.5);
+  assert.ok(evidence.visualContext.palette, "palette evidence is recorded on the shot");
+  assert.equal(evidence.semanticMusicMatch.value, null, "telemetry never claims a semantic match");
+  assert.equal(variant.telemetry.visualEnrichedCandidates, 2);
+  assert.equal(variant.telemetry.visualContextSelections, 2);
+
+  const rerun = recastBalancedEchoDirectorProject(project, [warm, cool], { ...options, sharedUsageCounts: new Map() });
+  assert.deepEqual(rerun.selectionEvidence, variant.selectionEvidence, "visual telemetry keeps the pass deterministic");
+});
+
+test("balanced selection is byte-identical when candidates carry no visual telemetry", () => {
+  const project = projectWithShots(6);
+  const plain = [candidate("scene", "transition", 71), candidate("scene", "loop", 72)];
+  const first = recastBalancedEchoDirectorProject(project, plain, {
+    variantId: "no-visual-a",
+    allowedSourceGroups: ["scene"],
+    sourcePattern: ["scene"],
+    rotateSourcePattern: false,
+    requireAllSourceGroups: true,
+    sharedUsageCounts: new Map(),
+    seed: "no-visual-fixture",
+    createdAt: "2026-08-22T12:00:00.000Z",
+    parentProjectHash: "d".repeat(64),
+  });
+  assert.ok(first.selectionEvidence.every((selection) => selection.visualAffinity === 0));
+  assert.ok(first.selectionEvidence.every((selection) => selection.visualContextAvailable === false));
+  assert.ok(first.timeline.every((shot) => !("visualContext" in shot.decision_evidence)), "no visual evidence block without telemetry");
+  const second = recastBalancedEchoDirectorProject(project, plain, {
+    variantId: "no-visual-b",
+    allowedSourceGroups: ["scene"],
+    sourcePattern: ["scene"],
+    rotateSourcePattern: false,
+    requireAllSourceGroups: true,
+    sharedUsageCounts: new Map(),
+    seed: "no-visual-fixture",
+    createdAt: "2026-08-22T12:00:00.000Z",
+    parentProjectHash: "d".repeat(64),
+  });
+  assert.deepEqual(second.selectionEvidence.map((selection) => selection.technicalIdentity), first.selectionEvidence.map((selection) => selection.technicalIdentity));
+  assert.deepEqual(second.timeline.map((shot) => shot.media_id), first.timeline.map((shot) => shot.media_id));
 });

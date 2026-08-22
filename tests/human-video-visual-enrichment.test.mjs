@@ -7,6 +7,7 @@ import {
   HUMAN_VIDEO_VISUAL_ENRICHMENT_RECORD_SCHEMA,
   HUMAN_VIDEO_VISUAL_ENRICHMENT_STORE_SCHEMA,
   agentReviewDescription,
+  buildVisualEnrichmentAliasIndex,
   createHumanVideoVisualEnrichmentStore,
   descriptionForVideo,
   localVisionDescriptionStable,
@@ -281,4 +282,24 @@ test("event rows carry the record identity, stage, and source class", () => {
   const failure = humanVideoVisualEnrichmentEvent({ record, stage: "palette", error: "boom", now: "2026-08-21T12:00:00.000Z" });
   assert.equal(failure.action, "human-video-visual-enrichment.failed");
   assert.equal(failure.error, "boom");
+});
+
+test("alias index joins a record through its key, video id, and aliases", () => {
+  const key = `fingerprint:${"a".repeat(64)}`;
+  const store = createHumanVideoVisualEnrichmentStore({
+    records: [{
+      key,
+      aliases: [key, "uri:/media/clip.mp4", "path:/vol/clip.mp4"],
+      videoId: "folder-video-xyz",
+      palette: { swatches: [{ hex: "#112233", share: 1 }], luminance: 0.1, saturation: 0.2, hueHistogram: new Array(12).fill(0), warmth: 0, chromaShare: 0 },
+      description: { text: "A quiet harbor at night.", sourceClass: "local-vision" },
+    }],
+  });
+  const index = buildVisualEnrichmentAliasIndex(store);
+  assert.equal(index.get(key), store.records[0]);
+  assert.equal(index.get(key.toUpperCase()), undefined, "aliases are lowercased at index time");
+  assert.equal(index.get("uri:/media/clip.mp4"), store.records[0]);
+  assert.equal(index.get("folder-video-xyz"), store.records[0], "the video id is indexed too");
+  assert.equal(index.get("missing"), undefined);
+  assert.equal(buildVisualEnrichmentAliasIndex({}).size, 0);
 });
