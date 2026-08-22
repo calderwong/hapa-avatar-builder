@@ -60,6 +60,27 @@ test("boundary samples include before, start, middle, end, and after", () => {
   assert.deepEqual(echoLyricSafetySampleTimes(good.timed_lyrics, 10), [.9, 1, 2, 2.9, 3.1]);
 });
 
+test("degenerate word windows are clamped by the runtime and never fail safety", () => {
+  const report = inspectEchoLyricRenderSafety({
+    project: {
+      duration: 8,
+      lyrics: { enabled: true, templateId: "scanline-phrase-ribbon-v1", position: "bottom-center", style: "neon-cyan" },
+      timed_lyrics: [{
+        text: "Zero width word",
+        start: 1,
+        end: 4,
+        words: [
+          { word: "Zero", start: 1, end: 1 },
+          { word: "width", start: 1.4 },
+          { word: "word", start: 2, end: 2.2 },
+        ],
+      }],
+    },
+  });
+  assert.equal(report.issues.some((issue) => issue.code === "invalid-word-window"), false, "the 1 ms runtime clamp makes zero/missing word windows harmless");
+  assert.equal(report.ok, true);
+});
+
 test("template runtime remains inside the offline and Preview frame budget", () => {
   const report = benchmarkEchoLyricTemplateRuntime({ iterations: 2_000 });
   assert.equal(report.ok, true);

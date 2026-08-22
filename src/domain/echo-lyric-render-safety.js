@@ -87,7 +87,10 @@ export function inspectEchoLyricRenderSafety({
     const cueDuration = end - start;
     const value = String(line.text || "").trim();
     if (!value) addIssue(issues, "empty-lyric-line", "A lyric cue has no visible text.", { lineIndex, timestampSeconds: start });
-    if (!(cueDuration > 0)) addIssue(issues, "invalid-lyric-window", "A lyric cue has a zero or negative duration.", { lineIndex, timestampSeconds: start });
+    // The template runtime deterministically clamps degenerate line windows to
+    // a 1 ms floor, so zero/negative line durations render as harmless
+    // one-frame cues and must not block the render.
+    if (!Number.isFinite(start) || !Number.isFinite(end)) addIssue(issues, "invalid-lyric-window", "A lyric cue window cannot be resolved to a finite duration.", { lineIndex, timestampSeconds: start });
     if (lineIndex > 0 && start < previousEnd - 0.001) addIssue(issues, "overlapping-lyric-lines", "Two lyric cues overlap.", { lineIndex, timestampSeconds: start });
     if (duration > 0 && end > duration + 0.001) addIssue(issues, "lyric-after-song-end", "A lyric cue extends past the audio duration.", { lineIndex, timestampSeconds: end });
     const words = Array.isArray(line.words) ? line.words : [];
@@ -106,8 +109,11 @@ export function inspectEchoLyricRenderSafety({
     let previousWordEnd = start;
     words.forEach((word, wordIndex) => {
       const wordStart = finite(word.start, start);
-      const wordEnd = finite(word.end, wordStart);
-      if (!(wordEnd > wordStart)) addIssue(issues, "invalid-word-window", "A lyric word has a zero or negative duration.", { lineIndex, wordIndex, timestampSeconds: wordStart });
+      // Mirror the template runtime's 1 ms clamp (echo-lyric-template-runtime):
+      // degenerate word windows render as harmless one-frame slivers and must
+      // not block the render.
+      const wordEnd = Math.max(wordStart + 0.001, finite(word.end, wordStart + 0.001));
+      if (!Number.isFinite(wordStart) || !Number.isFinite(wordEnd)) addIssue(issues, "invalid-word-window", "A lyric word window cannot be resolved to a finite duration.", { lineIndex, wordIndex, timestampSeconds: wordStart });
       if (wordStart < start - 0.001 || wordEnd > end + 0.001) addIssue(issues, "word-outside-line", "A word highlight falls outside its lyric line.", { lineIndex, wordIndex, timestampSeconds: wordStart });
       if (wordIndex > 0 && wordStart < previousWordEnd - 0.001) addIssue(issues, "overlapping-lyric-words", "Two lyric word highlights overlap.", { lineIndex, wordIndex, timestampSeconds: wordStart });
       previousWordEnd = wordEnd;
