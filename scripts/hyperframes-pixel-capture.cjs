@@ -427,11 +427,19 @@ app.whenReady().then(async () => {
     });
     const lyricGoldenFrames = frames.filter((frame) => frame.lyric?.isGoldenSample);
     const normalizeLyricText = (input) => String(input || "").replace(/\s+/g, " ").trim();
+    // Compare punctuation-insensitively on both sides: overlay words are
+    // tokenized without punctuation while the contract line text keeps it, so
+    // a raw substring test false-fails on the first comma inside a visible
+    // display window. The result is evidence only; it never blocks the render.
+    const compareLyricText = (input) => normalizeLyricText(input)
+      .replace(/[^\p{L}\p{N}'\s]+/gu, " ")
+      .replace(/\s+/gu, " ")
+      .trim();
     const lyricFrameChecks = lyricGoldenFrames.map((frame) => {
       const expected = frame.lyric.expected || {};
       const observed = frame.lyric.observed || {};
-      const expectedText = normalizeLyricText(expected.lineText);
-      const observedText = normalizeLyricText(observed.text);
+      const expectedText = compareLyricText(expected.lineText);
+      const observedText = compareLyricText(observed.text);
       const insideFrame = !observed.rect || (
         observed.rect.left >= -1
         && observed.rect.top >= -1

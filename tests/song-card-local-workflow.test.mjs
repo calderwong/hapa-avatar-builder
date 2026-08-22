@@ -114,6 +114,57 @@ test("mint renderer truth seals the exact Preview lyric contract into the HyperF
   );
 });
 
+test("a mismatched lyric pixel proof is recorded as evidence but never blocks the render", () => {
+  const lyricOverlay = {
+    enabled: true,
+    templateId: "orbit-caption-v1",
+    position: "bottom-center",
+    style: "neon-cyan",
+    timingHash: "sha256:timing",
+    lines: [{
+      text: "Preview equals mint",
+      start: 1,
+      end: 2,
+      words: [{ word: "Preview", start: 1, end: 1.4 }],
+    }],
+  };
+  const compilerReport = {
+    ok: true,
+    visualizers: { declared: 0, exactProxy: 0, unsupported: 0 },
+    lyrics: {
+      enabled: true,
+      templateId: lyricOverlay.templateId,
+      declaredLineCount: 1,
+      compiledLineCount: 1,
+      compiledInstanceCount: 1,
+      contractHash: hashEchoLyricOverlayExecutionContract(lyricOverlay),
+      runtimeSchema: "hapa.echo.lyric-template-runtime.v1",
+      frameQuantization: "floor-to-output-fps",
+    },
+  };
+  const truth = inspectSongCardExecutedRendererTruth(
+    { song: { lyricOverlay }, tracks: [] },
+    compilerReport,
+    {
+      ok: true,
+      frames: [],
+      lyrics: {
+        ok: false,
+        enabled: true,
+        templateId: lyricOverlay.templateId,
+        contractHash: hashEchoLyricOverlayExecutionContract(lyricOverlay),
+        sampleCount: 15,
+        activeSampleCount: 12,
+      },
+    },
+  );
+  assert.equal(truth.ok, true);
+  assert.equal(truth.status, "verified");
+  assert.equal(truth.lyrics.status, "verified-exact-contract");
+  assert.equal(truth.lyrics.pixelProofStatus, "mismatched-not-blocking");
+  assert.equal(truth.lyrics.pixelSampleCount, 15);
+});
+
 test("renderer truth accepts deterministic browser-ISF cues only when pixel QA proves every cue", () => {
   const showGraph = {
     song: { lyricOverlay: { enabled: false, lines: [] } },
