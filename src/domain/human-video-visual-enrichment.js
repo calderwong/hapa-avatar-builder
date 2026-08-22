@@ -265,6 +265,57 @@ export function descriptionForVideo(video = {}, options = {}) {
 }
 
 /**
+ * Frame source classes recorded in `palette.source.frameSource`.
+ * `video-file` is the full-fidelity source (frames sampled from the clip
+ * itself); the others are surrogates used when the source file is gone.
+ * A missing value means `video-file` (legacy records).
+ */
+export const HUMAN_VIDEO_PALETTE_FRAME_SOURCES = Object.freeze([
+  "video-file",
+  "thumbnail",
+  "review-evidence-frames",
+  "catalog-frames",
+]);
+
+/**
+ * Decide whether a stored palette block is still current.
+ *
+ * Rules:
+ * - source identity must still match (fingerprint, or path+size+mtime);
+ * - a partial extraction (`sampleFailures` recorded) is never final;
+ * - a surrogate-derived palette (e.g. from a thumbnail because the file was
+ *   gone) is superseded as soon as the real file is readable again, so the
+ *   record heals toward the full-fidelity source.
+ */
+export function paletteStillCurrent(storedSource = null, currentIdentity = null, options = {}) {
+  if (!storedSource?.sourceIdentity) return false;
+  if (!sourceIdentityMatches(storedSource.sourceIdentity, currentIdentity)) return false;
+  if (storedSource.sampleFailures) return false;
+  const frameSource = storedSource.frameSource || "video-file";
+  if (frameSource !== "video-file" && options.realFileReadable === true) return false;
+  return true;
+}
+
+/**
+ * Local-vision descriptions are non-deterministic, so the skip rule is
+ * config-based: a stored local-vision description is stable when it was
+ * produced with the same model and prompt version as the current run. A
+ * config change (e.g. a bigger model) re-derives on purpose, and a
+ * thumbnail-derived description is superseded as soon as the real file is
+ * readable again (re-derived from real frames).
+ */
+export function localVisionDescriptionStable(storedDescription = null, runConfig = {}, options = {}) {
+  if (storedDescription?.sourceClass !== "local-vision") return false;
+  if (!storedDescription.text) return false;
+  const provenance = storedDescription.provenance || {};
+  const configMatch = ["model", "promptVersion"]
+    .every((field) => String(provenance[field] ?? "") === String(runConfig[field] ?? ""));
+  if (!configMatch) return false;
+  if (provenance.frameSource === "thumbnail" && options.realFileReadable === true) return false;
+  return true;
+}
+
+/**
  * Stable identity used to decide whether a stored palette is still current.
  * Content fingerprints win; otherwise the file path plus size + mtime.
  * `fileStat` is an `fs.Stats`-shaped object ({ size, mtimeMs }) and

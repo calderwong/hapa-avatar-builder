@@ -9,6 +9,8 @@ import {
   agentReviewDescription,
   createHumanVideoVisualEnrichmentStore,
   descriptionForVideo,
+  localVisionDescriptionStable,
+  paletteStillCurrent,
   echoCatalogDescription,
   findHumanVideoVisualEnrichmentRecord,
   humanVideoVisualEnrichmentEvent,
@@ -156,6 +158,38 @@ test("descriptionForVideo prefers agent reviews over echo catalog synopses", () 
   assert.equal(descriptionForVideo(video, { echoSynopses: new Map([[digest, "Echo text."]]) }).sourceClass, "agent-optical");
   assert.equal(descriptionForVideo({ ...video, agentReview: null }, { echoSynopses: new Map([[digest, "Echo text."]]) }).sourceClass, "echo-enrichment");
   assert.equal(descriptionForVideo({ ...video, agentReview: null }, { echoSynopses: new Map() }), null);
+});
+
+test("paletteStillCurrent: identity must match and partial sets are never final", () => {
+  const fingerprint = `sha256:${"a".repeat(64)}`;
+  const current = visualSourceIdentity({ contentFingerprint: fingerprint, sourcePath: "/a/b.mp4" }, { size: 10, mtimeMs: 5 });
+  const source = (extra = {}) => ({ sourceIdentity: current, sampleFailures: 0, ...extra });
+  assert.equal(paletteStillCurrent(source(), current), true);
+  assert.equal(paletteStillCurrent({ sourceIdentity: null }, current), false);
+  const other = visualSourceIdentity({ contentFingerprint: `sha256:${"b".repeat(64)}` });
+  assert.equal(paletteStillCurrent(source(), other), false);
+  assert.equal(paletteStillCurrent(source({ sampleFailures: [{ at: 1, error: "boom" }] }), current), false);
+});
+
+test("paletteStillCurrent: surrogate frames are superseded when the real file returns", () => {
+  const current = visualSourceIdentity({ sourcePath: "/a/b.mp4" }, { size: 10, mtimeMs: 5 });
+  const thumbnailSource = { sourceIdentity: current, frameSource: "thumbnail", sampleFailures: 0 };
+  assert.equal(paletteStillCurrent(thumbnailSource, current, { realFileReadable: false }), true);
+  assert.equal(paletteStillCurrent(thumbnailSource, current, { realFileReadable: true }), false);
+  assert.equal(paletteStillCurrent({ sourceIdentity: current, sampleFailures: 0 }, current, { realFileReadable: true }), true);
+});
+
+test("localVisionDescriptionStable: config-based, with thumbnail self-heal", () => {
+  const config = { model: "qwen3.5:27b", promptVersion: "local-vision-v1" };
+  const stored = (provenance, text = "A runner on a bridge.") => ({ sourceClass: "local-vision", text, provenance });
+  assert.equal(localVisionDescriptionStable(null, config), false);
+  assert.equal(localVisionDescriptionStable(stored({ model: "other", promptVersion: "v1" }), config), false);
+  assert.equal(localVisionDescriptionStable(stored({ ...config, promptVersion: "v2" }), config), false);
+  assert.equal(localVisionDescriptionStable(stored({ ...config, frameSource: "thumbnail" }, ""), config), false);
+  assert.equal(localVisionDescriptionStable(stored({ ...config, frameSource: "thumbnail" }), config, { realFileReadable: false }), true);
+  assert.equal(localVisionDescriptionStable(stored({ ...config, frameSource: "thumbnail" }), config, { realFileReadable: true }), false);
+  assert.equal(localVisionDescriptionStable(stored({ ...config, frameSource: "video-frames" }), config, { realFileReadable: false }), true);
+  assert.equal(localVisionDescriptionStable({ sourceClass: "agent-optical", text: "x", provenance: config }, config), false);
 });
 
 test("visualSourceIdentity prefers fingerprints, then file identity, then none", () => {

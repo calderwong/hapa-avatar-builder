@@ -137,26 +137,85 @@ Cheapest trustworthy source first, recorded with provenance:
 Upserts are idempotent: a description only writes when its text or source
 class actually changed, so reruns and source refreshes are safe.
 
+## Gap closure (Phase 5)
+
+After Phase 2 two gaps remained: **1,611 readable** accepted videos with no
+description (none in the Echo catalog, no agent review) and **134
+unreadable** accepted videos (source file gone) with no palette. Phase 5
+closes both locally:
+
+- **Description via local Ollama vision.** For every accepted video that
+  has no stored description and no agent review, the script extracts up to
+  3 frames (0.1 s / 50% / duration−0.3 s; first frame when no duration),
+  scales each to a 768 px JPEG, and asks a local vision model (`qwen3.5:27b`
+  by default) for one short paragraph. `think: false` is load-bearing:
+  qwen3.5 is a thinking model and returns empty `content` otherwise. The
+  result is stored with a new `sourceClass: "local-vision"` and provenance
+  `{ provider: "ollama", model, promptVersion: "local-vision-v1",
+  frameSource: "video-frames" | "thumbnail", frameCount }`.
+  Authority ladder: `agent-optical` > `local-vision` > `echo-enrichment` —
+  a future agent optical review of the same clip replaces the local-vision
+  text on the next run, so the local pass is a floor, not a ceiling. Existing
+  agent/echo descriptions are never re-derived. For the 134 file-gone
+  videos the single surviving dashboard thumbnail is described instead
+  (`frameSource: "thumbnail"`, one frame).
+- **Palette via thumbnail surrogate.** When the source file is gone but a
+  dashboard thumbnail survives, the palette is sampled from the thumbnail
+  (single 32×32 area-averaged frame) with
+  `frameSource: "thumbnail"` / `sampleTimesBasis: "thumbnail"` provenance so
+  consumers can tell a surrogate palette apart from a file-derived one.
+
+Self-healing rules (domain module; `HUMAN_VIDEO_PALETTE_FRAME_SOURCES` and
+two stability predicates):
+
+- `paletteStillCurrent(storedSource, currentIdentity, { realFileReadable })`
+  — a stored palette is current when its `sourceIdentity` matches the
+  current file identity and it has no `sampleFailures`; a surrogate
+  (`frameSource` ≠ `video-file`, e.g. `thumbnail`) palette is superseded the
+  moment the real file returns and is re-derived from the file.
+- `localVisionDescriptionStable(stored, { model, promptVersion },
+  { realFileReadable })` — a stored `local-vision` description is current
+  when its provenance matches the run's model + prompt version (config-based
+  idempotency for non-deterministic LLM text); a thumbnail-derived
+  description is re-derived from real frames when the file returns, and a
+  description from an older model config is re-derived under the newer one.
+
+Targets are now **all** accepted videos whose media is either locally
+readable or backed by a surviving thumbnail: 3,133 readable + 134 thumbnail
+surrogates = 3,267 (every accepted video).
+
 ## CLI
 
 ```
 node scripts/enrich-human-accepted-visuals.mjs [--stage palette|description|all]
                                                [--apply] [--limit N]
                                                [--concurrency N]
+                                               [--no-vision] [--vision-model NAME]
+                                               [--vision-url URL] [--vision-concurrency N]
                                                [--repo-root DIR] [--output DIR]
 ```
 
 - Without `--apply` the run is a dry run: it derives targets, reports what
   would change, and never writes the store or the event journal (the run
   report under `work/` is still written and is gitignored).
-- Targets are exactly the Human Enricher accepted videos that are locally
-  readable, derived with the same dashboard join as
+- Targets are the Human Enricher accepted videos whose media is locally
+  readable **or** backed by a surviving thumbnail (file-gone surrogates),
+  derived with the same dashboard join as
   `scripts/append-human-accepted-echo-direction-variants.mjs`, in stable
   key-sorted order (`--limit` takes the first N).
+- `--no-vision` disables the local-vision description fallback (agent/echo
+  sources only). `--vision-model` (default `qwen3.5:27b`), `--vision-url`
+  (default `http://127.0.0.1:11434`), and `--vision-concurrency` (default 8)
+  configure the Ollama call. The model is probed at start and asked to
+  unload (`keep_alive: 0`) after the description stage. Ollama serializes
+  per model, so `--vision-concurrency` feeds its internal queue.
 - Resume safety: a stored palette whose source identity still matches the
-  current file is skipped without re-extracting; descriptions re-derive but
-  only write on change. A rerun over unchanged media leaves the store bytes
-  identical and appends no events.
+  current file is skipped without re-extracting (a thumbnail-surrogate
+  palette is re-derived from the file the moment the file returns); stored
+  local-vision descriptions are skipped when their provenance matches the
+  run's model + prompt version; descriptions only write on change. A rerun
+  over unchanged media leaves the store bytes identical and appends no
+  events.
 - Run reports land in `work/human-visual-enrichment/` (gitignored):
   per-stage processed/skipped/kept/failed, failures, store hash, and
   coverage counts.
@@ -171,6 +230,11 @@ node scripts/enrich-human-accepted-visuals.mjs [--stage palette|description|all]
   fields and optional palette-aware recast scoring. Not in this commit.
 - **Phase 4 — Verification.** Double-run determinism, 10-sample spot check,
   coverage report, focused tests, full suite, build. Status: *complete*.
+- **Phase 5 — Gap closure.** Thumbnail-surrogate palettes for the 134
+  file-gone accepted videos + local Ollama vision (`qwen3.5:27b`,
+  `sourceClass: "local-vision"`) for the 1,611 readable + 134 surrogate
+  description gap, with self-healing re-derivation when source files
+  return. Status: *complete* — see status log.
 
 ### Status log
 
@@ -198,12 +262,38 @@ node scripts/enrich-human-accepted-visuals.mjs [--stage palette|description|all]
   pre-change baseline (1737 total then, +16 for this module); `npm run
   build` passes with the same delivery receipt as the baseline
   (sha256:112e48ef).
+- 2026-08-21 — Phase 5 gap profile: 134 file-gone accepted videos (all with
+  surviving thumbnails) + 1,611 readable videos with no description (0 in
+  the Echo catalog, no agent reviews) → 1,745 local-vision descriptions
+  expected; the 1,522 stored agent/echo descriptions were left untouched.
+- 2026-08-21 — Phase 5 gap-closure run
+  (`human-visual-enrichment-2026-08-22T00-39-30-551Z`): palette stage wrote
+  134 thumbnail-surrogate palettes and skipped all 3,133 current
+  file-derived ones (0 failures); description stage processed 1,743
+  `local-vision` descriptions (1,610 readable + 133 surrogate) and kept the
+  1,522 stored agent/echo texts untouched — 1,745 qwen3.5:27b vision calls,
+  2 transient failures (one HTTP 400, one abort) out of ~3 h 51 min wall
+  (Ollama serializes per model; ~30.7 min of vision work per 8-request
+  queue slot). Store grew 3,133 → 3,267 records with a
+  backup-before-write under `data/backups/`.
+- 2026-08-21 — Retry run (`…13-43-02-320Z`): the 2 failed records were
+  re-described in 21 s (0 failures) and all 1,743 stable local-vision
+  descriptions were skipped without any vision call — config-based
+  idempotency verified at full scale. Final coverage: **3,267/3,267
+  (100%) palettes** (3,133 video-file + 134 thumbnail) and **3,267/3,267
+  (100%) descriptions** (1,339 agent-optical + 1,745 local-vision + 183
+  echo-enrichment). Five-paragraph spot check of random local-vision
+  descriptions shows coherent content + palette + mood prose at the Echo
+  director's synopsis quality bar or better.
 
 ## Follow-ups (not in this task)
 
-- The **~1,611 readable** accepted clips with no description from either
-  source need the optical campaign retargeted to prioritize accepted (owned
-  by the Human Enricher optical session) or a local Ollama vision pass.
+- **Quality upgrade on the Phase 5 local-vision set.** The ~1,745
+  `local-vision` descriptions are a floor (qwen3.5:27b, 3 frames). A future
+  gpt-5.6-terra agent optical review of the same clips is the quality
+  ceiling and replaces the local text on the next run (agent-optical wins
+  the join); retargeting the optical campaign to prioritize these clips is
+  owned by the Human Enricher optical session.
 - **UI parity**: surfacing palettes/descriptions in `HumanEnricherView`
   (that file is dirty in the other session and was deliberately left
   untouched here).

@@ -21,6 +21,13 @@
  * changed. Without `--apply` the run is a dry run: it prints the plan and
  * still writes the run report under `work/` (gitignored), but never writes
  * the store or the event journal.
+ *
+ * Gap closure (phase 5): when a source file is gone, palettes fall back to
+ * a single thumbnail frame (provenance `frameSource: "thumbnail"`) and the
+ * description falls back to local-vision prose from whichever frames remain
+ * (first/mid/last from the file, or the thumbnail), using an Ollama vision
+ * model (default qwen3.5:27b). Surrogate records self-heal: when the real
+ * file reappears the next run re-derives from it.
  */
 
 import { execFile as execFileCallback } from "node:child_process";
@@ -31,6 +38,7 @@ import {
   readFile,
   rename,
   stat,
+  unlink,
   writeFile,
 } from "node:fs/promises";
 import path from "node:path";
@@ -39,12 +47,15 @@ import { fileURLToPath } from "node:url";
 import { DatabaseSync } from "node:sqlite";
 
 import {
+  agentReviewDescription,
   createHumanVideoVisualEnrichmentStore,
   descriptionForVideo,
+  echoCatalogDescription,
   findHumanVideoVisualEnrichmentRecord,
   humanVideoVisualEnrichmentEvent,
+  localVisionDescriptionStable,
   paletteFromRawFrames,
-  sourceIdentityMatches,
+  paletteStillCurrent,
   upsertHumanVideoVisualEnrichment,
   visualSourceIdentity,
 } from "../src/domain/human-video-visual-enrichment.js";
@@ -63,6 +74,17 @@ const FRAME_SIZE = 32;
 const SAMPLE_FRAME_COUNT = 5;
 const STAT_TIMEOUT_MS = 10_000;
 const EXTRACT_TIMEOUT_MS = 60_000;
+const VISION_FRAME_EDGE = 768;
+const VISION_TIMEOUT_MS = 180_000;
+const VISION_PROMPT_VERSION = "local-vision-v1";
+const VISION_PROMPT =
+  "These are frames sampled from one short video clip (first, middle, and last, unless noted). "
+  + "In one or two concise sentences, describe it for a music-video director: the dominant subject or scene, "
+  + "the color palette and mood, and any notable motion or change across the frames.";
+const VISION_PROMPT_SINGLE =
+  "This is a single thumbnail frame from one short video clip whose source file is no longer available. "
+  + "In one or two concise sentences, describe it for a music-video director: the dominant subject or scene, "
+  + "the color palette and mood, and the likely character of the clip. Note that only one frame is visible.";
 
 function requiredArg(value, flag) {
   if (!value || value.startsWith("--")) throw new Error(`${flag} requires a value`);
@@ -84,6 +106,10 @@ function parseArgs(argv = process.argv.slice(2)) {
     apply: false,
     limit: null,
     concurrency: 8,
+    vision: true,
+    visionModel: "qwen3.5:27b",
+    visionUrl: "http://127.0.0.1:11434",
+    visionConcurrency: 8,
     repoRoot: DEFAULT_REPO_ROOT,
     outputRoot: null,
     help: false,
@@ -103,6 +129,10 @@ function parseArgs(argv = process.argv.slice(2)) {
     else if (value === "--help" || value === "-h") options.help = true;
     else if (value === "--limit") options.limit = numberArg(argv[++index], value, { minimum: 1, integer: true });
     else if (value === "--concurrency") options.concurrency = numberArg(argv[++index], value, { minimum: 1, maximum: 32, integer: true });
+    else if (value === "--no-vision") options.vision = false;
+    else if (value === "--vision-model") options.visionModel = requiredArg(argv[++index], value);
+    else if (value === "--vision-url") options.visionUrl = requiredArg(argv[++index], value).replace(/\/$/u, "");
+    else if (value === "--vision-concurrency") options.visionConcurrency = numberArg(argv[++index], value, { minimum: 1, maximum: 32, integer: true });
     else if (value === "--repo-root") options.repoRoot = path.resolve(requiredArg(argv[++index], value));
     else if (value === "--output") options.outputRoot = path.resolve(requiredArg(argv[++index], value));
     else throw new Error(`Unknown argument: ${value}`);
@@ -133,6 +163,10 @@ Options:
                          untouched (the run report under work/ is still written).
   --limit N              Process only the first N deterministic targets (default: all).
   --concurrency N        Parallel ffmpeg worker count (default 8, max 32).
+  --no-vision            Disable the local-vision description fallback.
+  --vision-model NAME    Ollama model for local vision (default qwen3.5:27b).
+  --vision-url URL       Ollama base URL (default http://127.0.0.1:11434).
+  --vision-concurrency N Parallel vision request count (default 8).
   --repo-root DIR        Repository root (default: the checkout containing this script).
   --output DIR           Run report directory (default: <repo>/work/human-visual-enrichment).
   --help, -h             Show this help.
@@ -231,6 +265,102 @@ function sampleTimesForVideo(video) {
   return { times: plan.times, basis: plan.basis, duration: Number(video.duration) > 0 ? Number(video.duration) : null };
 }
 
+function visionVisionChatBody(model, images, prompt, maxTokens = 300) {
+  // `think: false` is load-bearing: qwen3.5 thinking models otherwise burn
+  // the token budget on reasoning and return an empty content field.
+  return {
+    model,
+    stream: false,
+    think: false,
+    messages: [{ role: "user", content: prompt, images }],
+    options: { temperature: 0.3, num_predict: maxTokens },
+  };
+}
+
+async function probeVision(visionUrl, visionModel) {
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 5_000);
+    const res = await fetch(`${visionUrl}/api/tags`, { signal: controller.signal });
+    clearTimeout(timer);
+    if (!res.ok) return { available: false, modelPresent: false };
+    const body = await res.json();
+    const entry = (body.models || []).find((model) => model.name === visionModel || model.name === `${visionModel}:latest`);
+    return { available: true, modelPresent: Boolean(entry), visionCapable: (entry?.capabilities || []).includes("vision") };
+  } catch {
+    return { available: false, modelPresent: false };
+  }
+}
+
+async function visionDescribe(visionUrl, visionModel, images, prompt) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), VISION_TIMEOUT_MS);
+  try {
+    const res = await fetch(`${visionUrl}/api/chat`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(visionVisionChatBody(visionModel, images, prompt)),
+      signal: controller.signal,
+    });
+    if (!res.ok) throw new Error(`vision HTTP ${res.status}`);
+    const body = await res.json();
+    const text = String(body.message?.content || "").replace(/\s+/gu, " ").trim();
+    if (!text) throw new Error("vision returned empty content");
+    return text.slice(0, 1_200);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+// Best-effort unload so the batch does not leave a 27B model resident in RAM.
+async function visionUnload(visionUrl, visionModel) {
+  try {
+    await fetch(`${visionUrl}/api/generate`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ model: visionModel, stream: false, keep_alive: 0, prompt: " ", options: { num_predict: 1 } }),
+    });
+  } catch { /* unloading is best-effort */ }
+}
+
+function visionFrameTimes(video) {
+  const duration = Number(video.duration) > 0 ? Number(video.duration) : null;
+  if (!duration) return [null, null, null];
+  if (duration < 1) return [0, duration / 2, Math.max(0, duration * 0.85)];
+  return [0.1, duration * 0.5, Math.max(0.1, duration - 0.3)];
+}
+
+/** Extract up to `count` evenly-placed frames from a video as base64 JPEGs. */
+async function extractVisionFrames(ffmpegBin, frameDir, target) {
+  const { video, filePath, fileStat } = target;
+  const times = visionFrameTimes(video);
+  const frames = [];
+  const stamp = process.pid;
+  for (let index = 0; index < Math.min(3, times.length); index += 1) {
+    const out = path.join(frameDir, `vision-${stamp}-${index}.jpg`);
+    const args = ["-hide_banner", "-loglevel", "error", "-nostdin"];
+    if (times[index] !== null) args.push("-ss", times[index].toFixed(3));
+    args.push("-i", filePath, "-frames:v", "1",
+      "-vf", `scale=${VISION_FRAME_EDGE}:-2:force_original_aspect_ratio=decrease,format=yuv420p`,
+      "-q:v", "4", "-y", out);
+    await execFile(ffmpegBin, args, { maxBuffer: 64 * 1024 * 1024, timeout: EXTRACT_TIMEOUT_MS });
+    frames.push((await readFile(out)).toString("base64"));
+    await unlink(out).catch(() => {});
+  }
+  return frames;
+}
+
+/** Normalize any local image (thumbnail) to a base64 JPEG for vision input. */
+async function imageToBase64Jpeg(ffmpegBin, frameDir, imagePath, label) {
+  const out = path.join(frameDir, `vision-${label}-${process.pid}.jpg`);
+  await execFile(ffmpegBin, ["-hide_banner", "-loglevel", "error", "-nostdin", "-i", imagePath,
+    "-frames:v", "1", "-vf", `scale=${VISION_FRAME_EDGE}:-2:force_original_aspect_ratio=decrease,format=yuv420p`,
+    "-q:v", "4", "-y", out], { maxBuffer: 64 * 1024 * 1024, timeout: EXTRACT_TIMEOUT_MS });
+  const b64 = (await readFile(out)).toString("base64");
+  await unlink(out).catch(() => {});
+  return b64;
+}
+
 async function detectFfmpeg(repoRoot) {
   const candidates = [process.env.HAPA_FFMPEG_BIN, "ffmpeg"].filter(Boolean);
   for (const candidate of candidates) {
@@ -290,10 +420,32 @@ async function deriveTargets(repoRoot, limit) {
   const statResults = await mapPool(accepted, async (video) => {
     const filePath = localPathForVideo(video);
     const fileStat = filePath ? await statWithTimeout(filePath) : null;
-    return { ...video, __filePath: filePath || null, __fileStat: fileStat?.isFile() && fileStat.size > 0 ? fileStat : null };
+    const realFileReadable = Boolean(fileStat?.isFile() && fileStat.size > 0);
+    // Thumbnail fallback for records whose source file is gone (surrogate
+    // palette/description source). Checked only when the real file is not.
+    let thumbnailPath = null;
+    let thumbStat = null;
+    if (!realFileReadable && video.thumbnailUri) {
+      let thumb = String(video.thumbnailUri);
+      if (thumb.startsWith("/media/")) {
+        const rel = thumb.replace(/^\/media\//u, "").split(/[?#]/u)[0];
+        try { thumb = path.join(dataRoot, "media", decodeURIComponent(rel)); }
+        catch { thumb = path.join(dataRoot, "media", rel); }
+      }
+      thumbStat = await statWithTimeout(thumb);
+      if (thumbStat?.isFile() && thumbStat.size > 0) thumbnailPath = thumb;
+      else thumbStat = null;
+    }
+    return {
+      ...video,
+      __filePath: filePath || null,
+      __fileStat: realFileReadable ? fileStat : null,
+      __thumbnailPath: thumbnailPath,
+      __thumbnailStat: thumbStat,
+    };
   }, 16);
   const withStats = statResults.map((result) => result.value);
-  const readable = withStats.filter((video) => video.__fileStat).map((video) => {
+  const toTarget = (video) => {
     const key = video.humanVideoKey || humanVideoKey(video);
     return {
       video,
@@ -301,9 +453,18 @@ async function deriveTargets(repoRoot, limit) {
       aliases: video.humanVideoAliases || humanVideoAliasKeys(video),
       filePath: video.__filePath,
       fileStat: video.__fileStat,
+      realFileReadable: Boolean(video.__fileStat),
+      thumbnailPath: video.__thumbnailPath || null,
+      thumbnailStat: video.__thumbnailStat || null,
     };
-  }).sort((a, b) => a.key.localeCompare(b.key) || String(a.video.id || "").localeCompare(String(b.video.id || "")));
-  return { dashboard: humanDashboard, allReadable: readable, targets: limit ? readable.slice(0, limit) : readable };
+  };
+  const allTargets = withStats
+    // readable files, plus unreadable ones that still have a usable thumbnail
+    .filter((video) => video.__fileStat || video.__thumbnailPath)
+    .map(toTarget)
+    .sort((a, b) => a.key.localeCompare(b.key) || String(a.video.id || "").localeCompare(String(b.video.id || "")));
+  const allReadable = allTargets.filter((target) => target.realFileReadable);
+  return { dashboard: humanDashboard, allReadable, allTargets, targets: limit ? allTargets.slice(0, limit) : allTargets };
 }
 
 function recordPayloadFor(target, extra = {}) {
@@ -317,14 +478,6 @@ function recordPayloadFor(target, extra = {}) {
     videoIdentity: humanVideoIdentity(video),
     ...extra,
   };
-}
-
-function paletteUpToDate(storedRecord, currentIdentity) {
-  if (!storedRecord?.palette?.source) return false;
-  if (!sourceIdentityMatches(storedRecord.palette.source.sourceIdentity, currentIdentity)) return false;
-  // A partial extraction (sampleFailures recorded) is never final: rerun
-  // re-derives it so a transiently stalled file heals on the next pass.
-  return !storedRecord.palette.source.sampleFailures;
 }
 
 async function main() {
@@ -343,21 +496,34 @@ async function main() {
   const outputRoot = options.outputRoot;
 
   console.log(`[plan] stage=${options.stage} apply=${options.apply} limit=${options.limit ?? "none"} concurrency=${options.concurrency}`);
-  const { dashboard, allReadable, targets } = await deriveTargets(repoRoot, options.limit);
-  console.log(`[plan] accepted=${dashboard.summary.quickSortAccepted} readable=${allReadable.length} selected=${targets.length}`);
+  const { dashboard, allReadable, allTargets, targets } = await deriveTargets(repoRoot, options.limit);
+  console.log(`[plan] accepted=${dashboard.summary.quickSortAccepted} readable=${allReadable.length} surrogate-eligible=${allTargets.length - allReadable.length} selected=${targets.length}`);
 
   const storeFile = await readFile(storePath, "utf8").catch((error) => (error?.code === "ENOENT" ? null : error));
   if (storeFile instanceof Error) throw storeFile;
   let store = storeFile ? createHumanVideoVisualEnrichmentStore(JSON.parse(storeFile)) : createHumanVideoVisualEnrichmentStore({});
 
   const stagesToRun = options.stage === "all" ? ["palette", "description"] : [options.stage];
-  const ffmpeg = stagesToRun.includes("palette") ? await detectFfmpeg(repoRoot) : null;
+  const visionRequested = options.vision && stagesToRun.includes("description");
+  const visionProbe = visionRequested ? await probeVision(options.visionUrl, options.visionModel) : { available: false, modelPresent: false };
+  const needsFfmpeg = stagesToRun.includes("palette") || (visionRequested && visionProbe.available && visionProbe.modelPresent);
+  const ffmpeg = needsFfmpeg ? await detectFfmpeg(repoRoot) : null;
+  const visionAvailable = Boolean(visionRequested && visionProbe.available && visionProbe.modelPresent && ffmpeg);
+  if (visionRequested && !visionAvailable) {
+    console.log(`[warn] local vision unavailable (url=${options.visionUrl} model=${options.visionModel} present=${visionProbe.modelPresent}); description fallback will use agent/echo only`);
+  }
+  if (visionAvailable) {
+    console.log(`[plan] local vision: ${options.visionModel} @ ${options.visionUrl} (concurrency ${options.visionConcurrency})`);
+  }
   const { synopses: echoSynopses, catalogAvailable } = stagesToRun.includes("description")
     ? loadEchoSynopses(path.join(repoRoot, "artifacts/echo-video-enrichment-v1/catalog.sqlite3"))
     : { synopses: new Map(), catalogAvailable: false };
   if (stagesToRun.includes("description")) {
     console.log(`[plan] echo catalog available=${catalogAvailable} synopses=${echoSynopses.size}`);
   }
+  const frameDir = path.join(outputRoot, "vision-frames");
+  if (visionAvailable) await mkdir(frameDir, { recursive: true });
+  const visionStats = { calls: 0, failures: 0, totalMs: 0 };
 
   const events = [];
   const stageReports = {};
@@ -372,7 +538,7 @@ async function main() {
   };
 
   for (const stage of stagesToRun) {
-    const report = { processed: 0, skippedUpToDate: 0, kept: 0, failed: 0, failures: [] };
+    const report = { processed: 0, skippedUpToDate: 0, kept: 0, deferred: 0, failed: 0, failures: [] };
     const recordMutation = (target, extra) => withStoreLock(() => {
       const stored = findHumanVideoVisualEnrichmentRecord(store, { key: target.key, aliases: target.aliases });
       const upserted = upsertHumanVideoVisualEnrichment(store, recordPayloadFor(target, extra));
@@ -385,16 +551,26 @@ async function main() {
     });
     const worker = async (target) => {
       if (stage === "palette") {
-        const currentIdentity = visualSourceIdentity(target.video, target.fileStat, { filePath: target.filePath });
-        if (currentIdentity.basis === "none") throw new Error("no local source identity (no fingerprint, path, or stat)");
         const stored = findHumanVideoVisualEnrichmentRecord(store, { key: target.key, aliases: target.aliases });
-        if (stored?.palette && paletteUpToDate(stored, currentIdentity)) return { skipped: true };
-        const { times, basis, duration } = sampleTimesForVideo(target.video);
+        // Surrogate fallback: when the source file is gone, sample the surviving
+        // thumbnail instead. Identity comes from the same helper either way.
+        const frameSource = target.realFileReadable ? "video-file" : "thumbnail";
+        const identitySource = target.realFileReadable
+          ? { fileStat: target.fileStat, filePath: target.filePath }
+          : { fileStat: target.thumbnailStat, filePath: target.thumbnailPath };
+        const currentIdentity = visualSourceIdentity(target.video, identitySource.fileStat, { filePath: identitySource.filePath });
+        if (currentIdentity.basis === "none") throw new Error("no local source identity (no fingerprint, path, or stat)");
+        if (stored?.palette?.source && paletteStillCurrent(stored.palette.source, currentIdentity, { realFileReadable: target.realFileReadable })) {
+          return { skipped: true };
+        }
+        const isThumbnail = frameSource === "thumbnail";
+        const { times, basis, duration } = isThumbnail ? { times: [null], basis: "thumbnail", duration: null } : sampleTimesForVideo(target.video);
+        const sourcePath = target.realFileReadable ? target.filePath : target.thumbnailPath;
         const frames = [];
         const failedAt = [];
         for (const at of times) {
           try {
-            frames.push(await extractRawFrame(ffmpeg.bin, target.filePath, at));
+            frames.push(await extractRawFrame(ffmpeg.bin, sourcePath, at));
           } catch (error) {
             failedAt.push({ at: at === null ? null : Number(at.toFixed(3)), error: String(error?.message || error).slice(0, 200) });
           }
@@ -403,8 +579,9 @@ async function main() {
         const palette = paletteFromRawFrames(frames, { swatchCount: 8 });
         palette.source = {
           sourceIdentity: currentIdentity,
+          frameSource,
           sampleTimes: times.map((value) => (value === null ? null : Number(value.toFixed(3)))),
-          sampleTimesBasis: basis,
+          sampleTimesBasis: isThumbnail ? "thumbnail" : basis,
           sampleFailures: failedAt.length ? failedAt : 0,
           duration,
           ffmpegVersion: ffmpeg.version,
@@ -413,20 +590,62 @@ async function main() {
         if (upserted.changed || !stored?.palette) return { processed: true };
         return { skipped: true };
       }
-      // description stage
-      const derived = descriptionForVideo(target.video, { echoSynopses, catalogTable: "enrichments" });
+      // description stage — authority ladder: stored (untouched) > agent >
+      // local vision > echo catalog. Local vision is the gap-closer.
       const stored = findHumanVideoVisualEnrichmentRecord(store, { key: target.key, aliases: target.aliases });
+      const visionConfig = { model: options.visionModel, promptVersion: VISION_PROMPT_VERSION };
+      if (stored?.description) {
+        if (stored.description.sourceClass !== "local-vision") return { kept: true };
+        if (localVisionDescriptionStable(stored.description, visionConfig, { realFileReadable: target.realFileReadable })) {
+          return { skipped: true };
+        }
+        if (!visionAvailable) return { deferred: true };
+        // fall through: re-derive with the newer config (agent wins if one exists)
+      }
+      const agent = agentReviewDescription(target.video.agentReview);
+      if (agent) {
+        const { upserted } = await recordMutation(target, { description: agent });
+        return { processed: upserted.changed ? true : "kept" };
+      }
+      let derived = null;
+      if (visionAvailable) {
+        const canDescribe = target.realFileReadable || Boolean(target.thumbnailPath);
+        if (canDescribe) {
+          visionStats.calls += 1;
+          const started = Date.now();
+          try {
+            const images = target.realFileReadable
+              ? await extractVisionFrames(ffmpeg.bin, frameDir, target)
+              : [await imageToBase64Jpeg(ffmpeg.bin, frameDir, target.thumbnailPath, "thumb")];
+            const prompt = images.length > 1 ? VISION_PROMPT : VISION_PROMPT_SINGLE;
+            derived = {
+              text: await visionDescribe(options.visionUrl, options.visionModel, images, prompt),
+              sourceClass: "local-vision",
+              provenance: {
+                provider: "ollama",
+                model: options.visionModel,
+                promptVersion: VISION_PROMPT_VERSION,
+                frameSource: target.realFileReadable ? "video-frames" : "thumbnail",
+                frameCount: images.length,
+              },
+            };
+          } catch (error) {
+            visionStats.failures += 1;
+            throw new Error(`local vision failed: ${String(error?.message || error).slice(0, 200)}`);
+          } finally {
+            visionStats.totalMs += Date.now() - started;
+          }
+        }
+      }
       if (!derived) {
-        return stored?.description ? { kept: true } : { skipped: true };
+        derived = descriptionForVideo(target.video, { echoSynopses, catalogTable: "enrichments" });
       }
-      if (stored?.description && stored.description.text === derived.text && stored.description.sourceClass === derived.sourceClass) {
-        return { skipped: true };
-      }
+      if (!derived) return stored?.description ? { kept: true } : { skipped: true };
       const { upserted } = await recordMutation(target, { description: derived });
       return { processed: upserted.changed ? true : "kept" };
     };
 
-    const results = await mapPool(targets, worker, stage === "palette" ? options.concurrency : 32);
+    const results = await mapPool(targets, worker, stage === "palette" ? options.concurrency : (visionAvailable ? options.visionConcurrency : 32));
     for (const result of results) {
       if (!result.ok) {
         report.failed += 1;
@@ -435,10 +654,14 @@ async function main() {
       }
       if (result.value.skipped) report.skippedUpToDate += 1;
       else if (result.value.processed === "kept" || result.value.kept) report.kept += 1;
+      else if (result.value.deferred) report.deferred += 1;
       else if (result.value.processed) report.processed += 1;
     }
+    if (stage === "description" && visionAvailable) {
+      await visionUnload(options.visionUrl, options.visionModel);
+    }
     stageReports[stage] = report;
-    console.log(`[${stage}] processed=${report.processed} skipped=${report.skippedUpToDate} kept=${report.kept} failed=${report.failed}`);
+    console.log(`[${stage}] processed=${report.processed} skipped=${report.skippedUpToDate} kept=${report.kept} deferred=${report.deferred} failed=${report.failed}`);
   }
 
   const nextBytes = json(store);
@@ -487,13 +710,26 @@ async function main() {
     options: { stage: options.stage, apply: options.apply, limit: options.limit, concurrency: options.concurrency },
     ffmpeg: ffmpeg ? { bin: ffmpeg.bin, version: ffmpeg.version } : null,
     dashboardSummary: dashboard.summary,
-    targets: { selected: targets.length, readableTotal: allReadable.length, acceptedTotal: dashboard.summary.quickSortAccepted },
+    targets: {
+      selected: targets.length,
+      readableTotal: allReadable.length,
+      surrogateTotal: allTargets.length - allReadable.length,
+      acceptedTotal: dashboard.summary.quickSortAccepted,
+    },
     stages: stageReports,
     store: { records: store.records.length, updatedAt: store.updatedAt, storeUnchanged, storeSha256: sha256Of(nextBytes) },
+    vision: visionAvailable
+      ? { model: options.visionModel, url: options.visionUrl, calls: visionStats.calls, failures: visionStats.failures, totalMs: visionStats.totalMs }
+      : null,
     coverage: {
       withPalette,
       withDescription,
       descriptionBySourceClass: Object.fromEntries([...bySourceClass.entries()].sort((a, b) => a[0].localeCompare(b[0]))),
+      paletteByFrameSource: Object.fromEntries(
+        [...new Set(store.records.filter((record) => record.palette).map((record) => record.palette.source?.frameSource || "video-file"))]
+          .sort()
+          .map((source) => [source, store.records.filter((record) => record.palette && (record.palette.source?.frameSource || "video-file") === source).length]),
+      ),
     },
   };
   await atomicWrite(path.join(outputRoot, `${runId}.json`), report);
