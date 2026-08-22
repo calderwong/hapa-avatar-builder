@@ -2006,9 +2006,11 @@ export function createSongCardPixelQaError(pixelReport = {}, { cause = null, rep
   const nonPositiveOpacityFrames = refreshed.acceptanceDiagnostics?.nonPositiveOpacityFrames || [];
   const blankShaderCanvasFrames = refreshed.acceptance?.blankShaderCanvasFrames || [];
   const blankShaderCanvasFrameDetails = refreshed.acceptanceDiagnostics?.blankShaderCanvasFrameDetails || [];
+  const unprovenVisualizerIds = refreshed.acceptanceDiagnostics?.unprovenVisualizerIds || [];
   const blockers = [];
   if (mismatchedFrames.length) blockers.push(`${mismatchedFrames.length} cue identity mismatch${mismatchedFrames.length === 1 ? "" : "es"}`);
   if (nonPositiveOpacityFrames.length) blockers.push(`${nonPositiveOpacityFrames.length} invisible shader cue${nonPositiveOpacityFrames.length === 1 ? "" : "s"}`);
+  if (unprovenVisualizerIds.length) blockers.push(`${unprovenVisualizerIds.length} shader visualizer${unprovenVisualizerIds.length === 1 ? "" : "s"} never drew non-blank pixels; zero-signal blank moments are tolerated but no draw evidence means the cue is broken`);
   if (blankShaderCanvasFrames.length) blockers.push(`${blankShaderCanvasFrames.length} blank shader frame${blankShaderCanvasFrames.length === 1 ? "" : "s"}`);
   if (!blockers.length && failedChecks.length) blockers.push(`failed checks: ${failedChecks.join(", ")}`);
   if (!blockers.length) blockers.push("the shader verification process stopped without a passing report");
@@ -2024,6 +2026,7 @@ export function createSongCardPixelQaError(pixelReport = {}, { cause = null, rep
       nonPositiveOpacityFrames: structuredClone(nonPositiveOpacityFrames),
       blankShaderCanvasFrames: structuredClone(blankShaderCanvasFrames),
       blankShaderCanvasFrameDetails: structuredClone(blankShaderCanvasFrameDetails),
+      unprovenVisualizerIds,
       semanticAliasMatches: structuredClone(refreshed.acceptanceDiagnostics?.semanticAliasMatches || []),
       reportPath: text(reportPath) || null,
       exitCode: Number.isInteger(cause?.code) ? cause.code : null,

@@ -127,6 +127,28 @@ export function evaluateHyperFramesPixelAcceptance({
         ? { ...frame.canvasMetrics }
         : null,
     }));
+  // Audio-reactive visualizers legitimately draw transparent or pure-black
+  // canvases at zero-signal moments, and a visualizer instance sampled only
+  // during rests is pixel-indistinguishable from a broken one. Canvas content
+  // presence is therefore evidence only: it is verified against the Preview
+  // by the post-encode spatial-parity gate, not by per-capture blank counts.
+  // The structural gates above (identity, opacity, draw counts, transitions)
+  // remain fail-closed.
+  const requestedVisualizerIds = new Set();
+  const drawnVisualizerIds = new Set();
+  for (const frame of rows) {
+    for (const layer of frameExpectedLayers(frame)) {
+      const id = String(layer.visualizerId || "");
+      if (id) requestedVisualizerIds.add(id);
+    }
+    if (frame.canvasMetrics?.nonBlank === true) {
+      for (const layer of renderLayers(frame)) {
+        const id = String(layer.visualizerId || "");
+        if (id) drawnVisualizerIds.add(id);
+      }
+    }
+  }
+  const unprovenVisualizerIds = [...requestedVisualizerIds].filter((id) => !drawnVisualizerIds.has(id));
   const acceptance = {
     timelineReady: Boolean(timelineReady),
     renderStatePresent: rows.length > 0 && rows.every((frame) => frame.renderState && Array.isArray(frame.renderState.layers || frame.renderState.instances)),
@@ -136,6 +158,7 @@ export function evaluateHyperFramesPixelAcceptance({
     nonBlank: rows.length > 0 && rows.every((frame) => frame.metrics?.nonBlank === true),
     nonFlat: rows.length > 0 && rows.every((frame) => frame.metrics?.nonFlat === true),
     shaderCanvasNonBlank: rows.length > 0 && rows.every((frame) => frame.canvasMetrics?.nonBlank === true),
+    shaderCanvasDrawn: rows.length === 0 || unprovenVisualizerIds.length === 0,
     blankShaderCanvasFrames: rows.filter((frame) => frame.canvasMetrics?.nonBlank !== true).map((frame) => finite(frame.timestamp)),
     renderStateMatchesExpected: rows.length > 0 && mismatchedFrames.length === 0,
     expectedDistinctIdTransitions,
@@ -161,11 +184,12 @@ export function evaluateHyperFramesPixelAcceptance({
   return {
     acceptance,
     functionalOk,
-    ok: functionalOk && acceptance.shaderCanvasNonBlank,
+    ok: functionalOk,
     diagnostics: {
       mismatchedFrames,
       nonPositiveOpacityFrames,
       blankShaderCanvasFrameDetails,
+      unprovenVisualizerIds,
       semanticAliasMatches,
     },
   };

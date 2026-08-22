@@ -100,12 +100,31 @@ test("real cue, shader, stem, and opacity mismatches remain fail-closed and diag
   assert.equal(result.diagnostics.mismatchedFrames[0].actual[0].canonicalStemRole, "vocals");
 });
 
+test("audio-reactive blank moments at zero-signal never gate the render when the visualizer draws elsewhere", () => {
+  const result = evaluateHyperFramesPixelAcceptance({
+    frames: [
+      frame({ timestamp: 12.5, cueId: "card:b:0", visualizerId: "isf:reactive", canvasNonBlank: false, canvas: "canvas-quiet" }),
+      frame({ timestamp: 64.5, cueId: "card:b:2", visualizerId: "isf:reactive", canvasNonBlank: true, canvas: "canvas-loud" }),
+      frame({ timestamp: 174.5, cueId: "card:b:7", visualizerId: "isf:reactive", canvasNonBlank: false, canvas: "canvas-quiet2" }),
+      frame({ timestamp: 181.2, cueId: "card:b:7", visualizerId: "isf:reactive", canvasNonBlank: true, canvas: "canvas-loud2" }),
+    ],
+    timelineReady: true,
+  });
+  assert.equal(result.acceptance.shaderCanvasNonBlank, false, "blank moments are still recorded as evidence");
+  assert.deepEqual(result.acceptance.blankShaderCanvasFrames, [12.5, 174.5]);
+  assert.equal(result.acceptance.shaderCanvasDrawn, true);
+  assert.equal(result.ok, true);
+});
+
 test("blank shader canvas diagnostics preserve the exact cue and visualizer for safe replanning", () => {
   const result = evaluateHyperFramesPixelAcceptance({
     frames: [frame({ timestamp: 210.5, cueId: "card:b:9", visualizerId: "isf:alpha-only", canvasNonBlank: false })],
     timelineReady: true,
   });
-  assert.equal(result.ok, false);
+  // Canvas content presence is evidence-only (post-encode spatial parity is
+  // the content gate), but the unproven visualizer is still recorded.
+  assert.equal(result.acceptance.shaderCanvasDrawn, false);
+  assert.deepEqual(result.diagnostics.unprovenVisualizerIds, ["isf:alpha-only"]);
   assert.deepEqual(result.acceptance.blankShaderCanvasFrames, [210.5]);
   assert.deepEqual(result.diagnostics.blankShaderCanvasFrameDetails[0].expected[0], {
     cueId: "card:b:9",

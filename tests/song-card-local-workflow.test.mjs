@@ -1486,7 +1486,7 @@ test("pixel QA reuses runtime stem semantics and reports the exact pre-encode ga
   const blank = structuredClone(report);
   blank.frames[0].canvasMetrics = { nonBlank: false, nonFlat: false, lumaMax: 0 };
   const blankError = createSongCardPixelQaError(blank);
-  assert.deepEqual(blankError.details.failedChecks, ["shaderCanvasNonBlank"]);
+  assert.deepEqual(blankError.details.failedChecks, ["shaderCanvasNonBlank", "shaderCanvasDrawn"]);
   assert.deepEqual(blankError.details.blankShaderCanvasFrames, [12]);
   assert.equal(blankError.details.blankShaderCanvasFrameDetails[0].expected[0].visualizerId, "isf:blue");
 });
