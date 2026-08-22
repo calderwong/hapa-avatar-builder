@@ -2421,6 +2421,16 @@ export function inspectSongCardReleaseCompositionLog(stderr = "", durationSecond
   };
 }
 
+// Audio-integrity findings fail-closed. Video appearance findings (prolonged
+// black or freeze spans the cut did not declare) are recorded as non-blocking
+// evidence so one dramatic rest cannot discard a finished render.
+const RELEASE_COMPOSITION_BLOCKING_PREFIX = "release-audio-";
+
+export function releaseCompositionBlockingErrors(composition = {}) {
+  return (Array.isArray(composition?.errors) ? composition.errors : [])
+    .filter((code) => String(code || "").startsWith(RELEASE_COMPOSITION_BLOCKING_PREFIX));
+}
+
 function normalizedCompositionSpan(row = {}, { defaultDurationSeconds = 0, nextStartSeconds = null } = {}) {
   const startSeconds = Number(
     row?.startSeconds
@@ -2909,8 +2919,11 @@ export async function probeSongCardRelease(masterPath, posterPath, expectedDurat
     intentionalBlackoutSpans: compositionContracts?.intentionalBlackoutSpans,
     intentionalFreezeSpans: compositionContracts?.intentionalFreezeSpans,
   });
+  if (releaseCompositionBlockingErrors(composition).length) {
+    throw localRendererError("local_release_composition_failed", "The finished master is missing its audio signal or is predominantly silent.", 409, { stage: "release-qa", composition });
+  }
   if (!composition.ok) {
-    throw localRendererError("local_release_composition_failed", "The finished master contains prolonged blank/frozen output or missing audio signal.", 409, { stage: "release-qa", composition });
+    composition.findingsNotBlocking = [...composition.errors];
   }
   const [sourceFingerprint, outputFingerprint] = await Promise.all([
     decodeReleaseAudioFingerprint(sourceMasterPath, { signal }),
@@ -3695,6 +3708,15 @@ export function createSongCardLocalRenderBridge({
             outputProfile,
           },
         );
+        const nonBlockingFindings = artifacts.qa?.composition?.findingsNotBlocking || [];
+        if (nonBlockingFindings.length) {
+          publish(candidateId, {
+            status: "rendering",
+            stage: "release-qa",
+            percent: 88,
+            message: `Release QA passed with ${nonBlockingFindings.length} non-blocking video finding${nonBlockingFindings.length === 1 ? "" : "s"} (${nonBlockingFindings.join(", ")}); recorded as evidence.`,
+          });
+        }
         await assertRendererBuildUnchanged("release-qa");
         await persistCheckpoint("release-qa");
       };

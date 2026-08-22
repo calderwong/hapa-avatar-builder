@@ -30,6 +30,7 @@ import {
   inspectSongCardRendererBuildIdentity,
   inspectSongCardReleaseFrameCadence,
   inspectSongCardReleaseCompositionLog,
+  releaseCompositionBlockingErrors,
   inspectSongCardReleaseAudioLineage,
   inspectSongCardReleaseStreams,
   inspectSongCardReleaseVideoProfile,
@@ -497,6 +498,45 @@ test("release QA rejects dimension, frame-rate, frame-budget, black/frozen, and 
     "max_volume: 0 dB",
   ].join("\n"), 10, { silenceScanExecuted: true });
   assert.ok(clickThenSilence.errors.includes("release-audio-active-coverage-insufficient"));
+});
+
+test("release composition gating blocks only audio integrity findings", () => {
+  const videoOnly = inspectSongCardReleaseCompositionLog([
+    "black_start:2 black_end:4.5 black_duration:2.5",
+    "freeze_start: 1",
+    "freeze_duration: 14",
+    "freeze_end: 15",
+    "mean_volume: -12 dB",
+    "max_volume: -1 dB",
+  ].join("\n"), 16, { silenceScanExecuted: true });
+  assert.equal(videoOnly.ok, false);
+  assert.ok(videoOnly.errors.includes("release-video-prolonged-black"));
+  assert.ok(videoOnly.errors.includes("release-video-prolonged-freeze"));
+  assert.deepEqual(releaseCompositionBlockingErrors(videoOnly), [], "video appearance findings must not block the release");
+
+  const silentAudio = inspectSongCardReleaseCompositionLog([
+    "mean_volume: -inf dB",
+    "max_volume: -inf dB",
+  ].join("\n"), 16, { silenceScanExecuted: true });
+  assert.ok(silentAudio.errors.includes("release-audio-silent-or-unmeasured"));
+  assert.deepEqual(releaseCompositionBlockingErrors(silentAudio), ["release-audio-silent-or-unmeasured"]);
+
+  const clickThenSilence = inspectSongCardReleaseCompositionLog([
+    "silence_start: 0.01",
+    "silence_duration: 9.99",
+    "silence_end: 10",
+    "mean_volume: -30 dB",
+    "max_volume: 0 dB",
+  ].join("\n"), 10, { silenceScanExecuted: true });
+  assert.deepEqual(releaseCompositionBlockingErrors(clickThenSilence), ["release-audio-active-coverage-insufficient"]);
+
+  const clean = inspectSongCardReleaseCompositionLog([
+    "mean_volume: -12 dB",
+    "max_volume: -1 dB",
+  ].join("\n"), 16, { silenceScanExecuted: true });
+  assert.equal(clean.ok, true);
+  assert.deepEqual(releaseCompositionBlockingErrors(clean), []);
+  assert.deepEqual(releaseCompositionBlockingErrors({}), [], "a missing composition must not invent blocking findings");
 });
 
 test("renderer output profile resolution defaults to landscape and honors an explicit project selection", () => {
