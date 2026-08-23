@@ -18,6 +18,7 @@ Important local files:
 - `human-video-optical-campaign-events.ndjson` - append-only plan, claim, recovery, completion, failure, and telemetry events; it contains no media judgments or Reference Pass output.
 - `kanban.json` - local builder board.
 - `media/` - generated or imported media assets.
+- `media/echo-preview-recordings/` - Director Preview quick captures (`index.json` plus one file per capture). Scratch clips from the Echo Album preview Record control: no mint ledger, no edition, no release semantics; freely deletable.
 - `backups/` - pre-merge and pre-heal store snapshots.
 - `merge-reports/` - JSON reports from repeatable data merge scripts.
 

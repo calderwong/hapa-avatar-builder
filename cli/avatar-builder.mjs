@@ -67,6 +67,19 @@ async function main(cmd, opts) {
     return;
   }
 
+  if (cmd === "echo-preview-recordings") {
+    const params = new URLSearchParams();
+    const songId = String(opts.song || opts["song-id"] || "").trim();
+    if (songId) params.set("songId", songId);
+    const query = params.size ? `?${params}` : "";
+    const adminToken = process.env.HAPA_AVATAR_ADMIN_TOKEN || "";
+    const payload = await contextGenerationApiRequest(opts, `/api/echo/preview-recordings${query}`, {
+      headers: adminToken ? { authorization: `Bearer ${adminToken}` } : {},
+    });
+    print(payload, { ...opts, json: true });
+    return;
+  }
+
   if (cmd === "human-enricher-save") {
     const inputFile = option(opts, "file", "record-file");
     const actorId = String(opts.actor || "").trim();
@@ -1623,6 +1636,7 @@ function printHelp() {
 Commands:
   list [--json]
   human-enricher-list [--query "Bella"] [--api-url http://127.0.0.1:8787] [--json]
+  echo-preview-recordings [--song <song-id>] [--api-url http://127.0.0.1:8797] [--json]  (lists Director Preview quick captures; set HAPA_AVATAR_ADMIN_TOKEN for bearer auth)
   human-enricher-save --file ./human-video-enrichment.json --actor <human-id> [--api-url http://127.0.0.1:8787] [--json]
   human-enricher-agent-queue [--status needs-agent|needs-human|blocked|all] [--offset 0] [--limit 12] [--api-url http://127.0.0.1:8787] [--json]
   human-enricher-agent-submit --file ./optical-review.json --agent <sub-agent-id> [--api-url http://127.0.0.1:8787] [--json]

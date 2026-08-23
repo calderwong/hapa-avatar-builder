@@ -114,6 +114,16 @@ import {
 } from "../domain/echo-lyric-contract.js";
 import { resolveEchoLyricTemplateFrame } from "../domain/echo-lyric-template-runtime.js";
 import { planEchoKanbanManualStatusTransition } from "../domain/echo-kanban-status.js";
+import {
+  ECHO_PREVIEW_RECORD_FPS,
+  ECHO_PREVIEW_RECORD_MAX_DURATION_MS,
+  ECHO_PREVIEW_RECORD_TIMESLICE_MS,
+  ECHO_PREVIEW_RECORD_VIDEO_BIT_RATE,
+  ECHO_PREVIEW_RECORD_AUDIO_BIT_RATE,
+  createEchoPreviewRecordingSession,
+  formatEchoPreviewRecordingElapsed,
+  pickEchoPreviewRecordingMimeType,
+} from "../domain/echo-preview-recording.js";
 
 const electronApiBase = globalThis.window?.hapaAvatarBuilder?.apiBase;
 const API_BASE = electronApiBase || (globalThis.location?.port === "5178" ? "http://127.0.0.1:8787" : "");
@@ -1603,6 +1613,29 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
       return next;
     });
   }, []);
+
+  // ---- Director Preview quick capture (preview recordings) ----
+  // state: idle | recording | saving | error
+  const [previewRecordingState, setPreviewRecordingState] = useState("idle");
+  const [previewRecordingElapsedMs, setPreviewRecordingElapsedMs] = useState(0);
+  const [previewRecordingError, setPreviewRecordingError] = useState("");
+  const [previewRecordings, setPreviewRecordings] = useState(null); // null = not loaded yet
+  const [previewRecordingsError, setPreviewRecordingsError] = useState("");
+  const [previewRecordingLastId, setPreviewRecordingLastId] = useState("");
+  const previewRecordingActiveRef = useRef(false);
+  const previewRecordingSessionRef = useRef(null);
+  const previewRecordingCanvasRef = useRef(null);
+  const previewRecordingStreamRef = useRef(null);
+  const previewRecordingAudioTapRef = useRef(null);
+  const previewRecordingChunksRef = useRef([]);
+  const previewRecordingRafRef = useRef(0);
+  const previewRecordingEndedRef = useRef(null);
+  const previewRecordingDownloadUrlRef = useRef("");
+  // The composite loop reads projected data through refs so a capture that
+  // outlives a re-render never reads a stale projection source.
+  const activeDirectorPreviewSourceRef = useRef(null);
+  const activeShowGraphRef = useRef(null);
+  const shaderTypeResolverRef = useRef(null);
   const canvasRef = useRef(null);
   const exactIsfPlaybackPoolRef = useRef(null);
   const exactIsfPlaybackPoolIdentityRef = useRef({ variantKey: "", dirtyKey: "", sizeKey: "", dirtyRangeCount: 0, shaderIds: [] });
@@ -2289,6 +2322,362 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
     }
   };
 
+  // ---- Director Preview quick capture engine ----
+  //
+  // The capture composites exactly what the operator sees in the preview
+  // frame (presented media with its camera framing + the shader canvas) into
+  // an offscreen canvas at the output profile's resolution, captures that
+  // canvas stream, taps the existing Web Audio analyser graph for the audio
+  // track, and records the combined stream with MediaRecorder. HUD and
+  // lyrics overlays are intentionally never part of a capture.
+  //
+  // Stopping uploads the blob to /api/echo/preview-recordings (quick-capture
+  // storage, no minting pipeline). If the upload fails, the blob is saved as
+  // a local download so the capture is never silently dropped.
+  const releasePreviewRecordingResources = () => {
+    if (previewRecordingRafRef.current) {
+      globalThis.cancelAnimationFrame(previewRecordingRafRef.current);
+      previewRecordingRafRef.current = 0;
+    }
+    const tap = previewRecordingAudioTapRef.current;
+    if (tap) {
+      previewRecordingAudioTapRef.current = null;
+      try { if (tap.dest) tap.dest.disconnect(); } catch { /* context may already be closed */ }
+      try { tap.stream?.getTracks?.().forEach((track) => { try { track.stop(); } catch { /* track already stopped */ } }); } catch { /* stream gone */ }
+    }
+    try { previewRecordingStreamRef.current?.getTracks?.().forEach((track) => { try { track.stop(); } catch { /* track already stopped */ } }); } catch { /* stream gone */ }
+    previewRecordingStreamRef.current = null;
+    const ended = previewRecordingEndedRef.current;
+    if (ended) {
+      previewRecordingEndedRef.current = null;
+      try { ended.element.removeEventListener("ended", ended.onEnded); } catch { /* element gone */ }
+    }
+    if (previewRecordingDownloadUrlRef.current) {
+      URL.revokeObjectURL(previewRecordingDownloadUrlRef.current);
+      previewRecordingDownloadUrlRef.current = "";
+    }
+    previewRecordingChunksRef.current = [];
+    previewRecordingSessionRef.current = null;
+    previewRecordingCanvasRef.current = null;
+    previewRecordingActiveRef.current = false;
+  };
+
+  const acquirePreviewRecordingAudioTrack = () => {
+    try {
+      const context = audioContextRef.current;
+      const analyser = analyserNodeRef.current;
+      if (context && analyser && context.state !== "closed") {
+        if (context.state === "suspended") context.resume().catch(() => {});
+        const destination = context.createMediaStreamDestination();
+        analyser.connect(destination);
+        const track = destination.stream.getAudioTracks()[0] || null;
+        if (track) {
+          previewRecordingAudioTapRef.current = { dest: destination, stream: destination.stream, track };
+          return track;
+        }
+      }
+    } catch { /* fall through to element capture */ }
+    try {
+      const stream = typeof audioRef.current?.captureStream === "function" ? audioRef.current.captureStream() : null;
+      const track = stream?.getAudioTracks?.()[0] || null;
+      if (track) {
+        previewRecordingAudioTapRef.current = { stream, track };
+        return track;
+      }
+    } catch { /* no capturable audio */ }
+    return null;
+  };
+
+  const compositePreviewRecordingFrame = () => {
+    const canvas = previewRecordingCanvasRef.current;
+    const context = canvas?.getContext?.("2d");
+    if (!canvas || !context) return;
+    const width = canvas.width;
+    const height = canvas.height;
+    const audio = audioRef.current;
+    const t = audio && !audio.paused
+      ? Number(audio.currentTime || currentTimeRef.current)
+      : currentTimeRef.current;
+    const project = activeProjectRef.current || activeProject;
+    const timeline = project?.timeline || [];
+    const playheadShotIndex = timeline.findIndex((item) => t >= item.start_sec && t < item.end_sec);
+    const currentTimelineItem = playheadShotIndex !== -1 && playheadShotIndex !== undefined
+      ? timeline[playheadShotIndex]
+      : timeline[0];
+    const projected = activeDirectorPreviewSourceRef.current
+      ? projectEchoDirectorPreviewFrame({
+        source: activeDirectorPreviewSourceRef.current,
+        timeSeconds: t,
+        playing: Boolean(audio && !audio.paused && !audio.ended),
+        shaderTypeResolver: shaderTypeResolverRef.current,
+      })
+      : null;
+    const cameraDirectedItem = currentTimelineItem && projected?.camera
+      ? {
+        ...currentTimelineItem,
+        camera_motion: projected.camera.motion,
+        camera_intensity: projected.camera.intensity,
+        ...(projected.camera.speed === null ? {} : { camera_speed: projected.camera.speed }),
+      }
+      : currentTimelineItem;
+    const binding = resolvePresentedEchoMediaBinding(
+      directorPreviewFullscreenRef.current,
+      currentTimelineItem,
+      presentedMediaRef.current
+    );
+    const element = binding?.element || null;
+    const elementReady = element
+      ? (element.tagName === "VIDEO"
+        ? Number(element.readyState || 0) >= 2
+        : Boolean(element.complete) && Number(element.naturalWidth || 0) > 0)
+      : false;
+    let mediaDrawn = false;
+    if (element && elementReady) {
+      const keyframe = echoCameraKeyframeAt(activeShowGraphRef.current?.directorV2?.cameraKeyframes, t);
+      mediaDrawn = Boolean(drawEchoCameraFramedMediaInput({
+        canvas,
+        mediaElement: element,
+        shot: cameraDirectedItem,
+        timeSeconds: t,
+        shotIndex: Number.isInteger(playheadShotIndex) ? playheadShotIndex : 0,
+        cameraCrop: projected?.camera?.keyframe?.crop || keyframe?.crop || null,
+        outputWidth: width,
+        outputHeight: height,
+      }));
+    }
+    if (!mediaDrawn) {
+      context.fillStyle = "#020617";
+      context.fillRect(0, 0, width, height);
+    }
+    const shaderCanvas = canvasRef.current;
+    if (shaderCanvas && Number(shaderCanvas.width || 0) > 0) {
+      try { context.drawImage(shaderCanvas, 0, 0, width, height); } catch { /* shader layer unavailable */ }
+    }
+  };
+
+  const startPreviewRecordingComposite = () => {
+    if (previewRecordingRafRef.current) globalThis.cancelAnimationFrame(previewRecordingRafRef.current);
+    const loop = () => {
+      if (!previewRecordingActiveRef.current) return;
+      try { compositePreviewRecordingFrame(); } catch { /* keep the capture alive */ }
+      previewRecordingRafRef.current = globalThis.requestAnimationFrame(loop);
+    };
+    previewRecordingRafRef.current = globalThis.requestAnimationFrame(loop);
+  };
+
+  const refreshPreviewRecordings = useCallback(async () => {
+    try {
+      const response = await fetch(`${API_BASE}/api/echo/preview-recordings`, { cache: "no-store" });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload.message || payload.error || `preview recording list failed: ${response.status}`);
+      setPreviewRecordings(Array.isArray(payload.recordings) ? payload.recordings : []);
+      setPreviewRecordingsError("");
+    } catch (error) {
+      setPreviewRecordings([]);
+      setPreviewRecordingsError(String(error?.message || error || "preview recording list failed"));
+    }
+  }, []);
+
+  const deletePreviewRecording = useCallback(async (id) => {
+    const recordingId = String(id || "").trim();
+    if (!recordingId) return;
+    setPreviewRecordings((current) => (current ? current.filter((row) => row.id !== recordingId) : current));
+    try {
+      const response = await fetch(`${API_BASE}/api/echo/preview-recordings/${encodeURIComponent(recordingId)}`, { method: "DELETE" });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload.message || payload.error || `delete failed: ${response.status}`);
+    } catch (error) {
+      setPreviewRecordingsError(String(error?.message || error || "delete failed"));
+      refreshPreviewRecordings();
+    }
+  }, [refreshPreviewRecordings]);
+
+  const stopPreviewRecording = useCallback(async () => {
+    if (!previewRecordingActiveRef.current) return;
+    const session = previewRecordingSessionRef.current;
+    setPreviewRecordingState("saving");
+    if (previewRecordingRafRef.current) {
+      globalThis.cancelAnimationFrame(previewRecordingRafRef.current);
+      previewRecordingRafRef.current = 0;
+    }
+    const ended = previewRecordingEndedRef.current;
+    if (ended) {
+      previewRecordingEndedRef.current = null;
+      try { ended.element.removeEventListener("ended", ended.onEnded); } catch { /* element gone */ }
+    }
+    let result = { state: "stopped", durationMs: 0, blob: null, error: "no_recorder_session" };
+    try {
+      result = await session.stop({
+        buildResultBlob: () => {
+          const recorder = session.recorder;
+          const mimeType = String(recorder?.mimeType || "")
+            || pickEchoPreviewRecordingMimeType((candidate) => globalThis.MediaRecorder?.isTypeSupported?.(candidate))
+            || "video/webm";
+          const contentType = mimeType.split(";")[0].trim();
+          return new (globalThis.Blob)(previewRecordingChunksRef.current, { type: contentType });
+        },
+        timeoutMs: 4000,
+      });
+    } catch (error) {
+      result = { state: "error", durationMs: 0, blob: null, error: String(error?.message || error) };
+    }
+    let blob = result.blob;
+    // Auto-stop at the duration ceiling can finish before this call; the
+    // blob may not have been assembled yet, so rebuild it from the chunks.
+    if ((!blob || !Number(blob.size || 0)) && previewRecordingChunksRef.current.length) {
+      const recorder = session.recorder;
+      const mimeType = String(recorder?.mimeType || "")
+        || pickEchoPreviewRecordingMimeType((candidate) => globalThis.MediaRecorder?.isTypeSupported?.(candidate))
+        || "video/webm";
+      blob = new (globalThis.Blob)(previewRecordingChunksRef.current, { type: mimeType.split(";")[0].trim() });
+    }
+    releasePreviewRecordingResources();
+    setPreviewRecordingElapsedMs(0);
+    if (!blob || !Number(blob.size || 0)) {
+      setPreviewRecordingError("The capture produced no media data. Try again with playback running.");
+      setPreviewRecordingState("error");
+      return;
+    }
+    const metadataParams = new URLSearchParams();
+    const songId = String(selectedProjectSongId || activeProject?.song_id || activeProject?.id || "").trim();
+    const songTitle = String(activeProject?.song_title || "").trim();
+    if (songId) metadataParams.set("songId", songId);
+    if (songTitle) metadataParams.set("songTitle", songTitle);
+    if (activeProject?.title) metadataParams.set("projectTitle", String(activeProject.title).trim());
+    metadataParams.set("orientation", String(activeOutputProfile?.id || ""));
+    metadataParams.set("width", String(Number(activeOutputProfile?.width || 0)));
+    metadataParams.set("height", String(Number(activeOutputProfile?.height || 0)));
+    metadataParams.set("fps", String(ECHO_PREVIEW_RECORD_FPS));
+    metadataParams.set("durationMs", String(Math.round(result.durationMs || 0)));
+    let uploaded = null;
+    let uploadFailure = "";
+    try {
+      const response = await fetch(`${API_BASE}/api/echo/preview-recordings?${metadataParams.toString()}`, {
+        method: "POST",
+        headers: { "Content-Type": String(blob.type || "video/webm") },
+        body: blob,
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload.message || payload.error || `upload failed: ${response.status}`);
+      uploaded = payload.recording || null;
+    } catch (error) {
+      uploadFailure = String(error?.message || error || "upload failed");
+    }
+    if (uploaded) {
+      setPreviewRecordingLastId(String(uploaded.id || ""));
+      setPreviewRecordingError("");
+      setPreviewRecordingState("idle");
+      setPreviewRecordings((current) => (current ? [uploaded, ...current] : [uploaded]));
+      refreshPreviewRecordings();
+      return;
+    }
+    // Upload failed: hand the operator the file locally so the capture
+    // survives. The clip is otherwise unrecoverable once the page unloads.
+    const objectUrl = URL.createObjectURL(blob);
+    previewRecordingDownloadUrlRef.current = objectUrl;
+    const anchor = globalThis.document.createElement("a");
+    const extension = String(blob.type || "").toLowerCase().includes("mp4") ? "mp4" : "webm";
+    anchor.href = objectUrl;
+    anchor.download = `echo-preview-capture-${new Date().toISOString().replace(/[:.]/g, "-")}.${extension}`;
+    globalThis.document.body?.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    setPreviewRecordingError(`The capture could not be saved to the Builder (${uploadFailure}). A local download was started instead.`);
+    setPreviewRecordingState("error");
+  }, [activeOutputProfile, activeProject, refreshPreviewRecordings, selectedProjectSongId]);
+
+  const startPreviewRecording = useCallback(() => {
+    if (previewRecordingActiveRef.current) return;
+    if (typeof globalThis.MediaRecorder === "undefined") {
+      setPreviewRecordingError("This browser cannot record the preview (MediaRecorder unavailable). Safari on macOS 13 or Chrome/Edge is required.");
+      setPreviewRecordingState("error");
+      return;
+    }
+    const probeCanvas = globalThis.document.createElement("canvas");
+    if (typeof probeCanvas.captureStream !== "function") {
+      setPreviewRecordingError("This browser cannot capture a canvas stream (captureStream unavailable).");
+      setPreviewRecordingState("error");
+      return;
+    }
+    const output = activeOutputProfile;
+    const canvas = globalThis.document.createElement("canvas");
+    canvas.width = Math.max(320, Number(output?.width || 1280));
+    canvas.height = Math.max(320, Number(output?.height || 720));
+    previewRecordingCanvasRef.current = canvas;
+    const videoTracks = canvas.captureStream(ECHO_PREVIEW_RECORD_FPS).getVideoTracks();
+    if (!videoTracks.length) {
+      previewRecordingCanvasRef.current = null;
+      setPreviewRecordingError("The preview canvas could not produce a capture stream.");
+      setPreviewRecordingState("error");
+      return;
+    }
+    const audioTrack = acquirePreviewRecordingAudioTrack();
+    const stream = new (globalThis.MediaStream)([...videoTracks, ...(audioTrack ? [audioTrack] : [])]);
+    previewRecordingStreamRef.current = stream;
+    const mimeType = pickEchoPreviewRecordingMimeType((candidate) => globalThis.MediaRecorder.isTypeSupported(candidate));
+    let recorder = null;
+    try {
+      recorder = new (globalThis.MediaRecorder)(stream, {
+        ...(mimeType ? { mimeType } : {}),
+        videoBitsPerSecond: ECHO_PREVIEW_RECORD_VIDEO_BIT_RATE,
+        audioBitsPerSecond: ECHO_PREVIEW_RECORD_AUDIO_BIT_RATE,
+      });
+    } catch (error) {
+      releasePreviewRecordingResources();
+      setPreviewRecordingError(`MediaRecorder could not start (${String(error?.message || error)}).`);
+      setPreviewRecordingState("error");
+      return;
+    }
+    previewRecordingChunksRef.current = [];
+    recorder.ondataavailable = (event) => {
+      if (event?.data && Number(event.data.size || 0) > 0) previewRecordingChunksRef.current.push(event.data);
+    };
+    const session = createEchoPreviewRecordingSession({
+      recorder,
+      maxDurationMs: ECHO_PREVIEW_RECORD_MAX_DURATION_MS,
+      onTick: (elapsedMs) => setPreviewRecordingElapsedMs(elapsedMs),
+      onAutoStop: () => { stopPreviewRecording(); },
+    });
+    previewRecordingSessionRef.current = session;
+    try {
+      session.start(ECHO_PREVIEW_RECORD_TIMESLICE_MS);
+    } catch (error) {
+      releasePreviewRecordingResources();
+      setPreviewRecordingError(`Recording could not start (${String(error?.message || error)}).`);
+      setPreviewRecordingState("error");
+      return;
+    }
+    const audioElement = audioRef.current;
+    if (audioElement && typeof audioElement.addEventListener === "function") {
+      const onEnded = () => { stopPreviewRecording(); };
+      audioElement.addEventListener("ended", onEnded);
+      previewRecordingEndedRef.current = { element: audioElement, onEnded };
+    }
+    previewRecordingActiveRef.current = true;
+    setPreviewRecordingError("");
+    setPreviewRecordingElapsedMs(0);
+    setPreviewRecordingState("recording");
+    startPreviewRecordingComposite();
+  }, [activeOutputProfile, stopPreviewRecording]);
+
+  // Load the recording shelf once on mount.
+  useEffect(() => {
+    refreshPreviewRecordings();
+  }, [refreshPreviewRecordings]);
+
+  // The preview surface unmounts on tab/power changes; a live capture would
+  // otherwise record black frames, so finish (and upload) the clip instead.
+  useEffect(() => {
+    if ((activeWorkbenchTab !== "preview" || powerMode === "hidden") && previewRecordingActiveRef.current) {
+      stopPreviewRecording();
+    }
+  }, [activeWorkbenchTab, powerMode, stopPreviewRecording]);
+
+  // A song change remounts the media elements; finish the capture first.
+  useEffect(() => {
+    if (previewRecordingActiveRef.current) stopPreviewRecording();
+  }, [selectedProjectSongId, stopPreviewRecording]);
+
   // Sync currentTime to Ref
   useEffect(() => {
     currentTimeRef.current = currentTime;
@@ -2321,6 +2710,10 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
   useEffect(() => {
     availableShaderByIdRef.current = availableShaderById;
   }, [availableShaderById]);
+  // Sync the quick-capture composite refs (declared earlier) after their
+  // source declarations so effect dependency arrays never hit the TDZ.
+  useEffect(() => { activeDirectorPreviewSourceRef.current = activeDirectorPreviewSource; }, [activeDirectorPreviewSource]);
+  useEffect(() => { activeShowGraphRef.current = activeShowGraph; }, [activeShowGraph]);
   const shaderTypeResolver = useMemo(
     () => (sourceId) => {
       const shader = availableShaderByIdRef.current?.get(String(sourceId || "")) || null;
@@ -2328,6 +2721,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
     },
     [],
   );
+  useEffect(() => { shaderTypeResolverRef.current = shaderTypeResolver; }, [shaderTypeResolver]);
   const shaderPickerCategories = useMemo(
     () => echoShaderPickerCategories(availableShaders),
     [availableShaders],
@@ -2493,6 +2887,8 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
   // Cleanup audio context on unmount
   useEffect(() => {
     return () => {
+      if (previewRecordingActiveRef.current) stopPreviewRecording();
+      releasePreviewRecordingResources();
       exactIsfPlaybackPoolRef.current?.dispose?.();
       exactIsfPlaybackPoolRef.current = null;
       exactIsfPlaybackPoolIdentityRef.current = { variantKey: "", dirtyKey: "", dirtyRangeCount: 0, shaderIds: [] };
@@ -6249,7 +6645,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                             
                             {/* Tabs select */}
                             <div style={{ display: 'flex', gap: '6px', background: 'rgba(0,0,0,0.2)', padding: '3px', borderRadius: '4px', border: '1px solid rgba(255,255,255,0.04)' }}>
-                              {['preview', 'lyrics', 'tracks', 'variation', 'live', 'palmier', 'script', 'edl', 'journal'].map(tab => (
+                              {['preview', 'lyrics', 'tracks', 'variation', 'live', 'palmier', 'script', 'edl', 'journal', 'recordings'].map(tab => (
                                 <button
                                   key={tab}
                                   type="button"
@@ -6275,6 +6671,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                                   {tab === 'script' && '📄 Script'}
                                   {tab === 'edl' && '📋 EDL Table'}
                                   {tab === 'journal' && '📓 Narrative'}
+                                  {tab === 'recordings' && '🎞 Recordings'}
                                 </button>
                               ))}
                             </div>
@@ -6885,6 +7282,29 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                                   >
                                     {cleanPreviewMode ? "◉ Overlays Hidden" : "○ Hide Overlays"}
                                   </button>
+                                  <button
+                                    type="button"
+                                    data-testid="echo-director-preview-record"
+                                    data-recording-state={previewRecordingState}
+                                    aria-pressed={previewRecordingState === "recording" || previewRecordingState === "saving"}
+                                    disabled={previewRecordingState === "saving"}
+                                    onClick={previewRecordingState === "recording" ? stopPreviewRecording : (previewRecordingState === "idle" || previewRecordingState === "error") ? startPreviewRecording : undefined}
+                                    title={previewRecordingState === "recording" ? "Stop the capture and save it to Recordings" : "Capture the preview (picture + audio) as a quick video clip"}
+                                    style={{
+                                      background: previewRecordingState === "recording" ? 'rgba(239,68,68,0.22)' : 'rgba(255,255,255,0.05)',
+                                      border: `1px solid ${previewRecordingState === "recording" ? 'var(--hapa-neon-rose, #ef4444)' : 'rgba(255,255,255,0.18)'}`,
+                                      color: previewRecordingState === "recording" ? '#fecaca' : '#cbd5e1',
+                                      padding: '5px 10px',
+                                      fontSize: '9px',
+                                      fontWeight: 'bold',
+                                      borderRadius: '4px',
+                                      cursor: previewRecordingState === "saving" ? 'wait' : 'pointer',
+                                      flexShrink: 0,
+                                      ...(previewRecordingState === "saving" ? { opacity: 0.7 } : {})
+                                    }}
+                                  >
+                                    {previewRecordingState === "recording" ? `■ Stop · ${formatEchoPreviewRecordingElapsed(previewRecordingElapsedMs)}` : previewRecordingState === "saving" ? "⏫ Saving…" : "● Record"}
+                                  </button>
                                   {pendingPreviewProxyCount > 0 && (
                                     <button type="button" onClick={prepareSmoothPreview} disabled={["queued", "running"].includes(previewPreparation.status)} style={{ background: 'rgba(168,85,247,.16)', border: '1px solid var(--hapa-neon-violet)', color: 'var(--hapa-neon-violet)', padding: '5px 9px', fontSize: '9px', fontWeight: 'bold', borderRadius: '4px', cursor: ["queued", "running"].includes(previewPreparation.status) ? 'wait' : 'pointer', flexShrink: 0 }}>
                                       {previewPreparation.status === "queued" ? `QUEUED ${pendingPreviewProxyCount} PROXIES…` : previewPreparation.status === "running" ? `COMPILING ${pendingPreviewProxyCount} PROXIES…` : `COMPILE SMOOTH PREVIEW (${pendingPreviewProxyCount})`}
@@ -7023,6 +7443,85 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                                 ? createPortal(previewSurface, globalThis.document.body)
                                 : previewSurface;
                             })()}
+
+                            {activeWorkbenchTab === "recordings" && (
+                              <div
+                                data-testid="echo-preview-recordings-panel"
+                                data-recording-count={previewRecordings?.length ?? 0}
+                                style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}
+                              >
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                  <span style={{ fontSize: '10px', fontWeight: 'bold', color: 'var(--hapa-neon-cyan)', letterSpacing: '0.08em' }}>
+                                    🎞 PREVIEW RECORDINGS {previewRecordings ? `· ${previewRecordings.length}` : ""}
+                                  </span>
+                                  <button
+                                    type="button"
+                                    data-testid="echo-preview-recordings-refresh"
+                                    onClick={refreshPreviewRecordings}
+                                    style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.18)', color: '#cbd5e1', padding: '4px 10px', fontSize: '9px', fontWeight: 'bold', borderRadius: '4px', cursor: 'pointer' }}
+                                  >
+                                    ↻ Refresh
+                                  </button>
+                                </div>
+                                <span style={{ fontSize: '9px', opacity: 0.72, lineHeight: 1.5 }}>
+                                  Quick captures of the Director Preview (picture + audio). Press ● Record in the preview to add one. These are scratch clips — they are not Song Card mints and can be deleted freely.
+                                </span>
+                                {previewRecordingsError && (
+                                  <div style={{ padding: '8px 10px', borderRadius: '4px', border: '1px solid rgba(239,68,68,0.5)', background: 'rgba(239,68,68,0.12)', color: '#fecaca', fontSize: '9px' }}>
+                                    {previewRecordingsError}
+                                  </div>
+                                )}
+                                {!previewRecordings && !previewRecordingsError && (
+                                  <div style={{ padding: '14px', textAlign: 'center', opacity: 0.6, fontSize: '9px' }}>Loading recordings…</div>
+                                )}
+                                {previewRecordings?.length === 0 && !previewRecordingsError && (
+                                  <div style={{ padding: '18px', textAlign: 'center', opacity: 0.6, fontSize: '9px', border: '1px dashed rgba(255,255,255,0.18)', borderRadius: '6px' }}>
+                                    No captures yet. Play the preview, press ● Record, then ■ Stop to keep a clip.
+                                  </div>
+                                )}
+                                {previewRecordings?.map((recording) => (
+                                  <div
+                                    key={recording.id}
+                                    data-testid="echo-preview-recording-item"
+                                    data-recording-id={recording.id}
+                                    style={{ display: 'flex', flexDirection: 'column', gap: '8px', padding: '10px', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.12)', background: 'rgba(0,0,0,0.25)' }}
+                                  >
+                                    <video
+                                      controls
+                                      preload="metadata"
+                                      src={`${API_BASE}/api/echo/preview-recordings/${encodeURIComponent(recording.id)}/file`}
+                                      style={{ width: '100%', borderRadius: '4px', background: '#020617', aspectRatio: recording.width && recording.height ? `${recording.width} / ${recording.height}` : '16 / 9', maxHeight: '260px', objectFit: 'contain' }}
+                                    />
+                                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', alignItems: 'center', justifyContent: 'space-between' }}>
+                                      <span style={{ fontSize: '9.5px', fontWeight: 'bold', color: '#e2e8f0' }}>
+                                        {recording.songTitle || recording.songId || "Untitled song"}
+                                      </span>
+                                      <span style={{ fontFamily: 'monospace', fontSize: '8.5px', color: '#94a3b8' }}>
+                                        {recording.createdAt ? new Date(recording.createdAt).toLocaleString() : ""} · {formatEchoPreviewRecordingElapsed(recording.durationMs)} · {recording.width}×{recording.height} · {recording.fps ? `${recording.fps}fps` : ""} · {Math.max(1, Math.round(Number(recording.sizeBytes || 0) / 1024 / 1024))} MB
+                                      </span>
+                                    </div>
+                                    <div style={{ display: 'flex', gap: '6px' }}>
+                                      <a
+                                        data-testid="echo-preview-recording-download"
+                                        href={`${API_BASE}/api/echo/preview-recordings/${encodeURIComponent(recording.id)}/file?download=1`}
+                                        download={recording.fileName || `${recording.id}.webm`}
+                                        style={{ fontSize: '9px', fontWeight: 'bold', color: 'var(--hapa-neon-cyan)', background: 'rgba(34,211,238,0.12)', border: '1px solid rgba(34,211,238,0.4)', padding: '4px 10px', borderRadius: '4px', textDecoration: 'none', flexShrink: 0 }}
+                                      >
+                                        ⬇ Download
+                                      </a>
+                                      <button
+                                        type="button"
+                                        data-testid="echo-preview-recording-delete"
+                                        onClick={() => deletePreviewRecording(recording.id)}
+                                        style={{ fontSize: '9px', fontWeight: 'bold', color: '#fecaca', background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.4)', padding: '4px 10px', borderRadius: '4px', cursor: 'pointer', flexShrink: 0 }}
+                                      >
+                                        ✕ Delete
+                                      </button>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
 
                             {activeWorkbenchTab === "script" && (
                               <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>

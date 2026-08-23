@@ -1,0 +1,417 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import fs from "node:fs";
+import fsp from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import crypto from "node:crypto";
+
+import {
+  ECHO_PREVIEW_RECORD_MAX_DURATION_MS,
+  ECHO_PREVIEW_RECORD_MIME_CANDIDATES,
+  ECHO_PREVIEW_RECORD_FPS,
+  createEchoPreviewRecordingSession,
+  echoPreviewRecordingContentType,
+  echoPreviewRecordingFileExtension,
+  formatEchoPreviewRecordingElapsed,
+  pickEchoPreviewRecordingMimeType,
+} from "../src/domain/echo-preview-recording.js";
+import {
+  createPreviewRecordingStore,
+  PreviewRecordingStoreError,
+} from "../server/preview-recording-store.mjs";
+
+// ---------------------------------------------------------------------------
+// Domain: container negotiation
+// ---------------------------------------------------------------------------
+
+test("pickEchoPreviewRecordingMimeType prefers the first supported candidate", () => {
+  const saw = [];
+  const mimeType = pickEchoPreviewRecordingMimeType((candidate) => {
+    saw.push(candidate);
+    return candidate === ECHO_PREVIEW_RECORD_MIME_CANDIDATES[2];
+  });
+  assert.equal(mimeType, ECHO_PREVIEW_RECORD_MIME_CANDIDATES[2]);
+  assert.equal(saw.length, 3); // stops walking after the first supported one
+});
+
+test("pickEchoPreviewRecordingMimeType returns undefined when nothing is supported", () => {
+  assert.equal(pickEchoPreviewRecordingMimeType(() => false), undefined);
+  assert.equal(pickEchoPreviewRecordingMimeType(undefined), undefined);
+  assert.equal(pickEchoPreviewRecordingMimeType(() => { throw new Error("no recorder"); }), undefined);
+});
+
+test("recording container helpers map mime to extension and content type", () => {
+  assert.equal(echoPreviewRecordingFileExtension('video/mp4;codecs="avc1.42E01E,mp4a.40.2"'), "mp4");
+  assert.equal(echoPreviewRecordingFileExtension("video/mp4"), "mp4");
+  assert.equal(echoPreviewRecordingFileExtension("video/webm"), "webm");
+  assert.equal(echoPreviewRecordingFileExtension(""), "webm");
+  assert.equal(echoPreviewRecordingContentType("video/mp4"), "video/mp4");
+  assert.equal(echoPreviewRecordingContentType("video/webm;codecs=vp9,opus"), "video/webm");
+  assert.equal(ECHO_PREVIEW_RECORD_FPS, 30);
+});
+
+test("formatEchoPreviewRecordingElapsed renders m:ss", () => {
+  assert.equal(formatEchoPreviewRecordingElapsed(0), "0:00");
+  assert.equal(formatEchoPreviewRecordingElapsed(95000), "1:35");
+  assert.equal(formatEchoPreviewRecordingElapsed(121_000), "2:01");
+  assert.equal(formatEchoPreviewRecordingElapsed(-5), "0:00");
+});
+
+// ---------------------------------------------------------------------------
+// Domain: MediaRecorder session lifecycle
+// ---------------------------------------------------------------------------
+
+function fakeRecorder({ autoStopOnSecond = null } = {}) {
+  const recorder = {
+    state: "inactive",
+    mimeType: "video/webm;codecs=vp8,opus",
+    onstop: null,
+    onerror: null,
+    startedWith: null,
+    stopped: false,
+    start(timeslice) {
+      if (this.state !== "inactive") throw new Error("InvalidStateError");
+      this.state = "recording";
+      this.startedWith = timeslice ?? null;
+      if (autoStopOnSecond !== null) {
+        setTimeout(() => {
+          if (this.state === "recording") {
+            this.state = "inactive";
+            this.onstop?.();
+          }
+        }, autoStopOnSecond);
+      }
+    },
+    stop() {
+      if (this.state === "inactive") throw new Error("InvalidStateError");
+      this.state = "inactive";
+      this.stopped = true;
+      this.onstop?.();
+    },
+    fail() {
+      this.state = "inactive";
+      this.onerror?.({ error: new Error("synthetic recorder failure") });
+    },
+  };
+  return recorder;
+}
+
+function fakeClock() {
+  let current = 0;
+  return {
+    now: () => current,
+    advance(ms) { current += ms; },
+  };
+}
+
+test("session records, ticks, and resolves a blob on stop", async () => {
+  const clock = fakeClock();
+  const recorder = fakeRecorder();
+  const session = createEchoPreviewRecordingSession({
+    recorder,
+    maxDurationMs: 60_000,
+    clock: clock.now,
+    tickIntervalMs: 1,
+  });
+  assert.equal(session.state, "idle");
+  session.start(1000);
+  assert.equal(session.state, "recording");
+  assert.equal(recorder.startedWith, 1000);
+  assert.throws(() => session.start(1000), /cannot start/i); // double-start guard
+  clock.advance(2500);
+  await new Promise((resolve) => setTimeout(resolve, 80)); // interval is clamped to >=50ms; let a tick observe the fake clock
+  const result = await session.stop({
+    buildResultBlob: () => "BLOB",
+    timeoutMs: 20,
+  });
+  assert.equal(result.state, "stopped");
+  assert.equal(result.blob, "BLOB");
+  assert.ok(result.durationMs >= 2000 && result.durationMs <= 3000);
+  assert.equal(session.state, "stopped");
+  // Stop after completion is a resolved no-op, never a throw.
+  const again = await session.stop({ timeoutMs: 20 });
+  assert.equal(again.state, "stopped");
+  assert.equal(again.blob, null);
+});
+
+test("session auto-stops at the duration ceiling and still resolves", async () => {
+  const recorder = fakeRecorder();
+  let autoStopCalls = 0;
+  const startedAt = Date.now();
+  const session = createEchoPreviewRecordingSession({
+    recorder,
+    maxDurationMs: 5,
+    clock: () => Date.now() - startedAt, // real elapsed time
+    tickIntervalMs: 5,
+    onAutoStop: () => { autoStopCalls += 1; },
+  });
+  session.start(1000);
+  await new Promise((resolve) => setTimeout(resolve, 60));
+  assert.equal(autoStopCalls, 1);
+  assert.equal(session.state, "stopped");
+  assert.equal(recorder.state, "inactive");
+  const result = await session.stop({ buildResultBlob: () => "BLOB", timeoutMs: 20 });
+  assert.equal(result.state, "stopped");
+  assert.equal(result.blob, "BLOB");
+});
+
+test("session surfaces recorder errors instead of hanging", async () => {
+  const recorder = fakeRecorder();
+  const session = createEchoPreviewRecordingSession({ recorder, clock: () => 0, tickIntervalMs: 5 });
+  session.start(1000);
+  recorder.fail();
+  assert.equal(session.state, "error");
+  const result = await session.stop({ timeoutMs: 20 });
+  assert.equal(result.state, "error");
+  assert.match(result.error, /synthetic recorder failure/);
+});
+
+test("session rejects a non-recorder input", () => {
+  assert.throws(() => createEchoPreviewRecordingSession({}), /MediaRecorder/);
+});
+
+// ---------------------------------------------------------------------------
+// Server store: persistence, safety, retention
+// ---------------------------------------------------------------------------
+
+async function tempMediaRoot() {
+  return fsp.mkdtemp(path.join(os.tmpdir(), "hapa-preview-recordings-"));
+}
+
+test("store add/list/get round-trips a capture with sha256 and size", async () => {
+  const root = await tempMediaRoot();
+  try {
+    const store = createPreviewRecordingStore({ mediaRoot: root, randomId: () => "a1b2c3d4-0000-4000-8000-000000000001" });
+    const bytes = Buffer.from("0123456789abcdef");
+    const record = await store.add({
+      buffer: bytes,
+      mimeType: "video/webm;codecs=vp8,opus",
+      metadata: { songId: "song-1", songTitle: "Brave Tongues", width: 1920, height: 1080, fps: 30, durationMs: 12_345 },
+    });
+    assert.equal(record.id, "a1b2c3d4-0000-4000-8000-000000000001");
+    assert.equal(record.extension, "webm");
+    assert.equal(record.contentType, "video/webm");
+    assert.equal(record.sizeBytes, bytes.byteLength);
+    assert.equal(record.sha256, crypto.createHash("sha256").update(bytes).digest("hex"));
+    assert.equal(record.songTitle, "Brave Tongues");
+    const file = await store.openFile(record.id);
+    assert.equal(file.sizeBytes, bytes.byteLength);
+    assert.equal(file.contentType, "video/webm");
+    assert.equal(fs.readFileSync(file.filePath, "utf8"), "0123456789abcdef");
+    const listed = await store.list();
+    assert.equal(listed.length, 1);
+    // List rows must be plain objects (the serializer is async; a promise
+    // would stringify to {} and silently corrupt the shelf).
+    assert.equal(typeof listed[0], "object");
+    assert.equal(listed[0].id, record.id);
+    assert.equal(JSON.parse(JSON.stringify(listed[0])).id, record.id);
+    assert.equal((await store.get(record.id)).id, record.id);
+    const filtered = await store.list({ songId: "other" });
+    assert.equal(filtered.length, 0);
+  } finally {
+    await fsp.rm(root, { recursive: true, force: true });
+  }
+});
+
+test("store add uses mp4 extension and serves inline for mp4 uploads", async () => {
+  const root = await tempMediaRoot();
+  try {
+    const store = createPreviewRecordingStore({ mediaRoot: root, randomId: () => "11111111-1111-4111-8111-111111111111" });
+    const record = await store.add({ buffer: Buffer.from("mp4-bytes"), mimeType: 'video/mp4;codecs="avc1.42E01E,mp4a.40.2"' });
+    assert.equal(record.extension, "mp4");
+    assert.equal(record.fileName, "11111111-1111-4111-8111-111111111111.mp4");
+    assert.equal(record.contentType, "video/mp4");
+    const file = await store.openFile(record.id);
+    assert.equal(file.contentType, "video/mp4");
+  } finally {
+    await fsp.rm(root, { recursive: true, force: true });
+  }
+});
+
+test("store rejects unsafe ids, empty uploads, oversized uploads, and unknown ids", async () => {
+  const root = await tempMediaRoot();
+  try {
+    const store = createPreviewRecordingStore({ mediaRoot: root, maxFileBytes: 16, randomId: () => "a1b2c3d4-0000-4000-8000-000000000002" });
+    await assert.rejects(
+      store.add({ buffer: Buffer.from("x"), mimeType: "video/webm", metadata: { id: "../../etc/passwd" } }),
+      (error) => error instanceof PreviewRecordingStoreError && error.code === "preview_recording_id_unsafe",
+    );
+    await assert.rejects(
+      store.add({ buffer: Buffer.alloc(0), mimeType: "video/webm" }),
+      (error) => error instanceof PreviewRecordingStoreError && error.code === "preview_recording_empty",
+    );
+    await assert.rejects(
+      store.add({ buffer: Buffer.alloc(32), mimeType: "video/webm" }),
+      (error) => error instanceof PreviewRecordingStoreError && error.code === "preview_recording_too_large" && error.statusCode === 413,
+    );
+    await assert.rejects(
+      store.get("a1b2c3d4-0000-4000-8000-000000000003"),
+      (error) => error instanceof PreviewRecordingStoreError && error.code === "preview_recording_not_found" && error.statusCode === 404,
+    );
+    // Path traversal can never escape the media root, even via the index.
+    await assert.rejects(
+      store.openFile("a1b2c3d4-0000-4000-8000-000000000004"),
+      (error) => error instanceof PreviewRecordingStoreError && error.statusCode === 404,
+    );
+  } finally {
+    await fsp.rm(root, { recursive: true, force: true });
+  }
+});
+
+test("store remove deletes the file and the index entry", async () => {
+  const root = await tempMediaRoot();
+  try {
+    const store = createPreviewRecordingStore({ mediaRoot: root, randomId: () => "a1b2c3d4-0000-4000-8000-000000000005" });
+    const record = await store.add({ buffer: Buffer.from("delete-me"), mimeType: "video/webm" });
+    const result = await store.remove(record.id);
+    assert.equal(result.removed, true);
+    assert.equal(fs.existsSync(path.join(root, record.fileName)), false);
+    assert.equal((await store.list()).length, 0);
+    await assert.rejects(
+      store.remove(record.id),
+      (error) => error instanceof PreviewRecordingStoreError && error.code === "preview_recording_not_found",
+    );
+  } finally {
+    await fsp.rm(root, { recursive: true, force: true });
+  }
+});
+
+test("store retention ceiling evicts the oldest capture", async () => {
+  const root = await tempMediaRoot();
+  try {
+    let counter = 0;
+    const store = createPreviewRecordingStore({
+      mediaRoot: root,
+      maxRecordings: 2,
+      randomId: () => `a1b2c3d4-0000-4000-8000-00000000${String(++counter).padStart(4, "0")}`,
+      now: () => new Date(Date.UTC(2026, 7, 23, 12, 0, counter)),
+    });
+    const first = await store.add({ buffer: Buffer.from("one"), mimeType: "video/webm" });
+    await store.add({ buffer: Buffer.from("two"), mimeType: "video/webm" });
+    await store.add({ buffer: Buffer.from("three"), mimeType: "video/webm" });
+    const listed = await store.list();
+    assert.equal(listed.length, 2);
+    assert.equal(listed.some((row) => row.id === first.id), false);
+    assert.equal(fs.existsSync(path.join(root, first.fileName)), false);
+  } finally {
+    await fsp.rm(root, { recursive: true, force: true });
+  }
+});
+
+test("store serializes concurrent mutations through the index write chain", async () => {
+  const root = await tempMediaRoot();
+  try {
+    const store = createPreviewRecordingStore({ mediaRoot: root, randomId: () => `a1b2c3d4-0000-4000-8000-${crypto.randomBytes(4).toString("hex")}` });
+    await Promise.all(
+      Array.from({ length: 6 }, (_, index) =>
+        store.add({ buffer: Buffer.from(`concurrent-${index}`), mimeType: "video/webm", metadata: { songId: "song-x" } }),
+      ),
+    );
+    const listed = await store.list({ songId: "song-x" });
+    assert.equal(listed.length, 6);
+    assert.ok(listed.every((row) => typeof row === "object" && typeof row.id === "string" && row.id.length >= 8), "list rows must be hydrated plain objects");
+    const indexRaw = JSON.parse(fs.readFileSync(path.join(root, "index.json"), "utf8"));
+    assert.equal(indexRaw.recordings.length, 6);
+  } finally {
+    await fsp.rm(root, { recursive: true, force: true });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Source contracts: server routes, CLI, and the Director Preview UI
+// ---------------------------------------------------------------------------
+
+const repoRoot = new URL("..", import.meta.url);
+const apiSource = fs.readFileSync(new URL("server/api.mjs", repoRoot), "utf8");
+const cliSource = fs.readFileSync(new URL("cli/avatar-builder.mjs", repoRoot), "utf8");
+const viewSource = fs.readFileSync(new URL("src/components/HapaEchosView.jsx", repoRoot), "utf8");
+const domainSource = fs.readFileSync(new URL("src/domain/echo-preview-recording.js", repoRoot), "utf8");
+
+test("api registers admin-gated preview recording routes with a bounded raw upload", () => {
+  assert.match(apiSource, /import \{ createPreviewRecordingStore, PreviewRecordingStoreError \} from ".\/preview-recording-store\.mjs";/);
+  assert.match(apiSource, /const PREVIEW_RECORDING_DIR = process\.env\.HAPA_PREVIEW_RECORDING_DIR \|\| path\.join\(MEDIA_DIR, "echo-preview-recordings"\);/);
+  assert.match(apiSource, /PREVIEW_RECORDING_MAX_UPLOAD_BYTES = Math\.max\(1 \* 1024 \* 1024, Math\.min\(512 \* 1024 \* 1024, Number\(process\.env\.HAPA_PREVIEW_RECORDING_MAX_UPLOAD_BYTES\) \|\| 128 \* 1024 \* 1024\)/);
+  assert.match(apiSource, /pathname === "\/api\/echo\/preview-recordings" && req\.method === "GET"/);
+  assert.match(apiSource, /pathname === "\/api\/echo\/preview-recordings" && req\.method === "POST"/);
+  assert.ok(apiSource.includes("const previewRecordingItemMatch = pathname.match("), "item route matcher must exist");
+  assert.ok(apiSource.includes("([A-Za-z0-9_-]{8,64})(\\/file)?"), "item route must accept the optional /file suffix");
+  // Every route must be admin-gated before touching the store.
+  const routeSection = apiSource.slice(apiSource.indexOf('"/api/echo/preview-recordings"'), apiSource.indexOf('"/api/echos/director-project" && req.method === "POST"'));
+  const adminGates = (routeSection.match(/requireAdmin\(req, res\)/g) || []).length;
+  assert.ok(adminGates >= 3, `expected at least 3 admin gates in the preview recording routes, found ${adminGates}`);
+  assert.match(routeSection, /readRawBody\(req, PREVIEW_RECORDING_MAX_UPLOAD_BYTES\)/);
+  assert.match(routeSection, /Content-Range/);
+  assert.match(routeSection, /Accept-Ranges/);
+  assert.match(routeSection, /Content-Disposition/);
+});
+
+test("cli exposes an echo-preview-recordings listing command", () => {
+  assert.match(cliSource, /if \(cmd === "echo-preview-recordings"\)/);
+  assert.match(cliSource, /\/api\/echo\/preview-recordings\$\{query\}/);
+  assert.match(cliSource, /HAPA_AVATAR_ADMIN_TOKEN/);
+  assert.match(cliSource, /echo-preview-recordings \[\--song <song-id>\]/);
+});
+
+test("director preview exposes the record button, the recordings tab, and the capture engine", () => {
+  // Capture engine wired to the canonical inputs.
+  assert.match(viewSource, /from "\.\.\/domain\/echo-preview-recording\.js";/);
+  assert.match(viewSource, /createMediaStreamDestination\(\)/);
+  assert.match(viewSource, /createEchoPreviewRecordingSession\(/);
+  assert.match(viewSource, /drawEchoCameraFramedMediaInput\(\{[\s\S]*?canvas,[\s\S]*?mediaElement: element,/);
+  assert.match(viewSource, /recorder\.ondataavailable/);
+  assert.match(viewSource, /fetch\(`\$\{API_BASE\}\/api\/echo\/preview-recordings\?/);
+  assert.match(viewSource, /MediaRecorder/);
+  assert.match(viewSource, /canvas\.captureStream\(ECHO_PREVIEW_RECORD_FPS\)/);
+
+  // Record button in the preview controls with an honest state machine.
+  const controls = viewSource.slice(
+    viewSource.indexOf('data-testid="echo-director-preview-controls"'),
+    viewSource.indexOf('data-testid="echo-director-preview-expand"'),
+  );
+  assert.ok(controls.length > 0, "preview controls row must exist");
+  assert.match(controls, /data-testid="echo-director-preview-record"/);
+  assert.match(controls, /data-recording-state=\{previewRecordingState\}/);
+  assert.match(controls, /"● Record"/);
+  assert.match(controls, /formatEchoPreviewRecordingElapsed\(previewRecordingElapsedMs\)/);
+
+  // The recordings shelf.
+  assert.match(viewSource, /\['preview', 'lyrics', 'tracks', 'variation', 'live', 'palmier', 'script', 'edl', 'journal', 'recordings'\]/);
+  assert.match(viewSource, /{tab === 'recordings' && '🎞 Recordings'}/);
+  assert.match(viewSource, /data-testid="echo-preview-recordings-panel"/);
+  assert.match(viewSource, /data-testid="echo-preview-recording-item"/);
+  assert.match(viewSource, /data-testid="echo-preview-recording-download"/);
+  assert.match(viewSource, /data-testid="echo-preview-recording-delete"/);
+  assert.match(viewSource, /\/api\/echo\/preview-recordings\/\$\{encodeURIComponent\(recording\.id\)\}\/file\?download=1/);
+});
+
+test("capture composites picture + shader only, never the HUD or lyrics", () => {
+  const composite = viewSource.slice(
+    viewSource.indexOf("const compositePreviewRecordingFrame = () => {"),
+    viewSource.indexOf("const startPreviewRecordingComposite = () => {"),
+  );
+  assert.ok(composite.length > 0, "composite function must exist");
+  assert.match(composite, /drawEchoCameraFramedMediaInput/);
+  assert.match(composite, /drawImage\(shaderCanvas, 0, 0, width, height\)/);
+  // The capture must never draw the telemetry HUD or the timed lyrics.
+  assert.doesNotMatch(composite, /data-echo-preview-hud|cleanPreviewMode|currentLine/);
+});
+
+test("capture lifecycle survives tab changes, song changes, and unmount", () => {
+  assert.match(viewSource, /if \(\(activeWorkbenchTab !== "preview" \|\| powerMode === "hidden"\) && previewRecordingActiveRef\.current\)/);
+  assert.match(viewSource, /if \(previewRecordingActiveRef\.current\) stopPreviewRecording\(\);/);
+  assert.match(viewSource, /if \(previewRecordingActiveRef\.current\) stopPreviewRecording\(\);\n      releasePreviewRecordingResources\(\);/);
+});
+
+test("upload failure falls back to a local download instead of dropping the capture", () => {
+  const stop = viewSource.slice(viewSource.indexOf("const stopPreviewRecording = useCallback(async () => {"), viewSource.indexOf("const startPreviewRecording = useCallback(() => {"));
+  assert.match(stop, /URL\.createObjectURL\(blob\)/);
+  assert.match(stop, /anchor\.download = `echo-preview-capture-/);
+  assert.match(stop, /post to\/upload|POST/i);
+});
+
+test("domain module documents quick-capture semantics with no mint coupling", () => {
+  assert.match(domainSource, /ECHO_PREVIEW_RECORDING_SCHEMA = "hapa\.echo\.preview-recording\.v1"/);
+  assert.match(domainSource, /ECHO_PREVIEW_RECORD_MAX_DURATION_MS = 5 \* 60 \* 1000/);
+  assert.doesNotMatch(domainSource, /song-card|createSongCardMint|mintLedger/i);
+});

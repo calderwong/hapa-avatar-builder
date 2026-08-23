@@ -192,6 +192,7 @@ import {
 } from "./stable-certification-file-proof.mjs";
 import { collectSongCardConstituentReferences, hydrateSongCardConstituentSnapshots } from "../src/domain/song-card-constituents.js";
 import { echoProjectAudioRoute } from "../src/domain/echo-audio-route.js";
+import { createPreviewRecordingStore, PreviewRecordingStoreError } from "./preview-recording-store.mjs";
 import {
   isEchoRecordCertifiedTransitionPreviewShot,
   selectEchoRecordSummaryPreviewShot,
@@ -726,6 +727,23 @@ const HAPA_TRANSCRIBE_MAX_BYTES = Math.max(256_000, Number(process.env.HAPA_TRAN
 const HAPA_TRANSCRIBE_EMPTY_CLIP_DIR = process.env.HAPA_TRANSCRIBE_EMPTY_CLIP_DIR || path.join(ROOT, "artifacts/transcribe-empty-clips");
 const HAPA_TRANSCRIBE_SAVE_EMPTY_CLIPS = process.env.HAPA_TRANSCRIBE_SAVE_EMPTY_CLIPS !== "0";
 const MEDIA_DIR = process.env.HAPA_MEDIA_DIR || path.join(ROOT, "data/media");
+const PREVIEW_RECORDING_DIR = process.env.HAPA_PREVIEW_RECORDING_DIR || path.join(MEDIA_DIR, "echo-preview-recordings");
+const PREVIEW_RECORDING_MAX_UPLOAD_BYTES = Math.max(1 * 1024 * 1024, Math.min(512 * 1024 * 1024, Number(process.env.HAPA_PREVIEW_RECORDING_MAX_UPLOAD_BYTES) || 128 * 1024 * 1024));
+const previewRecordingStore = createPreviewRecordingStore({
+  mediaRoot: PREVIEW_RECORDING_DIR,
+  maxFileBytes: PREVIEW_RECORDING_MAX_UPLOAD_BYTES,
+});
+
+function sendPreviewRecordingError(res, error) {
+  const status = Number(error?.statusCode || (PreviewRecordingStoreError && error instanceof PreviewRecordingStoreError ? 400 : 500));
+  const code = String(error?.code || "preview_recording_failed").toLowerCase();
+  sendJson(res, status, {
+    error: code,
+    message: error instanceof Error ? error.message : String(error),
+    ...(error?.details && typeof error.details === "object" ? { details: error.details } : {}),
+    failClosed: status >= 500,
+  });
+}
 const GENERATED_MEDIA_ROOT = resolveAvatarGeneratedMediaRoot();
 const HAPA_MUSIC_VIZ_ROOT = process.env.HAPA_MUSIC_VIZ_ROOT || DEFAULT_HAPA_MUSIC_VIZ_ROOT;
 const ECHO_DIRECTOR_V2_ALBUM_DIR = process.env.HAPA_ECHO_DIRECTOR_V2_ALBUM_DIR || path.join(ROOT, "artifacts/echo-director-v2/album");
@@ -3340,6 +3358,102 @@ async function route(req, res) {
         error: "echo_isf_runtime_unavailable",
         message: error instanceof Error ? error.message : String(error)
       });
+    }
+    return;
+  }
+
+  if (pathname === "/api/echo/preview-recordings" && req.method === "GET") {
+    if (!requireAdmin(req, res)) return;
+    try {
+      const rows = await previewRecordingStore.list({ songId: url.searchParams.get("songId") || undefined });
+      sendJson(res, 200, { schemaVersion: "hapa.echo.preview-recording.v1", count: rows.length, recordings: rows });
+    } catch (error) {
+      sendPreviewRecordingError(res, error);
+    }
+    return;
+  }
+
+  if (pathname === "/api/echo/preview-recordings" && req.method === "POST") {
+    if (!requireAdmin(req, res)) return;
+    try {
+      const body = await readRawBody(req, PREVIEW_RECORDING_MAX_UPLOAD_BYTES);
+      const record = await previewRecordingStore.add({
+        buffer: body,
+        mimeType: String(req.headers["content-type"] || "video/webm"),
+        metadata: {
+          id: url.searchParams.get("id") || undefined,
+          songId: url.searchParams.get("songId") || undefined,
+          songTitle: url.searchParams.get("songTitle") || undefined,
+          projectTitle: url.searchParams.get("projectTitle") || undefined,
+          orientation: url.searchParams.get("orientation") || undefined,
+          width: url.searchParams.get("width") || undefined,
+          height: url.searchParams.get("height") || undefined,
+          fps: url.searchParams.get("fps") || undefined,
+          durationMs: url.searchParams.get("durationMs") || undefined,
+        },
+      });
+      sendJson(res, 201, { ok: true, recording: record });
+    } catch (error) {
+      sendPreviewRecordingError(res, error);
+    }
+    return;
+  }
+
+  const previewRecordingItemMatch = pathname.match(/^\/api\/echo\/preview-recordings\/([A-Za-z0-9_-]{8,64})(\/file)?$/);
+  if (previewRecordingItemMatch && (req.method === "GET" || req.method === "DELETE")) {
+    if (!requireAdmin(req, res)) return;
+    const recordingId = previewRecordingItemMatch[1];
+    const isFileRequest = previewRecordingItemMatch[2] === "/file";
+    try {
+      if (!isFileRequest) {
+        if (req.method === "GET") {
+          const record = await previewRecordingStore.get(recordingId);
+          sendJson(res, 200, { recording: record });
+        } else {
+          const result = await previewRecordingStore.remove(recordingId);
+          sendJson(res, 200, result);
+        }
+        return;
+      }
+      const artifact = await previewRecordingStore.openFile(recordingId);
+      const etag = artifact.sha256 ? `"sha256-${artifact.sha256}"` : null;
+      if (etag && String(req.headers["if-none-match"] || "") === etag) {
+        res.writeHead(304, { ETag: etag, "Cache-Control": "private, max-age=0" });
+        res.end();
+        return;
+      }
+      const ifRange = String(req.headers["if-range"] || "");
+      const range = ifRange && ifRange !== etag ? null : parseSongCardRange(req.headers.range, artifact.sizeBytes);
+      if (range?.invalid) {
+        res.writeHead(416, { "Content-Range": `bytes */${artifact.sizeBytes}`, "Accept-Ranges": "bytes", ...(etag ? { ETag: etag } : {}) });
+        res.end();
+        return;
+      }
+      const headers = {
+        "Content-Type": artifact.contentType,
+        "Accept-Ranges": "bytes",
+        "Cache-Control": "private, max-age=0",
+        "Content-Disposition": url.searchParams.get("download") === "1" ? `attachment; filename="${artifact.fileName}"` : `inline; filename="${artifact.fileName}"`,
+        ...(etag ? { ETag: etag } : {}),
+        "X-Hapa-Preview-Recording": "1",
+      };
+      if (range) {
+        headers["Content-Length"] = range.end - range.start + 1;
+        headers["Content-Range"] = `bytes ${range.start}-${range.end}/${artifact.sizeBytes}`;
+        res.writeHead(206, headers);
+      } else {
+        headers["Content-Length"] = artifact.sizeBytes;
+        res.writeHead(200, headers);
+      }
+      if (req.method === "HEAD") {
+        res.end();
+        return;
+      }
+      const stream = await import("node:fs").then(({ createReadStream }) => createReadStream(artifact.filePath, range ? { start: range.start, end: range.end } : {}));
+      stream.on("error", () => res.destroy());
+      stream.pipe(res);
+    } catch (error) {
+      sendPreviewRecordingError(res, error);
     }
     return;
   }
