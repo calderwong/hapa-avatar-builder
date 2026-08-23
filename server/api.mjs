@@ -193,6 +193,8 @@ import {
 import { collectSongCardConstituentReferences, hydrateSongCardConstituentSnapshots } from "../src/domain/song-card-constituents.js";
 import { echoProjectAudioRoute } from "../src/domain/echo-audio-route.js";
 import { createPreviewRecordingStore, PreviewRecordingStoreError } from "./preview-recording-store.mjs";
+import { createAvatarLikenessStore, AvatarLikenessStoreError } from "./avatar-likeness-store.mjs";
+import { profileSummary, AVATAR_LIKENESS_PROFILE_STORE_SCHEMA } from "../src/domain/avatar-likeness-profile.js";
 import {
   isEchoRecordCertifiedTransitionPreviewShot,
   selectEchoRecordSummaryPreviewShot,
@@ -733,6 +735,8 @@ const previewRecordingStore = createPreviewRecordingStore({
   mediaRoot: PREVIEW_RECORDING_DIR,
   maxFileBytes: PREVIEW_RECORDING_MAX_UPLOAD_BYTES,
 });
+const AVATAR_LIKENESS_DIR = process.env.HAPA_AVATAR_LIKENESS_DIR || path.join(ROOT, "data/avatar-likeness");
+const avatarLikenessStore = createAvatarLikenessStore({ dir: AVATAR_LIKENESS_DIR });
 
 function sendPreviewRecordingError(res, error) {
   const status = Number(error?.statusCode || (PreviewRecordingStoreError && error instanceof PreviewRecordingStoreError ? 400 : 500));
@@ -5812,6 +5816,28 @@ async function route(req, res) {
         error: "hell_week_feedback_invalid",
         message: error?.message || "Hell Week feedback was not accepted."
       });
+    }
+    return;
+  }
+
+  if (pathname === "/api/avatars/likeness" && req.method === "GET") {
+    // Admin-gated read of the local likeness profile store (Avatar
+    // Likeness Assignment, layer L2). Profiles are sidecar data built by
+    // `avatar-builder avatar-likeness-profile`; nothing here mutates the
+    // Avatar Card store.
+    if (!requireAdmin(req, res)) return;
+    try {
+      const profiles = await avatarLikenessStore.list();
+      const statusFilter = String(url.searchParams.get("status") || "").trim();
+      const filtered = statusFilter ? profiles.filter((profile) => profile.status === statusFilter) : profiles;
+      sendJson(res, 200, {
+        schemaVersion: AVATAR_LIKENESS_PROFILE_STORE_SCHEMA,
+        count: filtered.length,
+        profiles: filtered.map(profileSummary),
+      });
+    } catch (error) {
+      const status = error instanceof AvatarLikenessStoreError ? 500 : 500;
+      sendJson(res, status, { error: "avatar_likeness_profile_read_failed", message: error?.message || String(error) });
     }
     return;
   }

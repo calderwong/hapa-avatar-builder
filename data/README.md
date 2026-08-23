@@ -19,6 +19,7 @@ Important local files:
 - `kanban.json` - local builder board.
 - `media/` - generated or imported media assets.
 - `media/echo-preview-recordings/` - Director Preview quick captures (`index.json` plus one file per capture). Scratch clips from the Echo Album preview Record control: no mint ledger, no edition, no release semantics; freely deletable.
+- `avatar-likeness/profiles.json` - per-Avatar likeness profiles (Avatar Likeness Assignment, layer L2): weighted visual signature + text channel + content-hash fingerprints. Sidecar data, never mutates `avatar-store.json`; rebuilt at any time by `node cli/avatar-builder.mjs avatar-likeness-profile --apply` and served read-only at `GET /api/avatars/likeness` (admin-gated).
 - `backups/` - pre-merge and pre-heal store snapshots.
 - `merge-reports/` - JSON reports from repeatable data merge scripts.
 

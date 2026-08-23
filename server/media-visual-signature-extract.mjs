@@ -72,7 +72,11 @@ async function assertReadableFile(filePath) {
  * }} options timeSeconds seeks from the start; sseofOffsetSeconds seeks that
  * many seconds back from the end (used for the Last frame, because an
  * absolute seek at/past the final frame makes ffmpeg emit zero bytes with
- * exit code 0 — indistinguishable from a healthy empty read).
+ * exit code 0 — indistinguishable from a healthy empty read). A time of
+ * zero (or none) emits no seek argument at all: reading from the start is
+ * exactly "seek to 0" without any of its fragility — for some inputs
+ * (notably certain single-frame images) `-ss 0` makes ffmpeg drop the one
+ * frame and exit 0 with zero output bytes.
  * @returns {Promise<{ pixels: Uint8Array, width: number, height: number, pixelFormat: string }>}
  */
 export async function extractFramePixels({
@@ -91,9 +95,12 @@ export async function extractFramePixels({
   const sampleHeight = Math.max(1, Math.trunc(height) || SIGNATURE_COLOR_SAMPLE);
   const filter = `scale=${sampleWidth}:${sampleHeight}:flags=bilinear${pixelFormat === "gray" ? ",format=gray" : ""}`;
   const useSseof = sseofOffsetSeconds !== undefined && sseofOffsetSeconds !== null && Number.isFinite(Number(sseofOffsetSeconds));
+  const absoluteTime = Math.max(0, Number(timeSeconds) || 0);
   const seekArgs = useSseof
     ? ["-sseof", `-${Math.max(0, Number(sseofOffsetSeconds)).toFixed(3)}`]
-    : ["-ss", String(Math.max(0, Number(timeSeconds) || 0))];
+    : absoluteTime > 0
+      ? ["-ss", String(absoluteTime)]
+      : [];
   const args = [
     "-v", "error",
     ...seekArgs,
@@ -282,7 +289,16 @@ export async function createMediaVisualSignature({
           signature.degraded = "last-frame-seek-returned-no-data; used first frame";
         }
       } else {
-        signature = await frameSignatureAt(time);
+        try {
+          signature = await frameSignatureAt(time);
+        } catch (error) {
+          if (!(error instanceof MediaVisualSignatureError && error.code === "decode_failed" && error.details.actualBytes === 0)) throw error;
+          // A seek into a clip whose usable span is nearly zero can find no
+          // frame at all: degrade to the first frame and record it, the same
+          // way the last frame degrades.
+          signature = await frameSignatureAt(0);
+          signature.degraded = "mid-seek-returned-no-data; used first frame";
+        }
       }
       frames.push({ role, timeSeconds: Number(time.toFixed(3)), signature });
     }

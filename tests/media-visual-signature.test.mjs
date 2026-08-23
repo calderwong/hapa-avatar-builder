@@ -254,6 +254,32 @@ test("extractFramePixels assembles the expected raw buffer from the ffmpeg strea
   }
 });
 
+test("extractFramePixels emits no seek argument for a zero start time", async () => {
+  const width = 8;
+  const height = 8;
+  const bytes = Buffer.alloc(width * height * 3, 10);
+  const calls = [];
+  const spawnFn = (command, args) => {
+    calls.push({ command, args });
+    return fakeChild({ bytes });
+  };
+  const fixture = await fs.mkdtemp(path.join(os.tmpdir(), "mvs-ss0-"));
+  const file = path.join(fixture, "input.png");
+  await fs.writeFile(file, "");
+  try {
+    await extractFramePixels({ path: file, timeSeconds: 0, width, height, pixelFormat: "rgb24", spawnFn });
+    // `-ss 0` makes ffmpeg drop the single frame of some inputs (exit 0,
+    // zero bytes); reading from the start must be seek-argument-free.
+    assert.ok(!calls[0].args.includes("-ss"), `zero time must not emit -ss, got: ${calls[0].args.join(" ")}`);
+    assert.ok(calls[0].args.includes("-i"));
+    // A real offset still seeks.
+    await extractFramePixels({ path: file, timeSeconds: 2.5, width, height, pixelFormat: "rgb24", spawnFn });
+    assert.equal(calls[1].args[calls[1].args.indexOf("-ss") + 1], "2.5");
+  } finally {
+    await fs.rm(fixture, { recursive: true, force: true });
+  }
+});
+
 test("extractFramePixels throws decode_failed when the stream size is wrong", async () => {
   const spawnFn = () => fakeChild({ bytes: Buffer.alloc(100, 0) });
   const fixture = await fs.mkdtemp(path.join(os.tmpdir(), "mvs-size-"));

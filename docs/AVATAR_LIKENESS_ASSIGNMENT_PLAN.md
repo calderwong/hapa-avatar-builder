@@ -68,8 +68,11 @@ Two files, split by environment:
   seeks with `-sseof` at ≈ two frame periods (from the probed frame rate)
   because an absolute seek at/past the final frame makes ffmpeg exit 0 with
   zero output; a doubling retry ladder (1×/2×/4×) runs before degrading to
-  the first frame, which then records the degradation. ffmpeg decoding
-  avoids adding an image npm dependency to the repo.
+  the first frame, which then records the degradation. A zero/omitted time
+  emits no seek argument at all (reading from the start is exactly "seek to
+  0" without the zero-byte drop `-ss 0` causes on some single-frame images),
+  and a near-zero-duration mid-seek degrades to the first frame the same way.
+  ffmpeg decoding avoids adding an image npm dependency to the repo.
 - No new dependencies; the browser UI never computes features.
 
 ### L2 — Avatar likeness profiles (one-time + incremental)
@@ -83,18 +86,32 @@ preview-recording store). One profile per Avatar Card:
     (cleanest identity signal);
   - video First/Mid/Last frames — weight 0.8;
   - dossier/kit/tarot-linked images — weight 0.5 (context, not identity).
+- **Per-class sign sample**: Avatars can carry thousands of near-duplicate
+  generated clips (the live store measures 6,354 pixel assets, 4,022 of
+  them identity-class). The merged palette/tone signal saturates long
+  before that, so the builder signs at most `AVATAR_LIKENESS_SAMPLE_CAPS`
+  per class (identity 40 / default 40 / context 12 — the sample, never the
+  fingerprint set) through a bounded ffmpeg pool. An uncapped rebuild
+  measured ~45 minutes; capped it is ~3. Selection is deterministic
+  (class priority, then asset id) so a profile stays a pure function of the
+  Card; the profile records `sampling { usable, attempted, signed,
+  sampledOut }` for honest coverage.
 - Text channel assembled from existing intelligence: OCR lines, vision
   labels, tags, symbolic motifs (all already computed by the Character
   Sheet), plus cast-registry identity invariants where present.
 - **Content-hash keyed**: a profile is only recomputed when the Avatar's
-  asset fingerprints change; 74 cards profile in seconds.
+  asset fingerprints change (every on-disk pixel asset is fingerprinted;
+  an added, removed, or changed file invalidates the profile). Re-profiling
+  a store this size is a few minutes of work, not seconds — the sample cap
+  above is what keeps it bounded.
 - Coverage report: Avatars with no usable visual asset get *no* profile and
   are listed as `profileless` (the Character Sheet gap machinery already
   tracks empty media slots; this surfaces the likeness-side consequence).
 
-Wiring: `cli/avatar-builder.mjs` gains `avatars likeness:profile
-[--all | --avatar <id>]` (dry-run default, `--apply` writes the store);
-API `GET /api/avatars/likeness` (admin-gated like the other Avatar
+Wiring: `cli/avatar-builder.mjs` gains a flat `avatar-likeness-profile
+[--avatar <id> | --all] [--apply] [--concurrency <n>]` command (the CLI is
+flat-command; no subcommand tree). Dry-run by default; `--apply` writes the
+store. `GET /api/avatars/likeness` (admin-gated like the other Avatar
 surfaces) serves profile summaries for the UI.
 
 ### L3 — Media signatures + matcher (over accepted media only)
@@ -176,13 +193,13 @@ accepted likeness set — same audit shape the Human-Accepted pass records.
 
 ## Phasing and verification
 
-| Phase | Scope | Gate |
-| --- | --- | --- |
-| 1 | L1 feature module + unit tests (synthetic frames; ffmpeg round-trip) | tests + focused commit |
-| 2 | L2 profiles store + CLI + API + coverage report | dry-run report over all 74 Avatars; tests + commit |
-| 3 | L3 signatures + matcher + batch script + verdict store | dry-run over the accepted set; calibration pass on a 50-media hand-labeled sample to set the 0.55/0.10 defaults from observed separation, not vibes; tests + commit |
-| 4 | L4 Likeness lane in the Human Enricher UI + decision receipts | UI smoke via served-bundle markers + API round-trip; tests + commit |
-| 5 | Director `avatar-likeness-v1` variant + EDL typing + audit | full-suite baseline (8 known failures), `npm run build`, Director pass report, append-only audit; commit |
+| Phase | Scope | Gate | Status |
+| --- | --- | --- | --- |
+| 1 | L1 feature module + unit tests (synthetic frames; ffmpeg round-trip) | tests + focused commit | **done** — commit `3890b58` (2026-08-23) |
+| 2 | L2 profiles store + CLI + API + coverage report | dry-run report over all 74 Avatars; tests + commit | in progress — profiles store + sampled/pooled builder + CLI + API written; live dry-run over the real store + coverage report, then commit |
+| 3 | L3 signatures + matcher + batch script + verdict store | dry-run over the accepted set; calibration pass on a 50-media hand-labeled sample to set the 0.55/0.10 defaults from observed separation, not vibes; tests + commit | not started |
+| 4 | L4 Likeness lane in the Human Enricher UI + decision receipts | UI smoke via served-bundle markers + API round-trip; tests + commit | not started |
+| 5 | Director `avatar-likeness-v1` variant + EDL typing + audit | full-suite baseline (8 known failures), `npm run build`, Director pass report, append-only audit; commit | not started |
 
 Every phase: `npm test` + `npm run build` gates, focused commits, no push
 (GitHub freeze active), backups under `data/backups/` before any store
@@ -200,3 +217,46 @@ mutation.
 3. **Profileless Avatars: exclude + report.** They are never healed as a
    prerequisite; the coverage report lists them as excluded and their media
    stay `untyped` with an honest reason.
+
+## Implementation decisions (agent, 2026-08-23 — flag for review)
+
+1. **Layer split**: pure feature math lives in `src/domain/` (browser-safe);
+   ffmpeg acquisition in `server/`; profile assembly is pure and testable
+   without any filesystem. (L1 was designed this way; L2 follows it.)
+2. **Silent zero-byte seeks** (L1): an absolute `-ss` can make ffmpeg exit
+   0 with zero output in two shapes — at/past the final frame of a video
+   (fixed with the fps-aware `-sseof` offset + 1×/2×/4× doubling ladder,
+   degrading to the first frame marked `degraded`), and at *t=0 of certain
+   single-frame images*, where `-ss 0` drops the only frame (found live: 71
+   of the real store's images decoded to zero bytes under `-ss 0` but
+   decoded fine without any seek). A zero/omitted time now emits no seek
+   argument at all; near-zero-duration videos whose mid-seek finds no frame
+   degrade to the first frame the same way the last frame does.
+   **Signer versioning**: profiles stamp `signerVersion` and freshness
+   compares it, so a changed/fixed signer invalidates every profile and
+   forces a re-sign — a byte-identical file no longer lets a stale result
+   (e.g. `failed` entries left by a broken seek path) cache forever.
+3. **CLI is flat-command**: `avatar-likeness-profile` (no `avatars
+   likeness:profile` subcommand tree — none exists in this CLI). Deliberately
+   no new npm script in `package.json` (that file is owned by concurrent
+   worktree activity); the CLI command is the parity vehicle.
+4. **Per-class sign sample + ffmpeg pool** (Phase 2): see the L2 sample
+   section. Decision recorded because the plan's original "74 cards profile
+   in seconds" estimate was wrong for this store (6,354 assets): the sample
+   cap is a quality-vs-runtime tradeoff, and the profile records exactly what
+   was and was not signed.
+5. **Freshness stays maximal**: the profile records the sha256 of *every*
+   usable on-disk pixel asset — sampled-in and sampled-out alike; any byte
+   change, addition, or removal anywhere re-profiles the Avatar (cheap
+   under the sample cap). The sample bounds only the ffmpeg sign work,
+   never the invalidation contract. (An early build recorded only the
+   sampled assets, which left over-cap Avatars permanently stale and blind
+   to new media — fixed by recording the full set.)
+6. **Store `upsert` is async** so invalid input rejects rather than throwing
+   synchronously — uniform with the other store methods; fail-closed
+   behavior is unchanged (`await` callers see the same error either way).
+7. File resolution order for Avatar assets: `/media/` uri → `data/media/`,
+   `file://` uri, absolute uri, `metadata.storage.path`,
+   `metadata.storage.fileName` under the media dir.
+8. The asset `metadata.fingerprint` in the Avatar store is a luma grid, not
+   a content hash — profiles key on freshly computed file sha256.

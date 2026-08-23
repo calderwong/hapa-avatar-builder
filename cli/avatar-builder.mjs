@@ -26,6 +26,9 @@ import {
   restoreStargateContextCard,
   stargateContextMintReview
 } from "../src/domain/tarot-stargate-context-card.js";
+import { computeAssetFingerprints, existingProfileIsFresh, buildAvatarLikenessProfileForAvatar } from "../server/avatar-likeness-build.mjs";
+import { createAvatarLikenessStore } from "../server/avatar-likeness-store.mjs";
+import { profileSummary } from "../src/domain/avatar-likeness-profile.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, "..");
@@ -77,6 +80,69 @@ async function main(cmd, opts) {
       headers: adminToken ? { authorization: `Bearer ${adminToken}` } : {},
     });
     print(payload, { ...opts, json: true });
+    return;
+  }
+
+  if (cmd === "avatar-likeness-profile") {
+    // Avatar Likeness Assignment (layer L2): (re)build per-Avatar likeness
+    // profiles from attached media + existing intelligence. Local-only —
+    // reads data/avatar-store.json and writes the sidecar profile store.
+    // Dry-run by default; --apply persists.
+    const avatarId = String(opts.avatar || "").trim();
+    const all = Boolean(opts.all) || !avatarId;
+    const apply = Boolean(opts.apply);
+    const concurrency = Math.max(1, Math.trunc(Number(opts.concurrency) || 8));
+    const mediaDir = path.resolve(opts["media-dir"] || process.env.HAPA_MEDIA_DIR || DEFAULT_MEDIA_DIR);
+    const profileDir = path.resolve(opts["profile-dir"] || process.env.HAPA_AVATAR_LIKENESS_DIR || path.join(ROOT, "data/avatar-likeness"));
+    const doc = JSON.parse(await readFile(storePath, "utf8"));
+    const avatars = doc.avatars || (Array.isArray(doc) ? doc : []);
+    const selected = avatarId ? avatars.filter((avatar) => String(avatar.id) === avatarId) : all ? avatars : [];
+    if (avatarId && !selected.length) throw new Error(`Avatar ${avatarId} was not found in ${storePath}.`);
+    const store = createAvatarLikenessStore({ dir: profileDir });
+    const rows = [];
+    let profiled = 0;
+    let profileless = 0;
+    let fresh = 0;
+    const startedAt = Date.now();
+    for (const avatar of selected) {
+      const existing = await store.get(avatar.id);
+      const fingerprints = await computeAssetFingerprints(avatar, mediaDir);
+      if (existing && existingProfileIsFresh(existing, avatar, fingerprints)) {
+        fresh += 1;
+        const existingAssets = existing.sourceAssets || [];
+        rows.push({
+          avatarId: avatar.id,
+          action: "fresh",
+          ...profileSummary(existing),
+          missingCount: existingAssets.filter((entry) => entry.status === "missing").length,
+          failedCount: existingAssets.filter((entry) => entry.status === "failed").length,
+        });
+        continue;
+      }
+      const { profile } = await buildAvatarLikenessProfileForAvatar(avatar, { mediaDir, concurrency, precomputedFingerprints: fingerprints });
+      if (apply) await store.upsert(profile);
+      if (profile.status === "profileless") profileless += 1;
+      else profiled += 1;
+      const sourceAssets = profile.sourceAssets || [];
+      rows.push({
+        avatarId: avatar.id,
+        action: apply ? "written" : "dry-run",
+        ...profileSummary(profile),
+        missingCount: sourceAssets.filter((entry) => entry.status === "missing").length,
+        failedCount: sourceAssets.filter((entry) => entry.status === "failed").length,
+      });
+    }
+    print({
+      command: "avatar-likeness-profile",
+      apply,
+      avatars: selected.length,
+      profiled,
+      profileless,
+      freshSkipped: fresh,
+      profileStore: apply ? store.filePath : null,
+      ms: Date.now() - startedAt,
+      rows,
+    }, { ...opts, json: true });
     return;
   }
 
@@ -1637,6 +1703,7 @@ Commands:
   list [--json]
   human-enricher-list [--query "Bella"] [--api-url http://127.0.0.1:8787] [--json]
   echo-preview-recordings [--song <song-id>] [--api-url http://127.0.0.1:8797] [--json]  (lists Director Preview quick captures; set HAPA_AVATAR_ADMIN_TOKEN for bearer auth)
+  avatar-likeness-profile [--avatar <id>|--all] [--apply] [--concurrency <n>] [--media-dir <dir>] [--profile-dir <dir>] [--json]  (re)builds per-Avatar likeness profiles locally; dry-run unless --apply (sends each Avatar's media through a bounded ffmpeg sample)
   human-enricher-save --file ./human-video-enrichment.json --actor <human-id> [--api-url http://127.0.0.1:8787] [--json]
   human-enricher-agent-queue [--status needs-agent|needs-human|blocked|all] [--offset 0] [--limit 12] [--api-url http://127.0.0.1:8787] [--json]
   human-enricher-agent-submit --file ./optical-review.json --agent <sub-agent-id> [--api-url http://127.0.0.1:8787] [--json]
