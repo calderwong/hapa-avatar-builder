@@ -121,6 +121,7 @@ import {
   ECHO_PREVIEW_RECORD_VIDEO_BIT_RATE,
   ECHO_PREVIEW_RECORD_AUDIO_BIT_RATE,
   createEchoPreviewRecordingSession,
+  ensureEchoPreviewRecordingLocalSession,
   formatEchoPreviewRecordingElapsed,
   pickEchoPreviewRecordingMimeType,
 } from "../domain/echo-preview-recording.js";
@@ -2467,6 +2468,10 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
 
   const refreshPreviewRecordings = useCallback(async () => {
     try {
+      // Admin-gated route: establish the trusted-local-UI session first.
+      // A failed bootstrap (remote access) is swallowed so the original
+      // route error is the one the operator sees.
+      await ensureEchoPreviewRecordingLocalSession(API_BASE).catch(() => {});
       const response = await fetch(`${API_BASE}/api/echo/preview-recordings`, { cache: "no-store" });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(payload.message || payload.error || `preview recording list failed: ${response.status}`);
@@ -2483,6 +2488,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
     if (!recordingId) return;
     setPreviewRecordings((current) => (current ? current.filter((row) => row.id !== recordingId) : current));
     try {
+      await ensureEchoPreviewRecordingLocalSession(API_BASE).catch(() => {});
       const response = await fetch(`${API_BASE}/api/echo/preview-recordings/${encodeURIComponent(recordingId)}`, { method: "DELETE" });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(payload.message || payload.error || `delete failed: ${response.status}`);
@@ -2552,6 +2558,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
     let uploaded = null;
     let uploadFailure = "";
     try {
+      await ensureEchoPreviewRecordingLocalSession(API_BASE).catch(() => {});
       const response = await fetch(`${API_BASE}/api/echo/preview-recordings?${metadataParams.toString()}`, {
         method: "POST",
         headers: { "Content-Type": String(blob.type || "video/webm") },

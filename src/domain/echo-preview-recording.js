@@ -263,3 +263,50 @@ export function formatEchoPreviewRecordingElapsed(ms) {
   const seconds = totalSeconds % 60;
   return `${minutes}:${String(seconds).padStart(2, "0")}`;
 }
+
+// Trusted local UI session bootstrap.
+//
+// The preview recording routes are admin-gated. The standard local launchd
+// deployment runs without a bearer admin token, so a browser client must
+// first establish the trusted-local-UI session cookie (POST
+// /api/local-ui-session) or every admin call fails closed with
+// admin_auth_not_configured. The bootstrap re-posts on each call (deduping
+// only concurrent callers) because the session token rotates on every
+// service restart; a one-shot cached success would otherwise leave a stale
+// cookie in the browser and 503 again after a restart.
+
+let localUiSessionPromise = null;
+
+/**
+ * Establish the trusted-local-UI session for the preview recording routes.
+ *
+ * @param {string} [apiBase] API origin prefix (empty string for same-origin).
+ * @param {(input: any, init: any) => Promise<any>} [fetchImpl] Injectable for
+ *   tests; defaults to the global fetch.
+ * @returns {Promise<object>} The session payload on success.
+ */
+export function ensureEchoPreviewRecordingLocalSession(apiBase = "", fetchImpl) {
+  if (localUiSessionPromise) return localUiSessionPromise;
+  const fetchFn = typeof fetchImpl === "function" ? fetchImpl : globalThis.fetch;
+  if (typeof fetchFn !== "function") {
+    const failed = Promise.reject(new Error("fetch is not available"));
+    localUiSessionPromise = failed;
+    return failed;
+  }
+  const base = String(apiBase || "").replace(/\/+$/, "");
+  const pending = fetchFn(`${base}/api/local-ui-session`, {
+    method: "POST",
+    headers: { Accept: "application/json" },
+    credentials: "same-origin",
+  }).then(async (response) => {
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(payload.error || payload.message || `Local Builder session failed (${response.status}).`);
+    }
+    return payload;
+  }).finally(() => {
+    if (localUiSessionPromise === pending) localUiSessionPromise = null;
+  });
+  localUiSessionPromise = pending;
+  return localUiSessionPromise;
+}

@@ -13,6 +13,7 @@ import {
   createEchoPreviewRecordingSession,
   echoPreviewRecordingContentType,
   echoPreviewRecordingFileExtension,
+  ensureEchoPreviewRecordingLocalSession,
   formatEchoPreviewRecordingElapsed,
   pickEchoPreviewRecordingMimeType,
 } from "../src/domain/echo-preview-recording.js";
@@ -414,4 +415,73 @@ test("domain module documents quick-capture semantics with no mint coupling", ()
   assert.match(domainSource, /ECHO_PREVIEW_RECORDING_SCHEMA = "hapa\.echo\.preview-recording\.v1"/);
   assert.match(domainSource, /ECHO_PREVIEW_RECORD_MAX_DURATION_MS = 5 \* 60 \* 1000/);
   assert.doesNotMatch(domainSource, /song-card|createSongCardMint|mintLedger/i);
+});
+
+test("session bootstrap posts the trusted-local-UI session with same-origin credentials", async () => {
+  const calls = [];
+  const fakeFetch = (input, init) => {
+    calls.push({ input: String(input), init });
+    return Promise.resolve({
+      ok: true,
+      status: 200,
+      json: async () => ({ schemaVersion: "hapa.avatar-builder.local-ui-session.v1", ok: true, authMode: "trusted-local-ui" }),
+    });
+  };
+  const payload = await ensureEchoPreviewRecordingLocalSession("http://127.0.0.1:8797", fakeFetch);
+  assert.equal(payload.ok, true);
+  assert.equal(payload.authMode, "trusted-local-ui");
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].input, "http://127.0.0.1:8797/api/local-ui-session");
+  assert.equal(calls[0].init.method, "POST");
+  assert.equal(calls[0].init.credentials, "same-origin");
+});
+
+test("session bootstrap dedupes concurrent callers but re-posts after settle", async () => {
+  const calls = [];
+  let resolveFirst;
+  const firstResponse = new Promise((resolve) => { resolveFirst = resolve; });
+  const fakeFetch = (input) => {
+    calls.push(String(input));
+    if (calls.length === 1) return firstResponse.then(() => ({ ok: true, status: 200, json: async () => ({ ok: true }) }));
+    return Promise.resolve({ ok: true, status: 200, json: async () => ({ ok: true }) });
+  };
+  const first = ensureEchoPreviewRecordingLocalSession("", fakeFetch);
+  const second = ensureEchoPreviewRecordingLocalSession("", fakeFetch);
+  assert.equal(first, second, "concurrent bootstrap calls must share one in-flight request");
+  assert.equal(calls.length, 1);
+  resolveFirst();
+  await first;
+  await ensureEchoPreviewRecordingLocalSession("", fakeFetch);
+  assert.equal(calls.length, 2, "a fresh post must run after the previous one settles (token rotates on service restart)");
+  assert.equal(calls[0], "/api/local-ui-session");
+});
+
+test("session bootstrap surfaces server failures for the caller to act on", async () => {
+  const fakeFetch = () => Promise.resolve({ ok: false, status: 503, json: async () => ({ error: "admin_auth_not_configured", failClosed: true }) });
+  await assert.rejects(
+    () => ensureEchoPreviewRecordingLocalSession("", fakeFetch),
+    /admin_auth_not_configured/,
+  );
+});
+
+test("recordings UI establishes the trusted local UI session before every admin call", () => {
+  assert.match(viewSource, /ensureEchoPreviewRecordingLocalSession,/, "view must import the bootstrap");
+  // List, delete, and upload each bootstrap before their admin-gated route.
+  const refresh = viewSource.slice(
+    viewSource.indexOf("const refreshPreviewRecordings = useCallback(async () => {"),
+    viewSource.indexOf("const deletePreviewRecording = useCallback("),
+  );
+  assert.match(refresh, /await ensureEchoPreviewRecordingLocalSession\(API_BASE\)\.catch\(\(\) => \{\}\);/);
+  const del = viewSource.slice(
+    viewSource.indexOf("const deletePreviewRecording = useCallback("),
+    viewSource.indexOf("const stopPreviewRecording = useCallback(async () => {"),
+  );
+  assert.match(del, /await ensureEchoPreviewRecordingLocalSession\(API_BASE\)\.catch\(\(\) => \{\}\);/);
+  const stop = viewSource.slice(
+    viewSource.indexOf("const stopPreviewRecording = useCallback(async () => {"),
+    viewSource.indexOf("const startPreviewRecording = useCallback(() => {"),
+  );
+  assert.match(stop, /await ensureEchoPreviewRecordingLocalSession\(API_BASE\)\.catch\(\(\) => \{\}\);/);
+  // And the domain bootstrap must target the local-ui-session endpoint.
+  assert.match(domainSource, /\/api\/local-ui-session/);
 });
