@@ -1591,6 +1591,18 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
   const [directorPreviewExpanded, setDirectorPreviewExpanded] = useState(false);
   const [directorPreviewFullscreen, setDirectorPreviewFullscreen] = useState(false);
   const [directorPreviewFullscreenMessage, setDirectorPreviewFullscreenMessage] = useState("");
+  // Clean preview mode hides the telemetry HUD and timed-lyric overlays that sit
+  // on top of the picture. Persisted per operator so the preference survives reloads.
+  const [cleanPreviewMode, setCleanPreviewMode] = useState(() => {
+    try { return globalThis.localStorage?.getItem("hapa-echoes-clean-preview") === "1"; } catch { return false; }
+  });
+  const toggleCleanPreviewMode = useCallback(() => {
+    setCleanPreviewMode((current) => {
+      const next = !current;
+      try { globalThis.localStorage?.setItem("hapa-echoes-clean-preview", next ? "1" : "0"); } catch { /* storage unavailable */ }
+      return next;
+    });
+  }, []);
   const canvasRef = useRef(null);
   const exactIsfPlaybackPoolRef = useRef(null);
   const exactIsfPlaybackPoolIdentityRef = useRef({ variantKey: "", dirtyKey: "", sizeKey: "", dirtyRangeCount: 0, shaderIds: [] });
@@ -6394,6 +6406,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                                 <div
                                   className="media-preview-container"
                                   data-testid="echo-director-preview-frame"
+                                  data-clean-preview={cleanPreviewMode ? "true" : "false"}
                                   data-echo-preview-contract={directorPreviewFrame?.schemaVersion || "legacy-local-projection"}
                                   data-echo-preview-frame-key={directorPreviewFrame?.frameKey || ""}
                                   data-echo-preview-media-layers={directorPreviewFrame?.media?.layerCount ?? (currentTimelineItem ? 1 : 0)}
@@ -6470,7 +6483,10 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                                   />
 
                                   {/* Neon HUD Overlay */}
-                                  <div style={{ position: 'absolute', top: `${Math.round(activeOutputProfile.safeArea.actionInset * 100)}%`, left: `${Math.round(activeOutputProfile.safeArea.actionInset * 100)}%`, right: isVerticalOutput ? `${Math.round(activeOutputProfile.safeArea.actionInset * 100)}%` : 'auto', display: 'flex', gap: '6px', flexWrap: 'wrap', pointerEvents: 'none', zIndex: 5 }}>
+                                  {/* Telemetry badges on the picture; hidden in Clean Preview mode. */}
+                                  <div
+                                    data-echo-preview-hud={cleanPreviewMode ? "hidden" : "visible"}
+                                    style={{ position: 'absolute', top: `${Math.round(activeOutputProfile.safeArea.actionInset * 100)}%`, left: `${Math.round(activeOutputProfile.safeArea.actionInset * 100)}%`, right: isVerticalOutput ? `${Math.round(activeOutputProfile.safeArea.actionInset * 100)}%` : 'auto', display: cleanPreviewMode ? 'none' : 'flex', gap: '6px', flexWrap: 'wrap', pointerEvents: 'none', zIndex: 5 }}>
                                     <span style={{ fontSize: '8px', fontWeight: 'bold', padding: '2.5px 6px', background: 'rgba(0,0,0,0.6)', borderRadius: '3px', color: '#fff', border: '1px solid rgba(255,255,255,0.15)' }}>
                                       PLAYING SHOT {playheadShotIndex !== undefined && playheadShotIndex !== -1 ? playheadShotIndex + 1 : 1}
                                     </span>
@@ -6567,8 +6583,8 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                                     )}
                                   </div>
 
-                                  {/* Timed Lyrics Overlay */}
-                                  {currentLine && (() => {
+                                  {/* Timed Lyrics Overlay — hidden in Clean Preview mode */}
+                                  {!cleanPreviewMode && currentLine && (() => {
                                     const activeTemplateId = activeLyricContract.templateId;
                                     const lyricPlacement = getLyricPlacementStyle(activeProject.lyric_position || "bottom-center", activeOutputProfile);
                                     const lyricTheme = getLyricTheme(activeProject.lyric_style || "neon-cyan");
@@ -6849,6 +6865,26 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                                   <span style={{ fontFamily: 'monospace', fontSize: '9px', color: previewBufferState.status === 'fallback' ? 'var(--hapa-neon-gold)' : 'var(--hapa-neon-cyan)', flexShrink: 0 }}>
                                     {previewBufferState.status.toUpperCase()} · {previewBufferState.readyLookahead || 0}/{previewBufferState.targetLookahead || 0} AHEAD
                                   </span>
+                                  <button
+                                    type="button"
+                                    data-testid="echo-director-preview-clean-view"
+                                    aria-pressed={cleanPreviewMode}
+                                    onClick={toggleCleanPreviewMode}
+                                    title={cleanPreviewMode ? "Restore the overlay telemetry and lyrics" : "Hide the overlay telemetry and lyrics for a clean look at the picture"}
+                                    style={{
+                                      background: cleanPreviewMode ? 'rgba(34,211,238,0.18)' : 'rgba(255,255,255,0.05)',
+                                      border: `1px solid ${cleanPreviewMode ? 'var(--hapa-neon-cyan)' : 'rgba(255,255,255,0.18)'}`,
+                                      color: cleanPreviewMode ? 'var(--hapa-neon-cyan)' : '#cbd5e1',
+                                      padding: '5px 10px',
+                                      fontSize: '9px',
+                                      fontWeight: 'bold',
+                                      borderRadius: '4px',
+                                      cursor: 'pointer',
+                                      flexShrink: 0
+                                    }}
+                                  >
+                                    {cleanPreviewMode ? "◉ Overlays Hidden" : "○ Hide Overlays"}
+                                  </button>
                                   {pendingPreviewProxyCount > 0 && (
                                     <button type="button" onClick={prepareSmoothPreview} disabled={["queued", "running"].includes(previewPreparation.status)} style={{ background: 'rgba(168,85,247,.16)', border: '1px solid var(--hapa-neon-violet)', color: 'var(--hapa-neon-violet)', padding: '5px 9px', fontSize: '9px', fontWeight: 'bold', borderRadius: '4px', cursor: ["queued", "running"].includes(previewPreparation.status) ? 'wait' : 'pointer', flexShrink: 0 }}>
                                       {previewPreparation.status === "queued" ? `QUEUED ${pendingPreviewProxyCount} PROXIES…` : previewPreparation.status === "running" ? `COMPILING ${pendingPreviewProxyCount} PROXIES…` : `COMPILE SMOOTH PREVIEW (${pendingPreviewProxyCount})`}
