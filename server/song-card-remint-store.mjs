@@ -364,6 +364,50 @@ export class SongCardRemintStore {
   }
 
   async view() { await this.initialize(); await this.pending; return songCardRemintQueueView(this.queue); }
+
+  /** Representative remint candidate for one song, newest among the higher-ranked
+   * actionable states. Inactive terminal states (canceled, rejected, superseded)
+   * and finished mints never shadow an actionable candidate. */
+  async currentCandidateForSong(songIdInput) {
+    await this.initialize();
+    await this.pending;
+    const songId = String(songIdInput || "").trim().toLowerCase();
+    if (!songId) return null;
+    const rank = {
+      "render-ready": 100, "ready-for-mint-review": 90, minting: 80, rendering: 70,
+      queued: 60, approved: 50, "awaiting-approval": 40, failed: 30,
+    };
+    const matches = (this.queue.candidates || [])
+      .filter((row) => String(row?.songId || "").trim().toLowerCase() === songId)
+      .filter((row) => (rank[row.status] ?? 0) > 0)
+      .map((row) => ({ row, score: rank[row.status] ?? 0, at: String(row.updatedAt || row.createdAt || row.approval?.approvedAt || row.renderFailure?.failedAt || "") }))
+      .sort((left, right) => (right.score - left.score) || (left.at < right.at ? 1 : left.at > right.at ? -1 : 0));
+    if (!matches.length) return null;
+    return structuredClone(matches[0].row);
+  }
+
+  /** Compact cross-song rollup for album-level surfaces: every candidate that
+   * still needs an operator decision or is actively producing work. */
+  async actionableSummary() {
+    await this.initialize();
+    await this.pending;
+    const rank = {
+      "render-ready": 100, "ready-for-mint-review": 90, minting: 80, rendering: 70,
+      queued: 60, approved: 50, "awaiting-approval": 40, failed: 30,
+    };
+    return (this.queue.candidates || [])
+      .filter((row) => (rank[row.status] ?? 0) > 0)
+      .map((row) => ({
+        songId: String(row.songId || ""),
+        candidateId: String(row.id || ""),
+        planId: String(row.planId || ""),
+        status: String(row.status || ""),
+        predictedEdition: Number(row.predictedEdition || 0),
+        updatedAt: String(row.updatedAt || row.createdAt || ""),
+      }))
+      .sort((left, right) => (left.updatedAt < right.updatedAt ? 1 : left.updatedAt > right.updatedAt ? -1 : 0));
+  }
+
   async approve(candidateId, body = {}) { return songCardRemintQueueView((await this.mutate((queue) => approveSongCardRemintCandidate(queue, candidateId, { ...body, approvedAt: body.approvedAt || this.now() }))).queue); }
   async cancel(candidateId, body = {}) { return songCardRemintQueueView((await this.mutate((queue) => cancelSongCardRemintCandidate(queue, candidateId, { ...body, canceledAt: body.canceledAt || this.now() }))).queue); }
   async supersede(candidateId, body = {}) {

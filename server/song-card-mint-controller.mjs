@@ -15,6 +15,8 @@ import {
   querySongCardAppearances,
   stableMintStringify,
   validateSongCardEdition,
+  NON_BLOCKING_COVERAGE_GAP_MS,
+  coverageGapMs,
 } from "../src/domain/song-card-mint.js";
 import { projectToEditorGraph } from "../src/domain/multitrack-editor.js";
 import { resolveEchoOutputProfile } from "../src/domain/echo-output-profile.js";
@@ -260,13 +262,15 @@ function planBlockers({ renderMasterPath, posterPath, rendererTruth, appearanceI
     || rendererTruth?.releaseSafe === false || rendererTruth?.truthStatus === "blocked") {
     hard.push({ code: "renderer-truth-unverified", label: "Renderer truth must pass with visible states and zero silent defaults." });
   }
-  if ((appearanceIndex?.gaps || []).length) hard.push({ code: "temporal-card-coverage-gap", label: "Every rendered interval needs card or explicit visualizer truth.", ranges: appearanceIndex.gaps });
+  const coverageGaps = appearanceIndex?.gaps || [];
+  const blockingCoverageGaps = coverageGaps.filter((gap) => coverageGapMs(gap) > NON_BLOCKING_COVERAGE_GAP_MS);
+  if (blockingCoverageGaps.length) hard.push({ code: "temporal-card-coverage-gap", label: "Every rendered interval needs card or explicit visualizer truth.", ranges: blockingCoverageGaps });
   const licensingStatus = String(rights?.licensingStatus || rights?.status || "").trim().toLowerCase();
   const consentStatus = String(rights?.consentStatus || "").trim().toLowerCase();
   if (!PUBLIC_LICENSE_STATUSES.has(licensingStatus) || !PUBLIC_CONSENT_STATUSES.has(consentStatus)) publicOnly.push({ code: "rights-or-consent-uncleared", label: "Public mint requires cleared rights and affirmative consent." });
   if (approvals?.technical !== true || approvals?.creative !== true) publicOnly.push({ code: "publish-approvals-missing", label: "Public mint requires technical and creative approval." });
   if (safety?.ok !== true) publicOnly.push({ code: "safety-receipt-missing", label: "Public mint requires a visual/media safety receipt." });
-  return { hard, publicOnly };
+  return { hard, publicOnly, nonBlockingCoverageGaps: coverageGaps.filter((gap) => coverageGapMs(gap) <= NON_BLOCKING_COVERAGE_GAP_MS) };
 }
 
 function lineageFor({ songId, sourceRevision, snapshot, showGraph }) {
@@ -643,6 +647,7 @@ export class SongCardMintController {
       } : null,
       rendererTruth: { ok: rendererTruth.ok === true, cueReceiptCount: Number(rendererTruth.cueReceiptCount || 0), allStatesVisible: rendererTruth.allStatesVisible === true, silentDefaultCount: Number(rendererTruth.silentDefaultCount || 0) },
       appearanceSummary: { count: appearanceIndex.appearances.length, gaps: appearanceIndex.gaps.length, indexDigest: appearanceIndex.indexDigest },
+      coverageGapsNonBlocking: blockers.nonBlockingCoverageGaps || [],
       gate: body.gate || "private-demo",
       createdAt: this.now(),
       input: { song, project, showGraph, render: body.render || {}, renderMasterPath, rendererTruth, rights, approvals, safety, cardSnapshots: body.cardSnapshots || {}, registry: body.registry || {}, context: body.context || {}, captions: body.captions || null, receipts: body.receipts || {}, posterPath, managedArtifacts: managedRender ? { workspaceId: managedRender.workspaceId, posterGenerated: managedRender.poster.generated === true } : null },

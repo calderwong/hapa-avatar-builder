@@ -318,6 +318,15 @@ function sourceSnapshotFor(card, track, snapshots) {
   return { snapshot: null, sourceId: card.id || "", sourceKind: "non-printable" };
 }
 
+// Coverage slivers at or under this many ms (a handful of frames) are cue-boundary
+// or duration-rounding artifacts: a cut ending at 211.000s under a 211.040s song
+// leaves a 40ms tail that no card covers. The mint plan and the immutable ledger
+// both record those as non-blocking evidence (the gaps remain permanently visible
+// in the edition appearance index) while any hole over the threshold still fails
+// closed, so a genuine missing-provenance window cannot ship silently.
+export const NON_BLOCKING_COVERAGE_GAP_MS = 250;
+export function coverageGapMs(gap = {}) { return Math.max(0, Number(gap?.endMs ?? 0) - Number(gap?.startMs ?? 0)); }
+
 export function compileSongCardAppearanceIndex({ showGraph = {}, cardSnapshots = {}, durationSeconds = null, hashFn = defaultHash } = {}) {
   const durationMs = Math.max(0, Math.round(Number(durationSeconds ?? showGraph.song?.durationSeconds ?? 0) * 1000));
   const snapshots = snapshotLookup(cardSnapshots);

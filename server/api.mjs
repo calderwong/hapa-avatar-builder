@@ -3424,7 +3424,8 @@ async function route(req, res) {
 
   if (pathname === "/api/song-cards" && req.method === "GET") {
     try {
-      sendJson(res, 200, await songCardMintController.catalogProjection());
+      const catalog = await songCardMintController.catalogProjection();
+      sendJson(res, 200, withSongCardRenderExecutor({ ...catalog, remintSummary: await songCardRemintStore.actionableSummary() }));
     } catch (error) {
       sendSongCardMintError(res, error);
     }
@@ -3434,7 +3435,17 @@ async function route(req, res) {
   const songCardRootMatch = pathname.match(/^\/api\/song-cards\/([^/]+)$/);
   if (songCardRootMatch && req.method === "GET") {
     try {
-      sendJson(res, 200, await songCardMintController.getSongCard(songCardRootMatch[1]));
+      const songId = decodeURIComponent(songCardRootMatch[1]);
+      const [card, remintCandidate, remintPlan] = await Promise.all([
+        songCardMintController.getSongCard(songId),
+        songCardRemintStore.currentCandidateForSong(songId),
+        songCardRemintStore.currentCandidateForSong(songId).then(async (candidate) => (
+          candidate?.status === "ready-for-mint-review" && candidate?.mintPlanId
+            ? songCardMintController.getPlan(candidate.mintPlanId).catch(() => null)
+            : null
+        )),
+      ]);
+      sendJson(res, 200, withSongCardRenderExecutor({ ...card, remintCandidate, plan: remintPlan || null }));
     } catch (error) {
       sendSongCardMintError(res, error);
     }
@@ -3805,7 +3816,19 @@ async function route(req, res) {
     try {
       const body = await readBody(req);
       operation.checkpoint("request-body-read");
-      const input = await hydrateSongCardMintInput(body, { signal: operation.signal });
+      let input = await hydrateSongCardMintInput(body, { signal: operation.signal });
+      if (!input.project || !Object.keys(input.project).length || !input.showGraph) {
+        // Operator confirmation without an editor context (e.g. the song page
+        // review UI): plan from the candidate's own saved edit so the mint
+        // lineage records the exact source the video was rendered from.
+        const queueView = await songCardRemintStore.view();
+        const candidate = queueView.candidates.find((row) => row.id === candidateId);
+        const savedPlan = candidate?.planId ? await songCardMintController.getPlan(candidate.planId).catch(() => null) : null;
+        const saved = savedPlan?.input || {};
+        if (saved.project || saved.showGraph) {
+          input = await hydrateSongCardMintInput({ ...body, project: saved.project, showGraph: saved.showGraph, cardSnapshots: saved.cardSnapshots || body.cardSnapshots }, { signal: operation.signal });
+        }
+      }
       await yieldSongCardPlanTurn(operation.signal);
       operation.checkpoint("before-remint-plan-binding");
       sendJson(res, 200, await songCardRemintStore.bindRenderPlan(

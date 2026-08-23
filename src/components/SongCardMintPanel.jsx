@@ -444,9 +444,19 @@ export default function SongCardMintPanel({ songId, project, showGraph, compact 
         if (!cardResponse.ok) throw new Error(cardPayload.error || cardPayload.message || `Song Card request failed (${cardResponse.status}).`);
         if (!isCurrentRequest()) return false;
         const normalizedCard = normalizeSongCardMintPayload(cardPayload);
+        // The GET join carries the representative remint candidate and, when it is
+        // ready-for-mint-review, the bound plan: that is what unlocks the confirm
+        // and mint affordances on a fresh song-page load.
+        const normalizedPlan = cardPayload.plan ? normalizeSongCardMintPlan(cardPayload.plan) : null;
         setSongCard(normalizedCard);
+        setPlan(normalizedPlan);
+        setRemintCandidate(cardPayload.remintCandidate || null);
+        setRenderExecutor(normalizeSongCardRenderExecutor(cardPayload));
+        setLocalRenderJob(normalizeSongCardLocalRenderJob(cardPayload, cardPayload.remintCandidate?.id || ""));
+        setRenderRequestFailure(null);
+        setRenderMasterPath(normalizedPlan?.renderMasterPath || "");
+        setPosterPath(normalizedPlan?.posterPath || "");
         setSelectedEdition((current) => current || normalizedCard.latestEdition || normalizedCard.editions[0]?.edition || 0);
-        setPlan(null);
         setPhase("idle");
         if (autoKey) completedAutoPlanKeysRef.current.add(autoKey);
         return true;
@@ -469,7 +479,7 @@ export default function SongCardMintPanel({ songId, project, showGraph, compact 
       const normalizedPlan = normalizeSongCardMintPlan(planPayload);
       setSongCard(normalizedCard);
       setPlan(normalizedPlan);
-      setRemintCandidate(planPayload.remintCandidate || null);
+      setRemintCandidate(planPayload.remintCandidate || cardPayload.remintCandidate || null);
       setRenderExecutor(normalizeSongCardRenderExecutor(planPayload));
       setLocalRenderJob(normalizeSongCardLocalRenderJob(planPayload, planPayload.remintCandidate?.id || ""));
       setRenderRequestFailure(null);
@@ -597,7 +607,7 @@ export default function SongCardMintPanel({ songId, project, showGraph, compact 
   }, []);
 
   useEffect(() => {
-    if (!localSessionReady || !remintCandidate?.id || !["awaiting-approval", "approved", "queued", "rendering", "failed"].includes(remintCandidate.status)) return undefined;
+    if (!localSessionReady || !remintCandidate?.id || !["awaiting-approval", "approved", "queued", "rendering", "failed", "render-ready", "ready-for-mint-review"].includes(remintCandidate.status)) return undefined;
     let canceled = false;
     const refresh = () => songCardAdminFetch("/api/song-card-remints", { headers: { Accept: "application/json" } })
       .then(async (response) => {
@@ -641,7 +651,7 @@ export default function SongCardMintPanel({ songId, project, showGraph, compact 
     });
   }, [localSessionReady, remintCandidate?.id, remintCandidate?.status, renderExecutor?.available]);
 
-  const predictedEdition = plan?.predictedEdition || Math.max(songCard.latestEdition + (plan?.changed ? 1 : 0), 1);
+  const predictedEdition = plan?.predictedEdition || remintCandidate?.predictedEdition || Math.max(songCard.latestEdition + (plan?.changed ? 1 : 0), 1);
   const candidateInactive = ["canceled", "rejected", "superseded"].includes(remintCandidate?.status);
   const localRenderFailed = Boolean(!candidateInactive && localRenderJob
     && localRenderJob.candidateId === remintCandidate?.id
@@ -739,7 +749,7 @@ export default function SongCardMintPanel({ songId, project, showGraph, compact 
   }, [editionDetails, selectedEditionRecord, songId]);
 
   useEffect(() => {
-    if (viewerOnly || remintCandidate?.status !== "render-ready" || !remintCandidate?.id) return;
+    if (remintCandidate?.status !== "render-ready" || !remintCandidate?.id) return;
     if (phase === "planning") return;
     if (autoBoundCandidateRef.current === remintCandidate.id) return;
     autoBoundCandidateRef.current = remintCandidate.id;
@@ -1051,13 +1061,13 @@ export default function SongCardMintPanel({ songId, project, showGraph, compact 
         headers: {
           Accept: "application/json",
           "Content-Type": "application/json",
-          ...(plan.id ? { "Idempotency-Key": plan.id } : {}),
-          ...(plan.expectedHeadGeneration !== undefined ? { "If-Match": String(plan.expectedHeadGeneration) } : {}),
+          ...((plan?.id || remintCandidate?.mintPlanId) ? { "Idempotency-Key": plan?.id || remintCandidate?.mintPlanId } : {}),
+          ...(plan?.expectedHeadGeneration !== undefined ? { "If-Match": String(plan.expectedHeadGeneration) } : {}),
         },
         body: JSON.stringify({
-          planId: plan.id,
+          planId: plan?.id || remintCandidate?.mintPlanId,
           expectedEdition: predictedEdition,
-          expectedHeadGeneration: plan.expectedHeadGeneration,
+          expectedHeadGeneration: plan?.expectedHeadGeneration,
           gate,
           renderMasterPath: renderMasterPath.trim(),
           posterPath: posterPath.trim(),
@@ -1369,6 +1379,58 @@ export default function SongCardMintPanel({ songId, project, showGraph, compact 
           </button>
         </div>
       </div>}
+
+      {viewerOnly && remintCandidate && !candidateInactive && ["render-ready", "ready-for-mint-review"].includes(remintCandidate.status) && (
+        <div data-testid="song-card-remint-review" style={{ ...styles.block, borderColor: "rgba(0,243,255,.45)" }}>
+          <div style={{ ...styles.row, justifyContent: "space-between" }}>
+            <strong>Next edition</strong>
+            <span style={styles.label}>{remintCandidate.status}</span>
+          </div>
+          {remintCandidate.status === "render-ready" ? (
+            <>
+              <p style={{ margin: "6px 0" }}>The final video for the next edition is finished. Confirm it to verify the hashes and bind the mint plan; minting stays a separate confirmation.</p>
+              <div style={styles.row}>
+                <button
+                  type="button"
+                  data-testid="song-card-confirm-final-video"
+                  style={{ ...styles.primary, opacity: phase === "planning" ? 0.62 : 1, cursor: phase === "planning" ? "wait" : "pointer" }}
+                  disabled={!localSessionReady || phase === "planning"}
+                  title={phase === "planning" ? "Verifying the finished render…" : "Verify and bind the finished render"}
+                  onClick={bindRemintRenderForReview}
+                >
+                  {phase === "planning" ? "Verifying final video…" : "Confirm final video"}
+                </button>
+                <button type="button" data-testid="song-card-remint-review-cancel" style={styles.button} disabled={phase === "planning"} onClick={cancelRemintCandidate}>Cancel candidate</button>
+              </div>
+            </>
+          ) : (
+            <>
+              <p style={{ margin: "6px 0" }}>The verified final video and Card timeline are bound to this exact saved edit. Minting seals a new immutable edition; earlier editions remain untouched.</p>
+              {plan?.id ? (
+                <div style={styles.row}>
+                  <button
+                    type="button"
+                    data-testid="song-card-mint-edition"
+                    style={{ ...styles.primary, opacity: confirmDisabled ? 0.62 : 1, cursor: confirmDisabled ? "help" : "pointer" }}
+                    disabled={effectivePhase === "minting"}
+                    aria-disabled={confirmDisabled}
+                    title={confirmDisabled ? confirmUnavailableReason : `Seal immutable Edition ${predictedEdition}`}
+                    onClick={confirmMint}
+                  >
+                    {effectivePhase === "minting" ? `Minting Edition ${predictedEdition}…` : `Mint Edition ${predictedEdition}`}
+                  </button>
+                  <button type="button" data-testid="song-card-remint-review-reload" style={styles.button} disabled={phase === "planning"} onClick={() => loadFlow({ source: "manual", autoKey: automaticPlanKey })}>Reload</button>
+                </div>
+              ) : (
+                <p role="alert" style={{ color: "#f6c96d" }}>
+                  The bound mint plan could not be loaded from the local service.
+                  <button type="button" style={styles.button} onClick={() => loadFlow({ source: "manual", autoKey: automaticPlanKey })}>Reload song card</button>
+                </p>
+              )}
+            </>
+          )}
+        </div>
+      )}
 
       {(error || notice) && <p role={error ? "alert" : "status"} style={{ color: error ? "#fb7185" : "#9cecff" }}>{error || notice}</p>}
 

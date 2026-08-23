@@ -17,6 +17,8 @@ import {
   isPrivateLocalReference,
   querySongCardAppearances,
   validateSongCardEdition,
+  NON_BLOCKING_COVERAGE_GAP_MS,
+  coverageGapMs,
 } from "../src/domain/song-card-mint.js";
 import {
   buildSongCardEditionLineage,
@@ -900,7 +902,11 @@ export class SongCardMintLedger {
       const endMs = boundaries[index + 1];
       return timestampIndex.appearances.some((row) => row.startMs < endMs && row.endMs > startMs) ? [] : [{ startMs, endMs }];
     });
-    if (coverageGaps.length) fail("TEMPORAL_COVERAGE_FAILED", "Every rendered interval must resolve to a media, card, visualizer, or explicit non-printable appearance", { coverageGaps });
+    // Proportionate fail-close: frame-scale slivers (the rendered duration probing a
+    // few ms past the final appearance boundary) are recorded as non-blocking evidence
+    // in the returned preflight; only holes over the shared threshold stop the sealer.
+    const blockingCoverageGaps = coverageGaps.filter((gap) => coverageGapMs(gap) > NON_BLOCKING_COVERAGE_GAP_MS);
+    if (blockingCoverageGaps.length) fail("TEMPORAL_COVERAGE_FAILED", "Every rendered interval must resolve to a media, card, visualizer, or explicit non-printable appearance", { coverageGaps: blockingCoverageGaps, nonBlockingCoverageGaps: coverageGaps.filter((gap) => coverageGapMs(gap) <= NON_BLOCKING_COVERAGE_GAP_MS) });
     if (request.publishStatus === "public-gate") {
       const rights = request.rights || {};
       const approvals = request.approvals || {};

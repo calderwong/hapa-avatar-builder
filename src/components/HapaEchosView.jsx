@@ -1551,6 +1551,9 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
   const [flowFilter, setFlowFilter] = useState("all");
   const [tagFilter, setTagFilter] = useState("all");
   const [selectedDetailVideo, setSelectedDetailVideo] = useState(null);
+  const [songCardCatalog, setSongCardCatalog] = useState(null);
+  const [songCardCatalogLoading, setSongCardCatalogLoading] = useState(false);
+  const [songCardCatalogError, setSongCardCatalogError] = useState("");
   const [loadingVideoDetail, setLoadingVideoDetail] = useState(false);
   const [videoPickerQuery, setVideoPickerQuery] = useState("");
   const [shaderPickerQuery, setShaderPickerQuery] = useState("");
@@ -1747,6 +1750,82 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
     () => filterEchoDirectorProjectRows(directorProjects, searchQuery),
     [directorProjects, searchQuery],
   );
+
+  // ---- Song Card Editions shelf (past mints + awaiting operator confirmation) ----
+  const songTitleLookup = useMemo(() => {
+    const byId = new Map();
+    for (const row of directorProjects) {
+      const songId = String(row?.music_video_project?.song_id || "");
+      const title = String(row?.music_video_project?.song_title || "");
+      if (songId && title) byId.set(songId, title);
+    }
+    for (const song of gapsReport?.songs || []) {
+      const songId = String(song?.id || "");
+      const title = String(song?.title || "");
+      if (songId && title && !byId.has(songId)) byId.set(songId, title);
+    }
+    return byId;
+  }, [directorProjects, gapsReport?.songs]);
+
+  const resolveSongCardTitle = useCallback((songId) => {
+    const id = String(songId || "");
+    return songTitleLookup.get(id) || (id ? id.slice(0, 8) : "");
+  }, [songTitleLookup]);
+
+  const loadSongCardCatalog = useCallback(async () => {
+    setSongCardCatalogLoading(true);
+    setSongCardCatalogError("");
+    try {
+      const response = await fetch(`${API_BASE}/api/song-cards`, { method: "GET", headers: { Accept: "application/json" }, cache: "no-store" });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload.error || payload.message || `Song Card catalog request failed (${response.status}).`);
+      setSongCardCatalog(payload);
+    } catch (caught) {
+      setSongCardCatalogError(caught?.message || "The Song Card catalog could not be loaded.");
+    } finally {
+      setSongCardCatalogLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { void loadSongCardCatalog(); }, [loadSongCardCatalog]);
+
+  const mintedSongCardRows = useMemo(() => {
+    const heads = Array.isArray(songCardCatalog?.heads) ? songCardCatalog.heads : [];
+    return heads
+      .filter((head) => Number(head?.latestEdition) > 0)
+      .map((head) => ({
+        songId: String(head?.songId || ""),
+        title: head?.title || resolveSongCardTitle(head?.songId),
+        latestEdition: Number(head?.latestEdition) || 0,
+      }))
+      .sort((left, right) => right.latestEdition - left.latestEdition);
+  }, [songCardCatalog, resolveSongCardTitle]);
+
+  const awaitingSongCardRows = useMemo(() => {
+    const rows = Array.isArray(songCardCatalog?.remintSummary) ? songCardCatalog.remintSummary : [];
+    const seen = new Set();
+    return rows
+      .filter((row) => ["render-ready", "ready-for-mint-review"].includes(String(row?.status || "")))
+      .filter((row) => {
+        const id = String(row?.songId || "");
+        if (!id || seen.has(id)) return false;
+        seen.add(id);
+        return true;
+      })
+      .map((row) => ({
+        songId: String(row.songId),
+        title: resolveSongCardTitle(row.songId),
+        status: String(row.status),
+        predictedEdition: Number(row.predictedEdition) || 0,
+      }));
+  }, [songCardCatalog, resolveSongCardTitle]);
+
+  function openSongCardEditionSong(songId) {
+    if (!songId) return;
+    if (typeof onSelectSong === "function") onSelectSong(songId);
+    setActiveDirectoryTab("director");
+    void handleSelectDirectorProjectSong(songId);
+  }
   const activeStoredProject = activeDirectorProject?.music_video_project || null;
   const activeDirectionVariants = Array.isArray(activeStoredProject?.direction_script_variants)
     ? activeStoredProject.direction_script_variants
@@ -4839,6 +4918,28 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
             >
               🎬 Director Workbench
             </button>
+            <button
+              className={`hapa-btn ${activeDirectoryTab === "editions" ? "active" : ""}`}
+              style={{
+                flex: 1,
+                padding: '6px',
+                fontSize: '11px',
+                background: activeDirectoryTab === "editions" ? 'rgba(74, 222, 128, 0.15)' : 'rgba(0,0,0,0.2)',
+                border: activeDirectoryTab === "editions" ? '1px solid #4ade80' : '1px solid rgba(255,255,255,0.08)',
+                color: activeDirectoryTab === "editions" ? '#4ade80' : '#ccc',
+                fontWeight: 'bold',
+                cursor: 'pointer',
+                borderRadius: '4px',
+                transition: 'all 0.15s ease'
+              }}
+              onClick={() => {
+                setActiveDirectoryTab("editions");
+                setSearchQuery("");
+                void loadSongCardCatalog();
+              }}
+            >
+              🏷️ Song Card Editions
+            </button>
           </div>
 
           {activeDirectoryTab === "songs" ? (
@@ -5256,6 +5357,82 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
               onSeek={handleReferenceSeek}
               onNotice={setEchoOperationNotice}
             />
+          ) : activeDirectoryTab === "editions" ? (
+            <>
+              {/* Song Card Editions Shelf */}
+              <div className="section-head hapa-panel-head" style={{ flexShrink: 0, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span><Music size={15} /> Song Card Editions ({mintedSongCardRows.length} minted · {awaitingSongCardRows.length} awaiting confirmation)</span>
+                <button
+                  type="button"
+                  data-testid="echo-song-card-editions-refresh"
+                  className="hapa-btn"
+                  style={{ padding: '4px 10px', fontSize: '10px', fontWeight: 'bold', cursor: songCardCatalogLoading ? 'wait' : 'pointer', background: 'rgba(0,0,0,0.2)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '4px', color: '#ccc', opacity: songCardCatalogLoading ? 0.6 : 1 }}
+                  disabled={songCardCatalogLoading}
+                  onClick={() => { void loadSongCardCatalog(); }}
+                >
+                  {songCardCatalogLoading ? "Refreshing…" : "Refresh"}
+                </button>
+              </div>
+
+              {songCardCatalogError && (
+                <div data-testid="echo-song-card-editions-error" role="alert" style={{ flexShrink: 0, padding: '8px 10px', border: '1px solid rgba(239,68,68,0.4)', borderRadius: '4px', background: 'rgba(127,29,29,0.18)', color: '#fca5a5', fontSize: '11px' }}>
+                  <strong>The editions shelf could not load.</strong> {songCardCatalogError}
+                </div>
+              )}
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', flex: 1, minHeight: 0, overflowY: 'auto' }}>
+                {awaitingSongCardRows.length > 0 && (
+                  <section data-testid="echo-song-card-editions-awaiting" style={{ border: '1px solid rgba(246,201,109,0.4)', borderRadius: '4px', background: 'rgba(120,53,15,0.12)', padding: '8px' }}>
+                    <div style={{ fontSize: '10px', fontWeight: 'bold', textTransform: 'uppercase', letterSpacing: '0.08em', color: '#f6c96d', marginBottom: '6px' }}>
+                      Awaiting your confirmation
+                    </div>
+                    {awaitingSongCardRows.map((row) => (
+                      <div key={row.songId} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 8px', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', overflow: 'hidden' }}>
+                          <strong style={{ textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }}>{row.title}</strong>
+                          <span style={{ fontSize: '8px', padding: '0.5px 4px', borderRadius: '2px', fontWeight: 'bold', background: 'rgba(246,201,109,0.15)', color: '#f6c96d', border: '1px solid rgba(246,201,109,0.35)', flexShrink: 0 }}>
+                            {row.status === "render-ready" ? "FINAL VIDEO READY" : "AWAITING MINT"}
+                          </span>
+                          {row.predictedEdition > 0 && <span style={{ fontSize: '9px', opacity: 0.6 }}>next · edition {row.predictedEdition}</span>}
+                        </div>
+                        <button type="button" style={{ padding: '3px 8px', fontSize: '10px', fontWeight: 'bold', cursor: 'pointer', background: 'rgba(8,54,74,0.9)', border: '1px solid #00f3ff', color: '#bdfbff', borderRadius: '3px', flexShrink: 0 }} onClick={() => openSongCardEditionSong(row.songId)}>
+                          Open song
+                        </button>
+                      </div>
+                    ))}
+                  </section>
+                )}
+                {awaitingSongCardRows.length === 0 && !songCardCatalogError && (
+                  <div style={{ textAlign: 'center', opacity: 0.5, fontSize: '11px', padding: '12px' }}>
+                    No renders are waiting for your confirmation right now.
+                  </div>
+                )}
+
+                <section data-testid="echo-song-card-editions-minted" style={{ border: '1px solid rgba(74,222,128,0.35)', borderRadius: '4px', background: 'rgba(20,83,45,0.12)', padding: '8px' }}>
+                  <div style={{ fontSize: '10px', fontWeight: 'bold', textTransform: 'uppercase', letterSpacing: '0.08em', color: '#4ade80', marginBottom: '6px' }}>
+                    Minted editions
+                  </div>
+                  {mintedSongCardRows.map((row) => (
+                    <div key={row.songId} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 8px', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', overflow: 'hidden' }}>
+                        <strong style={{ textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }}>{row.title}</strong>
+                        <span style={{ fontSize: '8px', padding: '0.5px 4px', borderRadius: '2px', fontWeight: 'bold', background: 'rgba(74,222,128,0.15)', color: '#4ade80', border: '1px solid rgba(74,222,128,0.35)', flexShrink: 0 }}>
+                          {row.latestEdition} EDITION{row.latestEdition > 1 ? "S" : ""}
+                        </span>
+                      </div>
+                      <button type="button" style={{ padding: '3px 8px', fontSize: '10px', fontWeight: 'bold', cursor: 'pointer', background: 'rgba(15,23,42,0.9)', border: '1px solid rgba(255,255,255,0.25)', color: '#e2e8f0', borderRadius: '3px', flexShrink: 0 }} onClick={() => openSongCardEditionSong(row.songId)}>
+                        Open song
+                      </button>
+                    </div>
+                  ))}
+                  {mintedSongCardRows.length === 0 && (
+                    <div style={{ textAlign: 'center', opacity: 0.5, fontSize: '11px', padding: '12px' }}>
+                      No immutable editions minted yet.
+                    </div>
+                  )}
+                </section>
+              </div>
+            </>
           ) : (
             <>
               {/* Director Workbench View */}
