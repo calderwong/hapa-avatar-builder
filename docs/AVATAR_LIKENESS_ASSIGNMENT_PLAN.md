@@ -45,26 +45,32 @@ jobs; this plan adds the one missing axis: **media → Avatar identity**.
 
 ## Architecture (four layers)
 
-### L1 — Deterministic visual features (zero LLM cost, pure Node)
+### L1 — Deterministic visual features (zero LLM cost)
 
-New module `src/domain/media-visual-signature.js`:
+Two files, split by environment:
 
-- **Palette histogram**: downscale → quantize into a 6×6×6 RGB cube (216
-  bins) → keep top-K weighted bins. Same quantization family as the
-  `dominantColor` precedent. Works identically on both sides of the match,
-  which is the whole point.
-- **dHash**: 8×8 grayscale perceptual hash (downscale to 9×8, threshold
-  neighbors). Hamming distance over 64 bits is the coarse identity/shape
-  channel; an Avatar keeps a small set of its distinct hashes and the match
-  uses the best.
-- **Luma/chroma vector**: mean RGB + saturation — cheap global tone signal
-  that separates dark-moody from bright clips.
-- **Frame acquisition**: images pass through directly; videos yield
-  First/Mid/Last via ffmpeg (`/opt/homebrew/bin/ffmpeg` confirmed present),
-  PNG output — the same three-frame contract the optical review uses, and
-  ffmpeg decoding avoids adding an image npm dependency to the repo.
-- No new dependencies. Node-only (server/scripts); the browser UI never
-  computes features.
+- `src/domain/media-visual-signature.js` — **pure feature math** (browser-
+  safe, operates on pixel arrays; never spawns):
+  - **Palette histogram**: 6×6×6 RGB cube (216 bins) → top-K weighted bins.
+    Same quantization family as the `dominantColor` precedent. Works
+    identically on both sides of the match, which is the whole point.
+  - **dHash**: 8×8 grayscale perceptual hash (9×8 source, threshold
+    neighbors). Hamming distance over 64 bits is the coarse shape channel;
+    an Avatar keeps a small set of distinct hashes and the match uses best.
+  - **Tone vector**: mean RGB + saturation — separates dark-moody from
+    bright clips.
+  - Similarity functions: tolerant histogram intersection, dHash Hamming,
+    tone distance, frame-signature merge.
+- `server/media-visual-signature-extract.mjs` — **Node frame acquisition**:
+  images and videos are decoded through ffmpeg/ffprobe (repo convention:
+  `FFMPEG`/`FFPROBE` env, injectable for tests); videos yield First/Mid/Last
+  — the same three-frame contract the optical review uses. The Last frame
+  seeks with `-sseof` at ≈ two frame periods (from the probed frame rate)
+  because an absolute seek at/past the final frame makes ffmpeg exit 0 with
+  zero output; a doubling retry ladder (1×/2×/4×) runs before degrading to
+  the first frame, which then records the degradation. ffmpeg decoding
+  avoids adding an image npm dependency to the repo.
+- No new dependencies; the browser UI never computes features.
 
 ### L2 — Avatar likeness profiles (one-time + incremental)
 
@@ -182,12 +188,15 @@ Every phase: `npm test` + `npm run build` gates, focused commits, no push
 (GitHub freeze active), backups under `data/backups/` before any store
 mutation.
 
-## Open questions for Calder
+## Resolved decisions (Calder, 2026-08-23)
 
-1. Should the likeness lane also cover *images* that passed the enricher,
-   or video-only in v1 (the optical 3-frame contract is video-shaped;
-   images get a single-frame signature, which L1 handles either way)?
-2. One assigned Avatar per media, or allow a primary + secondary pair
-   (the Director's `castAppearances` already supports up to 3 on-screen)?
-3. Should `profileless` Avatars be healed by the existing healing-queue
-   machinery as a prerequisite, or simply reported as excluded?
+1. **Scope: images and video.** Media that passed the enricher are
+   signed regardless of type; images get a single-frame signature
+   (role `single`), videos get First/Mid/Last.
+2. **Primary + secondary.** The likeness verdict may carry a primary Avatar
+   plus an optional secondary, gated by the same score+margin rules applied
+   to the top-2 candidates; the Director's `castAppearances` (up to 3
+   on-screen) consumes them.
+3. **Profileless Avatars: exclude + report.** They are never healed as a
+   prerequisite; the coverage report lists them as excluded and their media
+   stay `untyped` with an honest reason.
