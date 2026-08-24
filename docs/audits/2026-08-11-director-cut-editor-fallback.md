@@ -15,3 +15,13 @@ Saved cuts now open immediately as editable, cut-specific forks whenever the act
 ## Reuse
 
 This uses the existing `deriveEchoSavedDirectionPlanningProject` local-projection contract rather than introducing a second cut representation. The pattern is reusable for other non-destructive editor surfaces with slow final-certification work.
+
+## 2026-08-24 regression correction
+
+The service-freshness guard still ran before the editor fallback. After any
+Builder delivery change, a complete saved cut therefore returned
+`server_restart_required` and the selector snapped back to Legacy even though
+the cut was safe to open as a local editable copy. Saved non-Legacy cuts now
+enter the existing editor fallback before service freshness is evaluated.
+Legacy graph preparation and every final-render path remain freshness-gated;
+the fallback never acts as a render certificate.

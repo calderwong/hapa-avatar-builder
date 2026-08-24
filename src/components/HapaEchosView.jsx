@@ -4088,16 +4088,13 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
     if (!project) throw new Error("the saved script detail could not be loaded");
 
     const readinessReason = project.director_show_graph_receipt?.reason || "saved preview graph unavailable";
-    if (readinessReason === "server_restart_required") {
-      throw new Error("the Builder service was updated and needs one restart before saved cuts can reopen");
-    }
-
     // A saved cut's script is already immutable and safe to open as an
     // editable copy.  Its final-render graph may still be waiting behind a
-    // different album-wide certification run, so do not strand the operator
-    // on Legacy while that independent work completes. The caller supplies
-    // the current verified graph solely as a local editor template; final
-    // rendering remains blocked until the exact child certificate exists.
+    // different album-wide certification run or a stale Builder service, so
+    // do not strand the operator on Legacy while that independent work
+    // completes. The caller supplies the current verified graph solely as a
+    // local editor template; final rendering remains blocked until the exact
+    // child certificate exists on a fresh service.
     if (options.allowEditorFallback === true && variantId && variantId !== "legacy") {
       setEchoOperationNotice("Opening this saved cut as an editable copy while its exact final-render graph certifies in the background…");
       void warmEchoProjectGraphsRequest(
@@ -4108,6 +4105,10 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
         console.warn(`Saved Director cut ${variantId} is still awaiting exact render certification:`, error);
       });
       return detailResult;
+    }
+
+    if (readinessReason === "server_restart_required") {
+      throw new Error("the Builder service was updated and needs one restart before saved final-render graphs can be prepared");
     }
 
     setEchoOperationNotice("Preparing this song’s saved preview graphs once. Its scripts and cuts remain unchanged…");

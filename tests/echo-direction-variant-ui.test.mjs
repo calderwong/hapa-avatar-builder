@@ -180,6 +180,11 @@ test("cut selection opens a safe editable fallback while exact certification is 
   assert.match(songChange, /fetchPreparedProjectDetail\(selectedProjectSongId, latestVariantId, \{[\s\S]*allowEditorFallback: true/);
   assert.match(songChange, /fallbackProject: activeProject/);
   assert.match(songChange, /holdSongCardPlanForExactCutCertificate\(selectedProjectSongId, latestVariantId\)/);
+  assert.ok(
+    preparation.indexOf("options.allowEditorFallback === true")
+      < preparation.indexOf('readinessReason === "server_restart_required"'),
+    "saved-cut navigation must use the editor fallback before final-render service freshness can reject preparation",
+  );
 });
 
 test("saved cuts always have a deterministic editor fallback, but never use it as a render certificate", () => {
