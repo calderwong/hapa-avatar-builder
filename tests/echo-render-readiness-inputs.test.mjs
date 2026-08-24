@@ -34,11 +34,16 @@ test("readiness selection grammar rejects ambiguous or empty-producing combinati
   assert.throws(() => parseEchoRenderReadinessArgs(["--plan=plan:abc", "--variant=cut-a"]), /cannot be combined/u);
   assert.throws(() => parseEchoRenderReadinessArgs(["--plan=plan:abc", "--skip-mint-plans=true"]), /cannot be combined/u);
   assert.throws(() => parseEchoRenderReadinessArgs(["--variant=cut-a"]), /requires one explicit --project/u);
+  assert.throws(() => parseEchoRenderReadinessArgs(["--project=/tmp/project.json", "--variant=cut-a", "--variation-set=family-a"]), /either --variant or --variation-set/u);
+  assert.throws(() => parseEchoRenderReadinessArgs(["--variation-set=../../outside"]), /safe variation-set identity/u);
   assert.throws(() => parseEchoRenderReadinessArgs(["--plan=plan:../../outside"]), /requires a safe plan identity/u);
   assert.throws(() => parseEchoRenderReadinessArgs(["--plan=plan:"]), /requires a safe plan identity/u);
   assert.deepEqual(parseEchoRenderReadinessArgs(["--project=/tmp/project.json", "--variant=cut-a"]), {
     project: "/tmp/project.json",
     variant: "cut-a",
+  });
+  assert.deepEqual(parseEchoRenderReadinessArgs(["--variation-set=family-a"]), {
+    "variation-set": "family-a",
   });
 });
 

@@ -987,6 +987,7 @@ const VALUE_OPTIONS = new Set([
   "telemetry-cache",
   "project",
   "variant",
+  "variation-set",
   "plan",
 ]);
 const BOOLEAN_OPTIONS = new Set(["apply-stem-repairs", "skip-mint-plans", "help"]);
@@ -1001,7 +1002,7 @@ function cliUsage() {
     "",
     "Audit and optionally publish certified Echo execution graphs.",
     "",
-    "Selection: --project <file> [--variant <id>] | --plan <plan:id>",
+    "Selection: --project <file> [--variant <id>] | --variation-set <id> | --plan <plan:id>",
     "Mutation:  --apply-stem-repairs [true|false] --skip-mint-plans [true|false]",
     "Paths:     --avatar-root, --projects, --variants, --album, --music-viz-root,",
     "           --proxy-registry, --registry, --songbook, --plans, --remint-queue, --report,",
@@ -1041,14 +1042,20 @@ export function parseEchoRenderReadinessArgs(argv = []) {
       options[name] = true;
     }
   }
-  if (options.plan && (options.project || options.variant)) {
-    throw new Error("Option --plan cannot be combined with --project or --variant.");
+  if (options.plan && (options.project || options.variant || options["variation-set"])) {
+    throw new Error("Option --plan cannot be combined with --project, --variant, or --variation-set.");
   }
   if (options.plan && options["skip-mint-plans"] === true) {
     throw new Error("Option --plan cannot be combined with --skip-mint-plans=true.");
   }
   if (options.variant && !options.project) {
     throw new Error("Option --variant requires one explicit --project.");
+  }
+  if (options.variant && options["variation-set"]) {
+    throw new Error("Use either --variant or --variation-set, not both.");
+  }
+  if (options["variation-set"] && !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,199}$/u.test(options["variation-set"])) {
+    throw new Error(`Option --variation-set requires a safe variation-set identity; received ${options["variation-set"]}.`);
   }
   if (options.plan && !SAFE_REQUESTED_PLAN_ID.test(options.plan)) {
     throw new Error(`Option --plan requires a safe plan identity; received ${options.plan}.`);
@@ -2090,10 +2097,15 @@ async function run(options = {}) {
     const saved = requestedPlan
       ? { rows: [], invalid: [] }
       : loadSavedVariantRows({ baseProject: rawProject, projectPath, projectProof, variantsRoot, songId });
+    const selectedVariationSetId = text(options["variation-set"]);
     const selectedVariantRows = options.variant
       ? saved.rows.filter((row) => row.id === String(options.variant))
-      : saved.rows;
-    if (!options.variant) cuts.push(...saved.invalid);
+      : selectedVariationSetId
+        ? saved.rows.filter((row) => text(
+          row.variant?.variationSet?.id || row.variant?.variation_set?.id,
+        ) === selectedVariationSetId)
+        : saved.rows;
+    if (!options.variant && !selectedVariationSetId) cuts.push(...saved.invalid);
     if (options.variant && !selectedVariantRows.length) {
       cuts.push(invalidCutResult({
         songId,
@@ -2107,6 +2119,7 @@ async function run(options = {}) {
         message: `No production-selectable saved cut has ID ${String(options.variant)}.`,
       }));
     }
+    if (selectedVariationSetId && !selectedVariantRows.length) continue;
 
     const compiledGraphPath = path.join(albumRoot, songId, "native-show-graph.json");
     let compiledGraph;
@@ -2118,12 +2131,12 @@ async function run(options = {}) {
       compiledGraph = parsedCompiledGraphProof.value;
       compiledGraphProof = compactSourceProof(parsedCompiledGraphProof);
     } catch (error) {
-      const blockedDescriptors = [{
+      const blockedDescriptors = [...(options.variant || selectedVariationSetId ? [] : [{
         id: "base",
         title: "Base project",
         kind: "base",
         sourcePath: projectPath,
-      }, ...selectedVariantRows.map((row) => ({
+      }]), ...selectedVariantRows.map((row) => ({
         id: row.id,
         title: text(row.variant?.title || row.variant?.label || row.variant?.name) || "Saved direction cut",
         kind: "saved-variant",
@@ -2147,7 +2160,7 @@ async function run(options = {}) {
     }
     const compiledValidation = validateEchoCompiledShowGraph({ project: rawProject, graph: compiledGraph });
     if (!compiledValidation.ok) {
-      const blockedDescriptors = [{ id: "base", title: "Base project", kind: "base", sourcePath: projectPath }, ...selectedVariantRows.map((row) => ({
+      const blockedDescriptors = [...(options.variant || selectedVariationSetId ? [] : [{ id: "base", title: "Base project", kind: "base", sourcePath: projectPath }]), ...selectedVariantRows.map((row) => ({
         id: row.id,
         title: text(row.variant?.title || row.variant?.label || row.variant?.name) || "Saved direction cut",
         kind: "saved-variant",
@@ -2195,7 +2208,7 @@ async function run(options = {}) {
       graphProof: compiledGraphProof,
       parentIdentity: canonicalParentIdentity,
     });
-    const descriptors = options.variant ? [] : [{
+    const descriptors = options.variant || selectedVariationSetId ? [] : [{
       songId,
       songTitle,
       cutId: "base",

@@ -426,7 +426,9 @@ function rebuildMediaCameraBindings(graph, timeline, outputProfile, track) {
     let plannedPath;
     if (certifiedAtomic) {
       const declaredPath = clone(framing.path) || {};
-      const declaredValidation = validateSafeCameraPath(declaredPath);
+      const declaredValidation = declaredPath.zoomLimits && Array.isArray(declaredPath.corridors)
+        ? validateSafeCameraPath(declaredPath)
+        : { ok: false, errors: ["path-missing"] };
       const selectedCorridorIndex = (declaredPath.corridors || []).findIndex((corridor) => (
         aspectMatches(corridor?.targetAspect, targetAspect)
       ));
@@ -474,14 +476,55 @@ function rebuildMediaCameraBindings(graph, timeline, outputProfile, track) {
         ],
       };
     } else {
-      plannedPath = buildSafeCameraPath({
-        mediaId: card.media?.id,
-        technical,
-        analysis,
-        role,
-        phraseCue,
-        targetAspects,
+      const declaredPath = clone(framing.path) || {};
+      const declaredValidation = declaredPath.zoomLimits && Array.isArray(declaredPath.corridors)
+        ? validateSafeCameraPath(declaredPath)
+        : { ok: false, errors: ["path-missing"] };
+      const selectedCorridorIndex = (declaredPath.corridors || []).findIndex((corridor) => (
+        aspectMatches(corridor?.targetAspect, targetAspect)
+      ));
+      const selectedCorridor = selectedCorridorIndex >= 0
+        ? declaredPath.corridors[selectedCorridorIndex]
+        : null;
+      const declaredDimensions = projectedMediaDimensions({
+        media_contract: { dimensions: declaredPath.sourceDimensions },
       });
+      const declaredPathMatchesSelectedMedia = Boolean(
+        framing.schemaVersion === "hapa.echo.asset-camera-framing.v2"
+        && framing.derived === true
+        && framing.cropPolicy
+        && String(framing.mediaId || "") === String(card.media?.id || "")
+        && String(declaredPath.mediaId || "") === String(card.media?.id || "")
+        && declaredDimensions
+        && declaredDimensions.width === dimensions.width
+        && declaredDimensions.height === dimensions.height
+        && selectedCorridor
+        && declaredValidation.ok
+      );
+      if (declaredPathMatchesSelectedMedia) {
+        plannedPath = {
+          ...declaredPath,
+          corridors: [
+            clone(selectedCorridor),
+            ...(declaredPath.corridors || [])
+              .filter((_, corridorIndex) => corridorIndex !== selectedCorridorIndex)
+              .map((corridor) => clone(corridor)),
+          ],
+          keyframes: [
+            { ...(declaredPath.keyframes?.[0] || {}), offset: 0, crop: clone(selectedCorridor.startCrop) },
+            { ...(declaredPath.keyframes?.[1] || {}), offset: 1, crop: clone(selectedCorridor.endCrop) },
+          ],
+        };
+      } else {
+        plannedPath = buildSafeCameraPath({
+          mediaId: card.media?.id,
+          technical,
+          analysis,
+          role,
+          phraseCue,
+          targetAspects,
+        });
+      }
     }
     const path = {
       ...plannedPath,

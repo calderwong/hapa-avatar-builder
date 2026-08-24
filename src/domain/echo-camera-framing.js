@@ -39,8 +39,16 @@ export function normalizeEchoCameraCrop(crop = null) {
 export function echoCameraCropPresentation(crop = null) {
   const normalized = normalizeEchoCameraCrop(crop);
   if (!normalized) return null;
-  const centerX = clamp(normalized.x + (normalized.width / 2)) * 100;
-  const centerY = clamp(normalized.y + (normalized.height / 2)) * 100;
+  // CSS object-position is a percentage of the *remaining overflow*, not a
+  // normalized source-space center. Converting x/y against the remaining crop
+  // range makes a y=0 portrait corridor actually show the source top and a
+  // y=(1-height) corridor actually show its bottom.
+  const centerX = normalized.width >= 0.999999
+    ? 50
+    : clamp(normalized.x / (1 - normalized.width)) * 100;
+  const centerY = normalized.height >= 0.999999
+    ? 50
+    : clamp(normalized.y / (1 - normalized.height)) * 100;
   const scale = 1 / Math.max(normalized.width, normalized.height);
   const objectPosition = `${centerX.toFixed(3)}% ${centerY.toFixed(3)}%`;
   return {
@@ -99,7 +107,11 @@ export function echoCameraMotionPresentation({
   const resolvedMotion = normalizedMotion === "auto"
     ? autoMotions[normalizedShotIndex % autoMotions.length]
     : normalizedMotion;
-  const baseScale = isPortrait ? 1.34 : 1.18;
+  const cropPresentation = echoCameraCropPresentation(crop);
+  // A declared crop corridor already describes the complete cover framing. The
+  // legacy portrait/landscape emphasis is only a fallback for pathless shots;
+  // applying it on top of a corridor silently zooms away the corridor edges.
+  const baseScale = cropPresentation ? 1 : isPortrait ? 1.34 : 1.18;
   const translateSpan = 4.8 * resolvedIntensity * resolvedSpeed;
   const positionSpan = Math.min(
     42,
@@ -110,8 +122,6 @@ export function echoCameraMotionPresentation({
   let translateYPercent = 0;
   let objectPositionXPercent = 50;
   let objectPositionYPercent = 50;
-  const cropPresentation = echoCameraCropPresentation(crop);
-
   const setDirectionalPan = (xDirection, yDirection) => {
     const phase = (progress * 2) - 1;
     if (xDirection) {

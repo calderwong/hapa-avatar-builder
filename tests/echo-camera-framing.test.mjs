@@ -36,9 +36,41 @@ function cssPreviewVisibleSourceRect({
 
 test("off-center Echo camera crops become subject-aware CSS framing", () => {
   const framing = echoCameraCropPresentation({ x: 0.62, y: 0.1, width: 0.25, height: 0.8 });
-  assert.equal(framing.objectPosition, "74.500% 50.000%");
+  assert.equal(framing.objectPosition, "82.667% 50.000%");
   assert.equal(framing.transformOrigin, framing.objectPosition);
   assert.equal(framing.scale, 1.25);
+});
+
+test("portrait crop endpoints map to the exact top and bottom CSS cover overflow", () => {
+  const sourceWidth = 768;
+  const sourceHeight = 1168;
+  const outputWidth = 1920;
+  const outputHeight = 1080;
+  const cropHeight = (sourceWidth / sourceHeight) / (outputWidth / outputHeight);
+  const maximumY = 1 - cropHeight;
+  const source = { sourceWidth, sourceHeight, outputWidth, outputHeight };
+  const top = echoCameraCoverSourceRect({
+    ...source,
+    presentation: echoCameraMotionPresentation({
+      motion: "pan-up",
+      intensity: 0,
+      speed: 2.4,
+      isPortrait: true,
+      crop: { x: 0, y: 0, width: 1, height: cropHeight },
+    }),
+  });
+  const bottom = echoCameraCoverSourceRect({
+    ...source,
+    presentation: echoCameraMotionPresentation({
+      motion: "pan-up",
+      intensity: 0,
+      speed: 2.4,
+      isPortrait: true,
+      crop: { x: 0, y: maximumY, width: 1, height: cropHeight },
+    }),
+  });
+  assert.ok(top.y < 0.00001);
+  assert.ok(Math.abs(bottom.y - (sourceHeight - bottom.height)) < 0.00001);
 });
 
 test("Echo camera corridors interpolate crop geometry within one shot", () => {
@@ -73,7 +105,7 @@ test("portrait auto motion deterministically selects a moving pan", () => {
   assert.equal(start.translateXPercent, 0);
 });
 
-test("camera crop and directional motion compose without discarding either", () => {
+test("camera crop and directional motion compose without re-zooming a declared corridor", () => {
   const input = {
     startSeconds: 0,
     endSeconds: 8,
@@ -88,7 +120,7 @@ test("camera crop and directional motion compose without discarding either", () 
 
   assert.deepEqual(start.crop, { x: 0.25, y: 0.1, width: 0.5, height: 0.8 });
   assert.equal(start.cropScale, 1.25);
-  assert.equal(start.scale, 1.725);
+  assert.equal(start.scale, 1.3);
   assert.equal(start.objectPositionXPercent, 50);
   assert.equal(start.objectPositionYPercent, 50);
   assert.equal(start.transformOriginXPercent, 50);
