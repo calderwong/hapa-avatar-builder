@@ -19,16 +19,16 @@ export const ECHO_PREVIEW_RECORDING_SCHEMA = "hapa.echo.preview-recording.v1";
 // frames at 30fps; matching it avoids temporal aliasing in the capture.
 export const ECHO_PREVIEW_RECORD_FPS = 30;
 
-// Hard ceiling for a single capture. Quick-capture semantics: the operator
-// can always stop earlier, but a forgotten recording must not run unbounded.
-export const ECHO_PREVIEW_RECORD_MAX_DURATION_MS = 5 * 60 * 1000;
+// Long-form safety ceiling for a single capture. The operator can always stop
+// earlier, while a forgotten recording still cannot run unbounded.
+export const ECHO_PREVIEW_RECORD_MAX_DURATION_MS = 60 * 60 * 1000;
 
 // Timeslice for MediaRecorder data events: keeps the browser from hoarding an
 // unbounded in-memory buffer while the operator records.
 export const ECHO_PREVIEW_RECORD_TIMESLICE_MS = 1000;
 
-// Nominal capture quality. 1080p/30 preview material with moderate motion;
-// 8 Mbit/s video keeps a 5-minute capture well inside the upload budget.
+// Nominal capture quality for 1080p/30 preview material with moderate motion.
+// Persistence retains its existing bounded upload/local-download fallback.
 export const ECHO_PREVIEW_RECORD_VIDEO_BIT_RATE = 8_000_000;
 export const ECHO_PREVIEW_RECORD_AUDIO_BIT_RATE = 128_000;
 

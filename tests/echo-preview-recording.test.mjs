@@ -461,9 +461,10 @@ test("upload failure falls back to a local download instead of dropping the capt
   assert.match(stop, /post to\/upload|POST/i);
 });
 
-test("domain module documents quick-capture semantics with no mint coupling", () => {
+test("domain module allows long-form capture with no mint coupling", () => {
   assert.match(domainSource, /ECHO_PREVIEW_RECORDING_SCHEMA = "hapa\.echo\.preview-recording\.v1"/);
-  assert.match(domainSource, /ECHO_PREVIEW_RECORD_MAX_DURATION_MS = 5 \* 60 \* 1000/);
+  assert.equal(ECHO_PREVIEW_RECORD_MAX_DURATION_MS, 60 * 60 * 1000);
+  assert.match(domainSource, /ECHO_PREVIEW_RECORD_MAX_DURATION_MS = 60 \* 60 \* 1000/);
   assert.doesNotMatch(domainSource, /song-card|createSongCardMint|mintLedger/i);
 });
 
