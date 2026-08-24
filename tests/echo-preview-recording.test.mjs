@@ -373,7 +373,7 @@ test("director preview exposes the record button, the recordings tab, and the ca
   assert.ok(controls.length > 0, "preview controls row must exist");
   assert.match(controls, /data-testid="echo-director-preview-record"/);
   assert.match(controls, /data-recording-state=\{previewRecordingState\}/);
-  assert.match(controls, /"● Record"/);
+  assert.match(controls, /"● Record \+ Play"/);
   assert.match(controls, /formatEchoPreviewRecordingElapsed\(previewRecordingElapsedMs\)/);
 
   // The recordings shelf.
@@ -384,6 +384,56 @@ test("director preview exposes the record button, the recordings tab, and the ca
   assert.match(viewSource, /data-testid="echo-preview-recording-download"/);
   assert.match(viewSource, /data-testid="echo-preview-recording-delete"/);
   assert.match(viewSource, /\/api\/echo\/preview-recordings\/\$\{encodeURIComponent\(recording\.id\)\}\/file\?download=1/);
+});
+
+test("Record owns a synchronized playback-and-capture start with a required live audio track", () => {
+  const start = viewSource.slice(
+    viewSource.indexOf("const startPreviewRecording = useCallback(async () => {"),
+    viewSource.indexOf("// Load the recording shelf once on mount."),
+  );
+  assert.ok(start.length > 0, "async recording start path must exist");
+  assert.match(start, /const audioTrack = await acquirePreviewRecordingAudioTrack\(\)/);
+  assert.match(start, /new \(globalThis\.MediaStream\)\(\[\.\.\.videoTracks, audioTrack\]\)/);
+  assert.match(start, /stream\.getAudioTracks\(\)\.length !== 1/);
+  assert.doesNotMatch(start, /audioTrack \? \[audioTrack\] : \[\]/, "video-only fallback must not survive");
+  const recorderStart = start.indexOf("session.start(ECHO_PREVIEW_RECORD_TIMESLICE_MS)");
+  const playbackStart = start.indexOf("await audioElement.play()");
+  assert.ok(recorderStart >= 0 && playbackStart > recorderStart, "the recorder must be live immediately before playback starts");
+  assert.match(start, /setIsPlaying\(true\)/);
+});
+
+test("Record surfaces audio/video readiness and failures without rejecting intentional pauses", () => {
+  const controls = viewSource.slice(
+    viewSource.indexOf('data-testid="echo-director-preview-controls"'),
+    viewSource.indexOf('data-testid="echo-director-preview-expand"'),
+  );
+  assert.match(controls, /disabled=\{previewRecordingStartBlocked\}/);
+  assert.match(controls, /Buffering audio/);
+  assert.match(controls, /Buffering video/);
+  assert.match(controls, /Record \+ Play/);
+  assert.match(controls, /data-testid="echo-director-preview-record-readiness"/);
+  assert.match(controls, /role="status"/);
+  assert.match(controls, /data-testid="echo-director-preview-record-error"/);
+  assert.match(controls, /role="alert"/);
+  assert.match(viewSource, /onLoadedData=\{\(\) => setAudioPlaybackReady\(true\)\}/);
+  assert.match(viewSource, /onWaiting=\{\(\) => setAudioPlaybackReady\(false\)\}/);
+  assert.match(viewSource, /RECORDING · PLAYBACK PAUSED/);
+  const recordingPath = viewSource.slice(
+    viewSource.indexOf("const acquirePreviewRecordingAudioTrack = async () => {"),
+    viewSource.indexOf("// Load the recording shelf once on mount."),
+  );
+  assert.doesNotMatch(recordingPath, /mean_volume|rms|silence threshold/i, "pauses and quiet passages must remain valid recording content");
+});
+
+test("audio capture binds the current element and awaits a running AudioContext", () => {
+  const acquire = viewSource.slice(
+    viewSource.indexOf("const acquirePreviewRecordingAudioTrack = async () => {"),
+    viewSource.indexOf("const compositePreviewRecordingFrame = () => {"),
+  );
+  assert.match(acquire, /connectedAudioRef\.current !== audioElement/);
+  assert.match(acquire, /if \(context\.state !== "running"\) await context\.resume\(\)/);
+  assert.match(acquire, /if \(context\.state !== "running"\)/);
+  assert.match(acquire, /throw new Error\("The playback audio route did not produce a live recording track\."\)/);
 });
 
 test("capture composites picture + shader only, never the HUD or lyrics", () => {

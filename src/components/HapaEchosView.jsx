@@ -1616,7 +1616,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
   }, []);
 
   // ---- Director Preview quick capture (preview recordings) ----
-  // state: idle | recording | saving | error
+  // state: idle | preparing | recording | saving | error
   const [previewRecordingState, setPreviewRecordingState] = useState("idle");
   const [previewRecordingElapsedMs, setPreviewRecordingElapsedMs] = useState(0);
   const [previewRecordingError, setPreviewRecordingError] = useState("");
@@ -1624,6 +1624,8 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
   const [previewRecordingsError, setPreviewRecordingsError] = useState("");
   const [previewRecordingLastId, setPreviewRecordingLastId] = useState("");
   const previewRecordingActiveRef = useRef(false);
+  const previewRecordingStartingRef = useRef(false);
+  const previewRecordingFailureMessageRef = useRef("");
   const previewRecordingSessionRef = useRef(null);
   const previewRecordingCanvasRef = useRef(null);
   const previewRecordingStreamRef = useRef(null);
@@ -1659,6 +1661,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
 
   const [audioBlobUrl, setAudioBlobUrl] = useState("");
   const [audioLoading, setAudioLoading] = useState(false);
+  const [audioPlaybackReady, setAudioPlaybackReady] = useState(false);
 
   const closeDirectorPreviewExpanded = useCallback(async () => {
     const documentRef = globalThis.document;
@@ -2227,11 +2230,13 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
     if (!activeProject?.song_id) {
       setAudioBlobUrl("");
       setAudioLoading(false);
+      setAudioPlaybackReady(false);
       return;
     }
     
     let active = true;
     setAudioLoading(true);
+    setAudioPlaybackReady(false);
     setAudioDiagnostics(`Fetching audio blob for ${activeProject.song_id}...`);
     
     const audioRoute = echoProjectAudioRoute(activeProject);
@@ -2255,6 +2260,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
       .catch(err => {
         if (!active) return;
         setAudioLoading(false);
+        setAudioPlaybackReady(false);
         setAudioDiagnostics(`Fetch error: ${err.message}`);
         console.error("Failed to fetch audio blob:", err);
       });
@@ -2282,7 +2288,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
   const initAudioAnalyser = () => {
     if (!audioRef.current) {
       setAudioDiagnostics("No Audio Element Ref");
-      return;
+      return false;
     }
     if (connectedAudioRef.current === audioRef.current) {
       if (audioContextRef.current && audioContextRef.current.state === "suspended") {
@@ -2291,7 +2297,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
       } else {
         setAudioDiagnostics(`Connected (existing, state: ${audioContextRef.current?.state})`);
       }
-      return;
+      return true;
     }
     try {
       if (audioContextRef.current && audioContextRef.current.state !== "closed") {
@@ -2317,9 +2323,11 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
       analyserNodeRef.current = analyser;
       connectedAudioRef.current = audioRef.current;
       setAudioDiagnostics(`Connected (new, state: ${ctx.state})`);
+      return true;
     } catch (e) {
       console.warn("Failed to init audio analyser:", e);
       setAudioDiagnostics(`Init Error: ${e.message || String(e)}`);
+      return false;
     }
   };
 
@@ -2361,32 +2369,40 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
     previewRecordingSessionRef.current = null;
     previewRecordingCanvasRef.current = null;
     previewRecordingActiveRef.current = false;
+    previewRecordingStartingRef.current = false;
   };
 
-  const acquirePreviewRecordingAudioTrack = () => {
-    try {
-      const context = audioContextRef.current;
-      const analyser = analyserNodeRef.current;
-      if (context && analyser && context.state !== "closed") {
-        if (context.state === "suspended") context.resume().catch(() => {});
-        const destination = context.createMediaStreamDestination();
-        analyser.connect(destination);
-        const track = destination.stream.getAudioTracks()[0] || null;
-        if (track) {
-          previewRecordingAudioTapRef.current = { dest: destination, stream: destination.stream, track };
-          return track;
-        }
-      }
-    } catch { /* fall through to element capture */ }
-    try {
-      const stream = typeof audioRef.current?.captureStream === "function" ? audioRef.current.captureStream() : null;
-      const track = stream?.getAudioTracks?.()[0] || null;
-      if (track) {
-        previewRecordingAudioTapRef.current = { stream, track };
-        return track;
-      }
-    } catch { /* no capturable audio */ }
-    return null;
+  const acquirePreviewRecordingAudioTrack = async () => {
+    const audioElement = audioRef.current;
+    if (!audioElement || audioLoading || !audioPlaybackReady || Number(audioElement.readyState || 0) < 2) {
+      throw new Error("Audio is still buffering. Wait for Record + Play to become ready.");
+    }
+    if (!initAudioAnalyser()) {
+      throw new Error("The playback audio route could not be connected to the recorder.");
+    }
+    const context = audioContextRef.current;
+    const analyser = analyserNodeRef.current;
+    if (!context || !analyser || connectedAudioRef.current !== audioElement || context.state === "closed") {
+      throw new Error("The recorder is not connected to the current playback audio.");
+    }
+    if (context.state !== "running") await context.resume();
+    if (context.state !== "running") {
+      throw new Error(`Playback audio could not start (AudioContext: ${context.state}).`);
+    }
+    const destination = context.createMediaStreamDestination();
+    analyser.connect(destination);
+    const track = destination.stream.getAudioTracks()[0] || null;
+    if (!track || track.readyState === "ended") {
+      try { destination.disconnect(); } catch { /* destination was never live */ }
+      throw new Error("The playback audio route did not produce a live recording track.");
+    }
+    previewRecordingAudioTapRef.current = {
+      dest: destination,
+      stream: destination.stream,
+      track,
+      audioElement,
+    };
+    return track;
   };
 
   const compositePreviewRecordingFrame = () => {
@@ -2500,6 +2516,8 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
 
   const stopPreviewRecording = useCallback(async () => {
     if (!previewRecordingActiveRef.current) return;
+    const failureMessage = String(previewRecordingFailureMessageRef.current || "").trim();
+    previewRecordingFailureMessageRef.current = "";
     const session = previewRecordingSessionRef.current;
     setPreviewRecordingState("saving");
     if (previewRecordingRafRef.current) {
@@ -2572,8 +2590,8 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
     }
     if (uploaded) {
       setPreviewRecordingLastId(String(uploaded.id || ""));
-      setPreviewRecordingError("");
-      setPreviewRecordingState("idle");
+      setPreviewRecordingError(failureMessage);
+      setPreviewRecordingState(failureMessage ? "error" : "idle");
       setPreviewRecordings((current) => (current ? [uploaded, ...current] : [uploaded]));
       refreshPreviewRecordings();
       return;
@@ -2593,79 +2611,87 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
     setPreviewRecordingState("error");
   }, [activeOutputProfile, activeProject, refreshPreviewRecordings, selectedProjectSongId]);
 
-  const startPreviewRecording = useCallback(() => {
-    if (previewRecordingActiveRef.current) return;
-    if (typeof globalThis.MediaRecorder === "undefined") {
-      setPreviewRecordingError("This browser cannot record the preview (MediaRecorder unavailable). Safari on macOS 13 or Chrome/Edge is required.");
-      setPreviewRecordingState("error");
-      return;
-    }
-    const probeCanvas = globalThis.document.createElement("canvas");
-    if (typeof probeCanvas.captureStream !== "function") {
-      setPreviewRecordingError("This browser cannot capture a canvas stream (captureStream unavailable).");
-      setPreviewRecordingState("error");
-      return;
-    }
-    const output = activeOutputProfile;
-    const canvas = globalThis.document.createElement("canvas");
-    canvas.width = Math.max(320, Number(output?.width || 1280));
-    canvas.height = Math.max(320, Number(output?.height || 720));
-    previewRecordingCanvasRef.current = canvas;
-    const videoTracks = canvas.captureStream(ECHO_PREVIEW_RECORD_FPS).getVideoTracks();
-    if (!videoTracks.length) {
-      previewRecordingCanvasRef.current = null;
-      setPreviewRecordingError("The preview canvas could not produce a capture stream.");
-      setPreviewRecordingState("error");
-      return;
-    }
-    const audioTrack = acquirePreviewRecordingAudioTrack();
-    const stream = new (globalThis.MediaStream)([...videoTracks, ...(audioTrack ? [audioTrack] : [])]);
-    previewRecordingStreamRef.current = stream;
-    const mimeType = pickEchoPreviewRecordingMimeType((candidate) => globalThis.MediaRecorder.isTypeSupported(candidate));
-    let recorder = null;
+  const startPreviewRecording = useCallback(async () => {
+    if (previewRecordingActiveRef.current || previewRecordingStartingRef.current) return;
+    previewRecordingStartingRef.current = true;
+    setPreviewRecordingError("");
+    setPreviewRecordingState("preparing");
+    let session = null;
+    let sessionStarted = false;
     try {
-      recorder = new (globalThis.MediaRecorder)(stream, {
+      if (typeof globalThis.MediaRecorder === "undefined") {
+        throw new Error("This browser cannot record the preview (MediaRecorder unavailable). Safari on macOS 13 or Chrome/Edge is required.");
+      }
+      const probeCanvas = globalThis.document.createElement("canvas");
+      if (typeof probeCanvas.captureStream !== "function") {
+        throw new Error("This browser cannot capture the preview canvas (captureStream unavailable).");
+      }
+      const project = activeProjectRef.current || activeProject;
+      const timeline = project?.timeline || [];
+      const playhead = Number(currentTimeRef.current || 0);
+      const currentItem = timeline.find((item) => playhead >= item.start_sec && playhead < item.end_sec) || timeline[0];
+      if (shotMediaType(currentItem) === "video" && !previewBufferState.ready) {
+        throw new Error("Video is still buffering. Wait for the preview buffer to become ready.");
+      }
+
+      const audioElement = audioRef.current;
+      const audioTrack = await acquirePreviewRecordingAudioTrack();
+      const output = activeOutputProfile;
+      const canvas = globalThis.document.createElement("canvas");
+      canvas.width = Math.max(320, Number(output?.width || 1280));
+      canvas.height = Math.max(320, Number(output?.height || 720));
+      previewRecordingCanvasRef.current = canvas;
+      const videoTracks = canvas.captureStream(ECHO_PREVIEW_RECORD_FPS).getVideoTracks();
+      if (!videoTracks.length) throw new Error("The preview canvas did not produce a live video track.");
+      const stream = new (globalThis.MediaStream)([...videoTracks, audioTrack]);
+      if (stream.getAudioTracks().length !== 1) {
+        throw new Error("The recorder could not attach the playback audio track.");
+      }
+      previewRecordingStreamRef.current = stream;
+      const mimeType = pickEchoPreviewRecordingMimeType((candidate) => globalThis.MediaRecorder.isTypeSupported(candidate));
+      const recorder = new (globalThis.MediaRecorder)(stream, {
         ...(mimeType ? { mimeType } : {}),
         videoBitsPerSecond: ECHO_PREVIEW_RECORD_VIDEO_BIT_RATE,
         audioBitsPerSecond: ECHO_PREVIEW_RECORD_AUDIO_BIT_RATE,
       });
-    } catch (error) {
-      releasePreviewRecordingResources();
-      setPreviewRecordingError(`MediaRecorder could not start (${String(error?.message || error)}).`);
-      setPreviewRecordingState("error");
-      return;
-    }
-    previewRecordingChunksRef.current = [];
-    recorder.ondataavailable = (event) => {
-      if (event?.data && Number(event.data.size || 0) > 0) previewRecordingChunksRef.current.push(event.data);
-    };
-    const session = createEchoPreviewRecordingSession({
-      recorder,
-      maxDurationMs: ECHO_PREVIEW_RECORD_MAX_DURATION_MS,
-      onTick: (elapsedMs) => setPreviewRecordingElapsedMs(elapsedMs),
-      onAutoStop: () => { stopPreviewRecording(); },
-    });
-    previewRecordingSessionRef.current = session;
-    try {
+      previewRecordingChunksRef.current = [];
+      recorder.ondataavailable = (event) => {
+        if (event?.data && Number(event.data.size || 0) > 0) previewRecordingChunksRef.current.push(event.data);
+      };
+      session = createEchoPreviewRecordingSession({
+        recorder,
+        maxDurationMs: ECHO_PREVIEW_RECORD_MAX_DURATION_MS,
+        onTick: (elapsedMs) => setPreviewRecordingElapsedMs(elapsedMs),
+        onAutoStop: () => { stopPreviewRecording(); },
+      });
+      previewRecordingSessionRef.current = session;
+      if (!audioElement.paused) audioElement.pause();
+      previewRecordingActiveRef.current = true;
       session.start(ECHO_PREVIEW_RECORD_TIMESLICE_MS);
-    } catch (error) {
-      releasePreviewRecordingResources();
-      setPreviewRecordingError(`Recording could not start (${String(error?.message || error)}).`);
-      setPreviewRecordingState("error");
-      return;
-    }
-    const audioElement = audioRef.current;
-    if (audioElement && typeof audioElement.addEventListener === "function") {
+      sessionStarted = true;
+      startPreviewRecordingComposite();
+      await audioElement.play();
+      currentTimeRef.current = Number(audioElement.currentTime || currentTimeRef.current);
+      setCurrentTime(currentTimeRef.current);
+      setIsPlaying(true);
       const onEnded = () => { stopPreviewRecording(); };
       audioElement.addEventListener("ended", onEnded);
       previewRecordingEndedRef.current = { element: audioElement, onEnded };
+      previewRecordingStartingRef.current = false;
+      setPreviewRecordingElapsedMs(0);
+      setPreviewRecordingState("recording");
+      setAudioDiagnostics("Recording and playback started together");
+    } catch (error) {
+      if (sessionStarted && session) {
+        try { await session.stop({ timeoutMs: 1000 }); } catch { /* discard failed startup */ }
+      }
+      if (audioRef.current && !audioRef.current.paused) audioRef.current.pause();
+      setIsPlaying(false);
+      releasePreviewRecordingResources();
+      setPreviewRecordingError(`Recording did not start: ${String(error?.message || error)}`);
+      setPreviewRecordingState("error");
     }
-    previewRecordingActiveRef.current = true;
-    setPreviewRecordingError("");
-    setPreviewRecordingElapsedMs(0);
-    setPreviewRecordingState("recording");
-    startPreviewRecordingComposite();
-  }, [activeOutputProfile, stopPreviewRecording]);
+  }, [activeOutputProfile, activeProject, audioLoading, audioPlaybackReady, previewBufferState.ready, stopPreviewRecording]);
 
   // Load the recording shelf once on mount.
   useEffect(() => {
@@ -2684,6 +2710,16 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
   useEffect(() => {
     if (previewRecordingActiveRef.current) stopPreviewRecording();
   }, [selectedProjectSongId, stopPreviewRecording]);
+
+  // A refreshed Blob URL remounts the <audio> element. Never let capture keep
+  // running against the detached element and quietly turn into a silent file.
+  useEffect(() => {
+    const capturedElement = previewRecordingAudioTapRef.current?.audioElement || null;
+    if (previewRecordingActiveRef.current && capturedElement && audioRef.current !== capturedElement) {
+      previewRecordingFailureMessageRef.current = "Playback audio changed during recording. Capture stopped before it could continue silently.";
+      void stopPreviewRecording();
+    }
+  }, [audioBlobUrl, stopPreviewRecording]);
 
   // Sync currentTime to Ref
   useEffect(() => {
@@ -6040,6 +6076,22 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                       : null);
                     const pendingPreviewProxyCount = activeProject.timeline?.filter((item) => item.media_contract?.type === "video" && item.media_contract?.proxy?.status !== "ready").length || 0;
                     const isVerticalOutput = activeOutputProfile.id === "vertical";
+                    const previewRecordingVideoBuffering = shotMediaType(currentTimelineItem) === "video" && !previewBufferState.ready;
+                    const previewRecordingAudioBuffering = audioLoading || !audioPlaybackReady;
+                    const previewRecordingBusy = previewRecordingState === "preparing" || previewRecordingState === "saving";
+                    const previewRecordingStartBlocked = previewRecordingState !== "recording"
+                      && (previewRecordingBusy || previewRecordingAudioBuffering || previewRecordingVideoBuffering);
+                    const previewRecordingReadinessLabel = previewRecordingState === "preparing"
+                      ? "STARTING RECORDING + PLAYBACK"
+                      : previewRecordingState === "saving"
+                        ? "SAVING RECORDING"
+                        : previewRecordingState === "recording"
+                          ? (!audioPlaybackReady ? "RECORDING · AUDIO BUFFERING" : !isPlaying ? "RECORDING · PLAYBACK PAUSED" : "RECORDING AUDIO + VIDEO")
+                          : previewRecordingAudioBuffering
+                            ? "RECORD · BUFFERING AUDIO"
+                            : previewRecordingVideoBuffering
+                              ? "RECORD · BUFFERING VIDEO"
+                              : "RECORD READY · STARTS PLAYBACK";
                     const directorPreviewWidth = isVerticalOutput
                       ? ECHO_VERTICAL_EXPANDED_PREVIEW_WIDTH
                       : ECHO_EXPANDED_PREVIEW_WIDTH;
@@ -6691,6 +6743,22 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                                 src={audioBlobUrl}
                                 onTimeUpdate={handleTimeUpdate}
                                 onEnded={() => setIsPlaying(false)}
+                                onLoadedData={() => setAudioPlaybackReady(true)}
+                                onCanPlay={() => setAudioPlaybackReady(true)}
+                                onPlaying={() => setAudioPlaybackReady(true)}
+                                onWaiting={() => setAudioPlaybackReady(false)}
+                                onStalled={() => setAudioPlaybackReady(false)}
+                                onEmptied={() => setAudioPlaybackReady(false)}
+                                onError={() => {
+                                  setAudioPlaybackReady(false);
+                                  setIsPlaying(false);
+                                  setAudioDiagnostics("Playback audio failed");
+                                  setPreviewRecordingError("Playback audio failed. The recording was stopped and the failure was surfaced.");
+                                  if (previewRecordingActiveRef.current) {
+                                    previewRecordingFailureMessageRef.current = "Playback audio failed during recording. The saved clip may be incomplete.";
+                                    void stopPreviewRecording();
+                                  }
+                                }}
                                 crossOrigin="anonymous"
                               />
                             )}
@@ -7293,10 +7361,16 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                                     type="button"
                                     data-testid="echo-director-preview-record"
                                     data-recording-state={previewRecordingState}
-                                    aria-pressed={previewRecordingState === "recording" || previewRecordingState === "saving"}
-                                    disabled={previewRecordingState === "saving"}
+                                    aria-pressed={previewRecordingState === "preparing" || previewRecordingState === "recording" || previewRecordingState === "saving"}
+                                    disabled={previewRecordingStartBlocked}
                                     onClick={previewRecordingState === "recording" ? stopPreviewRecording : (previewRecordingState === "idle" || previewRecordingState === "error") ? startPreviewRecording : undefined}
-                                    title={previewRecordingState === "recording" ? "Stop the capture and save it to Recordings" : "Capture the preview (picture + audio) as a quick video clip"}
+                                    title={previewRecordingState === "recording"
+                                      ? "Stop the capture and save it to Recordings"
+                                      : previewRecordingAudioBuffering
+                                        ? "Waiting for playback audio to buffer"
+                                        : previewRecordingVideoBuffering
+                                          ? "Waiting for the current preview video to buffer"
+                                          : "Start playback and record its picture + sound together"}
                                     style={{
                                       background: previewRecordingState === "recording" ? 'rgba(239,68,68,0.22)' : 'rgba(255,255,255,0.05)',
                                       border: `1px solid ${previewRecordingState === "recording" ? 'var(--hapa-neon-rose, #ef4444)' : 'rgba(255,255,255,0.18)'}`,
@@ -7305,13 +7379,40 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                                       fontSize: '9px',
                                       fontWeight: 'bold',
                                       borderRadius: '4px',
-                                      cursor: previewRecordingState === "saving" ? 'wait' : 'pointer',
+                                      cursor: previewRecordingStartBlocked ? 'wait' : 'pointer',
                                       flexShrink: 0,
-                                      ...(previewRecordingState === "saving" ? { opacity: 0.7 } : {})
+                                      ...(previewRecordingStartBlocked ? { opacity: 0.7 } : {})
                                     }}
                                   >
-                                    {previewRecordingState === "recording" ? `■ Stop · ${formatEchoPreviewRecordingElapsed(previewRecordingElapsedMs)}` : previewRecordingState === "saving" ? "⏫ Saving…" : "● Record"}
+                                    {previewRecordingState === "recording"
+                                      ? `■ Stop · ${formatEchoPreviewRecordingElapsed(previewRecordingElapsedMs)}`
+                                      : previewRecordingState === "preparing"
+                                        ? "⏳ Starting audio + video…"
+                                        : previewRecordingState === "saving"
+                                          ? "⏫ Saving…"
+                                          : previewRecordingAudioBuffering
+                                            ? "⏳ Buffering audio…"
+                                            : previewRecordingVideoBuffering
+                                              ? "⏳ Buffering video…"
+                                              : "● Record + Play"}
                                   </button>
+                                  <span
+                                    data-testid="echo-director-preview-record-readiness"
+                                    role="status"
+                                    aria-live="polite"
+                                    style={{ fontFamily: 'monospace', fontSize: '9px', color: previewRecordingState === "error" ? '#fca5a5' : '#67e8f9', flexShrink: 0 }}
+                                  >
+                                    {previewRecordingReadinessLabel}
+                                  </span>
+                                  {previewRecordingError && (
+                                    <span
+                                      data-testid="echo-director-preview-record-error"
+                                      role="alert"
+                                      style={{ width: '100%', color: '#fca5a5', fontSize: '9px', lineHeight: 1.35 }}
+                                    >
+                                      {previewRecordingError}
+                                    </span>
+                                  )}
                                   {pendingPreviewProxyCount > 0 && (
                                     <button type="button" onClick={prepareSmoothPreview} disabled={["queued", "running"].includes(previewPreparation.status)} style={{ background: 'rgba(168,85,247,.16)', border: '1px solid var(--hapa-neon-violet)', color: 'var(--hapa-neon-violet)', padding: '5px 9px', fontSize: '9px', fontWeight: 'bold', borderRadius: '4px', cursor: ["queued", "running"].includes(previewPreparation.status) ? 'wait' : 'pointer', flexShrink: 0 }}>
                                       {previewPreparation.status === "queued" ? `QUEUED ${pendingPreviewProxyCount} PROXIES…` : previewPreparation.status === "running" ? `COMPILING ${pendingPreviewProxyCount} PROXIES…` : `COMPILE SMOOTH PREVIEW (${pendingPreviewProxyCount})`}
