@@ -10,10 +10,13 @@ import {
   ECHO_PREVIEW_RECORD_MAX_DURATION_MS,
   ECHO_PREVIEW_RECORD_MIME_CANDIDATES,
   ECHO_PREVIEW_RECORD_FPS,
+  ECHO_PREVIEW_RECORD_VIDEO_BIT_RATE,
+  ECHO_PREVIEW_RECORD_AUDIO_BIT_RATE,
   createEchoPreviewRecordingSession,
   echoPreviewRecordingContentType,
   echoPreviewRecordingFileExtension,
   echoPreviewRecordingFileName,
+  echoPreviewRecordingQualityLabel,
   ensureEchoPreviewRecordingLocalSession,
   formatEchoPreviewRecordingElapsed,
   pickEchoPreviewRecordingMimeType,
@@ -51,6 +54,19 @@ test("recording container helpers map mime to extension and content type", () =>
   assert.equal(echoPreviewRecordingContentType("video/mp4"), "video/mp4");
   assert.equal(echoPreviewRecordingContentType("video/webm;codecs=vp9,opus"), "video/webm");
   assert.equal(ECHO_PREVIEW_RECORD_FPS, 30);
+});
+
+test("recording quality profile gives full-resolution motion and audio a high bitrate budget", () => {
+  assert.equal(ECHO_PREVIEW_RECORD_VIDEO_BIT_RATE, 20_000_000);
+  assert.equal(ECHO_PREVIEW_RECORD_AUDIO_BIT_RATE, 256_000);
+  assert.equal(
+    echoPreviewRecordingQualityLabel({ width: 1920, height: 1080 }),
+    "HQ 1920\u00d71080 · 30 FPS · 20 Mbps VIDEO · 256 kbps AUDIO",
+  );
+  assert.equal(
+    echoPreviewRecordingQualityLabel({ width: 1080, height: 1920 }),
+    "HQ 1080\u00d71920 · 30 FPS · 20 Mbps VIDEO · 256 kbps AUDIO",
+  );
 });
 
 test("recording filenames include song, take number, length, and timestamp", () => {
@@ -391,6 +407,8 @@ test("director preview exposes the record button, the recordings tab, and the ca
   assert.match(viewSource, /fetch\(`\$\{API_BASE\}\/api\/echo\/preview-recordings\?/);
   assert.match(viewSource, /MediaRecorder/);
   assert.match(viewSource, /canvas\.captureStream\(ECHO_PREVIEW_RECORD_FPS\)/);
+  assert.match(viewSource, /videoBitsPerSecond: ECHO_PREVIEW_RECORD_VIDEO_BIT_RATE/);
+  assert.match(viewSource, /audioBitsPerSecond: ECHO_PREVIEW_RECORD_AUDIO_BIT_RATE/);
 
   // Record button in the preview controls with an honest state machine.
   const controls = viewSource.slice(
@@ -402,6 +420,7 @@ test("director preview exposes the record button, the recordings tab, and the ca
   assert.match(controls, /data-recording-state=\{previewRecordingState\}/);
   assert.match(controls, /"● Record \+ Play"/);
   assert.match(controls, /formatEchoPreviewRecordingElapsed\(previewRecordingElapsedMs\)/);
+  assert.match(controls, /data-testid="echo-director-preview-record-quality"/);
 
   // The recordings shelf.
   assert.match(viewSource, /\['preview', 'lyrics', 'tracks', 'variation', 'live', 'palmier', 'script', 'edl', 'journal', 'recordings'\]/);

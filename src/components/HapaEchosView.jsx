@@ -121,6 +121,7 @@ import {
   ECHO_PREVIEW_RECORD_VIDEO_BIT_RATE,
   ECHO_PREVIEW_RECORD_AUDIO_BIT_RATE,
   createEchoPreviewRecordingSession,
+  echoPreviewRecordingQualityLabel,
   ensureEchoPreviewRecordingLocalSession,
   formatEchoPreviewRecordingElapsed,
   echoPreviewRecordingFileName,
@@ -6159,6 +6160,10 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                               : previewRecordingVideoBuffering
                                 ? "RECORD · BUFFERING VIDEO"
                                 : "RECORD READY · STARTS PLAYBACK";
+                    const previewRecordingQualityLabel = echoPreviewRecordingQualityLabel({
+                      width: activeOutputProfile?.width,
+                      height: activeOutputProfile?.height,
+                    });
                     const directorPreviewWidth = isVerticalOutput
                       ? ECHO_VERTICAL_EXPANDED_PREVIEW_WIDTH
                       : ECHO_EXPANDED_PREVIEW_WIDTH;
@@ -7409,6 +7414,15 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                                     style={{ fontFamily: 'monospace', fontSize: '9px', color: previewRecordingAudioFailed || previewRecordingState === "error" ? '#fca5a5' : '#67e8f9', flexShrink: 0 }}
                                   >
                                     {previewRecordingReadinessLabel}
+                                  </span>
+                                  <span
+                                    data-testid="echo-director-preview-record-quality"
+                                    data-video-bits-per-second={ECHO_PREVIEW_RECORD_VIDEO_BIT_RATE}
+                                    data-audio-bits-per-second={ECHO_PREVIEW_RECORD_AUDIO_BIT_RATE}
+                                    title="High-quality full-resolution recording target"
+                                    style={{ fontFamily: 'monospace', fontSize: '8px', color: '#a5b4fc', flexShrink: 0 }}
+                                  >
+                                    {previewRecordingQualityLabel}
                                   </span>
                                   {audioPlaybackError && (
                                     <span

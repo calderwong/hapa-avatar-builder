@@ -27,18 +27,34 @@ export const ECHO_PREVIEW_RECORD_MAX_DURATION_MS = 60 * 60 * 1000;
 // unbounded in-memory buffer while the operator records.
 export const ECHO_PREVIEW_RECORD_TIMESLICE_MS = 1000;
 
-// Nominal capture quality for 1080p/30 preview material with moderate motion.
-// Persistence retains its existing bounded upload/local-download fallback.
-export const ECHO_PREVIEW_RECORD_VIDEO_BIT_RATE = 8_000_000;
-export const ECHO_PREVIEW_RECORD_AUDIO_BIT_RATE = 128_000;
+// High-quality capture budget for the Director's full-resolution 1080p/30
+// output. Fast shader motion and neon gradients need substantially more room
+// than the old 8 Mbps preview encode; audio is raised in the same profile so
+// sound quality keeps pace with the sharper picture.
+// MediaRecorder treats these as requested/target rates and may report a nearby
+// negotiated value for the selected browser codec.
+export const ECHO_PREVIEW_RECORD_VIDEO_BIT_RATE = 20_000_000;
+export const ECHO_PREVIEW_RECORD_AUDIO_BIT_RATE = 256_000;
+
+export function echoPreviewRecordingQualityLabel({ width, height } = {}) {
+  const normalizedWidth = Math.max(0, Math.trunc(Number(width) || 0));
+  const normalizedHeight = Math.max(0, Math.trunc(Number(height) || 0));
+  const dimensions = normalizedWidth && normalizedHeight
+    ? `${normalizedWidth}\u00d7${normalizedHeight}`
+    : "FULL OUTPUT";
+  const videoMbps = ECHO_PREVIEW_RECORD_VIDEO_BIT_RATE / 1_000_000;
+  const audioKbps = ECHO_PREVIEW_RECORD_AUDIO_BIT_RATE / 1_000;
+  return `HQ ${dimensions} \u00b7 ${ECHO_PREVIEW_RECORD_FPS} FPS \u00b7 ${videoMbps} Mbps VIDEO \u00b7 ${audioKbps} kbps AUDIO`;
+}
 
 // Container candidates in preference order. Safari's MediaRecorder only
 // supports MP4/H.264 (+ AAC); Chromium/Firefox support WebM/VP8/VP9+Opus.
 // The first supported candidate wins; undefined means the browser supports
 // none of these and the caller must fall back to the default constructor.
 export const ECHO_PREVIEW_RECORD_MIME_CANDIDATES = [
-  'video/mp4;codecs="avc1.42E01E,mp4a.40.2"',
+  'video/mp4;codecs="avc1.640028,mp4a.40.2"',
   "video/mp4",
+  'video/mp4;codecs="avc1.42E01E,mp4a.40.2"',
   "video/webm;codecs=vp9,opus",
   "video/webm;codecs=vp8,opus",
   "video/webm",
