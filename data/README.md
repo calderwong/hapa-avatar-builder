@@ -14,6 +14,8 @@ Important local files:
 - `human-video-enrichment-events.ndjson` - append-only local receipts for human enrichment revisions.
 - `human-video-agent-reviews.json` - evidence-bound optical sub-agent proposals pending explicit human validation; owner-token/PID-checked locking prevents an agent revision from racing over a human decision.
 - `human-video-agent-review-events.ndjson` - append-only proposal submission and human decision receipts.
+- `human-video-likeness-decisions.json` - durable Human Likeness lane decisions (Avatar Likeness Assignment, layer L4): one per enricher-accepted video, `origin: "avatar-likeness"`, carrying the matcher's full score receipt. The human gate the Director consumes (layer L5); written only through the enricher API, never by the matcher batch.
+- `human-video-likeness-decisions-events.ndjson` - append-only accept/reject receipts for the likeness decision ledger.
 - `human-video-optical-campaign.json` - resumable vision-only job claims, immutable canonical First/Mid/Last SHA-256 manifests, opaque worker leases, frozen claim configuration, normalized-result completion receipts, scheduler timing, and immutable job/attempt/frame/lease-bound token telemetry receipts for new attempts. Initial kickoff jobs retain legacy digests but are also checked against their complete manifests; their first three captured telemetry receipts predate local receipt binding and remain explicitly classified as legacy-unbound.
 - `human-video-optical-campaign-events.ndjson` - append-only plan, claim, recovery, completion, failure, and telemetry events; it contains no media judgments or Reference Pass output.
 - `kanban.json` - local builder board.

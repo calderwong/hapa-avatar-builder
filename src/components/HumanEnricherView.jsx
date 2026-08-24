@@ -30,6 +30,7 @@ import {
   matchesHumanVideoReviewFilter,
   matchesHumanVideoSourceFilter,
 } from "../domain/human-video-enrichment.js";
+import HumanEnricherLikenessLane from "./HumanEnricherLikenessLane.jsx";
 
 const EMPTY_REFERENCE = { type: "echo-song", id: "", label: "", uri: "", notes: "" };
 
@@ -59,6 +60,12 @@ export default function HumanEnricherView({ apiBase = "", onNotify = () => {} })
   const editSerialRef = useRef(0);
 
   async function load({ preserveSelection = true, append = false, offset = 0 } = {}) {
+    if (layout === "likeness") {
+      // The likeness lane owns its own fetch against the lane route; the
+      // rest of the Enricher does not wait on it (browsable, non-blocking).
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     setError("");
     try {
@@ -200,7 +207,7 @@ export default function HumanEnricherView({ apiBase = "", onNotify = () => {} })
     setLayout(nextLayout);
     try {
       const url = new URL(globalThis.location.href);
-      if (nextLayout === "tiles") url.searchParams.set("layout", "tiles");
+      if (nextLayout === "tiles" || nextLayout === "likeness") url.searchParams.set("layout", nextLayout);
       else url.searchParams.delete("layout");
       globalThis.history?.replaceState({}, "", url);
     } catch {
@@ -409,6 +416,7 @@ export default function HumanEnricherView({ apiBase = "", onNotify = () => {} })
           <div className="human-enricher-layout-toggle" role="group" aria-label="Human Enricher layout">
             <button type="button" aria-pressed={layout === "detail"} onClick={() => switchLayout("detail")}><ListVideo size={15} /> Detail</button>
             <button type="button" aria-pressed={layout === "tiles"} onClick={() => switchLayout("tiles")}><LayoutGrid size={15} /> Quick Sort</button>
+            <button type="button" aria-pressed={layout === "likeness"} onClick={() => switchLayout("likeness")}><BadgeCheck size={15} /> Likeness</button>
           </div>
           <button className="hapa-btn" type="button" onClick={() => load()} disabled={loading}>
             <RefreshCw size={15} className={loading ? "spin" : ""} /> Refresh videos
@@ -418,7 +426,9 @@ export default function HumanEnricherView({ apiBase = "", onNotify = () => {} })
 
       {error && <div className="human-enricher-error hapa-panel" role="alert">{error}</div>}
 
-      {layout === "detail" ? <>
+      {layout === "likeness" ? (
+        <HumanEnricherLikenessLane apiBase={apiBase} onNotify={onNotify} />
+      ) : layout === "detail" ? <>
       <div className="human-enricher-stats" aria-label="Human enrichment status">
         <Metric label="Known videos" value={dashboard?.summary?.videos || 0} icon={<FileVideo2 size={16} />} />
         <Metric label="Human enriched" value={dashboard?.summary?.enriched || 0} icon={<Sparkles size={16} />} />
@@ -776,7 +786,8 @@ function initialReviewFilter() {
 }
 
 function initialLayout() {
-  return new URLSearchParams(globalThis.location?.search || "").get("layout") === "tiles" ? "tiles" : "detail";
+  const requested = new URLSearchParams(globalThis.location?.search || "").get("layout");
+  return requested === "tiles" || requested === "likeness" ? requested : "detail";
 }
 
 function initialQuickSortSeenFilter() {

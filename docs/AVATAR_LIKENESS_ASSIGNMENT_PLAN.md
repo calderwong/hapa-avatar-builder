@@ -229,7 +229,7 @@ accepted likeness set — same audit shape the Human-Accepted pass records.
 | 1 | L1 feature module + unit tests (synthetic frames; ffmpeg round-trip) | tests + focused commit | **done** — commit `3890b58` (2026-08-23) |
 | 2 | L2 profiles store + CLI + API + coverage report | dry-run report over all 74 Avatars; tests + commit | **done** — commit `7af6a4c` (2026-08-23): live run over all 74 Avatars (73 profiled / 1 profileless / 1 corrupt file failing honestly), ~2 min rebuild, ~15 s steady-state freshness pass |
 | 3 | L3 signatures + matcher + batch script + verdict store | dry-run over the accepted set; calibration pass on a 50-media hand-labeled sample to set the 0.55/0.10 defaults from observed separation, not vibes; tests + commit | **done** (2026-08-24): calibration over 140 self-labeled identity media confirmed 0.55/0.10 (margin is the separator; floor outcome-invariant); full apply over the 3,267 accepted set — 3,133 signed (134 sources gone, honestly excluded), 22 assigned / 3,111 unresolved (3,110 too_close), ~10 min; the assigned samples are genuine likeness (Mara look-book, Pomeranian for the dog Avatar, Tiny rooftop) and palette-only false positives (nebula, stained glass) sit unresolved — the gate behaves as designed |
-| 4 | L4 Likeness lane in the Human Enricher UI + decision receipts | UI smoke via served-bundle markers + API round-trip; tests + commit | not started |
+| 4 | L4 Likeness lane in the Human Enricher UI + decision receipts | UI smoke via served-bundle markers + API round-trip; tests + commit | **done** (2026-08-24): decision domain + store + dashboard join + API routes + lane layout; 11 new tests green (7 decision + 4 lane, incl. a real-server round-trip with durable receipts); full suite 1883/1874/9 with all 9 failures pre-existing (8 baseline + 1 from the unrelated `6cee844` echos commit, proven on a clean worktree); `npm run build` green with the delivery contract tests passing on the new receipt |
 | 5 | Director `avatar-likeness-v1` variant + EDL typing + audit | full-suite baseline (8 known failures), `npm run build`, Director pass report, append-only audit; commit | not started |
 
 Every phase: `npm test` + `npm run build` gates, focused commits, no push
@@ -321,3 +321,36 @@ mutation.
 14. **Accepted set = 3,267** videos (all `mediaType: "video"`) as of the
     Phase 3 run — the plan's "3,133" line is the *readable* count and the
     live run confirmed it exactly (3,267 − 134 gone sources).
+15. **Separate decision store, same family** (Phase 4): likeness
+    decisions live in `data/human-video-likeness-decisions.json` — the
+    Quick Sort decision *family* (states, aliases, optimistic revision,
+    actor attribution, append-only events) in its own file, because the
+    Quick Sort ledger's invariants are one-decision-per-video with a
+    media-triage truth boundary, while likeness is a placement authority
+    that coexists with triage on the same video. `origin:
+    "avatar-likeness"` marks the family member; the Quick Sort ledger is
+    never written by this path (the Phase 3 contract test still asserts
+    it). The decision carries the full bounded score receipt so the
+    Director (L5) consumes a verifiable placement.
+16. **Lane is a third layout inside the Human Enricher** (Phase 4):
+    `?layout=likeness` beside Detail and Quick Sort, mounted as
+    `HumanEnricherLikenessLane` — self-fetching against
+    `GET/POST /api/human-enricher/likeness(-decisions)`, browsable and
+    non-blocking (the parent's dashboard fetch skips while the lane is
+    active). The lane routes mirror the Quick Sort route trust model
+    (local loopback UI, `x-hapa-actor-id` attribution, no admin gate);
+    the L2 profile route stays admin-gated as before.
+17. **The quick-sort fast-path index carries the likeness verdict**
+    (Phase 4, found by the round-trip test): the POST route reuses
+    `humanVideoQuickSortVideoIndex` as its video-lookup fast path and
+    consumes `video.likenessVerdict` as the decision's score receipt — so
+    the compact indexed shape must include `likenessVerdict`, or the first
+    dashboard build silently turns every accept into a 409
+    `likeness_verdict_missing`.
+18. **Baseline moved to 9 while Phase 4 was in flight**: the unrelated
+    `6cee844` (full-height portrait camera cuts) commit changed
+    `scripts/preflight-echo-render-readiness.mjs` without updating the
+    source-contract assertion in `tests/echo-project-warmup.test.mjs`, so
+    that test fails on clean HEAD too. It is pre-existing, not a Phase 4
+    regression, and it belongs to the echo render-readiness work —
+    reported, not fixed here.

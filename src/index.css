@@ -24451,3 +24451,169 @@ h1 {
     translate: 0;
   }
 }
+
+/* Avatar Likeness lane (Human Enricher, layer L4) */
+
+.human-likeness-lane {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.human-likeness-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  flex-wrap: wrap;
+}
+
+.human-likeness-toolbar p:last-of-type {
+  max-width: 52ch;
+  opacity: .75;
+}
+
+.human-likeness-controls {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.human-likeness-filters {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.human-likeness-filters button[aria-pressed="true"] {
+  border-color: var(--hapa-accent, #7fd6c2);
+  color: var(--hapa-accent, #7fd6c2);
+}
+
+.human-likeness-row {
+  display: grid;
+  grid-template-columns: 96px minmax(0, 1fr) auto;
+  gap: 14px;
+  align-items: center;
+}
+
+.human-likeness-row[data-state="accepted"] {
+  border-color: color-mix(in oklab, var(--hapa-accent, #7fd6c2) 45%, transparent);
+}
+
+.human-likeness-row[data-state="rejected"] {
+  opacity: .62;
+}
+
+.human-likeness-poster {
+  width: 96px;
+  height: 64px;
+  overflow: hidden;
+  border-radius: 6px;
+  background: #0b0e14;
+  display: grid;
+  place-items: center;
+  color: #5b6478;
+}
+
+.human-likeness-poster img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.human-likeness-name {
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.human-likeness-badges {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 12px;
+  opacity: .85;
+}
+
+.human-likeness-badges span[data-variant="accepted"] {
+  color: var(--hapa-accent, #7fd6c2);
+}
+
+.human-likeness-badges span[data-variant="rejected"] {
+  color: var(--hapa-danger, #e88);
+}
+
+.human-likeness-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.human-likeness-actions button .flipped {
+  rotate: 180deg;
+}
+
+.human-likeness-row[data-state="accepted"] .human-likeness-actions button[title*="Re-decide"],
+.human-likeness-row[data-state="rejected"] .human-likeness-actions button[title*="Re-decide"] {
+  color: var(--hapa-accent, #7fd6c2);
+}
+
+.human-likeness-detail {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  border-top: 1px solid color-mix(in oklab, var(--hapa-accent, #7fd6c2) 25%, transparent);
+  padding-top: 12px;
+}
+
+.human-likeness-candidates {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.human-likeness-candidates th,
+.human-likeness-candidates td {
+  text-align: left;
+  padding: 6px 10px;
+  border-bottom: 1px solid color-mix(in oklab, white 8%, transparent);
+}
+
+.human-likeness-candidates tr[data-selected] td {
+  color: var(--hapa-accent, #7fd6c2);
+}
+
+.human-likeness-channel {
+  display: inline-flex;
+  gap: 6px;
+}
+
+.human-likeness-channel em {
+  font-style: normal;
+  opacity: .8;
+}
+
+.human-likeness-decision-note {
+  font-size: 12px;
+  opacity: .75;
+}
+
+.human-likeness-decide {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.human-likeness-decide input {
+  flex: 1;
+  min-width: 220px;
+}
+
+.human-likeness-decide button[data-action="reject"] {
+  color: var(--hapa-danger, #e88);
+}

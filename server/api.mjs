@@ -70,6 +70,7 @@ import {
   matchesHumanVideoReviewFilter,
   matchesHumanVideoSourceFilter,
 } from "../src/domain/human-video-enrichment.js";
+import { matchesHumanVideoLikenessLaneFilter } from "../src/domain/human-video-likeness-decisions.js";
 import {
   upsertMediaAttachmentRecord,
   withMediaAttachmentRelationship
@@ -153,6 +154,7 @@ import { openAvatarCardCustodyService } from "./card-custody-service.mjs";
 import { openHumanVideoEnrichmentStore } from "./human-video-enrichment-store.mjs";
 import { openHumanVideoAgentReviewStore } from "./human-video-agent-review-store.mjs";
 import { openHumanVideoQuickSortStore } from "./human-video-quick-sort-store.mjs";
+import { openHumanVideoLikenessDecisionsStore } from "./human-video-likeness-decisions-store.mjs";
 import { openHumanVideoOpticalCampaignStore } from "./human-video-optical-campaign-store.mjs";
 import { openHumanVideoReferenceReviewStore } from "./human-video-reference-review-store.mjs";
 import {
@@ -194,6 +196,7 @@ import { collectSongCardConstituentReferences, hydrateSongCardConstituentSnapsho
 import { echoProjectAudioRoute } from "../src/domain/echo-audio-route.js";
 import { createPreviewRecordingStore, PreviewRecordingStoreError } from "./preview-recording-store.mjs";
 import { createAvatarLikenessStore, AvatarLikenessStoreError } from "./avatar-likeness-store.mjs";
+import { createAvatarLikenessVerdictStore } from "./avatar-likeness-media-stores.mjs";
 import { profileSummary, AVATAR_LIKENESS_PROFILE_STORE_SCHEMA } from "../src/domain/avatar-likeness-profile.js";
 import {
   isEchoRecordCertifiedTransitionPreviewShot,
@@ -513,6 +516,8 @@ const HUMAN_VIDEO_AGENT_REVIEW_PATH = process.env.HAPA_HUMAN_VIDEO_AGENT_REVIEW_
 const HUMAN_VIDEO_AGENT_REVIEW_EVENT_PATH = process.env.HAPA_HUMAN_VIDEO_AGENT_REVIEW_EVENTS || path.join(ROOT, "data/human-video-agent-review-events.ndjson");
 const HUMAN_VIDEO_QUICK_SORT_PATH = process.env.HAPA_HUMAN_VIDEO_QUICK_SORT_STORE || path.join(ROOT, "data/human-video-quick-sort-decisions.json");
 const HUMAN_VIDEO_QUICK_SORT_EVENT_PATH = process.env.HAPA_HUMAN_VIDEO_QUICK_SORT_EVENTS || path.join(ROOT, "data/human-video-quick-sort-events.ndjson");
+const HUMAN_VIDEO_LIKENESS_DECISIONS_PATH = process.env.HAPA_HUMAN_VIDEO_LIKENESS_DECISIONS_STORE || path.join(ROOT, "data/human-video-likeness-decisions.json");
+const HUMAN_VIDEO_LIKENESS_DECISIONS_EVENT_PATH = process.env.HAPA_HUMAN_VIDEO_LIKENESS_DECISIONS_EVENTS || path.join(ROOT, "data/human-video-likeness-decisions-events.ndjson");
 const HUMAN_VIDEO_OPTICAL_CAMPAIGN_PATH = process.env.HAPA_HUMAN_VIDEO_OPTICAL_CAMPAIGN_STORE || path.join(ROOT, "data/human-video-optical-campaign.json");
 const HUMAN_VIDEO_OPTICAL_CAMPAIGN_EVENT_PATH = process.env.HAPA_HUMAN_VIDEO_OPTICAL_CAMPAIGN_EVENTS || path.join(ROOT, "data/human-video-optical-campaign-events.ndjson");
 const HUMAN_VIDEO_REFERENCE_REVIEW_PATH = process.env.HAPA_HUMAN_VIDEO_REFERENCE_REVIEW_STORE || path.join(ROOT, "data/human-video-reference-reviews.json");
@@ -537,6 +542,10 @@ const humanVideoAgentReviewStore = openHumanVideoAgentReviewStore({
 const humanVideoQuickSortStore = openHumanVideoQuickSortStore({
   filePath: HUMAN_VIDEO_QUICK_SORT_PATH,
   eventPath: HUMAN_VIDEO_QUICK_SORT_EVENT_PATH,
+});
+const humanVideoLikenessDecisionsStore = openHumanVideoLikenessDecisionsStore({
+  filePath: HUMAN_VIDEO_LIKENESS_DECISIONS_PATH,
+  eventPath: HUMAN_VIDEO_LIKENESS_DECISIONS_EVENT_PATH,
 });
 let humanVideoQuickSortVideoIndex = new Map();
 const humanVideoOpticalCampaignStore = openHumanVideoOpticalCampaignStore({
@@ -737,6 +746,7 @@ const previewRecordingStore = createPreviewRecordingStore({
 });
 const AVATAR_LIKENESS_DIR = process.env.HAPA_AVATAR_LIKENESS_DIR || path.join(ROOT, "data/avatar-likeness");
 const avatarLikenessStore = createAvatarLikenessStore({ dir: AVATAR_LIKENESS_DIR });
+const avatarLikenessVerdictStore = createAvatarLikenessVerdictStore({ dir: AVATAR_LIKENESS_DIR });
 
 function sendPreviewRecordingError(res, error) {
   const status = Number(error?.statusCode || (PreviewRecordingStoreError && error instanceof PreviewRecordingStoreError ? 400 : 500));
@@ -4606,6 +4616,84 @@ async function route(req, res) {
     return;
   }
 
+  if (pathname === "/api/human-enricher/likeness" && req.method === "GET") {
+    // Avatar Likeness lane (L4): verdict + decision join over the enricher
+    // dashboard. Browsable and non-blocking — mirrors the quick-sort route
+    // trust model (local loopback UI, no admin gate).
+    try {
+      const dashboard = await buildHumanVideoEnricherDashboard();
+      const state = String(url.searchParams.get("state") || "proposed").trim().toLowerCase();
+      const query = String(url.searchParams.get("q") || "").trim().toLowerCase();
+      const offset = Math.max(0, Number(url.searchParams.get("offset") || 0) || 0);
+      const limit = Math.max(1, Math.min(500, Number(url.searchParams.get("limit") || 60) || 60));
+      const matched = dashboard.videos
+        .filter((video) => matchesHumanVideoLikenessLaneFilter(video, state))
+        .filter((video) => !query || [video.name, video.id, video.humanVideoKey, video.likenessVerdict?.primary?.name].filter(Boolean).some((field) => String(field).toLowerCase().includes(query)))
+        .sort((a, b) => Number(b.likenessVerdict?.primary?.score || 0) - Number(a.likenessVerdict?.primary?.score || 0) || String(a.name || a.id).localeCompare(String(b.name || b.id)));
+      res.setHeader("Cache-Control", "no-store");
+      sendJson(res, 200, {
+        schemaVersion: "hapa.human-enricher-likeness-lane.v1",
+        generatedAt: new Date().toISOString(),
+        summary: {
+          likenessKnown: dashboard.summary.likenessKnown,
+          likenessProposed: dashboard.summary.likenessProposed,
+          likenessAssignedProposed: dashboard.summary.likenessAssignedProposed,
+          likenessAccepted: dashboard.summary.likenessAccepted,
+          likenessRejected: dashboard.summary.likenessRejected,
+        },
+        items: matched.slice(offset, offset + limit),
+        pagination: { offset, limit, hasMore: matched.length > offset + limit, nextOffset: offset + limit },
+      });
+    } catch (error) {
+      sendJson(res, Number(error?.statusCode || 500), { ok: false, error: error?.code || "human_enricher_likeness_load_failed", message: error?.message || String(error) });
+    }
+    return;
+  }
+
+  if (pathname === "/api/human-enricher/likeness-decisions" && req.method === "POST") {
+    // Records a human likeness decision (accept — optionally re-pointed to
+    // a different candidate — or reject) as a durable
+    // origin: "avatar-likeness" receipt carrying the full score receipt.
+    // Acceptance is the boundary: the Director consumes the decision, never
+    // the raw score.
+    try {
+      const body = await readBody(req);
+      const requestedKey = String(body.videoKey || body.key || "").trim();
+      let video = humanVideoQuickSortVideoIndex.get(requestedKey) || humanVideoQuickSortVideoIndex.get(`id:${body.videoId || ""}`) || null;
+      if (!video) {
+        const dashboard = await buildHumanVideoEnricherDashboard();
+        video = dashboard.videos.find((candidate) => candidate.humanVideoKey === requestedKey || candidate.humanVideoAliases?.includes(requestedKey) || candidate.id === body.videoId);
+      }
+      if (!video) {
+        sendJson(res, 404, { ok: false, error: "likeness_video_not_found", message: "The selected video is no longer present in the Builder's known media stores." });
+        return;
+      }
+      if (!video.likenessVerdict) {
+        sendJson(res, 409, { ok: false, error: "likeness_verdict_missing", message: "This video has no likeness verdict yet. Run the matcher batch to generate proposals first." });
+        return;
+      }
+      if (video.agentReview?.status === "blocked") {
+        sendJson(res, 409, { ok: false, error: "likeness_video_blocked", message: "This video has a terminal invalid-media receipt and cannot receive a likeness decision." });
+        return;
+      }
+      const result = await humanVideoLikenessDecisionsStore.decide({
+        ...body,
+        videoKey: video.humanVideoKey,
+        videoId: video.id,
+        videoName: video.name,
+        aliases: video.humanVideoAliases,
+        receipt: video.likenessVerdict,
+      }, {
+        actorId: String(req.headers["x-hapa-actor-id"] || body.actorId || "human-enricher-likeness").trim().slice(0, 180),
+      });
+      res.setHeader("Cache-Control", "no-store");
+      sendJson(res, 200, { ok: true, decision: result.decision, changed: result.changed });
+    } catch (error) {
+      sendJson(res, Number(error?.statusCode || 400), { ok: false, error: error?.code || "likeness_decision_failed", message: error?.message || String(error), details: error?.details || null });
+    }
+    return;
+  }
+
   const agentReviewDecisionMatch = pathname.match(/^\/api\/human-enricher\/agent-reviews\/([^/]+)\/decision$/);
   if (agentReviewDecisionMatch && req.method === "POST") {
     try {
@@ -7477,7 +7565,7 @@ async function readSystemMediaLibrary() {
 }
 
 async function buildHumanVideoEnricherDashboard() {
-  const [avatarStore, canonicalAvatarStore, tarotStore, sceneGraph, mediaLibrary, enrichmentStore, agentReviewStore, quickSortStore, referenceReviewStore, songStore, itemStore] = await Promise.all([
+  const [avatarStore, canonicalAvatarStore, tarotStore, sceneGraph, mediaLibrary, enrichmentStore, agentReviewStore, quickSortStore, referenceReviewStore, songStore, itemStore, likenessDecisionsStore] = await Promise.all([
     readStore({ includeProjections: true }),
     readStore(),
     readTarotStore(),
@@ -7489,7 +7577,9 @@ async function buildHumanVideoEnricherDashboard() {
     humanVideoReferenceReviewStore.read(),
     readHapaSongStore(),
     readItemStore(),
+    humanVideoLikenessDecisionsStore.read(),
   ]);
+  const likenessVerdictEntries = Object.fromEntries(await avatarLikenessVerdictStore.list());
   const sourceMediaDashboard = createSystemMediaDashboard({
     avatars: avatarStore.avatars || [],
     tarotStore,
@@ -7505,6 +7595,8 @@ async function buildHumanVideoEnricherDashboard() {
     agentReviewStore,
     quickSortStore,
     referenceReviewStore,
+    likenessVerdictStore: { entries: likenessVerdictEntries },
+    likenessDecisionStore: likenessDecisionsStore,
     avatars: canonicalAvatarStore.avatars || [],
     songs: songStore.songs || [],
   });
@@ -7521,6 +7613,9 @@ function indexHumanVideoQuickSortVideos(videos = []) {
       humanVideoKey: video.humanVideoKey,
       humanVideoAliases: humanVideoAliasKeys(video),
       agentReview: video.agentReview ? { status: video.agentReview.status } : null,
+      // The likeness POST route consumes the verdict as the decision's
+      // score receipt from this fast path, so it must travel with it.
+      likenessVerdict: video.likenessVerdict || null,
     };
     for (const alias of [compact.humanVideoKey, ...compact.humanVideoAliases]) next.set(alias, compact);
     next.set(`id:${compact.id}`, compact);

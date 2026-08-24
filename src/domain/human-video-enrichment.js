@@ -1,3 +1,5 @@
+import { isHumanVideoLikenessDecided } from "./human-video-likeness-decisions.js";
+
 export const HUMAN_VIDEO_ENRICHMENT_STORE_SCHEMA = "hapa.human-video-enrichment-store.v1";
 export const HUMAN_VIDEO_ENRICHMENT_RECORD_SCHEMA = "hapa.human-video-enrichment.v1";
 export const HUMAN_VIDEO_ENRICHER_DASHBOARD_SCHEMA = "hapa.human-video-enricher-dashboard.v1";
@@ -201,11 +203,30 @@ export function upsertHumanVideoEnrichment(storeInput = {}, input = {}, options 
   };
 }
 
-export function createHumanVideoEnricherDashboard({ mediaDashboard = {}, enrichmentStore = {}, agentReviewStore = {}, quickSortStore = {}, referenceReviewStore = {}, avatars = [], songs = [] } = {}) {
+export function createHumanVideoEnricherDashboard({ mediaDashboard = {}, enrichmentStore = {}, agentReviewStore = {}, quickSortStore = {}, referenceReviewStore = {}, likenessVerdictStore = null, likenessDecisionStore = null, avatars = [], songs = [] } = {}) {
   const store = normalizeHumanVideoEnrichmentStore(enrichmentStore);
   const agentReviews = recordsByVideoAlias(agentReviewStore.reviews || []);
   const quickSortDecisions = recordsByVideoAlias(quickSortStore.decisions || []);
   const referenceReviews = recordsByVideoAlias(referenceReviewStore.reviews || []);
+  // Avatar Likeness Assignment (L3/L4): verdict receipts are a keyed map
+  // document (or plain map); decision records use the family's
+  // videoKey+aliases shape, so the quick-sort alias helper applies.
+  const likenessVerdictEntries = likenessVerdictStore?.entries && typeof likenessVerdictStore.entries === "object" ? likenessVerdictStore.entries : (likenessVerdictStore && typeof likenessVerdictStore === "object" ? likenessVerdictStore : {});
+  const likenessVerdicts = new Map();
+  for (const [key, verdict] of Object.entries(likenessVerdictEntries)) {
+    if (!verdict || typeof verdict !== "object") continue;
+    for (const alias of [key, verdict.key, verdict.videoId].filter(Boolean)) {
+      if (!likenessVerdicts.has(alias)) likenessVerdicts.set(alias, verdict);
+    }
+  }
+  const likenessVerdictFor = (video = {}, aliases = []) => {
+    for (const alias of [video.humanVideoKey, ...aliases].filter(Boolean)) {
+      const verdict = likenessVerdicts.get(alias);
+      if (verdict) return verdict;
+    }
+    return null;
+  };
+  const likenessDecisions = recordsByVideoAlias(likenessDecisionStore?.decisions || []);
   const videos = (mediaDashboard.records || [])
     .filter((record) => record.mediaType === "video")
     .map((video) => {
@@ -218,6 +239,8 @@ export function createHumanVideoEnricherDashboard({ mediaDashboard = {}, enrichm
         humanVideoAliases: aliases,
         quickSortDecision: findRecordByAliases(quickSortDecisions, aliases) || legacyQuickSortDecision(agentReview),
         referenceReview: findRecordByAliases(referenceReviews, aliases),
+        likenessVerdict: likenessVerdictFor(enriched, aliases),
+        likenessDecision: findRecordByAliases(likenessDecisions, aliases),
       });
     })
     .sort((a, b) => Number(Boolean(b.humanEnrichment)) - Number(Boolean(a.humanEnrichment))
@@ -262,6 +285,12 @@ export function createHumanVideoEnricherDashboard({ mediaDashboard = {}, enrichm
       remainingOpticalReviews: Math.max(0, videos.length - agentReviewed.length),
       referenceReviewed: referenceReviewed.length,
       remainingReferenceReviews: Math.max(0, agentReviewed.length - referenceReviewed.length),
+      // Avatar Likeness Assignment lane telemetry.
+      likenessKnown: videos.filter((video) => video.likenessVerdict).length,
+      likenessProposed: videos.filter((video) => video.likenessVerdict && !isHumanVideoLikenessDecided(video)).length,
+      likenessAssignedProposed: videos.filter((video) => video.likenessVerdict?.verdict === "assigned" && !isHumanVideoLikenessDecided(video)).length,
+      likenessAccepted: videos.filter((video) => video.likenessDecision?.state === "accepted").length,
+      likenessRejected: videos.filter((video) => video.likenessDecision?.state === "rejected").length,
       calibrationPairs: qualityCalibration.sampleSize,
       agentQualityExactMatchRate: qualityCalibration.exactMatchRate,
     },
@@ -371,6 +400,8 @@ function compactHumanEnricherVideo(video = {}) {
     agentReview: video.agentReview || null,
     quickSortDecision: video.quickSortDecision || null,
     referenceReview: video.referenceReview || null,
+    likenessVerdict: video.likenessVerdict || null,
+    likenessDecision: video.likenessDecision || null,
   };
 }
 
