@@ -13,6 +13,7 @@ import {
   createEchoPreviewRecordingSession,
   echoPreviewRecordingContentType,
   echoPreviewRecordingFileExtension,
+  echoPreviewRecordingFileName,
   ensureEchoPreviewRecordingLocalSession,
   formatEchoPreviewRecordingElapsed,
   pickEchoPreviewRecordingMimeType,
@@ -50,6 +51,19 @@ test("recording container helpers map mime to extension and content type", () =>
   assert.equal(echoPreviewRecordingContentType("video/mp4"), "video/mp4");
   assert.equal(echoPreviewRecordingContentType("video/webm;codecs=vp9,opus"), "video/webm");
   assert.equal(ECHO_PREVIEW_RECORD_FPS, 30);
+});
+
+test("recording filenames include song, take number, length, and timestamp", () => {
+  assert.equal(
+    echoPreviewRecordingFileName({
+      songTitle: 'Brave Tongues: Live / Echo',
+      recordingNumber: 3,
+      durationMs: 312_400,
+      createdAt: new Date("2026-08-24T18:52:14.432Z"),
+      mimeType: "video/mp4",
+    }),
+    "Brave Tongues - Live - Echo - recording 03 - 05m12s - 2026-08-24T18-52-14Z.mp4",
+  );
 });
 
 test("formatEchoPreviewRecordingElapsed renders m:ss", () => {
@@ -183,7 +197,11 @@ async function tempMediaRoot() {
 test("store add/list/get round-trips a capture with sha256 and size", async () => {
   const root = await tempMediaRoot();
   try {
-    const store = createPreviewRecordingStore({ mediaRoot: root, randomId: () => "a1b2c3d4-0000-4000-8000-000000000001" });
+    const store = createPreviewRecordingStore({
+      mediaRoot: root,
+      randomId: () => "a1b2c3d4-0000-4000-8000-000000000001",
+      now: () => new Date("2026-08-24T00:00:00.000Z"),
+    });
     const bytes = Buffer.from("0123456789abcdef");
     const record = await store.add({
       buffer: bytes,
@@ -193,6 +211,8 @@ test("store add/list/get round-trips a capture with sha256 and size", async () =
     assert.equal(record.id, "a1b2c3d4-0000-4000-8000-000000000001");
     assert.equal(record.extension, "webm");
     assert.equal(record.contentType, "video/webm");
+    assert.equal(record.recordingNumber, 1);
+    assert.equal(record.fileName, "Brave Tongues - recording 01 - 00m12s - 2026-08-24T00-00-00Z.webm");
     assert.equal(record.sizeBytes, bytes.byteLength);
     assert.equal(record.sha256, crypto.createHash("sha256").update(bytes).digest("hex"));
     assert.equal(record.songTitle, "Brave Tongues");
@@ -215,13 +235,20 @@ test("store add/list/get round-trips a capture with sha256 and size", async () =
   }
 });
 
-test("store add uses mp4 extension and serves inline for mp4 uploads", async () => {
+test("store add numbers later takes per song and serves inline for mp4 uploads", async () => {
   const root = await tempMediaRoot();
   try {
-    const store = createPreviewRecordingStore({ mediaRoot: root, randomId: () => "11111111-1111-4111-8111-111111111111" });
-    const record = await store.add({ buffer: Buffer.from("mp4-bytes"), mimeType: 'video/mp4;codecs="avc1.42E01E,mp4a.40.2"' });
+    let id = 0;
+    const store = createPreviewRecordingStore({
+      mediaRoot: root,
+      randomId: () => `11111111-1111-4111-8111-${String(++id).padStart(12, "0")}`,
+      now: () => new Date("2026-08-24T18:52:14.000Z"),
+    });
+    await store.add({ buffer: Buffer.from("first"), mimeType: "video/webm", metadata: { songId: "song-1", songTitle: "Brave Tongues" } });
+    const record = await store.add({ buffer: Buffer.from("mp4-bytes"), mimeType: 'video/mp4;codecs="avc1.42E01E,mp4a.40.2"', metadata: { songId: "song-1", songTitle: "Brave Tongues", durationMs: 65_000 } });
     assert.equal(record.extension, "mp4");
-    assert.equal(record.fileName, "11111111-1111-4111-8111-111111111111.mp4");
+    assert.equal(record.recordingNumber, 2);
+    assert.equal(record.fileName, "Brave Tongues - recording 02 - 01m05s - 2026-08-24T18-52-14Z.mp4");
     assert.equal(record.contentType, "video/mp4");
     const file = await store.openFile(record.id);
     assert.equal(file.contentType, "video/mp4");
@@ -457,7 +484,8 @@ test("capture lifecycle survives tab changes, song changes, and unmount", () => 
 test("upload failure falls back to a local download instead of dropping the capture", () => {
   const stop = viewSource.slice(viewSource.indexOf("const stopPreviewRecording = useCallback(async () => {"), viewSource.indexOf("const startPreviewRecording = useCallback(() => {"));
   assert.match(stop, /URL\.createObjectURL\(blob\)/);
-  assert.match(stop, /anchor\.download = `echo-preview-capture-/);
+  assert.match(stop, /anchor\.download = echoPreviewRecordingFileName\(\{/);
+  assert.match(stop, /recordingNumber: Math\.max\(priorTakeNumbers\.length, \.\.\.priorTakeNumbers, 0\) \+ 1/);
   assert.match(stop, /post to\/upload|POST/i);
 });
 

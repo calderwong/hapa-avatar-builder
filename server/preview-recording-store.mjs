@@ -18,6 +18,7 @@ import {
   ECHO_PREVIEW_RECORDING_SCHEMA,
   echoPreviewRecordingContentType,
   echoPreviewRecordingFileExtension,
+  echoPreviewRecordingFileName,
 } from "../src/domain/echo-preview-recording.js";
 
 const SAFE_RECORDING_ID = /^[a-zA-Z0-9][a-zA-Z0-9_-]{7,63}$/u;
@@ -136,6 +137,7 @@ export function createPreviewRecordingStore({
       height: Number(record.height || 0),
       fps: Number(record.fps || 0),
       durationMs: Number(record.durationMs || 0),
+      recordingNumber: Number(record.recordingNumber || 0),
       sizeBytes: Number(record.sizeBytes || 0),
       mimeType: String(record.mimeType || ""),
       contentType: String(record.contentType || ""),
@@ -201,8 +203,8 @@ export function createPreviewRecordingStore({
       const extension = echoPreviewRecordingFileExtension(normalizedMime);
       const id = normalizeId(metadata.id) || randomId();
       const safeId = assertSafeId(id);
-      const fileName = `${safeId}.${extension}`;
-      const record = {
+      const createdAt = now().toISOString();
+      const recordBase = {
         id: safeId,
         schemaVersion: ECHO_PREVIEW_RECORDING_SCHEMA,
         songId: safeText(metadata.songId, 120),
@@ -217,13 +219,29 @@ export function createPreviewRecordingStore({
         mimeType: normalizedMime,
         contentType: echoPreviewRecordingContentType(normalizedMime),
         extension,
-        fileName,
         sha256: crypto.createHash("sha256").update(bytes).digest("hex"),
-        createdAt: now().toISOString(),
+        createdAt,
       };
 
       const stored = await serialize(async (index) => {
         const existing = index.recordings.some((row) => row.id === safeId);
+        const songIdentity = recordBase.songId || recordBase.songTitle;
+        const priorNumbers = index.recordings
+          .filter((row) => (String(row.songId || row.songTitle || "") === songIdentity))
+          .map((row) => Number(row.recordingNumber || 0))
+          .filter((value) => Number.isInteger(value) && value > 0);
+        const sameSongCount = index.recordings.filter((row) =>
+          String(row.songId || row.songTitle || "") === songIdentity
+        ).length;
+        const recordingNumber = Math.max(sameSongCount, ...priorNumbers, 0) + 1;
+        const fileName = echoPreviewRecordingFileName({
+          songTitle: recordBase.songTitle || recordBase.projectTitle,
+          recordingNumber,
+          durationMs: recordBase.durationMs,
+          createdAt,
+          mimeType: normalizedMime,
+        });
+        const record = { ...recordBase, recordingNumber, fileName };
         const filePath = path.join(root, fileName);
         const tmpPath = path.join(root, `.${fileName}.${process.pid}.${Date.now()}.tmp`);
         await fsp.mkdir(root, { recursive: true });

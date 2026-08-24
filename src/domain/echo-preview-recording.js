@@ -91,6 +91,46 @@ export function echoPreviewRecordingContentType(mimeType) {
   return "video/webm";
 }
 
+function echoPreviewRecordingSafeFilePart(value, fallback = "Untitled Song") {
+  const normalized = String(value || "")
+    .normalize("NFKC")
+    .replace(/[\\/:*?"<>|\u0000-\u001f]/gu, " - ")
+    .replace(/\s+/gu, " ")
+    .replace(/(?:\s+-\s+){2,}/gu, " - ")
+    .trim()
+    .replace(/^[. -]+|[. -]+$/gu, "")
+    .slice(0, 96)
+    .trim();
+  return normalized || fallback;
+}
+
+/**
+ * Build the operator-facing recording filename used by both server storage
+ * and the browser's emergency local-download fallback.
+ */
+export function echoPreviewRecordingFileName({
+  songTitle,
+  recordingNumber = 1,
+  durationMs = 0,
+  createdAt = new Date(),
+  mimeType = "video/webm",
+} = {}) {
+  const title = echoPreviewRecordingSafeFilePart(songTitle);
+  const take = Math.max(1, Math.trunc(Number(recordingNumber) || 1));
+  const totalSeconds = Math.max(0, Math.round((Number(durationMs) || 0) / 1000));
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  const length = hours > 0
+    ? `${String(hours).padStart(2, "0")}h${String(minutes).padStart(2, "0")}m${String(seconds).padStart(2, "0")}s`
+    : `${String(minutes).padStart(2, "0")}m${String(seconds).padStart(2, "0")}s`;
+  const parsedDate = createdAt instanceof Date ? createdAt : new Date(createdAt);
+  const timestampDate = Number.isFinite(parsedDate.getTime()) ? parsedDate : new Date(0);
+  const timestamp = timestampDate.toISOString().replace(/\.\d{3}Z$/u, "Z").replace(/:/gu, "-");
+  const extension = echoPreviewRecordingFileExtension(mimeType);
+  return `${title} - recording ${String(take).padStart(2, "0")} - ${length} - ${timestamp}.${extension}`;
+}
+
 /**
  * Create a MediaRecorder session controller for a preview recording.
  *

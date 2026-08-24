@@ -123,6 +123,7 @@ import {
   createEchoPreviewRecordingSession,
   ensureEchoPreviewRecordingLocalSession,
   formatEchoPreviewRecordingElapsed,
+  echoPreviewRecordingFileName,
   pickEchoPreviewRecordingMimeType,
 } from "../domain/echo-preview-recording.js";
 
@@ -2617,15 +2618,24 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
     const objectUrl = URL.createObjectURL(blob);
     previewRecordingDownloadUrlRef.current = objectUrl;
     const anchor = globalThis.document.createElement("a");
-    const extension = String(blob.type || "").toLowerCase().includes("mp4") ? "mp4" : "webm";
     anchor.href = objectUrl;
-    anchor.download = `echo-preview-capture-${new Date().toISOString().replace(/[:.]/g, "-")}.${extension}`;
+    const priorTakeNumbers = (previewRecordings || [])
+      .filter((recording) => String(recording.songId || recording.songTitle || "") === (songId || songTitle))
+      .map((recording) => Number(recording.recordingNumber || 0))
+      .filter((value) => Number.isInteger(value) && value > 0);
+    anchor.download = echoPreviewRecordingFileName({
+      songTitle: songTitle || activeProject?.title,
+      recordingNumber: Math.max(priorTakeNumbers.length, ...priorTakeNumbers, 0) + 1,
+      durationMs: result.durationMs,
+      createdAt: new Date(),
+      mimeType: blob.type,
+    });
     globalThis.document.body?.appendChild(anchor);
     anchor.click();
     anchor.remove();
     setPreviewRecordingError(`The capture could not be saved to the Builder (${uploadFailure}). A local download was started instead.`);
     setPreviewRecordingState("error");
-  }, [activeOutputProfile, activeProject, refreshPreviewRecordings, selectedProjectSongId]);
+  }, [activeOutputProfile, activeProject, previewRecordings, refreshPreviewRecordings, selectedProjectSongId]);
 
   const startPreviewRecording = useCallback(async () => {
     if (previewRecordingActiveRef.current || previewRecordingStartingRef.current) return;
