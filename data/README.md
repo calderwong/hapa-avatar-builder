@@ -20,6 +20,8 @@ Important local files:
 - `media/` - generated or imported media assets.
 - `media/echo-preview-recordings/` - Director Preview quick captures (`index.json` plus one file per capture). Scratch clips from the Echo Album preview Record control: no mint ledger, no edition, no release semantics; freely deletable.
 - `avatar-likeness/profiles.json` - per-Avatar likeness profiles (Avatar Likeness Assignment, layer L2): weighted visual signature + text channel + content-hash fingerprints. Sidecar data, never mutates `avatar-store.json`; rebuilt at any time by `node cli/avatar-builder.mjs avatar-likeness-profile --apply` and served read-only at `GET /api/avatars/likeness` (admin-gated).
+- `avatar-likeness/media-signatures.json` - Human Enricher accepted-media likeness signatures (layer L3): content-hash keyed, signer-versioned L1 visual signature + enrichment text channels + deterministic palette color words. Written by `node scripts/avatar-likeness-match.mjs --apply`.
+- `avatar-likeness/verdicts.json` - likeness matcher verdict receipts (layer L3): gated primary/secondary Avatar proposals + top-5 candidate tables, one per accepted media. Proposals for the human likeness lane (layer L4); the batch never writes the enricher ledger.
 - `backups/` - pre-merge and pre-heal store snapshots.
 - `merge-reports/` - JSON reports from repeatable data merge scripts.
 

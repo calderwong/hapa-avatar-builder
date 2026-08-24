@@ -53,10 +53,14 @@ test("asset weight classes rank identity media above context media", () => {
   assert.equal(assetLikenessWeight({ type: "model" }), 0);
 });
 
-test("tokenizeLikenessText lowercases, splits, and drops short tokens", () => {
+test("tokenizeLikenessText lowercases, splits, and drops short and pure-numeric tokens", () => {
   assert.deepEqual(tokenizeLikenessText("Neon Blade, SWORD-7!!"), ["neon", "blade", "sword"]);
   assert.deepEqual(tokenizeLikenessText("a b ci sword"), ["sword"]);
   assert.deepEqual(tokenizeLikenessText(""), []);
+  // OCR readouts (HUD values, hex fragments) are numeric noise, not likeness.
+  assert.deepEqual(tokenizeLikenessText("HUD 000 012123 readout 20251105"), ["hud", "readout"]);
+  assert.deepEqual(tokenizeLikenessText("4f2a 0123"), ["4f2a"]); // hex-ish tokens with letters are kept
+  assert.deepEqual(tokenizeLikenessText("0123"), []);
 });
 
 test("selectLikenessAssets caps per class, identity-first, and is input-order stable", () => {

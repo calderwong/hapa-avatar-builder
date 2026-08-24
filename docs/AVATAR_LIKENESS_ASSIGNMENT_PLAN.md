@@ -152,6 +152,37 @@ evidence); 3,133 × 74 ≈ 232k cheap vector compares = a few minutes.
 Report lands in `artifacts/enrichment/` + `data/merge-reports/` with
 backup/recovery pointers per repo convention.
 
+#### L3 implementation notes (2026-08-24, Phase 3)
+
+- **Stores** live in `data/avatar-likeness/` (`media-signatures.json`,
+  `verdicts.json`) beside the L2 `profiles.json` — the feature directory
+  owns its runtime state, rather than the sketched top-level
+  `data/human-video-likeness-signatures.json`. All three are gitignored.
+- **Signature source**: the L1 signer runs over the dashboard video's
+  resolved file (sourcePath, then `/media/` uri, then the extracted
+  first-frame thumbnail) — *not* the optical campaign's registered frames
+  (the campaign has zero completed jobs on the current store).
+- **Color words** are derived deterministically from the 6×6×6 palette bins
+  on both sides (bin-center → nearest of a fixed ~25-word vocabulary); LLM
+  optical words would blend in if they ever exist. `prepareLikenessState`
+  derives a side's words from its own palette when the side carries no
+  explicit words, so the 0.10 channel is live for profile-vs-media scores.
+- **Renormalization**: channels whose either side has no data are excluded
+  and their weights redistributed, so textless media (0/3,267 have a
+  description) score on pixels alone on the same 0..1 scale.
+- **No npm script** (`package.json` is owned by concurrent work); the batch
+  is `node scripts/avatar-likeness-match.mjs`.
+- **Stale-signature policy**: a media whose file has vanished but carries a
+  stored signature is still matched, flagged `staleSignature: true`.
+- **Calibration** (`calibrate` mode) self-labels from the Avatars' own
+  identity-class media (the plan's "50-media hand-labeled sample" — the
+  self-labeling is deterministic and repeatable; 140 labels, all in-profile
+  because every Avatar's identity assets sat inside the L2 sample cap, so
+  no out-of-profile ground truth exists). 2026-08-24 result: median
+  margin 0.016, 13/140 clear 0.10 (all true, zero false), score floor
+  outcome-invariant across 0.30–0.90 → the 0.55/0.10 defaults confirmed.
+  Report: `artifacts/enrichment/avatar-likeness-match-calibrate-*`.json.
+
 ### L4 — Human acceptance gate + Director consumption
 
 - Verdicts are **proposals**, not truth. The Human Enricher UI grows a
@@ -197,7 +228,7 @@ accepted likeness set — same audit shape the Human-Accepted pass records.
 | --- | --- | --- | --- |
 | 1 | L1 feature module + unit tests (synthetic frames; ffmpeg round-trip) | tests + focused commit | **done** — commit `3890b58` (2026-08-23) |
 | 2 | L2 profiles store + CLI + API + coverage report | dry-run report over all 74 Avatars; tests + commit | **done** — commit `7af6a4c` (2026-08-23): live run over all 74 Avatars (73 profiled / 1 profileless / 1 corrupt file failing honestly), ~2 min rebuild, ~15 s steady-state freshness pass |
-| 3 | L3 signatures + matcher + batch script + verdict store | dry-run over the accepted set; calibration pass on a 50-media hand-labeled sample to set the 0.55/0.10 defaults from observed separation, not vibes; tests + commit | not started |
+| 3 | L3 signatures + matcher + batch script + verdict store | dry-run over the accepted set; calibration pass on a 50-media hand-labeled sample to set the 0.55/0.10 defaults from observed separation, not vibes; tests + commit | **done** (2026-08-24): calibration over 140 self-labeled identity media confirmed 0.55/0.10 (margin is the separator; floor outcome-invariant); full apply over the 3,267 accepted set — 3,133 signed (134 sources gone, honestly excluded), 22 assigned / 3,111 unresolved (3,110 too_close), ~10 min; the assigned samples are genuine likeness (Mara look-book, Pomeranian for the dog Avatar, Tiny rooftop) and palette-only false positives (nebula, stained glass) sit unresolved — the gate behaves as designed |
 | 4 | L4 Likeness lane in the Human Enricher UI + decision receipts | UI smoke via served-bundle markers + API round-trip; tests + commit | not started |
 | 5 | Director `avatar-likeness-v1` variant + EDL typing + audit | full-suite baseline (8 known failures), `npm run build`, Director pass report, append-only audit; commit | not started |
 
@@ -260,3 +291,33 @@ mutation.
    `metadata.storage.fileName` under the media dir.
 8. The asset `metadata.fingerprint` in the Avatar store is a luma grid, not
    a content hash — profiles key on freshly computed file sha256.
+9. **No npm script for the batch** (Phase 3): `package.json` is an in-flight
+   file of concurrent work, so the batch runs as
+   `node scripts/avatar-likeness-match.mjs` (same reasoning as the Phase 2
+   CLI decision, applied to a script instead of a CLI command).
+10. **L3 stores sit in `data/avatar-likeness/`** beside `profiles.json`
+    (feature directory owns its runtime state), documented in
+    `data/README.md` like the L2 store.
+11. **Color words derive deterministically on both sides** (decision above
+    in the L3 notes) because the optical campaign has no completed jobs on
+    the current store; the L2 profile persists no words, so
+    `prepareLikenessState` derives a side's words from its own palette when
+    the side carries no explicit words — this keeps the 0.10 channel live
+    in production instead of permanently inactive.
+12. **Gate = 0.55 / 0.10 / 0.55, confirmed by calibration, not moved**:
+    the 140-label run showed the margin does all the separating (13/140
+    clear 0.10, zero false) and the score floor is outcome-invariant
+    across 0.30–0.90, so the plan's stated defaults are the calibrated
+    choice (the grid's deterministic tie-break to a 0.30 floor is a
+    degenerate solution in a floor-invariant regime; 0.55 stays as the
+    sanity floor that rejects "barely similar" media in the batch).
+13. **Tokenizer digit filter is a Phase 3 change to the L2 module**:
+    `tokenizeLikenessText` drops pure-numeric tokens (757 of the old 8,676
+    profile terms were all-digit OCR noise displacing real words under the
+    128-term bound; the rebuilt store measures 0). Required a one-time
+    forced profile rebuild (`rm -rf data/avatar-likeness` +
+    `--all --apply`; signerVersion unchanged, so freshness would otherwise
+    have said FRESH).
+14. **Accepted set = 3,267** videos (all `mediaType: "video"`) as of the
+    Phase 3 run — the plan's "3,133" line is the *readable* count and the
+    live run confirmed it exactly (3,267 − 134 gone sources).

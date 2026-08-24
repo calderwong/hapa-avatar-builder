@@ -106,6 +106,11 @@ function listify(value) {
 /**
  * Tokenize free text into matchable terms (same rules as the reference
  * review query builder): lowercase, alnum words longer than two chars.
+ * Pure-numeric tokens are dropped: OCR readouts (HUD values, hex
+ * fragments, timestamps) dominate avatar intelligence text, and digits
+ * carry no likeness signal for text overlap — the live store measured 757
+ * of 8,676 profile terms were all-digit noise that displaced real words
+ * under the term bound.
  *
  * @param {string} value
  * @returns {string[]}
@@ -116,7 +121,7 @@ export function tokenizeLikenessText(value) {
     .normalize("NFKD")
     .replace(/[^a-z0-9]+/g, " ")
     .split(/\s+/)
-    .filter((term) => term.length > 2);
+    .filter((term) => term.length > 2 && !/^[0-9]+$/.test(term));
 }
 
 /**
