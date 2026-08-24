@@ -1679,6 +1679,8 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
   const [audioBlobUrl, setAudioBlobUrl] = useState("");
   const [audioLoading, setAudioLoading] = useState(false);
   const [audioPlaybackReady, setAudioPlaybackReady] = useState(false);
+  const [audioPlaybackError, setAudioPlaybackError] = useState("");
+  const [audioLoadRetryNonce, setAudioLoadRetryNonce] = useState(0);
 
   const closeDirectorPreviewExpanded = useCallback(async () => {
     const documentRef = globalThis.document;
@@ -2245,19 +2247,37 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
   // Fetch song audio as same-origin Blob to bypass browser/Electron Web Audio CORS muting
   useEffect(() => {
     if (!activeProject?.song_id) {
-      setAudioBlobUrl("");
+      setAudioBlobUrl((current) => {
+        if (current) URL.revokeObjectURL(current);
+        return "";
+      });
       setAudioLoading(false);
       setAudioPlaybackReady(false);
+      setAudioPlaybackError("");
       return;
     }
     
     let active = true;
     setAudioLoading(true);
     setAudioPlaybackReady(false);
+    setAudioPlaybackError("");
+    setAudioBlobUrl((current) => {
+      if (current) URL.revokeObjectURL(current);
+      return "";
+    });
     setAudioDiagnostics(`Fetching audio blob for ${activeProject.song_id}...`);
     
     const audioRoute = echoProjectAudioRoute(activeProject);
     const url = resolveSongRegistryUri(audioRoute.uri);
+
+    if (!url) {
+      setAudioLoading(false);
+      setAudioPlaybackError("This song does not have a playback audio route. Update the Song Registry, then retry.");
+      setAudioDiagnostics("Fetch error: no playback audio route");
+      return () => {
+        active = false;
+      };
+    }
     
     fetch(url)
       .then(res => {
@@ -2272,12 +2292,14 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
           return blobUrl;
         });
         setAudioLoading(false);
+        setAudioPlaybackError("");
         setAudioDiagnostics(`Audio loaded as blob URL`);
       })
       .catch(err => {
         if (!active) return;
         setAudioLoading(false);
         setAudioPlaybackReady(false);
+        setAudioPlaybackError(`Playback audio could not be loaded (${err.message || "request failed"}). Click Retry audio.`);
         setAudioDiagnostics(`Fetch error: ${err.message}`);
         console.error("Failed to fetch audio blob:", err);
       });
@@ -2290,7 +2312,16 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
     activeProject?.registry_track_id,
     activeProject?.song_id,
     activeShowGraph?.song?.audioPath,
+    audioLoadRetryNonce,
   ]);
+
+  const retryPreviewAudio = useCallback(() => {
+    if (previewRecordingActiveRef.current) return;
+    setAudioPlaybackError("");
+    setAudioPlaybackReady(false);
+    setAudioDiagnostics("Retrying playback audio...");
+    setAudioLoadRetryNonce((current) => current + 1);
+  }, []);
 
   // Clean up blob URL on unmount
   useEffect(() => {
@@ -2391,6 +2422,9 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
 
   const acquirePreviewRecordingAudioTrack = async () => {
     const audioElement = audioRef.current;
+    if (audioPlaybackError) {
+      throw new Error(audioPlaybackError);
+    }
     if (!audioElement || audioLoading || !audioPlaybackReady || Number(audioElement.readyState || 0) < 2) {
       throw new Error("Audio is still buffering. Wait for Record + Play to become ready.");
     }
@@ -2717,7 +2751,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
       setPreviewRecordingError(`Recording did not start: ${String(error?.message || error)}`);
       setPreviewRecordingState("error");
     }
-  }, [activeOutputProfile, activeProject, audioLoading, audioPlaybackReady, previewBufferState.ready, stopPreviewRecording]);
+  }, [activeOutputProfile, activeProject, audioLoading, audioPlaybackError, audioPlaybackReady, previewBufferState.ready, stopPreviewRecording]);
 
   // Load the recording shelf once on mount.
   useEffect(() => {
@@ -6103,21 +6137,26 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                     const pendingPreviewProxyCount = activeProject.timeline?.filter((item) => item.media_contract?.type === "video" && item.media_contract?.proxy?.status !== "ready").length || 0;
                     const isVerticalOutput = activeOutputProfile.id === "vertical";
                     const previewRecordingVideoBuffering = shotMediaType(currentTimelineItem) === "video" && !previewBufferState.ready;
-                    const previewRecordingAudioBuffering = audioLoading || !audioPlaybackReady;
+                    const previewRecordingAudioFailed = Boolean(audioPlaybackError);
+                    const previewRecordingAudioBuffering = !previewRecordingAudioFailed && (audioLoading || !audioPlaybackReady);
+                    const previewPlaybackStartBlocked = audioLoading
+                      || (!previewRecordingAudioFailed && !isPlaying && shotMediaType(currentTimelineItem) === "video" && !previewBufferState.ready);
                     const previewRecordingBusy = previewRecordingState === "preparing" || previewRecordingState === "saving";
                     const previewRecordingStartBlocked = previewRecordingState !== "recording"
-                      && (previewRecordingBusy || previewRecordingAudioBuffering || previewRecordingVideoBuffering);
+                      && (previewRecordingBusy || (!previewRecordingAudioFailed && (previewRecordingAudioBuffering || previewRecordingVideoBuffering)));
                     const previewRecordingReadinessLabel = previewRecordingState === "preparing"
                       ? "STARTING RECORDING + PLAYBACK"
                       : previewRecordingState === "saving"
                         ? "SAVING RECORDING"
                         : previewRecordingState === "recording"
                           ? (!audioPlaybackReady ? "RECORDING · AUDIO BUFFERING" : !isPlaying ? "RECORDING · PLAYBACK PAUSED" : "RECORDING AUDIO + VIDEO")
-                          : previewRecordingAudioBuffering
-                            ? "RECORD · BUFFERING AUDIO"
-                            : previewRecordingVideoBuffering
-                              ? "RECORD · BUFFERING VIDEO"
-                              : "RECORD READY · STARTS PLAYBACK";
+                          : previewRecordingAudioFailed
+                            ? "RECORD · AUDIO FAILED · RETRY REQUIRED"
+                            : previewRecordingAudioBuffering
+                              ? "RECORD · BUFFERING AUDIO"
+                              : previewRecordingVideoBuffering
+                                ? "RECORD · BUFFERING VIDEO"
+                                : "RECORD READY · STARTS PLAYBACK";
                     const directorPreviewWidth = isVerticalOutput
                       ? ECHO_VERTICAL_EXPANDED_PREVIEW_WIDTH
                       : ECHO_EXPANDED_PREVIEW_WIDTH;
@@ -6163,6 +6202,10 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                     };
 
                     const handlePlayPause = () => {
+                      if (audioPlaybackError) {
+                        retryPreviewAudio();
+                        return;
+                      }
                       if (audioLoading) {
                         setAudioDiagnostics("Audio is still loading, please wait...");
                         return;
@@ -6769,17 +6812,26 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                                 src={audioBlobUrl}
                                 onTimeUpdate={handleTimeUpdate}
                                 onEnded={() => setIsPlaying(false)}
-                                onLoadedData={() => setAudioPlaybackReady(true)}
-                                onCanPlay={() => setAudioPlaybackReady(true)}
-                                onPlaying={() => setAudioPlaybackReady(true)}
+                                onLoadedData={() => {
+                                  setAudioPlaybackReady(true);
+                                  setAudioPlaybackError("");
+                                }}
+                                onCanPlay={() => {
+                                  setAudioPlaybackReady(true);
+                                  setAudioPlaybackError("");
+                                }}
+                                onPlaying={() => {
+                                  setAudioPlaybackReady(true);
+                                  setAudioPlaybackError("");
+                                }}
                                 onWaiting={() => setAudioPlaybackReady(false)}
                                 onStalled={() => setAudioPlaybackReady(false)}
                                 onEmptied={() => setAudioPlaybackReady(false)}
                                 onError={() => {
                                   setAudioPlaybackReady(false);
                                   setIsPlaying(false);
+                                  setAudioPlaybackError("Playback audio could not be decoded or reached. Click Retry audio.");
                                   setAudioDiagnostics("Playback audio failed");
-                                  setPreviewRecordingError("Playback audio failed. The recording was stopped and the failure was surfaced.");
                                   if (previewRecordingActiveRef.current) {
                                     previewRecordingFailureMessageRef.current = "Playback audio failed during recording. The saved clip may be incomplete.";
                                     void stopPreviewRecording();
@@ -7264,23 +7316,23 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                                   <button 
                                     type="button"
                                     onClick={handlePlayPause}
-                                    disabled={audioLoading || (!isPlaying && shotMediaType(currentTimelineItem) === "video" && !previewBufferState.ready)}
+                                    disabled={previewPlaybackStartBlocked}
                                     style={{
-                                      background: audioLoading || (!isPlaying && shotMediaType(currentTimelineItem) === "video" && !previewBufferState.ready) ? 'rgba(255, 255, 255, 0.05)' : (isPlaying ? 'rgba(239, 68, 68, 0.15)' : 'rgba(16, 185, 129, 0.15)'),
-                                      border: audioLoading || (!isPlaying && shotMediaType(currentTimelineItem) === "video" && !previewBufferState.ready) ? '1px solid rgba(255, 255, 255, 0.1)' : (isPlaying ? '1px solid var(--hapa-neon-red)' : '1px solid var(--hapa-neon-green)'),
-                                      color: audioLoading || (!isPlaying && shotMediaType(currentTimelineItem) === "video" && !previewBufferState.ready) ? '#888' : (isPlaying ? 'var(--hapa-neon-red)' : 'var(--hapa-neon-green)'),
+                                      background: previewPlaybackStartBlocked ? 'rgba(255, 255, 255, 0.05)' : previewRecordingAudioFailed ? 'rgba(245,158,11,0.14)' : (isPlaying ? 'rgba(239, 68, 68, 0.15)' : 'rgba(16, 185, 129, 0.15)'),
+                                      border: previewPlaybackStartBlocked ? '1px solid rgba(255, 255, 255, 0.1)' : previewRecordingAudioFailed ? '1px solid #f59e0b' : (isPlaying ? '1px solid var(--hapa-neon-red)' : '1px solid var(--hapa-neon-green)'),
+                                      color: previewPlaybackStartBlocked ? '#888' : previewRecordingAudioFailed ? '#fbbf24' : (isPlaying ? 'var(--hapa-neon-red)' : 'var(--hapa-neon-green)'),
                                       padding: '5px 12px',
                                       fontSize: '10px',
                                       fontWeight: 'bold',
                                       borderRadius: '4px',
-                                      cursor: audioLoading ? 'not-allowed' : 'pointer',
+                                      cursor: previewPlaybackStartBlocked ? 'wait' : 'pointer',
                                       display: 'flex',
                                       alignItems: 'center',
                                       gap: '4px',
                                       flexShrink: 0
                                     }}
                                   >
-                                    {audioLoading ? "⏳ Audio..." : (!isPlaying && shotMediaType(currentTimelineItem) === "video" && !previewBufferState.ready ? "⏳ Buffering video..." : (isPlaying ? "⏸ Pause" : "▶ Play Show"))}
+                                    {previewRecordingAudioFailed ? "↻ Retry audio" : audioLoading ? "⏳ Audio..." : (!isPlaying && shotMediaType(currentTimelineItem) === "video" && !previewBufferState.ready ? "⏳ Buffering video..." : (isPlaying ? "⏸ Pause" : "▶ Play Show"))}
                                   </button>
                                   <span style={{ fontFamily: 'monospace', fontSize: '9px', color: previewBufferState.status === 'fallback' ? 'var(--hapa-neon-gold)' : 'var(--hapa-neon-cyan)', flexShrink: 0 }}>
                                     {previewBufferState.status.toUpperCase()} · {previewBufferState.readyLookahead || 0}/{previewBufferState.targetLookahead || 0} AHEAD
@@ -7311,18 +7363,20 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                                     data-recording-state={previewRecordingState}
                                     aria-pressed={previewRecordingState === "preparing" || previewRecordingState === "recording" || previewRecordingState === "saving"}
                                     disabled={previewRecordingStartBlocked}
-                                    onClick={previewRecordingState === "recording" ? stopPreviewRecording : (previewRecordingState === "idle" || previewRecordingState === "error") ? startPreviewRecording : undefined}
+                                    onClick={previewRecordingState === "recording" ? stopPreviewRecording : previewRecordingAudioFailed ? retryPreviewAudio : (previewRecordingState === "idle" || previewRecordingState === "error") ? startPreviewRecording : undefined}
                                     title={previewRecordingState === "recording"
                                       ? "Stop the capture and save it to Recordings"
-                                      : previewRecordingAudioBuffering
-                                        ? "Waiting for playback audio to buffer"
-                                        : previewRecordingVideoBuffering
-                                          ? "Waiting for the current preview video to buffer"
-                                          : "Start playback and record its picture + sound together"}
+                                      : previewRecordingAudioFailed
+                                        ? audioPlaybackError
+                                        : previewRecordingAudioBuffering
+                                          ? "Waiting for playback audio to buffer"
+                                          : previewRecordingVideoBuffering
+                                            ? "Waiting for the current preview video to buffer"
+                                            : "Start playback and record its picture + sound together"}
                                     style={{
-                                      background: previewRecordingState === "recording" ? 'rgba(239,68,68,0.22)' : 'rgba(255,255,255,0.05)',
-                                      border: `1px solid ${previewRecordingState === "recording" ? 'var(--hapa-neon-rose, #ef4444)' : 'rgba(255,255,255,0.18)'}`,
-                                      color: previewRecordingState === "recording" ? '#fecaca' : '#cbd5e1',
+                                      background: previewRecordingState === "recording" ? 'rgba(239,68,68,0.22)' : previewRecordingAudioFailed ? 'rgba(245,158,11,0.14)' : 'rgba(255,255,255,0.05)',
+                                      border: `1px solid ${previewRecordingState === "recording" ? 'var(--hapa-neon-rose, #ef4444)' : previewRecordingAudioFailed ? '#f59e0b' : 'rgba(255,255,255,0.18)'}`,
+                                      color: previewRecordingState === "recording" ? '#fecaca' : previewRecordingAudioFailed ? '#fbbf24' : '#cbd5e1',
                                       padding: '5px 10px',
                                       fontSize: '9px',
                                       fontWeight: 'bold',
@@ -7338,20 +7392,31 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                                         ? "⏳ Starting audio + video…"
                                         : previewRecordingState === "saving"
                                           ? "⏫ Saving…"
-                                          : previewRecordingAudioBuffering
-                                            ? "⏳ Buffering audio…"
-                                            : previewRecordingVideoBuffering
-                                              ? "⏳ Buffering video…"
-                                              : "● Record + Play"}
+                                          : previewRecordingAudioFailed
+                                            ? "↻ Retry audio"
+                                            : previewRecordingAudioBuffering
+                                              ? "⏳ Buffering audio…"
+                                              : previewRecordingVideoBuffering
+                                                ? "⏳ Buffering video…"
+                                                : "● Record + Play"}
                                   </button>
                                   <span
                                     data-testid="echo-director-preview-record-readiness"
-                                    role="status"
+                                    role={previewRecordingAudioFailed ? "alert" : "status"}
                                     aria-live="polite"
-                                    style={{ fontFamily: 'monospace', fontSize: '9px', color: previewRecordingState === "error" ? '#fca5a5' : '#67e8f9', flexShrink: 0 }}
+                                    style={{ fontFamily: 'monospace', fontSize: '9px', color: previewRecordingAudioFailed || previewRecordingState === "error" ? '#fca5a5' : '#67e8f9', flexShrink: 0 }}
                                   >
                                     {previewRecordingReadinessLabel}
                                   </span>
+                                  {audioPlaybackError && (
+                                    <span
+                                      data-testid="echo-director-preview-audio-error"
+                                      role="alert"
+                                      style={{ width: '100%', color: '#fca5a5', fontSize: '9px', lineHeight: 1.35 }}
+                                    >
+                                      {audioPlaybackError}
+                                    </span>
+                                  )}
                                   {previewRecordingError && (
                                     <span
                                       data-testid="echo-director-preview-record-error"

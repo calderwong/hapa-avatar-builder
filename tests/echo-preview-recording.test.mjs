@@ -439,10 +439,10 @@ test("Record surfaces audio/video readiness and failures without rejecting inten
   assert.match(controls, /Buffering video/);
   assert.match(controls, /Record \+ Play/);
   assert.match(controls, /data-testid="echo-director-preview-record-readiness"/);
-  assert.match(controls, /role="status"/);
+  assert.match(controls, /role=\{previewRecordingAudioFailed \? "alert" : "status"\}/);
   assert.match(controls, /data-testid="echo-director-preview-record-error"/);
   assert.match(controls, /role="alert"/);
-  assert.match(viewSource, /onLoadedData=\{\(\) => setAudioPlaybackReady\(true\)\}/);
+  assert.match(viewSource, /onLoadedData=\{\(\) => \{[\s\S]*?setAudioPlaybackReady\(true\);[\s\S]*?setAudioPlaybackError\(""\);/);
   assert.match(viewSource, /onWaiting=\{\(\) => setAudioPlaybackReady\(false\)\}/);
   assert.match(viewSource, /RECORDING · PLAYBACK PAUSED/);
   const recordingPath = viewSource.slice(
@@ -450,6 +450,25 @@ test("Record surfaces audio/video readiness and failures without rejecting inten
     viewSource.indexOf("// Load the recording shelf once on mount."),
   );
   assert.doesNotMatch(recordingPath, /mean_volume|rms|silence threshold/i, "pauses and quiet passages must remain valid recording content");
+});
+
+test("terminal audio load failures never masquerade as indefinite buffering", () => {
+  const audioFetch = viewSource.slice(
+    viewSource.indexOf("// Fetch song audio as same-origin Blob"),
+    viewSource.indexOf("// Clean up blob URL on unmount"),
+  );
+  assert.match(audioFetch, /setAudioPlaybackError\(`Playback audio could not be loaded \(\$\{err\.message \|\| "request failed"\}\)\. Click Retry audio\.`\)/);
+  assert.match(audioFetch, /audioLoadRetryNonce/);
+
+  const controls = viewSource.slice(
+    viewSource.indexOf('data-testid="echo-director-preview-controls"'),
+    viewSource.indexOf('data-testid="echo-director-preview-expand"'),
+  );
+  assert.match(viewSource, /const previewRecordingAudioBuffering = !previewRecordingAudioFailed && \(audioLoading \|\| !audioPlaybackReady\)/);
+  assert.match(controls, /previewRecordingAudioFailed \? retryPreviewAudio/);
+  assert.match(controls, /↻ Retry audio/);
+  assert.match(controls, /data-testid="echo-director-preview-audio-error"/);
+  assert.match(viewSource, /RECORD · AUDIO FAILED · RETRY REQUIRED/);
 });
 
 test("audio capture binds the current element and awaits a running AudioContext", () => {
