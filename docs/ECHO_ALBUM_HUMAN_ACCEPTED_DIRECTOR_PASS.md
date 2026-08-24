@@ -4,6 +4,8 @@
 
 Refresh the Builder's Echo/Dear Papa album from the live Suno playlist and create an album-wide Director coverage pass whose video boundary is exactly the durable Human Enricher `accepted` state.
 
+> 2026-08-24 correction: this historical pass proves playlist reconciliation and Director-video coverage, not a complete Echo Album update. The active six-stage definition now lives in `docs/ECHO_ALBUM_UPDATE_PROTOCOL.md` and additionally requires independently validated MP3, WAV, source-available stems, lyrics/instrumental truth, measured analysis, and exact Director preflight.
+
 ## Result
 
 - Live Suno playlist: 175 songs, up from 167.
@@ -29,7 +31,7 @@ The Builder retains 198 song cards because 23 legacy/local cards are preserved a
 
 ### What worked
 
-The live playlist itself was the correct album boundary. Reusing the authenticated Suno downloader preserved current titles, masters, artwork, and the latest stem selection without inventing metadata. An append-only Director variant kept prior direction intact, while an album-shared least-used ledger gave every readable accepted video coverage before increasing reuse.
+The live playlist itself was the correct album boundary. Reusing the authenticated Suno downloader preserved current titles, one selected master path, artwork, and the latest stem selection without inventing metadata. That result did not prove WAV custody, decode-valid bytes, or measured analysis; those are now separate mandatory gates. An append-only Director variant kept prior direction intact, while an album-shared least-used ledger gave every readable accepted video coverage before increasing reuse.
 
 ### What was noise
 

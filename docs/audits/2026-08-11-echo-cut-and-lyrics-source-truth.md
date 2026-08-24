@@ -1,5 +1,7 @@
 # Echo saved-cut opening and lyric source truth — 2026-08-11
 
+> 2026-08-24 protocol note: this audit remains valid historical evidence for lyric-source and timing truth, but “Update the Echo Album” now requires the full contract in `docs/ECHO_ALBUM_UPDATE_PROTOCOL.md`. Source text, a downloaded path, or an existing Director project cannot independently certify the album current.
+
 ## Objective
 
 Make every saved Echo Director cut open as an editable copy even while its exact final-render certificate is pending, and distinguish genuinely missing lyric sources from a broken lyric overlay.
