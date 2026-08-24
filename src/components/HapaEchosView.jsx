@@ -4424,6 +4424,19 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
     });
   };
 
+  const handleUpdatePersistentShaderOpacity = (slotIndex, opacity) => {
+    if (directorEditingLocked || !activeProject) return;
+    const slots = normalizeEchoPersistentShaderSlots(activeProject);
+    const nextOpacity = Math.round(Math.max(0, Math.min(1, Number(opacity) || 0)) * 100) / 100;
+    const nextSlots = slots.map((slot, index) => index === slotIndex
+      ? { ...slot, opacity: nextOpacity }
+      : slot);
+    handleUpdateProjectSettings({
+      persistent_shader_slots_schema: ECHO_PERSISTENT_SHADER_SLOTS_SCHEMA,
+      persistent_shader_slots: nextSlots,
+    });
+  };
+
   const handleContinueFromDirectionCut = () => {
     if (directorEditingLocked || !activeDirectionVariant || !activeProject) return;
     setDirectorHasUnsavedChanges(false);
@@ -7940,6 +7953,24 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                                             ? 'Full song · Lead Vocals → main mix fallback'
                                             : 'Full song when selected · main mix default'}
                                       </span>
+                                      <label style={{ display: 'grid', gridTemplateColumns: 'auto 1fr auto', alignItems: 'center', gap: '5px', fontSize: '7.5px', color: '#cbd5e1' }}>
+                                        <span>Shade</span>
+                                        <input
+                                          type="range"
+                                          aria-label={`Always-on shader slot ${slotIndex + 1} shade opacity`}
+                                          aria-valuetext={`${Math.round(slot.opacity * 100)} percent`}
+                                          min="0"
+                                          max="100"
+                                          step="1"
+                                          value={Math.round(slot.opacity * 100)}
+                                          disabled={directorEditingLocked || slot.shader_id === "none"}
+                                          onChange={(event) => handleUpdatePersistentShaderOpacity(slotIndex, Number(event.target.value) / 100)}
+                                          style={{ width: '100%', minWidth: 0, accentColor: '#22d3ee', cursor: slot.shader_id === "none" ? 'not-allowed' : 'pointer' }}
+                                        />
+                                        <output style={{ minWidth: '27px', textAlign: 'right', color: '#a5f3fc', fontVariantNumeric: 'tabular-nums' }}>
+                                          {Math.round(slot.opacity * 100)}%
+                                        </output>
+                                      </label>
                                     </div>
                                   );
                                 })}
@@ -8550,11 +8581,11 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                                   overflow: 'hidden',
                                   zIndex: 2,
                                 }}
-                                title={`${slot.label}: ${slot.enabled ? `${slot.shader_title} · full song · ${slot.stem_focus}` : slot.shader_id !== "none" ? `${slot.shader_title} · switched off` : 'Open slot'}`}
+                                title={`${slot.label}: ${slot.enabled ? `${slot.shader_title} · ${Math.round(slot.opacity * 100)}% shade · full song · ${slot.stem_focus}` : slot.shader_id !== "none" ? `${slot.shader_title} · switched off · ${Math.round(slot.opacity * 100)}% shade` : 'Open slot'}`}
                               >
                                 <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px', fontSize: '7.5px', fontWeight: 'bold' }}>
                                   <span>A{slotIndex + 1}: {slot.shader_id !== "none" ? slot.shader_title : 'Open'}</span>
-                                  <span>{slot.enabled ? `${Number(activeProject.duration || 0).toFixed(1)}s · ALWAYS ON` : slot.shader_id !== "none" ? 'OFF' : 'AVAILABLE'}</span>
+                                  <span>{slot.enabled ? `${Math.round(slot.opacity * 100)}% · ${Number(activeProject.duration || 0).toFixed(1)}s · ALWAYS ON` : slot.shader_id !== "none" ? `${Math.round(slot.opacity * 100)}% · OFF` : 'AVAILABLE'}</span>
                                 </div>
                                 <div style={{ fontSize: '7px', opacity: 0.76, marginTop: '2px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                                   {slotIndex === 1 ? 'Lead Vocals → main mix fallback' : slot.shader_id !== "none" ? 'Main mix tracking' : 'Choose a shader per song'}
