@@ -21,6 +21,12 @@ function requiredBytes(filePath, label) {
   return fs.readFileSync(filePath);
 }
 
+export function echoIsfShaderRequiresLiveMediaInput(shader = {}) {
+  return (Array.isArray(shader?.inputs) ? shader.inputs : []).some((input) => (
+    String(input?.TYPE || input?.type || "").trim().toLowerCase() === "image"
+  ));
+}
+
 export function loadGatedEchoIsfManifest({
   manifestPath = DEFAULT_ECHO_ISF_MANIFEST_PATH,
   pixelGatePath = DEFAULT_ECHO_ISF_PIXEL_GATE_PATH,
@@ -43,7 +49,19 @@ export function loadGatedEchoIsfManifest({
   if (staleOrMissing.length) {
     throw new Error(`ISF pixel-gate report is stale or incomplete for ${staleOrMissing.length} shader(s); rerun the pixel gate before Director selection. First: ${staleOrMissing[0].id} (${staleOrMissing[0].reason}).`);
   }
-  const manifest = applyIsfPixelGate(sourceManifest, pixelGate);
+  const pixelGatedManifest = applyIsfPixelGate(sourceManifest, pixelGate);
+  const manifest = {
+    ...pixelGatedManifest,
+    shaders: pixelGatedManifest.shaders.map((shader) => {
+      if (!echoIsfShaderRequiresLiveMediaInput(shader)) return shader;
+      return {
+        ...shader,
+        directorEligible: false,
+        runtimeEligibility: "unsupported-quarantine",
+        runtimeEligibilityReason: "director-live-media-input-not-guaranteed",
+      };
+    }),
+  };
   return {
     manifest,
     sourceManifest,

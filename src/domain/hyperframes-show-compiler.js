@@ -409,7 +409,7 @@ export function resolveHyperFramesMediaSource(card, contractIndex, options = {})
     contract?.playbackMode
       || contract?.playback_mode
       || timeMappingContract.mapping?.playbackMode,
-  ).toLowerCase() || (timeMappingContract.valid ? "once" : "loop");
+  ).toLowerCase() || "once";
   return {
     type,
     originalPath: localPath || null,
@@ -426,7 +426,7 @@ export function resolveHyperFramesMediaSource(card, contractIndex, options = {})
       ? dimensions.height > dimensions.width ? "portrait" : dimensions.width > dimensions.height ? "landscape" : "square"
       : null,
     visualContract: { allowBlank, samplingPolicy },
-    playbackMode,
+    playbackMode: type === "video" ? "once" : playbackMode,
     ...(timeMappingContract.declared ? {
       timeMapping: timeMappingContract.mapping,
       timeMappingStatus: {
@@ -968,10 +968,10 @@ export function hyperFramesMediaElementTiming(instance = {}, presentationWindow 
       mediaStart: null,
       mediaEnd: null,
       playbackRate: 1,
-      playbackMode: "loop",
-      loop: true,
+      playbackMode: "once",
+      loop: false,
       holdBefore: false,
-      holdAfter: false,
+      holdAfter: true,
       timeMapping: null,
     };
   }

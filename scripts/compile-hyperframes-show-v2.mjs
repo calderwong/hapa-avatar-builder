@@ -519,7 +519,7 @@ const staticVideoManifestMarkup = show.instances.media.map((instance, index) => 
     ? ` data-media-start="${playback.mediaStart}" data-media-end="${playback.mediaEnd}" data-playback-rate="${playback.playbackRate}" data-playback-mode="once" data-time-map-schema="${escapeHtml(playback.timeMapping.schemaVersion)}" data-source-time-origin="logical-cue-start" data-hold-first-frame="true" data-hold-last-frame="true"`
     : "";
   const attrs = `id="m${index}" class="media clip" data-instance-index="${index}" data-start="${playback.activationStart}" data-duration="${playback.activationDuration}" data-logical-start="${timing.logicalStart}" data-logical-duration="${timing.logicalDuration}" data-camera="${escapeHtml(JSON.stringify(instance.cameraKeyframes || []))}"${mappedAttrs}`;
-  return `<video ${attrs} src="${escapeHtml(instance.source.compiledUri)}" muted playsinline${playback.loop ? " loop" : ""}></video>`;
+  return `<video ${attrs} src="${escapeHtml(instance.source.compiledUri)}" muted playsinline></video>`;
 }).join("");
 const proxyAssets = [...new Set(show.instances.visualizers.map((layer) => layer.proxy?.compiledUri).filter(Boolean))];
 const proxyMarkup = proxyAssets.map((uri, index) => `<img id="proxy-${index}" class="proxy-asset" data-proxy-uri="${escapeHtml(uri)}" src="${escapeHtml(uri)}" alt="">`).join("");

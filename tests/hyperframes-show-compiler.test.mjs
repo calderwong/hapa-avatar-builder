@@ -372,6 +372,10 @@ test("HyperFrames matches source/runtime aliases and preserves explicit pure-IVF
   assert.equal(show.instances.media[0].source.contentHash, contentHash);
   assert.deepEqual(show.instances.media[0].source.dimensions, { width: 720, height: 1280 });
   assert.equal(show.instances.media[0].source.sourceOrientation, "portrait");
+  assert.equal(show.instances.media[0].source.playbackMode, "once");
+  const ordinaryTiming = hyperFramesMediaElementTiming(show.instances.media[0]);
+  assert.equal(ordinaryTiming.loop, false);
+  assert.equal(ordinaryTiming.holdAfter, true);
   assert.equal(show.instances.media[1].source.type, "generated-visualizer");
   assert.equal(show.instances.media[1].source.assetName, null);
   assert.equal(show.instances.media[1].source.classificationReason, "legacy-none-media-sentinel");
@@ -666,7 +670,7 @@ test("HyperFrames export markup activates mapped transitions on logical cue time
   assert.match(source, /instance\.source\.type === "image"[\s\S]+<img \$\{attrs\} src=/u, "certified Reference stills must export as image elements");
   assert.match(source, /data-start="\$\{playback\.activationStart\}" data-duration="\$\{playback\.activationDuration\}"/u);
   assert.match(source, /data-media-start="\$\{playback\.mediaStart\}" data-media-end="\$\{playback\.mediaEnd\}" data-playback-rate="\$\{playback\.playbackRate\}"/u);
-  assert.match(source, /playsinline\$\{playback\.loop \? " loop" : ""\}/u, "only ordinary media should retain the historical loop attribute");
+  assert.doesNotMatch(source, /playback\.loop \? " loop"/u, "exported videos must never receive a loop attribute");
   assert.match(source, /video\.defaultPlaybackRate=playbackRate;video\.playbackRate=playbackRate[\s\S]+mediaRoot\.appendChild\(video\)/u);
   assert.match(source, /function holdMappedTransitionEndpoint[\s\S]+mapping\.sourceInSeconds:mapping\.sourceOutSeconds[\s\S]+el\.currentTime=target/u);
   assert.match(source, /holdMappedTransitionEndpoint\(t,el,m,timing\)/u);

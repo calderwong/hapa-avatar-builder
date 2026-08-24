@@ -9,7 +9,7 @@ import {
 } from "../src/domain/echo-player-pool.js";
 
 const project = {
-  timeline: Array.from({ length: 8 }, (_, index) => ({
+  timeline: Array.from({ length: 12 }, (_, index) => ({
     start_sec: index * 4,
     end_sec: (index + 1) * 4,
     media_id: `media-${index}`,
@@ -17,11 +17,11 @@ const project = {
   })),
 };
 
-test("Echo player leases are bounded to current plus two shots and ignore URI fragments", () => {
+test("Echo player leases are bounded to current plus eight shots and ignore URI fragments", () => {
   const leases = planEchoPlayerLeases(project, 2);
-  assert.equal(ECHO_PLAYER_POOL_LIMIT, 3);
-  assert.deepEqual(leases.map((lease) => lease.shotIndex), [2, 3, 4]);
-  assert.deepEqual(leases.map((lease) => lease.lookahead), [0, 1, 2]);
+  assert.equal(ECHO_PLAYER_POOL_LIMIT, 9);
+  assert.deepEqual(leases.map((lease) => lease.shotIndex), [2, 3, 4, 5, 6, 7, 8, 9, 10]);
+  assert.deepEqual(leases.map((lease) => lease.lookahead), [0, 1, 2, 3, 4, 5, 6, 7, 8]);
   assert.equal(canonicalEchoAssetKey(leases[0].uri), "/media/2.mp4");
 });
 
@@ -30,8 +30,8 @@ test("Echo pool retains matching leases and protects the visible player during a
   const leases = planEchoPlayerLeases(project, 5);
   const plan = reconcileEchoPlayerSlots(slots, leases, 0);
   assert.ok(plan.assignments.every((assignment) => assignment.slotIndex !== 0));
-  assert.equal(plan.assignments.length, 2, "visible old frame remains until one of two staging players is first-frame ready");
-  assert.ok(plan.assignments.every((assignment) => assignment.lease.lookahead <= 2));
+  assert.equal(plan.assignments.length, 2, "the protected visible slot remains while all available staging players are assigned");
+  assert.ok(plan.assignments.every((assignment) => assignment.lease.lookahead <= 8));
 });
 
 test("Echo pool reuses the staged next shot without starting another request", () => {

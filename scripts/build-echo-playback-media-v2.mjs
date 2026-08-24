@@ -76,15 +76,19 @@ const selectedNeeds = [...sourceNeeds.values()].filter((need) => {
 });
 const stats = { projects: projects.length, projectsWritten: 0, shots: videoShots + imageShots + visualizerShots, videoShots, imageShots, visualizerShots, uniqueVideoSources: sourceNeeds.size, selectedProxySources: selectedNeeds.length, transcoded: 0, cacheHits: 0, failed: 0 };
 
-await mapLimit([...sourceNeeds.values()], Math.max(concurrency, 12), async (need) => {
+await mapLimit([...sourceNeeds.values()], Math.min(concurrency, 4), async (need) => {
   try {
     const stat = await fs.stat(need.sourcePath);
-    need.fingerprint = crypto.createHash("sha256").update(`${need.sourcePath}:${stat.size}:${stat.mtimeMs}:${need.duration.toFixed(3)}:h264-1500k-gop1-loop-verified-v3`).digest("hex");
+    const { stdout: sourceProbeText } = await run("/opt/homebrew/bin/ffprobe", ["-v", "error", "-show_entries", "format=duration", "-of", "json", need.sourcePath], { maxBuffer: 1024 * 1024 });
+    need.sourceDurationSeconds = Number(JSON.parse(sourceProbeText)?.format?.duration || 0);
+    if (!(need.sourceDurationSeconds > 0)) throw new Error(`source duration unavailable for ${need.sourcePath}`);
+    need.outputDurationSeconds = Math.min(need.duration, need.sourceDurationSeconds);
+    need.fingerprint = crypto.createHash("sha256").update(`${need.sourcePath}:${stat.size}:${stat.mtimeMs}:${need.outputDurationSeconds.toFixed(3)}:h264-1500k-gop1-once-verified-v4`).digest("hex");
     need.proxyPath = path.join(proxyRoot, `${need.fingerprint.slice(0, 24)}.mp4`);
     const cached = cache[need.sourcePath];
     if (cached?.fingerprint !== need.fingerprint) return;
     if (cached.proxy?.status !== "ready" || cached.proxy?.codec !== "h264" || cached.proxy?.pixelFormat !== "yuv420p") return;
-    if (Number(cached.proxy?.durationSeconds || 0) < need.duration - .08) return;
+    if (Number(cached.proxy?.durationSeconds || 0) < need.outputDurationSeconds - .08) return;
     await fs.access(need.proxyPath);
     need.proxy = cached.proxy;
   } catch (error) {
@@ -100,7 +104,7 @@ await mapLimit(selectedNeeds, concurrency, async (need) => {
     const proxyPath = need.proxyPath;
     const fps = 30;
     await run("/opt/homebrew/bin/ffmpeg", [
-      "-v", "error", "-y", "-stream_loop", "-1", "-ss", "0", "-i", need.sourcePath, "-t", need.duration.toFixed(3),
+      "-v", "error", "-y", "-ss", "0", "-i", need.sourcePath, "-t", need.outputDurationSeconds.toFixed(3),
       "-map", "0:v:0", "-an", "-vf", "scale='min(1280,iw)':'min(1280,ih)':force_original_aspect_ratio=decrease:force_divisible_by=2:out_range=tv,format=yuv420p",
       "-c:v", "libx264", "-preset", "veryfast", "-crf", "27", "-maxrate", "1500k", "-bufsize", "3000k",
       "-pix_fmt", "yuv420p", "-r", String(fps), "-g", String(fps), "-keyint_min", String(fps), "-sc_threshold", "0", "-movflags", "+faststart", proxyPath,
@@ -108,7 +112,7 @@ await mapLimit(selectedNeeds, concurrency, async (need) => {
     const proxyStat = await fs.stat(proxyPath);
     const { stdout: probeText } = await run("/opt/homebrew/bin/ffprobe", ["-v", "error", "-select_streams", "v:0", "-show_entries", "stream=codec_name,pix_fmt,width,height,avg_frame_rate:format=duration", "-of", "json", proxyPath], { maxBuffer: 1024 * 1024 });
     const probe = JSON.parse(probeText); const stream = probe.streams?.[0]; const actualDurationSeconds = Number(probe.format?.duration || 0);
-    if (stream?.codec_name !== "h264" || stream?.pix_fmt !== "yuv420p" || actualDurationSeconds < need.duration - .08) throw new Error(`proxy verification failed codec=${stream?.codec_name} pix_fmt=${stream?.pix_fmt} duration=${actualDurationSeconds}/${need.duration}`);
+    if (stream?.codec_name !== "h264" || stream?.pix_fmt !== "yuv420p" || actualDurationSeconds < need.outputDurationSeconds - .08) throw new Error(`proxy verification failed codec=${stream?.codec_name} pix_fmt=${stream?.pix_fmt} duration=${actualDurationSeconds}/${need.outputDurationSeconds}`);
     need.proxy = {
       status: "ready",
       uri: uriFor(proxyPath),
@@ -122,6 +126,7 @@ await mapLimit(selectedNeeds, concurrency, async (need) => {
       byteSize: proxyStat.size,
       durationSeconds: actualDurationSeconds,
       requestedDurationSeconds: need.duration,
+      sourceDurationSeconds: need.sourceDurationSeconds,
       width: Number(stream.width || 0),
       height: Number(stream.height || 0),
       frameRate: stream.avg_frame_rate || "30/1",
@@ -157,9 +162,9 @@ for (const entry of projects) {
       originalUri,
       runtimeUri,
       sourceInSeconds: 0,
-      sourceOutSeconds: duration,
+      sourceOutSeconds: originalType === "video" ? Math.min(duration, Number(proxy?.durationSeconds || duration)) : duration,
       actualDurationSeconds: proxy?.durationSeconds ?? null,
-      playbackMode: originalType === "video" ? "loop" : "not-applicable",
+      playbackMode: originalType === "video" ? "once" : "not-applicable",
       mimeType: type === "video" ? "video/mp4" : type === "image" ? `image/${path.extname(originalUri).slice(1).replace("jpg", "jpeg")}` : "application/x-hapa-visualizer",
       dimensions: proxy ? { maxDimension: proxy.maxDimension } : null,
       contentHash: proxy?.fingerprint || null,
@@ -168,9 +173,11 @@ for (const entry of projects) {
       posterUri: shot.media_thumbnail || "",
       keyframeIntervalSeconds: proxy?.gopSeconds ?? null,
       byteSize: proxy?.byteSize ?? null,
-      preloadPriority: index === 0 ? "current" : index <= 2 ? "lookahead" : "lazy",
+      preloadPriority: index === 0 ? "current" : index <= 8 ? "lookahead" : "lazy",
       durationCoverage: originalType === "video" ? {
-        status: proxy?.status === "ready" && Number(proxy.durationSeconds || 0) >= duration - .08 ? "verified" : proxy?.status === "failed" ? "fallback" : "pending",
+        status: proxy?.status === "ready" && Number(proxy.durationSeconds || 0) >= duration - .08
+          ? "verified"
+          : proxy?.status === "ready" ? "short-source-held-no-repeat" : proxy?.status === "failed" ? "fallback" : "pending",
         cueSeconds: duration,
         sourceSeconds: proxy?.durationSeconds ?? null,
         toleranceSeconds: .08,

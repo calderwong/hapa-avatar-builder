@@ -651,7 +651,12 @@ function chooseBalancedCandidate(state, shot = {}) {
 }
 
 function chooseCandidate(candidates, state, shot, shotIndex) {
-  const routeCandidates = candidates.filter((candidate) => candidate.authoredUse !== "card-overlay");
+  const cueDuration = Math.max(0, finite(shot.end_sec, 0) - finite(shot.start_sec, 0));
+  const availableCandidates = candidates.filter((candidate) => candidate.authoredUse !== "card-overlay");
+  const durationSafeCandidates = availableCandidates.filter((candidate) => (
+    finite(candidate.duration, 0) > 0 && finite(candidate.duration, 0) + 0.08 >= cueDuration
+  ));
+  const routeCandidates = durationSafeCandidates.length ? durationSafeCandidates : availableCandidates;
   const loops = routeCandidates.filter((candidate) => candidate.analyzerRole === "loop" || candidate.authoredUse === "hold");
   const transitions = routeCandidates.filter((candidate) => candidate.analyzerRole === "transition" || candidate.authoredUse === "connector");
   const lowEnergy = isLowEnergyShot(shot);
@@ -673,7 +678,7 @@ function recastShot(shot = {}, candidate = {}, evidence = {}) {
   const end = finite(shot.end_sec, start);
   const duration = Math.max(0, end - start);
   const sourceDuration = finite(candidate.duration, 0);
-  const playbackMode = sourceDuration > 0 && sourceDuration + 0.08 >= duration ? "once" : "loop";
+  const playbackMode = "once";
   const preserved = { ...shot };
   for (const key of [
     "media_id", "media_title", "media_uri", "media_thumbnail", "runtime_media_uri",

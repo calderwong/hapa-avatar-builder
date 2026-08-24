@@ -536,14 +536,18 @@ function DeferredRationaleTextarea({ value = "", onCommit }) {
   );
 }
 
+const ECHO_VIDEO_LOOKAHEAD_COUNT = 8;
+const ECHO_VIDEO_PLAYER_POOL_SIZE = ECHO_VIDEO_LOOKAHEAD_COUNT + 1;
+const ECHO_VIDEO_PLAYER_INDICES = Array.from({ length: ECHO_VIDEO_PLAYER_POOL_SIZE }, (_, index) => index);
+
 function PersistentEchoABPlayers({ shot, lookaheadShots = [], playing, songTime, style, onBufferState, onPresentedMediaChange, clockRef, sourceIsPortrait = false, cameraKeyframes = EMPTY_ECHO_CAMERA_KEYFRAMES, shotIndex = 0 }) {
-  const playerRefs = [useRef(null), useRef(null), useRef(null)];
+  const playerRefs = useRef(Array.from({ length: ECHO_VIDEO_PLAYER_POOL_SIZE }, () => null));
   const activeIndexRef = useRef(0);
   const [activeIndex, setActiveIndex] = useState(0);
   const [stageStatus, setStageStatus] = useState("buffering");
   const generationRef = useRef(0);
   const fallbackRef = useRef(null);
-  const slotStateRef = useRef(Array.from({ length: 3 }, () => ({ key: "", status: "idle", frameReady: false, generation: 0, error: "" })));
+  const slotStateRef = useRef(Array.from({ length: ECHO_VIDEO_PLAYER_POOL_SIZE }, () => ({ key: "", status: "idle", frameReady: false, generation: 0, error: "" })));
 
   // The 30fps camera loop must always compute from the latest shot settings.
   // Camera edits (intensity/speed/motion) do not change media_id or start_sec,
@@ -579,7 +583,7 @@ function PersistentEchoABPlayers({ shot, lookaheadShots = [], playing, songTime,
   });
 
   const prepare = async (slotIndex, targetShot, offsetSeconds = 0, generation = generationRef.current) => {
-    const video = playerRefs[slotIndex].current;
+    const video = playerRefs.current[slotIndex];
     if (!video || shotMediaType(targetShot) !== "video") return false;
     const uri = resolveMediaUri(shotRuntimeUri(targetShot));
     const key = shotKey(targetShot); const slot = slotStateRef.current[slotIndex];
@@ -595,7 +599,6 @@ function PersistentEchoABPlayers({ shot, lookaheadShots = [], playing, songTime,
     if (video.readyState < 2) await waitFor(video, "loadeddata", 5000, generation);
     if (slot.generation !== generation || slot.key !== key) throw new Error("stale-prepare");
     const mediaContract = targetShot.media_contract || targetShot.mediaContract || {};
-    const playbackMode = mediaContract.playbackMode || mediaContract.playback_mode || "loop";
     const sourceInSeconds = mediaContract.sourceInSeconds ?? mediaContract.source_in_seconds;
     const sourceOutSeconds = mediaContract.sourceOutSeconds ?? mediaContract.source_out_seconds;
     const cueDurationSeconds = Math.max(0, Number(
@@ -611,14 +614,14 @@ function PersistentEchoABPlayers({ shot, lookaheadShots = [], playing, songTime,
       sourceOutSeconds,
       cueDurationSeconds,
     });
-    video.loop = playbackMode === "loop" && !timeMapping;
+    video.loop = false;
     video.playbackRate = targetPlaybackRate;
     const target = mapEchoSourceWindowTime({
       elapsedSeconds: offsetSeconds,
       durationSeconds: video.duration,
       sourceInSeconds,
       sourceOutSeconds,
-      loop: playbackMode === "loop",
+      loop: false,
       cueDurationSeconds,
       timeMapping,
     });
@@ -626,11 +629,18 @@ function PersistentEchoABPlayers({ shot, lookaheadShots = [], playing, songTime,
       video.currentTime = target;
       await waitFor(video, "seeked", 3000, generation);
     }
-    await video.play();
+    const sourceEndSeconds = Math.min(
+      Number(video.duration || Number.POSITIVE_INFINITY),
+      Number.isFinite(Number(sourceOutSeconds)) ? Number(sourceOutSeconds) : Number(video.duration || 0),
+    );
+    const holdingLastFrame = Number.isFinite(sourceEndSeconds) && target >= Math.max(0, sourceEndSeconds - 0.04);
+    if (holdingLastFrame) video.pause();
+    else await video.play();
     await new Promise((resolve, reject) => {
       let settled = false; const finish = (error) => { if (settled) return; settled = true; window.clearTimeout(timer); error ? reject(error) : resolve(); };
       const timer = window.setTimeout(() => finish(new Error("Echo player first-frame timeout")), 3000);
-      if (video.requestVideoFrameCallback) video.requestVideoFrameCallback(() => finish());
+      if (holdingLastFrame) window.requestAnimationFrame(() => finish());
+      else if (video.requestVideoFrameCallback) video.requestVideoFrameCallback(() => finish());
       else window.requestAnimationFrame(() => finish());
     });
     if (slot.generation !== generation || slot.key !== key || video.videoWidth <= 0 || video.error) throw new Error("stale-or-empty-frame");
@@ -642,16 +652,17 @@ function PersistentEchoABPlayers({ shot, lookaheadShots = [], playing, songTime,
   useEffect(() => {
     if (shotMediaType(shot) !== "video") return undefined;
     const generation = ++generationRef.current; const key = shotKey(shot);
-    const reusableIndex = slotStateRef.current.findIndex((slot, index) => slot.key === key && slot.status === "ready" && slot.frameReady && playerRefs[index].current?.readyState >= 2 && playerRefs[index].current?.videoWidth > 0 && !playerRefs[index].current?.error);
-    setStageStatus("buffering"); onBufferState?.({ status: "buffering", ready: false, currentKey: key, readyLookahead: 0, targetLookahead: Math.min(2, lookaheadShots.filter((item) => shotMediaType(item) === "video").length) });
+    const reusableIndex = slotStateRef.current.findIndex((slot, index) => slot.key === key && slot.status === "ready" && slot.frameReady && playerRefs.current[index]?.readyState >= 2 && playerRefs.current[index]?.videoWidth > 0 && !playerRefs.current[index]?.error);
+    const targetLookahead = Math.min(ECHO_VIDEO_LOOKAHEAD_COUNT, lookaheadShots.filter((item) => shotMediaType(item) === "video").length);
+    setStageStatus("buffering"); onBufferState?.({ status: "buffering", ready: false, currentKey: key, readyLookahead: 0, targetLookahead });
     const activate = (index) => {
       if (generation !== generationRef.current) return;
       activeIndexRef.current = index; setActiveIndex(index); setStageStatus("ready");
-      onBufferState?.({ status: "ready", ready: true, currentKey: key, readyLookahead: slotStateRef.current.filter((slot, slotIndex) => slotIndex !== index && slot.status === "ready").length, targetLookahead: Math.min(2, lookaheadShots.filter((item) => shotMediaType(item) === "video").length) });
+      onBufferState?.({ status: "ready", ready: true, currentKey: key, readyLookahead: slotStateRef.current.filter((slot, slotIndex) => slotIndex !== index && slot.status === "ready").length, targetLookahead });
     };
     if (reusableIndex >= 0) activate(reusableIndex);
     else {
-      const incomingIndex = [0, 1, 2].find((index) => index !== activeIndexRef.current && slotStateRef.current[index].status !== "preparing") ?? ((activeIndexRef.current + 1) % 3);
+      const incomingIndex = ECHO_VIDEO_PLAYER_INDICES.find((index) => index !== activeIndexRef.current && slotStateRef.current[index].status !== "preparing") ?? ((activeIndexRef.current + 1) % ECHO_VIDEO_PLAYER_POOL_SIZE);
       prepare(incomingIndex, shot, Math.max(0, songTime - Number(shot.start_sec || 0)), generation).then((ready) => { if (ready) activate(incomingIndex); }).catch((error) => {
         const slot = slotStateRef.current[incomingIndex]; if (slot.generation === generation) { slot.status = "error"; slot.error = String(error.message || error); }
         if (generation !== generationRef.current) return;
@@ -664,22 +675,30 @@ function PersistentEchoABPlayers({ shot, lookaheadShots = [], playing, songTime,
   useEffect(() => {
     if (stageStatus !== "ready") return;
     const generation = generationRef.current;
-    const targets = lookaheadShots.filter((item) => shotMediaType(item) === "video").slice(0, 2);
+    const targets = lookaheadShots.filter((item) => shotMediaType(item) === "video").slice(0, ECHO_VIDEO_LOOKAHEAD_COUNT);
     targets.forEach((targetShot) => {
       const key = shotKey(targetShot);
       if (slotStateRef.current.some((slot) => slot.key === key && (slot.status === "ready" || slot.status === "preparing"))) return;
-      const slotIndex = [0, 1, 2].find((index) => index !== activeIndexRef.current && slotStateRef.current[index].status !== "preparing");
+      const slotIndex = ECHO_VIDEO_PLAYER_INDICES.find((index) => index !== activeIndexRef.current && slotStateRef.current[index].status !== "preparing");
       if (slotIndex === undefined) return;
       prepare(slotIndex, targetShot, 0, generation).then(() => {
-        playerRefs[slotIndex].current?.pause();
+        playerRefs.current[slotIndex]?.pause();
         const readyLookahead = slotStateRef.current.filter((slot, index) => index !== activeIndexRef.current && slot.status === "ready").length;
-        onBufferState?.({ status: "ready", ready: true, currentKey: shotKey(shot), readyLookahead, targetLookahead: targets.length });
-      }).catch(() => {});
+        const errors = slotStateRef.current.map((slot) => slot.error).filter(Boolean);
+        onBufferState?.({ status: errors.length ? "partial" : "ready", ready: true, currentKey: shotKey(shot), ...(errors.length ? { error: `Lookahead video failed: ${errors.join("; ")}` } : {}), readyLookahead, targetLookahead: targets.length });
+      }).catch((error) => {
+        const slot = slotStateRef.current[slotIndex];
+        slot.status = "error";
+        slot.error = String(error?.message || error);
+        const readyLookahead = slotStateRef.current.filter((candidate, index) => index !== activeIndexRef.current && candidate.status === "ready").length;
+        const errors = slotStateRef.current.map((candidate) => candidate.error).filter(Boolean);
+        onBufferState?.({ status: "partial", ready: true, currentKey: shotKey(shot), error: `Lookahead video failed: ${errors.join("; ")}`, readyLookahead, targetLookahead: targets.length });
+      });
     });
   }, [stageStatus, lookaheadShots.map((item) => shotKey(item)).join("|")]);
 
   useEffect(() => {
-    const video = playerRefs[activeIndex].current;
+    const video = playerRefs.current[activeIndex];
     if (!video || shotMediaType(shot) !== "video" || video.seeking) return;
     const mediaContract = shot.media_contract || shot.mediaContract || {};
     const sourceInSeconds = mediaContract.sourceInSeconds ?? mediaContract.source_in_seconds;
@@ -702,7 +721,7 @@ function PersistentEchoABPlayers({ shot, lookaheadShots = [], playing, songTime,
       durationSeconds: video.duration,
       sourceInSeconds,
       sourceOutSeconds,
-      loop: (mediaContract.playbackMode || mediaContract.playback_mode || "loop") === "loop",
+      loop: false,
       cueDurationSeconds,
       timeMapping,
     });
@@ -715,13 +734,23 @@ function PersistentEchoABPlayers({ shot, lookaheadShots = [], playing, songTime,
     });
     if (correction.action === "seek") video.currentTime = Math.min(Number(video.duration || expected), correction.targetSeconds);
     video.playbackRate = correction.playbackRate;
-    if (playing && video.paused) video.play().catch(() => {});
+    const sourceEndSeconds = Math.min(
+      Number(video.duration || Number.POSITIVE_INFINITY),
+      Number.isFinite(Number(sourceOutSeconds)) ? Number(sourceOutSeconds) : Number(video.duration || 0),
+    );
+    const holdingLastFrame = Number.isFinite(sourceEndSeconds) && expected >= Math.max(0, sourceEndSeconds - 0.04);
+    if (playing && video.paused && !holdingLastFrame) video.play().catch((error) => {
+      const readyLookahead = slotStateRef.current.filter((candidate, index) => index !== activeIndexRef.current && candidate.status === "ready").length;
+      const targetLookahead = Math.min(ECHO_VIDEO_LOOKAHEAD_COUNT, lookaheadShots.filter((item) => shotMediaType(item) === "video").length);
+      onBufferState?.({ status: "partial", ready: true, currentKey: shotKey(shot), error: `Current video playback failed: ${String(error?.message || error)}`, readyLookahead, targetLookahead });
+    });
+    if (holdingLastFrame && !video.paused) video.pause();
     if (!playing && !video.paused) video.pause();
   }, [activeIndex, playing, shot?.media_id, songTime]);
 
   useEffect(() => {
     const sourceKey = shotKey(shot);
-    const video = playerRefs[activeIndex].current;
+    const video = playerRefs.current[activeIndex];
     const slot = slotStateRef.current[activeIndex];
     const isCurrentPresentedFrame = Boolean(
       stageStatus === "ready"
@@ -760,7 +789,7 @@ function PersistentEchoABPlayers({ shot, lookaheadShots = [], playing, songTime,
         previousMs = now;
         const { shot: latestShot, sourceIsPortrait: latestSourceIsPortrait, cameraKeyframes: latestCameraKeyframes, shotIndex: latestShotIndex, songTime: latestSongTime } = cameraInputsRef.current;
         const cameraTime = Number(clockRef?.current ?? latestSongTime);
-        const activeVideo = playerRefs[activeIndexRef.current]?.current || null;
+        const activeVideo = playerRefs.current[activeIndexRef.current] || null;
         const sourceDimensions = resolveEchoShotSourceDimensions(latestShot, activeVideo);
         const cameraKeyframe = echoCameraKeyframeAt(latestCameraKeyframes, cameraTime);
         const camera = cameraMotionStyleForShot(
@@ -770,7 +799,7 @@ function PersistentEchoABPlayers({ shot, lookaheadShots = [], playing, songTime,
           latestShotIndex,
           cameraKeyframe?.crop || null,
         );
-        for (const ref of playerRefs) if (ref.current) { ref.current.style.transform = camera.transform; ref.current.style.transformOrigin = camera.transformOrigin; ref.current.style.objectPosition = camera.objectPosition; }
+        for (const video of playerRefs.current) if (video) { video.style.transform = camera.transform; video.style.transformOrigin = camera.transformOrigin; video.style.objectPosition = camera.objectPosition; }
         if (fallbackRef.current) { fallbackRef.current.style.transform = camera.transform; fallbackRef.current.style.transformOrigin = camera.transformOrigin; }
       }
       if (playing) frame = window.requestAnimationFrame(animateCamera);
@@ -780,8 +809,7 @@ function PersistentEchoABPlayers({ shot, lookaheadShots = [], playing, songTime,
   }, [playing, shot?.media_id, shot?.start_sec, sourceIsPortrait, cameraKeyframes, shotIndex, clockRef]);
 
   useEffect(() => () => {
-    for (const ref of playerRefs) {
-      const video = ref.current;
+    for (const video of playerRefs.current) {
       if (!video) continue;
       try { video.pause(); video.removeAttribute("src"); video.load(); } catch { /* best effort */ }
     }
@@ -792,10 +820,10 @@ function PersistentEchoABPlayers({ shot, lookaheadShots = [], playing, songTime,
       <div ref={fallbackRef} data-echo-fallback={stageStatus} style={{ ...style, opacity: stageStatus === "ready" ? 0 : 1, position: "absolute", inset: 0, zIndex: 0, background: "radial-gradient(circle at center, rgba(9,28,46,.96), #020617 72%)", transition: "opacity .18s linear" }}>
         {(shot.media_contract?.posterUri || shot.media_thumbnail) && <img src={resolveMediaUri(shot.media_contract?.posterUri || shot.media_thumbnail)} alt="Buffered shot fallback" style={{ width: "100%", height: "100%", objectFit: "cover" }} />}
       </div>
-      {[0, 1, 2].map((index) => (
+      {ECHO_VIDEO_PLAYER_INDICES.map((index) => (
         <video
           key={`persistent-echo-player-${index}`}
-          ref={playerRefs[index]}
+          ref={(element) => { playerRefs.current[index] = element; }}
           muted
           crossOrigin="anonymous"
           playsInline
@@ -1309,23 +1337,11 @@ function exactIsfStatusIsFailure(status = "") {
   return /(error|failed|missing|invalid|hash|compile|draw|input)/i.test(String(status || "idle"));
 }
 
-function drawExactIsfDiagnostic(ctx, width, height, { status = "loading", sourceId = "", error = "" } = {}, { preservePixels = false } = {}) {
-  const failed = exactIsfStatusIsFailure(status);
-  ctx.save();
-  ctx.fillStyle = preservePixels ? "rgba(2, 6, 23, 0.72)" : "rgba(2, 6, 23, 0.88)";
-  if (preservePixels) ctx.fillRect(20, 20, Math.min(Math.max(280, width * 0.52), width - 40), 82);
-  else ctx.fillRect(0, 0, width, height);
-  ctx.strokeStyle = failed ? "rgba(248, 113, 113, 0.82)" : "rgba(34, 211, 238, 0.72)";
-  ctx.lineWidth = 2;
-  ctx.strokeRect(20, 20, preservePixels ? Math.min(Math.max(280, width * 0.52), width - 40) : Math.max(1, width - 40), preservePixels ? 82 : Math.max(1, height - 40));
-  ctx.fillStyle = failed ? "#fecaca" : "#cffafe";
-  ctx.font = "700 12px monospace";
-  ctx.fillText(preservePixels ? `EXACT ISF HOLD · ${String(status).toUpperCase()}` : failed ? "EXACT ISF ERROR" : "EXACT ISF LOADING", 36, 52);
-  ctx.fillStyle = "rgba(226, 232, 240, 0.82)";
-  ctx.font = "10px monospace";
-  ctx.fillText(sourceId || "No graph-backed visualizer cue at this time", 36, 72);
-  if (error) ctx.fillText(String(error).slice(0, 88), 36, 91);
-  ctx.restore();
+function exactVisualizerRequiresLiveMediaInput(card = {}) {
+  const inputs = card?.visualization?.card?.inputs || card?.visualization?.inputs || [];
+  return (Array.isArray(inputs) ? inputs : []).some((input) => (
+    String(input?.TYPE || input?.type || "").trim().toLowerCase() === "image"
+  ));
 }
 
 function normalizedStemFocus(value = "") {
@@ -3148,35 +3164,37 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
 
       const directorShowGraph = activeShowGraph;
       const hasDirectorShowGraph = Boolean(directorShowGraph?.tracks);
-      const graphActiveVisualizerCards = hasDirectorShowGraph
+      const graphActiveVisualizerCardsIncludingQuarantine = hasDirectorShowGraph
         ? directorPreviewFrame
           ? directorPreviewFrame.visualizers.map((visualizer) => activeShowGraphVisualizerCardsById.get(visualizer.id)).filter(Boolean)
           : visualizerCardsAtTime(directorShowGraph, t)
         : [];
-      const graphVisualizerCards = hasDirectorShowGraph ? visualizerLookaheadCards(directorShowGraph, t, 6) : [];
-      const graphVisualizerCard = graphActiveVisualizerCards[0] || graphVisualizerCards[0] || null;
+      const quarantinedGraphVisualizerCards = graphActiveVisualizerCardsIncludingQuarantine.filter(exactVisualizerRequiresLiveMediaInput);
+      const graphActiveVisualizerCards = graphActiveVisualizerCardsIncludingQuarantine.filter((card) => !exactVisualizerRequiresLiveMediaInput(card));
+      const graphVisualizerCards = hasDirectorShowGraph
+        ? visualizerLookaheadCards(directorShowGraph, t, 6).filter((card) => !exactVisualizerRequiresLiveMediaInput(card))
+        : [];
+      const graphVisualizerCard = graphActiveVisualizerCards[0]
+        || (quarantinedGraphVisualizerCards.length ? null : graphVisualizerCards[0])
+        || null;
 
       if (hasDirectorShowGraph) {
         const pool = ensureExactPlaybackPool(canvas, directorShowGraph);
         if (!graphVisualizerCard) {
           pauseEchoStemDecoderPool(stemDecoderPoolRef.current);
-          const missing = { status: "error", sourceId: "", error: "No executable shader card at this graph time" };
+          const missing = quarantinedGraphVisualizerCards.length
+            ? {
+                status: "error",
+                sourceId: quarantinedGraphVisualizerCards.map(exactVisualizerSourceId).join(", "),
+                error: "Director skipped an ISF shader that requires an unavailable live media input",
+              }
+            : { status: "error", sourceId: "", error: "No executable shader card at this graph time" };
           publishExactStatus(missing);
           const heldCanvas = exactIsfLastPresentedCanvasRef.current;
-          if (heldCanvas) {
-            ctx.drawImage(heldCanvas, 0, 0, width, height);
-            drawExactIsfDiagnostic(ctx, width, height, missing, { preservePixels: true });
-          } else {
-            drawExactIsfDiagnostic(ctx, width, height, missing);
-          }
+          if (heldCanvas) ctx.drawImage(heldCanvas, 0, 0, width, height);
         } else if (!pool) {
           const heldCanvas = exactIsfLastPresentedCanvasRef.current;
-          if (heldCanvas) {
-            ctx.drawImage(heldCanvas, 0, 0, width, height);
-            drawExactIsfDiagnostic(ctx, width, height, exactIsfPresentationRef.current, { preservePixels: true });
-          } else {
-            drawExactIsfDiagnostic(ctx, width, height, exactIsfPresentationRef.current);
-          }
+          if (heldCanvas) ctx.drawImage(heldCanvas, 0, 0, width, height);
         } else {
           try {
             const masterAudio = audioRef.current;
@@ -3487,33 +3505,15 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                 ctx.drawImage(presentation.canvas, -width / 2, -height / 2, width, height);
                 ctx.restore();
               }
-              if (readyLayers.length !== layerPresentations.length) {
-                const pending = layerPresentations.filter((layer) => !readyLayers.includes(layer));
-                drawExactIsfDiagnostic(ctx, width, height, {
-                  status: namedStatus,
-                  sourceId: pending.map((layer) => layer.requestedShaderId).join(", "),
-                  error: pending.map((layer) => layer.presentation?.error).filter(Boolean).join("; "),
-                }, { preservePixels: true });
-              }
             } else {
               const heldCanvas = exactIsfLastPresentedCanvasRef.current;
               if (heldCanvas) ctx.drawImage(heldCanvas, 0, 0, width, height);
-              drawExactIsfDiagnostic(ctx, width, height, {
-                status: namedStatus,
-                sourceId: layerPresentations.map((layer) => layer.requestedShaderId).join(", "),
-                error: layerPresentations.map((layer) => layer.presentation?.error).filter(Boolean).join("; "),
-              }, { preservePixels: Boolean(heldCanvas) });
             }
           } catch (error) {
             const failed = { status: "error", sourceId: exactVisualizerSourceId(graphVisualizerCard), error: String(error?.message || error) };
             publishExactStatus(failed);
             const heldCanvas = exactIsfLastPresentedCanvasRef.current;
-            if (heldCanvas) {
-              ctx.drawImage(heldCanvas, 0, 0, width, height);
-              drawExactIsfDiagnostic(ctx, width, height, failed, { preservePixels: true });
-            } else {
-              drawExactIsfDiagnostic(ctx, width, height, failed);
-            }
+            if (heldCanvas) ctx.drawImage(heldCanvas, 0, 0, width, height);
           }
         }
       } else {
@@ -6080,7 +6080,10 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                         ? echoPlaybackSnapshot.targetShotIndex
                         : activeProject.timeline?.findIndex(item => currentTime >= item.start_sec && currentTime < item.end_sec);
                     const currentTimelineItem = playheadShotIndex !== -1 && playheadShotIndex !== undefined ? activeProject.timeline[playheadShotIndex] : activeProject.timeline?.[0];
-                    const lookaheadTimelineItems = activeProject.timeline?.slice(Math.max(0, playheadShotIndex) + 1, Math.max(0, playheadShotIndex) + 3) || [];
+                    const lookaheadTimelineItems = activeProject.timeline?.slice(
+                      Math.max(0, playheadShotIndex) + 1,
+                      Math.max(0, playheadShotIndex) + 1 + ECHO_VIDEO_LOOKAHEAD_COUNT,
+                    ) || [];
                     const activeTimelineItem = activeProject.timeline?.[selectedShotIndex] || activeProject.timeline?.[0];
                     const activeVisualizerItem = activeProject.visualizer_timeline?.[selectedVisualizerIndex] || activeProject.visualizer_timeline?.[0];
                     const activePersistentShaderSlots = normalizeEchoPersistentShaderSlots(activeProject);
@@ -6988,84 +6991,6 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                                         CAM {directorPreviewFrame?.camera?.motion || currentTimelineItem.camera_motion || "auto"} @{Number(directorPreviewFrame?.camera?.speed ?? currentTimelineItem.camera_speed ?? 1.35).toFixed(1)}x
                                       </span>
                                     )}
-                                    {exactIsfBindingDiagnostics.rendererTruth && (() => {
-                                      const truth = exactIsfBindingDiagnostics.rendererTruth;
-                                      const tone = rendererTruthColor(truth.status);
-                                      return (
-                                        <span
-                                          data-echo-renderer-truth={truth.status}
-                                          data-echo-renderer-requested-id={truth.requested?.id || ""}
-                                          data-echo-renderer-substitute-id={truth.substitute?.id || ""}
-                                          data-echo-renderer-reason={truth.reason || ""}
-                                          data-echo-renderer-silent-default={truth.silentDefault === true ? "true" : "false"}
-                                          title={JSON.stringify(truth)}
-                                          style={{ fontSize: '8px', fontWeight: 'bold', padding: '2.5px 6px', borderRadius: '3px', color: tone.color, background: tone.background, border: `1px solid ${tone.border}` }}
-                                        >
-                                          RENDER {String(truth.status).toUpperCase()} · {truth.requested?.id || "MISSING ID"}{truth.substitute?.id ? ` → ${truth.substitute.id}` : ""}
-                                        </span>
-                                      );
-                                    })()}
-                                    {activeShowGraph && (
-                                      <span
-                                        data-echo-exact-isf-status={exactIsfStatus.status}
-                                        title={exactIsfStatus.error || exactIsfStatus.sourceId}
-                                        style={{
-                                          fontSize: '8px',
-                                          fontWeight: 'bold',
-                                          padding: '2.5px 6px',
-                                          background: exactIsfStatusIsFailure(exactIsfStatus.status) ? 'rgba(239,68,68,0.24)' : 'rgba(34,211,238,0.16)',
-                                          borderRadius: '3px',
-                                          color: exactIsfStatusIsFailure(exactIsfStatus.status) ? '#fecaca' : '#cffafe',
-                                          border: exactIsfStatusIsFailure(exactIsfStatus.status) ? '1px solid rgba(248,113,113,0.55)' : '1px solid rgba(34,211,238,0.38)'
-                                        }}
-                                      >
-                                        ISF {exactIsfStatus.status === "ready" ? "EXACT" : exactIsfStatus.status.toUpperCase()}
-                                      </span>
-                                    )}
-                                    {activeShowGraph && exactIsfBindingDiagnostics.playbackPool && (
-                                      <span
-                                        data-echo-isf-handoff={exactIsfBindingDiagnostics.playbackPool.handoffStatus || "idle"}
-                                        data-echo-isf-current-shader={exactIsfBindingDiagnostics.playbackPool.currentShaderId || ""}
-                                        data-echo-isf-requested-shader={exactIsfBindingDiagnostics.playbackPool.requestedShaderId || ""}
-                                        data-echo-isf-prewarm-ready={exactIsfBindingDiagnostics.playbackPool.prewarmReadiness?.ready || 0}
-                                        data-echo-isf-contexts={exactIsfBindingDiagnostics.playbackPool.contextCount || 0}
-                                        data-echo-isf-programs={exactIsfBindingDiagnostics.playbackPool.programCount || 0}
-                                        data-echo-isf-source-cache={JSON.stringify(exactIsfBindingDiagnostics.playbackPool.sourceCache || {})}
-                                        data-echo-isf-black-intervals={exactIsfBindingDiagnostics.playbackPool.blackIntervals || 0}
-                                        data-echo-isf-frame-ms={Number(exactIsfBindingDiagnostics.playbackPool.frameTiming?.lastMs || 0).toFixed(2)}
-                                        title={JSON.stringify(exactIsfBindingDiagnostics.playbackPool)}
-                                        style={{ fontSize: '8px', fontWeight: 'bold', padding: '2.5px 6px', background: exactIsfBindingDiagnostics.playbackPool.blackIntervals > 0 ? 'rgba(239,68,68,0.24)' : 'rgba(16,185,129,0.15)', borderRadius: '3px', color: exactIsfBindingDiagnostics.playbackPool.blackIntervals > 0 ? '#fecaca' : '#bbf7d0', border: '1px solid rgba(255,255,255,0.18)' }}
-                                      >
-                                        POOL {String(exactIsfBindingDiagnostics.playbackPool.handoffStatus || "IDLE").toUpperCase()} · WARM {exactIsfBindingDiagnostics.playbackPool.prewarmReadiness?.ready || 0}/{exactIsfBindingDiagnostics.playbackPool.prewarmReadiness?.requested || 0} · GL {exactIsfBindingDiagnostics.playbackPool.contextCount || 0}/{exactIsfBindingDiagnostics.playbackPool.programCount || 0} · BLACK {exactIsfBindingDiagnostics.playbackPool.blackIntervals || 0} · {Number(exactIsfBindingDiagnostics.playbackPool.frameTiming?.lastMs || 0).toFixed(1)}MS
-                                      </span>
-                                    )}
-                                    {activeShowGraph && (
-                                      <span
-                                        data-echo-isf-media-binding={exactIsfBindingDiagnostics.media?.status || "unavailable"}
-                                        title={JSON.stringify(exactIsfBindingDiagnostics.media || {})}
-                                        style={{ fontSize: '8px', fontWeight: 'bold', padding: '2.5px 6px', background: exactIsfBindingDiagnostics.media?.status === 'presented' ? 'rgba(16,185,129,0.16)' : 'rgba(246,201,109,0.15)', borderRadius: '3px', color: exactIsfBindingDiagnostics.media?.status === 'presented' ? '#bbf7d0' : '#fde68a', border: '1px solid rgba(255,255,255,0.18)' }}
-                                      >
-                                        MEDIA {exactIsfBindingDiagnostics.media?.status === "presented" ? String(exactIsfBindingDiagnostics.media?.kind || "LIVE").toUpperCase() : "NONE"}
-                                      </span>
-                                    )}
-                                    {activeShowGraph && (
-                                      <span
-                                        data-echo-isf-stem-binding={exactIsfBindingDiagnostics.stem?.status || "master"}
-                                        title={JSON.stringify(exactIsfBindingDiagnostics.stem || {})}
-                                        style={{ fontSize: '8px', fontWeight: 'bold', padding: '2.5px 6px', background: exactIsfBindingDiagnostics.stem?.status === 'ready' ? 'rgba(168,85,247,0.18)' : 'rgba(71,85,105,0.36)', borderRadius: '3px', color: exactIsfBindingDiagnostics.stem?.status === 'ready' ? '#e9d5ff' : '#cbd5e1', border: '1px solid rgba(255,255,255,0.18)' }}
-                                      >
-                                        STEM {String(exactIsfBindingDiagnostics.stem?.resolvedStem || "MASTER").toUpperCase()}
-                                      </span>
-                                    )}
-                                    {activeShowGraph && (
-                                      <span
-                                        data-echo-isf-frame-receipt={exactIsfBindingDiagnostics.frameReceipt?.receiptHash || "pending"}
-                                        title={JSON.stringify(exactIsfBindingDiagnostics.frameReceipt || {})}
-                                        style={{ fontSize: '8px', fontWeight: 'bold', padding: '2.5px 6px', background: 'rgba(6,182,212,0.12)', borderRadius: '3px', color: '#a5f3fc', border: '1px solid rgba(34,211,238,0.3)' }}
-                                      >
-                                        FRAME {exactIsfBindingDiagnostics.frameReceipt?.receiptHash ? String(exactIsfBindingDiagnostics.frameReceipt.receiptHash).slice(-8).toUpperCase() : "WAIT"}
-                                      </span>
-                                    )}
                                   </div>
 
                                   {/* Timed Lyrics Overlay — hidden in Clean Preview mode */}
@@ -7517,6 +7442,93 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                                     </button>
                                   )}
                                 </div>
+
+                                {(activeShowGraph || previewBufferState.error || exactIsfBindingDiagnostics.rendererTruth) && (
+                                  <div
+                                    data-testid="echo-director-preview-diagnostics"
+                                    role={(exactIsfStatusIsFailure(exactIsfStatus.status) || exactIsfStatus.error || previewBufferState.error || exactIsfStatusIsFailure(exactIsfBindingDiagnostics.rendererTruth?.status) || exactIsfBindingDiagnostics.rendererTruth?.silentDefault === true || Number(exactIsfBindingDiagnostics.playbackPool?.blackIntervals || 0) > 0) ? "alert" : "status"}
+                                    aria-live="polite"
+                                    style={{
+                                      alignSelf: directorPreviewExpanded ? 'center' : 'stretch',
+                                      width: directorPreviewExpanded ? directorPreviewWidth : 'auto',
+                                      maxWidth: '100%',
+                                      boxSizing: 'border-box',
+                                      display: 'flex',
+                                      flexWrap: 'wrap',
+                                      gap: '6px 10px',
+                                      padding: '7px 10px',
+                                      borderRadius: '4px',
+                                      border: (exactIsfStatusIsFailure(exactIsfStatus.status) || exactIsfStatus.error || previewBufferState.error || exactIsfStatusIsFailure(exactIsfBindingDiagnostics.rendererTruth?.status) || exactIsfBindingDiagnostics.rendererTruth?.silentDefault === true || Number(exactIsfBindingDiagnostics.playbackPool?.blackIntervals || 0) > 0) ? '1px solid rgba(248,113,113,0.42)' : '1px solid rgba(34,211,238,0.2)',
+                                      background: (exactIsfStatusIsFailure(exactIsfStatus.status) || exactIsfStatus.error || previewBufferState.error || exactIsfStatusIsFailure(exactIsfBindingDiagnostics.rendererTruth?.status) || exactIsfBindingDiagnostics.rendererTruth?.silentDefault === true || Number(exactIsfBindingDiagnostics.playbackPool?.blackIntervals || 0) > 0) ? 'rgba(127,29,29,0.16)' : 'rgba(8,47,73,0.14)',
+                                      color: (exactIsfStatusIsFailure(exactIsfStatus.status) || exactIsfStatus.error || previewBufferState.error || exactIsfStatusIsFailure(exactIsfBindingDiagnostics.rendererTruth?.status) || exactIsfBindingDiagnostics.rendererTruth?.silentDefault === true || Number(exactIsfBindingDiagnostics.playbackPool?.blackIntervals || 0) > 0) ? '#fecaca' : '#cffafe',
+                                      fontFamily: 'monospace',
+                                      fontSize: '9px',
+                                      lineHeight: 1.35,
+                                    }}
+                                  >
+                                    {activeShowGraph && (
+                                      <span
+                                        data-testid="echo-director-preview-isf-status"
+                                        data-echo-exact-isf-status={exactIsfStatus.status}
+                                      >
+                                        ISF {exactIsfStatus.status === "ready" ? "EXACT READY" : String(exactIsfStatus.status || "idle").toUpperCase()}
+                                        {exactIsfStatus.sourceId ? ` · ${exactIsfStatus.sourceId}` : ""}
+                                        {exactIsfStatus.error ? ` · ${exactIsfStatus.error}` : ""}
+                                      </span>
+                                    )}
+                                    {previewBufferState.error && (
+                                      <span data-testid="echo-director-preview-buffer-error">
+                                        VIDEO BUFFER · {previewBufferState.error}
+                                      </span>
+                                    )}
+                                    {exactIsfBindingDiagnostics.rendererTruth && (() => {
+                                      const truth = exactIsfBindingDiagnostics.rendererTruth;
+                                      return (
+                                        <span
+                                          data-echo-renderer-truth={truth.status}
+                                          data-echo-renderer-requested-id={truth.requested?.id || ""}
+                                          data-echo-renderer-substitute-id={truth.substitute?.id || ""}
+                                          data-echo-renderer-reason={truth.reason || ""}
+                                          data-echo-renderer-silent-default={truth.silentDefault === true ? "true" : "false"}
+                                          title={JSON.stringify(truth)}
+                                        >
+                                          RENDER {String(truth.status).toUpperCase()} · {truth.requested?.id || "MISSING ID"}{truth.substitute?.id ? ` → ${truth.substitute.id}` : ""}
+                                        </span>
+                                      );
+                                    })()}
+                                    {activeShowGraph && exactIsfBindingDiagnostics.playbackPool && (
+                                      <span
+                                        data-echo-isf-handoff={exactIsfBindingDiagnostics.playbackPool.handoffStatus || "idle"}
+                                        data-echo-isf-current-shader={exactIsfBindingDiagnostics.playbackPool.currentShaderId || ""}
+                                        data-echo-isf-requested-shader={exactIsfBindingDiagnostics.playbackPool.requestedShaderId || ""}
+                                        data-echo-isf-prewarm-ready={exactIsfBindingDiagnostics.playbackPool.prewarmReadiness?.ready || 0}
+                                        data-echo-isf-contexts={exactIsfBindingDiagnostics.playbackPool.contextCount || 0}
+                                        data-echo-isf-programs={exactIsfBindingDiagnostics.playbackPool.programCount || 0}
+                                        data-echo-isf-source-cache={JSON.stringify(exactIsfBindingDiagnostics.playbackPool.sourceCache || {})}
+                                        data-echo-isf-black-intervals={exactIsfBindingDiagnostics.playbackPool.blackIntervals || 0}
+                                        data-echo-isf-frame-ms={Number(exactIsfBindingDiagnostics.playbackPool.frameTiming?.lastMs || 0).toFixed(2)}
+                                        title={JSON.stringify(exactIsfBindingDiagnostics.playbackPool)}
+                                      >
+                                        POOL {String(exactIsfBindingDiagnostics.playbackPool.handoffStatus || "IDLE").toUpperCase()} · WARM {exactIsfBindingDiagnostics.playbackPool.prewarmReadiness?.ready || 0}/{exactIsfBindingDiagnostics.playbackPool.prewarmReadiness?.requested || 0} · GL {exactIsfBindingDiagnostics.playbackPool.contextCount || 0}/{exactIsfBindingDiagnostics.playbackPool.programCount || 0} · BLACK {exactIsfBindingDiagnostics.playbackPool.blackIntervals || 0} · {Number(exactIsfBindingDiagnostics.playbackPool.frameTiming?.lastMs || 0).toFixed(1)}MS
+                                      </span>
+                                    )}
+                                    {activeShowGraph && (
+                                      <span data-echo-isf-media-binding={exactIsfBindingDiagnostics.media?.status || "unavailable"} title={JSON.stringify(exactIsfBindingDiagnostics.media || {})}>
+                                        MEDIA {exactIsfBindingDiagnostics.media?.status === "presented" ? String(exactIsfBindingDiagnostics.media?.kind || "LIVE").toUpperCase() : "NONE"}
+                                      </span>
+                                    )}
+                                    {activeShowGraph && (
+                                      <span data-echo-isf-stem-binding={exactIsfBindingDiagnostics.stem?.status || "master"} title={JSON.stringify(exactIsfBindingDiagnostics.stem || {})}>
+                                        STEM {String(exactIsfBindingDiagnostics.stem?.resolvedStem || "MASTER").toUpperCase()}
+                                      </span>
+                                    )}
+                                    {activeShowGraph && (
+                                      <span data-echo-isf-frame-receipt={exactIsfBindingDiagnostics.frameReceipt?.receiptHash || "pending"} title={JSON.stringify(exactIsfBindingDiagnostics.frameReceipt || {})}>
+                                        FRAME {exactIsfBindingDiagnostics.frameReceipt?.receiptHash ? String(exactIsfBindingDiagnostics.frameReceipt.receiptHash).slice(-8).toUpperCase() : "WAIT"}
+                                      </span>
+                                    )}
+                                  </div>
+                                )}
 
                                 {directorPreviewExpanded && directorPreviewFullscreenMessage && (
                                   <div

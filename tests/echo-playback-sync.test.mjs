@@ -144,15 +144,18 @@ test("ordinary loop and once playback ignore absent or inconsistent transition m
   }), 1);
 });
 
-test("Echo preview keeps three persistent players, gates handoff, and never lacks a fallback", () => {
+test("Echo preview keeps current plus eight persistent players, gates handoff, and never repeats clips", () => {
   const source = fs.readFileSync("src/components/HapaEchosView.jsx", "utf8");
   assert.match(source, /persistent-echo-player-/);
   assert.match(source, /requestVideoFrameCallback/);
   assert.match(source, /data-frame-presented/);
-  assert.match(source, /\[0, 1, 2\]\.map/);
+  assert.match(source, /const ECHO_VIDEO_LOOKAHEAD_COUNT = 8/);
+  assert.match(source, /ECHO_VIDEO_PLAYER_INDICES\.map/);
   assert.match(source, /data-echo-fallback/);
   assert.match(source, /Echo player first-frame timeout/);
-  assert.match(source, /video\.loop = playbackMode === "loop" && !timeMapping/);
+  assert.match(source, /video\.loop = false/);
+  assert.match(source, /holdingLastFrame/);
+  assert.match(source, /Lookahead video failed/);
   assert.match(source, /1000 \/ 30/);
   assert.match(source, /const cameraTime = Number\(clockRef\?\.current \?\? latestSongTime\)/);
   assert.match(source, /const cameraKeyframe = echoCameraKeyframeAt\(latestCameraKeyframes, cameraTime\)/);

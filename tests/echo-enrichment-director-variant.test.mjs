@@ -1783,9 +1783,10 @@ test("builds one deterministic intentional cut and preserves every inherited dir
     }
     assert.ok(shot.decision_evidence.candidateAlternatives.every((candidate) => /score .*delta/iu.test(candidate.rejectionReason)));
     assert.equal(shot.decision_evidence.preservedDirection.runtimeMediaContract, true);
+    assert.equal(shot.media_contract.playbackMode, "once");
     assert.notEqual(shot.media_uri, "/media/ltx-moon-door.mp4", "low-prior LTX unexpectedly outranked verified media");
   }
-  assert.deepEqual(first.timeline[0].media_contract, enrichmentRows()[0].mediaContract);
+  assert.deepEqual(first.timeline[0].media_contract, { ...enrichmentRows()[0].mediaContract, playbackMode: "once" });
   assert.equal(first.timeline[0].decision_evidence.neighborContinuity.previous, null);
   assert.equal(first.timeline[0].decision_evidence.sourceBiasCounterfactual.schemaVersion, "hapa.echo.source-bias-counterfactual.v1");
   assert.equal(first.timeline[0].decision_evidence.sourceBiasCounterfactual.evaluatedCandidateCount, enrichmentRows().length);
@@ -1839,6 +1840,49 @@ test("final selection rewards lyric, canon, object-action, and emotion evidence 
   assert.ok(selected.score.canonAffinity > 0);
   assert.ok(selected.score.objectActionAffinity > 0);
   assert.ok(selected.score.emotionAffinity > 0);
+});
+
+test("rejects a known-short video cue instead of selecting it and repeating the clip", () => {
+  const project = baseProject("song-no-repeat");
+  project.duration = 4;
+  project.timeline = project.timeline.slice(0, 1);
+  project.timed_lyrics = project.timed_lyrics.slice(0, 1);
+  const [shortRow, longRow] = enrichmentRows().slice(0, 2).map(clone);
+  shortRow.quality = { score: 100 };
+  shortRow.mediaContract = {
+    ...shortRow.mediaContract,
+    sourceInSeconds: 0,
+    sourceOutSeconds: 2,
+    actualDurationSeconds: 2,
+  };
+  longRow.quality = { score: 80 };
+  longRow.recognition = clone(shortRow.recognition);
+  longRow.mediaContract = {
+    schemaVersion: "hapa.echo.playback-media.v2",
+    type: "video",
+    originalUri: longRow.runtimeUri,
+    runtimeUri: longRow.runtimeUri,
+    sourceInSeconds: 0,
+    sourceOutSeconds: 6,
+    actualDurationSeconds: 6,
+    playbackMode: "loop",
+  };
+  const catalog = buildEchoVideoEnrichmentCatalog({
+    enrichments: [shortRow, longRow],
+    chainGraph: { schemaVersion: "hapa.echo.video-chain-graph.v1", candidates: [] },
+    report: { generatedAt: "2026-08-01T00:00:00.000Z" },
+  });
+  const variant = compileEchoEnrichmentDirectorVariant({
+    song: songCard("song-no-repeat"),
+    baseProject: project,
+    parentVariant: parentVariant(project),
+    parentProjectSha256: "7".repeat(64),
+    catalog,
+    enrichments: [shortRow, longRow],
+    report: { generatedAt: "2026-08-01T00:00:00.000Z" },
+  });
+  assert.equal(variant.timeline[0].media_id, longRow.mediaId);
+  assert.equal(variant.timeline[0].media_contract.playbackMode, "once");
 });
 
 test("records explicit lyrics-unavailable evidence instead of inventing an instrumental claim", () => {

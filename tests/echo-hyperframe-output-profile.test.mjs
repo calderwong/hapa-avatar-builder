@@ -70,6 +70,20 @@ test("Echo HyperFrame scripts emit canonical profile metadata and profile-sized 
   assert.match(vertical, /width: 1080px; height: 1920px/u);
 });
 
+test("Echo HyperFrame scripts force video cues to play once without a loop attribute", () => {
+  const project = profileProject().music_video_project;
+  project.timeline[0] = {
+    ...project.timeline[0],
+    media_id: "short-video",
+    media_uri: "/media/short-video.mp4",
+    runtime_media_uri: "/media/short-video.mp4",
+    media_contract: { type: "video", runtimeUri: "/media/short-video.mp4", playbackMode: "loop" },
+  };
+  const script = generateEchoHyperframeScript(project);
+  assert.match(script, /data-playback-mode="once"/u);
+  assert.doesNotMatch(script, /playsinline loop/u);
+});
+
 test("Echo HyperFrame scripts declare selected persistent shader slots as full-song layers", () => {
   const project = profileProject().music_video_project;
   project.persistent_shader_slots = [

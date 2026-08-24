@@ -329,12 +329,16 @@ function normalizeMediaContract(row, uri) {
     ?? technical.durationSec ?? technical.durationSeconds,
   );
   const fps = positiveFinite(declared.fps ?? technical.fps);
-  if (Object.keys(declared).length) return {
-    ...clone(declared),
-    ...(actualDurationSeconds ? { actualDurationSeconds } : {}),
-    ...(fps ? { fps } : {}),
-    ...(dimensions ? { dimensions } : {}),
-  };
+  if (Object.keys(declared).length) {
+    const declaredType = firstText(declared.type).toLowerCase();
+    return {
+      ...clone(declared),
+      ...(declaredType === "video" ? { playbackMode: "once" } : {}),
+      ...(actualDurationSeconds ? { actualDurationSeconds } : {}),
+      ...(fps ? { fps } : {}),
+      ...(dimensions ? { dimensions } : {}),
+    };
+  }
   if (!uri) return null;
   const hash = object(row.contentHash || row.content_hash);
   const type = /\.(?:png|jpe?g|webp|gif|avif)(?:$|[?#])/iu.test(uri) ? "image" : "video";
@@ -343,13 +347,22 @@ function normalizeMediaContract(row, uri) {
     type,
     originalUri: uri,
     runtimeUri: uri,
-    playbackMode: type === "video" ? "loop" : "hold",
+    playbackMode: type === "video" ? "once" : "hold",
     ...(actualDurationSeconds ? { actualDurationSeconds } : {}),
     ...(fps ? { fps } : {}),
     ...(dimensions ? { dimensions } : {}),
     ...(firstText(hash.value, row.sha256) ? { contentHash: firstText(hash.value, row.sha256).replace(/^sha256:/iu, "") } : {}),
     provenance: "synthesized-from-enrichment-uri",
   };
+}
+
+function playableVideoDurationSeconds(contract = {}) {
+  if (firstText(contract?.type).toLowerCase() !== "video") return 0;
+  const sourceInSeconds = Math.max(0, finite(contract.sourceInSeconds ?? contract.source_in_seconds, 0));
+  const sourceOutSeconds = positiveFinite(contract.sourceOutSeconds ?? contract.source_out_seconds);
+  if (sourceOutSeconds > sourceInSeconds) return sourceOutSeconds - sourceInSeconds;
+  const actualDurationSeconds = positiveFinite(contract.actualDurationSeconds ?? contract.actual_duration_seconds);
+  return actualDurationSeconds > sourceInSeconds ? actualDurationSeconds - sourceInSeconds : 0;
 }
 
 function normalizedReferenceAnchorId(value = {}) {
@@ -2180,6 +2193,14 @@ function sourceScore(candidate, targetContext, previous, catalog, priorUses = 0,
     && continuity.kind !== "declared-transition-exit-anchor") {
     hardFilters.push("transition-exit-reference-mismatch");
   }
+  const shotDurationSeconds = Math.max(0, finite(options.shotDurationSeconds, 0));
+  const playableDurationSeconds = playableVideoDurationSeconds(candidate.mediaContract);
+  if (!reservationRole
+    && motionKind === "motion-clip"
+    && playableDurationSeconds > 0
+    && shotDurationSeconds > playableDurationSeconds + 0.08) {
+    hardFilters.push("video-shorter-than-cue-no-repeat");
+  }
   let transitionBridgeUtility = 0.5;
   if (motionKind === "transition") {
     transitionBridgeUtility = reservationRole === "authored-transition" && transitionResolution?.eligible
@@ -2582,6 +2603,9 @@ function applyCandidateMedia(shot, candidate, reservation = null) {
       },
     };
   } else {
+    if (firstText(next.media_contract?.type).toLowerCase() === "video") {
+      next.media_contract = { ...next.media_contract, playbackMode: "once" };
+    }
     delete next.transition_link;
   }
   if (dimensions) {
@@ -2977,7 +3001,12 @@ export function compileEchoEnrichmentDirectorVariant({
         previous,
         catalog,
         usageCounts.get(candidate.technicalIdentity) || 0,
-        { index, shotCount: sourceTimeline.length, reservation },
+        {
+          index,
+          shotCount: sourceTimeline.length,
+          shotDurationSeconds: Math.max(0, finite(shot.end_sec, 0) - finite(shot.start_sec, 0)),
+          reservation,
+        },
       ),
     }));
     const eligibleCandidates = scoredCandidates.filter((entry) => entry.score.hardFilters.length === 0);

@@ -26,7 +26,22 @@ test("Echo resolves graph-backed shader layers through a bounded lookahead playb
   assert.match(echoSource, /ctx\.drawImage\(presentation\.canvas, -width \/ 2, -height \/ 2, width, height\)/);
   assert.match(echoSource, /exactIsfPlaybackPoolRef\.current\?\.dispose\?\.\(\)/);
   assert.match(echoSource, /data-echo-exact-isf-status/);
-  assert.match(echoSource, /EXACT ISF HOLD/);
+  assert.match(echoSource, /data-testid="echo-director-preview-isf-status"/);
+  assert.doesNotMatch(echoSource, /EXACT ISF HOLD/);
+  assert.doesNotMatch(echoSource, /drawExactIsfDiagnostic/);
+  assert.match(echoSource, /exactVisualizerRequiresLiveMediaInput/);
+  assert.match(echoSource, /Director skipped an ISF shader that requires an unavailable live media input/);
+  const controlsIndex = echoSource.indexOf('data-testid="echo-director-preview-controls"');
+  for (const marker of [
+    'data-testid="echo-director-preview-isf-status"',
+    'data-echo-renderer-truth=',
+    'data-echo-isf-handoff=',
+    'data-echo-isf-media-binding=',
+    'data-echo-isf-stem-binding=',
+    'data-echo-isf-frame-receipt=',
+  ]) {
+    assert.ok(echoSource.indexOf(marker) > controlsIndex, `${marker} must render below the captured Preview and its transport`);
+  }
 
   const exactBranch = between(echoSource, "if (hasDirectorShowGraph) {", "} else {\n      const legacyRenderer = legacyEchoRendererTruth");
   assert.match(exactBranch, /pool\.present\(card/);
@@ -43,7 +58,7 @@ test("Echo prewarms lookahead and invalidates only graph identity changes", () =
   assert.match(echoSource, /graphVisualizerCards\.filter\(\(card\) => !activeCardIds\.has\(card\.id\)\)/);
   assert.match(echoSource, /layerPresentations\.filter/);
   assert.match(echoSource, /heldPreviousFrame/);
-  assert.match(echoSource, /preservePixels: true/);
+  assert.match(echoSource, /data-testid="echo-director-preview-diagnostics"/);
   assert.match(echoSource, /data-echo-isf-handoff/);
   assert.match(echoSource, /data-echo-isf-black-intervals/);
   assert.match(echoSource, /sourceCache/);

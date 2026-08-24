@@ -19,11 +19,13 @@ function fixture(t) {
     { id: "bad", title: "Bad filter", source: "/bad.fs", sourceHash: hash("a"), enabled: true, directorEligible: true, shaderType: "filter", hmvRole: "filter" },
     { id: "safe-generator", title: "Safe generator", source: "/safe.fs", sourceHash: hash("b"), enabled: true, directorEligible: true, shaderType: "generator", hmvRole: "filter" },
     { id: "safe-filter", title: "Safe filter", source: "/filter.fs", sourceHash: hash("c"), enabled: true, directorEligible: true, shaderType: "filter", hmvRole: "filter" },
+    { id: "live-input-filter", title: "Live input filter", source: "/live.fs", sourceHash: hash("d"), enabled: true, directorEligible: true, shaderType: "filter", hmvRole: "filter", inputs: [{ NAME: "inputImage", TYPE: "image" }] },
   ] };
   const report = { schemaVersion: "gate.v1", classifications: [
     { id: "bad", sourceHash: hash("a"), classification: "unsupported-quarantine", reason: "compile-failed" },
     { id: "safe-generator", sourceHash: hash("b"), classification: "hash-bound-exact-proxy", playableFrameIndices: [0] },
     { id: "safe-filter", sourceHash: hash("c"), classification: "hash-bound-exact-proxy", playableFrameIndices: [0] },
+    { id: "live-input-filter", sourceHash: hash("d"), classification: "hash-bound-exact-proxy", playableFrameIndices: [0] },
   ] };
   fs.writeFileSync(manifestPath, JSON.stringify(manifest));
   fs.writeFileSync(pixelGatePath, JSON.stringify(report));
@@ -33,8 +35,10 @@ function fixture(t) {
 test("the shared loader fails closed for missing, stale, or incomplete pixel-gate truth", (t) => {
   const files = fixture(t);
   const loaded = loadGatedEchoIsfManifest(files);
-  assert.equal(loaded.quarantinedShaderCount, 1);
+  assert.equal(loaded.quarantinedShaderCount, 2);
   assert.equal(loaded.manifest.shaders.find((shader) => shader.id === "bad").directorEligible, false);
+  assert.equal(loaded.manifest.shaders.find((shader) => shader.id === "live-input-filter").directorEligible, false);
+  assert.equal(loaded.manifest.shaders.find((shader) => shader.id === "live-input-filter").runtimeEligibilityReason, "director-live-media-input-not-guaranteed");
 
   fs.rmSync(files.pixelGatePath);
   assert.throws(() => loadGatedEchoIsfManifest(files), /pixel-gate report is required/i);
@@ -53,6 +57,16 @@ test("project repair is non-destructive and prefers a media-independent same-rol
   assert.equal(repaired.projectBody.visualizer_timeline[0].visualizer_id, "safe-generator");
   assert.equal(source.music_video_project.visualizer_timeline[0].visualizer_id, "bad");
   assert.equal(repaired.projectBody.runtime_shader_repair_receipt.sourceProjectMutated, false);
+});
+
+test("project repair replaces pixel-safe filters that still depend on a transient live media input", (t) => {
+  const files = fixture(t);
+  const { manifest } = loadGatedEchoIsfManifest(files);
+  const source = { music_video_project: { song_id: "fixture", visualizer_timeline: [{ start_sec: 0, end_sec: 4, visualizer_id: "live-input-filter", visualizer_title: "Live input filter" }] } };
+  const repaired = repairEchoProjectShaders(source, manifest);
+  assert.equal(repaired.shaderRepair.replacementCount, 1);
+  assert.equal(repaired.projectBody.visualizer_timeline[0].visualizer_id, "safe-generator");
+  assert.equal(source.music_video_project.visualizer_timeline[0].visualizer_id, "live-input-filter");
 });
 
 test("every Director artifact script consumes the shared fail-closed shader gate", () => {

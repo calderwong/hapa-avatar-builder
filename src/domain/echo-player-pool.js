@@ -1,4 +1,4 @@
-export const ECHO_PLAYER_POOL_LIMIT = 3;
+export const ECHO_PLAYER_POOL_LIMIT = 9;
 
 export function canonicalEchoAssetKey(value = "") {
   return String(value || "").split("#")[0];
@@ -15,7 +15,7 @@ export function planEchoPlayerLeases(project = null, currentShotIndex = 0, limit
   const start = Math.max(0, Math.min(timeline.length - 1, Number(currentShotIndex) || 0));
   const leases = [];
   const seenAssets = new Set();
-  for (let offset = 0; offset < timeline.length && offset < 3; offset += 1) {
+  for (let offset = 0; offset < timeline.length && offset < ECHO_PLAYER_POOL_LIMIT; offset += 1) {
     const shotIndex = (start + offset) % timeline.length;
     const shot = timeline[shotIndex];
     const uri = echoShotRuntimeUri(shot);
@@ -41,7 +41,9 @@ export function reconcileEchoPlayerSlots(slots = [], leases = [], protectedSlotI
   const claimedLeases = new Set();
   leases.forEach((lease, leaseIndex) => {
     const slotIndex = slots.findIndex((slot, index) => (
-      !claimedSlots.has(index) && canonicalEchoAssetKey(slot?.key) === lease.assetKey
+      !claimedSlots.has(index)
+      && (index !== protectedSlotIndex || lease.lookahead === 0)
+      && canonicalEchoAssetKey(slot?.key) === lease.assetKey
     ));
     if (slotIndex >= 0) {
       claimedSlots.add(slotIndex);

@@ -54,11 +54,11 @@ test("Dear Papa proxies are verified cut-friendly H.264 and stay below 60 MiB", 
   }
 });
 
-test("smooth preview compilation loops short sources, verifies outputs, and is exposed per song", () => {
+test("smooth preview compilation preserves one source pass, verifies outputs, and is exposed per song", () => {
   const builder = fs.readFileSync("scripts/build-echo-playback-media-v2.mjs", "utf8");
   const server = fs.readFileSync("server/api.mjs", "utf8");
   const view = fs.readFileSync("src/components/HapaEchosView.jsx", "utf8");
-  assert.match(builder, /"-stream_loop", "-1"/);
+  assert.doesNotMatch(builder, /"-stream_loop", "-1"/);
   assert.match(builder, /proxy verification failed codec=/);
   assert.match(builder, /actualDurationSeconds/);
   assert.match(builder, /cached\.proxy\?\.durationSeconds/);
@@ -66,7 +66,9 @@ test("smooth preview compilation loops short sources, verifies outputs, and is e
   assert.match(builder, /commitPlaybackProjection/);
   assert.match(builder, /projectMergeConflicts/);
   assert.doesNotMatch(builder, /need\?\.proxy \|\| cache\[/);
-  assert.match(builder, /playbackMode: originalType === "video" \? "loop"/);
+  assert.match(builder, /playbackMode: originalType === "video" \? "once"/);
+  assert.match(builder, /short-source-held-no-repeat/);
+  assert.match(builder, /index <= 8/);
   assert.match(server, /\/api\/echos\/director-preview\/prepare/);
   assert.match(server, /build-echo-playback-media-v2\.mjs/);
   assert.match(server, /echoPreviewPreparationQueue/);
