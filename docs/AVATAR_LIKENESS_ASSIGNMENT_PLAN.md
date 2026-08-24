@@ -196,7 +196,7 @@ accepted likeness set — same audit shape the Human-Accepted pass records.
 | Phase | Scope | Gate | Status |
 | --- | --- | --- | --- |
 | 1 | L1 feature module + unit tests (synthetic frames; ffmpeg round-trip) | tests + focused commit | **done** — commit `3890b58` (2026-08-23) |
-| 2 | L2 profiles store + CLI + API + coverage report | dry-run report over all 74 Avatars; tests + commit | in progress — profiles store + sampled/pooled builder + CLI + API written; live dry-run over the real store + coverage report, then commit |
+| 2 | L2 profiles store + CLI + API + coverage report | dry-run report over all 74 Avatars; tests + commit | **done** — commit `7af6a4c` (2026-08-23): live run over all 74 Avatars (73 profiled / 1 profileless / 1 corrupt file failing honestly), ~2 min rebuild, ~15 s steady-state freshness pass |
 | 3 | L3 signatures + matcher + batch script + verdict store | dry-run over the accepted set; calibration pass on a 50-media hand-labeled sample to set the 0.55/0.10 defaults from observed separation, not vibes; tests + commit | not started |
 | 4 | L4 Likeness lane in the Human Enricher UI + decision receipts | UI smoke via served-bundle markers + API round-trip; tests + commit | not started |
 | 5 | Director `avatar-likeness-v1` variant + EDL typing + audit | full-suite baseline (8 known failures), `npm run build`, Director pass report, append-only audit; commit | not started |
