@@ -24,3 +24,22 @@ export function echoProjectAudioRoute(project = {}, showGraph = project?.directo
       : text(project?.registry_track_id) ? "registry_track_id" : text(project?.song_id) ? "song_id" : null,
   };
 }
+
+/**
+ * Echo audio is mutable behind a stable registry route while a song is being
+ * repaired or refreshed. Give each load attempt a distinct URL and explicitly
+ * bypass the browser cache so Retry cannot replay an earlier invalid response.
+ */
+export function echoAudioFetchRequest(uri, attempt = 0) {
+  const value = text(uri);
+  if (!value) return { url: null, options: { cache: "no-store" } };
+  const normalizedAttempt = Math.max(0, Math.trunc(Number(attempt) || 0));
+  const hashIndex = value.indexOf("#");
+  const base = hashIndex >= 0 ? value.slice(0, hashIndex) : value;
+  const hash = hashIndex >= 0 ? value.slice(hashIndex) : "";
+  const separator = base.includes("?") ? "&" : "?";
+  return {
+    url: `${base}${separator}hapaAudioAttempt=${normalizedAttempt}${hash}`,
+    options: { cache: "no-store" },
+  };
+}

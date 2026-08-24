@@ -5,7 +5,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import { echoProjectAudioRoute } from "../src/domain/echo-audio-route.js";
+import { echoAudioFetchRequest, echoProjectAudioRoute } from "../src/domain/echo-audio-route.js";
 import { resolveEchoRuntimeMediaUri } from "../server/echo-runtime-media-route.mjs";
 import {
   verifyEchoExecutionInputEvidence,
@@ -108,5 +108,20 @@ test("shared Preview selector does not fall through after choosing an audio id a
     id: "valid-track",
     uri: "/api/song-registry/audio/valid-track",
     source: "show-graph.song.audioPath",
+  });
+});
+
+test("Echo audio loads and retries always bypass stale browser responses", () => {
+  assert.deepEqual(echoAudioFetchRequest("/api/song-registry/audio/track-a", 0), {
+    url: "/api/song-registry/audio/track-a?hapaAudioAttempt=0",
+    options: { cache: "no-store" },
+  });
+  assert.deepEqual(echoAudioFetchRequest("/api/song-registry/audio/track-a?format=mp3#preview", 3), {
+    url: "/api/song-registry/audio/track-a?format=mp3&hapaAudioAttempt=3#preview",
+    options: { cache: "no-store" },
+  });
+  assert.deepEqual(echoAudioFetchRequest("", 4), {
+    url: null,
+    options: { cache: "no-store" },
   });
 });

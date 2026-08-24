@@ -14,7 +14,7 @@ import {
   WandSparkles
 } from "lucide-react";
 import { normalizePlaybackPowerMode } from "../domain/playback-power-mode.js";
-import { echoProjectAudioRoute } from "../domain/echo-audio-route.js";
+import { echoAudioFetchRequest, echoProjectAudioRoute } from "../domain/echo-audio-route.js";
 import {
   echoSourceWindowPlaybackRate,
   mapEchoSourceWindowTime,
@@ -2279,7 +2279,8 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
       };
     }
     
-    fetch(url)
+    const audioRequest = echoAudioFetchRequest(url, audioLoadRetryNonce);
+    fetch(audioRequest.url, audioRequest.options)
       .then(res => {
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         return res.blob();
