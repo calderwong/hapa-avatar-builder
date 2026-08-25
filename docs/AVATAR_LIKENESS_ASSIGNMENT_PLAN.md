@@ -1,6 +1,6 @@
 # Avatar Likeness Assignment — Plan
 
-Status: design (proposed, not yet implemented)
+Status: implemented — all five phases committed (2026-08-23 → 2026-08-25)
 Date: 2026-08-23 (Pacific)
 
 ## Objective
