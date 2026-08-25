@@ -230,7 +230,7 @@ accepted likeness set — same audit shape the Human-Accepted pass records.
 | 2 | L2 profiles store + CLI + API + coverage report | dry-run report over all 74 Avatars; tests + commit | **done** — commit `7af6a4c` (2026-08-23): live run over all 74 Avatars (73 profiled / 1 profileless / 1 corrupt file failing honestly), ~2 min rebuild, ~15 s steady-state freshness pass |
 | 3 | L3 signatures + matcher + batch script + verdict store | dry-run over the accepted set; calibration pass on a 50-media hand-labeled sample to set the 0.55/0.10 defaults from observed separation, not vibes; tests + commit | **done** (2026-08-24): calibration over 140 self-labeled identity media confirmed 0.55/0.10 (margin is the separator; floor outcome-invariant); full apply over the 3,267 accepted set — 3,133 signed (134 sources gone, honestly excluded), 22 assigned / 3,111 unresolved (3,110 too_close), ~10 min; the assigned samples are genuine likeness (Mara look-book, Pomeranian for the dog Avatar, Tiny rooftop) and palette-only false positives (nebula, stained glass) sit unresolved — the gate behaves as designed |
 | 4 | L4 Likeness lane in the Human Enricher UI + decision receipts | UI smoke via served-bundle markers + API round-trip; tests + commit | **done** — commit `e1bfbbb` (2026-08-24): decision domain + store + dashboard join + API routes + lane layout; 11 new tests green (7 decision + 4 lane, incl. a real-server round-trip with durable receipts); full suite 1883/1874/9 with all 9 failures pre-existing (8 baseline + 1 from the unrelated `6cee844` echos commit, proven on a clean worktree); `npm run build` green with the delivery contract tests passing on the new receipt |
-| 5 | Director `avatar-likeness-v1` variant + EDL typing + audit | full-suite baseline (8 known failures), `npm run build`, Director pass report, append-only audit; commit | not started |
+| 5 | Director `avatar-likeness-v1` variant + EDL typing + audit | full-suite baseline (8 known failures), `npm run build`, Director pass report, append-only audit; commit | **done** (2026-08-25): append-only pass `node scripts/append-avatar-likeness-echo-direction-variants.mjs` over the Human-Accepted pool; 15 new tests green (11 domain + 3 script, incl. a full hermetic round trip with append-only/resume semantics); live dry-run: typed pool empty → honest `no-accepted-likeness-decisions-yet` report (0 decisions in the live store); live `--pool all` dry-run over all 176 current songs → 176/176 variants, 9,744 placements, 0 immediate repeats, all 3,133 candidates used, originals untouched |
 
 Every phase: `npm test` + `npm run build` gates, focused commits, no push
 (GitHub freeze active), backups under `data/backups/` before any store
@@ -354,3 +354,27 @@ mutation.
     that test fails on clean HEAD too. It is pre-existing, not a Phase 4
     regression, and it belongs to the echo render-readiness work —
     reported, not fixed here.
+19. **Pool modes: `--pool typed` (default) vs `--pool all`** (Phase 5): the
+    plan's "when present" is honored in both — `typed` restricts the candidate
+    pool to media with an accepted likeness decision (maximizing typed cast
+    coverage once acceptances exist); `all` runs the full Human-Accepted pool
+    and types shots only where an accepted decision covers them. Media without
+    a durable accepted receipt is never cast and stays an honest untyped shot
+    in both modes.
+20. **`safeMediaShotMask` adapts the density mask to the engine's contract**
+    (Phase 5): the recast engine's no-immediate-repeat tracker is
+    variant-global, so a single-candidate pool can place at most one media
+    shot per song; the pass shrinks the density plan's mask accordingly
+    (pools of 2+ are provably safe under the least-used-first bag and pass
+    through unchanged). The pass never mutates the shared engine
+    (`src/domain/echo-media-recast.js`) — it adapts to it.
+21. **Cast rides on the shot, injected post-recast** (Phase 5): typed
+    `decision_evidence.avatarLikeness` + `media_cast_label`
+    ("Avatar Card | <Avatar name>" — the EDL upgrade) are attached after the
+    engine runs, so no shared recast code changes. Seed assets are the
+    Avatar profile's identity-class signed samples (deterministic stored
+    order, capped, resolved against the media library); per-asset pixel
+    ranking against the shot's signature is a v2 extension because L2
+    profiles store merged media, not per-asset signatures. The post-run
+    audit resolves every typed shot back to the accepted receipt (id, state,
+    origin, revision) and the pass fails closed on any violation.
