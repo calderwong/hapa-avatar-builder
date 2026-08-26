@@ -157,9 +157,9 @@ function normalizeTimingLines(lines = []) {
 
 function readTimingForManifestSong(song = {}) {
   const candidates = [
+    song.id ? path.join(PLAYLIST_ROOT, "lyric_timings", `${song.id}.json`) : "",
     song.lyricTimingPath,
     song.localDir ? path.join(song.localDir, "lyric-timing.json") : "",
-    song.id ? path.join(PLAYLIST_ROOT, "lyric_timings", `${song.id}.json`) : ""
   ].filter(Boolean);
   for (const filePath of candidates) {
     if (!fs.existsSync(filePath)) continue;
@@ -206,8 +206,8 @@ const echoAlignmentManifest = fs.existsSync(ECHO_ALIGNMENT_MANIFEST_PATH)
   ? readJson(ECHO_ALIGNMENT_MANIFEST_PATH)
   : { songs: [] };
 const manifestSongs = [...new Map([
-  ...(manifest.songs || []),
   ...(echoAlignmentManifest.songs || []),
+  ...(manifest.songs || []),
 ].map((song) => [String(song.id || ""), song])).values()];
 const timingByRegistryId = new Map();
 const timingRejections = [];

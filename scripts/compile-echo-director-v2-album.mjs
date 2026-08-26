@@ -17,6 +17,7 @@ import {
 import { loadGatedEchoIsfManifest, repairEchoProjectShaders } from "./echo-isf-gated-manifest.mjs";
 import {
   assertEchoMediaPreflight,
+  echoProjectMatchesSongId,
   preflightEchoAlbum,
 } from "./preflight-echo-director-media.mjs";
 import { echoPersistentShaderSegments } from "../src/domain/echo-persistent-shader-slots.js";
@@ -138,8 +139,7 @@ const files = fs.readdirSync(PROJECTS).filter((file) => {
   if (!TARGET_SONG) return true;
   try {
     const sourcePayload = JSON.parse(fs.readFileSync(path.join(PROJECTS, file), "utf8"));
-    const project = sourcePayload.music_video_project || sourcePayload;
-    return String(project.song_id || "").trim() === TARGET_SONG;
+    return echoProjectMatchesSongId(sourcePayload, TARGET_SONG);
   } catch {
     return false;
   }
@@ -159,7 +159,7 @@ for (const file of files) {
     avatarRoot: ROOT,
     nativeProxyAvailable,
   });
-  const slug = String(project.song_id || path.basename(file, ".json")).replace(/[^a-zA-Z0-9._-]+/g, "-");
+  const slug = String(TARGET_SONG || project.song_id || path.basename(file, ".json")).replace(/[^a-zA-Z0-9._-]+/g, "-");
   const directory = path.join(OUTPUT, slug);
   writeJson(path.join(directory, "cue-graph.json"), artifacts.cueGraph);
   writeJson(path.join(directory, "editorial-treatment.json"), artifacts.treatment);

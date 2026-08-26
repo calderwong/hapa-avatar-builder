@@ -166,6 +166,33 @@ test("album preflight fails closed when the project source directory is empty", 
   }
 });
 
+test("targeted album preflight resolves an exact registry ID behind a legacy song slug", () => {
+  const fx = fixture();
+  try {
+    const exactId = "8530e289-42ee-4a95-93ee-c6d2206ce672";
+    const projectsRoot = path.join(fx.root, "data/music-video-projects");
+    const projectPath = path.join(projectsRoot, "legacy-song.json");
+    fs.mkdirSync(projectsRoot, { recursive: true });
+    fs.writeFileSync(projectPath, JSON.stringify({
+      music_video_project: {
+        ...project([mediaShot(0, "/media/app.mp4")], "dear-papa-song-foreign-hawties"),
+        audio_id: exactId,
+        registry_track_id: exactId,
+      },
+    }));
+    const report = preflightEchoAlbum({
+      projectsRoot,
+      variantsRoot: path.join(fx.root, "data/music-video-project-variants"),
+      avatarRoot: fx.root,
+      songId: exactId,
+    });
+    assert.equal(report.ok, true, JSON.stringify(report.failures, null, 2));
+    assert.equal(report.projectCount, 1);
+  } finally {
+    fs.rmSync(fx.root, { recursive: true, force: true });
+  }
+});
+
 test("single-cut compiler fails on its selected media before manifest loading without scanning unrelated sidecars", () => {
   const fx = fixture();
   try {

@@ -14,6 +14,22 @@ export const ECHO_MEDIA_PREFLIGHT_SCHEMA = "hapa.echo.director-media-preflight.v
 const text = (value) => String(value ?? "").trim();
 const list = (value) => Array.isArray(value) ? value : [];
 const bodyOf = (payload = {}) => payload?.music_video_project || payload || {};
+export function echoProjectSongIdentities(payload = {}) {
+  const project = bodyOf(payload);
+  const editMap = project.song_edit_map || project.songEditMap || {};
+  return [...new Set([
+    project.song_id,
+    project.audio_id,
+    project.registry_track_id,
+    editMap.source_song_id,
+    editMap.registry_track_id,
+  ].map(text).filter(Boolean))];
+}
+
+export function echoProjectMatchesSongId(payload = {}, songId = "") {
+  const selected = text(songId);
+  return Boolean(selected && echoProjectSongIdentities(payload).includes(selected));
+}
 const safeFile = (candidate) => {
   try {
     const stat = fs.statSync(candidate);
@@ -258,7 +274,7 @@ export function preflightEchoAlbum({
   const projectPaths = jsonFiles(resolvedProjectsRoot).filter((projectPath) => {
     if (!selectedSongId) return true;
     try {
-      return text(bodyOf(readJson(projectPath)).song_id) === selectedSongId;
+      return echoProjectMatchesSongId(readJson(projectPath), selectedSongId);
     } catch {
       return path.basename(projectPath, ".json") === selectedSongId;
     }
