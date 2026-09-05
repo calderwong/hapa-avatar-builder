@@ -7,15 +7,19 @@ import { promisify } from "node:util";
 
 const run = promisify(execFile);
 const root = path.resolve(import.meta.dirname, "..");
-const mediaRoot = path.join(root, "data", "media");
-const projectRoot = path.join(root, "data", "music-video-projects");
+const argument = (name, fallback) => process.argv.find(value => value.startsWith(`--${name}=`))?.slice(name.length + 3) || fallback;
+const mediaRoot = path.resolve(argument('media-root', path.join(root, "data", "media")));
+const projectRoot = path.resolve(argument('project-root', path.join(root, "data", "music-video-projects")));
 const proxyRoot = path.join(mediaRoot, "echo-proxies-v2");
-const reportPath = path.join(root, "artifacts", "echo-playback-media-v2", "report.json");
-const cachePath = path.join(root, "artifacts", "echo-playback-media-v2", "cache.json");
+const reportRoot = path.resolve(argument('report-root', path.join(root, 'artifacts/echo-playback-media-v2')));
+const reportPath = path.join(reportRoot, 'report.json');
+const cachePath = path.join(reportRoot, 'cache.json');
+const backupRoot = path.resolve(argument('backup-root', path.join(root, 'data/backups')), `echo-playback-${crypto.randomUUID()}`);
 const apply = process.argv.includes("--apply");
-const concurrency = Math.max(1, Number(process.env.HAPA_PROXY_CONCURRENCY || 5));
+const concurrency = Math.max(1, Math.min(4, Math.trunc(Number(process.env.HAPA_PROXY_CONCURRENCY) || 4)));
 const onlyDearPapa = process.argv.includes("--dear-papa-only");
 const onlySongId = process.argv.find((value) => value.startsWith("--song="))?.slice("--song=".length) || "";
+if (onlySongId && (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,199}$/.test(onlySongId) || path.basename(onlySongId) !== onlySongId)) throw new Error('Unsafe song ID');
 const imagePattern = /\.(png|jpe?g|webp|gif|avif)(?:$|\?)/i;
 
 function resolveUri(uri = "") {
@@ -41,7 +45,9 @@ async function mapLimit(values, limit, fn) {
   }));
 }
 
-const files = (await fs.readdir(projectRoot)).filter((file) => file.endsWith("-video-project.json")).sort();
+const requestedSong = onlySongId || (onlyDearPapa ? 'dear-papa-song-dear-papa' : '');
+const files = (await fs.readdir(projectRoot)).filter(file => file.endsWith('-video-project.json') && (!requestedSong || file === `${requestedSong}-video-project.json`)).sort();
+if (requestedSong && files.length !== 1) throw new Error(`Requested project is unavailable: ${requestedSong}`);
 const projects = await Promise.all(files.map(async (file) => {
   const originalText = await fs.readFile(path.join(projectRoot, file), "utf8");
   return { file, originalText, payload: JSON.parse(originalText) };
@@ -217,17 +223,28 @@ async function commitPlaybackProjection(entry) {
   };
   const mergedText = `${JSON.stringify(latestPayload, null, 2)}\n`;
   const changed = mergedText !== latestText;
-  if (apply && changed) await fs.writeFile(filePath, mergedText);
-  return { changed, conflicts };
+  if (apply && changed && conflicts === 0) {
+    await fs.mkdir(backupRoot, { recursive: true });
+    await fs.writeFile(path.join(backupRoot, entry.file), latestText, { flag: 'wx' });
+    const temporary = `${filePath}.${crypto.randomUUID()}.tmp`;
+    try {
+      await fs.writeFile(temporary, mergedText, { flag: 'wx' });
+      if (await fs.readFile(filePath, 'utf8') !== latestText) return { changed: false, conflicts: 1 };
+      await fs.rename(temporary, filePath);
+    } finally { await fs.rm(temporary, { force: true }); }
+  }
+  return { changed, conflicts, written: apply && changed && conflicts === 0 };
 }
 
 const playbackCommits = [];
 await mapLimit(projects, 12, async (entry) => { playbackCommits.push(await commitPlaybackProjection(entry)); });
-stats.projectsWritten = playbackCommits.filter((result) => result.changed).length;
+stats.projectsWritten = playbackCommits.filter((result) => result.written).length;
+stats.projectsWouldChange = playbackCommits.filter((result) => result.changed).length;
 stats.projectMergeConflicts = playbackCommits.reduce((sum, result) => sum + result.conflicts, 0);
 const failures = selectedNeeds.filter((need) => need.proxy?.status === "failed").map((need) => ({ sourcePath: need.sourcePath, requiredDurationSeconds: need.duration, error: need.proxy.error, refs: need.refs }));
-const report = { schemaVersion: "hapa.echo.playback-media-report.v2", ok: stats.failed === 0 && stats.projectMergeConflicts === 0, mode: apply ? "apply" : "dry-run", stats, failures, dearPapa: { runtimeBytes: dearPapaRuntimeBytes, runtimeMiB: Number((dearPapaRuntimeBytes / 1048576).toFixed(3)), uniqueRuntimeUris: dearPapaRuntimeUris.size }, generatedAt: new Date().toISOString() };
+const report = { schemaVersion: "hapa.echo.playback-media-report.v2", ok: stats.failed === 0 && stats.projectMergeConflicts === 0, mode: apply ? "apply" : "dry-run", requestedSong: requestedSong || null, backupRoot: stats.projectsWritten ? backupRoot : null, stats, failures, dearPapa: { runtimeBytes: dearPapaRuntimeBytes, runtimeMiB: Number((dearPapaRuntimeBytes / 1048576).toFixed(3)), uniqueRuntimeUris: dearPapaRuntimeUris.size }, generatedAt: new Date().toISOString() };
 await fs.mkdir(path.dirname(reportPath), { recursive: true });
 await fs.writeFile(cachePath, `${JSON.stringify(cache, null, 2)}\n`);
 await fs.writeFile(reportPath, `${JSON.stringify(report, null, 2)}\n`);
 process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
+if (!report.ok) process.exitCode = 1;

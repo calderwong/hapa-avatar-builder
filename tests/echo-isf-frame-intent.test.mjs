@@ -1,4 +1,5 @@
 import test from "node:test";
+import { currentEchoAlbumGraphPaths } from './helpers/current-echo-album.mjs';
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
@@ -277,9 +278,8 @@ test("the complete catalog and album satisfy media/default/audio-map frame contr
   let cardCount = 0;
   let reactiveCardCount = 0;
   let effectiveReactiveCardCount = 0;
-  for (const directory of fs.readdirSync(albumRoot)) {
-    const graphPath = path.join(albumRoot, directory, "native-show-graph.json");
-    if (!fs.existsSync(graphPath)) continue;
+  for (const graphPath of currentEchoAlbumGraphPaths(albumRoot)) {
+    const directory = path.basename(path.dirname(graphPath));
     graphCount += 1;
     const graph = JSON.parse(fs.readFileSync(graphPath, "utf8"));
     const shaderCards = (graph.tracks || [])

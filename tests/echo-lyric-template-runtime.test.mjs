@@ -1,3 +1,4 @@
+import { echoLyricBoundary } from "../src/domain/echo-lyric-time.js";
 import assert from "node:assert/strict";
 import test from "node:test";
 import vm from "node:vm";
@@ -97,4 +98,25 @@ test("long measured transcript spans page into deterministic readable word windo
       text: "word7 word8 word9 word10 word11 word12 word13",
     },
   );
+});
+
+
+test("timestamp aliases preserve zero and measured pagination rather than line-start fallback", () => {
+  assert.equal(echoLyricBoundary({ start: 0, startSeconds: 9 }, "start", 4), 0);
+  assert.equal(echoLyricBoundary({ startSeconds: "1.5" }, "start"), 1.5);
+  assert.equal(echoLyricBoundary({ startSeconds: "bad" }, "start", 4), 4);
+  assert.equal(echoLyricBoundary({ start: "" }, "start", 4), 4);
+  const words = Array.from({ length: 23 }, (_, index) => ({ word: `word${index}`, startSeconds: index, endSeconds: index + 1 }));
+  const window = echoLyricDisplayWindow({ templateId: "kinetic-word-burst-v1", words, timeSeconds: 9.5, lineStart: 0, lineEnd: 23 });
+  assert.equal(window.startIndex, 7);
+  assert.equal(window.endIndex, 14);
+});
+
+
+test("exact frame clocks do not slip a frame through floating-point multiplication", () => {
+  for (const fps of [24, 25, 30, 60]) {
+    for (let frame = 0; frame < fps * 600; frame += 7) {
+      assert.equal(echoLyricFrameTime(frame / fps, fps).frame, frame);
+    }
+  }
 });

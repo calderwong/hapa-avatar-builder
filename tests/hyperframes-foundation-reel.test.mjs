@@ -3,6 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
+import vm from "node:vm";
 import {
   buildFoundationFfmpegArgs,
   buildFoundationTimeline,
@@ -101,4 +102,13 @@ test("derived show and HTML use one real reel while retaining overlays and prove
   });
   assert.doesNotMatch(inlined, /<script\b[^>]*\bsrc=|type="module"|\bexport\s+function/);
   assert.match(inlined, /globalThis\.HapaHyperFramesVisualizerRuntime\.evaluateHyperFramesVisualizers/);
+});
+
+test("offline inlining preserves executable line comments in the actual self-contained runtime", () => {
+  const linked = `<script src="assets/data/show.js"></script><script src="assets/runtime/pinned-timeline.js"></script><script type="module">import{evaluateHyperFramesVisualizers}from'./assets/runtime/hyperframes-visualizer-runtime.js';globalThis.result=evaluateHyperFramesVisualizers({},0);</script>`;
+  const inlined = inlineFoundationRuntimeHtml(linked, { showScript: "globalThis.show={};", pinnedTimelineSource: "globalThis.timeline={};", visualizerRuntimeSource: fs.readFileSync("src/domain/hyperframes-visualizer-runtime.js", "utf8") });
+  const context = vm.createContext({ structuredClone });
+  for (const script of inlined.matchAll(/<script>([\s\S]*?)<\/script>/g)) vm.runInContext(script[1], context);
+  assert.equal(context.result.receipt.runtimeAudioAnalysis, false);
+  assert.equal(context.result.receipt.networkCalls, false);
 });

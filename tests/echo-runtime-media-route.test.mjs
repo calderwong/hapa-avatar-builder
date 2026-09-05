@@ -7,6 +7,18 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { echoAudioFetchRequest, echoProjectAudioRoute } from "../src/domain/echo-audio-route.js";
 import { resolveEchoRuntimeMediaUri } from "../server/echo-runtime-media-route.mjs";
+
+test("album audits reuse one explicit registry snapshot without rereading stores or falling through aliases", () => {
+  const options = {
+    registryPayload: { songs: [{ id: "exact-audio", localPath: "/media/source-a.mp3" }] },
+    songbookPayload: { songCards: [{ id: "dear-papa-song-fixture", registryTrackId: "exact-audio" }] },
+    songRegistryPath: "/nonexistent/registry.json", songbookPath: "/nonexistent/songbook.json",
+  };
+  const route = resolveEchoRuntimeMediaUri("/api/song-registry/audio/dear-papa-song-fixture", options);
+  assert.equal(route.ok, true);
+  assert.equal(route.resolvedPath, "/media/source-a.mp3");
+  assert.equal(resolveEchoRuntimeMediaUri("/api/song-registry/audio/missing", options).ok, false);
+});
 import {
   verifyEchoExecutionInputEvidence,
   verifyEchoExecutionVisualInputEvidence,

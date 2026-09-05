@@ -68,12 +68,15 @@ const proxyRegistry = read(proxyRegistryPath);
 const showGraph = read(graphPath);
 const telemetry = read(telemetryPath);
 const project = read(projectPath);
+const performancePath = value("performance") ? path.resolve(value("performance")) : null;
+const performance = performancePath ? read(performancePath) : null;
 const fullShow = compileHyperFramesShow({
   showGraph,
   telemetry,
   project,
   proxyRegistry,
   fps: 30,
+  performance,
 });
 const show = requestedDuration && requestedDuration < fullShow.duration
   ? clipHyperFramesShow(fullShow, requestedDuration)

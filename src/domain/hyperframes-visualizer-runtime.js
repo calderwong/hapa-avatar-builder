@@ -1,12 +1,3 @@
-export const HYPERFRAMES_VISUALIZER_RUNTIME_SCHEMA = "hapa.hyperframes.visualizer-runtime.v1";
-export const HYPERFRAMES_VISUALIZER_DIAGNOSTIC_SCHEMA = "hapa.hyperframes.visualizer-diagnostic.v1";
-export const VISUALIZER_AUDIO_HEADROOM_POLICY = "auto-headroom-v1";
-export const VISUALIZER_AUDIO_EFFECTIVENESS_POLICY = "per-uniform-material-effect-v1";
-export const VISUALIZER_AUDIO_REACTIVE_SIGNALS = new Set([
-  "rms", "peak", "onset", "beat", "energy",
-  "low", "bass", "mid", "high", "treble",
-  "palette", "orbit",
-]);
 export const HYPERFRAMES_STEM_ROLE_ALIASES = Object.freeze({
   master: "master",
   mastermix: "master",
@@ -35,6 +26,26 @@ export const HYPERFRAMES_STEM_ROLE_ALIASES = Object.freeze({
   synths: "synth",
   stringssection: "strings",
 });
+
+export function normalizeHyperFramesStemRole(value = "") {
+  const compact = text(value)
+    .toLowerCase()
+    .replace(/^(?:stem|bus)[:/_-]+/, "")
+    .replace(/[^a-z0-9]+/g, "");
+  return HYPERFRAMES_STEM_ROLE_ALIASES[compact] || compact;
+}
+
+
+export const HYPERFRAMES_VISUALIZER_RUNTIME_SCHEMA = "hapa.hyperframes.visualizer-runtime.v1";
+export const HYPERFRAMES_VISUALIZER_DIAGNOSTIC_SCHEMA = "hapa.hyperframes.visualizer-diagnostic.v1";
+export const VISUALIZER_AUDIO_HEADROOM_POLICY = "auto-headroom-v1";
+export const VISUALIZER_AUDIO_EFFECTIVENESS_POLICY = "per-uniform-material-effect-v1";
+export const VISUALIZER_AUDIO_REACTIVE_SIGNALS = new Set([
+  "rms", "peak", "onset", "beat", "energy",
+  "low", "bass", "mid", "high", "treble",
+  "palette", "orbit",
+]);
+
 
 const finite = (value, fallback = 0) => Number.isFinite(Number(value)) ? Number(value) : fallback;
 const clamp = (value, min = 0, max = 1) => Math.max(min, Math.min(max, finite(value, min)));
@@ -522,6 +533,82 @@ function visualTimeFor(show, instance, timeSeconds, window) {
   };
 }
 
+export const DIRECTOR_MODULATION_TIMELINE_SCHEMA = "hapa.director-modulation.timeline.v1";
+export function evaluatePreparedDirectorModulation(timeline, atSeconds, muted = []) {
+  if (timeline.schemaVersion !== DIRECTOR_MODULATION_TIMELINE_SCHEMA || !Number.isFinite(atSeconds)) throw new Error("Invalid prepared modulation input");
+  const time = clamp(atSeconds, 0, timeline.durationSeconds);
+  const index = Math.floor(time * timeline.fps), fraction = time * timeline.fps - index;
+  const mutedSet = new Set([...(muted instanceof Set ? muted : muted || [])].map(value => String(value).toLowerCase()));
+  const channels = new Map(timeline.channels.map(channel => [channel.id, channel]));
+  return timeline.targets.flatMap(target => {
+    if (target.source?.kind === "stem_signal" && mutedSet.has(String(target.source.stemFocus).toLowerCase())) return [];
+    const channel = channels.get(target.channelId);
+    const value = channel?.values[index], next = channel?.values[index + 1] ?? value;
+    if (value === null || value === undefined) return [];
+    return [{ id: target.id, source: target.source, target: target.target,
+      value: value + (next - value) * fraction, raw: channel.raw[index] }];
+  });
+}
+
+
+function floorIndex(values, time, key) {
+  let low = 0, high = values.length - 1, result = -1;
+  while (low <= high) {
+    const middle = (low + high) >>> 1;
+    if (values[middle][key] <= time) { result = middle; low = middle + 1; } else high = middle - 1;
+  }
+  return result;
+}
+
+export function sampleEchoPerformanceBus(bus, songSeconds) {
+  const time = Number(songSeconds) - Number(bus?.originSeconds || 0);
+  const frames = bus?.frames || [];
+  const index = floorIndex(frames, time, "t");
+  const empty = { t: Number(songSeconds), rms: 0, peak: 0, low: 0, mid: 0, high: 0, onsetEnvelope: 0, beat: 0, transient: 0, silence: true };
+  if (index < 0 || time >= bus.durationSeconds || !frames.length) return { ...empty, status: frames.length ? "outside-resource" : "missing-analysis" };
+  const current = frames[index], next = frames[index + 1];
+  if (current.silence) return { ...empty, status: "prepared-rest" };
+  const mix = next && !next.silence ? Math.min(1, Math.max(0, (time - current.t) / (next.t - current.t))) : 0;
+  return { ...Object.fromEntries(["rms", "peak", "low", "mid", "high", "onsetEnvelope"].map(signal => [signal, current[signal] + ((next?.[signal] ?? current[signal]) - current[signal]) * mix])),
+    t: Number(songSeconds), rawRms: current.rawRms, rawPeak: current.rawPeak, beat: 0, transient: 0, silence: false, status: "prepared-envelope" };
+}
+
+/** Absolute-time evaluation is independent of seek order and render cadence.
+ * Event pulses use sparse event times, so a 10 Hz envelope cannot shift a beat.
+ * This returns separate buses; absent or ambiguous stems never alias master. */
+export function evaluateEchoMusicPerformance(bundle, songSeconds) {
+  const time = Number(songSeconds);
+  if (!Number.isFinite(time)) throw new Error("Performance time must be finite");
+  const byId = Object.fromEntries((bundle.buses || []).map(bus => [bus.id, sampleEchoPerformanceBus(bus, time)]));
+  const last = floorIndex(bundle.events || [], time, "atSeconds");
+  const activeEvents = [];
+  for (let index = last; index >= 0 && bundle.events[index].atSeconds >= time - 0.25; index--) {
+    const event = bundle.events[index];
+    const bus = byId[event.resourceId];
+    if (!bus) continue;
+    const pulse = Math.exp(-(time - event.atSeconds) / 0.06) * Math.max(0, Math.min(1, event.strength == null ? 1 : finite(event.strength, 1)));
+    if (["beat", "downbeat"].includes(event.kind)) bus.beat = Math.max(bus.beat, pulse);
+    if (event.kind === "transient") bus.transient = Math.max(bus.transient, pulse);
+    activeEvents.push(event);
+  }
+  const byRole = {};
+  for (const bus of bundle.buses || []) {
+    if (bundle.missingData?.ambiguousRoles?.includes(bus.role)) continue;
+    byRole[bus.role] = byId[bus.id];
+  }
+  return { atSeconds: time, master: byRole.master || null, stems: Object.fromEntries(Object.entries(byRole).filter(([role]) => role !== "master")), byId, activeEvents: activeEvents.reverse() };
+}
+
+export function echoPreparedPerformanceSignalFrames(bundle, timeSeconds) {
+  const evaluated = evaluateEchoMusicPerformance(bundle, timeSeconds);
+  const frames = { master: evaluated.master, ...evaluated.stems };
+  return Object.fromEntries(Object.entries(frames).map(([role, frame]) => [role, {
+    ...(frame || {}),
+    ...Object.fromEntries(["rms", "peak", "low", "mid", "high", "bass", "treble", "beat", "onset", "energy", "palette", "orbit"].map(signal => [signal, frame ? signalValue(frame, signal) : 0])),
+    source: "prepared-performance", status: frame?.status || "missing-analysis", role,
+  }]));
+}
+
 function frameAt(frames = [], timeSeconds = 0) {
   if (!frames.length) return null;
   let low = 0;
@@ -539,16 +626,16 @@ function frameAt(frames = [], timeSeconds = 0) {
   return { index: selected, frame: { ...frames[selected] } };
 }
 
-export function normalizeHyperFramesStemRole(value = "") {
-  const compact = text(value)
-    .toLowerCase()
-    .replace(/^(?:stem|bus)[:/_-]+/, "")
-    .replace(/[^a-z0-9]+/g, "");
-  return HYPERFRAMES_STEM_ROLE_ALIASES[compact] || compact;
-}
 
-function resolvedSignalFrame(show, instance, timeSeconds, stemFocus = null) {
+function resolvedSignalFrame(show, instance, timeSeconds, stemFocus = null, preparedFrame = null) {
   const requestedStem = normalizeHyperFramesStemRole(stemFocus ?? instance.stemFocus ?? "master") || "master";
+  if (show.stemFrames?.performance) {
+    const value = preparedFrame;
+    const selected = requestedStem === "master" ? value.master : value.stems[requestedStem];
+    const wrapped = frame => frame ? { id: requestedStem, role: requestedStem, frame } : null;
+    return { requestedStem, resolvedStem: selected ? requestedStem : null, fallbackUsed: false,
+      stem: wrapped(selected), master: value.master ? { id: "master", role: "master", frame: value.master } : null };
+  }
   const masterResource = show.stemFrames?.master || null;
   const stemResource = (show.stemFrames?.stems || []).find((stem) => (
     normalizeHyperFramesStemRole(stem.role) === requestedStem || normalizeHyperFramesStemRole(stem.id) === requestedStem
@@ -569,6 +656,8 @@ function resolvedSignalFrame(show, instance, timeSeconds, stemFocus = null) {
 
 function signalValue(frame = {}, signal = "") {
   const name = text(signal).toLowerCase();
+  if (name === "beat" && Number.isFinite(frame.beat)) return clamp(frame.beat);
+  if (name === "onset" && Number.isFinite(frame.transient)) return clamp(frame.transient);
   const aliases = { bass: "low", treble: "high", beat: "onset" };
   const key = aliases[name] || name;
   const value = Number(frame?.[key]);
@@ -947,6 +1036,11 @@ export function evaluateHyperFramesVisualizers(show = {}, timeSeconds = 0) {
   const drawable = [];
   const diagnostics = [];
   const activeCandidateIds = [];
+  // Evaluate each bus/envelope once for this frame, independent of the number
+  // of layers and uniform mappings. Nothing is retained across seek calls.
+  const preparedFrame = show.stemFrames?.performance ? evaluateEchoMusicPerformance({ ...show.stemFrames.performance,
+    buses: [show.stemFrames.master, ...(show.stemFrames.stems || [])].filter(Boolean) }, time) : null;
+  const preparedModulation = show.automation?.preparedModulation ? evaluatePreparedDirectorModulation(show.automation.preparedModulation, time) : [];
   for (const { instance, sourceIndex } of stableLayerRows(show)) {
     const window = cueWindow(instance);
     if (window.end <= window.start) {
@@ -964,12 +1058,21 @@ export function evaluateHyperFramesVisualizers(show = {}, timeSeconds = 0) {
       continue;
     }
     const visualTime = visualTimeFor(show, instance, time, window);
-    const signals = resolvedSignalFrame(show, instance, time);
+    const signals = resolvedSignalFrame(show, instance, time, null, preparedFrame);
     const controls = mappedControls(
       instance,
       signals,
-      (stemFocus) => resolvedSignalFrame(show, instance, time, stemFocus),
+      (stemFocus) => resolvedSignalFrame(show, instance, time, stemFocus, preparedFrame),
     );
+    if (show.automation?.preparedModulation) {
+      for (const output of preparedModulation) {
+        if (output.target?.kind !== "visualizer_uniform" || ![instance.id, instance.cueId].includes(output.target.visualizerId)) continue;
+        const input = (instance.inputs || []).find(input => inputName(input) === output.target.uniform);
+        if (!input || !["float", "long", "bool"].includes(inputType(input))) continue;
+        controls.values[output.target.uniform] = normalizeEchoIsfInputValue(input, output.value);
+        controls.bindings.push({ uniform: output.target.uniform, status: "prepared-absolute-modulation", value: controls.values[output.target.uniform], sourceFingerprint: show.automation.preparedModulation.sourceFingerprint });
+      }
+    }
     const presentationModulation = resolvedPresentationModulation(instance, signals);
     const transition = transitionEnvelope(instance, time, window);
     const opacity = clamp(instance.opacity, 0, 1);

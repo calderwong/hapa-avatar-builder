@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   ECHO_PLAYER_POOL_LIMIT,
+  resolveEchoPlayerPoolLimit,
   canonicalEchoAssetKey,
   echoShotRuntimeUri,
   planEchoPlayerLeases,
@@ -16,6 +17,19 @@ const project = {
     media_uri: `/media/${index}.mp4#shot-${index}`,
   })),
 };
+
+test("3/5/9 budgets bound both allocated leases and lookahead span even across visualizer gaps", () => {
+  for (const budget of [3, 5, 9]) {
+    const sparse = { timeline: project.timeline.map((shot, index) => index % 2 ? { ...shot, media_id: 'none' } : shot) };
+    const leases = planEchoPlayerLeases(sparse, 0, budget);
+    assert.equal(resolveEchoPlayerPoolLimit(String(budget)), budget);
+    assert.ok(leases.length <= budget);
+    assert.ok(leases.every(lease => lease.lookahead < budget));
+  }
+  assert.equal(resolveEchoPlayerPoolLimit('900'), 9);
+  assert.equal(resolveEchoPlayerPoolLimit(null, 3), 3);
+  assert.deepEqual(planEchoPlayerLeases(project, 0, NaN), []);
+});
 
 test("Echo player leases are bounded to current plus eight shots and ignore URI fragments", () => {
   const leases = planEchoPlayerLeases(project, 2);

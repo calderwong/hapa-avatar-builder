@@ -1,3 +1,7 @@
+import vm from "node:vm";
+import { echoLyricOverlayExecutionContract, hashEchoLyricOverlayExecutionContract } from "../src/domain/hyperframes-show-compiler.js";
+import { echoLyricTemplateFrameState, echoLyricTemplateRuntimeBrowserSource } from "../src/domain/echo-lyric-template-runtime.js";
+import { projectEchoDirectorPreviewFrame } from "../src/domain/echo-director-preview-runtime.js";
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
@@ -338,4 +342,73 @@ test("Director v2 does not silently reinterpret an untyped blank source as an in
   const declared = treatment.mediaSlots[0].candidateMedia.find((media) => media.id === "missing-real-media");
   assert.equal(declared.sourceKind, "local-video");
   assert.notEqual(declared.truthStatus, "intentional-no-media");
+});
+
+
+test("native director word seconds survive execution hashing and all four renderer templates", () => {
+  const inputs = fixture();
+  const { showGraph } = buildDirectorV2Artifacts({ ...inputs, duration: 24, recipe: "conservative", seed: "word-clock" });
+  const overlay = showGraph.song.lyricOverlay;
+  assert.equal(overlay.lines[0].words[1].startSeconds, 6.9);
+  assert.equal(overlay.lines[0].words[1].start, undefined);
+  const executable = echoLyricOverlayExecutionContract(overlay);
+  assert.deepEqual(executable.lines[0].words.map((word) => [word.start, word.end]), [[6, 6.8], [6.9, 8]]);
+  assert.equal(hashEchoLyricOverlayExecutionContract(overlay), hashEchoLyricOverlayExecutionContract(executable));
+  const retimed = structuredClone(overlay);
+  retimed.lines[0].words[1].startSeconds += .1;
+  assert.notEqual(hashEchoLyricOverlayExecutionContract(overlay), hashEchoLyricOverlayExecutionContract(retimed));
+  const context = vm.createContext({});
+  vm.runInContext(echoLyricTemplateRuntimeBrowserSource(), context);
+  for (const templateId of ["kinetic-word-burst-v1", "scanline-phrase-ribbon-v1", "stacked-hook-echo-v1", "orbit-caption-v1"]) {
+    showGraph.song.lyricOverlay.templateId = templateId;
+    // Forward, backwards, direct, repeated and zero seeks must have no history.
+    for (const timeSeconds of [0, 6.2, 6.85, 7.2, 7.8, 6.2, 7.2, 7.2, 0]) {
+      const input = { templateId, line: overlay.lines[0], timeSeconds, fps: 30 };
+      const frame = echoLyricTemplateFrameState(input);
+      context.input = input;
+      const browser = vm.runInContext("echoLyricTemplateFrameState(input)", context);
+      assert.deepEqual(JSON.parse(JSON.stringify(browser)), frame);
+      assert.deepEqual(frame, echoLyricTemplateFrameState({ ...input, line: executable.lines[0] }));
+      if (timeSeconds >= 6 && timeSeconds < 8) {
+        const preview = projectEchoDirectorPreviewFrame({ project: { ...inputs.project.music_video_project, timed_lyrics: [], lyrics: { enabled: true, templateId }, director_show_graph: showGraph, active_direction_script_variant: { id: "word-clock", title: "Word clock" } }, timeSeconds, fps: 30 });
+        assert.deepEqual(preview.lyrics.templateFrame, frame);
+      }
+      if (timeSeconds === 7.2) assert.deepEqual(frame.words.map((word) => word.active), [false, true]);
+      if (timeSeconds === 6.85) assert.deepEqual(frame.words.map((word) => word.active), [false, false]);
+    }
+  }
+});
+
+test("five narrative recipes compile distinct executable graphs without moving song or lyric clocks", async () => {
+  const { NARRATIVE_VARIANT_RECIPES } = await import("../src/domain/echo-director-recipes.js");
+  const inputs = fixture();
+  const before = structuredClone(inputs.project);
+  const graphs = [];
+  for (const recipe of Object.keys(NARRATIVE_VARIANT_RECIPES)) {
+    const first = buildDirectorV2Artifacts({ ...inputs, recipe, seed: "deterministic-narrative" });
+    const again = buildDirectorV2Artifacts({ ...inputs, recipe, seed: "deterministic-narrative" });
+    assert.equal(first.receipt.variantHash, again.receipt.variantHash);
+    assert.equal(first.showGraph.directorV2.narrativeSequence.recipeId, recipe);
+    assert.deepEqual(first.showGraph.tracks[0].cards.map(c => [c.startSeconds, c.endSeconds]), before.music_video_project.timeline.map(s => [s.start_sec, s.end_sec]));
+    assert.deepEqual(first.showGraph.song.lyricOverlay.lines, graphs[0]?.song.lyricOverlay.lines || first.showGraph.song.lyricOverlay.lines);
+    for (const track of first.showGraph.tracks.slice(1)) for (const card of track.cards) {
+      const foundation = first.showGraph.tracks[0].cards.find(c => c.startSeconds <= card.startSeconds && c.endSeconds > card.startSeconds);
+      if (foundation) assert.equal(card.media.id, foundation.media.id, `${recipe}:${card.id}`);
+    }
+    graphs.push(first.showGraph);
+  }
+  assert.equal(new Set(graphs.map(g => contentHash(g.tracks))).size, 5);
+  assert.deepEqual(inputs.project, before);
+});
+
+test("narrative compilation carries source cast, scene and camera locks into actual selection", () => {
+  const inputs = fixture();
+  const body = inputs.project.music_video_project;
+  body.mediaConstraints = { requiredCharacterIds: ["lead"] };
+  for (const shot of body.timeline) { shot.characterIds = ["lead"]; shot.sceneIds = ["home"]; }
+  body.timeline[1].locks = ["camera", "media"];
+  const compiled = buildDirectorV2Artifacts({ ...inputs, recipe: "ensemble-response", mediaConstraints: { requiredSceneIds: ["home"] } });
+  assert.equal(compiled.showGraph.tracks[0].cards[1].media.id, "m2");
+  assert.equal(compiled.showGraph.tracks[0].cards[1].cameraKeyframes[0].motion, "pan-left");
+  assert.throws(() => buildDirectorV2Artifacts({ ...inputs, recipe: "ensemble-response", mediaConstraints: { requiredCharacterIds: ["absent"] } }), error => error.statusCode === 422);
 });

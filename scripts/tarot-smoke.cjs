@@ -4,6 +4,9 @@ const path = require("node:path");
 
 const ROOT = path.resolve(__dirname, "..");
 const targetUrl = process.env.SMOKE_URL || "http://127.0.0.1:8787/";
+const requestedPoolBudget = Number(new URL(targetUrl).searchParams.get("echoPlayerBudget"));
+const expectedPoolBudget = [3, 5, 9].includes(requestedPoolBudget) ? requestedPoolBudget : 9;
+const requestedSongId = String(process.env.SMOKE_SONG_ID || "");
 const errors = [];
 app.setName("hapa-avatar-builder-tarot-smoke");
 app.setPath("userData", path.join("/tmp", `hapa-avatar-builder-tarot-smoke-${process.pid}`));
@@ -129,18 +132,25 @@ app.whenReady().then(async () => {
     await win.webContents.executeJavaScript(`
       window.__THREE_GAME_DIAGNOSTICS__?.actions?.enableEchoPreviewOverlays?.()
     `);
-    const songCardLocked = await win.webContents.executeJavaScript(`
+    // A nonempty deck can contain Avatar/Tarot cards while the route's Song
+    // store is still loading. Wait for the Song operation itself to be ready.
+    const songCardLocked = await waitFor(win, `
       (() => {
         const action = window.__THREE_GAME_DIAGNOSTICS__?.actions?.lockFirstSongCardInDropZone;
-        return typeof action === "function" ? Boolean(action()) : false;
+        return typeof action === "function" ? Boolean(action(${JSON.stringify(requestedSongId)})) : false;
       })()
-    `);
-    if (!songCardLocked) throw new Error("Could not lock a Song Card into the Music Zone");
+    `, 30000);
+    if (!songCardLocked) {
+      const observed = await win.webContents.executeJavaScript(`window.__THREE_GAME_DIAGNOSTICS__?.actions?.inspectSongCards?.() || null`);
+      console.error("[tarot-smoke] Song Card availability", JSON.stringify(observed));
+      throw new Error("Could not lock a Song Card into the Music Zone");
+    }
     const echoReady = await waitFor(win, `
       (() => {
         const dropZone = window.__THREE_GAME_DIAGNOSTICS__?.state?.dropZone;
         return Boolean(
           dropZone?.active &&
+          (!${JSON.stringify(requestedSongId)} || dropZone?.echoDirectorProject?.songId === ${JSON.stringify(requestedSongId)}) &&
           dropZone?.echoDirectorProject?.timelineCount > 0 &&
           dropZone?.echoDirectorProject?.visualizerCount > 0 &&
           dropZone?.centerPrioritySources?.length > 0 &&
@@ -148,15 +158,23 @@ app.whenReady().then(async () => {
           dropZone?.centerPreviewFrame?.aspect < 1.83 &&
           dropZone?.centerPreviewFrame?.echoOverlayVisible &&
           dropZone?.centerPreviewFrame?.echoOverlayOpacity > 0.05 &&
-          dropZone?.echoPlayerPool?.elements <= 3 &&
-          dropZone?.echoPlayerPool?.activeRequests <= 3 &&
-          dropZone?.echoPlayerPool?.maxLookahead <= 2 &&
+          dropZone?.echoPlayerPool?.limit === ${expectedPoolBudget} &&
+          dropZone?.echoPlayerPool?.elements <= ${expectedPoolBudget} &&
+          dropZone?.echoPlayerPool?.activeRequests <= ${expectedPoolBudget} &&
+          dropZone?.echoPlayerPool?.maxLookahead < ${expectedPoolBudget} &&
           dropZone?.echoPlayerPool?.centerPaired &&
           dropZone?.echoPlayerPool?.centerFirstFrameReady
         );
       })()
     `, 30000);
-    if (!echoReady) throw new Error("Echo Album preview did not attach to the Music Zone song card");
+    if (!echoReady) {
+      const observed = await win.webContents.executeJavaScript(`(() => {
+        const drop = window.__THREE_GAME_DIAGNOSTICS__?.state?.dropZone || {};
+        return { active: drop.active, project: drop.echoDirectorProject, prioritySourceCount: drop.centerPrioritySources?.length,
+          frame: drop.centerPreviewFrame, pool: drop.echoPlayerPool };
+      })()`);
+      throw new Error(`Echo Album preview readiness failed: ${JSON.stringify(observed)}`);
+    }
     await win.webContents.executeJavaScript(`
       window.__THREE_GAME_DIAGNOSTICS__?.actions?.recoverPreviewGallery?.()
     `);

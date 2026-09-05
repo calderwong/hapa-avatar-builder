@@ -33,23 +33,15 @@ test("blocked and unknown Echo board states cannot be silently reset to todo", (
   });
 });
 
-test("the Echo board UI serializes full-board writes and exposes unsupported states accessibly", async () => {
-  const source = await readFile(
-    new URL("../src/components/HapaEchosView.jsx", import.meta.url),
-    "utf8",
-  );
-
-  assert.match(source, /planEchoKanbanManualStatusTransition\(card\.status\)/);
-  assert.match(source, /if \(!transition\.allowed\)/);
-  assert.match(source, /boardMutationPendingRef/);
-  assert.match(source, /finally\s*\{/);
-  assert.match(source, /lanes:\s*board\.lanes\.map/);
-  assert.match(source, /const cardInteractionDisabled = boardMutationPending \|\| !transition\.allowed/);
-  assert.match(source, /const interactionLabel = cardInteractionDisabled/);
-  assert.match(source, /aria-disabled=\{cardInteractionDisabled\}/);
-  assert.match(source, /role="button"/);
-  assert.match(source, /onKeyDown=\{\(event\) =>/);
-  assert.match(source, /role="status"/);
-  assert.match(source, /aria-live="polite"/);
-  assert.doesNotMatch(source, /card\.status = statusCycle\[card\.status\] \|\| 'todo'/);
+test("the Echo board inspects on selection and saves only explicit revision-checked commands", async () => {
+  const source = await readFile(new URL("../src/components/EchoKanbanBoard.jsx", import.meta.url), "utf8");
+  assert.match(source, /aria-label=\{`Inspect/);
+  assert.match(source, /onClick=\{\(\) => inspect\(lane.id, card\)\}/);
+  assert.match(source, /<form onSubmit=\{changeStatus\}/);
+  assert.match(source, /expectedRevision: board\._sync\?\.revision/);
+  assert.match(source, /commandId: crypto.randomUUID\(\)/);
+  assert.match(source, /body: JSON.stringify\(retryCommand.current.body\)/);
+  assert.match(source, /echo_board_revision_conflict/);
+  assert.doesNotMatch(source, /JSON.stringify\(board\)/);
+  assert.doesNotMatch(source, /planEchoKanbanManualStatusTransition/);
 });

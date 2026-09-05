@@ -1,7 +1,11 @@
+import { evaluateEchoMediaEligibility, echoUnsatisfiedMediaConstraint, mergeEchoMediaConstraints } from "./echo-media-eligibility.js";
 const STOP = new Set(["the", "and", "for", "with", "from", "this", "that", "video", "scene", "card", "media", "shot", "into", "over", "under"]);
+export const ECHO_SEMANTIC_TOKENIZER_VERSION = "unicode-nfkc-v1";
 
 function tokens(values) {
-  return [...new Set((Array.isArray(values) ? values : [values]).flatMap((value) => String(value || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").split(/\s+/)).filter((value) => value.length > 2 && !STOP.has(value)))];
+  return [...new Set((Array.isArray(values) ? values : [values]).flat(Infinity)
+    .flatMap(value => String(value || "").normalize("NFKC").toLowerCase().split(/[^\p{L}\p{N}]+/u))
+    .filter(value => (value.length > 2 || /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/u.test(value)) && !STOP.has(value)))];
 }
 
 function overlap(wanted, offered) {
@@ -15,6 +19,8 @@ export function prepareSemanticMediaCandidate(asset, parent = {}) {
   const semantic = asset.metadata?.echosSemanticAffordance || {};
   const fieldValues = Object.values(semantic.fields || {}).flatMap((field) => Array.isArray(field?.value) ? field.value : [field?.value]);
   return {
+    ...asset,
+    owner: parent,
     id: String(asset.id || asset.uri),
     title: String(asset.title || asset.name || parent.title || asset.id || "Untitled media"),
     uri: String(asset.uri || ""),
@@ -31,19 +37,18 @@ export function prepareSemanticMediaCandidate(asset, parent = {}) {
   };
 }
 
-export function rankSemanticMediaCandidates({ slot, candidates, canon = {}, contextPacket = null, lyricText = "", previous = [], pins = [], bans = [], topK = 5 }) {
+export function rankSemanticMediaCandidates({ slot, candidates, canon = {}, contextPacket = null, lyricText = "", previous = [], pins = [], bans = [], topK = 5, constraints = {} }) {
   const wanted = tokens([slot.sectionLabel, slot.sectionType, lyricText, (canon.motifs || []).map((item) => item.token || item), canon.character?.avatarName]);
   const actionWanted = tokens([slot.sectionType, slot.editReason, lyricText]);
   const contextNodes = contextPacket ? [contextPacket.song, ...(contextPacket.allowedCharacters || []), ...(contextPacket.cards || []), ...(contextPacket.scenes || [])].filter(Boolean) : [];
   const contextTokens = tokens(contextNodes.flatMap((node) => [node.title, node.summary, node.tags]));
   const pinSet = new Set(pins);
-  const banSet = new Set(bans);
-  const previousSet = new Set(previous.slice(-6));
+  const eligibilityConstraints = mergeEchoMediaConstraints(
+    mergeEchoMediaConstraints(constraints, slot.mediaConstraints), { pins, bans, previous },
+  );
   const ranked = candidates.map((candidate) => {
-    const hardFilters = [];
-    if (!candidate.uri) hardFilters.push("missing-runtime-uri");
-    if (banSet.has(candidate.id)) hardFilters.push("operator-ban");
-    if (previousSet.has(candidate.id) && !pinSet.has(candidate.id)) hardFilters.push("recent-repeat-window");
+    const eligibility = evaluateEchoMediaEligibility(candidate, eligibilityConstraints);
+    const hardFilters = eligibility.reasons;
     const motif = overlap(wanted, candidate.tokens);
     const objectAction = overlap(actionWanted, [...candidate.objects, ...candidate.actions]);
     const technicalTruth = candidate.technical?.status === "verified-source-file" ? 1 : 0;
@@ -79,7 +84,8 @@ export function rankSemanticMediaCandidates({ slot, candidates, canon = {}, cont
       title: candidate.title,
       uri: candidate.uri,
       posterUri: candidate.posterUri,
-      eligible: hardFilters.length === 0 || pinSet.has(candidate.id),
+      eligible: eligibility.eligible,
+      eligibility,
       pinned: pinSet.has(candidate.id),
       hardFilters,
       utility: utility === null ? null : Number(utility.toFixed(4)),
@@ -90,6 +96,6 @@ export function rankSemanticMediaCandidates({ slot, candidates, canon = {}, cont
       semanticTruth: candidate.semantic?.status || "unmeasured",
     };
   }).sort((left, right) => Number(right.pinned) - Number(left.pinned) || Number(right.eligible) - Number(left.eligible) || Number(right.utility ?? -1) - Number(left.utility ?? -1) || left.mediaId.localeCompare(right.mediaId));
-  const eligible = ranked.filter((item) => item.eligible).slice(0, topK);
-  return { schemaVersion: "hapa.echo.semantic-media-ranking.v2", selected: eligible[0] || null, alternatives: eligible.slice(1), rejected: ranked.filter((item) => !item.eligible).slice(0, topK), pins, bans, hardContinuityFilters: ["runtime-uri-required", "operator-bans", "six-shot-repeat-window"], confidenceRule: "Inferred-unreviewed semantic metadata is capped at 0.55 and never becomes verified truth." };
+  const eligible = ranked.filter((item) => item.eligible).slice(0, Math.max(1, topK));
+  return { schemaVersion: "hapa.echo.semantic-media-ranking.v2", tokenizerVersion: ECHO_SEMANTIC_TOKENIZER_VERSION, status: eligible.length ? "satisfied" : "unsatisfied", unsatisfied: eligible.length ? null : echoUnsatisfiedMediaConstraint(ranked.map(item => item.eligibility)), selected: eligible[0] || null, alternatives: eligible.slice(1), rejected: ranked.filter((item) => !item.eligible).slice(0, Math.max(1, topK)), pins, bans, hardContinuityFilters: ["runtime-uri-required", "operator-bans", "source-policy", "source-bytes", "required-cast-scene", "output-crop", "six-shot-repeat-window"], confidenceRule: "Inferred-unreviewed semantic metadata is capped at 0.55 and never becomes verified truth." };
 }

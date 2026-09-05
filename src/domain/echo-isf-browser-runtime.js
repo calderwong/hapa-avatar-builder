@@ -403,6 +403,7 @@ export function createEchoIsfSurface(options = {}) {
   let currentShaderId = "";
   let activeClock = isfPlaybackClock({}, null, options);
   let lastRenderedClock = null;
+  let lastRenderedIntentHash = null;
   let lastRenderedWidth = 0;
   let lastRenderedHeight = 0;
   let disposed = false;
@@ -552,6 +553,7 @@ export function createEchoIsfSurface(options = {}) {
         sourceHash: state.sourceHash,
         values: input.values || {},
         signalFrames: input.signalFrames || {},
+        preparedModulation: input.preparedModulation || null,
         audio: input.audio || null,
         imageInputs: input.imageInputs || {},
         mediaElement: input.mediaElement || null,
@@ -570,6 +572,7 @@ export function createEchoIsfSurface(options = {}) {
       }
       const reusePausedFrame = input.forceRedraw !== true
         && lastRenderedClock
+        && intent.frameReceipt.receiptHash === lastRenderedIntentHash
         && clock.time === lastRenderedClock.time
         && clock.frameIndex === lastRenderedClock.frameIndex
         && width === lastRenderedWidth
@@ -590,6 +593,7 @@ export function createEchoIsfSurface(options = {}) {
       pushRendererPlaybackClock(renderer, activeClock);
       renderer.draw(canvas);
       lastRenderedClock = clock;
+      lastRenderedIntentHash = intent.frameReceipt.receiptHash;
       lastRenderedWidth = width;
       lastRenderedHeight = height;
       return publish("ready", {

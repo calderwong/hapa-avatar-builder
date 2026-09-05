@@ -42,3 +42,14 @@ test("inspection identifies empty and overlapping manual cues", () => {
   assert.equal(report.ok, false);
   assert.deepEqual(report.issues.map((issue) => issue.code), ["empty-line", "overlapping-lines"]);
 });
+
+
+test("editing native graph timestamps preserves measured boundaries without stale aliases", () => {
+  const native = fixture.map(({ start, end, words, ...line }) => ({ ...line, startSeconds: start, endSeconds: end, words: words.map(({ start, end, ...word }) => ({ ...word, startSeconds: start, endSeconds: end })) }));
+  const before = structuredClone(native);
+  const shifted = shiftEchoLyricLine(native, 0, .25, 10);
+  assert.deepEqual(shifted, shiftEchoLyricLine(fixture, 0, .25, 10));
+  assert.deepEqual(native, before);
+  assert.equal('startSeconds' in shifted[0], false);
+  assert.equal('startSeconds' in shifted[0].words[0], false);
+});

@@ -1,5 +1,7 @@
 #!/usr/bin/env node
+import { stableCertificationFileSha256 } from "../server/stable-certification-file-proof.mjs";
 import fs from "node:fs";
+import { ECHO_DIRECTOR_RECIPES } from "../src/domain/echo-director-recipes.js";
 import path from "node:path";
 import crypto from "node:crypto";
 import {
@@ -17,7 +19,6 @@ import {
 import { loadGatedEchoIsfManifest, repairEchoProjectShaders } from "./echo-isf-gated-manifest.mjs";
 import {
   assertEchoMediaPreflight,
-  echoProjectMatchesSongId,
   preflightEchoAlbum,
 } from "./preflight-echo-director-media.mjs";
 import { echoPersistentShaderSegments } from "../src/domain/echo-persistent-shader-slots.js";
@@ -32,10 +33,32 @@ const OUTPUT = path.resolve(argument("output", path.join(ROOT, "artifacts/echo-d
 const VARIANTS = path.resolve(argument("variants", path.join(ROOT, "data/music-video-project-variants")));
 const TARGET_SONG = String(argument("song", "") || "").trim();
 if (TARGET_SONG && path.basename(TARGET_SONG) !== TARGET_SONG) throw new Error(`Unsafe target song ID: ${TARGET_SONG}`);
+const RECIPE = String(argument("recipe", "visualizer-forward"));
+const SEED = String(argument("seed", ""));
+const MEDIA_CONSTRAINTS = {
+  requiredCharacterIds: String(argument("characters", "")).split(",").map(value => value.trim()).filter(Boolean),
+  requiredSceneIds: String(argument("scenes", "")).split(",").map(value => value.trim()).filter(Boolean),
+  bans: String(argument("bans", "")).split(",").map(value => value.trim()).filter(Boolean),
+};
+if (!ECHO_DIRECTOR_RECIPES[RECIPE]) throw new Error(`Unknown Echo director recipe: ${RECIPE}`);
+const customDirection = RECIPE !== "visualizer-forward" || SEED || Object.values(MEDIA_CONSTRAINTS).some(value => value.length);
+if (customDirection && (!TARGET_SONG || !process.argv.includes("--output") || OUTPUT === path.join(ROOT, "artifacts/echo-director-v2/album"))) {
+  throw new Error("Custom direction requires --song and a separate --output directory to preserve the current album cut.");
+}
 const MANIFEST_PATH = "/Users/calderwong/Desktop/hapa-music-viz/web/isf/manifest.json";
 const PIXEL_GATE_PATH = "/Users/calderwong/Desktop/hapa-music-viz/docs/ISF_ALL_SHADER_PIXEL_GATE_REPORT.json";
 const PROXY_REGISTRY_PATH = path.join(path.dirname(MANIFEST_PATH), "proxies/native-exact-proxies.json");
 const registryPath = "/Users/calderwong/Desktop/hapa-song-registry/data/registry.json";
+
+// Reuse the canonical race-checked digest proof within this compile only.
+// No decoded media is retained and metadata drift invalidates a digest hit.
+const sourceDigestCache = new Map();
+function verifiedSourceHash(filePath) {
+  const target = fs.realpathSync(filePath);
+  const digest = stableCertificationFileSha256(target, { cache: sourceDigestCache, cacheLimit: 1024, label: "Echo shader/proxy source" });
+  if (fs.realpathSync(filePath) !== target) throw new Error(`Echo source link changed during proof: ${filePath}`);
+  return digest.slice(7);
+}
 
 function nativeProxyAvailable(proxy = {}, shader = {}) {
   const assetPath = String(proxy.assetPath || "");
@@ -59,8 +82,8 @@ function nativeProxyAvailable(proxy = {}, shader = {}) {
   ].filter(Boolean);
   const sourceFilePath = sourceCandidates.find((candidate) => fs.existsSync(candidate) && fs.statSync(candidate).isFile());
   if (!sourceFilePath) return false;
-  const assetMatches = crypto.createHash("sha256").update(fs.readFileSync(filePath)).digest("hex") === expected;
-  const sourceMatches = crypto.createHash("sha256").update(fs.readFileSync(sourceFilePath)).digest("hex") === expectedSource;
+  const assetMatches = verifiedSourceHash(filePath) === expected;
+  const sourceMatches = verifiedSourceHash(sourceFilePath) === expectedSource;
   return assetMatches && sourceMatches;
 }
 
@@ -134,16 +157,7 @@ const PIXEL_GATE_HASH = `sha256:${crypto.createHash("sha256").update(PIXEL_GATE_
 const PROXY_REGISTRY_HASH = `sha256:${crypto.createHash("sha256").update(PROXY_REGISTRY_BYTES).digest("hex")}`;
 const REGISTRY = fs.existsSync(registryPath) ? JSON.parse(fs.readFileSync(registryPath, "utf8")) : null;
 
-const files = fs.readdirSync(PROJECTS).filter((file) => {
-  if (!file.endsWith(".json")) return false;
-  if (!TARGET_SONG) return true;
-  try {
-    const sourcePayload = JSON.parse(fs.readFileSync(path.join(PROJECTS, file), "utf8"));
-    return echoProjectMatchesSongId(sourcePayload, TARGET_SONG);
-  } catch {
-    return false;
-  }
-}).sort();
+const files = mediaPreflight.projects.map((project) => path.basename(project.projectPath)).sort();
 const rows = [];
 for (const file of files) {
   const sourcePayload = JSON.parse(fs.readFileSync(path.join(PROJECTS, file), "utf8"));
@@ -154,8 +168,9 @@ for (const file of files) {
     manifest: MANIFEST,
     registry: REGISTRY,
     duration: Number(project.duration || 0),
-    recipe: "visualizer-forward",
-    seed: `album-v2:${project.song_id}`,
+    recipe: RECIPE,
+    seed: SEED || `album-v2:${project.song_id}`,
+    mediaConstraints: MEDIA_CONSTRAINTS,
     avatarRoot: ROOT,
     nativeProxyAvailable,
   });

@@ -10,6 +10,13 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import Hypercore from "hypercore";
+import { createPreparedEchoPerformanceStore } from "./echo-prepared-performance-store.mjs";
+import { createEchoPerformancePreparation } from "./echo-performance-preparation.mjs";
+import { echoPerformanceInputs } from "./echo-performance-inputs.mjs";
+import { resolveEchoRuntimeMediaUri } from "./echo-runtime-media-route.mjs";
+import { createEchoKanbanStore } from "./echo-kanban-store.mjs";
+import { validateEchoForkMedia } from "./echo-media-eligibility.mjs";
+import { mergeEchoMediaConstraints, inheritEchoTimelineMediaConstraints } from "../src/domain/echo-media-eligibility.js";
 import {
   auditAvatar,
   backgroundlessPlaybackForAsset,
@@ -183,6 +190,7 @@ import {
   readFreshEchoPlanCertificationBlockers,
 } from "./echo-mint-plan-certification-queue.mjs";
 import { createEchoDirectionVariantSummaryIndex } from "./echo-direction-variant-summary-index.mjs";
+import { createEchoProjectCatalog } from "./echo-project-catalog.mjs";
 import {
   createEchoDirectorShowGraphCache,
   guardEchoCertifiedGraphDelivery,
@@ -498,6 +506,12 @@ async function currentEchoRecordGardenAcceptanceContext() {
 }
 const execFileAsync = promisify(execFile);
 const DATA_DIR = path.join(ROOT, "data");
+const echoPreparedPerformanceStore = createPreparedEchoPerformanceStore({ root: path.join(DATA_DIR, "cache/echo-performance") });
+const echoPerformancePreparation = createEchoPerformancePreparation({ root: ROOT });
+const echoKanbanStore = createEchoKanbanStore({
+  boardPath: process.env.HAPA_ECHO_KANBAN_PATH || path.join(homedir(), "Desktop/Echos-of-Other-Eras-Album-App/kanban.json"),
+  stateRoot: process.env.HAPA_ECHO_KANBAN_STATE_ROOT || path.join(DATA_DIR, "echo-kanban"),
+});
 const ECHO_RECORD_GARDEN_RECORDING_TRANSACTION_ROOT = process.env.HAPA_ECHO_RECORD_GARDEN_RECORDING_TRANSACTION_ROOT
   || path.join(DATA_DIR, "echo-record-garden-recording-transactions");
 const echoRecordGardenRecordingTransactionLedger = openEchoRecordGardenRecordingTransactionLedger({
@@ -764,6 +778,14 @@ const ECHO_DIRECTOR_V2_ALBUM_DIR = process.env.HAPA_ECHO_DIRECTOR_V2_ALBUM_DIR |
 const ECHO_DIRECTION_VARIANTS_DIR = process.env.HAPA_ECHO_DIRECTION_VARIANTS_DIR || path.join(DATA_DIR, "music-video-project-variants");
 const echoDirectionVariantSummaryIndex = createEchoDirectionVariantSummaryIndex({
   variantsRoot: ECHO_DIRECTION_VARIANTS_DIR,
+  validationTtlMs: 0,
+});
+const echoProjectCatalog = createEchoProjectCatalog({
+  projectsRoot: path.join(DATA_DIR, "music-video-projects"),
+  variantsRoot: ECHO_DIRECTION_VARIANTS_DIR,
+  cacheRoot: process.env.HAPA_ECHO_CATALOG_CACHE_DIR || path.join(DATA_DIR, "cache/echo-project-catalog"),
+  version: "latest-cut-summary-4",
+  summarize: summarizeEchoCatalogProject,
 });
 const echoIsfAssets = new EchoIsfAssetCatalog({ musicVizRoot: HAPA_MUSIC_VIZ_ROOT });
 const echoDirectorShowGraphCache = createEchoDirectorShowGraphCache();
@@ -1123,6 +1145,7 @@ let shutdownPromise = null;
 function shutdownBuilder(signal) {
   if (shutdownPromise) return shutdownPromise;
   shutdownPromise = Promise.allSettled([
+    echoPerformancePreparation.close(),
     songCardLocalRenderBridge?.shutdown?.({ reason: signal }) || Promise.resolve(),
     stopOwnedOvercardHost(),
   ]).finally(() => process.exit(0));
@@ -2986,18 +3009,15 @@ async function route(req, res) {
     return;
   }
 
-  if (pathname === "/api/echos/kanban" && req.method === "GET") {
-    const boardPath = "/Users/calderwong/Desktop/Echos-of-Other-Eras-Album-App/kanban.json";
-    const board = await readJson(boardPath);
-    sendJson(res, 200, board);
-    return;
-  }
-
-  if (pathname === "/api/echos/kanban" && req.method === "POST") {
-    const boardPath = "/Users/calderwong/Desktop/Echos-of-Other-Eras-Album-App/kanban.json";
-    const body = await readBody(req);
-    await writeFile(boardPath, JSON.stringify(JSON.parse(body), null, 2) + "\n");
-    sendJson(res, 200, { success: true });
+  if (pathname === "/api/echos/kanban" && ["GET", "POST"].includes(req.method)) {
+    try {
+      const board = req.method === "GET"
+        ? await echoKanbanStore.read()
+        : await echoKanbanStore.changeStatus(JSON.parse((await readRawBody(req, 16 * 1024)).toString("utf8")));
+      sendJson(res, 200, board);
+    } catch (error) {
+      sendJson(res, error.statusCode || 500, { ok: false, error: error.code || "echo_board_failed", message: error.message, commandId: error.commandId });
+    }
     return;
   }
 
@@ -3093,126 +3113,80 @@ async function route(req, res) {
   }
 
   if (pathname === "/api/echos/director-projects" && req.method === "GET") {
-    const projectsDir = path.join(DATA_DIR, "music-video-projects");
     try {
-      const exists = await access(projectsDir).then(() => true).catch(() => false);
-      if (!exists) {
-        sendJson(res, 200, []);
-        return;
-      }
-      const summaryOnly = url.searchParams.get("summary") === "1";
-      const files = await readdir(projectsDir);
-      const jsonFiles = files.filter(f => f.endsWith(".json"));
-      const projectFiles = [];
-      for (const file of jsonFiles) {
-        try {
-          const content = await readFile(path.join(projectsDir, file), "utf-8");
-          projectFiles.push({ file, payload: JSON.parse(content) });
-        } catch (e) {
-          console.error("Failed to parse project file:", file, e);
-        }
-      }
-      const indexedVariants = summaryOnly
-        ? await echoDirectionVariantSummaryIndex.variantsForSongs(
-          projectFiles.map(({ file, payload }) => payload.music_video_project?.song_id || file.replace(/-video-project\.json$/u, "")),
-          readEchoDirectionScriptVariants,
-        )
-        : null;
-      if (indexedVariants) {
-        const sources = new Set(indexedVariants.sourceBySong.values());
+      if (url.searchParams.get("summary") === "1") {
+        const catalog = await echoProjectCatalog.get();
+        const sources = new Set(catalog.values.map(value => value.variantSource));
+        const hydrated = catalog.values.reduce((sum, value) => sum + value.hydratedRecordPreviewCount, 0);
         res.setHeader("X-Hapa-Echo-Direction-Variant-Summary", sources.size === 1 ? [...sources][0] : "index+authoritative-fallback");
-      }
-      const projects = [];
-      let hydratedRecordPreviewCount = 0;
-      for (const { file, payload } of projectFiles) {
-        try {
-          if (summaryOnly) {
-            const project = attachEchoOutputProfile(payload.music_video_project || {});
-            const songId = project.song_id || file.replace(/-video-project\.json$/u, "");
-            const fileVariants = indexedVariants.bySong.get(songId) || [];
-            const variants = mergeEchoDirectionScriptVariants(fileVariants, project.direction_script_variants);
-            const variantSummaries = variants.map((variant) => summarizeEchoDirectionScriptVariant(
-              variant,
-              Array.isArray(project.timeline) ? project.timeline.length : 0,
-            ));
-            const latestCut = selectLatestEchoDirectionScriptVariant({
-              ...project,
-              direction_script_variant_summaries: variantSummaries,
-            });
-            let latestVariant = variants.find((variant) => echoDirectionVariantId(variant) === latestCut?.id);
-            if (
-              latestCut?.id
-              && !latestVariant?.recordPreview
-              && !latestVariant?.record_preview
-              && !Array.isArray(latestVariant?.timeline)
-            ) {
-              try {
-                const authoritativeVariants = await readEchoDirectionScriptVariants(songId);
-                const authoritativeLatest = authoritativeVariants.find((variant) => (
-                  echoDirectionVariantId(variant) === latestCut.id
-                ));
-                if (Array.isArray(authoritativeLatest?.timeline) && authoritativeLatest.timeline.length) {
-                  latestVariant = authoritativeLatest;
-                  hydratedRecordPreviewCount += 1;
-                }
-              } catch {
-                // Truth-labelled base-timeline fallback below remains available.
-              }
-            }
-            const preview = echoRecordSummaryPreview(project, latestVariant, latestCut);
-            const audioRoute = echoProjectAudioRoute(project);
-            projects.push({
-              music_video_project: {
-                song_id: project.song_id,
-                song_title: project.song_title,
-                audio_id: audioRoute.id,
-                audio_uri: audioRoute.uri,
-                registry_track_id: project.registry_track_id || null,
-                cover_uri: project.cover_uri || project.coverUri || project.poster_uri || project.posterUri || preview?.posterUri || null,
-                record_preview: preview,
-                perspective: project.perspective,
-                avatar_name: project.avatar_name,
-                duration: project.duration,
-                output_profile: project.output_profile,
-                lyric_variant: project.lyric_variant,
-                lyric_position: project.lyric_position,
-                lyric_style: project.lyric_style,
-                lyric_timing_heal: project.lyric_timing_heal ? {
-                  schemaVersion: project.lyric_timing_heal.schemaVersion || null,
-                  timingSource: project.lyric_timing_heal.timingSource || null,
-                  timingConfidence: Number(project.lyric_timing_heal.timingConfidence || 0),
-                  lineCount: Number(project.lyric_timing_heal.lineCount || 0),
-                  lastLyricEnd: Number(project.lyric_timing_heal.lastLyricEnd || 0),
-                } : null,
-                media_density_telemetry: project.media_density_telemetry || null,
-                timeline_count: Array.isArray(project.timeline) ? project.timeline.length : 0,
-                visualizer_timeline_count: Array.isArray(project.visualizer_timeline) ? project.visualizer_timeline.length : 0,
-                timed_lyrics_count: Array.isArray(project.timed_lyrics) ? project.timed_lyrics.length : 0,
-                direction_script_variant_count: variants.length,
-                direction_script_variant_summaries: variantSummaries,
-                updated_at: project.updated_at || null,
-                provenance: project.provenance || null
-              }
-            });
-          } else {
+        res.setHeader("X-Hapa-Echo-Record-Preview", hydrated ? `compact-index+${hydrated}-authoritative-fallbacks` : "compact-index");
+        res.setHeader("X-Hapa-Echo-Catalog", `persistent-v1; rebuilt=${catalog.rebuilt}; errors=${catalog.errors.length}`);
+        res.setHeader("X-Hapa-Echo-Catalog-Errors", String(catalog.errors.length));
+        res.setHeader("Server-Timing", `catalog;dur=${catalog.elapsedMs.toFixed(1)}`);
+        if (catalog.errors.length) console.warn("Echo catalog omitted unavailable rows:", catalog.errors);
+        sendJson(res, catalog.summary.length || !catalog.errors.length ? 200 : 503, catalog.summary.length || !catalog.errors.length ? catalog.summary : { error: "catalog_unavailable", details: catalog.errors });
+      } else {
+        // Full source data is an explicit diagnostic request, never the catalog hot path.
+        const projectsDir = path.join(DATA_DIR, "music-video-projects");
+        const files = await readdir(projectsDir).catch(error => { if (error.code === "ENOENT") return []; throw error; });
+        const projects = [];
+        for (const file of files.filter(name => name.endsWith(".json"))) {
+          try {
+            const payload = JSON.parse(await readFile(path.join(projectsDir, file), "utf8"));
             projects.push(payload?.music_video_project
               ? { ...payload, music_video_project: attachEchoOutputProfile(payload.music_video_project) }
               : attachEchoOutputProfile(payload));
-          }
-        } catch (e) {
-          console.error("Failed to summarize project file:", file, e);
+          } catch (error) { console.warn("Failed to load Echo project:", file, error.message); }
         }
+        sendJson(res, 200, projects);
       }
-      res.setHeader(
-        "X-Hapa-Echo-Record-Preview",
-        hydratedRecordPreviewCount > 0
-          ? `compact-index+${hydratedRecordPreviewCount}-authoritative-fallbacks`
-          : "compact-index",
-      );
-      sendJson(res, 200, projects);
-    } catch (e) {
-      console.error("Failed to load director projects:", e);
+    } catch (error) {
+      console.error("Failed to load director projects:", error);
       sendJson(res, 500, { error: "failed_to_load_projects" });
+    }
+    return;
+  }
+
+  if (pathname === "/api/echos/music-performance/prepare" && ['GET', 'DELETE'].includes(req.method)) {
+    const id = url.searchParams.get('jobId');
+    const job = req.method === 'DELETE' ? echoPerformancePreparation.cancel(id) : id ? echoPerformancePreparation.get(id)
+      : echoPerformancePreparation.latest(url.searchParams.get('songId'), url.searchParams.get('variantId') || 'legacy');
+    if (!id && req.method === 'GET' && !job) { sendJson(res, 200, { status: 'idle' }); return; }
+    sendJson(res, job ? 200 : 404, job || { error: 'echo_preparation_job_not_found', message: 'This preparation job is no longer active. Retry preparation to reuse its cached audio.' });
+    return;
+  }
+
+  if ((pathname === "/api/echos/music-performance" && req.method === "GET")
+    || (pathname === "/api/echos/music-performance/prepare" && req.method === "POST")) {
+    try {
+      const songId = safeEchoDirectionPathSegment(url.searchParams.get("songId"), "song");
+      const variant = url.searchParams.get("variantId");
+      const selectedVariantId = variant && variant !== "legacy" ? safeEchoDirectionPathSegment(variant, "variant") : "";
+      const payload = await readJson(path.join(DATA_DIR, "music-video-projects", `${songId}-video-project.json`));
+      const project = payload.music_video_project || payload;
+      const selectedVariant = selectedVariantId ? await readEchoDirectionScriptVariant(songId, selectedVariantId)
+        || project.direction_script_variants?.find(variant => echoDirectionVariantId(variant) === selectedVariantId) : null;
+      if (selectedVariantId && !selectedVariant) throw echoDirectionVariantNotFound(songId, selectedVariantId);
+      const registry = await readJson(SONG_REGISTRY_DATA_PATH);
+      const { audioUri, graph } = echoPerformanceInputs({ project, variant: selectedVariant, registry });
+      const options = { root: ROOT, mediaDir: MEDIA_DIR, songRegistryPath: SONG_REGISTRY_DATA_PATH, songbookPath: DEAR_PAPA_SONGBOOK_PATH };
+      const master = resolveEchoRuntimeMediaUri(audioUri, options);
+      const stems = (graph?.stems?.items || []).map(stem => ({ ...stem, audioPath: stem.audioPath ? resolveEchoRuntimeMediaUri(stem.audioPath, options).resolvedPath || stem.audioPath : null }));
+      if (req.method === 'POST') {
+        const job = echoPerformancePreparation.start({ songId, variantId: selectedVariantId || 'legacy', masterPath: master.resolvedPath,
+          graph: { ...graph, stems: { ...graph?.stems, items: stems } } });
+        sendJson(res, 202, job);
+        return;
+      }
+      const result = await echoPreparedPerformanceStore.load({
+        masterPath: master.resolvedPath,
+        stems,
+        lyrics: graph?.song?.lyricOverlay || {},
+      });
+      res.setHeader("Cache-Control", "no-store");
+      sendJson(res, 200, { ...result, songId, variantId: selectedVariantId || "legacy", audioUri });
+    } catch (error) {
+      sendJson(res, error.statusCode || (error.code === "ENOENT" ? 404 : 500), { ok: false, error: error.code || "echo_performance_unavailable", message: error.message, analysisExecuted: false });
     }
     return;
   }
@@ -3520,6 +3494,7 @@ async function route(req, res) {
       sendJson(res, Number(error?.statusCode || 400), {
         error: error?.code || "direction_variant_fork_failed",
         message: error instanceof Error ? error.message : String(error),
+        ...(error?.result ? { constraints: error.result } : {}),
       });
     }
     return;
@@ -11193,7 +11168,7 @@ async function hydrateEchoDirectorProjectPayload(payload, safeSongId, options = 
     sourceProfile
       ? readEchoDirectionScriptVariants(safeSongId)
       : echoDirectionVariantSummaryIndex
-        .variantsForSongs([safeSongId], readEchoDirectionScriptVariants)
+        .variantsForSongs([safeSongId], id => readEchoDirectionScriptVariantSummaries(id, project))
         .then((result) => result.bySong.get(safeSongId) || []),
     echoIsfAssets.load().then((catalog) => catalog.shaders),
   ]);
@@ -11282,7 +11257,8 @@ async function hydrateEchoDirectorProjectPayload(payload, safeSongId, options = 
     // Runtime shader repair changes the delivered editing projection, but this
     // canonical fingerprint remains the identity of the immutable file that a
     // human working fork is based on.
-    const sourceFingerprint = echoDirectionVariantFingerprint(variant);
+    const sourceFingerprint = variant.variant_source?.summary || variant.variant_source?.indexed
+      ? variant.fingerprint || null : echoDirectionVariantFingerprint(variant);
     const result = repairEchoRuntimeDirectionVariant(variant, {
       catalog: shaderCatalog,
       sourceProfile,
@@ -11380,7 +11356,11 @@ function mergeEchoDirectionScriptVariants(...groups) {
 
 function summarizeEchoDirectionScriptVariant(variant = {}, fallbackTimelineCount = 0) {
   const metadata = summarizeEchoDirectionVariantMetadata(variant);
-  if (variant.variant_source?.indexed && !variant.fingerprint) metadata.fingerprint = null;
+  if (variant.variant_source?.indexed || variant.variant_source?.summary) {
+    // A compact row is not the immutable cut. Preserve its source identity;
+    // hashing the row here would create an unrelated optimistic-lock token.
+    metadata.fingerprint = variant.fingerprint || null;
+  }
   const hasCutMetadata = Boolean(metadata.variationSet || metadata.cut || metadata.densityProfile || metadata.coveragePass !== null);
   const declaredTimelineCount = variant.timelineCount ?? variant.timeline_count;
   const indexedTimelineCount = declaredTimelineCount === null || declaredTimelineCount === undefined || declaredTimelineCount === ""
@@ -11552,7 +11532,7 @@ async function createEchoDirectionVariantFork(body = {}) {
   }
   const songId = safeEchoDirectionPathSegment(body.songId, "song");
   const parentVariantId = safeEchoDirectionPathSegment(body.parentVariantId, "variant");
-  const timeline = Array.isArray(body.timeline) ? body.timeline : null;
+  let timeline = Array.isArray(body.timeline) ? body.timeline : null;
   if (!timeline?.length) throw echoDirectionForkError("invalid_fork_timeline", "A non-empty direction timeline is required.", 400);
   const projectPath = path.resolve(DATA_DIR, "music-video-projects", `${songId}-video-project.json`);
   const projectsRoot = path.resolve(DATA_DIR, "music-video-projects");
@@ -11565,6 +11545,7 @@ async function createEchoDirectionVariantFork(body = {}) {
       && variant.variant_source?.kind === "append-only-project-variant"
   ));
   if (!parentVariant) throw echoDirectionForkError("parent_variant_not_found", "The append-only source cut was not found.", 404);
+  timeline = inheritEchoTimelineMediaConstraints(timeline, parentVariant.timeline);
   const parentFingerprint = echoDirectionVariantFingerprint(parentVariant);
   const acceptedParentFingerprints = await echoDirectionForkAcceptedParentFingerprints(parentVariant);
   if (body.expectedParentFingerprint && !acceptedParentFingerprints.has(String(body.expectedParentFingerprint))) {
@@ -11574,6 +11555,13 @@ async function createEchoDirectionVariantFork(body = {}) {
   const requestedId = body.requestedId ? safeEchoDirectionPathSegment(body.requestedId, "variant") : "";
   const parentMetadata = echoDirectionVariantMetadata(parentVariant);
   const projectPatch = pickEchoDirectionVariantProjectPatch(body.projectPatch || {});
+  const basePayload = JSON.parse(await readFile(projectPath, "utf8"));
+  const baseProject = basePayload.music_video_project || basePayload;
+  const mediaConstraints = mergeEchoMediaConstraints(
+    mergeEchoMediaConstraints(baseProject.mediaConstraints, parentVariant.project_patch?.mediaConstraints),
+    mergeEchoMediaConstraints(projectPatch.mediaConstraints, body.mediaConstraints),
+  );
+  projectPatch.mediaConstraints = mediaConstraints;
   const visualizerTimeline = Array.isArray(body.visualizerTimeline)
     ? body.visualizerTimeline
     : Array.isArray(parentVariant.visualizer_timeline)
@@ -11611,6 +11599,9 @@ async function createEchoDirectionVariantFork(body = {}) {
     throw echoDirectionForkError("direction_variant_conflict", "A different direction cut already uses that request identifier.", 409);
   }
 
+  const mediaEligibility = await validateEchoForkMedia(timeline, mediaConstraints, {
+    root: ROOT, mediaDir: MEDIA_DIR, songRegistryPath: SONG_REGISTRY_DATA_PATH, songbookPath: DEAR_PAPA_SONGBOOK_PATH,
+  });
   const now = new Date().toISOString();
   const parentSlug = parentVariantId.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 72) || "direction-cut";
   const entropy = randomBytes(8).toString("hex");
@@ -11625,6 +11616,7 @@ async function createEchoDirectionVariantFork(body = {}) {
     createdAt: now,
     updatedAt: now,
     selectionMode: "human-working-fork",
+    mediaEligibility,
     fork_request_fingerprint: forkRequestFingerprint,
     variationSet: {
       id: `${parentMetadata.variationSet?.id || "direction"}-edited-cuts`,
@@ -11679,6 +11671,7 @@ async function createEchoDirectionVariantFork(body = {}) {
     throw error;
   }
   echoDirectionVariantSummaryIndex.invalidate(songId);
+  echoProjectCatalog.invalidate(songId);
   const warmup = await settleEchoDirectionCutWarmup(songId, childId);
   return {
     success: true,
@@ -11686,6 +11679,110 @@ async function createEchoDirectionVariantFork(body = {}) {
     lineage: child.lineage,
     warmup,
   };
+}
+
+async function summarizeEchoCatalogProject({ payload, file, songId }) {
+  const project = attachEchoOutputProfile(payload.music_video_project || {});
+  const indexedVariants = await echoDirectionVariantSummaryIndex.variantsForSongs([songId], id => readEchoDirectionScriptVariantSummaries(id, project));
+  let hydratedRecordPreviewCount = 0;
+  const fileVariants = indexedVariants.bySong.get(songId) || [];
+  const variants = mergeEchoDirectionScriptVariants(fileVariants, project.direction_script_variants);
+  const variantSummaries = variants.map((variant) => summarizeEchoDirectionScriptVariant(
+    variant,
+    Array.isArray(project.timeline) ? project.timeline.length : 0,
+  ));
+  const latestCut = selectLatestEchoDirectionScriptVariant({
+    ...project,
+    direction_script_variant_summaries: variantSummaries,
+  });
+  let latestVariant = variants.find((variant) => echoDirectionVariantId(variant) === latestCut?.id);
+  let sourceFingerprint = latestVariant?.variant_source?.summary ? latestVariant.fingerprint : Array.isArray(latestVariant?.timeline) ? echoDirectionVariantFingerprint(latestVariant) : null;
+  const needsPreview = !latestVariant?.recordPreview && !latestVariant?.record_preview;
+  if (latestCut?.id && !Array.isArray(latestVariant?.timeline) && (needsPreview || !sourceFingerprint)) {
+    try {
+      const sourcePath = latestVariant?.variant_source?.path;
+      const indexedPath = sourcePath ? path.resolve(ECHO_DIRECTION_VARIANTS_DIR, sourcePath) : "";
+      const songDirectory = path.resolve(ECHO_DIRECTION_VARIANTS_DIR, songId);
+      const authoritativeLatest = indexedPath && withinDirectory(songDirectory, indexedPath)
+        ? echoDirectionVariantRows(await readJson(indexedPath)).find(row => echoDirectionVariantId(row) === latestCut.id)
+        : await readEchoDirectionScriptVariant(songId, latestCut.id);
+      if (Array.isArray(authoritativeLatest?.timeline) && authoritativeLatest.timeline.length) {
+        sourceFingerprint = echoDirectionVariantFingerprint(authoritativeLatest);
+        latestVariant = { ...authoritativeLatest, ...(latestVariant?.recordPreview ? { recordPreview: latestVariant.recordPreview } : {}) };
+        if (needsPreview) hydratedRecordPreviewCount += 1;
+      }
+    } catch (error) {
+      throw new Error(`catalog_selected_cut_unreadable: ${latestCut.id}: ${error.message}`);
+    }
+  }
+  if (latestCut) {
+    if (!sourceFingerprint) throw new Error(`catalog_selected_cut_identity_missing: ${latestCut.id}`);
+    latestCut.fingerprint = sourceFingerprint;
+    const latestSummary = variantSummaries.find(variant => variant.id === latestCut.id);
+    if (latestSummary) latestSummary.fingerprint = sourceFingerprint;
+  }
+  const preview = echoRecordSummaryPreview(project, latestVariant, latestCut);
+  const audioRoute = echoProjectAudioRoute(project);
+  return {
+    variantSource: indexedVariants.sourceBySong.get(songId) || "index",
+    hydratedRecordPreviewCount,
+    summary: {
+    music_video_project: {
+      song_id: project.song_id,
+      song_title: project.song_title,
+      audio_id: audioRoute.id,
+      audio_uri: audioRoute.uri,
+      registry_track_id: project.registry_track_id || null,
+      cover_uri: project.cover_uri || project.coverUri || project.poster_uri || project.posterUri || preview?.posterUri || null,
+      record_preview: preview,
+      perspective: project.perspective,
+      avatar_name: project.avatar_name,
+      duration: project.duration,
+      output_profile: { id: project.output_profile.id, width: project.output_profile.width, height: project.output_profile.height, fps: project.output_profile.fps },
+      lyric_variant: project.lyric_variant,
+      lyric_position: project.lyric_position,
+      lyric_style: project.lyric_style,
+      lyric_timing_heal: project.lyric_timing_heal ? {
+        schemaVersion: project.lyric_timing_heal.schemaVersion || null,
+        timingSource: project.lyric_timing_heal.timingSource || null,
+        timingConfidence: Number(project.lyric_timing_heal.timingConfidence || 0),
+        lineCount: Number(project.lyric_timing_heal.lineCount || 0),
+        lastLyricEnd: Number(project.lyric_timing_heal.lastLyricEnd || 0),
+      } : null,
+      timeline_count: Array.isArray(project.timeline) ? project.timeline.length : 0,
+      visualizer_timeline_count: Array.isArray(project.visualizer_timeline) ? project.visualizer_timeline.length : 0,
+      timed_lyrics_count: Array.isArray(project.timed_lyrics) ? project.timed_lyrics.length : 0,
+      direction_script_variant_count: variants.length,
+      direction_script_variant_summaries: variantSummaries.filter(variant => variant.id === latestCut?.id),
+      catalog_variants_truncated: variantSummaries.length > 1,
+      selected_cut: latestCut ? { id: latestCut.id, fingerprint: sourceFingerprint, status: latestCut.status || "undeclared" } : { id: "legacy", fingerprint: echoDirectionVariantFingerprint(project), status: "legacy" },
+      updated_at: project.updated_at || null,
+      lyric_timing_quality: project.lyric_timing_truth?.qualityStatus || "unknown"
+    }
+  }};
+}
+
+// Rebuild a missing/stale summary index one file at a time. Do not retain every
+// full timeline/script while selecting a single catalog thumbnail.
+async function readEchoDirectionScriptVariantSummaries(songId, project) {
+  const directory = path.resolve(ECHO_DIRECTION_VARIANTS_DIR, songId);
+  if (!withinDirectory(path.resolve(ECHO_DIRECTION_VARIANTS_DIR), directory)) return [];
+  const entries = await readdir(directory, { withFileTypes: true }).catch(error => { if (error.code === "ENOENT") return []; throw error; });
+  const result = [];
+  for (const entry of entries.filter(row => row.isFile() && row.name.endsWith(".json")).sort((a, b) => a.name.localeCompare(b.name))) {
+    const file = path.join(directory, entry.name);
+    if ((await stat(file)).size > 32 * 1024 * 1024) throw new Error("catalog_variant_too_large");
+    for (const [index, row] of echoDirectionVariantRows(await readJson(file)).entries()) {
+      const id = echoDirectionVariantId(row, `${entry.name.slice(0, -5)}${index ? `-${index + 1}` : ""}`);
+      const variant = { ...row, id };
+      const summary = summarizeEchoDirectionScriptVariant(variant);
+      result.push({ ...summary, fingerprint: summary.fingerprint || echoDirectionVariantFingerprint(variant),
+        recordPreview: echoRecordSummaryPreview(project, variant, summary),
+        variant_source: { kind: "append-only-project-variant-summary", path: path.relative(ECHO_DIRECTION_VARIANTS_DIR, file), nonDestructive: true, summary: true },
+      });
+    }
+  }
+  return mergeEchoDirectionScriptVariants(result);
 }
 
 async function readEchoDirectionScriptVariants(safeSongId) {

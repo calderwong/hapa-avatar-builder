@@ -48,3 +48,22 @@ test("all album shots retain proposed decomposed rankings without claiming revie
   assert.equal(Object.hasOwn(packet, "sealedAnswers"), false);
   assert.equal(report.reviewStatus, "awaiting-human-blind-ab");
 });
+
+test("semantic matching preserves non-Latin names and canonical Unicode spelling", async () => {
+  const { prepareSemanticMediaCandidate } = await import("../src/domain/semantic-media-ranker-v2.js");
+  const names = ["京都", "서울", "Слава", "cafe\u0301", "ＦＬＡＭＥ"];
+  for (const name of names) {
+    const matching = prepareSemanticMediaCandidate({ id: "matching", uri: "/media/matching.mp4", title: name });
+    const unrelated = prepareSemanticMediaCandidate({ id: "unrelated", uri: "/media/unrelated.mp4", title: "unrelated" });
+    const result = rankSemanticMediaCandidates({ slot: { sectionType: "verse" }, lyricText: name.normalize("NFKC").toLowerCase(), candidates: [unrelated, matching] });
+    assert.equal(result.selected.mediaId, "matching", name);
+    assert.ok(result.selected.components.lyricMotif.evidence.includes(name.normalize("NFKC").toLowerCase()), name);
+    assert.equal(result.tokenizerVersion, "unicode-nfkc-v1");
+  }
+});
+
+test("per-shot bans survive global ranking options and cannot be bypassed by pins", () => {
+  const result = rankSemanticMediaCandidates({ slot: { sectionType: "verse", mediaConstraints: { bans: ["best"] } }, lyricText: "memory", candidates: [candidate("best", { tokens: ["memory"] }), candidate("allowed")], pins: ["best"] });
+  assert.equal(result.selected.mediaId, "allowed");
+  assert.ok(result.rejected.find(row => row.mediaId === "best").hardFilters.includes("operator-ban"));
+});

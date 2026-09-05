@@ -1,0 +1,37 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import os from 'node:os';
+import { runEchoPreparationStage } from '../server/echo-performance-preparation.mjs';
+
+test('one-song proxy preparation touches only that project, backs it up, and reports actual writes', async t => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'echo-proxy-scope-'));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const projects = path.join(root, 'projects'), media = path.join(root, 'media'), reports = path.join(root, 'reports'), backups = path.join(root, 'backups');
+  await Promise.all([projects, media].map(directory => fs.mkdir(directory)));
+  await runEchoPreparationStage('/opt/homebrew/bin/ffmpeg', ['-v', 'error', '-f', 'lavfi', '-i', 'color=c=blue:s=320x180:r=30:d=1', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', path.join(media, 'source.mp4')], { timeoutMs: 15000 });
+  const project = songId => ({ music_video_project: { song_id: songId, operatorNote: 'retain me', timeline: [{ shot_index: 0, media_id: 'fixture', media_uri: '/media/source.mp4', start_sec: 0, end_sec: 1, edit_reason: 'locked human cut' }] } });
+  const selectedPath = path.join(projects, 'selected-video-project.json'), otherPath = path.join(projects, 'unrelated-video-project.json');
+  const selectedBytes = JSON.stringify(project('selected')), otherBytes = JSON.stringify(project('unrelated'));
+  await fs.writeFile(selectedPath, selectedBytes); await fs.writeFile(otherPath, otherBytes);
+  const script = path.resolve('scripts/build-echo-playback-media-v2.mjs');
+  const args = [script, '--song=selected', `--project-root=${projects}`, `--media-root=${media}`, `--report-root=${reports}`, `--backup-root=${backups}`];
+  await runEchoPreparationStage(process.execPath, args, { timeoutMs: 30000 });
+  let report = JSON.parse(await fs.readFile(path.join(reports, 'report.json')));
+  assert.equal(report.stats.projects, 1); assert.equal(report.stats.projectsWritten, 0); assert.equal(report.stats.projectsWouldChange, 1);
+  assert.equal(await fs.readFile(selectedPath, 'utf8'), selectedBytes); assert.equal(await fs.readFile(otherPath, 'utf8'), otherBytes);
+  await runEchoPreparationStage(process.execPath, [...args, '--apply'], { timeoutMs: 30000 });
+  report = JSON.parse(await fs.readFile(path.join(reports, 'report.json')));
+  assert.equal(report.ok, true); assert.equal(report.stats.projectsWritten, 1); assert.equal(report.stats.cacheHits, 1);
+  assert.equal(await fs.readFile(path.join(report.backupRoot, 'selected-video-project.json'), 'utf8'), selectedBytes);
+  const result = JSON.parse(await fs.readFile(selectedPath)).music_video_project;
+  assert.equal(result.operatorNote, 'retain me'); assert.equal(result.timeline[0].edit_reason, 'locked human cut');
+  assert.equal(result.timeline[0].media_contract.proxy.status, 'ready');
+  assert.equal(await fs.readFile(otherPath, 'utf8'), otherBytes);
+  const unchanged = await fs.readFile(selectedPath, 'utf8');
+  await runEchoPreparationStage(process.execPath, [...args, '--apply'], { timeoutMs: 30000 });
+  assert.equal((JSON.parse(await fs.readFile(path.join(reports, 'report.json')))).stats.projectsWritten, 0);
+  assert.equal(await fs.readFile(selectedPath, 'utf8'), unchanged);
+  await assert.rejects(runEchoPreparationStage(process.execPath, [...args.filter(arg => !arg.startsWith('--song=')), '--song=not-present'], { timeoutMs: 30000 }), { code: 'echo_preparation_stage_failed' });
+});

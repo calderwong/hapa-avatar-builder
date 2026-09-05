@@ -13,6 +13,7 @@ import {
 } from "../src/domain/native-visualizer-route.js";
 import { validatePortableVisualizerCard } from "../src/domain/portable-visualizer-card.js";
 import { echoPersistentShaderSegments } from "../src/domain/echo-persistent-shader-slots.js";
+import { loadGatedEchoIsfManifest } from './echo-isf-gated-manifest.mjs';
 
 const ROOT = path.resolve(import.meta.dirname, "..");
 
@@ -190,6 +191,8 @@ const hydration = readJson(HYDRATION_PATH);
 const nativeRoutes = readJson(NATIVE_ROUTES_PATH);
 const manifest = readJson(MANIFEST_PATH);
 const proxyRegistry = readJson(PROXY_REGISTRY_PATH);
+const selectionGate = loadGatedEchoIsfManifest({ manifestPath: MANIFEST_PATH, pixelGatePath: path.join(MUSIC_VIZ_ROOT, 'docs/ISF_ALL_SHADER_PIXEL_GATE_REPORT.json') });
+const selectionPolicyById = new Map(selectionGate.manifest.shaders.map(shader => [shader.id, shader]));
 const manifestHash = sha256Bytes(fs.readFileSync(MANIFEST_PATH));
 const proxyRegistryHash = sha256Bytes(fs.readFileSync(PROXY_REGISTRY_PATH));
 
@@ -270,7 +273,16 @@ function runtimeRepairLineage({ projectEvidence, sourceCueIndex, sourceCue, card
 
   const originalManifest = manifestById.get(originalId);
   const originalCatalog = catalogById.get(originalId)?.public;
-  const quarantine = proxyFailureById.get(originalId);
+  const selectionPolicy = selectionPolicyById.get(originalId);
+  // A valid proxy does not imply that a media-input filter is selectable in a
+  // Director interval without guaranteed media. Verify the compiler's exact
+  // current source-bound selection policy independently of proxy failures.
+  const policyQuarantine = selectionPolicy?.runtimeEligibility === 'unsupported-quarantine'
+    && selectionPolicy.runtimeEligibilityReason === 'director-live-media-input-not-guaranteed'
+    ? { source: selectionPolicy.source, sourceHash: selectionPolicy.sourceHash, title: selectionPolicy.title,
+      route: 'unsupported', quarantine: { status: 'quarantined', executable: false }, silentDefault: false,
+      reason: selectionPolicy.runtimeEligibilityReason, scope: 'director-selection-live-media-input' } : null;
+  const quarantine = policyQuarantine || proxyFailureById.get(originalId);
   const originalHash = normalizedSha256(originalManifest?.sourceHash);
   if (!originalManifest || !originalCatalog) errors.push("original-source-missing");
   if (!sameText(originalManifest?.title, originalTitle) || !sameText(originalCatalog?.title, originalTitle)) errors.push("original-source-title");
@@ -328,6 +340,8 @@ function runtimeRepairLineage({ projectEvidence, sourceCueIndex, sourceCue, card
         source: String(originalManifest?.source || ""),
         sourceHash: originalHash,
         quarantineRoute: String(quarantine?.route || ""),
+        quarantineScope: quarantine?.scope || 'proxy-runtime',
+        selectionPixelGateHash: policyQuarantine ? selectionGate.pixelGateHash : null,
         quarantineStatus: String(quarantine?.quarantine?.status || ""),
       },
       replacement: {

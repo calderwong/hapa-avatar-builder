@@ -10,6 +10,8 @@ import {
   normalizeVisualizerAudioMapping,
 } from "../src/domain/hyperframes-visualizer-runtime.js";
 import { buildEchoIsfFrameIntent } from "../src/domain/echo-isf-frame-intent.js";
+import { buildEchoMusicPerformance } from "../src/domain/echo-music-performance.js";
+import { prepareDirectorModulationTimeline } from "../src/domain/director-modulation-v2.js";
 
 const sourceHash = `sha256:${"a".repeat(64)}`;
 const assetHash = `sha256:${"b".repeat(64)}`;
@@ -469,4 +471,66 @@ test("runtime is self-contained browser ESM/global code with no nondeterministic
   assert.equal(a.receipt.randomCalls, false);
   assert.equal(a.receipt.wallClockCalls, false);
   assert.equal(a.receipt.networkCalls, false);
+});
+
+test("prepared sparse beats drive actual uniforms at the same song instant after reverse seeks", () => {
+  const bundle = buildEchoMusicPerformance({ telemetry: { fps: 10, sampleRate: 8000, durationSeconds: 3,
+    masterMix: { audioHash: "a".repeat(64), durationSeconds: 3, frames: [{ t: 0, rms: 0.9 }, { t: 1, rms: 0.7 }] },
+    stems: [{ id: "d", role: "drums", audioHash: "b".repeat(64), durationSeconds: 3, frames: [{ t: 0, rms: 0.2 }, { t: 1, rms: 0.3 }] }] },
+    events: [{ resourceId: "d", audioHash: "b".repeat(64), kind: "beat", atSeconds: 0.13125, precisionSeconds: 0.000125, method: "fixture-sample-onset", truthStatus: "measured" }] });
+  const { buses, ...performance } = bundle;
+  const show = fixtureShow();
+  show.instances.visualizers = [exactLayer({ audioMap: { gain: { signal: "beat", depth: 1 } }, transition: "cut" })];
+  show.stemFrames = { performance, master: buses[0], stems: buses.slice(1) };
+  const before = evaluateHyperFramesVisualizers(show, 0.13124).layers[0];
+  const at = evaluateHyperFramesVisualizers(show, 0.13125).layers[0];
+  assert.equal(before.stemFrame.frame.beat, 0);
+  assert.equal(at.stemFrame.frame.beat, 1);
+  assert.ok(at.controlValues.gain > before.controlValues.gain);
+  evaluateHyperFramesVisualizers(show, 1.6);
+  evaluateHyperFramesVisualizers(show, 0.01);
+  assert.deepEqual(evaluateHyperFramesVisualizers(show, 0.13125).layers[0], at);
+  assert.equal(at.masterFrame.frame.beat, 0);
+});
+
+test("actual offline uniform adapter evaluates prepared attack/release without playback history", () => {
+  const show = fixtureShow();
+  show.instances.visualizers = [exactLayer({ id: "prepared", transition: "cut" })];
+  show.automation.preparedModulation = prepareDirectorModulationTimeline([{
+    id: "gain", source: { kind: "stem_signal", stemFocus: "drums", signal: "rms" },
+    target: { kind: "visualizer_uniform", visualizerId: "prepared", uniform: "gain" },
+    envelope: { depth: 0.8, attackSeconds: 0.15, releaseSeconds: 0.2 },
+  }], { durationSeconds: 3, sourceFingerprint: "test-prepared-audio", sampleSignals: time => ({ stems: { drums: { rms: Math.min(1, time / 0.6) } } }) });
+  const first = evaluateHyperFramesVisualizers(show, 0.6).layers[0];
+  for (const time of [1.7, 0, 0.12, 1.2]) evaluateHyperFramesVisualizers(show, time);
+  const again = evaluateHyperFramesVisualizers(show, 0.6).layers[0];
+  assert.equal(first.controlValues.gain, again.controlValues.gain);
+  assert.ok(first.controlBindings.some(binding => binding.status === "prepared-absolute-modulation"));
+  const layer = show.instances.visualizers[0];
+  const preview = time => buildEchoIsfFrameIntent({
+    shader: { id: layer.visualizerId, shaderType: "generator", inputs: layer.inputs },
+    card: { id: "prepared", visualization: { sourceId: layer.visualizerId, card: { controls: layer.controls, audioMap: layer.audioMap } } },
+    timestampSeconds: time, preparedModulation: show.automation.preparedModulation,
+    signalFrames: { master: { rms: 0.99, source: "prepared-performance" } },
+  });
+  assert.equal(preview(0.6).values.gain, first.controlValues.gain, "workbench and HyperFrames apply the same baked scalar value");
+  preview(1.7); preview(0.01);
+  assert.equal(preview(0.6).values.gain, first.controlValues.gain);
+});
+
+test("prepared bus sampling cost is independent of layer count and repeated seeks keep no frame cache", () => {
+  const bundle = buildEchoMusicPerformance({ telemetry: { fps: 10, sampleRate: 8000, durationSeconds: 3,
+    masterMix: { audioHash: 'a'.repeat(64), durationSeconds: 3, frames: [{ t: 0, rms: .2 }, { t: 1, rms: .8 }] },
+    stems: [{ id: 'd', role: 'drums', audioHash: 'b'.repeat(64), durationSeconds: 3, frames: [{ t: 0, rms: .1 }, { t: 1, rms: .7 }] }] } });
+  const { buses, ...performance } = bundle;
+  const show = fixtureShow(); let reads = 0;
+  const observedBuses = buses.map(bus => { const frames = bus.frames; return { ...bus, get frames() { reads++; return frames; } }; });
+  show.stemFrames = { performance, master: observedBuses[0], stems: observedBuses.slice(1) };
+  show.instances.visualizers = [exactLayer({ transition: 'cut' })];
+  evaluateHyperFramesVisualizers(show, .6); const single = reads;
+  show.instances.visualizers = Array.from({ length: 6 }, (_, index) => exactLayer({ id: `layer-${index}`, transition: 'cut' }));
+  reads = 0; const first = evaluateHyperFramesVisualizers(show, .6);
+  assert.equal(first.layers.length, 6); assert.equal(reads, single);
+  evaluateHyperFramesVisualizers(show, 1.7); evaluateHyperFramesVisualizers(show, .01);
+  assert.deepEqual(evaluateHyperFramesVisualizers(show, .6), first);
 });

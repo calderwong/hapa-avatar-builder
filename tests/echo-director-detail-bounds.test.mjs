@@ -95,6 +95,6 @@ test("Boba Tea Strum detail stays bounded and hydrates only the selected cut", a
   assert.ok(selected.bytes < 3_500_000, `selected-cut detail exceeded its 3.5 MB budget: ${selected.bytes}`);
   assert.ok(cold.bytes < source.bytes * 0.55, `compact detail should be materially smaller (${cold.bytes}/${source.bytes})`);
   assert.ok(selected.bytes < source.bytes * 0.65, `selected-cut detail should stay bounded (${selected.bytes}/${source.bytes})`);
-  assert.ok(cold.elapsedMs < 5_000 && warm.elapsedMs < 5_000 && selected.elapsedMs < 5_000, "bounded detail requests should not stall the API event loop");
   t.diagnostic(`Boba detail benchmark: cold ${cold.elapsedMs.toFixed(1)} ms / ${cold.bytes} B; warm ${warm.elapsedMs.toFixed(1)} ms / ${warm.bytes} B; selected ${selected.elapsedMs.toFixed(1)} ms / ${selected.bytes} B; source ${source.elapsedMs.toFixed(1)} ms / ${source.bytes} B`);
+  assert.ok(cold.elapsedMs < 5_000 && warm.elapsedMs < 5_000 && selected.elapsedMs < 5_000, "bounded detail requests should not stall the API event loop");
 });

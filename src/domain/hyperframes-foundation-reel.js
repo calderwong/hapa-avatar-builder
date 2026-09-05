@@ -301,8 +301,10 @@ export function inlineFoundationRuntimeHtml(sourceHtml, { showScript, pinnedTime
     throw new Error("Could not locate generated show/timeline script tags for offline inlining");
   }
   const runtimeClassic = String(visualizerRuntimeSource || "")
-    .replace(/\bexport\s+(?=(?:const|function|class)\b)/g, "")
-    .replace(/\r?\n/g, " ");
+    .replace(/\bexport\s+(?=(?:const|function|class)\b)/g, "");
+  if (/^\s*(?:import\s|export\s*\{)/m.test(runtimeClassic)) {
+    throw new Error("Bundle visualizer runtime dependencies before offline inlining");
+  }
   if (!runtimeClassic.includes("globalThis.HapaHyperFramesVisualizerRuntime")) {
     throw new Error("Visualizer runtime does not expose the required global evaluator");
   }

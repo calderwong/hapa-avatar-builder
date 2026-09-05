@@ -615,6 +615,16 @@ test("renderer checkpoint build identity changes when compiler code changes", as
     first.codeFiles.find((row) => row.relativePath === "scripts/compile-hyperframes-show-v2.mjs")?.sha256,
   );
   assert.ok(first.tools.ffmpeg && first.tools.ffprobe && first.tools.node && first.tools.hyperframes);
+  let previousIdentity = second.sha256;
+  for (const relativePath of ["src/domain/echo-lyric-time.js", "src/domain/echo-director-recipes.js", "src/domain/echo-narrative-sequencer.js"]) {
+    const file = path.join(root, relativePath);
+    await fsp.mkdir(path.dirname(file), { recursive: true });
+    await fsp.writeFile(file, "export const revision = 1;\n");
+    const changed = await inspectSongCardRendererBuildIdentity({ root });
+    assert.notEqual(changed.sha256, previousIdentity, `${relativePath} changes must invalidate saved render checkpoints`);
+    assert.match(changed.codeFiles.find((row) => row.relativePath === relativePath)?.sha256 || "", /^sha256:[a-f0-9]{64}$/u);
+    previousIdentity = changed.sha256;
+  }
 });
 
 test("proxy registry cache is content-bound even when size and mtime are unchanged", async (t) => {
@@ -766,8 +776,18 @@ async function startLocalApi(t, { root, mintRoot, exportRoot, sourceRoot }) {
   child.stdout.on("data", (chunk) => output.push(String(chunk)));
   child.stderr.on("data", (chunk) => output.push(String(chunk)));
   t.after(async () => {
-    if (child.exitCode === null) child.kill("SIGTERM");
-    await once(child, "exit").catch(() => {});
+    if (child.exitCode !== null || child.signalCode !== null) return;
+    // Register before signaling; a failed bind may already have exited.
+    let timer;
+    const exited = once(child, "exit").catch(() => {});
+    child.kill("SIGTERM");
+    await Promise.race([exited, new Promise(resolve => { timer = setTimeout(resolve, 2000); })]);
+    clearTimeout(timer);
+    if (child.exitCode === null && child.signalCode === null) {
+      child.kill("SIGKILL");
+      await Promise.race([exited, new Promise(resolve => { timer = setTimeout(resolve, 2000); })]);
+      clearTimeout(timer);
+    }
   });
   await waitForServer(`${api}/api/health`, child, output);
   const bootstrap = await fetch(`${api}/api/local-ui-session`, {

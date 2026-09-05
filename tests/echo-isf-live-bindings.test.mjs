@@ -152,7 +152,11 @@ test("Echo live signal frames cover the complete album vocabulary without proced
   assert.equal(unavailable.status, "unavailable");
   assert.equal(unavailable.truthStatus, "no-live-analyser");
   assert.equal(unavailable.palette, 0);
-  assert.match(source, /const signalFrames = \{\};/);
+  assert.match(source, /const signalFrames = preparedSignalFrames \? \{ \.\.\.preparedSignalFrames \} : \{\};/);
+  assert.match(source, /const currentStemRoles = preparedSignalFrames \? \[\] :/);
+  assert.match(source, /let lookaheadSlots = preparedSignalFrames \? 0 :/);
+  assert.match(source, /echoPreparedPerformanceSignalFrames\(activePreparedPerformance, t\)/);
+  assert.doesNotMatch(source, /rms = 0\.15 \+ Math\.sin/);
   assert.match(source, /if \(masterSignalFrame\.status === "live"\)/);
   assert.match(source, /signalFrames\[binding\.role\] = stemFrame/);
   assert.match(source, /echoIsfRequiredStemFocuses\(candidate\)/);

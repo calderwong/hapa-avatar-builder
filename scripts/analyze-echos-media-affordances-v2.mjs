@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import fs from "node:fs";
+import { projectEchoMediaAffordance } from "../src/domain/echo-media-affordance-projection.js";
 import fsp from "node:fs/promises";
 import path from "node:path";
 import crypto from "node:crypto";
@@ -16,8 +17,9 @@ const contactRoot = path.join(mediaRoot, "echo-affordance-contacts-v2");
 const stamp = new Date().toISOString().replace(/[:.]/g, "-");
 const backupRoot = path.join(root, "data", "backups", `echo-media-affordances-v2-${stamp}`);
 const apply = process.argv.includes("--apply");
-const concurrency = Math.max(1, Number(process.env.HAPA_MEDIA_PROBE_CONCURRENCY || 8));
-const placeholderTags = new Set(["digital-isolation", "cyber-operator", "simulation-framework", "camera-push-in", "glitch-lines", "browser-playback"]);
+const missingOnly = process.argv.includes("--missing-only");
+const concurrency = Math.max(1, Math.min(4, Number(process.env.HAPA_MEDIA_PROBE_CONCURRENCY) || 4));
+
 
 function mediaPath(uri = "") {
   if (!uri.startsWith("/media/")) return "";
@@ -33,9 +35,10 @@ async function sha256(filePath) {
   return new Promise((resolve, reject) => {
     const hash = crypto.createHash("sha256");
     const stream = fs.createReadStream(filePath);
-    stream.on("error", reject);
+    const deadline = setTimeout(() => stream.destroy(new Error("Source hashing exceeded 30 seconds")), 30000);
+    stream.on("error", error => { clearTimeout(deadline); reject(error); });
     stream.on("data", (chunk) => hash.update(chunk));
-    stream.on("end", () => resolve(hash.digest("hex")));
+    stream.on("end", () => { clearTimeout(deadline); resolve(hash.digest("hex")); });
   });
 }
 
@@ -46,11 +49,12 @@ function parseRate(value = "") {
 
 async function probe(filePath) {
   const [{ stdout: streamText }, { stdout: keyframeText }] = await Promise.all([
-    run("/opt/homebrew/bin/ffprobe", ["-v", "error", "-print_format", "json", "-show_streams", "-show_format", filePath], { maxBuffer: 8 * 1024 * 1024 }),
-    run("/opt/homebrew/bin/ffprobe", ["-v", "error", "-select_streams", "v:0", "-skip_frame", "nokey", "-show_entries", "frame=best_effort_timestamp_time", "-of", "json", filePath], { maxBuffer: 8 * 1024 * 1024 }),
+    run("/opt/homebrew/bin/ffprobe", ["-v", "error", "-print_format", "json", "-show_streams", "-show_format", filePath], { maxBuffer: 8 * 1024 * 1024, timeout: 30000, killSignal: "SIGKILL" }),
+    run("/opt/homebrew/bin/ffprobe", ["-v", "error", "-select_streams", "v:0", "-skip_frame", "nokey", "-show_entries", "frame=best_effort_timestamp_time", "-of", "json", filePath], { maxBuffer: 8 * 1024 * 1024, timeout: 30000, killSignal: "SIGKILL" }),
   ]);
   const payload = JSON.parse(streamText || "{}");
   const stream = (payload.streams || []).find((item) => item.codec_type === "video") || {};
+  if (!(Number(stream.width) > 0 && Number(stream.height) > 0 && stream.codec_name)) throw new Error("No decodable video stream was found");
   const keyframes = (JSON.parse(keyframeText || "{}").frames || []).map((frame) => Number(frame.best_effort_timestamp_time)).filter(Number.isFinite);
   const intervals = keyframes.slice(1).map((value, index) => value - keyframes[index]).filter((value) => value >= 0);
   const duration = Number(stream.duration || payload.format?.duration || 0) || null;
@@ -81,10 +85,10 @@ async function contactSheet(filePath, duration, hash) {
   const mid = Math.max(0, Number(duration || 1) * 0.5);
   const end = Math.max(0, Number(duration || 1) - 0.08);
   await run("/opt/homebrew/bin/ffmpeg", [
-    "-v", "error", "-y", "-ss", "0", "-i", filePath, "-ss", String(mid), "-i", filePath, "-ss", String(end), "-i", filePath,
+    "-nostdin", "-v", "error", "-y", "-ss", "0", "-i", filePath, "-ss", String(mid), "-i", filePath, "-ss", String(end), "-i", filePath,
     "-filter_complex", "[0:v]scale=320:-2[a];[1:v]scale=320:-2[b];[2:v]scale=320:-2[c];[a][b][c]hstack=inputs=3[out]",
     "-map", "[out]", "-frames:v", "1", "-q:v", "4", "-strict", "unofficial", output,
-  ], { maxBuffer: 2 * 1024 * 1024 });
+  ], { maxBuffer: 2 * 1024 * 1024, timeout: 30000, killSignal: "SIGKILL" });
   return output;
 }
 
@@ -100,14 +104,16 @@ async function mapLimit(values, limit, fn) {
   return output;
 }
 
-const stores = await Promise.all(storePaths.map((file) => fsp.readFile(file, "utf8").then(JSON.parse)));
+const storeBytes = await Promise.all(storePaths.map(file => fsp.readFile(file, "utf8")));
+const stores = storeBytes.map(JSON.parse);
 const records = [];
 for (const card of stores[0].cards || []) for (const asset of card.mediaAssets || []) if (asset.type === "video") records.push({ asset, parent: card, source: "item-manager-store" });
 for (const scene of stores[1].scenes || []) for (const asset of scene.assets || []) if (asset.type === "video") records.push({ asset, parent: scene, source: "scene-store" });
 const byPath = new Map();
 for (const record of records) {
+  if (missingOnly && ["verified-source-file", "unreadable"].includes(record.asset.metadata?.echosTechnicalAffordance?.status)) continue;
   const filePath = mediaPath(record.asset.uri || "");
-  if (!filePath) continue;
+  if (!filePath) throw new Error(`Unsupported unclassified media URI: ${record.asset.id}`);
   const list = byPath.get(filePath) || [];
   list.push(record);
   byPath.set(filePath, list);
@@ -119,7 +125,9 @@ const stats = { records: records.length, uniquePaths: byPath.size, cacheHits: 0,
 await mapLimit([...byPath.entries()], concurrency, async ([filePath, linked]) => {
   try {
     const stat = await fsp.stat(filePath);
-    const key = `${stat.size}:${stat.mtimeMs}`;
+    if (!stat.isFile() || stat.size > 512 * 1024 * 1024) throw new Error("Source exceeds the 512 MiB per-asset analysis budget or is not a file");
+    const realPath = await fsp.realpath(filePath);
+    const key = `${stat.dev}:${stat.ino}:${stat.size}:${stat.mtimeMs}:${stat.ctimeMs}`;
     let technical = cache[filePath]?.key === key ? cache[filePath].technical : null;
     if (technical) stats.cacheHits += 1;
     else {
@@ -150,6 +158,8 @@ await mapLimit([...byPath.entries()], concurrency, async ([filePath, linked]) =>
       cache[filePath] = { key, technical };
       stats.analyzed += 1;
     }
+    const afterStat = await fsp.stat(filePath);
+    if (`${afterStat.dev}:${afterStat.ino}:${afterStat.size}:${afterStat.mtimeMs}:${afterStat.ctimeMs}` !== key || await fsp.realpath(filePath) !== realPath) throw new Error("Source changed during affordance analysis");
     const declaredDuration = linked.map(({ asset }) => Number(asset.duration || asset.metadata?.length || 0)).find((value) => value > 0) || null;
     if (!technical.durationSec && declaredDuration) {
       technical.durationSec = declaredDuration;
@@ -166,36 +176,7 @@ await mapLimit([...byPath.entries()], concurrency, async ([filePath, linked]) =>
     if (cache[filePath]) cache[filePath].technical = technical;
     stats.readable += 1;
     for (const { asset, parent, source } of linked) {
-      const quarantinedTags = (asset.tags || []).filter((tag) => placeholderTags.has(String(tag).toLowerCase()));
-      const colorPaletteRemoved = (asset.colorPalette || []).length > 0;
-      asset.tags = [...new Set((asset.tags || []).filter((tag) => !placeholderTags.has(String(tag).toLowerCase())).concat(["technical-source-verified"]))];
-      asset.colorPalette = [];
-      asset.thumbnailUri ||= technical.posterUri;
-      asset.metadata = {
-        ...(asset.metadata || {}),
-        duration: technical.durationSec,
-        width: technical.width,
-        height: technical.height,
-        frameRate: technical.fps,
-        echosTechnicalAffordance: technical,
-        echosSemanticAffordance: {
-          schemaVersion: "hapa.echo.media-semantic-affordance.v2",
-          status: "inferred-unreviewed",
-          artifactId: `sha256:${technical.contentHash.value}`,
-          analyzer: "filename-parent-metadata-v1",
-          model: null,
-          version: "v1",
-          contactFrameUris: technical.contactFrames.map((frame) => frame.uri),
-          fields: {
-            objects: { value: asset.metadata?.objects || [], status: "inferred", basis: `${source}:title-tags` },
-            actions: { value: asset.metadata?.actions || [], status: "inferred", basis: `${source}:technical-shape` },
-            motion: { value: asset.metadata?.motion || null, status: "inferred", basis: "duration-fps-shape" },
-            shotType: { value: asset.metadata?.shotType || null, status: "inferred", basis: "dimensions-source-kind" },
-          },
-          reviewStatus: "unreviewed",
-        },
-        placeholderMetadataQuarantine: { tags: quarantinedTags, colorPaletteRemoved, verifiedTruthEligible: false },
-      };
+      Object.assign(asset, projectEchoMediaAffordance(asset, technical, source));
     }
   } catch (error) {
     stats.failed += 1;
@@ -203,13 +184,24 @@ await mapLimit([...byPath.entries()], concurrency, async ([filePath, linked]) =>
   }
 });
 
-const report = { schemaVersion: "hapa.echo.media-affordance-report.v2", ok: stats.readable + stats.failed === stats.uniquePaths, mode: apply ? "apply" : "dry-run", stats, invalidFilesAreClassified: true, cachePath, backupRoot: apply ? backupRoot : null, generatedAt: new Date().toISOString() };
+const report = { schemaVersion: "hapa.echo.media-affordance-report.v2", ok: stats.readable + stats.failed === stats.uniquePaths, mode: apply ? "apply" : "dry-run", scope: missingOnly ? "missing-only" : "all", existingRecordsPreserved: missingOnly, stats, invalidFilesAreClassified: true, cachePath, backupRoot: apply ? backupRoot : null, generatedAt: new Date().toISOString() };
 await fsp.mkdir(path.dirname(cachePath), { recursive: true });
 await fsp.writeFile(cachePath, `${JSON.stringify(cache, null, 2)}\n`);
 await fsp.writeFile(reportPath, `${JSON.stringify(report, null, 2)}\n`);
 if (apply) {
   await fsp.mkdir(backupRoot, { recursive: true });
-  await Promise.all(storePaths.map((file) => fsp.copyFile(file, path.join(backupRoot, path.basename(file)))));
-  await Promise.all(storePaths.map((file, index) => fsp.writeFile(file, `${JSON.stringify(stores[index], null, 2)}\n`)));
+  for (let index = 0; index < storePaths.length; index++) {
+    const next = `${JSON.stringify(stores[index], null, 2)}\n`;
+    if (JSON.stringify(JSON.parse(storeBytes[index])) === JSON.stringify(stores[index])) continue;
+    const file = storePaths[index];
+    await fsp.writeFile(path.join(backupRoot, path.basename(file)), storeBytes[index], { flag: "wx" });
+    const temporary = `${file}.${process.pid}.affordances.tmp`;
+    await fsp.writeFile(temporary, next, { flag: "wx" });
+    if (await fsp.readFile(file, "utf8") !== storeBytes[index]) {
+      await fsp.unlink(temporary);
+      throw new Error(`Concurrent store edit: ${path.basename(file)}; analysis cache retained for retry`);
+    }
+    await fsp.rename(temporary, file);
+  }
 }
 process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);

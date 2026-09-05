@@ -1,3 +1,4 @@
+import { DEFAULT_VARIANT_RECIPES } from "../src/domain/echo-director-recipes.js";
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
@@ -33,11 +34,22 @@ test("promotion is a non-destructive lineage patch and losers remain reproducibl
   assert.deepEqual(promoted.promoted.formatVariantInputs.supportedFormats, ["16:9", "9:16", "1:1", "lyric", "instrumental"]);
 });
 
-test("Variation Lab UI exposes axes, locks, previews, reuse, and promotion", () => {
+test("Variation Lab UI exposes recipes, locks, real candidate review and range controls", () => {
   const source = fs.readFileSync("src/components/VariationLabPanel.jsx", "utf8");
   assert.match(source, /data-testid="variation-lab"/);
-  assert.match(source, /Cheap axes reroll/);
-  assert.match(source, /0 expensive decision runs/);
-  assert.match(source, /Promote winner/);
-  assert.match(source, /previewRange/);
+  assert.match(source, /aria-label="Director recipe"/);
+  assert.match(source, /Generate A\/B\/C/);
+  assert.match(source, /onCandidate/);
+  assert.match(source, /Recut start seconds/);
+});
+
+
+test("Variation Lab shows compiler axes and compares one shared song range", () => {
+  const previewRange = { startSeconds: 42, durationSeconds: 8 };
+  const lab = createVariationLab({ projectId: "same-song", previewRange });
+  for (const variant of lab.variants) {
+    assert.deepEqual(variant.previewRange, previewRange);
+    for (const [axis, value] of Object.entries(variant.axes)) assert.equal(value, DEFAULT_VARIANT_RECIPES[variant.recipe][axis]);
+  }
+  assert.deepEqual(regenerateVariationLab(lab).variants.map((v) => v.previewRange), [previewRange, previewRange, previewRange]);
 });

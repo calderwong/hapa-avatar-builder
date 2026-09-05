@@ -33,7 +33,7 @@ test("saved Echo projects warm a certified execution graph after canonical compi
   assert.doesNotMatch(compileRoute, /await compileEchoDirectorProject\(body\.songId/);
   assert.match(
     readinessSource,
-    /const descriptors = options\.variant \? \[\] : \[\{/,
+    /const descriptors = options\.variant \|\| selectedVariationSetId \? \[\] : \[\{/,
     "a targeted saved-cut warm-up must not fail because the unrelated base cut has blockers",
   );
 });

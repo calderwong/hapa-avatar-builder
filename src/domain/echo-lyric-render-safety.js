@@ -1,3 +1,4 @@
+import { echoLyricBoundary } from "./echo-lyric-time.js";
 import { normalizeEchoLyricContract } from "./echo-lyric-contract.js";
 import { resolveEchoLyricTemplateFrame } from "./echo-lyric-template-runtime.js";
 import { echoLyricDisplayWindow } from "./echo-lyric-template-runtime.js";
@@ -21,8 +22,8 @@ function addIssue(issues, code, message, details = {}) {
 export function echoLyricSafetySampleTimes(lines = [], fps = 30) {
   const frame = 1 / Math.max(1, finite(fps, 30));
   const values = (Array.isArray(lines) ? lines : []).flatMap((line) => {
-    const start = finite(line.start);
-    const end = finite(line.end, start);
+    const start = echoLyricBoundary(line, "start");
+    const end = echoLyricBoundary(line, "end", start);
     if (!(end > start)) return [];
     return [
       Math.max(0, start - frame),
@@ -82,8 +83,8 @@ export function inspectEchoLyricRenderSafety({
   let previousEnd = 0;
   let wordCount = 0;
   lines.forEach((line, lineIndex) => {
-    const start = finite(line.start);
-    const end = finite(line.end);
+    const start = echoLyricBoundary(line, "start");
+    const end = echoLyricBoundary(line, "end");
     const cueDuration = end - start;
     const value = String(line.text || "").trim();
     if (!value) addIssue(issues, "empty-lyric-line", "A lyric cue has no visible text.", { lineIndex, timestampSeconds: start });
@@ -108,11 +109,11 @@ export function inspectEchoLyricRenderSafety({
     wordCount += words.length;
     let previousWordEnd = start;
     words.forEach((word, wordIndex) => {
-      const wordStart = finite(word.start, start);
+      const wordStart = echoLyricBoundary(word, "start", start);
       // Mirror the template runtime's 1 ms clamp (echo-lyric-template-runtime):
       // degenerate word windows render as harmless one-frame slivers and must
       // not block the render.
-      const wordEnd = Math.max(wordStart + 0.001, finite(word.end, wordStart + 0.001));
+      const wordEnd = Math.max(wordStart + 0.001, echoLyricBoundary(word, "end", wordStart + 0.001));
       if (!Number.isFinite(wordStart) || !Number.isFinite(wordEnd)) addIssue(issues, "invalid-word-window", "A lyric word window cannot be resolved to a finite duration.", { lineIndex, wordIndex, timestampSeconds: wordStart });
       if (wordStart < start - 0.001 || wordEnd > end + 0.001) addIssue(issues, "word-outside-line", "A word highlight falls outside its lyric line.", { lineIndex, wordIndex, timestampSeconds: wordStart });
       if (wordIndex > 0 && wordStart < previousWordEnd - 0.001) addIssue(issues, "overlapping-lyric-words", "Two lyric word highlights overlap.", { lineIndex, wordIndex, timestampSeconds: wordStart });
@@ -124,8 +125,8 @@ export function inspectEchoLyricRenderSafety({
   const runtime = { sampleCount: 0, maxTranslatePx: 0, maxScale: 1, maxRotateDegrees: 0 };
   if (includeRuntimeSamples) {
     for (const line of lines) {
-      const start = finite(line.start);
-      const end = finite(line.end, start);
+      const start = echoLyricBoundary(line, "start");
+      const end = echoLyricBoundary(line, "end", start);
       for (const timeSeconds of [start, start + ((end - start) / 2), Math.max(start, end - (1 / profile.fps))]) {
         const frame = resolveEchoLyricTemplateFrame({ project, contract, line, timeSeconds, fps: profile.fps });
         runtime.sampleCount += 1;

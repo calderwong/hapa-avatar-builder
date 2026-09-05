@@ -1,5 +1,7 @@
 import { projectToEditorGraph, reframeEchoShowGraphOutputProfile } from "./multitrack-editor.js";
 import { resolveEchoOutputProfile } from "./echo-output-profile.js";
+import { NARRATIVE_VARIANT_RECIPES } from "./echo-director-recipes.js";
+import { inspectEchoTimelineMediaEligibility, echoMediaConstraintError } from "./echo-media-eligibility.js";
 
 export const ECHO_DIRECTION_WORKING_FORK_SCHEMA = "hapa.echo.direction-working-fork.v1";
 export const ECHO_DIRECTION_FORK_PAYLOAD_SCHEMA = "hapa.echo.direction-variant-fork-request.v1";
@@ -53,6 +55,7 @@ export function restoreEchoSongCardPlanSnapshot(state = {}, songId = "", options
 }
 
 const VARIANT_PROJECT_PATCH_FIELDS = Object.freeze([
+  "mediaConstraints",
   "output_profile",
   "lyric_variant",
   "lyric_position",
@@ -226,15 +229,23 @@ function stable(value) {
 
 function compactHash(value) {
   const input = JSON.stringify(stable(value));
-  const lanes = [0x811c9dc5, 0x9e3779b9, 0x85ebca6b, 0xc2b2ae35, 0x27d4eb2f, 0x165667b1, 0xd3a2646c, 0xfd7046c5];
-  const multipliers = [0x01000193, 0x85ebca6b, 0xc2b2ae35, 0x27d4eb2f, 0x165667b1, 0xd3a2646c, 0xfd7046c5, 0x9e3779b1];
+  // These are the existing content-v2 lanes, kept byte-compatible. Scalar
+  // state avoids eight array reads/writes and an inner loop for every UTF-16
+  // code unit in large saved cuts. Do not substitute another hash algorithm.
+  let h0=0x811c9dc5,h1=0x9e3779b9,h2=0x85ebca6b,h3=0xc2b2ae35;
+  let h4=0x27d4eb2f,h5=0x165667b1,h6=0xd3a2646c,h7=0xfd7046c5;
   for (let index = 0; index < input.length; index += 1) {
-    const code = input.charCodeAt(index);
-    for (let lane = 0; lane < lanes.length; lane += 1) {
-      lanes[lane] = Math.imul(lanes[lane] ^ (code + index + (lane * 131)), multipliers[lane]) >>> 0;
-    }
+    const code = input.charCodeAt(index) + index;
+    h0=Math.imul(h0^code,0x01000193)>>>0;
+    h1=Math.imul(h1^(code+131),0x85ebca6b)>>>0;
+    h2=Math.imul(h2^(code+262),0xc2b2ae35)>>>0;
+    h3=Math.imul(h3^(code+393),0x27d4eb2f)>>>0;
+    h4=Math.imul(h4^(code+524),0x165667b1)>>>0;
+    h5=Math.imul(h5^(code+655),0xd3a2646c)>>>0;
+    h6=Math.imul(h6^(code+786),0xfd7046c5)>>>0;
+    h7=Math.imul(h7^(code+917),0x9e3779b1)>>>0;
   }
-  return lanes.map((lane) => lane.toString(16).padStart(8, "0")).join("");
+  return [h0,h1,h2,h3,h4,h5,h6,h7].map((lane) => lane.toString(16).padStart(8, "0")).join("");
 }
 
 function metadataObject(variant, camel, snake, aliases = []) {
@@ -377,8 +388,9 @@ export function echoDirectionVariantOptionLabel(variant = {}) {
   );
   if (!hasStructuredCutMetadata) return echoDirectionVariantTitle(variant);
   const parts = [];
-  if (metadata.densityProfile?.label) parts.push(metadata.densityProfile.label);
-  if (metadata.cut?.label && metadata.cut.label.toLowerCase() !== metadata.densityProfile?.label?.toLowerCase()) {
+  if (metadata.cut?.kind === "human-fork") parts.push(echoDirectionVariantTitle(variant));
+  else if (metadata.densityProfile?.label) parts.push(metadata.densityProfile.label);
+  if (metadata.cut?.kind !== "human-fork" && metadata.cut?.label && metadata.cut.label.toLowerCase() !== metadata.densityProfile?.label?.toLowerCase()) {
     parts.push(metadata.cut.label);
   }
   if (metadata.coveragePassLabel) parts.push(metadata.coveragePassLabel);
@@ -700,16 +712,24 @@ export function deriveEchoDirectionWorkingProject(workingFork = {}) {
 
 export function buildEchoDirectionForkRequest(workingFork = {}, project = workingFork.project || {}) {
   if (workingFork.schemaVersion !== ECHO_DIRECTION_WORKING_FORK_SCHEMA) throw new Error("Invalid working direction fork.");
+  const mediaEligibility = inspectEchoTimelineMediaEligibility(project.timeline, project.mediaConstraints);
+  if (mediaEligibility.some(result => !result.eligible)) throw echoMediaConstraintError(mediaEligibility.filter(result => !result.eligible), { stage: "working-fork" });
+  const recut = project.director_patch_lineage?.narrativeRecut;
+  const recipe = NARRATIVE_VARIANT_RECIPES[recut?.recipeId];
+  const title = recipe
+    ? `${text(project.song_title) || "Song"} · ${recipe.label} · ${recut.range.startSeconds}–${recut.range.endSeconds}s · ${text(recut.seed).slice(0, 128)}`
+    : `${text(project.song_title) || "Song"} · Edited cut`;
   return {
     schemaVersion: ECHO_DIRECTION_FORK_PAYLOAD_SCHEMA,
     songId: text(project.song_id),
     parentVariantId: text(workingFork.sourceVariantId),
     expectedParentFingerprint: text(workingFork.sourceVariantFingerprint),
     requestedId: text(workingFork.requestedChildId),
-    title: `${text(project.song_title) || "Song"} · Edited cut`,
+    title,
     timeline: clone(project.timeline || []),
     visualizerTimeline: clone(project.visualizer_timeline || []),
     mediaDensityTelemetry: clone(project.media_density_telemetry || null),
+    mediaConstraints: clone(project.mediaConstraints || {}),
     hyperframeScript: text(project.hyperframe_script),
     projectPatch: pickEchoDirectionVariantProjectPatch(project),
   };

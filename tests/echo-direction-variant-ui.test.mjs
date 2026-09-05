@@ -59,8 +59,13 @@ test("song changes hydrate the exact newest cut before selection and manual choi
   assert.match(songChange, /savingProject[\s\S]*directionForkTransitionPending[\s\S]*pendingSavedDirectionCut[\s\S]*pendingLegacyProjectSave/);
   assert.match(selector, /directionSelectionPreferenceRef\.current = "manual"/);
   assert.match(selector, /latestDirectionHydrationKeyRef\.current = ""/);
-  assert.match(source, /directionSelectionPreferenceRef\.current === "manual"[\s\S]*selectedDirectionVariantId !== "legacy"[\s\S]*fetchProjectDetail\(nextSongId, selectedVariantId\)/);
-  assert.match(source, /director-projects\?summary=1`, \{ cache: "no-store" \}/);
+  const catalogRefresh = between('const fetchState = async', 'const markSongCardPlanUnsaved');
+  assert.match(catalogRefresh, /selectedProjectSongIdRef\.current/);
+  assert.match(catalogRefresh, /if \(!currentSongId \|\| !projectSongIds\.has\(currentSongId\)\)/, "catalog refresh must not reset an existing manual selection");
+  assert.match(catalogRefresh, /detail\?\.music_video_project\?\.timeline \? detail : row/, "hydrated and unsaved work survives catalog refresh");
+  assert.match(catalogRefresh, /director-projects\?summary=1/);
+  assert.match(catalogRefresh, /panelLoaderRef\.current\.load/);
+
 });
 
 test("Echo automatically opens a chosen cut and only saves it as a new append-only child", () => {
@@ -250,7 +255,8 @@ test("cut and song navigation preserve dirty work and reload the saved Legacy gr
   assert.match(songSelection, /if \(songId === selectedProjectSongId && activeProjectHasDetail\) return/);
   assert.match(songSelection, /fetchProjectDetail\(songId, "", \{ commit: false, priority: "foreground" \}\)/);
   assert.match(songSelection, /commitDirectorProjectDetail\(detailResult\.detail, detailResult\.requestGeneration\)/);
-  assert.match(source, /aria-disabled=\{directorEditingLocked \|\| directorHasUnsavedChanges\}/);
+  assert.match(source, /disabled=\{directorEditingLocked \|\| \(directorHasUnsavedChanges && !isSelected\)\}/);
+  assert.match(source, /aria-pressed=\{isSelected\}/);
   assert.match(selector, /Unsaved Legacy changes · Save or discard before switching cuts or songs/);
   assert.match(selector, /data-testid="echo-discard-legacy-edits"/);
   const discardLegacy = between("const handleDiscardLegacyChanges", "const beginProjectSave");

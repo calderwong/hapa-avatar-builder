@@ -1,5 +1,10 @@
+import { echoLyricBoundary } from "../domain/echo-lyric-time.js";
+import { echoPreparedPerformanceSignalFrames, evaluateEchoMusicPerformance } from "../domain/hyperframes-visualizer-runtime.js";
+import { prepareDirectorModulationTimeline } from "../domain/director-modulation-v2.js";
+import EchoPerformancePreparationControl from "./EchoPerformancePreparationControl.jsx";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { createEchoPanelLoader } from "../domain/echo-panel-loader.js";
 import {
   Clapperboard,
   Download,
@@ -14,7 +19,7 @@ import {
   WandSparkles
 } from "lucide-react";
 import { normalizePlaybackPowerMode } from "../domain/playback-power-mode.js";
-import { echoAudioFetchRequest, echoProjectAudioRoute } from "../domain/echo-audio-route.js";
+import { echoAudioFetchRequest, echoProjectAudioRoute, echoLocalMediaApiBase } from "../domain/echo-audio-route.js";
 import {
   echoSourceWindowPlaybackRate,
   mapEchoSourceWindowTime,
@@ -113,7 +118,7 @@ import {
   normalizeEchoLyricContract,
 } from "../domain/echo-lyric-contract.js";
 import { resolveEchoLyricTemplateFrame } from "../domain/echo-lyric-template-runtime.js";
-import { planEchoKanbanManualStatusTransition } from "../domain/echo-kanban-status.js";
+import EchoKanbanBoard from "./EchoKanbanBoard.jsx";
 import {
   ECHO_PREVIEW_RECORD_FPS,
   ECHO_PREVIEW_RECORD_MAX_DURATION_MS,
@@ -220,7 +225,7 @@ async function warmEchoProjectGraphsRequest(url, songId, variantId = "") {
 function resolveMediaUri(uri) {
   if (typeof uri !== "string" || !uri) return uri;
   if (/^(data:|blob:|https?:)/.test(uri)) return uri;
-  const base = API_BASE || "http://127.0.0.1:8787";
+  const base = echoLocalMediaApiBase(API_BASE, globalThis.location);
   const decodeLocalPath = (value) => { try { return decodeURIComponent(value); } catch { return value; } };
   if (/^file:\/+/.test(uri)) return `${base}/api/local-file?path=${encodeURIComponent(decodeLocalPath(uri.replace(/^file:\/+/, "/")))}`;
   if (/^\/Users\//.test(uri)) return `${base}/api/local-file?path=${encodeURIComponent(decodeLocalPath(uri))}`;
@@ -234,7 +239,7 @@ function resolveSongRegistryUri(uri) {
   if (typeof uri !== "string" || !uri) return uri;
   if (/^(data:|blob:|https?:|file:)/.test(uri)) return uri;
   if (uri.startsWith("/api/song-registry/")) {
-    const base = API_BASE || "http://127.0.0.1:8787";
+    const base = echoLocalMediaApiBase(API_BASE, globalThis.location);
     return `${base}${uri}`;
   }
   if (uri.startsWith("/api/") && SONG_REGISTRY_API_BASE) return `${SONG_REGISTRY_API_BASE}${uri}`;
@@ -1144,9 +1149,9 @@ function EchoPlaybackClockBoundary({ clockRef, initialTime = 0, active = false, 
     const sample = () => {
       const time = Number(clockRef.current) || 0;
       const shotIndex = project?.timeline?.findIndex((item) => time >= item.start_sec && time < item.end_sec) ?? -1;
-      const lineIndex = project?.timed_lyrics?.findIndex((line) => time >= line.start && time < line.end) ?? -1;
+      const lineIndex = project?.timed_lyrics?.findIndex((line) => time >= echoLyricBoundary(line, "start") && time < echoLyricBoundary(line, "end")) ?? -1;
       const line = lineIndex >= 0 ? project?.timed_lyrics?.[lineIndex] : null;
-      const wordIndex = line?.words?.findIndex((word) => time >= word.start && time < word.end) ?? -1;
+      const wordIndex = line?.words?.findIndex((word) => time >= echoLyricBoundary(word, "start") && time < echoLyricBoundary(word, "end")) ?? -1;
       const cadence = powerMode === "docked" ? 2 : 4;
       const signature = `${shotIndex}:${lineIndex}:${wordIndex}:${Math.floor(time * cadence)}`;
       if (signature !== signatureRef.current) {
@@ -1565,11 +1570,14 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
   clockDiagnostics.topLevelRenders += 1;
   const powerMode = normalizePlaybackPowerMode(playbackMode);
   const [board, setBoard] = useState(null);
-  const boardMutationPendingRef = useRef(false);
-  const [boardMutationPending, setBoardMutationPending] = useState(false);
+  const [audioVisualMode, setAudioVisualMode] = useState("prepared");
+  const [preparedAudio, setPreparedAudio] = useState({ status: "idle", key: "", value: null });
+  const [preparedAudioRetry, setPreparedAudioRetry] = useState(0);
   const [gapsReport, setGapsReport] = useState(null);
   const [enriching, setEnriching] = useState(false);
-  const [loading, setLoading] = useState(true);
+  const [panelStatus, setPanelStatus] = useState({});
+  const panelLoaderRef = useRef(null);
+  const videoDetailControllerRef = useRef(null);
   const [echoOperationNotice, setEchoOperationNotice] = useState("");
   const [exportingMasterReference, setExportingMasterReference] = useState("");
   const [expandedSongId, setExpandedSongId] = useState(null);
@@ -1949,6 +1957,39 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
   const activeShowGraph = useMemo(() => (
     activeProject?.director_show_graph?.tracks ? projectToEditorGraph(activeProject) : null
   ), [activeProject]);
+  const preparedAudioRoute = echoProjectAudioRoute(activeProject || {}, activeShowGraph).uri || "";
+  const preparedAudioKey = `${selectedProjectSongId || ""}:${activeDirectionVariantSelection}:${preparedAudioRoute}`;
+  useEffect(() => {
+    if (!selectedProjectSongId || !preparedAudioRoute || audioVisualMode !== "prepared") return;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 30000);
+    let cancelled = false;
+    setPreparedAudio({ status: "loading", key: preparedAudioKey, value: null });
+    fetch(`${API_BASE}/api/echos/music-performance?songId=${encodeURIComponent(selectedProjectSongId)}&variantId=${encodeURIComponent(activeDirectionVariantSelection)}`, { signal: controller.signal, cache: "no-store" })
+      .then(async response => {
+        const body = await response.json();
+        if (!response.ok) throw new Error(body.message || "Prepared audio is unavailable.");
+        if (body.audioUri !== preparedAudioRoute) throw new Error("Prepared audio belongs to a different playback source.");
+        if (!cancelled) setPreparedAudio({ status: "ready", key: preparedAudioKey, value: body.performance });
+      }).catch(error => {
+        if (!cancelled) setPreparedAudio({ status: "unavailable", key: preparedAudioKey, value: null, message: error.name === "AbortError" ? "Prepared audio load timed out. Retry when ready." : error.message });
+      }).finally(() => clearTimeout(timeout));
+    return () => { cancelled = true; clearTimeout(timeout); controller.abort(); };
+  }, [preparedAudioKey, preparedAudioRetry, audioVisualMode]);
+  const activePreparedPerformance = audioVisualMode === "prepared" && preparedAudio.status === "ready" && preparedAudio.key === preparedAudioKey ? preparedAudio.value : null;
+  const preparedBindingsKey = JSON.stringify(activeShowGraph?.directorV2?.modulationBindings || []);
+  const preparedModulationResult = useMemo(() => {
+    if (!activePreparedPerformance || preparedBindingsKey === "[]") return { timeline: null, error: null };
+    try {
+      return { timeline: prepareDirectorModulationTimeline(JSON.parse(preparedBindingsKey), {
+        durationSeconds: activePreparedPerformance.durationSeconds, fps: 60, sourceFingerprint: activePreparedPerformance.fingerprint,
+        sampleSignals: time => {
+          const values = evaluateEchoMusicPerformance(activePreparedPerformance, time);
+          return { ...values, cues: { phrase_boundary: values.activeEvents.some(event => ["phrase-end", "phrase-start"].includes(event.kind)) ? 1 : 0 } };
+        },
+      }), error: null };
+    } catch (error) { return { timeline: null, error: error.message }; }
+  }, [activePreparedPerformance, preparedBindingsKey]);
   const activeShowGraphVisualizerCardsById = useMemo(() => new Map(
     activeShowGraph?.tracks
       ? activeShowGraph.tracks.flatMap((track) => track.cards || []).map((card) => [card.id, card])
@@ -2281,7 +2322,8 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
     }
     
     const audioRequest = echoAudioFetchRequest(url, audioLoadRetryNonce);
-    fetch(audioRequest.url, audioRequest.options)
+    const controller = new AbortController();
+    fetch(audioRequest.url, { ...audioRequest.options, signal: controller.signal })
       .then(res => {
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         return res.blob();
@@ -2308,6 +2350,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
       
     return () => {
       active = false;
+      controller.abort();
     };
   }, [
     activeProject?.audio_id,
@@ -2763,7 +2806,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
   // The preview surface unmounts on tab/power changes; a live capture would
   // otherwise record black frames, so finish (and upload) the clip instead.
   useEffect(() => {
-    if ((activeWorkbenchTab !== "preview" || powerMode === "hidden") && previewRecordingActiveRef.current) {
+    if ((!["preview", "variation"].includes(activeWorkbenchTab) || powerMode === "hidden") && previewRecordingActiveRef.current) {
       stopPreviewRecording();
     }
   }, [activeWorkbenchTab, powerMode, stopPreviewRecording]);
@@ -3011,10 +3054,11 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
 
   // Circular pulse visualizer canvas loop
   useEffect(() => {
-    if (activeWorkbenchTab !== "preview" || powerMode === "hidden") return;
+    if (!["preview", "variation"].includes(activeWorkbenchTab) || powerMode === "hidden") return;
     let animFrame;
     let cadenceTimer;
     let disposed = false;
+    exactIsfBindingDiagnosticsRef.current.frameBucket = -1;
 
     const horizonHistory = [];
     const particles = [];
@@ -3102,6 +3146,9 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
       return sum / (b - a) / 255;
     };
     
+    const silentFft = new Uint8Array(256);
+    const silentWave = new Uint8Array(256).fill(128);
+    const emptyPreparedStem = { source: "prepared-performance", status: "missing-analysis", rms: 0, beat: 0, energy: 0 };
     const render = () => {
       const canvas = canvasRef.current || document.getElementById("director-preview-canvas");
       if (!canvas) {
@@ -3154,14 +3201,17 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
       // Generate or fetch audio inputs
       const timeVal = t;
       const observedAtSeconds = performance.now() / 1000;
-      const masterSignalFrame = liveSignalFrame(analyserNode, t, {
+      const preparedSignalFrames = audioVisualMode === "prepared"
+        ? activePreparedPerformance ? echoPreparedPerformanceSignalFrames(activePreparedPerformance, t) : { master: { source: "prepared-performance", status: "missing-analysis", rms: 0, beat: 0, hook: 0, telemetryRms: 0 } }
+        : null;
+      const masterSignalFrame = preparedSignalFrames?.master || liveSignalFrame(analyserNode, t, {
         id: "master",
         label: "Master mix",
         source: "echo-master-audio",
         observedAtSeconds,
       }, masterSignalTrackerRef.current);
-      const fftList = masterSignalFrame.status === "live" ? masterSignalFrame.fft : new Uint8Array(256);
-      const waveList = masterSignalFrame.status === "live" ? masterSignalFrame.wave : new Uint8Array(256);
+      const fftList = masterSignalFrame.status === "live" ? masterSignalFrame.fft : silentFft;
+      const waveList = masterSignalFrame.status === "live" ? masterSignalFrame.wave : silentWave;
       
       let rms = 0.15;
       let beatFlash = 0;
@@ -3173,21 +3223,13 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
         beatFlash = masterSignalFrame.beat;
         hookFlash = masterSignalFrame.hook;
         telemetryRms = masterSignalFrame.telemetryRms;
+      } else if (preparedSignalFrames) {
+        rms = Number(masterSignalFrame.rms || 0);
+        beatFlash = Number(masterSignalFrame.beat || 0);
+        hookFlash = 0;
+        telemetryRms = rms;
       } else {
-        // Procedural fallback
-        rms = 0.15 + Math.sin(timeVal * 2.2) * 0.08 + Math.cos(timeVal * 0.7) * 0.05;
-        beatFlash = Math.max(0, Math.sin(timeVal * Math.PI * 2.0));
-        hookFlash = Math.max(0, Math.sin(timeVal * Math.PI * 0.5) - 0.7) * 3;
-        telemetryRms = rms * 1.2;
-        
-        for (let i = 0; i < 256; i++) {
-          const base = Math.max(0, 1.0 - i / 180);
-          const noise = Math.sin(timeVal * 10 + i * 0.1) * 0.1 + Math.cos(timeVal * 4 - i * 0.05) * 0.08;
-          fftList[i] = Math.floor(Math.max(0, Math.min(1, base + noise + rms * 0.5 + beatFlash * 0.3)) * 255);
-        }
-        for (let i = 0; i < 256; i++) {
-          waveList[i] = Math.floor(128 + Math.sin(timeVal * 15 + i * 0.08) * 40 * (rms + beatFlash * 0.2));
-        }
+        rms = 0; beatFlash = 0; hookFlash = 0; telemetryRms = 0;
       }
 
       let hueVal = 180; // cyan default
@@ -3244,15 +3286,15 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
         } else {
           try {
             const masterAudio = audioRef.current;
-            const signalFrames = {};
-            let selectedSignalFrame = null;
+            const signalFrames = preparedSignalFrames ? { ...preparedSignalFrames } : {};
+            let selectedSignalFrame = preparedSignalFrames?.master || null;
             if (masterSignalFrame.status === "live") {
               signalFrames.master = masterSignalFrame;
               selectedSignalFrame = masterSignalFrame;
             }
             const defaultStemRole = String(graphVisualizerCard?.visualization?.card?.stemFocus || graphVisualizerCard?.visualization?.stemFocus || "master");
             const activeCardsForStemBinding = graphActiveVisualizerCards.length ? graphActiveVisualizerCards : [graphVisualizerCard];
-            const currentStemRoles = [...new Set(activeCardsForStemBinding
+            const currentStemRoles = preparedSignalFrames ? [] : [...new Set(activeCardsForStemBinding
               .flatMap((card) => echoIsfRequiredStemFocuses(card))
               .map((role) => String(role || ""))
               .filter(Boolean))]
@@ -3271,7 +3313,8 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
             });
             const currentResourceKeys = new Set(currentBindings.map((binding) => binding.resource?.key).filter((key) => key && !key.startsWith("master:")));
             const protectedResourceKeys = new Set(currentResourceKeys);
-            let lookaheadSlots = Math.max(0, ECHO_STEM_DECODER_POOL_LIMIT - currentResourceKeys.size);
+            let lookaheadSlots = preparedSignalFrames ? 0 : Math.max(0, ECHO_STEM_DECODER_POOL_LIMIT - currentResourceKeys.size);
+            if (preparedSignalFrames) pauseEchoStemDecoderPool(stemDecoderPoolRef.current);
             for (const lookaheadCard of graphVisualizerCards.filter((card) => !graphActiveVisualizerCards.some((active) => active.id === card.id)).slice(0, 3)) {
               if (lookaheadSlots <= 0) break;
               for (const role of echoIsfRequiredStemFocuses(lookaheadCard)) {
@@ -3385,8 +3428,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
             }
             selectedSignalFrame = signalFrames[defaultStemRole]
               || signalFrames[normalizedStemFocus(defaultStemRole)]
-              || signalFrames.master
-              || selectedSignalFrame;
+              || (preparedSignalFrames ? emptyPreparedStem : signalFrames.master || selectedSignalFrame);
             const expectedMediaId = String(currentTimelineItem?.media_id || "");
             const currentPresentedMedia = resolvePresentedEchoMediaBinding(
               directorPreviewFullscreenRef.current,
@@ -3425,8 +3467,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
               const stemRole = String(card?.visualization?.card?.stemFocus || card?.visualization?.stemFocus || "master");
               const layerSignalFrame = signalFrames[stemRole]
                 || signalFrames[normalizedStemFocus(stemRole)]
-                || signalFrames.master
-                || selectedSignalFrame;
+                || (preparedSignalFrames ? emptyPreparedStem : signalFrames.master || selectedSignalFrame);
               const compositionInput = visualizerCompositionInput(
                 card,
                 t,
@@ -3440,6 +3481,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                 wave: waveList,
                 audio: layerSignalFrame,
                 signalFrames,
+                preparedModulation: preparedModulationResult.timeline,
                 mediaElement: framedMediaInput?.canvas || null,
                 mediaIdentity: currentPresentedMedia ? {
                   id: currentPresentedMedia.mediaId,
@@ -3513,7 +3555,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                     ? framedMediaInput.dimensions.isPortrait ? "portrait" : "landscape"
                     : "unknown",
                 } : { status: "unavailable", kind: shotMediaType(currentTimelineItem), mediaId: expectedMediaId, sourceKey: "", reason: "no-current-presented-media" },
-                stem: compactStemSignalBinding(stemResource, stemTransport),
+                stem: preparedSignalFrames ? { status: selectedSignalFrame?.status || "missing-analysis", source: "prepared-performance", role: defaultStemRole, fingerprint: activePreparedPerformance?.fingerprint || null, alignment: "see-prepared-source-evidence" } : compactStemSignalBinding(stemResource, stemTransport),
                 frameReceipt: compactFrameReceipt(primaryLayer?.presentation?.frameReceipt),
                 composition: primaryLayer?.composition || null,
                 persistentShaderLayers: layerPresentations.map((layer) => ({
@@ -3995,7 +4037,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
       window.clearTimeout(cadenceTimer);
       pauseEchoStemDecoderPool(stemDecoderPoolRef.current);
     };
-  }, [activeDirectorPreviewSource, activeShowGraphVisualizerCardsById, activeWorkbenchTab, activeProject, powerMode]);
+  }, [activeDirectorPreviewSource, activeShowGraphVisualizerCardsById, activeWorkbenchTab, activeProject, powerMode, audioVisualMode, activePreparedPerformance, preparedModulationResult]);
 
   const uniqueTags = useMemo(() => {
     if (!gapsReport?.videos) return [];
@@ -4232,76 +4274,59 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
 
   const fetchVideoDetail = async (video) => {
     if (!video?.id) return;
+    videoDetailControllerRef.current?.abort();
+    const controller = new AbortController();
+    videoDetailControllerRef.current = controller;
     setSelectedDetailVideo(video);
     setLoadingVideoDetail(true);
     try {
       const params = new URLSearchParams({ id: video.id });
       if (video.sourceId) params.set("sourceId", video.sourceId);
-      const res = await fetch(`${API_BASE}/api/echos/video-detail?${params.toString()}`);
+      const res = await fetch(`${API_BASE}/api/echos/video-detail?${params}`, { signal: controller.signal });
       if (!res.ok) return;
       const detail = await res.json();
-      setSelectedDetailVideo(detail);
-    } catch (e) {
-      console.error("Failed to load video detail:", e);
+      if (!controller.signal.aborted && videoDetailControllerRef.current === controller) setSelectedDetailVideo(detail);
+    } catch (error) {
+      if (!controller.signal.aborted) console.error("Failed to load video detail:", error);
     } finally {
-      setLoadingVideoDetail(false);
+      if (videoDetailControllerRef.current === controller) setLoadingVideoDetail(false);
     }
   };
 
-  const fetchState = async () => {
-    try {
-      const boardRes = await fetch(`${API_BASE}/api/echos/kanban`);
-      const boardData = await boardRes.json();
-      setBoard(boardData);
-
-      const gapsRes = await fetch(`${API_BASE}/api/echos/gaps?summary=1`);
-      if (gapsRes.ok) {
-        const gapsData = await gapsRes.json();
-        setGapsReport(gapsData);
-        if (gapsData.videos?.length > 0 && !selectedDetailVideo) {
-          fetchVideoDetail(gapsData.videos[0]);
-        }
-      }
-
-      const projectsRes = await fetch(`${API_BASE}/api/echos/director-projects?summary=1`, { cache: "no-store" });
-      if (projectsRes.ok) {
-        const projectsData = await projectsRes.json();
-        setDirectorProjects(projectsData);
-        if (projectsData.length > 0) {
-          const projectSongIds = new Set(projectsData.map((row) => row.music_video_project.song_id));
-          const currentSongId = selectedProjectSongIdRef.current;
-          const nextSongId = projectSongIds.has(currentSongId)
-            ? currentSongId
-            : projectSongIds.has(selectedSongId)
-              ? selectedSongId
-              : projectsData[0].music_video_project.song_id;
+  const fetchState = async (onlyPanel = "") => {
+    if (!panelLoaderRef.current) panelLoaderRef.current = createEchoPanelLoader({
+      onStatus: (key, value) => setPanelStatus(current => ({ ...current, [key]: value })),
+    });
+    const panels = {
+      catalog: ["director-projects?summary=1", projectsData => {
+        if (!Array.isArray(projectsData)) throw new Error("Invalid song catalog response");
+        // Retain hydrated graphs and unsaved edits when refreshing list metadata.
+        setDirectorProjects(current => projectsData.map(row => {
+          const detail = current.find(item => item.music_video_project.song_id === row.music_video_project.song_id);
+          return detail?.music_video_project?.timeline ? detail : row;
+        }));
+        if (!projectsData.length) return;
+        const projectSongIds = new Set(projectsData.map(row => row.music_video_project.song_id));
+        const currentSongId = selectedProjectSongIdRef.current;
+        const nextSongId = projectSongIds.has(currentSongId) ? currentSongId
+          : projectSongIds.has(selectedSongId) ? selectedSongId : projectsData[0].music_video_project.song_id;
+        if (!currentSongId || !projectSongIds.has(currentSongId)) {
           commitSelectedProjectSongId(nextSongId);
-          const selectedVariantId = directionSelectionPreferenceRef.current === "manual"
-            && selectedDirectionVariantId !== "legacy"
-            ? selectedDirectionVariantId
-            : "";
-          fetchProjectDetail(nextSongId, selectedVariantId);
+          fetchProjectDetail(nextSongId, "");
         }
-      }
-
-      const shadersRes = await fetch(`${API_BASE}/api/echos/shaders`);
-      if (shadersRes.ok) {
-        const apiShaders = await shadersRes.json();
-        setAvailableShaders(prev => {
-          const merged = [...apiShaders];
-          prev.forEach(p => {
-            if (!merged.find(m => m.id === p.id)) {
-              merged.push(p);
-            }
-          });
-          return merged;
-        });
-      }
-    } catch (e) {
-      console.error("Failed to load echos state:", e);
-    } finally {
-      setLoading(false);
-    }
+      }],
+      board: ["kanban", setBoard],
+      gaps: ["gaps?summary=1", gapsData => {
+        setGapsReport(gapsData);
+        if (gapsData.videos?.length && !selectedDetailVideo) fetchVideoDetail(gapsData.videos[0]);
+      }],
+      shaders: ["shaders", apiShaders => {
+        if (!Array.isArray(apiShaders)) throw new Error("Invalid shader catalog response");
+        setAvailableShaders(prev => [...apiShaders, ...prev.filter(shader => !apiShaders.some(item => item.id === shader.id))]);
+      }],
+    };
+    await Promise.all(Object.entries(panels).filter(([key]) => !onlyPanel || key === onlyPanel)
+      .map(([key, [endpoint, apply]]) => panelLoaderRef.current.load(key, `${API_BASE}/api/echos/${endpoint}`, apply)));
   };
 
   const markSongCardPlanUnsaved = () => {
@@ -4932,6 +4957,12 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
 
   useEffect(() => {
     fetchState();
+    return () => {
+      panelLoaderRef.current?.dispose();
+      panelLoaderRef.current = null;
+      videoDetailControllerRef.current?.abort();
+      for (const request of projectDetailControllerBySongRef.current.values()) request.controller.abort();
+    };
   }, []);
 
   useEffect(() => {
@@ -5043,65 +5074,6 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
     };
   };
 
-  const handleCardClick = async (laneId, cardId) => {
-    if (!board) return;
-    const lane = board.lanes.find(l => l.id === laneId);
-    if (!lane) return;
-    const card = lane.cards.find(c => c.id === cardId);
-    if (!card) return;
-
-    const transition = planEchoKanbanManualStatusTransition(card.status);
-    if (!transition.allowed) {
-      setEchoOperationNotice(
-        transition.reason === "explicit-unblock-required"
-          ? `${card.title} remains blocked. ${card.blockedReason || card.resumeWhen || "Use the append-only review path to unblock it."}`
-          : `${card.title} has an externally managed ${transition.currentStatus} state and was not changed.`
-      );
-      return;
-    }
-    if (boardMutationPendingRef.current) {
-      setEchoOperationNotice("Another board update is still saving. Wait for it to finish.");
-      return;
-    }
-
-    boardMutationPendingRef.current = true;
-    setBoardMutationPending(true);
-
-    const nextBoard = {
-      ...board,
-      updatedAt: new Date().toISOString(),
-      lanes: board.lanes.map(candidateLane => (
-        candidateLane.id === laneId
-          ? {
-              ...candidateLane,
-              cards: candidateLane.cards.map(candidateCard => (
-                candidateCard.id === cardId
-                  ? { ...candidateCard, status: transition.nextStatus }
-                  : candidateCard
-              ))
-            }
-          : candidateLane
-      ))
-    };
-
-    try {
-      const response = await fetch(`${API_BASE}/api/echos/kanban`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(nextBoard)
-      });
-      if (!response.ok) throw new Error(`Board save failed (${response.status})`);
-      setBoard(nextBoard);
-      setEchoOperationNotice(`${card.title} moved to ${transition.nextStatus}.`);
-    } catch (e) {
-      console.error("Failed to save board status:", e);
-      setEchoOperationNotice(`${card.title} was not changed because the board save failed.`);
-    } finally {
-      boardMutationPendingRef.current = false;
-      setBoardMutationPending(false);
-    }
-  };
-
   const handleEnrich = async () => {
     setEnriching(true);
     try {
@@ -5162,13 +5134,6 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
     }
   }, []);
 
-  if (loading) {
-    return (
-      <div className="empty-state">
-        <span>Loading Echos Album App State...</span>
-      </div>
-    );
-  }
 
   const overallScore = gapsReport?.overallScore || 0;
   const songsReport = gapsReport?.songs || [];
@@ -5190,7 +5155,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
         </div>
         <div className="hapa-songs-readouts">
           <StatusChip label="COMPLETENESS" value={`${overallScore}%`} tone={overallScore === 100 ? "green" : "rose"} />
-          <StatusChip label="SONGS" value={gapsReport?.summary?.totalSongs || 0} tone="cyan" />
+          <StatusChip label="SONGS" value={directorProjects.length || "—"} tone="cyan" />
           <StatusChip label="VIDEOS" value={gapsReport?.summary?.totalVideos || 0} tone="fuchsia" />
           <button
             className="hapa-btn"
@@ -5219,6 +5184,18 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
         </div>
       </header>
 
+      <div aria-label="Echo panel loading status" aria-live="polite" style={{ display: "flex", flexWrap: "wrap", gap: 12, fontSize: 14 }}>
+        {Object.entries({ catalog: "Songs", board: "Board", gaps: "Analysis", shaders: "Shaders" }).map(([key, label]) => {
+          const status = panelStatus[key] || { state: "loading", message: "Loading…" };
+          return status.state === "ready" ? null : (
+            <div key={key} role={status.state === "error" ? "alert" : "status"}>
+              <strong>{label}:</strong> {status.message}{" "}
+              {["error", "partial", "slow"].includes(status.state) && <button className="hapa-btn" type="button" onClick={() => fetchState(key)} aria-label={`Retry ${label.toLowerCase()}`}>Retry</button>}
+            </div>
+          );
+        })}
+      </div>
+
       <div className="echos-workspace-grid" style={{
         display: 'grid',
         gridTemplateColumns: ["director", "references"].includes(activeDirectoryTab) ? '1fr' : 'minmax(0, 1fr) minmax(0, 1.6fr)',
@@ -5235,60 +5212,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                 <span><KanbanSquare size={15} /> Echos Kanban Board</span>
                 <em>{board?.lanes?.reduce((sum, l) => sum + l.cards.length, 0) || 0}</em>
               </div>
-              <div className="kanban-board" style={{ display: 'grid', gridTemplateColumns: 'repeat(5, minmax(130px, 1fr))', gap: '8px', padding: '8px', flex: 1, overflow: 'auto' }}>
-                {board?.lanes?.map(lane => (
-                  <section className={`kanban-lane accent-${lane.accent || "cyan"}`} key={lane.id} style={{ display: 'flex', flexDirection: 'column', gap: '8px', background: 'rgba(0,0,0,0.2)', padding: '8px', borderRadius: '4px', height: '100%', minHeight: 0 }}>
-                    <header style={{ borderBottom: '1px solid rgba(255,255,255,0.1)', paddingBottom: '4px', flexShrink: 0 }}>
-                      <strong style={{ fontSize: '10px', whiteSpace: 'nowrap' }}>{lane.title}</strong>
-                    </header>
-                    <div className="lane-cards" style={{ display: 'flex', flexDirection: 'column', gap: '8px', overflowY: 'auto', flex: 1 }}>
-                      {lane.cards.map(card => {
-                        const transition = planEchoKanbanManualStatusTransition(card.status);
-                        const cardInteractionDisabled = boardMutationPending || !transition.allowed;
-                        const disabledReason = boardMutationPending
-                          ? "Another board update is saving."
-                          : transition.reason === "explicit-unblock-required"
-                            ? card.blockedReason || card.resumeWhen || "Explicit unblock review required."
-                            : transition.allowed
-                              ? ""
-                              : `Status ${transition.currentStatus} is externally managed.`;
-                        const interactionLabel = cardInteractionDisabled
-                          ? disabledReason
-                          : `Move ${card.title} to ${transition.nextStatus}`;
-
-                        return (
-                          <article
-                            className={`kanban-card hapa-card status-${card.status}`}
-                            data-card-type="quest"
-                            data-granularity="mini"
-                            data-state={card.status === 'done' ? 'active' : card.status === 'in_progress' ? 'loading' : card.status === 'blocked' ? 'error' : 'idle'}
-                            key={card.id}
-                            role="button"
-                            tabIndex={0}
-                            aria-disabled={cardInteractionDisabled}
-                            aria-label={`${card.title}. Status ${card.status}. ${interactionLabel}`}
-                            title={interactionLabel}
-                            onClick={() => handleCardClick(lane.id, card.id)}
-                            onKeyDown={(event) => {
-                              if (event.key !== "Enter" && event.key !== " ") return;
-                              event.preventDefault();
-                              handleCardClick(lane.id, card.id);
-                            }}
-                            style={{ cursor: cardInteractionDisabled ? 'not-allowed' : 'pointer', padding: '6px', borderRadius: '4px', border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.05)' }}
-                          >
-                            <h4 style={{ margin: '0 0 2px 0', fontSize: '11px', wordBreak: 'break-word', lineHeight: '1.2' }}>{card.title}</h4>
-                            <p style={{ margin: '0', fontSize: '9px', opacity: 0.7, wordBreak: 'break-word', lineHeight: '1.2' }}>{card.body}</p>
-                            <div style={{ marginTop: '4px', fontSize: '8px', display: 'flex', justifyContent: 'space-between', opacity: 0.6 }}>
-                              <span>{card.owner}</span>
-                              <span style={{ color: card.status === 'done' ? '#10b981' : card.status === 'in_progress' ? '#fbbf24' : '#ef4444' }}>{card.status}</span>
-                            </div>
-                          </article>
-                        );
-                      })}
-                    </div>
-                  </section>
-                ))}
-              </div>
+              <EchoKanbanBoard board={board} apiBase={API_BASE} onBoardChange={setBoard} onNotice={setEchoOperationNotice} />
             </div>
 
             <div className="panel hapa-panel" data-variant="notch" style={{ padding: '12px', flexShrink: 0 }}>
@@ -5533,6 +5457,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                       <Search size={14} style={{ opacity: 0.6 }} />
                       <input 
                         type="text" 
+                        aria-label="Search song blueprints"
                         placeholder="Search ID, title, objects..." 
                         value={searchQuery}
                         onChange={(e) => setSearchQuery(e.target.value)}
@@ -6036,12 +5961,16 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                       const perspectiveColor = proj.perspective === 'red' ? 'var(--hapa-neon-red)' : proj.perspective === 'green' ? 'var(--hapa-neon-green)' : 'var(--hapa-neon-cyan)';
                       
                       return (
-                        <div 
+                        <button
+                          type="button"
                           key={proj.song_id} 
-                          aria-disabled={directorEditingLocked || directorHasUnsavedChanges}
+                          aria-label={`Open ${proj.song_title}`}
+                          aria-pressed={isSelected}
+                          disabled={directorEditingLocked || (directorHasUnsavedChanges && !isSelected)}
                           title={directorHasUnsavedChanges && !isSelected ? "Save or cancel the current edit before switching songs." : ""}
                           onClick={() => { void handleSelectDirectorProjectSong(proj.song_id); }}
                           style={{ 
+                            width: '100%', textAlign: 'left', font: 'inherit', color: 'inherit',
                             display: 'flex', 
                             justifyContent: 'space-between', 
                             alignItems: 'center', 
@@ -6074,12 +6003,16 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                               {proj.perspective.toUpperCase()}
                             </span>
                           </div>
-                        </div>
+                        </button>
                       );
                     })}
                     {directorProjects.length === 0 && (
                       <div style={{ textAlign: 'center', padding: '12px', opacity: 0.5, fontSize: '11px' }}>
-                        No director plans found. Click the planning button on the left to compile them.
+                        {panelStatus.catalog?.state === "error"
+                          ? "Songs could not be loaded. Use Retry songs above."
+                          : !panelStatus.catalog || ["loading", "slow"].includes(panelStatus.catalog.state)
+                            ? "Loading saved director plans…"
+                            : "No saved director plans were found."}
                       </div>
                     )}
                   </div>
@@ -6848,7 +6781,23 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                               />
                             )}
 
-                            {activeWorkbenchTab === "preview" && (() => {
+                            {activeWorkbenchTab === "variation" && (
+                              <>
+                                <VariationLabPanel
+                                  project={activeProject}
+                                  currentTime={currentTime}
+                                  disabled={directorEditingLocked || !activeDirectionVariant}
+                                  onCandidate={(candidate) => {
+                                    if (directorEditingLocked || !activeDirectionVariant) throw new Error("Choose a saved direction cut before reviewing a recut.");
+                                    markSongCardPlanUnsaved();
+                                    updateSelectedDirectionCut(() => candidate);
+                                  }}
+                                />
+                                <TasteMemoryPanel memory={activeProject.human_taste_memory} onChange={(memory) => handleUpdateProjectSettings({ human_taste_memory: memory })} />
+                              </>
+                            )}
+
+                            {["preview", "variation"].includes(activeWorkbenchTab) && (() => {
                               const previewSurface = (
                               <div
                                 ref={directorPreviewFullscreenRef}
@@ -7318,6 +7267,15 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                                   })()}
                                 </div>
 
+                                <div role="status" style={{ fontSize: 13, padding: 8 }}>
+                                  <label>Audio visuals <select value={audioVisualMode} onChange={event => setAudioVisualMode(event.target.value)}><option value="prepared">Prepared song timing</option><option value="live">Live monitoring</option></select></label>{" "}
+                                  {audioVisualMode === "prepared" ? activePreparedPerformance ? "Prepared signals ready. Seeking reuses cached timing." : preparedAudio.message || "Loading prepared timing…" : "Live monitoring depends on playback history."}
+                                  {activePreparedPerformance?.missingData?.unverifiedOrigins?.length > 0 && <span> Stem alignment pending review.</span>}
+                                  {activePreparedPerformance?.missingData?.measuredBeats && <span> Beat grid not verified.</span>}
+                                  {audioVisualMode === "prepared" && !activePreparedPerformance && <button type="button" className="hapa-btn" onClick={() => setPreparedAudioRetry(value => value + 1)}>Retry prepared audio</button>}
+                                  {audioVisualMode === "prepared" && <EchoPerformancePreparationControl key={preparedAudioKey} apiBase={API_BASE} songId={selectedProjectSongId} variantId={activeDirectionVariantSelection} ready={Boolean(activePreparedPerformance)} onReady={() => setPreparedAudioRetry(value => value + 1)} />}
+                                  {preparedModulationResult.error && <span role="alert">{preparedModulationResult.error}</span>}
+                                </div>
                                 {/* Player Controls */}
                                 <div data-testid="echo-director-preview-controls" style={{ display: 'flex', gap: '12px', rowGap: '8px', alignItems: 'center', alignSelf: directorPreviewExpanded ? 'center' : 'stretch', width: directorPreviewExpanded ? directorPreviewWidth : 'auto', maxWidth: '100%', flexWrap: 'wrap', flexShrink: 0, boxSizing: 'border-box', background: 'rgba(0,0,0,0.2)', padding: '8px 12px', borderRadius: '4px', border: '1px solid rgba(255,255,255,0.06)' }}>
                                   <button 
@@ -7818,25 +7776,6 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                                   onPatch={handleUpdateProjectSettings}
                                 />
                               )
-                            )}
-
-                            {activeWorkbenchTab === "variation" && (
-                              <>
-                                <VariationLabPanel
-                                  project={activeProject}
-                                  onPromote={(patch) => handleUpdateProjectSettings({
-                                    variation_lab_promotion: patch,
-                                    director_patch_lineage: {
-                                      ...(activeProject.director_patch_lineage || {}),
-                                      parentTreatmentId: patch.parentTreatmentId,
-                                      parentCueGraphId: patch.parentCueGraphId,
-                                      promotedPatchHash: patch.patchHash,
-                                      nonDestructive: true
-                                    }
-                                  })}
-                                />
-                                <TasteMemoryPanel memory={activeProject.human_taste_memory} onChange={(memory) => handleUpdateProjectSettings({ human_taste_memory: memory })} />
-                              </>
                             )}
 
                             {activeWorkbenchTab === "tracks" && (

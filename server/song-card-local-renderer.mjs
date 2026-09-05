@@ -58,6 +58,10 @@ const VISUAL_PROBE_CACHE_PATH = path.join(ROOT, "artifacts/echo-render-readiness
 const AUDIO_PROBE_CACHE_PATH = path.join(ROOT, "artifacts/echo-render-readiness/audio-probe-cache.json");
 const REQUIRED_SCRIPTS = [
   "scripts/build-stem-telemetry-bundle.py",
+  "scripts/echo_audio_analysis_cache.py",
+  "scripts/prepare-echo-music-performance.mjs",
+  "server/echo-performance-cache.mjs",
+  "server/echo-prepared-performance-store.mjs",
   "scripts/compile-hyperframes-show-v2.mjs",
   "scripts/hyperframes-pixel-acceptance.mjs",
   "scripts/hyperframes-pixel-capture.cjs",
@@ -84,10 +88,18 @@ const RENDERER_BUILD_FILES = [
   "src/domain/echo-stem-binding-repair.js",
   "src/domain/echo-audio-route.js",
   "src/domain/echo-output-profile.js",
+  "src/domain/echo-lyric-time.js",
+  "src/domain/echo-lyric-template-runtime.js",
+  "src/domain/echo-lyric-contract.js",
+  "src/domain/echo-lyric-render-safety.js",
+  "src/domain/echo-director-recipes.js",
+  "src/domain/echo-narrative-sequencer.js",
+  "src/domain/echo-director-v2.js",
   "src/domain/echo-runtime-shader-repair.js",
   "src/domain/portable-visualizer-card.js",
   "src/domain/hyperframes-show-compiler.js",
   "src/domain/hyperframes-visualizer-runtime.js",
+  "src/domain/echo-music-performance.js",
   "src/domain/native-visualizer-route.js",
   "src/domain/show-graph-capabilities.js",
   "src/domain/song-context-packet.js",
@@ -3014,6 +3026,7 @@ async function defaultPipeline({
   const sourceResolutionProjectPath = path.join(inputDirectory, "source-resolution-project.json");
   const canonicalProxyRegistryPath = path.join(inputDirectory, "proxy-registry.canonical.json");
   const telemetryPath = path.join(inputDirectory, "stem-telemetry.json");
+  const performancePath = path.join(inputDirectory, "music-performance.json");
   const signalGraphPreflight = preflightSongCardSignalGraph({ project, showGraph });
   await writeJson(path.join(inputDirectory, "signal-graph-preflight.json"), signalGraphPreflight);
   if (!signalGraphPreflight.ok) throw createSongCardSignalGraphError(signalGraphPreflight);
@@ -3112,6 +3125,14 @@ async function defaultPipeline({
   if (!stemTelemetryPreflight.ok) throw createStemTelemetryPreflightError(stemTelemetryPreflight);
 
   throwIfAborted(signal);
+  report("performance-preparation", 22, "Binding cached envelopes and precise events to this master and lyric revision.");
+  await execFile(process.execPath, [
+    path.join(ROOT, "scripts/prepare-echo-music-performance.mjs"),
+    `--telemetry=${telemetryPath}`, `--graph=${analyzedGraphPath}`,
+    `--master=${masterPath}`, `--output=${performancePath}`,
+  ], { cwd: ROOT, maxBuffer: 8 * 1024 * 1024, signal });
+
+  throwIfAborted(signal);
   report("compile", 24, "Compiling the exact selected cut into an offline HyperFrames show.");
   const compilerReportPath = path.join(packageDirectory, "compiler-report.json");
   await fsp.rm(compilerReportPath, { force: true });
@@ -3121,6 +3142,7 @@ async function defaultPipeline({
       path.join(ROOT, "scripts/compile-hyperframes-show-v2.mjs"),
       `--graph=${analyzedGraphPath}`,
       `--telemetry=${telemetryPath}`,
+      `--performance=${performancePath}`,
       `--project=${projectPath}`,
       `--source-project-path=${sourceResolutionProjectPath}`,
       `--proxy-registry=${canonicalProxyRegistryPath}`,
@@ -3218,6 +3240,7 @@ async function defaultPipeline({
     try {
       await runPixelQaCapture(electronPath, [
         path.join(ROOT, "scripts/hyperframes-pixel-capture.cjs"),
+        ...(process.platform === "darwin" ? ["-ApplePersistenceIgnoreState", "YES"] : []),
         `--project=${packageDirectory}`,
         `--output=${qaDirectory}`,
       ], { cwd: ROOT, report, signal, registerProcess });

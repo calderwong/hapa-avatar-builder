@@ -16,14 +16,14 @@ function safeDecode(value) {
   try { return decodeURIComponent(value); } catch { return value; }
 }
 
-function resolveRegistryRoute(pathname, { songRegistryPath, songbookPath }) {
+function resolveRegistryRoute(pathname, { songRegistryPath, songbookPath, registryPayload, songbookPayload }) {
   const match = pathname.match(/^\/api\/song-registry\/(audio|covers)\/([^/]+)$/u);
   if (!match) return null;
   const route = match[1];
   let songId = safeDecode(match[2]);
-  const registry = readJson(songRegistryPath);
+  const registry = registryPayload || readJson(songRegistryPath);
   if (songId.startsWith("dear-papa-song-")) {
-    const songbook = readJson(songbookPath);
+    const songbook = songbookPayload || readJson(songbookPath);
     const card = (songbook.songCards || []).find((entry) => entry?.id === songId || entry?.songId === songId);
     if (card?.registryTrackId) songId = card.registryTrackId;
   }
@@ -37,6 +37,8 @@ export function resolveEchoRuntimeMediaUri(uri, {
   mediaDir,
   songRegistryPath,
   songbookPath,
+  registryPayload,
+  songbookPayload,
 } = {}) {
   const declaredUri = text(uri);
   if (!declaredUri) return { ok: false, reason: "runtime-uri-missing", uri: null, resolvedPath: null };
@@ -73,7 +75,7 @@ export function resolveEchoRuntimeMediaUri(uri, {
       return { ok: true, reason: null, uri: declaredUri, route: "media-api", resolvedPath: candidate };
     }
     if (parsed.pathname.startsWith("/api/song-registry/")) {
-      const candidate = resolveRegistryRoute(parsed.pathname, { songRegistryPath, songbookPath });
+      const candidate = resolveRegistryRoute(parsed.pathname, { songRegistryPath, songbookPath, registryPayload, songbookPayload });
       return candidate
         ? { ok: true, reason: null, uri: declaredUri, route: "song-registry-api", resolvedPath: candidate }
         : { ok: false, reason: "song-registry-runtime-route-unresolved", uri: declaredUri, resolvedPath: null };

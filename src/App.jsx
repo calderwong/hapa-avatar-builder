@@ -210,6 +210,7 @@ import SongCardMintPanel from "./components/SongCardMintPanel.jsx";
 import EchoRecordGardenBoundary from "./components/EchoRecordGardenBoundary.jsx";
 import HumanEnricherView from "./components/HumanEnricherView.jsx";
 import { localFileApiUri } from "./domain/local-media-uri.js";
+import { echoLocalMediaApiBase } from "./domain/echo-audio-route.js";
 import { buildPublicDemoGateCards } from "./domain/tarot-stargate-derivation.js";
 
 const ThreeAvatarViewer = lazy(() => import("./components/ThreeAvatarViewer.jsx"));
@@ -261,11 +262,11 @@ const SONG_REGISTRY_DETAIL_PREFETCH_LIMIT = Math.max(0, Number(import.meta.env?.
 
 function resolveMediaUri(uri) {
   if (typeof uri !== "string" || !uri) return uri;
-  const localUri = localFileApiUri(uri, API_BASE);
+  const localUri = localFileApiUri(uri, echoLocalMediaApiBase(API_BASE, globalThis.location));
   if (localUri) return localUri;
   if (/^(data:|blob:|https?:)/.test(uri)) return uri;
   if (uri.startsWith("/media/")) {
-    const base = API_BASE || "http://127.0.0.1:8787";
+    const base = echoLocalMediaApiBase(API_BASE, globalThis.location);
     return `${base}${uri}`;
   }
   return uri;
@@ -275,7 +276,7 @@ function resolveSongRegistryUri(uri) {
   if (typeof uri !== "string" || !uri) return uri;
   if (/^(data:|blob:|https?:|file:)/.test(uri)) return uri;
   if (uri.startsWith("/api/song-registry/")) {
-    const base = API_BASE || "http://127.0.0.1:8787";
+    const base = echoLocalMediaApiBase(API_BASE, globalThis.location);
     return `${base}${uri}`;
   }
   if (uri.startsWith("/api/") && SONG_REGISTRY_API_BASE) return `${SONG_REGISTRY_API_BASE}${uri}`;
@@ -634,6 +635,7 @@ export default function App({ overcardAdapter }) {
   const [sceneAttachPack, setSceneAttachPack] = useState(null);
   const [healingQueue, setHealingQueue] = useState(null);
   const [tarotDrawProjection, setTarotDrawProjection] = useState(() => publicStargateDemoRequested() ? publicStargateDemoProjection() : EMPTY_TAROT_DRAW_PROJECTION);
+  const tarotDrawProjectionInputsRef = useRef(null);
   const [echoReferenceTarotProjection, setEchoReferenceTarotProjection] = useState({ cards: [], runHash: "", runtime: null });
   const [tarotDrawSceneArmed, setTarotDrawSceneArmed] = useState(publicStargateDemoRequested);
   const [tarotDrawHostAvatarId, setTarotDrawHostAvatarId] = useState(FALLBACK_AVATARS[0]?.id || null);
@@ -1141,7 +1143,14 @@ export default function App({ overcardAdapter }) {
     if (tarotDataMode !== "full") {
       ensureTarotStoreLoaded();
     }
-    if (tarotDrawProjection.cards.length && tarotDrawProjection.referenceRunHash === echoReferenceTarotProjection.runHash) {
+    // Reference Cards can arrive before Songs, Tarot and Avatars. Reuse a deck
+    // only when every contributing source is unchanged, not just References.
+    const projectionInputs = [tarotDataMode, avatarDataMode, normalizedItemManager.cards,
+      tarotDrawHostInventory, tarotDrawHostAvatar?.id, avatars, normalizedInventoryStore,
+      songLibrary, normalizedHapaSongStore, tarotAttachmentContext, normalizedTarotStore.cards,
+      echoReferenceTarotProjection.cards, echoReferenceTarotProjection.runHash];
+    if (tarotDrawProjection.cards.length && tarotDrawProjectionInputsRef.current
+      && projectionInputs.every((value, index) => Object.is(value, tarotDrawProjectionInputsRef.current[index]))) {
       return undefined;
     }
     if (usingCompactAvatars) {
@@ -1173,6 +1182,7 @@ export default function App({ overcardAdapter }) {
         : "Build playable card/song/avatar draw projection."
     });
     return scheduleDeferredLoad(() => {
+      tarotDrawProjectionInputsRef.current = projectionInputs;
       setTarotDrawProjection({
         ...buildTarotDrawProjection(
         normalizedItemManager.cards,

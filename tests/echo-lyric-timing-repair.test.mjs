@@ -62,3 +62,53 @@ test("words beyond the real audio duration are removed without compressing them 
   assert.equal(result.timing.lines[0].end, 10);
   assert.equal(result.timing.lines[0].words.length, 3);
 });
+
+
+test("interval repair is explicitly inferred and keeps original evidence even for borrowed windows", () => {
+  const source = [{ text: "one two", start: 1, end: 2, words: [
+    { word: "one", start: 1, end: 2, confidence: .95, matched: true, timing_source: "forced-alignment" },
+    { word: "two", start: 2, end: 2, confidence: .3 },
+  ] }];
+  const before = structuredClone(source);
+  const repaired = repairEchoLyricWordIntervals(source);
+  assert.equal(repaired.changed, true);
+  for (const word of repaired.lines[0].words) {
+    assert.equal(word.confidence, 0);
+    assert.equal(word.matched, false);
+    assert.equal(word.timing_repair.alignmentStatus, "unmeasured-needs-review");
+  }
+  assert.deepEqual(repaired.lines[0].words[0].timing_repair.original, { start: 1, end: 2, confidence: .95, matched: true, timingSource: "forced-alignment" });
+  assert.deepEqual(source, before);
+});
+
+test("automatic interval repair cannot move manually locked words or lines", () => {
+  const line = { text: "one two", start: 1, end: 2, words: [
+    { word: "one", start: 1, end: 2, timing_lock: { locked: true, actor: "human" } },
+    { word: "two", start: 2, end: 2 },
+  ] };
+  const wordLocked = repairEchoLyricWordIntervals([line]);
+  assert.equal(wordLocked.changed, false);
+  assert.equal(wordLocked.unrepairableWordIntervals, 1);
+  assert.deepEqual(wordLocked.lines, [line]);
+  delete line.words[0].timing_lock;
+  line.manual_locked = true;
+  assert.deepEqual(repairEchoLyricWordIntervals([line]).lines, [line]);
+});
+
+test("valid native word aliases are never mistaken for missing intervals", () => {
+  const source = [{ text: "native word", startSeconds: 1, endSeconds: 2, words: [
+    { text: "native", startSeconds: 1, endSeconds: 1.5 },
+    { text: "word", startSeconds: 1.5, endSeconds: 2 },
+  ] }];
+  assert.deepEqual(repairEchoLyricWordIntervals(source).lines, source);
+  assert.equal(repairEchoLyricWordIntervals(source).changed, false);
+});
+
+
+test("full repair reports a duration conflict rather than trimming a manual lock", () => {
+  const timing = { duration: 2, lines: [{ text: "held", start: 1, end: 3, words: [{ text: "held", start: 1, end: 3, manual_locked: true }] }] };
+  const repaired = repairEchoLyricTimingDefects(timing);
+  assert.equal(repaired.changed, false);
+  assert.equal(repaired.untrimmedLockedLines, 1);
+  assert.deepEqual(repaired.timing.lines, timing.lines);
+});

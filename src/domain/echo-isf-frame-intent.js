@@ -2,6 +2,7 @@ import {
   applyVisualizerAudioMapping,
   normalizeVisualizerAudioMapping,
   visualizerAudioMappingDepthMode,
+  evaluatePreparedDirectorModulation,
 } from "./hyperframes-visualizer-runtime.js";
 
 export const ECHO_ISF_FRAME_RECEIPT_SCHEMA = "hapa.echo.isf-frame-receipt.v1";
@@ -156,7 +157,8 @@ function resolveSignalFrame(signalFrames = {}, requestedStem = "master") {
   const requestedEntry = frameEntries.find(([key]) => key === requestedStem)
     || frameEntries.find(([key]) => normalizedStemKey(key) === requestedKey);
   const masterEntry = frameEntries.find(([key]) => normalizedStemKey(key) === "master");
-  const fallbackUsed = !requestedEntry && requestedKey !== "master" && Boolean(masterEntry);
+  const prepared = frameEntries.some(([, frame]) => frame?.source === "prepared-performance");
+  const fallbackUsed = !prepared && !requestedEntry && requestedKey !== "master" && Boolean(masterEntry);
   const resolvedEntry = requestedEntry || (fallbackUsed ? masterEntry : null);
   return {
     requestedStem: String(requestedStem || "master"),
@@ -272,6 +274,7 @@ export function buildEchoIsfFrameIntent({
   sourceHash = "",
   values: explicitValues = {},
   signalFrames = {},
+  preparedModulation = null,
   audio = null,
   imageInputs = {},
   mediaElement = null,
@@ -356,6 +359,15 @@ export function buildEchoIsfFrameIntent({
     });
   }
 
+  if (preparedModulation) {
+    for (const output of evaluatePreparedDirectorModulation(preparedModulation, timestamp)) {
+      if (output.target?.kind !== "visualizer_uniform" || ![card.id, card.cueId].includes(output.target.visualizerId)) continue;
+      const input = byName.get(output.target.uniform);
+      if (!input || !["float", "long", "bool"].includes(inputType(input))) continue;
+      finalValues[output.target.uniform] = normalizeEchoIsfInputValue(input, output.value);
+      modulationBindings.push({ uniform: output.target.uniform, status: "prepared-absolute-modulation", value: finalValues[output.target.uniform], sourceFingerprint: preparedModulation.sourceFingerprint });
+    }
+  }
   const manifestImages = inputs.filter((input) => inputType(input) === "image").map(inputName).filter(Boolean);
   const filterRequiresMedia = String(shader.shaderType || "").toLowerCase() === "filter";
   // A legacy manifest row for God Rays lost its parsed INPUTS even though its

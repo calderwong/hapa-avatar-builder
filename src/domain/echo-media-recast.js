@@ -1,5 +1,6 @@
 import { generateEchoHyperframeScript } from "./echo-hyperframe-script.js";
 import { hasExcludedEchoDirectorOrigin } from "./builder-direction-candidates.js";
+import { evaluateEchoMediaEligibility, echoMediaConstraintError, mergeEchoMediaConstraints } from "./echo-media-eligibility.js";
 
 export const SCROLL_FAL_DIRECTION_VARIANT_ID = "scroll-fal-authored-v1";
 export const SCROLL_FAL_DIRECTION_VARIANT_VERSION = "hapa.echo.direction-script-variant.v1";
@@ -55,6 +56,7 @@ function candidateText(candidate = {}) {
 }
 
 export function isDirectorMediaAllowed(candidate = {}, policy = {}) {
+  if (!evaluateEchoMediaEligibility(candidate, policy.mediaConstraints).eligible) return false;
   const forbidden = list(policy.forbiddenMarkers).length ? policy.forbiddenMarkers : DEFAULT_FORBIDDEN;
   const allowedCohorts = new Set(list(policy.allowedCohorts).length ? policy.allowedCohorts : ["root", "fal-second-cohort"]);
   const text = candidateText(candidate);
@@ -168,6 +170,7 @@ function technicalIdentity(candidate = {}) {
  * hapa-dev-proto only when explicit origin/provenance says it came from there.
  */
 export function isBalancedDirectorMediaAllowed(candidate = {}, policy = {}) {
+  if (!evaluateEchoMediaEligibility(candidate, policy.mediaConstraints).eligible) return false;
   const sourceGroup = normalizeSourceGroup(candidate);
   const allowedSourceGroups = new Set(list(policy.allowedSourceGroups).length
     ? policy.allowedSourceGroups
@@ -182,6 +185,7 @@ export function isBalancedDirectorMediaAllowed(candidate = {}, policy = {}) {
   )) return false;
   if (sourceGroup === "scroll") {
     return isDirectorMediaAllowed(candidate, {
+      mediaConstraints: policy.mediaConstraints,
       allowedCohorts: policy.allowedScrollCohorts || policy.allowedCohorts,
       forbiddenMarkers: policy.scrollForbiddenMarkers || policy.forbiddenMarkers,
     });
@@ -550,15 +554,20 @@ function chooseBalancedCandidate(state, shot = {}) {
   state.sourceCursor += 1;
   const sourceOrder = [preferredSource, ...state.sourceGroups.filter((sourceGroup) => sourceGroup !== preferredSource)];
   for (const sourceGroup of sourceOrder) refillBalancedBag(state, sourceGroup);
-
-  const groupWithFreshIdentity = sourceOrder.find((sourceGroup) => (
-    state.bags[sourceGroup].remaining.some((candidate) => technicalIdentity(candidate) !== state.lastTechnicalIdentity)
+  const constraints = mergeEchoMediaConstraints(state.mediaConstraints, shot.mediaConstraints);
+  const evaluations = sourceOrder.flatMap(source => state.bags[source].remaining.map(candidate => evaluateEchoMediaEligibility(candidate, constraints)));
+  const allowed = candidate => evaluateEchoMediaEligibility(candidate, constraints).eligible;
+  const eligibleGroups = sourceOrder.filter(source => state.bags[source].remaining.some(allowed));
+  if (!eligibleGroups.length) throw echoMediaConstraintError(evaluations, { stage: "balanced-shot" });
+  const groupWithFreshIdentity = eligibleGroups.find((sourceGroup) => (
+    state.bags[sourceGroup].remaining.some((candidate) => allowed(candidate) && technicalIdentity(candidate) !== state.lastTechnicalIdentity)
   ));
-  const sourceGroup = groupWithFreshIdentity || sourceOrder[0];
+  const sourceGroup = groupWithFreshIdentity || eligibleGroups[0];
 
   const bag = state.bags[sourceGroup];
-  const nonRepeating = bag.remaining.filter((candidate) => technicalIdentity(candidate) !== state.lastTechnicalIdentity);
-  const eligible = nonRepeating.length ? nonRepeating : bag.remaining;
+  const valid = bag.remaining.filter(allowed);
+  const nonRepeating = valid.filter((candidate) => technicalIdentity(candidate) !== state.lastTechnicalIdentity);
+  const eligible = nonRepeating.length ? nonRepeating : valid;
   const preference = preferredRoleForShot(shot);
   const leastUsageLoad = state.sharedUsageCounts instanceof Map
     ? Math.min(...eligible.map((candidate) => normalizedUsageLoad(state, candidate)))
@@ -939,11 +948,12 @@ export function recastEchoDirectorProject(project = {}, candidateEntries = [], o
     return recastBalancedEchoDirectorProject(project, candidateEntries, options);
   }
   const policy = {
+    mediaConstraints: mergeEchoMediaConstraints(project.mediaConstraints, options.mediaConstraints),
     allowedCohorts: options.allowedCohorts || ["root", "fal-second-cohort"],
     forbiddenMarkers: options.forbiddenMarkers || DEFAULT_FORBIDDEN,
   };
   const candidates = buildScrollSiteDirectorCandidates(candidateEntries, policy);
-  if (!candidates.length) throw new Error("No eligible Scroll Site/FAL director candidates were supplied.");
+  if (!candidates.length) throw echoMediaConstraintError(candidateEntries.map(item => evaluateEchoMediaEligibility(item, policy.mediaConstraints)), { stage: "scroll-recast" });
   const seed = options.seed || `${project.song_id || "song"}:${SCROLL_FAL_DIRECTION_VARIANT_ID}`;
   const state = {
     seed,
@@ -960,7 +970,10 @@ export function recastEchoDirectorProject(project = {}, candidateEntries = [], o
       (shot?.media_id && shot.media_id !== "none")
     );
     if (!hasMedia || shot.media_id === "none") return sanitizeVisualizerOnlyShot(shot);
-    const selected = chooseCandidate(candidates, state, shot, shotIndex);
+    const results = candidates.map(candidate => ({ candidate, eligibility: evaluateEchoMediaEligibility(candidate, mergeEchoMediaConstraints(policy.mediaConstraints, shot.mediaConstraints)) }));
+    const pool = results.filter(row => row.eligibility.eligible).map(row => row.candidate);
+    if (!pool.length) throw echoMediaConstraintError(results.map(row => row.eligibility), { stage: "scroll-recast", shotIndex });
+    const selected = chooseCandidate(pool, state, shot, shotIndex);
     selections.push({
       shotIndex,
       startSeconds: finite(shot.start_sec, 0),
@@ -1035,12 +1048,13 @@ function longestSourceStreak(selections = []) {
 
 export function recastBalancedEchoDirectorProject(project = {}, candidateEntries = [], options = {}) {
   const policy = {
+    mediaConstraints: mergeEchoMediaConstraints(project.mediaConstraints, options.mediaConstraints),
     allowedSourceGroups: options.allowedSourceGroups || BALANCED_SOURCE_GROUPS,
     allowedScrollCohorts: options.allowedScrollCohorts || ["root", "fal-second-cohort"],
     scrollForbiddenMarkers: options.scrollForbiddenMarkers || DEFAULT_FORBIDDEN,
   };
   const candidates = buildBalancedDirectorCandidates(candidateEntries, policy);
-  if (!candidates.length) throw new Error("No eligible mixed-library director candidates were supplied.");
+  if (!candidates.length) throw echoMediaConstraintError(candidateEntries.map(item => evaluateEchoMediaEligibility(item, policy.mediaConstraints)), { stage: "balanced-recast" });
   const requiredGroups = list(policy.allowedSourceGroups)
     .map((sourceGroup) => normalizeSourceGroup({ sourceGroup }))
     .filter((sourceGroup, index, all) => sourceGroup && all.indexOf(sourceGroup) === index);
@@ -1115,6 +1129,7 @@ export function recastBalancedEchoDirectorProject(project = {}, candidateEntries
     lastCandidate: null,
     recentCardIds: [],
     visualDescriptionTokens: new Map(),
+    mediaConstraints: policy.mediaConstraints,
     sharedUsageCounts: options.sharedUsageCounts instanceof Map ? options.sharedUsageCounts : null,
     sharedCardUsageCounts: options.sharedCardUsageCounts instanceof Map ? options.sharedCardUsageCounts : null,
     currentCardUsage: new Map(),

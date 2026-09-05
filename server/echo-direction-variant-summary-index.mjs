@@ -107,6 +107,8 @@ export function createEchoDirectionVariantSummaryIndex({
   variantsRoot,
   validationTtlMs = 1_000,
   logger = console,
+  maxFallbackEntries = 2,
+  maxFallbackBytes = 8 * 1024 * 1024,
 } = {}) {
   const root = path.resolve(variantsRoot || ".");
   const indexPath = path.join(root, "index.json");
@@ -124,7 +126,7 @@ export function createEchoDirectionVariantSummaryIndex({
       indexCache = { signature: "missing", mtimeMs: 0, rowsBySong: new Map(), valid: false, reason: "missing" };
       return indexCache;
     }
-    const signature = `${info.size}:${info.mtimeMs}`;
+    const signature = `${info.size}:${info.mtimeMs}:${info.ctimeMs}:${info.ino}`;
     if (indexCache?.signature === signature) return indexCache;
 
     try {
@@ -141,7 +143,7 @@ export function createEchoDirectionVariantSummaryIndex({
         rowsBySong.get(songId).push(row);
       }
       for (const rows of rowsBySong.values()) rows.sort((left, right) => left.id.localeCompare(right.id));
-      indexCache = { signature, mtimeMs: info.mtimeMs, rowsBySong, valid: true, reason: "indexed" };
+      indexCache = { signature, mtimeMs: info.mtimeMs, ctimeMs: info.ctimeMs, rowsBySong, valid: true, reason: "indexed" };
     } catch (error) {
       logger.warn?.("Echo direction variant index is unavailable; using authoritative variant files:", error);
       indexCache = { signature, mtimeMs: info.mtimeMs, rowsBySong: new Map(), valid: false, reason: "invalid" };
@@ -153,9 +155,8 @@ export function createEchoDirectionVariantSummaryIndex({
   }
 
   async function verifySong(songId, index) {
-    if (!index.valid || invalidatedSongs.has(songId)) return { fresh: false, signature: `${index.signature}:invalidated` };
     const cached = verificationCache.get(songId);
-    if (cached?.indexSignature === index.signature && Date.now() - cached.checkedAt < validationTtlMs) return cached;
+    if (!invalidatedSongs.has(songId) && cached?.indexSignature === index.signature && Date.now() - cached.checkedAt < validationTtlMs) return cached;
 
     const songDirectory = path.resolve(root, songId);
     if (!withinDirectory(root, songDirectory)) return { fresh: false, signature: `${index.signature}:unsafe` };
@@ -171,16 +172,14 @@ export function createEchoDirectionVariantSummaryIndex({
       if (error?.code !== "ENOENT") logger.warn?.(`Failed to verify Echo direction variants for ${songId}:`, error);
     }
     const actual = entries.map((entry) => entry.name);
-    let newestVariantMtime = 0;
-    if (sameNames(expected, actual)) {
-      const infos = await Promise.all(actual.map((name) => stat(path.join(songDirectory, name)).catch(() => null)));
-      newestVariantMtime = Math.max(0, ...infos.map((info) => Number(info?.mtimeMs || Infinity)));
-    }
-    const fresh = sameNames(expected, actual) && newestVariantMtime <= index.mtimeMs;
+    const infos = await Promise.all(actual.map((name) => stat(path.join(songDirectory, name)).catch(() => null)));
+    const newestVariantMtime = Math.max(0, ...infos.map(info => Number(info?.mtimeMs || Infinity)));
+    const fresh = index.valid && !invalidatedSongs.has(songId) && sameNames(expected, actual) && newestVariantMtime <= index.mtimeMs
+      && infos.every(info => info && info.ctimeMs <= index.ctimeMs);
     const result = {
       checkedAt: Date.now(),
       indexSignature: index.signature,
-      signature: `${actual.join("|")}:${newestVariantMtime}`,
+      signature: JSON.stringify(actual.map((name, i) => [name, infos[i]?.size, infos[i]?.mtimeMs, infos[i]?.ctimeMs, infos[i]?.ino])),
       fresh,
     };
     verificationCache.set(songId, result);
@@ -205,7 +204,16 @@ export function createEchoDirectionVariantSummaryIndex({
       const variants = cached?.key === cacheKey
         ? cached.variants
         : await readAuthoritativeVariants(songId);
-      if (cached?.key !== cacheKey) fallbackCache.set(songId, { key: cacheKey, variants });
+      if (cached?.key !== cacheKey) {
+        const bytes = Buffer.byteLength(JSON.stringify(variants));
+        fallbackCache.delete(songId);
+        if (bytes <= maxFallbackBytes && maxFallbackEntries > 0) {
+          fallbackCache.set(songId, { key: cacheKey, variants, bytes });
+          while (fallbackCache.size > maxFallbackEntries || [...fallbackCache.values()].reduce((sum, row) => sum + row.bytes, 0) > maxFallbackBytes) {
+            fallbackCache.delete(fallbackCache.keys().next().value);
+          }
+        }
+      }
       bySong.set(songId, variants);
       sourceBySong.set(songId, "authoritative-fallback");
     }));

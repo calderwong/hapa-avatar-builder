@@ -314,6 +314,12 @@ test("live renderer clock is pinned to the music playhead across pause, advance,
     { TIME: uniformFrames[2].TIME, TIMEDELTA: uniformFrames[2].TIMEDELTA, FRAMEINDEX: uniformFrames[2].FRAMEINDEX },
     { TIME: 2, TIMEDELTA: 0, FRAMEINDEX: 60 },
   );
+  const editedWhilePaused = surface.draw({ card, time: 2, frameRate: 30, values: { gain: 0.9 } });
+  assert.equal(drawCalls, 4, "changed controls must update pixels even when the audio playhead is paused");
+  assert.equal(editedWhilePaused.clock.reusedFrame, false);
+  assert.equal(uniformFrames[3].gain, 0.9);
+  surface.draw({ card, time: 2, frameRate: 30, values: { gain: 0.9 } });
+  assert.equal(drawCalls, 4, "identical paused input remains reusable");
 });
 
 test("catalog-quarantined shaders fail explicitly before source fetch or compilation", async () => {

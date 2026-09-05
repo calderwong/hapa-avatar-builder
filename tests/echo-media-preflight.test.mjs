@@ -7,6 +7,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import test from "node:test";
 import {
   formatEchoMediaPreflightFailure,
+  selectEchoProjectPaths,
   preflightEchoAlbum,
   preflightEchoDirectionCut,
   preflightEchoProjectAndSavedCuts,
@@ -324,5 +325,35 @@ test("ambiguous basename aliases are normalized into fail-closed diagnostics", (
     assert.ok(report.failures[0].aliasConflicts.length > 0 || /ambiguous|conflict/i.test(report.failures[0].reason));
   } finally {
     fs.rmSync(fx.root, { recursive: true, force: true });
+  }
+});
+
+
+test("canonical one-song selection reads only its source, while registry aliases still resolve", (t) => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "echo-selected-projects-"));
+  t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  const selected = path.join(directory, "chosen-video-project.json");
+  fs.writeFileSync(selected, JSON.stringify({ music_video_project: { song_id: "chosen", registry_track_id: "registry-alias" } }));
+  fs.writeFileSync(path.join(directory, "unrelated-video-project.json"), "invalid unrelated JSON");
+  const reads = [];
+  const readProject = (file) => { reads.push(file); return JSON.parse(fs.readFileSync(file)); };
+  assert.deepEqual(selectEchoProjectPaths({ projectsRoot: directory, songId: "chosen", readProject }), [selected]);
+  assert.deepEqual(reads, [selected]);
+  assert.deepEqual(selectEchoProjectPaths({ projectsRoot: directory, songId: "registry-alias" }), [selected]);
+  assert.throws(() => selectEchoProjectPaths({ projectsRoot: directory, songId: "../escape" }), /Unsafe/);
+  fs.writeFileSync(selected, "invalid selected JSON");
+  assert.deepEqual(selectEchoProjectPaths({ projectsRoot: directory, songId: "chosen" }), [selected]);
+});
+
+test("custom director recipes cannot overwrite the canonical album output or silently fall back", () => {
+  for (const args of [
+    ["--recipe", "missing-recipe"],
+    ["--recipe", "letter-intimate", "--song", "fixture"],
+    ["--recipe", "comic-journey", "--song", "fixture", "--output", "artifacts/echo-director-v2/album"],
+    ["--characters", "lead", "--song", "fixture"],
+  ]) {
+    const result = spawnSync(process.execPath, ["scripts/compile-echo-director-v2-album.mjs", ...args], { cwd: REPO, encoding: "utf8", timeout: 5000, env: { ...process.env, NODE_OPTIONS: "" } });
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, /Unknown Echo director recipe|Custom direction requires/);
   }
 });

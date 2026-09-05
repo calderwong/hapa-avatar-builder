@@ -255,3 +255,16 @@ test("playlists and scene attach packs expose place, timeline, avatars, media, a
   assert.equal(auditSceneGraph(normalizeSceneGraph(graph)).placeCards, 1);
   assert.equal(auditSceneGraph(normalizeSceneGraph(graph)).playlistTracks, 1);
 });
+
+test("scene normalization and unrelated edits retain director choice/song evidence", () => {
+  const refs = [{ id: "choice-source", path: "avatar-store.json#avatar/choice", status: "source-backed" }];
+  let graph = createScene(createSceneGraphScaffold(), { id: "evidence-scene", title: "Evidence scene", linkedChoiceIds: ["choice-a"], linkedSongIds: ["song-a"], sourceRefs: refs });
+  graph = updateScene(graph, "evidence-scene", { summary: "Updated staging" });
+  graph = normalizeSceneGraph(JSON.parse(JSON.stringify(graph)));
+  const scene = graph.scenes.find(scene => scene.id === "evidence-scene");
+  assert.deepEqual(scene.linkedChoiceIds, ["choice-a"]);
+  assert.deepEqual(scene.linkedSongIds, ["song-a"]);
+  assert.deepEqual(scene.sourceRefs, refs);
+  refs[0].status = "changed-outside";
+  assert.equal(scene.sourceRefs[0].status, "source-backed");
+});

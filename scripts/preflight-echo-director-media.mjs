@@ -54,6 +54,28 @@ function jsonFiles(directory) {
   }
 }
 
+// Canonical song IDs have a direct filename. Registry aliases retain the
+// existing identity scan, but a one-song compile need not parse the whole album.
+export function selectEchoProjectPaths({ projectsRoot, songId = "", readProject = readJson } = {}) {
+  const directory = path.resolve(projectsRoot);
+  const selected = text(songId);
+  if (selected && path.basename(selected) !== selected) throw new Error(`Unsafe Echo song ID: ${selected}`);
+  if (!selected) return jsonFiles(directory);
+  const direct = path.join(directory, `${selected}-video-project.json`);
+  if (fs.existsSync(direct)) {
+    try {
+      if (echoProjectMatchesSongId(readProject(direct), selected)) return [direct];
+    } catch {
+      // Let the caller report the corrupt requested source instead of hiding it.
+      return [direct];
+    }
+  }
+  return jsonFiles(directory).filter((projectPath) => {
+    try { return echoProjectMatchesSongId(readProject(projectPath), selected); }
+    catch { return path.basename(projectPath, ".json") === selected; }
+  });
+}
+
 function graphOf(project = {}) {
   const declared = project.director_show_graph || project.directorShowGraph;
   return declared?.tracks ? declared : projectToEditorGraph(project);
@@ -271,14 +293,7 @@ export function preflightEchoAlbum({
   }
   const projects = [];
   const inputCuts = [];
-  const projectPaths = jsonFiles(resolvedProjectsRoot).filter((projectPath) => {
-    if (!selectedSongId) return true;
-    try {
-      return echoProjectMatchesSongId(readJson(projectPath), selectedSongId);
-    } catch {
-      return path.basename(projectPath, ".json") === selectedSongId;
-    }
-  });
+  const projectPaths = selectEchoProjectPaths({ projectsRoot: resolvedProjectsRoot, songId: selectedSongId });
   if (!projectPaths.length) {
     const context = {
       songId: "album",

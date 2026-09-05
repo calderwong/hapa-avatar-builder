@@ -40,8 +40,8 @@ test("Electron production mode keeps DevTools closed and logs bounded", () => {
 test("Echo preview bounds preload and keeps each VideoTexture paired to its video", () => {
   const source = fs.readFileSync("./src/components/TarotDraw3DView.jsx", "utf8");
   const pool = fs.readFileSync("./src/domain/echo-player-pool.js", "utf8");
-  assert.ok(pool.includes("ECHO_PLAYER_POOL_LIMIT = 3"));
-  assert.ok(pool.includes("offset < 3"));
+  assert.ok(pool.includes("ECHO_PLAYER_POOL_BUDGETS = Object.freeze([3, 5, 9])"));
+  assert.ok(pool.includes("offset < budget"));
   assert.ok(source.includes("pairDropZoneScreenVideoTexture(screen, preloadedVideo)"));
   assert.ok(source.includes("const texture = new THREE.VideoTexture(nextVideo)"));
   assert.ok(!source.includes("screen.texture.image = preloadedVideo"));

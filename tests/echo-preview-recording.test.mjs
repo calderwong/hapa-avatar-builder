@@ -513,8 +513,8 @@ test("capture composites picture + shader only, never the HUD or lyrics", () => 
   assert.doesNotMatch(composite, /data-echo-preview-hud|cleanPreviewMode|currentLine/);
 });
 
-test("capture lifecycle survives tab changes, song changes, and unmount", () => {
-  assert.match(viewSource, /if \(\(activeWorkbenchTab !== "preview" \|\| powerMode === "hidden"\) && previewRecordingActiveRef\.current\)/);
+test("capture survives Preview/Variations switching and stops on hidden, song change or unmount", () => {
+  assert.match(viewSource, /if \(\(!\["preview", "variation"\]\.includes\(activeWorkbenchTab\) \|\| powerMode === "hidden"\) && previewRecordingActiveRef\.current\)/);
   assert.match(viewSource, /if \(previewRecordingActiveRef\.current\) stopPreviewRecording\(\);/);
   assert.match(viewSource, /if \(previewRecordingActiveRef\.current\) stopPreviewRecording\(\);\n      releasePreviewRecordingResources\(\);/);
 });

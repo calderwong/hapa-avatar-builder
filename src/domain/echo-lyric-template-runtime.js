@@ -1,3 +1,4 @@
+import { echoLyricBoundary } from "./echo-lyric-time.js";
 import {
   echoLyricTemplate,
   normalizeEchoLyricContract,
@@ -22,7 +23,7 @@ function lyricRound(value, digits = 4) {
 
 export function echoLyricFrameTime(timeSeconds = 0, fps = 30) {
   const rate = Math.max(1, Math.round(lyricFinite(fps, 30)));
-  const frame = Math.max(0, Math.floor(Math.max(0, lyricFinite(timeSeconds)) * rate));
+  const frame = Math.max(0, Math.floor(Math.max(0, lyricFinite(timeSeconds)) * rate + 1e-9));
   return { frame, fps: rate, timeSeconds: lyricRound(frame / rate, 6) };
 }
 
@@ -46,8 +47,8 @@ export function echoLyricDisplayToken(word = {}, timeSeconds = 0, maximumCharact
   } else {
     for (let index = 0; index < value.length; index += maximumCharacters) pages.push(value.slice(index, index + maximumCharacters));
   }
-  const start = lyricFinite(word.start);
-  const end = Math.max(start + 0.001, lyricFinite(word.end, start + 0.001));
+  const start = echoLyricBoundary(word, "start");
+  const end = Math.max(start + 0.001, echoLyricBoundary(word, "end", start + 0.001));
   const progress = lyricClamp01((lyricFinite(timeSeconds) - start) / (end - start));
   return pages[Math.min(pages.length - 1, Math.floor(progress * pages.length))] || value.slice(0, maximumCharacters);
 }
@@ -70,9 +71,9 @@ export function echoLyricDisplayWindow({
   if (rows.length <= limit) {
     return { startIndex: 0, endIndex: rows.length, wordCount: rows.length, text: rows.map((word) => echoLyricDisplayToken(word, timeSeconds)).join(" ").trim() };
   }
-  let anchorIndex = rows.findIndex((word) => timeSeconds >= lyricFinite(word.start, lineStart) && timeSeconds < lyricFinite(word.end, lineEnd));
+  let anchorIndex = rows.findIndex((word) => timeSeconds >= echoLyricBoundary(word, "start", lineStart) && timeSeconds < echoLyricBoundary(word, "end", lineEnd));
   if (anchorIndex < 0) {
-    anchorIndex = rows.findIndex((word) => timeSeconds < lyricFinite(word.start, lineStart));
+    anchorIndex = rows.findIndex((word) => timeSeconds < echoLyricBoundary(word, "start", lineStart));
     if (anchorIndex < 0) anchorIndex = rows.length - 1;
   }
   const startIndex = Math.floor(Math.max(0, anchorIndex) / limit) * limit;
@@ -111,8 +112,8 @@ export function echoLyricTemplateFrameState({
   fps = 30,
 } = {}) {
   const clock = echoLyricFrameTime(timeSeconds, fps);
-  const start = lyricFinite(line.start);
-  const end = Math.max(start + 0.001, lyricFinite(line.end, start + 0.001));
+  const start = echoLyricBoundary(line, "start");
+  const end = Math.max(start + 0.001, echoLyricBoundary(line, "end", start + 0.001));
   const entryStart = Math.max(0, start - 0.24);
   const exitEnd = end + 0.18;
   const entryProgress = lyricClamp01((clock.timeSeconds - entryStart) / Math.max(0.001, start - entryStart));
@@ -139,8 +140,8 @@ export function echoLyricTemplateFrameState({
     displayWindow,
     displayText: displayWindow.text || String(line.text || ""),
     words: words.map((word, index) => {
-      const wordStart = lyricFinite(word.start, start);
-      const wordEnd = Math.max(wordStart + 0.001, lyricFinite(word.end, wordStart + 0.001));
+      const wordStart = echoLyricBoundary(word, "start", start);
+      const wordEnd = Math.max(wordStart + 0.001, echoLyricBoundary(word, "end", wordStart + 0.001));
       const active = clock.timeSeconds >= wordStart && clock.timeSeconds < wordEnd;
       const completed = clock.timeSeconds >= wordEnd;
       const wordProgress = lyricClamp01((clock.timeSeconds - wordStart) / Math.max(0.001, wordEnd - wordStart));
@@ -195,6 +196,7 @@ export function echoLyricTemplateFrameState({
 export function echoLyricTemplateRuntimeBrowserSource() {
   return [
     `const ECHO_LYRIC_TEMPLATE_RUNTIME_SCHEMA=${JSON.stringify(ECHO_LYRIC_TEMPLATE_RUNTIME_SCHEMA)};`,
+    echoLyricBoundary.toString(),
     lyricFinite.toString(),
     lyricClamp01.toString(),
     lyricRound.toString(),

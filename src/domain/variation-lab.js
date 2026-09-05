@@ -1,3 +1,4 @@
+import { resolveEchoDirectorRecipe } from "./echo-director-recipes.js";
 export const VARIATION_LAB_SCHEMA = "hapa.director.variation-lab.v1";
 const stable = (value) => Array.isArray(value) ? value.map(stable) : value && typeof value === "object" ? Object.fromEntries(Object.keys(value).sort().map((key) => [key, stable(value[key])])) : value;
 const hash = (value) => {
@@ -10,21 +11,19 @@ const hash = (value) => {
   }
   return `${a.toString(16).padStart(8, "0")}${b.toString(16).padStart(8, "0")}`.repeat(4);
 };
-const axisDefinitions = {
-  conservative: { cutScale: 1.18, visualizerMix: 0.28, cameraEnergy: 0.46, accentDensity: 0.28, temporalModulation: 0.12 },
-  kinetic: { cutScale: 0.78, visualizerMix: 0.5, cameraEnergy: 0.82, accentDensity: 0.72, temporalModulation: 0.48 },
-  "visualizer-forward": { cutScale: 0.92, visualizerMix: 0.72, cameraEnergy: 0.68, accentDensity: 0.58, temporalModulation: 0.34 },
-};
 
-export function createVariationLab({ projectId, treatmentId, cueGraphId, basePlanId = treatmentId, locks = [], seeds = ["A", "B", "C"], recipes = ["conservative", "kinetic", "visualizer-forward"] } = {}) {
+
+export function createVariationLab({ projectId, treatmentId, cueGraphId, basePlanId = treatmentId, locks = [], seeds = ["A", "B", "C"], recipes = ["conservative", "kinetic", "visualizer-forward"], previewRange = { startSeconds: 0, durationSeconds: 10 } } = {}) {
+  const range = { startSeconds: Math.max(0, Number(previewRange.startSeconds) || 0), durationSeconds: Math.max(.001, Number(previewRange.durationSeconds) || 10) };
   const variants = recipes.map((recipe, index) => {
     const seed = `${projectId}:${seeds[index] || String(index + 1)}`;
-    const axes = axisDefinitions[recipe];
-    return { id: `lab-variant:${hash([basePlanId, cueGraphId, recipe, seed]).slice(0, 20)}`, label: seeds[index] || String(index + 1), recipe, seed, axes, previewRange: { startSeconds: index * 10, durationSeconds: 10 }, receiptHash: hash({ basePlanId, cueGraphId, recipe, seed, axes }) };
+    const { cutScale, visualizerMix, cameraEnergy, accentDensity, temporalModulation } = resolveEchoDirectorRecipe(recipe);
+    const axes = { cutScale, visualizerMix, cameraEnergy, accentDensity, temporalModulation };
+    return { id: `lab-variant:${hash([basePlanId, cueGraphId, recipe, seed]).slice(0, 20)}`, label: seeds[index] || String(index + 1), recipe, seed, axes, previewRange: { ...range }, receiptHash: hash({ basePlanId, cueGraphId, recipe, seed, axes }) };
   });
   return {
     schemaVersion: VARIATION_LAB_SCHEMA,
-    projectId, treatmentId, cueGraphId, basePlanId,
+    projectId, treatmentId, cueGraphId, basePlanId, previewRange: range,
     reusedExpensiveDecisions: ["editorial-treatment", "canonical-cue-graph", "semantic-media-rankings", "stem-telemetry", "media-affordances"],
     rerolledCheapAxes: ["cut-scale", "visualizer-mix", "camera-energy", "accent-density", "temporal-modulation", "media-offset"],
     semanticDecisionRuns: 0,
@@ -69,6 +68,6 @@ export function loadVariationLab(storage, projectId) {
 }
 
 export function regenerateVariationLab(previous, inputs = {}) {
-  const next = createVariationLab({ ...inputs, projectId: previous.projectId, treatmentId: inputs.treatmentId || previous.treatmentId, cueGraphId: inputs.cueGraphId || previous.cueGraphId, locks: previous.locks });
+  const next = createVariationLab({ ...inputs, projectId: previous.projectId, treatmentId: inputs.treatmentId || previous.treatmentId, cueGraphId: inputs.cueGraphId || previous.cueGraphId, previewRange: inputs.previewRange || previous.previewRange, locks: previous.locks });
   return previous.promoted ? { ...next, promoted: previous.promoted } : next;
 }

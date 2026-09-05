@@ -1,4 +1,11 @@
-export const ECHO_PLAYER_POOL_LIMIT = 9;
+export const ECHO_PLAYER_POOL_BUDGETS = Object.freeze([3, 5, 9]);
+export function resolveEchoPlayerPoolLimit(value, fallback = 9) {
+  const requested = Number(value);
+  return ECHO_PLAYER_POOL_BUDGETS.includes(requested) ? requested : ECHO_PLAYER_POOL_BUDGETS.includes(fallback) ? fallback : 9;
+}
+// One immutable budget per mounted app session, shared by all pool consumers.
+// The URL setting supports reproducible 3/5/9-player acceptance runs.
+export const ECHO_PLAYER_POOL_LIMIT = resolveEchoPlayerPoolLimit(new URLSearchParams(globalThis.location?.search || "").get("echoPlayerBudget"));
 
 export function canonicalEchoAssetKey(value = "") {
   return String(value || "").split("#")[0];
@@ -11,11 +18,12 @@ export function echoShotRuntimeUri(shot = {}) {
 
 export function planEchoPlayerLeases(project = null, currentShotIndex = 0, limit = ECHO_PLAYER_POOL_LIMIT) {
   const timeline = Array.isArray(project?.timeline) ? project.timeline : [];
-  if (!timeline.length || limit <= 0) return [];
+  const budget = Math.max(0, Math.min(9, Math.trunc(Number(limit) || 0)));
+  if (!timeline.length || budget <= 0) return [];
   const start = Math.max(0, Math.min(timeline.length - 1, Number(currentShotIndex) || 0));
   const leases = [];
   const seenAssets = new Set();
-  for (let offset = 0; offset < timeline.length && offset < ECHO_PLAYER_POOL_LIMIT; offset += 1) {
+  for (let offset = 0; offset < timeline.length && offset < budget; offset += 1) {
     const shotIndex = (start + offset) % timeline.length;
     const shot = timeline[shotIndex];
     const uri = echoShotRuntimeUri(shot);
@@ -30,7 +38,7 @@ export function planEchoPlayerLeases(project = null, currentShotIndex = 0, limit
       uri,
       startSeconds: Number(shot.start_sec || 0),
     });
-    if (leases.length >= Math.min(ECHO_PLAYER_POOL_LIMIT, limit)) break;
+    if (leases.length >= budget) break;
   }
   return leases;
 }

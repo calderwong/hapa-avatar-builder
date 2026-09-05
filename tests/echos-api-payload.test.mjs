@@ -2,15 +2,25 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
+import { createServer } from "node:net";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
+import { echoDirectionVariantFingerprint } from "../src/domain/echo-direction-variants.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, "..");
-const PORT = 18997;
-const BASE = `http://127.0.0.1:${PORT}`;
+let PORT;
+let BASE;
+async function selectTemporaryPort() {
+  const reservation = createServer();
+  reservation.listen(0, '127.0.0.1');
+  await once(reservation, 'listening');
+  const port = reservation.address().port;
+  await new Promise((resolve, reject) => reservation.close(error => error ? reject(error) : resolve()));
+  return port;
+}
 
 async function waitForHealth(child) {
   const started = Date.now();
@@ -29,6 +39,8 @@ async function waitForHealth(child) {
 }
 
 test("Echo summary endpoint stays compact and lazy-loads project detail", async () => {
+  PORT = await selectTemporaryPort();
+  BASE = `http://127.0.0.1:${PORT}`;
   const projectFiles = (await fs.readdir(path.join(ROOT, "data/music-video-projects"))).filter((file) => file.endsWith(".json"));
   const targetProjectPayload = JSON.parse(await fs.readFile(path.join(ROOT, "data/music-video-projects", projectFiles[0]), "utf8"));
   const targetSongId = targetProjectPayload.music_video_project.song_id;
@@ -79,14 +91,30 @@ test("Echo summary endpoint stays compact and lazy-loads project detail", async 
       },
     }],
   }), "utf8");
-  const child = spawn(process.execPath, ["server/api.mjs", "--port", String(PORT), "--static", "dist"], {
+  const boardPath = path.join(variantsRoot, 'board.json');
+  await fs.writeFile(boardPath, JSON.stringify({ lanes: [{ id: 'requirements', cards: [{ id: 'fixture-card', status: 'todo', acceptance: ['retain evidence'], owner: 'QA' }] }] }));
+  const child = spawn(process.execPath, ["server/api.mjs", "--host", "127.0.0.1", "--port", String(PORT), "--static", "dist"], {
     cwd: ROOT,
     stdio: ["ignore", "pipe", "pipe"],
-    env: { ...process.env, HAPA_ECHO_DIRECTION_VARIANTS_DIR: variantsRoot },
+    env: { ...process.env, HAPA_ECHO_DIRECTION_VARIANTS_DIR: variantsRoot, HAPA_ECHO_KANBAN_PATH: boardPath, HAPA_ECHO_KANBAN_STATE_ROOT: path.join(variantsRoot, "board-state") },
   });
 
   try {
     await waitForHealth(child);
+    const boardResponse = await fetch(`${BASE}/api/echos/kanban`);
+    assert.equal(boardResponse.status, 200);
+    const board = await boardResponse.json();
+    assert.match(board._sync.revision, /^[a-f0-9]{64}$/);
+    const boardCommand = { commandId: 'fixture-board-command', expectedRevision: board._sync.revision, laneId: 'requirements', cardId: 'fixture-card', status: 'in_progress' };
+    const postBoard = body => fetch(`${BASE}/api/echos/kanban`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    const boardSave = await postBoard(boardCommand);
+    assert.equal(boardSave.status, 200);
+    const savedBoard = await boardSave.json();
+    assert.equal(savedBoard.lanes[0].cards[0].status, 'in_progress');
+    assert.deepEqual(savedBoard.lanes[0].cards[0].acceptance, ['retain evidence']);
+    assert.equal((await (await postBoard(boardCommand)).json()).idempotentReplay, true);
+    assert.equal((await postBoard({ ...boardCommand, commandId: 'fixture-stale-command', status: 'done' })).status, 409);
+    assert.equal((await postBoard(board)).status, 422);
 
     const summaryResponse = await fetch(`${BASE}/api/echos/director-projects?summary=1`);
     assert.equal(summaryResponse.ok, true);
@@ -110,6 +138,8 @@ test("Echo summary endpoint stays compact and lazy-loads project detail", async 
     assert.equal(firstProject.output_profile.height, 1080);
 
     const targetSummary = summaries.find((row) => row.music_video_project.song_id === targetSongId).music_video_project;
+    const exactFixtureFingerprint = echoDirectionVariantFingerprint(JSON.parse(await fs.readFile(path.join(targetVariantDir, "scroll-fal.json"), "utf8")));
+    assert.equal(targetSummary.selected_cut.fingerprint, exactFixtureFingerprint, "catalog identity must hash source cut bytes, never its compact metadata projection");
     assert.equal(targetSummary.direction_script_variant_count, 1);
     assert.equal(targetSummary.record_preview.videoUri, "/media/scroll-fixture.mp4");
     assert.equal(targetSummary.record_preview.posterUri, "/media/scroll-fixture.jpg");
@@ -138,7 +168,7 @@ test("Echo summary endpoint stays compact and lazy-loads project detail", async 
         videoEventsPerMinute: null,
         videoCoverageSeconds: null,
       },
-      fingerprint: null,
+      fingerprint: exactFixtureFingerprint,
     }]);
     assert.equal(targetSummary.direction_script_variant_summaries[0].timeline, undefined, "summary must not ship variant timelines");
     assert.equal(targetSummary.direction_script_variant_summaries[0].hyperframe_script, undefined, "summary must not ship variant scripts");
@@ -181,6 +211,9 @@ test("Echo summary endpoint stays compact and lazy-loads project detail", async 
 
     const parentVariantPath = path.join(targetVariantDir, "scroll-fal.json");
     const parentBytesBeforeFork = await fs.readFile(parentVariantPath);
+    // Availability fixture only; this test does not claim successful video decode.
+    const humanSourcePath = path.join(variantsRoot, "human-source.mp4");
+    await fs.writeFile(humanSourcePath, Buffer.from("000000186674797069736f6d0000020069736f6d69736f32", "hex"));
     const forkRequest = {
       schemaVersion: "hapa.echo.direction-variant-fork-request.v1",
       songId: targetSongId,
@@ -193,7 +226,7 @@ test("Echo summary endpoint stays compact and lazy-loads project detail", async 
         start_sec: 0,
         end_sec: 4,
         media_id: "human-choice",
-        media_uri: "/media/human-choice.mp4",
+        media_uri: pathToFileURL(humanSourcePath).href,
         media_card_id: "ship-card-high-quality",
         media_card_kind: "hapa.ship-card.v1",
         media_card_ref: "/cards/ship-card-high-quality.json",
@@ -204,6 +237,19 @@ test("Echo summary endpoint stays compact and lazy-loads project detail", async 
       projectPatch: { output_profile: "vertical", lyric_style: "cinematic", ignored_private_field: "must-not-persist" },
       hyperframeScript: "<div data-direction-variant=\"edited-fixture\"></div>",
     };
+    for (const invalid of [
+      { requestedId: "banned-pinned", mediaConstraints: { pins: ["human-choice"], bans: ["human-choice"] } },
+      { requestedId: "missing-pinned", mediaConstraints: { pins: ["human-choice"] }, timeline: [{ ...forkRequest.timeline[0], media_uri: "/media/absent-echo-fixture.mp4", availability: { exists: true, bytes: 1000 } }] },
+    ]) {
+      const rejected = await fetch(`${BASE}/api/echos/direction-variant/fork`, {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...forkRequest, ...invalid }),
+      });
+      assert.equal(rejected.status, 422);
+      const payload = await rejected.json();
+      assert.equal(payload.constraints.code, "echo_media_constraints_unsatisfied");
+      assert.ok(payload.constraints.alternatives.length);
+      await assert.rejects(fs.access(path.join(targetVariantDir, `${invalid.requestedId}.json`)));
+    }
     const forkResponse = await fetch(`${BASE}/api/echos/direction-variant/fork`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -241,6 +287,7 @@ test("Echo summary endpoint stays compact and lazy-loads project detail", async 
     const postForkSummaries = await postForkSummaryResponse.json();
     const postForkTarget = postForkSummaries.find((row) => row.music_video_project.song_id === targetSongId).music_video_project;
     assert.equal(postForkTarget.direction_script_variant_count, 2, "an unindexed child cut must remain immediately visible");
+    assert.equal(postForkTarget.selected_cut.fingerprint, echoDirectionVariantFingerprint(childVariant), "fallback summary must retain the immutable child fingerprint");
     assert.ok(postForkTarget.direction_script_variant_summaries.some((variant) => variant.id === "edited-fixture-cut"));
 
     const staleParentResponse = await fetch(`${BASE}/api/echos/direction-variant/fork`, {

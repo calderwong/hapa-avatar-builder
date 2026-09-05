@@ -6,8 +6,6 @@ const crypto = require("node:crypto");
 const fs = require("node:fs");
 const http = require("node:http");
 const path = require("node:path");
-const pixelAcceptancePromise = import("./hyperframes-pixel-acceptance.mjs");
-const outputProfilePromise = import("../src/domain/echo-output-profile.js");
 
 const ROOT = path.resolve(__dirname, "..");
 const value = (name, fallback = "") => {
@@ -23,6 +21,8 @@ const suppliedExpectations = expectationsPath && fs.existsSync(expectationsPath)
   ? JSON.parse(fs.readFileSync(expectationsPath, "utf8"))
   : null;
 const explicitTimes = value("at", "");
+const acceptanceScope = value("scope", "full-show");
+if (!["full-show", "lyrics"].includes(acceptanceScope)) throw new Error(`Unknown acceptance scope: ${acceptanceScope}`);
 const entry = path.join(project, "index.html");
 const manifestPath = path.join(project, "executable-show.json");
 
@@ -48,7 +48,14 @@ function lyricSampleTimestamps(manifest) {
   return [...new Set(selected.flatMap((line) => {
     const start = finite(line.start);
     const end = finite(line.end, start);
-    return [Math.max(0, start - frame), start, start + ((end - start) / 2), Math.max(start, end - frame), end + frame];
+    const words = line.words || [];
+    const selectedWords = [...new Set([0, Math.floor(words.length / 2), words.length - 1])].map((index) => words[index]).filter(Boolean);
+    const wordTimes = selectedWords.flatMap((word) => {
+      const from = finite(word.start ?? word.startSeconds, start);
+      const to = finite(word.end ?? word.endSeconds, from);
+      return [Math.max(start, from - frame), from + (to - from) / 2, Math.min(end, to + frame)];
+    });
+    return [Math.max(0, start - frame), start, start + ((end - start) / 2), Math.max(start, end - frame), end + frame, ...wordTimes];
   }).map((timestamp) => Number(timestamp.toFixed(6))))];
 }
 
@@ -212,16 +219,22 @@ async function waitFor(win, expression, timeoutMs = 20000) {
   return false;
 }
 
+// Own shutdown after the HTTP server is closed; avoid implicit app teardown
+// re-entering JavaScript while destroy() is still releasing the last window.
+app.on("window-all-closed", () => {});
 app.setName("hapa-hyperframes-pixel-capture");
 app.setPath("userData", path.join("/tmp", `hapa-hyperframes-pixel-capture-${process.pid}`));
 app.commandLine.appendSwitch("disable-background-timer-throttling");
 app.commandLine.appendSwitch("disable-renderer-backgrounding");
 
+console.log(`[lyric-capture] boot pid=${process.pid}`);
 app.whenReady().then(async () => {
+  console.log("[lyric-capture] app ready");
   const [{ evaluateHyperFramesPixelAcceptance }, { resolveEchoOutputProfile }] = await Promise.all([
-    pixelAcceptancePromise,
-    outputProfilePromise,
+    import("./hyperframes-pixel-acceptance.mjs"),
+    import("../src/domain/echo-output-profile.js"),
   ]);
+  console.log("[lyric-capture] modules ready");
   let win;
   let localServer;
   const networkAttempts = [];
@@ -234,6 +247,7 @@ app.whenReady().then(async () => {
       throw new Error(`Explicit expectations file is missing: ${expectationsPath}`);
     }
     const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
+    if (acceptanceScope === "lyrics" && manifestVisualizerInstances(manifest).length) throw new Error("Lyrics-only capture is limited to fixtures with no visualizer instances; use full-show for composed cuts.");
     const outputProfile = resolveEchoOutputProfile(manifest?.outputProfile ?? manifest?.output_profile);
     const timestampSource = explicitTimes
       || (suppliedExpectations?.samples || []).map((row) => row.timestamp).join(",")
@@ -256,6 +270,7 @@ app.whenReady().then(async () => {
     const expectationByTime = new Map((expectations.samples || []).map((row) => [Number(row.timestamp).toFixed(6), row]));
     fs.mkdirSync(output, { recursive: true });
     localServer = await createStaticServer(project);
+    console.log("[lyric-capture] server ready");
     win = new BrowserWindow({
       show: false,
       frame: false,
@@ -281,7 +296,9 @@ app.whenReady().then(async () => {
       if (details.level === "error") consoleErrors.push(row);
       else if (details.level === "warning") consoleWarnings.push(row);
     });
+    console.log("[lyric-capture] window ready");
     await win.loadURL(`${localServer.origin}/index.html`);
+    console.log("[lyric-capture] document ready");
     const ready = await waitFor(
       win,
       "Boolean(window.__timelines && window.__timelines.main && typeof window.__timelines.main.seek === 'function' && window.HAPA_EXECUTABLE_SHOW)",
@@ -299,6 +316,7 @@ app.whenReady().then(async () => {
 
     const frames = [];
     for (let index = 0; index < timestamps.length; index += 1) {
+      console.log(`[lyric-capture] frame ${index + 1}/${timestamps.length}`);
       const timestamp = timestamps[index];
       const captureState = await win.webContents.executeJavaScript(`(async () => {
         const timeline = window.__timelines.main;
@@ -359,6 +377,7 @@ app.whenReady().then(async () => {
               rect: { left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom, width: rect.width, height: rect.height },
               words: [...lyric.querySelectorAll(".lyric-word")].map((word) => ({
                 text: String(word.textContent || ""),
+                index: Number(word.dataset.wordIndex),
                 active: word.dataset.wordActive === "true",
                 progress: Number(word.dataset.wordProgress || 0),
               })),
@@ -400,6 +419,12 @@ app.whenReady().then(async () => {
               templateId: track?.templateId || null,
               runtimeSchema: track?.runtimeSchema || null,
               lineText: line?.text || null,
+              activeWordIndices: (line?.words || []).flatMap((word, index) => {
+                const t = Math.floor(timestamp * manifest.fps + 1e-9) / manifest.fps;
+                const start = finite(word.start ?? word.startSeconds, finite(line?.start));
+                const end = Math.max(start + .001, finite(word.end ?? word.endSeconds, start + .001));
+                return t >= start && t < end ? [index] : [];
+              }),
               lineIndex: Number.isInteger(line?.index) ? line.index : null,
             };
           })(),
@@ -450,10 +475,14 @@ app.whenReady().then(async () => {
       const visibleMatches = Boolean(observed.visible) === Boolean(expected.active);
       const templateMatches = !expected.active || observed.templateId === expected.templateId;
       const runtimeMatches = !expected.active || observed.runtimeSchema === expected.runtimeSchema;
+      const observedActiveWordIndices = (observed.words || []).filter((word) => word.active).map((word) => word.index);
+      const wordTimingMatches = JSON.stringify(observedActiveWordIndices) === JSON.stringify(expected.activeWordIndices || []);
       return {
         timestamp: frame.timestamp,
         active: Boolean(expected.active),
-        ok: textMatches && visibleMatches && templateMatches && runtimeMatches && insideFrame,
+        ok: textMatches && visibleMatches && templateMatches && runtimeMatches && insideFrame && wordTimingMatches,
+        wordTimingMatches,
+        observedActiveWordIndices,
         textMatches,
         visibleMatches,
         templateMatches,
@@ -506,7 +535,11 @@ app.whenReady().then(async () => {
       frames,
     };
     report.functionalOk = evaluated.functionalOk;
-    report.ok = evaluated.ok && lyricProof.ok;
+    report.acceptanceScope = acceptanceScope;
+    report.shaderAcceptanceRequired = acceptanceScope === "full-show";
+    report.ok = acceptanceScope === "lyrics"
+      ? lyricProof.ok && frames.length > 0 && frames.every((frame) => frame.renderState && frame.metrics?.nonBlank) && networkAttempts.length === 0 && consoleErrors.length === 0
+      : evaluated.ok && lyricProof.ok;
     const reportPath = path.join(output, "pixel-capture-report.json");
     fs.writeFileSync(reportPath, `${JSON.stringify(report, null, 2)}\n`);
     process.stdout.write(`${JSON.stringify({
@@ -527,8 +560,11 @@ app.whenReady().then(async () => {
     console.error(error.stack || error.message || String(error));
     process.exitCode = 1;
   } finally {
-    win?.destroy();
-    localServer?.server.close();
-    app.quit();
+    if (win && !win.isDestroyed()) win.destroy();
+    if (localServer?.server.listening) {
+      localServer.server.closeAllConnections();
+      await new Promise((resolve) => localServer.server.close(resolve));
+    }
+    setImmediate(() => app.quit());
   }
 });

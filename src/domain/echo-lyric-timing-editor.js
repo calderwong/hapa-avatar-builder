@@ -1,3 +1,4 @@
+import { echoLyricBoundary } from "./echo-lyric-time.js";
 export const ECHO_LYRIC_MANUAL_EDIT_SCHEMA = "hapa.echo.lyric-manual-edit.v1";
 
 const finite = (value, fallback = 0) => Number.isFinite(Number(value)) ? Number(value) : fallback;
@@ -5,9 +6,10 @@ const round = (value) => Math.round(finite(value) * 1000) / 1000;
 const clamp = (value, min, max) => Math.max(min, Math.min(max, finite(value, min)));
 
 function normalizeWord(word = {}, lineStart = 0, lineEnd = lineStart + 0.001) {
-  const start = clamp(word.start, lineStart, lineEnd);
-  const end = clamp(Math.max(start + 0.001, finite(word.end, start + 0.001)), start + 0.001, lineEnd);
-  return { ...word, start: round(start), end: round(end) };
+  const start = clamp(echoLyricBoundary(word, "start", lineStart), lineStart, lineEnd);
+  const end = clamp(Math.max(start + 0.001, echoLyricBoundary(word, "end", start + 0.001)), start + 0.001, lineEnd);
+  const { startSeconds, endSeconds, ...canonical } = word;
+  return { ...canonical, start: round(start), end: round(end) };
 }
 
 export function normalizeEchoLyricTimingLines(lines = [], durationSeconds = Infinity) {
@@ -15,12 +17,13 @@ export function normalizeEchoLyricTimingLines(lines = [], durationSeconds = Infi
     ? Number(durationSeconds)
     : Infinity;
   return (Array.isArray(lines) ? lines : []).map((line, index) => {
-    const previousEnd = index > 0 ? finite(lines[index - 1]?.end) : 0;
-    const start = clamp(line?.start, 0, duration);
-    const end = clamp(Math.max(start + 0.001, finite(line?.end, Math.max(start + 0.001, previousEnd))), start + 0.001, duration);
+    const previousEnd = index > 0 ? echoLyricBoundary(lines[index - 1], "end") : 0;
+    const start = clamp(echoLyricBoundary(line, "start"), 0, duration);
+    const end = clamp(Math.max(start + 0.001, echoLyricBoundary(line, "end", Math.max(start + 0.001, previousEnd))), start + 0.001, duration);
     const words = (Array.isArray(line?.words) ? line.words : []).map((word) => normalizeWord(word, start, end));
+    const { startSeconds, endSeconds, ...canonical } = line;
     return {
-      ...line,
+      ...canonical,
       text: String(line?.text || "").trim(),
       start: round(start),
       end: round(end),

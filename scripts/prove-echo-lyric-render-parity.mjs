@@ -11,7 +11,8 @@ import { hashEchoLyricOverlayExecutionContract } from "../src/domain/hyperframes
 
 const execFile = promisify(execFileCallback);
 const ROOT = path.resolve(".");
-const OUTPUT = path.join(ROOT, "artifacts/echo-lyric-quality-v4/rendered-parity");
+const outputArgument = process.argv.find((arg) => arg.startsWith("--output="))?.slice(9);
+const OUTPUT = path.resolve(outputArgument || path.join(ROOT, "artifacts/echo-lyric-quality-v4", `rendered-parity-${Date.now()}`));
 const templates = [
   "kinetic-word-burst-v1",
   "scanline-phrase-ribbon-v1",
@@ -32,8 +33,8 @@ const run = (command, args, options = {}) => execFile(command, args, {
   ...options,
 });
 
-await fsp.rm(OUTPUT, { recursive: true, force: true });
 await fsp.mkdir(OUTPUT, { recursive: true });
+if ((await fsp.readdir(OUTPUT)).length) throw new Error("Refusing to replace an existing lyric proof; choose a fresh --output directory.");
 const audioPath = path.join(OUTPUT, "fixture.wav");
 const backgroundPath = path.join(OUTPUT, "fixture-background.png");
 await run("ffmpeg", [
@@ -113,7 +114,7 @@ for (const templateId of templates) {
       id: project.song_id,
       title: project.song_title,
       durationSeconds: 3,
-      lyricOverlay,
+      lyricOverlay: { ...lyricOverlay, lines: lyricOverlay.lines.map((cue) => ({ ...cue, words: cue.words.map(({ start, end, word }) => ({ text: word, startSeconds: start, endSeconds: end })) })) },
     },
     stems: { items: [] },
     tracks: [{
@@ -150,6 +151,8 @@ for (const templateId of templates) {
   ]);
   await run(path.join(ROOT, "node_modules/.bin/electron"), [
     path.join(ROOT, "scripts/hyperframes-pixel-capture.cjs"),
+    ...(process.platform === "darwin" ? ["-ApplePersistenceIgnoreState", "YES"] : []),
+    "--scope=lyrics",
     `--project=${packageDirectory}`,
     `--output=${qaDirectory}`,
   ]);
@@ -182,7 +185,10 @@ for (const templateId of templates) {
   results.push({
     templateId,
     enabled,
+    acceptanceScope: "lyrics-only-native-word-fixture",
     ok: compilerReport.ok === true
+      && pixelReport.ok === true
+      && pixelReport.acceptanceScope === "lyrics"
       && pixelReport.lyrics?.ok === true
       && encodedMasterProof.ok === true
       && compilerReport.lyrics?.contractHash === contractHash

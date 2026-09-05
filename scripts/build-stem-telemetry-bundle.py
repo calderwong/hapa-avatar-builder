@@ -5,12 +5,31 @@ import argparse
 import hashlib
 import json
 import subprocess
+import sys
+import time
+import shutil
 from pathlib import Path
 
 import numpy as np
 
-ANALYSIS_VERSION = "hapa.stem-telemetry.numpy-rfft-alignment.v4"
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from echo_audio_analysis_cache import AudioAnalysisCache, MAX_SOURCE_SECONDS
+
+ANALYSIS_VERSION = "hapa.stem-telemetry.numpy-rfft-events-cache.v5"
 ABSOLUTE_ACTIVITY_FLOOR = 10 ** (-60 / 20)
+
+
+def analysis_runtime_identity():
+    executable = shutil.which("ffmpeg")
+    if not executable:
+        raise ValueError("ffmpeg is required for audio preparation")
+    version = subprocess.run([executable, "-version"], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=15).stdout
+    implementation = hashlib.sha256()
+    for source in [Path(__file__), Path(__file__).with_name("echo_audio_analysis_cache.py")]:
+        implementation.update(source.read_bytes())
+    return {"decoder": "ffmpeg", "decoderVersion": version.decode(errors="replace").splitlines()[0],
+            "decoderVersionHash": hashlib.sha256(version).hexdigest(), "decoderBinaryHash": sha256_file(Path(executable).resolve()),
+            "numpyVersion": np.__version__, "pythonVersion": sys.version.split()[0], "implementationHash": implementation.hexdigest()}
 
 
 def sha256_file(file_path: Path) -> str:
@@ -21,10 +40,24 @@ def sha256_file(file_path: Path) -> str:
     return digest.hexdigest()
 
 
+def assert_same_stem_source(role, left, right):
+    first, second = str(left or ""), str(right or "")
+    if first == second:
+        return
+    a, b = Path(first).expanduser(), Path(second).expanduser()
+    if first and second and a.is_file() and b.is_file() and sha256_file(a) == sha256_file(b):
+        return  # Explicit byte-identical aliases retain both lineage records.
+    raise ValueError(f"Ambiguous {role} stem sources; select one exact audio revision before preparation")
+
+
 def decode(path: Path, sample_rate: int) -> np.ndarray:
+    probe = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "json", str(path)], check=True, stdout=subprocess.PIPE, timeout=15)
+    duration = float(json.loads(probe.stdout).get("format", {}).get("duration", 0))
+    if not 0 < duration <= MAX_SOURCE_SECONDS or duration * sample_rate * 4 > 64 * 1024 ** 2:
+        raise ValueError("Audio duration is unavailable or exceeds the 1800-second / 64 MiB resource budget")
     result = subprocess.run([
         "ffmpeg", "-nostdin", "-v", "error", "-xerror", "-i", str(path), "-ac", "1", "-ar", str(sample_rate), "-f", "f32le", "pipe:1"
-    ], check=True, stdout=subprocess.PIPE)
+    ], check=True, stdout=subprocess.PIPE, timeout=120)
     return np.frombuffer(result.stdout, dtype="<f4").copy()
 
 
@@ -57,7 +90,7 @@ def analyze(samples: np.ndarray, fps: int, sample_rate: int) -> tuple[list[dict]
     band_raw = {name: np.mean(spectrum[:, mask], axis=1) if np.any(mask) else np.zeros(frame_count) for name, mask in band_masks.items()}
     band_norm = {name: np.clip(values / percentile_scale(values), 0, 1) for name, values in band_raw.items()}
     frames = [{
-        "t": round(index / fps, 4),
+        "t": round(index * size / sample_rate, 8),
         # Preserve absolute amplitudes alongside display-normalized signals.
         # Per-input normalization makes a silent noise floor look energetic and
         # therefore cannot be used to choose a render-time stem binding.
@@ -233,6 +266,7 @@ def reconstruction_role_alignment(
 
 
 def main() -> int:
+    started = time.perf_counter()
     parser = argparse.ArgumentParser()
     parser.add_argument("--graph", required=True)
     parser.add_argument("--master", required=True)
@@ -240,7 +274,15 @@ def main() -> int:
     parser.add_argument("--graph-output", required=True)
     parser.add_argument("--fps", type=int, default=10)
     parser.add_argument("--sample-rate", type=int, default=8000)
+    parser.add_argument("--cache-dir", default=str(Path(__file__).resolve().parents[1] / "data/cache/stem-analysis"))
     args = parser.parse_args()
+    if not 1 <= args.fps <= 60 or not 4000 <= args.sample_rate <= 48000:
+        parser.error("Analysis fps must be 1–60 and sample rate 4000–48000")
+    runtime_identity = analysis_runtime_identity()
+    cache = AudioAnalysisCache(args.cache_dir, ANALYSIS_VERSION, runtime_identity=runtime_identity)
+    resource_keys = []
+    decoded_bytes = 0
+    sparse_events = []
     graph_path = Path(args.graph).resolve()
     master_path = Path(args.master).expanduser().resolve()
     output_path = Path(args.output).resolve()
@@ -259,8 +301,12 @@ def main() -> int:
             continue
         if role not in canonical:
             canonical[role] = {**item, "role": role, "aliases": [], "sourceLineage": []}
+        else:
+            assert_same_stem_source(role, canonical[role].get("audioPath"), item.get("audioPath"))
         canonical[role]["aliases"].append(str(item.get("title") or item.get("stemType") or item.get("id") or role))
         canonical[role]["sourceLineage"].append({"id": item.get("id"), "audioPath": item.get("audioPath")})
+    if len(canonical) > 32:
+        raise ValueError("Stem analysis exceeds the 32-resource budget")
     stems = []
     decoded: list[tuple[str, np.ndarray]] = []
     for role, item in canonical.items():
@@ -268,21 +314,36 @@ def main() -> int:
         if not audio_path.is_file():
             stems.append({"id": item.get("id"), "role": role, "status": "missing-path", "audioPath": str(audio_path), "aliases": item["aliases"], "sourceLineage": item["sourceLineage"], "frames": []})
             continue
-        samples = decode(audio_path, args.sample_rate)
-        frames, normalization = analyze(samples, args.fps, args.sample_rate)
+        audio_hash = sha256_file(audio_path)
+        key, samples, analysis = cache.resource(audio_path, audio_hash, args.fps, args.sample_rate, decode, analyze)
+        if sha256_file(audio_path) != audio_hash:
+            raise ValueError("Stem source changed during analysis")
+        decoded_bytes += samples.nbytes
+        if decoded_bytes > 512 * 1024 ** 2:
+            raise ValueError("Selected audio exceeds the 512 MiB reconstruction working-set budget")
+        resource_keys.append({"role": role, "key": key})
+        frames, normalization = analysis["frames"], analysis["normalization"]
+        sparse_events.extend({**event, "resourceId": str(item.get("id") or role), "audioHash": audio_hash} for event in analysis["events"])
         decoded.append((role, samples))
         stems.append({
             "id": item.get("id"), "role": role, "title": item.get("title") or item.get("stemType"), "audioPath": str(audio_path),
-            "pathHash": hashlib.sha256(str(audio_path).encode()).hexdigest(), "audioHash": sha256_file(audio_path),
+            "pathHash": hashlib.sha256(str(audio_path).encode()).hexdigest(), "audioHash": audio_hash,
             "durationSeconds": round(len(samples) / args.sample_rate, 4), "aliases": sorted(set(item["aliases"])),
             "sourceLineage": item["sourceLineage"], "normalization": normalization, "status": "verified-local-analysis", "frames": frames,
         })
     usable = [stem for stem in stems if stem["status"] == "verified-local-analysis"]
     if master_path.is_file():
-        master_samples = decode(master_path, args.sample_rate)
-        master_frames, master_normalization = analyze(master_samples, args.fps, args.sample_rate)
-        master_duration = round(len(master_samples) / args.sample_rate, 4)
         master_hash = sha256_file(master_path)
+        key, master_samples, analysis = cache.resource(master_path, master_hash, args.fps, args.sample_rate, decode, analyze)
+        if sha256_file(master_path) != master_hash:
+            raise ValueError("Master source changed during analysis")
+        decoded_bytes += master_samples.nbytes
+        if decoded_bytes > 512 * 1024 ** 2:
+            raise ValueError("Selected audio exceeds the 512 MiB reconstruction working-set budget")
+        resource_keys.append({"role": "master", "key": key})
+        master_frames, master_normalization = analysis["frames"], analysis["normalization"]
+        master_duration = round(len(master_samples) / args.sample_rate, 4)
+        sparse_events.extend({**event, "resourceId": "master", "audioHash": master_hash} for event in analysis["events"])
     else:
         master_samples = np.array([], dtype="<f4")
         master_frames, master_normalization = [], {}
@@ -291,38 +352,46 @@ def main() -> int:
     decoded_by_role = dict(decoded)
     decoded_samples = [samples for _, samples in decoded]
     decoded_index_by_role = {role: index for index, (role, _) in enumerate(decoded)}
-    for stem in stems:
-        stem_role = stem.get("role")
-        samples = decoded_by_role.get(stem_role)
-        if samples is not None and len(master_samples):
-            stem["masterAlignmentDiagnostic"] = reconstruction_role_alignment(
-                master_samples,
-                decoded_samples,
-                decoded_index_by_role[stem_role],
-                args.sample_rate,
-            )
-    reconstruction = {
-        "available": False,
-        "method": "mean-of-isolated-stems",
-        "pearsonCorrelation": None,
-        "sampleCount": 0,
-        "alignment": envelope_correlation(np.array([], dtype="<f4"), np.array([], dtype="<f4"), args.sample_rate),
-    }
-    if decoded and len(master_samples):
-        minimum = min([len(master_samples), *map(len, decoded_samples)])
-        reconstructed = np.mean(np.stack([samples[:minimum] for samples in decoded_samples]), axis=0)
-        master_window = master_samples[:minimum]
-        if minimum > 1 and float(np.std(reconstructed)) > 1e-12 and float(np.std(master_window)) > 1e-12:
-            correlation = float(np.corrcoef(master_window, reconstructed)[0, 1])
-        else:
-            correlation = None
+    def build_diagnostics():
+        role_diagnostics = {}
+        for stem in stems:
+            stem_role = stem.get("role")
+            samples = decoded_by_role.get(stem_role)
+            if samples is not None and len(master_samples):
+                role_diagnostics[stem_role] = reconstruction_role_alignment(
+                    master_samples,
+                    decoded_samples,
+                    decoded_index_by_role[stem_role],
+                    args.sample_rate,
+                )
         reconstruction = {
-            "available": True,
+            "available": False,
             "method": "mean-of-isolated-stems",
-            "pearsonCorrelation": round(correlation, 6) if correlation is not None and np.isfinite(correlation) else None,
-            "sampleCount": minimum,
-            "alignment": envelope_correlation(master_window, reconstructed, args.sample_rate),
+            "pearsonCorrelation": None,
+            "sampleCount": 0,
+            "alignment": envelope_correlation(np.array([], dtype="<f4"), np.array([], dtype="<f4"), args.sample_rate),
         }
+        if decoded and len(master_samples):
+            minimum = min([len(master_samples), *map(len, decoded_samples)])
+            reconstructed = np.mean(np.stack([samples[:minimum] for samples in decoded_samples]), axis=0)
+            master_window = master_samples[:minimum]
+            if minimum > 1 and float(np.std(reconstructed)) > 1e-12 and float(np.std(master_window)) > 1e-12:
+                correlation = float(np.corrcoef(master_window, reconstructed)[0, 1])
+            else:
+                correlation = None
+            reconstruction = {
+                "available": True,
+                "method": "mean-of-isolated-stems",
+                "pearsonCorrelation": round(correlation, 6) if correlation is not None and np.isfinite(correlation) else None,
+                "sampleCount": minimum,
+                "alignment": envelope_correlation(master_window, reconstructed, args.sample_rate),
+            }
+        return {"roles": role_diagnostics, "reconstruction": reconstruction}
+    diagnostics = cache.diagnostics(resource_keys, build_diagnostics)
+    for stem in stems:
+        if stem["role"] in diagnostics["roles"]:
+            stem["masterAlignmentDiagnostic"] = diagnostics["roles"][stem["role"]]
+    reconstruction = diagnostics["reconstruction"]
     bundle = {
         "schemaVersion": "hapa.stem-telemetry-bundle.v1", "analysisVersion": ANALYSIS_VERSION,
         "truthStatus": "offline-decoded-local-stems", "songId": (graph.get("song") or {}).get("id"), "title": (graph.get("song") or {}).get("title"),
@@ -330,6 +399,8 @@ def main() -> int:
         "canonicalStemCount": len(stems), "usableStemCount": len(usable), "duplicateInputCount": len(raw_stems) - len(ignored_inputs) - len(canonical),
         "ignoredInputCount": len(ignored_inputs), "ignoredInputs": ignored_inputs,
         "stems": stems,
+        "sparseEvents": sorted(sparse_events, key=lambda event: event["atSeconds"]),
+        "analysisSettings": {"transientHopSeconds": .005, "beatTracking": "not-inferred-from-display-envelope", "resourceCacheVersion": "echo-audio-resource-1", "runtimeIdentity": runtime_identity},
         "masterMix": {
             "role": "master", "method": "authoritative-registry-master", "audioPath": str(master_path), "audioHash": master_hash,
             "durationSeconds": master_duration, "normalization": master_normalization, "frames": master_frames,
@@ -349,6 +420,8 @@ def main() -> int:
     graph_output.parent.mkdir(parents=True, exist_ok=True)
     graph_output.write_text(json.dumps(graph, indent=2) + "\n")
     result = {"ok": len(usable) == len(stems) and len(master_frames) > 0 and master_hash is not None, "output": str(output_path), "graphOutput": str(graph_output), "bundleHash": bundle_hash, "canonicalStems": len(stems), "usableStems": len(usable), "ignoredInputs": len(ignored_inputs), "framesPerStem": len(usable[0]["frames"]) if usable else 0, "masterFrames": len(master_frames), "masterAudioHash": master_hash}
+    result["elapsedMs"] = round((time.perf_counter() - started) * 1000, 3)
+    result["analysisCache"] = {**cache.metrics, **cache.prune({item["key"] for item in resource_keys})}
     print(json.dumps(result, indent=2))
     return 0 if result["ok"] else 1
 

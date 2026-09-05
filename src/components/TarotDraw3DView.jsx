@@ -8449,6 +8449,16 @@ function createTarotDrawGame({ canvas, cards, avatarId = "local-operator", avata
       kind: "hapa-tarot-draw",
       renderer: renderer.info,
       actions: {
+        inspectSongCards: () => ({
+          count: cards.filter(isSongCard).length,
+          songIds: [...new Set(cards.filter(isSongCard).map(echoDirectorSongIdForCard))].slice(0, 500),
+          deckCount: deckCards.length,
+          productionAudit: productionAudit ? {
+            candidates: productionAudit.candidates,
+            productionReady: productionAudit.productionReady,
+            hiddenFromProduction: productionAudit.hiddenFromProduction
+          } : null
+        }),
         reconcileCurrentCards: () => reconcileCards(cards.map((card) => ({ ...card }))),
         lockFirstMusicSlotAvatar: diagnosticLockFirstMusicSlotAvatar,
         lockFirstSongCardInDropZone: diagnosticLockFirstSongCardInDropZone,
@@ -10305,13 +10315,13 @@ function createTarotDrawGame({ canvas, cards, avatarId = "local-operator", avata
     const normalizedSongId = String(requestedSongId || "").trim().toLowerCase();
     const matchesRequestedSong = (card = {}) => hasEchoSongId(card)
       && String(echoDirectorSongIdForCard(card) || "").trim().toLowerCase() === normalizedSongId;
-    const card = (normalizedSongId ? pullDeckCard(matchesRequestedSong) || cards.find(matchesRequestedSong) : null)
-      || pullDeckCard(hasEchoSongId)
+    const card = normalizedSongId ? pullDeckCard(matchesRequestedSong) || cards.find(matchesRequestedSong)
+      : pullDeckCard(hasEchoSongId)
       || pullDeckCard(isSongCard)
       || cards.find(hasEchoSongId)
       || cards.find(isSongCard);
     if (!card) {
-      status = "No song card available for Music Zone";
+      status = normalizedSongId ? `Requested Song Card is not available: ${requestedSongId}` : "No song card available for Music Zone";
       publishHud(true);
       return false;
     }

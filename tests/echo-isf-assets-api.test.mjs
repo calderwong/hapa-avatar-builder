@@ -145,7 +145,7 @@ test("Builder serves a hash-verified ISF catalog/runtime and hydrates the compil
   const detailResponse = await fetch(`${BASE}/api/echos/director-project?songId=dear-papa-song-dear-papa`);
   assert.equal(detailResponse.status, 200);
   const project = (await detailResponse.json()).music_video_project;
-  assert.ok(["ready", "preparing"].includes(project.director_show_graph_receipt.status));
+  assert.ok(["ready", "preparing"].includes(project.director_show_graph_receipt.status), JSON.stringify(project.director_show_graph_receipt));
   if (project.director_show_graph_receipt.status === "ready") {
     assert.match(project.director_show_graph_receipt.sourceHash, /^sha256:[a-f0-9]{64}$/);
   } else {

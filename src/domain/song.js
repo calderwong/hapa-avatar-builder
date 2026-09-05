@@ -103,7 +103,18 @@ export function createHapaSongStoreFromDearPapaSongbook(songbook = {}, songLibra
 
 export function normalizeHapaSongStore(input = {}, songbook = {}, songLibrary = {}) {
   const now = new Date().toISOString();
-  const sourceCards = Array.isArray(songbook.songCards) ? songbook.songCards : [];
+  // The browser ships a compact starter songbook. It supplements a hydrated
+  // store; it must not act as an allowlist that removes the rest of the album.
+  const sourceCards = [...(Array.isArray(songbook.songCards) ? songbook.songCards : [])];
+  const sourceIds = new Set(sourceCards.flatMap((card) => [card.id, card.songId]).filter(Boolean));
+  for (const song of Array.isArray(input.songs) ? input.songs : []) {
+    if (!song?.id || sourceIds.has(song.id) || (song.songId && sourceIds.has(song.songId))) continue;
+    // Carry identity and performance context only. Treating a normalized store
+    // row as an authored songbook card would invent author-review/lineage proof.
+    sourceCards.push({ id: song.id, songId: song.songId, performancePerspective: song.performancePerspective });
+    sourceIds.add(song.id);
+    if (song.songId) sourceIds.add(song.songId);
+  }
   const tracksBySongId = createRegistryTrackIndex(songLibrary);
   const existingById = new Map((input.songs || []).filter(Boolean).map((song) => [song.id, song]));
   const songs = sourceCards.map((card, index) => {

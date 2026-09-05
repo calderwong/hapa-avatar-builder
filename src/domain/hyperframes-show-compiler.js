@@ -1,3 +1,4 @@
+import { echoLyricBoundary } from "./echo-lyric-time.js";
 import crypto from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -15,7 +16,10 @@ import {
   normalizeVisualizerAudioMapping,
 } from "./hyperframes-visualizer-runtime.js";
 import { resolveEchoOutputProfile } from "./echo-output-profile.js";
+import { inspectEchoTimelineMediaEligibility, echoMediaConstraintError, evaluateEchoMediaEligibility, mergeEchoMediaConstraints } from "./echo-media-eligibility.js";
 import { inspectPortableVisualizerAttachment } from "./portable-visualizer-card.js";
+import { prepareDirectorModulationTimeline } from "./director-modulation-v2.js";
+import { evaluateEchoMusicPerformance } from "./hyperframes-visualizer-runtime.js";
 import {
   ECHO_TRANSITION_TIME_MAPPING_MAX_PLAYBACK_RATE,
   ECHO_TRANSITION_TIME_MAPPING_MODE,
@@ -49,12 +53,12 @@ export function echoLyricOverlayExecutionContract(overlay = {}) {
     audioHash: String(overlay.audioHash || ""),
     lines: (overlay.lines || []).map((line) => ({
       text: String(line.text || ""),
-      start: finite(line.start),
-      end: finite(line.end),
+      start: echoLyricBoundary(line, "start"),
+      end: echoLyricBoundary(line, "end"),
       words: (line.words || []).map((word) => ({
         word: String(word.word || word.text || ""),
-        start: finite(word.start),
-        end: finite(word.end),
+        start: echoLyricBoundary(word, "start"),
+        end: echoLyricBoundary(word, "end"),
       })),
     })),
   };
@@ -281,7 +285,7 @@ export function indexHyperFramesMediaContracts(project) {
 }
 
 function resolveIndexedMediaContract(card, contractIndex, { shotIndex = null } = {}) {
-  const localPath = text(card.media?.localPath || card.media?.local_path);
+  const localPath = text(card.media?.localPath || card.media?.local_path || card.media?.uri);
   const referenceAliases = mediaReferenceKeys(localPath);
   const aliases = [
     ...referenceAliases.filter((alias) => alias.startsWith("uri:")),
@@ -331,7 +335,7 @@ function pathExtension(localPath, type) {
 }
 
 export function resolveHyperFramesMediaSource(card, contractIndex, options = {}) {
-  const localPath = text(card.media?.localPath || card.media?.local_path);
+  const localPath = text(card.media?.localPath || card.media?.local_path || card.media?.uri);
   const contractResolution = resolveIndexedMediaContract(card, contractIndex, options);
   const contract = contractResolution.status === "matched" ? contractResolution.contract : null;
   const mediaId = text(card.media?.id).toLowerCase();
@@ -1018,9 +1022,12 @@ export function hyperFramesMediaOpacityState(instances = [], instanceIndex = 0, 
   return { visible: false, alpha: 0, localSeconds: Math.max(0, time - start), phase: "inactive" };
 }
 
-export function compileHyperFramesShow({ showGraph, telemetry, project, proxyRegistry = {}, fps = 30, visualizerMix = null } = {}) {
+export function compileHyperFramesShow({ showGraph, telemetry, project, proxyRegistry = {}, fps = 30, visualizerMix = null, performance = null } = {}) {
   if (showGraph?.schemaVersion !== "hapa.music-viz.native-show-graph.v2") throw new Error("HyperFrames compiler requires Native Show Graph v2");
   const projectBody = project?.music_video_project || project?.project || project || {};
+  const eligibility = inspectEchoTimelineMediaEligibility(projectBody.timeline, projectBody.mediaConstraints);
+  const rejectedMedia = eligibility.filter(item => !item.eligible);
+  if (rejectedMedia.length) throw echoMediaConstraintError(rejectedMedia, { stage: "hyperframes-compile" });
   const projectProfileValue = projectBody.output_profile ?? projectBody.outputProfile;
   const graphProfileValue = showGraph.outputProfile ?? showGraph.output_profile;
   const directorProfileValue = showGraph.directorV2?.outputProfile ?? showGraph.directorV2?.output_profile;
@@ -1159,12 +1166,19 @@ export function compileHyperFramesShow({ showGraph, telemetry, project, proxyReg
         const mediaShotIndex = Number.isInteger(card.sourceCueIndex)
           ? card.sourceCueIndex
           : mediaInstances.length;
+        const source = resolveHyperFramesMediaSource(card, mediaContractIndex, { shotIndex: mediaShotIndex });
+        if (source.type !== "generated-visualizer") {
+          const result = evaluateEchoMediaEligibility({ ...source, ...card.media, id: card.media?.id,
+            uri: source.originalUri, runtimeUri: source.runtimeUri, provenance: card.provenance,
+          }, mergeEchoMediaConstraints(projectBody.mediaConstraints, card.mediaConstraints));
+          if (!result.eligible) throw echoMediaConstraintError([result], { stage: "hyperframes-graph-compile", cueId: card.id });
+        }
         mediaInstances.push({
           ...base,
           templateId: "media-window-v1",
           mediaId: card.media?.id,
           title: card.media?.title,
-          source: resolveHyperFramesMediaSource(card, mediaContractIndex, { shotIndex: mediaShotIndex }),
+          source,
           transition: card.transition || "crossfade",
           camera: {
             motion: String(card.parameters?.motion || card.parameters?.cameraMotion || "auto"),
@@ -1201,8 +1215,24 @@ export function compileHyperFramesShow({ showGraph, telemetry, project, proxyReg
     ? structuredClone(showGraph.directorV2.accentTrack)
     : { schemaVersion: "hapa.director-v2.accent-track.v1", events: structuredClone(declaredAccentEvents), eventCount: declaredAccentEvents.length };
   const lyricOverlay = showGraph.song?.lyricOverlay || {};
-  const lyrics = (lyricOverlay.lines || []).map((line, index) => ({ index, start: finite(line.start), end: finite(line.end), text: line.text, words: line.words || [] }));
-  const stemFrames = normalizeTelemetry(telemetry, duration);
+  const lyrics = (lyricOverlay.lines || []).map((line, index) => ({ index, start: echoLyricBoundary(line, "start"), end: echoLyricBoundary(line, "end"), text: line.text, words: line.words || [] }));
+  let stemFrames = normalizeTelemetry(telemetry, duration);
+  if (performance) {
+    const preparedMasterHash = String(performance.masterAudioHash || "").replace(/^sha256:/, "");
+    if (performance.schemaVersion !== "hapa.echo.music-performance.v1"
+      || !/^[a-f0-9]{64}$/.test(preparedMasterHash)
+      || preparedMasterHash !== String(telemetry?.masterMix?.audioHash || "").replace(/^sha256:/, "")) {
+      const error = new Error("Performance bundle must match this show's exact master audio.");
+      error.code = "echo_performance_master_mismatch"; throw error;
+    }
+    if (hashEchoLyricOverlayExecutionContract(performance.lyrics) !== hashEchoLyricOverlayExecutionContract(lyricOverlay)) {
+      const error = new Error("Performance lyrics changed; prepare the lyric-dependent bundle for this cut.");
+      error.code = "echo_performance_lyric_revision_mismatch"; throw error;
+    }
+    const { buses, ...performanceMetadata } = performance;
+    stemFrames = { ...stemFrames, sourceHash: hash(performance), performance: performanceMetadata,
+      master: buses.find(bus => bus.role === "master") || null, stems: buses.filter(bus => bus.role !== "master") };
+  }
   const manifest = {
     schemaVersion: "hapa.hyperframes.executable-show.v2",
     title: showGraph.song?.title || "Hapa Show",
@@ -1232,6 +1262,14 @@ export function compileHyperFramesShow({ showGraph, telemetry, project, proxyReg
       accents: structuredClone(declaredAccentEvents),
     },
     automation: {
+      preparedModulation: performance && showGraph.directorV2?.modulationBindings?.length
+        ? prepareDirectorModulationTimeline(showGraph.directorV2.modulationBindings, {
+          durationSeconds: duration, fps: 60, sourceFingerprint: performance.fingerprint || `sha256:${hash(performance)}`,
+          sampleSignals: time => {
+            const values = evaluateEchoMusicPerformance(performance, time);
+            return { ...values, cues: { phrase_boundary: values.activeEvents.some(event => event.kind === "phrase-end" || event.kind === "phrase-start") ? 1 : 0 } };
+          },
+        }) : null,
       camera: structuredClone(showGraph.directorV2?.cameraKeyframes || []),
       modulationBindings: structuredClone(showGraph.directorV2?.modulationBindings || []),
       timeModulation: structuredClone(showGraph.directorV2?.timeModulation || []),
@@ -1286,7 +1324,7 @@ export function clipHyperFramesShow(show, requestedDuration) {
   clipped.instances.visualizers = (clipped.instances.visualizers || []).map((row) => clippedWindow(row, duration)).filter(Boolean);
   clipped.instances.lyrics = (clipped.instances.lyrics || []).map((track) => ({
     ...track,
-    lines: (track.lines || []).filter((line) => finite(line.start) < duration && finite(line.end) > finite(line.start)).map((line) => ({ ...line, end: Math.min(duration, finite(line.end)) })),
+    lines: (track.lines || []).filter((line) => echoLyricBoundary(line, "start") < duration && echoLyricBoundary(line, "end") > echoLyricBoundary(line, "start")).map((line) => ({ ...line, end: Math.min(duration, echoLyricBoundary(line, "end")) })),
   }));
   clipped.instances.accents = (clipped.instances.accents || []).filter((event) => finite(event.atSeconds ?? event.startSeconds) < duration).map((event) => ({
     ...event,

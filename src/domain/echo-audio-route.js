@@ -1,5 +1,13 @@
 const text = (value) => String(value ?? "").trim();
 
+/** Static Builder ports use their own API. Electron/file contexts retain the
+ * configured service, and the Vite adapter explicitly supplies its API base. */
+export function echoLocalMediaApiBase(configuredBase, location = {}) {
+  if (text(configuredBase)) return text(configuredBase).replace(/\/$/u, "");
+  if (["http:", "https:"].includes(location.protocol) && location.origin && location.origin !== "null") return location.origin;
+  return "http://127.0.0.1:8787";
+}
+
 /**
  * Canonical audio selection shared by Echo preview, delivery, and render
  * certification. Precedence intentionally matches the user-facing Preview;

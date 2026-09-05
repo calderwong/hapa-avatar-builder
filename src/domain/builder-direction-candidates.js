@@ -1,3 +1,6 @@
+import { hasHapaDevProtoOrigin, hasExcludedEchoDirectorOrigin } from "./echo-media-source-policy.js";
+export { hasHapaDevProtoOrigin, hasHellWeekOrigin, hasExcludedEchoDirectorOrigin } from "./echo-media-source-policy.js";
+import { evaluateEchoMediaEligibility } from "./echo-media-eligibility.js";
 const DEFAULT_MIN_SHORT_EDGE = 720;
 const DEFAULT_MIN_DURATION_SECONDS = 2.5;
 const INVALID_TECHNICAL_MARKERS = [
@@ -7,10 +10,6 @@ const INVALID_TECHNICAL_MARKERS = [
   "unreadable",
   "corrupt",
   "broken-media",
-];
-const HAPA_DEV_PROTO_MEDIA_ROOTS = [
-  "/users/calderwong/comics/reviclips/",
-  "/users/calderwong/comics/hapa-trains/",
 ];
 
 function list(value) {
@@ -26,73 +25,6 @@ function normalizedToken(value = "") {
   return String(value).trim().toLowerCase().replace(/[_\s]+/g, "-");
 }
 
-function sourceValues(value = {}) {
-  return [
-    value?.source,
-    value?.sourceSystem,
-    value?.cardSourceSystem,
-    value?.adapterId,
-    value?.sourceAdapter,
-    value?.sourceRepo,
-    value?.sourceRepository,
-    value?.sourceNode,
-    value?.sourceKind,
-    value?.originId,
-    value?.originNode,
-    value?.sourcePath,
-    value?.targetPath,
-    value?.originalPath,
-  ].filter(Boolean);
-}
-
-function normalizedSourceValue(value = "") {
-  return String(value).trim().toLowerCase().replaceAll("\\", "/");
-}
-
-function isDevProtoSourceValue(value = "") {
-  const normalized = normalizedSourceValue(value);
-  return normalizedToken(normalized).includes("hapa-dev-proto")
-    || HAPA_DEV_PROTO_MEDIA_ROOTS.some((root) => normalized.startsWith(root));
-}
-
-function isHellWeekSourceValue(value = "") {
-  return normalizedToken(normalizedSourceValue(value)).includes("hell-week");
-}
-
-function hasExplicitOriginMatch(predicate, records = []) {
-  const queue = records.filter(Boolean);
-  const visited = new Set();
-  while (queue.length) {
-    const value = queue.shift();
-    if (!value || typeof value !== "object" || visited.has(value)) continue;
-    visited.add(value);
-    if (sourceValues(value).some((entry) => predicate(entry))) return true;
-    for (const key of ["origin", "provenance", "sourceProvenance", "cardOrigin", "hapaOrigin", "records", "folderIngest", "storage"]) {
-      const nested = value[key];
-      if (Array.isArray(nested)) queue.push(...nested);
-      else if (nested && typeof nested === "object") queue.push(nested);
-    }
-  }
-  return false;
-}
-
-/**
- * Excludes a Card only when its explicit origin/provenance names hapa-dev-proto.
- * Titles, OCR, descriptive tags, and lore are intentionally not searched.
- */
-export function hasHapaDevProtoOrigin(...records) {
-  return hasExplicitOriginMatch(isDevProtoSourceValue, records);
-}
-
-/** Excludes Hell Week only when explicit origin/provenance names it. */
-export function hasHellWeekOrigin(...records) {
-  return hasExplicitOriginMatch(isHellWeekSourceValue, records);
-}
-
-/** Shared exclusion contract for new Echo Director media passes. */
-export function hasExcludedEchoDirectorOrigin(...records) {
-  return hasHapaDevProtoOrigin(...records) || hasHellWeekOrigin(...records);
-}
 
 function isVideoAsset(asset = {}) {
   const type = String(asset.type || asset.mediaType || asset.mimeType || asset.metadata?.mimeType || "").toLowerCase();
@@ -168,6 +100,7 @@ function motionRole(asset = {}, owner = {}) {
 }
 
 function isTechnicallyEligible(asset = {}, owner = {}, options = {}) {
+  if (!evaluateEchoMediaEligibility({ ...asset, owner }, options.mediaConstraints).eligible) return false;
   if (!isVideoAsset(asset)) return false;
   const originPredicate = typeof options.originPredicate === "function" ? options.originPredicate : hasHapaDevProtoOrigin;
   if (originPredicate(asset, asset.metadata, owner, owner?.hapaMergeProvenance)) return false;

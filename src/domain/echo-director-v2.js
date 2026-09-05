@@ -1,3 +1,7 @@
+import { mergeEchoMediaConstraints } from "./echo-media-eligibility.js";
+import { sequenceEchoNarrative } from "./echo-narrative-sequencer.js";
+import { DEFAULT_VARIANT_RECIPES, resolveEchoDirectorRecipe } from "./echo-director-recipes.js";
+export { DEFAULT_VARIANT_RECIPES } from "./echo-director-recipes.js";
 import crypto from "node:crypto";
 import { buildPortableVisualizerCard } from "./portable-visualizer-card.js";
 import { nativeVisualizerRouteCounts, resolveNativeVisualizerRoute } from "./native-visualizer-route.js";
@@ -34,38 +38,7 @@ export const TREATMENT_SCHEMA = "hapa.echo.editorial-treatment.v2";
 export const NATIVE_SHOW_GRAPH_SCHEMA = "hapa.music-viz.native-show-graph.v2";
 export const DIRECTOR_V2_COMPILER_VERSION = "echo-director-v2.5.0";
 
-export const DEFAULT_VARIANT_RECIPES = Object.freeze({
-  conservative: Object.freeze({
-    id: "conservative",
-    cutScale: 1.18,
-    visualizerMix: 0.28,
-    maxVisualizerLayers: 4,
-    cameraEnergy: 0.46,
-    accentDensity: 0.28,
-    temporalModulation: 0.12,
-    mediaOffset: 0,
-  }),
-  kinetic: Object.freeze({
-    id: "kinetic",
-    cutScale: 0.78,
-    visualizerMix: 0.5,
-    maxVisualizerLayers: 4,
-    cameraEnergy: 0.82,
-    accentDensity: 0.72,
-    temporalModulation: 0.48,
-    mediaOffset: 1,
-  }),
-  "visualizer-forward": Object.freeze({
-    id: "visualizer-forward",
-    cutScale: 0.94,
-    visualizerMix: 0.72,
-    maxVisualizerLayers: 6,
-    cameraEnergy: 0.64,
-    accentDensity: 0.54,
-    temporalModulation: 0.34,
-    mediaOffset: 2,
-  }),
-});
+
 
 function stableValue(value) {
   if (Array.isArray(value)) return value.map(stableValue);
@@ -590,7 +563,10 @@ export function buildEditorialTreatment(projectInput, cueGraph, manifest, regist
           rejectedAlternatives: [],
           confidence: { value: null, basis: "unmeasured" },
         },
+        ...(shot.mediaConstraints ? { mediaConstraints: shot.mediaConstraints } : {}),
         media: {
+          ...Object.fromEntries(["characterIds", "sceneIds", "shotRoles", "paletteFamily", "comicId", "panelIndex", "roi", "technical", "availability", "cropCoverage", "sourcePolicy", "sourceAllowed", "origin", "banned", "metadata"].filter(key => (shot.media_contract?.[key] ?? shot[key]) !== undefined).map(key => [key, shot.media_contract?.[key] ?? shot[key]])),
+          ...(shot.media_contract ? { mediaContract: shot.media_contract } : {}),
           id: String(shot.media_id || `media:${index}`),
           title: String(shot.media_title || shot.media_id || `Media ${index + 1}`),
           uri: archivalUri,
@@ -610,7 +586,7 @@ export function buildEditorialTreatment(projectInput, cueGraph, manifest, regist
           focus: String(shot.camera_focus || "center"),
         },
         transition: String(shot.transition || "cut"),
-        locks: index === 0 ? ["timing", "media"] : ["timing"],
+        locks: uniqueBy(["timing", ...(index === 0 ? ["media"] : []), ...(Array.isArray(shot.locks) ? shot.locks : [])], (item) => item),
       };
     })
     .filter(Boolean);
@@ -862,15 +838,11 @@ export function buildEditorialTreatment(projectInput, cueGraph, manifest, regist
   return { ...base, treatmentId: `treatment:${contentHash(base).slice(0, 20)}` };
 }
 
-function recipeFor(recipe) {
-  if (typeof recipe === "string") return DEFAULT_VARIANT_RECIPES[recipe] || DEFAULT_VARIANT_RECIPES.conservative;
-  const parent = DEFAULT_VARIANT_RECIPES[recipe?.id] || DEFAULT_VARIANT_RECIPES.conservative;
-  return { ...parent, ...(recipe || {}), id: String(recipe?.id || parent.id) };
-}
+
 
 function mediaAt(slots, time) {
-  return slots.find((slot) => slot.startSeconds <= time && slot.endSeconds > time)?.candidateMedia?.[0]
-    || slots[0]?.candidateMedia?.[0]
+  return slots.find((slot) => slot.startSeconds <= time && slot.endSeconds > time)?.selectedMedia
+    || slots[0]?.selectedMedia
     || { id: "none", title: "No media", localPath: "", sourceKind: "missing" };
 }
 
@@ -1018,10 +990,12 @@ function admitVisualizerLayers(visualizers, requestedMaxLayers) {
   };
 }
 
-export function compileDirectorVariant({ treatment, cueGraph, recipe = "conservative", seed = "echo-v2", sourceProject = null }) {
-  const normalizedRecipe = recipeFor(recipe);
+export function compileDirectorVariant({ treatment, cueGraph, recipe = "conservative", seed = "echo-v2", sourceProject = null, mediaConstraints = {} }) {
+  const normalizedRecipe = resolveEchoDirectorRecipe(recipe);
   const outputProfile = resolveEchoOutputProfile(treatment.outputProfile ?? projectBody(sourceProject));
-  const slots = treatment.mediaSlots.map((slot, index) => {
+  const narrative = normalizedRecipe.schemaVersion === "hapa.echo.narrative-recipe.v1"
+    ? sequenceEchoNarrative({ slots: treatment.mediaSlots, recipe: normalizedRecipe, seed, constraints: mergeEchoMediaConstraints(projectBody(sourceProject)?.mediaConstraints, mediaConstraints) }) : null;
+  const slots = narrative?.slots || treatment.mediaSlots.map((slot, index) => {
     const candidates = slot.candidateMedia || [];
     const offset = normalizedRecipe.mediaOffset % Math.max(1, candidates.length);
     const jitter = Math.floor(seededUnit(seed, `media:${slot.id}`) * Math.max(1, candidates.length));
@@ -1287,7 +1261,7 @@ export function compileDirectorVariant({ treatment, cueGraph, recipe = "conserva
   const cameraTargetAspects = [...new Set([selectedOutputAspect, 16 / 9, 9 / 16, 1])];
   const mediaRoleCamera = slots.map((slot, index) => {
     const sourceShot = source.timeline?.[slot.sourceShotIndex ?? index] || {};
-    const contract = sourceShot.media_contract || {};
+    const contract = slot.selectedMedia.mediaContract || (slot.selectedMedia.id === sourceShot.media_id ? sourceShot.media_contract : null) || {};
     const technical = {
       width: contract.dimensions?.width || outputProfile.width,
       height: contract.dimensions?.height || outputProfile.height,
@@ -1386,6 +1360,7 @@ export function compileDirectorVariant({ treatment, cueGraph, recipe = "conserva
     edits: [],
     directorV2: {
       schemaVersion: DIRECTOR_V2_SCHEMA,
+      ...(narrative ? { narrativeSequence: narrative.receipt } : {}),
       outputProfile,
       basePlanId: treatment.treatmentId,
       treatmentId: treatment.treatmentId,
@@ -1499,7 +1474,7 @@ export function compileDirectorVariant({ treatment, cueGraph, recipe = "conserva
   return { ...compiled, directorV2: { ...compiled.directorV2, mediaDiversityReport: buildMediaDiversityReport(compiled) } };
 }
 
-export function buildDirectorV2Artifacts({ project, sourceProject = project, manifest, registry = null, stemTelemetry = null, duration, recipe, seed, avatarRoot, nativeProxyAvailable = null }) {
+export function buildDirectorV2Artifacts({ project, sourceProject = project, manifest, registry = null, stemTelemetry = null, duration, recipe, seed, avatarRoot, nativeProxyAvailable = null, mediaConstraints = {} }) {
   const sourceProjectBody = projectBody(sourceProject) || {};
   const cueGraph = buildCueGraph(project, { duration, stemTelemetry });
   const treatment = buildEditorialTreatment(project, cueGraph, manifest, registry, {
@@ -1508,7 +1483,7 @@ export function buildDirectorV2Artifacts({ project, sourceProject = project, man
     sourceProjectHash: contentHash(sourceProjectBody),
     stemTelemetry,
   });
-  const showGraph = compileDirectorVariant({ treatment, cueGraph, recipe, seed, sourceProject });
+  const showGraph = compileDirectorVariant({ treatment, cueGraph, recipe, seed, sourceProject, mediaConstraints });
   return {
     cueGraph,
     treatment,

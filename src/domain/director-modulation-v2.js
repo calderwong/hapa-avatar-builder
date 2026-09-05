@@ -1,3 +1,5 @@
+import { DIRECTOR_MODULATION_TIMELINE_SCHEMA, evaluatePreparedDirectorModulation } from "./hyperframes-visualizer-runtime.js";
+export { DIRECTOR_MODULATION_TIMELINE_SCHEMA, evaluatePreparedDirectorModulation } from "./hyperframes-visualizer-runtime.js";
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
 
 function eased(value, name = "linear") {
@@ -13,9 +15,12 @@ function sourceValue(source = {}, signals = {}, mutedStems = new Set()) {
   if (source.kind === "stem_signal") {
     const stem = String(source.stemFocus || "").toLowerCase();
     if (mutedStems.has(stem)) return null;
-    return Number(signals.stems?.[stem]?.[source.signal] ?? 0);
+    const resource = stem === "master" ? signals.master : signals.stems?.[stem];
+    if (!resource) return null;
+    const aliases = { bass: "low", treble: "high", onset: "transient" };
+    return Number(resource[source.signal] ?? resource[aliases[source.signal]] ?? 0);
   }
-  if (source.kind === "mix_signal") return Number(signals.master?.[source.signal] ?? 0);
+  if (source.kind === "mix_signal") return signals.master ? Number(signals.master[source.signal] ?? 0) : null;
   if (source.kind === "cue") return Number(signals.cues?.[source.signal] ?? 0);
   return Number(signals[source.signal] ?? 0);
 }
@@ -26,10 +31,22 @@ function quantized(value, quantize) {
 }
 
 export function createDirectorModulationRuntime(bindings = [], options = {}) {
+  if (options.preparedTimeline) {
+    let latest = [];
+    return {
+      mode: "prepared-absolute-time",
+      step({ atSeconds = 0, muted = options.mutedStems || [] } = {}) {
+        latest = evaluatePreparedDirectorModulation(options.preparedTimeline, atSeconds, muted);
+        return latest;
+      },
+      snapshot() { return Object.fromEntries(latest.map(output => [output.id, output.value])); },
+    };
+  }
   const state = new Map();
   const history = new Map();
   const mutedStems = new Set((options.mutedStems || []).map((stem) => String(stem).toLowerCase()));
   return {
+    mode: "live-history",
     step({ atSeconds = 0, signals = {}, muted = mutedStems } = {}) {
       const activeMuted = muted instanceof Set ? muted : new Set((muted || []).map((stem) => String(stem).toLowerCase()));
       const outputs = [];
@@ -68,6 +85,47 @@ export function createDirectorModulationRuntime(bindings = [], options = {}) {
     snapshot() { return Object.fromEntries([...state].map(([id, value]) => [id, value.value])); },
   };
 }
+
+
+
+/** Bake history-dependent attack/release once from a fixed song origin.
+ * Identical source/envelope channels share storage across target uniforms.
+ * Playback only samples these arrays; seeking never calls the signal analyzer.
+ */
+export function prepareDirectorModulationTimeline(bindings = [], {
+  sampleSignals, durationSeconds, fps = 60, sourceFingerprint, maxSamples = 1_000_000,
+} = {}) {
+  if (typeof sampleSignals !== "function" || !sourceFingerprint) throw new Error("Prepared modulation requires a pinned signal sampler and source fingerprint");
+  if (!(Number.isFinite(durationSeconds) && durationSeconds > 0 && Number.isFinite(fps) && fps >= 30 && fps <= 240)) throw new Error("Invalid modulation duration/cadence");
+  const channels = [], byKey = new Map();
+  const targets = bindings.map(binding => {
+    const key = JSON.stringify({ source: binding.source, envelope: binding.envelope || {} });
+    if (!byKey.has(key)) {
+      const id = `channel-${channels.length}`;
+      byKey.set(key, id); channels.push({ id, source: binding.source, envelope: binding.envelope, values: [], raw: [] });
+    }
+    return { id: binding.id, source: binding.source, target: binding.target, channelId: byKey.get(key) };
+  });
+  const frameCount = Math.ceil(durationSeconds * fps) + 1;
+  if (frameCount * channels.length > maxSamples) {
+    const error = new Error(`Modulation preparation exceeds ${maxSamples} sample budget; reduce channels or prepare bounded song ranges.`);
+    error.code = "echo_modulation_budget_exceeded"; throw error;
+  }
+  const runtime = createDirectorModulationRuntime(channels);
+  for (let index = 0; index < frameCount; index++) {
+    const atSeconds = index / fps;
+    const values = new Map(runtime.step({ atSeconds, signals: sampleSignals(atSeconds) }).map(output => [output.id, output]));
+    for (const channel of channels) {
+      const output = values.get(channel.id);
+      channel.values.push(output ? Number(output.value.toFixed(9)) : null);
+      channel.raw.push(output ? Number(output.raw.toFixed(9)) : null);
+    }
+  }
+  return { schemaVersion: DIRECTOR_MODULATION_TIMELINE_SCHEMA, sourceFingerprint, fps, durationSeconds, originSeconds: 0,
+    channels: channels.map(({ envelope, ...channel }) => channel), targets,
+    policy: { origin: "fixed-song-zero", seekingRunsAnalysis: false, interpolation: "linear", frameCount, samples: frameCount * channels.length } };
+}
+
 
 export function evaluateDirectorModulationSequence(bindings, frames, options = {}) {
   const runtime = createDirectorModulationRuntime(bindings, options);

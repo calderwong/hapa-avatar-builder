@@ -114,6 +114,25 @@ test("song store preserves comparative reference graph edges", () => {
   assert.equal(store.referenceGraphEdges[0].relationType, "role-outlives-holder");
 });
 
+test("compact songbook supplements hydrated album without dropping API-only songs", () => {
+  const input = { songs: [
+    { id: "dear-papa-song-starter", songId: "starter", title: "Updated starter" },
+    { id: "dear-papa-song-dear-papa", songId: "dear-papa", title: "Dear Papa",
+      audio: { mp3Uri: "/api/song-registry/dear-papa/audio" },
+      performancePerspective: { teamColor: "blue" },
+      lyricTimings: [{ start: 2, end: 3, text: "Papa" }] }
+  ] };
+  const book = { songCards: [{ id: "dear-papa-song-starter", songId: "starter", title: "Starter" }] };
+  const before = structuredClone(input);
+  const store = normalizeHapaSongStore(input, book);
+  assert.deepEqual(store.songs.map((song) => song.id), input.songs.map((song) => song.id));
+  assert.equal(store.songs[0].title, "Updated starter");
+  assert.equal(store.songs[1].audio.mp3Uri, input.songs[1].audio.mp3Uri);
+  assert.equal(store.songs[1].lyricTimings[0].text, "Papa");
+  assert.deepEqual(normalizeHapaSongStore(store, book).songs, store.songs);
+  assert.deepEqual(input, before);
+});
+
 test("song audit separates candidate, comparative, and total reviewable connectors", () => {
   const audit = auditHapaSongStore([{ referenceConnectors: [
     { evidence: { classification: "candidate-phonetic" } },

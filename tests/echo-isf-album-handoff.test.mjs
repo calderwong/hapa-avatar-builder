@@ -3,6 +3,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import test from "node:test";
+import { currentEchoAlbumGraphPaths } from './helpers/current-echo-album.mjs';
 import {
   configureEchoIsfSourceCache,
   createEchoIsfPlaybackPool,
@@ -46,11 +47,7 @@ test("all album graphs hand off every exact shader cue with bounded resident res
   resetEchoIsfBrowserRuntimeCaches();
   configureEchoIsfSourceCache({ limit: 32 });
   const albumRoot = new URL("../artifacts/echo-director-v2/album/", import.meta.url);
-  const graphPaths = fs.readdirSync(albumRoot, { withFileTypes: true })
-    .filter((entry) => entry.isDirectory())
-    .map((entry) => path.join(albumRoot.pathname, entry.name, "native-show-graph.json"))
-    .filter((file) => fs.existsSync(file))
-    .sort();
+  const graphPaths = currentEchoAlbumGraphPaths(albumRoot);
   const graphs = graphPaths.map((file) => JSON.parse(fs.readFileSync(file, "utf8")));
   const graphCards = graphs.map((graph) => ({
     graph,

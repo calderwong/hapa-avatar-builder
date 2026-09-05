@@ -1010,7 +1010,8 @@ export function projectEchoDirectorPreviewFrame({
       project,
       contract: lyricContract,
       line: lyricLine,
-      timeSeconds: time,
+      // Do not quantize the rounded diagnostic seconds again: that can lose a frame.
+      timeSeconds: clockState.frame / clockState.fps,
       fps: clockState.fps,
     })
     : null;
