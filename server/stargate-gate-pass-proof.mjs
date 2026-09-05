@@ -83,10 +83,13 @@ async function waitForChildExit(childProcess, timeoutMs) {
   });
 }
 
-async function stopChild(childProcess) {
+export async function stopStargateGatePassWorker(childProcess) {
   if (!childProcess || childExited(childProcess)) return true;
   if (childProcess.connected) {
-    try { childProcess.send({ type: "shutdown" }); } catch {}
+    // connected can become stale before the IPC write completes. A callback
+    // consumes asynchronous EPIPE/ERR_IPC_CHANNEL_CLOSED; try/catch alone does
+    // not. Exit waits and TERM/KILL still own the actual cleanup result.
+    try { childProcess.send({ type: "shutdown" }, () => {}); } catch {}
   }
   if (await waitForChildExit(childProcess, 1_500)) return true;
   try { childProcess.kill("SIGTERM"); } catch {}
@@ -107,8 +110,8 @@ async function stopBootstrap(bootstrapNode) {
 
 async function cleanupAttempt({ peerA, peerB, bootstrapNode }) {
   const [peerAStopped, peerBStopped, bootstrapStopped] = await Promise.all([
-    stopChild(peerA),
-    stopChild(peerB),
+    stopStargateGatePassWorker(peerA),
+    stopStargateGatePassWorker(peerB),
     stopBootstrap(bootstrapNode)
   ]);
   return {

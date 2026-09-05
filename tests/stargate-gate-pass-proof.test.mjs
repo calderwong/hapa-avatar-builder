@@ -3,13 +3,36 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { EventEmitter } from "node:events";
 import {
   STARGATE_GATE_PASS_PEER_WORKER_ENV,
   assertStargateGatePassProofProcessBoundary,
   runStargateGatePassProof,
+  stopStargateGatePassWorker,
   stargateGatePassWorkerForkOptions
 } from "../server/stargate-gate-pass-proof.mjs";
 import { gatePassFixture } from "./stargate-gate-pass-fixture.mjs";
+
+test("Gate Pass shutdown tolerates an IPC pipe closing after connected was observed", async () => {
+  const worker = new EventEmitter();
+  Object.assign(worker, { connected: true, exitCode: null, signalCode: null });
+  let shutdownRequested = false;
+  worker.send = (message, callback) => {
+    assert.deepEqual(message, { type: "shutdown" });
+    assert.equal(typeof callback, "function", "asynchronous IPC errors need a callback");
+    shutdownRequested = true;
+    queueMicrotask(() => {
+      callback(Object.assign(new Error("write EPIPE"), { code: "EPIPE" }));
+      worker.connected = false;
+      worker.exitCode = 0;
+      worker.emit("exit", 0, null);
+    });
+  };
+  worker.kill = () => assert.fail("already exiting worker should not need a kill");
+  assert.equal(await stopStargateGatePassWorker(worker), true);
+  assert.equal(shutdownRequested, true);
+  assert.equal(worker.listenerCount("exit"), 0);
+});
 
 test("Gate Pass workers inherit no executable Node state", () => {
   const options = stargateGatePassWorkerForkOptions({
