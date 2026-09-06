@@ -81,7 +81,11 @@ export function normalizeEchoTransitionTimeMapping(value = {}, fallback = {}) {
   if (!(declaredCueSampleSpanSeconds > 0)
     || !approximatelyEqual(declaredCueSampleSpanSeconds, expectedCueSampleSpanSeconds)) return null;
   const cueSampleSpanSeconds = expectedCueSampleSpanSeconds;
-  const playbackRate = sourceDurationSeconds / cueSampleSpanSeconds;
+  const rawPlaybackRate = sourceDurationSeconds / cueSampleSpanSeconds;
+  // Subtracting absolute cue boundaries can put an exact 5x map a few ULPs
+  // above its limit. Retain the limit without rejecting that authored map.
+  const playbackRate = rawPlaybackRate <= ECHO_TRANSITION_TIME_MAPPING_MAX_PLAYBACK_RATE + 1e-9
+    ? Math.min(rawPlaybackRate, ECHO_TRANSITION_TIME_MAPPING_MAX_PLAYBACK_RATE) : rawPlaybackRate;
   const declaredSourceDuration = optionalFinite(
     source.sourceDurationSeconds,
     source.source_duration_seconds,
@@ -130,7 +134,7 @@ export function planEchoPlaybackCorrection({
   const driftSeconds = Number(expectedSeconds) - Number(currentSeconds);
   const basePlaybackRate = Math.max(0.01, Number(targetPlaybackRate) || 1);
   if (seeking) return { action: "none", driftSeconds, playbackRate: basePlaybackRate };
-  if ((cueEntry && Math.abs(driftSeconds) > 0.08) || Math.abs(driftSeconds) > 0.75) {
+  if ((cueEntry && Math.abs(driftSeconds) > 1 / 30) || Math.abs(driftSeconds) > 0.75) {
     return { action: "seek", driftSeconds, targetSeconds: Math.max(0, Number(expectedSeconds)), playbackRate: basePlaybackRate };
   }
   if (Math.abs(driftSeconds) > 0.04) {

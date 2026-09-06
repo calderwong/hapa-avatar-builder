@@ -33,6 +33,7 @@ import {
   resolveVerifiedEchoStemBinding,
 } from "../domain/echo-visualizer-audio-envelope.js";
 import { createEchoPlaybackEngine } from "../domain/echo-playback-engine.js";
+import { createEchoPresentationTimingRecorder, observeEchoPresentedFrames } from "../domain/echo-presentation-timing.js";
 import {
   createEchoIsfSurface,
   createEchoIsfPlaybackPool,
@@ -556,6 +557,7 @@ function PersistentEchoABPlayers({ shot, lookaheadShots = [], playing, songTime,
   const [stageStatus, setStageStatus] = useState("buffering");
   const generationRef = useRef(0);
   const fallbackRef = useRef(null);
+  const correctedPresentationKeyRef = useRef("");
   const slotStateRef = useRef(Array.from({ length: ECHO_VIDEO_PLAYER_POOL_SIZE }, () => ({ key: "", status: "idle", frameReady: false, generation: 0, error: "" })));
 
   // The 30fps camera loop must always compute from the latest shot settings.
@@ -726,7 +728,7 @@ function PersistentEchoABPlayers({ shot, lookaheadShots = [], playing, songTime,
       cueDurationSeconds,
     });
     const expected = mapEchoSourceWindowTime({
-      elapsedSeconds: Math.max(0, songTime - Number(shot.start_sec || 0)),
+      elapsedSeconds: Math.max(0, Number(clockRef?.current ?? songTime) - Number(shot.start_sec || 0)),
       durationSeconds: video.duration,
       sourceInSeconds,
       sourceOutSeconds,
@@ -734,11 +736,14 @@ function PersistentEchoABPlayers({ shot, lookaheadShots = [], playing, songTime,
       cueDurationSeconds,
       timeMapping,
     });
+    const presentationKey = `${activeIndex}:${shotKey(shot)}`;
+    const cueEntry = correctedPresentationKeyRef.current !== presentationKey;
+    correctedPresentationKeyRef.current = presentationKey;
     const correction = planEchoPlaybackCorrection({
       expectedSeconds: expected,
       currentSeconds: video.currentTime,
       seeking: video.seeking,
-      cueEntry: !playing,
+      cueEntry: cueEntry || !playing,
       targetPlaybackRate,
     });
     if (correction.action === "seek") video.currentTime = Math.min(Number(video.duration || expected), correction.targetSeconds);
@@ -778,7 +783,8 @@ function PersistentEchoABPlayers({ shot, lookaheadShots = [], playing, songTime,
       uri: resolveMediaUri(shotRuntimeUri(shot)),
       sourceKey,
       presented: true,
-      playerIndex: activeIndex
+      playerIndex: activeIndex,
+      shot
     } : {
       element: null,
       kind: "video",
@@ -1729,6 +1735,10 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
   const exactIsfMediaInputCanvasRef = useRef(null);
   const [exactIsfStatus, setExactIsfStatus] = useState({ status: "idle", sourceId: "", error: "" });
   const presentedMediaRef = useRef(null);
+  const presentationTimingRef = useRef(null);
+  if (!presentationTimingRef.current) presentationTimingRef.current = createEchoPresentationTimingRecorder();
+  const presentationObserverRef = useRef(null);
+  const presentationPublishAtRef = useRef(-Infinity);
   const stemDecoderPoolRef = useRef(new Map());
   const stemDecoderUseTickRef = useRef(0);
   const masterSignalTrackerRef = useRef(null);
@@ -2116,6 +2126,25 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
       presentedMediaRef.current = null;
     }
     const presented = presentedMediaRef.current;
+    const observer = presentationObserverRef.current;
+    if (observer?.element !== presented?.element || observer?.sourceKey !== presented?.sourceKey) {
+      observer?.stop();
+      presentationObserverRef.current = null;
+      if (presented?.kind === "video" && presented.element && presented.shot) {
+        const stop = observeEchoPresentedFrames({
+          video: presented.element,
+          getContext: () => ({ audio: audioRef.current, context: audioContextRef.current, shot: presentedMediaRef.current?.shot || {} }),
+          onSample: (sample) => {
+            presentationTimingRef.current.record(sample);
+            if (sample.nowMs - presentationPublishAtRef.current >= 1000) {
+              presentationPublishAtRef.current = sample.nowMs;
+              globalThis.__HAPA_ECHO_PRESENTATION_TIMING__ = presentationTimingRef.current.snapshot();
+            }
+          },
+        });
+        presentationObserverRef.current = { element: presented.element, sourceKey: presented.sourceKey, stop };
+      }
+    }
     publishExactBindingDiagnostics({
       media: presented ? {
         status: "presented",
@@ -2131,6 +2160,11 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
       }
     });
   }, [publishExactBindingDiagnostics]);
+
+  useEffect(() => () => {
+    presentationObserverRef.current?.stop();
+    presentationObserverRef.current = null;
+  }, []);
 
   const ensureActiveStemBinding = useCallback((showGraph, card, requestedRole = null) => {
     const bindingCard = requestedRole ? stemCardForRole(card, requestedRole) : card;
@@ -3025,6 +3059,11 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
     setPreviewBufferState({ status: "idle", ready: false, readyLookahead: 0, targetLookahead: 0 });
     setPreviewPreparation({ status: "idle" });
     presentedMediaRef.current = null;
+    presentationObserverRef.current?.stop();
+    presentationObserverRef.current = null;
+    presentationTimingRef.current.reset();
+    presentationPublishAtRef.current = -Infinity;
+    globalThis.__HAPA_ECHO_PRESENTATION_TIMING__ = presentationTimingRef.current.snapshot();
     disposeEchoStemDecoderPool(stemDecoderPoolRef.current);
     masterSignalTrackerRef.current?.reset?.();
     exactIsfBindingDiagnosticsRef.current.frameBucket = -1;
@@ -7464,6 +7503,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                                   
                                   <input 
                                     type="range" 
+                                    aria-label="Song playhead seconds"
                                     min="0" 
                                     max={activeProject.duration} 
                                     step="0.1" 
