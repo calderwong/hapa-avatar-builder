@@ -1,4 +1,5 @@
 import { hydrateEchoMediaEvidence, echoEvidenceStamp } from "./echo-media-evidence-index.mjs";
+import { hasExcludedEchoDirectorOrigin } from "../src/domain/echo-media-source-policy.js";
 import { stat } from "node:fs/promises";
 import { resolveEchoRuntimeMediaUri } from "./echo-runtime-media-route.mjs";
 import { inspectEchoTimelineMediaEligibility, echoMediaConstraintError } from "../src/domain/echo-media-eligibility.js";
@@ -16,7 +17,7 @@ export async function prepareEchoTimelineMediaEvidence(timeline, paths = {}) {
       if (!route.ok) return { exists: null, bytes: null, reason: route.reason };
       try {
         const info = await stat(route.resolvedPath);
-        return { exists: info.isFile(), bytes: info.size, stamp: echoEvidenceStamp(info), decodeVerified: false };
+        return { exists: info.isFile(), bytes: info.size, stamp: echoEvidenceStamp(info), sourceAllowed: !hasExcludedEchoDirectorOrigin({sourcePath:route.resolvedPath}), decodeVerified: false };
       } catch (error) {
         return { exists: false, bytes: 0, reason: error.code || "source-unavailable" };
       }
@@ -36,7 +37,8 @@ export async function prepareEchoTimelineMediaEvidence(timeline, paths = {}) {
       const currentEvidence = shot.identityEvidence?.mediaStamps?.includes(availability.stamp);
       const identities = currentEvidence ? {} : { characterIds: [], sceneIds: [], cast: null,
         identityEvidence: { ...shot.identityEvidence, status: shot.identityEvidence?.status === "canonical-declarations" ? "source-bytes-changed-or-unverified" : shot.identityEvidence?.status } };
-      prepared[index] = { ...shot, ...identities, availability, media_contract: { ...contract, ...identities, availability } };
+      const sourceAllowed=shot.sourceAllowed!==false && contract.sourceAllowed!==false && availability.sourceAllowed!==false;
+      prepared[index] = { ...shot, ...identities, sourceAllowed, availability, media_contract: { ...contract, ...identities, sourceAllowed, availability } };
     }
   }));
   return { timeline: prepared, sourcesChecked: resolved.size,
@@ -45,7 +47,7 @@ export async function prepareEchoTimelineMediaEvidence(timeline, paths = {}) {
 
 export async function validateEchoForkMedia(timeline, constraints = {}, paths = {}) {
   const preparation = await prepareEchoTimelineMediaEvidence(timeline, paths);
-  const results = inspectEchoTimelineMediaEligibility(preparation.timeline, { ...constraints, requireVerifiedBytes: true });
+  const results = inspectEchoTimelineMediaEligibility(preparation.timeline, { ...constraints, requireVerifiedBytes: true, requireVerifiedPolicyForBans: true });
   const rejected = results.filter(item => !item.eligible);
   if (rejected.length) throw echoMediaConstraintError(rejected, { stage: "save-fork" });
   return { schemaVersion: "hapa.echo.fork-media-availability.v1", mediaShots: results.length,

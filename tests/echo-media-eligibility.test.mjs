@@ -113,3 +113,58 @@ test("fork server checks actual bytes, ignores forged availability and bounds wo
       error => error.statusCode === 422 && error.result.reasons.includes("missing-source-bytes"));
   } finally { await fs.rm(root, { recursive: true, force: true }); }
 });
+
+test('generated, removed and absent media cannot claim required characters or scenes from old metadata', async () => {
+  const constraints={requiredCharacterIds:['red'],requiredSceneIds:['garden'],pins:['none']};
+  for(const shot of [
+    {media_id:'none',characterIds:['red'],sceneIds:['garden']},
+    {media_id:'a',media_uri:'/media/a.mp4',knockedOut:true,characterIds:['red'],sceneIds:['garden']},
+    {media_id:'a',media_contract:{type:'generated-visualizer',characterIds:['red'],sceneIds:['garden']}},
+    {start_sec:0,end_sec:4},
+  ]){
+    const results=inspectEchoTimelineMediaEligibility([shot],constraints);
+    assert.equal(results.length,1);assert.equal(results[0].eligible,false);
+    assert.ok(results[0].reasons.includes('required-character'));assert.ok(results[0].reasons.includes('required-scene'));
+    await assert.rejects(validateEchoForkMedia([shot],constraints),error=>error.code==='echo_media_constraints_unsatisfied'&&error.result.reasons.includes('required-character'));
+  }
+  assert.equal(inspectEchoTimelineMediaEligibility([{media_id:'none'}]).length,0,'unconstrained generated pictures remain valid');
+});
+
+test('graph-only generated and absent media reject cast requirements while matching real media remains eligible', () => {
+  const project={mediaConstraints:{requiredCharacterIds:['red']},telemetry:{}};
+  const graph=cards=>({schemaVersion:'hapa.music-viz.native-show-graph.v2',song:{durationSeconds:4},tracks:[{id:'media',role:'media',cards}]});
+  const card={id:'cue',startSeconds:0,endSeconds:4,media:{id:'none',characterIds:['red']}};
+  for(const cards of [[card],[]])assert.throws(()=>compileHyperFramesShow({project,showGraph:graph(cards)}),error=>error.code==='echo_media_constraints_unsatisfied'&&error.result.reasons.includes('required-character'));
+  assert.doesNotThrow(()=>compileHyperFramesShow({project,telemetry:{},showGraph:graph([{...card,media:{id:'red',localPath:'/media/red.mp4',characterIds:['red']}}])}));
+});
+
+test('a constrained parent interval cannot disappear through a gap or shortened child', () => {
+  const parent=[{media_id:'red',start_sec:4,end_sec:8,mediaConstraints:{requiredCharacterIds:['red']}}];
+  for(const child of [[],[{start_sec:0,end_sec:5},{start_sec:6,end_sec:10}],[{start_sec:0,end_sec:7}]]){
+    assert.throws(()=>inheritEchoTimelineMediaConstraints(child,parent),error=>error.code==='echo_media_constraints_unsatisfied'&&error.result.reasons.includes('required-media-coverage')&&error.result.alternatives.every(row=>row.action));
+  }
+  const covered=inheritEchoTimelineMediaConstraints([{start_sec:0,end_sec:5},{start_sec:5,end_sec:10}],parent);
+  assert.ok(covered.every(shot=>shot.mediaConstraints.requiredCharacterIds.includes('red')));
+});
+
+test('null or smaller child output settings do not relax explicitly inherited crop limits', () => {
+  const parent={outputProfile:{width:1920,height:1080},requireVerifiedCrop:true};
+  for(const outputProfile of [null,{width:640,height:360}]){
+    const constraints=mergeEchoMediaConstraints(parent,{outputProfile,requireVerifiedCrop:false,pins:['a']});
+    const result=evaluateEchoMediaEligibility(asset({cropCoverage:{minWidth:1280,minHeight:720}}),constraints);
+    assert.equal(result.eligible,false);assert.ok(result.reasons.includes('incompatible-output-crop'));
+  }
+});
+
+test('unavailable canonical evidence cannot make an aliased operator exclusion safe to save', async t => {
+  const root=await fs.mkdtemp(path.join(os.tmpdir(),'echo-ban-evidence-'));t.after(()=>fs.rm(root,{recursive:true,force:true}));
+  const file=path.join(root,'source.bin');await fs.writeFile(file,'read-only-fixture');
+  await assert.rejects(validateEchoForkMedia([{media_id:'new-alias',media_uri:pathToFileURL(file).href}],{bans:['original-id']},{root}),error=>error.code==='echo_media_constraints_unsatisfied'&&error.result.reasons.includes('source-policy-evidence-unverified'));
+  await assert.rejects(validateEchoForkMedia([{media_id:'new-alias',media_uri:pathToFileURL(file).href,mediaConstraints:{bans:['original-id'],requireVerifiedPolicyForBans:false}}],{},{root}),error=>error.code==='echo_media_constraints_unsatisfied'&&error.result.reasons.includes('source-policy-evidence-unverified'));
+});
+
+test('resolved source paths retain source-policy exclusions when request metadata omits origin', async t => {
+  const root=await fs.mkdtemp(path.join(os.tmpdir(),'echo-policy-path-'));t.after(()=>fs.rm(root,{recursive:true,force:true}));
+  const file=path.join(root,'hell-week-source.bin');await fs.writeFile(file,'availability-fixture');
+  await assert.rejects(validateEchoForkMedia([{media_id:'renamed-source',media_uri:pathToFileURL(file).href,sourceAllowed:true}],{pins:['renamed-source']},{root}),error=>error.code==='echo_media_constraints_unsatisfied'&&error.result.reasons.includes('invalid-source-policy'));
+});

@@ -1,4 +1,4 @@
-import { evaluateEchoMediaEligibility, echoMediaConstraintError, mergeEchoMediaConstraints } from "./echo-media-eligibility.js";
+import { evaluateEchoMediaEligibility, evaluateEchoGeneratedMediaEligibility, echoMediaConstraintError, mergeEchoMediaConstraints } from "./echo-media-eligibility.js";
 
 const list = (value) => Array.isArray(value) ? value : [];
 const shared = (left, right) => left.some((value) => right.includes(value));
@@ -18,15 +18,11 @@ export function sequenceEchoNarrative({ slots, recipe, seed, constraints = {} })
   const result = slots.map((slot, index) => {
     const required = mergeEchoMediaConstraints(constraints, slot.mediaConstraints);
     const locked = slot.locks?.includes("media");
-    const candidates = locked ? [slot.media] : list(slot.candidateMedia);
+    const candidates = (locked ? [slot.media] : list(slot.candidateMedia)).map(candidate => candidate.sourceKind === "pure-visualizer"
+      ? { ...candidate, characterIds: [], sceneIds: [], cast: null } : candidate);
     const gates = candidates.map((candidate) => {
       if (candidate.sourceKind !== "pure-visualizer") return evaluateEchoMediaEligibility(candidate, required);
-      // Generated slots have no source bytes/crop. Cast, scene, bans and source
-      // policy still apply; do not let intentional empty media bypass them.
-      const gate = evaluateEchoMediaEligibility({ ...candidate, uri: candidate.uri || "/generated/visualizer" }, {
-        ...required, requireVerifiedBytes: false, requireVerifiedCrop: false, outputProfile: null,
-      });
-      return { ...gate, pendingEvidence: gate.pendingEvidence.filter((item) => item !== "source-bytes-unverified") };
+      return evaluateEchoGeneratedMediaEligibility(candidate, required);
     });
     const last = previous.at(-1);
     const role = recipe.grammar.shotRoles[index % recipe.grammar.shotRoles.length];

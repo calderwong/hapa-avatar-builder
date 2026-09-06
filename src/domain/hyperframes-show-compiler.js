@@ -16,7 +16,7 @@ import {
   normalizeVisualizerAudioMapping,
 } from "./hyperframes-visualizer-runtime.js";
 import { resolveEchoOutputProfile } from "./echo-output-profile.js";
-import { inspectEchoTimelineMediaEligibility, echoMediaConstraintError, evaluateEchoMediaEligibility, mergeEchoMediaConstraints } from "./echo-media-eligibility.js";
+import { inspectEchoTimelineMediaEligibility, echoMediaConstraintError, evaluateEchoMediaEligibility, evaluateEchoGeneratedMediaEligibility, mergeEchoMediaConstraints } from "./echo-media-eligibility.js";
 import { inspectPortableVisualizerAttachment } from "./portable-visualizer-card.js";
 import { prepareDirectorModulationTimeline } from "./director-modulation-v2.js";
 import { evaluateEchoMusicPerformance } from "./hyperframes-visualizer-runtime.js";
@@ -1170,12 +1170,11 @@ export function compileHyperFramesShow({ showGraph, telemetry, project, proxyReg
           ? card.sourceCueIndex
           : mediaInstances.length;
         const source = resolveHyperFramesMediaSource(card, mediaContractIndex, { shotIndex: mediaShotIndex });
-        if (source.type !== "generated-visualizer") {
-          const result = evaluateEchoMediaEligibility({ ...source, ...card.media, id: card.media?.id,
-            uri: source.originalUri, runtimeUri: source.runtimeUri, provenance: card.provenance,
-          }, mergeEchoMediaConstraints(projectBody.mediaConstraints, card.mediaConstraints));
-          if (!result.eligible) throw echoMediaConstraintError([result], { stage: "hyperframes-graph-compile", cueId: card.id });
-        }
+        const gate = source.type === "generated-visualizer" ? evaluateEchoGeneratedMediaEligibility : evaluateEchoMediaEligibility;
+        const result = gate({ ...source, ...card.media, id: card.media?.id,
+          uri: source.originalUri, runtimeUri: source.runtimeUri, provenance: card.provenance,
+        }, mergeEchoMediaConstraints(projectBody.mediaConstraints, card.mediaConstraints));
+        if (!result.eligible) throw echoMediaConstraintError([result], { stage: "hyperframes-graph-compile", cueId: card.id });
         mediaInstances.push({
           ...base,
           templateId: "media-window-v1",
@@ -1200,6 +1199,10 @@ export function compileHyperFramesShow({ showGraph, telemetry, project, proxyReg
         });
       }
     }
+  }
+  if (!mediaInstances.length && !projectBody.timeline?.length) {
+    const emptyMedia = evaluateEchoGeneratedMediaEligibility({id:"none"}, projectBody.mediaConstraints);
+    if (!emptyMedia.eligible) throw echoMediaConstraintError([emptyMedia], {stage:"hyperframes-empty-media-compile"});
   }
   mediaInstances.sort((left, right) => left.start - right.start || left.end - right.end || left.cueIndex - right.cueIndex || left.id.localeCompare(right.id));
   visualizerInstances.sort((left, right) => left.start - right.start || left.end - right.end || left.cueIndex - right.cueIndex || left.id.localeCompare(right.id));

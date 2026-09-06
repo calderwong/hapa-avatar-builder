@@ -240,6 +240,12 @@ test("Echo summary endpoint stays compact and lazy-loads project detail", async 
     for (const invalid of [
       { requestedId: "banned-pinned", mediaConstraints: { pins: ["human-choice"], bans: ["human-choice"] } },
       { requestedId: "missing-pinned", mediaConstraints: { pins: ["human-choice"] }, timeline: [{ ...forkRequest.timeline[0], media_uri: "/media/absent-echo-fixture.mp4", availability: { exists: true, bytes: 1000 } }] },
+      ...[
+        { media_id: "none" },
+        { knockedOut: true },
+        { media_contract: { type: "generated-visualizer" } },
+      ].map((change, index) => ({ requestedId: `generated-cast-${index}`, mediaConstraints: { requiredCharacterIds: ["fixture-person"], requiredSceneIds: ["fixture-scene"] },
+        timeline: [{ ...forkRequest.timeline[0], ...change, characterIds: ["fixture-person"], sceneIds: ["fixture-scene"] }] })),
     ]) {
       const rejected = await fetch(`${BASE}/api/echos/direction-variant/fork`, {
         method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...forkRequest, ...invalid }),
@@ -248,6 +254,8 @@ test("Echo summary endpoint stays compact and lazy-loads project detail", async 
       const payload = await rejected.json();
       assert.equal(payload.constraints.code, "echo_media_constraints_unsatisfied");
       assert.ok(payload.constraints.alternatives.length);
+      assert.ok(payload.constraints.alternatives.every(row => typeof row.action === "string" && row.action.length));
+      if (invalid.requestedId.startsWith("generated-cast-")) assert.ok(payload.constraints.reasons.includes("required-character"));
       await assert.rejects(fs.access(path.join(targetVariantDir, `${invalid.requestedId}.json`)));
     }
     const forkResponse = await fetch(`${BASE}/api/echos/direction-variant/fork`, {

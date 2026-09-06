@@ -10,6 +10,17 @@ const fixture = () => ({ song_id: "recut-song", song_title: "Recut", duration: 2
 });
 const recut = (project, extra = {}) => createEchoNarrativeRecut({ project, recipeId: "performance-kinetic", seed: "A", range: { startSeconds: 4, endSeconds: 20 }, ...extra });
 
+test("generated and removed pictures do not offer stale depicted identities in recut controls", () => {
+  const project = fixture();
+  project.timeline = [
+    { ...project.timeline[0], media_id: "none", characterIds: ["ghost"], sceneIds: ["ghost-scene"] },
+    { ...project.timeline[1], knockedOut: true, cast: { characterIds: ["removed"] } },
+    { ...project.timeline[2], media_contract: { type: "generated-visualizer", characterIds: ["generated"] } },
+    { ...project.timeline[3], characterIds: ["present"], sceneIds: ["actual-scene"] },
+  ];
+  assert.deepEqual(echoRecutIdentityOptions(project), { characterIds: ["present"], sceneIds: ["actual-scene"] });
+});
+
 test("selected-range recuts preserve partial boundaries, other shots, source bytes, master and lyrics", () => {
   const project = fixture(), before = JSON.stringify(project);
   const result = recut(project);

@@ -7,6 +7,15 @@ const media = (id, extra = {}) => ({ id, uri: `/media/${id}.mp4`, sourceKind: "l
 const slot = (id, candidates, extra = {}) => ({ id, startSeconds: Number(id) * 3, endSeconds: Number(id) * 3 + 3, camera: { motion: "static", intensity: .1, speed: 1 }, media: candidates[0], candidateMedia: candidates, locks: ["timing"], ...extra });
 const compile = (slots, recipe = "performance-kinetic", options = {}) => sequenceEchoNarrative({ slots, recipe: NARRATIVE_VARIANT_RECIPES[recipe], seed: "A", ...options });
 
+test("generated sequence decisions cannot advertise inherited depicted cast", () => {
+  const generated = media("none", { sourceKind: "pure-visualizer", characterIds: ["ghost"], sceneIds: ["ghost-scene"] });
+  const result = compile([slot("0", [generated])], "ensemble-response");
+  assert.deepEqual(result.slots[0].selectedMedia.characterIds, []);
+  assert.deepEqual(result.slots[0].selectedMedia.sceneIds, []);
+  assert.ok(result.receipt.decisions[0].limitations.includes("cast-identity-unverified"));
+  assert.deepEqual(generated.characterIds, ["ghost"], "source metadata remains untouched");
+});
+
 test("five narrative grammars execute deterministically, change actual selections across seeds and preserve source time", () => {
   const candidates = Array.from({ length: 8 }, (_, index) => media(`m${index}`));
   const slots = Array.from({ length: 16 }, (_, index) => slot(String(index), candidates));
@@ -62,4 +71,11 @@ test("metadata-free footage remains explicitly limited, and candidate order cann
   assert.equal(one.slots[0].selectedMedia.id, shuffled.slots[0].selectedMedia.id);
   assert.ok(one.receipt.decisions[0].limitations.includes("comic-panel-order-unavailable"));
   assert.ok(one.receipt.decisions[0].pendingEvidence.includes("source-bytes-unverified"));
+});
+
+test('generated candidates cannot reuse stale depicted identities and sequence exhaustion has repair actions', () => {
+  const generated=media('none',{uri:'',sourceKind:'pure-visualizer',characterIds:['lead'],sceneIds:['home']});
+  assert.throws(()=>compile([slot('0',[generated])],'ambient-instrumental',{constraints:{requiredCharacterIds:['lead'],requiredSceneIds:['home'],pins:['none']}}),error=>error.result.reasons.includes('required-character')&&error.result.reasons.includes('required-scene'));
+  const panels=[media('last',{comicId:'comic',panelIndex:3}),media('earlier',{comicId:'comic',panelIndex:1})];
+  assert.throws(()=>compile([slot('0',[panels[0]]),slot('1',[panels[1]])],'comic-journey'),error=>error.result.reasons.includes('narrative-sequence-exhausted')&&error.result.alternatives.every(row=>typeof row.action==='string'&&row.action.length>10));
 });
