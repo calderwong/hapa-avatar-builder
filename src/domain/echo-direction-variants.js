@@ -615,12 +615,19 @@ export function deriveEchoDirectionVariantProject(baseProject = {}, variant = {}
 export function deriveEchoSavedDirectionPlanningProject(baseProject = {}, variant = {}, options = {}) {
   const projected = deriveEchoDirectionVariantProject(baseProject, variant);
   if (projected?.director_show_graph?.tracks) {
+    const receipt = baseProject.director_show_graph_receipt || {};
+    const certified = receipt.status === "ready"
+      && receipt.source === "validated-derived-execution-graph"
+      && receipt.cutId === echoDirectionVariantId(variant)
+      && baseProject.selected_direction_script_variant_id === echoDirectionVariantId(variant)
+      && receipt.cutFingerprint === echoDirectionVariantSourceFingerprint(variant);
     return {
       ...projected,
       editor_graph_fallback: {
         schemaVersion: "hapa.echo.editor-graph-fallback.v1",
-        source: "saved-child-certified-projection",
-        reason: "saved-cut-graph-ready",
+        source: certified ? "saved-child-certified-projection" : "saved-child-local-projection",
+        reason: certified ? "saved-cut-graph-ready" : "saved-cut-certification-pending",
+        requiresExactCertificate: !certified,
         preservesPortableCards: true,
         pinnedSavedCut: true,
       },
@@ -643,6 +650,7 @@ export function deriveEchoSavedDirectionPlanningProject(baseProject = {}, varian
         schemaVersion: "hapa.echo.editor-graph-fallback.v1",
         source: "saved-child-local-projection",
         reason: text(projected?.execution_preview?.reason) || "saved-cut-certification-pending",
+        requiresExactCertificate: true,
         preservesPortableCards: true,
         pinnedSavedCut: true,
       },

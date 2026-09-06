@@ -649,3 +649,61 @@ test("None selection projects as a disabled pass-through cue that preflight does
   assert.equal(show.instances.media.length, 1);
   assert.doesNotThrow(() => buildFoundationTimeline(show, { projectRoot: ".", fps: 30 }));
 });
+
+test("first-open legacy projection retains portable cards, explicit layer focus and stable patch targets", () => {
+  const portable = {
+    schemaVersion: "hapa.visualizer-card.v2", id: "isf:legacy-selected", title: "Selected",
+    source: { hash: `sha256:${"c".repeat(64)}`, uri: "/selected.fs" },
+    stemFocus: "master", inputs: [{ NAME: "gain", TYPE: "float", DEFAULT: 0.5 }],
+    audioMap: { gain: { signal: "rms", stemFocus: "bass", depth: 0.4 } },
+    audioSignal: ["rms"], controls: { gain: 0.6 },
+  };
+  const project = {
+    song_id: "legacy-portable", duration: 8,
+    visualizer_timeline: [
+      { start_sec: 0, end_sec: 4, visualizer_id: portable.id, portable_visualizer_card: portable, stem_focus: "drums", opacity: 0.3 },
+      { start_sec: 4, end_sec: 8, visualizer_id: "none", disabled: true },
+    ],
+    persistent_shader_slots: [
+      { id: "always-on-shader-1", enabled: true, shader_id: portable.id, portable_visualizer_card: portable, stem_focus: "leadVocals", opacity: 0.2 },
+      { id: "always-on-shader-2", enabled: false, shader_id: "none" },
+      { id: "always-on-shader-3", enabled: false, shader_id: "none" },
+    ],
+  };
+  const before = structuredClone(project);
+  const projected = projectToEditorGraph(project);
+  const primary = projected.tracks.find(t => t.id === "ivf-stack").cards[0];
+  const persistent = projected.tracks.find(t => t.id === "track-shader-always-on-1").cards[0];
+  for (const [card, focus, opacity] of [[primary, "drums", 0.3], [persistent, "leadVocals", 0.2]]) {
+    assert.equal(card.visualization.card.stemFocus, focus);
+    assert.equal(card.visualization.stemFocus, focus);
+    assert.deepEqual(card.visualization.card.audioMap, portable.audioMap); // explicit bass port wins
+    assert.deepEqual(card.visualization.card.inputs, portable.inputs);
+    assert.equal(card.visualization.card.source.hash, portable.source.hash);
+    assert.equal(card.parameters.opacity, opacity);
+  }
+  assert.equal(primary.id, "legacy:ivf:0");
+  assert.equal(persistent.id, "legacy:persistent:always-on-shader-1");
+  assert.equal(projected.tracks.find(t => t.id === "ivf-stack").cards[1].visualization, null);
+  assert.deepEqual(project, before);
+  const second = projectToEditorGraph({ ...project, director_show_graph: projected });
+  assert.deepEqual(second.tracks, projected.tracks);
+  const patched = projectToEditorGraph({ ...project, director_show_graph_patches: [
+    { operation: { kind: "set-opacity", cardId: primary.id, opacity: 0.71 } },
+  ] });
+  assert.equal(patched.tracks.find(t => t.id === "ivf-stack").cards[0].parameters.opacity, 0.71);
+});
+
+test("explicit focus survives missing portable cards without falsely claiming attachment", () => {
+  const project = { song_id: "unhydrated", duration: 4, visualizer_timeline: [
+    { start_sec: 0, end_sec: 4, visualizer_id: "isf:unknown", stem_focus: "drums", active_stems: ["bass"] },
+  ] };
+  const first = projectToEditorGraph(project);
+  const card = first.tracks.find(t => t.id === "ivf-stack").cards[0];
+  assert.equal(card.visualization.stemFocus, "drums");
+  assert.equal(card.visualization.card, undefined);
+  assert.equal(card.provenance.portableCardStatus, "missing-for-requested-source");
+  assert.deepEqual(card.parameters.stemMap, ["bass"]);
+  const second = projectToEditorGraph({ ...project, director_show_graph: first });
+  assert.deepEqual(second.tracks, first.tracks);
+});

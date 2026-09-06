@@ -783,7 +783,13 @@ function mergeVisualizerTimeline(graph, timeline = [], options = {}) {
     })
       ? template.visualization.card
       : null;
-    const portableCard = rowPortableCard || templatePortableCard;
+    const attachedCard = rowPortableCard || templatePortableCard;
+    // A cue/slot's explicit focus is the layer default. Preserve per-port
+    // overrides and the source card; never reinterpret active_stems as wiring.
+    const explicitStemFocus = String(row.stem_focus || row.stemFocus || "").trim();
+    const portableCard = attachedCard && explicitStemFocus
+      ? { ...attachedCard, stemFocus: explicitStemFocus }
+      : attachedCard;
     const hasPortableCard = Boolean(portableCard);
     const passThrough = requestedSourceId.toLowerCase() === "none"
       || row.disabled === true
@@ -799,6 +805,7 @@ function mergeVisualizerTimeline(graph, timeline = [], options = {}) {
         requestedSourceId: requestedSourceId || template.visualization?.requestedSourceId,
         nativeKey: requestedTitle || template.visualization?.nativeKey,
         status: row.native_status || template.visualization?.status || "exact",
+        ...(explicitStemFocus ? { stemFocus: explicitStemFocus } : {}),
         sourceHash: portableCard.source?.hash || template.visualization?.sourceHash,
         nativeRoute: clone(portableCard.nativeRoute) || clone(template.visualization?.nativeRoute),
         card: clone(portableCard),
@@ -808,6 +815,7 @@ function mergeVisualizerTimeline(graph, timeline = [], options = {}) {
         requestedSourceId,
         nativeKey: requestedTitle,
         status: row.native_status || "portable-card-missing",
+        ...(explicitStemFocus ? { stemFocus: explicitStemFocus } : {}),
       };
     }
     const portableCardStatus = passThrough
@@ -833,6 +841,7 @@ function mergeVisualizerTimeline(graph, timeline = [], options = {}) {
         ...(clone(template.parameters) || {}),
         opacity: passThrough ? 0 : Number(row.opacity ?? template.parameters?.opacity ?? 0.5),
         blendMode: row.blend_mode || row.blendMode || template.parameters?.blendMode || "screen",
+        ...(explicitStemFocus ? { stemFocus: explicitStemFocus } : {}),
         ...(Array.isArray(row.active_stems) ? { stemMap: clone(row.active_stems) } : {}),
       },
       buffer: clone(template.buffer) || { state: "ready", readySeconds: endSeconds - startSeconds },
@@ -924,12 +933,14 @@ export function projectToEditorGraph(project = {}) {
   };
   if (declared) {
     mergeMediaTimeline(graph, project.timeline, outputProfile);
-    mergeVisualizerTimeline(graph, project.visualizer_timeline || project.visualizerTimeline);
-    mergePersistentShaderSlots(graph, project);
   } else if (Array.isArray(project.timeline)) {
     const mediaTrack = trackByRole(graph, ["track-a", "media-a"], ["foundation", "media"]);
     rebuildMediaCameraBindings(graph, project.timeline, outputProfile, mediaTrack);
   }
+  // Legacy projects can carry picker-selected portable cards too. Reuse the
+  // same merge so first-open and subsequent projections retain identical truth.
+  mergeVisualizerTimeline(graph, project.visualizer_timeline || project.visualizerTimeline);
+  mergePersistentShaderSlots(graph, project);
   graph.directorV2 = {
     ...(graph.directorV2 || {}),
     outputProfile,

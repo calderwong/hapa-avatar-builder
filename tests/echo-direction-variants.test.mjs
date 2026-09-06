@@ -553,3 +553,36 @@ test("saved and editable cuts retain the three persistent shader-slot settings",
   assert.equal(request.projectPatch.persistent_shader_slots_schema, "hapa.echo.persistent-shader-slots.v1");
   assert.equal(request.projectPatch.persistent_shader_slots[2].shader_id, "operator-selected-third-shader");
 });
+
+test("saved planning separates cut identity pinning from a matching render certificate", () => {
+  const base = project(), cut = variant("certified-cut", "Airy", 1);
+  base.director_show_graph_receipt = {
+    status: "ready", source: "validated-derived-execution-graph", cutId: cut.id,
+    cutFingerprint: echoDirectionVariantFingerprint(cut),
+  };
+  base.selected_direction_script_variant_id = cut.id;
+  const ready = deriveEchoSavedDirectionPlanningProject(base, cut);
+  assert.equal(ready.editor_graph_fallback.pinnedSavedCut, true);
+  assert.equal(ready.editor_graph_fallback.requiresExactCertificate, false);
+  assert.equal(ready.editor_graph_fallback.source, "saved-child-certified-projection");
+  const repairedCut = { ...cut, source_fingerprint: echoDirectionVariantFingerprint(cut),
+    visualizer_timeline: [{ start_sec: 0, end_sec: 20, visualizer_id: "runtime-repaired" }],
+  };
+  assert.notEqual(echoDirectionVariantFingerprint(repairedCut), repairedCut.source_fingerprint);
+  assert.equal(deriveEchoSavedDirectionPlanningProject(base, repairedCut).editor_graph_fallback.requiresExactCertificate, false);
+  assert.equal(deriveEchoSavedDirectionPlanningProject({ ...base, selected_direction_script_variant_id: "another" }, cut).editor_graph_fallback.requiresExactCertificate, true);
+  for (const override of [
+    { status: "preparing" }, { cutId: "different-cut" },
+    { cutFingerprint: "stale" }, { source: "unverified-template" },
+  ]) {
+    const waiting = deriveEchoSavedDirectionPlanningProject({ ...base,
+      director_show_graph_receipt: { ...base.director_show_graph_receipt, ...override },
+    }, cut);
+    assert.equal(waiting.editor_graph_fallback.pinnedSavedCut, true);
+    assert.equal(waiting.editor_graph_fallback.requiresExactCertificate, true);
+    assert.equal(waiting.editor_graph_fallback.source, "saved-child-local-projection");
+  }
+  const preparingCut = { ...cut, execution_preview: { status: "preparing", reason: "server_restart_required" } };
+  const waiting = deriveEchoSavedDirectionPlanningProject(base, preparingCut, { fallbackProject: base });
+  assert.equal(waiting.editor_graph_fallback.requiresExactCertificate, true);
+});

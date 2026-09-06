@@ -5079,7 +5079,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
           throw new Error("a verified editor graph is unavailable while its exact preview graph prepares");
         }
         const savedShowGraph = projectToEditorGraph(editableSelection.savedProject);
-        const usingEditorFallback = editableSelection.savedProject?.editor_graph_fallback?.pinnedSavedCut === true;
+        const usingEditorFallback = editableSelection.savedProject?.editor_graph_fallback?.requiresExactCertificate !== false;
         if (!commitDirectorProjectDetail(detail, detailResult.requestGeneration)) {
           throw new Error("a newer project refresh superseded this response");
         }
@@ -6388,7 +6388,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                                       throw new Error("a verified editor graph is unavailable while its exact render graph prepares");
                                     }
                                     const savedShowGraph = projectToEditorGraph(editableSelection.savedProject);
-                                    const usingEditorFallback = editableSelection.savedProject?.editor_graph_fallback?.pinnedSavedCut === true;
+                                    const usingEditorFallback = editableSelection.savedProject?.editor_graph_fallback?.requiresExactCertificate !== false;
                                     if (!commitDirectorProjectDetail(detail, detailResult.requestGeneration)) {
                                       throw new Error("a newer detail refresh superseded this response");
                                     }
