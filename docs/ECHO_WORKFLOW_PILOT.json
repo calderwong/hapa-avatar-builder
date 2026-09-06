@@ -54,14 +54,34 @@
       "reworkMinutes": null,
       "broadGateRuns": [],
       "escapedDefects": null,
-      "acceptance": "pending"
+      "acceptance": "pending",
+      "projectionEvidence": {
+        "plans": 12,
+        "events": 476,
+        "sourceBytesUnchanged": true,
+        "scope": "derived event projection only; no native paint or export parity"
+      }
     }
   ],
   "humanPilotReview": "pending",
   "postmortems": [
-    "docs/postmortems/2026-09-06-echo-verification-cadence.md"
+    "docs/postmortems/2026-09-06-echo-verification-cadence.md",
+    "docs/postmortems/2026-09-06-echo-conviction-first-contact.md"
   ],
   "decisionAfterAcceptedBatches": 2,
   "nextAction": "Complete A1 end-to-end behavior before broad acceptance; targeted diagnostic checks as needed",
-  "updates": "batch-start, scope-change, consequential-failure, acceptance, handoff, goal-completion"
+  "updates": "batch-start, scope-change, consequential-failure, acceptance, handoff, goal-completion",
+  "collaboration": {
+    "protocol": "docs/ECHO_CONVICTION_PROTOCOL.md",
+    "worker": "Conviction",
+    "route": "Hermes AIAgent, custom, qwen38-flash-next:fast, http://127.0.0.1:8001/v1",
+    "status": "active-scoped-advisory",
+    "observedChunks": 1,
+    "acceptedNewDefects": 0,
+    "unrestrictedCodeQualified": false,
+    "imageQualified": false,
+    "localSeconds": 34.742,
+    "localTokens": null,
+    "savings": null
+  }
 }

@@ -8,7 +8,7 @@ Read the canonical method at `$HAPA_DESKTOP_ROOT/Hapa_Worldbuilding_Wiki/Operati
 
 - Echo and Overwatch approved scope remains 18 requirements. Done: ECHO-01/02/03/09/13/16. In progress: ECHO-04/05/06/07/08/10/11/12/14/15/17/18.
 - Last completed implementation checkpoint: 43, commit `fe3a5d7e0a3209f0a62c166c104b1bd441d06075`. All 2,192 repository tests, 54 Overcard checks, build and native smoke passed for that revision. Six-second live-signal capture/replay was observed; full-song/export/physical AV/human taste were not established by that proof.
-- Checkpoint 44 code is uncommitted: section-aware accent admission, cue semantics, shared recipe admission, and locked-accent preservation. Its 65 focused tests/build passed; the six-song preview audit still fails with `Preview event missing`. The current changes have no final full-suite claim.
+- Checkpoint 44 code is uncommitted: section-aware accent admission, cue semantics, shared recipe admission, and locked-accent preservation. Its 65 focused tests/build passed. The original six-song preview audit failed with `Preview event missing`; the later Conviction-collaboration pass traced that failure to pre-onset frame sampling and verified 476 projected observations using an in-event frame. The current changes still have no final full-suite or native-paint claim.
 - Native and HyperFrames painters still apply full-frame washes instead of declared gesture/target semantics. Simultaneous-layer and camera-acceleration section limits and merged-range limits remain unresolved. Do not equate planner metadata with painted behavior.
 - Goal tool last reported `usageLimited`. This workflow documentation does not resume or complete the scheduler goal. Work may continue when the user/harness resumes it; do not silently consume a usage reset. Human pilot comparison remains pending; costly alignment/render expansion retains the existing review boundary. Independent technical work remains available.
 
@@ -34,3 +34,9 @@ At each meaningful update, keep JSON and Markdown in agreement, append the corre
 ## Next action
 
 Resume implementation of A1 from the existing six owned code/test changes. Diagnose the preview audit in the same pass as target-aware painting and combined budgets; use a targeted probe only when needed to settle the contract. Run the completed batch's acceptance and repository/runtime gates afterward. Do not rerun the full suite simply to re-establish checkpoint 44.
+
+## Conviction relationship — 2026-09-06
+
+Calder authorized selective local delegation with Codex as orchestrator/director. [Echo Conviction working agreement](ECHO_CONVICTION_PROTOCOL.md) records roles, invocation boundaries, qualifications and result review. The first corrected local review accepted the terms but produced no accepted new defect; early routing is limited to advisory fact extraction and acceptance coverage. No autonomous code or image qualification is claimed. [The postmortem](postmortems/2026-09-06-echo-conviction-first-contact.md) preserves the initial cloud-route mistake, local recovery and rejected findings.
+
+Codex's parallel frame-sampling diagnostic passes 12 derived plans / 476 projected event observations with source bytes unchanged. A1 remains in progress: actual target-aware painting and combined budgets still need implementation and batch acceptance. Broad application tests were not repeated for this relationship/documentation pass. The shared Codex/Conviction ledger owns attributed reflections; this remains part of the one active Echo workflow pilot.
