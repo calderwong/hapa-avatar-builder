@@ -71,9 +71,8 @@ import SongCardMintPanel from "./SongCardMintPanel.jsx";
 import EchoLyricTimingEditor from "./EchoLyricTimingEditor.jsx";
 import PalmierRoundTripPanel from "./PalmierRoundTripPanel.jsx";
 import ShotDecisionInspectorPanel from "./ShotDecisionInspectorPanel.jsx";
-import { appendShotPreferenceEvent } from "../domain/shot-decision-inspector.js";
+import { buildShotPreferencePatch } from "../domain/shot-decision-inspector.js";
 import TasteMemoryPanel from "./TasteMemoryPanel.jsx";
-import { appendTasteEvidence, createTasteMemory } from "../domain/human-taste-memory.js";
 import AlbumLiveSetPanel from "./AlbumLiveSetPanel.jsx";
 import EchoReferenceExplorer from "./EchoReferenceExplorer.jsx";
 import { generateEchoHyperframeScript } from "../domain/echo-hyperframe-script.js";
@@ -7846,10 +7845,14 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                                 <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', fontSize: '11px' }}>
                                   <ShotDecisionInspectorPanel
                                     shot={activeTimelineItem}
-                                    onReview={(review) => {
-                                      const result = appendShotPreferenceEvent(activeProject.shot_preference_events || [], { ...review, operator: "local-human" });
-                                      const tasteMemory = appendTasteEvidence(activeProject.human_taste_memory?.schemaVersion ? activeProject.human_taste_memory : createTasteMemory(), { scope: "shot", scopeId: review.inspector.shotId, actionEventId: result.event.id, action: review.action, operator: "local-human", feature: `media:${review.targetMediaId || review.inspector.selectedMedia.id}`, targetId: review.targetMediaId || review.inspector.selectedMedia.id, recordedAt: result.event.recordedAt });
-                                      handleUpdateProjectSettings({ shot_preference_events: result.events, last_shot_preference_event: result.event, human_taste_memory: tasteMemory });
+                                    mediaTitles={Object.fromEntries((activeProject.timeline || []).map((shot) => [shot.media_id, shot.media_title || shot.media_id]))}
+                                    onReview={directorEditingLocked ? undefined : (review) => {
+                                      const current = activeProjectRef.current || activeProject;
+                                      if (current.song_id !== activeProject.song_id || current.active_direction_script_variant?.id !== activeProject.active_direction_script_variant?.id) {
+                                        throw new Error("The selected cut changed. Reopen its shot inspector.");
+                                      }
+                                      const shotIndex = activeProject.timeline?.[selectedShotIndex] ? selectedShotIndex : 0;
+                                      handleUpdateProjectSettings(buildShotPreferencePatch(current, { ...review, shotIndex, operator: "local-human" }));
                                     }}
                                   />
                                   

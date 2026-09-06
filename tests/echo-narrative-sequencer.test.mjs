@@ -79,3 +79,62 @@ test('generated candidates cannot reuse stale depicted identities and sequence e
   const panels=[media('last',{comicId:'comic',panelIndex:3}),media('earlier',{comicId:'comic',panelIndex:1})];
   assert.throws(()=>compile([slot('0',[panels[0]]),slot('1',[panels[1]])],'comic-journey'),error=>error.result.reasons.includes('narrative-sequence-exhausted')&&error.result.alternatives.every(row=>typeof row.action==='string'&&row.action.length>10));
 });
+
+test('bounded search keeps a less attractive panel when the greedy winner would exhaust the next cue', () => {
+  const early=media('early',{comicId:'book',panelIndex:0,sourceKind:'local-photo'});
+  const tempting=media('tempting',{comicId:'book',panelIndex:2,sourceKind:'local-photo',shotRoles:['establishing']});
+  const next=media('next',{comicId:'book',panelIndex:1,sourceKind:'local-photo'});
+  const input=[slot('0',[tempting,early]),slot('1',[next])];
+  const before=structuredClone(input);
+  const result=compile(input,'comic-journey');
+  assert.deepEqual(result.slots.map(row=>row.selectedMedia.id),['early','next']);
+  assert.equal(result.receipt.decisions[0].selectionBasis,'bounded-sequence-preference');
+  assert.ok(result.receipt.decisions[0].alternatives[0].preferenceScore>result.receipt.decisions[0].preferenceScore);
+  assert.ok(result.receipt.search.exhaustedBranches>0);
+  assert.equal(result.receipt.search.globallyOptimal,false);
+  assert.deepEqual(input,before);
+});
+
+test('future favorite locks remain exact and conflicting locked panel order is actionable', () => {
+  const panels=[0,1,2].map(panelIndex=>media('panel'+panelIndex,{comicId:'book',panelIndex,sourceKind:'local-photo',shotRoles:panelIndex===2?['establishing']:[]}));
+  const result=compile([slot('0',[panels[2],panels[0]]),slot('1',[panels[1]],{locks:['media','camera','timing']})],'comic-journey');
+  assert.deepEqual(result.slots.map(row=>row.selectedMedia.id),['panel0','panel1']);
+  assert.equal(result.receipt.decisions[1].locked,true);
+  assert.throws(()=>compile([slot('0',[panels[2]],{locks:['media']}),slot('1',[panels[1]],{locks:['media']})],'comic-journey'),error=>error.statusCode===422&&error.result.locked===true&&error.result.search.globallyOptimal===false);
+});
+
+test('beam branch state and bounded explanation order survive candidate permutations', () => {
+  const candidates=[0,1,2].flatMap(index=>['a','b'].map(comicId=>media(comicId+index,{sourceKind:'local-photo',comicId,panelIndex:index})));
+  const input=Array.from({length:6},(_,i)=>slot(String(i),candidates));
+  const original=compile(input,'comic-journey');
+  const reversed=compile(input.map(row=>({...row,candidateMedia:[...row.candidateMedia].reverse()})),'comic-journey');
+  assert.deepEqual(original.receipt,reversed.receipt);
+  assert.deepEqual(original.slots.map(row=>row.selectedMedia),reversed.slots.map(row=>row.selectedMedia));
+  for(const comicId of ['a','b']){
+    const indices=original.slots.map(row=>row.selectedMedia).filter(row=>row.comicId===comicId).map(row=>row.panelIndex);
+    assert.deepEqual(indices,[0,1,2]);
+  }
+  assert.ok(original.receipt.search.evaluatedBranches<=original.receipt.search.maximumBranchEvaluations);
+});
+
+test('large candidate explanations are capped without hiding their total counts', () => {
+  const candidates=Array.from({length:90},(_,i)=>media(String(i),i<40?{sourceAllowed:false}:{}));
+  const result=compile([slot('0',candidates)]);
+  const decision=result.receipt.decisions[0];
+  assert.equal(decision.alternatives.length,32);assert.equal(decision.alternativeCount,49);
+  assert.equal(decision.rejected.length,32);assert.equal(decision.rejectedCount,40);
+});
+
+test('oversized direct callers fail before preparing candidate metadata', () => {
+  assert.throws(()=>compile(Array.from({length:4097},()=>({}))),/bounded recut workspace/);
+  const candidates=Array(201).fill(media('a'));
+  assert.throws(()=>compile(Array.from({length:1000},(_,i)=>slot(String(i),candidates))),/recut work budget/);
+});
+
+test('a maximum-length sequence keeps a bounded receipt while retaining alternative totals',()=>{
+ const candidates=Array.from({length:40},(_,i)=>media('source-'+i));
+ const result=compile(Array.from({length:4096},(_,i)=>slot(String(i),candidates)),'ensemble-response');
+ assert.ok(Buffer.byteLength(JSON.stringify(result.receipt))<17*1024*1024,'the complete stored receipt must remain below the artifact budget');
+ assert.ok(result.receipt.decisions.every(row=>row.alternativeCount===39&&row.alternatives.length>0&&row.alternatives.length<row.alternativeCount));
+ assert.equal(result.slots.length,4096);assert.ok(result.receipt.search.evaluatedBranches<=800000);
+});
