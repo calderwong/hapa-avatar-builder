@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createEchoNarrativeRecut } from "../src/domain/echo-narrative-recut.js";
+import { createEchoNarrativeRecut, echoRecutIdentityOptions } from "../src/domain/echo-narrative-recut.js";
 import { projectToEditorGraph } from "../src/domain/multitrack-editor.js";
 import { createEchoDirectionWorkingFork, buildEchoDirectionForkRequest, echoDirectionVariantOptionLabel } from "../src/domain/echo-direction-variants.js";
 
@@ -51,4 +51,39 @@ test("locks and missing constraints remain explicit; no out-of-range or graph-ed
   assert.throws(() => recut(fixture(), { range: { startSeconds: 1, endSeconds: 2 } }), /no complete shots/);
   assert.throws(() => recut(fixture(), { range: { startSeconds: 1, endSeconds: 25 } }), /within the song/);
   assert.throws(() => recut({ ...fixture(), director_show_graph_patches: [{}] }), /track patches/);
+});
+
+test("change amount chooses a deterministic bounded subset and leaves unselected shot bytes untouched", () => {
+  const project = fixture();
+  for (const amount of [0, .25, .5, 1]) {
+    const result = recut(project, { changeAmount: amount });
+    assert.equal(result.receipt.changeBudget.selectedShots, Math.ceil(4 * amount));
+    assert.equal(result.receipt.changedShotIndices.length, Math.ceil(4 * amount));
+    for (const index of result.receipt.preservedShotIndices) assert.equal(JSON.stringify(result.project.timeline[index]), JSON.stringify(project.timeline[index]));
+    assert.deepEqual(result, recut(project, { changeAmount: amount }));
+  }
+  assert.throws(() => recut(project, { changeAmount: NaN }), /Change amount/);
+  assert.throws(() => recut(project, { changeAmount: 1.1 }), /Change amount/);
+  const locked = recut(project, { locks: [{ targetId: "media-casting" }, { targetId: "camera" }] });
+  assert.equal(locked.receipt.changeBudget.selectedShots, 0);
+  assert.deepEqual(locked.project.timeline, project.timeline);
+});
+
+test("declared cast and scene constrain only changed shots and survive the saved fork contract", () => {
+  const project = fixture();
+  project.timeline[7].cast = { characterIds: ["declared-person"], sceneIds: ["declared-scene"] };
+  project.timeline[1].media_title = "Imagined Person at Imagined Scene";
+  assert.deepEqual(echoRecutIdentityOptions(project), { characterIds: ["declared-person"], sceneIds: ["declared-scene"] });
+  const result = recut(project, { changeAmount: .5, requiredCharacterIds: ["declared-person"], requiredSceneIds: ["declared-scene"] });
+  for (const index of result.receipt.changedShotIndices) {
+    assert.equal(result.project.timeline[index].media_id, "m7");
+    assert.deepEqual(result.project.timeline[index].cast, project.timeline[7].cast);
+    assert.deepEqual(result.project.timeline[index].mediaConstraints.requiredCharacterIds, ["declared-person"]);
+  }
+  const working = createEchoDirectionWorkingFork(project, { id: "parent", timeline: project.timeline });
+  const request = buildEchoDirectionForkRequest(working, result.project);
+  assert.deepEqual(request.projectPatch.director_patch_lineage.narrativeRecut.controls, result.receipt.controls);
+  assert.throws(() => recut(project, { requiredCharacterIds: ["undeclared"] }), /required-character/);
+  project.timeline[7].sourceAllowed = false;
+  assert.throws(() => recut(project, { requiredCharacterIds: ["declared-person"] }), /invalid-source-policy/);
 });

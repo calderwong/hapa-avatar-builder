@@ -1,0 +1,13 @@
+import React, {useState} from 'react';
+import {createRoot} from 'react-dom/client';
+import VariationLabPanel from '../../src/components/VariationLabPanel.jsx';
+const source={song_id:'proof-song',duration:24,audio_uri:'/source.mp3',active_direction_script_variant:{id:'saved-source'},visualizer_timeline:[],timed_lyrics:[{start:0,end:2,text:'Keep this lyric'}],timeline:Array.from({length:8},(_,index)=>({start_sec:index*3,end_sec:index*3+3,media_id:'media-'+index,media_uri:'/media/'+index+'.mp4',camera_motion:'static',camera_intensity:.1,camera_speed:1,media_contract:{type:'video',originalUri:'/media/'+index+'.mp4'},characterIds:[index%2?'cast-b':'cast-a'],sceneIds:['scene-a']}))};
+window.recutProofSource=structuredClone(source);
+function Proof(){
+ const [project,setProject]=useState(source);
+ window.recutProofProject=project;
+ window.recutProofExternalEdit=()=>setProject(value=>({...value,timed_lyrics:[{start:0,end:2,text:'New external lyric edit'}]}));
+ window.recutProofChangeSong=()=>setProject({...structuredClone(source),song_id:'another-song'});
+ return <VariationLabPanel project={project} currentTime={6} onCandidate={(next,receipt)=>{window.recutProofReceipt=receipt;setProject(next);}}/>;
+}
+createRoot(document.getElementById('root')).render(<Proof/>);
