@@ -602,3 +602,79 @@ test("recordings UI establishes the trusted local UI session before every admin 
   // And the domain bootstrap must target the local-ui-session endpoint.
   assert.match(domainSource, /\/api\/local-ui-session/);
 });
+
+test("recorded signal replay preserves typed spectra, bus aliases, silence, reverse seeks and source identity", async () => {
+  const { createEchoPreviewSignalCapture, createEchoPreviewSignalReplay } = await import("../src/domain/echo-preview-recording.js");
+  const identity = { songId: "song-a", cutId: "cut-a", audioUri: "/audio/a", graphSha256: "sha256:" + "a".repeat(64), audioSha256: "sha256:" + "b".repeat(64) };
+  let now = 0;
+  const capture = createEchoPreviewSignalCapture({ identity, clock: () => now });
+  const master = { status: "live", rms: 0, fft: new Uint8Array([0, 255]), wave: new Uint8Array([128, 128]) };
+  const vocal = { status: "live", rms: .7, fft: new Uint8Array([42, 7]), wave: new Uint8Array([4, 127]) };
+  capture.append({ songTime: 10, signalFrames: { master, vocals: vocal, Vocals: vocal } });
+  vocal.fft[0] = 99; now = 40;
+  capture.append({ songTime: 10.04, signalFrames: { master, vocals: vocal, Vocals: vocal } });
+  const saved = JSON.parse(JSON.stringify(capture.finish()));
+  assert.equal(saved.status, "complete"); assert.equal(saved.frames[0].buses.length, 2);
+  const replay = createEchoPreviewSignalReplay(saved, identity);
+  assert.equal(replay.at(10.04).vocals.fft[0], 99);
+  assert.equal(replay.at(10.02).vocals.fft[0], 42);
+  assert.equal(replay.at(10).master.rms, 0);
+  assert.ok(replay.at(10).master.fft instanceof Uint8Array);
+  assert.equal(replay.at(10).vocals, replay.at(10).Vocals);
+  assert.equal(replay.at(9), null); assert.equal(replay.at(11), null);
+  assert.throws(() => createEchoPreviewSignalReplay(saved, { ...identity, audioSha256: "sha256:" + "c".repeat(64) }), /source mismatch/);
+  assert.throws(() => createEchoPreviewSignalReplay(saved, { ...identity, cutId: "cut-b" }), /source mismatch/);
+});
+
+test("capture budgets and transport changes cannot become complete replay claims", async () => {
+  const { createEchoPreviewSignalCapture, createEchoPreviewSignalReplay, validateEchoPreviewSignals } = await import("../src/domain/echo-preview-recording.js");
+  const identity = { songId: "s", cutId: "c", audioUri: "/a", graphSha256: "sha256:" + "a".repeat(64), audioSha256: "sha256:" + "b".repeat(64) };
+  for (const kind of ["budget", "seek", "pause", "source"]) {
+    let now = 0; const capture = createEchoPreviewSignalCapture({ identity, clock: () => now, maxFrames: kind === "budget" ? 1 : 100 });
+    capture.append({ songTime: 2, signalFrames: { master: { rms: 0 } } }); now = kind === "pause" ? 300 : 40;
+    capture.append({ songTime: kind === "seek" ? 1 : kind === "pause" ? 2 : 2.04, signalFrames: { master: { rms: 0 } }, identity: kind === "source" ? { ...identity, cutId: "changed" } : identity });
+    const value = capture.finish(); assert.equal(value.status, "incomplete"); assert.ok(value.reason);
+    validateEchoPreviewSignals(value);
+    assert.throws(() => createEchoPreviewSignalReplay(value, identity), /incomplete/);
+  }
+});
+
+test("recording companions persist, verify identity and bytes, resist replacement, and share deletion/retention", async () => {
+  const { createEchoPreviewSignalCapture } = await import("../src/domain/echo-preview-recording.js");
+  const root = await fsp.mkdtemp(path.join(os.tmpdir(), "echo-signal-store-"));
+  const identity = { songId: "s", cutId: "c", audioUri: "/a", graphSha256: "sha256:" + "a".repeat(64), audioSha256: "sha256:" + "b".repeat(64) };
+  let tick = 0; const capture = createEchoPreviewSignalCapture({ identity, clock: () => tick });
+  capture.append({ songTime: 1, signalFrames: { master: { rms: 0 } } }); tick = 40;
+  capture.append({ songTime: 1.04, signalFrames: { master: { rms: .7 } } }); const value = capture.finish();
+  try {
+    let date = 0; const store = createPreviewRecordingStore({ mediaRoot: root, maxRecordings: 1, now: () => new Date(date++) });
+    const record = await store.add({ buffer: Buffer.from("video"), metadata: { id: "signal-test-01", songId: "s", captureIdentity: identity } });
+    assert.equal(record.signals, null);
+    await assert.rejects(store.putSignals(record.id, { ...value, identity: { ...identity, cutId: "wrong" } }), /source mismatch/);
+    const attached = await store.putSignals(record.id, value);
+    assert.equal(attached.signals.frameCount, 2); assert.equal(attached.signals.status, "complete");
+    assert.deepEqual(await store.getSignals(record.id), value);
+    assert.equal((await store.putSignals(record.id, value)).signals.sha256, attached.signals.sha256);
+    const edited = structuredClone(value); edited.frames[1].buses[0].rms = .9;
+    await assert.rejects(store.putSignals(record.id, edited), /cannot be replaced/);
+    await fsp.appendFile(path.join(root, record.id + ".signals.json"), " ");
+    await assert.rejects(store.getSignals(record.id), /changed on disk/);
+    await store.add({ buffer: Buffer.from("new video"), metadata: { id: "signal-test-02" } });
+    assert.equal(fs.existsSync(path.join(root, record.id + ".signals.json")), false);
+    await store.remove("signal-test-02"); assert.equal((await store.list()).length, 0);
+  } finally { await fsp.rm(root, { recursive: true, force: true }); }
+});
+
+test("recordings CLI retrieves the requested signal companion through the existing authenticated API path", async () => {
+  const { createServer } = await import("node:http");
+  const { execFile } = await import("node:child_process");
+  const { promisify } = await import("node:util");
+  const requests = [];
+  const server = createServer((req, res) => { requests.push({ url: req.url, authorization: req.headers.authorization }); res.setHeader("Content-Type", "application/json"); res.end(JSON.stringify({ schemaVersion: "hapa.echo.preview-signals.v1", marker: "stored-companion" })); });
+  await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
+  try {
+    const { stdout } = await promisify(execFile)(process.execPath, ["cli/avatar-builder.mjs", "echo-preview-recordings", "--signals", "capture-123", "--api-url", `http://127.0.0.1:${server.address().port}`], { cwd: path.resolve(import.meta.dirname, ".."), timeout: 10000, env: { ...process.env, HAPA_AVATAR_ADMIN_TOKEN: "test-capture-token" } });
+    assert.equal(JSON.parse(stdout).marker, "stored-companion");
+    assert.deepEqual(requests, [{ url: "/api/echo/preview-recordings/capture-123/signals", authorization: "Bearer test-capture-token" }]);
+  } finally { await new Promise(resolve => server.close(resolve)); }
+});

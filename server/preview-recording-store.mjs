@@ -16,6 +16,8 @@ import path from "node:path";
 
 import {
   ECHO_PREVIEW_RECORDING_SCHEMA,
+  validateEchoPreviewSignals,
+  ECHO_PREVIEW_SIGNALS_MAX_BYTES,
   echoPreviewRecordingContentType,
   echoPreviewRecordingFileExtension,
   echoPreviewRecordingFileName,
@@ -145,6 +147,8 @@ export function createPreviewRecordingStore({
       fileName: String(record.fileName || ""),
       sha256: String(record.sha256 || ""),
       createdAt: String(record.createdAt || ""),
+      captureIdentity: record.captureIdentity || null,
+      signals: record.signals || null,
     };
   }
 
@@ -188,6 +192,42 @@ export function createPreviewRecordingStore({
      *   orientation, width, height, fps, durationMs, id (optional).
      * @returns {Promise<object>} The stored record (public shape).
      */
+    async putSignals(id, value) {
+      const safeId = assertSafeId(id);
+      return serialize(async index => {
+        const record = index.recordings.find(row => row.id === safeId);
+        if (!record) throw storeError("preview_recording_not_found", "Recording missing.", 404);
+        if (!record.captureIdentity) throw storeError("preview_signals_identity_missing", "This recording has no captured source identity.", 409);
+        try { validateEchoPreviewSignals(value, { identity: record.captureIdentity }); }
+        catch (error) { throw storeError("preview_signals_invalid", error.message, 400); }
+        const bytes = Buffer.from(JSON.stringify(value));
+        const sha256 = crypto.createHash("sha256").update(bytes).digest("hex");
+        if (record.signals) {
+          if (record.signals.sha256 !== sha256) throw storeError("preview_signals_already_saved", "Saved signal capture cannot be replaced.", 409);
+          return publicRecord(record);
+        }
+        const filePath = path.join(root, safeId + ".signals.json");
+        const tmpPath = filePath + "." + crypto.randomUUID() + ".tmp";
+        try { await fsp.writeFile(tmpPath, bytes, { flag: "wx" }); await fsp.rename(tmpPath, filePath); }
+        finally { await fsp.unlink(tmpPath).catch(() => {}); }
+        record.signals = { status: value.status, reason: value.reason, sha256, sizeBytes: bytes.length, frameCount: value.frames.length, startSeconds: value.frames[0]?.songTime ?? null, endSeconds: value.frames.at(-1)?.songTime ?? null };
+        try { await writeIndex(index); }
+        catch (error) { await fsp.unlink(filePath).catch(() => {}); throw error; }
+        return publicRecord(record);
+      });
+    },
+
+    async getSignals(id) {
+      const safeId = assertSafeId(id), record = (await readIndex()).recordings.find(row => row.id === safeId);
+      if (!record?.signals) throw storeError("preview_signals_not_found", "No saved signal capture for this recording.", 404);
+      const filePath = path.join(root, safeId + ".signals.json");
+      const stat = await fsp.stat(filePath);
+      if (stat.size > ECHO_PREVIEW_SIGNALS_MAX_BYTES) throw storeError("preview_signals_too_large", "Signal capture exceeds budget.", 413);
+      const bytes = await fsp.readFile(filePath);
+      if (crypto.createHash("sha256").update(bytes).digest("hex") !== record.signals.sha256) throw storeError("preview_signals_hash_mismatch", "Signal capture changed on disk.", 409);
+      return validateEchoPreviewSignals(JSON.parse(bytes), { identity: record.captureIdentity });
+    },
+
     async add({ buffer, mimeType, metadata = {} }) {
       const bytes = Buffer.isBuffer(buffer) ? buffer : Buffer.from(buffer ?? []);
       if (!bytes.length) {
@@ -206,6 +246,7 @@ export function createPreviewRecordingStore({
       const createdAt = now().toISOString();
       const recordBase = {
         id: safeId,
+        captureIdentity: metadata.captureIdentity || null,
         schemaVersion: ECHO_PREVIEW_RECORDING_SCHEMA,
         songId: safeText(metadata.songId, 120),
         songTitle: safeText(metadata.songTitle, 240),
@@ -223,6 +264,11 @@ export function createPreviewRecordingStore({
         createdAt,
       };
 
+      if (recordBase.captureIdentity) {
+        try { validateEchoPreviewSignals({ schemaVersion: "hapa.echo.preview-signals.v1", identity: recordBase.captureIdentity, status: "incomplete", reason: "pending-upload", interpolation: "previous-consumed-frame", frames: [] }); }
+        catch (error) { throw storeError("preview_signals_invalid", error.message, 400); }
+        if (recordBase.captureIdentity.songId !== recordBase.songId) throw storeError("preview_signals_identity_mismatch", "Capture song differs from recording metadata.", 409);
+      }
       const stored = await serialize(async (index) => {
         const existing = index.recordings.some((row) => row.id === safeId);
         const songIdentity = recordBase.songId || recordBase.songTitle;
@@ -248,6 +294,7 @@ export function createPreviewRecordingStore({
         await fsp.writeFile(tmpPath, bytes);
         await fsp.rename(tmpPath, filePath);
         if (existing) {
+          await fsp.unlink(path.join(root, safeId + ".signals.json")).catch(() => {});
           index.recordings = index.recordings.filter((row) => row.id !== safeId);
         }
         index.recordings.push(record);
@@ -258,6 +305,7 @@ export function createPreviewRecordingStore({
           )[0];
           index.recordings = index.recordings.filter((row) => row !== oldest);
           await fsp.unlink(path.join(root, oldest.fileName)).catch(() => {});
+          await fsp.unlink(path.join(root, oldest.id + ".signals.json")).catch(() => {});
         }
         await writeIndex(index);
         return record;
@@ -310,6 +358,7 @@ export function createPreviewRecordingStore({
         }
         index.recordings = index.recordings.filter((entry) => entry.id !== safeId);
         await fsp.unlink(path.join(root, row.fileName)).catch(() => {});
+        await fsp.unlink(path.join(root, safeId + ".signals.json")).catch(() => {});
         await writeIndex(index);
         return row;
       });

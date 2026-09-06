@@ -131,6 +131,8 @@ import {
   ECHO_PREVIEW_RECORD_VIDEO_BIT_RATE,
   ECHO_PREVIEW_RECORD_AUDIO_BIT_RATE,
   createEchoPreviewRecordingSession,
+  createEchoPreviewSignalCapture,
+  createEchoPreviewSignalReplay,
   echoPreviewRecordingQualityLabel,
   ensureEchoPreviewRecordingLocalSession,
   formatEchoPreviewRecordingElapsed,
@@ -1616,6 +1618,11 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
   const powerMode = normalizePlaybackPowerMode(playbackMode);
   const [board, setBoard] = useState(null);
   const [audioVisualMode, setAudioVisualMode] = useState("prepared");
+  const [captureLiveSignals, setCaptureLiveSignals] = useState(true);
+  const [recordedSignalReplay, setRecordedSignalReplay] = useState(null);
+  const previewSignalCaptureRef = useRef(null);
+  const previewCaptureContextRef = useRef(null);
+  const recordingSourceKeyRef = useRef("");
   const [visualSignalSolo, setVisualSignalSolo] = useState({ key: "", role: "" });
   const [preparedAudio, setPreparedAudio] = useState({ status: "idle", key: "", value: null });
   const [preparedAudioRetry, setPreparedAudioRetry] = useState(0);
@@ -2013,6 +2020,36 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
     activeProject?.director_show_graph?.tracks ? projectToEditorGraph(activeProject) : null
   ), [activeProject]);
   const preparedAudioRoute = echoProjectAudioRoute(activeProject || {}, activeShowGraph).uri || "";
+  const recordingSourceKey = useMemo(() => JSON.stringify([selectedProjectSongId, activeDirectionVariantSelection, preparedAudioRoute, activeShowGraph]), [selectedProjectSongId, activeDirectionVariantSelection, preparedAudioRoute, activeShowGraph]);
+  recordingSourceKeyRef.current = recordingSourceKey;
+  const activeRecordedSignalReplay = audioVisualMode === "replay" && recordedSignalReplay?.sourceKey === recordingSourceKey ? recordedSignalReplay.replay : null;
+  const buildPreviewCaptureIdentity = useCallback(async () => {
+    const sourceKey = recordingSourceKey;
+    const sourceUri = audioRef.current?.currentSrc;
+    if (!sourceUri || !activeShowGraph) throw new Error("Wait for the current song and cut to finish loading.");
+    const sha = async bytes => "sha256:" + [...new Uint8Array(await crypto.subtle.digest("SHA-256", bytes))].map(b => b.toString(16).padStart(2, "0")).join("");
+    const audioBytes = await (await fetch(sourceUri, { signal: AbortSignal.timeout(30000) })).arrayBuffer();
+    const identity = { songId: String(selectedProjectSongId), cutId: String(activeDirectionVariantSelection || "current"), audioUri: preparedAudioRoute,
+      graphSha256: await sha(new TextEncoder().encode(sourceKey)), audioSha256: await sha(audioBytes) };
+    if (recordingSourceKeyRef.current !== sourceKey || audioRef.current?.currentSrc !== sourceUri) throw new Error("The song or cut changed while preparing the capture.");
+    return identity;
+  }, [recordingSourceKey, selectedProjectSongId, activeDirectionVariantSelection, preparedAudioRoute, activeShowGraph]);
+  const loadPreviewRecordedSignals = async recording => {
+    const sourceKey = recordingSourceKey;
+    try {
+      await ensureEchoPreviewRecordingLocalSession(API_BASE);
+      const response = await fetch(`${API_BASE}/api/echo/preview-recordings/${encodeURIComponent(recording.id)}/signals`, { cache: "no-store" });
+      const value = await response.json();
+      if (!response.ok) throw new Error(value.message || "Recorded signals could not be loaded.");
+      const identity = await buildPreviewCaptureIdentity();
+      const replay = createEchoPreviewSignalReplay(value, identity);
+      if (recordingSourceKeyRef.current !== sourceKey) throw new Error("Select the recorded song and cut before loading its signals.");
+      audioRef.current?.pause();
+      if (audioRef.current) audioRef.current.currentTime = replay.startSeconds;
+      currentTimeRef.current = replay.startSeconds; setCurrentTime(replay.startSeconds); setIsPlaying(false);
+      setRecordedSignalReplay({ sourceKey, replay, recordingId: recording.id }); setAudioVisualMode("replay"); setActiveWorkbenchTab("preview"); setPreviewRecordingsError("");
+    } catch (error) { setPreviewRecordingsError(`Signals were not loaded: ${error.message}`); }
+  };
   const preparedAudioKey = `${selectedProjectSongId || ""}:${activeDirectionVariantSelection}:${preparedAudioRoute}`;
   useEffect(() => {
     if (!selectedProjectSongId || !preparedAudioRoute || audioVisualMode !== "prepared") return;
@@ -2554,6 +2591,8 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
       previewRecordingDownloadUrlRef.current = "";
     }
     previewRecordingChunksRef.current = [];
+    previewSignalCaptureRef.current = null;
+    previewCaptureContextRef.current = null;
     previewRecordingSessionRef.current = null;
     previewRecordingCanvasRef.current = null;
     previewRecordingActiveRef.current = false;
@@ -2710,6 +2749,14 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
     const failureMessage = String(previewRecordingFailureMessageRef.current || "").trim();
     previewRecordingFailureMessageRef.current = "";
     const session = previewRecordingSessionRef.current;
+    const capturedContext = previewCaptureContextRef.current;
+    const capturedSignals = previewSignalCaptureRef.current?.finish() || null;
+    const downloadSignals = () => {
+      if (!capturedSignals) return;
+      const url = URL.createObjectURL(new Blob([JSON.stringify(capturedSignals)], { type: "application/json" }));
+      const link = document.createElement("a"); link.href = url; link.download = `echo-signals-${capturedContext.identity.cutId}.json`; link.click();
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+    };
     setPreviewRecordingState("saving");
     if (previewRecordingRafRef.current) {
       globalThis.cancelAnimationFrame(previewRecordingRafRef.current);
@@ -2754,14 +2801,15 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
       return;
     }
     const metadataParams = new URLSearchParams();
-    const songId = String(selectedProjectSongId || activeProject?.song_id || activeProject?.id || "").trim();
-    const songTitle = String(activeProject?.song_title || "").trim();
+    const songId = String(capturedContext?.metadata.songId || "");
+    const songTitle = String(capturedContext?.metadata.songTitle || "");
     if (songId) metadataParams.set("songId", songId);
     if (songTitle) metadataParams.set("songTitle", songTitle);
-    if (activeProject?.title) metadataParams.set("projectTitle", String(activeProject.title).trim());
-    metadataParams.set("orientation", String(activeOutputProfile?.id || ""));
-    metadataParams.set("width", String(Number(activeOutputProfile?.width || 0)));
-    metadataParams.set("height", String(Number(activeOutputProfile?.height || 0)));
+    metadataParams.set("projectTitle", capturedContext?.metadata.projectTitle || "");
+    metadataParams.set("orientation", capturedContext?.metadata.orientation || "");
+    metadataParams.set("width", String(capturedContext?.metadata.width || 0));
+    metadataParams.set("height", String(capturedContext?.metadata.height || 0));
+    if (capturedContext?.identity) metadataParams.set("captureIdentity", JSON.stringify(capturedContext.identity));
     metadataParams.set("fps", String(ECHO_PREVIEW_RECORD_FPS));
     metadataParams.set("durationMs", String(Math.round(result.durationMs || 0)));
     let uploaded = null;
@@ -2779,16 +2827,27 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
     } catch (error) {
       uploadFailure = String(error?.message || error || "upload failed");
     }
+    let signalNotice = "";
+    if (uploaded && capturedSignals) {
+      try {
+        const response = await fetch(`${API_BASE}/api/echo/preview-recordings/${encodeURIComponent(uploaded.id)}/signals`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(capturedSignals) });
+        const payload = await response.json();
+        if (!response.ok) throw new Error(payload.message || "Signal upload failed.");
+        uploaded = payload.recording;
+        if (capturedSignals.status !== "complete") signalNotice = `Video saved; signal capture is incomplete (${capturedSignals.reason}).`;
+      } catch (error) { signalNotice = `Video saved; signals could not be saved (${error.message}). Signal JSON downloaded separately.`; downloadSignals(); }
+    }
     if (uploaded) {
       setPreviewRecordingLastId(String(uploaded.id || ""));
-      setPreviewRecordingError(failureMessage);
-      setPreviewRecordingState(failureMessage ? "error" : "idle");
+      setPreviewRecordingError(failureMessage || signalNotice);
+      setPreviewRecordingState(failureMessage || signalNotice ? "error" : "idle");
       setPreviewRecordings((current) => (current ? [uploaded, ...current] : [uploaded]));
       refreshPreviewRecordings();
       return;
     }
     // Upload failed: hand the operator the file locally so the capture
     // survives. The clip is otherwise unrecoverable once the page unloads.
+    downloadSignals();
     const objectUrl = URL.createObjectURL(blob);
     previewRecordingDownloadUrlRef.current = objectUrl;
     const anchor = globalThis.document.createElement("a");
@@ -2798,7 +2857,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
       .map((recording) => Number(recording.recordingNumber || 0))
       .filter((value) => Number.isInteger(value) && value > 0);
     anchor.download = echoPreviewRecordingFileName({
-      songTitle: songTitle || activeProject?.title,
+      songTitle: songTitle || capturedContext?.metadata.projectTitle,
       recordingNumber: Math.max(priorTakeNumbers.length, ...priorTakeNumbers, 0) + 1,
       durationMs: result.durationMs,
       createdAt: new Date(),
@@ -2837,7 +2896,11 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
 
       const audioElement = audioRef.current;
       const audioTrack = await acquirePreviewRecordingAudioTrack();
+      const identity = audioVisualMode === "live" && captureLiveSignals ? await buildPreviewCaptureIdentity() : null;
       const output = activeOutputProfile;
+      previewCaptureContextRef.current = { identity, sourceKey: recordingSourceKey, mode: audioVisualMode, metadata: {
+        songId: String(selectedProjectSongId || project.song_id || project.id || ""), songTitle: project.song_title || "", projectTitle: project.title || "", orientation: output.id, width: output.width, height: output.height,
+      } };
       const canvas = globalThis.document.createElement("canvas");
       canvas.width = Math.max(320, Number(output?.width || 1280));
       canvas.height = Math.max(320, Number(output?.height || 720));
@@ -2868,6 +2931,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
       previewRecordingSessionRef.current = session;
       if (!audioElement.paused) audioElement.pause();
       previewRecordingActiveRef.current = true;
+      if (audioVisualMode === "live" && captureLiveSignals) previewSignalCaptureRef.current = createEchoPreviewSignalCapture({ identity });
       session.start(ECHO_PREVIEW_RECORD_TIMESLICE_MS);
       sessionStarted = true;
       startPreviewRecordingComposite();
@@ -2892,7 +2956,16 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
       setPreviewRecordingError(`Recording did not start: ${String(error?.message || error)}`);
       setPreviewRecordingState("error");
     }
-  }, [activeOutputProfile, activeProject, audioLoading, audioPlaybackError, audioPlaybackReady, previewBufferState.ready, stopPreviewRecording, activeVisualSignalSolo]);
+  }, [activeOutputProfile, activeProject, audioLoading, audioPlaybackError, audioPlaybackReady, previewBufferState.ready, stopPreviewRecording, activeVisualSignalSolo, buildPreviewCaptureIdentity, recordingSourceKey, audioVisualMode, captureLiveSignals]);
+
+  useEffect(() => {
+    const context = previewCaptureContextRef.current;
+    if (previewRecordingActiveRef.current && context && (context.sourceKey !== recordingSourceKey || context.mode !== audioVisualMode)) {
+      previewSignalCaptureRef.current?.invalidate("source-or-mode-changed");
+      previewRecordingFailureMessageRef.current = "Capture stopped because its song, cut, or signal mode changed.";
+      stopPreviewRecording();
+    }
+  }, [recordingSourceKey, audioVisualMode, stopPreviewRecording]);
 
   // Load the recording shelf once on mount.
   useEffect(() => {
@@ -3293,7 +3366,10 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
       // Generate or fetch audio inputs
       const timeVal = t;
       const observedAtSeconds = performance.now() / 1000;
-      const preparedSignalFrames = audioVisualMode === "prepared"
+      const replayedSignalFrames = audioVisualMode === "replay" ? activeRecordedSignalReplay?.at(t) : null;
+      const preparedSignalFrames = audioVisualMode === "replay"
+        ? replayedSignalFrames || { master: { source: "recorded-signals", status: "outside-captured-range", rms: 0, beat: 0, energy: 0 } }
+        : audioVisualMode === "prepared"
         ? activePreparedPerformance ? echoPreparedPerformanceSignalFrames(activePreparedPerformance, t, { soloStem: activeVisualSignalSolo }) : { master: { source: "prepared-performance", status: "missing-analysis", rms: 0, beat: 0, hook: 0, telemetryRms: 0 } }
         : null;
       const masterSignalFrame = preparedSignalFrames?.master || liveSignalFrame(analyserNode, t, {
@@ -3518,6 +3594,8 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
               signalFrames[resource.requestedStem] = stemFrame;
               signalFrames[normalizedStemFocus(resource.requestedStem)] = stemFrame;
             }
+            signalFrames.master ||= masterSignalFrame;
+            if (previewRecordingActiveRef.current && audioVisualMode === "live") previewSignalCaptureRef.current?.append({ songTime: t, signalFrames });
             selectedSignalFrame = signalFrames[defaultStemRole]
               || signalFrames[normalizedStemFocus(defaultStemRole)]
               || (preparedSignalFrames ? emptyPreparedStem : signalFrames.master || selectedSignalFrame);
@@ -3658,7 +3736,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                     ? framedMediaInput.dimensions.isPortrait ? "portrait" : "landscape"
                     : "unknown",
                 } : { status: "unavailable", kind: shotMediaType(currentTimelineItem), mediaId: expectedMediaId, sourceKey: "", reason: "no-current-presented-media" },
-                stem: preparedSignalFrames ? { status: selectedSignalFrame?.status || "missing-analysis", source: "prepared-performance", role: defaultStemRole, fingerprint: activePreparedPerformance?.fingerprint || null, alignment: "see-prepared-source-evidence" } : compactStemSignalBinding(stemResource, stemTransport),
+                stem: preparedSignalFrames ? { status: selectedSignalFrame?.status || "missing-analysis", source: audioVisualMode === "replay" ? "recorded-signals" : "prepared-performance", role: defaultStemRole, fingerprint: activePreparedPerformance?.fingerprint || null, alignment: "see-prepared-source-evidence" } : compactStemSignalBinding(stemResource, stemTransport),
                 frameReceipt: compactFrameReceipt(primaryLayer?.presentation?.frameReceipt),
                 composition: primaryLayer?.composition || null,
                 visualSignalIsolation: { ...visualSignalIsolation, atSeconds: t, buses: Object.fromEntries(Object.entries(preparedSignalFrames || {}).map(([role, frame]) => [role, { rms: frame.rms, beat: frame.beat, status: frame.status }])), layers: layerPresentations.map(layer => ({ cardId: layer.card.id, inputs: layer.presentation.frameReceipt?.input?.modulationBindings || [] })) },
@@ -4141,7 +4219,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
       window.clearTimeout(cadenceTimer);
       pauseEchoStemDecoderPool(stemDecoderPoolRef.current);
     };
-  }, [activeDirectorPreviewSource, activeShowGraphVisualizerCardsById, activeWorkbenchTab, activeProject, powerMode, audioVisualMode, activePreparedPerformance, preparedModulationResult, diagnosticPreparedModulation, activeVisualSignalSolo, visualSignalIsolation]);
+  }, [activeDirectorPreviewSource, activeShowGraphVisualizerCardsById, activeWorkbenchTab, activeProject, powerMode, audioVisualMode, activeRecordedSignalReplay, activePreparedPerformance, preparedModulationResult, diagnosticPreparedModulation, activeVisualSignalSolo, visualSignalIsolation]);
 
   const uniqueTags = useMemo(() => {
     if (!gapsReport?.videos) return [];
@@ -7113,8 +7191,9 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                                 </div>
 
                                 <div role="status" style={{ fontSize: 13, padding: 8 }}>
-                                  <label>Audio visuals <select value={audioVisualMode} onChange={event => setAudioVisualMode(event.target.value)}><option value="prepared">Prepared song timing</option><option value="live">Live monitoring</option></select></label>{" "}
-                                  {audioVisualMode === "prepared" ? activePreparedPerformance ? "Prepared signals ready. Seeking reuses cached timing." : preparedAudio.message || "Loading prepared timing…" : "Live monitoring depends on playback history."}
+                                  <label>Audio visuals <select aria-label="Audio visuals" value={audioVisualMode} disabled={previewRecordingActiveRef.current || previewRecordingStartingRef.current} onChange={event => setAudioVisualMode(event.target.value)}><option value="prepared">Prepared song timing</option><option value="live">Live monitoring</option>{recordedSignalReplay && <option value="replay">Recorded signals</option>}</select></label>{" "}
+                                  {audioVisualMode === "prepared" ? activePreparedPerformance ? "Prepared signals ready. Seeking reuses cached timing." : preparedAudio.message || "Loading prepared timing…" : audioVisualMode === "replay" ? activeRecordedSignalReplay ? `Recorded signals: ${activeRecordedSignalReplay.startSeconds.toFixed(2)}–${activeRecordedSignalReplay.endSeconds.toFixed(2)}s. Outside this interval signals are silent.` : "Select the original song and cut to replay these signals." : "Live monitoring depends on playback history."}
+                                  {audioVisualMode === "live" && <label><input type="checkbox" checked={captureLiveSignals} disabled={previewRecordingActiveRef.current} onChange={event => setCaptureLiveSignals(event.target.checked)} /> Save replayable signals with recording (64 MB limit)</label>}
                                   {activePreparedPerformance?.missingData?.unverifiedOrigins?.length > 0 && <span> Stem alignment pending review.</span>}
                                   {activePreparedPerformance?.missingData?.measuredBeats && <span> Beat grid not verified.</span>}
                                   {audioVisualMode === "prepared" && !activePreparedPerformance && <button type="button" className="hapa-btn" onClick={() => setPreparedAudioRetry(value => value + 1)}>Retry prepared audio</button>}
@@ -7553,6 +7632,9 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                                       >
                                         ⬇ Download
                                       </a>
+                                      {recording.signals && <a href={`${API_BASE}/api/echo/preview-recordings/${encodeURIComponent(recording.id)}/signals`} download={`${recording.id}.signals.json`}>Download signals</a>}
+                                      {recording.signals?.status === "complete" && <button type="button" data-testid="echo-preview-recording-replay-signals" disabled={previewRecordingActiveRef.current} onClick={() => loadPreviewRecordedSignals(recording)}>Replay signals in current cut</button>}
+                                      <span data-testid="echo-preview-recording-signal-status">{recording.signals ? `${recording.signals.status === "complete" ? "Replayable signals" : "Incomplete signals"} · ${recording.signals.frameCount} frames ${recording.signals.reason || ""}` : "Video only · no saved signals"}</span>
                                       <button
                                         type="button"
                                         data-testid="echo-preview-recording-delete"

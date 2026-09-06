@@ -76,7 +76,9 @@ async function main(cmd, opts) {
     if (songId) params.set("songId", songId);
     const query = params.size ? `?${params}` : "";
     const adminToken = process.env.HAPA_AVATAR_ADMIN_TOKEN || "";
-    const payload = await contextGenerationApiRequest(opts, `/api/echo/preview-recordings${query}`, {
+    const recordingId = String(opts.signals || "").trim();
+    if (recordingId && !/^[A-Za-z0-9_-]{8,64}$/.test(recordingId)) throw new Error("--signals requires a safe recording id");
+    const payload = await contextGenerationApiRequest(opts, recordingId ? `/api/echo/preview-recordings/${encodeURIComponent(recordingId)}/signals` : `/api/echo/preview-recordings${query}`, {
       headers: adminToken ? { authorization: `Bearer ${adminToken}` } : {},
     });
     print(payload, { ...opts, json: true });
@@ -1702,7 +1704,7 @@ function printHelp() {
 Commands:
   list [--json]
   human-enricher-list [--query "Bella"] [--api-url http://127.0.0.1:8787] [--json]
-  echo-preview-recordings [--song <song-id>] [--api-url http://127.0.0.1:8797] [--json]  (lists Director Preview quick captures; set HAPA_AVATAR_ADMIN_TOKEN for bearer auth)
+  echo-preview-recordings [--song <song-id>] [--signals <recording-id>] [--api-url http://127.0.0.1:8797] [--json]  (lists Director Preview quick captures; set HAPA_AVATAR_ADMIN_TOKEN for bearer auth)
   avatar-likeness-profile [--avatar <id>|--all] [--apply] [--concurrency <n>] [--media-dir <dir>] [--profile-dir <dir>] [--json]  (re)builds per-Avatar likeness profiles locally; dry-run unless --apply (sends each Avatar's media through a bounded ffmpeg sample)
   human-enricher-save --file ./human-video-enrichment.json --actor <human-id> [--api-url http://127.0.0.1:8787] [--json]
   human-enricher-agent-queue [--status needs-agent|needs-human|blocked|all] [--offset 0] [--limit 12] [--api-url http://127.0.0.1:8787] [--json]

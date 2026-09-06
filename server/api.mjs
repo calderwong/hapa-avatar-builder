@@ -3368,10 +3368,14 @@ async function route(req, res) {
     if (!requireAdmin(req, res)) return;
     try {
       const body = await readRawBody(req, PREVIEW_RECORDING_MAX_UPLOAD_BYTES);
+      let captureIdentity = null;
+      try { captureIdentity = url.searchParams.get("captureIdentity") ? JSON.parse(url.searchParams.get("captureIdentity")) : null; }
+      catch { throw new PreviewRecordingStoreError("preview_signals_invalid_identity", "Capture identity must be JSON.", 400); }
       const record = await previewRecordingStore.add({
         buffer: body,
         mimeType: String(req.headers["content-type"] || "video/webm"),
         metadata: {
+          captureIdentity,
           id: url.searchParams.get("id") || undefined,
           songId: url.searchParams.get("songId") || undefined,
           songTitle: url.searchParams.get("songTitle") || undefined,
@@ -3387,6 +3391,21 @@ async function route(req, res) {
     } catch (error) {
       sendPreviewRecordingError(res, error);
     }
+    return;
+  }
+
+  const previewSignalMatch = pathname.match(/^\/api\/echo\/preview-recordings\/([A-Za-z0-9_-]{8,64})\/signals$/);
+  if (previewSignalMatch && ["GET", "PUT"].includes(req.method)) {
+    if (!requireAdmin(req, res)) return;
+    try {
+      if (req.method === "PUT") {
+        const bytes = await readRawBody(req, 64 * 1024 * 1024);
+        let value; try { value = JSON.parse(bytes.toString("utf8")); } catch { throw new PreviewRecordingStoreError("preview_signals_invalid_json", "Signal capture must be JSON.", 400); }
+        sendJson(res, 200, { ok: true, recording: await previewRecordingStore.putSignals(previewSignalMatch[1], value) });
+      } else {
+        sendJson(res, 200, await previewRecordingStore.getSignals(previewSignalMatch[1]));
+      }
+    } catch (error) { sendPreviewRecordingError(res, error); }
     return;
   }
 

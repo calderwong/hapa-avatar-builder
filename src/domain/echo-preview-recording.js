@@ -366,3 +366,125 @@ export function ensureEchoPreviewRecordingLocalSession(apiBase = "", fetchImpl) 
   localUiSessionPromise = pending;
   return localUiSessionPromise;
 }
+
+// Companion data belongs to the existing preview recording, not a release.
+export const ECHO_PREVIEW_SIGNALS_SCHEMA = "hapa.echo.preview-signals.v1";
+export const ECHO_PREVIEW_SIGNALS_MAX_BYTES = 64 * 1024 * 1024;
+export const ECHO_PREVIEW_SIGNALS_MAX_FRAMES = 216000;
+
+function signalCaptureError(message) { throw new Error(`preview_signals_invalid: ${message}`); }
+function checkedSignalIdentity(identity) {
+  const keys = ["songId", "cutId", "audioUri", "graphSha256", "audioSha256"];
+  if (!identity || keys.some(key => typeof identity[key] !== "string" || !identity[key] || identity[key].length > 4096)
+    || !/^sha256:[a-f0-9]{64}$/.test(identity.graphSha256) || !/^sha256:[a-f0-9]{64}$/.test(identity.audioSha256)) signalCaptureError("source identity");
+  return Object.fromEntries(keys.map(key => [key, identity[key]]));
+}
+export function echoPreviewSignalIdentityMatches(left, right) {
+  try { return JSON.stringify(checkedSignalIdentity(left)) === JSON.stringify(checkedSignalIdentity(right)); } catch { return false; }
+}
+
+function signalValue(value, depth = 0, decode = false) {
+  if (depth > 5) signalCaptureError("sample nesting");
+  if (value === null || typeof value === "boolean") return value;
+  if (typeof value === "number") { if (!Number.isFinite(value)) signalCaptureError("non-finite sample"); return value; }
+  if (typeof value === "string") { if (value.length > 4096) signalCaptureError("sample string"); return value; }
+  if (value instanceof Uint8Array) {
+    if (value.length > 4096) signalCaptureError("spectrum length");
+    return { $u8: btoa(String.fromCharCode(...value)) };
+  }
+  if (!value || Array.isArray(value) || typeof value !== "object" || Object.keys(value).length > 64) signalCaptureError("sample object");
+  if (Object.hasOwn(value, "$u8")) {
+    if (Object.keys(value).length !== 1 || typeof value.$u8 !== "string" || value.$u8.length > 5464 || !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(value.$u8)) signalCaptureError("spectrum encoding");
+    const bytes = Uint8Array.from(atob(value.$u8), c => c.charCodeAt(0));
+    if (bytes.length > 4096) signalCaptureError("spectrum length");
+    return decode ? bytes : { $u8: value.$u8 };
+  }
+  return Object.fromEntries(Object.entries(value).filter(([, v]) => v !== undefined).map(([key, v]) => [key, signalValue(v, depth + 1, decode)]));
+}
+function encodeSignalFrames(signalFrames) {
+  const entries = Object.entries(signalFrames || {});
+  if (!entries.length || entries.length > 64 || !signalFrames.master) signalCaptureError("master sample required");
+  const unique = [], aliases = {}, seen = new Map();
+  for (const [role, frame] of entries) {
+    if (!/^[A-Za-z0-9 _-]{1,80}$/.test(role)) signalCaptureError("bus name");
+    if (!seen.has(frame)) { seen.set(frame, unique.length); unique.push(signalValue(frame)); }
+    aliases[role] = seen.get(frame);
+  }
+  if (unique.length > 16) signalCaptureError("bus budget");
+  return { buses: unique, aliases };
+}
+
+/** Keep exactly the samples consumed by the preview. Duplicate paused times
+ * are omitted; transport discontinuities stop capture with an explicit reason. */
+export function createEchoPreviewSignalCapture({ identity, clock = () => performance.now(), maxBytes = ECHO_PREVIEW_SIGNALS_MAX_BYTES, maxFrames = ECHO_PREVIEW_SIGNALS_MAX_FRAMES } = {}) {
+  const source = checkedSignalIdentity(identity), frames = [];
+  const startedAt = clock();
+  let bytes = 1024, reason = "", stopped = false;
+  const invalidate = value => { reason ||= String(value); };
+  return {
+    identity: source,
+    invalidate,
+    append({ songTime, signalFrames, identity: currentIdentity = source } = {}) {
+      if (stopped || reason) return false;
+      if (!echoPreviewSignalIdentityMatches(source, currentIdentity)) { invalidate("source-changed"); return false; }
+      const elapsedMs = clock() - startedAt;
+      if (!Number.isFinite(songTime) || songTime < 0 || elapsedMs < 0) { invalidate("invalid-clock"); return false; }
+      const previous = frames.at(-1);
+      if (previous && (songTime < previous.songTime || Math.abs((songTime - previous.songTime) * 1000 - (elapsedMs - previous.elapsedMs)) > 250)) { invalidate("transport-discontinuity"); return false; }
+      if (previous && songTime === previous.songTime) return false;
+      try {
+        const frame = { songTime, elapsedMs, ...encodeSignalFrames(signalFrames) };
+        const size = new TextEncoder().encode(JSON.stringify(frame)).length;
+        if (frames.length >= Math.min(maxFrames, ECHO_PREVIEW_SIGNALS_MAX_FRAMES) || bytes + size > Math.min(maxBytes, ECHO_PREVIEW_SIGNALS_MAX_BYTES) - 1024) { invalidate("capture-budget-exceeded"); return false; }
+        frames.push(frame); bytes += size;
+        return true;
+      } catch (error) { invalidate(error.message); return false; }
+    },
+    finish() {
+      stopped = true;
+      if (frames.length < 2) invalidate("insufficient-samples");
+      return { schemaVersion: ECHO_PREVIEW_SIGNALS_SCHEMA, identity: source, status: reason ? "incomplete" : "complete", reason, interpolation: "previous-consumed-frame", frames };
+    },
+  };
+}
+
+export function validateEchoPreviewSignals(value, { identity } = {}) {
+  if (value?.schemaVersion !== ECHO_PREVIEW_SIGNALS_SCHEMA || !["complete", "incomplete"].includes(value.status) || value.interpolation !== "previous-consumed-frame") signalCaptureError("schema");
+  checkedSignalIdentity(value.identity);
+  if (identity && !echoPreviewSignalIdentityMatches(identity, value.identity)) signalCaptureError("source mismatch");
+  if (typeof value.reason !== "string" || value.reason.length > 4096 || (value.status === "complete" && value.reason)) signalCaptureError("status reason");
+  if (!Array.isArray(value.frames) || value.frames.length > ECHO_PREVIEW_SIGNALS_MAX_FRAMES || (value.status === "complete" && value.frames.length < 2)) signalCaptureError("frame count");
+  if (new TextEncoder().encode(JSON.stringify(value)).length > ECHO_PREVIEW_SIGNALS_MAX_BYTES) signalCaptureError("byte budget");
+  let previous = null;
+  for (const frame of value.frames) {
+    if (!Number.isFinite(frame.songTime) || frame.songTime < 0 || !Number.isFinite(frame.elapsedMs) || frame.elapsedMs < 0 || (previous && (frame.songTime <= previous.songTime || frame.elapsedMs < previous.elapsedMs))) signalCaptureError("frame order");
+    if (value.status === "complete" && previous && Math.abs((frame.songTime - previous.songTime) * 1000 - (frame.elapsedMs - previous.elapsedMs)) > 250) signalCaptureError("transport discontinuity");
+    if (!Array.isArray(frame.buses) || !frame.buses.length || frame.buses.length > 16 || !frame.aliases || Object.keys(frame.aliases).length > 64 || !Object.hasOwn(frame.aliases, "master")) signalCaptureError("buses");
+    frame.buses.forEach(bus => signalValue(bus));
+    for (const [role, index] of Object.entries(frame.aliases)) if (!/^[A-Za-z0-9 _-]{1,80}$/.test(role) || !Number.isInteger(index) || index < 0 || index >= frame.buses.length) signalCaptureError("alias");
+    previous = frame;
+  }
+  return value;
+}
+
+/** Validated once when loaded; binary search supports forward/reverse seeks.
+ * Never extrapolate outside the captured interval or fall back to live input. */
+export function createEchoPreviewSignalReplay(value, identity) {
+  validateEchoPreviewSignals(value, { identity });
+  if (value.status !== "complete") signalCaptureError("capture is incomplete: " + value.reason);
+  const frames = value.frames;
+  let cachedIndex = -1, cached = null;
+  return {
+    identity: value.identity, startSeconds: frames[0].songTime, endSeconds: frames.at(-1).songTime,
+    at(songTime) {
+      if (!Number.isFinite(songTime) || songTime < frames[0].songTime || songTime > frames.at(-1).songTime) return null;
+      let low = 0, high = frames.length - 1;
+      while (low < high) { const middle = Math.ceil((low + high) / 2); if (frames[middle].songTime <= songTime) low = middle; else high = middle - 1; }
+      if (cachedIndex !== low) {
+        const frame = frames[low], buses = frame.buses.map(bus => signalValue(bus, 0, true));
+        cached = Object.fromEntries(Object.entries(frame.aliases).map(([role, index]) => [role, buses[index]])); cachedIndex = low;
+      }
+      return cached;
+    },
+  };
+}
