@@ -53,3 +53,26 @@ test("Variation Lab shows compiler axes and compares one shared song range", () 
   }
   assert.deepEqual(regenerateVariationLab(lab).variants.map((v) => v.previewRange), [previewRange, previewRange, previewRange]);
 });
+
+
+import { echoVariationEditSignature } from "../src/domain/variation-lab.js";
+import { attachEchoLyricContract } from "../src/domain/echo-lyric-contract.js";
+import { attachEchoOutputProfile } from "../src/domain/echo-output-profile.js";
+
+test("comparison signatures normalize player lyric contracts but still reject outside edits", () => {
+  const candidate = { song_id: "same-song", active_direction_script_variant: { id: "parent" },
+    timeline: [{start_sec:0,end_sec:8,media_id:"m1"}],
+    lyric_template_id: "scanline-phrase-ribbon-v1", lyrics: { templateId: "kinetic-word-burst-v1", text: "Dear Papa" },
+    timed_lyrics: [{start:1,end:3,text:"Dear Papa"}], director_show_graph_patches: [],
+  };
+  const displayed = attachEchoLyricContract(attachEchoOutputProfile(candidate));
+  assert.notEqual(displayed.lyric_template_id, candidate.lyric_template_id);
+  assert.equal(echoVariationEditSignature(candidate), echoVariationEditSignature(displayed));
+  for (const edited of [
+    {...displayed, timeline:[{...displayed.timeline[0],media_id:"m2"}]},
+    {...displayed, timed_lyrics:[{start:2,end:3,text:"Dear Papa"}]},
+    {...displayed, lyrics:{...displayed.lyrics,templateId:"scanline-phrase-ribbon-v1"}},
+    {...displayed, director_show_graph_patches:[{operation:{kind:"set-opacity",opacity:.2}}]},
+    {...displayed, mediaConstraints:{excludedMediaIds:["m1"]}},
+  ]) assert.notEqual(echoVariationEditSignature(candidate), echoVariationEditSignature(edited));
+});

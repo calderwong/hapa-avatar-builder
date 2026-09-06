@@ -89,3 +89,35 @@ test("Echo and Tarot renderer adapters both use the shared engine", () => {
   assert.match(tarotSource, /createEchoPlaybackEngine/);
   assert.match(tarotSource, /renderer: "tarot-three-preview"/);
 });
+
+
+test('same-song A/B/C replacement publishes only the preserved authoritative clock and play state',()=>{
+ for(const playing of [false,true]){
+  const emissions=[],engine=createEchoPlaybackEngine({adapter:{onSnapshot:s=>emissions.push(s)}});
+  engine.setProject(project);engine.tick(4.1,{playing});
+  for(const label of ['A','B','C','source']){
+   emissions.length=0;
+   const candidate={...project,timeline:project.timeline.map((shot,index)=>({...shot,media_id:label+'-'+index,media_uri:'/candidate-'+label+'.mp4'}))};
+   engine.setProject(candidate,{preserveClock:true,atSeconds:4.7});
+   assert.ok(emissions.length>=2);
+   assert.ok(emissions.every(s=>s.clockTime===4.7&&s.playing===playing));
+   assert.equal(engine.getSnapshot().shot.media_id,label+'-1');
+   assert.equal(engine.getSnapshot().lyricLine.text,'Dear Papa');
+  }
+  engine.setProject({...project,song_id:'other'},{atSeconds:4.7});
+  assert.equal(engine.getSnapshot().clockTime,0,'new song still starts at zero');
+  engine.destroy();
+ }
+});
+
+test('recut entry cancels old pending media without resetting the same-song clock',async()=>{
+ const pending=[],commits=[],engine=createEchoPlaybackEngine({adapter:{prepareShot:shot=>new Promise(resolve=>pending.push({shot,resolve})),commitShot:shot=>commits.push(shot.media_id)}});
+ const videos={...project,timeline:project.timeline.map((s,i)=>({...s,media_id:'video-'+i,media_uri:'/video-'+i+'.mp4'}))};
+ engine.setProject(videos);engine.seek(4.5);
+ engine.setProject({...videos,timeline:videos.timeline.map(s=>({...s,media_id:'next-'+s.media_id}))},{preserveClock:true,atSeconds:4.6});
+ for(const item of pending.filter(p=>!p.shot.media_id.startsWith('next-')))item.resolve(true);
+ await Promise.resolve();assert.deepEqual(commits,[]);
+ pending.find(p=>p.shot.media_id==='next-video-1').resolve(true);await Promise.resolve();
+ assert.deepEqual(commits,['next-video-1']);assert.equal(engine.getSnapshot().clockTime,4.6);
+ engine.destroy();
+});

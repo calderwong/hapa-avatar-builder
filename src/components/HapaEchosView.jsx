@@ -2364,7 +2364,13 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
   }, []);
 
   useEffect(() => {
-    echoPlaybackEngineRef.current?.setProject(activeProject);
+    const engine = echoPlaybackEngineRef.current;
+    const nextSong = String(activeProject?.song_id || activeProject?.id || activeProject?.song_title || "");
+    const sameSong = Boolean(nextSong && engine?.getSnapshot().projectKey === nextSong);
+    engine?.setProject(activeProject, {
+      preserveClock: sameSong,
+      atSeconds: sameSong ? (audioRef.current?.currentTime ?? currentTimeRef.current) : 0,
+    });
   }, [activeProject]);
 
   useEffect(() => {

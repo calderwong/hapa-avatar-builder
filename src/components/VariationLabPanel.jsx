@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { createVariationLab, loadVariationLab, saveVariationLab, setVariationLock } from "../domain/variation-lab.js";
+import { echoVariationEditSignature as editSignature, createVariationLab, loadVariationLab, saveVariationLab, setVariationLock } from "../domain/variation-lab.js";
 import { NARRATIVE_VARIANT_RECIPES } from "../domain/echo-director-recipes.js";
 import { createEchoNarrativeRecut, echoRecutIdentityOptions } from "../domain/echo-narrative-recut.js";
 
@@ -11,7 +11,6 @@ const lockTargets = [
   { targetKind: "decision", targetId: "visual-time", label: "Keep visual time" },
   { targetKind: "decision", targetId: "lyric-style", label: "Keep lyric style" },
 ];
-const editSignature = project => JSON.stringify([project.song_id, project.active_direction_script_variant?.id, project.timeline, project.visualizer_timeline, project.persistent_shader_slots, project.timed_lyrics, project.output_profile, project.director_show_graph_patches, project.mediaConstraints, project.lyrics, project.lyric_template_id, project.lyric_variant, project.lyric_style, project.lyric_position, project.lyrics_enabled, project.director_patch_lineage?.recipeExecution]);
 
 export default function VariationLabPanel({ project, currentTime = 0, onCandidate, disabled = false }) {
   const projectId = project?.song_id || "unknown-song";

@@ -186,7 +186,7 @@ export function createEchoPlaybackEngine({ adapter = {}, powerMode = "active" } 
     return publish();
   }
 
-  function setProject(nextProject = null, { preserveClock = false } = {}) {
+  function setProject(nextProject = null, { preserveClock = false, atSeconds } = {}) {
     if (destroyed) return snapshot();
     project = projectBody(nextProject);
     generation += 1;
@@ -197,7 +197,9 @@ export function createEchoPlaybackEngine({ adapter = {}, powerMode = "active" } 
     visualizerIndex = -1;
     lyricLineIndex = -1;
     lyricWordIndex = -1;
-    if (!preserveClock) clockTime = 0;
+    // Rebind at the authoritative transport time before publishing any new
+    // project/cue snapshot. A follow-up seek would expose a wrong entry frame.
+    clockTime = preserveClock ? Math.max(0, finite(atSeconds, clockTime)) : 0;
     lastReason = "project-change";
     adapter.setProject?.(project, snapshot());
     publish(true);

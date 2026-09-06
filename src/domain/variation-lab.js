@@ -1,3 +1,5 @@
+import { attachEchoLyricContract } from "./echo-lyric-contract.js";
+import { attachEchoOutputProfile } from "./echo-output-profile.js";
 import { resolveEchoDirectorRecipe } from "./echo-director-recipes.js";
 export const VARIATION_LAB_SCHEMA = "hapa.director.variation-lab.v1";
 const stable = (value) => Array.isArray(value) ? value.map(stable) : value && typeof value === "object" ? Object.fromEntries(Object.keys(value).sort().map((key) => [key, stable(value[key])])) : value;
@@ -70,4 +72,10 @@ export function loadVariationLab(storage, projectId) {
 export function regenerateVariationLab(previous, inputs = {}) {
   const next = createVariationLab({ ...inputs, projectId: previous.projectId, treatmentId: inputs.treatmentId || previous.treatmentId, cueGraphId: inputs.cueGraphId || previous.cueGraphId, previewRange: inputs.previewRange || previous.previewRange, locks: previous.locks });
   return previous.promoted ? { ...next, promoted: previous.promoted } : next;
+}
+
+// Match the canonical player projection while retaining actual editorial changes.
+export function echoVariationEditSignature(input = {}) {
+  const project = attachEchoLyricContract(attachEchoOutputProfile(input));
+  return JSON.stringify(stable([project.song_id, project.active_direction_script_variant?.id, project.timeline, project.visualizer_timeline, project.persistent_shader_slots, project.timed_lyrics, project.output_profile, project.director_show_graph_patches, project.mediaConstraints, project.lyrics, project.lyric_template_id, project.lyric_variant, project.lyric_style, project.lyric_position, project.lyrics_enabled, project.director_patch_lineage?.recipeExecution]));
 }
