@@ -133,12 +133,13 @@ export function planEchoPlaybackCorrection({
 } = {}) {
   const driftSeconds = Number(expectedSeconds) - Number(currentSeconds);
   const basePlaybackRate = Math.max(0.01, Number(targetPlaybackRate) || 1);
+  const songDriftSeconds = driftSeconds / basePlaybackRate;
   if (seeking) return { action: "none", driftSeconds, playbackRate: basePlaybackRate };
-  if ((cueEntry && Math.abs(driftSeconds) > 1 / 30) || Math.abs(driftSeconds) > 0.75) {
+  if ((cueEntry && Math.abs(songDriftSeconds) > 1 / 30) || Math.abs(songDriftSeconds) > 0.75) {
     return { action: "seek", driftSeconds, targetSeconds: Math.max(0, Number(expectedSeconds)), playbackRate: basePlaybackRate };
   }
-  if (Math.abs(driftSeconds) > 0.04) {
-    const correction = Math.max(0.96, Math.min(1.04, 1 + driftSeconds * 0.08));
+  if (Math.abs(songDriftSeconds) > 1 / 60) {
+    const correction = Math.max(0.96, Math.min(1.04, 1 + songDriftSeconds));
     return { action: "rate", driftSeconds, playbackRate: basePlaybackRate * correction };
   }
   return { action: "none", driftSeconds, playbackRate: basePlaybackRate };

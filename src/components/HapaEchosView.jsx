@@ -36,7 +36,7 @@ import {
 } from "../domain/echo-visualizer-audio-envelope.js";
 import { createEchoPlaybackEngine } from "../domain/echo-playback-engine.js";
 import { ECHO_PLAYER_POOL_LIMIT } from "../domain/echo-player-pool.js";
-import { createEchoPresentationTimingRecorder, observeEchoPresentedFrames } from "../domain/echo-presentation-timing.js";
+import { createEchoPresentationTimingRecorder, observeEchoPresentedFrames, estimateEchoAudibleClock } from "../domain/echo-presentation-timing.js";
 import {
   createEchoIsfSurface,
   createEchoIsfPlaybackPool,
@@ -567,7 +567,7 @@ const ECHO_VIDEO_LOOKAHEAD_COUNT = ECHO_PLAYER_POOL_LIMIT - 1;
 const ECHO_VIDEO_PLAYER_POOL_SIZE = ECHO_VIDEO_LOOKAHEAD_COUNT + 1;
 const ECHO_VIDEO_PLAYER_INDICES = Array.from({ length: ECHO_VIDEO_PLAYER_POOL_SIZE }, (_, index) => index);
 
-function PersistentEchoABPlayers({ shot, lookaheadShots = [], playing, songTime, style, onBufferState, onPresentedMediaChange, clockRef, sourceIsPortrait = false, cameraKeyframes = EMPTY_ECHO_CAMERA_KEYFRAMES, shotIndex = 0 }) {
+function PersistentEchoABPlayers({ shot, lookaheadShots = [], playing, songTime, style, onBufferState, onPresentedMediaChange, clockRef, audioRef, audioContextRef, sourceIsPortrait = false, cameraKeyframes = EMPTY_ECHO_CAMERA_KEYFRAMES, shotIndex = 0 }) {
   const playerRefs = useRef(Array.from({ length: ECHO_VIDEO_PLAYER_POOL_SIZE }, () => null));
   const activeIndexRef = useRef(0);
   const [activeIndex, setActiveIndex] = useState(0);
@@ -717,7 +717,7 @@ function PersistentEchoABPlayers({ shot, lookaheadShots = [], playing, songTime,
 
   useEffect(() => {
     const video = playerRefs.current[activeIndex];
-    if (!video || shotMediaType(shot) !== "video" || video.seeking) return;
+    if (!video || shotMediaType(shot) !== "video") return;
     const mediaContract = shot.media_contract || shot.mediaContract || {};
     const sourceInSeconds = mediaContract.sourceInSeconds ?? mediaContract.source_in_seconds;
     const sourceOutSeconds = mediaContract.sourceOutSeconds ?? mediaContract.source_out_seconds;
@@ -734,40 +734,54 @@ function PersistentEchoABPlayers({ shot, lookaheadShots = [], playing, songTime,
       sourceOutSeconds,
       cueDurationSeconds,
     });
-    const expected = mapEchoSourceWindowTime({
-      elapsedSeconds: Math.max(0, Number(clockRef?.current ?? songTime) - Number(shot.start_sec || 0)),
-      durationSeconds: video.duration,
-      sourceInSeconds,
-      sourceOutSeconds,
-      loop: false,
-      cueDurationSeconds,
-      timeMapping,
-    });
-    const presentationKey = `${activeIndex}:${shotKey(shot)}`;
-    const cueEntry = correctedPresentationKeyRef.current !== presentationKey;
-    correctedPresentationKeyRef.current = presentationKey;
-    const correction = planEchoPlaybackCorrection({
-      expectedSeconds: expected,
-      currentSeconds: video.currentTime,
-      seeking: video.seeking,
-      cueEntry: cueEntry || !playing,
-      targetPlaybackRate,
-    });
-    if (correction.action === "seek") video.currentTime = Math.min(Number(video.duration || expected), correction.targetSeconds);
-    video.playbackRate = correction.playbackRate;
-    const sourceEndSeconds = Math.min(
-      Number(video.duration || Number.POSITIVE_INFINITY),
-      Number.isFinite(Number(sourceOutSeconds)) ? Number(sourceOutSeconds) : Number(video.duration || 0),
-    );
-    const holdingLastFrame = Number.isFinite(sourceEndSeconds) && expected >= Math.max(0, sourceEndSeconds - 0.04);
-    if (playing && video.paused && !holdingLastFrame) video.play().catch((error) => {
-      const readyLookahead = slotStateRef.current.filter((candidate, index) => index !== activeIndexRef.current && candidate.status === "ready").length;
-      const targetLookahead = Math.min(ECHO_VIDEO_LOOKAHEAD_COUNT, lookaheadShots.filter((item) => shotMediaType(item) === "video").length);
-      onBufferState?.({ status: "partial", ready: true, currentKey: shotKey(shot), error: `Current video playback failed: ${String(error?.message || error)}`, readyLookahead, targetLookahead });
-    });
-    if (holdingLastFrame && !video.paused) video.pause();
-    if (!playing && !video.paused) video.pause();
-  }, [activeIndex, playing, currentShotIdentity, songTime]);
+    let frame = 0, lastSyncAt = -Infinity;
+    const synchronize = (now) => {
+      if (video.seeking) return;
+      const masterAudio = audioRef?.current;
+      const outputClock = estimateEchoAudibleClock({ audio: masterAudio, context: audioContextRef?.current, nowMs: now });
+      const liveSongTime = outputClock.audibleSongTime ?? outputClock.projectedElementSongTime
+        ?? Number(clockRef?.current ?? songTime);
+      const expected = mapEchoSourceWindowTime({
+        elapsedSeconds: Math.max(0, liveSongTime - Number(shot.start_sec || 0)),
+        durationSeconds: video.duration,
+        sourceInSeconds,
+        sourceOutSeconds,
+        loop: false,
+        cueDurationSeconds,
+        timeMapping,
+      });
+      const presentationKey = `${activeIndex}:${shotKey(shot)}`;
+      const cueEntry = correctedPresentationKeyRef.current !== presentationKey;
+      correctedPresentationKeyRef.current = presentationKey;
+      const correction = planEchoPlaybackCorrection({
+        expectedSeconds: expected,
+        currentSeconds: video.currentTime,
+        seeking: video.seeking,
+        cueEntry: cueEntry || !playing,
+        targetPlaybackRate,
+      });
+      if (correction.action === "seek") video.currentTime = Math.min(Number(video.duration || expected), correction.targetSeconds);
+      video.playbackRate = correction.playbackRate;
+      const sourceEndSeconds = Math.min(
+        Number(video.duration || Number.POSITIVE_INFINITY),
+        Number.isFinite(Number(sourceOutSeconds)) ? Number(sourceOutSeconds) : Number(video.duration || 0),
+      );
+      const holdingLastFrame = Number.isFinite(sourceEndSeconds) && expected >= Math.max(0, sourceEndSeconds - 0.04);
+      if (playing && video.paused && !holdingLastFrame) video.play().catch((error) => {
+        const readyLookahead = slotStateRef.current.filter((candidate, index) => index !== activeIndexRef.current && candidate.status === "ready").length;
+        const targetLookahead = Math.min(ECHO_VIDEO_LOOKAHEAD_COUNT, lookaheadShots.filter((item) => shotMediaType(item) === "video").length);
+        onBufferState?.({ status: "partial", ready: true, currentKey: shotKey(shot), error: `Current video playback failed: ${String(error?.message || error)}`, readyLookahead, targetLookahead });
+      });
+      if (holdingLastFrame && !video.paused) video.pause();
+      if (!playing && !video.paused) video.pause();
+    };
+    const tick = (now) => {
+      if (now - lastSyncAt >= 1000 / 30) { lastSyncAt = now; synchronize(now); }
+      if (playing) frame = window.requestAnimationFrame(tick);
+    };
+    tick(performance.now());
+    return () => window.cancelAnimationFrame(frame);
+  }, [activeIndex, playing, currentShotIdentity, playing ? null : songTime, audioRef, audioContextRef, clockRef]);
 
   useEffect(() => {
     const sourceKey = shotKey(shot);
@@ -2084,6 +2098,10 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
       }
     });
   }, [publishExactBindingDiagnostics]);
+
+  useEffect(() => {
+    if (!isPlaying) globalThis.__HAPA_ECHO_PRESENTATION_TIMING__ = presentationTimingRef.current.snapshot();
+  }, [isPlaying]);
 
   useEffect(() => () => {
     presentationObserverRef.current?.stop();
@@ -6940,6 +6958,8 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                                       onBufferState={setPreviewBufferState}
                                       onPresentedMediaChange={handlePresentedMediaChange}
                                       clockRef={currentTimeRef}
+                                      audioRef={audioRef}
+                                      audioContextRef={audioContextRef}
                                       sourceIsPortrait={activeShotSourceDimensions.isPortrait}
                                       cameraKeyframes={activeShowGraph?.directorV2?.cameraKeyframes}
                                       shotIndex={activeShotIndex}

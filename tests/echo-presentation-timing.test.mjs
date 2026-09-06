@@ -64,3 +64,24 @@ test('observer cancels its own callback and cannot reschedule after release, wit
     stop(); assert.equal(cancelled, 2); callback(1020, metadata); assert.equal(requests, 2); assert.equal(samples.length, 1);
   }
 });
+
+test('whole-session residual evidence remains bounded and cannot forget early failures or overflow', () => {
+  const recorder = createEchoPresentationTimingRecorder({ capacity: 16 });
+  const sample = residual => ({ eligible: true, route: 'decoded-frame-callback', audibleEstimateResidualMs: residual });
+  for (let i = 0; i < 10; i++) recorder.record(sample(-100.2));
+  for (let i = 0; i < 90; i++) recorder.record(sample(10.2));
+  const value = recorder.snapshot();
+  assert.equal(value.audibleEstimateAbsoluteResidualP95Ms, 10.2);
+  assert.equal(value.session.absoluteResidualP95UpperBoundMs, 101, 'early large residuals remain in the whole-session p95');
+  assert.equal(value.session.audibleEstimatedSamples, 100);
+  assert.equal(value.retained, 16);
+  for (let i = 0; i < 6; i++) recorder.record(sample(10000));
+  assert.equal(recorder.snapshot().session.absoluteResidualP95UpperBoundMs, null, 'overflow cannot become an invented finite p95');
+  recorder.record({ eligible: true, route: 'element-time-fallback', audibleEstimateResidualMs: 0 });
+  recorder.record({ eligible: false, route: 'decoded-frame-callback', audibleEstimateResidualMs: 0 });
+  assert.equal(recorder.snapshot().session.fallbackSamples, 1);
+  assert.equal(recorder.snapshot().session.ineligibleSamples, 1);
+  recorder.reset();
+  assert.equal(recorder.snapshot().session.audibleEstimatedSamples, 0);
+  assert.equal(recorder.snapshot().session.absoluteResidualP95UpperBoundMs, null);
+});

@@ -68,15 +68,39 @@ export function createEchoPresentationTimingRecorder({ capacity = 256 } = {}) {
   const limit = Math.max(16, Math.min(2048, Math.floor(Number(capacity) || 256)));
   const ring = new Array(limit);
   let next = 0, length = 0, total = 0;
+  // A fixed histogram retains whole-session evidence without storing every frame.
+  // The last bin is overflow; never turn unbounded residuals into a passing p95.
+  const residualBins = new Float64Array(2002);
+  let sessionDecoded = 0, sessionAudible = 0, sessionFallback = 0, sessionIneligible = 0;
+  const sessionSummary = () => {
+    let cumulative = 0, p95UpperBoundMs = null;
+    for (let bin = 0; sessionAudible > 0 && bin < residualBins.length; bin++) {
+      cumulative += residualBins[bin];
+      if (cumulative >= Math.ceil(sessionAudible * .95)) { p95UpperBoundMs = bin === 2001 ? null : bin; break; }
+    }
+    return { scope: 'All observations since explicit recorder reset', decodedSamples: sessionDecoded,
+      audibleEstimatedSamples: sessionAudible, fallbackSamples: sessionFallback, ineligibleSamples: sessionIneligible,
+      absoluteResidualP95UpperBoundMs: p95UpperBoundMs, overflowSamples: residualBins[2001],
+      binWidthMs: 1, physicallyCalibrated: false };
+  };
   return {
-    record(sample) { ring[next] = sample; next = (next + 1) % limit; length = Math.min(limit, length + 1); total += 1; },
-    reset() { ring.fill(undefined); next = 0; length = 0; total = 0; },
+    record(sample) {
+      ring[next] = sample; next = (next + 1) % limit; length = Math.min(limit, length + 1); total += 1;
+      if (!sample.eligible) { sessionIneligible++; return; }
+      if (sample.route !== 'decoded-frame-callback') { sessionFallback++; return; }
+      sessionDecoded++;
+      if (finite(sample.audibleEstimateResidualMs)) {
+        sessionAudible++;
+        residualBins[Math.min(2001, Math.ceil(Math.abs(sample.audibleEstimateResidualMs)))]++;
+      }
+    },
+    reset() { ring.fill(undefined); residualBins.fill(0); next = 0; length = 0; total = 0; sessionDecoded = 0; sessionAudible = 0; sessionFallback = 0; sessionIneligible = 0; },
     snapshot() {
       const samples = Array.from({ length }, (_, index) => ring[(next - length + index + limit) % limit]);
       const eligible = samples.filter(sample => sample.eligible && sample.route === 'decoded-frame-callback');
       const residuals = eligible.map(sample => sample.audibleEstimateResidualMs).filter(finite).map(Math.abs);
       return { version: ECHO_PRESENTATION_TIMING_VERSION, capacity: limit, retained: length, total,
-        decodedSamples: eligible.length, audibleEstimatedSamples: residuals.length,
+        session: sessionSummary(), decodedSamples: eligible.length, audibleEstimatedSamples: residuals.length,
         audibleEstimateAbsoluteResidualP95Ms: percentile(residuals, .95),
         elementAbsoluteResidualP95Ms: percentile(eligible.map(sample => sample.elementResidualMs).filter(finite).map(Math.abs), .95),
         callbackLateP95Ms: percentile(eligible.map(sample => sample.callbackLateMs).filter(finite), .95),

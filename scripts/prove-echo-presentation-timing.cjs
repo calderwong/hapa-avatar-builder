@@ -7,12 +7,13 @@ const target = process.env.SMOKE_URL || 'http://127.0.0.1:19088/?view=echos';
 const title = process.env.SMOKE_SONG_TITLE || 'Dear Papa';
 const expectedCutId = process.env.SMOKE_CUT_ID || '';
 const inspectLyrics = process.argv.includes('--lyric-cadence');
-const forwardOnly = process.argv.includes('--forward-only');
+const fullSong = process.argv.includes('--full-song');
+const forwardOnly = fullSong || process.argv.includes('--forward-only');
 const requirePrepared = process.argv.includes('--require-prepared');
 let win, userData, exitStatus = 1;
 const rendererMessages = [];
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
-const watchdog = setTimeout(() => app.exit(1), 120000);
+const watchdog = setTimeout(() => app.exit(1), fullSong ? 900000 : 120000);
 app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
 app.on('window-all-closed', () => {});
 async function waitFor(expression, milliseconds = 45000) {
@@ -62,6 +63,7 @@ app.whenReady().then(async () => {
     console.log(JSON.stringify({stage:'song-selected',title}));
     if(requirePrepared)await waitFor(`(()=>{const control=document.querySelector('[data-testid="echo-preview-preparation"]');return ['ready','partial'].includes(control?.dataset.jobStatus)&&Number(control?.dataset.readyCues)>0;})()`,30000);
     await waitFor(`document.querySelector('.hapa-echos-view audio')?.readyState>=2&&[...document.querySelectorAll('.hapa-echos-view button')].some(x=>/Play Show/.test(x.textContent)&&!x.disabled)`);
+    if(fullSong)await win.webContents.executeJavaScript(`(()=>{window.__ECHO_TIMING_FULL_SONG__={startedAt:performance.now(),duration:document.querySelector('.hapa-echos-view audio').duration,ended:false};document.querySelector('.hapa-echos-view audio').addEventListener('ended',()=>{window.__ECHO_TIMING_FULL_SONG__.ended=true;window.__ECHO_TIMING_FULL_SONG__.endedAt=performance.now()},{once:true});})()`);
     await click('Play Show');
     await waitFor(`window.__HAPA_ECHO_PRESENTATION_TIMING__?.decodedSamples>=30`, 30000);
     let lyricCadence = null;
@@ -77,8 +79,16 @@ app.whenReady().then(async () => {
     }
     const mediaSamples=[];
     for(let i=0;i<16;i++){await delay(500);mediaSamples.push(await win.webContents.executeJavaScript(`({time:document.querySelector('.hapa-echos-view audio')?.currentTime,media:window.__HAPA_ECHO_ISF_BINDING_DIAGNOSTICS__?.last?.media,frameReceipt:window.__HAPA_ECHO_ISF_BINDING_DIAGNOSTICS__?.last?.frameReceipt})`));}
-    const observations = [await snapshot('forward')];
-    await click('Pause'); await delay(800); observations.push(await snapshot('paused'));
+    let fullSongEvidence = null;
+    if(fullSong){
+      const duration=await win.webContents.executeJavaScript(`window.__ECHO_TIMING_FULL_SONG__.duration`);
+      if(!(duration>0&&duration<840))throw new Error('Full-song duration outside the bounded proof budget');
+      await waitFor(`window.__ECHO_TIMING_FULL_SONG__.ended`,Math.ceil((duration+30)*1000));
+      await delay(1200);
+      fullSongEvidence=await win.webContents.executeJavaScript(`window.__ECHO_TIMING_FULL_SONG__`);
+    }
+    const observations = [await snapshot(fullSong?'full-song':'forward')];
+    if(!fullSong)await click('Pause'); await delay(800); observations.push(await snapshot('paused'));
     const seek = async seconds => {
       const ok = await win.webContents.executeJavaScript(`(()=>{const input=document.querySelector('[aria-label="Song playhead seconds"]');if(!input)return false;input.focus();return document.activeElement===input;})()`, true);
       if (!ok) throw new Error('Playhead control unavailable');
@@ -100,8 +110,8 @@ app.whenReady().then(async () => {
     await click('Pause');
     }
     const preparedApplied = !requirePrepared || observations.every(row=>row.players.filter(player=>player.state==='current').every(player=>player.uri.includes('/media/echo-proxies-v2/')));
-    const pass = (!inspectLyrics || lyricCadence?.pass) && preparedApplied && (!expectedCutId||observations.every(row=>row.cutId===expectedCutId)) && observations.every(row => row.timing?.retained <= row.timing?.capacity) && observations.filter(row => row.label !== 'paused').every(row => row.timing?.decodedSamples >= 30);
-    const report = { pass, scope: 'Actual Echo Director preview instrumentation and transport observations; output timestamp estimates are not physical calibration or export parity', target, title, expectedCutId, inspectLyrics, lyricCadence, forwardOnly, requirePrepared, preparedApplied, mediaSamples, cameraFramedSamples:mediaSamples.filter(row=>row.media?.status==='camera-framed').length,
+    const pass = (!fullSong || (fullSongEvidence?.ended && observations[0].timing?.session?.audibleEstimatedSamples >= 30)) && (!inspectLyrics || lyricCadence?.pass) && preparedApplied && (!expectedCutId||observations.every(row=>row.cutId===expectedCutId)) && observations.every(row => row.timing?.retained <= row.timing?.capacity) && observations.filter(row => row.label !== 'paused').every(row => row.timing?.decodedSamples >= 30);
+    const report = { pass, fullSong, fullSongEvidence, fullSongWithinResidualTarget: fullSong ? Number.isFinite(observations[0].timing?.session?.absoluteResidualP95UpperBoundMs) && observations[0].timing?.session?.absoluteResidualP95UpperBoundMs <= 1000/30 : null, scope: 'Actual Echo Director preview instrumentation and transport observations; output timestamp estimates are not physical calibration or export parity', target, title, expectedCutId, inspectLyrics, lyricCadence, forwardOnly, requirePrepared, preparedApplied, mediaSamples, cameraFramedSamples:mediaSamples.filter(row=>row.media?.status==='camera-framed').length,
       residualTargetMs: 1000 / 30, withinResidualTarget: observations.filter(row => row.label !== 'paused').every(row => row.timing?.audibleEstimatedSamples >= 30 && row.timing.audibleEstimateAbsoluteResidualP95Ms <= 1000 / 30), observations };
     await fs.writeFile(path.join(output, 'report.json'), JSON.stringify(report, null, 2) + '\n');
     await fs.writeFile(path.join(output, 'preview.png'), (await win.webContents.capturePage()).toPNG());

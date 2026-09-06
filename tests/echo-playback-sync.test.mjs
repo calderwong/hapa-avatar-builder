@@ -164,3 +164,24 @@ test("Echo preview shares the bounded persistent player budget, gates handoff, a
   assert.match(source, /decodeURIComponent\(value\)/);
   assert.doesNotMatch(source, /key=\{`\$\{currentTimelineItem\.media_id\}-\$\{currentTimelineItem\.start_sec\}`\}[\s\S]{0,120}<video/);
 });
+
+test('correction uses song-time error consistently for slow and fast source windows', () => {
+  for (const rate of [.25, .5, 1, 2.5, 5]) {
+    for (const sign of [-1, 1]) {
+      const plan = seconds => planEchoPlaybackCorrection({ expectedSeconds: 10 + sign * seconds * rate, currentSeconds: 10, targetPlaybackRate: rate });
+      assert.equal(plan(.015).action, 'none');
+      assert.equal(plan(.03).action, 'rate');
+      assert.ok(Math.abs(plan(.03).playbackRate / rate - (1 + sign * .03)) < 1e-10);
+      assert.equal(plan(.9).action, 'seek');
+      assert.equal(planEchoPlaybackCorrection({ expectedSeconds: 10 + sign * .035 * rate, currentSeconds: 10, targetPlaybackRate: rate, cueEntry: true }).action, 'seek');
+      let expected = 10, current = 10 - sign * .09 * rate;
+      for (let frame = 0; frame < 90; frame++) {
+        const correction = planEchoPlaybackCorrection({ expectedSeconds: expected, currentSeconds: current, targetPlaybackRate: rate });
+        assert.notEqual(correction.action, 'seek', 'moderate steady-play error converges without repeated seeking');
+        assert.ok(correction.playbackRate >= .96 * rate - 1e-9 && correction.playbackRate <= 1.04 * rate + 1e-9);
+        expected += rate / 30; current += correction.playbackRate / 30;
+      }
+      assert.ok(Math.abs(expected - current) / rate < .025, `rate=${rate}, sign=${sign}: within 25ms after three seconds`);
+    }
+  }
+});
