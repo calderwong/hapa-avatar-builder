@@ -43,6 +43,25 @@ function loadHelpers() {
   return context.result;
 }
 
+test("the actual player, shader input and recording resolver share cue and trim identity", () => {
+  const names = ["shotRuntimeUri", "echoPresentedShotKey", "isPresentedEchoVideoElement", "resolvePresentedEchoMediaBinding"];
+  const context = { result: null, resolveMediaUri: uri => uri, JSON, Number, String, Boolean };
+  vm.runInNewContext(`${names.map(functionSource).join("\n")}\nresult = { ${names.join(", ")} };`, context);
+  const { echoPresentedShotKey: key, resolvePresentedEchoMediaBinding: resolve } = context.result;
+  const shot = { media_id: "same-clip", media_uri: "/media/clip.mp4", start_sec: 6, end_sec: 12,
+    media_contract: { runtimeUri: "/media/clip.mp4", sourceInSeconds: 2, sourceOutSeconds: 8 } };
+  const video = { isConnected: true, dataset: { echoPlayer: "current", framePresented: "true", echoSourceKey: key(shot) }, readyState: 4, videoWidth: 1280, seeking: false, error: null };
+  const binding = { element: video, presented: true, kind: "video", mediaId: shot.media_id, uri: shot.media_uri, sourceKey: key(shot), shot };
+  const surface = { querySelector: () => video };
+  assert.equal(resolve(surface, shot, binding), binding, "valid decoded video must reach the shader and recording paths");
+  assert.equal(resolve(surface, shot).element, video);
+  assert.equal(resolve(surface, shot).shot, shot);
+  assert.equal(resolve(surface, { ...shot, start_sec: 18, end_sec: 24 }, binding), null, "a reused clip is not the current cue");
+  assert.equal(resolve(surface, { ...shot, media_contract: { ...shot.media_contract, sourceInSeconds: 3 } }, binding), null, "changed trims require new presented pixels");
+  video.isConnected = false; assert.equal(resolve(surface, shot, binding), null);
+  video.isConnected = true; video.dataset.echoPlayer = "standby"; assert.equal(resolve(surface, shot, binding), null);
+});
+
 test("Echo binds only the currently presented media frame, never a standby decoder", () => {
   const players = between("function PersistentEchoABPlayers", "function PresentedEchoImage");
   assert.match(players, /slot\?\.key === sourceKey/);

@@ -12,6 +12,7 @@ import { promisify } from "node:util";
 import Hypercore from "hypercore";
 import { createPreparedEchoPerformanceStore } from "./echo-prepared-performance-store.mjs";
 import { createEchoPerformancePreparation } from "./echo-performance-preparation.mjs";
+import { openEchoPreviewPreparation } from "./echo-preview-preparation.mjs";
 import { echoPerformanceInputs } from "./echo-performance-inputs.mjs";
 import { resolveEchoRuntimeMediaUri } from "./echo-runtime-media-route.mjs";
 import { createEchoKanbanStore } from "./echo-kanban-store.mjs";
@@ -801,9 +802,25 @@ const echoDirectorShowGraphCache = createEchoDirectorShowGraphCache();
 const echoMintPlanCertificationQueue = createEchoMintPlanCertificationQueue();
 const echoDirectorProjectCompileJobs = new Map();
 const echoDirectorProjectWarmupJobs = new Map();
-const echoPreviewPreparationJobs = new Map();
-const echoPreviewPreparationQueue = [];
-let activeEchoPreviewPreparationSongId = "";
+let echoPreviewPreparationPromise = null;
+function getEchoPreviewPreparation() {
+  if (!echoPreviewPreparationPromise) echoPreviewPreparationPromise = openEchoPreviewPreparation({
+  root: ROOT, mediaDir: MEDIA_DIR,
+  cacheRoot: process.env.HAPA_ECHO_PREVIEW_PREPARATION_DIR || path.join(DATA_DIR, "cache/echo-preview-preparation"),
+  loadSelection: async ({ songId: requestedSongId, variantId: requestedVariantId = "legacy" }) => {
+    const songId = safeEchoDirectionPathSegment(requestedSongId, "song");
+    const variantId = requestedVariantId === "legacy" ? "legacy" : safeEchoDirectionPathSegment(requestedVariantId, "variant");
+    const file = path.join(DATA_DIR, "music-video-projects", `${songId}-video-project.json`);
+    if ((await stat(file)).size > 32 * 1024 * 1024) throw new Error("preview_project_too_large");
+    const payload = await readJson(file), project = payload.music_video_project || payload;
+    const variant = variantId === "legacy" ? null : await readEchoDirectionScriptVariant(songId, variantId)
+      || project.direction_script_variants?.find(row => echoDirectionVariantId(row) === variantId);
+    if (variantId !== "legacy" && !variant) throw echoDirectionVariantNotFound(songId, variantId);
+    return { songId, variantId, fingerprint: echoDirectionVariantFingerprint(variant || { timeline: project.timeline }), timeline: (variant || project).timeline };
+  },
+  }).catch(error => { echoPreviewPreparationPromise = null; throw error; });
+  return echoPreviewPreparationPromise;
+}
 
 function compileEchoDirectorProject(songIdInput) {
   const songId = String(songIdInput || "").trim();
@@ -925,30 +942,6 @@ async function settleEchoDirectionCutWarmup(songId, variantId) {
   }
 }
 
-function pumpEchoPreviewPreparationQueue() {
-  if (activeEchoPreviewPreparationSongId || !echoPreviewPreparationQueue.length) return;
-  const job = echoPreviewPreparationQueue.shift();
-  activeEchoPreviewPreparationSongId = job.songId;
-  job.status = "running";
-  job.startedAt = new Date().toISOString();
-  const child = spawn(process.execPath, [path.join(ROOT, "scripts/build-echo-playback-media-v2.mjs"), "--apply", `--song=${job.songId}`], { cwd: ROOT, stdio: ["ignore", "pipe", "pipe"] });
-  const appendOutput = (chunk) => { job.outputTail = `${job.outputTail}${chunk}`.slice(-12_000); };
-  child.stdout.on("data", appendOutput);
-  child.stderr.on("data", appendOutput);
-  let settled = false;
-  const finish = (code, error = null) => {
-    if (settled) return;
-    settled = true;
-    job.exitCode = Number.isInteger(code) ? code : 1;
-    job.status = job.exitCode === 0 && !error ? "ready" : "failed";
-    job.completedAt = new Date().toISOString();
-    if (error) job.error = String(error.message || error);
-    activeEchoPreviewPreparationSongId = "";
-    pumpEchoPreviewPreparationQueue();
-  };
-  child.once("error", (error) => finish(1, error));
-  child.once("close", (code) => finish(code));
-}
 const SUBSCRIBER_DIR = process.env.HAPA_SUBSCRIBER_DIR || path.join(ROOT, "data/subscribers");
 const SUBSCRIBERS = ["hapa-atlas", "hapa-second-brain", "hapa-worldbuilding-wiki"];
 const OVERWIND_DIR = process.env.HAPA_OVERWIND_DIR || path.join(ROOT, "data/overwind");
@@ -1155,6 +1148,7 @@ function shutdownBuilder(signal) {
   if (shutdownPromise) return shutdownPromise;
   shutdownPromise = Promise.allSettled([
     echoPerformancePreparation.close(),
+    echoPreviewPreparationPromise?.then(service => service.close()).catch(() => {}),
     songCardLocalRenderBridge?.shutdown?.({ reason: signal }) || Promise.resolve(),
     stopOwnedOvercardHost(),
   ]).finally(() => process.exit(0));
@@ -3245,24 +3239,22 @@ async function route(req, res) {
     return;
   }
 
-  if (pathname === "/api/echos/director-preview/prepare" && req.method === "GET") {
-    const songId = path.basename(url.searchParams.get("songId") || "");
-    sendJson(res, 200, echoPreviewPreparationJobs.get(songId) || { songId, status: "idle", progress: null });
-    return;
-  }
-
-  if (pathname === "/api/echos/director-preview/prepare" && req.method === "POST") {
-    const songId = path.basename(url.searchParams.get("songId") || "");
-    if (!songId || !fs.existsSync(path.join(DATA_DIR, "music-video-projects", `${songId}-video-project.json`))) {
-      sendJson(res, 404, { error: "project_not_found", songId }); return;
+  if (pathname === "/api/echos/director-preview/prepare" && ["GET", "POST", "DELETE"].includes(req.method)) {
+    res.setHeader("Cache-Control", "no-store");
+    try {
+      const echoPreviewPreparation = await getEchoPreviewPreparation();
+      const songId = url.searchParams.get("songId") || "";
+      const variantId = url.searchParams.get("variantId") || "legacy";
+      const jobId = url.searchParams.get("jobId");
+      const job = req.method === "POST" ? await echoPreviewPreparation.start({ songId, variantId })
+        : req.method === "DELETE" ? await echoPreviewPreparation.cancel(jobId)
+          : jobId ? await echoPreviewPreparation.get(jobId) : await echoPreviewPreparation.latest(songId, variantId);
+      sendJson(res, job ? req.method === "POST" ? 202 : 200 : jobId ? 404 : 200,
+        job || (jobId ? { error: "preview_job_not_found", message: "This preview job is no longer retained. Retry preparation." } : { songId, variantId, status: "idle" }));
+    } catch (error) {
+      sendJson(res, error.statusCode || (error.code === "ENOENT" || error.code === "direction_variant_not_found" ? 404 : 422),
+        { error: error.code || "preview_preparation_failed", message: error.message });
     }
-    const current = echoPreviewPreparationJobs.get(songId);
-    if (["queued", "running"].includes(current?.status)) { sendJson(res, 202, current); return; }
-    const job = { schemaVersion: "hapa.echo.preview-preparation.v1", songId, status: "queued", queuedAt: new Date().toISOString(), startedAt: null, completedAt: null, exitCode: null, outputTail: "" };
-    echoPreviewPreparationJobs.set(songId, job);
-    echoPreviewPreparationQueue.push(job);
-    pumpEchoPreviewPreparationQueue();
-    sendJson(res, 202, job);
     return;
   }
 

@@ -3,6 +3,8 @@ import { echoLyricBoundary } from "../domain/echo-lyric-time.js";
 import { echoPreparedPerformanceSignalFrames, evaluateEchoMusicPerformance } from "../domain/hyperframes-visualizer-runtime.js";
 import { prepareDirectorModulationTimeline } from "../domain/director-modulation-v2.js";
 import EchoPerformancePreparationControl from "./EchoPerformancePreparationControl.jsx";
+import EchoPreviewPreparationControl from "./EchoPreviewPreparationControl.jsx";
+import { applyEchoPreviewProjection } from "../domain/echo-preview-projection.js";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { createEchoPanelLoader } from "../domain/echo-panel-loader.js";
@@ -33,6 +35,7 @@ import {
   resolveVerifiedEchoStemBinding,
 } from "../domain/echo-visualizer-audio-envelope.js";
 import { createEchoPlaybackEngine } from "../domain/echo-playback-engine.js";
+import { ECHO_PLAYER_POOL_LIMIT } from "../domain/echo-player-pool.js";
 import { createEchoPresentationTimingRecorder, observeEchoPresentedFrames } from "../domain/echo-presentation-timing.js";
 import {
   createEchoIsfSurface,
@@ -284,9 +287,23 @@ function shotRuntimeUri(shot) {
   return shot?.media_contract?.runtimeUri || shot?.runtime_media_uri || shot?.media_uri || "";
 }
 
+function echoPresentedShotKey(targetShot) {
+  const contract = targetShot?.media_contract || targetShot?.mediaContract || {};
+  return JSON.stringify([
+    targetShot?.media_id || "none",
+    resolveMediaUri(shotRuntimeUri(targetShot)),
+    Number(targetShot?.start_sec ?? targetShot?.startSeconds) || 0,
+    Number(targetShot?.end_sec ?? targetShot?.endSeconds) || 0,
+    Number(contract.sourceInSeconds ?? contract.source_in_seconds) || 0,
+    Number(contract.sourceOutSeconds ?? contract.source_out_seconds) || 0,
+    contract.timeMapping || contract.time_mapping || null,
+  ]);
+}
+
 function isPresentedEchoVideoElement(element, expectedSourceKey = "") {
   return Boolean(
     element
+    && element.isConnected !== false
     && element.dataset?.echoPlayer === "current"
     && element.dataset?.framePresented === "true"
     && (!expectedSourceKey || element.dataset?.echoSourceKey === expectedSourceKey)
@@ -300,7 +317,7 @@ function isPresentedEchoVideoElement(element, expectedSourceKey = "") {
 function resolvePresentedEchoMediaBinding(surface, shot, callbackBinding = null) {
   const mediaId = String(shot?.media_id || "");
   const uri = resolveMediaUri(shotRuntimeUri(shot));
-  const sourceKey = `${mediaId}:${uri}`;
+  const sourceKey = echoPresentedShotKey(shot);
   const callbackMatches = callbackBinding?.presented
     && callbackBinding.element
     && callbackBinding.mediaId === mediaId
@@ -319,7 +336,8 @@ function resolvePresentedEchoMediaBinding(surface, shot, callbackBinding = null)
     uri,
     sourceKey,
     presented: true,
-    recoveredFrom: "current-dom-player"
+    recoveredFrom: "current-dom-player",
+    shot
   };
 }
 
@@ -546,7 +564,7 @@ function DeferredRationaleTextarea({ value = "", onCommit }) {
   );
 }
 
-const ECHO_VIDEO_LOOKAHEAD_COUNT = 8;
+const ECHO_VIDEO_LOOKAHEAD_COUNT = ECHO_PLAYER_POOL_LIMIT - 1;
 const ECHO_VIDEO_PLAYER_POOL_SIZE = ECHO_VIDEO_LOOKAHEAD_COUNT + 1;
 const ECHO_VIDEO_PLAYER_INDICES = Array.from({ length: ECHO_VIDEO_PLAYER_POOL_SIZE }, (_, index) => index);
 
@@ -567,18 +585,8 @@ function PersistentEchoABPlayers({ shot, lookaheadShots = [], playing, songTime,
   const cameraInputsRef = useRef({ shot, sourceIsPortrait, cameraKeyframes, shotIndex, songTime });
   cameraInputsRef.current = { shot, sourceIsPortrait, cameraKeyframes, shotIndex, songTime };
 
-  const shotKey = (targetShot) => {
-    const contract = targetShot?.media_contract || targetShot?.mediaContract || {};
-    return JSON.stringify([
-      targetShot?.media_id || "none",
-      resolveMediaUri(shotRuntimeUri(targetShot)),
-      Number(targetShot?.start_sec ?? targetShot?.startSeconds) || 0,
-      Number(targetShot?.end_sec ?? targetShot?.endSeconds) || 0,
-      Number(contract.sourceInSeconds ?? contract.source_in_seconds) || 0,
-      Number(contract.sourceOutSeconds ?? contract.source_out_seconds) || 0,
-      contract.timeMapping || contract.time_mapping || null,
-    ]);
-  };
+  const shotKey = echoPresentedShotKey;
+  const currentShotIdentity = shotKey(shot);
 
   const waitFor = (video, eventName, timeoutMs, generation) => new Promise((resolve, reject) => {
     if (generation !== generationRef.current && eventName !== "lookahead") { reject(new Error("stale-prepare")); return; }
@@ -681,7 +689,7 @@ function PersistentEchoABPlayers({ shot, lookaheadShots = [], playing, songTime,
       });
     }
     return () => { if (generation === generationRef.current) generationRef.current += 1; };
-  }, [shot?.media_id, shot?.start_sec, shotRuntimeUri(shot)]);
+  }, [currentShotIdentity]);
 
   useEffect(() => {
     if (stageStatus !== "ready") return;
@@ -760,7 +768,7 @@ function PersistentEchoABPlayers({ shot, lookaheadShots = [], playing, songTime,
     });
     if (holdingLastFrame && !video.paused) video.pause();
     if (!playing && !video.paused) video.pause();
-  }, [activeIndex, playing, shot?.media_id, songTime]);
+  }, [activeIndex, playing, currentShotIdentity, songTime]);
 
   useEffect(() => {
     const sourceKey = shotKey(shot);
@@ -795,7 +803,7 @@ function PersistentEchoABPlayers({ shot, lookaheadShots = [], playing, songTime,
       reason: stageStatus === "ready" ? "active-frame-not-presented" : stageStatus
     });
     return () => onPresentedMediaChange?.({ element: null, kind: "video", mediaId: String(shot?.media_id || ""), sourceKey, presented: false, reason: "binding-released" });
-  }, [activeIndex, stageStatus, shot?.media_id, shot?.start_sec, shotRuntimeUri(shot), onPresentedMediaChange]);
+  }, [activeIndex, stageStatus, currentShotIdentity, shot, onPresentedMediaChange]);
 
   useEffect(() => {
     let frame = 0; let previousMs = -Infinity;
@@ -1683,7 +1691,8 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
   const echoPlaybackEngineRef = useRef(null);
   const [echoPlaybackSnapshot, setEchoPlaybackSnapshot] = useState(null);
   const [previewBufferState, setPreviewBufferState] = useState({ status: "idle", ready: false, readyLookahead: 0, targetLookahead: 0 });
-  const [previewPreparation, setPreviewPreparation] = useState({ status: "idle" });
+  const [previewProjection, setPreviewProjection] = useState(null);
+  const previewTimelineRef = useRef([]);
   const directorPreviewFullscreenRef = useRef(null);
   const directorPreviewFullscreenActiveRef = useRef(false);
   const [directorPreviewExpanded, setDirectorPreviewExpanded] = useState(false);
@@ -2005,6 +2014,10 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
       ? normalizedProject
       : { ...normalizedProject, hyperframe_script: generateEchoHyperframeScript(normalizedProject), hyperframe_script_stale: false };
   }, [activeDirectionVariant, activeStoredProject, directionWorkingForkActive, workingDirectionFork]);
+  const previewTimeline = useMemo(() => applyEchoPreviewProjection(activeProject?.timeline || [], previewProjection,
+    { songId: selectedProjectSongId, variantId: activeDirectionVariantSelection }),
+  [activeProject?.timeline, previewProjection, selectedProjectSongId, activeDirectionVariantSelection]);
+  previewTimelineRef.current = previewTimeline;
   const activeOutputProfile = resolveEchoOutputProfile(activeProject);
   const activeLyricContract = normalizeEchoLyricContract(activeProject);
   const activeLyricSourceText = String(
@@ -2601,7 +2614,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
       ? Number(audio.currentTime || currentTimeRef.current)
       : currentTimeRef.current;
     const project = activeProjectRef.current || activeProject;
-    const timeline = project?.timeline || [];
+    const timeline = previewTimelineRef.current;
     const playheadShotIndex = timeline.findIndex((item) => t >= item.start_sec && t < item.end_sec);
     const currentTimelineItem = playheadShotIndex !== -1 && playheadShotIndex !== undefined
       ? timeline[playheadShotIndex]
@@ -3057,7 +3070,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
     setSaveFeedbackTone("idle");
     setSaveElapsedSeconds(0);
     setPreviewBufferState({ status: "idle", ready: false, readyLookahead: 0, targetLookahead: 0 });
-    setPreviewPreparation({ status: "idle" });
+    setPreviewProjection(null);
     presentedMediaRef.current = null;
     presentationObserverRef.current?.stop();
     presentationObserverRef.current = null;
@@ -3281,7 +3294,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
       const playheadShotIndex = Number.isInteger(projectedCueIndex)
         ? projectedCueIndex
         : activeProject?.timeline?.findIndex(item => t >= item.start_sec && t < item.end_sec);
-      const currentTimelineItem = playheadShotIndex !== -1 && playheadShotIndex !== undefined ? activeProject.timeline[playheadShotIndex] : activeProject?.timeline?.[0];
+      const currentTimelineItem = previewTimelineRef.current[playheadShotIndex] || previewTimelineRef.current[0];
       
       const playheadVisIndex = activeProject?.visualizer_timeline?.findIndex(item => t >= item.start_sec && t < item.end_sec);
       const currentVisItem = playheadVisIndex !== -1 && playheadVisIndex !== undefined ? activeProject.visualizer_timeline[playheadVisIndex] : activeProject?.visualizer_timeline?.[0];
@@ -4341,30 +4354,6 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
       workingFork: createEchoDirectionWorkingFork(selectedProject, variant),
     };
   };
-
-  const prepareSmoothPreview = async () => {
-    if (!selectedProjectSongId || ["queued", "running"].includes(previewPreparation.status)) return;
-    setPreviewPreparation({ status: "running", songId: selectedProjectSongId });
-    try {
-      const response = await fetch(`${API_BASE}/api/echos/director-preview/prepare?songId=${encodeURIComponent(selectedProjectSongId)}`, { method: "POST" });
-      const payload = await response.json(); setPreviewPreparation(payload);
-    } catch (error) { setPreviewPreparation({ status: "failed", error: String(error.message || error) }); }
-  };
-
-  useEffect(() => {
-    if (!selectedProjectSongId || !["queued", "running"].includes(previewPreparation.status)) return undefined;
-    const timer = window.setInterval(async () => {
-      try {
-        const response = await fetch(`${API_BASE}/api/echos/director-preview/prepare?songId=${encodeURIComponent(selectedProjectSongId)}`);
-        const payload = await response.json(); setPreviewPreparation(payload);
-        if (payload.status === "ready") await fetchProjectDetail(
-          selectedProjectSongId,
-          selectedDirectionVariantId === "legacy" ? "" : selectedDirectionVariantId,
-        );
-      } catch { /* the next poll can recover */ }
-    }, 1500);
-    return () => window.clearInterval(timer);
-  }, [previewPreparation.status, selectedDirectionVariantId, selectedProjectSongId]);
 
   const fetchVideoDetail = async (video) => {
     if (!video?.id) return;
@@ -6153,8 +6142,8 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                       : engineOwnsProject && echoPlaybackSnapshot.targetShotIndex >= 0
                         ? echoPlaybackSnapshot.targetShotIndex
                         : activeProject.timeline?.findIndex(item => currentTime >= item.start_sec && currentTime < item.end_sec);
-                    const currentTimelineItem = playheadShotIndex !== -1 && playheadShotIndex !== undefined ? activeProject.timeline[playheadShotIndex] : activeProject.timeline?.[0];
-                    const lookaheadTimelineItems = activeProject.timeline?.slice(
+                    const currentTimelineItem = previewTimeline[playheadShotIndex] || previewTimeline[0];
+                    const lookaheadTimelineItems = previewTimeline.slice(
                       Math.max(0, playheadShotIndex) + 1,
                       Math.max(0, playheadShotIndex) + 1 + ECHO_VIDEO_LOOKAHEAD_COUNT,
                     ) || [];
@@ -6164,7 +6153,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                     const currentLine = directorPreviewFrame?.lyrics?.line || (activeLyricContract.enabled
                       ? activeProject.timed_lyrics?.find(l => currentTime >= l.start && currentTime < l.end)
                       : null);
-                    const pendingPreviewProxyCount = activeProject.timeline?.filter((item) => item.media_contract?.type === "video" && item.media_contract?.proxy?.status !== "ready").length || 0;
+                    const pendingPreviewProxyCount = previewTimeline.filter((item) => shotMediaType(item) === "video" && item.media_contract?.proxy?.status !== "ready").length;
                     const isVerticalOutput = activeOutputProfile.id === "vertical";
                     const previewRecordingVideoBuffering = shotMediaType(currentTimelineItem) === "video" && !previewBufferState.ready;
                     const previewRecordingAudioFailed = Boolean(audioPlaybackError);
@@ -7495,11 +7484,12 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                                       {previewRecordingError}
                                     </span>
                                   )}
-                                  {pendingPreviewProxyCount > 0 && (
-                                    <button type="button" onClick={prepareSmoothPreview} disabled={["queued", "running"].includes(previewPreparation.status)} style={{ background: 'rgba(168,85,247,.16)', border: '1px solid var(--hapa-neon-violet)', color: 'var(--hapa-neon-violet)', padding: '5px 9px', fontSize: '9px', fontWeight: 'bold', borderRadius: '4px', cursor: ["queued", "running"].includes(previewPreparation.status) ? 'wait' : 'pointer', flexShrink: 0 }}>
-                                      {previewPreparation.status === "queued" ? `QUEUED ${pendingPreviewProxyCount} PROXIES…` : previewPreparation.status === "running" ? `COMPILING ${pendingPreviewProxyCount} PROXIES…` : `COMPILE SMOOTH PREVIEW (${pendingPreviewProxyCount})`}
-                                    </button>
-                                  )}
+                                  <EchoPreviewPreparationControl
+                                    key={`${selectedProjectSongId}:${activeDirectionVariantSelection}`}
+                                    apiBase={API_BASE} songId={selectedProjectSongId}
+                                    variantId={activeDirectionVariantSelection} pendingCount={pendingPreviewProxyCount}
+                                    onProjection={setPreviewProjection}
+                                  />
                                   
                                   <input 
                                     type="range" 

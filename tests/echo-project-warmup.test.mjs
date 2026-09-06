@@ -17,7 +17,7 @@ function between(start, end) {
 }
 
 test("saved Echo projects warm a certified execution graph after canonical compilation", () => {
-  const warmup = between("function warmEchoDirectorProject", "function pumpEchoPreviewPreparationQueue");
+  const warmup = between("function warmEchoDirectorProject", "const SUBSCRIBER_DIR");
   const compileRoute = between(
     'if (pathname === "/api/echos/director-project/compile"',
     'if (pathname === "/api/echos/direction-variant/fork"',
@@ -44,7 +44,7 @@ test("new and idempotently replayed direction cuts finish the same graph warm-up
   assert.match(fork, /existingRequestedChild[\s\S]*settleEchoDirectionCutWarmup\(songId, requestedId\)/);
   assert.match(fork, /echoDirectionVariantSummaryIndex\.invalidate\(songId\);[\s\S]*settleEchoDirectionCutWarmup\(songId, childId\)/);
   assert.equal((fork.match(/\bwarmup,/g) || []).length, 2);
-  const settlement = between("async function settleEchoDirectionCutWarmup", "function pumpEchoPreviewPreparationQueue");
+  const settlement = between("async function settleEchoDirectionCutWarmup", "const SUBSCRIBER_DIR");
   assert.match(settlement, /await warmEchoDirectorProject\(songId, \{ variantId \}\)/);
   assert.match(settlement, /status: "blocked"/);
 });

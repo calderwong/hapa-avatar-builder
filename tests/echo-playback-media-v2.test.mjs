@@ -54,14 +54,15 @@ test("Dear Papa proxies are verified cut-friendly H.264 and stay below 60 MiB", 
   }
 });
 
-test("smooth preview compilation preserves one source pass, verifies outputs, and is exposed per song", () => {
+test("smooth preview compilation preserves one source pass, verifies outputs, and is exposed for the selected cut", () => {
   const builder = fs.readFileSync("scripts/build-echo-playback-media-v2.mjs", "utf8");
   const server = fs.readFileSync("server/api.mjs", "utf8");
   const view = fs.readFileSync("src/components/HapaEchosView.jsx", "utf8");
   assert.doesNotMatch(builder, /"-stream_loop", "-1"/);
-  assert.match(builder, /proxy verification failed codec=/);
+  const proxyOwner = fs.readFileSync("server/echo-playback-proxy.mjs", "utf8");
+  assert.match(proxyOwner, /proxy-encode-verification-failed/);
   assert.match(builder, /actualDurationSeconds/);
-  assert.match(builder, /cached\.proxy\?\.durationSeconds/);
+  assert.match(proxyOwner, /proxy-cache-probe-mismatch/);
   assert.match(builder, /durationCoverage:/);
   assert.match(builder, /commitPlaybackProjection/);
   assert.match(builder, /projectMergeConflicts/);
@@ -70,9 +71,9 @@ test("smooth preview compilation preserves one source pass, verifies outputs, an
   assert.match(builder, /short-source-held-no-repeat/);
   assert.match(builder, /index <= 8/);
   assert.match(server, /\/api\/echos\/director-preview\/prepare/);
-  assert.match(server, /build-echo-playback-media-v2\.mjs/);
-  assert.match(server, /echoPreviewPreparationQueue/);
-  assert.match(server, /status: "queued"/);
-  assert.match(view, /COMPILE SMOOTH PREVIEW/);
-  assert.match(view, /\["queued", "running"\]\.includes\(previewPreparation\.status\)/);
+  assert.match(server, /openEchoPreviewPreparation/);
+  assert.match(server, /echoPreviewPreparation.start\(\{ songId, variantId \}\)/);
+  assert.match(view, /EchoPreviewPreparationControl/);
+  assert.match(view, /variantId=\{activeDirectionVariantSelection\}/);
+  assert.doesNotMatch(view, /const prepareSmoothPreview/);
 });

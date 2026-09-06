@@ -144,12 +144,12 @@ test("ordinary loop and once playback ignore absent or inconsistent transition m
   }), 1);
 });
 
-test("Echo preview keeps current plus eight persistent players, gates handoff, and never repeats clips", () => {
+test("Echo preview shares the bounded persistent player budget, gates handoff, and never repeats clips", () => {
   const source = fs.readFileSync("src/components/HapaEchosView.jsx", "utf8");
   assert.match(source, /persistent-echo-player-/);
   assert.match(source, /requestVideoFrameCallback/);
   assert.match(source, /data-frame-presented/);
-  assert.match(source, /const ECHO_VIDEO_LOOKAHEAD_COUNT = 8/);
+  assert.match(source, /const ECHO_VIDEO_LOOKAHEAD_COUNT = ECHO_PLAYER_POOL_LIMIT - 1/);
   assert.match(source, /ECHO_VIDEO_PLAYER_INDICES\.map/);
   assert.match(source, /data-echo-fallback/);
   assert.match(source, /Echo player first-frame timeout/);

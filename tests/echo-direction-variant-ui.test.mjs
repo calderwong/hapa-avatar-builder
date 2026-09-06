@@ -193,7 +193,7 @@ test("cut selection opens a safe editable fallback while exact certification is 
 });
 
 test("saved cuts always have a deterministic editor fallback, but never use it as a render certificate", () => {
-  const helper = between("const editableDirectionForkFromDetail", "const prepareSmoothPreview");
+  const helper = between("const editableDirectionForkFromDetail", "const fetchVideoDetail");
   const selector = between('aria-label="Direction script version"', 'aria-label="Video orientation"');
   assert.match(helper, /director_show_graph: projectToEditorGraph\(projectedProject\)/);
   assert.match(helper, /A cut's certificate proves that this exact graph may be rendered/);
@@ -213,7 +213,7 @@ test("the Director distinguishes missing source lyrics from captured lyrics awai
 });
 
 test("a freshly saved cut stays pinned to its high-quality graph while certification catches up", () => {
-  const helper = between("const editableDirectionForkFromDetail", "const prepareSmoothPreview");
+  const helper = between("const editableDirectionForkFromDetail", "const fetchVideoDetail");
   const forkSave = between("const handleSaveWorkingDirectionFork", "const handleSaveProject");
   const reopenSavedCut = between("const reopenSavedDirectionCut", "const handleRecoverPendingDirectionCut");
   assert.match(helper, /fallbackProject\?\.director_show_graph\?\.tracks/);

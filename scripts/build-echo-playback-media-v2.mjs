@@ -2,10 +2,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import crypto from "node:crypto";
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
-
-const run = promisify(execFile);
+import { prepareEchoPlaybackProxy } from "../server/echo-playback-proxy.mjs";
 const root = path.resolve(import.meta.dirname, "..");
 const argument = (name, fallback) => process.argv.find(value => value.startsWith(`--${name}=`))?.slice(name.length + 3) || fallback;
 const mediaRoot = path.resolve(argument('media-root', path.join(root, "data", "media")));
@@ -82,65 +79,17 @@ const selectedNeeds = [...sourceNeeds.values()].filter((need) => {
 });
 const stats = { projects: projects.length, projectsWritten: 0, shots: videoShots + imageShots + visualizerShots, videoShots, imageShots, visualizerShots, uniqueVideoSources: sourceNeeds.size, selectedProxySources: selectedNeeds.length, transcoded: 0, cacheHits: 0, failed: 0 };
 
-await mapLimit([...sourceNeeds.values()], Math.min(concurrency, 4), async (need) => {
-  try {
-    const stat = await fs.stat(need.sourcePath);
-    const { stdout: sourceProbeText } = await run("/opt/homebrew/bin/ffprobe", ["-v", "error", "-show_entries", "format=duration", "-of", "json", need.sourcePath], { maxBuffer: 1024 * 1024 });
-    need.sourceDurationSeconds = Number(JSON.parse(sourceProbeText)?.format?.duration || 0);
-    if (!(need.sourceDurationSeconds > 0)) throw new Error(`source duration unavailable for ${need.sourcePath}`);
-    need.outputDurationSeconds = Math.min(need.duration, need.sourceDurationSeconds);
-    need.fingerprint = crypto.createHash("sha256").update(`${need.sourcePath}:${stat.size}:${stat.mtimeMs}:${need.outputDurationSeconds.toFixed(3)}:h264-1500k-gop1-once-verified-v4`).digest("hex");
-    need.proxyPath = path.join(proxyRoot, `${need.fingerprint.slice(0, 24)}.mp4`);
-    const cached = cache[need.sourcePath];
-    if (cached?.fingerprint !== need.fingerprint) return;
-    if (cached.proxy?.status !== "ready" || cached.proxy?.codec !== "h264" || cached.proxy?.pixelFormat !== "yuv420p") return;
-    if (Number(cached.proxy?.durationSeconds || 0) < need.outputDurationSeconds - .08) return;
-    await fs.access(need.proxyPath);
-    need.proxy = cached.proxy;
-  } catch (error) {
-    need.preflightError = String(error.message || error);
-  }
-});
-
 await mapLimit(selectedNeeds, concurrency, async (need) => {
   try {
-    if (need.proxy?.status === "ready") { stats.cacheHits += 1; return; }
-    if (need.preflightError) throw new Error(need.preflightError);
-    const fingerprint = need.fingerprint;
-    const proxyPath = need.proxyPath;
-    const fps = 30;
-    await run("/opt/homebrew/bin/ffmpeg", [
-      "-v", "error", "-y", "-ss", "0", "-i", need.sourcePath, "-t", need.outputDurationSeconds.toFixed(3),
-      "-map", "0:v:0", "-an", "-vf", "scale='min(1280,iw)':'min(1280,ih)':force_original_aspect_ratio=decrease:force_divisible_by=2:out_range=tv,format=yuv420p",
-      "-c:v", "libx264", "-preset", "veryfast", "-crf", "27", "-maxrate", "1500k", "-bufsize", "3000k",
-      "-pix_fmt", "yuv420p", "-r", String(fps), "-g", String(fps), "-keyint_min", String(fps), "-sc_threshold", "0", "-movflags", "+faststart", proxyPath,
-    ], { maxBuffer: 2 * 1024 * 1024 });
-    const proxyStat = await fs.stat(proxyPath);
-    const { stdout: probeText } = await run("/opt/homebrew/bin/ffprobe", ["-v", "error", "-select_streams", "v:0", "-show_entries", "stream=codec_name,pix_fmt,width,height,avg_frame_rate:format=duration", "-of", "json", proxyPath], { maxBuffer: 1024 * 1024 });
-    const probe = JSON.parse(probeText); const stream = probe.streams?.[0]; const actualDurationSeconds = Number(probe.format?.duration || 0);
-    if (stream?.codec_name !== "h264" || stream?.pix_fmt !== "yuv420p" || actualDurationSeconds < need.outputDurationSeconds - .08) throw new Error(`proxy verification failed codec=${stream?.codec_name} pix_fmt=${stream?.pix_fmt} duration=${actualDurationSeconds}/${need.outputDurationSeconds}`);
-    need.proxy = {
-      status: "ready",
-      uri: uriFor(proxyPath),
-      mimeType: "video/mp4",
-      codec: "h264",
-      pixelFormat: "yuv420p",
-      fastStart: true,
-      maxDimension: 1280,
-      maxBitRate: 1500000,
-      gopSeconds: 1,
-      byteSize: proxyStat.size,
-      durationSeconds: actualDurationSeconds,
-      requestedDurationSeconds: need.duration,
-      sourceDurationSeconds: need.sourceDurationSeconds,
-      width: Number(stream.width || 0),
-      height: Number(stream.height || 0),
-      frameRate: stream.avg_frame_rate || "30/1",
-      sourcePath: need.sourcePath,
-      fingerprint,
-    };
-    cache[need.sourcePath] = { fingerprint, proxy: need.proxy };
-    stats.transcoded += 1;
+    const prepared = await prepareEchoPlaybackProxy({ sourcePath: need.sourcePath, proxyRoot, maximumDurationSeconds: need.duration });
+    need.sourceDurationSeconds = prepared.sourceDurationSeconds;
+    need.outputDurationSeconds = prepared.durationSeconds;
+    need.fingerprint = prepared.key;
+    need.proxyPath = prepared.path;
+    const { cached, path: preparedPath, ...proxy } = prepared;
+    need.proxy = proxy;
+    cache[need.sourcePath] = { fingerprint: prepared.key, proxy };
+    if (cached) stats.cacheHits += 1; else stats.transcoded += 1;
   } catch (error) {
     stats.failed += 1;
     need.proxy = { status: "failed", uri: "", error: String(error.message || error).slice(0, 500) };
@@ -173,7 +122,7 @@ for (const entry of projects) {
       playbackMode: originalType === "video" ? "once" : "not-applicable",
       mimeType: type === "video" ? "video/mp4" : type === "image" ? `image/${path.extname(originalUri).slice(1).replace("jpg", "jpeg")}` : "application/x-hapa-visualizer",
       dimensions: proxy ? { maxDimension: proxy.maxDimension } : null,
-      contentHash: proxy?.fingerprint || null,
+      contentHash: proxy?.sha256 || null,
       proxy: proxy || { status: originalType === "video" ? "pending" : "not-applicable", uri: runtimeUri },
       fallback: failedVideo ? { status: "active", mode: shot.media_thumbnail ? "poster-then-ivf" : "ivf", reason: proxy?.error || "proxy-build-failed" } : { status: "standby", mode: shot.media_thumbnail ? "poster-then-ivf" : "ivf" },
       posterUri: shot.media_thumbnail || "",
