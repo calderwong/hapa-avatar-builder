@@ -88,3 +88,44 @@ export function selectImageShotRendition({ geometry, renditions = [], outputProf
   const selected=sufficient[0]||bounded.sort((a,b)=>b.width*b.height-a.width*a.height||String(a.uri).localeCompare(String(b.uri)))[0]||null;
   return {status:selected?sufficient.length?'ready-preview':'preview-resolution-fallback':'blocked-decode-budget',selected,required,insufficientResolution:scale>1||!sufficient.length,sourceHash:original.sha256};
 }
+
+/** Stable identity declarations only. Owning a file, naming it, or tagging its
+ * parent does not establish who/what appears in it. Canonical declarations are
+ * not visual verification and retain exact source-field provenance. */
+export function declaredMediaIdentities(asset = {}, { avatarIds = new Set(), sceneIds = new Set(), source = null, sourceRevision = null } = {}) {
+  const evidence = [], rejected = [];
+  const fields = [
+    ['characterIds', asset.characterIds, avatarIds, 'character'],
+    ['cast.characterIds', asset.cast?.characterIds, avatarIds, 'character'],
+    ['avatarId', asset.avatarId ? [asset.avatarId] : [], avatarIds, 'character'],
+    ['metadata.avatarIds', asset.metadata?.avatarIds, avatarIds, 'character'],
+    ['sceneIds', asset.sceneIds, sceneIds, 'scene'],
+    ['cast.sceneIds', asset.cast?.sceneIds, sceneIds, 'scene'],
+    ['metadata.sceneId', asset.metadata?.sceneId ? [asset.metadata.sceneId] : [], sceneIds, 'scene'],
+  ];
+  for (const [field, values, known, kind] of fields) for (const id of Array.isArray(values) ? values : []) {
+    if (typeof id !== 'string' || !id || id.length > 240) continue;
+    const row = { kind, id, field, source, sourceRevision };
+    if (known.has(id)) evidence.push({ ...row, status: 'canonical-declaration', visualVerified: false });
+    else rejected.push({ ...row, reason: 'identity-not-in-canonical-store' });
+  }
+  return { characterIds: unique(evidence.filter(row => row.kind === 'character').map(row => row.id)).sort(),
+    sceneIds: unique(evidence.filter(row => row.kind === 'scene').map(row => row.id)).sort(), evidence, rejected };
+}
+
+
+/** Runtime declarations are a sidecar, not a rewrite of the certified cut.
+ * Apply only allowed metadata after matching the exact source fingerprint and
+ * every shot identity/time/URI. Media, camera, text and timing cannot change. */
+export function applyEchoMediaEvidenceProjection(timeline = [], projection, sourceFingerprint) {
+  if (projection?.schemaVersion !== "hapa.echo.media-evidence-projection.v1" || projection.sourceFingerprint !== sourceFingerprint
+    || !Array.isArray(projection.timeline) || projection.timeline.length !== timeline.length || timeline.length > 4096) return timeline;
+  const identity = shot => JSON.stringify([shot.media_id,shot.start_sec,shot.end_sec,shot.media_uri,shot.runtime_media_uri,shot.media_contract?.originalUri,shot.media_contract?.runtimeUri]);
+  if (timeline.some((shot,index) => identity(shot) !== identity(projection.timeline[index]))) return timeline;
+  const fields = ["characterIds","sceneIds","cast","canonicalMediaIds","identityEvidence","sourceAllowed","availability"];
+  return timeline.map((shot,index) => {
+    const source = projection.timeline[index];
+    const metadata = Object.fromEntries(fields.filter(field => Object.hasOwn(source,field)).map(field => [field,structuredClone(source[field])]));
+    return { ...shot,...metadata,media_contract:{...shot.media_contract,...metadata} };
+  });
+}

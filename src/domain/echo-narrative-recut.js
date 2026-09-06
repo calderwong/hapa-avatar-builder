@@ -2,7 +2,7 @@ import { NARRATIVE_VARIANT_RECIPES } from "./echo-director-recipes.js";
 import { sequenceEchoNarrative } from "./echo-narrative-sequencer.js";
 import { mergeEchoMediaConstraints } from "./echo-media-eligibility.js";
 
-const mediaFields = ["media_id", "media_title", "media_uri", "runtime_media_uri", "media_thumbnail", "media_contract", "media_card_id", "media_card_kind", "media_card_ref", "media_card_title", "characterIds", "sceneIds", "cast", "shotRoles", "paletteFamily", "comicId", "panelIndex", "roi", "technical", "availability", "cropCoverage", "sourcePolicy", "sourceAllowed", "origin", "banned", "metadata"];
+const mediaFields = ["media_id", "media_title", "media_uri", "runtime_media_uri", "media_thumbnail", "media_contract", "media_card_id", "media_card_kind", "media_card_ref", "media_card_title", "characterIds", "sceneIds", "cast", "identityEvidence", "canonicalMediaIds", "shotRoles", "paletteFamily", "comicId", "panelIndex", "roi", "technical", "availability", "cropCoverage", "sourcePolicy", "sourceAllowed", "origin", "banned", "metadata"];
 
 function candidate(shot) {
   const contract = shot.media_contract || {};

@@ -16,7 +16,8 @@ import { echoPerformanceInputs } from "./echo-performance-inputs.mjs";
 import { resolveEchoRuntimeMediaUri } from "./echo-runtime-media-route.mjs";
 import { createEchoKanbanStore } from "./echo-kanban-store.mjs";
 import { createEchoKanbanMirrorReader } from "./echo-kanban-mirror.mjs";
-import { validateEchoForkMedia } from "./echo-media-eligibility.mjs";
+import { createEchoMediaEvidenceReader } from "./echo-media-evidence-index.mjs";
+import { validateEchoForkMedia, prepareEchoTimelineMediaEvidence } from "./echo-media-eligibility.mjs";
 import { mergeEchoMediaConstraints, inheritEchoTimelineMediaConstraints } from "../src/domain/echo-media-eligibility.js";
 import {
   auditAvatar,
@@ -754,6 +755,12 @@ const HAPA_TRANSCRIBE_MAX_BYTES = Math.max(256_000, Number(process.env.HAPA_TRAN
 const HAPA_TRANSCRIBE_EMPTY_CLIP_DIR = process.env.HAPA_TRANSCRIBE_EMPTY_CLIP_DIR || path.join(ROOT, "artifacts/transcribe-empty-clips");
 const HAPA_TRANSCRIBE_SAVE_EMPTY_CLIPS = process.env.HAPA_TRANSCRIBE_SAVE_EMPTY_CLIPS !== "0";
 const MEDIA_DIR = process.env.HAPA_MEDIA_DIR || path.join(ROOT, "data/media");
+const echoMediaEvidenceReader = createEchoMediaEvidenceReader({
+  root: ROOT, mediaDir: MEDIA_DIR,
+  indexPath: path.join(ROOT, "data/echo-media-evidence/index.json"),
+  sourcePaths: { avatar: STORE_PATH, scene: SCENE_STORE_PATH, item: ITEM_STORE_PATH, library: SYSTEM_MEDIA_PATH },
+});
+
 const PREVIEW_RECORDING_DIR = process.env.HAPA_PREVIEW_RECORDING_DIR || path.join(MEDIA_DIR, "echo-preview-recordings");
 const PREVIEW_RECORDING_MAX_UPLOAD_BYTES = Math.max(1 * 1024 * 1024, Math.min(512 * 1024 * 1024, Number(process.env.HAPA_PREVIEW_RECORDING_MAX_UPLOAD_BYTES) || 128 * 1024 * 1024));
 const previewRecordingStore = createPreviewRecordingStore({
@@ -11295,6 +11302,27 @@ async function hydrateEchoDirectorProjectPayload(payload, safeSongId, options = 
       },
     };
   });
+  // Enrich only the selected editing timeline. Certified executable graphs and
+  // immutable source fingerprints remain owned by their existing publications.
+  let canonicalMediaEvidence = null;
+  if (deliveredVariantId) {
+    const selected = directionVariants.find(variant => echoDirectionVariantId(variant) === deliveredVariantId);
+    if (Array.isArray(selected?.timeline)) {
+      const prepared = await prepareEchoTimelineMediaEvidence(selected.timeline, {
+        root: ROOT, mediaDir: MEDIA_DIR, mediaEvidenceReader: echoMediaEvidenceReader,
+        songRegistryPath: SONG_REGISTRY_DATA_PATH, songbookPath: DEAR_PAPA_SONGBOOK_PATH,
+      });
+      directionVariants = directionVariants.map(variant => variant === selected ? {
+        ...variant,
+        canonical_media_evidence: {
+          schemaVersion: "hapa.echo.media-evidence-projection.v1",
+          sourceFingerprint: echoDirectionVariantFingerprint(variant),
+          timeline: prepared.timeline,
+        },
+      } : variant);
+      canonicalMediaEvidence = prepared.canonicalEvidence;
+    }
+  }
   const graph = sourceProfile ? baseGraphRepair.graph : compactEchoDirectorShowGraph(baseGraphRepair.graph);
   const runtimeShaderRepairReceipt = echoRuntimeShaderRepairReceipt([
     baseGraphRepair,
@@ -11317,6 +11345,7 @@ async function hydrateEchoDirectorProjectPayload(payload, safeSongId, options = 
     visualizer_timeline: repairedBaseTimeline,
     direction_script_variants: directionVariants,
     director_detail_profile: detailProfile,
+    canonical_media_evidence: canonicalMediaEvidence,
     selected_direction_script_variant_id: deliveredVariantId,
     director_show_graph: graph,
     director_show_graph_receipt: graphReceipt,
@@ -11601,9 +11630,11 @@ async function createEchoDirectionVariantFork(body = {}) {
     throw echoDirectionForkError("direction_variant_conflict", "A different direction cut already uses that request identifier.", 409);
   }
 
-  const mediaEligibility = await validateEchoForkMedia(timeline, mediaConstraints, {
+  const { preparedTimeline, ...mediaEligibility } = await validateEchoForkMedia(timeline, mediaConstraints, {
+    mediaEvidenceReader: echoMediaEvidenceReader,
     root: ROOT, mediaDir: MEDIA_DIR, songRegistryPath: SONG_REGISTRY_DATA_PATH, songbookPath: DEAR_PAPA_SONGBOOK_PATH,
   });
+  timeline = preparedTimeline;
   const now = new Date().toISOString();
   const parentSlug = parentVariantId.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 72) || "direction-cut";
   const entropy = randomBytes(8).toString("hex");

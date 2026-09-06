@@ -1,3 +1,4 @@
+import { applyEchoMediaEvidenceProjection } from "./unified-media-catalog.js";
 import { projectToEditorGraph, reframeEchoShowGraphOutputProfile } from "./multitrack-editor.js";
 import { resolveEchoOutputProfile } from "./echo-output-profile.js";
 import { NARRATIVE_VARIANT_RECIPES } from "./echo-director-recipes.js";
@@ -271,7 +272,7 @@ function echoDirectionVariantContentPayload(variant = {}) {
     "fingerprint", "variantFingerprint", "variant_fingerprint", "receiptHash", "receipt_hash",
     "sourceFingerprint", "source_fingerprint",
     "variant_source", "projectionValidation", "runtime_shader_repair_receipt", "runtimeShaderRepairReceipt",
-    "delivery_receipt", "deliveryReceipt", "execution_preview", "executionPreview",
+    "delivery_receipt", "deliveryReceipt", "execution_preview", "executionPreview", "canonical_media_evidence",
   ]) {
     delete payload[field];
   }
@@ -467,7 +468,8 @@ export function deriveEchoDirectionVariantProject(baseProject = {}, variant = {}
     baseProject.director_show_graph?.song?.durationSeconds ?? baseProject.duration,
     null,
   );
-  const declaredTimeline = Array.isArray(variant.timeline) ? variant.timeline : baseProject.timeline;
+  const sourceTimeline = Array.isArray(variant.timeline) ? variant.timeline : baseProject.timeline;
+  const declaredTimeline = applyEchoMediaEvidenceProjection(sourceTimeline, variant.canonical_media_evidence, variantHash);
   const declaredVisualizerTimeline = Array.isArray(variant.visualizer_timeline)
     ? clone(variant.visualizer_timeline)
     : Array.isArray(variant.visualizerTimeline)

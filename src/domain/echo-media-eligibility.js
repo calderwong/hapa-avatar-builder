@@ -29,7 +29,7 @@ export function evaluateEchoMediaEligibility(candidate = {}, constraints = {}) {
   const pending = [];
   if (!uri) hard.push("missing-runtime-uri");
   else if (!/^(?:\/(?!\/)|https?:\/\/|file:\/\/|hapa-media:\/\/|media:\/\/|asset:\/\/)/i.test(uri) || /[\u0000-\u001f]/.test(uri)) hard.push("invalid-runtime-uri");
-  if (ids(constraints.bans).has(id) || candidate.banned === true) hard.push("operator-ban");
+  if ([id, ...list(candidate.canonicalMediaIds)].some(value => ids(constraints.bans).has(String(value))) || candidate.banned === true) hard.push("operator-ban");
   const absent = availability.exists === false || availability.bytes === 0 || candidate.bytesAvailable === false
     || /missing|unreadable|corrupt|invalid-media|broken-media/.test(String(technical.status || ""));
   const verified = availability.exists === true && Number(availability.bytes) > 0;
