@@ -6,7 +6,7 @@ import path from "node:path";
 import { buildEchoMusicPerformance, evaluateEchoMusicPerformance } from "../src/domain/echo-music-performance.js";
 import { createEchoPerformanceCache } from "../server/echo-performance-cache.mjs";
 import { compileHyperFramesShow } from "../src/domain/hyperframes-show-compiler.js";
-import { evaluateHyperFramesVisualizers } from "../src/domain/hyperframes-visualizer-runtime.js";
+import { evaluateHyperFramesVisualizers, echoVisualSignalIsolation, echoPreparedPerformanceSignalFrames } from "../src/domain/hyperframes-visualizer-runtime.js";
 
 const masterHash = "a".repeat(64), stemHash = "b".repeat(64);
 const frames = [{ t: 0, rms: 0, peak: 0, onset: 1, silence: true }, { t: 0.1, rms: 0.5, peak: 0.7, onset: 0.8 }, { t: 0.2, rms: 1, peak: 1, onset: 0.7 }, { t: 0.3, rms: 0, peak: 0, silence: true }];
@@ -89,4 +89,29 @@ test("compiler carries prepared events into the actual HyperFrames adapter", () 
   assert.equal(show.stemFrames.stems[0].originSeconds, 0.013);
   // Real adapter smoke, alongside event/bus checks above. Pixel parity is a separate ECHO-18 gate.
   assert.equal(evaluateHyperFramesVisualizers(show, 0.14425).receipt.runtimeAudioAnalysis, false);
+});
+
+
+test("visual signal solo is temporary, role-specific and deterministic across seeks and rests", () => {
+  const bundle = buildEchoMusicPerformance(input()), before = structuredClone(bundle);
+  for (const t of [0.17, 0.14425, 0.6, 0, 0.17]) {
+    const normal = echoPreparedPerformanceSignalFrames(bundle, t);
+    const drums = echoPreparedPerformanceSignalFrames(bundle, t, { soloStem: "drums" });
+    assert.deepEqual(drums.drums, normal.drums);
+    assert.equal(drums.master.rms, 0);
+    assert.equal(drums.master.status, "diagnostic-muted");
+    const master = echoPreparedPerformanceSignalFrames(bundle, t, { soloStem: "masterMix" });
+    assert.deepEqual(master.master, normal.master);
+    assert.equal(master.drums.rms, 0);
+    assert.equal(master.drums.beat, 0, "muted sparse events cannot leak through");
+    const muted = echoPreparedPerformanceSignalFrames(bundle, t, { soloStem: "__silence__" });
+    assert.ok(Object.values(muted).every(f => ["rms", "peak", "bass", "treble", "beat", "onset", "energy", "palette", "orbit", "transient"].every(signal => f[signal] === 0)), "derived orbit must not revive muted audio activity");
+    if (t === 0) assert.equal(normal.master.orbit, 0, "declared rest must preserve zero derived orbit");
+  }
+  assert.deepEqual(bundle, before);
+  assert.throws(() => echoVisualSignalIsolation(bundle, "vocals"), /unavailable/);
+  assert.throws(() => evaluateHyperFramesVisualizers({}, 0, { soloStem: "drums" }), /requires prepared/);
+  const ambiguous = structuredClone(bundle); ambiguous.missingData.ambiguousRoles = ["drums"];
+  assert.throws(() => echoVisualSignalIsolation(ambiguous, "drums"), /unavailable/);
+  assert.equal(echoPreparedPerformanceSignalFrames(ambiguous, 0.17, { soloStem: "__silence__" }).master.rms, 0);
 });

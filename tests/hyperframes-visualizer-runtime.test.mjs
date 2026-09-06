@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import {
   applyVisualizerAudioMapping,
+  echoPreparedPerformanceSignalFrames,
+  isolateEchoPreparedModulation,
   evaluateHyperFramesVisualizers,
   HapaHyperFramesVisualizerRuntime,
   HYPERFRAMES_VISUALIZER_RUNTIME_SCHEMA,
@@ -533,4 +535,34 @@ test("prepared bus sampling cost is independent of layer count and repeated seek
   assert.equal(first.layers.length, 6); assert.equal(reads, single);
   evaluateHyperFramesVisualizers(show, 1.7); evaluateHyperFramesVisualizers(show, .01);
   assert.deepEqual(evaluateHyperFramesVisualizers(show, .6), first);
+});
+
+
+test("diagnostic solo reaches both uniform adapters without rebaking or leaking master modulation", () => {
+  const roles = ["master", "drums", "vocals", "bass"];
+  const buses = roles.map((role, index) => ({ id: role, role, durationSeconds: 2, originSeconds: 0,
+    frames: [0, 1, 1.9].map(t => ({ t, rms: (index + 1) / 5, peak: 0.8, low: 0.2, mid: 0.3, high: 0.4, onsetEnvelope: 0.5, silence: false })) }));
+  const bundle = { fingerprint: "test-isolation", durationSeconds: 2, buses, events: [], missingData: {} };
+  const inputs = [...roles, "orbit"].map(role => ({ NAME: role, TYPE: "float", DEFAULT: 0.1, MIN: 0, MAX: 1 }));
+  const audioMap = { ...Object.fromEntries(roles.map(role => [role, { signal: "rms", stemFocus: role, depth: 0.5 }])), orbit: { signal: "orbit", stemFocus: "master", depth: 0.5 } };
+  const layer = exactLayer({ inputs, audioMap, controls: {} });
+  const bindings = roles.map(role => ({ id: role, source: role === "master" ? { kind: "mix_signal", signal: "rms" } : { kind: "stem_signal", stemFocus: role, signal: "rms" }, target: { kind: "visualizer_uniform", visualizerId: layer.id, uniform: role }, envelope: { depth: 0.5, baseValue: 0.1, clamp: [0, 1] } }));
+  const timeline = prepareDirectorModulationTimeline(bindings, { durationSeconds: 2, fps: 60, sourceFingerprint: bundle.fingerprint, sampleSignals: () => ({ master: buses[0].frames[0], stems: Object.fromEntries(buses.slice(1).map(b => [b.role, b.frames[0]])) }) });
+  const show = { duration: 2, stemFrames: { performance: bundle, master: buses[0], stems: buses.slice(1) }, automation: { preparedModulation: timeline }, instances: { visualizers: [layer] } };
+  const card = { id: layer.id, visualization: { card: { stemFocus: "drums", controls: {}, audioMap } } };
+  const baseline = evaluateHyperFramesVisualizers(show, 0.6).layers[0].controlValues;
+  for (const soloStem of ["drums", "leadVocals", "master", "__silence__", ""]) {
+    const selected = soloStem === "leadVocals" ? "vocals" : soloStem;
+    const filtered = isolateEchoPreparedModulation(timeline, soloStem);
+    assert.equal(filtered.channels, timeline.channels, "diagnostics must reuse prepared envelope arrays");
+    for (const t of [0.6, 0.1, 1.4, 0.6]) {
+      const preview = buildEchoIsfFrameIntent({ shader: { id: layer.visualizerId, inputs }, card, timestampSeconds: t, signalFrames: echoPreparedPerformanceSignalFrames(bundle, t, { soloStem }), preparedModulation: filtered });
+      const exported = evaluateHyperFramesVisualizers(show, t, { soloStem }).layers[0];
+      for (const [uniform, value] of Object.entries(exported.controlValues)) assert.ok(Math.abs(value - preview.values[uniform]) <= 0.00000101, `${uniform} differs beyond six-decimal adapter rounding`);
+      for (const role of roles) assert.equal(exported.controlValues[role], !selected || role === selected ? baseline[role] : 0.1);
+      if (selected && selected !== "master") assert.equal(exported.controlValues.orbit, 0.1);
+    }
+  }
+  assert.equal(show.automation.preparedModulation, timeline);
+  assert.equal(timeline.targets.length, 4);
 });

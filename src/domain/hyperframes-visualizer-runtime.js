@@ -576,16 +576,45 @@ export function sampleEchoPerformanceBus(bus, songSeconds) {
 /** Absolute-time evaluation is independent of seek order and render cadence.
  * Event pulses use sparse event times, so a 10 Hz envelope cannot shift a beat.
  * This returns separate buses; absent or ambiguous stems never alias master. */
-export function evaluateEchoMusicPerformance(bundle, songSeconds) {
+export function echoVisualSignalIsolation(bundle, soloStem = "") {
+  const selectedRole = soloStem === "__silence__" ? "__silence__" : normalizeHyperFramesStemRole(soloStem);
+  const roles = [...new Set((bundle?.buses || []).map(bus => normalizeHyperFramesStemRole(bus.role)))].filter(Boolean);
+  const availableRoles = roles.filter(role => !bundle?.missingData?.ambiguousRoles?.includes(role));
+  if (selectedRole && selectedRole !== "__silence__" && !availableRoles.includes(selectedRole)) {
+    throw new Error(`Visual signal bus is unavailable: ${selectedRole}`);
+  }
+  return { selectedRole, availableRoles, mutedRoles: selectedRole ? roles.filter(role => role !== selectedRole) : [], temporary: true, affectsAudibleAudio: false };
+}
+
+/** Filter only prepared audio bindings; cue/time animation remains authored.
+ * Channel arrays are shared read-only: toggling diagnostics never rebakes audio. */
+export function isolateEchoPreparedModulation(timeline, soloStem = "") {
+  if (!timeline || !soloStem) return timeline;
+  const selected = soloStem === "__silence__" ? "__silence__" : normalizeHyperFramesStemRole(soloStem);
+  return { ...timeline, targets: timeline.targets.filter(target => {
+    const kind = target.source?.kind;
+    if (!["stem_signal", "mix_signal"].includes(kind)) return true;
+    const role = kind === "mix_signal" ? "master" : normalizeHyperFramesStemRole(target.source.stemFocus);
+    return role === selected;
+  }) };
+}
+
+export function evaluateEchoMusicPerformance(bundle, songSeconds, { soloStem = "" } = {}) {
   const time = Number(songSeconds);
   if (!Number.isFinite(time)) throw new Error("Performance time must be finite");
-  const byId = Object.fromEntries((bundle.buses || []).map(bus => [bus.id, sampleEchoPerformanceBus(bus, time)]));
+  const isolation = soloStem ? echoVisualSignalIsolation(bundle, soloStem) : null;
+  const muted = new Set(isolation?.mutedRoles || []);
+  const byId = Object.fromEntries((bundle.buses || []).map(bus => {
+    const frame = sampleEchoPerformanceBus(bus, time);
+    if (!muted.has(normalizeHyperFramesStemRole(bus.role))) return [bus.id, frame];
+    return [bus.id, { ...Object.fromEntries(Object.entries(frame).map(([key, value]) => [key, key !== "t" && typeof value === "number" ? 0 : value])), silence: true, originalStatus: frame.status, status: "diagnostic-muted" }];
+  }));
   const last = floorIndex(bundle.events || [], time, "atSeconds");
   const activeEvents = [];
   for (let index = last; index >= 0 && bundle.events[index].atSeconds >= time - 0.25; index--) {
     const event = bundle.events[index];
     const bus = byId[event.resourceId];
-    if (!bus) continue;
+    if (!bus || bus.status === "diagnostic-muted") continue;
     const pulse = Math.exp(-(time - event.atSeconds) / 0.06) * Math.max(0, Math.min(1, event.strength == null ? 1 : finite(event.strength, 1)));
     if (["beat", "downbeat"].includes(event.kind)) bus.beat = Math.max(bus.beat, pulse);
     if (event.kind === "transient") bus.transient = Math.max(bus.transient, pulse);
@@ -599,8 +628,8 @@ export function evaluateEchoMusicPerformance(bundle, songSeconds) {
   return { atSeconds: time, master: byRole.master || null, stems: Object.fromEntries(Object.entries(byRole).filter(([role]) => role !== "master")), byId, activeEvents: activeEvents.reverse() };
 }
 
-export function echoPreparedPerformanceSignalFrames(bundle, timeSeconds) {
-  const evaluated = evaluateEchoMusicPerformance(bundle, timeSeconds);
+export function echoPreparedPerformanceSignalFrames(bundle, timeSeconds, options = {}) {
+  const evaluated = evaluateEchoMusicPerformance(bundle, timeSeconds, options);
   const frames = { master: evaluated.master, ...evaluated.stems };
   return Object.fromEntries(Object.entries(frames).map(([role, frame]) => [role, {
     ...(frame || {}),
@@ -655,6 +684,7 @@ function resolvedSignalFrame(show, instance, timeSeconds, stemFocus = null, prep
 }
 
 function signalValue(frame = {}, signal = "") {
+  if (frame?.silence === true) return 0;
   const name = text(signal).toLowerCase();
   if (name === "beat" && Number.isFinite(frame.beat)) return clamp(frame.beat);
   if (name === "onset" && Number.isFinite(frame.transient)) return clamp(frame.transient);
@@ -1019,7 +1049,8 @@ function assignAccents(instances, accents) {
   };
 }
 
-export function evaluateHyperFramesVisualizers(show = {}, timeSeconds = 0) {
+export function evaluateHyperFramesVisualizers(show = {}, timeSeconds = 0, { soloStem = "" } = {}) {
+  if (soloStem && !show.stemFrames?.performance) throw new Error("Visual signal isolation requires prepared song timing");
   const time = Number(timeSeconds);
   if (!Number.isFinite(time)) {
     return {
@@ -1039,8 +1070,8 @@ export function evaluateHyperFramesVisualizers(show = {}, timeSeconds = 0) {
   // Evaluate each bus/envelope once for this frame, independent of the number
   // of layers and uniform mappings. Nothing is retained across seek calls.
   const preparedFrame = show.stemFrames?.performance ? evaluateEchoMusicPerformance({ ...show.stemFrames.performance,
-    buses: [show.stemFrames.master, ...(show.stemFrames.stems || [])].filter(Boolean) }, time) : null;
-  const preparedModulation = show.automation?.preparedModulation ? evaluatePreparedDirectorModulation(show.automation.preparedModulation, time) : [];
+    buses: [show.stemFrames.master, ...(show.stemFrames.stems || [])].filter(Boolean) }, time, { soloStem }) : null;
+  const preparedModulation = show.automation?.preparedModulation ? evaluatePreparedDirectorModulation(isolateEchoPreparedModulation(show.automation.preparedModulation, soloStem), time) : [];
   for (const { instance, sourceIndex } of stableLayerRows(show)) {
     const window = cueWindow(instance);
     if (window.end <= window.start) {

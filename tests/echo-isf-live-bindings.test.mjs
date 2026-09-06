@@ -174,7 +174,7 @@ test("Echo live signal frames cover the complete album vocabulary without proced
   assert.match(source, /const signalFrames = preparedSignalFrames \? \{ \.\.\.preparedSignalFrames \} : \{\};/);
   assert.match(source, /const currentStemRoles = preparedSignalFrames \? \[\] :/);
   assert.match(source, /let lookaheadSlots = preparedSignalFrames \? 0 :/);
-  assert.match(source, /echoPreparedPerformanceSignalFrames\(activePreparedPerformance, t\)/);
+  assert.match(source, /echoPreparedPerformanceSignalFrames\(activePreparedPerformance, t, \{ soloStem: activeVisualSignalSolo \}\)/);
   assert.doesNotMatch(source, /rms = 0\.15 \+ Math\.sin/);
   assert.match(source, /if \(masterSignalFrame\.status === "live"\)/);
   assert.match(source, /signalFrames\[binding\.role\] = stemFrame/);

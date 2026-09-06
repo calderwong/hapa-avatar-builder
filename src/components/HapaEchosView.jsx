@@ -1,6 +1,6 @@
 import { createImageShotGeometry, selectImageShotRendition } from "../domain/unified-media-catalog.js";
 import EchoLyricOverlay from "./EchoLyricOverlay.jsx";
-import { echoPreparedPerformanceSignalFrames, evaluateEchoMusicPerformance } from "../domain/hyperframes-visualizer-runtime.js";
+import { echoPreparedPerformanceSignalFrames, evaluateEchoMusicPerformance, echoVisualSignalIsolation, isolateEchoPreparedModulation } from "../domain/hyperframes-visualizer-runtime.js";
 import { prepareDirectorModulationTimeline } from "../domain/director-modulation-v2.js";
 import EchoPerformancePreparationControl from "./EchoPerformancePreparationControl.jsx";
 import EchoPreviewPreparationControl from "./EchoPreviewPreparationControl.jsx";
@@ -1616,6 +1616,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
   const powerMode = normalizePlaybackPowerMode(playbackMode);
   const [board, setBoard] = useState(null);
   const [audioVisualMode, setAudioVisualMode] = useState("prepared");
+  const [visualSignalSolo, setVisualSignalSolo] = useState({ key: "", role: "" });
   const [preparedAudio, setPreparedAudio] = useState({ status: "idle", key: "", value: null });
   const [preparedAudioRetry, setPreparedAudioRetry] = useState(0);
   const [gapsReport, setGapsReport] = useState(null);
@@ -2031,6 +2032,11 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
     return () => { cancelled = true; clearTimeout(timeout); controller.abort(); };
   }, [preparedAudioKey, preparedAudioRetry, audioVisualMode]);
   const activePreparedPerformance = audioVisualMode === "prepared" && preparedAudio.status === "ready" && preparedAudio.key === preparedAudioKey ? preparedAudio.value : null;
+  useEffect(() => { setVisualSignalSolo({ key: preparedAudioKey, role: "" }); }, [preparedAudioKey, audioVisualMode]);
+  const visualSignalRoles = useMemo(() => echoVisualSignalIsolation(activePreparedPerformance).availableRoles, [activePreparedPerformance]);
+  const activeVisualSignalSolo = activePreparedPerformance && visualSignalSolo.key === preparedAudioKey
+    && (visualSignalSolo.role === "__silence__" || visualSignalRoles.includes(visualSignalSolo.role)) ? visualSignalSolo.role : "";
+  const visualSignalIsolation = useMemo(() => echoVisualSignalIsolation(activePreparedPerformance, activeVisualSignalSolo), [activePreparedPerformance, activeVisualSignalSolo]);
   const preparedBindingsKey = JSON.stringify(activeShowGraph?.directorV2?.modulationBindings || []);
   const preparedModulationResult = useMemo(() => {
     if (!activePreparedPerformance || preparedBindingsKey === "[]") return { timeline: null, error: null };
@@ -2044,6 +2050,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
       }), error: null };
     } catch (error) { return { timeline: null, error: error.message }; }
   }, [activePreparedPerformance, preparedBindingsKey]);
+  const diagnosticPreparedModulation = useMemo(() => isolateEchoPreparedModulation(preparedModulationResult.timeline, activeVisualSignalSolo), [preparedModulationResult.timeline, activeVisualSignalSolo]);
   const activeShowGraphVisualizerCardsById = useMemo(() => new Map(
     activeShowGraph?.tracks
       ? activeShowGraph.tracks.flatMap((track) => track.cards || []).map((card) => [card.id, card])
@@ -2800,6 +2807,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
 
   const startPreviewRecording = useCallback(async () => {
     if (previewRecordingActiveRef.current || previewRecordingStartingRef.current) return;
+    if (activeVisualSignalSolo) { setPreviewRecordingError("Restore all visual signals before recording."); return; }
     previewRecordingStartingRef.current = true;
     setPreviewRecordingError("");
     setPreviewRecordingState("preparing");
@@ -2878,7 +2886,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
       setPreviewRecordingError(`Recording did not start: ${String(error?.message || error)}`);
       setPreviewRecordingState("error");
     }
-  }, [activeOutputProfile, activeProject, audioLoading, audioPlaybackError, audioPlaybackReady, previewBufferState.ready, stopPreviewRecording]);
+  }, [activeOutputProfile, activeProject, audioLoading, audioPlaybackError, audioPlaybackReady, previewBufferState.ready, stopPreviewRecording, activeVisualSignalSolo]);
 
   // Load the recording shelf once on mount.
   useEffect(() => {
@@ -3280,7 +3288,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
       const timeVal = t;
       const observedAtSeconds = performance.now() / 1000;
       const preparedSignalFrames = audioVisualMode === "prepared"
-        ? activePreparedPerformance ? echoPreparedPerformanceSignalFrames(activePreparedPerformance, t) : { master: { source: "prepared-performance", status: "missing-analysis", rms: 0, beat: 0, hook: 0, telemetryRms: 0 } }
+        ? activePreparedPerformance ? echoPreparedPerformanceSignalFrames(activePreparedPerformance, t, { soloStem: activeVisualSignalSolo }) : { master: { source: "prepared-performance", status: "missing-analysis", rms: 0, beat: 0, hook: 0, telemetryRms: 0 } }
         : null;
       const masterSignalFrame = preparedSignalFrames?.master || liveSignalFrame(analyserNode, t, {
         id: "master",
@@ -3559,7 +3567,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                 wave: waveList,
                 audio: layerSignalFrame,
                 signalFrames,
-                preparedModulation: preparedModulationResult.timeline,
+                preparedModulation: diagnosticPreparedModulation,
                 mediaElement: framedMediaInput?.canvas || null,
                 mediaIdentity: currentPresentedMedia ? {
                   id: currentPresentedMedia.mediaId,
@@ -3619,7 +3627,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
               primaryLayer?.presentation || {},
               graphVisualizerCards,
             );
-            const frameBucket = Math.floor(t * 4);
+            const frameBucket = `${Math.floor(t * 4)}:${activeVisualSignalSolo}`;
             if (exactIsfBindingDiagnosticsRef.current.frameBucket !== frameBucket) {
               exactIsfBindingDiagnosticsRef.current.frameBucket = frameBucket;
               globalThis.__HAPA_ECHO_ISF_PLAYBACK_DIAGNOSTICS__ = poolDiagnostics;
@@ -3636,6 +3644,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                 stem: preparedSignalFrames ? { status: selectedSignalFrame?.status || "missing-analysis", source: "prepared-performance", role: defaultStemRole, fingerprint: activePreparedPerformance?.fingerprint || null, alignment: "see-prepared-source-evidence" } : compactStemSignalBinding(stemResource, stemTransport),
                 frameReceipt: compactFrameReceipt(primaryLayer?.presentation?.frameReceipt),
                 composition: primaryLayer?.composition || null,
+                visualSignalIsolation: { ...visualSignalIsolation, atSeconds: t, buses: Object.fromEntries(Object.entries(preparedSignalFrames || {}).map(([role, frame]) => [role, { rms: frame.rms, beat: frame.beat, status: frame.status }])), layers: layerPresentations.map(layer => ({ cardId: layer.card.id, inputs: layer.presentation.frameReceipt?.input?.modulationBindings || [] })) },
                 persistentShaderLayers: layerPresentations.map((layer) => ({
                   cardId: layer.card.id,
                   persistentSlotId: layer.card.persistentSlotId || null,
@@ -4115,7 +4124,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
       window.clearTimeout(cadenceTimer);
       pauseEchoStemDecoderPool(stemDecoderPoolRef.current);
     };
-  }, [activeDirectorPreviewSource, activeShowGraphVisualizerCardsById, activeWorkbenchTab, activeProject, powerMode, audioVisualMode, activePreparedPerformance, preparedModulationResult]);
+  }, [activeDirectorPreviewSource, activeShowGraphVisualizerCardsById, activeWorkbenchTab, activeProject, powerMode, audioVisualMode, activePreparedPerformance, preparedModulationResult, diagnosticPreparedModulation, activeVisualSignalSolo, visualSignalIsolation]);
 
   const uniqueTags = useMemo(() => {
     if (!gapsReport?.videos) return [];
@@ -6130,8 +6139,8 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                       || (!previewRecordingAudioFailed && !isPlaying && shotMediaType(currentTimelineItem) === "video" && !previewBufferState.ready);
                     const previewRecordingBusy = previewRecordingState === "preparing" || previewRecordingState === "saving";
                     const previewRecordingStartBlocked = previewRecordingState !== "recording"
-                      && (previewRecordingBusy || (!previewRecordingAudioFailed && (previewRecordingAudioBuffering || previewRecordingVideoBuffering)));
-                    const previewRecordingReadinessLabel = previewRecordingState === "preparing"
+                      && (Boolean(activeVisualSignalSolo) || previewRecordingBusy || (!previewRecordingAudioFailed && (previewRecordingAudioBuffering || previewRecordingVideoBuffering)));
+                    const previewRecordingReadinessLabel = activeVisualSignalSolo ? "RESTORE ALL VISUAL SIGNALS TO RECORD" : previewRecordingState === "preparing"
                       ? "STARTING RECORDING + PLAYBACK"
                       : previewRecordingState === "saving"
                         ? "SAVING RECORDING"
@@ -7094,6 +7103,19 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                                   {audioVisualMode === "prepared" && !activePreparedPerformance && <button type="button" className="hapa-btn" onClick={() => setPreparedAudioRetry(value => value + 1)}>Retry prepared audio</button>}
                                   {audioVisualMode === "prepared" && <EchoPerformancePreparationControl key={preparedAudioKey} apiBase={API_BASE} songId={selectedProjectSongId} variantId={activeDirectionVariantSelection} ready={Boolean(activePreparedPerformance)} onReady={() => setPreparedAudioRetry(value => value + 1)} />}
                                   {preparedModulationResult.error && <span role="alert">{preparedModulationResult.error}</span>}
+                                  <details data-testid="echo-visual-signal-diagnostics" style={{ marginTop: 8 }}>
+                                    <summary>Inspect stem influence</summary>
+                                    <label>Visual signal solo <select aria-label="Visual signal solo" value={activeVisualSignalSolo}
+                                      disabled={!activePreparedPerformance || ["preparing", "recording", "saving"].includes(previewRecordingState)}
+                                      onChange={event => setVisualSignalSolo({ key: preparedAudioKey, role: event.target.value })}>
+                                      <option value="">All visual signals</option>
+                                      <option value="__silence__">Mute audio influence</option>
+                                      {visualSignalRoles.map(role => <option key={role} value={role}>{role === "master" ? "Master mix" : role === "vocals" ? "Lead vocals" : role.replaceAll("-", " ")}</option>)}
+                                    </select></label>
+                                    <p>Temporary preview diagnostic. Song audio, lyric timing and saved cuts stay unchanged. Time-based animation continues. Restore all signals before recording.</p>
+                                    {activeVisualSignalSolo && <button type="button" onClick={() => setVisualSignalSolo({ key: preparedAudioKey, role: "" })}>Restore all visual signals</button>}
+                                    <span data-testid="echo-visual-signal-summary">{activeVisualSignalSolo === "__silence__" ? "All audio influence muted." : activeVisualSignalSolo ? `Only ${activeVisualSignalSolo.replaceAll("-", " ")} drives audio-reactive channels.` : "All prepared buses drive their assigned channels."}</span>
+                                  </details>
                                 </div>
                                 {/* Player Controls */}
                                 <div data-testid="echo-director-preview-controls" style={{ display: 'flex', gap: '12px', rowGap: '8px', alignItems: 'center', alignSelf: directorPreviewExpanded ? 'center' : 'stretch', width: directorPreviewExpanded ? directorPreviewWidth : 'auto', maxWidth: '100%', flexWrap: 'wrap', flexShrink: 0, boxSizing: 'border-box', background: 'rgba(0,0,0,0.2)', padding: '8px 12px', borderRadius: '4px', border: '1px solid rgba(255,255,255,0.06)' }}>
