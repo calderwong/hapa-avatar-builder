@@ -11297,6 +11297,7 @@ async function hydrateEchoDirectorProjectPayload(payload, safeSongId, options = 
   // Enrich only the selected editing timeline. Certified executable graphs and
   // immutable source fingerprints remain owned by their existing publications.
   let canonicalMediaEvidence = null;
+  let preparedBaseTimeline = project.timeline;
   if (deliveredVariantId) {
     const selected = directionVariants.find(variant => echoDirectionVariantId(variant) === deliveredVariantId);
     if (Array.isArray(selected?.timeline)) {
@@ -11314,6 +11315,14 @@ async function hydrateEchoDirectorProjectPayload(payload, safeSongId, options = 
       } : variant);
       canonicalMediaEvidence = prepared.canonicalEvidence;
     }
+  }
+  if (!deliveredVariantId && Array.isArray(project.timeline)) {
+    const prepared = await prepareEchoTimelineMediaEvidence(project.timeline, {
+      root: ROOT, mediaDir: MEDIA_DIR, mediaEvidenceReader: echoMediaEvidenceReader,
+      songRegistryPath: SONG_REGISTRY_DATA_PATH, songbookPath: DEAR_PAPA_SONGBOOK_PATH,
+    });
+    preparedBaseTimeline = prepared.timeline;
+    canonicalMediaEvidence = prepared.canonicalEvidence;
   }
   const graph = sourceProfile ? baseGraphRepair.graph : compactEchoDirectorShowGraph(baseGraphRepair.graph);
   const runtimeShaderRepairReceipt = echoRuntimeShaderRepairReceipt([
@@ -11334,6 +11343,7 @@ async function hydrateEchoDirectorProjectPayload(payload, safeSongId, options = 
   };
   const hydratedProject = {
     ...project,
+    timeline: preparedBaseTimeline,
     visualizer_timeline: repairedBaseTimeline,
     direction_script_variants: directionVariants,
     director_detail_profile: detailProfile,

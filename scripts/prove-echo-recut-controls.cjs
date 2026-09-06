@@ -48,7 +48,15 @@ app.whenReady().then(async()=>{
   const lockedTreatment=await win.webContents.executeJavaScript('({opacities:window.recutProofProject.visualizer_timeline.map(row=>row.opacity),lyrics:window.recutProofProject.lyrics,accentCount:window.recutProofGraph.directorV2.accentTrack.eventCount})');
   check(JSON.stringify(lockedTreatment.opacities)===JSON.stringify(treatment.opacities)&&JSON.stringify(lockedTreatment.lyrics)===JSON.stringify(treatment.lyrics)&&lockedTreatment.accentCount===treatment.accentCount,'Locks lost the current recipe treatment');
   await fs.writeFile(path.join(output,'recipe-treatment.png'),(await win.webContents.capturePage()).toPNG());
-  const report={pass:true,scope:'Actual VariationLabPanel on isolated declared-identity/cue fixture; this does not measure media playback or human usability',recipeTreatment:{...treatment,locksPreserved:true},changeAmount:.5,changedShots:2,castAndSceneApplied:true,restoreExact:true,staleRestoreRejected:true,songSwitchClearsCandidates:true,cueTiming:timing,layouts};await fs.writeFile(path.join(output,'report.json'),JSON.stringify(report,null,2)+'\n');console.log(JSON.stringify(report));exitStatus=0;
+  const hardEligibility=[];
+  for(const [kind,reason]of [['missing','missing-runtime-uri'],['banned','operator-ban']]){
+    await win.webContents.executeJavaScript(`window.recutProofInvalidMedia(${JSON.stringify(kind)})`);await waitFor(`window.recutProofProject.song_id===${JSON.stringify('invalid-'+kind)}`);await click('Whole song');await click('Generate A/B/C');
+    await waitFor(`document.querySelector('[role=alert]')?.textContent.includes(${JSON.stringify(reason)})`);
+    check(await win.webContents.executeJavaScript(`![...document.querySelectorAll('button')].some(button=>button.textContent.startsWith('Review A'))`),'Invalid pinned source produced a candidate');
+    hardEligibility.push({kind,reason,typedRejectionVisible:true,candidateProduced:false});
+  }
+  await fs.writeFile(path.join(output,'eligibility-rejection.png'),(await win.webContents.capturePage()).toPNG());
+  const report={pass:true,hardEligibility,scope:'Actual VariationLabPanel on isolated declared-identity/cue fixture; this does not measure media playback or human usability',recipeTreatment:{...treatment,locksPreserved:true},changeAmount:.5,changedShots:2,castAndSceneApplied:true,restoreExact:true,staleRestoreRejected:true,songSwitchClearsCandidates:true,cueTiming:timing,layouts};await fs.writeFile(path.join(output,'report.json'),JSON.stringify(report,null,2)+'\n');console.log(JSON.stringify(report));exitStatus=0;
  }catch(error){console.error(error.stack);}
  finally{clearTimeout(timer);if(win&&!win.isDestroyed())win.destroy();if(server)await server.close();if(temporary)await fs.rm(temporary,{recursive:true,force:true});app.exit(exitStatus);}
 });

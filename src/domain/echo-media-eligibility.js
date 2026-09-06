@@ -1,6 +1,12 @@
 import { hasExcludedEchoDirectorOrigin } from "./echo-media-source-policy.js";
 
 export const ECHO_MEDIA_ELIGIBILITY_SCHEMA = "hapa.echo.media-eligibility.v1";
+export const ECHO_MEDIA_ELIGIBILITY_FIELDS = Object.freeze(["characterIds", "sceneIds", "cast", "canonicalMediaIds", "identityEvidence", "technical", "availability", "bytesAvailable", "cropCoverage", "outputCompatible", "sourcePolicy", "sourceAllowed", "autoEligible", "origin", "owner", "provenance", "banned"]);
+/** Keep evidence attached to the selected source through candidate/shot adapters.
+ * This copies declarations; preparation still owns verification of current bytes. */
+export function echoMediaEligibilityFields(source = {}) {
+  return Object.fromEntries(ECHO_MEDIA_ELIGIBILITY_FIELDS.filter(key => source[key] !== undefined).map(key => [key, source[key]]));
+}
 const list = value => Array.isArray(value) ? value : [];
 const ids = value => new Set(list(value).map(String));
 const remedies = {
@@ -32,7 +38,8 @@ export function evaluateEchoMediaEligibility(candidate = {}, constraints = {}) {
   const pending = [];
   if (!uri) hard.push("missing-runtime-uri");
   else if (!/^(?:\/(?!\/)|https?:\/\/|file:\/\/|hapa-media:\/\/|media:\/\/|asset:\/\/)/i.test(uri) || /[\u0000-\u001f]/.test(uri)) hard.push("invalid-runtime-uri");
-  if ([id, ...list(candidate.canonicalMediaIds)].some(value => ids(constraints.bans).has(String(value))) || candidate.banned === true) hard.push("operator-ban");
+  const aliases = [id, candidate.mediaLibraryId, ...list(candidate.canonicalMediaIds)].filter(Boolean).map(String);
+  if (aliases.some(value => ids(constraints.bans).has(value)) || candidate.banned === true) hard.push("operator-ban");
   const absent = availability.exists === false || availability.bytes === 0 || candidate.bytesAvailable === false
     || /missing|unreadable|corrupt|invalid-media|broken-media/.test(String(technical.status || ""));
   const verified = availability.exists === true && Number(availability.bytes) > 0;
@@ -57,7 +64,7 @@ export function evaluateEchoMediaEligibility(candidate = {}, constraints = {}) {
   }
   const requirePolicy = constraints.requireVerifiedPolicy || (constraints.requireVerifiedPolicyForBans && list(constraints.bans).length > 0);
   if ((requirePolicy || list(constraints.bans).length) && candidate.identityEvidence?.status !== "canonical-declarations") (requirePolicy ? hard : pending).push("source-policy-evidence-unverified");
-  const pinned = ids(constraints.pins).has(id);
+  const pinned = aliases.some(value => ids(constraints.pins).has(value));
   const repeated = list(constraints.previous).slice(-6).map(String).includes(id);
   const soft = repeated ? ["recent-repeat-window"] : [];
   const reasons = [...new Set([...hard, ...(!pinned ? soft : [])])];

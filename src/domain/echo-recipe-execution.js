@@ -1,4 +1,5 @@
 import {resolveNativeVisualizerRoute} from './native-visualizer-route.js';
+import {echoMediaEligibilityFields} from './echo-media-eligibility.js';
 import {directorStemRole} from './echo-stem-binding-repair.js';
 import {buildAccentEventTrack} from './accent-event-track.js';
 import {buildVisualTimeTrack} from './visual-time-track.js';
@@ -97,6 +98,7 @@ export function buildEchoRecipeAccentCards({cueGraph,recipe,resolveMediaAt}) {
       startSeconds: cue.atSeconds,
       endSeconds: Math.min(cueGraph.durationSeconds, round(cue.atSeconds + duration)),
       media: {
+        ...echoMediaEligibilityFields(media),
         id: media.id,
         title: media.title,
         sourceKind: media.sourceKind,

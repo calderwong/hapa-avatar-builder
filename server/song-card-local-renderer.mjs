@@ -94,6 +94,7 @@ const RENDERER_BUILD_FILES = [
   "src/domain/echo-lyric-contract.js",
   "src/domain/echo-lyric-render-safety.js",
   "src/domain/echo-director-recipes.js",
+  "src/domain/echo-media-eligibility.js",
   "src/domain/echo-recipe-execution.js",
   "src/domain/echo-recipe-recut-treatment.js",
   "src/domain/echo-narrative-recut.js",

@@ -115,3 +115,22 @@ test('worker rejects unowned direct entry before reading inputs',async()=>{
  const code=await new Promise((resolve,reject)=>{child.on('error',reject);child.on('close',resolve)});
  assert.equal(code,1);assert.match(stderr,/owned parent IPC channel and role/);
 });
+
+test('batch preparation rejects pinned aliases and forged identity/availability before publishing a result',async t=>{
+ const f=await fixture(t,1),sourcePath=f.request.songs[0].projectPath;
+ const original=await fs.readFile(sourcePath,'utf8'),project=JSON.parse(original);
+ const info=await fs.stat(f.media),stamp=[info.size,info.mtimeMs,info.ctimeMs,info.ino].join(':');
+ const reader={get:async()=>({status:'ready',revision:'fixture-canonical-revision',lookup:()=>[{aliases:['canonical-media'],characterIds:['red'],sceneIds:['garden'],sourceAllowed:true,mediaStamp:stamp,evidence:[],rejected:[]}]})};
+ project.mediaConstraints={bans:['canonical-media'],pins:project.timeline.map(shot=>shot.media_id)};
+ await fs.writeFile(sourcePath,JSON.stringify(project));
+ await assert.rejects(f.run({evidenceReader:reader}),error=>error.code==='echo_media_constraints_unsatisfied'&&error.result.reasons.includes('operator-ban'));
+ delete project.mediaConstraints;for(const shot of project.timeline){shot.characterIds=['forged'];shot.availability={exists:true,bytes:999}}
+ await fs.writeFile(sourcePath,JSON.stringify(project));
+ const wrongCast=await f.run({evidenceReader:reader,request:{...f.request,requiredCharacterIds:['forged']}});
+ assert.equal(wrongCast.status,'failed');assert.equal(wrongCast.work.compiled,0);assert.ok(wrongCast.jobs.every(job=>job.logs.some(line=>line.includes('required-character'))));
+ const rightCast=await f.run({evidenceReader:reader,request:{...f.request,requiredCharacterIds:['red'],requiredSceneIds:['garden']}});
+ assert.equal(rightCast.status,'complete');assert.equal(rightCast.work.compiled,2);
+ const beforeMissing=await fs.readFile(sourcePath);await fs.unlink(f.media);
+ await assert.rejects(f.run({evidenceReader:reader}),error=>error.code==='echo_media_constraints_unsatisfied'&&error.result.reasons.includes('missing-source-bytes'));
+ assert.deepEqual(await fs.readFile(sourcePath),beforeMissing);
+});

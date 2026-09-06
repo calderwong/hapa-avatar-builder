@@ -189,6 +189,10 @@ test("Echo summary endpoint stays compact and lazy-loads project detail", async 
     assert.equal(targetDetail.direction_script_variants.length, 1);
     assert.equal(targetDetail.direction_script_variants[0].id, "direction:scroll-fal");
     assert.equal(targetDetail.direction_script_variants[0].variant_source.nonDestructive, true);
+    assert.ok(targetDetail.canonical_media_evidence, "base detail must expose canonical preparation status");
+    const baseMedia = targetDetail.timeline.filter(shot => shot.media_id !== "none" && !shot.knockedOut && shot.media_contract?.type !== "generated-visualizer");
+    assert.ok(baseMedia.length > 0);
+    assert.ok(baseMedia.every(shot => shot.availability && shot.identityEvidence), "base media carries current availability and explicitly scoped canonical identity evidence");
     assert.equal(targetDetail.direction_script_variants[0].timeline, undefined, "default detail should ship variant metadata, not every cut timeline");
     assert.equal(targetDetail.direction_script_variants[0].hyperframe_script, undefined, "default detail should not ship every cut script");
     assert.equal(targetDetail.director_show_graph_receipt.delivery.profile, "editor-bounded-v1");

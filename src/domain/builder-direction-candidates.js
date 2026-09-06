@@ -1,6 +1,6 @@
 import { hasHapaDevProtoOrigin, hasExcludedEchoDirectorOrigin } from "./echo-media-source-policy.js";
 export { hasHapaDevProtoOrigin, hasHellWeekOrigin, hasExcludedEchoDirectorOrigin } from "./echo-media-source-policy.js";
-import { evaluateEchoMediaEligibility } from "./echo-media-eligibility.js";
+import { evaluateEchoMediaEligibility, echoMediaEligibilityFields } from "./echo-media-eligibility.js";
 const DEFAULT_MIN_SHORT_EDGE = 720;
 const DEFAULT_MIN_DURATION_SECONDS = 2.5;
 const INVALID_TECHNICAL_MARKERS = [
@@ -152,6 +152,8 @@ function commonCandidate(asset = {}, owner = {}, input = {}, options = {}) {
   });
   const sha256 = assetHash(asset, technical);
   return {
+    ...echoMediaEligibilityFields(asset),
+    owner: { id: input.ownerId || owner.id, kind: input.cardKind, title: input.ownerTitle || input.cardTitle },
     id: input.id,
     mediaLibraryId: input.mediaLibraryId || asset.id || input.id,
     cardId: input.cardId,
@@ -183,6 +185,7 @@ function commonCandidate(asset = {}, owner = {}, input = {}, options = {}) {
     autoEligible: true,
     origin: input.origin,
     technical: {
+      availability: technical.availability || asset.metadata?.echosTechnicalAffordance?.availability,
       status: technical.status || asset.metadata?.echosTechnicalAffordance?.status || "builder-metadata-verified",
       shortEdge: Math.min(width, height),
       identityBasis: sha256 ? "sha256" : "stable-local-uri",

@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 import { stableCertificationFileSha256 } from "../server/stable-certification-file-proof.mjs";
 import fs from "node:fs";
+import { createEchoMediaEvidenceReader } from "../server/echo-media-evidence-index.mjs";
+import { prepareEchoTimelineMediaEvidence } from "../server/echo-media-eligibility.mjs";
 import { ECHO_DIRECTOR_RECIPES } from "../src/domain/echo-director-recipes.js";
 import path from "node:path";
 import crypto from "node:crypto";
@@ -161,10 +163,15 @@ const PROXY_REGISTRY_HASH = `sha256:${crypto.createHash("sha256").update(PROXY_R
 const REGISTRY = fs.existsSync(registryPath) ? JSON.parse(fs.readFileSync(registryPath, "utf8")) : null;
 
 const files = mediaPreflight.projects.map((project) => path.basename(project.projectPath)).sort();
+const mediaEvidenceReader = createEchoMediaEvidenceReader({ root: ROOT, mediaDir: process.env.HAPA_MEDIA_DIR || path.join(ROOT, "data/media"), indexPath: path.join(ROOT, "data/echo-media-evidence/index.json") });
 const rows = [];
 for (const file of files) {
   const sourcePayload = JSON.parse(fs.readFileSync(path.join(PROJECTS, file), "utf8"));
-  const { project: payload, projectBody: project, shaderRepair } = repairEchoProjectShaders(sourcePayload, MANIFEST);
+  const sourceProject = sourcePayload.music_video_project || sourcePayload;
+  const mediaEvidence = await prepareEchoTimelineMediaEvidence(sourceProject.timeline || [], { root: ROOT, mediaDir: process.env.HAPA_MEDIA_DIR || path.join(ROOT, "data/media"), mediaEvidenceReader, songRegistryPath: registryPath, songbookPath: path.join(ROOT, "data/dear-papa-songbook.json") });
+  const preparedProject = { ...sourceProject, timeline: mediaEvidence.timeline };
+  const preparedPayload = sourcePayload.music_video_project ? { ...sourcePayload, music_video_project: preparedProject } : preparedProject;
+  const { project: payload, projectBody: project, shaderRepair } = repairEchoProjectShaders(preparedPayload, MANIFEST);
   const artifacts = buildDirectorV2Artifacts({
     project: payload,
     sourceProject: sourcePayload,
@@ -173,7 +180,7 @@ for (const file of files) {
     duration: Number(project.duration || 0),
     recipe: RECIPE,
     seed: SEED || `album-v2:${project.song_id}`,
-    mediaConstraints: MEDIA_CONSTRAINTS,
+    mediaConstraints: { ...MEDIA_CONSTRAINTS, requireVerifiedBytes: true, requireVerifiedPolicyForBans: true },
     timingMode: TIMING_MODE,
     avatarRoot: ROOT,
     nativeProxyAvailable,

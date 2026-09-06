@@ -8,7 +8,7 @@ const mediaFields = ["media_id", "media_title", "media_uri", "runtime_media_uri"
 function candidate(shot) {
   const contract = shot.media_contract || {};
   const uri = shot.runtime_media_uri || contract.runtimeUri || shot.media_uri || contract.originalUri || "";
-  const sourceKind = shot.media_id === "none" || shot.knockedOut === true || contract.type === "generated-visualizer" || !uri ? "pure-visualizer"
+  const sourceKind = shot.media_id === "none" || shot.knockedOut === true || contract.type === "generated-visualizer" || (!shot.media_id && !uri) ? "pure-visualizer"
     : contract.type === "image" || /\.(png|jpe?g|webp|avif)(?:$|[?#])/i.test(uri) ? "local-photo" : "local-video";
   return { ...shot, ...contract, id: shot.media_id, uri, sourceKind, sourceShot: shot,
     ...(sourceKind === "pure-visualizer" ? { characterIds: [], sceneIds: [], cast: null } : {}) };

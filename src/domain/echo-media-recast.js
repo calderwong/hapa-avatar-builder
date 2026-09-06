@@ -1,6 +1,6 @@
 import { generateEchoHyperframeScript } from "./echo-hyperframe-script.js";
 import { hasExcludedEchoDirectorOrigin } from "./builder-direction-candidates.js";
-import { evaluateEchoMediaEligibility, echoMediaConstraintError, mergeEchoMediaConstraints } from "./echo-media-eligibility.js";
+import { evaluateEchoMediaEligibility, echoMediaConstraintError, mergeEchoMediaConstraints, echoMediaEligibilityFields, ECHO_MEDIA_ELIGIBILITY_FIELDS, inspectEchoTimelineMediaEligibility } from "./echo-media-eligibility.js";
 
 export const SCROLL_FAL_DIRECTION_VARIANT_ID = "scroll-fal-authored-v1";
 export const SCROLL_FAL_DIRECTION_VARIANT_VERSION = "hapa.echo.direction-script-variant.v1";
@@ -691,11 +691,12 @@ function recastShot(shot = {}, candidate = {}, evidence = {}) {
   const preserved = { ...shot };
   for (const key of [
     "media_id", "media_title", "media_uri", "media_thumbnail", "runtime_media_uri",
-    "media_contract", "semantic_casting", "decision_evidence", "edit_reason",
+    "media_contract", "semantic_casting", "decision_evidence", "edit_reason", ...ECHO_MEDIA_ELIGIBILITY_FIELDS,
   ]) delete preserved[key];
 
   return {
     ...preserved,
+    ...echoMediaEligibilityFields(candidate),
     media_id: candidate.mediaLibraryId || candidate.id,
     media_card_id: candidate.cardId || "",
     media_title: candidate.title || candidate.id,
@@ -703,6 +704,7 @@ function recastShot(shot = {}, candidate = {}, evidence = {}) {
     media_thumbnail: candidate.posterUri || "",
     runtime_media_uri: candidate.runtimeUri || candidate.uri,
     media_contract: {
+      ...echoMediaEligibilityFields(candidate),
       schemaVersion: "hapa.echo.playback-media.v2",
       type: "video",
       originalUri: candidate.uri,
@@ -866,6 +868,7 @@ function recastBalancedShot(shot = {}, candidate = {}, evidence = {}) {
 
 function sanitizeVisualizerOnlyShot(shot = {}) {
   const preserved = { ...shot };
+  for (const key of ["characterIds", "sceneIds", "cast", "identityEvidence"]) delete preserved[key];
   delete preserved.semantic_casting;
   delete preserved.decision_evidence;
   preserved.edit_reason = "Pure visualizer interval preserved; legacy media alternatives were intentionally removed from this append-only revision.";
@@ -891,7 +894,7 @@ export function convertShotToVisualizerOnly(shot = {}, evidence = {}) {
   for (const key of [
     "media_id", "media_title", "media_uri", "media_thumbnail", "runtime_media_uri",
     "media_contract", "media_card_id", "media_card_kind", "media_card_ref", "media_card_title",
-    "media_source_group", "media_technical_identity", "semantic_casting", "decision_evidence", "edit_reason",
+    "media_source_group", "media_technical_identity", "semantic_casting", "decision_evidence", "edit_reason", ...ECHO_MEDIA_ELIGIBILITY_FIELDS,
   ]) delete preserved[key];
   const duration = shotDurationSeconds(shot);
   return {
@@ -986,6 +989,8 @@ export function recastEchoDirectorProject(project = {}, candidateEntries = [], o
     return recastShot(shot, selected.candidate, selected);
   });
 
+  const rejected = inspectEchoTimelineMediaEligibility(timeline, policy.mediaConstraints).filter(row => !row.eligible);
+  if (rejected.length) throw echoMediaConstraintError(rejected, { stage: "scroll-recast-output" });
   const scriptProject = { ...project, timeline };
   const createdAt = options.createdAt || new Date().toISOString();
   const variant = {
@@ -1199,6 +1204,8 @@ export function recastBalancedEchoDirectorProject(project = {}, candidateEntries
   });
 
   const createdAt = options.createdAt || new Date().toISOString();
+  const rejected = inspectEchoTimelineMediaEligibility(timeline, policy.mediaConstraints).filter(row => !row.eligible);
+  if (rejected.length) throw echoMediaConstraintError(rejected, { stage: "balanced-recast-output" });
   const sourceCandidatesByGroup = Object.fromEntries(requiredGroups.map((sourceGroup) => [
     sourceGroup,
     candidates.filter((candidate) => candidate.sourceGroup === sourceGroup).length,

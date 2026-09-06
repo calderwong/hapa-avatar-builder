@@ -11,6 +11,7 @@ function Proof(){
  window.recutProofExternalEdit=()=>setProject(value=>({...value,timed_lyrics:[{start:0,end:2,text:'New external lyric edit'}]}));
  window.recutProofReset=()=>setProject({...structuredClone(source),song_id:'recipe-controls'});
  window.recutProofChangeSong=()=>setProject({...structuredClone(source),song_id:'another-song'});
+ window.recutProofInvalidMedia=kind=>{const next=structuredClone(source);next.song_id='invalid-'+kind;next.mediaConstraints={pins:['media-0']};if(kind==='missing'){next.timeline[0].media_uri='';next.timeline[0].media_contract.originalUri='';}else{next.timeline[0].canonicalMediaIds=['canonical-first'];next.mediaConstraints.bans=['canonical-first'];}setProject(next)};
  return <VariationLabPanel project={project} currentTime={6} onCandidate={(next,receipt)=>{window.recutProofReceipt=receipt;setProject(next);}}/>;
 }
 createRoot(document.getElementById('root')).render(<Proof/>);

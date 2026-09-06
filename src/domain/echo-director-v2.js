@@ -1,5 +1,5 @@
 import {buildEchoRecipeModulationBindings,buildEchoRecipeEventTracks,buildEchoRecipeAccentCards,echoRecipeBaseOpacity,echoRecipeOpacity,echoRecipeLyrics} from './echo-recipe-execution.js';
-import { mergeEchoMediaConstraints } from "./echo-media-eligibility.js";
+import { mergeEchoMediaConstraints, echoMediaEligibilityFields, evaluateEchoMediaEligibility, evaluateEchoGeneratedMediaEligibility, echoMediaConstraintError } from "./echo-media-eligibility.js";
 import { sequenceEchoNarrative } from "./echo-narrative-sequencer.js";
 import { DEFAULT_VARIANT_RECIPES, resolveEchoDirectorRecipe } from "./echo-director-recipes.js";
 export { DEFAULT_VARIANT_RECIPES } from "./echo-director-recipes.js";
@@ -36,7 +36,7 @@ export const DIRECTOR_V2_SCHEMA = "hapa.echo.director-plan.v2";
 export const CUE_GRAPH_SCHEMA = "hapa.echo.cue-graph.v2";
 export const TREATMENT_SCHEMA = "hapa.echo.editorial-treatment.v2";
 export const NATIVE_SHOW_GRAPH_SCHEMA = "hapa.music-viz.native-show-graph.v2";
-export const DIRECTOR_V2_COMPILER_VERSION = "echo-director-v2.6.0";
+export const DIRECTOR_V2_COMPILER_VERSION = "echo-director-v2.7.0";
 
 
 
@@ -566,6 +566,7 @@ export function buildEditorialTreatment(projectInput, cueGraph, manifest, regist
         },
         ...(shot.mediaConstraints ? { mediaConstraints: shot.mediaConstraints } : {}),
         media: {
+          ...echoMediaEligibilityFields({ ...shot, ...shot.media_contract }),
           ...Object.fromEntries(["characterIds", "sceneIds", "shotRoles", "paletteFamily", "comicId", "panelIndex", "roi", "technical", "availability", "cropCoverage", "sourcePolicy", "sourceAllowed", "origin", "banned", "metadata"].filter(key => (shot.media_contract?.[key] ?? shot[key]) !== undefined).map(key => [key, shot.media_contract?.[key] ?? shot[key]])),
           ...(shot.media_contract ? { mediaContract: shot.media_contract } : {}),
           id: String(shot.media_id || `media:${index}`),
@@ -944,12 +945,14 @@ export function compileDirectorVariant({ treatment, cueGraph, recipe = "conserva
       ? { ...slot, locks: slot.locks.filter(lock => lock !== "timing") } : slot), recipe: normalizedRecipe, seed,
       constraints: mergeEchoMediaConstraints(projectBody(sourceProject)?.mediaConstraints, mediaConstraints), cueGraph, timingMode, locks }) : null;
   const slots = narrative?.slots || treatment.mediaSlots.map((slot, index) => {
-    const candidates = slot.candidateMedia || [];
+    const required = mergeEchoMediaConstraints(mergeEchoMediaConstraints(projectBody(sourceProject)?.mediaConstraints, mediaConstraints), slot.mediaConstraints);
+    const pool = slot.locks?.includes("media") ? [slot.media] : slot.candidateMedia?.length ? slot.candidateMedia : [slot.media];
+    const evaluations = pool.map(candidate => (candidate.sourceKind === "pure-visualizer" ? evaluateEchoGeneratedMediaEligibility : evaluateEchoMediaEligibility)(candidate, required));
+    const candidates = pool.filter((_, candidateIndex) => evaluations[candidateIndex].eligible);
+    if (!candidates.length) throw echoMediaConstraintError(evaluations, { stage: "director-variant-compile", slotId: slot.id, recipe: normalizedRecipe.id, locked: slot.locks?.includes("media") || false });
     const offset = normalizedRecipe.mediaOffset % Math.max(1, candidates.length);
     const jitter = Math.floor(seededUnit(seed, `media:${slot.id}`) * Math.max(1, candidates.length));
-    const selected = slot.locks?.includes("media")
-      ? candidates[0] || slot.media
-      : candidates[(offset + jitter) % Math.max(1, candidates.length)] || candidates[0] || slot.media;
+    const selected = candidates[(offset + jitter) % candidates.length];
     return { ...slot, selectedMedia: selected, compiledIndex: index };
   });
   const trackA = slots.map((slot, index) => {
@@ -964,11 +967,13 @@ export function compileDirectorVariant({ treatment, cueGraph, recipe = "conserva
       startSeconds: slot.startSeconds,
       endSeconds: slot.endSeconds,
       transition: slot.transition,
+      ...(slot.mediaConstraints ? { mediaConstraints: structuredClone(slot.mediaConstraints) } : {}),
       cameraKeyframes: [
         { atSeconds: slot.startSeconds, motion: slot.camera.motion, intensity: slot.camera.intensity, speed: slot.camera.speed },
         { atSeconds: slot.endSeconds, motion: slot.camera.motion, intensity: slot.camera.intensity, speed: slot.camera.speed },
       ],
       media: {
+        ...echoMediaEligibilityFields(slot.selectedMedia),
         id: slot.selectedMedia.id,
         title: slot.selectedMedia.title,
         sourceKind: slot.selectedMedia.sourceKind,
@@ -1035,6 +1040,7 @@ export function compileDirectorVariant({ treatment, cueGraph, recipe = "conserva
       endSeconds: visualizer.endSeconds,
       transition: visualizer.transition,
       media: {
+        ...echoMediaEligibilityFields(media),
         id: media.id,
         title: media.title,
         sourceKind: media.sourceKind,
