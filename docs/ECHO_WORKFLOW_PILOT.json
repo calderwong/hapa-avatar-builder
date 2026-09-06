@@ -1,0 +1,67 @@
+{
+  "schemaVersion": "hapa.workflow-pilot.v1",
+  "id": "echo-requirement-completion-batch-pilot",
+  "version": "0.1",
+  "updatedAt": "2026-09-06",
+  "status": "active-pilot",
+  "effectiveness": "not-yet-evaluated",
+  "ownerTaskId": "01a072d3-d593-74f2-8c89-2470c2ee1a40",
+  "goalStatusLastObserved": "usageLimited",
+  "baseline": {
+    "requirements": 18,
+    "done": [
+      "ECHO-01",
+      "ECHO-02",
+      "ECHO-03",
+      "ECHO-09",
+      "ECHO-13",
+      "ECHO-16"
+    ],
+    "inProgress": [
+      "ECHO-04",
+      "ECHO-05",
+      "ECHO-06",
+      "ECHO-07",
+      "ECHO-08",
+      "ECHO-10",
+      "ECHO-11",
+      "ECHO-12",
+      "ECHO-14",
+      "ECHO-15",
+      "ECHO-17",
+      "ECHO-18"
+    ],
+    "commit": "fe3a5d7e0a3209f0a62c166c104b1bd441d06075",
+    "repositoryTestsPassed": 2192,
+    "implementationMinutes": null,
+    "verificationMinutes": null
+  },
+  "activeBatch": "A1",
+  "batches": [
+    {
+      "id": "A1",
+      "status": "ready-to-resume",
+      "requirements": [
+        "ECHO-07"
+      ],
+      "supportingRequirements": [
+        "ECHO-04",
+        "ECHO-08"
+      ],
+      "acceptedRequirements": [],
+      "implementationMinutes": null,
+      "verificationMinutes": null,
+      "reworkMinutes": null,
+      "broadGateRuns": [],
+      "escapedDefects": null,
+      "acceptance": "pending"
+    }
+  ],
+  "humanPilotReview": "pending",
+  "postmortems": [
+    "docs/postmortems/2026-09-06-echo-verification-cadence.md"
+  ],
+  "decisionAfterAcceptedBatches": 2,
+  "nextAction": "Complete A1 end-to-end behavior before broad acceptance; targeted diagnostic checks as needed",
+  "updates": "batch-start, scope-change, consequential-failure, acceptance, handoff, goal-completion"
+}

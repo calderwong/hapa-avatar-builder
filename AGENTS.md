@@ -114,3 +114,8 @@ node --test tests/overcard-*.test.mjs
 ```
 
 For the 3D Tarot surface, also run the app and verify the `Tarot Draw` tab renders a nonblank canvas.
+
+<!-- HAPA_REQUIREMENT_BATCH_PILOT_V1 -->
+## Requirement completion workflow pilot — 2026-09-06
+
+For Echo Album continuation, read `$HAPA_FRONT_DOOR_ROOT/docs/REQUIREMENT_COMPLETION_BATCH_PILOT.md` and `$HAPA_AVATAR_BUILDER_ROOT/docs/ECHO_WORKFLOW_PILOT.md` before choosing work. Calder authorized coherent requirement batches with targeted checks during implementation and broad acceptance at the completed batch boundary. The method is **active-pilot**, not proven ecosystem-wide. Preserve required coverage, source integrity, process safety, human gates and existing mutation authority. Update the app's pilot state at meaningful batch events and append short postmortems; do not rerun broad suites merely because a checkpoint changed. Documentation-only methodology changes use document/link/schema/retrieval verification. See the canonical method for evidence reuse, failure escalation and adoption scope.
