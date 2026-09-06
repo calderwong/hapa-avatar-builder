@@ -76,6 +76,15 @@ test("strict renderer identity catches launcher retargets and NumPy package drif
   assert.notEqual(fourth.sha256, third.sha256);
   assert.equal(fourth.tools.numpy.modulePath, fs.realpathSync(numpyInitB));
 
+  const presentationPath = path.join(root, "src/domain/echo-lyric-presentation.js");
+  fs.mkdirSync(path.dirname(presentationPath), { recursive: true });
+  fs.writeFileSync(presentationPath, "export const captionSize = 56;\n");
+  const withPresentation = await inspectSongCardRendererBuildIdentity({ root, strict: true });
+  assert.notEqual(withPresentation.sha256, fourth.sha256, "new caption owner must participate in renderer cache identity");
+  fs.writeFileSync(presentationPath, "export const captionSize = 60;\n");
+  const changedPresentation = await inspectSongCardRendererBuildIdentity({ root, strict: true });
+  assert.notEqual(changedPresentation.sha256, withPresentation.sha256, "caption-only changes invalidate warmed renders");
+
   fs.symlinkSync(path.join(numpyRootB, "core.py"), path.join(numpyRootB, "linked.py"));
   await assert.rejects(
     inspectSongCardRendererBuildIdentity({ root, strict: true }),

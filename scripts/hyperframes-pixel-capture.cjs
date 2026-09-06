@@ -229,6 +229,7 @@ app.commandLine.appendSwitch("disable-renderer-backgrounding");
 
 console.log(`[lyric-capture] boot pid=${process.pid}`);
 app.whenReady().then(async () => {
+  const { echoLyricTemplateFrameState } = await import("../src/domain/echo-lyric-template-runtime.js");
   console.log("[lyric-capture] app ready");
   const [{ evaluateHyperFramesPixelAcceptance }, { resolveEchoOutputProfile }] = await Promise.all([
     import("./hyperframes-pixel-acceptance.mjs"),
@@ -367,18 +368,21 @@ app.whenReady().then(async () => {
             const lyric = document.getElementById("lyric");
             if (!lyric) return null;
             const style = getComputedStyle(lyric);
-            const rect = lyric.getBoundingClientRect();
+            const rect = (lyric.querySelector("[data-lyric-panel]") || lyric).getBoundingClientRect();
+            const lyricWords = [...lyric.querySelectorAll(".lyric-word")];
+            const visible = style.visibility !== "hidden" && Number(style.opacity || 0) > .01 && rect.width > 0 && rect.height > 0 && lyricWords.some(word=>word.textContent.trim());
             return {
-              text: String(lyric.textContent || "").replace(/\\s+/g, " ").trim(),
+              text: lyricWords.map(word=>word.textContent).join(" ").replace(/\\s+/g, " ").trim(),
               opacity: Number(style.opacity || 0),
-              visible: Number(style.opacity || 0) > .01 && rect.width > 0 && rect.height > 0 && String(lyric.textContent || "").trim().length > 0,
+              visible,
+              timingMode: lyric.dataset.timingMode || null,
               templateId: lyric.dataset.templateId || null,
               runtimeSchema: lyric.dataset.runtimeSchema || null,
               rect: { left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom, width: rect.width, height: rect.height },
               words: [...lyric.querySelectorAll(".lyric-word")].map((word) => ({
                 text: String(word.textContent || ""),
                 index: Number(word.dataset.wordIndex),
-                active: word.dataset.wordActive === "true",
+                active: visible && word.dataset.wordActive === "true",
                 progress: Number(word.dataset.wordProgress || 0),
               })),
             };
@@ -412,19 +416,16 @@ app.whenReady().then(async () => {
           isGoldenSample: lyricSamples.has(timestamp.toFixed(6)),
           expected: (() => {
             const track = manifestLyricTrack(manifest);
-            const line = (track?.lines || []).find((row) => timestamp >= finite(row.start) && timestamp < finite(row.end, finite(row.start)));
+            const line = (track?.lines || []).filter((row) => timestamp >= finite(row.start) && timestamp < finite(row.end, finite(row.start))).at(-1);
+            const expectedFrame = line ? echoLyricTemplateFrameState({templateId:track.templateId,enabled:track.contract?.enabled!==false,line,timeSeconds:timestamp,fps:manifest.fps,timingSource:track.contract?.timingSource||"",reducedMotion:track.contract?.reducedMotion===true,motionIntensity:track.contract?.motionIntensity??1}) : null;
             return {
               enabled: Boolean(track),
-              active: Boolean(line),
+              active: Boolean(line) && track.contract?.enabled!==false,
+              timingMode: expectedFrame?.timingPolicy.mode || null,
               templateId: track?.templateId || null,
               runtimeSchema: track?.runtimeSchema || null,
               lineText: line?.text || null,
-              activeWordIndices: (line?.words || []).flatMap((word, index) => {
-                const t = Math.floor(timestamp * manifest.fps + 1e-9) / manifest.fps;
-                const start = finite(word.start ?? word.startSeconds, finite(line?.start));
-                const end = Math.max(start + .001, finite(word.end ?? word.endSeconds, start + .001));
-                return t >= start && t < end ? [index] : [];
-              }),
+              activeWordIndices: expectedFrame?.words.filter(word=>word.active).map(word=>word.index) || [],
               lineIndex: Number.isInteger(line?.index) ? line.index : null,
             };
           })(),
@@ -475,12 +476,14 @@ app.whenReady().then(async () => {
       const visibleMatches = Boolean(observed.visible) === Boolean(expected.active);
       const templateMatches = !expected.active || observed.templateId === expected.templateId;
       const runtimeMatches = !expected.active || observed.runtimeSchema === expected.runtimeSchema;
+      const timingPolicyMatches = !expected.active || observed.timingMode === expected.timingMode;
       const observedActiveWordIndices = (observed.words || []).filter((word) => word.active).map((word) => word.index);
       const wordTimingMatches = JSON.stringify(observedActiveWordIndices) === JSON.stringify(expected.activeWordIndices || []);
       return {
         timestamp: frame.timestamp,
         active: Boolean(expected.active),
-        ok: textMatches && visibleMatches && templateMatches && runtimeMatches && insideFrame && wordTimingMatches,
+        ok: textMatches && visibleMatches && templateMatches && runtimeMatches && insideFrame && wordTimingMatches && timingPolicyMatches,
+        timingPolicyMatches,
         wordTimingMatches,
         observedActiveWordIndices,
         textMatches,

@@ -143,3 +143,14 @@ test('verified sustained words fill continuously and their onset emphasis does n
   const reduced=resolveEchoLyricTemplateFrame({contract:{enabled:true,templateId:'orbit-caption-v1',reducedMotion:true},line:source,timeSeconds:1});
   assert.equal(reduced.words[0].scale,1);assert.equal(reduced.words[0].rotateDegrees,0);assert.equal(reduced.words[0].underlineProgress,1);
 });
+
+test('motion intensity changes displacement without changing the exact vocal interval or progress', () => {
+  const config={templateId:'orbit-caption-v1',enabled:true};
+  const full=resolveEchoLyricTemplateFrame({contract:{...config,motionIntensity:1},line,timeSeconds:1.5});
+  const half=resolveEchoLyricTemplateFrame({contract:{...config,motionIntensity:.5},line,timeSeconds:1.5});
+  const zero=resolveEchoLyricTemplateFrame({contract:{...config,motionIntensity:0},line,timeSeconds:1.5});
+  assert.deepEqual(full.words.map(word=>word.active),zero.words.map(word=>word.active));
+  assert.deepEqual(full.words.map(word=>word.progress),zero.words.map(word=>word.progress));
+  assert.ok(zero.words.every(word=>word.scale===1&&word.translateY===0&&word.rotateDegrees===0));
+  assert.equal(half.words[1].scale,1+(full.words[1].scale-1)/2);
+});

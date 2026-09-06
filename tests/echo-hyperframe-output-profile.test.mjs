@@ -269,7 +269,8 @@ test("HyperFrames phone packages use manifest dimensions, safe areas, portrait t
   assert.match(html, /--hf-action-inset:6%;--hf-title-inset:10%;--hf-lyric-bottom:14%/u);
   assert.match(html, /font:20px ui-monospace/u);
   assert.match(html, /font:900 58px\/\.98/u);
-  assert.match(html, /font:800 64px\/1\.12/u);
+  assert.match(html, /function echoLyricPresentation/u);
+  assert.match(html, /renderEchoLyricSurface\(L,/u);
   assert.match(html, /function aspectCoverSourceRect/u);
   assert.match(html, /coverRect=aspectCoverSourceRect\(rect,C\.width,C\.height\)/u);
   assert.match(html, /drawImage\(img,coverRect\[0\],coverRect\[1\],coverRect\[2\],coverRect\[3\],0,0,C\.width,C\.height\)/u);

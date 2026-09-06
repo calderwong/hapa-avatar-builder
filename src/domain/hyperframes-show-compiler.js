@@ -52,6 +52,7 @@ export function echoLyricOverlayExecutionContract(overlay = {}) {
     timingHash: String(overlay.timingHash || ""),
     audioHash: String(overlay.audioHash || ""),
     reducedMotion: overlay.reducedMotion === true,
+    motionIntensity: typeof overlay.motionIntensity === "number" && Number.isFinite(overlay.motionIntensity) ? Math.max(0, Math.min(1, overlay.motionIntensity)) : 1,
     lines: (overlay.lines || []).map((line) => ({
       text: String(line.text || ""),
       start: echoLyricBoundary(line, "start"),

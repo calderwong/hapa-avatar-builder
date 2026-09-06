@@ -90,6 +90,7 @@ const RENDERER_BUILD_FILES = [
   "src/domain/echo-output-profile.js",
   "src/domain/echo-lyric-time.js",
   "src/domain/echo-lyric-template-runtime.js",
+  "src/domain/echo-lyric-presentation.js",
   "src/domain/echo-lyric-contract.js",
   "src/domain/echo-lyric-render-safety.js",
   "src/domain/echo-director-recipes.js",

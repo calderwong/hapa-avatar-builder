@@ -112,3 +112,13 @@ test("cache identity is stable across aliases and separated by output profile", 
   assert.match(verticalKey, /vertical:1080x1920:9:16:30fps$/u);
   assert.match(landscapeKey, /landscape:1920x1080:16:9:30fps$/u);
 });
+
+test('square is a real output profile with distinct dimensions and cache identity', () => {
+  for(const input of ['square','1:1','1x1','1080x1080',{width:1080,height:1080}]) {
+    const profile=resolveEchoOutputProfile(input);
+    assert.equal(profile.id,'square');assert.equal(profile.width,1080);assert.equal(profile.height,1080);
+    assert.equal(profile.aspectRatio,'1:1');assert.ok(Object.isFrozen(profile));
+  }
+  assert.equal(ECHO_OUTPUT_PROFILES.length,3);
+  assert.notEqual(echoOutputProfileCacheKey('square'),echoOutputProfileCacheKey('landscape'));
+});

@@ -36,9 +36,17 @@ export const ECHO_VERTICAL_OUTPUT_PROFILE = Object.freeze({
   safeArea: VERTICAL_SAFE_AREA,
 });
 
+export const ECHO_SQUARE_OUTPUT_PROFILE = Object.freeze({
+  schemaVersion: ECHO_OUTPUT_PROFILE_SCHEMA,
+  id: "square", label: "Square", orientation: "square",
+  width: 1080, height: 1080, aspectRatio: "1:1", fps: 30,
+  safeArea: LANDSCAPE_SAFE_AREA,
+});
+
 export const ECHO_OUTPUT_PROFILES = Object.freeze([
   ECHO_LANDSCAPE_OUTPUT_PROFILE,
   ECHO_VERTICAL_OUTPUT_PROFILE,
+  ECHO_SQUARE_OUTPUT_PROFILE,
 ]);
 
 export const DEFAULT_ECHO_OUTPUT_PROFILE_ID = ECHO_LANDSCAPE_OUTPUT_PROFILE.id;
@@ -46,9 +54,11 @@ export const DEFAULT_ECHO_OUTPUT_PROFILE_ID = ECHO_LANDSCAPE_OUTPUT_PROFILE.id;
 const OUTPUT_PROFILE_BY_ID = Object.freeze({
   [ECHO_LANDSCAPE_OUTPUT_PROFILE.id]: ECHO_LANDSCAPE_OUTPUT_PROFILE,
   [ECHO_VERTICAL_OUTPUT_PROFILE.id]: ECHO_VERTICAL_OUTPUT_PROFILE,
+  [ECHO_SQUARE_OUTPUT_PROFILE.id]: ECHO_SQUARE_OUTPUT_PROFILE,
 });
 
 const OUTPUT_PROFILE_ALIASES = Object.freeze({
+  square: "square", "1:1": "square", "1x1": "square", "1080x1080": "square",
   landscape: ECHO_LANDSCAPE_OUTPUT_PROFILE.id,
   "16:9": ECHO_LANDSCAPE_OUTPUT_PROFILE.id,
   "16x9": ECHO_LANDSCAPE_OUTPUT_PROFILE.id,
@@ -80,7 +90,7 @@ function outputProfileCandidates(value) {
   const width = Number(value.width);
   const height = Number(value.height);
   if (Number.isFinite(width) && Number.isFinite(height) && width > 0 && height > 0) {
-    candidates.push(height > width ? "vertical" : "landscape");
+    candidates.push(height === width ? "square" : height > width ? "vertical" : "landscape");
   }
   return candidates;
 }

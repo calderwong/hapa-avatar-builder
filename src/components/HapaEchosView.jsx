@@ -6527,6 +6527,13 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                                 onChange={(event) => handleUpdateProjectSettings({ lyrics: { ...activeLyricContract, reducedMotion: event.target.checked } })} />
                               Reduce lyric motion
                             </label>
+                            <label style={{ color:'#cbd5e1',fontSize:'10px',display:'flex',alignItems:'center',gap:5 }}>
+                              Lyric motion
+                              <input type="range" aria-label="Lyric motion intensity" min="0" max="100" step="5" value={Math.round(activeLyricContract.motionIntensity*100)}
+                                disabled={directorEditingLocked || activeLyricContract.reducedMotion} style={{width:70}}
+                                onChange={event=>handleUpdateProjectSettings({lyrics:{...activeLyricContract,motionIntensity:Number(event.target.value)/100}})} />
+                              <output>{Math.round(activeLyricContract.motionIntensity*100)}%</output>
+                            </label>
                             {activeLyricTimingMissing && (
                               <span
                                 data-testid="echo-lyrics-source-missing"

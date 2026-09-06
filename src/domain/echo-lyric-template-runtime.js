@@ -103,6 +103,7 @@ export function resolveEchoLyricTemplateFrame({
     fps,
     timingSource: normalized.timingSource,
     reducedMotion: normalized.reducedMotion,
+    motionIntensity: normalized.motionIntensity,
   });
 }
 
@@ -133,6 +134,7 @@ export function echoLyricTemplateFrameState({
   fps = 30,
   timingSource = '',
   reducedMotion = false,
+  motionIntensity = 1,
 } = {}) {
   const clock = echoLyricFrameTime(timeSeconds, fps);
   const start = echoLyricBoundary(line, "start");
@@ -216,7 +218,12 @@ export function echoLyricTemplateFrameState({
         scale: lyricRound(active ? 1.01 + 0.05 * onsetImpulse : 1),
         translateX: lyricRound((1 - entryProgress) * -8),
       };
-    }),
+    }).map(word => ({ ...word,
+      scale: lyricRound(1 + (word.scale - 1) * lyricClamp01(motionIntensity)),
+      translateX: lyricRound(word.translateX * lyricClamp01(motionIntensity)),
+      translateY: lyricRound(word.translateY * lyricClamp01(motionIntensity)),
+      rotateDegrees: lyricRound(word.rotateDegrees * lyricClamp01(motionIntensity)),
+    })),
   };
 }
 

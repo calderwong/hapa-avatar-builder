@@ -93,6 +93,7 @@ export function normalizeEchoLyricContract(projectInput = {}) {
     audioHash: text(source.audioHash || timingTruth.audioSha256 || mapProvenance.audioSha256),
     confidence: Number(source.confidence ?? timingTruth.confidence ?? timingHeal.timingConfidence ?? 0),
     reducedMotion: source.reducedMotion === true,
+    motionIntensity: typeof source.motionIntensity === "number" && Number.isFinite(source.motionIntensity) ? Math.max(0, Math.min(1, source.motionIntensity)) : 1,
     safeArea: source.safeArea && typeof source.safeArea === "object" ? structuredClone(source.safeArea) : null,
   };
 }
