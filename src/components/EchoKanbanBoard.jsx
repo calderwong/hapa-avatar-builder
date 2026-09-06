@@ -14,6 +14,8 @@ export default function EchoKanbanBoard({ board, apiBase, onBoardChange, onNotic
   const openerRef = useRef(null);
   const lane = board?.lanes?.find(item => item.id === selected?.laneId);
   const card = lane?.cards?.find(item => item.id === selected?.cardId);
+  const conflict = board?._sync?.pendingCommands?.find(item=>item.cardId===card?.id);
+  const mirrorDifference = board?._sync?.mirror?.differences?.find(item=>item.cardId===card?.id);
   useEffect(() => { if (card && dialogRef.current && !dialogRef.current.open) dialogRef.current.showModal(); }, [card?.id]);
   const inspect = (laneId, card) => { openerRef.current = document.activeElement; setSelected({ laneId, cardId: card.id }); setTargetStatus(card.status); setReason(''); retryCommand.current = null; };
   async function refresh() {
@@ -44,14 +46,34 @@ export default function EchoKanbanBoard({ board, apiBase, onBoardChange, onNotic
         throw new Error(body.message || `Board update failed (${response.status}); refresh to check its recorded state.`);
       }
       onBoardChange(body); retryCommand.current = null;
-      onNotice(`${card.title}: ${label(targetStatus)}. Local board saved; Overwatch synchronization is not confirmed.`);
+      onNotice(`${card.title}: ${label(targetStatus)}. Local board saved. Overwatch: ${body._sync?.overwatch || 'not confirmed'}.`);
     } catch (error) { onNotice(error.message || String(error)); }
     finally { pendingRef.current = false; setPending(false); }
+  }
+  async function resolveConflict(resolution) {
+    if (!conflict || pendingRef.current || !reason.trim()) return;
+    pendingRef.current=true;setPending(true);
+    const proposal={originalCommandId:conflict.commandId,resolution,reason:reason.trim()};
+    const signature=JSON.stringify(proposal);
+    if(retryCommand.current?.signature!==signature)retryCommand.current={signature,body:{...proposal,expectedRevision:board._sync?.revision,commandId:crypto.randomUUID()}};
+    try{
+      const response=await fetch(`${apiBase}/api/echos/kanban/reconcile`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(retryCommand.current.body)});
+      const body=await response.json();
+      if(!response.ok){if(body.error==='echo_board_revision_conflict'){await refresh();retryCommand.current=null;}throw new Error(body.message||'Could not resolve the recorded status. Refresh to inspect it.');}
+      onBoardChange(body);retryCommand.current=null;
+      setTargetStatus(body.lanes.flatMap(lane=>lane.cards).find(row=>row.id===card.id)?.status||card.status);
+      onNotice('Status conflict resolved. The recorded intent and resolution remain in the board history.');
+    }catch(error){onNotice(error.message||String(error));}
+    finally{pendingRef.current=false;setPending(false);}
   }
   return <>
     <div style={{ padding: 8, fontSize: 13 }} role="status">
       Select a card to inspect it. Status changes use the controls below.
       <div>Local projection: {board?._sync?.localProjection || 'awaiting revision'} · Overwatch: {board?._sync?.overwatch || 'not confirmed'}</div>
+      {board?._sync?.mirror?.total && <div>Matching requirement statuses: {board._sync.mirror.matched} of {board._sync.mirror.total}. Status matches do not establish acceptance.</div>}
+      {board?._sync?.mirror?.lastConfirmedAt && <div>Last status match: <time dateTime={board._sync.mirror.lastConfirmedAt}>{new Date(board._sync.mirror.lastConfirmedAt).toLocaleString()}</time></div>}
+      {board?._sync?.mirror?.message && <div>{board._sync.mirror.message}</div>}
+      {board?._sync?.pendingCommands?.length>0 && <div role="alert">A recorded status conflicts with a newer edit. Open the affected card to choose which status to keep.</div>}
       {board?._sync?.checkedAt && <div>Last checked: <time dateTime={board._sync.checkedAt}>{new Date(board._sync.checkedAt).toLocaleString()}</time></div>}
       <button type="button" className="hapa-btn" disabled={pending} onClick={() => refresh().catch(error => onNotice(error.message))}>Refresh board</button>
     </div>
@@ -71,6 +93,11 @@ export default function EchoKanbanBoard({ board, apiBase, onBoardChange, onNotic
       <p>Priority: {card.priority || 'unassigned'} · Owner: {card.owner || 'unassigned'} · Review: {card.reviewStatus || 'not recorded'}</p>
       {card.dependencies?.length > 0 && <p>Dependencies: {card.dependencies.join(', ')}</p>}
       {(card.acceptance || []).length > 0 && <><h4>Acceptance criteria</h4><ul>{card.acceptance.map((criterion, index) => <li key={index}>{criterion}</li>)}</ul></>}
+      {mirrorDifference && <p role="status">Overwatch status: {mirrorDifference.overwatchStatus || 'card missing'}. Echo status: {card.status}. Refresh after reconciliation in the owning board.</p>}
+      {conflict && <div role="alert"><h4>Recorded status conflict</h4><p>Current status: {label(card.status)}. Recorded change: {label(conflict.status)}.</p><p>Enter a reason below, then choose which status to keep. Unrelated card fields are preserved.</p>
+        <button type="button" className="hapa-btn" disabled={pending || !reason.trim()} onClick={()=>resolveConflict('keep-current')}>Keep current status: {label(card.status)}</button>
+        <button type="button" className="hapa-btn" disabled={pending || !reason.trim()} onClick={()=>resolveConflict('apply-recorded')}>Apply recorded status: {label(conflict.status)}</button>
+      </div>}
       {card.blockedReason && <p>Blocked: {card.blockedReason}</p>}
       {card.resumeWhen && <p>Resume when: {card.resumeWhen}</p>}
       {(card.artifactLinks || []).map((link, i) => <p key={i}>{/^https?:\/\//i.test(link.href || '') ? <a href={link.href} target="_blank" rel="noreferrer">{link.label}</a> : <><strong>{link.label}</strong><br /><code style={{ overflowWrap: 'anywhere' }}>{link.href}</code></>}</p>)}
@@ -80,10 +107,10 @@ export default function EchoKanbanBoard({ board, apiBase, onBoardChange, onNotic
           {!STATUSES.includes(card.status) && <option value={card.status}>{label(card.status)}</option>}
           {STATUSES.map(status => <option key={status} value={status}>{label(status)}</option>)}
         </select></label>
-        <label>Reason {card.status === 'blocked' || targetStatus === 'blocked' ? '(required)' : '(optional)'}
-          <textarea value={reason} maxLength={2000} required={card.status === 'blocked' || targetStatus === 'blocked'} disabled={pending} onChange={event => setReason(event.target.value)} />
+        <label>Reason {conflict || card.status === 'blocked' || targetStatus === 'blocked' ? '(required)' : '(optional)'}
+          <textarea value={reason} maxLength={2000} required={Boolean(conflict) || card.status === 'blocked' || targetStatus === 'blocked'} disabled={pending} onChange={event => setReason(event.target.value)} />
         </label>
-        <button className="hapa-btn" type="submit" disabled={pending || !board?._sync?.revision || targetStatus === card.status}>{pending ? 'Saving status…' : `Apply status: ${label(targetStatus)}`}</button>
+        <button className="hapa-btn" type="submit" disabled={pending || board?._sync?.localProjection === 'conflict' || !board?._sync?.revision || targetStatus === card.status}>{pending ? 'Saving status…' : `Apply status: ${label(targetStatus)}`}</button>
       </form>
     </dialog>}
   </>;

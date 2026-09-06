@@ -2,6 +2,7 @@
 const {app,BrowserWindow}=require('electron');
 const fs=require('node:fs/promises');
 const path=require('node:path');
+app.on('window-all-closed',()=>{});
 const ROOT=path.resolve(__dirname,'..');
 const option=name=>process.argv.find(arg=>arg.startsWith(`--${name}=`))?.slice(name.length+3);
 const manifestPath=option('manifest'),output=option('output');
@@ -24,6 +25,7 @@ app.whenReady().then(async()=>{
   win=new BrowserWindow({width:3840,height:2160,show:false,useContentSize:true,webPreferences:{contextIsolation:true,nodeIntegration:false,backgroundThrottling:false}});
   win.webContents.on('console-message',(_event,level,message)=>{if(level>=3)errors.push(message.slice(0,500));});
   await win.loadURL(`http://127.0.0.1:${server.httpServer.address().port}/__echo-image-proof`);
+  if(process.argv.includes('--force-failure'))throw new Error('Forced proof failure for exit-code verification');
   await waitFor('window.proofReady===true');
   const {buildProtectedCameraPath}=await import('../src/domain/media-role-camera.js');
   const results=[];

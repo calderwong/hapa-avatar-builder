@@ -15,6 +15,7 @@ import { createEchoPerformancePreparation } from "./echo-performance-preparation
 import { echoPerformanceInputs } from "./echo-performance-inputs.mjs";
 import { resolveEchoRuntimeMediaUri } from "./echo-runtime-media-route.mjs";
 import { createEchoKanbanStore } from "./echo-kanban-store.mjs";
+import { createEchoKanbanMirrorReader } from "./echo-kanban-mirror.mjs";
 import { validateEchoForkMedia } from "./echo-media-eligibility.mjs";
 import { mergeEchoMediaConstraints, inheritEchoTimelineMediaConstraints } from "../src/domain/echo-media-eligibility.js";
 import {
@@ -511,6 +512,7 @@ const echoPerformancePreparation = createEchoPerformancePreparation({ root: ROOT
 const echoKanbanStore = createEchoKanbanStore({
   boardPath: process.env.HAPA_ECHO_KANBAN_PATH || path.join(homedir(), "Desktop/Echos-of-Other-Eras-Album-App/kanban.json"),
   stateRoot: process.env.HAPA_ECHO_KANBAN_STATE_ROOT || path.join(DATA_DIR, "echo-kanban"),
+  readMirror: createEchoKanbanMirrorReader({configPath:process.env.HAPA_ECHO_KANBAN_MIRROR_CONFIG || path.join(DATA_DIR,"echo-kanban/mirror-config.json")}),
 });
 const ECHO_RECORD_GARDEN_RECORDING_TRANSACTION_ROOT = process.env.HAPA_ECHO_RECORD_GARDEN_RECORDING_TRANSACTION_ROOT
   || path.join(DATA_DIR, "echo-record-garden-recording-transactions");
@@ -3009,11 +3011,11 @@ async function route(req, res) {
     return;
   }
 
-  if (pathname === "/api/echos/kanban" && ["GET", "POST"].includes(req.method)) {
+  if ((pathname === "/api/echos/kanban" && ["GET", "POST"].includes(req.method)) || (pathname === "/api/echos/kanban/reconcile" && req.method === "POST")) {
     try {
       const board = req.method === "GET"
         ? await echoKanbanStore.read()
-        : await echoKanbanStore.changeStatus(JSON.parse((await readRawBody(req, 16 * 1024)).toString("utf8")));
+        : await echoKanbanStore[pathname.endsWith("/reconcile") ? "resolveProjection" : "changeStatus"](JSON.parse((await readRawBody(req, 16 * 1024)).toString("utf8")));
       sendJson(res, 200, board);
     } catch (error) {
       sendJson(res, error.statusCode || 500, { ok: false, error: error.code || "echo_board_failed", message: error.message, commandId: error.commandId });
