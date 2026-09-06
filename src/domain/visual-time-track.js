@@ -1,9 +1,10 @@
-import crypto from "node:crypto";
+import {sha256} from "@noble/hashes/sha2.js";
+import {bytesToHex} from "@noble/hashes/utils.js";
 
 export const VISUAL_TIME_TRACK_SCHEMA = "hapa.director.visual-time-track.v1";
 export const VISUAL_TIME_LIMITS = Object.freeze({ minRate: 0.78, maxRate: 1.18, maxRateDeltaPerSecond: 0.4, maxHoldSeconds: 0.18, maxReverseSeconds: 0.12, maxStutterSeconds: 0.24, settleMarginSeconds: 0.08 });
 const effects = ["playback-rate", "hold", "repeat", "micro-reverse", "beat-stutter", "temporal-echo"];
-const hash = (value) => crypto.createHash("sha256").update(JSON.stringify(value)).digest("hex");
+const hash = (value) => bytesToHex(sha256(new TextEncoder().encode(JSON.stringify(value))));
 const num = (value, fallback = 0) => Number.isFinite(Number(value)) ? Number(value) : fallback;
 
 const supportFor = (kind) => ({

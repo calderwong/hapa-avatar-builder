@@ -138,6 +138,7 @@ export function echoPersistentShaderSegments(project = {}) {
       stem_fallback: slot.stem_fallback,
       allow_alternate_isolated_stems: slot.allow_alternate_isolated_stems,
       opacity: slot.opacity,
+      ...(slot.recipe_treatment ? {recipe_treatment: clone(slot.recipe_treatment)} : {}),
       blend_mode: slot.blend_mode,
       layer_role: slot.layer_role,
       transition: "cut",

@@ -85,6 +85,18 @@ test("strict renderer identity catches launcher retargets and NumPy package drif
   const changedPresentation = await inspectSongCardRendererBuildIdentity({ root, strict: true });
   assert.notEqual(changedPresentation.sha256, withPresentation.sha256, "caption-only changes invalidate warmed renders");
 
+  let beforeRecipe = changedPresentation;
+  for (const name of ["echo-recipe-execution.js", "echo-recipe-recut-treatment.js", "accent-event-track.js", "visual-time-track.js"]) {
+    const file = path.join(root, "src/domain", name);
+    fs.writeFileSync(file, "export const recipeRevision=1;\n");
+    const added = await inspectSongCardRendererBuildIdentity({ root, strict: true });
+    assert.notEqual(added.sha256, beforeRecipe.sha256, name);
+    fs.writeFileSync(file, "export const recipeRevision=2;\n");
+    const edited = await inspectSongCardRendererBuildIdentity({ root, strict: true });
+    assert.notEqual(edited.sha256, added.sha256, name + " invalidates warmed renders");
+    beforeRecipe = edited;
+  }
+
   fs.symlinkSync(path.join(numpyRootB, "core.py"), path.join(numpyRootB, "linked.py"));
   await assert.rejects(
     inspectSongCardRendererBuildIdentity({ root, strict: true }),

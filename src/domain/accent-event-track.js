@@ -1,4 +1,5 @@
-import crypto from "node:crypto";
+import {sha256} from "@noble/hashes/sha2.js";
+import {bytesToHex} from "@noble/hashes/utils.js";
 
 export const ACCENT_EVENT_SCHEMA = "hapa.director.accent-event-track.v1";
 export const SAFE_ACCENT_LIMITS = Object.freeze({
@@ -10,7 +11,7 @@ export const SAFE_ACCENT_LIMITS = Object.freeze({
 });
 
 const stableNumber = (value, fallback = 0) => Number.isFinite(Number(value)) ? Number(value) : fallback;
-const digest = (value) => crypto.createHash("sha256").update(JSON.stringify(value)).digest("hex");
+const digest = (value) => bytesToHex(sha256(new TextEncoder().encode(JSON.stringify(value))));
 const kinds = ["scan", "glitch", "bloom", "shutter", "deck-swap", "flicker"];
 const targets = ["visualizer-layer", "media-layer", "lyric-layer", "card-layer"];
 

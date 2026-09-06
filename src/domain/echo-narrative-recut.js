@@ -1,3 +1,4 @@
+import {applyEchoRecutTreatment} from './echo-recipe-recut-treatment.js';
 import { NARRATIVE_VARIANT_RECIPES } from "./echo-director-recipes.js";
 import { sequenceEchoNarrative } from "./echo-narrative-sequencer.js";
 import { mergeEchoMediaConstraints } from "./echo-media-eligibility.js";
@@ -103,14 +104,18 @@ export function createEchoNarrativeRecut({ project, recipeId, seed, range, locks
     if (requiredCharacterIds.length || requiredSceneIds.length) shot.mediaConstraints = slot.mediaConstraints;
     return [slot.sourceShotIndex, shot];
   }));
-  const next = { ...project, timeline: timeline.map((shot, index) => replacement.get(index) || shot), hyperframe_script_stale: true };
-  const receipt = { ...sequence.receipt, parentCutId: project.active_direction_script_variant?.id || "legacy", range: { startSeconds: start, endSeconds: end },
+  let next = { ...project, timeline: timeline.map((shot, index) => replacement.get(index) || shot), hyperframe_script_stale: true };
+  const treatmentSlots=[...slots].sort((a,b)=>selectionRank(seed,a.sourceShotIndex)-selectionRank(seed,b.sourceShotIndex)||a.sourceShotIndex-b.sourceShotIndex).slice(0,Math.ceil(slots.length*changeAmount));
+  const treatmentIndices=new Set(treatmentSlots.map(slot=>slot.sourceShotIndex));
+  const treatment=applyEchoRecutTreatment(next,{recipe,locks,seed,windows:start===0&&end===Number(project.duration)&&changeAmount===1?[{startSeconds:start,endSeconds:end}]:sequence.slots.filter(slot=>treatmentIndices.has(slot.sourceShotIndex))});
+  next=treatment.project;
+  const receipt = { ...sequence.receipt, treatment: treatment.receipt, parentCutId: project.active_direction_script_variant?.id || "legacy", range: { startSeconds: start, endSeconds: end },
     controls: { changeAmount, requiredCharacterIds: [...requiredCharacterIds], requiredSceneIds: [...requiredSceneIds], locks: structuredClone(locks), timingMode },
     changeBudget: { editableShots: editable.length, selectedShots: selected.size, policy: "seeded-ceiling-of-editable-whole-shots" },
     changedShotIndices: [...replacement.keys()].filter(index => JSON.stringify(next.timeline[index]) !== JSON.stringify(timeline[index])),
     preservedShotIndices: timeline.map((_, index) => index).filter(index => !replacement.has(index)),
     boundaryPolicy: "only-whole-source-shots-within-range", sourcePool: "current-cut-only", saved: false,
   };
-  next.director_patch_lineage = { ...(project.director_patch_lineage || {}), narrativeRecut: receipt };
+  next.director_patch_lineage = { ...(next.director_patch_lineage || {}), narrativeRecut: receipt };
   return { project: next, receipt };
 }

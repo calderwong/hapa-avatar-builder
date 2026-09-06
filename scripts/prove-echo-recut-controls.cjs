@@ -39,7 +39,16 @@ app.whenReady().then(async()=>{
   check(timing.receipt.movedBoundaries.length===3,'Cue timing control did not move the three eligible boundaries');
   check(JSON.stringify(timing.times.slice(2,6))===JSON.stringify([[6,9.08],[9.08,12.06],[12.06,15.08],[15.08,18]]),'Cue timing was not applied to the candidate');
   await fs.writeFile(path.join(output,'cue-timing.png'),(await win.webContents.capturePage()).toPNG());
-  const report={pass:true,scope:'Actual VariationLabPanel on isolated declared-identity/cue fixture; this does not measure media playback or human usability',changeAmount:.5,changedShots:2,castAndSceneApplied:true,restoreExact:true,staleRestoreRejected:true,songSwitchClearsCandidates:true,cueTiming:timing,layouts};await fs.writeFile(path.join(output,'report.json'),JSON.stringify(report,null,2)+'\n');console.log(JSON.stringify(report));exitStatus=0;
+  await win.webContents.executeJavaScript('window.recutProofReset()');await waitFor('window.recutProofProject.song_id==="recipe-controls"');
+  await set('Director recipe','performance-kinetic');await set('Recut change amount','1');await click('Whole song');await click('Generate A/B/C');await click('Review A in player');
+  const treatment=await win.webContents.executeJavaScript('({receipt:window.recutProofReceipt.treatment,opacities:window.recutProofProject.visualizer_timeline.map(row=>row.opacity),lyrics:window.recutProofProject.lyrics,accentCount:window.recutProofGraph.directorV2.accentTrack.eventCount,bindings:window.recutProofGraph.directorV2.modulationBindings})');
+  check(treatment.receipt.shaderCuesChanged===4&&treatment.opacities.every(value=>value===.312),'Recipe shader mix did not reach the candidate');
+  check(treatment.lyrics.templateId==='kinetic-word-burst-v1'&&treatment.accentCount===3,'Recipe event/lyric treatment did not execute in the browser');
+  await click('Lock: Keep shader mix');await click('Lock: Keep accents');await click('Lock: Keep lyric style');await set('Director recipe','letter-intimate');await click('Generate A/B/C');await click('Review A in player');
+  const lockedTreatment=await win.webContents.executeJavaScript('({opacities:window.recutProofProject.visualizer_timeline.map(row=>row.opacity),lyrics:window.recutProofProject.lyrics,accentCount:window.recutProofGraph.directorV2.accentTrack.eventCount})');
+  check(JSON.stringify(lockedTreatment.opacities)===JSON.stringify(treatment.opacities)&&JSON.stringify(lockedTreatment.lyrics)===JSON.stringify(treatment.lyrics)&&lockedTreatment.accentCount===treatment.accentCount,'Locks lost the current recipe treatment');
+  await fs.writeFile(path.join(output,'recipe-treatment.png'),(await win.webContents.capturePage()).toPNG());
+  const report={pass:true,scope:'Actual VariationLabPanel on isolated declared-identity/cue fixture; this does not measure media playback or human usability',recipeTreatment:{...treatment,locksPreserved:true},changeAmount:.5,changedShots:2,castAndSceneApplied:true,restoreExact:true,staleRestoreRejected:true,songSwitchClearsCandidates:true,cueTiming:timing,layouts};await fs.writeFile(path.join(output,'report.json'),JSON.stringify(report,null,2)+'\n');console.log(JSON.stringify(report));exitStatus=0;
  }catch(error){console.error(error.stack);}
  finally{clearTimeout(timer);if(win&&!win.isDestroyed())win.destroy();if(server)await server.close();if(temporary)await fs.rm(temporary,{recursive:true,force:true});app.exit(exitStatus);}
 });

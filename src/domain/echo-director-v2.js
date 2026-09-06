@@ -1,3 +1,4 @@
+import {buildEchoRecipeModulationBindings,buildEchoRecipeEventTracks,buildEchoRecipeAccentCards,echoRecipeBaseOpacity,echoRecipeOpacity,echoRecipeLyrics} from './echo-recipe-execution.js';
 import { mergeEchoMediaConstraints } from "./echo-media-eligibility.js";
 import { sequenceEchoNarrative } from "./echo-narrative-sequencer.js";
 import { DEFAULT_VARIANT_RECIPES, resolveEchoDirectorRecipe } from "./echo-director-recipes.js";
@@ -5,8 +6,6 @@ export { DEFAULT_VARIANT_RECIPES } from "./echo-director-recipes.js";
 import crypto from "node:crypto";
 import { buildPortableVisualizerCard } from "./portable-visualizer-card.js";
 import { nativeVisualizerRouteCounts, resolveNativeVisualizerRoute } from "./native-visualizer-route.js";
-import { buildAccentEventTrack } from "./accent-event-track.js";
-import { buildVisualTimeTrack } from "./visual-time-track.js";
 import { buildPhraseCadence } from "./phrase-cadence.js";
 import { buildLyricDirectionTrack } from "./lyric-direction-track.js";
 import { buildAudioFallbackProfile } from "./audio-fallback-profile.js";
@@ -37,7 +36,7 @@ export const DIRECTOR_V2_SCHEMA = "hapa.echo.director-plan.v2";
 export const CUE_GRAPH_SCHEMA = "hapa.echo.cue-graph.v2";
 export const TREATMENT_SCHEMA = "hapa.echo.editorial-treatment.v2";
 export const NATIVE_SHOW_GRAPH_SCHEMA = "hapa.music-viz.native-show-graph.v2";
-export const DIRECTOR_V2_COMPILER_VERSION = "echo-director-v2.5.0";
+export const DIRECTOR_V2_COMPILER_VERSION = "echo-director-v2.6.0";
 
 
 
@@ -697,7 +696,7 @@ export function buildEditorialTreatment(projectInput, cueGraph, manifest, regist
       const blendMode = String(segment.blend_mode || segment.blendMode || (
         index % 2 === 0 ? "screen" : "plus-lighter"
       ));
-      const opacity = clamp(segment.opacity ?? (index % 3 === 2 ? 0.34 : 0.48));
+      const opacity = echoRecipeBaseOpacity(segment.opacity ?? (index % 3 === 2 ? 0.34 : 0.48), segment.recipe_treatment);
       const sourceAvailable = Boolean(shader?.source);
       const sourceCueOverride = Boolean(shader && (shader.directorEligible === false || shader.enabled === false));
       const eligibility = sourceAvailable
@@ -883,64 +882,6 @@ function visualizerMappings(visualizer) {
   );
 }
 
-function modulationBindings(visualizers, recipe) {
-  const executableEnvelope = (overrides = {}) => ({
-    depth: 0.2,
-    baseValue: 0,
-    attackSeconds: 0.04,
-    releaseSeconds: 0.18,
-    smoothingSeconds: 0.03,
-    easing: "power2.out",
-    clamp: [0, 1],
-    quantize: "frame",
-    quantizeStep: 0,
-    gate: { threshold: 0.02, floor: 0 },
-    delaySeconds: 0,
-    polarity: "positive",
-    safetyBounds: { min: 0, max: 1, maxDeltaPerSecond: 8 },
-    ...overrides,
-  });
-  const visualizerBindings = visualizers.flatMap((visualizer) => (
-    Object.entries(visualizer.audioMap || {})
-      .filter(([, mapping]) => String(mapping?.signal || "off") !== "off")
-      .map(([uniform, mapping]) => ({
-        id: `${visualizer.id}:${uniform}`,
-        source: { kind: "stem_signal", stemFocus: directorStemRole(mapping?.stemFocus || mapping?.stem_focus || visualizer.stemFocus), signal: String(mapping.signal) },
-        target: { kind: "visualizer_uniform", visualizerId: visualizer.id, uniform },
-        envelope: executableEnvelope({
-          depth: round(clamp(mapping.depth ?? 0.2) * recipe.visualizerMix),
-          quantize: mapping.signal === "beat" ? "beat" : "frame",
-        }),
-      }))
-  ));
-  return [
-    ...visualizerBindings,
-    {
-      id: "camera:bass-mass",
-      source: { kind: "stem_signal", stemFocus: "bass", signal: "bass" },
-      target: { kind: "camera", property: "scale" },
-      envelope: executableEnvelope({ baseValue: 1.04, depth: round(0.08 * recipe.cameraEnergy), attackSeconds: 0.08, releaseSeconds: 0.42, smoothingSeconds: 0.08, easing: "sine.out", clamp: [1.04, 1.18], safetyBounds: { min: 1.04, max: 1.18, maxDeltaPerSecond: 0.5 } }),
-    },
-    {
-      id: "edit:drum-permission",
-      source: { kind: "stem_signal", stemFocus: "drums", signal: "peak" },
-      target: { kind: "edit_permission", property: "accent" },
-      envelope: executableEnvelope({ depth: round(recipe.accentDensity), attackSeconds: 0.01, releaseSeconds: 0.08, smoothingSeconds: 0.01, easing: "power3.out", clamp: [0, 1], cooldownSeconds: 0.22, gate: { threshold: 0.62, floor: 0 } }),
-    },
-    {
-      id: "time:phrase-breath",
-      source: { kind: "cue", signal: "phrase_boundary" },
-      target: { kind: "visual_time", property: "rate" },
-      envelope: executableEnvelope({ baseValue: 1, depth: round(recipe.temporalModulation), attackSeconds: 0.12, releaseSeconds: 0.5, smoothingSeconds: 0.1, easing: "sine.inOut", clamp: [0.78, 1.18], safetyBounds: { min: 0.78, max: 1.18, maxDeltaPerSecond: 0.4 } }),
-    },
-    {
-      id: "master:mix-bloom",
-      source: { kind: "mix_signal", bus: "master", signal: "rms" },
-      target: { kind: "effect", property: "bloom" },
-      envelope: executableEnvelope({ depth: 0.16, attackSeconds: 0.08, releaseSeconds: 0.28, smoothingSeconds: 0.05, clamp: [0, 0.28], safetyBounds: { min: 0, max: 0.28, maxDeltaPerSecond: 0.7 } }),
-    },
-  ];
-}
 
 function admitVisualizerLayers(visualizers, requestedMaxLayers) {
   const maxLayers = Math.max(1, Math.min(6, Math.floor(finite(requestedMaxLayers, 1))));
@@ -1127,7 +1068,7 @@ export function compileDirectorVariant({ treatment, cueGraph, recipe = "conserva
         card: visualizer.portableCard,
       },
       parameters: {
-        opacity: round(visualizer.opacity * normalizedRecipe.visualizerMix),
+        opacity: echoRecipeOpacity(visualizer.opacity, normalizedRecipe),
         blendMode: visualizer.blendMode,
         target: "program",
         motion: "stem-modulated",
@@ -1200,49 +1141,10 @@ export function compileDirectorVariant({ treatment, cueGraph, recipe = "conserva
     cards: compiledVisualizerCards.filter((card) => card.persistentSlotId === slot.id),
   }));
   const nativeShaderRoutes = nativeVisualizerRouteCounts(compiledVisualizerCards);
-  const accentCandidates = cueGraph.editCues.filter((cue) => cue.strength >= 0.58);
-  const accentCount = Math.min(accentCandidates.length, Math.max(1, Math.round(accentCandidates.length * normalizedRecipe.accentDensity)));
-  const accentNativeRoute = resolveNativeVisualizerRoute({ id: "director:accent", title: "Director accent" });
-  const trackC = accentCandidates.slice(0, accentCount).map((cue, index) => {
-    const media = mediaAt(slots, cue.atSeconds);
-    const duration = round(0.18 + 0.34 * cue.strength);
-    const approvedCue = cueGraph.cues?.find((candidate) => candidate.evidence?.editCueId === cue.id);
-    return {
-      id: `card:c:${index}`,
-      trackId: "track-c",
-      startSeconds: cue.atSeconds,
-      endSeconds: Math.min(cueGraph.durationSeconds, round(cue.atSeconds + duration)),
-      media: {
-        id: media.id,
-        title: media.title,
-        sourceKind: media.sourceKind,
-        groupId: "accent",
-        groupName: cue.type,
-        localPath: media.localPath,
-      },
-      visualization: { sourceId: "director:accent", nativeKey: null, nativeRoute: accentNativeRoute, status: "unsupported" },
-      parameters: {
-        opacity: round(0.18 + cue.strength * 0.28),
-        blendMode: "screen",
-        target: "program",
-        motion: "shutter-accent",
-        visualizerControls: { strength: cue.strength, duration },
-        visualizerMappings: { strength: "drums:peak" },
-        favorite: false,
-      },
-      provenance: provenanceStrings({ cueId: approvedCue?.id || cue.id, cueSource: cue.source, safety: "bounded-accent-density" }),
-      knockedOut: false,
-    };
-  });
-  const accentTrack = buildAccentEventTrack({
-    cues: cueGraph.cues,
-    density: normalizedRecipe.accentDensity,
-    durationSeconds: treatment.durationSeconds,
-  });
-  const visualTimeTrack = buildVisualTimeTrack({
-    cues: cueGraph.cues,
-    density: normalizedRecipe.temporalModulation,
-    durationSeconds: treatment.durationSeconds,
+  const trackC=buildEchoRecipeAccentCards({cueGraph,recipe:normalizedRecipe,resolveMediaAt:time=>mediaAt(slots,time)});
+  const {accentTrack,visualTimeTrack} = buildEchoRecipeEventTracks({
+    cues:cueGraph.cues,recipe:normalizedRecipe,durationSeconds:treatment.durationSeconds,
+    reducedMotion:normalizeEchoLyricContract(projectBody(sourceProject)||{}).reducedMotion,
   });
   const source = projectBody(sourceProject) || {};
   const cadenceTrack = buildPhraseCadence({
@@ -1339,7 +1241,7 @@ export function compileDirectorVariant({ treatment, cueGraph, recipe = "conserva
       durationSeconds: cueGraph.durationSeconds,
       audioPath: String(source.audio_path || source.audio_uri || ""),
       lyricOverlay: {
-        ...normalizeEchoLyricContract(source),
+        ...echoRecipeLyrics(source,normalizedRecipe),
         lineCount: echoLyricOverlayLines(source).length,
         lines: normalizeEchoLyricContract(source).enabled
           ? cueGraph.lyricCues.map((cue) => ({ start: cue.startSeconds, end: cue.endSeconds, text: cue.text, words: cue.words }))
@@ -1478,7 +1380,7 @@ export function compileDirectorVariant({ treatment, cueGraph, recipe = "conserva
       cadenceTrack,
       lyricDirectionTrack,
       audioFallbackProfile,
-      timeModulation: modulationBindings(executableVisualizers, normalizedRecipe).filter((binding) => binding.target.kind === "visual_time"),
+      timeModulation: buildEchoRecipeModulationBindings(executableVisualizers, normalizedRecipe).filter((binding) => binding.target.kind === "visual_time"),
       visualTimeTrack,
       accentTrack,
       effects: accentTrack.events,
@@ -1501,7 +1403,7 @@ export function compileDirectorVariant({ treatment, cueGraph, recipe = "conserva
         patches: [],
         dirtyRanges: [],
       },
-      modulationBindings: modulationBindings(executableVisualizers, normalizedRecipe),
+      modulationBindings: buildEchoRecipeModulationBindings(executableVisualizers, normalizedRecipe),
       safety: {
         maxFlashHz: 3,
         maxAccentOpacity: 0.52,

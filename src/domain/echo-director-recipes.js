@@ -35,7 +35,12 @@ export const DEFAULT_VARIANT_RECIPES = Object.freeze({
 const narrative = (id, label, axes, grammar) => Object.freeze({
   ...DEFAULT_VARIANT_RECIPES.conservative, ...axes, id, label,
   schemaVersion: "hapa.echo.narrative-recipe.v1",
-  revision: 2,
+  revision: 3,
+  lyricPresentation: Object.freeze({
+    templateId: id === "performance-kinetic" ? "kinetic-word-burst-v1" : id === "ensemble-response" ? "stacked-hook-echo-v1" : id === "comic-journey" ? "orbit-caption-v1" : "scanline-phrase-ribbon-v1",
+    motionIntensity: axes.cameraEnergy,
+    preserveTextAndTiming: true,
+  }),
   timing: Object.freeze({ schemaVersion: "hapa.echo.recipe-timing.v1", maxShiftSeconds: .18, minimumShotSeconds: .75,
     preferredCueKinds: Object.freeze(grammar.pacing === "source-cue-accents" ? ["edit_pulse", "beat", "bar", "hook"] : ["section_start", "hook", "section_end", "ringout", "edit_pulse"]) }),
   grammar: Object.freeze(grammar),

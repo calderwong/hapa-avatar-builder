@@ -1,3 +1,4 @@
+import {applyEchoRecutExecutionToGraph} from './echo-recipe-recut-treatment.js';
 import { applyDirtyRangePatch, dirtyRangeArtifactHash } from "./dirty-range-rebuild.js";
 import { contextHash } from "./song-context-packet.js";
 import { resolveEchoOutputProfile } from "./echo-output-profile.js";
@@ -934,7 +935,7 @@ export function projectToEditorGraph(project = {}) {
     outputProfile,
     patchLineage: graph.directorV2?.patchLineage || { patches: [], dirtyRanges: [] },
   };
-  return replayMultitrackPatches(graph, project.director_show_graph_patches || []);
+  return replayMultitrackPatches(applyEchoRecutExecutionToGraph(graph, project), project.director_show_graph_patches || []);
 }
 
 export function replayMultitrackPatches(graph, patches = []) {

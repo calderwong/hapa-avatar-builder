@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import fs from "node:fs";
-import { buildDirectorV2Artifacts } from "../src/domain/echo-director-v2.js";
+import { buildEchoRecipeModulationBindings } from "../src/domain/echo-recipe-execution.js";
+import { NARRATIVE_VARIANT_RECIPES } from "../src/domain/echo-director-recipes.js";
 import { evaluateDirectorModulationSequence, createDirectorModulationRuntime, prepareDirectorModulationTimeline } from "../src/domain/director-modulation-v2.js";
 
 const binding = (id, stemFocus) => ({
@@ -37,11 +37,14 @@ test("muting one stem removes only its assigned modulation", () => {
 });
 
 test("compiled bindings expose the complete grammar and a true master mix bus", () => {
-  const source = buildDirectorV2Artifacts.toString();
-  assert.ok(source.length > 0);
-  const moduleText = fs.readFileSync("./src/domain/echo-director-v2.js", "utf8");
-  for (const field of ["attackSeconds", "releaseSeconds", "smoothingSeconds", "easing", "clamp", "quantize", "gate", "delaySeconds", "depth", "polarity", "safetyBounds"]) assert.ok(moduleText.includes(field));
-  assert.ok(moduleText.includes('source: { kind: "mix_signal", bus: "master", signal: "rms" }'));
+  const bindings = buildEchoRecipeModulationBindings([{ id: 'shader', stemFocus: 'vocals', audioMap: { gain: { signal: 'rms', depth: .4 } } }], NARRATIVE_VARIANT_RECIPES['performance-kinetic']);
+  for (const binding of bindings) for (const field of ["attackSeconds", "releaseSeconds", "smoothingSeconds", "easing", "clamp", "quantize", "gate", "delaySeconds", "depth", "polarity", "safetyBounds"]) assert.ok(Object.hasOwn(binding.envelope, field), `${binding.id}: ${field}`);
+  const mix = bindings.find(binding => binding.id === 'master:mix-bloom');
+  assert.deepEqual(mix.source, { kind: 'mix_signal', bus: 'master', signal: 'rms' });
+  const frames = [{ atSeconds: .1, signals: { master: { rms: .8 } } }];
+  const masterOnly = evaluateDirectorModulationSequence([mix], frames)[0].outputs;
+  assert.ok(masterOnly[0].value > 0);
+  assert.deepEqual(evaluateDirectorModulationSequence([mix], frames, { mutedStems: ['vocals', 'drums', 'bass'] })[0].outputs, masterOnly);
 });
 
 test("the 0.6-second modulation probe is identical on continuous, direct, reverse and repeated seeks", () => {
