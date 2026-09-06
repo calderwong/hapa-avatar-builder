@@ -8,6 +8,7 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import {
   compileHyperFramesShow,
+  clipHyperFramesShow,
   hashEchoLyricOverlayExecutionContract,
   hyperFramesMediaElementTiming,
   hyperFramesMediaPresentationWindow,
@@ -20,6 +21,9 @@ import {
   resolveHyperFramesLocalFileUri,
   resolveHyperFramesMediaSource,
 } from "../src/domain/hyperframes-show-compiler.js";
+
+import { evaluateHyperFramesVisualizers } from "../src/domain/hyperframes-visualizer-runtime.js";
+import { echoLyricTemplateFrameState } from "../src/domain/echo-lyric-template-runtime.js";
 
 function nativeMediaGraph(cards) {
   return {
@@ -606,6 +610,10 @@ test("HyperFrames exports exact Reference images as bounded holds around the aut
   assert.equal(timing[1].activationDuration, 2);
   assert.equal(timing[2].activationStart, 3.55, "exit Reference still did not cover the outgoing transition dissolve");
   assert.equal(timing[2].activationDuration, 2.45);
+  const prefix = clipHyperFramesShow(show, 3);
+  assert.equal(inspectHyperFramesShow(prefix).ok, true);
+  assert.equal(prefix.instances.media[1].end, 4, "prefix clipping must preserve the authored transition duration");
+  assert.deepEqual(hyperFramesMediaElementTiming(prefix.instances.media[1]), hyperFramesMediaElementTiming(show.instances.media[1]), "prefix clipping must not accelerate source-fit media");
   for (const instance of show.instances.media) {
     assert.deepEqual(instance.cameraKeyframes.map((keyframe) => keyframe.crop), [
       certifiedPortraitCrop,
@@ -1239,4 +1247,52 @@ test("HyperFrames inspection rejects invalid duration, cue windows, and duplicat
   assert.equal(normalized.end, rounded.duration);
   assert.equal(normalized.windowNormalization.reason, "tail-rounding-clamped");
   assert.equal(inspectHyperFramesShow(rounded).ok, true);
+});
+
+
+test("render prefixes preserve authored media, lyric, camera and signal clocks without mutating the source", () => {
+  const graph = nativeMediaGraph([
+    mediaCard("first", { id: "first", localPath: "/media/first.mp4" }, { endSeconds: 6 }),
+    mediaCard("incoming", { id: "incoming", localPath: "/media/incoming.mp4" }, { startSeconds: 6, endSeconds: 12 }),
+  ]);
+  graph.song.lyricOverlay = { enabled: true, templateId: "orbit-caption-v1", lines: [{ text: "Hold this phrase", start: 4, end: 9, words: [{ word: "phrase", start: 5, end: 9 }] }] };
+  graph.tracks[0].cards[0].cameraKeyframes = [{ atSeconds: 0, intensity: 0 }, { atSeconds: 6, intensity: 1 }];
+  const full = compileHyperFramesShow({ showGraph: graph, telemetry: { masterMix: { frames: [{ t: 0, rms: 0.1 }, { t: 6, rms: 0.8 }, { t: 12, rms: 0.2 }] } }, project: {}, fps: 30 });
+  const before = structuredClone(full);
+  const clipped = clipHyperFramesShow(full, 5.8);
+  assert.equal(clipped.duration, 5.8);
+  assert.deepEqual(clipped.instances.media, full.instances.media, "incoming dissolve and original cue ends must survive a prefix boundary");
+  assert.deepEqual(clipped.instances.lyrics, full.instances.lyrics, "word/phrase endpoints must not move earlier");
+  assert.deepEqual(clipped.stemFrames, full.stemFrames, "signal interpolation retains its following sample");
+  assert.deepEqual(clipped.automation, full.automation);
+  for (const t of [0, 5, 5.55, 5.7, 5.799]) {
+    for (let i = 0; i < full.instances.media.length; i++) {
+      assert.deepEqual(hyperFramesMediaOpacityState(clipped.instances.media, i, t), hyperFramesMediaOpacityState(full.instances.media, i, t));
+    }
+  }
+  assert.equal(inspectHyperFramesShow(clipped).ok, true);
+  assert.deepEqual(full, before);
+  const shorter = clipHyperFramesShow(clipped, 5);
+  assert.equal(shorter.renderWindow.sourceDurationSeconds, 12);
+  assert.equal(shorter.renderWindow.sourceShowHash, full.showHash);
+  for (const patch of [{ startSeconds: 1 }, { endSeconds: 4 }, { sourceDurationSeconds: 4 }, { sourceShowHash: "invalid" }]) {
+    const invalid = structuredClone(clipped);
+    Object.assign(invalid.renderWindow, patch);
+    assert.ok(inspectHyperFramesShow(invalid).errors.includes("invalid-render-window"));
+  }
+});
+
+
+test("render prefix shader fades and lyric progress match full-song evaluation through the last output frame", () => {
+  const graph = canonicalShowGraphFixture();
+  const telemetry = JSON.parse(fs.readFileSync("work/dear-papa-stem-telemetry/stem-telemetry.json", "utf8"));
+  const project = JSON.parse(fs.readFileSync("data/music-video-projects/dear-papa-song-dear-papa-video-project.json", "utf8"));
+  graph.song.lyricOverlay = { enabled: true, templateId: "orbit-caption-v1", lines: [{ text: "Carry this phrase", start: 29, end: 34, words: [{ word: "Carry", start: 29, end: 30 }, { word: "this", start: 30, end: 32 }, { word: "phrase", start: 32, end: 34 }] }] };
+  const full = compileHyperFramesShow({ showGraph: graph, telemetry, project, proxyRegistry: EXACT_PROXY_REGISTRY, fps: 30 });
+  const prefix = clipHyperFramesShow(full, 31);
+  const lyrics = (show, t) => echoLyricTemplateFrameState({ templateId: show.instances.lyrics[0].templateId, enabled: true, line: show.instances.lyrics[0].lines[0], timeSeconds: t, fps: 30 });
+  for (const t of [0, 15, 29, 30, 30.5, 30.9, 929 / 30]) {
+    assert.deepEqual(evaluateHyperFramesVisualizers(prefix, t).layers, evaluateHyperFramesVisualizers(full, t).layers, `shader state at ${t}`);
+    assert.deepEqual(lyrics(prefix, t), lyrics(full, t), `lyric progress at ${t}`);
+  }
 });

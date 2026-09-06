@@ -1302,12 +1302,6 @@ export function compileHyperFramesShow({ showGraph, telemetry, project, proxyReg
   return manifest;
 }
 
-function clippedWindow(row, duration, startKey = "start", endKey = "end") {
-  const start = finite(row?.[startKey]);
-  const end = Math.min(duration, finite(row?.[endKey]));
-  return start < duration && end > start ? { ...structuredClone(row), [startKey]: start, [endKey]: end, duration: end - start } : null;
-}
-
 function visualizerCoverage(rows = []) {
   return {
     sourceCueCount: rows.length,
@@ -1324,35 +1318,29 @@ export function clipHyperFramesShow(show, requestedDuration) {
   const duration = Math.max(0, Math.min(finite(requestedDuration, show?.duration), finite(show?.duration)));
   if (!(duration > 0)) throw new Error("HyperFrames clip duration must be positive");
   const clipped = structuredClone(show);
-  const sourceDuration = finite(show.duration);
+  const sourceDuration = show.renderWindow?.sourceDurationSeconds ?? finite(show.duration);
   clipped.duration = duration;
   clipped.source = { ...clipped.source, sourceDurationSeconds: sourceDuration, boundedDemo: duration < sourceDuration, boundedDemoDurationSeconds: duration };
-  clipped.instances.media = (clipped.instances.media || []).map((row) => clippedWindow(row, duration)).filter(Boolean);
-  clipped.instances.visualizers = (clipped.instances.visualizers || []).map((row) => clippedWindow(row, duration)).filter(Boolean);
-  clipped.instances.lyrics = (clipped.instances.lyrics || []).map((track) => ({
+  // A render prefix ends output, not the authored cue clocks. Retain source
+  // ends, automation and signal lookahead so fades, ramps and lyric progress
+  // evaluate exactly as they do in the full song. Media can enter before its
+  // logical cut through the existing incoming crossfade window.
+  clipped.renderWindow = {
+    schemaVersion: "hapa.hyperframes.render-window.v1",
+    policy: "absolute-song-time-prefix",
+    startSeconds: 0,
+    endSeconds: duration,
+    sourceDurationSeconds: show.renderWindow?.sourceDurationSeconds ?? sourceDuration,
+    sourceShowHash: show.renderWindow?.sourceShowHash || show.showHash,
+  };
+  clipped.instances.media = (clipped.instances.media || []).filter((row, index, rows) =>
+    hyperFramesMediaPresentationWindow(rows, index)?.presentationStart < duration);
+  clipped.instances.visualizers = (clipped.instances.visualizers || []).filter(row => finite(row.start) < duration);
+  clipped.instances.lyrics = (clipped.instances.lyrics || []).map(track => ({
     ...track,
-    lines: (track.lines || []).filter((line) => echoLyricBoundary(line, "start") < duration && echoLyricBoundary(line, "end") > echoLyricBoundary(line, "start")).map((line) => ({ ...line, end: Math.min(duration, echoLyricBoundary(line, "end")) })),
+    lines: (track.lines || []).filter(line => echoLyricBoundary(line, "start") < duration && echoLyricBoundary(line, "end") > echoLyricBoundary(line, "start")),
   }));
-  clipped.instances.accents = (clipped.instances.accents || []).filter((event) => finite(event.atSeconds ?? event.startSeconds) < duration).map((event) => ({
-    ...event,
-    endSeconds: Math.min(duration, finite(event.endSeconds, finite(event.atSeconds ?? event.startSeconds))),
-  }));
-  clipped.automation.camera = (clipped.automation.camera || []).filter((row) => finite(row.atSeconds) <= duration);
-  if (clipped.automation.visualTimeTrack) {
-    clipped.automation.visualTimeTrack.events = (clipped.automation.visualTimeTrack.events || [])
-      .filter((event) => finite(event.startSeconds) < duration)
-      .map((event) => ({ ...event, endSeconds: Math.min(duration, finite(event.endSeconds)) }));
-    clipped.automation.visualTimeTrack.eventCount = clipped.automation.visualTimeTrack.events.length;
-  }
-  if (clipped.automation.accentTrack) {
-    clipped.automation.accentTrack.events = (clipped.automation.accentTrack.events || [])
-      .filter((event) => finite(event.atSeconds ?? event.startSeconds) < duration)
-      .map((event) => ({ ...event, endSeconds: Math.min(duration, finite(event.endSeconds, finite(event.atSeconds ?? event.startSeconds))) }));
-    clipped.automation.accentTrack.eventCount = clipped.automation.accentTrack.events.length;
-  }
-  clipped.stemFrames.duration = duration;
-  clipped.stemFrames.stems = (clipped.stemFrames.stems || []).map((stem) => ({ ...stem, frames: (stem.frames || []).filter((frame) => finite(frame.t) <= duration) }));
-  if (clipped.stemFrames.master) clipped.stemFrames.master.frames = (clipped.stemFrames.master.frames || []).filter((frame) => finite(frame.t) <= duration);
+  clipped.instances.accents = (clipped.instances.accents || []).filter(event => finite(event.atSeconds ?? event.startSeconds) < duration);
   clipped.visualCoverageNormalization = normalizeHyperFramesVisualCoverage(clipped);
   clipped.visualizerCoverage = visualizerCoverage(clipped.instances.visualizers);
   clipped.visualCoverage = inspectHyperFramesVisualCoverage(clipped);
@@ -1379,9 +1367,17 @@ export function inspectHyperFramesShow(show) {
   }
   const visualCoverage = inspectHyperFramesVisualCoverage(show);
   if (!visualCoverage.ok) errors.push("incomplete-visual-coverage");
+  const renderWindow = show.renderWindow;
+  const validRenderWindow = renderWindow?.schemaVersion === "hapa.hyperframes.render-window.v1"
+    && renderWindow.policy === "absolute-song-time-prefix"
+    && renderWindow.startSeconds === 0 && renderWindow.endSeconds === duration
+    && Number.isFinite(renderWindow.sourceDurationSeconds) && renderWindow.sourceDurationSeconds >= duration
+    && /^(?:sha256:)?[a-f0-9]{64}$/.test(renderWindow.sourceShowHash || "");
+  if (renderWindow && !validRenderWindow) errors.push("invalid-render-window");
+  const sourceDuration = validRenderWindow ? renderWindow.sourceDurationSeconds : duration;
   const cueIds = new Set();
   const windowTolerance = 1 / Math.max(1, Number(show.fps) || 30) + 1e-6;
-  const inspectWindow = (layer, kind) => {
+  const inspectWindow = (layer, kind, index) => {
     const id = String(layer?.id || layer?.cueId || "").trim();
     if (!id) errors.push(`missing-cue-id:${kind}`);
     else if (cueIds.has(id)) errors.push(`duplicate-cue-id:${id}`);
@@ -1390,12 +1386,14 @@ export function inspectHyperFramesShow(show) {
     const end = Number(layer?.end);
     if (!(Number.isFinite(start) && Number.isFinite(end) && start >= 0 && end > start)) {
       errors.push(`invalid-window:${id || kind}`);
-    } else if (Number.isFinite(duration) && duration > 0 && (start >= duration || end > duration + windowTolerance)) {
+    } else if (Number.isFinite(duration) && duration > 0 && (
+      (validRenderWindow && kind === "media" ? hyperFramesMediaPresentationWindow(show.instances.media, index)?.presentationStart : start) >= duration
+      || end > sourceDuration + windowTolerance)) {
       errors.push(`window-outside-show:${id || kind}`);
     }
   };
-  for (const layer of show.instances?.media || []) {
-    inspectWindow(layer, "media");
+  for (const [index, layer] of (show.instances?.media || []).entries()) {
+    inspectWindow(layer, "media", index);
     const mappingStatus = layer.source?.timeMappingStatus;
     if (mappingStatus?.declared === true && mappingStatus.valid !== true) {
       errors.push(`invalid-transition-time-map:${layer.id}`);

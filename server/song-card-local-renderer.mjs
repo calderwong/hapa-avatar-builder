@@ -3156,6 +3156,7 @@ async function defaultPipeline({
       `--proxy-registry=${canonicalProxyRegistryPath}`,
       `--output=${packageDirectory}`,
       `--audio=${masterPath}`,
+      "--presentation=clean",
     ], { cwd: ROOT, maxBuffer: 64 * 1024 * 1024, signal });
   } catch (error) {
     if (signal?.aborted) throw abortError(signal);
