@@ -85,3 +85,28 @@ test('whole-session residual evidence remains bounded and cannot forget early fa
   assert.equal(recorder.snapshot().session.audibleEstimatedSamples, 0);
   assert.equal(recorder.snapshot().session.absoluteResidualP95UpperBoundMs, null);
 });
+
+test('cue coverage and worst observations survive the recent ring without retaining arbitrary payloads', () => {
+  const recorder = createEchoPresentationTimingRecorder({ capacity: 16 });
+  for (let i = 0; i < 600; i++) recorder.record({ eligible: true, route: 'decoded-frame-callback',
+    mediaId: 'clip-' + i, cueStartSeconds: i, cueEndSeconds: i + 1, clock: { songTime: i + .5 },
+    audibleEstimateResidualMs: i % 2 ? -i : i, unrelatedPayload: 'private'.repeat(10000) });
+  const value = recorder.snapshot();
+  assert.equal(value.retained, 16);
+  assert.equal(value.session.cueObservations.length, 512);
+  assert.equal(value.session.cueOverflowSamples, 88);
+  assert.equal(value.session.worstObservations.length, 16);
+  assert.equal(value.session.worstObservations[0].residualMs, -599);
+  assert.equal(value.session.worstObservations[0].mediaId, 'clip-599');
+  assert.equal(value.session.cueObservations[0].firstObservedSongTime, .5);
+  assert.equal(value.session.cueObservations[40].overFrameBudgetSamples, 1);
+  assert.ok(!JSON.stringify(value.session).includes('private'));
+  value.session.cueObservations[0].decodedSamples = 999;
+  value.session.worstObservations[0].residualMs = 0;
+  assert.equal(recorder.snapshot().session.cueObservations[0].decodedSamples, 1);
+  assert.equal(recorder.snapshot().session.worstObservations[0].residualMs, -599);
+  recorder.reset();
+  assert.equal(recorder.snapshot().session.cueObservations.length, 0);
+  assert.equal(recorder.snapshot().session.worstObservations.length, 0);
+  assert.equal(recorder.snapshot().session.cueOverflowSamples, 0);
+});

@@ -190,6 +190,7 @@ import {
 import { createEchoMintPlanCanonicalResolver } from "./echo-mint-plan-canonical-resolver.mjs";
 import {
   createEchoMintPlanCertificationQueue,
+  createEchoReadinessProcessQueue,
   readFreshEchoPlanCertificationBlockers,
 } from "./echo-mint-plan-certification-queue.mjs";
 import { createEchoDirectionVariantSummaryIndex } from "./echo-direction-variant-summary-index.mjs";
@@ -800,6 +801,7 @@ const echoProjectCatalog = createEchoProjectCatalog({
 const echoIsfAssets = new EchoIsfAssetCatalog({ musicVizRoot: HAPA_MUSIC_VIZ_ROOT });
 const echoDirectorShowGraphCache = createEchoDirectorShowGraphCache();
 const echoMintPlanCertificationQueue = createEchoMintPlanCertificationQueue();
+const runEchoReadinessCertificationProcess = createEchoReadinessProcessQueue(executeEchoReadinessCertificationProcess);
 const echoDirectorProjectCompileJobs = new Map();
 const echoDirectorProjectWarmupJobs = new Map();
 let echoPreviewPreparationPromise = null;
@@ -10773,7 +10775,7 @@ function songCardRenderCertificationError(reason, message, details = {}) {
   return error;
 }
 
-function runEchoReadinessCertificationProcess(args, {
+function executeEchoReadinessCertificationProcess(args, {
   timeoutMs = 70 * 60_000,
   maxBuffer = 16 * 1024 * 1024,
 } = {}) {

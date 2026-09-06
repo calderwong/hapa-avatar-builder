@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import {
   createEchoMintPlanCertificationQueue,
+  createEchoReadinessProcessQueue,
   readFreshEchoPlanCertificationBlockers,
 } from "../server/echo-mint-plan-certification-queue.mjs";
 
@@ -97,4 +98,32 @@ test("automatic certification surfaces blockers only from a fresh exact-plan rep
   const old = new Date(Date.now() - 60_000);
   fs.utimesSync(reportPath, old, old);
   assert.equal(readFreshEchoPlanCertificationBlockers({ reportPath, planId, planSha256, startedAtMs }), null);
+});
+
+
+test("cut warmup and mint-plan subprocesses serialize globally, coalesce identical requests and recover after failure", async () => {
+  let active = 0, peak = 0, release;
+  const gate = new Promise(resolve => { release = resolve; });
+  const calls = [];
+  const run = createEchoReadinessProcessQueue(async (args, options) => {
+    active++; peak = Math.max(peak, active); calls.push({ args, options });
+    try { if (args[0] === 'default-cut') await gate; if (args[0] === 'bad-cut') throw Error('bad source'); return args[0]; }
+    finally { active--; }
+  });
+  const args = ['default-cut'], options = { timeoutMs: 600000 };
+  const first = run(args, options), duplicate = run(['default-cut'], { timeoutMs: 600000 });
+  const selected = run(['selected-cut']), failed = run(['bad-cut']), plan = run(['mint-plan']);
+  const rejected = assert.rejects(failed, /bad source/);
+  args[0] = 'mutated'; options.timeoutMs = 1;
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(first, duplicate);
+  assert.equal(active, 1); assert.equal(calls.length, 1);
+  release();
+  assert.deepEqual(await Promise.all([first, selected, plan]), ['default-cut', 'selected-cut', 'mint-plan']);
+  await rejected;
+  assert.equal(peak, 1); assert.equal(calls[0].options.timeoutMs, 600000);
+  assert.equal(await run(['selected-cut']), 'selected-cut', 'completed entries release their key');
+  const api = fs.readFileSync(new URL('../server/api.mjs', import.meta.url), 'utf8');
+  assert.match(api, /const runEchoReadinessCertificationProcess = createEchoReadinessProcessQueue\(executeEchoReadinessCertificationProcess\)/);
+  assert.equal((api.match(/executeEchoReadinessCertificationProcess\(/g) || []).length, 1, 'the raw executor is only declared; API callers use the queued boundary');
 });

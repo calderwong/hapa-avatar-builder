@@ -83,7 +83,15 @@ app.whenReady().then(async () => {
     if(fullSong){
       const duration=await win.webContents.executeJavaScript(`window.__ECHO_TIMING_FULL_SONG__.duration`);
       if(!(duration>0&&duration<840))throw new Error('Full-song duration outside the bounded proof budget');
-      await waitFor(`window.__ECHO_TIMING_FULL_SONG__.ended`,Math.ceil((duration+30)*1000));
+      const deadline=Date.now()+Math.ceil((duration+30)*1000);
+      let lastProgress=Date.now(), ended=false;
+      while(Date.now()<deadline){
+        ended=await win.webContents.executeJavaScript(`window.__ECHO_TIMING_FULL_SONG__.ended`);
+        if(ended)break;
+        if(Date.now()-lastProgress>=30000){lastProgress=Date.now();await snapshot('full-song-progress');}
+        await delay(1000);
+      }
+      if(!ended)throw new Error('Full song did not reach its natural end within the bounded deadline');
       await delay(1200);
       fullSongEvidence=await win.webContents.executeJavaScript(`window.__ECHO_TIMING_FULL_SONG__`);
     }

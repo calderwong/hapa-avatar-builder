@@ -52,7 +52,9 @@ export function measureEchoPresentedFrame({ audio, context, video, shot = {}, no
   const eligible = clock.playing && !video?.seeking && finite(mediaTime) && finite(end)
     && clock.songTime >= start && clock.songTime < end;
   return { version: ECHO_PRESENTATION_TIMING_VERSION, route: hasFrame ? 'decoded-frame-callback' : 'element-time-fallback',
-    eligible, mediaId: String(shot.media_id || ''), cueStartSeconds: start, mediaTime,
+    eligible, mediaId: String(shot.media_id || ''), cueStartSeconds: start, cueEndSeconds: end, mediaTime,
+    elementMediaTime: Number(video?.currentTime), mediaReadyState: Number(video?.readyState),
+    sourceInSeconds: Number(options.sourceInSeconds) || 0, sourceOutSeconds: Number(options.sourceOutSeconds),
     nowMs, expectedDisplayTimeMs: hasFrame ? displayTimeMs : null,
     presentationTimeMs: finite(metadata?.presentationTime) ? metadata.presentationTime : null,
     presentedFrames: finite(metadata?.presentedFrames) ? metadata.presentedFrames : null,
@@ -72,6 +74,47 @@ export function createEchoPresentationTimingRecorder({ capacity = 256 } = {}) {
   // The last bin is overflow; never turn unbounded residuals into a passing p95.
   const residualBins = new Float64Array(2002);
   let sessionDecoded = 0, sessionAudible = 0, sessionFallback = 0, sessionIneligible = 0;
+  const cueLimit = 512, worstLimit = 16;
+  const cues = new Map(), worst = [];
+  let cueOverflowSamples = 0;
+  const recordCue = sample => {
+    const mediaId = String(sample.mediaId || '').slice(0, 256);
+    const start = finite(sample.cueStartSeconds) ? sample.cueStartSeconds : null;
+    const end = finite(sample.cueEndSeconds) ? sample.cueEndSeconds : null;
+    const key = JSON.stringify([mediaId, start, end]);
+    let cue = cues.get(key);
+    if (!cue && cues.size < cueLimit) {
+      cue = { mediaId, startSeconds: start, endSeconds: end, decodedSamples: 0, audibleEstimatedSamples: 0,
+        firstObservedSongTime: null, lastObservedSongTime: null, maximumAbsoluteResidualMs: null, overFrameBudgetSamples: 0 };
+      cues.set(key, cue);
+    }
+    if (!cue) cueOverflowSamples++;
+    else {
+      cue.decodedSamples++;
+      const time = sample.clock?.songTime;
+      if (finite(time)) {
+        cue.firstObservedSongTime = cue.firstObservedSongTime === null ? time : Math.min(time, cue.firstObservedSongTime);
+        cue.lastObservedSongTime = cue.lastObservedSongTime === null ? time : Math.max(time, cue.lastObservedSongTime);
+      }
+    }
+    const residual = sample.audibleEstimateResidualMs;
+    if (!finite(residual)) return;
+    if (cue) {
+      cue.audibleEstimatedSamples++;
+      cue.maximumAbsoluteResidualMs = Math.max(cue.maximumAbsoluteResidualMs || 0, Math.abs(residual));
+      if (Math.abs(residual) > 1000 / 30) cue.overFrameBudgetSamples++;
+    }
+    if (worst.length >= worstLimit && Math.abs(residual) <= Math.abs(worst.at(-1).residualMs)) return;
+    worst.push({ mediaId, cueStartSeconds: start, cueEndSeconds: end, residualMs: residual,
+      songTime: sample.clock?.songTime, audibleSongTime: sample.clock?.audibleSongTime,
+      outputLagSeconds: sample.clock?.outputLagSeconds, mediaTime: sample.mediaTime, elementMediaTime: sample.elementMediaTime,
+      expectedSourceTime: sample.expectedSourceTime, audibleExpectedSourceTime: sample.audibleExpectedSourceTime,
+      sourceRate: sample.sourceRate, sourceInSeconds: sample.sourceInSeconds, sourceOutSeconds: sample.sourceOutSeconds,
+      nowMs: sample.nowMs, expectedDisplayTimeMs: sample.expectedDisplayTimeMs, callbackLateMs: sample.callbackLateMs,
+      mediaReadyState: sample.mediaReadyState, presentedFrames: sample.presentedFrames });
+    worst.sort((a, b) => Math.abs(b.residualMs) - Math.abs(a.residualMs));
+    if (worst.length > worstLimit) worst.pop();
+  };
   const sessionSummary = () => {
     let cumulative = 0, p95UpperBoundMs = null;
     for (let bin = 0; sessionAudible > 0 && bin < residualBins.length; bin++) {
@@ -81,7 +124,8 @@ export function createEchoPresentationTimingRecorder({ capacity = 256 } = {}) {
     return { scope: 'All observations since explicit recorder reset', decodedSamples: sessionDecoded,
       audibleEstimatedSamples: sessionAudible, fallbackSamples: sessionFallback, ineligibleSamples: sessionIneligible,
       absoluteResidualP95UpperBoundMs: p95UpperBoundMs, overflowSamples: residualBins[2001],
-      binWidthMs: 1, physicallyCalibrated: false };
+      binWidthMs: 1, cueLimit, cueOverflowSamples, cueObservations: [...cues.values()].map(cue => ({ ...cue })),
+      worstLimit, worstObservations: worst.map(sample => ({ ...sample })), physicallyCalibrated: false };
   };
   return {
     record(sample) {
@@ -89,12 +133,13 @@ export function createEchoPresentationTimingRecorder({ capacity = 256 } = {}) {
       if (!sample.eligible) { sessionIneligible++; return; }
       if (sample.route !== 'decoded-frame-callback') { sessionFallback++; return; }
       sessionDecoded++;
+      recordCue(sample);
       if (finite(sample.audibleEstimateResidualMs)) {
         sessionAudible++;
         residualBins[Math.min(2001, Math.ceil(Math.abs(sample.audibleEstimateResidualMs)))]++;
       }
     },
-    reset() { ring.fill(undefined); residualBins.fill(0); next = 0; length = 0; total = 0; sessionDecoded = 0; sessionAudible = 0; sessionFallback = 0; sessionIneligible = 0; },
+    reset() { ring.fill(undefined); residualBins.fill(0); cues.clear(); worst.length = 0; cueOverflowSamples = 0; next = 0; length = 0; total = 0; sessionDecoded = 0; sessionAudible = 0; sessionFallback = 0; sessionIneligible = 0; },
     snapshot() {
       const samples = Array.from({ length }, (_, index) => ring[(next - length + index + limit) % limit]);
       const eligible = samples.filter(sample => sample.eligible && sample.route === 'decoded-frame-callback');

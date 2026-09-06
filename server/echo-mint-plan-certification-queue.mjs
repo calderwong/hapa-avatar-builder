@@ -28,6 +28,18 @@ export function createEchoMintPlanCertificationQueue() {
   };
 }
 
+// All readiness subprocess callers share this queue, including cut warmups.
+// The existing cross-process lock remains authoritative for separate API/CLI hosts.
+export function createEchoReadinessProcessQueue(execute) {
+  if (typeof execute !== "function") throw new TypeError("A readiness process executor is required.");
+  const queue = createEchoMintPlanCertificationQueue();
+  return (args, options = {}) => {
+    const savedArgs = [...args], savedOptions = { ...options };
+    const key = JSON.stringify([savedArgs, savedOptions.timeoutMs ?? null, savedOptions.maxBuffer ?? null]);
+    return queue.run(key, () => execute(savedArgs, savedOptions));
+  };
+}
+
 function boundedBlocker(row = {}) {
   const message = text(row.message || row.label || row.code).slice(0, 500);
   return {
