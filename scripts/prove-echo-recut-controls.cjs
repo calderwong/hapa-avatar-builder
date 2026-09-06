@@ -33,7 +33,13 @@ app.whenReady().then(async()=>{
   const layouts=[];
   for(const [width,zoom]of [[1280,1],[1280,2],[480,1]]){win.webContents.setZoomFactor(zoom);win.setContentSize(width,720);await delay(100);const state=await win.webContents.executeJavaScript('({width:innerWidth,scrollWidth:document.documentElement.scrollWidth,controlSize:getComputedStyle(document.querySelector("select")).fontSize})');check(state.scrollWidth<=state.width+1,'Controls overflow viewport');check(parseFloat(state.controlSize)>=14,'Critical controls are too small');layouts.push({width,zoom,...state});await fs.writeFile(path.join(output,`controls-${width}-${zoom}x.png`),(await win.webContents.capturePage()).toPNG());}
   await win.webContents.executeJavaScript('window.recutProofChangeSong()');await waitFor('![...document.querySelectorAll("button")].some(button=>button.textContent==="Restore comparison source")');
-  const report={pass:true,scope:'Actual VariationLabPanel on isolated declared-identity fixture; this does not measure media playback or human usability',changeAmount:.5,changedShots:2,castAndSceneApplied:true,restoreExact:true,staleRestoreRejected:true,songSwitchClearsCandidates:true,layouts};await fs.writeFile(path.join(output,'report.json'),JSON.stringify(report,null,2)+'\n');console.log(JSON.stringify(report));exitStatus=0;
+  await set('Recut start seconds','6');await set('Recut end seconds','18');await set('Recut change amount','1');await set('Recut timing','supported-cues');
+  await click('Generate A/B/C');await click('Review A in player');
+  const timing=await win.webContents.executeJavaScript('({receipt:window.recutProofReceipt.cueReflow,times:window.recutProofProject.timeline.map(shot=>[shot.start_sec,shot.end_sec])})');
+  check(timing.receipt.movedBoundaries.length===3,'Cue timing control did not move the three eligible boundaries');
+  check(JSON.stringify(timing.times.slice(2,6))===JSON.stringify([[6,9.08],[9.08,12.06],[12.06,15.08],[15.08,18]]),'Cue timing was not applied to the candidate');
+  await fs.writeFile(path.join(output,'cue-timing.png'),(await win.webContents.capturePage()).toPNG());
+  const report={pass:true,scope:'Actual VariationLabPanel on isolated declared-identity/cue fixture; this does not measure media playback or human usability',changeAmount:.5,changedShots:2,castAndSceneApplied:true,restoreExact:true,staleRestoreRejected:true,songSwitchClearsCandidates:true,cueTiming:timing,layouts};await fs.writeFile(path.join(output,'report.json'),JSON.stringify(report,null,2)+'\n');console.log(JSON.stringify(report));exitStatus=0;
  }catch(error){console.error(error.stack);}
  finally{clearTimeout(timer);if(win&&!win.isDestroyed())win.destroy();if(server)await server.close();if(temporary)await fs.rm(temporary,{recursive:true,force:true});app.exit(exitStatus);}
 });

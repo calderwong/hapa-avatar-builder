@@ -32,7 +32,7 @@ function selectionRank(seed, index) {
 /** Cheap recuts reuse only the current cut's prepared source pool. No fetching,
  * decoding, analysis, model calls, timing guesses or source writes occur here.
  * A partial boundary shot stays byte-identical instead of adding a new cut. */
-export function createEchoNarrativeRecut({ project, recipeId, seed, range, locks = [], changeAmount = 1, requiredCharacterIds = [], requiredSceneIds = [] }) {
+export function createEchoNarrativeRecut({ project, recipeId, seed, range, locks = [], changeAmount = 1, requiredCharacterIds = [], requiredSceneIds = [], timingMode = "preserve" }) {
   const recipe = NARRATIVE_VARIANT_RECIPES[recipeId];
   if (!recipe) throw new Error(`Choose a supported narrative recipe: ${recipeId}`);
   const start = Number(range?.startSeconds), end = Number(range?.endSeconds);
@@ -58,22 +58,33 @@ export function createEchoNarrativeRecut({ project, recipeId, seed, range, locks
     return [{ id: String(index), sourceShotIndex: index, media, candidateMedia: media.sourceKind === "pure-visualizer" ? [media] : pool,
       mediaConstraints: shot.mediaConstraints, startSeconds: Number(shot.start_sec), endSeconds: Number(shot.end_sec),
       camera: { motion: shot.camera_motion || "static", intensity: shot.camera_intensity ?? 1, speed: shot.camera_speed ?? 1, focus: shot.camera_focus || "center" },
-      locks: [...new Set(["timing", ...(Array.isArray(shot.locks) ? shot.locks : []), ...(cameraLocked ? ["camera"] : []), ...(index === 0 || mediaLocked || media.sourceKind === "pure-visualizer" ? ["media"] : [])])],
+      locks: [...new Set([...(timingMode === "preserve" || locks.some(lock => lock.targetId === "timing") ? ["timing"] : []), ...(Array.isArray(shot.locks) ? shot.locks : []), ...(cameraLocked ? ["camera"] : []), ...(index === 0 || mediaLocked || media.sourceKind === "pure-visualizer" ? ["media"] : [])])],
     }];
   });
   if (!slots.length) throw new Error("The range contains no complete shots. Extend it to include a source cut boundary.");
   if (slots.length * Math.max(1, pool.length) > 200000) throw new Error("This range exceeds the recut work budget. Select fewer complete shots.");
-  const editable = slots.filter(slot => !slot.locks.includes("media") || !slot.locks.includes("camera"));
+  const editable = slots.filter(slot => !slot.locks.includes("media") || !slot.locks.includes("camera") || !slot.locks.includes("timing"));
   const selected = new Set([...editable].sort((a, b) => selectionRank(seed, a.sourceShotIndex) - selectionRank(seed, b.sourceShotIndex) || a.sourceShotIndex - b.sourceShotIndex)
     .slice(0, Math.ceil(editable.length * changeAmount)).map(slot => slot.sourceShotIndex));
   for (const slot of slots) {
-    if (!selected.has(slot.sourceShotIndex)) slot.locks = [...new Set([...slot.locks, "media", "camera"])];
+    if (!selected.has(slot.sourceShotIndex)) slot.locks = [...new Set([...slot.locks, "media", "camera", "timing"])];
     else slot.mediaConstraints = mergeEchoMediaConstraints(slot.mediaConstraints, { requiredCharacterIds, requiredSceneIds });
   }
-  const sequence = sequenceEchoNarrative({ slots, recipe, seed: String(seed), constraints: project.mediaConstraints || {} });
+  const sequence = sequenceEchoNarrative({ slots, recipe, seed: String(seed), constraints: project.mediaConstraints || {}, timingMode, locks,
+    cueGraph: project.director_show_graph?.directorV2?.cueGraph ? {
+      ...project.director_show_graph.directorV2.cueGraph,
+      cueGraphId: project.director_show_graph.directorV2.cueGraph.cueGraphId || project.director_show_graph.directorV2.cueGraph.id,
+      // Compact editor graphs omit lyricCues. Protect the source phrases even
+      // when caption display is disabled, without changing their timing truth.
+      lyricCues: Array.isArray(project.timed_lyrics) ? project.timed_lyrics.map((line, index) => ({ id: `lyric:${index}`,
+        startSeconds: Number(line.startSeconds ?? line.start ?? line.start_sec), endSeconds: Number(line.endSeconds ?? line.end ?? line.end_sec) }))
+        : project.director_show_graph.directorV2.cueGraph.lyricCues,
+    } : null });
   const replacement = new Map(sequence.slots.filter(slot => selected.has(slot.sourceShotIndex)).map(slot => {
     const original = timeline[slot.sourceShotIndex];
     const shot = { ...original };
+    if (slot.startSeconds !== Number(original.start_sec)) shot.start_sec = slot.startSeconds;
+    if (slot.endSeconds !== Number(original.end_sec)) shot.end_sec = slot.endSeconds;
     if (!slot.locks.includes("media")) {
       for (const field of mediaFields) {
         delete shot[field];
@@ -94,7 +105,7 @@ export function createEchoNarrativeRecut({ project, recipeId, seed, range, locks
   }));
   const next = { ...project, timeline: timeline.map((shot, index) => replacement.get(index) || shot), hyperframe_script_stale: true };
   const receipt = { ...sequence.receipt, parentCutId: project.active_direction_script_variant?.id || "legacy", range: { startSeconds: start, endSeconds: end },
-    controls: { changeAmount, requiredCharacterIds: [...requiredCharacterIds], requiredSceneIds: [...requiredSceneIds], locks: structuredClone(locks) },
+    controls: { changeAmount, requiredCharacterIds: [...requiredCharacterIds], requiredSceneIds: [...requiredSceneIds], locks: structuredClone(locks), timingMode },
     changeBudget: { editableShots: editable.length, selectedShots: selected.size, policy: "seeded-ceiling-of-editable-whole-shots" },
     changedShotIndices: [...replacement.keys()].filter(index => JSON.stringify(next.timeline[index]) !== JSON.stringify(timeline[index])),
     preservedShotIndices: timeline.map((_, index) => index).filter(index => !replacement.has(index)),

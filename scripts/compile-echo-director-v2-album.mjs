@@ -35,13 +35,16 @@ const TARGET_SONG = String(argument("song", "") || "").trim();
 if (TARGET_SONG && path.basename(TARGET_SONG) !== TARGET_SONG) throw new Error(`Unsafe target song ID: ${TARGET_SONG}`);
 const RECIPE = String(argument("recipe", "visualizer-forward"));
 const SEED = String(argument("seed", ""));
+const TIMING_MODE = String(argument("timing-mode", "preserve"));
+if (!["preserve", "supported-cues"].includes(TIMING_MODE)) throw new Error("Unknown timing mode; choose preserve or supported-cues.");
 const MEDIA_CONSTRAINTS = {
   requiredCharacterIds: String(argument("characters", "")).split(",").map(value => value.trim()).filter(Boolean),
   requiredSceneIds: String(argument("scenes", "")).split(",").map(value => value.trim()).filter(Boolean),
   bans: String(argument("bans", "")).split(",").map(value => value.trim()).filter(Boolean),
 };
 if (!ECHO_DIRECTOR_RECIPES[RECIPE]) throw new Error(`Unknown Echo director recipe: ${RECIPE}`);
-const customDirection = RECIPE !== "visualizer-forward" || SEED || Object.values(MEDIA_CONSTRAINTS).some(value => value.length);
+if (TIMING_MODE !== "preserve" && ECHO_DIRECTOR_RECIPES[RECIPE].schemaVersion !== "hapa.echo.narrative-recipe.v1") throw new Error("Cue reflow requires a narrative recipe.");
+const customDirection = TIMING_MODE !== "preserve" || RECIPE !== "visualizer-forward" || SEED || Object.values(MEDIA_CONSTRAINTS).some(value => value.length);
 if (customDirection && (!TARGET_SONG || !process.argv.includes("--output") || OUTPUT === path.join(ROOT, "artifacts/echo-director-v2/album"))) {
   throw new Error("Custom direction requires --song and a separate --output directory to preserve the current album cut.");
 }
@@ -171,6 +174,7 @@ for (const file of files) {
     recipe: RECIPE,
     seed: SEED || `album-v2:${project.song_id}`,
     mediaConstraints: MEDIA_CONSTRAINTS,
+    timingMode: TIMING_MODE,
     avatarRoot: ROOT,
     nativeProxyAvailable,
   });
@@ -458,6 +462,7 @@ if (TARGET_SONG) {
     ok: report.ok && nativeRouteReport.ok && report.projectCount === 1,
     generatedAt: report.generatedAt,
     songId: TARGET_SONG,
+    timingMode: TIMING_MODE,
     project: rows[0] || null,
     mediaPreflight: report.mediaPreflight,
     nativeShaderRoutes: report.nativeShaderRoutes,

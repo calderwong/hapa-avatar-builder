@@ -589,6 +589,7 @@ export function buildEditorialTreatment(projectInput, cueGraph, manifest, regist
         },
         transition: String(shot.transition || "cut"),
         locks: uniqueBy(["timing", ...(index === 0 ? ["media"] : []), ...(Array.isArray(shot.locks) ? shot.locks : [])], (item) => item),
+        timingLockSource: shot.locks?.some(lock => ["timing", "cut"].includes(lock)) ? "authored" : "preserve-source-default",
       };
     })
     .filter(Boolean);
@@ -992,11 +993,15 @@ function admitVisualizerLayers(visualizers, requestedMaxLayers) {
   };
 }
 
-export function compileDirectorVariant({ treatment, cueGraph, recipe = "conservative", seed = "echo-v2", sourceProject = null, mediaConstraints = {} }) {
+export function compileDirectorVariant({ treatment, cueGraph, recipe = "conservative", seed = "echo-v2", sourceProject = null, mediaConstraints = {}, timingMode = "preserve", locks = [] }) {
   const normalizedRecipe = resolveEchoDirectorRecipe(recipe);
+  if (!["preserve", "supported-cues"].includes(timingMode)) throw new Error("Unknown timing mode.");
+  if (timingMode === "supported-cues" && normalizedRecipe.schemaVersion !== "hapa.echo.narrative-recipe.v1") throw new Error("Cue reflow requires a narrative recipe.");
   const outputProfile = resolveEchoOutputProfile(treatment.outputProfile ?? projectBody(sourceProject));
   const narrative = normalizedRecipe.schemaVersion === "hapa.echo.narrative-recipe.v1"
-    ? sequenceEchoNarrative({ slots: treatment.mediaSlots, recipe: normalizedRecipe, seed, constraints: mergeEchoMediaConstraints(projectBody(sourceProject)?.mediaConstraints, mediaConstraints) }) : null;
+    ? sequenceEchoNarrative({ slots: treatment.mediaSlots.map(slot => timingMode === "supported-cues" && slot.timingLockSource === "preserve-source-default"
+      ? { ...slot, locks: slot.locks.filter(lock => lock !== "timing") } : slot), recipe: normalizedRecipe, seed,
+      constraints: mergeEchoMediaConstraints(projectBody(sourceProject)?.mediaConstraints, mediaConstraints), cueGraph, timingMode, locks }) : null;
   const slots = narrative?.slots || treatment.mediaSlots.map((slot, index) => {
     const candidates = slot.candidateMedia || [];
     const offset = normalizedRecipe.mediaOffset % Math.max(1, candidates.length);
@@ -1007,11 +1012,11 @@ export function compileDirectorVariant({ treatment, cueGraph, recipe = "conserva
     return { ...slot, selectedMedia: selected, compiledIndex: index };
   });
   const trackA = slots.map((slot, index) => {
-    const nearestCue = (cueGraph.cues || []).reduce((best, candidate) => {
+    const nearestCue = (cueGraph.cues || []).filter(candidate => candidate.approved === true && candidate.eligibleActions?.includes("cut")).reduce((best, candidate) => {
       const delta = Math.abs(Number(candidate.atSeconds) - slot.startSeconds);
       return !best || delta < best.delta ? { cue: candidate, delta } : best;
     }, null);
-    const approvedCue = nearestCue && nearestCue.delta <= Math.max(0.12, Number(nearestCue.cue.toleranceSeconds || 0)) ? nearestCue.cue : null;
+    const approvedCue = nearestCue && nearestCue.delta <= Number(nearestCue.cue.toleranceSeconds || 0) ? nearestCue.cue : null;
     return ({
       id: `card:a:${index}`,
       trackId: "track-a",
@@ -1514,7 +1519,7 @@ export function compileDirectorVariant({ treatment, cueGraph, recipe = "conserva
   return { ...compiled, directorV2: { ...compiled.directorV2, mediaDiversityReport: buildMediaDiversityReport(compiled) } };
 }
 
-export function buildDirectorV2Artifacts({ project, sourceProject = project, manifest, registry = null, stemTelemetry = null, duration, recipe, seed, avatarRoot, nativeProxyAvailable = null, mediaConstraints = {} }) {
+export function buildDirectorV2Artifacts({ project, sourceProject = project, manifest, registry = null, stemTelemetry = null, duration, recipe, seed, avatarRoot, nativeProxyAvailable = null, mediaConstraints = {}, timingMode = "preserve", locks = [] }) {
   const sourceProjectBody = projectBody(sourceProject) || {};
   const cueGraph = buildCueGraph(project, { duration, stemTelemetry });
   const treatment = buildEditorialTreatment(project, cueGraph, manifest, registry, {
@@ -1523,7 +1528,7 @@ export function buildDirectorV2Artifacts({ project, sourceProject = project, man
     sourceProjectHash: contentHash(sourceProjectBody),
     stemTelemetry,
   });
-  const showGraph = compileDirectorVariant({ treatment, cueGraph, recipe, seed, sourceProject, mediaConstraints });
+  const showGraph = compileDirectorVariant({ treatment, cueGraph, recipe, seed, sourceProject, mediaConstraints, timingMode, locks });
   return {
     cueGraph,
     treatment,

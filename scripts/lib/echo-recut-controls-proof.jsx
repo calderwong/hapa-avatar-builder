@@ -2,6 +2,7 @@ import React, {useState} from 'react';
 import {createRoot} from 'react-dom/client';
 import VariationLabPanel from '../../src/components/VariationLabPanel.jsx';
 const source={song_id:'proof-song',duration:24,audio_uri:'/source.mp3',active_direction_script_variant:{id:'saved-source'},visualizer_timeline:[],timed_lyrics:[{start:0,end:2,text:'Keep this lyric'}],timeline:Array.from({length:8},(_,index)=>({start_sec:index*3,end_sec:index*3+3,media_id:'media-'+index,media_uri:'/media/'+index+'.mp4',camera_motion:'static',camera_intensity:.1,camera_speed:1,media_contract:{type:'video',originalUri:'/media/'+index+'.mp4'},characterIds:[index%2?'cast-b':'cast-a'],sceneIds:['scene-a']}))};
+source.director_show_graph={directorV2:{cueGraph:{schemaVersion:'hapa.echo.cue-graph.v2',id:'cue:controls',sections:[{id:'song',startSeconds:0,endSeconds:24}],cues:[9.08,12.06,15.08].map(atSeconds=>({id:'cue:'+atSeconds,atSeconds,kind:'edit_pulse',source:'declared-proof-cue',approved:true,toleranceSeconds:.1,eligibleActions:['cut']}))}}};
 window.recutProofSource=structuredClone(source);
 function Proof(){
  const [project,setProject]=useState(source);

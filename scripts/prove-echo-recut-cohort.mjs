@@ -8,6 +8,9 @@ const root=path.resolve(import.meta.dirname,'..');
 const option=name=>process.argv.find(arg=>arg.startsWith(`--${name}=`))?.slice(name.length+3);
 const cohort=JSON.parse(await fs.readFile(option('cohort')||path.join(root,'artifacts/echo-enhancement-current-baseline/cohort.json'),'utf8')).cohort;
 const output=path.resolve(option('output')||path.join(root,'artifacts/echo-recut-cohort-proof'));
+const timingMode=option('timing-mode')||'preserve';
+const api=option('api');
+if(api&&!/^http:\/\/127\.0\.0\.1:\d+$/.test(api))throw new Error('The cohort proof accepts an explicit loopback preparation API only');
 if(!Array.isArray(cohort)||cohort.length>12)throw new Error('Supply a bounded explicit cohort');
 const hash=value=>createHash('sha256').update(value).digest('hex');
 const percentile=(rows,p)=>[...rows].sort((a,b)=>a-b)[Math.ceil(rows.length*p)-1];
@@ -19,13 +22,18 @@ for(const row of cohort){
   const baseFile=path.join(root,'data/music-video-projects',row.songId+'-video-project.json'),variantFile=path.join(root,'data/music-video-project-variants',row.songId,row.selectedCut.id+'.json');
   const baseBytes=await fs.readFile(baseFile),variantBytes=await fs.readFile(variantFile);
   const base=JSON.parse(baseBytes).music_video_project,variant=JSON.parse(variantBytes);
-  const project=deriveEchoDirectionVariantProject(base,variant),sourceJSON=JSON.stringify(project);
+  let prepared=base,preparedVariant=variant;
+  if(api){const response=await fetch(`${api}/api/echos/director-project?songId=${encodeURIComponent(row.songId)}&variantId=${encodeURIComponent(row.selectedCut.id)}`,{signal:AbortSignal.timeout(30000)});if(!response.ok)throw new Error('Preparation API HTTP '+response.status);prepared=(await response.json()).music_video_project;preparedVariant=prepared.direction_script_variants.find(v=>v.id===row.selectedCut.id);if(!preparedVariant)throw new Error('Selected cut missing from preparation');}
+  const project=deriveEchoDirectionVariantProject(prepared,preparedVariant),sourceJSON=JSON.stringify(project);
+  if(api&&!Array.isArray(project.director_show_graph?.directorV2?.cueGraph?.cues))throw new Error('Prepared canonical cues are unavailable: '+JSON.stringify(prepared.director_show_graph_receipt?.reason||'missing-cue-graph'));
+  result.preparation=api?'loopback-selected-cut-before-measurement':'source-files';result.timingMode=timingMode;result.cueCount=project.director_show_graph?.directorV2?.cueGraph?.cues?.length||0;result.movedBoundaryCounts=[];
   const one=[],three=[],hashes=[],visualHashes=[];let warmReplay;
   for(let run=-2;run<20;run++){
    const started=performance.now(),batch=[],visualBatch=[];
    for(const label of ['A','B','C']){
     const from=performance.now();
-    const plan=createEchoNarrativeRecut({project:structuredClone(project),recipeId:'performance-kinetic',seed:`cohort-${Math.max(0,run)}:${label}`,range:{startSeconds:0,endSeconds:Number(project.duration)},changeAmount:run%2===0?.5:1});
+    const plan=createEchoNarrativeRecut({project:structuredClone(project),recipeId:'performance-kinetic',seed:`cohort-${Math.max(0,run)}:${label}`,range:{startSeconds:0,endSeconds:Number(project.duration)},changeAmount:run%2===0?.5:1,timingMode});
+    if(run>=0)result.movedBoundaryCounts.push(plan.receipt.cueReflow.movedBoundaries.length);
     const graph=projectToEditorGraph(plan.project);
     if(run>=0)one.push(performance.now()-from);
     batch.push(hash(JSON.stringify(graph)));

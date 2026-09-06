@@ -1,4 +1,5 @@
 import { evaluateEchoMediaEligibility, evaluateEchoGeneratedMediaEligibility, echoMediaConstraintError, mergeEchoMediaConstraints } from "./echo-media-eligibility.js";
+import { reflowEchoCueBoundaries } from "./echo-cue-reflow.js";
 
 const list = (value) => Array.isArray(value) ? value : [];
 const shared = (left, right) => left.some((value) => right.includes(value));
@@ -11,11 +12,12 @@ const unit = (seed, scope) => {
 /** Uses already prepared metadata only. Grammar preferences are not semantic
  * measurements; every selection records the evidence it actually consumed.
  * Source timing stays immutable, including phrases and explicit cut locks. */
-export function sequenceEchoNarrative({ slots, recipe, seed, constraints = {} }) {
+export function sequenceEchoNarrative({ slots, recipe, seed, constraints = {}, cueGraph, timingMode = "preserve", locks = [] }) {
+  const timing = reflowEchoCueBoundaries({ slots, recipe, seed, cueGraph, mode: timingMode, locks });
   const previous = [];
   const panelPositions = new Map();
   const decisions = [];
-  const result = slots.map((slot, index) => {
+  const result = timing.slots.map((slot, index) => {
     const required = mergeEchoMediaConstraints(constraints, slot.mediaConstraints);
     const locked = slot.locks?.includes("media");
     const candidates = (locked ? [slot.media] : list(slot.candidateMedia)).map(candidate => candidate.sourceKind === "pure-visualizer"
@@ -68,7 +70,7 @@ export function sequenceEchoNarrative({ slots, recipe, seed, constraints = {} })
       ],
       rejected: gates.filter((gate) => !gate.eligible).map(({ mediaId, reasons }) => ({ mediaId, reasons })),
       alternatives: ranked.slice(1).map(({ candidate, evidence }) => ({ mediaId: candidate.id, evidence })),
-      timing: "source-boundaries-preserved",
+      timing: slot.startSeconds !== slots[index].startSeconds || slot.endSeconds !== slots[index].endSeconds ? "supported-cue-reflow" : "source-boundaries-preserved",
     };
     decisions.push(decision);
     const camera = slot.locks?.includes("camera") ? slot.camera : {
@@ -77,5 +79,6 @@ export function sequenceEchoNarrative({ slots, recipe, seed, constraints = {} })
     };
     return { ...slot, selectedMedia: winner.candidate, camera, compiledIndex: index, decisionEvidence: decision };
   });
-  return { slots: result, receipt: { schemaVersion: "hapa.echo.narrative-sequence.v1", recipeId: recipe.id, seed, decisions, modelCalls: 0, analysisCalls: 0, timingPolicy: "preserve-all-source-boundaries" } };
+  return { slots: result, receipt: { schemaVersion: "hapa.echo.narrative-sequence.v1", recipeId: recipe.id, seed, decisions, modelCalls: 0, analysisCalls: 0,
+    timingPolicy: timingMode === "preserve" ? "preserve-all-source-boundaries" : "approved-cues-within-bounded-tolerance", cueReflow: timing.receipt } };
 }

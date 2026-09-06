@@ -26,12 +26,13 @@ export default function VariationLabPanel({ project, currentTime = 0, onCandidat
   const [changeAmount, setChangeAmount] = useState(1);
   const [characterId, setCharacterId] = useState("");
   const [sceneId, setSceneId] = useState("");
+  const [timingMode, setTimingMode] = useState("preserve");
   const [parentSnapshot, setParentSnapshot] = useState(null);
   const identities = useMemo(() => echoRecutIdentityOptions(parentSnapshot || project), [parentSnapshot, project]);
   useEffect(() => {
     setLab(typeof localStorage === "undefined" ? base : loadVariationLab(localStorage, projectId) || base);
     setCandidates([]); setChosen(null); setError(""); setStart(0); setEnd(Math.min(15, Number(project?.duration) || 15));
-    setParentSnapshot(null); setAllowedSignatures([]); setCharacterId(""); setSceneId("");
+    setParentSnapshot(null); setAllowedSignatures([]); setCharacterId(""); setSceneId(""); setTimingMode("preserve");
   }, [projectId, parentCutId, base]);
   useEffect(() => { if (typeof localStorage !== "undefined" && lab.projectId === projectId) saveVariationLab(localStorage, lab); }, [lab, projectId]);
   const isLocked = (target) => lab.locks.some(row => row.targetKind === target.targetKind && row.targetId === target.targetId);
@@ -44,7 +45,7 @@ export default function VariationLabPanel({ project, currentTime = 0, onCandidat
       const started = performance.now();
       const snapshot = structuredClone(project);
       // Every candidate starts from the same current cut and song range.
-      const next = ["A", "B", "C"].map(label => ({ label, ...createEchoNarrativeRecut({ project: snapshot, recipeId, seed: `${seed}:${label}`, range: { startSeconds: Number(start), endSeconds: Number(end) }, locks: lab.locks, changeAmount, requiredCharacterIds: characterId ? [characterId] : [], requiredSceneIds: sceneId ? [sceneId] : [] }) }));
+      const next = ["A", "B", "C"].map(label => ({ label, ...createEchoNarrativeRecut({ project: snapshot, recipeId, seed: `${seed}:${label}`, range: { startSeconds: Number(start), endSeconds: Number(end) }, locks: lab.locks, changeAmount, timingMode, requiredCharacterIds: characterId ? [characterId] : [], requiredSceneIds: sceneId ? [sceneId] : [] }) }));
       setParentSnapshot(snapshot);
       setAllowedSignatures([editSignature(snapshot), ...next.map(candidate => editSignature(candidate.project))]);
       setCandidates(next); setChosen(null); setElapsed(performance.now() - started);
@@ -66,10 +67,11 @@ export default function VariationLabPanel({ project, currentTime = 0, onCandidat
   return <section data-testid="variation-lab" aria-label="Quick director cuts" style={{ display: "grid", minWidth: 0, fontSize: 14, gap: 12, padding: 12, border: "1px solid #655091", background: "#080d19", color: "#e2e8f0" }}>
     <style>{'[data-testid="variation-lab"] label {display:grid;gap:4px;min-width:0} [data-testid="variation-lab"] select,[data-testid="variation-lab"] input {font:inherit;max-width:100%;min-width:0;box-sizing:border-box} [data-testid="variation-lab"] small {font-size:14px}'}</style>
     <div><strong>Quick director cuts</strong><p style={{ margin: "5px 0", fontSize: 14 }}>Create three alternatives from this cut. Compare them in the main player, then choose Save as new cut to keep your favorite.</p>
-      <small>Reuses current footage without new analysis or model calls. Timing, lyrics, partial boundary shots and the opening media stay unchanged.</small></div>
+      <small>Reuses current footage without new analysis or model calls. Lyrics, partial boundary shots and the opening media stay unchanged. Choose whether to keep cut timing or snap eligible boundaries to supported cues.</small></div>
     {disabled && <p role="status" style={{ margin: 0 }}>Select a saved direction cut and finish any pending save to use quick recuts.</p>}
     <fieldset disabled={disabled} style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(min(100%,180px),1fr))", minWidth: 0, gap: 10, border: 0, padding: 0 }}>
       <label>Recipe <select aria-label="Director recipe" value={recipeId} onChange={event => setRecipeId(event.target.value)}>{Object.values(NARRATIVE_VARIANT_RECIPES).map(recipe => <option key={recipe.id} value={recipe.id}>{recipe.label}</option>)}</select></label>
+      <label>Cut timing <select aria-label="Recut timing" value={timingMode} onChange={event => setTimingMode(event.target.value)}><option value="preserve">Keep current timing</option><option value="supported-cues">Snap to supported cues · up to 0.18s</option></select></label>
       <label>Seed <input aria-label="Cut seed" value={seed} maxLength={128} onChange={event => setSeed(event.target.value)} style={{ width: 100 }} /></label>
       <label>Change amount <select aria-label="Recut change amount" value={changeAmount} onChange={event => setChangeAmount(Number(event.target.value))}><option value={.25}>Light · 25% of editable shots</option><option value={.5}>Balanced · 50%</option><option value={1}>Full · 100%</option></select></label>
       <label>Cast <select aria-label="Recut cast" value={characterId} disabled={!identities.characterIds.length} onChange={event => setCharacterId(event.target.value)}><option value="">{identities.characterIds.length ? "Any declared cast" : "No declared cast in this cut"}</option>{identities.characterIds.map(id => <option key={id} value={id}>{id}</option>)}</select></label>
@@ -86,9 +88,10 @@ export default function VariationLabPanel({ project, currentTime = 0, onCandidat
     {candidates.length > 0 && <>
       <small>Generated in {Math.round(elapsed)} ms. A/B/C cover the same range: {candidates[0].receipt.range.startSeconds}–{candidates[0].receipt.range.endSeconds}s. The playhead stays under your control.</small>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(min(100%,180px),1fr))", gap: 8 }}>{candidates.map(candidate => {
-        const limitations = [...new Set(candidate.receipt.decisions.flatMap(decision => decision.limitations))];
+        const limitations = [...new Set([...candidate.receipt.decisions.flatMap(decision => decision.limitations), ...(candidate.receipt.cueReflow?.limitations || [])])];
         return <div key={candidate.label} style={{ border: `1px solid ${chosen === candidate.label ? "#6ee7b7" : "#475569"}`, padding: 9 }}>
           <strong>Cut {candidate.label}</strong><p style={{ fontSize: 14 }}>{candidate.receipt.changedShotIndices.length} shots updated</p>
+          {candidate.receipt.cueReflow?.mode === "supported-cues" && <p style={{ fontSize: 14 }}>{candidate.receipt.cueReflow.movedBoundaries.length} cut boundaries moved. Phrase windows, sections and cut locks are preserved.</p>}
           <button type="button" style={buttonStyle} disabled={disabled} aria-pressed={chosen === candidate.label} onClick={() => choose(candidate)}>{chosen === candidate.label ? "In player" : `Review ${candidate.label} in player`}</button>
           {limitations.length > 0 && <details style={{ fontSize: 14, marginTop: 8 }}><summary>Selection limitations</summary><ul>{limitations.map(item => <li key={item}>{item.replaceAll("-", " ")}</li>)}</ul></details>}
         </div>;
