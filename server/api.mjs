@@ -18,7 +18,7 @@ import { resolveEchoRuntimeMediaUri } from "./echo-runtime-media-route.mjs";
 import { createEchoKanbanStore } from "./echo-kanban-store.mjs";
 import { createEchoKanbanMirrorReader } from "./echo-kanban-mirror.mjs";
 import { createEchoMediaEvidenceReader } from "./echo-media-evidence-index.mjs";
-import { validateEchoForkMedia, prepareEchoTimelineMediaEvidence } from "./echo-media-eligibility.mjs";
+import { validateEchoForkMedia, prepareEchoTimelineMediaEvidence, rebindEchoMediaEvidenceAfterMetadata } from "./echo-media-eligibility.mjs";
 import { mergeEchoMediaConstraints, inheritEchoTimelineMediaConstraints } from "../src/domain/echo-media-eligibility.js";
 import {
   auditAvatar,
@@ -11355,7 +11355,7 @@ async function hydrateEchoDirectorProjectPayload(payload, safeSongId, options = 
     director_show_graph_receipt: graphReceipt,
     runtime_shader_repair_receipt: runtimeShaderRepairReceipt,
   };
-  const humanEnrichedProject = await humanVideoEnrichmentStore.attachToDirectorProject(hydratedProject);
+  const humanEnrichedProject = rebindEchoMediaEvidenceAfterMetadata(hydratedProject, await humanVideoEnrichmentStore.attachToDirectorProject(hydratedProject));
   return payload?.music_video_project
     ? { ...payload, music_video_project: humanEnrichedProject }
     : humanEnrichedProject;

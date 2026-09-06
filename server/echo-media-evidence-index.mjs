@@ -4,6 +4,7 @@ import {createHash} from 'node:crypto';
 import {declaredMediaIdentities} from '../src/domain/unified-media-catalog.js';
 import {hasExcludedEchoDirectorOrigin} from '../src/domain/echo-media-source-policy.js';
 import {resolveEchoRuntimeMediaUri} from './echo-runtime-media-route.mjs';
+import {createEchoObservationReader} from './echo-catalog-observation-reader.mjs';
 
 export const ECHO_MEDIA_EVIDENCE_SCHEMA='hapa.echo.canonical-media-evidence.v1';
 export const ECHO_MEDIA_EVIDENCE_SOURCES=[['avatar','avatar-store.json','avatars','assets'],['scene','scene-store.json','scenes','assets'],['item','item-manager-store.json','cards','mediaAssets'],['library','media-library.json','records',null]];
@@ -51,9 +52,12 @@ export async function buildEchoMediaEvidenceIndex({root,sourcePaths={},maxSource
 /** Small disposable projection; stat every owning source before using it.
  * A changed store requires explicit preparation; no expensive surprise rebuild.
  * The same promise serves concurrent reads, with a strict retained-byte cap. */
-export function createEchoMediaEvidenceReader({indexPath,root,mediaDir,sourcePaths={},maxIndexBytes=32*1024*1024,maxRecords=100000}={}) {
+export function createEchoMediaEvidenceReader({indexPath,root,mediaDir,sourcePaths={},maxIndexBytes=32*1024*1024,maxRecords=100000,observationIndexPath,observationCatalogPath}={}) {
   let cached,flight;
   const paths={root,mediaDir};
+  const observations=root?createEchoObservationReader({root,mediaDir,
+    indexPath:observationIndexPath||path.join(root,'data/echo-media-evidence/observations.json'),
+    catalogPath:observationCatalogPath||path.join(root,'artifacts/echo-video-enrichment-v1/catalog.sqlite3')}):null;
   async function load(){
     try{
       const info=await stat(indexPath),stamp=echoEvidenceStamp(info);
@@ -75,7 +79,8 @@ export function createEchoMediaEvidenceReader({indexPath,root,mediaDir,sourcePat
       return {status:'ready',revision:snapshot.index.revision,lookup(uri){return snapshot.byPath.get(key(uri,paths))||[]}};
     }catch(error){cached=undefined;return {status:'unavailable',reason:error.code||error.message};}
   }
-  return {get(){return flight ||= load().finally(()=>{flight=undefined})}};
+  return {get(){return flight ||= load().finally(()=>{flight=undefined})},
+    getObservedContent(){return observations?observations.get():Promise.resolve({status:'unavailable',reason:'observation-index-not-configured'})}};
 }
 
 export function hydrateEchoMediaEvidence(timeline,index){

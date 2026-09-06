@@ -1,14 +1,34 @@
 import { hydrateEchoMediaEvidence, echoEvidenceStamp } from "./echo-media-evidence-index.mjs";
+import { hydrateEchoObservedContent } from "./echo-catalog-observation-reader.mjs";
 import { hasExcludedEchoDirectorOrigin } from "../src/domain/echo-media-source-policy.js";
 import { stat } from "node:fs/promises";
 import { resolveEchoRuntimeMediaUri } from "./echo-runtime-media-route.mjs";
 import { inspectEchoTimelineMediaEligibility, echoMediaConstraintError } from "../src/domain/echo-media-eligibility.js";
+import { echoDirectionVariantFingerprint, echoDirectionVariantId } from "../src/domain/echo-direction-variants.js";
+import { isEchoMediaEvidenceProjectionCurrent } from "../src/domain/unified-media-catalog.js";
+
+/** Metadata attached after preparation changes the delivered cut fingerprint.
+ * Rebind only a previously valid sidecar whose complete media/time identity
+ * still matches. Never bless a stale or different shot source. */
+export function rebindEchoMediaEvidenceAfterMetadata(before, after) {
+  const sources=new Map((before.direction_script_variants||[]).map(variant=>[echoDirectionVariantId(variant),variant]));
+  return {...after,direction_script_variants:(after.direction_script_variants||[]).map(variant=>{
+    const original=sources.get(echoDirectionVariantId(variant)),projection=original?.canonical_media_evidence;
+    if(!projection||!isEchoMediaEvidenceProjectionCurrent(original.timeline,projection,echoDirectionVariantFingerprint(original)))return variant;
+    const fingerprint=echoDirectionVariantFingerprint(variant),updated={...projection,sourceFingerprint:fingerprint};
+    if(!isEchoMediaEvidenceProjectionCurrent(variant.timeline,updated,fingerprint))return variant;
+    return {...variant,canonical_media_evidence:updated};
+  })};
+}
 
 /** Validate current local bytes without trusting request-supplied availability.
  * No decode or analysis is performed; final render preflight still owns those.
  * Single flight by URI, at most four stat operations active per request. */
 export async function prepareEchoTimelineMediaEvidence(timeline, paths = {}) {
-  const evidenceIndex = paths.mediaEvidenceReader ? await paths.mediaEvidenceReader.get() : { status: "unavailable", reason: "canonical-index-not-configured" };
+  const [evidenceIndex,observations] = await Promise.all([
+    paths.mediaEvidenceReader ? paths.mediaEvidenceReader.get() : { status: "unavailable", reason: "canonical-index-not-configured" },
+    paths.mediaEvidenceReader?.getObservedContent?.() || {status:"unavailable",reason:"observation-index-not-configured"},
+  ]);
   timeline = hydrateEchoMediaEvidence(timeline, evidenceIndex);
   const resolved = new Map();
   const proof = async uri => {
@@ -30,7 +50,7 @@ export async function prepareEchoTimelineMediaEvidence(timeline, paths = {}) {
     while (next < timeline.length) {
       const index = next++;
       const shot = timeline[index];
-      if (shot.media_id === "none" || shot.knockedOut === true) { prepared[index] = shot; continue; }
+      if (shot.media_id === "none" || shot.knockedOut === true) { prepared[index] = hydrateEchoObservedContent(shot,null,{status:"unavailable",reason:"generated-media-has-no-catalog-observation"},{}); continue; }
       const contract = shot.media_contract || shot.mediaContract || {};
       const uri = shot.runtime_media_uri || contract.runtimeUri || shot.media_uri || contract.originalUri || "";
       const availability = await proof(uri);
@@ -38,11 +58,13 @@ export async function prepareEchoTimelineMediaEvidence(timeline, paths = {}) {
       const identities = currentEvidence ? {} : { characterIds: [], sceneIds: [], cast: null,
         identityEvidence: { ...shot.identityEvidence, status: shot.identityEvidence?.status === "canonical-declarations" ? "source-bytes-changed-or-unverified" : shot.identityEvidence?.status } };
       const sourceAllowed=shot.sourceAllowed!==false && contract.sourceAllowed!==false && availability.sourceAllowed!==false;
-      prepared[index] = { ...shot, ...identities, sourceAllowed, availability, media_contract: { ...contract, ...identities, sourceAllowed, availability } };
+      const current = { ...shot, ...identities, sourceAllowed, availability, media_contract: { ...contract, ...identities, sourceAllowed, availability } };
+      prepared[index] = hydrateEchoObservedContent(current,observations.status==="ready"?observations.lookup(uri,shot.media_id):null,observations,availability);
     }
   }));
   return { timeline: prepared, sourcesChecked: resolved.size,
-    canonicalEvidence: { status: evidenceIndex.status, revision: evidenceIndex.revision || null, visualVerified: false } };
+    canonicalEvidence: { status: evidenceIndex.status, revision: evidenceIndex.revision || null, visualVerified: false },
+    observedContent: {status:observations.status,revision:observations.revision||null,reason:observations.reason||null,continuousCoverage:false} };
 }
 
 export async function validateEchoForkMedia(timeline, constraints = {}, paths = {}) {

@@ -117,12 +117,16 @@ export function declaredMediaIdentities(asset = {}, { avatarIds = new Set(), sce
 /** Runtime declarations are a sidecar, not a rewrite of the certified cut.
  * Apply only allowed metadata after matching the exact source fingerprint and
  * every shot identity/time/URI. Media, camera, text and timing cannot change. */
-export function applyEchoMediaEvidenceProjection(timeline = [], projection, sourceFingerprint) {
+export function isEchoMediaEvidenceProjectionCurrent(timeline = [], projection, sourceFingerprint) {
   if (projection?.schemaVersion !== "hapa.echo.media-evidence-projection.v1" || projection.sourceFingerprint !== sourceFingerprint
-    || !Array.isArray(projection.timeline) || projection.timeline.length !== timeline.length || timeline.length > 4096) return timeline;
+    || !Array.isArray(projection.timeline) || projection.timeline.length !== timeline.length || timeline.length > 4096) return false;
   const identity = shot => JSON.stringify([shot.media_id,shot.start_sec,shot.end_sec,shot.media_uri,shot.runtime_media_uri,shot.media_contract?.originalUri,shot.media_contract?.runtimeUri]);
-  if (timeline.some((shot,index) => identity(shot) !== identity(projection.timeline[index]))) return timeline;
-  const fields = ["characterIds","sceneIds","cast","canonicalMediaIds","identityEvidence","sourceAllowed","availability"];
+  return !timeline.some((shot,index) => identity(shot) !== identity(projection.timeline[index]));
+}
+
+export function applyEchoMediaEvidenceProjection(timeline = [], projection, sourceFingerprint) {
+  if (!isEchoMediaEvidenceProjectionCurrent(timeline,projection,sourceFingerprint)) return timeline;
+  const fields = ["characterIds","sceneIds","cast","canonicalMediaIds","identityEvidence","sourceAllowed","availability","contentEvidence"];
   return timeline.map((shot,index) => {
     const source = projection.timeline[index];
     const metadata = Object.fromEntries(fields.filter(field => Object.hasOwn(source,field)).map(field => [field,structuredClone(source[field])]));
