@@ -6,9 +6,11 @@ export const SHOT_INSPECTOR_SCHEMA = "hapa.director.shot-decision-inspector.v1";
 export function inspectStoredShotDecision(shot = {}) {
   const evidence = shot.decision_evidence || {};
   const casting = shot.semantic_casting || null;
-  const selected = casting?.selected || null;
   const narrative = evidence.schemaVersion === "hapa.echo.narrative-selection.v1";
-  const alternatives = casting?.alternatives || (narrative ? evidence.alternatives : evidence.rejectedAlternatives) || [];
+  const selected = narrative ? null : casting?.selected || null;
+  const observedContent = narrative && !selected && evidence.observedContent?.schemaVersion === "hapa.echo.observed-lexical-match.v1" ? evidence.observedContent : null;
+  const observedScoring = observedContent && [observedContent.phrase?.value, observedContent.section?.value].some(value => typeof value === "number" && Number.isFinite(value));
+  const alternatives = (narrative ? evidence.alternatives : casting?.alternatives || evidence.rejectedAlternatives) || [];
   const rejected = narrative ? evidence.rejected || [] : (casting?.rejected || []).map(row => ({ mediaId: row.mediaId, reasons: row.hardFilters || [] }));
   return {
     schemaVersion: SHOT_INSPECTOR_SCHEMA,
@@ -16,19 +18,20 @@ export function inspectStoredShotDecision(shot = {}) {
     timeRange: { startSeconds: Number(shot.start_sec), endSeconds: Number(shot.end_sec) },
     selectedMedia: { id: shot.media_id, title: shot.media_title, uri: shot.runtime_media_uri || shot.media_uri, posterUri: shot.media_thumbnail || casting?.selected?.posterUri || null },
     cueEvidence: (evidence.evidence || []).filter((row) => /section|cue|transition|stem/i.test(row)),
-    lyricCanonMediaEvidence: selected ? Object.entries(selected.components || {}).map(([dimension, component]) => ({ dimension, value: component.value, weight: component.weight, status: component.status, evidence: component.evidence || [] })) : Object.entries(evidence.scoreComponents || {}).map(([dimension, component]) => ({ dimension, value: component.value, weight: null, status: component.basis || "stored-legacy", evidence: [component.basis].filter(Boolean) })),
+    lyricCanonMediaEvidence: selected ? Object.entries(selected.components || {}).map(([dimension, component]) => ({ dimension, value: component.value, weight: component.weight, status: component.status, evidence: component.evidence || [] })) : Object.entries(evidence.scoreComponents || {}).map(([dimension, component]) => ({ dimension, value: component.value, weight: component.weight ?? null, rawValue: component.rawValue ?? null, status: component.basis || "stored-legacy", evidence: [component.basis].filter(Boolean) })),
     rendererTruth: shot.media_contract || { status: "missing-media-contract" },
-    selectedScore: selected ? { utility: selected.utility, confidence: selected.confidence, confidenceBasis: selected.confidenceBasis, semanticTruth: selected.semanticTruth } : narrative ? { utility: evidence.preferenceScore ?? null, confidence: null, confidenceBasis: "recipe-preference-not-semantic-confidence", semanticTruth: "unmeasured" } : { utility: null, confidence: evidence.confidence?.value ?? null, confidenceBasis: evidence.confidence?.basis || shot.confidence_basis || "unmeasured" },
-    scoreLabel: narrative && !selected ? "Recipe preference" : "Score",
+    selectedScore: selected ? { utility: selected.utility, confidence: selected.confidence, confidenceBasis: selected.confidenceBasis, semanticTruth: selected.semanticTruth } : narrative ? { utility: evidence.preferenceScore ?? null, confidence: null, confidenceBasis: observedScoring ? "sampled-lexical-and-recipe-preference-not-semantic-confidence" : "recipe-preference-not-semantic-confidence", semanticTruth: observedScoring ? "inferred-limited" : "unmeasured" } : { utility: null, confidence: evidence.confidence?.value ?? null, confidenceBasis: evidence.confidence?.basis || shot.confidence_basis || "unmeasured" },
+    scoreLabel: narrative && !selected ? observedScoring ? "Recipe + lyric evidence" : "Recipe preference" : "Score",
+    observedContent,
     selectionBasis: narrative ? evidence.selectionBasis || "stored-recipe-preference" : null,
     storedEvidence: evidence.evidence || [],
-    missingData: [...new Set([...(evidence.pendingEvidence || []), ...(evidence.limitations || []), ...Object.values(evidence.scoreComponents || {}).map(row => row.basis).filter(basis => /^missing-/.test(basis || ""))])],
-    alternatives: alternatives.map((candidate) => ({ mediaId: candidate.mediaId || candidate.media_id, title: candidate.title, uri: candidate.uri || null, posterUri: candidate.posterUri || null, utility: candidate.utility ?? candidate.preferenceScore ?? null, confidence: candidate.confidence ?? null, components: candidate.components || null, evidence: candidate.evidence || [], evidenceArtifact: candidate.evidenceArtifact || null, rejectionReason: candidate.reason || candidate.hardFilters || null })),
+    missingData: [...new Set([...(evidence.pendingEvidence || []), ...(evidence.limitations || []), ...(observedContent?.limitations || []), ...(observedContent?.reason ? [observedContent.reason] : []), ...Object.values(evidence.scoreComponents || {}).map(row => row.basis).filter(basis => /^missing-/.test(basis || ""))])],
+    alternatives: alternatives.map((candidate) => ({ mediaId: candidate.mediaId || candidate.media_id, title: candidate.title, uri: candidate.uri || null, posterUri: candidate.posterUri || null, utility: candidate.utility ?? candidate.preferenceScore ?? null, confidence: candidate.confidence ?? null, components: candidate.components || null, observedContent: candidate.observedContent || null, evidence: candidate.evidence || [], evidenceArtifact: candidate.evidenceArtifact || null, rejectionReason: candidate.reason || candidate.hardFilters || null })),
     alternativeCount: narrative ? evidence.alternativeCount ?? alternatives.length : alternatives.length,
     rejected, rejectedCount: narrative ? evidence.rejectedCount ?? rejected.length : rejected.length,
     continuityRisks: [...rejected.flatMap(row => row.reasons), ...(casting?.hardContinuityFilters || [])],
     reconstructionRule: "stored-evidence-only-no-after-the-fact-generation",
-    reviewStatus: shot.semantic_casting?.selectionStatus || (casting ? "proposed-pending-human-blind-review" : narrative ? "recipe-proposal-pending-human-review" : "legacy-unmeasured"),
+    reviewStatus: narrative ? "recipe-proposal-pending-human-review" : shot.semantic_casting?.selectionStatus || (casting ? "proposed-pending-human-blind-review" : "legacy-unmeasured"),
     sourceSnapshotHash: contextHash({ shotIndex: shot.shot_index, mediaId: shot.media_id, mediaUri: shot.runtime_media_uri || shot.media_uri, locks: shot.locks, mediaConstraints:shot.mediaConstraints, time: [shot.start_sec, shot.end_sec], evidence, casting }),
   };
 }

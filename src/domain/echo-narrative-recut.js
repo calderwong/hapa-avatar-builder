@@ -1,3 +1,5 @@
+import {contextHash} from "./song-context-packet.js";
+import {echoLyricSourceLines,normalizeEchoLyricContract} from "./echo-lyric-contract.js";
 import {applyEchoRecutTreatment} from './echo-recipe-recut-treatment.js';
 import { NARRATIVE_VARIANT_RECIPES } from "./echo-director-recipes.js";
 import { sequenceEchoNarrative } from "./echo-narrative-sequencer.js";
@@ -11,6 +13,7 @@ function candidate(shot) {
   const sourceKind = shot.media_id === "none" || shot.knockedOut === true || contract.type === "generated-visualizer" || (!shot.media_id && !uri) ? "pure-visualizer"
     : contract.type === "image" || /\.(png|jpe?g|webp|avif)(?:$|[?#])/i.test(uri) ? "local-photo" : "local-video";
   return { ...shot, ...contract, id: shot.media_id, uri, sourceKind, sourceShot: shot,
+    sourceSelectionKey:contextHash({id:shot.media_id,uri,type:contract.type,sourceInSeconds:contract.sourceInSeconds??contract.source_in_seconds,sourceOutSeconds:contract.sourceOutSeconds??contract.source_out_seconds,timeMapping:contract.timeMapping||contract.time_mapping}),
     ...(sourceKind === "pure-visualizer" ? { characterIds: [], sceneIds: [], cast: null } : {}) };
 }
 
@@ -46,17 +49,28 @@ export function createEchoNarrativeRecut({ project, recipeId, seed, range, locks
   for (const shot of timeline) {
     const row = candidate(shot);
     // Preserve distinct source contracts when an ID names several clips.
-    const key = `${row.id}\0${row.uri}`;
+    const key = row.sourceSelectionKey;
     if (!mediaByIdentity.has(key)) mediaByIdentity.set(key, row);
   }
   const pool = [...mediaByIdentity.values()].filter(row => row.sourceKind !== "pure-visualizer");
   if (pool.length > 2048 || timeline.length > 4096) throw new Error("This cut exceeds the bounded recut workspace. Use a smaller prepared source pool.");
   const mediaLocked = locks.some(lock => lock.targetId === "media-casting");
   const cameraLocked = locks.some(lock => lock.targetId === "camera");
+  const sectionRanges = new Map();
+  for(let first=0;first<timeline.length;){
+    const id=timeline[first].section_id;
+    let endIndex=first+1;
+    while(id&&endIndex<timeline.length&&timeline[endIndex].section_id===id)endIndex++;
+    const range={startSeconds:Number(timeline[first].start_sec),endSeconds:Number(timeline[endIndex-1].end_sec)};
+    for(let index=first;index<endIndex;index++)sectionRanges.set(index,range);
+    first=endIndex;
+  }
   const slots = timeline.flatMap((shot, index) => {
     if (!(Number(shot.start_sec) >= start && Number(shot.end_sec) <= end && Number(shot.end_sec) > Number(shot.start_sec))) return [];
     const media = candidate(shot);
     return [{ id: String(index), sourceShotIndex: index, media, candidateMedia: media.sourceKind === "pure-visualizer" ? [media] : pool,
+      sectionLabel:shot.section_label||"",sectionType:shot.section_type||"",
+      sectionStartSeconds:sectionRanges.get(index)?.startSeconds,sectionEndSeconds:sectionRanges.get(index)?.endSeconds,
       mediaConstraints: shot.mediaConstraints, startSeconds: Number(shot.start_sec), endSeconds: Number(shot.end_sec),
       camera: { motion: shot.camera_motion || "static", intensity: shot.camera_intensity ?? 1, speed: shot.camera_speed ?? 1, focus: shot.camera_focus || "center" },
       locks: [...new Set([...(timingMode === "preserve" || locks.some(lock => lock.targetId === "timing") ? ["timing"] : []), ...(Array.isArray(shot.locks) ? shot.locks : []), ...(cameraLocked ? ["camera"] : []), ...(index === 0 || mediaLocked || media.sourceKind === "pure-visualizer" ? ["media"] : [])])],
@@ -71,7 +85,8 @@ export function createEchoNarrativeRecut({ project, recipeId, seed, range, locks
     if (!selected.has(slot.sourceShotIndex)) slot.locks = [...new Set([...slot.locks, "media", "camera", "timing"])];
     else slot.mediaConstraints = mergeEchoMediaConstraints(slot.mediaConstraints, { requiredCharacterIds, requiredSceneIds });
   }
-  const sequence = sequenceEchoNarrative({ slots, recipe, seed: String(seed), constraints: project.mediaConstraints || {}, timingMode, locks,
+  const lyricContract=normalizeEchoLyricContract(project);
+  const sequence = sequenceEchoNarrative({ lyricCues:echoLyricSourceLines(project),lyricTiming:{timingSource:lyricContract.timingSource,timingHash:lyricContract.timingHash,audioHash:lyricContract.audioHash},slots, recipe, seed: String(seed), constraints: project.mediaConstraints || {}, timingMode, locks,
     cueGraph: project.director_show_graph?.directorV2?.cueGraph ? {
       ...project.director_show_graph.directorV2.cueGraph,
       cueGraphId: project.director_show_graph.directorV2.cueGraph.cueGraphId || project.director_show_graph.directorV2.cueGraph.id,
