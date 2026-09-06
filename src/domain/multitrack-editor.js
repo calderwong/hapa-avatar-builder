@@ -1,3 +1,5 @@
+import { normalizeHyperFramesStemRole } from "./hyperframes-visualizer-runtime.js";
+import { echoDirectorVisualizerCueId } from "./echo-director-recipes.js";
 import { inspectEchoTimelineMediaEligibility, echoMediaConstraintError, ECHO_MEDIA_ELIGIBILITY_FIELDS } from "./echo-media-eligibility.js";
 import {applyEchoRecutExecutionToGraph} from './echo-recipe-recut-treatment.js';
 import { applyDirtyRangePatch, dirtyRangeArtifactHash } from "./dirty-range-rebuild.js";
@@ -790,8 +792,16 @@ function mergeVisualizerTimeline(graph, timeline = [], options = {}) {
     // A cue/slot's explicit focus is the layer default. Preserve per-port
     // overrides and the source card; never reinterpret active_stems as wiring.
     const explicitStemFocus = String(row.stem_focus || row.stemFocus || "").trim();
-    const portableCard = attachedCard && explicitStemFocus
-      ? { ...attachedCard, stemFocus: explicitStemFocus }
+    const decision = attachedCard?.provenance?.stemBindingDecision;
+    // Projection of an unchanged editorial request must retain the verified
+    // bus selected by readiness. A newly requested focus still overrides it.
+    const preserveVerifiedFocus = explicitStemFocus && decision?.selectedRole
+      && decision?.selectedEvidence?.audioHash
+      && /^(retained-active|rebound-active|fallback-master)/.test(decision.status || "")
+      && normalizeHyperFramesStemRole(explicitStemFocus) === normalizeHyperFramesStemRole(decision.requestedRole);
+    const effectiveStemFocus = preserveVerifiedFocus ? decision.selectedRole : explicitStemFocus;
+    const portableCard = attachedCard && effectiveStemFocus
+      ? { ...attachedCard, stemFocus: effectiveStemFocus }
       : attachedCard;
     const hasPortableCard = Boolean(portableCard);
     const passThrough = requestedSourceId.toLowerCase() === "none"
@@ -808,7 +818,7 @@ function mergeVisualizerTimeline(graph, timeline = [], options = {}) {
         requestedSourceId: requestedSourceId || template.visualization?.requestedSourceId,
         nativeKey: requestedTitle || template.visualization?.nativeKey,
         status: row.native_status || template.visualization?.status || "exact",
-        ...(explicitStemFocus ? { stemFocus: explicitStemFocus } : {}),
+        ...(effectiveStemFocus ? { stemFocus: effectiveStemFocus } : {}),
         sourceHash: portableCard.source?.hash || template.visualization?.sourceHash,
         nativeRoute: clone(portableCard.nativeRoute) || clone(template.visualization?.nativeRoute),
         card: clone(portableCard),
@@ -818,7 +828,7 @@ function mergeVisualizerTimeline(graph, timeline = [], options = {}) {
         requestedSourceId,
         nativeKey: requestedTitle,
         status: row.native_status || "portable-card-missing",
-        ...(explicitStemFocus ? { stemFocus: explicitStemFocus } : {}),
+        ...(effectiveStemFocus ? { stemFocus: effectiveStemFocus } : {}),
       };
     }
     const portableCardStatus = passThrough
@@ -831,6 +841,10 @@ function mergeVisualizerTimeline(graph, timeline = [], options = {}) {
     return {
       ...clone(template),
       id: indexedMatches && template.id ? template.id : `projected:${track.id}:${index}`,
+      // Reconstruct from this cue's source, never an asset-matched template's
+      // former position or identity. Persistent slots have a separate namespace.
+      cueId: echoDirectorVisualizerCueId({ sourceCueIndex: options.sourceCueIndex ?? index, persistentSlotId: options.persistentSlotId, requestedSourceId, requestedTitle }),
+      sourceCueIndex: options.sourceCueIndex ?? index,
       trackId: track.id,
       startSeconds,
       endSeconds,
@@ -844,7 +858,7 @@ function mergeVisualizerTimeline(graph, timeline = [], options = {}) {
         ...(clone(template.parameters) || {}),
         opacity: passThrough ? 0 : Number(row.opacity ?? template.parameters?.opacity ?? 0.5),
         blendMode: row.blend_mode || row.blendMode || template.parameters?.blendMode || "screen",
-        ...(explicitStemFocus ? { stemFocus: explicitStemFocus } : {}),
+        ...(effectiveStemFocus ? { stemFocus: effectiveStemFocus } : {}),
         ...(Array.isArray(row.active_stems) ? { stemMap: clone(row.active_stems) } : {}),
         ...(row.camera_motion !== undefined ? { motion: row.camera_motion } : {}),
         ...(row.camera_intensity !== undefined ? { cameraIntensity: Number(row.camera_intensity) } : {}),
@@ -867,6 +881,8 @@ function mergeVisualizerTimeline(graph, timeline = [], options = {}) {
 function mergePersistentShaderSlots(graph, project = {}) {
   if (!Array.isArray(project.persistent_shader_slots)) return;
   const slots = normalizeEchoPersistentShaderSlots(project);
+  const changingTrack = trackByRole(graph, ["track-b", "ivf-stack"], ["visualizer"]);
+  let persistentCueIndex = (changingTrack?.cards || []).length;
   for (const slot of slots) {
     let track = (graph.tracks || []).find((candidate) => candidate.id === slot.track_id);
     if (!track) {
@@ -899,14 +915,14 @@ function mergePersistentShaderSlots(graph, project = {}) {
       blend_mode: slot.blend_mode,
       native_status: slot.native_status,
       portable_visualizer_card: slot.portable_visualizer_card || slot.portableVisualizerCard || null,
-    }], { trackId: slot.track_id });
+    }], { trackId: slot.track_id, persistentSlotId: slot.id, sourceCueIndex: persistentCueIndex++ });
     track.cards = (track.cards || []).map((card) => ({
       ...card,
       persistentSlotId: slot.id,
       alwaysOn: true,
       parameters: {
         ...(card.parameters || {}),
-        stemFocus: slot.stem_focus,
+        stemFocus: card.parameters?.stemFocus || slot.stem_focus,
         stemMap: Array.isArray(slot.active_stems) ? clone(slot.active_stems) : [slot.stem_focus],
       },
       provenance: {

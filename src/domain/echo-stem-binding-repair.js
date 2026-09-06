@@ -692,6 +692,7 @@ export function repairEchoShowGraphStemBindings(showGraph = {}, {
   const existingUnmeasured = existingStatuses.filter((status) => status.includes("unmeasured") || status.includes("unverified")).length;
   if (
     existingReceipt?.policy === ECHO_STEM_BINDING_POLICY
+    && existingReceipt.modulationTargetIdentityVersion === 1
     && ["repaired", "verified-no-change"].includes(text(existingReceipt?.status))
     && text(telemetrySha256)
     && text(existingReceipt?.telemetry?.bundleSha256) === text(telemetrySha256)
@@ -717,6 +718,7 @@ export function repairEchoShowGraphStemBindings(showGraph = {}, {
   const visualizerCards = visualizerTracks.flatMap((track) => list(track.cards));
   const layers = list(graph?.directorV2?.visualizerLayers);
   const layerBySourceCue = new Map(layers.map((layer) => [Number(layer?.sourceCueIndex), layer]));
+  const layerById = new Map(layers.map(layer => [layer.id, layer]));
   const repairs = [];
   const decisionRecords = [];
 
@@ -806,7 +808,7 @@ export function repairEchoShowGraphStemBindings(showGraph = {}, {
       stemBindingDecisions: compactDecisions,
     };
 
-    const layer = layerBySourceCue.get(Number(card.sourceCueIndex));
+    const layer = card.cueId ? layerById.get(card.cueId) : layerBySourceCue.get(Number(card.sourceCueIndex));
     if (layer) {
       layer.requestedStemFocus = layer.requestedStemFocus || originalDefaultRole;
       layer.stemFocus = selectedDefaultRole;
@@ -817,11 +819,14 @@ export function repairEchoShowGraphStemBindings(showGraph = {}, {
         uniform,
         rewriteMappingRole(mapping, defaultRole, selectedRoleFor),
       ]));
-      for (const binding of list(graph?.directorV2?.modulationBindings)) {
-        if (binding?.target?.visualizerId !== layer.id || binding?.source?.kind !== "stem_signal") continue;
-        binding.source.requestedStemFocus = binding.source.requestedStemFocus || binding.source.stemFocus || defaultRole;
-        binding.source.stemFocus = selectedRoleFor(binding.source.requestedStemFocus);
-      }
+    }
+    // Compact saved graphs omit visualizerLayers. Their actual cue identity is
+    // sufficient to repair prepared envelopes alongside the portable mappings.
+    const targetIds = new Set([card.id, card.cueId, layer?.id].filter(Boolean));
+    for (const binding of list(graph?.directorV2?.modulationBindings)) {
+      if (binding?.target?.kind !== "visualizer_uniform" || !targetIds.has(binding.target.visualizerId) || binding?.source?.kind !== "stem_signal") continue;
+      binding.source.requestedStemFocus = binding.source.requestedStemFocus || binding.source.stemFocus || defaultRole;
+      binding.source.stemFocus = selectedRoleFor(binding.source.requestedStemFocus);
     }
     if (changedDecisions.length) repairs.push({
       cardId: text(card.id),
@@ -835,6 +840,7 @@ export function repairEchoShowGraphStemBindings(showGraph = {}, {
   const blockedDecisions = decisionRecords.filter(({ decision }) => text(decision?.status).startsWith("blocked-"));
   const receipt = {
     schemaVersion: "hapa.echo.runtime-stem-binding-repair.v1",
+    modulationTargetIdentityVersion: 1,
     scope,
     status: blockedDecisions.length ? "blocked" : repairs.length ? "repaired" : "verified-no-change",
     nonDestructiveStoredEdit: true,

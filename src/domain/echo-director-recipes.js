@@ -1,3 +1,14 @@
+// Shared identity for compiler bindings, editable cards, and renderer instances.
+// Keep the director's established IDs stable across saved-cut projections.
+export function echoDirectorVisualizerCueId({ sourceCueIndex = 0, persistentSlotId, requestedSourceId, requestedTitle } = {}) {
+  const slug = value => String(value || "item").normalize("NFKD")
+    .replace(/[^a-zA-Z0-9]+/g, "-").replace(/^-+|-+$/g, "").toLowerCase() || "item";
+  const source = slug(requestedSourceId || requestedTitle);
+  return persistentSlotId
+    ? `visualizer:persistent:${slug(persistentSlotId)}:${source}`
+    : `visualizer:${sourceCueIndex}:${source}`;
+}
+
 // Shared by the deterministic compiler and the human Variation Lab.
 export const DEFAULT_VARIANT_RECIPES = Object.freeze({
   conservative: Object.freeze({

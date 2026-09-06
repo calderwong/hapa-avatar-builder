@@ -538,10 +538,12 @@ export function evaluatePreparedDirectorModulation(timeline, atSeconds, muted = 
   if (timeline.schemaVersion !== DIRECTOR_MODULATION_TIMELINE_SCHEMA || !Number.isFinite(atSeconds)) throw new Error("Invalid prepared modulation input");
   const time = clamp(atSeconds, 0, timeline.durationSeconds);
   const index = Math.floor(time * timeline.fps), fraction = time * timeline.fps - index;
-  const mutedSet = new Set([...(muted instanceof Set ? muted : muted || [])].map(value => String(value).toLowerCase()));
+  const mutedSet = new Set([...(muted || [])].map(normalizeHyperFramesStemRole));
   const channels = new Map(timeline.channels.map(channel => [channel.id, channel]));
   return timeline.targets.flatMap(target => {
-    if (target.source?.kind === "stem_signal" && mutedSet.has(String(target.source.stemFocus).toLowerCase())) return [];
+    const kind = target.source?.kind;
+    const bus = kind === "mix_signal" ? "master" : kind === "stem_signal" ? normalizeHyperFramesStemRole(target.source.stemFocus) : null;
+    if (bus && mutedSet.has(bus)) return [];
     const channel = channels.get(target.channelId);
     const value = channel?.values[index], next = channel?.values[index + 1] ?? value;
     if (value === null || value === undefined) return [];

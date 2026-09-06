@@ -468,3 +468,33 @@ test("runtime repair derives a new execution graph and rewires every cue binding
   assert.deepEqual(derivedCard.parameters.visualizerMappings, freshCard.parameters.visualizerMappings);
   assert.equal(derivedRevision.graph.directorV2.modulationBindings[0].source.stemFocus, "synth");
 });
+
+test('compact and full graphs rebind prepared envelopes by cue identity without crossing persistent layers', () => {
+  const bundle = telemetry([
+    resource('synth', frames(0, 4, { rms: .00001, peak: .0001 })),
+    resource('vocals', frames(0, 4, { rms: .05, peak: .2, onsetEvery: 4 })),
+  ]);
+  const identities = ['visualizer:0:isf-fixture', 'visualizer:persistent:always-on-shader-1:isf-fixture'];
+  const graph = { schemaVersion: 'hapa.music-viz.native-show-graph.v2', song: { durationSeconds: 4 }, stems: { items: sourcesFor(bundle) },
+    tracks: identities.map((cueId, i) => ({ id: i ? 'track-shader-always-on-1' : 'track-b', role: 'visualizer', cards: [{
+      id: i ? 'card:persistent:always-on-shader-1' : 'card:b:0', cueId, sourceCueIndex: 0, startSeconds: 0, endSeconds: 4,
+      visualization: { sourceId: 'isf:fixture', card: { stemFocus: i ? 'master' : 'synth', audioMap: { gain: { signal: 'rms' } } } },
+    }] })), directorV2: { modulationBindings: identities.map((visualizerId,i) => ({ id: `binding:${i}`, target: { kind: 'visualizer_uniform', visualizerId, uniform: 'gain' }, source: { kind: 'stem_signal', stemFocus: i ? 'master' : 'synth', signal: 'rms' } })) } };
+  const original = structuredClone(graph);
+  for (const compact of [true, false]) {
+    const input = structuredClone(graph);
+    if (!compact) input.directorV2.visualizerLayers = identities.map((id,i) => ({ id, sourceCueIndex: 0, stemFocus: i ? 'master' : 'synth' }));
+    const repaired = repairEchoShowGraphStemBindings(input, { telemetry: bundle, telemetrySha256: `sha256:${'c'.repeat(64)}`, project: { timeline: [{ start_sec: 0, end_sec: 4, active_stems: ['Synth', 'Vocals'] }] } }).graph;
+    assert.deepEqual(repaired.directorV2.modulationBindings.map(b => b.source.stemFocus), ['leadVocals', 'master']);
+    assert.deepEqual(repaired.directorV2.modulationBindings.map(b => b.source.requestedStemFocus), ['synth', 'master']);
+    const legacy = structuredClone(repaired);
+    delete legacy.directorV2.runtimeStemBindingRepair.modulationTargetIdentityVersion;
+    legacy.directorV2.modulationBindings[0].source.stemFocus = 'synth';
+    const upgraded = repairEchoShowGraphStemBindings(legacy, { telemetry: bundle, telemetrySha256: `sha256:${'c'.repeat(64)}` });
+    assert.notEqual(upgraded.reusedCertifiedExecutionGraph, true, 'older incomplete receipts must not bypass target repair');
+    assert.equal(upgraded.graph.directorV2.modulationBindings[0].source.stemFocus, 'leadVocals');
+
+    if (!compact) assert.deepEqual(repaired.directorV2.visualizerLayers.map(l => l.stemFocus), ['leadVocals', 'master']);
+    assert.deepEqual(graph, original, 'stored direction remains immutable');
+  }
+});

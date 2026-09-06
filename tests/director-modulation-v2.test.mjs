@@ -45,6 +45,7 @@ test("compiled bindings expose the complete grammar and a true master mix bus", 
   const masterOnly = evaluateDirectorModulationSequence([mix], frames)[0].outputs;
   assert.ok(masterOnly[0].value > 0);
   assert.deepEqual(evaluateDirectorModulationSequence([mix], frames, { mutedStems: ['vocals', 'drums', 'bass'] })[0].outputs, masterOnly);
+  assert.deepEqual(evaluateDirectorModulationSequence([mix], frames, { mutedStems: ['master'] })[0].outputs, []);
 });
 
 test("the 0.6-second modulation probe is identical on continuous, direct, reverse and repeated seeks", () => {
@@ -73,4 +74,41 @@ test("shared modulation channels and an explicit sample budget bound compilation
   assert.equal(timeline.channels.length, 1);
   assert.equal(timeline.policy.samples, 61);
   assert.throws(() => prepareDirectorModulationTimeline(bindings, { durationSeconds: 100, fps: 60, maxSamples: 100, sourceFingerprint: "same-source", sampleSignals: () => ({}) }), { code: "echo_modulation_budget_exceeded" });
+});
+
+
+test("live and prepared mute controls silence the real master bus and canonical stem aliases", () => {
+  const bindings = [
+    { ...binding("master-mix", "master"), source: { kind: "mix_signal", bus: "master", signal: "rms" } },
+    binding("master-port", "Master Mix"), binding("lead", "Lead Voices"), binding("backing", "backing-vocals"),
+    { ...binding("phrase", ""), source: { kind: "cue", signal: "phrase_boundary" } },
+  ];
+  const signals = { master: { rms: .2 }, stems: { vocals: { rms: .7 }, "backing-vocals": { rms: .9 } }, cues: { phrase_boundary: 1 } };
+  const preparedTimeline = prepareDirectorModulationTimeline(bindings, { durationSeconds: 1, sourceFingerprint: "explicit-independent-buses", sampleSignals: () => signals });
+  for (const options of [{}, { preparedTimeline }]) {
+    const runtime = createDirectorModulationRuntime(bindings, options);
+    const baseline = runtime.step({ atSeconds: .5, signals });
+    assert.deepEqual(baseline.map(row => row.id), ["master-mix", "master-port", "lead", "backing", "phrase"]);
+    assert.equal(baseline[0].raw, .2);
+    assert.equal(baseline[2].raw, .7);
+    for (const muted of [["master"], new Set(["Master Mix"]), ["bus:full-mix"]]) {
+      const actual = runtime.step({ atSeconds: .5, signals, muted });
+      assert.deepEqual(actual, baseline.filter(row => !row.id.startsWith("master")));
+      assert.deepEqual(Object.keys(runtime.snapshot()), ["lead", "backing", "phrase"]);
+    }
+    const leadMuted = runtime.step({ atSeconds: .5, signals, muted: ["lead vocal"] });
+    assert.deepEqual(leadMuted, baseline.filter(row => row.id !== "lead"));
+    assert.deepEqual(runtime.step({ atSeconds: .5, signals, muted: ["mix", "vocals", "backing vocals"] }), baseline.filter(row => row.id === "phrase"));
+    assert.deepEqual(runtime.step({ atSeconds: .5, signals, muted: [] }), baseline);
+  }
+});
+
+test("master modulation never borrows an isolated stem and snapshots omit unavailable ports", () => {
+  const bindings = [{ ...binding("mix", "master"), source: { kind: "mix_signal", bus: "master", signal: "rms" } }, binding("lead", "vocals")];
+  const runtime = createDirectorModulationRuntime(bindings);
+  runtime.step({ atSeconds: .1, signals: { master: { rms: .8 }, stems: { vocals: { rms: .3 } } } });
+  const outputs = runtime.step({ atSeconds: .2, signals: { stems: { vocals: { rms: .3 } } } });
+  assert.deepEqual(outputs.map(row => row.id), ["lead"]);
+  assert.deepEqual(Object.keys(runtime.snapshot()), ["lead"]);
+  assert.deepEqual(createDirectorModulationRuntime(bindings).step({ signals: { stems: { drums: { rms: .9 } } } }), []);
 });

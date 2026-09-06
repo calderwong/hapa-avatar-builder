@@ -1,4 +1,4 @@
-import { DIRECTOR_MODULATION_TIMELINE_SCHEMA, evaluatePreparedDirectorModulation } from "./hyperframes-visualizer-runtime.js";
+import { DIRECTOR_MODULATION_TIMELINE_SCHEMA, evaluatePreparedDirectorModulation, normalizeHyperFramesStemRole } from "./hyperframes-visualizer-runtime.js";
 export { DIRECTOR_MODULATION_TIMELINE_SCHEMA, evaluatePreparedDirectorModulation } from "./hyperframes-visualizer-runtime.js";
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
 
@@ -13,14 +13,14 @@ function eased(value, name = "linear") {
 
 function sourceValue(source = {}, signals = {}, mutedStems = new Set()) {
   if (source.kind === "stem_signal") {
-    const stem = String(source.stemFocus || "").toLowerCase();
+    const stem = normalizeHyperFramesStemRole(source.stemFocus);
     if (mutedStems.has(stem)) return null;
-    const resource = stem === "master" ? signals.master : signals.stems?.[stem];
+    const resource = stem === "master" ? signals.master : signals.stems?.[stem] ?? signals.stems?.[source.stemFocus];
     if (!resource) return null;
     const aliases = { bass: "low", treble: "high", onset: "transient" };
     return Number(resource[source.signal] ?? resource[aliases[source.signal]] ?? 0);
   }
-  if (source.kind === "mix_signal") return signals.master ? Number(signals.master[source.signal] ?? 0) : null;
+  if (source.kind === "mix_signal") return !mutedStems.has("master") && signals.master ? Number(signals.master[source.signal] ?? 0) : null;
   if (source.kind === "cue") return Number(signals.cues?.[source.signal] ?? 0);
   return Number(signals[source.signal] ?? 0);
 }
@@ -42,13 +42,14 @@ export function createDirectorModulationRuntime(bindings = [], options = {}) {
       snapshot() { return Object.fromEntries(latest.map(output => [output.id, output.value])); },
     };
   }
+  let latest = [];
   const state = new Map();
   const history = new Map();
-  const mutedStems = new Set((options.mutedStems || []).map((stem) => String(stem).toLowerCase()));
+  const mutedStems = new Set([...(options.mutedStems || [])].map(normalizeHyperFramesStemRole));
   return {
     mode: "live-history",
     step({ atSeconds = 0, signals = {}, muted = mutedStems } = {}) {
-      const activeMuted = muted instanceof Set ? muted : new Set((muted || []).map((stem) => String(stem).toLowerCase()));
+      const activeMuted = new Set([...(muted || [])].map(normalizeHyperFramesStemRole));
       const outputs = [];
       for (const binding of bindings) {
         const envelope = binding.envelope || {};
@@ -80,9 +81,10 @@ export function createDirectorModulationRuntime(bindings = [], options = {}) {
         state.set(binding.id, { atSeconds, value });
         outputs.push({ id: binding.id, source: binding.source, target: binding.target, value, raw: delayed });
       }
+      latest = outputs;
       return outputs;
     },
-    snapshot() { return Object.fromEntries([...state].map(([id, value]) => [id, value.value])); },
+    snapshot() { return Object.fromEntries(latest.map(output => [output.id, output.value])); },
   };
 }
 

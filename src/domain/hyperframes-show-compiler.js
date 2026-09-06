@@ -1132,6 +1132,7 @@ export function compileHyperFramesShow({ showGraph, telemetry, project, proxyReg
           : String(portable.stemFocus || card.parameters?.stemFocus || "master");
         const instance = {
           ...base,
+          cueId: card.cueId || card.id,
           templateId: "visualizer-proxy-layer-v2",
           sourceKind: card.sourceKind || card.executionReceipt?.sourceKind || "changing-timeline",
           persistentSlotId: card.persistentSlotId || card.executionReceipt?.persistentSlotId || null,

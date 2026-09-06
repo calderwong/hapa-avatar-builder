@@ -3,7 +3,7 @@ import {echoRecipeOperatorLocks,hasEchoRecipeTreatmentLocks,preserveEchoCompiled
 import {buildEchoRecipeModulationBindings,buildEchoRecipeEventTracks,buildEchoRecipeAccentCards,echoRecipeBaseOpacity,echoRecipeOpacity,echoRecipeLyrics} from './echo-recipe-execution.js';
 import { mergeEchoMediaConstraints, echoMediaEligibilityFields, evaluateEchoMediaEligibility, evaluateEchoGeneratedMediaEligibility, echoMediaConstraintError } from "./echo-media-eligibility.js";
 import { sequenceEchoNarrative } from "./echo-narrative-sequencer.js";
-import { DEFAULT_VARIANT_RECIPES, resolveEchoDirectorRecipe } from "./echo-director-recipes.js";
+import { DEFAULT_VARIANT_RECIPES, resolveEchoDirectorRecipe, echoDirectorVisualizerCueId } from "./echo-director-recipes.js";
 export { DEFAULT_VARIANT_RECIPES } from "./echo-director-recipes.js";
 import crypto from "node:crypto";
 import { buildPortableVisualizerCard } from "./portable-visualizer-card.js";
@@ -742,9 +742,7 @@ export function buildEditorialTreatment(projectInput, cueGraph, manifest, regist
       };
       const runtimeShaderRepair = boundedRuntimeShaderRepairProvenance(segment, shader?.id);
       const visualizer = {
-        id: persistentSlotId
-          ? `visualizer:persistent:${slug(persistentSlotId)}:${slug(requestedSourceId || requestedTitle)}`
-          : `visualizer:${sourceCueIndex}:${slug(requestedSourceId || requestedTitle)}`,
+        id: echoDirectorVisualizerCueId({ sourceCueIndex, persistentSlotId, requestedSourceId, requestedTitle }),
         sourceCueIndex,
         sourceKind,
         persistentSlotId,
@@ -1034,6 +1032,7 @@ export function compileDirectorVariant({ treatment, cueGraph, recipe = "conserva
     const trackId = visualizer.persistentTrackId || "track-b";
     return {
       id: visualizer.persistentSlotId ? `card:persistent:${visualizer.persistentSlotId}` : `card:b:${index}`,
+      cueId: visualizer.id,
       trackId,
       sourceCueIndex: visualizer.sourceCueIndex,
       sourceKind: visualizer.sourceKind,
