@@ -3627,7 +3627,18 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
               primaryLayer?.presentation || {},
               graphVisualizerCards,
             );
-            const frameBucket = `${Math.floor(t * 4)}:${activeVisualSignalSolo}`;
+            // Paused async shader work may settle after this song-time bucket was
+            // published. Include its receipt identity while paused so diagnostics
+            // catch up without increasing the ordinary playback publish cadence.
+            const settledFrameKey = masterClock?.paused
+              ? JSON.stringify([
+                currentPresentedMedia?.sourceKey || "",
+                layerPresentations.map((layer) => [layer.namedStatus, layer.presentedShaderId,
+                  layer.presentation?.frameReceipt?.timestampSeconds,
+                  layer.presentation?.frameReceipt?.receiptHash]),
+              ])
+              : "";
+            const frameBucket = `${Math.floor(t * 4)}:${activeVisualSignalSolo}:${settledFrameKey}`;
             if (exactIsfBindingDiagnosticsRef.current.frameBucket !== frameBucket) {
               exactIsfBindingDiagnosticsRef.current.frameBucket = frameBucket;
               globalThis.__HAPA_ECHO_ISF_PLAYBACK_DIAGNOSTICS__ = poolDiagnostics;
@@ -7406,7 +7417,9 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                                     )}
                                     {activeShowGraph && (
                                       <span data-echo-isf-media-binding={exactIsfBindingDiagnostics.media?.status || "unavailable"} title={JSON.stringify(exactIsfBindingDiagnostics.media || {})}>
-                                        MEDIA {exactIsfBindingDiagnostics.media?.status === "presented" ? String(exactIsfBindingDiagnostics.media?.kind || "LIVE").toUpperCase() : "NONE"}
+                                        MEDIA {["presented", "camera-framed", "presented-unframed"].includes(exactIsfBindingDiagnostics.media?.status)
+                                          ? String(exactIsfBindingDiagnostics.media?.kind || "LIVE").toUpperCase()
+                                          : exactIsfBindingDiagnostics.media?.kind === "generated-visualizer" ? "GENERATED" : "UNAVAILABLE"}
                                       </span>
                                     )}
                                     {activeShowGraph && (
