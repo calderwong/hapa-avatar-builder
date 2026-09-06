@@ -197,8 +197,13 @@ export function echoCameraMotionPresentation({
     objectPositionYPercent: round(clamp(objectPositionYPercent, 0, 100)),
     transformOriginXPercent: round(cropPresentation?.centerX ?? 50),
     transformOriginYPercent: round(cropPresentation?.centerY ?? 50),
-    crop: cropPresentation?.crop || null,
+    crop: crop?.cameraModel === "protected-v2" && cropPresentation
+      ? { ...crop, ...cropPresentation.crop } : cropPresentation?.crop || null,
     cropScale: round(cropPresentation?.scale ?? 1),
+    ...(crop?.cameraModel === "protected-v2" ? {
+      cameraModel: "protected-v2", motion: "protected-path", auto: false,
+      scale: 1, translateXPercent: 0, translateYPercent: 0, intensity: 0,
+    } : {}),
   };
 }
 
@@ -220,6 +225,10 @@ export function echoCameraCoverSourceRect({
   const safeOutputWidth = Math.max(1, finite(outputWidth, 1));
   const safeOutputHeight = Math.max(1, finite(outputHeight, 1));
   const camera = presentation && typeof presentation === "object" ? presentation : {};
+  if (camera.crop?.cameraModel === "protected-v2") {
+    return echoProtectedCameraFrame({ sourceWidth: safeSourceWidth, sourceHeight: safeSourceHeight,
+      outputWidth: safeOutputWidth, outputHeight: safeOutputHeight, crop: camera.crop });
+  }
   const coverScale = Math.max(
     safeOutputWidth / safeSourceWidth,
     safeOutputHeight / safeSourceHeight,
@@ -278,11 +287,15 @@ export function echoCameraKeyframeAt(keyframes = [], timeSeconds = 0) {
   const currentCrop = normalizeEchoCameraCrop(current?.crop);
   const nextCrop = sameCorridor ? normalizeEchoCameraCrop(next?.crop) : null;
   if (!currentCrop || !nextCrop) return { ...current };
-  const progress = clamp((time - start) / (end - start));
+  const linearProgress = clamp((time - start) / (end - start));
+  const protectedPath = current?.crop?.cameraModel === "protected-v2";
+  const progress = protectedPath && current?.easing === "smootherstep"
+    ? linearProgress ** 3 * (linearProgress * (linearProgress * 6 - 15) + 10) : linearProgress;
   const mix = (left, right) => Number((left + ((right - left) * progress)).toFixed(12));
   return {
     ...current,
     crop: {
+      ...(protectedPath ? current.crop : {}),
       x: mix(currentCrop.x, nextCrop.x),
       y: mix(currentCrop.y, nextCrop.y),
       width: mix(currentCrop.width, nextCrop.width),
@@ -310,9 +323,37 @@ export function echoCameraFramingRuntimeBrowserSource(namespace = "HapaEchoCamer
     normalizeEchoCameraCrop.toString(),
     echoCameraCropPresentation.toString(),
     echoCameraMotionPresentation.toString(),
+    echoProtectedCameraFrame.toString(),
     echoCameraCoverSourceRect.toString(),
     echoCameraKeyframeAt.toString(),
-    "return {normalizeEchoCameraCrop,echoCameraCropPresentation,echoCameraMotionPresentation,echoCameraCoverSourceRect,echoCameraKeyframeAt};",
+    "return {normalizeEchoCameraCrop,echoCameraCropPresentation,echoCameraMotionPresentation,echoProtectedCameraFrame,echoCameraCoverSourceRect,echoCameraKeyframeAt};",
     "})();",
   ].join("\n");
+}
+
+// drives the DOM media box and Canvas drawImage arguments.
+export function echoProtectedCameraFrame({sourceWidth,sourceHeight,outputWidth,outputHeight,crop}={}) {
+  if(![sourceWidth,sourceHeight,outputWidth,outputHeight].every(n=>Number.isFinite(n)&&n>0))throw new Error('camera-dimensions-required');
+  if(crop?.cameraModel!=='protected-v2')return null;
+  if(![crop.x,crop.y,crop.width,crop.height].every(Number.isFinite)||crop.x<0||crop.y<0||crop.width<=0||crop.height<=0||crop.x+crop.width>1+1e-9||crop.y+crop.height>1+1e-9)throw new Error('invalid-protected-camera-crop');
+  const rect=normalizeEchoCameraCrop(crop);
+  if(!rect)throw new Error('invalid-protected-camera-crop');
+  const x=rect.x*sourceWidth,y=rect.y*sourceHeight,width=rect.width*sourceWidth,height=rect.height*sourceHeight;
+  const aspectMismatch=Math.abs(width/height-outputWidth/outputHeight)>1e-5;
+  const fit=crop.fit==='contain'||aspectMismatch?'contain':'cover';
+  if(crop.fitScale!==undefined&&(!Number.isFinite(crop.fitScale)||crop.fitScale<=0||crop.fitScale>1))throw new Error('invalid-camera-fit-scale');
+  const rawScale=(fit==='contain'?Math.min:Math.max)(outputWidth/width,outputHeight/height)*(crop.fitScale??1);
+  const scale=Math.abs(rawScale-1)<1e-9?1:rawScale;
+  if(!(scale>0))throw new Error('invalid-camera-fit-scale');
+  // Keep native-resolution stills on pixel boundaries. Half-pixel centering
+  // otherwise blurs small comic lettering and differs between DOM and Canvas.
+  const align = Math.abs(scale-1)<1e-9 ? Math.floor : value=>value;
+  const destination={x:align((outputWidth-width*scale)/2),y:align((outputHeight-height*scale)/2),width:width*scale,height:height*scale};
+  return {
+    x,y,width,height,destination,fit,aspectMismatch,
+    style:{position:'absolute',width:`${sourceWidth*scale}px`,height:`${sourceHeight*scale}px`,
+      left:`${destination.x-x*scale}px`,top:`${destination.y-y*scale}px`,maxWidth:'none',maxHeight:'none',
+      objectFit:'fill',objectPosition:'0 0',transform:'none',transformOrigin:'0 0',
+      clipPath:`inset(${rect.y*100}% ${(1-rect.x-rect.width)*100}% ${(1-rect.y-rect.height)*100}% ${rect.x*100}%)`},
+  };
 }

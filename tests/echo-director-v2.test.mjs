@@ -412,3 +412,27 @@ test("narrative compilation carries source cast, scene and camera locks into act
   assert.equal(compiled.showGraph.tracks[0].cards[1].cameraKeyframes[0].motion, "pan-left");
   assert.throws(() => buildDirectorV2Artifacts({ ...inputs, recipe: "ensemble-response", mediaConstraints: { requiredCharacterIds: ["absent"] } }), error => error.statusCode === 422);
 });
+
+test("Director image contracts preserve protected framing and source identity through HyperFrames", async () => {
+  const { compileHyperFramesShow } = await import('../src/domain/hyperframes-show-compiler.js');
+  const inputs = fixture();
+  const shot = inputs.project.music_video_project.timeline[0];
+  shot.media_uri = '/media/comic-page.png';
+  shot.media_contract = {
+    type: 'image', originalUri: shot.media_uri, runtimeUri: shot.media_uri,
+    imageShot: { original: { uri: shot.media_uri, sha256: 'a'.repeat(64), width: 1024, height: 2048 },
+      pageId: 'comic-page-1', readingOrder: 0, readingSeconds: 4 },
+  };
+  const before = structuredClone(inputs);
+  const result = buildDirectorV2Artifacts({ ...inputs, duration: 24, recipe: 'conservative', seed: 'image-geometry' });
+  const card = result.showGraph.tracks[0].cards[0];
+  assert.equal(card.media.imageShot.original.sha256, 'a'.repeat(64));
+  assert.equal(card.cameraKeyframes.length, 3);
+  assert.equal(card.cameraKeyframes[1].atSeconds, 6, "unsegmented page stays held for the whole shot");
+  assert.ok(card.cameraKeyframes.every(row => row.crop.cameraModel === 'protected-v2' && row.crop.fit === 'contain'));
+  assert.deepEqual(inputs, before);
+  const show = compileHyperFramesShow({ showGraph: result.showGraph, project: inputs.project, telemetry: {} });
+  assert.deepEqual(show.instances.media[0].imageShot, card.media.imageShot);
+  assert.deepEqual(show.instances.media[0].cameraKeyframes, card.cameraKeyframes);
+  assert.equal(show.instances.media[0].source.type, 'image');
+});

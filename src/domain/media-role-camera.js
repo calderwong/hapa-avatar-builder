@@ -136,3 +136,90 @@ export function validateSafeCameraPath(path) {
   }
   return { ok: errors.length === 0, errors };
 }
+
+export const PROTECTED_MEDIA_CAMERA_SCHEMA = "hapa.director.media-role-camera.v2";
+
+const validRect = (r) => r && [r.x, r.y, r.width, r.height].every(Number.isFinite)
+  && r.x >= 0 && r.y >= 0 && r.width > 0 && r.height > 0
+  && r.x + r.width <= 1 + 1e-9 && r.y + r.height <= 1 + 1e-9;
+
+export function buildProtectedCameraPath({
+  mediaId, sourceHash, technical = {}, analysis = {}, role = "foundation", phraseCue = null,
+  startSeconds = 0, durationSeconds = 5,
+  outputProfiles = [{ width: 1920, height: 1080 }, { width: 1080, height: 1920 }, { width: 1080, height: 1080 }],
+  maxUpscale = 1, maxVelocity = 0.08, maxAcceleration = 0.16,
+  readingSeconds = 2, maxTextureSize = 8192, maxDecodedBytes = 128 * 1024 * 1024,
+  viewRegion = { x:0,y:0,width:1,height:1 },
+} = {}) {
+  if (!/^[a-f0-9]{64}$/.test(sourceHash || "")) throw new Error("image-source-hash-required");
+  const width = Number(technical.width), height = Number(technical.height);
+  if (![width, height].every(n => Number.isInteger(n) && n > 0)) throw new Error("image-dimensions-required");
+  if (![startSeconds, durationSeconds, readingSeconds, maxUpscale, maxVelocity, maxAcceleration].every(Number.isFinite)
+    || durationSeconds <= 0 || readingSeconds < 0 || maxUpscale < 1 || maxVelocity <= 0 || maxAcceleration <= 0) throw new Error("invalid-camera-limits");
+  if (![maxTextureSize, maxDecodedBytes].every(n => Number.isSafeInteger(n) && n > 0)) throw new Error("invalid-camera-decode-limits");
+  if (!outputProfiles.length || outputProfiles.length > 8 || outputProfiles.some(p => ![p.width,p.height].every(n => Number.isInteger(n) && n > 0))) throw new Error("invalid-camera-output-profile");
+  const supplied = Array.isArray(analysis.protectedRegions) ? analysis.protectedRegions : [];
+  if (supplied.length > 256 || supplied.some(r => !validRect(r))) throw new Error("invalid-protected-region");
+  // Unknown protection cannot certify a moving crop. A fitted whole image is
+  // the explicit conservative fallback until source-bound regions are supplied.
+  const verifiedRegions = ["verified", "source-bound"].includes(analysis.protectedRegionsStatus) && analysis.sourceHash === sourceHash && supplied.length > 0;
+  if (!validRect(viewRegion)) throw new Error("invalid-camera-view-region");
+  const view = verifiedRegions ? viewRegion : {x:0,y:0,width:1,height:1};
+  if (verifiedRegions && supplied.some(r => r.x<view.x-1e-9 || r.y<view.y-1e-9 || r.x+r.width>view.x+view.width+1e-9 || r.y+r.height>view.y+view.height+1e-9)) throw new Error("protected-region-outside-panel");
+  const regions = verifiedRegions ? supplied : [{ x: 0, y: 0, width: 1, height: 1 }];
+  const left = Math.min(...regions.map(r => r.x)), top = Math.min(...regions.map(r => r.y));
+  const right = Math.max(...regions.map(r => r.x+r.width)), bottom = Math.max(...regions.map(r => r.y+r.height));
+  const union = { x:left, y:top, width:right-left, height:bottom-top };
+  const cueTime = phraseCue?.atSeconds ?? phraseCue?.startSeconds;
+  const measuredCue = ["verified", "source-bound"].includes(phraseCue?.timingStatus) && Number.isFinite(cueTime)
+    && cueTime >= startSeconds && cueTime < startSeconds + durationSeconds;
+  const hold = Math.min(durationSeconds, Math.max(readingSeconds, measuredCue ? cueTime-startSeconds : 0));
+  const moveDuration = durationSeconds-hold;
+  const residentBytes = width*height*4;
+  const decodeFits = width <= maxTextureSize && height <= maxTextureSize && residentBytes <= maxDecodedBytes;
+  const corridors = outputProfiles.map(profile => {
+    const targetAspect = profile.width/profile.height;
+    const localCover = coverCrop((width*view.width)/(height*view.height),targetAspect,1);
+    const fullCover = {x:view.x,y:view.y,width:localCover.width*view.width,height:localCover.height*view.height};
+    const reasons = [];
+    if (!verifiedRegions) reasons.push(analysis.sourceHash && analysis.sourceHash !== sourceHash ? "protected-regions-source-mismatch" : "protected-regions-unverified");
+    if (union.width > fullCover.width+1e-9 || union.height > fullCover.height+1e-9) reasons.push("protected-region-outside-cover");
+    if (fullCover.width*width*maxUpscale < profile.width || fullCover.height*height*maxUpscale < profile.height) reasons.push("insufficient-original-resolution-for-cover");
+    if (!decodeFits) reasons.push("decode-sized-rendition-required");
+    if (reasons.length) {
+      const fitScale = Math.min(1,maxUpscale/Math.min(profile.width/(width*view.width),profile.height/(height*view.height)));
+      const crop = { ...view,cameraModel:"protected-v2",fit:"contain",fitScale };
+      return { ...profile,targetAspect,startCrop:crop,endCrop:{...crop},fullBleed:false,blackMatExposure:false,
+        layout:"fitted-image",reasons,motion:"hold",holdSeconds:durationSeconds,
+        maximumVelocity:0,maximumAcceleration:0,nativeResolution:maxUpscale===1 };
+    }
+    const minimumX = Math.max(view.x,right-fullCover.width), maximumX = Math.min(left,view.x+view.width-fullCover.width);
+    const minimumY = Math.max(view.y,bottom-fullCover.height), maximumY = Math.min(top,view.y+view.height-fullCover.height);
+    const center = centeredCrop(union,fullCover);
+    const deltaLimit = moveDuration > 0 ? Math.min(maxVelocity*moveDuration/1.875,maxAcceleration*moveDuration*moveDuration/(10/Math.sqrt(3))) : 0;
+    const dx = Math.min(0.035,Math.max(0,maximumX-minimumX),deltaLimit/Math.sqrt(2));
+    const dy = Math.min(0.02,Math.max(0,maximumY-minimumY),deltaLimit/Math.sqrt(2));
+    const x = clamp(center.x-dx/2,minimumX,maximumX-dx);
+    const y = clamp(center.y-dy/2,minimumY,maximumY-dy);
+    const startCrop = { ...fullCover,x,y,cameraModel:"protected-v2",fit:"cover" };
+    const endCrop = { ...startCrop,x:x+dx,y:y+dy };
+    const distance = Math.hypot(dx,dy);
+    return { ...profile,targetAspect,startCrop,endCrop,fullBleed:true,blackMatExposure:false,layout:"protected-cover",reasons,
+      motion:distance>0?"phrase-drift":"hold",holdSeconds:hold,
+      maximumVelocity:moveDuration>0?1.875*distance/moveDuration:0,
+      maximumAcceleration:moveDuration>0?(10/Math.sqrt(3))*distance/(moveDuration*moveDuration):0,nativeResolution:maxUpscale===1 };
+  });
+  const identity = { mediaId,sourceHash,technical,regions,role,startSeconds,durationSeconds,phraseCue,outputProfiles,maxUpscale,maxVelocity,maxAcceleration,readingSeconds,maxTextureSize,maxDecodedBytes,viewRegion };
+  return {
+    id:`camera-path:${hash(identity).slice(0,16)}`,schemaVersion:PROTECTED_MEDIA_CAMERA_SCHEMA,mediaId,sourceHash,shotRole:role,
+    startSeconds,durationSeconds,easing:"smootherstep",viewRegion:view,subjectROI:union,protectedRegions:regions,
+    protectedRegionsStatus:verifiedRegions?analysis.protectedRegionsStatus:"whole-image-fallback",
+    phraseCue: measuredCue ? { id:phraseCue.id,atSeconds:cueTime,source:phraseCue.source,timingStatus:phraseCue.timingStatus }
+      : { id:null,atSeconds:startSeconds,source:"shot-boundary",timingStatus:"unverified" },
+    limits:{maxUpscale,maxVelocity,maxAcceleration,maxTextureSize,maxDecodedBytes},
+    decode:{originalBytes:residentBytes,originalFits:decodeFits},depthMode:"deterministic-2d",corridors,
+    reading:{requiredSeconds:readingSeconds,availableSeconds:durationSeconds,sufficient:durationSeconds>=readingSeconds},
+    keyframes:[{offset:0,crop:corridors[0].startCrop},{offset:corridors[0].holdSeconds/durationSeconds,crop:corridors[0].startCrop},{offset:1,crop:corridors[0].endCrop}],
+    proof:{method:"convex-rectangle-containment-and-monotone-quintic",maximumSpeedFactor:1.875,maximumAccelerationFactor:10/Math.sqrt(3)},
+  };
+}

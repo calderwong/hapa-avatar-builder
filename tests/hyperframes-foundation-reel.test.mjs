@@ -112,3 +112,11 @@ test("offline inlining preserves executable line comments in the actual self-con
   assert.equal(context.result.receipt.runtimeAudioAnalysis, false);
   assert.equal(context.result.receipt.networkCalls, false);
 });
+
+test("foundation optimization refuses to discard protected image camera geometry", () => {
+  const { root, show } = fixture();
+  try {
+    show.instances.media[0].cameraKeyframes[0].crop = { cameraModel: 'protected-v2', x: 0, y: 0, width: 1, height: 1, fit: 'contain' };
+    assert.throws(() => buildFoundationTimeline(show, { projectRoot: root }), /require the HyperFrames frame renderer/);
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});

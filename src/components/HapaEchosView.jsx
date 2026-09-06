@@ -1,8 +1,9 @@
+import { createImageShotGeometry, selectImageShotRendition } from "../domain/unified-media-catalog.js";
 import { echoLyricBoundary } from "../domain/echo-lyric-time.js";
 import { echoPreparedPerformanceSignalFrames, evaluateEchoMusicPerformance } from "../domain/hyperframes-visualizer-runtime.js";
 import { prepareDirectorModulationTimeline } from "../domain/director-modulation-v2.js";
 import EchoPerformancePreparationControl from "./EchoPerformancePreparationControl.jsx";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { createEchoPanelLoader } from "../domain/echo-panel-loader.js";
 import {
@@ -78,6 +79,7 @@ import {
 } from "../domain/echo-output-profile.js";
 import {
   echoCameraCoverSourceRect,
+  echoProtectedCameraFrame,
   echoCameraKeyframeAt,
   echoCameraMotionPresentation,
 } from "../domain/echo-camera-framing.js";
@@ -844,20 +846,73 @@ function PersistentEchoABPlayers({ shot, lookaheadShots = [], playing, songTime,
   );
 }
 
-function PresentedEchoImage({ shot, style, onPresentedMediaChange }) {
+export function PresentedEchoImage({ shot, style, cameraCrop, onPresentedMediaChange }) {
   const imageRef = useRef(null);
+  const framingInputs = useRef({ style, cameraCrop });
+  framingInputs.current = { style, cameraCrop };
+  const [framingError, setFramingError] = useState("");
   const mediaId = String(shot?.media_id || "");
-  const uri = resolveMediaUri(shotRuntimeUri(shot));
+  const imageGeometry = shot?.media_contract?.imageShot || null;
+  const imageRenditions = shot?.media_contract?.imageRenditions;
+  const [previewChoice, setPreviewChoice] = useState(null);
+  const cropWidth = cameraCrop?.width || 1, cropHeight = cameraCrop?.height || 1;
+  const cropFit = cameraCrop?.fit || "contain";
+  const choosePreview = useCallback(() => {
+    const parent = imageRef.current?.parentElement;
+    if (!imageGeometry || !parent?.clientWidth || !parent?.clientHeight) return;
+    let next;
+    try {
+      const choice = selectImageShotRendition({ geometry: createImageShotGeometry(imageGeometry),
+        renditions: imageRenditions || [], outputProfile: { width: Math.ceil(parent.clientWidth * Math.min(2, window.devicePixelRatio || 1)), height: Math.ceil(parent.clientHeight * Math.min(2, window.devicePixelRatio || 1)) },
+        crop: { width: cropWidth, height: cropHeight }, fit: cropFit });
+      next = { sourceHash: imageGeometry.original?.sha256, uri: choice.selected?.uri || null, status: choice.status, insufficientResolution: choice.insufficientResolution };
+    } catch { next = { uri: null, status: "invalid-image-preparation" }; }
+    setPreviewChoice(previous => JSON.stringify(previous) === JSON.stringify(next) ? previous : next);
+  }, [imageGeometry, imageRenditions, cropWidth, cropHeight, cropFit]);
+  const uri = imageGeometry ? (previewChoice?.sourceHash === imageGeometry.original?.sha256 && previewChoice?.uri ? resolveMediaUri(previewChoice.uri) : null) : resolveMediaUri(shotRuntimeUri(shot));
   const sourceKey = `${mediaId}:${uri}`;
+  useLayoutEffect(() => { choosePreview(); }, [choosePreview]);
+  const applyFraming = useCallback(() => {
+    const element = imageRef.current, parent = element?.parentElement;
+    if (!element || !parent || !element.naturalWidth || !parent.clientWidth || !parent.clientHeight) return;
+    const input = framingInputs.current;
+    try {
+      if (input.cameraCrop?.cameraModel === "protected-v2") {
+        const frame = echoProtectedCameraFrame({ sourceWidth: element.naturalWidth, sourceHeight: element.naturalHeight,
+          outputWidth: parent.clientWidth, outputHeight: parent.clientHeight, crop: input.cameraCrop });
+        Object.assign(element.style, frame.style);
+        element.dataset.echoProtectedCamera = "true";
+      } else if (element.dataset.echoProtectedCamera === "true") {
+        for (const key of ["position", "width", "height", "left", "top", "maxWidth", "maxHeight", "objectFit", "objectPosition", "transform", "transformOrigin", "clipPath"])
+          element.style[key] = input.style?.[key] || "";
+        delete element.dataset.echoProtectedCamera;
+      }
+      element.style.visibility = "";
+      setFramingError("");
+    } catch (error) {
+      element.style.visibility = "hidden";
+      setFramingError(String(error.message || "image-framing-failed"));
+    }
+  }, []);
   const publish = () => {
+    applyFraming();
     const element = imageRef.current;
-    const presented = Boolean(element?.complete && Number(element?.naturalWidth || 0) > 0);
+    const presented = Boolean(element?.complete && Number(element?.naturalWidth || 0) > 0 && uri && element.currentSrc === new URL(uri, window.location.href).href && element.style.visibility !== "hidden");
     onPresentedMediaChange?.(presented ? { element, kind: "image", mediaId, uri, sourceKey, presented: true } : { element: null, kind: "image", mediaId, uri, sourceKey, presented: false, reason: "image-frame-not-presented" });
   };
+  useLayoutEffect(() => { applyFraming(); }, [applyFraming, cameraCrop, style, sourceKey]);
+  useEffect(() => {
+    const parent = imageRef.current?.parentElement;
+    if (!parent || typeof ResizeObserver === "undefined") return undefined;
+    const observer = new ResizeObserver(() => { choosePreview(); applyFraming(); });
+    observer.observe(parent);
+    return () => observer.disconnect();
+  }, [applyFraming, choosePreview, sourceKey]);
   useEffect(() => () => {
     onPresentedMediaChange?.({ element: null, kind: "image", mediaId, uri, sourceKey, presented: false, reason: "binding-released" });
   }, [mediaId, uri, sourceKey, onPresentedMediaChange]);
-  return <img ref={imageRef} src={uri} crossOrigin="anonymous" alt={shot?.media_title || "Echo still"} onLoad={publish} onError={publish} style={style} />;
+  return <><img ref={imageRef} src={uri || undefined} crossOrigin="anonymous" alt={shot?.media_title || "Echo still"} onLoad={publish} onError={publish} style={style} />
+    {(framingError || (imageGeometry && previewChoice && !previewChoice.uri)) && <div role="alert" data-echo-image-framing-error={framingError} style={{ position: "absolute", inset: 0, display: "grid", placeItems: "center", background: "#020617", padding: 20 }}>Image framing is unavailable. Prepare this image again or choose another shot.</div>}</>;
 }
 
 const CAMERA_MOTION_OPTIONS = [
@@ -1116,10 +1171,10 @@ function drawEchoCameraFramedMediaInput({
       sourceRect.y,
       sourceRect.width,
       sourceRect.height,
-      0,
-      0,
-      width,
-      height,
+      sourceRect.destination?.x ?? 0,
+      sourceRect.destination?.y ?? 0,
+      sourceRect.destination?.width ?? width,
+      sourceRect.destination?.height ?? height,
     );
   } catch {
     context.clearRect(0, 0, width, height);
@@ -6957,6 +7012,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                                     <PresentedEchoImage
                                       key={`${currentTimelineItem.media_id}-${currentTimelineItem.start_sec}`}
                                       shot={currentTimelineItem}
+                                      cameraCrop={activeCameraKeyframe?.crop}
                                       onPresentedMediaChange={handlePresentedMediaChange}
                                       style={{
                                         width: '100%',

@@ -11,7 +11,8 @@ import { buildPhraseCadence } from "./phrase-cadence.js";
 import { buildLyricDirectionTrack } from "./lyric-direction-track.js";
 import { buildAudioFallbackProfile } from "./audio-fallback-profile.js";
 import { buildMediaDiversityReport } from "./media-diversity-budget.js";
-import { buildSafeCameraPath, classifyMediaRole } from "./media-role-camera.js";
+import { buildSafeCameraPath, buildProtectedCameraPath, classifyMediaRole } from "./media-role-camera.js";
+import { createImageShotGeometry } from "./unified-media-catalog.js";
 import { resolveEchoOutputProfile } from "./echo-output-profile.js";
 import {
   echoPersistentShaderSegments,
@@ -1273,6 +1274,43 @@ export function compileDirectorVariant({ treatment, cueGraph, recipe = "conserva
     const phraseCue = cueGraph.lyricCues.find((cue) => Number(cue.startSeconds) >= Number(slot.startSeconds) && Number(cue.startSeconds) < Number(slot.endSeconds)) || cueGraph.cues.find((cue) => Number(cue.atSeconds) >= Number(slot.startSeconds) && Number(cue.atSeconds) < Number(slot.endSeconds));
     const analysis = slot.selectedMedia.roi || { status: "center-safe-fallback", evidence: "no-subject-analysis-attached", subjectROI: { x: 0.25, y: 0.2, width: 0.5, height: 0.6 }, faceCount: 0 };
     const role = classifyMediaRole({ technical, subjectROI: analysis.subjectROI, atSectionStart: cadenceTrack.sections.some((section) => Math.abs(section.startSeconds - slot.startSeconds) < 0.001), isFinal: index === slots.length - 1 });
+    if (contract.imageShot) {
+      if (contract.type && contract.type !== "image") throw new Error("image_geometry_requires_image_media");
+      if (slot.locks?.includes("camera")) throw new Error("image_camera_locked_requires_explicit_path");
+      const geometry = createImageShotGeometry(contract.imageShot);
+      const panel = geometry.panelId ? geometry.panels.find(row=>row.id===geometry.panelId) : null;
+      const panelVerified = panel && geometry.protectionStatus === "source-bound";
+      const regions = geometry.protectedRegions.map(region => ({ ...region.rect, id: region.id, kind: region.kind, evidence: region.evidence }));
+      const panelRegions = panelVerified ? regions.filter(region => {
+        const p=panel.rect;
+        const overlaps=region.x<p.x+p.width && region.x+region.width>p.x && region.y<p.y+p.height && region.y+region.height>p.y;
+        if (overlaps && (region.x<p.x-1e-9 || region.y<p.y-1e-9 || region.x+region.width>p.x+p.width+1e-9 || region.y+region.height>p.y+p.height+1e-9)) throw new Error("panel-crop-intersects-protected-region");
+        return overlaps;
+      }) : regions;
+      const shortEdge = Math.min(outputProfile.width, outputProfile.height);
+      const path = buildProtectedCameraPath({
+        mediaId: slot.selectedMedia.id, sourceHash: geometry.original.sha256,
+        technical: { ...technical, width: geometry.original.width, height: geometry.original.height, codec: "image" },
+        analysis: { sourceHash: geometry.protectionEvidence?.sourceHash, protectedRegionsStatus: geometry.protectionStatus,
+          protectedRegions: panelVerified ? [panel.rect,...panelRegions] : regions },
+        role, startSeconds: Number(slot.startSeconds), durationSeconds: Number(slot.endSeconds)-Number(slot.startSeconds),
+        readingSeconds: geometry.readingSeconds,
+        ...(panelVerified ? { viewRegion:panel.rect } : {}),
+        phraseCue: phraseCue ? { ...phraseCue, timingStatus: cueGraph.lyricCues.includes(phraseCue) && cueGraph.timingTruth.lyricStatus === "verified_source_path"
+          ? "source-bound" : phraseCue.timingStatus || "unverified" } : null,
+        outputProfiles: cameraTargetAspects.map((aspect, aspectIndex) => aspectIndex === 0
+          ? { width: outputProfile.width, height: outputProfile.height }
+          : aspect >= 1 ? { width: Math.round(shortEdge*aspect), height: shortEdge }
+            : { width: shortEdge, height: Math.round(shortEdge/aspect) }),
+      });
+      trackA[index].media.imageShot = geometry;
+      if (contract.imageRenditions) trackA[index].media.imageRenditions = structuredClone(contract.imageRenditions);
+      trackA[index].cameraKeyframes = path.keyframes.map(frame => ({
+        atSeconds: Number(slot.startSeconds)+frame.offset*path.durationSeconds, slotId: slot.id,
+        cameraPathId: path.id, easing: path.easing, crop: frame.crop, motion: "protected-path", intensity: 0,
+      }));
+      return path;
+    }
     return buildSafeCameraPath({
       mediaId: slot.selectedMedia.id,
       technical,
@@ -1424,6 +1462,7 @@ export function compileDirectorVariant({ treatment, cueGraph, recipe = "conserva
       })),
       cameraKeyframes: slots.flatMap((slot, index) => {
         const path = mediaRoleCamera[index];
+        if (path.schemaVersion === "hapa.director.media-role-camera.v2") return trackA[index].cameraKeyframes;
         return [
           { atSeconds: slot.startSeconds, slotId: slot.id, cameraPathId: path.id, subjectROI: path.subjectROI, shotRole: path.shotRole, phraseCue: path.phraseCue, easing: path.easing, safeZoomLimits: path.zoomLimits, crop: path.corridors[0].startCrop, ...slot.camera },
           { atSeconds: slot.endSeconds, slotId: slot.id, cameraPathId: path.id, subjectROI: path.subjectROI, shotRole: path.shotRole, phraseCue: path.phraseCue, easing: path.easing, safeZoomLimits: path.zoomLimits, crop: path.corridors[0].endCrop, ...slot.camera },

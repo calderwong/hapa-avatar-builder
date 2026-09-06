@@ -1,3 +1,4 @@
+import vm from "node:vm";
 import test from "node:test";
 import assert from "node:assert/strict";
 import crypto from "node:crypto";
@@ -277,7 +278,20 @@ test("HyperFrames phone packages use manifest dimensions, safe areas, portrait t
   assert.match(html, /isPortrait:dimensions\.isPortrait/u);
   assert.match(html, /function cameraFramedMediaElement/u);
   assert.match(html, /echoCameraCoverSourceRect\(\{sourceWidth:dimensions\.width,sourceHeight:dimensions\.height/u);
-  assert.match(html, /shaderMediaContext\.drawImage\(mediaInput,rect\.x,rect\.y,rect\.width,rect\.height,0,0,shaderMediaCanvas\.width,shaderMediaCanvas\.height\)/u);
+  const framingSource = html.slice(html.indexOf("function cameraFramedMediaElement"), html.indexOf("function liveIsfSurface"));
+  for (const destination of [null, { x:28, y:120, width:1024, height:1680 }]) {
+    let drawn;
+    const mediaInput = { dataset:{instanceIndex:"0"} };
+    const runtime = vm.runInNewContext(framingSource+";cameraFramedMediaElement", {
+      mediaReadyForShader:()=>true, mediaSourceDimensions:()=>({width:1024,height:2048}),
+      cameraPresentationForMedia:()=>({}), echoCameraCoverSourceRect:()=>({x:10,y:20,width:1000,height:1900,...(destination?{destination}:{})}),
+      S:{instances:{media:[{mediaId:"image"}]}}, C:{width:1080,height:1920},
+      shaderMediaCanvas:{width:1080,height:1920,dataset:{}},
+      shaderMediaContext:{setTransform(){},clearRect(){},drawImage(...args){drawn=args;}},
+    });
+    runtime(1,mediaInput);
+    assert.deepEqual(drawn,[mediaInput,10,20,1000,1900,...(destination?[28,120,1024,1680]:[0,0,1080,1920])]);
+  }
   assert.match(html, /rawMediaInput=activeMediaElement\(t\),mediaInput=cameraFramedMediaElement\(t,rawMediaInput\)/u);
   assert.match(html, /el\.style\.objectPosition=presentation\.objectPositionXPercent/u);
   assert.doesNotMatch(html, /drawLiveIsf\(layer,t,rawMediaInput\)/u);

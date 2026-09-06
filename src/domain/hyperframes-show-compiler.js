@@ -1186,6 +1186,7 @@ export function compileHyperFramesShow({ showGraph, telemetry, project, proxyReg
             speed: finite(card.parameters?.cameraSpeed ?? card.parameters?.camera_speed, 1),
           },
           cameraKeyframes: card.cameraKeyframes || [],
+          ...(card.media?.imageShot ? { imageShot: structuredClone(card.media.imageShot) } : {}),
         });
       } else {
         classificationErrors.push({

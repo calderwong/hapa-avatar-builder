@@ -39,6 +39,9 @@ function resolveCompiledSource(projectRoot, instance = {}) {
 
 function cameraFor(instance = {}) {
   const rows = Array.isArray(instance.cameraKeyframes) ? instance.cameraKeyframes : [];
+  if (rows.some(row => row.crop?.cameraModel === "protected-v2") || instance.camera?.crop?.cameraModel === "protected-v2") {
+    throw new Error("Protected image camera paths require the HyperFrames frame renderer; foundation reel baking is unsupported");
+  }
   const first = rows[0] || {};
   return {
     motion: String(first.motion || "static"),

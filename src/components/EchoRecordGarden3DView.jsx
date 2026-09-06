@@ -827,10 +827,10 @@ function drawDirectorPreviewMedia(context, element, frame) {
     sourceRect.y,
     sourceRect.width,
     sourceRect.height,
-    0,
-    0,
-    width,
-    height,
+    sourceRect.destination?.x ?? 0,
+    sourceRect.destination?.y ?? 0,
+    sourceRect.destination?.width ?? width,
+    sourceRect.destination?.height ?? height,
   );
   recordGardenDiagnostics().directorCameraPresentation = sourceRect.presentation;
   return true;
