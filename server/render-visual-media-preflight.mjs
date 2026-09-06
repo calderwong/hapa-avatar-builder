@@ -197,14 +197,29 @@ function emitProgress(onProgress, stage, file, declaredKind, details = {}) {
   }
 }
 
-async function run(command, args, timeout = 30_000, { signal } = {}) {
+export async function runVisualMediaProbeCommand(command, args, timeout = 30_000, { signal } = {}) {
   throwIfAborted(signal);
-  return execFile(command, args, {
+  // These read-only probes own no durable output. Terminate decisively and
+  // await execFile's close callback, including when cancellation races startup.
+  const pending = execFile(command, args, {
     encoding: "utf8",
     timeout,
+    killSignal: "SIGKILL",
     maxBuffer: 8 * 1024 * 1024,
-    ...(signal ? { signal } : {}),
   });
+  const abort = () => pending.child?.kill("SIGKILL");
+  signal?.addEventListener("abort", abort, { once: true });
+  if (signal?.aborted) abort();
+  try {
+    const result = await pending;
+    throwIfAborted(signal);
+    return result;
+  } catch (error) {
+    throwIfAborted(signal, error);
+    throw error;
+  } finally {
+    signal?.removeEventListener("abort", abort);
+  }
 }
 
 function hasAlphaChannel(pixelFormat = "") {
@@ -409,6 +424,7 @@ async function samplePixelEvidence(filePath, {
   if (includeColor) {
     const color = await runCommand("ffmpeg", [
       "-hide_banner", "-nostdin", "-v", "error", "-xerror",
+      "-threads", "1", "-filter_threads", "1",
       ...seek,
       "-i", filePath,
       "-vf", "setpts=PTS-STARTPTS,signalstats,metadata=print:file=-",
@@ -420,6 +436,7 @@ async function samplePixelEvidence(filePath, {
   if (alphaExpected) {
     const alpha = await runCommand("ffmpeg", [
       "-hide_banner", "-nostdin", "-v", "error", "-xerror",
+      "-threads", "1", "-filter_threads", "1",
       ...seek,
       "-i", filePath,
       "-vf", "setpts=PTS-STARTPTS,alphaextract,signalstats,metadata=print:file=-",
@@ -429,8 +446,10 @@ async function samplePixelEvidence(filePath, {
   }
   const composite = await runCommand("ffmpeg", [
     "-hide_banner", "-nostdin", "-v", "error", "-xerror",
+      "-threads", "1", "-filter_threads", "1",
     ...seek,
     "-i", filePath,
+    "-filter_complex_threads", "1",
     "-filter_complex", `color=c=gray:s=${width}x${height}:r=1:d=1[bg];[0:v]setpts=PTS-STARTPTS[fg];[bg][fg]overlay=shortest=1,signalstats,metadata=print:file=-`,
     "-frames:v", "1", "-f", "null", "-",
   ], 30_000, { signal });
@@ -793,7 +812,7 @@ export async function probeVisualMediaFile(filePath, {
   allowBlank = false,
   samplingPolicy = null,
   samplingPolicies = null,
-  runCommand = run,
+  runCommand = runVisualMediaProbeCommand,
   signal = null,
   onProgress = null,
 } = {}) {
@@ -813,7 +832,7 @@ export async function probeVisualMediaFile(filePath, {
   // would let one render's cancellation/transient behavior cancel another render.
   // Progress callbacks are also caller-owned so each observer receives its own
   // bounded stage sequence.
-  const mayShareInFlight = runCommand === run && !signal && typeof onProgress !== "function";
+  const mayShareInFlight = runCommand === runVisualMediaProbeCommand && !signal && typeof onProgress !== "function";
   if (mayShareInFlight && probeInFlight.has(file.key)) return structuredClone(await probeInFlight.get(file.key));
 
   const pending = (async () => {
@@ -843,7 +862,7 @@ export async function probeVisualMediaFile(filePath, {
       }
       // Only the actual local decoder can create reusable evidence. Test/custom runners
       // and all negative/transient results are deliberately retried on the next call.
-      if (runCommand === run && isPersistableEvidence(result)) probeCache.set(file.key, Promise.resolve(result));
+      if (runCommand === runVisualMediaProbeCommand && isPersistableEvidence(result)) probeCache.set(file.key, Promise.resolve(result));
       emitProgress(onProgress, "complete", file, declaredKind, { ok: result.ok === true, code: result.code, cached: false });
       return result;
     } catch (error) {

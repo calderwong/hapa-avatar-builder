@@ -11,16 +11,19 @@ const stages = [
   { id: "release-export", requiresHumanApproval: true, resources: { cpu: 3, gpu: 1, disk: 3, decoders: 2, cacheGB: 2 } },
 ];
 
-export function createAlbumBatch({ songs = [], variants = ["conservative", "kinetic", "visualizer-forward"], budgets = {} } = {}) {
+export function createAlbumBatch({ songs = [], variants = ["conservative", "kinetic", "visualizer-forward"], budgets = {}, stageIds = null } = {}) {
+  if (stageIds && (!Array.isArray(stageIds) || !stageIds.length || stageIds.some(id => !stages.some(stage => stage.id === id)))) throw new Error("Choose known album batch stages.");
+  const selectedStages = stageIds ? stages.filter(stage => stageIds.includes(stage.id)) : stages;
   const jobs = [];
   for (const song of songs) {
     const envelopeId = `job:${song.id}:decision-envelope`;
-    jobs.push(makeJob({ id: envelopeId, songId: song.id, stage: stages[0], dependencies: [], inputHash: song.sourceHash }));
+    const hasEnvelope = selectedStages.some(stage => stage.id === "decision-envelope");
+    if (hasEnvelope) jobs.push(makeJob({ id: envelopeId, songId: song.id, stage: stages[0], dependencies: [], inputHash: song.sourceHash }));
     for (const variant of variants) {
-      let dependency = envelopeId;
-      for (const stage of stages.slice(1)) {
+      let dependency = hasEnvelope ? envelopeId : null;
+      for (const stage of selectedStages.filter(stage => stage.id !== "decision-envelope")) {
         const id = `job:${song.id}:${variant}:${stage.id}`;
-        jobs.push(makeJob({ id, songId: song.id, variant, stage, dependencies: [dependency], inputHash: contextHash({ song: song.sourceHash, variant, stage: stage.id }) }));
+        jobs.push(makeJob({ id, songId: song.id, variant, stage, dependencies: dependency ? [dependency] : [], inputHash: contextHash({ song: song.sourceHash, variant, stage: stage.id }) }));
         dependency = id;
       }
     }
@@ -31,7 +34,7 @@ export function createAlbumBatch({ songs = [], variants = ["conservative", "kine
 function makeJob({ id, songId, variant = null, stage, dependencies, inputHash }) { return { id, songId, variant, stage: stage.id, status: "queued", dependencies, inputHash, artifactHash: contextHash({ id, inputHash }), expensiveDecision: Boolean(stage.expensiveDecision), requiresHumanApproval: Boolean(stage.requiresHumanApproval), approval: null, resources: stage.resources, attempts: 0, maxRetries: 2, cost: { measuredSeconds: null, estimatedClass: stage.expensiveDecision ? "high" : stage.id.includes("export") ? "high" : "bounded" }, logs: [], receipt: null, producedArtifacts: [] }; }
 
 export function resumeAlbumBatch(batch, artifactIndex = {}) {
-  return { ...batch, status: "ready", jobs: batch.jobs.map((job) => artifactIndex[job.artifactHash]?.valid ? { ...job, status: "cached", receipt: artifactIndex[job.artifactHash].receipt, producedArtifacts: artifactIndex[job.artifactHash].artifacts || [] } : job.status === "running" ? { ...job, status: "queued", logs: [...job.logs, "restart-recovered-running-to-queued"] } : job), events: [...batch.events, { type: "resume", at: new Date().toISOString(), artifactIndexEntries: Object.keys(artifactIndex).length }] };
+  return { ...batch, status: "ready", jobs: batch.jobs.map((job) => artifactIndex[job.artifactHash]?.valid ? { ...job, status: "cached", receipt: artifactIndex[job.artifactHash].receipt, producedArtifacts: artifactIndex[job.artifactHash].artifacts || [] } : ["running", "done", "cached"].includes(job.status) ? { ...job, status: "queued", receipt: null, producedArtifacts: [], logs: [...job.logs, job.status === "running" ? "restart-recovered-running-to-queued" : "artifact-validation-missing-or-failed"] } : job), events: [...batch.events, { type: "resume", at: new Date().toISOString(), artifactIndexEntries: Object.keys(artifactIndex).length }] };
 }
 
 export function claimAlbumJobs(batch, { activeInteractiveSession = false, approvals = {} } = {}) {
@@ -56,7 +59,7 @@ export function recordAlbumJobResult(batch, jobId, result) {
     if (job.id !== jobId) return job;
     if (result.cancelled) return { ...job, status: "cancelled", logs: [...job.logs, result.message || "cancelled"] };
     if (result.ok) return { ...job, status: "done", receipt: result.receipt, producedArtifacts: result.artifacts || [], cost: { ...job.cost, measuredSeconds: Number(result.durationSeconds || 0) }, logs: [...job.logs, result.message || "done"] };
-    return { ...job, status: job.attempts < job.maxRetries ? "queued" : "failed", logs: [...job.logs, result.message || "failed"] };
+    return { ...job, status: result.retryable !== false && job.attempts < job.maxRetries ? "queued" : "failed", logs: [...job.logs, result.message || "failed"] };
   });
   return { ...batch, jobs, events: [...batch.events, { type: result.ok ? "job-done" : result.cancelled ? "job-cancelled" : "job-failed", at: new Date().toISOString(), jobId }] };
 }

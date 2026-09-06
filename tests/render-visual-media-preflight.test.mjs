@@ -409,7 +409,7 @@ test("ordinary black and transparent images fail closed unless every usage expli
       { resolvedPath: transparentPath, visualContract: { allowBlank: true } },
     ],
   });
-  assert.equal(allowed.ok, true);
+  assert.equal(allowed.ok, true, JSON.stringify(allowed));
   assert.equal(allowed.entries[0].blankAllowed, true);
 
   const mixedContract = await preflightResolvedVisualMedia({
@@ -706,7 +706,7 @@ test("a fully black video is rejected after complete decode while an explicit al
   assert.ok(blocked.samplingPolicies.every((policy) => policy.visibleSampleCount === 0));
 
   const allowed = await probeVisualMediaFile(videoPath, { kind: "video", allowBlank: true });
-  assert.equal(allowed.ok, true);
+  assert.equal(allowed.ok, true, JSON.stringify(allowed));
   assert.equal(allowed.blankAllowed, true);
   assert.equal(allowed.evidence.allowBlankContract, true);
   assert.equal(allowed.evidence.fullDecode, true);
@@ -732,7 +732,7 @@ test("a mostly black video cannot pass from one isolated visible sample", async 
   assert.equal(blocked.samplingPolicies[0].blankSampleCount, 2);
 
   const allowed = await probeVisualMediaFile(videoPath, { kind: "video", allowBlank: true });
-  assert.equal(allowed.ok, true);
+  assert.equal(allowed.ok, true, JSON.stringify(allowed));
   assert.equal(allowed.blankAllowed, true);
   assert.equal(allowed.samplingPolicies[0].blankAllowed, true);
 });

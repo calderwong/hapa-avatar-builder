@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
-import { createRequire } from "node:module";
+import { createRequire, builtinModules } from "node:module";
 import { fileURLToPath } from "node:url";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -160,8 +160,8 @@ function resolveLocalImport(root, importerPath, specifier) {
   throw new Error(`Unresolved local delivery runtime import ${specifier} from ${path.relative(root, importerPath)}.`);
 }
 
-function buildImportGraph(root) {
-  const pending = ENTRY_PATHS.map((relativePath) => path.resolve(root, relativePath));
+function buildImportGraph(root, entries = ENTRY_PATHS, required = REQUIRED_REACHABLE_PATHS) {
+  const pending = entries.map((relativePath) => path.resolve(root, relativePath));
   const visited = new Set();
   const bareSpecifiers = new Set();
   const rows = [];
@@ -195,10 +195,25 @@ function buildImportGraph(root) {
   }
   rows.sort((left, right) => left.path.localeCompare(right.path));
   const reachable = new Set(rows.map((entry) => entry.path));
-  for (const requiredPath of REQUIRED_REACHABLE_PATHS) {
+  for (const requiredPath of required) {
     if (!reachable.has(requiredPath)) throw new Error(`Required Echo delivery runtime source root is missing: ${requiredPath}.`);
   }
   return { rows, bareSpecifiers: [...bareSpecifiers].sort() };
+}
+
+/** Reuse the same static import traversal for a local compiler stage, without
+ * coupling its cache to unrelated UI bundles or server modules. */
+export function inspectEchoLocalCodeIdentity({ root = ROOT, entries = [] } = {}) {
+  const resolved = resolvedRootPath(root);
+  if (!Array.isArray(entries) || !entries.length || entries.length > 16) throw new Error("Supply a bounded set of local compiler entries.");
+  const graph = buildImportGraph(resolved, entries, entries);
+  const bare = bareImportIdentities(resolved, graph.bareSpecifiers.filter(value => !value.startsWith("node:") && !builtinModules.includes(value)));
+  const files = graph.rows.map(({path,sha256}) => ({path,sha256}));
+  const payload = { schemaVersion: "hapa.echo.local-code-identity.v1", nodeVersion: process.versions.node, entries: [...entries].sort(), files,
+    packages: bare.map(({specifier,sha256}) => ({specifier,sha256})),
+    lockfile: manifestIdentity(resolved,"package-lock.json").sha256 };
+  if (sourceStatSignature(resolved, graph.rows.map(row=>row.filePath)) !== capturedStatSignature(resolved,graph.rows)) throw new Error("Compiler code changed during fingerprinting.");
+  return {...payload,sha256:hashBytes(JSON.stringify(payload))};
 }
 
 function bareImportIdentities(root, specifiers) {
