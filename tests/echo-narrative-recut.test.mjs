@@ -61,7 +61,7 @@ test("locks and missing constraints remain explicit; no out-of-range or graph-ed
   assert.throws(() => recut(project), /required-character/);
   assert.throws(() => recut(fixture(), { range: { startSeconds: 1, endSeconds: 2 } }), /no complete shots/);
   assert.throws(() => recut(fixture(), { range: { startSeconds: 1, endSeconds: 25 } }), /within the song/);
-  assert.throws(() => recut({ ...fixture(), director_show_graph_patches: [{}] }), /track patches/);
+  assert.throws(() => recut({ ...fixture(), director_show_graph_patches: [{}] }), /invalid track patch/);
 });
 
 test("change amount chooses a deterministic bounded subset and leaves unselected shot bytes untouched", () => {

@@ -1,3 +1,4 @@
+import { materializeMultitrackProject } from "./multitrack-editor.js";
 import {contextHash} from "./song-context-packet.js";
 import {echoLyricSourceLines,normalizeEchoLyricContract} from "./echo-lyric-contract.js";
 import {applyEchoRecutTreatment,echoRecipeOperatorLocks} from './echo-recipe-recut-treatment.js';
@@ -42,7 +43,8 @@ export function createEchoNarrativeRecut({ project, recipeId, seed, range, locks
   if (!recipe) throw new Error(`Choose a supported narrative recipe: ${recipeId}`);
   const start = Number(range?.startSeconds), end = Number(range?.endSeconds);
   if (!Number.isFinite(start) || !Number.isFinite(end) || start < 0 || end <= start || end > Number(project.duration)) throw new Error("Choose a finite song range within the song duration.");
-  if (project.director_show_graph_patches?.length) throw new Error("This cut has track patches. Save and resolve those edits before generating a narrative recut.");
+  const materialized = materializeMultitrackProject(project);
+  project = materialized.project;
   if (!Number.isFinite(changeAmount) || changeAmount < 0 || changeAmount > 1) throw new Error("Change amount must be between zero and one.");
   for (const values of [requiredCharacterIds, requiredSceneIds]) if (!Array.isArray(values) || values.length > 64 || values.some(value => typeof value !== "string" || !value.length || value.length > 240)) throw new Error("Choose declared cast and scene identities from the current cut.");
   const timeline = project.timeline || [];
@@ -125,7 +127,7 @@ export function createEchoNarrativeRecut({ project, recipeId, seed, range, locks
   const treatmentIndices=new Set(treatmentSlots.map(slot=>slot.sourceShotIndex));
   const treatment=applyEchoRecutTreatment(next,{recipe,locks,seed,windows:start===0&&end===Number(project.duration)&&changeAmount===1?[{startSeconds:start,endSeconds:end}]:sequence.slots.filter(slot=>treatmentIndices.has(slot.sourceShotIndex))});
   next=treatment.project;
-  const receipt = { ...sequence.receipt, treatment: treatment.receipt, parentCutId: project.active_direction_script_variant?.id || "legacy", range: { startSeconds: start, endSeconds: end },
+  const receipt = { ...sequence.receipt, trackEditMaterialization: materialized.receipt ? {patchHash:materialized.receipt.patchHash,changedRows:materialized.receipt.changedRows,projectionPreserved:true} : null, treatment: treatment.receipt, parentCutId: project.active_direction_script_variant?.id || "legacy", range: { startSeconds: start, endSeconds: end },
     controls: { changeAmount, requiredCharacterIds: [...requiredCharacterIds], requiredSceneIds: [...requiredSceneIds], locks: structuredClone(locks), timingMode },
     changeBudget: { editableShots: editable.length, selectedShots: selected.size, policy: "seeded-ceiling-of-editable-whole-shots" },
     changedShotIndices: [...replacement.keys()].filter(index => JSON.stringify(next.timeline[index]) !== JSON.stringify(timeline[index])),

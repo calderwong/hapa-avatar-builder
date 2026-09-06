@@ -1,3 +1,4 @@
+import { inspectEchoTimelineMediaEligibility, echoMediaConstraintError, ECHO_MEDIA_ELIGIBILITY_FIELDS } from "./echo-media-eligibility.js";
 import {applyEchoRecutExecutionToGraph} from './echo-recipe-recut-treatment.js';
 import { applyDirtyRangePatch, dirtyRangeArtifactHash } from "./dirty-range-rebuild.js";
 import { contextHash } from "./song-context-packet.js";
@@ -218,7 +219,7 @@ function legacyEditorGraph(project = {}) {
     song: { id: project.song_id, title: project.song_title, durationSeconds: duration, lyricOverlay: { ...normalizeEchoLyricContract(project), lines: echoLyricOverlayLines(project) } },
     stems: { items: (project.stems_available || []).map((title, index) => ({ id: `stem:${index}`, stemType: title, title })) },
     tracks: [
-      { id: "media-a", label: "Media A", role: "media", cards: (project.timeline || []).map((shot, index) => ({ id: `legacy:media:${index}`, trackId: "media-a", startSeconds: Number(shot.start_sec), endSeconds: Number(shot.end_sec), media: projectedShotMedia(shot), parameters: { opacity: 1, blendMode: "normal", motion: shot.camera_motion, stemMap: shot.active_stems || [] }, buffer: { state: shot.media_contract?.proxy?.status === "ready" ? "ready" : "pending", readySeconds: shot.media_contract?.proxy?.status === "ready" ? Number(shot.end_sec) - Number(shot.start_sec) : 0 }, provenance: { rendererRoute: shot.media_contract?.type || "unknown" }, knockedOut: false })) },
+      { id: "media-a", label: "Media A", role: "media", cards: (project.timeline || []).map((shot, index) => ({ id: `legacy:media:${index}`, trackId: "media-a", startSeconds: Number(shot.start_sec), endSeconds: Number(shot.end_sec), media: projectedShotMedia(shot), parameters: { opacity: Number(shot.opacity ?? 1), blendMode: shot.blend_mode || "normal", motion: shot.camera_motion, stemMap: shot.active_stems || [] }, buffer: { state: shot.media_contract?.proxy?.status === "ready" ? "ready" : "pending", readySeconds: shot.media_contract?.proxy?.status === "ready" ? Number(shot.end_sec) - Number(shot.start_sec) : 0 }, provenance: { rendererRoute: shot.media_contract?.type || "unknown" }, knockedOut: Boolean(shot.knockedOut || shot.knocked_out) })) },
       { id: "ivf-stack", label: "IVF / ISF", role: "visualizer", cards: (project.visualizer_timeline || []).map((row, index) => ({ id: `legacy:ivf:${index}`, trackId: "ivf-stack", startSeconds: Number(row.start_sec), endSeconds: Number(row.end_sec), media: { id: row.visualizer_id, title: row.visualizer_title }, visualization: { sourceId: row.visualizer_id, nativeKey: row.visualizer_title, status: row.native_status || "browser-proxy" }, parameters: { opacity: Number(row.opacity ?? 0.5), blendMode: row.blend_mode || "screen", stemMap: row.active_stems || [] }, buffer: { state: "ready", readySeconds: Number(row.end_sec) - Number(row.start_sec) }, provenance: { rendererRoute: row.native_status || "browser-proxy" }, knockedOut: false })) },
       ...persistentShaderSlots.map((slot) => ({
         id: slot.track_id,
@@ -621,6 +622,8 @@ function mergeMediaTimeline(graph, timeline, outputProfile) {
       media: projectedShotMedia(shot),
       parameters: {
         ...(clone(template.parameters) || {}),
+        ...(shot.opacity !== undefined ? { opacity: Number(shot.opacity) } : {}),
+        ...(shot.blend_mode ? { blendMode: shot.blend_mode } : {}),
         ...(shot.camera_motion ? { motion: shot.camera_motion } : {}),
         ...(Number.isFinite(Number(shot.camera_intensity)) ? { cameraIntensity: Number(shot.camera_intensity) } : {}),
         ...(Number.isFinite(Number(shot.camera_speed)) ? { cameraSpeed: Number(shot.camera_speed) } : {}),
@@ -635,7 +638,7 @@ function mergeMediaTimeline(graph, timeline, outputProfile) {
         sourceSlotId: template.provenance?.sourceSlotId || slotId,
         ...(shot.media_contract?.type ? { rendererRoute: shot.media_contract.type } : {}),
       },
-      knockedOut: false,
+      knockedOut: Boolean(shot.knockedOut || shot.knocked_out),
     };
   });
   rebuildMediaCameraBindings(graph, timeline, outputProfile || resolveEchoOutputProfile(graph.outputProfile), track);
@@ -843,6 +846,8 @@ function mergeVisualizerTimeline(graph, timeline = [], options = {}) {
         blendMode: row.blend_mode || row.blendMode || template.parameters?.blendMode || "screen",
         ...(explicitStemFocus ? { stemFocus: explicitStemFocus } : {}),
         ...(Array.isArray(row.active_stems) ? { stemMap: clone(row.active_stems) } : {}),
+        ...(row.camera_motion !== undefined ? { motion: row.camera_motion } : {}),
+        ...(row.camera_intensity !== undefined ? { cameraIntensity: Number(row.camera_intensity) } : {}),
       },
       buffer: clone(template.buffer) || { state: "ready", readySeconds: endSeconds - startSeconds },
       provenance: {
@@ -887,6 +892,10 @@ function mergePersistentShaderSlots(graph, project = {}) {
       visualizer_title: slot.shader_title,
       stem_focus: slot.stem_focus,
       opacity: slot.opacity,
+      active_stems: slot.active_stems,
+      camera_motion: slot.camera_motion,
+      camera_intensity: slot.camera_intensity,
+      knockedOut: slot.knockedOut || slot.knocked_out,
       blend_mode: slot.blend_mode,
       native_status: slot.native_status,
       portable_visualizer_card: slot.portable_visualizer_card || slot.portableVisualizerCard || null,
@@ -898,7 +907,7 @@ function mergePersistentShaderSlots(graph, project = {}) {
       parameters: {
         ...(card.parameters || {}),
         stemFocus: slot.stem_focus,
-        stemMap: [slot.stem_focus],
+        stemMap: Array.isArray(slot.active_stems) ? clone(slot.active_stems) : [slot.stem_focus],
       },
       provenance: {
         ...(card.provenance || {}),
@@ -1034,4 +1043,103 @@ export function applyMultitrackOperation(graph, operation) {
   const patch = { schemaVersion: "hapa.director.multitrack-patch.v1", operation, dirtyRange: result.receipt, graphVariantHashBefore, graphVariantHashAfter };
   result.graph.directorV2.patchLineage.patches = [...(result.graph.directorV2.patchLineage.patches || []), patch];
   return { ...result, patch };
+}
+
+
+// Editorial semantics used to prove that consuming patches did not change the
+// displayed cut. Buffer/receipt hashes are execution bookkeeping, not edits.
+function materializedCardState(graph) {
+  return (graph.tracks || []).map(track => ({id:track.id,cards:(track.cards || []).map(card => ({
+    id:card.id,startSeconds:card.startSeconds,endSeconds:card.endSeconds,knockedOut:Boolean(card.knockedOut),
+    ...(card.knockedOut ? {} : {media:card.media,visualization:card.visualization || null,parameters:card.parameters,
+      cameraKeyframes:(card.cameraKeyframes || []).map(({cameraPathId,...frame})=>frame),transition:card.transition || null}),
+  }))}));
+}
+
+/** Commit supported track edits to their existing source rows before directing
+ * from them. Keep the complete patch history in lineage, and prove projection
+ * parity before consuming any patch. Unrepresentable edits remain untouched. */
+export function materializeMultitrackProject(project = {}) {
+  const patches = project.director_show_graph_patches || [];
+  if (!patches.length) return {project,receipt:null};
+  if (patches.length > 512) throw new Error("This cut exceeds the 512 track-edit materialization budget.");
+  if (patches.some(patch=>!patch?.operation?.kind || !patch.operation.cardId)) throw new Error("This cut has an invalid track patch; resolve it in the timeline before recutting.");
+  const baseline = projectToEditorGraph({...project,director_show_graph_patches:[]});
+  const allIds = new Set(baseline.tracks.flatMap(track=>track.cards.map(card=>card.id)));
+  if (patches.some(patch=>!allIds.has(patch.operation.cardId))) throw new Error("A track edit targets a missing card. Restore or resolve that edit before recutting.");
+  const edited = projectToEditorGraph(project), next = clone(project);
+  const changedRows = [];
+  const stable = value => Array.isArray(value) ? value.map(stable) : value && typeof value === "object" ? Object.fromEntries(Object.keys(value).sort().filter(key=>value[key]!==undefined).map(key=>[key,stable(value[key])])) : value;
+  const equal = (a,b) => JSON.stringify(stable(a)) === JSON.stringify(stable(b));
+  const operationsFor = card => patches.map(patch=>patch.operation).filter(operation=>operation.cardId===card.id || (operation.kind==="set-stem-map" && (card.visualization || card.parameters?.motion==="stem-modulated")));
+  const mediaTrack = trackByRole(baseline,["track-a","media-a"],["foundation","media"]);
+  const shaderTrack = trackByRole(baseline,["track-b","ivf-stack"],["visualizer"]);
+  for(const patch of patches){
+    const track=baseline.tracks.find(track=>track.cards.some(card=>card.id===patch.operation.cardId));
+    const sourceOwned=track===mediaTrack || track===shaderTrack || (track.persistent && Array.isArray(project.persistent_shader_slots));
+    if(!sourceOwned || (patch.operation.kind==="replace-card" && track!==mediaTrack)) throw Object.assign(new Error("This track edit cannot yet be faithfully represented by source rows. Preserve the edited cut and resolve the accent or shader-card replacement before recutting."),{code:"echo_track_materialization_unsupported",cardId:patch.operation.cardId});
+  }
+
+  for (const [field,track] of [["timeline",mediaTrack],["visualizer_timeline",shaderTrack]]) {
+    if (!track || !Array.isArray(next[field])) continue;
+    const editedTrack = edited.tracks.find(item=>item.id===track.id);
+    if (track.cards.length !== next[field].length || editedTrack?.cards.length !== track.cards.length) throw new Error("Track edits changed the source-row topology; resolve that edit before recutting.");
+    next[field] = next[field].map((source,index)=>{
+      const before = track.cards[index], after = editedTrack.cards[index];
+      const operations=operationsFor(after);
+      if (!operations.length && equal(materializedCardState({tracks:[{id:track.id,cards:[before]}]}),materializedCardState({tracks:[{id:track.id,cards:[after]}]}))) return source;
+      const row = {...source}, media = field === "timeline";
+      const assign = (key,a,b) => {if (b!==undefined && (operations.length || !equal(a,b))) row[key]=clone(b)};
+      assign("start_sec",before.startSeconds,after.startSeconds);assign("end_sec",before.endSeconds,after.endSeconds);
+      if (operations.some(operation=>operation.kind==="knock-card") || Boolean(before.knockedOut)!==Boolean(after.knockedOut)) {row.knockedOut=Boolean(after.knockedOut);row.knocked_out=Boolean(after.knockedOut)}
+      for (const [field,key] of [["opacity","opacity"],["blend_mode","blendMode"],["active_stems","stemMap"],["camera_motion","motion"],["camera_intensity","cameraIntensity"],["camera_speed","cameraSpeed"],["camera_focus","cameraFocus"]]) assign(field,before.parameters?.[key],after.parameters?.[key]);
+      if (operations.some(operation=>operation.kind==="set-opacity")) delete row.recipe_treatment;
+      if (media && (operations.some(operation=>operation.kind==="replace-card") || !equal(before.media,after.media))) {
+        const replacement = (project.timeline || []).find(shot=>shot.media_id===after.media?.id && (shot.media_contract?.runtimeUri || shot.runtime_media_uri || shot.media_contract?.originalUri || shot.media_uri || "")===after.media?.localPath);
+        const identityFields=[...ECHO_MEDIA_ELIGIBILITY_FIELDS,"contentEvidence","shotRoles","paletteFamily","comicId","panelIndex","roi","metadata"];
+        for (const key of identityFields) {delete row[key];if(replacement && Object.hasOwn(replacement,key))row[key]=clone(replacement[key])}
+        row.media_id=after.media?.id;row.media_title=after.media?.title;row.media_uri=after.media?.localPath || "";
+        delete row.runtime_media_uri;delete row.media_contract;
+        if(after.media?.mediaContract)row.media_contract=clone(after.media.mediaContract);
+        for(const [key,value] of [["media_card_id",after.media?.cardId],["media_card_kind",after.media?.cardKind],["media_card_ref",after.media?.cardRef],["media_card_title",after.media?.cardTitle]]) {delete row[key];if(value)row[key]=value}
+        delete row.semantic_casting;row.confidence=0;row.confidence_basis="operator-track-edit-unmeasured-semantics";
+        delete row.camera_framing_contract;
+        row.decision_evidence={source:"materialized-track-edit",parentDecisionEvidence:source.decision_evidence || null};
+      }
+      if(media && !equal(before.cameraKeyframes,after.cameraKeyframes)) row.camera_framing_contract=cameraTimelineFromGraph(edited,editedTrack)[index].camera_framing_contract;
+      changedRows.push({field,index,cardId:after.id});
+      return row;
+    });
+  }
+  if(Array.isArray(project.persistent_shader_slots)) {
+    const slots=normalizeEchoPersistentShaderSlots(project);
+    next.persistent_shader_slots=slots.map((slot,index)=>{
+      const source=project.persistent_shader_slots.find(row=>row.id===slot.id)||project.persistent_shader_slots[index]||slot;
+      const before=baseline.tracks.find(track=>track.id===slot.track_id)?.cards?.[0];
+      const after=edited.tracks.find(track=>track.id===slot.track_id)?.cards?.[0];
+      if(!before||!after)return source;
+      const row={...source},operations=operationsFor(after);
+      if(operations.some(operation=>operation.kind==="set-opacity"))delete row.recipe_treatment;
+      for(const [field,key]of [["opacity","opacity"],["blend_mode","blendMode"],["active_stems","stemMap"],["camera_motion","motion"],["camera_intensity","cameraIntensity"]])if(after.parameters?.[key]!==undefined && (operations.length || !equal(before.parameters?.[key],after.parameters?.[key])))row[field]=clone(after.parameters?.[key]);
+      if(operations.some(operation=>operation.kind==="knock-card") || Boolean(before.knockedOut)!==Boolean(after.knockedOut)){row.knockedOut=Boolean(after.knockedOut);row.knocked_out=Boolean(after.knockedOut)}
+      if(!equal(row,source))changedRows.push({field:"persistent_shader_slots",index,cardId:after.id});
+      return row;
+    });
+  }
+  const failures=inspectEchoTimelineMediaEligibility(next.timeline,next.mediaConstraints).filter(row=>!row.eligible);
+  if(failures.length)throw echoMediaConstraintError(failures,{stage:"track-edit-materialization"});
+  // Global stem-map edits address all dependent layers, including accents that
+  // have no source timeline row. Keep their existing executable patch owner.
+  next.director_show_graph_patches=clone(patches.filter(patch=>patch.operation.kind==="set-stem-map"));
+  const projected=projectToEditorGraph(next);
+  if(!equal(materializedCardState(edited),materializedCardState(projected))) {
+    const firstDifference=(a,b,path="tracks")=>{if(equal(a,b))return null;if(!a||!b||typeof a!=="object"||typeof b!=="object")return path;for(const key of new Set([...Object.keys(a),...Object.keys(b)])){const found=firstDifference(a[key],b[key],path+"."+key);if(found)return found}return path};
+    throw Object.assign(new Error("This track edit cannot yet be faithfully represented by source rows. Keep the edited cut; recutting it requires resolving its persistent, accent, or source-card controls."),{code:"echo_track_materialization_unsupported",field:firstDifference(materializedCardState(edited),materializedCardState(projected))});
+  }
+  const receipt={schemaVersion:"hapa.echo.track-edit-materialization.v1",patchHash:contextHash(patches),sourceHash:contextHash({timeline:project.timeline,visualizer_timeline:project.visualizer_timeline,persistent_shader_slots:project.persistent_shader_slots}),changedRows,projectionPreserved:true,retainedPatchKinds:[...new Set(next.director_show_graph_patches.map(patch=>patch.operation.kind))],patches:clone(patches)};
+  const history=project.director_patch_lineage?.trackEditMaterializations || [];
+  if(history.length>=64)throw new Error("This cut exceeds the 64-generation track-edit lineage budget.");
+  next.director_patch_lineage={...(next.director_patch_lineage || {}),trackEditMaterializations:[...history,receipt]};
+  next.hyperframe_script_stale=true;
+  return {project:next,receipt};
 }
