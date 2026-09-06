@@ -43,7 +43,8 @@ export function planEchoPlayerLeases(project = null, currentShotIndex = 0, limit
   return leases;
 }
 
-export function reconcileEchoPlayerSlots(slots = [], leases = [], protectedSlotIndex = -1) {
+export function reconcileEchoPlayerSlots(slots = [], leases = [], protectedSlotIndex = -1, { busySlotIndices = [], keyOf = canonicalEchoAssetKey } = {}) {
+  const busy = new Set(busySlotIndices);
   const assignments = [];
   const claimedSlots = new Set();
   const claimedLeases = new Set();
@@ -51,7 +52,7 @@ export function reconcileEchoPlayerSlots(slots = [], leases = [], protectedSlotI
     const slotIndex = slots.findIndex((slot, index) => (
       !claimedSlots.has(index)
       && (index !== protectedSlotIndex || lease.lookahead === 0)
-      && canonicalEchoAssetKey(slot?.key) === lease.assetKey
+      && keyOf(slot?.key) === lease.assetKey
     ));
     if (slotIndex >= 0) {
       claimedSlots.add(slotIndex);
@@ -64,7 +65,8 @@ export function reconcileEchoPlayerSlots(slots = [], leases = [], protectedSlotI
     const slotIndex = slots.findIndex((slot, index) => (
       !claimedSlots.has(index)
       && index !== protectedSlotIndex
-      && !leases.some((candidate) => candidate.assetKey === canonicalEchoAssetKey(slot?.key))
+      && !busy.has(index)
+      && !leases.some((candidate) => candidate.assetKey === keyOf(slot?.key))
     ));
     if (slotIndex < 0) return;
     claimedSlots.add(slotIndex);

@@ -24,6 +24,7 @@ import {
 import { normalizePlaybackPowerMode } from "../domain/playback-power-mode.js";
 import { echoAudioFetchRequest, echoProjectAudioRoute, echoLocalMediaApiBase } from "../domain/echo-audio-route.js";
 import {
+  echoSourceWindowAtEnd,
   echoSourceWindowPlaybackRate,
   mapEchoSourceWindowTime,
   normalizeEchoTransitionTimeMapping,
@@ -35,7 +36,7 @@ import {
   resolveVerifiedEchoStemBinding,
 } from "../domain/echo-visualizer-audio-envelope.js";
 import { createEchoPlaybackEngine } from "../domain/echo-playback-engine.js";
-import { ECHO_PLAYER_POOL_LIMIT } from "../domain/echo-player-pool.js";
+import { ECHO_PLAYER_POOL_LIMIT, reconcileEchoPlayerSlots } from "../domain/echo-player-pool.js";
 import { createEchoPresentationTimingRecorder, observeEchoPresentedFrames, estimateEchoAudibleClock } from "../domain/echo-presentation-timing.js";
 import {
   createEchoIsfSurface,
@@ -574,6 +575,9 @@ function PersistentEchoABPlayers({ shot, lookaheadShots = [], playing, songTime,
   const [stageStatus, setStageStatus] = useState("buffering");
   const generationRef = useRef(0);
   const fallbackRef = useRef(null);
+  const preparationsRef = useRef(new Map());
+  const mountedRef = useRef(true);
+  const [poolRevision, setPoolRevision] = useState(0);
   const correctedPresentationKeyRef = useRef("");
   const slotStateRef = useRef(Array.from({ length: ECHO_VIDEO_PLAYER_POOL_SIZE }, () => ({ key: "", status: "idle", frameReady: false, generation: 0, error: "" })));
 
@@ -588,7 +592,7 @@ function PersistentEchoABPlayers({ shot, lookaheadShots = [], playing, songTime,
   const currentShotIdentity = shotKey(shot);
 
   const waitFor = (video, eventName, timeoutMs, generation) => new Promise((resolve, reject) => {
-    if (generation !== generationRef.current && eventName !== "lookahead") { reject(new Error("stale-prepare")); return; }
+    if (!mountedRef.current) { reject(new Error("stale-prepare")); return; }
     let settled = false;
     const finish = (error) => {
       if (settled) return; settled = true; window.clearTimeout(timer);
@@ -647,11 +651,8 @@ function PersistentEchoABPlayers({ shot, lookaheadShots = [], playing, songTime,
       video.currentTime = target;
       await waitFor(video, "seeked", 3000, generation);
     }
-    const sourceEndSeconds = Math.min(
-      Number(video.duration || Number.POSITIVE_INFINITY),
-      Number.isFinite(Number(sourceOutSeconds)) ? Number(sourceOutSeconds) : Number(video.duration || 0),
-    );
-    const holdingLastFrame = Number.isFinite(sourceEndSeconds) && target >= Math.max(0, sourceEndSeconds - 0.04);
+    const holdingLastFrame = echoSourceWindowAtEnd({ elapsedSeconds: offsetSeconds, durationSeconds: video.duration,
+      sourceInSeconds, sourceOutSeconds, cueDurationSeconds, timeMapping });
     if (holdingLastFrame) video.pause();
     else await video.play();
     await new Promise((resolve, reject) => {
@@ -662,58 +663,83 @@ function PersistentEchoABPlayers({ shot, lookaheadShots = [], playing, songTime,
       else window.requestAnimationFrame(() => finish());
     });
     if (slot.generation !== generation || slot.key !== key || video.videoWidth <= 0 || video.error) throw new Error("stale-or-empty-frame");
-    if (!playing) video.pause();
+    video.pause();
     slot.status = "ready"; slot.frameReady = true; video.dataset.echoSourceKey = key; delete video.dataset.echoPreparingKey;
     return true;
+  };
+
+  const prepareOwnedSlot = (index, targetShot, offsetSeconds = 0) => {
+    const key = shotKey(targetShot);
+    const pending = preparationsRef.current.get(index);
+    if (pending) return pending.key === key ? pending.promise : Promise.reject(new Error("busy-player-slot"));
+    const generation = slotStateRef.current[index].generation + 1;
+    const promise = prepare(index, targetShot, offsetSeconds, generation).catch((error) => {
+      const slot = slotStateRef.current[index];
+      if (slot.key === key && slot.generation === generation) {
+        slot.status = "error"; slot.error = String(error?.message || error);
+      }
+      throw error;
+    }).finally(() => {
+      if (preparationsRef.current.get(index)?.promise === promise) preparationsRef.current.delete(index);
+      if (mountedRef.current) setPoolRevision((value) => value + 1);
+    });
+    preparationsRef.current.set(index, { key, promise });
+    return promise;
   };
 
   useEffect(() => {
     if (shotMediaType(shot) !== "video") return undefined;
     const generation = ++generationRef.current; const key = shotKey(shot);
-    const reusableIndex = slotStateRef.current.findIndex((slot, index) => slot.key === key && slot.status === "ready" && slot.frameReady && playerRefs.current[index]?.readyState >= 2 && playerRefs.current[index]?.videoWidth > 0 && !playerRefs.current[index]?.error);
     const targetLookahead = Math.min(ECHO_VIDEO_LOOKAHEAD_COUNT, lookaheadShots.filter((item) => shotMediaType(item) === "video").length);
     setStageStatus("buffering"); onBufferState?.({ status: "buffering", ready: false, currentKey: key, readyLookahead: 0, targetLookahead });
     const activate = (index) => {
-      if (generation !== generationRef.current) return;
+      if (!mountedRef.current || generation !== generationRef.current) return;
       activeIndexRef.current = index; setActiveIndex(index); setStageStatus("ready");
       onBufferState?.({ status: "ready", ready: true, currentKey: key, readyLookahead: slotStateRef.current.filter((slot, slotIndex) => slotIndex !== index && slot.status === "ready").length, targetLookahead });
     };
-    if (reusableIndex >= 0) activate(reusableIndex);
-    else {
-      const incomingIndex = ECHO_VIDEO_PLAYER_INDICES.find((index) => index !== activeIndexRef.current && slotStateRef.current[index].status !== "preparing") ?? ((activeIndexRef.current + 1) % ECHO_VIDEO_PLAYER_POOL_SIZE);
-      prepare(incomingIndex, shot, Math.max(0, songTime - Number(shot.start_sec || 0)), generation).then((ready) => { if (ready) activate(incomingIndex); }).catch((error) => {
-        const slot = slotStateRef.current[incomingIndex]; if (slot.generation === generation) { slot.status = "error"; slot.error = String(error.message || error); }
-        if (generation !== generationRef.current) return;
-        setStageStatus("fallback"); onBufferState?.({ status: "fallback", ready: true, currentKey: key, error: String(error.message || error), readyLookahead: 0, targetLookahead: 0 });
-      });
-    }
+    const loadCurrent = async () => {
+      while (mountedRef.current && generation === generationRef.current) {
+        // Current takes priority on a far seek. Reuse its pending preparation;
+        // otherwise reserve an idle staging slot without replacing a busy owner.
+        const plan = reconcileEchoPlayerSlots(slotStateRef.current, [{ assetKey: key, lookahead: 0 }], activeIndexRef.current,
+          { busySlotIndices: [...preparationsRef.current.keys()], keyOf: String });
+        const index = plan.assignments[0]?.slotIndex;
+        if (index !== undefined) {
+          const liveTime = Number(clockRef?.current ?? songTime);
+          if (await prepareOwnedSlot(index, shot, Math.max(0, liveTime - Number(shot.start_sec || 0)))) activate(index);
+          return;
+        }
+        const pending = [...preparationsRef.current.values()].map((item) => item.promise.catch(() => {}));
+        if (!pending.length) throw new Error("No Echo staging player available");
+        await Promise.race(pending);
+      }
+    };
+    loadCurrent().catch((error) => {
+      if (!mountedRef.current || generation !== generationRef.current) return;
+      setStageStatus("fallback"); onBufferState?.({ status: "fallback", ready: true, currentKey: key, error: String(error.message || error), readyLookahead: 0, targetLookahead: 0 });
+    });
     return () => { if (generation === generationRef.current) generationRef.current += 1; };
   }, [currentShotIdentity]);
 
   useEffect(() => {
     if (stageStatus !== "ready") return;
-    const generation = generationRef.current;
+    const key = shotKey(shot);
     const targets = lookaheadShots.filter((item) => shotMediaType(item) === "video").slice(0, ECHO_VIDEO_LOOKAHEAD_COUNT);
-    targets.forEach((targetShot) => {
-      const key = shotKey(targetShot);
-      if (slotStateRef.current.some((slot) => slot.key === key && (slot.status === "ready" || slot.status === "preparing"))) return;
-      const slotIndex = ECHO_VIDEO_PLAYER_INDICES.find((index) => index !== activeIndexRef.current && slotStateRef.current[index].status !== "preparing");
-      if (slotIndex === undefined) return;
-      prepare(slotIndex, targetShot, 0, generation).then(() => {
-        playerRefs.current[slotIndex]?.pause();
-        const readyLookahead = slotStateRef.current.filter((slot, index) => index !== activeIndexRef.current && slot.status === "ready").length;
-        const errors = slotStateRef.current.map((slot) => slot.error).filter(Boolean);
-        onBufferState?.({ status: errors.length ? "partial" : "ready", ready: true, currentKey: shotKey(shot), ...(errors.length ? { error: `Lookahead video failed: ${errors.join("; ")}` } : {}), readyLookahead, targetLookahead: targets.length });
-      }).catch((error) => {
-        const slot = slotStateRef.current[slotIndex];
-        slot.status = "error";
-        slot.error = String(error?.message || error);
-        const readyLookahead = slotStateRef.current.filter((candidate, index) => index !== activeIndexRef.current && candidate.status === "ready").length;
-        const errors = slotStateRef.current.map((candidate) => candidate.error).filter(Boolean);
-        onBufferState?.({ status: "partial", ready: true, currentKey: shotKey(shot), error: `Lookahead video failed: ${errors.join("; ")}`, readyLookahead, targetLookahead: targets.length });
-      });
-    });
-  }, [stageStatus, lookaheadShots.map((item) => shotKey(item)).join("|")]);
+    const leases = targets.map((targetShot, index) => ({ assetKey: shotKey(targetShot), lookahead: index + 1, targetShot }));
+    const plan = reconcileEchoPlayerSlots(slotStateRef.current, leases, activeIndexRef.current,
+      { busySlotIndices: [...preparationsRef.current.keys()], keyOf: String });
+    for (const { slotIndex, lease } of plan.assignments) {
+      const slot = slotStateRef.current[slotIndex];
+      // A failed identity retries when explicitly revisited as current, not on
+      // every completion notification from an unrelated lookahead resource.
+      if (slot.key === lease.assetKey && ["ready", "preparing", "error"].includes(slot.status)) continue;
+      prepareOwnedSlot(slotIndex, lease.targetShot).catch(() => {});
+    }
+    const readyLookahead = leases.filter((lease) => slotStateRef.current.some((slot) => slot.key === lease.assetKey && slot.status === "ready")).length;
+    const errors = leases.flatMap((lease) => slotStateRef.current.filter((slot) => slot.key === lease.assetKey && slot.error).map((slot) => slot.error));
+    onBufferState?.({ status: errors.length ? "partial" : "ready", ready: true, currentKey: key,
+      ...(errors.length ? { error: `Lookahead video failed: ${errors.join("; ")}` } : {}), readyLookahead, targetLookahead: targets.length });
+  }, [stageStatus, currentShotIdentity, poolRevision, lookaheadShots.map((item) => shotKey(item)).join("|")]);
 
   useEffect(() => {
     const video = playerRefs.current[activeIndex];
@@ -736,7 +762,8 @@ function PersistentEchoABPlayers({ shot, lookaheadShots = [], playing, songTime,
     });
     let frame = 0, lastSyncAt = -Infinity;
     const synchronize = (now) => {
-      if (video.seeking) return;
+      if (video.seeking || slotStateRef.current[activeIndex]?.key !== shotKey(shot)
+        || slotStateRef.current[activeIndex]?.status !== "ready") return;
       const masterAudio = audioRef?.current;
       const outputClock = estimateEchoAudibleClock({ audio: masterAudio, context: audioContextRef?.current, nowMs: now });
       const liveSongTime = outputClock.audibleSongTime ?? outputClock.projectedElementSongTime
@@ -762,11 +789,9 @@ function PersistentEchoABPlayers({ shot, lookaheadShots = [], playing, songTime,
       });
       if (correction.action === "seek") video.currentTime = Math.min(Number(video.duration || expected), correction.targetSeconds);
       video.playbackRate = correction.playbackRate;
-      const sourceEndSeconds = Math.min(
-        Number(video.duration || Number.POSITIVE_INFINITY),
-        Number.isFinite(Number(sourceOutSeconds)) ? Number(sourceOutSeconds) : Number(video.duration || 0),
-      );
-      const holdingLastFrame = Number.isFinite(sourceEndSeconds) && expected >= Math.max(0, sourceEndSeconds - 0.04);
+      const holdingLastFrame = echoSourceWindowAtEnd({ elapsedSeconds: Math.max(0, liveSongTime - Number(shot.start_sec || 0)),
+        durationSeconds: video.duration, sourceInSeconds, sourceOutSeconds, cueDurationSeconds, timeMapping })
+        || (video.ended && correction.action !== "seek");
       if (playing && video.paused && !holdingLastFrame) video.play().catch((error) => {
         const readyLookahead = slotStateRef.current.filter((candidate, index) => index !== activeIndexRef.current && candidate.status === "ready").length;
         const targetLookahead = Math.min(ECHO_VIDEO_LOOKAHEAD_COUNT, lookaheadShots.filter((item) => shotMediaType(item) === "video").length);
@@ -844,11 +869,17 @@ function PersistentEchoABPlayers({ shot, lookaheadShots = [], playing, songTime,
     return () => window.cancelAnimationFrame(frame);
   }, [playing, shot?.media_id, shot?.start_sec, sourceIsPortrait, cameraKeyframes, shotIndex, clockRef]);
 
-  useEffect(() => () => {
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+    mountedRef.current = false;
+    generationRef.current += 1;
+    for (const slot of slotStateRef.current) slot.generation += 1;
     for (const video of playerRefs.current) {
       if (!video) continue;
       try { video.pause(); video.removeAttribute("src"); video.load(); } catch { /* best effort */ }
     }
+    };
   }, []);
 
   return (
@@ -3029,21 +3060,12 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
 
     const tick = () => {
       const audio = audioRef.current;
-      const project = activeProjectRef.current;
-
       if (audio && !audio.paused) {
         const next = audio.currentTime;
         currentTimeRef.current = next;
         echoPlaybackEngineRef.current?.tick(next, { playing: true });
-        const duration = project?.duration || audio.duration || 180;
-        if (next >= duration) {
-          audio.pause();
-          audio.currentTime = 0;
-          currentTimeRef.current = 0;
-          setCurrentTime(0);
-          setIsPlaying(false);
-          return;
-        }
+        // Let the audio element reach its natural end. Project metadata can
+        // round a song short; resetting here truncates audio and loses `ended`.
       } else if (audio) {
         setIsPlaying(false);
         return;

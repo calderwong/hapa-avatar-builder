@@ -191,3 +191,11 @@ export function mapEchoSourceWindowTime({
     endGuardSeconds,
   });
 }
+
+// Share the mapper's reachable terminal sample instead of a second end tolerance.
+// Unknown/empty windows cannot establish an end. A reverse seek releases the hold.
+export function echoSourceWindowAtEnd(options = {}) {
+  const start = mapEchoSourceWindowTime({ ...options, elapsedSeconds: 0, loop: false });
+  const end = mapEchoSourceWindowTime({ ...options, elapsedSeconds: Number.MAX_VALUE, loop: false });
+  return end > start && mapEchoSourceWindowTime({ ...options, loop: false }) >= end - 1e-7;
+}
