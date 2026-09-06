@@ -6,11 +6,20 @@ import { prepareEchoPlaybackProxy } from './echo-playback-proxy.mjs';
 import { resolveEchoRuntimeMediaUri } from './echo-runtime-media-route.mjs';
 import { echoPreviewShotKey, echoPreviewSourceUri } from '../src/domain/echo-preview-projection.js';
 import { hasExcludedEchoDirectorOrigin } from '../src/domain/echo-media-source-policy.js';
+import { deriveEchoDirectionVariantProject, echoDirectionVariantFingerprint } from '../src/domain/echo-direction-variants.js';
 
 const busy = job => ['queued', 'running', 'cancelling'].includes(job?.status);
 const fail = (message, statusCode = 422) => Object.assign(new Error(message), { statusCode });
 const stamp = stat => [stat.size, stat.mtimeMs, stat.ctimeMs, stat.ino].join(':');
 const digest = value => createHash('sha256').update(JSON.stringify(value)).digest('hex');
+
+// The UI projects saved cuts to the canonical song duration. Preview keys must
+// use that same projection; raw authored tails can be rounded beyond the song.
+export function echoPreviewSelectionInput({ project, variant = null, songId, variantId = 'legacy' }) {
+  const projected = variant ? deriveEchoDirectionVariantProject(project, variant) : project;
+  return { songId, variantId, fingerprint: echoDirectionVariantFingerprint(variant || { timeline: project.timeline }),
+    timeline: projected.timeline };
+}
 
 function acquireOwner(directory) {
   const database = new DatabaseSync(path.join(directory, 'owner.sqlite'));

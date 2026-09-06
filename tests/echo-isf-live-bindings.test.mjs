@@ -215,3 +215,26 @@ test("Echo surfaces bounded frame, media, stem, and composition receipts", () =>
   assert.match(source, /data-echo-isf-frame-receipt/);
   assert.match(source, /receiptHash/);
 });
+
+test('DOM recovery replaces stale same-element cue identity and installs its frame observer',()=>{
+  const names=['shotRuntimeUri','echoPresentedShotKey','isPresentedEchoVideoElement','resolvePresentedEchoMediaBinding'];
+  let observers=0,stops=0;const contexts=[];
+  const refs={presentedMediaRef:{current:null},presentationObserverRef:{current:null},audioRef:{current:{currentTime:0}},audioContextRef:{current:null}};
+  const context={...refs,JSON,Number,String,Boolean,globalThis:{},resolveMediaUri:uri=>uri,useCallback:fn=>fn,
+    publishExactBindingDiagnostics:()=>{},observeEchoPresentedFrames:options=>{observers++;contexts.push(options.getContext);return ()=>stops++;}};
+  const begin=source.indexOf('  const handlePresentedMediaChange = useCallback(');
+  const end=source.indexOf('\n  useEffect(',begin);
+  vm.runInNewContext(names.map(functionSource).join('\n')+'\n'+source.slice(begin,end)+'\n globalThis.callback=handlePresentedMediaChange; globalThis.resolve=resolvePresentedEchoMediaBinding; globalThis.key=echoPresentedShotKey;',context);
+  const shot={media_id:'same',media_uri:'/same.mp4',start_sec:0,end_sec:5};
+  const video={dataset:{echoPlayer:'current',framePresented:'true',echoSourceKey:context.globalThis.key(shot)},readyState:4,videoWidth:640,seeking:false};
+  context.globalThis.callback({element:video,kind:'video',mediaId:'same',uri:'/same.mp4',sourceKey:video.dataset.echoSourceKey,shot,presented:true});
+  const next={...shot,start_sec:120,end_sec:122.8};video.dataset.echoSourceKey=context.globalThis.key(next);
+  const recovered=context.globalThis.resolve({querySelector:()=>video},next,refs.presentedMediaRef.current);
+  assert.equal(recovered.shot,next);assert.equal(recovered.recoveredFrom,'current-dom-player');
+  context.currentPresentedMedia=recovered;context.handlePresentedMediaChange=context.globalThis.callback;
+  const recovery=source.split('\n').find(line=>line.includes('if (currentPresentedMedia?.recoveredFrom)'));
+  assert.ok(recovery);vm.runInNewContext(recovery,context);
+  assert.equal(observers,2);assert.equal(stops,1);assert.equal(contexts[1]().shot,next);
+  assert.equal(refs.presentedMediaRef.current.recoveredFrom,undefined,'stable recovered bindings do not trigger per-frame React writes');
+  assert.equal(context.globalThis.resolve({querySelector:()=>video},next,refs.presentedMediaRef.current),refs.presentedMediaRef.current);
+});

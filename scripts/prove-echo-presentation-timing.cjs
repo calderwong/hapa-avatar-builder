@@ -61,7 +61,7 @@ app.whenReady().then(async () => {
       await delay(1500);
     }
     console.log(JSON.stringify({stage:'song-selected',title}));
-    if(requirePrepared)await waitFor(`(()=>{const control=document.querySelector('[data-testid="echo-preview-preparation"]');return ['ready','partial'].includes(control?.dataset.jobStatus)&&Number(control?.dataset.readyCues)>0;})()`,30000);
+    if(requirePrepared)await waitFor(`(()=>{const control=document.querySelector('[data-testid="echo-preview-preparation"]');return ['ready','partial'].includes(control?.dataset.jobStatus)&&Number(control?.dataset.readyCues)>0&&control?.dataset.pendingCues==='0';})()`,30000);
     await waitFor(`document.querySelector('.hapa-echos-view audio')?.readyState>=2&&[...document.querySelectorAll('.hapa-echos-view button')].some(x=>/Play Show/.test(x.textContent)&&!x.disabled)`);
     if(fullSong)await win.webContents.executeJavaScript(`(()=>{window.__ECHO_TIMING_FULL_SONG__={startedAt:performance.now(),duration:document.querySelector('.hapa-echos-view audio').duration,ended:false};document.querySelector('.hapa-echos-view audio').addEventListener('ended',()=>{window.__ECHO_TIMING_FULL_SONG__.ended=true;window.__ECHO_TIMING_FULL_SONG__.endedAt=performance.now()},{once:true});})()`);
     await click('Play Show');

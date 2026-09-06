@@ -12,7 +12,7 @@ import { promisify } from "node:util";
 import Hypercore from "hypercore";
 import { createPreparedEchoPerformanceStore } from "./echo-prepared-performance-store.mjs";
 import { createEchoPerformancePreparation } from "./echo-performance-preparation.mjs";
-import { openEchoPreviewPreparation } from "./echo-preview-preparation.mjs";
+import { openEchoPreviewPreparation, echoPreviewSelectionInput } from "./echo-preview-preparation.mjs";
 import { echoPerformanceInputs } from "./echo-performance-inputs.mjs";
 import { resolveEchoRuntimeMediaUri } from "./echo-runtime-media-route.mjs";
 import { createEchoKanbanStore } from "./echo-kanban-store.mjs";
@@ -818,7 +818,7 @@ function getEchoPreviewPreparation() {
     const variant = variantId === "legacy" ? null : await readEchoDirectionScriptVariant(songId, variantId)
       || project.direction_script_variants?.find(row => echoDirectionVariantId(row) === variantId);
     if (variantId !== "legacy" && !variant) throw echoDirectionVariantNotFound(songId, variantId);
-    return { songId, variantId, fingerprint: echoDirectionVariantFingerprint(variant || { timeline: project.timeline }), timeline: (variant || project).timeline };
+    return echoPreviewSelectionInput({ project, variant, songId, variantId });
   },
   }).catch(error => { echoPreviewPreparationPromise = null; throw error; });
   return echoPreviewPreparationPromise;

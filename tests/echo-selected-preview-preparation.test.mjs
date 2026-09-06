@@ -124,3 +124,33 @@ test('missing and excluded sources stay on original media, while pre-cancelled e
   await assert.rejects(prepareEchoPlaybackProxy({ sourcePath: source, proxyRoot: path.join(root, 'data/media/echo-proxies-v2'), signal: controller.signal }));
   await assert.rejects(fs.stat(path.join(root, 'data/media/echo-proxies-v2')), { code: 'ENOENT' });
 });
+
+test('preview selection shares the UI duration projection without changing raw cut timing or trims', async () => {
+  const {echoPreviewSelectionInput}=await import('../server/echo-preview-preparation.mjs');
+  const {deriveEchoDirectionVariantProject}=await import('../src/domain/echo-direction-variants.js');
+  const project={song_id:'song',duration:213.68,timeline:[],visualizer_timeline:[]};
+  const variant={id:'cut',timeline:[{...cue(),start_sec:210.7,end_sec:213.7}],visualizer_timeline:[]};
+  const before=structuredClone({project,variant});
+  const input=echoPreviewSelectionInput({project,variant,songId:'song',variantId:'cut'});
+  assert.equal(input.timeline[0].end_sec,213.68);
+  const proxy={key:'c'.repeat(64),sha256:'d'.repeat(64),uri:`/media/echo-proxies-v2/${'c'.repeat(64)}/preview.mp4`};
+  const job={songId:'song',variantId:'cut',items:[{status:'ready',shotKey:echoPreviewShotKey(input.timeline[0]),proxy}]};
+  const displayed=deriveEchoDirectionVariantProject(project,variant);
+  const result=applyEchoPreviewProjection(displayed.timeline,job,input);
+  assert.equal(result[0].runtime_media_uri,proxy.uri);
+  assert.equal(result[0].media_contract.sourceInSeconds,.5);
+  assert.equal(result[0].media_contract.sourceOutSeconds,1.5);
+  assert.deepEqual({project,variant},before);
+  assert.equal(echoPreviewSelectionInput({project,songId:'song'}).timeline,project.timeline);
+});
+
+test('the canonical preview API prepares projected selected cues and the proof rejects unapplied video cues', async()=>{
+  const api=await fs.readFile(new URL('../server/api.mjs',import.meta.url),'utf8');
+  const load=api.slice(api.indexOf('function getEchoPreviewPreparation()'),api.indexOf('function compileEchoDirectorProject('));
+  assert.match(load,/return echoPreviewSelectionInput\(\{ project, variant, songId, variantId \}\)/);
+  assert.doesNotMatch(load,/timeline: \(variant \|\| project\)\.timeline/);
+  const ui=await fs.readFile(new URL('../src/components/EchoPreviewPreparationControl.jsx',import.meta.url),'utf8');
+  assert.match(ui,/data-pending-cues=\{pendingCount\}/);
+  const proof=await fs.readFile(new URL('../scripts/prove-echo-presentation-timing.cjs',import.meta.url),'utf8');
+  assert.match(proof,/control\?\.dataset\.pendingCues==='0'/);
+});

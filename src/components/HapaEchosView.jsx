@@ -321,7 +321,8 @@ function resolvePresentedEchoMediaBinding(surface, shot, callbackBinding = null)
   const callbackMatches = callbackBinding?.presented
     && callbackBinding.element
     && callbackBinding.mediaId === mediaId
-    && callbackBinding.uri === uri;
+    && callbackBinding.uri === uri
+    && callbackBinding.sourceKey === sourceKey;
   if (callbackMatches && (
     callbackBinding.kind !== "video"
     || isPresentedEchoVideoElement(callbackBinding.element, sourceKey)
@@ -3493,7 +3494,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
               currentTimelineItem,
               presentedMediaRef.current
             );
-            if (currentPresentedMedia?.recoveredFrom) presentedMediaRef.current = currentPresentedMedia;
+            if (currentPresentedMedia?.recoveredFrom) handlePresentedMediaChange({ ...currentPresentedMedia, recoveredFrom: undefined });
             const currentCameraKeyframe = directorPreviewFrame?.camera?.keyframe
               || echoCameraKeyframeAt(directorShowGraph?.directorV2?.cameraKeyframes, t);
             const cameraDirectedTimelineItem = currentTimelineItem && directorPreviewFrame?.camera

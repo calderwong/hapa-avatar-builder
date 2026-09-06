@@ -46,9 +46,10 @@ export default function EchoPreviewPreparationControl({ apiBase, songId, variant
     }
     finally { clearTimeout(timeout); if (commandRef.current === controller) { commandRef.current = null; setPending(false); } }
   }
-  return <span data-testid="echo-preview-preparation" data-job-status={job.status} data-ready-cues={job.items?.filter(row => row.status === 'ready').length || 0} style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center', fontSize: 11 }}>
+  return <span data-testid="echo-preview-preparation" data-job-status={job.status} data-pending-cues={pendingCount} data-ready-cues={job.items?.filter(row => row.status === 'ready').length || 0} style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center', fontSize: 11 }}>
     {busy(job) ? <><span role="status">{job.completed || 0}/{job.total || pendingCount} video cues prepared</span><button className="hapa-btn" type="button" disabled={pending} onClick={() => command('DELETE')}>Cancel previews</button></>
       : (pendingCount > 0 || ['partial', 'failed', 'cancelled', 'interrupted', 'stale'].includes(job.status)) && <button className="hapa-btn" type="button" disabled={pending || !songId} onClick={() => command('POST')}>{pending ? 'Starting…' : 'Prepare selected-cut preview'}</button>}
+    {!busy(job) && job.status === 'ready' && pendingCount > 0 && <span role="status">{pendingCount} current video cues need preview preparation.</span>}
     {!busy(job) && job.message && <span role="status">{job.message}</span>}
     {error && <span role="alert">{error} <button className="hapa-btn" type="button" onClick={() => setRefresh(n => n + 1)}>Reconnect</button></span>}
   </span>;
