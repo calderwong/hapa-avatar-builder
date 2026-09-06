@@ -14,8 +14,9 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from echo_audio_analysis_cache import AudioAnalysisCache, MAX_SOURCE_SECONDS
+from echo_reconstruction_alignment import reconstruction_waveform_alignment
 
-ANALYSIS_VERSION = "hapa.stem-telemetry.numpy-rfft-events-cache.v5"
+ANALYSIS_VERSION = "hapa.stem-telemetry.numpy-rfft-events-cache.v6"
 ABSOLUTE_ACTIVITY_FLOOR = 10 ** (-60 / 20)
 
 
@@ -25,7 +26,7 @@ def analysis_runtime_identity():
         raise ValueError("ffmpeg is required for audio preparation")
     version = subprocess.run([executable, "-version"], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=15).stdout
     implementation = hashlib.sha256()
-    for source in [Path(__file__), Path(__file__).with_name("echo_audio_analysis_cache.py")]:
+    for source in [Path(__file__), Path(__file__).with_name("echo_audio_analysis_cache.py"), Path(__file__).with_name("echo_reconstruction_alignment.py")]:
         implementation.update(source.read_bytes())
     return {"decoder": "ffmpeg", "decoderVersion": version.decode(errors="replace").splitlines()[0],
             "decoderVersionHash": hashlib.sha256(version).hexdigest(), "decoderBinaryHash": sha256_file(Path(executable).resolve()),
@@ -385,6 +386,11 @@ def main() -> int:
                 "pearsonCorrelation": round(correlation, 6) if correlation is not None and np.isfinite(correlation) else None,
                 "sampleCount": minimum,
                 "alignment": envelope_correlation(master_window, reconstructed, args.sample_rate),
+                "waveformAlignment": {
+                    **reconstruction_waveform_alignment(master_window, reconstructed, args.sample_rate),
+                    "masterAudioHash": master_hash,
+                    "stemAudioHashes": [stem["audioHash"] for stem in usable],
+                },
             }
         return {"roles": role_diagnostics, "reconstruction": reconstruction}
     diagnostics = cache.diagnostics(resource_keys, build_diagnostics)
