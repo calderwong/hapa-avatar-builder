@@ -2270,3 +2270,91 @@ test("CLI dry-run is write-free; apply is exclusive, replay-safe, immutable, and
     /append-only conflict/iu,
   );
 });
+
+
+import { createEchoNarrativeRecut, echoRecutAtomicGroups } from "../src/domain/echo-narrative-recut.js";
+function compiledRecutBridgeFixture() {
+  const songId="song-recut-bridge",fixture=bridgeFixture(songId),base=projectWithShotCount(songId,3);
+  const variant=compileEchoEnrichmentDirectorVariant({song:songCard(songId),baseProject:base,parentVariant:parentVariant(base),parentProjectSha256:"c".repeat(64),catalog:verifiedBridgeCatalog({rows:fixture.rows,graph:fixture.graph}),enrichments:fixture.rows,chainGraph:fixture.graph,report:{}});
+  assert.equal(variant.timeline[1].decision_evidence.atomicTransition.role,"authored-transition");
+  const timeline=[...variant.timeline,...Array.from({length:3},(_,i)=>({...clone(base.timeline[i]),shot_index:i+3,section_id:"ordinary",start_sec:6+i*2,end_sec:8+i*2,media_id:"ordinary-"+i,media_uri:"/media/ordinary-"+i+".mp4",runtime_media_uri:"/media/ordinary-"+i+".mp4",media_contract:{type:"video",originalUri:"/media/ordinary-"+i+".mp4",runtimeUri:"/media/ordinary-"+i+".mp4",dimensions:{width:1920,height:1080}}}))];
+  return {...base,duration:12,timeline,active_direction_script_variant:{id:variant.id},visualizer_timeline:[{start_sec:0,end_sec:6,visualizer_id:"simple-wave",opacity:.3},{start_sec:6,end_sec:12,visualizer_id:"simple-wave",opacity:.6}]};
+}
+
+test("recuts preserve the compiler's complete atomic bridge and never sample its members independently",()=>{
+ const project=compiledRecutBridgeFixture(),before=JSON.stringify(project);
+ for(const range of [{startSeconds:0,endSeconds:12},{startSeconds:1,endSeconds:10},{startSeconds:4,endSeconds:12}])for(const seed of ["A","B","C"]){
+  const result=createEchoNarrativeRecut({project,recipeId:"performance-kinetic",seed,range,timingMode:"supported-cues"});
+  assert.deepEqual(result.project.timeline.slice(0,3),project.timeline.slice(0,3));
+  assert.deepEqual(result.project.visualizer_timeline[0],project.visualizer_timeline[0]);
+  assert.ok(result.project.timeline.slice(3).every(shot=>!project.timeline.slice(0,3).some(atomic=>atomic.media_id===shot.media_id)));
+  assert.ok(result.receipt.changedShotIndices.every(index=>index>=3));
+  assert.doesNotThrow(()=>projectToEditorGraph(result.project));
+ }
+ assert.equal(JSON.stringify(project),before);
+});
+
+
+test("recuts reject orphaned or inconsistent bridge declarations without mutating the cut", () => {
+  const corruptions = [
+    project => delete project.timeline[0].decision_evidence.atomicTransition,
+    project => { project.timeline[2].decision_evidence.atomicTransition.transitionMediaId = "another-transition"; },
+    project => { project.timeline[0].decision_evidence.atomicTransition.firstReference = null; },
+    project => { delete project.timeline[1].decision_evidence.atomicTransition; },
+    project => { project.timeline[2].decision_evidence.atomicTransition.timeMapping.playbackRate += .1; },
+    project => { project.timeline[2].decision_evidence.atomicTransition.centerShotIndex = 10; },
+  ];
+  for (const corrupt of corruptions) {
+    const project = compiledRecutBridgeFixture();
+    // Compiler rows can share nested evidence objects; deserialize to exercise
+    // independent persisted declarations and a mismatch in only one member.
+    const input = clone(project);
+    corrupt(input);
+    const before = JSON.stringify(input);
+    assert.throws(() => createEchoNarrativeRecut({ project: input, recipeId: "performance-kinetic", seed: "bad", range: { startSeconds: 0, endSeconds: 12 } }),
+      error => error.code === "echo_recut_atomic_transition_invalid" && /Recompile the complete/.test(error.message));
+    assert.equal(JSON.stringify(input), before);
+  }
+  const project = compiledRecutBridgeFixture();
+  project.timeline[2].start_sec += .01;
+  assert.throws(() => echoRecutAtomicGroups(project.timeline), { code: "echo_recut_atomic_transition_invalid" });
+});
+
+test("bridge-only ranges explain why a complete transition must be recompiled", () => {
+  const project = compiledRecutBridgeFixture(), before = JSON.stringify(project);
+  for (const range of [{ startSeconds: 0, endSeconds: 6 }, { startSeconds: 2, endSeconds: 4 }, { startSeconds: 1, endSeconds: 5 }]) {
+    assert.throws(() => createEchoNarrativeRecut({ project, recipeId: "performance-kinetic", seed: "bridge-only", range }), /only a protected transition sequence/);
+  }
+  assert.equal(JSON.stringify(project), before);
+});
+
+test("approved nearby cues can move ordinary boundaries but cannot retime a bridge endpoint", () => {
+  const project = compiledRecutBridgeFixture();
+  project.director_show_graph = { directorV2: { cueGraph: { schemaVersion: "hapa.echo.cue-graph.v2", id: "bridge-edge-fixture",
+    cues: [6.1, 8.1].map(atSeconds => ({ id: `cue:${atSeconds}`, atSeconds, kind: "beat", approved: true, eligibleActions: ["cut"], source: "test-fixture", toleranceSeconds: .15 })) } } };
+  const result = createEchoNarrativeRecut({ project, recipeId: "performance-kinetic", seed: "cue", range: { startSeconds: 0, endSeconds: 12 }, timingMode: "supported-cues" });
+  assert.deepEqual(result.project.timeline.slice(0, 3), project.timeline.slice(0, 3));
+  assert.equal(result.project.timeline[3].start_sec, 6);
+  assert.equal(result.project.timeline[3].end_sec, 8.1);
+  assert.equal(result.project.timeline[4].start_sec, 8.1);
+  assert.equal(result.receipt.cueReflow.decisions.find(row => row.fromSeconds === 6).reason, "cut-locked");
+  assert.equal(result.receipt.atomicTransitions.certificationRevalidated, false);
+  assert.deepEqual(result.receipt.atomicTransitions.groups[0].shotIndices, [0, 1, 2]);
+});
+
+test("whole-song recipes retain bridge-overlapping global treatments and persist protected source contracts", () => {
+  const project = compiledRecutBridgeFixture();
+  project.persistent_shader_slots = [{ id: "persistent:one", enabled: true, opacity: .4 }];
+  project.lyrics = { template: "scanline-phrase-ribbon-v1", enabled: true };
+  project.visualizer_timeline.push({ start_sec: 4, end_sec: 8, visualizer_id: "simple-wave", opacity: .9 });
+  const result = createEchoNarrativeRecut({ project, recipeId: "performance-kinetic", seed: "global", range: { startSeconds: 0, endSeconds: 12 } });
+  assert.deepEqual(result.project.lyrics, project.lyrics);
+  assert.deepEqual(result.project.persistent_shader_slots, project.persistent_shader_slots);
+  assert.deepEqual(result.project.visualizer_timeline[2], project.visualizer_timeline[2]);
+  assert.notEqual(result.project.visualizer_timeline[1].opacity, project.visualizer_timeline[1].opacity);
+  assert.deepEqual(result.receipt.treatment.windows, [{ startSeconds: 6, endSeconds: 12 }]);
+  assert.ok(result.receipt.treatment.limitations.includes("source-declared-transition-sequences-and-overlapping-global-treatments-preserved"));
+  const restored = JSON.parse(JSON.stringify(result.project));
+  assert.deepEqual(restored.timeline.slice(0, 3), JSON.parse(JSON.stringify(project.timeline.slice(0, 3))));
+  assert.doesNotThrow(() => projectToEditorGraph(restored));
+});

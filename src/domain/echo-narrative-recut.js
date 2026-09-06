@@ -28,6 +28,45 @@ export function echoRecutIdentityOptions(project) {
   return { characterIds: collect("characterIds"), sceneIds: collect("sceneIds") };
 }
 
+// These are the existing enrichment compiler's indivisible endpoint/clip
+// declarations. This checks structure, not decoded endpoint certification.
+export function echoRecutAtomicGroups(timeline = []) {
+  const atomic = shot => shot?.decision_evidence?.atomicTransition || shot?.decisionEvidence?.atomicTransition;
+  const groups = [], protectedIndices = new Set();
+  const fail = index => {
+    throw Object.assign(new Error(`Transition sequence at shot ${index + 1} is incomplete or inconsistent. Recompile the complete Reference A/transition/Reference B sequence before recutting.`), {
+      code: "echo_recut_atomic_transition_invalid", shotIndex: index,
+    });
+  };
+  for (let index = 0; index < timeline.length; index++) {
+    const declaration = atomic(timeline[index]);
+    if (!declaration || declaration.role !== "authored-transition") continue;
+    const members = [index - 1, index, index + 1], rows = members.map(i => timeline[i]), parts = rows.map(atomic);
+    if (!rows.every(Boolean)
+      || !["entry-reference-still", "entry-reference-loop"].includes(parts[0]?.role)
+      || !["exit-reference-still", "exit-reference-loop"].includes(parts[2]?.role)
+      || !declaration.transitionMediaId || declaration.transitionMediaId !== timeline[index].media_id) fail(index);
+    // Incomplete declarations must give the actionable structural error, not
+    // reach a hash operation on an absent endpoint or timing contract.
+    const contracts = ["firstReference", "lastReference", "timeMapping"];
+    if (parts.some(part => contracts.some(field => !part[field] || typeof part[field] !== "object" || Array.isArray(part[field]))
+      || part.transitionMediaId !== declaration.transitionMediaId
+      || part.transitionJobId !== declaration.transitionJobId
+      || (part.centerShotIndex !== undefined && part.centerShotIndex !== index)
+      || contracts.some(field => contextHash(part[field]) !== contextHash(declaration[field])))) fail(index);
+    if (rows.some(row => !Number.isFinite(Number(row.start_sec)) || !Number.isFinite(Number(row.end_sec)) || Number(row.end_sec) <= Number(row.start_sec))
+      || Math.abs(Number(rows[0].end_sec) - Number(rows[1].start_sec)) > 1e-6
+      || Math.abs(Number(rows[1].end_sec) - Number(rows[2].start_sec)) > 1e-6
+      || members.some(i => protectedIndices.has(i))) fail(index);
+    for (const i of members) protectedIndices.add(i);
+    groups.push({ centerShotIndex: index, shotIndices: members, transitionMediaId: declaration.transitionMediaId,
+      transitionJobId: declaration.transitionJobId || null, startSeconds: Number(rows[0].start_sec),
+      endSeconds: Number(rows[2].end_sec), sourceContractHash: contextHash(rows) });
+  }
+  for (let index = 0; index < timeline.length; index++) if (atomic(timeline[index]) && !protectedIndices.has(index)) fail(index);
+  return { groups, protectedIndices };
+}
+
 function selectionRank(seed, index) {
   let value = 2166136261;
   for (const char of `${seed}:change:${index}`) value = Math.imul(value ^ char.codePointAt(0), 16777619) >>> 0;
@@ -48,8 +87,10 @@ export function createEchoNarrativeRecut({ project, recipeId, seed, range, locks
   if (!Number.isFinite(changeAmount) || changeAmount < 0 || changeAmount > 1) throw new Error("Change amount must be between zero and one.");
   for (const values of [requiredCharacterIds, requiredSceneIds]) if (!Array.isArray(values) || values.length > 64 || values.some(value => typeof value !== "string" || !value.length || value.length > 240)) throw new Error("Choose declared cast and scene identities from the current cut.");
   const timeline = project.timeline || [];
+  const atomic = echoRecutAtomicGroups(timeline);
   const mediaByIdentity = new Map();
-  for (const shot of timeline) {
+  for (const [index, shot] of timeline.entries()) {
+    if (atomic.protectedIndices.has(index)) continue;
     const row = candidate(shot);
     // Preserve distinct source contracts when an ID names several clips.
     const key = row.sourceSelectionKey;
@@ -76,12 +117,13 @@ export function createEchoNarrativeRecut({ project, recipeId, seed, range, locks
       sectionStartSeconds:sectionRanges.get(index)?.startSeconds,sectionEndSeconds:sectionRanges.get(index)?.endSeconds,
       mediaConstraints: shot.mediaConstraints, startSeconds: Number(shot.start_sec), endSeconds: Number(shot.end_sec),
       camera: { motion: shot.camera_motion || "static", intensity: shot.camera_intensity ?? 1, speed: shot.camera_speed ?? 1, focus: shot.camera_focus || "center" },
-      locks: [...new Set([...(timingMode === "preserve" || locks.some(lock => lock.targetId === "timing") ? ["timing"] : []), ...(Array.isArray(shot.locks) ? shot.locks : []), ...(cameraLocked ? ["camera"] : []), ...(index === 0 || mediaLocked || media.sourceKind === "pure-visualizer" ? ["media"] : [])])],
+      locks: [...new Set([...(atomic.protectedIndices.has(index) ? ["media","camera","timing"] : []), ...(timingMode === "preserve" || locks.some(lock => lock.targetId === "timing") ? ["timing"] : []), ...(Array.isArray(shot.locks) ? shot.locks : []), ...(cameraLocked ? ["camera"] : []), ...(index === 0 || mediaLocked || media.sourceKind === "pure-visualizer" ? ["media"] : [])])],
     }];
   });
   if (!slots.length) throw new Error("The range contains no complete shots. Extend it to include a source cut boundary.");
   if (slots.length * Math.max(1, pool.length) > 200000) throw new Error("This range exceeds the recut work budget. Select fewer complete shots.");
   const editable = slots.filter(slot => !slot.locks.includes("media") || !slot.locks.includes("camera") || !slot.locks.includes("timing"));
+  if (slots.every(slot => atomic.protectedIndices.has(slot.sourceShotIndex))) throw new Error("This range contains only a protected transition sequence. Include ordinary shots to create a recut; changing the bridge requires its complete transition compiler.");
   const selected = new Set([...editable].sort((a, b) => selectionRank(seed, a.sourceShotIndex) - selectionRank(seed, b.sourceShotIndex) || a.sourceShotIndex - b.sourceShotIndex)
     .slice(0, Math.ceil(editable.length * changeAmount)).map(slot => slot.sourceShotIndex));
   for (const slot of slots) {
@@ -123,11 +165,14 @@ export function createEchoNarrativeRecut({ project, recipeId, seed, range, locks
     return [slot.sourceShotIndex, shot];
   }));
   let next = { ...project, timeline: timeline.map((shot, index) => replacement.get(index) || shot), hyperframe_script_stale: true };
-  const treatmentSlots=[...slots].sort((a,b)=>selectionRank(seed,a.sourceShotIndex)-selectionRank(seed,b.sourceShotIndex)||a.sourceShotIndex-b.sourceShotIndex).slice(0,Math.ceil(slots.length*changeAmount));
+  const ordinarySlots = slots.filter(slot => !atomic.protectedIndices.has(slot.sourceShotIndex));
+  const treatmentSlots = ordinarySlots.sort((a, b) => selectionRank(seed, a.sourceShotIndex) - selectionRank(seed, b.sourceShotIndex) || a.sourceShotIndex - b.sourceShotIndex)
+    .slice(0, Math.ceil(ordinarySlots.length * changeAmount));
   const treatmentIndices=new Set(treatmentSlots.map(slot=>slot.sourceShotIndex));
-  const treatment=applyEchoRecutTreatment(next,{recipe,locks,seed,windows:start===0&&end===Number(project.duration)&&changeAmount===1?[{startSeconds:start,endSeconds:end}]:sequence.slots.filter(slot=>treatmentIndices.has(slot.sourceShotIndex))});
+  const treatment=applyEchoRecutTreatment(next,{recipe,locks,seed,windows:!atomic.groups.length&&start===0&&end===Number(project.duration)&&changeAmount===1?[{startSeconds:start,endSeconds:end}]:sequence.slots.filter(slot=>treatmentIndices.has(slot.sourceShotIndex))});
+  if (atomic.groups.length) treatment.receipt.limitations.push("source-declared-transition-sequences-and-overlapping-global-treatments-preserved");
   next=treatment.project;
-  const receipt = { ...sequence.receipt, trackEditMaterialization: materialized.receipt ? {patchHash:materialized.receipt.patchHash,changedRows:materialized.receipt.changedRows,projectionPreserved:true} : null, treatment: treatment.receipt, parentCutId: project.active_direction_script_variant?.id || "legacy", range: { startSeconds: start, endSeconds: end },
+  const receipt = { ...sequence.receipt, atomicTransitions: {policy:"preserve-complete-source-declared-sequences",groups:atomic.groups,excludedFromOrdinaryPool:atomic.protectedIndices.size,certificationRevalidated:false}, trackEditMaterialization: materialized.receipt ? {patchHash:materialized.receipt.patchHash,changedRows:materialized.receipt.changedRows,projectionPreserved:true} : null, treatment: treatment.receipt, parentCutId: project.active_direction_script_variant?.id || "legacy", range: { startSeconds: start, endSeconds: end },
     controls: { changeAmount, requiredCharacterIds: [...requiredCharacterIds], requiredSceneIds: [...requiredSceneIds], locks: structuredClone(locks), timingMode },
     changeBudget: { editableShots: editable.length, selectedShots: selected.size, policy: "seeded-ceiling-of-editable-whole-shots" },
     changedShotIndices: [...replacement.keys()].filter(index => JSON.stringify(next.timeline[index]) !== JSON.stringify(timeline[index])),
