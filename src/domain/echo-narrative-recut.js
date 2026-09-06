@@ -1,6 +1,6 @@
 import {contextHash} from "./song-context-packet.js";
 import {echoLyricSourceLines,normalizeEchoLyricContract} from "./echo-lyric-contract.js";
-import {applyEchoRecutTreatment} from './echo-recipe-recut-treatment.js';
+import {applyEchoRecutTreatment,echoRecipeOperatorLocks} from './echo-recipe-recut-treatment.js';
 import { NARRATIVE_VARIANT_RECIPES } from "./echo-director-recipes.js";
 import { sequenceEchoNarrative } from "./echo-narrative-sequencer.js";
 import { mergeEchoMediaConstraints } from "./echo-media-eligibility.js";
@@ -37,6 +37,7 @@ function selectionRank(seed, index) {
  * decoding, analysis, model calls, timing guesses or source writes occur here.
  * A partial boundary shot stays byte-identical instead of adding a new cut. */
 export function createEchoNarrativeRecut({ project, recipeId, seed, range, locks = [], changeAmount = 1, requiredCharacterIds = [], requiredSceneIds = [], timingMode = "preserve" }) {
+  locks = echoRecipeOperatorLocks(project, locks);
   const recipe = NARRATIVE_VARIANT_RECIPES[recipeId];
   if (!recipe) throw new Error(`Choose a supported narrative recipe: ${recipeId}`);
   const start = Number(range?.startSeconds), end = Number(range?.endSeconds);

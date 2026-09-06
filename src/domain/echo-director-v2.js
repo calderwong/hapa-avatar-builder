@@ -1,3 +1,5 @@
+import {projectToEditorGraph} from './multitrack-editor.js';
+import {echoRecipeOperatorLocks,hasEchoRecipeTreatmentLocks,preserveEchoCompiledRecipeLocks} from './echo-recipe-recut-treatment.js';
 import {buildEchoRecipeModulationBindings,buildEchoRecipeEventTracks,buildEchoRecipeAccentCards,echoRecipeBaseOpacity,echoRecipeOpacity,echoRecipeLyrics} from './echo-recipe-execution.js';
 import { mergeEchoMediaConstraints, echoMediaEligibilityFields, evaluateEchoMediaEligibility, evaluateEchoGeneratedMediaEligibility, echoMediaConstraintError } from "./echo-media-eligibility.js";
 import { sequenceEchoNarrative } from "./echo-narrative-sequencer.js";
@@ -36,7 +38,7 @@ export const DIRECTOR_V2_SCHEMA = "hapa.echo.director-plan.v2";
 export const CUE_GRAPH_SCHEMA = "hapa.echo.cue-graph.v2";
 export const TREATMENT_SCHEMA = "hapa.echo.editorial-treatment.v2";
 export const NATIVE_SHOW_GRAPH_SCHEMA = "hapa.music-viz.native-show-graph.v2";
-export const DIRECTOR_V2_COMPILER_VERSION = "echo-director-v2.7.0";
+export const DIRECTOR_V2_COMPILER_VERSION = "echo-director-v2.8.0";
 
 
 
@@ -937,16 +939,21 @@ function admitVisualizerLayers(visualizers, requestedMaxLayers) {
 
 export function compileDirectorVariant({ treatment, cueGraph, recipe = "conservative", seed = "echo-v2", sourceProject = null, mediaConstraints = {}, timingMode = "preserve", locks = [] }) {
   const normalizedRecipe = resolveEchoDirectorRecipe(recipe);
+  const source = projectBody(sourceProject) || {};
+  const operatorLocks = echoRecipeOperatorLocks(source, locks);
+  const targetLocked = target => operatorLocks.some(lock => lock.targetId === target);
   if (!["preserve", "supported-cues"].includes(timingMode)) throw new Error("Unknown timing mode.");
   if (timingMode === "supported-cues" && normalizedRecipe.schemaVersion !== "hapa.echo.narrative-recipe.v1") throw new Error("Cue reflow requires a narrative recipe.");
   const outputProfile = resolveEchoOutputProfile(treatment.outputProfile ?? projectBody(sourceProject));
   const narrative = normalizedRecipe.schemaVersion === "hapa.echo.narrative-recipe.v1"
-    ? sequenceEchoNarrative({ slots: treatment.mediaSlots.map(slot => timingMode === "supported-cues" && slot.timingLockSource === "preserve-source-default"
-      ? { ...slot, locks: slot.locks.filter(lock => lock !== "timing") } : slot), recipe: normalizedRecipe, seed,
-      constraints: mergeEchoMediaConstraints(projectBody(sourceProject)?.mediaConstraints, mediaConstraints), cueGraph, timingMode, locks }) : null;
+    ? sequenceEchoNarrative({ slots: treatment.mediaSlots.map(slot => ({...slot,locks:[...new Set([
+        ...(timingMode === "supported-cues" && slot.timingLockSource === "preserve-source-default" && !targetLocked("timing") ? slot.locks.filter(lock=>lock!=="timing") : slot.locks),
+        ...(targetLocked("camera")?["camera"]:[]),...(targetLocked("media-casting")?["media"]:[]),...(targetLocked("timing")?["timing"]:[]),
+      ])]})), recipe: normalizedRecipe, seed,
+      constraints: mergeEchoMediaConstraints(projectBody(sourceProject)?.mediaConstraints, mediaConstraints), cueGraph, timingMode, locks:operatorLocks }) : null;
   const slots = narrative?.slots || treatment.mediaSlots.map((slot, index) => {
     const required = mergeEchoMediaConstraints(mergeEchoMediaConstraints(projectBody(sourceProject)?.mediaConstraints, mediaConstraints), slot.mediaConstraints);
-    const pool = slot.locks?.includes("media") ? [slot.media] : slot.candidateMedia?.length ? slot.candidateMedia : [slot.media];
+    const pool = (targetLocked("media-casting") || slot.locks?.includes("media")) ? [slot.media] : slot.candidateMedia?.length ? slot.candidateMedia : [slot.media];
     const evaluations = pool.map(candidate => (candidate.sourceKind === "pure-visualizer" ? evaluateEchoGeneratedMediaEligibility : evaluateEchoMediaEligibility)(candidate, required));
     const candidates = pool.filter((_, candidateIndex) => evaluations[candidateIndex].eligible);
     if (!candidates.length) throw echoMediaConstraintError(evaluations, { stage: "director-variant-compile", slotId: slot.id, recipe: normalizedRecipe.id, locked: slot.locks?.includes("media") || false });
@@ -1152,7 +1159,6 @@ export function compileDirectorVariant({ treatment, cueGraph, recipe = "conserva
     cues:cueGraph.cues,recipe:normalizedRecipe,durationSeconds:treatment.durationSeconds,
     reducedMotion:normalizeEchoLyricContract(projectBody(sourceProject)||{}).reducedMotion,
   });
-  const source = projectBody(sourceProject) || {};
   const cadenceTrack = buildPhraseCadence({
     sections: cueGraph.sections,
     editCues: cueGraph.editCues,
@@ -1320,7 +1326,7 @@ export function compileDirectorVariant({ treatment, cueGraph, recipe = "conserva
       recipe: normalizedRecipe,
       seed,
       variantSeed: seed,
-      locks: treatment.locks,
+      locks: echoRecipeOperatorLocks({},[...treatment.locks,...operatorLocks]),
       inheritedPatches: [],
       source: {
         compilerVersion: treatment.compilerVersion,
@@ -1418,11 +1424,19 @@ export function compileDirectorVariant({ treatment, cueGraph, recipe = "conserva
       },
     },
   };
-  const variantHash = contentHash(graphBase);
+  const finalGraph = hasEchoRecipeTreatmentLocks(source,operatorLocks)
+    ? preserveEchoCompiledRecipeLocks(graphBase,projectToEditorGraph(source),source,operatorLocks) : graphBase;
+  for(const card of (finalGraph===graphBase?[]:finalGraph.tracks.filter(track=>track.role==='accent').flatMap(track=>track.cards||[]))){
+    const media=card.media;
+    const evaluate=media?.sourceKind==='pure-visualizer'?evaluateEchoGeneratedMediaEligibility:evaluateEchoMediaEligibility;
+    const verdict=evaluate({...media,uri:media?.runtimeUri||media?.uri||media?.localPath},mergeEchoMediaConstraints(source.mediaConstraints,mediaConstraints));
+    if(!verdict.eligible)throw echoMediaConstraintError([verdict],{stage:'director-locked-accent',cardId:card.id});
+  }
+  const variantHash = contentHash(finalGraph);
   const compiled = {
-    ...graphBase,
+    ...finalGraph,
     runId: `echo-v2:${variantHash.slice(0, 20)}`,
-    directorV2: { ...graphBase.directorV2, variantId: `variant:${variantHash.slice(0, 20)}`, variantHash },
+    directorV2: { ...finalGraph.directorV2, variantId: `variant:${variantHash.slice(0, 20)}`, variantHash },
   };
   return { ...compiled, directorV2: { ...compiled.directorV2, mediaDiversityReport: buildMediaDiversityReport(compiled) } };
 }
@@ -1451,7 +1465,7 @@ export function buildDirectorV2Artifacts({ project, sourceProject = project, man
       variantSeed: showGraph.directorV2.variantSeed,
       recipe: showGraph.directorV2.recipe,
       seed: showGraph.directorV2.seed,
-      locks: treatment.locks,
+      locks: showGraph.directorV2.locks,
       inheritedPatches: [],
       sourceProjectHash: treatment.sourceProjectHash,
       outputProfile: showGraph.outputProfile,

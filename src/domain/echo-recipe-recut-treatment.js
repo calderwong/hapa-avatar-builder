@@ -46,7 +46,7 @@ export function applyEchoRecutTreatment(project,{recipe,windows=[],locks=[],seed
   if(!windows.length)return {project,receipt};
   const wholeSong=windows.length===1&&windows[0].startSeconds===0&&windows[0].endSeconds===Number(project.duration);
   const next={...project};
-  const sourceLocks=[...locks,...(project.director_show_graph?.directorV2?.locks||[])];
+  const sourceLocks=echoRecipeOperatorLocks(project,locks);
   const shaderLocked=locked(sourceLocks,'shader-treatment');
   const applyRow=(row,fallback)=>{
     const baseOpacity=echoRecipeBaseOpacity(row.opacity??fallback,row.recipe_treatment),opacity=echoRecipeOpacity(baseOpacity,recipe);
@@ -119,7 +119,7 @@ export function applyEchoRecutExecutionToGraph(graph,project){
     for(const [kind,recipe] of Object.entries(execution.bindingRecipes||{})){
       knownRecipe(recipe);
       for(const binding of buildEchoRecipeModulationBindings(layers,recipe).filter(binding=>binding.target?.kind===kind)){
-        if(!locked(execution.bindingItemLocks||[],binding.id))previous.set(binding.id,binding);
+        if(!previous.get(binding.id)?.locked&&!locked(execution.bindingItemLocks||[],binding.id))previous.set(binding.id,binding);
       }
     }
     updated.modulationBindings=[...previous.values()];
@@ -132,4 +132,83 @@ export function applyEchoRecutExecutionToGraph(graph,project){
   }
   updated.recipeExecution=clone(execution);
   return {...graph,directorV2:updated};
+}
+
+/** Full compilation and recuts use the same operator target vocabulary. */
+export function echoRecipeOperatorLocks(project={},locks=[]) {
+  return [...new Map([...locks,...(project.director_show_graph?.directorV2?.locks||[])]
+    .map(lock=>({...lock,targetId:lock.targetId||lock.target||''}))
+    .map(lock=>[JSON.stringify(ordered(lock)),lock])).values()];
+}
+export function hasEchoRecipeTreatmentLocks(project={},locks=[]) {
+  const targets=new Set(['shader-treatment','camera','accents','visual-time','lyric-style','media-casting','timing']);
+  return locks.some(lock=>targets.has(lock.targetId)||['event','binding'].includes(lock.targetKind))
+    || [...(project.visualizer_timeline||[]),...(project.persistent_shader_slots||[])].some(row=>rowLocked(row)||locked(locks,row.id))
+    || (project.director_show_graph?.directorV2?.modulationBindings||[]).some(row=>row.locked)
+    || (project.director_show_graph?.tracks||[]).filter(track=>track.role==='visualizer').some(track=>(track.cards||[]).some(card=>locked(locks,card.id)))
+    || ['accentTrack','visualTimeTrack'].some(field=>(project.director_show_graph?.directorV2?.[field]?.events||[]).some(row=>row.locked));
+}
+
+/** Preserve current projected values, including prior recipes and manual edits.
+ * Only treatment values are restored: source eligibility and shader admission
+ * remain the compiler's responsibility. Call before hashing the executable cut. */
+export function preserveEchoCompiledRecipeLocks(graph,baseline,project,locks) {
+  const director=graph.directorV2,prior=baseline.directorV2||{};
+  const updated={...director},receipt={schemaVersion:'hapa.echo.recipe-lock-preservation.v1',shaderCards:[],eventIds:[],bindingIds:[],targets:[]};
+  const global=target=>{const found=locked(locks,target);if(found)receipt.targets.push(target);return found};
+  const shaderLocked=global('shader-treatment');
+  const baselineCards=(baseline.tracks||[]).filter(t=>t.role==='visualizer').flatMap(t=>t.cards||[]);
+  const cardKey=card=>card.persistentSlotId ? 'slot:'+card.persistentSlotId : 'cue:'+(card.visualization?.sourceCueIndex??card.sourceCueIndex??card.id);
+  // Timeline projection may replace a shader or reuse an older template. Its
+  // row order, rather than that template's sourceCueIndex, owns the current cue.
+  let cueIndex=0;
+  const priorCards=new Map(baselineCards.map(card=>[card.persistentSlotId?cardKey(card):Array.isArray(project.visualizer_timeline)?'cue:'+cueIndex++:cardKey(card),card]));
+  const tracks=graph.tracks.map(track=>track.role!=='visualizer'?track:{...track,cards:track.cards.map(card=>{
+    const row=card.persistentSlotId?(project.persistent_shader_slots||[]).find(r=>r.id===card.persistentSlotId)
+      :(project.visualizer_timeline||[])[card.visualization?.sourceCueIndex];
+    if(!shaderLocked&&!rowLocked(row||{})&&!locked(locks,row?.id)&&!locked(locks,card.id))return card;
+    const before=priorCards.get(cardKey(card));
+    if(!before)throw Error('Locked shader has no current source projection: '+card.id);
+    if(before.visualization?.sourceId!==card.visualization?.sourceId){
+      const error=Error('Locked shader source changed. Review and resolve the shader replacement before compiling: '+card.id);
+      error.code='echo_locked_shader_source_changed';
+      error.result={cardId:card.id,currentSourceId:before.visualization?.sourceId,compiledSourceId:card.visualization?.sourceId};
+      throw error;
+    }
+    receipt.shaderCards.push(card.id);
+    return {...card,parameters:{...card.parameters,...Object.fromEntries(['opacity','visualizerControls','visualizerMappings']
+      .filter(key=>before.parameters?.[key]!==undefined).map(key=>[key,clone(before.parameters[key])]))}};
+  })});
+  const duration=Number(project.duration),windows=[{startSeconds:0,endSeconds:duration,recipe:null}];
+  const eventLocks=locks.filter(lock=>lock.targetKind==='event');
+  const accentsLocked=global('accents'),timeLocked=global('visual-time');
+  for(const [field,whole]of [['accentTrack',accentsLocked],['visualTimeTrack',timeLocked]]){
+    const generated=director[field],base=prior[field]||{...generated,eventCount:0,events:[]};
+    updated[field]=whole?clone(base):mergeEventWindows(base,windows,()=>generated,eventLocks);
+    receipt.eventIds.push(...(updated[field].events||[]).filter(event=>whole||event.locked||locked(eventLocks,event.id)).map(event=>event.id));
+  }
+  const accentIds=new Set((director.accentTrack?.events||[]).map(e=>e.id));
+  updated.effects=accentsLocked?clone(prior.effects||[]):[...(director.effects||[]).filter(e=>!accentIds.has(e.id)),...updated.accentTrack.events];
+  for(let index=0;index<tracks.length;index++)if(tracks[index].role==='accent'){
+    const before=(baseline.tracks||[]).find(t=>t.role==='accent')?.cards||[];
+    tracks[index]={...tracks[index],cards:accentsLocked?clone(before):mergeEventWindows({events:before},windows,()=>({events:tracks[index].cards}),eventLocks).events};
+  }
+  const kindLocks={visualizer_uniform:shaderLocked,camera:global('camera'),edit_permission:accentsLocked,visual_time:timeLocked};
+  const previous=prior.modulationBindings||[],next=director.modulationBindings||[];
+  const itemLocks=locks.filter(lock=>lock.targetKind==='binding');
+  const keep=b=>Boolean(kindLocks[b.target?.kind])||locked(itemLocks,b.id)||b.locked===true;
+  const retained=previous.filter(keep),retainedIds=new Set(retained.map(b=>b.id));
+  updated.modulationBindings=[...next.filter(b=>!kindLocks[b.target?.kind]&&!locked(itemLocks,b.id)&&!retainedIds.has(b.id)),...clone(retained)];
+  // Preserve the source ordering; runtime binding order may be significant.
+  const order=new Map(previous.map((b,index)=>[b.id,index]));
+  updated.modulationBindings.sort((a,b)=>(order.get(a.id)??Infinity)-(order.get(b.id)??Infinity));
+  receipt.bindingIds=retained.map(b=>b.id);
+  updated.timeModulation=updated.modulationBindings.filter(b=>b.target.kind==='visual_time');
+  let song=graph.song;
+  if(global('lyric-style')){
+    const style=normalizeEchoLyricContract(project);
+    song={...song,lyricOverlay:{...song.lyricOverlay,...Object.fromEntries(['enabled','templateId','templateLabel','legacyVariant','position','style','reducedMotion','motionIntensity','safeArea'].map(key=>[key,clone(style[key])]))}};
+  }
+  updated.lockPreservation=receipt;
+  return {...graph,song,tracks,directorV2:updated};
 }

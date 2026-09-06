@@ -142,3 +142,108 @@ test('locking an already-applied recipe retains its current modulation rather th
  assert.deepEqual(after.directorV2.modulationBindings.filter(row=>kinds.has(row.target.kind)),before.directorV2.modulationBindings.filter(row=>kinds.has(row.target.kind)));
  assert.deepEqual(after.directorV2.accentTrack,before.directorV2.accentTrack);
 });
+
+test('full compiler honors global operator locks against the current editable graph',()=>{
+ const {source,artifacts,project}=fixture();
+ project.lyrics={templateId:'orbit-caption-v1',motionIntensity:.12,reducedMotion:true};
+ const locks=['shader-treatment','accents','visual-time','lyric-style','camera','media-casting'].map(targetId=>({targetId}));
+ const before=projectToEditorGraph(project),input=JSON.stringify(project);
+ const direct=compileDirectorVariant({treatment:artifacts.treatment,cueGraph:artifacts.cueGraph,sourceProject:project,recipe:'performance-kinetic',seed:'different',locks});
+ assert.deepEqual(visualizers(direct).map(c=>c.parameters.opacity),visualizers(before).map(c=>c.parameters.opacity));
+ for(const field of ['accentTrack','visualTimeTrack','modulationBindings'])assert.deepEqual(direct.directorV2[field],before.directorV2[field],field);
+ for(const field of ['templateId','motionIntensity','reducedMotion'])assert.equal(direct.song.lyricOverlay[field],before.song.lyricOverlay[field],field);
+ assert.deepEqual(direct.tracks[0].cards.map(c=>c.media.id),source.timeline.map(c=>c.media_id));
+ assert.deepEqual(direct.directorV2.cameraKeyframes.map(c=>c.motion),before.directorV2.cameraKeyframes.map(c=>c.motion));
+ assert.ok(locks.every(lock=>direct.directorV2.locks.some(row=>row.targetId===lock.targetId)));
+ assert.equal(JSON.stringify(project),input);
+});
+
+test('full compiler retains current locked recipe values instead of reapplying the authored baseline',()=>{
+ const {project,artifacts}=fixture(),one=recut(project).project;
+ const before=projectToEditorGraph(one),locks=[{target:'shader-treatment'},{target:'accents'},{target:'visual-time'},{target:'lyric-style'}];
+ const options={treatment:artifacts.treatment,cueGraph:artifacts.cueGraph,sourceProject:one,recipe:'letter-intimate',seed:'B',locks};
+ const direct=compileDirectorVariant(options);
+ assert.deepEqual(visualizers(direct).map(c=>c.parameters.opacity),visualizers(before).map(c=>c.parameters.opacity));
+ for(const field of ['accentTrack','visualTimeTrack'])assert.deepEqual(direct.directorV2[field],before.directorV2[field]);
+ assert.deepEqual(direct.directorV2.modulationBindings.filter(b=>b.target.kind!=='camera'),before.directorV2.modulationBindings.filter(b=>b.target.kind!=='camera'));
+ assert.equal(direct.song.lyricOverlay.templateId,before.song.lyricOverlay.templateId);
+ assert.equal(direct.directorV2.variantHash,compileDirectorVariant(options).directorV2.variantHash);
+});
+
+test('full compiler preserves individual authored shader, event and binding locks while changing unlocked treatment',()=>{
+ const {project,artifacts}=fixture();
+ project.visualizer_timeline[0]={...project.visualizer_timeline[0],id:'keep-first',opacity:.83,locked:true};
+ const event=project.director_show_graph.directorV2.accentTrack.events[0];
+ assert.ok(event,'fixture must expose a real event');event.opacity=.123;event.locked=true;
+ const binding=project.director_show_graph.directorV2.modulationBindings[0];binding.envelope.depth=.713;
+ project.director_show_graph.directorV2.locks.push({targetKind:'binding',targetId:binding.id});
+ const before=projectToEditorGraph(project);
+ const direct=compileDirectorVariant({treatment:artifacts.treatment,cueGraph:artifacts.cueGraph,sourceProject:project,recipe:'performance-kinetic',seed:'A'});
+ assert.equal(visualizers(direct)[0].parameters.opacity,.83);
+ assert.equal(visualizers(direct)[1].parameters.opacity,.312);
+ assert.deepEqual(direct.directorV2.modulationBindings.find(b=>b.id===binding.id),before.directorV2.modulationBindings.find(b=>b.id===binding.id));
+ assert.deepEqual(direct.directorV2.accentTrack.events.find(e=>e.id===event.id),before.directorV2.accentTrack.events.find(e=>e.id===event.id));
+ assert.ok(validateAccentEventTrack(direct.directorV2.accentTrack).ok);
+});
+
+test('compiler and recut inherit camera and casting locks from the saved cut',()=>{
+ const {project,artifacts}=fixture();
+ project.director_show_graph.directorV2.locks.push({target:'camera'},{target:'media-casting'});
+ const direct=compileDirectorVariant({treatment:artifacts.treatment,cueGraph:artifacts.cueGraph,sourceProject:project,recipe:'ensemble-response',seed:'new'});
+ const after=recut(project,{recipeId:'ensemble-response',seed:'new'}).project;
+ assert.deepEqual(direct.tracks[0].cards.map(c=>c.media.id),project.timeline.map(c=>c.media_id));
+ assert.deepEqual(after.timeline.map(c=>[c.media_id,c.camera_motion,c.camera_intensity]),project.timeline.map(c=>[c.media_id,c.camera_motion,c.camera_intensity]));
+ assert.ok(direct.directorV2.cameraKeyframes.every(c=>c.motion==='static'&&c.intensity===.2));
+});
+
+test('a locked accent cannot reintroduce source media excluded by the current constraints',()=>{
+ const {project,artifacts}=fixture();
+ const cards=project.director_show_graph.tracks.find(t=>t.role==='accent').cards;
+ const protectedCard=cards[0];assert.ok(protectedCard,'fixture requires an accent card');
+ protectedCard.media.id='locked-accent-only';
+ const locks=[{targetId:protectedCard.id,targetKind:'event'}];
+ assert.throws(()=>compileDirectorVariant({treatment:artifacts.treatment,cueGraph:artifacts.cueGraph,sourceProject:project,recipe:'performance-kinetic',seed:'A',locks,mediaConstraints:{bans:[protectedCard.media.id]}}),error=>error.code==='echo_media_constraints_unsatisfied'&&error.result.stage==='director-locked-accent'&&error.result.reasons.includes('operator-ban'));
+});
+
+test('locked compilation keeps patched opacity, current controls and persistent opacity',()=>{
+ const {project}=fixture();
+ project.persistent_shader_slots=[{id:'always-on-shader-1',enabled:true,shader_id:'isf:fixture',opacity:.7,locked:true}];
+ // A new treatment includes the real persistent slot; the current graph projector
+ // supplies the same controls that the operator sees, including row-carried edits.
+ const {treatment,cueGraph}=buildDirectorV2Artifacts({project,manifest:{shaders:[{id:'isf:fixture',source:'/fixture.fs',inputs:[{NAME:'gain',TYPE:'float',DEFAULT:.25,MIN:0,MAX:1}],audioMap:{gain:{signal:'rms',depth:.4}}}]},recipe:'conservative',seed:'A'});
+ project.director_show_graph_patches=[{operation:{kind:'set-opacity',cardId:'card:b:0',opacity:.91}}];
+ project.director_show_graph.tracks.find(t=>t.role==='visualizer').cards[0].parameters.visualizerControls={gain:.77};
+ const before=projectToEditorGraph(project);
+ const options={treatment,cueGraph,sourceProject:project,recipe:'performance-kinetic',seed:'A',locks:[{targetId:'shader-treatment'}]};
+ const direct=compileDirectorVariant(options);
+ assert.equal(visualizers(direct).find(c=>c.persistentSlotId==='always-on-shader-1').parameters.opacity,.7);
+ assert.deepEqual(visualizers(direct).filter(c=>!c.persistentSlotId).map(c=>c.parameters.opacity),[.91,.6,.6,.6]);
+ assert.deepEqual(visualizers(direct)[0].parameters.visualizerControls,visualizers(before)[0].parameters.visualizerControls);
+ assert.equal(direct.directorV2.variantHash,compileDirectorVariant(options).directorV2.variantHash);
+});
+
+
+test('binding-level locked flags survive compiler and recut treatment changes',()=>{
+ const {project,artifacts}=fixture();
+ const binding=project.director_show_graph.directorV2.modulationBindings[0];binding.locked=true;binding.envelope.depth=.731;
+ const direct=compileDirectorVariant({treatment:artifacts.treatment,cueGraph:artifacts.cueGraph,sourceProject:project,recipe:'performance-kinetic'});
+ const after=projectToEditorGraph(recut(project).project);
+ for(const graph of [direct,after])assert.deepEqual(graph.directorV2.modulationBindings.find(b=>b.id===binding.id),binding);
+});
+
+
+test('locked current timeline rows match their position after the projector replaces a shader template',()=>{
+ const {project}=fixture();
+ project.visualizer_timeline[0]={...project.visualizer_timeline[0],visualizer_id:'isf:new',visualizer_title:'New',opacity:.82};
+ const artifacts=buildDirectorV2Artifacts({project,manifest:{shaders:[{id:'isf:new',title:'New',source:'/new.fs',inputs:[]},{id:'isf:fixture',title:'Fixture',source:'/fixture.fs',inputs:[]}]}});
+ const baseline=projectToEditorGraph(project);
+ assert.match(visualizers(baseline)[0].id,/^projected:/);
+ const actual=compileDirectorVariant({treatment:artifacts.treatment,cueGraph:artifacts.cueGraph,sourceProject:project,recipe:'performance-kinetic',locks:[{targetId:'shader-treatment'}]});
+ assert.equal(visualizers(actual)[0].parameters.opacity,.82);
+});
+
+test('a treatment lock cannot silently transfer controls across different shader sources',()=>{
+ const {project,artifacts}=fixture();
+ project.visualizer_timeline[0].visualizer_id='isf:operator-selected';
+ assert.throws(()=>compileDirectorVariant({treatment:artifacts.treatment,cueGraph:artifacts.cueGraph,sourceProject:project,recipe:'performance-kinetic',locks:[{targetId:'shader-treatment'}]}),error=>error.code==='echo_locked_shader_source_changed'&&error.result.currentSourceId==='isf:operator-selected');
+});
