@@ -1,5 +1,5 @@
 import { createImageShotGeometry, selectImageShotRendition } from "../domain/unified-media-catalog.js";
-import { echoLyricBoundary } from "../domain/echo-lyric-time.js";
+import EchoLyricOverlay from "./EchoLyricOverlay.jsx";
 import { echoPreparedPerformanceSignalFrames, evaluateEchoMusicPerformance } from "../domain/hyperframes-visualizer-runtime.js";
 import { prepareDirectorModulationTimeline } from "../domain/director-modulation-v2.js";
 import EchoPerformancePreparationControl from "./EchoPerformancePreparationControl.jsx";
@@ -123,7 +123,6 @@ import {
   echoLyricTemplate,
   normalizeEchoLyricContract,
 } from "../domain/echo-lyric-contract.js";
-import { resolveEchoLyricTemplateFrame } from "../domain/echo-lyric-template-runtime.js";
 import EchoKanbanBoard from "./EchoKanbanBoard.jsx";
 import {
   ECHO_PREVIEW_RECORD_FPS,
@@ -965,91 +964,6 @@ const LYRIC_STYLE_OPTIONS = [
   { value: "minimal-subtitle", label: "Minimal subtitle" }
 ];
 
-function getLyricPlacementStyle(position = "bottom-center", outputProfile = null) {
-  const profile = resolveEchoOutputProfile(outputProfile);
-  const titleInset = `${Math.round(profile.safeArea.titleInset * 100)}%`;
-  const lyricBottom = `${Math.round(profile.safeArea.lyricBottom * 100)}%`;
-  const isVerticalOutput = profile.id === "vertical";
-  const base = {
-    position: "absolute",
-    pointerEvents: "none",
-    zIndex: 10,
-    width: isVerticalOutput ? "min(82%, 620px)" : "min(92%, 760px)"
-  };
-  const placements = {
-    "bottom-center": { left: "50%", right: "auto", top: "auto", bottom: lyricBottom, transform: "translateX(-50%)", textAlign: "center" },
-    "top-center": { left: "50%", right: "auto", top: titleInset, bottom: "auto", transform: "translateX(-50%)", textAlign: "center" },
-    center: { left: "50%", right: "auto", top: "50%", bottom: "auto", transform: "translate(-50%, -50%)", textAlign: "center" },
-    "lower-left": { left: titleInset, right: "auto", top: "auto", bottom: lyricBottom, transform: "none", textAlign: "left", width: isVerticalOutput ? "72%" : "min(78%, 620px)" },
-    "lower-right": { left: "auto", right: titleInset, top: "auto", bottom: lyricBottom, transform: "none", textAlign: "right", width: isVerticalOutput ? "72%" : "min(78%, 620px)" },
-    "upper-left": { left: titleInset, right: "auto", top: titleInset, bottom: "auto", transform: "none", textAlign: "left", width: isVerticalOutput ? "72%" : "min(78%, 620px)" },
-    "upper-right": { left: "auto", right: titleInset, top: titleInset, bottom: "auto", transform: "none", textAlign: "right", width: isVerticalOutput ? "72%" : "min(78%, 620px)" },
-    "side-right": { left: "auto", right: titleInset, top: "50%", bottom: "auto", transform: "translateY(-50%)", textAlign: "right", width: isVerticalOutput ? "58%" : "min(45%, 360px)" }
-  };
-  return { ...base, ...(placements[position] || placements["bottom-center"]) };
-}
-
-function getLyricTheme(style = "neon-cyan") {
-  const themes = {
-    "neon-cyan": {
-      panelBackground: "rgba(2, 6, 23, 0.72)",
-      panelBorder: "1px solid rgba(6, 182, 212, 0.3)",
-      textColor: "#e0faff",
-      activeColor: "var(--hapa-neon-cyan)",
-      inactiveColor: "rgba(224,250,255,0.62)",
-      textShadow: "0 0 10px rgba(6, 182, 212, 0.55)",
-      fontFamily: "monospace",
-      fontSize: "12px",
-      textTransform: "none"
-    },
-    "magenta-glow": {
-      panelBackground: "rgba(24, 5, 34, 0.76)",
-      panelBorder: "1px solid rgba(236, 72, 153, 0.36)",
-      textColor: "#ffe4f2",
-      activeColor: "var(--hapa-neon-magenta)",
-      inactiveColor: "rgba(255,228,242,0.62)",
-      textShadow: "0 0 12px rgba(236, 72, 153, 0.7)",
-      fontFamily: "monospace",
-      fontSize: "12px",
-      textTransform: "none"
-    },
-    "gold-caption": {
-      panelBackground: "rgba(31, 23, 7, 0.78)",
-      panelBorder: "1px solid rgba(246, 201, 109, 0.38)",
-      textColor: "#fff7dc",
-      activeColor: "var(--hapa-neon-gold)",
-      inactiveColor: "rgba(255,247,220,0.64)",
-      textShadow: "0 0 10px rgba(246, 201, 109, 0.55)",
-      fontFamily: "serif",
-      fontSize: "13px",
-      textTransform: "none"
-    },
-    "paper-white": {
-      panelBackground: "rgba(247, 244, 235, 0.9)",
-      panelBorder: "1px solid rgba(255, 255, 255, 0.42)",
-      textColor: "#101827",
-      activeColor: "#111827",
-      inactiveColor: "rgba(17,24,39,0.62)",
-      textShadow: "none",
-      fontFamily: "Georgia, serif",
-      fontSize: "13px",
-      textTransform: "none"
-    },
-    "minimal-subtitle": {
-      panelBackground: "rgba(0, 0, 0, 0.68)",
-      panelBorder: "1px solid rgba(255, 255, 255, 0.18)",
-      textColor: "#ffffff",
-      activeColor: "#ffffff",
-      inactiveColor: "rgba(255,255,255,0.72)",
-      textShadow: "0 2px 5px rgba(0,0,0,0.9)",
-      fontFamily: "system-ui, sans-serif",
-      fontSize: "12px",
-      textTransform: "none"
-    }
-  };
-  return themes[style] || themes["neon-cyan"];
-}
-
 function positiveEchoMediaDimension(...values) {
   for (const value of values) {
     const candidate = Number(value);
@@ -1218,11 +1132,8 @@ function EchoPlaybackClockBoundary({ clockRef, initialTime = 0, active = false, 
     const sample = () => {
       const time = Number(clockRef.current) || 0;
       const shotIndex = project?.timeline?.findIndex((item) => time >= item.start_sec && time < item.end_sec) ?? -1;
-      const lineIndex = project?.timed_lyrics?.findIndex((line) => time >= echoLyricBoundary(line, "start") && time < echoLyricBoundary(line, "end")) ?? -1;
-      const line = lineIndex >= 0 ? project?.timed_lyrics?.[lineIndex] : null;
-      const wordIndex = line?.words?.findIndex((word) => time >= echoLyricBoundary(word, "start") && time < echoLyricBoundary(word, "end")) ?? -1;
       const cadence = powerMode === "docked" ? 2 : 4;
-      const signature = `${shotIndex}:${lineIndex}:${wordIndex}:${Math.floor(time * cadence)}`;
+      const signature = `${shotIndex}:${Math.floor(time * cadence)}`;
       if (signature !== signatureRef.current) {
         signatureRef.current = signature;
         setClockTime(time);
@@ -6150,9 +6061,6 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                     const activeTimelineItem = activeProject.timeline?.[selectedShotIndex] || activeProject.timeline?.[0];
                     const activeVisualizerItem = activeProject.visualizer_timeline?.[selectedVisualizerIndex] || activeProject.visualizer_timeline?.[0];
                     const activePersistentShaderSlots = normalizeEchoPersistentShaderSlots(activeProject);
-                    const currentLine = directorPreviewFrame?.lyrics?.line || (activeLyricContract.enabled
-                      ? activeProject.timed_lyrics?.find(l => currentTime >= l.start && currentTime < l.end)
-                      : null);
                     const pendingPreviewProxyCount = previewTimeline.filter((item) => shotMediaType(item) === "video" && item.media_contract?.proxy?.status !== "ready").length;
                     const isVerticalOutput = activeOutputProfile.id === "vertical";
                     const previewRecordingVideoBuffering = shotMediaType(currentTimelineItem) === "video" && !previewBufferState.ready;
@@ -6613,6 +6521,11 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                                 style={{ width: '12px', height: '12px', accentColor: '#06b6d4' }}
                               />
                               LYRICS {activeLyricContract.enabled ? 'ON' : 'OFF'}
+                            </label>
+                            <label style={{ color: "#cbd5e1", fontSize: "10px", display: "flex", alignItems: "center", gap: 5 }}>
+                              <input type="checkbox" aria-label="Reduce lyric motion" checked={activeLyricContract.reducedMotion} disabled={directorEditingLocked}
+                                onChange={(event) => handleUpdateProjectSettings({ lyrics: { ...activeLyricContract, reducedMotion: event.target.checked } })} />
+                              Reduce lyric motion
                             </label>
                             {activeLyricTimingMissing && (
                               <span
@@ -7095,260 +7008,13 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                                     )}
                                   </div>
 
-                                  {/* Timed Lyrics Overlay — hidden in Clean Preview mode */}
-                                  {!cleanPreviewMode && currentLine && (() => {
-                                    const activeTemplateId = activeLyricContract.templateId;
-                                    const lyricPlacement = getLyricPlacementStyle(activeProject.lyric_position || "bottom-center", activeOutputProfile);
-                                    const lyricTheme = getLyricTheme(activeProject.lyric_style || "neon-cyan");
-                                    const lyricTemplateFrame = directorPreviewFrame?.lyrics?.templateFrame || resolveEchoLyricTemplateFrame({
-                                      contract: activeLyricContract,
-                                      line: currentLine,
-                                      timeSeconds: currentTime,
-                                      fps: activeOutputProfile.fps,
-                                    });
-                                    
-                                    const renderWords = (customWordStyle) => {
-                                      return currentLine.words ? currentLine.words.map((w, wIdx) => {
-                                        const frameWord = lyricTemplateFrame.words[wIdx] || {};
-                                        if (frameWord.display === false) return null;
-                                        const wordStyle = customWordStyle(frameWord.active, frameWord.completed, wIdx, frameWord);
-                                        return (
-                                          <span
-                                            key={wIdx}
-                                            data-lyric-word-active={frameWord.active ? "true" : "false"}
-                                            data-lyric-word-progress={frameWord.progress ?? 0}
-                                            style={{
-                                              display: 'inline-block',
-                                              color: lyricTheme.inactiveColor,
-                                              opacity: frameWord.opacity ?? 1,
-                                              transform: `translate(${frameWord.translateX || 0}px, ${frameWord.translateY || 0}px) rotate(${frameWord.rotateDegrees || 0}deg) scale(${frameWord.scale || 1})`,
-                                              transformOrigin: 'center',
-                                              ...wordStyle,
-                                            }}
-                                          >
-                                            {frameWord.displayText || w.word}
-                                          </span>
-                                        );
-                                      }) : currentLine.text;
-                                    };
-
-                                    switch (activeTemplateId) {
-                                      case "kinetic-word-burst-v1":
-                                        return (
-                                          <div style={{
-                                            position: 'absolute',
-                                            bottom: '25px',
-                                            right: '15px',
-                                            background: lyricTheme.panelBackground,
-                                            border: lyricTheme.panelBorder,
-                                            borderLeft: `3px solid ${lyricTheme.activeColor}`,
-                                            padding: '6px 12px',
-                                            borderRadius: '4px 0 0 4px',
-                                            maxWidth: '80%',
-                                            textAlign: 'right',
-                                            pointerEvents: 'none',
-                                            zIndex: 10,
-                                            boxShadow: '0 4px 12px rgba(0,0,0,0.6)',
-                                            ...lyricPlacement
-                                          }}>
-                                            <div style={{
-                                              fontSize: '11px',
-                                              fontFamily: 'monospace',
-                                              fontWeight: 'bold',
-                                              color: lyricTheme.textColor,
-                                              textShadow: lyricTheme.textShadow,
-                                              fontFamily: lyricTheme.fontFamily,
-                                              fontSize: lyricTheme.fontSize,
-                                              textTransform: lyricTheme.textTransform,
-                                              display: 'flex',
-                                              justifyContent: 'flex-end',
-                                              gap: '5px',
-                                              flexWrap: 'wrap'
-                                            }}>
-                                              {renderWords((isActive, isCompleted, _wordIndex, frameWord) => ({
-                                                color: isActive ? lyricTheme.activeColor : isCompleted ? lyricTheme.textColor : lyricTheme.inactiveColor,
-                                                textShadow: isActive ? lyricTheme.textShadow : 'none',
-                                                fontWeight: isActive ? 900 : 700,
-                                                borderBottom: isActive ? `2px solid ${lyricTheme.activeColor}` : '2px solid transparent',
-                                                '--lyric-progress': frameWord.progress,
-                                              }))}
-                                            </div>
-                                          </div>
-                                        );
-                                        
-                                      case "stacked-hook-echo-v1":
-                                        return (
-                                          <div style={{
-                                            position: 'absolute',
-                                            bottom: '20px',
-                                            width: '100%',
-                                            textAlign: 'center',
-                                            pointerEvents: 'none',
-                                            zIndex: 10,
-                                            ...lyricPlacement
-                                          }}>
-                                            <div style={{
-                                              position: 'absolute',
-                                              top: '-2px',
-                                              left: '2px',
-                                              width: '100%',
-                                              opacity: 0.5,
-                                              fontSize: '13px',
-                                              fontFamily: 'monospace',
-                                              fontWeight: 'bold',
-                                              color: lyricTheme.activeColor,
-                                              filter: 'blur(1px)'
-                                            }}>
-                                              {lyricTemplateFrame.displayText || currentLine.text}
-                                            </div>
-                                            <div style={{
-                                              position: 'relative',
-                                              fontSize: '13px',
-                                              fontFamily: 'monospace',
-                                              fontWeight: 'bold',
-                                              color: lyricTheme.textColor,
-                                              textShadow: lyricTheme.textShadow,
-                                              fontFamily: lyricTheme.fontFamily,
-                                              fontSize: lyricTheme.fontSize,
-                                              textTransform: lyricTheme.textTransform,
-                                              display: 'flex',
-                                              justifyContent: 'center',
-                                              gap: '6px',
-                                              flexWrap: 'wrap',
-                                            }}>
-                                              {renderWords((isActive) => ({
-                                                color: isActive ? lyricTheme.activeColor : lyricTheme.textColor,
-                                                textShadow: isActive ? lyricTheme.textShadow : 'none'
-                                              }))}
-                                            </div>
-                                          </div>
-                                        );
-
-                                      case "orbit-caption-v1":
-                                        return (
-                                          <div style={{
-                                            position: 'absolute',
-                                            bottom: '8px',
-                                            width: 'calc(100% - 32px)',
-                                            left: '16px',
-                                            textAlign: 'center',
-                                            pointerEvents: 'none',
-                                            zIndex: 10,
-                                            background: lyricTheme.panelBackground,
-                                            border: lyricTheme.panelBorder,
-                                            borderRadius: '4px',
-                                            padding: '4px 10px',
-                                            boxShadow: '0 2px 8px rgba(0,0,0,0.5)',
-                                            ...lyricPlacement
-                                          }}>
-                                            <div style={{
-                                              fontSize: '9.5px',
-                                              fontFamily: 'monospace',
-                                              color: lyricTheme.textColor,
-                                              textShadow: lyricTheme.textShadow,
-                                              fontFamily: lyricTheme.fontFamily,
-                                              fontSize: lyricTheme.fontSize,
-                                              textTransform: lyricTheme.textTransform,
-                                              display: 'flex',
-                                              justifyContent: 'center',
-                                              gap: '4px',
-                                              flexWrap: 'wrap'
-                                            }}>
-                                              {renderWords((isActive) => ({
-                                                color: isActive ? lyricTheme.activeColor : lyricTheme.inactiveColor,
-                                                fontWeight: isActive ? 'bold' : 'normal'
-                                              }))}
-                                            </div>
-                                          </div>
-                                        );
-
-                                      case "scanline-phrase-ribbon-v1":
-                                        return (
-                                          <div style={{
-                                            position: 'absolute',
-                                            bottom: '15px',
-                                            width: '100%',
-                                            textAlign: 'center',
-                                            pointerEvents: 'none',
-                                            zIndex: 10,
-                                            background: lyricTheme.panelBackground,
-                                            border: lyricTheme.panelBorder,
-                                            padding: '8px 0',
-                                            boxShadow: '0 0 10px rgba(57, 255, 20, 0.1)',
-                                            ...lyricPlacement
-                                          }}>
-                                            <div style={{
-                                              position: 'absolute',
-                                              top: 0,
-                                              left: 0,
-                                              right: 0,
-                                              bottom: 0,
-                                              background: 'linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%), linear-gradient(90deg, rgba(255, 0, 0, 0.06), rgba(0, 255, 0, 0.02), rgba(0, 0, 255, 0.06))',
-                                              backgroundSize: '100% 2px, 3px 100%',
-                                              opacity: 0.8
-                                            }} />
-                                            <div style={{
-                                              position: 'relative',
-                                              fontSize: '12px',
-                                              fontFamily: 'monospace',
-                                              fontWeight: 'bold',
-                                              color: lyricTheme.textColor,
-                                              textShadow: lyricTheme.textShadow,
-                                              fontFamily: lyricTheme.fontFamily,
-                                              fontSize: lyricTheme.fontSize,
-                                              textTransform: lyricTheme.textTransform,
-                                              display: 'flex',
-                                              justifyContent: 'center',
-                                              gap: '5px',
-                                              flexWrap: 'wrap',
-                                              letterSpacing: '0.05em'
-                                            }}>
-                                              {renderWords((isActive) => ({
-                                                color: isActive ? lyricTheme.activeColor : lyricTheme.inactiveColor,
-                                                textShadow: isActive ? lyricTheme.textShadow : 'none'
-                                              }))}
-                                            </div>
-                                          </div>
-                                        );
-
-                                      case "phrase-window":
-                                      default:
-                                        return (
-                                          <div style={{
-                                            position: 'absolute',
-                                            bottom: '15px',
-                                            width: '100%',
-                                            textAlign: 'center',
-                                            pointerEvents: 'none',
-                                            background: lyricTheme.panelBackground,
-                                            border: lyricTheme.panelBorder,
-                                            padding: '6px 0',
-                                            zIndex: 10,
-                                            ...lyricPlacement
-                                          }}>
-                                            <div style={{
-                                              fontSize: '12px',
-                                              fontWeight: 'bold',
-                                              color: lyricTheme.textColor,
-                                              textShadow: lyricTheme.textShadow,
-                                              fontFamily: lyricTheme.fontFamily,
-                                              fontSize: lyricTheme.fontSize,
-                                              textTransform: lyricTheme.textTransform,
-                                              letterSpacing: '0.02em',
-                                              display: 'flex',
-                                              justifyContent: 'center',
-                                              gap: '4px',
-                                              flexWrap: 'wrap'
-                                            }}>
-                                              {renderWords((isActive) => ({
-                                                color: isActive ? lyricTheme.activeColor : lyricTheme.inactiveColor,
-                                                textShadow: isActive ? lyricTheme.textShadow : 'none'
-                                              }))}
-                                            </div>
-                                          </div>
-                                        );
-                                    }
-                                  })()}
+                                  <EchoLyricOverlay
+                                    contract={directorPreviewFrame?.lyrics?.contract || activeLyricContract}
+                                    lines={activeShowGraph?.song?.lyricOverlay?.lines?.length ? activeShowGraph.song.lyricOverlay.lines : activeProject.timed_lyrics}
+                                    position={activeProject.lyric_position || "bottom-center"} themeId={activeProject.lyric_style || "neon-cyan"}
+                                    outputProfile={activeOutputProfile} clockRef={currentTimeRef} audioRef={audioRef}
+                                    initialTime={currentTime} playing={isPlaying} powerMode={powerMode} hidden={cleanPreviewMode}
+                                  />
                                 </div>
 
                                 <div role="status" style={{ fontSize: 13, padding: 8 }}>

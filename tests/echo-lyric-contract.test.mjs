@@ -114,7 +114,10 @@ test("Echo UI exposes an editable per-cut lyrics switch", () => {
   assert.match(source, /data-testid="echo-lyrics-enabled"/u);
   assert.match(source, /aria-label="Lyric template"/u);
   assert.match(source, /data-testid="echo-lyric-template"/u);
-  assert.match(source, /resolveEchoLyricTemplateFrame/u);
+  assert.match(source, /<EchoLyricOverlay/u);
+  const overlay = fs.readFileSync("src/components/EchoLyricOverlay.jsx", "utf8");
+  assert.match(overlay, /resolveEchoLyricTemplateFrame/u);
+  assert.match(source, /aria-label="Reduce lyric motion"/u);
   assert.match(source, /lyrics_enabled: enabled/u);
   assert.match(source, /activeLyricContract\.enabled/u);
 });

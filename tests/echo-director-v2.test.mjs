@@ -57,8 +57,8 @@ function fixture() {
         ],
       },
       timed_lyrics: [
-        { text: "Dear Papa", start: 6, end: 8, section_id: "verse", confidence: 0.8, timing_source: "fixture", words: [{ word: "Dear", start: 6, end: 6.8 }, { word: "Papa", start: 6.9, end: 8 }] },
-        { text: "I remember", start: 14, end: 16, section_id: "chorus", confidence: 0.8, timing_source: "fixture", words: [{ word: "I", start: 14, end: 14.5 }, { word: "remember", start: 14.6, end: 16 }] },
+        { text: "Dear Papa", start: 6, end: 8, section_id: "verse", confidence: 0.8, timing_source: "fixture", words: [{ word: "Dear", confidence: 0.9, start: 6, end: 6.8 }, { word: "Papa", confidence: 0.9, start: 6.9, end: 8 }] },
+        { text: "I remember", start: 14, end: 16, section_id: "chorus", confidence: 0.8, timing_source: "fixture", words: [{ word: "I", confidence: 0.9, start: 14, end: 14.5 }, { word: "remember", confidence: 0.9, start: 14.6, end: 16 }] },
       ],
       timeline: [
         { section_id: "intro", section_type: "intro", start_sec: 0, end_sec: 6, media_id: "m1", media_title: "One", media_uri: "/media/one.mp4", camera_motion: "slow-push-in", transition: "fade-in" },
@@ -435,4 +435,15 @@ test("Director image contracts preserve protected framing and source identity th
   assert.deepEqual(show.instances.media[0].imageShot, card.media.imageShot);
   assert.deepEqual(show.instances.media[0].cameraKeyframes, card.cameraKeyframes);
   assert.equal(show.instances.media[0].source.type, 'image');
+});
+
+test('execution identity includes confidence and reduced motion without converting missing confidence into evidence', () => {
+  const overlay={lines:[{start:0,end:2,words:[{word:'hello',start:0,end:2}]}]};
+  const initial=hashEchoLyricOverlayExecutionContract(overlay);
+  assert.equal(echoLyricOverlayExecutionContract(overlay).lines[0].words[0].confidence,null);
+  overlay.lines[0].words[0].confidence=.9;
+  assert.notEqual(hashEchoLyricOverlayExecutionContract(overlay),initial);
+  const confident=hashEchoLyricOverlayExecutionContract(overlay);
+  overlay.reducedMotion=true;
+  assert.notEqual(hashEchoLyricOverlayExecutionContract(overlay),confident);
 });

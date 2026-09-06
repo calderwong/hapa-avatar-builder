@@ -51,6 +51,7 @@ export function echoLyricOverlayExecutionContract(overlay = {}) {
     timingSource: String(overlay.timingSource || ""),
     timingHash: String(overlay.timingHash || ""),
     audioHash: String(overlay.audioHash || ""),
+    reducedMotion: overlay.reducedMotion === true,
     lines: (overlay.lines || []).map((line) => ({
       text: String(line.text || ""),
       start: echoLyricBoundary(line, "start"),
@@ -59,6 +60,7 @@ export function echoLyricOverlayExecutionContract(overlay = {}) {
         word: String(word.word || word.text || ""),
         start: echoLyricBoundary(word, "start"),
         end: echoLyricBoundary(word, "end"),
+        confidence: typeof (word.confidence ?? word.probability) === "number" && Number.isFinite(word.confidence ?? word.probability) ? (word.confidence ?? word.probability) : null,
       })),
     })),
   };

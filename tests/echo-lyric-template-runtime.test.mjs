@@ -14,9 +14,9 @@ const line = {
   start: 1,
   end: 2.5,
   words: [
-    { word: "Animate", start: 1, end: 1.5 },
-    { word: "every", start: 1.5, end: 2 },
-    { word: "word", start: 2, end: 2.5 },
+    { word: "Animate", confidence: 0.9, start: 1, end: 1.5 },
+    { word: "every", confidence: 0.9, start: 1.5, end: 2 },
+    { word: "word", confidence: 0.9, start: 2, end: 2.5 },
   ],
 };
 
@@ -119,4 +119,27 @@ test("exact frame clocks do not slip a frame through floating-point multiplicati
       assert.equal(echoLyricFrameTime(frame / fps, fps).frame, frame);
     }
   }
+});
+
+test('missing, low and synthetic word confidence produces static phrase fallback without invented paging', () => {
+  for (const [confidence, timingSource] of [[undefined,'forced-alignment'],[.4,'forced-alignment'],[.9,'synthetic-weighted-lyric-heal'],['0.9','forced-alignment']]) {
+    const source = { text: 'whole phrase', start: 1, end: 10, words: Array.from({length: 24}, (_,i) => ({word: `w${i}`,start: 1+i/3,end:1+(i+1)/3,confidence})) };
+    const before = JSON.stringify(source);
+    const frame = resolveEchoLyricTemplateFrame({contract:{enabled:true,templateId:'kinetic-word-burst-v1',timingSource},line:source,timeSeconds:5});
+    assert.equal(frame.timingPolicy.mode,'phrase');
+    assert.equal(frame.displayWindow.wordCount,24);
+    assert.ok(frame.words.every(word => !word.active && word.progress===0 && word.scale===1 && word.translateY===0));
+    assert.equal(JSON.stringify(source),before);
+  }
+});
+
+test('verified sustained words fill continuously and their onset emphasis does not retrigger', () => {
+  const source={text:'sustain',start:0,end:3,words:[{word:'sustain',start:0,end:3,confidence:.9}]};
+  const sample = timeSeconds => resolveEchoLyricTemplateFrame({contract:{enabled:true,templateId:'kinetic-word-burst-v1'},line:source,timeSeconds});
+  assert.ok(sample(0).words[0].scale > sample(.1).words[0].scale);
+  assert.equal(sample(.3).words[0].scale,sample(2).words[0].scale);
+  assert.ok(sample(1).words[0].underlineProgress < sample(2).words[0].underlineProgress);
+  assert.deepEqual(sample(1),sample(1));
+  const reduced=resolveEchoLyricTemplateFrame({contract:{enabled:true,templateId:'orbit-caption-v1',reducedMotion:true},line:source,timeSeconds:1});
+  assert.equal(reduced.words[0].scale,1);assert.equal(reduced.words[0].rotateDegrees,0);assert.equal(reduced.words[0].underlineProgress,1);
 });

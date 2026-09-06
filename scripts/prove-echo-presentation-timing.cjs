@@ -6,6 +6,7 @@ const output = path.resolve(process.argv.find(arg => arg.startsWith('--output=')
 const target = process.env.SMOKE_URL || 'http://127.0.0.1:19088/?view=echos';
 const title = process.env.SMOKE_SONG_TITLE || 'Dear Papa';
 const expectedCutId = process.env.SMOKE_CUT_ID || '';
+const inspectLyrics = process.argv.includes('--lyric-cadence');
 const forwardOnly = process.argv.includes('--forward-only');
 const requirePrepared = process.argv.includes('--require-prepared');
 let win, userData, exitStatus = 1;
@@ -63,6 +64,17 @@ app.whenReady().then(async () => {
     await waitFor(`document.querySelector('.hapa-echos-view audio')?.readyState>=2&&[...document.querySelectorAll('.hapa-echos-view button')].some(x=>/Play Show/.test(x.textContent)&&!x.disabled)`);
     await click('Play Show');
     await waitFor(`window.__HAPA_ECHO_PRESENTATION_TIMING__?.decodedSamples>=30`, 30000);
+    let lyricCadence = null;
+    if (inspectLyrics) {
+      const samples = await win.webContents.executeJavaScript(`new Promise(resolve => { const rows=[];const started=performance.now();const sample=()=>{const el=document.querySelector('[data-testid="echo-lyrics-overlay"]');rows.push({wallMs:performance.now()-started,audioTime:document.querySelector('.hapa-echos-view audio')?.currentTime,frame:Number(el?.dataset.frame),fps:Number(el?.dataset.fps),renders:Number(el?.dataset.renderCount),mode:el?.dataset.timingMode,reason:el?.dataset.timingReason,label:document.querySelector('[data-testid="echo-lyric-timing-label"]')?.textContent,wordActive:!!el?.querySelector('[data-lyric-word-active="true"]'),boundaryRenders:window.__HAPA_ECHO_CLOCK_DIAGNOSTICS__?.boundaryRenders});if(performance.now()-started<5000)setTimeout(sample,25);else resolve(rows)};sample()})`);
+      const visible=samples.filter(row=>Number.isFinite(row.frame)&&row.fps>0), first=visible[0], last=visible.at(-1);
+      const uniqueFrames=new Set(visible.map(row=>row.frame)).size;
+      const boundaryRenders=last?.boundaryRenders-first?.boundaryRenders;
+      const audioSpan=last?.audioTime-first?.audioTime;
+      lyricCadence={samples,uniqueFrames,boundaryRenders,audioSpan,observedFramesPerSecond:uniqueFrames/audioSpan,
+        pass:visible.length>30&&uniqueFrames>boundaryRenders&&uniqueFrames/audioSpan>=20&&visible.every(row=>row.mode==='phrase'&&row.reason==='synthetic-word-timing'&&!row.wordActive&&row.label?.includes('unverified'))};
+      console.log(JSON.stringify({stage:'lyric-cadence',...lyricCadence,samples:undefined}));
+    }
     const mediaSamples=[];
     for(let i=0;i<16;i++){await delay(500);mediaSamples.push(await win.webContents.executeJavaScript(`({time:document.querySelector('.hapa-echos-view audio')?.currentTime,media:window.__HAPA_ECHO_ISF_BINDING_DIAGNOSTICS__?.last?.media,frameReceipt:window.__HAPA_ECHO_ISF_BINDING_DIAGNOSTICS__?.last?.frameReceipt})`));}
     const observations = [await snapshot('forward')];
@@ -88,8 +100,8 @@ app.whenReady().then(async () => {
     await click('Pause');
     }
     const preparedApplied = !requirePrepared || observations.every(row=>row.players.filter(player=>player.state==='current').every(player=>player.uri.includes('/media/echo-proxies-v2/')));
-    const pass = preparedApplied && (!expectedCutId||observations.every(row=>row.cutId===expectedCutId)) && observations.every(row => row.timing?.retained <= row.timing?.capacity) && observations.filter(row => row.label !== 'paused').every(row => row.timing?.decodedSamples >= 30);
-    const report = { pass, scope: 'Actual Echo Director preview instrumentation and transport observations; output timestamp estimates are not physical calibration or export parity', target, title, expectedCutId, forwardOnly, requirePrepared, preparedApplied, mediaSamples, cameraFramedSamples:mediaSamples.filter(row=>row.media?.status==='camera-framed').length,
+    const pass = (!inspectLyrics || lyricCadence?.pass) && preparedApplied && (!expectedCutId||observations.every(row=>row.cutId===expectedCutId)) && observations.every(row => row.timing?.retained <= row.timing?.capacity) && observations.filter(row => row.label !== 'paused').every(row => row.timing?.decodedSamples >= 30);
+    const report = { pass, scope: 'Actual Echo Director preview instrumentation and transport observations; output timestamp estimates are not physical calibration or export parity', target, title, expectedCutId, inspectLyrics, lyricCadence, forwardOnly, requirePrepared, preparedApplied, mediaSamples, cameraFramedSamples:mediaSamples.filter(row=>row.media?.status==='camera-framed').length,
       residualTargetMs: 1000 / 30, withinResidualTarget: observations.filter(row => row.label !== 'paused').every(row => row.timing?.audibleEstimatedSamples >= 30 && row.timing.audibleEstimateAbsoluteResidualP95Ms <= 1000 / 30), observations };
     await fs.writeFile(path.join(output, 'report.json'), JSON.stringify(report, null, 2) + '\n');
     await fs.writeFile(path.join(output, 'preview.png'), (await win.webContents.capturePage()).toPNG());

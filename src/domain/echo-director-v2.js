@@ -306,6 +306,7 @@ export function buildCueGraph(projectInput, options = {}) {
           text: String(word.text || word.word || ""),
           startSeconds: round(word.start),
           endSeconds: round(word.end),
+          confidence: typeof (word.confidence ?? word.probability) === "number" && Number.isFinite(word.confidence ?? word.probability) ? (word.confidence ?? word.probability) : null,
         })),
       };
     })

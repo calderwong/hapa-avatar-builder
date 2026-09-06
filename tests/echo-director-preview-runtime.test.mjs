@@ -117,9 +117,9 @@ function paritySource() {
       end: 2,
       text: "Sunlight finds us",
       words: [
-        { word: "Sunlight", start: 0, end: 0.8 },
-        { word: "finds", start: 0.8, end: 1.4 },
-        { word: "us", start: 1.4, end: 2 },
+        { word: "Sunlight", confidence: 0.9, start: 0, end: 0.8 },
+        { word: "finds", confidence: 0.9, start: 0.8, end: 1.4 },
+        { word: "us", confidence: 0.9, start: 1.4, end: 2 },
       ],
     }],
     timeline: [
@@ -638,7 +638,11 @@ test("Echo Album and Record Garden both consume the shared fixed-time Preview co
   assert.match(albumSource, /selectEchoDirectorPreviewSource\(activeProject,/);
   assert.match(albumSource, /projectEchoDirectorPreviewFrame\(\{/);
   assert.match(albumSource, /directorPreviewFrame\.visualizers\.map/);
-  assert.match(albumSource, /directorPreviewFrame\?\.lyrics\?\.templateFrame/);
+  assert.match(albumSource, /<EchoLyricOverlay/);
+  assert.match(albumSource, /contract=\{directorPreviewFrame\?\.lyrics\?\.contract/);
+  const lyricSource = readFileSync(new URL("../src/components/EchoLyricOverlay.jsx", import.meta.url), "utf8");
+  assert.match(lyricSource, /resolveEchoLyricTemplateFrame\(\{ contract: activeLyricContract/);
+  assert.match(lyricSource, /observeEchoLyricClock/);
   assert.match(albumSource, /data-echo-preview-automation=/);
   assert.match(gardenSource, /createEchoDirectorPreviewRuntime\(\{/);
   assert.match(gardenSource, /strictParity: true/);
