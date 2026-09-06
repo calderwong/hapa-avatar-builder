@@ -1,3 +1,4 @@
+import { upgradeEchoGeneratedVisualizerBindings } from "./echo-recipe-execution.js";
 import { normalizeHyperFramesStemRole } from "./hyperframes-visualizer-runtime.js";
 import { echoDirectorVisualizerCueId } from "./echo-director-recipes.js";
 import { inspectEchoTimelineMediaEligibility, echoMediaConstraintError, ECHO_MEDIA_ELIGIBILITY_FIELDS } from "./echo-media-eligibility.js";
@@ -971,7 +972,7 @@ export function projectToEditorGraph(project = {}) {
     outputProfile,
     patchLineage: graph.directorV2?.patchLineage || { patches: [], dirtyRanges: [] },
   };
-  return replayMultitrackPatches(applyEchoRecutExecutionToGraph(graph, project), project.director_show_graph_patches || []);
+  return upgradeEchoGeneratedVisualizerBindings(replayMultitrackPatches(applyEchoRecutExecutionToGraph(graph, project), project.director_show_graph_patches || []), { project });
 }
 
 export function replayMultitrackPatches(graph, patches = []) {

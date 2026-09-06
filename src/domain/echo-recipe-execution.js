@@ -1,3 +1,4 @@
+import { PREPARED_VISUALIZER_MAPPED_SIGNAL } from "./hyperframes-visualizer-runtime.js";
 import {resolveNativeVisualizerRoute} from './native-visualizer-route.js';
 import {echoMediaEligibilityFields} from './echo-media-eligibility.js';
 import {directorStemRole} from './echo-stem-binding-repair.js';
@@ -46,7 +47,7 @@ export function buildEchoRecipeModulationBindings(visualizers, recipe) {
       .map(([uniform, mapping]) => ({
         id: `${visualizer.id}:${uniform}`,
         source: { kind: "stem_signal", stemFocus: directorStemRole(mapping?.stemFocus || mapping?.stem_focus || visualizer.stemFocus), signal: String(mapping.signal) },
-        target: { kind: "visualizer_uniform", visualizerId: visualizer.id, uniform },
+        target: { kind: "visualizer_uniform", visualizerId: visualizer.id, uniform, valueSpace: PREPARED_VISUALIZER_MAPPED_SIGNAL, referenceDepth: clamp(mapping.depth ?? 0.2) },
         envelope: executableEnvelope({
           depth: round(clamp(mapping.depth ?? 0.2) * recipe.visualizerMix),
           quantize: mapping.signal === "beat" ? "beat" : "frame",
@@ -80,6 +81,41 @@ export function buildEchoRecipeModulationBindings(visualizers, recipe) {
       envelope: executableEnvelope({ depth: 0.16, attackSeconds: 0.08, releaseSeconds: 0.28, smoothingSeconds: 0.05, clamp: [0, 0.28], safetyBounds: { min: 0, max: 0.28, maxDeltaPerSecond: 0.7 } }),
     },
   ];
+}
+
+
+/** Upgrade only the recognizable legacy generator contract, in a derived graph.
+ * Unmarked authored absolute envelopes and operator locks keep their meaning. */
+export function upgradeEchoGeneratedVisualizerBindings(graph, { project = {} } = {}) {
+  const director = graph.directorV2 || {};
+  const locks = director.locks || [];
+  const locked = id => Boolean(id) && locks.some(lock => (lock.targetId || lock.target) === id);
+  if (locked("shader-treatment")) return graph;
+  const cards = (graph.tracks || []).flatMap(track => track.cards || []);
+  const targets = new Map(cards.flatMap(card => [card.id, card.cueId].filter(Boolean).map(id => [id, card])));
+  const upgraded = [];
+  const bindings = (director.modulationBindings || []).map(binding => {
+    const target = binding.target || {}, e = binding.envelope || {};
+    if (target.kind !== "visualizer_uniform" || target.valueSpace || binding.locked || locked(binding.id)) return binding;
+    const card = targets.get(target.visualizerId);
+    if (!card || locked(card.id) || locked(card.cueId)) return binding;
+    const row = card.persistentSlotId ? (project.persistent_shader_slots || []).find(row => row.id === card.persistentSlotId)
+      : (project.visualizer_timeline || [])[card.sourceCueIndex];
+    if (card.locked || row?.locked || (row?.locks || []).some(lock => ["shader", "opacity", "treatment"].includes(lock)) || locked(row?.id)) return binding;
+    const legacyGenerated = binding.id === `${target.visualizerId}:${target.uniform}` && binding.source?.kind === "stem_signal"
+      && e.baseValue === 0 && !e.initialValue && e.attackSeconds === .04 && e.releaseSeconds === .18 && e.smoothingSeconds === .03
+      && e.easing === "power2.out" && e.polarity === "positive" && e.delaySeconds === 0 && e.quantizeStep === 0
+      && ["frame", "beat"].includes(e.quantize) && e.clamp?.[0] === 0 && e.clamp?.[1] === 1 && e.clamp.length === 2
+      && e.gate?.threshold === .02 && e.gate?.floor === 0 && e.safetyBounds?.min === 0 && e.safetyBounds?.max === 1
+      && e.safetyBounds?.maxDeltaPerSecond === 8 && Number.isFinite(e.depth) && e.depth >= 0 && e.depth <= 1;
+    if (!legacyGenerated) return binding;
+    const mapping = card.visualization?.card?.audioMap?.[target.uniform];
+    if (!mapping || typeof mapping !== "object") return binding;
+    upgraded.push(binding.id);
+    return { ...binding, target: { ...target, valueSpace: PREPARED_VISUALIZER_MAPPED_SIGNAL, referenceDepth: clamp(mapping.depth ?? .2) } };
+  });
+  return upgraded.length ? { ...graph, directorV2: { ...director, modulationBindings: bindings,
+    modulationValueSpaceUpgrade: { schemaVersion: "hapa.echo.modulation-value-space-upgrade.v1", sourceContract: "legacy-recipe-normalized-envelope", upgradedBindingIds: upgraded, storedSourceMutated: false } } } : graph;
 }
 
 

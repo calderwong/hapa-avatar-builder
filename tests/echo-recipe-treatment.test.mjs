@@ -247,3 +247,24 @@ test('a treatment lock cannot silently transfer controls across different shader
  project.visualizer_timeline[0].visualizer_id='isf:operator-selected';
  assert.throws(()=>compileDirectorVariant({treatment:artifacts.treatment,cueGraph:artifacts.cueGraph,sourceProject:project,recipe:'performance-kinetic',locks:[{targetId:'shader-treatment'}]}),error=>error.code==='echo_locked_shader_source_changed'&&error.result.currentSourceId==='isf:operator-selected');
 });
+
+test('saved legacy generated bindings declare mapped signal space without reinterpreting authored or locked values', async () => {
+  const { project } = fixture();
+  const { buildPortableVisualizerCard } = await import('../src/domain/portable-visualizer-card.js');
+  for (const card of project.director_show_graph.tracks.filter(t=>t.role==='visualizer').flatMap(t=>t.cards)) card.visualization.card = buildPortableVisualizerCard({ id: 'isf:fixture', source: 'void main() { gl_FragColor = vec4(1.); }', sourceHash: 'sha256:' + crypto.createHash('sha256').update('void main() { gl_FragColor = vec4(1.); }').digest('hex'), inputs: [{NAME:'gain',TYPE:'float',MIN:0,MAX:1,DEFAULT:.25}], audioMap: { gain: { signal: 'rms', depth: .4 } } });
+  const bindings = project.director_show_graph.directorV2.modulationBindings;
+  const generated = bindings.filter(b => b.target.kind === 'visualizer_uniform');
+  for (const binding of generated) { delete binding.target.valueSpace; delete binding.target.referenceDepth; }
+  generated[1].locked = true;
+  generated[2].envelope.baseValue = .713;
+  project.director_show_graph.directorV2.locks.push({ targetKind: 'binding', targetId: generated[3].id });
+  const original = JSON.stringify(project);
+  const graph = projectToEditorGraph(project);
+  const after = graph.directorV2.modulationBindings.filter(b => b.target.kind === 'visualizer_uniform');
+  assert.equal(after[0].target.valueSpace, 'mapped-signal-v1', JSON.stringify({binding:after[0],locks:graph.directorV2.locks,cards:graph.tracks.filter(t=>t.role==='visualizer').flatMap(t=>t.cards).map(c=>({id:c.id,cueId:c.cueId,map:c.visualization?.card?.audioMap}))}));
+  assert.equal(after[0].target.referenceDepth, .4);
+  for (let i = 1; i < 4; i++) assert.deepEqual(after[i], generated[i]);
+  assert.equal(JSON.stringify(project), original);
+  const reloaded = projectToEditorGraph(JSON.parse(JSON.stringify({ ...project, director_show_graph: graph })));
+  assert.deepEqual(reloaded.directorV2.modulationBindings, graph.directorV2.modulationBindings);
+});

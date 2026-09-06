@@ -350,6 +350,23 @@ export function applyVisualizerAudioMapping(input = {}, baseValue, signalValue, 
   };
 }
 
+export const PREPARED_VISUALIZER_MAPPED_SIGNAL = "mapped-signal-v1";
+
+/** Generated envelopes shape signal strength; the existing input mapper owns
+ * units, direction, headroom and the current operator control/default. */
+export function applyPreparedVisualizerInput(input, baseValue, rawMapping, output, { normalize = normalizeEchoIsfInputValue } = {}) {
+  const space = output.target?.valueSpace;
+  if (!space || space === "isf-absolute-v1") return { applied: true, value: normalize(input, output.value) };
+  if (space !== PREPARED_VISUALIZER_MAPPED_SIGNAL) throw new Error("Unsupported prepared visualizer value space: " + space);
+  const referenceDepth = Number(output.target.referenceDepth);
+  if (!Number.isFinite(referenceDepth) || referenceDepth < 0) throw new Error("Invalid prepared visualizer reference depth");
+  const mapping = normalizeVisualizerAudioMapping(rawMapping, { input, generated: typeof rawMapping === "string", materializeDepth: false });
+  if (!mapping || !mapping.signal || mapping.signal === "off" || referenceDepth === 0) return { applied: false, reason: "mapping-disabled" };
+  if (mapping.signal !== output.source?.signal) return { applied: false, reason: "prepared-feature-changed" };
+  const signalFraction = clamp(output.value / referenceDepth);
+  return { ...applyVisualizerAudioMapping(input, baseValue, signalFraction, mapping, { normalize }), applied: true, valueSpace: space, signalFraction, baseValue };
+}
+
 function visualizerMaterialRatio(input, lowValue, highValue) {
   const type = inputType(input);
   if (["bool", "event", "long"].includes(type)) return lowValue === highValue ? 0 : 1;
@@ -721,6 +738,7 @@ function mappedControls(instance, signalResource, resolveSignalResource = null) 
     }
     values[name] = normalizeEchoIsfInputValue(input, value);
   }
+  const baseValues = { ...values };
   const bindings = [];
   const invalidAudioMapUniforms = [];
   for (const [uniform, rawMapping] of Object.entries(instance.audioMap || {})) {
@@ -779,6 +797,7 @@ function mappedControls(instance, signalResource, resolveSignalResource = null) 
   }
   return {
     values,
+    baseValues,
     bindings,
     unknownControls: unknownControls.sort(),
     invalidAudioMapUniforms: invalidAudioMapUniforms.sort(),
@@ -1102,8 +1121,12 @@ export function evaluateHyperFramesVisualizers(show = {}, timeSeconds = 0, { sol
         if (output.target?.kind !== "visualizer_uniform" || ![instance.id, instance.cueId].includes(output.target.visualizerId)) continue;
         const input = (instance.inputs || []).find(input => inputName(input) === output.target.uniform);
         if (!input || !["float", "long", "bool"].includes(inputType(input))) continue;
-        controls.values[output.target.uniform] = normalizeEchoIsfInputValue(input, output.value);
-        controls.bindings.push({ uniform: output.target.uniform, status: "prepared-absolute-modulation", value: controls.values[output.target.uniform], sourceFingerprint: show.automation.preparedModulation.sourceFingerprint });
+        const applied = applyPreparedVisualizerInput(input, controls.baseValues[output.target.uniform], instance.audioMap?.[output.target.uniform], output);
+        if (!applied.applied) continue;
+        controls.values[output.target.uniform] = applied.value;
+        controls.bindings.push({ uniform: output.target.uniform, status: "prepared-absolute-modulation", value: applied.value,
+          ...(applied.valueSpace ? { valueSpace: applied.valueSpace, signalFraction: applied.signalFraction, baseValue: applied.baseValue, effectiveDepth: applied.effectiveDepth } : {}),
+          sourceFingerprint: show.automation.preparedModulation.sourceFingerprint });
       }
     }
     const presentationModulation = resolvedPresentationModulation(instance, signals);

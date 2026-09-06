@@ -566,3 +566,41 @@ test("diagnostic solo reaches both uniform adapters without rebaking or leaking 
   assert.equal(show.automation.preparedModulation, timeline);
   assert.equal(timeline.targets.length, 4);
 });
+
+test('generated prepared envelopes use each input range and current control base in both adapters', async () => {
+  const { buildEchoRecipeModulationBindings } = await import('../src/domain/echo-recipe-execution.js');
+  const inputs = [
+    { NAME: 'shine', TYPE: 'float', MIN: 50, MAX: 900, DEFAULT: 300 },
+    { NAME: 'edge', TYPE: 'float', MIN: 55, MAX: 233, DEFAULT: 233 },
+    { NAME: 'mode', TYPE: 'long', VALUES: [0, 2, 4], MIN: 0, MAX: 4, DEFAULT: 4 },
+    { NAME: 'enabled', TYPE: 'bool', DEFAULT: true },
+  ];
+  const audioMap = Object.fromEntries(inputs.map(input => [input.NAME, { signal: 'rms', stemFocus: 'vocals', depth: .2, depthFraction: .2, depthMode: 'range-relative', direction: 'auto', headroomPolicy: 'auto-headroom-v1' }]));
+  const layer = exactLayer({ inputs, audioMap, controls: {}, transition: 'cut' });
+  const bindings = buildEchoRecipeModulationBindings([layer], { visualizerMix: 1, cameraEnergy: .5, accentDensity: .5, temporalModulation: .5 });
+  const bundle = { fingerprint: 'range-fixture', durationSeconds: 2, buses: [{ role: 'vocals', durationSeconds: 2, frames: [{ t: 0, rms: 0 }, { t: 1, rms: 1 }] }], events: [], missingData: {} };
+  const prepared = prepareDirectorModulationTimeline(bindings, { durationSeconds: 2, fps: 60, sourceFingerprint: bundle.fingerprint, sampleSignals: t => ({ stems: { vocals: { rms: t < .5 ? 0 : 1 } } }) });
+  const show = { duration: 2, stemFrames: { performance: bundle, stems: bundle.buses }, automation: { preparedModulation: prepared }, instances: { visualizers: [layer] } };
+  const card = { id: layer.id, visualization: { card: { controls: {}, audioMap, stemFocus: 'vocals' } } };
+  const sample = t => {
+    const preview = buildEchoIsfFrameIntent({ shader: { id: layer.visualizerId, inputs }, card, timestampSeconds: t, signalFrames: { vocals: { rms: t < .5 ? 0 : 1 } }, preparedModulation: prepared });
+    const exported = evaluateHyperFramesVisualizers(show, t).layers[0].controlValues;
+    for (const input of inputs) {
+      const a = preview.values[input.NAME], b = exported[input.NAME];
+      if (typeof a === 'number') assert.ok(Math.abs(a - b) < .000002, input.NAME);
+      else assert.equal(a, b, input.NAME);
+    }
+    return preview.values;
+  };
+  assert.deepEqual(sample(.1), { shine: 300, edge: 233, mode: 4, enabled: true });
+  const loud = sample(1.8);
+  assert.ok(loud.shine > 400 && loud.shine <= 470);
+  assert.ok(loud.edge < 233 && loud.edge >= 197.4);
+  assert.equal(loud.mode, 2); assert.equal(loud.enabled, false);
+  card.visualization.card.controls.shine = 400; layer.controls.shine = 400;
+  assert.equal(sample(.1).shine, 400, 'current operator base is preserved without rebaking');
+  assert.ok(sample(1.8).shine > 500);
+  card.visualization.card.audioMap.shine = { signal: 'off' };
+  assert.equal(sample(1.8).shine, 400, 'disabled/static mapping must not be overridden by prepared animation');
+  assert.equal(sample(.1).edge, 233, 'reverse seeks restore the exact quiet state');
+});

@@ -1,3 +1,4 @@
+import { upgradeEchoGeneratedVisualizerBindings } from "./echo-recipe-execution.js";
 import { echoLyricBoundary } from "./echo-lyric-time.js";
 import crypto from "node:crypto";
 import path from "node:path";
@@ -1028,6 +1029,7 @@ export function hyperFramesMediaOpacityState(instances = [], instanceIndex = 0, 
 export function compileHyperFramesShow({ showGraph, telemetry, project, proxyRegistry = {}, fps = 30, visualizerMix = null, performance = null } = {}) {
   if (showGraph?.schemaVersion !== "hapa.music-viz.native-show-graph.v2") throw new Error("HyperFrames compiler requires Native Show Graph v2");
   const projectBody = project?.music_video_project || project?.project || project || {};
+  showGraph = upgradeEchoGeneratedVisualizerBindings(showGraph, { project: projectBody });
   const eligibility = inspectEchoTimelineMediaEligibility(projectBody.timeline, projectBody.mediaConstraints);
   const rejectedMedia = eligibility.filter(item => !item.eligible);
   if (rejectedMedia.length) throw echoMediaConstraintError(rejectedMedia, { stage: "hyperframes-compile" });

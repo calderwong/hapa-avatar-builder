@@ -1,5 +1,6 @@
 import {
   applyVisualizerAudioMapping,
+  applyPreparedVisualizerInput,
   normalizeVisualizerAudioMapping,
   visualizerAudioMappingDepthMode,
   evaluatePreparedDirectorModulation,
@@ -304,6 +305,7 @@ export function buildEchoIsfFrameIntent({
     explicitValuesApplied.push(name);
   }
 
+  const baseValues = { ...finalValues };
   const validation = validateEchoIsfCardBindings(shader, card);
   const requestedStem = String(portable.stemFocus || card?.visualization?.stemFocus || "master");
   const frames = Object.keys(signalFrames || {}).length ? signalFrames : audio ? { master: audio } : {};
@@ -364,8 +366,12 @@ export function buildEchoIsfFrameIntent({
       if (output.target?.kind !== "visualizer_uniform" || ![card.id, card.cueId].includes(output.target.visualizerId)) continue;
       const input = byName.get(output.target.uniform);
       if (!input || !["float", "long", "bool"].includes(inputType(input))) continue;
-      finalValues[output.target.uniform] = normalizeEchoIsfInputValue(input, output.value);
-      modulationBindings.push({ uniform: output.target.uniform, status: "prepared-absolute-modulation", value: finalValues[output.target.uniform], sourceFingerprint: preparedModulation.sourceFingerprint });
+      const applied = applyPreparedVisualizerInput(input, baseValues[output.target.uniform], validation.audioMap[output.target.uniform], output, { normalize: normalizeEchoIsfInputValue });
+      if (!applied.applied) continue;
+      finalValues[output.target.uniform] = applied.value;
+      modulationBindings.push({ uniform: output.target.uniform, status: "prepared-absolute-modulation", value: applied.value,
+        ...(applied.valueSpace ? { valueSpace: applied.valueSpace, signalFraction: applied.signalFraction, baseValue: applied.baseValue, effectiveDepth: applied.effectiveDepth } : {}),
+        sourceFingerprint: preparedModulation.sourceFingerprint });
     }
   }
   const manifestImages = inputs.filter((input) => inputType(input) === "image").map(inputName).filter(Boolean);
