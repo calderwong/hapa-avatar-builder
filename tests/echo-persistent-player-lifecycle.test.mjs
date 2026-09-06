@@ -10,12 +10,12 @@ const end=source.indexOf('\n  return (\n    <>',start);
 const actual=source.slice(start,end)+'\nreturn {playerRefs,slotStateRef,preparationsRef,stageStatus,activeIndex};\n}';
 const settle=async()=>{for(let i=0;i<40;i++)await Promise.resolve();};
 function fixture(budget=3){
- const hooks=[],effects=[],frames=new Map(),timers=new Map();let cursor=0,scheduled=false,current,result,next=1,mounted=true;
+ const hooks=[],effects=[],frames=new Map(),timers=new Map();let cursor=0,scheduled=false,current,result,next=1,mounted=true,tickNow=performance.now()+1000;
  const videos=Array.from({length:budget},()=>({src:'',currentSrc:'',currentTime:0,duration:6,readyState:4,videoWidth:640,seeking:false,paused:true,dataset:{},style:{},listeners:new Map(),loads:0,plays:0,
   load(){this.loads++;this.currentSrc=this.src;},removeAttribute(name){if(name==='src')this.src='';},
   play(){this.plays++;this.paused=false;return Promise.resolve();},pause(){this.paused=true;},
   addEventListener(name,fn){this.listeners.set(name,fn);},removeEventListener(name){this.listeners.delete(name);},
-  requestVideoFrameCallback(fn){this.frame=fn;return 1;}
+  requestVideoFrameCallback(fn){this.frame=fn;return 1;},cancelVideoFrameCallback(){this.frame=null;}
  }));
  const schedule=()=>{if(scheduled||!mounted)return;scheduled=true;queueMicrotask(()=>{scheduled=false;if(mounted)render(current);});};
  const context={Map,Set,Promise,Math,Number,String,Boolean,Array,Error,performance,globalThis:{},
@@ -32,8 +32,9 @@ function fixture(budget=3){
  function render(props){current=props;cursor=0;result=context.globalThis.component(props);result.playerRefs.current=videos;while(effects.length)effects.shift()();}
  const shot=(id,start=0)=>({media_id:id,media_uri:'/media/'+id+'.mp4',start_sec:start,end_sec:start+4});
  const update=(now,lookahead=[],time=now.start_sec)=>render({shot:now,lookaheadShots:lookahead,playing:true,songTime:time,clockRef:{current:time}});
- const release=async index=>{await settle();const callback=videos[index].frame;assert.ok(callback,'preparation requested a decoded frame');videos[index].frame=null;callback();await settle();};
- return {videos,shot,update,release,settle,get result(){return result;},unmount(){mounted=false;for(const hook of hooks)hook?.cleanup?.();},timers};
+ const release=async index=>{await settle();const callback=videos[index].frame;assert.ok(callback,'player requested a decoded frame');videos[index].frame=null;callback(performance.now(),{mediaTime:videos[index].currentTime});await settle();};
+ const tickPlayback=()=>{tickNow+=40;for(const [id,callback] of [...frames])if(String(callback).includes('synchronize(now)')){frames.delete(id);callback(tickNow);}};
+ return {videos,shot,update,release,settle,tickPlayback,setSongTime(time){current.songTime=time;current.clockRef.current=time;},get result(){return result;},unmount(){mounted=false;for(const hook of hooks)hook?.cleanup?.();},timers};
 }
 
 test('pending next cue is reused and unrelated lookahead completion cannot pause the active player',async()=>{
@@ -83,4 +84,30 @@ test('ended current clip holds without restarting and an explicit reverse seek r
  assert.equal(video.plays,plays,'naturally ended clip must not restart at zero');assert.equal(video.paused,true);
  f.update(a,[],.1);await f.settle();
  assert.equal(video.currentTime,.1);assert.ok(video.plays>plays,'a real reverse seek resumes this clip');f.unmount();
+});
+
+test('startup phase remains unconsumed until an advancing decoded frame arrives',async()=>{
+ const f=fixture(),a=f.shot('delayed');f.update(a);await f.release(1);
+ const video=f.videos[1];video.currentTime=.013;
+ f.setSongTime(.22);f.tickPlayback();
+ assert.equal(video.currentTime,.013,'before the live frame, do not seek a decoder that has only resolved play()');
+ assert.equal(video.playbackRate,1.04);
+ await f.release(1);f.tickPlayback();
+ assert.equal(video.currentTime,.22,'the first live decoded frame acquires phase against the fresh audio clock');
+ f.setSongTime(.3);f.tickPlayback();
+ assert.equal(video.currentTime,.22,'normal following resumes after the one acquisition seek');
+ f.unmount();assert.equal(video.frame,null);
+});
+
+test('paused or stale acquisition callbacks cannot consume a new cue phase',async()=>{
+ const f=fixture(),a=f.shot('a'),b=f.shot('b',4);f.update(a,[b]);await f.release(1);
+ const old=f.videos[1].frame;assert.ok(old);
+ f.update(b,[],4);await f.settle();
+ old(performance.now(),{mediaTime:0});
+ const index=f.result.slotStateRef.current.findIndex(slot=>slot.key===JSON.stringify(['b',4]));await f.release(index);
+ const video=f.videos[index];video.paused=true;await f.release(index);
+ f.setSongTime(4.2);f.tickPlayback();assert.equal(video.currentTime,0);
+ assert.equal(video.paused,false);
+ await f.release(index);f.tickPlayback();assert.ok(Math.abs(video.currentTime-.2)<1e-9);
+ f.unmount();
 });

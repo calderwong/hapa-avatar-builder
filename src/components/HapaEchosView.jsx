@@ -761,10 +761,23 @@ function PersistentEchoABPlayers({ shot, lookaheadShots = [], playing, songTime,
       sourceOutSeconds,
       cueDurationSeconds,
     });
-    let frame = 0, lastSyncAt = -Infinity;
+    let frame = 0, lastSyncAt = -Infinity, acquisitionRequest = null, disposed = false;
+    let liveFrameSeen = !playing || typeof video.requestVideoFrameCallback !== "function";
+    correctedPresentationKeyRef.current = "";
+    const observeAcquisitionFrame = () => {
+      if (disposed || liveFrameSeen || acquisitionRequest !== null) return;
+      acquisitionRequest = video.requestVideoFrameCallback((_now, metadata) => {
+        acquisitionRequest = null;
+        if (disposed) return;
+        if (!video.paused && !video.seeking && Number.isFinite(metadata?.mediaTime)
+          && slotStateRef.current[activeIndex]?.key === shotKey(shot)) liveFrameSeen = true;
+        else observeAcquisitionFrame();
+      });
+    };
     const synchronize = (now) => {
       if (video.seeking || slotStateRef.current[activeIndex]?.key !== shotKey(shot)
         || slotStateRef.current[activeIndex]?.status !== "ready") return;
+      observeAcquisitionFrame();
       const masterAudio = audioRef?.current;
       const outputClock = estimateEchoAudibleClock({ audio: masterAudio, context: audioContextRef?.current, nowMs: now });
       const liveSongTime = outputClock.audibleSongTime ?? outputClock.projectedElementSongTime
@@ -779,8 +792,11 @@ function PersistentEchoABPlayers({ shot, lookaheadShots = [], playing, songTime,
         timeMapping,
       });
       const presentationKey = `${activeIndex}:${shotKey(shot)}`;
-      const cueEntry = correctedPresentationKeyRef.current !== presentationKey;
-      correctedPresentationKeyRef.current = presentationKey;
+      // A resolved play() promise can precede the first advancing decoded frame.
+      // Acquire phase after that frame, using the current audio clock. Otherwise
+      // a delayed decoder consumes cue entry at t=0 and only rate-corrects its lag.
+      const cueEntry = liveFrameSeen && correctedPresentationKeyRef.current !== presentationKey;
+      if (cueEntry) correctedPresentationKeyRef.current = presentationKey;
       const correction = planEchoPlaybackCorrection({
         expectedSeconds: expected,
         currentSeconds: video.currentTime,
@@ -806,7 +822,11 @@ function PersistentEchoABPlayers({ shot, lookaheadShots = [], playing, songTime,
       if (playing) frame = window.requestAnimationFrame(tick);
     };
     tick(performance.now());
-    return () => window.cancelAnimationFrame(frame);
+    return () => {
+      disposed = true;
+      window.cancelAnimationFrame(frame);
+      if (acquisitionRequest !== null) video.cancelVideoFrameCallback?.(acquisitionRequest);
+    };
   }, [activeIndex, playing, currentShotIdentity, playing ? null : songTime, audioRef, audioContextRef, clockRef]);
 
   useEffect(() => {
