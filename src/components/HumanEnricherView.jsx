@@ -69,7 +69,13 @@ export default function HumanEnricherView({ apiBase = "", onNotify = () => {} })
     setLoading(true);
     setError("");
     try {
-      const params = new URLSearchParams({ offset: String(offset), limit: "120", quality: qualityFilter, review: reviewFilter, sort });
+      const params = new URLSearchParams({
+        offset: String(offset),
+        limit: "120",
+        quality: qualityFilter,
+        review: reviewFilter,
+        sort,
+      });
       if (layout === "tiles") {
         params.set("limit", "240");
         params.set("review", "all");
@@ -134,7 +140,7 @@ export default function HumanEnricherView({ apiBase = "", onNotify = () => {} })
   const filteredVideos = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
     return (dashboard?.videos || []).filter((video) => {
-      const grade = Number(video.humanEnrichment?.quality?.value ?? video.agentReview?.proposal?.quality?.value ?? 0);
+      const grade = Number(video.humanEnrichment?.quality?.value ?? 0);
       if (!matchesHumanVideoReviewFilter(video, reviewFilter)) return false;
       if (qualityFilter === "enriched" && !video.humanEnrichment) return false;
       if (qualityFilter === "ungraded" && grade > 0) return false;
@@ -167,7 +173,7 @@ export default function HumanEnricherView({ apiBase = "", onNotify = () => {} })
     if (!matchesHumanVideoQuickSortSeenFilter(video, quickSortSeenFilter)) return false;
     if (!matchesHumanVideoSourceFilter(video, quickSortSourceFilter)) return false;
     if (qualityFilter === "enriched" && !video.humanEnrichment) return false;
-    const grade = Number(video.humanEnrichment?.quality?.value ?? video.agentReview?.proposal?.quality?.value ?? 0);
+    const grade = Number(video.humanEnrichment?.quality?.value ?? 0);
     if (qualityFilter === "ungraded" && grade > 0) return false;
     if (/^[1-5]$/.test(qualityFilter) && grade !== Number(qualityFilter)) return false;
     const normalizedQuery = query.trim().toLowerCase();
@@ -252,32 +258,10 @@ export default function HumanEnricherView({ apiBase = "", onNotify = () => {} })
     const review = selectedVideo?.agentReview;
     if (!review?.proposal) return;
     const proposal = review.proposal;
-    const referenceProposal = selectedVideo?.referenceReview?.proposal || {};
-    const proposedMentions = (referenceProposal.avatarRelationships || []).map((relationship) => {
-      const relationshipLabel = String(relationship.cardTitle || "").replace(/^@+/, "");
-      const avatar = dashboard?.avatarOptions?.find((option) => option.id === relationship.cardId || option.name === relationshipLabel);
-      return avatar ? { avatarId: avatar.id, avatarName: avatar.name, mention: avatar.mention } : null;
-    }).filter(Boolean);
-    const proposedReferences = (referenceProposal.matches || []).map((reference) => ({
-      id: reference.cardId || "",
-      type: "card",
-      label: reference.cardTitle || reference.cardId || "",
-      uri: "",
-      notes: reference.explanation || "",
-    }));
     editDraft((current) => ({
       ...current,
-      quality: Number(proposal.quality?.value || current.quality),
       description: mode === "append" ? appendText(current.description, proposal.description) : proposal.description || current.description,
-      categories: uniqueText([...(mode === "append" ? current.categories : []), ...(proposal.categories || [])]),
-      tags: uniqueText([...(mode === "append" ? current.tags : []), ...(proposal.tags || [])]),
-      avatarMentions: uniqueBy([...(mode === "append" ? current.avatarMentions : []), ...proposedMentions], (item) => item.avatarId),
-      directorNotes: mode === "append"
-        ? appendText(appendText(current.directorNotes, proposal.directorNotes), referenceProposal.directorNotes)
-        : appendText(proposal.directorNotes, referenceProposal.directorNotes) || current.directorNotes,
-      references: uniqueBy([...(mode === "append" ? current.references : []), ...proposedReferences], (item) => `${item.type}:${item.id || item.uri || item.label}`),
       sourceAgentReviewId: review.id,
-      sourceReferenceReviewId: selectedVideo?.referenceReview?.id || "",
     }));
   }
 
@@ -418,6 +402,7 @@ export default function HumanEnricherView({ apiBase = "", onNotify = () => {} })
             <button type="button" aria-pressed={layout === "tiles"} onClick={() => switchLayout("tiles")}><LayoutGrid size={15} /> Quick Sort</button>
             <button type="button" aria-pressed={layout === "likeness"} onClick={() => switchLayout("likeness")}><BadgeCheck size={15} /> Likeness</button>
           </div>
+          <a className="hapa-btn" href="?view=human-enricher&compare=optical-benchmark"><Eye size={15} /> Compare 40-video benchmark</a>
           <button className="hapa-btn" type="button" onClick={() => load()} disabled={loading}>
             <RefreshCw size={15} className={loading ? "spin" : ""} /> Refresh videos
           </button>
@@ -439,7 +424,6 @@ export default function HumanEnricherView({ apiBase = "", onNotify = () => {} })
         <Metric label="Agent reviewed" value={dashboard?.summary?.agentReviewed || 0} icon={<Bot size={16} />} />
         <Metric label="Needs human" value={dashboard?.summary?.pendingHumanValidation || 0} icon={<Eye size={16} />} />
         <Metric label="Optical queue" value={dashboard?.summary?.remainingOpticalReviews || 0} icon={<RefreshCw size={16} />} />
-        <Metric label="Calibration pairs" value={dashboard?.summary?.calibrationPairs || 0} icon={<BadgeCheck size={16} />} />
       </div>
 
       <OpticalCampaignStatus
@@ -449,14 +433,6 @@ export default function HumanEnricherView({ apiBase = "", onNotify = () => {} })
         loading={opticalCampaignLoading}
         refreshedAt={opticalCampaignRefreshedAt}
       />
-
-      {dashboard?.qualityCalibration?.sampleSize > 0 && (
-        <aside className="human-calibration-strip hapa-panel" aria-label="Agent quality calibration">
-          <strong>Human-calibrated agent prior</strong>
-          <span>{Math.round(dashboard.qualityCalibration.exactMatchRate * 100)}% exact · {dashboard.qualityCalibration.meanAbsoluteError} mean absolute error · {dashboard.qualityCalibration.sampleSize} paired grades</span>
-          <span>{dashboard.qualityCalibration.gradeBands.filter((band) => band.sampleSize).map((band) => `Q${band.agentQuality} → human ${band.humanAverage} (n${band.sampleSize})`).join(" · ")}</span>
-        </aside>
-      )}
 
       <nav className="human-review-view-tabs hapa-panel" aria-label="Choose video review set">
         {HUMAN_VIDEO_REVIEW_FILTERS.map((filter) => (
@@ -506,7 +482,7 @@ export default function HumanEnricherView({ apiBase = "", onNotify = () => {} })
                   <strong>{video.name || video.id}</strong>
                   <small>{video.ownerName || "System Media Library"} · {video.role || "video"}</small>
                   <span className="human-video-row-meta">
-                    <i data-quality={video.humanEnrichment?.quality?.value ?? video.agentReview?.proposal?.quality?.value ?? 0}>Q{video.humanEnrichment?.quality?.value ?? video.agentReview?.proposal?.quality?.value ?? "—"}</i>
+                    <i data-quality={video.humanEnrichment?.quality?.value ?? 0}>Q{video.humanEnrichment?.quality?.value ?? "—"}</i>
                     <i>{video.relationships?.length || 0} links</i>
                     {video.humanEnrichment?.directorNotes && <i>notes</i>}
                     {video.agentReview?.status === "pending-human" && <i>agent → human</i>}
@@ -544,14 +520,15 @@ export default function HumanEnricherView({ apiBase = "", onNotify = () => {} })
               {selectedVideo.agentReview && (
                 <section className="human-agent-proposal" data-status={selectedVideo.agentReview.status}>
                   <div className="human-enrichment-section-head">
-                    <div><p className="eyebrow"><Bot size={13} /> OPTICAL PASS · NO KNOWLEDGE SEARCH</p><h4>Frame diagnosis · {selectedVideo.agentReview.status}</h4></div>
-                    <span>{selectedVideo.agentReview.evidence?.inspectedFrameCount || 0} frames addressed</span>
+                    <div><p className="eyebrow"><Bot size={13} /> MINIMAL OPTICAL PASS</p><h4>Description + three palettes · {selectedVideo.agentReview.status}</h4></div>
+                    <span>First · Middle · Last</span>
                   </div>
                   <div className="human-agent-receipt">
                     <strong>{selectedVideo.agentReview.reviewer?.agentId || "vision-subagent"}</strong>
                     <span>{selectedVideo.agentReview.reviewer?.model || "vision model"}</span>
                     <span>{selectedVideo.agentReview.reviewer?.taskId || "task not recorded"}</span>
                     <span>Optical inspection {selectedVideo.agentReview.reviewer?.opticalInspectionConfirmed ? "attested" : "not attested"}</span>
+                    <span>{formatPassAccounting(selectedVideo.agentReview.reviewer?.schedulerReceipt?.accounting, "Optical")}</span>
                   </div>
                   <div className="human-agent-filmstrip">
                     {(selectedVideo.agentReview.evidence?.frames || []).map((frame) => (
@@ -559,77 +536,32 @@ export default function HumanEnricherView({ apiBase = "", onNotify = () => {} })
                         {(frame.imageUri || frame.imagePath) && <img src={mediaUri(frame.imageUri || frame.imagePath, apiBase)} alt={`Inspected frame at ${frame.timestampSeconds}s`} />}
                         <figcaption>
                           <strong>{frame.timestampSeconds.toFixed?.(2) ?? frame.timestampSeconds}s · {(frame.role || "frame").toUpperCase()}</strong>
-                          <span>{frame.observation}</span>
                           {(frame.palette?.colors || []).length > 0 && (
                             <div className="human-frame-palette">
-                              {frame.palette.colors.map((color) => <i key={`${frame.sha256}:${color.hex}`} style={{ backgroundColor: color.hex }} title={`${color.hex} · ${color.label} · ${color.prevalence}`} aria-label={`${color.hex} ${color.label}`} />)}
+                              {frame.palette.colors.map((color) => <i key={`${frame.sha256}:${color.hex}`} style={{ backgroundColor: color.hex }} title={color.hex} aria-label={color.hex} />)}
                               <small>{frame.palette.colors.map((color) => color.hex).join(" · ")}</small>
                             </div>
                           )}
-                          {frame.palette?.uncertainty && <small>{frame.palette.uncertainty}</small>}
                         </figcaption>
                       </figure>
                     ))}
                   </div>
                   <div className="human-agent-diagnosis">
-                    <div><span>Proposed quality</span><strong>{selectedVideo.agentReview.proposal?.quality?.value ?? "—"}/5</strong><p>{selectedVideo.agentReview.proposal?.quality?.explanation}</p></div>
-                    <div><span>Description</span><p>{selectedVideo.agentReview.proposal?.description}</p></div>
-                    <div><span>Categories</span><p>{(selectedVideo.agentReview.proposal?.categories || []).join(" · ") || "None proposed"}</p></div>
-                    <div><span>Uncertainty</span><p>{selectedVideo.agentReview.proposal?.uncertainty || "No uncertainty statement."}</p></div>
+                    <div><span>Overall description</span><p>{selectedVideo.agentReview.proposal?.description}</p></div>
                   </div>
-                  <section className="human-visual-reference-analysis" data-status="signals-only">
-                    <div className="human-enrichment-section-head">
-                      <div><p className="eyebrow"><Eye size={13} /> OPTICAL SIGNAL HANDOFF</p><h4>Visible clues for a later reference worker</h4></div>
-                      <span>no Cards assigned here</span>
-                    </div>
-                    <p>{(selectedVideo.agentReview.proposal?.referenceSignals || selectedVideo.agentReview.proposal?.visualReferenceAnalysis?.observedSignals || []).join(" · ") || "No distinctive symbols, markings, text, palette, geometry, costume, objects, composition, or motifs were recorded."}</p>
-                  </section>
                   {selectedVideo.agentReview.status === "pending-human" && <div className="human-agent-actions">
-                    <button className="hapa-btn" data-intent="primary" type="button" onClick={() => applyAgentProposal("replace")}><CheckCircle2 size={14} /> Use as editable draft</button>
-                    <button className="hapa-btn" type="button" onClick={() => applyAgentProposal("append")}><Sparkles size={14} /> Append suggestions</button>
+                    <button className="hapa-btn" data-intent="primary" type="button" onClick={() => applyAgentProposal("replace")}><CheckCircle2 size={14} /> Use description</button>
+                    <button className="hapa-btn" type="button" onClick={() => applyAgentProposal("append")}><Sparkles size={14} /> Append description</button>
                     <button className="hapa-btn" type="button" onClick={rejectAgentReview}><XCircle size={14} /> Reject proposal</button>
                   </div>}
-                  <p className="human-editor-hint"><Eye size={13} /> Frames were delivered and addressed; this is not proof of identity or canon. Playback and human judgment remain required.</p>
+                  <p className="human-editor-hint"><Eye size={13} /> The optical worker returned no score, tags, diagnosis, notes, signals, references, or Card matches.</p>
                 </section>
               )}
 
-              {selectedVideo.referenceReview ? (
-                <section className="human-agent-proposal" data-status={selectedVideo.referenceReview.status}>
-                  <div className="human-enrichment-section-head">
-                    <div><p className="eyebrow"><Link2 size={13} /> REFERENCE PASS · BOUNDED HAPA CARDS</p><h4>Card comparison · {selectedVideo.referenceReview.status}</h4></div>
-                    <span>{selectedVideo.referenceReview.packet?.cardCount || 0} supplied Cards</span>
-                  </div>
-                  <div className="human-agent-receipt">
-                    <strong>{selectedVideo.referenceReview.reviewer?.agentId || "reference-worker"}</strong>
-                    <span>{selectedVideo.referenceReview.reviewer?.model || "model not recorded"}</span>
-                    <span>{selectedVideo.referenceReview.reviewer?.reasoningEffort || "reasoning not recorded"}</span>
-                    <span>{selectedVideo.referenceReview.packet?.profile}</span>
-                    <span>{selectedVideo.referenceReview.packet?.referenceAtlas?.source || "Reference Atlas source not recorded"}</span>
-                    <span>{selectedVideo.referenceReview.packet?.referenceAtlas?.runHash || "Atlas run not recorded"}</span>
-                    <span>{Object.entries(selectedVideo.referenceReview.packet?.authorityCounts || {}).map(([key, value]) => `${key} ${value}`).join(" · ") || "Authority mix not recorded"}</span>
-                    <span>{Object.entries(selectedVideo.referenceReview.packet?.reviewStatusCounts || {}).map(([key, value]) => `${key} ${value}`).join(" · ") || "Review status mix not recorded"}</span>
-                    <span>{Object.entries(selectedVideo.referenceReview.packet?.canonStatusCounts || {}).map(([key, value]) => `${key} ${value}`).join(" · ") || "Canon status mix not recorded"}</span>
-                    <span>{selectedVideo.referenceReview.packet?.digest}</span>
-                  </div>
-                  <p>{(selectedVideo.referenceReview.proposal?.observedSignals || []).join(" · ") || "No reference signals repeated."}</p>
-                  <div className="human-relationship-list">
-                    {(selectedVideo.referenceReview.proposal?.matches || []).map((match, index) => <span key={`${match.cardId}:${index}`}><strong>{match.cardTitle || match.cardId}</strong><small>{match.matchType} · {Math.round((match.confidence || 0) * 100)}%</small><small>Seen: {match.observedEvidence}</small><small>{match.explanation}</small><small>Packet Card: {match.cardId}</small></span>)}
-                    {(selectedVideo.referenceReview.proposal?.avatarRelationships || []).map((match, index) => <span key={`avatar:${match.cardId}:${index}`}><strong>{avatarMentionLabel(match.cardTitle || match.cardId)}</strong><small>{match.relationship || "visible-subject"} · {Math.round((match.confidence || 0) * 100)}%</small><small>Seen: {match.observedEvidence}</small><small>{match.explanation}</small></span>)}
-                  </div>
-                  {(selectedVideo.referenceReview.proposal?.negativeFindings || []).length > 0 && <p className="human-reference-negative">No-match notes: {selectedVideo.referenceReview.proposal.negativeFindings.join(" · ")}</p>}
-                  <p className="human-editor-hint">The worker could rank or reject supplied Cards only. The packet records the exact Reference Atlas run and authority mix; different models and parameters can rerun this pass without repeating optical inspection.</p>
-                </section>
-              ) : selectedVideo.agentReview ? (
-                <section className="human-agent-proposal" data-status="needs-reference">
-                  <div className="human-enrichment-section-head"><div><p className="eyebrow"><Link2 size={13} /> REFERENCE PASS</p><h4>Waiting for a bounded Hapa Card worker</h4></div><span>not run</span></div>
-                  <p>No reference proposal exists yet. Historical reference guesses embedded in earlier optical records are not treated as this pass.</p>
-                </section>
-              ) : null}
-
               <section className="human-enrichment-editor">
                 <div className="human-enrichment-section-head">
-                  <div><p className="eyebrow">01 · HUMAN QUALITY</p><h4>Move the agent’s starting grade only when needed</h4></div>
-                  <span>{selectedVideo.humanEnrichment ? `Human revision ${draft.expectedRevision}` : selectedVideo.agentReview?.proposal?.quality?.value ? `Agent start · Q${selectedVideo.agentReview.proposal.quality.value}` : "No agent grade yet"}</span>
+                  <div><p className="eyebrow">01 · HUMAN QUALITY</p><h4>Optional human-only grade</h4></div>
+                  <span>{selectedVideo.humanEnrichment ? `Human revision ${draft.expectedRevision}` : "No human grade yet"}</span>
                 </div>
                 <div className="human-quality-scale" role="radiogroup" aria-label="Video quality">
                   {HUMAN_VIDEO_QUALITY_GRADES.map((grade) => (
@@ -834,10 +766,6 @@ function removeOneFromPagination(pagination = null) {
   return { ...pagination, total, returned, nextOffset, hasMore: nextOffset < total };
 }
 
-function avatarMentionLabel(value) {
-  const label = String(value || "unknown").replace(/^@+/, "");
-  return `@${label}`;
-}
 function draftForVideo(video) {
   const enrichment = video.humanEnrichment;
   return enrichment ? {
@@ -851,7 +779,7 @@ function draftForVideo(video) {
     expectedRevision: Number(enrichment.revision || 0),
     sourceAgentReviewId: "",
     sourceReferenceReviewId: "",
-  } : { ...emptyDraft(), quality: Number(video.agentReview?.proposal?.quality?.value || 0) };
+  } : emptyDraft();
 }
 function mediaUri(uri, apiBase) {
   if (!uri) return "";
@@ -1067,7 +995,7 @@ function normalizeCampaignWorker(input = {}, index = 0) {
     leaseLabel: leaseFreshness.label,
     leaseState: leaseFreshness.state,
     pathLabel: input.agentPath ? `Path ${input.agentPath}` : "Agent path unavailable",
-    telemetryLabel: telemetryStatus ? `Receipt ${telemetryStatus}` : "Receipt status unavailable",
+    telemetryLabel: telemetryStatus ? formatPassAccounting({ ...input.telemetry, ...input.schedulerTelemetry }, "Optical") : "Optical receipt status unavailable",
     updatedLabel: updatedAt && Number.isFinite(Date.parse(updatedAt)) ? `Updated ${formatRelativeTime(new Date(updatedAt))}` : "Update time unavailable",
   };
 }
@@ -1152,6 +1080,17 @@ function formatRelativeDuration(milliseconds) {
   if (minutes < 60) return `${minutes}m`;
   return `${Math.round(minutes / 60)}h`;
 }
+function formatPassAccounting(accounting = {}, label = "Pass") {
+  if (accounting?.status !== "captured") return `${label} accounting unavailable${accounting?.source ? ` · ${accounting.source}` : ""}`;
+  const input = finiteMetric(accounting.inputTokens) ?? 0;
+  const output = finiteMetric(accounting.outputTokens) ?? 0;
+  const total = finiteMetric(accounting.totalTokens) ?? input + output;
+  const elapsed = finiteMetric(accounting.wallClockMs, accounting.elapsedMs);
+  const packet = finiteMetric(accounting.packetRecords);
+  const stopped = accounting.stopReason ? ` · ${accounting.stopReason}` : "";
+  const budget = accounting.budgetExceeded ? " · budget stopped" : "";
+  return `${label}: ${input.toLocaleString()} in + ${output.toLocaleString()} out = ${total.toLocaleString()} total${elapsed != null ? ` · ${formatRelativeDuration(elapsed)}` : ""}${packet != null ? ` · packet ${packet}` : ""}${stopped}${budget}`;
+}
 function Meta({ label, value }) { return <div><dt>{label}</dt><dd>{value || "Not recorded"}</dd></div>; }
 function QuickSortVideoTile({ video, apiBase, deciding = false, onDecide }) {
   const previewRef = useRef(null);
@@ -1178,10 +1117,28 @@ function QuickSortVideoTile({ video, apiBase, deciding = false, onDecide }) {
   }
 
   return (
-    <article className="human-video-tile hapa-card" data-card-type="media" data-state={accepted ? "accepted" : rejected ? "rejected" : "pending"} onMouseEnter={startPreview} onMouseLeave={stopPreview}>
+    <article
+      className="human-video-tile hapa-card"
+      data-card-type="media"
+      data-state={accepted ? "accepted" : rejected ? "rejected" : "pending"}
+      onMouseEnter={startPreview}
+      onMouseLeave={stopPreview}
+    >
       <div className="human-video-tile-preview">
         {previewUri ? (
-          <video ref={previewRef} src={previewUri} poster={posterUri} muted loop playsInline preload="none" tabIndex={0} aria-label={`Preview ${title}`} onFocus={startPreview} onBlur={stopPreview} />
+          <video
+            ref={previewRef}
+            src={previewUri}
+            poster={posterUri}
+            muted
+            loop
+            playsInline
+            preload="none"
+            tabIndex={0}
+            aria-label={`Preview ${title}`}
+            onFocus={startPreview}
+            onBlur={stopPreview}
+          />
         ) : posterUri ? <img src={posterUri} alt="" loading="lazy" /> : <FileVideo2 size={36} />}
         <span className="human-video-tile-status" data-state={accepted ? "accepted" : rejected ? "rejected" : "pending"}>
           {accepted ? <><BadgeCheck size={14} /> Accepted</> : rejected ? <><ThumbsDown size={14} /> Rejected</> : <><Eye size={14} /> Not seen</>}

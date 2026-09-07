@@ -50,7 +50,7 @@ function writeProcess(next, prior = null) {
 }
 
 function optionsFrom(argv) {
-  const options = { command: "status", apply: false, lane: null, limit: null, runnerId: "codex-terra", runId: `run-${Date.now()}`, questId: null, result: null, localPath: null, error: null, retry: true, concurrency: null, perRunClaimLimit: null, leaseMs: null, maxAttempts: null };
+  const options = { command: "status", apply: false, lane: null, limit: null, runnerId: "codex-terra", runId: `run-${Date.now()}`, questId: null, result: null, localPath: null, error: null, retry: true, concurrency: null, perRunClaimLimit: null, leaseMs: null, maxAttempts: null, songId: null, countId: null };
   const args = [...argv];
   if (args[0] && !args[0].startsWith("--")) options.command = args.shift();
   while (args.length) {
@@ -181,6 +181,8 @@ function claim(options) {
     limit: options.limit || undefined,
     runnerId: options.runnerId,
     runId: options.runId,
+    songId: options.songId,
+    countId: options.countId,
     at: now(),
   });
   const audit = readJson(AUDIT_PATH) || buildAudit(auditOptions());

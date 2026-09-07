@@ -11,7 +11,8 @@ test("Human Enricher exposes independently refreshed, truth-bounded agent teleme
   assert.match(source, /setInterval\(refreshOpticalCampaign, 4_000\)/);
   assert.match(source, /Array\.isArray\(campaign\?\.workers\)/);
   assert.match(source, /First · Mid · Last optical \+ palette campaign/);
-  assert.match(source, /Full catalog palette-complete/);
+  assert.match(source, /Full catalog resolved/);
+  assert.match(source, /Direct optical \+ palette complete/);
   assert.match(source, /compliantOpticalReviews/);
   assert.doesNotMatch(source, /dashboardSummary\?\.agentReviewed/);
   assert.match(source, /legacy palette repairs/);
@@ -22,6 +23,15 @@ test("Human Enricher exposes independently refreshed, truth-bounded agent teleme
   assert.match(source, /Progress unavailable/);
   assert.match(source, /Lease freshness unavailable/);
   assert.match(source, /Agent identity unavailable/);
+  assert.match(source, /formatPassAccounting/);
+  assert.match(source, /inputTokens/);
+  assert.match(source, /outputTokens/);
+  assert.match(source, /packetRecords/);
+  assert.match(source, /budget stopped/);
+  assert.match(source, /MINIMAL OPTICAL PASS/);
+  assert.match(source, /Overall description/);
+  assert.match(source, /First · Middle · Last/);
+  assert.doesNotMatch(source, /REFERENCE PASS · BOUNDED HAPA CARDS/);
   assert.match(source, /\["first", "mid", "last"\]/);
   assert.match(css, /\.human-agent-telemetry\s*\{/);
   assert.match(css, /\.human-agent-worker-grid\s*\{/);

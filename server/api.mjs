@@ -167,13 +167,14 @@ import { openHumanVideoQuickSortStore } from "./human-video-quick-sort-store.mjs
 import { openHumanVideoLikenessDecisionsStore } from "./human-video-likeness-decisions-store.mjs";
 import { openHumanVideoOpticalCampaignStore } from "./human-video-optical-campaign-store.mjs";
 import { openHumanVideoReferenceReviewStore } from "./human-video-reference-review-store.mjs";
+import { openHumanVideoBenchmarkComparison } from "./human-video-benchmark-comparison.mjs";
 import {
   frameManifestsEqual,
   summarizeHumanVideoOpticalCampaign,
 } from "../src/domain/human-video-optical-campaign.js";
-import { createHumanVideoOpticalReviewFromClaim } from "../src/domain/human-video-optical-worker.js";
+import { createHumanVideoOpticalReviewFromClaim, createHumanVideoOpticalWorkerOutputContract } from "../src/domain/human-video-optical-worker.js";
 import { normalizeHumanVideoAgentReview } from "../src/domain/human-video-agent-review.js";
-import { buildHumanVideoReferenceCardPacket } from "../src/domain/human-video-reference-review.js";
+import { buildHumanVideoReferenceCandidatePacket, buildHumanVideoReferenceCardPacket } from "../src/domain/human-video-reference-review.js";
 import { MintLedgerError, createSongCardMintController } from "./song-card-mint-controller.mjs";
 import { createSongCardRemintStore } from "./song-card-remint-store.mjs";
 import { createSongCardLocalRenderBridge, inspectSongCardRendererBuildIdentity } from "./song-card-local-renderer.mjs";
@@ -539,8 +540,10 @@ const HUMAN_VIDEO_LIKENESS_DECISIONS_PATH = process.env.HAPA_HUMAN_VIDEO_LIKENES
 const HUMAN_VIDEO_LIKENESS_DECISIONS_EVENT_PATH = process.env.HAPA_HUMAN_VIDEO_LIKENESS_DECISIONS_EVENTS || path.join(ROOT, "data/human-video-likeness-decisions-events.ndjson");
 const HUMAN_VIDEO_OPTICAL_CAMPAIGN_PATH = process.env.HAPA_HUMAN_VIDEO_OPTICAL_CAMPAIGN_STORE || path.join(ROOT, "data/human-video-optical-campaign.json");
 const HUMAN_VIDEO_OPTICAL_CAMPAIGN_EVENT_PATH = process.env.HAPA_HUMAN_VIDEO_OPTICAL_CAMPAIGN_EVENTS || path.join(ROOT, "data/human-video-optical-campaign-events.ndjson");
+const humanVideoReferencePacketCache = new Map();
 const HUMAN_VIDEO_REFERENCE_REVIEW_PATH = process.env.HAPA_HUMAN_VIDEO_REFERENCE_REVIEW_STORE || path.join(ROOT, "data/human-video-reference-reviews.json");
 const HUMAN_VIDEO_REFERENCE_REVIEW_EVENT_PATH = process.env.HAPA_HUMAN_VIDEO_REFERENCE_REVIEW_EVENTS || path.join(ROOT, "data/human-video-reference-review-events.ndjson");
+const HUMAN_VIDEO_BENCHMARK_COMPARISON_ROOT = process.env.HAPA_HUMAN_VIDEO_BENCHMARK_ROOT || "";
 const HUMAN_VIDEO_FRAME_CATALOG_PATH = process.env.HAPA_HUMAN_VIDEO_FRAME_CATALOG
   || path.join(ROOT, "artifacts/echo-video-enrichment-v1/catalog.sqlite3");
 const HUMAN_VIDEO_FRAME_ROOT = process.env.HAPA_HUMAN_VIDEO_FRAME_ROOT
@@ -574,6 +577,10 @@ const humanVideoOpticalCampaignStore = openHumanVideoOpticalCampaignStore({
 const humanVideoReferenceReviewStore = openHumanVideoReferenceReviewStore({
   filePath: HUMAN_VIDEO_REFERENCE_REVIEW_PATH,
   eventPath: HUMAN_VIDEO_REFERENCE_REVIEW_EVENT_PATH,
+});
+const humanVideoBenchmarkComparison = openHumanVideoBenchmarkComparison({
+  root: HUMAN_VIDEO_BENCHMARK_COMPARISON_ROOT,
+  runId: "human-enricher-mechanical-benchmark",
 });
 const humanVideoFrameCatalog = openHumanVideoFrameCatalog({
   databasePath: HUMAN_VIDEO_FRAME_CATALOG_PATH,
@@ -4114,6 +4121,21 @@ async function route(req, res) {
     return;
   }
 
+  if (pathname === "/api/human-enricher/benchmark-comparison" && req.method === "GET") {
+    try {
+      res.setHeader("Cache-Control", "no-store");
+      const dashboard = await buildHumanVideoEnricherDashboard();
+      sendJson(res, 200, await humanVideoBenchmarkComparison.read(dashboard.videos));
+    } catch (error) {
+      sendJson(res, Number(error?.statusCode || 500), {
+        ok: false,
+        error: error?.code || "human_video_benchmark_comparison_load_failed",
+        message: error?.message || String(error),
+      });
+    }
+    return;
+  }
+
   if (pathname === "/api/human-enricher/agent-reviews" && req.method === "GET") {
     try {
       res.setHeader("Cache-Control", "no-store");
@@ -4157,12 +4179,19 @@ async function route(req, res) {
       const currentReviewStore = await humanVideoAgentReviewStore.read();
       const currentReviewCoverage = summarizeHumanVideoOpticalReviewCoverage(currentReviewStore.reviews, dashboard.summary.videos);
       const configuration = {
-        campaignId: String(body.campaignId || currentStore.configuration.campaignId || "human-enricher-optical-terra-medium"),
+        campaignId: String(body.campaignId || "human-enricher-optical-minimal-v3"),
         model: String(body.model || currentStore.configuration.model || "gpt-5.6-terra"),
-        reasoningEffort: String(body.effort || body.reasoningEffort || currentStore.configuration.reasoningEffort || "medium"),
+        reasoningEffort: String(body.effort || body.reasoningEffort || "low"),
         maxActiveWorkers: Math.max(1, Math.min(3, Math.trunc(Number(body.maxWorkers || body.maxActiveWorkers || 3) || 3))),
         leaseMs: Math.max(60_000, Math.min(3_600_000, Math.trunc(Number(body.leaseMs || currentStore.configuration.leaseMs || 900_000) || 900_000))),
-        promptVersion: "human-enricher-optical-v2",
+        promptVersion: "human-enricher-optical-minimal-v3",
+        budget: {
+          maxInputTokens: Math.max(1, Math.trunc(Number(body.budget?.maxInputTokens || 24_000))),
+          maxOutputTokens: Math.max(1, Math.trunc(Number(body.budget?.maxOutputTokens || 600))),
+          maxTotalTokens: Math.max(1, Math.trunc(Number(body.budget?.maxTotalTokens || 24_600))),
+          maxWallClockMs: Math.max(1_000, Math.trunc(Number(body.budget?.maxWallClockMs || 90_000))),
+          maxReasoningEffort: String(body.budget?.maxReasoningEffort || "low"),
+        },
       };
       const prepared = await prepareHumanVideoOpticalCampaignPlan(dashboard, currentStore, {
         limit,
@@ -4471,8 +4500,8 @@ async function route(req, res) {
       }
       const packet = await buildHumanVideoReferenceCardPacketSnapshot({
         profile: body.packet?.profile || "echo-reference-cards",
-        maxCards: body.packet?.maxCards || undefined,
-        cardIds: body.packetCardIds || [],
+        opticalReview: video.agentReview,
+        targetCards: body.packet?.selection?.targetCards || 12,
       });
       if (body.packet?.digest !== packet.digest) {
         const error = new Error("The supplied Hapa Card packet is stale or does not match the current bounded packet.");
@@ -4495,10 +4524,13 @@ async function route(req, res) {
           reviewStatusCounts: packet.reviewStatusCounts,
           canonStatusCounts: packet.canonStatusCounts,
           referenceAtlas: packet.referenceAtlas,
+          selection: packet.selection,
         },
       }, {
         agentId: String(req.headers["x-hapa-agent-id"] || body.reviewer?.agentId || "reference-worker").trim().slice(0, 240),
         allowedCardIds: packet.cards.map((card) => card.id),
+        requireAccounting: true,
+        strictOutcome: true,
       });
       res.setHeader("Cache-Control", "no-store");
       sendJson(res, 200, {
@@ -4514,6 +4546,7 @@ async function route(req, res) {
           reviewStatusCounts: packet.reviewStatusCounts,
           canonStatusCounts: packet.canonStatusCounts,
           referenceAtlas: packet.referenceAtlas,
+          selection: packet.selection,
         },
       });
     } catch (error) {
@@ -4564,7 +4597,7 @@ async function route(req, res) {
             },
             evidence: {
               ...(submission.evidence || {}),
-              requiredFrameCount: Math.max(3, video.sourceMetadata?.registeredFrames?.length || 0),
+              requiredFrameCount: 3,
             },
           }, {
             agentId: String(req.headers["x-hapa-agent-id"] || submission.reviewer?.agentId || "vision-subagent").trim().slice(0, 240),
@@ -7627,24 +7660,48 @@ async function buildHumanVideoReferenceCardPacketSnapshot(options = {}) {
     readItemStore(),
     echoReferenceMiningStore.currentRun(),
   ]);
-  const base = buildHumanVideoReferenceCardPacket({
-    avatars: avatarStore.avatars || [],
-    songs: songStore.songs || [],
-    referenceCatalog: songStore.referenceCatalog || [],
-    referenceCards: referenceRun.cards || [],
-    referenceRun,
-    itemCards: itemStore.cards || [],
-  }, {
-    profile: options.profile,
-    maxCards: options.maxCards,
-    cardIds: options.cardIds,
-    createdAt: new Date().toISOString(),
-  });
-  const digest = `sha256:${createHash("sha256").update(JSON.stringify(base.cards)).digest("hex")}`;
-  return { ...base, id: `${base.id}:${digest.slice(-16)}`, digest };
+  const sourceCacheKey = createHash("sha256").update(JSON.stringify({
+    profile: options.profile || "echo-reference-cards",
+    maxCards: options.maxCards || null,
+    cardIds: [...new Set((options.cardIds || []).map((value) => String(value).trim()).filter(Boolean))].sort(),
+    runId: referenceRun.runId || "",
+    runHash: referenceRun.runHash || "",
+    referenceCards: (referenceRun.cards || []).map((card) => [card.id, card.revisionId]),
+    avatars: (avatarStore.avatars || []).map((card) => [card.id, card.updatedAt]),
+    songs: (songStore.songs || []).map((card) => [card.id, card.updatedAt]),
+    items: (itemStore.cards || []).map((card) => [card.id, card.updatedAt]),
+  })).digest("hex");
+  let base = humanVideoReferencePacketCache.get(sourceCacheKey);
+  const cacheHit = Boolean(base);
+  if (!base) {
+    const projected = buildHumanVideoReferenceCardPacket({
+      avatars: avatarStore.avatars || [],
+      songs: songStore.songs || [],
+      referenceCatalog: songStore.referenceCatalog || [],
+      referenceCards: referenceRun.cards || [],
+      referenceRun,
+      itemCards: itemStore.cards || [],
+    }, {
+      profile: options.profile,
+      maxCards: options.maxCards,
+      cardIds: options.cardIds,
+      createdAt: new Date().toISOString(),
+    });
+    const baseDigest = `sha256:${createHash("sha256").update(JSON.stringify(projected.cards)).digest("hex")}`;
+    base = { ...projected, id: `${projected.id}:${baseDigest.slice(-16)}`, digest: baseDigest };
+  }
+  if (!cacheHit) {
+    humanVideoReferencePacketCache.set(sourceCacheKey, base);
+    if (humanVideoReferencePacketCache.size > 12) humanVideoReferencePacketCache.delete(humanVideoReferencePacketCache.keys().next().value);
+  }
+  const selected = options.opticalReview
+    ? buildHumanVideoReferenceCandidatePacket(base, options.opticalReview, { targetCards: options.targetCards || 12 })
+    : base;
+  const digest = `sha256:${createHash("sha256").update(JSON.stringify({ cards: selected.cards, selection: selected.selection || null })).digest("hex")}`;
+  return { ...selected, id: `${selected.id}:${digest.slice(-16)}`, digest, cache: { status: cacheHit ? "hit" : "miss", sourceCacheKey: `sha256:${sourceCacheKey}` } };
 }
 
-function paginateHumanVideoReferenceReviewQueue(dashboard, cardPacket, searchParams) {
+function paginateHumanVideoReferenceReviewQueue(dashboard, sourcePacket, searchParams) {
   const status = String(searchParams.get("status") || "needs-reference").trim().toLowerCase();
   const offset = Math.max(0, Number(searchParams.get("offset") || 0) || 0);
   const limit = Math.max(1, Math.min(100, Number(searchParams.get("limit") || 12) || 12));
@@ -7655,31 +7712,38 @@ function paginateHumanVideoReferenceReviewQueue(dashboard, cardPacket, searchPar
     if (status === "blocked") return video.referenceReview?.status === "blocked";
     return video.referenceReview?.status === status;
   });
-  const items = candidates.slice(offset, offset + limit).map((video) => ({
-    videoKey: video.humanVideoKey,
-    videoId: video.id,
-    videoName: video.name,
-    opticalReview: {
-      id: video.agentReview.id,
-      revision: video.agentReview.revision,
-      frames: video.agentReview.evidence?.frames || [],
-      description: video.agentReview.proposal?.description || "",
-      categories: video.agentReview.proposal?.categories || [],
-      tags: video.agentReview.proposal?.tags || [],
-      referenceSignals: video.agentReview.proposal?.referenceSignals || video.agentReview.proposal?.visualReferenceAnalysis?.observedSignals || [],
-    },
-    referenceReview: video.referenceReview || null,
-    packetReceipt: {
-      id: cardPacket.id,
-      profile: cardPacket.profile,
-      digest: cardPacket.digest,
-      cardCount: cardPacket.cardCount,
-      authorityCounts: cardPacket.authorityCounts,
-      reviewStatusCounts: cardPacket.reviewStatusCounts,
-      canonStatusCounts: cardPacket.canonStatusCounts,
-      referenceAtlas: cardPacket.referenceAtlas,
-    },
-  }));
+  const items = candidates.slice(offset, offset + limit).map((video) => {
+    const cardPacket = buildHumanVideoReferenceCandidatePacket(sourcePacket, video.agentReview, { targetCards: 12 });
+    const digest = `sha256:${createHash("sha256").update(JSON.stringify({ cards: cardPacket.cards, selection: cardPacket.selection })).digest("hex")}`;
+    const packet = { ...cardPacket, id: `${cardPacket.id}:${digest.slice(-16)}`, digest };
+    return {
+      videoKey: video.humanVideoKey,
+      videoId: video.id,
+      videoName: video.name,
+      opticalReview: {
+        id: video.agentReview.id,
+        revision: video.agentReview.revision,
+        frames: video.agentReview.evidence?.frames || [],
+        description: video.agentReview.proposal?.description || "",
+        categories: video.agentReview.proposal?.categories || [],
+        tags: video.agentReview.proposal?.tags || [],
+        referenceSignals: video.agentReview.proposal?.referenceSignals || video.agentReview.proposal?.visualReferenceAnalysis?.observedSignals || [],
+      },
+      referenceReview: video.referenceReview || null,
+      packetReceipt: {
+        id: packet.id,
+        profile: packet.profile,
+        digest: packet.digest,
+        cardCount: packet.cardCount,
+        authorityCounts: packet.authorityCounts,
+        reviewStatusCounts: packet.reviewStatusCounts,
+        canonStatusCounts: packet.canonStatusCounts,
+        referenceAtlas: packet.referenceAtlas,
+        selection: packet.selection,
+      },
+      cardPacket: packet,
+    };
+  });
   return {
     schemaVersion: "hapa.human-video-reference-review-queue.v1",
     generatedAt: new Date().toISOString(),
@@ -7690,7 +7754,7 @@ function paginateHumanVideoReferenceReviewQueue(dashboard, cardPacket, searchPar
       recordedFields: ["model", "reasoningEffort", "parameters"],
       opticalModelIndependent: true,
     },
-    cardPacket,
+    packetPolicy: { targetCards: 12, minCards: 5, maxCards: 20, sourceCardCount: sourcePacket.cardCount, rawCorpusAvailableToWorker: false },
     pagination: { offset, limit, returned: items.length, total: candidates.length, hasMore: offset + items.length < candidates.length, nextOffset: offset + items.length },
     items,
   };
@@ -7720,17 +7784,15 @@ function paginateHumanVideoAgentReviewQueue(dashboard, searchParams) {
     },
     duration: video.duration,
     registeredFrames: video.sourceMetadata?.registeredFrames || [],
-    qualityCalibration: dashboard.qualityCalibration,
     instructions: {
       requiredCapability: "optical-image-input",
-      minimumFrameCount: 3,
-      inspectEveryRegisteredFrame: true,
+      exactFrameCount: 3,
+      inspectRoles: ["first", "middle", "last"],
       semanticAutomationAllowed: false,
-      applyHumanQualityCalibrationAsBoundedPrior: true,
-      passBoundary: "Optical only: literal observations, quality, description, categories, tags, a separate visually estimated palette for each First/Mid/Last frame, director-use notes, and visible reference signals.",
+      passBoundary: "Optical only: one overall description and one concise #RRGGBB palette for each First/Middle/Last frame.",
       forbiddenInputs: ["raw Hapa knowledge stores", "song catalog search", "scene search", "Avatar identity search", "worker-invented reference candidates"],
-      paletteRequirement: { scope: "per-inspected-frame", requiredFrameRoles: ["first", "mid", "last"], minimumColorsPerFrame: 3, maximumColorsPerFrame: 8, format: "#RRGGBB", method: "vision-agent-estimate", wholeVideoPaletteForbidden: true },
-      referenceSignalsToRecordForLaterWorker: ["symbols", "markings", "visible text", "palette", "geometry", "costume", "objects", "composition", "recurring motifs"],
+      paletteRequirement: { scope: "per-inspected-frame", requiredFrameRoles: ["first", "middle", "last"], minimumColorsPerFrame: 3, maximumColorsPerFrame: 5, format: "#RRGGBB", method: "vision-agent-estimate", wholeVideoPaletteForbidden: true },
+      outputShape: { description: "string", palettes: { first: ["#RRGGBB"], middle: ["#RRGGBB"], last: ["#RRGGBB"] } },
     },
   }));
   return {
@@ -7738,10 +7800,9 @@ function paginateHumanVideoAgentReviewQueue(dashboard, searchParams) {
     generatedAt: new Date().toISOString(),
     status,
     summary: dashboard.summary,
-    qualityCalibration: dashboard.qualityCalibration,
     pagination: { offset, limit, returned: items.length, total: candidates.length, hasMore: offset + items.length < candidates.length, nextOffset: offset + items.length },
     items,
-    truthBoundary: "Queue automation may enumerate, extract, and hash frames only. Optical workers inspect frames but do not search or assign Hapa references; the separate reference queue receives bounded Card packets.",
+    truthBoundary: "Queue automation may enumerate, extract, and hash frames only. Optical workers receive exactly First/Middle/Last and return only one description plus three concise palettes.",
   };
 }
 
@@ -7775,7 +7836,6 @@ async function prepareHumanVideoOpticalCampaignPlan(dashboard, campaignStore, op
             sourcePath: video.sourcePath || "",
           },
           frames,
-          qualityCalibration: dashboard.qualityCalibration,
           repair: isRepairableLegacyOpticalReview(video.agentReview) ? {
             priorReviewId: video.agentReview.id,
             priorRevision: video.agentReview.revision,
@@ -7879,7 +7939,7 @@ async function isTerminalInvalidMediaVideo(video = null) {
 function isPerFramePaletteCompliantOpticalReview(review = {}) {
   if (review.status === "blocked" || review.reviewer?.opticalInspectionConfirmed !== true) return false;
   const frames = Array.isArray(review.evidence?.frames) ? review.evidence.frames : [];
-  if (frames.length < 3 || new Set(frames.map((frame) => frame.sha256).filter(Boolean)).size < 3) return false;
+  if (frames.length !== 3 || new Set(frames.map((frame) => frame.sha256).filter(Boolean)).size !== 3) return false;
   const roles = new Set(frames.map((frame) => String(frame.role || "").toLowerCase()));
   if (!["first", "mid", "last"].every((role) => roles.has(role))) return false;
   if (Number(review.evidence?.requiredFrameCount || 3) > frames.length || review.evidence?.allRequiredFramesAddressed === false) return false;
@@ -7887,11 +7947,7 @@ function isPerFramePaletteCompliantOpticalReview(review = {}) {
     const colors = Array.isArray(frame.palette?.colors) ? frame.palette.colors : [];
     return colors.length >= 3
       && colors.length <= 8
-      && Boolean(frame.palette?.uncertainty)
       && colors.every((color) => /^#[A-F0-9]{6}$/.test(String(color?.hex || ""))
-        && Boolean(color?.label)
-        && new Set(["dominant", "supporting", "accent"]).has(color?.prevalence)
-        && Boolean(color?.explanation)
         && color?.evidenceFrameHashes?.[0] === frame.sha256);
   });
 }
@@ -7929,7 +7985,6 @@ function opticalCampaignWorkerPacket(job) {
     videoName: job.videoName,
     frameDigest: job.frameDigest,
     frames: job.frames,
-    qualityCalibration: job.qualityCalibration,
     repair: job.repair?.priorReviewId ? {
       required: true,
       priorReviewId: job.repair.priorReviewId,
@@ -7939,16 +7994,19 @@ function opticalCampaignWorkerPacket(job) {
     requestedModel: configuration.model,
     reasoningEffort: configuration.reasoningEffort,
     promptVersion: configuration.promptVersion,
+    budget: configuration.budget,
+    outputContract: createHumanVideoOpticalWorkerOutputContract(job),
     instructions: {
       pass: "vision-only",
       inspectEveryFrameWithOpticalVisibility: true,
       noReferencePass: true,
-      forbiddenInputs: ["Hapa knowledge stores", "Reference Atlas", "songs", "scenes", "Avatar identity search", "web search", "OCR", "automated semantic heuristics"],
+      exactFrameCount: 3,
+      stopAtBudget: true,
+      forbiddenInputs: ["Hapa knowledge stores", "Reference Atlas", "Card packets", "songs", "scenes", "Avatar identity search", "web search", "OCR", "automated semantic heuristics", "examples", "quality calibration"],
       output: {
-        frames: "Return First/Mid/Last literal observations and an independent 3–8 color palette on each frame.",
-        paletteColor: "Each color requires uppercase #RRGGBB, label, dominant|supporting|accent prevalence, and a visible-evidence explanation.",
-        proposal: "Return description, Quality 1–5 with explanation, categories, tags, director notes, strengths, issues, uncertainty, confidence, and visible referenceSignals only.",
-        attestation: "Attest that you personally opened and inspected all three claimed images.",
+        exactShape: { description: "string", palettes: { first: ["#RRGGBB"], middle: ["#RRGGBB"], last: ["#RRGGBB"] } },
+        description: "Write one strong overall visual description grounded only in the three supplied frames.",
+        palettes: "Return 3–5 distinct uppercase #RRGGBB values for First, Middle, and Last. Do not add labels, explanations, or uncertainty prose.",
       },
     },
   };

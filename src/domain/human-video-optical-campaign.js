@@ -9,6 +9,15 @@ const JOB_STATUSES = new Set(["queued", "claimed", "completing", "submitted", "f
 const TELEMETRY_STATUSES = new Set(["captured", "unavailable"]);
 const WORK_PHASES = new Set(["claimed", "inspecting", "drafting", "submitting"]);
 const WORK_PHASE_ORDER = new Map([["", -1], ["claimed", 0], ["inspecting", 1], ["drafting", 2], ["submitting", 3]]);
+const OPTICAL_FRAME_COUNT = 3;
+const OPTICAL_STOP_REASONS = new Set(["completed", "budget", "unknown", "error"]);
+export const HUMAN_VIDEO_OPTICAL_DEFAULT_BUDGET = Object.freeze({
+  maxInputTokens: 24_000,
+  maxOutputTokens: 600,
+  maxTotalTokens: 24_600,
+  maxWallClockMs: 90_000,
+  maxReasoningEffort: "low",
+});
 
 export function createHumanVideoOpticalCampaignStore(input = {}) {
   return normalizeHumanVideoOpticalCampaignStore({
@@ -87,7 +96,7 @@ export function normalizeHumanVideoOpticalCampaignJob(input = {}) {
   const videoKey = clean(input.videoKey, 4_500);
   if (!videoKey) throw campaignError("optical_campaign_video_key_required", "An optical campaign job requires a stable video key.");
   const frames = normalizeFrames(input.frames);
-  if (frames.length < 3) throw campaignError("optical_campaign_frames_required", "An optical campaign job requires at least three registered frame receipts.");
+  if (frames.length !== OPTICAL_FRAME_COUNT || new Set(frames.map((frame) => frame.role)).size !== OPTICAL_FRAME_COUNT || !["first", "mid", "last"].every((role) => frames.some((frame) => frame.role === role))) throw campaignError("optical_campaign_frames_required", "An optical campaign job requires exactly one registered First, Mid, and Last frame receipt.");
   const suppliedFrameDigest = clean(input.frameDigest, 240);
   if (suppliedFrameDigest && !frameManifestDigestMatches(suppliedFrameDigest, frames)) throw campaignError("optical_campaign_frame_digest_mismatch", "The supplied frame digest does not match the registered frame manifest.");
   const frameDigest = suppliedFrameDigest || frameManifestDigest(frames);
@@ -155,9 +164,14 @@ export function enqueueHumanVideoOpticalCampaignJob(storeInput = {}, input = {},
 export function updateHumanVideoOpticalCampaignPlanning(storeInput = {}, input = {}, options = {}) {
   const store = normalizeHumanVideoOpticalCampaignStore(storeInput);
   const now = options.now || new Date().toISOString();
+  const configurationPatch = input.configuration || {};
+  const mergedConfiguration = { ...store.configuration, ...configurationPatch };
+  if ((configurationPatch.reasoningEffort || configurationPatch.effort) && !configurationPatch.budget && !configurationPatch.tokenBudget) {
+    mergedConfiguration.budget = { ...store.configuration.budget, maxReasoningEffort: configurationPatch.reasoningEffort || configurationPatch.effort };
+  }
   return normalizeHumanVideoOpticalCampaignStore({
     ...store,
-    configuration: { ...store.configuration, ...(input.configuration || {}) },
+    configuration: mergedConfiguration,
     planning: { ...store.planning, ...(input.planning || input), lastPlannedAt: now },
     updatedAt: now,
   });
@@ -242,6 +256,7 @@ export function beginHumanVideoOpticalCampaignCompletion(storeInput = {}, input 
   }
   assertLease(current, input, now, ["claimed"]);
   if (!current.schedulerTelemetry.status) throw campaignError("optical_campaign_telemetry_required", "Record immutable scheduler telemetry before preparing completion.");
+  if (current.schedulerTelemetry.budgetExceeded || current.schedulerTelemetry.stopReason === "budget") throw campaignError("optical_campaign_budget_exceeded", "This optical attempt stopped at its immutable budget and cannot become a completed visual diagnosis.", 409);
   const job = {
     ...current,
     status: "completing",
@@ -299,7 +314,7 @@ export function recordHumanVideoOpticalCampaignTelemetry(storeInput = {}, input 
   if (current.status !== "claimed") throw campaignError("optical_campaign_telemetry_state_invalid", "Scheduler telemetry may be attached only to an active claimed attempt.", 409);
   assertLease(current, input, now, ["claimed"]);
   if (current.schedulerTelemetry.status) throw campaignError("optical_campaign_telemetry_immutable", "This optical attempt already has a scheduler telemetry receipt.", 409);
-  const schedulerTelemetry = normalizeSchedulerTelemetry(input.schedulerTelemetry || input.telemetry);
+  let schedulerTelemetry = normalizeSchedulerTelemetry(input.schedulerTelemetry || input.telemetry);
   if (!schedulerTelemetry.status) throw campaignError("optical_campaign_telemetry_required", "A scheduler telemetry receipt must be captured or explicitly unavailable.");
   if (schedulerTelemetry.status === "captured") {
     if (schedulerTelemetry.model !== current.workerConfiguration.model || schedulerTelemetry.reasoningEffort !== current.workerConfiguration.reasoningEffort) {
@@ -308,6 +323,12 @@ export function recordHumanVideoOpticalCampaignTelemetry(storeInput = {}, input 
     if (schedulerTelemetry.directImageViewCalls !== current.frames.length) {
       throw campaignError("optical_campaign_telemetry_image_views_mismatch", "Captured scheduler telemetry must report exactly one direct image view for every claimed frame.", 409);
     }
+    const budget = current.workerConfiguration.budget;
+    const budgetExceeded = schedulerTelemetry.inputTokens > budget.maxInputTokens
+      || schedulerTelemetry.outputTokens > budget.maxOutputTokens
+      || schedulerTelemetry.totalTokens > budget.maxTotalTokens
+      || schedulerTelemetry.wallClockMs > budget.maxWallClockMs;
+    schedulerTelemetry = { ...schedulerTelemetry, budgetExceeded, stopReason: budgetExceeded ? "budget" : schedulerTelemetry.stopReason };
   }
   if (!schedulerTelemetry.receiptId
     || schedulerTelemetry.jobId !== current.id
@@ -451,12 +472,26 @@ function normalizeConfiguration(input = {}) {
 }
 
 function normalizeWorkerConfiguration(input = {}) {
-  return {
-    campaignId: clean(input.campaignId, 500) || "human-enricher-optical-terra-medium",
+  const reasoningEffort = clean(input.reasoningEffort || input.effort, 80) || "low";
+  const configuration = {
+    campaignId: clean(input.campaignId, 500) || "human-enricher-optical-minimal-v3",
     model: clean(input.model, 240) || "gpt-5.6-terra",
-    reasoningEffort: clean(input.reasoningEffort || input.effort, 80) || "medium",
-    promptVersion: clean(input.promptVersion, 180) || "human-enricher-optical-v2",
+    reasoningEffort,
+    promptVersion: clean(input.promptVersion, 180) || "human-enricher-optical-minimal-v3",
+    budget: normalizeOpticalBudget(input.budget || input.tokenBudget, reasoningEffort),
     pass: "vision-only",
+  };
+  if (effortRank(configuration.reasoningEffort) > effortRank(configuration.budget.maxReasoningEffort)) throw campaignError("optical_campaign_effort_budget_exceeded", "The requested optical reasoning effort exceeds the immutable per-job effort budget.");
+  return configuration;
+}
+
+function normalizeOpticalBudget(input = {}, requestedEffort = HUMAN_VIDEO_OPTICAL_DEFAULT_BUDGET.maxReasoningEffort) {
+  return {
+    maxInputTokens: positive(input.maxInputTokens, HUMAN_VIDEO_OPTICAL_DEFAULT_BUDGET.maxInputTokens),
+    maxOutputTokens: positive(input.maxOutputTokens, HUMAN_VIDEO_OPTICAL_DEFAULT_BUDGET.maxOutputTokens),
+    maxTotalTokens: positive(input.maxTotalTokens, HUMAN_VIDEO_OPTICAL_DEFAULT_BUDGET.maxTotalTokens),
+    maxWallClockMs: positive(input.maxWallClockMs, HUMAN_VIDEO_OPTICAL_DEFAULT_BUDGET.maxWallClockMs),
+    maxReasoningEffort: clean(input.maxReasoningEffort, 80) || requestedEffort,
   };
 }
 
@@ -699,7 +734,14 @@ function projectHumanVideoOpticalWorker(job, frameProgress, nowMs) {
       completedAt: job.schedulerTelemetry.completedAt,
       wallClockMs: job.schedulerTelemetry.wallClockMs,
       directImageViewCalls: job.schedulerTelemetry.directImageViewCalls,
+      inputTokens: job.schedulerTelemetry.inputTokens,
+      cachedInputTokens: job.schedulerTelemetry.cachedInputTokens,
+      outputTokens: job.schedulerTelemetry.outputTokens,
+      reasoningTokens: job.schedulerTelemetry.reasoningTokens,
       totalTokens: job.schedulerTelemetry.totalTokens,
+      stopReason: job.schedulerTelemetry.stopReason,
+      budgetExceeded: job.schedulerTelemetry.budgetExceeded,
+      budget: job.workerConfiguration.budget,
     },
     failure: job.failure,
   };
@@ -910,6 +952,8 @@ function normalizeSchedulerTelemetry(input = null) {
     outputTokens: nonNegative(input.outputTokens),
     reasoningTokens: nonNegative(input.reasoningTokens),
     totalTokens: nonNegative(input.totalTokens),
+    stopReason: OPTICAL_STOP_REASONS.has(input.stopReason) ? input.stopReason : status === "captured" ? "completed" : "unknown",
+    budgetExceeded: input.budgetExceeded === true,
   };
   if (status === "captured" && (
     !receipt.source || !receipt.sessionId || !receipt.model || !receipt.reasoningEffort || !receipt.agentPath || !receipt.startedAt || !receipt.completedAt
@@ -944,6 +988,8 @@ function emptySchedulerTelemetry() {
     outputTokens: 0,
     reasoningTokens: 0,
     totalTokens: 0,
+    stopReason: "",
+    budgetExceeded: false,
   };
 }
 
@@ -1026,4 +1072,6 @@ function nonNegative(value) { return Math.max(0, Math.trunc(number(value, 0))); 
 function nullableNumber(value) { const parsed = Number(value); return value == null || !Number.isFinite(parsed) ? null : parsed; }
 function number(value, fallback) { const parsed = Number(value); return Number.isFinite(parsed) ? parsed : fallback; }
 function clean(value, max) { return String(value || "").replace(/\0/g, "").trim().slice(0, max); }
+function positive(value, fallback) { const parsed = Math.trunc(number(value, fallback)); return parsed > 0 ? parsed : fallback; }
+function effortRank(value) { return ({ none: 0, minimal: 1, low: 2, medium: 3, high: 4, xhigh: 5, max: 6, ultra: 7 })[clean(value, 80).toLowerCase()] ?? 99; }
 function campaignError(code, message, statusCode = 400, details = null) { const error = new Error(message); error.code = code; error.statusCode = statusCode; error.details = details; return error; }

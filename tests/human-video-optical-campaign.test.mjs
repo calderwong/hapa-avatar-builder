@@ -61,6 +61,28 @@ test("campaign jobs use deterministic frame manifests, cap active work at three,
   assert.equal(claims[0].attempt, 1);
 });
 
+test("campaign claims freeze exact-three inputs and stop completion when the receipt exceeds budget", () => {
+  assert.throws(
+    () => enqueueHumanVideoOpticalCampaignJob(createHumanVideoOpticalCampaignStore(), { ...jobInput, frames: [...frames, { ...frames[2], sha256: `sha256:${"d".repeat(64)}` }] }),
+    (error) => error.code === "optical_campaign_frames_required",
+  );
+  let store = createHumanVideoOpticalCampaignStore({ configuration: { budget: { maxInputTokens: 10, maxOutputTokens: 5, maxTotalTokens: 15, maxWallClockMs: 1_000, maxReasoningEffort: "medium" } } });
+  ({ store } = enqueueHumanVideoOpticalCampaignJob(store, jobInput, { now: "2026-08-03T00:00:00.000Z" }));
+  const claimed = claimHumanVideoOpticalCampaignJob(store, { workerId: "terra-budget" }, { now: "2026-08-03T00:00:00.000Z", leaseId: "lease-budget", leaseMs: 60_000 });
+  const receipt = boundTelemetry(claimed.job, {
+    status: "captured", source: "codex-rollout", sessionId: "session-budget", model: "gpt-5.6-terra", reasoningEffort: "low", agentPath: "/root/terra-budget",
+    startedAt: "2026-08-03T00:00:00.000Z", completedAt: "2026-08-03T00:00:00.500Z", wallClockMs: 500, directImageViewCalls: 3,
+    inputTokens: 11, cachedInputTokens: 0, outputTokens: 4, reasoningTokens: 0, totalTokens: 15, stopReason: "completed",
+  });
+  const recorded = recordHumanVideoOpticalCampaignTelemetry(claimed.store, { jobId: claimed.job.id, workerId: "terra-budget", attempt: 1, leaseId: "lease-budget", schedulerTelemetry: receipt }, { now: "2026-08-03T00:00:00.500Z" });
+  assert.equal(recorded.job.schedulerTelemetry.budgetExceeded, true);
+  assert.equal(recorded.job.schedulerTelemetry.stopReason, "budget");
+  assert.throws(
+    () => beginHumanVideoOpticalCampaignCompletion(recorded.store, { jobId: claimed.job.id, workerId: "terra-budget", attempt: 1, leaseId: "lease-budget", resultDigest }, { now: "2026-08-03T00:00:00.600Z" }),
+    (error) => error.code === "optical_campaign_budget_exceeded",
+  );
+});
+
 test("campaign jobs retain an exact legacy-review repair target", () => {
   const repair = {
     priorReviewId: "fingerprint:video-one:optical:r1",
@@ -95,7 +117,7 @@ test("only a matching lease can settle a job and submitted work retains schedule
       source: "codex-rollout",
       sessionId: "session-1",
       model: "gpt-5.6-terra",
-      reasoningEffort: "medium",
+      reasoningEffort: "low",
       agentPath: "/root/terra-1",
       startedAt: "2026-08-03T00:00:00.100Z",
       completedAt: "2026-08-03T00:00:00.900Z",
@@ -157,7 +179,7 @@ test("campaign summaries distinguish bound receipts from legacy captured telemet
   const claimed = claimHumanVideoOpticalCampaignJob(store, { workerId: "terra-bound" }, { now: "2026-08-03T00:00:00.000Z" });
   const leaseInput = { jobId: claimed.job.id, attempt: claimed.job.attempt, workerId: claimed.job.lease.workerId, leaseId: claimed.job.lease.leaseId };
   const telemetry = boundTelemetry(claimed.job, {
-    status: "captured", source: "codex-rollout", sessionId: "session-bound", model: "gpt-5.6-terra", reasoningEffort: "medium", agentPath: "/root/terra-bound",
+    status: "captured", source: "codex-rollout", sessionId: "session-bound", model: "gpt-5.6-terra", reasoningEffort: "low", agentPath: "/root/terra-bound",
     startedAt: "2026-08-03T00:00:00.100Z", completedAt: "2026-08-03T00:00:00.900Z", wallClockMs: 800, directImageViewCalls: 3,
     inputTokens: 12, cachedInputTokens: 4, outputTokens: 8, reasoningTokens: 3, totalTokens: 20,
   });
@@ -346,7 +368,7 @@ test("captured scheduler telemetry truthfully confirms every registered frame an
   await service.progress({ ...leaseInput, phase: "inspecting", currentFrameOrdinal: 2, completedFrameOrdinals: [1] });
   now = "2026-08-03T00:00:02.000Z";
   const telemetry = boundTelemetry(claimed.job, {
-    status: "captured", source: "codex-rollout", sessionId: "session-progress", model: "gpt-5.6-terra", reasoningEffort: "medium", agentPath: "/root/terra-receipt",
+    status: "captured", source: "codex-rollout", sessionId: "session-progress", model: "gpt-5.6-terra", reasoningEffort: "low", agentPath: "/root/terra-receipt",
     startedAt: "2026-08-03T00:00:01.000Z", completedAt: "2026-08-03T00:00:02.000Z", wallClockMs: 1_000, directImageViewCalls: 3,
     inputTokens: 10, cachedInputTokens: 4, outputTokens: 2, reasoningTokens: 1, totalTokens: 12,
   });

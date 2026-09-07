@@ -34,3 +34,20 @@ test("strong treatments require an explicit operator override receipt", () => {
   const receipt = createAccentOverrideReceipt({ operator: "Calder", reason: "Reviewed hook treatment", acknowledgedAt: "2026-07-11T07:24:00Z", eventIds: [track.events[0].id] });
   assert.ok(validateAccentEventTrack(track, { overrideReceipt: receipt }).ok);
 });
+
+test("section budgets cross boundaries, honor zero density and prefer distinct musical gestures", () => {
+  const sectionRows = [{ id: "chorus", type: "chorus", energy: .9, startSeconds: 0, endSeconds: 8 }, { id: "quiet", type: "outro", energy: .1, startSeconds: 8, endSeconds: 24 }];
+  const cue = (id, atSeconds, kind) => ({ id, atSeconds, kind, approved: true, eligibleActions: ["accent"], source: "fixture-events", confidence: .7, evidence: { stemRole: "vocals", timingStatus: "unverified" } });
+  const input = [...Array.from({length:80},(_,i)=>cue('onset-'+i,i*.2,'stem_onset')),cue('entry',2,'vocal-entry'),cue('downbeat',4,'downbeat'),cue('end',6,'phrase-end')];
+  const track = buildAccentEventTrack({ cues: input, sections: sectionRows, density: 1, durationSeconds: 24 });
+  assert.equal(buildAccentEventTrack({ cues: input, sections: sectionRows, density: 0 }).events.length, 0);
+  const special = track.events.filter(e=>['entry','downbeat','end'].includes(e.cueId));
+  assert.equal(special.length,3);
+  assert.equal(new Set(special.map(e=>e.gestureRole)).size,3);
+  assert.deepEqual(special.map(e=>e.target.layer),['lyric-layer','visualizer-layer','media-layer']);
+  for (const event of track.events) {
+    assert.ok(track.events.filter(other=>other.atSeconds<=event.atSeconds&&other.atSeconds>event.atSeconds-8).length<=event.sectionBudget.maxEvents);
+    if(event.gestureRole!=='source-accent')assert.equal(event.safety.flashCount,0);
+  }
+  assert.deepEqual(buildAccentEventTrack({ cues: [...input].reverse(), sections: sectionRows, density: 1, durationSeconds: 24 }),track);
+});

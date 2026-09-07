@@ -447,3 +447,13 @@ test('execution identity includes confidence and reduced motion without converti
   overlay.reducedMotion=true;
   assert.notEqual(hashEchoLyricOverlayExecutionContract(overlay),confident);
 });
+
+test("lyric entry and release cues retain their source timing truth instead of claiming new onset detection", () => {
+  const graph = buildCueGraph({ song_id: "s", duration: 12, timed_lyrics: [{text:"one",start:1,end:2,confidence:.4,timing_source:"manual-rough"},{text:"two",start:2.2,end:3,confidence:.5,timing_source:"manual-rough"},{text:"three",start:5,end:6,confidence:.6,timing_source:"manual-rough"}] });
+  const entries=graph.cues.filter(c=>c.kind==='vocal-entry'),ends=graph.cues.filter(c=>c.kind==='phrase-end');
+  assert.deepEqual(entries.map(c=>c.atSeconds),[1,5]); assert.deepEqual(ends.map(c=>c.atSeconds),[2,3,6]);
+  assert.equal(entries[0].confidence,.4);assert.equal(entries[0].source,'manual-rough');
+  assert.equal(entries[0].evidence.timingStatus,graph.timingTruth.lyricStatus);
+  assert.equal(entries[0].evidence.timingBasis,'lyric-line-boundary');
+  assert.equal(entries[0].evidence.inference,'lyric-entry-after-gap');
+});

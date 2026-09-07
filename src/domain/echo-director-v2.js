@@ -353,6 +353,17 @@ export function buildCueGraph(projectInput, options = {}) {
     eligibleActions: ["lyric-window", "camera-keyframe", "visual-time-breath", "accent"],
     evidence: { lyricCueId: line.id, text: line.text },
   }));
+  // These are lyric-boundary gestures, not newly detected vocal onsets.
+  // Keep the original timing truth and confidence on every derived cue.
+  const orderedLyrics = [...lyricCues].sort((a,b)=>a.startSeconds-b.startSeconds||a.id.localeCompare(b.id));
+  const phraseBoundaryCues = orderedLyrics.flatMap((line,index) => {
+    const evidence = { lyricCueId:line.id, timingBasis:"lyric-line-boundary", timingStatus:timingTruth.lyricStatus, text:line.text };
+    const entry = index===0 || line.startSeconds-orderedLyrics[index-1].endSeconds>=.75;
+    return [
+      ...(entry ? [cue({kind:"vocal-entry",atSeconds:line.startSeconds,source:line.source,confidence:line.confidence,toleranceSeconds:timingTruth.lyricStatus==="verified_source_path"?.06:.18,eligibleActions:["accent"],evidence:{...evidence,inference:"lyric-entry-after-gap"}})] : []),
+      cue({kind:"phrase-end",atSeconds:line.endSeconds,source:line.source,confidence:line.confidence,toleranceSeconds:timingTruth.lyricStatus==="verified_source_path"?.06:.18,eligibleActions:["accent"],evidence}),
+    ];
+  });
   const pulseCues = editCues.map((pulse) => cue({
     kind: pulse.type,
     atSeconds: pulse.atSeconds,
@@ -396,7 +407,7 @@ export function buildCueGraph(projectInput, options = {}) {
       silenceStart = frame.silence ? silenceStart : null;
     });
   }
-  const cues = uniqueBy([...sectionCues, ...phraseCues, ...pulseCues, ...stemCues], (item) => item.id)
+  const cues = uniqueBy([...sectionCues, ...phraseCues, ...phraseBoundaryCues, ...pulseCues, ...stemCues], (item) => item.id)
     .sort((left, right) => left.atSeconds - right.atSeconds || left.kind.localeCompare(right.kind));
   const base = {
     schemaVersion: CUE_GRAPH_SCHEMA,
@@ -1155,7 +1166,7 @@ export function compileDirectorVariant({ treatment, cueGraph, recipe = "conserva
   const nativeShaderRoutes = nativeVisualizerRouteCounts(compiledVisualizerCards);
   const trackC=buildEchoRecipeAccentCards({cueGraph,recipe:normalizedRecipe,resolveMediaAt:time=>mediaAt(slots,time)});
   const {accentTrack,visualTimeTrack} = buildEchoRecipeEventTracks({
-    cues:cueGraph.cues,recipe:normalizedRecipe,durationSeconds:treatment.durationSeconds,
+    cues:cueGraph.cues,sections:cueGraph.sections,recipe:normalizedRecipe,durationSeconds:treatment.durationSeconds,
     reducedMotion:normalizeEchoLyricContract(projectBody(sourceProject)||{}).reducedMotion,
   });
   const cadenceTrack = buildPhraseCadence({

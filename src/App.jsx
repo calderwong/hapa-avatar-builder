@@ -209,6 +209,7 @@ import HellWeekView from "./components/HellWeekView.jsx";
 import SongCardMintPanel from "./components/SongCardMintPanel.jsx";
 import EchoRecordGardenBoundary from "./components/EchoRecordGardenBoundary.jsx";
 import HumanEnricherView from "./components/HumanEnricherView.jsx";
+import HumanEnricherBenchmarkComparisonView from "./components/HumanEnricherBenchmarkComparisonView.jsx";
 import { localFileApiUri } from "./domain/local-media-uri.js";
 import { echoLocalMediaApiBase } from "./domain/echo-audio-route.js";
 import { buildPublicDemoGateCards } from "./domain/tarot-stargate-derivation.js";
@@ -227,6 +228,11 @@ const EMPTY_TAROT_DRAW_PROJECTION = {
 
 function publicStargateDemoRequested() {
   try { return new URLSearchParams(globalThis.location?.search || "").get("stargateDemo") === "1"; }
+  catch { return false; }
+}
+
+function humanEnricherBenchmarkComparisonRequested() {
+  try { return new URLSearchParams(globalThis.location?.search || "").get("compare") === "optical-benchmark"; }
   catch { return false; }
 }
 
@@ -3829,7 +3835,9 @@ export default function App({ overcardAdapter }) {
         )}
 
         {activeView === "human-enricher" && (
-          <HumanEnricherView apiBase={API_BASE} onNotify={notify} />
+          humanEnricherBenchmarkComparisonRequested()
+            ? <HumanEnricherBenchmarkComparisonView apiBase={API_BASE} />
+            : <HumanEnricherView apiBase={API_BASE} onNotify={notify} />
         )}
 
         {activeView === "mind" && selectedAvatar && mindPack && (

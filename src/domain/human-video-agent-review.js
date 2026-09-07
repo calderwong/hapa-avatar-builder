@@ -65,7 +65,7 @@ export function normalizeHumanVideoAgentReviewStore(input = {}) {
     schemaVersion: HUMAN_VIDEO_AGENT_REVIEW_STORE_SCHEMA,
     reviews,
     updatedAt: clean(input.updatedAt, 80) || reviews.map((review) => review.updatedAt).filter(Boolean).sort().at(-1) || null,
-    truthBoundary: "Optical-worker proposals describe and grade delivered frames only. Card, Avatar, song, scene, and lore matching belongs to the separate bounded reference pass.",
+    truthBoundary: "New optical-worker proposals contain only one overall description and one concise hex palette for each claimed First, Middle, and Last frame. Human-authored enrichment remains separate authority.",
   };
 }
 
@@ -83,14 +83,14 @@ export function normalizeHumanVideoAgentReview(input = {}, fallback = {}) {
   const requiredFrameCount = Math.max(3, Math.trunc(number(input.evidence?.requiredFrameCount ?? fallback.evidence?.requiredFrameCount, frames.length || 3)));
   if (status !== "blocked") {
     if (reviewer.opticalInspectionConfirmed !== true) throw reviewError("optical_inspection_attestation_required", "A completed agent review must attest that the reviewer inspected every listed frame with optical visibility.");
-    if (frames.length < 3) throw reviewError("optical_frame_evidence_insufficient", "A completed agent review requires at least three inspected keyframes.");
+    if (frames.length !== 3 || !["first", "mid", "last"].every((role) => frames.some((frame) => frame.role === role))) throw reviewError("optical_frame_evidence_insufficient", "A completed agent review requires exactly one First, Mid, and Last keyframe.");
     if (new Set(frames.map((frame) => frame.sha256)).size < 3) throw reviewError("optical_frame_evidence_not_distinct", "A completed agent review requires three distinct frame hashes.");
     if (frames.length < requiredFrameCount) throw reviewError("registered_frame_coverage_incomplete", `The review addressed ${frames.length} of ${requiredFrameCount} required registered frames.`);
   }
   const now = clean(input.updatedAt || fallback.updatedAt, 80) || null;
   const proposal = normalizeProposal(input.proposal || fallback.proposal);
-  if (status !== "blocked" && (!proposal.description || !proposal.quality.explanation)) {
-    throw reviewError("agent_review_diagnosis_required", "A completed optical review requires a visual description and an explained quality grade.");
+  if (status !== "blocked" && !proposal.description) {
+    throw reviewError("agent_review_diagnosis_required", "A completed optical review requires one overall visual description.");
   }
   return {
     schemaVersion: HUMAN_VIDEO_AGENT_REVIEW_SCHEMA,
@@ -158,7 +158,7 @@ export function upsertHumanVideoAgentReview(storeInput = {}, input = {}, options
   };
   assertHumanVideoOpticalTextBoundary({
     proposal: agentInput.proposal || {},
-    frames: (Array.isArray(agentInput.evidence?.frames) ? agentInput.evidence.frames : []).map((frame) => ({ observation: frame?.observation || frame?.visualObservation, palette: frame?.palette || frame?.framePalette })),
+    frames: (Array.isArray(agentInput.evidence?.frames) ? agentInput.evidence.frames : []).map((frame) => ({ observation: frame?.observation || frame?.visualObservation })),
   }, { code: "agent_review_knowledge_claim_forbidden" });
   const review = normalizeHumanVideoAgentReview({
     ...(current || {}),
@@ -180,10 +180,10 @@ export function upsertHumanVideoAgentReview(storeInput = {}, input = {}, options
   }
   if (review.status !== "blocked" && review.evidence.frames.some((frame) => (
     frame.palette.colors.length < 3
-    || !frame.palette.uncertainty
-    || frame.palette.colors.some((color) => !color.label || !PALETTE_PREVALENCE.has(color.prevalence) || !color.explanation || color.evidenceFrameHashes[0] !== frame.sha256)
+    || frame.palette.colors.length > 5
+    || frame.palette.colors.some((color) => !/^#[A-F0-9]{6}$/.test(color.hex) || color.evidenceFrameHashes[0] !== frame.sha256)
   ))) {
-    throw reviewError("optical_frame_palette_required", "New optical reviews require a separate palette of at least three worker-authored #RRGGBB colors, prevalence labels, explanations, and uncertainty on every inspected First, Mid, and Last frame.");
+    throw reviewError("optical_frame_palette_required", "New optical reviews require one separate 3–5 color #RRGGBB palette for each inspected First, Middle, and Last frame.");
   }
   return {
     store: normalizeHumanVideoAgentReviewStore({ ...store, reviews: [...store.reviews.filter((item) => item.videoKey !== videoKey), review], updatedAt: now }),
@@ -260,6 +260,19 @@ function normalizeSchedulerReceipt(input = {}) {
     sessionId: clean(input.sessionId, 500),
     completionToken: clean(input.completionToken, 500),
     resultDigest: clean(input.resultDigest, 240),
+    accounting: {
+      status: clean(input.accounting?.status, 80),
+      source: clean(input.accounting?.source, 360),
+      pass: "optical",
+      packetRecords: Math.max(0, Math.trunc(number(input.accounting?.packetRecords, 0))),
+      inputTokens: Math.max(0, Math.trunc(number(input.accounting?.inputTokens, 0))),
+      cachedInputTokens: Math.max(0, Math.trunc(number(input.accounting?.cachedInputTokens, 0))),
+      outputTokens: Math.max(0, Math.trunc(number(input.accounting?.outputTokens, 0))),
+      totalTokens: Math.max(0, Math.trunc(number(input.accounting?.totalTokens, 0))),
+      wallClockMs: Math.max(0, Math.trunc(number(input.accounting?.wallClockMs, 0))),
+      stopReason: clean(input.accounting?.stopReason, 80),
+      budgetExceeded: input.accounting?.budgetExceeded === true,
+    },
   };
 }
 
@@ -270,7 +283,6 @@ function normalizeFrames(input = []) {
     const sha256 = normalizeSha256(frame.sha256 || frame.imageSha256);
     const observation = cleanMultiline(frame.observation || frame.visualObservation, 4_000);
     if (!sha256) throw reviewError("optical_frame_hash_required", `Inspected frame ${index + 1} is missing a SHA-256 digest.`);
-    if (!observation) throw reviewError("optical_frame_observation_required", `Inspected frame ${index + 1} is missing its own visual observation.`);
     return {
       ordinal: index + 1,
       role: index === 0 ? "first" : index === sourceFrames.length - 1 ? "last" : index === midIndex ? "mid" : "intermediate",
@@ -299,6 +311,7 @@ function normalizeProposal(input = {}) {
     categories: uniqueStrings(input.categories, 80, 180),
     tags: uniqueStrings(input.tags, 160, 180),
     referenceSignals: uniqueStrings(input.referenceSignals || input.visualSignals || input.visualReferenceAnalysis?.observedSignals, 120, 1_000),
+    referenceSignalOutcome: new Set(["observed", "none-visible", "unknown"]).has(input.referenceSignalOutcome) ? input.referenceSignalOutcome : "unknown",
     avatarRelationships: (Array.isArray(input.avatarRelationships) ? input.avatarRelationships : []).slice(0, 80).map((item) => normalizeRelationship(item, "avatar")),
     references: (Array.isArray(input.references) ? input.references : []).slice(0, 120).map(normalizeReference).filter(Boolean),
     visualReferenceAnalysis: normalizeVisualReferenceAnalysis(input.visualReferenceAnalysis),

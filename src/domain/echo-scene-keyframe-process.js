@@ -130,6 +130,8 @@ export function claimEchoSceneKeyframeQuests(process, {
   runId = "default-run",
   limit,
   lane = null,
+  songId = null,
+  countId = null,
   at = EPOCH,
 } = {}) {
   const next = clone(process);
@@ -151,6 +153,8 @@ export function claimEchoSceneKeyframeQuests(process, {
   const candidateLanes = lane ? [lane] : ["prompt", "image"];
   const candidates = next.counts
     .flatMap((count) => candidateLanes.map((candidateLane) => ({ count, lane: candidateLane, quest: count.lanes[candidateLane].quest })))
+    .filter(({ count }) => !songId || count.songId === songId)
+    .filter(({ count }) => !countId || count.id === countId)
     .filter(({ count, lane, quest }) => canClaim(count, lane, quest));
 
   const claims = [];

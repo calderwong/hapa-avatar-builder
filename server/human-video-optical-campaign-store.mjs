@@ -195,6 +195,10 @@ export function openHumanVideoOpticalCampaignStore({ filePath, eventPath, clock 
           outputTokens: job.schedulerTelemetry.outputTokens,
           reasoningTokens: job.schedulerTelemetry.reasoningTokens,
           totalTokens: job.schedulerTelemetry.totalTokens,
+          stopReason: job.schedulerTelemetry.stopReason,
+          budgetExceeded: job.schedulerTelemetry.budgetExceeded,
+          pass: "optical",
+          packetRecords: job.frames.length,
         } : null,
         recovered: result.recovered || [],
     });

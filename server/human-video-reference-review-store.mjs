@@ -43,6 +43,11 @@ export function openHumanVideoReferenceReviewStore({ filePath, eventPath, clock 
         agentId: result.review.reviewer.agentId,
         model: result.review.reviewer.model,
         reasoningEffort: result.review.reviewer.reasoningEffort,
+        pass: "reference",
+        packetRecords: result.review.packet.cardCount,
+        accounting: result.review.reviewer.accounting,
+        budget: result.review.reviewer.budget,
+        outcome: result.review.proposal.status,
       })}\n`, "utf8");
       return result;
     };

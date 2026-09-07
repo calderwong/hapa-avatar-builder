@@ -15,18 +15,68 @@ const digest = (value) => bytesToHex(sha256(new TextEncoder().encode(JSON.string
 const kinds = ["scan", "glitch", "bloom", "shutter", "deck-swap", "flicker"];
 const targets = ["visualizer-layer", "media-layer", "lyric-layer", "card-layer"];
 
-export function buildAccentEventTrack({ cues = [], density = 0.5, durationSeconds = Infinity, reducedMotion = false } = {}) {
+export const SECTION_ACCENT_POLICY = "hapa.director.section-accent-budget.v1";
+
+export function sectionAccentBudget(section = {}, density = .5) {
+  const role = String(section.type || section.sectionRole || "").toLowerCase();
+  const energy = Number.isFinite(Number(section.energy)) ? Number(section.energy) : /chorus|hook|drop/.test(role) ? .85 : /intro|outro|bridge|break/.test(role) ? .2 : .5;
+  const band = energy < .35 ? "quiet" : energy >= .75 ? "peak" : "steady";
+  const amount = Math.max(0, Math.min(1, stableNumber(density, .5)));
+  return { schemaVersion: SECTION_ACCENT_POLICY, sectionId: section.id || "unsectioned", band, windowSeconds: 8,
+    maxEvents: Math.ceil(({ quiet: 3, steady: 6, peak: 10 })[band] * amount),
+    minimumSeparationSeconds: ({ quiet: 1.2, steady: .65, peak: .4 })[band] };
+}
+
+function accentGesture(cue) {
+  const kind = String(cue.kind || "").replace(/_/g, "-");
+  if (kind === "downbeat") return { kind: "bloom", target: "visualizer-layer", role: "downbeat-weight", priority: 4 };
+  if (kind === "vocal-entry") return { kind: "scan", target: "lyric-layer", role: "vocal-entry-reveal", priority: 5 };
+  if (kind === "phrase-end") return { kind: "bloom", target: "media-layer", role: "phrase-release", priority: 3 };
+  if (kind === "phrase" || kind === "phrase-start") return { kind: "scan", target: "lyric-layer", role: "lyric-phrase-reveal", priority: 2 };
+  return { priority: 1, role: "source-accent" };
+}
+
+/** Admit musical gestures before dense onset candidates. A rolling window
+ * crosses section boundaries; entering a quiet section cannot reset the count. */
+export function selectSectionAccentCues(cues, { sections = [], density = .5 } = {}) {
+  const sectionAt = time => sections.find(s => Number(s.startSeconds ?? s.start) <= time && Number(s.endSeconds ?? s.end) > time) || {};
+  const selected = [], decisions = [];
+  const candidates = [...cues].sort((a,b) => accentGesture(b).priority - accentGesture(a).priority || a.atSeconds-b.atSeconds || String(a.id).localeCompare(String(b.id)));
+  const upperBound = (rows,time) => { let low=0,high=rows.length;while(low<high){const mid=(low+high)>>>1;if(rows[mid].atSeconds<=time)low=mid+1;else high=mid;}return low; };
+  const admitted = candidate => {
+    const position=upperBound(selected,candidate.atSeconds), budget=sectionAccentBudget(sectionAt(candidate.atSeconds),density);
+    if(!budget.maxEvents)return -1;
+    for(const neighbor of [selected[position-1],selected[position]].filter(Boolean)) {
+      if(Math.abs(neighbor.atSeconds-candidate.atSeconds)<Math.max(budget.minimumSeparationSeconds,sectionAccentBudget(sectionAt(neighbor.atSeconds),density).minimumSeparationSeconds)-1e-8)return -1;
+    }
+    const timeline=[...selected.slice(0,position),candidate,...selected.slice(position)];
+    for(let i=position;i<timeline.length&&timeline[i].atSeconds<candidate.atSeconds+8;i++){
+      const current=timeline[i],limit=sectionAccentBudget(sectionAt(current.atSeconds),density);
+      if(i-upperBound(timeline,current.atSeconds-limit.windowSeconds)+1>limit.maxEvents)return -1;
+    }
+    return position;
+  };
+  for(const cue of candidates) {
+    const position=admitted(cue),accepted=position>=0,budget=sectionAccentBudget(sectionAt(cue.atSeconds),density);
+    if(accepted)selected.splice(position,0,cue);
+    decisions.push({cueId:cue.id,atSeconds:cue.atSeconds,accepted,reason:accepted?"within-section-budget":"section-density-or-spacing",budget,gestureRole:accentGesture(cue).role});
+  }
+  return { cues:selected.sort((a,b)=>a.atSeconds-b.atSeconds||String(a.id).localeCompare(String(b.id))),decisions };
+}
+
+export function buildAccentEventTrack({ cues = [], density = 0.5, durationSeconds = Infinity, reducedMotion = false, sections = [] } = {}) {
   const eligible = cues
     .filter((cue) => cue?.approved !== false && stableNumber(cue.atSeconds, -1) >= 0 && stableNumber(cue.atSeconds) <= durationSeconds)
     .filter((cue) => (cue.eligibleActions || []).some((action) => action === "accent" || action === "effect"))
     .sort((a, b) => a.atSeconds - b.atSeconds || String(a.id).localeCompare(String(b.id)));
-  const stride = Math.max(1, Math.round(1 / Math.max(0.05, Math.min(1, density))));
+  const admission = selectSectionAccentCues(eligible, { sections, density });
   const events = [];
   let lastFlash = -Infinity;
-  for (let index = 0; index < eligible.length; index += stride) {
-    const cue = eligible[index];
+  for (let index = 0; index < admission.cues.length; index++) {
+    const cue = admission.cues[index];
+    const gesture = accentGesture(cue);
     const token = parseInt(digest(cue.id || `${cue.atSeconds}`).slice(0, 8), 16);
-    let kind = kinds[token % kinds.length];
+    let kind = gesture.kind || kinds[token % kinds.length];
     if (reducedMotion && ["glitch", "shutter", "flicker"].includes(kind)) kind = token % 2 ? "scan" : "bloom";
     const flashBearing = kind === "flicker" || kind === "shutter";
     if (flashBearing && cue.atSeconds - lastFlash < SAFE_ACCENT_LIMITS.minFlashSeparationSeconds) kind = "scan";
@@ -41,8 +91,10 @@ export function buildAccentEventTrack({ cues = [], density = 0.5, durationSecond
       kind,
       preset: intensity >= 0.55 ? "safe-strong" : intensity >= 0.35 ? "safe-medium" : "safe-soft",
       intensity,
-      target: { scope: "single-layer", layer: targets[(token >>> 4) % targets.length] },
-      source: { kind: cue.kind || "director-hit", stemRole: cue.evidence?.stemRole || "master", signal: cue.evidence?.stemRole ? "onset" : "director" },
+      target: { scope: "single-layer", layer: gesture.target || targets[(token >>> 4) % targets.length] },
+      gestureRole: gesture.role,
+      sectionBudget: admission.decisions.find(row=>row.cueId===cue.id)?.budget,
+      source: { timingBasis: cue.evidence?.timingBasis || null, timingStatus: cue.evidence?.timingStatus || "source-status-unchanged", source: cue.source || null, confidence: cue.confidence ?? null, kind: cue.kind || "director-hit", stemRole: cue.evidence?.stemRole || "master", signal: cue.evidence?.stemRole ? "onset" : "director" },
       safety: {
         mode: reducedMotion ? "reduced-motion" : "safe-default",
         flashCount: kind === "flicker" || kind === "shutter" ? 1 : 0,
@@ -58,7 +110,7 @@ export function buildAccentEventTrack({ cues = [], density = 0.5, durationSecond
       ],
     });
   }
-  return { schemaVersion: ACCENT_EVENT_SCHEMA, reducedMotion, limits: SAFE_ACCENT_LIMITS, eventCount: events.length, events };
+  return { schemaVersion: ACCENT_EVENT_SCHEMA, reducedMotion, limits: SAFE_ACCENT_LIMITS, sectionPolicy: SECTION_ACCENT_POLICY, eventCount: events.length, events };
 }
 
 export function validateAccentEventTrack(track, { overrideReceipt = null } = {}) {

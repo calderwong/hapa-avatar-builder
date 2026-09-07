@@ -766,6 +766,7 @@ export function echoEnrichmentCompilerInputFingerprint({
   assignedTransitionJobIds = [],
   transitionSelectionBalanceDigest = "",
   transitionEndpointValidation = null,
+  albumDiversity = null,
 } = {}) {
   return echoEnrichmentSha256({
     compiler: ECHO_ENRICHMENT_DIRECTOR_COMPILER,
@@ -778,6 +779,7 @@ export function echoEnrichmentCompilerInputFingerprint({
     assignedTransitionJobIds: uniqueStrings(assignedTransitionJobIds).sort(),
     transitionSelectionBalanceDigest: firstText(transitionSelectionBalanceDigest).replace(/^sha256:/iu, "").toLowerCase(),
     transitionEndpointValidation: clone(transitionEndpointValidation),
+    albumDiversity: clone(albumDiversity),
   });
 }
 
@@ -1489,6 +1491,7 @@ function buildRawCandidateSearchIndex(candidates, catalog) {
     intrinsicFallback,
     resolvedTransitionFallback,
     bridgeSeedFallback,
+    allCandidates: candidates,
   };
 }
 
@@ -1540,10 +1543,21 @@ function buildCandidateSearchIndex(candidates, catalog) {
       (left, right) => right.qualityScore - left.qualityScore
         || left.technicalIdentity.localeCompare(right.technicalIdentity),
     ),
+    allCandidates: combine(globalSearch.allCandidates, localSearch.allCandidates, (left, right) => (
+      right.qualityScore - left.qualityScore
+      || left.technicalIdentity.localeCompare(right.technicalIdentity)
+    )),
   };
 }
 
-function shortlistCandidates(search, targetContext, previous, neighborKeys = [], limit = 384) {
+function albumDiversityUseCount(albumDiversity, candidate) {
+  if (!albumDiversity?.enabled) return 0;
+  const counts = albumDiversity.mediaUsageCounts;
+  if (counts instanceof Map) return Math.max(0, Math.trunc(finite(counts.get(candidate.technicalIdentity), 0)));
+  return Math.max(0, Math.trunc(finite(counts?.[candidate.technicalIdentity], 0)));
+}
+
+function shortlistCandidates(search, targetContext, previous, neighborKeys = [], limit = 384, albumDiversity = null) {
   const wanted = tokens(targetContext);
   const matches = new Map();
   for (const token of wanted) {
@@ -1570,6 +1584,22 @@ function shortlistCandidates(search, targetContext, previous, neighborKeys = [],
   for (const key of neighborKeys.slice(0, 96)) {
     const candidate = search.byKey.get(String(key).toLowerCase());
     add(candidate);
+  }
+  // The legacy fallback is intentionally quality-first and therefore converges on the
+  // same global clips for every song.  For an album-balanced pass, seed the shortlist
+  // with the least-used candidates before those legacy fallbacks can fill the cap.
+  if (albumDiversity?.enabled) {
+    const allCandidates = search.allCandidates || [];
+    const minimumUses = allCandidates.reduce((minimum, candidate) => (
+      Math.min(minimum, albumDiversityUseCount(albumDiversity, candidate))
+    ), Number.POSITIVE_INFINITY);
+    // Preserve the catalog's stable order here. Score selection below still evaluates
+    // quality and semantic fit; avoiding a full sort for every shot keeps album-scale
+    // compilation linear in the catalog size.
+    const diversitySeed = allCandidates.filter((candidate) => (
+      albumDiversityUseCount(albumDiversity, candidate) <= minimumUses + 1
+    ));
+    for (const candidate of diversitySeed) add(candidate);
   }
   for (const candidate of search.bridgeSeedFallback) add(candidate);
   for (const candidate of search.resolvedTransitionFallback) add(candidate);
@@ -2220,6 +2250,10 @@ function sourceScore(candidate, targetContext, previous, catalog, priorUses = 0,
     );
   }
   const sameAsPrevious = previous && previous.technicalIdentity === candidate.technicalIdentity;
+  const albumUses = albumDiversityUseCount(options.albumDiversity, candidate);
+  const albumSourceUses = options.albumDiversity?.sourceUsageCounts instanceof Map
+    ? Math.max(0, Math.trunc(finite(options.albumDiversity.sourceUsageCounts.get(candidate.sourceGroup), 0)))
+    : 0;
   const fatigueMultiplier = sameAsPrevious
     ? 0.55
     : Math.max(0.45, 1 / (1 + Math.max(0, priorUses) * 0.28));
@@ -2243,7 +2277,16 @@ function sourceScore(candidate, targetContext, previous, catalog, priorUses = 0,
   const motionRoleMultiplier = motionKind === "transition" && reservationRole === "authored-transition"
     ? 1.3
     : candidate.motionRole?.subtleReferenceLoop ? 0.92 : motionKind === "motion-clip" ? 1.08 : 1;
-  const total = Number((scored.finalScore * motionRoleMultiplier).toFixed(6));
+  // A repeat across songs is much more costly than a repeat inside one song.  The
+  // logarithmic penalty keeps required transition endpoints valid while making a
+  // globally overused visual unable to beat a comparable unused one.
+  const albumReuseMultiplier = options.albumDiversity?.enabled && !reservationRole
+    ? Math.max(0.2, 1 / (1 + albumUses * 0.42))
+    : 1;
+  const sourceBalanceMultiplier = options.albumDiversity?.enabled && !reservationRole
+    ? Math.max(0.82, 1 - Math.min(0.18, albumSourceUses * 0.00006))
+    : 1;
+  const total = Number((scored.finalScore * motionRoleMultiplier * albumReuseMultiplier * sourceBalanceMultiplier).toFixed(6));
   return {
     total,
     lyricAffinity: Number(lyricAffinity.toFixed(6)),
@@ -2261,6 +2304,10 @@ function sourceScore(candidate, targetContext, previous, catalog, priorUses = 0,
     motionRoleMultiplier,
     hardFilters,
     fatigueMultiplier: scored.fatigueMultiplier,
+    albumUses,
+    albumReuseMultiplier,
+    albumSourceUses,
+    sourceBalanceMultiplier,
     baseScore: scored.baseScore,
     formula: `${scored.formula} * motionRoleMultiplier`,
   };
@@ -2919,6 +2966,7 @@ export function compileEchoEnrichmentDirectorVariant({
   report = {},
   transitionEndpointValidation = null,
   transitionUsageCounts = new Map(),
+  albumDiversity = null,
   catalog: suppliedCatalog = null,
 } = {}) {
   const songId = firstText(baseProject.song_id, baseProject.songId, song.id, song.cardId);
@@ -2992,6 +3040,8 @@ export function compileEchoEnrichmentDirectorVariant({
         targetTokenSet,
         previous,
         previous ? catalog.neighborKeys(candidateKeys(previous)) : [],
+        384,
+        albumDiversity,
       );
     const scoredCandidates = shotCandidates.map((candidate) => ({
       candidate,
@@ -3006,6 +3056,7 @@ export function compileEchoEnrichmentDirectorVariant({
           shotCount: sourceTimeline.length,
           shotDurationSeconds: Math.max(0, finite(shot.end_sec, 0) - finite(shot.start_sec, 0)),
           reservation,
+          albumDiversity,
         },
       ),
     }));
@@ -3318,7 +3369,9 @@ export function compileEchoEnrichmentDirectorVariant({
   const variant = {
     schemaVersion: ECHO_ENRICHMENT_DIRECTOR_VARIANT_SCHEMA,
     id,
-    title: `${firstText(baseProject.song_title, song.title, songId)} · Intentional Enrichment · Motion Bridges`,
+    title: albumDiversity?.enabled
+      ? `${firstText(baseProject.song_title, song.title, songId)} · Palette + Story Diversity Pass`
+      : `${firstText(baseProject.song_title, song.title, songId)} · Intentional Enrichment · Motion Bridges`,
     status: "ready",
     createdAt,
     updatedAt: createdAt,
@@ -3333,7 +3386,7 @@ export function compileEchoEnrichmentDirectorVariant({
       immutableParentVariant: true,
     },
     lineage: {
-      kind: "append-only-intentional-enrichment",
+      kind: albumDiversity?.enabled ? "append-only-palette-story-diversity" : "append-only-intentional-enrichment",
       compiler: ECHO_ENRICHMENT_DIRECTOR_COMPILER,
       compilerInputFingerprint,
       transitionSelectionBalanceDigest,
@@ -3352,17 +3405,28 @@ export function compileEchoEnrichmentDirectorVariant({
       appendOnly: true,
     },
     variationSet: {
-      id: `echo-video-enrichment-${catalog.batchFingerprint.slice(0, 16)}-motion-bridge-v6`,
-      label: "Echo Video Enrichment · Intentional Cuts · Full-Source Motion Bridge V6",
+      id: albumDiversity?.enabled
+        ? `echo-video-enrichment-${catalog.batchFingerprint.slice(0, 16)}-palette-story-diversity-v1`
+        : `echo-video-enrichment-${catalog.batchFingerprint.slice(0, 16)}-motion-bridge-v6`,
+      label: albumDiversity?.enabled
+        ? "Echo Video Enrichment · Palette + Story Diversity Pass · Album Balanced V1"
+        : "Echo Video Enrichment · Intentional Cuts · Full-Source Motion Bridge V6",
       batchFingerprint: `sha256:${catalog.batchFingerprint}`,
       appendOnly: true,
     },
-    cut: { ordinal: 5, label: "Intentional Enrichment · Full-Source Motion Bridges" },
+    cut: albumDiversity?.enabled
+      ? { ordinal: 6, label: "Palette + Story Diversity Pass · Album Balanced" }
+      : { ordinal: 5, label: "Intentional Enrichment · Full-Source Motion Bridges" },
     sourcePolicy: {
       mode: "semantic-quality-resolved-motion-bridge-weighted",
       lowPriorSourcesEligible: true,
       lowPriorSources: ["LTX", "hapa-dev-proto", "Hell Week"],
       lowPriorTreatment: "eligible-but-downweighted",
+      albumDiversity: albumDiversity?.enabled ? {
+        policy: "persisted-album-media-reuse-ledger-v1",
+        mediaReuse: "least-used shortlist seed plus logarithmic score penalty",
+        sourceBalance: "soft source-group quota where alternatives exist",
+      } : null,
       deterministicTieBreak: "technical-identity-ascending",
       exactParentDirectionContract: false,
       exactParentNonCameraDirectionContract: true,
@@ -3409,6 +3473,13 @@ export function compileEchoEnrichmentDirectorVariant({
       mediaBearingShots: timeline.filter((shot) => shot.media_uri).length,
       assetReframedShots: timeline.filter((shot) => shot.camera_framing_contract?.derived === true).length,
       uniqueMedia: selectedIdentities.size,
+      albumDiversity: albumDiversity?.enabled ? {
+        policy: "persisted-album-media-reuse-ledger-v1",
+        selectedMediaUsesBefore: timeline.map((shot) => Math.max(0, Math.trunc(finite(
+          shot.decision_evidence?.selectedCandidate?.albumUses,
+          0,
+        )))),
+      } : null,
       selectionsBySource: sourceSelections,
       lowPriorSelections: timeline.filter((shot) => shot.decision_evidence?.enrichment?.lowPriorEligible).length,
       lyricsUnavailableShots: timeline.filter((shot) => shot.decision_evidence?.lyrics?.explicitLyricsUnavailable).length,

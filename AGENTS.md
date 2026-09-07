@@ -1,5 +1,13 @@
 # Hapa Avatar Builder Agent Guide
 
+## ACTIVE GITHUB SUBMISSION FREEZE
+
+The GitHub repository `calderwong/hapa-avatar-builder` is locked for OpenAI Build Week judging. Do not push, create/update/delete branches or tags, open/update/merge pull requests, publish releases, dispatch workflows, change Pages/settings/metadata, or make any other GitHub-side mutation. Local edits, tests, branches, and commits remain allowed; GitLab is not authorization to mirror anything into GitHub.
+
+This freeze does not auto-expire. Leave it active through August 12, 2026 Pacific Time and afterward until Calder explicitly lifts it. Before August 13, any one-time exception must be an active request from Calder naming this repository and the exact mutation. Never rely on inferred, inherited, old, or general permission. Do not bypass the repository rulesets or local pre-push hook without that task-specific authorization, and restore every guard immediately after an authorized exception.
+
+Canonical lock record: `/Users/calderwong/.hapa-second-brain/profiles/hapa-avatar-builder-github-freeze.md`.
+
 <!-- HAPA_ECOSYSTEM_AGENT_CONTEXT_START -->
 ## Ecosystem stage and claim discipline
 
@@ -119,3 +127,25 @@ For the 3D Tarot surface, also run the app and verify the `Tarot Draw` tab rende
 ## Requirement completion workflow pilot — 2026-09-06
 
 For Echo Album continuation, read `$HAPA_FRONT_DOOR_ROOT/docs/REQUIREMENT_COMPLETION_BATCH_PILOT.md` and `$HAPA_AVATAR_BUILDER_ROOT/docs/ECHO_WORKFLOW_PILOT.md` before choosing work. Calder authorized coherent requirement batches with targeted checks during implementation and broad acceptance at the completed batch boundary. The method is **active-pilot**, not proven ecosystem-wide. Preserve required coverage, source integrity, process safety, human gates and existing mutation authority. Update the app's pilot state at meaningful batch events and append short postmortems; do not rerun broad suites merely because a checkpoint changed. Documentation-only methodology changes use document/link/schema/retrieval verification. See the canonical method for evidence reuse, failure escalation and adoption scope.
+
+<!-- HAPA_STATE_TRIANGLE_V1 -->
+1|## Hapa State Triangle — sync pathways & fastest answers (2026-09-06)
+2|
+3|Canonical spec: `/Users/calderwong/Desktop/.Overwatch/ecosystem/HAPA_STATE_TRIANGLE_PROTOCOL.md` (proposal; ratification gate = board card `amp-100` on `http://127.0.0.1:5181/?project=hapa-agent-mind-parity`).
+4|
+5|Second Brain is the durable ledger and the universal entry point. Join key everywhere: `agent:<name>` (conviction|love|truth|codex|...). Board join key: `project_id`.
+6|
+7|Fastest path to a state answer:
+8|
+9|| Question | Surface | Command / URL |
+10||---|---|---|
+11|| What's done / doing / could-do on any board? | Second Brain (board-state projection, amp-103) — until built: Overwatch Kanban API `GET http://127.0.0.1:5181/v1/projects/<id>/state` | `python3 second_brain.py board-state [--project X]` (planned) |
+12|| What does agent X know (durable)? | Second Brain ledger | `hapa_avatar_memory_ledger` / `agent_context_items` via `search`/`context` |
+13|| Deep detail of one memory? | SB T1 entry hooks → session file / board URL | hook target from the ledger entry |
+14|| Avatar lore / Mind / visuals? | Avatar Builder | `cli/avatar-builder.mjs mind <id>`; `data/avatar-store.json` (Builder is sole writer) |
+15|| Live task coordination? | Overwatch Kanban | `http://127.0.0.1:5181/?project=<id>`; CLI `bin/overwatch-kanban.mjs state <project>` |
+16|| Ecosystem board coverage audit? | Quest Keeper | `:8768` / `cli audit` (currently down; audits coverage, not state) |
+17|| Which store is stale? | Second Brain | `python3 second_brain.py sync-status` (per-edge signatures planned, amp-105) |
+18|
+19|Ownership & conflict rules: board event log wins task truth; `avatar-store.json` wins lore; SB ledger wins durability; Hermes `MEMORY.md` is a derived cache. No store writes another store's database directly — cross-store writes go through the owner's API/CLI. Builder→SB flows through the subscriber outbox (`data/subscribers/hapa-second-brain.ndjson`); SB→boards is read-only ingress links (`docs/KANBAN_UI_INGRESS.md`).
+20|

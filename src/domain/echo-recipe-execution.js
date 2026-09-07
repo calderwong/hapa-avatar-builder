@@ -19,8 +19,8 @@ export function echoRecipeLyrics(project,recipe) {
   const template=echoLyricTemplate(presentation.templateId);
   return {...source,templateId:template.id,templateLabel:template.label,legacyVariant:template.legacyVariant,motionIntensity:presentation.motionIntensity};
 }
-export function buildEchoRecipeEventTracks({cues=[],recipe,durationSeconds,reducedMotion=false}) {
-  return {accentTrack:buildAccentEventTrack({cues,density:recipe.accentDensity,durationSeconds,reducedMotion}),
+export function buildEchoRecipeEventTracks({cues=[],sections=[],recipe,durationSeconds,reducedMotion=false}) {
+  return {accentTrack:buildAccentEventTrack({cues,sections,density:recipe.accentDensity,durationSeconds,reducedMotion}),
     visualTimeTrack:buildVisualTimeTrack({cues,density:recipe.temporalModulation,durationSeconds,reducedMotion})};
 }
 
@@ -122,14 +122,15 @@ export function upgradeEchoGeneratedVisualizerBindings(graph, { project = {} } =
 const strings=input=>Object.fromEntries(Object.entries(input).map(([key,value])=>[key,String(value??'')]));
 export function buildEchoRecipeAccentCards({cueGraph,recipe,resolveMediaAt}) {
   const accentCandidates = cueGraph.editCues.filter((cue) => cue.strength >= 0.58);
-  const accentCount = Math.min(accentCandidates.length, Math.max(1, Math.round(accentCandidates.length * recipe.accentDensity)));
+  const admittedCueIds = new Set(buildEchoRecipeEventTracks({ cues:cueGraph.cues||[], sections:cueGraph.sections||[], recipe, durationSeconds:cueGraph.durationSeconds }).accentTrack.events.map(event=>event.cueId));
+  const selected = accentCandidates.filter(cue=>cueGraph.cues?.some(candidate=>candidate.evidence?.editCueId===cue.id&&admittedCueIds.has(candidate.id)));
   const accentNativeRoute = resolveNativeVisualizerRoute({ id: "director:accent", title: "Director accent" });
-  const trackC = accentCandidates.slice(0, accentCount).map((cue, index) => {
+  const trackC = selected.map((cue, index) => {
     const media = resolveMediaAt(cue.atSeconds);
     const duration = round(0.18 + 0.34 * cue.strength);
     const approvedCue = cueGraph.cues?.find((candidate) => candidate.evidence?.editCueId === cue.id);
     return {
-      id: `card:c:${index}`,
+      id: `card:c:${cue.id}`,
       trackId: "track-c",
       startSeconds: cue.atSeconds,
       endSeconds: Math.min(cueGraph.durationSeconds, round(cue.atSeconds + duration)),

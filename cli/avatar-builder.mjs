@@ -236,7 +236,7 @@ async function main(cmd, opts) {
   if (cmd === "human-enricher-optical-campaign-plan") {
     const limit = Math.max(1, Number(opts.limit || 12) || 12);
     const model = String(opts.model || "gpt-5.6-terra").trim();
-    const effort = String(opts.effort || "medium").trim();
+    const effort = String(opts.effort || "low").trim();
     const maxWorkers = Math.max(1, Number(option(opts, "max-workers", "maxWorkers") || 3) || 3);
     print(await contextGenerationApiRequest(opts, "/api/human-enricher/optical-campaign/plan", {
       method: "POST",
@@ -1714,7 +1714,7 @@ Commands:
   human-enricher-reference-submit --file ./reference-review.json --agent <reference-worker-id> [--api-url http://127.0.0.1:8787] [--json]
   human-enricher-agent-decision --review-id <id> --action accepted|accepted-edited|rejected --actor <human-id> [--notes "..."] [--api-url http://127.0.0.1:8787] [--json]
   human-enricher-optical-campaign-status [--api-url http://127.0.0.1:8787] [--json]
-  human-enricher-optical-campaign-plan [--limit 12] [--model gpt-5.6-terra] [--effort medium] [--max-workers 3] [--api-url http://127.0.0.1:8787] [--json]
+  human-enricher-optical-campaign-plan [--limit 12] [--model gpt-5.6-terra] [--effort low] [--max-workers 3] [--api-url http://127.0.0.1:8787] [--json]
   human-enricher-optical-campaign-claim --worker <worker-id> [--lease-seconds 1800] [--api-url http://127.0.0.1:8787] [--json]
   human-enricher-optical-campaign-complete --job-id <id> --file ./worker-result.json --worker <worker-id> --attempt <n> --lease-id <lease-id> [--api-url http://127.0.0.1:8787] [--json]
   human-enricher-optical-campaign-fail --job-id <id> --worker <worker-id> --attempt <n> --lease-id <lease-id> [--reason "..."] [--api-url http://127.0.0.1:8787] [--json]

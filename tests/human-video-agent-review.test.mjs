@@ -19,6 +19,7 @@ import {
 import { openHumanVideoAgentReviewStore } from "../server/human-video-agent-review-store.mjs";
 import {
   buildHumanVideoReferenceCardPacket,
+  buildHumanVideoReferenceCandidatePacket,
   createHumanVideoReferenceReviewStore,
   normalizeHumanVideoReferenceReview,
   upsertHumanVideoReferenceReview,
@@ -70,7 +71,7 @@ function opticalReview(overrides = {}) {
   };
 }
 
-test("completed proposals require optical attestation and three distinct hash-bound frame observations", () => {
+test("completed proposals require optical attestation and three distinct hash-bound frame palettes", () => {
   const review = normalizeHumanVideoAgentReview(opticalReview());
   assert.equal(review.evidence.inspectedFrameCount, 3);
   assert.equal(review.evidence.semanticJudgmentAutomation, false);
@@ -89,8 +90,7 @@ test("completed proposals require optical attestation and three distinct hash-bo
   assert.throws(() => upsertHumanVideoAgentReview(createHumanVideoAgentReviewStore(), opticalReview({ proposal: { ...opticalReview().proposal, references: [{ id: "same-sky" }] } })), (error) => error.code === "reference_fields_require_reference_pass");
   assert.throws(() => upsertHumanVideoAgentReview(createHumanVideoAgentReviewStore(), opticalReview({ proposal: { ...opticalReview().proposal, referenceSignals: ["This matches Hapa Card X."] } })), (error) => error.code === "agent_review_knowledge_claim_forbidden");
   assert.throws(() => upsertHumanVideoAgentReview(createHumanVideoAgentReviewStore(), opticalReview({ evidence: { frames: opticalReview().evidence.frames.map((frame, index) => index === 1 ? { ...frame, palette: { colors: [] } } : frame) } })), (error) => error.code === "optical_frame_palette_required");
-  assert.throws(() => upsertHumanVideoAgentReview(createHumanVideoAgentReviewStore(), opticalReview({ evidence: { frames: opticalReview().evidence.frames.map((frame, index) => index === 1 ? { ...frame, palette: { ...frame.palette, uncertainty: "" } } : frame) } })), (error) => error.code === "optical_frame_palette_required");
-  assert.throws(() => upsertHumanVideoAgentReview(createHumanVideoAgentReviewStore(), opticalReview({ evidence: { frames: opticalReview().evidence.frames.map((frame, index) => index === 1 ? { ...frame, palette: { ...frame.palette, colors: frame.palette.colors.map((color, colorIndex) => colorIndex === 0 ? { ...color, prevalence: "" } : color) } } : frame) } })), (error) => error.code === "optical_frame_palette_required");
+  assert.doesNotThrow(() => upsertHumanVideoAgentReview(createHumanVideoAgentReviewStore(), opticalReview({ evidence: { frames: opticalReview().evidence.frames.map((frame) => ({ ...frame, observation: "", palette: { colors: frame.palette.colors.map(({ hex }) => ({ hex })) } })) } })));
 });
 
 test("reference workers are independently configured and may select only supplied Hapa Cards", () => {
@@ -146,6 +146,46 @@ test("Reference Atlas packet profiles widen deliberately without erasing authori
   assert.equal(standard.cards[0].signals.includes("DIRECT"), true);
   assert.equal(standard.cards[0].provenance.sourceRunId, "run:atlas");
   assert.equal(standard.cards[0].sourcePath, "data/echo-reference-research-loop/projected-run.json");
+});
+
+test("reference workers receive deterministic video-specific 5–20 Card packets with bounded accounting", () => {
+  const referenceCards = Array.from({ length: 25 }, (_, index) => ({
+    id: `reference:${String(index).padStart(2, "0")}`,
+    title: index === 7 ? "Blue astrolabe cat" : `Reference ${index}`,
+    publicContext: index === 7 ? "A brass circular instrument beneath blue light." : `Distinct source-backed motif ${index}.`,
+    authority: { evidenceClass: "direct", reviewStatus: "pending-review", canonStatus: "non-canon" },
+    signalLexicon: { literal: index === 7 ? ["blue coat", "cat silhouette", "astrolabe"] : [`motif-${index}`] },
+  }));
+  const base = buildHumanVideoReferenceCardPacket({ referenceCards }, { profile: "echo-reference-cards", maxCards: 25, digest: "sha256:base" });
+  const packet = buildHumanVideoReferenceCandidatePacket(base, opticalReview(), { targetCards: 12 });
+  assert.equal(packet.cardCount, 12);
+  assert.equal(packet.cards[0].id, "reference:07");
+  assert.equal(packet.selection.sourceCardCount, 25);
+  assert.match(packet.selection.packetCacheKey, /^reference-candidates:/);
+
+  const noMatch = {
+    videoKey: "record:video-1",
+    opticalReview: { id: "record:video-1:optical:r1", revision: 1 },
+    packet,
+    reviewer: {
+      agentId: "reference-terra", model: "gpt-5.6-terra", reasoningEffort: "low", referenceInspectionConfirmed: true,
+      budget: { maxInputTokens: 100, maxOutputTokens: 50, maxTotalTokens: 150, maxWallClockMs: 1_000, maxReasoningEffort: "low" },
+      accounting: { status: "captured", source: "test-receipt", inputTokens: 80, outputTokens: 20, totalTokens: 100, wallClockMs: 500, stopReason: "no-confident-match" },
+    },
+    proposal: { status: "none-supported", matches: [], negativeFindings: ["No candidate has enough specific visible evidence."] },
+  };
+  const review = normalizeHumanVideoReferenceReview(noMatch, {}, { allowedCardIds: packet.cards.map((card) => card.id), requireAccounting: true, strictOutcome: true });
+  assert.equal(review.reviewer.accounting.totalTokens, 100);
+  assert.equal(review.reviewer.accounting.stopReason, "no-confident-match");
+  assert.equal(review.packet.cardCount, 12);
+  assert.throws(
+    () => normalizeHumanVideoReferenceReview({ ...noMatch, proposal: { status: "none-supported", negativeFindings: [] } }, {}, { allowedCardIds: packet.cards.map((card) => card.id), requireAccounting: true, strictOutcome: true }),
+    (error) => error.code === "reference_review_no_match_invalid",
+  );
+  assert.throws(
+    () => normalizeHumanVideoReferenceReview({ ...noMatch, reviewer: { ...noMatch.reviewer, accounting: { ...noMatch.reviewer.accounting, inputTokens: 140, totalTokens: 160 } } }, {}, { allowedCardIds: packet.cards.map((card) => card.id), requireAccounting: true, strictOutcome: true }),
+    (error) => error.code === "reference_review_budget_exceeded",
+  );
 });
 
 test("human quality corrections form a bounded calibration profile", () => {
@@ -329,25 +369,25 @@ test("cross-process review locking preserves a concurrent human decision over an
   assert.equal(outcomes.some((outcome) => outcome.status === "fulfilled"), true);
 });
 
-test("UI, API, CLI, and node discovery expose optical and bounded Reference Atlas passes", async () => {
+test("UI, API, CLI, and node discovery expose the minimal optical contract", async () => {
   const [ui, api, cli, nodeManifest] = await Promise.all([
     readFile(new URL("../src/components/HumanEnricherView.jsx", import.meta.url), "utf8"),
     readFile(new URL("../server/api.mjs", import.meta.url), "utf8"),
     readFile(new URL("../cli/avatar-builder.mjs", import.meta.url), "utf8"),
     readFile(new URL("../hapa-node.json", import.meta.url), "utf8"),
   ]);
-  assert.match(ui, /OPTICAL PASS · NO KNOWLEDGE SEARCH/);
-  assert.match(ui, /Use as editable draft/);
-  assert.match(ui, /Append suggestions/);
+  assert.match(ui, /MINIMAL OPTICAL PASS/);
+  assert.match(ui, /Use description/);
+  assert.match(ui, /Append description/);
   assert.match(ui, /Reject proposal/);
-  assert.match(ui, /REFERENCE PASS · BOUNDED HAPA CARDS/);
+  assert.doesNotMatch(ui, /REFERENCE PASS · BOUNDED HAPA CARDS/);
   assert.match(ui, /frame\.role/);
   assert.match(ui, /human-frame-palette/);
-  assert.match(ui, /no Cards assigned here/);
+  assert.match(ui, /returned no score, tags, diagnosis, notes, signals, references, or Card matches/);
   assert.match(ui, /setTimeout\(\(\) => save\(\), 350\)/);
   assert.match(ui, /if \(saveState === "dirty" && !\(await save\(\)\)\) return/);
   assert.doesNotMatch(ui, /Save human enrichment/);
-  assert.match(ui, /agentReview\?\.proposal\?\.quality\?\.value/);
+  assert.doesNotMatch(ui, /agentReview\?\.proposal\?\.quality\?\.value/);
   assert.match(ui, /review: reviewFilter/);
   assert.match(ui, /get\("review"\)/);
   assert.match(api, /\/api\/human-enricher\/agent-reviews/);
@@ -372,6 +412,8 @@ test("UI, API, CLI, and node discovery expose optical and bounded Reference Atla
   assert.match(api, /echoReferenceMiningStore\.currentRun\(\)/);
   assert.match(api, /forbiddenInputs/);
   assert.match(api, /wholeVideoPaletteForbidden/);
+  assert.match(api, /human-enricher-optical-minimal-v3/);
+  assert.match(api, /palettes: \{ first: \["#RRGGBB"\], middle: \["#RRGGBB"\], last: \["#RRGGBB"\] \}/);
   assert.match(cli, /human-enricher-agent-queue/);
   assert.match(cli, /human-enricher-agent-submit/);
   assert.match(cli, /human-enricher-agent-decision/);

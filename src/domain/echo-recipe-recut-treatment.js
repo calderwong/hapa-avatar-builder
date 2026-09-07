@@ -99,7 +99,7 @@ export function applyEchoRecutExecutionToGraph(graph,project){
   if(execution.schemaVersion!=='hapa.echo.recipe-execution-windows.v1')throw Error('Unsupported recipe execution version.');
   const director=graph.directorV2||{},cues=director.cueGraph?.cues||[],durationSeconds=Number(project.duration),reducedMotion=normalizeEchoLyricContract(project).reducedMotion;
   const cache=new Map();
-  const tracks=recipe=>{recipe=knownRecipe(recipe);const key=JSON.stringify(recipe);if(!cache.has(key))cache.set(key,buildEchoRecipeEventTracks({cues,recipe,durationSeconds,reducedMotion}));return cache.get(key)};
+  const tracks=recipe=>{recipe=knownRecipe(recipe);const key=JSON.stringify(recipe);if(!cache.has(key))cache.set(key,buildEchoRecipeEventTracks({cues,sections:director.cueGraph?.sections||[],recipe,durationSeconds,reducedMotion}));return cache.get(key)};
   const updated={...director};
   for(const [key,field] of [['accentWindows','accentTrack'],['visualTimeWindows','visualTimeTrack']]){
     const windows=execution[key]||[];if(!windows.length)continue;
@@ -189,6 +189,10 @@ export function preserveEchoCompiledRecipeLocks(graph,baseline,project,locks) {
   }
   const accentIds=new Set((director.accentTrack?.events||[]).map(e=>e.id));
   updated.effects=accentsLocked?clone(prior.effects||[]):[...(director.effects||[]).filter(e=>!accentIds.has(e.id)),...updated.accentTrack.events];
+  if(!tracks.some(track=>track.role==='accent')){
+    const before=(baseline.tracks||[]).find(track=>track.role==='accent');
+    if(before&&(accentsLocked||(before.cards||[]).some(card=>card.locked||locked(eventLocks,card.id))))tracks.push({...before,cards:[]});
+  }
   for(let index=0;index<tracks.length;index++)if(tracks[index].role==='accent'){
     const before=(baseline.tracks||[]).find(t=>t.role==='accent')?.cards||[];
     tracks[index]={...tracks[index],cards:accentsLocked?clone(before):mergeEventWindows({events:before},windows,()=>({events:tracks[index].cards}),eventLocks).events};

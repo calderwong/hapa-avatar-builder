@@ -140,6 +140,7 @@ export function parseEnrichmentDirectorArguments(argv = process.argv.slice(2)) {
   const expectedSongCount = Number(option(argv, ["--expected-song-count"], String(expectedDefault)));
   if (!Number.isInteger(expectedSongCount) || expectedSongCount < 1) throw new Error("--expected-song-count must be a positive integer.");
   const variantsDirectory = resolveOption(argv, ["--variants", "--variants-dir"], path.join(ROOT, "data/music-video-project-variants"));
+  const albumDiversityLedgerPath = text(option(argv, ["--album-diversity-ledger"], ""));
   return {
     apply,
     songId,
@@ -170,6 +171,7 @@ export function parseEnrichmentDirectorArguments(argv = process.argv.slice(2)) {
     indexPath: resolveOption(argv, ["--index", "--variant-index"], path.join(variantsDirectory, "index.json")),
     reportPath: resolveOption(argv, ["--report-out"], path.join(ROOT, "artifacts/echo-enrichment-director-variants/report.json")),
     backupsDirectory: resolveOption(argv, ["--backups"], path.join(ROOT, "data/backups")),
+    albumDiversityLedgerPath: albumDiversityLedgerPath ? path.resolve(albumDiversityLedgerPath) : "",
   };
 }
 
@@ -180,6 +182,45 @@ async function readJson(filePath, fallback) {
     if (error?.code === "ENOENT" && fallback !== undefined) return fallback;
     throw new Error(`Cannot read JSON ${filePath}: ${error.message}`, { cause: error });
   }
+}
+
+function usageMap(value) {
+  return new Map(Object.entries(value && typeof value === "object" && !Array.isArray(value) ? value : {})
+    .map(([key, count]) => [text(key), Math.max(0, Math.trunc(Number(count) || 0))])
+    .filter(([key, count]) => key && count > 0));
+}
+
+function serializableUsageMap(value) {
+  return Object.fromEntries([...value.entries()]
+    .filter(([key, count]) => text(key) && Number.isInteger(count) && count > 0)
+    .sort(([left], [right]) => left.localeCompare(right)));
+}
+
+async function readAlbumDiversityLedger(filePath) {
+  if (!filePath) return null;
+  const payload = await readJson(filePath, null);
+  if (payload && text(payload.schemaVersion) !== "hapa.echo.album-media-diversity-ledger.v1") {
+    throw new Error(`Unsupported album diversity ledger schema: ${filePath}`);
+  }
+  return {
+    enabled: true,
+    mediaUsageCounts: usageMap(payload?.mediaUsageCounts),
+    sourceUsageCounts: usageMap(payload?.sourceUsageCounts),
+    ledgerPath: filePath,
+    previousPayload: payload,
+  };
+}
+
+function albumDiversityLedgerPayload(albumDiversity, { batchFingerprint, generatedAt, generated } = {}) {
+  return {
+    schemaVersion: "hapa.echo.album-media-diversity-ledger.v1",
+    policy: "persisted-album-media-reuse-ledger-v1",
+    batchFingerprint: `sha256:${batchFingerprint}`,
+    updatedAt: generatedAt,
+    completedSongCount: generated.length,
+    mediaUsageCounts: serializableUsageMap(albumDiversity.mediaUsageCounts),
+    sourceUsageCounts: serializableUsageMap(albumDiversity.sourceUsageCounts),
+  };
 }
 
 export async function readEnrichmentNdjson(filePath) {
@@ -1133,6 +1174,7 @@ function assertIndexParity(index, diskRows) {
 
 export async function runEnrichmentDirectorVariantPass(options = parseEnrichmentDirectorArguments()) {
   const requestedSongIds = Array.isArray(options.songIds) ? options.songIds : [];
+  const albumDiversity = await readAlbumDiversityLedger(options.albumDiversityLedgerPath);
   const [
     rawEnrichments,
     chainGraph,
@@ -1294,6 +1336,13 @@ export async function runEnrichmentDirectorVariantPass(options = parseEnrichment
       assignedTransitionJobIds,
       transitionSelectionBalanceDigest,
       transitionEndpointValidation,
+      albumDiversity: albumDiversity?.enabled ? {
+        policy: "persisted-album-media-reuse-ledger-v1",
+        ledgerDigest: echoEnrichmentSha256({
+          mediaUsageCounts: serializableUsageMap(albumDiversity.mediaUsageCounts),
+          sourceUsageCounts: serializableUsageMap(albumDiversity.sourceUsageCounts),
+        }),
+      } : null,
     });
     const variant = compileEchoEnrichmentDirectorVariant({
       song,
@@ -1312,7 +1361,18 @@ export async function runEnrichmentDirectorVariantPass(options = parseEnrichment
       report: enrichmentReport,
       transitionEndpointValidation,
       transitionUsageCounts,
+      albumDiversity,
     });
+    if (albumDiversity?.enabled) {
+      for (const shot of variant.timeline) {
+        const mediaIdentity = text(shot.media_technical_identity);
+        const sourceGroup = text(shot.media_source_group, "unknown");
+        if (mediaIdentity) {
+          albumDiversity.mediaUsageCounts.set(mediaIdentity, (albumDiversity.mediaUsageCounts.get(mediaIdentity) || 0) + 1);
+        }
+        albumDiversity.sourceUsageCounts.set(sourceGroup, (albumDiversity.sourceUsageCounts.get(sourceGroup) || 0) + 1);
+      }
+    }
     for (const placement of list(variant.telemetry?.transitionPlan)) {
       if (placement.selection?.kind !== "semantic-supplement") continue;
       const jobId = text(placement.jobId);
@@ -1478,6 +1538,7 @@ export async function runEnrichmentDirectorVariantPass(options = parseEnrichment
       songs: options.songsPath,
       projects: options.projectsDirectory,
       variants: options.variantsDirectory,
+      albumDiversityLedger: options.albumDiversityLedgerPath || null,
       expectedSchema: ECHO_VIDEO_ENRICHMENT_EXPECTED_SCHEMA,
     },
     enrichment: {
@@ -1504,6 +1565,12 @@ export async function runEnrichmentDirectorVariantPass(options = parseEnrichment
       generated: generated.length,
       newFiles: generated.filter((row) => row.disposition === "pending-create").length,
       existingIdentical: generated.filter((row) => row.disposition === "existing-identical").length,
+      albumDiversity: albumDiversity?.enabled ? {
+        policy: "persisted-album-media-reuse-ledger-v1",
+        ledgerPath: options.albumDiversityLedgerPath,
+        uniqueMedia: albumDiversity.mediaUsageCounts.size,
+        maximumMediaReuse: Math.max(0, ...albumDiversity.mediaUsageCounts.values()),
+      } : null,
       motion: motionTelemetry,
       parentCuts: Object.fromEntries(generated.map((row) => [row.songId, row.parentVariantId])),
       cuts: generated.map((row) => ({
@@ -1567,6 +1634,15 @@ export async function runEnrichmentDirectorVariantPass(options = parseEnrichment
       }
       report.index.serializedRebuild = "complete";
     });
+    if (albumDiversity?.enabled) {
+      const ledgerPayload = albumDiversityLedgerPayload(albumDiversity, {
+        batchFingerprint: catalog.batchFingerprint,
+        generatedAt: effectiveTimestamp,
+        generated,
+      });
+      await atomicWrite(options.albumDiversityLedgerPath, ledgerPayload);
+      report.variants.albumDiversity.ledgerDigest = `sha256:${echoEnrichmentSha256(ledgerPayload)}`;
+    }
   }
 
   const changedProjects = [];

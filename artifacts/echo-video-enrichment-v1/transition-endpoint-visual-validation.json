@@ -1,6 +1,6 @@
 {
   "schemaVersion": "hapa.echo.transition-endpoint-visual-validation.v1",
-  "generatedAt": "2026-08-03T04:38:02.200Z",
+  "generatedAt": "2026-08-03T16:27:39.355Z",
   "generatedAtBasis": "chain-graph.generatedAt",
   "algorithm": {
     "id": "center-crop-luma-ssim-phash-edge-v3-physical-terminal-pts",
@@ -37,11 +37,11 @@
   "inputs": {
     "chainGraph": {
       "path": "artifacts/echo-video-enrichment-v1/chain-graph.json",
-      "sha256": "d1cbf53e98795a5e63e8b93a5b1f4450358f67eef1db3ff02570bf5147f72d92"
+      "sha256": "d27660ad69fcb9de91fa6fdf78a9f418072ca24c55e2d7d04a9a1d2ae18cf3c8"
     },
     "enrichments": {
       "path": "artifacts/echo-video-enrichment-v1/enrichments.ndjson",
-      "sha256": "0048a37c2f04c0f695325c02f90dbb2bb7d1dadd984859de7e6b921de04ac7df"
+      "sha256": "0574c270ac7b06db493370cc13c0a97f4af63d7d49ce5b607f9aeb615c90a61b"
     },
     "referenceCatalog": {
       "path": "data/echo-reference-animated-media.json",
@@ -53,7 +53,7 @@
     "uniqueReferenceCount": 75,
     "transitionMediaSetDigestSha256": "488f5639b85a1a2eb0cc0920976b0504e95e68916705025ee72eccea3031473c",
     "referenceStillSetDigestSha256": "44363b18860681f32a0e35e8f3726c9d3a04f16d82508db7947890ff1eef6eff",
-    "aggregateInputDigestSha256": "0bddcb37edafbc990f8181654efef8f620ff99fe0525d6c26f01a97ae9435aad"
+    "aggregateInputDigestSha256": "fdba8bcd41f96213738e4fb983640ba51ff777f9d6d37a914a5dfa841096a19b"
   },
   "aggregate": {
     "declaredTransitionCount": 41,
@@ -8844,5 +8844,5 @@
       "decision": "quarantine"
     }
   ],
-  "resultDigestSha256": "10a99d7be1af9d0dd717fc78d3b4a43a3d9adb9bc111f4d04a9e56f30663323a"
+  "resultDigestSha256": "b8366f9ae6ca7e4628e7cb60cd45b6967c73f9bcf788d2c3963db6df661c98d0"
 }
