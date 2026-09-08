@@ -799,7 +799,11 @@ export function createEchoIsfSurface(options = {}) {
       historyFailureKey = key;
       publish("history-error", { error: errorText(error) });
     });
-    if (historyResult && historyIdentity === identity) return { ...historyResult, historyPending: true, heldPrevious: true, heldPreviousFrame: true };
+    if (historyResult && historyIdentity === identity) return { ...historyResult,
+      // Keep the held pixels and their clock, but report the active replay
+      // progress rather than the previous completed seek's receipt.
+      historyProgress: state.historyProgress || historyResult.historyProgress,
+      preparingHistory: Boolean(historyFlight), historyPending: true, heldPrevious: true, heldPreviousFrame: true };
     return { ...snapshot(), status: "preparing-history", ok: false, error: "Preparing shader history", canvas: presentationCanvas };
   };
 

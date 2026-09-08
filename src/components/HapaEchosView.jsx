@@ -1052,11 +1052,13 @@ function resolveEchoShotSourceDimensions(item = null, mediaElement = null) {
   const declaredHeight = positiveEchoMediaDimension(dimensions.height, mediaContract.height);
   const decodedWidth = positiveEchoMediaDimension(
     mediaElement?.videoWidth,
+    mediaElement?.displayWidth,
     mediaElement?.naturalWidth,
     mediaElement?.width,
   );
   const decodedHeight = positiveEchoMediaDimension(
     mediaElement?.videoHeight,
+    mediaElement?.displayHeight,
     mediaElement?.naturalHeight,
     mediaElement?.height,
   );
@@ -3327,6 +3329,10 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
       const pixelRatio = Math.max(1, Math.min(1.5, Number(globalThis.devicePixelRatio || 1)));
       const targetWidth = Math.min(activeOutputProfile.width, Math.max(640, Math.round(cssWidth * pixelRatio)));
       const targetHeight = Math.round(targetWidth * activeOutputProfile.height / activeOutputProfile.width);
+      const masterClock = audioRef.current;
+      const t = masterClock && !masterClock.paused
+        ? Number(masterClock.currentTime || currentTimeRef.current)
+        : currentTimeRef.current;
       if (canvas.width !== targetWidth) canvas.width = targetWidth;
       if (canvas.height !== targetHeight) canvas.height = targetHeight;
       const ctx = canvas.getContext('2d');
@@ -3338,10 +3344,6 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
       const height = canvas.height;
       ctx.clearRect(0, 0, width, height);
       
-      const masterClock = audioRef.current;
-      const t = masterClock && !masterClock.paused
-        ? Number(masterClock.currentTime || currentTimeRef.current)
-        : currentTimeRef.current;
       currentTimeRef.current = t;
       const directorPreviewFrame = activeDirectorPreviewSource
         ? projectEchoDirectorPreviewFrame({

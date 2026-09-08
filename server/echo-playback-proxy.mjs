@@ -3,10 +3,47 @@ import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { createEchoSourceInspector } from './echo-source-inventory.mjs';
 import { runEchoPreparationStage } from './echo-performance-preparation.mjs';
+import { ByteBoundedLruCache } from './byte-bounded-lru-cache.mjs';
 
 const VERSION = 'hapa.echo.playback-proxy.v3';
 const hash = value => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 const pending = new Map();
+const frameIndices = new ByteBoundedLruCache({ maxBytes: 8 * 1024 ** 2, maxEntries: 32 });
+const indexing = new Map();
+
+// Read only the independently coded, hash-verified previews produced by this
+// owner. FFprobe supplies MP4 packet offsets and AVC configuration; no second
+// media parser or source transcode is introduced for historical frame access.
+export async function readEchoPlaybackProxyFrameIndex({ proxyRoot, key } = {}) {
+  if (!/^[a-f0-9]{64}$/.test(key || '')) throw new Error('proxy-frame-key-invalid');
+  const root = await fs.realpath(proxyRoot), directory = path.join(root, key), file = path.join(directory, 'preview.mp4');
+  if (await fs.realpath(directory) !== directory || await fs.realpath(file) !== file) throw new Error('proxy-frame-path-invalid');
+  const before = await fs.stat(file), manifestFile = path.join(directory, 'manifest.json');
+  if (!before.isFile() || before.size <= 0 || before.size > 32 * 1024 ** 2 || (await fs.stat(manifestFile)).size > 65536) throw new Error('proxy-frame-input-budget');
+  const manifest = JSON.parse(await fs.readFile(manifestFile, 'utf8'));
+  if (manifest.key !== key || manifest.schemaVersion !== VERSION || manifest.settings?.gop !== 1 || manifest.settings?.bFrames !== 0 || manifest.durationSeconds * 30 > 4096 || manifest.byteSize !== before.size) throw new Error('proxy-frame-index-unsupported');
+  const identity = await createEchoSourceInspector().inspect(file);
+  if (identity.sha256 !== manifest.sha256) throw new Error('proxy-frame-hash-mismatch');
+  const cacheKey = `${key}:${identity.sha256}`;
+  const cached = frameIndices.get(cacheKey); if (cached) return cached.index;
+  if (indexing.has(cacheKey)) return indexing.get(cacheKey);
+  if (indexing.size >= 2) throw new Error('proxy-frame-index-busy');
+  const work = (async () => {
+    const data = JSON.parse(await command('ffprobe', ['-v', 'error', '-select_streams', 'v:0', '-show_packets', '-show_streams', '-show_data', '-show_entries', 'packet=pos,size,pts_time,dts_time,duration_time,flags:stream=codec_name,codec_tag_string,width,height,extradata', '-of', 'json=compact=1', file]));
+    const stream = data.streams?.[0];
+    if (data.streams?.length !== 1 || stream.codec_name !== 'h264' || stream.codec_tag_string !== 'avc1' || stream.width !== manifest.width || stream.height !== manifest.height) throw new Error('proxy-frame-codec-mismatch');
+    const description = String(stream.extradata || '').trim().split('\n').map(line => line.slice(10).split(/ {2,}/)[0].replace(/\s/g, '')).join('');
+    if (!/^01[a-f0-9]{12,2046}$/i.test(description) || description.length % 2) throw new Error('proxy-frame-avc-description-invalid');
+    const packets = (data.packets || []).map(row => ({ offset: Number(row.pos), size: Number(row.size), timestamp: Math.round(Number(row.pts_time) * 1e6), duration: Math.round(Number(row.duration_time) * 1e6), independent: String(row.flags).includes('K'), dts: Math.round(Number(row.dts_time) * 1e6) }));
+    if (!packets.length || packets.length > 4096 || packets.some((p, i) => ![p.offset, p.size, p.timestamp, p.duration, p.dts].every(Number.isSafeInteger) || p.offset < 0 || p.size <= 0 || p.offset + p.size > before.size || p.timestamp < 0 || p.duration <= 0 || p.timestamp !== p.dts || !p.independent || (i > 0 && (p.timestamp <= packets[i - 1].timestamp || p.offset < packets[i - 1].offset + packets[i - 1].size)))) throw new Error('proxy-frame-packets-invalid');
+    const after = await fs.stat(file);
+    if ([before.size, before.mtimeMs, before.ctimeMs, before.ino].join(':') !== [after.size, after.mtimeMs, after.ctimeMs, after.ino].join(':')) throw new Error('proxy-frame-source-changed');
+    const index = { schemaVersion: 'hapa.echo.proxy-frame-index.v1', key, sha256: identity.sha256, byteSize: before.size, codec: `avc1.${description.slice(2, 8)}`, description, width: stream.width, height: stream.height, startSeconds: packets[0].timestamp / 1e6, durationSeconds: manifest.durationSeconds, packets: packets.map(({ dts, independent, ...p }) => p) };
+    frameIndices.set(cacheKey, { index, size: Buffer.byteLength(JSON.stringify(index)) * 3 });
+    return index;
+  })().finally(() => indexing.delete(cacheKey));
+  indexing.set(cacheKey, work); return work;
+}
 async function command(executable, args, { signal, timeoutMs = 30000 } = {}) {
   let output = '';
   const controller = new AbortController();

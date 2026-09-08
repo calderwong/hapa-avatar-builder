@@ -33,7 +33,7 @@ At each meaningful update, keep JSON and Markdown in agreement, append the corre
 
 ## Next action
 
-The actual editor precise-audio path is verified with matching source/PCM receipts and bounded cache reader protection. Continue persistent shader cold/resume preparation, then composite/physical timing and sustained global resources. Preserve authored durations and reuse the audio/source evidence. A1 remains unaccepted; six done/twelve in progress.
+Bounded direct proxy decoding and held-frame progress are verified; real-editor prepared playback from240s to258.439979s records32.0ms p95 shader/playhead lag, excluding physical/composite output. Near-end reconstruction still takes89.9s. Complete independent preview quality controls and global shader/decoder/compositor budgets, then remaining integrated timing/stem acceptance. A1 remains unaccepted; six done/twelve in progress. See the latest [decoder/progress postmortem](postmortems/2026-09-08-echo-direct-proxy-decoding.md) for failed runs and exact scope.
 
 ## Conviction relationship — 2026-09-06
 
@@ -140,3 +140,7 @@ Initial orchestration failures remain in task evidence: missing test-file creati
 A1 remains unaccepted and the board stays6 done/12 in progress. The next unresolved work is persistent shader cold/resumed latency, followed by visible composite/physical timing and sustained global resource acceptance. The93.11s cold replay and144ms p95 short resumed shader lag remain unresolved. Do not repeat valid audio/source tests merely to work on shader history. See [the audio preparation postmortem](postmortems/2026-09-08-echo-precise-audio.md). Evidence: `$ECHO_REVIEW_WORKSPACE/audio-seek-proof/`, final native under `integration-final/editor/`.
 
 Audio regression correction: the two affected files pass36/36; combined with unchanged passing files, all53 affected cases have passing evidence. No requirement closure.
+
+## A1 direct proxy decoding and held progress — September 8 UTC
+
+Verified a maximum four-frame decode queue, exact native seek/playback pixels and active progress while holding prior pixels.82 affected tests pass;55 protected/12 authoring hashes are unchanged. Actual prepared Dear Papa near-end reconstruction7735frames took89.880s; reverse257.5s85.7ms; resume240s to258.439979s retained900timing samples,p95=32.000ms,max33.333ms,zero over one frame. This is shader/playhead evidence, not physical/composite/full-song acceptance. The actual editor run failed its stale held-progress assertion; that repair passed a shorter native fixture afterward. The initial unprepared-originals run and ineffective paused throttle remain preserved failures. No broad suite repeated, no requirements closed and no accepted pilot batch. Full details and reuse boundaries: [postmortem](postmortems/2026-09-08-echo-direct-proxy-decoding.md).

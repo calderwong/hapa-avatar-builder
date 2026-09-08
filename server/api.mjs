@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { verifyEchoPlaybackAudioReceipt } from './echo-playback-audio.mjs';
+import { readEchoPlaybackProxyFrameIndex } from './echo-playback-proxy.mjs';
 import { createServer as createHttpServer } from "node:http";
 import { createServer as createHttpsServer } from "node:https";
 import { execFile, execFileSync, spawn, execSync, exec } from "node:child_process";
@@ -3168,6 +3169,12 @@ async function route(req, res) {
     res.setHeader('X-Hapa-Audio-Source-Sha256', job.result.sourceHash);
     res.setHeader('X-Hapa-Audio-PCM-Sha256', job.result.pcmSha256);
     await serveLocalFile(job.result.path, req, res); return;
+  }
+
+  if (pathname === '/api/echos/playback-proxy-frame-index' && req.method === 'GET') {
+    try { sendJson(res, 200, await readEchoPlaybackProxyFrameIndex({ proxyRoot: path.join(MEDIA_DIR, 'echo-proxies-v2'), key: url.searchParams.get('key') })); }
+    catch (error) { sendJson(res, 422, { error: 'echo_proxy_frame_index_unavailable', message: error.message }); }
+    return;
   }
 
   if (pathname === "/api/echos/music-performance/prepare" && ['GET', 'DELETE'].includes(req.method)) {

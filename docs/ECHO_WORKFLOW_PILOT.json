@@ -2,7 +2,7 @@
   "schemaVersion": "hapa.workflow-pilot.v1",
   "id": "echo-requirement-completion-batch-pilot",
   "version": "0.1",
-  "updatedAt": "2026-09-08T06:10:37.270626+00:00",
+  "updatedAt": "2026-09-08T06:54:06.502809+00:00",
   "status": "active-pilot",
   "effectiveness": "not-yet-evaluated",
   "ownerTaskId": "01a072d3-d593-74f2-8c89-2470c2ee1a40",
@@ -40,7 +40,7 @@
   "batches": [
     {
       "id": "A1",
-      "status": "precise-audio-and-cache-verified-shader-performance-acceptance-pending",
+      "status": "bounded-proxy-decoding-and-held-progress-verified-global-performance-open",
       "requirements": [
         "ECHO-07"
       ],
@@ -225,7 +225,7 @@
     "docs/postmortems/2026-09-08-echo-precise-audio.md"
   ],
   "decisionAfterAcceptedBatches": 2,
-  "nextAction": "Improve persistent shader cold/resume latency, then prove composite/physical timing and sustained global resources. Reuse verified precise-audio, terminal and source evidence.",
+  "nextAction": "Complete independent preview quality controls and global shader/decoder/compositing budgets, then integrated timing acceptance.",
   "updates": "batch-start, scope-change, consequential-failure, acceptance, handoff, goal-completion",
   "collaboration": {
     "protocol": "docs/ECHO_CONVICTION_PROTOCOL.md",
@@ -344,5 +344,184 @@
       "authoring": 12,
       "unchanged": true
     }
+  },
+  "latestDirectProxyDecoding": {
+    "status": "decoder-and-held-progress-verified-requirements-open",
+    "at": "2026-09-08T06:54:06.502809+00:00",
+    "affectedTests": 82,
+    "nativePixelSeekCases": 6,
+    "nativePlaybackFrameCases": 12,
+    "heldProgressVisible": true,
+    "actualEditor": {
+      "runPassed": false,
+      "failedAssertion": "Held-frame progress concealed active replay; corrected afterward with native fixture evidence",
+      "sourceRoutePreflight": "decoded-proxy-frame",
+      "seekMeasurements": [
+        {
+          "requested": 258.4,
+          "history": {
+            "replayed": 7735,
+            "ready": true,
+            "checkpoint": {
+              "schemaVersion": "hapa.isf.checkpoints.v1",
+              "count": 36,
+              "bytes": 131706432,
+              "maxBytes": 134217728,
+              "intervalFrames": 30
+            },
+            "totalMs": 89879.60000002384,
+            "mediaPrepareMs": 35452.199996352196,
+            "shaderDrawMs": 52977.40000498295
+          },
+          "mediaFrameReceipt": {
+            "route": "decoded-proxy-frame",
+            "presentationEvidence": "webcodecs-decoded-output",
+            "sourceTimeSeconds": 2.9666666666666686,
+            "observedTimeSeconds": 2.966667,
+            "sourceOriginSeconds": 0,
+            "sourceOriginClamped": false,
+            "songTimeSeconds": 258.3666666666667,
+            "width": 800,
+            "height": 1136,
+            "uri": "http://127.0.0.1:19088/media/echo-proxies-v2/7dec39e4c0e01f0355abaf472dba5ecfa48b2a1de0e79dc3bb04fd1a6181940c/preview.mp4",
+            "sourceHash": "48571c85a134973ebdaa1b251e7f2f3683f78ee5978b13efd291e091e5a76bfb",
+            "retainedEncodedBytes": 5569335,
+            "retainedFrames": 1,
+            "queuedFrames": 3,
+            "maxFrames": 4,
+            "fidelity": "sampled-H264-preview; originals retained for export",
+            "originalUri": "/media/grok-video-2e6f0669-72de-4484-b11f-c6082a6e760f-499845b40c732432.mp4",
+            "originalSourceHash": null,
+            "preparationMs": {
+              "projection": 0,
+              "decode": 7,
+              "framingAndSignals": 0.20000004768371582
+            }
+          }
+        },
+        {
+          "requested": 257.5,
+          "history": {
+            "replayed": 15,
+            "ready": true,
+            "checkpoint": {
+              "schemaVersion": "hapa.isf.checkpoints.v1",
+              "count": 36,
+              "bytes": 131706432,
+              "maxBytes": 134217728,
+              "intervalFrames": 30
+            },
+            "totalMs": 85.69999992847443,
+            "mediaPrepareMs": 75.30000007152557,
+            "shaderDrawMs": 4.899999976158142
+          },
+          "mediaFrameReceipt": {
+            "route": "decoded-proxy-frame",
+            "presentationEvidence": "webcodecs-decoded-output",
+            "sourceTimeSeconds": 2.0999999999999943,
+            "observedTimeSeconds": 2.1,
+            "sourceOriginSeconds": 0,
+            "sourceOriginClamped": false,
+            "songTimeSeconds": 257.5,
+            "width": 800,
+            "height": 1136,
+            "uri": "http://127.0.0.1:19088/media/echo-proxies-v2/7dec39e4c0e01f0355abaf472dba5ecfa48b2a1de0e79dc3bb04fd1a6181940c/preview.mp4",
+            "sourceHash": "48571c85a134973ebdaa1b251e7f2f3683f78ee5978b13efd291e091e5a76bfb",
+            "retainedEncodedBytes": 5569335,
+            "retainedFrames": 1,
+            "queuedFrames": 3,
+            "maxFrames": 4,
+            "fidelity": "sampled-H264-preview; originals retained for export",
+            "originalUri": "/media/grok-video-2e6f0669-72de-4484-b11f-c6082a6e760f-499845b40c732432.mp4",
+            "originalSourceHash": null,
+            "preparationMs": {
+              "projection": 0.10000002384185791,
+              "decode": 0,
+              "framingAndSignals": 0.10000002384185791
+            }
+          }
+        },
+        {
+          "requested": 240,
+          "history": {
+            "replayed": 0,
+            "ready": true,
+            "checkpoint": {
+              "schemaVersion": "hapa.isf.checkpoints.v1",
+              "count": 36,
+              "bytes": 131706432,
+              "maxBytes": 134217728,
+              "intervalFrames": 30
+            },
+            "totalMs": 127.29999995231628,
+            "mediaPrepareMs": 125,
+            "shaderDrawMs": 0.3999999761581421
+          },
+          "mediaFrameReceipt": {
+            "route": "decoded-proxy-frame",
+            "presentationEvidence": "webcodecs-decoded-output",
+            "sourceTimeSeconds": 2,
+            "observedTimeSeconds": 2,
+            "sourceOriginSeconds": 0,
+            "sourceOriginClamped": false,
+            "songTimeSeconds": 240,
+            "width": 960,
+            "height": 1280,
+            "uri": "http://127.0.0.1:19088/media/echo-proxies-v2/3b1b28b745e58eab6bcc88e0a11b5a01f6bffd94ed7229ad0f3c61a987f5ee36/preview.mp4",
+            "sourceHash": "56ac1be27f7579469f995e38050044a9627a3ef127e74f41263176cea5d6baf9",
+            "retainedEncodedBytes": 2473709,
+            "retainedFrames": 1,
+            "queuedFrames": 3,
+            "maxFrames": 4,
+            "fidelity": "sampled-H264-preview; originals retained for export",
+            "originalUri": "/media/20251105-video-143671-39324957-eeeb037d3e2a2bba.mp4",
+            "originalSourceHash": null,
+            "preparationMs": {
+              "projection": 0.19999992847442627,
+              "decode": 124.5,
+              "framingAndSignals": 0.30000007152557373
+            }
+          }
+        }
+      ],
+      "terminalAudio": {
+        "time": 258.439979,
+        "paused": true
+      },
+      "shaderTiming": [
+        {
+          "shaderId": "isf:5e7a80437c113618206dedfb",
+          "samples": 900,
+          "lastMs": 30.859000000020842,
+          "p95Ms": 31.999999999982265,
+          "maxMs": 33.33300000002737,
+          "overOneFrame": 0,
+          "scope": "audio-playhead-to-prepared-shader-frame; excludes physical output latency"
+        }
+      ],
+      "resumedFromSeconds": 240,
+      "durationSeconds": 258.439979
+    },
+    "boundedOwnership": {
+      "sourceEncodedMaxBytes": 33554432,
+      "decodedAndQueuedFrames": 4,
+      "frameIndexMaxBytes": 8388608,
+      "frameIndexMaxEntries": 32,
+      "indexProcesses": 2
+    },
+    "sourceIntegrity": {
+      "pass": true,
+      "protectedFiles": 55,
+      "authoringFiles": 12,
+      "failures": []
+    },
+    "scopeLimits": [
+      "No physical/composite AV acceptance",
+      "No whole-song timing acceptance for this revision",
+      "No sustained global-memory acceptance",
+      "No human preference acceptance",
+      "Initial near-end reconstruction had16frames already prepared; measurements are not paired cold-start speedup evidence"
+    ],
+    "nextAction": "Complete independent preview quality controls and global shader/decoder/compositing budgets, then integrated timing acceptance."
   }
 }
