@@ -1,3 +1,4 @@
+import { prepareEchoAudioPlayback } from '../domain/echo-audio-playback.js';
 import { createEchoEmptyShaderMedia } from "../domain/echo-empty-shader-media.js";
 import { createEchoIsfHistoryMedia } from "../domain/echo-isf-history-media.js";
 import { createImageShotGeometry, selectImageShotRendition } from "../domain/unified-media-catalog.js";
@@ -25,7 +26,7 @@ import {
   WandSparkles
 } from "lucide-react";
 import { normalizePlaybackPowerMode } from "../domain/playback-power-mode.js";
-import { echoAudioFetchRequest, echoProjectAudioRoute, echoLocalMediaApiBase } from "../domain/echo-audio-route.js";
+import { echoProjectAudioRoute, echoLocalMediaApiBase } from "../domain/echo-audio-route.js";
 import {
   echoSourceWindowAtEnd,
   echoSourceWindowPlaybackRate,
@@ -1750,6 +1751,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
   const sessionBusterRef = useRef(Math.random().toString(36).substring(7));
 
   const [audioBlobUrl, setAudioBlobUrl] = useState("");
+  const [audioPlaybackReceipt, setAudioPlaybackReceipt] = useState(null);
   const [audioLoading, setAudioLoading] = useState(false);
   const [audioPlaybackReady, setAudioPlaybackReady] = useState(false);
   const [audioPlaybackError, setAudioPlaybackError] = useState("");
@@ -2424,11 +2426,12 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
     echoPlaybackEngineRef.current?.setPlaying(isPlaying);
   }, [isPlaying]);
 
-  // Fetch song audio as same-origin Blob to bypass browser/Electron Web Audio CORS muting
+  // Prepare source-bound PCM and stream it through the CORS-enabled local file owner.
+  // Keep the existing audio element/clock; no large WAV blob or source replacement.
   useEffect(() => {
     if (!activeProject?.song_id) {
       setAudioBlobUrl((current) => {
-        if (current) URL.revokeObjectURL(current);
+        if (current?.startsWith("blob:")) URL.revokeObjectURL(current);
         return "";
       });
       setAudioLoading(false);
@@ -2442,10 +2445,11 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
     setAudioPlaybackReady(false);
     setAudioPlaybackError("");
     setAudioBlobUrl((current) => {
-      if (current) URL.revokeObjectURL(current);
+      if (current?.startsWith("blob:")) URL.revokeObjectURL(current);
       return "";
     });
-    setAudioDiagnostics(`Fetching audio blob for ${activeProject.song_id}...`);
+    setAudioPlaybackReceipt(null);
+    setAudioDiagnostics("Preparing audio for precise seeking…");
     
     const audioRoute = echoProjectAudioRoute(activeProject);
     const url = resolveSongRegistryUri(audioRoute.uri);
@@ -2459,23 +2463,16 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
       };
     }
     
-    const audioRequest = echoAudioFetchRequest(url, audioLoadRetryNonce);
     const controller = new AbortController();
-    fetch(audioRequest.url, { ...audioRequest.options, signal: controller.signal })
-      .then(res => {
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        return res.blob();
-      })
-      .then(blob => {
+    prepareEchoAudioPlayback({ apiBase: API_BASE, songId: activeProject.song_id, variantId: activeDirectionVariantSelection,
+      sourceUri: audioRoute.uri, signal: controller.signal, onProgress: message => { if (active) setAudioDiagnostics(message); } })
+      .then(({ url: playbackUrl, receipt }) => {
         if (!active) return;
-        const blobUrl = URL.createObjectURL(blob);
-        setAudioBlobUrl(current => {
-          if (current) URL.revokeObjectURL(current);
-          return blobUrl;
-        });
+        setAudioPlaybackReceipt(receipt);
+        setAudioBlobUrl(playbackUrl);
         setAudioLoading(false);
         setAudioPlaybackError("");
-        setAudioDiagnostics(`Audio loaded as blob URL`);
+        setAudioDiagnostics("Audio ready · precise seeking");
       })
       .catch(err => {
         if (!active) return;
@@ -2483,7 +2480,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
         setAudioPlaybackReady(false);
         setAudioPlaybackError(`Playback audio could not be loaded (${err.message || "request failed"}). Click Retry audio.`);
         setAudioDiagnostics(`Fetch error: ${err.message}`);
-        console.error("Failed to fetch audio blob:", err);
+        console.error("Failed to prepare playback audio:", err);
       });
       
     return () => {
@@ -2510,7 +2507,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
   useEffect(() => {
     return () => {
       setAudioBlobUrl(current => {
-        if (current) URL.revokeObjectURL(current);
+        if (current?.startsWith("blob:")) URL.revokeObjectURL(current);
         return "";
       });
     };
@@ -6972,12 +6969,16 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                               ))}
                             </div>
 
-                            {/* Hidden audio element using same-origin blob URL */}
+                            {/* Source-bound PCM, streamed with byte ranges; source MP3 remains unchanged. */}
                             {audioBlobUrl && (
                               <audio 
                                 key={audioBlobUrl}
                                 ref={audioRef}
                                 src={audioBlobUrl}
+                                data-echo-audio-fidelity={audioPlaybackReceipt?.fidelity || "unavailable"}
+                                data-echo-audio-source-hash={audioPlaybackReceipt?.sourceHash || ""}
+                                data-echo-audio-pcm-hash={audioPlaybackReceipt?.pcmSha256 || ""}
+                                data-echo-audio-duration={audioPlaybackReceipt?.durationSeconds || ""}
                                 onTimeUpdate={handleTimeUpdate}
                                 onEnded={() => setIsPlaying(false)}
                                 onLoadedData={() => {

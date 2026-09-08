@@ -56,16 +56,34 @@ export function runEchoPreparationStage(command, args, { cwd, signal, onOutput =
  * cache keys allow retries to reuse completed audio resources after restart. */
 export function createEchoPerformancePreparation({ root, runStage = runEchoPreparationStage, maxQueued = 8, maxRetained = 32 } = {}) {
   const jobs = new Map(), queue = [];
+  const releasing = new Set();
+  function releasePlayback(job) {
+    if (!job.view.result?.leaseId) return;
+    const work = import('./echo-playback-audio.mjs').then(({ releaseEchoPlaybackAudio }) => releaseEchoPlaybackAudio(job.view.result))
+      .catch(error => update(job, { releaseError: error.message }));
+    releasing.add(work); work.finally(() => releasing.delete(work));
+  }
   let current = null, closing = false, runningPromise = Promise.resolve();
   const publicJob = job => job ? structuredClone(job.view) : null;
   const update = (job, value) => Object.assign(job.view, value, { updatedAt: new Date().toISOString() });
   async function perform(job) {
-    const { graph, masterPath } = job.input;
+    const { graph, masterPath, kind } = job.input;
     const directory = path.join(root, 'artifacts/echo-performance-preparation', job.view.id);
     const graphPath = path.join(directory, 'graph.json'), telemetryPath = path.join(directory, 'telemetry.json');
     const analyzedGraphPath = path.join(directory, 'analyzed-graph.json'), output = path.join(directory, 'performance.json');
     try {
       await fs.mkdir(directory, { recursive: true });
+      if (kind === 'playback-audio') {
+        update(job, { stage: 'preparing-playback', message: 'Preparing audio for precise seeking.' });
+        const { prepareEchoPlaybackAudio } = await import('./echo-playback-audio.mjs');
+        const result = await prepareEchoPlaybackAudio({ sourcePath: masterPath, cacheRoot: path.join(root, 'data/cache/echo-playback-audio'), signal: job.controller.signal, leaseId: job.view.id });
+        if (job.controller.signal.aborted) {
+          job.view.result = result; releasePlayback(job);
+          throw failure('echo_preparation_cancelled', 'Preparation cancelled.');
+        }
+        update(job, { status: 'ready', stage: 'complete', message: 'Audio ready for precise seeking.', result: { ...result, sourceUri: job.input.sourceUri } });
+        return;
+      }
       await fs.writeFile(graphPath, JSON.stringify(graph), { flag: 'wx' });
       const options = { cwd: root, signal: job.controller.signal, onOutput: text => update(job, { outputTail: (job.view.outputTail + text).slice(-4000) }) };
       update(job, { stage: 'analyzing', message: 'Analyzing audio; unchanged resources reuse cached results.' });
@@ -96,21 +114,24 @@ export function createEchoPerformancePreparation({ root, runStage = runEchoPrepa
   return {
     start(input) {
       if (closing) throw failure('echo_preparation_stopping', 'The preparation service is shutting down.', 503);
-      if (!input?.songId || !input.masterPath || !input.graph?.song) throw failure('echo_preparation_inputs_missing', 'A selected song, exact master and director graph are required.', 422);
+      if (!input?.songId || !input.masterPath || (input.kind !== 'playback-audio' && !input.graph?.song)) throw failure('echo_preparation_inputs_missing', 'A selected song, exact master and director graph are required.', 422);
       const bytes = JSON.stringify(input);
-      if (Buffer.byteLength(bytes) > 32 * 1024 * 1024 || (input.graph.stems?.items?.length || 0) > 32) throw failure('echo_preparation_input_budget', 'Preparation exceeds the graph or stem count budget.', 422);
+      if (Buffer.byteLength(bytes) > 32 * 1024 * 1024 || (input.graph?.stems?.items?.length || 0) > 32) throw failure('echo_preparation_input_budget', 'Preparation exceeds the graph or stem count budget.', 422);
       const key = createHash('sha256').update(bytes).digest('hex');
       const existing = [...jobs.values()].find(job => job.view.key === key && active(job.view));
       if (existing) return publicJob(existing);
       if (queue.length >= maxQueued) throw failure('echo_preparation_queue_full', 'The audio preparation queue is full. Retry after a job finishes.', 429);
-      for (const [id, job] of jobs) { if (jobs.size < maxRetained) break; if (!active(job.view)) jobs.delete(id); }
-      const job = { input: JSON.parse(bytes), controller: new AbortController(), view: { id: randomUUID(), key, songId: input.songId, variantId: input.variantId || 'legacy', status: 'queued', stage: 'queued', queuedAt: new Date().toISOString(), outputTail: '', message: 'Waiting for the audio analyzer.' } };
-      jobs.set(job.view.id, job); queue.push(job); pump(); return publicJob(job);
+      for (const [id, job] of jobs) { if (jobs.size < maxRetained) break; if (!active(job.view) && !(job.view.kind === 'playback-audio' && job.view.status === 'ready')) jobs.delete(id); }
+      if (jobs.size >= maxRetained) throw failure('echo_preparation_retention_full', 'Close an unused preparation session before starting another.', 429);
+      const job = { input: JSON.parse(bytes), controller: new AbortController(), view: { id: randomUUID(), key, kind: input.kind || 'performance', requestId: input.requestId || null, songId: input.songId, variantId: input.variantId || 'legacy', status: 'queued', stage: 'queued', queuedAt: new Date().toISOString(), outputTail: '', message: 'Waiting for the audio analyzer.' } };
+      jobs.set(job.view.id, job); if (input.kind === 'playback-audio') queue.unshift(job); else queue.push(job); pump(); return publicJob(job);
     },
     get(id) { return publicJob(jobs.get(id)); },
-    latest(songId, variantId = 'legacy') { return publicJob([...jobs.values()].reverse().find(job => job.view.songId === songId && job.view.variantId === variantId)); },
+    findRequest(requestId) { return publicJob([...jobs.values()].find(job => job.view.requestId === requestId)); },
+    latest(songId, variantId = 'legacy') { return publicJob([...jobs.values()].reverse().find(job => job.view.kind !== 'playback-audio' && job.view.songId === songId && job.view.variantId === variantId)); },
     cancel(id) {
       const job = jobs.get(id); if (!job) return null;
+      if (job.view.kind === 'playback-audio' && job.view.status === 'ready') { update(job, { status: 'released', message: 'Playback session released.' }); releasePlayback(job); }
       if (active(job.view)) {
         job.controller.abort();
         const index = queue.indexOf(job);
@@ -119,6 +140,6 @@ export function createEchoPerformancePreparation({ root, runStage = runEchoPrepa
       }
       return publicJob(job);
     },
-    async close() { closing = true; for (const job of [...queue, ...(current ? [current] : [])]) this.cancel(job.view.id); await runningPromise; },
+    async close() { closing = true; for (const job of jobs.values()) this.cancel(job.view.id); await runningPromise; await Promise.all([...releasing]); },
   };
 }

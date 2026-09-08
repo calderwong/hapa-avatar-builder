@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { verifyEchoPlaybackAudioReceipt } from './echo-playback-audio.mjs';
 import { createServer as createHttpServer } from "node:http";
 import { createServer as createHttpsServer } from "node:https";
 import { execFile, execFileSync, spawn, execSync, exec } from "node:child_process";
@@ -3159,8 +3160,18 @@ async function route(req, res) {
     return;
   }
 
+  if (pathname === "/api/echos/playback-audio" && req.method === "GET") {
+    const job = echoPerformancePreparation.get(url.searchParams.get('jobId'));
+    if (job?.kind !== 'playback-audio' || job.status !== 'ready' || !await verifyEchoPlaybackAudioReceipt(job.result)) {
+      sendJson(res, 409, { error: 'echo_playback_audio_stale', message: 'Prepared audio is unavailable or its source changed. Retry audio.' }); return;
+    }
+    res.setHeader('X-Hapa-Audio-Source-Sha256', job.result.sourceHash);
+    res.setHeader('X-Hapa-Audio-PCM-Sha256', job.result.pcmSha256);
+    await serveLocalFile(job.result.path, req, res); return;
+  }
+
   if (pathname === "/api/echos/music-performance/prepare" && ['GET', 'DELETE'].includes(req.method)) {
-    const id = url.searchParams.get('jobId');
+    const id = url.searchParams.get('jobId') || (url.searchParams.get('requestId') ? echoPerformancePreparation.findRequest(url.searchParams.get('requestId'))?.id : null);
     const job = req.method === 'DELETE' ? echoPerformancePreparation.cancel(id) : id ? echoPerformancePreparation.get(id)
       : echoPerformancePreparation.latest(url.searchParams.get('songId'), url.searchParams.get('variantId') || 'legacy');
     if (!id && req.method === 'GET' && !job) { sendJson(res, 200, { status: 'idle' }); return; }
@@ -3169,7 +3180,7 @@ async function route(req, res) {
   }
 
   if ((pathname === "/api/echos/music-performance" && req.method === "GET")
-    || (pathname === "/api/echos/music-performance/prepare" && req.method === "POST")) {
+    || (["/api/echos/music-performance/prepare", "/api/echos/playback-audio/prepare"].includes(pathname) && req.method === "POST")) {
     try {
       const songId = safeEchoDirectionPathSegment(url.searchParams.get("songId"), "song");
       const variant = url.searchParams.get("variantId");
@@ -3185,7 +3196,11 @@ async function route(req, res) {
       const master = resolveEchoRuntimeMediaUri(audioUri, options);
       const stems = (graph?.stems?.items || []).map(stem => ({ ...stem, audioPath: stem.audioPath ? resolveEchoRuntimeMediaUri(stem.audioPath, options).resolvedPath || stem.audioPath : null }));
       if (req.method === 'POST') {
-        const job = echoPerformancePreparation.start({ songId, variantId: selectedVariantId || 'legacy', masterPath: master.resolvedPath,
+        if (req.aborted || res.destroyed) return;
+        const playback = pathname === '/api/echos/playback-audio/prepare';
+        const requestId = String(url.searchParams.get('requestId') || '');
+        if (playback && !/^[a-zA-Z0-9-]{16,80}$/.test(requestId)) throw Object.assign(new Error('Playback preparation requires a unique request ID.'), {statusCode:422});
+        const job = echoPerformancePreparation.start({ kind: playback ? 'playback-audio' : 'performance', requestId: playback ? requestId : null, sourceUri: audioUri, songId, variantId: selectedVariantId || 'legacy', masterPath: master.resolvedPath,
           graph: { ...graph, stems: { ...graph?.stems, items: stems } } });
         sendJson(res, 202, job);
         return;

@@ -2,7 +2,7 @@
   "schemaVersion": "hapa.workflow-pilot.v1",
   "id": "echo-requirement-completion-batch-pilot",
   "version": "0.1",
-  "updatedAt": "2026-09-08T05:35:19.822733+00:00",
+  "updatedAt": "2026-09-08T06:10:37.270626+00:00",
   "status": "active-pilot",
   "effectiveness": "not-yet-evaluated",
   "ownerTaskId": "01a072d3-d593-74f2-8c89-2470c2ee1a40",
@@ -40,7 +40,7 @@
   "batches": [
     {
       "id": "A1",
-      "status": "certification-and-native-terminal-verified-performance-acceptance-pending",
+      "status": "precise-audio-and-cache-verified-shader-performance-acceptance-pending",
       "requirements": [
         "ECHO-07"
       ],
@@ -181,6 +181,32 @@
           "overOneFrame": 13,
           "scope": "short resumed segment; shader vs browser playhead only"
         }
+      },
+      "preciseAudioEvidence": {
+        "status": "verified-checkpoint-not-batch-acceptance",
+        "nativeEndSeconds": 258.439979,
+        "originalMp3SeekEndSeconds": 258.58418,
+        "indexedMp3FixesDrift": false,
+        "ffmpegPcmEquivalent": true,
+        "browserBitExactClaim": false,
+        "actualEditorWebAudioSignal": true,
+        "rangeStatus": 206,
+        "leasePinnedAndReleased": true,
+        "warmPreparationMs": 1925,
+        "preparedBytes": 99241044,
+        "entryBudgetBytes": 536870912,
+        "cacheBudgetBytes": 2147483648,
+        "focusedTestsPassed": 12,
+        "sourceIntegrity": {
+          "protected": 55,
+          "authoring": 12,
+          "unchanged": true
+        },
+        "evidence": "$ECHO_REVIEW_WORKSPACE/audio-seek-proof/integration-final/editor/report.json",
+        "acceptedRequirements": [],
+        "affectedCasesPassing": 53,
+        "affectedInitialFailures": 3,
+        "repairRerunPassed": 36
       }
     }
   ],
@@ -195,10 +221,11 @@
     "docs/postmortems/2026-09-07-echo-shader-frame-integration.md",
     "docs/postmortems/2026-09-07-echo-persistent-seek.md",
     "docs/postmortems/2026-09-07-echo-preview-persistent-seek.md",
-    "docs/postmortems/2026-09-08-echo-section-certification.md"
+    "docs/postmortems/2026-09-08-echo-section-certification.md",
+    "docs/postmortems/2026-09-08-echo-precise-audio.md"
   ],
   "decisionAfterAcceptedBatches": 2,
-  "nextAction": "Isolate MP3 browser seek/end-time disagreement against decoded samples, improve persistent cold/resume preparation, then complete composite/physical timing and global resources. Preserve authored durations and reuse verified admission/source evidence.",
+  "nextAction": "Improve persistent shader cold/resume latency, then prove composite/physical timing and sustained global resources. Reuse verified precise-audio, terminal and source evidence.",
   "updates": "batch-start, scope-change, consequential-failure, acceptance, handoff, goal-completion",
   "collaboration": {
     "protocol": "docs/ECHO_CONVICTION_PROTOCOL.md",

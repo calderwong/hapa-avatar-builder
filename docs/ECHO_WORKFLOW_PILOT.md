@@ -1,6 +1,6 @@
 # Echo workflow pilot — current execution state
 
-Updated: 2026-09-07. Method: **active-pilot v0.1**. Outcome: **not yet evaluated**. Owner: agent continuing task `01a072d3-d593-74f2-8c89-2470c2ee1a40`, human sponsor Calder.
+Updated: 2026-09-08 UTC. Method: **active-pilot v0.1**. Outcome: **not yet evaluated**. Owner: agent continuing task `01a072d3-d593-74f2-8c89-2470c2ee1a40`, human sponsor Calder.
 
 Read the canonical method at `$HAPA_DESKTOP_ROOT/Hapa_Worldbuilding_Wiki/Operations/Requirement Completion Batch Pilot.md`. Machine-readable status: [ECHO_WORKFLOW_PILOT.json](ECHO_WORKFLOW_PILOT.json). Historical implementation evidence remains in [ECHO_ENHANCEMENT_DRAIN.md](ECHO_ENHANCEMENT_DRAIN.md).
 
@@ -33,7 +33,7 @@ At each meaningful update, keep JSON and Markdown in agreement, append the corre
 
 ## Next action
 
-Certification now honors declared section admission and the actual editor terminal/reverse path passes. Isolate the observed MP3 seek/end-time disagreement against decoded samples, improve persistent cold/resume preparation, then finish composite/physical timing and sustained global resources. Reuse valid source and terminal evidence. A1 remains unaccepted; six done/twelve in progress.
+The actual editor precise-audio path is verified with matching source/PCM receipts and bounded cache reader protection. Continue persistent shader cold/resume preparation, then composite/physical timing and sustained global resources. Preserve authored durations and reuse the audio/source evidence. A1 remains unaccepted; six done/twelve in progress.
 
 ## Conviction relationship — 2026-09-06
 
@@ -126,3 +126,17 @@ The actual editor temporary Feedback Loop edit now reports cold-history progress
 A1 remains unaccepted: cold seek latency is high, the first run's short resumed segment had257.33ms p95 prepared-shader lag, and whole-composite/physical timing plus sustained global resource gates remain open. See [the certification and progress postmortem](postmortems/2026-09-08-echo-section-certification.md). Counts remain6 done/12 in progress. Next: improve persistent cold/resume preparation and complete the remaining timing/resource acceptance, reusing valid terminal/source evidence.
 
 Final short resumed segment:91 samples,144.0ms p95,13 over one frame. The source MP3 ffprobe duration is258.439979s, unlike the258.6072s browser endpoint after seeking. Investigate that timebase disagreement before declaring export/preview terminal parity.
+
+## A1 precise native audio and bounded playback cache — September 8 UTC
+
+The Dear Papa MP3 decodes to258.439979s, but Chromium ends at258.58418s after a257.5s seek (both blob and HTTP); an indexed MP3 stream-copy preserves decoded samples but does not fix it. Source-preserving float32 PCM ends at258.439979s through both routes. The FFmpeg-decoded PCM hash matches; browser decoder channel hashes differ, so browser bit-exact audio is not claimed.
+
+The existing preparation queue now prepares playback audio without running music analysis, prioritizes queued interactive playback, and streams the selected source-bound WAV through the existing range/CORS file owner. It preserves the editor audio element and clock across panel navigation. Source/output hashes, freshness checks, abort handling and request identity prevent stale source use. The CLI uses the same owner. A512MiB entry cap and2GiB derived-audio budget bound disk growth; cache readers have process-owned leases, and only unused owned entries are evicted. Live readers remain protected; stopped process leases can be reclaimed. A browser crash that cannot send release while its API survives can retain a lease until API restart; no heartbeat/whole-system lifetime acceptance is claimed.
+
+Final actual editor proof passes nonzero Web Audio signal, matching source/PCM HTTP206 receipts, direct seek, reverse seek, natural end at258.439979s, panel clock retention, page-exit session release and cache lease removal. Warm prepared audio is99,241,044bytes and took1,925ms; this is one sample, not a p95 or cold-load claim. The final native run took19.98s. Source MP3 and cut remain unchanged;55 protected/12 authoring hashes pass. Twelve focused owner/queue/client tests pass, including two-reader protection, release/eviction, concurrent preparation, changed-source and cache corruption. Delivery build and exact selected-cut certification pass. The wider affected regression result is recorded in the accompanying postmortem; no broad suite was repeated for this unfinished A1 batch.
+
+Initial orchestration failures remain in task evidence: missing test-file creation ran only five old checks; CDP instrumentation before renderer creation stalled the first native harness (terminated after live-process inspection); an obsolete blob-loader test locator and loopback sandbox failures required scoped correction. Process exit alone was never accepted as a passing native report.
+
+A1 remains unaccepted and the board stays6 done/12 in progress. The next unresolved work is persistent shader cold/resumed latency, followed by visible composite/physical timing and sustained global resource acceptance. The93.11s cold replay and144ms p95 short resumed shader lag remain unresolved. Do not repeat valid audio/source tests merely to work on shader history. See [the audio preparation postmortem](postmortems/2026-09-08-echo-precise-audio.md). Evidence: `$ECHO_REVIEW_WORKSPACE/audio-seek-proof/`, final native under `integration-final/editor/`.
+
+Audio regression correction: the two affected files pass36/36; combined with unchanged passing files, all53 affected cases have passing evidence. No requirement closure.

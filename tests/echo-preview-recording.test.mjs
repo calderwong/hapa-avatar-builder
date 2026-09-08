@@ -472,9 +472,11 @@ test("Record surfaces audio/video readiness and failures without rejecting inten
 });
 
 test("terminal audio load failures never masquerade as indefinite buffering", () => {
+  const preparation = viewSource.indexOf('prepareEchoAudioPlayback({');
+  assert.ok(preparation >= 0, 'the editor must prepare its selected audio');
   const audioFetch = viewSource.slice(
-    viewSource.indexOf("// Fetch song audio as same-origin Blob"),
-    viewSource.indexOf("// Clean up blob URL on unmount"),
+    preparation,
+    viewSource.indexOf('const retryPreviewAudio =', preparation),
   );
   assert.match(audioFetch, /setAudioPlaybackError\(`Playback audio could not be loaded \(\$\{err\.message \|\| "request failed"\}\)\. Click Retry audio\.`\)/);
   assert.match(audioFetch, /audioLoadRetryNonce/);
