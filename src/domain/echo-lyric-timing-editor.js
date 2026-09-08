@@ -196,6 +196,21 @@ export function applyEchoLyricCorrection(project = {}, command = {}, { at = new 
     if (!line) fail("Select a lyric line."); line.manualTimingLocked = command.locked === true;
   } else if (kind === "lock-word") {
     if (!word) fail("Select a word."); if (locked(line)) fail("Unlock the line before changing a word lock."); word.manualTimingLocked = command.locked === true;
+  } else if (kind === "reference-onset") {
+    if (!word) fail("Select a word.");
+    const onsetSeconds = Number(command.atSeconds), ambiguityMs = Number(command.ambiguityMs);
+    const audioHash = String(command.audioHash || "").replace(/^sha256:/, "");
+    if (!/^[a-f0-9]{64}$/.test(audioHash)) fail("Load the verified source waveform before recording a reference.");
+    const declaredHash = String(project.lyrics?.audioHash || project.song_edit_map?.timingTruth?.audioSha256 || "").replace(/^sha256:/, "");
+    if (declaredHash && declaredHash !== audioHash) fail("The reference audio does not match this cut. Reconcile its source before reviewing.");
+    if (command.atSeconds == null || command.atSeconds === "" || command.ambiguityMs == null || command.ambiguityMs === "") fail("Enter a reference time and uncertainty.");
+    if (!String(command.reviewer || "").trim()) fail("Enter the annotator name for this reference.");
+    if (!(Number.isFinite(onsetSeconds) && onsetSeconds >= 0 && onsetSeconds <= duration && Number.isFinite(ambiguityMs) && ambiguityMs >= 0 && ambiguityMs <= 1000)) fail("Enter a valid reference time and uncertainty.");
+    const sourceWord = word.timingCorrection?.source || word;
+    const sourceStart = Array.isArray(sourceWord) || String(sourceWord.word || sourceWord.text || "") !== String(word.word || word.text || "") ? NaN : echoLyricBoundary(sourceWord, "start", NaN);
+    word.timingReference = { status: "operator-entered-reference", reviewer: String(command.reviewer).trim(), at,
+      audioHash, wordText: String(word.word || word.text || ""), onsetSeconds, ambiguityMs,
+      candidateStartSeconds: Number.isFinite(sourceStart) ? sourceStart : null };
   } else if (kind === "global-offset") {
     lines.forEach(row => requireLine(row));
     lines = applyEchoLyricGlobalOffset(lines, command.deltaSeconds, duration).map((row, i) => preserveConfidence(row, original[i]));
@@ -219,7 +234,7 @@ export function applyEchoLyricCorrection(project = {}, command = {}, { at = new 
     const start = echoLyricBoundary(word, "start"), end = echoLyricBoundary(word, "end");
     if (!(Number.isFinite(split) && split > start && split < end)) fail("Choose a split time inside the selected word.");
     if (!String(command.left || "").trim() || !String(command.right || "").trim()) fail("Enter both resulting words.");
-    const { startSeconds, endSeconds, ...source } = word;
+    const { startSeconds, endSeconds, timingReference, ...source } = word;
     const left = editedWord({ ...source, word: String(command.left).trim(), text: String(command.left).trim(), start, end: split }, word);
     const right = editedWord({ ...source, word: String(command.right).trim(), text: String(command.right).trim(), start: split, end }, word);
     line.words.splice(wordIndex, 1, left, right); line.text = tokenText(line.words);
@@ -257,4 +272,34 @@ export function applyEchoLyricCorrection(project = {}, command = {}, { at = new 
   state.history.push(record); state.revision = revision;
   if (kind !== "undo") { state.undo.push(record); state.undo = state.undo.slice(-64); }
   return { timed_lyrics: lines, lyric_timing_manual_edit: state };
+}
+
+/** Report operator references without manufacturing annotations or making the
+ * current corrected times their own ground truth. Album coverage is separate. */
+export function summarizeEchoLyricOnsetReview(project = {}, audioHash = "") {
+  const hash = String(audioHash).replace(/^sha256:/, ""), rows = [], rejected = [];
+  let wordCount = 0;
+  for (const [lineIndex, line] of (project.timed_lyrics || []).entries()) for (const [wordIndex, word] of (line.words || []).entries()) {
+    wordCount++;
+    const reference = word.timingReference; if (!reference) continue;
+    const text = String(word.word || word.text || ""), current = echoLyricBoundary(word, "start", NaN);
+    if (!/^[a-f0-9]{64}$/.test(hash) || reference.audioHash !== hash || reference.wordText !== text || reference.status !== "operator-entered-reference"
+      || !String(reference.reviewer || "").trim() || !Number.isFinite(reference.onsetSeconds) || reference.onsetSeconds < 0 || reference.onsetSeconds > Number(project.duration)
+      || !Number.isFinite(reference.ambiguityMs) || reference.ambiguityMs < 0 || reference.ambiguityMs > 1000 || !Number.isFinite(current)) {
+      rejected.push({ lineIndex, wordIndex, reason: "reference-source-or-word-mismatch" }); continue;
+    }
+    rows.push({ ...reference, lineIndex, wordIndex, text, currentStartSeconds: current,
+      candidateAbsoluteErrorMs: Number.isFinite(reference.candidateStartSeconds) ? Math.abs(reference.candidateStartSeconds - reference.onsetSeconds) * 1000 : null,
+      currentAbsoluteErrorMs: Math.abs(current - reference.onsetSeconds) * 1000 });
+  }
+  const distribution = values => {
+    const sorted = values.filter(Number.isFinite).sort((a, b) => a - b); if (!sorted.length) return { count: 0, medianMs: null, p95Ms: null };
+    const mid = Math.floor(sorted.length / 2);
+    return { count: sorted.length, medianMs: sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2, p95Ms: sorted[Math.ceil(sorted.length * .95) - 1] };
+  };
+  return { schemaVersion: "hapa.echo.lyric-onset-review.v1", songId: project.song_id || null, audioHash: hash || null,
+    wordCount, referencedWords: rows.length, unreferencedWords: wordCount - rows.length, rejected,
+    importedCandidate: distribution(rows.map(row => row.candidateAbsoluteErrorMs)), corrected: distribution(rows.map(row => row.currentAbsoluteErrorMs)),
+    maximumDeclaredAmbiguityMs: rows.length ? Math.max(...rows.map(row => Number(row.ambiguityMs) || 0)) : null,
+    scope: "Operator-entered references for this cut; not independent annotator authentication or album acceptance", rows };
 }

@@ -310,6 +310,7 @@ export function buildCueGraph(projectInput, options = {}) {
           endSeconds: round(word.end),
           confidence: typeof (word.confidence ?? word.probability) === "number" && Number.isFinite(word.confidence ?? word.probability) ? (word.confidence ?? word.probability) : null,
           ...(word.timingCorrection ? { timingCorrection: structuredClone(word.timingCorrection) } : {}),
+          ...(word.timingReference ? { timingReference: structuredClone(word.timingReference) } : {}),
           ...(word.manualTimingLocked === true ? { manualTimingLocked: true } : {}),
         })),
       };
