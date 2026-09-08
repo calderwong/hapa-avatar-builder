@@ -33,6 +33,7 @@ import {
   echoSourceWindowPlaybackRate,
   mapEchoSourceWindowTime,
   normalizeEchoTransitionTimeMapping,
+  echoDecodedPlaybackPhase,
   planEchoPlaybackCorrection,
 } from "../domain/echo-playback-sync.js";
 import {
@@ -579,7 +580,7 @@ const ECHO_VIDEO_LOOKAHEAD_COUNT = ECHO_PLAYER_POOL_LIMIT - 1;
 const ECHO_VIDEO_PLAYER_POOL_SIZE = ECHO_VIDEO_LOOKAHEAD_COUNT + 1;
 const ECHO_VIDEO_PLAYER_INDICES = Array.from({ length: ECHO_VIDEO_PLAYER_POOL_SIZE }, (_, index) => index);
 
-function PersistentEchoABPlayers({ shot, lookaheadShots = [], playing, songTime, style, onBufferState, onPresentedMediaChange, clockRef, audioRef, audioContextRef, sourceIsPortrait = false, cameraKeyframes = EMPTY_ECHO_CAMERA_KEYFRAMES, shotIndex = 0 }) {
+function PersistentEchoABPlayers({ shot, lookaheadShots = [], playing, songTime, style, onBufferState, onPresentedMediaChange, presentationSampleRef, clockRef, audioRef, audioContextRef, sourceIsPortrait = false, cameraKeyframes = EMPTY_ECHO_CAMERA_KEYFRAMES, shotIndex = 0 }) {
   const playerRefs = useRef(Array.from({ length: ECHO_VIDEO_PLAYER_POOL_SIZE }, () => null));
   const activeIndexRef = useRef(0);
   const [activeIndex, setActiveIndex] = useState(0);
@@ -771,23 +772,11 @@ function PersistentEchoABPlayers({ shot, lookaheadShots = [], playing, songTime,
       sourceOutSeconds,
       cueDurationSeconds,
     });
-    let frame = 0, lastSyncAt = -Infinity, acquisitionRequest = null, disposed = false;
-    let liveFrameSeen = !playing || typeof video.requestVideoFrameCallback !== "function";
+    let frame = 0, lastSyncAt = -Infinity;
     correctedPresentationKeyRef.current = "";
-    const observeAcquisitionFrame = () => {
-      if (disposed || liveFrameSeen || acquisitionRequest !== null) return;
-      acquisitionRequest = video.requestVideoFrameCallback((_now, metadata) => {
-        acquisitionRequest = null;
-        if (disposed) return;
-        if (!video.paused && !video.seeking && Number.isFinite(metadata?.mediaTime)
-          && slotStateRef.current[activeIndex]?.key === shotKey(shot)) liveFrameSeen = true;
-        else observeAcquisitionFrame();
-      });
-    };
     const synchronize = (now) => {
       if (video.seeking || slotStateRef.current[activeIndex]?.key !== shotKey(shot)
         || slotStateRef.current[activeIndex]?.status !== "ready") return;
-      observeAcquisitionFrame();
       const masterAudio = audioRef?.current;
       const outputClock = estimateEchoAudibleClock({ audio: masterAudio, context: audioContextRef?.current, nowMs: now });
       const liveSongTime = outputClock.audibleSongTime ?? outputClock.projectedElementSongTime
@@ -802,9 +791,14 @@ function PersistentEchoABPlayers({ shot, lookaheadShots = [], playing, songTime,
         timeMapping,
       });
       const presentationKey = `${activeIndex}:${shotKey(shot)}`;
-      // A resolved play() promise can precede the first advancing decoded frame.
-      // Acquire phase after that frame, using the current audio clock. Otherwise
-      // a delayed decoder consumes cue entry at t=0 and only rate-corrects its lag.
+      const observation = presentationSampleRef?.current;
+      const presentedSample = playing && !masterAudio?.seeking && observation?.advancing && observation?.element === video
+        && observation.sourceKey === shotKey(shot) ? observation.sample : null;
+      const phase = echoDecodedPlaybackPhase(presentedSample, { nowMs: now, targetPlaybackRate });
+      // Consume cue acquisition only after an actual advancing frame. Reuse the
+      // existing presentation observer rather than starting another callback loop.
+      const liveFrameSeen = !playing || typeof video.requestVideoFrameCallback !== "function"
+        || (presentedSample?.eligible && now - presentedSample.nowMs >= 0 && now - presentedSample.nowMs <= 100);
       const cueEntry = liveFrameSeen && correctedPresentationKeyRef.current !== presentationKey;
       if (cueEntry) correctedPresentationKeyRef.current = presentationKey;
       const correction = planEchoPlaybackCorrection({
@@ -813,8 +807,17 @@ function PersistentEchoABPlayers({ shot, lookaheadShots = [], playing, songTime,
         seeking: video.seeking,
         cueEntry: cueEntry || !playing,
         targetPlaybackRate,
+        presentedSample: phase === null ? null : presentedSample,
+        nowMs: now,
+        minimumSeconds: Math.max(0, Number(sourceInSeconds) || 0),
+        maximumSeconds: mapEchoSourceWindowTime({ elapsedSeconds: Math.max(cueDurationSeconds, Number(video.duration) || 0) + 1,
+          durationSeconds: video.duration, sourceInSeconds, sourceOutSeconds, loop: false, cueDurationSeconds, timeMapping }),
       });
-      if (correction.action === "seek") video.currentTime = Math.min(Number(video.duration || expected), correction.targetSeconds);
+      video.__hapaEchoPlaybackCorrection = { ...correction, nowMs: now, sourceKey: shotKey(shot) };
+      if (correction.action === "seek") {
+        if (presentationSampleRef) presentationSampleRef.current = null;
+        video.currentTime = Math.min(Number(video.duration || expected), correction.targetSeconds);
+      }
       video.playbackRate = correction.playbackRate;
       const holdingLastFrame = echoSourceWindowAtEnd({ elapsedSeconds: Math.max(0, liveSongTime - Number(shot.start_sec || 0)),
         durationSeconds: video.duration, sourceInSeconds, sourceOutSeconds, cueDurationSeconds, timeMapping })
@@ -833,11 +836,10 @@ function PersistentEchoABPlayers({ shot, lookaheadShots = [], playing, songTime,
     };
     tick(performance.now());
     return () => {
-      disposed = true;
       window.cancelAnimationFrame(frame);
-      if (acquisitionRequest !== null) video.cancelVideoFrameCallback?.(acquisitionRequest);
+      delete video.__hapaEchoPlaybackCorrection;
     };
-  }, [activeIndex, playing, currentShotIdentity, playing ? null : songTime, audioRef, audioContextRef, clockRef]);
+  }, [activeIndex, playing, currentShotIdentity, playing ? null : songTime, audioRef, audioContextRef, clockRef, presentationSampleRef]);
 
   useEffect(() => {
     const sourceKey = shotKey(shot);
@@ -1762,6 +1764,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
   const presentationTimingRef = useRef(null);
   if (!presentationTimingRef.current) presentationTimingRef.current = createEchoPresentationTimingRecorder();
   const presentationObserverRef = useRef(null);
+  const presentationSampleRef = useRef(null);
   const presentationPublishAtRef = useRef(-Infinity);
   const stemDecoderPoolRef = useRef(new Map());
   const stemDecoderUseTickRef = useRef(0);
@@ -2195,11 +2198,14 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
     if (observer?.element !== presented?.element || observer?.sourceKey !== presented?.sourceKey) {
       observer?.stop();
       presentationObserverRef.current = null;
+      presentationSampleRef.current = null;
       if (presented?.kind === "video" && presented.element && presented.shot) {
         const stop = observeEchoPresentedFrames({
           video: presented.element,
           getContext: () => ({ audio: audioRef.current, context: audioContextRef.current, shot: presentedMediaRef.current?.shot || {} }),
           onSample: (sample) => {
+            presentationSampleRef.current = { element: presented.element, sourceKey: presented.sourceKey,
+              advancing: !presented.element.paused && !presented.element.seeking, sample };
             presentationTimingRef.current.record(sample);
             if (sample.nowMs - presentationPublishAtRef.current >= 1000) {
               presentationPublishAtRef.current = sample.nowMs;
@@ -7243,6 +7249,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                                       clockRef={currentTimeRef}
                                       audioRef={audioRef}
                                       audioContextRef={audioContextRef}
+                                      presentationSampleRef={presentationSampleRef}
                                       sourceIsPortrait={activeShotSourceDimensions.isPortrait}
                                       cameraKeyframes={activeShowGraph?.directorV2?.cameraKeyframes}
                                       shotIndex={activeShotIndex}

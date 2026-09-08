@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
 import {reconcileEchoPlayerSlots} from '../src/domain/echo-player-pool.js';
-import {mapEchoSourceWindowTime,echoSourceWindowAtEnd,echoSourceWindowPlaybackRate,normalizeEchoTransitionTimeMapping,planEchoPlaybackCorrection} from '../src/domain/echo-playback-sync.js';
+import {mapEchoSourceWindowTime,echoSourceWindowAtEnd,echoSourceWindowPlaybackRate,normalizeEchoTransitionTimeMapping,planEchoPlaybackCorrection,echoDecodedPlaybackPhase} from '../src/domain/echo-playback-sync.js';
+import {observeEchoPresentedFrames} from '../src/domain/echo-presentation-timing.js';
 const source=fs.readFileSync(new URL('../src/components/HapaEchosView.jsx',import.meta.url),'utf8');
 const start=source.indexOf('function PersistentEchoABPlayers(');
 const end=source.indexOf('\n  return (\n    <>',start);
@@ -18,23 +19,31 @@ function fixture(budget=3){
   requestVideoFrameCallback(fn){this.frame=fn;return 1;},cancelVideoFrameCallback(){this.frame=null;}
  }));
  const schedule=()=>{if(scheduled||!mounted)return;scheduled=true;queueMicrotask(()=>{scheduled=false;if(mounted)render(current);});};
- const context={Map,Set,Promise,Math,Number,String,Boolean,Array,Error,performance,globalThis:{},
+ const presentationSampleRef={current:null};let observerStop=null;
+ const onPresentedMediaChange=binding=>{
+  observerStop?.();observerStop=null;presentationSampleRef.current=null;
+  if(binding?.presented&&binding.element)observerStop=observeEchoPresentedFrames({video:binding.element,
+   getContext:()=>({shot:binding.shot,audio:{currentTime:current.songTime,playbackRate:1,paused:!current.playing},
+    context:{state:'running',currentTime:20,getOutputTimestamp:()=>({contextTime:20,performanceTime:tickNow})}}),
+   onSample:sample=>{presentationSampleRef.current={element:binding.element,sourceKey:binding.sourceKey,advancing:!binding.element.paused&&!binding.element.seeking,sample};}});
+ };
+ const context={Map,Set,Promise,Math,Number,String,Boolean,Array,Error,performance:{now:()=>tickNow},globalThis:{},
   useRef:value=>{const i=cursor++;return hooks[i]??(hooks[i]={current:value});},
   useState:value=>{const i=cursor++;if(!hooks[i])hooks[i]={value};return [hooks[i].value,nextValue=>{const val=typeof nextValue==='function'?nextValue(hooks[i].value):nextValue;if(!Object.is(hooks[i].value,val)){hooks[i].value=val;schedule();}}];},
   useEffect:(effect,deps)=>{const i=cursor++;const prior=hooks[i];if(!prior||deps.some((v,j)=>!Object.is(v,prior.deps[j]))){hooks[i]={deps,cleanup:prior?.cleanup};effects.push(()=>{hooks[i].cleanup?.();hooks[i].cleanup=effect();});}},
   window:{setTimeout:fn=>{const id=next++;timers.set(id,fn);return id;},clearTimeout:id=>timers.delete(id),requestAnimationFrame:fn=>{const id=next++;frames.set(id,fn);return id;},cancelAnimationFrame:id=>frames.delete(id)},
   ECHO_VIDEO_PLAYER_POOL_SIZE:budget,ECHO_VIDEO_PLAYER_INDICES:Array.from({length:budget},(_,i)=>i),ECHO_VIDEO_LOOKAHEAD_COUNT:budget-1,EMPTY_ECHO_CAMERA_KEYFRAMES:[],
   echoPresentedShotKey:shot=>JSON.stringify([shot?.media_id,shot?.start_sec]),shotMediaType:shot=>shot?.media_id?'video':'generated-visualizer',shotRuntimeUri:shot=>shot.media_uri,resolveMediaUri:uri=>uri,
-  reconcileEchoPlayerSlots,mapEchoSourceWindowTime,echoSourceWindowAtEnd,echoSourceWindowPlaybackRate,normalizeEchoTransitionTimeMapping,planEchoPlaybackCorrection,
+  reconcileEchoPlayerSlots,mapEchoSourceWindowTime,echoSourceWindowAtEnd,echoSourceWindowPlaybackRate,normalizeEchoTransitionTimeMapping,planEchoPlaybackCorrection,echoDecodedPlaybackPhase,
   estimateEchoAudibleClock:()=>({audibleSongTime:current.songTime}),
  };
  vm.createContext(context);vm.runInContext(actual+'\nglobalThis.component=PersistentEchoABPlayers;',context);
  function render(props){current=props;cursor=0;result=context.globalThis.component(props);result.playerRefs.current=videos;while(effects.length)effects.shift()();}
  const shot=(id,start=0)=>({media_id:id,media_uri:'/media/'+id+'.mp4',start_sec:start,end_sec:start+4});
- const update=(now,lookahead=[],time=now.start_sec)=>render({shot:now,lookaheadShots:lookahead,playing:true,songTime:time,clockRef:{current:time}});
- const release=async index=>{await settle();const callback=videos[index].frame;assert.ok(callback,'player requested a decoded frame');videos[index].frame=null;callback(performance.now(),{mediaTime:videos[index].currentTime});await settle();};
+ const update=(now,lookahead=[],time=now.start_sec)=>render({shot:now,lookaheadShots:lookahead,playing:true,songTime:time,clockRef:{current:time},presentationSampleRef,onPresentedMediaChange});
+ const release=async index=>{await settle();const callback=videos[index].frame;assert.ok(callback,'player requested a decoded frame');videos[index].frame=null;callback(tickNow,{mediaTime:videos[index].currentTime,expectedDisplayTime:tickNow});await settle();};
  const tickPlayback=()=>{tickNow+=40;for(const [id,callback] of [...frames])if(String(callback).includes('synchronize(now)')){frames.delete(id);callback(tickNow);}};
- return {videos,shot,update,release,settle,tickPlayback,setSongTime(time){current.songTime=time;current.clockRef.current=time;},get result(){return result;},unmount(){mounted=false;for(const hook of hooks)hook?.cleanup?.();},timers};
+ return {videos,shot,update,release,settle,tickPlayback,setSongTime(time){current.songTime=time;current.clockRef.current=time;},get result(){return result;},unmount(){observerStop?.();mounted=false;for(const hook of hooks)hook?.cleanup?.();},timers};
 }
 
 test('pending next cue is reused and unrelated lookahead completion cannot pause the active player',async()=>{

@@ -124,25 +124,48 @@ export function echoSourceWindowPlaybackRate({
   })?.playbackRate || 1;
 }
 
+// Presentation feedback is optional: unsupported, stale or discontinuous
+// observations retain the explicit element-clock path. The caller binds the
+// sample to the current element and exact cue identity before supplying it.
+export function echoDecodedPlaybackPhase(sample, { nowMs, targetPlaybackRate = 1 } = {}) {
+  if (sample?.eligible !== true || sample.route !== "decoded-frame-callback"
+    || sample.clock?.playing !== true || sample.clock?.status !== "output-timestamp-estimate"
+    || ![nowMs, sample.nowMs, sample.expectedDisplayTimeMs, sample.mediaTime, sample.audibleExpectedSourceTime, sample.sourceRate].every(Number.isFinite)
+    || nowMs < sample.nowMs || nowMs - sample.nowMs > 100
+    || Math.abs(sample.expectedDisplayTimeMs - sample.nowMs) > 100
+    || Math.abs(sample.sourceRate - targetPlaybackRate) > 1e-6) return null;
+  return (sample.audibleExpectedSourceTime - sample.mediaTime) / sample.sourceRate;
+}
+
 export function planEchoPlaybackCorrection({
   expectedSeconds = 0,
   currentSeconds = 0,
   seeking = false,
   cueEntry = false,
   targetPlaybackRate = 1,
+  presentedSample = null,
+  nowMs = null,
+  minimumSeconds = 0,
+  maximumSeconds = Infinity,
 } = {}) {
-  const driftSeconds = Number(expectedSeconds) - Number(currentSeconds);
   const basePlaybackRate = Math.max(0.01, Number(targetPlaybackRate) || 1);
-  const songDriftSeconds = driftSeconds / basePlaybackRate;
-  if (seeking) return { action: "none", driftSeconds, playbackRate: basePlaybackRate };
+  const phase = seeking ? null : echoDecodedPlaybackPhase(presentedSample, { nowMs, targetPlaybackRate: basePlaybackRate });
+  const route = phase === null ? "element-clock" : "decoded-presentation";
+  const songDriftSeconds = phase ?? (Number(expectedSeconds) - Number(currentSeconds)) / basePlaybackRate;
+  const driftSeconds = songDriftSeconds * basePlaybackRate;
+  const state = { route, driftSeconds, songDriftSeconds };
+  if (seeking) return { ...state, action: "none", playbackRate: basePlaybackRate };
   if ((cueEntry && Math.abs(songDriftSeconds) > 1 / 30) || Math.abs(songDriftSeconds) > 0.75) {
-    return { action: "seek", driftSeconds, targetSeconds: Math.max(0, Number(expectedSeconds)), playbackRate: basePlaybackRate };
+    // Apply the observed phase displacement to the current element position;
+    // seeking to the element target alone would discard measured decode lag.
+    return { ...state, action: "seek", targetSeconds: Math.max(minimumSeconds, Math.min(maximumSeconds, phase === null ? Number(expectedSeconds) : Number(currentSeconds) + driftSeconds)), playbackRate: basePlaybackRate };
   }
-  if (Math.abs(songDriftSeconds) > 1 / 60) {
-    const correction = Math.max(0.96, Math.min(1.04, 1 + songDriftSeconds));
-    return { action: "rate", driftSeconds, playbackRate: basePlaybackRate * correction };
+  const deadband = phase === null ? 1 / 60 : 1 / 240;
+  if (Math.abs(songDriftSeconds) > deadband) {
+    const correction = Math.max(0.96, Math.min(1.04, 1 + songDriftSeconds * (phase === null ? 1 : 3)));
+    return { ...state, action: "rate", playbackRate: basePlaybackRate * correction };
   }
-  return { action: "none", driftSeconds, playbackRate: basePlaybackRate };
+  return { ...state, action: "none", playbackRate: basePlaybackRate };
 }
 
 export function mapEchoSourceTime({ elapsedSeconds = 0, durationSeconds = 0, loop = true, endGuardSeconds = 0.06 } = {}) {

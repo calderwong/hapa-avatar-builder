@@ -9,6 +9,7 @@ import {
   mapEchoSourceWindowTime,
   normalizeEchoTransitionTimeMapping,
   planEchoPlaybackCorrection,
+  echoDecodedPlaybackPhase,
 } from "../src/domain/echo-playback-sync.js";
 
 test("Echo sync rate-corrects small drift and seeks only at cue entry or large drift", () => {
@@ -183,5 +184,54 @@ test('correction uses song-time error consistently for slow and fast source wind
       }
       assert.ok(Math.abs(expected - current) / rate < .025, `rate=${rate}, sign=${sign}: within 25ms after three seconds`);
     }
+  }
+});
+
+
+function observedPhase({ expected = 10, mediaTime = 9.95, rate = 1, now = 1000 } = {}) {
+  return { eligible: true, route: 'decoded-frame-callback', clock: { playing: true, status: 'output-timestamp-estimate' },
+    nowMs: now, expectedDisplayTimeMs: now + 10, sourceRate: rate, mediaTime, audibleExpectedSourceTime: expected };
+}
+
+test('decoded presentation corrects a late displayed frame even when the element clock is aligned', () => {
+  const fallback = planEchoPlaybackCorrection({ expectedSeconds: 10, currentSeconds: 10 });
+  const actual = planEchoPlaybackCorrection({ expectedSeconds: 10, currentSeconds: 10, presentedSample: observedPhase(), nowMs: 1000 });
+  assert.equal(fallback.action, 'none'); assert.equal(actual.route, 'decoded-presentation'); assert.equal(actual.action, 'rate');
+  assert.equal(actual.playbackRate, 1.04);
+  const acquire = planEchoPlaybackCorrection({ expectedSeconds: 10, currentSeconds: 10, presentedSample: observedPhase(), nowMs: 1000, cueEntry: true });
+  assert.ok(Math.abs(acquire.targetSeconds - 10.05) < 1e-10, 'a phase seek retains measured frame lag');
+});
+
+test('invalid, stale, seeking and incompatible frame observations retain element-clock behavior', () => {
+  const valid = observedPhase();
+  for (const patch of [{ eligible: false }, { route: 'element-time-fallback' }, { clock: { playing: false } },
+    { nowMs: 1001 }, { nowMs: 899 }, { expectedDisplayTimeMs: 1200 }, { mediaTime: NaN },
+    { audibleExpectedSourceTime: null }, { sourceRate: 5 }]) {
+    const sample = { ...valid, ...patch };
+    assert.equal(echoDecodedPlaybackPhase(sample, { nowMs: 1000 }), null);
+    assert.equal(planEchoPlaybackCorrection({ expectedSeconds: 10, currentSeconds: 10, nowMs: 1000, presentedSample: sample }).route, 'element-clock');
+  }
+  assert.equal(planEchoPlaybackCorrection({ expectedSeconds: 10, currentSeconds: 10, nowMs: 1000, presentedSample: valid, seeking: true }).action, 'none');
+  for (const sign of [-1, 1]) {
+    const correction = planEchoPlaybackCorrection({ expectedSeconds: 10, currentSeconds: 10, presentedSample: observedPhase({ mediaTime: 10 - sign }), nowMs: 1000, cueEntry: true, minimumSeconds: 9.99, maximumSeconds: 10.01 });
+    assert.ok(correction.targetSeconds >= 9.99 && correction.targetSeconds <= 10.01, 'phase recovery cannot escape authored clip bounds');
+  }
+});
+
+test('presentation feedback converges with decoder phase lag across source rates without repeated seeks', () => {
+  for (const rate of [.25, .5, 1, 2.5, 5]) for (const lag of [-.025, .035, .08]) {
+    let expected = 10, element = 10, finalResidual;
+    for (let n = 0; n < 120; n++) {
+      // Plant observation: the displayed timestamp differs from the element
+      // clock by a fixed decode/presentation phase, independent of controller.
+      const media = element - lag * rate;
+      const sample = observedPhase({ expected, mediaTime: media, rate, now: n * 1000 / 30 });
+      const correction = planEchoPlaybackCorrection({ expectedSeconds: expected, currentSeconds: element, targetPlaybackRate: rate, presentedSample: sample, nowMs: sample.nowMs });
+      assert.notEqual(correction.action, 'seek');
+      assert.ok(correction.playbackRate >= .96 * rate - 1e-9 && correction.playbackRate <= 1.04 * rate + 1e-9);
+      finalResidual = (expected - media) / rate;
+      expected += rate / 30; element += correction.playbackRate / 30;
+    }
+    assert.ok(Math.abs(finalResidual) < .005, `rate=${rate}, lag=${lag}: ${finalResidual}`);
   }
 });

@@ -2,7 +2,7 @@
   "schemaVersion": "hapa.workflow-pilot.v1",
   "id": "echo-requirement-completion-batch-pilot",
   "version": "0.1",
-  "updatedAt": "2026-09-08T08:33:26.601650+00:00",
+  "updatedAt": "2026-09-08T08:54:25.555170+00:00",
   "status": "active-pilot",
   "effectiveness": "not-yet-evaluated",
   "ownerTaskId": "01a072d3-d593-74f2-8c89-2470c2ee1a40",
@@ -40,7 +40,7 @@
   "batches": [
     {
       "id": "A1",
-      "status": "prefetch-retention-verified-video-presentation-timing-open",
+      "status": "decoded-video-timing-verified-composite-event-gates-open",
       "requirements": [
         "ECHO-07"
       ],
@@ -400,6 +400,64 @@
           "noNewBroadSuite": true
         },
         "closedRequirements": []
+      },
+      "decodedPresentationEvidence": {
+        "status": "verified-browser-timing-checkpoint-not-requirement-acceptance",
+        "fullSong": {
+          "durationSeconds": 258.439979,
+          "observations": 124,
+          "decodedSamples": 6959,
+          "audibleEstimatedSamples": 6959,
+          "estimatedResidualP95UpperMs": 23,
+          "residualTargetMs": 33.333333333333336,
+          "estimatedResidualTargetMet": true,
+          "retainedUniqueSamples": 6959,
+          "medianSignedResidualMs": -1.2846666428316666,
+          "maximumAbsoluteResidualMs": 124.65266669050371,
+          "maximumShaderWindowP95Ms": 32.00033333333335,
+          "peakCheckpointBytes": 131706432,
+          "peakEncodedBytes": 58218925,
+          "observedRecoverySeeks": 40,
+          "maximumRecoverySeeksPerSourceCue": 1,
+          "videoPlayers": [
+            3
+          ],
+          "residualOverOneFrameSamples": 103,
+          "residualOverOneFramePercent": 1.480097715188964
+        },
+        "transport": {
+          "directSeekSeconds": 10,
+          "reverseSeekSeconds": 5,
+          "resumedToSeconds": 10.018476,
+          "sourceCutSaved": false
+        },
+        "fallback": {
+          "route": "element-clock",
+          "fallbackSamples": 462,
+          "decodedSamples": 0,
+          "disabledBeforeDocumentLoad": true
+        },
+        "scope": "Actual Dear Papa with two temporary Feedback Loop layers, normal three-video/six-shader defaults and unchanged presentation measurement. Browser-estimated audio-device timing; no physical calibration, whole-composite event, all-song or human acceptance.",
+        "closedRequirements": [],
+        "verification": {
+          "initialAffected": {
+            "pass": 32,
+            "total": 36
+          },
+          "finalAffectedSubset": {
+            "pass": 22,
+            "total": 22
+          },
+          "unaffectedPriorCasesReused": 14,
+          "build": "pass",
+          "sourceIntegrity": {
+            "pass": true,
+            "protectedFiles": 55,
+            "authoringFiles": 12,
+            "failures": []
+          },
+          "broadSuiteRepeated": false
+        }
       }
     }
   ],
@@ -417,10 +475,11 @@
     "docs/postmortems/2026-09-08-echo-section-certification.md",
     "docs/postmortems/2026-09-08-echo-precise-audio.md",
     "docs/postmortems/2026-09-08-echo-preview-quality-budget.md",
-    "docs/postmortems/2026-09-08-echo-prefetch-retention.md"
+    "docs/postmortems/2026-09-08-echo-prefetch-retention.md",
+    "docs/postmortems/2026-09-08-echo-decoded-presentation.md"
   ],
   "decisionAfterAcceptedBatches": 2,
-  "nextAction": "Complete decoded-video presentation phase correction and integrated stem/timing acceptance through the existing playback owner. Investigate element-clock versus decoded-frame age from the final cue-level residuals, preserve fallback truth, and reuse completed prefetch/retention and source-integrity evidence. Cold persistent seek latency and physical/composite timing remain open.",
+  "nextAction": "Complete actual-compositor event and handoff timing, remaining cue-entry outliers and six-song source-rate coverage; consolidate ECHO-04/07 acceptance against the original criteria. Reuse the passing full-song browser residual, transport, fallback and resource evidence. Cold persistent replay latency and human review remain separate open work.",
   "updates": "batch-start, scope-change, consequential-failure, acceptance, handoff, goal-completion",
   "collaboration": {
     "protocol": "docs/ECHO_CONVICTION_PROTOCOL.md",

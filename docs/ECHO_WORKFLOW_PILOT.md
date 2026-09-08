@@ -33,9 +33,9 @@ At each meaningful update, keep JSON and Markdown in agreement, append the corre
 
 ## Next action
 
-Upcoming shader-media prefetch and bounded song-detail/plan retention are verified. Six-cut navigation passes11 visits/10 switches with at most 3 retained details/plans. Full Dear Papa playback with 3 video players and two temporary Feedback Loop layers reaches 258.439979 s within owned resource caps. Highest observed shader-window p95 is 31.93 ms; estimated media/audio session p95 remains 44 ms, above 33.3 ms. Six requirements done/twelve in progress; A1 and the workflow pilot remain unaccepted.
+Decoded presentation feedback now passes the Dear Papa full-song browser residual target: 23 ms p95 across 6,959 observations, with explicit outliers retained (103 over one frame; worst 124.65 ms). Direct/reverse/resume transport and actual unsupported-RVFC fallback pass. The original timing recorder is unchanged. Resource limits hold. Six requirements done/twelve in progress; A1 remains unaccepted.
 
-Complete decoded-video presentation phase correction and integrated stem/timing acceptance through the existing playback owner. Investigate element-clock versus decoded-frame age from the final signed residuals; preserve fallback truth. Reuse completed prefetch/retention, capacity and source-integrity evidence. Cold persistent seek latency and physical/composite timing remain open. See [prefetch and retention evidence](postmortems/2026-09-08-echo-prefetch-retention.md).
+Complete actual-compositor event and handoff timing, remaining cue-entry outliers and six-song source-rate coverage; consolidate ECHO-04/07 acceptance against the original criteria. Reuse the passing full-song browser residual, transport, fallback and resource evidence. Cold persistent replay latency and human review remain separate open work. See [decoded presentation postmortem](postmortems/2026-09-08-echo-decoded-presentation.md).
 
 ## Conviction relationship — 2026-09-06
 
