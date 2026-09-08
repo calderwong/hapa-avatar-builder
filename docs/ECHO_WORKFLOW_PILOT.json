@@ -87,7 +87,7 @@
           "full ECHO-04 deterministic persistent seeking and whole-composite timing acceptance",
           "ECHO-07 criteria/dependency consolidation and sustained ECHO-08 resource measurements"
         ],
-        "codeCommit": null,
+        "codeCommit": "6385bd9",
         "sectionCameraPathsChecked": 383,
         "sectionProjectionFrames": 17,
         "realSongs": 6,
@@ -188,6 +188,7 @@
     "seekRegressionChecks": 7,
     "scope": "derived actual-song catalog filter; no whole-song/general persistent seek acceptance",
     "requirementClosures": [],
-    "postmortem": "docs/postmortems/2026-09-07-echo-shader-frame-integration.md"
+    "postmortem": "docs/postmortems/2026-09-07-echo-shader-frame-integration.md",
+    "commit": "6385bd9"
   }
 }

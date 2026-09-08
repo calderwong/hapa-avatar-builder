@@ -33,7 +33,7 @@ At each meaningful update, keep JSON and Markdown in agreement, append the corre
 
 ## Next action
 
-Continue ECHO-04 deterministic persistent seeking and whole-composite timing. The sampled post-injection shader input and native callback-order repair now pass, and A1 integration is ready for a scoped local checkpoint. ECHO-07 remains dependent on ECHO-04; no requirement count changes. Reuse unaffected broad evidence.
+Continue ECHO-04 deterministic persistent seeking and whole-composite timing. The sampled post-injection shader input and native callback-order repair now pass, and A1 integration is recorded in local commit `6385bd9`. ECHO-07 remains dependent on ECHO-04; no requirement count changes. Reuse unaffected broad evidence.
 
 ## Conviction relationship — 2026-09-06
 
@@ -83,3 +83,5 @@ Encoded shader inputs remain open: HyperFrames injects extracted frames after th
 The HyperFrames adapter now samples the injected decoded video image and redraws after injection. Correct texture binding and same-frame buffer restoration pass eight real GPU persistent replay cases. Three decoded samples from a four-second 1080p30 MP4 favor correct-time shader references over stale footage; all120 frames are present. The native seek-timeout race is fixed and seven affected checks pass. The original failed GPU threshold, IPC trace and missing-reference attempts remain recorded.
 
 See [the export integration postmortem](postmortems/2026-09-07-echo-shader-frame-integration.md) for tolerances, evidence reuse and remaining scope. This checkpoint consolidates existing A1 gestures, section budgets, recut preservation and session lifecycle work; it does not close a requirement. Nonsequential persistent rendering, broader composite timing, resource budgets and human acceptance remain open. Counts remain6 done/12 in progress; zero accepted workflow-pilot batches.
+
+Local integration commit: `6385bd9`. Unrelated shader-opacity/knockout/UI work remains outside this commit.
