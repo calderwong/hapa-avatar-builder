@@ -169,3 +169,57 @@ export function observeEchoPresentedFrames({ video, getContext, onSample, reques
   schedule();
   return () => { stopped = true; if (token !== null) { if (decoded) video.cancelVideoFrameCallback?.(token); else cancelFrame(token); } token = null; };
 }
+
+
+// This owner measures synchronous compositor work, not GPU completion, decoded
+// video drops or physical presentation. Histograms stay fixed for a long song.
+export function createEchoCompositeCadence({ fps = 30 } = {}) {
+  const frameRate = Math.max(1, Math.min(120, Number(fps) || 30));
+  const budgetMs = 1000 / frameRate;
+  const workBins = new Float64Array(2002);
+  let previous = null, startedMs = null;
+  let callbacks = 0, paints = 0, duplicateCallbacks = 0, idleCallbacks = 0;
+  let overBudget = 0, totalWorkMs = 0, maximumWorkMs = 0;
+  return {
+    begin({ nowMs, songTime, playing, cadenceEnabled = true, surface, width, height }) {
+      callbacks++;
+      const frame = Math.floor(Math.max(0, songTime) * frameRate + 1e-7);
+      const sameSurface = previous && previous.surface === surface && previous.width === width && previous.height === height;
+      const sameMode = previous && previous.playing === playing && previous.cadenceEnabled === cadenceEnabled;
+      if (cadenceEnabled && sameSurface && sameMode) {
+        // A stalled audio clock must still expose completed preparation.
+        if (playing && previous.frame === frame && nowMs - previous.nowMs < 250) { duplicateCallbacks++; return false; }
+        // A paused position still needs new pixels after async shader/media
+        // preparation. Refresh at output cadence; a seek/resize paints now.
+        if (!playing && previous.songTime === songTime && nowMs - previous.nowMs < budgetMs - 1e-6) {
+          idleCallbacks++; return false;
+        }
+      }
+      previous = { frame, songTime, playing, cadenceEnabled, surface, width, height, nowMs };
+      startedMs = nowMs;
+      return true;
+    },
+    end(nowMs) {
+      if (startedMs === null) return;
+      const workMs = Math.max(0, nowMs - startedMs);
+      startedMs = null;
+      paints++; totalWorkMs += workMs; maximumWorkMs = Math.max(maximumWorkMs, workMs);
+      if (workMs > budgetMs) overBudget++;
+      workBins[Math.min(2001, Math.ceil(workMs))]++;
+    },
+    snapshot() {
+      let count = 0, p95UpperBoundMs = null;
+      for (let i = 0; paints && i < workBins.length; i++) {
+        count += workBins[i];
+        if (count >= Math.ceil(paints * .95)) { p95UpperBoundMs = i === 2001 ? null : i; break; }
+      }
+      return { version: 'hapa.echo.composite-cadence.v1', fps: frameRate, budgetMs,
+        callbacks, paints, duplicateCallbacks, idleCallbacks, totalWorkMs, maximumWorkMs,
+        meanWorkMs: paints ? totalWorkMs / paints : null, p95UpperBoundMs,
+        workOverBudget: overBudget, overflowSamples: workBins[2001], histogramBytes: workBins.byteLength,
+        scope: 'Synchronous main-canvas work in this mounted compositor; excludes GPU completion, media decode and observer overhead',
+        skippedCallbackMeaning: 'Redundant or paused callbacks; not dropped output frames',
+        livePolicy: 'Live-jam and legacy rendering keep their original cadence' };
+    },
+  };
+}

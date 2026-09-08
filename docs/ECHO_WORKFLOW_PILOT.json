@@ -2,7 +2,7 @@
   "schemaVersion": "hapa.workflow-pilot.v1",
   "id": "echo-requirement-completion-batch-pilot",
   "version": "0.1",
-  "updatedAt": "2026-09-08T10:59:50.989241+00:00",
+  "updatedAt": "2026-09-08T11:26:29.173078+00:00",
   "status": "active-pilot",
   "effectiveness": "not-yet-evaluated",
   "ownerTaskId": "01a072d3-d593-74f2-8c89-2470c2ee1a40",
@@ -83,7 +83,7 @@
         }
       ],
       "escapedDefects": null,
-      "acceptance": "pending",
+      "acceptance": "technical-accepted-ECHO-04-and-ECHO-07",
       "projectionEvidence": {
         "plans": 12,
         "events": 476,
@@ -756,7 +756,7 @@
     },
     {
       "id": "A2",
-      "status": "next",
+      "status": "in_progress",
       "requirements": [
         "ECHO-05",
         "ECHO-06",
@@ -1086,5 +1086,43 @@
     "done": 8,
     "inProgress": 10,
     "acceptedPilotBatches": 1
+  },
+  "latestCompositorCadence": {
+    "status": "verified-implementation-progress-A2-open",
+    "requirements": [
+      "ECHO-06",
+      "ECHO-08",
+      "ECHO-18"
+    ],
+    "acceptedRequirements": [],
+    "firstRun": {
+      "paints": 7768,
+      "lyricP95Ms": 53.33666669048398,
+      "accentP95Ms": 30.706666690491602,
+      "timingTargetMet": false,
+      "synchronousWorkP95UpperBoundMs": 4
+    },
+    "repair": "Existing lyric surface paints synchronously with the main compositor; no React state commit per lyric frame.",
+    "checks": {
+      "affectedDistinctCasesWithPassingEvidence": 68,
+      "build": "pass"
+    },
+    "evidence": "$ECHO_REVIEW_WORKSPACE/compositor-budget-proof",
+    "humanAccepted": false,
+    "finalRun": {
+      "paints": 7770,
+      "lyricP95Ms": 21.875666642785063,
+      "accentP95Ms": 21.869666690520262,
+      "sampledEventsOverOneFrame": 0,
+      "synchronousWorkP95UpperBoundMs": 4,
+      "synchronousWorkMaxMs": 18,
+      "transportComparisons": 26,
+      "sourceIntegrity": {
+        "pass": true,
+        "protectedFiles": 55,
+        "authoringFiles": 12,
+        "failures": []
+      }
+    }
   }
 }

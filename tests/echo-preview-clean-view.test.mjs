@@ -38,8 +38,8 @@ test("clean preview mode hides the telemetry HUD from the picture", () => {
 test("clean preview mode unmounts the timed lyrics overlay, keeping media and canvas intact", () => {
   assert.match(source, /hidden=\{cleanPreviewMode\}/);
   const overlay = fs.readFileSync(new URL("../src/components/EchoLyricOverlay.jsx", import.meta.url), "utf8");
-  assert.match(overlay, /const visible = !hidden && powerMode !== 'hidden' && activeLyricContract.enabled && currentLine/);
-  assert.match(overlay, /if \(!visible\) return null/);
+  assert.match(overlay, /const enabled = !hidden && powerMode !== 'hidden' && activeLyricContract.enabled/);
+  assert.match(overlay, /if \(!enabled\) return null/);
   assert.match(source, /data-clean-preview=\{cleanPreviewMode \? "true" : "false"\}/);
   const frame = between('data-testid="echo-director-preview-frame"', 'data-testid="echo-director-preview-controls"');
   assert.match(frame, /data-clean-preview=\{cleanPreviewMode \? "true" : "false"\}/);

@@ -45,7 +45,7 @@ import {
 } from "../domain/echo-visualizer-audio-envelope.js";
 import { createEchoPlaybackEngine } from "../domain/echo-playback-engine.js";
 import { ECHO_PREVIEW_PLAYER_POOL_LIMIT as ECHO_PLAYER_POOL_LIMIT, reconcileEchoPlayerSlots } from "../domain/echo-player-pool.js";
-import { createEchoPresentationTimingRecorder, observeEchoPresentedFrames, estimateEchoAudibleClock } from "../domain/echo-presentation-timing.js";
+import { createEchoPresentationTimingRecorder, observeEchoPresentedFrames, estimateEchoAudibleClock, createEchoCompositeCadence } from "../domain/echo-presentation-timing.js";
 import {
   createEchoIsfSurface,
   ECHO_SHADER_POOL_LIMIT,
@@ -1843,6 +1843,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
   const activeShowGraphRef = useRef(null);
   const shaderTypeResolverRef = useRef(null);
   const canvasRef = useRef(null);
+  const echoLyricPresentationRef = useRef(null);
   const exactIsfPlaybackPoolRef = useRef(null);
   const exactIsfPlaybackPoolIdentityRef = useRef({ variantKey: "", dirtyKey: "", sizeKey: "", dirtyRangeCount: 0, shaderIds: [] });
   const exactIsfPrewarmSignatureRef = useRef("");
@@ -3443,7 +3444,15 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
     const silentFft = new Uint8Array(256);
     const silentWave = new Uint8Array(256).fill(128);
     const emptyPreparedStem = { source: "prepared-performance", status: "missing-analysis", rms: 0, beat: 0, energy: 0 };
+    const compositeCadence = createEchoCompositeCadence({ fps: activeOutputProfile.fps });
+    let nextCompositeReportMs = 0;
+    const scheduleRender = () => {
+      if (disposed) return;
+      if (powerMode === "docked") cadenceTimer = window.setTimeout(() => { animFrame = requestAnimationFrame(render); }, 1000 / 12);
+      else animFrame = requestAnimationFrame(render);
+    };
     const render = () => {
+      const frameStartedMs = performance.now();
       const canvas = canvasRef.current || document.getElementById("director-preview-canvas");
       if (!canvas) {
         animFrame = requestAnimationFrame(render);
@@ -3464,6 +3473,14 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
         animFrame = requestAnimationFrame(render);
         return;
       }
+      if (!compositeCadence.begin({ nowMs: frameStartedMs, songTime: t,
+        playing: Boolean(masterClock && !masterClock.paused && !masterClock.ended && !masterClock.seeking),
+        cadenceEnabled: Boolean(activeDirectorPreviewSource) && audioVisualMode !== "live",
+        surface: canvas, width: targetWidth, height: targetHeight })) {
+        scheduleRender();
+        return;
+      }
+      echoLyricPresentationRef.current?.(t);
       const width = canvas.width;
       const height = canvas.height;
       const shaderSize = echoPreviewShaderSize(width, height, previewQuality);
@@ -4409,6 +4426,12 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
 
       canvas.dataset.echoAccentReceipts = JSON.stringify(EchoAccentPresentation.report(accentState, accentReceipts, { excludeLayers: directorPreviewFrame?.lyrics?.visible ? ['lyric-layer'] : [] }));
       canvas.dataset.echoVisualBudget = JSON.stringify(directorPreviewFrame?.visualBudget || null);
+      const compositeFinishedMs = performance.now();
+      compositeCadence.end(compositeFinishedMs);
+      if (compositeFinishedMs >= nextCompositeReportMs) {
+        canvas.dataset.echoCompositeTiming = JSON.stringify(compositeCadence.snapshot());
+        nextCompositeReportMs = compositeFinishedMs + 250;
+      }
       if (paintedLayers) {
         const nowMs = performance.now();
         try { paintObserver({ canvas, frame: directorPreviewFrame, source: activeDirectorPreviewSource,
@@ -4417,8 +4440,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
         catch (error) { globalThis.__HAPA_ECHO_PAINT_OBSERVER_ERROR__ = String(error?.message || error); }
       }
       
-      if (powerMode === "docked") cadenceTimer = window.setTimeout(() => { animFrame = requestAnimationFrame(render); }, 1000 / 12);
-      else animFrame = requestAnimationFrame(render);
+      scheduleRender();
     };
     render();
     return () => {
@@ -4431,7 +4453,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
       exactIsfLastPresentedCanvasRef.current = null;
       exactIsfPrewarmSignatureRef.current = "";
     };
-  }, [activeDirectorPreviewSource, previewTimeline, previewQuality, activeShowGraphVisualizerCardsById, activeWorkbenchTab, activeProject, powerMode, audioVisualMode, activeRecordedSignalReplay, activePreparedPerformance, preparedModulationResult, diagnosticPreparedModulation, activeVisualSignalSolo, visualSignalIsolation]);
+  }, [activeDirectorPreviewSource, activeOutputProfile, previewTimeline, previewQuality, activeShowGraphVisualizerCardsById, activeWorkbenchTab, activeProject, powerMode, audioVisualMode, activeRecordedSignalReplay, activePreparedPerformance, preparedModulationResult, diagnosticPreparedModulation, activeVisualSignalSolo, visualSignalIsolation]);
 
   const uniqueTags = useMemo(() => {
     if (!gapsReport?.videos) return [];
@@ -7419,6 +7441,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                                   </div>
 
                                   <EchoLyricOverlay
+                                    presentationRef={echoLyricPresentationRef}
                                     accentEvents={activeShowGraph?.directorV2?.accentTrack?.events}
                                     contract={directorPreviewFrame?.lyrics?.contract || activeLyricContract}
                                     lines={activeShowGraph?.song?.lyricOverlay?.lines?.length ? activeShowGraph.song.lyricOverlay.lines : activeProject.timed_lyrics}
