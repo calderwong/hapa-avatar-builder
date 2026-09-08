@@ -1118,6 +1118,27 @@ function assignAccents(instances, accents) {
   };
 }
 
+/** Count declared non-shader reservations with the same interval rules as rendering. */
+export function hyperFramesVisualLayerReservations(show, time) {
+  const lyricTrack = show.instances?.lyrics?.[0];
+  return {
+    mediaLayers: (show.instances?.media || []).filter(row => activeHalfOpen(cueWindow(row), time)).length,
+    lyricLayers: lyricTrack?.contract?.enabled !== false && (lyricTrack?.lines || []).some(row => time >= Number(row.start ?? row.startSeconds) && time < Number(row.end ?? row.endSeconds)) ? 1 : 0,
+    accentLayers: Math.min(lyricTrack?.contract?.reducedMotion ? 1 : 3, (show.automation?.accentTrack?.events || []).filter(event => activeHalfOpen(eventWindow(event), time)).length),
+  };
+}
+
+/** Source-derived admission for certification. Do not derive expected layers
+ * from the renderer's output or its suppression receipt. Invalid candidates
+ * remain expected here; input-contract checks must still reject them. */
+export function expectedHyperFramesVisualAdmission(show, time) {
+  const candidates = stableLayerRows(show).map(row => row.instance)
+    .filter(instance => activeHalfOpen(cueWindow(instance), time))
+    .map(instance => ({ ...instance, persistent: instance.alwaysOn === true }));
+  return { candidates, ...admitEchoSectionVisualLayers(candidates, show.automation?.visualBudgetPolicy, time,
+    hyperFramesVisualLayerReservations(show, time)) };
+}
+
 export function evaluateHyperFramesVisualizers(show = {}, timeSeconds = 0, { soloStem = "" } = {}) {
   if (soloStem && !show.stemFrames?.performance) throw new Error("Visual signal isolation requires prepared song timing");
   const time = Number(timeSeconds);
@@ -1260,12 +1281,8 @@ export function evaluateHyperFramesVisualizers(show = {}, timeSeconds = 0, { sol
       accents: [],
     });
   }
-  const lyricTrack = show.instances?.lyrics?.[0];
-  const visualAdmission = admitEchoSectionVisualLayers(drawable, show.automation?.visualBudgetPolicy, time, {
-    mediaLayers: (show.instances?.media || []).filter(row => activeHalfOpen(cueWindow(row), time)).length,
-    lyricLayers: lyricTrack?.contract?.enabled !== false && (lyricTrack?.lines || []).some(row => time >= Number(row.start ?? row.startSeconds) && time < Number(row.end ?? row.endSeconds)) ? 1 : 0,
-    accentLayers: Math.min(lyricTrack?.contract?.reducedMotion ? 1 : 3, (show.automation?.accentTrack?.events || []).filter(event => activeHalfOpen(eventWindow(event), time)).length),
-  });
+  const visualAdmission = admitEchoSectionVisualLayers(drawable, show.automation?.visualBudgetPolicy, time,
+    hyperFramesVisualLayerReservations(show, time));
   const accentAssignment = assignAccents(visualAdmission.layers, activeAccents(show, time));
   const layers = accentAssignment.instances;
   return {

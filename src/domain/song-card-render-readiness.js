@@ -8,6 +8,8 @@ import {
 } from "./hyperframes-show-compiler.js";
 import {
   evaluateHyperFramesVisualizers,
+  expectedHyperFramesVisualAdmission,
+  ECHO_SECTION_VISUAL_BUDGET_SCHEMA,
   normalizeHyperFramesStemRole,
 } from "./hyperframes-visualizer-runtime.js";
 import { canonicalSha256 } from "./native-visualizer-route.js";
@@ -16,7 +18,7 @@ import { inspectEchoLyricRenderSafety } from "./echo-lyric-render-safety.js";
 
 export const SONG_CARD_RENDER_READINESS_SCHEMA = "hapa.song-card.render-readiness.v1";
 
-const ENGINE_VERSION = 1;
+const ENGINE_VERSION = 2;
 const MAX_DETAIL_ROWS = 12;
 const SIGNAL_FIELDS = Object.freeze(["rms", "peak", "onset", "low", "mid", "high"]);
 
@@ -400,24 +402,53 @@ function proxyFrameInBounds(layer) {
     && rect[1] + rect[3] <= atlasHeight;
 }
 
-function runtimeAudit(show, addBlocker) {
+/** Verify declared admission independently of the supplied runtime state. */
+export function inspectSongCardRuntimeAdmission(show, timeSeconds, state) {
+  const admission = expectedHyperFramesVisualAdmission(show, timeSeconds);
+  const expected = admission.layers;
+  const actual = Array.isArray(state.layers) ? state.layers : [];
+  const issues = [];
+  if (expected.some(instance => !actual.some(layer => sameExpectedLayer(layer, instance)))) issues.push("active-layer-identity-mismatch");
+  if (actual.some(layer => !expected.some(instance => sameExpectedLayer(layer, instance)))) issues.push("unexpected-active-layer");
+  const actualIds = actual.map(layer => text(layer.id));
+  const expectedIds = expected.map(instance => text(instance.id));
+  if (JSON.stringify(actualIds) !== JSON.stringify(expectedIds)) issues.push("admitted-layer-order-mismatch");
+  if (JSON.stringify(state.receipt?.drawableInstanceIds || []) !== JSON.stringify(actualIds)) issues.push("drawable-instance-receipt-mismatch");
+  const candidateIds = admission.candidates.map(instance => text(instance.id)).sort();
+  if (JSON.stringify([...(state.receipt?.activeCandidateIds || [])].sort()) !== JSON.stringify(candidateIds)) issues.push("active-candidate-receipt-mismatch");
+  if (JSON.stringify(stable(state.visualBudget)) !== JSON.stringify(stable(admission.receipt))) issues.push("visual-budget-receipt-mismatch");
+  return { expected, candidates: admission.candidates, visualBudget: admission.receipt, issues };
+}
+
+function runtimeAuditSamples(show) {
   const visualizers = show.instances?.visualizers || [];
   const samples = songCardReadinessSampleTimes(visualizers);
+  if (show.automation?.visualBudgetPolicy?.schemaVersion !== ECHO_SECTION_VISUAL_BUDGET_SCHEMA) return samples;
+  // Budget admission can change without any shader cue changing. Sample every
+  // reservation/section interval, avoiding zero-opacity transition seams.
+  const events = show.automation?.accentTrack?.events || [];
+  const rows = [...visualizers, ...(show.instances?.media || []),
+    ...(show.instances?.lyrics?.[0]?.lines || []), ...(show.automation.visualBudgetPolicy.sections || [])];
+  const boundaries = [...new Set([...rows.flatMap(row => [Number(row.start ?? row.startSeconds), Number(row.end ?? row.endSeconds)]),
+    ...events.flatMap(event => { const start = Number(event.startSeconds ?? event.atSeconds); return [start, Number(event.endSeconds ?? start + Number(event.durationSeconds || 0))]; })]
+    .filter(Number.isFinite))].sort((a, b) => a - b);
+  for (let i = 1; i < boundaries.length; i += 1) {
+    const timeSeconds = round((boundaries[i - 1] + boundaries[i]) / 2, 9);
+    if (!visualizers.some(row => activeIn(row, timeSeconds)) || samples.some(row => row.timeSeconds === timeSeconds)) continue;
+    samples.push({ timeSeconds, kinds: ["visual-budget-interval"], overlapSignatures: [] });
+  }
+  return samples.sort((a, b) => a.timeSeconds - b.timeSeconds);
+}
+
+function runtimeAudit(show, addBlocker) {
+  const samples = runtimeAuditSamples(show);
   const failures = [];
   let evaluatedLayerCount = 0;
   for (const sample of samples) {
-    const expected = visualizers.filter((instance) => activeIn(instance, sample.timeSeconds));
     const state = evaluateHyperFramesVisualizers(show, sample.timeSeconds);
     const actual = Array.isArray(state.layers) ? state.layers : [];
+    const { expected, candidates, visualBudget, issues } = inspectSongCardRuntimeAdmission(show, sample.timeSeconds, state);
     evaluatedLayerCount += actual.length;
-    const issues = [];
-    const missing = expected.filter((instance) => !actual.some((layer) => sameExpectedLayer(layer, instance)));
-    const unexpected = actual.filter((layer) => !expected.some((instance) => sameExpectedLayer(layer, instance)));
-    if (missing.length) issues.push("active-layer-identity-mismatch");
-    if (unexpected.length) issues.push("unexpected-active-layer");
-    const receiptIds = [...new Set(state.receipt?.activeCandidateIds || [])].sort();
-    const expectedIds = [...new Set(expected.map((instance) => text(instance.id)))].sort();
-    if (JSON.stringify(receiptIds) !== JSON.stringify(expectedIds)) issues.push("active-candidate-receipt-mismatch");
     if ((state.diagnostics || []).length) issues.push("runtime-diagnostics-present");
     if (actual.some((layer) => (layer.diagnostics || []).length)) issues.push("layer-diagnostics-present");
     if (actual.some((layer) => !(Number(layer.effectiveOpacity) > 0))) issues.push("nonpositive-effective-opacity");
@@ -438,6 +469,8 @@ function runtimeAudit(show, addBlocker) {
       kinds: sample.kinds,
       issues: [...new Set(issues)].sort(),
       expected: expected.map(expectedLayerSummary),
+      candidates: candidates.map(expectedLayerSummary),
+      visualBudget,
       actual: actual.map(actualLayerSummary),
       runtimeDiagnosticCount: (state.diagnostics || []).length,
       layerDiagnosticCount: actual.reduce((sum, layer) => sum + (layer.diagnostics || []).length, 0),
@@ -453,6 +486,8 @@ function runtimeAudit(show, addBlocker) {
         sampleTimeSeconds: sample.timeSeconds,
         cueId: failure.expected[0]?.cueId || failure.actual[0]?.cueId || null,
         details: {
+          visualBudget: failure.visualBudget,
+          candidateCueIds: failure.candidates.map(row => row.cueId).slice(0, MAX_DETAIL_ROWS),
           expectedCueIds: failure.expected.map((row) => row.cueId).slice(0, MAX_DETAIL_ROWS),
           actualCueIds: failure.actual.map((row) => row.cueId).slice(0, MAX_DETAIL_ROWS),
           runtimeDiagnosticCount: failure.runtimeDiagnosticCount,

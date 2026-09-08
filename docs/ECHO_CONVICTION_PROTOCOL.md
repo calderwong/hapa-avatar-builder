@@ -71,3 +71,10 @@ The initial wrong-route response and the rejected preflight remain in task recei
 ## September7 second-review disposition
 
 Shared event `cs-echo-terminal-20260907-002` records the successful33.99s local route and rejected terminal acceptance inferences. No new defect accepted; token usage and savings unavailable. Broader expected-result/code inference is unqualified after repeated material errors. For the next useful Echo delegation, supply a compact source-labeled record and ask for literal fact extraction or structured status summarization with exact pointers; Codex verifies it and retains all implementation, visual judgment and closure authority. Do not automatically retry or treat supplied excerpts as agent file access. Existing explicit route, network boundary and shared dispatch lock continue. This is a scoped routing revision, not a judgment about unrelated Conviction tasks.
+
+
+## Historical stem extraction — September 8 UTC
+
+Job echo-stem-evidence-003 completed on the pinned custom/qwen38-flash-next:fast loopback route in33.48s with zero tools; token counts and savings are unknown. Codex reviewed its four source-labeled historical rows against the supplied routing, shaping, capture and gesture records. Retain those rows only as historical evidence. Reject the final reflection's claim that all records establish ongoing live-capture/section-budget gaps: later implementation can supersede an earlier limitation. The R1 packet was clipped mid-sentence by Codex; that packaging error is retained and the next useful packet must contain complete relevant sections. No extra qualification call was launched and no new defect or requirement acceptance is attributed to this result.
+
+Shared event cs-echo-stem-extraction-20260908-003 records both perspectives and disposition. Continue literal extraction with lead review; code, sequencing and closure remain unqualified.

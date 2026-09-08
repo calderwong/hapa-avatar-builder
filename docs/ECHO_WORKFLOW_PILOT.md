@@ -33,7 +33,7 @@ At each meaningful update, keep JSON and Markdown in agreement, append the corre
 
 ## Next action
 
-Continue ECHO-04 deterministic persistent seeking and whole-composite timing. The sampled post-injection shader input and native callback-order repair now pass, and A1 integration is recorded in local commit `6385bd9`. ECHO-07 remains dependent on ECHO-04; no requirement count changes. Reuse unaffected broad evidence.
+Certification now honors declared section admission and the actual editor terminal/reverse path passes. Isolate the observed MP3 seek/end-time disagreement against decoded samples, improve persistent cold/resume preparation, then finish composite/physical timing and sustained global resources. Reuse valid source and terminal evidence. A1 remains unaccepted; six done/twelve in progress.
 
 ## Conviction relationship — 2026-09-06
 
@@ -115,3 +115,14 @@ Conviction's second local supplied-text review completed in33.99s on the pinned 
 Six requirements remain done and twelve in progress. A1 is unaccepted. Next: actual editor terminal validation, whole-composite timing and the remaining integrated stem/resource gates. Broader lyric, camera, recut, UI and human acceptance scope remains intact.
 
 Final affected-adapter gate:60/60 pass. Integrity:55 protected and12 authoring hashes unchanged. All owned test/native/build process groups are terminal and absent. This is a local checkpoint; A1 remains unaccepted.
+
+
+## A1 section-aware certification and native terminal verification — September 8 UTC
+
+The existing readiness auditor now derives admitted layers from source candidates and the shared section policy, compares renderer identities/order and complete admission receipts, and retains invalid-input checks even for suppressed candidates. Quiet sections may intentionally suppress an ordinary third layer; protected slots stay authored and any overflow remains explicit. Section/media/lyric/accent interval samples prevent cue-midpoint-only coverage. The actual Dear Papa selected cut now certifies with zero blockers across332 runtime samples,78 media cues and14 shader cues. This resolves the prior active-layer-identity-mismatch without weakening the missing-layer guard.
+
+The actual editor temporary Feedback Loop edit now reports cold-history progress visibly. Final native verification passes direct seek, reverse seek and natural end using the observed audio clock, with no Save. Cold reconstruction took93.11s for7751 earlier frames; reverse preparation took214.9ms. The browser ends at258.6072s/frame7758; the prior probe incorrectly required frame7753 from the authored258.44s duration. Preserve both measurements; matching the actual end does not prove decoded audio/video duration parity. The terminal input is explicitly transparent and belongs to the requested shader.100 affected checks and the delivery build pass;55 protected/12 authoring hashes remain unchanged. No broad suite was repeated;2226 prior passes remain evidence for8fdd32e only.
+
+A1 remains unaccepted: cold seek latency is high, the first run's short resumed segment had257.33ms p95 prepared-shader lag, and whole-composite/physical timing plus sustained global resource gates remain open. See [the certification and progress postmortem](postmortems/2026-09-08-echo-section-certification.md). Counts remain6 done/12 in progress. Next: improve persistent cold/resume preparation and complete the remaining timing/resource acceptance, reusing valid terminal/source evidence.
+
+Final short resumed segment:91 samples,144.0ms p95,13 over one frame. The source MP3 ffprobe duration is258.439979s, unlike the258.6072s browser endpoint after seeking. Investigate that timebase disagreement before declaring export/preview terminal parity.

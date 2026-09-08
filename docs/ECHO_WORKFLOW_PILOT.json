@@ -2,7 +2,7 @@
   "schemaVersion": "hapa.workflow-pilot.v1",
   "id": "echo-requirement-completion-batch-pilot",
   "version": "0.1",
-  "updatedAt": "2026-09-08T05:07:25.650995+00:00",
+  "updatedAt": "2026-09-08T05:35:19.822733+00:00",
   "status": "active-pilot",
   "effectiveness": "not-yet-evaluated",
   "ownerTaskId": "01a072d3-d593-74f2-8c89-2470c2ee1a40",
@@ -40,7 +40,7 @@
   "batches": [
     {
       "id": "A1",
-      "status": "terminal-input-checkpoint-verified-batch-acceptance-pending",
+      "status": "certification-and-native-terminal-verified-performance-acceptance-pending",
       "requirements": [
         "ECHO-07"
       ],
@@ -148,6 +148,39 @@
           "authoring": 12,
           "unchanged": true
         }
+      },
+      "sectionCertificationEvidence": {
+        "status": "verified-checkpoint-not-batch-acceptance",
+        "runtimeSamples": 332,
+        "mediaCues": 78,
+        "shaderCues": 14,
+        "blockers": 0,
+        "affectedTestsPassed": 100,
+        "build": "pass",
+        "nativeTerminalObservations": 3,
+        "visiblePreparationProgress": true,
+        "coldSeekMs": 93113.29999995232,
+        "reverseSeekMs": 214.89999997615814,
+        "browserAudioEndSeconds": 258.6072,
+        "browserEndFrame": 7758,
+        "authoredDurationSeconds": 258.44,
+        "coldSeekPerformanceAccepted": false,
+        "resumedPlaybackPerformanceAccepted": false,
+        "sourceIntegrity": {
+          "pass": true,
+          "protectedFiles": 55,
+          "authoringFiles": 12,
+          "failures": []
+        },
+        "evidence": "$ECHO_REVIEW_WORKSPACE/section-certification-proof/native-final",
+        "acceptedRequirements": [],
+        "resumedPlaybackTiming": {
+          "samples": 91,
+          "p95Ms": 143.99966666667297,
+          "maxMs": 173.8666666666404,
+          "overOneFrame": 13,
+          "scope": "short resumed segment; shader vs browser playhead only"
+        }
       }
     }
   ],
@@ -161,23 +194,32 @@
     "docs/postmortems/2026-09-07-echo-package-media-clock.md",
     "docs/postmortems/2026-09-07-echo-shader-frame-integration.md",
     "docs/postmortems/2026-09-07-echo-persistent-seek.md",
-    "docs/postmortems/2026-09-07-echo-preview-persistent-seek.md"
+    "docs/postmortems/2026-09-07-echo-preview-persistent-seek.md",
+    "docs/postmortems/2026-09-08-echo-section-certification.md"
   ],
   "decisionAfterAcceptedBatches": 2,
-  "nextAction": "Resolve terminal-frame media coverage and cross-layer fallback in the shared Preview/export contract, then complete composite/physical timing and global resource acceptance. Reuse valid integration evidence.",
+  "nextAction": "Isolate MP3 browser seek/end-time disagreement against decoded samples, improve persistent cold/resume preparation, then complete composite/physical timing and global resources. Preserve authored durations and reuse verified admission/source evidence.",
   "updates": "batch-start, scope-change, consequential-failure, acceptance, handoff, goal-completion",
   "collaboration": {
     "protocol": "docs/ECHO_CONVICTION_PROTOCOL.md",
     "worker": "Conviction",
     "route": "Hermes AIAgent, custom, qwen38-flash-next:fast, http://127.0.0.1:8001/v1",
-    "status": "active-scoped-advisory",
+    "status": "literal-extraction-only-lead-reviewed",
     "observedChunks": 1,
     "acceptedNewDefects": 0,
     "unrestrictedCodeQualified": false,
     "imageQualified": false,
     "localSeconds": 34.742,
     "localTokens": null,
-    "savings": null
+    "savings": null,
+    "latestExtraction": {
+      "job": "echo-stem-evidence-003",
+      "localSeconds": 33.483265749993734,
+      "tools": 0,
+      "tokens": null,
+      "disposition": "historical table accepted with clipping caveat; current-status inference rejected",
+      "sharedEvent": "cs-echo-stem-extraction-20260908-003"
+    }
   },
   "latestNativeAcceptance": {
     "gestures": 6,

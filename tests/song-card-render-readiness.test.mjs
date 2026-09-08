@@ -6,6 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import {
   buildSongCardReadinessTelemetry,
+  inspectSongCardRuntimeAdmission,
   preflightSongCardRenderReadiness,
   SONG_CARD_RENDER_READINESS_SCHEMA,
   songCardReadinessSampleTimes,
@@ -322,4 +323,86 @@ test("Song Card readiness fails closed on noncanonical hashes and requested/card
     assert.ok(blocker.details.errors.includes(expectedError), label);
     assert.ok(report.blockers.some((row) => row.code === "visualizer-route-not-exact"), label);
   }
+});
+
+
+test("readiness admits the declared quiet-section subset without hiding unsupported candidates", t => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "hapa-readiness-budget-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const data = fixture(root);
+  const cards = data.showGraph.tracks[1].cards;
+  cards.push({ ...structuredClone(cards[0]), id: "viz:third" });
+  for (const card of cards) { card.startSeconds = 0; card.endSeconds = 4; }
+  cards[0].alwaysOn = true;
+  cards[1].persistentSlotId = "always-on-2";
+  data.showGraph.directorV2.visualBudgetPolicy = {
+    schemaVersion: "hapa.echo.section-visual-budget.v1",
+    sections: [{ id: "outro", startSeconds: 0, endSeconds: 1, energy: .2 },
+      { id: "peak", startSeconds: 1, endSeconds: 4, energy: .9 }],
+  };
+  const run = () => preflightSongCardRenderReadiness({ project: {}, showGraph: data.showGraph,
+    proxyRegistry: data.proxyRegistry, proxyRegistryPath: data.proxyRegistryPath, root,
+    projectPath: path.join(root, "project.json"), signalGraphPreflight: passingSignalPreflight, mediaPreflight: passingMediaPreflight });
+  const report = run();
+  assert.equal(report.ok, true, JSON.stringify(report.blockers));
+  assert.equal(report.checks.runtime.sampleCount, 3, "section changes must be sampled even when all cue midpoints coincide");
+  assert.equal(report.checks.runtime.evaluatedLayerCount, 8, "quiet admits two; midpoint and peak interval each admit three");
+  cards[2].visualization.card.source.hash = sha256("unavailable-third-shader");
+  const invalid = run();
+  assert.equal(invalid.ok, false, "budget suppression cannot certify an invalid source");
+  assert.ok(invalid.blockers.some(row => /hash|exact|diagnostic/.test(row.code)));
+});
+
+test("admission audit independently rejects lost, extra, reordered or falsely receipted layers", async () => {
+  const { expectedHyperFramesVisualAdmission } = await import("../src/domain/hyperframes-visualizer-runtime.js");
+  const policy = { schemaVersion: "hapa.echo.section-visual-budget.v1", sections: [{ id: "quiet", start: 0, end: 4, energy: .2 }] };
+  const show = { instances: { visualizers: [
+    { id: "ordinary", start: 0, end: 4, layerOrder: 0, visualizerId: "fx-a", stemFocus: "master" },
+    { id: "persistent", start: 0, end: 4, layerOrder: 2, alwaysOn: true, visualizerId: "fx-b", stemFocus: "vocals" },
+    { id: "locked", start: 0, end: 4, layerOrder: 1, locked: true, visualizerId: "fx-c", stemFocus: "drums" },
+  ] }, automation: { visualBudgetPolicy: policy } };
+  const admission = expectedHyperFramesVisualAdmission(show, 2);
+  assert.deepEqual(admission.layers.map(row => row.id), ["locked", "persistent"]);
+  assert.deepEqual(admission.receipt.suppressedIds, ["ordinary"]);
+  const state = { layers: structuredClone(admission.layers), visualBudget: structuredClone(admission.receipt),
+    receipt: { activeCandidateIds: ["ordinary", "locked", "persistent"], drawableInstanceIds: ["locked", "persistent"] } };
+  assert.deepEqual(inspectSongCardRuntimeAdmission(show, 2, state).issues, []);
+  for (const [mutate, issue] of [
+    [s => { s.layers.pop(); s.visualBudget.suppressedIds.push("persistent"); }, "active-layer-identity-mismatch"],
+    [s => s.layers.push(show.instances.visualizers[0]), "unexpected-active-layer"],
+    [s => s.layers.reverse(), "admitted-layer-order-mismatch"],
+    [s => { s.layers[0].stemFocus = "bass"; }, "active-layer-identity-mismatch"],
+    [s => { s.visualBudget.visualizerAllowance = 3; }, "visual-budget-receipt-mismatch"],
+    [s => s.receipt.activeCandidateIds.push("ordinary"), "active-candidate-receipt-mismatch"],
+    [s => s.receipt.drawableInstanceIds.pop(), "drawable-instance-receipt-mismatch"],
+  ]) {
+    const tampered = structuredClone(state); mutate(tampered);
+    assert.ok(inspectSongCardRuntimeAdmission(show, 2, tampered).issues.includes(issue), issue);
+  }
+  show.instances.visualizers[0].locked = true;
+  const overflow = expectedHyperFramesVisualAdmission(show, 2);
+  assert.equal(overflow.receipt.status, "protected-or-reserved-overflow");
+  assert.deepEqual(overflow.layers.map(row => row.id), ["ordinary", "locked", "persistent"]);
+  assert.deepEqual(overflow.receipt.suppressedIds, []);
+});
+
+test("admission accounts for media, lyric and bounded accent reservations at half-open boundaries", async () => {
+  const { expectedHyperFramesVisualAdmission } = await import("../src/domain/hyperframes-visualizer-runtime.js");
+  const show = { instances: {
+    visualizers: [0, 1, 2].map(i => ({ id: `v${i}`, start: 0, end: 4 })),
+    media: [{ start: 0, end: 2 }, { start: 0, end: 2 }],
+    lyrics: [{ contract: { enabled: true }, lines: [{ start: 0, end: 2 }] }],
+  }, automation: { visualBudgetPolicy: { schemaVersion: "hapa.echo.section-visual-budget.v1", sections: [{ start: 0, end: 4, energy: .2 }] },
+    accentTrack: { events: [0, 1, 2, 3].map(i => ({ id: `a${i}`, atSeconds: 0, durationSeconds: 2 })) } } };
+  let result = expectedHyperFramesVisualAdmission(show, 1);
+  assert.equal(result.receipt.reservedLayers, 6);
+  assert.equal(result.layers.length, 0);
+  show.instances.lyrics[0].contract.reducedMotion = true;
+  result = expectedHyperFramesVisualAdmission(show, 1);
+  assert.equal(result.receipt.reservedLayers, 4);
+  assert.deepEqual(result.layers.map(row => row.id), ["v0", "v1"]);
+  result = expectedHyperFramesVisualAdmission(show, 2);
+  assert.equal(result.receipt.reservedLayers, 0);
+  assert.deepEqual(result.layers.map(row => row.id), ["v0", "v1"]);
+  assert.equal(expectedHyperFramesVisualAdmission(show, 4).layers.length, 0);
 });

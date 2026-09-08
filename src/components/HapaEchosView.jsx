@@ -3775,7 +3775,8 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                 currentPresentedMedia?.sourceKey || "",
                 layerPresentations.map((layer) => [layer.namedStatus, layer.presentedShaderId,
                   layer.presentation?.frameReceipt?.timestampSeconds,
-                  layer.presentation?.frameReceipt?.receiptHash]),
+                  layer.presentation?.frameReceipt?.receiptHash,
+                  Math.floor(Number(layer.presentation?.historyProgress?.frame ?? -1) / activeOutputProfile.fps)]),
               ])
               : "";
             const frameBucket = `${Math.floor(t * 4)}:${activeVisualSignalSolo}:${settledFrameKey}`;
@@ -7133,6 +7134,16 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                                         Compact View
                                       </button>
                                     </div>
+                                  </div>
+                                )}
+                                {!isPlaying && (exactIsfBindingDiagnostics.persistentShaderLayers || []).some(layer => layer.historyPending) && (
+                                  <div role="status" data-testid="echo-history-preparation" style={{ fontSize: '14px', padding: '8px 12px', color: '#cbd5e1' }}>
+                                    Preparing visual effects for this position… {(() => {
+                                      const pending = exactIsfBindingDiagnostics.persistentShaderLayers.filter(layer => layer.historyPending);
+                                      const fractions = pending.map(layer => Number.isFinite(layer.historyProgress?.frame) && layer.historyProgress?.targetFrame > 0
+                                        ? layer.historyProgress.frame / layer.historyProgress.targetFrame : 0);
+                                      return `${Math.min(99, Math.max(0, Math.floor(Math.min(...fractions) * 100)))}%`;
+                                    })()}
                                   </div>
                                 )}
                                 {/* Composition Preview Screen */}

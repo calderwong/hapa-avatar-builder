@@ -1178,7 +1178,9 @@ export function createEchoIsfPlaybackPool(options = {}) {
     if (result?.status !== "ready") {
       slot.status = String(result?.status || "draw-error");
       slot.error = String(result?.error || "");
-      return holdResult(slot.status, shaderId, slot.error, layerKey);
+      return { ...holdResult(slot.status, shaderId, slot.error, layerKey),
+        historyPending: result?.status === "preparing-history",
+        historyProgress: result?.historyProgress || null };
     }
     const previous = presentedSlot;
     if (previous && previous !== slot) previous.presented = false;
