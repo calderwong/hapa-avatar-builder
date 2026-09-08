@@ -2,7 +2,7 @@
   "schemaVersion": "hapa.workflow-pilot.v1",
   "id": "echo-requirement-completion-batch-pilot",
   "version": "0.1",
-  "updatedAt": "2026-09-08T11:26:29.173078+00:00",
+  "updatedAt": "2026-09-08T12:03:48.365354+00:00",
   "status": "active-pilot",
   "effectiveness": "not-yet-evaluated",
   "ownerTaskId": "01a072d3-d593-74f2-8c89-2470c2ee1a40",
@@ -765,9 +765,23 @@
       "supportingRequirements": [
         "ECHO-17"
       ],
-      "acceptedRequirements": [],
+      "acceptedRequirements": [
+        "ECHO-08"
+      ],
       "implementationMinutes": null,
-      "verificationMinutes": null
+      "verificationMinutes": null,
+      "broadGateRuns": [
+        {
+          "scope": "resource acceptance at unchanged5a3816f production runtime; initial regression followed by repair-only checks",
+          "tests": 2284,
+          "pass": 2281,
+          "fail": 3,
+          "repairedFilesTests": 4,
+          "repairedFilesPass": 4,
+          "distinctChecksWithPassingEvidence": 2284,
+          "freshAllSuitePass": false
+        }
+      ]
     }
   ],
   "humanPilotReview": "pending",
@@ -787,10 +801,11 @@
     "docs/postmortems/2026-09-08-echo-prefetch-retention.md",
     "docs/postmortems/2026-09-08-echo-decoded-presentation.md",
     "docs/postmortems/2026-09-08-echo-paused-composition.md",
-    "docs/postmortems/2026-09-08-echo-camera-transport.md"
+    "docs/postmortems/2026-09-08-echo-camera-transport.md",
+    "docs/postmortems/2026-09-08-echo-resource-acceptance.md"
   ],
   "decisionAfterAcceptedBatches": 2,
-  "nextAction": "Complete the performance/cache portion of A2 as a coherent feature batch: cold history reconstruction, duplicate main-canvas composition, quality/late-frame budgets and incremental work. Keep manual vocal annotation and human review separately pending; reuse unchanged A1 evidence.",
+  "nextAction": "Finish A2 ECHO-05/06 vocal presentation: measured word-alignment/correction and actual all-template/aspect readability. ECHO-08 is technically accepted; reuse resource proofs unless invalidated. ECHO-17 cold-cache/incremental work and ECHO-18 render/human acceptance remain open.",
   "updates": "batch-start, scope-change, consequential-failure, acceptance, handoff, goal-completion",
   "collaboration": {
     "protocol": "docs/ECHO_CONVICTION_PROTOCOL.md",
@@ -1083,8 +1098,8 @@
     "nextAction": "Complete independent preview quality controls and global shader/decoder/compositing budgets, then integrated timing acceptance."
   },
   "currentCounts": {
-    "done": 8,
-    "inProgress": 10,
+    "done": 9,
+    "inProgress": 9,
     "acceptedPilotBatches": 1
   },
   "latestCompositorCadence": {
@@ -1124,5 +1139,31 @@
         "failures": []
       }
     }
+  },
+  "latestResourceAcceptance": {
+    "at": "2026-09-08T12:03:48.365354+00:00",
+    "requirements": [
+      "ECHO-08"
+    ],
+    "status": "technical-accepted",
+    "nativeVisits": 18,
+    "nativeSwitches": 17,
+    "samples": 108,
+    "thirdRoundRendererMiB": [
+      1325.5625,
+      1336.796875
+    ],
+    "thirdRoundEndpointDeltaMiB": 1.0625,
+    "forcedGcUsedForPlateau": false,
+    "fullSongSeconds": 258.439979,
+    "fullSongEvidenceReused": true,
+    "gpuCandidates": "rejected-and-restored",
+    "sourceIntegrity": {
+      "pass": true,
+      "protectedFiles": 55,
+      "authoringFiles": 12,
+      "failures": []
+    },
+    "humanAccepted": false
   }
 }

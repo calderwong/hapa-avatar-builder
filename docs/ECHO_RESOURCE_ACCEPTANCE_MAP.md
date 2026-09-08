@@ -1,0 +1,25 @@
+# Echo resource acceptance map
+
+ECHO-08: technically accepted, September 8, 2026 UTC. Source task `01a072d3-d593-74f2-8c89-2470c2ee1a40`. This accepts the original resource requirement only; A2 lyric work and ECHO-17/18 remain open. The source checkpoint is `5a3816f`; this handoff changes regression expectations and documentation, with both experimental GPU implementations restored.
+
+| Original criterion | Implementation and inspected acceptance evidence |
+| --- | --- |
+| Record frame work, late/dropped observations, decode queue, resident media bytes and compile time; compare 3/5/9 before default selection. | Existing presentation observer and compositor publish bounded timing, decoded-frame residuals and explicit fallback. Native snapshots record video dropped/total counters, queue/owned bytes and synchronous shader compile time. Same six saved cuts, 11 visits/10 switches each, shader ceiling 9: renderer peaks1276.30/1328.05/1534.53 MiB at video budgets3/5/9. Normal default is3 with explicit overrides; shader ceiling stays6. Current compositor synchronous-work p95 upper bound 4 ms; GPU completion is excluded. |
+| Reuse shader/program caches and buffers; imminent prewarm, hidden throttling and bounded percentile work. | Existing browser pool caches sources up to 32 and bounds contexts/programs at 6. Encoded proxy leases cap at 64 MiB/eight entries; shader history shares 128 MiB. Prefetch uses a three-second upcoming window and bounded/cancellable existing owners. Hidden preview exits its painter; existing timing uses a fixed ring/histogram, and compositor histogram is 16,016 bytes. Full-song native proof reaches context/checkpoint caps without continued retained growth and cancels owned history cleanly. |
+| Independently control shader resolution, layers and media decode quality, retaining lyric clarity and media mix. | Actual editor preset/independent-control proof verifies dimensions, omissions and transport continuity; actual lyric geometry is unchanged at 100/75/50% shader scale. Existing owner tests verify distinct 640/960/1280 derivative identities and encoding. Full-bright media/visualizerMix reuse matched actual Preview/HyperFrames composition evidence. This is quality independence, not acceptance of every lyric template or comic reading path. |
+| Keep exact/proxy/unavailable truth and dynamic-input fidelity explicit; ten switches plus a full song show no monotonic retained growth. | Existing frame-intent/source-bound routes and dynamic-time cache invalidation preserve truthful outputs; native/adapter fidelity proofs and repository checks cover them. Fresh normal-default 18 visits / 17 switches use six exact saved-cut receipts for three rounds, preserving admitted layers. Third-round normal renderer endpoints1325.56–1336.80 MiB, final endpoint 1.06 MiB above round two. All 108 samples respect owned caps. Reused full 258.439979s Dear Papa with two temporary Feedback Loop slots has constant final 30 checkpoint/context totals, cycling lookahead, and renderer 1117.86→1117.41 MiB over that tail; cancel releases checkpoint/lookahead bytes to 0. This establishes bounded retention for the observed workload, without forced-GC assistance. |
+
+## Evidence locations and limits
+
+Under `$ECHO_REVIEW_WORKSPACE/`:
+
+- `cold-history-budget-proof/resource-acceptance-evidence.json`: consolidated inspected receipts, every visit's memory, capacity matrix and explicit acceptance limits.
+- `cold-history-budget-proof/budget-warm/report.json`: fresh normal-default source/cut identities,108 resource samples and separate post-workload collection diagnostic.
+- `prefetch-retention-proof/full-native/report.json`: full song, two temporary persistent slots,128 observations and cancellation; original cut never saved.
+- `shared-proxy-resource-proof/{media3,media5,pool9}/report.json`: matched capacity comparison, reused unchanged.
+- `quality-budget-proof/{editor-clock,visual}/report.json`: actual independent controls and lyric geometry, reused unchanged.
+- `compositor-budget-proof/{compositor-report-final,transport-comparison}.json`: actual complete-song cadence and26 matched adapter observations, reused unchanged.
+- `cold-history-budget-proof/{full-regression,regression-repair}.log`:2281/2284 initial; repaired files4/4, yielding passing evidence for2284 distinct cases without another full-suite run.
+- `cold-history-budget-proof/{source-integrity,cleanup-receipt}.json`:55 protected / 12 authoring hashes unchanged;20 terminal process receipts,8 owned profiles removed.
+
+Neither browser working set nor owned byte counters claim exact driver VRAM. Compile/work times label synchronous scope. Counter collection is not proof of the separate ECHO-18 late-frame<1% target. Arbitrary cold feedback reconstruction remains expensive; rejected GPU candidates shifted waits and were not adopted. Human taste, measured word alignment, all-aspect lyric/comic readability and full-album readiness remain separate requirements. See [postmortem](postmortems/2026-09-08-echo-resource-acceptance.md).

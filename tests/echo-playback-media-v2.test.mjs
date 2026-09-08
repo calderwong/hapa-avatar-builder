@@ -27,8 +27,9 @@ test("all Echo projects carry typed playback manifests and images never route to
   }
   assert.ok(imageShots > 0);
   const view = fs.readFileSync("src/components/HapaEchosView.jsx", "utf8");
-  assert.match(view, /shotMediaType\(currentTimelineItem\) === "image"/);
-  assert.match(view, /shotMediaType\(currentTimelineItem\) === "video"/);
+  assert.ok(/visualShots\.map\(\(imageShot, index\) => shotMediaType\(imageShot\) === "image"/.test(view), "the shared player routes each visible image through PresentedEchoImage");
+  assert.ok(/<PresentedEchoImage shot=\{imageShot\}/.test(view), "image layers use the image presenter");
+  assert.ok(/if \(!video \|\| shotMediaType\(targetShot\) !== "video"\) return false/.test(view), "video staging rejects image shots");
 });
 
 test("Dear Papa proxies are verified cut-friendly H.264 and stay below 60 MiB", () => {
@@ -72,7 +73,7 @@ test("smooth preview compilation preserves one source pass, verifies outputs, an
   assert.match(builder, /index <= 8/);
   assert.match(server, /\/api\/echos\/director-preview\/prepare/);
   assert.match(server, /openEchoPreviewPreparation/);
-  assert.match(server, /echoPreviewPreparation.start\(\{ songId, variantId \}\)/);
+  assert.ok(/echoPreviewPreparation.start\(\{ songId, variantId, maximumDimension \}\)/.test(server), "preview preparation receives the selected song, cut and independent decode quality");
   assert.match(view, /EchoPreviewPreparationControl/);
   assert.match(view, /variantId=\{activeDirectionVariantSelection\}/);
   assert.doesNotMatch(view, /const prepareSmoothPreview/);
