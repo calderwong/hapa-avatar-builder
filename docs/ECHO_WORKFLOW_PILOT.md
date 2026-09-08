@@ -1,6 +1,6 @@
 # Echo workflow pilot — current execution state
 
-Updated: 2026-09-06. Method: **active-pilot v0.1**. Outcome: **not yet evaluated**. Owner: agent continuing task `01a072d3-d593-74f2-8c89-2470c2ee1a40`, human sponsor Calder.
+Updated: 2026-09-07. Method: **active-pilot v0.1**. Outcome: **not yet evaluated**. Owner: agent continuing task `01a072d3-d593-74f2-8c89-2470c2ee1a40`, human sponsor Calder.
 
 Read the canonical method at `$HAPA_DESKTOP_ROOT/Hapa_Worldbuilding_Wiki/Operations/Requirement Completion Batch Pilot.md`. Machine-readable status: [ECHO_WORKFLOW_PILOT.json](ECHO_WORKFLOW_PILOT.json). Historical implementation evidence remains in [ECHO_ENHANCEMENT_DRAIN.md](ECHO_ENHANCEMENT_DRAIN.md).
 
@@ -9,7 +9,7 @@ Read the canonical method at `$HAPA_DESKTOP_ROOT/Hapa_Worldbuilding_Wiki/Operati
 - Echo and Overwatch approved scope remains 18 requirements. Done: ECHO-01/02/03/09/13/16. In progress: ECHO-04/05/06/07/08/10/11/12/14/15/17/18.
 - Last completed implementation checkpoint: 43, commit `fe3a5d7e0a3209f0a62c166c104b1bd441d06075`. All 2,192 repository tests, 54 Overcard checks, build and native smoke passed for that revision. Six-second live-signal capture/replay was observed; full-song/export/physical AV/human taste were not established by that proof.
 - Checkpoint 44 code is uncommitted: section-aware accent admission, cue semantics, shared recipe admission, and locked-accent preservation. Its 65 focused tests/build passed. The original six-song preview audit failed with `Preview event missing`; the later Conviction-collaboration pass traced that failure to pre-onset frame sampling and verified 476 projected observations using an in-event frame. The current changes still have no final full-suite or native-paint claim.
-- Native and HyperFrames painters still apply full-frame washes instead of declared gesture/target semantics. Simultaneous-layer and camera-acceleration section limits and merged-range limits remain unresolved. Do not equate planner metadata with painted behavior.
+- At adoption, Native and HyperFrames painters applied full-frame washes. The September7 partial integration replaces these with shared gestures; actual native/export acceptance and total-layer/camera section limits remain open. Do not equate planner metadata or synthetic painter evidence with final-song behavior.
 - Goal tool last reported `usageLimited`. This workflow documentation does not resume or complete the scheduler goal. Work may continue when the user/harness resumes it; do not silently consume a usage reset. Human pilot comparison remains pending; costly alignment/render expansion retains the existing review boundary. Independent technical work remains available.
 
 ## Delivery sequence
@@ -27,16 +27,53 @@ These are dependency-aware delivery batches, not new scope or a promise that eve
 | Batch | State | Requirements newly accepted | Timing | Broad acceptance runs | Outcome |
 | --- | --- | --- | --- | --- | --- |
 | P0 methodology registration | documented; registration evidence is stored with the task | none | not measured | no application suites required for documentation-only changes | pilot adopted, effectiveness unproven |
-| A1 musical visual path | ready to resume; inherited partial implementation | none | not measured | none under the new cadence yet | acceptance pending |
+| A1 musical visual path | implementation integrated; acceptance in progress | none | implementation/rework not fully measured | initial2203/2207; repaired domain2208/2208; subsequent JSX change uses targeted/native checks | acceptance pending |
 
 At each meaningful update, keep JSON and Markdown in agreement, append the corresponding board comment without changing unrelated cards, and refresh the affected Second Brain article. Initial postmortem: [verification cadence](postmortems/2026-09-06-echo-verification-cadence.md). Future postmortems use [the template](postmortems/BATCH_POSTMORTEM_TEMPLATE.md).
 
 ## Next action
 
-Resume implementation of A1 from the existing six owned code/test changes. Diagnose the preview audit in the same pass as target-aware painting and combined budgets; use a targeted probe only when needed to settle the contract. Run the completed batch's acceptance and repository/runtime gates afterward. Do not rerun the full suite simply to re-establish checkpoint 44.
+Consolidate A1 against ECHO-07's original criteria: the remaining native gesture/surface and quiet/steady/peak boundary checks now pass. Continue ECHO-04 at the encoded shader-input boundary; standalone source-frame preparation is corrected and verified, while full-song timing and exact composite parity remain open. Reuse unaffected broad evidence. ECHO-07 remains dependent on ECHO-04; no requirement count change.
 
 ## Conviction relationship — 2026-09-06
 
 Calder authorized selective local delegation with Codex as orchestrator/director. [Echo Conviction working agreement](ECHO_CONVICTION_PROTOCOL.md) records roles, invocation boundaries, qualifications and result review. The first corrected local review accepted the terms but produced no accepted new defect; early routing is limited to advisory fact extraction and acceptance coverage. No autonomous code or image qualification is claimed. [The postmortem](postmortems/2026-09-06-echo-conviction-first-contact.md) preserves the initial cloud-route mistake, local recovery and rejected findings.
 
 Codex's parallel frame-sampling diagnostic passes 12 derived plans / 476 projected event observations with source bytes unchanged. A1 remains in progress: actual target-aware painting and combined budgets still need implementation and batch acceptance. Broad application tests were not repeated for this relationship/documentation pass. The shared Codex/Conviction ledger owns attributed reflections; this remains part of the one active Echo workflow pilot.
+
+
+## A1 implementation resumed — 2026-09-07 (unaccepted)
+
+Live source is now at `ec1f825` with pre-existing shader/UI changes; prior checkpoint44 edits were included in that intervening anchor commit. Preserve the remaining unrelated dirty hunks. This pass extends the existing Preview compositor, lyric surface and HyperFrames compiler with one seekable, bounded gesture painter. Media, visualizer and lyric targets have integration code; missing explicit targets are not redirected. Card-layer coverage, native song behavior and encoded parity remain pending. Per-event keyframes and combined overlay area/opacity limits are executable; these limits do not replace total visual-layer or camera acceleration budgets.
+
+Range-recut admission now checks preserved neighboring accents across recipe windows, preserves locked events and reports existing excess. Thirty focused domain/compiler tests and five source parser checks pass. A synthetic Chromium canvas diagnostic passes12 cases (six gestures, landscape/portrait) using export's existing fixed readback setting, including identical reverse-seek pixels and expiry. The default readback context produced mismatches for three antialiased gestures; that result is retained and is not native/export pixel parity. No broad suite, build, source-cut certificate or full-song render was repeated, and no requirement is closed. Current implementation remains uncommitted until the coherent batch meets its gates.
+
+Task evidence: `work/echo-album-review-2026-09-05/accent-presentation-proof/` in the source task workspace. See [the renderer diagnostic postmortem](postmortems/2026-09-07-echo-accent-rendering-diagnostic.md). Next: complete section camera/total-layer budgets, resolve remaining target delivery, and run the batch's actual song Preview/export acceptance.
+
+
+## A1 section budgets and native integration — 2026-09-07 (unaccepted)
+
+Quiet/steady/peak total-layer limits and bounded camera velocity/acceleration now reach the shared runtime, compiler and media projection. Full-precision frame time avoids rounded-clock camera discrepancies. Six actual-song derived graphs pass383 camera paths and17 sampled preview/export projections, preserving source bytes. Whole-song recuts upgrade legacy cuts to section budgets; partial recuts preserve the existing global policy and source locks.
+
+The first broad suite found four failures. Three reflected changed contracts; a real range regression regenerated previously suppressed effects outside a later edit. Materialized event tracks preserve the accepted decisions across subsequent edits and JSON reload. The repaired domain suite passes2208/2208. A subsequent native navigation attempt found that switching tabs unmounted Variation Lab and lost its comparison source. Keeping the session mounted while hidden fixes the actual Preview→Variations→restore path;32 affected UI checks, a fresh build and six native lyric-accent samples pass. No unrelated domain-suite repeat was used for that JSX-only correction.
+
+The real12-second HyperFrames package passes six sampled full-show frames including two lyric checkpoints. Repeated3.9second rendering has identical full-frame PNG bytes. Native and compiled samples show lyric scans and declared budgets; this legacy source does not prove other gesture types or measured vocal-entry/downbeat analysis. No encoded output is claimed yet. All55 protected and12 authoring hashes remain unchanged. Native screenshots retain unverified word-timing notices, dense waveform overlays and sticky-header occlusion; they are not human visual acceptance.
+
+Both process exits and report acceptance were inspected. Failed sampling, tab selectors, incomplete golden samples and the actual session-lifetime defect are preserved in [the integration postmortem](postmortems/2026-09-07-echo-section-budget-integration.md). Task evidence: `section-budget-proof/{regression-repair,native-integration,navigation-repair}` below the existing review workspace. Source remains uncommitted while the coherent batch's remaining acceptance is completed. Goal remains active; no requirement count changes.
+
+## A1 deferred-media export correction — 2026-09-07 (batch unaccepted)
+
+The actual MP4 path exposed a 45-second media-readiness timeout. Initializing inactive videos with a bootstrap removed the timeout but caused HyperFrames browser discovery to extract that bootstrap as the future clip. Automated occupancy/lyric checks passed this wrong-footage output; visual inspection and a DOM diagnostic rejected it.
+
+Inactive videos now remain detached until the real source enters the existing preload window; release removes its extracted image and decoder. Final Song Card exports use `--no-best-effort` in addition to lint `--strict`. The corrected 12-second 1080p30 pilot rendered all 360 frames in22.96 seconds without a capture-readiness warning, versus69.74 seconds for the original timeout attempt. Seven browser/encoded spatial samples, two lyric samples and decoded audio/video checks pass; the previously failing11.3-second frame visibly contains the intended city footage. This is scoped export evidence, not exact composite parity or human acceptance.
+
+Twelve affected compiler tests pass;55 protected/12 authoring hashes remain unchanged. All processes terminated. No broad suite/build repeat was used. Remaining native A1 acceptance and the stronger source-frame verification gap remain explicit in [the postmortem](postmortems/2026-09-07-echo-deferred-media-export.md). Source remains uncommitted within the unfinished batch; the board stays6 done/12 in progress.
+
+
+## A1 native acceptance and package source clock — 2026-09-07
+
+Native Dear Papa coverage passes six gestures across media, visualizer and lyric surfaces, an absent legacy card-target negative case and reverse seek. An actual whole-song Til the Light UI recut passes11 quiet/steady/peak, section-gap and reverse-seek observations, with source comparison restore. These are technical observations, not human visual acceptance.
+
+Local commit `922f7b5` records the separable source-frame adapter correction; earlier A1 integration hunks remain uncommitted. Standalone package capture previously left ordinary videos at source time0. The compiler now prepares visible video source times through the existing playback mapper and waits for decode. Actual native-resolution pixels agree with independent FFmpeg frames within0.7–0.9 mean RGB levels/255; repeated reverse-seek pixels are identical.25 targeted checks pass;55 protected/12 authoring hashes remain unchanged. Two downscaled pixel comparisons failed due to different scaler behavior; retained evidence and corrected comparison scope are explained in [the media-clock postmortem](postmortems/2026-09-07-echo-package-media-clock.md).
+
+Encoded shader inputs remain open: HyperFrames injects extracted frames after the composition draw, but the Hapa shader adapter reads the original video. Next work must address this actual execution boundary, including persistent shader semantics. No full-suite/build/full-song render repeated; no requirement closed.

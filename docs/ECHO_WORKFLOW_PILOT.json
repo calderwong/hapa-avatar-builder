@@ -2,11 +2,11 @@
   "schemaVersion": "hapa.workflow-pilot.v1",
   "id": "echo-requirement-completion-batch-pilot",
   "version": "0.1",
-  "updatedAt": "2026-09-06",
+  "updatedAt": "2026-09-08T03:12:16.362478+00:00",
   "status": "active-pilot",
   "effectiveness": "not-yet-evaluated",
   "ownerTaskId": "01a072d3-d593-74f2-8c89-2470c2ee1a40",
-  "goalStatusLastObserved": "usageLimited",
+  "goalStatusLastObserved": "active",
   "baseline": {
     "requirements": 18,
     "done": [
@@ -40,7 +40,7 @@
   "batches": [
     {
       "id": "A1",
-      "status": "ready-to-resume",
+      "status": "validation-in-progress",
       "requirements": [
         "ECHO-07"
       ],
@@ -52,7 +52,20 @@
       "implementationMinutes": null,
       "verificationMinutes": null,
       "reworkMinutes": null,
-      "broadGateRuns": [],
+      "broadGateRuns": [
+        {
+          "scope": "accent/camera/layer integration before regression repairs",
+          "tests": 2207,
+          "pass": 2203,
+          "fail": 4
+        },
+        {
+          "scope": "repaired domain integration; subsequent JSX session-lifetime fix verified separately",
+          "tests": 2208,
+          "pass": 2208,
+          "fail": 0
+        }
+      ],
       "escapedDefects": null,
       "acceptance": "pending",
       "projectionEvidence": {
@@ -60,16 +73,66 @@
         "events": 476,
         "sourceBytesUnchanged": true,
         "scope": "derived event projection only; no native paint or export parity"
+      },
+      "presentationEvidence": {
+        "date": "2026-09-07",
+        "status": "sampled-native-and-encoded-integration-not-batch-accepted",
+        "domainChecksPassed": 30,
+        "chromiumPixelCasesPassed": 12,
+        "syntaxFilesPassed": 5,
+        "pixelScope": "synthetic shared painter, fixed readback backend, six gestures x two orientations",
+        "nativeSongAndEncodedParity": "12-second encoded spatial/lyric/audio checks pass; exact moving-footage parity remains unproven",
+        "defaultReadbackBackendReplay": "observed mismatch; retained for fidelity investigation",
+        "remaining": [
+          "encoded source-frame and shader-input synchronization through actual post-injection redraw",
+          "full ECHO-07 criteria including ECHO-04 dependency and A1 integration commit"
+        ],
+        "codeCommit": null,
+        "sectionCameraPathsChecked": 383,
+        "sectionProjectionFrames": 17,
+        "realSongs": 6,
+        "nativeLyricAccentSamples": 6,
+        "nativePaintedTargets": [
+          "media-layer",
+          "visualizer-layer",
+          "lyric-layer"
+        ],
+        "compiledPixelFrames": 6,
+        "compiledLyricCheckpoints": 2,
+        "reverseSeekPngIdentical": true,
+        "nativeComparisonAcrossTabs": "passed after preserving the mounted Variation Lab session",
+        "uiChecksPassed": 32,
+        "encodedPilot": {
+          "durationSeconds": 12,
+          "fps": 30,
+          "frames": 360,
+          "renderSeconds": 22.955678939819336,
+          "captureReadinessWarnings": 0,
+          "spatialSamples": 7,
+          "lyricSamples": 2,
+          "decodedAudioVideoChecks": true,
+          "humanAccepted": false,
+          "exactCompositePixelParity": false,
+          "mediaBufferPolicy": "detached-rolling-window",
+          "postmortem": "postmortems/2026-09-07-echo-deferred-media-export.md"
+        },
+        "nativeGestureKindsChecked": 6,
+        "nativeSectionBoundaryObservations": 11,
+        "standaloneMediaClockCommit": "922f7b5"
       }
     }
   ],
   "humanPilotReview": "pending",
   "postmortems": [
     "docs/postmortems/2026-09-06-echo-verification-cadence.md",
-    "docs/postmortems/2026-09-06-echo-conviction-first-contact.md"
+    "docs/postmortems/2026-09-06-echo-conviction-first-contact.md",
+    "docs/postmortems/2026-09-07-echo-accent-rendering-diagnostic.md",
+    "docs/postmortems/2026-09-07-echo-section-budget-integration.md",
+    "docs/postmortems/2026-09-07-echo-deferred-media-export.md",
+    "docs/postmortems/2026-09-07-echo-package-media-clock.md"
   ],
   "decisionAfterAcceptedBatches": 2,
-  "nextAction": "Complete A1 end-to-end behavior before broad acceptance; targeted diagnostic checks as needed",
+  "nextAction": "Complete ECHO-04 encoded shader-input synchronization at HyperFrames post-injection redraw; consolidate A1 native acceptance against ECHO-07 criteria. Native gestures and all section bands now pass; standalone source-frame preparation verified. Reuse unaffected evidence; 6 done/12 in progress.",
   "updates": "batch-start, scope-change, consequential-failure, acceptance, handoff, goal-completion",
   "collaboration": {
     "protocol": "docs/ECHO_CONVICTION_PROTOCOL.md",
@@ -83,5 +146,35 @@
     "localSeconds": 34.742,
     "localTokens": null,
     "savings": null
+  },
+  "latestNativeAcceptance": {
+    "gestures": 6,
+    "surfaces": [
+      "media",
+      "visualizer",
+      "lyrics"
+    ],
+    "legacyAbsentTargetNegative": true,
+    "sectionBoundaryObservations": 11,
+    "bands": [
+      "quiet",
+      "steady",
+      "peak"
+    ],
+    "reverseSeekAndRestore": true,
+    "requirementClosures": []
+  },
+  "latestMediaClockCorrection": {
+    "status": "standalone-source-frame-verified",
+    "targetedTests": 25,
+    "independentNativePixelMeanRgbErrors": [
+      0.6858533718885281,
+      0.9184676001082251
+    ],
+    "repeatPixelsIdentical": true,
+    "encodedShaderInputAcceptance": false,
+    "postmortem": "docs/postmortems/2026-09-07-echo-package-media-clock.md",
+    "commit": "922f7b5",
+    "rendererIdentityRegression": "pass"
   }
 }
