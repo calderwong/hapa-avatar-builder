@@ -5,6 +5,8 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 
 import {
+  retainEchoProjectDetails,
+  retainEchoSongCardPlans,
   filterEchoDirectorProjectRows,
   inspectEchoDirectorProjectDetail,
 } from "../src/domain/echo-album-navigation.js";
@@ -158,4 +160,33 @@ test("every current Echo album project has the standard five protected director 
       assert.ok(available.has(cutId), `${project.song_title} is missing director cut ${cutId}`);
     }
   }
+});
+
+
+test('ten song switches retain a bounded detail set without dropping roster entries or pinned edits', () => {
+  const summaries = new Map(Array.from({ length: 12 }, (_, i) => [String(i), projectRow(String(i))]));
+  let rows = [...summaries.values()], recent = [];
+  const edited = projectRow('0', 'Unsaved', { timeline: [{ manual: true }], director_show_graph: { tracks: {} } });
+  rows[0] = edited;
+  for (let i = 1; i <= 10; i++) {
+    rows[i] = projectRow(String(i), String(i), { timeline: [{ media_id: i }], direction_script_variants: [{ largeGraph: true }] });
+    recent = [String(i), ...recent].slice(0, 3);
+    rows = retainEchoProjectDetails(rows, summaries, recent, ['0', String(i)]);
+    assert.equal(rows.length, 12); assert.equal(rows[0], edited);
+    assert.equal(rows[i].music_video_project.timeline[0].media_id, i);
+    assert.ok(rows.filter(row => Array.isArray(row.music_video_project.timeline)).length <= 3);
+  }
+  assert.equal(rows[1], summaries.get('1'));
+  const reloaded = projectRow('1', '1', { timeline: [{ sourceRevision: 'fresh' }] });
+  rows[1] = reloaded; rows = retainEchoProjectDetails(rows, summaries, ['1', ...recent], ['0', '1']);
+  assert.equal(rows[1], reloaded); assert.equal(rows[0], edited);
+});
+
+test('plan eviction preserves pending restoration objects for pinned songs and does not mutate history', () => {
+  const previous = { status: 'ready', project: { song_id: 'saving' }, showGraph: { tracks: {} } };
+  const saving = { status: 'waiting', previous };
+  const state = { saving, selected: { status: 'ready' }, old: { status: 'ready', project: { large: true } } };
+  const next = retainEchoSongCardPlans(state, ['saving', 'selected']);
+  assert.deepEqual(Object.keys(next), ['saving', 'selected']); assert.equal(next.saving.previous, previous);
+  assert.ok(state.old); assert.equal(retainEchoSongCardPlans(next, ['saving', 'selected']), next);
 });

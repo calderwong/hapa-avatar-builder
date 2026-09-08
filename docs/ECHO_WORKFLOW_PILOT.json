@@ -2,7 +2,7 @@
   "schemaVersion": "hapa.workflow-pilot.v1",
   "id": "echo-requirement-completion-batch-pilot",
   "version": "0.1",
-  "updatedAt": "2026-09-08T08:12:40.663111+00:00",
+  "updatedAt": "2026-09-08T08:33:26.601650+00:00",
   "status": "active-pilot",
   "effectiveness": "not-yet-evaluated",
   "ownerTaskId": "01a072d3-d593-74f2-8c89-2470c2ee1a40",
@@ -40,7 +40,7 @@
   "batches": [
     {
       "id": "A1",
-      "status": "shared-proxy-and-video-pool-verified-integrated-timing-open",
+      "status": "prefetch-retention-verified-video-presentation-timing-open",
       "requirements": [
         "ECHO-07"
       ],
@@ -298,6 +298,108 @@
         },
         "acceptedRequirements": [],
         "postmortem": "docs/postmortems/2026-09-08-echo-shared-proxy-resources.md"
+      },
+      "prefetchRetentionEvidence": {
+        "status": "verified-checkpoint-not-requirement-acceptance",
+        "nativeNavigation": {
+          "visits": 11,
+          "switches": 10,
+          "maxRetainedDetails": 3,
+          "maxRetainedPlans": 3,
+          "exactCutsAndRevisitedLayers": true
+        },
+        "fullSong": {
+          "durationSeconds": 258.439979,
+          "samples": 128,
+          "videoPlayers": [
+            3
+          ],
+          "peakCheckpointBytes": 131706432,
+          "peakEncodedBytes": 58218925,
+          "peakDecodedFrameBytes": 19660800,
+          "peakRendererWorkingSetMiB": 1132.0,
+          "estimatedMediaAudioP95UpperMs": 44,
+          "estimatedMediaAudioSamples": 6921,
+          "lastShaderWindows": [
+            {
+              "shaderId": "isf:5e7a80437c113618206dedfb",
+              "samples": 900,
+              "lastMs": 3.9996666666866076,
+              "p95Ms": 30.666666666661513,
+              "maxMs": 33.33299999999895,
+              "overOneFrame": 0,
+              "scope": "audio-playhead-to-prepared-shader-frame; excludes physical output latency"
+            },
+            {
+              "shaderId": "isf:5e7a80437c113618206dedfb",
+              "samples": 900,
+              "lastMs": 3.9996666666866076,
+              "p95Ms": 30.666666666661513,
+              "maxMs": 33.33299999999895,
+              "overOneFrame": 0,
+              "scope": "audio-playhead-to-prepared-shader-frame; excludes physical output latency"
+            }
+          ],
+          "maximumObservedShaderWindowP95Ms": 31.930000000000902,
+          "physicalCompositeTimingAccepted": false,
+          "humanAccepted": false
+        },
+        "prefetch": {
+          "observedProxyFetches": 77,
+          "requestsOverOneSecondBeforeAnUpcomingUse": 76,
+          "examples": [
+            {
+              "uri": "http://127.0.0.1:19088/media/echo-proxies-v2/402b26b711b81b17656bf07edab9eaae1f923f3559af10c6ddff863253a0918d/preview.mp4",
+              "audioTime": 2.307426,
+              "wall": 22130.600000023842,
+              "nextCueStart": 5,
+              "leadSeconds": 2.692574
+            },
+            {
+              "uri": "http://127.0.0.1:19088/media/echo-proxies-v2/dff01a7498c0b434454e16b938f7e4fea29727b7deefa76115af7facec9704b9/preview.mp4",
+              "audioTime": 3.381333,
+              "wall": 23205.900000095367,
+              "nextCueStart": 6,
+              "leadSeconds": 2.618667
+            },
+            {
+              "uri": "http://127.0.0.1:19088/media/echo-proxies-v2/0e02988d75cc930428694fc354e1e8b3d247de40fdb917de1dcaf34c27f43a2c/preview.mp4",
+              "audioTime": 13.555412,
+              "wall": 33378.60000002384,
+              "nextCueStart": 16.2,
+              "leadSeconds": 2.644587999999999
+            },
+            {
+              "uri": "http://127.0.0.1:19088/media/echo-proxies-v2/251ddd1f194cbe4e337e3093dc608ab51575ec918bedeb452cd529183661d33f/preview.mp4",
+              "audioTime": 18.432,
+              "wall": 38256.5,
+              "nextCueStart": 21.3,
+              "leadSeconds": 2.868000000000002
+            },
+            {
+              "uri": "http://127.0.0.1:19088/media/echo-proxies-v2/3b1b28b745e58eab6bcc88e0a11b5a01f6bffd94ed7229ad0f3c61a987f5ee36/preview.mp4",
+              "audioTime": 23.482667,
+              "wall": 43307.800000071526,
+              "nextCueStart": 26.4,
+              "leadSeconds": 2.9173329999999993
+            },
+            {
+              "uri": "http://127.0.0.1:19088/media/echo-proxies-v2/ab30695ddf03014a2631c486d233db20de878a28ebcf5833abfe6294ed05ab03/preview.mp4",
+              "audioTime": 25.476557,
+              "wall": 45299.800000071526,
+              "nextCueStart": 28.2,
+              "leadSeconds": 2.7234429999999996
+            }
+          ],
+          "scope": "Fetch start at observed master playhead versus source-bound preparation cue starts; does not measure fetch/hash completion or prove improved stall latency."
+        },
+        "verification": {
+          "initialAffectedPassed": 66,
+          "finalDecoderPassed": 15,
+          "build": "pass",
+          "noNewBroadSuite": true
+        },
+        "closedRequirements": []
       }
     }
   ],
@@ -314,10 +416,11 @@
     "docs/postmortems/2026-09-07-echo-preview-persistent-seek.md",
     "docs/postmortems/2026-09-08-echo-section-certification.md",
     "docs/postmortems/2026-09-08-echo-precise-audio.md",
-    "docs/postmortems/2026-09-08-echo-preview-quality-budget.md"
+    "docs/postmortems/2026-09-08-echo-preview-quality-budget.md",
+    "docs/postmortems/2026-09-08-echo-prefetch-retention.md"
   ],
   "decisionAfterAcceptedBatches": 2,
-  "nextAction": "Finish integrated timing/stem acceptance, prewarm upcoming persistent-shader media to reduce entry stalls, and bound retained song-detail/plan data. Reuse the completed pool matrix; full-song three-player timing and whole-compositor acceptance remain open.",
+  "nextAction": "Complete decoded-video presentation phase correction and integrated stem/timing acceptance through the existing playback owner. Investigate element-clock versus decoded-frame age from the final cue-level residuals, preserve fallback truth, and reuse completed prefetch/retention and source-integrity evidence. Cold persistent seek latency and physical/composite timing remain open.",
   "updates": "batch-start, scope-change, consequential-failure, acceptance, handoff, goal-completion",
   "collaboration": {
     "protocol": "docs/ECHO_CONVICTION_PROTOCOL.md",

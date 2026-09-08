@@ -60,3 +60,23 @@ export function echoPreviewShaderLayers(cards = [], quality) {
   const limit = normalizeEchoPreviewQuality(quality).layerLimit;
   return { admitted: limit ? cards.slice(0, limit) : cards, omitted: limit ? cards.slice(limit) : [] };
 }
+
+// Precompute approved source renditions once per history owner. Lookups use the
+// replay clock, so a cold seek does not compete with the outer playhead.
+export function createEchoPreviewProxySchedule(sourceTimeline = [], previewTimeline = [], resolveUri = value => value) {
+  const schedule = sourceTimeline.flatMap((shot, index) => {
+    const cue = echoPreviewHistoryMediaCue({ media: { id: shot.media_id } }, shot, previewTimeline[index]);
+    const start = Number(shot.start_sec);
+    return Number.isFinite(start) && cue.media?.fidelity && cue.media.uri
+      ? [{ start, uri: resolveUri(cue.media.uri) }] : [];
+  }).sort((a, b) => a.start - b.start);
+  return songTime => {
+    let lo = 0, hi = schedule.length;
+    while (lo < hi) { const mid = (lo + hi) >>> 1; if (schedule[mid].start <= songTime) lo = mid + 1; else hi = mid; }
+    const uris = [];
+    for (let i = lo; i < schedule.length && schedule[i].start <= songTime + 3 && uris.length < 2; i++) {
+      if (!uris.includes(schedule[i].uri)) uris.push(schedule[i].uri);
+    }
+    return uris;
+  };
+}

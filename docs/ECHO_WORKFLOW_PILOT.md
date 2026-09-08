@@ -33,9 +33,9 @@ At each meaningful update, keep JSON and Markdown in agreement, append the corre
 
 ## Next action
 
-Echo now defaults to three video players after the matched six-cut pool comparison. Verified proxy bytes are shared, inactive shader decoders are released, and the cached-song cut lock is fixed. A1 remains unaccepted: six requirements done, twelve in progress. The [resource comparison/postmortem](postmortems/2026-09-08-echo-shared-proxy-resources.md) and [operator guide](ECHO_PREVIEW_QUALITY.md) distinguish passing resource limits from remaining timing and retention work.
+Upcoming shader-media prefetch and bounded song-detail/plan retention are verified. Six-cut navigation passes11 visits/10 switches with at most 3 retained details/plans. Full Dear Papa playback with 3 video players and two temporary Feedback Loop layers reaches 258.439979 s within owned resource caps. Highest observed shader-window p95 is 31.93 ms; estimated media/audio session p95 remains 44 ms, above 33.3 ms. Six requirements done/twelve in progress; A1 and the workflow pilot remain unaccepted.
 
-Finish integrated timing/stem acceptance, prewarm upcoming persistent-shader media to reduce entry stalls, and bound retained song-detail/plan data. Reuse the completed pool matrix; full-song three-player timing and whole-compositor acceptance remain open.
+Complete decoded-video presentation phase correction and integrated stem/timing acceptance through the existing playback owner. Investigate element-clock versus decoded-frame age from the final signed residuals; preserve fallback truth. Reuse completed prefetch/retention, capacity and source-integrity evidence. Cold persistent seek latency and physical/composite timing remain open. See [prefetch and retention evidence](postmortems/2026-09-08-echo-prefetch-retention.md).
 
 ## Conviction relationship — 2026-09-06
 

@@ -30,3 +30,30 @@ export function inspectEchoDirectorProjectDetail(detail = {}) {
     hasEditorGraph,
   };
 }
+
+export const ECHO_RETAINED_PROJECT_DETAILS = 3;
+
+// The roster keeps canonical compact summaries. Heavy hydrated graphs are an
+// explicitly bounded working set; the selected and saving songs are pinned.
+export function retainEchoProjectDetails(rows, summaries, recentIds, protectedIds = [], limit = ECHO_RETAINED_PROJECT_DETAILS) {
+  const keep = new Set(protectedIds.filter(Boolean));
+  const loaded = new Set(rows.filter(row => Array.isArray(echoDirectorProject(row)?.timeline)).map(row => echoDirectorProject(row).song_id));
+  for (const id of recentIds) {
+    if (keep.size >= limit) break;
+    if (loaded.has(id)) keep.add(id);
+  }
+  return rows.map(row => {
+    const project = echoDirectorProject(row);
+    return loaded.has(project?.song_id) && !keep.has(project.song_id)
+      ? summaries.get(project.song_id) || { music_video_project: { song_id: project.song_id, song_title: project.song_title, audio_id: project.audio_id } }
+      : row;
+  });
+}
+
+// Saved plans can be rebuilt on revisiting. Pending/unsaved work is pinned by
+// the caller alongside the corresponding detail, including restoration data.
+export function retainEchoSongCardPlans(state, retainedIds) {
+  const keep = new Set(retainedIds);
+  const entries = Object.entries(state).filter(([id]) => keep.has(id));
+  return entries.length === Object.keys(state).length ? state : Object.fromEntries(entries);
+}

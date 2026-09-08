@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { createEchoProxyFrameDecoder, createEchoProxySourceCache } from '../src/domain/echo-proxy-frame-decoder.js';
+import { createEchoProxyFrameDecoder, createEchoProxySourceCache, createEchoProxySourcePrefetch } from '../src/domain/echo-proxy-frame-decoder.js';
 
 function fixture(t, { noOutput = false, corrupt = false, packetCount = 2 } = {}) {
   const frames = [], decoders = [], calls = [], chunks = [], bytes = Uint8Array.from({ length: packetCount * 2 }, (_, i) => i % 256), key = 'a'.repeat(64);
@@ -138,4 +138,68 @@ test('closing a shared cache retains honest byte accounting until live leases re
   cache.dispose(); assert.equal(cache.getDiagnostics().bytes, 6);
   await assert.rejects(cache.acquire('b', async () => {}), /cancelled/);
   lease.release(); assert.equal(cache.getDiagnostics().bytes, 0); assert.equal(cache.getDiagnostics().entries, 0);
+});
+
+
+test('foreground bytes preempt pending speculation without evicting an active decoder source', async () => {
+  const cache = createEchoProxySourceCache({ maxBytes: 10, maxEntries: 3 });
+  const active = await cache.acquire('active', async (_, reserve) => { reserve(4); return 'active'; });
+  let aborted = false;
+  const speculative = cache.acquire('future', (signal, reserve) => {
+    reserve(6);
+    return new Promise((_, reject) => signal.addEventListener('abort', () => { aborted = true; reject(Error('cancelled')); }, { once: true }));
+  }, { priority: 'prefetch' });
+  const rejected = assert.rejects(speculative, /cancelled/);
+  await Promise.resolve();
+  const current = await cache.acquire('current', async (_, reserve) => { reserve(6); return 'current'; });
+  await rejected; assert.equal(aborted, true); assert.equal(active.value, 'active');
+  assert.equal(cache.getDiagnostics().bytes, 10); assert.equal(cache.getDiagnostics().preemptions, 1);
+  current.release(); active.release(); cache.dispose();
+});
+
+test('joining speculation promotes it to foreground and protects it against other loads', async () => {
+  const cache = createEchoProxySourceCache({ maxBytes: 6, maxEntries: 1 });
+  let finish, upstream;
+  const stop = new AbortController();
+  const pending = cache.acquire('same', (signal, reserve) => { upstream = signal; reserve(6); return new Promise(resolve => { finish = resolve; }); }, { priority: 'prefetch', signal: stop.signal });
+  const foreground = cache.acquire('same', () => { throw Error('must share'); });
+  await Promise.resolve(); stop.abort(); await assert.rejects(pending, /cancelled/);
+  await assert.rejects(cache.acquire('other', async () => {}), /cache busy/);
+  assert.equal(upstream.aborted, false); finish('verified'); const lease = await foreground;
+  assert.equal(lease.value, 'verified'); lease.release(); cache.dispose();
+});
+
+test('preloading verifies bytes once, creates no decoder and supplies the first actual frame', async t => {
+  const f = fixture(t), cache = createEchoProxySourceCache();
+  const prefetch = createEchoProxySourcePrefetch({ sourceCache: cache, fetchImpl: f.fetchImpl });
+  const decoder = createEchoProxyFrameDecoder({ sourceCache: cache, fetchImpl: f.fetchImpl });
+  t.after(() => { prefetch.dispose(); decoder.dispose(); f.owner.dispose(); cache.dispose(); });
+  await prefetch.update([f.cue.media.uri, f.cue.media.uri]);
+  assert.equal(f.calls.length, 2); assert.equal(f.decoders.length, 0); assert.equal(cache.getDiagnostics().leases, 0);
+  const frame = await decoder.at(f.cue, 0);
+  assert.equal(frame.element.timestamp, 0); assert.equal(f.calls.length, 2); assert.equal(f.decoders.length, 1);
+  await prefetch.update([f.cue.media.uri]); assert.equal(f.calls.length, 2);
+  assert.equal(prefetch.getDiagnostics().completed, 1);
+});
+
+test('failed prefetch is bounded per window and foreground still refuses corrupt source bytes', async t => {
+  const f = fixture(t, { corrupt: true }), cache = createEchoProxySourceCache();
+  const prefetch = createEchoProxySourcePrefetch({ sourceCache: cache, fetchImpl: f.fetchImpl });
+  t.after(() => { prefetch.dispose(); f.owner.dispose(); cache.dispose(); });
+  await prefetch.update([f.cue.media.uri]); await prefetch.update([f.cue.media.uri]);
+  assert.equal(prefetch.getDiagnostics().failed, 1); assert.equal(f.calls.length, 2); assert.equal(cache.getDiagnostics().bytes, 0);
+  await assert.rejects(f.owner.at(f.cue, 0), /hash-mismatch/); assert.equal(f.decoders.length, 0);
+});
+
+test('changing or disposing a prefetch window aborts abandoned reads and releases reservations', { timeout: 1000 }, async () => {
+  const cache = createEchoProxySourceCache(); let stopped = 0, begin;
+  let started = new Promise(resolve => { begin = resolve; });
+  const prefetch = createEchoProxySourcePrefetch({ sourceCache: cache, fetchImpl: (_, { signal }) => new Promise((_, reject) => {
+    signal.addEventListener('abort', () => { stopped++; reject(Error('cancelled')); }, { once: true }); begin();
+  }) });
+  const uri = 'http://localhost/media/echo-proxies-v2/' + 'a'.repeat(64) + '/preview.mp4';
+  const first = prefetch.update([uri]); await started; prefetch.update([]); await first;
+  started = new Promise(resolve => { begin = resolve; });
+  const second = prefetch.update([uri]); await started; prefetch.dispose(); await second;
+  assert.equal(stopped, 2); assert.equal(cache.getDiagnostics().entries, 0); assert.equal(prefetch.getDiagnostics().pending, 0); cache.dispose();
 });

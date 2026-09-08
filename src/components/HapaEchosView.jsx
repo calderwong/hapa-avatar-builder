@@ -8,7 +8,8 @@ import { visualTimeFor, echoPreparedPerformanceSignalFrames, evaluateEchoMusicPe
 import { prepareDirectorModulationTimeline } from "../domain/director-modulation-v2.js";
 import EchoPerformancePreparationControl from "./EchoPerformancePreparationControl.jsx";
 import EchoPreviewPreparationControl from "./EchoPreviewPreparationControl.jsx";
-import { applyEchoPreviewProjection, echoPreviewHistoryMediaCue, ECHO_PREVIEW_QUALITY_PRESETS, normalizeEchoPreviewQuality, echoPreviewShaderSize, echoPreviewShaderLayers } from "../domain/echo-preview-projection.js";
+import { createEchoProxySourcePrefetch } from "../domain/echo-proxy-frame-decoder.js";
+import { createEchoPreviewProxySchedule, applyEchoPreviewProjection, echoPreviewHistoryMediaCue, ECHO_PREVIEW_QUALITY_PRESETS, normalizeEchoPreviewQuality, echoPreviewShaderSize, echoPreviewShaderLayers } from "../domain/echo-preview-projection.js";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { createEchoPanelLoader } from "../domain/echo-panel-loader.js";
@@ -116,6 +117,8 @@ import {
   restoreEchoSongCardPlanSnapshot,
 } from "../domain/echo-direction-variants.js";
 import {
+  retainEchoProjectDetails,
+  retainEchoSongCardPlans,
   filterEchoDirectorProjectRows,
   inspectEchoDirectorProjectDetail,
 } from "../domain/echo-album-navigation.js";
@@ -1669,6 +1672,8 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
   const [shaderCategoryFilter, setShaderCategoryFilter] = useState("all");
 
   const [directorProjects, setDirectorProjects] = useState([]);
+  const projectSummaryBySongRef = useRef(new Map());
+  const recentProjectDetailsRef = useRef([]);
   const [selectedProjectSongId, setSelectedProjectSongId] = useState(null);
   const selectedProjectSongIdRef = useRef("");
   const [selectedDirectionVariantId, setSelectedDirectionVariantId] = useState("legacy");
@@ -3079,6 +3084,11 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
   const [directorHasUnsavedChanges, setDirectorHasUnsavedChanges] = useState(false);
   const [songCardPlanRevisionBySong, setSongCardPlanRevisionBySong] = useState({});
   const [songCardPlanSnapshotBySong, setSongCardPlanSnapshotBySong] = useState({});
+  useEffect(() => {
+    const retained = directorProjects.filter(row => Array.isArray(row.music_video_project?.timeline)).map(row => row.music_video_project.song_id);
+    retained.push(selectedProjectSongId, pendingSavedDirectionCut?.songId, pendingLegacyProjectSave?.songId);
+    setSongCardPlanSnapshotBySong(current => retainEchoSongCardPlans(current, retained));
+  }, [directorProjects, selectedProjectSongId, pendingSavedDirectionCut?.songId, pendingLegacyProjectSave?.songId, songCardPlanSnapshotBySong]);
   const activeSongCardPlanEntry = activeProject?.song_id
     ? songCardPlanSnapshotBySong[activeProject.song_id] || null
     : null;
@@ -3675,9 +3685,11 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
               const decoder = createEchoIsfHistoryMedia({ resolveUri: resolveMediaUri, sourceCache: pool.proxySourceCache });
               const framedCanvas = document.createElement("canvas");
               const timeline = [...previewTimelineRef.current];
+              const upcomingSources = createEchoPreviewProxySchedule(activeDirectorPreviewSource.project.timeline, timeline, resolveMediaUri);
+              const prefetch = createEchoProxySourcePrefetch({ sourceCache: pool.proxySourceCache });
               return {
-                dispose: () => decoder.dispose(),
-                getDiagnostics: () => decoder.getDiagnostics(),
+                dispose: () => { prefetch.dispose(); decoder.dispose(); },
+                getDiagnostics: () => ({ ...decoder.getDiagnostics(), prefetch: prefetch.getDiagnostics() }),
                 at: async (songTime, { signal, requiresMedia } = {}) => {
                   const phaseStart = performance.now();
                   const projected = requiresMedia ? projectEchoDirectorPreviewMediaFrame({ source: activeDirectorPreviewSource, timeSeconds: songTime, fps: activeOutputProfile.fps }) : null;
@@ -3685,6 +3697,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                   const cue = echoPreviewHistoryMediaCue(sourceCue, activeDirectorPreviewSource.project.timeline[sourceCue?.sourceCueIndex], timeline[sourceCue?.sourceCueIndex]);
                   const projectedAt = performance.now();
                   const decoded = requiresMedia ? await decoder.at(cue, songTime, { fps: activeOutputProfile.fps, signal, emptyInterval: projected?.primaryMediaCue === null }) : null;
+                  if (requiresMedia) prefetch.update(upcomingSources(songTime));
                   const decodedAt = performance.now();
                   const index = cue?.sourceCueIndex;
                   const sourceShot = timeline[index];
@@ -4328,14 +4341,16 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
       requestGeneration !== null
       && projectDetailGenerationBySongRef.current.get(detailSongId) !== requestGeneration
     ) return false;
+    if (!detailSongId) return false;
+    recentProjectDetailsRef.current = [detailSongId, ...recentProjectDetailsRef.current.filter(id => id !== detailSongId)].slice(0, 3);
     setDirectorProjects(prev => {
       const nextProject = detail?.music_video_project;
       if (!nextProject?.song_id) return prev;
       const index = prev.findIndex(p => p.music_video_project.song_id === nextProject.song_id);
-      if (index === -1) return [...prev, detail];
       const next = prev.slice();
-      next[index] = detail;
-      return next;
+      if (index === -1) next.push(detail); else next[index] = detail;
+      return retainEchoProjectDetails(next, projectSummaryBySongRef.current, recentProjectDetailsRef.current,
+        [selectedProjectSongIdRef.current, pendingSavedDirectionCut?.songId, pendingLegacyProjectSave?.songId]);
     });
     return true;
   };
@@ -4544,11 +4559,19 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
     const panels = {
       catalog: ["director-projects?summary=1", projectsData => {
         if (!Array.isArray(projectsData)) throw new Error("Invalid song catalog response");
-        // Retain hydrated graphs and unsaved edits when refreshing list metadata.
-        setDirectorProjects(current => projectsData.map(row => {
-          const detail = current.find(item => item.music_video_project.song_id === row.music_video_project.song_id);
-          return detail?.music_video_project?.timeline ? detail : row;
-        }));
+        projectSummaryBySongRef.current = new Map(projectsData.map(row => [row.music_video_project.song_id, row]));
+        // Refresh summaries while retaining only the bounded working set.
+        // Preserve pinned work even if a transient catalog omits its song.
+        setDirectorProjects(current => {
+          const protectedIds = [selectedProjectSongIdRef.current, pendingSavedDirectionCut?.songId, pendingLegacyProjectSave?.songId];
+          const details = new Map(current.map(row => [row.music_video_project.song_id, row]));
+          const rows = projectsData.map(row => {
+            const detail = details.get(row.music_video_project.song_id);
+            return detail?.music_video_project?.timeline ? detail : row;
+          });
+          for (const id of protectedIds) if (id && !projectSummaryBySongRef.current.has(id) && details.has(id)) rows.push(details.get(id));
+          return retainEchoProjectDetails(rows, projectSummaryBySongRef.current, recentProjectDetailsRef.current, protectedIds);
+        });
         if (!projectsData.length) return;
         const projectSongIds = new Set(projectsData.map(row => row.music_video_project.song_id));
         const currentSongId = selectedProjectSongIdRef.current;
@@ -7192,6 +7215,8 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                                   className="media-preview-container"
                                   data-testid="echo-director-preview-frame"
                                   data-clean-preview={cleanPreviewMode ? "true" : "false"}
+                                  data-echo-retained-details={directorProjects.filter(row => Array.isArray(row.music_video_project?.timeline)).length}
+                                  data-echo-retained-plans={Object.keys(songCardPlanSnapshotBySong).length}
                                   data-echo-preview-contract={directorPreviewFrame?.schemaVersion || "legacy-local-projection"}
                                   data-echo-preview-frame-key={directorPreviewFrame?.frameKey || ""}
                                   data-echo-preview-media-layers={directorPreviewFrame?.media?.layerCount ?? (currentTimelineItem ? 1 : 0)}
