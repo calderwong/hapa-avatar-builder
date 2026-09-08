@@ -1,3 +1,4 @@
+import { echoTimelineMediaInstances, hyperFramesMediaOpacityState } from "../domain/echo-media-presentation.js";
 import { prepareEchoAudioPlayback } from '../domain/echo-audio-playback.js';
 import { createEchoEmptyShaderMedia } from "../domain/echo-empty-shader-media.js";
 import { createEchoIsfHistoryMedia } from "../domain/echo-isf-history-media.js";
@@ -580,7 +581,8 @@ const ECHO_VIDEO_LOOKAHEAD_COUNT = ECHO_PLAYER_POOL_LIMIT - 1;
 const ECHO_VIDEO_PLAYER_POOL_SIZE = ECHO_VIDEO_LOOKAHEAD_COUNT + 1;
 const ECHO_VIDEO_PLAYER_INDICES = Array.from({ length: ECHO_VIDEO_PLAYER_POOL_SIZE }, (_, index) => index);
 
-function PersistentEchoABPlayers({ shot, lookaheadShots = [], playing, songTime, style, onBufferState, onPresentedMediaChange, presentationSampleRef, clockRef, audioRef, audioContextRef, sourceIsPortrait = false, cameraKeyframes = EMPTY_ECHO_CAMERA_KEYFRAMES, shotIndex = 0 }) {
+function PersistentEchoABPlayers({ shot, lookaheadShots = [], maximumDimension = 1280, playing, songTime, style, onBufferState, onPresentedMediaChange, presentationSampleRef, clockRef, audioRef, audioContextRef, sourceIsPortrait = false, cameraKeyframes = EMPTY_ECHO_CAMERA_KEYFRAMES, shotIndex = 0 }) {
+  const imageWrapperRefs = useRef([]);
   const playerRefs = useRef(Array.from({ length: ECHO_VIDEO_PLAYER_POOL_SIZE }, () => null));
   const activeIndexRef = useRef(0);
   const [activeIndex, setActiveIndex] = useState(0);
@@ -599,6 +601,10 @@ function PersistentEchoABPlayers({ shot, lookaheadShots = [], playing, songTime,
   // in a ref that updates every render.
   const cameraInputsRef = useRef({ shot, sourceIsPortrait, cameraKeyframes, shotIndex, songTime });
   cameraInputsRef.current = { shot, sourceIsPortrait, cameraKeyframes, shotIndex, songTime };
+
+  const visualShots = [shot, ...lookaheadShots];
+  const presentationInputsRef = useRef(null);
+  presentationInputsRef.current = { shots: visualShots, instances: echoTimelineMediaInstances(visualShots), playing };
 
   const shotKey = echoPresentedShotKey;
   const currentShotIdentity = shotKey(shot);
@@ -700,7 +706,11 @@ function PersistentEchoABPlayers({ shot, lookaheadShots = [], playing, songTime,
   };
 
   useEffect(() => {
-    if (shotMediaType(shot) !== "video") return undefined;
+    if (shotMediaType(shot) !== "video") {
+      generationRef.current += 1;
+      setStageStatus("ready");
+      return undefined;
+    }
     const generation = ++generationRef.current; const key = shotKey(shot);
     const targetLookahead = Math.min(ECHO_VIDEO_LOOKAHEAD_COUNT, lookaheadShots.filter((item) => shotMediaType(item) === "video").length);
     setStageStatus("buffering"); onBufferState?.({ status: "buffering", ready: false, currentKey: key, readyLookahead: 0, targetLookahead });
@@ -844,6 +854,7 @@ function PersistentEchoABPlayers({ shot, lookaheadShots = [], playing, songTime,
 
   useEffect(() => {
     const sourceKey = shotKey(shot);
+    if (shotMediaType(shot) !== "video") return undefined;
     const video = playerRefs.current[activeIndex];
     const slot = slotStateRef.current[activeIndex];
     const isCurrentPresentedFrame = Boolean(
@@ -878,30 +889,56 @@ function PersistentEchoABPlayers({ shot, lookaheadShots = [], playing, songTime,
   }, [activeIndex, stageStatus, currentShotIdentity, shot, onPresentedMediaChange]);
 
   useEffect(() => {
-    let frame = 0; let previousMs = -Infinity;
-    const animateCamera = (now) => {
-      if (now - previousMs >= 1000 / 30) {
-        previousMs = now;
-        const { shot: latestShot, sourceIsPortrait: latestSourceIsPortrait, cameraKeyframes: latestCameraKeyframes, shotIndex: latestShotIndex, songTime: latestSongTime } = cameraInputsRef.current;
-        const cameraTime = Number(clockRef?.current ?? latestSongTime);
-        const activeVideo = playerRefs.current[activeIndexRef.current] || null;
-        const sourceDimensions = resolveEchoShotSourceDimensions(latestShot, activeVideo);
-        const cameraKeyframe = echoCameraKeyframeAt(latestCameraKeyframes, cameraTime);
-        const camera = cameraMotionStyleForShot(
-          latestShot,
-          cameraTime,
-          sourceDimensions.known ? sourceDimensions.isPortrait : latestSourceIsPortrait,
-          latestShotIndex,
-          cameraKeyframe?.crop || null,
-        );
-        for (const video of playerRefs.current) if (video) { video.style.transform = camera.transform; video.style.transformOrigin = camera.transformOrigin; video.style.objectPosition = camera.objectPosition; }
-        if (fallbackRef.current) { fallbackRef.current.style.transform = camera.transform; fallbackRef.current.style.transformOrigin = camera.transformOrigin; }
+    let frame = 0, lastPresentationMs = -Infinity;
+    const animateCamera = (now = performance.now()) => {
+      if (playing && now - lastPresentationMs < 1000 / 30) {
+        frame = window.requestAnimationFrame(animateCamera);
+        return;
+      }
+      lastPresentationMs = now;
+      const { shots, instances } = presentationInputsRef.current;
+      const { cameraKeyframes: keyframes, shotIndex: baseIndex, songTime: fallbackTime } = cameraInputsRef.current;
+      const time = Number(clockRef?.current ?? fallbackTime);
+      const cameraKeyframe = echoCameraKeyframeAt(keyframes, time);
+      for (let slotIndex = 0; slotIndex < playerRefs.current.length; slotIndex += 1) {
+        const video = playerRefs.current[slotIndex];
+        if (!video) continue;
+        const slot = slotStateRef.current[slotIndex];
+        const index = shots.findIndex(candidate => shotKey(candidate) === slot.key);
+        const targetShot = shots[index];
+        const opacity = hyperFramesMediaOpacityState(instances, index, time);
+        const ready = slot.status === "ready" && slot.frameReady && video.dataset.echoSourceKey === slot.key;
+        const visible = ready && opacity.visible && shotMediaType(targetShot) === "video";
+        video.style.opacity = String(visible ? opacity.alpha : 0);
+        video.style.zIndex = String(Math.max(0, index) + 1);
+        video.dataset.echoPresentationPhase = visible ? opacity.phase : "inactive";
+        // The incoming handle holds the first source frame. It cannot consume
+        // footage or start an independent clock before the logical cue onset.
+        if (visible && index > 0 && time < instances[index].start) {
+          const contract = targetShot.media_contract || targetShot.mediaContract || {};
+          const first = Math.max(0, Number(contract.sourceInSeconds ?? contract.source_in_seconds) || 0);
+          if (!video.paused) video.pause();
+          if (!video.seeking && Math.abs(video.currentTime - first) > 0.000001) video.currentTime = first;
+        } else if (!visible && slot.status === "ready" && !video.paused) video.pause();
+        if (!visible) continue;
+        const dimensions = resolveEchoShotSourceDimensions(targetShot, video);
+        const camera = cameraMotionStyleForShot(targetShot, time, dimensions.isPortrait, baseIndex + index, cameraKeyframe?.crop || null);
+        video.style.transform = camera.transform;
+        video.style.transformOrigin = camera.transformOrigin;
+        video.style.objectPosition = camera.objectPosition;
+      }
+      for (let index = 0; index < imageWrapperRefs.current.length; index += 1) {
+        const wrapper = imageWrapperRefs.current[index];
+        if (!wrapper) continue;
+        const opacity = hyperFramesMediaOpacityState(instances, index, time);
+        wrapper.style.opacity = String(opacity.alpha);
+        wrapper.dataset.echoPresentationPhase = opacity.phase;
       }
       if (playing) frame = window.requestAnimationFrame(animateCamera);
     };
-    frame = window.requestAnimationFrame(animateCamera);
+    animateCamera();
     return () => window.cancelAnimationFrame(frame);
-  }, [playing, shot?.media_id, shot?.start_sec, sourceIsPortrait, cameraKeyframes, shotIndex, clockRef]);
+  }, [playing, currentShotIdentity, playing ? null : songTime, poolRevision, stageStatus, activeIndex, clockRef]);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -918,7 +955,7 @@ function PersistentEchoABPlayers({ shot, lookaheadShots = [], playing, songTime,
 
   return (
     <>
-      <div ref={fallbackRef} data-echo-fallback={stageStatus} style={{ ...style, opacity: stageStatus === "ready" ? 0 : 1, position: "absolute", inset: 0, zIndex: 0, background: "radial-gradient(circle at center, rgba(9,28,46,.96), #020617 72%)", transition: playing ? "opacity .18s linear" : "none" }}>
+      <div ref={fallbackRef} data-echo-fallback={stageStatus} style={{ ...style, opacity: stageStatus === "ready" ? 0 : 1, position: "absolute", inset: 0, zIndex: 0, background: "radial-gradient(circle at center, rgba(9,28,46,.96), #020617 72%)", transition: "none" }}>
         {(shot.media_contract?.posterUri || shot.media_thumbnail) && <img src={resolveMediaUri(shot.media_contract?.posterUri || shot.media_thumbnail)} alt="Buffered shot fallback" style={{ width: "100%", height: "100%", objectFit: "cover" }} />}
       </div>
       {ECHO_VIDEO_PLAYER_INDICES.map((index) => (
@@ -929,11 +966,23 @@ function PersistentEchoABPlayers({ shot, lookaheadShots = [], playing, songTime,
           crossOrigin="anonymous"
           playsInline
           preload="auto"
-          data-echo-player={index === activeIndex ? "current" : "standby"}
-          data-frame-presented={index === activeIndex && stageStatus === "ready" ? "true" : "false"}
-          style={{ ...style, position: 'absolute', inset: 0, opacity: index === activeIndex && stageStatus === "ready" ? 1 : 0, transition: playing ? `opacity ${shot.transition === "cut" ? .06 : .45}s linear` : "none", zIndex: index === activeIndex ? 1 : 0 }}
+          data-echo-player={index === activeIndex && shotMediaType(shot) === "video" ? "current" : "standby"}
+          data-frame-presented={index === activeIndex && stageStatus === "ready" && shotMediaType(shot) === "video" ? "true" : "false"}
+          style={{ ...style, position: 'absolute', inset: 0, opacity: index === activeIndex && stageStatus === "ready" ? 1 : 0, transition: "none", zIndex: index === activeIndex ? 1 : 0 }}
         />
       ))}
+      {visualShots.map((imageShot, index) => shotMediaType(imageShot) === "image" ? (
+        <div key={shotKey(imageShot)} ref={element => { imageWrapperRefs.current[index] = element; }}
+          data-echo-image-layer={index} style={{ position: "absolute", inset: 0, zIndex: index + 1,
+            opacity: hyperFramesMediaOpacityState(presentationInputsRef.current.instances, index, songTime).alpha }}>
+          <PresentedEchoImage shot={imageShot} maximumDimension={maximumDimension}
+            cameraCrop={echoCameraKeyframeAt(cameraKeyframes, songTime)?.crop}
+            onPresentedMediaChange={index === 0 ? onPresentedMediaChange : undefined}
+            style={{ ...style, transition: "none", opacity: 1,
+              ...(({ transform, transformOrigin, objectPosition }) => ({ transform, transformOrigin, objectPosition }))(cameraMotionStyleForShot(imageShot, songTime, resolveEchoShotSourceDimensions(imageShot).isPortrait, shotIndex + index,
+                echoCameraKeyframeAt(cameraKeyframes, songTime)?.crop || null)) }} />
+        </div>
+      ) : null)}
     </>
   );
 }
@@ -7239,9 +7288,10 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                                   style={{ position: 'relative', width: directorPreviewExpanded ? directorPreviewWidth : compactPreviewWidth, height: 'auto', boxSizing: 'border-box', alignSelf: directorPreviewExpanded || isVerticalOutput ? 'center' : 'stretch', aspectRatio: `${activeOutputProfile.width} / ${activeOutputProfile.height}`, maxWidth: '100%', flexShrink: 0, borderRadius: '6px', overflow: 'hidden', border: '1px solid rgba(255,255,255,0.12)', background: '#020617', boxShadow: '0 4px 20px rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
                                 >
                                   
-                                  {currentTimelineItem && shotMediaType(currentTimelineItem) === "video" && (
+                                  {currentTimelineItem && ["video", "image"].includes(shotMediaType(currentTimelineItem)) && (
                                     <PersistentEchoABPlayers
                                       shot={currentTimelineItem}
+                                      maximumDimension={previewQuality.mediaDimension}
                                       lookaheadShots={lookaheadTimelineItems}
                                       playing={isPlaying}
                                       songTime={currentTime}
@@ -7267,23 +7317,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                                       }}
                                     />
                                   )}
-                                  {currentTimelineItem && shotMediaType(currentTimelineItem) === "image" && (
-                                    <PresentedEchoImage maximumDimension={previewQuality.mediaDimension}
-                                      key={`${currentTimelineItem.media_id}-${currentTimelineItem.start_sec}`}
-                                      shot={currentTimelineItem}
-                                      cameraCrop={activeCameraKeyframe?.crop}
-                                      onPresentedMediaChange={handlePresentedMediaChange}
-                                      style={{
-                                        width: '100%',
-                                        height: '100%',
-                                        objectFit: 'cover',
-                                        transform: cameraPreviewStyle.transform,
-                                        transformOrigin: cameraPreviewStyle.transformOrigin,
-                                        objectPosition: cameraPreviewStyle.objectPosition,
-                                        opacity: 1
-                                      }}
-                                    />
-                                  )}
+
 
                                   <canvas 
                                     ref={canvasRef}

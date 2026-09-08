@@ -2,7 +2,7 @@
   "schemaVersion": "hapa.workflow-pilot.v1",
   "id": "echo-requirement-completion-batch-pilot",
   "version": "0.1",
-  "updatedAt": "2026-09-08T09:21:34.445618+00:00",
+  "updatedAt": "2026-09-08T09:47:02.231332+00:00",
   "status": "active-pilot",
   "effectiveness": "not-yet-evaluated",
   "ownerTaskId": "01a072d3-d593-74f2-8c89-2470c2ee1a40",
@@ -40,7 +40,7 @@
   "batches": [
     {
       "id": "A1",
-      "status": "paused-composition-verified-event-parity-open",
+      "status": "song-time-media-handoffs-verified-full-event-parity-open",
       "requirements": [
         "ECHO-07"
       ],
@@ -618,6 +618,45 @@
         "pixelIdenticalComparisons": 11,
         "maximumChannelDifference": 1,
         "maximumMeanChannelError": 0.00025225511335461693
+      },
+      "mediaHandoffEvidence": {
+        "status": "verified-media-handoff-checkpoint-not-requirement-acceptance",
+        "songs": 6,
+        "compositionComparisons": 12,
+        "pixelIdentical": 11,
+        "maxMeanChannelError": 5.056245507881057e-05,
+        "incomingSourceObservations": [
+          "native-repair/dear-papa-song-dear-papa/report.json",
+          "native-medusa-final/dear-papa-song-miss-medusa/report.json"
+        ],
+        "initialIncomingSourceClaims": "rejected: initial capture logged only current video; incoming-presence selector and pixel comparisons remain usable",
+        "export": {
+          "pass": true,
+          "rawReport": "export-native-final/report.json",
+          "rawHarnessPassed": false,
+          "compositedAlphaAbsoluteError": 3.3333333332441484e-07,
+          "tolerance": 1e-06,
+          "reason": "Chromium serialized authored one-third opacity as 0.333333. This tolerance covers one unit at the observed six-decimal CSS precision. No screenshot or application behavior changed; all raw source-time, layer-order and identical reverse-pixel checks passed.",
+          "sourceHeld": true,
+          "sourceAdvanced": true,
+          "layerOrder": true,
+          "reversePixels": true,
+          "meanPixelDifference": 0,
+          "maxPixelDifference": 0
+        },
+        "tests": "74 distinct affected checks pass after source-assertion repair; renderer identity adds one passing check. Restored 30 Hz cadence is covered by the final eight lifecycle checks. No broad suite repeated.",
+        "build": "pass",
+        "sourceIntegrity": {
+          "pass": true,
+          "protectedFiles": 55,
+          "authoringFiles": 12,
+          "failures": []
+        },
+        "closedRequirements": [],
+        "humanAccepted": false,
+        "additionalUiIntegrationPassed": 15,
+        "distinctChecksPassed": 90,
+        "processGroupsAbsent": true
       }
     }
   ],
@@ -640,7 +679,7 @@
     "docs/postmortems/2026-09-08-echo-paused-composition.md"
   ],
   "decisionAfterAcceptedBatches": 2,
-  "nextAction": "Finish shared song-time media handoffs and a complete Preview/HyperFrames event-boundary comparison for ECHO-04, then consolidate ECHO-07 acceptance with its dependencies. Reuse the six-song paused composition, stem isolation, live capture and section-budget evidence. Track cold history latency under ECHO-08/17; retain lyric, direction, recut, UI and human-review scope.",
+  "nextAction": "Complete matched Preview/HyperFrames cue, lyric, gesture and camera event-state acceptance, including loop, dropped-frame recovery, out-of-order and non-unit source-rate cases. Consolidate ECHO-04/07 original criteria and reuse verified media handoffs, stem isolation and resource evidence. Retain cold persistent-history latency under ECHO-08/17 and remaining lyric, direction, recut, UI and human gates.",
   "updates": "batch-start, scope-change, consequential-failure, acceptance, handoff, goal-completion",
   "collaboration": {
     "protocol": "docs/ECHO_CONVICTION_PROTOCOL.md",

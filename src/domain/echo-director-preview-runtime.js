@@ -1,3 +1,4 @@
+import { hyperFramesMediaOpacityState } from "./echo-media-presentation.js";
 import {
   deriveEchoDirectionVariantProject,
   echoDirectionVariantFingerprint,
@@ -547,31 +548,12 @@ export function echoDirectorPreviewMediaTransitionState(cue = {}, timeSeconds = 
       || cue.sourceTimelineRow?.transition,
     "cut",
   ).toLowerCase();
-  // Hapa Preview has historically used one ordered 0.5-second window. Keep
-  // this exact branch order so extraction cannot alter sub-second cues where
-  // entrance and exit windows overlap.
-  const windowSeconds = 0.5;
-  const elapsed = timeSeconds - start;
-  const remaining = end - timeSeconds;
-  const entrance = clamp(elapsed / windowSeconds);
-  const exit = clamp(remaining / windowSeconds);
-  let opacity = 1;
-  let phase = "steady";
-  if (transition === "fade-in" && elapsed >= 0 && elapsed < windowSeconds) {
-    opacity = entrance;
-    phase = "entering";
-  } else if (transition === "fade-out" && remaining >= 0 && remaining < windowSeconds) {
-    opacity = exit;
-    phase = "exiting";
-  } else if (["crossfade", "scanline-dissolve"].includes(transition)) {
-    if (elapsed >= 0 && elapsed < windowSeconds) {
-      opacity = entrance;
-      phase = "entering";
-    } else if (remaining >= 0 && remaining < windowSeconds) {
-      opacity = exit;
-      phase = "exiting";
-    }
-  }
+  const windowSeconds = Math.min(0.5, Math.max(0, end - start));
+  const entrance = windowSeconds ? clamp((timeSeconds - start) / windowSeconds) : 0;
+  const exit = windowSeconds ? clamp((end - timeSeconds) / windowSeconds) : 0;
+  const presentation = hyperFramesMediaOpacityState([{ start, end, transition }], 0, timeSeconds);
+  const opacity = presentation.alpha;
+  const phase = presentation.phase === "active" ? "steady" : presentation.phase;
   return {
     kind: transition,
     opacity: round(opacity),

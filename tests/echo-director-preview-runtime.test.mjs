@@ -842,11 +842,11 @@ test("half-open cue seams select the next Director cue and use stable transition
   assert.equal(seam.primaryMediaCue.id, "cue:tea-table");
   assert.equal(seam.currentCard.id, "card:tea-table");
   assert.equal(seam.transition.kind, "scanline-dissolve");
-  assert.equal(seam.transition.opacity, 0);
+  assert.equal(seam.transition.opacity, 1, "incoming dissolve is complete at the logical seam");
   assert.equal(seam.transition.deterministicSeed, repeated.transition.deterministicSeed);
 });
 
-test("shared transition math preserves Hapa Preview's ordered half-second overlap behavior", () => {
+test("crossfade does not fade through black during its logical cue", () => {
   const state = echoDirectorPreviewMediaTransitionState({
     id: "short-crossfade",
     startSeconds: 0,
@@ -857,8 +857,8 @@ test("shared transition math preserves Hapa Preview's ordered half-second overla
   assert.equal(state.windowSeconds, 0.5);
   assert.equal(state.entrance, 0.8);
   assert.equal(state.exit, 0.7);
-  assert.equal(state.opacity, 0.8, "the historical entrance branch wins while both windows overlap");
-  assert.equal(state.phase, "entering");
+  assert.equal(state.opacity, 1);
+  assert.equal(state.phase, "steady");
 });
 
 test("clock projection clamps to duration while retaining the final half-open cue", () => {

@@ -681,7 +681,7 @@ test("HyperFrames export markup activates mapped transitions on logical cue time
   assert.doesNotMatch(source, /playback\.loop \? " loop"/u, "exported videos must never receive a loop attribute");
   assert.match(source, /video\.defaultPlaybackRate=playbackRate;video\.playbackRate=playbackRate[\s\S]+videoElements\.push\(video\)/u);
   assert.match(source, /function activateVideo\(el\)\{if\(!el\.isConnected\)document\.getElementById\('media-root'\)\.appendChild\(el\)/u, 'actual videos mount only when activated');
-  assert.match(source, /function holdMappedTransitionEndpoint[\s\S]+mapping\.sourceInSeconds:mapping\.sourceOutSeconds[\s\S]+el\.currentTime=target/u);
+  assert.match(source, /function holdMappedTransitionEndpoint[\s\S]+mapping\?\.sourceInSeconds\?\?0[\s\S]+el\.currentTime=target/u);
   assert.match(source, /holdMappedTransitionEndpoint\(t,el,m,timing\)/u);
 });
 

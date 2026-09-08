@@ -1,3 +1,4 @@
+import {echoTimelineMediaInstances,hyperFramesMediaOpacityState} from "../src/domain/echo-media-presentation.js";
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -33,7 +34,8 @@ function fixture(budget=3){
   useEffect:(effect,deps)=>{const i=cursor++;const prior=hooks[i];if(!prior||deps.some((v,j)=>!Object.is(v,prior.deps[j]))){hooks[i]={deps,cleanup:prior?.cleanup};effects.push(()=>{hooks[i].cleanup?.();hooks[i].cleanup=effect();});}},
   window:{setTimeout:fn=>{const id=next++;timers.set(id,fn);return id;},clearTimeout:id=>timers.delete(id),requestAnimationFrame:fn=>{const id=next++;frames.set(id,fn);return id;},cancelAnimationFrame:id=>frames.delete(id)},
   ECHO_VIDEO_PLAYER_POOL_SIZE:budget,ECHO_VIDEO_PLAYER_INDICES:Array.from({length:budget},(_,i)=>i),ECHO_VIDEO_LOOKAHEAD_COUNT:budget-1,EMPTY_ECHO_CAMERA_KEYFRAMES:[],
-  echoPresentedShotKey:shot=>JSON.stringify([shot?.media_id,shot?.start_sec]),shotMediaType:shot=>shot?.media_id?'video':'generated-visualizer',shotRuntimeUri:shot=>shot.media_uri,resolveMediaUri:uri=>uri,
+  echoPresentedShotKey:shot=>JSON.stringify([shot?.media_id,shot?.start_sec]),shotMediaType:shot=>shot?.media_contract?.type||(shot?.media_id?'video':'generated-visualizer'),shotRuntimeUri:shot=>shot.media_uri,resolveMediaUri:uri=>uri,
+  echoTimelineMediaInstances,hyperFramesMediaOpacityState,echoCameraKeyframeAt:()=>null,resolveEchoShotSourceDimensions:()=>({isPortrait:false}),cameraMotionStyleForShot:()=>({}),
   reconcileEchoPlayerSlots,mapEchoSourceWindowTime,echoSourceWindowAtEnd,echoSourceWindowPlaybackRate,normalizeEchoTransitionTimeMapping,planEchoPlaybackCorrection,echoDecodedPlaybackPhase,
   estimateEchoAudibleClock:()=>({audibleSongTime:current.songTime}),
  };
@@ -43,7 +45,7 @@ function fixture(budget=3){
  const update=(now,lookahead=[],time=now.start_sec)=>render({shot:now,lookaheadShots:lookahead,playing:true,songTime:time,clockRef:{current:time},presentationSampleRef,onPresentedMediaChange});
  const release=async index=>{await settle();const callback=videos[index].frame;assert.ok(callback,'player requested a decoded frame');videos[index].frame=null;callback(tickNow,{mediaTime:videos[index].currentTime,expectedDisplayTime:tickNow});await settle();};
  const tickPlayback=()=>{tickNow+=40;for(const [id,callback] of [...frames])if(String(callback).includes('synchronize(now)')){frames.delete(id);callback(tickNow);}};
- return {videos,shot,update,release,settle,tickPlayback,setSongTime(time){current.songTime=time;current.clockRef.current=time;},get result(){return result;},unmount(){observerStop?.();mounted=false;for(const hook of hooks)hook?.cleanup?.();},timers};
+ return {videos,shot,update,release,settle,tickPlayback,setSongTime(time){current.songTime=time;current.clockRef.current=time;},tickPresentation(){tickNow+=40;for(const [id,callback] of [...frames])if(String(callback).includes('presentationInputsRef.current')){frames.delete(id);callback(tickNow);}},get result(){return result;},unmount(){observerStop?.();mounted=false;for(const hook of hooks)hook?.cleanup?.();},timers};
 }
 
 test('pending next cue is reused and unrelated lookahead completion cannot pause the active player',async()=>{
@@ -118,5 +120,33 @@ test('paused or stale acquisition callbacks cannot consume a new cue phase',asyn
  f.setSongTime(4.2);f.tickPlayback();assert.equal(video.currentTime,0);
  assert.equal(video.paused,false);
  await f.release(index);f.tickPlayback();assert.ok(Math.abs(video.currentTime-.2)<1e-9);
+ f.unmount();
+});
+
+
+test('prepared incoming dissolve uses absolute song time, holds source origin, and reverses without a CSS clock',async()=>{
+ const f=fixture();const a=f.shot('a'),b={...f.shot('b',4),transition:'crossfade'};
+ f.update(a,[b]);await f.release(1);
+ const bi=f.result.slotStateRef.current.findIndex(slot=>slot.key===JSON.stringify(['b',4]));
+ await f.release(bi);
+ f.setSongTime(3.775);f.tickPresentation();
+ assert.ok(Math.abs(Number(f.videos[bi].style.opacity)-.5)<1e-8);
+ assert.equal(f.videos[bi].currentTime,0);
+ assert.equal(f.videos[bi].paused,true);
+ assert.equal(Number(f.videos[f.result.activeIndex].style.opacity),1);
+ f.setSongTime(3);f.tickPresentation();assert.equal(Number(f.videos[bi].style.opacity),0);
+ f.setSongTime(3.775);f.tickPresentation();assert.ok(Math.abs(Number(f.videos[bi].style.opacity)-.5)<1e-8);
+ f.update(b,[],4);await f.settle();f.tickPresentation();
+ assert.equal(f.result.activeIndex,bi);assert.equal(Number(f.videos[bi].style.opacity),1);
+ f.unmount();
+});
+
+test('image current cue retains and prepares the next video without replacing the pool',async()=>{
+ const f=fixture();const a={...f.shot('image'),media_contract:{type:'image'}},b=f.shot('b',4);
+ f.update(a,[b]);await f.settle();
+ const bi=f.result.slotStateRef.current.findIndex(slot=>slot.key===JSON.stringify(['b',4]));
+ assert.ok(bi>=0);await f.release(bi);const loads=f.videos[bi].loads;
+ f.update(b,[],4);await f.settle();
+ assert.equal(f.result.activeIndex,bi);assert.equal(f.videos[bi].loads,loads);
  f.unmount();
 });

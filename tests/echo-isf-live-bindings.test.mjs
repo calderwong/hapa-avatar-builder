@@ -85,9 +85,9 @@ test("Echo binds only the currently presented media frame, never a standby decod
   assert.match(exactDraw, /presentedMediaRef\.current/);
   assert.match(exactDraw, /drawEchoCameraFramedMediaInput\(/);
   assert.match(exactDraw, /mediaElement: currentPresentedMedia\.element/);
-  assert.match(source, /mediaElement: framedMediaInput\?\.canvas \|\| null/);
+  assert.match(source, /mediaElement: emptyMediaFrame\?\.element \|\| framedMediaInput\?\.canvas \|\| null/);
   assert.doesNotMatch(source, /mediaElement: currentPresentedMedia\?\.element \|\| null/);
-  assert.match(source, /mediaIdentity: currentPresentedMedia \?/);
+  assert.match(source, /mediaIdentity: !emptyMediaFrame && currentPresentedMedia \?/);
 });
 
 test("Echo uses a bounded generation-bound verified stem decoder pool and never invents a near-match", () => {
@@ -219,7 +219,7 @@ test("Echo surfaces bounded frame, media, stem, and composition receipts", () =>
 test('DOM recovery replaces stale same-element cue identity and installs its frame observer',()=>{
   const names=['shotRuntimeUri','echoPresentedShotKey','isPresentedEchoVideoElement','resolvePresentedEchoMediaBinding'];
   let observers=0,stops=0;const contexts=[];
-  const refs={presentedMediaRef:{current:null},presentationObserverRef:{current:null},audioRef:{current:{currentTime:0}},audioContextRef:{current:null}};
+  const refs={presentationSampleRef:{current:null},presentedMediaRef:{current:null},presentationObserverRef:{current:null},audioRef:{current:{currentTime:0}},audioContextRef:{current:null}};
   const context={...refs,JSON,Number,String,Boolean,globalThis:{},resolveMediaUri:uri=>uri,useCallback:fn=>fn,
     publishExactBindingDiagnostics:()=>{},observeEchoPresentedFrames:options=>{observers++;contexts.push(options.getContext);return ()=>stops++;}};
   const begin=source.indexOf('  const handlePresentedMediaChange = useCallback(');

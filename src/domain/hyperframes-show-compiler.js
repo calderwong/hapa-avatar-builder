@@ -1,3 +1,5 @@
+import { hyperFramesMediaPresentationWindow, hyperFramesMediaOpacityState } from "./echo-media-presentation.js";
+export { hyperFramesMediaPresentationWindow, hyperFramesMediaOpacityState };
 import { upgradeEchoGeneratedVisualizerBindings } from "./echo-recipe-execution.js";
 import { echoLyricBoundary } from "./echo-lyric-time.js";
 import crypto from "node:crypto";
@@ -903,35 +905,6 @@ export function inspectHyperFramesVisualCoverage(show = {}, { toleranceSeconds =
   };
 }
 
-export function hyperFramesMediaPresentationWindow(instances = [], instanceIndex = 0, {
-  crossfadeSeconds = 0.45,
-  seamToleranceSeconds = 0.050001,
-} = {}) {
-  const media = Array.isArray(instances) ? instances : [];
-  const index = Number(instanceIndex);
-  const current = media[index];
-  if (!current) return null;
-  const start = Number(current.start) || 0;
-  const end = Number(current.end) || start;
-  const duration = Math.max(0, end - start);
-  const sameTrack = (candidate) => candidate
-    && candidate?.source?.type !== "generated-visualizer"
-    && String(candidate.trackId || "") === String(current.trackId || "");
-  const previous = media.slice(0, index).reverse().find((candidate) => sameTrack(candidate) && Math.abs(Number(candidate.end) - start) <= seamToleranceSeconds);
-  const previousDuration = previous ? Math.max(0, Number(previous.end) - Number(previous.start)) : duration;
-  const incomingFade = previous ? Math.min(crossfadeSeconds, duration / 2, previousDuration / 2) : 0;
-  return {
-    logicalStart: start,
-    logicalEnd: end,
-    logicalDuration: duration,
-    presentationStart: start - incomingFade,
-    presentationEnd: end,
-    presentationDuration: duration + incomingFade,
-    incomingFadeSeconds: incomingFade,
-    previousCueId: previous?.id || previous?.cueId || null,
-  };
-}
-
 export function hyperFramesMediaElementTiming(instance = {}, presentationWindow = null) {
   const window = presentationWindow || {
     logicalStart: finite(instance.start),
@@ -971,14 +944,14 @@ export function hyperFramesMediaElementTiming(instance = {}, presentationWindow 
   if (!mappedTransition) {
     return {
       mappedTransition: false,
-      activationStart: window.presentationStart,
-      activationDuration: window.presentationDuration,
+      activationStart: window.logicalStart,
+      activationDuration: window.logicalDuration,
       mediaStart: null,
       mediaEnd: null,
       playbackRate: 1,
       playbackMode: "once",
       loop: false,
-      holdBefore: false,
+      holdBefore: true,
       holdAfter: true,
       timeMapping: null,
     };
@@ -996,34 +969,6 @@ export function hyperFramesMediaElementTiming(instance = {}, presentationWindow 
     holdAfter: true,
     timeMapping: declared.mapping,
   };
-}
-
-export function hyperFramesMediaOpacityState(instances = [], instanceIndex = 0, timeSeconds = 0, options = {}) {
-  const media = Array.isArray(instances) ? instances : [];
-  const current = media[Number(instanceIndex)];
-  const window = hyperFramesMediaPresentationWindow(media, instanceIndex, options);
-  if (!current || !window) return { visible: false, alpha: 0, localSeconds: 0, phase: "missing" };
-  const time = Number(timeSeconds) || 0;
-  const start = window.logicalStart;
-  const end = window.logicalEnd;
-  const incomingFade = window.incomingFadeSeconds;
-  if (incomingFade > 0 && time >= start - incomingFade && time < start) {
-    return {
-      visible: true,
-      alpha: Math.max(0, Math.min(1, (time - (start - incomingFade)) / incomingFade)),
-      localSeconds: Math.max(0, time - (start - incomingFade)),
-      phase: "incoming-crossfade",
-    };
-  }
-  if (time >= start && time < end) {
-    return {
-      visible: true,
-      alpha: 1,
-      localSeconds: Math.max(0, time - start + incomingFade),
-      phase: "active",
-    };
-  }
-  return { visible: false, alpha: 0, localSeconds: Math.max(0, time - start), phase: "inactive" };
 }
 
 export function compileHyperFramesShow({ showGraph, telemetry, project, proxyRegistry = {}, fps = 30, visualizerMix = null, performance = null } = {}) {
