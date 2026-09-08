@@ -33,7 +33,9 @@ At each meaningful update, keep JSON and Markdown in agreement, append the corre
 
 ## Next action
 
-Independent preview quality controls and the shared 128 MiB shader checkpoint budget now pass bounded native and actual editor checks. Finish same-cut 3/5/9 resource comparisons, a full-song resource run, remaining decoder/compositor budgets and integrated timing/stem acceptance. Cold near-end persistent reconstruction remains costly. A1 remains unaccepted; six done/twelve in progress. See [preview quality](ECHO_PREVIEW_QUALITY.md) and the [quality/resource postmortem](postmortems/2026-09-08-echo-preview-quality-budget.md).
+Echo now defaults to three video players after the matched six-cut pool comparison. Verified proxy bytes are shared, inactive shader decoders are released, and the cached-song cut lock is fixed. A1 remains unaccepted: six requirements done, twelve in progress. The [resource comparison/postmortem](postmortems/2026-09-08-echo-shared-proxy-resources.md) and [operator guide](ECHO_PREVIEW_QUALITY.md) distinguish passing resource limits from remaining timing and retention work.
+
+Finish integrated timing/stem acceptance, prewarm upcoming persistent-shader media to reduce entry stalls, and bound retained song-detail/plan data. Reuse the completed pool matrix; full-song three-player timing and whole-compositor acceptance remain open.
 
 ## Conviction relationship — 2026-09-06
 
@@ -150,3 +152,10 @@ Verified a maximum four-frame decode queue, exact native seek/playback pixels an
 Independent preview quality controls and a shared 128 MiB shader-history budget are implemented and verified in bounded native/editor checks. Full-song resources, whole-composite timing and integrated stem acceptance remain open. Six requirements done, twelve in progress; A1 has no accepted requirements.
 
 Actual editor controls scale real shader surfaces, bound admitted layers, preserve transport and leave visible lyric geometry intact. Size-specific derivative keys and warm reuse pass existing-owner tests. Native checkpoint eviction preserves exact pixels. All 55 protected and 12 authoring hashes remain unchanged. Final build/certificate and affected checks pass; no broad suite rerun. Original harness failures and stale screenshots are retained; the corrected painted/layout proof passes. Compilation and preparation timings are separate. See the [quality/resource postmortem](postmortems/2026-09-08-echo-preview-quality-budget.md) for evidence boundaries and next actions.
+
+
+## September 8 — shared payloads, measured video pool and song revisits
+
+Shared verified proxy payloads now use a 64 MiB/eight-entry lease cache; inactive shader media decoders are released. The real cached-song selection lock is fixed. The full Dear Papa two-Feedback resource run reaches 258.439979 s within owned caps, but browser-estimated media/audio p95 is 47 ms and persistent-layer windows include late bursts. Five matched capacity runs each pass ten song/cut switches with identical graph/renderer receipts and admitted layers. At shader ceiling 9, video pools 3/5/9 peak at 1,276.3/1,328.0/1,534.5 MiB renderer working set. Echo now defaults to three video players, retaining explicit 5/9 overrides and the separate shader ceiling 6. The normal-URL three-visit check verifies 3 video players / 6 shader ceiling and exact cut restoration. Earlier 56 cache/runtime checks, 31 default-related checks, current build and 55 protected/12 authoring integrity checks pass. These are scoped resource/default results, not overall timing, no-growth, full-song three-player, human or A1 acceptance. Six done/twelve in progress; zero accepted workflow-pilot batches.
+
+The first completed three-surface run mixed permitted editable fallback and certified graphs; its pass flag is rejected for capacity-policy comparison. The corrected matrix freezes ready execution receipts and checks revisit layers. Details, scope limits, process cleanup and the distinct full-song memory plateau are retained in the [postmortem](postmortems/2026-09-08-echo-shared-proxy-resources.md). No broad suite or costly alignment/render expansion was repeated. Conviction was not invoked alongside GPU measurements.

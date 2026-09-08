@@ -6,6 +6,11 @@ export function resolveEchoPlayerPoolLimit(value, fallback = 9) {
 // One immutable budget per mounted app session, shared by all pool consumers.
 // The URL setting supports reproducible 3/5/9-player acceptance runs.
 export const ECHO_PLAYER_POOL_LIMIT = resolveEchoPlayerPoolLimit(new URLSearchParams(globalThis.location?.search || "").get("echoPlayerBudget"));
+// Echo's measured local preview default: current video plus two lookahead
+// players. Keep the shared/Tarot default and explicit 3/5/9 overrides intact.
+export const ECHO_PREVIEW_PLAYER_POOL_LIMIT = resolveEchoPlayerPoolLimit(
+  new URLSearchParams(globalThis.location?.search || "").get("echoPlayerBudget"), 3,
+);
 
 export function canonicalEchoAssetKey(value = "") {
   return String(value || "").split("#")[0];

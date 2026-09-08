@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   configureEchoIsfSourceCache,
   createEchoIsfPlaybackPool,
+  resolveEchoShaderPoolLimit,
   getEchoIsfSourceCacheDiagnostics,
   resetEchoIsfBrowserRuntimeCaches,
   visualizerLookaheadCards,
@@ -496,4 +497,10 @@ test('pool capacity supports the declared 3/5/9 comparison without silently clam
     assert.equal(pool.getDiagnostics().historyCheckpointBudget.maxBytes, 128 * 1024 * 1024);
     pool.dispose(); assert.equal(pool.getDiagnostics().historyCheckpointBudget.bytes, 0);
   }
+});
+
+
+test('session shader capacity is restricted to supported measurements and a bounded default', () => {
+  for (const n of [3, 5, 6, 9]) assert.equal(resolveEchoShaderPoolLimit(String(n)), n);
+  for (const n of [null, '', 0, 2, 10, -1, Infinity, '9x']) assert.equal(resolveEchoShaderPoolLimit(n), 6);
 });

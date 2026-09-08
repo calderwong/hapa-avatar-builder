@@ -40,10 +40,11 @@ import {
   resolveVerifiedEchoStemBinding,
 } from "../domain/echo-visualizer-audio-envelope.js";
 import { createEchoPlaybackEngine } from "../domain/echo-playback-engine.js";
-import { ECHO_PLAYER_POOL_LIMIT, reconcileEchoPlayerSlots } from "../domain/echo-player-pool.js";
+import { ECHO_PREVIEW_PLAYER_POOL_LIMIT as ECHO_PLAYER_POOL_LIMIT, reconcileEchoPlayerSlots } from "../domain/echo-player-pool.js";
 import { createEchoPresentationTimingRecorder, observeEchoPresentedFrames, estimateEchoAudibleClock } from "../domain/echo-presentation-timing.js";
 import {
   createEchoIsfSurface,
+  ECHO_SHADER_POOL_LIMIT,
   createEchoIsfPlaybackPool,
   visualizerCardsAtTime,
   visualizerLookaheadCards,
@@ -1390,6 +1391,7 @@ function compactEchoIsfPlaybackDiagnostics(diagnostics = {}, presentation = {}, 
       requested: prewarmRequested,
       slots,
     },
+    maxSurfaces: Number(diagnostics.maxSurfaces || 0),
     surfaceCount: Number(diagnostics.surfaceCount || 0),
     contextCount: Number(diagnostics.contextCount || diagnostics.contexts || 0),
     programCount: Number(diagnostics.programCount || diagnostics.programs || 0),
@@ -3270,7 +3272,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
         return createEchoIsfPlaybackPool({
           ...echoPreviewShaderSize(canvas.width, canvas.height, previewQuality),
           apiBase: API_BASE,
-          maxSurfaces: 6,
+          maxSurfaces: ECHO_SHADER_POOL_LIMIT,
           historyCheckpointMaxBytes: 128 * 1024 * 1024,
         });
       } catch (error) {
@@ -3670,7 +3672,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
             ).visualTimeSeconds;
             const createHistoryResolver = (card) => {
               if (audioVisualMode === "live" || !activeDirectorPreviewSource) return null;
-              const decoder = createEchoIsfHistoryMedia({ resolveUri: resolveMediaUri });
+              const decoder = createEchoIsfHistoryMedia({ resolveUri: resolveMediaUri, sourceCache: pool.proxySourceCache });
               const framedCanvas = document.createElement("canvas");
               const timeline = [...previewTimelineRef.current];
               return {
@@ -5213,6 +5215,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
     setSelectedDirectionVariantId("legacy");
     setWorkingDirectionFork(null);
     setDirectionForkTransitionPending(false);
+    setDirectionCutSelectionPending(false);
   }, [selectedProjectSongId]);
 
   useEffect(() => {
@@ -5278,13 +5281,24 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
         setSelectedDirectionVariantId(latestVariantId);
         setEchoOperationNotice(`${echoDirectionVariantTitle(hydratedVariant)} opened as the newest saved Director cut.`);
       } catch (error) {
+        if (cancelled) return;
         latestDirectionHydrationKeyRef.current = "";
         setEchoOperationNotice(`Could not open the newest saved Director cut: ${error.message || String(error)}. Legacy remains available; retry the song to try again.`);
       } finally {
         if (!cancelled) setDirectionCutSelectionPending(false);
       }
     })();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+      // A cached song can change the selected variant during this effect's
+      // first render. Release this cancelled auto-load so its replacement can
+      // run; never clear a newer manual selection's lock.
+      if (latestDirectionHydrationKeyRef.current === hydrationKey
+        && directionSelectionPreferenceRef.current === "auto-latest") {
+        latestDirectionHydrationKeyRef.current = "";
+        setDirectionCutSelectionPending(false);
+      }
+    };
   }, [
     activeDirectionVariant,
     activeProjectHasDetail,

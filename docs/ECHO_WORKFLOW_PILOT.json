@@ -2,7 +2,7 @@
   "schemaVersion": "hapa.workflow-pilot.v1",
   "id": "echo-requirement-completion-batch-pilot",
   "version": "0.1",
-  "updatedAt": "2026-09-08T07:18:17.147394+00:00",
+  "updatedAt": "2026-09-08T08:12:40.663111+00:00",
   "status": "active-pilot",
   "effectiveness": "not-yet-evaluated",
   "ownerTaskId": "01a072d3-d593-74f2-8c89-2470c2ee1a40",
@@ -40,7 +40,7 @@
   "batches": [
     {
       "id": "A1",
-      "status": "preview-quality-and-shared-history-budget-verified-full-song-acceptance-open",
+      "status": "shared-proxy-and-video-pool-verified-integrated-timing-open",
       "requirements": [
         "ECHO-07"
       ],
@@ -241,6 +241,63 @@
         "evidence": "$ECHO_REVIEW_WORKSPACE/quality-budget-proof",
         "acceptedRequirements": [],
         "humanAccepted": false
+      },
+      "sharedProxyResourceEvidence": {
+        "status": "verified-checkpoint-not-batch-acceptance",
+        "evidence": "$ECHO_REVIEW_WORKSPACE/shared-proxy-resource-proof",
+        "implementationBaseCommit": "33487d3",
+        "checkpointBoardEvent": "a1-shared-proxy-resources-20260908",
+        "sharedEncodedMaxBytes": 67108864,
+        "sharedEncodedMaxEntries": 8,
+        "fullSong": {
+          "seconds": 258.439979,
+          "samples": 128,
+          "peakCheckpointBytes": 131706432,
+          "peakSharedEncodedBytes": 58218925,
+          "peakDecodedFrameBytes": 19660800,
+          "videoPlayerCount": 9,
+          "temporaryFeedbackLayers": 2,
+          "estimatedMediaAudioP95UpperMs": 47,
+          "fullSongThreePlayerAcceptance": false,
+          "generalRetentionGuarantee": false
+        },
+        "poolComparison": {
+          "runs": 5,
+          "cuts": 6,
+          "switchesPerRun": 10,
+          "secondsPerVisit": 12,
+          "readyGraphHashesAndAdmittedLayersMatch": true,
+          "sourceBuildHeldFixed": true,
+          "maxObservedShaderContexts": 3,
+          "rendererWorkingSetPeakMiBByVideoPool": {
+            "3": 1276.296875,
+            "5": 1328.046875,
+            "9": 1534.53125
+          },
+          "fixedShaderCeilingForVideoComparison": 9,
+          "exclusiveHardware": false
+        },
+        "selectedDefaults": {
+          "echoVideoPlayers": 3,
+          "echoShaderCeiling": 6,
+          "sharedTarotVideoDefault": 9,
+          "explicitVideoOverrides": [
+            3,
+            5,
+            9
+          ],
+          "normalUrlNativeVisitsPassed": 3
+        },
+        "priorTargetedTestsPassed": 56,
+        "defaultRelatedTestsPassed": 31,
+        "build": "pass",
+        "sourceIntegrity": {
+          "protected": 55,
+          "authoring": 12,
+          "unchanged": true
+        },
+        "acceptedRequirements": [],
+        "postmortem": "docs/postmortems/2026-09-08-echo-shared-proxy-resources.md"
       }
     }
   ],
@@ -260,7 +317,7 @@
     "docs/postmortems/2026-09-08-echo-preview-quality-budget.md"
   ],
   "decisionAfterAcceptedBatches": 2,
-  "nextAction": "Complete same-actual-cut 3/5/9 comparisons, full-song retained resources, remaining decoder/compositor budgets and integrated timing/stem acceptance.",
+  "nextAction": "Finish integrated timing/stem acceptance, prewarm upcoming persistent-shader media to reduce entry stalls, and bound retained song-detail/plan data. Reuse the completed pool matrix; full-song three-player timing and whole-compositor acceptance remain open.",
   "updates": "batch-start, scope-change, consequential-failure, acceptance, handoff, goal-completion",
   "collaboration": {
     "protocol": "docs/ECHO_CONVICTION_PROTOCOL.md",

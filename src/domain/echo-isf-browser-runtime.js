@@ -1,8 +1,15 @@
+import { createEchoProxySourceCache } from './echo-proxy-frame-decoder.js';
 import { bindHyperFramesIsfFrameInputs, prepareHyperFramesIsfFrame, createHyperFramesIsfCheckpointStore, createHyperFramesIsfCheckpointBudget, prepareHyperFramesIsfSeek } from "./hyperframes-isf-frame-runtime.js";
 import {
   buildEchoIsfFrameIntent,
   validateEchoIsfCardBindings,
 } from "./echo-isf-frame-intent.js";
+
+// Immutable per-session capacity supports repeatable native resource comparisons.
+export function resolveEchoShaderPoolLimit(value, fallback = 6) {
+  return [3, 5, 6, 9].includes(Number(value)) ? Number(value) : [3, 5, 6, 9].includes(fallback) ? fallback : 6;
+}
+export const ECHO_SHADER_POOL_LIMIT = resolveEchoShaderPoolLimit(new URLSearchParams(globalThis.location?.search || '').get('echoShaderBudget'));
 
 const catalogFlights = new Map();
 const sourceFlights = new Map();
@@ -811,6 +818,14 @@ export function createEchoIsfSurface(options = {}) {
     return { ...snapshot(), status: "preparing-history", ok: false, error: "Preparing shader history", canvas: presentationCanvas };
   };
 
+  const suspendHistory = () => {
+    historyAbort?.abort();
+    historyResolver?.dispose?.(); historyResolver = null;
+    playbackFrames.clear(); playbackRequestFrame = null; playbackWasPlaying = false;
+    // Keep reconstructible checkpoints and the last presentation. A later
+    // activation recreates its detached media owner without borrowing a layer.
+  };
+
   const dispose = () => {
     if (disposed) return;
     disposed = true;
@@ -828,7 +843,7 @@ export function createEchoIsfSurface(options = {}) {
     publish("disposed", { sourceId: "", shaderId: "", sourceHash: "", error: "", clock: null });
   };
 
-  return { canvas, prepare, draw, prepareFrame, present, getState: snapshot, dispose };
+  return { canvas, prepare, draw, prepareFrame, present, getState: snapshot, suspendHistory, dispose };
 }
 
 function poolCardRange(card = {}) {
@@ -879,6 +894,7 @@ export function createEchoIsfPlaybackPool(options = {}) {
   const onStatus = typeof options.onStatus === "function" ? options.onStatus : () => {};
   const dependencies = resolveDependencies(options);
   const slots = [];
+  const proxySourceCache = createEchoProxySourceCache();
   const checkpointBudget = createHyperFramesIsfCheckpointBudget(options.historyCheckpointMaxBytes ?? 128 * 1024 * 1024);
   let activeKeys = new Set();
   const warmingByKey = new Map();
@@ -1298,10 +1314,13 @@ export function createEchoIsfPlaybackPool(options = {}) {
       historyCheckpointBytes: resourceStates.reduce((sum, state) => sum + Number(state.persistentHistory?.bytes || 0), 0),
       historyJobsPreparing: resourceStates.filter(state => state.preparingHistory).length,
       historyMedia: {
-        encodedBytes: resourceStates.reduce((sum, state) => sum + Number(state.historyMedia?.encodedBytes || 0), 0),
+        encodedBytes: proxySourceCache.getDiagnostics().bytes + resourceStates.filter(state => !state.historyMedia?.sharedEncodedSource).reduce((sum, state) => sum + Number(state.historyMedia?.encodedBytes || 0), 0),
+        sharedSources: proxySourceCache.getDiagnostics(),
+        decodedFrameBytes: resourceStates.reduce((sum, state) => sum + Number(state.historyMedia?.decodedFrameBytes || 0), 0),
+        framesWithUnknownBytes: resourceStates.reduce((sum, state) => sum + Number(state.historyMedia?.framesWithUnknownBytes || 0), 0),
         retainedFrames: resourceStates.reduce((sum, state) => sum + Number(state.historyMedia?.retainedFrames || 0), 0),
         queuedFrames: resourceStates.reduce((sum, state) => sum + Number(state.historyMedia?.queuedFrames || 0), 0),
-        maximumEncodedBytes: maxSurfaces * 32 * 1024 ** 2, maximumFrames: maxSurfaces * 4,
+        maximumEncodedBytes: proxySourceCache.getDiagnostics().maxBytes + resourceStates.filter(state => state.historyMedia && !state.historyMedia.sharedEncodedSource).length * 32 * 1024 ** 2, maximumFrames: maxSurfaces * 4,
         scope: 'owned direct proxy buffers and frames; excludes driver allocations and HTML media fallback',
       },
       historyLookaheadBytes: resourceStates.reduce((sum, state) => sum + Number(state.historyLookahead?.bytes || 0), 0),
@@ -1375,14 +1394,16 @@ export function createEchoIsfPlaybackPool(options = {}) {
     activeKeys.clear();
     failedByKey.clear();
     for (const slot of [...slots]) removeSlot(slot);
+    proxySourceCache.dispose();
     presentedSlot = null;
     emit("disposed");
   };
 
   const beginFrame = cards => {
     activeKeys = new Set((cards || []).map(poolCardContentKey));
+    for (const slot of slots) if (!activeKeys.has(slot.key)) slot.surface?.suspendHistory?.();
     const layers = new Set((cards || []).flatMap(card => [String(card.trackId || card.persistentSlotId || card.id || "default"), ...(!card.trackId && !card.persistentSlotId ? ["default"] : [])]));
     for (const layer of presentedByLayer.keys()) if (!layers.has(layer)) presentedByLayer.delete(layer);
   };
-  return { prewarm, present, presentLayers, beginFrame, invalidate, getDiagnostics, getState: getDiagnostics, dispose };
+  return { prewarm, present, presentLayers, beginFrame, invalidate, getDiagnostics, getState: getDiagnostics, proxySourceCache, dispose };
 }

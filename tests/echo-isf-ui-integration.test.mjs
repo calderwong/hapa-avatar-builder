@@ -54,7 +54,7 @@ test("Echo resolves graph-backed shader layers through a bounded lookahead playb
 
 test("Echo prewarms lookahead and invalidates only graph identity changes", () => {
   const poolPath = between(echoSource, "const createExactPlaybackPool", "const bandAvg");
-  assert.match(poolPath, /maxSurfaces: 6/);
+  assert.match(poolPath, /maxSurfaces: ECHO_SHADER_POOL_LIMIT/);
   assert.match(poolPath, /previousIdentity\.variantKey !== nextIdentity\.variantKey/);
   assert.match(poolPath, /previousIdentity\.dirtyKey !== nextIdentity\.dirtyKey/);
   assert.match(echoSource, /pool\.prewarm\(/);

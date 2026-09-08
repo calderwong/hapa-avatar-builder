@@ -1,11 +1,64 @@
 import { hyperFramesVideoFrameTime } from './hyperframes-media-frame-runtime.js';
 
 const MAX_BYTES = 32 * 1024 ** 2;
+// Pool-owned verified payloads. Leases pin active sources; only idle payloads
+// may be evicted. A caller abort never cancels another caller's shared fetch.
+export function createEchoProxySourceCache({ maxBytes = 64 * 1024 ** 2, maxEntries = 8 } = {}) {
+  if (!Number.isSafeInteger(maxBytes) || maxBytes < 1 || !Number.isInteger(maxEntries) || maxEntries < 1 || maxEntries > 32) throw new Error('Invalid proxy source cache budget');
+  const entries = new Map(); let bytes = 0, peakBytes = 0, hits = 0, loads = 0, evictions = 0, disposed = false;
+  const remove = entry => { if (entries.get(entry.key) !== entry) return; entries.delete(entry.key); bytes -= entry.bytes; entry.controller.abort(); };
+  const idle = () => [...entries.values()].find(entry => !entry.refs && entry.ready);
+  const touch = entry => { if (entries.get(entry.key) === entry) { entries.delete(entry.key); entries.set(entry.key, entry); } };
+  return {
+    async acquire(key, load, { signal } = {}) {
+      if (disposed || signal?.aborted) throw new Error('Proxy source lease cancelled');
+      let entry = entries.get(key);
+      if (!entry) {
+        while (entries.size >= maxEntries && idle()) { remove(idle()); evictions++; }
+        if (entries.size >= maxEntries) throw new Error('Proxy source cache busy');
+        entry = { key, refs: 0, bytes: 0, ready: false, controller: new AbortController() };
+        entries.set(key, entry); loads++;
+        const reserve = size => {
+          if (!Number.isSafeInteger(size) || size < 1 || size > maxBytes) throw new Error('Proxy source exceeds shared budget');
+          if (disposed || entries.get(key) !== entry) throw new Error('Proxy source lease cancelled');
+          while (bytes - entry.bytes + size > maxBytes && idle()) { remove(idle()); evictions++; }
+          if (bytes - entry.bytes + size > maxBytes) throw new Error('Proxy source cache busy');
+          bytes += size - entry.bytes; entry.bytes = size; peakBytes = Math.max(peakBytes, bytes);
+        };
+        entry.promise = Promise.resolve().then(() => load(entry.controller.signal, reserve)).then(value => {
+          if (disposed || entries.get(key) !== entry || entry.controller.signal.aborted) throw new Error('Proxy source lease cancelled');
+          entry.ready = true; entry.value = value; return value;
+        }).catch(error => { remove(entry); throw error; });
+        entry.promise.catch(() => {});
+      } else hits++;
+      entry.refs++; touch(entry); let released = false;
+      const release = () => { if (released) return; released = true; entry.refs--; if (!entry.refs && (!entry.ready || disposed)) remove(entry); else touch(entry); };
+      try {
+        const value = await new Promise((resolve, reject) => {
+          const abort = () => { release(); reject(new Error('Proxy source lease cancelled')); };
+          const finish = callback => value => { signal?.removeEventListener('abort', abort); callback(value); };
+          signal?.addEventListener('abort', abort, { once: true });
+          if (signal?.aborted) { abort(); return; }
+          entry.promise.then(finish(resolve), finish(reject));
+        });
+        if (disposed || signal?.aborted) throw new Error('Proxy source lease cancelled');
+        return { value, release };
+      } catch (error) { release(); throw error; }
+    },
+    getDiagnostics: () => ({ bytes, maxBytes, peakBytes, entries: entries.size, maxEntries, hits, loads, evictions,
+      leasedEntries: [...entries.values()].filter(entry => entry.refs > 0).length, leases: [...entries.values()].reduce((n, entry) => n + entry.refs, 0),
+      scope: 'encoded payload bytes, including in-flight reservations; excludes index metadata and decoded frames' }),
+    dispose() { if (disposed) return; disposed = true; for (const entry of [...entries.values()]) {
+      if (entry.ready && entry.refs) entry.controller.abort(); else remove(entry);
+    } },
+  };
+}
+
 // One verified source and at most four decoded/queued frames per history owner.
 // All-intra packets permit bounded look-ahead without changing seek semantics.
-export function createEchoProxyFrameDecoder({ fetchImpl = (...args) => fetch(...args), timeoutMs = 10000, hardwareAcceleration = 'no-preference', lookaheadFrames = 3 } = {}) {
+export function createEchoProxyFrameDecoder({ fetchImpl = (...args) => fetch(...args), timeoutMs = 10000, hardwareAcceleration = 'no-preference', lookaheadFrames = 3, sourceCache = null } = {}) {
   if (!Number.isInteger(lookaheadFrames) || lookaheadFrames < 0 || lookaheadFrames > 3) throw new Error('Invalid proxy look-ahead budget');
-  let disposed = false, decoder = null, bytes = null, index = null, uri = '', config = null, busy = false, generation = 0;
+  let disposed = false, decoder = null, bytes = null, index = null, uri = '', config = null, busy = false, generation = 0, sourceLease = null;
   const slots = new Map(), lifetime = new AbortController();
   const clearDecoder = () => {
     generation++;
@@ -14,13 +67,15 @@ export function createEchoProxyFrameDecoder({ fetchImpl = (...args) => fetch(...
     if (decoder && decoder.state !== 'closed') decoder.close();
     decoder = null;
   };
-  const release = () => { clearDecoder(); bytes = null; index = null; uri = ''; config = null; };
+  const release = () => { clearDecoder(); bytes = null; index = null; uri = ''; config = null; sourceLease?.release(); sourceLease = null; };
   const configure = () => {
     const revision = generation;
     decoder = new VideoDecoder({ output: frame => {
       const slot = revision === generation && !disposed ? slots.get(frame.timestamp) : null;
       if (!slot || slot.frame) { frame.close(); return; }
-      slot.frame = frame; slot.resolve(frame);
+      slot.frame = frame;
+      try { slot.byteSize = frame.allocationSize?.() ?? null; } catch { slot.byteSize = null; }
+      slot.resolve(frame);
     }, error: error => { if (revision === generation) for (const slot of slots.values()) slot.reject(error); } });
     decoder.configure(config);
   };
@@ -41,22 +96,33 @@ export function createEchoProxyFrameDecoder({ fetchImpl = (...args) => fetch(...
     const source = new URL(sourceUri, globalThis.location?.href);
     const key = source.pathname.match(/^\/media\/echo-proxies-v2\/([a-f0-9]{64})\/preview\.mp4$/)?.[1];
     if (!key || typeof globalThis.VideoDecoder !== 'function') throw new Error('direct-decoder-unavailable');
+    const readPayload = async (signal, reserve) => {
     const response = await fetchImpl(new URL(`/api/echos/playback-proxy-frame-index?key=${key}`, source), { signal, cache: 'no-store' });
     if (!response.ok) throw new Error(`direct-index-unavailable-${response.status}`);
     const data = await response.json();
     if (data.schemaVersion !== 'hapa.echo.proxy-frame-index.v1' || data.key !== key || !(data.byteSize > 0 && data.byteSize <= MAX_BYTES) || !/^[a-f0-9]{64}$/.test(data.sha256 || '') || !/^[a-f0-9]+$/i.test(data.description || '') || data.description.length > 2048 || data.description.length % 2 || !Array.isArray(data.packets) || !data.packets.length || data.packets.length > 4096 || ![data.width, data.height].every(n => Number.isInteger(n) && n > 0 && n <= 1280)) throw new Error('direct-index-invalid');
     if (data.packets.some((p, i) => ![p.timestamp, p.duration, p.offset, p.size].every(Number.isSafeInteger) || p.timestamp < 0 || p.duration <= 0 || p.size <= 0 || p.offset < 0 || p.offset + p.size > data.byteSize || (i > 0 && p.timestamp <= data.packets[i - 1].timestamp))) throw new Error('direct-index-packets-invalid');
-    config = { codec: data.codec, description: Uint8Array.from(data.description.match(/../g).map(x => parseInt(x, 16))), codedWidth: data.width, codedHeight: data.height, optimizeForLatency: true, hardwareAcceleration };
-    if (!(await VideoDecoder.isConfigSupported(config)).supported) throw new Error('direct-codec-unsupported');
+    reserve(data.byteSize);
     const media = await fetchImpl(source, { signal });
     if (!media.ok || Number(media.headers.get('Content-Length')) !== data.byteSize) throw new Error('direct-proxy-size-mismatch');
     const buffer = await media.arrayBuffer();
     if (buffer.byteLength !== data.byteSize) throw new Error('direct-proxy-size-mismatch');
     const digest = [...new Uint8Array(await crypto.subtle.digest('SHA-256', buffer))].map(x => x.toString(16).padStart(2, '0')).join('');
     if (digest !== data.sha256) throw new Error('direct-proxy-hash-mismatch');
-    if (disposed || signal.aborted) throw new Error('Proxy frame cancelled');
-    bytes = new Uint8Array(buffer); index = data; uri = sourceUri;
-    configure();
+    if (signal?.aborted) throw new Error('Proxy frame cancelled');
+    return { bytes: new Uint8Array(buffer), index: data };
+    };
+    const lease = sourceCache ? await sourceCache.acquire(source.href, readPayload, { signal })
+      : { value: await readPayload(signal, () => {}), release() {} };
+    sourceLease = lease;
+    if (disposed || signal.aborted) { release(); throw new Error('Proxy frame cancelled'); }
+    bytes = lease.value.bytes; index = lease.value.index; uri = sourceUri;
+    config = { codec: index.codec, description: Uint8Array.from(index.description.match(/../g).map(x => parseInt(x, 16))), codedWidth: index.width, codedHeight: index.height, optimizeForLatency: true, hardwareAcceleration };
+    try {
+      if (!(await VideoDecoder.isConfigSupported(config)).supported) throw new Error('direct-codec-unsupported');
+      if (disposed || signal.aborted) throw new Error('Proxy frame cancelled');
+      configure();
+    } catch (error) { release(); throw error; }
   };
   return {
     async at(cue, songTime, { fps = 30, signal, sourceUri = cue.media.uri } = {}) {
@@ -91,7 +157,9 @@ export function createEchoProxyFrameDecoder({ fetchImpl = (...args) => fetch(...
       return { element: frame, receipt: { route: 'decoded-proxy-frame', presentationEvidence: 'webcodecs-decoded-output', sourceTimeSeconds: time, observedTimeSeconds: packet.timestamp / 1e6, sourceOriginSeconds: index.startSeconds, sourceOriginClamped: time < index.startSeconds, songTimeSeconds: songTime, width: index.width, height: index.height, uri: sourceUri, sourceHash: index.sha256, retainedEncodedBytes: bytes.byteLength, retainedFrames: [...slots.values()].filter(slot => slot.frame).length, queuedFrames: [...slots.values()].filter(slot => !slot.frame).length, maxFrames: lookaheadFrames + 1 } };
       } finally { busy = false; }
     },
-    getDiagnostics: () => ({ encodedBytes: bytes?.byteLength || 0,
+    getDiagnostics: () => ({ encodedBytes: bytes?.byteLength || 0, sharedEncodedSource: Boolean(sourceCache),
+      decodedFrameBytes: [...slots.values()].reduce((sum, slot) => sum + (slot.frame ? slot.byteSize || 0 : 0), 0),
+      framesWithUnknownBytes: [...slots.values()].filter(slot => slot.frame && slot.byteSize == null).length,
       retainedFrames: [...slots.values()].filter(slot => slot.frame).length,
       queuedFrames: [...slots.values()].filter(slot => !slot.frame).length, maxFrames: lookaheadFrames + 1 }),
     reset: release,

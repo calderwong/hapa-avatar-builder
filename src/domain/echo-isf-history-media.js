@@ -4,11 +4,11 @@ import { createEchoProxyFrameDecoder } from './echo-proxy-frame-decoder.js';
 
 // Detached, silent source frames for one ISF surface. Never borrows the operator's
 // video/audio elements. At most one video decoder and one still are retained.
-export function createEchoIsfHistoryMedia({ createElement = tag => document.createElement(tag), resolveUri = uri => uri, timeoutMs = 10000, waitForPresentation = false, directProxyFrames = true, directHardwareAcceleration = 'no-preference' } = {}) {
+export function createEchoIsfHistoryMedia({ createElement = tag => document.createElement(tag), resolveUri = uri => uri, timeoutMs = 10000, waitForPresentation = false, directProxyFrames = true, directHardwareAcceleration = 'no-preference', sourceCache = null } = {}) {
   let video = null, image = null, currentVideoUri = '', currentImageUri = '', sourceOriginSeconds = 0, disposed = false;
   const lifetime = new AbortController();
   const emptyMedia = createEchoEmptyShaderMedia({ createCanvas: () => createElement('canvas') });
-  const direct = createEchoProxyFrameDecoder({ timeoutMs, hardwareAcceleration: directHardwareAcceleration });
+  const direct = createEchoProxyFrameDecoder({ timeoutMs, hardwareAcceleration: directHardwareAcceleration, sourceCache });
   const unsupported = new Map();
   const load = (element, uri, signal, kind) => new Promise((resolve, reject) => {
     const event = kind === 'video' ? 'loadeddata' : 'load';
@@ -39,7 +39,7 @@ export function createEchoIsfHistoryMedia({ createElement = tag => document.crea
         } catch (error) {
           direct.reset();
           if (disposed || signal?.aborted) throw error;
-          unsupported.set(uri, String(error.message));
+          if (!/Proxy source cache busy/.test(String(error.message))) unsupported.set(uri, String(error.message));
           while (unsupported.size > 32) unsupported.delete(unsupported.keys().next().value);
         }
       }
