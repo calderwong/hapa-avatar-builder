@@ -8,7 +8,7 @@ import { visualTimeFor, echoPreparedPerformanceSignalFrames, evaluateEchoMusicPe
 import { prepareDirectorModulationTimeline } from "../domain/director-modulation-v2.js";
 import EchoPerformancePreparationControl from "./EchoPerformancePreparationControl.jsx";
 import EchoPreviewPreparationControl from "./EchoPreviewPreparationControl.jsx";
-import { applyEchoPreviewProjection, echoPreviewHistoryMediaCue } from "../domain/echo-preview-projection.js";
+import { applyEchoPreviewProjection, echoPreviewHistoryMediaCue, ECHO_PREVIEW_QUALITY_PRESETS, normalizeEchoPreviewQuality, echoPreviewShaderSize, echoPreviewShaderLayers } from "../domain/echo-preview-projection.js";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { createEchoPanelLoader } from "../domain/echo-panel-loader.js";
@@ -931,7 +931,7 @@ function PersistentEchoABPlayers({ shot, lookaheadShots = [], playing, songTime,
   );
 }
 
-export function PresentedEchoImage({ shot, style, cameraCrop, onPresentedMediaChange }) {
+export function PresentedEchoImage({ shot, style, cameraCrop, onPresentedMediaChange, maximumDimension = 1280 }) {
   const imageRef = useRef(null);
   const framingInputs = useRef({ style, cameraCrop });
   framingInputs.current = { style, cameraCrop };
@@ -947,13 +947,16 @@ export function PresentedEchoImage({ shot, style, cameraCrop, onPresentedMediaCh
     if (!imageGeometry || !parent?.clientWidth || !parent?.clientHeight) return;
     let next;
     try {
+      const requestedWidth = parent.clientWidth * Math.min(2, window.devicePixelRatio || 1);
+      const requestedHeight = parent.clientHeight * Math.min(2, window.devicePixelRatio || 1);
+      const decodeScale = Math.min(1, maximumDimension / Math.max(requestedWidth, requestedHeight));
       const choice = selectImageShotRendition({ geometry: createImageShotGeometry(imageGeometry),
-        renditions: imageRenditions || [], outputProfile: { width: Math.ceil(parent.clientWidth * Math.min(2, window.devicePixelRatio || 1)), height: Math.ceil(parent.clientHeight * Math.min(2, window.devicePixelRatio || 1)) },
+        renditions: imageRenditions || [], outputProfile: { width: Math.ceil(requestedWidth * decodeScale), height: Math.ceil(requestedHeight * decodeScale) },
         crop: { width: cropWidth, height: cropHeight }, fit: cropFit });
       next = { sourceHash: imageGeometry.original?.sha256, uri: choice.selected?.uri || null, status: choice.status, insufficientResolution: choice.insufficientResolution };
     } catch { next = { uri: null, status: "invalid-image-preparation" }; }
     setPreviewChoice(previous => JSON.stringify(previous) === JSON.stringify(next) ? previous : next);
-  }, [imageGeometry, imageRenditions, cropWidth, cropHeight, cropFit]);
+  }, [imageGeometry, imageRenditions, cropWidth, cropHeight, cropFit, maximumDimension]);
   const uri = imageGeometry ? (previewChoice?.sourceHash === imageGeometry.original?.sha256 && previewChoice?.uri ? resolveMediaUri(previewChoice.uri) : null) : resolveMediaUri(shotRuntimeUri(shot));
   const sourceKey = `${mediaId}:${uri}`;
   useLayoutEffect(() => { choosePreview(); }, [choosePreview]);
@@ -1354,6 +1357,7 @@ function compactEchoIsfPlaybackDiagnostics(diagnostics = {}, presentation = {}, 
   const slots = Array.isArray(diagnostics.slots)
     ? diagnostics.slots.map((slot = {}) => ({
       shaderId: String(slot.shaderId || slot.sourceId || ""),
+      width: Number(slot.width || 0), height: Number(slot.height || 0),
       status: String(slot.status || (slot.ready ? "ready" : "idle")),
       ready: slot.ready === true || slot.status === "ready",
     })).slice(0, 3)
@@ -1390,6 +1394,11 @@ function compactEchoIsfPlaybackDiagnostics(diagnostics = {}, presentation = {}, 
     contextCount: Number(diagnostics.contextCount || diagnostics.contexts || 0),
     programCount: Number(diagnostics.programCount || diagnostics.programs || 0),
     historyCheckpointBytes: Number(diagnostics.historyCheckpointBytes || 0),
+    historyCheckpointBudget: diagnostics.historyCheckpointBudget || null,
+    historyMedia: diagnostics.historyMedia || null,
+    historyLookaheadBytes: diagnostics.historyLookaheadBytes || 0,
+    compileTimeMs: diagnostics.compileTimeMs || [],
+    preparationTimeMs: diagnostics.preparationTimeMs || [],
     historyPresentationTiming: diagnostics.historyPresentationTiming || [],
     historyJobsPreparing: Number(diagnostics.historyJobsPreparing || 0),
     sourceCache,
@@ -1684,6 +1693,12 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
   const [echoPlaybackSnapshot, setEchoPlaybackSnapshot] = useState(null);
   const [previewBufferState, setPreviewBufferState] = useState({ status: "idle", ready: false, readyLookahead: 0, targetLookahead: 0 });
   const [previewProjection, setPreviewProjection] = useState(null);
+  const [previewQuality, setPreviewQuality] = useState(() => normalizeEchoPreviewQuality());
+  const [previewQualityPreset, setPreviewQualityPreset] = useState("full");
+  const setPreviewQualityControl = (key, value) => {
+    setPreviewQualityPreset("custom");
+    setPreviewQuality(current => normalizeEchoPreviewQuality({ ...current, [key]: Number(value) }));
+  };
   const previewTimelineRef = useRef([]);
   const directorPreviewFullscreenRef = useRef(null);
   const directorPreviewFullscreenActiveRef = useRef(false);
@@ -2009,8 +2024,8 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
       : { ...normalizedProject, hyperframe_script: generateEchoHyperframeScript(normalizedProject), hyperframe_script_stale: false };
   }, [activeDirectionVariant, activeStoredProject, directionWorkingForkActive, workingDirectionFork]);
   const previewTimeline = useMemo(() => applyEchoPreviewProjection(activeProject?.timeline || [], previewProjection,
-    { songId: selectedProjectSongId, variantId: activeDirectionVariantSelection }),
-  [activeProject?.timeline, previewProjection, selectedProjectSongId, activeDirectionVariantSelection]);
+    { songId: selectedProjectSongId, variantId: activeDirectionVariantSelection, maximumDimension: previewQuality.mediaDimension }),
+  [activeProject?.timeline, previewProjection, selectedProjectSongId, activeDirectionVariantSelection, previewQuality.mediaDimension]);
   previewTimelineRef.current = previewTimeline;
   const activeOutputProfile = resolveEchoOutputProfile(activeProject);
   const activeLyricContract = normalizeEchoLyricContract(activeProject);
@@ -3253,10 +3268,10 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
     const createExactPlaybackPool = (canvas) => {
       try {
         return createEchoIsfPlaybackPool({
-          width: canvas.width,
-          height: canvas.height,
+          ...echoPreviewShaderSize(canvas.width, canvas.height, previewQuality),
           apiBase: API_BASE,
           maxSurfaces: 6,
+          historyCheckpointMaxBytes: 128 * 1024 * 1024,
         });
       } catch (error) {
         publishExactStatus({ status: "error", sourceId: "", error: String(error?.message || error) });
@@ -3266,7 +3281,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
 
     const ensureExactPlaybackPool = (canvas, showGraph) => {
       const nextIdentity = echoIsfGraphRuntimeIdentity(showGraph);
-      const nextSizeKey = `${canvas.width}x${canvas.height}`;
+      const nextSizeKey = `${canvas.width}x${canvas.height}:${previewQuality.shaderScale}`;
       const previousIdentity = exactIsfPlaybackPoolIdentityRef.current;
       let pool = exactIsfPlaybackPoolRef.current;
       if (!pool) {
@@ -3342,6 +3357,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
       }
       const width = canvas.width;
       const height = canvas.height;
+      const shaderSize = echoPreviewShaderSize(width, height, previewQuality);
       ctx.clearRect(0, 0, width, height);
       
       currentTimeRef.current = t;
@@ -3641,7 +3657,12 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
               : null;
             const emptyMediaFrame = emptyIsfMedia.at(directorPreviewFrame ? Boolean(directorPreviewFrame.primaryMediaCue) : undefined);
             const graphIdentity = echoIsfGraphRuntimeIdentity(directorShowGraph);
-            const layeredCards = directorPreviewFrame ? graphActiveVisualizerCards : graphActiveVisualizerCards.length ? graphActiveVisualizerCards : [graphVisualizerCard];
+            const sourceLayeredCards = directorPreviewFrame ? graphActiveVisualizerCards : graphActiveVisualizerCards.length ? graphActiveVisualizerCards : [graphVisualizerCard];
+            const selectedLayers = echoPreviewShaderLayers(sourceLayeredCards, previewQuality);
+            const layeredCards = selectedLayers.admitted;
+            pool.beginFrame(layeredCards);
+            canvas.dataset.echoPreviewQuality = JSON.stringify({ ...previewQuality, shaderWidth: shaderSize.width, shaderHeight: shaderSize.height,
+              compositorWidth: width, compositorHeight: height, admitted: layeredCards.map(card => card.id), omitted: selectedLayers.omitted.map(card => card.id), finalExport: 'unchanged' });
             const visualTimeAt = (card, songTime) => visualTimeFor(
               { automation: directorShowGraph.directorV2 || {} },
               { id: card.id, trackId: card.trackId, visualizerId: exactVisualizerSourceId(card) }, songTime,
@@ -3654,6 +3675,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
               const timeline = [...previewTimelineRef.current];
               return {
                 dispose: () => decoder.dispose(),
+                getDiagnostics: () => decoder.getDiagnostics(),
                 at: async (songTime, { signal, requiresMedia } = {}) => {
                   const phaseStart = performance.now();
                   const projected = requiresMedia ? projectEchoDirectorPreviewMediaFrame({ source: activeDirectorPreviewSource, timeSeconds: songTime, fps: activeOutputProfile.fps }) : null;
@@ -3713,8 +3735,8 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                 } : null,
                 composition: compositionInput,
                 cacheKey: graphIdentity.variantKey,
-                width,
-                height,
+                width: shaderSize.width,
+                height: shaderSize.height,
               }) || {};
               const requestedShaderId = String(presentation.requestedShaderId || presentation.shaderId || exactVisualizerSourceId(card));
               const presentedShaderId = String(presentation.presentedShaderId || "");
@@ -3741,7 +3763,9 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
               };
             });
             const activeCardIds = new Set(layeredCards.map((card) => card.id));
-            const prewarmCards = graphVisualizerCards.filter((card) => !activeCardIds.has(card.id));
+            const prewarmCards = graphVisualizerCards.filter((card) => !activeCardIds.has(card.id)
+              && Number(card.startSeconds) > t && Number(card.startSeconds) <= t + 3)
+              .sort((left, right) => Number(left.startSeconds) - Number(right.startSeconds)).slice(0, 2);
             const prewarmSignature = `${graphIdentity.variantKey}:${prewarmCards.map((card) => `${exactVisualizerSourceId(card)}:${card?.visualization?.card?.source?.hash || ""}`).join("|")}`;
             if (prewarmSignature !== exactIsfPrewarmSignatureRef.current) {
               exactIsfPrewarmSignatureRef.current = prewarmSignature;
@@ -4279,7 +4303,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
       exactIsfLastPresentedCanvasRef.current = null;
       exactIsfPrewarmSignatureRef.current = "";
     };
-  }, [activeDirectorPreviewSource, previewTimeline, activeShowGraphVisualizerCardsById, activeWorkbenchTab, activeProject, powerMode, audioVisualMode, activeRecordedSignalReplay, activePreparedPerformance, preparedModulationResult, diagnosticPreparedModulation, activeVisualSignalSolo, visualSignalIsolation]);
+  }, [activeDirectorPreviewSource, previewTimeline, previewQuality, activeShowGraphVisualizerCardsById, activeWorkbenchTab, activeProject, powerMode, audioVisualMode, activeRecordedSignalReplay, activePreparedPerformance, preparedModulationResult, diagnosticPreparedModulation, activeVisualSignalSolo, visualSignalIsolation]);
 
   const uniqueTags = useMemo(() => {
     if (!gapsReport?.videos) return [];
@@ -7197,7 +7221,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                                     />
                                   )}
                                   {currentTimelineItem && shotMediaType(currentTimelineItem) === "image" && (
-                                    <PresentedEchoImage
+                                    <PresentedEchoImage maximumDimension={previewQuality.mediaDimension}
                                       key={`${currentTimelineItem.media_id}-${currentTimelineItem.start_sec}`}
                                       shot={currentTimelineItem}
                                       cameraCrop={activeCameraKeyframe?.crop}
@@ -7288,6 +7312,22 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                                     <span data-testid="echo-visual-signal-summary">{activeVisualSignalSolo === "__silence__" ? "All audio influence muted." : activeVisualSignalSolo ? `Only ${activeVisualSignalSolo.replaceAll("-", " ")} drives audio-reactive channels.` : "All prepared buses drive their assigned channels."}</span>
                                   </details>
                                 </div>
+                                <fieldset data-testid="echo-preview-quality" disabled={previewRecordingActiveRef.current || previewRecordingStartingRef.current}
+                                  style={{ margin: '8px 0', padding: '8px 12px', border: '1px solid rgba(255,255,255,.18)', borderRadius: 6, minWidth: 0, fontSize: 13 }}>
+                                  <legend>Preview quality</legend>
+                                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'center' }}>
+                                    <label>Preset <select aria-label="Preview quality preset" value={previewQualityPreset} onChange={event => {
+                                      const preset = event.target.value;
+                                      if (!ECHO_PREVIEW_QUALITY_PRESETS[preset]) return;
+                                      setPreviewQualityPreset(preset); setPreviewQuality({ ...ECHO_PREVIEW_QUALITY_PRESETS[preset] });
+                                    }}><option value="full">Full detail</option><option value="balanced">Balanced</option><option value="responsive">Responsive</option>{previewQualityPreset === 'custom' && <option value="custom">Custom</option>}</select></label>
+                                    <label>Shader resolution <select aria-label="Preview shader resolution" value={previewQuality.shaderScale} onChange={event => setPreviewQualityControl('shaderScale', event.target.value)}><option value="1">100%</option><option value="0.75">75%</option><option value="0.5">50%</option></select></label>
+                                    <label>Shader layers <select aria-label="Preview shader layers" value={previewQuality.layerLimit} onChange={event => setPreviewQualityControl('layerLimit', event.target.value)}><option value="0">All scheduled</option><option value="4">Up to 4</option><option value="2">Up to 2</option></select></label>
+                                    <label>Prepared media size <select aria-label="Preview media size" value={previewQuality.mediaDimension} onChange={event => setPreviewQualityControl('mediaDimension', event.target.value)}><option value="1280">1280 px</option><option value="960">960 px</option><option value="640">640 px</option></select></label>
+                                  </div>
+                                  <p style={{ margin: '6px 0 0', color: '#cbd5e1' }}>Lyrics stay crisp. Final export uses the saved cut and original media. Quick recordings use the current preview appearance.</p>
+                                  <p style={{ margin: '4px 0 0', color: '#94a3b8' }}>Lower layer limits show the first scheduled layers. Use Prepare selected-cut preview to apply a new video size; still images choose available renditions at the selected size; originals remain in use until ready. Changing shader resolution rebuilds effect history.</p>
+                                </fieldset>
                                 {/* Player Controls */}
                                 <div data-testid="echo-director-preview-controls" style={{ display: 'flex', gap: '12px', rowGap: '8px', alignItems: 'center', alignSelf: directorPreviewExpanded ? 'center' : 'stretch', width: directorPreviewExpanded ? directorPreviewWidth : 'auto', maxWidth: '100%', flexWrap: 'wrap', flexShrink: 0, boxSizing: 'border-box', background: 'rgba(0,0,0,0.2)', padding: '8px 12px', borderRadius: '4px', border: '1px solid rgba(255,255,255,0.06)' }}>
                                   <button 
@@ -7416,6 +7456,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                                     key={`${selectedProjectSongId}:${activeDirectionVariantSelection}`}
                                     apiBase={API_BASE} songId={selectedProjectSongId}
                                     variantId={activeDirectionVariantSelection} pendingCount={pendingPreviewProxyCount}
+                                    maximumDimension={previewQuality.mediaDimension}
                                     onProjection={setPreviewProjection}
                                   />
                                   

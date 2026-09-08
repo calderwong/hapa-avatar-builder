@@ -751,3 +751,9 @@ A1 remains unaccepted and the board stays6 done/12 in progress. The next unresol
 ## September8 UTC — bounded proxy decoding / held progress
 
 Six done/twelve in progress remain. Existing history preparation now uses a verified all-intra packet index and at most four decoded/queued frames; native direct/reverse pixels and held replay progress pass.82 affected tests, delivery build/certificate and55protected/12authoring integrity receipts support this checkpoint. Prepared editor near-end replay remains89.9s;18.44s resumed segment has32.0ms p95 shader/playhead lag and zero samples over one frame. The actual editor run failed the stale-progress assertion, subsequently corrected and verified in the native fixture; do not claim an all-green end-to-end run. No physical/composite/global-resource or human acceptance. Next: complete independent preview quality controls and global resource limits. See [postmortem](postmortems/2026-09-08-echo-direct-proxy-decoding.md).
+
+## September 8 — configurable preview quality and shared resources
+
+Independent preview quality controls and a shared 128 MiB shader-history budget are implemented and verified in bounded native/editor checks. Full-song resources, whole-composite timing and integrated stem acceptance remain open. Six requirements done, twelve in progress; A1 has no accepted requirements.
+
+Presets and independent shader/layer/media controls, distinct derivative cache keys, active-layer protection and pool-wide checkpoint eviction use existing owners. Actual editor dimensions, unchanged visible lyric geometry, transport continuity and painted responsive controls pass; final build/certificate, affected tests and 55/12 source integrity checks pass. Reuse scoped native evidence; full-song resource and whole-composite timing acceptance remain open. No broad suite repeated. See [operator guide](ECHO_PREVIEW_QUALITY.md) and [postmortem](postmortems/2026-09-08-echo-preview-quality-budget.md).

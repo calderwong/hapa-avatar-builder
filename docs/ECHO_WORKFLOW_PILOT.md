@@ -33,7 +33,7 @@ At each meaningful update, keep JSON and Markdown in agreement, append the corre
 
 ## Next action
 
-Bounded direct proxy decoding and held-frame progress are verified; real-editor prepared playback from240s to258.439979s records32.0ms p95 shader/playhead lag, excluding physical/composite output. Near-end reconstruction still takes89.9s. Complete independent preview quality controls and global shader/decoder/compositor budgets, then remaining integrated timing/stem acceptance. A1 remains unaccepted; six done/twelve in progress. See the latest [decoder/progress postmortem](postmortems/2026-09-08-echo-direct-proxy-decoding.md) for failed runs and exact scope.
+Independent preview quality controls and the shared 128 MiB shader checkpoint budget now pass bounded native and actual editor checks. Finish same-cut 3/5/9 resource comparisons, a full-song resource run, remaining decoder/compositor budgets and integrated timing/stem acceptance. Cold near-end persistent reconstruction remains costly. A1 remains unaccepted; six done/twelve in progress. See [preview quality](ECHO_PREVIEW_QUALITY.md) and the [quality/resource postmortem](postmortems/2026-09-08-echo-preview-quality-budget.md).
 
 ## Conviction relationship — 2026-09-06
 
@@ -144,3 +144,9 @@ Audio regression correction: the two affected files pass36/36; combined with unc
 ## A1 direct proxy decoding and held progress — September 8 UTC
 
 Verified a maximum four-frame decode queue, exact native seek/playback pixels and active progress while holding prior pixels.82 affected tests pass;55 protected/12 authoring hashes are unchanged. Actual prepared Dear Papa near-end reconstruction7735frames took89.880s; reverse257.5s85.7ms; resume240s to258.439979s retained900timing samples,p95=32.000ms,max33.333ms,zero over one frame. This is shader/playhead evidence, not physical/composite/full-song acceptance. The actual editor run failed its stale held-progress assertion; that repair passed a shorter native fixture afterward. The initial unprepared-originals run and ineffective paused throttle remain preserved failures. No broad suite repeated, no requirements closed and no accepted pilot batch. Full details and reuse boundaries: [postmortem](postmortems/2026-09-08-echo-direct-proxy-decoding.md).
+
+## A1 preview quality and shared resources — September 8 continuation
+
+Independent preview quality controls and a shared 128 MiB shader-history budget are implemented and verified in bounded native/editor checks. Full-song resources, whole-composite timing and integrated stem acceptance remain open. Six requirements done, twelve in progress; A1 has no accepted requirements.
+
+Actual editor controls scale real shader surfaces, bound admitted layers, preserve transport and leave visible lyric geometry intact. Size-specific derivative keys and warm reuse pass existing-owner tests. Native checkpoint eviction preserves exact pixels. All 55 protected and 12 authoring hashes remain unchanged. Final build/certificate and affected checks pass; no broad suite rerun. Original harness failures and stale screenshots are retained; the corrected painted/layout proof passes. Compilation and preparation timings are separate. See the [quality/resource postmortem](postmortems/2026-09-08-echo-preview-quality-budget.md) for evidence boundaries and next actions.

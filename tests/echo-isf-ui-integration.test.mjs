@@ -20,8 +20,9 @@ test("Echo resolves graph-backed shader layers through a bounded lookahead playb
   assert.match(echoSource, /activeProject\?\.director_show_graph/);
   assert.match(echoSource, /visualizerLookaheadCards\(directorShowGraph, t, 6\)/);
   assert.match(echoSource, /visualization\?\.sourceId/);
-  assert.match(echoSource, /width: canvas\.width/);
-  assert.match(echoSource, /height: canvas\.height/);
+  assert.match(echoSource, /echoPreviewShaderSize\(canvas\.width, canvas\.height, previewQuality\)/);
+  assert.match(echoSource, /width: shaderSize\.width/);
+  assert.match(echoSource, /height: shaderSize\.height/);
   assert.match(echoSource, /const audioEnvelope = echoVisualizerAudioEnvelope\(layerSignalFrame \|\| masterSignalFrame\)/);
   assert.match(echoSource, /ctx\.drawImage\(presentation\.canvas, -width \/ 2, -height \/ 2, width, height\)/);
   assert.match(echoSource, /exactIsfPlaybackPoolRef\.current\?\.dispose\?\.\(\)/);
@@ -47,7 +48,7 @@ test("Echo resolves graph-backed shader layers through a bounded lookahead playb
 
   const exactBranch = between(echoSource, "if (hasDirectorShowGraph) {", "} else {\n      const legacyRenderer = legacyEchoRendererTruth");
   assert.match(exactBranch, /pool\.present\(card/);
-  assert.match(exactBranch, /const layeredCards = graphActiveVisualizerCards/);
+  assert.match(exactBranch, /const sourceLayeredCards = /);
   assert.doesNotMatch(exactBranch, /getRenderer\(|spectrum-nebula|visualizerTitle/);
 });
 
@@ -57,7 +58,7 @@ test("Echo prewarms lookahead and invalidates only graph identity changes", () =
   assert.match(poolPath, /previousIdentity\.variantKey !== nextIdentity\.variantKey/);
   assert.match(poolPath, /previousIdentity\.dirtyKey !== nextIdentity\.dirtyKey/);
   assert.match(echoSource, /pool\.prewarm\(/);
-  assert.match(echoSource, /graphVisualizerCards\.filter\(\(card\) => !activeCardIds\.has\(card\.id\)\)/);
+  assert.match(echoSource, /graphVisualizerCards\.filter\(\(card\) => !activeCardIds\.has\(card\.id\)/);
   assert.match(echoSource, /layerPresentations\.filter/);
   assert.match(echoSource, /heldPreviousFrame/);
   assert.match(echoSource, /data-testid="echo-director-preview-diagnostics"/);

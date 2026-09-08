@@ -3276,10 +3276,12 @@ async function route(req, res) {
       const echoPreviewPreparation = await getEchoPreviewPreparation();
       const songId = url.searchParams.get("songId") || "";
       const variantId = url.searchParams.get("variantId") || "legacy";
+      const maximumDimension = Number(url.searchParams.get("maximumDimension") || 1280);
+      if (![640, 960, 1280].includes(maximumDimension)) throw Object.assign(new Error("Unsupported preview dimension"), { statusCode: 422 });
       const jobId = url.searchParams.get("jobId");
-      const job = req.method === "POST" ? await echoPreviewPreparation.start({ songId, variantId })
+      const job = req.method === "POST" ? await echoPreviewPreparation.start({ songId, variantId, maximumDimension })
         : req.method === "DELETE" ? await echoPreviewPreparation.cancel(jobId)
-          : jobId ? await echoPreviewPreparation.get(jobId) : await echoPreviewPreparation.latest(songId, variantId);
+          : jobId ? await echoPreviewPreparation.get(jobId) : await echoPreviewPreparation.latest(songId, variantId, maximumDimension);
       sendJson(res, job ? req.method === "POST" ? 202 : 200 : jobId ? 404 : 200,
         job || (jobId ? { error: "preview_job_not_found", message: "This preview job is no longer retained. Retry preparation." } : { songId, variantId, status: "idle" }));
     } catch (error) {

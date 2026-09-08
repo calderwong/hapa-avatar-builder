@@ -10,8 +10,8 @@ export function echoPreviewShotKey(shot = {}) {
     contract.sourceOutSeconds ?? contract.source_out_seconds ?? null,
     contract.timeMapping || contract.time_mapping || null]);
 }
-export function applyEchoPreviewProjection(timeline = [], receipt, { songId, variantId = 'legacy' } = {}) {
-  if (receipt?.songId !== songId || receipt?.variantId !== variantId || !Array.isArray(receipt?.items)) return timeline;
+export function applyEchoPreviewProjection(timeline = [], receipt, { songId, variantId = 'legacy', maximumDimension = 1280 } = {}) {
+  if ((receipt?.maximumDimension || 1280) !== maximumDimension || receipt?.songId !== songId || receipt?.variantId !== variantId || !Array.isArray(receipt?.items)) return timeline;
   const ready = new Map(receipt.items.filter(row => row.status === 'ready'
     && /^[a-f0-9]{64}$/.test(row.proxy?.sha256 || '')
     && /^\/media\/echo-proxies-v2\/[a-f0-9]{64}\/preview\.mp4$/.test(row.proxy?.uri || '')).map(row => [row.shotKey, row.proxy]));
@@ -39,4 +39,24 @@ export function echoPreviewHistoryMediaCue(cue, sourceShot, previewShot) {
   return { ...cue, media: { ...cue.media, uri: proxy.uri, sourceHash: proxy.sha256,
     originalUri: cue.media.uri, originalSourceHash: cue.media.sourceHash || null,
     fidelity: 'sampled-H264-preview; originals retained for export' } };
+}
+
+
+export const ECHO_PREVIEW_QUALITY_PRESETS = Object.freeze({
+  full: Object.freeze({ shaderScale: 1, layerLimit: 0, mediaDimension: 1280 }),
+  balanced: Object.freeze({ shaderScale: .75, layerLimit: 4, mediaDimension: 960 }),
+  responsive: Object.freeze({ shaderScale: .5, layerLimit: 2, mediaDimension: 640 }),
+});
+export function normalizeEchoPreviewQuality(value = {}) {
+  return { shaderScale: [1, .75, .5].includes(Number(value.shaderScale)) ? Number(value.shaderScale) : 1,
+    layerLimit: [0, 2, 4].includes(Number(value.layerLimit)) ? Number(value.layerLimit) : 0,
+    mediaDimension: [640, 960, 1280].includes(Number(value.mediaDimension)) ? Number(value.mediaDimension) : 1280 };
+}
+export function echoPreviewShaderSize(width, height, quality) {
+  const scale = normalizeEchoPreviewQuality(quality).shaderScale;
+  return { width: Math.max(1, Math.round(width * scale)), height: Math.max(1, Math.round(height * scale)) };
+}
+export function echoPreviewShaderLayers(cards = [], quality) {
+  const limit = normalizeEchoPreviewQuality(quality).layerLimit;
+  return { admitted: limit ? cards.slice(0, limit) : cards, omitted: limit ? cards.slice(limit) : [] };
 }

@@ -83,7 +83,8 @@ export function prepareEchoPlaybackProxy(options) {
   pending.set(key, work);
   return work;
 }
-async function prepare({ sourcePath, proxyRoot, uriRoot = '/media/echo-proxies-v2', maximumDurationSeconds = null, seekOptimized = false, signal } = {}) {
+async function prepare({ sourcePath, proxyRoot, uriRoot = '/media/echo-proxies-v2', maximumDurationSeconds = null, seekOptimized = false, maximumDimension = 1280, signal } = {}) {
+  if (![640, 960, 1280].includes(maximumDimension)) throw new Error('proxy-dimension-unsupported');
   if (typeof uriRoot !== 'string' || !uriRoot.startsWith('/media/') || uriRoot.includes('..')) throw new Error('proxy-local-media-uri-required');
   const source = await fs.realpath(sourcePath), root = path.resolve(proxyRoot);
   const before = await fs.stat(source);
@@ -103,7 +104,7 @@ async function prepare({ sourcePath, proxyRoot, uriRoot = '/media/echo-proxies-v
   if (!(requested > 0 && requested <= 1800)) throw new Error('proxy-duration-budget');
   const duration = Math.min(original.durationSeconds, requested);
   const decoder = (await command('ffmpeg', ['-version'], { signal, timeoutMs: 10000 })).split('\n')[0];
-  const settings = { fps: 30, maximumDimension: 1280, codec: 'libx264', preset: 'veryfast', crf: 27, maximumBitrate: '1500k', bufferSize: '3000k', gop: 30, pixelFormat: 'yuv420p', sourceOrigin: 'preserved-zero', durationSeconds: duration };
+  const settings = { fps: 30, maximumDimension, codec: 'libx264', preset: 'veryfast', crf: 27, maximumBitrate: '1500k', bufferSize: '3000k', gop: 30, pixelFormat: 'yuv420p', sourceOrigin: 'preserved-zero', durationSeconds: duration };
   if (seekOptimized) Object.assign(settings, { gop: 1, bFrames: 0, maximumBitrate: '8000k', bufferSize: '16000k', seekOptimized: true });
   if (original.startSeconds > .001) Object.assign(settings, { sourceOrigin: 'preserved-positive', sourceOriginSeconds: original.startSeconds, copyTimestamps: true });
   const key = hash({ version: VERSION, sourceHash: identity.sha256, settings, decoder });
@@ -138,10 +139,10 @@ async function prepare({ sourcePath, proxyRoot, uriRoot = '/media/echo-proxies-v
   try {
     const file = path.join(temporary, 'preview.mp4');
     await command('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-nostdin', ...(settings.copyTimestamps ? ['-copyts'] : []), '-i', source, '-t', duration.toFixed(6), '-map', '0:v:0', '-an',
-      '-vf', "scale='min(1280,iw)':'min(1280,ih)':force_original_aspect_ratio=decrease:force_divisible_by=2:out_range=tv,format=yuv420p", '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '27',
+      '-vf', "scale='min(" + maximumDimension + ",iw)':'min(" + maximumDimension + ",ih)':force_original_aspect_ratio=decrease:force_divisible_by=2:out_range=tv,format=yuv420p", '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '27',
       '-maxrate', settings.maximumBitrate, '-bufsize', settings.bufferSize, '-pix_fmt', 'yuv420p', '-r', '30', '-g', String(settings.gop), '-keyint_min', String(settings.gop), ...(seekOptimized ? ['-bf', '0'] : []), '-sc_threshold', '0', '-movflags', '+faststart', '-threads', '2', file], { signal, timeoutMs: 600000 });
     const media = await probe(file, { signal });
-    if (media.codec !== 'h264' || media.pixelFormat !== 'yuv420p' || media.durationSeconds < duration - .08 || Math.max(media.width, media.height) > 1280) throw new Error('proxy-encode-verification-failed');
+    if (media.codec !== 'h264' || media.pixelFormat !== 'yuv420p' || media.durationSeconds < duration - .08 || Math.max(media.width, media.height) > maximumDimension) throw new Error('proxy-encode-verification-failed');
     if (Math.abs(media.startSeconds - original.startSeconds) > .001) throw new Error('proxy-encode-source-origin-shift');
     const bytes = await inspector.inspect(file);
     await ensureSourceUnchanged();
@@ -150,7 +151,7 @@ async function prepare({ sourcePath, proxyRoot, uriRoot = '/media/echo-proxies-v
     if (!bytes.sha256) throw new Error('proxy-output-hash-unavailable');
     const manifest = { schemaVersion: VERSION, key, status: 'ready', sourcePath: source, sourceHash: identity.sha256, sourceDurationSeconds: original.durationSeconds,
       ...media, sha256: bytes.sha256, byteSize: bytes.bytes, uri: `${uriRoot}/${key}/preview.mp4`, settings, decoder,
-      fidelity: 'sampled-H264-preview; originals retained for export', fastStart: true, maxDimension: 1280, maxBitRate: seekOptimized ? 8000000 : 1500000, gopSeconds: settings.gop / settings.fps, fingerprint: key, mimeType: 'video/mp4' };
+      fidelity: 'sampled-H264-preview; originals retained for export', fastStart: true, maxDimension: maximumDimension, maxBitRate: seekOptimized ? 8000000 : 1500000, gopSeconds: settings.gop / settings.fps, fingerprint: key, mimeType: 'video/mp4' };
     await fs.writeFile(path.join(temporary, 'manifest.json'), JSON.stringify(manifest, null, 2) + '\n', { flag: 'wx' });
     await fs.rename(temporary, directory);
     return { ...manifest, sourceStamp, path: path.join(directory, 'preview.mp4'), cached: false };

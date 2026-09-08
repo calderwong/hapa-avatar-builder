@@ -53,14 +53,37 @@ export function prepareHyperFramesIsfFrame(surface, visualTime, fps, persistent,
   };
 }
 
+// Shared by a preview pool, while standalone exports retain their own store.
+// Eviction removes only reconstructible checkpoints, never live GPU state.
+export function createHyperFramesIsfCheckpointBudget(maxBytes = 128 * 1024 * 1024) {
+  if (!Number.isSafeInteger(maxBytes) || maxBytes < 0) throw new Error('Invalid shared ISF checkpoint budget');
+  const entries = new Map(); let bytes = 0, evictions = 0, peakBytes = 0;
+  const release = key => { const entry = entries.get(key); if (!entry) return; entries.delete(key); bytes -= entry.bytes; };
+  return {
+    reserve(key, size, evict) {
+      if (!Number.isSafeInteger(size) || size <= 0 || size > maxBytes) return false;
+      release(key);
+      while (bytes + size > maxBytes && entries.size) {
+        const [oldKey, old] = entries.entries().next().value;
+        release(oldKey); evictions++; old.evict();
+      }
+      entries.set(key, { bytes: size, evict }); bytes += size; peakBytes = Math.max(peakBytes, bytes); return true;
+    },
+    touch(key) { const entry = entries.get(key); if (entry) { entries.delete(key); entries.set(key, entry); } },
+    release,
+    diagnostics: () => ({ bytes, maxBytes, peakBytes, entries: entries.size, evictions }),
+  };
+}
+
 // Checkpoints belong to one compiled layer/source/input identity and canvas size.
 // Preserve native float buffers as floats: quantizing history changes the effect.
 export function createHyperFramesIsfCheckpointStore(surface, {
-  intervalFrames = 30, maxBytes = 128 * 1024 * 1024,
+  intervalFrames = 30, maxBytes = 128 * 1024 * 1024, budget = null,
 } = {}) {
   if (!Number.isInteger(intervalFrames) || intervalFrames < 1 || !Number.isFinite(maxBytes) || maxBytes < 0) throw new Error('Invalid ISF checkpoint budget');
   const entries = new Map();
   let bytes = 0;
+  const remove = frame => { const entry = entries.get(frame); if (!entry) return; entries.delete(frame); bytes -= entry.bytes; budget?.release(entry.token); };
   const gl = surface.renderer.gl;
   const buffers = () => surface.renderer.renderBuffers.filter(buffer => buffer.name);
   const withFramebuffer = work => {
@@ -92,12 +115,15 @@ export function createHyperFramesIsfCheckpointStore(surface, {
     if ((frame + 1) % intervalFrames !== 0) return;
     const list = buffers();
     const required = list.reduce((total, buffer) => total + buffer.textures.reduce((n, t) => n + t.width * t.height * 4 * (t.float ? 4 : 1), 0), 0);
-    if (!Number.isFinite(required) || required > maxBytes) return;
-    const old = entries.get(frame); if (old) { bytes -= old.bytes; entries.delete(frame); }
+    if (!Number.isFinite(required) || required <= 0 || required > maxBytes) return;
+    remove(frame);
     while (bytes + required > maxBytes && entries.size) {
-      const first = entries.keys().next().value; bytes -= entries.get(first).bytes; entries.delete(first);
+      remove(entries.keys().next().value);
     }
-    const state = withFramebuffer(() => list.map(buffer => ({
+    const token = {};
+    if (budget && !budget.reserve(token, required, () => remove(frame))) return;
+    let state;
+    try { state = withFramebuffer(() => list.map(buffer => ({
       name: buffer.name, flipFlop: buffer.flipFlop,
       textures: buffer.textures.map(texture => {
         attach(texture);
@@ -106,14 +132,15 @@ export function createHyperFramesIsfCheckpointStore(surface, {
         if (gl.getError() !== gl.NO_ERROR) throw new Error('ISF checkpoint readback failed');
         return { width: texture.width, height: texture.height, float: Boolean(texture.float), data };
       }),
-    })));
-    entries.set(frame, { state, bytes: required, time: surface.lastTime }); bytes += required;
+    }))); } catch (error) { budget?.release(token); throw error; }
+    entries.set(frame, { state, bytes: required, time: surface.lastTime, token }); bytes += required;
   };
   const latestBefore = frame => [...entries.keys()].filter(key => key < frame).sort((a, b) => b - a)[0];
   const restoreBefore = frame => {
     const key = latestBefore(frame);
     if (key == null) { reset(); return null; }
     const entry = entries.get(key), list = buffers();
+    budget?.touch(entry.token);
     const textureBinding = gl.getParameter(gl.TEXTURE_BINDING_2D);
     const flip = gl.getParameter(gl.UNPACK_FLIP_Y_WEBGL);
     try {
@@ -134,7 +161,7 @@ export function createHyperFramesIsfCheckpointStore(surface, {
     surface.lastTime = entry.time; surface.lastFrameIndex = key; surface.frameStart = null;
     return key;
   };
-  return { record, restoreBefore, latestBefore, reset, clear: () => { entries.clear(); bytes = 0; },
+  return { record, restoreBefore, latestBefore, reset, clear: () => { for (const frame of [...entries.keys()]) remove(frame); },
     diagnostics: () => ({ schemaVersion: 'hapa.isf.checkpoints.v1', count: entries.size, bytes, maxBytes, intervalFrames }) };
 }
 

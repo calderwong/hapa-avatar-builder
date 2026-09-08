@@ -64,6 +64,7 @@ export function createEchoIsfHistoryMedia({ createElement = tag => document.crea
       const receipt = await prepareHyperFramesVideoFrame(video, songTime, { fps, timeoutMs, waitForPresentation, sourceOriginSeconds, timeMapping: media.timeMapping, signal: signal ? AbortSignal.any([signal, lifetime.signal]) : lifetime.signal });
       return { element: video, receipt: { ...receipt, uri, sourceHash: media.sourceHash, directDecoderFallback: unsupported.get(uri) || null, fidelity: media.fidelity || "original-source", originalUri: media.originalUri || null, originalSourceHash: media.originalSourceHash || null } };
     },
+    getDiagnostics: () => direct.getDiagnostics(),
     dispose() { if (disposed) return; disposed = true; lifetime.abort(); direct.dispose(); unsupported.clear(); if (video) { video.pause(); video.removeAttribute('src'); video.load(); } image?.removeAttribute('src'); video = null; image = null; },
   };
 }

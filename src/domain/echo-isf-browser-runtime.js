@@ -1,4 +1,4 @@
-import { bindHyperFramesIsfFrameInputs, prepareHyperFramesIsfFrame, createHyperFramesIsfCheckpointStore, prepareHyperFramesIsfSeek } from "./hyperframes-isf-frame-runtime.js";
+import { bindHyperFramesIsfFrameInputs, prepareHyperFramesIsfFrame, createHyperFramesIsfCheckpointStore, createHyperFramesIsfCheckpointBudget, prepareHyperFramesIsfSeek } from "./hyperframes-isf-frame-runtime.js";
 import {
   buildEchoIsfFrameIntent,
   validateEchoIsfCardBindings,
@@ -402,6 +402,7 @@ export function createEchoIsfSurface(options = {}) {
   let renderer = null;
   let currentShader = null;
   let currentShaderId = "";
+  let shaderCompileMs = null;
   let historySurface = null;
   let historyResolver = null;
   let historyIdentity = "";
@@ -450,7 +451,9 @@ export function createEchoIsfSurface(options = {}) {
     ...state,
     contextCount: gl ? 1 : 0,
     programCount: renderer && currentShaderId ? 1 : 0,
+    shaderCompileMs,
     persistentHistory: historySurface?.checkpoints?.diagnostics?.() || null,
+    historyMedia: historyResolver?.getDiagnostics?.() || null,
     preparingHistory: Boolean(historyFlight),
     historyLookahead: { frames: playbackFrames.size, maxFrames: 5,
       bytes: [...playbackFrames.values()].reduce((sum, frame) => sum + frame.canvas.width * frame.canvas.height * 4, 0) },
@@ -546,11 +549,12 @@ export function createEchoIsfSurface(options = {}) {
       historyResolver?.dispose?.(); historyResolver = null;
       historySurface?.checkpoints?.clear(); historySurface = null;
       historyIdentity = ""; historyResult = null; historyResultKey = ""; historyFailureKey = "";
+      const compileStarted = performance.now();
       try {
         renderer.loadSource(verified.source);
       } catch (error) {
         return publish("compile-error", { sourceId: shaderId, shaderId, sourceHash: verified.observedHash, error: errorText(error) });
-      }
+      } finally { shaderCompileMs = performance.now() - compileStarted; }
       if (renderer.valid === false) {
         return publish("compile-error", { sourceId: shaderId, shaderId, sourceHash: verified.observedHash, error: errorText(rendererError(renderer, "Shader compile failed")) });
       }
@@ -867,7 +871,7 @@ function poolCardContentKey(card = {}) {
 }
 
 export function createEchoIsfPlaybackPool(options = {}) {
-  const maxSurfaces = Math.max(2, Math.min(6, Math.floor(Number(options.maxSurfaces) || 3)));
+  const maxSurfaces = Math.max(2, Math.min(9, Math.floor(Number(options.maxSurfaces) || 3)));
   const requestedFailureCacheLimit = Number(options.failureCacheMaxEntries);
   const failureCacheLimit = Number.isFinite(requestedFailureCacheLimit) && requestedFailureCacheLimit > 0
     ? Math.max(1, Math.min(512, Math.floor(requestedFailureCacheLimit)))
@@ -875,6 +879,8 @@ export function createEchoIsfPlaybackPool(options = {}) {
   const onStatus = typeof options.onStatus === "function" ? options.onStatus : () => {};
   const dependencies = resolveDependencies(options);
   const slots = [];
+  const checkpointBudget = createHyperFramesIsfCheckpointBudget(options.historyCheckpointMaxBytes ?? 128 * 1024 * 1024);
+  let activeKeys = new Set();
   const warmingByKey = new Map();
   const failedByKey = new Map();
   let presentedSlot = null;
@@ -936,6 +942,7 @@ export function createEchoIsfPlaybackPool(options = {}) {
       width: options.width,
       height: options.height,
       dependencies,
+      checkpointOptions: { ...options.checkpointOptions, budget: checkpointBudget },
       onStatus: (state) => {
         slot.runtimeStatus = state.status;
         slot.observedSourceHash = String(state.sourceHash || slot.observedSourceHash || "");
@@ -981,7 +988,7 @@ export function createEchoIsfPlaybackPool(options = {}) {
   };
 
   const evictableSlot = () => slots
-    .filter((slot) => slot !== presentedSlot && slot.key !== requestedKey && slot.status !== "loading")
+    .filter((slot) => slot !== presentedSlot && slot.key !== requestedKey && !activeKeys.has(slot.key) && slot.status !== "loading")
     .sort((left, right) => left.lastUsed - right.lastUsed || left.id.localeCompare(right.id))[0] || null;
 
   const allocateSlot = () => {
@@ -1058,11 +1065,13 @@ export function createEchoIsfPlaybackPool(options = {}) {
     rememberCard(slot, card, cacheKey);
     touch(slot);
     const generation = ++slot.generation;
+    const prepareStarted = performance.now();
     const flight = Promise.resolve(slot.surface.prepare(card))
       .then((result = {}) => {
         if (disposed || slot.generation !== generation || slot.key !== key || !slots.includes(slot)) {
           return { status: "stale", shaderId, error: "Prewarm result was invalidated", slot: null };
         }
+        slot.prepareMs = performance.now() - prepareStarted;
         slot.status = String(result.status || "compile-error");
         slot.ready = slot.status === "ready";
         slot.error = String(result.error || "");
@@ -1219,6 +1228,7 @@ export function createEchoIsfPlaybackPool(options = {}) {
 
   const presentLayers = (cards = [], frameInput = {}) => {
     const ordered = Array.isArray(cards) ? cards.filter(Boolean) : [];
+    beginFrame(ordered);
     const layers = ordered.map((card) => ({
       card,
       result: present(card, { ...frameInput, card, presentationLayerKey: card.trackId || card.persistentSlotId || card.id }),
@@ -1274,6 +1284,10 @@ export function createEchoIsfPlaybackPool(options = {}) {
     const p95Index = sortedTimes.length ? Math.min(sortedTimes.length - 1, Math.ceil(sortedTimes.length * 0.95) - 1) : 0;
     return {
       maxSurfaces,
+      activeSurfaces: activeKeys.size,
+      historyCheckpointBudget: checkpointBudget.diagnostics(),
+      compileTimeMs: slots.map(slot => ({ shaderId: slot.shaderId, milliseconds: slot.surface?.getState?.().shaderCompileMs ?? null, scope: "synchronous renderer.loadSource; excludes source fetch and asynchronous driver work" })),
+      preparationTimeMs: slots.map(slot => ({ shaderId: slot.shaderId, milliseconds: slot.prepareMs ?? null })),
       failureCacheLimit,
       surfaceCount: slots.length,
       poolSize: slots.length,
@@ -1283,6 +1297,13 @@ export function createEchoIsfPlaybackPool(options = {}) {
       programs: programCount,
       historyCheckpointBytes: resourceStates.reduce((sum, state) => sum + Number(state.persistentHistory?.bytes || 0), 0),
       historyJobsPreparing: resourceStates.filter(state => state.preparingHistory).length,
+      historyMedia: {
+        encodedBytes: resourceStates.reduce((sum, state) => sum + Number(state.historyMedia?.encodedBytes || 0), 0),
+        retainedFrames: resourceStates.reduce((sum, state) => sum + Number(state.historyMedia?.retainedFrames || 0), 0),
+        queuedFrames: resourceStates.reduce((sum, state) => sum + Number(state.historyMedia?.queuedFrames || 0), 0),
+        maximumEncodedBytes: maxSurfaces * 32 * 1024 ** 2, maximumFrames: maxSurfaces * 4,
+        scope: 'owned direct proxy buffers and frames; excludes driver allocations and HTML media fallback',
+      },
       historyLookaheadBytes: resourceStates.reduce((sum, state) => sum + Number(state.historyLookahead?.bytes || 0), 0),
       historyLookaheadFrames: resourceStates.reduce((sum, state) => sum + Number(state.historyLookahead?.frames || 0), 0),
       historyPresentationTiming: slots.filter(slot => slot.historyLagSamples?.length).map(slot => {
@@ -1339,6 +1360,7 @@ export function createEchoIsfPlaybackPool(options = {}) {
         ranges: slot.ranges.map((range) => ({ ...range })),
         cacheKeys: [...slot.cacheKeys].sort(),
         textureCount: slot.textureCount,
+        width: slot.surface?.canvas?.width || 0, height: slot.surface?.canvas?.height || 0,
         error: slot.error,
         history: slot.surface?.getState?.().persistentHistory || null,
       })),
@@ -1350,11 +1372,17 @@ export function createEchoIsfPlaybackPool(options = {}) {
     if (disposed) return;
     disposed = true;
     warmingByKey.clear();
+    activeKeys.clear();
     failedByKey.clear();
     for (const slot of [...slots]) removeSlot(slot);
     presentedSlot = null;
     emit("disposed");
   };
 
-  return { prewarm, present, presentLayers, invalidate, getDiagnostics, getState: getDiagnostics, dispose };
+  const beginFrame = cards => {
+    activeKeys = new Set((cards || []).map(poolCardContentKey));
+    const layers = new Set((cards || []).flatMap(card => [String(card.trackId || card.persistentSlotId || card.id || "default"), ...(!card.trackId && !card.persistentSlotId ? ["default"] : [])]));
+    for (const layer of presentedByLayer.keys()) if (!layers.has(layer)) presentedByLayer.delete(layer);
+  };
+  return { prewarm, present, presentLayers, beginFrame, invalidate, getDiagnostics, getState: getDiagnostics, dispose };
 }

@@ -170,3 +170,26 @@ test('historical shader input follows the approved visible preview without borro
   assert.equal(echoPreviewHistoryMediaCue(frame,shot,{...preview,start_sec:9}),frame);
   assert.equal(echoPreviewHistoryMediaCue(frame,shot,{...preview,runtime_media_uri:'/other.mp4'}),frame);
 });
+
+
+test('preview sizes have separate reusable jobs and derivatives, while original identity stays fixed', async t => {
+  const root=await temporary(t), source=path.join(root,'data/media/source.mp4');
+  await runEchoPreparationStage('ffmpeg',['-v','error','-f','lavfi','-i','testsrc2=s=1280x720:r=30:d=0.1','-c:v','libx264','-pix_fmt','yuv420p',source],{timeoutMs:15000});
+  const original=hash(await fs.readFile(source));
+  const selected={songId:'song',variantId:'cut',fingerprint:'quality-fixture',timeline:[cue()]};
+  const service=await openEchoPreviewPreparation({root,loadSelection:async()=>selected});
+  const jobs=[];
+  for(const maximumDimension of [1280,960,640]){
+    const job=await terminal(service,(await service.start({songId:'song',variantId:'cut',maximumDimension})).id);jobs.push(job);
+    assert.equal(job.status,'ready'); assert.equal(job.maximumDimension,maximumDimension);
+    assert.equal(job.items[0].proxy.width,maximumDimension);
+    assert.equal((await service.latest('song','cut',maximumDimension)).id,job.id);
+    assert.equal(applyEchoPreviewProjection(selected.timeline,job,{songId:'song',variantId:'cut',maximumDimension})[0].runtime_media_uri,job.items[0].proxy.uri);
+    if(maximumDimension!==1280)assert.equal(applyEchoPreviewProjection(selected.timeline,job,{songId:'song',variantId:'cut'}),selected.timeline);
+  }
+  assert.equal(new Set(jobs.map(j=>j.key)).size,3);assert.equal(new Set(jobs.map(j=>j.items[0].proxy.key)).size,3);
+  const repeated=await terminal(service,(await service.start({songId:'song',variantId:'cut',maximumDimension:640})).id);
+  assert.equal(repeated.transcoded,0);assert.equal(repeated.cacheHits,1);
+  await assert.rejects(service.start({songId:'song',variantId:'cut',maximumDimension:42}),/Choose/);
+  assert.equal(hash(await fs.readFile(source)),original);
+});

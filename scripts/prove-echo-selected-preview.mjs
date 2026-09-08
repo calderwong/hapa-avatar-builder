@@ -9,6 +9,8 @@ import { echoPreviewSourceUri, applyEchoPreviewProjection } from '../src/domain/
 const argument = (name, fallback) => process.argv.find(value => value.startsWith(`--${name}=`))?.slice(name.length + 3) || fallback;
 const root = path.resolve(import.meta.dirname, '..');
 const songId = argument('song', 'dear-papa-song-dear-papa');
+const maximumDimension = Number(argument('maximum-dimension', '1280'));
+if (![640, 960, 1280].includes(maximumDimension)) throw new Error('Unsupported preview dimension');
 const variantId = argument('cut', 'intentional-enrichment-8c3bc198a60f-8971520567cdc69c-edit-24f4c28124045e0b');
 for (const value of [songId, variantId]) if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,199}$/.test(value)) throw new Error('Unsafe fixture selection');
 const base = argument('api', 'http://127.0.0.1:19088');
@@ -28,7 +30,7 @@ async function identities() {
   return result;
 }
 const before = await identities(), startedAt = new Date().toISOString();
-const query = new URLSearchParams({ songId, variantId });
+const query = new URLSearchParams({ songId, variantId, maximumDimension: String(maximumDimension) });
 let response = await fetch(`${base}/api/echos/director-preview/prepare?${query}`, { method: 'POST', signal: AbortSignal.timeout(30000) });
 let job = await response.json();
 if (!response.ok) throw new Error(JSON.stringify(job));
@@ -42,14 +44,14 @@ while (['queued', 'running', 'cancelling'].includes(job.status) && Date.now() < 
   if (job.completed !== previous) { console.log(JSON.stringify({ completed: job.completed, total: job.total, status: job.status })); previous = job.completed; }
 }
 const after = await identities();
-const preview = applyEchoPreviewProjection(cut.timeline, job, { songId, variantId });
+const preview = applyEchoPreviewProjection(cut.timeline, job, { songId, variantId, maximumDimension });
 const authoringUnchanged = JSON.stringify(before) === JSON.stringify(after);
 const applied = preview.filter((shot, index) => shot !== cut.timeline[index]).length;
 const explicitlyAllowedOriginFallback = process.argv.includes('--allow-origin-fallback')
   && job.status === 'partial' && job.items.filter(row => row.status !== 'ready').every(row => row.error === 'proxy-nonzero-source-origin-requires-time-map' && !row.proxy);
 const pass = authoringUnchanged && (job.status === 'ready' && applied === job.total
   || explicitlyAllowedOriginFallback && applied > 0 && applied === job.items.filter(row => row.status === 'ready').length);
-const report = { pass, songId, variantId, startedAt, completedAt: new Date().toISOString(),
+const report = { pass, songId, variantId, maximumDimension, startedAt, completedAt: new Date().toISOString(),
   authoringUnchanged, sourceCount: sources.length, applied, allCuesPrepared: job.status === 'ready', explicitlyAllowedOriginFallback,
   scope: 'Selected-cut proxy preparation and source preservation; unsupported nonzero origins remain on original media', before, after, job };
 await fs.writeFile(path.join(output, 'report.json'), JSON.stringify(report, null, 2) + '\n');

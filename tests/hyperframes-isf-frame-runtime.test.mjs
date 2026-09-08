@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { prepareHyperFramesIsfFrame, prepareHyperFramesIsfSeek } from "../src/domain/hyperframes-isf-frame-runtime.js";
+import { prepareHyperFramesIsfFrame, prepareHyperFramesIsfSeek, createHyperFramesIsfCheckpointStore, createHyperFramesIsfCheckpointBudget } from "../src/domain/hyperframes-isf-frame-runtime.js";
 import { createHyperFramesMediaRedrawBridge, hyperFramesCapturedMediaElement } from "../src/domain/hyperframes-media-frame-runtime.js";
 
 test("a post-injection replay reads the same prior persistent state and retains TIMEDELTA", () => {
@@ -103,4 +103,34 @@ test("parallel seeks cannot interleave shader history and corrected frame time k
   await assert.rejects(prepareHyperFramesIsfSeek(surface, 1), /already preparing/);
   release(); await pending;
   assert.equal(surface.isfSeekPreparing, false);
+});
+
+
+function checkpointSurface() {
+  let attached, bound; const state = new Map();
+  const gl = { FRAMEBUFFER:1, FRAMEBUFFER_BINDING:2, COLOR_ATTACHMENT0:3, TEXTURE_2D:4, FRAMEBUFFER_COMPLETE:5,
+    RGBA:6, FLOAT:7, UNSIGNED_BYTE:8, NO_ERROR:0, TEXTURE_BINDING_2D:9, UNPACK_FLIP_Y_WEBGL:10,
+    getParameter: key => state.get(key), createFramebuffer:()=>({}), deleteFramebuffer:()=>{},
+    bindFramebuffer:(_, value)=>state.set(2,value), framebufferTexture2D:(_a,_b,_c,value)=>{attached=value},
+    checkFramebufferStatus:()=>5, getError:()=>0, pixelStorei:(key,value)=>state.set(key,value),
+    bindTexture:(_,value)=>{bound=value;state.set(9,value)},
+    readPixels:(_x,_y,_w,_h,_format,_type,data)=>data.set(attached.data),
+    texSubImage2D:(_t,_l,_x,_y,_w,_h,_format,_type,data)=>{bound.data=new Float32Array(data)},
+  };
+  const texture = { data: Float32Array.of(.123456789, -.25, 2, 1) };
+  const buffer = { name:'history', flipFlop:false, textures:[{texture,width:1,height:1,float:true}],setSize:()=>{} };
+  return { lastFrameIndex:0,lastTime:0,renderer:{gl,renderBuffers:[buffer]},texture };
+}
+
+test('two checkpoint stores share one byte ceiling, preserve float values and release evicted/disposed entries', () => {
+  const budget = createHyperFramesIsfCheckpointBudget(32), a = checkpointSurface(), b = checkpointSurface();
+  const left = createHyperFramesIsfCheckpointStore(a,{intervalFrames:1,maxBytes:128,budget});
+  const right = createHyperFramesIsfCheckpointStore(b,{intervalFrames:1,maxBytes:128,budget});
+  const original = [...a.texture.data];
+  left.record(0); right.record(0); assert.equal(budget.diagnostics().bytes,32);
+  a.texture.data.fill(0); left.restoreBefore(1); assert.deepEqual([...a.texture.data],original);
+  left.record(1); assert.equal(right.diagnostics().count,0,'recently restored left entry wins over older right entry');
+  assert.equal(budget.diagnostics().bytes,32); assert.equal(budget.diagnostics().evictions,1);
+  right.record(1); assert.equal(left.diagnostics().count,1); assert.ok(budget.diagnostics().peakBytes<=32);
+  left.clear(); right.clear(); assert.equal(budget.diagnostics().bytes,0); assert.equal(budget.diagnostics().entries,0);
 });

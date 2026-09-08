@@ -2,7 +2,7 @@
   "schemaVersion": "hapa.workflow-pilot.v1",
   "id": "echo-requirement-completion-batch-pilot",
   "version": "0.1",
-  "updatedAt": "2026-09-08T06:54:06.502809+00:00",
+  "updatedAt": "2026-09-08T07:18:17.147394+00:00",
   "status": "active-pilot",
   "effectiveness": "not-yet-evaluated",
   "ownerTaskId": "01a072d3-d593-74f2-8c89-2470c2ee1a40",
@@ -40,7 +40,7 @@
   "batches": [
     {
       "id": "A1",
-      "status": "bounded-proxy-decoding-and-held-progress-verified-global-performance-open",
+      "status": "preview-quality-and-shared-history-budget-verified-full-song-acceptance-open",
       "requirements": [
         "ECHO-07"
       ],
@@ -207,6 +207,40 @@
         "affectedCasesPassing": 53,
         "affectedInitialFailures": 3,
         "repairRerunPassed": 36
+      },
+      "previewQualityEvidence": {
+        "status": "verified-checkpoint-not-batch-acceptance",
+        "presets": [
+          "full",
+          "balanced",
+          "responsive"
+        ],
+        "sharedCheckpointMaxBytes": 134217728,
+        "nativeSeekComparisons": 6,
+        "nativePlaybackComparisons": 12,
+        "poolComparisonScope": "nine instances of one actual shader; not six saved cuts",
+        "actualEditorControls": true,
+        "visibleLyricGeometryAt7s": true,
+        "layouts": [
+          "1280x720",
+          "200%zoom",
+          "760pxwindow"
+        ],
+        "initialAffected": {
+          "pass": 85,
+          "total": 88
+        },
+        "affectedRepairPassed": 20,
+        "metricChecksPassed": 25,
+        "build": "pass",
+        "sourceIntegrity": {
+          "protected": 55,
+          "authoring": 12,
+          "unchanged": true
+        },
+        "evidence": "$ECHO_REVIEW_WORKSPACE/quality-budget-proof",
+        "acceptedRequirements": [],
+        "humanAccepted": false
       }
     }
   ],
@@ -222,10 +256,11 @@
     "docs/postmortems/2026-09-07-echo-persistent-seek.md",
     "docs/postmortems/2026-09-07-echo-preview-persistent-seek.md",
     "docs/postmortems/2026-09-08-echo-section-certification.md",
-    "docs/postmortems/2026-09-08-echo-precise-audio.md"
+    "docs/postmortems/2026-09-08-echo-precise-audio.md",
+    "docs/postmortems/2026-09-08-echo-preview-quality-budget.md"
   ],
   "decisionAfterAcceptedBatches": 2,
-  "nextAction": "Complete independent preview quality controls and global shader/decoder/compositing budgets, then integrated timing acceptance.",
+  "nextAction": "Complete same-actual-cut 3/5/9 comparisons, full-song retained resources, remaining decoder/compositor budgets and integrated timing/stem acceptance.",
   "updates": "batch-start, scope-change, consequential-failure, acceptance, handoff, goal-completion",
   "collaboration": {
     "protocol": "docs/ECHO_CONVICTION_PROTOCOL.md",

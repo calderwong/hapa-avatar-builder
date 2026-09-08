@@ -459,9 +459,41 @@ test("evicting a layer cannot retain a canvas reassigned to another shader", asy
   t.after(() => pool.dispose());
   await pool.prewarm(cards.slice(0, 2));
   pool.presentLayers(cards.slice(0, 2), frame(1));
+  pool.beginFrame(cards.slice(1));
   await pool.prewarm([cards[2]]);
+  assert.equal(pool.getDiagnostics().evictions, 1);
   pool.present(cards[2], frame(2));
   const missing = pool.present({ trackId: cards[0].trackId }, frame(2));
   assert.equal(missing.canvas, null);
   assert.equal(missing.heldPreviousFrame, false);
+});
+
+
+test('prewarming cannot evict any active compositor layer and releases protection on the next frame', async t => {
+  const rows = ['isf:active-a', 'isf:active-b', 'isf:active-c', 'isf:next'].map(id => shader(id));
+  const cards = rows.map((row, i) => ({ ...cue(row.id, 0, 10), trackId: `layer-${i}` }));
+  const { pool } = poolFor(rows, { maxSurfaces: 3 }); t.after(() => pool.dispose());
+  await pool.prewarm(cards.slice(0, 3));
+  pool.beginFrame(cards.slice(0, 3));
+  for (const card of cards.slice(0, 3)) assert.equal(pool.present(card, { time: 1 }).status, 'ready');
+  const result = await pool.prewarm([cards[3]]);
+  assert.equal(result.ready, 0); assert.equal(result.errors[0].status, 'capacity-held');
+  assert.equal(pool.getDiagnostics().evictions, 0);
+  for (const card of cards.slice(0, 3)) assert.equal(pool.present(card, { time: 1 }).status, 'ready');
+  pool.beginFrame([cards[2]]);
+  assert.equal((await pool.prewarm([cards[3]])).ready, 1);
+  assert.equal(pool.present(cards[2], { time: 1 }).status, 'ready');
+});
+
+test('pool capacity supports the declared 3/5/9 comparison without silently clamping nine to six', async t => {
+  const rows = Array.from({length: 9}, (_, i) => shader(`isf:capacity-${i}`));
+  const cards = rows.map((row, i) => cue(row.id, i, i+1));
+  for (const capacity of [3, 5, 9]) {
+    const { pool } = poolFor(rows, { maxSurfaces: capacity }); t.after(() => pool.dispose());
+    await pool.prewarm(cards);
+    assert.equal(pool.getDiagnostics().surfaceCount, capacity);
+    assert.equal(pool.getDiagnostics().maxSurfaces, capacity);
+    assert.equal(pool.getDiagnostics().historyCheckpointBudget.maxBytes, 128 * 1024 * 1024);
+    pool.dispose(); assert.equal(pool.getDiagnostics().historyCheckpointBudget.bytes, 0);
+  }
 });

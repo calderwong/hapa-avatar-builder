@@ -1,13 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
 
 const busy = value => ['queued', 'running', 'cancelling'].includes(value?.status);
-export default function EchoPreviewPreparationControl({ apiBase, songId, variantId = 'legacy', pendingCount, onProjection }) {
+export default function EchoPreviewPreparationControl({ apiBase, songId, variantId = 'legacy', pendingCount, maximumDimension = 1280, onProjection }) {
   const [job, setJob] = useState({ status: 'idle' });
   const [pending, setPending] = useState(false), [error, setError] = useState('');
   const [refresh, setRefresh] = useState(0);
   const callback = useRef(onProjection); callback.current = onProjection;
   const selectionRef = useRef(''), commandRef = useRef(null);
-  const selection = `songId=${encodeURIComponent(songId)}&variantId=${encodeURIComponent(variantId)}`;
+  const selection = `songId=${encodeURIComponent(songId)}&variantId=${encodeURIComponent(variantId)}&maximumDimension=${maximumDimension}`;
   selectionRef.current = selection;
   const endpoint = `${apiBase}/api/echos/director-preview/prepare`;
   useEffect(() => {

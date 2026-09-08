@@ -120,13 +120,13 @@ export async function openEchoPreviewPreparation({ root, mediaDir, cacheRoot, lo
           let resource = resources.get(route.resolvedPath);
           if (!resource) {
             const proxy = await prepareProxy({ sourcePath: route.resolvedPath,
-              proxyRoot: path.join(mediaRoot, 'echo-proxies-v2'), seekOptimized: true, signal: job.controller.signal });
+              proxyRoot: path.join(mediaRoot, 'echo-proxies-v2'), seekOptimized: true, maximumDimension: job.view.maximumDimension || 1280, signal: job.controller.signal });
             const sourcePath = await fs.realpath(route.resolvedPath);
             if (stamp(await fs.stat(sourcePath)) !== proxy.sourceStamp) throw fail('Source changed after proxy verification.');
             resource = { proxy: { key: proxy.key, status: 'ready', uri: proxy.uri, sha256: proxy.sha256,
               width: proxy.width, height: proxy.height, byteSize: proxy.byteSize, durationSeconds: proxy.durationSeconds,
               sourceHash: proxy.sourceHash, sourceDurationSeconds: proxy.sourceDurationSeconds, fidelity: proxy.fidelity,
-              seekOptimized: proxy.settings?.seekOptimized === true, gopSeconds: proxy.gopSeconds },
+              maximumDimension: proxy.maxDimension || 1280, seekOptimized: proxy.settings?.seekOptimized === true, gopSeconds: proxy.gopSeconds },
               sourcePath, declaredPath: route.resolvedPath, sourceStamp: proxy.sourceStamp, proxyStamp: stamp(await fs.stat(proxy.path)) };
             resources.set(route.resolvedPath, resource);
             job.view.cacheHits += proxy.cached ? 1 : 0; job.view.transcoded += proxy.cached ? 0 : 1;
@@ -159,6 +159,8 @@ export async function openEchoPreviewPreparation({ root, mediaDir, cacheRoot, lo
   return {
     start(selection) { return serial(async () => {
       if (closing) throw fail('Preparation service is stopping.', 503);
+      const maximumDimension = Number(selection.maximumDimension ?? 1280);
+      if (![640, 960, 1280].includes(maximumDimension)) throw fail('Choose a 640, 960 or 1280 pixel preview.');
       const input = await loadSelection(selection);
       if (!input?.songId || !input.fingerprint || !Array.isArray(input.timeline) || input.timeline.length > 4096) throw fail('Selected cut exceeds preview preparation limits.');
       const snapshot = input.timeline.filter(shot => {
@@ -166,7 +168,7 @@ export async function openEchoPreviewPreparation({ root, mediaDir, cacheRoot, lo
         return shot.media_id !== 'none' && echoPreviewSourceUri(shot) && (type ? type === 'video' : !/\.(png|jpe?g|webp|gif|avif)(?:$|\?)/i.test(echoPreviewSourceUri(shot)));
       }).map(shot => ({ shotKey: echoPreviewShotKey(shot), uri: echoPreviewSourceUri(shot), excluded: hasExcludedEchoDirectorOrigin(shot) }));
       if (Buffer.byteLength(JSON.stringify(snapshot)) > 1024 * 1024) throw fail('Selected cut exceeds preview input budget.');
-      const key = digest({ songId: input.songId, variantId: input.variantId, fingerprint: input.fingerprint, snapshot });
+      const key = digest({ songId: input.songId, variantId: input.variantId, fingerprint: input.fingerprint, maximumDimension, snapshot });
       const existing = [...jobs.values()].find(job => job.view.key === key && busy(job.view));
       if (existing) return publicJob(existing);
       if (queue.length >= maxQueued) throw fail('Preview preparation queue is full. Retry after a job finishes.', 429);
@@ -177,13 +179,13 @@ export async function openEchoPreviewPreparation({ root, mediaDir, cacheRoot, lo
       if (jobs.size >= maxRetained) throw fail('Preview preparation retention limit reached.', 429);
       const job = { controller: new AbortController(), input: snapshot, view: {
         schemaVersion: 'hapa.echo.preview-preparation.v2', id: randomUUID(), key,
-        songId: input.songId, variantId: input.variantId || 'legacy', sourceFingerprint: input.fingerprint,
+        songId: input.songId, variantId: input.variantId || 'legacy', maximumDimension, sourceFingerprint: input.fingerprint,
         status: 'queued', queuedAt: new Date().toISOString(), total: snapshot.length, completed: 0,
         items: [], cacheHits: 0, transcoded: 0, message: 'Waiting for the preview encoder.' } };
       await persist(job.view); jobs.set(job.view.id, job); queue.push(job); pump(); return publicJob(job);
     }); },
     get(id) { return publicJob(jobs.get(id)); },
-    latest(songId, variantId = 'legacy') { return publicJob([...jobs.values()].reverse().find(job => job.view.songId === songId && job.view.variantId === variantId)); },
+    latest(songId, variantId = 'legacy', maximumDimension = 1280) { return publicJob([...jobs.values()].reverse().find(job => job.view.songId === songId && job.view.variantId === variantId && (job.view.maximumDimension || 1280) === maximumDimension)); },
     cancel(id) { return serial(async () => {
       const job = jobs.get(id); if (!job) return null;
       if (busy(job.view)) {

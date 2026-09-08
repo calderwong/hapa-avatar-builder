@@ -91,6 +91,9 @@ export function createEchoProxyFrameDecoder({ fetchImpl = (...args) => fetch(...
       return { element: frame, receipt: { route: 'decoded-proxy-frame', presentationEvidence: 'webcodecs-decoded-output', sourceTimeSeconds: time, observedTimeSeconds: packet.timestamp / 1e6, sourceOriginSeconds: index.startSeconds, sourceOriginClamped: time < index.startSeconds, songTimeSeconds: songTime, width: index.width, height: index.height, uri: sourceUri, sourceHash: index.sha256, retainedEncodedBytes: bytes.byteLength, retainedFrames: [...slots.values()].filter(slot => slot.frame).length, queuedFrames: [...slots.values()].filter(slot => !slot.frame).length, maxFrames: lookaheadFrames + 1 } };
       } finally { busy = false; }
     },
+    getDiagnostics: () => ({ encodedBytes: bytes?.byteLength || 0,
+      retainedFrames: [...slots.values()].filter(slot => slot.frame).length,
+      queuedFrames: [...slots.values()].filter(slot => !slot.frame).length, maxFrames: lookaheadFrames + 1 }),
     reset: release,
     dispose() { if (disposed) return; disposed = true; lifetime.abort(); release(); },
   };
