@@ -62,6 +62,8 @@ const VARIANT_PROJECT_PATCH_FIELDS = Object.freeze([
   "lyric_position",
   "lyric_style",
   "lyrics",
+  "timed_lyrics",
+  "lyric_timing_manual_edit",
   "lyrics_enabled",
   "lyric_template_id",
   "director_show_graph_patches",
@@ -698,6 +700,7 @@ export function deriveEchoDirectionWorkingProject(workingFork = {}) {
   const project = clone(workingFork.project);
   const workingHash = echoDirectionVariantFingerprint({
     id: `working:${workingFork.sourceVariantId}`,
+    project_patch: pickEchoDirectionVariantProjectPatch(project),
     timeline: project.timeline || [],
     visualizer_timeline: project.visualizer_timeline || [],
     persistent_shader_slots: project.persistent_shader_slots || [],

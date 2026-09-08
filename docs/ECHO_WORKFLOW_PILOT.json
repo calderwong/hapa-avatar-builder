@@ -2,7 +2,7 @@
   "schemaVersion": "hapa.workflow-pilot.v1",
   "id": "echo-requirement-completion-batch-pilot",
   "version": "0.1",
-  "updatedAt": "2026-09-08T12:03:48.365354+00:00",
+  "updatedAt": "2026-09-08T12:20:45.451536+00:00",
   "status": "active-pilot",
   "effectiveness": "not-yet-evaluated",
   "ownerTaskId": "01a072d3-d593-74f2-8c89-2470c2ee1a40",
@@ -802,10 +802,11 @@
     "docs/postmortems/2026-09-08-echo-decoded-presentation.md",
     "docs/postmortems/2026-09-08-echo-paused-composition.md",
     "docs/postmortems/2026-09-08-echo-camera-transport.md",
-    "docs/postmortems/2026-09-08-echo-resource-acceptance.md"
+    "docs/postmortems/2026-09-08-echo-resource-acceptance.md",
+    "docs/postmortems/2026-09-08-echo-lyric-corrections.md"
   ],
   "decisionAfterAcceptedBatches": 2,
-  "nextAction": "Finish A2 ECHO-05/06 vocal presentation: measured word-alignment/correction and actual all-template/aspect readability. ECHO-08 is technically accepted; reuse resource proofs unless invalidated. ECHO-17 cold-cache/incremental work and ECHO-18 render/human acceptance remain open.",
+  "nextAction": "Complete ECHO-05/06 vocal presentation: source-bound waveform/200-onset six-excerpt annotation and actual app correction/save path, then all-template/aspect rendered readability. Correction controls are verified progress; ECHO-08 resource acceptance is reused unless invalidated.",
   "updates": "batch-start, scope-change, consequential-failure, acceptance, handoff, goal-completion",
   "collaboration": {
     "protocol": "docs/ECHO_CONVICTION_PROTOCOL.md",
@@ -1165,5 +1166,25 @@
       "failures": []
     },
     "humanAccepted": false
+  },
+  "latestLyricCorrection": {
+    "at": "2026-09-08T12:20:45.451536+00:00",
+    "status": "verified-progress-not-requirement-acceptance",
+    "requirements": [
+      "ECHO-05",
+      "ECHO-06"
+    ],
+    "affectedChecks": 56,
+    "finalTransactionChecks": 6,
+    "native": "actual component, synthetic fixture, desktop/narrow/200-percent zoom",
+    "actualFullAppSave": "pending",
+    "manualOnsetReview": "pending",
+    "humanAccepted": false,
+    "sourceIntegrity": {
+      "pass": true,
+      "protectedFiles": 55,
+      "authoringFiles": 12,
+      "failures": []
+    }
   }
 }

@@ -309,6 +309,8 @@ export function buildCueGraph(projectInput, options = {}) {
           startSeconds: round(word.start),
           endSeconds: round(word.end),
           confidence: typeof (word.confidence ?? word.probability) === "number" && Number.isFinite(word.confidence ?? word.probability) ? (word.confidence ?? word.probability) : null,
+          ...(word.timingCorrection ? { timingCorrection: structuredClone(word.timingCorrection) } : {}),
+          ...(word.manualTimingLocked === true ? { manualTimingLocked: true } : {}),
         })),
       };
     })

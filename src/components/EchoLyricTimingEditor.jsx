@@ -1,46 +1,41 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import {
-  applyEchoLyricGlobalOffset,
-  inspectEchoLyricManualTiming,
-  setEchoLyricLineBoundary,
-  shiftEchoLyricLine,
-  shiftEchoLyricWord,
-  updateEchoLyricLineText,
-} from "../domain/echo-lyric-timing-editor.js";
+import { applyEchoLyricCorrection, inspectEchoLyricManualTiming } from "../domain/echo-lyric-timing-editor.js";
+import { echoLyricBoundary } from "../domain/echo-lyric-time.js";
 
-const buttonStyle = {
-  border: "1px solid rgba(34,211,238,.35)",
-  background: "rgba(8,47,73,.34)",
-  color: "#cffafe",
-  borderRadius: 4,
-  padding: "4px 7px",
-  fontSize: 9,
-  fontWeight: 700,
-  cursor: "pointer",
-};
+const buttonStyle = { border: "1px solid rgba(34,211,238,.4)", background: "#083047", color: "#cffafe", borderRadius: 5, padding: "7px 10px", fontSize: 13, cursor: "pointer" };
+const inputStyle = { background: "#090d16", border: "1px solid #64748b", color: "#fff", borderRadius: 4, padding: "7px", fontSize: 14, maxWidth: "100%", boxSizing: "border-box" };
+const rowStyle = { display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" };
+const seconds = value => Number(value || 0).toFixed(3);
 
-function seconds(value) {
-  return Number(value || 0).toFixed(3);
-}
-
-export default function EchoLyricTimingEditor({
-  project,
-  currentTime = 0,
-  analyserNode = null,
-  disabled = false,
-  onSeek,
-  onPatch,
-}) {
-  const duration = Math.max(0.001, Number(project?.duration || 0));
+export default function EchoLyricTimingEditor({ project, currentTime = 0, analyserNode = null, disabled = false, onSeek, onPatch }) {
+  const duration = Math.max(.001, Number(project?.duration || 0));
   const lines = Array.isArray(project?.timed_lyrics) ? project.timed_lyrics : [];
   const [selectedLineIndex, setSelectedLineIndex] = useState(0);
   const [selectedWordIndex, setSelectedWordIndex] = useState(0);
   const [globalOffsetMs, setGlobalOffsetMs] = useState(0);
+  const [textDraft, setTextDraft] = useState("");
+  const [splitAt, setSplitAt] = useState("");
+  const [splitLeft, setSplitLeft] = useState("");
+  const [splitRight, setSplitRight] = useState("");
+  const [error, setError] = useState("");
   const canvasRef = useRef(null);
-  const selectedLine = lines[Math.min(selectedLineIndex, Math.max(0, lines.length - 1))] || null;
-  const selectedWord = selectedLine?.words?.[Math.min(selectedWordIndex, Math.max(0, (selectedLine.words?.length || 1) - 1))] || null;
+  const lineIndex = Math.min(selectedLineIndex, Math.max(0, lines.length - 1));
+  const selectedLine = lines[lineIndex] || null;
+  const wordIndex = Math.min(selectedWordIndex, Math.max(0, (selectedLine?.words?.length || 1) - 1));
+  const selectedWord = selectedLine?.words?.[wordIndex] || null;
+  const state = project?.lyric_timing_manual_edit;
   const inspection = useMemo(() => inspectEchoLyricManualTiming(lines, duration), [duration, lines]);
-
+  useEffect(() => { setTextDraft(selectedLine?.text || ""); }, [selectedLine?.text, lineIndex]);
+  useEffect(() => { setSelectedLineIndex(0); setSelectedWordIndex(0); setError(""); }, [project?.song_id]);
+  const commit = command => {
+    if (disabled) return false;
+    try {
+      const patch = applyEchoLyricCorrection(project, { lineIndex, wordIndex, expectedRevision: state?.revision || 0, ...command });
+      if (patch) onPatch?.(patch);
+      setError(""); return true;
+    } catch (failure) { setError(failure.message); return false; }
+  };
+  const chooseLine = index => { setSelectedLineIndex(index); setSelectedWordIndex(0); setError(""); onSeek?.(echoLyricBoundary(lines[index], "start")); };
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return undefined;
@@ -79,140 +74,76 @@ export default function EchoLyricTimingEditor({
     return () => cancelAnimationFrame(frame);
   }, [analyserNode]);
 
-  const commit = (timedLyrics, action) => {
-    const checked = inspectEchoLyricManualTiming(timedLyrics, duration);
-    if (!checked.ok || disabled) return;
-    onPatch?.({
-      timed_lyrics: checked.lines,
-      lyric_timing_manual_edit: {
-        schemaVersion: "hapa.echo.lyric-manual-edit.v1",
-        action,
-        lineIndex: selectedLineIndex,
-        wordIndex: selectedWordIndex,
-        reviewedAt: new Date().toISOString(),
-        issueCount: 0,
-      },
-      lyrics: {
-        ...(project?.lyrics || {}),
-        timingSource: "measured-manual-review",
-        confidence: Math.max(0.9, Number(project?.lyrics?.confidence || 0)),
-      },
-    });
-  };
-
-  const nudgeLine = (delta) => commit(
-    shiftEchoLyricLine(lines, selectedLineIndex, delta, duration),
-    `shift-line:${delta}`,
-  );
-  const nudgeWord = (delta) => commit(
-    shiftEchoLyricWord(lines, selectedLineIndex, selectedWordIndex, delta, duration),
-    `shift-word:${delta}`,
-  );
 
   return (
-    <section
-      data-testid="echo-lyric-timing-editor"
-      style={{ display: "flex", flexDirection: "column", gap: 10, minHeight: 300, padding: 10, border: "1px solid rgba(34,211,238,.22)", borderRadius: 6, background: "rgba(2,6,23,.72)", color: "#e2e8f0" }}
-    >
-      <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-        <div>
-          <strong style={{ color: "#67e8f9", fontSize: 11 }}>LYRIC TIMING REVIEW</strong>
-          <div style={{ color: "#94a3b8", fontSize: 9 }}>Real preview waveform · measured cue and word correction · changes stay in this Director cut</div>
-        </div>
-        <span data-testid="echo-lyric-timing-validation" style={{ color: inspection.ok ? "#86efac" : "#fca5a5", fontSize: 9, fontWeight: 700 }}>
-          {inspection.ok ? `${inspection.lineCount} LINES · ${inspection.wordCount} WORDS · VALID` : `${inspection.issues.length} TIMING ISSUES`}
-        </span>
+    <section data-testid="echo-lyric-timing-editor" aria-label="Lyric timing review" style={{ display: "flex", flexDirection: "column", gap: 14, padding: 14, border: "1px solid #155e75", borderRadius: 6, background: "#020617", color: "#e2e8f0", fontSize: 14 }}>
+      <div style={{ ...rowStyle, justifyContent: "space-between" }}>
+        <strong style={{ color: "#67e8f9", fontSize: 16 }}>Lyric timing review</strong>
+        <button type="button" style={buttonStyle} disabled={disabled || !state?.undo?.length} onClick={() => commit({ type: "undo" })}>Undo lyric correction</button>
       </div>
-
-      <div style={{ position: "relative", height: 58, border: "1px solid rgba(148,163,184,.2)", borderRadius: 4, overflow: "hidden" }}>
-        <canvas ref={canvasRef} data-testid="echo-lyric-waveform" aria-label="Live song waveform" style={{ width: "100%", height: "100%", display: "block" }} />
-        <div style={{ position: "absolute", inset: 0 }}>
-          {lines.map((line, index) => (
-            <button
-              key={`${line.start}-${index}`}
-              type="button"
-              title={`${seconds(line.start)}–${seconds(line.end)} ${line.text}`}
-              onClick={() => { setSelectedLineIndex(index); setSelectedWordIndex(0); onSeek?.(line.start); }}
-              style={{
-                position: "absolute",
-                left: `${Math.max(0, line.start / duration * 100)}%`,
-                width: `${Math.max(.25, (line.end - line.start) / duration * 100)}%`,
-                top: index === selectedLineIndex ? 3 : 36,
-                height: index === selectedLineIndex ? 20 : 15,
-                border: index === selectedLineIndex ? "1px solid #f0abfc" : "1px solid rgba(34,211,238,.45)",
-                background: index === selectedLineIndex ? "rgba(192,38,211,.48)" : "rgba(8,145,178,.35)",
-                padding: 0,
-                cursor: "pointer",
-              }}
-            />
-          ))}
-          <div style={{ position: "absolute", left: `${Math.max(0, Math.min(100, currentTime / duration * 100))}%`, top: 0, bottom: 0, width: 1, background: "#facc15", pointerEvents: "none" }} />
-        </div>
+      <p style={{ margin: 0, color: "#94a3b8", lineHeight: 1.5 }}>Changes belong to this cut and persist when you save it. Editing preserves source evidence; it does not verify vocal alignment. Changed words use phrase timing until independently verified.</p>
+      <div data-testid="echo-lyric-timing-validation">{inspection.ok ? `${inspection.lineCount} lines · ${inspection.wordCount} words · valid intervals` : `${inspection.issues.length} interval issues to review`}</div>
+      {error && <div role="alert" style={{ color: "#fca5a5" }}>{error}</div>}
+      <div>
+        <div style={{ color: "#94a3b8", marginBottom: 5 }}>Live audio signal · this is not a song-time waveform</div>
+        <canvas ref={canvasRef} data-testid="echo-lyric-waveform" aria-label="Live audio signal" style={{ width: "100%", height: 42, display: "block" }} />
       </div>
-
-      {selectedLine ? (
-        <>
-          <div style={{ display: "grid", gridTemplateColumns: "minmax(180px, 1fr) auto auto", gap: 8, alignItems: "end" }}>
-            <label style={{ display: "flex", flexDirection: "column", gap: 3, color: "#94a3b8", fontSize: 9 }}>
-              Selected lyric line
-              <input
-                data-testid="echo-lyric-line-text"
-                value={selectedLine.text || ""}
-                disabled={disabled}
-                onChange={(event) => commit(updateEchoLyricLineText(lines, selectedLineIndex, event.target.value, duration), "edit-line-text")}
-                style={{ background: "#090d16", border: "1px solid rgba(255,255,255,.16)", color: "#fff", borderRadius: 4, padding: "6px 8px", fontSize: 11 }}
-              />
-            </label>
-            <label style={{ color: "#94a3b8", fontSize: 9 }}>Start
-              <input
-                type="number"
-                step=".001"
-                value={seconds(selectedLine.start)}
-                disabled={disabled}
-                onChange={(event) => commit(setEchoLyricLineBoundary(lines, selectedLineIndex, "start", event.target.value, duration), "set-line-start")}
-                style={{ display: "block", width: 76, background: "#090d16", border: "1px solid rgba(255,255,255,.16)", color: "#fff", borderRadius: 4, padding: "5px" }}
-              />
-            </label>
-            <label style={{ color: "#94a3b8", fontSize: 9 }}>End
-              <input
-                type="number"
-                step=".001"
-                value={seconds(selectedLine.end)}
-                disabled={disabled}
-                onChange={(event) => commit(setEchoLyricLineBoundary(lines, selectedLineIndex, "end", event.target.value, duration), "set-line-end")}
-                style={{ display: "block", width: 76, background: "#090d16", border: "1px solid rgba(255,255,255,.16)", color: "#fff", borderRadius: 4, padding: "5px" }}
-              />
-            </label>
+      <div aria-label="Lyric phrase timeline" style={{ position: "relative", height: 32, background: "#0f172a", border: "1px solid #475569" }}>
+        {lines.map((line, index) => <button key={index} type="button" aria-label={`Seek line ${index + 1}: ${line.text}`} title={`${seconds(echoLyricBoundary(line, "start"))}–${seconds(echoLyricBoundary(line, "end"))} ${line.text}`}
+          onClick={() => chooseLine(index)} style={{ position: "absolute", left: `${echoLyricBoundary(line, "start") / duration * 100}%`, width: `${Math.max(.25, (echoLyricBoundary(line, "end") - echoLyricBoundary(line, "start")) / duration * 100)}%`, top: 3, bottom: 3, padding: 0, background: index === lineIndex ? "#a21caf" : "#155e75", border: "1px solid #67e8f9" }} />)}
+        <div style={{ position: "absolute", left: `${Math.max(0, Math.min(100, currentTime / duration * 100))}%`, top: 0, bottom: 0, width: 2, background: "#facc15", pointerEvents: "none" }} />
+      </div>
+      {selectedLine ? <>
+        <label style={{ display: "grid", gap: 5 }}>Selected lyric line
+          <select aria-label="Selected lyric line" value={lineIndex} onChange={event => chooseLine(Number(event.target.value))} style={inputStyle}>
+            {lines.map((line, index) => <option key={index} value={index}>{index + 1}. {line.text}</option>)}
+          </select>
+        </label>
+        <div style={rowStyle}>
+          <button type="button" disabled={disabled} style={buttonStyle} aria-pressed={selectedLine.manualTimingLocked === true} onClick={() => commit({ type: "lock-line", locked: !selectedLine.manualTimingLocked })}>{selectedLine.manualTimingLocked ? "Unlock line" : "Lock line"}</button>
+          <button type="button" style={buttonStyle} onClick={() => onSeek?.(echoLyricBoundary(selectedLine, "start"))}>Seek line</button>
+          <span>Line nudge</span>
+          {[-.25, -.05, .05, .25].map(delta => <button key={delta} type="button" disabled={disabled} aria-label={`Nudge line ${delta * 1000} milliseconds`} onClick={() => commit({ type: "shift-line", deltaSeconds: delta })} style={buttonStyle}>{delta > 0 ? "+" : ""}{delta * 1000} ms</button>)}
+        </div>
+        <div style={rowStyle}>
+          {["start", "end"].map(boundary => <label key={boundary}>Line {boundary} (seconds)<input aria-label={`Line ${boundary} seconds`} type="number" step=".001" value={seconds(echoLyricBoundary(selectedLine, boundary))} disabled={disabled} onChange={event => commit({ type: "line-boundary", boundary, value: event.target.value })} style={{ ...inputStyle, display: "block", width: 125 }} /></label>)}
+          <label>Whole-song offset (ms)<input aria-label="Whole-song lyric offset milliseconds" data-testid="echo-lyric-global-offset" type="number" step="10" value={globalOffsetMs} disabled={disabled} onChange={event => setGlobalOffsetMs(event.target.value)} style={{ ...inputStyle, display: "block", width: 140 }} /></label>
+          <button type="button" disabled={disabled || !Number(globalOffsetMs)} onClick={() => { if (commit({ type: "global-offset", deltaSeconds: Number(globalOffsetMs) / 1000 })) setGlobalOffsetMs(0); }} style={buttonStyle}>Apply offset</button>
+        </div>
+        <label style={{ display: "grid", gap: 5 }}>Correct line text (clears obsolete word alignment)
+          <input data-testid="echo-lyric-line-text" value={textDraft} disabled={disabled} onChange={event => setTextDraft(event.target.value)} style={inputStyle} />
+        </label>
+        <button type="button" disabled={disabled || textDraft === selectedLine.text} onClick={() => commit({ type: "line-text", text: textDraft })} style={{ ...buttonStyle, alignSelf: "start" }}>Apply text correction</button>
+        {!!selectedLine.words?.length && <label style={{ display: "grid", gap: 5 }}>Selected word
+          <select aria-label="Selected lyric word" value={wordIndex} style={inputStyle} onChange={event => { const index = Number(event.target.value); setSelectedWordIndex(index); onSeek?.(echoLyricBoundary(selectedLine.words[index], "start")); }}>
+            {selectedLine.words.map((word, index) => <option key={index} value={index}>{index + 1}. {word.word || word.text} · {seconds(echoLyricBoundary(word, "start"))}–{seconds(echoLyricBoundary(word, "end"))}s{word.manualTimingLocked ? " · locked" : ""}</option>)}
+          </select>
+        </label>}
+        {selectedWord && <>
+          <div style={rowStyle}>
+            <button type="button" disabled={disabled} style={buttonStyle} aria-pressed={selectedWord.manualTimingLocked === true} onClick={() => commit({ type: "lock-word", locked: !selectedWord.manualTimingLocked })}>{selectedWord.manualTimingLocked ? "Unlock word" : "Lock word"}</button>
+            <span>Word nudge</span>
+            {[-.05, .05].map(delta => <button key={delta} type="button" disabled={disabled} aria-label={`Nudge word ${delta * 1000} milliseconds`} onClick={() => commit({ type: "shift-word", deltaSeconds: delta })} style={buttonStyle}>{delta > 0 ? "+" : ""}{delta * 1000} ms</button>)}
+            <button type="button" disabled={disabled || wordIndex >= selectedLine.words.length - 1} style={buttonStyle} onClick={() => commit({ type: "merge-word" })}>Merge with next word</button>
           </div>
-
-          <div style={{ display: "flex", gap: 5, alignItems: "center", flexWrap: "wrap" }}>
-            <span style={{ color: "#94a3b8", fontSize: 9 }}>LINE</span>
-            {[-.25, -.05, .05, .25].map((delta) => <button key={delta} type="button" disabled={disabled} onClick={() => nudgeLine(delta)} style={buttonStyle}>{delta > 0 ? "+" : ""}{delta * 1000} ms</button>)}
-            <button type="button" onClick={() => onSeek?.(selectedLine.start)} style={buttonStyle}>▶ Seek line</button>
-            <span style={{ marginLeft: 8, color: "#94a3b8", fontSize: 9 }}>WHOLE SONG</span>
-            <input data-testid="echo-lyric-global-offset" type="number" step="10" value={globalOffsetMs} onChange={(event) => setGlobalOffsetMs(Number(event.target.value || 0))} style={{ width: 68, background: "#090d16", border: "1px solid rgba(255,255,255,.16)", color: "#fff", borderRadius: 4, padding: "4px" }} />
-            <button type="button" disabled={disabled || !globalOffsetMs} onClick={() => { commit(applyEchoLyricGlobalOffset(lines, globalOffsetMs / 1000, duration), `global-offset:${globalOffsetMs}`); setGlobalOffsetMs(0); }} style={buttonStyle}>Apply ms</button>
+          <details><summary>Split the selected word</summary>
+            <div style={{ ...rowStyle, marginTop: 10 }}>
+              <label>First word<input aria-label="First split word" value={splitLeft} disabled={disabled} onChange={event => setSplitLeft(event.target.value)} style={{ ...inputStyle, display: "block", width: 160 }} /></label>
+              <label>Second word<input aria-label="Second split word" value={splitRight} disabled={disabled} onChange={event => setSplitRight(event.target.value)} style={{ ...inputStyle, display: "block", width: 160 }} /></label>
+              <label>Split at (song seconds)<input aria-label="Word split song seconds" type="number" step=".001" value={splitAt} disabled={disabled} onChange={event => setSplitAt(event.target.value)} style={{ ...inputStyle, display: "block", width: 160 }} /></label>
+              <button type="button" style={buttonStyle} onClick={() => setSplitAt(seconds(currentTime))}>Use playhead</button>
+              <button type="button" disabled={disabled || splitAt === "" || !splitLeft.trim() || !splitRight.trim()} style={buttonStyle} onClick={() => commit({ type: "split-word", atSeconds: splitAt, left: splitLeft, right: splitRight })}>Split word</button>
+            </div>
+          </details>
+          <div style={rowStyle}>
+            <button type="button" disabled={disabled || wordIndex === 0} style={buttonStyle} onClick={() => commit({ type: "split-line", beforeWordIndex: wordIndex })}>Split line before selected word</button>
+            <button type="button" disabled={disabled || lineIndex >= lines.length - 1} style={buttonStyle} onClick={() => commit({ type: "merge-line" })}>Merge with next line</button>
           </div>
-
-          <div style={{ display: "flex", gap: 5, alignItems: "center", flexWrap: "wrap" }}>
-            <span style={{ color: "#94a3b8", fontSize: 9 }}>WORD</span>
-            {(selectedLine.words || []).map((word, index) => (
-              <button
-                key={`${word.word}-${index}`}
-                type="button"
-                onClick={() => { setSelectedWordIndex(index); onSeek?.(word.start); }}
-                style={{ ...buttonStyle, borderColor: index === selectedWordIndex ? "#f0abfc" : buttonStyle.border.split(" ").at(-1), background: index === selectedWordIndex ? "rgba(192,38,211,.34)" : buttonStyle.background }}
-              >
-                {word.word}
-              </button>
-            ))}
-            {selectedWord && [-.05, .05].map((delta) => <button key={delta} type="button" disabled={disabled} onClick={() => nudgeWord(delta)} style={buttonStyle}>{delta > 0 ? "+" : ""}{delta * 1000} ms</button>)}
-          </div>
-        </>
-      ) : (
-        <div style={{ color: "#94a3b8", fontSize: 10 }}>This cut has no lyric cues. Instrumental cuts keep Lyrics off.</div>
-      )}
+        </>}
+      </> : <p>No timed lyric cues are available for this cut.</p>}
+      {!!state?.history?.length && <details><summary>Correction history · {state.history.length} actions · last {state.undo?.length || 0} edits undoable</summary>
+        <ol>{state.history.slice(-12).map(entry => <li key={entry.id}>{entry.type} · line {entry.index + 1} · {entry.at}</li>)}</ol>
+      </details>}
     </section>
   );
 }
-
