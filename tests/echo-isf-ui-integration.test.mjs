@@ -23,7 +23,7 @@ test("Echo resolves graph-backed shader layers through a bounded lookahead playb
   assert.match(echoSource, /echoPreviewShaderSize\(canvas\.width, canvas\.height, previewQuality\)/);
   assert.match(echoSource, /width: shaderSize\.width/);
   assert.match(echoSource, /height: shaderSize\.height/);
-  assert.match(echoSource, /const audioEnvelope = echoVisualizerAudioEnvelope\(layerSignalFrame \|\| masterSignalFrame\)/);
+  assert.match(echoSource, /signalFrame: layerSignalFrame \|\| masterSignalFrame, recipeMix: echoVisualizerRecipeMix\(directorShowGraph\)/);
   assert.match(echoSource, /ctx\.drawImage\(presentation\.canvas, -width \/ 2, -height \/ 2, width, height\)/);
   assert.match(echoSource, /exactIsfPlaybackPoolRef\.current\?\.dispose\?\.\(\)/);
   assert.match(echoSource, /data-echo-exact-isf-status/);

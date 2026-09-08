@@ -2,7 +2,7 @@
   "schemaVersion": "hapa.workflow-pilot.v1",
   "id": "echo-requirement-completion-batch-pilot",
   "version": "0.1",
-  "updatedAt": "2026-09-08T09:47:02.231332+00:00",
+  "updatedAt": "2026-09-08T10:20:04.656882+00:00",
   "status": "active-pilot",
   "effectiveness": "not-yet-evaluated",
   "ownerTaskId": "01a072d3-d593-74f2-8c89-2470c2ee1a40",
@@ -40,7 +40,7 @@
   "batches": [
     {
       "id": "A1",
-      "status": "song-time-media-handoffs-verified-full-event-parity-open",
+      "status": "matched-presentation-verified-transport-camera-consolidation-open",
       "requirements": [
         "ECHO-07"
       ],
@@ -657,6 +657,29 @@
         "additionalUiIntegrationPassed": 15,
         "distinctChecksPassed": 90,
         "processGroupsAbsent": true
+      },
+      "matchedPresentation": {
+        "status": "verified-checkpoint-not-batch-accepted",
+        "samples": 48,
+        "paintedLayers": 138,
+        "mediaStates": 55,
+        "affectedChecks": 83,
+        "sourceIntegrity": {
+          "protected": 55,
+          "authoring": 12,
+          "unchanged": true
+        },
+        "baselineFullSong": {
+          "seconds": 258.439979,
+          "lyricOnsets": 75,
+          "lyricP95Ms": 29.721,
+          "accentOnsets": 71,
+          "accentP95Ms": 25.55,
+          "lyricOutliers": 3,
+          "scope": "browser first-observed onsets; before final presentation correction; not complete all-event coverage"
+        },
+        "postmortem": "postmortems/2026-09-08-echo-matched-presentation.md",
+        "humanAccepted": false
       }
     }
   ],
@@ -679,7 +702,7 @@
     "docs/postmortems/2026-09-08-echo-paused-composition.md"
   ],
   "decisionAfterAcceptedBatches": 2,
-  "nextAction": "Complete matched Preview/HyperFrames cue, lyric, gesture and camera event-state acceptance, including loop, dropped-frame recovery, out-of-order and non-unit source-rate cases. Consolidate ECHO-04/07 original criteria and reuse verified media handoffs, stem isolation and resource evidence. Retain cold persistent-history latency under ECHO-08/17 and remaining lyric, direction, recut, UI and human gates.",
+  "nextAction": "Normalize actual camera geometry; consolidate continuous-loop, recovery and non-unit-rate acceptance using the original ECHO-04 scope and existing evidence. Retain cold history and repeated same-frame composition under08/17.",
   "updates": "batch-start, scope-change, consequential-failure, acceptance, handoff, goal-completion",
   "collaboration": {
     "protocol": "docs/ECHO_CONVICTION_PROTOCOL.md",

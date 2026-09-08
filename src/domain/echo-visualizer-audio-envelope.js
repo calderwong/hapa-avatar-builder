@@ -43,21 +43,5 @@ export function resolveVerifiedEchoStemBinding(showGraph = null, card = null) {
   return { requested, requestedKey, status: "verified-stem", bus, registryStem, fallbackReason: "" };
 }
 
-export function echoVisualizerAudioEnvelope(signalFrame = null) {
-  const rms = clamp01(signalFrame?.rms);
-  const energy = clamp01(signalFrame?.energy);
-  const low = clamp01(signalFrame?.low ?? signalFrame?.bass);
-  const beat = clamp01(signalFrame?.beat ?? signalFrame?.onset);
-  const pulse = clamp01(Math.max(rms * 4, energy * 2.5, low * 1.8, beat));
-  return {
-    schemaVersion: "hapa.echo.visualizer-audio-envelope.v1",
-    signalStatus: signalFrame?.status || "unavailable",
-    signalSource: signalFrame?.source || "",
-    pulse,
-    beat,
-    brightness: 1 + pulse * 0.24 + beat * 0.12,
-    saturation: 1 + pulse * 0.32,
-    contrast: 1 + pulse * 0.08,
-    scale: 1 + pulse * 0.026 + beat * 0.016,
-  };
-}
+// The browser-safe frame runtime owns this shared Preview/export projection.
+export { echoVisualizerAudioEnvelope, echoVisualizerLayerPresentation, echoVisualizerRecipeMix } from "./hyperframes-visualizer-runtime.js";

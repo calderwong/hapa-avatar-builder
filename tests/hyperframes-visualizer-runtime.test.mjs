@@ -227,6 +227,16 @@ test("deterministic browser ISF layers execute without a sampled proxy contract"
   assert.deepEqual(state.layers[0].proxyFrame.sourceRect, [0, 0, 1920, 1080]);
   assert.equal(state.layers[0].pixelSignature, sourceHash);
   assert.equal(state.layers[0].liveIsf.persistent, true);
+  layer.echoComposition = { opacity: .8, layerOpacity: .5, mix: .75, canvasComposite: 'lighter' };
+  layer.presentationModulation = { mode: 'audio-conditioned-proxy', opacityDepth: .5, brightnessDepth: .8 };
+  const projected = evaluateHyperFramesVisualizers(show, .25).layers[0];
+  assert.equal(projected.effectiveOpacity, .075, "authored opacity, layer, mix, recipe and transition apply once");
+  assert.equal(projected.echoPresentation.canvasComposite, 'lighter');
+  assert.ok(projected.echoPresentation.audioEnvelope.contrast >= 1);
+  const signalChanged = structuredClone(show);
+  signalChanged.stemFrames.stems.forEach(stem => stem.frames.forEach(frame => { frame.rms=0; frame.onset=0; frame.low=0; frame.mid=0; frame.high=0; }));
+  assert.equal(evaluateHyperFramesVisualizers(signalChanged,.25).layers[0].effectiveOpacity, projected.effectiveOpacity, "exact shader input changes do not add the proxy-only opacity envelope");
+
 });
 
 test("visual rate, hold, and repeat events select deterministic horizontal proxy frames", () => {

@@ -200,7 +200,7 @@ test("Echo applies returned blend, opacity, and only real fade-like transitions"
   assert.equal(fadeMiddle.transitionAlpha, 1);
   assert.match(source, /ctx\.globalAlpha = Math\.max/);
   assert.match(source, /ctx\.globalCompositeOperation = composition\.canvasComposite/);
-  assert.match(source, /const audioEnvelope = echoVisualizerAudioEnvelope\(layerSignalFrame \|\| masterSignalFrame\)/);
+  assert.match(source, /signalFrame: layerSignalFrame \|\| masterSignalFrame, recipeMix: echoVisualizerRecipeMix\(directorShowGraph\)/);
   assert.match(source, /ctx\.filter = `brightness\(\$\{audioEnvelope\.brightness\.toFixed\(3\)\}\)/);
   assert.match(source, /ctx\.scale\(audioEnvelope\.scale, audioEnvelope\.scale\)/);
   assert.match(source, /ctx\.drawImage\(presentation\.canvas, -width \/ 2, -height \/ 2, width, height\)/);

@@ -33,9 +33,9 @@ At each meaningful update, keep JSON and Markdown in agreement, append the corre
 
 ## Next action
 
-Complete matched Preview/HyperFrames cue, lyric, gesture and camera event-state acceptance, including loop, dropped-frame recovery, out-of-order and non-unit source-rate cases. Consolidate ECHO-04/07 original criteria and reuse verified media handoffs, stem isolation and resource evidence. Retain cold persistent-history latency under ECHO-08/17 and remaining lyric, direction, recut, UI and human gates.
+Normalize actual Preview/export camera geometry and consolidate continuous-loop, dropped-frame recovery and non-unit-rate acceptance against the original ECHO-04 criteria. Reuse the matched layer/lyric/accent presentation and earlier six-song stem/history proofs. Keep cold persistent-history latency and repeated same-frame canvas composition under08/17.
 
-Song-time handoffs are verified in the six-song preview cohort and a bounded real export package; full event parity remains open. See [the handoff postmortem](postmortems/2026-09-08-echo-song-time-handoffs.md). Six done/twelve in progress; zero accepted pilot batches.
+The matched presentation checkpoint passes48 lyric/accent states,138 shader-layer observations and55 media opacity/source-time observations. See [the postmortem](postmortems/2026-09-08-echo-matched-presentation.md). Six done/twelve in progress; zero accepted pilot batches.
 
 ## Conviction relationship — 2026-09-06
 
@@ -166,3 +166,7 @@ media transitions now use shared absolute song-time opacity in Preview and Hyper
 
 
 Additional integration coverage: 15 cases pass after refreshing stale transparent-gap/source-observer assertions and camera-loop variable references. The empty-media and observer behavior already existed in the captured baseline. This gives 90 distinct checked cases in this checkpoint; no broad suite or additional native run was needed for these test-fixture repairs. All owned processes are terminal and absent; six task-owned temporary Electron profiles were removed after absence was verified.
+
+## A1 matched presentation — September8 continuation
+
+The same exact cut/graph/prepared music inputs now reach both actual adapters. Preview honors recipe mix; exact ISF export shares the Preview envelope/composite; reused shader clocks remain truthful and visual-time edits redraw.48 matched lyric/accent samples,138 layer observations and55 media states pass;83 affected checks/build pass, with renderer identity checked separately. A baseline full-song run recorded75 lyric and71 painted accent onsets, with29.721/25.550ms p95 browser-estimated residual respectively. Three lyric outliers and incomplete all-event coverage remain explicit. These measurements precede the final presentation correction. No requirement closes. The [postmortem](postmortems/2026-09-08-echo-matched-presentation.md) records the failed slider fixture, evidence limits and next action.

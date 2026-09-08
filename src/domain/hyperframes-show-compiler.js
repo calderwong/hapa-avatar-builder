@@ -1,3 +1,5 @@
+import { normalizeEchoIsfComposition } from "./echo-isf-frame-intent.js";
+import { echoVisualizerRecipeMix } from "./hyperframes-visualizer-runtime.js";
 import { hyperFramesMediaPresentationWindow, hyperFramesMediaOpacityState } from "./echo-media-presentation.js";
 export { hyperFramesMediaPresentationWindow, hyperFramesMediaOpacityState };
 import { upgradeEchoGeneratedVisualizerBindings } from "./echo-recipe-execution.js";
@@ -995,10 +997,7 @@ export function compileHyperFramesShow({ showGraph, telemetry, project, proxyReg
   }
   const outputProfile = projectProfileDeclared ? projectOutputProfile : graphOutputProfile;
   const duration = finite(showGraph.song?.durationSeconds, 60);
-  const configuredVisualizerMix = visualizerMix == null
-    ? (showGraph.directorV2?.recipe?.visualizerMix ?? 0.72)
-    : visualizerMix;
-  const resolvedVisualizerMix = Math.max(0, Math.min(1, finite(configuredVisualizerMix, 0.72)));
+  const resolvedVisualizerMix = echoVisualizerRecipeMix(showGraph, visualizerMix);
   const mediaContractIndex = indexHyperFramesMediaContracts(project);
   const proxyById = registryProxyIndex(proxyRegistry);
   const templates = {
@@ -1103,13 +1102,16 @@ export function compileHyperFramesShow({ showGraph, telemetry, project, proxyReg
           audioMap,
           modulationEffectiveness,
           presentationModulation: modulation,
+          echoComposition: normalizeEchoIsfComposition(card, finite(card.startSeconds), {}, { shaderType: portable.shaderType || portable.source?.shaderType }),
+          transitionDurationSeconds: Math.min(Math.max(0.001, finite(card.endSeconds)-finite(card.startSeconds))/4,
+            Math.max(0.04, finite(card.parameters?.transitionDurationSeconds ?? portable.layer?.transitionDurationSeconds, 0.35))),
           baseOpacity,
           opacity,
           visualizerMix: resolvedVisualizerMix,
           effectiveOpacity: opacity * resolvedVisualizerMix,
           blendMode: String(portable.layer?.blend || card.parameters?.blendMode || "screen"),
           target: String(portable.layer?.target || card.parameters?.target || "program"),
-          transition: String(portable.layer?.transition || card.transition || "crossfade"),
+          transition: String(card.transition || card.parameters?.transition || portable.layer?.transition || "cut"),
         };
         instance.pixelIdentitySeed = hyperFramesPixelIdentity(instance, 0);
         visualizerInstances.push(instance);

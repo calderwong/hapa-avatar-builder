@@ -320,6 +320,22 @@ test("live renderer clock is pinned to the music playhead across pause, advance,
   assert.equal(uniformFrames[3].gain, 0.9);
   surface.draw({ card, time: 2, frameRate: 30, values: { gain: 0.9 } });
   assert.equal(drawCalls, 4, "identical paused input remains reusable");
+  // A cue beginning at 23s renders local shader time 1.3 at song time 24.3.
+  const local = surface.draw({ card, time: 24.3, visualTime: 1.3, frameRate: 30 });
+  assert.equal(local.clock.time, 1.3);
+  assert.equal(uniformFrames.at(-1).TIME, 1.3);
+  const beforeReuse = drawCalls;
+  const reused = surface.draw({ card, time: 24.3, visualTime: 1.3, frameRate: 30 });
+  assert.equal(drawCalls, beforeReuse);
+  assert.equal(reused.clock.time, uniformFrames.at(-1).TIME, "receipt describes the actual reused shader frame, not song time");
+  assert.equal(reused.clock.frameIndex, 39);
+  const editedTime = surface.draw({ card, time: 24.3, visualTime: .6, frameRate: 30 });
+  assert.equal(drawCalls, beforeReuse + 1, "visual-only modulation edits invalidate same-song-time reuse");
+  assert.equal(editedTime.clock.time, .6);
+  assert.equal(uniformFrames.at(-1).TIME, .6);
+  const advancingLocal = surface.draw({ card, time: 24.4, visualTime: .7, frameRate: 30 });
+  assert.equal(advancingLocal.clock.rephased, false, "cue-local time cannot manufacture a transport discontinuity");
+
 });
 
 test("catalog-quarantined shaders fail explicitly before source fetch or compilation", async () => {

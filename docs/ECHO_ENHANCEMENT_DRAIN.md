@@ -791,3 +791,7 @@ See [the postmortem](postmortems/2026-09-08-echo-song-time-handoffs.md). Complet
 
 
 Additional integration coverage: 15 cases pass after refreshing stale transparent-gap/source-observer assertions and camera-loop variable references. The empty-media and observer behavior already existed in the captured baseline. This gives 90 distinct checked cases in this checkpoint; no broad suite or additional native run was needed for these test-fixture repairs. All owned processes are terminal and absent; six task-owned temporary Electron profiles were removed after absence was verified.
+
+## September8 — matched adapter presentation and truthful shader clocks
+
+Shared recipe mix/audio-envelope/composite behavior now agrees in actual Preview and HyperFrames on the same exact cut. Cached shader receipts preserve rendered local time and visual-time edits invalidate reuse.48 lyric/accent samples,138 layer observations and55 media states pass;83 affected checks/build pass, with renderer identity verified separately. Full-song baseline onset measurements and their three lyric outliers are retained without claiming final-revision full-song acceptance. See [postmortem](postmortems/2026-09-08-echo-matched-presentation.md).55 protected/12 authoring hashes unchanged;6 done/12 in progress; no human acceptance.

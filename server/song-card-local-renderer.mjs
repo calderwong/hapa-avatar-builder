@@ -111,6 +111,7 @@ const RENDERER_BUILD_FILES = [
   "src/domain/echo-playback-sync.js",
   "src/domain/echo-media-presentation.js",
   "src/domain/hyperframes-visualizer-runtime.js",
+  "src/domain/echo-isf-frame-intent.js",
   "src/domain/echo-music-performance.js",
   "src/domain/native-visualizer-route.js",
   "src/domain/show-graph-capabilities.js",

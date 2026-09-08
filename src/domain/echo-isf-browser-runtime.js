@@ -601,7 +601,7 @@ export function createEchoIsfSurface(options = {}) {
     const height = Math.max(1, Math.round(Number(input.height) || canvas.height || 1));
     if (canvas.width !== width) canvas.width = width;
     if (canvas.height !== height) canvas.height = height;
-    const clock = isfPlaybackClock(input, lastRenderedClock, options);
+    const clock = isfPlaybackClock(input, lastRenderedClock ? { ...lastRenderedClock, time: lastRenderedSongTime } : null, options);
     const songTime = Number(input.time ?? clock.time);
     const visualTime = Number.isFinite(input.visualTime) ? input.visualTime : clock.time;
     let intent = null;
@@ -634,6 +634,7 @@ export function createEchoIsfSurface(options = {}) {
         && lastRenderedClock
         && intent.frameReceipt.receiptHash === lastRenderedIntentHash
         && songTime === lastRenderedSongTime
+        && visualTime === lastRenderedClock.time
         && clock.frameRate === lastRenderedClock.frameRate
         && width === lastRenderedWidth
         && height === lastRenderedHeight;
@@ -644,7 +645,7 @@ export function createEchoIsfSurface(options = {}) {
           error: "",
           composition: intent.composition,
           frameReceipt: intent.frameReceipt,
-          clock: { ...clock, reusedFrame: true },
+          clock: { ...lastRenderedClock, timeDelta: 0, reusedFrame: true },
         });
       }
       for (const [name, value] of Object.entries(intent.values)) renderer.setValue?.(name, value);

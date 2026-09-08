@@ -38,7 +38,8 @@ import {
   planEchoPlaybackCorrection,
 } from "../domain/echo-playback-sync.js";
 import {
-  echoVisualizerAudioEnvelope,
+  echoVisualizerLayerPresentation,
+  echoVisualizerRecipeMix,
   normalizeEchoStemFocus,
   resolveVerifiedEchoStemBinding,
 } from "../domain/echo-visualizer-audio-envelope.js";
@@ -3439,6 +3440,10 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
         : null;
       const accentState = EchoAccentPresentation.frame(directorPreviewFrame?.automation?.accents || [], directorPreviewFrame?.clock?.evaluationSeconds ?? directorPreviewFrame?.clock?.selectionSeconds ?? t, { reducedMotion: activeProject?.lyrics?.reducedMotion === true });
       const accentReceipts = [];
+      // Optional acceptance observer consumes the frame actually painted here;
+      // it does not evaluate a second timeline or add work to ordinary preview.
+      const paintObserver = globalThis.__HAPA_ECHO_ON_PAINT__;
+      const paintedLayers = typeof paintObserver === "function" ? [] : null;
       const mediaAccentTarget = directorPreviewFrame?.primaryMediaCue;
       if (mediaAccentTarget) accentReceipts.push(...EchoAccentPresentation.paint(ctx, accentState, width, height, { layer: "media-layer", primary: true, instanceId: mediaAccentTarget.id, cardId: mediaAccentTarget.id, trackId: mediaAccentTarget.trackId }));
       const projectedCueIndex = directorPreviewFrame?.primaryMediaCue?.sourceCueIndex;
@@ -3813,8 +3818,9 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
               const presentedShaderId = String(presentation.presentedShaderId || "");
               const heldPreviousFrame = presentation.heldPreviousFrame === true || presentation.heldPrevious === true;
               const namedStatus = String(presentation.handoff || presentation.status || "loading");
-              const audioEnvelope = echoVisualizerAudioEnvelope(layerSignalFrame || masterSignalFrame);
-              const composition = { ...(presentation.composition || compositionInput), audioEnvelope };
+              const composition = echoVisualizerLayerPresentation({ composition: presentation.composition || compositionInput,
+                signalFrame: layerSignalFrame || masterSignalFrame, recipeMix: echoVisualizerRecipeMix(directorShowGraph) });
+              const audioEnvelope = composition.audioEnvelope;
               return {
                 card,
                 presentation,
@@ -3928,6 +3934,10 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                 ctx.translate(width / 2, height / 2);
                 ctx.scale(audioEnvelope.scale, audioEnvelope.scale);
                 ctx.drawImage(presentation.canvas, -width / 2, -height / 2, width, height);
+                if (paintedLayers) paintedLayers.push({ cueId: layer.card.id, shaderId: layer.presentedShaderId,
+                  clock: presentation.clock || null, alpha: ctx.globalAlpha,
+                  filter: ctx.filter, blend: ctx.globalCompositeOperation, scale: audioEnvelope.scale,
+                  heldPrevious: presentation.heldPrevious === true, historyPending: presentation.historyPending === true });
                 ctx.restore();
                 // Layer-space overlays follow the same song clock, with no camera
                 // scale amplification of the declared frame-area limit.
@@ -4359,6 +4369,13 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
 
       canvas.dataset.echoAccentReceipts = JSON.stringify(EchoAccentPresentation.report(accentState, accentReceipts, { excludeLayers: directorPreviewFrame?.lyrics?.visible ? ['lyric-layer'] : [] }));
       canvas.dataset.echoVisualBudget = JSON.stringify(directorPreviewFrame?.visualBudget || null);
+      if (paintedLayers) {
+        const nowMs = performance.now();
+        try { paintObserver({ canvas, frame: directorPreviewFrame, source: activeDirectorPreviewSource,
+          performance: activePreparedPerformance, paintedLayers, accentReceipts, nowMs,
+          clock: estimateEchoAudibleClock({ audio: masterClock, context: audioContextRef.current, nowMs }) }); }
+        catch (error) { globalThis.__HAPA_ECHO_PAINT_OBSERVER_ERROR__ = String(error?.message || error); }
+      }
       
       if (powerMode === "docked") cadenceTimer = window.setTimeout(() => { animFrame = requestAnimationFrame(render); }, 1000 / 12);
       else animFrame = requestAnimationFrame(render);

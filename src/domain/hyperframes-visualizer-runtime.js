@@ -1,3 +1,40 @@
+export function echoVisualizerAudioEnvelope(signalFrame = null) {
+  const rms = clamp(signalFrame?.rms);
+  const energy = clamp(signalFrame?.energy);
+  const low = clamp(signalFrame?.low ?? signalFrame?.bass);
+  const beat = clamp(signalFrame?.beat ?? signalFrame?.onset);
+  const pulse = clamp(Math.max(rms * 4, energy * 2.5, low * 1.8, beat));
+  return {
+    schemaVersion: "hapa.echo.visualizer-audio-envelope.v1",
+    signalStatus: signalFrame?.status || "unavailable",
+    signalSource: signalFrame?.source || "",
+    pulse,
+    beat,
+    brightness: 1 + pulse * 0.24 + beat * 0.12,
+    saturation: 1 + pulse * 0.32,
+    contrast: 1 + pulse * 0.08,
+    scale: 1 + pulse * 0.026 + beat * 0.016,
+  };
+}
+
+
+export function echoVisualizerRecipeMix(showGraph = {}, override = null) {
+  const configured = override ?? showGraph.directorV2?.recipe?.visualizerMix ?? 0.72;
+  return clamp(finite(configured, 0.72));
+}
+
+export function echoVisualizerLayerPresentation({ composition = {}, signalFrame = null, recipeMix = 1 } = {}) {
+  const alpha = clamp(composition.opacity ?? composition.shaderVisibility ?? 1)
+    * clamp(composition.layerOpacity ?? 1) * clamp(composition.mix ?? 1)
+    * clamp(composition.transitionAlpha ?? 1) * clamp(recipeMix);
+  return { ...composition, effectiveAlpha: round(alpha), audioEnvelope: echoVisualizerAudioEnvelope(signalFrame) };
+}
+
+function preparedPresentationSignal(frame, role) {
+  return { ...(frame || {}),
+    ...Object.fromEntries(["rms", "peak", "low", "mid", "high", "bass", "treble", "beat", "onset", "energy", "palette", "orbit"].map(signal => [signal, frame ? signalValue(frame, signal) : 0])),
+    source: "prepared-performance", status: frame?.status || "missing-analysis", role };
+}
 export const ECHO_SECTION_VISUAL_BUDGET_SCHEMA = 'hapa.echo.section-visual-budget.v1';
 
 /** Shared compiler/Preview/export policy. Units for camera velocity and
@@ -698,11 +735,7 @@ export function evaluateEchoMusicPerformance(bundle, songSeconds, { soloStem = "
 export function echoPreparedPerformanceSignalFrames(bundle, timeSeconds, options = {}) {
   const evaluated = evaluateEchoMusicPerformance(bundle, timeSeconds, options);
   const frames = { master: evaluated.master, ...evaluated.stems };
-  return Object.fromEntries(Object.entries(frames).map(([role, frame]) => [role, {
-    ...(frame || {}),
-    ...Object.fromEntries(["rms", "peak", "low", "mid", "high", "bass", "treble", "beat", "onset", "energy", "palette", "orbit"].map(signal => [signal, frame ? signalValue(frame, signal) : 0])),
-    source: "prepared-performance", status: frame?.status || "missing-analysis", role,
-  }]));
+  return Object.fromEntries(Object.entries(frames).map(([role, frame]) => [role, preparedPresentationSignal(frame, role)]));
 }
 
 function frameAt(frames = [], timeSeconds = 0) {
@@ -1204,7 +1237,14 @@ export function evaluateHyperFramesVisualizers(show = {}, timeSeconds = 0, { sol
     const visualizerMix = clamp(instance.visualizerMix, 0, 1);
     const declaredEffective = Number(instance.effectiveOpacity);
     const baseEffectiveOpacity = Number.isFinite(declaredEffective) ? clamp(declaredEffective) : opacity * visualizerMix;
-    const effectiveOpacity = round(baseEffectiveOpacity * transition.alpha * (presentationModulation?.opacityMultiplier ?? 1));
+    // Exact ISF executes the shader's mapped inputs. Proxy-only animation must
+    // not apply a second, unrelated opacity/filter envelope to that execution.
+    const echoPresentation = instance.liveIsf && instance.echoComposition
+      ? echoVisualizerLayerPresentation({ composition: { ...instance.echoComposition, transitionAlpha: transition.alpha },
+          signalFrame: show.stemFrames?.performance ? preparedPresentationSignal(signals.stem?.frame, signals.requestedStem) : signals.stem?.frame,
+          recipeMix: visualizerMix }) : null;
+    const effectiveOpacity = echoPresentation?.effectiveAlpha
+      ?? round(baseEffectiveOpacity * transition.alpha * (presentationModulation?.opacityMultiplier ?? 1));
     const bindingDiagnostics = [
       ...(signals.fallbackUsed ? ["requested-stem-absent-master-frame-used"] : []),
       ...(!signals.stem ? ["stem-and-master-frame-unavailable"] : []),
@@ -1256,6 +1296,7 @@ export function evaluateHyperFramesVisualizers(show = {}, timeSeconds = 0, { sol
       controlBindings: controls.bindings,
       controlEnergy: controlEnergy(controls.values),
       presentationModulation,
+      echoPresentation,
       opacity: round(opacity),
       visualizerMix: round(visualizerMix),
       baseEffectiveOpacity: round(baseEffectiveOpacity),

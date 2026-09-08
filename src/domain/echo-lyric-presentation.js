@@ -47,6 +47,7 @@ export function renderEchoLyricSurface(element, { contract = {}, frame = null, l
   }
   const visible=Boolean(line && frame?.visible && contract.enabled!==false);
   element.style.visibility=visible?'visible':'hidden';
+  state.frame=visible?frame:null;state.line=visible?line:null;
   if(!visible)return {visible:false};
   const presentation=echoLyricPresentation(contract,outputProfile),key=JSON.stringify([contract.templateId,contract.style,contract.position,presentation.width,presentation.height,outputProfile.safeArea]);
   if(state.key!==key){
