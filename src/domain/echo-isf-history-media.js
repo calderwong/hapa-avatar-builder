@@ -1,0 +1,50 @@
+import { prepareHyperFramesVideoFrame } from './hyperframes-media-frame-runtime.js';
+
+// Detached, silent source frames for one ISF surface. Never borrows the operator's
+// video/audio elements. At most one video decoder and one still are retained.
+export function createEchoIsfHistoryMedia({ createElement = tag => document.createElement(tag), resolveUri = uri => uri, timeoutMs = 10000, waitForPresentation = false } = {}) {
+  let video = null, image = null, currentVideoUri = '', currentImageUri = '', sourceOriginSeconds = 0, disposed = false;
+  const lifetime = new AbortController();
+  const load = (element, uri, signal, kind) => new Promise((resolve, reject) => {
+    const event = kind === 'video' ? 'loadeddata' : 'load';
+    const cleanup = () => { clearTimeout(timer); element.removeEventListener(event, ready); element.removeEventListener('error', failed); signal?.removeEventListener('abort', cancelled); lifetime.signal.removeEventListener('abort', cancelled); };
+    const finish = error => { cleanup(); error ? reject(error) : resolve(); };
+    const ready = () => finish();
+    const failed = () => finish(new Error('Historical media decode failed'));
+    const cancelled = () => finish(new Error('Historical media cancelled'));
+    const timer = setTimeout(() => finish(new Error('Historical media decode timeout')), timeoutMs);
+    element.addEventListener(event, ready, { once: true }); element.addEventListener('error', failed, { once: true });
+    signal?.addEventListener('abort', cancelled, { once: true }); lifetime.signal.addEventListener('abort', cancelled, { once: true });
+    if (signal?.aborted || disposed) return cancelled();
+    element.src = uri;
+    if (kind === 'video') element.load();
+  });
+  return {
+    async at(cue, songTime, { fps = 30, signal } = {}) {
+      if (disposed || signal?.aborted) throw new Error('Historical media cancelled');
+      const media = cue?.media;
+      if (!media?.uri || !['video', 'image'].includes(media.kind)) return { element: null, receipt: null };
+      const uri = resolveUri(media.uri);
+      if (media.kind === 'image') {
+        image ||= createElement('img');
+        if (currentImageUri !== uri || !image.complete || !image.naturalWidth) {
+          await load(image, uri, signal, 'image'); currentImageUri = uri;
+        }
+        return { element: image, receipt: { route: 'decoded-image', uri, sourceHash: media.sourceHash } };
+      }
+      if (!video) { video = createElement('video'); video.muted = true; video.playsInline = true; video.preload = 'auto'; }
+      if (currentVideoUri !== uri || video.readyState < 2) {
+        await load(video, uri, signal, 'video'); currentVideoUri = uri;
+        // A positive media timestamp is preserved by preview preparation. The
+        // browser exposes its initial decoded position after loadeddata.
+        sourceOriginSeconds = Math.max(0, Number(video.currentTime) || 0);
+      }
+      Object.assign(video.dataset, { start: String(cue.startSeconds), mediaStart: String(media.sourceInSeconds || 0),
+        logicalDuration: String(cue.durationSeconds), playbackRate: '1', playbackMode: media.playbackMode || 'once' });
+      if (media.sourceOutSeconds != null) video.dataset.mediaEnd = String(media.sourceOutSeconds); else delete video.dataset.mediaEnd;
+      const receipt = await prepareHyperFramesVideoFrame(video, songTime, { fps, timeoutMs, waitForPresentation, sourceOriginSeconds, timeMapping: media.timeMapping, signal: signal ? AbortSignal.any([signal, lifetime.signal]) : lifetime.signal });
+      return { element: video, receipt: { ...receipt, uri, sourceHash: media.sourceHash, fidelity: media.fidelity || "original-source", originalUri: media.originalUri || null, originalSourceHash: media.originalSourceHash || null } };
+    },
+    dispose() { if (disposed) return; disposed = true; lifetime.abort(); if (video) { video.pause(); video.removeAttribute('src'); video.load(); } image?.removeAttribute('src'); video = null; image = null; },
+  };
+}

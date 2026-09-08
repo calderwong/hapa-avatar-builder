@@ -536,7 +536,7 @@ function eventTargetsInstance(event = {}, instance = {}) {
   return true;
 }
 
-function visualTimeFor(show, instance, timeSeconds, window) {
+export function visualTimeFor(show, instance, timeSeconds, window) {
   const baseGlobal = timeSeconds;
   let sampleGlobal = baseGlobal;
   const effects = [];

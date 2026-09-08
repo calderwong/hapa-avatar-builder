@@ -120,12 +120,13 @@ export async function openEchoPreviewPreparation({ root, mediaDir, cacheRoot, lo
           let resource = resources.get(route.resolvedPath);
           if (!resource) {
             const proxy = await prepareProxy({ sourcePath: route.resolvedPath,
-              proxyRoot: path.join(mediaRoot, 'echo-proxies-v2'), signal: job.controller.signal });
+              proxyRoot: path.join(mediaRoot, 'echo-proxies-v2'), seekOptimized: true, signal: job.controller.signal });
             const sourcePath = await fs.realpath(route.resolvedPath);
             if (stamp(await fs.stat(sourcePath)) !== proxy.sourceStamp) throw fail('Source changed after proxy verification.');
             resource = { proxy: { key: proxy.key, status: 'ready', uri: proxy.uri, sha256: proxy.sha256,
               width: proxy.width, height: proxy.height, byteSize: proxy.byteSize, durationSeconds: proxy.durationSeconds,
-              sourceHash: proxy.sourceHash, sourceDurationSeconds: proxy.sourceDurationSeconds, fidelity: proxy.fidelity },
+              sourceHash: proxy.sourceHash, sourceDurationSeconds: proxy.sourceDurationSeconds, fidelity: proxy.fidelity,
+              seekOptimized: proxy.settings?.seekOptimized === true, gopSeconds: proxy.gopSeconds },
               sourcePath, declaredPath: route.resolvedPath, sourceStamp: proxy.sourceStamp, proxyStamp: stamp(await fs.stat(proxy.path)) };
             resources.set(route.resolvedPath, resource);
             job.view.cacheHits += proxy.cached ? 1 : 0; job.view.transcoded += proxy.cached ? 0 : 1;

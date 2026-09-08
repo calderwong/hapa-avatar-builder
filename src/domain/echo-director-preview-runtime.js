@@ -935,7 +935,7 @@ export function resolveEchoDirectorPreviewSourceRect(options = {}) {
  * Pure projection from a single clock sample to one serializable Preview frame.
  * The same source and clock sample always produce the same state.
  */
-export function projectEchoDirectorPreviewFrame({
+export function projectEchoDirectorPreviewMediaFrame({
   source: sourceInput,
   project: projectInput,
   clock = 0,
@@ -965,8 +965,6 @@ export function projectEchoDirectorPreviewFrame({
     clockState.fps,
   ));
   const primaryMediaCue = mediaLayers.at(-1) || null;
-  let visualizers = visualizerCardsAtTime(graph, time)
-    .map((card) => normalizeVisualizer(card, graph, time, clockState.fps, shaderTypeResolver));
   const globalCamera = echoCameraKeyframeAt(graph.directorV2?.cameraKeyframes, time);
   const sourceCueIndex = Number.isInteger(primaryMediaCue?.sourceCueIndex)
     ? primaryMediaCue.sourceCueIndex
@@ -998,6 +996,17 @@ export function projectEchoDirectorPreviewFrame({
   camera.motionPresentation = cameraFraming.presentation;
   camera.sourceGeometry = cameraFraming.sourceGeometry;
 
+  return { source, clock: clockState, outputProfile, media: { layers: mediaLayers, primary: primaryMediaCue, layerCount: mediaLayers.length }, primaryMediaCue, camera };
+}
+
+export function projectEchoDirectorPreviewFrame(options = {}) {
+  const mediaFrame = projectEchoDirectorPreviewMediaFrame(options);
+  const { source, clock: clockState, outputProfile, primaryMediaCue, camera } = mediaFrame;
+  const { project, showGraph: graph } = source;
+  const time = clockState.evaluationSeconds;
+  const mediaLayers = mediaFrame.media.layers;
+  let visualizers = visualizerCardsAtTime(graph, time)
+    .map((card) => normalizeVisualizer(card, graph, time, clockState.fps, options.shaderTypeResolver));
   const graphLyrics = list(graph.song?.lyricOverlay?.lines);
   const lyricLines = (graphLyrics.length ? graphLyrics : list(project.timed_lyrics))
     .map((line, index) => normalizeLyricLine(line, index));

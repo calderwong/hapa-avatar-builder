@@ -126,3 +126,41 @@ test("microsecond video clocks select inside fractional frame boundaries without
     if (cancel) globalThis.cancelAnimationFrame = cancel; else delete globalThis.cancelAnimationFrame;
   }
 });
+
+test('cancelling a historical seek removes frame callbacks and event handlers', async () => {
+  const video = new Video(), controller = new AbortController();
+  let cancelled = 0;
+  video.requestVideoFrameCallback = () => 7;
+  video.cancelVideoFrameCallback = id => { assert.equal(id, 7); cancelled++; };
+  Object.defineProperty(video, 'currentTime', { get: () => 0, set() {} });
+  const pending = prepareHyperFramesVideoFrame(video, 11.3, { signal: controller.signal });
+  controller.abort();
+  await assert.rejects(pending, /cancelled/);
+  assert.equal(cancelled, 1);
+  for (const name of ['seeked', 'loadeddata', 'error']) assert.equal(getEventListeners(video, name).length, 0);
+  assert.equal(getEventListeners(controller.signal, 'abort').length, 0);
+});
+
+// The native video/shader proof separately verifies these decoded pixels against
+// the default presentation-gated reference, including cold and reverse seeks.
+test('offscreen decoding settles without scheduling a presentation callback', async () => {
+  const video = new Video();
+  video.requestVideoFrameCallback = () => { throw new Error('offscreen display wait'); };
+  const result = await prepareHyperFramesVideoFrame(video, 11.3, { waitForPresentation: false });
+  assert.equal(video.seeking, false);
+  assert.equal(result.presentationEvidence, 'settled-decode-only');
+  assert.equal(result.presentedMediaTimeSeconds, null);
+  assert.equal(result.observedTimeSeconds, Math.ceil(result.sourceTimeSeconds * 1e6 - 1e-6) / 1e6);
+  for (const name of ['seeked', 'loadeddata', 'error']) assert.equal(getEventListeners(video, name).length, 0);
+});
+
+test('positive source origins hold the first decoded frame without shifting the song clock', async () => {
+  const video = new Video(); video.dataset = { start: '42.5' }; video.time = .033008;
+  const options = { waitForPresentation: false, sourceOriginSeconds: .033008 };
+  for (const songTime of [42.5, 42.6, 42.5]) {
+    const receipt = await prepareHyperFramesVideoFrame(video, songTime, options);
+    assert.equal(receipt.songTimeSeconds, songTime);
+    assert.equal(receipt.sourceOriginClamped, songTime === 42.5);
+    assert.ok(Math.abs(receipt.observedTimeSeconds - Math.max(.033008, songTime - 42.5)) < 1e-6);
+  }
+});

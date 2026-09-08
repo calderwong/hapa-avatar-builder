@@ -5,10 +5,10 @@ import vm from 'node:vm';
 
 function harness(){
  const source=fs.readFileSync('scripts/compile-hyperframes-show-v2.mjs','utf8');
- const body=source.slice(source.indexOf('async function prepareMediaAt(t){'),source.indexOf('\nwindow.HAPA_PREPARE_MEDIA_AT='));
+ const body=source.slice(source.indexOf('async function loadMediaAt(t){'),source.indexOf('\nasync function prepareDecodedMediaAt'));
  const listeners=new Map();
  const image={tagName:'IMG',id:'source-image',dataset:{instanceIndex:'0'},complete:false,naturalWidth:0,getAttribute:()=>'/media/image.png',addEventListener:(event,fn)=>listeners.set(event,fn),removeEventListener:event=>listeners.delete(event)};
- const prepare=vm.runInNewContext(body+';prepareMediaAt',{media:[image],S:{instances:{media:[{source:{compiledUri:'image.png'}}]}},mediaReadyForShader:el=>el.complete&&el.naturalWidth>0,hyperFramesMediaPresentationWindow:()=>({presentationStart:0,presentationEnd:8}),setTimeout,clearTimeout,window:{},document:{}});
+ const prepare=vm.runInNewContext(body+';loadMediaAt',{media:[image],S:{instances:{media:[{source:{compiledUri:'image.png'}}]}},mediaReadyForShader:el=>el.complete&&el.naturalWidth>0,hyperFramesMediaPresentationWindow:()=>({presentationStart:0,presentationEnd:8}),setTimeout,clearTimeout,window:{},document:{}});
  return {image,listeners,prepare};
 }
 test('HyperFrames preparation waits for the actual image pixels and releases listeners',async()=>{

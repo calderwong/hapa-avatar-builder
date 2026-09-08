@@ -7,7 +7,7 @@ import { createHash } from 'node:crypto';
 import { openEchoPreviewPreparation as openService } from '../server/echo-preview-preparation.mjs';
 import { prepareEchoPlaybackProxy } from '../server/echo-playback-proxy.mjs';
 import { runEchoPreparationStage } from '../server/echo-performance-preparation.mjs';
-import { applyEchoPreviewProjection, echoPreviewShotKey } from '../src/domain/echo-preview-projection.js';
+import { applyEchoPreviewProjection, echoPreviewShotKey, echoPreviewHistoryMediaCue } from '../src/domain/echo-preview-projection.js';
 
 const stamp = value => [value.size, value.mtimeMs, value.ctimeMs, value.ino].join(':');
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
@@ -57,6 +57,8 @@ test('selected cut prepares full source once, survives restart, rejects changed 
   await assert.rejects(openEchoPreviewPreparation({ root, loadSelection: async () => selected }), { statusCode: 503 });
   let job = await terminal(service, (await service.start({ songId: 'song', variantId: 'cut-a' })).id);
   assert.equal(job.status, 'ready'); assert.equal(job.transcoded, 1); assert.equal(job.total, 2);
+  assert.equal(job.items[0].proxy.seekOptimized, true);
+  assert.equal(job.items[0].proxy.gopSeconds, 1 / 30);
   assert.equal(job.items[0].proxy.durationSeconds, 2); // not the one-second cue length
   assert.equal(job.items[0].sourcePath, undefined);
   assert.deepEqual(selected, before); assert.equal(hash(await fs.readFile(source)), sourceHash);
@@ -153,4 +155,18 @@ test('the canonical preview API prepares projected selected cues and the proof r
   assert.match(ui,/data-pending-cues=\{pendingCount\}/);
   const proof=await fs.readFile(new URL('../scripts/prove-echo-presentation-timing.cjs',import.meta.url),'utf8');
   assert.match(proof,/control\?\.dataset\.pendingCues==='0'/);
+});
+
+test('historical shader input follows the approved visible preview without borrowing another cue rendition', () => {
+  const shot = cue(), proxy = { sha256: 'b'.repeat(64), uri: `/media/echo-proxies-v2/${'a'.repeat(64)}/preview.mp4` };
+  const preview = applyEchoPreviewProjection([shot], { songId:'song', variantId:'cut', items:[{status:'ready',shotKey:echoPreviewShotKey(shot),proxy}] }, {songId:'song',variantId:'cut'})[0];
+  const frame = {startSeconds:8,durationSeconds:1,media:{id:'source',kind:'video',uri:'/media/source.mp4',sourceInSeconds:.5,sourceOutSeconds:1.5,timeMapping:{mode:'linear'}}};
+  const before = structuredClone(frame), mapped = echoPreviewHistoryMediaCue(frame,shot,preview);
+  assert.equal(mapped.media.uri,proxy.uri); assert.equal(mapped.media.sourceHash,proxy.sha256);
+  assert.equal(mapped.media.originalUri,frame.media.uri); assert.match(mapped.media.fidelity,/sampled/);
+  assert.equal(mapped.media.sourceInSeconds,.5); assert.deepEqual(mapped.media.timeMapping,frame.media.timeMapping);
+  assert.deepEqual(frame,before);
+  assert.equal(echoPreviewHistoryMediaCue(frame,{...shot,media_id:'other'},preview),frame);
+  assert.equal(echoPreviewHistoryMediaCue(frame,shot,{...preview,start_sec:9}),frame);
+  assert.equal(echoPreviewHistoryMediaCue(frame,shot,{...preview,runtime_media_uri:'/other.mp4'}),frame);
 });

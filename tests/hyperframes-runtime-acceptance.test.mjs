@@ -267,7 +267,7 @@ test("HyperFrames project generation and pixel capture are offline-only and loca
   assert.match(compilerSource, /const schedule=\(\)=>setTimeout\(mount,0\)[\s\S]+DOMContentLoaded',schedule/, "live media must mount one task after DOMContentLoaded so HyperFrames navigation cannot traverse every clip");
   assert.match(compilerSource, /document\.createElement\('video'\)/, "live preview videos must be constructed in the HTML namespace");
   assert.match(compilerSource, /video\.dataset\.mediaSrc=descriptor\.source[\s\S]+video\.preload='none'/, "live videos must retain rolling-window source metadata without eager loading");
-  assert.match(compilerSource, /hapa:media-mounted[\s\S]+media=\[\.\.\.document\.querySelectorAll\('\.media'\)\]/, "the renderer must refresh its live media list after deferred mounting");
+  assert.match(compilerSource, /hapa:media-mounted[\s\S]+media=window\.HAPA_MEDIA_ELEMENTS\|\|\[\.\.\.document\.querySelectorAll\('\.media'\)\]/, "the renderer must retain both detached and mounted source elements after deferred initialization");
   assert.doesNotMatch(compilerSource, /MutationObserver[^\n]+removeAttribute\('src'\)/, "the capture page must not race navigation by adding then aborting every video request");
 
   const pinnedTimelineSource = fs.readFileSync("src/domain/hapa-pinned-timeline.js", "utf8");

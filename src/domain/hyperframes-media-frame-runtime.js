@@ -61,14 +61,21 @@ export async function prepareHyperFramesVideoFrame(video, timeSeconds, {
   fps = 30,
   timeoutMs = 10000,
   timeMapping = null,
+  signal,
+  // Offscreen history consumes decoded pixels without waiting for display paint.
+  // Export/capture callers retain presentation-gated behavior by default.
+  waitForPresentation = true,
+  sourceOriginSeconds = 0,
 } = {}) {
+  if (signal?.aborted) throw new Error("Video frame preparation cancelled");
   if (!(video.readyState >= 2) || !(video.videoWidth > 0) || !Number.isFinite(video.duration)) {
     throw new Error(`Video must decode before seeking: ${video.id}`);
   }
   const target = hyperFramesVideoFrameTime(video, timeSeconds, fps, timeMapping);
   // Chromium exposes microsecond media time. Round into the requested frame,
   // rather than just before its boundary (1/30 can otherwise become .033333).
-  const seekTime = Math.ceil(target * 1e6 - 1e-6) / 1e6;
+  const decodedTarget = Math.max(target, Math.max(0, Number(sourceOriginSeconds) || 0));
+  const seekTime = Math.ceil(decodedTarget * 1e6 - 1e-6) / 1e6;
   const atTarget = () => Math.abs(video.currentTime - seekTime) <= 1e-6;
   video.pause();
   let presentedMediaTime = null;
@@ -80,9 +87,10 @@ export async function prepareHyperFramesVideoFrame(video, timeSeconds, {
       let frameHandle = null;
       let paintHandle = null;
       let fallbackScheduled = false;
-      let framePresented = typeof video.requestVideoFrameCallback !== "function";
+      let framePresented = !waitForPresentation || typeof video.requestVideoFrameCallback !== "function";
       const cleanup = () => {
         clearTimeout(timer);
+        signal?.removeEventListener("abort", cancelled);
         if (frameHandle !== null) video.cancelVideoFrameCallback(frameHandle);
         if (paintHandle !== null) globalThis.cancelAnimationFrame?.(paintHandle);
         video.removeEventListener("seeked", ready);
@@ -109,12 +117,14 @@ export async function prepareHyperFramesVideoFrame(video, timeSeconds, {
         cleanup(); resolve();
       };
       const failed = () => { cleanup(); reject(new Error(`Video frame decode failed: ${video.id}`)); };
+      const cancelled = () => { cleanup(); reject(new Error("Video frame preparation cancelled")); };
       const timer = setTimeout(() => {
         cleanup(); reject(new Error(`Video frame seek timed out: ${video.id} at ${target}`));
       }, timeoutMs);
       video.addEventListener("seeked", ready);
       video.addEventListener("loadeddata", ready);
       video.addEventListener("error", failed);
+      signal?.addEventListener("abort", cancelled, { once: true });
       const presented = (_now, metadata) => {
         frameHandle = null;
         if (!atTarget()) {
@@ -137,10 +147,12 @@ export async function prepareHyperFramesVideoFrame(video, timeSeconds, {
     songTimeSeconds: Number(timeSeconds),
     sourceTimeSeconds: target,
     observedTimeSeconds: video.currentTime,
+    sourceOriginSeconds: Math.max(0, Number(sourceOriginSeconds) || 0),
+    sourceOriginClamped: decodedTarget !== target,
     presentedMediaTimeSeconds: presentedMediaTime,
     width: video.videoWidth,
     height: video.videoHeight,
     route: "decoded-video",
-    presentationEvidence: decodedFrameReused ? 'settled-seek-without-new-presentation' : presentedMediaTime == null ? 'already-decoded' : 'video-frame-callback',
+    presentationEvidence: !waitForPresentation ? 'settled-decode-only' : decodedFrameReused ? 'settled-seek-without-new-presentation' : presentedMediaTime == null ? 'already-decoded' : 'video-frame-callback',
   };
 }

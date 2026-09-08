@@ -25,3 +25,18 @@ export function applyEchoPreviewProjection(timeline = [], receipt, { songId, var
     } };
   });
 }
+
+// Historical shader inputs must use the same approved preview rendition as the
+// visible player. Preserve source timing and never decorate the authoring cue.
+export function echoPreviewHistoryMediaCue(cue, sourceShot, previewShot) {
+  const proxy = previewShot?.media_contract?.proxy;
+  if (!cue?.media || !sourceShot || !previewShot || !proxy
+    || echoPreviewShotKey(sourceShot) !== echoPreviewShotKey(previewShot)
+    || String(cue.media.id || '') !== String(sourceShot.media_id || '')
+    || !/^[a-f0-9]{64}$/.test(proxy.sha256 || '')
+    || !/^\/media\/echo-proxies-v2\/[a-f0-9]{64}\/preview\.mp4$/.test(proxy.uri || '')
+    || previewShot.runtime_media_uri !== proxy.uri) return cue;
+  return { ...cue, media: { ...cue.media, uri: proxy.uri, sourceHash: proxy.sha256,
+    originalUri: cue.media.uri, originalSourceHash: cue.media.sourceHash || null,
+    fidelity: 'sampled-H264-preview; originals retained for export' } };
+}

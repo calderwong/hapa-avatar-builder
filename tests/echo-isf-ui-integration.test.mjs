@@ -29,8 +29,10 @@ test("Echo resolves graph-backed shader layers through a bounded lookahead playb
   assert.match(echoSource, /data-testid="echo-director-preview-isf-status"/);
   assert.doesNotMatch(echoSource, /EXACT ISF HOLD/);
   assert.doesNotMatch(echoSource, /drawExactIsfDiagnostic/);
-  assert.match(echoSource, /exactVisualizerRequiresLiveMediaInput/);
-  assert.match(echoSource, /Director skipped an ISF shader that requires an unavailable live media input/);
+  assert.match(echoSource, /createEchoIsfHistoryMedia/);
+  assert.match(echoSource, /createHistoryResolver: \(\) => createHistoryResolver\(card\)/);
+  assert.doesNotMatch(echoSource, /filter\(.*exactVisualizerRequiresLiveMediaInput/);
+  assert.match(echoSource, /frameRate: activeOutputProfile\.fps/);
   const controlsIndex = echoSource.indexOf('data-testid="echo-director-preview-controls"');
   for (const marker of [
     'data-testid="echo-director-preview-isf-status"',

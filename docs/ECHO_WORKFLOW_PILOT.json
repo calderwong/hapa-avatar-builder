@@ -2,7 +2,7 @@
   "schemaVersion": "hapa.workflow-pilot.v1",
   "id": "echo-requirement-completion-batch-pilot",
   "version": "0.1",
-  "updatedAt": "2026-09-08T03:51:51.917848+00:00",
+  "updatedAt": "2026-09-08T04:50:09.276041+00:00",
   "status": "active-pilot",
   "effectiveness": "not-yet-evaluated",
   "ownerTaskId": "01a072d3-d593-74f2-8c89-2470c2ee1a40",
@@ -64,6 +64,19 @@
           "tests": 2208,
           "pass": 2208,
           "fail": 0
+        },
+        {
+          "scope": "persistent preview integration before test harness repairs and lookahead/seek-proxy corrections",
+          "tests": 2223,
+          "pass": 2217,
+          "fail": 6
+        },
+        {
+          "scope": "persistent preview/lookahead/seek-proxy/positive-origin integration after repairs",
+          "tests": 2226,
+          "pass": 2226,
+          "fail": 0,
+          "seconds": 164.5339
         }
       ],
       "escapedDefects": null,
@@ -131,10 +144,11 @@
     "docs/postmortems/2026-09-07-echo-deferred-media-export.md",
     "docs/postmortems/2026-09-07-echo-package-media-clock.md",
     "docs/postmortems/2026-09-07-echo-shader-frame-integration.md",
-    "docs/postmortems/2026-09-07-echo-persistent-seek.md"
+    "docs/postmortems/2026-09-07-echo-persistent-seek.md",
+    "docs/postmortems/2026-09-07-echo-preview-persistent-seek.md"
   ],
   "decisionAfterAcceptedBatches": 2,
-  "nextAction": "Integrate persistent checkpoint preparation into interactive preview using historical decoded media and prepared inputs; then complete A1 timing/resource acceptance.",
+  "nextAction": "Resolve terminal-frame media coverage and cross-layer fallback in the shared Preview/export contract, then complete composite/physical timing and global resource acceptance. Reuse valid integration evidence.",
   "updates": "batch-start, scope-change, consequential-failure, acceptance, handoff, goal-completion",
   "collaboration": {
     "protocol": "docs/ECHO_CONVICTION_PROTOCOL.md",
@@ -201,5 +215,49 @@
     "checkpointBudgetScope": "128 MiB per surface; cold replay total latency not bounded",
     "requirementClosures": [],
     "postmortem": "docs/postmortems/2026-09-07-echo-persistent-seek.md"
+  },
+  "latestPreviewPersistentHistory": {
+    "status": "verified-implementation-checkpoint-requirements-open",
+    "nativeSeekChecks": 6,
+    "nativePlaybackChecks": 12,
+    "positiveOriginEntryAndReverse": "pass",
+    "queuedFramesMaxPerSurface": 5,
+    "lookaheadFrames": 3,
+    "previewCutCuesPrepared": 78,
+    "previewSourceCount": 53,
+    "sourceAndCutHashesUnchanged": true,
+    "rollingTimingWindowsMs": [
+      {
+        "p95": 30.667,
+        "max": 33.333,
+        "late": 0,
+        "samples": 900
+      },
+      {
+        "p95": 31.999667,
+        "max": 328.007333,
+        "late": 8,
+        "samples": 900
+      }
+    ],
+    "timingScope": "prepared shader relative to audio playhead; not physical/composite AV residual",
+    "requirementClosures": [],
+    "sustainedSegment": {
+      "startSeconds": 39,
+      "endSeconds": 258.439979,
+      "naturalAudioEnd": true,
+      "checkpointBytesPlateau": 133105872,
+      "finalFrameAccepted": false,
+      "remainingDefect": "Media timeline ends258.4 versus audio258.44; missing filter image input and cross-layer fallback at final samples."
+    },
+    "repositoryTestsPassed": 2226,
+    "repositoryTestsFailed": 0,
+    "build": "pass",
+    "tarotSmoke": "pass-visible-nonblank",
+    "integrity": {
+      "protected": 55,
+      "authoring": 12,
+      "unchanged": true
+    }
   }
 }

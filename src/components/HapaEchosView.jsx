@@ -1,11 +1,12 @@
+import { createEchoIsfHistoryMedia } from "../domain/echo-isf-history-media.js";
 import { createImageShotGeometry, selectImageShotRendition } from "../domain/unified-media-catalog.js";
 import EchoLyricOverlay from "./EchoLyricOverlay.jsx";
 import { EchoAccentPresentation } from "../domain/echo-accent-presentation.js";
-import { echoPreparedPerformanceSignalFrames, evaluateEchoMusicPerformance, echoVisualSignalIsolation, isolateEchoPreparedModulation } from "../domain/hyperframes-visualizer-runtime.js";
+import { visualTimeFor, echoPreparedPerformanceSignalFrames, evaluateEchoMusicPerformance, echoVisualSignalIsolation, isolateEchoPreparedModulation } from "../domain/hyperframes-visualizer-runtime.js";
 import { prepareDirectorModulationTimeline } from "../domain/director-modulation-v2.js";
 import EchoPerformancePreparationControl from "./EchoPerformancePreparationControl.jsx";
 import EchoPreviewPreparationControl from "./EchoPreviewPreparationControl.jsx";
-import { applyEchoPreviewProjection } from "../domain/echo-preview-projection.js";
+import { applyEchoPreviewProjection, echoPreviewHistoryMediaCue } from "../domain/echo-preview-projection.js";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { createEchoPanelLoader } from "../domain/echo-panel-loader.js";
@@ -91,6 +92,7 @@ import {
 import {
   echoDirectorPreviewMediaTransitionState,
   projectEchoDirectorPreviewFrame,
+  projectEchoDirectorPreviewMediaFrame,
   selectEchoDirectorPreviewSource,
 } from "../domain/echo-director-preview-runtime.js";
 import { selectLatestEchoDirectionScriptVariant } from "../domain/echo-record-garden.js";
@@ -1269,7 +1271,7 @@ function detachedEchoVisualizerCards(showGraph = null) {
 
 function normalizedRendererRuntimeStatus(status = "") {
   const value = String(status || "").toLowerCase();
-  if (value === "error" || value === "failed") return "draw-error";
+  if (value === "error" || value === "failed" || value === "history-error") return "draw-error";
   if (value.includes("compile")) return "compile-error";
   if (value.includes("input")) return "input-error";
   if (value.includes("hash")) return "hash-error";
@@ -1326,6 +1328,10 @@ function exactEchoRendererTruth(card = null, presentation = {}, rendererId = "ec
     runtimeStatus,
     fallback,
     reason: fallback ? "candidate-not-ready-last-good-frame-held" : "",
+    ...(presentation.historyFidelity === "live-unrecorded" ? {
+      fallback: { id: `${requestedId}@unrecorded-live`, title: "Live shader history (not seek-reproducible)", route: "unrecorded-live-history" },
+      reason: "Live persistent history is not reproducible without a recorded signal take",
+    } : {}),
   };
   return {
     truth: resolveVisualizerRendererTruth(card, rendererId, options),
@@ -1379,6 +1385,9 @@ function compactEchoIsfPlaybackDiagnostics(diagnostics = {}, presentation = {}, 
     surfaceCount: Number(diagnostics.surfaceCount || 0),
     contextCount: Number(diagnostics.contextCount || diagnostics.contexts || 0),
     programCount: Number(diagnostics.programCount || diagnostics.programs || 0),
+    historyCheckpointBytes: Number(diagnostics.historyCheckpointBytes || 0),
+    historyPresentationTiming: diagnostics.historyPresentationTiming || [],
+    historyJobsPreparing: Number(diagnostics.historyJobsPreparing || 0),
     sourceCache,
     handoffs: Number(diagnostics.handoffs || 0),
     heldFrames: Number(diagnostics.heldFrames || 0),
@@ -1392,12 +1401,6 @@ function exactIsfStatusIsFailure(status = "") {
   return /(error|failed|missing|invalid|hash|compile|draw|input)/i.test(String(status || "idle"));
 }
 
-function exactVisualizerRequiresLiveMediaInput(card = {}) {
-  const inputs = card?.visualization?.card?.inputs || card?.visualization?.inputs || [];
-  return (Array.isArray(inputs) ? inputs : []).some((input) => (
-    String(input?.TYPE || input?.type || "").trim().toLowerCase() === "image"
-  ));
-}
 
 function normalizedStemFocus(value = "") {
   return normalizeEchoStemFocus(value);
@@ -3430,13 +3433,14 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
           ? directorPreviewFrame.visualizers.map((visualizer) => activeShowGraphVisualizerCardsById.get(visualizer.id)).filter(Boolean)
           : visualizerCardsAtTime(directorShowGraph, t)
         : [];
-      const quarantinedGraphVisualizerCards = graphActiveVisualizerCardsIncludingQuarantine.filter(exactVisualizerRequiresLiveMediaInput);
-      const graphActiveVisualizerCards = graphActiveVisualizerCardsIncludingQuarantine.filter((card) => !exactVisualizerRequiresLiveMediaInput(card));
+      // An image input is a binding requirement, not a quarantine. The verified
+      // source loader and frame-intent adapter report actual unavailable inputs.
+      const graphActiveVisualizerCards = graphActiveVisualizerCardsIncludingQuarantine;
       const graphVisualizerCards = hasDirectorShowGraph
-        ? visualizerLookaheadCards(directorShowGraph, t, 6).filter((card) => !exactVisualizerRequiresLiveMediaInput(card))
+        ? visualizerLookaheadCards(directorShowGraph, t, 6)
         : [];
       const graphVisualizerCard = graphActiveVisualizerCards[0]
-        || (quarantinedGraphVisualizerCards.length ? null : graphVisualizerCards[0])
+        || graphVisualizerCards[0]
         || null;
 
       const budgetHoldsAllShaders = directorPreviewFrame?.visualBudget?.status === "within-budget" && directorPreviewFrame.visualizers.length === 0 && directorPreviewFrame.visualBudget.suppressedIds.length > 0;
@@ -3447,13 +3451,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
         const pool = ensureExactPlaybackPool(canvas, directorShowGraph);
         if (!graphVisualizerCard) {
           pauseEchoStemDecoderPool(stemDecoderPoolRef.current);
-          const missing = quarantinedGraphVisualizerCards.length
-            ? {
-                status: "error",
-                sourceId: quarantinedGraphVisualizerCards.map(exactVisualizerSourceId).join(", "),
-                error: "Director skipped an ISF shader that requires an unavailable live media input",
-              }
-            : { status: "error", sourceId: "", error: "No executable shader card at this graph time" };
+          const missing = { status: "error", sourceId: "", error: "No executable shader card at this graph time" };
           publishExactStatus(missing);
           const heldCanvas = exactIsfLastPresentedCanvasRef.current;
           if (heldCanvas) ctx.drawImage(heldCanvas, 0, 0, width, height);
@@ -3642,6 +3640,43 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
               : null;
             const graphIdentity = echoIsfGraphRuntimeIdentity(directorShowGraph);
             const layeredCards = directorPreviewFrame ? graphActiveVisualizerCards : graphActiveVisualizerCards.length ? graphActiveVisualizerCards : [graphVisualizerCard];
+            const visualTimeAt = (card, songTime) => visualTimeFor(
+              { automation: directorShowGraph.directorV2 || {} },
+              { id: card.id, trackId: card.trackId, visualizerId: exactVisualizerSourceId(card) }, songTime,
+              { start: Number(card.startSeconds || 0), duration: Math.max(0, Number(card.endSeconds || 0) - Number(card.startSeconds || 0)) },
+            ).visualTimeSeconds;
+            const createHistoryResolver = (card) => {
+              if (audioVisualMode === "live" || !activeDirectorPreviewSource) return null;
+              const decoder = createEchoIsfHistoryMedia({ resolveUri: resolveMediaUri });
+              const framedCanvas = document.createElement("canvas");
+              const timeline = [...previewTimelineRef.current];
+              return {
+                dispose: () => decoder.dispose(),
+                at: async (songTime, { signal, requiresMedia } = {}) => {
+                  const phaseStart = performance.now();
+                  const projected = requiresMedia ? projectEchoDirectorPreviewMediaFrame({ source: activeDirectorPreviewSource, timeSeconds: songTime, fps: activeOutputProfile.fps }) : null;
+                  const sourceCue = projected?.primaryMediaCue;
+                  const cue = echoPreviewHistoryMediaCue(sourceCue, activeDirectorPreviewSource.project.timeline[sourceCue?.sourceCueIndex], timeline[sourceCue?.sourceCueIndex]);
+                  const projectedAt = performance.now();
+                  const decoded = requiresMedia ? await decoder.at(cue, songTime, { fps: activeOutputProfile.fps, signal }) : null;
+                  const decodedAt = performance.now();
+                  const index = cue?.sourceCueIndex;
+                  const sourceShot = timeline[index];
+                  const camera = projected?.camera;
+                  const shot = sourceShot && camera ? { ...sourceShot, camera_motion: camera.motion, camera_intensity: camera.intensity, ...(camera.speed == null ? {} : { camera_speed: camera.speed }) } : sourceShot;
+                  const framed = decoded?.element ? drawEchoCameraFramedMediaInput({ canvas: framedCanvas, mediaElement: decoded.element, shot, timeSeconds: songTime, shotIndex: Number.isInteger(index) ? index : 0, cameraCrop: camera?.keyframe?.crop || null, outputWidth: width, outputHeight: height }) : null;
+                  const signals = audioVisualMode === "replay"
+                    ? activeRecordedSignalReplay?.at(songTime) || { master: { source: "recorded-signals", status: "outside-captured-range", rms: 0, beat: 0, energy: 0 } }
+                    : activePreparedPerformance ? echoPreparedPerformanceSignalFrames(activePreparedPerformance, songTime, { soloStem: activeVisualSignalSolo }) : { master: emptyPreparedStem };
+                  const role = String(card?.visualization?.card?.stemFocus || card?.visualization?.stemFocus || "master");
+                  return { visualTime: visualTimeAt(card, songTime), signalFrames: signals, audio: signals[role] || signals[normalizedStemFocus(role)] || emptyPreparedStem,
+                    preparedModulation: diagnosticPreparedModulation, mediaElement: framed?.canvas || null,
+                    mediaIdentity: cue ? { id: cue.media.id, uri: cue.media.uri, sourceHash: cue.media.sourceHash } : null,
+                    mediaFrameReceipt: decoded ? { ...decoded.receipt, preparationMs: { projection: projectedAt - phaseStart, decode: decodedAt - projectedAt, framingAndSignals: performance.now() - decodedAt } } : null,
+                    composition: visualizerCompositionInput(card, songTime, availableShaderByIdRef.current?.get(exactVisualizerSourceId(card)) || null) };
+                },
+              };
+            };
             const layerPresentations = layeredCards.map((card) => {
               const stemRole = String(card?.visualization?.card?.stemFocus || card?.visualization?.stemFocus || "master");
               const layerSignalFrame = signalFrames[stemRole]
@@ -3656,6 +3691,11 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
               );
               const presentation = pool.present(card, {
                 time: t,
+                playing: isPlayingRef.current,
+                frameRate: activeOutputProfile.fps,
+                visualTime: visualTimeAt(card, t),
+                historyMode: audioVisualMode === "live" ? "live" : "prepared",
+                createHistoryResolver: () => createHistoryResolver(card),
                 fft: fftList,
                 wave: waveList,
                 audio: layerSignalFrame,
@@ -3710,7 +3750,9 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
               && presentation.status === "ready"
               && presentedShaderId === requestedShaderId
             ));
-            const namedStatus = readyLayers.length === layerPresentations.length
+            const namedStatus = readyLayers.some(({ presentation }) => presentation.historyPending)
+              ? "preparing-history"
+              : readyLayers.length === layerPresentations.length
               ? "ready"
               : readyLayers.length
                 ? "partial"
@@ -3755,6 +3797,10 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                   requestedShaderId: layer.requestedShaderId,
                   presentedShaderId: layer.presentedShaderId,
                   status: layer.namedStatus,
+                  historyPending: layer.presentation.historyPending === true,
+                  historyProgress: layer.presentation.historyProgress || null,
+                  songFrameIndex: layer.presentation.clock?.songFrameIndex ?? null,
+                  mediaFrameReceipt: layer.presentation.mediaFrameReceipt || null,
                 })),
                 playbackPool: poolDiagnostics,
                 rendererTruth: primaryLayer?.rendererTruth?.truth || null,
@@ -4223,8 +4269,12 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
       cancelAnimationFrame(animFrame);
       window.clearTimeout(cadenceTimer);
       pauseEchoStemDecoderPool(stemDecoderPoolRef.current);
+      exactIsfPlaybackPoolRef.current?.dispose?.();
+      exactIsfPlaybackPoolRef.current = null;
+      exactIsfLastPresentedCanvasRef.current = null;
+      exactIsfPrewarmSignatureRef.current = "";
     };
-  }, [activeDirectorPreviewSource, activeShowGraphVisualizerCardsById, activeWorkbenchTab, activeProject, powerMode, audioVisualMode, activeRecordedSignalReplay, activePreparedPerformance, preparedModulationResult, diagnosticPreparedModulation, activeVisualSignalSolo, visualSignalIsolation]);
+  }, [activeDirectorPreviewSource, previewTimeline, activeShowGraphVisualizerCardsById, activeWorkbenchTab, activeProject, powerMode, audioVisualMode, activeRecordedSignalReplay, activePreparedPerformance, preparedModulationResult, diagnosticPreparedModulation, activeVisualSignalSolo, visualSignalIsolation]);
 
   const uniqueTags = useMemo(() => {
     if (!gapsReport?.videos) return [];
@@ -7498,6 +7548,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                                         data-echo-isf-prewarm-ready={exactIsfBindingDiagnostics.playbackPool.prewarmReadiness?.ready || 0}
                                         data-echo-isf-contexts={exactIsfBindingDiagnostics.playbackPool.contextCount || 0}
                                         data-echo-isf-programs={exactIsfBindingDiagnostics.playbackPool.programCount || 0}
+                                        data-echo-isf-history={JSON.stringify({ bytes: exactIsfBindingDiagnostics.playbackPool.historyCheckpointBytes || 0, preparing: exactIsfBindingDiagnostics.playbackPool.historyJobsPreparing || 0, timing: exactIsfBindingDiagnostics.playbackPool.historyPresentationTiming || [], layers: exactIsfBindingDiagnostics.persistentShaderLayers || [] })}
                                         data-echo-isf-source-cache={JSON.stringify(exactIsfBindingDiagnostics.playbackPool.sourceCache || {})}
                                         data-echo-isf-black-intervals={exactIsfBindingDiagnostics.playbackPool.blackIntervals || 0}
                                         data-echo-isf-frame-ms={Number(exactIsfBindingDiagnostics.playbackPool.frameTiming?.lastMs || 0).toFixed(2)}

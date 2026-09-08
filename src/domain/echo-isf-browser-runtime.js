@@ -1,3 +1,4 @@
+import { bindHyperFramesIsfFrameInputs, prepareHyperFramesIsfFrame, createHyperFramesIsfCheckpointStore, prepareHyperFramesIsfSeek } from "./hyperframes-isf-frame-runtime.js";
 import {
   buildEchoIsfFrameIntent,
   validateEchoIsfCardBindings,
@@ -401,8 +402,31 @@ export function createEchoIsfSurface(options = {}) {
   let renderer = null;
   let currentShader = null;
   let currentShaderId = "";
+  let historySurface = null;
+  let historyResolver = null;
+  let historyIdentity = "";
+  let historyFlight = null;
+  let historyAbort = null;
+  let historyResult = null;
+  let historyResultKey = "";
+  let historyFailureKey = "";
+  let historyRequestFrame = null;
+  let presentationCanvas = null;
+  // Three frames of look-ahead, plus current/previous presentation. These
+  // canvases never contain future pixels on the caller's displayed surface.
+  const playbackFrames = new Map();
+  let playbackRequestFrame = null;
+  let playbackWasPlaying = false;
+  const copyHistoryCanvas = () => {
+    const copy = defaultCanvas(canvas.width, canvas.height, dependencies);
+    copy.getContext("2d").drawImage(canvas, 0, 0);
+    return copy;
+  };
+  let frameImages = [];
+  let bindsDuringDraw = false;
   let activeClock = isfPlaybackClock({}, null, options);
   let lastRenderedClock = null;
+  let lastRenderedSongTime = null;
   let lastRenderedIntentHash = null;
   let lastRenderedWidth = 0;
   let lastRenderedHeight = 0;
@@ -426,6 +450,10 @@ export function createEchoIsfSurface(options = {}) {
     ...state,
     contextCount: gl ? 1 : 0,
     programCount: renderer && currentShaderId ? 1 : 0,
+    persistentHistory: historySurface?.checkpoints?.diagnostics?.() || null,
+    preparingHistory: Boolean(historyFlight),
+    historyLookahead: { frames: playbackFrames.size, maxFrames: 5,
+      bytes: [...playbackFrames.values()].reduce((sum, frame) => sum + frame.canvas.width * frame.canvas.height * 4, 0) },
   });
   const publish = (status, patch = {}) => {
     state = {
@@ -465,7 +493,12 @@ export function createEchoIsfSurface(options = {}) {
         : new library.Renderer(gl);
       if (!renderer) throw new Error("ISF renderer creation failed");
       if (typeof renderer.setDateUniforms === "function") {
-        renderer.setDateUniforms = () => pushRendererPlaybackClock(renderer, activeClock);
+        bindsDuringDraw = true;
+        renderer.setDateUniforms = () => {
+          pushRendererPlaybackClock(renderer, activeClock);
+          if (renderer.model?.passes) bindHyperFramesIsfFrameInputs({ canvas, renderer, imageInputs: frameImages });
+          else for (const [name, image] of frameImages) renderer.setValue?.(name, image);
+        };
       }
     }
   };
@@ -507,6 +540,12 @@ export function createEchoIsfSurface(options = {}) {
       }
       const verified = await fetchVerifiedSource({ apiBase, shader, dependencies });
       if (sequence !== prepareSequence) return snapshot();
+      historyAbort?.abort();
+      if (historyFlight) await historyFlight.catch(() => {});
+      if (disposed || sequence !== prepareSequence) return snapshot();
+      historyResolver?.dispose?.(); historyResolver = null;
+      historySurface?.checkpoints?.clear(); historySurface = null;
+      historyIdentity = ""; historyResult = null; historyResultKey = ""; historyFailureKey = "";
       try {
         renderer.loadSource(verified.source);
       } catch (error) {
@@ -514,6 +553,14 @@ export function createEchoIsfSurface(options = {}) {
       }
       if (renderer.valid === false) {
         return publish("compile-error", { sourceId: shaderId, shaderId, sourceHash: verified.observedHash, error: errorText(rendererError(renderer, "Shader compile failed")) });
+      }
+      // Some verified catalog sources spell this lowercase. Their named target
+      // still carries history even though the vendor's parsed flag is false.
+      let sourcePasses = [];
+      try { sourcePasses = JSON.parse(verified.source.match(/\/\*\s*(\{[\s\S]*?\})\s*\*\//)?.[1] || "{}").PASSES || []; } catch { /* vendor compilation remains authoritative */ }
+      if (renderer.model?.passes?.some(pass => pass.persistent) || sourcePasses.some(pass => pass.PERSISTENT === true || pass.persistent === true)) {
+        historySurface = { canvas, renderer, lastTime: null, lastFrameIndex: null };
+        historySurface.checkpoints = createHyperFramesIsfCheckpointStore(historySurface, options.checkpointOptions);
       }
       currentShader = shader;
       currentShaderId = shaderId;
@@ -544,12 +591,14 @@ export function createEchoIsfSurface(options = {}) {
     if (canvas.width !== width) canvas.width = width;
     if (canvas.height !== height) canvas.height = height;
     const clock = isfPlaybackClock(input, lastRenderedClock, options);
+    const songTime = Number(input.time ?? clock.time);
+    const visualTime = Number.isFinite(input.visualTime) ? input.visualTime : clock.time;
     let intent = null;
     try {
       intent = buildEchoIsfFrameIntent({
         shader: currentShader,
         card: input.card || {},
-        timestampSeconds: clock.time,
+        timestampSeconds: songTime,
         sourceHash: state.sourceHash,
         values: input.values || {},
         signalFrames: input.signalFrames || {},
@@ -573,8 +622,8 @@ export function createEchoIsfSurface(options = {}) {
       const reusePausedFrame = input.forceRedraw !== true
         && lastRenderedClock
         && intent.frameReceipt.receiptHash === lastRenderedIntentHash
-        && clock.time === lastRenderedClock.time
-        && clock.frameIndex === lastRenderedClock.frameIndex
+        && songTime === lastRenderedSongTime
+        && clock.frameRate === lastRenderedClock.frameRate
         && width === lastRenderedWidth
         && height === lastRenderedHeight;
       if (reusePausedFrame) {
@@ -588,11 +637,31 @@ export function createEchoIsfSurface(options = {}) {
         });
       }
       for (const [name, value] of Object.entries(intent.values)) renderer.setValue?.(name, value);
-      for (const [name, value] of Object.entries(intent.imageInputs)) renderer.setValue?.(name, value);
+      frameImages = Object.entries(intent.imageInputs);
+      if (!bindsDuringDraw) for (const [name, image] of frameImages) renderer.setValue?.(name, image);
+      if (historySurface && (input.historyMode === "prepared" || input.preparingHistoryFrame === true)) {
+        const historyClock = prepareHyperFramesIsfFrame(historySurface, visualTime, clock.frameRate, true, songTime);
+        clock.time = historyClock.time;
+        clock.timeDelta = historyClock.delta;
+        clock.frameIndex = historyClock.index;
+        clock.songFrameIndex = Math.floor(songTime * clock.frameRate + 1e-8);
+        clock.date = [1970, 1, 1, ((visualTime % 86400) + 86400) % 86400];
+      } else if (Number.isFinite(input.visualTime)) {
+        clock.time = visualTime;
+        clock.frameIndex = Math.max(0, Math.floor(visualTime * clock.frameRate + 1e-8));
+        clock.date = [1970, 1, 1, ((visualTime % 86400) + 86400) % 86400];
+        clock.timeDelta = lastRenderedClock ? visualTime - lastRenderedClock.time : 0;
+      }
       activeClock = clock;
       pushRendererPlaybackClock(renderer, activeClock);
       renderer.draw(canvas);
+      if (historySurface && (input.historyMode === "prepared" || input.preparingHistoryFrame === true)) {
+        historySurface.lastTime = visualTime;
+        historySurface.lastFrameIndex = Math.floor(songTime * clock.frameRate + 1e-8);
+        historySurface.checkpoints.record(historySurface.lastFrameIndex);
+      }
       lastRenderedClock = clock;
+      lastRenderedSongTime = songTime;
       lastRenderedIntentHash = intent.frameReceipt.receiptHash;
       lastRenderedWidth = width;
       lastRenderedHeight = height;
@@ -616,10 +685,131 @@ export function createEchoIsfSurface(options = {}) {
     }
   };
 
+  // One reconstruction per surface. Historical draws never leak into the
+  // presented canvas, and the audible transport is owned by the caller.
+  const prepareFrame = async (input = {}) => {
+    if (!historySurface) return draw(input);
+    if (historyFlight) throw new Error("ISF preview history already preparing");
+    const clock = isfPlaybackClock(input, null, options);
+    const targetFrame = Math.floor(Number(input.time ?? clock.time) * clock.frameRate + 1e-8);
+    const identity = `${input.historyKey || input.cacheKey || ""}:${input.width || canvas.width}x${input.height || canvas.height}:${clock.frameRate}`;
+    if (identity !== historyIdentity) {
+      historyResolver?.dispose?.(); historyResolver = null;
+      canvas.width = Math.max(1, Math.round(Number(input.width) || canvas.width));
+      canvas.height = Math.max(1, Math.round(Number(input.height) || canvas.height));
+      historySurface.checkpoints.clear(); historySurface.checkpoints.reset();
+      lastRenderedClock = null; lastRenderedIntentHash = null;
+      historyIdentity = identity; historyResult = null; historyResultKey = ""; playbackFrames.clear();
+    }
+    if (!historyResolver) historyResolver = input.createHistoryResolver?.();
+    if (!historyResolver?.at) throw new Error("Persistent shader needs prepared or recorded historical inputs");
+    const controller = new AbortController(); historyAbort = controller; historyRequestFrame = targetFrame;
+    const cancel = () => controller.abort();
+    input.signal?.addEventListener("abort", cancel, { once: true });
+    if (input.signal?.aborted) controller.abort();
+    let frameInput;
+    const historyStarted = performance.now();
+    let mediaPrepareMs = 0, shaderDrawMs = 0;
+    const prepare = async frame => {
+      const started = performance.now();
+      const historical = await historyResolver.at(frame / clock.frameRate, { signal: controller.signal, requiresMedia: currentShader?.inputs?.some(row => String(row.TYPE || row.type).toLowerCase() === "image") });
+      mediaPrepareMs += performance.now() - started;
+      if (disposed || controller.signal.aborted) throw new Error("ISF preview history cancelled");
+      frameInput = { ...input, ...historical, time: frame / clock.frameRate, frameRate: clock.frameRate, forceRedraw: true, preparingHistoryFrame: true };
+    };
+    const paint = () => {
+      const started = performance.now();
+      const result = draw(frameInput);
+      shaderDrawMs += performance.now() - started;
+      if (result.status !== "ready") throw new Error(result.error || result.status);
+      const frame = result.clock?.songFrameIndex;
+      if (input.playing && frame >= playbackRequestFrame) {
+        playbackFrames.set(frame, { ...result, canvas: copyHistoryCanvas(),
+          mediaFrameReceipt: frameInput.mediaFrameReceipt || null,
+          historyProgress: { totalMs: performance.now() - historyStarted, mediaPrepareMs, shaderDrawMs },
+          preparingHistory: false });
+        while (playbackFrames.size > 5) playbackFrames.delete(playbackFrames.keys().next().value);
+      }
+      return result;
+    };
+    const flight = (async () => {
+      const progress = await prepareHyperFramesIsfSeek(historySurface, targetFrame, {
+        startFrame: Math.max(0, Math.ceil(Number(input.card?.startSeconds || 0) * clock.frameRate - 1e-8)),
+        prepareFrame: prepare, drawFrame: paint, signal: controller.signal,
+        onProgress: progress => publish("preparing-history", { error: "", historyProgress: progress }),
+      });
+      await prepare(targetFrame);
+      const result = paint();
+      if (!input.playing) {
+        presentationCanvas ||= defaultCanvas(canvas.width, canvas.height, dependencies);
+        if (presentationCanvas.width !== canvas.width) presentationCanvas.width = canvas.width;
+        if (presentationCanvas.height !== canvas.height) presentationCanvas.height = canvas.height;
+        const ctx = presentationCanvas.getContext("2d");
+        ctx.clearRect(0, 0, canvas.width, canvas.height); ctx.drawImage(canvas, 0, 0);
+      }
+      historyResult = { ...result, preparingHistory: false, mediaFrameReceipt: frameInput.mediaFrameReceipt || null,
+        historyProgress: { ...progress, totalMs: performance.now() - historyStarted, mediaPrepareMs, shaderDrawMs },
+        canvas: input.playing ? playbackFrames.get(targetFrame)?.canvas : presentationCanvas };
+      historyResultKey = `${identity}:${targetFrame}`;
+      historyFailureKey = "";
+      return historyResult;
+    })();
+    historyFlight = flight;
+    try { return await flight; }
+    finally { input.signal?.removeEventListener("abort", cancel); if (historyFlight === flight) historyFlight = null; if (historyAbort === controller) historyAbort = null; }
+  };
+
+  const present = (input = {}) => {
+    if (!historySurface) return draw(input);
+    if (input.historyMode !== "prepared") return { ...draw(input), historyFidelity: "live-unrecorded" };
+    const clock = isfPlaybackClock(input, null, options);
+    const identity = `${input.historyKey || input.cacheKey || ""}:${input.width || canvas.width}x${input.height || canvas.height}:${clock.frameRate}`;
+    const requestedFrame = Math.floor(Number(input.time ?? clock.time) * clock.frameRate + 1e-8);
+    const key = `${identity}:${requestedFrame}`;
+    if (input.playing) {
+      const discontinuity = identity !== historyIdentity || (playbackRequestFrame != null
+        && (requestedFrame < playbackRequestFrame || requestedFrame - playbackRequestFrame > clock.frameRate / 2));
+      if (!playbackWasPlaying || discontinuity) playbackFrames.clear();
+      if (discontinuity) historyAbort?.abort();
+      playbackWasPlaying = true; playbackRequestFrame = requestedFrame;
+      // Keep one older frame as a truthful held frame if preparation falls behind.
+      const due = [...playbackFrames.keys()].filter(frame => frame <= requestedFrame);
+      const latestDue = due.length ? Math.max(...due) : null;
+      for (const frame of due) if (frame !== latestDue) playbackFrames.delete(frame);
+      const endFrame = Math.ceil(Number(input.card?.endSeconds ?? Infinity) * clock.frameRate - 1e-8) - 1;
+      const hasDueFrame = latestDue != null || (!discontinuity && historyIdentity === identity && historyResult?.clock?.songFrameIndex <= requestedFrame);
+      const aheadFrame = hasDueFrame ? Math.min(requestedFrame + 3, endFrame) : requestedFrame;
+      if (!historyFlight && historyFailureKey !== key && (!hasDueFrame || identity !== historyIdentity || historySurface.lastFrameIndex < aheadFrame)) {
+        prepareFrame({ ...input, time: aheadFrame / clock.frameRate }).catch(error => {
+          if (disposed || /cancelled/.test(errorText(error))) return;
+          historyFailureKey = key; publish("history-error", { error: errorText(error) });
+        });
+      }
+      const available = playbackFrames.get(latestDue) || (historyResult?.clock?.songFrameIndex <= requestedFrame && historyIdentity === identity ? historyResult : null);
+      if (available?.canvas && !discontinuity) return { ...available, historyPending: available.clock.songFrameIndex < requestedFrame, heldPrevious: available.clock.songFrameIndex < requestedFrame };
+      return { ...snapshot(), status: "preparing-history", ok: false, error: "Preparing shader history", canvas: null };
+    }
+    if (playbackWasPlaying) { historyAbort?.abort(); playbackFrames.clear(); }
+    playbackWasPlaying = false; playbackRequestFrame = null;
+    if (historyResultKey === key && historyResult) return historyResult;
+    if (historyFlight && (identity !== historyIdentity || Math.floor(Number(input.time ?? clock.time) * clock.frameRate + 1e-8) < historyRequestFrame)) historyAbort?.abort();
+    if (historyFailureKey === key) return snapshot();
+    if (!historyFlight) prepareFrame(input).catch(error => {
+      if (disposed || /cancelled/.test(errorText(error))) return;
+      historyFailureKey = key;
+      publish("history-error", { error: errorText(error) });
+    });
+    if (historyResult && historyIdentity === identity) return { ...historyResult, historyPending: true, heldPrevious: true, heldPreviousFrame: true };
+    return { ...snapshot(), status: "preparing-history", ok: false, error: "Preparing shader history", canvas: presentationCanvas };
+  };
+
   const dispose = () => {
     if (disposed) return;
     disposed = true;
     prepareSequence += 1;
+    historyAbort?.abort(); historyResolver?.dispose?.();
+    historySurface?.checkpoints?.clear();
+    historyResolver = null; historyResult = null; presentationCanvas = null; playbackFrames.clear();
     try { renderer?.cleanup?.(); } catch { /* cleanup is best effort */ }
     try { gl?.getExtension?.("WEBGL_lose_context")?.loseContext?.(); } catch { /* context loss is best effort */ }
     renderer = null;
@@ -630,7 +820,7 @@ export function createEchoIsfSurface(options = {}) {
     publish("disposed", { sourceId: "", shaderId: "", sourceHash: "", error: "", clock: null });
   };
 
-  return { canvas, prepare, draw, getState: snapshot, dispose };
+  return { canvas, prepare, draw, prepareFrame, present, getState: snapshot, dispose };
 }
 
 function poolCardRange(card = {}) {
@@ -664,8 +854,12 @@ function poolCardSourceHash(card = {}) {
   ).trim().toLowerCase();
 }
 
+const poolCardKeys = new WeakMap();
 function poolCardContentKey(card = {}) {
-  return `${exactSourceId(card)}\u0000${poolCardSourceHash(card)}`;
+  if (poolCardKeys.has(card)) return poolCardKeys.get(card);
+  const key = `${exactSourceId(card)}\u0000${poolCardSourceHash(card)}\u0000${card.id || ""}:${card.startSeconds ?? ""}:${card.endSeconds ?? ""}:${JSON.stringify([card.parameters || null, card.visualization || null])}`;
+  poolCardKeys.set(card, key);
+  return key;
 }
 
 export function createEchoIsfPlaybackPool(options = {}) {
@@ -930,7 +1124,7 @@ export function createEchoIsfPlaybackPool(options = {}) {
       shaderId,
       requestedShaderId: shaderId,
       presentedShaderId: presentedSlot?.shaderId || "",
-      canvas: presentedSlot?.surface?.canvas || null,
+      canvas: presentedSlot?.lastResult?.canvas || presentedSlot?.surface?.canvas || null,
       heldPrevious,
       heldPreviousFrame: heldPrevious,
       switched: false,
@@ -963,10 +1157,17 @@ export function createEchoIsfPlaybackPool(options = {}) {
       return holdResult(pendingStatus, shaderId, pendingError);
     }
     const startedAt = globalThis.performance?.now?.() ?? Date.now();
-    const result = slot.surface.draw({ ...combinedInput, card });
+    const result = slot.surface.present({ ...combinedInput, card });
     const elapsed = Math.max(0, (globalThis.performance?.now?.() ?? Date.now()) - startedAt);
     frameSamples.push(elapsed);
     if (frameSamples.length > 240) frameSamples.splice(0, frameSamples.length - 240);
+    if (combinedInput.playing && !slot.wasPlaying) slot.historyLagSamples = [];
+    slot.wasPlaying = combinedInput.playing === true;
+    if (slot.wasPlaying && result?.historyProgress && Number.isFinite(result.clock?.songFrameIndex)) {
+      slot.historyLagSamples ||= [];
+      slot.historyLagSamples.push(Math.max(0, Number(combinedInput.time) - result.clock.songFrameIndex / Number(combinedInput.frameRate || 30)) * 1000);
+      if (slot.historyLagSamples.length > 900) slot.historyLagSamples.shift();
+    }
     slot.textureCount = result?.frameReceipt?.media?.bindings?.filter((binding) => binding.ready).length || 0;
     if (result?.status !== "ready") {
       slot.status = String(result?.status || "draw-error");
@@ -979,6 +1180,7 @@ export function createEchoIsfPlaybackPool(options = {}) {
     hasPresentedFrame = true;
     slot.presented = true;
     slot.status = "ready";
+    slot.error = "";
     forgetFailure(key);
     slot.lastResult = result;
     rememberCard(slot, card, String(combinedInput.cacheKey || ""));
@@ -990,13 +1192,13 @@ export function createEchoIsfPlaybackPool(options = {}) {
     return {
       ...result,
       status: "ready",
-      handoff: previous === slot ? "presented" : "committed",
+      handoff: result.historyPending ? "preparing-history" : previous === slot ? "presented" : "committed",
       shaderId,
       requestedShaderId: shaderId,
       presentedShaderId: shaderId,
-      canvas: slot.surface.canvas,
-      heldPrevious: false,
-      heldPreviousFrame: false,
+      canvas: result.canvas || slot.surface.canvas,
+      heldPrevious: result.heldPrevious === true,
+      heldPreviousFrame: result.heldPreviousFrame === true,
       switched: previous !== slot,
     };
   };
@@ -1065,6 +1267,17 @@ export function createEchoIsfPlaybackPool(options = {}) {
       contexts: contextCount,
       programCount,
       programs: programCount,
+      historyCheckpointBytes: resourceStates.reduce((sum, state) => sum + Number(state.persistentHistory?.bytes || 0), 0),
+      historyJobsPreparing: resourceStates.filter(state => state.preparingHistory).length,
+      historyLookaheadBytes: resourceStates.reduce((sum, state) => sum + Number(state.historyLookahead?.bytes || 0), 0),
+      historyLookaheadFrames: resourceStates.reduce((sum, state) => sum + Number(state.historyLookahead?.frames || 0), 0),
+      historyPresentationTiming: slots.filter(slot => slot.historyLagSamples?.length).map(slot => {
+        const samples = slot.historyLagSamples, sorted = [...samples].sort((a, b) => a - b);
+        return { shaderId: slot.shaderId, samples: samples.length, lastMs: samples.at(-1),
+          p95Ms: sorted[Math.ceil(sorted.length * .95) - 1], maxMs: sorted.at(-1),
+          overOneFrame: samples.filter(ms => ms > 1000 / Number(slot.lastResult?.clock?.frameRate || 30) + .001).length,
+          scope: "audio-playhead-to-prepared-shader-frame; excludes physical output latency" };
+      }),
       textureCount: slots.reduce((sum, slot) => sum + slot.textureCount, 0),
       requestedShaderId,
       requestedSourceId: requestedShaderId,
@@ -1113,6 +1326,7 @@ export function createEchoIsfPlaybackPool(options = {}) {
         cacheKeys: [...slot.cacheKeys].sort(),
         textureCount: slot.textureCount,
         error: slot.error,
+        history: slot.surface?.getState?.().persistentHistory || null,
       })),
       disposed,
     };
