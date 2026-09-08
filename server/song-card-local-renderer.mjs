@@ -106,6 +106,8 @@ const RENDERER_BUILD_FILES = [
   "src/domain/echo-runtime-shader-repair.js",
   "src/domain/portable-visualizer-card.js",
   "src/domain/hyperframes-show-compiler.js",
+  "src/domain/hyperframes-media-frame-runtime.js",
+  "src/domain/echo-playback-sync.js",
   "src/domain/hyperframes-visualizer-runtime.js",
   "src/domain/echo-music-performance.js",
   "src/domain/native-visualizer-route.js",
