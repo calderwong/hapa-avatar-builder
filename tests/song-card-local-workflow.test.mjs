@@ -40,6 +40,7 @@ import {
   preflightSongCardSignalGraph,
   reevaluateSongCardPixelReport,
   resolveSongCardRenderOutputProfile,
+  hyperFramesResolutionForOutputProfile,
 } from "../server/song-card-local-renderer.mjs";
 import { hashEchoLyricOverlayExecutionContract } from "../src/domain/hyperframes-show-compiler.js";
 
@@ -2110,4 +2111,12 @@ test("operator cancellation aborts the active local pipeline and leaves the cand
   assert.equal(observedAbort, true);
   assert.equal((await store.view()).candidates[0].status, "canceled");
   assert.equal(bridge.status().activeProcessCount, 0);
+});
+
+
+test("Song Card renders every output aspect through the matching HyperFrames resolution", () => {
+  for (const [profile, resolution] of [["landscape", "landscape"], ["vertical", "portrait"], ["square", "square"]]) {
+    const outputProfile = resolveSongCardRenderOutputProfile({ project: { output_profile: profile } });
+    assert.equal(hyperFramesResolutionForOutputProfile(outputProfile), resolution);
+  }
 });

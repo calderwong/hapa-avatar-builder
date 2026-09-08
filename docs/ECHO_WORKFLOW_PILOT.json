@@ -2,7 +2,7 @@
   "schemaVersion": "hapa.workflow-pilot.v1",
   "id": "echo-requirement-completion-batch-pilot",
   "version": "0.1",
-  "updatedAt": "2026-09-08T12:20:45.451536+00:00",
+  "updatedAt": "2026-09-08T13:08:28.149214+00:00",
   "status": "active-pilot",
   "effectiveness": "not-yet-evaluated",
   "ownerTaskId": "01a072d3-d593-74f2-8c89-2470c2ee1a40",
@@ -806,7 +806,7 @@
     "docs/postmortems/2026-09-08-echo-lyric-corrections.md"
   ],
   "decisionAfterAcceptedBatches": 2,
-  "nextAction": "Complete ECHO-05/06 vocal presentation: source-bound waveform/200-onset six-excerpt annotation and actual app correction/save path, then all-template/aspect rendered readability. Correction controls are verified progress; ECHO-08 resource acceptance is reused unless invalidated.",
+  "nextAction": "Finish stricter encoded glyph/color fidelity and actual managed Song Card template/output acceptance using existing render owners; then consolidate ECHO-06. Keep real200-onset vocal alignment, integrated composition, later editing/performance and human preference gates open.",
   "updates": "batch-start, scope-change, consequential-failure, acceptance, handoff, goal-completion",
   "collaboration": {
     "protocol": "docs/ECHO_CONVICTION_PROTOCOL.md",
@@ -1209,5 +1209,69 @@
     "humanAccepted": false,
     "broadSuiteRepeated": false,
     "nextAction": "Complete automated template/output coverage and source-bound manual onset review packet"
+  },
+  "latestLyricLayout": {
+    "status": "progress-not-requirement-acceptance",
+    "at": "2026-09-08T13:08:28.149214+00:00",
+    "parentCommit": "e487e436766c7466eceab573ef580cf9a35fa065",
+    "native": {
+      "cases": 39,
+      "observations": 429,
+      "maximumPixelMean": 0.026226566072245085,
+      "maximumSynchronousP95Ms": 0.10000002384185791,
+      "layoutReads": 0,
+      "scope": "Actual React and generated HyperFrames, synthetic phrases/regions, 3 profiles and 3 motion modes; excludes GPU/browser paint and acoustic acceptance"
+    },
+    "encoded": {
+      "cases": 15,
+      "framesPerCase": 120,
+      "samples": 60,
+      "activeSamples": 36,
+      "productionLyricComparisonPassed": 36,
+      "stricterSamplesPassed": 35,
+      "stricterSamplesFailed": 25,
+      "maximumFullMean": 4.995727594878829,
+      "minimumBrightGlyphRetention": 0.8860237780713343,
+      "scope": "Real CLI MP4 and decoded frames; ICC-aware comparison copies; production helper does not prove actual Song Card mint pipeline"
+    },
+    "verification": {
+      "affectedDistinctCasesPassed": 95,
+      "initialPassed": 94,
+      "initialFailed": 1,
+      "failedCause": "sandbox loopback EPERM",
+      "singleIntegrationRerunPassed": true,
+      "deliveryBuild": true
+    },
+    "sourceIntegrity": {
+      "pass": true,
+      "protectedFiles": 55,
+      "authoringFiles": 12,
+      "failures": []
+    },
+    "cleanup": {
+      "ownedStages": 14,
+      "profilesRemoved": 2
+    },
+    "acceptedRequirements": [],
+    "counts": {
+      "done": 9,
+      "inProgress": 9
+    },
+    "humanAccepted": false,
+    "remaining": [
+      "stricter encoded glyph fidelity",
+      "actual managed Song Card all-template output proof",
+      "real-word onset annotation and vocal alignment",
+      "mixed comic/video/full-phrase acceptance",
+      "later direction/editor/performance/human gates"
+    ]
+  },
+  "latestPostmortem": "postmortems/2026-09-08-echo-lyric-layout.md",
+  "latestUpdate": {
+    "at": "2026-09-08T13:08:28.149214+00:00",
+    "kind": "A2-lyric-layout-progress",
+    "status": "unaccepted",
+    "evidence": "$ECHO_REVIEW_WORKSPACE/lyric-layout-proof/checkpoint-report.json",
+    "acceptedRequirements": []
   }
 }

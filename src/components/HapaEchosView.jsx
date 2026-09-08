@@ -7442,6 +7442,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
 
                                   <EchoLyricOverlay
                                     presentationRef={echoLyricPresentationRef}
+                                    mediaTracks={activeShowGraph?.tracks}
                                     accentEvents={activeShowGraph?.directorV2?.accentTrack?.events}
                                     contract={directorPreviewFrame?.lyrics?.contract || activeLyricContract}
                                     lines={activeShowGraph?.song?.lyricOverlay?.lines?.length ? activeShowGraph.song.lyricOverlay.lines : activeProject.timed_lyrics}

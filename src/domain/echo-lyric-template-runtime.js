@@ -113,13 +113,18 @@ export function echoLyricWordTimingPolicy(line = {}, timingSource = '') {
   const words = Array.isArray(line.words) ? line.words : [];
   let reason = /synthetic|weighted|evenly|estimated/i.test(timingSource) ? 'synthetic-word-timing' : '';
   if (!reason && !words.length) reason = 'word-timing-missing';
+  let previousEnd = echoLyricBoundary(line, 'start', -Infinity);
   for (const word of words) {
     if (reason) break;
     const start = echoLyricBoundary(word, 'start', NaN), end = echoLyricBoundary(word, 'end', NaN);
     const confidence = word.confidence ?? word.probability;
     if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) reason = 'word-interval-invalid';
+    else if (start < echoLyricBoundary(line, 'start', -Infinity) || end > echoLyricBoundary(line, 'end', Infinity)) reason = 'word-outside-phrase';
+    else if (start < previousEnd) reason = 'overlapping-word-intervals';
+    else if (word.matched === false || word.unaligned === true) reason = 'word-unaligned';
     else if (typeof confidence !== 'number' || !Number.isFinite(confidence)) reason = 'word-confidence-missing';
     else if (confidence < .6 || confidence > 1) reason = 'word-confidence-low-or-invalid';
+    previousEnd = end;
   }
   return { mode: reason ? 'phrase' : 'word', reason: reason || 'word-confidence-available',
     label: reason ? 'Phrase timing · word alignment unverified' : 'Word timing · confidence available',

@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import vm from 'node:vm';
 import { prepareEchoLyricIntervals, echoLyricIntervalAt, observeEchoLyricClock } from '../src/domain/echo-lyric-clock.js';
 import { resolveEchoLyricTemplateFrame, echoLyricFrameTime } from '../src/domain/echo-lyric-template-runtime.js';
+import { prepareEchoLyricObstacles } from '../src/domain/echo-lyric-presentation.js';
 import { normalizeEchoLyricContract } from '../src/domain/echo-lyric-contract.js';
 import { resolveEchoOutputProfile } from '../src/domain/echo-output-profile.js';
 const source = fs.readFileSync(new URL('../src/components/EchoLyricOverlay.jsx', import.meta.url), 'utf8');
@@ -12,7 +13,7 @@ const component = source.slice(begin, end) + 'return {enabled,surfaceRef};}\nEch
 function mount(extra = {}) {
   const effects = [], paints = [], surface = { dataset: {}, clientWidth: 1280, clientHeight: 720 }, presentationRef = { current: null };
   const context = { useMemo: f => f(), useRef: value => ({ current: value === null ? surface : value }), useLayoutEffect: f => effects.push(f),
-    prepareEchoLyricIntervals, echoLyricIntervalAt, observeEchoLyricClock, resolveEchoLyricTemplateFrame, echoLyricFrameTime, resolveEchoOutputProfile,
+    prepareEchoLyricObstacles, prepareEchoLyricIntervals, echoLyricIntervalAt, observeEchoLyricClock, resolveEchoLyricTemplateFrame, echoLyricFrameTime, resolveEchoOutputProfile,
     renderEchoLyricSurface: (element, value) => paints.push(value), sizeEchoLyricSurface: () => {},
     ResizeObserver: class { observe() {} disconnect() {} },
     EchoAccentPresentation: { frame: () => ({}), lyric: () => {} } };

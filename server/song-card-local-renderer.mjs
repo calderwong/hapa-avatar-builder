@@ -133,8 +133,9 @@ export function resolveSongCardRenderOutputProfile({ project = {}, showGraph = {
   return resolveEchoOutputProfile(declaredProfile);
 }
 
-function hyperFramesResolutionForOutputProfile(outputProfile) {
-  return resolveEchoOutputProfile(outputProfile).orientation === "vertical" ? "portrait" : "landscape";
+export function hyperFramesResolutionForOutputProfile(outputProfile) {
+  const { orientation } = resolveEchoOutputProfile(outputProfile);
+  return orientation === "vertical" ? "portrait" : orientation === "square" ? "square" : "landscape";
 }
 
 function safeSegment(value, fallback = "render") {

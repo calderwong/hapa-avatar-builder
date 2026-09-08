@@ -56,6 +56,7 @@ export function echoLyricOverlayExecutionContract(overlay = {}) {
     timingSource: String(overlay.timingSource || ""),
     timingHash: String(overlay.timingHash || ""),
     audioHash: String(overlay.audioHash || ""),
+    safeArea: overlay.safeArea && typeof overlay.safeArea === "object" ? structuredClone(overlay.safeArea) : null,
     reducedMotion: overlay.reducedMotion === true,
     motionIntensity: typeof overlay.motionIntensity === "number" && Number.isFinite(overlay.motionIntensity) ? Math.max(0, Math.min(1, overlay.motionIntensity)) : 1,
     lines: (overlay.lines || []).map((line) => ({
