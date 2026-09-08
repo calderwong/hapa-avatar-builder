@@ -1,0 +1,19 @@
+# Echo A1 acceptance map
+
+Status: in progress, not requirement acceptance. Original scope: ECHO-04/07/08, with final integration in ECHO-18. This is the next-work index; the append-only drain and original requirements remain authoritative. Source task: `01a072d3-d593-74f2-8c89-2470c2ee1a40`.
+
+Evidence roots: `artifacts/echo-enhancement-current-baseline/` in Builder and `$ECHO_REVIEW_WORKSPACE/` in the source task workspace. Reuse receipts only for their recorded inputs and unchanged owning behavior. A newer commit does not refresh an older measurement automatically.
+
+| Criterion | Evidence available | Remaining acceptance work |
+| --- | --- | --- |
+| 04.1 same state across transport paths | Absolute-time modulation regression; native persistent history seek comparisons; new whole-composition paused/direct/reverse cohort captures | Consolidate loop, dropped-frame recovery and out-of-order checks with actual complete preview/export adapters. |
+| 04.2 prepared/checkpointed history | Cached envelopes, 0.6s probe, native integer/float checkpoints and history restoration; shared 128 MiB budget | Consolidate replay bounds/cancellation evidence. Cold near-end reconstruction was 89.9 s; retain that performance issue under 08/17 without inventing a new 04 latency threshold. |
+| 04.3 media/shader time cannot move audio/lyrics; preview/export event parity | Actual source-frame comparisons and strict bounded MP4 samples, shared modulation/camera projection | Match complete composed preview/export event states at cue, lyric and gesture boundaries, including source-rate cases. |
+| 04.4 measured display/audio residual and fallback | Decoded presentation feedback; Dear Papa full-song 23 ms p95; verified unsupported-callback fallback; new cohort excerpts | Measure complete visible event/handoff behavior. Browser estimates are allowed; physical loopback calibration is a limitation, not an added original requirement. |
+| 07.1 per-layer stem roles and shaping | Six-song native solo/restore: 54 cases, 158 baseline ports, 316 overrides; normalized range/headroom correction | Preserve routing evidence while closing dependent 04; avoid another routing audit absent a binding/input change. |
+| 07.2 shared prepared curves and reproducible live capture | Prepared mode default; six-second native recording with 538 signal frames; reload and 46 input replay observations | Preserve source-bound capture evidence; no full-song live-capture claim required for this bounded feature proof. |
+| 07.3 isolation, silence and explicit fallback | All available buses across six songs; explicit no-stem cases; restored native shader pixels match | Reuse the existing cohort proof within its source/binding scope. Human taste belongs to 18. |
+| 07.4 distinct gestures and section limits | Six native gesture types on three target surfaces; 11 section-boundary observations; 383 derived camera paths; bounded compiled/native samples | Consolidate these receipts with 04 instead of independently rebuilding another gesture system. |
+| 08.1–4 resource policy and quality | Matched 3/5/9 video-pool comparison; 3 default/6 shader ceiling; shared 64 MiB bytes/128MiB history; imminent prefetch; three retained details; ten switches and full-song resource receipts | Complete whole-frame work/late-frame and handoff acceptance, including the independent quality controls and media visibility. Video residual outliers are not dropped-frame counts. |
+
+The six-song cohort paused-composition correction is verified. Next: one focused complete-adapter boundary proof addressing 04.1/04.3/04.4. Cold persistent replay remains a separate concrete performance issue. ECHO-07 depends on 04 and cannot close solely from its routing proof. Keep all other open requirements in the approved delivery sequence; do not make human preference or new alignment a prerequisite for independent technical fixes.

@@ -33,9 +33,9 @@ At each meaningful update, keep JSON and Markdown in agreement, append the corre
 
 ## Next action
 
-Decoded presentation feedback now passes the Dear Papa full-song browser residual target: 23 ms p95 across 6,959 observations, with explicit outliers retained (103 over one frame; worst 124.65 ms). Direct/reverse/resume transport and actual unsupported-RVFC fallback pass. The original timing recorder is unchanged. Resource limits hold. Six requirements done/twelve in progress; A1 remains unaccepted.
+Six-song direct/held/reverse composition acceptance now passes after repairing paused opacity fades and subframe video positioning. See [the compact A1 acceptance map](ECHO_A1_ACCEPTANCE_MAP.md) and [the paired native postmortem](postmortems/2026-09-08-echo-paused-composition.md). ECHO-04/07/08 remain open; six requirements done/twelve in progress and zero accepted pilot batches.
 
-Complete actual-compositor event and handoff timing, remaining cue-entry outliers and six-song source-rate coverage; consolidate ECHO-04/07 acceptance against the original criteria. Reuse the passing full-song browser residual, transport, fallback and resource evidence. Cold persistent replay latency and human review remain separate open work. See [decoded presentation postmortem](postmortems/2026-09-08-echo-decoded-presentation.md).
+Finish shared song-time media handoffs and a complete Preview/HyperFrames event-boundary comparison for ECHO-04, then consolidate ECHO-07 acceptance with its dependencies. Reuse the six-song paused composition, stem isolation, live capture and section-budget evidence. Track cold history latency under ECHO-08/17; retain lyric, direction, recut, UI and human-review scope.
 
 ## Conviction relationship — 2026-09-06
 

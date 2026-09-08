@@ -806,6 +806,7 @@ function PersistentEchoABPlayers({ shot, lookaheadShots = [], playing, songTime,
         currentSeconds: video.currentTime,
         seeking: video.seeking,
         cueEntry: cueEntry || !playing,
+        paused: !playing,
         targetPlaybackRate,
         presentedSample: phase === null ? null : presentedSample,
         nowMs: now,
@@ -839,7 +840,7 @@ function PersistentEchoABPlayers({ shot, lookaheadShots = [], playing, songTime,
       window.cancelAnimationFrame(frame);
       delete video.__hapaEchoPlaybackCorrection;
     };
-  }, [activeIndex, playing, currentShotIdentity, playing ? null : songTime, audioRef, audioContextRef, clockRef, presentationSampleRef]);
+  }, [activeIndex, stageStatus, playing, currentShotIdentity, playing ? null : songTime, audioRef, audioContextRef, clockRef, presentationSampleRef]);
 
   useEffect(() => {
     const sourceKey = shotKey(shot);
@@ -917,7 +918,7 @@ function PersistentEchoABPlayers({ shot, lookaheadShots = [], playing, songTime,
 
   return (
     <>
-      <div ref={fallbackRef} data-echo-fallback={stageStatus} style={{ ...style, opacity: stageStatus === "ready" ? 0 : 1, position: "absolute", inset: 0, zIndex: 0, background: "radial-gradient(circle at center, rgba(9,28,46,.96), #020617 72%)", transition: "opacity .18s linear" }}>
+      <div ref={fallbackRef} data-echo-fallback={stageStatus} style={{ ...style, opacity: stageStatus === "ready" ? 0 : 1, position: "absolute", inset: 0, zIndex: 0, background: "radial-gradient(circle at center, rgba(9,28,46,.96), #020617 72%)", transition: playing ? "opacity .18s linear" : "none" }}>
         {(shot.media_contract?.posterUri || shot.media_thumbnail) && <img src={resolveMediaUri(shot.media_contract?.posterUri || shot.media_thumbnail)} alt="Buffered shot fallback" style={{ width: "100%", height: "100%", objectFit: "cover" }} />}
       </div>
       {ECHO_VIDEO_PLAYER_INDICES.map((index) => (
@@ -930,7 +931,7 @@ function PersistentEchoABPlayers({ shot, lookaheadShots = [], playing, songTime,
           preload="auto"
           data-echo-player={index === activeIndex ? "current" : "standby"}
           data-frame-presented={index === activeIndex && stageStatus === "ready" ? "true" : "false"}
-          style={{ ...style, position: 'absolute', inset: 0, opacity: index === activeIndex && stageStatus === "ready" ? 1 : 0, transition: `opacity ${shot.transition === "cut" ? .06 : .45}s linear`, zIndex: index === activeIndex ? 1 : 0 }}
+          style={{ ...style, position: 'absolute', inset: 0, opacity: index === activeIndex && stageStatus === "ready" ? 1 : 0, transition: playing ? `opacity ${shot.transition === "cut" ? .06 : .45}s linear` : "none", zIndex: index === activeIndex ? 1 : 0 }}
         />
       ))}
     </>

@@ -2,7 +2,7 @@
   "schemaVersion": "hapa.workflow-pilot.v1",
   "id": "echo-requirement-completion-batch-pilot",
   "version": "0.1",
-  "updatedAt": "2026-09-08T08:54:25.555170+00:00",
+  "updatedAt": "2026-09-08T09:21:34.445618+00:00",
   "status": "active-pilot",
   "effectiveness": "not-yet-evaluated",
   "ownerTaskId": "01a072d3-d593-74f2-8c89-2470c2ee1a40",
@@ -40,7 +40,7 @@
   "batches": [
     {
       "id": "A1",
-      "status": "decoded-video-timing-verified-composite-event-gates-open",
+      "status": "paused-composition-verified-event-parity-open",
       "requirements": [
         "ECHO-07"
       ],
@@ -458,6 +458,166 @@
           },
           "broadSuiteRepeated": false
         }
+      },
+      "cohortCompositionEvidence": {
+        "status": "verified-paused-composition-checkpoint-requirements-open",
+        "songs": 6,
+        "compositionComparisons": 12,
+        "allComparisonsPixelIdentical": false,
+        "sourceIntegrity": {
+          "pass": true,
+          "protectedFiles": 55,
+          "authoringFiles": 12,
+          "failures": []
+        },
+        "affectedTests": 17,
+        "build": "pass",
+        "broadSuiteRepeated": false,
+        "rows": [
+          {
+            "songId": "dear-papa-song-dear-papa",
+            "title": "Dear Papa",
+            "cutId": "intentional-enrichment-8c3bc198a60f-8971520567cdc69c-edit-24f4c28124045e0b",
+            "pausedMeanError": 0,
+            "reverseMeanError": 0,
+            "decoded": {
+              "total": 485,
+              "eligible": 477,
+              "p95Ms": 9.636333381016993,
+              "maxMs": 19.410333333335057,
+              "overOneFrame": 0,
+              "sourceRates": [
+                1
+              ],
+              "cues": [
+                0,
+                5,
+                6,
+                11.1
+              ]
+            },
+            "playbackReused": false
+          },
+          {
+            "songId": "dear-papa-song-wish-her-well",
+            "title": "Wish Her Well",
+            "cutId": "intentional-enrichment-8c3bc198a60f-cac964c3df7ce8ec",
+            "pausedMeanError": 0,
+            "reverseMeanError": 0,
+            "decoded": {
+              "total": 454,
+              "eligible": 449,
+              "p95Ms": 9.240333357175334,
+              "maxMs": 39.36133342870241,
+              "overOneFrame": 2,
+              "sourceRates": [
+                1
+              ],
+              "cues": [
+                0,
+                6,
+                10
+              ]
+            },
+            "playbackReused": true
+          },
+          {
+            "songId": "dear-papa-song-til-the-light-walks-inn-wandering",
+            "title": "\u2018Til the Light Walks Inn.wandering(),",
+            "cutId": "intentional-enrichment-8c3bc198a60f-ca684ae23ba3bd70",
+            "pausedMeanError": 0,
+            "reverseMeanError": 0.00025225511335461693,
+            "decoded": {
+              "total": 485,
+              "eligible": 479,
+              "p95Ms": 8.581666666667154,
+              "maxMs": 21.79966661898261,
+              "overOneFrame": 0,
+              "sourceRates": [
+                1
+              ],
+              "cues": [
+                0,
+                6,
+                11.1
+              ]
+            },
+            "playbackReused": true
+          },
+          {
+            "songId": "dear-papa-song-miss-medusa",
+            "title": "Miss Medusa",
+            "cutId": "wide-coverage-rhythmic-v1-edit-1383996fa8a74b2e",
+            "pausedMeanError": 0,
+            "reverseMeanError": 0,
+            "decoded": {
+              "total": 188,
+              "eligible": 185,
+              "p95Ms": 12.121333357178104,
+              "maxMs": 22.640666666663368,
+              "overOneFrame": 0,
+              "sourceRates": [
+                1
+              ],
+              "cues": [
+                0,
+                11.8
+              ]
+            },
+            "playbackReused": true
+          },
+          {
+            "songId": "dear-papa-song-r-g-b-nice-whale",
+            "title": "R.G.B. Nice Whale",
+            "cutId": "intentional-enrichment-8c3bc198a60f-cbe68aa8d1cfa82f-edit-dc49366ad81a4d11",
+            "pausedMeanError": 0,
+            "reverseMeanError": 0,
+            "decoded": {
+              "total": 466,
+              "eligible": 461,
+              "p95Ms": 8.37066673819642,
+              "maxMs": 26.665999999999634,
+              "overOneFrame": 0,
+              "sourceRates": [
+                1
+              ],
+              "cues": [
+                0,
+                6,
+                11.1
+              ]
+            },
+            "playbackReused": true
+          },
+          {
+            "songId": "dear-papa-song-bongbongboink",
+            "title": "BongBongBoink",
+            "cutId": "intentional-enrichment-8c3bc198a60f-59e0f79f05798f0a",
+            "pausedMeanError": 0,
+            "reverseMeanError": 0,
+            "decoded": {
+              "total": 485,
+              "eligible": 479,
+              "p95Ms": 10.367666666667219,
+              "maxMs": 28.495333357178882,
+              "overOneFrame": 0,
+              "sourceRates": [
+                1
+              ],
+              "cues": [
+                0,
+                4.7,
+                9.4
+              ]
+            },
+            "playbackReused": true
+          }
+        ],
+        "scope": "Actual 1080p canvas and full browser composition crops at8/12/8s; six source-bound cuts. Five playing-path excerpts reused, one fresh Dear Papa regression. No whole-composite playing/event/export, non-unit native source-rate, full-song, physical or human acceptance.",
+        "closedRequirements": [],
+        "pixelIdenticalComparisons": 11,
+        "maximumChannelDifference": 1,
+        "maximumMeanChannelError": 0.00025225511335461693
       }
     }
   ],
@@ -476,10 +636,11 @@
     "docs/postmortems/2026-09-08-echo-precise-audio.md",
     "docs/postmortems/2026-09-08-echo-preview-quality-budget.md",
     "docs/postmortems/2026-09-08-echo-prefetch-retention.md",
-    "docs/postmortems/2026-09-08-echo-decoded-presentation.md"
+    "docs/postmortems/2026-09-08-echo-decoded-presentation.md",
+    "docs/postmortems/2026-09-08-echo-paused-composition.md"
   ],
   "decisionAfterAcceptedBatches": 2,
-  "nextAction": "Complete actual-compositor event and handoff timing, remaining cue-entry outliers and six-song source-rate coverage; consolidate ECHO-04/07 acceptance against the original criteria. Reuse the passing full-song browser residual, transport, fallback and resource evidence. Cold persistent replay latency and human review remain separate open work.",
+  "nextAction": "Finish shared song-time media handoffs and a complete Preview/HyperFrames event-boundary comparison for ECHO-04, then consolidate ECHO-07 acceptance with its dependencies. Reuse the six-song paused composition, stem isolation, live capture and section-budget evidence. Track cold history latency under ECHO-08/17; retain lyric, direction, recut, UI and human-review scope.",
   "updates": "batch-start, scope-change, consequential-failure, acceptance, handoff, goal-completion",
   "collaboration": {
     "protocol": "docs/ECHO_CONVICTION_PROTOCOL.md",

@@ -142,6 +142,7 @@ export function planEchoPlaybackCorrection({
   currentSeconds = 0,
   seeking = false,
   cueEntry = false,
+  paused = false,
   targetPlaybackRate = 1,
   presentedSample = null,
   nowMs = null,
@@ -149,12 +150,17 @@ export function planEchoPlaybackCorrection({
   maximumSeconds = Infinity,
 } = {}) {
   const basePlaybackRate = Math.max(0.01, Number(targetPlaybackRate) || 1);
-  const phase = seeking ? null : echoDecodedPlaybackPhase(presentedSample, { nowMs, targetPlaybackRate: basePlaybackRate });
+  const phase = seeking || paused ? null : echoDecodedPlaybackPhase(presentedSample, { nowMs, targetPlaybackRate: basePlaybackRate });
   const route = phase === null ? "element-clock" : "decoded-presentation";
   const songDriftSeconds = phase ?? (Number(expectedSeconds) - Number(currentSeconds)) / basePlaybackRate;
   const driftSeconds = songDriftSeconds * basePlaybackRate;
   const state = { route, driftSeconds, songDriftSeconds };
   if (seeking) return { ...state, action: "none", playbackRate: basePlaybackRate };
+  // A still frame has no future rate correction. Resolve even subframe drift
+  // to the authored source position so seek order cannot select adjacent frames.
+  if (paused) return Math.abs(driftSeconds) > 1e-6
+    ? { ...state, action: "seek", targetSeconds: Math.max(minimumSeconds, Math.min(maximumSeconds, Number(expectedSeconds))), playbackRate: basePlaybackRate }
+    : { ...state, action: "none", playbackRate: basePlaybackRate };
   if ((cueEntry && Math.abs(songDriftSeconds) > 1 / 30) || Math.abs(songDriftSeconds) > 0.75) {
     // Apply the observed phase displacement to the current element position;
     // seeking to the element target alone would discard measured decode lag.

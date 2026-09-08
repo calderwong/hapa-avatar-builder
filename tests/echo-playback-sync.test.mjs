@@ -235,3 +235,17 @@ test('presentation feedback converges with decoder phase lag across source rates
     assert.ok(Math.abs(finalResidual) < .005, `rate=${rate}, lag=${lag}: ${finalResidual}`);
   }
 });
+
+
+test('paused source positioning removes subframe drift instead of applying a rate nudge', () => {
+  for (const currentSeconds of [2.030992, 1.98]) {
+    const result = planEchoPlaybackCorrection({ expectedSeconds: 2, currentSeconds, paused: true });
+    assert.equal(result.action, 'seek');
+    assert.equal(result.targetSeconds, 2);
+    assert.equal(result.playbackRate, 1);
+  }
+  assert.equal(planEchoPlaybackCorrection({ expectedSeconds: 2, currentSeconds: 2 + 1e-8, paused: true }).action, 'none');
+  const clamped = planEchoPlaybackCorrection({ expectedSeconds: 3, currentSeconds: 2, paused: true, minimumSeconds: 1, maximumSeconds: 2.5 });
+  assert.equal(clamped.targetSeconds, 2.5);
+  assert.equal(planEchoPlaybackCorrection({ expectedSeconds: 2, currentSeconds: 1.9, paused: true, seeking: true }).action, 'none');
+});
