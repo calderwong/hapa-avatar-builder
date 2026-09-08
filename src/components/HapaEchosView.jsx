@@ -1,5 +1,6 @@
 import { createImageShotGeometry, selectImageShotRendition } from "../domain/unified-media-catalog.js";
 import EchoLyricOverlay from "./EchoLyricOverlay.jsx";
+import { EchoAccentPresentation } from "../domain/echo-accent-presentation.js";
 import { echoPreparedPerformanceSignalFrames, evaluateEchoMusicPerformance, echoVisualSignalIsolation, isolateEchoPreparedModulation } from "../domain/hyperframes-visualizer-runtime.js";
 import { prepareDirectorModulationTimeline } from "../domain/director-modulation-v2.js";
 import EchoPerformancePreparationControl from "./EchoPerformancePreparationControl.jsx";
@@ -957,7 +958,7 @@ export function PresentedEchoImage({ shot, style, cameraCrop, onPresentedMediaCh
     if (!element || !parent || !element.naturalWidth || !parent.clientWidth || !parent.clientHeight) return;
     const input = framingInputs.current;
     try {
-      if (input.cameraCrop?.cameraModel === "protected-v2") {
+      if (["protected-v2", "section-crop-v1"].includes(input.cameraCrop?.cameraModel)) {
         const frame = echoProtectedCameraFrame({ sourceWidth: element.naturalWidth, sourceHeight: element.naturalHeight,
           outputWidth: parent.clientWidth, outputHeight: parent.clientHeight, crop: input.cameraCrop });
         Object.assign(element.style, frame.style);
@@ -3348,6 +3349,10 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
           shaderTypeResolver,
         })
         : null;
+      const accentState = EchoAccentPresentation.frame(directorPreviewFrame?.automation?.accents || [], directorPreviewFrame?.clock?.evaluationSeconds ?? directorPreviewFrame?.clock?.selectionSeconds ?? t, { reducedMotion: activeProject?.lyrics?.reducedMotion === true });
+      const accentReceipts = [];
+      const mediaAccentTarget = directorPreviewFrame?.primaryMediaCue;
+      if (mediaAccentTarget) accentReceipts.push(...EchoAccentPresentation.paint(ctx, accentState, width, height, { layer: "media-layer", primary: true, instanceId: mediaAccentTarget.id, cardId: mediaAccentTarget.id, trackId: mediaAccentTarget.trackId }));
       const projectedCueIndex = directorPreviewFrame?.primaryMediaCue?.sourceCueIndex;
       const playheadShotIndex = Number.isInteger(projectedCueIndex)
         ? projectedCueIndex
@@ -3434,7 +3439,11 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
         || (quarantinedGraphVisualizerCards.length ? null : graphVisualizerCards[0])
         || null;
 
-      if (hasDirectorShowGraph) {
+      const budgetHoldsAllShaders = directorPreviewFrame?.visualBudget?.status === "within-budget" && directorPreviewFrame.visualizers.length === 0 && directorPreviewFrame.visualBudget.suppressedIds.length > 0;
+      if (hasDirectorShowGraph && budgetHoldsAllShaders) {
+        pauseEchoStemDecoderPool(stemDecoderPoolRef.current);
+        publishExactStatus({ status: "idle", sourceId: "", error: "" });
+      } else if (hasDirectorShowGraph) {
         const pool = ensureExactPlaybackPool(canvas, directorShowGraph);
         if (!graphVisualizerCard) {
           pauseEchoStemDecoderPool(stemDecoderPoolRef.current);
@@ -3632,7 +3641,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
               })
               : null;
             const graphIdentity = echoIsfGraphRuntimeIdentity(directorShowGraph);
-            const layeredCards = graphActiveVisualizerCards.length ? graphActiveVisualizerCards : [graphVisualizerCard];
+            const layeredCards = directorPreviewFrame ? graphActiveVisualizerCards : graphActiveVisualizerCards.length ? graphActiveVisualizerCards : [graphVisualizerCard];
             const layerPresentations = layeredCards.map((card) => {
               const stemRole = String(card?.visualization?.card?.stemFocus || card?.visualization?.stemFocus || "master");
               const layerSignalFrame = signalFrames[stemRole]
@@ -3774,6 +3783,9 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                 ctx.scale(audioEnvelope.scale, audioEnvelope.scale);
                 ctx.drawImage(presentation.canvas, -width / 2, -height / 2, width, height);
                 ctx.restore();
+                // Layer-space overlays follow the same song clock, with no camera
+                // scale amplification of the declared frame-area limit.
+                if (Number(composition.effectiveAlpha ?? composition.opacity) > 0) accentReceipts.push(...EchoAccentPresentation.paint(ctx, accentState, width, height, { layer: "visualizer-layer", primary: layer === readyLayers[0], instanceId: layer.card.id, cardId: layer.card.id, visualizerId: layer.requestedShaderId, trackId: layer.card.trackId, layerIndex: readyLayers.indexOf(layer) }));
               }
             } else {
               const heldCanvas = exactIsfLastPresentedCanvasRef.current;
@@ -4199,15 +4211,8 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
         }
       }
 
-      const previewAccent = directorPreviewFrame?.automation?.accents?.at(-1);
-      if (previewAccent) {
-        ctx.save();
-        ctx.globalCompositeOperation = "screen";
-        ctx.globalAlpha = Math.max(0, (1 - Number(previewAccent.progress || 0)) * 0.18);
-        ctx.fillStyle = "#f6c96d";
-        ctx.fillRect(0, 0, width, height);
-        ctx.restore();
-      }
+      canvas.dataset.echoAccentReceipts = JSON.stringify(EchoAccentPresentation.report(accentState, accentReceipts, { excludeLayers: directorPreviewFrame?.lyrics?.visible ? ['lyric-layer'] : [] }));
+      canvas.dataset.echoVisualBudget = JSON.stringify(directorPreviewFrame?.visualBudget || null);
       
       if (powerMode === "docked") cadenceTimer = window.setTimeout(() => { animFrame = requestAnimationFrame(render); }, 1000 / 12);
       else animFrame = requestAnimationFrame(render);
@@ -6948,8 +6953,9 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                               />
                             )}
 
-                            {activeWorkbenchTab === "variation" && (
-                              <>
+                            {/* Keep the comparison session while inspecting Preview or Tracks.
+                                The panel resets itself when song/cut identity changes. */}
+                            <div hidden={activeWorkbenchTab !== "variation"}>
                                 <VariationLabPanel
                                   project={activeProject}
                                   currentTime={currentTime}
@@ -6961,8 +6967,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                                   }}
                                 />
                                 <TasteMemoryPanel memory={activeProject.human_taste_memory} onChange={(memory) => handleUpdateProjectSettings({ human_taste_memory: memory })} />
-                              </>
-                            )}
+                            </div>
 
                             {["preview", "variation"].includes(activeWorkbenchTab) && (() => {
                               const previewSurface = (
@@ -7182,6 +7187,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                                   </div>
 
                                   <EchoLyricOverlay
+                                    accentEvents={activeShowGraph?.directorV2?.accentTrack?.events}
                                     contract={directorPreviewFrame?.lyrics?.contract || activeLyricContract}
                                     lines={activeShowGraph?.song?.lyricOverlay?.lines?.length ? activeShowGraph.song.lyricOverlay.lines : activeProject.timed_lyrics}
                                     position={activeProject.lyric_position || "bottom-center"} themeId={activeProject.lyric_style || "neon-cyan"}

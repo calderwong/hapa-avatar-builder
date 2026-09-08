@@ -1,5 +1,41 @@
 import { mapEchoSourceWindowTime } from "./echo-playback-sync.js";
 
+// HyperFrames 0.7 captures extracted frames as decoded sibling images. The
+// original video may be paused on another frame even while the image is visible.
+export function hyperFramesCapturedMediaElement(element) {
+  if (element?.tagName !== "VIDEO") return element;
+  const image = element.nextElementSibling;
+  return image?.id === `__render_frame_${element.id}__`
+    && image.classList.contains("__render_frame__")
+    && image.complete && image.naturalWidth > 0
+    && image.style.visibility !== "hidden"
+    ? image : element;
+}
+
+// Preserve the upstream hook and re-install after runtime initialization/rebind.
+// The hook runs after extracted images decode, before the capture screenshot.
+export function createHyperFramesMediaRedrawBridge(root, redraw) {
+  let installed = null;
+  let running = false;
+  return {
+    install() {
+      const previous = root.__hfReseekGpu;
+      if (previous === installed) return true;
+      if (typeof previous !== "function") return false;
+      installed = function (time) {
+        const result = previous.apply(this, arguments);
+        if (!running) {
+          running = true;
+          try { redraw(time); } finally { running = false; }
+        }
+        return result;
+      };
+      root.__hfReseekGpu = installed;
+      return true;
+    },
+  };
+}
+
 // The compiler's media element attributes are also the HyperFrames extraction
 // contract. Use that origin/rate for standalone captures, including the incoming
 // crossfade handle. A loaded video alone does not establish a decoded song frame.
@@ -58,10 +94,13 @@ export async function prepareHyperFramesVideoFrame(video, timeSeconds, {
       video.addEventListener("error", failed);
       const presented = (_now, metadata) => {
         frameHandle = null;
-        if (video.seeking || Math.abs(video.currentTime - target) > 1e-7) {
+        if (Math.abs(video.currentTime - target) > 1e-7) {
           frameHandle = video.requestVideoFrameCallback(presented);
           return;
         }
+        // Chromium may present the requested frame before dispatching seeked.
+        // Retain that observation; ready still waits for the seek to settle.
+        // A paused video need not present another frame after seeked.
         presentedMediaTime = metadata.mediaTime;
         framePresented = true;
         ready();

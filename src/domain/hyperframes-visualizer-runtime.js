@@ -1,3 +1,51 @@
+export const ECHO_SECTION_VISUAL_BUDGET_SCHEMA = 'hapa.echo.section-visual-budget.v1';
+
+/** Shared compiler/Preview/export policy. Units for camera velocity and
+ * acceleration are normalized source-crop coordinates per second and second². */
+export function echoSectionVisualBudget(section = {}) {
+  const role = String(section.type || section.sectionRole || '').toLowerCase();
+  const energy = Number.isFinite(Number(section.energy)) ? Number(section.energy)
+    : /chorus|hook|drop/.test(role) ? .85 : /intro|outro|bridge|break/.test(role) ? .2 : .5;
+  const band = energy < .35 ? 'quiet' : energy >= .75 ? 'peak' : 'steady';
+  const values = { quiet: [2, 6, .025, .04], steady: [3, 8, .05, .09], peak: [4, 10, .08, .16] }[band];
+  return { schemaVersion: ECHO_SECTION_VISUAL_BUDGET_SCHEMA, sectionId: section.id || 'unsectioned', band,
+    maxVisualizerLayers: values[0], maxTotalLayers: values[1], maxCameraVelocity: values[2], maxCameraAcceleration: values[3] };
+}
+
+export function echoSectionVisualBudgetAt(policy, timeSeconds) {
+  if (policy?.schemaVersion !== ECHO_SECTION_VISUAL_BUDGET_SCHEMA) return null;
+  const section = (policy.sections || []).find(row => Number(row.startSeconds ?? row.start) <= timeSeconds && Number(row.endSeconds ?? row.end) > timeSeconds);
+  const budget = echoSectionVisualBudget(section);
+  const requested = Number(policy.maxVisualizerLayers);
+  return { ...budget, maxVisualizerLayers: Number.isFinite(requested) ? Math.max(0, Math.min(budget.maxVisualizerLayers, Math.floor(requested))) : budget.maxVisualizerLayers };
+}
+
+export function echoSectionCameraBudgetForWindow(sections, startSeconds, endSeconds) {
+  const overlapping = (sections || []).filter(row => Number(row.startSeconds ?? row.start) < endSeconds && Number(row.endSeconds ?? row.end) > startSeconds);
+  const budgets = (overlapping.length ? overlapping : [{}]).map(echoSectionVisualBudget);
+  return { ...budgets[0], sectionIds: budgets.map(row => row.sectionId),
+    maxCameraVelocity: Math.min(...budgets.map(row => row.maxCameraVelocity)),
+    maxCameraAcceleration: Math.min(...budgets.map(row => row.maxCameraAcceleration)) };
+}
+
+export function admitEchoSectionVisualLayers(layers, policy, timeSeconds, { mediaLayers = 0, lyricLayers = 0, accentLayers = 0 } = {}) {
+  const budget = echoSectionVisualBudgetAt(policy, timeSeconds);
+  if (!budget) return { layers, receipt: { status: 'legacy-policy-not-declared', suppressedIds: [] } };
+  const reserve = [mediaLayers, lyricLayers, accentLayers].reduce((sum, count) => sum + Math.max(0, Math.floor(Number(count) || 0)), 0);
+  const allowance = Math.max(0, Math.min(budget.maxVisualizerLayers, budget.maxTotalLayers - reserve));
+  // Explicit locks and always-on operator slots remain authored. Report their
+  // excess; never silently disable a protected layer to manufacture compliance.
+  const protectedLayer = layer => layer.locked === true || layer.persistent === true || Boolean(layer.persistentSlotId);
+  const protectedIds = new Set(layers.filter(protectedLayer).map(layer => layer.id));
+  const selected = new Set(protectedIds);
+  for (const layer of layers) if (!selected.has(layer.id) && selected.size < allowance) selected.add(layer.id);
+  const admitted = layers.filter(layer => selected.has(layer.id));
+  return { layers: admitted, receipt: { ...budget, status: admitted.length > allowance || reserve > budget.maxTotalLayers ? 'protected-or-reserved-overflow' : 'within-budget',
+    reservedLayers: reserve, visualizerAllowance: allowance, admittedIds: admitted.map(layer => layer.id),
+    protectedIds: [...protectedIds], suppressedIds: layers.filter(layer => !selected.has(layer.id)).map(layer => layer.id),
+    totalLayers: reserve + admitted.length } };
+}
+
 export const HYPERFRAMES_STEM_ROLE_ALIASES = Object.freeze({
   master: "master",
   mastermix: "master",
@@ -1158,6 +1206,9 @@ export function evaluateHyperFramesVisualizers(show = {}, timeSeconds = 0, { sol
       cueId: text(instance.cueId || instance.id),
       visualizerId: text(instance.visualizerId),
       sourceHash: contract.sourceHash,
+      persistent: instance.alwaysOn === true,
+      persistentSlotId: instance.persistentSlotId || null,
+      locked: instance.locked === true,
       trackId: text(instance.trackId),
       cueIndex: Number.isFinite(Number(instance.cueIndex)) ? Number(instance.cueIndex) : null,
       layerOrder: Number.isFinite(Number(instance.layerOrder ?? instance.layerIndex ?? instance.zIndex))
@@ -1209,7 +1260,13 @@ export function evaluateHyperFramesVisualizers(show = {}, timeSeconds = 0, { sol
       accents: [],
     });
   }
-  const accentAssignment = assignAccents(drawable, activeAccents(show, time));
+  const lyricTrack = show.instances?.lyrics?.[0];
+  const visualAdmission = admitEchoSectionVisualLayers(drawable, show.automation?.visualBudgetPolicy, time, {
+    mediaLayers: (show.instances?.media || []).filter(row => activeHalfOpen(cueWindow(row), time)).length,
+    lyricLayers: lyricTrack?.contract?.enabled !== false && (lyricTrack?.lines || []).some(row => time >= Number(row.start ?? row.startSeconds) && time < Number(row.end ?? row.endSeconds)) ? 1 : 0,
+    accentLayers: Math.min(lyricTrack?.contract?.reducedMotion ? 1 : 3, (show.automation?.accentTrack?.events || []).filter(event => activeHalfOpen(eventWindow(event), time)).length),
+  });
+  const accentAssignment = assignAccents(visualAdmission.layers, activeAccents(show, time));
   const layers = accentAssignment.instances;
   return {
     schemaVersion: HYPERFRAMES_VISUALIZER_RUNTIME_SCHEMA,
@@ -1219,6 +1276,7 @@ export function evaluateHyperFramesVisualizers(show = {}, timeSeconds = 0, { sol
     instances: layers,
     diagnostics,
     accents: accentAssignment.accents,
+    visualBudget: visualAdmission.receipt,
     receipt: {
       activeCandidateIds,
       drawableInstanceIds: layers.map((instance) => instance.id),

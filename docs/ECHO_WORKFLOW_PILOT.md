@@ -33,7 +33,7 @@ At each meaningful update, keep JSON and Markdown in agreement, append the corre
 
 ## Next action
 
-Consolidate A1 against ECHO-07's original criteria: the remaining native gesture/surface and quiet/steady/peak boundary checks now pass. Continue ECHO-04 at the encoded shader-input boundary; standalone source-frame preparation is corrected and verified, while full-song timing and exact composite parity remain open. Reuse unaffected broad evidence. ECHO-07 remains dependent on ECHO-04; no requirement count change.
+Continue ECHO-04 deterministic persistent seeking and whole-composite timing. The sampled post-injection shader input and native callback-order repair now pass, and A1 integration is ready for a scoped local checkpoint. ECHO-07 remains dependent on ECHO-04; no requirement count changes. Reuse unaffected broad evidence.
 
 ## Conviction relationship — 2026-09-06
 
@@ -77,3 +77,9 @@ Native Dear Papa coverage passes six gestures across media, visualizer and lyric
 Local commit `922f7b5` records the separable source-frame adapter correction; earlier A1 integration hunks remain uncommitted. Standalone package capture previously left ordinary videos at source time0. The compiler now prepares visible video source times through the existing playback mapper and waits for decode. Actual native-resolution pixels agree with independent FFmpeg frames within0.7–0.9 mean RGB levels/255; repeated reverse-seek pixels are identical.25 targeted checks pass;55 protected/12 authoring hashes remain unchanged. Two downscaled pixel comparisons failed due to different scaler behavior; retained evidence and corrected comparison scope are explained in [the media-clock postmortem](postmortems/2026-09-07-echo-package-media-clock.md).
 
 Encoded shader inputs remain open: HyperFrames injects extracted frames after the composition draw, but the Hapa shader adapter reads the original video. Next work must address this actual execution boundary, including persistent shader semantics. No full-suite/build/full-song render repeated; no requirement closed.
+
+## A1 shader frame correction and consolidated implementation — 2026-09-07
+
+The HyperFrames adapter now samples the injected decoded video image and redraws after injection. Correct texture binding and same-frame buffer restoration pass eight real GPU persistent replay cases. Three decoded samples from a four-second 1080p30 MP4 favor correct-time shader references over stale footage; all120 frames are present. The native seek-timeout race is fixed and seven affected checks pass. The original failed GPU threshold, IPC trace and missing-reference attempts remain recorded.
+
+See [the export integration postmortem](postmortems/2026-09-07-echo-shader-frame-integration.md) for tolerances, evidence reuse and remaining scope. This checkpoint consolidates existing A1 gestures, section budgets, recut preservation and session lifecycle work; it does not close a requirement. Nonsequential persistent rendering, broader composite timing, resource budgets and human acceptance remain open. Counts remain6 done/12 in progress; zero accepted workflow-pilot batches.

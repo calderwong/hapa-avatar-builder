@@ -13,6 +13,7 @@ import { buildLyricDirectionTrack } from "./lyric-direction-track.js";
 import { buildAudioFallbackProfile } from "./audio-fallback-profile.js";
 import { buildMediaDiversityReport } from "./media-diversity-budget.js";
 import { buildSafeCameraPath, buildProtectedCameraPath, classifyMediaRole } from "./media-role-camera.js";
+import { ECHO_SECTION_VISUAL_BUDGET_SCHEMA, echoSectionCameraBudgetForWindow } from './hyperframes-visualizer-runtime.js';
 import { createImageShotGeometry } from "./unified-media-catalog.js";
 import { resolveEchoOutputProfile } from "./echo-output-profile.js";
 import {
@@ -1203,6 +1204,7 @@ export function compileDirectorVariant({ treatment, cueGraph, recipe = "conserva
     };
     const phraseCue = cueGraph.lyricCues.find((cue) => Number(cue.startSeconds) >= Number(slot.startSeconds) && Number(cue.startSeconds) < Number(slot.endSeconds)) || cueGraph.cues.find((cue) => Number(cue.atSeconds) >= Number(slot.startSeconds) && Number(cue.atSeconds) < Number(slot.endSeconds));
     const analysis = slot.selectedMedia.roi || { status: "center-safe-fallback", evidence: "no-subject-analysis-attached", subjectROI: { x: 0.25, y: 0.2, width: 0.5, height: 0.6 }, faceCount: 0 };
+    const sectionCameraBudget = echoSectionCameraBudgetForWindow(cueGraph.sections, Number(slot.startSeconds), Number(slot.endSeconds));
     const role = classifyMediaRole({ technical, subjectROI: analysis.subjectROI, atSectionStart: cadenceTrack.sections.some((section) => Math.abs(section.startSeconds - slot.startSeconds) < 0.001), isFinal: index === slots.length - 1 });
     if (contract.imageShot) {
       if (contract.type && contract.type !== "image") throw new Error("image_geometry_requires_image_media");
@@ -1225,6 +1227,8 @@ export function compileDirectorVariant({ treatment, cueGraph, recipe = "conserva
           protectedRegions: panelVerified ? [panel.rect,...panelRegions] : regions },
         role, startSeconds: Number(slot.startSeconds), durationSeconds: Number(slot.endSeconds)-Number(slot.startSeconds),
         readingSeconds: geometry.readingSeconds,
+        maxVelocity: sectionCameraBudget.maxCameraVelocity,
+        maxAcceleration: sectionCameraBudget.maxCameraAcceleration,
         ...(panelVerified ? { viewRegion:panel.rect } : {}),
         phraseCue: phraseCue ? { ...phraseCue, timingStatus: cueGraph.lyricCues.includes(phraseCue) && cueGraph.timingTruth.lyricStatus === "verified_source_path"
           ? "source-bound" : phraseCue.timingStatus || "unverified" } : null,
@@ -1241,16 +1245,24 @@ export function compileDirectorVariant({ treatment, cueGraph, recipe = "conserva
       }));
       return path;
     }
-    return buildSafeCameraPath({
+    const path = buildSafeCameraPath({
       mediaId: slot.selectedMedia.id,
       technical,
       analysis,
       role,
       phraseCue,
+      durationSeconds: Number(slot.endSeconds) - Number(slot.startSeconds),
+      motionBudget: slot.locks?.includes('camera') ? null : sectionCameraBudget,
       // The first corridor drives camera keyframes. Keep it aligned with the
       // selected export profile while retaining the alternate crop plans.
       targetAspects: cameraTargetAspects,
     });
+    if (path.sectionMotionBudget) trackA[index].cameraKeyframes = path.keyframes.map(frame => ({
+      atSeconds: Number(slot.startSeconds) + frame.offset * path.durationSeconds,
+      slotId: slot.id, cameraPathId: path.id, crop: frame.crop, easing: path.easing,
+      sectionMotionBudget: path.sectionMotionBudget, ...slot.camera,
+    }));
+    return path;
   });
   const graphBase = {
     schemaVersion: NATIVE_SHOW_GRAPH_SCHEMA,
@@ -1392,13 +1404,14 @@ export function compileDirectorVariant({ treatment, cueGraph, recipe = "conserva
       })),
       cameraKeyframes: slots.flatMap((slot, index) => {
         const path = mediaRoleCamera[index];
-        if (path.schemaVersion === "hapa.director.media-role-camera.v2") return trackA[index].cameraKeyframes;
+        if (path.schemaVersion === "hapa.director.media-role-camera.v2" || path.sectionMotionBudget) return trackA[index].cameraKeyframes;
         return [
-          { atSeconds: slot.startSeconds, slotId: slot.id, cameraPathId: path.id, subjectROI: path.subjectROI, shotRole: path.shotRole, phraseCue: path.phraseCue, easing: path.easing, safeZoomLimits: path.zoomLimits, crop: path.corridors[0].startCrop, ...slot.camera },
-          { atSeconds: slot.endSeconds, slotId: slot.id, cameraPathId: path.id, subjectROI: path.subjectROI, shotRole: path.shotRole, phraseCue: path.phraseCue, easing: path.easing, safeZoomLimits: path.zoomLimits, crop: path.corridors[0].endCrop, ...slot.camera },
+          { atSeconds: slot.startSeconds, slotId: slot.id, cameraPathId: path.id, subjectROI: path.subjectROI, shotRole: path.shotRole, phraseCue: path.phraseCue, easing: path.easing, sectionMotionBudget: path.sectionMotionBudget, safeZoomLimits: path.zoomLimits, crop: path.corridors[0].startCrop, ...slot.camera },
+          { atSeconds: slot.endSeconds, slotId: slot.id, cameraPathId: path.id, subjectROI: path.subjectROI, shotRole: path.shotRole, phraseCue: path.phraseCue, easing: path.easing, sectionMotionBudget: path.sectionMotionBudget, safeZoomLimits: path.zoomLimits, crop: path.corridors[0].endCrop, ...slot.camera },
         ];
       }),
       mediaRoleCamera,
+      visualBudgetPolicy: { schemaVersion: ECHO_SECTION_VISUAL_BUDGET_SCHEMA, sections: structuredClone(cueGraph.sections || []), maxVisualizerLayers: normalizedRecipe.maxVisualizerLayers },
       cadenceTrack,
       lyricDirectionTrack,
       audioFallbackProfile,

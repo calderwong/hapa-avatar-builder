@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { buildAccentEventTrack, createAccentOverrideReceipt, SAFE_ACCENT_LIMITS, validateAccentEventTrack } from "../src/domain/accent-event-track.js";
+import { admitMergedAccentEvents, buildAccentEventTrack, createAccentOverrideReceipt, SAFE_ACCENT_LIMITS, validateAccentEventTrack } from "../src/domain/accent-event-track.js";
 
 const cues = Array.from({ length: 20 }, (_, index) => ({
   id: `cue:${index}`,
@@ -50,4 +50,25 @@ test("section budgets cross boundaries, honor zero density and prefer distinct m
     if(event.gestureRole!=='source-accent')assert.equal(event.safety.flashCount,0);
   }
   assert.deepEqual(buildAccentEventTrack({ cues: [...input].reverse(), sections: sectionRows, density: 1, durationSeconds: 24 }),track);
+});
+
+test('range recuts cannot refill a shared density window or displace locked source events', () => {
+  const budget = { windowSeconds: 8, maxEvents: 2, minimumSeparationSeconds: .4 };
+  const row = (id, atSeconds, locked = false) => ({ id, atSeconds, endSeconds: atSeconds + .18, locked, sectionBudget: budget });
+  const protectedEvents = [row('outside-left', 0), row('locked-right', 7, true)];
+  const before = JSON.stringify(protectedEvents);
+  const result = admitMergedAccentEvents(protectedEvents, [row('new', 4), row('later', 9)]);
+  assert.deepEqual(result.events.map(event => event.id), ['outside-left', 'locked-right', 'later']);
+  assert.deepEqual(result.receipt.decisions[0].reasons, ['section-density']);
+  assert.equal(JSON.stringify(protectedEvents), before);
+  assert.deepEqual(admitMergedAccentEvents([...protectedEvents].reverse(), [row('later', 9), row('new', 4)]), result);
+});
+
+test('pre-existing locked excess is reported, preserved and does not block unrelated later work', () => {
+  const budget = { windowSeconds: 8, maxEvents: 1, minimumSeparationSeconds: .4 };
+  const row = (id, atSeconds) => ({ id, atSeconds, sectionBudget: budget });
+  const original = [row('locked-a', 1), row('locked-b', 2)];
+  const result = admitMergedAccentEvents(original, [row('nearby', 3), row('distant', 20)]);
+  assert.deepEqual(result.events.map(event => event.id), ['locked-a', 'locked-b', 'distant']);
+  assert.equal(result.receipt.preservedViolations.length, 1);
 });

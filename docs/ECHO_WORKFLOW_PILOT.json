@@ -2,7 +2,7 @@
   "schemaVersion": "hapa.workflow-pilot.v1",
   "id": "echo-requirement-completion-batch-pilot",
   "version": "0.1",
-  "updatedAt": "2026-09-08T03:12:16.362478+00:00",
+  "updatedAt": "2026-09-08T03:29:56.941036+00:00",
   "status": "active-pilot",
   "effectiveness": "not-yet-evaluated",
   "ownerTaskId": "01a072d3-d593-74f2-8c89-2470c2ee1a40",
@@ -40,7 +40,7 @@
   "batches": [
     {
       "id": "A1",
-      "status": "validation-in-progress",
+      "status": "integration-checkpoint-validation-in-progress",
       "requirements": [
         "ECHO-07"
       ],
@@ -84,8 +84,8 @@
         "nativeSongAndEncodedParity": "12-second encoded spatial/lyric/audio checks pass; exact moving-footage parity remains unproven",
         "defaultReadbackBackendReplay": "observed mismatch; retained for fidelity investigation",
         "remaining": [
-          "encoded source-frame and shader-input synchronization through actual post-injection redraw",
-          "full ECHO-07 criteria including ECHO-04 dependency and A1 integration commit"
+          "full ECHO-04 deterministic persistent seeking and whole-composite timing acceptance",
+          "ECHO-07 criteria/dependency consolidation and sustained ECHO-08 resource measurements"
         ],
         "codeCommit": null,
         "sectionCameraPathsChecked": 383,
@@ -129,10 +129,11 @@
     "docs/postmortems/2026-09-07-echo-accent-rendering-diagnostic.md",
     "docs/postmortems/2026-09-07-echo-section-budget-integration.md",
     "docs/postmortems/2026-09-07-echo-deferred-media-export.md",
-    "docs/postmortems/2026-09-07-echo-package-media-clock.md"
+    "docs/postmortems/2026-09-07-echo-package-media-clock.md",
+    "docs/postmortems/2026-09-07-echo-shader-frame-integration.md"
   ],
   "decisionAfterAcceptedBatches": 2,
-  "nextAction": "Complete ECHO-04 encoded shader-input synchronization at HyperFrames post-injection redraw; consolidate A1 native acceptance against ECHO-07 criteria. Native gestures and all section bands now pass; standalone source-frame preparation verified. Reuse unaffected evidence; 6 done/12 in progress.",
+  "nextAction": "Continue ECHO-04 persistent arbitrary seeking and whole-composite timing; sampled post-injection shader redraw and native callback-order repair now pass. Consolidated A1 implementation remains unaccepted; 6 done/12 in progress.",
   "updates": "batch-start, scope-change, consequential-failure, acceptance, handoff, goal-completion",
   "collaboration": {
     "protocol": "docs/ECHO_CONVICTION_PROTOCOL.md",
@@ -176,5 +177,17 @@
     "postmortem": "docs/postmortems/2026-09-07-echo-package-media-clock.md",
     "commit": "922f7b5",
     "rendererIdentityRegression": "pass"
+  },
+  "latestExportFrameCorrection": {
+    "status": "sampled-native-and-encoded-verified",
+    "gpuPersistentDuplicateFrames": 8,
+    "encodedSamples": 3,
+    "videoFrames": 120,
+    "durationSeconds": 4,
+    "renderSeconds": 11.111386060714722,
+    "seekRegressionChecks": 7,
+    "scope": "derived actual-song catalog filter; no whole-song/general persistent seek acceptance",
+    "requirementClosures": [],
+    "postmortem": "docs/postmortems/2026-09-07-echo-shader-frame-integration.md"
   }
 }

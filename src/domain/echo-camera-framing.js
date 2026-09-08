@@ -197,11 +197,11 @@ export function echoCameraMotionPresentation({
     objectPositionYPercent: round(clamp(objectPositionYPercent, 0, 100)),
     transformOriginXPercent: round(cropPresentation?.centerX ?? 50),
     transformOriginYPercent: round(cropPresentation?.centerY ?? 50),
-    crop: crop?.cameraModel === "protected-v2" && cropPresentation
+    crop: ["protected-v2", "section-crop-v1"].includes(crop?.cameraModel) && cropPresentation
       ? { ...crop, ...cropPresentation.crop } : cropPresentation?.crop || null,
     cropScale: round(cropPresentation?.scale ?? 1),
-    ...(crop?.cameraModel === "protected-v2" ? {
-      cameraModel: "protected-v2", motion: "protected-path", auto: false,
+    ...(["protected-v2", "section-crop-v1"].includes(crop?.cameraModel) ? {
+      cameraModel: crop.cameraModel, motion: crop.cameraModel === "section-crop-v1" ? "section-budget-path" : "protected-path", auto: false,
       scale: 1, translateXPercent: 0, translateYPercent: 0, intensity: 0,
     } : {}),
   };
@@ -225,7 +225,7 @@ export function echoCameraCoverSourceRect({
   const safeOutputWidth = Math.max(1, finite(outputWidth, 1));
   const safeOutputHeight = Math.max(1, finite(outputHeight, 1));
   const camera = presentation && typeof presentation === "object" ? presentation : {};
-  if (camera.crop?.cameraModel === "protected-v2") {
+  if (["protected-v2", "section-crop-v1"].includes(camera.crop?.cameraModel)) {
     return echoProtectedCameraFrame({ sourceWidth: safeSourceWidth, sourceHeight: safeSourceHeight,
       outputWidth: safeOutputWidth, outputHeight: safeOutputHeight, crop: camera.crop });
   }
@@ -288,8 +288,8 @@ export function echoCameraKeyframeAt(keyframes = [], timeSeconds = 0) {
   const nextCrop = sameCorridor ? normalizeEchoCameraCrop(next?.crop) : null;
   if (!currentCrop || !nextCrop) return { ...current };
   const linearProgress = clamp((time - start) / (end - start));
-  const protectedPath = current?.crop?.cameraModel === "protected-v2";
-  const progress = protectedPath && current?.easing === "smootherstep"
+  const protectedPath = ["protected-v2", "section-crop-v1"].includes(current?.crop?.cameraModel);
+  const progress = (protectedPath || current?.sectionMotionBudget) && current?.easing === "smootherstep"
     ? linearProgress ** 3 * (linearProgress * (linearProgress * 6 - 15) + 10) : linearProgress;
   const mix = (left, right) => Number((left + ((right - left) * progress)).toFixed(12));
   return {
@@ -334,7 +334,7 @@ export function echoCameraFramingRuntimeBrowserSource(namespace = "HapaEchoCamer
 // drives the DOM media box and Canvas drawImage arguments.
 export function echoProtectedCameraFrame({sourceWidth,sourceHeight,outputWidth,outputHeight,crop}={}) {
   if(![sourceWidth,sourceHeight,outputWidth,outputHeight].every(n=>Number.isFinite(n)&&n>0))throw new Error('camera-dimensions-required');
-  if(crop?.cameraModel!=='protected-v2')return null;
+  if(!['protected-v2','section-crop-v1'].includes(crop?.cameraModel))return null;
   if(![crop.x,crop.y,crop.width,crop.height].every(Number.isFinite)||crop.x<0||crop.y<0||crop.width<=0||crop.height<=0||crop.x+crop.width>1+1e-9||crop.y+crop.height>1+1e-9)throw new Error('invalid-protected-camera-crop');
   const rect=normalizeEchoCameraCrop(crop);
   if(!rect)throw new Error('invalid-protected-camera-crop');

@@ -604,3 +604,22 @@ test('generated prepared envelopes use each input range and current control base
   assert.equal(sample(1.8).shine, 400, 'disabled/static mapping must not be overridden by prepared animation');
   assert.equal(sample(.1).edge, 233, 'reverse seeks restore the exact quiet state');
 });
+
+test('section layer admission counts media/lyrics/accents and preserves locked overflow through seeks', async () => {
+  const {ECHO_SECTION_VISUAL_BUDGET_SCHEMA,admitEchoSectionVisualLayers}=await import('../src/domain/hyperframes-visualizer-runtime.js');
+  const policy={schemaVersion:ECHO_SECTION_VISUAL_BUDGET_SCHEMA,sections:[{id:'quiet',type:'intro',start:0,end:1},{id:'peak',type:'chorus',start:1,end:2}]};
+  const show=fixtureShow();
+  show.instances.visualizers=Array.from({length:6},(_,i)=>exactLayer({id:'layer-'+i,layerOrder:i}));
+  show.automation.visualBudgetPolicy=policy;
+  show.instances.media=[{id:'media',start:0,end:2}];
+  const before=JSON.stringify(show);
+  const quiet=evaluateHyperFramesVisualizers(show,.5),peak=evaluateHyperFramesVisualizers(show,1.5);
+  assert.equal(quiet.layers.length,2);assert.equal(peak.layers.length,4);
+  assert.deepEqual(evaluateHyperFramesVisualizers(show,.5),quiet);
+  assert.equal(JSON.stringify(show),before);
+  const crowded=admitEchoSectionVisualLayers(show.instances.visualizers,policy,.5,{mediaLayers:2,lyricLayers:1,accentLayers:3});
+  assert.equal(crowded.layers.length,0);assert.equal(crowded.receipt.totalLayers,6);
+  show.instances.visualizers.forEach((layer,i)=>layer.locked=i<3);
+  const locked=evaluateHyperFramesVisualizers(show,.5);
+  assert.equal(locked.layers.length,3);assert.equal(locked.visualBudget.status,'protected-or-reserved-overflow');
+});

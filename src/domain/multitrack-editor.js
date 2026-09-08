@@ -1,5 +1,5 @@
 import { upgradeEchoGeneratedVisualizerBindings } from "./echo-recipe-execution.js";
-import { normalizeHyperFramesStemRole } from "./hyperframes-visualizer-runtime.js";
+import { normalizeHyperFramesStemRole, echoSectionCameraBudgetForWindow, ECHO_SECTION_VISUAL_BUDGET_SCHEMA } from "./hyperframes-visualizer-runtime.js";
 import { echoDirectorVisualizerCueId } from "./echo-director-recipes.js";
 import { inspectEchoTimelineMediaEligibility, echoMediaConstraintError, ECHO_MEDIA_ELIGIBILITY_FIELDS } from "./echo-media-eligibility.js";
 import {applyEchoRecutExecutionToGraph} from './echo-recipe-recut-treatment.js';
@@ -379,6 +379,10 @@ function rebuildMediaCameraBindings(graph, timeline, outputProfile, track) {
     const sourceOrientation = projectedMediaOrientation(dimensions);
     const startSeconds = Number(card.startSeconds || 0);
     const endSeconds = Number(card.endSeconds || startSeconds);
+    const cameraLocked = card.locked === true || shot.locked === true || (shot.locks || []).includes('camera')
+      || (graph.directorV2?.locks || []).some(lock => ['camera', card.id, shot.id].filter(Boolean).includes(lock.targetId || lock.target));
+    const motionBudget = !cameraLocked && graph.directorV2?.visualBudgetPolicy?.schemaVersion === ECHO_SECTION_VISUAL_BUDGET_SCHEMA
+      ? echoSectionCameraBudgetForWindow(graph.directorV2.visualBudgetPolicy.sections, startSeconds, endSeconds) : null;
     const slotId = card.provenance?.sourceSlotId || `slot:${Number.isFinite(Number(shot.shot_index)) ? Number(shot.shot_index) : index}`;
     const analysis = {
       subjectROI: normalizedSubjectROI(framing.subjectROI || framing.path?.subjectROI),
@@ -506,7 +510,8 @@ function rebuildMediaCameraBindings(graph, timeline, outputProfile, track) {
         && selectedCorridor
         && declaredValidation.ok
       );
-      if (declaredPathMatchesSelectedMedia) {
+      const declaredBudgetMatches = !motionBudget || (JSON.stringify(declaredPath.sectionMotionBudget) === JSON.stringify(motionBudget) && declaredPath.durationSeconds === endSeconds - startSeconds);
+      if (declaredPathMatchesSelectedMedia && declaredBudgetMatches) {
         plannedPath = {
           ...declaredPath,
           corridors: [
@@ -528,6 +533,8 @@ function rebuildMediaCameraBindings(graph, timeline, outputProfile, track) {
           role,
           phraseCue,
           targetAspects,
+          durationSeconds: endSeconds - startSeconds,
+          motionBudget,
         });
       }
     }
@@ -559,6 +566,7 @@ function rebuildMediaCameraBindings(graph, timeline, outputProfile, track) {
       shotRole: path.shotRole,
       phraseCue: clone(path.phraseCue),
       easing: path.easing,
+      ...(path.sectionMotionBudget ? { sectionMotionBudget: clone(path.sectionMotionBudget) } : {}),
       safeZoomLimits: clone(path.zoomLimits),
       crop: clone(path.corridors[0].startCrop),
       ...camera,
@@ -941,6 +949,8 @@ function mergePersistentShaderSlots(graph, project = {}) {
 export function projectToEditorGraph(project = {}) {
   const declared = project.director_show_graph?.tracks ? clone(project.director_show_graph) : null;
   let graph = declared || legacyEditorGraph(project);
+  const recutBudget = project.director_patch_lineage?.recipeExecution?.visualBudgetPolicy;
+  if (recutBudget) graph.directorV2 = { ...(graph.directorV2 || {}), visualBudgetPolicy: clone(recutBudget) };
   const duration = Number(project.duration ?? graph.song?.durationSeconds ?? 60);
   const outputProfile = resolveEchoOutputProfile(project.output_profile || project.outputProfile || graph.outputProfile);
   graph = reframeEchoShowGraphOutputProfile(graph, outputProfile);

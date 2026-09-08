@@ -2,6 +2,8 @@ import {NARRATIVE_VARIANT_RECIPES} from './echo-director-recipes.js';
 import {buildEchoRecipeEventTracks,buildEchoRecipeModulationBindings,buildEchoRecipeAccentCards,echoRecipeBaseOpacity,echoRecipeOpacity,echoRecipeLyrics} from './echo-recipe-execution.js';
 import {normalizeEchoLyricContract} from './echo-lyric-contract.js';
 import {normalizeEchoPersistentShaderSlots} from './echo-persistent-shader-slots.js';
+import {admitMergedAccentEvents} from './accent-event-track.js';
+import {ECHO_SECTION_VISUAL_BUDGET_SCHEMA} from './hyperframes-visualizer-runtime.js';
 
 const clone=value=>structuredClone(value);
 const ordered=value=>Array.isArray(value)?value.map(ordered):value&&typeof value==='object'?Object.fromEntries(Object.keys(value).sort().map(key=>[key,ordered(value[key])])):value;
@@ -67,6 +69,9 @@ export function applyEchoRecutTreatment(project,{recipe,windows=[],locks=[],seed
   }else if(!shaderLocked&&!wholeSong&&(project.persistent_shader_slots||[]).some(row=>row.enabled))receipt.limitations.push('persistent-shader-mix-needs-whole-song-window');
   const previous=project.director_patch_lineage?.recipeExecution||{};
   const execution={...clone(previous),schemaVersion:'hapa.echo.recipe-execution-windows.v1'};
+  // A whole-song recut opts a legacy cut into section budgets. Partial edits
+  // retain its existing policy so they cannot change layers outside the range.
+  if(wholeSong&&!shaderLocked)execution.visualBudgetPolicy={schemaVersion:ECHO_SECTION_VISUAL_BUDGET_SCHEMA,sections:clone(project.director_show_graph?.directorV2?.cueGraph?.sections||[]),maxVisualizerLayers:recipe.maxVisualizerLayers};
   for(const [key,target] of [['accentWindows','accents'],['visualTimeWindows','visual-time']])if(!locked(sourceLocks,target))execution[key]=assignWindows(previous[key],windows,recipe);
   if(wholeSong){
     execution.bindingRecipe=clone(recipe);
@@ -77,6 +82,19 @@ export function applyEchoRecutTreatment(project,{recipe,windows=[],locks=[],seed
     if(!locked(sourceLocks,'lyric-style')){next.lyrics=echoRecipeLyrics(project,recipe);receipt.lyricsChanged=JSON.stringify(next.lyrics)!==JSON.stringify(normalizeEchoLyricContract(project))}
   }else receipt.limitations.push('global-stem-depth-and-lyric-style-preserved-for-ranged-recut');
   execution.eventLocks=sourceLocks.filter(lock=>lock.targetKind==='event');
+  // Freeze the executable event result at the edit boundary. Replaying every
+  // historical recipe window against different neighboring budgets can add
+  // previously suppressed accents outside the user's latest selection.
+  if(project.director_show_graph){
+    const current=applyEchoRecutExecutionToGraph(project.director_show_graph,project).directorV2||{};
+    const eventTracks=buildEchoRecipeEventTracks({cues:current.cueGraph?.cues||[],sections:current.cueGraph?.sections||[],recipe,durationSeconds:Number(project.duration),reducedMotion:normalizeEchoLyricContract(next).reducedMotion});
+    execution.materializedEventTracks=clone(previous.materializedEventTracks||{});
+    for(const [field,target] of [['accentTrack','accents'],['visualTimeTrack','visual-time']]){
+      if(locked(sourceLocks,target))continue;
+      const baseline=current[field]||{...eventTracks[field],eventCount:0,events:[]};
+      execution.materializedEventTracks[field]=mergeEventWindows(baseline,windows.map(window=>({...window,recipe})),()=>eventTracks[field],execution.eventLocks);
+    }
+  }
   next.director_patch_lineage={...(project.director_patch_lineage||{}),recipeExecution:execution};
   receipt.limitations=[...new Set(receipt.limitations)];
   return {project:next,receipt};
@@ -87,8 +105,9 @@ function mergeEventWindows(base,windows,build,locks){
   let additions=windows.flatMap(window=>build(window.recipe).events.filter(event=>inside(event,[window])&&!protectedEvents.some(prior=>interval(prior).startSeconds<event.endSeconds&&interval(prior).endSeconds>(event.atSeconds??event.startSeconds))));
   const flashTimes=protectedEvents.filter(event=>event.safety?.flashCount>0).map(event=>event.atSeconds);
   additions=additions.filter(event=>{if(!(event.safety?.flashCount>0))return true;if(flashTimes.some(time=>Math.abs(time-event.atSeconds)<1/3-1e-6))return false;flashTimes.push(event.atSeconds);return true});
-  const events=[...new Map([...protectedEvents,...additions].map(event=>[event.id,event])).values()].sort((a,b)=>(a.atSeconds??a.startSeconds)-(b.atSeconds??b.startSeconds)||a.id.localeCompare(b.id));
-  return {...base,eventCount:events.length,events};
+  const admission = base?.sectionPolicy ? admitMergedAccentEvents(protectedEvents, additions) : null;
+  const events=[...new Map((admission?.events || [...protectedEvents,...additions]).map(event=>[event.id,event])).values()].sort((a,b)=>(a.atSeconds??a.startSeconds)-(b.atSeconds??b.startSeconds)||a.id.localeCompare(b.id));
+  return {...base,eventCount:events.length,events,...(admission ? { mergedSectionAdmission: admission.receipt } : {})};
 }
 
 /** This projection runs in the browser, the batch worker and saved-cut replay.
@@ -101,11 +120,15 @@ export function applyEchoRecutExecutionToGraph(graph,project){
   const cache=new Map();
   const tracks=recipe=>{recipe=knownRecipe(recipe);const key=JSON.stringify(recipe);if(!cache.has(key))cache.set(key,buildEchoRecipeEventTracks({cues,sections:director.cueGraph?.sections||[],recipe,durationSeconds,reducedMotion}));return cache.get(key)};
   const updated={...director};
+  if(execution.visualBudgetPolicy)updated.visualBudgetPolicy=clone(execution.visualBudgetPolicy);
   for(const [key,field] of [['accentWindows','accentTrack'],['visualTimeWindows','visualTimeTrack']]){
     const windows=execution[key]||[];if(!windows.length)continue;
     if(windows.length>256||windows.some(row=>row.startSeconds<0||row.endSeconds>durationSeconds||row.endSeconds<=row.startSeconds))throw Error('Invalid persisted recipe interval.');
+    for(const window of windows)knownRecipe(window.recipe);
     const baseline=director[field]||{...tracks(windows[0].recipe)[field],eventCount:0,events:[]};
-    updated[field]=mergeEventWindows(baseline,windows,recipe=>tracks(recipe)[field],execution.eventLocks||[]);
+    updated[field]=execution.materializedEventTracks?.[field]
+      ? clone(execution.materializedEventTracks[field])
+      : mergeEventWindows(baseline,windows,recipe=>tracks(recipe)[field],execution.eventLocks||[]);
   }
   if(updated.accentTrack!==director.accentTrack){
     const oldIds=new Set((director.accentTrack?.events||[]).map(event=>event.id));

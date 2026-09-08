@@ -33,3 +33,32 @@ test("camera crops preserve the top-origin vertical position of an off-center su
   assert.ok(top.corridors[0].startCrop.y < bottom.corridors[0].startCrop.y);
   assert.ok(top.corridors[0].endCrop.y < bottom.corridors[0].endCrop.y);
 });
+
+test('section camera limits constrain actual interpolated crop motion, including short shots and reverse seeks', async () => {
+  const { echoSectionVisualBudget, echoSectionCameraBudgetForWindow } = await import('../src/domain/hyperframes-visualizer-runtime.js');
+  const { echoCameraKeyframeAt, echoCameraMotionPresentation, echoCameraCoverSourceRect } = await import('../src/domain/echo-camera-framing.js');
+  for (const type of ['intro', 'verse', 'chorus']) for (const durationSeconds of [.2, 2, 8]) {
+    const budget = echoSectionVisualBudget({ type });
+    const path = buildSafeCameraPath({ mediaId:'motion-proof', technical:{width:1920,height:1080}, analysis:{subjectROI:{x:.2,y:.2,width:.4,height:.4}}, role:'reveal', durationSeconds, motionBudget:budget });
+    assert.equal(path.easing, 'smootherstep');
+    const corridor = path.corridors[0];
+    assert.ok(corridor.maximumVelocity <= budget.maxCameraVelocity + 1e-10);
+    assert.ok(corridor.maximumAcceleration <= budget.maxCameraAcceleration + 1e-10);
+    const keyframes = [{atSeconds:0,cameraPathId:path.id,slotId:'one',crop:corridor.startCrop,easing:path.easing,sectionMotionBudget:budget},{atSeconds:durationSeconds,cameraPathId:path.id,slotId:'one',crop:corridor.endCrop}];
+    const keys=['x','y','width','height'], dt=durationSeconds/1000;
+    for(let i=1;i<1000;i++) {
+      const t=i*dt, a=echoCameraKeyframeAt(keyframes,t-dt).crop,b=echoCameraKeyframeAt(keyframes,t).crop,c=echoCameraKeyframeAt(keyframes,t+dt).crop;
+      const acceleration=Math.hypot(...keys.map(k=>(c[k]-2*b[k]+a[k])/(dt*dt)));
+      assert.ok(acceleration <= budget.maxCameraAcceleration + .0002, `${type}/${durationSeconds}/${t}: ${acceleration}`);
+    }
+    const sample=echoCameraKeyframeAt(keyframes,durationSeconds*.25);
+    echoCameraKeyframeAt(keyframes,durationSeconds*.9);
+    assert.deepEqual(echoCameraKeyframeAt(keyframes,durationSeconds*.25),sample);
+    const presentation=echoCameraMotionPresentation({crop:sample.crop,motion:'pan-left',intensity:2,speed:2,timeSeconds:durationSeconds*.25,endSeconds:durationSeconds});
+    assert.equal(presentation.scale,1); assert.equal(presentation.translateXPercent,0);
+    const rect=echoCameraCoverSourceRect({sourceWidth:1920,sourceHeight:1080,outputWidth:1920,outputHeight:1080,presentation});
+    assert.ok(Math.abs(rect.x-sample.crop.x*1920)<1e-6);
+  }
+  const spanning=echoSectionCameraBudgetForWindow([{id:'peak',type:'chorus',start:0,end:2},{id:'quiet',type:'outro',start:2,end:4}],1,3);
+  assert.equal(spanning.maxCameraAcceleration,echoSectionVisualBudget({type:'outro'}).maxCameraAcceleration);
+});

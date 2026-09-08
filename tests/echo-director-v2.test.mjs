@@ -457,3 +457,24 @@ test("lyric entry and release cues retain their source timing truth instead of c
   assert.equal(entries[0].evidence.timingBasis,'lyric-line-boundary');
   assert.equal(entries[0].evidence.inference,'lyric-entry-after-gap');
 });
+
+test('compiler carries section motion and layer budgets through preview and export without changing source', async () => {
+  const {compileHyperFramesShow}=await import('../src/domain/hyperframes-show-compiler.js');
+  const inputs=fixture();
+  inputs.project.music_video_project.visualizer_timeline=Array.from({length:6},(_,i)=>({start_sec:0,end_sec:24,visualizer_id:i%2?'isf:fixture-b':'isf:fixture-a',transition:'cut'}));
+  const before=structuredClone(inputs);
+  const {showGraph}=buildDirectorV2Artifacts({...inputs,recipe:'ensemble-response',seed:'section-budgets'});
+  const policy=showGraph.directorV2.visualBudgetPolicy;
+  assert.equal(policy.sections.length,3);
+  assert.ok(showGraph.directorV2.cameraKeyframes.some(row=>row.crop?.cameraModel==='section-crop-v1'));
+  const preview=timeSeconds=>projectEchoDirectorPreviewFrame({project:{...inputs.project.music_video_project,director_show_graph:showGraph,active_direction_script_variant:{id:'section-budget',title:'Section budget'}},timeSeconds,fps:30});
+  assert.ok(preview(2).visualizers.length<=2);
+  assert.ok(preview(16).visualizers.length<=4);
+  assert.equal(preview(2).visualBudget.band,'quiet');
+  const show=compileHyperFramesShow({showGraph,project:inputs.project,telemetry:{}});
+  assert.deepEqual(show.automation.visualBudgetPolicy,policy);
+  assert.equal(show.instances.media[0].cameraKeyframes[0].crop.cameraModel,'section-crop-v1');
+  const {echoCameraKeyframeAt}=await import('../src/domain/echo-camera-framing.js');
+  assert.deepEqual(echoCameraKeyframeAt(show.instances.media[0].cameraKeyframes,2).crop,preview(2).camera.keyframe.crop);
+  assert.deepEqual(inputs,before);
+});

@@ -13,7 +13,9 @@ export const SAFE_ACCENT_LIMITS = Object.freeze({
 const stableNumber = (value, fallback = 0) => Number.isFinite(Number(value)) ? Number(value) : fallback;
 const digest = (value) => bytesToHex(sha256(new TextEncoder().encode(JSON.stringify(value))));
 const kinds = ["scan", "glitch", "bloom", "shutter", "deck-swap", "flicker"];
-const targets = ["visualizer-layer", "media-layer", "lyric-layer", "card-layer"];
+// Only generate targets that have an executable presentation surface. Legacy
+// authored card-layer events retain their source identity and report unresolved.
+const targets = ["visualizer-layer", "media-layer", "lyric-layer"];
 
 export const SECTION_ACCENT_POLICY = "hapa.director.section-accent-budget.v1";
 
@@ -134,4 +136,40 @@ export function validateAccentEventTrack(track, { overrideReceipt = null } = {})
 export function createAccentOverrideReceipt({ operator, reason, acknowledgedAt, eventIds = [] } = {}) {
   const receipt = { schemaVersion: "hapa.director.accent-safety-override.v1", operator, reason, acknowledgedAt, eventIds: [...eventIds].sort() };
   return { ...receipt, receiptHash: digest(receipt) };
+}
+
+/** Recut windows share a rolling budget with preserved neighboring events.
+ * Locked/source events stay byte-for-byte intact even if already over budget;
+ * that condition is reported and can never justify adding another violation.
+ */
+export function admitMergedAccentEvents(protectedEvents = [], additions = []) {
+  const time = event => stableNumber(event.atSeconds ?? event.startSeconds);
+  const budget = event => event.sectionBudget || sectionAccentBudget({}, .5);
+  const ordered = rows => [...rows].sort((a, b) => time(a) - time(b) || String(a.id).localeCompare(String(b.id)));
+  const violations = rows => {
+    const failures = [];
+    for (let i = 0; i < rows.length; i++) {
+      const current = rows[i], limit = budget(current), at = time(current);
+      let left = i;
+      while (left > 0 && time(rows[left - 1]) > at - limit.windowSeconds + 1e-8) left--;
+      const recent = rows.slice(left, i + 1);
+      if (recent.length > limit.maxEvents) failures.push({ id: current.id, reason: 'section-density', involved: recent.map(row => row.id) });
+      if (i && at - time(rows[i - 1]) < Math.max(limit.minimumSeparationSeconds, budget(rows[i - 1]).minimumSeparationSeconds) - 1e-8)
+        failures.push({ id: current.id, reason: 'section-spacing', involved: [rows[i - 1].id, current.id] });
+    }
+    return failures;
+  };
+  let events = ordered(protectedEvents);
+  const decisions = [], preservedViolations = violations(events);
+  for (const event of ordered(additions)) {
+    if (events.some(row => row.id === event.id)) {
+      decisions.push({ id: event.id, accepted: false, reasons: ['existing-event-identity-preserved'] });
+      continue;
+    }
+    const candidate = ordered([...events, event]);
+    const failures = violations(candidate).filter(row => row.involved.includes(event.id));
+    if (!failures.length) events = candidate;
+    decisions.push({ id: event.id, accepted: failures.length === 0, reasons: [...new Set(failures.map(row => row.reason))] });
+  }
+  return { events, receipt: { policy: SECTION_ACCENT_POLICY, decisions, preservedViolations } };
 }

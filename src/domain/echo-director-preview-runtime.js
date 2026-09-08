@@ -19,6 +19,7 @@ import {
 } from "./echo-camera-framing.js";
 import { normalizeEchoTransitionTimeMapping } from "./echo-playback-sync.js";
 import { visualizerCardsAtTime } from "./echo-isf-browser-runtime.js";
+import { admitEchoSectionVisualLayers } from './hyperframes-visualizer-runtime.js';
 import {
   normalizeEchoLyricContract,
 } from "./echo-lyric-contract.js";
@@ -296,6 +297,9 @@ export function readEchoDirectorPreviewClock({
     rawSeconds: round(rawSeconds),
     seconds: round(frameSeconds),
     selectionSeconds: round(selectionSeconds),
+    // Keep display rounding out of curve evaluation. Export samples the exact
+    // frame/fps rational, including frames that repeat in decimal notation.
+    evaluationSeconds: selectionSeconds,
     durationSeconds: round(duration),
     frame,
     fps: rate,
@@ -766,6 +770,7 @@ function normalizeVisualizer(card, graph = {}, timeSeconds = 0, fps = 30, shader
     sourceHash: text(visualization.sourceHash || portable.source?.hash) || null,
     persistent: card.alwaysOn === true || track?.alwaysOn === true || track?.persistent === true,
     persistentSlotId: text(card.persistentSlotId || track?.slotId || card.provenance?.persistentSlotId) || null,
+    locked: card.locked === true || (card.locks || []).includes('shader') || (graph.directorV2?.locks || []).some(lock => (lock.targetId || lock.target) === card.id),
     stemMap: clone(list(card.parameters?.stemMap)),
     portableCard: Object.keys(portable).length ? clone(portable) : null,
     composition: echoDirectorPreviewVisualizerComposition(card, timeSeconds, fps, { shaderType: resolvedShaderType || null }),
@@ -884,7 +889,7 @@ export function resolveEchoDirectorPreviewCameraPresentation({
   const presentation = echoCameraMotionPresentation({
     startSeconds: cue.startSeconds,
     endSeconds: cue.endSeconds,
-    timeSeconds: frame?.clock?.selectionSeconds ?? frame?.clock?.seconds,
+    timeSeconds: frame?.clock?.evaluationSeconds ?? frame?.clock?.selectionSeconds ?? frame?.clock?.seconds,
     motion: text(cueCamera.motion || camera.motion || camera.keyframe?.motion || camera.keyframe?.shotRole, "auto"),
     intensity: optionalFinite(cueCamera.intensity, camera.intensity, camera.keyframe?.intensity) ?? 1,
     ...(speed === null ? {} : { speed }),
@@ -951,7 +956,7 @@ export function projectEchoDirectorPreviewFrame({
     fps: fps ?? outputProfile.fps,
     playing,
   });
-  const time = clockState.selectionSeconds;
+  const time = clockState.evaluationSeconds;
   const mediaEntries = activeMediaCards(graph, time);
   const mediaLayers = mediaEntries.map((entry) => normalizeMediaCue(
     entry,
@@ -960,7 +965,7 @@ export function projectEchoDirectorPreviewFrame({
     clockState.fps,
   ));
   const primaryMediaCue = mediaLayers.at(-1) || null;
-  const visualizers = visualizerCardsAtTime(graph, time)
+  let visualizers = visualizerCardsAtTime(graph, time)
     .map((card) => normalizeVisualizer(card, graph, time, clockState.fps, shaderTypeResolver));
   const globalCamera = echoCameraKeyframeAt(graph.directorV2?.cameraKeyframes, time);
   const sourceCueIndex = Number.isInteger(primaryMediaCue?.sourceCueIndex)
@@ -1016,6 +1021,11 @@ export function projectEchoDirectorPreviewFrame({
     })
     : null;
   const automation = automationState(graph, time, clockState.fps);
+  const visualAdmission = admitEchoSectionVisualLayers(visualizers, graph.directorV2?.visualBudgetPolicy, time, {
+    mediaLayers: mediaLayers.length, lyricLayers: lyricTemplateFrame?.visible ? 1 : 0,
+    accentLayers: Math.min(lyricContract.reducedMotion ? 1 : 3, automation.accents.length),
+  });
+  visualizers = visualAdmission.layers;
   const frameKey = [
     source.song.id,
     source.cut.id,
@@ -1043,6 +1053,7 @@ export function projectEchoDirectorPreviewFrame({
     currentCard: primaryMediaCue?.card || null,
     visualizers,
     shaders: visualizers,
+    visualBudget: visualAdmission.receipt,
     camera,
     transition: primaryMediaCue?.transitionState || null,
     lyrics: {

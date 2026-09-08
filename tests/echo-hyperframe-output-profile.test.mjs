@@ -284,7 +284,7 @@ test("HyperFrames phone packages use manifest dimensions, safe areas, portrait t
     let drawn;
     const mediaInput = { dataset:{instanceIndex:"0"} };
     const runtime = vm.runInNewContext(framingSource+";cameraFramedMediaElement", {
-      mediaReadyForShader:()=>true, mediaSourceDimensions:()=>({width:1024,height:2048}),
+      hyperFramesCapturedMediaElement:el=>el, mediaReadyForShader:()=>true, mediaSourceDimensions:()=>({width:1024,height:2048}),
       cameraPresentationForMedia:()=>({}), echoCameraCoverSourceRect:()=>({x:10,y:20,width:1000,height:1900,...(destination?{destination}:{})}),
       S:{instances:{media:[{mediaId:"image"}]}}, C:{width:1080,height:1920},
       shaderMediaCanvas:{width:1080,height:1920,dataset:{}},

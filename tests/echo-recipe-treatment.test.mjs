@@ -32,7 +32,10 @@ test('all five recuts execute the same opacity, stem-depth, accent, visual-time 
   const candidate=recut(project,{recipeId}),actual=projectToEditorGraph(candidate.project);
   assert.deepEqual(visualizers(actual).map(card=>card.parameters.opacity),visualizers(direct).map(card=>card.parameters.opacity),recipeId);
   assert.deepEqual(actual.directorV2.modulationBindings,direct.directorV2.modulationBindings,recipeId);
-  assert.deepEqual(actual.directorV2.accentTrack,direct.directorV2.accentTrack,recipeId);
+  const {mergedSectionAdmission,...actualAccentTrack}=actual.directorV2.accentTrack;
+  assert.deepEqual(actualAccentTrack,direct.directorV2.accentTrack,recipeId);
+  assert.deepEqual(mergedSectionAdmission.preservedViolations,[]);
+  assert.ok(mergedSectionAdmission.decisions.every(row=>row.accepted));
   assert.deepEqual(actual.directorV2.visualTimeTrack,direct.directorV2.visualTimeTrack,recipeId);
   assert.equal(actual.tracks.find(track=>track.role==='accent').cards.length,direct.tracks.find(track=>track.role==='accent').cards.length);
   for(const field of ['templateId','motionIntensity','enabled','reducedMotion'])assert.equal(actual.song.lyricOverlay[field],direct.song.lyricOverlay[field]);
@@ -110,6 +113,14 @@ test('successive ranged recipes retain earlier intervals and keep flash density 
  for(const field of ['accentTrack','visualTimeTrack'])assert.deepEqual(after.directorV2[field].events.filter(event=>event.endSeconds<=12),before.directorV2[field].events.filter(event=>event.endSeconds<=12));
  assert.ok(validateAccentEventTrack(after.directorV2.accentTrack).ok);
  assert.equal(two.director_patch_lineage.recipeExecution.accentWindows.length,2);
+ // Persistence and another edit must retain the decisions already made, even
+ // if a later quiet recipe would have admitted a different first-window set.
+ const reloaded=JSON.parse(JSON.stringify(two));
+ assert.deepEqual(projectToEditorGraph(reloaded).directorV2.accentTrack,after.directorV2.accentTrack);
+ const three=recut(reloaded,{recipeId:'ambient-instrumental',range:{startSeconds:12,endSeconds:24}}).project;
+ assert.deepEqual(projectToEditorGraph(three).directorV2.accentTrack.events.filter(event=>event.endSeconds<=12),before.directorV2.accentTrack.events.filter(event=>event.endSeconds<=12));
+ assert.equal(JSON.stringify(two),JSON.stringify(reloaded));
+
  const tampered=structuredClone(two);tampered.director_patch_lineage.recipeExecution.accentWindows[0].recipe.accentDensity=NaN;
  assert.throws(()=>projectToEditorGraph(tampered),/supported versioned recipe/);
 });
@@ -267,4 +278,21 @@ test('saved legacy generated bindings declare mapped signal space without reinte
   assert.equal(JSON.stringify(project), original);
   const reloaded = projectToEditorGraph(JSON.parse(JSON.stringify({ ...project, director_show_graph: graph })));
   assert.deepEqual(reloaded.directorV2.modulationBindings, graph.directorV2.modulationBindings);
+});
+
+
+test('whole-song legacy recuts install section budgets before camera projection; partial edits preserve the policy',()=>{
+ const {project}=fixture();delete project.director_show_graph.directorV2.visualBudgetPolicy;
+ const before=JSON.stringify(project);
+ const partial=recut(project,{range:{startSeconds:6,endSeconds:12}}).project;
+ assert.equal(projectToEditorGraph(partial).directorV2.visualBudgetPolicy,undefined);
+ const whole=recut(project).project,graph=projectToEditorGraph(whole);
+ assert.equal(graph.directorV2.visualBudgetPolicy.schemaVersion,'hapa.echo.section-visual-budget.v1');
+ assert.ok(graph.directorV2.mediaRoleCamera.every(path=>path.sectionMotionBudget));
+ assert.deepEqual(projectToEditorGraph(JSON.parse(JSON.stringify(whole))).directorV2.cameraKeyframes,graph.directorV2.cameraKeyframes);
+ const ranged=recut(whole,{recipeId:'letter-intimate',range:{startSeconds:12,endSeconds:24}}).project;
+ assert.deepEqual(projectToEditorGraph(ranged).directorV2.visualBudgetPolicy,graph.directorV2.visualBudgetPolicy);
+ const locked=recut(project,{locks:[{target:'shader-treatment'}]}).project;
+ assert.equal(projectToEditorGraph(locked).directorV2.visualBudgetPolicy,undefined);
+ assert.equal(JSON.stringify(project),before);
 });

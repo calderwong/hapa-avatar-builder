@@ -48,7 +48,7 @@ test("canonical cues are deterministic, evidence-backed, and carry action permis
   const one = buildDirectorV2Artifacts(inputs());
   const two = buildDirectorV2Artifacts(inputs());
   assert.equal(stableStringify(one.cueGraph), stableStringify(two.cueGraph));
-  assert.deepEqual(new Set(one.cueGraph.cues.map((cue) => cue.kind)), new Set(["section_start", "section_end", "hook", "phrase", "edit_pulse", "stem_onset", "silence_start", "ringout"]));
+  assert.deepEqual(new Set(one.cueGraph.cues.map((cue) => cue.kind)), new Set(["section_start", "section_end", "hook", "phrase", "edit_pulse", "stem_onset", "silence_start", "ringout", "vocal-entry", "phrase-end"]));
   for (const cue of one.cueGraph.cues) {
     assert.match(cue.id, /^cue:[a-f0-9]{16}$/);
     assert.equal(Object.hasOwn(cue, "confidence"), true);

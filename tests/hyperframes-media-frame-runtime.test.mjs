@@ -78,3 +78,25 @@ test("full-source transitions retain exact mapped endpoints and apply rate only 
   assert.ok(Math.abs(hyperFramesVideoFrameTime(video, 11, 30, mapping) - mapping.playbackRate) < 1e-7);
   assert.equal(hyperFramesVideoFrameTime(video, 12.1, 30, mapping), 5);
 });
+
+test("a frame presented before seeked is retained while completion waits for seeked", async () => {
+  const video = new Video();
+  let callback;
+  let requests = 0;
+  video.requestVideoFrameCallback = fn => { callback = fn; return ++requests; };
+  video.cancelVideoFrameCallback = () => {};
+  Object.defineProperty(video, "currentTime", {
+    get: () => video.time,
+    set: value => { video.time = value; video.seeking = true; },
+  });
+  let finished = false;
+  const pending = prepareHyperFramesVideoFrame(video, 11.3).then(result => { finished = true; return result; });
+  callback(0, { mediaTime: .733333333 });
+  await Promise.resolve();
+  assert.equal(finished, false);
+  assert.equal(requests, 1, "paused video does not owe a second callback");
+  video.seeking = false;
+  video.dispatchEvent(new Event("seeked"));
+  assert.equal((await pending).presentedMediaTimeSeconds, .733333333);
+  for (const name of ["seeked", "loadeddata", "error"]) assert.equal(getEventListeners(video, name).length, 0);
+});

@@ -1,10 +1,11 @@
 import { memo, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { renderEchoLyricSurface, sizeEchoLyricSurface } from '../domain/echo-lyric-presentation.js';
+import { EchoAccentPresentation } from '../domain/echo-accent-presentation.js';
 import { resolveEchoOutputProfile } from '../domain/echo-output-profile.js';
 import { resolveEchoLyricTemplateFrame } from '../domain/echo-lyric-template-runtime.js';
 import { prepareEchoLyricIntervals, echoLyricIntervalAt, observeEchoLyricClock } from '../domain/echo-lyric-clock.js';
 
-export default memo(function EchoLyricOverlay({ contract: activeLyricContract, lines = [], position = 'bottom-center', themeId = 'neon-cyan', outputProfile, clockRef, audioRef, initialTime = 0, playing = false, powerMode = 'active', hidden = false }) {
+export default memo(function EchoLyricOverlay({ contract: activeLyricContract, lines = [], accentEvents = [], position = 'bottom-center', themeId = 'neon-cyan', outputProfile, clockRef, audioRef, initialTime = 0, playing = false, powerMode = 'active', hidden = false }) {
   const activeOutputProfile = resolveEchoOutputProfile(outputProfile);
   const rate = powerMode === 'docked' ? Math.min(15, activeOutputProfile.fps) : Math.min(60, activeOutputProfile.fps);
   const [frame, setFrame] = useState(() => Math.floor(initialTime * rate));
@@ -27,6 +28,7 @@ export default memo(function EchoLyricOverlay({ contract: activeLyricContract, l
     if (!surface) return;
     renderEchoLyricSurface(surface, {contract:{...activeLyricContract, position, style:themeId},frame:lyricTemplateFrame,line:currentLine,outputProfile:activeOutputProfile});
     sizeEchoLyricSurface(surface,activeOutputProfile,viewportRef.current.width,viewportRef.current.height);
+    EchoAccentPresentation.lyric(surface, EchoAccentPresentation.frame(accentEvents, currentTime, { reducedMotion: activeLyricContract.reducedMotion === true }), currentLine?.id);
   });
   useLayoutEffect(() => {
     const surface=surfaceRef.current;if(!surface)return;

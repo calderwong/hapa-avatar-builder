@@ -1139,6 +1139,7 @@ export function compileHyperFramesShow({ showGraph, telemetry, project, proxyReg
           sourceKind: card.sourceKind || card.executionReceipt?.sourceKind || "changing-timeline",
           persistentSlotId: card.persistentSlotId || card.executionReceipt?.persistentSlotId || null,
           alwaysOn: card.alwaysOn === true,
+          locked: card.locked === true || (card.locks || []).includes('shader') || (showGraph.directorV2?.locks || []).some(lock => (lock.targetId || lock.target) === card.id),
           visualizerId: proxyResolution.visualizerId,
           sourceHash: proxyResolution.sourceHash,
           declaredSourceHash: proxyResolution.declaredSourceHash,
@@ -1272,6 +1273,7 @@ export function compileHyperFramesShow({ showGraph, telemetry, project, proxyReg
       accents: structuredClone(declaredAccentEvents),
     },
     automation: {
+      visualBudgetPolicy: structuredClone(showGraph.directorV2?.visualBudgetPolicy || null),
       preparedModulation: performance && showGraph.directorV2?.modulationBindings?.length
         ? prepareDirectorModulationTimeline(showGraph.directorV2.modulationBindings, {
           durationSeconds: duration, fps: 60, sourceFingerprint: performance.fingerprint || `sha256:${hash(performance)}`,

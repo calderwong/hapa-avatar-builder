@@ -104,22 +104,33 @@ function centeredCrop(roi, crop) {
   return { x: clamp(centerX - crop.width / 2, 0, 1 - crop.width), y: clamp(centerY - crop.height / 2, 0, 1 - crop.height), width: crop.width, height: crop.height };
 }
 
-export function buildSafeCameraPath({ mediaId, technical, analysis, role, phraseCue, targetAspects = [16 / 9, 9 / 16, 1] } = {}) {
+export function buildSafeCameraPath({ mediaId, technical, analysis, role, phraseCue, targetAspects = [16 / 9, 9 / 16, 1], durationSeconds = null, motionBudget = null } = {}) {
   const sourceAspect = Number(technical.width) / Math.max(1, Number(technical.height));
   const roi = analysis.subjectROI || { x: 0.25, y: 0.2, width: 0.5, height: 0.6 };
   const corridors = targetAspects.map((targetAspect) => {
     const startCrop = centeredCrop(roi, coverCrop(sourceAspect, targetAspect, 0.9));
-    const endCrop = centeredCrop({ ...roi, x: clamp(Number(roi.x) + Number(roi.width) * 0.08, 0, 1), y: clamp(Number(roi.y) + Number(roi.height) * 0.05, 0, 1) }, coverCrop(sourceAspect, targetAspect, 0.97));
-    return { targetAspect, startCrop, endCrop, fullBleed: true, blackMatExposure: false };
+    let endCrop = centeredCrop({ ...roi, x: clamp(Number(roi.x) + Number(roi.width) * 0.08, 0, 1), y: clamp(Number(roi.y) + Number(roi.height) * 0.05, 0, 1) }, coverCrop(sourceAspect, targetAspect, 0.97));
+    let measured = {};
+    if (motionBudget) {
+      if (!(durationSeconds > 0 && Number.isFinite(durationSeconds) && motionBudget.maxCameraVelocity > 0 && motionBudget.maxCameraAcceleration > 0)) throw new Error('invalid-section-camera-budget');
+      const keys = ['x', 'y', 'width', 'height'];
+      const distance = Math.hypot(...keys.map(key => endCrop[key] - startCrop[key]));
+      const allowed = Math.min(motionBudget.maxCameraVelocity * durationSeconds / 1.875, motionBudget.maxCameraAcceleration * durationSeconds ** 2 / (10 / Math.sqrt(3)));
+      const ratio = distance > 0 ? Math.min(1, allowed / distance) : 1;
+      endCrop = Object.fromEntries(keys.map(key => [key, startCrop[key] + (endCrop[key] - startCrop[key]) * ratio]));
+      measured = { maximumVelocity: 1.875 * distance * ratio / durationSeconds, maximumAcceleration: (10 / Math.sqrt(3)) * distance * ratio / durationSeconds ** 2 };
+    }
+    return { targetAspect, startCrop: motionBudget ? { ...startCrop, cameraModel: 'section-crop-v1', fit: 'cover' } : startCrop, endCrop: motionBudget ? { ...endCrop, cameraModel: 'section-crop-v1', fit: 'cover' } : endCrop, fullBleed: true, blackMatExposure: false, ...measured };
   });
   return {
-    id: `camera-path:${hash([mediaId, role, phraseCue?.id]).slice(0, 16)}`,
+    id: `camera-path:${hash([mediaId, role, phraseCue?.id, ...(motionBudget ? [durationSeconds, motionBudget] : [])]).slice(0, 16)}`,
     schemaVersion: MEDIA_CAMERA_SCHEMA,
     mediaId,
     shotRole: role,
     phraseCue: { id: phraseCue?.id || null, atSeconds: phraseCue?.atSeconds ?? phraseCue?.startSeconds ?? null, source: phraseCue?.source || null },
     subjectROI: { ...roi, status: analysis.status || "unknown", evidence: analysis.evidence || "center-safe-fallback", faceCount: analysis.faceCount || 0 },
-    easing: role === "reveal" ? "power3.out" : role === "ringout" ? "sine.inOut" : "power2.inOut",
+    easing: motionBudget ? 'smootherstep' : role === "reveal" ? "power3.out" : role === "ringout" ? "sine.inOut" : "power2.inOut",
+    ...(motionBudget ? { sectionMotionBudget: { ...motionBudget }, durationSeconds } : {}),
     zoomLimits: { min: 1.03, max: 1.18, startCloseCrop: true },
     corridors,
     keyframes: [{ offset: 0, crop: corridors[0].startCrop, zoom: 1.12 }, { offset: 1, crop: corridors[0].endCrop, zoom: 1.05 }],

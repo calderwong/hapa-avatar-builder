@@ -395,10 +395,10 @@ test("one external audio clock deterministically projects media, exact Card, sha
   assert.equal(frame.camera.speed, null, "an omitted speed stays unset so every renderer uses the shared deterministic fallback");
   assert.equal(frame.camera.sourceCueIndex, 0);
   assert.deepEqual(frame.camera.keyframe.crop, {
-    x: 0.06166665,
-    y: 0.06166665,
-    width: 0.8766667,
-    height: 0.8766667,
+    x: Number((37 / 600).toFixed(12)),
+    y: Number((37 / 600).toFixed(12)),
+    width: Number((1 - 37 / 300).toFixed(12)),
+    height: Number((1 - 37 / 300).toFixed(12)),
   });
   assert.equal(frame.lyrics.line.id, "line-one");
   assert.equal(frame.lyrics.templateFrame.templateId, "kinetic-word-burst-v1");
@@ -529,7 +529,7 @@ test("fixed-time Preview parity preserves layered media bounds, camera, changing
   assert.equal(frame.camera.sourceCueIndex, 0);
   assert.equal(frame.transition.kind, "fade-in");
   assert.equal(frame.transition.phase, "entering");
-  assert.equal(frame.transition.opacity, 0.466666);
+  assert.equal(frame.transition.opacity, 0.466667); // round once after evaluating the exact frame time
   assert.deepEqual(frame.shaders, frame.visualizers);
   assert.deepEqual(frame.visualizers.map((row) => row.sourceId), [
     "shader:aurora",
@@ -870,6 +870,7 @@ test("clock projection clamps to duration while retaining the final half-open cu
     rawSeconds: 99,
     seconds: 6,
     selectionSeconds: 5.999999,
+    evaluationSeconds: 5.999999,
     durationSeconds: 6,
     frame: 60,
     fps: 10,
@@ -1120,4 +1121,13 @@ test("exact Card print intent and resolver preserve the current cue attachment i
     () => createEchoDirectorPreviewCardPrintIntent(missing),
     { code: "echo_director_preview_card_attachment_missing" },
   );
+});
+
+
+test('curve evaluation keeps exact frame seconds separate from diagnostic rounding', () => {
+  const clock=readEchoDirectorPreviewClock({timeSeconds:128.06666666666666,durationSeconds:258.44,fps:30});
+  assert.equal(clock.frame,3842);
+  assert.equal(clock.evaluationSeconds,3842/30);
+  assert.equal(clock.selectionSeconds,128.066667);
+  assert.notEqual(clock.evaluationSeconds,clock.selectionSeconds);
 });
