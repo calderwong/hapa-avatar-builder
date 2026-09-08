@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { prepareHyperFramesIsfFrame } from "../src/domain/hyperframes-isf-frame-runtime.js";
+import { prepareHyperFramesIsfFrame, prepareHyperFramesIsfSeek } from "../src/domain/hyperframes-isf-frame-runtime.js";
 import { createHyperFramesMediaRedrawBridge, hyperFramesCapturedMediaElement } from "../src/domain/hyperframes-media-frame-runtime.js";
 
 test("a post-injection replay reads the same prior persistent state and retains TIMEDELTA", () => {
@@ -48,4 +48,59 @@ test("shader input uses only the matching decoded and visible extracted image", 
   image.style.visibility = 'hidden'; assert.equal(hyperFramesCapturedMediaElement(video), video);
   image.style.visibility = 'visible'; image.complete = false; assert.equal(hyperFramesCapturedMediaElement(video), video);
   image.complete = true; image.id = '__render_frame_m2__'; assert.equal(hyperFramesCapturedMediaElement(video), video);
+});
+
+test("song frames order persistent simulation while the visual clock slows or freezes", () => {
+  const surface = { renderer: { renderBuffers: [] }, lastTime: null };
+  const visualTimes = [0, .01, .01, .06];
+  for (let i = 0; i < visualTimes.length; i++) {
+    const clock = prepareHyperFramesIsfFrame(surface, visualTimes[i], 30, true, i / 30);
+    assert.equal(clock.delta, i ? visualTimes[i] - visualTimes[i - 1] : 0);
+    surface.lastTime = visualTimes[i]; surface.lastFrameIndex = i;
+    assert.deepEqual(prepareHyperFramesIsfFrame(surface, visualTimes[i], 30, true, i / 30), clock);
+  }
+  assert.throws(() => prepareHyperFramesIsfFrame(surface, .1, 30, true, 5 / 30), /sequentially/);
+});
+
+test("checkpoint preparation uses historical input for gaps, yields and honors cancellation", async () => {
+  const surface = { lastFrameIndex: 29 }, drawn = [], prepared = [], yields = [];
+  surface.checkpoints = {
+    latestBefore: () => 29,
+    restoreBefore: () => { surface.lastFrameIndex = 29; return 29; },
+    diagnostics: () => ({ count: 1, bytes: 16 }),
+  };
+  const result = await prepareHyperFramesIsfSeek(surface, 43, {
+    batchFrames: 4,
+    prepareFrame: async frame => prepared.push(frame),
+    drawFrame: frame => { assert.equal(prepared.at(-1), frame); drawn.push(frame); surface.lastFrameIndex = frame; },
+    yieldFrame: async () => yields.push(drawn.length),
+  });
+  assert.deepEqual(drawn, Array.from({ length: 13 }, (_, i) => i + 30));
+  assert.deepEqual(yields, [4, 8, 12]);
+  assert.equal(result.replayed, 13);
+  const controller = new AbortController();
+  await assert.rejects(prepareHyperFramesIsfSeek(surface, 60, {
+    signal: controller.signal,
+    prepareFrame: async () => controller.abort(),
+    drawFrame: () => assert.fail('aborted preparation must not draw'),
+  }), /cancelled/);
+  assert.equal(surface.lastFrameIndex, 42);
+  assert.equal(surface.isfSeekPreparing, false);
+});
+
+test("parallel seeks cannot interleave shader history and corrected frame time keeps its original predecessor", async () => {
+  const surface = { renderer: { renderBuffers: [] }, lastTime: 0, lastFrameIndex: 0 };
+  prepareHyperFramesIsfFrame(surface, .05, 30, true, 1 / 30);
+  surface.lastTime = .05; surface.lastFrameIndex = 1;
+  assert.equal(prepareHyperFramesIsfFrame(surface, 1 / 30, 30, true, 1 / 30).delta, 1 / 30);
+  let release;
+  const gate = new Promise(resolve => { release = resolve; });
+  surface.checkpoints = { latestBefore: () => undefined, diagnostics: () => ({}) };
+  const pending = prepareHyperFramesIsfSeek(surface, 3, {
+    prepareFrame: () => gate,
+    drawFrame: frame => { surface.lastFrameIndex = frame; },
+  });
+  await assert.rejects(prepareHyperFramesIsfSeek(surface, 1), /already preparing/);
+  release(); await pending;
+  assert.equal(surface.isfSeekPreparing, false);
 });

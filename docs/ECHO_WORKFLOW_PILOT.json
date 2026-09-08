@@ -2,7 +2,7 @@
   "schemaVersion": "hapa.workflow-pilot.v1",
   "id": "echo-requirement-completion-batch-pilot",
   "version": "0.1",
-  "updatedAt": "2026-09-08T03:29:56.941036+00:00",
+  "updatedAt": "2026-09-08T03:51:51.917848+00:00",
   "status": "active-pilot",
   "effectiveness": "not-yet-evaluated",
   "ownerTaskId": "01a072d3-d593-74f2-8c89-2470c2ee1a40",
@@ -130,10 +130,11 @@
     "docs/postmortems/2026-09-07-echo-section-budget-integration.md",
     "docs/postmortems/2026-09-07-echo-deferred-media-export.md",
     "docs/postmortems/2026-09-07-echo-package-media-clock.md",
-    "docs/postmortems/2026-09-07-echo-shader-frame-integration.md"
+    "docs/postmortems/2026-09-07-echo-shader-frame-integration.md",
+    "docs/postmortems/2026-09-07-echo-persistent-seek.md"
   ],
   "decisionAfterAcceptedBatches": 2,
-  "nextAction": "Continue ECHO-04 persistent arbitrary seeking and whole-composite timing; sampled post-injection shader redraw and native callback-order repair now pass. Consolidated A1 implementation remains unaccepted; 6 done/12 in progress.",
+  "nextAction": "Integrate persistent checkpoint preparation into interactive preview using historical decoded media and prepared inputs; then complete A1 timing/resource acceptance.",
   "updates": "batch-start, scope-change, consequential-failure, acceptance, handoff, goal-completion",
   "collaboration": {
     "protocol": "docs/ECHO_CONVICTION_PROTOCOL.md",
@@ -190,5 +191,15 @@
     "requirementClosures": [],
     "postmortem": "docs/postmortems/2026-09-07-echo-shader-frame-integration.md",
     "commit": "6385bd9"
+  },
+  "latestPersistentSeek": {
+    "status": "compiled-package-native-verified-preview-pending",
+    "nativeSongCases": 7,
+    "floatBufferCases": 4,
+    "finalRuntimeChecks": 14,
+    "mp4Frames": 120,
+    "checkpointBudgetScope": "128 MiB per surface; cold replay total latency not bounded",
+    "requirementClosures": [],
+    "postmortem": "docs/postmortems/2026-09-07-echo-persistent-seek.md"
   }
 }

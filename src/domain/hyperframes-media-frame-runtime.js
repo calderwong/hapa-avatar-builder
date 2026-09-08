@@ -66,23 +66,46 @@ export async function prepareHyperFramesVideoFrame(video, timeSeconds, {
     throw new Error(`Video must decode before seeking: ${video.id}`);
   }
   const target = hyperFramesVideoFrameTime(video, timeSeconds, fps, timeMapping);
+  // Chromium exposes microsecond media time. Round into the requested frame,
+  // rather than just before its boundary (1/30 can otherwise become .033333).
+  const seekTime = Math.ceil(target * 1e6 - 1e-6) / 1e6;
+  const atTarget = () => Math.abs(video.currentTime - seekTime) <= 1e-6;
   video.pause();
   let presentedMediaTime = null;
+  let decodedFrameReused = false;
   // Waiting for seeked (rather than two animation frames) also works for cold
   // decoders, reverse seeks and renderers whose animation clock is virtualized.
-  if (video.seeking || Math.abs(video.currentTime - target) > 1e-7) {
+  if (video.seeking || !atTarget()) {
     await new Promise((resolve, reject) => {
       let frameHandle = null;
+      let paintHandle = null;
+      let fallbackScheduled = false;
       let framePresented = typeof video.requestVideoFrameCallback !== "function";
       const cleanup = () => {
         clearTimeout(timer);
         if (frameHandle !== null) video.cancelVideoFrameCallback(frameHandle);
+        if (paintHandle !== null) globalThis.cancelAnimationFrame?.(paintHandle);
         video.removeEventListener("seeked", ready);
         video.removeEventListener("loadeddata", ready);
         video.removeEventListener("error", failed);
       };
       const ready = () => {
-        if (!framePresented || video.seeking || video.readyState < 2 || Math.abs(video.currentTime - target) > 1e-7) return;
+        if (video.seeking || video.readyState < 2 || !atTarget()) return;
+        // Two output times can select the same source frame (e.g. 30fps output,
+        // 24fps footage). Chromium then emits seeked but no new presentation
+        // callback. After the settled seek and two native paint opportunities,
+        // accept the decoded frame without inventing a presented mediaTime.
+        if (!framePresented) {
+          if (!fallbackScheduled && typeof globalThis.requestAnimationFrame === 'function') {
+            fallbackScheduled = true;
+            paintHandle = globalThis.requestAnimationFrame(() => {
+              paintHandle = globalThis.requestAnimationFrame(() => {
+                paintHandle = null; decodedFrameReused = true; framePresented = true; ready();
+              });
+            });
+          }
+          return;
+        }
         cleanup(); resolve();
       };
       const failed = () => { cleanup(); reject(new Error(`Video frame decode failed: ${video.id}`)); };
@@ -94,7 +117,7 @@ export async function prepareHyperFramesVideoFrame(video, timeSeconds, {
       video.addEventListener("error", failed);
       const presented = (_now, metadata) => {
         frameHandle = null;
-        if (Math.abs(video.currentTime - target) > 1e-7) {
+        if (!atTarget()) {
           frameHandle = video.requestVideoFrameCallback(presented);
           return;
         }
@@ -106,7 +129,7 @@ export async function prepareHyperFramesVideoFrame(video, timeSeconds, {
         ready();
       };
       if (!framePresented) frameHandle = video.requestVideoFrameCallback(presented);
-      try { video.currentTime = target; } catch (error) { cleanup(); reject(error); }
+      try { video.currentTime = seekTime; } catch (error) { cleanup(); reject(error); }
     });
   }
   return {
@@ -118,5 +141,6 @@ export async function prepareHyperFramesVideoFrame(video, timeSeconds, {
     width: video.videoWidth,
     height: video.videoHeight,
     route: "decoded-video",
+    presentationEvidence: decodedFrameReused ? 'settled-seek-without-new-presentation' : presentedMediaTime == null ? 'already-decoded' : 'video-frame-callback',
   };
 }

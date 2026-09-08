@@ -85,3 +85,9 @@ The HyperFrames adapter now samples the injected decoded video image and redraws
 See [the export integration postmortem](postmortems/2026-09-07-echo-shader-frame-integration.md) for tolerances, evidence reuse and remaining scope. This checkpoint consolidates existing A1 gestures, section budgets, recut preservation and session lifecycle work; it does not close a requirement. Nonsequential persistent rendering, broader composite timing, resource budgets and human acceptance remain open. Counts remain6 done/12 in progress; zero accepted workflow-pilot batches.
 
 Local integration commit: `6385bd9`. Unrelated shader-opacity/knockout/UI work remains outside this commit.
+
+## A1 persistent seeking in compiled packages — September 7, 2026
+
+Existing ISF/media owners now reconstruct persistent history with native-precision checkpoints and cancellable, yielding replay. Seven actual-song native shader-canvas comparisons and four float-buffer eviction/restoration cases pass. A strict four-second 1080p30 MP4 has all 120 frames; no encoded pixel-parity claim. Fourteen final runtime/media checks pass, with earlier 22 affected checks and A1 broad evidence reused within scope. Native/export evidence predates only the parallel-seek guard. All 55 protected and 12 authoring hashes remain unchanged.
+
+Interactive preview is not integrated yet. The 128 MiB cap is per surface; cold seek total latency remains proportional to missing history. Full-composite timing, global resources and human acceptance remain open. See [persistent-seek postmortem](postmortems/2026-09-07-echo-persistent-seek.md). Six done / twelve in progress; zero accepted workflow-pilot batches.

@@ -100,3 +100,29 @@ test("a frame presented before seeked is retained while completion waits for see
   assert.equal((await pending).presentedMediaTimeSeconds, .733333333);
   for (const name of ["seeked", "loadeddata", "error"]) assert.equal(getEventListeners(video, name).length, 0);
 });
+
+test("microsecond video clocks select inside fractional frame boundaries without requiring a new presentation", async () => {
+  const video = new Video(); video.dataset = { start: '0' };
+  video.requestVideoFrameCallback = () => 1;
+  video.cancelVideoFrameCallback = () => {};
+  Object.defineProperty(video, 'currentTime', {
+    get: () => video.time,
+    set: value => {
+      video.time = Math.floor(value * 1e6) / 1e6; video.seeking = true;
+      queueMicrotask(() => { video.seeking = false; video.dispatchEvent(new Event('seeked')); });
+    },
+  });
+  const raf = globalThis.requestAnimationFrame, cancel = globalThis.cancelAnimationFrame;
+  globalThis.requestAnimationFrame = callback => setImmediate(callback);
+  globalThis.cancelAnimationFrame = clearImmediate;
+  try {
+    const result = await prepareHyperFramesVideoFrame(video, 1 / 30);
+    assert.ok(result.observedTimeSeconds >= 1 / 30);
+    assert.ok(result.observedTimeSeconds - 1 / 30 < 1e-6);
+    assert.equal(result.presentedMediaTimeSeconds, null);
+    assert.equal(result.presentationEvidence, 'settled-seek-without-new-presentation');
+  } finally {
+    if (raf) globalThis.requestAnimationFrame = raf; else delete globalThis.requestAnimationFrame;
+    if (cancel) globalThis.cancelAnimationFrame = cancel; else delete globalThis.cancelAnimationFrame;
+  }
+});

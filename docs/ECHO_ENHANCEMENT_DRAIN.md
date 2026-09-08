@@ -704,3 +704,9 @@ Final checkpoint verification passes all 2,192 repository tests, 35 recorder/CLI
 ## A1 consolidated native/export frame checkpoint — 2026-09-07
 
 Scoped implementation integrates bounded gestures/section camera and layer budgets, preserved recut events and comparison sessions, detached real media, and post-injection shader input redraw. Native callback tracing repaired presentation-before-seeked deadlock. Eight persistent GPU replay cases, three actual encoded source-sensitive comparisons and120-frame output coverage pass; seven seek regressions and renderer identity checks pass. Reuse prior A1 broad/native evidence within its recorded scope. See [postmortem](postmortems/2026-09-07-echo-shader-frame-integration.md). ECHO-04/07/08/18 remain open;6 done/12 in progress, no human acceptance. Next: deterministic persistent arbitrary seeks and whole-composite timing acceptance.
+
+## A1 persistent seeking in compiled packages — September 7, 2026
+
+Existing ISF/media owners now reconstruct persistent history with native-precision checkpoints and cancellable, yielding replay. Seven actual-song native shader-canvas comparisons and four float-buffer eviction/restoration cases pass. A strict four-second 1080p30 MP4 has all 120 frames; no encoded pixel-parity claim. Fourteen final runtime/media checks pass, with earlier 22 affected checks and A1 broad evidence reused within scope. Native/export evidence predates only the parallel-seek guard. All 55 protected and 12 authoring hashes remain unchanged.
+
+Interactive preview is not integrated yet. The 128 MiB cap is per surface; cold seek total latency remains proportional to missing history. Full-composite timing, global resources and human acceptance remain open. See [persistent-seek postmortem](postmortems/2026-09-07-echo-persistent-seek.md). Six done / twelve in progress; zero accepted workflow-pilot batches.
