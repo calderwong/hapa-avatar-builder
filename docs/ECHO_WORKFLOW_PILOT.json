@@ -2,7 +2,7 @@
   "schemaVersion": "hapa.workflow-pilot.v1",
   "id": "echo-requirement-completion-batch-pilot",
   "version": "0.1",
-  "updatedAt": "2026-09-08T13:08:28.149214+00:00",
+  "updatedAt": "2026-09-08T13:30:07.575115+00:00",
   "status": "active-pilot",
   "effectiveness": "not-yet-evaluated",
   "ownerTaskId": "01a072d3-d593-74f2-8c89-2470c2ee1a40",
@@ -806,7 +806,7 @@
     "docs/postmortems/2026-09-08-echo-lyric-corrections.md"
   ],
   "decisionAfterAcceptedBatches": 2,
-  "nextAction": "Finish stricter encoded glyph/color fidelity and actual managed Song Card template/output acceptance using existing render owners; then consolidate ECHO-06. Keep real200-onset vocal alignment, integrated composition, later editing/performance and human preference gates open.",
+  "nextAction": "Use the current prepared full-song selected project and verified stems for actual managed Song Card output; do not retry the rejected short/full-master fixture. Retain five full-frame color differences, then consolidate ECHO-06. Human onset/preference and later requirements remain open.",
   "updates": "batch-start, scope-change, consequential-failure, acceptance, handoff, goal-completion",
   "collaboration": {
     "protocol": "docs/ECHO_CONVICTION_PROTOCOL.md",
@@ -1266,12 +1266,64 @@
       "later direction/editor/performance/human gates"
     ]
   },
-  "latestPostmortem": "postmortems/2026-09-08-echo-lyric-layout.md",
+  "latestPostmortem": "postmortems/2026-09-08-echo-encoded-typography.md",
   "latestUpdate": {
-    "at": "2026-09-08T13:08:28.149214+00:00",
-    "kind": "A2-lyric-layout-progress",
+    "at": "2026-09-08T13:30:07.575115+00:00",
+    "kind": "A2-encoded-typography-progress",
     "status": "unaccepted",
-    "evidence": "$ECHO_REVIEW_WORKSPACE/lyric-layout-proof/checkpoint-report.json",
     "acceptedRequirements": []
+  },
+  "latestEncodedTypography": {
+    "status": "progress-not-requirement-acceptance",
+    "at": "2026-09-08T13:30:07.575115+00:00",
+    "native": {
+      "cases": 39,
+      "observations": 429,
+      "pass": true,
+      "maximumMean": 0.026791552354823958,
+      "maximumSynchronousP95Ms": 0.10000002384185791,
+      "layoutReads": 0
+    },
+    "encoded": {
+      "mp4sReused": 15,
+      "samples": 60,
+      "pass": 55,
+      "fail": 5,
+      "activeGlyphSamples": 36,
+      "minimumBrightGlyphRetention": 0.9998275326825566,
+      "maximumFullMean": 3.453062414266118,
+      "priorPassed": 35,
+      "priorMinimumGlyphRetention": 0.8860237780713343,
+      "thresholdsChanged": false,
+      "currentManagedOutput": false
+    },
+    "managed": {
+      "status": 409,
+      "planId": "plan:08ff76e41a2b4d330210d8cff3d05ba8",
+      "started": false,
+      "reason": "Short excerpt does not match full authoritative master duration; old pilot input also has unreadable stem references",
+      "next": "Use current prepared full-song project in isolated store; preserve actual certification gates"
+    },
+    "verification": {
+      "affectedTests": 6,
+      "build": true
+    },
+    "sourceIntegrity": {
+      "pass": true,
+      "protectedFiles": 55,
+      "authoringFiles": 12,
+      "failures": []
+    },
+    "cleanup": {
+      "stages": 14,
+      "profilesRemoved": 2
+    },
+    "counts": {
+      "done": 9,
+      "inProgress": 9
+    },
+    "acceptedRequirements": [],
+    "humanAccepted": false,
+    "scope": "Native synthetic all-template/aspect/motion parity; unchanged real CLI MP4s compared against corrected Preview; no completed managed render or acoustic acceptance"
   }
 }

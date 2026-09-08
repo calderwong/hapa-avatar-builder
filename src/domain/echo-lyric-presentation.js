@@ -23,7 +23,7 @@ export function echoLyricPresentation(contract = {}, profile = {}) {
   const panel = { position:'absolute', boxSizing:'border-box', width:maxWidth+'px', padding:'18px 24px',
     font:`700 ${fontSize}px/1.4 ${fontFamily}`, color:text, background,
     border:`2px solid ${accent}88`, borderRadius:'8px', textAlign:side ? (/left/.test(position)?'left':'right'):'center',
-    textTransform:'none', letterSpacing:'0', whiteSpace:'normal', overflowWrap:'anywhere',
+    textTransform:'none', textRendering:'geometricPrecision', letterSpacing:'0', whiteSpace:'normal', overflowWrap:'anywhere',
     left:/left/.test(position)? width*inset+'px':/right/.test(position)?'auto':'50%',
     right:/right/.test(position)?width*inset+'px':'auto',
     top:top?height*inset+'px':center?'50%':'auto', bottom:top||center?'auto':height*bottom+'px',

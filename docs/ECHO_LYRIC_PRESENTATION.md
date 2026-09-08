@@ -9,3 +9,5 @@ Protected face/bubble metadata must match the original source hash. Constant-siz
 Output profiles are1920×1080,1080×1920 and1080×1080 at30fps. The Song Card owner translates these to HyperFrames landscape, portrait and square respectively.
 
 Current status and evidence: [lyric layout postmortem](postmortems/2026-09-08-echo-lyric-layout.md). Native layout/motion parity is verified on synthetic fixtures; stricter encoded glyph fidelity and managed Song Card acceptance remain open. For source waveform/onset review and correction controls, see [lyric corrections](ECHO_LYRIC_CORRECTIONS.md).
+
+Caption text uses`text-rendering: geometricPrecision` in Preview as well as final output, matching the compiler-injected typography. Current evidence and limits: [encoded typography](postmortems/2026-09-08-echo-encoded-typography.md).
