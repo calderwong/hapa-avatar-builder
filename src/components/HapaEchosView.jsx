@@ -582,7 +582,7 @@ const ECHO_VIDEO_LOOKAHEAD_COUNT = ECHO_PLAYER_POOL_LIMIT - 1;
 const ECHO_VIDEO_PLAYER_POOL_SIZE = ECHO_VIDEO_LOOKAHEAD_COUNT + 1;
 const ECHO_VIDEO_PLAYER_INDICES = Array.from({ length: ECHO_VIDEO_PLAYER_POOL_SIZE }, (_, index) => index);
 
-function PersistentEchoABPlayers({ shot, lookaheadShots = [], maximumDimension = 1280, playing, songTime, style, onBufferState, onPresentedMediaChange, presentationSampleRef, clockRef, audioRef, audioContextRef, sourceIsPortrait = false, cameraKeyframes = EMPTY_ECHO_CAMERA_KEYFRAMES, shotIndex = 0 }) {
+function PersistentEchoABPlayers({ shot, lookaheadShots = [], maximumDimension = 1280, playing, songTime, style, onBufferState, onPresentedMediaChange, presentationSampleRef, clockRef, audioRef, audioContextRef, sourceIsPortrait = false, cameraKeyframes = EMPTY_ECHO_CAMERA_KEYFRAMES, showGraph = null, shotIndex = 0 }) {
   const imageWrapperRefs = useRef([]);
   const playerRefs = useRef(Array.from({ length: ECHO_VIDEO_PLAYER_POOL_SIZE }, () => null));
   const activeIndexRef = useRef(0);
@@ -600,8 +600,17 @@ function PersistentEchoABPlayers({ shot, lookaheadShots = [], maximumDimension =
   // Camera edits (intensity/speed/motion) do not change media_id or start_sec,
   // so the animation effect cannot rely on its render closure; keep the inputs
   // in a ref that updates every render.
-  const cameraInputsRef = useRef({ shot, sourceIsPortrait, cameraKeyframes, shotIndex, songTime });
-  cameraInputsRef.current = { shot, sourceIsPortrait, cameraKeyframes, shotIndex, songTime };
+  const cameraCueKey = item => JSON.stringify([Number(item?.startSeconds ?? item?.start_sec),
+    Number(item?.endSeconds ?? item?.end_sec), String(item?.media?.id ?? item?.media_id ?? "")]);
+  const cameraPathsRef = useRef({ graph: null, paths: new Map() });
+  if (cameraPathsRef.current.graph !== showGraph) {
+    cameraPathsRef.current = { graph: showGraph, paths: new Map((showGraph?.tracks || []).flatMap(track =>
+      (track.cards || []).filter(card => card.media && card.cameraKeyframes?.length)
+        .map(card => [cameraCueKey(card), card.cameraKeyframes]))) };
+  }
+  const cameraInputsRef = useRef(null);
+  cameraInputsRef.current = { shot, sourceIsPortrait, cameraKeyframes, cameraPaths: cameraPathsRef.current.paths, shotIndex, songTime, style };
+  const shotCameraFrame = (item, time) => echoCameraKeyframeAt(cameraPathsRef.current.paths.get(cameraCueKey(item)) || cameraKeyframes, time);
 
   const visualShots = [shot, ...lookaheadShots];
   const presentationInputsRef = useRef(null);
@@ -890,17 +899,51 @@ function PersistentEchoABPlayers({ shot, lookaheadShots = [], maximumDimension =
   }, [activeIndex, stageStatus, currentShotIdentity, shot, onPresentedMediaChange]);
 
   useEffect(() => {
-    let frame = 0, lastPresentationMs = -Infinity;
-    const animateCamera = (now = performance.now()) => {
-      if (playing && now - lastPresentationMs < 1000 / 30) {
+    let frame = 0, lastPresentationFrame = -1;
+    const animateCamera = () => {
+      const { shots, instances } = presentationInputsRef.current;
+      const { cameraKeyframes: keyframes, cameraPaths, shotIndex: baseIndex, songTime: fallbackTime, style: baseStyle } = cameraInputsRef.current;
+      const master = audioRef?.current;
+      const seconds = Number(playing && master && !master.paused ? master.currentTime : clockRef?.current ?? fallbackTime);
+      const fps = Math.max(1, Number(showGraph?.outputProfile?.fps) || 30);
+      const outputFrame = Math.floor(Math.max(0, seconds) * fps + 1e-9);
+      if (playing && outputFrame === lastPresentationFrame) {
         frame = window.requestAnimationFrame(animateCamera);
         return;
       }
-      lastPresentationMs = now;
-      const { shots, instances } = presentationInputsRef.current;
-      const { cameraKeyframes: keyframes, shotIndex: baseIndex, songTime: fallbackTime } = cameraInputsRef.current;
-      const time = Number(clockRef?.current ?? fallbackTime);
-      const cameraKeyframe = echoCameraKeyframeAt(keyframes, time);
+      lastPresentationFrame = outputFrame;
+      // Match the compositor's absolute song frame instead of accumulating a
+      // wall-time throttle, which can skip frames at non-multiple refresh rates.
+      const time = playing ? outputFrame / fps : seconds;
+      const applyCamera = (element, targetShot, index) => {
+        if (!element) return;
+        const dimensions = resolveEchoShotSourceDimensions(targetShot, element);
+        const cameraKeyframe = echoCameraKeyframeAt(cameraPaths.get(cameraCueKey(targetShot)) || keyframes, time);
+        const cameraShot = cameraKeyframe ? { ...targetShot, camera_motion: cameraKeyframe.motion || targetShot.camera_motion,
+          camera_intensity: cameraKeyframe.intensity ?? targetShot.camera_intensity,
+          camera_speed: cameraKeyframe.speed ?? targetShot.camera_speed } : targetShot;
+        const camera = cameraMotionStyleForShot(cameraShot, time, dimensions.isPortrait, baseIndex + index, cameraKeyframe?.crop || null);
+        const crop = camera.presentation?.crop;
+        if (["protected-v2", "section-crop-v1"].includes(crop?.cameraModel)) {
+          const parent = element.parentElement;
+          const sourceWidth = element.videoWidth || element.naturalWidth;
+          const sourceHeight = element.videoHeight || element.naturalHeight;
+          if (!(sourceWidth > 0 && sourceHeight > 0 && parent?.clientWidth > 0 && parent?.clientHeight > 0)) return;
+          const framed = echoProtectedCameraFrame({ sourceWidth, sourceHeight,
+            outputWidth: parent.clientWidth, outputHeight: parent.clientHeight, crop });
+          Object.assign(element.style, framed.style);
+          element.dataset.echoProtectedCamera = "true";
+          return;
+        }
+        if (element.dataset.echoProtectedCamera === "true") {
+          for (const key of ["position", "width", "height", "left", "top", "maxWidth", "maxHeight", "objectFit", "objectPosition", "transform", "transformOrigin", "clipPath"])
+            element.style[key] = baseStyle?.[key] || "";
+          delete element.dataset.echoProtectedCamera;
+        }
+        element.style.transform = camera.transform;
+        element.style.transformOrigin = camera.transformOrigin;
+        element.style.objectPosition = camera.objectPosition;
+      };
       for (let slotIndex = 0; slotIndex < playerRefs.current.length; slotIndex += 1) {
         const video = playerRefs.current[slotIndex];
         if (!video) continue;
@@ -922,11 +965,7 @@ function PersistentEchoABPlayers({ shot, lookaheadShots = [], maximumDimension =
           if (!video.seeking && Math.abs(video.currentTime - first) > 0.000001) video.currentTime = first;
         } else if (!visible && slot.status === "ready" && !video.paused) video.pause();
         if (!visible) continue;
-        const dimensions = resolveEchoShotSourceDimensions(targetShot, video);
-        const camera = cameraMotionStyleForShot(targetShot, time, dimensions.isPortrait, baseIndex + index, cameraKeyframe?.crop || null);
-        video.style.transform = camera.transform;
-        video.style.transformOrigin = camera.transformOrigin;
-        video.style.objectPosition = camera.objectPosition;
+        applyCamera(video, targetShot, index);
       }
       for (let index = 0; index < imageWrapperRefs.current.length; index += 1) {
         const wrapper = imageWrapperRefs.current[index];
@@ -934,12 +973,13 @@ function PersistentEchoABPlayers({ shot, lookaheadShots = [], maximumDimension =
         const opacity = hyperFramesMediaOpacityState(instances, index, time);
         wrapper.style.opacity = String(opacity.alpha);
         wrapper.dataset.echoPresentationPhase = opacity.phase;
+        if (opacity.visible) applyCamera(wrapper.querySelector("img"), shots[index], index);
       }
       if (playing) frame = window.requestAnimationFrame(animateCamera);
     };
     animateCamera();
     return () => window.cancelAnimationFrame(frame);
-  }, [playing, currentShotIdentity, playing ? null : songTime, poolRevision, stageStatus, activeIndex, clockRef]);
+  }, [playing, currentShotIdentity, playing ? null : songTime, poolRevision, stageStatus, activeIndex, clockRef, audioRef, showGraph, cameraKeyframes]);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -977,11 +1017,11 @@ function PersistentEchoABPlayers({ shot, lookaheadShots = [], maximumDimension =
           data-echo-image-layer={index} style={{ position: "absolute", inset: 0, zIndex: index + 1,
             opacity: hyperFramesMediaOpacityState(presentationInputsRef.current.instances, index, songTime).alpha }}>
           <PresentedEchoImage shot={imageShot} maximumDimension={maximumDimension}
-            cameraCrop={echoCameraKeyframeAt(cameraKeyframes, songTime)?.crop}
+            cameraCrop={shotCameraFrame(imageShot, songTime)?.crop}
             onPresentedMediaChange={index === 0 ? onPresentedMediaChange : undefined}
             style={{ ...style, transition: "none", opacity: 1,
               ...(({ transform, transformOrigin, objectPosition }) => ({ transform, transformOrigin, objectPosition }))(cameraMotionStyleForShot(imageShot, songTime, resolveEchoShotSourceDimensions(imageShot).isPortrait, shotIndex + index,
-                echoCameraKeyframeAt(cameraKeyframes, songTime)?.crop || null)) }} />
+                shotCameraFrame(imageShot, songTime)?.crop || null)) }} />
         </div>
       ) : null)}
     </>
@@ -7320,6 +7360,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                                       presentationSampleRef={presentationSampleRef}
                                       sourceIsPortrait={activeShotSourceDimensions.isPortrait}
                                       cameraKeyframes={activeShowGraph?.directorV2?.cameraKeyframes}
+                                      showGraph={activeShowGraph}
                                       shotIndex={activeShotIndex}
                                       style={{
                                         width: '100%',

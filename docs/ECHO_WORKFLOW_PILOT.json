@@ -2,7 +2,7 @@
   "schemaVersion": "hapa.workflow-pilot.v1",
   "id": "echo-requirement-completion-batch-pilot",
   "version": "0.1",
-  "updatedAt": "2026-09-08T10:20:04.656882+00:00",
+  "updatedAt": "2026-09-08T10:59:50.989241+00:00",
   "status": "active-pilot",
   "effectiveness": "not-yet-evaluated",
   "ownerTaskId": "01a072d3-d593-74f2-8c89-2470c2ee1a40",
@@ -36,11 +36,11 @@
     "implementationMinutes": null,
     "verificationMinutes": null
   },
-  "activeBatch": "A1",
+  "activeBatch": "A2",
   "batches": [
     {
       "id": "A1",
-      "status": "matched-presentation-verified-transport-camera-consolidation-open",
+      "status": "accepted",
       "requirements": [
         "ECHO-07"
       ],
@@ -48,7 +48,10 @@
         "ECHO-04",
         "ECHO-08"
       ],
-      "acceptedRequirements": [],
+      "acceptedRequirements": [
+        "ECHO-04",
+        "ECHO-07"
+      ],
       "implementationMinutes": null,
       "verificationMinutes": null,
       "reworkMinutes": null,
@@ -680,7 +683,91 @@
         },
         "postmortem": "postmortems/2026-09-08-echo-matched-presentation.md",
         "humanAccepted": false
+      },
+      "cameraTransportAcceptance": {
+        "camera": {
+          "observations": 55,
+          "pass": true
+        },
+        "rate": {
+          "observations": 12,
+          "pass": true,
+          "maxSourceDifferenceSongMs": 0.002000000000279556
+        },
+        "media": {
+          "pausedObservations": 55,
+          "pausedEvidence": "camera-comparison.json and prior matched-presentation proof",
+          "rawContinuousElementTimes": "diagnostic only; use decoded callback evidence for display phase"
+        },
+        "transportSamples": 27,
+        "visibleEvents": {
+          "scope": "Current corrected-camera full song; first observed lyric/accent onsets against browser audible-output estimate. Not physical calibration or word alignment.",
+          "groups": {
+            "lyric": {
+              "count": 75,
+              "p95AbsoluteMs": 27.756666738195435,
+              "maxAbsoluteMs": 167.11166661899313,
+              "overOneFrame": 2
+            },
+            "accent": {
+              "count": 80,
+              "p95AbsoluteMs": 25.905666618996293,
+              "maxAbsoluteMs": 37.943666666666154,
+              "overOneFrame": 2
+            },
+            "cue": {
+              "count": 77,
+              "p95AbsoluteMs": 15.252333261827289,
+              "maxAbsoluteMs": 16.659333357168293,
+              "overOneFrame": 0
+            }
+          },
+          "combined": {
+            "count": 232,
+            "p95AbsoluteMs": 26.603666666687786,
+            "maxAbsoluteMs": 167.11166661899313,
+            "overOneFrame": 4
+          },
+          "expectedLyrics": 75,
+          "expectedAccents": 80,
+          "missingLyrics": [],
+          "missingAccents": [],
+          "paints": 19579,
+          "observerMaxMs": 0.40000009536743164,
+          "duration": 258.43333333333334
+        },
+        "sourceIntegrity": {
+          "pass": true,
+          "protectedFiles": 55,
+          "authoringFiles": 12,
+          "failures": []
+        },
+        "frozenSourceUnchanged": true,
+        "technicalTimingTargetMet": true,
+        "transport": {
+          "observations": 27,
+          "pass": true,
+          "loopDecodedSamples": 37,
+          "loopDecodedP95Ms": 21.18466661898376,
+          "loopDecodedMaxMs": 25.11466666666745
+        },
+        "evidence": "$ECHO_REVIEW_WORKSPACE/transport-camera-proof/"
       }
+    },
+    {
+      "id": "A2",
+      "status": "next",
+      "requirements": [
+        "ECHO-05",
+        "ECHO-06",
+        "ECHO-08"
+      ],
+      "supportingRequirements": [
+        "ECHO-17"
+      ],
+      "acceptedRequirements": [],
+      "implementationMinutes": null,
+      "verificationMinutes": null
     }
   ],
   "humanPilotReview": "pending",
@@ -699,10 +786,11 @@
     "docs/postmortems/2026-09-08-echo-preview-quality-budget.md",
     "docs/postmortems/2026-09-08-echo-prefetch-retention.md",
     "docs/postmortems/2026-09-08-echo-decoded-presentation.md",
-    "docs/postmortems/2026-09-08-echo-paused-composition.md"
+    "docs/postmortems/2026-09-08-echo-paused-composition.md",
+    "docs/postmortems/2026-09-08-echo-camera-transport.md"
   ],
   "decisionAfterAcceptedBatches": 2,
-  "nextAction": "Normalize actual camera geometry; consolidate continuous-loop, recovery and non-unit-rate acceptance using the original ECHO-04 scope and existing evidence. Retain cold history and repeated same-frame composition under08/17.",
+  "nextAction": "Complete the performance/cache portion of A2 as a coherent feature batch: cold history reconstruction, duplicate main-canvas composition, quality/late-frame budgets and incremental work. Keep manual vocal annotation and human review separately pending; reuse unchanged A1 evidence.",
   "updates": "batch-start, scope-change, consequential-failure, acceptance, handoff, goal-completion",
   "collaboration": {
     "protocol": "docs/ECHO_CONVICTION_PROTOCOL.md",
@@ -726,21 +814,14 @@
     }
   },
   "latestNativeAcceptance": {
-    "gestures": 6,
-    "surfaces": [
-      "media",
-      "visualizer",
-      "lyrics"
-    ],
-    "legacyAbsentTargetNegative": true,
-    "sectionBoundaryObservations": 11,
-    "bands": [
-      "quiet",
-      "steady",
-      "peak"
-    ],
-    "reverseSeekAndRestore": true,
-    "requirementClosures": []
+    "status": "ECHO-04-and-ECHO-07-technically-accepted",
+    "evidence": "$ECHO_REVIEW_WORKSPACE/transport-camera-proof/acceptance-cadence.json",
+    "transportComparisons": 27,
+    "cameraComparisons": 55,
+    "sourceRateComparisons": 12,
+    "lyricOnsets": 75,
+    "accentOnsets": 80,
+    "humanAccepted": false
   },
   "latestMediaClockCorrection": {
     "status": "standalone-source-frame-verified",
@@ -1000,5 +1081,10 @@
       "Initial near-end reconstruction had16frames already prepared; measurements are not paired cold-start speedup evidence"
     ],
     "nextAction": "Complete independent preview quality controls and global shader/decoder/compositing budgets, then integrated timing acceptance."
+  },
+  "currentCounts": {
+    "done": 8,
+    "inProgress": 10,
+    "acceptedPilotBatches": 1
   }
 }
