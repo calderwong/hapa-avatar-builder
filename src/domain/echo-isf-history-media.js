@@ -1,3 +1,4 @@
+import { createEchoEmptyShaderMedia } from './echo-empty-shader-media.js';
 import { prepareHyperFramesVideoFrame } from './hyperframes-media-frame-runtime.js';
 
 // Detached, silent source frames for one ISF surface. Never borrows the operator's
@@ -5,6 +6,7 @@ import { prepareHyperFramesVideoFrame } from './hyperframes-media-frame-runtime.
 export function createEchoIsfHistoryMedia({ createElement = tag => document.createElement(tag), resolveUri = uri => uri, timeoutMs = 10000, waitForPresentation = false } = {}) {
   let video = null, image = null, currentVideoUri = '', currentImageUri = '', sourceOriginSeconds = 0, disposed = false;
   const lifetime = new AbortController();
+  const emptyMedia = createEchoEmptyShaderMedia({ createCanvas: () => createElement('canvas') });
   const load = (element, uri, signal, kind) => new Promise((resolve, reject) => {
     const event = kind === 'video' ? 'loadeddata' : 'load';
     const cleanup = () => { clearTimeout(timer); element.removeEventListener(event, ready); element.removeEventListener('error', failed); signal?.removeEventListener('abort', cancelled); lifetime.signal.removeEventListener('abort', cancelled); };
@@ -20,8 +22,9 @@ export function createEchoIsfHistoryMedia({ createElement = tag => document.crea
     if (kind === 'video') element.load();
   });
   return {
-    async at(cue, songTime, { fps = 30, signal } = {}) {
+    async at(cue, songTime, { fps = 30, signal, emptyInterval = false } = {}) {
       if (disposed || signal?.aborted) throw new Error('Historical media cancelled');
+      if (cue == null && emptyInterval === true) return emptyMedia.at(false);
       const media = cue?.media;
       if (!media?.uri || !['video', 'image'].includes(media.kind)) return { element: null, receipt: null };
       const uri = resolveUri(media.uri);

@@ -425,3 +425,43 @@ test("the global source cache is bounded and disposal releases every resident re
   assert.equal(first.counters.cleanups, resident + 1, "all renderers from both pools are cleaned up");
   assert.equal(first.counters.contextLosses, resident + 1, "all WebGL contexts from both pools are explicitly lost");
 });
+
+
+test("a failed filter holds its own layer after another layer has presented", async (t) => {
+  const rows = [shader("isf:filter-layer"), shader("isf:other-layer"), shader("isf:new-layer", { drawError: true })];
+  const cards = rows.map(row => cue(row.id, 0, 10));
+  cards.forEach((card, index) => { card.trackId = `track:${index}`; });
+  const { pool, byId } = poolFor(rows);
+  t.after(() => pool.dispose());
+  await pool.prewarm(cards);
+  const first = pool.presentLayers(cards.slice(0, 2), frame(1));
+  assert.equal(first.status, "ready");
+  byId.get(rows[0].id).drawError = true;
+  const held = pool.present(cards[0], frame(2));
+  assert.equal(held.status, "draw-error");
+  assert.equal(held.canvas, first.layers[0].result.canvas);
+  assert.notEqual(held.canvas, first.layers[1].result.canvas);
+  assert.equal(held.presentedShaderId, rows[0].id);
+  assert.equal(held.presentationLayerKey, "track:0");
+  const newLayer = pool.present(cards[2], frame(2));
+  assert.equal(newLayer.canvas, null);
+  assert.equal(newLayer.heldPreviousFrame, false);
+  assert.equal(newLayer.presentedShaderId, "");
+  pool.dispose();
+  assert.equal(pool.present(cards[0], frame(2)).canvas, null);
+});
+
+test("evicting a layer cannot retain a canvas reassigned to another shader", async (t) => {
+  const rows = ["isf:evicted-layer", "isf:visible-layer", "isf:replacement-layer"].map(id => shader(id));
+  const cards = rows.map(row => cue(row.id, 0, 10));
+  cards.forEach((card, index) => { card.trackId = `eviction:${index}`; });
+  const { pool } = poolFor(rows, { maxSurfaces: 2 });
+  t.after(() => pool.dispose());
+  await pool.prewarm(cards.slice(0, 2));
+  pool.presentLayers(cards.slice(0, 2), frame(1));
+  await pool.prewarm([cards[2]]);
+  pool.present(cards[2], frame(2));
+  const missing = pool.present({ trackId: cards[0].trackId }, frame(2));
+  assert.equal(missing.canvas, null);
+  assert.equal(missing.heldPreviousFrame, false);
+});

@@ -2,7 +2,7 @@
   "schemaVersion": "hapa.workflow-pilot.v1",
   "id": "echo-requirement-completion-batch-pilot",
   "version": "0.1",
-  "updatedAt": "2026-09-08T04:50:09.276041+00:00",
+  "updatedAt": "2026-09-08T05:07:25.650995+00:00",
   "status": "active-pilot",
   "effectiveness": "not-yet-evaluated",
   "ownerTaskId": "01a072d3-d593-74f2-8c89-2470c2ee1a40",
@@ -40,7 +40,7 @@
   "batches": [
     {
       "id": "A1",
-      "status": "integration-checkpoint-validation-in-progress",
+      "status": "terminal-input-checkpoint-verified-batch-acceptance-pending",
       "requirements": [
         "ECHO-07"
       ],
@@ -132,6 +132,22 @@
         "nativeGestureKindsChecked": 6,
         "nativeSectionBoundaryObservations": 11,
         "standaloneMediaClockCommit": "922f7b5"
+      },
+      "terminalMediaEvidence": {
+        "policy": "explicit empty input preserves authored gaps; decoder failure remains failure",
+        "targetedPassed": 34,
+        "nativeComparisons": 6,
+        "nativeHistoryFrames": 92,
+        "nativeScope": "actual terminal media, bounded shader history and extracted export adapter; actual editor/encoded/full-song acceptance pending",
+        "sourceTask": "01a072d3-d593-74f2-8c89-2470c2ee1a40",
+        "evidence": "$ECHO_REVIEW_WORKSPACE/terminal-frame-proof",
+        "acceptedRequirements": [],
+        "compilerChecksPassed": 60,
+        "sourceIntegrity": {
+          "protected": 55,
+          "authoring": 12,
+          "unchanged": true
+        }
       }
     }
   ],

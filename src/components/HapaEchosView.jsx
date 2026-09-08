@@ -1,3 +1,4 @@
+import { createEchoEmptyShaderMedia } from "../domain/echo-empty-shader-media.js";
 import { createEchoIsfHistoryMedia } from "../domain/echo-isf-history-media.js";
 import { createImageShotGeometry, selectImageShotRendition } from "../domain/unified-media-catalog.js";
 import EchoLyricOverlay from "./EchoLyricOverlay.jsx";
@@ -1730,6 +1731,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
   const exactIsfPresentationRef = useRef({ status: "idle", sourceId: "", error: "" });
   const exactIsfLastPresentedCanvasRef = useRef(null);
   const exactIsfMediaInputCanvasRef = useRef(null);
+  const emptyIsfMedia = useMemo(() => createEchoEmptyShaderMedia(), []);
   const [exactIsfStatus, setExactIsfStatus] = useState({ status: "idle", sourceId: "", error: "" });
   const presentedMediaRef = useRef(null);
   const presentationTimingRef = useRef(null);
@@ -3638,6 +3640,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                 outputHeight: height,
               })
               : null;
+            const emptyMediaFrame = emptyIsfMedia.at(directorPreviewFrame ? Boolean(directorPreviewFrame.primaryMediaCue) : undefined);
             const graphIdentity = echoIsfGraphRuntimeIdentity(directorShowGraph);
             const layeredCards = directorPreviewFrame ? graphActiveVisualizerCards : graphActiveVisualizerCards.length ? graphActiveVisualizerCards : [graphVisualizerCard];
             const visualTimeAt = (card, songTime) => visualTimeFor(
@@ -3658,13 +3661,13 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                   const sourceCue = projected?.primaryMediaCue;
                   const cue = echoPreviewHistoryMediaCue(sourceCue, activeDirectorPreviewSource.project.timeline[sourceCue?.sourceCueIndex], timeline[sourceCue?.sourceCueIndex]);
                   const projectedAt = performance.now();
-                  const decoded = requiresMedia ? await decoder.at(cue, songTime, { fps: activeOutputProfile.fps, signal }) : null;
+                  const decoded = requiresMedia ? await decoder.at(cue, songTime, { fps: activeOutputProfile.fps, signal, emptyInterval: projected?.primaryMediaCue === null }) : null;
                   const decodedAt = performance.now();
                   const index = cue?.sourceCueIndex;
                   const sourceShot = timeline[index];
                   const camera = projected?.camera;
                   const shot = sourceShot && camera ? { ...sourceShot, camera_motion: camera.motion, camera_intensity: camera.intensity, ...(camera.speed == null ? {} : { camera_speed: camera.speed }) } : sourceShot;
-                  const framed = decoded?.element ? drawEchoCameraFramedMediaInput({ canvas: framedCanvas, mediaElement: decoded.element, shot, timeSeconds: songTime, shotIndex: Number.isInteger(index) ? index : 0, cameraCrop: camera?.keyframe?.crop || null, outputWidth: width, outputHeight: height }) : null;
+                  const framed = decoded?.receipt?.route === "empty-media-interval" ? { canvas: decoded.element } : decoded?.element ? drawEchoCameraFramedMediaInput({ canvas: framedCanvas, mediaElement: decoded.element, shot, timeSeconds: songTime, shotIndex: Number.isInteger(index) ? index : 0, cameraCrop: camera?.keyframe?.crop || null, outputWidth: width, outputHeight: height }) : null;
                   const signals = audioVisualMode === "replay"
                     ? activeRecordedSignalReplay?.at(songTime) || { master: { source: "recorded-signals", status: "outside-captured-range", rms: 0, beat: 0, energy: 0 } }
                     : activePreparedPerformance ? echoPreparedPerformanceSignalFrames(activePreparedPerformance, songTime, { soloStem: activeVisualSignalSolo }) : { master: emptyPreparedStem };
@@ -3690,6 +3693,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                 ) || null,
               );
               const presentation = pool.present(card, {
+                presentationLayerKey: card.trackId || card.persistentSlotId || card.id,
                 time: t,
                 playing: isPlayingRef.current,
                 frameRate: activeOutputProfile.fps,
@@ -3701,8 +3705,9 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                 audio: layerSignalFrame,
                 signalFrames,
                 preparedModulation: diagnosticPreparedModulation,
-                mediaElement: framedMediaInput?.canvas || null,
-                mediaIdentity: currentPresentedMedia ? {
+                mediaElement: emptyMediaFrame?.element || framedMediaInput?.canvas || null,
+                mediaFrameReceipt: emptyMediaFrame?.receipt || null,
+                mediaIdentity: !emptyMediaFrame && currentPresentedMedia ? {
                   id: currentPresentedMedia.mediaId,
                   uri: currentPresentedMedia.uri,
                   sourceHash: currentTimelineItem?.media_contract?.sourceHash || currentTimelineItem?.media_sha256 || ""

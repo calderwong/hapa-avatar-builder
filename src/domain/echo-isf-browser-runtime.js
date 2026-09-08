@@ -874,6 +874,7 @@ export function createEchoIsfPlaybackPool(options = {}) {
   const warmingByKey = new Map();
   const failedByKey = new Map();
   let presentedSlot = null;
+  const presentedByLayer = new Map();
   let useSequence = 0;
   let slotSequence = 0;
   let disposed = false;
@@ -969,6 +970,7 @@ export function createEchoIsfPlaybackPool(options = {}) {
     const index = slots.indexOf(slot);
     if (index >= 0) slots.splice(index, 1);
     if (presentedSlot === slot) presentedSlot = null;
+    for (const [layer, held] of presentedByLayer) if (held === slot) presentedByLayer.delete(layer);
     slot.generation += 1;
     try { slot.surface?.dispose?.(); } catch { /* disposal is best effort */ }
     slot.surface = null;
@@ -983,6 +985,7 @@ export function createEchoIsfPlaybackPool(options = {}) {
     const slot = evictableSlot();
     if (!slot) return null;
     evictions += 1;
+    for (const [layer, held] of presentedByLayer) if (held === slot) presentedByLayer.delete(layer);
     slot.generation += 1;
     try { slot.surface?.dispose?.(); } catch { /* disposal is best effort */ }
     slot.surface = null;
@@ -1111,26 +1114,28 @@ export function createEchoIsfPlaybackPool(options = {}) {
     };
   };
 
-  const holdResult = (status, shaderId, error = "") => {
-    const heldPrevious = Boolean(presentedSlot?.surface?.canvas);
+  const holdResult = (status, shaderId, error = "", layerKey = "default") => {
+    const heldSlot = presentedByLayer.get(layerKey);
+    const heldPrevious = Boolean(heldSlot?.lastResult?.canvas);
     if (heldPrevious) heldFrames += 1;
     else if (hasPresentedFrame && (!blackIntervals.length || blackIntervals.at(-1)?.endSequence != null)) {
       blackIntervals.push({ startSequence: useSequence, endSequence: null, shaderId });
     }
-    emit(heldPrevious ? status : `${status}-without-frame`, { requestedShaderId: shaderId, presentedShaderId: presentedSlot?.shaderId || "", error });
+    emit(heldPrevious ? status : `${status}-without-frame`, { requestedShaderId: shaderId, presentedShaderId: heldSlot?.shaderId || "", error });
     return {
       status,
       handoff: status,
       shaderId,
+      presentationLayerKey: layerKey,
       requestedShaderId: shaderId,
-      presentedShaderId: presentedSlot?.shaderId || "",
-      canvas: presentedSlot?.lastResult?.canvas || presentedSlot?.surface?.canvas || null,
+      presentedShaderId: heldSlot?.shaderId || "",
+      canvas: heldSlot?.lastResult?.canvas || null,
       heldPrevious,
       heldPreviousFrame: heldPrevious,
       switched: false,
       error,
-      composition: presentedSlot?.lastResult?.composition || null,
-      frameReceipt: presentedSlot?.lastResult?.frameReceipt || null,
+      composition: heldSlot?.lastResult?.composition || null,
+      frameReceipt: heldSlot?.lastResult?.frameReceipt || null,
     };
   };
 
@@ -1139,11 +1144,12 @@ export function createEchoIsfPlaybackPool(options = {}) {
       ? cardOrInput
       : { ...(frameInput || {}), card: cardOrInput };
     const card = combinedInput.card;
+    const layerKey = String(combinedInput.presentationLayerKey || card?.trackId || card?.persistentSlotId || "default");
     const shaderId = exactSourceId(card);
     requestedShaderId = shaderId;
     requestedKey = shaderId ? poolCardContentKey(card) : "";
-    if (disposed) return holdResult("disposed", shaderId, "ISF playback pool is disposed");
-    if (!shaderId) return holdResult("missing-id", "", "Presentation requires an exact shader ID");
+    if (disposed) return holdResult("disposed", shaderId, "ISF playback pool is disposed", layerKey);
+    if (!shaderId) return holdResult("missing-id", "", "Presentation requires an exact shader ID", layerKey);
     const key = requestedKey;
     const candidate = slots.find((slot) => slot.key === key && !slot.invalidated);
     const slot = candidate?.ready ? candidate : null;
@@ -1154,7 +1160,7 @@ export function createEchoIsfPlaybackPool(options = {}) {
         ? candidate.status
         : "handoff-pending");
       const pendingError = failure?.error || candidate?.error || "Candidate shader is still prewarming";
-      return holdResult(pendingStatus, shaderId, pendingError);
+      return holdResult(pendingStatus, shaderId, pendingError, layerKey);
     }
     const startedAt = globalThis.performance?.now?.() ?? Date.now();
     const result = slot.surface.present({ ...combinedInput, card });
@@ -1172,17 +1178,18 @@ export function createEchoIsfPlaybackPool(options = {}) {
     if (result?.status !== "ready") {
       slot.status = String(result?.status || "draw-error");
       slot.error = String(result?.error || "");
-      return holdResult(slot.status, shaderId, slot.error);
+      return holdResult(slot.status, shaderId, slot.error, layerKey);
     }
     const previous = presentedSlot;
     if (previous && previous !== slot) previous.presented = false;
     presentedSlot = slot;
+    presentedByLayer.set(layerKey, slot);
     hasPresentedFrame = true;
     slot.presented = true;
     slot.status = "ready";
     slot.error = "";
     forgetFailure(key);
-    slot.lastResult = result;
+    slot.lastResult = { ...result, canvas: result.canvas || slot.surface.canvas };
     rememberCard(slot, card, String(combinedInput.cacheKey || ""));
     touch(slot);
     if (previous !== slot) handoffs += 1;
@@ -1196,6 +1203,7 @@ export function createEchoIsfPlaybackPool(options = {}) {
       shaderId,
       requestedShaderId: shaderId,
       presentedShaderId: shaderId,
+      presentationLayerKey: layerKey,
       canvas: result.canvas || slot.surface.canvas,
       heldPrevious: result.heldPrevious === true,
       heldPreviousFrame: result.heldPreviousFrame === true,
@@ -1207,7 +1215,7 @@ export function createEchoIsfPlaybackPool(options = {}) {
     const ordered = Array.isArray(cards) ? cards.filter(Boolean) : [];
     const layers = ordered.map((card) => ({
       card,
-      result: present(card, { ...frameInput, card }),
+      result: present(card, { ...frameInput, card, presentationLayerKey: card.trackId || card.persistentSlotId || card.id }),
     }));
     const ready = layers.filter((layer) => layer.result?.status === "ready");
     return {
