@@ -24781,6 +24781,50 @@ h1 {
 .echo-notebook-tarot-grid article[data-human="true"] { border-left-color: #ff4fd8; }
 .echo-notebook-tarot-grid blockquote { margin: 5px 0; padding-left: 8px; border-left: 1px solid rgba(246, 201, 109, 0.45); }
 .echo-notebook-tarot-grid details summary { cursor: pointer; color: #f6c96d; }
+.echo-tarot-prompt-summary {
+  display: grid;
+  gap: 6px;
+  padding: 10px 12px;
+  border: 1px solid rgba(255, 79, 216, 0.28);
+  border-radius: 8px;
+  background: linear-gradient(120deg, rgba(255, 79, 216, 0.08), rgba(69, 228, 255, 0.07));
+}
+.echo-tarot-prompt-summary > div { display: flex; align-items: center; gap: 7px; color: #ffd8f7; }
+.echo-tarot-prompt-summary p { color: #b6cad6; font-size: 11px; line-height: 1.45; }
+.echo-tarot-prompt-summary > span { color: #67e8f9; font-size: 10px; text-transform: uppercase; letter-spacing: .08em; }
+.echo-tarot-prompt-review {
+  margin-top: 4px;
+  padding: 8px;
+  border: 1px solid rgba(69, 228, 255, 0.2);
+  border-radius: 6px;
+  background: rgba(1, 9, 19, 0.72);
+}
+.echo-tarot-prompt-review > summary { display: flex; align-items: center; gap: 6px; }
+.echo-tarot-prompt-review > summary span { margin-left: auto; color: #91a9b7; font-size: 10px; }
+.echo-tarot-prompt-status { display: flex; justify-content: space-between; gap: 8px; margin-top: 9px; color: #9cf0d4; }
+.echo-tarot-prompt-status span { display: inline-flex; align-items: center; gap: 5px; font-size: 10px; text-transform: uppercase; letter-spacing: .07em; }
+.echo-tarot-prompt-status small { color: #91a9b7; }
+.echo-tarot-prompt-tabs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 5px; margin-top: 8px; }
+.echo-tarot-prompt-tabs button { min-height: 28px; padding: 4px 6px; background: rgba(255, 255, 255, 0.035); font-size: 10px; }
+.echo-tarot-prompt-tabs button.active { border-color: #ff4fd8; background: rgba(255, 79, 216, 0.15); color: #ffe4fa; }
+.echo-tarot-prompt-meta { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 7px; }
+.echo-tarot-prompt-meta span { padding: 2px 5px; border: 1px solid rgba(246, 201, 109, 0.25); border-radius: 999px; color: #d8c58f; font-size: 9px; }
+.echo-tarot-prompt-review pre {
+  max-height: 360px;
+  margin: 8px 0;
+  padding: 10px;
+  overflow: auto;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 5px;
+  background: #020812;
+  color: #dbeef7;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 10px;
+  line-height: 1.48;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.echo-tarot-copy-prompt { width: 100%; }
 .echo-notebook-history { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .echo-notebook-entry-list h5 span { color: #45e4ff; }
 @media (max-width: 900px) {
@@ -24788,4 +24832,6 @@ h1 {
   .echo-notebook-history { grid-template-columns: 1fr; }
   .echo-song-notebook > header,
   .echo-notebook-tarot > header { align-items: flex-start; flex-direction: column; }
+  .echo-tarot-prompt-tabs { grid-template-columns: 1fr; }
+  .echo-tarot-prompt-status { align-items: flex-start; flex-direction: column; }
 }

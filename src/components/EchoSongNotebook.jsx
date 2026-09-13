@@ -6,6 +6,7 @@ import {
   detachAvatarFromSong,
 } from "../domain/song.js";
 import { addSongKnowledgeEntry, markSongResearchReference } from "../domain/song-knowledge.js";
+import EchoTarotImagePromptReview from "./EchoTarotImagePromptReview.jsx";
 
 function mediaUri(apiBase, uri = "") {
   if (!uri || /^(data:|blob:|https?:)/.test(uri)) return uri;
@@ -96,6 +97,7 @@ export default function EchoSongNotebook({ apiBase = "", songId = "", onNotice =
   const linkedAvatarIds = useMemo(() => new Set((song?.attachments?.avatarLinks || []).map((link) => link.avatarId)), [song?.attachments?.avatarLinks]);
   const manualTarotLinks = (song?.attachments?.cardLinks || []).filter((link) => link.role === "tarot-song-correspondence");
   const creativeAnchors = (song?.media || []).filter((asset) => asset.creativeAnchor || asset.role === "creative-visual-anchor");
+  const tarotImagePrompts = payload?.tarotImagePrompts || [];
 
   function submitEntry(event) {
     event.preventDefault();
@@ -250,9 +252,21 @@ export default function EchoSongNotebook({ apiBase = "", songId = "", onNotice =
 
       <section className="echo-notebook-tarot">
         <header><div><h5><Sparkles size={13} /> Tarot ↔ song logic</h5><p>The attached Echoes from Other Eras mapping is shown as an editorial proposal, never silent canon.</p></div><span>{payload.tarotConnections?.length || 0} supplied · {manualTarotLinks.length} human</span></header>
+        <aside className="echo-tarot-prompt-summary">
+          <div><ImageIcon size={14} /><strong>GPT Image 2.5 prompt review</strong></div>
+          <p>Every Tarot Card + Song pairing has three deterministic drafts: Hapa Main Man, Hapa Main Woman, and both as a couple. Review or copy them here before any future image-generation run.</p>
+          <span>{tarotImagePrompts.length} pairings · {tarotImagePrompts.reduce((total, set) => total + (set.variants?.length || 0), 0)} prompt variations</span>
+        </aside>
         <div className="echo-notebook-tarot-grid">
-          {(payload.tarotConnections || []).map((connection) => <article key={connection.id}><span>{connection.editionCardId} · {connection.arcana}</span><h5>{connection.cardTitle}</h5><strong>{connection.role}</strong><p>{connection.logic}</p><details><summary>Evidence and interpretive logic</summary>{connection.evidence.map((item, index) => <blockquote key={`${connection.id}:evidence:${index}`}>“{item.excerpt}” <small>{item.source_id} line {item.line}</small></blockquote>)}<p>{connection.thematicSynthesis}</p>{connection.interpretiveGuardrail && <em>{connection.interpretiveGuardrail}</em>}</details></article>)}
-          {manualTarotLinks.map((link) => <article key={link.cardId} data-human="true"><span>Human-added connection</span><h5>{link.cardTitle}</h5><p>{link.reason}</p></article>)}
+          {(payload.tarotConnections || []).map((connection) => {
+            const promptSet = tarotImagePrompts.find((set) => set.sourceConnectionIds?.includes(connection.id) || set.cardId === connection.cardId);
+            return <article key={connection.id}><span>{connection.editionCardId} · {connection.arcana}</span><h5>{connection.cardTitle}</h5><strong>{connection.role}</strong><p>{connection.logic}</p><details><summary>Evidence and interpretive logic</summary>{connection.evidence.map((item, index) => <blockquote key={`${connection.id}:evidence:${index}`}>“{item.excerpt}” <small>{item.source_id} line {item.line}</small></blockquote>)}<p>{connection.thematicSynthesis}</p>{connection.interpretiveGuardrail && <em>{connection.interpretiveGuardrail}</em>}</details>{promptSet && <EchoTarotImagePromptReview promptSet={promptSet} onNotice={onNotice} />}</article>;
+          })}
+          {manualTarotLinks.map((link) => {
+            const alreadySupplied = (payload.tarotConnections || []).some((connection) => connection.cardId === link.cardId);
+            const promptSet = tarotImagePrompts.find((set) => set.cardId === link.cardId);
+            return <article key={link.cardId} data-human="true"><span>Human-added connection</span><h5>{link.cardTitle}</h5><p>{link.reason}</p>{promptSet && !alreadySupplied && <EchoTarotImagePromptReview promptSet={promptSet} onNotice={onNotice} />}</article>;
+          })}
         </div>
         <form onSubmit={submitCard}>
           <select required value={cardDraft.cardId} onChange={(event) => setCardDraft((current) => ({ ...current, cardId: event.target.value }))}><option value="">Choose a Tarot Card…</option>{(payload.availableCards || []).map((card) => <option key={card.id} value={card.id}>{card.title} · {card.source?.editionId ? "Echoes edition" : "Builder library"}</option>)}</select>

@@ -30,3 +30,17 @@ Human changes persist through the existing Song Card routes:
 - `POST /api/hapa-songs/:songId/media`
 
 Song context packets include the knowledge family, explicitly attached Avatars/Cards, and Song media. Notes and anchors guide future work but do not establish external facts, rights, publication authority, or canon.
+
+## GPT Image 2.5 Tarot prompt review
+
+Every unique Tarot Card + Song pairing is projected through `src/domain/echo-tarot-image-prompts.js` as `hapa.echo-tarot-image-prompts.v1`. The compiler produces three deterministic, review-only variants:
+
+- `default-man` uses the replaceable `Hapa Main Man` cast slot;
+- `default-woman` uses the replaceable `Hapa Main Woman` cast slot; and
+- `default-couple` places both adult variables as an equal, mutually agentic couple.
+
+Each prompt keeps inherited Tarot fields distinct from editorial additions: card identity, Arcana/suit/rank grammar, upright and shadow meanings, essential symbols, composition, song assignment argument, lyric evidence, song-specific symbol bridges, reading mechanics, color direction, human pairing logic, notes, lessons, research labels, and creative-anchor tone notes. The prompt tells the image model to render the variables as characters rather than print their variable names.
+
+The supplied 167 editorial pairings therefore expose 501 prompt variants. A later human-added Tarot link receives the same three variants; when a human attaches a card already present in the supplied mapping, the human logic is merged into that pairing instead of creating a duplicate Card + Song prompt set.
+
+Both album-wide and single-song `GET /api/echos/song-notebook` responses include `tarotImagePrompts`. The References UI shows a collapsed review panel under each Tarot connection with cast-variant tabs and a copy action. The panel has no generation action: every prompt remains `draft-for-human-review`, `generationStatus: not-started`, and `canGenerate: false` until a separate, explicitly authorized image-run workflow is connected.

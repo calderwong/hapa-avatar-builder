@@ -13,6 +13,29 @@ function songMatchesTrack(song = {}, track = {}) {
   return normalizedTitle(song.title) === normalizedTitle(track.title);
 }
 
+function projectOriginalMeaning(card = {}, source = {}) {
+  const inherited = card.inherited || {};
+  const suitMechanics = card.inherited_mechanics?.suit || {};
+  return {
+    archetype: inherited.archetype || "",
+    force: inherited.force || "",
+    upright: inherited.upright || "",
+    shadow: inherited.shadow || "",
+    essentialSymbols: inherited.essential_symbols || "",
+    optionalSymbols: inherited.optional_symbols || "",
+    composition: inherited.composition || "",
+    interpretation: inherited.hapa_interpretation || "",
+    element: suitMechanics.element || "",
+    domain: suitMechanics.domain || "",
+    motion: suitMechanics.motion || "",
+    questions: suitMechanics.questions_as_written || [],
+    journeyAct: card.inherited_mechanics?.journey?.act || "",
+    journeyStage: card.inherited_mechanics?.journey?.stage || "",
+    numberGrammar: source.number_grammar?.[String(card.number)] || "",
+    courtGrammar: source.court_grammar?.[card.rank] || null,
+  };
+}
+
 export function compactEchoTarotEditionCards(source = {}) {
   return (source.cards || []).map((card) => ({
     id: `echo-tarot:${card.id}`,
@@ -23,8 +46,16 @@ export function compactEchoTarotEditionCards(source = {}) {
     suit: card.suit,
     rank: card.rank,
     number: card.number,
+    displayNumber: card.display_number || card.rank || card.number || "",
     casting: card.inherited?.casting || "",
     summary: card.hapa_edition?.thematic_synthesis || card.inherited?.hapa_interpretation || "",
+    originalMeaning: projectOriginalMeaning(card, source),
+    readingMechanics: card.hapa_edition?.reading_mechanics || null,
+    symbolBridges: card.hapa_edition?.symbol_bridges || [],
+    colorNotes: card.hapa_edition?.color_notes || "",
+    artistScene: card.hapa_edition?.artist_scene || "",
+    interpretiveGuardrail: card.hapa_edition?.interpretive_guardrail || "",
+    productionChecks: card.hapa_edition?.production_checks || [],
     status: "proposed-editorial-correspondence",
     source: {
       editionId: source.edition_id,
@@ -57,15 +88,22 @@ export function buildEchoTarotSongConnections(source = {}, songs = []) {
         cardSubtitle: card.hapa_edition?.edition_subtitle || "",
         arcana: card.arcana,
         suit: card.suit,
+        rank: card.rank,
+        number: card.number,
+        displayNumber: card.display_number || card.rank || card.number || "",
+        sourceCasting: card.inherited?.casting || "",
         role: assignment.role || "Editorial correspondence",
         logic: assignment.argument || "",
         evidence: assignment.evidence || [],
         mappingStatus: assignment.mapping_status || "proposed_editorial_correspondence",
         thematicSynthesis: card.hapa_edition?.thematic_synthesis || "",
         interpretiveGuardrail: card.hapa_edition?.interpretive_guardrail || "",
+        originalMeaning: projectOriginalMeaning(card, source),
         readingMechanics: card.hapa_edition?.reading_mechanics || null,
         symbolBridges: card.hapa_edition?.symbol_bridges || [],
+        colorNotes: card.hapa_edition?.color_notes || "",
         artistScene: card.hapa_edition?.artist_scene || "",
+        productionChecks: card.hapa_edition?.production_checks || [],
         listenUrl: assignment.listen_url || track.listen_url || null,
         sourceRange: assignment.source_range || track.source_range || null,
         source: {
@@ -101,6 +139,29 @@ export function compactTarotLibraryCards(store = {}) {
     arcana: card.arcana || "custom",
     suit: card.suit || "custom",
     number: card.number ?? "",
+    rank: card.rank || card.number || "",
+    meaning: card.meaning || "",
+    reversedMeaning: card.reversedMeaning || "",
+    promptNotes: card.promptNotes || "",
+    keywords: card.keywords || [],
+    originalMeaning: {
+      archetype: card.cardType || card.arcana || "Custom Tarot Card",
+      force: "",
+      upright: card.meaning || "",
+      shadow: card.reversedMeaning || "",
+      essentialSymbols: (card.keywords || []).join(", "),
+      optionalSymbols: "",
+      composition: card.promptNotes || "",
+      interpretation: card.meaning || "",
+      element: "",
+      domain: "",
+      motion: "",
+      questions: [],
+      journeyAct: "",
+      journeyStage: "",
+      numberGrammar: "",
+      courtGrammar: null,
+    },
     status: card.status || "draft",
     source: { resourcePath: "data/tarot-store.json", sourceCardId: card.id },
   }));

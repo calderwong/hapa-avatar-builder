@@ -109,6 +109,7 @@ import {
   compactTarotLibraryCards,
   projectEchoTarotSongConnections,
 } from "../src/domain/echo-tarot-song-links.js";
+import { buildEchoTarotImagePromptSets } from "../src/domain/echo-tarot-image-prompts.js";
 import {
   blueAvatarHealth,
   blueAvatarTurn,
@@ -2571,6 +2572,11 @@ async function route(req, res) {
       ]);
       const songs = songStore.songs || [];
       const allConnections = buildEchoTarotSongConnections(tarotEdition, songs);
+      const importedCards = compactEchoTarotEditionCards(tarotEdition);
+      const libraryCards = compactTarotLibraryCards(tarotStore);
+      const availableCards = [...importedCards, ...libraryCards]
+        .filter((card, index, all) => all.findIndex((item) => item.id === card.id) === index)
+        .sort((left, right) => String(left.title).localeCompare(String(right.title)));
       const source = {
         schemaVersion: tarotEdition.schema_version,
         editionId: tarotEdition.edition_id,
@@ -2587,16 +2593,20 @@ async function route(req, res) {
           schemaVersion: "hapa.echo-song-notebook-album.v1",
           album: songStore.album,
           source,
-          songs: songs.map((song) => ({
-            id: song.id,
-            songId: song.songId,
-            title: song.title,
-            trackNumber: song.trackNumber,
-            knowledge: song.knowledge,
-            attachments: song.attachments,
-            creativeAnchors: (song.media || []).filter((asset) => asset.creativeAnchor || asset.role === "creative-visual-anchor"),
-            tarotConnections: allConnections.filter((connection) => connection.songId === song.id),
-          })),
+          songs: songs.map((song) => {
+            const tarotConnections = allConnections.filter((connection) => connection.songId === song.id);
+            return {
+              id: song.id,
+              songId: song.songId,
+              title: song.title,
+              trackNumber: song.trackNumber,
+              knowledge: song.knowledge,
+              attachments: song.attachments,
+              creativeAnchors: (song.media || []).filter((asset) => asset.creativeAnchor || asset.role === "creative-visual-anchor"),
+              tarotConnections,
+              tarotImagePrompts: buildEchoTarotImagePromptSets({ song, connections: tarotConnections, availableCards, edition: tarotEdition }),
+            };
+          }),
         });
         return;
       }
@@ -2606,11 +2616,7 @@ async function route(req, res) {
         sendJson(res, 404, { ok: false, error: "echo_song_notebook_not_found", songId: requestedSongId });
         return;
       }
-      const importedCards = compactEchoTarotEditionCards(tarotEdition);
-      const libraryCards = compactTarotLibraryCards(tarotStore);
-      const availableCards = [...importedCards, ...libraryCards]
-        .filter((card, index, all) => all.findIndex((item) => item.id === card.id) === index)
-        .sort((left, right) => String(left.title).localeCompare(String(right.title)));
+      const tarotConnections = projectEchoTarotSongConnections(tarotEdition, songs, song.id);
       sendJson(res, 200, {
         schemaVersion: "hapa.echo-song-notebook.v1",
         source,
@@ -2621,13 +2627,15 @@ async function route(req, res) {
           thumbnailUri: avatar.thumbnailUri || avatar.portraitUri || "",
           loreStatus: avatar.loreStatus || avatar.status || "unverified",
         })).sort((left, right) => left.name.localeCompare(right.name)),
-        tarotConnections: projectEchoTarotSongConnections(tarotEdition, songs, song.id),
+        tarotConnections,
+        tarotImagePrompts: buildEchoTarotImagePromptSets({ song, connections: tarotConnections, availableCards, edition: tarotEdition }),
         availableCards,
         guardrails: {
           notes: "Human-authored context; not external fact or canon by storage alone.",
           references: "Marked for future research; URLs are not automatically trusted or fetched.",
           media: "Creative direction anchors; attachment does not transfer rights.",
           tarot: "Supplied mappings and later human additions retain their stated evidence, status, and logic.",
+          imagePrompts: "Three GPT Image 2.5 prompt variants are deterministic review drafts. No generation starts from the review panel, and variable cast slots do not assign Avatar identity.",
         },
       });
     } catch (error) {
