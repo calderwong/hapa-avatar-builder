@@ -113,3 +113,17 @@ Operational guardrails:
 9. Focus an already-running Builder through its exact loopback desktop control before paying the cost of a second Electron bootstrap; retain Electron's single-instance lock as the fallback.
 
 Lesson Card candidate: a launcher must validate and reuse the live canonical surface before it mutates build output or window state. A silent retry is a concurrency event, not permission to repeat destructive preparation.
+
+## Deprecated Pinokio Recurrence And Compatibility Route — 2026-09-12
+
+A live-process audit found the incomplete Pinokio duplicate running from `/Users/calderwong/pinokio/api/hapa-avatar-builder-desktop/app` on random port `63200`. Its 62-avatar, nine-tab shell was the apparent regression: it lacked the current Hapa Songs, Echos Album, Echo Record Garden, Tarot Library, Tarot Draw, and Creator Sets surfaces. The canonical checkout and its 74-avatar UI remained intact.
+
+The obsolete Pinokio package now identifies itself as a retired provenance copy. Its normal Pinokio menu, Finder command, and npm `dev`, `api`, `start`, `desktop`, and `desktop:dev` entry points route through `/Users/calderwong/Desktop/Launch Hapa Avatar Builder.command` to the canonical `8797` service. The duplicate source and data remain available for provenance recovery, but its old server and Electron shell are no longer normal launch targets.
+
+Verification on 2026-09-12:
+
+1. The canonical launchd service restarted after reporting `server_restart_required` and returned `echoDeliveryFreshness.ok: true` on port `8797`.
+2. The canonical Electron window exposed 74 avatars and the complete current view set, including the Echo Album notebook controls for notes, research references, avatar links, creative anchors, and Tarot-to-song logic.
+3. The exact formerly stale Pinokio launcher printed its retirement route, focused the existing canonical window, and did not recreate a Pinokio Electron or `server/api.mjs` process.
+
+Lesson Card candidate: source-of-truth documentation is necessary but insufficient when an obsolete executable remains inviting. Retire the executable path by turning it into an explicit, reversible compatibility route to the canonical system.
