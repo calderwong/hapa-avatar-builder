@@ -2697,6 +2697,11 @@ async function route(req, res) {
     return;
   }
 
+  if (pathname === "/api/echos/references/gpt-image-library" && req.method === "GET") {
+    sendJson(res, 200, await echoReferenceMiningStore.gptImageLibrary());
+    return;
+  }
+
   if (pathname === "/api/echos/references/mine" && req.method === "POST") {
     try {
       const body = await readBody(req);

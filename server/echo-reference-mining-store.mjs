@@ -34,6 +34,7 @@ import {
   buildEchoReferenceTarotCards,
   selectEchoReferenceRuntimeRun,
 } from "../src/domain/echo-reference-runtime.js";
+import { buildEchoReferenceGptImageLibrary } from "../src/domain/echo-reference-gpt-image-library.js";
 
 async function readJson(filePath, fallback = null) {
   try {
@@ -623,6 +624,14 @@ export function createEchoReferenceMiningStore(options = {}) {
     };
   }
 
+  async function gptImageLibrary() {
+    const [active, mediaCatalog] = await Promise.all([
+      currentRun(),
+      readJsonCached(animatedMediaPath, { records: [] }),
+    ]);
+    return buildEchoReferenceGptImageLibrary(active, mediaCatalog);
+  }
+
   return {
     root,
     latestPath,
@@ -636,6 +645,7 @@ export function createEchoReferenceMiningStore(options = {}) {
     run,
     projection,
     tarotCards,
+    gptImageLibrary,
     contributions,
     cardRevisionEvents,
     cardHistory,

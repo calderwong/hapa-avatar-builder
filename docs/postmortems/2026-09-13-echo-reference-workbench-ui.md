@@ -1,0 +1,10 @@
+# Echo Reference Workbench UI reflection
+
+- **Objective:** make song changes visual and immediate, reveal what references actually mean, play attached loops on hover, and make notes/research/Tarot understanding fast to review and revise.
+- **Evidence inspected:** the canonical running Electron app, `EchoReferenceExplorer`, `EchoSongNotebook`, the Reference runtime/media projection, the GPT/Codex-only visual library, the normalized Song Card upsert helpers, and the Hapa Neoblade design/audit standards.
+- **What worked:** extending the existing Atlas and Song Card owners kept one selected-song identity across navigation, notes, Tarot, evidence, and media. The existing exact Card-revision image/loop binding made still-first hover playback possible without a new media store.
+- **What was noise:** the album-wide preview gallery and long notebook were useful content but poor entry points for per-song work. They remain available, but no longer block the selected-song dossier.
+- **Misunderstanding corrected:** a Reference Card title is an identifier, not an explanation. The compact visual corpus now carries and renders lyric moments, claims, citations, themes, mechanics, emotions, and the explicit “why” separately from the name.
+- **What changed:** added a resident searchable 137-song rail; previous/next and Alt-arrow traversal; a task-tabbed notebook overview; edit/upsert flows for notes, lessons, research leads, and human Tarot rationale; explanation-first Reference Cards; and one shared reduced-motion-safe hover/focus loop component used by the Atlas and complete GPT visual library.
+- **What remains reusable:** `EchoHoverLoopMedia` is a reusable media-card presentation primitive; the song navigator/master-detail pattern can be applied to other Album Builder lanes without moving source ownership.
+- **New guardrail:** generated art may visualize a reference, but the UI must show the underlying evidence and rationale beside it. Motion reveals availability; it never upgrades review, canon, rights, or source truth.

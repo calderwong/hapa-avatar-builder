@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { BookHeart, ExternalLink, Film, Image as ImageIcon, Link2, Plus, Save, Sparkles, Users } from "lucide-react";
+import { BookHeart, ExternalLink, Film, Image as ImageIcon, LayoutDashboard, Lightbulb, Link2, Pencil, Plus, Quote, Save, Sparkles, Users } from "lucide-react";
 import {
   attachAvatarToSong,
   attachCardToSong,
@@ -25,7 +25,7 @@ function fileDataUrl(file) {
   });
 }
 
-function EntryList({ title, entries = [] }) {
+function EntryList({ title, entries = [], onEdit = () => {} }) {
   return (
     <section className="echo-notebook-entry-list">
       <h5>{title} <span>{entries.length}</span></h5>
@@ -35,6 +35,7 @@ function EntryList({ title, entries = [] }) {
           {entry.futureUse && <small>Future use: {entry.futureUse}</small>}
           {entry.relatedFeature && <small>Connect later: {entry.relatedFeature}</small>}
           <em>{entry.authorName || entry.authorType} · {entry.createdAt || "saved"}</em>
+          <button type="button" className="echo-notebook-edit" onClick={() => onEdit(entry)}><Pencil size={11} /> Edit</button>
         </article>
       ))}
       {!entries.length && <p className="echo-ref-empty">Nothing recorded yet.</p>}
@@ -51,6 +52,7 @@ export default function EchoSongNotebook({ apiBase = "", songId = "", onNotice =
   const [reference, setReference] = useState({ label: "", url: "", notes: "" });
   const [anchorNotes, setAnchorNotes] = useState("");
   const [cardDraft, setCardDraft] = useState({ cardId: "", logic: "" });
+  const [view, setView] = useState("overview");
 
   const load = useCallback(async () => {
     if (!songId) return;
@@ -104,11 +106,14 @@ export default function EchoSongNotebook({ apiBase = "", songId = "", onNotice =
     event.preventDefault();
     if (!song || !entry.body.trim()) return;
     const next = addSongKnowledgeEntry(song, entry.kind, {
+      id: entry.id,
       body: entry.body,
       futureUse: entry.futureUse,
       relatedFeature: entry.relatedFeature,
       authorName: "Hapa operator",
       tags: ["echo-album", entry.kind],
+      createdAt: entry.createdAt,
+      updatedAt: new Date().toISOString(),
     });
     void commitSong(next, `${entry.kind === "lesson" ? "Lesson" : entry.kind === "anecdote" ? "Anecdote" : "Note"} saved for ${song.title}.`);
     setEntry({ kind: entry.kind, body: "", futureUse: "", relatedFeature: "" });
@@ -123,6 +128,29 @@ export default function EchoSongNotebook({ apiBase = "", songId = "", onNotice =
     });
     void commitSong(next, `Research reference marked for ${song.title}.`);
     setReference({ label: "", url: "", notes: "" });
+  }
+
+  function editEntry(item) {
+    setEntry({
+      id: item.id,
+      createdAt: item.createdAt,
+      kind: item.kind || "note",
+      body: item.body || "",
+      futureUse: item.futureUse || "",
+      relatedFeature: item.relatedFeature || "",
+    });
+    setView("notes");
+  }
+
+  function editReference(item) {
+    setReference({
+      id: item.id,
+      createdAt: item.createdAt,
+      label: item.label || "",
+      url: item.url || "",
+      notes: item.notes || "",
+    });
+    setView("references");
   }
 
   function toggleAvatar(avatar) {
@@ -199,59 +227,116 @@ export default function EchoSongNotebook({ apiBase = "", songId = "", onNotice =
       </header>
       {error && <p className="echo-ref-feedback error" role="alert">{error}</p>}
 
-      <div className="echo-song-notebook-grid">
-        <form onSubmit={submitEntry}>
-          <h5>Notes, anecdotes & lessons</h5>
-          <select value={entry.kind} onChange={(event) => setEntry((current) => ({ ...current, kind: event.target.value }))}>
-            <option value="note">Free-text note</option>
-            <option value="anecdote">Anecdote</option>
-            <option value="lesson">Lesson / teaching</option>
-          </select>
-          <textarea required rows="4" value={entry.body} onChange={(event) => setEntry((current) => ({ ...current, body: event.target.value }))} placeholder="Record anything a future human or agent should understand about this song." />
-          {entry.kind === "lesson" && <>
-            <input value={entry.futureUse} onChange={(event) => setEntry((current) => ({ ...current, futureUse: event.target.value }))} placeholder="How should this lesson guide future content?" />
-            <input value={entry.relatedFeature} onChange={(event) => setEntry((current) => ({ ...current, relatedFeature: event.target.value }))} placeholder="Future feature, mechanic, or content connection" />
-          </>}
-          <button type="submit" disabled={saving || !entry.body.trim()}><Plus size={13} /> Add {entry.kind}</button>
-        </form>
+      <nav className="echo-notebook-tabs" aria-label={`${song.title} notebook sections`}>
+        {[
+          ["overview", "At a glance", LayoutDashboard],
+          ["references", `References ${(knowledge.researchReferences || []).length}`, Link2],
+          ["notes", `Notes & lessons ${(knowledge.notes || []).length + (knowledge.anecdotes || []).length + (knowledge.lessons || []).length}`, BookHeart],
+          ["tarot", `Tarot logic ${(payload.tarotConnections || []).length + manualTarotLinks.length}`, Sparkles],
+          ["anchors", `Anchors & cast ${creativeAnchors.length + linkedAvatarIds.size}`, ImageIcon],
+        ].map(([id, label, Icon]) => <button key={id} type="button" className={view === id ? "active" : ""} onClick={() => setView(id)}><Icon size={13} /> {label}</button>)}
+      </nav>
 
+      {view === "overview" && <div className="echo-notebook-overview">
+        <section>
+          <span><Link2 size={14} /> Research understanding</span>
+          <b>{(knowledge.researchReferences || []).length}</b>
+          <p>{knowledge.researchReferences?.[0]?.notes || knowledge.researchReferences?.[0]?.label || "No human research lead has been marked yet."}</p>
+          <button type="button" onClick={() => setView("references")}>{knowledge.researchReferences?.length ? "Review and update" : "Add a reference"}</button>
+        </section>
+        <section>
+          <span><Quote size={14} /> Notes & anecdotes</span>
+          <b>{(knowledge.notes || []).length + (knowledge.anecdotes || []).length}</b>
+          <p>{knowledge.notes?.[0]?.body || knowledge.anecdotes?.[0]?.body || "Add what a future human or agent should know about the song."}</p>
+          <button type="button" onClick={() => setView("notes")}>Open understanding</button>
+        </section>
+        <section>
+          <span><Lightbulb size={14} /> Lessons</span>
+          <b>{(knowledge.lessons || []).length}</b>
+          <p>{knowledge.lessons?.[0]?.body || "Record what this song is trying to teach and how it should guide future work."}</p>
+          <button type="button" onClick={() => setView("notes")}>Add or update lesson</button>
+        </section>
+        <section>
+          <span><Sparkles size={14} /> Tarot rationale</span>
+          <b>{(payload.tarotConnections || []).length + manualTarotLinks.length}</b>
+          <p>{payload.tarotConnections?.[0]?.logic || manualTarotLinks[0]?.reason || "No Tarot pairing is currently explained for this song."}</p>
+          <button type="button" onClick={() => setView("tarot")}>See cards and logic</button>
+        </section>
+      </div>}
+
+      {view === "references" && <div className="echo-song-notebook-grid">
         <form onSubmit={submitReference}>
           <h5><Link2 size={13} /> Mark for future research</h5>
+          <p>Name the actual work, person, place, symbol, or URL—then explain why it matters.</p>
           <input value={reference.label} onChange={(event) => setReference((current) => ({ ...current, label: event.target.value }))} placeholder="Reference, work, person, place, or source" />
           <input type="url" value={reference.url} onChange={(event) => setReference((current) => ({ ...current, url: event.target.value }))} placeholder="https://… (optional)" />
-          <textarea rows="3" value={reference.notes} onChange={(event) => setReference((current) => ({ ...current, notes: event.target.value }))} placeholder="Why this matters and what a future researcher should investigate" />
-          <button type="submit" disabled={saving || (!reference.label.trim() && !reference.url.trim())}><Plus size={13} /> Mark reference</button>
-          <div className="echo-notebook-reference-list">
-            {(knowledge.researchReferences || []).map((item) => (
-              <article key={item.id}>
-                <strong>{item.label}</strong><p>{item.notes}</p>
-                {item.url && <a href={item.url} target="_blank" rel="noreferrer"><ExternalLink size={11} /> Open source</a>}
-                <em>{item.status}</em>
-              </article>
-            ))}
-          </div>
+          <textarea rows="4" value={reference.notes} onChange={(event) => setReference((current) => ({ ...current, notes: event.target.value }))} placeholder="What is the connection? What should a future researcher verify or carry forward?" />
+          <button type="submit" disabled={saving || (!reference.label.trim() && !reference.url.trim())}>{reference.id ? <Save size={13} /> : <Plus size={13} />} {reference.id ? "Save reference changes" : "Mark reference"}</button>
+          {reference.id && <button type="button" onClick={() => setReference({ label: "", url: "", notes: "" })}>Cancel edit</button>}
         </form>
-      </div>
+        <section className="echo-notebook-reference-list">
+          <h5>Actual references and research logic</h5>
+          {(knowledge.researchReferences || []).map((item) => (
+            <article key={item.id}>
+              <strong>{item.label || item.url}</strong>
+              <p>{item.notes || "No rationale has been recorded yet."}</p>
+              {item.url && <a href={item.url} target="_blank" rel="noreferrer"><ExternalLink size={11} /> Open source</a>}
+              <em>{item.status}</em>
+              <button type="button" className="echo-notebook-edit" onClick={() => editReference(item)}><Pencil size={11} /> Edit reference and logic</button>
+            </article>
+          ))}
+          {!knowledge.researchReferences?.length && <p className="echo-ref-empty">No human-marked research references yet.</p>}
+        </section>
+      </div>}
 
-      <div className="echo-song-notebook-grid">
+      {view === "notes" && <>
+        <div className="echo-song-notebook-grid">
+          <form onSubmit={submitEntry}>
+            <h5>Notes, anecdotes & lessons</h5>
+            <select value={entry.kind} disabled={Boolean(entry.id)} onChange={(event) => setEntry((current) => ({ ...current, kind: event.target.value }))}>
+              <option value="note">Free-text note</option>
+              <option value="anecdote">Anecdote</option>
+              <option value="lesson">Lesson / teaching</option>
+            </select>
+            <textarea required rows="5" value={entry.body} onChange={(event) => setEntry((current) => ({ ...current, body: event.target.value }))} placeholder="Record anything a future human or agent should understand about this song." />
+            {entry.kind === "lesson" && <>
+              <input value={entry.futureUse} onChange={(event) => setEntry((current) => ({ ...current, futureUse: event.target.value }))} placeholder="How should this lesson guide future content?" />
+              <input value={entry.relatedFeature} onChange={(event) => setEntry((current) => ({ ...current, relatedFeature: event.target.value }))} placeholder="Future feature, mechanic, or content connection" />
+            </>}
+            <button type="submit" disabled={saving || !entry.body.trim()}>{entry.id ? <Save size={13} /> : <Plus size={13} />} {entry.id ? "Save changes" : `Add ${entry.kind}`}</button>
+            {entry.id && <button type="button" onClick={() => setEntry({ kind: entry.kind, body: "", futureUse: "", relatedFeature: "" })}>Cancel edit</button>}
+          </form>
+          <section className="echo-notebook-understanding-guide">
+            <h5><Lightbulb size={13} /> What future readers receive</h5>
+            <p><b>Notes</b> hold open-ended context. <b>Anecdotes</b> preserve lived stories. <b>Lessons</b> carry an intended teaching plus its future use and feature connection.</p>
+          </section>
+        </div>
+        <div className="echo-song-notebook-grid echo-notebook-history">
+          <EntryList title="Notes" entries={knowledge.notes} onEdit={editEntry} />
+          <EntryList title="Anecdotes" entries={knowledge.anecdotes} onEdit={editEntry} />
+          <EntryList title="Lessons" entries={knowledge.lessons} onEdit={editEntry} />
+        </div>
+      </>}
+
+      {view === "anchors" && <div className="echo-song-notebook-grid">
         <section>
           <h5><Users size={13} /> Characters from the Hapa avatar pool</h5>
+          <p>Select the cast slots future generation should consider for this song.</p>
           <div className="echo-notebook-avatar-grid">
             {(payload.avatars || []).map((avatar) => <button key={avatar.id} type="button" className={linkedAvatarIds.has(avatar.id) ? "active" : ""} onClick={() => toggleAvatar(avatar)}><b>{avatar.name}</b><small>{linkedAvatarIds.has(avatar.id) ? "Added" : "Add"}</small></button>)}
           </div>
         </section>
-
         <section>
           <h5><ImageIcon size={13} /> Creative / visual anchors</h5>
-          <textarea rows="2" value={anchorNotes} onChange={(event) => setAnchorNotes(event.target.value)} placeholder="What tone, composition, palette, motion, or feeling should future generation preserve?" />
+          <textarea rows="3" value={anchorNotes} onChange={(event) => setAnchorNotes(event.target.value)} placeholder="What tone, composition, palette, motion, or feeling should future generation preserve?" />
           <label className="echo-notebook-upload"><Film size={13} /> Attach image still or video<input type="file" accept="image/*,video/*" onChange={(event) => { void uploadAnchor(event.target.files?.[0]); event.target.value = ""; }} /></label>
           <div className="echo-notebook-anchor-grid">
             {creativeAnchors.map((asset) => <article key={asset.id}>{asset.type === "video" ? <video src={mediaUri(apiBase, asset.uri)} controls preload="metadata" /> : <img src={mediaUri(apiBase, asset.uri)} alt={asset.name} loading="lazy" />}<strong>{asset.name}</strong><p>{asset.creativeAnchor?.toneNotes || asset.notes}</p></article>)}
           </div>
         </section>
-      </div>
+      </div>}
 
-      <section className="echo-notebook-tarot">
+      {view === "tarot" && <section className="echo-notebook-tarot">
         <header><div><h5><Sparkles size={13} /> Tarot ↔ song logic</h5><p>The attached Echoes from Other Eras mapping is shown as an editorial proposal, never silent canon.</p></div><span>{payload.tarotConnections?.length || 0} supplied · {manualTarotLinks.length} human</span></header>
         <aside className="echo-tarot-prompt-summary">
           <div><ImageIcon size={14} /><strong>GPT Image 2.5 Sunburst prompt review</strong></div>
@@ -262,26 +347,21 @@ export default function EchoSongNotebook({ apiBase = "", songId = "", onNotice =
         <div className="echo-notebook-tarot-grid">
           {(payload.tarotConnections || []).map((connection) => {
             const promptSet = tarotImagePrompts.find((set) => set.sourceConnectionIds?.includes(connection.id) || set.cardId === connection.cardId);
-            return <article key={connection.id}><span>{connection.editionCardId} · {connection.arcana}</span><h5>{connection.cardTitle}</h5><strong>{connection.role}</strong><p>{connection.logic}</p><details><summary>Evidence and interpretive logic</summary>{connection.evidence.map((item, index) => <blockquote key={`${connection.id}:evidence:${index}`}>“{item.excerpt}” <small>{item.source_id} line {item.line}</small></blockquote>)}<p>{connection.thematicSynthesis}</p>{connection.interpretiveGuardrail && <em>{connection.interpretiveGuardrail}</em>}</details>{promptSet && <EchoTarotImagePromptReview promptSet={promptSet} onNotice={onNotice} />}</article>;
+            return <article key={connection.id}><span>{connection.editionCardId} · {connection.arcana}</span><h5>{connection.cardTitle}</h5><strong>{connection.role}</strong><p>{connection.logic}</p><details open><summary>Evidence and interpretive logic</summary>{connection.evidence.map((item, index) => <blockquote key={`${connection.id}:evidence:${index}`}>“{item.excerpt}” <small>{item.source_id} line {item.line}</small></blockquote>)}<p>{connection.thematicSynthesis}</p>{connection.interpretiveGuardrail && <em>{connection.interpretiveGuardrail}</em>}</details>{promptSet && <EchoTarotImagePromptReview promptSet={promptSet} onNotice={onNotice} />}</article>;
           })}
           {manualTarotLinks.map((link) => {
             const alreadySupplied = (payload.tarotConnections || []).some((connection) => connection.cardId === link.cardId);
             const promptSet = tarotImagePrompts.find((set) => set.cardId === link.cardId);
-            return <article key={link.cardId} data-human="true"><span>Human-added connection</span><h5>{link.cardTitle}</h5><p>{link.reason}</p>{promptSet && !alreadySupplied && <EchoTarotImagePromptReview promptSet={promptSet} onNotice={onNotice} />}</article>;
+            return <article key={link.cardId} data-human="true"><span>Human-added connection</span><h5>{link.cardTitle}</h5><p>{link.reason}</p><button type="button" className="echo-notebook-edit" onClick={() => setCardDraft({ cardId: link.cardId, logic: link.reason || "" })}><Pencil size={11} /> Edit human rationale</button>{promptSet && !alreadySupplied && <EchoTarotImagePromptReview promptSet={promptSet} onNotice={onNotice} />}</article>;
           })}
         </div>
         <form onSubmit={submitCard}>
+          <h5>{manualTarotLinks.some((link) => link.cardId === cardDraft.cardId) ? "Update a human Tarot rationale" : "Add a Tarot Card with logic"}</h5>
           <select required value={cardDraft.cardId} onChange={(event) => setCardDraft((current) => ({ ...current, cardId: event.target.value }))}><option value="">Choose a Tarot Card…</option>{(payload.availableCards || []).map((card) => <option key={card.id} value={card.id}>{card.title} · {card.source?.editionId ? "Echoes edition" : "Builder library"}</option>)}</select>
-          <textarea required rows="3" value={cardDraft.logic} onChange={(event) => setCardDraft((current) => ({ ...current, logic: event.target.value }))} placeholder="Why does this card belong with this song? Record the human logic future agents must preserve." />
-          <button type="submit" disabled={saving || !cardDraft.cardId || !cardDraft.logic.trim()}><Plus size={13} /> Add card with logic</button>
+          <textarea required rows="4" value={cardDraft.logic} onChange={(event) => setCardDraft((current) => ({ ...current, logic: event.target.value }))} placeholder="Why does this card belong with this song? Record the human logic future agents must preserve." />
+          <button type="submit" disabled={saving || !cardDraft.cardId || !cardDraft.logic.trim()}>{manualTarotLinks.some((link) => link.cardId === cardDraft.cardId) ? <Save size={13} /> : <Plus size={13} />} {manualTarotLinks.some((link) => link.cardId === cardDraft.cardId) ? "Save card rationale" : "Add card with logic"}</button>
         </form>
-      </section>
-
-      <div className="echo-song-notebook-grid echo-notebook-history">
-        <EntryList title="Notes" entries={knowledge.notes} />
-        <EntryList title="Anecdotes" entries={knowledge.anecdotes} />
-        <EntryList title="Lessons" entries={knowledge.lessons} />
-      </div>
+      </section>}
       <footer>Stored on the normalized Song Card. Marked URLs are research leads, media anchors are direction context, and tarot mappings retain their source status and logic.</footer>
     </section>
   );

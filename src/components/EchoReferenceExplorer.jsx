@@ -22,6 +22,8 @@ import {
   Waypoints,
   X,
 } from "lucide-react";
+import EchoReferenceGptImageLibrary from "./EchoReferenceGptImageLibrary.jsx";
+import EchoHoverLoopMedia from "./EchoHoverLoopMedia.jsx";
 import EchoSongNotebook from "./EchoSongNotebook.jsx";
 
 const MODES = [
@@ -157,25 +159,17 @@ function referenceLoopUri(card = {}) {
 function EchoReferenceMedia({ card, motion = false, className = "" }) {
   const imageUri = referenceImageUri(card);
   const loopUri = referenceLoopUri(card);
-  if (motion && loopUri) {
-    return (
-      <video
-        className={className}
-        src={loopUri}
-        poster={imageUri || undefined}
-        autoPlay
-        muted
-        loop
-        playsInline
-        aria-label={`${card.title} animated Reference Card`}
-      />
-    );
-  }
-  if (imageUri) return <img className={className} src={imageUri} alt={`${card.title} Reference Card`} loading="lazy" />;
-  return <div className={`${className} echo-ref-media-placeholder`} aria-hidden="true"><Network size={24} /></div>;
+  return <EchoHoverLoopMedia
+    imageUri={imageUri}
+    loopUri={loopUri}
+    alt={`${card.title} Reference Card`}
+    loopAriaLabel={`${card.title} animated Reference Card`}
+    className={className}
+    active={motion}
+  />;
 }
 
-function EchoReferenceMediaGallery({ cards = [], onOpen = () => {} }) {
+function EchoReferenceMediaGallery({ cards = [], totalCount = 0, onOpen = () => {}, onViewAll = () => {} }) {
   if (!cards.length) return null;
   return (
     <section className="echo-ref-media-gallery" aria-label="Approved Reference Card visual gallery">
@@ -184,17 +178,20 @@ function EchoReferenceMediaGallery({ cards = [], onOpen = () => {} }) {
           <strong>Visual Reference Cards</strong>
           <span>Images and animated loops stay visible while you inspect their meaning and connections.</span>
         </div>
-        <em>{cards.length} of the approved visual set · select to explore</em>
+        <div className="echo-ref-media-gallery-actions">
+          <em>{cards.length} previewed · {totalCount.toLocaleString()} GPT Image stills total</em>
+          <button type="button" onClick={onViewAll}>View all {totalCount.toLocaleString()} GPT Image references</button>
+        </div>
       </header>
       <div>
-        {cards.map((card, index) => (
+        {cards.map((card) => (
           <button
             key={card.id}
             type="button"
             onClick={() => onOpen(card)}
             aria-label={`Explore ${card.title} in ${card.occurrence?.songTitle || "the Reference Atlas"}`}
           >
-            <EchoReferenceMedia card={card} motion={index < 6} />
+            <EchoReferenceMedia card={card} />
             <span>
               <b>{card.title}</b>
               <small>{card.occurrence?.songTitle || "Album reference"}</small>
@@ -202,6 +199,74 @@ function EchoReferenceMediaGallery({ cards = [], onOpen = () => {} }) {
           </button>
         ))}
       </div>
+    </section>
+  );
+}
+
+function EchoSongNavigator({ songs = [], selectedSongId = "", onSelectSong = () => {}, onOpenLibrary = () => {}, visualCount = 0 }) {
+  const [query, setQuery] = useState("");
+  const buttonsRef = useRef(new Map());
+  const selectedIndex = songs.findIndex((song) => song.id === selectedSongId);
+  const selectedSong = songs[selectedIndex] || songs[0] || null;
+  const needle = query.trim().toLowerCase();
+  const visibleSongs = songs.filter((song) => !needle || `${song.trackNumber} ${song.title}`.toLowerCase().includes(needle));
+
+  useEffect(() => {
+    const button = buttonsRef.current.get(selectedSongId);
+    if (!button) return;
+    const reduced = globalThis.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches;
+    button.scrollIntoView?.({ block: "nearest", inline: "center", behavior: reduced ? "auto" : "smooth" });
+  }, [selectedSongId]);
+
+  const move = (offset) => {
+    if (!songs.length) return;
+    const index = selectedIndex >= 0 ? selectedIndex : 0;
+    onSelectSong(songs[(index + offset + songs.length) % songs.length].id);
+  };
+
+  return (
+    <section className="echo-ref-song-navigator hapa-panel" data-variant="notch" aria-label="Visual song navigator">
+      <header>
+        <div>
+          <span>Song workbench · {selectedIndex + 1 || 0} of {songs.length}</span>
+          <h3>{selectedSong ? `${selectedSong.trackNumber}. ${selectedSong.title}` : "Choose a song"}</h3>
+          <p>
+            {selectedSong?.cardCount || 0} references · {selectedSong?.tarotCount || "Tarot rationale below"}
+            {selectedSong?.unresolvedCount ? ` · ${selectedSong.unresolvedCount} evidence gaps` : " · no flagged evidence gaps"}
+          </p>
+        </div>
+        <div className="echo-ref-song-navigator-actions">
+          <button type="button" onClick={() => move(-1)} disabled={!songs.length} aria-label="Previous song"><ChevronLeft size={15} /> Previous</button>
+          <button type="button" onClick={() => move(1)} disabled={!songs.length} aria-label="Next song">Next <ChevronRight size={15} /></button>
+          <button type="button" onClick={onOpenLibrary}><Network size={14} /> All {visualCount.toLocaleString()} visuals</button>
+        </div>
+      </header>
+      <label className="echo-ref-song-find">
+        <Search size={14} />
+        <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Find a song by title or track number…" aria-label="Find a song" />
+        <span>{visibleSongs.length} shown</span>
+      </label>
+      <nav className="echo-ref-song-strip" aria-label="Album songs">
+        {visibleSongs.map((song) => (
+          <button
+            key={song.id}
+            ref={(node) => node ? buttonsRef.current.set(song.id, node) : buttonsRef.current.delete(song.id)}
+            type="button"
+            className={song.id === selectedSongId ? "active" : ""}
+            aria-current={song.id === selectedSongId ? "true" : undefined}
+            onClick={() => onSelectSong(song.id)}
+            title={`${song.title}: ${song.cardCount || 0} Reference Cards, ${song.unresolvedCount || 0} unresolved`}
+          >
+            <span className="echo-ref-song-number">{String(song.trackNumber || "—").padStart(2, "0")}</span>
+            <strong>{song.title}</strong>
+            <i style={{ "--echo-song-coverage": `${Math.max(3, Math.min(100, (song.cardCount || 0) * 5))}%` }} />
+            <small><b>{song.cardCount || 0}</b> refs · {Math.round((song.averageConfidence || 0) * 100)}% confidence</small>
+            <em data-gap={song.unresolvedCount ? "true" : "false"}>{song.lyricsStatus === "missing" ? "Lyrics missing" : song.unresolvedCount ? `${song.unresolvedCount} gaps` : "Ready to review"}</em>
+          </button>
+        ))}
+        {!visibleSongs.length && <p className="echo-ref-empty">No song titles match “{query}”.</p>}
+      </nav>
+      <footer>Alt + ← / → changes songs from anywhere outside an editor. The selected song keeps the same notebook view for rapid review.</footer>
     </section>
   );
 }
@@ -690,7 +755,6 @@ function EchoReferenceCardRail({
             >
               <EchoReferenceMedia
                 card={card}
-                motion={focused}
                 className="echo-ref-card-media"
               />
               <button type="button" className="echo-ref-card-focus" onClick={() => onFocusCard(card.id)}>
@@ -698,7 +762,8 @@ function EchoReferenceCardRail({
                   {statusSymbol(card.authority?.reviewStatus)} {evidenceLabel(card.authority?.reviewStatus)}
                 </span>
                 <strong>{card.title}</strong>
-                <p>{card.summary}</p>
+                <p><b>Why:</b> {card.publicContext || card.summary || "Open the dossier to inspect this proposed connection."}</p>
+                {occurrence?.lyricSpan?.lyricText && <blockquote>“{occurrence.lyricSpan.lyricText}”</blockquote>}
                 <small>
                   {evidenceLabel(card.authority?.evidenceClass)} · {Math.round((occurrence?.confidence || 0) * 100)}% · {card.interpretations?.length || 0} readings
                 </small>
@@ -733,7 +798,7 @@ function EchoReferenceInspector({ card, inspection, mode, onClose, onAdd, onChal
         <button type="button" onClick={onClose} aria-label="Close inspector"><X size={16} /></button>
       </header>
       <div className="echo-ref-inspector-media">
-        <EchoReferenceMedia card={card} motion className="echo-ref-inspector-media-asset" />
+        <EchoReferenceMedia card={card} className="echo-ref-inspector-media-asset" />
         <span>
           {referenceLoopUri(card) ? "Adaptive animated loop" : referenceImageUri(card) ? "Reference image" : "Media pending"}
           {card.presentationMedia?.pattern ? ` · ${card.presentationMedia.pattern}` : ""}
@@ -1198,6 +1263,7 @@ export default function EchoReferenceExplorer({
   const [showCandidates, setShowCandidates] = useState(true);
   const [searchResults, setSearchResults] = useState([]);
   const [activity, setActivity] = useState(null);
+  const [showGptImageLibrary, setShowGptImageLibrary] = useState(false);
   const projectionRequestRef = useRef(0);
 
   const loadSummary = useCallback(async () => {
@@ -1349,6 +1415,16 @@ export default function EchoReferenceExplorer({
   const selectedSong = useMemo(() => (
     (summary?.songs || projection?.songs || []).find((song) => song.id === selectedSongId) || null
   ), [projection?.songs, selectedSongId, summary?.songs]);
+  const songRows = useMemo(() => {
+    const atlasBySong = new Map((summary?.atlas || []).map((row) => [row.songId, row]));
+    return (summary?.songs || []).map((song) => ({
+      ...song,
+      ...(atlasBySong.get(song.id) || {}),
+    })).sort((left, right) => (
+      Number(left.trackNumber || Number.MAX_SAFE_INTEGER) - Number(right.trackNumber || Number.MAX_SAFE_INTEGER)
+      || left.title.localeCompare(right.title)
+    ));
+  }, [summary?.atlas, summary?.songs]);
   const focusedIndex = visibleCards.findIndex((card) => card.id === focusedCardId);
 
   useEffect(() => {
@@ -1384,6 +1460,20 @@ export default function EchoReferenceExplorer({
     globalThis.addEventListener?.("keydown", handleKeys);
     return () => globalThis.removeEventListener?.("keydown", handleKeys);
   }, [composer, focusedIndex, visibleCards]);
+
+  useEffect(() => {
+    const handleSongKeys = (event) => {
+      if (!event.altKey || event.metaKey || event.ctrlKey || composer) return;
+      if (["INPUT", "TEXTAREA", "SELECT"].includes(event.target?.tagName)) return;
+      if (!["ArrowLeft", "ArrowRight"].includes(event.key) || !songRows.length) return;
+      event.preventDefault();
+      const currentIndex = Math.max(0, songRows.findIndex((song) => song.id === selectedSongId));
+      const offset = event.key === "ArrowLeft" ? -1 : 1;
+      setSelectedSongId(songRows[(currentIndex + offset + songRows.length) % songRows.length].id);
+    };
+    globalThis.addEventListener?.("keydown", handleSongKeys);
+    return () => globalThis.removeEventListener?.("keydown", handleSongKeys);
+  }, [composer, selectedSongId, songRows]);
 
   const runWholeAlbum = async () => {
     setMining(true);
@@ -1662,15 +1752,24 @@ export default function EchoReferenceExplorer({
             : "review state does not hide previews"}
         </em>
       </div>
-      <EchoReferenceMediaGallery
-        cards={summary?.mediaGallery || []}
-        onOpen={(card) => {
-          const songId = String(card.occurrence?.songId || "");
+      <EchoReferenceGptImageLibrary
+        apiBase={apiBase}
+        open={showGptImageLibrary}
+        onClose={() => setShowGptImageLibrary(false)}
+        onOpenCard={(card) => {
+          const songId = String(card.songs?.[0]?.id || "");
           if (songId) setSelectedSongId(songId);
           setFocusedCardId(card.id);
           setShowCandidates(true);
           setMode("explore");
         }}
+      />
+      <EchoSongNavigator
+        songs={songRows}
+        selectedSongId={selectedSongId}
+        onSelectSong={setSelectedSongId}
+        onOpenLibrary={() => setShowGptImageLibrary(true)}
+        visualCount={summary?.runtime?.images || 0}
       />
       <EchoSongNotebook
         apiBase={apiBase}
@@ -1688,14 +1787,6 @@ export default function EchoReferenceExplorer({
       </nav>
 
       <div className="echo-ref-toolbar">
-        <label>
-          <span>Song</span>
-          <select value={selectedSongId} onChange={(event) => setSelectedSongId(event.target.value)}>
-            {(summary?.songs || []).map((song) => (
-              <option key={song.id} value={song.id}>{song.trackNumber}. {song.title}</option>
-            ))}
-          </select>
-        </label>
         <label className="echo-ref-search">
           <Search size={14} />
           <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search cards, lyrics, motifs, mechanics…" />
@@ -1821,6 +1912,19 @@ export default function EchoReferenceExplorer({
           }}
         />
       </div>
+
+      <EchoReferenceMediaGallery
+        cards={summary?.mediaGallery || []}
+        totalCount={summary?.runtime?.images || 0}
+        onViewAll={() => setShowGptImageLibrary(true)}
+        onOpen={(card) => {
+          const songId = String(card.occurrence?.songId || "");
+          if (songId) setSelectedSongId(songId);
+          setFocusedCardId(card.id);
+          setShowCandidates(true);
+          setMode("explore");
+        }}
+      />
 
       {mode === "review" && (
         <EchoReferenceReviewWorkbench

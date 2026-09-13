@@ -70,6 +70,29 @@ test("reference UI provides non-color status labels, keyboard navigation, phone 
   assert.match(css, /@media \(prefers-reduced-motion: reduce\)/);
 });
 
+test("song-first workbench keeps rapid navigation, explanations, editing, and hover motion visible", async () => {
+  const [component, notebook, hoverMedia, css] = await Promise.all([
+    fs.readFile(componentUrl, "utf8"),
+    fs.readFile(new URL("../src/components/EchoSongNotebook.jsx", import.meta.url), "utf8"),
+    fs.readFile(new URL("../src/components/EchoHoverLoopMedia.jsx", import.meta.url), "utf8"),
+    fs.readFile(cssUrl, "utf8"),
+  ]);
+  assert.match(component, /Visual song navigator/);
+  assert.match(component, /Find a song by title or track number/);
+  assert.match(component, /Alt \+ ← \/ → changes songs/);
+  assert.match(component, /<b>Why:<\/b>/);
+  assert.match(component, /lyricSpan\?\.lyricText/);
+  assert.match(notebook, /At a glance/);
+  assert.match(notebook, /Actual references and research logic/);
+  assert.match(notebook, /Save reference changes/);
+  assert.match(notebook, /Edit human rationale/);
+  assert.match(hoverMedia, /video\.play\(\)/);
+  assert.match(hoverMedia, /onPointerEnter/);
+  assert.match(hoverMedia, /tabIndex=\{loopUri \? 0/);
+  assert.match(css, /\.echo-ref-song-strip/);
+  assert.match(css, /\.echo-notebook-overview/);
+});
+
 test("review mode exposes keyboard-first reasoned actions without public or canon controls", async () => {
   const source = await fs.readFile(componentUrl, "utf8");
   assert.match(source, /Human review workbench/);
