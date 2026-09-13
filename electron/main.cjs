@@ -1,10 +1,11 @@
-const { app, BrowserWindow, ipcMain, session } = require("electron");
+const { app, BrowserWindow, ipcMain, safeStorage, session } = require("electron");
 const http = require("node:http");
 const path = require("node:path");
 const { spawn } = require("node:child_process");
 const fs = require("node:fs");
 const crypto = require("node:crypto");
 const { ensureLocalOvercardHost, probeOvercardHost } = require("@hapa/overcard/host");
+const { createProviderCredentialStore } = require("./provider-credential-store.cjs");
 
 const HAS_SINGLE_INSTANCE_LOCK = app.requestSingleInstanceLock();
 if (!HAS_SINGLE_INSTANCE_LOCK) app.quit();
@@ -40,6 +41,7 @@ const MAX_CONSOLE_LOGS = 500;
 const DESKTOP_DEBUG = process.env.HAPA_AVATAR_DESKTOP_DEBUG === "1";
 let operatorConsoleServer = null;
 let windowCreationPromise = null;
+let providerCredentialStore = null;
 
 function overcardOrigins(rendererUrl = "") {
   const values = [
@@ -127,6 +129,37 @@ function isTrustedLocalUrl(value = "") {
       ["127.0.0.1", "localhost", "::1"].includes(url.hostname);
   } catch {
     return false;
+  }
+}
+
+function isTrustedCredentialSender(event) {
+  if (!mainWindow || mainWindow.isDestroyed() || event.sender !== mainWindow.webContents || !desktopUrl) return false;
+  const senderUrl = event.senderFrame?.url || event.sender.getURL?.() || "";
+  try {
+    return isTrustedLocalUrl(senderUrl) && new URL(senderUrl).origin === new URL(desktopUrl).origin;
+  } catch {
+    return false;
+  }
+}
+
+function publicCredentialError(error) {
+  const messages = {
+    encryption_unavailable: "Operating-system credential encryption is unavailable. No key was saved.",
+    encryption_failed: "The API key could not be encrypted. No key was saved.",
+    invalid_key: "API keys must be 12–4096 characters on one line.",
+    invalid_provider: "That API provider is not supported.",
+    store_unreadable: "The encrypted credential store could not be read.",
+    storage_boundary: "Credential storage is not safely separated from the source repository.",
+  };
+  return messages[error?.code] || "The local credential operation failed without exposing secret data.";
+}
+
+async function handleCredentialOperation(event, operation) {
+  if (!isTrustedCredentialSender(event)) return { ok: false, message: "Credential access was denied for this window." };
+  try {
+    return { ok: true, ...(await operation()) };
+  } catch (error) {
+    return { ok: false, code: error?.code || "credential_operation_failed", message: publicCredentialError(error) };
   }
 }
 
@@ -498,9 +531,17 @@ if (HAS_SINGLE_INSTANCE_LOCK) {
 
   app.whenReady().then(async () => {
     installMediaPermissionHandlers();
+    providerCredentialStore = createProviderCredentialStore({
+      userDataPath: app.getPath("userData"),
+      repositoryRoot: ROOT,
+      safeStorage,
+    });
     ipcMain.handle("hapa-overcard:status", async () => readOvercardStatus());
     ipcMain.handle("hapa-overcard:ensure", async () => runOvercardLifecycle((rendererUrl) => ensureOvercardHost(rendererUrl)));
     ipcMain.handle("hapa-overcard:reconnect", async () => runOvercardLifecycle((rendererUrl) => ensureOvercardHost(rendererUrl)));
+    ipcMain.handle("hapa-credentials:status", (event) => handleCredentialOperation(event, async () => providerCredentialStore.status()));
+    ipcMain.handle("hapa-credentials:save", (event, providerId, apiKey) => handleCredentialOperation(event, async () => ({ provider: await providerCredentialStore.save(providerId, apiKey) })));
+    ipcMain.handle("hapa-credentials:remove", (event, providerId) => handleCredentialOperation(event, async () => ({ provider: await providerCredentialStore.remove(providerId) })));
     await startOperatorConsoleServer();
     return ensureMainWindow();
   }).catch((error) => {

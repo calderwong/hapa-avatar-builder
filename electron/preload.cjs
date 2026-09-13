@@ -26,3 +26,9 @@ contextBridge.exposeInMainWorld("hapaOvercard", {
   ensure: () => invokeOvercardLifecycle("hapa-overcard:ensure"),
   reconnect: () => invokeOvercardLifecycle("hapa-overcard:reconnect")
 });
+
+contextBridge.exposeInMainWorld("hapaCredentials", Object.freeze({
+  status: () => ipcRenderer.invoke("hapa-credentials:status"),
+  save: (providerId, apiKey) => ipcRenderer.invoke("hapa-credentials:save", providerId, apiKey),
+  remove: (providerId) => ipcRenderer.invoke("hapa-credentials:remove", providerId)
+}));

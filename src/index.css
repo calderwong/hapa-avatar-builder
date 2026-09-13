@@ -11544,6 +11544,214 @@ h1 {
   backdrop-filter: blur(12px);
 }
 
+.provider-credentials-backdrop {
+  z-index: 80;
+}
+
+.provider-credentials-panel {
+  width: min(860px, 100%);
+  max-height: calc(100vh - 56px);
+  overflow: auto;
+  border: 1px solid rgba(34, 211, 238, 0.4);
+  background:
+    radial-gradient(circle at 82% 0%, rgba(157, 116, 255, 0.13), transparent 34%),
+    rgba(3, 7, 18, 0.98);
+  border-radius: 10px;
+  padding: 20px;
+  box-shadow: 0 0 50px rgba(34, 211, 238, 0.18);
+}
+
+.provider-credentials-panel > header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.provider-credentials-panel > header h2 {
+  margin-top: 4px;
+  font-size: 24px;
+}
+
+.provider-credentials-panel > header p {
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.provider-credentials-panel .eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--cyan);
+}
+
+.provider-credentials-security-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-top: 18px;
+  padding: 12px 14px;
+  border: 1px solid rgba(74, 222, 128, 0.28);
+  border-radius: 8px;
+  background: rgba(20, 83, 45, 0.12);
+  color: var(--green);
+}
+
+.provider-credentials-security-note svg {
+  flex: 0 0 auto;
+}
+
+.provider-credentials-security-note div {
+  display: grid;
+  gap: 4px;
+}
+
+.provider-credentials-security-note span {
+  color: rgba(226, 232, 240, 0.76);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.provider-credentials-list {
+  display: grid;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.provider-credential-card {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid rgba(125, 211, 252, 0.18);
+  border-radius: 8px;
+  background: rgba(15, 23, 42, 0.64);
+}
+
+.provider-credential-heading {
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+}
+
+.provider-credential-heading h3 {
+  font-size: 15px;
+}
+
+.provider-credential-heading code,
+.provider-credential-metadata code {
+  color: var(--cyan);
+  font-family: var(--hapa-mono);
+  font-size: 10px;
+}
+
+.provider-credential-icon {
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(34, 211, 238, 0.3);
+  color: var(--cyan);
+  background: rgba(34, 211, 238, 0.08);
+}
+
+.provider-credential-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--muted);
+  font-family: var(--hapa-mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.provider-credential-state.is-configured {
+  color: var(--green);
+}
+
+.provider-credential-metadata {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 18px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.provider-credential-card > label {
+  color: rgba(226, 232, 240, 0.84);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.provider-credential-entry {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 8px;
+}
+
+.provider-credential-entry input {
+  min-width: 0;
+  min-height: 40px;
+  border: 1px solid rgba(125, 211, 252, 0.26);
+  border-radius: 6px;
+  outline: none;
+  padding: 0 12px;
+  color: var(--text);
+  background: rgba(2, 6, 23, 0.88);
+  font-family: var(--hapa-mono);
+}
+
+.provider-credential-entry input:focus {
+  border-color: var(--cyan);
+  box-shadow: 0 0 0 2px rgba(34, 211, 238, 0.12);
+}
+
+.provider-credential-entry .hapa-btn {
+  white-space: nowrap;
+}
+
+.provider-credentials-message {
+  margin-top: 14px;
+  padding: 10px 12px;
+  border-radius: 6px;
+  font-size: 12px;
+}
+
+.provider-credentials-message.is-success {
+  border: 1px solid rgba(74, 222, 128, 0.32);
+  color: var(--green);
+  background: rgba(20, 83, 45, 0.12);
+}
+
+.provider-credentials-message.is-error {
+  border: 1px solid rgba(248, 113, 113, 0.34);
+  color: #fca5a5;
+  background: rgba(127, 29, 29, 0.14);
+}
+
+.provider-credentials-panel > footer {
+  margin-top: 16px;
+  color: rgba(148, 163, 184, 0.74);
+  font-family: var(--hapa-mono);
+  font-size: 10px;
+  text-align: center;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+@media (max-width: 680px) {
+  .provider-credentials-backdrop { padding: 10px; }
+  .provider-credentials-panel { padding: 14px; max-height: calc(100vh - 20px); }
+  .provider-credential-heading { grid-template-columns: 32px minmax(0, 1fr); }
+  .provider-credential-state { grid-column: 2; }
+  .provider-credential-entry { grid-template-columns: 1fr 1fr; }
+  .provider-credential-entry input { grid-column: 1 / -1; }
+}
+
 .asset-modal {
   position: relative;
   width: min(1180px, 100%);

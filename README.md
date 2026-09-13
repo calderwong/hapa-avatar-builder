@@ -159,6 +159,10 @@ Launcher preparation and Electron runtime output are kept in separate, threshold
 
 Generated media is runtime state, not application source. Echo keyframes now default to `~/Library/Application Support/Hapa Avatar Builder/generated-media/`, are streamed through the local Builder API, and are excluded from both Git and the Vite deployment. `public-static/` contains only the small, curated source-controlled assets that intentionally ship with the application. Run `npm run media:migrate-external` to inspect the legacy migration and add `-- --apply` to perform its non-overwriting directory move.
 
+## Local provider API keys
+
+The canonical Electron app exposes **Provider API keys** from the key icon in the top-right header. OpenAI, FAL.com, and xAI credentials are encrypted with the operating system's credential protection and saved beneath Electron's machine-local application-data directory—not in album data, browser storage, or this repository. The UI can replace or remove a key and display only a one-way fingerprint; it cannot reveal a saved value. Storage fails closed if OS encryption is unavailable. See [`docs/LOCAL_PROVIDER_CREDENTIALS.md`](docs/LOCAL_PROVIDER_CREDENTIALS.md).
+
 ## Echo Album song notebook
 
 The Echo Album **References** surface includes a durable per-song notebook for free-text notes, marked research URLs, Hapa Avatar links, image/video creative anchors, anecdotes, lessons, and reasoned Tarot Card pairings. The complete supplied 78-card *Echoes from Other Eras* editorial mapping is available with its pairing arguments and lyric evidence; its proposal status is preserved. Agents can read one song or the complete album projection from `GET /api/echos/song-notebook`. See `docs/ECHO_SONG_NOTEBOOK.md`.

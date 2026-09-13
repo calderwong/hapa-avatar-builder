@@ -9,6 +9,13 @@ outputs/
 work/
 public/generated/
 
+# Machine-local provider credentials. Never commit API keys or encrypted credential exports.
+.env
+.env.*
+!.env.example
+**/provider-credentials*.json
+**/provider-secrets*.json
+
 # Local-first runtime data. Keep these on disk, but do not publish them as repo source.
 data/**
 !data/

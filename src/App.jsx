@@ -22,6 +22,7 @@ import {
   Image as ImageIcon,
   ImagePlus,
   KanbanSquare,
+  KeyRound,
   Layers3,
   Link2,
   ListChecks,
@@ -51,6 +52,7 @@ import {
   ZoomOut
 } from "lucide-react";
 import CreatorCardSetsView from "./components/CreatorCardSetsView.jsx";
+import ProviderCredentialsPanel from "./components/ProviderCredentialsPanel.jsx";
 import { builderPickupDataset } from "./overcard/pickup.js";
 import { BUILDER_HOST_TARGETS, getBuilderHostTarget, getBuilderOvercardManagementTarget, resolveBuilderHostAlias } from "./overcard/hostTargets.js";
 import BuilderMenuHostTab from "./overcard/BuilderMenuHostTab.jsx";
@@ -637,6 +639,7 @@ export default function App({ overcardAdapter }) {
   const [creatorContextSetId, setCreatorContextSetId] = useState(null);
   const [viewContextStatus, setViewContextStatus] = useState(null);
   const [avatarCardMenuOpen, setAvatarCardMenuOpen] = useState(false);
+  const [providerCredentialsOpen, setProviderCredentialsOpen] = useState(false);
   const [attachPack, setAttachPack] = useState(null);
   const [sceneAttachPack, setSceneAttachPack] = useState(null);
   const [healingQueue, setHealingQueue] = useState(null);
@@ -3548,6 +3551,9 @@ export default function App({ overcardAdapter }) {
               <RefreshCw size={18} />
             </IconButton>
           )}
+          <IconButton label="Provider API keys" onClick={() => setProviderCredentialsOpen(true)}>
+            <KeyRound size={18} />
+          </IconButton>
           <IconButton label={sound ? "Mute tones" : "Enable tones"} onClick={() => setSound((value) => !value)}>
             {sound ? <Volume2 size={18} /> : <VolumeX size={18} />}
           </IconButton>
@@ -3556,6 +3562,8 @@ export default function App({ overcardAdapter }) {
           </IconButton>
         </div>
       </header>
+
+      {providerCredentialsOpen && <ProviderCredentialsPanel onClose={() => setProviderCredentialsOpen(false)} />}
 
       <main className="workspace">
         <aside className="sidebar panel hapa-panel" data-variant="notch">
