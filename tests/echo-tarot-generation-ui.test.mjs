@@ -25,6 +25,21 @@ test("the Echo Song notebook embeds local run monitoring, references, outputs, a
   assert.match(monitor, /Recheck model access/);
 });
 
+test("generated Tarot cards provide a large dossier preview and an album-wide browser", () => {
+  assert.match(monitor, /Open large preview of/);
+  assert.match(monitor, /showModal\(\)/);
+  assert.match(monitor, /Close large Tarot card preview/);
+  assert.match(monitor, /event\.key === "Escape"/);
+  assert.match(monitor, /Card × Song dossier/);
+  assert.match(monitor, /Previous/);
+  assert.match(monitor, /Next/);
+  assert.match(monitor, /Full album/);
+  assert.match(monitor, /All Tarot cards for the album/);
+  assert.match(monitor, /Search album Tarot cards/);
+  assert.match(monitor, /ALBUM_PAGE_SIZE = 24/);
+  assert.match(monitor, /Show next/);
+});
+
 test("the renderer bridge exposes queue operations but never a credential read method", () => {
   assert.match(preload, /hapaEchoTarotImages/);
   assert.match(preload, /startPilot/);

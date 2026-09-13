@@ -48,3 +48,49 @@ Never infer model access from a saved credential alone, and never infer missing 
 ## Remaining work
 
 The dated Sunburst snapshot completed the four-card pilot with zero final failures and an observed estimated cost of $0.234134. Visual review found strong identity continuity, readable canonical Tarot symbols, and clear song-specific staging. Continue the remaining 163 images with the v3 court-title rule, monitor transient routing retries and moderation failures, and keep all generated media in OS app data for human approval.
+
+## Album gallery follow-up — 2026-09-13
+
+### Objective
+
+Make every generated Card × Song image inspectable at large scale and expose a consolidated album-wide review surface without moving generated assets, duplicating backend truth, or touching saved credentials.
+
+### Evidence inspected
+
+- The supplied running-app screenshot and the canonical Builder's existing generation monitor, asset bridge, status contract, styles, and tests.
+- The Neoblade library and modal patterns for dense, keyboard-accessible Hapa review surfaces.
+- The running canonical Electron app at `127.0.0.1:8797`, backed by 165 completed generated outputs.
+
+### What worked
+
+- The per-song and album-wide views share the same public generation-status inventory and review route.
+- A native dialog presents the full-resolution card beside its Card × Song dossier, review note, decision controls, cost, output tokens, model, render settings, attempts, track, and status.
+- Previous/next controls support sequential review. Escape, the close control, and backdrop activation dismiss the detail view.
+- Album search covers card, song, review state, and generation status. Paging renders 24 cards at a time; a live search for `Wheel` reduced the 165-card inventory to the two Wheel of Fortune results.
+- Live visual inspection showed a legible large card and dossier at the app's current window size, while the album grid preserved useful track and song context.
+
+### What was noise or misunderstood
+
+- No backend, credential, generated-media, or normalized Song Card schema change was required; the existing status and asset bridge already held the needed truth.
+- The accessibility tree briefly lagged behind the first Escape interaction even though the subsequent screenshot showed the dialog closed. An explicit Escape listener was retained as additional keyboard hardening.
+- The automated 3D Tarot smoke process aborted when it attempted to co-launch the same Electron bundle already running for the user. An isolated user-data directory produced the same startup abort and no orphaned smoke process remained, so the requested Echo gallery was verified directly in the active canonical app instead.
+- The full repository suite retained two unrelated failures: an existing Hyperframes capture-signature expectation and an existing local UI admin-session context returning `503`.
+
+### Changes and reusable outcome
+
+- Extended the existing Echo generation monitor rather than introducing another gallery or reviving the legacy Builder.
+- Established a reusable media-review pattern: one public status inventory, paginated thumbnails for collection browsing, and on-demand full-resolution detail with review actions.
+- Preserved existing review notes when submitting a decision from either the song view or the album detail view.
+- No requirement-completion counts changed; this follow-up improves inspection of already generated evidence.
+
+### New guardrail
+
+Never eagerly request every full-resolution album image from the Electron asset bridge. Page the master collection, request each visible thumbnail through the existing bridge, and load the selected full-resolution asset on demand. Keep review persistence on the established main-process route so the album grid and song detail cannot diverge.
+
+### Verification
+
+- Focused Echo generation, prompt, and image tests: 17 passed.
+- Overcard compatibility tests: 54 passed.
+- Production build: passed.
+- Full repository suite: 2,335 passed and 2 unrelated tests failed as recorded above.
+- Live canonical Electron: 165-card album view, 24-card paging, search, large dossier preview, previous/next, review controls, and Escape dismissal verified.
