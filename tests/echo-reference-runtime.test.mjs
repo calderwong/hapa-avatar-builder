@@ -5,6 +5,7 @@ import {
   applyEchoReferencePreviewFirstAuthority,
   attachEchoReferenceMedia,
   buildEchoReferenceTarotCards,
+  mergeEchoReferenceRuntimeCoverage,
   selectEchoReferenceRuntimeRun,
 } from "../src/domain/echo-reference-runtime.js";
 
@@ -13,15 +14,20 @@ function card(overrides = {}) {
     id: "reference:one",
     revisionId: "reference:one:r2",
     title: "One",
+    referenceType: "motif",
     summary: "A test reference.",
     publicContext: "Public context.",
-    occurrences: [{ id: "occ:1", songId: "song:one", songTitle: "Song One", lyricSpan: { lineStart: 4, lyricText: "One line" } }],
+    occurrences: [{ id: "occ:1", songId: "song:one", songTitle: "Song One", confidence: 0.8, lyricSpan: { lineStart: 4, lineEnd: 4, startSeconds: null, endSeconds: null, lyricText: "One line" } }],
     citations: [{ id: "cite:1", label: "Primary", url: "https://example.test/source", sourceClass: "primary" }],
+    claims: [],
     interpretations: [{ id: "reading:1", title: "Reading", summary: "A reading.", confidence: 0.8 }],
+    relationships: [],
+    unresolved: [],
     authority: { reviewStatus: "pending-review", evidenceClass: "source-backed-candidate" },
     themes: ["return"],
     mechanics: ["replay"],
     emotions: ["hope"],
+    provenance: { sourcePacketHash: "packet:test" },
     ...overrides,
   };
 }
@@ -37,6 +43,49 @@ test("runtime selects the richer research projection without promoting its autho
   assert.equal(result.source, "external-research-projection");
   assert.equal(result.run.runHash, "research");
   assert.equal(result.run.contributions[0].status, "pending-human-review");
+});
+
+test("runtime coverage merge preserves enriched Cards while restoring every canonical song", () => {
+  const song = (id, trackNumber) => ({
+    id,
+    songId: id,
+    title: id.replace("song:", "Song "),
+    trackNumber,
+    lyricsStatus: "available",
+    lyrics: [{ lineNumber: 1, text: `Lyrics for ${id}`, normalized: `lyrics ${id}`, referenceNormalized: `lyrics ${id}`, isSectionHeading: false, startSeconds: null, endSeconds: null }],
+  });
+  const enriched = card({
+    authority: { reviewStatus: "approved", evidenceClass: "source-backed-candidate" },
+    presentationMedia: { image: { uri: "/approved.png" } },
+  });
+  const primaryRun = {
+    runId: "research",
+    runHash: "research-hash",
+    packetHash: "research-packet",
+    packet: { packetHash: "research-packet", songs: [song("song:one", 1)] },
+    cards: [enriched],
+    unresolved: [],
+    contributions: [{ id: "research:1", type: "external-reference-research-proposal" }],
+  };
+  const catalogRun = {
+    runId: "current",
+    runHash: "current-hash",
+    packetHash: "current-packet",
+    packet: { packetHash: "current-packet", songs: [song("song:one", 1), song("song:miss-infinity", 2), song("song:orange", 3)] },
+    cards: [card(), card({ id: "reference:orange", revisionId: "reference:orange:r1", occurrences: [{ id: "occ:orange", songId: "song:orange", songTitle: "Orange", confidence: 0.9, lyricSpan: { lineStart: 1, lineEnd: 1, startSeconds: null, endSeconds: null, lyricText: "Orange line" } }] })],
+    unresolved: [],
+    contributions: [],
+    audit: {},
+  };
+
+  const merged = mergeEchoReferenceRuntimeCoverage(primaryRun, catalogRun);
+  assert.equal(merged.packet.songs.length, 3);
+  assert.deepEqual(merged.runtimeCoverage.missingSongIdsRecovered, ["song:miss-infinity", "song:orange"]);
+  assert.equal(merged.cards.find((item) => item.id === "reference:one").authority.reviewStatus, "approved");
+  assert.equal(merged.cards.find((item) => item.id === "reference:one").presentationMedia.image.uri, "/approved.png");
+  assert.ok(merged.cards.some((item) => item.id === "reference:orange"));
+  assert.equal(merged.views.atlas.length, 3);
+  assert.equal(merged.graph.counts.songs, 3);
 });
 
 test("media attaches only to the exact Card revision", () => {

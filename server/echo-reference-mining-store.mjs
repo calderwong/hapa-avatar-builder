@@ -32,8 +32,10 @@ import {
   applyEchoReferencePreviewFirstAuthority,
   attachEchoReferenceMedia,
   buildEchoReferenceTarotCards,
+  mergeEchoReferenceRuntimeCoverage,
   selectEchoReferenceRuntimeRun,
 } from "../src/domain/echo-reference-runtime.js";
+import { buildEchoReferenceMiningPacket } from "../src/domain/echo-reference-mining.js";
 import { buildEchoReferenceGptImageLibrary } from "../src/domain/echo-reference-gpt-image-library.js";
 
 async function readJson(filePath, fallback = null) {
@@ -81,6 +83,8 @@ export function createEchoReferenceMiningStore(options = {}) {
   const revisionsPath = path.join(root, "card-revisions.ndjson");
   const auditPath = path.join(root, "audit.json");
   let revisionCache = null;
+  let liveCatalogRunCache = null;
+  let currentRunCache = null;
   const jsonCache = new Map();
 
   async function readJsonCached(filePath, fallback = null) {
@@ -287,18 +291,46 @@ export function createEchoReferenceMiningStore(options = {}) {
   }
 
   async function currentRun(runOptions = {}) {
-    const [latest, researchProjection, mediaCatalog, previewFirstAuthority, contributionEvents] = await Promise.all([
+    const [latest, researchProjection, mediaCatalog, previewFirstAuthority, contributionEvents, songStore] = await Promise.all([
       readJsonCached(latestPath),
       readJsonCached(researchProjectionPath),
       readJsonCached(animatedMediaPath, { records: [] }),
       readJsonCached(previewFirstAuthorityPath, null),
       contributions(),
+      readJsonCached(songStorePath),
     ]);
+    if (!songStore) throw new Error(`Echo song store not found: ${songStorePath}`);
+    const currentPacket = buildEchoReferenceMiningPacket(songStore, runOptions);
+    let catalogRun = latest;
+    if (!catalogRun || String(catalogRun.packetHash || "") !== String(currentPacket.packetHash || "")) {
+      if (liveCatalogRunCache?.packetHash === currentPacket.packetHash) {
+        catalogRun = liveCatalogRunCache;
+      } else {
+        catalogRun = runEchoReferenceMining(songStore, {
+          ...runOptions,
+          contributionEvents,
+          apply: false,
+        });
+        liveCatalogRunCache = catalogRun;
+      }
+    }
     const selected = selectEchoReferenceRuntimeRun({
-      localRun: latest,
+      localRun: catalogRun,
       researchRun: researchProjection,
     });
     if (selected.run) {
+      const currentRunCacheKey = JSON.stringify([
+        catalogRun?.runHash || "",
+        researchProjection?.runHash || "",
+        mediaCatalog?.updatedAt || "",
+        mediaCatalog?.sourceManifestHash || "",
+        previewFirstAuthority?.id || "",
+        previewFirstAuthority?.approvedAt || "",
+        contributionEvents.length,
+        contributionEvents.at(-1)?.id || "",
+        runOptions,
+      ]);
+      if (currentRunCache?.key === currentRunCacheKey) return currentRunCache.run;
       const contributionProjection = foldEchoReferenceContributionEvents(contributionEvents);
       const governed = applyEchoReferencePreviewFirstAuthority({
         ...selected.run,
@@ -306,17 +338,32 @@ export function createEchoReferenceMiningStore(options = {}) {
           ? selected.run.contributions
           : contributionProjection,
       }, mediaCatalog, previewFirstAuthority || {});
-      const active = attachEchoReferenceMedia(governed.run, governed.mediaCatalog);
-      return {
+      const covered = selected.source === "external-research-projection"
+        ? mergeEchoReferenceRuntimeCoverage(governed.run, catalogRun)
+        : governed.run;
+      const active = attachEchoReferenceMedia(covered, governed.mediaCatalog);
+      const runtimeRun = {
         ...active,
         referenceRuntime: {
           ...active.referenceRuntime,
-          source: selected.source,
+          source: active.runtimeCoverage
+            ? "external-research-projection+current-canonical-album"
+            : selected.source,
           localRunHash: String(latest?.runHash || ""),
           researchRunHash: String(researchProjection?.runHash || ""),
+          catalogRunHash: String(catalogRun?.runHash || ""),
+          catalogGeneratedAtReadTime: catalogRun !== latest,
+          coverage: active.runtimeCoverage || {
+            schemaVersion: "hapa.echo-reference-runtime-coverage.v1",
+            primarySongCount: Array.isArray(active.packet?.songs) ? active.packet.songs.length : 0,
+            catalogSongCount: Array.isArray(active.packet?.songs) ? active.packet.songs.length : 0,
+            missingSongIdsRecovered: [],
+          },
           authority: governed.authoritySummary,
         },
       };
+      currentRunCache = { key: currentRunCacheKey, run: runtimeRun };
+      return runtimeRun;
     }
     return runEchoReferenceMining(await readSongStore(), {
       ...runOptions,

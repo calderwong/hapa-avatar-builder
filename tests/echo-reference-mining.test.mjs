@@ -1116,6 +1116,11 @@ test("album atlas exposes song-family coverage and inspectable song-pair support
     && cell.cardIds.length > 0
     && Array.isArray(cell.edgeIds)
   )));
+  const edgesById = new Map(projection.graph.edges.map((edge) => [edge.id, edge]));
+  assert.ok(projection.songConnectionMatrix.every((cell) => cell.edgeIds.every((edgeId) => {
+    const edge = edgesById.get(edgeId);
+    return edge && cell.cardIds.some((cardId) => edge.fromId === cardId || edge.toId === cardId);
+  })), "song-pair cells expose only graph edges supporting their connecting Cards");
 });
 
 test("challenge types are explicit, append-only, unproven, and cannot mutate target authority", () => {

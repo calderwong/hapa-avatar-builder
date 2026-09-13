@@ -1,3 +1,9 @@
+import {
+  buildEchoReferenceViews,
+  compileEchoReferenceGraph,
+  echoReferenceDigest,
+} from "./echo-reference-mining.js";
+
 function asArray(value) {
   return Array.isArray(value) ? value : [];
 }
@@ -287,6 +293,81 @@ export function selectEchoReferenceRuntimeRun({ localRun = null, researchRun = n
   if (localRun) return { run: localRun, source: "local-mining-snapshot" };
   if (researchRun) return { run: researchRun, source: "external-research-projection" };
   return { run: null, source: "generated" };
+}
+
+export function mergeEchoReferenceRuntimeCoverage(primaryRun = {}, catalogRun = {}) {
+  const primarySongs = asArray(primaryRun?.packet?.songs);
+  const catalogSongs = asArray(catalogRun?.packet?.songs);
+  if (!catalogSongs.length) return primaryRun;
+
+  const catalogSongIds = new Set(catalogSongs.map((song) => String(song?.id || "")).filter(Boolean));
+  const primarySongIds = new Set(primarySongs.map((song) => String(song?.id || "")).filter(Boolean));
+  const missingSongIds = [...catalogSongIds].filter((songId) => !primarySongIds.has(songId));
+  const packetChanged = String(primaryRun?.packetHash || primaryRun?.packet?.packetHash || "")
+    !== String(catalogRun?.packetHash || catalogRun?.packet?.packetHash || "");
+  if (!missingSongIds.length && !packetChanged) return primaryRun;
+
+  // Keep the research/authority/media-bearing version of a Card when identities overlap,
+  // then fill every remaining Card and song from the current canonical album snapshot.
+  const cardsById = new Map();
+  for (const card of asArray(primaryRun.cards)) cardsById.set(String(card.id || ""), structuredClone(card));
+  for (const card of asArray(catalogRun.cards)) {
+    const cardId = String(card.id || "");
+    if (cardId && !cardsById.has(cardId)) cardsById.set(cardId, structuredClone(card));
+  }
+  const cards = [...cardsById.values()];
+  const unresolved = [...new Map([
+    ...asArray(primaryRun.unresolved),
+    ...asArray(catalogRun.unresolved),
+  ].map((item) => [String(item?.id || echoReferenceDigest(item)), structuredClone(item)])).values()]
+    .filter((item) => !item?.songId || catalogSongIds.has(String(item.songId)));
+  const contributions = [...new Map([
+    ...asArray(primaryRun.contributions),
+    ...asArray(catalogRun.contributions),
+  ].map((item) => [String(item?.id || echoReferenceDigest(item)), structuredClone(item)])).values()];
+  const packet = structuredClone(catalogRun.packet);
+  const runId = String(catalogRun.runId || primaryRun.runId || "echo-reference-runtime-composite");
+  const graph = compileEchoReferenceGraph(packet, cards, { runId });
+  const views = buildEchoReferenceViews(packet, cards, graph, unresolved);
+  const songsCovered = Object.values(views.bySong || {}).filter((song) => song.coverage?.cardCount > 0).length;
+  const core = {
+    ...structuredClone(catalogRun),
+    cards,
+    graph,
+    views,
+    unresolved,
+    contributions,
+    audit: {
+      ...(catalogRun.audit || {}),
+      validCards: cards.length,
+      songsCovered,
+      songsWithoutCurrentRoutes: Math.max(0, catalogSongs.length - songsCovered),
+      coverageRatio: catalogSongs.length ? songsCovered / catalogSongs.length : 0,
+    },
+    runtimeCoverage: {
+      schemaVersion: "hapa.echo-reference-runtime-coverage.v1",
+      primaryRunId: String(primaryRun.runId || ""),
+      primaryRunHash: String(primaryRun.runHash || ""),
+      catalogRunId: String(catalogRun.runId || ""),
+      catalogRunHash: String(catalogRun.runHash || ""),
+      primarySongCount: primarySongs.length,
+      catalogSongCount: catalogSongs.length,
+      missingSongIdsRecovered: missingSongIds,
+      primaryCardsPreserved: asArray(primaryRun.cards).length,
+      catalogCardsAdded: cards.length - asArray(primaryRun.cards).length,
+      policy: "research-authority-media-first-plus-current-canonical-album-coverage",
+    },
+  };
+  return {
+    ...core,
+    runHash: echoReferenceDigest({
+      primaryRunHash: primaryRun.runHash,
+      catalogRunHash: catalogRun.runHash,
+      cards,
+      graphHash: graph.graphHash,
+      contributions,
+    }),
+  };
 }
 
 export function attachEchoReferenceMedia(run = {}, mediaCatalog = {}) {

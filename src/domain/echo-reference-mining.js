@@ -2574,6 +2574,32 @@ export function buildEchoReferenceViews(packet = {}, cards = [], graph = {}, unr
       .map((edge) => edge.id),
   }));
 
+  // Album-size matrices used to scan every Card for every possible song pair.
+  // Indexing the actual multi-song occurrences keeps the same deterministic
+  // result while making complete-catalog Atlas startup proportional to real
+  // connections instead of songs² × Cards.
+  const cardsBySongPair = new Map();
+  for (const card of list(cards)) {
+    const songIds = occurrenceSongIds(card).filter((songId) => songById.has(songId));
+    for (let leftIndex = 0; leftIndex < songIds.length; leftIndex += 1) {
+      for (let rightIndex = leftIndex + 1; rightIndex < songIds.length; rightIndex += 1) {
+        const key = [songIds[leftIndex], songIds[rightIndex]].sort().join("\u0000");
+        if (!cardsBySongPair.has(key)) cardsBySongPair.set(key, []);
+        cardsBySongPair.get(key).push(card);
+      }
+    }
+  }
+  const edgeOrder = new Map(list(graph.edges).map((edge, index) => [edge.id, index]));
+  const edgeById = new Map(list(graph.edges).map((edge) => [edge.id, edge]));
+  const edgeIdsBySong = new Map(list(packet.songs).map((song) => [song.id, []]));
+  for (const edge of list(graph.edges)) {
+    for (const song of list(packet.songs)) {
+      if (edge.fromId === `song:${song.id}` || edge.toId === `song:${song.id}`) {
+        edgeIdsBySong.get(song.id).push(edge.id);
+      }
+    }
+  }
+
   return {
     schemaVersion: ECHO_REFERENCE_VIEW_SCHEMA,
     packetHash: packet.packetHash,
@@ -2583,11 +2609,16 @@ export function buildEchoReferenceViews(packet = {}, cards = [], graph = {}, unr
     atlas,
     songConnectionMatrix: list(packet.songs).flatMap((left, leftIndex) => (
       list(packet.songs).slice(leftIndex + 1).flatMap((right) => {
-        const connectingCards = list(cards).filter((card) => {
-          const songIds = new Set(occurrenceSongIds(card));
-          return songIds.has(left.id) && songIds.has(right.id);
-        });
+        const connectingCards = cardsBySongPair.get([left.id, right.id].sort().join("\u0000")) || [];
         if (!connectingCards.length) return [];
+        const connectingCardIds = new Set(connectingCards.map((card) => card.id));
+        const edgeIds = [...new Set([
+          ...list(edgeIdsBySong.get(left.id)),
+          ...list(edgeIdsBySong.get(right.id)),
+        ])].filter((edgeId) => {
+          const edge = edgeById.get(edgeId);
+          return connectingCardIds.has(edge?.fromId) || connectingCardIds.has(edge?.toId);
+        }).sort((leftId, rightId) => (edgeOrder.get(leftId) || 0) - (edgeOrder.get(rightId) || 0));
         return [{
           id: `atlas-cell:${left.id}:${right.id}`,
           sourceSongId: left.id,
@@ -2597,12 +2628,7 @@ export function buildEchoReferenceViews(packet = {}, cards = [], graph = {}, unr
             sum + Math.max(...card.occurrences.map((occurrence) => occurrence.confidence))
           ), 0) / connectingCards.length,
           cardIds: connectingCards.map((card) => card.id),
-          edgeIds: graph.edges
-            .filter((edge) => (
-              [edge.fromId, edge.toId].includes(`song:${left.id}`)
-              || [edge.fromId, edge.toId].includes(`song:${right.id}`)
-            ))
-            .map((edge) => edge.id),
+          edgeIds,
         }];
       })
     )),
