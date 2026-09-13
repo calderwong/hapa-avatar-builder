@@ -88,6 +88,9 @@ test("source casting is retained as provenance but replaced by the selected vari
   assert.match(pagePromptSet.variants[1].prompt, /Hapa Main Woman studies a single budding wand/);
   assert.match(pagePromptSet.variants[2].prompt, /the couple studies a single budding wand/);
   assert.doesNotMatch(pagePromptSet.variants[2].prompt, /Hapa Main Man and Hapa Main Woman studies/);
+  assert.equal(pagePromptSet.variants[1].creativeBrief.output.printedText.top, "");
+  assert.match(pagePromptSet.variants[1].prompt, /Leave the top free of invented numbering, rank labels, or duplicate title text/);
+  assert.doesNotMatch(pagePromptSet.variants[1].prompt, /At the top, print the exact rank\/number “Page”/);
   assert.equal(pagePromptSet.provenance.sourceCasting, "Rosie");
 });
 

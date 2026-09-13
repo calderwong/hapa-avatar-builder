@@ -14,6 +14,8 @@ test("the Echo Song notebook embeds local run monitoring, references, outputs, a
   assert.match(monitor, /Generate 4-card quality pilot/);
   assert.match(monitor, /Continue all/);
   assert.match(monitor, /kind="reference"/);
+  assert.match(monitor, /Sent to GPT Image/);
+  assert.match(monitor, /Local review only/);
   assert.match(monitor, /kind="output"/);
   assert.match(monitor, /Approve/);
   assert.match(monitor, /Revise/);

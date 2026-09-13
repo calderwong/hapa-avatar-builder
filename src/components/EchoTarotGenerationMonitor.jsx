@@ -97,7 +97,7 @@ export default function EchoTarotGenerationMonitor({ songId = "", onNotice = () 
         <div><Sparkles size={16} /><span><small>OpenAI · encrypted local key</small><strong>Hapa Main Woman deck run</strong></span></div>
         <button type="button" className="echo-tarot-icon-button" onClick={() => void refresh()} aria-label="Refresh generation status"><RefreshCw size={13} /></button>
       </header>
-      <p className="echo-tarot-generation-boundary">Six local identity references are sent with each Card × Song prompt. The saved key never enters the page, manifest, logs, or repository; generated files and feedback stay in OS app data.</p>
+      <p className="echo-tarot-generation-boundary">The full six-image identity pack stays visible in local app data. Each Card × Song request currently submits the canonical face identity / feature map as one high-fidelity API reference; this avoids the snapshot’s multi-sheet rejection and body-reference moderation boundary. The saved key never enters the page, manifest, logs, or repository.</p>
       {error && <p className="echo-ref-feedback error" role="alert">{error}</p>}
       {status && <>
         <div className="echo-tarot-run-stats">
@@ -122,7 +122,7 @@ export default function EchoTarotGenerationMonitor({ songId = "", onNotice = () 
         {!!status.references?.length && <details className="echo-tarot-reference-pack">
           <summary><ImageIcon size={13} /> Identity reference pack <span>{status.references.length} images</span></summary>
           <div className="echo-tarot-reference-grid">
-            {status.references.map((reference) => <figure key={reference.id}><AssetImage kind="reference" id={reference.id} alt={reference.role} /><figcaption><b>{reference.role}</b><small>{reference.filename}</small></figcaption></figure>)}
+            {status.references.map((reference) => <figure key={reference.id}><AssetImage kind="reference" id={reference.id} alt={reference.role} /><figcaption><b>{reference.role}</b><small>{reference.submittedToApi ? "Sent to GPT Image · " : "Local review only · "}{reference.filename}</small></figcaption></figure>)}
           </div>
         </details>}
         {!!currentOutputs.length && <section className="echo-tarot-song-outputs">
