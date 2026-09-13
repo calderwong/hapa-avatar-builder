@@ -17,10 +17,13 @@ test("References embeds the durable song notebook", () => {
   assert.match(notebook, /Creative \/ visual anchors/);
   assert.match(notebook, /Tarot ↔ song logic/);
   assert.match(notebook, /Add card with logic/);
-  assert.match(notebook, /GPT Image 2\.5 prompt review/);
+  assert.match(notebook, /GPT Image 2\.5 Sunburst prompt review/);
   assert.match(notebook, /tarotImagePrompts/);
   assert.match(promptReview, /Default man|default-man/);
   assert.match(promptReview, /No generation request is sent from this panel/);
+  assert.match(promptReview, /Visual thesis/);
+  assert.match(promptReview, /Human review checklist/);
+  assert.match(promptReview, /Prompt v2/);
   assert.match(promptReview, /Copy .* prompt/);
 });
 

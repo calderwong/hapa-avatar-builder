@@ -33,14 +33,18 @@ Song context packets include the knowledge family, explicitly attached Avatars/C
 
 ## GPT Image 2.5 Tarot prompt review
 
-Every unique Tarot Card + Song pairing is projected through `src/domain/echo-tarot-image-prompts.js` as `hapa.echo-tarot-image-prompts.v1`. The compiler produces three deterministic, review-only variants:
+Every unique Tarot Card + Song pairing is projected through `src/domain/echo-tarot-image-prompts.js` as `hapa.echo-tarot-image-prompts.v2`. The compiler produces three deterministic, review-only variants:
 
 - `default-man` uses the replaceable `Hapa Main Man` cast slot;
 - `default-woman` uses the replaceable `Hapa Main Woman` cast slot; and
 - `default-couple` places both adult variables as an equal, mutually agentic couple.
 
-Each prompt keeps inherited Tarot fields distinct from editorial additions: card identity, Arcana/suit/rank grammar, upright and shadow meanings, essential symbols, composition, song assignment argument, lyric evidence, song-specific symbol bridges, reading mechanics, color direction, human pairing logic, notes, lessons, research labels, and creative-anchor tone notes. The prompt tells the image model to render the variables as characters rather than print their variable names.
+The first-pass prompts proved the source coverage, but the 501-prompt corpus averaged 6,054 characters and buried its focal scene beneath provenance. Version 2 separates those concerns. Each variant now exposes a complete structured `creativeBrief` for humans and agents while its copyable generation prompt leads with a visual thesis, cast performance, hero action, spatial staging, Tarot fidelity, selected song signals, art direction, and exact text constraints. Essential and optional symbols are distinct; single-character prompts describe only their active avatar variable; the couple receives a shared action instead of a mechanical name substitution.
+
+The intended run metadata is stored outside the prompt: `gpt-image-2.5-sunburst`, `1024x1536`, high quality, opaque background, and PNG output. The prompt therefore contains visible image direction rather than API parameters. The second-pass corpus preserves all 167 pairings and 501 variants while averaging about 3,935 characters, with no wrong single-cast variable references or broken couple agreement in the audited source set.
+
+The structured brief retains card identity, Arcana/suit/rank grammar, upright and shadow meanings, essential and optional symbols, inherited composition, song assignment argument, lyric evidence, song-specific symbol bridges, reading mechanics, color direction, human pairing logic, notes, anecdotes, lessons, research references/URLs, creative-anchor metadata, source-casting provenance, output settings, and a five-point human review checklist. The image prompt treats those records as attributed reference material rather than commands or automatic canon.
 
 The supplied 167 editorial pairings therefore expose 501 prompt variants. A later human-added Tarot link receives the same three variants; when a human attaches a card already present in the supplied mapping, the human logic is merged into that pairing instead of creating a duplicate Card + Song prompt set.
 
-Both album-wide and single-song `GET /api/echos/song-notebook` responses include `tarotImagePrompts`. The References UI shows a collapsed review panel under each Tarot connection with cast-variant tabs and a copy action. The panel has no generation action: every prompt remains `draft-for-human-review`, `generationStatus: not-started`, and `canGenerate: false` until a separate, explicitly authorized image-run workflow is connected.
+Both album-wide and single-song `GET /api/echos/song-notebook` responses include `tarotImagePrompts`. The References UI shows a collapsed review panel under each Tarot connection with cast-variant tabs, target settings, prompt length, visual thesis, human review checklist, and a copy action. The panel has no generation action: every prompt remains `draft-for-human-review`, `generationStatus: not-started`, and `canGenerate: false` until a separate, explicitly authorized image-run workflow is connected.

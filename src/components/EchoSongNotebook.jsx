@@ -253,8 +253,8 @@ export default function EchoSongNotebook({ apiBase = "", songId = "", onNotice =
       <section className="echo-notebook-tarot">
         <header><div><h5><Sparkles size={13} /> Tarot ↔ song logic</h5><p>The attached Echoes from Other Eras mapping is shown as an editorial proposal, never silent canon.</p></div><span>{payload.tarotConnections?.length || 0} supplied · {manualTarotLinks.length} human</span></header>
         <aside className="echo-tarot-prompt-summary">
-          <div><ImageIcon size={14} /><strong>GPT Image 2.5 prompt review</strong></div>
-          <p>Every Tarot Card + Song pairing has three deterministic drafts: Hapa Main Man, Hapa Main Woman, and both as a couple. Review or copy them here before any future image-generation run.</p>
+          <div><ImageIcon size={14} /><strong>GPT Image 2.5 Sunburst prompt review</strong></div>
+          <p>Prompt v2 gives every Tarot Card + Song pairing three scene-first drafts—Hapa Main Man, Hapa Main Woman, and both as a couple—plus a visual thesis and human review checklist. Review or copy them here before any future image-generation run.</p>
           <span>{tarotImagePrompts.length} pairings · {tarotImagePrompts.reduce((total, set) => total + (set.variants?.length || 0), 0)} prompt variations</span>
         </aside>
         <div className="echo-notebook-tarot-grid">

@@ -32,8 +32,12 @@ test("every supplied Tarot Card + Song combination receives three review-only ca
   assert.equal(promptSets.flatMap((set) => set.variants).length, 501);
   assert.ok(promptSets.every((set) => set.schemaVersion === ECHO_TAROT_IMAGE_PROMPTS_SCHEMA));
   assert.ok(promptSets.every((set) => set.reviewStatus === "draft-for-human-review" && set.generationStatus === "not-started" && set.canGenerate === false));
+  assert.ok(promptSets.every((set) => set.targetModelId === "gpt-image-2.5-sunburst"));
+  assert.ok(promptSets.every((set) => set.outputSettings.size === "1024x1536" && set.outputSettings.quality === "high"));
   assert.ok(promptSets.every((set) => set.variants.map((variant) => variant.key).join(",") === "default-man,default-woman,default-couple"));
   assert.ok(promptSets.every((set) => set.variants.every((variant) => variant.prompt.includes(set.cardTitle) && variant.prompt.includes(set.songTitle))));
+  assert.ok(promptSets.every((set) => set.variants.every((variant) => variant.prompt.startsWith("DELIVERABLE\n") && variant.creativeBrief.reviewChecklist.length === 5)));
+  assert.ok(promptSets.every((set) => set.variants.every((variant) => variant.prompt.length < 4800)));
 });
 
 test("a prompt preserves inherited meaning, the song argument, lyric symbols, card grammar, and replaceable Hapa cast slots", () => {
@@ -55,15 +59,19 @@ test("a prompt preserves inherited meaning, the song argument, lyric symbols, ca
   });
   const prompts = Object.fromEntries(promptSet.variants.map((variant) => [variant.key, variant.prompt]));
 
-  assert.match(prompts["default-man"], /Inherited upright meaning: beginning, innocence, possibility, trust, freedom, adventure/);
-  assert.match(prompts["default-man"], /Why this song belongs with this card: The traveler leaves with a companion/);
+  assert.match(prompts["default-man"], /Dominant upright meaning: beginning, innocence, possibility, trust, freedom, adventure/);
+  assert.match(prompts["default-man"], /The Fool reframed through “Backwards Cap”: The traveler leaves with a companion/);
   assert.match(prompts["default-man"], /“just a trainee”/);
-  assert.match(prompts["default-man"], /Required inherited symbols: cliff or threshold/);
-  assert.match(prompts["default-man"], /Hapa Main Man as the single principal adult human figure/);
-  assert.match(prompts["default-woman"], /Hapa Main Woman as the single principal adult human figure/);
-  assert.match(prompts["default-couple"], /together as an adult couple with equal visual importance/);
+  assert.match(prompts["default-man"], /Essential symbols; show all clearly: cliff or threshold/);
+  assert.match(prompts["default-man"], /Hapa Main Man as the only principal adult human figure/);
+  assert.doesNotMatch(prompts["default-man"], /Hapa Main Woman/);
+  assert.match(prompts["default-woman"], /Hapa Main Woman as the only principal adult human figure/);
+  assert.doesNotMatch(prompts["default-woman"], /Hapa Main Man/);
+  assert.match(prompts["default-couple"], /Hapa Main Man and Hapa Main Woman as the two principal adult figures/);
   assert.match(prompts["default-couple"], /Quiet dawn, spacious sky, worn travel gear/);
   assert.doesNotMatch(prompts["default-couple"], /Print.*Backwards Cap/);
+  assert.equal(promptSet.variants[0].creativeBrief.song.sourceContext.notes[0], "Keep the learner visibly uncertain.");
+  assert.match(promptSet.variants[0].creativeBrief.song.sourceContext.references[0], /Threshold study/);
 });
 
 test("source casting is retained as provenance but replaced by the selected variable inside visual direction", () => {
@@ -78,7 +86,9 @@ test("source casting is retained as provenance but replaced by the selected vari
   assert.match(pagePromptSet.variants[0].prompt, /Hapa Main Man studies a single budding wand/);
   assert.doesNotMatch(pagePromptSet.variants[0].prompt, /Rosie/);
   assert.match(pagePromptSet.variants[1].prompt, /Hapa Main Woman studies a single budding wand/);
-  assert.match(pagePromptSet.variants[2].prompt, /Hapa Main Man and Hapa Main Woman study a single budding wand|Hapa Main Man and Hapa Main Woman studies a single budding wand/);
+  assert.match(pagePromptSet.variants[2].prompt, /the couple studies a single budding wand/);
+  assert.doesNotMatch(pagePromptSet.variants[2].prompt, /Hapa Main Man and Hapa Main Woman studies/);
+  assert.equal(pagePromptSet.provenance.sourceCasting, "Rosie");
 });
 
 test("human-added Tarot links receive prompts and merge into an existing supplied card/song combination without duplication", () => {
@@ -114,7 +124,27 @@ test("human-added Tarot links receive prompts and merge into an existing supplie
 
   assert.equal(promptSets.length, 2);
   assert.equal(promptSets.find((set) => set.cardId === fool.id).origin, "supplied-editorial+human-authored");
-  assert.match(promptSets.find((set) => set.cardId === fool.id).variants[0].prompt, /Human pairing logic to preserve: Human confirms the learner reading/);
+  assert.equal(promptSets.find((set) => set.cardId === fool.id).variants[0].creativeBrief.song.humanLogic[0], "Human confirms the learner reading.");
   assert.equal(promptSets.find((set) => set.cardId === customCard.id).origin, "human-authored");
   assert.match(promptSets.find((set) => set.cardId === customCard.id).variants[0].prompt, /Listen before crossing/);
+});
+
+test("generation text prioritizes visible direction while the structured brief retains review provenance", () => {
+  const song = songs.find((item) => item.trackNumber === 33);
+  const [promptSet] = buildEchoTarotImagePromptSets({
+    song,
+    connections: connections.filter((connection) => connection.songId === song.id && connection.cardTitle === "The Fool"),
+    availableCards: cards,
+    edition,
+  });
+  const variant = promptSet.variants[0];
+
+  assert.deepEqual(Object.keys(variant.creativeBrief.cast.variables), ["hapa-main-man"]);
+  assert.ok(variant.creativeBrief.visualThesis.startsWith("The Fool reframed through “Backwards Cap”"));
+  assert.ok(variant.creativeBrief.tarot.essentialSymbols);
+  assert.ok(variant.creativeBrief.tarot.optionalSymbols);
+  assert.ok(variant.creativeBrief.song.pairingLogic);
+  assert.ok(Array.isArray(variant.creativeBrief.song.sourceContext.references));
+  assert.match(variant.prompt, /VISUAL THESIS[\s\S]+SUBJECT AND SCENE[\s\S]+TAROT FIDELITY[\s\S]+SONG SIGNAL[\s\S]+ART DIRECTION[\s\S]+TEXT AND CONSTRAINTS/);
+  assert.doesNotMatch(variant.prompt, /GPT Image 2\.5/);
 });

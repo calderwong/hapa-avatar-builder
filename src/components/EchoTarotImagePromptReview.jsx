@@ -25,7 +25,7 @@ export default function EchoTarotImagePromptReview({ promptSet, onNotice = () =>
 
   return (
     <details className="echo-tarot-prompt-review">
-      <summary><ImageIcon size={13} /> GPT Image 2.5 prompts <span>{promptSet.variants.length} cast variations</span></summary>
+      <summary><ImageIcon size={13} /> GPT Image 2.5 Sunburst prompts <span>{promptSet.variants.length} cast variations</span></summary>
       <div className="echo-tarot-prompt-status">
         <span><ShieldCheck size={12} /> Draft for human review</span>
         <small>No generation request is sent from this panel.</small>
@@ -45,8 +45,23 @@ export default function EchoTarotImagePromptReview({ promptSet, onNotice = () =>
         ))}
       </div>
       <div className="echo-tarot-prompt-meta">
-        <span>{promptSet.targetModel}</span><span>{promptSet.aspectRatio}</span><span>{promptSet.mappingStatus}</span>
+        <span>Prompt v2</span>
+        <span>{promptSet.targetModel}</span>
+        <span>{promptSet.outputSettings?.size || promptSet.aspectRatio}</span>
+        <span>{promptSet.outputSettings?.quality || "high"} quality</span>
+        <span>{selected.prompt.length.toLocaleString()} characters</span>
+        <span>{promptSet.mappingStatus}</span>
       </div>
+      <section className="echo-tarot-visual-thesis" aria-label="Visual thesis">
+        <strong>Visual thesis</strong>
+        <p>{selected.creativeBrief?.visualThesis}</p>
+      </section>
+      <details className="echo-tarot-review-checklist">
+        <summary>Human review checklist</summary>
+        <ul>
+          {(selected.creativeBrief?.reviewChecklist || []).map((item) => <li key={item}>{item}</li>)}
+        </ul>
+      </details>
       <pre tabIndex="0" aria-label={`${selected.label} prompt for ${promptSet.cardTitle} and ${promptSet.songTitle}`}>{selected.prompt}</pre>
       <button type="button" onClick={copyPrompt} className="echo-tarot-copy-prompt">
         {copiedKey === selected.key ? <Check size={13} /> : <ClipboardCopy size={13} />}

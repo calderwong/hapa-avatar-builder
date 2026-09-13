@@ -24809,6 +24809,17 @@ h1 {
 .echo-tarot-prompt-tabs button.active { border-color: #ff4fd8; background: rgba(255, 79, 216, 0.15); color: #ffe4fa; }
 .echo-tarot-prompt-meta { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 7px; }
 .echo-tarot-prompt-meta span { padding: 2px 5px; border: 1px solid rgba(246, 201, 109, 0.25); border-radius: 999px; color: #d8c58f; font-size: 9px; }
+.echo-tarot-visual-thesis {
+  margin-top: 8px;
+  padding: 9px 10px;
+  border-left: 2px solid #ff4fd8;
+  background: rgba(255, 79, 216, 0.07);
+}
+.echo-tarot-visual-thesis strong { color: #ffd8f7; font-size: 10px; text-transform: uppercase; letter-spacing: .07em; }
+.echo-tarot-visual-thesis p { margin-top: 4px; color: #dbeef7; font-size: 11px; line-height: 1.45; }
+.echo-tarot-review-checklist { margin-top: 8px; color: #9cf0d4; }
+.echo-tarot-review-checklist summary { cursor: pointer; font-size: 10px; text-transform: uppercase; letter-spacing: .07em; }
+.echo-tarot-review-checklist ul { margin: 7px 0 0 17px; color: #b6cad6; font-size: 10px; line-height: 1.45; }
 .echo-tarot-prompt-review pre {
   max-height: 360px;
   margin: 8px 0;
