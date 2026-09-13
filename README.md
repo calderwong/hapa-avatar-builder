@@ -159,6 +159,10 @@ Launcher preparation and Electron runtime output are kept in separate, threshold
 
 Generated media is runtime state, not application source. Echo keyframes now default to `~/Library/Application Support/Hapa Avatar Builder/generated-media/`, are streamed through the local Builder API, and are excluded from both Git and the Vite deployment. `public-static/` contains only the small, curated source-controlled assets that intentionally ship with the application. Run `npm run media:migrate-external` to inspect the legacy migration and add `-- --apply` to perform its non-overwriting directory move.
 
+## Echo Album song notebook
+
+The Echo Album **References** surface includes a durable per-song notebook for free-text notes, marked research URLs, Hapa Avatar links, image/video creative anchors, anecdotes, lessons, and reasoned Tarot Card pairings. The complete supplied 78-card *Echoes from Other Eras* editorial mapping is available with its pairing arguments and lyric evidence; its proposal status is preserved. Agents can read one song or the complete album projection from `GET /api/echos/song-notebook`. See `docs/ECHO_SONG_NOTEBOOK.md`.
+
 ## Local Media Preview, Sorting, And Video Branches
 
 In the Builder view, use **Preview Local Media** or drop image/video files onto **Drop media to preview**. Media appears in the Media Intake tray with real previews. Drag image previews onto the exact required slot they belong in.

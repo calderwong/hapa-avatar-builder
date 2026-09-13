@@ -6,6 +6,7 @@ import {
   normalizeSongReferenceConnectors,
   normalizeSongReferenceGraphEdges
 } from "./song-reference-graph.js";
+import { normalizeSongKnowledge } from "./song-knowledge.js";
 
 export const HAPA_SONG_STORE_VERSION = "hapa.songs.store.v1";
 export const HAPA_SONG_CARD_VERSION = "hapa.song-card.v1";
@@ -223,6 +224,7 @@ export function normalizeHapaSong(existing = {}, sourceCard = {}, registryTrack 
     visualizers,
     comments,
     storyBeats,
+    knowledge: normalizeSongKnowledge(existing.knowledge || {}),
     referenceConnectors: normalizeSongReferenceConnectors(existing.referenceConnectors || []),
     contextualLayers: normalizeSongContextLayers(existing.contextualLayers || []),
     tags,
@@ -361,6 +363,8 @@ export function detachSceneFromSong(song, sceneId) {
 export function attachSongMedia(song, asset, options = {}) {
   const link = normalizeSongMediaLink({
     ...asset,
+    role: options.role || asset?.role || "song-media",
+    creativeAnchor: options.creativeAnchor || asset?.creativeAnchor || null,
     id: options.id || asset?.id,
     tags: uniqueTextList(["song-media", "dear-papa", ...(asset?.tags || []), ...(options.tags || [])]),
     attribution: {
@@ -770,6 +774,15 @@ function normalizeSongMediaLink(asset = {}) {
     uri: asset.uri || "",
     mimeType: asset.mimeType || asset.metadata?.mimeType || "",
     requirementId: asset.requirementId || "song_media",
+    role: asset.role || "song-media",
+    creativeAnchor: asset.creativeAnchor && typeof asset.creativeAnchor === "object" ? {
+      schemaVersion: asset.creativeAnchor.schemaVersion || "hapa.song-creative-anchor.v1",
+      toneNotes: asset.creativeAnchor.toneNotes || asset.creativeAnchor.notes || "",
+      intendedUse: asset.creativeAnchor.intendedUse || "future-generative-direction",
+      tags: uniqueTextList(asset.creativeAnchor.tags || []),
+      markedBy: asset.creativeAnchor.markedBy || "Hapa operator",
+      markedAt: asset.creativeAnchor.markedAt || asset.createdAt || new Date().toISOString()
+    } : null,
     tags: uniqueTextList(asset.tags || []),
     notes: asset.notes || "",
     metadata: asset.metadata || {},

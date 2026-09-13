@@ -104,6 +104,12 @@ import {
   upsertSongInStore
 } from "../src/domain/song.js";
 import {
+  buildEchoTarotSongConnections,
+  compactEchoTarotEditionCards,
+  compactTarotLibraryCards,
+  projectEchoTarotSongConnections,
+} from "../src/domain/echo-tarot-song-links.js";
+import {
   blueAvatarHealth,
   blueAvatarTurn,
   proxyBlueAvatarAudio
@@ -259,6 +265,8 @@ import {
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, "..");
+const ECHO_TAROT_EDITION_PATH = process.env.HAPA_ECHO_TAROT_EDITION
+  || path.join(ROOT, "resources/echo-album/hapa-tarot-echoes-v1.json");
 const DEFAULT_HAPA_MUSIC_VIZ_ROOT = path.join(homedir(), "Desktop", "hapa-music-viz");
 const ECHO_SERVER_BOOT_IDENTITY = inspectEchoServerDeliveryBuildIdentity({ root: ROOT });
 function getEchoServerBootIdentity() {
@@ -2549,6 +2557,86 @@ async function route(req, res) {
       runtime: projection.runtime,
       mediaGallery: projection.mediaGallery,
     } : projection);
+    return;
+  }
+
+  if (pathname === "/api/echos/song-notebook" && req.method === "GET") {
+    try {
+      const requestedSongId = String(url.searchParams.get("songId") || "").trim();
+      const [songStore, avatarStore, tarotStore, tarotEdition] = await Promise.all([
+        readHapaSongStore(),
+        readStore(),
+        readTarotStore(),
+        readJson(ECHO_TAROT_EDITION_PATH),
+      ]);
+      const songs = songStore.songs || [];
+      const allConnections = buildEchoTarotSongConnections(tarotEdition, songs);
+      const source = {
+        schemaVersion: tarotEdition.schema_version,
+        editionId: tarotEdition.edition_id,
+        title: tarotEdition.title,
+        status: tarotEdition.status,
+        sourceReviewDate: tarotEdition.source_review_date,
+        resourcePath: "resources/echo-album/hapa-tarot-echoes-v1.json",
+        cardCount: tarotEdition.cards?.length || 0,
+        songAssignmentCount: allConnections.length,
+        boundary: "Editorial proposal imported with source evidence and logic; it is not silently promoted to canon.",
+      };
+      if (!requestedSongId) {
+        sendJson(res, 200, {
+          schemaVersion: "hapa.echo-song-notebook-album.v1",
+          album: songStore.album,
+          source,
+          songs: songs.map((song) => ({
+            id: song.id,
+            songId: song.songId,
+            title: song.title,
+            trackNumber: song.trackNumber,
+            knowledge: song.knowledge,
+            attachments: song.attachments,
+            creativeAnchors: (song.media || []).filter((asset) => asset.creativeAnchor || asset.role === "creative-visual-anchor"),
+            tarotConnections: allConnections.filter((connection) => connection.songId === song.id),
+          })),
+        });
+        return;
+      }
+      const song = findSongInStore(songStore, requestedSongId)
+        || songs.find((item) => String(item.title).toLowerCase() === requestedSongId.toLowerCase() || String(item.trackNumber) === requestedSongId);
+      if (!song) {
+        sendJson(res, 404, { ok: false, error: "echo_song_notebook_not_found", songId: requestedSongId });
+        return;
+      }
+      const importedCards = compactEchoTarotEditionCards(tarotEdition);
+      const libraryCards = compactTarotLibraryCards(tarotStore);
+      const availableCards = [...importedCards, ...libraryCards]
+        .filter((card, index, all) => all.findIndex((item) => item.id === card.id) === index)
+        .sort((left, right) => String(left.title).localeCompare(String(right.title)));
+      sendJson(res, 200, {
+        schemaVersion: "hapa.echo-song-notebook.v1",
+        source,
+        song,
+        avatars: (avatarStore.avatars || []).map((avatar) => ({
+          id: avatar.id,
+          name: avatar.primaryName || avatar.name || avatar.id,
+          thumbnailUri: avatar.thumbnailUri || avatar.portraitUri || "",
+          loreStatus: avatar.loreStatus || avatar.status || "unverified",
+        })).sort((left, right) => left.name.localeCompare(right.name)),
+        tarotConnections: projectEchoTarotSongConnections(tarotEdition, songs, song.id),
+        availableCards,
+        guardrails: {
+          notes: "Human-authored context; not external fact or canon by storage alone.",
+          references: "Marked for future research; URLs are not automatically trusted or fetched.",
+          media: "Creative direction anchors; attachment does not transfer rights.",
+          tarot: "Supplied mappings and later human additions retain their stated evidence, status, and logic.",
+        },
+      });
+    } catch (error) {
+      sendJson(res, Number(error?.statusCode || 500), {
+        ok: false,
+        error: "echo_song_notebook_load_failed",
+        message: error?.message || String(error),
+      });
+    }
     return;
   }
 

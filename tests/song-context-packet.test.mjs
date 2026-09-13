@@ -14,7 +14,8 @@ test("packet preserves exact IDs, source paths, truth, constraints, and attach p
   assert.equal(packet.scenes[0].source.linkPaths[0], "/linkedSongIds/0");
   assert.equal(packet.scenes[0].mediaAttachPack[0].id, "clip-1");
   assert.equal(packet.rankingStatus, "proposed-pending-human-blind-review");
-  assert.equal(packet.negativeConstraints.length, 3);
+  assert.equal(packet.negativeConstraints.length, 4);
+  assert.ok(packet.negativeConstraints.some((constraint) => constraint.id === "human-notes-are-context"));
 });
 
 test("casting ranker cites the exact context node and remains confidence-capped", () => {

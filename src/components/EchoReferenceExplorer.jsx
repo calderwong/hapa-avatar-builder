@@ -22,6 +22,7 @@ import {
   Waypoints,
   X,
 } from "lucide-react";
+import EchoSongNotebook from "./EchoSongNotebook.jsx";
 
 const MODES = [
   { id: "listen", label: "Listen" },
@@ -1670,6 +1671,11 @@ export default function EchoReferenceExplorer({
           setShowCandidates(true);
           setMode("explore");
         }}
+      />
+      <EchoSongNotebook
+        apiBase={apiBase}
+        songId={selectedSongId}
+        onNotice={onNotice}
       />
 
       <nav className="echo-ref-mode-tabs" aria-label="Reference explorer mode">
