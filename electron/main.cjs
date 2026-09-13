@@ -6,6 +6,7 @@ const fs = require("node:fs");
 const crypto = require("node:crypto");
 const { ensureLocalOvercardHost, probeOvercardHost } = require("@hapa/overcard/host");
 const { createProviderCredentialStore } = require("./provider-credential-store.cjs");
+const { createEchoTarotImageGeneration } = require("./echo-tarot-image-generation.cjs");
 
 const HAS_SINGLE_INSTANCE_LOCK = app.requestSingleInstanceLock();
 if (!HAS_SINGLE_INSTANCE_LOCK) app.quit();
@@ -42,6 +43,7 @@ const DESKTOP_DEBUG = process.env.HAPA_AVATAR_DESKTOP_DEBUG === "1";
 let operatorConsoleServer = null;
 let windowCreationPromise = null;
 let providerCredentialStore = null;
+let echoTarotImageGeneration = null;
 
 function overcardOrigins(rendererUrl = "") {
   const values = [
@@ -160,6 +162,21 @@ async function handleCredentialOperation(event, operation) {
     return { ok: true, ...(await operation()) };
   } catch (error) {
     return { ok: false, code: error?.code || "credential_operation_failed", message: publicCredentialError(error) };
+  }
+}
+
+async function handleTarotGenerationOperation(event, operation) {
+  if (!isTrustedCredentialSender(event)) return { ok: false, message: "Tarot image generation access was denied for this window." };
+  if (!echoTarotImageGeneration) return { ok: false, message: "The local Tarot image generation service is not ready." };
+  try {
+    return { ok: true, ...(await operation()) };
+  } catch (error) {
+    console.warn(`[Echo Tarot Image] ${error?.code || "operation_failed"}: ${String(error?.message || error).replace(/\bsk-[a-zA-Z0-9_-]{8,}\b/g, "[redacted]")}`);
+    return {
+      ok: false,
+      code: error?.code || "tarot_image_operation_failed",
+      message: String(error?.message || "The local Tarot image operation failed.").replace(/\bsk-[a-zA-Z0-9_-]{8,}\b/g, "[redacted]"),
+    };
   }
 }
 
@@ -536,12 +553,24 @@ if (HAS_SINGLE_INSTANCE_LOCK) {
       repositoryRoot: ROOT,
       safeStorage,
     });
+    echoTarotImageGeneration = createEchoTarotImageGeneration({
+      userDataPath: app.getPath("userData"),
+      credentialStore: providerCredentialStore,
+      referencePackPath: path.join(app.getPath("home"), "raw-models", "hapa-main-woman-reference-pack"),
+    });
     ipcMain.handle("hapa-overcard:status", async () => readOvercardStatus());
     ipcMain.handle("hapa-overcard:ensure", async () => runOvercardLifecycle((rendererUrl) => ensureOvercardHost(rendererUrl)));
     ipcMain.handle("hapa-overcard:reconnect", async () => runOvercardLifecycle((rendererUrl) => ensureOvercardHost(rendererUrl)));
     ipcMain.handle("hapa-credentials:status", (event) => handleCredentialOperation(event, async () => providerCredentialStore.status()));
     ipcMain.handle("hapa-credentials:save", (event, providerId, apiKey) => handleCredentialOperation(event, async () => ({ provider: await providerCredentialStore.save(providerId, apiKey) })));
     ipcMain.handle("hapa-credentials:remove", (event, providerId) => handleCredentialOperation(event, async () => ({ provider: await providerCredentialStore.remove(providerId) })));
+    ipcMain.handle("hapa-echo-tarot-images:status", (event) => handleTarotGenerationOperation(event, () => echoTarotImageGeneration.status()));
+    ipcMain.handle("hapa-echo-tarot-images:start-pilot", (event) => handleTarotGenerationOperation(event, () => echoTarotImageGeneration.start({ apiBase: desktopUrl, mode: "pilot" })));
+    ipcMain.handle("hapa-echo-tarot-images:continue-full", (event) => handleTarotGenerationOperation(event, () => echoTarotImageGeneration.continueFull({ apiBase: desktopUrl })));
+    ipcMain.handle("hapa-echo-tarot-images:pause", (event) => handleTarotGenerationOperation(event, () => echoTarotImageGeneration.pause()));
+    ipcMain.handle("hapa-echo-tarot-images:resume", (event) => handleTarotGenerationOperation(event, () => echoTarotImageGeneration.resume()));
+    ipcMain.handle("hapa-echo-tarot-images:review", (event, payload) => handleTarotGenerationOperation(event, () => echoTarotImageGeneration.review(payload)));
+    ipcMain.handle("hapa-echo-tarot-images:asset", (event, payload) => handleTarotGenerationOperation(event, () => echoTarotImageGeneration.asset(payload)));
     await startOperatorConsoleServer();
     return ensureMainWindow();
   }).catch((error) => {

@@ -32,3 +32,13 @@ contextBridge.exposeInMainWorld("hapaCredentials", Object.freeze({
   save: (providerId, apiKey) => ipcRenderer.invoke("hapa-credentials:save", providerId, apiKey),
   remove: (providerId) => ipcRenderer.invoke("hapa-credentials:remove", providerId)
 }));
+
+contextBridge.exposeInMainWorld("hapaEchoTarotImages", Object.freeze({
+  status: () => ipcRenderer.invoke("hapa-echo-tarot-images:status"),
+  startPilot: () => ipcRenderer.invoke("hapa-echo-tarot-images:start-pilot"),
+  continueFull: () => ipcRenderer.invoke("hapa-echo-tarot-images:continue-full"),
+  pause: () => ipcRenderer.invoke("hapa-echo-tarot-images:pause"),
+  resume: () => ipcRenderer.invoke("hapa-echo-tarot-images:resume"),
+  review: (payload) => ipcRenderer.invoke("hapa-echo-tarot-images:review", payload),
+  asset: (payload) => ipcRenderer.invoke("hapa-echo-tarot-images:asset", payload)
+}));

@@ -6,6 +6,7 @@ import {
   detachAvatarFromSong,
 } from "../domain/song.js";
 import { addSongKnowledgeEntry, markSongResearchReference } from "../domain/song-knowledge.js";
+import EchoTarotGenerationMonitor from "./EchoTarotGenerationMonitor.jsx";
 import EchoTarotImagePromptReview from "./EchoTarotImagePromptReview.jsx";
 
 function mediaUri(apiBase, uri = "") {
@@ -257,6 +258,7 @@ export default function EchoSongNotebook({ apiBase = "", songId = "", onNotice =
           <p>Prompt v2 gives every Tarot Card + Song pairing three scene-first drafts—Hapa Main Man, Hapa Main Woman, and both as a couple—plus a visual thesis and human review checklist. Review or copy them here before any future image-generation run.</p>
           <span>{tarotImagePrompts.length} pairings · {tarotImagePrompts.reduce((total, set) => total + (set.variants?.length || 0), 0)} prompt variations</span>
         </aside>
+        <EchoTarotGenerationMonitor songId={song.id} onNotice={onNotice} />
         <div className="echo-notebook-tarot-grid">
           {(payload.tarotConnections || []).map((connection) => {
             const promptSet = tarotImagePrompts.find((set) => set.sourceConnectionIds?.includes(connection.id) || set.cardId === connection.cardId);
