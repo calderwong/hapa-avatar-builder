@@ -10,6 +10,7 @@ Replace isolated run galleries with one durable, searchable view of every retain
 - Loop linkage uses `sourceImageRunId + sourceJobId`, not names or filenames.
 - The UI returns every matching item, supports song/run/motion/search filters, plays loops on hover, and exposes a full-screen detail inspector.
 - ETag polling refreshes the open library every five seconds and the closed ingress every twenty seconds.
+- The gallery renders complete, contain-fit thumbnails in 60-item infinite-scroll pages, retaining an explicit load-next control for keyboard and assistive use.
 - Behavioral tests add a completed job after the first scan and prove that the next scan includes it.
 - Local custody paths never enter the browser payload; asset routes validate containment and loop routes support byte ranges.
 
@@ -20,6 +21,8 @@ The existing `EchoHoverLoopMedia` behavior and the proven Reference Atlas GPT Im
 ## Noise and misunderstanding removed
 
 The application had two truthful but partial views: an older catalog-only gallery and a newest-run-only gallery. That made “all references” depend on knowing which run produced an item. The consolidated index treats a run as a filter and provenance fact, not as a separate destination.
+
+The first consolidated UI also rendered all 1,479 tile nodes at once and used `cover` fitting. That technically exposed every item but cropped the artwork and made initial browsing unnecessarily heavy. The corrected gallery shows the full thumbnail, incrementally renders the corpus, and reserves click for details.
 
 ## Guardrail
 

@@ -4,6 +4,8 @@ import { CirclePlay, Images, Maximize2, RefreshCw, Search, ShieldCheck, X } from
 import EchoHoverLoopMedia from "./EchoHoverLoopMedia.jsx";
 import "../echo-reference-media-library.css";
 
+const MEDIA_PAGE_SIZE = 60;
+
 function sourceLabel(source = {}) {
   if (source.kind === "catalog") return source.cohort === "explicit-codex-gpt-image" ? "Codex GPT Image catalog" : "Earlier GPT Image catalog";
   return source.generator || "Generated image run";
@@ -33,8 +35,10 @@ export default function EchoReferenceMediaLibrary({ apiBase = "", onOpenCard = (
   const [motion, setMotion] = useState("all");
   const [sort, setSort] = useState("newest");
   const [selectedId, setSelectedId] = useState("");
+  const [visibleCount, setVisibleCount] = useState(MEDIA_PAGE_SIZE);
   const etagRef = useRef("");
   const inFlightRef = useRef(false);
+  const gridRef = useRef(null);
 
   const load = useCallback(async ({ silent = false } = {}) => {
     if (inFlightRef.current) return;
@@ -101,8 +105,23 @@ export default function EchoReferenceMediaLibrary({ apiBase = "", onOpenCard = (
         return String(right.source?.createdAt || "").localeCompare(String(left.source?.createdAt || "")) || left.title.localeCompare(right.title);
       });
   }, [library?.items, motion, query, runId, songId, sort]);
+  const renderedItems = useMemo(() => visibleItems.slice(0, visibleCount), [visibleCount, visibleItems]);
   const selected = useMemo(() => (library?.items || []).find((item) => item.id === selectedId) || null, [library?.items, selectedId]);
   const counts = library?.counts || {};
+
+  useEffect(() => {
+    setVisibleCount(MEDIA_PAGE_SIZE);
+    if (gridRef.current) gridRef.current.scrollTop = 0;
+  }, [motion, open, query, runId, songId, sort]);
+
+  const loadNextPage = useCallback(() => {
+    setVisibleCount((current) => Math.min(current + MEDIA_PAGE_SIZE, visibleItems.length));
+  }, [visibleItems.length]);
+
+  const handleGridScroll = useCallback((event) => {
+    const target = event.currentTarget;
+    if (target.scrollHeight - target.scrollTop - target.clientHeight < 600) loadNextPage();
+  }, [loadNextPage]);
 
   return <>
     <section className="echo-reference-media-ingress" aria-label="Consolidated Echo Reference media library">
@@ -137,16 +156,17 @@ export default function EchoReferenceMediaLibrary({ apiBase = "", onOpenCard = (
           <select value={motion} onChange={(event) => setMotion(event.target.value)} aria-label="Filter all reference media by motion availability"><option value="all">Stills + loops</option><option value="loops">Has hover loop</option><option value="stills">Still only</option></select>
           <select value={sort} onChange={(event) => setSort(event.target.value)} aria-label="Sort all reference media"><option value="newest">Newest media first</option><option value="song">Song</option><option value="reference">Reference</option></select>
         </div>
-        <div className="echo-reference-media-live" role="status"><span><ShieldCheck size={13} /> Local manifests rescanned every 5 seconds while open</span><b>{refreshing ? "Checking…" : `Showing ${visibleItems.length.toLocaleString()} · checked ${dateLabel(lastCheckedAt)}`}</b></div>
+        <div className="echo-reference-media-live" role="status"><span><ShieldCheck size={13} /> Local manifests rescanned every 5 seconds while open</span><b>{refreshing ? "Checking…" : `Showing ${renderedItems.length.toLocaleString()} of ${visibleItems.length.toLocaleString()} matches · checked ${dateLabel(lastCheckedAt)}`}</b></div>
         {error && <div className="echo-reference-media-message error">{error}</div>}
         {!loading && !error && !visibleItems.length && <div className="echo-reference-media-message">No reference media matches these filters.</div>}
-        <main data-testid="echo-reference-media-library-grid">
-          {visibleItems.map((item) => <button key={item.id} type="button" onClick={() => setSelectedId(item.id)} aria-label={`Expand ${item.title}`}>
-            <EchoHoverLoopMedia imageUri={`${apiBase}${item.image.uri}`} loopUri={item.loopVideo?.uri ? `${apiBase}${item.loopVideo.uri}` : ""} alt="" loopAriaLabel={`Play loop for ${item.title}`} />
+        <main ref={gridRef} onScroll={handleGridScroll} data-testid="echo-reference-media-library-grid" aria-label="Infinite scrolling reference thumbnail gallery">
+          {renderedItems.map((item) => <button key={item.id} type="button" onClick={() => setSelectedId(item.id)} aria-label={`Expand ${item.title}`}>
+            <EchoHoverLoopMedia imageUri={`${apiBase}${item.image.uri}`} loopUri={item.loopVideo?.uri ? `${apiBase}${item.loopVideo.uri}` : ""} alt={item.title} loopAriaLabel={`Play loop for ${item.title}`} />
             <span className="run">{item.source.kind === "catalog" ? "Catalog" : "API run"}{item.loopVideo?.uri ? <><CirclePlay size={10} /> Loop</> : null}</span>
             <strong>{item.title}</strong><small>{songLabel(item)}</small><p>{item.summary || "Open for reference logic and generation details."}</p><em>{sourceLabel(item.source)}</em>
             <Maximize2 size={15} className="expand" />
           </button>)}
+          {renderedItems.length < visibleItems.length && <div className="echo-reference-media-load-more" role="status"><span>{(visibleItems.length - renderedItems.length).toLocaleString()} more thumbnails</span><button type="button" onClick={loadNextPage}>Load next {Math.min(MEDIA_PAGE_SIZE, visibleItems.length - renderedItems.length)}</button></div>}
         </main>
 
         {selected && <aside className="echo-reference-media-inspector" aria-label={`Detail for ${selected.title}`}>

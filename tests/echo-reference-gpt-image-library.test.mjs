@@ -135,9 +135,10 @@ test("Reference Atlas exposes a complete searchable GPT Image-only gallery and l
 });
 
 test("Reference Atlas exposes every retained run through one auto-updating media gallery", async () => {
-  const [explorer, mediaLibrary, api, mediaIndex] = await Promise.all([
+  const [explorer, mediaLibrary, mediaCss, api, mediaIndex] = await Promise.all([
     fs.readFile(new URL("../src/components/EchoReferenceExplorer.jsx", import.meta.url), "utf8"),
     fs.readFile(new URL("../src/components/EchoReferenceMediaLibrary.jsx", import.meta.url), "utf8"),
+    fs.readFile(new URL("../src/echo-reference-media-library.css", import.meta.url), "utf8"),
     fs.readFile(new URL("../server/api.mjs", import.meta.url), "utf8"),
     fs.readFile(new URL("../server/echo-reference-media-library.mjs", import.meta.url), "utf8"),
   ]);
@@ -150,7 +151,11 @@ test("Reference Atlas exposes every retained run through one auto-updating media
   assert.match(mediaLibrary, /View exact image prompt/);
   assert.match(mediaLibrary, /Why it connects/);
   assert.match(mediaLibrary, /data-testid="echo-reference-media-library-grid"/);
-  assert.doesNotMatch(mediaLibrary, /\.slice\(/, "the consolidated gallery must not silently truncate retained media");
+  assert.match(mediaLibrary, /MEDIA_PAGE_SIZE = 60/);
+  assert.match(mediaLibrary, /onScroll=\{handleGridScroll\}/);
+  assert.match(mediaLibrary, /Showing \$\{renderedItems\.length\.toLocaleString\(\)\} of \$\{visibleItems\.length\.toLocaleString\(\)\} matches/);
+  assert.match(mediaCss, /grid-auto-rows:max-content/);
+  assert.match(mediaCss, /object-fit:contain/);
   assert.match(api, /\/api\/echos\/references\/media-library/);
   assert.match(api, /reference-media\\\/assets\\\/\(image\|loop\)/);
   assert.match(mediaIndex, /readRunManifests/);

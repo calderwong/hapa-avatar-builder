@@ -23,7 +23,8 @@ Live verification on 2026-09-13 (America/Los_Angeles) indexed **1,479 visual ver
 ## UI behavior
 
 - The gold ingress is always visible near the top of Reference Atlas and reports total visual versions, unique reference connections, hover-ready loops, image runs, and catalog visuals.
-- **Open all reference media** opens the complete grid. Default order is newest first.
+- **Open all reference media** opens an infinite-scrolling thumbnail gallery. The first 60 thumbnails render immediately and each near-bottom scroll adds 60 more until every match is visible; the complete index remains searchable from the first render. Default order is newest first.
+- Every tile shows the entire source image with `contain` fitting and dark letterboxing when aspect ratios differ. Art is never cropped merely to fill the tile. Clicking is only for enlargement and details.
 - Filters cover free-text retrieval, song, source run, still/loop availability, and sort order.
 - Hover starts the linked loop. Pointer leave restores the source still. Reduced-motion preferences suppress autoplay.
 - Clicking a tile opens a large detail inspector with the stored rationale, memory hook, lyric moments, claims, interpretations, citations, quality assessment, retrieval tags, exact image prompt, hashes, generator, generation time, and review state when those fields exist.
