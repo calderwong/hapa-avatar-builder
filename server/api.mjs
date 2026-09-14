@@ -111,6 +111,10 @@ import {
 } from "../src/domain/echo-tarot-song-links.js";
 import { buildEchoTarotImagePromptSets } from "../src/domain/echo-tarot-image-prompts.js";
 import {
+  readEchoReferenceImageGenerationStatus,
+  resolveEchoReferenceImageAsset,
+} from "./echo-reference-image-generation-status.mjs";
+import {
   blueAvatarHealth,
   blueAvatarTurn,
   proxyBlueAvatarAudio
@@ -2645,6 +2649,32 @@ async function route(req, res) {
         message: error?.message || String(error),
       });
     }
+    return;
+  }
+
+  if (pathname === "/api/echos/reference-image-generation" && req.method === "GET") {
+    try {
+      sendJson(res, 200, await readEchoReferenceImageGenerationStatus());
+    } catch (error) {
+      sendJson(res, 500, { ok: false, error: "echo_reference_image_generation_status_failed", message: error?.message || String(error) });
+    }
+    return;
+  }
+
+  if (pathname.startsWith("/api/echos/reference-image-generation/assets/") && req.method === "GET") {
+    const jobId = decodeURIComponent(pathname.slice("/api/echos/reference-image-generation/assets/".length));
+    const asset = await resolveEchoReferenceImageAsset(jobId).catch(() => null);
+    if (!asset) {
+      sendJson(res, 404, { ok: false, error: "echo_reference_image_asset_not_found" });
+      return;
+    }
+    res.writeHead(200, {
+      "Content-Type": asset.mimeType,
+      "Content-Length": asset.size,
+      "Cache-Control": "private, max-age=60",
+      "X-Content-Type-Options": "nosniff",
+    });
+    streamFileToResponse(req, res, asset.filePath);
     return;
   }
 

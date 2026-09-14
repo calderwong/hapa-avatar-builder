@@ -8,6 +8,7 @@ import {
 import { addSongKnowledgeEntry, markSongResearchReference } from "../domain/song-knowledge.js";
 import EchoTarotGenerationMonitor from "./EchoTarotGenerationMonitor.jsx";
 import EchoTarotImagePromptReview from "./EchoTarotImagePromptReview.jsx";
+import EchoReferenceImagePromptReview from "./EchoReferenceImagePromptReview.jsx";
 
 function mediaUri(apiBase, uri = "") {
   if (!uri || /^(data:|blob:|https?:)/.test(uri)) return uri;
@@ -25,7 +26,7 @@ function fileDataUrl(file) {
   });
 }
 
-function EntryList({ title, entries = [], onEdit = () => {} }) {
+function EntryList({ title, entries = [], onEdit = null }) {
   return (
     <section className="echo-notebook-entry-list">
       <h5>{title} <span>{entries.length}</span></h5>
@@ -35,7 +36,7 @@ function EntryList({ title, entries = [], onEdit = () => {} }) {
           {entry.futureUse && <small>Future use: {entry.futureUse}</small>}
           {entry.relatedFeature && <small>Connect later: {entry.relatedFeature}</small>}
           <em>{entry.authorName || entry.authorType} · {entry.createdAt || "saved"}</em>
-          <button type="button" className="echo-notebook-edit" onClick={() => onEdit(entry)}><Pencil size={11} /> Edit</button>
+          {onEdit && <button type="button" className="echo-notebook-edit" onClick={() => onEdit(entry)}><Pencil size={11} /> Edit</button>}
         </article>
       ))}
       {!entries.length && <p className="echo-ref-empty">Nothing recorded yet.</p>}
@@ -96,7 +97,7 @@ export default function EchoSongNotebook({ apiBase = "", songId = "", onNotice =
   }, [apiBase, load, onNotice]);
 
   const song = payload?.song || null;
-  const knowledge = song?.knowledge || { notes: [], anecdotes: [], lessons: [], researchReferences: [] };
+  const knowledge = song?.knowledge || { understandings: [], notes: [], anecdotes: [], lessons: [], tarotRationales: [], researchReferences: [], songConnections: [], referenceImagePrompts: [], passProvenance: [] };
   const linkedAvatarIds = useMemo(() => new Set((song?.attachments?.avatarLinks || []).map((link) => link.avatarId)), [song?.attachments?.avatarLinks]);
   const manualTarotLinks = (song?.attachments?.cardLinks || []).filter((link) => link.role === "tarot-song-correspondence");
   const creativeAnchors = (song?.media || []).filter((asset) => asset.creativeAnchor || asset.role === "creative-visual-anchor");
@@ -115,7 +116,7 @@ export default function EchoSongNotebook({ apiBase = "", songId = "", onNotice =
       createdAt: entry.createdAt,
       updatedAt: new Date().toISOString(),
     });
-    void commitSong(next, `${entry.kind === "lesson" ? "Lesson" : entry.kind === "anecdote" ? "Anecdote" : "Note"} saved for ${song.title}.`);
+    void commitSong(next, `${entry.kind === "lesson" ? "Lesson" : entry.kind === "anecdote" ? "Anecdote" : entry.kind === "understanding" ? "Understanding" : "Note"} saved for ${song.title}.`);
     setEntry({ kind: entry.kind, body: "", futureUse: "", relatedFeature: "" });
   }
 
@@ -225,12 +226,13 @@ export default function EchoSongNotebook({ apiBase = "", songId = "", onNotice =
         <div><p>Durable Song Card context</p><h4><BookHeart size={17} /> {song.title} notebook</h4></div>
         <span><Save size={13} /> {saving ? "Saving…" : "Available to future humans and agents"}</span>
       </header>
+      {knowledge.passProvenance?.[0] && <aside className="echo-reference-run-line"><Sparkles size={12} /> Agent research pass: {knowledge.passProvenance[0].authorName} · {new Date(knowledge.passProvenance[0].authoredAt).toLocaleString()} · {knowledge.passProvenance[0].authority}</aside>}
       {error && <p className="echo-ref-feedback error" role="alert">{error}</p>}
 
       <nav className="echo-notebook-tabs" aria-label={`${song.title} notebook sections`}>
         {[
           ["overview", "At a glance", LayoutDashboard],
-          ["references", `References ${(knowledge.researchReferences || []).length}`, Link2],
+          ["references", `Research ${(knowledge.understandings || []).length + (knowledge.researchReferences || []).length}`, Link2],
           ["notes", `Notes & lessons ${(knowledge.notes || []).length + (knowledge.anecdotes || []).length + (knowledge.lessons || []).length}`, BookHeart],
           ["tarot", `Tarot logic ${(payload.tarotConnections || []).length + manualTarotLinks.length}`, Sparkles],
           ["anchors", `Anchors & cast ${creativeAnchors.length + linkedAvatarIds.size}`, ImageIcon],
@@ -240,8 +242,8 @@ export default function EchoSongNotebook({ apiBase = "", songId = "", onNotice =
       {view === "overview" && <div className="echo-notebook-overview">
         <section>
           <span><Link2 size={14} /> Research understanding</span>
-          <b>{(knowledge.researchReferences || []).length}</b>
-          <p>{knowledge.researchReferences?.[0]?.notes || knowledge.researchReferences?.[0]?.label || "No human research lead has been marked yet."}</p>
+          <b>{(knowledge.understandings || []).length}</b>
+          <p>{knowledge.understandings?.[0]?.body || knowledge.researchReferences?.[0]?.notes || "No research understanding has been recorded yet."}</p>
           <button type="button" onClick={() => setView("references")}>{knowledge.researchReferences?.length ? "Review and update" : "Add a reference"}</button>
         </section>
         <section>
@@ -259,7 +261,7 @@ export default function EchoSongNotebook({ apiBase = "", songId = "", onNotice =
         <section>
           <span><Sparkles size={14} /> Tarot rationale</span>
           <b>{(payload.tarotConnections || []).length + manualTarotLinks.length}</b>
-          <p>{payload.tarotConnections?.[0]?.logic || manualTarotLinks[0]?.reason || "No Tarot pairing is currently explained for this song."}</p>
+          <p>{knowledge.tarotRationales?.[0]?.body || payload.tarotConnections?.[0]?.logic || manualTarotLinks[0]?.reason || "No Tarot pairing is currently explained for this song."}</p>
           <button type="button" onClick={() => setView("tarot")}>See cards and logic</button>
         </section>
       </div>}
@@ -287,6 +289,13 @@ export default function EchoSongNotebook({ apiBase = "", songId = "", onNotice =
           ))}
           {!knowledge.researchReferences?.length && <p className="echo-ref-empty">No human-marked research references yet.</p>}
         </section>
+        <EntryList title="Research understandings" entries={knowledge.understandings} onEdit={editEntry} />
+        <section className="echo-notebook-reference-list">
+          <h5>Searchable song connections</h5>
+          {(knowledge.songConnections || []).map((item) => <article key={item.id}><strong>#{item.trackNumber} · {item.songTitle}</strong><p>{item.reason}</p><em>{(item.relationTypes || []).join(" · ")}</em></article>)}
+          {!knowledge.songConnections?.length && <p className="echo-ref-empty">No cross-song research connections recorded yet.</p>}
+        </section>
+        <EchoReferenceImagePromptReview apiBase={apiBase} songId={song.id} prompts={knowledge.referenceImagePrompts || []} onNotice={onNotice} />
       </div>}
 
       {view === "notes" && <>
@@ -294,6 +303,7 @@ export default function EchoSongNotebook({ apiBase = "", songId = "", onNotice =
           <form onSubmit={submitEntry}>
             <h5>Notes, anecdotes & lessons</h5>
             <select value={entry.kind} disabled={Boolean(entry.id)} onChange={(event) => setEntry((current) => ({ ...current, kind: event.target.value }))}>
+              <option value="understanding">Research understanding</option>
               <option value="note">Free-text note</option>
               <option value="anecdote">Anecdote</option>
               <option value="lesson">Lesson / teaching</option>
@@ -308,7 +318,7 @@ export default function EchoSongNotebook({ apiBase = "", songId = "", onNotice =
           </form>
           <section className="echo-notebook-understanding-guide">
             <h5><Lightbulb size={13} /> What future readers receive</h5>
-            <p><b>Notes</b> hold open-ended context. <b>Anecdotes</b> preserve lived stories. <b>Lessons</b> carry an intended teaching plus its future use and feature connection.</p>
+            <p><b>Understandings</b> separate evidence from interpretation. <b>Notes</b> hold open-ended context. <b>Anecdotes</b> preserve lived stories or clearly labeled questions. <b>Lessons</b> carry an intended teaching plus its future use and feature connection.</p>
           </section>
         </div>
         <div className="echo-song-notebook-grid echo-notebook-history">
@@ -337,7 +347,8 @@ export default function EchoSongNotebook({ apiBase = "", songId = "", onNotice =
       </div>}
 
       {view === "tarot" && <section className="echo-notebook-tarot">
-        <header><div><h5><Sparkles size={13} /> Tarot ↔ song logic</h5><p>The attached Echoes from Other Eras mapping is shown as an editorial proposal, never silent canon.</p></div><span>{payload.tarotConnections?.length || 0} supplied · {manualTarotLinks.length} human</span></header>
+        <header><div><h5><Sparkles size={13} /> Tarot ↔ song logic</h5><p>The attached Echoes from Other Eras mapping and later agent/human additions remain reviewable proposals, never silent canon.</p></div><span>{payload.tarotConnections?.length || 0} supplied · {manualTarotLinks.length} later additions</span></header>
+        <EntryList title="Agent-authored Tarot rationale" entries={knowledge.tarotRationales} />
         <aside className="echo-tarot-prompt-summary">
           <div><ImageIcon size={14} /><strong>GPT Image 2.5 Sunburst prompt review</strong></div>
           <p>Prompt v2 gives every Tarot Card + Song pairing three scene-first drafts—Hapa Main Man, Hapa Main Woman, and both as a couple—plus a visual thesis and human review checklist. Review or copy them here before any future image-generation run.</p>
@@ -352,7 +363,8 @@ export default function EchoSongNotebook({ apiBase = "", songId = "", onNotice =
           {manualTarotLinks.map((link) => {
             const alreadySupplied = (payload.tarotConnections || []).some((connection) => connection.cardId === link.cardId);
             const promptSet = tarotImagePrompts.find((set) => set.cardId === link.cardId);
-            return <article key={link.cardId} data-human="true"><span>Human-added connection</span><h5>{link.cardTitle}</h5><p>{link.reason}</p><button type="button" className="echo-notebook-edit" onClick={() => setCardDraft({ cardId: link.cardId, logic: link.reason || "" })}><Pencil size={11} /> Edit human rationale</button>{promptSet && !alreadySupplied && <EchoTarotImagePromptReview promptSet={promptSet} onNotice={onNotice} />}</article>;
+            const agentAuthored = link.tags?.includes("agent-authored-logic");
+            return <article key={link.cardId} data-human={!agentAuthored}><span>{agentAuthored ? "OpenAI Codex proposal" : "Human-added connection"}</span><h5>{link.cardTitle}</h5><p>{link.reason}</p><button type="button" className="echo-notebook-edit" onClick={() => setCardDraft({ cardId: link.cardId, logic: link.reason || "" })}><Pencil size={11} /> Edit rationale</button>{promptSet && !alreadySupplied && <EchoTarotImagePromptReview promptSet={promptSet} onNotice={onNotice} />}</article>;
           })}
         </div>
         <form onSubmit={submitCard}>

@@ -16,6 +16,9 @@ test("References embeds the durable song notebook", () => {
   assert.match(notebook, /Characters from the Hapa avatar pool/);
   assert.match(notebook, /Creative \/ visual anchors/);
   assert.match(notebook, /Tarot ↔ song logic/);
+  assert.match(notebook, /Agent research pass/);
+  assert.match(notebook, /Searchable song connections/);
+  assert.match(notebook, /EchoReferenceImagePromptReview/);
   assert.match(notebook, /Add card with logic/);
   assert.match(notebook, /GPT Image 2\.5 Sunburst prompt review/);
   assert.match(notebook, /tarotImagePrompts/);

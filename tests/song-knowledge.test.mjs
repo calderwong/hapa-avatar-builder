@@ -6,11 +6,13 @@ import { buildSongContextPacket } from "../src/domain/song-context-packet.js";
 
 test("song knowledge preserves free notes, anecdotes, lessons, and marked research URLs", () => {
   let song = normalizeHapaSong({ id: "song-one", title: "One" });
+  song = addSongKnowledgeEntry(song, "understanding", { body: "The rain is evidence, not a verdict." });
   song = addSongKnowledgeEntry(song, "note", { body: "Keep the pause before the last refrain." });
   song = addSongKnowledgeEntry(song, "anecdote", { body: "The first demo was recorded during a rainstorm." });
   song = addSongKnowledgeEntry(song, "lesson", { body: "Listening is an action.", futureUse: "Use this in a future dialogue mechanic.", relatedFeature: "relationship-memory" });
   song = markSongResearchReference(song, { label: "Rain as memory", url: "https://example.com/rain", notes: "Compare visual language later." });
   assert.equal(song.knowledge.notes.length, 1);
+  assert.equal(song.knowledge.understandings[0].kind, "understanding");
   assert.equal(song.knowledge.anecdotes[0].kind, "anecdote");
   assert.equal(song.knowledge.lessons[0].futureUse, "Use this in a future dialogue mechanic.");
   assert.equal(song.knowledge.researchReferences[0].status, "marked-for-research");
