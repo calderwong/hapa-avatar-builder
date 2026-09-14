@@ -321,6 +321,55 @@ test("Reference Atlas budget mode auto-starts only affordable jobs and records t
   assert.equal(requests.length, 5);
 });
 
+test("Reference Atlas budget mode incrementally consumes images appended to the same live source run", async () => {
+  const temporaryRoot = await mkdtemp(path.join(os.tmpdir(), "hapa-echo-reference-live-loops-"));
+  const userDataPath = path.join(temporaryRoot, "user-data");
+  const source = await sourceRun(userDataPath, 1, REFERENCE_ATLAS_LOOP_PROFILE.imageRunsDirectory, ["First"]);
+  const requests = [];
+  const runner = createEchoTarotLoopGeneration({
+    userDataPath,
+    profile: REFERENCE_ATLAS_LOOP_PROFILE,
+    maxSpendUsd: 0.10,
+    localConcurrency: 2,
+    sleep: async () => {},
+    credentialStore: {
+      status: async () => ({ providers: [{ id: "fal", configured: true }] }),
+      read: async () => "fal-test-id:fal-test-secret-value",
+    },
+    falClientFactory: () => fakeFalClient(requests),
+    mediaPostprocessor: async ({ bytes }) => ({ bytes, metadata: { audioRemoved: true, targetDurationSeconds: 5 } }),
+    fetchImpl: async () => ({ ok: true, status: 200, arrayBuffer: async () => Buffer.from("video") }),
+  });
+
+  await runner.start();
+  await runner._active();
+  const imageRoot = path.join(userDataPath, REFERENCE_ATLAS_LOOP_PROFILE.imageRunsDirectory, source.runId);
+  const imageManifestPath = path.join(imageRoot, "manifest.json");
+  const imageManifest = JSON.parse(await readFile(imageManifestPath, "utf8"));
+  const secondImagePath = path.join(imageRoot, "outputs", "second.png");
+  await writeFile(secondImagePath, Buffer.from("source-card-second"));
+  imageManifest.jobs.push({
+    id: "image-job-second",
+    songId: "song-second",
+    songTitle: "Song Second",
+    trackNumber: 2,
+    referenceId: "R02",
+    referenceTitle: "Second",
+    status: "completed",
+    outputPath: secondImagePath,
+    outputSha256: "sha256:source-second",
+  });
+  await writeFile(imageManifestPath, JSON.stringify(imageManifest));
+
+  await runner.start();
+  await runner._active();
+  const status = await runner.status();
+  assert.equal(status.counts.total, 2);
+  assert.equal(status.counts.completed, 2);
+  assert.equal(status.budget.plannedSpendUsd, 0.10);
+  assert.equal(requests.length, 2);
+});
+
 test("public status distinguishes provider inference from end-to-end throughput", () => {
   const manifest = {
     schemaVersion: "hapa.echo-tarot-loop-generation.v1",

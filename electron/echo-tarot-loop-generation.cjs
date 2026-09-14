@@ -567,6 +567,35 @@ function createEchoTarotLoopGeneration({
     return manifest;
   }
 
+  async function reconcileIncrementalSource(manifest, source) {
+    if (!resolvedProfile.autoStartFull || !manifest || !source || manifest.sourceImageRunId !== source.runId) return 0;
+    const existingIds = new Set(manifest.jobs.map((job) => job.id));
+    const incoming = flattenLoopJobs(source, resolvedProfile).filter((job) => !existingIds.has(job.id));
+    if (!incoming.length) return 0;
+    const unitCostUsd = Number(manifest.budget?.unitCostUsd || (DURATION_SECONDS * PROMOTIONAL_PRICE_PER_SECOND_USD));
+    const hardLimitValue = manifest.budget?.hardLimitUsd;
+    const hardLimitUsd = Number(hardLimitValue);
+    const hasBudgetCap = hardLimitValue !== null && hardLimitValue !== undefined && Number.isFinite(hardLimitUsd);
+    const alreadyEligible = manifest.jobs.filter((job) => job.status !== "held").length;
+    const availableSlots = hasBudgetCap
+      ? Math.max(0, Math.floor(((hardLimitUsd - (alreadyEligible * unitCostUsd)) + 1e-9) / unitCostUsd))
+      : incoming.length;
+    manifest.jobs.push(...incoming.map((job, index) => ({ ...job, status: index < availableSlots ? "queued" : "held" })));
+    const eligibleJobs = manifest.jobs.filter((job) => job.status !== "held").length;
+    manifest.budget = {
+      ...(manifest.budget || {}),
+      hardLimitUsd: hasBudgetCap ? hardLimitUsd : null,
+      unitCostUsd,
+      eligibleJobs,
+      plannedSpendUsd: Number((eligibleJobs * unitCostUsd).toFixed(4)),
+      heldForBudget: manifest.jobs.filter((job) => job.status === "held").length,
+    };
+    manifest.state = manifest.jobs.some((job) => job.status === "queued") ? "queued" : manifest.state;
+    manifest.finishedAt = manifest.jobs.some((job) => job.status === "queued") ? "" : manifest.finishedAt;
+    await saveManifest(manifest);
+    return incoming.length;
+  }
+
   async function downloadOutput(url) {
     const safeUrl = validateFalMediaUrl(url, "video output");
     let lastError;
@@ -809,9 +838,13 @@ function createEchoTarotLoopGeneration({
   async function start() {
     const source = await loadImageManifest();
     const current = await loadCurrentManifest();
-    if (current && current.sourceImageRunId === source?.runId) return publicStatus(current, {
-      credentialConfigured: await credentialConfigured(), sourceAvailable: Boolean(source), profile: resolvedProfile,
-    });
+    if (current && current.sourceImageRunId === source?.runId) {
+      await reconcileIncrementalSource(current, source);
+      if (current.jobs.some((job) => job.status === "queued" || (job.status === "in_queue" && job.requestId))) launchQueue();
+      return publicStatus(current, {
+        credentialConfigured: await credentialConfigured(), sourceAvailable: Boolean(source), profile: resolvedProfile,
+      });
+    }
     const manifest = await createManifest();
     launchQueue();
     return publicStatus(manifest, { credentialConfigured: true, sourceAvailable: true, profile: resolvedProfile });

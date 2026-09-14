@@ -78,6 +78,23 @@ To attach a loop automatically:
 3. Every completed loop job must identify the exact image `sourceJobId`, its own stable `id`, a durable `outputPath`, output hash, and completion timestamp.
 4. Do not join by title or filename. Those are presentation fields and may collide.
 
+## Live Codex → FAL handoff
+
+`scripts/echo-codex-live-media-pipeline.mjs` is the resumable bridge for prompts
+produced while the local Echo intelligence drain is still running. It polls the
+current intelligence manifest, accepts only concepts that passed the prompt
+quality gate, excludes prompt IDs already backed by retained imagery, and stages
+each remaining concept as a Codex built-in GPT Image claim. A completed import
+writes a normal `Echo Reference Image Runs` manifest, so it appears here without
+a special client path.
+
+The matching `reference-atlas` FAL runner now reconciles newly completed images
+into the same loop run whenever it is invoked again. It preserves the original
+still as both loop endpoints, enforces the run's cumulative dollar ceiling, and
+joins motion back to the exact `sourceImageRunId + sourceJobId`. See
+`docs/ECHO_CODEX_LIVE_MEDIA_PIPELINE.md` for commands, automation, provenance,
+budget, and recovery rules.
+
 If a future provider writes to a different root or schema, extend `server/echo-reference-media-library.mjs` with an explicit adapter and a behavioral test. Do not teach the client to walk provider-specific directories.
 
 ## Verification
