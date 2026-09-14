@@ -64,8 +64,13 @@ function deterministicIndex(value, length) {
 }
 
 async function avatarReferencesFor(concept, job) {
-  const searchable = `${concept.characterUse || ""} ${concept.imagePrompt || ""} ${concept.title || ""}`;
-  const explicit = AVATARS.filter((avatar) => new RegExp(`\\b(?:Hapa\\s+)?${avatar.name}\\b`, "i").test(searchable));
+  const characterUse = String(concept.characterUse || "");
+  const searchable = `${characterUse} ${concept.imagePrompt || ""} ${concept.title || ""}`;
+  const explicit = AVATARS.filter((avatar) => {
+    if (new RegExp(`\\bHapa\\s+${avatar.name}\\b`, "i").test(searchable)) return true;
+    if (!["Red", "Blue", "Green"].includes(avatar.name) && new RegExp(`\\b${avatar.name}\\b`, "i").test(searchable)) return true;
+    return new RegExp(`(?:^|[,/&+]\\s*)${avatar.name}(?:\\s|$)`, "i").test(characterUse);
+  });
   let selected = explicit;
   if (!selected.length) {
     const first = deterministicIndex(concept.id || job.id, AVATARS.length);
@@ -174,7 +179,20 @@ async function sync() {
       }
     }
   }
-  const jobs = [...candidates.values()].map((job) => priorByPrompt.get(job.promptId) || job)
+  const jobs = [...candidates.values()].map((job) => {
+    const prior = priorByPrompt.get(job.promptId);
+    if (!prior) return job;
+    if (prior.status === "completed") return prior;
+    return {
+      ...job,
+      ...prior,
+      prompt: job.prompt,
+      promptHash: job.promptHash,
+      generationPrompt: job.generationPrompt,
+      generationPromptHash: job.generationPromptHash,
+      avatarReferences: job.avatarReferences,
+    };
+  })
     .concat((previous?.jobs || []).filter((job) => !candidates.has(job.promptId) && ["completed", "running", "failed"].includes(job.status)))
     .sort((left, right) => left.trackNumber - right.trackNumber || left.promptId.localeCompare(right.promptId));
   const now = new Date().toISOString();
