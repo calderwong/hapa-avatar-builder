@@ -56,3 +56,15 @@ npm run build
 The first live pilot used `gpt-5.2` with high reasoning after real Responses API probes showed that the configured OpenAI project advertised but could not invoke `gpt-5.5`. The live-access probe is now the authority for model selection.
 
 The first corrected expansion produced 690 additive concepts across 158 processed connections before the OpenAI project reached its enforced spend limit. A corpus audit retained all concepts, marked 639 ready and 51 needs revision, and recorded an overall authored average of 4.54/5. The manifest remains resumable; no incomplete or weaker concept was discarded.
+
+## Image-only budget runs
+
+The reference-image runner supports an explicit hard-cap mode:
+
+```bash
+npm run echo:reference-images:budget -- 14.42
+```
+
+Budget mode makes only GPT Image requests—never Responses/text-model requests. It prioritizes the first approved concept for each available song/reference connection before later variants, dispatches at up to 24 concurrent requests, records actual response usage, and reserves `$0.05` for every in-flight image before admitting it. When the remaining allowance is smaller than the reservation, all undispatched prompts become held rather than silently exceeding the cap.
+
+The 2026-09-13 image-only run completed 336 high-quality 1024×1536 GPT-Image-2.5 Sunburst images in 549.971 seconds for an estimated `$14.370330`. Two prompts were rejected by the safety service without recorded image usage; 301 approved prompts remain held. The final estimated headroom was `$0.049670`.

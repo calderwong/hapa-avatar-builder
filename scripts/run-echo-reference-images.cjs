@@ -6,7 +6,7 @@ const { createEchoReferenceImageGeneration } = require("../electron/echo-referen
 
 const ROOT = path.resolve(__dirname, "..");
 const command = String(process.argv[2] || "status").trim().toLowerCase();
-const allowed = new Set(["status", "pilot", "refresh-pilot", "full", "resume"]);
+const allowed = new Set(["status", "pilot", "refresh-pilot", "full", "resume", "budget"]);
 
 function loopbackApiBase(value) {
   const url = new URL(value || "http://127.0.0.1:8797");
@@ -29,12 +29,13 @@ function summary(status) {
     concurrency: status.concurrency,
     performance: status.performance,
     usage: status.usage,
+    budget: status.budget,
     blocker: status.blocker || null,
   };
 }
 
 async function main() {
-  if (!allowed.has(command)) throw new Error(`Unknown command “${command}”. Use status, pilot, refresh-pilot, full, or resume.`);
+  if (!allowed.has(command)) throw new Error(`Unknown command “${command}”. Use status, pilot, refresh-pilot, full, resume, or budget.`);
   app.setName("hapa-avatar-builder");
   app.setPath("userData", path.join(app.getPath("appData"), "hapa-avatar-builder"));
   await app.whenReady();
@@ -42,7 +43,12 @@ async function main() {
   const runner = createEchoReferenceImageGeneration({ userDataPath: app.getPath("userData"), credentialStore, pilotConcurrency: 6, fullConcurrency: 12, pilotCount: 6 });
   const apiBase = loopbackApiBase(process.env.HAPA_AVATAR_API_BASE);
   let status = await runner.status();
-  if (command === "pilot") {
+  if (command === "budget") {
+    const budgetUsd = Number(process.argv[3]);
+    status = await runner.startBudget({ apiBase, budgetUsd });
+    await runner._active();
+    status = await runner.status();
+  } else if (command === "pilot") {
     if (status.state !== "not-started") throw new Error(`A current run already exists in state “${status.state}”; inspect it before replacing it.`);
     status = await runner.start({ apiBase });
     await runner._active();

@@ -16,6 +16,7 @@ const CURRENT_FILENAME = "current-run.json";
 const MANIFEST_FILENAME = "manifest.json";
 const SIZE = "1024x1536";
 const QUALITY = "high";
+const DEFAULT_BUDGET_RESERVATION_USD = 0.05;
 const SUNBURST_MODELS = [MODEL, MODEL_SNAPSHOT];
 const FLARE_MODELS = [FALLBACK_MODEL, FALLBACK_MODEL_SNAPSHOT];
 
@@ -96,6 +97,7 @@ function publicStatus(manifest, credentialConfigured = false) {
     concurrency: { pilot: 6, full: 12, active: 0 },
     performance: { elapsedSeconds: 0, completedPerMinute: 0, medianRequestSeconds: 0, p95RequestSeconds: 0, rateLimitEvents: 0, retryEvents: 0 },
     usage: { estimatedCostUsd: 0, currency: "USD" },
+    budget: null,
     jobs: [],
   };
   const counts = { total: manifest.jobs.length, held: 0, queued: 0, running: 0, completed: 0, failed: 0 };
@@ -136,6 +138,10 @@ function publicStatus(manifest, credentialConfigured = false) {
       retryEvents: Number(manifest.performance?.retryEvents || 0),
     },
     usage: { estimatedCostUsd: Number(cost.toFixed(6)), currency: "USD", pricingBasis: COST_PER_MILLION },
+    budget: manifest.budget ? {
+      ...manifest.budget,
+      remainingEstimatedUsd: Number(Math.max(0, Number(manifest.budget.limitUsd || 0) - cost).toFixed(6)),
+    } : null,
     blocker: manifest.blocker || null,
     jobs: manifest.jobs.map(publicJob),
   };
@@ -177,7 +183,7 @@ function flattenIntelligenceJobs(intelligenceManifest = {}) {
   const seen = new Set();
   for (const songJob of intelligenceManifest.jobs || []) {
     for (const connection of songJob.plan?.connections || []) {
-      for (const concept of connection.concepts || []) {
+      for (const [conceptIndex, concept] of (connection.concepts || []).entries()) {
         if (!concept.id || !concept.imagePrompt || !concept.qualityAssessment?.ready || seen.has(concept.id)) continue;
         seen.add(concept.id);
         jobs.push({
@@ -198,6 +204,7 @@ function flattenIntelligenceJobs(intelligenceManifest = {}) {
           memoryHook: concept.memoryHook || "",
           retrievalTags: concept.retrievalTags || [],
           qualityAssessment: concept.qualityAssessment,
+          conceptOrdinal: conceptIndex + 1,
           status: "queued",
           attemptCount: 0,
           outputPath: "",
@@ -208,6 +215,13 @@ function flattenIntelligenceJobs(intelligenceManifest = {}) {
     }
   }
   return jobs.sort((left, right) => left.trackNumber - right.trackNumber || left.referenceId.localeCompare(right.referenceId) || left.promptId.localeCompare(right.promptId));
+}
+
+function prioritizeCoverageJobs(jobs = []) {
+  return [...jobs].sort((left, right) => Number(left.conceptOrdinal || 1) - Number(right.conceptOrdinal || 1)
+    || left.trackNumber - right.trackNumber
+    || left.referenceId.localeCompare(right.referenceId)
+    || left.promptId.localeCompare(right.promptId));
 }
 
 function selectPilotJobs(jobs = [], count = 6) {
@@ -319,11 +333,12 @@ function createEchoReferenceImageGeneration({
     return { payload, jobs };
   }
 
-  async function createManifest(apiBase) {
+  async function createManifest(apiBase, { mode = "pilot", budgetUsd = 0, reservationPerImageUsd = DEFAULT_BUDGET_RESERVATION_USD } = {}) {
     if (!await credentialConfigured()) throw generationError("openai_key_missing", "Add an OpenAI API key in Provider API keys before starting generation.");
     const apiKey = await credentialStore.read("openai");
     const selectedModel = await resolveAvailableModel(apiKey);
-    const { payload, jobs } = await loadAlbumPrompts(apiBase);
+    const { payload, jobs: loadedJobs } = await loadAlbumPrompts(apiBase);
+    const jobs = mode === "budget" ? prioritizeCoverageJobs(loadedJobs) : loadedJobs;
     const pilot = selectPilotJobs(jobs, pilotCount);
     const pilotIds = new Set(pilot.map((job) => job.id));
     const createdAt = now().toISOString();
@@ -334,7 +349,7 @@ function createEchoReferenceImageGeneration({
       schemaVersion: SCHEMA_VERSION,
       runId,
       passId: jobs[0]?.passId || "",
-      mode: "pilot",
+      mode,
       state: "queued",
       createdAt,
       updatedAt: createdAt,
@@ -352,7 +367,12 @@ function createEchoReferenceImageGeneration({
       performance: { rateLimitEvents: 0, retryEvents: 0 },
       album: { title: payload.album?.title || "Echo Album / Dear Papa", songCount: payload.songs?.length || 0, promptCount: jobs.length },
       custody: { storage: "local-app-data", repositoryWrites: false, credentialExposure: false, humanReviewRequired: true },
-      jobs: jobs.map((job) => ({ ...job, status: pilotIds.has(job.id) ? "queued" : "held" })),
+      budget: mode === "budget" ? {
+        limitUsd: Number(budgetUsd),
+        reservationPerImageUsd: Number(reservationPerImageUsd),
+        basis: "Hard local dispatch ceiling using a conservative per-image reservation; actual usage is recorded from each API response.",
+      } : null,
+      jobs: jobs.map((job) => ({ ...job, status: mode === "budget" || pilotIds.has(job.id) ? "queued" : "held" })),
     };
     await saveManifest(manifest);
     return manifest;
@@ -424,6 +444,12 @@ function createEchoReferenceImageGeneration({
     await persistManifest(manifest);
     async function worker() {
       while (!pauseRequested) {
+        if (manifest.budget) {
+          const spent = manifest.jobs.reduce((sum, item) => sum + Number(item.usage?.estimatedCostUsd || 0), 0);
+          const running = manifest.jobs.filter((item) => item.status === "running").length;
+          const reservation = Number(manifest.budget.reservationPerImageUsd || DEFAULT_BUDGET_RESERVATION_USD);
+          if (spent + ((running + 1) * reservation) > Number(manifest.budget.limitUsd || 0)) return;
+        }
         const job = manifest.jobs.find((item) => item.status === "queued");
         if (!job) return;
         job.status = "running";
@@ -453,8 +479,14 @@ function createEchoReferenceImageGeneration({
     await Promise.all(Array.from({ length: boundedConcurrency(manifest.concurrency.active) }, () => worker()));
     const remaining = manifest.jobs.some((job) => ["queued", "running"].includes(job.status));
     const failures = manifest.jobs.some((job) => job.status === "failed");
-    manifest.state = pauseRequested && remaining ? "paused" : manifest.mode === "pilot" ? (failures ? "pilot-complete-with-errors" : "pilot-complete") : (failures ? "complete-with-errors" : "complete");
-    if (!remaining) manifest.finishedAt = now().toISOString();
+    if (manifest.mode === "budget" && remaining && !pauseRequested) {
+      manifest.jobs = manifest.jobs.map((job) => job.status === "queued" ? { ...job, status: "held" } : job);
+      manifest.state = failures ? "budget-complete-with-errors" : "budget-complete";
+      manifest.finishedAt = now().toISOString();
+    } else {
+      manifest.state = pauseRequested && remaining ? "paused" : manifest.mode === "pilot" ? (failures ? "pilot-complete-with-errors" : "pilot-complete") : (failures ? "complete-with-errors" : "complete");
+      if (!remaining) manifest.finishedAt = now().toISOString();
+    }
     await persistManifest(manifest);
   }
 
@@ -468,6 +500,20 @@ function createEchoReferenceImageGeneration({
     if (current?.state === "running" || activePromise) return publicStatus(current, await credentialConfigured());
     if (current) throw generationError("generation_exists", `A current reference-image run already exists in state “${current.state}”.`);
     const manifest = await createManifest(apiBase);
+    launchQueue();
+    return publicStatus(manifest, true);
+  }
+
+  async function startBudget({ apiBase, budgetUsd, reservationPerImageUsd = DEFAULT_BUDGET_RESERVATION_USD } = {}) {
+    const limitUsd = Number(budgetUsd);
+    const reservation = Number(reservationPerImageUsd);
+    if (!apiBase) throw generationError("invalid_generation_request", "Choose a valid loopback Echo Album API.");
+    if (!Number.isFinite(limitUsd) || limitUsd <= 0) throw generationError("invalid_budget", "Choose a positive image-generation budget.");
+    if (!Number.isFinite(reservation) || reservation <= 0 || reservation > limitUsd) throw generationError("invalid_budget_reservation", "Choose a valid per-image reservation.");
+    if (activePromise) throw generationError("generation_busy", "The current request must finish before a budget run starts.");
+    const manifest = await createManifest(apiBase, { mode: "budget", budgetUsd: limitUsd, reservationPerImageUsd: reservation });
+    manifest.concurrency.active = 24;
+    await saveManifest(manifest);
     launchQueue();
     return publicStatus(manifest, true);
   }
@@ -551,7 +597,7 @@ function createEchoReferenceImageGeneration({
 
   async function status() { return publicStatus(await loadCurrentManifest(), await credentialConfigured()); }
 
-  return Object.freeze({ start, refreshPilot, continueFull, pause, resume, status, _active: () => activePromise });
+  return Object.freeze({ start, startBudget, refreshPilot, continueFull, pause, resume, status, _active: () => activePromise });
 }
 
-module.exports = { SCHEMA_VERSION, SIZE, QUALITY, createEchoReferenceImageGeneration, flattenJobs, flattenIntelligenceJobs, selectPilotJobs };
+module.exports = { SCHEMA_VERSION, SIZE, QUALITY, DEFAULT_BUDGET_RESERVATION_USD, createEchoReferenceImageGeneration, flattenJobs, flattenIntelligenceJobs, prioritizeCoverageJobs, selectPilotJobs };

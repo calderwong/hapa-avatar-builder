@@ -121,6 +121,7 @@
     "echo:reference-images:refresh-pilot": "electron scripts/run-echo-reference-images.cjs refresh-pilot",
     "echo:reference-images:full": "electron scripts/run-echo-reference-images.cjs full",
     "echo:reference-images:resume": "electron scripts/run-echo-reference-images.cjs resume",
+    "echo:reference-images:budget": "electron scripts/run-echo-reference-images.cjs budget",
     "echo:reference-intelligence:status": "electron scripts/run-echo-reference-intelligence.cjs status",
     "echo:reference-intelligence:pilot": "electron scripts/run-echo-reference-intelligence.cjs pilot",
     "echo:reference-intelligence:full": "electron scripts/run-echo-reference-intelligence.cjs full",
