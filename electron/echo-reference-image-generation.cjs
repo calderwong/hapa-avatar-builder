@@ -172,6 +172,44 @@ function flattenJobs(albumPayload = {}) {
   return jobs.sort((left, right) => left.trackNumber - right.trackNumber || left.referenceId.localeCompare(right.referenceId));
 }
 
+function flattenIntelligenceJobs(intelligenceManifest = {}) {
+  const jobs = [];
+  const seen = new Set();
+  for (const songJob of intelligenceManifest.jobs || []) {
+    for (const connection of songJob.plan?.connections || []) {
+      for (const concept of connection.concepts || []) {
+        if (!concept.id || !concept.imagePrompt || !concept.qualityAssessment?.ready || seen.has(concept.id)) continue;
+        seen.add(concept.id);
+        jobs.push({
+          id: `job:${sha256(concept.id).slice(7, 23)}`,
+          promptId: concept.id,
+          passId: intelligenceManifest.runId || "",
+          songId: songJob.songId,
+          songTitle: songJob.songTitle,
+          trackNumber: Number(songJob.trackNumber || 0),
+          referenceId: connection.referenceId || "",
+          referenceTitle: connection.referenceTitle || "Lyric-only visual intelligence",
+          evidenceClass: "reasoning-authored",
+          reviewPrompt: concept.foundationRationale || concept.memoryHook,
+          prompt: concept.imagePrompt,
+          promptHash: sha256(concept.imagePrompt),
+          intelligencePlanId: songJob.plan?.planId || "",
+          visualConceptTitle: concept.title || "",
+          memoryHook: concept.memoryHook || "",
+          retrievalTags: concept.retrievalTags || [],
+          qualityAssessment: concept.qualityAssessment,
+          status: "queued",
+          attemptCount: 0,
+          outputPath: "",
+          usage: null,
+          feedback: null,
+        });
+      }
+    }
+  }
+  return jobs.sort((left, right) => left.trackNumber - right.trackNumber || left.referenceId.localeCompare(right.referenceId) || left.promptId.localeCompare(right.promptId));
+}
+
 function selectPilotJobs(jobs = [], count = 6) {
   const preferred = [
     (job) => job.songTitle === "Miss Infinity" && job.referenceId === "R54",
@@ -211,6 +249,7 @@ function createEchoReferenceImageGeneration({
 } = {}) {
   if (!userDataPath || !credentialStore?.read || typeof fetchImpl !== "function") throw generationError("generation_boundary", "Reference image generation requires local app data, the encrypted credential store, and fetch.");
   const runsRoot = path.join(path.resolve(userDataPath), RUNS_DIRECTORY);
+  const intelligenceRunsRoot = path.join(path.resolve(userDataPath), "Echo Reference Intelligence Runs");
   const currentPointerPath = path.join(runsRoot, CURRENT_FILENAME);
   let activePromise = null;
   let pauseRequested = false;
@@ -266,7 +305,16 @@ function createEchoReferenceImageGeneration({
     const response = await fetchImpl(new URL("/api/echos/song-notebook", apiBase), { cache: "no-store" });
     if (!response.ok) throw generationError("prompt_corpus_unavailable", `The Echo Album prompt corpus could not be loaded (${response.status}).`, response.status);
     const payload = await response.json();
-    const jobs = flattenJobs(payload);
+    let jobs = [];
+    try {
+      const pointer = await readJson(path.join(intelligenceRunsRoot, CURRENT_FILENAME));
+      const manifestPath = path.join(intelligenceRunsRoot, pointer.runId, MANIFEST_FILENAME);
+      if (isInside(intelligenceRunsRoot, manifestPath)) {
+        const intelligenceManifest = await readJson(manifestPath);
+        if (["complete", "complete-with-errors"].includes(intelligenceManifest.state)) jobs = flattenIntelligenceJobs(intelligenceManifest);
+      }
+    } catch { /* The legacy staged corpus remains available until an intelligence pass completes. */ }
+    if (!jobs.length) jobs = flattenJobs(payload);
     if (!jobs.length) throw generationError("prompt_corpus_empty", "The Echo Album has no staged Reference Atlas image prompts.");
     return { payload, jobs };
   }
@@ -506,4 +554,4 @@ function createEchoReferenceImageGeneration({
   return Object.freeze({ start, refreshPilot, continueFull, pause, resume, status, _active: () => activePromise });
 }
 
-module.exports = { SCHEMA_VERSION, SIZE, QUALITY, createEchoReferenceImageGeneration, flattenJobs, selectPilotJobs };
+module.exports = { SCHEMA_VERSION, SIZE, QUALITY, createEchoReferenceImageGeneration, flattenJobs, flattenIntelligenceJobs, selectPilotJobs };

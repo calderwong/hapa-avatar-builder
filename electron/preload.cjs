@@ -33,6 +33,16 @@ contextBridge.exposeInMainWorld("hapaCredentials", Object.freeze({
   remove: (providerId) => ipcRenderer.invoke("hapa-credentials:remove", providerId)
 }));
 
+contextBridge.exposeInMainWorld("hapaEchoReferenceIntelligence", Object.freeze({
+  status: (payload) => ipcRenderer.invoke("hapa-echo-reference-intelligence:status", payload),
+  startPilot: () => ipcRenderer.invoke("hapa-echo-reference-intelligence:start-pilot"),
+  continueFull: () => ipcRenderer.invoke("hapa-echo-reference-intelligence:continue-full"),
+  refreshAll: () => ipcRenderer.invoke("hapa-echo-reference-intelligence:refresh-all"),
+  audit: () => ipcRenderer.invoke("hapa-echo-reference-intelligence:audit"),
+  pause: () => ipcRenderer.invoke("hapa-echo-reference-intelligence:pause"),
+  resume: () => ipcRenderer.invoke("hapa-echo-reference-intelligence:resume")
+}));
+
 contextBridge.exposeInMainWorld("hapaEchoTarotImages", Object.freeze({
   status: () => ipcRenderer.invoke("hapa-echo-tarot-images:status"),
   startPilot: () => ipcRenderer.invoke("hapa-echo-tarot-images:start-pilot"),

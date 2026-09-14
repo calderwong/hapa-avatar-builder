@@ -6,6 +6,7 @@ const fs = require("node:fs");
 const crypto = require("node:crypto");
 const { ensureLocalOvercardHost, probeOvercardHost } = require("@hapa/overcard/host");
 const { createProviderCredentialStore } = require("./provider-credential-store.cjs");
+const { createEchoReferenceIntelligence } = require("./echo-reference-intelligence.cjs");
 const { createEchoTarotImageGeneration } = require("./echo-tarot-image-generation.cjs");
 
 const HAS_SINGLE_INSTANCE_LOCK = app.requestSingleInstanceLock();
@@ -43,6 +44,7 @@ const DESKTOP_DEBUG = process.env.HAPA_AVATAR_DESKTOP_DEBUG === "1";
 let operatorConsoleServer = null;
 let windowCreationPromise = null;
 let providerCredentialStore = null;
+let echoReferenceIntelligence = null;
 let echoTarotImageGeneration = null;
 
 function overcardOrigins(rendererUrl = "") {
@@ -177,6 +179,17 @@ async function handleTarotGenerationOperation(event, operation) {
       code: error?.code || "tarot_image_operation_failed",
       message: String(error?.message || "The local Tarot image operation failed.").replace(/\bsk-[a-zA-Z0-9_-]{8,}\b/g, "[redacted]"),
     };
+  }
+}
+
+async function handleReferenceIntelligenceOperation(event, operation) {
+  if (!isTrustedCredentialSender(event)) return { ok: false, message: "Echo reference intelligence access was denied for this window." };
+  if (!echoReferenceIntelligence) return { ok: false, message: "The local Echo reference intelligence service is not ready." };
+  try {
+    return { ok: true, ...(await operation()) };
+  } catch (error) {
+    console.warn(`[Echo Reference Intelligence] ${error?.code || "operation_failed"}: ${String(error?.message || error).replace(/Bearer\s+[^\s"']+/gi, "Bearer [redacted]").replace(/\bsk-[a-zA-Z0-9_-]{8,}\b/g, "[redacted]")}`);
+    return { ok: false, code: error?.code || "reference_intelligence_operation_failed", message: String(error?.message || "The local Echo reference intelligence operation failed.").replace(/Bearer\s+[^\s"']+/gi, "Bearer [redacted]").replace(/\bsk-[a-zA-Z0-9_-]{8,}\b/g, "[redacted]") };
   }
 }
 
@@ -553,6 +566,12 @@ if (HAS_SINGLE_INSTANCE_LOCK) {
       repositoryRoot: ROOT,
       safeStorage,
     });
+    echoReferenceIntelligence = createEchoReferenceIntelligence({
+      userDataPath: app.getPath("userData"),
+      credentialStore: providerCredentialStore,
+      sourceSongbookPath: path.join(ROOT, "data", "dear-papa-songbook.json"),
+      concurrency: 12,
+    });
     echoTarotImageGeneration = createEchoTarotImageGeneration({
       userDataPath: app.getPath("userData"),
       credentialStore: providerCredentialStore,
@@ -564,6 +583,13 @@ if (HAS_SINGLE_INSTANCE_LOCK) {
     ipcMain.handle("hapa-credentials:status", (event) => handleCredentialOperation(event, async () => providerCredentialStore.status()));
     ipcMain.handle("hapa-credentials:save", (event, providerId, apiKey) => handleCredentialOperation(event, async () => ({ provider: await providerCredentialStore.save(providerId, apiKey) })));
     ipcMain.handle("hapa-credentials:remove", (event, providerId) => handleCredentialOperation(event, async () => ({ provider: await providerCredentialStore.remove(providerId) })));
+    ipcMain.handle("hapa-echo-reference-intelligence:status", (event, payload) => handleReferenceIntelligenceOperation(event, () => echoReferenceIntelligence.status(payload)));
+    ipcMain.handle("hapa-echo-reference-intelligence:start-pilot", (event) => handleReferenceIntelligenceOperation(event, () => echoReferenceIntelligence.start({ apiBase: desktopUrl, mode: "pilot" })));
+    ipcMain.handle("hapa-echo-reference-intelligence:continue-full", (event) => handleReferenceIntelligenceOperation(event, () => echoReferenceIntelligence.continueFull()));
+    ipcMain.handle("hapa-echo-reference-intelligence:refresh-all", (event) => handleReferenceIntelligenceOperation(event, () => echoReferenceIntelligence.refreshAll({ apiBase: desktopUrl })));
+    ipcMain.handle("hapa-echo-reference-intelligence:audit", (event) => handleReferenceIntelligenceOperation(event, () => echoReferenceIntelligence.audit()));
+    ipcMain.handle("hapa-echo-reference-intelligence:pause", (event) => handleReferenceIntelligenceOperation(event, () => echoReferenceIntelligence.pause()));
+    ipcMain.handle("hapa-echo-reference-intelligence:resume", (event) => handleReferenceIntelligenceOperation(event, () => echoReferenceIntelligence.resume()));
     ipcMain.handle("hapa-echo-tarot-images:status", (event) => handleTarotGenerationOperation(event, () => echoTarotImageGeneration.status()));
     ipcMain.handle("hapa-echo-tarot-images:start-pilot", (event) => handleTarotGenerationOperation(event, () => echoTarotImageGeneration.start({ apiBase: desktopUrl, mode: "pilot" })));
     ipcMain.handle("hapa-echo-tarot-images:continue-full", (event) => handleTarotGenerationOperation(event, () => echoTarotImageGeneration.continueFull({ apiBase: desktopUrl })));
