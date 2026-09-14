@@ -119,6 +119,10 @@ import {
   resolveEchoReferenceLoopAsset,
 } from "./echo-reference-loop-generation-status.mjs";
 import {
+  buildEchoReferenceMediaLibrary,
+  resolveEchoReferenceMediaAsset,
+} from "./echo-reference-media-library.mjs";
+import {
   blueAvatarHealth,
   blueAvatarTurn,
   proxyBlueAvatarAudio
@@ -2705,6 +2709,47 @@ async function route(req, res) {
       "X-Content-Type-Options": "nosniff",
     });
     streamFileToResponse(req, res, asset.filePath);
+    return;
+  }
+
+  if (pathname === "/api/echos/references/media-library" && req.method === "GET") {
+    try {
+      const payload = await buildEchoReferenceMediaLibrary(await echoReferenceMiningStore.gptImageLibrary());
+      const etag = `"${payload.digest}"`;
+      if (req.headers["if-none-match"] === etag) {
+        res.writeHead(304, { ETag: etag, "Cache-Control": "no-cache" });
+        res.end();
+        return;
+      }
+      res.setHeader("ETag", etag);
+      res.setHeader("Cache-Control", "no-cache");
+      sendJson(res, 200, payload);
+    } catch (error) {
+      sendJson(res, 500, { ok: false, error: "echo_reference_media_library_failed", message: error?.message || String(error) });
+    }
+    return;
+  }
+
+  const referenceMediaAssetMatch = pathname.match(/^\/api\/echos\/reference-media\/assets\/(image|loop)\/([^/]+)\/([^/]+)$/);
+  if (referenceMediaAssetMatch && ["GET", "HEAD"].includes(req.method)) {
+    const [, kind, encodedRunId, encodedJobId] = referenceMediaAssetMatch;
+    const asset = await resolveEchoReferenceMediaAsset(kind, decodeURIComponent(encodedRunId), decodeURIComponent(encodedJobId)).catch(() => null);
+    if (!asset) {
+      sendJson(res, 404, { ok: false, error: "echo_reference_media_asset_not_found" });
+      return;
+    }
+    const range = kind === "loop" ? parseRange(req.headers.range, asset.size) : null;
+    const headers = {
+      "Content-Type": asset.mimeType,
+      "Content-Length": range ? range.end - range.start + 1 : asset.size,
+      "Cache-Control": "private, max-age=60",
+      "X-Content-Type-Options": "nosniff",
+      ...(kind === "loop" ? { "Accept-Ranges": "bytes" } : {}),
+      ...(range ? { "Content-Range": `bytes ${range.start}-${range.end}/${asset.size}` } : {}),
+    };
+    res.writeHead(range ? 206 : 200, headers);
+    if (req.method === "HEAD") res.end();
+    else streamFileToResponse(req, res, asset.filePath, range || {});
     return;
   }
 
@@ -12278,7 +12323,7 @@ function setCors(req, res) {
   if (origin) res.setHeader("Access-Control-Allow-Origin", origin);
   res.setHeader("Vary", "Origin");
   res.setHeader("Access-Control-Allow-Methods", "GET,HEAD,POST,PUT,DELETE,OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Range, Authorization, Idempotency-Key, If-Match, If-Range");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Range, Authorization, Idempotency-Key, If-Match, If-None-Match, If-Range");
   return true;
 }
 

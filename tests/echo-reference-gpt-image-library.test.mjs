@@ -134,21 +134,25 @@ test("Reference Atlas exposes a complete searchable GPT Image-only gallery and l
   assert.match(api, /\/api\/echos\/references\/gpt-image-library/);
 });
 
-test("Reference Atlas exposes the latest generated API run as a first-class gallery ingress", async () => {
-  const [explorer, latestRun, api, loopStatus] = await Promise.all([
+test("Reference Atlas exposes every retained run through one auto-updating media gallery", async () => {
+  const [explorer, mediaLibrary, api, mediaIndex] = await Promise.all([
     fs.readFile(new URL("../src/components/EchoReferenceExplorer.jsx", import.meta.url), "utf8"),
-    fs.readFile(new URL("../src/components/EchoLatestReferenceRunGallery.jsx", import.meta.url), "utf8"),
+    fs.readFile(new URL("../src/components/EchoReferenceMediaLibrary.jsx", import.meta.url), "utf8"),
     fs.readFile(new URL("../server/api.mjs", import.meta.url), "utf8"),
-    fs.readFile(new URL("../server/echo-reference-loop-generation-status.mjs", import.meta.url), "utf8"),
+    fs.readFile(new URL("../server/echo-reference-media-library.mjs", import.meta.url), "utf8"),
   ]);
-  assert.match(explorer, /<EchoLatestReferenceRunGallery apiBase=\{apiBase\}/);
-  assert.match(latestRun, /Latest GPT Image run/);
-  assert.match(latestRun, /Open latest run gallery/);
-  assert.match(latestRun, /\/api\/echos\/reference-image-generation/);
-  assert.match(latestRun, /echo-latest-reference-run-grid/);
-  assert.match(latestRun, /EchoHoverLoopMedia/);
-  assert.match(latestRun, /\/api\/echos\/reference-loop-generation/);
-  assert.match(api, /\/api\/echos\/reference-loop-generation\/assets\//);
-  assert.match(loopStatus, /sourceJobId/);
-  assert.doesNotMatch(latestRun, /\.slice\(/, "the latest run gallery must not silently truncate generated images");
+  assert.match(explorer, /<EchoReferenceMediaLibrary/);
+  assert.match(mediaLibrary, /Consolidated Reference Media · auto-updating/);
+  assert.match(mediaLibrary, /All Reference Media/);
+  assert.match(mediaLibrary, /EchoHoverLoopMedia/);
+  assert.match(mediaLibrary, /Local manifests rescanned every 5 seconds while open/);
+  assert.match(mediaLibrary, /If-None-Match/);
+  assert.match(mediaLibrary, /View exact image prompt/);
+  assert.match(mediaLibrary, /Why it connects/);
+  assert.match(mediaLibrary, /data-testid="echo-reference-media-library-grid"/);
+  assert.doesNotMatch(mediaLibrary, /\.slice\(/, "the consolidated gallery must not silently truncate retained media");
+  assert.match(api, /\/api\/echos\/references\/media-library/);
+  assert.match(api, /reference-media\\\/assets\\\/\(image\|loop\)/);
+  assert.match(mediaIndex, /readRunManifests/);
+  assert.match(mediaIndex, /sourceImageRunId/);
 });

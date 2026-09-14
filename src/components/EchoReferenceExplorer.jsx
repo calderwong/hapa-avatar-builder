@@ -23,7 +23,7 @@ import {
   X,
 } from "lucide-react";
 import EchoReferenceGptImageLibrary from "./EchoReferenceGptImageLibrary.jsx";
-import EchoLatestReferenceRunGallery from "./EchoLatestReferenceRunGallery.jsx";
+import EchoReferenceMediaLibrary from "./EchoReferenceMediaLibrary.jsx";
 import EchoHoverLoopMedia from "./EchoHoverLoopMedia.jsx";
 import EchoSongNotebook from "./EchoSongNotebook.jsx";
 
@@ -1753,7 +1753,16 @@ export default function EchoReferenceExplorer({
             : "review state does not hide previews"}
         </em>
       </div>
-      <EchoLatestReferenceRunGallery apiBase={apiBase} />
+      <EchoReferenceMediaLibrary
+        apiBase={apiBase}
+        onOpenCard={(item) => {
+          const songId = String(item.songs?.[0]?.id || "");
+          if (songId) setSelectedSongId(songId);
+          if (item.atlasCardId) setFocusedCardId(item.atlasCardId);
+          setShowCandidates(true);
+          setMode("explore");
+        }}
+      />
       <EchoReferenceGptImageLibrary
         apiBase={apiBase}
         open={showGptImageLibrary}

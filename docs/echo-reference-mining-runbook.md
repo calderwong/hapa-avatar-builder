@@ -21,6 +21,14 @@ Visibility answers **“what am I reviewing?”** Approval answers **“where ma
 - A stale Card/media revision binding is not shown as current media.
 - Generated media is never identity truth merely because it can be previewed.
 
+## Open the consolidated media library
+
+In the current Hapa Avatar Builder, open **Echo Album → Reference Atlas**, then use the gold **Consolidated Reference Media · auto-updating** ingress directly below the Atlas header. This is the canonical album-wide visual inventory. It combines the durable Reference Atlas media catalog with every retained Echo Reference Image Run and joins every matching Echo Reference Loop Run.
+
+The open library rescans local manifests every five seconds; the closed ingress refreshes every twenty seconds. New completed jobs therefore appear without an app reload. Hover any visual that has a loop to play it, and click a tile to open the large preview, reference rationale, lyric/source context, quality assessment, exact prompt, provenance, and workbench route.
+
+Do not build a run-specific replacement gallery. A new generator must write a durable manifest and output files under the supported local run roots, using stable run/job IDs and an explicit source-image job binding for loops. See [`ECHO_REFERENCE_MEDIA_LIBRARY.md`](./ECHO_REFERENCE_MEDIA_LIBRARY.md) for the endpoint, manifest contract, extension checklist, and verification procedure.
+
 To plan or apply an explicit Human-owner batch decision:
 
 ```sh
