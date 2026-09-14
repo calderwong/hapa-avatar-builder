@@ -88,6 +88,8 @@ function legacyItem(item = {}) {
 }
 
 function generatedItem(manifest, job, loop) {
+  const codexBuiltIn = text(manifest.provider) === "codex-image-generation-tool"
+    || text(manifest.mode).includes("codex-built-in");
   const referenceId = text(job.referenceId || job.promptId || job.id);
   const referenceTitle = text(job.referenceTitle) || referenceId;
   const conceptTitle = text(job.visualConceptTitle) || referenceTitle;
@@ -100,7 +102,7 @@ function generatedItem(manifest, job, loop) {
     referenceTitle,
     summary: text(quality?.evidenceSummary || job.reviewPrompt || job.memoryHook || referenceTitle),
     songs: [{ id: text(job.songId), title: text(job.songTitle) || text(job.songId), trackNumber: Number(job.trackNumber || 0) || null }],
-    image: { uri: generatedImageHref(manifest.runId, job.id), hash: text(job.outputSha256) },
+    image: { uri: generatedImageHref(manifest.runId, job.id), hash: text(job.outputSha256 || job.outputHash) },
     loopVideo: loop ? { uri: generatedLoopHref(loop.manifest.runId, loop.job.id), hash: text(loop.job.outputSha256) } : null,
     connection: {
       why: text(job.reviewPrompt || quality?.evidenceSummary || job.memoryHook),
@@ -115,18 +117,29 @@ function generatedItem(manifest, job, loop) {
     memoryHook: text(job.memoryHook),
     retrievalTags: list(job.retrievalTags).map(text).filter(Boolean),
     qualityAssessment: quality,
-    prompt: text(job.prompt),
+    prompt: text(job.generationPrompt || job.prompt),
+    sourcePrompt: text(job.sourcePrompt || job.prompt),
+    originalPrompt: text(job.originalPrompt),
+    avatarReferences: list(job.avatarReferences).map((reference) => ({
+      name: text(reference.name),
+      avatarId: text(reference.avatarId),
+      assetId: text(reference.assetId),
+      requirementId: text(reference.requirementId),
+    })).filter((reference) => reference.name || reference.avatarId),
+    repairHistory: list(job.repairHistory),
     reviewPrompt: text(job.reviewPrompt),
     feedback: job.feedback || null,
     authority: { reviewStatus: text(job.feedback?.decision || "generated-candidate"), evidenceClass: text(job.evidenceClass || "generated") },
     source: {
-      kind: "api-run",
-      lane: "openai-gpt-image",
+      kind: codexBuiltIn ? "codex-run" : "api-run",
+      lane: codexBuiltIn ? "codex-gpt-image" : "openai-gpt-image",
       cohort: text(manifest.passId || manifest.mode || "image-run"),
       generator: text(manifest.model) || "OpenAI image generation",
       runId: text(manifest.runId),
       jobId: text(job.id),
-      promptHash: text(job.promptHash),
+      promptHash: text(job.generationPromptHash || job.promptHash),
+      sourcePromptHash: text(job.promptHash),
+      apiKeyUsed: codexBuiltIn ? Boolean(manifest.apiKeyUsed) : true,
       createdAt: text(job.finishedAt || job.startedAt || manifest.createdAt),
       runCreatedAt: text(manifest.createdAt),
       state: text(manifest.state),
@@ -168,7 +181,7 @@ export async function buildEchoReferenceMediaLibrary(legacyLibrary = {}, options
   ));
   const imageRunSummaries = imageRuns.manifests.map((manifest) => ({
     id: text(manifest.runId),
-    kind: "api-run",
+    kind: text(manifest.provider) === "codex-image-generation-tool" || text(manifest.mode).includes("codex-built-in") ? "codex-run" : "api-run",
     generator: text(manifest.model),
     createdAt: text(manifest.createdAt),
     state: text(manifest.state),

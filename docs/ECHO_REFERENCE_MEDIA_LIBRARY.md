@@ -18,7 +18,9 @@ The server rebuilds the index from durable local sources on every request:
 
 Runs are additive. The gallery does not select only `latest.json`, silently paginate, or collapse multiple visual versions for the same song/reference connection. Missing or malformed manifests are reported in `warnings` without hiding healthy runs.
 
-Live verification on 2026-09-13 (America/Los_Angeles) indexed **1,479 visual versions** across **1,212 reference connections** and **199 songs**. Of those, **1,189** had hover-ready loops: 853 catalog visuals plus 626 generated visuals from two retained API image runs, joined to one retained loop run. Treat these as an observed snapshot, not a hard-coded target; the counts are expected to grow.
+Codex built-in GPT Image runs are first-class retained runs, not mislabeled API traffic. Their gallery records expose `source.kind: codex-run`, `source.lane: codex-gpt-image`, `apiKeyUsed: false`, the exact avatar-aware generation prompt and hash, the underlying source prompt, safe avatar IDs/asset IDs, and any prompt-repair history. Local avatar source paths remain private to the manifest and never enter the browser payload.
+
+Live verification on 2026-09-14 (America/Los_Angeles), after the Codex remainder run, indexed **1,782 visual versions** across **1,309 reference connections** and **199 songs**. Of those, **1,189** had hover-ready loops: 853 catalog visuals plus 929 generated visuals from three retained image runs, joined to one retained loop run. The newest run contributes 303 Codex built-in GPT Image visuals and does not use an API key. Treat these as an observed snapshot, not a hard-coded target; the counts are expected to grow.
 
 ## UI behavior
 
@@ -66,6 +68,7 @@ To make a new reference-image run appear automatically:
 2. Write `manifest.json` with `runId`, `createdAt`, `model`, `state`, and `jobs`.
 3. Each visible job must have a stable `id`, `status: "completed"`, a valid local `outputPath`, `songId`, `songTitle`, and a stable `referenceId` or `promptId`.
 4. Preserve `referenceTitle`, `visualConceptTitle`, `prompt`, `promptHash`, `memoryHook`, `retrievalTags`, `reviewPrompt`, `qualityAssessment`, usage, and timestamps whenever the pipeline has them. These are retrieval and review data, not expendable logging.
+   For Codex built-in work, also preserve `provider: codex-image-generation-tool`, `apiKeyUsed: false`, `generationPrompt`, `generationPromptHash`, `sourcePrompt`, `avatarReferences`, and `repairHistory`. Use `outputHash` or `outputSha256` for the durable PNG digest.
 5. Write the manifest atomically after the output is durable. Never mark a missing file completed.
 
 To attach a loop automatically:

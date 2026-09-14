@@ -100,3 +100,45 @@ test("consolidated media index includes every retained image run and joins loops
   assert.equal(refreshed.counts.visuals, 4, "a newly completed manifest job must appear on the next rescan");
   assert.notEqual(refreshed.digest, firstIndex.digest);
 });
+
+test("Codex built-in runs retain avatar and repaired-prompt lineage without exposing local paths", async (context) => {
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "echo-reference-codex-media-"));
+  context.after(() => fs.rm(tempRoot, { recursive: true, force: true }));
+  const imageRunsRoot = path.join(tempRoot, "images");
+  const outputPath = path.join(imageRunsRoot, "codex-run", "result.png");
+  await fs.mkdir(path.dirname(outputPath), { recursive: true });
+  await fs.writeFile(outputPath, "png");
+  await writeManifest(imageRunsRoot, "codex-run", {
+    runId: "codex-run",
+    mode: "codex-built-in-gpt-image-remainder",
+    provider: "codex-image-generation-tool",
+    apiKeyUsed: false,
+    model: "Codex built-in GPT Image",
+    createdAt: "2026-09-14T00:00:00.000Z",
+    state: "completed",
+    jobs: [imageJob("codex-one", {
+      outputPath,
+      outputSha256: "",
+      outputHash: "sha256:codex-output",
+      generationPrompt: "Exact avatar-aware generation prompt",
+      generationPromptHash: "sha256:generation",
+      sourcePrompt: "Original source prompt",
+      originalPrompt: "Superseded safety-held prompt",
+      avatarReferences: [{ name: "Green", avatarId: "avatar-3", assetId: "asset-green", requirementId: "closeup_emotions", sourcePath: "/private/green.png" }],
+      repairHistory: [{ reason: "codex-image-safety-rejection", strategy: "symbolic-reconstruction" }],
+    })],
+  });
+
+  const index = await buildEchoReferenceMediaLibrary({}, { imageRunsRoot, loopRunsRoot: path.join(tempRoot, "loops") });
+  const item = index.items[0];
+  assert.equal(index.runs[0].kind, "catalog");
+  assert.equal(index.runs[1].kind, "codex-run");
+  assert.equal(item.source.kind, "codex-run");
+  assert.equal(item.source.lane, "codex-gpt-image");
+  assert.equal(item.source.apiKeyUsed, false);
+  assert.equal(item.source.promptHash, "sha256:generation");
+  assert.equal(item.image.hash, "sha256:codex-output");
+  assert.equal(item.prompt, "Exact avatar-aware generation prompt");
+  assert.deepEqual(item.avatarReferences, [{ name: "Green", avatarId: "avatar-3", assetId: "asset-green", requirementId: "closeup_emotions" }]);
+  assert.doesNotMatch(JSON.stringify(index), /\/private\/green\.png/);
+});
