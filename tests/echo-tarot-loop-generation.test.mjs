@@ -305,6 +305,20 @@ test("Reference Atlas budget mode auto-starts only affordable jobs and records t
   assert.equal(status.budget.hardLimitUsd, 0.16);
   assert.equal(status.budget.plannedSpendUsd, 0.15);
   assert.equal(requests.length, 3);
+
+  await runner.continueBudget({ additionalBudgetUsd: 0.10, note: "Operator added enough credit for the two held jobs." });
+  await runner._active();
+  const completedStatus = await runner.status();
+  assert.equal(completedStatus.state, "budget-complete");
+  assert.equal(completedStatus.counts.completed, 5);
+  assert.equal(completedStatus.counts.held, 0);
+  assert.equal(completedStatus.budget.hardLimitUsd, 0.26);
+  assert.equal(completedStatus.budget.plannedSpendUsd, 0.25);
+  assert.equal(completedStatus.budget.heldForBudget, 0);
+  assert.equal(completedStatus.budget.topUps.length, 1);
+  assert.equal(completedStatus.budget.topUps[0].releasedJobs, 2);
+  assert.equal(completedStatus.budget.topUps[0].plannedSpendUsd, 0.10);
+  assert.equal(requests.length, 5);
 });
 
 test("public status distinguishes provider inference from end-to-end throughput", () => {

@@ -13,7 +13,7 @@ const {
 const ROOT = path.resolve(__dirname, "..");
 const command = String(process.argv[2] || "status").trim().toLowerCase();
 const profileId = String(process.argv[3] || "main-woman").trim().toLowerCase();
-const allowedCommands = new Set(["status", "pilot", "budget", "full", "resume", "repair"]);
+const allowedCommands = new Set(["status", "pilot", "budget", "topup", "full", "resume", "repair"]);
 const profiles = new Map([
   [MAIN_WOMAN_LOOP_PROFILE.id, MAIN_WOMAN_LOOP_PROFILE],
   [MAIN_MAN_LOOP_PROFILE.id, MAIN_MAN_LOOP_PROFILE],
@@ -46,7 +46,7 @@ function summary(status) {
 }
 
 async function main() {
-  if (!allowedCommands.has(command)) throw new Error(`Unknown command “${command}”. Use status, pilot, budget, full, resume, or repair.`);
+  if (!allowedCommands.has(command)) throw new Error(`Unknown command “${command}”. Use status, pilot, budget, topup, full, resume, or repair.`);
   if (!profile) throw new Error(`Unknown loop profile “${profileId}”. Use main-woman, main-man, or main-couple.`);
   app.setName("hapa-avatar-builder");
   app.setPath("userData", path.join(app.getPath("appData"), "hapa-avatar-builder"));
@@ -68,6 +68,10 @@ async function main() {
 
   if (command === "pilot" || command === "budget") {
     status = await runner.start();
+    await runner._active();
+    status = await runner.status();
+  } else if (command === "topup") {
+    status = await runner.continueBudget();
     await runner._active();
     status = await runner.status();
   } else if (command === "full") {

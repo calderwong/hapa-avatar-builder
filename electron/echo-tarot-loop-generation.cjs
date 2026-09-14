@@ -832,6 +832,58 @@ function createEchoTarotLoopGeneration({
     return publicStatus(manifest, { credentialConfigured: true, sourceAvailable: true, profile: resolvedProfile });
   }
 
+  async function continueBudget({ additionalBudgetUsd = maxSpendUsd, note = "Additional FAL budget authorized by the Hapa operator." } = {}) {
+    if (activePromise) throw loopError("loop_generation_busy", "Wait for the current loop queue before releasing budget-held jobs.");
+    const manifest = await loadCurrentManifest();
+    if (!manifest || manifest.mode !== "budget") throw loopError("loop_budget_run_missing", "There is no budget-bounded loop run to continue.");
+    const source = await loadImageManifest();
+    if (!source || source.runId !== manifest.sourceImageRunId) throw loopError("loop_source_changed", "The current source image run changed; budget-held jobs cannot be released against a different source.");
+    if (manifest.jobs.some((job) => ["queued", "claimed", "uploading", "submitted", "in_queue", "running", "downloading"].includes(job.status))) {
+      throw loopError("loop_generation_busy", "Wait for the current loop queue before releasing budget-held jobs.");
+    }
+    if (manifest.jobs.some((job) => job.status === "failed")) throw loopError("loop_budget_failures_pending", "Retry failed loop jobs before releasing additional budget-held jobs.");
+    const heldJobs = manifest.jobs.filter((job) => job.status === "held");
+    if (!heldJobs.length) return publicStatus(manifest, {
+      credentialConfigured: await credentialConfigured(), sourceAvailable: true, profile: resolvedProfile,
+    });
+    const requestedBudgetUsd = Number(additionalBudgetUsd);
+    if (!Number.isFinite(requestedBudgetUsd) || requestedBudgetUsd <= 0) {
+      throw loopError("loop_budget_topup_required", "Set a finite positive additional loop budget before releasing held jobs.");
+    }
+    const unitCostUsd = Number(manifest.budget?.unitCostUsd || (manifest.durationSeconds * manifest.pricePerSecondUsd));
+    if (!Number.isFinite(unitCostUsd) || unitCostUsd <= 0) throw loopError("loop_budget_unit_cost_invalid", "The retained loop run has no valid per-generation cost basis.");
+    const releaseCount = Math.min(heldJobs.length, Math.max(0, Math.floor((requestedBudgetUsd + 1e-9) / unitCostUsd)));
+    if (releaseCount < 1) throw loopError("loop_budget_too_small", `The additional loop budget must cover at least one $${unitCostUsd.toFixed(2)} generation.`);
+    const releasedIds = new Set(heldJobs.slice(0, releaseCount).map((job) => job.id));
+    const releasedSpendUsd = Number((releaseCount * unitCostUsd).toFixed(4));
+    const releasedAt = now().toISOString();
+    manifest.jobs = manifest.jobs.map((job) => releasedIds.has(job.id) ? { ...job, status: "queued" } : job);
+    manifest.budget ||= {};
+    const previousHardLimitUsd = Number(manifest.budget.hardLimitUsd || 0);
+    const previousEligibleJobs = Number(manifest.budget.eligibleJobs || manifest.jobs.filter((job) => job.status === "completed").length);
+    const previousPlannedSpendUsd = Number(manifest.budget.plannedSpendUsd || 0);
+    manifest.budget.hardLimitUsd = Number((previousHardLimitUsd + requestedBudgetUsd).toFixed(2));
+    manifest.budget.eligibleJobs = previousEligibleJobs + releaseCount;
+    manifest.budget.plannedSpendUsd = Number((previousPlannedSpendUsd + releasedSpendUsd).toFixed(4));
+    manifest.budget.heldForBudget = heldJobs.length - releaseCount;
+    manifest.budget.topUps ||= [];
+    manifest.budget.topUps.push({
+      authorizedBudgetUsd: Number(requestedBudgetUsd.toFixed(2)),
+      unitCostUsd: Number(unitCostUsd.toFixed(4)),
+      releasedJobs: releaseCount,
+      plannedSpendUsd: releasedSpendUsd,
+      heldBefore: heldJobs.length,
+      heldAfter: heldJobs.length - releaseCount,
+      note: String(note || "").trim().slice(0, 4000),
+      releasedAt,
+    });
+    manifest.state = "queued";
+    manifest.finishedAt = "";
+    await saveManifest(manifest);
+    launchQueue();
+    return publicStatus(manifest, { credentialConfigured: true, sourceAvailable: true, profile: resolvedProfile });
+  }
+
   async function pause() {
     pauseRequested = true;
     const manifest = await loadCurrentManifest();
@@ -901,7 +953,7 @@ function createEchoTarotLoopGeneration({
     return { ok: true, dataUrl: `data:video/mp4;base64,${bytes.toString("base64")}` };
   }
 
-  return Object.freeze({ start, continueFull, pause, resume, repairCompletedOutputs, status, review, asset, _active: () => activePromise });
+  return Object.freeze({ start, continueFull, continueBudget, pause, resume, repairCompletedOutputs, status, review, asset, _active: () => activePromise });
 }
 
 module.exports = {
