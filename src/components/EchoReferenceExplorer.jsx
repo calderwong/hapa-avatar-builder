@@ -23,6 +23,7 @@ import {
   X,
 } from "lucide-react";
 import EchoReferenceGptImageLibrary from "./EchoReferenceGptImageLibrary.jsx";
+import EchoLatestReferenceRunGallery from "./EchoLatestReferenceRunGallery.jsx";
 import EchoHoverLoopMedia from "./EchoHoverLoopMedia.jsx";
 import EchoSongNotebook from "./EchoSongNotebook.jsx";
 
@@ -1752,6 +1753,7 @@ export default function EchoReferenceExplorer({
             : "review state does not hide previews"}
         </em>
       </div>
+      <EchoLatestReferenceRunGallery apiBase={apiBase} />
       <EchoReferenceGptImageLibrary
         apiBase={apiBase}
         open={showGptImageLibrary}
