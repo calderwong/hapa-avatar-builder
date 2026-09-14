@@ -57,6 +57,32 @@ The first live pilot used `gpt-5.2` with high reasoning after real Responses API
 
 The first corrected expansion produced 690 additive concepts across 158 processed connections before the OpenAI project reached its enforced spend limit. A corpus audit retained all concepts, marked 639 ready and 51 needs revision, and recorded an overall authored average of 4.54/5. The manifest remains resumable; no incomplete or weaker concept was discarded.
 
+### Local Qwen continuation
+
+The interrupted GPT-5.2 run intended 290 source connections across 199 songs. It completed 158 connections for 93 songs and left 132 connections across 106 songs without foundations or prompts. Because each connection retains every supportable concept, 132 was the exact missing-opportunity count; the final missing-prompt count is discovered by authoring rather than fixed at one prompt per connection. The separate 51 previously authored `needs-revision` concepts were not counted as missing. The first qualified local pilot finalized three more connections and eleven prompts, leaving 129 unfinalized source opportunities at the local full-run launch checkpoint.
+
+Use the zero-cloud-text-cost oMLX continuation lane only after its quality pilot passes:
+
+```bash
+npm run echo:reference-intelligence:local-pilot
+npm run echo:reference-intelligence:resume-local
+```
+
+The local lane is pinned to `http://127.0.0.1:8001/v1`, the `qwen38-flash-next:long-context` alias for the local `Qwen3.8-Flash-Next-oQ4e-mtp` model, and qualified concurrency one. It reads no OpenAI credential and makes no cloud text request. Each plan records `local-omlx`, the exact model alias, timestamp, and quality profile in its author provenance.
+
+Each source opportunity runs through a two-stage authoring protocol:
+
+1. The concept architect produces two to five distinct causal blueprints. Each blueprint must fuse a peculiar lyric noun/action, the reference's transferable mechanism, the lesson, and the attached Tarot card into one visible operation. Numbered Minor Arcana blueprints retain the exact visible count of suit objects.
+2. The prompt author expands every blueprint into a 160–500-word production record. A compact multi-concept request is attempted first; if it cannot satisfy the gates after a corrective retry, the runner falls back to one seed per request. A seed whose architecture is sound but whose production prompt fails a mechanical gate receives a prompt-only repair pass that preserves the concept while rewriting only the rejected prompt against the exact failure reasons. Accepted connections and accepted fallback seeds are checkpointed independently, so an interruption cannot erase earlier work; a retry with a valid seed checkpoint bypasses the already-failed compact route and resumes at the first missing seed.
+
+Objective gates are applied in addition to the model's self-assessment. They require at least 140 positive renderable words before exclusions, no more than eight excluded items in at most three exclusion sentences, exact attached-Tarot naming, explicit numbered-suit counts, at least two visible named symbols, established Hapa character continuity when a person is used, at least two canonical physical identity markers for named Red/Blue/Green/Bella roles, readable character identity, and rejection of known meta filler, invented generic Hapa roles, and legacy default clusters. An album-wide collision audit runs automatically after a local drain finishes. The UI and status output expose intended, finalized, missing, and checkpointed source-opportunity counts.
+
+The first local attempt is retained as negative evidence: without connection cardinality and production-length constraints, the model duplicated source connections and wrote 52–151-word prompts while assigning overconfident self-scores. A second monolithic attempt developed stronger concept foundations but exhausted the local structured-output ceiling. The qualified two-stage pilot on “Sisyphus on the Climb, Climb.” retained eleven materially different prompts: eight passed the strengthened objective and corpus gates and three remained stored as `needs-revision` for exclusion padding, insufficient positive visual direction, or collision with the old stock visual grammar. A separate three-concept compact checkpoint showed that the fast expansion path preserves the blueprint architecture; it is re-audited under the same objective gates before reuse. These results qualify the pipeline, not every individual output. Do not remove the structural gate or promote local output from self-assessment alone. Human review remains required before image generation.
+
+The first live production calibration on “Between the Beats” exposed and fixed three additional failure modes before the album drain continued: an occupational costume replaced Hapa Green's canonical identity markers, an `Exclude:` prefix evaded the original No/Avoid counter, and an exact Major Arcana title was falsely rejected for lacking the redundant word “Tarot.” The final checkpoint retained three materially distinct Hapa Blue concepts—blank-ledger/key rail gap, barred-hourglass handclasp, and unfinished radio-bridge construction—at 188, 278, and 339 words. All three pass the objective gate; the hourglass prompt was produced by the targeted prompt-only repair path. Subsequent repaired concepts record the exact repaired gate reasons directly on the concept. Superseded bad seeds remain in the manifest as evidence.
+
+The local node produced about 21.8 output tokens/second on these structured calls. Concurrency above one is not qualified for this resident model, so a full missing-opportunity drain is a long-running local job rather than an RPM-bound cloud burst.
+
 ## Image-only budget runs
 
 The reference-image runner supports an explicit hard-cap mode:

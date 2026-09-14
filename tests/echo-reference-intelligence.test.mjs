@@ -1,7 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
-import { readFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import {
   assessEchoReferenceConcept,
   normalizeEchoReferenceIntelligencePlan,
@@ -68,6 +70,103 @@ test("the authoring contract explicitly retains concepts and disables competitio
   assert.match(service.DEVELOPER_INSTRUCTIONS, /Concepts do not compete/);
   assert.match(service.DEVELOPER_INSTRUCTIONS, /Do not rank, eliminate, merge, or choose a winner/);
   assert.doesNotMatch(service.DEVELOPER_INSTRUCTIONS, /select the best|winner-take-all/i);
+});
+
+test("the local prompt normalizer removes meta filler but leaves visual instructions intact", () => {
+  const result = service.sanitizeLocalPrompt("A Hapa figure carries ten visible wooden wands. The image is complete and ready. Copper light divides the frame.");
+  assert.equal(result.prompt, "A Hapa figure carries ten visible wooden wands. Copper light divides the frame.");
+  assert.deepEqual(result.removed, ["the image is complete"]);
+});
+
+test("local prompt gates reject exclusion padding and preserve a substantial positive visual brief", () => {
+  const padded = concept({
+    characterUse: "object-led",
+    imagePrompt: `The Tarot card The Fool places a cup and tide mark beside an open door. ${"Visible ceramic salt light repeats across the grounded tabletop. ".repeat(9)} No cliffs, towers, paths, fog, moons, mirrors, harbors, backpacks, armor.`,
+  });
+  const assessment = service.localPromptAssessment(padded, { packet: { tarotConnections: [{ cardTitle: "The Fool" }] } });
+  assert.match(assessment.gateReasons.join(" "), /positive-prompt-words/);
+  assert.match(assessment.gateReasons.join(" "), /exclusion-items/);
+  const alternatePrefix = service.localPromptAssessment({ ...padded, imagePrompt: padded.imagePrompt.replace("No cliffs", "Exclude: cliffs") }, { packet: { tarotConnections: [{ cardTitle: "The Fool" }] } });
+  assert.match(alternatePrefix.gateReasons.join(" "), /positive-prompt-words/);
+  assert.match(alternatePrefix.gateReasons.join(" "), /exclusion-items/);
+});
+
+test("local prompt gates reject named Hapa characters whose reusable identity is hidden or replaced", () => {
+  const genericGreen = concept({
+    characterUse: "Hapa Green as a conductor",
+    imagePrompt: `${"Hapa Green operates a blank ledger, iron key, and tide mark in a Tarot card of The Fool, using a visible railway gap to turn limited knowledge into an ethical offer. ".repeat(11)} Hapa Green wears a conductor cap and the face is obscured by shadow.`,
+  });
+  const assessment = service.localPromptAssessment(genericGreen, { packet: { tarotConnections: [{ cardTitle: "The Fool" }] } });
+  assert.match(assessment.gateReasons.join(" "), /hapa-identity-markers:green/);
+  assert.match(assessment.gateReasons.join(" "), /hapa-identity-obscured:green/);
+});
+
+test("an exact attached Major Arcana title satisfies Tarot visibility without redundant category prose", () => {
+  const exactCard = concept({
+    characterUse: "object-led",
+    imagePrompt: `${"The Fool steps from a blank ledger onto an iron key spanning a rail gap while a tide mark records the ethical choice in visible salt light. ".repeat(13)} No text or logos.`,
+  });
+  const assessment = service.localPromptAssessment(exactCard, { packet: { tarotConnections: [{ cardTitle: "The Fool" }] } });
+  assert.doesNotMatch(assessment.gateReasons.join(" "), /missing-visible-tarot-language|missing-attached-tarot-title/);
+});
+
+test("local resume uses only the qualified loopback Qwen route and does not read the OpenAI credential", async () => {
+  const userDataPath = await mkdtemp(path.join(tmpdir(), "echo-local-intelligence-"));
+  const runId = "local-resume-fixture";
+  const runsRoot = path.join(userDataPath, "Echo Reference Intelligence Runs");
+  const runRoot = path.join(runsRoot, runId);
+  await mkdir(runRoot, { recursive: true });
+  const packet = {
+    songId: "song-local",
+    songTitle: "Song Local",
+    trackNumber: 1,
+    lyrics: "A cup records the tide when someone speaks.",
+    sourceConnections: [{ connectionKey: "local-r1", sourceKind: "reference", referenceId: "R1", referenceTitle: "Tidal memory", evidenceClass: "S", lyricCue: "records the tide", existingLesson: "Attention changes what can be remembered." }],
+  };
+  const manifest = {
+    schemaVersion: service.SCHEMA_VERSION,
+    runId,
+    mode: "full",
+    state: "complete-with-errors",
+    model: "gpt-5.2",
+    reasoningEffort: "high",
+    concurrency: 12,
+    jobs: [{ id: "job-local", songId: packet.songId, songTitle: packet.songTitle, trackNumber: 1, sourceDigest: "sha256:test", packet, status: "failed", attempts: 1, error: "spend limit", plan: null }],
+  };
+  await writeFile(path.join(runRoot, "manifest.json"), `${JSON.stringify(manifest)}\n`);
+  await writeFile(path.join(runsRoot, "current-run.json"), `${JSON.stringify({ runId })}\n`);
+  const calls = [];
+  const fetchImpl = async (input) => {
+    const url = String(input);
+    calls.push(url);
+    assert.match(url, /^http:\/\/127\.0\.0\.1:8001\/v1\//);
+    if (url.endsWith("/models")) return new Response(JSON.stringify({ data: [{ id: service.LOCAL_OMLX_MODEL }] }), { status: 200, headers: { "content-type": "application/json" } });
+    if (calls.filter((item) => item.endsWith("/responses")).length === 1) {
+      const blueprint = { connectionKey: "local-r1", sourceMechanism: "Memory responds to attention.", songSpecificRecognition: "Speech changes a literal tide line.", seeds: [{ title: "The speaking cup", lyricAnchor: "records the tide", centralAction: "A cup rises as someone speaks.", referenceMechanism: "Attention changes stored state.", lessonPayoff: "Listening makes memory observable.", tarotTransformation: "A cup becomes a visible consent gauge.", heroObject: "A chipped cup", avatarRole: "object-led", symbolNames: ["cup", "tide mark", "open door"], antiGeneric: "Domestic macro still life.", distinctFromOtherSeeds: "Only supported seed." }, { title: "The door tide", lyricAnchor: "records the tide", centralAction: "A door opens at the water line.", referenceMechanism: "Memory creates reversible passage.", lessonPayoff: "Withdrawal remains visible.", tarotTransformation: "A cup pours the threshold line.", heroObject: "An open door", avatarRole: "object-led", symbolNames: ["cup", "tide mark", "open door"], antiGeneric: "Threshold mechanism, no fantasy travel.", distinctFromOtherSeeds: "Architecture-led rather than object macro." }] };
+      return new Response(JSON.stringify({ output: [{ content: [{ type: "output_text", text: JSON.stringify(blueprint) }] }], usage: { input_tokens: 20, output_tokens: 100, total_tokens: 120 } }), { status: 200, headers: { "content-type": "application/json" } });
+    }
+    const localConcept = concept({ imagePrompt: Array.from({ length: 12 }, () => "Compose a 2:3 Hapa Tarot card where a ceramic cup, tide mark, and open door visibly transform the Cups archetype through speech, choice, salt light, and grounded material detail.").join(" ") });
+    const compactConcept = { blueprintSeedTitle: calls.filter((item) => item.endsWith("/responses")).length === 2 ? "The speaking cup" : "The door tide", title: localConcept.title, memoryHook: localConcept.memoryHook, scene: localConcept.scene, symbols: localConcept.symbols, palette: localConcept.palette, visualSignature: localConcept.visualSignature, retrievalTags: localConcept.retrievalTags, imagePrompt: localConcept.imagePrompt, qualityAssessment: localConcept.qualityAssessment };
+    const raw = { songFoundation: { literalSituation: "A cup changes with speech." }, connection: { connectionKey: "local-r1", conceptualBridge: "The cup makes memory observable.", evidenceUsed: ["lyrics", "R1"], concepts: [compactConcept, { ...compactConcept, blueprintSeedTitle: "The door tide", title: "The door tide" }] } };
+    return new Response(JSON.stringify({ id: "local-response", output: [{ content: [{ type: "output_text", text: JSON.stringify(raw) }] }], usage: { input_tokens: 50, output_tokens: 500, total_tokens: 550 } }), { status: 200, headers: { "content-type": "application/json", "x-request-id": "local-request" } });
+  };
+  const runner = service.createEchoReferenceIntelligence({
+    userDataPath,
+    credentialStore: { read: async () => { throw new Error("OpenAI credential must not be read"); } },
+    fetchImpl,
+    concurrency: 9,
+  });
+  await runner.resumeLocal({ limit: 1 });
+  await runner._active();
+  const status = await runner.status();
+  assert.equal(status.authoringProvider, service.LOCAL_OMLX_PROVIDER);
+  assert.equal(status.model, service.LOCAL_OMLX_MODEL);
+  assert.equal(status.concurrency, 1);
+  assert.equal(status.counts.completed, 1);
+  assert.equal(status.counts.sourceConnections, 1);
+  assert.equal(status.counts.missingConnections, 0);
+  assert.equal(status.jobs[0].plan.author.provider, service.LOCAL_OMLX_PROVIDER);
+  assert.deepEqual(calls, [`${service.LOCAL_OMLX_BASE_URL}/models`, `${service.LOCAL_OMLX_BASE_URL}/responses`, `${service.LOCAL_OMLX_BASE_URL}/responses`]);
 });
 
 test("song packets preserve every staged source connection", () => {

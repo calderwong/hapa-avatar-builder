@@ -62,7 +62,7 @@ export default function EchoReferenceImagePromptReview({ apiBase = "", songId = 
       const payload = await bridge[action]();
       if (payload?.ok === false) throw new Error(payload.message || "The intelligence operation failed.");
       setIntelligence(await bridge.status({ songId }));
-      onNotice(action === "startPilot" ? "Eight-song intelligence pilot started." : action === "continueFull" ? "Full Echo intelligence pass started." : action === "pause" ? "Pause requested after current reasoning calls." : action === "audit" ? "Album-wide distinctiveness assessment complete." : "Echo intelligence pass resumed.");
+      onNotice(action === "startPilot" ? "Eight-song intelligence pilot started." : action === "continueFull" ? "Full Echo intelligence pass started." : action === "pause" ? "Pause requested after current reasoning calls." : action === "audit" ? "Album-wide distinctiveness assessment complete." : action === "resumeLocal" ? "Missing prompt work resumed on the local Qwen model." : "Echo intelligence pass resumed.");
     } catch (error) {
       setIntelligenceError(error.message || String(error));
     } finally { setIntelligenceBusy(false); }
@@ -85,11 +85,11 @@ export default function EchoReferenceImagePromptReview({ apiBase = "", songId = 
           {intelligence?.state === "not-started" && <button type="button" disabled={intelligenceBusy} onClick={() => void runIntelligence("startPilot")}><Play size={12} /> Author 8-song pilot</button>}
           {String(intelligence?.state || "").startsWith("pilot-complete") && <button type="button" disabled={intelligenceBusy} onClick={() => void runIntelligence("continueFull")}><Play size={12} /> Author full album</button>}
           {["queued", "running"].includes(intelligence?.state) && <button type="button" disabled={intelligenceBusy} onClick={() => void runIntelligence("pause")}><Pause size={12} /> Pause after current</button>}
-          {["paused", "complete-with-errors", "pilot-complete-with-errors"].includes(intelligence?.state) && <button type="button" disabled={intelligenceBusy} onClick={() => void runIntelligence("resume")}><Play size={12} /> Resume failed work</button>}
+          {["paused", "complete-with-errors", "pilot-complete-with-errors"].includes(intelligence?.state) && <button type="button" disabled={intelligenceBusy} onClick={() => void runIntelligence("resumeLocal")}><Play size={12} /> Resume missing prompts locally</button>}
           {["complete", "complete-with-errors"].includes(intelligence?.state) && !intelligence?.corpusQualityAssessedAt && <button type="button" disabled={intelligenceBusy} onClick={() => void runIntelligence("audit")}><CheckCircle2 size={12} /> Assess album distinctiveness</button>}
         </div>
       </header>
-      {intelligence?.runId && <p className="echo-reference-run-line"><BrainCircuit size={12} /> {intelligence.state} · {intelligence.model} / {intelligence.reasoningEffort} reasoning · {intelligence.counts?.completed || 0}/{intelligence.counts?.songs || 0} songs · {Number(intelligence.counts?.averageQuality || 0).toFixed(2)}/5 average</p>}
+      {intelligence?.runId && <p className="echo-reference-run-line"><BrainCircuit size={12} /> {intelligence.state} · {intelligence.authoringProvider || "openai"} · {intelligence.model} / {intelligence.reasoningEffort} · {intelligence.counts?.completed || 0}/{intelligence.counts?.songs || 0} songs · {intelligence.counts?.missingConnections || 0}/{intelligence.counts?.sourceConnections || 0} source opportunities missing · {Number(intelligence.counts?.averageQuality || 0).toFixed(2)}/5 average</p>}
       {intelligenceError && <p className="echo-ref-warning"><AlertTriangle size={12} /> {intelligenceError}</p>}
       {intelligenceJob?.status === "running" && <p className="echo-ref-empty">This song’s foundations are being authored now.</p>}
       {intelligenceJob?.status === "held" && <p className="echo-ref-empty">This song is staged behind the completed quality pilot.</p>}

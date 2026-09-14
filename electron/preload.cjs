@@ -40,7 +40,8 @@ contextBridge.exposeInMainWorld("hapaEchoReferenceIntelligence", Object.freeze({
   refreshAll: () => ipcRenderer.invoke("hapa-echo-reference-intelligence:refresh-all"),
   audit: () => ipcRenderer.invoke("hapa-echo-reference-intelligence:audit"),
   pause: () => ipcRenderer.invoke("hapa-echo-reference-intelligence:pause"),
-  resume: () => ipcRenderer.invoke("hapa-echo-reference-intelligence:resume")
+  resume: () => ipcRenderer.invoke("hapa-echo-reference-intelligence:resume"),
+  resumeLocal: () => ipcRenderer.invoke("hapa-echo-reference-intelligence:resume-local")
 }));
 
 contextBridge.exposeInMainWorld("hapaEchoTarotImages", Object.freeze({

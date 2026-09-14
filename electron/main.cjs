@@ -590,6 +590,7 @@ if (HAS_SINGLE_INSTANCE_LOCK) {
     ipcMain.handle("hapa-echo-reference-intelligence:audit", (event) => handleReferenceIntelligenceOperation(event, () => echoReferenceIntelligence.audit()));
     ipcMain.handle("hapa-echo-reference-intelligence:pause", (event) => handleReferenceIntelligenceOperation(event, () => echoReferenceIntelligence.pause()));
     ipcMain.handle("hapa-echo-reference-intelligence:resume", (event) => handleReferenceIntelligenceOperation(event, () => echoReferenceIntelligence.resume()));
+    ipcMain.handle("hapa-echo-reference-intelligence:resume-local", (event) => handleReferenceIntelligenceOperation(event, () => echoReferenceIntelligence.resumeLocal()));
     ipcMain.handle("hapa-echo-tarot-images:status", (event) => handleTarotGenerationOperation(event, () => echoTarotImageGeneration.status()));
     ipcMain.handle("hapa-echo-tarot-images:start-pilot", (event) => handleTarotGenerationOperation(event, () => echoTarotImageGeneration.start({ apiBase: desktopUrl, mode: "pilot" })));
     ipcMain.handle("hapa-echo-tarot-images:continue-full", (event) => handleTarotGenerationOperation(event, () => echoTarotImageGeneration.continueFull({ apiBase: desktopUrl })));
