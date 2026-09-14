@@ -115,6 +115,10 @@ import {
   resolveEchoReferenceImageAsset,
 } from "./echo-reference-image-generation-status.mjs";
 import {
+  readEchoReferenceLoopGenerationStatus,
+  resolveEchoReferenceLoopAsset,
+} from "./echo-reference-loop-generation-status.mjs";
+import {
   blueAvatarHealth,
   blueAvatarTurn,
   proxyBlueAvatarAudio
@@ -2666,6 +2670,32 @@ async function route(req, res) {
     const asset = await resolveEchoReferenceImageAsset(jobId).catch(() => null);
     if (!asset) {
       sendJson(res, 404, { ok: false, error: "echo_reference_image_asset_not_found" });
+      return;
+    }
+    res.writeHead(200, {
+      "Content-Type": asset.mimeType,
+      "Content-Length": asset.size,
+      "Cache-Control": "private, max-age=60",
+      "X-Content-Type-Options": "nosniff",
+    });
+    streamFileToResponse(req, res, asset.filePath);
+    return;
+  }
+
+  if (pathname === "/api/echos/reference-loop-generation" && req.method === "GET") {
+    try {
+      sendJson(res, 200, await readEchoReferenceLoopGenerationStatus());
+    } catch (error) {
+      sendJson(res, 500, { ok: false, error: "echo_reference_loop_generation_status_failed", message: error?.message || String(error) });
+    }
+    return;
+  }
+
+  if (pathname.startsWith("/api/echos/reference-loop-generation/assets/") && req.method === "GET") {
+    const jobId = decodeURIComponent(pathname.slice("/api/echos/reference-loop-generation/assets/".length));
+    const asset = await resolveEchoReferenceLoopAsset(jobId).catch(() => null);
+    if (!asset) {
+      sendJson(res, 404, { ok: false, error: "echo_reference_loop_asset_not_found" });
       return;
     }
     res.writeHead(200, {

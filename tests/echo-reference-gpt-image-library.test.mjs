@@ -135,14 +135,20 @@ test("Reference Atlas exposes a complete searchable GPT Image-only gallery and l
 });
 
 test("Reference Atlas exposes the latest generated API run as a first-class gallery ingress", async () => {
-  const [explorer, latestRun] = await Promise.all([
+  const [explorer, latestRun, api, loopStatus] = await Promise.all([
     fs.readFile(new URL("../src/components/EchoReferenceExplorer.jsx", import.meta.url), "utf8"),
     fs.readFile(new URL("../src/components/EchoLatestReferenceRunGallery.jsx", import.meta.url), "utf8"),
+    fs.readFile(new URL("../server/api.mjs", import.meta.url), "utf8"),
+    fs.readFile(new URL("../server/echo-reference-loop-generation-status.mjs", import.meta.url), "utf8"),
   ]);
   assert.match(explorer, /<EchoLatestReferenceRunGallery apiBase=\{apiBase\}/);
   assert.match(latestRun, /Latest GPT Image run/);
   assert.match(latestRun, /Open latest run gallery/);
   assert.match(latestRun, /\/api\/echos\/reference-image-generation/);
   assert.match(latestRun, /echo-latest-reference-run-grid/);
+  assert.match(latestRun, /EchoHoverLoopMedia/);
+  assert.match(latestRun, /\/api\/echos\/reference-loop-generation/);
+  assert.match(api, /\/api\/echos\/reference-loop-generation\/assets\//);
+  assert.match(loopStatus, /sourceJobId/);
   assert.doesNotMatch(latestRun, /\.slice\(/, "the latest run gallery must not silently truncate generated images");
 });

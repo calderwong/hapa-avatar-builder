@@ -210,6 +210,7 @@
     "smoke:phone-card": "electron scripts/phone-card-smoke.cjs"
   },
   "dependencies": {
+    "@fal-ai/client": "^1.10.1",
     "@hapa/overcard": "file:vendor/hapa-overcard-0.1.1.tgz",
     "@noble/hashes": "^2.2.0",
     "@vitejs/plugin-react": "^6.0.1",
