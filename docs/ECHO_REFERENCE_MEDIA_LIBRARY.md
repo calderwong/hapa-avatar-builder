@@ -20,7 +20,7 @@ Runs are additive. The gallery does not select only `latest.json`, silently pagi
 
 Codex built-in GPT Image runs are first-class retained runs, not mislabeled API traffic. Their gallery records expose `source.kind: codex-run`, `source.lane: codex-gpt-image`, `apiKeyUsed: false`, the exact avatar-aware generation prompt and hash, the underlying source prompt, safe avatar IDs/asset IDs, and any prompt-repair history. Local avatar source paths remain private to the manifest and never enter the browser payload.
 
-Live verification on 2026-09-14 (America/Los_Angeles), after the Codex remainder run, indexed **1,782 visual versions** across **1,309 reference connections** and **199 songs**. Of those, **1,189** had hover-ready loops: 853 catalog visuals plus 929 generated visuals from three retained image runs, joined to one retained loop run. The newest run contributes 303 Codex built-in GPT Image visuals and does not use an API key. Treat these as an observed snapshot, not a hard-coded target; the counts are expected to grow.
+Live verification on 2026-09-14 (America/Los_Angeles), after the Codex remainder image run and its budget-bounded FAL motion pass, indexed **1,782 visual versions** across **1,309 reference connections** and **199 songs**. Of those, **1,422** had hover-ready loops: 853 catalog visuals plus 929 generated visuals from three retained image runs, joined to two retained loop runs. The newest image run contributes 303 Codex built-in GPT Image visuals and does not use an API key; its matching FAL run contributes loops for 233 of those visuals and leaves 70 explicitly held by the $11.68 budget gate. Treat these as an observed snapshot, not a hard-coded target; the counts are expected to grow.
 
 ## UI behavior
 
