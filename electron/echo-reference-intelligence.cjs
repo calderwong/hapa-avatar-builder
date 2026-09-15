@@ -11,8 +11,11 @@ const DEFAULT_MODEL = "gpt-5.5";
 const MODEL_PREFERENCES = ["gpt-5.5", "gpt-5.4", "gpt-5.2", "gpt-5", "o3", "o4-mini", "gpt-4.1"];
 const OPENAI_PROVIDER = "openai";
 const LOCAL_OMLX_PROVIDER = "local-omlx";
-const LOCAL_OMLX_MODEL = "qwen38-flash-next:long-context";
+const LOCAL_OMLX_MODEL = "qwen38-flash-next:fast";
 const LOCAL_OMLX_BASE_URL = "http://127.0.0.1:8001/v1";
+const LOCAL_RETRY_POLICY_VERSION = "fast-targeted-repair-v1";
+const LOCAL_STRICT_JSON = process.env.HAPA_ECHO_LOCAL_STRICT_JSON === "1";
+const LOCAL_FAST_DRAIN = process.env.HAPA_ECHO_LOCAL_FAST_DRAIN !== "0";
 const SCORE_KEYS = [
   "lyricGrounding",
   "referenceGrounding",
@@ -358,6 +361,50 @@ function outputText(payload = {}) {
   return list(payload.output).flatMap((item) => list(item.content)).filter((item) => item.type === "output_text").map((item) => item.text || "").join("");
 }
 
+function parseLocalJson(value) {
+  const source = clean(value, 2_000_000);
+  if (!source) throw new SyntaxError("The local model returned an empty JSON response.");
+  try { return JSON.parse(source); } catch {}
+  const unfenced = source.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
+  try { return JSON.parse(unfenced); } catch {}
+  const start = unfenced.indexOf("{");
+  const end = unfenced.lastIndexOf("}");
+  if (start >= 0 && end > start) return JSON.parse(unfenced.slice(start, end + 1));
+  throw new SyntaxError("The local model did not return a complete JSON object.");
+}
+
+function localTextContract(name, schema) {
+  return LOCAL_STRICT_JSON
+    ? { verbosity: "medium", format: { type: "json_schema", name, strict: true, schema } }
+    : { verbosity: "medium" };
+}
+
+function localSchemaInstruction(schema) {
+  return LOCAL_STRICT_JSON ? "" : `\nReturn one raw JSON object matching this exact schema; no Markdown or surrounding prose:\n${JSON.stringify(schema)}`;
+}
+
+function stabilizeLocalBlueprint(value = {}, job = {}) {
+  const expectedKey = clean(job.packet?.sourceConnections?.[0]?.connectionKey);
+  const tarotTitle = list(job.packet?.tarotConnections).map((item) => clean(item.cardTitle, 120)).find(Boolean) || "";
+  const minor = tarotTitle.match(/^(Ace|Two|Three|Four|Five|Six|Seven|Eight|Nine|Ten) of (Wands|Cups|Swords|Pentacles)$/i);
+  const actions = [];
+  const blueprint = { ...value, connectionKey: expectedKey || clean(value.connectionKey) };
+  if (expectedKey && clean(value.connectionKey) !== expectedKey) actions.push("restore-connection-key");
+  if (minor) {
+    blueprint.seeds = list(value.seeds).map((seed) => {
+      if (new RegExp(`\\b${minor[2].replace(/s$/, "")}s?\\b`, "i").test(`${seed.heroObject} ${seed.tarotTransformation}`)) return seed;
+      actions.push(`insert-${minor[1]}-${minor[2]}-seed-objects`);
+      return {
+        ...seed,
+        heroObject: `${clean(seed.heroObject)} with ${minor[1].toLowerCase()} separately readable ${minor[2].toLowerCase()}`.trim(),
+        tarotTransformation: `${clean(seed.tarotTransformation)} Exactly ${minor[1].toLowerCase()} separately readable ${minor[2].toLowerCase()} remain individual physical objects and perform the seed's central action.`.trim(),
+      };
+    });
+  }
+  if (actions.length) blueprint.localBlueprintStabilization = { applied: true, actions: [...new Set(actions)] };
+  return blueprint;
+}
+
 async function responsePayload(response) {
   const contentType = String(response.headers?.get?.("content-type") || "").toLowerCase();
   if (!contentType.includes("text/event-stream") || !response.body?.getReader) return response.json().catch(() => ({}));
@@ -481,7 +528,7 @@ function localPromptAssessment(concept = {}, context = {}) {
 }
 
 function sanitizeLocalPrompt(value = "") {
-  const banned = ["the image is complete", "ready for a playing card", "a study in", "memorable for its", "the image must convey"];
+  const banned = ["the image is complete", "ready for a playing card", "a study in", "memorable for its", "the image must convey", "the burden is", "the wands are", "is transformed", "are implied", "is implied"];
   const removed = [];
   const sentences = clean(value, 20000).match(/[^.!?]+[.!?]+|[^.!?]+$/g) || [];
   const kept = sentences.filter((sentence) => {
@@ -490,6 +537,80 @@ function sanitizeLocalPrompt(value = "") {
     return !match;
   });
   return { prompt: kept.join(" ").replace(/\s+/g, " ").trim(), removed: [...new Set(removed)] };
+}
+
+function stabilizeLocalPrompt(concept = {}, context = {}) {
+  const actions = [];
+  const sanitized = sanitizeLocalPrompt(concept.imagePrompt);
+  let prompt = sanitized.prompt
+    .replace(/(?:the )?(?:face|features?|identity) (?:is |are )?(?:obscured|hidden|unseen)/gi, "the face remains fully readable")
+    .replace(/no face visible/gi, "the face remains fully readable");
+  if (prompt !== sanitized.prompt) actions.push("restore-readable-face-language");
+  const packet = context.packet || {};
+  const tarotTitle = list(packet.tarotConnections).map((item) => clean(item.cardTitle, 120)).find(Boolean) || "";
+  const lower = () => prompt.toLowerCase();
+  const prefix = [];
+  if (tarotTitle && !lower().includes(tarotTitle.toLowerCase())) {
+    prefix.push(`The Tarot card ${tarotTitle} governs this tableau.`);
+    actions.push("insert-exact-tarot-title");
+  }
+  const minor = tarotTitle.match(/^(Ace|Two|Three|Four|Five|Six|Seven|Eight|Nine|Ten) of (Wands|Cups|Swords|Pentacles)$/i);
+  if (minor) {
+    const countHits = (lower().match(new RegExp(`\\b${minor[1]}\\b`, "gi")) || []).length;
+    if (countHits < 2) {
+      prefix.push(`Exactly ${minor[1].toLowerCase()} separately readable ${minor[2].toLowerCase()} remain visible as individual physical objects and perform the central action.`);
+      actions.push("insert-explicit-minor-count");
+    }
+  }
+  const namedSymbols = list(concept.symbols).map((item) => clean(item.symbol, 120)).filter(Boolean);
+  const missingSymbols = namedSymbols.filter((symbol) => !lower().includes(symbol.toLowerCase())).slice(0, 2);
+  if (missingSymbols.length) {
+    prefix.push(`Keep ${missingSymbols.join(" and ")} separately visible at their specified placements, each performing its stated symbolic function.`);
+    actions.push("insert-named-symbols");
+  }
+  const characterUse = clean(concept.characterUse).toLowerCase();
+  const personExpected = characterUse && !/(no person|no character|none|object-led|no addressee visible|disembodied hands|no full bod)/.test(characterUse);
+  if (personExpected && !/\bhapa\b/i.test(prompt)) {
+    prefix.push("The visible person is an original Hapa character with a clear, reusable silhouette and a fully readable face.");
+    actions.push("insert-hapa-continuity");
+  }
+  const identity = {
+    red: "Hapa Red retains a worn red cap and black-red armor.",
+    blue: "Hapa Blue retains a navy-cyan Orion flight suit and red earbud cable.",
+    green: "Hapa Green retains a dark beard, hood, and living-wood bow.",
+    bella: "Hapa Bella retains long dark hair, warm olive skin, red-cream fabric, and gold jewelry.",
+  };
+  for (const [role, sentence] of Object.entries(identity)) {
+    if (new RegExp(`\\bhapa ${role}\\b`, "i").test(prompt) && localPromptAssessment({ ...concept, imagePrompt: `${prefix.join(" ")} ${prompt}` }, context).gateReasons.some((reason) => reason.startsWith(`hapa-identity-markers:${role}`))) {
+      prefix.push(sentence);
+      actions.push(`insert-${role}-identity-markers`);
+    }
+  }
+  if (prefix.length) prompt = `${prefix.join(" ")} ${prompt}`.trim();
+  let assessment = localPromptAssessment({ ...concept, imagePrompt: prompt }, context);
+  if (assessment.gateReasons.some((reason) => reason.startsWith("exclusion-bloat:") || reason.startsWith("exclusion-items:"))) {
+    prompt = prompt.split(/(?<=[.!?])\s+/).filter((sentence) => !/^(No|Avoid|Exclude)\b/i.test(sentence.trim())).join(" ").trim();
+    actions.push("remove-exclusion-padding");
+    assessment = localPromptAssessment({ ...concept, imagePrompt: prompt }, context);
+  }
+  if (assessment.gateReasons.some((reason) => reason.startsWith("positive-prompt-words:")) || prompt.split(/\s+/).filter(Boolean).length < 160) {
+    const scene = concept.scene || {};
+    const palette = list(concept.palette).map((item) => `${clean(item.color)} for ${clean(item.role)}`).filter((item) => item !== " for ").join(", ");
+    const symbols = list(concept.symbols).map((item) => `${clean(item.symbol)} at ${clean(item.placement)} visibly ${clean(item.meaning)}`).filter(Boolean).join("; ");
+    prompt = `${prompt} Render ${clean(scene.subject) || "the hero subject"} ${clean(scene.action) || "performing the central action"} in ${clean(scene.setting) || "the specified setting"}, framed ${clean(scene.camera) || "for a clear 2:3 composition"} under ${clean(scene.lightAndWeather) || "directional story light"}. Use ${clean(scene.materialLanguage) || "tactile, materially distinct surfaces"}; keep each physical consequence legible from foreground through background. Place ${symbols || "every named symbol at its specified placement with an observable function"}. Assign ${palette || "each palette color a distinct narrative role"}. Keep the hero action, causal lesson, and transformed Tarot mechanism readable at thumbnail scale without explanatory text.`.replace(/\s+/g, " ").trim();
+    actions.push("expand-positive-renderable-detail");
+  }
+  const words = prompt.split(/\s+/).filter(Boolean);
+  if (words.length > 500) {
+    prompt = words.slice(0, 500).join(" ").replace(/[,;:]?$/, ".");
+    actions.push(`trim-prompt-words:${words.length}->500`);
+  }
+  return {
+    ...concept,
+    imagePrompt: prompt,
+    localSanitization: { removedPhrases: [...new Set([...list(concept.localSanitization?.removedPhrases), ...sanitized.removed])] },
+    ...(actions.length ? { localPromptStabilization: { applied: true, actions } } : {}),
+  };
 }
 
 function signatureTokens(value = "") {
@@ -762,7 +883,7 @@ function createEchoReferenceIntelligence({ userDataPath, credentialStore, source
 
   async function requestLocalBlueprint(manifest, job) {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 5 * 60 * 1000);
+    const timeout = setTimeout(() => controller.abort(), 3 * 60 * 1000);
     try {
       const source = job.packet.sourceConnections[0] || {};
       const response = await fetchImpl(localOmlxUrl("responses"), {
@@ -772,12 +893,12 @@ function createEchoReferenceIntelligence({ userDataPath, credentialStore, source
           model: manifest.model,
           store: false,
           stream: true,
-          max_output_tokens: 3200,
+          max_output_tokens: 2400,
           input: [
-            { role: "developer", content: [{ type: "input_text", text: "You are a demanding visual-concept architect. Discover multiple defensible ideas, but reject cosmetic variants and generic mood illustration. Each seed must fuse one peculiar lyric object/action, the supplied reference's transferable relationship or system mechanism, the song lesson, and the attached Tarot card into one causal playing-card tableau. A numbered Minor Arcana seed must give its exact number of suit objects a concrete job in that tableau. Use established Hapa roles only when materially justified. Return only schema-valid JSON." }] },
+            { role: "developer", content: [{ type: "input_text", text: `You are a demanding visual-concept architect. Discover multiple defensible ideas, but reject cosmetic variants and generic mood illustration. Each seed must fuse one peculiar lyric object/action, the supplied reference's transferable relationship or system mechanism, the song lesson, and the attached Tarot card into one causal playing-card tableau. A numbered Minor Arcana seed must give its exact number of suit objects a concrete job in that tableau. Use established Hapa roles only when materially justified. Return only schema-valid JSON.${localSchemaInstruction(LOCAL_BLUEPRINT_SCHEMA)}` }] },
             { role: "user", content: [{ type: "input_text", text: `Design 2-5 genuinely different visual foundations for this one source connection. Different means a different central action, teaching mechanism, hero object, and Tarot operation—not a camera/location/animal/costume swap. State how each avoids generic album art and how it differs from every other seed. Copy connectionKey exactly: ${clean(source.connectionKey)}.\n\n${JSON.stringify(job.packet)}\n\nFINAL CHECK: every seed must be recognizable from this song with the title hidden; each must make the reference mechanism observable without recreating copyrighted surface imagery; no two seeds may share the same basic tableau. For a numbered Minor Arcana card, heroObject and tarotTransformation must literally retain the exact number of visible physical suit objects. Transform what those objects DO, not what they ARE: Ten of Wands means ten separately readable wand objects may brace, braid, hinge, measure, cage, bridge, or lever something, but knots, ropes, shadows, textures, or gestures cannot substitute for the wands.` }] },
           ],
-          text: { verbosity: "medium", format: { type: "json_schema", name: "echo_reference_blueprint", strict: true, schema: LOCAL_BLUEPRINT_SCHEMA } },
+          text: localTextContract("echo_reference_blueprint", LOCAL_BLUEPRINT_SCHEMA),
         }),
         signal: controller.signal,
       });
@@ -785,7 +906,7 @@ function createEchoReferenceIntelligence({ userDataPath, credentialStore, source
       if (!response.ok) throw new Error(payload?.error?.message || `Local oMLX blueprint request failed (${response.status}).`);
       const rawText = outputText(payload);
       if (!rawText) throw new Error("The local concept architect returned no blueprint.");
-      const blueprint = JSON.parse(rawText);
+      const blueprint = stabilizeLocalBlueprint(parseLocalJson(rawText), job);
       if (clean(blueprint.connectionKey) !== clean(source.connectionKey)) throw new Error(`Local blueprint must copy connectionKey ${clean(source.connectionKey)}.`);
       const seeds = list(blueprint.seeds);
       if (seeds.length < 2) throw new Error("Local blueprint returned fewer than two distinct concept seeds.");
@@ -800,9 +921,9 @@ function createEchoReferenceIntelligence({ userDataPath, credentialStore, source
 
   async function requestLocalCompactPlan(manifest, job, architecture) {
     let lastError;
-    for (let attempt = 1; attempt <= Math.min(2, maxAttempts); attempt += 1) {
+    for (let attempt = 1; attempt <= 1; attempt += 1) {
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 7 * 60 * 1000);
+      const timeout = setTimeout(() => controller.abort(), 4 * 60 * 1000);
       try {
         const expectedKey = clean(job.packet.sourceConnections[0]?.connectionKey);
         const response = await fetchImpl(localOmlxUrl("responses"), {
@@ -812,29 +933,29 @@ function createEchoReferenceIntelligence({ userDataPath, credentialStore, source
             model: manifest.model,
             store: false,
             stream: true,
-            max_output_tokens: 8192,
+            max_output_tokens: 7000,
             input: [
-              { role: "developer", content: [{ type: "input_text", text: `${DEVELOPER_INSTRUCTIONS}\n\n${LOCAL_DEVELOPER_INSTRUCTIONS}\nReturn one compact production concept for EVERY supplied blueprint seed. Copy blueprintSeedTitle exactly so the application can restore the seed's already-authored rationale fields.` }] },
+              { role: "developer", content: [{ type: "input_text", text: `${DEVELOPER_INSTRUCTIONS}\n\n${LOCAL_DEVELOPER_INSTRUCTIONS}\nReturn one compact production concept for EVERY supplied blueprint seed. Copy blueprintSeedTitle exactly so the application can restore the seed's already-authored rationale fields.${localSchemaInstruction(LOCAL_COMPACT_PLAN_SCHEMA)}` }] },
               { role: "user", content: [{ type: "input_text", text: `Expand every blueprint seed into one compact production concept. Do not omit, merge, rank, or add seeds.\n\nSONG AND SOURCE:\n${JSON.stringify(job.packet)}\n\nCOMPLETE BLUEPRINT:\n${JSON.stringify(architecture.blueprint)}\n\nFINAL ACCEPTANCE CHECK: copy connectionKey ${expectedKey}; return exactly ${architecture.blueprint.seeds.length} concepts and copy every blueprintSeedTitle byte-for-byte. Preserve each seed's distinct action and hero object. A human-led prompt must literally say Hapa and use an established role. Literally name the attached Tarot card and separately describe its exact countable transformed suit objects. Copy at least two symbol-array names into each prompt. Write at least 140 positive, renderable words before exclusions. Across the entire prompt include no more than eight excluded items, in at most three concise No/Avoid sentences; exclusions do not count toward length, and you must never paste the legacy-default list. Never write "the Wands are," "is implied," "is transformed," "the burden is," "a study in," or "the image must convey."${lastError ? ` This is a corrective retry. The prior output was rejected for: ${safeError(lastError)} Fix every named failure.` : ""}` }] },
             ],
-            text: { verbosity: "medium", format: { type: "json_schema", name: "echo_reference_compact_plan", strict: true, schema: LOCAL_COMPACT_PLAN_SCHEMA } },
+            text: localTextContract("echo_reference_compact_plan", LOCAL_COMPACT_PLAN_SCHEMA),
           }),
           signal: controller.signal,
         });
         const payload = await responsePayload(response);
         if (!response.ok) throw new Error(payload?.error?.message || `Local oMLX compact-plan request failed (${response.status}).`);
-        const compact = JSON.parse(outputText(payload));
+        const compact = parseLocalJson(outputText(payload));
         const connection = compact.connection || {};
         if (clean(connection.connectionKey) !== expectedKey) throw new Error(`Local compact output must copy connectionKey ${expectedKey}.`);
         const seeds = new Map(architecture.blueprint.seeds.map((seed) => [clean(seed.title), seed]));
         if (list(connection.concepts).length !== seeds.size) throw new Error(`Local compact output returned ${list(connection.concepts).length}/${seeds.size} blueprint concepts.`);
         const seen = new Set();
-        const concepts = list(connection.concepts).map((concept) => {
+        let concepts = list(connection.concepts).map((concept) => {
           const seed = seeds.get(clean(concept.blueprintSeedTitle));
           if (!seed || seen.has(clean(seed.title))) throw new Error(`Local compact output omitted or duplicated blueprintSeedTitle ${clean(concept.blueprintSeedTitle)}.`);
           seen.add(clean(seed.title));
           const sanitized = sanitizeLocalPrompt(concept.imagePrompt);
-          return {
+          return stabilizeLocalPrompt({
             ...concept,
             imagePrompt: sanitized.prompt,
             localSanitization: { removedPhrases: sanitized.removed },
@@ -845,17 +966,21 @@ function createEchoReferenceIntelligence({ userDataPath, credentialStore, source
             lessonMechanic: seed.lessonPayoff,
             tarotMechanic: seed.tarotTransformation,
             characterUse: seed.avatarRole,
-          };
+          }, { packet: job.packet });
         });
-        const failed = concepts.flatMap((concept) => {
+        const promptRepairs = [];
+        for (let index = 0; index < concepts.length; index += 1) {
+          const concept = concepts[index];
           const words = clean(concept.imagePrompt).split(/\s+/).filter(Boolean).length;
           const reasons = [...(words < 160 || words > 500 ? [`prompt-words:${words}`] : []), ...localPromptAssessment(concept, { packet: job.packet }).gateReasons];
-          return reasons;
-        });
-        if (failed.length) {
-          const error = new Error(`Local compact output failed objective prompt gates: ${[...new Set(failed)].join(", ")}.`);
-          error.localCandidate = compact;
-          throw error;
+          if (!reasons.length) continue;
+          const seed = concept.localBlueprintSeed;
+          const repaired = await requestLocalPromptRepair(manifest, job, seed, concept, reasons);
+          concepts[index] = stabilizeLocalPrompt({
+            ...repaired.concept,
+            localPromptRepair: { applied: true, repairedAt: now().toISOString(), repairedReasons: repaired.repairedReasons },
+          }, { packet: job.packet });
+          promptRepairs.push({ conceptId: clean(concept.id), repairedReasons: repaired.repairedReasons, usage: repaired.usage || {} });
         }
         const raw = {
           songFoundation: compact.songFoundation,
@@ -869,13 +994,23 @@ function createEchoReferenceIntelligence({ userDataPath, credentialStore, source
             concepts,
           }],
         };
-        const plan = normalizePlan(raw, job, manifest.model, payload, { name: "Local Qwen visual-intelligence model", provider: LOCAL_OMLX_PROVIDER, reasoningEffort: "qualified-long-context-profile" });
+        const plan = normalizePlan(raw, job, manifest.model, payload, { name: "Local Qwen visual-intelligence model", provider: LOCAL_OMLX_PROVIDER, reasoningEffort: "qualified-fast-profile" });
         plan.localBlueprint = architecture.blueprint;
+        if (promptRepairs.length) {
+          plan.localPromptRepairs = promptRepairs.map(({ conceptId, repairedReasons }) => ({ conceptId, repairedReasons }));
+          for (const repair of promptRepairs) {
+            plan.usage.inputTokens += Number(repair.usage.input_tokens || 0);
+            plan.usage.cachedInputTokens += Number(repair.usage.input_tokens_details?.cached_tokens || 0);
+            plan.usage.outputTokens += Number(repair.usage.output_tokens || 0);
+            plan.usage.reasoningTokens += Number(repair.usage.output_tokens_details?.reasoning_tokens || 0);
+            plan.usage.totalTokens += Number(repair.usage.total_tokens || 0);
+          }
+        }
         return { plan, requestId: response.headers?.get?.("x-request-id") || "" };
       } catch (error) {
         lastError = error;
         const retryable = error?.name === "AbortError" || error?.name === "TimeoutError" || error?.name === "TypeError" || /fetch failed|Unexpected end of JSON|Unterminated string|compact output|objective prompt gates|connectionKey|blueprintSeedTitle|prompt-words/i.test(String(error?.message || ""));
-        if (!retryable || attempt >= Math.min(2, maxAttempts)) break;
+        if (!retryable || attempt >= 1) break;
       } finally { clearTimeout(timeout); }
     }
     throw lastError || new Error("The local compact prompt request failed.");
@@ -885,7 +1020,7 @@ function createEchoReferenceIntelligence({ userDataPath, credentialStore, source
     let lastError;
     for (let attempt = 1; attempt <= 2; attempt += 1) {
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 4 * 60 * 1000);
+      const timeout = setTimeout(() => controller.abort(), 3 * 60 * 1000);
       try {
         const response = await fetchImpl(localOmlxUrl("responses"), {
           method: "POST",
@@ -894,20 +1029,20 @@ function createEchoReferenceIntelligence({ userDataPath, credentialStore, source
             model: manifest.model,
             store: false,
             stream: true,
-            max_output_tokens: 3200,
+            max_output_tokens: 2600,
             input: [
-              { role: "developer", content: [{ type: "input_text", text: "You are a production-prompt repair editor. Rewrite only the imagePrompt. Preserve the supplied concept's peculiar action, reference mechanism, lesson payoff, hero object, symbols, and composition. Correct every named gate failure with positive renderable detail; do not replace the concept or add a new concept. Return only schema-valid JSON." }] },
+              { role: "developer", content: [{ type: "input_text", text: `You are a production-prompt repair editor. Rewrite only the imagePrompt. Preserve the supplied concept's peculiar action, reference mechanism, lesson payoff, hero object, symbols, and composition. Correct every named gate failure with positive renderable detail; do not replace the concept or add a new concept. Return only schema-valid JSON.${localSchemaInstruction(LOCAL_PROMPT_REPAIR_SCHEMA)}` }] },
               { role: "user", content: [{ type: "input_text", text: `Repair this one rejected Echo playing-card prompt.\n\nGATE FAILURES TO FIX:\n${gateReasons.join("\n")}\n\nATTACHED TAROT DATA:\n${JSON.stringify(job.packet.tarotConnections)}\n\nCONCEPT BLUEPRINT:\n${JSON.stringify(seed)}\n\nSTRUCTURED CONCEPT:\n${JSON.stringify({ title: concept.title, memoryHook: concept.memoryHook, characterUse: concept.characterUse, symbols: concept.symbols, palette: concept.palette, visualSignature: concept.visualSignature })}\n\nREJECTED PROMPT:\n${clean(concept.imagePrompt, 8000)}\n\nWrite 180-300 words with at least 140 positive, visible words before exclusions. Literally name at least one attached Tarot card, and for a numbered Minor Arcana show its exact count of separately readable suit objects. Copy at least two supplied symbol names verbatim. Use no more than eight excluded items in at most three sentences. If naming Hapa Red, retain red cap and black-red armor; Blue, navy-cyan Orion flight suit and red earbud cable; Green, dark beard, hood, and living-wood bow; Bella, long dark hair, warm olive/tan skin, red-cream fabric, and gold jewelry. Keep the face readable. Never use “is implied,” “is transformed,” “the burden is,” “the Wands are,” “a study in,” or “the image must convey.”${lastError ? ` The prior repair was rejected for ${safeError(lastError)}.` : ""}` }] },
             ],
-            text: { verbosity: "medium", format: { type: "json_schema", name: "echo_reference_prompt_repair", strict: true, schema: LOCAL_PROMPT_REPAIR_SCHEMA } },
+            text: localTextContract("echo_reference_prompt_repair", LOCAL_PROMPT_REPAIR_SCHEMA),
           }),
           signal: controller.signal,
         });
         const payload = await responsePayload(response);
         if (!response.ok) throw new Error(payload?.error?.message || `Local oMLX prompt repair failed (${response.status}).`);
-        const raw = JSON.parse(outputText(payload));
+        const raw = parseLocalJson(outputText(payload));
         const sanitized = sanitizeLocalPrompt(raw.imagePrompt);
-        const repaired = { ...concept, imagePrompt: sanitized.prompt, localSanitization: { removedPhrases: [...new Set([...list(concept.localSanitization?.removedPhrases), ...sanitized.removed])] } };
+        const repaired = stabilizeLocalPrompt({ ...concept, imagePrompt: sanitized.prompt, localSanitization: { removedPhrases: [...new Set([...list(concept.localSanitization?.removedPhrases), ...sanitized.removed])] } }, { packet: job.packet });
         const words = clean(repaired.imagePrompt).split(/\s+/).filter(Boolean).length;
         const assessment = localPromptAssessment(repaired, { packet: job.packet });
         const reasons = [...(words < 160 || words > 500 ? [`prompt-words:${words}`] : []), ...assessment.gateReasons];
@@ -925,7 +1060,7 @@ function createEchoReferenceIntelligence({ userDataPath, credentialStore, source
     let lastError;
     for (let attempt = 1; attempt <= Math.min(2, maxAttempts); attempt += 1) {
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 5 * 60 * 1000);
+      const timeout = setTimeout(() => controller.abort(), 4 * 60 * 1000);
       try {
         const expectedKey = clean(job.packet.sourceConnections[0]?.connectionKey);
         const response = await fetchImpl(localOmlxUrl("responses"), {
@@ -935,12 +1070,12 @@ function createEchoReferenceIntelligence({ userDataPath, credentialStore, source
             model: manifest.model,
             store: false,
             stream: true,
-            max_output_tokens: 4000,
+            max_output_tokens: 3200,
             input: [
-              { role: "developer", content: [{ type: "input_text", text: `${DEVELOPER_INSTRUCTIONS}\n\n${LOCAL_DEVELOPER_INSTRUCTIONS}\n- Expand exactly ONE supplied blueprint seed into exactly ONE concept. Do not add an alternate or a variation.` }] },
+              { role: "developer", content: [{ type: "input_text", text: `${DEVELOPER_INSTRUCTIONS}\n\n${LOCAL_DEVELOPER_INSTRUCTIONS}\n- Expand exactly ONE supplied blueprint seed into exactly ONE concept. Do not add an alternate or a variation.${localSchemaInstruction(LOCAL_SINGLE_CONCEPT_SCHEMA)}` }] },
               { role: "user", content: [{ type: "input_text", text: `Create one complete visual-intelligence concept from the supplied seed. Return exactly one connection and exactly one concept.\n\nSONG AND SOURCE:\n${JSON.stringify(job.packet)}\n\nCONNECTION BLUEPRINT CONTEXT:\n${JSON.stringify({ connectionKey: blueprint.connectionKey, sourceMechanism: blueprint.sourceMechanism, songSpecificRecognition: blueprint.songSpecificRecognition })}\n\nONLY SEED TO EXPAND:\n${JSON.stringify(seed)}\n\nFINAL ACCEPTANCE CHECK: copy connectionKey ${expectedKey}. Preserve this seed's central action, hero object, reference mechanism, lesson payoff, and Tarot operation. Every human-led production prompt must literally say Hapa and use an established role rather than inventing a title. Literally name the attached Tarot card, then separately describe its exact countable suit objects performing the lyric action. Write at least 140 positive, renderable words before exclusions and include no more than eight excluded items total, whether introduced by No, Avoid, Exclude, or similar language. Never write "the Wands are," "is implied," "is transformed," "the burden is," "a study in," or "the image must convey." Copy at least two symbol-array names verbatim into the prompt.${lastError ? ` This is a corrective retry. The prior output was rejected for: ${safeError(lastError)} Fix every named failure.` : ""}` }] },
             ],
-            text: { verbosity: "medium", format: { type: "json_schema", name: "echo_reference_seed_plan", strict: true, schema: LOCAL_SINGLE_CONCEPT_SCHEMA } },
+            text: localTextContract("echo_reference_seed_plan", LOCAL_SINGLE_CONCEPT_SCHEMA),
           }),
           signal: controller.signal,
         });
@@ -948,12 +1083,12 @@ function createEchoReferenceIntelligence({ userDataPath, credentialStore, source
         if (!response.ok) throw new Error(payload?.error?.message || `Local oMLX seed request failed (${response.status}).`);
         const rawText = outputText(payload);
         if (!rawText) throw new Error("The local prompt author returned no structured seed output.");
-        const raw = JSON.parse(rawText);
+        const raw = parseLocalJson(rawText);
         const returned = list(raw.connections);
         if (returned.length !== 1 || clean(returned[0]?.connectionKey) !== expectedKey || list(returned[0]?.concepts).length !== 1) throw new Error(`Local seed output must return exactly one concept for connectionKey ${expectedKey}.`);
         returned[0].concepts = returned[0].concepts.map((concept) => {
           const sanitized = sanitizeLocalPrompt(concept.imagePrompt);
-          return { ...concept, imagePrompt: sanitized.prompt, localSanitization: { removedPhrases: sanitized.removed }, localBlueprintSeed: seed };
+          return stabilizeLocalPrompt({ ...concept, imagePrompt: sanitized.prompt, localSanitization: { removedPhrases: sanitized.removed }, localBlueprintSeed: seed }, { packet: job.packet });
         });
         let concept = returned[0].concepts[0];
         const wordCount = clean(concept.imagePrompt).split(/\s+/).filter(Boolean).length;
@@ -968,7 +1103,7 @@ function createEchoReferenceIntelligence({ userDataPath, credentialStore, source
           };
           returned[0].concepts[0] = concept;
         }
-        const plan = normalizePlan(raw, job, manifest.model, payload, { name: "Local Qwen visual-intelligence model", provider: LOCAL_OMLX_PROVIDER, reasoningEffort: "qualified-long-context-profile" });
+        const plan = normalizePlan(raw, job, manifest.model, payload, { name: "Local Qwen visual-intelligence model", provider: LOCAL_OMLX_PROVIDER, reasoningEffort: "qualified-fast-profile" });
         if (promptRepair) {
           plan.localPromptRepair = { applied: true, repairedReasons: promptRepair.repairedReasons };
           plan.usage.inputTokens += Number(promptRepair.usage.input_tokens || 0);
@@ -1010,6 +1145,10 @@ function createEchoReferenceIntelligence({ userDataPath, credentialStore, source
       } catch (error) {
         parentJob.localCompactFailure = { connectionKey: job.packet.sourceConnections[0]?.connectionKey || "", blueprintDigest, failedAt: now().toISOString(), error: safeError(error), candidate: error?.localCandidate || null };
         await onPartial();
+        if (LOCAL_FAST_DRAIN && !reusable.size) {
+          error.localFastDrainDeferred = true;
+          throw error;
+        }
       }
     }
     const results = [];
@@ -1078,7 +1217,7 @@ function createEchoReferenceIntelligence({ userDataPath, credentialStore, source
         }
         const rawText = outputText(payload);
         if (!rawText) throw new Error("The reasoning model returned no structured output text.");
-        const raw = JSON.parse(rawText);
+        const raw = parseLocalJson(rawText);
         if (local) {
           const expectedKey = clean(job.packet.sourceConnections[0]?.connectionKey);
           const returned = list(raw.connections);
@@ -1097,7 +1236,7 @@ function createEchoReferenceIntelligence({ userDataPath, credentialStore, source
           }
         }
         const plan = normalizePlan(raw, job, manifest.model, payload, local
-          ? { name: "Local Qwen visual-intelligence model", provider: LOCAL_OMLX_PROVIDER, reasoningEffort: "qualified-long-context-profile" }
+          ? { name: "Local Qwen visual-intelligence model", provider: LOCAL_OMLX_PROVIDER, reasoningEffort: "qualified-fast-profile" }
           : { name: "OpenAI reasoning model", provider: OPENAI_PROVIDER, reasoningEffort: "high" });
         if (localBlueprint) {
           plan.localBlueprint = localBlueprint.blueprint;
@@ -1167,7 +1306,9 @@ function createEchoReferenceIntelligence({ userDataPath, credentialStore, source
     await saveManifest(manifest);
     async function worker() {
       while (!pauseRequested) {
-        const job = manifest.jobs.find((item) => item.status === "queued");
+        const job = manifest.jobs
+          .filter((item) => item.status === "queued")
+          .sort((a, b) => Number(a.attempts || 0) - Number(b.attempts || 0) || Number(a.trackNumber || 0) - Number(b.trackNumber || 0))[0];
         if (!job) return;
         job.status = "running";
         job.startedAt = now().toISOString();
@@ -1183,6 +1324,7 @@ function createEchoReferenceIntelligence({ userDataPath, credentialStore, source
         } catch (error) {
           job.status = "failed";
           job.error = safeError(error);
+          if (provider === LOCAL_OMLX_PROVIDER) job.localRetryPolicyVersion = LOCAL_RETRY_POLICY_VERSION;
           if (error?.localCandidate) job.lastRejectedLocalCandidate = { rejectedAt: now().toISOString(), error: job.error, output: error.localCandidate };
           job.requestId = error?.requestId || "";
         }
@@ -1285,11 +1427,12 @@ function createEchoReferenceIntelligence({ userDataPath, credentialStore, source
     if (!manifest) throw new Error("There is no visual-intelligence run to resume.");
     manifest.model = await resolveModel("", LOCAL_OMLX_PROVIDER);
     manifest.authoringProvider = LOCAL_OMLX_PROVIDER;
-    manifest.reasoningEffort = "qualified-long-context-profile";
+    manifest.reasoningEffort = "qualified-fast-profile";
     manifest.concurrency = 1;
     manifest.blocker = null;
     const candidates = manifest.jobs.filter((job) => {
-      if (["failed", "queued", "running"].includes(job.status)) return true;
+      if (["queued", "running"].includes(job.status)) return true;
+      if (job.status === "failed") return repair || job.localRetryPolicyVersion !== LOCAL_RETRY_POLICY_VERSION;
       if (!repair) return false;
       if (job.status !== "completed" || job.plan?.author?.provider !== LOCAL_OMLX_PROVIDER) return false;
       const concepts = list(job.plan?.connections).flatMap((connection) => list(connection.concepts));
@@ -1312,6 +1455,7 @@ function createEchoReferenceIntelligence({ userDataPath, credentialStore, source
           ...job,
           status: "queued",
           error: "",
+          ...(job.status === "failed" ? { localRetryPolicyVersion: LOCAL_RETRY_POLICY_VERSION } : {}),
           supersededPlans: job.plan ? [...list(job.supersededPlans), { ...job.plan, supersededAt: now().toISOString(), supersededReason: "Local quality pilot failed objective connection-count or production-prompt gates." }] : list(job.supersededPlans),
           supersededPartialPlans: rejectedPartials.length ? [...list(job.supersededPartialPlans), ...rejectedPartials.map((partial) => ({ ...partial, supersededAt: now().toISOString(), supersededReason: "Local partial failed objective Hapa, Tarot, symbol, or prompt-language gates." }))] : list(job.supersededPartialPlans),
           supersededLocalSeedPartials: rejectedSeeds.length ? [...list(job.supersededLocalSeedPartials), ...rejectedSeeds.map((partial) => ({ ...partial, supersededAt: now().toISOString(), supersededReason: "Local seed partial failed current Hapa identity, Tarot, symbol, or prompt-language gates." }))] : list(job.supersededLocalSeedPartials),
@@ -1363,4 +1507,4 @@ function createEchoReferenceIntelligence({ userDataPath, credentialStore, source
   return Object.freeze({ start, continueFull, refreshAll, resume, resumeLocal, pause, audit, status, _active: () => activePromise });
 }
 
-module.exports = { SCHEMA_VERSION, PLAN_SCHEMA_VERSION, SCORE_KEYS, OUTPUT_SCHEMA, DEVELOPER_INSTRUCTIONS, LOCAL_DEVELOPER_INSTRUCTIONS, OPENAI_PROVIDER, LOCAL_OMLX_PROVIDER, LOCAL_OMLX_MODEL, LOCAL_OMLX_BASE_URL, outputText, responsePayload, songPacket, qualityAssessment, localPromptAssessment, sanitizeLocalPrompt, normalizePlan, summarize, applyCorpusQuality, createEchoReferenceIntelligence };
+module.exports = { SCHEMA_VERSION, PLAN_SCHEMA_VERSION, SCORE_KEYS, OUTPUT_SCHEMA, DEVELOPER_INSTRUCTIONS, LOCAL_DEVELOPER_INSTRUCTIONS, OPENAI_PROVIDER, LOCAL_OMLX_PROVIDER, LOCAL_OMLX_MODEL, LOCAL_OMLX_BASE_URL, LOCAL_RETRY_POLICY_VERSION, outputText, parseLocalJson, responsePayload, songPacket, qualityAssessment, localPromptAssessment, sanitizeLocalPrompt, stabilizeLocalBlueprint, stabilizeLocalPrompt, normalizePlan, summarize, applyCorpusQuality, createEchoReferenceIntelligence };

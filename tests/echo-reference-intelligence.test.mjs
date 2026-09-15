@@ -78,6 +78,50 @@ test("the local prompt normalizer removes meta filler but leaves visual instruct
   assert.deepEqual(result.removed, ["the image is complete"]);
 });
 
+test("local JSON parsing accepts raw objects and fenced objects but rejects incomplete output", () => {
+  assert.deepEqual(service.parseLocalJson('{"ok":true}'), { ok: true });
+  assert.deepEqual(service.parseLocalJson('```json\n{"ok":true}\n```'), { ok: true });
+  assert.throws(() => service.parseLocalJson('{"ok":'), /complete JSON object|Unexpected end/);
+});
+
+test("local prompt stabilization restores exact Tarot, count, symbols, and Hapa continuity mechanically", () => {
+  const stabilized = service.stabilizeLocalPrompt(concept({
+    characterUse: "one original adult",
+    symbols: [
+      { symbol: "cup", source: "Tarot", meaning: "feeling", placement: "foreground" },
+      { symbol: "tide mark", source: "lyric", meaning: "choice", placement: "cup wall" },
+      { symbol: "open door", source: "lesson", meaning: "exit", placement: "background" },
+    ],
+    imagePrompt: Array.from({ length: 14 }, () => "An adult watches weather score a ceramic surface while speech changes its waterline through a visible domestic action.").join(" "),
+  }), { packet: { tarotConnections: [{ cardTitle: "Ten of Cups" }] } });
+  assert.match(stabilized.imagePrompt, /Tarot card Ten of Cups/);
+  assert.match(stabilized.imagePrompt, /Exactly ten separately readable cups/);
+  assert.match(stabilized.imagePrompt, /original Hapa character/);
+  assert.equal(service.localPromptAssessment(stabilized, { packet: { tarotConnections: [{ cardTitle: "Ten of Cups" }] } }).gateReasons.length, 0);
+});
+
+test("local blueprint stabilization preserves ideas while restoring connection and Minor Arcana objects", () => {
+  const stabilized = service.stabilizeLocalBlueprint({
+    connectionKey: "wrong",
+    seeds: [{ title: "Signal", heroObject: "a radio", tarotTransformation: "The signal opens a channel." }],
+  }, { packet: { sourceConnections: [{ connectionKey: "exact-key" }], tarotConnections: [{ cardTitle: "Three of Cups" }] } });
+  assert.equal(stabilized.connectionKey, "exact-key");
+  assert.match(stabilized.seeds[0].heroObject, /three separately readable cups/i);
+  assert.match(stabilized.seeds[0].tarotTransformation, /Exactly three separately readable cups/);
+  assert.equal(stabilized.localBlueprintStabilization.applied, true);
+});
+
+test("local prompt stabilization removes exclusion padding and bounds overlong prompts without a model retry", () => {
+  const long = concept({
+    characterUse: "object-led",
+    imagePrompt: `${Array.from({ length: 52 }, () => "The Fool places cup, tide mark, and open door into a visible causal mechanism with ceramic weather and salt light.").join(" ")} No cliffs, towers, paths, fog, moons, mirrors, harbors, backpacks, armor.`,
+  });
+  const stabilized = service.stabilizeLocalPrompt(long, { packet: { tarotConnections: [{ cardTitle: "The Fool" }] } });
+  assert.ok(stabilized.imagePrompt.split(/\s+/).length <= 500);
+  assert.doesNotMatch(stabilized.imagePrompt, /No cliffs/);
+  assert.equal(service.localPromptAssessment(stabilized, { packet: { tarotConnections: [{ cardTitle: "The Fool" }] } }).gateReasons.length, 0);
+});
+
 test("local prompt gates reject exclusion padding and preserve a substantial positive visual brief", () => {
   const padded = concept({
     characterUse: "object-led",
