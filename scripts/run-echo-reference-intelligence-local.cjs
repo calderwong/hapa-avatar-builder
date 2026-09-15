@@ -22,7 +22,7 @@ function concise(status = {}) {
 }
 
 async function main() {
-  if (!["status", "audit", "local-pilot", "local-resume"].includes(command)) throw new Error("Use status, audit, local-pilot, or local-resume.");
+  if (!["status", "audit", "local-pilot", "local-resume", "local-repair"].includes(command)) throw new Error("Use status, audit, local-pilot, local-resume, or local-repair.");
   const runner = createEchoReferenceIntelligence({
     userDataPath,
     credentialStore: { read: async () => { throw new Error("The local authoring runner must never read a paid-provider credential."); } },
@@ -31,8 +31,11 @@ async function main() {
   });
   let status = await runner.status();
   if (command === "audit") status = await runner.audit();
-  if (command === "local-pilot" || command === "local-resume") {
-    status = await runner.resumeLocal({ limit: command === "local-pilot" ? Number(process.argv[3] || process.env.HAPA_ECHO_LOCAL_PILOT_SONGS || 3) : 0 });
+  if (["local-pilot", "local-resume", "local-repair"].includes(command)) {
+    status = await runner.resumeLocal({
+      limit: command === "local-pilot" ? Number(process.argv[3] || process.env.HAPA_ECHO_LOCAL_PILOT_SONGS || 3) : Number(process.argv[3] || 0),
+      repair: command === "local-repair",
+    });
     await runner._active();
     status = await runner.status();
   }

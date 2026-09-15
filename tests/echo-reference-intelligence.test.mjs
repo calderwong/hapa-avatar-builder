@@ -154,7 +154,7 @@ test("an exact attached Major Arcana title satisfies Tarot visibility without re
   assert.doesNotMatch(assessment.gateReasons.join(" "), /missing-visible-tarot-language|missing-attached-tarot-title/);
 });
 
-test("local resume uses only the qualified loopback Qwen route and does not read the OpenAI credential", async () => {
+test("local repair retries current-policy failures through only the qualified loopback Qwen route and does not read the OpenAI credential", async () => {
   const userDataPath = await mkdtemp(path.join(tmpdir(), "echo-local-intelligence-"));
   const runId = "local-resume-fixture";
   const runsRoot = path.join(userDataPath, "Echo Reference Intelligence Runs");
@@ -175,7 +175,7 @@ test("local resume uses only the qualified loopback Qwen route and does not read
     model: "gpt-5.2",
     reasoningEffort: "high",
     concurrency: 12,
-    jobs: [{ id: "job-local", songId: packet.songId, songTitle: packet.songTitle, trackNumber: 1, sourceDigest: "sha256:test", packet, status: "failed", attempts: 1, error: "spend limit", plan: null }],
+    jobs: [{ id: "job-local", songId: packet.songId, songTitle: packet.songTitle, trackNumber: 1, sourceDigest: "sha256:test", packet, status: "failed", attempts: 1, error: "quality gate", plan: null, localRetryPolicyVersion: service.LOCAL_RETRY_POLICY_VERSION }],
   };
   await writeFile(path.join(runRoot, "manifest.json"), `${JSON.stringify(manifest)}\n`);
   await writeFile(path.join(runsRoot, "current-run.json"), `${JSON.stringify({ runId })}\n`);
@@ -200,7 +200,7 @@ test("local resume uses only the qualified loopback Qwen route and does not read
     fetchImpl,
     concurrency: 9,
   });
-  await runner.resumeLocal({ limit: 1 });
+  await runner.resumeLocal({ limit: 1, repair: true });
   await runner._active();
   const status = await runner.status();
   assert.equal(status.authoringProvider, service.LOCAL_OMLX_PROVIDER);
