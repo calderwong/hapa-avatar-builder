@@ -75,12 +75,32 @@ the actual tool invocation and hands the resulting local file back to the script
 
 ## Active automation
 
-Heartbeat `monitor-echo-local-prompt-drain` runs every five minutes in the
-originating Codex task. It keeps the local-Qwen drain alive, claims at most one
-qualified image per pass, uses the built-in image tool, imports the result, and
-invokes the incremental FAL loop runner. It stays quiet while work advances and
-reports only actionable failure or final catch-up. The current promotion guard
-forbids new FAL dispatches at or after **2026-09-15 00:00 America/Los_Angeles**.
+Heartbeat `monitor-echo-local-prompt-drain` runs every two minutes in the
+originating Codex task. It keeps the local-Qwen drain alive and claims a bounded
+batch of at most three qualified images per pass. Each claim is durable before
+the built-in image call begins; independent image calls may run concurrently,
+each successful result is imported against its exact job ID, and one incremental
+FAL invocation then generates all unseen loops with the existing concurrency
+limit. A moderation-blocked image is marked permanently failed after its single
+attempt so it cannot block later jobs. The heartbeat stays quiet while work
+advances and reports only actionable failure or final catch-up.
+
+Paid work is now guarded by the advertised rate rather than a guessed calendar
+boundary. Before a batch dispatches FAL, the operator pass must verify that the
+official H3 Max Turbo page still lists the 768P promotional rate as $0.01 per
+second. If that rate disappears, the heartbeat pauses before dispatch. The
+cumulative $10 hard ceiling remains unchanged.
+
+### Throughput checkpoint — 2026-09-15
+
+The first 16-card live run measured an average of 80.7 seconds for Codex image
+generation and 10.6 seconds for the FAL loop stage. The previous five-minute,
+single-item heartbeat therefore spent most wall time idle and achieved roughly
+7.5 completed card-loop pairs per hour. The bounded three-job/two-minute route
+removes that polling bottleneck. With a ready backlog, its expected downstream
+ceiling is approximately 60–90 pairs per hour; once the ready queue drains, the
+local Qwen prompt producer becomes the limiting stage. This is an observed
+prototype checkpoint, not an SLA.
 
 ## Recovery
 
