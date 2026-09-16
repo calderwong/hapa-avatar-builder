@@ -34,6 +34,7 @@ function previewHelpers() {
     "resolveEchoShotSourceDimensions",
     "cameraPresentationForShot",
     "drawEchoCameraFramedMediaInput",
+    "paintEchoPreviewMediaBase",
   ];
   const context = {
     result: null,
@@ -171,6 +172,43 @@ test("Echo filter input is an offscreen camera-framed canvas, not the raw portra
   );
   assert.equal(decodedFallback.isPortrait, true);
   assert.equal(decodedFallback.source, "decoded-media");
+});
+
+test("Echo Preview paints camera-framed media into the compositor before shader layers", () => {
+  const helpers = previewHelpers();
+  const calls = [];
+  const context = {
+    globalAlpha: 0.2,
+    globalCompositeOperation: "lighter",
+    filter: "blur(2px)",
+    save() {
+      this.saved = [this.globalAlpha, this.globalCompositeOperation, this.filter];
+      calls.push("save");
+    },
+    drawImage(...args) {
+      calls.push(["drawImage", ...args, this.globalAlpha, this.globalCompositeOperation, this.filter]);
+    },
+    restore() {
+      [this.globalAlpha, this.globalCompositeOperation, this.filter] = this.saved;
+      calls.push("restore");
+    },
+  };
+  const mediaCanvas = { id: "camera-framed-media" };
+  assert.equal(helpers.paintEchoPreviewMediaBase({
+    context,
+    framedMediaInput: { canvas: mediaCanvas },
+    width: 1920,
+    height: 1080,
+  }), true);
+  assert.deepEqual(calls, ["save", ["drawImage", mediaCanvas, 0, 0, 1920, 1080, 1, "source-over", "none"], "restore"]);
+  assert.equal(context.globalAlpha, 0.2);
+  assert.equal(context.globalCompositeOperation, "lighter");
+  assert.equal(context.filter, "blur(2px)");
+  assert.equal(helpers.paintEchoPreviewMediaBase({ context, framedMediaInput: null, width: 1920, height: 1080 }), false);
+
+  const mediaPaint = source.indexOf("const mediaBaseDrawn = paintEchoPreviewMediaBase");
+  const shaderPaint = source.indexOf("for (const layer of readyLayers)", mediaPaint);
+  assert.ok(mediaPaint >= 0 && shaderPaint > mediaPaint, "media must be in the same canvas before persistent and rotating shaders are composited");
 });
 
 test("Echo Preview integration preserves crop at 30fps and cannot CSS-squish its output canvas", () => {

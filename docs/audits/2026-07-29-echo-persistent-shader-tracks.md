@@ -48,6 +48,8 @@ Any future persistent shader lane must be included in all visualizer-track scans
 
 Persistent generator shaders with black-plate knockout use two independent controls. `Vis` scales the generated shader pixels; `Layer` scales the already-rendered media underneath. At `Vis = 100%` and `Layer = 100%`, the media remains undimmed and the shader is composited at full strength with the additive knockout path. Lowering `Layer` adds an underlay-only black veil before the shader is drawn, so it never reduces the flame or line visibility. Non-persistent layers, filters, and explicitly darkening blend modes keep the legacy combined-opacity behavior.
 
+The browser Preview must first paint the camera-framed media into its compositor canvas. The decoder video living underneath that canvas in the DOM is not a valid compositing base: an opaque black WebGL generator plate would otherwise hide it before `screen` or `lighter` blending could operate. Persistent and rotating shaders are then painted in their scheduled order over the in-canvas media base.
+
 ## Promotion candidate
 
 This is a reusable Flow/Decision Card candidate: “Persistent Full-Song Shader Lanes with Exact Renderer and Stem-Fallback Truth.”

@@ -1287,6 +1287,25 @@ function drawEchoCameraFramedMediaInput({
   return { canvas, presentation, sourceRect, dimensions };
 }
 
+function paintEchoPreviewMediaBase({ context, framedMediaInput, width, height } = {}) {
+  const source = framedMediaInput?.canvas;
+  const outputWidth = Math.max(1, Math.round(Number(width) || 0));
+  const outputHeight = Math.max(1, Math.round(Number(height) || 0));
+  if (!context || !source || !(outputWidth > 0 && outputHeight > 0)) return false;
+  context.save();
+  try {
+    context.globalAlpha = 1;
+    context.globalCompositeOperation = "source-over";
+    context.filter = "none";
+    context.drawImage(source, 0, 0, outputWidth, outputHeight);
+    return true;
+  } catch {
+    return false;
+  } finally {
+    context.restore();
+  }
+}
+
 function EchoPlaybackClockBoundary({ clockRef, initialTime = 0, active = false, powerMode = "active", project = null, children }) {
   const clockDiagnostics = globalThis.__HAPA_ECHO_CLOCK_DIAGNOSTICS__ ||= { topLevelRenders: 0, boundaryRenders: 0 };
   clockDiagnostics.boundaryRenders += 1;
@@ -3802,6 +3821,17 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                 outputHeight: height,
               })
               : null;
+            const mediaBaseDrawn = paintEchoPreviewMediaBase({
+              context: ctx,
+              framedMediaInput,
+              width,
+              height,
+            });
+            // The decoder elements live below this canvas in the DOM, while ISF
+            // generator canvases commonly contain an opaque black plate. Put the
+            // camera-framed clip in this same pixel stack before screen/lighter
+            // shader passes so black is neutral instead of hiding the DOM video.
+            canvas.dataset.echoCompositorMediaBase = mediaBaseDrawn ? "camera-framed" : "unavailable";
             const emptyMediaFrame = emptyIsfMedia.at(directorPreviewFrame ? Boolean(directorPreviewFrame.primaryMediaCue) : undefined);
             const graphIdentity = echoIsfGraphRuntimeIdentity(directorShowGraph);
             const sourceLayeredCards = directorPreviewFrame ? graphActiveVisualizerCards : graphActiveVisualizerCards.length ? graphActiveVisualizerCards : [graphVisualizerCard];
