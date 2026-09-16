@@ -32,6 +32,18 @@ test('center word focus is large, fixed-center, and has no visible text containe
  assert.equal(placement.y,(profile.height-125)/2);
 });
 
+test('font, size, and color controls resolve identically for Preview and export', () => {
+ const profile=resolveEchoOutputProfile('landscape');
+ const contract={templateId:'center-word-focus-v1',position:'center',style:'neon-cyan',fontFamily:'display',fontScale:1.5,textColor:'#f97316'};
+ const actual=echoLyricPresentation(contract,profile);
+ assert.equal(actual.fontSize,178);
+ assert.equal(actual.text,'#f97316');
+ assert.equal(actual.accent,'#f97316');
+ assert.match(actual.panel.font,/Impact/u);
+ const context=vm.createContext({contract,profile});vm.runInContext(echoLyricPresentationBrowserSource(),context);
+ assert.deepEqual(JSON.parse(JSON.stringify(vm.runInContext('echoLyricPresentation(contract,profile)',context))),actual);
+});
+
 test('word geometry is measured with final typography and leaves transformed glyph ink visible', () => {
  const style=echoLyricWordMeasurementStyle();
  assert.equal(style.fontWeight,'700');

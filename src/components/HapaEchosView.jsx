@@ -130,6 +130,7 @@ import {
   normalizeEchoPersistentShaderSlots,
 } from "../domain/echo-persistent-shader-slots.js";
 import {
+  ECHO_LYRIC_FONT_OPTIONS,
   ECHO_LYRIC_TEMPLATES,
   attachEchoLyricContract,
   echoLyricTemplate,
@@ -1129,11 +1130,11 @@ const LYRIC_POSITION_OPTIONS = [
 ];
 
 const LYRIC_STYLE_OPTIONS = [
-  { value: "neon-cyan", label: "Neon cyan" },
-  { value: "magenta-glow", label: "Magenta glow" },
-  { value: "gold-caption", label: "Gold caption" },
-  { value: "paper-white", label: "Paper white" },
-  { value: "minimal-subtitle", label: "Minimal subtitle" }
+  { value: "neon-cyan", label: "Neon cyan", textColor: "#e0faff" },
+  { value: "magenta-glow", label: "Magenta glow", textColor: "#ffe4f2" },
+  { value: "gold-caption", label: "Gold caption", textColor: "#fff7dc" },
+  { value: "paper-white", label: "Paper white", textColor: "#101827" },
+  { value: "minimal-subtitle", label: "Minimal subtitle", textColor: "#ffffff" }
 ];
 
 function positiveEchoMediaDimension(...values) {
@@ -7122,6 +7123,78 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                                 <option key={option.value} value={option.value}>{option.label}</option>
                               ))}
                             </select>
+                            <label style={{ color:'#cbd5e1',fontSize:'10px',display:'flex',alignItems:'center',gap:5 }}>
+                              Font
+                              <select
+                                aria-label="Lyric font"
+                                data-testid="echo-lyric-font"
+                                value={activeLyricContract.fontFamily}
+                                disabled={directorEditingLocked}
+                                onChange={(event) => handleUpdateProjectSettings({
+                                  lyrics: { ...activeLyricContract, fontFamily: event.target.value },
+                                })}
+                                style={{
+                                  background: '#090d16',
+                                  border: '1px solid rgba(255,255,255,0.15)',
+                                  color: '#fff',
+                                  padding: '4px 8px',
+                                  borderRadius: '4px',
+                                  fontSize: '10px',
+                                  minWidth: '104px',
+                                  outline: 'none',
+                                  fontWeight: 'bold',
+                                  cursor: 'pointer'
+                                }}
+                              >
+                                {ECHO_LYRIC_FONT_OPTIONS.map((option) => (
+                                  <option key={option.id} value={option.id}>{option.label}</option>
+                                ))}
+                              </select>
+                            </label>
+                            <label style={{ color:'#cbd5e1',fontSize:'10px',display:'flex',alignItems:'center',gap:5 }}>
+                              Size
+                              <input
+                                type="range"
+                                aria-label="Lyric font size"
+                                data-testid="echo-lyric-font-size"
+                                min="50"
+                                max="200"
+                                step="5"
+                                value={Math.round(activeLyricContract.fontScale*100)}
+                                disabled={directorEditingLocked}
+                                style={{width:70}}
+                                onChange={(event) => handleUpdateProjectSettings({
+                                  lyrics: { ...activeLyricContract, fontScale: Number(event.target.value)/100 },
+                                })}
+                              />
+                              <output>{Math.round(activeLyricContract.fontScale*100)}%</output>
+                            </label>
+                            <label style={{ color:'#cbd5e1',fontSize:'10px',display:'flex',alignItems:'center',gap:5 }}>
+                              Color
+                              <input
+                                type="color"
+                                aria-label="Lyric color"
+                                data-testid="echo-lyric-color"
+                                value={activeLyricContract.textColor || LYRIC_STYLE_OPTIONS.find((option) => option.value === activeLyricContract.style)?.textColor || '#e0faff'}
+                                disabled={directorEditingLocked}
+                                onChange={(event) => handleUpdateProjectSettings({
+                                  lyrics: { ...activeLyricContract, textColor: event.target.value },
+                                })}
+                                style={{width:28,height:22,padding:0,border:'1px solid rgba(255,255,255,.25)',borderRadius:4,background:'transparent'}}
+                              />
+                            </label>
+                            <button
+                              type="button"
+                              aria-label="Use lyric theme color"
+                              data-testid="echo-lyric-color-reset"
+                              disabled={directorEditingLocked || !activeLyricContract.textColor}
+                              onClick={() => handleUpdateProjectSettings({
+                                lyrics: { ...activeLyricContract, textColor: '' },
+                              })}
+                              style={{background:'transparent',border:'1px solid rgba(255,255,255,.15)',color:'#cbd5e1',fontSize:'8px',padding:'4px 6px',borderRadius:4,cursor:'pointer'}}
+                            >
+                              THEME COLOR
+                            </button>
 
                             <button
                               type="button"

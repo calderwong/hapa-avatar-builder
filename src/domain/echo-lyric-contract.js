@@ -1,5 +1,15 @@
 export const ECHO_LYRIC_CONTRACT_SCHEMA = "hapa.echo.lyric-overlay.v1";
 
+export const ECHO_LYRIC_FONT_OPTIONS = Object.freeze([
+  Object.freeze({ id: "theme", label: "Theme font" }),
+  Object.freeze({ id: "sans", label: "Sans" }),
+  Object.freeze({ id: "serif", label: "Serif" }),
+  Object.freeze({ id: "mono", label: "Mono" }),
+  Object.freeze({ id: "display", label: "Display" }),
+]);
+
+const ECHO_LYRIC_FONT_IDS = new Set(ECHO_LYRIC_FONT_OPTIONS.map((option) => option.id));
+
 export const ECHO_LYRIC_TEMPLATES = Object.freeze([
   Object.freeze({
     id: "kinetic-word-burst-v1",
@@ -47,6 +57,22 @@ function text(value) {
   return typeof value === "string" ? value.trim() : "";
 }
 
+function lyricFontFamily(value) {
+  const candidate = text(value).toLowerCase();
+  return ECHO_LYRIC_FONT_IDS.has(candidate) ? candidate : "theme";
+}
+
+function lyricFontScale(value) {
+  if (value === undefined || value === null || value === "") return 1;
+  const candidate = Number(value);
+  return Number.isFinite(candidate) ? Math.max(0.5, Math.min(2, candidate)) : 1;
+}
+
+function lyricTextColor(value) {
+  const candidate = text(value).toLowerCase();
+  return /^#[0-9a-f]{6}$/u.test(candidate) ? candidate : "";
+}
+
 export function echoLyricTemplateIdFromLegacyVariant(variant = "") {
   return LEGACY_TEMPLATE_IDS[text(variant)] || "scanline-phrase-ribbon-v1";
 }
@@ -79,6 +105,9 @@ export function normalizeEchoLyricContract(projectInput = {}) {
     legacyVariant,
     position: text(source.position || project.lyric_position) || "bottom-center",
     style: text(source.style || project.lyric_style) || "neon-cyan",
+    fontFamily: lyricFontFamily(source.fontFamily || source.font_family),
+    fontScale: lyricFontScale(source.fontScale ?? source.font_scale),
+    textColor: lyricTextColor(source.textColor || source.text_color),
     timingSource: text(
       timingTruth.timingSource
         || mapProvenance.lyricTimingSource

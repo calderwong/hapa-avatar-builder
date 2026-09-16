@@ -82,6 +82,9 @@ test("HyperFrames preserves the selected deterministic lyric template contract",
     schemaVersion: "hapa.echo.lyric-overlay.v1",
     enabled: true,
     templateId: "orbit-caption-v1",
+    fontFamily: "serif",
+    fontScale: 1.35,
+    textColor: "#F97316",
     timingHash: "timing-hash",
     lines: [{
       text: "Orbit these words",
@@ -93,6 +96,9 @@ test("HyperFrames preserves the selected deterministic lyric template contract",
   const show = compileHyperFramesShow({ showGraph: graph, telemetry: {}, project: {}, proxyRegistry: {}, fps: 30 });
   assert.equal(show.instances.lyrics.length, 1);
   assert.equal(show.instances.lyrics[0].templateId, "orbit-caption-v1");
+  assert.equal(show.instances.lyrics[0].contract.fontFamily, "serif");
+  assert.equal(show.instances.lyrics[0].contract.fontScale, 1.35);
+  assert.equal(show.instances.lyrics[0].contract.textColor, "#F97316");
   assert.equal(show.instances.lyrics[0].runtimeSchema, "hapa.echo.lyric-template-runtime.v1");
   assert.equal(show.instances.lyrics[0].frameQuantization, "floor-to-output-fps");
   assert.equal(show.instances.lyrics[0].contract.timingHash, "timing-hash");
@@ -100,6 +106,9 @@ test("HyperFrames preserves the selected deterministic lyric template contract",
     show.source.lyricOverlayHash,
     hashEchoLyricOverlayExecutionContract(graph.song.lyricOverlay),
   );
+  const restyled = structuredClone(graph.song.lyricOverlay);
+  restyled.textColor = "#22d3ee";
+  assert.notEqual(hashEchoLyricOverlayExecutionContract(restyled), show.source.lyricOverlayHash);
 
   graph.song.lyricOverlay.enabled = false;
   const disabled = compileHyperFramesShow({ showGraph: graph, telemetry: {}, project: {}, proxyRegistry: {}, fps: 30 });

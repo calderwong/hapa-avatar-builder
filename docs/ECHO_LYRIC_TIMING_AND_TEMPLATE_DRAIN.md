@@ -42,6 +42,8 @@ Each saved Director cut must carry:
   correction receipts rather than destructive source rewrites.
 - safe-area, reduced-motion, placement, and style settings that participate in
   the semantic mint fingerprint.
+- portable font choice, bounded profile-relative size, and validated text-color
+  override settings that participate in Preview/export execution identity.
 
 Turning lyrics off must preserve the selected template and timing data. It must
 remove the overlay from Preview and exported/minted video while retaining

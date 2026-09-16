@@ -38,7 +38,7 @@ test('all five recuts execute the same opacity, stem-depth, accent, visual-time 
   assert.ok(mergedSectionAdmission.decisions.every(row=>row.accepted));
   assert.deepEqual(actual.directorV2.visualTimeTrack,direct.directorV2.visualTimeTrack,recipeId);
   assert.equal(actual.tracks.find(track=>track.role==='accent').cards.length,direct.tracks.find(track=>track.role==='accent').cards.length);
-  for(const field of ['templateId','motionIntensity','enabled','reducedMotion'])assert.equal(actual.song.lyricOverlay[field],direct.song.lyricOverlay[field]);
+  for(const field of ['templateId','motionIntensity','enabled','reducedMotion','fontFamily','fontScale','textColor'])assert.equal(actual.song.lyricOverlay[field],direct.song.lyricOverlay[field]);
   assert.deepEqual(candidate.project.timed_lyrics,source.timed_lyrics);assert.equal(candidate.project.audio_uri,source.audio_uri);
   assert.ok(validateAccentEventTrack(actual.directorV2.accentTrack).ok);
   assert.ok(validateVisualTimeTrack(actual.directorV2.visualTimeTrack).ok);
@@ -70,7 +70,7 @@ test('ranged treatment preserves boundary-crossing shaders, outside effects and 
 });
 
 test('explicit treatment locks and disabled/reduced-motion lyrics survive recipe changes',()=>{
- const {project}=fixture();project.lyrics={enabled:false,reducedMotion:true,templateId:'orbit-caption-v1',motionIntensity:.12};
+ const {project}=fixture();project.lyrics={enabled:false,reducedMotion:true,templateId:'orbit-caption-v1',motionIntensity:.12,fontFamily:'serif',fontScale:1.4,textColor:'#f97316'};
  const locks=['shader-treatment','accents','visual-time','lyric-style','camera'].map(targetId=>({targetId}));
  const candidate=recut(project,{locks}),before=projectToEditorGraph(project),after=projectToEditorGraph(candidate.project);
  assert.deepEqual(candidate.project.visualizer_timeline,project.visualizer_timeline);assert.deepEqual(candidate.project.lyrics,project.lyrics);

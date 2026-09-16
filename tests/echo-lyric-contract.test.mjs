@@ -3,6 +3,7 @@ import fs from "node:fs";
 import test from "node:test";
 import {
   ECHO_LYRIC_CONTRACT_SCHEMA,
+  ECHO_LYRIC_FONT_OPTIONS,
   ECHO_LYRIC_TEMPLATES,
   attachEchoLyricContract,
   echoLyricOverlayLines,
@@ -58,6 +59,23 @@ test("legacy projects default lyrics on and normalize to one of five stable temp
   assert.equal(ECHO_LYRIC_TEMPLATES.length, 5);
   assert.equal(ECHO_LYRIC_TEMPLATES.at(-1).id, "center-word-focus-v1");
   assert.equal(ECHO_LYRIC_TEMPLATES.at(-1).label, "Center Word Focus");
+  assert.deepEqual(ECHO_LYRIC_FONT_OPTIONS.map((option) => option.id), ["theme", "sans", "serif", "mono", "display"]);
+});
+
+test("font, size, and color controls normalize to portable per-cut values", () => {
+  const customized = normalizeEchoLyricContract(project({
+    lyrics: { fontFamily: "display", fontScale: 1.65, textColor: "#F97316" },
+  }));
+  assert.equal(customized.fontFamily, "display");
+  assert.equal(customized.fontScale, 1.65);
+  assert.equal(customized.textColor, "#f97316");
+
+  const bounded = normalizeEchoLyricContract(project({
+    lyrics: { fontFamily: "url(evil)", fontScale: 9, textColor: "red; background: black" },
+  }));
+  assert.equal(bounded.fontFamily, "theme");
+  assert.equal(bounded.fontScale, 2);
+  assert.equal(bounded.textColor, "");
 });
 
 test("authoritative timing truth replaces stale synthetic display metadata", () => {
@@ -128,6 +146,10 @@ test("Echo UI exposes an editable per-cut lyrics switch", () => {
   assert.match(source, /data-testid="echo-lyrics-enabled"/u);
   assert.match(source, /aria-label="Lyric template"/u);
   assert.match(source, /data-testid="echo-lyric-template"/u);
+  assert.match(source, /data-testid="echo-lyric-font"/u);
+  assert.match(source, /data-testid="echo-lyric-font-size"/u);
+  assert.match(source, /data-testid="echo-lyric-color"/u);
+  assert.match(source, /data-testid="echo-lyric-color-reset"/u);
   assert.match(source, /<EchoLyricOverlay/u);
   const overlay = fs.readFileSync("src/components/EchoLyricOverlay.jsx", "utf8");
   assert.match(overlay, /resolveEchoLyricTemplateFrame/u);

@@ -13,14 +13,24 @@ export function echoLyricPresentation(contract = {}, profile = {}) {
     'paper-white': ['#101827','#111827','#f7f4ebeF','Georgia, serif'],
     'minimal-subtitle': ['#ffffff','#ffffff','#000000d9','system-ui, sans-serif'],
   };
-  const [text,accent,background,fontFamily] = palettes[contract.style] || palettes['neon-cyan'];
+  const [paletteText,paletteAccent,background,themeFontFamily] = palettes[contract.style] || palettes['neon-cyan'];
+  const fontFamilies = {
+    sans:'ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+    serif:'Georgia, "Times New Roman", serif',
+    mono:'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
+    display:'Impact, Haettenschweiler, "Arial Narrow Bold", sans-serif',
+  };
+  const fontFamily = fontFamilies[contract.fontFamily] || themeFontFamily;
+  const customColor = /^#[0-9a-f]{6}$/i.test(String(contract.textColor || '')) ? String(contract.textColor).toLowerCase() : '';
+  const text = customColor || paletteText,accent = customColor || paletteAccent;
+  const fontScale = Number.isFinite(Number(contract.fontScale)) ? Math.max(.5,Math.min(2,Number(contract.fontScale))) : 1;
   const validInset = (value, fallback) => typeof value === 'number' && Number.isFinite(value) ? Math.max(.02, Math.min(.35, value)) : fallback;
   const inset = validInset(contract.safeArea?.titleInset ?? profile.safeArea?.titleInset, .08);
   const bottom = validInset(contract.safeArea?.lyricBottom ?? profile.safeArea?.lyricBottom, .1);
   const position = singleWordFocus ? 'center' : contract.position || 'bottom-center';
   const side = /left|right/.test(position), top = /top|upper/.test(position), center = position === 'center' || position === 'side-right';
   const maxWidth = width * (singleWordFocus ? .84 : position === 'side-right' ? .5 : side ? .72 : 1-2*inset);
-  const fontSize = Math.round(Math.min(width,height)*(singleWordFocus ? .11 : .052));
+  const fontSize = Math.round(Math.min(width,height)*(singleWordFocus ? .11 : .052)*fontScale);
   const panel = { position:'absolute', boxSizing:'border-box', width:maxWidth+'px', padding:'18px 24px',
     font:`700 ${fontSize}px/1.4 ${fontFamily}`, color:text, background,
     border:`2px solid ${accent}88`, borderRadius:'8px', textAlign:side ? (/left/.test(position)?'left':'right'):'center',
@@ -131,7 +141,7 @@ export function renderEchoLyricSurface(element, { contract = {}, frame = null, l
   const visible=Boolean(line && frame?.visible && contract.enabled!==false);
   element.style.visibility=visible?'visible':'hidden';state.frame=visible?frame:null;state.line=visible?line:null;
   if(!visible)return {visible:false};
-  const key=JSON.stringify([contract.templateId,contract.style,contract.position,outputProfile.width,outputProfile.height,outputProfile.safeArea,contract.safeArea]);
+  const key=JSON.stringify([contract.templateId,contract.style,contract.position,contract.fontFamily,contract.fontScale,contract.textColor,outputProfile.width,outputProfile.height,outputProfile.safeArea,contract.safeArea]);
   if(state.key!==key){state.presentation=echoLyricPresentation(contract,outputProfile);state.key=key;state.layouts.clear();state.contentKey=null;}
   const presentation=state.presentation;
   element.dataset.timingMode=frame.timingPolicy.mode;element.dataset.timingReason=frame.timingPolicy.reason;element.dataset.templateId=frame.templateId;
@@ -148,7 +158,7 @@ export function renderEchoLyricSurface(element, { contract = {}, frame = null, l
     state.panel.removeAttribute('style');Object.assign(state.panel.style,presentation.panel);
     Object.assign(state.stage.style,{width:presentation.width+'px',height:presentation.height+'px'});
     state.label.textContent=label;state.label.style.display=label?'block':'none';
-    state.nodes.forEach((node,index)=>{node.textContent=rows[index].displayText||'';node.dataset.wordIndex=String(rows[index].index);node.removeAttribute('style');Object.assign(node.style,echoLyricWordMeasurementStyle(rows[index],rows[index+1]));});
+    state.nodes.forEach((node,index)=>{node.textContent=rows[index].displayText||'';node.dataset.wordIndex=String(rows[index].index);node.removeAttribute('style');Object.assign(node.style,echoLyricWordMeasurementStyle(rows[index],rows[index+1]));if(singleWordFocus)node.style.fontWeight='800';});
     const start=Number(line.start??line.startSeconds),end=Number(line.end??line.endSeconds);
     const relevant=(protection||[]).filter(p=>p.end>start&&p.start<end);
     const obstacles=relevant.flatMap(p=>p.rectangles);

@@ -234,7 +234,7 @@ export function preserveEchoCompiledRecipeLocks(graph,baseline,project,locks) {
   let song=graph.song;
   if(global('lyric-style')){
     const style=normalizeEchoLyricContract(project);
-    song={...song,lyricOverlay:{...song.lyricOverlay,...Object.fromEntries(['enabled','templateId','templateLabel','legacyVariant','position','style','reducedMotion','motionIntensity','safeArea'].map(key=>[key,clone(style[key])]))}};
+    song={...song,lyricOverlay:{...song.lyricOverlay,...Object.fromEntries(['enabled','templateId','templateLabel','legacyVariant','position','style','fontFamily','fontScale','textColor','reducedMotion','motionIntensity','safeArea'].map(key=>[key,clone(style[key])]))}};
   }
   updated.lockPreservation=receipt;
   return {...graph,song,tracks,directorV2:updated};

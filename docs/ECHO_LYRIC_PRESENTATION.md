@@ -26,3 +26,19 @@ visible only during a trustworthy active word or reviewed syllable interval.
 Within a mixed line, directly matched STT words can render while interpolated
 words remain blank. Synthetic, low-confidence, overlapping and otherwise
 unverified timing never receives an invented one-word cadence.
+
+## Per-cut typography controls
+
+The Director toolbar exposes **Font**, **Size**, and **Color** beside the lyric
+template/style controls. Font is a portable allowlist: theme default, sans,
+serif, mono, or display. Size scales the template's profile-relative base from
+50–200%, so the value remains consistent across landscape, square, vertical,
+Preview, and HyperFrames output. Color accepts a six-digit hex value and applies
+to both ordinary and active lyric text; **Theme Color** clears the override and
+returns color choice to the selected lyric style.
+
+These values live in the saved per-cut `lyrics` contract as `fontFamily`,
+`fontScale`, and `textColor`. Normalization rejects arbitrary font/CSS values,
+clamps size, and rejects malformed colors. All three participate in layout-cache
+and export execution identity, while legacy cuts default to their prior theme
+font, 100% size, and theme color.
