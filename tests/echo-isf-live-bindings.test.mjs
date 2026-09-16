@@ -6,6 +6,7 @@ import {
   resolveVerifiedEchoStemBinding,
 } from "../src/domain/echo-visualizer-audio-envelope.js";
 import { createEchoLiveSignalTracker } from "../src/domain/echo-live-signal-transport.js";
+import { planEchoIsfLayerComposite } from "../src/domain/echo-isf-frame-intent.js";
 
 const source = fs.readFileSync(new URL("../src/components/HapaEchosView.jsx", import.meta.url), "utf8");
 
@@ -38,7 +39,7 @@ function loadHelpers() {
     "paletteSignalForPerspective",
     "visualizerCompositionInput"
   ];
-  const context = { result: null, Uint8Array, Math, Number, String, Set, Array, Object };
+  const context = { result: null, Uint8Array, Math, Number, String, Set, Array, Object, planEchoIsfLayerComposite };
   vm.runInNewContext(`${names.map(functionSource).join("\n")}\nresult = { ${names.join(", ")} };`, context);
   return context.result;
 }
@@ -198,6 +199,10 @@ test("Echo applies returned blend, opacity, and only real fade-like transitions"
   const fadeMiddle = visualizerCompositionInput({ ...base, transition: "crossfade" }, 5);
   assert.equal(fadeStart.transitionAlpha, 0);
   assert.equal(fadeMiddle.transitionAlpha, 1);
+  const revolving = visualizerCompositionInput({ ...base, transition: "cut" }, 0, { shaderType: "generator" }, 0.73);
+  assert.equal(revolving.opacity, 0.73, "the single revolving dial overrides every scheduled changing cue");
+  const persistent = visualizerCompositionInput({ ...base, alwaysOn: true, persistentSlotId: "always-on-shader-1", transition: "cut" }, 0, { shaderType: "generator" }, 0.73);
+  assert.equal(persistent.opacity, 0.5, "the revolving dial does not alter Always On lanes");
   assert.match(source, /ctx\.globalAlpha = Math\.max/);
   assert.match(source, /ctx\.globalCompositeOperation = composition\.canvasComposite/);
   assert.match(source, /signalFrame: layerSignalFrame \|\| masterSignalFrame, recipeMix: echoVisualizerRecipeMix\(directorShowGraph\)/);

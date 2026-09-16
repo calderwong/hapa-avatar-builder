@@ -51,6 +51,10 @@ test("director plans expose only readable isolated stems and deduplicate their r
 test("Echo Director exposes three editable always-on shader lanes", () => {
   const source = fs.readFileSync("./src/components/HapaEchosView.jsx", "utf8");
   assert.match(source, /Shader Tracks · 3 Always On/u);
+  assert.match(source, /data-testid="echo-revolving-shader-visibility"/u);
+  assert.match(source, /aria-label="Revolving shader visibility"/u);
+  assert.match(source, /handleUpdateRevolvingShaderVisibility/u);
+  assert.match(source, /One visibility dial for every scheduled changing shader/u);
   assert.match(source, /data-testid="echo-persistent-shader-slots"/u);
   assert.match(source, /Always-on shader slot \$\{slotIndex \+ 1\} enabled/u);
   assert.match(source, /handleTogglePersistentShaderSlot/u);

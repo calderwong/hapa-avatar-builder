@@ -1551,7 +1551,7 @@ function liveSignalFrame(analyser, timeSeconds = 0, metadata = {}, tracker = nul
   return sampleEchoLiveSignalFrame(analyser, timeSeconds, metadata, tracker);
 }
 
-function visualizerCompositionInput(card = null, timeSeconds = 0, shader = null) {
+function visualizerCompositionInput(card = null, timeSeconds = 0, shader = null, revolvingShaderVisibility = null) {
   const layer = card?.visualization?.card?.layer || {};
   const parameters = card?.parameters || {};
   const start = Number(card?.startSeconds || 0);
@@ -1570,11 +1570,17 @@ function visualizerCompositionInput(card = null, timeSeconds = 0, shader = null)
   const isFilter = String(shader?.shaderType || "").toLowerCase() === "filter";
   const defaultOpacity = isFilter ? 1 : 0.42;
   const defaultBlend = isFilter ? "normal" : "screen";
-  const opacity = Number(parameters.opacity ?? layer.opacity ?? defaultOpacity);
+  const persistent = card?.alwaysOn === true || Boolean(card?.persistentSlotId);
+  const groupVisibility = Number(revolvingShaderVisibility);
+  const hasGroupVisibility = revolvingShaderVisibility !== null
+    && revolvingShaderVisibility !== undefined
+    && Number.isFinite(groupVisibility);
+  const opacity = !persistent && hasGroupVisibility
+    ? Math.max(0, Math.min(1, groupVisibility))
+    : Number(parameters.opacity ?? layer.opacity ?? defaultOpacity);
   const mix = Number(parameters.mix ?? layer.mix ?? 1);
   const blend = String(parameters.blendMode || layer.blend || defaultBlend);
   const layerOpacity = Number(parameters.layerOpacity ?? parameters.layer_opacity ?? layer.layerOpacity ?? layer.layer_opacity ?? 1);
-  const persistent = card?.alwaysOn === true || Boolean(card?.persistentSlotId);
   const knockoutRequested = parameters.knockoutBlacks ?? parameters.knockout_blacks ?? layer.knockoutBlacks ?? layer.knockout_blacks ?? persistent;
   const plan = planEchoIsfLayerComposite({
     opacity,
@@ -3877,7 +3883,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                     preparedModulation: diagnosticPreparedModulation, mediaElement: framed?.canvas || null,
                     mediaIdentity: cue ? { id: cue.media.id, uri: cue.media.uri, sourceHash: cue.media.sourceHash } : null,
                     mediaFrameReceipt: decoded ? { ...decoded.receipt, preparationMs: { projection: projectedAt - phaseStart, decode: decodedAt - projectedAt, framingAndSignals: performance.now() - decodedAt } } : null,
-                    composition: visualizerCompositionInput(card, songTime, availableShaderByIdRef.current?.get(exactVisualizerSourceId(card)) || null) };
+                    composition: visualizerCompositionInput(card, songTime, availableShaderByIdRef.current?.get(exactVisualizerSourceId(card)) || null, activeProject?.revolving_shader_visibility) };
                 },
               };
             };
@@ -3892,6 +3898,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                 availableShaderByIdRef.current?.get(
                   String(card?.visualization?.requestedSourceId || card?.visualization?.sourceId || card?.visualization?.card?.id || ""),
                 ) || null,
+                activeProject?.revolving_shader_visibility,
               );
               const presentation = pool.present(card, {
                 presentationLayerKey: card.trackId || card.persistentSlotId || card.id,
@@ -4905,6 +4912,18 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
       });
     });
     setSaveSuccessMessage("");
+  };
+
+  const handleUpdateRevolvingShaderVisibility = (visibility) => {
+    if (directorEditingLocked || !activeProject) return;
+    const nextVisibility = Math.round(Math.max(0, Math.min(1, Number(visibility) || 0)) * 100) / 100;
+    handleUpdateProjectSettings({
+      revolving_shader_visibility: nextVisibility,
+      visualizer_timeline: (activeProject.visualizer_timeline || []).map((visualizer) => ({
+        ...visualizer,
+        opacity: nextVisibility,
+      })),
+    });
   };
 
   const handleUpdatePersistentShaderSlot = (slotIndex, shader = null) => {
@@ -6548,6 +6567,13 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                     ) || [];
                     const activeTimelineItem = activeProject.timeline?.[selectedShotIndex] || activeProject.timeline?.[0];
                     const activeVisualizerItem = activeProject.visualizer_timeline?.[selectedVisualizerIndex] || activeProject.visualizer_timeline?.[0];
+                    const savedRevolvingShaderVisibility = Number(activeProject.revolving_shader_visibility);
+                    const hasSavedRevolvingShaderVisibility = activeProject.revolving_shader_visibility !== null
+                      && activeProject.revolving_shader_visibility !== undefined
+                      && Number.isFinite(savedRevolvingShaderVisibility);
+                    const revolvingShaderVisibility = Math.max(0, Math.min(1, hasSavedRevolvingShaderVisibility
+                      ? savedRevolvingShaderVisibility
+                      : Number(activeVisualizerItem?.opacity ?? 0.48)));
                     const activePersistentShaderSlots = normalizeEchoPersistentShaderSlots(activeProject);
                     const pendingPreviewProxyCount = previewTimeline.filter((item) => shotMediaType(item) === "video" && item.media_contract?.proxy?.status !== "ready").length;
                     const isVerticalOutput = activeOutputProfile.id === "vertical";
@@ -8232,6 +8258,33 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                                   : (activeVisualizerItem ? `${activeVisualizerItem.start_sec}s - ${activeVisualizerItem.end_sec}s` : "")}
                               </span>
                             </div>
+
+                            {activeTrackTab === "shader" && (
+                              <div
+                                data-testid="echo-revolving-shader-visibility"
+                                style={{ display: 'grid', gridTemplateColumns: 'auto minmax(120px, 1fr) auto', alignItems: 'center', gap: '8px', padding: '8px 10px', border: '1px solid rgba(16,185,129,0.28)', background: 'rgba(16,185,129,0.06)', borderRadius: '5px' }}
+                              >
+                                <strong style={{ fontSize: '9px', color: '#a7f3d0', whiteSpace: 'nowrap' }}>Revolving Vis</strong>
+                                <input
+                                  type="range"
+                                  aria-label="Revolving shader visibility"
+                                  aria-valuetext={`${Math.round(revolvingShaderVisibility * 100)} percent for all scheduled revolving shaders`}
+                                  min="0"
+                                  max="100"
+                                  step="1"
+                                  value={Math.round(revolvingShaderVisibility * 100)}
+                                  disabled={directorEditingLocked || !(activeProject.visualizer_timeline || []).length}
+                                  onChange={(event) => handleUpdateRevolvingShaderVisibility(Number(event.target.value) / 100)}
+                                  style={{ width: '100%', minWidth: 0, accentColor: '#10b981', cursor: directorEditingLocked ? 'not-allowed' : 'pointer' }}
+                                />
+                                <output style={{ minWidth: '32px', textAlign: 'right', color: '#86efac', fontSize: '9px', fontVariantNumeric: 'tabular-nums' }}>
+                                  {Math.round(revolvingShaderVisibility * 100)}%
+                                </output>
+                                <span style={{ gridColumn: '1 / -1', fontSize: '7.5px', color: '#94a3b8', lineHeight: 1.25 }}>
+                                  One visibility dial for every scheduled changing shader; Always On lanes stay independent.
+                                </span>
+                              </div>
+                            )}
 
                             {activeTrackTab === "shader" && (
                               <div

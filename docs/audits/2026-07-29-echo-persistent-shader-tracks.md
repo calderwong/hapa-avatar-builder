@@ -50,6 +50,8 @@ Persistent generator shaders with black-plate knockout use two independent contr
 
 The browser Preview must first paint the camera-framed media into its compositor canvas. The decoder video living underneath that canvas in the DOM is not a valid compositing base: an opaque black WebGL generator plate would otherwise hide it before `screen` or `lighter` blending could operate. Persistent and rotating shaders are then painted in their scheduled order over the in-canvas media base.
 
+The changing/revolving shader track exposes one group `Revolving Vis` dial. Its saved value is copied to every changing cue's authored opacity and used as an immediate Preview override only for non-persistent cards. It must never alter the independent Always On lane controls.
+
 ## Promotion candidate
 
 This is a reusable Flow/Decision Card candidate: “Persistent Full-Song Shader Lanes with Exact Renderer and Stem-Fallback Truth.”
