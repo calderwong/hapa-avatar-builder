@@ -107,6 +107,12 @@ export function fitEchoLyricWordMotion(word, box, area) {
   return `translate(${dx}px, ${dy}px) rotate(${rotation}deg) scale(${scale})`;
 }
 
+export function echoLyricWordMeasurementStyle(word = {}, nextWord = null) {
+  return {display:'inline-block',boxSizing:'border-box',maxWidth:'100%',marginTop:'0',marginBottom:'0',
+    marginLeft:word.joinerBefore===false?'0':'.12em',marginRight:nextWord?.joinerBefore===false?'0':'.12em',padding:'0 2px',verticalAlign:'baseline',
+    transformOrigin:'center',whiteSpace:'nowrap',overflowWrap:'normal',wordBreak:'keep-all',fontWeight:'700',overflow:'visible'};
+}
+
 export function renderEchoLyricSurface(element, { contract = {}, frame = null, line = null, outputProfile = {}, protection = null } = {}) {
   if(!element)return null;
   let state=element.__echoLyricSurface;
@@ -114,7 +120,7 @@ export function renderEchoLyricSurface(element, { contract = {}, frame = null, l
     const doc=element.ownerDocument,stage=doc.createElement('div'),panel=doc.createElement('div'),words=doc.createElement('div'),label=doc.createElement('div');
     stage.dataset.lyricStage='true';panel.dataset.lyricPanel='true';words.dataset.lyricWords='true';label.dataset.testid='echo-lyric-timing-label';
     Object.assign(stage.style,{position:'absolute',left:'0',top:'0',transformOrigin:'0 0',pointerEvents:'none'});
-    Object.assign(words.style,{display:'block',position:'relative'});
+    Object.assign(words.style,{display:'block',position:'relative',overflow:'visible'});
     Object.assign(label.style,{font:'500 22px/1.3 system-ui, sans-serif',letterSpacing:'0',marginTop:'10px',opacity:'.8',textShadow:'none'});
     panel.append(words,label);stage.append(panel);element.replaceChildren(stage);
     state={stage,panel,words,label,nodes:[],key:'',layouts:new Map(),layoutBuilds:0,layoutHits:0};element.__echoLyricSurface=state;
@@ -139,7 +145,7 @@ export function renderEchoLyricSurface(element, { contract = {}, frame = null, l
     state.panel.removeAttribute('style');Object.assign(state.panel.style,presentation.panel);
     Object.assign(state.stage.style,{width:presentation.width+'px',height:presentation.height+'px'});
     state.label.textContent=label;state.label.style.display=label?'block':'none';
-    state.nodes.forEach((node,index)=>{node.textContent=rows[index].displayText||'';node.dataset.wordIndex=String(rows[index].index);node.removeAttribute('style');Object.assign(node.style,{display:'inline-block',maxWidth:'100%',margin:'0 .12em',verticalAlign:'baseline',transformOrigin:'center',whiteSpace:'normal'});});
+    state.nodes.forEach((node,index)=>{node.textContent=rows[index].displayText||'';node.dataset.wordIndex=String(rows[index].index);node.removeAttribute('style');Object.assign(node.style,echoLyricWordMeasurementStyle(rows[index],rows[index+1]));});
     const start=Number(line.start??line.startSeconds),end=Number(line.end??line.endSeconds);
     const relevant=(protection||[]).filter(p=>p.end>start&&p.start<end);
     const obstacles=relevant.flatMap(p=>p.rectangles);
@@ -157,7 +163,7 @@ export function renderEchoLyricSurface(element, { contract = {}, frame = null, l
       if(state.layouts.size>=128)state.layouts.delete(state.layouts.keys().next().value);state.layouts.set(contentKey,layout);
     }else state.layoutHits++;
     state.layout=layout;state.panel.style.fontSize=layout.fontSize+'px';state.words.style.height=layout.height+'px';
-    state.nodes.forEach((node,index)=>Object.assign(node.style,{position:'absolute',left:layout.boxes[index].x+'px',top:layout.boxes[index].y+'px',width:layout.boxes[index].width+'px',height:layout.boxes[index].height+'px',margin:'0'}));
+    state.nodes.forEach((node,index)=>Object.assign(node.style,{position:'absolute',left:layout.boxes[index].x+'px',top:layout.boxes[index].y+'px',width:layout.boxes[index].width+'px',minHeight:layout.boxes[index].height+'px',height:'auto',margin:'0'}));
     const placement=chooseEchoLyricPlacement({presentation,panelHeight:layout.panelHeight,obstacles});
     state.placement={...placement,evidence:relevant.length?relevant.map(p=>p.status):['protection-data-unavailable']};
     Object.assign(state.panel.style,{left:placement.x+'px',top:placement.y+'px',right:'auto',bottom:'auto',transform:'none'});
@@ -184,5 +190,5 @@ export function sizeEchoLyricSurface(element, profile = {}, viewportWidth, viewp
 }
 
 export function echoLyricPresentationBrowserSource() {
-  return [echoLyricPresentation,prepareEchoLyricObstacles,chooseEchoLyricPlacement,fitEchoLyricWordMotion,renderEchoLyricSurface,sizeEchoLyricSurface].map(fn=>fn.toString()).join('\n');
+  return [echoLyricPresentation,prepareEchoLyricObstacles,chooseEchoLyricPlacement,fitEchoLyricWordMotion,echoLyricWordMeasurementStyle,renderEchoLyricSurface,sizeEchoLyricSurface].map(fn=>fn.toString()).join('\n');
 }

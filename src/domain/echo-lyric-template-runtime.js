@@ -28,7 +28,7 @@ export function echoLyricFrameTime(timeSeconds = 0, fps = 30) {
 }
 
 export function echoLyricDisplayToken(word = {}, timeSeconds = 0, maximumCharacters = 44) {
-  const value = String(word.word || word.text || "");
+  const value = String(word.displayText || word.word || word.text || "");
   if (value.length <= maximumCharacters) return value;
   const hyphenParts = value.split("-").filter(Boolean);
   const pages = [];
@@ -53,6 +53,29 @@ export function echoLyricDisplayToken(word = {}, timeSeconds = 0, maximumCharact
   return pages[Math.min(pages.length - 1, Math.floor(progress * pages.length))] || value.slice(0, maximumCharacters);
 }
 
+function echoLyricJoinDisplayTokens(words = [], timeSeconds = 0) {
+  return words.map((word, index) => `${index && word.joinerBefore !== false ? " " : ""}${echoLyricDisplayToken(word, timeSeconds)}`).join("").trim();
+}
+
+function echoLyricComparableToken(value = "") {
+  return String(value).normalize("NFKD").toLocaleLowerCase("en-US").replace(/[^\p{L}\p{N}]+/gu, "");
+}
+
+/** Keep authored punctuation and compound-word endings attached to the
+ * acoustic intervals carried by the aligned word rows. */
+export function echoLyricAuthoredWordSurfaces(line = {}) {
+  const words = Array.isArray(line.words) ? line.words : [];
+  const fallback = words.map((word) => String(word.word || word.text || ""));
+  const authored = String(line.text || "").trim();
+  if (!authored || !words.length) return fallback;
+  const surfaces = authored
+    .split(/\s+/u)
+    .flatMap((token) => token.split(/(?<=-)(?=[\p{L}\p{N}])/u));
+  if (surfaces.length !== words.length) return fallback;
+  if (surfaces.some((surface, index) => echoLyricComparableToken(surface) !== echoLyricComparableToken(fallback[index]))) return fallback;
+  return surfaces;
+}
+
 export function echoLyricDisplayWindow({
   templateId = "scanline-phrase-ribbon-v1",
   words = [],
@@ -69,7 +92,7 @@ export function echoLyricDisplayWindow({
   const rows = Array.isArray(words) ? words : [];
   const limit = limits[templateId] || 10;
   if (rows.length <= limit) {
-    return { startIndex: 0, endIndex: rows.length, wordCount: rows.length, text: rows.map((word) => echoLyricDisplayToken(word, timeSeconds)).join(" ").trim() };
+    return { startIndex: 0, endIndex: rows.length, wordCount: rows.length, text: echoLyricJoinDisplayTokens(rows, timeSeconds) };
   }
   let anchorIndex = rows.findIndex((word) => timeSeconds >= echoLyricBoundary(word, "start", lineStart) && timeSeconds < echoLyricBoundary(word, "end", lineEnd));
   if (anchorIndex < 0) {
@@ -82,7 +105,7 @@ export function echoLyricDisplayWindow({
     startIndex,
     endIndex,
     wordCount: endIndex - startIndex,
-    text: rows.slice(startIndex, endIndex).map((word) => echoLyricDisplayToken(word, timeSeconds)).join(" ").trim(),
+    text: echoLyricJoinDisplayTokens(rows.slice(startIndex, endIndex), timeSeconds),
   };
 }
 
@@ -111,6 +134,12 @@ export function resolveEchoLyricTemplateFrame({
 // Keep this self-contained for the generated HyperFrames/Song Card runtime.
 export function echoLyricWordTimingPolicy(line = {}, timingSource = '') {
   const words = Array.isArray(line.words) ? line.words : [];
+  if (words.length && words.every((word) => word.matched === false || word.unaligned === true)) return {
+    mode: 'hidden',
+    reason: 'line-unaligned',
+    label: 'Hidden · no direct performance anchor',
+    manuallyVerified: false,
+  };
   let reason = /synthetic|weighted|evenly|estimated/i.test(timingSource) ? 'synthetic-word-timing' : '';
   let directAnchorWords = 0;
   if (!reason && !words.length) reason = 'word-timing-missing';
@@ -190,10 +219,12 @@ export function echoLyricTemplateFrameState({
   const exitProgress = lyricClamp01((clock.timeSeconds - end) / Math.max(0.001, exitEnd - end));
   const lineProgress = lyricClamp01((clock.timeSeconds - start) / Math.max(0.001, end - start));
   const words = Array.isArray(line.words) ? line.words : [];
+  const authoredWordSurfaces = echoLyricAuthoredWordSurfaces(line);
+  const displayWords = words.map((word, index) => ({ ...word, displayText: authoredWordSurfaces[index], joinerBefore: index > 0 && !/-$/u.test(authoredWordSurfaces[index - 1]) }));
   const timingPolicy = echoLyricTimingPolicy(line, timingSource);
   const displayWindow = timingPolicy.mode === "phrase" ? { startIndex: 0, endIndex: words.length, wordCount: words.length, text: String(line.text || words.map(word => word.word || word.text || "").join(" ")) } : echoLyricDisplayWindow({
     templateId,
-    words,
+    words: displayWords,
     timeSeconds: clock.timeSeconds,
     lineStart: start,
     lineEnd: end,
@@ -205,7 +236,7 @@ export function echoLyricTemplateFrameState({
     fps: clock.fps,
     timeSeconds: clock.timeSeconds,
     timingPolicy,
-    visible: enabled && clock.timeSeconds >= entryStart && clock.timeSeconds < exitEnd,
+    visible: enabled && timingPolicy.mode !== 'hidden' && clock.timeSeconds >= entryStart && clock.timeSeconds < exitEnd,
     lineProgress: lyricRound(lineProgress),
     entryProgress: lyricRound(entryProgress),
     exitProgress: lyricRound(exitProgress),
@@ -240,8 +271,9 @@ export function echoLyricTemplateFrameState({
       const spread = words.length > 1 ? (index / (words.length - 1)) * 2 - 1 : 0;
       const base = {
         index,
+        joinerBefore: displayWords[index]?.joinerBefore,
         display: index >= displayWindow.startIndex && index < displayWindow.endIndex,
-        displayText: timingPolicy.mode === "phrase" ? String(word.word || word.text || "") : echoLyricDisplayToken(word, clock.timeSeconds),
+        displayText: timingPolicy.mode === "phrase" ? String(authoredWordSurfaces[index] || word.word || word.text || "") : echoLyricDisplayToken(displayWords[index], clock.timeSeconds),
         active,
         completed,
         progress: lyricRound(wordProgress),
@@ -299,6 +331,9 @@ export function echoLyricTemplateRuntimeBrowserSource() {
     lyricFinite.toString(),
     lyricClamp01.toString(),
     lyricRound.toString(),
+    echoLyricJoinDisplayTokens.toString(),
+    echoLyricComparableToken.toString(),
+    echoLyricAuthoredWordSurfaces.toString(),
     echoLyricFrameTime.toString(),
     echoLyricDisplayToken.toString(),
     echoLyricDisplayWindow.toString(),

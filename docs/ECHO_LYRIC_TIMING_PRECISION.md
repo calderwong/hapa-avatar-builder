@@ -56,17 +56,24 @@ The contract now resolves timing identity in authoritative order:
 
 ## Gnow Her pass
 
-`Gnow Her` was re-aligned against its isolated vocal WAV with the local
+`Gnow Her` was first re-aligned against its isolated vocal WAV with the local
 `ggml-large-v3-turbo` Whisper model. The Metal backend crashed, so the exact same
-source-bound run was retried on CPU.
+source-bound run was retried on CPU. A 2026-09-16 correction pass then compared
+that result with the full master and a reproducible lead-plus-backing vocal mix.
+The full master was rejected (57.1% direct matches, confidence 0.497, one
+alignment warning). The vocal mix passed the automatic promotion gate and was
+retained with its recipe, both input hashes, derived-audio hash, raw STT, and
+durable local analysis WAV.
 
 Promotion result:
 
-- 102/102 lyric lines have at least one direct acoustic anchor.
+- 101/102 lyric lines have at least one direct acoustic anchor.
 - 618 display words are timed.
-- 574 words are direct STT anchors (92.9%).
-- 44 words are interpolated between anchors and remain disclosed as such.
-- Overall candidate confidence is 0.836.
+- 583 words are direct STT anchors (94.3%).
+- 35 words are interpolated between anchors and remain disclosed as such.
+- 81 lines use direct word animation, 20 use honest phrase fallback, and one
+  canonical duplicate with no performance anchor is suppressed.
+- Overall candidate confidence is 0.846.
 - Structural warnings: none.
 - Source audio and canonical lyric hashes are stored in the timing sidecar.
 
@@ -75,6 +82,22 @@ The accepted sidecar and raw STT evidence live under
 were synchronized through the existing promotion gate. `Gnow Her` now passes
 the pipeline audit, but is deliberately classified as `mixed-word-anchor`, not
 syllable-exact.
+
+## Authored endings and glyph clipping correction
+
+Aligned word rows intentionally normalize punctuation for matching. The lyric
+renderer had been using those normalized tokens as display text, so authored
+endings such as curly apostrophes, commas, em dashes, and compound-word hyphens
+were lost. It also froze each animated word to an exact measured rectangle,
+allowing transformed glyph ink and mid-word wrapping to appear clipped.
+
+The template runtime now maps acoustic rows back to the exact authored word
+surfaces when token identity is provable. Hyphen-joined fragments retain their
+no-space join while keeping independent timing intervals. The presentation
+surface measures its final bold typography, prevents mid-token wrapping, adds a
+small ink gutter, keeps overflow visible, and no longer fixes a potentially
+clipping height. Fully unanchored rows are hidden rather than flashed through an
+invented interval; partially anchored rows still use phrase fallback.
 
 ## Remaining path to exact animation
 
@@ -104,4 +127,6 @@ durations into guessed syllables.
 ## Verification
 
 - `node scripts/audit-echo-lyric-quality-v4.mjs`
-- `node --test tests/echo-lyric-contract.test.mjs tests/echo-lyric-template-runtime.test.mjs tests/echo-lyric-layout.test.mjs tests/echo-lyric-precision.test.mjs`
+- `node --test tests/echo-lyric-*.test.mjs`
+- `npm run build`
+- `npm run build:check`

@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import vm from "node:vm";
 import {
+  echoLyricAuthoredWordSurfaces,
   echoLyricDisplayWindow,
   echoLyricFrameTime,
   echoLyricTemplateRuntimeBrowserSource,
@@ -100,6 +101,24 @@ test("long measured transcript spans page into deterministic readable word windo
   );
 });
 
+test("aligned timing keeps exact authored endings and compound-word punctuation", () => {
+  const source = {
+    text: "But Giga-, Ultra-, and Omega-physics would tell ya’,",
+    start: 0,
+    end: 4,
+    words: ["But", "Giga", "Ultra", "and", "Omega", "physics", "would", "tell", "ya"].map((word, index) => ({
+      word,
+      start: index / 3,
+      end: (index + 1) / 3,
+      matched: true,
+    })),
+  };
+  assert.deepEqual(echoLyricAuthoredWordSurfaces(source), ["But", "Giga-,", "Ultra-,", "and", "Omega-", "physics", "would", "tell", "ya’,"]);
+  const frame = resolveEchoLyricTemplateFrame({ contract: { enabled: true }, line: source, timeSeconds: 1 });
+  assert.deepEqual(frame.words.map((word) => word.displayText), ["But", "Giga-,", "Ultra-,", "and", "Omega-", "physics", "would", "tell", "ya’,"]);
+  assert.equal(frame.displayText, source.text);
+});
+
 
 test("timestamp aliases preserve zero and measured pagination rather than line-start fallback", () => {
   assert.equal(echoLyricBoundary({ start: 0, startSeconds: 9 }, "start", 4), 0);
@@ -131,6 +150,14 @@ test('missing, low and synthetic word confidence produces static phrase fallback
     assert.ok(frame.words.every(word => !word.active && word.progress===0 && word.scale===1 && word.translateY===0));
     assert.equal(JSON.stringify(source),before);
   }
+});
+
+test('a fully unanchored canonical row is suppressed instead of flashing an invented interval', () => {
+  const source={text:"I’d know her if I saw her,",start:99,end:99.2,words:["I’d","know","her","if","I","saw","her"].map((word,index)=>({word,start:99+index/35,end:99+(index+1)/35,matched:false}))};
+  const frame=resolveEchoLyricTemplateFrame({contract:{enabled:true},line:source,timeSeconds:99.1});
+  assert.equal(frame.timingPolicy.mode,'hidden');
+  assert.equal(frame.timingPolicy.reason,'line-unaligned');
+  assert.equal(frame.visible,false);
 });
 
 test('verified sustained words fill continuously and their onset emphasis does not retrigger', () => {
