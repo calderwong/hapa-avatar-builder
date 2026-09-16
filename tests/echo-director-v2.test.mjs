@@ -345,7 +345,7 @@ test("Director v2 does not silently reinterpret an untyped blank source as an in
 });
 
 
-test("native director word seconds survive execution hashing and all four renderer templates", () => {
+test("native director word seconds survive execution hashing and all five renderer templates", () => {
   const inputs = fixture();
   const { showGraph } = buildDirectorV2Artifacts({ ...inputs, duration: 24, recipe: "conservative", seed: "word-clock" });
   const overlay = showGraph.song.lyricOverlay;
@@ -359,7 +359,7 @@ test("native director word seconds survive execution hashing and all four render
   assert.notEqual(hashEchoLyricOverlayExecutionContract(overlay), hashEchoLyricOverlayExecutionContract(retimed));
   const context = vm.createContext({});
   vm.runInContext(echoLyricTemplateRuntimeBrowserSource(), context);
-  for (const templateId of ["kinetic-word-burst-v1", "scanline-phrase-ribbon-v1", "stacked-hook-echo-v1", "orbit-caption-v1"]) {
+  for (const templateId of ["kinetic-word-burst-v1", "scanline-phrase-ribbon-v1", "stacked-hook-echo-v1", "orbit-caption-v1", "center-word-focus-v1"]) {
     showGraph.song.lyricOverlay.templateId = templateId;
     // Forward, backwards, direct, repeated and zero seeks must have no history.
     for (const timeSeconds of [0, 6.2, 6.85, 7.2, 7.8, 6.2, 7.2, 7.2, 0]) {

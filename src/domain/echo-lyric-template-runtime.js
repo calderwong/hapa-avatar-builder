@@ -88,6 +88,7 @@ export function echoLyricDisplayWindow({
     "scanline-phrase-ribbon-v1": 10,
     "stacked-hook-echo-v1": 8,
     "orbit-caption-v1": 9,
+    "center-word-focus-v1": 1,
   };
   const rows = Array.isArray(words) ? words : [];
   const limit = limits[templateId] || 10;
@@ -229,7 +230,7 @@ export function echoLyricTemplateFrameState({
     lineStart: start,
     lineEnd: end,
   });
-  return {
+  const frame = {
     schemaVersion: ECHO_LYRIC_TEMPLATE_RUNTIME_SCHEMA,
     templateId,
     frame: clock.frame,
@@ -264,9 +265,10 @@ export function echoLyricTemplateFrameState({
           ? lyricClamp01((activeSyllableIndex + activeSyllable.progress) / syllables.length)
           : clock.timeSeconds >= wordEnd ? 1 : 0
         : 0;
-      const active = timingPolicy.mode === 'syllable' ? activeSyllableIndex >= 0 : timingPolicy.mode === 'word' && clock.timeSeconds >= wordStart && clock.timeSeconds < wordEnd;
+      const focusDirectAnchor = templateId === 'center-word-focus-v1' && timingPolicy.reason === 'word-unaligned' && word.matched === true;
+      const active = timingPolicy.mode === 'syllable' ? activeSyllableIndex >= 0 : (timingPolicy.mode === 'word' || focusDirectAnchor) && clock.timeSeconds >= wordStart && clock.timeSeconds < wordEnd;
       const completed = timingPolicy.mode !== 'phrase' && clock.timeSeconds >= wordEnd;
-      const wordProgress = timingPolicy.mode === 'syllable' ? syllableProgress : timingPolicy.mode === 'word' ? lyricClamp01((clock.timeSeconds - wordStart) / Math.max(0.001, wordEnd - wordStart)) : 0;
+      const wordProgress = timingPolicy.mode === 'syllable' ? syllableProgress : timingPolicy.mode === 'word' || focusDirectAnchor ? lyricClamp01((clock.timeSeconds - wordStart) / Math.max(0.001, wordEnd - wordStart)) : 0;
       const onsetImpulse = active ? Math.max(0, 1 - (clock.timeSeconds - wordStart) / 0.18) ** 2 : 0;
       const spread = words.length > 1 ? (index / (words.length - 1)) * 2 - 1 : 0;
       const base = {
@@ -322,6 +324,24 @@ export function echoLyricTemplateFrameState({
       rotateDegrees: lyricRound(word.rotateDegrees * lyricClamp01(motionIntensity)),
     })),
   };
+  if (templateId === "center-word-focus-v1") {
+    const activeWord = frame.words.find((word) => word.active);
+    frame.visible = frame.visible && Boolean(activeWord);
+    frame.words = frame.words.map((word) => ({
+      ...word,
+      display: Boolean(activeWord && word.index === activeWord.index),
+      opacity: activeWord && word.index === activeWord.index ? 1 : 0,
+      translateX: 0,
+      translateY: 0,
+      rotateDegrees: 0,
+      underlineProgress: 0,
+    }));
+    frame.displayWindow = activeWord
+      ? { startIndex: activeWord.index, endIndex: activeWord.index + 1, wordCount: 1, text: activeWord.displayText }
+      : { startIndex: 0, endIndex: 0, wordCount: 0, text: "" };
+    frame.displayText = frame.displayWindow.text;
+  }
+  return frame;
 }
 
 export function echoLyricTemplateRuntimeBrowserSource() {

@@ -5,6 +5,7 @@ import { echoProtectedCameraFrame } from "./echo-camera-framing.js";
  * independently. Functions remain self-contained for offline browser packaging. */
 export function echoLyricPresentation(contract = {}, profile = {}) {
   const width = Number(profile.width) || 1920, height = Number(profile.height) || 1080;
+  const singleWordFocus = contract.templateId === 'center-word-focus-v1';
   const palettes = {
     'neon-cyan': ['#e0faff','#22d3ee','#020617e8','monospace'],
     'magenta-glow': ['#ffe4f2','#f472b6','#180522e8','monospace'],
@@ -16,10 +17,10 @@ export function echoLyricPresentation(contract = {}, profile = {}) {
   const validInset = (value, fallback) => typeof value === 'number' && Number.isFinite(value) ? Math.max(.02, Math.min(.35, value)) : fallback;
   const inset = validInset(contract.safeArea?.titleInset ?? profile.safeArea?.titleInset, .08);
   const bottom = validInset(contract.safeArea?.lyricBottom ?? profile.safeArea?.lyricBottom, .1);
-  const position = contract.position || 'bottom-center';
+  const position = singleWordFocus ? 'center' : contract.position || 'bottom-center';
   const side = /left|right/.test(position), top = /top|upper/.test(position), center = position === 'center' || position === 'side-right';
-  const maxWidth = width * (position === 'side-right' ? .5 : side ? .72 : 1-2*inset);
-  const fontSize = Math.round(Math.min(width,height)*.052);
+  const maxWidth = width * (singleWordFocus ? .84 : position === 'side-right' ? .5 : side ? .72 : 1-2*inset);
+  const fontSize = Math.round(Math.min(width,height)*(singleWordFocus ? .11 : .052));
   const panel = { position:'absolute', boxSizing:'border-box', width:maxWidth+'px', padding:'18px 24px',
     font:`700 ${fontSize}px/1.4 ${fontFamily}`, color:text, background,
     border:`2px solid ${accent}88`, borderRadius:'8px', textAlign:side ? (/left/.test(position)?'left':'right'):'center',
@@ -33,7 +34,8 @@ export function echoLyricPresentation(contract = {}, profile = {}) {
   if(contract.templateId==='scanline-phrase-ribbon-v1')panel.backgroundImage='repeating-linear-gradient(0deg,transparent,transparent 3px,#ffffff09 4px)';
   if(contract.templateId==='stacked-hook-echo-v1')panel.textShadow=`3px 3px 0 ${accent}55,-3px -3px 0 #ec489944`;
   if(contract.templateId==='orbit-caption-v1')panel.borderRadius='40px';
-  return { width,height,fontSize,text,accent,panel,inset,bottom };
+  if(singleWordFocus)Object.assign(panel,{padding:'0',font:`800 ${fontSize}px/1.05 ${fontFamily}`,background:'transparent',backgroundImage:'none',border:'0',borderRadius:'0',boxShadow:'none',overflow:'visible',overflowWrap:'normal',whiteSpace:'nowrap'});
+  return { width,height,fontSize,text,accent,panel,inset,bottom,fixedCenter:singleWordFocus };
 }
 
 /** Camera and source evidence are prepared once, not inferred from media titles.
@@ -82,13 +84,14 @@ export function chooseEchoLyricPlacement({ presentation, panelHeight, obstacles 
   const marginX=width*inset, marginY=height*inset;
   const xRight=width-marginX-panelWidth, xCenter=(width-panelWidth)/2;
   const yBottom=Math.min(height-marginY-panelHeight,height-height*bottom-panelHeight), yCenter=(height-panelHeight)/2;
+  const score = p => obstacles.reduce((sum,r)=>sum+Math.max(0,Math.min(p.x+panelWidth,(r.x+r.width)*width+12)-Math.max(p.x,r.x*width-12))*Math.max(0,Math.min(p.y+panelHeight,(r.y+r.height)*height+12)-Math.max(p.y,r.y*height-12)),0);
+  if(presentation.fixedCenter){const p={x:xCenter,y:yCenter},overlap=score(p);return {...p,overlap,width:panelWidth,height:panelHeight,status:overlap>0?'protected-region-collision':'clear',protectedRegions:obstacles.length};}
   const preferred = {x:panel.left==='50%'?xCenter:panel.left==='auto'?xRight:parseFloat(panel.left),y:panel.top==='50%'?yCenter:panel.top==='auto'?yBottom:parseFloat(panel.top)};
   const candidates=[preferred,{x:xCenter,y:marginY},{x:xCenter,y:yBottom},{x:xCenter,y:yCenter},{x:marginX,y:marginY},{x:xRight,y:marginY},{x:marginX,y:yBottom},{x:xRight,y:yBottom}];
   for(const r of obstacles){
     candidates.push({x:xCenter,y:r.y*height-12-panelHeight},{x:xCenter,y:(r.y+r.height)*height+12},
       {x:r.x*width-12-panelWidth,y:yCenter},{x:(r.x+r.width)*width+12,y:yCenter});
   }
-  const score = p => obstacles.reduce((sum,r)=>sum+Math.max(0,Math.min(p.x+panelWidth,(r.x+r.width)*width+12)-Math.max(p.x,r.x*width-12))*Math.max(0,Math.min(p.y+panelHeight,(r.y+r.height)*height+12)-Math.max(p.y,r.y*height-12)),0);
   let best=null;
   for(const candidate of candidates){const p={x:Math.max(marginX,Math.min(xRight,candidate.x)),y:Math.max(marginY,Math.min(height-marginY-panelHeight,candidate.y))};const overlap=score(p);if(!best||overlap<best.overlap)best={...p,overlap};}
   return {...best,width:panelWidth,height:panelHeight,status:panelHeight>height-2*marginY||panelWidth>width-2*marginX?'caption-exceeds-safe-area':best.overlap>0?'protected-region-collision':'clear',protectedRegions:obstacles.length};
@@ -132,10 +135,10 @@ export function renderEchoLyricSurface(element, { contract = {}, frame = null, l
   if(state.key!==key){state.presentation=echoLyricPresentation(contract,outputProfile);state.key=key;state.layouts.clear();state.contentKey=null;}
   const presentation=state.presentation;
   element.dataset.timingMode=frame.timingPolicy.mode;element.dataset.timingReason=frame.timingPolicy.reason;element.dataset.templateId=frame.templateId;
-  const sourceWords=Array.isArray(line.words)?line.words:[];
+  const sourceWords=Array.isArray(line.words)?line.words:[],singleWordFocus=contract.templateId==='center-word-focus-v1';
   // Phrase fallback displays the selected source text, not stale aligned tokens.
-  const rows=frame.timingPolicy.mode!=='phrase'&&sourceWords.length?frame.words.filter(word=>word.display):[{index:0,displayText:frame.displayText||line.text,opacity:1,scale:1}];
-  const label=frame.timingPolicy.mode==='phrase'?frame.timingPolicy.label:'';
+  const rows=singleWordFocus?frame.words.filter(word=>word.display):frame.timingPolicy.mode!=='phrase'&&sourceWords.length?frame.words.filter(word=>word.display):[{index:0,displayText:frame.displayText||line.text,opacity:1,scale:1}];
+  const label=!singleWordFocus&&frame.timingPolicy.mode==='phrase'?frame.timingPolicy.label:'';
   const contentKey=JSON.stringify([line.id,line.start??line.startSeconds,line.end??line.endSeconds,rows.map(w=>[w.index,w.displayText]),label]);
   if(state.contentKey!==contentKey||state.protection!==protection){
     if(state.protection!==protection)state.layouts.clear();
@@ -155,7 +158,7 @@ export function renderEchoLyricSurface(element, { contract = {}, frame = null, l
       const minimumFontSize=Math.round(Math.min(presentation.width,presentation.height)*.028);
       // Measure only when preparing a new phrase/window. Prefer its authored
       // font, then reduce within the readability floor if no clear anchor fits.
-      while(chooseEchoLyricPlacement({presentation,panelHeight:state.panel.offsetHeight,obstacles}).status!=='clear'&&fontSize>minimumFontSize){
+      while(!presentation.fixedCenter&&chooseEchoLyricPlacement({presentation,panelHeight:state.panel.offsetHeight,obstacles}).status!=='clear'&&fontSize>minimumFontSize){
         fontSize=Math.max(minimumFontSize,fontSize-2);state.panel.style.fontSize=fontSize+'px';
       }
       const boxes=state.nodes.map(node=>({x:node.offsetLeft,y:node.offsetTop,width:node.offsetWidth,height:node.offsetHeight}));
@@ -174,9 +177,9 @@ export function renderEchoLyricSurface(element, { contract = {}, frame = null, l
     const word=rows[index],node=state.nodes[index];
     node.dataset.wordActive=String(Boolean(word.active));node.dataset.wordProgress=String(word.progress||0);
     node.dataset.lyricWordActive=node.dataset.wordActive;node.dataset.lyricWordProgress=node.dataset.wordProgress;
-    Object.assign(node.style,{color:word.active?presentation.accent:presentation.text,opacity:String(word.opacity??1),fontWeight:'700',
+    Object.assign(node.style,{color:word.active?presentation.accent:presentation.text,opacity:String(word.opacity??1),fontWeight:singleWordFocus?'800':'700',backgroundColor:'transparent',
       transform:fitEchoLyricWordMotion(word,state.layout.boxes[index],{x:-20,y:-14,width:state.layout.width+40,height:state.layout.height+28}),
-      backgroundImage:`linear-gradient(${presentation.accent},${presentation.accent})`,backgroundRepeat:'no-repeat',backgroundPosition:'left bottom',backgroundSize:`${(word.underlineProgress||0)*100}% 3px`});
+      backgroundImage:singleWordFocus?'none':`linear-gradient(${presentation.accent},${presentation.accent})`,backgroundRepeat:'no-repeat',backgroundPosition:'left bottom',backgroundSize:singleWordFocus?'0 0':`${(word.underlineProgress||0)*100}% 3px`});
   }
   return {visible:true,wordCount:rows.length,fontSize:state.layout.fontSize,placement:state.placement,layoutBuilds:state.layoutBuilds};
 }

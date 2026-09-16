@@ -25,6 +25,12 @@ export const ECHO_LYRIC_TEMPLATES = Object.freeze([
     legacyVariant: "orbit-caption",
     motion: "protected-region-arc-rail",
   }),
+  Object.freeze({
+    id: "center-word-focus-v1",
+    label: "Center Word Focus",
+    legacyVariant: "center-word-focus",
+    motion: "single-active-word-center",
+  }),
 ]);
 
 const TEMPLATE_BY_ID = new Map(ECHO_LYRIC_TEMPLATES.map((template) => [template.id, template]));
@@ -34,6 +40,7 @@ const LEGACY_TEMPLATE_IDS = Object.freeze({
   "signal-karaoke": "kinetic-word-burst-v1",
   "stacked-echo": "stacked-hook-echo-v1",
   "orbit-caption": "orbit-caption-v1",
+  "center-word-focus": "center-word-focus-v1",
 });
 
 function text(value) {

@@ -173,7 +173,7 @@ export function benchmarkEchoLyricTemplateRuntime({
       { word: "budget", start: 2.5, end: 3 },
     ],
   };
-  const templates = ["kinetic-word-burst-v1", "scanline-phrase-ribbon-v1", "stacked-hook-echo-v1", "orbit-caption-v1"];
+  const templates = ["kinetic-word-burst-v1", "scanline-phrase-ribbon-v1", "stacked-hook-echo-v1", "orbit-caption-v1", "center-word-focus-v1"];
   const started = now();
   for (let index = 0; index < iterations; index += 1) {
     resolveEchoLyricTemplateFrame({

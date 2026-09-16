@@ -36,12 +36,13 @@ test("lyric template time is frame-quantized and repeatable", () => {
   assert.deepEqual(resolveEchoLyricTemplateFrame(input), resolveEchoLyricTemplateFrame(input));
 });
 
-test("all four templates preserve spoken-word activation intervals", () => {
+test("all five templates preserve spoken-word activation intervals", () => {
   for (const templateId of [
     "kinetic-word-burst-v1",
     "scanline-phrase-ribbon-v1",
     "stacked-hook-echo-v1",
     "orbit-caption-v1",
+    "center-word-focus-v1",
   ]) {
     const frame = resolveEchoLyricTemplateFrame({
       project: { lyrics: { enabled: true, templateId } },
@@ -53,6 +54,73 @@ test("all four templates preserve spoken-word activation intervals", () => {
     assert.deepEqual(frame.words.map((word) => word.active), [false, true, false]);
     assert.ok(frame.words.every((word) => Number.isFinite(word.scale)));
   }
+});
+
+test("center word focus shows exactly the active measured word and stays blank without one", () => {
+  const active = resolveEchoLyricTemplateFrame({
+    project: { lyrics: { enabled: true, templateId: "center-word-focus-v1" } },
+    line,
+    timeSeconds: 1.72,
+    fps: 30,
+  });
+  assert.equal(active.visible, true);
+  assert.equal(active.displayText, "every");
+  assert.equal(active.displayWindow.wordCount, 1);
+  assert.deepEqual(active.words.filter((word) => word.display).map((word) => word.displayText), ["every"]);
+  assert.equal(active.words.filter((word) => word.active).length, 1);
+
+  const gapLine = {
+    text: "Hold still",
+    start: 1,
+    end: 2,
+    words: [
+      { word: "Hold", confidence: .9, start: 1, end: 1.2 },
+      { word: "still", confidence: .9, start: 1.5, end: 2 },
+    ],
+  };
+  const gap = resolveEchoLyricTemplateFrame({
+    project: { lyrics: { enabled: true, templateId: "center-word-focus-v1" } },
+    line: gapLine,
+    timeSeconds: 1.3,
+    fps: 30,
+  });
+  assert.equal(gap.visible, false);
+  assert.equal(gap.displayText, "");
+  assert.equal(gap.words.filter((word) => word.display).length, 0);
+
+  const partial = structuredClone(gapLine);
+  partial.words[0].matched = true;
+  partial.words[1].matched = false;
+  const directAnchor = resolveEchoLyricTemplateFrame({
+    project: { lyrics: { enabled: true, templateId: "center-word-focus-v1" } },
+    line: partial,
+    timeSeconds: 1.1,
+    fps: 30,
+  });
+  assert.equal(directAnchor.timingPolicy.mode, "phrase");
+  assert.equal(directAnchor.timingPolicy.reason, "word-unaligned");
+  assert.equal(directAnchor.visible, true);
+  assert.equal(directAnchor.displayText, "Hold");
+  const interpolated = resolveEchoLyricTemplateFrame({
+    project: { lyrics: { enabled: true, templateId: "center-word-focus-v1" } },
+    line: partial,
+    timeSeconds: 1.6,
+    fps: 30,
+  });
+  assert.equal(interpolated.visible, false);
+  assert.equal(interpolated.displayText, "");
+
+  const unverified = structuredClone(gapLine);
+  unverified.words[0].confidence = .4;
+  const phraseFallback = resolveEchoLyricTemplateFrame({
+    project: { lyrics: { enabled: true, templateId: "center-word-focus-v1" } },
+    line: unverified,
+    timeSeconds: 1.1,
+    fps: 30,
+  });
+  assert.equal(phraseFallback.timingPolicy.mode, "phrase");
+  assert.equal(phraseFallback.visible, false);
+  assert.equal(phraseFallback.displayText, "");
 });
 
 test("disabled contracts retain timing but emit no visible template frame", () => {

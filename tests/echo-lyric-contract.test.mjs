@@ -48,14 +48,16 @@ function project(overrides = {}) {
   };
 }
 
-test("legacy projects default lyrics on and normalize to one of four stable templates", () => {
+test("legacy projects default lyrics on and normalize to one of five stable templates", () => {
   assert.equal(normalizeEchoLyricContract(null).enabled, true);
   const normalized = attachEchoLyricContract(project({ lyric_variant: "stacked-echo" }));
   assert.equal(normalized.lyrics.schemaVersion, ECHO_LYRIC_CONTRACT_SCHEMA);
   assert.equal(normalized.lyrics.enabled, true);
   assert.equal(normalized.lyrics.templateId, "stacked-hook-echo-v1");
   assert.equal(normalized.lyrics_enabled, true);
-  assert.equal(ECHO_LYRIC_TEMPLATES.length, 4);
+  assert.equal(ECHO_LYRIC_TEMPLATES.length, 5);
+  assert.equal(ECHO_LYRIC_TEMPLATES.at(-1).id, "center-word-focus-v1");
+  assert.equal(ECHO_LYRIC_TEMPLATES.at(-1).label, "Center Word Focus");
 });
 
 test("authoritative timing truth replaces stale synthetic display metadata", () => {

@@ -27,7 +27,7 @@ test("all templates pass bounded motion in landscape, vertical, and square fixtu
     { id: "vertical", width: 1080, height: 1920, aspectRatio: "9:16" },
     { id: "square", width: 1080, height: 1080, aspectRatio: "1:1" },
   ];
-  for (const templateId of ["kinetic-word-burst-v1", "scanline-phrase-ribbon-v1", "stacked-hook-echo-v1", "orbit-caption-v1"]) {
+  for (const templateId of ["kinetic-word-burst-v1", "scanline-phrase-ribbon-v1", "stacked-hook-echo-v1", "orbit-caption-v1", "center-word-focus-v1"]) {
     for (const outputProfile of profiles) {
       const report = inspectEchoLyricRenderSafety({
         project: { ...good, lyrics: { ...good.lyrics, templateId } },

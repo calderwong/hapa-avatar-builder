@@ -57,6 +57,10 @@ captions and provenance as separate package artifacts.
    the active word.
 4. `orbit-caption-v1` — words follow a bounded arc or side rail around protected
    face/product regions.
+5. `center-word-focus-v1` — one large active word at the exact video center,
+   with no visible panel, border, fill, or underline. It renders only measured
+   word/syllable intervals or direct STT anchors and stays blank for guessed
+   spans.
 
 Every template consumes the same canonical word intervals. Animation may add
 lead-in or decay frames, but it may not move the spoken-word highlight outside
