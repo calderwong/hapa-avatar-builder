@@ -16,7 +16,22 @@ function safeDecode(value) {
   try { return decodeURIComponent(value); } catch { return value; }
 }
 
-function resolveRegistryRoute(pathname, { songRegistryPath, songbookPath, registryPayload, songbookPayload }) {
+function localSongAudioPath(song = {}) {
+  for (const candidate of [song?.audio?.localPath, song?.audio?.wavUri, song?.audio?.mp3Uri]) {
+    const value = text(candidate);
+    if (value && path.isAbsolute(value)) return path.normalize(value);
+  }
+  return null;
+}
+
+function resolveRegistryRoute(pathname, {
+  songRegistryPath,
+  songbookPath,
+  songStorePath,
+  registryPayload,
+  songbookPayload,
+  songStorePayload,
+}) {
   const match = pathname.match(/^\/api\/song-registry\/(audio|covers)\/([^/]+)$/u);
   if (!match) return null;
   const route = match[1];
@@ -29,7 +44,23 @@ function resolveRegistryRoute(pathname, { songRegistryPath, songbookPath, regist
   }
   const song = (registry.songs || []).find((entry) => entry?.id === songId || entry?.title === songId);
   const candidate = route === "audio" ? song?.localPath : song?.raw?._hapaPlaylistExport?.coverPath;
-  return candidate ? path.resolve(candidate) : null;
+  if (candidate) return path.resolve(candidate);
+  if (route !== "audio") return null;
+
+  // Incremental Echo ingests enter Builder-owned custody before they are
+  // necessarily mirrored into the external Song Registry. Keep the stable
+  // registry route, but resolve only an exact identity match from the local
+  // song store and prefer the ingested WAV master over its MP3 derivative.
+  const store = songStorePayload || (songStorePath ? readJson(songStorePath) : null);
+  const localSong = (store?.songs || []).find((entry) => [
+    entry?.id,
+    entry?.songId,
+    entry?.registryTrackId,
+    entry?.audio?.registryTrackId,
+    entry?.lineage?.registryTrackId,
+    entry?.attribution?.songRegistryTrackId,
+  ].some((identity) => text(identity) === songId));
+  return localSongAudioPath(localSong);
 }
 
 export function resolveEchoRuntimeMediaUri(uri, {
@@ -37,8 +68,10 @@ export function resolveEchoRuntimeMediaUri(uri, {
   mediaDir,
   songRegistryPath,
   songbookPath,
+  songStorePath,
   registryPayload,
   songbookPayload,
+  songStorePayload,
 } = {}) {
   const declaredUri = text(uri);
   if (!declaredUri) return { ok: false, reason: "runtime-uri-missing", uri: null, resolvedPath: null };
@@ -75,7 +108,14 @@ export function resolveEchoRuntimeMediaUri(uri, {
       return { ok: true, reason: null, uri: declaredUri, route: "media-api", resolvedPath: candidate };
     }
     if (parsed.pathname.startsWith("/api/song-registry/")) {
-      const candidate = resolveRegistryRoute(parsed.pathname, { songRegistryPath, songbookPath, registryPayload, songbookPayload });
+      const candidate = resolveRegistryRoute(parsed.pathname, {
+        songRegistryPath,
+        songbookPath,
+        songStorePath,
+        registryPayload,
+        songbookPayload,
+        songStorePayload,
+      });
       return candidate
         ? { ok: true, reason: null, uri: declaredUri, route: "song-registry-api", resolvedPath: candidate }
         : { ok: false, reason: "song-registry-runtime-route-unresolved", uri: declaredUri, resolvedPath: null };

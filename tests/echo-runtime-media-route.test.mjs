@@ -19,6 +19,42 @@ test("album audits reuse one explicit registry snapshot without rereading stores
   assert.equal(route.resolvedPath, "/media/source-a.mp3");
   assert.equal(resolveEchoRuntimeMediaUri("/api/song-registry/audio/missing", options).ok, false);
 });
+
+test("incremental Echo songs resolve exact local-custody WAV masters before registry mirroring", () => {
+  const route = resolveEchoRuntimeMediaUri("/api/song-registry/audio/891fb5e0-116d-4c18-889b-3aa514d7f971", {
+    registryPayload: { songs: [] },
+    songbookPayload: { songCards: [] },
+    songStorePayload: { songs: [{
+      id: "dear-papa-song-gnow-her",
+      audio: {
+        registryTrackId: "891fb5e0-116d-4c18-889b-3aa514d7f971",
+        localPath: "/ingest/gnow-her/song.wav",
+        mp3Uri: "/ingest/gnow-her/song.mp3",
+      },
+    }] },
+  });
+  assert.deepEqual(route, {
+    ok: true,
+    reason: null,
+    uri: "/api/song-registry/audio/891fb5e0-116d-4c18-889b-3aa514d7f971",
+    route: "song-registry-api",
+    resolvedPath: "/ingest/gnow-her/song.wav",
+  });
+});
+
+test("local-custody fallback fails closed for aliases and nonlocal audio URIs", () => {
+  const options = {
+    registryPayload: { songs: [] },
+    songbookPayload: { songCards: [] },
+    songStorePayload: { songs: [{
+      id: "dear-papa-song-gnow-her",
+      title: "Gnow Her",
+      audio: { registryTrackId: "exact-id", localPath: "https://example.invalid/song.wav" },
+    }] },
+  };
+  assert.equal(resolveEchoRuntimeMediaUri("/api/song-registry/audio/Gnow%20Her", options).ok, false);
+  assert.equal(resolveEchoRuntimeMediaUri("/api/song-registry/audio/exact-id", options).ok, false);
+});
 import {
   verifyEchoExecutionInputEvidence,
   verifyEchoExecutionVisualInputEvidence,

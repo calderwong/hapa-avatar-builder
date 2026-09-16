@@ -106,10 +106,23 @@ Do not rename or promote this interpolation as measured timing. A later vocal-st
 - Image credentials remain in the existing encrypted Electron credential store.
 - H3 outputs remain generated candidates with technical/motion receipts and human review required.
 
+## Playback and selected-cut closure
+
+Registration is not complete merely because the Song Card can be listed. Before calling an incremental song ready:
+
+1. Request its stable `/api/song-registry/audio/<registry-track-id>` route and verify that it serves the locally ingested WAV with byte-range support.
+2. Prepare playback audio and confirm the receipt's source hash matches the registered WAV hash.
+3. Prepare song timing for the intended Director cut and require every declared local stem to be usable.
+4. Prepare the selected-cut preview and require every video cue to resolve; Reference Media loop URLs must resolve through their immutable run manifest rather than be treated as filesystem paths.
+
+The runtime resolver may fall back from the external Song Registry to `hapa-songs-store.json` only on an exact song or registry identity match. It prefers `audio.localPath` / the WAV master, does not match titles, and rejects nonlocal fallback URLs. The same local-custody row supplies stem paths until the external registry mirror catches up.
+
+The Gnow Her pilot exposed three false-ready seams: the master existed but only the external registry was consulted; nine ingested stems were declared but their local paths were not supplied to preparation; and valid Reference Media loop routes were interpreted as absolute filesystem paths by the preview worker. The repeatable guardrail is to exercise all four checks above against the selected cut, not infer playback or preparation readiness from catalog presence or media preflight alone.
+
 ## Verification
 
 ```bash
-node --test tests/echo-song-ingest.test.mjs tests/echo-reference-image-generation.test.mjs tests/echo-reference-loop-director.test.mjs
+node --test tests/echo-song-ingest.test.mjs tests/echo-reference-image-generation.test.mjs tests/echo-reference-loop-director.test.mjs tests/echo-runtime-media-route.test.mjs tests/echo-performance-inputs.test.mjs tests/echo-selected-preview-preparation.test.mjs
 npm run build
 ```
 

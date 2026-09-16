@@ -24,3 +24,25 @@ test('an explicit graph audio revision and stem resource take precedence over Re
   project.director_show_graph.stems.items[0].audioPath = '';
   assert.equal(echoPerformanceInputs({ project, registry: { stems: [{ id: 'resolved', parentId: 'master', stemType: 'Vocals', localPath: '/registry/v.wav' }] } }).graph.stems.items[0].audioPath, '/registry/v.wav');
 });
+
+test('local ingest custody supplies exact stems before external Registry mirroring', () => {
+  const project = {
+    song_id: 'dear-papa-song-gnow-her',
+    registry_track_id: '891fb5e0-116d-4c18-889b-3aa514d7f971',
+    duration: 219.56,
+    stems_available: ['drums', 'vocals'],
+  };
+  const songStore = { songs: [{
+    id: 'dear-papa-song-gnow-her',
+    audio: { registryTrackId: '891fb5e0-116d-4c18-889b-3aa514d7f971' },
+    stems: [
+      { id: 'stem:gnow-her:drums', stemType: 'Drums', localPath: '/ingest/stems/drums.wav' },
+      { id: 'stem:gnow-her:vocals', stemType: 'Vocals', localPath: '/ingest/stems/vocals.wav' },
+    ],
+  }] };
+  const result = echoPerformanceInputs({ project, registry: { stems: [] }, songStore });
+  assert.deepEqual(result.graph.stems.items.map(stem => [stem.role, stem.audioPath, stem.truthStatus]), [
+    ['drums', '/ingest/stems/drums.wav', 'verified_local_ingest_path'],
+    ['vocals', '/ingest/stems/vocals.wav', 'verified_local_ingest_path'],
+  ]);
+});

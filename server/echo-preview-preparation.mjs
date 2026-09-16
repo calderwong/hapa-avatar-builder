@@ -7,6 +7,7 @@ import { resolveEchoRuntimeMediaUri } from './echo-runtime-media-route.mjs';
 import { echoPreviewShotKey, echoPreviewSourceUri } from '../src/domain/echo-preview-projection.js';
 import { hasExcludedEchoDirectorOrigin } from '../src/domain/echo-media-source-policy.js';
 import { deriveEchoDirectionVariantProject, echoDirectionVariantFingerprint } from '../src/domain/echo-direction-variants.js';
+import { resolveEchoReferenceMediaAsset } from './echo-reference-media-library.mjs';
 
 const busy = job => ['queued', 'running', 'cancelling'].includes(job?.status);
 const fail = (message, statusCode = 422) => Object.assign(new Error(message), { statusCode });
@@ -19,6 +20,27 @@ export function echoPreviewSelectionInput({ project, variant = null, songId, var
   const projected = variant ? deriveEchoDirectionVariantProject(project, variant) : project;
   return { songId, variantId, fingerprint: echoDirectionVariantFingerprint(variant || { timeline: project.timeline }),
     timeline: projected.timeline };
+}
+
+export async function resolveEchoPreviewSourceUri(uri, {
+  root,
+  mediaDir,
+  resolveReferenceAsset = resolveEchoReferenceMediaAsset,
+} = {}) {
+  const value = String(uri || '').trim();
+  try {
+    const pathname = new URL(value, 'http://hapa.local').pathname;
+    const match = pathname.match(/^\/api\/echos\/reference-media\/assets\/(image|loop)\/([^/]+)\/([^/]+)$/u);
+    if (match) {
+      const asset = await resolveReferenceAsset(match[1], decodeURIComponent(match[2]), decodeURIComponent(match[3]));
+      return asset?.filePath
+        ? { ok: true, reason: null, uri: value, route: 'echo-reference-media-api', resolvedPath: path.resolve(asset.filePath) }
+        : { ok: false, reason: 'echo-reference-media-runtime-route-unresolved', uri: value, resolvedPath: null };
+    }
+  } catch {
+    return { ok: false, reason: 'echo-preview-runtime-uri-invalid', uri: value, resolvedPath: null };
+  }
+  return resolveEchoRuntimeMediaUri(value, { root, mediaDir });
 }
 
 function acquireOwner(directory) {
@@ -42,7 +64,8 @@ function acquireOwner(directory) {
  * pressure; atomic disposable receipts survive restart. Retry resolves the
  * current saved cut again and reuses individually verified proxy resources. */
 export async function openEchoPreviewPreparation({ root, mediaDir, cacheRoot, loadSelection,
-  prepareProxy = prepareEchoPlaybackProxy, maxQueued = 8, maxRetained = 32 } = {}) {
+  prepareProxy = prepareEchoPlaybackProxy, resolveReferenceAsset = resolveEchoReferenceMediaAsset,
+  maxQueued = 8, maxRetained = 32 } = {}) {
   const directory = path.resolve(cacheRoot || path.join(root, 'data/cache/echo-preview-preparation'));
   const mediaRoot = path.resolve(mediaDir || path.join(root, 'data/media'));
   const jobs = new Map(), queue = [];
@@ -115,7 +138,7 @@ export async function openEchoPreviewPreparation({ root, mediaDir, cacheRoot, lo
         const row = { shotKey: item.shotKey, status: 'failed' };
         try {
           if (item.excluded) throw fail('Source is excluded by Echo media policy.');
-          const route = resolveEchoRuntimeMediaUri(item.uri, { root, mediaDir: mediaRoot });
+          const route = await resolveEchoPreviewSourceUri(item.uri, { root, mediaDir: mediaRoot, resolveReferenceAsset });
           if (!route.ok) throw fail(route.reason);
           let resource = resources.get(route.resolvedPath);
           if (!resource) {

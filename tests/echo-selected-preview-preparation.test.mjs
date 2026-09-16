@@ -4,7 +4,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
-import { openEchoPreviewPreparation as openService } from '../server/echo-preview-preparation.mjs';
+import { openEchoPreviewPreparation as openService, resolveEchoPreviewSourceUri } from '../server/echo-preview-preparation.mjs';
 import { prepareEchoPlaybackProxy } from '../server/echo-playback-proxy.mjs';
 import { runEchoPreparationStage } from '../server/echo-performance-preparation.mjs';
 import { applyEchoPreviewProjection, echoPreviewShotKey, echoPreviewHistoryMediaCue } from '../src/domain/echo-preview-projection.js';
@@ -45,6 +45,23 @@ test('preview projection is cut-scoped, preserves trim/rate, and never mutates t
   assert.equal(applyEchoPreviewProjection(edited, receipt, { songId: 'song', variantId: 'cut-a' })[0], edited[0]);
   const moved = [{ ...cue(), camera_motion: 'zoom-out' }];
   assert.equal(applyEchoPreviewProjection(moved, receipt, { songId: 'song', variantId: 'cut-a' })[0].camera_motion, 'zoom-out');
+});
+test('preview preparation resolves Reference Media loop routes through immutable run manifests', async () => {
+  const filePath = '/owned/reference-runs/loop.mp4';
+  const route = await resolveEchoPreviewSourceUri(
+    '/api/echos/reference-media/assets/loop/run-one/loop%3Ajob-one',
+    { resolveReferenceAsset: async (kind, runId, jobId) => {
+      assert.deepEqual([kind, runId, jobId], ['loop', 'run-one', 'loop:job-one']);
+      return { filePath };
+    } },
+  );
+  assert.deepEqual(route, {
+    ok: true,
+    reason: null,
+    uri: '/api/echos/reference-media/assets/loop/run-one/loop%3Ajob-one',
+    route: 'echo-reference-media-api',
+    resolvedPath: filePath,
+  });
 });
 test('selected cut prepares full source once, survives restart, rejects changed bytes, and repairs corrupt derivatives', async t => {
   const root = await temporary(t), media = path.join(root, 'data/media'), source = path.join(media, 'source.mp4');

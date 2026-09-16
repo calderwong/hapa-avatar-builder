@@ -3403,9 +3403,12 @@ async function route(req, res) {
       const selectedVariant = selectedVariantId ? await readEchoDirectionScriptVariant(songId, selectedVariantId)
         || project.direction_script_variants?.find(variant => echoDirectionVariantId(variant) === selectedVariantId) : null;
       if (selectedVariantId && !selectedVariant) throw echoDirectionVariantNotFound(songId, selectedVariantId);
-      const registry = await readJson(SONG_REGISTRY_DATA_PATH);
-      const { audioUri, graph } = echoPerformanceInputs({ project, variant: selectedVariant, registry });
-      const options = { root: ROOT, mediaDir: MEDIA_DIR, songRegistryPath: SONG_REGISTRY_DATA_PATH, songbookPath: DEAR_PAPA_SONGBOOK_PATH };
+      const [registry, songStore] = await Promise.all([
+        readJson(SONG_REGISTRY_DATA_PATH),
+        readJson(HAPA_SONG_STORE_PATH),
+      ]);
+      const { audioUri, graph } = echoPerformanceInputs({ project, variant: selectedVariant, registry, songStore });
+      const options = { root: ROOT, mediaDir: MEDIA_DIR, songRegistryPath: SONG_REGISTRY_DATA_PATH, songbookPath: DEAR_PAPA_SONGBOOK_PATH, songStorePath: HAPA_SONG_STORE_PATH };
       const master = resolveEchoRuntimeMediaUri(audioUri, options);
       const stems = (graph?.stems?.items || []).map(stem => ({ ...stem, audioPath: stem.audioPath ? resolveEchoRuntimeMediaUri(stem.audioPath, options).resolvedPath || stem.audioPath : null }));
       if (req.method === 'POST') {
@@ -4238,12 +4241,18 @@ async function route(req, res) {
 
   const registryAudioMatch = pathname.match(/^\/api\/song-registry\/audio\/([^/]+)$/);
   if (registryAudioMatch && req.method === "GET") {
-    const song = await findRegistrySong(registryAudioMatch[1]);
-    if (!song?.localPath) {
+    const audio = resolveEchoRuntimeMediaUri(pathname, {
+      root: ROOT,
+      mediaDir: MEDIA_DIR,
+      songRegistryPath: SONG_REGISTRY_DATA_PATH,
+      songbookPath: DEAR_PAPA_SONGBOOK_PATH,
+      songStorePath: HAPA_SONG_STORE_PATH,
+    });
+    if (!audio.ok) {
       sendJson(res, 404, { error: "audio_not_found", id: registryAudioMatch[1] });
       return;
     }
-    await serveLocalFile(song.localPath, req, res);
+    await serveLocalFile(audio.resolvedPath, req, res);
     return;
   }
 
@@ -11327,6 +11336,7 @@ async function certifySongCardLocalRenderStart({ candidate, storedPlan } = {}) {
         mediaDir: MEDIA_DIR,
         songRegistryPath: SONG_REGISTRY_DATA_PATH,
         songbookPath: DEAR_PAPA_SONGBOOK_PATH,
+        songStorePath: HAPA_SONG_STORE_PATH,
       },
     });
     const receipt = graphResult?.receipt || {};
@@ -11612,7 +11622,7 @@ async function hydrateEchoDirectorProjectPayload(payload, safeSongId, options = 
     if (Array.isArray(selected?.timeline)) {
       const prepared = await prepareEchoTimelineMediaEvidence(selected.timeline, {
         root: ROOT, mediaDir: MEDIA_DIR, mediaEvidenceReader: echoMediaEvidenceReader,
-        songRegistryPath: SONG_REGISTRY_DATA_PATH, songbookPath: DEAR_PAPA_SONGBOOK_PATH,
+        songRegistryPath: SONG_REGISTRY_DATA_PATH, songbookPath: DEAR_PAPA_SONGBOOK_PATH, songStorePath: HAPA_SONG_STORE_PATH,
       });
       directionVariants = directionVariants.map(variant => variant === selected ? {
         ...variant,
@@ -11628,7 +11638,7 @@ async function hydrateEchoDirectorProjectPayload(payload, safeSongId, options = 
   if (!deliveredVariantId && Array.isArray(project.timeline)) {
     const prepared = await prepareEchoTimelineMediaEvidence(project.timeline, {
       root: ROOT, mediaDir: MEDIA_DIR, mediaEvidenceReader: echoMediaEvidenceReader,
-      songRegistryPath: SONG_REGISTRY_DATA_PATH, songbookPath: DEAR_PAPA_SONGBOOK_PATH,
+      songRegistryPath: SONG_REGISTRY_DATA_PATH, songbookPath: DEAR_PAPA_SONGBOOK_PATH, songStorePath: HAPA_SONG_STORE_PATH,
     });
     preparedBaseTimeline = prepared.timeline;
     canonicalMediaEvidence = prepared.canonicalEvidence;
@@ -11943,7 +11953,7 @@ async function createEchoDirectionVariantFork(body = {}) {
 
   const { preparedTimeline, ...mediaEligibility } = await validateEchoForkMedia(timeline, mediaConstraints, {
     mediaEvidenceReader: echoMediaEvidenceReader,
-    root: ROOT, mediaDir: MEDIA_DIR, songRegistryPath: SONG_REGISTRY_DATA_PATH, songbookPath: DEAR_PAPA_SONGBOOK_PATH,
+    root: ROOT, mediaDir: MEDIA_DIR, songRegistryPath: SONG_REGISTRY_DATA_PATH, songbookPath: DEAR_PAPA_SONGBOOK_PATH, songStorePath: HAPA_SONG_STORE_PATH,
   });
   timeline = preparedTimeline;
   const now = new Date().toISOString();
@@ -12292,6 +12302,7 @@ async function readEchoDirectorShowGraph(project, safeSongId, cutId = "base") {
       mediaDir: MEDIA_DIR,
       songRegistryPath: SONG_REGISTRY_DATA_PATH,
       songbookPath: DEAR_PAPA_SONGBOOK_PATH,
+      songStorePath: HAPA_SONG_STORE_PATH,
     },
   });
 }
