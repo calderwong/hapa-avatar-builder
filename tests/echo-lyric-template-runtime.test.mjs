@@ -154,3 +154,20 @@ test('motion intensity changes displacement without changing the exact vocal int
   assert.ok(zero.words.every(word=>word.scale===1&&word.translateY===0&&word.rotateDegrees===0));
   assert.equal(half.words[1].scale,1+(full.words[1].scale-1)/2);
 });
+
+test('explicit reviewed syllables drive sub-word progress without accepting inferred syllables', () => {
+  const reviewed = {
+    text: 'singing', start: 1, end: 2, words: [{ word: 'singing', start: 1, end: 2, syllables: [
+      { text: 'sing', start: 1, end: 1.4, evidence: { humanReviewed: true, audioHash: 'sha256:source', reviewer: 'reviewer-1' } },
+      { text: 'ing', start: 1.4, end: 2, evidence: { humanReviewed: true, audioHash: 'sha256:source', reviewer: 'reviewer-1' } },
+    ] }],
+  };
+  const frame = resolveEchoLyricTemplateFrame({ contract: { enabled: true, templateId: 'kinetic-word-burst-v1' }, line: reviewed, timeSeconds: 1.7, fps: 30 });
+  assert.equal(frame.timingPolicy.mode, 'syllable');
+  assert.deepEqual(frame.words[0].syllables.map(item => item.active), [false, true]);
+  assert.ok(frame.words[0].progress > .5 && frame.words[0].progress < 1);
+  const inferred = structuredClone(reviewed);
+  delete inferred.words[0].syllables[1].evidence;
+  inferred.words[0].syllables[1].confidence = .9;
+  assert.equal(resolveEchoLyricTemplateFrame({ contract: { enabled: true }, line: inferred, timeSeconds: 1.7 }).timingPolicy.mode, 'phrase');
+});

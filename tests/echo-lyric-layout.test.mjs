@@ -26,3 +26,6 @@ test('out-of-phrase, overlapping and explicitly unaligned words use honest phras
  const line={start:1,end:3,words:[{word:'hold',start:1,end:2,confidence:.9},{word:'on',start:2,end:3,confidence:.9}]};assert.equal(echoLyricWordTimingPolicy(line).mode,'word');
  for(const [patch,reason]of [[{start:1.9},'overlapping-word-intervals'],[{end:3.1},'word-outside-phrase'],[{matched:false},'word-unaligned']]){const copy=structuredClone(line);Object.assign(copy.words[1],patch);assert.equal(echoLyricWordTimingPolicy(copy).reason,reason)}
 });
+test('direct STT anchors can animate words without pretending they are syllable exact',()=>{
+ const line={start:1,end:3,words:[{word:'hold',start:1,end:2,matched:true},{word:'on',start:2,end:3,matched:true}]};const policy=echoLyricWordTimingPolicy(line,'dear-papa-playlist-lyric-timing');assert.equal(policy.mode,'word');assert.equal(policy.reason,'direct-stt-word-anchors');assert.match(policy.label,/not syllable exact/i);
+});

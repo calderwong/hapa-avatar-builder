@@ -58,6 +58,18 @@ test("legacy projects default lyrics on and normalize to one of four stable temp
   assert.equal(ECHO_LYRIC_TEMPLATES.length, 4);
 });
 
+test("authoritative timing truth replaces stale synthetic display metadata", () => {
+  const contract = normalizeEchoLyricContract(project({
+    lyrics: { timingSource: "synthetic-weighted-lyric-heal", timingSourcePath: "", confidence: 0 },
+    lyric_timing_truth: { source: "dear-papa-playlist-lyric-timing", sourcePath: "/timing/source.json", confidence: 0.91, activeTimingSha256: "truth-hash" },
+    song_edit_map: { provenance: { lyricTimingSource: "whisper-cli", lyricTimingPath: "/timing/source.json" }, sections: [], editPulses: [] },
+  }));
+  assert.equal(contract.timingSource, "whisper-cli");
+  assert.equal(contract.timingSourcePath, "/timing/source.json");
+  assert.equal(contract.timingHash, "truth-hash");
+  assert.equal(contract.confidence, 0.91);
+});
+
 test("turning lyrics off preserves source timing and template but emits no overlay", () => {
   const disabled = project({
     lyrics_enabled: false,

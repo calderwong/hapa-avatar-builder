@@ -73,25 +73,27 @@ export function normalizeEchoLyricContract(projectInput = {}) {
     position: text(source.position || project.lyric_position) || "bottom-center",
     style: text(source.style || project.lyric_style) || "neon-cyan",
     timingSource: text(
-      source.timingSource
-        || timingTruth.timingSource
+      timingTruth.timingSource
         || mapProvenance.lyricTimingSource
-        || timingHeal.timingSource,
+        || timingHeal.timingSource
+        || timingTruth.source
+        || source.timingSource,
     ) || "missing",
     timingSourcePath: text(
-      source.timingSourcePath
-        || timingTruth.timingSourcePath
+      timingTruth.timingSourcePath
+        || timingTruth.sourcePath
         || mapProvenance.lyricTimingPath
-        || timingHeal.timingPath,
+        || timingHeal.timingPath
+        || source.timingSourcePath,
     ),
     timingHash: text(
-      source.timingHash
-        || timingTruth.activeTimingSha256
+      timingTruth.activeTimingSha256
         || mapProvenance.activeTimingSha256
-        || timingHeal.activeTimingSha256,
+        || timingHeal.activeTimingSha256
+        || source.timingHash,
     ),
-    audioHash: text(source.audioHash || timingTruth.audioSha256 || mapProvenance.audioSha256),
-    confidence: Number(source.confidence ?? timingTruth.confidence ?? timingHeal.timingConfidence ?? 0),
+    audioHash: text(timingTruth.audioSha256 || mapProvenance.audioSha256 || source.audioHash),
+    confidence: Number(timingTruth.confidence ?? timingHeal.timingConfidence ?? source.confidence ?? 0),
     reducedMotion: source.reducedMotion === true,
     motionIntensity: typeof source.motionIntensity === "number" && Number.isFinite(source.motionIntensity) ? Math.max(0, Math.min(1, source.motionIntensity)) : 1,
     safeArea: source.safeArea && typeof source.safeArea === "object" ? structuredClone(source.safeArea) : null,

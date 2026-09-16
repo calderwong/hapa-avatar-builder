@@ -128,7 +128,7 @@ export function renderEchoLyricSurface(element, { contract = {}, frame = null, l
   element.dataset.timingMode=frame.timingPolicy.mode;element.dataset.timingReason=frame.timingPolicy.reason;element.dataset.templateId=frame.templateId;
   const sourceWords=Array.isArray(line.words)?line.words:[];
   // Phrase fallback displays the selected source text, not stale aligned tokens.
-  const rows=frame.timingPolicy.mode==='word'&&sourceWords.length?frame.words.filter(word=>word.display):[{index:0,displayText:frame.displayText||line.text,opacity:1,scale:1}];
+  const rows=frame.timingPolicy.mode!=='phrase'&&sourceWords.length?frame.words.filter(word=>word.display):[{index:0,displayText:frame.displayText||line.text,opacity:1,scale:1}];
   const label=frame.timingPolicy.mode==='phrase'?frame.timingPolicy.label:'';
   const contentKey=JSON.stringify([line.id,line.start??line.startSeconds,line.end??line.endSeconds,rows.map(w=>[w.index,w.displayText]),label]);
   if(state.contentKey!==contentKey||state.protection!==protection){

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { applyEchoLyricCorrection, inspectEchoLyricManualTiming, summarizeEchoLyricOnsetReview } from "../domain/echo-lyric-timing-editor.js";
 import { readEchoPlaybackWaveform } from "../domain/echo-audio-playback.js";
 import { echoLyricBoundary } from "../domain/echo-lyric-time.js";
+import { assessEchoLyricPrecision } from "../domain/echo-lyric-precision.js";
 
 const buttonStyle = { border: "1px solid rgba(34,211,238,.4)", background: "#083047", color: "#cffafe", borderRadius: 5, padding: "7px 10px", fontSize: 13, cursor: "pointer" };
 const inputStyle = { background: "#090d16", border: "1px solid #64748b", color: "#fff", borderRadius: 4, padding: "7px", fontSize: 14, maxWidth: "100%", boxSizing: "border-box" };
@@ -42,6 +43,7 @@ export default function EchoLyricTimingEditor({ project, currentTime = 0, analys
   const waveformKey = JSON.stringify([playbackAudioUrl, playbackAudioReceipt?.sourceHash, playbackAudioReceipt?.pcmSha256, windowStart, windowEnd, waveformRetry]);
   const currentWaveform = waveform?.key === waveformKey ? waveform : null;
   const onsetReview = useMemo(() => summarizeEchoLyricOnsetReview(project, playbackAudioReceipt?.sourceHash), [project, playbackAudioReceipt?.sourceHash]);
+  const precision = useMemo(() => assessEchoLyricPrecision(project), [project]);
   useEffect(() => { setWaveformPage(0); setReferenceTime(""); }, [lineIndex, wordIndex, waveformZoom, project?.song_id]);
   useEffect(() => {
     setWaveform(null);
@@ -148,6 +150,12 @@ export default function EchoLyricTimingEditor({ project, currentTime = 0, analys
         <button type="button" style={buttonStyle} disabled={disabled || !state?.undo?.length} onClick={() => commit({ type: "undo" })}>Undo lyric correction</button>
       </div>
       <p style={{ margin: 0, color: "#94a3b8", lineHeight: 1.5 }}>Changes belong to this cut and persist when you save it. Editing preserves source evidence; it does not verify vocal alignment. Changed words use phrase timing until independently verified.</p>
+      <div data-testid="echo-lyric-precision" style={{ display: "grid", gap: 5, padding: 10, border: `1px solid ${precision.exactSyllableReady ? "#22c55e" : "#a16207"}`, borderRadius: 5, background: precision.exactSyllableReady ? "rgba(20,83,45,.2)" : "rgba(113,63,18,.18)" }}>
+        <strong>{precision.label} · animation: {precision.animationUnit}</strong>
+        <span>{precision.counts.matchedWords}/{precision.counts.words} words have direct STT anchors · {precision.counts.trustworthySyllables}/{precision.counts.syllables} syllables have explicit acoustic/review evidence</span>
+        <span>{precision.beatMappingReady ? `${precision.beatCount} measured beats available for bar/beat/subdivision labels.` : "Count mapping unavailable until a measured beat grid and reviewed syllable onsets both exist."}</span>
+        {!precision.exactSyllableReady && <span style={{ color: "#fbbf24" }}>Not syllable-exact. Existing cue times remain useful as candidates, but must not drive exact mouth/phoneme animation.</span>}
+      </div>
       <div data-testid="echo-lyric-timing-validation">{inspection.ok ? `${inspection.lineCount} lines · ${inspection.wordCount} words · valid intervals` : `${inspection.issues.length} interval issues to review`}</div>
       {correctionNotice && <div role="status" data-testid="echo-lyric-correction-notice">{correctionNotice}</div>}
       {error && <div role="alert" style={{ color: "#fca5a5" }}>{error}</div>}

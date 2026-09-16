@@ -112,6 +112,7 @@ export function resolveEchoLyricTemplateFrame({
 export function echoLyricWordTimingPolicy(line = {}, timingSource = '') {
   const words = Array.isArray(line.words) ? line.words : [];
   let reason = /synthetic|weighted|evenly|estimated/i.test(timingSource) ? 'synthetic-word-timing' : '';
+  let directAnchorWords = 0;
   if (!reason && !words.length) reason = 'word-timing-missing';
   let previousEnd = echoLyricBoundary(line, 'start', -Infinity);
   for (const word of words) {
@@ -122,13 +123,52 @@ export function echoLyricWordTimingPolicy(line = {}, timingSource = '') {
     else if (start < echoLyricBoundary(line, 'start', -Infinity) || end > echoLyricBoundary(line, 'end', Infinity)) reason = 'word-outside-phrase';
     else if (start < previousEnd) reason = 'overlapping-word-intervals';
     else if (word.matched === false || word.unaligned === true) reason = 'word-unaligned';
+    else if (word.matched === true) directAnchorWords += 1;
     else if (typeof confidence !== 'number' || !Number.isFinite(confidence)) reason = 'word-confidence-missing';
     else if (confidence < .6 || confidence > 1) reason = 'word-confidence-low-or-invalid';
     previousEnd = end;
   }
-  return { mode: reason ? 'phrase' : 'word', reason: reason || 'word-confidence-available',
-    label: reason ? 'Phrase timing · word alignment unverified' : 'Word timing · confidence available',
+  const acceptedReason = directAnchorWords === words.length && words.length ? 'direct-stt-word-anchors' : 'word-confidence-available';
+  return { mode: reason ? 'phrase' : 'word', reason: reason || acceptedReason,
+    label: reason ? 'Phrase timing · word alignment unverified' : directAnchorWords === words.length ? 'Word timing · direct STT anchors (not syllable exact)' : 'Word timing · confidence available',
     manuallyVerified: false };
+}
+
+export function echoLyricSyllableTimingPolicy(line = {}) {
+  const words = Array.isArray(line.words) ? line.words : [];
+  if (!words.length) return { accepted: false, reason: 'word-timing-missing' };
+  let count = 0;
+  let previousEnd = echoLyricBoundary(line, 'start', -Infinity);
+  for (const word of words) {
+    const syllables = Array.isArray(word.syllables) ? word.syllables : [];
+    if (!syllables.length) return { accepted: false, reason: 'syllable-timing-missing' };
+    for (const syllable of syllables) {
+      const start = echoLyricBoundary(syllable, 'start', NaN), end = echoLyricBoundary(syllable, 'end', NaN);
+      const confidence = syllable.confidence ?? syllable.probability;
+      const source = String(syllable.timing_source || syllable.timingSource || syllable.evidence?.kind || syllable.evidence?.source || '');
+      const reviewed = syllable.evidence?.humanReviewed === true && Boolean(String(syllable.evidence?.audioHash || '').trim()) && Boolean(String(syllable.evidence?.reviewer || '').trim());
+      const acoustic = /acoustic|forced|phoneme|syllable|manual/i.test(source);
+      if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return { accepted: false, reason: 'syllable-interval-invalid' };
+      if (start < echoLyricBoundary(word, 'start', -Infinity) || end > echoLyricBoundary(word, 'end', Infinity)) return { accepted: false, reason: 'syllable-outside-word' };
+      if (start < previousEnd) return { accepted: false, reason: 'overlapping-syllable-intervals' };
+      if (!reviewed && (!acoustic || typeof confidence !== 'number' || !Number.isFinite(confidence) || confidence < .6 || confidence > 1)) return { accepted: false, reason: 'syllable-evidence-unverified' };
+      previousEnd = end;
+      count += 1;
+    }
+  }
+  return { accepted: true, reason: 'explicit-syllable-evidence', count };
+}
+
+export function echoLyricTimingPolicy(line = {}, timingSource = '') {
+  const syllable = echoLyricSyllableTimingPolicy(line);
+  if (syllable.accepted) return {
+    mode: 'syllable',
+    reason: syllable.reason,
+    label: 'Syllable timing · explicit acoustic/review evidence',
+    manuallyVerified: (line.words || []).every(word => (word.syllables || []).every(item => item.evidence?.humanReviewed === true && Boolean(String(item.evidence?.audioHash || '').trim()) && Boolean(String(item.evidence?.reviewer || '').trim()))),
+    syllableCount: syllable.count,
+  };
+  return echoLyricWordTimingPolicy(line, timingSource);
 }
 
 export function echoLyricTemplateFrameState({
@@ -150,7 +190,7 @@ export function echoLyricTemplateFrameState({
   const exitProgress = lyricClamp01((clock.timeSeconds - end) / Math.max(0.001, exitEnd - end));
   const lineProgress = lyricClamp01((clock.timeSeconds - start) / Math.max(0.001, end - start));
   const words = Array.isArray(line.words) ? line.words : [];
-  const timingPolicy = echoLyricWordTimingPolicy(line, timingSource);
+  const timingPolicy = echoLyricTimingPolicy(line, timingSource);
   const displayWindow = timingPolicy.mode === "phrase" ? { startIndex: 0, endIndex: words.length, wordCount: words.length, text: String(line.text || words.map(word => word.word || word.text || "").join(" ")) } : echoLyricDisplayWindow({
     templateId,
     words,
@@ -174,9 +214,28 @@ export function echoLyricTemplateFrameState({
     words: words.map((word, index) => {
       const wordStart = echoLyricBoundary(word, "start", start);
       const wordEnd = Math.max(wordStart + 0.001, echoLyricBoundary(word, "end", wordStart + 0.001));
-      const active = timingPolicy.mode === 'word' && clock.timeSeconds >= wordStart && clock.timeSeconds < wordEnd;
-      const completed = timingPolicy.mode === 'word' && clock.timeSeconds >= wordEnd;
-      const wordProgress = timingPolicy.mode === 'word' ? lyricClamp01((clock.timeSeconds - wordStart) / Math.max(0.001, wordEnd - wordStart)) : 0;
+      const syllables = (Array.isArray(word.syllables) ? word.syllables : []).map((syllable, syllableIndex) => {
+        const syllableStart = echoLyricBoundary(syllable, "start", wordStart);
+        const syllableEnd = Math.max(syllableStart + 0.001, echoLyricBoundary(syllable, "end", syllableStart + 0.001));
+        const active = timingPolicy.mode === 'syllable' && clock.timeSeconds >= syllableStart && clock.timeSeconds < syllableEnd;
+        return {
+          index: syllableIndex,
+          text: String(syllable.text || syllable.syllable || ""),
+          active,
+          completed: timingPolicy.mode === 'syllable' && clock.timeSeconds >= syllableEnd,
+          progress: timingPolicy.mode === 'syllable' ? lyricRound(lyricClamp01((clock.timeSeconds - syllableStart) / Math.max(0.001, syllableEnd - syllableStart))) : 0,
+        };
+      });
+      const activeSyllable = syllables.find(item => item.active);
+      const activeSyllableIndex = activeSyllable?.index ?? -1;
+      const syllableProgress = timingPolicy.mode === 'syllable' && syllables.length
+        ? activeSyllableIndex >= 0
+          ? lyricClamp01((activeSyllableIndex + activeSyllable.progress) / syllables.length)
+          : clock.timeSeconds >= wordEnd ? 1 : 0
+        : 0;
+      const active = timingPolicy.mode === 'syllable' ? activeSyllableIndex >= 0 : timingPolicy.mode === 'word' && clock.timeSeconds >= wordStart && clock.timeSeconds < wordEnd;
+      const completed = timingPolicy.mode !== 'phrase' && clock.timeSeconds >= wordEnd;
+      const wordProgress = timingPolicy.mode === 'syllable' ? syllableProgress : timingPolicy.mode === 'word' ? lyricClamp01((clock.timeSeconds - wordStart) / Math.max(0.001, wordEnd - wordStart)) : 0;
       const onsetImpulse = active ? Math.max(0, 1 - (clock.timeSeconds - wordStart) / 0.18) ** 2 : 0;
       const spread = words.length > 1 ? (index / (words.length - 1)) * 2 - 1 : 0;
       const base = {
@@ -186,6 +245,7 @@ export function echoLyricTemplateFrameState({
         active,
         completed,
         progress: lyricRound(wordProgress),
+        syllables,
         opacity: lyricRound((1 - exitProgress) * (0.35 + entryProgress * 0.65)),
         scale: 1,
         translateX: 0,
@@ -243,6 +303,8 @@ export function echoLyricTemplateRuntimeBrowserSource() {
     echoLyricDisplayToken.toString(),
     echoLyricDisplayWindow.toString(),
     echoLyricWordTimingPolicy.toString(),
+    echoLyricSyllableTimingPolicy.toString(),
+    echoLyricTimingPolicy.toString(),
     echoLyricTemplateFrameState.toString(),
   ].join("\n");
 }

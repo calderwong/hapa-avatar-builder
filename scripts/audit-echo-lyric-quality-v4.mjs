@@ -10,6 +10,7 @@ import {
   lyricIssuePriority,
 } from "../src/domain/echo-lyric-quality.js";
 import { evaluateEchoLyricTimingPromotion } from "../src/domain/echo-lyric-promotion.js";
+import { assessEchoLyricPrecision } from "../src/domain/echo-lyric-precision.js";
 
 const ROOT = path.resolve(".");
 const PROJECTS_DIR = path.join(ROOT, "data/music-video-projects");
@@ -184,6 +185,9 @@ const projects = files.map((file) => {
   const priorityScore = sourceDeclaredInstrumental
     ? (recent ? 30 : 0) + (lyricsEnabled ? 80 : 0) + (timing.lineCount ? 80 : 0)
     : lyricIssuePriority({ recent, timing, text, sourceKind, hasCanonicalText });
+  const precision = sourceDeclaredInstrumental
+    ? null
+    : assessEchoLyricPrecision(project);
   return {
     file,
     songId,
@@ -217,6 +221,7 @@ const projects = files.map((file) => {
       enabled: lyricsEnabled,
     },
     alignmentSource,
+    precision,
     timing,
     text,
     issues,
@@ -250,6 +255,9 @@ const summary = {
   recentRepairRequired: projects.filter((project) => project.recent && project.status === "repair-required").length,
   recentReviewRequired: projects.filter((project) => project.recent && project.status === "review-required").length,
   verified: projects.filter((project) => project.status === "verified").length,
+  precisionLevels: countBy(projects.filter((project) => project.precision).map((project) => project.precision.level)),
+  exactSyllableReady: projects.filter((project) => project.precision?.exactSyllableReady).length,
+  beatMappedSyllableReady: projects.filter((project) => project.precision?.beatMappingReady).length,
 };
 
 const report = {
@@ -286,15 +294,24 @@ alignment quality.
 - Instrumentals with Lyrics correctly disabled: ${summary.instrumentalsWithLyricsDisabled}
 - Timed lyric payloads present: ${summary.projectsWithTimedLyrics}
 
-## Truth
+## Pipeline health (not performance precision)
 
-- Verified: ${summary.verified}
+- Pipeline-verified: ${summary.verified}
 - Repair required: ${summary.statuses["repair-required"] || 0}
 - Review required: ${summary.statuses["review-required"] || 0}
 - Synthetic timing active: ${summary.projectsWithSyntheticTiming}
 - Lead-vocal alignment source available: ${summary.projectsWithLeadVocalAlignmentSource}
 - Master-mix fallback available: ${summary.projectsWithMasterFallback}
 - Missing local alignment audio: ${summary.projectsMissingAlignmentAudio}
+
+Pipeline-verified means the timing payload passed source, hash, and structural
+gates. It does **not** mean every word or syllable is acoustically exact.
+
+## Animation precision
+
+- Human-reviewed syllable timing: ${summary.exactSyllableReady}
+- Human-reviewed syllables with measured beat phase: ${summary.beatMappedSyllableReady}
+${Object.entries(summary.precisionLevels).map(([level, count]) => `- ${level}: ${count}`).join("\n")}
 
 ## Recent-song queue
 
