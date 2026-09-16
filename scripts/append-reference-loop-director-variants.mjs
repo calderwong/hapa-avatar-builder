@@ -80,10 +80,19 @@ const targetPaths = selected.map(({ project }) => path.join(VARIANTS, project.so
 for (const targetPath of targetPaths) if (await stat(targetPath).catch(() => null)) throw new Error(`Append-only conflict: ${targetPath} already exists. Choose a new --variant-id.`);
 const indexRows = selected.map(({ project, parentProjectSha256, variant }) => ({
   id: `${project.song_id}:${variantId}`, songId: project.song_id, variantId, title: variant.title,
+  schemaVersion: variant.schemaVersion,
+  status: variant.status,
+  createdAt: variant.createdAt,
+  timelineCount: variant.timeline.length,
+  hasHyperframeScript: Boolean(variant.hyperframe_script),
   relativePath: `${project.song_id}/${variantId}.json`, parentProjectSha256, sourcePolicy: variant.sourcePolicy,
   replacementShots: variant.telemetry.replacementShots, sourceSelections: variant.telemetry.selectionsBySource,
   uniqueMedia: variant.telemetry.uniqueMedia, mediaBearingShots: variant.telemetry.mediaBearingShots,
-  visualizerOnlyShots: variant.telemetry.visualizerOnlyShots, updatedAt: now,
+  visualizerOnlyShots: variant.telemetry.visualizerOnlyShots,
+  actualVideoRatio: variant.telemetry.actualVideoRatio,
+  videoEventsPerMinute: variant.telemetry.videoEventsPerMinute,
+  videoCoverageSeconds: variant.telemetry.videoCoverageSeconds,
+  updatedAt: now,
 }));
 const report = {
   schemaVersion: "hapa.echo.reference-loop-director-run.v1", mode: apply ? "apply" : "dry-run", generatedAt: now,

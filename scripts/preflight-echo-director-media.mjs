@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
@@ -38,6 +39,58 @@ const safeFile = (candidate) => {
     return false;
   }
 };
+
+export const DEFAULT_ECHO_REFERENCE_LOOP_RUNS_ROOT = path.join(
+  os.homedir(),
+  "Library",
+  "Application Support",
+  "hapa-avatar-builder",
+  "Echo Reference Loop Runs",
+);
+
+function inside(parent, candidate) {
+  const relative = path.relative(path.resolve(parent), path.resolve(candidate));
+  return relative === "" || (relative !== ".." && !relative.startsWith(`..${path.sep}`));
+}
+
+export function resolveEchoReferenceLoopRoute(value, {
+  loopRunsRoot = DEFAULT_ECHO_REFERENCE_LOOP_RUNS_ROOT,
+} = {}) {
+  let parsed;
+  try { parsed = new URL(text(value), "http://hapa.local"); }
+  catch { return null; }
+  const match = parsed.pathname.match(/^\/api\/echos\/reference-media\/assets\/loop\/([^/]+)\/([^/]+)$/u);
+  if (!match) return null;
+  const runId = decodeURIComponent(match[1]);
+  const jobId = decodeURIComponent(match[2]);
+  if (!runId || !jobId || path.basename(runId) !== runId || path.basename(jobId) !== jobId) return null;
+  const root = path.resolve(loopRunsRoot);
+  const manifestPath = path.resolve(root, runId, "manifest.json");
+  if (!inside(root, manifestPath) || !safeFile(manifestPath)) return null;
+  try {
+    const manifest = readJson(manifestPath);
+    if (text(manifest.runId) !== runId) return null;
+    const job = list(manifest.jobs).find((candidate) => text(candidate.id) === jobId);
+    const outputPath = path.resolve(text(job?.outputPath));
+    if (job?.status !== "completed" || !text(job.outputPath) || !inside(root, outputPath) || !safeFile(outputPath)) return null;
+    return outputPath;
+  } catch {
+    return null;
+  }
+}
+
+export function createEchoMediaPreflightFileResolver({
+  loopRunsRoot = DEFAULT_ECHO_REFERENCE_LOOP_RUNS_ROOT,
+  baseIsFile = safeFile,
+} = {}) {
+  const cache = new Map();
+  return (candidate) => {
+    if (baseIsFile(candidate)) return true;
+    const key = text(candidate);
+    if (!cache.has(key)) cache.set(key, Boolean(resolveEchoReferenceLoopRoute(key, { loopRunsRoot })));
+    return cache.get(key);
+  };
+}
 
 function readJson(filePath) {
   return JSON.parse(fs.readFileSync(filePath, "utf8"));
@@ -138,7 +191,8 @@ export function preflightEchoDirectionCut({
   variant = null,
   sourcePath = "",
   avatarRoot = ROOT,
-  isFile = safeFile,
+  isFile = null,
+  referenceLoopRunsRoot = DEFAULT_ECHO_REFERENCE_LOOP_RUNS_ROOT,
 } = {}) {
   const baseProject = bodyOf(project);
   const projected = variant ? deriveEchoDirectionVariantProject(baseProject, variant) : baseProject;
@@ -150,11 +204,12 @@ export function preflightEchoDirectionCut({
     sourcePath: sourcePath ? path.resolve(sourcePath) : null,
   };
   try {
+    const fileResolver = isFile || createEchoMediaPreflightFileResolver({ loopRunsRoot: referenceLoopRunsRoot });
     const compilerReport = preflightHyperFramesMedia(graphOf(projected), {
       project: projected,
       root: path.resolve(avatarRoot),
       projectPath: context.sourcePath,
-      isFile,
+      isFile: fileResolver,
     });
     const compilerFailures = [...list(compilerReport.unresolved), ...list(compilerReport.aliasConflicts)];
     const failures = compilerFailures
@@ -231,14 +286,17 @@ export function preflightEchoProjectAndSavedCuts({
   projectPath = "",
   avatarRoot = ROOT,
   variantsRoot = path.join(avatarRoot, "data/music-video-project-variants"),
-  isFile = safeFile,
+  isFile = null,
+  referenceLoopRunsRoot = DEFAULT_ECHO_REFERENCE_LOOP_RUNS_ROOT,
 } = {}) {
+  const fileResolver = isFile || createEchoMediaPreflightFileResolver({ loopRunsRoot: referenceLoopRunsRoot });
   const baseProject = bodyOf(payload);
   const base = preflightEchoDirectionCut({
     project: baseProject,
     sourcePath: projectPath,
     avatarRoot,
-    isFile,
+    isFile: fileResolver,
+    referenceLoopRunsRoot,
   });
   const cuts = [base];
   for (const row of savedVariantsFor({ project: baseProject, projectPath, variantsRoot })) {
@@ -260,7 +318,8 @@ export function preflightEchoProjectAndSavedCuts({
       variant: row.variant,
       sourcePath: row.sourcePath,
       avatarRoot,
-      isFile,
+      isFile: fileResolver,
+      referenceLoopRunsRoot,
     }));
   }
   const summary = summarizeCuts(cuts);
@@ -283,7 +342,8 @@ export function preflightEchoAlbum({
   projectsRoot = path.join(ROOT, "data/music-video-projects"),
   variantsRoot = path.join(ROOT, "data/music-video-project-variants"),
   avatarRoot = ROOT,
-  isFile = safeFile,
+  isFile = null,
+  referenceLoopRunsRoot = DEFAULT_ECHO_REFERENCE_LOOP_RUNS_ROOT,
   songId = "",
 } = {}) {
   const resolvedProjectsRoot = path.resolve(projectsRoot);
@@ -314,6 +374,7 @@ export function preflightEchoAlbum({
         avatarRoot,
         variantsRoot,
         isFile,
+        referenceLoopRunsRoot,
       }));
     } catch (error) {
       const context = {

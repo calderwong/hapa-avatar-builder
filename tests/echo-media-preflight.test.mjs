@@ -7,6 +7,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import test from "node:test";
 import {
   formatEchoMediaPreflightFailure,
+  resolveEchoReferenceLoopRoute,
   selectEchoProjectPaths,
   preflightEchoAlbum,
   preflightEchoDirectionCut,
@@ -85,6 +86,34 @@ test("preflight resolves every supported local URI form and accepts intentional 
     assert.equal(report.resolvedCount, 4);
     assert.equal(report.generatedCount, 1);
     assert.equal(report.unresolvedCount, 0);
+  } finally {
+    fs.rmSync(fx.root, { recursive: true, force: true });
+  }
+});
+
+test("preflight resolves a completed Reference Media loop route through its immutable manifest binding", () => {
+  const fx = fixture();
+  try {
+    const loopRunsRoot = path.join(fx.root, "loop-runs");
+    const runId = "local-h3-reference-test";
+    const jobId = "loop:test-job";
+    const runRoot = path.join(loopRunsRoot, runId);
+    const outputPath = path.join(runRoot, "outputs", "loop.mp4");
+    fs.mkdirSync(path.dirname(outputPath), { recursive: true });
+    fs.writeFileSync(outputPath, "loop-bytes");
+    fs.writeFileSync(path.join(runRoot, "manifest.json"), JSON.stringify({
+      runId,
+      jobs: [{ id: jobId, status: "completed", outputPath }],
+    }));
+    const uri = `/api/echos/reference-media/assets/loop/${runId}/${encodeURIComponent(jobId)}`;
+    assert.equal(resolveEchoReferenceLoopRoute(uri, { loopRunsRoot }), outputPath);
+    const report = preflightEchoDirectionCut({
+      project: project([mediaShot(0, uri)]),
+      avatarRoot: fx.root,
+      referenceLoopRunsRoot: loopRunsRoot,
+    });
+    assert.equal(report.ok, true, JSON.stringify(report.failures, null, 2));
+    assert.equal(report.resolvedCount, 1);
   } finally {
     fs.rmSync(fx.root, { recursive: true, force: true });
   }
