@@ -225,6 +225,36 @@ const COMPOSITES = Object.freeze({
   "soft-light": "soft-light",
 });
 
+const DARKEN_BLENDS = new Set(["multiply", "darken", "color-burn"]);
+
+export function planEchoIsfLayerComposite(composition = {}, options = {}) {
+  const isFilter = String(options.shaderType || composition.shaderType || "").toLowerCase() === "filter";
+  const persistent = options.persistent === true || composition.persistent === true;
+  const blend = String(composition.blend || (isFilter ? "normal" : "screen")).toLowerCase();
+  const shaderVisibility = clamp(composition.shaderVisibility ?? composition.opacity ?? (isFilter ? 1 : 0.42));
+  const layerOpacity = clamp(composition.layerOpacity ?? 1);
+  const mix = clamp(composition.mix ?? 1);
+  const transitionAlphaValue = clamp(composition.transitionAlpha ?? 1);
+  const requestedKnockout = composition.knockoutBlacks;
+  const knockoutBlacks = !isFilter && !DARKEN_BLENDS.has(blend) && (requestedKnockout ?? persistent) === true;
+  const independentUnderlay = persistent && knockoutBlacks;
+  const underlayVisibility = independentUnderlay ? layerOpacity : 1;
+  const shaderLayerOpacity = independentUnderlay ? 1 : layerOpacity;
+  return {
+    shaderVisibility: round(shaderVisibility),
+    layerOpacity: round(layerOpacity),
+    underlayVisibility: round(underlayVisibility),
+    underlayDimAlpha: round(independentUnderlay ? 1 - underlayVisibility : 0),
+    independentUnderlay,
+    mix: round(mix),
+    blend,
+    knockoutBlacks,
+    canvasComposite: knockoutBlacks ? "lighter" : (COMPOSITES[blend] || "source-over"),
+    transitionAlpha: round(transitionAlphaValue),
+    effectiveAlpha: round(shaderVisibility * shaderLayerOpacity * mix * transitionAlphaValue),
+  };
+}
+
 function transitionAlpha(card, timestampSeconds, override) {
   if (Number.isFinite(Number(override))) return round(clamp(override));
   const transition = String(card?.transition || "cut").toLowerCase();
@@ -241,21 +271,56 @@ export function normalizeEchoIsfComposition(card = {}, timestampSeconds = 0, ove
   // Generators paint their own content, so an unset layer defaults to a semi
   // transparent screen veil that lets the media underneath show through. Filters
   // transform the current frame and stay fully opaque with a normal composite.
+  // Always-on generators also knock out the black plate. Visibility scales the
+  // shader itself while layer opacity controls the underlay independently, so
+  // both can be 100% without the shader's plate darkening the media.
   const isFilter = String(shader?.shaderType || "").toLowerCase() === "filter";
   const defaultOpacity = isFilter ? 1 : 0.42;
   const defaultBlend = isFilter ? "normal" : "screen";
   const opacity = round(clamp(overrides.opacity ?? parameters.opacity ?? layer.opacity ?? defaultOpacity));
   const mix = round(clamp(overrides.mix ?? parameters.mix ?? layer.mix ?? 1));
   const blend = String(overrides.blend || overrides.blendMode || parameters.blendMode || layer.blend || defaultBlend).toLowerCase();
-  const normalized = {
+  const layerOpacity = round(clamp(
+    overrides.layerOpacity
+    ?? overrides.layer_opacity
+    ?? parameters.layerOpacity
+    ?? parameters.layer_opacity
+    ?? layer.layerOpacity
+    ?? layer.layer_opacity
+    ?? 1,
+  ));
+  const persistent = card.alwaysOn === true || Boolean(card.persistentSlotId);
+  const knockoutBlacks = overrides.knockoutBlacks
+    ?? overrides.knockout_blacks
+    ?? parameters.knockoutBlacks
+    ?? parameters.knockout_blacks
+    ?? layer.knockoutBlacks
+    ?? layer.knockout_blacks
+    ?? persistent;
+  const plan = planEchoIsfLayerComposite({
+    opacity,
+    shaderVisibility: opacity,
+    mix,
+    blend,
+    layerOpacity,
+    knockoutBlacks,
+    transitionAlpha: transitionAlpha(card, timestampSeconds, overrides.transitionAlpha),
+  }, { persistent, shaderType: shader?.shaderType });
+  return {
     opacity,
     mix,
     blend,
-    canvasComposite: COMPOSITES[blend] || "source-over",
+    canvasComposite: plan.canvasComposite,
     target: String(overrides.target || parameters.target || layer.target || "program"),
-    transitionAlpha: transitionAlpha(card, timestampSeconds, overrides.transitionAlpha),
+    transitionAlpha: plan.transitionAlpha,
+    layerOpacity: plan.layerOpacity,
+    underlayVisibility: plan.underlayVisibility,
+    underlayDimAlpha: plan.underlayDimAlpha,
+    independentUnderlay: plan.independentUnderlay,
+    shaderVisibility: plan.shaderVisibility,
+    knockoutBlacks: plan.knockoutBlacks,
+    effectiveAlpha: plan.effectiveAlpha,
   };
-  return { ...normalized, effectiveAlpha: round(normalized.opacity * normalized.mix * normalized.transitionAlpha) };
 }
 
 function normalizedSignalFrame(frame = {}) {

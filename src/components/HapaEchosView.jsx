@@ -53,7 +53,7 @@ import {
   visualizerCardsAtTime,
   visualizerLookaheadCards,
 } from "../domain/echo-isf-browser-runtime.js";
-import { echoIsfRequiredStemFocuses } from "../domain/echo-isf-frame-intent.js";
+import { echoIsfRequiredStemFocuses, planEchoIsfLayerComposite } from "../domain/echo-isf-frame-intent.js";
 import {
   createEchoLiveSignalTracker,
   echoStemDecoderRetryDue,
@@ -1546,16 +1546,33 @@ function visualizerCompositionInput(card = null, timeSeconds = 0, shader = null)
   // Type-aware defaults: an unset layer on a generator is a semi-transparent
   // screen veil so the media underneath stays visible; a filter transforms the
   // frame, so it remains fully opaque with a normal composite. Explicit
-  // parameters/layer values always win.
+  // parameters/layer values always win. Always-on shaders knock out the black
+  // plate so visibility can go to 100% without crushing holes in the video.
   const isFilter = String(shader?.shaderType || "").toLowerCase() === "filter";
   const defaultOpacity = isFilter ? 1 : 0.42;
   const defaultBlend = isFilter ? "normal" : "screen";
+  const opacity = Number(parameters.opacity ?? layer.opacity ?? defaultOpacity);
+  const mix = Number(parameters.mix ?? layer.mix ?? 1);
+  const blend = String(parameters.blendMode || layer.blend || defaultBlend);
+  const layerOpacity = Number(parameters.layerOpacity ?? parameters.layer_opacity ?? layer.layerOpacity ?? layer.layer_opacity ?? 1);
+  const persistent = card?.alwaysOn === true || Boolean(card?.persistentSlotId);
+  const knockoutRequested = parameters.knockoutBlacks ?? parameters.knockout_blacks ?? layer.knockoutBlacks ?? layer.knockout_blacks ?? persistent;
+  const plan = planEchoIsfLayerComposite({
+    opacity,
+    shaderVisibility: opacity,
+    mix,
+    blend,
+    layerOpacity,
+    knockoutBlacks: knockoutRequested,
+    transitionAlpha,
+  }, { persistent, shaderType: shader?.shaderType });
   return {
-    opacity: Number(parameters.opacity ?? layer.opacity ?? defaultOpacity),
-    mix: Number(parameters.mix ?? layer.mix ?? 1),
-    blend: String(parameters.blendMode || layer.blend || defaultBlend),
+    opacity,
+    mix,
+    blend,
+    ...plan,
     target: String(parameters.target || layer.target || "program"),
-    transitionAlpha
+    transitionAlpha,
   };
 }
 
@@ -3984,6 +4001,14 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
               exactIsfLastPresentedCanvasRef.current = readyLayers[0].presentation.canvas;
               for (const layer of readyLayers) {
                 const { presentation, composition, audioEnvelope } = layer;
+                if (Number(composition.underlayDimAlpha) > 0) {
+                  ctx.save();
+                  ctx.globalAlpha = Math.max(0, Math.min(1, Number(composition.underlayDimAlpha)));
+                  ctx.globalCompositeOperation = "source-over";
+                  ctx.fillStyle = "#000";
+                  ctx.fillRect(0, 0, width, height);
+                  ctx.restore();
+                }
                 ctx.save();
                 ctx.globalAlpha = Math.max(0, Math.min(1, Number(composition.effectiveAlpha ?? (composition.opacity * composition.mix * composition.transitionAlpha)) || 0));
                 ctx.globalCompositeOperation = composition.canvasComposite || "source-over";
@@ -4904,6 +4929,19 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
     const nextOpacity = Math.round(Math.max(0, Math.min(1, Number(opacity) || 0)) * 100) / 100;
     const nextSlots = slots.map((slot, index) => index === slotIndex
       ? { ...slot, opacity: nextOpacity }
+      : slot);
+    handleUpdateProjectSettings({
+      persistent_shader_slots_schema: ECHO_PERSISTENT_SHADER_SLOTS_SCHEMA,
+      persistent_shader_slots: nextSlots,
+    });
+  };
+
+  const handleUpdatePersistentShaderLayerOpacity = (slotIndex, opacity) => {
+    if (directorEditingLocked || !activeProject) return;
+    const slots = normalizeEchoPersistentShaderSlots(activeProject);
+    const nextOpacity = Math.round(Math.max(0, Math.min(1, Number(opacity) || 0)) * 100) / 100;
+    const nextSlots = slots.map((slot, index) => index === slotIndex
+      ? { ...slot, layer_opacity: nextOpacity }
       : slot);
     handleUpdateProjectSettings({
       persistent_shader_slots_schema: ECHO_PERSISTENT_SHADER_SLOTS_SCHEMA,
@@ -8222,10 +8260,10 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                                             : 'Full song when selected · main mix default'}
                                       </span>
                                       <label style={{ display: 'grid', gridTemplateColumns: 'auto 1fr auto', alignItems: 'center', gap: '5px', fontSize: '7.5px', color: '#cbd5e1' }}>
-                                        <span>Shade</span>
+                                        <span>Vis</span>
                                         <input
                                           type="range"
-                                          aria-label={`Always-on shader slot ${slotIndex + 1} shade opacity`}
+                                          aria-label={`Always-on shader slot ${slotIndex + 1} shader visibility`}
                                           aria-valuetext={`${Math.round(slot.opacity * 100)} percent`}
                                           min="0"
                                           max="100"
@@ -8239,6 +8277,27 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
                                           {Math.round(slot.opacity * 100)}%
                                         </output>
                                       </label>
+                                      <label style={{ display: 'grid', gridTemplateColumns: 'auto 1fr auto', alignItems: 'center', gap: '5px', fontSize: '7.5px', color: '#cbd5e1' }}>
+                                        <span>Layer</span>
+                                        <input
+                                          type="range"
+                                          aria-label={`Always-on shader slot ${slotIndex + 1} underlying media visibility`}
+                                          aria-valuetext={`${Math.round((slot.layer_opacity ?? 1) * 100)} percent`}
+                                          min="0"
+                                          max="100"
+                                          step="1"
+                                          value={Math.round((slot.layer_opacity ?? 1) * 100)}
+                                          disabled={directorEditingLocked || slot.shader_id === "none"}
+                                          onChange={(event) => handleUpdatePersistentShaderLayerOpacity(slotIndex, Number(event.target.value) / 100)}
+                                          style={{ width: '100%', minWidth: 0, accentColor: '#67e8f9', cursor: slot.shader_id === "none" ? 'not-allowed' : 'pointer' }}
+                                        />
+                                        <output style={{ minWidth: '27px', textAlign: 'right', color: '#a5f3fc', fontVariantNumeric: 'tabular-nums' }}>
+                                          {Math.round((slot.layer_opacity ?? 1) * 100)}%
+                                        </output>
+                                      </label>
+                                      <span style={{ fontSize: '7px', color: '#94a3b8', lineHeight: 1.2 }}>
+                                        Vis controls the shader · Layer controls the media underneath
+                                      </span>
                                     </div>
                                   );
                                 })}

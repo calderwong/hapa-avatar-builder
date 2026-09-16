@@ -236,6 +236,11 @@ test("deterministic browser ISF layers execute without a sampled proxy contract"
   const signalChanged = structuredClone(show);
   signalChanged.stemFrames.stems.forEach(stem => stem.frames.forEach(frame => { frame.rms=0; frame.onset=0; frame.low=0; frame.mid=0; frame.high=0; }));
   assert.equal(evaluateHyperFramesVisualizers(signalChanged,.25).layers[0].effectiveOpacity, projected.effectiveOpacity, "exact shader input changes do not add the proxy-only opacity envelope");
+  layer.echoComposition = { opacity: 1, layerOpacity: .4, mix: 1, canvasComposite: 'lighter', knockoutBlacks: true, independentUnderlay: true };
+  const independentlyLayered = evaluateHyperFramesVisualizers(show, .25).layers[0];
+  assert.equal(independentlyLayered.effectiveOpacity, .25, 'persistent shader strength remains independent from the underlay slider while the recipe envelope still applies');
+  assert.equal(independentlyLayered.echoPresentation.underlayVisibility, .4);
+  assert.equal(independentlyLayered.echoPresentation.underlayDimAlpha, .6);
 
 });
 

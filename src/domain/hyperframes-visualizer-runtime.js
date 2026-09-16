@@ -24,10 +24,19 @@ export function echoVisualizerRecipeMix(showGraph = {}, override = null) {
 }
 
 export function echoVisualizerLayerPresentation({ composition = {}, signalFrame = null, recipeMix = 1 } = {}) {
+  const independentUnderlay = composition.independentUnderlay === true;
   const alpha = clamp(composition.opacity ?? composition.shaderVisibility ?? 1)
-    * clamp(composition.layerOpacity ?? 1) * clamp(composition.mix ?? 1)
+    * (independentUnderlay ? 1 : clamp(composition.layerOpacity ?? 1)) * clamp(composition.mix ?? 1)
     * clamp(composition.transitionAlpha ?? 1) * clamp(recipeMix);
-  return { ...composition, effectiveAlpha: round(alpha), audioEnvelope: echoVisualizerAudioEnvelope(signalFrame) };
+  const underlayVisibility = independentUnderlay ? clamp(composition.underlayVisibility ?? composition.layerOpacity ?? 1) : 1;
+  return {
+    ...composition,
+    independentUnderlay,
+    underlayVisibility: round(underlayVisibility),
+    underlayDimAlpha: round(independentUnderlay ? 1 - underlayVisibility : 0),
+    effectiveAlpha: round(alpha),
+    audioEnvelope: echoVisualizerAudioEnvelope(signalFrame),
+  };
 }
 
 function preparedPresentationSignal(frame, role) {

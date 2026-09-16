@@ -21,6 +21,7 @@ import {
 import { normalizeEchoTransitionTimeMapping } from "./echo-playback-sync.js";
 import { visualizerCardsAtTime } from "./echo-isf-browser-runtime.js";
 import { admitEchoSectionVisualLayers } from './hyperframes-visualizer-runtime.js';
+import { planEchoIsfLayerComposite } from "./echo-isf-frame-intent.js";
 import {
   normalizeEchoLyricContract,
 } from "./echo-lyric-contract.js";
@@ -723,10 +724,26 @@ export function echoDirectorPreviewVisualizerComposition(card = null, timeSecond
   const isFilter = String(shader?.shaderType || "").toLowerCase() === "filter";
   const defaultOpacity = isFilter ? 1 : 0.42;
   const defaultBlend = isFilter ? "normal" : "screen";
+  const opacity = round(finite(parameters.opacity ?? layer.opacity, defaultOpacity));
+  const mix = round(finite(parameters.mix ?? layer.mix, 1));
+  const blend = text(parameters.blendMode || layer.blend, defaultBlend);
+  const layerOpacity = round(finite(parameters.layerOpacity ?? parameters.layer_opacity ?? layer.layerOpacity ?? layer.layer_opacity, 1));
+  const persistent = card?.alwaysOn === true || Boolean(card?.persistentSlotId);
+  const knockoutRequested = parameters.knockoutBlacks ?? parameters.knockout_blacks ?? layer.knockoutBlacks ?? layer.knockout_blacks ?? persistent;
+  const plan = planEchoIsfLayerComposite({
+    opacity,
+    shaderVisibility: opacity,
+    mix,
+    blend,
+    layerOpacity,
+    knockoutBlacks: knockoutRequested,
+    transitionAlpha,
+  }, { persistent, shaderType: shader?.shaderType });
   return {
-    opacity: round(finite(parameters.opacity ?? layer.opacity, defaultOpacity)),
-    mix: round(finite(parameters.mix ?? layer.mix, 1)),
-    blend: text(parameters.blendMode || layer.blend, defaultBlend),
+    opacity,
+    mix,
+    blend,
+    ...plan,
     target: text(parameters.target || layer.target, "program"),
     transition,
     transitionAlpha: round(transitionAlpha),

@@ -54,8 +54,11 @@ test("Echo Director exposes three editable always-on shader lanes", () => {
   assert.match(source, /data-testid="echo-persistent-shader-slots"/u);
   assert.match(source, /Always-on shader slot \$\{slotIndex \+ 1\} enabled/u);
   assert.match(source, /handleTogglePersistentShaderSlot/u);
-  assert.match(source, /Always-on shader slot \$\{slotIndex \+ 1\} shade opacity/u);
+  assert.match(source, /Always-on shader slot \$\{slotIndex \+ 1\} shader visibility/u);
   assert.match(source, /handleUpdatePersistentShaderOpacity/u);
+  assert.match(source, /Always-on shader slot \$\{slotIndex \+ 1\} underlying media visibility/u);
+  assert.match(source, /Vis controls the shader · Layer controls the media underneath/u);
+  assert.match(source, /handleUpdatePersistentShaderLayerOpacity/u);
   assert.match(source, /Math\.round\(slot\.opacity \* 100\)/u);
   assert.match(source, /data-echo-persistent-shader-slot/u);
   assert.match(source, /Lead Vocals → main mix fallback/u);

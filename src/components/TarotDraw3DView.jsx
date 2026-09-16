@@ -21467,6 +21467,14 @@ function drawTarotExactIsfOverlay(overlay, source = {}, card = null, bands = {},
       error: result?.error || "",
     });
     if (presentedCanvas) {
+      if (Number(composition.underlayDimAlpha) > 0) {
+        ctx.save();
+        ctx.globalAlpha = THREE.MathUtils.clamp(Number(composition.underlayDimAlpha), 0, 1);
+        ctx.globalCompositeOperation = "source-over";
+        ctx.fillStyle = "#000";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.restore();
+      }
       ctx.save();
       ctx.globalAlpha = THREE.MathUtils.clamp(Number(composition.effectiveAlpha ?? 1), 0, 1);
       try { ctx.globalCompositeOperation = composition.canvasComposite || "source-over"; } catch { ctx.globalCompositeOperation = "source-over"; }

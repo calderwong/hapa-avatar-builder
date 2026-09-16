@@ -7,6 +7,7 @@ import {
   buildEchoIsfFrameIntent,
   echoIsfManifestDefaults,
   normalizeEchoIsfComposition,
+  planEchoIsfLayerComposite,
   validateEchoIsfCardBindings,
 } from "../src/domain/echo-isf-frame-intent.js";
 
@@ -213,8 +214,87 @@ test("filter media, audio-map validation, and composition failures are explicit"
     canvasComposite: "lighter",
     target: "program",
     transitionAlpha: 1,
+    layerOpacity: 1,
+    underlayVisibility: 1,
+    underlayDimAlpha: 0,
+    independentUnderlay: false,
+    shaderVisibility: 0.6,
+    knockoutBlacks: false,
     effectiveAlpha: 0.48,
   });
+});
+
+test("always-on generators punch black plates so visibility does not veil the underlay", () => {
+  const punched = planEchoIsfLayerComposite({
+    opacity: 1,
+    layerOpacity: 1,
+    mix: 1,
+    blend: "screen",
+    knockoutBlacks: true,
+    transitionAlpha: 1,
+  }, { persistent: true, shaderType: "generator" });
+  assert.equal(punched.canvasComposite, "lighter");
+  assert.equal(punched.knockoutBlacks, true);
+  assert.equal(punched.independentUnderlay, true);
+  assert.equal(punched.underlayVisibility, 1);
+  assert.equal(punched.underlayDimAlpha, 0);
+  assert.equal(punched.effectiveAlpha, 1);
+
+  const fadedLayer = planEchoIsfLayerComposite({
+    opacity: 1,
+    layerOpacity: 0.4,
+    mix: 1,
+    blend: "screen",
+    knockoutBlacks: true,
+    transitionAlpha: 1,
+  }, { persistent: true });
+  assert.equal(fadedLayer.canvasComposite, "lighter");
+  assert.equal(fadedLayer.underlayVisibility, 0.4);
+  assert.equal(fadedLayer.underlayDimAlpha, 0.6);
+  assert.equal(fadedLayer.effectiveAlpha, 1);
+
+  const dimShader = planEchoIsfLayerComposite({
+    opacity: 0.2,
+    layerOpacity: 1,
+    mix: 1,
+    blend: "screen",
+    knockoutBlacks: true,
+    transitionAlpha: 1,
+  }, { persistent: true });
+  assert.equal(dimShader.effectiveAlpha, 0.2);
+
+  const persistent = normalizeEchoIsfComposition({
+    alwaysOn: true,
+    persistentSlotId: "always-on-shader-1",
+    parameters: { opacity: 1, layerOpacity: 1, blendMode: "screen", knockoutBlacks: true },
+  }, 0, {}, { shaderType: "generator" });
+  assert.equal(persistent.canvasComposite, "lighter");
+  assert.equal(persistent.knockoutBlacks, true);
+  assert.equal(persistent.underlayVisibility, 1);
+  assert.equal(persistent.underlayDimAlpha, 0);
+  assert.equal(persistent.effectiveAlpha, 1);
+
+  const ordinaryLayer = planEchoIsfLayerComposite({
+    opacity: 1,
+    layerOpacity: 0.4,
+    mix: 1,
+    blend: "screen",
+    transitionAlpha: 1,
+  });
+  assert.equal(ordinaryLayer.independentUnderlay, false);
+  assert.equal(ordinaryLayer.underlayDimAlpha, 0);
+  assert.equal(ordinaryLayer.effectiveAlpha, 0.4);
+
+  const explicitDarken = planEchoIsfLayerComposite({
+    opacity: 1,
+    layerOpacity: 1,
+    mix: 1,
+    blend: "multiply",
+    knockoutBlacks: true,
+    transitionAlpha: 1,
+  }, { persistent: true });
+  assert.equal(explicitDarken.canvasComposite, "multiply");
+  assert.equal(explicitDarken.knockoutBlacks, false);
 });
 
 test("controls, modulation, and composition change receipts while identical viewer inputs remain identical", () => {
