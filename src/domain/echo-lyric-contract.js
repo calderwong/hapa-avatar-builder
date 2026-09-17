@@ -65,6 +65,18 @@ export const ECHO_LYRIC_TEMPLATES = Object.freeze([
     legacyVariant: "vertical-poster-stack",
     motion: "stacked-word-rise",
   }),
+  Object.freeze({
+    id: "prism-slam-v1",
+    label: "Prism Slam",
+    legacyVariant: "prism-slam",
+    motion: "single-word-chromatic-letter-impact",
+  }),
+  Object.freeze({
+    id: "letterfall-totem-v1",
+    label: "Letterfall Totem",
+    legacyVariant: "letterfall-totem",
+    motion: "single-word-vertical-glyph-cascade",
+  }),
 ]);
 
 const TEMPLATE_BY_ID = new Map(ECHO_LYRIC_TEMPLATES.map((template) => [template.id, template]));
@@ -79,6 +91,8 @@ const LEGACY_TEMPLATE_IDS = Object.freeze({
   "letter-wave": "letter-wave-v1",
   "kinetic-typewriter": "kinetic-typewriter-v1",
   "vertical-poster-stack": "vertical-poster-stack-v1",
+  "prism-slam": "prism-slam-v1",
+  "letterfall-totem": "letterfall-totem-v1",
 });
 
 function text(value) {

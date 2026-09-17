@@ -83,7 +83,7 @@ export function echoLyricCharacterFrames({
   reducedMotion = false,
   motionIntensity = 1,
 } = {}) {
-  if (templateId !== "letter-wave-v1" && templateId !== "kinetic-typewriter-v1") return [];
+  if (!["letter-wave-v1", "kinetic-typewriter-v1", "prism-slam-v1", "letterfall-totem-v1"].includes(templateId)) return [];
   const characters = Array.from(String(text || ""));
   const intensity = lyricClamp01(motionIntensity);
   const progress = lyricClamp01(word.progress);
@@ -110,6 +110,37 @@ export function echoLyricCharacterFrames({
         translateX: 0,
         translateY: lyricRound(wave * 9 * intensity),
         rotateDegrees: lyricRound(wave * 2.5 * intensity),
+        colorRole: index % 3 === 0 ? "accent" : "text",
+        shadowRole: active ? "chromatic" : "soft",
+      };
+    }
+    if (templateId === "prism-slam-v1") {
+      const spread = characters.length > 1 ? (index / (characters.length - 1)) * 2 - 1 : 0;
+      const strike = active ? Math.sin((progress * Math.PI) + index * 1.3) : 0;
+      return {
+        index,
+        text: character,
+        opacity: lyricRound(active || word.completed ? 1 : 0.34),
+        scale: lyricRound(1 + Math.max(0, strike) * .12 * intensity),
+        translateX: lyricRound(spread * (1 - progress) * 22 * intensity),
+        translateY: lyricRound(strike * 12 * intensity),
+        rotateDegrees: lyricRound(spread * (1 - progress) * 8 * intensity),
+        colorRole: index % 3 === 0 ? "accent" : "text",
+        shadowRole: "prism",
+      };
+    }
+    if (templateId === "letterfall-totem-v1") {
+      const local = lyricClamp01(reveal - index);
+      return {
+        index,
+        text: character,
+        opacity: lyricRound(word.completed || completed ? 1 : .12 + local * .88),
+        scale: lyricRound(.82 + local * .18),
+        translateX: lyricRound((index % 2 ? 1 : -1) * (1 - local) * 24 * intensity),
+        translateY: lyricRound((1 - local) * -28 * intensity),
+        rotateDegrees: lyricRound((index % 2 ? 1 : -1) * (1 - local) * 7 * intensity),
+        colorRole: index % 2 ? "text" : "accent",
+        shadowRole: active ? "vertical" : "soft",
       };
     }
     const local = lyricClamp01(reveal - index);
@@ -121,6 +152,8 @@ export function echoLyricCharacterFrames({
       translateX: lyricRound(active ? (1 - local) * 5 * intensity : 0),
       translateY: lyricRound(active ? (1 - local) * 10 * intensity : 0),
       rotateDegrees: lyricRound(active ? (1 - local) * -4 * intensity : 0),
+      colorRole: completed ? "text" : active ? "accent" : "muted",
+      shadowRole: active ? "caret" : "soft",
     };
   });
 }
@@ -142,6 +175,8 @@ export function echoLyricDisplayWindow({
     "letter-wave-v1": 7,
     "kinetic-typewriter-v1": 7,
     "vertical-poster-stack-v1": 5,
+    "prism-slam-v1": 1,
+    "letterfall-totem-v1": 1,
   };
   const rows = Array.isArray(words) ? words : [];
   const limit = limits[templateId] || 10;
@@ -318,10 +353,11 @@ export function echoLyricTemplateFrameState({
           ? lyricClamp01((activeSyllableIndex + activeSyllable.progress) / syllables.length)
           : clock.timeSeconds >= wordEnd ? 1 : 0
         : 0;
-      const focusDirectAnchor = templateId === 'center-word-focus-v1' && timingPolicy.reason === 'word-unaligned' && word.matched === true;
-      const active = timingPolicy.mode === 'syllable' ? activeSyllableIndex >= 0 : (timingPolicy.mode === 'word' || focusDirectAnchor) && clock.timeSeconds >= wordStart && clock.timeSeconds < wordEnd;
+      const singleWordPerformance = ["center-word-focus-v1", "prism-slam-v1", "letterfall-totem-v1"].includes(templateId);
+      const performanceDirectAnchor = singleWordPerformance && timingPolicy.reason === 'word-unaligned' && word.matched === true;
+      const active = timingPolicy.mode === 'syllable' ? activeSyllableIndex >= 0 : (timingPolicy.mode === 'word' || performanceDirectAnchor) && clock.timeSeconds >= wordStart && clock.timeSeconds < wordEnd;
       const completed = timingPolicy.mode !== 'phrase' && clock.timeSeconds >= wordEnd;
-      const wordProgress = timingPolicy.mode === 'syllable' ? syllableProgress : timingPolicy.mode === 'word' || focusDirectAnchor ? lyricClamp01((clock.timeSeconds - wordStart) / Math.max(0.001, wordEnd - wordStart)) : 0;
+      const wordProgress = timingPolicy.mode === 'syllable' ? syllableProgress : timingPolicy.mode === 'word' || performanceDirectAnchor ? lyricClamp01((clock.timeSeconds - wordStart) / Math.max(0.001, wordEnd - wordStart)) : 0;
       const onsetImpulse = active ? Math.max(0, 1 - (clock.timeSeconds - wordStart) / 0.18) ** 2 : 0;
       const spread = words.length > 1 ? (index / (words.length - 1)) * 2 - 1 : 0;
       const base = {
@@ -388,6 +424,15 @@ export function echoLyricTemplateFrameState({
         };
       }
       if (templateId === "kinetic-typewriter-v1") return base;
+      if (templateId === "prism-slam-v1") return {
+        ...base,
+        scale: lyricRound(1 + .18 * onsetImpulse),
+        translateY: lyricRound((1 - entryProgress) * 18),
+      };
+      if (templateId === "letterfall-totem-v1") return {
+        ...base,
+        scale: lyricRound(1 + .08 * onsetImpulse),
+      };
       return {
         ...base,
         scale: lyricRound(active ? 1.01 + 0.05 * onsetImpulse : 1),
@@ -410,7 +455,7 @@ export function echoLyricTemplateFrameState({
       return animatedWord;
     }),
   };
-  if (templateId === "center-word-focus-v1") {
+  if (["center-word-focus-v1", "prism-slam-v1", "letterfall-totem-v1"].includes(templateId)) {
     const activeWord = frame.words.find((word) => word.active);
     frame.visible = frame.visible && Boolean(activeWord);
     frame.words = frame.words.map((word) => ({

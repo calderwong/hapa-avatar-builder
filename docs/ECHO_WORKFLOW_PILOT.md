@@ -235,3 +235,21 @@ created per-glyph spans with bounded onset transforms. The current local Gnow
 Her audio route still reports `not_found`, so this checkpoint does not claim a
 human-timed playback review or managed encoded-output acceptance. No workflow
 requirement changes status.
+
+## September 16 — lyric template art-direction correction
+
+The first stylized-template pass was mechanically correct but still resembled
+caption-box variants, and the live Gnow Her square could clip `Philosophy,`.
+The shared lyric owner now treats the four existing additions as compositions:
+transparent adaptive bento typography, chromatic letter wave, caret-led
+typewriter, and hierarchical poster stack. Two further modes, Prism Slam and
+Letterfall Totem, add one-word chromatic impact and vertical glyph cascade.
+
+The live Gnow Her audit confirms all eleven selector choices, a transparent
+outer panel, zero overflow across the six-word bento phrase, one 162px Prism
+word with per-glyph split shadows, and one vertically stacked Letterfall word.
+These remain driven by authoritative word progress and share Preview, recording,
+HyperFrames, typography controls, source-confidence fallback, and reduced-motion
+behavior. The current local audio route still reports `not_found`; no human
+timing or managed encoded-output acceptance is claimed and no workflow
+requirement changes status.

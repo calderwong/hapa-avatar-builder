@@ -6,11 +6,14 @@ import { echoProtectedCameraFrame } from "./echo-camera-framing.js";
 export function echoLyricPresentation(contract = {}, profile = {}) {
   const width = Number(profile.width) || 1920, height = Number(profile.height) || 1080;
   const templateId = contract.templateId || 'scanline-phrase-ribbon-v1';
-  const singleWordFocus = templateId === 'center-word-focus-v1';
+  const centerWordFocus = templateId === 'center-word-focus-v1';
   const squareMosaic = templateId === 'square-word-mosaic-v1';
   const verticalPoster = templateId === 'vertical-poster-stack-v1';
   const letterWave = templateId === 'letter-wave-v1';
   const kineticTypewriter = templateId === 'kinetic-typewriter-v1';
+  const prismSlam = templateId === 'prism-slam-v1';
+  const letterfallTotem = templateId === 'letterfall-totem-v1';
+  const singleWordFocus = centerWordFocus || prismSlam || letterfallTotem;
   const palettes = {
     'neon-cyan': ['#e0faff','#22d3ee','#020617e8','monospace'],
     'magenta-glow': ['#ffe4f2','#f472b6','#180522e8','monospace'],
@@ -25,7 +28,16 @@ export function echoLyricPresentation(contract = {}, profile = {}) {
     mono:'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
     display:'Impact, Haettenschweiler, "Arial Narrow Bold", sans-serif',
   };
-  const fontFamily = fontFamilies[contract.fontFamily] || themeFontFamily;
+  const directedThemeFont = squareMosaic || verticalPoster || prismSlam
+    ? fontFamilies.display
+    : letterWave
+      ? fontFamilies.sans
+      : kineticTypewriter
+        ? fontFamilies.mono
+        : letterfallTotem
+          ? fontFamilies.serif
+          : themeFontFamily;
+  const fontFamily = fontFamilies[contract.fontFamily] || directedThemeFont;
   const customColor = /^#[0-9a-f]{6}$/i.test(String(contract.textColor || '')) ? String(contract.textColor).toLowerCase() : '';
   const text = customColor || paletteText,accent = customColor || paletteAccent;
   const fontScale = Number.isFinite(Number(contract.fontScale)) ? Math.max(.5,Math.min(2,Number(contract.fontScale))) : 1;
@@ -35,11 +47,15 @@ export function echoLyricPresentation(contract = {}, profile = {}) {
   const position = singleWordFocus || squareMosaic ? 'center' : contract.position || 'bottom-center';
   const side = /left|right/.test(position), top = /top|upper/.test(position), center = position === 'center' || position === 'side-right';
   const maxWidth = squareMosaic
-    ? Math.min(width, height) * .64
+    ? Math.min(width, height) * .72
     : verticalPoster
       ? Math.min(width * .62, height * .68)
+      : prismSlam
+        ? width * .9
+        : letterfallTotem
+          ? Math.min(width * .28, height * .38)
       : width * (singleWordFocus ? .84 : position === 'side-right' ? .5 : side ? .72 : 1-2*inset);
-  const fontRatio = singleWordFocus ? .11 : squareMosaic ? .046 : verticalPoster ? .058 : letterWave ? .056 : kineticTypewriter ? .054 : .052;
+  const fontRatio = centerWordFocus ? .11 : prismSlam ? .15 : letterfallTotem ? .066 : squareMosaic ? .055 : verticalPoster ? .065 : letterWave ? .072 : kineticTypewriter ? .06 : .052;
   const fontSize = Math.round(Math.min(width,height)*fontRatio*fontScale);
   const panel = { position:'absolute', boxSizing:'border-box', width:maxWidth+'px', padding:'18px 24px',
     font:`700 ${fontSize}px/1.4 ${fontFamily}`, color:text, background,
@@ -54,18 +70,21 @@ export function echoLyricPresentation(contract = {}, profile = {}) {
   if(contract.templateId==='scanline-phrase-ribbon-v1')panel.backgroundImage='repeating-linear-gradient(0deg,transparent,transparent 3px,#ffffff09 4px)';
   if(contract.templateId==='stacked-hook-echo-v1')panel.textShadow=`3px 3px 0 ${accent}55,-3px -3px 0 #ec489944`;
   if(contract.templateId==='orbit-caption-v1')panel.borderRadius='40px';
-  if(singleWordFocus)Object.assign(panel,{padding:'0',font:`800 ${fontSize}px/1.05 ${fontFamily}`,background:'transparent',backgroundImage:'none',border:'0',borderRadius:'0',boxShadow:'none',overflow:'visible',overflowWrap:'normal',whiteSpace:'nowrap'});
-  if(squareMosaic)Object.assign(panel,{padding:'28px',aspectRatio:'1 / 1',font:`800 ${fontSize}px/1.05 ${fontFamily}`,background:`linear-gradient(145deg,${background},#02061799)`,border:`3px solid ${accent}bb`,borderRadius:'22px',boxShadow:`0 0 0 8px ${accent}18,0 22px 70px #00000088`,overflow:'visible'});
-  if(verticalPoster)Object.assign(panel,{padding:'24px 30px',font:`900 ${fontSize}px/.98 ${fontFamily}`,background:'transparent',border:'0',borderLeft:`8px solid ${accent}`,borderRadius:'0',boxShadow:'none',textAlign:'left',overflow:'visible'});
-  if(letterWave)Object.assign(panel,{padding:'22px 30px',font:`800 ${fontSize}px/1.25 ${fontFamily}`,background:`linear-gradient(90deg,${background},#020617b8)`,border:`2px solid ${accent}88`,borderRadius:'999px',boxShadow:`0 14px 45px #00000077`,overflow:'visible'});
-  if(kineticTypewriter)Object.assign(panel,{padding:'20px 28px',font:`750 ${fontSize}px/1.3 ${fontFamily}`,background:'#020617b8',border:'0',borderTop:`2px solid ${accent}99`,borderBottom:`2px solid ${accent}99`,borderRadius:'0',boxShadow:`0 18px 55px #00000066`,textAlign:'left',overflow:'visible'});
-  const layoutMode = squareMosaic ? 'square-grid' : verticalPoster ? 'poster-stack' : 'flow';
-  const letterMotion = letterWave ? 'wave' : kineticTypewriter ? 'typewriter' : 'none';
-  const canvasBackground=verticalPoster?'transparent':kineticTypewriter?'#020617b8':background;
-  return { width,height,fontSize,text,accent,background,canvasBackground,fontFamily,fontWeight:singleWordFocus||squareMosaic||verticalPoster?800:700,
-    lineHeight:singleWordFocus?1.05:1.4,panel,inset,bottom,fixedCenter:singleWordFocus,
-    layoutMode,letterMotion,paddingX:singleWordFocus?0:squareMosaic?28:verticalPoster||letterWave?30:kineticTypewriter?28:24,paddingY:singleWordFocus?0:squareMosaic?28:verticalPoster?24:letterWave?22:kineticTypewriter?20:18,
-    borderWidth:singleWordFocus||verticalPoster||kineticTypewriter?0:parseFloat(panel.border)||2,
+  if(centerWordFocus)Object.assign(panel,{padding:'0',font:`800 ${fontSize}px/1.05 ${fontFamily}`,background:'transparent',backgroundImage:'none',border:'0',borderRadius:'0',boxShadow:'none',overflow:'visible',overflowWrap:'normal',whiteSpace:'nowrap'});
+  if(squareMosaic)Object.assign(panel,{padding:'18px',aspectRatio:'1 / 1',font:`900 ${fontSize}px/.92 ${fontFamily}`,background:'transparent',border:'0',borderRadius:'28px',boxShadow:`0 0 0 2px ${accent}38,0 28px 90px #00000055`,overflow:'visible'});
+  if(verticalPoster)Object.assign(panel,{padding:'24px 32px',font:`900 ${fontSize}px/.88 ${fontFamily}`,background:'transparent',border:'0',borderLeft:`9px solid ${accent}`,borderRadius:'0',boxShadow:`-16px 0 0 ${accent}18`,textAlign:'left',overflow:'visible'});
+  if(letterWave)Object.assign(panel,{padding:'28px 20px',font:`900 ${fontSize}px/1.1 ${fontFamily}`,background:'transparent',border:'0',borderRadius:'0',boxShadow:'none',overflow:'visible',textShadow:`-4px 0 #f43f5e88,4px 0 ${accent}88,0 12px 30px #000000cc`});
+  if(kineticTypewriter)Object.assign(panel,{padding:'22px 26px',font:`750 ${fontSize}px/1.25 ${fontFamily}`,background:'linear-gradient(90deg,#020617b8,#02061722 72%,transparent)',border:'0',borderLeft:`3px solid ${accent}`,borderTop:`1px solid ${accent}55`,borderBottom:`1px solid ${accent}55`,borderRadius:'0',boxShadow:'none',textAlign:'left',overflow:'visible'});
+  if(prismSlam)Object.assign(panel,{padding:'0',font:`950 ${fontSize}px/.9 ${fontFamily}`,background:'transparent',backgroundImage:'none',border:'0',borderRadius:'0',boxShadow:'none',overflow:'visible',overflowWrap:'normal',whiteSpace:'nowrap',textTransform:'uppercase',textShadow:`-10px 0 #f43f5e99,10px 0 ${accent}99,0 24px 50px #000000dd`});
+  if(letterfallTotem)Object.assign(panel,{padding:'0',font:`900 ${fontSize}px/.78 ${fontFamily}`,background:'transparent',backgroundImage:'none',border:'0',borderRadius:'0',boxShadow:'none',overflow:'visible',overflowWrap:'normal',whiteSpace:'nowrap'});
+  const layoutMode = squareMosaic ? 'square-grid' : verticalPoster ? 'poster-stack' : letterfallTotem ? 'glyph-column' : 'flow';
+  const letterMotion = letterWave ? 'wave' : kineticTypewriter ? 'typewriter' : prismSlam ? 'prism' : letterfallTotem ? 'letterfall' : 'none';
+  const drawPanel=!singleWordFocus&&!squareMosaic&&!verticalPoster&&!letterWave;
+  const canvasBackground=drawPanel?(kineticTypewriter?'#020617b8':background):'transparent';
+  return { templateId,width,height,fontSize,text,accent,background,canvasBackground,fontFamily,fontWeight:singleWordFocus||squareMosaic||verticalPoster?900:700,
+    lineHeight:singleWordFocus?1.05:1.4,panel,inset,bottom,fixedCenter:singleWordFocus,singleWordOnly:singleWordFocus,drawPanel,
+    layoutMode,letterMotion,paddingX:singleWordFocus?0:squareMosaic?18:verticalPoster?32:letterWave?20:kineticTypewriter?26:24,paddingY:singleWordFocus?0:squareMosaic?18:verticalPoster?24:letterWave?28:kineticTypewriter?22:18,
+    borderWidth:drawPanel?parseFloat(panel.border)||0:0,
     borderRadius:singleWordFocus?0:parseFloat(panel.borderRadius)||0 };
 }
 
@@ -146,25 +165,82 @@ export function fitEchoLyricWordMotion(word, box, area) {
   return `translate(${motion.translateX}px, ${motion.translateY}px) rotate(${motion.rotation}deg) scale(${motion.scale})`;
 }
 
+export function echoLyricWordArtStyle(word = {}, index = 0, rowCount = 0, presentation = {}) {
+  const length=Math.max(1,Array.from(String(word.displayText||'')).length),templateId=presentation.templateId||'';
+  if(templateId==='square-word-mosaic-v1'){
+    const fontScale=Math.max(.5,Math.min(1.5,7/length));
+    return {fontScale,fontSize:`${fontScale}em`,fontWeight:'950',letterSpacing:length<=3?'.035em':'-.035em',lineHeight:'.86',textTransform:length<=3?'uppercase':'none',borderRadius:index%3===0?'28px 8px 8px 8px':index%3===1?'8px 28px 8px 8px':'8px 8px 28px 8px'};
+  }
+  if(templateId==='vertical-poster-stack-v1'){
+    const fontScale=Math.max(.68,Math.min(1.28,8/length));
+    return {fontScale,fontSize:`${fontScale}em`,fontWeight:index%3===0?'950':'800',letterSpacing:index%2?'-.025em':'.045em',lineHeight:'.86',justifyContent:index%2?'flex-end':'flex-start',textAlign:index%2?'right':'left',textTransform:index%3===0?'uppercase':'none'};
+  }
+  if(templateId==='prism-slam-v1'){
+    const fontScale=Math.max(.55,Math.min(1,10/length));
+    return {fontScale,fontSize:`${fontScale}em`,fontWeight:'950',letterSpacing:length<=4?'.035em':'-.045em',lineHeight:'.86',textTransform:'uppercase'};
+  }
+  if(templateId==='letterfall-totem-v1')return {fontScale:1,fontSize:'1em',fontWeight:'900',letterSpacing:'0',lineHeight:'.76',textTransform:'uppercase'};
+  if(templateId==='letter-wave-v1')return {fontScale:1,fontSize:'1em',fontWeight:'900',letterSpacing:'-.035em',lineHeight:'1'};
+  if(templateId==='kinetic-typewriter-v1')return {fontScale:1,fontSize:'1em',fontWeight:'750',letterSpacing:'.015em',lineHeight:'1.1'};
+  return {fontScale:1,fontSize:'1em',fontWeight:presentation.fontWeight||700,letterSpacing:'0',lineHeight:String(presentation.lineHeight||1.4)};
+}
+
+export function echoLyricWordDynamicStyle(word = {}, index = 0, presentation = {}) {
+  const templateId=presentation.templateId||'',active=Boolean(word.active);
+  if(templateId==='square-word-mosaic-v1')return {
+    color:active?'#020617':presentation.text,
+    backgroundColor:active?presentation.accent:index%2?'#02061773':'#ffffff14',
+    border:`2px solid ${active?presentation.accent:index%2?presentation.accent+'55':'#ffffff2b'}`,
+    boxShadow:active?`0 0 0 5px ${presentation.accent}30,0 16px 42px #00000088`:'inset 0 0 0 1px #ffffff0a',
+    backgroundImage:'none',
+  };
+  if(templateId==='vertical-poster-stack-v1')return {
+    color:active?presentation.accent:presentation.text,
+    backgroundColor:active?'#02061799':'transparent',
+    borderBottom:`${active?4:1}px solid ${active?presentation.accent:'#ffffff32'}`,
+    boxShadow:active?`12px 0 0 ${presentation.accent}22`:'none',
+    backgroundImage:'none',
+  };
+  if(templateId==='letter-wave-v1'||templateId==='prism-slam-v1'||templateId==='letterfall-totem-v1')return {color:presentation.text,backgroundColor:'transparent',backgroundImage:'none'};
+  if(templateId==='kinetic-typewriter-v1')return {color:active?presentation.accent:presentation.text,backgroundColor:'transparent',backgroundImage:'none'};
+  return {color:active?presentation.accent:presentation.text,backgroundColor:'transparent'};
+}
+
+export function echoLyricGlyphArtStyle(character = {}, word = {}, index = 0, presentation = {}) {
+  const color=character.colorRole==='accent'?presentation.accent:character.colorRole==='muted'?'#ffffff55':presentation.text;
+  const shadow=character.shadowRole==='prism'
+    ? `-9px 0 #f43f5ecc,9px 0 ${presentation.accent}cc,0 18px 34px #000000dd`
+    : character.shadowRole==='chromatic'
+      ? `-4px 0 #f43f5eaa,4px 0 ${presentation.accent}aa,0 10px 24px #000000cc`
+      : character.shadowRole==='vertical'
+        ? `0 7px 0 #020617cc,0 14px 24px ${presentation.accent}55`
+        : character.shadowRole==='caret'
+          ? `0 0 14px ${presentation.accent}88`
+          : '0 4px 12px #000000aa';
+  return {color,textShadow:shadow,zIndex:String(10+index),mixBlendMode:character.shadowRole==='prism'||character.shadowRole==='chromatic'?'screen':'normal'};
+}
+
 export function echoLyricWordMeasurementStyle(word = {}, nextWord = null, presentation = {}) {
-  const square=presentation.layoutMode==='square-grid',poster=presentation.layoutMode==='poster-stack';
-  return {display:square||poster?'flex':'inline-block',boxSizing:'border-box',maxWidth:'100%',marginTop:'0',marginBottom:'0',
-    marginLeft:square||poster||word.joinerBefore===false?'0':'.12em',marginRight:square||poster||nextWord?.joinerBefore===false?'0':'.12em',padding:square?'8px 6px':poster?'3px 2px':'0 2px',verticalAlign:'baseline',
-    alignItems:square?'center':'baseline',justifyContent:square?'center':'flex-start',textAlign:square?'center':poster?'left':'inherit',
+  const square=presentation.layoutMode==='square-grid',poster=presentation.layoutMode==='poster-stack',glyphColumn=presentation.layoutMode==='glyph-column';
+  return {display:square||poster||glyphColumn?'flex':'inline-block',boxSizing:'border-box',maxWidth:'100%',marginTop:'0',marginBottom:'0',
+    marginLeft:square||poster||glyphColumn||word.joinerBefore===false?'0':'.12em',marginRight:square||poster||glyphColumn||nextWord?.joinerBefore===false?'0':'.12em',padding:square?'12px 10px':poster?'7px 10px':glyphColumn?'0':'0 2px',verticalAlign:'baseline',
+    flexDirection:glyphColumn?'column':'row',alignItems:square||glyphColumn?'center':'baseline',justifyContent:square?'center':poster?'flex-start':'center',textAlign:square||glyphColumn?'center':poster?'left':'inherit',
     transformOrigin:'center',whiteSpace:'nowrap',overflowWrap:'normal',wordBreak:'keep-all',fontWeight:'700',overflow:'visible'};
 }
 
 export function echoLyricWordsLayoutStyle(presentation = {}, rowCount = 0) {
   if(presentation.layoutMode==='square-grid'){
     const columns=Math.max(1,Math.ceil(Math.sqrt(Math.max(1,rowCount))));
-    return {display:'grid',position:'relative',overflow:'visible',gridTemplateColumns:`repeat(${columns}, minmax(0, 1fr))`,gridAutoRows:'1fr',alignItems:'stretch',justifyItems:'stretch',width:'100%',aspectRatio:'1 / 1'};
+    return {display:'grid',position:'relative',overflow:'visible',gridTemplateColumns:`repeat(${columns}, minmax(0, 1fr))`,gridAutoRows:'1fr',gap:'12px',alignItems:'stretch',justifyItems:'stretch',width:'100%',aspectRatio:'1 / 1'};
   }
   if(presentation.layoutMode==='poster-stack')return {display:'grid',position:'relative',overflow:'visible',gridTemplateColumns:'minmax(0, 1fr)',alignItems:'start',width:'100%'};
+  if(presentation.layoutMode==='glyph-column')return {display:'flex',position:'relative',overflow:'visible',alignItems:'center',justifyContent:'center',width:'100%'};
   return {display:'block',position:'relative',overflow:'visible',width:'auto'};
 }
 
-export function echoLyricGlyphMeasurementStyle() {
-  return {display:'inline-block',position:'relative',boxSizing:'border-box',whiteSpace:'pre',transformOrigin:'center',willChange:'transform, opacity'};
+export function echoLyricGlyphMeasurementStyle(presentation = {}) {
+  const column=presentation.layoutMode==='glyph-column';
+  return {display:column?'block':'inline-block',position:'relative',boxSizing:'border-box',minWidth:column?'1.05em':'0',textAlign:column?'center':'inherit',whiteSpace:'pre',transformOrigin:'center',willChange:'transform, opacity'};
 }
 
 export function echoLyricGlyphMeasurementBox(glyph = {}, word = {}) {
@@ -186,9 +262,10 @@ export function renderEchoLyricSurface(element, { contract = {}, frame = null, l
     Object.assign(words.style,{display:'block',position:'relative',overflow:'visible'});
     Object.assign(label.style,{font:'500 22px/1.3 system-ui, sans-serif',letterSpacing:'0',marginTop:'10px',opacity:'.8',textShadow:'none'});
     panel.append(words,label);stage.append(panel);element.replaceChildren(stage);
-    state={stage,panel,words,label,nodes:[],glyphNodes:[],key:'',layouts:new Map(),layoutBuilds:0,layoutHits:0};element.__echoLyricSurface=state;
+    state={stage,panel,words,label,nodes:[],glyphNodes:[],caretNodes:[],key:'',layouts:new Map(),layoutBuilds:0,layoutHits:0};element.__echoLyricSurface=state;
   }
   if(!Array.isArray(state.glyphNodes))state.glyphNodes=state.nodes.map(()=>[]);
+  if(!Array.isArray(state.caretNodes))state.caretNodes=state.nodes.map(()=>null);
   const visible=Boolean(line && frame?.visible && contract.enabled!==false);
   element.style.visibility=visible?'visible':'hidden';state.frame=visible?frame:null;state.line=visible?line:null;state.rows=[];
   if(!visible)return {visible:false};
@@ -196,7 +273,7 @@ export function renderEchoLyricSurface(element, { contract = {}, frame = null, l
   if(state.key!==key){state.presentation=echoLyricPresentation(contract,outputProfile);state.key=key;state.layouts.clear();state.contentKey=null;}
   const presentation=state.presentation;
   element.dataset.timingMode=frame.timingPolicy.mode;element.dataset.timingReason=frame.timingPolicy.reason;element.dataset.templateId=frame.templateId;
-  const sourceWords=Array.isArray(line.words)?line.words:[],singleWordFocus=contract.templateId==='center-word-focus-v1';
+  const sourceWords=Array.isArray(line.words)?line.words:[],singleWordFocus=Boolean(presentation.singleWordOnly);
   // Phrase fallback displays the selected source text, not stale aligned tokens.
   const rows=singleWordFocus?frame.words.filter(word=>word.display):frame.timingPolicy.mode!=='phrase'&&sourceWords.length?frame.words.filter(word=>word.display):[{index:0,displayText:frame.displayText||line.text,opacity:1,scale:1}];
   state.rows=rows;state.contract=contract;
@@ -205,18 +282,22 @@ export function renderEchoLyricSurface(element, { contract = {}, frame = null, l
   if(state.contentKey!==contentKey||state.protection!==protection){
     if(state.protection!==protection)state.layouts.clear();
     state.contentKey=contentKey;state.protection=protection;
-    while(state.nodes.length>rows.length){state.nodes.pop().remove();state.glyphNodes.pop();}
-    while(state.nodes.length<rows.length){const node=element.ownerDocument.createElement('span');node.className='lyric-word';state.words.append(node);state.nodes.push(node);state.glyphNodes.push([]);}
+    while(state.nodes.length>rows.length){state.nodes.pop().remove();state.glyphNodes.pop();state.caretNodes.pop();}
+    while(state.nodes.length<rows.length){const node=element.ownerDocument.createElement('span');node.className='lyric-word';state.words.append(node);state.nodes.push(node);state.glyphNodes.push([]);state.caretNodes.push(null);}
     state.panel.removeAttribute('style');Object.assign(state.panel.style,presentation.panel);
     state.words.removeAttribute('style');Object.assign(state.words.style,echoLyricWordsLayoutStyle(presentation,rows.length));
     Object.assign(state.stage.style,{width:presentation.width+'px',height:presentation.height+'px'});
     state.label.textContent=label;state.label.style.display=label?'block':'none';
     state.nodes.forEach((node,index)=>{
       const row=rows[index],characters=Array.isArray(row.characters)?row.characters:[];
-      node.replaceChildren();state.glyphNodes[index]=[];
-      if(characters.length){for(const character of characters){const glyph=element.ownerDocument.createElement('span');glyph.textContent=character.text;glyph.dataset.lyricGlyph=String(character.index);Object.assign(glyph.style,echoLyricGlyphMeasurementStyle());node.append(glyph);state.glyphNodes[index].push(glyph);}}
+      node.replaceChildren();state.glyphNodes[index]=[];state.caretNodes[index]=null;
+      if(characters.length){for(const character of characters){const glyph=element.ownerDocument.createElement('span');glyph.textContent=character.text;glyph.dataset.lyricGlyph=String(character.index);Object.assign(glyph.style,echoLyricGlyphMeasurementStyle(presentation),echoLyricGlyphArtStyle(character,row,character.index,presentation));node.append(glyph);state.glyphNodes[index].push(glyph);}}
       else node.textContent=row.displayText||'';
-      node.dataset.wordIndex=String(row.index);node.removeAttribute('style');Object.assign(node.style,echoLyricWordMeasurementStyle(row,rows[index+1],presentation));if(singleWordFocus)node.style.fontWeight='800';
+      if(presentation.letterMotion==='typewriter'){
+        const caret=element.ownerDocument.createElement('span');caret.dataset.lyricCaret='true';Object.assign(caret.style,{position:'absolute',display:'none',width:'4px',background:presentation.accent,boxShadow:`0 0 16px ${presentation.accent}`,transform:'translateX(3px)'});node.append(caret);state.caretNodes[index]=caret;
+      }
+      const art=echoLyricWordArtStyle(row,index,rows.length,presentation),{fontScale,...artStyle}=art;
+      node.dataset.wordIndex=String(row.index);node.dataset.lyricFontScale=String(fontScale);node.removeAttribute('style');Object.assign(node.style,echoLyricWordMeasurementStyle(row,rows[index+1],presentation),artStyle);if(singleWordFocus)node.style.fontWeight=artStyle.fontWeight||'900';
     });
     const start=Number(line.start??line.startSeconds),end=Number(line.end??line.endSeconds);
     const relevant=(protection||[]).filter(p=>p.end>start&&p.start<end);
@@ -248,12 +329,17 @@ export function renderEchoLyricSurface(element, { contract = {}, frame = null, l
     const word=rows[index],node=state.nodes[index];
     node.dataset.wordActive=String(Boolean(word.active));node.dataset.wordProgress=String(word.progress||0);
     node.dataset.lyricWordActive=node.dataset.wordActive;node.dataset.lyricWordProgress=node.dataset.wordProgress;
-    Object.assign(node.style,{color:word.active?presentation.accent:presentation.text,opacity:String(word.opacity??1),fontWeight:singleWordFocus?'800':'700',backgroundColor:'transparent',
+    const art=echoLyricWordArtStyle(word,index,rows.length,presentation),dynamic=echoLyricWordDynamicStyle(word,index,presentation);
+    Object.assign(node.style,{...dynamic,opacity:String(word.opacity??1),fontWeight:art.fontWeight||String(presentation.fontWeight||700),
       transform:fitEchoLyricWordMotion(word,state.layout.boxes[index],{x:-20,y:-14,width:state.layout.width+40,height:state.layout.height+28}),
-      backgroundImage:singleWordFocus?'none':`linear-gradient(${presentation.accent},${presentation.accent})`,backgroundRepeat:'no-repeat',backgroundPosition:'left bottom',backgroundSize:singleWordFocus?'0 0':`${(word.underlineProgress||0)*100}% 3px`});
+      backgroundImage:dynamic.backgroundImage??(singleWordFocus?'none':`linear-gradient(${presentation.accent},${presentation.accent})`),backgroundRepeat:'no-repeat',backgroundPosition:'left bottom',backgroundSize:dynamic.backgroundImage==='none'||singleWordFocus?'0 0':`${(word.underlineProgress||0)*100}% 3px`});
     const glyphs=state.glyphNodes[index]||[],glyphBoxes=state.layout.glyphBoxes?.[index]||[];
     for(let glyphIndex=0;glyphIndex<glyphs.length;glyphIndex+=1){const glyph=glyphs[glyphIndex],character=word.characters?.[glyphIndex],box=glyphBoxes[glyphIndex];if(!character||!box)continue;
-      glyph.style.opacity=String(character.opacity??1);glyph.style.transform=fitEchoLyricWordMotion(character,box,{x:0,y:0,width:state.layout.boxes[index].width,height:state.layout.boxes[index].height});
+      Object.assign(glyph.style,echoLyricGlyphArtStyle(character,word,glyphIndex,presentation),{opacity:String(character.opacity??1),transform:fitEchoLyricWordMotion(character,box,{x:0,y:0,width:state.layout.boxes[index].width,height:state.layout.boxes[index].height})});
+    }
+    const caret=state.caretNodes[index];
+    if(caret){const revealed=Math.max(0,Math.min(glyphBoxes.length,Math.ceil((word.progress||0)*glyphBoxes.length))),box=glyphBoxes[Math.max(0,revealed-1)];
+      Object.assign(caret.style,{display:word.active?'block':'none',left:(box?box.x+box.width:0)+'px',top:(box?.y||0)+'px',height:(box?.height||state.layout.boxes[index].height)+'px',opacity:String(word.active?(Math.floor((word.progress||0)*glyphBoxes.length*3)%2?.42:1):0)});
     }
   }
   return {visible:true,wordCount:rows.length,fontSize:state.layout.fontSize,placement:state.placement,layoutBuilds:state.layoutBuilds};
@@ -287,7 +373,7 @@ export function paintEchoLyricSurfaceToCanvas(context,element,{width,height}={})
   const panelX=Number(placement.x||0),panelY=Number(placement.y||0),panelWidth=parseFloat(presentation.panel.width)||Number(placement.width||0),panelHeight=Number(layout.panelHeight||0);
   const wordsX=panelX+Number(layout.wordsOffsetX??presentation.paddingX??0),wordsY=panelY+Number(layout.wordsOffsetY??presentation.paddingY??0);
   context.save();context.scale(scaleX,scaleY);
-  const templateId=String(state.contract?.templateId||''),drawPanel=!presentation.fixedCenter&&templateId!=='vertical-poster-stack-v1';
+  const templateId=String(state.contract?.templateId||''),drawPanel=presentation.drawPanel!==undefined?presentation.drawPanel:!presentation.fixedCenter&&templateId!=='vertical-poster-stack-v1';
   if(drawPanel&&panelWidth>0&&panelHeight>0){
     echoLyricCanvasRoundRect(context,panelX,panelY,panelWidth,panelHeight,presentation.borderRadius||0);
     let panelFill=presentation.canvasBackground||presentation.background;
@@ -311,11 +397,15 @@ export function paintEchoLyricSurfaceToCanvas(context,element,{width,height}={})
     const row=rows[index],box=layout.boxes?.[index],node=state.nodes?.[index];
     if(!box||!node)continue;
     const label=String(node.textContent||row.displayText||'');if(!label)continue;
-    const motion=echoLyricWordMotionValues(row,box,area),centerX=wordsX+box.x+box.width/2,centerY=wordsY+box.y+box.height/2;
+    if(templateId==='square-word-mosaic-v1'){
+      context.save();echoLyricCanvasRoundRect(context,wordsX+box.x,wordsY+box.y,box.width,box.height,index%3===0?28:8);
+      context.fillStyle=row.active?presentation.accent:index%2?'#020617b8':'#ffffff18';context.fill();context.strokeStyle=row.active?presentation.accent:`${presentation.accent}55`;context.lineWidth=2;context.stroke();context.restore();
+    }
+    const art=echoLyricWordArtStyle(row,index,rows.length,presentation),motion=echoLyricWordMotionValues(row,box,area),centerX=wordsX+box.x+box.width/2,centerY=wordsY+box.y+box.height/2;
     context.save();context.translate(centerX+motion.translateX,centerY+motion.translateY);context.rotate(motion.rotation*Math.PI/180);context.scale(motion.scale,motion.scale);
     context.globalAlpha=Number.isFinite(Number(row.opacity))?Number(row.opacity):1;
-    context.font=`${presentation.fixedCenter?800:presentation.fontWeight} ${layout.fontSize}px ${presentation.fontFamily}`;
-    context.fillStyle=row.active?presentation.accent:presentation.text;
+    context.font=`${art.fontWeight||presentation.fontWeight} ${layout.fontSize*Number(art.fontScale||1)}px ${presentation.fontFamily}`;
+    context.fillStyle=templateId==='square-word-mosaic-v1'&&row.active?'#020617':row.active?presentation.accent:presentation.text;
     context.shadowColor=state.contract?.style==='paper-white'?'transparent':'#000000';context.shadowBlur=4;context.shadowOffsetY=2;
     const characters=Array.isArray(row.characters)?row.characters:[],glyphBoxes=layout.glyphBoxes?.[index]||[];
     if(characters.length&&glyphBoxes.length===characters.length){
@@ -324,9 +414,17 @@ export function paintEchoLyricSurfaceToCanvas(context,element,{width,height}={})
         const glyphX=-box.width/2+glyphBox.x+glyphBox.width/2,glyphY=-box.height/2+glyphBox.y+glyphBox.height/2;
         context.save();context.translate(glyphX+glyphMotion.translateX,glyphY+glyphMotion.translateY);context.rotate(glyphMotion.rotation*Math.PI/180);context.scale(glyphMotion.scale,glyphMotion.scale);
         context.globalAlpha=(Number.isFinite(Number(row.opacity))?Number(row.opacity):1)*(Number.isFinite(Number(character.opacity))?Number(character.opacity):1);
-        context.fillText(String(character.text||''),-glyphBox.width/2,-glyphBox.height/2);context.restore();
+        const glyphText=String(character.text||''),glyphColor=character.colorRole==='accent'?presentation.accent:character.colorRole==='muted'?'#ffffff55':presentation.text;
+        if(character.shadowRole==='prism'||character.shadowRole==='chromatic'){
+          context.shadowColor='transparent';context.fillStyle='#f43f5e99';context.fillText(glyphText,-glyphBox.width/2-6,-glyphBox.height/2);
+          context.fillStyle=`${presentation.accent}aa`;context.fillText(glyphText,-glyphBox.width/2+6,-glyphBox.height/2);
+        }
+        context.fillStyle=glyphColor;context.shadowColor='#000000aa';context.shadowBlur=6;context.fillText(glyphText,-glyphBox.width/2,-glyphBox.height/2);context.restore();
       }
     }else context.fillText(label,-box.width/2+2,-box.height/2);
+    if(templateId==='kinetic-typewriter-v1'&&row.active&&glyphBoxes.length){const revealed=Math.max(0,Math.min(glyphBoxes.length,Math.ceil((row.progress||0)*glyphBoxes.length))),caretBox=glyphBoxes[Math.max(0,revealed-1)];
+      context.shadowColor='transparent';context.fillStyle=presentation.accent;context.globalAlpha=Math.floor((row.progress||0)*glyphBoxes.length*3)%2?.42:1;context.fillRect(-box.width/2+(caretBox?caretBox.x+caretBox.width:0)+3,-box.height/2+(caretBox?.y||0),4,caretBox?.height||box.height);
+    }
     const underline=Number(row.underlineProgress||0);
     if(!presentation.fixedCenter&&underline>0){context.shadowColor='transparent';context.fillStyle=presentation.accent;context.fillRect(-box.width/2,box.height/2-3,Math.max(0,Math.min(1,underline))*box.width,3);}
     context.restore();
@@ -345,5 +443,5 @@ export function paintEchoLyricSurfaceToCanvas(context,element,{width,height}={})
 }
 
 export function echoLyricPresentationBrowserSource() {
-  return [echoLyricPresentation,prepareEchoLyricObstacles,chooseEchoLyricPlacement,echoLyricWordMotionValues,fitEchoLyricWordMotion,echoLyricWordMeasurementStyle,echoLyricWordsLayoutStyle,echoLyricGlyphMeasurementStyle,echoLyricGlyphMeasurementBox,renderEchoLyricSurface,sizeEchoLyricSurface].map(fn=>fn.toString()).join('\n');
+  return [echoLyricPresentation,prepareEchoLyricObstacles,chooseEchoLyricPlacement,echoLyricWordMotionValues,fitEchoLyricWordMotion,echoLyricWordArtStyle,echoLyricWordDynamicStyle,echoLyricGlyphArtStyle,echoLyricWordMeasurementStyle,echoLyricWordsLayoutStyle,echoLyricGlyphMeasurementStyle,echoLyricGlyphMeasurementBox,renderEchoLyricSurface,sizeEchoLyricSurface].map(fn=>fn.toString()).join('\n');
 }

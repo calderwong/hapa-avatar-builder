@@ -36,7 +36,7 @@ test("lyric template time is frame-quantized and repeatable", () => {
   assert.deepEqual(resolveEchoLyricTemplateFrame(input), resolveEchoLyricTemplateFrame(input));
 });
 
-test("all nine templates preserve spoken-word activation intervals", () => {
+test("all eleven templates preserve spoken-word activation intervals", () => {
   for (const templateId of [
     "kinetic-word-burst-v1",
     "scanline-phrase-ribbon-v1",
@@ -47,6 +47,8 @@ test("all nine templates preserve spoken-word activation intervals", () => {
     "letter-wave-v1",
     "kinetic-typewriter-v1",
     "vertical-poster-stack-v1",
+    "prism-slam-v1",
+    "letterfall-totem-v1",
   ]) {
     const frame = resolveEchoLyricTemplateFrame({
       project: { lyrics: { enabled: true, templateId } },
@@ -96,6 +98,18 @@ test("letter templates animate individual glyphs from the measured word interval
     fps: 30,
   });
   assert.ok(reduced.words.flatMap((word) => word.characters).every((character) => character.opacity === 1 && character.translateY === 0 && character.rotateDegrees === 0));
+
+  for (const templateId of ["prism-slam-v1", "letterfall-totem-v1"]) {
+    const performance = resolveEchoLyricTemplateFrame({
+      project: { lyrics: { enabled: true, templateId } },
+      line,
+      timeSeconds: 1.72,
+      fps: 30,
+    });
+    assert.equal(performance.words.filter((word) => word.display).length, 1);
+    assert.equal(performance.words.find((word) => word.display).characters.length, 5);
+    assert.ok(performance.words.find((word) => word.display).characters.some((character) => character.shadowRole));
+  }
 });
 
 test("center word focus shows exactly the active measured word and stays blank without one", () => {

@@ -49,19 +49,21 @@ function project(overrides = {}) {
   };
 }
 
-test("legacy projects default lyrics on and normalize to one of nine stable templates", () => {
+test("legacy projects default lyrics on and normalize to one of eleven stable templates", () => {
   assert.equal(normalizeEchoLyricContract(null).enabled, true);
   const normalized = attachEchoLyricContract(project({ lyric_variant: "stacked-echo" }));
   assert.equal(normalized.lyrics.schemaVersion, ECHO_LYRIC_CONTRACT_SCHEMA);
   assert.equal(normalized.lyrics.enabled, true);
   assert.equal(normalized.lyrics.templateId, "stacked-hook-echo-v1");
   assert.equal(normalized.lyrics_enabled, true);
-  assert.equal(ECHO_LYRIC_TEMPLATES.length, 9);
-  assert.deepEqual(ECHO_LYRIC_TEMPLATES.slice(-4).map((template) => template.id), [
+  assert.equal(ECHO_LYRIC_TEMPLATES.length, 11);
+  assert.deepEqual(ECHO_LYRIC_TEMPLATES.slice(-6).map((template) => template.id), [
     "square-word-mosaic-v1",
     "letter-wave-v1",
     "kinetic-typewriter-v1",
     "vertical-poster-stack-v1",
+    "prism-slam-v1",
+    "letterfall-totem-v1",
   ]);
   assert.deepEqual(ECHO_LYRIC_FONT_OPTIONS.map((option) => option.id), ["theme", "sans", "serif", "mono", "display"]);
 });

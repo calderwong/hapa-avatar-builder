@@ -1,20 +1,20 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import vm from 'node:vm';
-import {chooseEchoLyricPlacement,echoLyricGlyphMeasurementBox,echoLyricPresentation,echoLyricPresentationBrowserSource,echoLyricWordMeasurementStyle,echoLyricWordsLayoutStyle} from '../src/domain/echo-lyric-presentation.js';
+import {chooseEchoLyricPlacement,echoLyricGlyphArtStyle,echoLyricGlyphMeasurementBox,echoLyricPresentation,echoLyricPresentationBrowserSource,echoLyricWordArtStyle,echoLyricWordMeasurementStyle,echoLyricWordsLayoutStyle} from '../src/domain/echo-lyric-presentation.js';
 import {resolveEchoOutputProfile} from '../src/domain/echo-output-profile.js';
 
 test('Preview and offline packaging use identical profile-sized typography and safe placement contracts', () => {
  const context=vm.createContext({});vm.runInContext(echoLyricPresentationBrowserSource(),context);
- const templates=['kinetic-word-burst-v1','scanline-phrase-ribbon-v1','stacked-hook-echo-v1','orbit-caption-v1','center-word-focus-v1','square-word-mosaic-v1','letter-wave-v1','kinetic-typewriter-v1','vertical-poster-stack-v1'];
- const sizes={'center-word-focus-v1':119,'square-word-mosaic-v1':50,'letter-wave-v1':60,'kinetic-typewriter-v1':58,'vertical-poster-stack-v1':63};
+ const templates=['kinetic-word-burst-v1','scanline-phrase-ribbon-v1','stacked-hook-echo-v1','orbit-caption-v1','center-word-focus-v1','square-word-mosaic-v1','letter-wave-v1','kinetic-typewriter-v1','vertical-poster-stack-v1','prism-slam-v1','letterfall-totem-v1'];
+ const sizes={'center-word-focus-v1':119,'square-word-mosaic-v1':59,'letter-wave-v1':78,'kinetic-typewriter-v1':65,'vertical-poster-stack-v1':70,'prism-slam-v1':162,'letterfall-totem-v1':71};
  for(const id of ['landscape','square','vertical'])for(const templateId of templates){
   const profile=resolveEchoOutputProfile(id),contract={templateId,position:'bottom-center',style:'neon-cyan'};
   context.profile=profile;context.contract=contract;
   const actual=echoLyricPresentation(contract,profile);
   assert.deepEqual(JSON.parse(JSON.stringify(vm.runInContext('echoLyricPresentation(contract,profile)',context))),actual);
-  assert.equal(actual.fontSize,sizes[templateId]||56);assert.equal(actual.panel.textTransform,'none');
-  if(templateId==='center-word-focus-v1'||templateId==='square-word-mosaic-v1')assert.equal(actual.panel.top,'50%');
+  assert.equal(actual.fontSize,sizes[templateId]||56);assert.equal(actual.panel.textTransform,templateId==='prism-slam-v1'?'uppercase':'none');
+  if(['center-word-focus-v1','square-word-mosaic-v1','prism-slam-v1','letterfall-totem-v1'].includes(templateId))assert.equal(actual.panel.top,'50%');
   else assert.equal(parseFloat(actual.panel.bottom),profile.height*profile.safeArea.lyricBottom);
  }
 });
@@ -24,14 +24,25 @@ test('stylistic templates declare distinct square, poster, and per-letter presen
  const square=echoLyricPresentation({templateId:'square-word-mosaic-v1',style:'neon-cyan'},profile);
  assert.equal(square.layoutMode,'square-grid');
  assert.equal(square.panel.aspectRatio,'1 / 1');
- assert.match(square.panel.background,/linear-gradient/u);
+ assert.equal(square.panel.background,'transparent');
  assert.equal(echoLyricWordsLayoutStyle(square,7).gridTemplateColumns,'repeat(3, minmax(0, 1fr))');
+ assert.equal(echoLyricWordArtStyle({displayText:'Philosophy,'},0,6,square).fontScale,7/11);
+ assert.equal(echoLyricWordArtStyle({displayText:'My'},0,6,square).fontScale,1.5);
  const poster=echoLyricPresentation({templateId:'vertical-poster-stack-v1',style:'neon-cyan'},profile);
  assert.equal(poster.layoutMode,'poster-stack');
  assert.equal(poster.panel.background,'transparent');
  assert.equal(echoLyricWordsLayoutStyle(poster,5).gridTemplateColumns,'minmax(0, 1fr)');
  assert.equal(echoLyricPresentation({templateId:'letter-wave-v1'},profile).letterMotion,'wave');
  assert.equal(echoLyricPresentation({templateId:'kinetic-typewriter-v1'},profile).letterMotion,'typewriter');
+ const prism=echoLyricPresentation({templateId:'prism-slam-v1'},profile);
+ assert.equal(prism.singleWordOnly,true);
+ assert.equal(prism.letterMotion,'prism');
+ assert.equal(prism.panel.textTransform,'uppercase');
+ const totem=echoLyricPresentation({templateId:'letterfall-totem-v1'},profile);
+ assert.equal(totem.layoutMode,'glyph-column');
+ assert.equal(totem.letterMotion,'letterfall');
+ assert.equal(echoLyricWordsLayoutStyle(totem,1).display,'flex');
+ assert.match(echoLyricGlyphArtStyle({colorRole:'accent',shadowRole:'prism'},{},0,prism).textShadow,/f43f5e/u);
 });
 
 test('center word focus is large, fixed-center, and has no visible text container', () => {

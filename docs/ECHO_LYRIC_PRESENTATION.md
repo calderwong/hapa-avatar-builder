@@ -14,28 +14,43 @@ Caption text uses`text-rendering: geometricPrecision` in Preview as well as fina
 
 ## Stylized lyric templates
 
-Four additional templates extend the same source-timed lyric contract rather
+Six additional templates extend the same source-timed lyric contract rather
 than creating a second animation clock:
 
 - **Square Word Mosaic** (`square-word-mosaic-v1`) arranges the active lyric
-  window into a centered square grid. Words pulse within stable cells, so a
-  scale or rotation does not reflow adjacent words.
-- **Letter Wave** (`letter-wave-v1`) applies a bounded traveling wave to each
-  glyph of the active word. The phase comes from that word's measured progress.
+  window into a centered transparent bento grid. Each cell receives adaptive
+  type scale and alternating geometry, so both short words and long words fit
+  without clipping while motion stays inside stable cells.
+- **Letter Wave** (`letter-wave-v1`) applies a bounded traveling wave and
+  chromatic split to each glyph of the active word. The phase comes from that
+  word's measured progress and the presentation has no opaque caption pill.
 - **Kinetic Typewriter** (`kinetic-typewriter-v1`) reveals each glyph across the
-  word's measured interval, with a small rise and settle instead of an invented
-  character clock.
+  word's measured interval, with a small rise, settle, and deterministic caret
+  instead of an invented character clock.
 - **Vertical Poster Stack** (`vertical-poster-stack-v1`) turns the lyric window
-  into a compact editorial stack with alternating word entrances and a colored
-  accent rail.
+  into a compact editorial stack with alternating scale, alignment, tracking,
+  word entrances, and a colored accent rail.
+- **Prism Slam** (`prism-slam-v1`) isolates one trustworthy active word at a
+  time as oversized uppercase display type. Per-glyph red/cyan separation,
+  impact scale, and splay are derived from that word's measured progress.
+- **Letterfall Totem** (`letterfall-totem-v1`) isolates one trustworthy active
+  word and stacks its glyphs vertically. Alternating horizontal drift and a
+  top-down fall resolve into a centered typographic totem.
 
-All four are available in the existing per-cut **Lyric template** selector and
+All six are available in the existing per-cut **Lyric template** selector and
 honor the same Font, Size, Color, safe-area, source-confidence, reduced-motion,
 Preview, recording, and HyperFrames export behavior as the original templates.
 Letter animation uses cached word-local glyph boxes; after the lyric window is
 prepared, animation does not read layout geometry on every frame. Reduced
 motion removes glyph transforms and progressive opacity while preserving the
 words and layout.
+
+The art-directed templates deliberately keep their outer panel transparent so
+the selected video, persistent shaders, and revolving shader remain visible.
+Square cells and the Typewriter editorial strip may add local contrast, but do
+not replace the full video frame with a caption background. Template-specific
+theme fonts are used only while **Font** remains set to Theme; an explicit Font
+selection continues to override the art direction.
 
 ## Center Word Focus
 
