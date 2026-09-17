@@ -491,8 +491,31 @@ function shotVisualContextTokens(shot = {}) {
   return visualTokenSet([
     shot.section_type, shot.section_label, shot.section_id,
     shot.camera_motion, shot.camera_focus, shot.transition,
+    shot.song_visual_context,
     ...list(shot.active_stems),
   ].join(" "));
+}
+
+function shotLyricContextTokens(shot = {}) {
+  return visualTokenSet([
+    shot.lyric_context,
+    shot.lyric_text,
+    shot.lyric_hook,
+    ...list(shot.lyric_lines),
+  ].join(" "));
+}
+
+function candidateDescriptionTokens(candidate = {}, state = {}) {
+  const description = String(candidate.visualDescription?.text || "");
+  if (!description) return new Set();
+  let descriptionTokens = state?.visualDescriptionTokens instanceof Map
+    ? state.visualDescriptionTokens.get(candidate)
+    : undefined;
+  if (!(descriptionTokens instanceof Set)) {
+    descriptionTokens = visualTokenSet(description);
+    if (state?.visualDescriptionTokens instanceof Map) state.visualDescriptionTokens.set(candidate, descriptionTokens);
+  }
+  return descriptionTokens;
 }
 
 /**
@@ -502,20 +525,22 @@ function shotVisualContextTokens(shot = {}) {
  * candidate so a large pool costs one tokenization per shot.
  */
 export function visualDescriptionAffinity(candidate = {}, shot = {}, state = {}) {
-  const text = String(candidate.visualDescription?.text || "");
-  if (!text) return 0;
-  let descriptionTokens = state?.visualDescriptionTokens instanceof Map
-    ? state.visualDescriptionTokens.get(candidate)
-    : undefined;
-  if (!(descriptionTokens instanceof Set)) {
-    descriptionTokens = visualTokenSet(text);
-    if (state?.visualDescriptionTokens instanceof Map) state.visualDescriptionTokens.set(candidate, descriptionTokens);
-  }
+  const descriptionTokens = candidateDescriptionTokens(candidate, state);
   const context = shotVisualContextTokens(shot);
   if (!descriptionTokens.size || !context.size) return 0;
   let hits = 0;
   for (const token of context) if (descriptionTokens.has(token)) hits += 1;
   return hits / context.size;
+}
+
+/** Measured token overlap between a timed lyric window and enriched visual text. */
+export function lyricDescriptionAffinity(candidate = {}, shot = {}, state = {}) {
+  const descriptionTokens = candidateDescriptionTokens(candidate, state);
+  const lyricTokens = shotLyricContextTokens(shot);
+  if (!descriptionTokens.size || !lyricTokens.size) return 0;
+  let hits = 0;
+  for (const token of lyricTokens) if (descriptionTokens.has(token)) hits += 1;
+  return hits / lyricTokens.size;
 }
 
 function hueHistogramDistance(a = [], b = []) {
@@ -544,8 +569,14 @@ export function visualPaletteContrast(candidate = {}, previous = null) {
 
 /** Combined visual signal; quantized to 4% so near-ties keep the bag order. */
 function visualSelectionScore(candidate = {}, shot = {}, state = {}) {
-  const score = 0.55 * visualDescriptionAffinity(candidate, shot, state)
-    + 0.45 * visualPaletteContrast(candidate, state?.lastCandidate || null);
+  const lyricAffinity = lyricDescriptionAffinity(candidate, shot, state);
+  const hasLyricContext = shotLyricContextTokens(shot).size > 0;
+  const score = hasLyricContext
+    ? 0.6 * lyricAffinity
+      + 0.25 * visualDescriptionAffinity(candidate, shot, state)
+      + 0.15 * visualPaletteContrast(candidate, state?.lastCandidate || null)
+    : 0.55 * visualDescriptionAffinity(candidate, shot, state)
+      + 0.45 * visualPaletteContrast(candidate, state?.lastCandidate || null);
   return Math.round(score * 25) / 25;
 }
 
@@ -645,8 +676,10 @@ function chooseBalancedCandidate(state, shot = {}) {
     coverageLedgerActive: state.sharedUsageCounts instanceof Map,
     shuffleBagPass: bag.pass + 1,
     visualAffinity: visualDescriptionAffinity(candidate, shot, state),
+    lyricAffinity: lyricDescriptionAffinity(candidate, shot, state),
     paletteContrast: visualPaletteContrast(candidate, state.lastCandidate || null),
     visualContextAvailable: Boolean(candidate.visualDescription || candidate.visualPalette),
+    lyricContextAvailable: shotLyricContextTokens(shot).size > 0,
     strategy: rolePreferenceHit
       ? `${state.sharedUsageCounts instanceof Map ? "least-used-" : ""}balanced-${sourceGroup}-${preference.role}-shuffle-bag`
       : `${state.sharedUsageCounts instanceof Map ? "least-used-" : ""}balanced-${sourceGroup}-coverage-shuffle-bag`,
@@ -815,7 +848,7 @@ function recastBalancedShot(shot = {}, candidate = {}, evidence = {}) {
       } : {}),
       ...(candidate.visualDescription || candidate.visualPalette ? {
         visualContext: {
-          basis: "machine-derived palette + description telemetry (human-accepted visual enrichment store) informed the selection weighting; no semantic claim",
+          basis: candidate.visualContextBasis || "Machine-derived palette and description telemetry informed soft selection weighting; no semantic truth is claimed.",
           palette: candidate.visualPalette ? {
             warmth: candidate.visualPalette.warmth,
             luminance: candidate.visualPalette.luminance,
@@ -829,7 +862,18 @@ function recastBalancedShot(shot = {}, candidate = {}, evidence = {}) {
             excerpt: candidate.visualDescription.text.slice(0, 160),
           } : null,
           descriptionAffinity: Number((evidence.visualAffinity || 0).toFixed(4)),
+          lyricAffinity: Number((evidence.lyricAffinity || 0).toFixed(4)),
           paletteContrast: Number((evidence.paletteContrast || 0).toFixed(4)),
+        },
+      } : {}),
+      ...(evidence.lyricContextAvailable ? {
+        lyricVisualAlignment: {
+          source: shot.lyric_context_source || "timed-lyrics-overlap",
+          lineIds: list(shot.lyric_line_ids),
+          lyricExcerpt: String(shot.lyric_context || shot.lyric_text || shot.lyric_hook || "").slice(0, 320),
+          enrichedVisualSource: candidate.visualDescription?.sourceClass || "unavailable",
+          measuredTokenAffinity: Number((evidence.lyricAffinity || 0).toFixed(4)),
+          role: "soft-selection-weight",
         },
       } : {}),
       shuffleBag: {
@@ -859,8 +903,10 @@ function recastBalancedShot(shot = {}, candidate = {}, evidence = {}) {
         },
       } : {}),
       semanticMusicMatch: {
-        value: null,
-        basis: "not-claimed; only energy-band motion-role preference is applied",
+        value: evidence.lyricAffinity > 0 ? Number(evidence.lyricAffinity.toFixed(4)) : null,
+        basis: evidence.lyricContextAvailable
+          ? "measured token overlap between the timed lyric window and enriched visual description/prompt; soft ranking signal, not a semantic truth claim"
+          : "not-claimed; only energy-band motion-role preference is applied",
       },
     },
   };
@@ -1197,8 +1243,10 @@ export function recastBalancedEchoDirectorProject(project = {}, candidateEntries
       shuffleBagPass: selected.shuffleBagPass,
       strategy: selected.strategy,
       visualAffinity: selected.visualAffinity || 0,
+      lyricAffinity: selected.lyricAffinity || 0,
       paletteContrast: selected.paletteContrast || 0,
       visualContextAvailable: selected.visualContextAvailable === true,
+      lyricContextAvailable: selected.lyricContextAvailable === true,
     });
     return recastBalancedShot(shot, selected.candidate, selected);
   });
@@ -1309,6 +1357,8 @@ export function recastBalancedEchoDirectorProject(project = {}, candidateEntries
       )).length,
       visualEnrichedCandidates: candidates.filter((candidate) => candidate.visualDescription || candidate.visualPalette).length,
       visualContextSelections: selections.filter((selection) => selection.visualContextAvailable === true).length,
+      lyricContextSelections: selections.filter((selection) => selection.lyricContextAvailable === true).length,
+      lyricAffinitySelections: selections.filter((selection) => selection.lyricAffinity > 0).length,
       originalMediaShots,
       totalShots: timeline.length,
       mediaBearingShots,

@@ -253,3 +253,23 @@ HyperFrames, typography controls, source-confidence fallback, and reduced-motion
 behavior. The current local audio route still reports `not_found`; no human
 timing or managed encoded-output acceptance is claimed and no workflow
 requirement changes status.
+
+## September 16 — album-wide lyric/visual fusion Director pass
+
+The existing Human Enricher accepted-video owner and H3/FAL Reference-loop
+owner now feed one append-only Director pass. Three variations were generated
+for each of 200 Echo projects: 600 indexed and persisted cuts. The admitted
+pools were 2,781 locally readable, enriched Human-accepted videos at the 720 px
+short-edge floor and 954 completed Reference loops (769 FAL, 185 local MiniMax
+H3). All cuts used both source families, preserved the Human-acceptance
+boundary, and had zero immediate media repeats.
+
+Timed lyric windows are intersected with inherited shots and softly rank the
+enriched visual descriptions/prompts. Across the saved cuts, 25,154 selections
+carried lyric context and 15,056 had positive measured token overlap. The score
+is inspectable ranking evidence, not a semantic or aesthetic truth claim.
+Same-song loops served 163 projects; 37 used a truthfully labeled album
+fallback. Gnow Her is in the latter group because its six new card images have
+no completed loops yet. Human cut review and final renders remain pending; no
+requirement changes status. See the [runbook](ECHO_LYRIC_VISUAL_FUSION_DIRECTOR.md)
+and [postmortem](postmortems/2026-09-16-echo-lyric-visual-fusion-director.md).

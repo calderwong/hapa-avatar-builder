@@ -62,6 +62,9 @@ test("consolidated media index includes every retained image run and joins loops
   await writeManifest(loopRunsRoot, "loop-run-one", {
     runId: "loop-run-one",
     sourceImageRunId: secondRunId,
+    provider: "hapa-media-node/local-minimax-h3",
+    model: "Comfy-Org/MiniMax-H3-FL2VA",
+    mode: "local-h3-missing-loop-queue",
     createdAt: "2026-09-13T21:00:00.000Z",
     jobs: [{ id: "loop-second", sourceJobId: "second", status: "completed", outputPath: loopPath, outputSha256: "sha256:loop-second", finishedAt: "2026-09-13T21:01:00.000Z" }],
   });
@@ -82,6 +85,15 @@ test("consolidated media index includes every retained image run and joins loops
   assert.equal(firstIndex.policy.allRetainedRuns, true);
   assert.deepEqual(firstIndex.runs.filter((run) => run.kind === "api-run").map((run) => run.id), [secondRunId, firstRunId]);
   assert.equal(firstIndex.items.find((item) => item.source.jobId === "second").loopVideo.uri, "/api/echos/reference-media/assets/loop/loop-run-one/loop-second");
+  assert.deepEqual(firstIndex.items.find((item) => item.source.jobId === "second").loopVideo, {
+    uri: "/api/echos/reference-media/assets/loop/loop-run-one/loop-second",
+    hash: "sha256:loop-second",
+    runId: "loop-run-one",
+    provider: "hapa-media-node/local-minimax-h3",
+    model: "Comfy-Org/MiniMax-H3-FL2VA",
+    mode: "local-h3-missing-loop-queue",
+    profileId: "",
+  });
   assert.doesNotMatch(JSON.stringify(firstIndex), /\/placeholder\/|\/private\/|\/var\/folders\//, "browser payload must not expose local custody paths");
 
   const imageAsset = await resolveEchoReferenceMediaAsset("image", secondRunId, "second", options);

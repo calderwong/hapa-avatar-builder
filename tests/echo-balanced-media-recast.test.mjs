@@ -6,6 +6,7 @@ import {
   balancedCandidateEditorialWeight,
   buildBalancedDirectorCandidates,
   isBalancedDirectorMediaAllowed,
+  lyricDescriptionAffinity,
   recastBalancedEchoDirectorProject,
   recastEchoDirectorProject,
   validateBalancedDirectorRevision,
@@ -360,6 +361,48 @@ test("visual telemetry computes description affinity and palette contrast", () =
   const contrast = visualPaletteContrast(warm, cool);
   assert.ok(contrast > 0.5, `warm vs cool palette contrast should be strong, got ${contrast}`);
   assert.ok(contrast <= 1);
+});
+
+test("timed lyric context steers enriched visual selection and records measured evidence", () => {
+  const mirror = visualCandidate("mirror", 63, 0.1, 0.5, hueBin(4), "A silver mirror catches rain while a hidden name appears.");
+  const mountain = visualCandidate("mountain", 64, -0.2, 0.5, hueBin(7), "A mountain road crosses a bright desert at noon.");
+  const shot = {
+    shot_index: 0,
+    section_id: "verse-1",
+    section_type: "verse",
+    start_sec: 0,
+    end_sec: 4,
+    media_id: "legacy",
+    media_uri: "/media/legacy.mp4",
+    transition: "cut",
+    camera_motion: "static",
+    active_stems: ["Vocals"],
+    lyric_context: "The mirror knows my hidden name in the rain",
+    lyric_line_ids: ["line-1"],
+    lyric_context_source: "fixture-timed-lyrics",
+  };
+  assert.ok(lyricDescriptionAffinity(mirror, shot) > lyricDescriptionAffinity(mountain, shot));
+  const variant = recastBalancedEchoDirectorProject({
+    song_id: "lyric-visual-song",
+    song_title: "Lyric Visual Song",
+    duration: 4,
+    timeline: [shot],
+  }, [mirror, mountain], {
+    variantId: "lyric-visual-test",
+    allowedSourceGroups: ["scene"],
+    sourcePattern: ["scene"],
+    rotateSourcePattern: false,
+    sharedUsageCounts: new Map(),
+    seed: "lyric-visual-fixture",
+    createdAt: "2026-09-16T00:00:00.000Z",
+    parentProjectHash: "f".repeat(64),
+  });
+  assert.equal(variant.selectionEvidence[0].mediaId, "scene-mirror");
+  assert.ok(variant.selectionEvidence[0].lyricAffinity > 0);
+  assert.equal(variant.timeline[0].decision_evidence.lyricVisualAlignment.source, "fixture-timed-lyrics");
+  assert.equal(variant.timeline[0].decision_evidence.lyricVisualAlignment.lineIds[0], "line-1");
+  assert.ok(variant.timeline[0].decision_evidence.semanticMusicMatch.value > 0);
+  assert.equal(variant.telemetry.lyricAffinitySelections, 1);
 });
 
 test("visual telemetry steers the balanced selection and records its evidence", () => {

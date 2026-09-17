@@ -9,6 +9,23 @@ function digest(value) {
   return text(value).replace(/^sha256:/i, "").toLowerCase();
 }
 
+function referenceVisualDescription(item = {}) {
+  const parts = [
+    item.prompt,
+    item.sourcePrompt,
+    item.summary,
+    item.memoryHook,
+    item.reviewPrompt,
+    item.connection?.why,
+    ...list(item.retrievalTags),
+  ].map(text).filter(Boolean);
+  const unique = [...new Set(parts)];
+  return unique.length ? {
+    text: unique.join("\n"),
+    sourceClass: "reference-card-enriched-prompt",
+  } : null;
+}
+
 /** Convert the live Reference Media projection into Director candidates. */
 export function buildReferenceLoopDirectorCandidates(library = {}, options = {}) {
   const sourceImageRunId = text(options.sourceImageRunId);
@@ -19,6 +36,11 @@ export function buildReferenceLoopDirectorCandidates(library = {}, options = {})
       const sourceRunId = text(item.source?.runId);
       const sourceJobId = text(item.source?.jobId);
       const cardId = text(item.referenceKey || item.id);
+      const sourceSongs = list(item.songs).map((song) => ({
+        id: text(song?.id),
+        title: text(song?.title),
+      })).filter((song) => song.id || song.title);
+      const visualDescription = referenceVisualDescription(item);
       return {
         id: `builder-reference-run:${sourceRunId}:${sourceJobId}`,
         mediaLibraryId: sha256 ? `hapa-media:sha256:${sha256}` : `reference-loop:${sourceRunId}:${sourceJobId}`,
@@ -46,6 +68,18 @@ export function buildReferenceLoopDirectorCandidates(library = {}, options = {})
         authoredUse: "hold",
         authoredRoles: ["reference-card-loop", "ambient-hold"],
         semanticTags: [...new Set([text(item.referenceTitle), ...list(item.retrievalTags)].filter(Boolean))],
+        sourceSongIds: sourceSongs.map((song) => song.id).filter(Boolean),
+        sourceSongTitles: sourceSongs.map((song) => song.title).filter(Boolean),
+        visualDescription,
+        visualContextBasis: "Reference Card generation prompt, review rationale, memory hook, and retrieval tags informed soft lyric-to-visual weighting; no semantic truth is claimed.",
+        generationPromptHash: text(item.source?.promptHash),
+        loopPipeline: {
+          runId: text(item.loopVideo?.runId),
+          provider: text(item.loopVideo?.provider),
+          model: text(item.loopVideo?.model),
+          mode: text(item.loopVideo?.mode),
+          profileId: text(item.loopVideo?.profileId),
+        },
         routeOrder: index,
         autoEligible: true,
         availability: { exists: true, bytes: 1, basis: "completed-local-h3-manifest-output" },
@@ -68,6 +102,9 @@ export function buildReferenceLoopDirectorCandidates(library = {}, options = {})
           sourceNode: "Reference Media",
           sourceRunId,
           sourceJobId,
+          loopRunId: text(item.loopVideo?.runId),
+          loopProvider: text(item.loopVideo?.provider),
+          loopModel: text(item.loopVideo?.model),
           loopUri: text(item.loopVideo.uri),
         },
       };

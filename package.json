@@ -62,6 +62,8 @@
     "echo:director:plans:missing:apply": "node scripts/generate-music-video-plans.mjs --missing-only --apply",
     "echo:director:reference-loops": "node scripts/append-reference-loop-director-variants.mjs",
     "echo:director:reference-loops:apply": "node scripts/append-reference-loop-director-variants.mjs --apply",
+    "echo:director:lyric-visual-fusion": "node scripts/append-lyric-visual-fusion-director-variants.mjs",
+    "echo:director:lyric-visual-fusion:apply": "node scripts/append-lyric-visual-fusion-director-variants.mjs --apply",
     "echo:preflight-media": "node scripts/preflight-echo-director-media.mjs",
     "echo:preflight-render": "node scripts/preflight-echo-render-readiness.mjs",
     "echo:preflight-loop-coverage": "node scripts/preflight-hyperframes-loop-coverage.mjs",

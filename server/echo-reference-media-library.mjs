@@ -103,7 +103,15 @@ function generatedItem(manifest, job, loop) {
     summary: text(quality?.evidenceSummary || job.reviewPrompt || job.memoryHook || referenceTitle),
     songs: [{ id: text(job.songId), title: text(job.songTitle) || text(job.songId), trackNumber: Number(job.trackNumber || 0) || null }],
     image: { uri: generatedImageHref(manifest.runId, job.id), hash: text(job.outputSha256 || job.outputHash) },
-    loopVideo: loop ? { uri: generatedLoopHref(loop.manifest.runId, loop.job.id), hash: text(loop.job.outputSha256) } : null,
+    loopVideo: loop ? {
+      uri: generatedLoopHref(loop.manifest.runId, loop.job.id),
+      hash: text(loop.job.outputSha256),
+      runId: text(loop.manifest.runId),
+      provider: text(loop.manifest.provider) || (text(loop.manifest.model).startsWith("minimax/") ? "fal" : "unknown"),
+      model: text(loop.manifest.model),
+      mode: text(loop.manifest.mode),
+      profileId: text(loop.manifest.profileId),
+    } : null,
     connection: {
       why: text(job.reviewPrompt || quality?.evidenceSummary || job.memoryHook),
       lyricMoments: [],
