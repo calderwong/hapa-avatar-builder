@@ -45,7 +45,10 @@ export function echoLyricPresentation(contract = {}, profile = {}) {
   if(contract.templateId==='stacked-hook-echo-v1')panel.textShadow=`3px 3px 0 ${accent}55,-3px -3px 0 #ec489944`;
   if(contract.templateId==='orbit-caption-v1')panel.borderRadius='40px';
   if(singleWordFocus)Object.assign(panel,{padding:'0',font:`800 ${fontSize}px/1.05 ${fontFamily}`,background:'transparent',backgroundImage:'none',border:'0',borderRadius:'0',boxShadow:'none',overflow:'visible',overflowWrap:'normal',whiteSpace:'nowrap'});
-  return { width,height,fontSize,text,accent,panel,inset,bottom,fixedCenter:singleWordFocus };
+  return { width,height,fontSize,text,accent,background,fontFamily,fontWeight:singleWordFocus?800:700,
+    lineHeight:singleWordFocus?1.05:1.4,panel,inset,bottom,fixedCenter:singleWordFocus,
+    paddingX:singleWordFocus?0:24,paddingY:singleWordFocus?0:18,borderWidth:singleWordFocus?0:2,
+    borderRadius:singleWordFocus?0:parseFloat(panel.borderRadius)||0 };
 }
 
 /** Camera and source evidence are prepared once, not inferred from media titles.
@@ -107,7 +110,7 @@ export function chooseEchoLyricPlacement({ presentation, panelHeight, obstacles 
   return {...best,width:panelWidth,height:panelHeight,status:panelHeight>height-2*marginY||panelWidth>width-2*marginX?'caption-exceeds-safe-area':best.overlap>0?'protected-region-collision':'clear',protectedRegions:obstacles.length};
 }
 
-export function fitEchoLyricWordMotion(word, box, area) {
+export function echoLyricWordMotionValues(word, box, area) {
   let rotation=word.rotateDegrees||0,scale=word.scale||1;
   let radians=rotation*Math.PI/180;
   let w=Math.abs(Math.cos(radians))*box.width+Math.abs(Math.sin(radians))*box.height;
@@ -117,7 +120,12 @@ export function fitEchoLyricWordMotion(word, box, area) {
   const cx=box.x+box.width/2,cy=box.y+box.height/2;
   const dx=Math.max(area.x+w*scale/2-cx,Math.min(area.x+area.width-w*scale/2-cx,word.translateX||0));
   const dy=Math.max(area.y+h*scale/2-cy,Math.min(area.y+area.height-h*scale/2-cy,word.translateY||0));
-  return `translate(${dx}px, ${dy}px) rotate(${rotation}deg) scale(${scale})`;
+  return {translateX:dx,translateY:dy,rotation,scale};
+}
+
+export function fitEchoLyricWordMotion(word, box, area) {
+  const motion=echoLyricWordMotionValues(word,box,area);
+  return `translate(${motion.translateX}px, ${motion.translateY}px) rotate(${motion.rotation}deg) scale(${motion.scale})`;
 }
 
 export function echoLyricWordMeasurementStyle(word = {}, nextWord = null) {
@@ -139,7 +147,7 @@ export function renderEchoLyricSurface(element, { contract = {}, frame = null, l
     state={stage,panel,words,label,nodes:[],key:'',layouts:new Map(),layoutBuilds:0,layoutHits:0};element.__echoLyricSurface=state;
   }
   const visible=Boolean(line && frame?.visible && contract.enabled!==false);
-  element.style.visibility=visible?'visible':'hidden';state.frame=visible?frame:null;state.line=visible?line:null;
+  element.style.visibility=visible?'visible':'hidden';state.frame=visible?frame:null;state.line=visible?line:null;state.rows=[];
   if(!visible)return {visible:false};
   const key=JSON.stringify([contract.templateId,contract.style,contract.position,contract.fontFamily,contract.fontScale,contract.textColor,outputProfile.width,outputProfile.height,outputProfile.safeArea,contract.safeArea]);
   if(state.key!==key){state.presentation=echoLyricPresentation(contract,outputProfile);state.key=key;state.layouts.clear();state.contentKey=null;}
@@ -148,6 +156,7 @@ export function renderEchoLyricSurface(element, { contract = {}, frame = null, l
   const sourceWords=Array.isArray(line.words)?line.words:[],singleWordFocus=contract.templateId==='center-word-focus-v1';
   // Phrase fallback displays the selected source text, not stale aligned tokens.
   const rows=singleWordFocus?frame.words.filter(word=>word.display):frame.timingPolicy.mode!=='phrase'&&sourceWords.length?frame.words.filter(word=>word.display):[{index:0,displayText:frame.displayText||line.text,opacity:1,scale:1}];
+  state.rows=rows;state.contract=contract;
   const label=!singleWordFocus&&frame.timingPolicy.mode==='phrase'?frame.timingPolicy.label:'';
   const contentKey=JSON.stringify([line.id,line.start??line.startSeconds,line.end??line.endSeconds,rows.map(w=>[w.index,w.displayText]),label]);
   if(state.contentKey!==contentKey||state.protection!==protection){
@@ -172,7 +181,8 @@ export function renderEchoLyricSurface(element, { contract = {}, frame = null, l
         fontSize=Math.max(minimumFontSize,fontSize-2);state.panel.style.fontSize=fontSize+'px';
       }
       const boxes=state.nodes.map(node=>({x:node.offsetLeft,y:node.offsetTop,width:node.offsetWidth,height:node.offsetHeight}));
-      layout={boxes,height:state.words.offsetHeight,width:state.words.clientWidth,panelHeight:state.panel.offsetHeight,fontSize};state.layoutBuilds++;
+      layout={boxes,height:state.words.offsetHeight,width:state.words.clientWidth,panelHeight:state.panel.offsetHeight,fontSize,
+        wordsOffsetX:state.words.offsetLeft,wordsOffsetY:state.words.offsetTop};state.layoutBuilds++;
       if(state.layouts.size>=128)state.layouts.delete(state.layouts.keys().next().value);state.layouts.set(contentKey,layout);
     }else state.layoutHits++;
     state.layout=layout;state.panel.style.fontSize=layout.fontSize+'px';state.words.style.height=layout.height+'px';
@@ -202,6 +212,66 @@ export function sizeEchoLyricSurface(element, profile = {}, viewportWidth, viewp
   state.stage.style.transform=`translate(${(viewportWidth-width*scale)/2}px, ${(viewportHeight-height*scale)/2}px) scale(${scale})`;
 }
 
+function echoLyricCanvasRoundRect(context,x,y,width,height,radius){
+  context.beginPath();
+  if(typeof context.roundRect==='function')context.roundRect(x,y,width,height,radius);
+  else context.rect(x,y,width,height);
+}
+
+/** Paint the already-evaluated Preview lyric surface into a recording canvas.
+ * This deliberately consumes the same DOM owner's frame and measured layout,
+ * so capture does not run a second lyric clock or invent different wrapping. */
+export function paintEchoLyricSurfaceToCanvas(context,element,{width,height}={}){
+  const state=element?.__echoLyricSurface;
+  if(!context||!state?.frame?.visible||!state.line||element?.style?.visibility==='hidden')return {drawn:false,reason:'lyrics-not-visible'};
+  const presentation=state.presentation,layout=state.layout,placement=state.placement,rows=state.rows||[];
+  if(!presentation||!layout||!placement||!rows.length)return {drawn:false,reason:'lyrics-not-laid-out'};
+  const outputWidth=Number(width||context.canvas?.width||presentation.width),outputHeight=Number(height||context.canvas?.height||presentation.height);
+  if(!(outputWidth>0&&outputHeight>0))return {drawn:false,reason:'recording-size-invalid'};
+  const scaleX=outputWidth/presentation.width,scaleY=outputHeight/presentation.height;
+  const panelX=Number(placement.x||0),panelY=Number(placement.y||0),panelWidth=parseFloat(presentation.panel.width)||Number(placement.width||0),panelHeight=Number(layout.panelHeight||0);
+  const wordsX=panelX+Number(layout.wordsOffsetX??presentation.paddingX??0),wordsY=panelY+Number(layout.wordsOffsetY??presentation.paddingY??0);
+  context.save();context.scale(scaleX,scaleY);
+  if(!presentation.fixedCenter&&panelWidth>0&&panelHeight>0){
+    echoLyricCanvasRoundRect(context,panelX,panelY,panelWidth,panelHeight,presentation.borderRadius||0);
+    context.fillStyle=presentation.background;context.fill();
+    if(presentation.borderWidth>0){context.strokeStyle=`${presentation.accent}88`;context.lineWidth=presentation.borderWidth;context.stroke();}
+    if(state.contract?.templateId==='scanline-phrase-ribbon-v1'){
+      context.save();context.globalAlpha=.08;context.fillStyle='#ffffff';
+      for(let y=panelY+4;y<panelY+panelHeight;y+=4)context.fillRect(panelX,y,panelWidth,1);
+      context.restore();
+    }
+  }
+  const area={x:-20,y:-14,width:Number(layout.width||panelWidth)+40,height:Number(layout.height||panelHeight)+28};
+  context.textBaseline='top';context.textAlign='left';
+  for(let index=0;index<rows.length;index+=1){
+    const row=rows[index],box=layout.boxes?.[index],node=state.nodes?.[index];
+    if(!box||!node)continue;
+    const label=String(node.textContent||row.displayText||'');if(!label)continue;
+    const motion=echoLyricWordMotionValues(row,box,area),centerX=wordsX+box.x+box.width/2,centerY=wordsY+box.y+box.height/2;
+    context.save();context.translate(centerX+motion.translateX,centerY+motion.translateY);context.rotate(motion.rotation*Math.PI/180);context.scale(motion.scale,motion.scale);
+    context.globalAlpha=Number.isFinite(Number(row.opacity))?Number(row.opacity):1;
+    context.font=`${presentation.fixedCenter?800:presentation.fontWeight} ${layout.fontSize}px ${presentation.fontFamily}`;
+    context.fillStyle=row.active?presentation.accent:presentation.text;
+    context.shadowColor=state.contract?.style==='paper-white'?'transparent':'#000000';context.shadowBlur=4;context.shadowOffsetY=2;
+    context.fillText(label,-box.width/2+2,-box.height/2);
+    const underline=Number(row.underlineProgress||0);
+    if(!presentation.fixedCenter&&underline>0){context.shadowColor='transparent';context.fillStyle=presentation.accent;context.fillRect(-box.width/2,box.height/2-3,Math.max(0,Math.min(1,underline))*box.width,3);}
+    context.restore();
+  }
+  const timingLabel=String(state.label?.textContent||'');
+  if(timingLabel&&state.label?.style?.display!=='none'){
+    context.globalAlpha=.8;context.font='500 22px system-ui, sans-serif';context.fillStyle=presentation.text;context.shadowColor='transparent';
+    context.fillText(timingLabel,wordsX,wordsY+Number(layout.height||0)+10);
+  }
+  const accentCanvas=state.panel?.querySelector?.('[data-echo-lyric-accents]');
+  if(accentCanvas&&Number(accentCanvas.width||0)>0&&Number(accentCanvas.height||0)>0){
+    context.globalAlpha=1;context.shadowColor='transparent';context.drawImage(accentCanvas,panelX,panelY,panelWidth,panelHeight);
+  }
+  context.restore();
+  return {drawn:true,wordCount:rows.length,templateId:String(state.contract?.templateId||'')};
+}
+
 export function echoLyricPresentationBrowserSource() {
-  return [echoLyricPresentation,prepareEchoLyricObstacles,chooseEchoLyricPlacement,fitEchoLyricWordMotion,echoLyricWordMeasurementStyle,renderEchoLyricSurface,sizeEchoLyricSurface].map(fn=>fn.toString()).join('\n');
+  return [echoLyricPresentation,prepareEchoLyricObstacles,chooseEchoLyricPlacement,echoLyricWordMotionValues,fitEchoLyricWordMotion,echoLyricWordMeasurementStyle,renderEchoLyricSurface,sizeEchoLyricSurface].map(fn=>fn.toString()).join('\n');
 }

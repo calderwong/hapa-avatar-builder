@@ -5,7 +5,7 @@ import { resolveEchoOutputProfile } from '../domain/echo-output-profile.js';
 import { resolveEchoLyricTemplateFrame, echoLyricFrameTime } from '../domain/echo-lyric-template-runtime.js';
 import { prepareEchoLyricIntervals, echoLyricIntervalAt, observeEchoLyricClock } from '../domain/echo-lyric-clock.js';
 
-export default memo(function EchoLyricOverlay({ contract: activeLyricContract, lines = [], mediaTracks = null, accentEvents = [], position = 'bottom-center', themeId = 'neon-cyan', outputProfile, clockRef, audioRef, presentationRef, initialTime = 0, playing = false, powerMode = 'active', hidden = false }) {
+export default memo(function EchoLyricOverlay({ contract: activeLyricContract, lines = [], mediaTracks = null, accentEvents = [], position = 'bottom-center', themeId = 'neon-cyan', outputProfile, clockRef, audioRef, presentationRef, captureSurfaceRef, initialTime = 0, playing = false, powerMode = 'active', hidden = false }) {
   const activeOutputProfile = resolveEchoOutputProfile(outputProfile);
   const rate = powerMode === 'docked' ? Math.min(15, activeOutputProfile.fps) : Math.min(60, activeOutputProfile.fps);
   const prepared = useMemo(() => prepareEchoLyricIntervals(lines), [lines]);
@@ -50,6 +50,11 @@ export default memo(function EchoLyricOverlay({ contract: activeLyricContract, l
     });
     observer.observe(surface); return () => observer.disconnect();
   }, [enabled, activeOutputProfile]);
+  useLayoutEffect(() => {
+    const surface = surfaceRef.current;
+    if (captureSurfaceRef) captureSurfaceRef.current = surface;
+    return () => { if (captureSurfaceRef?.current === surface) captureSurfaceRef.current = null; };
+  }, [captureSurfaceRef, enabled]);
   if (!enabled) return null;
   return <div ref={surfaceRef} data-testid="echo-lyrics-overlay" data-render-count={renders.current}
     aria-label="Song lyrics" aria-live="off" style={{ position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: 10 }} />;

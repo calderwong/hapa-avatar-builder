@@ -25,6 +25,7 @@ import {
   createPreviewRecordingStore,
   PreviewRecordingStoreError,
 } from "../server/preview-recording-store.mjs";
+import { paintEchoLyricSurfaceToCanvas } from "../src/domain/echo-lyric-presentation.js";
 
 // ---------------------------------------------------------------------------
 // Domain: container negotiation
@@ -503,7 +504,7 @@ test("audio capture binds the current element and awaits a running AudioContext"
   assert.match(acquire, /throw new Error\("The playback audio route did not produce a live recording track\."\)/);
 });
 
-test("capture composites picture + shader only, never the HUD or lyrics", () => {
+test("capture composites picture, shader, and only the visible Preview lyrics", () => {
   const composite = viewSource.slice(
     viewSource.indexOf("const compositePreviewRecordingFrame = () => {"),
     viewSource.indexOf("const startPreviewRecordingComposite = () => {"),
@@ -511,8 +512,34 @@ test("capture composites picture + shader only, never the HUD or lyrics", () => 
   assert.ok(composite.length > 0, "composite function must exist");
   assert.match(composite, /drawEchoCameraFramedMediaInput/);
   assert.match(composite, /drawImage\(shaderCanvas, 0, 0, width, height\)/);
-  // The capture must never draw the telemetry HUD or the timed lyrics.
-  assert.doesNotMatch(composite, /data-echo-preview-hud|cleanPreviewMode|currentLine/);
+  assert.match(composite, /echoLyricPresentationRef\.current\?\.\(t\)/);
+  assert.match(composite, /paintEchoLyricSurfaceToCanvas\(context, echoLyricCaptureSurfaceRef\.current, \{ width, height \}\)/);
+  assert.doesNotMatch(composite, /data-echo-preview-hud/, "the telemetry HUD remains excluded");
+});
+
+test("recording lyric painter follows the Preview surface visibility and authored styling", () => {
+  const calls = [];
+  const context = {
+    canvas: { width: 1920, height: 1080 },
+    save() { calls.push("save"); }, restore() { calls.push("restore"); }, scale(x, y) { calls.push(["scale", x, y]); },
+    beginPath() {}, roundRect() { calls.push("panel"); }, rect() {}, fill() {}, stroke() {},
+    fillRect(x, y, width, height) { calls.push(["fillRect", x, y, width, height]); },
+    translate(x, y) { calls.push(["translate", x, y]); }, rotate(value) { calls.push(["rotate", value]); },
+    fillText(value) { calls.push(["text", value]); },
+  };
+  const state = {
+    frame: { visible: true }, line: { id: "line-1" }, contract: { enabled: true, templateId: "center-word-focus-v1", style: "neon-cyan" },
+    presentation: { width: 1920, height: 1080, text: "#ffffff", accent: "#22d3ee", background: "transparent", fontFamily: "Impact", fontWeight: 800, fixedCenter: true, paddingX: 0, paddingY: 0, borderWidth: 0, borderRadius: 0, panel: { width: "1612px" } },
+    layout: { boxes: [{ x: 0, y: 0, width: 420, height: 120 }], width: 420, height: 120, panelHeight: 120, fontSize: 112, wordsOffsetX: 0, wordsOffsetY: 0 },
+    placement: { x: 750, y: 480, width: 420, height: 120 },
+    rows: [{ index: 0, displayText: "Gnow", active: true, opacity: 1, scale: 1, translateX: 0, translateY: 0, rotateDegrees: 0 }],
+    nodes: [{ textContent: "Gnow" }], label: { textContent: "", style: { display: "none" } },
+  };
+  const element = { style: { visibility: "visible" }, __echoLyricSurface: state };
+  assert.deepEqual(paintEchoLyricSurfaceToCanvas(context, element, { width: 1920, height: 1080 }), { drawn: true, wordCount: 1, templateId: "center-word-focus-v1" });
+  assert.ok(calls.some((entry) => Array.isArray(entry) && entry[0] === "text" && entry[1] === "Gnow"));
+  element.style.visibility = "hidden";
+  assert.deepEqual(paintEchoLyricSurfaceToCanvas(context, element, { width: 1920, height: 1080 }), { drawn: false, reason: "lyrics-not-visible" });
 });
 
 test("capture survives Preview/Variations switching and stops on hidden, song change or unmount", () => {

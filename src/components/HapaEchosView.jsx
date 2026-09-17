@@ -4,6 +4,7 @@ import { createEchoEmptyShaderMedia } from "../domain/echo-empty-shader-media.js
 import { createEchoIsfHistoryMedia } from "../domain/echo-isf-history-media.js";
 import { createImageShotGeometry, selectImageShotRendition } from "../domain/unified-media-catalog.js";
 import EchoLyricOverlay from "./EchoLyricOverlay.jsx";
+import { paintEchoLyricSurfaceToCanvas } from "../domain/echo-lyric-presentation.js";
 import { EchoAccentPresentation } from "../domain/echo-accent-presentation.js";
 import { visualTimeFor, echoPreparedPerformanceSignalFrames, evaluateEchoMusicPerformance, echoVisualSignalIsolation, isolateEchoPreparedModulation } from "../domain/hyperframes-visualizer-runtime.js";
 import { prepareDirectorModulationTimeline } from "../domain/director-modulation-v2.js";
@@ -1887,6 +1888,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
   const shaderTypeResolverRef = useRef(null);
   const canvasRef = useRef(null);
   const echoLyricPresentationRef = useRef(null);
+  const echoLyricCaptureSurfaceRef = useRef(null);
   const exactIsfPlaybackPoolRef = useRef(null);
   const exactIsfPlaybackPoolIdentityRef = useRef({ variantKey: "", dirtyKey: "", sizeKey: "", dirtyRangeCount: 0, shaderIds: [] });
   const exactIsfPrewarmSignatureRef = useRef("");
@@ -2730,8 +2732,9 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
   // frame (presented media with its camera framing + the shader canvas) into
   // an offscreen canvas at the output profile's resolution, captures that
   // canvas stream, taps the existing Web Audio analyser graph for the audio
-  // track, and records the combined stream with MediaRecorder. HUD and
-  // lyrics overlays are intentionally never part of a capture.
+  // track, and records the combined stream with MediaRecorder. The telemetry
+  // HUD stays excluded; visible lyrics are painted from the exact Preview
+  // lyric frame and measured layout when the Lyrics control is on.
   //
   // Stopping uploads the blob to /api/echo/preview-recordings (quick-capture
   // storage, no minting pipeline). If the upload fails, the blob is saved as
@@ -2868,6 +2871,8 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
     if (shaderCanvas && Number(shaderCanvas.width || 0) > 0) {
       try { context.drawImage(shaderCanvas, 0, 0, width, height); } catch { /* shader layer unavailable */ }
     }
+    echoLyricPresentationRef.current?.(t);
+    paintEchoLyricSurfaceToCanvas(context, echoLyricCaptureSurfaceRef.current, { width, height });
   };
 
   const startPreviewRecordingComposite = () => {
@@ -7609,6 +7614,7 @@ function HapaEchosView({ selectedSongId, onSelectSong, playbackMode = "active" }
 
                                   <EchoLyricOverlay
                                     presentationRef={echoLyricPresentationRef}
+                                    captureSurfaceRef={echoLyricCaptureSurfaceRef}
                                     mediaTracks={activeShowGraph?.tracks}
                                     accentEvents={activeShowGraph?.directorV2?.accentTrack?.events}
                                     contract={directorPreviewFrame?.lyrics?.contract || activeLyricContract}
