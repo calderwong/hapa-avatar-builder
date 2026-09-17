@@ -83,6 +83,27 @@ were synchronized through the existing promotion gate. `Gnow Her` now passes
 the pipeline audit, but is deliberately classified as `mixed-word-anchor`, not
 syllable-exact.
 
+### Hybrid DTW boundary upgrade
+
+A second 2026-09-16 pilot tested whisper.cpp cross-attention DTW on the same
+hash-bound vocal mix. DTW-only decoding was rejected: it fell to 65.2% canonical
+word coverage and hallucinated tokens beyond the audio. The deployed route is
+therefore hybrid and conservative:
+
+- reuse the accepted 617-word transcript;
+- run DTW only as additional boundary evidence;
+- accept a DTW interval only for the exact same normalized word, near the
+  accepted interval, without changing transcript order;
+- retain both raw candidates and a machine-readable selection receipt;
+- promote only when confidence, word coverage, anchor coverage, source hashes,
+  warning count, and structure do not regress.
+
+For `Gnow Her`, 249/617 STT word intervals were refined. The accepted quality
+line remained unchanged at 583/618 direct canonical anchors (94.3%), 101/102
+anchored lines, 0.846 confidence, and zero structural warnings. The receipt
+correctly declares `granularity: word-estimate`, `syllableExact: false`, and
+`humanReviewed: false`.
+
 ## Authored endings and glyph clipping correction
 
 Aligned word rows intentionally normalize punctuation for matching. The lyric

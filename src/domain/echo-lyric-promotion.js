@@ -277,3 +277,52 @@ export function evaluateEchoLyricTimingPromotion(timing = {}, {
     reasons,
   };
 }
+
+function timingMethod(timing = {}) {
+  return text(timing.provenance?.wordTiming?.method || timing.wordTiming?.method);
+}
+
+function timingStat(timing, key) {
+  return Number(timing?.stats?.[key] || 0);
+}
+
+export function compareEchoLyricTimingCandidate({
+  candidate = {},
+  existing = null,
+  candidatePromotion = {},
+  existingPromotion = null,
+} = {}) {
+  if (candidatePromotion.accepted !== true) {
+    return { selected: false, reason: "candidate-rejected" };
+  }
+  if (!existing || existingPromotion?.accepted !== true) {
+    return { selected: true, reason: "replaces-unaccepted-or-missing" };
+  }
+  const candidateConfidence = Number(candidate.confidence || 0);
+  const existingConfidence = Number(existing.confidence || 0);
+  if (candidateConfidence > existingConfidence) {
+    return { selected: true, reason: "higher-confidence" };
+  }
+
+  const candidateMethod = timingMethod(candidate);
+  const existingMethod = timingMethod(existing);
+  const sameEvidence = Boolean(text(candidate.provenance?.audioSha256))
+    && text(candidate.provenance?.audioSha256) === text(existing.provenance?.audioSha256)
+    && Boolean(text(candidate.provenance?.lyricsSha256))
+    && text(candidate.provenance?.lyricsSha256) === text(existing.provenance?.lyricsSha256);
+  const noQualityRegression = candidateConfidence >= existingConfidence
+    && timingStat(candidate, "matchedRatio") >= timingStat(existing, "matchedRatio")
+    && timingStat(candidate, "alignableAnchorCoverage") >= timingStat(existing, "alignableAnchorCoverage")
+    && timingStat(candidate, "overlapCount") <= timingStat(existing, "overlapCount")
+    && timingStat(candidate, "duplicateStartCount") <= timingStat(existing, "duplicateStartCount")
+    && (candidate.warnings || []).length <= (existing.warnings || []).length
+    && timingStat(candidate, "wordCount") === timingStat(existing, "wordCount")
+    && timingStat(candidate, "lineCount") === timingStat(existing, "lineCount");
+  const measuredBoundaryUpgrade = candidateMethod === "whisper.cpp-hybrid-cross-attention-dtw"
+    && existingMethod !== candidateMethod
+    && Number(candidate.provenance?.wordTiming?.refinement?.refinedWordCount || 0) > 0;
+  if (sameEvidence && noQualityRegression && measuredBoundaryUpgrade) {
+    return { selected: true, reason: "measured-boundary-upgrade" };
+  }
+  return { selected: false, reason: "not-better-than-accepted" };
+}

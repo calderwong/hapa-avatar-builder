@@ -3,6 +3,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import {
+  compareEchoLyricTimingCandidate,
   createEchoLyricTimingAdjudication,
   evaluateEchoLyricTimingPromotion,
 } from "../src/domain/echo-lyric-promotion.js";
@@ -16,6 +17,9 @@ const DESTINATION_DIR = process.env.HAPA_ECHO_LYRIC_TIMING_DESTINATION
 const OUTPUT_PATH = process.env.HAPA_ECHO_LYRIC_CANDIDATE_REPORT
   || path.join(ROOT, "artifacts/echo-lyric-quality-v4/candidate-promotion-report.json");
 const APPLY = process.argv.includes("--apply");
+const RUN_ID = new Date().toISOString().replace(/[:.]/gu, "-");
+const BACKUP_DIR = process.env.HAPA_ECHO_LYRIC_BACKUP_DIR
+  || path.join(path.dirname(OUTPUT_PATH), "backups", RUN_ID);
 
 function readJson(filePath) {
   return JSON.parse(fs.readFileSync(filePath, "utf8"));
@@ -54,15 +58,33 @@ for (const file of fs.readdirSync(CANDIDATE_DIR).filter((value) => (
   }
   let existingPromotion = null;
   let existingConfidence = 0;
+  let existing = null;
   if (fs.existsSync(destinationPath)) {
-    const existing = readJson(destinationPath);
+    existing = readJson(destinationPath);
     existingPromotion = promotionFor(existing, destinationPath);
     existingConfidence = Number(existing.confidence || 0);
   }
   const candidateConfidence = Number(candidate.confidence || 0);
-  const betterThanExisting = !existingPromotion?.accepted || candidateConfidence > existingConfidence;
-  const selected = promotion.accepted && betterThanExisting;
+  const comparison = compareEchoLyricTimingCandidate({
+    candidate,
+    existing,
+    candidatePromotion: promotion,
+    existingPromotion,
+  });
+  const selected = comparison.selected;
+  let backupPath = null;
   if (APPLY && selected) {
+    if (fs.existsSync(destinationPath)) {
+      fs.mkdirSync(BACKUP_DIR, { recursive: true });
+      backupPath = path.join(BACKUP_DIR, file);
+      fs.copyFileSync(destinationPath, backupPath);
+      if (fs.existsSync(destinationSttPath)) {
+        fs.copyFileSync(
+          destinationSttPath,
+          backupPath.replace(/\.json$/iu, ".stt.json"),
+        );
+      }
+    }
     fs.writeFileSync(destinationPath, `${JSON.stringify(candidate, null, 2)}\n`, "utf8");
     fs.copyFileSync(candidateSttPath, destinationSttPath);
   }
@@ -73,7 +95,9 @@ for (const file of fs.readdirSync(CANDIDATE_DIR).filter((value) => (
     destinationPath,
     route: promotion.accepted ? route : "rejected",
     selected,
+    selectionReason: comparison.reason,
     applied: Boolean(APPLY && selected),
+    backupPath,
     confidence: candidateConfidence,
     matchedRatio: Number(candidate.stats?.matchedRatio || 0),
     warnings: candidate.warnings || [],
@@ -88,6 +112,7 @@ const report = {
   generatedAt: new Date().toISOString(),
   candidateDir: CANDIDATE_DIR,
   destinationDir: DESTINATION_DIR,
+  backupDir: APPLY ? BACKUP_DIR : null,
   inspected: rows.length,
   selected: rows.filter((row) => row.selected).length,
   applied: rows.filter((row) => row.applied).length,

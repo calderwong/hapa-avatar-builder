@@ -95,7 +95,62 @@ The local-H3 worker owns one global Metal lock. If a worker is already draining 
 
 Registration creates line and word timestamps shaped by the verified master duration. They are deliberately labeled `audio-duration-shaped-provisional`, use confidence `0.35`, and mark every word `matched: false`. This makes them immediately usable for rough scripting while keeping the forced-alignment gate visible.
 
-Do not rename or promote this interpolation as measured timing. A later vocal-stem/Whisper alignment must pass the existing Echo timing promotion checks before it replaces the provisional source.
+Do not rename or promote this interpolation as measured timing. Replace it with
+the Hapa Music Viz reconciliation pipeline against an isolated vocal or
+reproducible vocal mix:
+
+```bash
+HAPA_MUSIC_VIZ_WHISPER_NO_GPU=1 \
+python3 "$HAPA_MUSIC_VIZ_ROOT/scripts/enrich_suno_playlist_lyrics.py" \
+  /absolute/path/to/alignment-workspace \
+  --manifest /absolute/path/to/alignment-manifest.json \
+  --out-dir /absolute/path/to/candidates \
+  --stt-source vocals \
+  --song-id SUNO_UUID \
+  --force --no-manifest-update --stop-on-error
+```
+
+The default supported-model path keeps the normal Whisper transcript and uses
+a second cross-attention DTW pass only to refine nearby exact-word boundaries.
+It retains both candidates and reports `granularity: word-estimate`; it is not a
+syllable aligner. GPU runs automatically retry on CPU when whisper.cpp fails or
+returns no JSON.
+
+For an already accepted song, do not risk a new transcript. Reuse its accepted
+STT sidecar and run only the boundary-refinement pass:
+
+```bash
+python3 "$HAPA_MUSIC_VIZ_ROOT/scripts/enrich_suno_playlist_lyrics.py" \
+  /absolute/path/to/alignment-workspace \
+  --manifest /absolute/path/to/alignment-manifest.json \
+  --out-dir /absolute/path/to/candidates \
+  --base-stt-dir "$HAPA_BUILDER_ROOT/data/echo-lyric-sources/lyric_timings" \
+  --stt-source vocals --song-id SUNO_UUID \
+  --force --no-manifest-update --stop-on-error
+```
+
+Run the promotion command without `--apply` first, inspect its report, then
+apply. Equal-confidence replacement is allowed only for a hash-identical hybrid
+boundary upgrade with no regression in coverage, counts, warnings, or structure.
+The apply pass backs up the timing and STT files before replacement.
+
+```bash
+HAPA_ECHO_LYRIC_CANDIDATE_DIR=/absolute/path/to/candidates \
+HAPA_ECHO_LYRIC_TIMING_DESTINATION="$HAPA_BUILDER_ROOT/data/echo-lyric-sources/lyric_timings" \
+HAPA_ECHO_LYRIC_CANDIDATE_REPORT=/absolute/path/to/promotion-report.json \
+node scripts/promote-echo-lyric-timing-candidates.mjs
+
+# After reviewing the dry-run report:
+HAPA_ECHO_LYRIC_CANDIDATE_DIR=/absolute/path/to/candidates \
+HAPA_ECHO_LYRIC_TIMING_DESTINATION="$HAPA_BUILDER_ROOT/data/echo-lyric-sources/lyric_timings" \
+HAPA_ECHO_LYRIC_CANDIDATE_REPORT=/absolute/path/to/promotion-applied.json \
+node scripts/promote-echo-lyric-timing-candidates.mjs --apply
+```
+
+Finally run `scripts/sync-dear-papa-lyric-timings.mjs` in dry-run and apply
+modes for the exact registry ID. This updates the Song Card and Director project
+from the promoted source while preserving backups. Verify the live Builder API
+returns the expected line count and `lyric_timing_truth.sourceMatchesActive`.
 
 ## Data boundaries
 

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  compareEchoLyricTimingCandidate,
   createEchoLyricTimingAdjudication,
   DEFAULT_ECHO_LYRIC_MIN_CONFIDENCE,
   evaluateEchoLyricTimingPromotion,
@@ -33,6 +34,48 @@ test("measured, hashed, structurally clean timing clears the promotion gate", ()
   assert.equal(result.accepted, true);
   assert.equal(result.minimumConfidence, DEFAULT_ECHO_LYRIC_MIN_CONFIDENCE);
   assert.deepEqual(result.reasons, []);
+});
+
+test("same-quality hybrid DTW evidence can replace legacy timing without a coverage regression", () => {
+  const existing = measuredTiming({
+    confidence: 0.846,
+    stats: {
+      lineCount: 102,
+      wordCount: 618,
+      matchedRatio: 0.943,
+      alignableAnchorCoverage: 0.99,
+      overlapCount: 0,
+      duplicateStartCount: 0,
+    },
+  });
+  const candidate = measuredTiming({
+    confidence: 0.846,
+    stats: { ...existing.stats },
+    provenance: {
+      ...existing.provenance,
+      wordTiming: {
+        method: "whisper.cpp-hybrid-cross-attention-dtw",
+        refinement: { refinedWordCount: 249 },
+      },
+    },
+  });
+  assert.deepEqual(compareEchoLyricTimingCandidate({
+    candidate,
+    existing,
+    candidatePromotion: { accepted: true },
+    existingPromotion: { accepted: true },
+  }), {
+    selected: true,
+    reason: "measured-boundary-upgrade",
+  });
+
+  candidate.stats.matchedRatio = 0.93;
+  assert.equal(compareEchoLyricTimingCandidate({
+    candidate,
+    existing,
+    candidatePromotion: { accepted: true },
+    existingPromotion: { accepted: true },
+  }).selected, false);
 });
 
 test("weak or synthetic timing cannot replace live Director timing", () => {
